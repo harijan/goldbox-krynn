@@ -1,0 +1,49 @@
+{
+  "name": "Champions of Krynn port",
+  "image": "mcr.microsoft.com/devcontainers/base:trixie",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+  },
+
+  // build-essential: cc and make (gcc ships the ASan/UBSan runtimes, so `make sanitize` links).
+  // python3: tests and tools/ovrmerge.py (standard library only).
+  // binutils: objdump -m i8086 for checking the decompile. gdb: debugging.
+  "onCreateCommand": "sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential python3 binutils gdb && sudo rm -rf /var/lib/apt/lists/*",
+  // The claude-code-config volume is created root-owned (the image has no ~/.claude to copy
+  // ownership from), so hand it to vscode.
+  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.claude",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.makefile-tools",
+        "ms-python.python"
+      ],
+      "settings": {
+        "C_Cpp.default.cStandard": "c17",
+        "C_Cpp.default.includePath": ["${workspaceFolder}/src"],
+        "C_Cpp.default.compilerPath": "/usr/bin/gcc",
+        // START_FULL.EXE.c is a 2 MB decompile, not part of the build.
+        "C_Cpp.files.exclude": {
+          "**/START*.EXE.c": true,
+          "**/build": true
+        }
+      }
+    }
+  },
+
+  "mounts": [
+    "source=claude-code-config,target=/home/vscode/.claude,type=volume"
+  ],
+
+  // Rootless Podman on an SELinux host: map the host user to vscode (both UID 1000) so the
+  // workspace mount stays writable, and skip relabelling the project directory.
+  "runArgs": ["--userns=keep-id", "--security-opt=label=disable"],
+  "containerEnv": {
+    "HOME": "/home/vscode",
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+  },
+  "remoteUser": "vscode"
+}
