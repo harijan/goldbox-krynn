@@ -92,6 +92,31 @@ class PlayTests(unittest.TestCase):
         colours = {pixel(bmp, x, y) for x in range(24, 112) for y in range(24, 112)}
         self.assertGreaterEqual(len(colours), 5)
 
+    def test_walking_through_throtl(self):
+        shots = self.folder / "shots"
+        shots.mkdir()
+        # Leave the guards, move north into an ambush and the gibbering
+        # man, then turn east into a hedge, which stops the next step.
+        keys = r"\r\rm\^\r\^\^\r\r\>\^\<"
+        result = self.play("--play", "--set", "4be6=1", "--keys", keys, "--shots", shots,
+                           ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual([line for line in lines if line.startswith("at: ")],
+                         ["at: 7,14,0", "at: 7,13,0", "at: 7,12,0", "at: 7,12,2", "at: 7,12,0"])
+        self.assertIn("menu: Move Area Cast View Encamp Search Look", lines)
+        self.assertIn("print: MONSTERS ATTACK!", lines)
+        self.assertEqual(lines[-1], "(out of keys in block 32 at 8335)")
+        # Each step and turn redraws the view: from the start, three
+        # squares north, east and back north, with the man's portrait.
+        def view(shot):
+            bmp = shot.read_bytes()
+            return tuple(pixel(bmp, x, y) for x in range(24, 112, 4) for y in range(24, 112, 4))
+        views = [view(shot) for shot in sorted(shots.glob("*.bmp"))]
+        self.assertEqual(len(set(views)), 6)
+        self.assertNotEqual(views[-1], views[-2])
+        self.assertEqual(views[-1], views[-4])
+
     def test_missing_wall_set_halts(self):
         # With 0x4be7 clear, LOAD PIECES 1 2 255 loads a wall set for each
         # slot, and WALLDEF1.DAX has no record 2: the original halts.
@@ -107,6 +132,7 @@ class PlayTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("ECL2.DAX has no record 16", result.stderr)
         self.assertEqual(self.play("--vector", 5, ASSETS, 16).returncode, 2)
+        self.assertEqual(self.play("--play", "--vector", 0, ASSETS, 16).returncode, 2)
         self.assertEqual(self.play(ASSETS).returncode, 2)
 
 

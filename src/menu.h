@@ -65,6 +65,17 @@ int cok_menu_horizontal(cok_picture *dst, const cok_font *font, const char *prom
                         uint8_t normal, bool enter_returns, uint8_t *selected,
                         const cok_keyboard *keys, const cok_menu_hooks *hooks);
 
+/* Show prompt and the items of text, laid out as given, and read one key
+ * (67b5:03e2, as overlay 475c calls it for the adventure's own menus). The
+ * keys work as in cok_menu_horizontal, but the key itself is returned: an
+ * upper-case character of text for its key or for Enter on its item, ' ',
+ * or 0 for Escape. Extended keys, and those cok_menu_horizontal passes to
+ * hooks->special, return their scan code with *special set. Returns -1 if
+ * input ended. */
+int cok_menu_read(cok_picture *dst, const cok_font *font, const char *prompt, const char *text,
+                  uint8_t prompt_color, uint8_t highlight, uint8_t normal, uint8_t *selected,
+                  const cok_keyboard *keys, bool *special);
+
 /* Pick from a list of items shown in window, one per row from the top
  * (67b5:1368 as 3775:1990 calls it). *index is the item picked, 0-based,
  * and *top the first item shown (DS:6e0d), which the game keeps between

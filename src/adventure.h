@@ -13,8 +13,9 @@
 
 /* The adventure screen's side of the ECL opcodes, from the handlers in
  * overlay 2fd3: text, menus, input, pictures, delays and the 3D view's
- * files. Other opcodes go to hooks.unported. The screen is 320x200 in the
- * Tandy layout. */
+ * files. Other opcodes go to hooks.unported. The adventure loop moves the
+ * party through 3D areas (2fd3:3c28, overlay 475c). The screen is 320x200
+ * in the Tandy layout. */
 
 enum {
     COK_ADVENTURE_FRAMES = 16, /* Small picture frames kept (DS:6da2 holds 8). */
@@ -28,8 +29,10 @@ typedef struct {
      * game->vm. NULL ignores it. */
     void (*unported)(cok_adventure *game, void *context);
     /* Text as it is printed, menus as they are shown (items with their ~
-     * marks), input as it is read, and pictures that fail to load: kind is
-     * "print", "menu", "list", "item", "choice", "input" or "error". */
+     * marks), input as it is read, pictures that fail to load, the party's
+     * square and facing as "X,Y,DIR" after it moves or turns, and commands
+     * of the adventure loop that are not ported: kind is "print", "menu",
+     * "list", "item", "choice", "input", "error", "at" or "unported". */
     void (*log)(cok_adventure *game, const char *kind, const char *text, void *context);
     /* Before each instruction, as cok_ecl_hooks.trace. */
     void (*trace)(cok_adventure *game, void *context);
@@ -68,6 +71,10 @@ struct cok_adventure {
     bool map_loaded;       /* DS:43bd. */
     bool frame_pending;    /* DS:8856: redraw the frame once both have run. */
 
+    bool moving;           /* DS:8858: the arrows move the party. */
+    bool text_shown;       /* DS:884e clear: text to clear after a command. */
+    bool door_tries[3];    /* DS:7146-7148: Bash, Pick and Knock may be tried. */
+
     uint8_t speed;         /* DS:4b38, the game speed; 4 by default. */
     bool animate;          /* DS:4b4f: load every frame of a picture. */
     uint8_t selected;      /* DS:6e0f, the menu item selected. */
@@ -95,6 +102,19 @@ cok_ecl_status cok_adventure_load(cok_adventure *game, uint8_t block);
  * after-move and location vectors, and start over from the load vector
  * whenever NEWECL switches blocks. */
 cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block);
+
+/* Run the adventure loop of 2fd3:3c28 in the block entered: until input
+ * ends or a run fails, take a command from the adventure menu (475c:09ec),
+ * run the after-move vector, take a step (475c:0e77), show the view and run
+ * the location vector. NEWECL enters the new block as cok_adventure_enter
+ * does. Only 3D areas are ported: outside them the loop stops and logs
+ * "unported". Clears game->vm.abort on return, as the original clears
+ * DS:4b57. */
+cok_ecl_status cok_adventure_play(cok_adventure *game);
+
+/* Advance the game clock (0x4bc6-0x4bcc) by count of unit 0-6, carrying
+ * into larger units and moving the moons on each new day (57e4:0549). */
+void cok_adventure_pass_time(cok_adventure *game, unsigned unit, unsigned count);
 
 /* Draw the adventure screen's frame (1128:0242). */
 void cok_adventure_frame(cok_adventure *game);

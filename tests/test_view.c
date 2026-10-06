@@ -84,6 +84,37 @@ static void test_map(void)
     CHECK(cok_view_wall(&view, 0, -2, 0) == 5);
 }
 
+static void test_passage(void)
+{
+    cok_view view = {0};
+    uint8_t record[0x402] = {0};
+    /* Square 3, 2: walls on all four sides; the fourth table marks north
+     * open (1), east locked (2), south unpickable (3) and west solid (0).
+     * Square 4, 2 has no walls but door bits, which do not count. */
+    record[2 + 2 * 16 + 3] = 0x12;
+    record[2 + 0x100 + 2 * 16 + 3] = 0x34;
+    record[2 + 0x300 + 2 * 16 + 3] = 0x39;
+    record[2 + 0x300 + 2 * 16 + 4] = 0xff;
+    CHECK(cok_view_set_map(&view, record, sizeof record));
+    CHECK(cok_view_passage(&view, 0, 3, 2) == 1);
+    CHECK(cok_view_passage(&view, 2, 3, 2) == 2);
+    CHECK(cok_view_passage(&view, 4, 3, 2) == 3);
+    CHECK(cok_view_passage(&view, 6, 3, 2) == 0);
+    CHECK(cok_view_passage(&view, 6, 4, 2) == 1);
+    /* Off the map: nothing to pass through unless the map wraps. */
+    CHECK(cok_view_passage(&view, 0, -1, 2) == 0);
+    view.wrap = true;
+    CHECK(cok_view_passage(&view, 0, -1, 2) == 1);
+
+    int x = 0, y = 0;
+    cok_view_step(0, &x, &y);
+    CHECK(x == 0 && y == -1);
+    cok_view_step(3, &x, &y);
+    CHECK(x == 1 && y == 0);
+    cok_view_step(6 + 8, &x, &y);
+    CHECK(x == 0 && y == 0);
+}
+
 static void test_walls(void)
 {
     cok_view view = {0};
@@ -285,6 +316,7 @@ static void test_sky(void)
 int main(void)
 {
     test_map();
+    test_passage();
     test_walls();
     test_tile();
     test_draw();

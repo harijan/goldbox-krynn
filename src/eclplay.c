@@ -25,7 +25,8 @@ static void usage(const char *program)
             "Run ECL block BLOCK (as the game does on entering it) from the DAX files in\n"
             "ASSETS, printing its text, menus and choices.\n"
             "  --keys KEYS     keys to type; \\r Enter, \\e Escape, \\b Backspace,\n"
-            "                  \\< and \\> the left and right arrows, \\\\ a backslash\n"
+            "                  \\< \\> \\^ \\v the arrows, \\\\ a backslash\n"
+            "  --play          then take adventure commands until the keys run out\n"
             "  --shots DIR     save DIR/NNN.bmp each time the game waits for a key\n"
             "  --screen FILE   save the final screen as FILE (BMP)\n"
             "  --file N        ECL file 1-3 (default: the first holding BLOCK)\n"
@@ -68,6 +69,8 @@ static int next_key(void *context)
     case 'b': return 8;
     case '<': p->pending = 0x4b; return 0;
     case '>': p->pending = 0x4d; return 0;
+    case '^': p->pending = 0x48; return 0;
+    case 'v': p->pending = 0x50; return 0;
     default: return (unsigned char)p->keys[-1];
     }
 }
@@ -111,7 +114,7 @@ int main(int argc, char **argv)
     player p = {.keys = "", .pending = -1};
     const char *screen = NULL;
     unsigned long file = 0, vector = 5, start = 0;
-    bool still = false, placed = false;
+    bool still = false, placed = false, play = false;
     long x = 0, y = 0, dir = 0;
     struct { uint16_t address, value; } sets[64];
     size_t set_count = 0;
@@ -123,6 +126,8 @@ int main(int argc, char **argv)
             p.trace = true;
         } else if (strcmp(option, "--still") == 0) {
             still = true;
+        } else if (strcmp(option, "--play") == 0) {
+            play = true;
         } else if (strcmp(option, "--keys") == 0 && has_value) {
             p.keys = argv[++i];
         } else if (strcmp(option, "--shots") == 0 && has_value) {
@@ -157,7 +162,8 @@ int main(int argc, char **argv)
         }
     }
     unsigned long block;
-    if (argc - i != 2 || !number(argv[i + 1], 0, 255, &block)) {
+    if (argc - i != 2 || !number(argv[i + 1], 0, 255, &block) ||
+        (play && (vector != 5 || start != 0))) {
         usage(argv[0]);
         return 2;
     }
@@ -202,6 +208,7 @@ int main(int argc, char **argv)
     if (vector == 5 && start == 0) {
         for (size_t s = 0; s < set_count; ++s) cok_ecl_store(&game.vm, sets[s].address, sets[s].value);
         status = cok_adventure_enter(&game, (uint8_t)block);
+        if (play && status == COK_ECL_OK) status = cok_adventure_play(&game);
     } else {
         status = cok_adventure_load(&game, (uint8_t)block);
         for (size_t s = 0; s < set_count; ++s) cok_ecl_store(&game.vm, sets[s].address, sets[s].value);

@@ -196,6 +196,21 @@ static void draw_big(cok_adventure *game)
     if (game->big.pixels != NULL) cok_picture_draw(&game->screen, &game->big, 0, 1, 1, 0, NULL);
 }
 
+/* Draw the 3D view from the party's square (69ea:0820), under the sky that
+ * 6945:00ba picks for the square. */
+static void draw_view(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    /* The overhead map that 0x4bfb and DS:6d84 select is not ported. */
+    cok_view_backdrop backdrop = {
+        .sky = cok_view_sky_color(vm->mem4b00[vm->square < 0x80 ? 0xfd : 0xfe]),
+        .horizon = 0,
+        .ground = 8,
+        .hour = vm->mem4b00[0xc9],
+    };
+    cok_view_draw(&game->screen, &game->view, vm->map_x, vm->map_y, vm->direction, &backdrop);
+}
+
 void cok_adventure_view(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -204,16 +219,7 @@ void cok_adventure_view(cok_adventure *game)
         if (game->redraw) draw_big(game);
     } else {
         vm->square = cok_view_square(&game->view, vm->map_x, vm->map_y);
-        /* The overhead map that 0x4bfb and DS:6d84 select is not ported. */
-        cok_view_backdrop backdrop = {
-            .sky = cok_view_sky_color(vm->mem4b00[vm->square < 0x80 ? 0xfd : 0xfe]),
-            .horizon = 0,
-            .ground = 8,
-            .hour = vm->mem4b00[0xc9],
-        };
-        game->view.wrap = vm->block != 0 && vm->block != 0x50;
-        cok_view_draw(&game->screen, &game->view, vm->map_x, vm->map_y, vm->direction,
-                      &backdrop);
+        draw_view(game);
     }
     game->redraw = false;
 }
@@ -399,6 +405,7 @@ static void print(cok_adventure *game)
     bool clear = vm->opcode == COK_ECL_PRINTCLEAR;
     if (clear) vm->cursor = (cok_text_cursor){1, 0x11};
     log_text(game, "print", vm->string[0]);
+    game->text_shown = true;
     cok_text_hooks hooks = {page, char_delay, game};
     cok_text_wrap(&game->screen, &game->font, &vm->cursor, vm->string[0], text_window, 10, 0,
                   clear, &hooks);
@@ -458,6 +465,7 @@ static void vertical_menu(cok_adventure *game)
         pointers[i] = items[i];
     }
     log_text(game, "list", vm->header_string);
+    game->text_shown = true;
     for (size_t i = 0; i < count; ++i) log_text(game, "item", items[i]);
     vm->cursor = (cok_text_cursor){1, 0x11};
     cok_text_hooks hooks = {page, char_delay, game};
@@ -544,6 +552,8 @@ static bool load_block(cok_ecl *vm, uint8_t block, void *context)
         fail(game, "ECL%u.DAX record %u: %s", vm->file, block, cok_ecl_status_string(status));
         return false;
     }
+    /* Blocks 0 and 0x50 have no squares off the map (DS:8846). */
+    game->view.wrap = block != 0 && block != 0x50;
     return true;
 }
 
@@ -568,6 +578,7 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
     for (size_t i = 0; i < 3; ++i) game->wall_ids[i] = -1;
     game->animate = true;
     game->selected = 1;
+    game->text_shown = true;
     if (keys != NULL) game->keys = *keys;
     if (hooks != NULL) game->hooks = *hooks;
     if (strlen(assets) >= sizeof game->assets) {
@@ -615,6 +626,34 @@ cok_ecl_status cok_adventure_load(cok_adventure *game, uint8_t block)
     return cok_ecl_start(vm, !vm->keep_vars);
 }
 
+/* Enter the loaded block (2fd3:3b47): run its load vector, show the view if
+ * it loaded files or stays in 3D, then run the after-move and location
+ * vectors, starting over whenever NEWECL switches blocks. */
+static cok_ecl_status enter_block(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    cok_ecl_status status = COK_ECL_OK;
+    do {
+        free_frames(game);
+        vm->reload = false;
+        vm->square = cok_view_square(&game->view, vm->map_x, vm->map_y);
+        vm->mem7c00[0x2d5] = 0;
+        status = cok_ecl_run(vm, vm->vectors[4]);
+        if (status != COK_ECL_OK || vm->abort || vm->reload) continue;
+        vm->mem4b00[0xf2] = vm->block;
+        if (((vm->last_mode != 4 || vm->mode == 4) && game->files_loaded) ||
+            (vm->last_mode == 4 && vm->mode == 4))
+            cok_adventure_view(game);
+        status = cok_ecl_run(vm, vm->vectors[0]);
+        if (status != COK_ECL_OK || vm->abort || vm->reload) continue;
+        status = cok_ecl_run(vm, vm->vectors[1]);
+        /* The original then redraws the party list (6346:07ba), which is
+         * not ported. */
+    } while (status == COK_ECL_OK && !vm->abort && vm->reload);
+    vm->last_mode = vm->mode;
+    return status;
+}
+
 cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block)
 {
     cok_ecl *vm = &game->vm;
@@ -624,19 +663,310 @@ cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block)
     game->frame_pending = vm->mem4b00[0xf2] != 0;
     vm->mode = vm->mem4b00[0xe6] == 0 ? 3 : 4;
     cok_ecl_status status = cok_adventure_load(game, block);
-    while (status == COK_ECL_OK && !vm->abort) {
-        vm->reload = false;
-        status = cok_ecl_run(vm, vm->vectors[4]);
-        if (status != COK_ECL_OK || vm->abort || vm->reload) continue;
-        if (((vm->last_mode != 4 || vm->mode == 4) && game->files_loaded) ||
-            (vm->last_mode == 4 && vm->mode == 4))
-            cok_adventure_view(game);
-        status = cok_ecl_run(vm, vm->vectors[0]);
-        if (status != COK_ECL_OK || vm->abort || vm->reload) continue;
-        status = cok_ecl_run(vm, vm->vectors[1]);
-        if (status != COK_ECL_OK || vm->abort || vm->reload) continue;
-        break;
+    return status == COK_ECL_OK ? enter_block(game) : status;
+}
+
+/* The game clock. */
+
+/* Units of the clock at 0x4bc6-0x4bcc and how many of each make the next
+ * (DS:3874): 0x4bc9 is the hour. */
+static const uint16_t clock_units[7] = {10, 10, 6, 24, 30, 12, 256};
+
+/* Advance moon i's days in its phase (0x4cfc-0x4cfe), and once they reach
+ * days, its phase (0x4cf9-0x4cfb), redrawing it on the frame (57e4:001e). */
+static void moon(cok_adventure *game, unsigned i, uint16_t days)
+{
+    static const uint8_t column[3] = {8, 19, 30}, tile[3] = {10, 6, 14};
+    uint16_t *mem = game->vm.mem4b00;
+    if (mem[0x1fc + i] < days) {
+        ++mem[0x1fc + i];
+        return;
     }
-    vm->last_mode = vm->mode;
+    mem[0x1f9 + i] = mem[0x1f9 + i] < 3 ? mem[0x1f9 + i] + 1 : 0;
+    cok_view_tile(&game->screen, &game->view, 0x114u + ((mem[0x1f9 + i] + tile[i]) & 0xff),
+                  column[i], 0, false);
+    mem[0x1fc + i] = 0;
+}
+
+/* Carry each unit that is full into the next, once (57e4:0459). */
+static void carry(cok_adventure *game, uint16_t clock[7])
+{
+    for (size_t i = 0; i < 7; ++i) {
+        if (clock[i] < clock_units[i]) continue;
+        /* A full last unit ages each character (field 0x60), and stays
+         * full; characters are not ported. */
+        if (i == 6) continue;
+        ++clock[i + 1];
+        clock[i] -= clock_units[i];
+        if (i == 3) {
+            moon(game, 0, 8);
+            moon(game, 1, 1);
+            moon(game, 2, 6);
+        }
+    }
+}
+
+void cok_adventure_pass_time(cok_adventure *game, unsigned unit, unsigned count)
+{
+    uint16_t clock[7];
+    memcpy(clock, &game->vm.mem4b00[0xc6], sizeof clock);
+    for (unsigned i = 0; i < count && unit < 7; ++i) {
+        ++clock[unit];
+        carry(game, clock);
+    }
+    memcpy(&game->vm.mem4b00[0xc6], clock, sizeof clock);
+    /* 57e4:0171 then counts down the characters' spell effects, which are
+     * not ported. */
+}
+
+/* The adventure loop. */
+
+static void unported_command(cok_adventure *game, const char *what)
+{
+    log_text(game, "unported", what);
+}
+
+static void log_position(cok_adventure *game)
+{
+    char text[32];
+    snprintf(text, sizeof text, "%d,%d,%u", game->vm.map_x, game->vm.map_y, game->vm.direction);
+    log_text(game, "at", text);
+}
+
+/* One key from a menu of the adventure loop (67b5:03e2): prompt in 13,
+ * items in 15 and 10. */
+static int menu_read(cok_adventure *game, const char *prompt, const char *items, bool *special)
+{
+    log_text(game, "menu", items);
+    cok_keyboard keys = keyboard(game);
+    return cok_menu_read(&game->screen, &game->font, prompt, items, 13, 15, 10, &game->selected,
+                         &keys, special);
+}
+
+/* Turn by eighths of a full turn and redraw the view (475c:09ec). */
+static void turn(cok_adventure *game, unsigned by)
+{
+    cok_ecl *vm = &game->vm;
+    /* Turning left or right first plays sound 10 (DS:1e5c); sound is not
+     * ported. */
+    vm->direction = (uint8_t)((vm->direction + by) % 8);
+    vm->ahead = cok_view_wall(&game->view, vm->direction, vm->map_x, vm->map_y);
+    log_position(game);
+    draw_view(game);
+    /* The original then redraws the status line (6346:2d75), which is not
+     * ported. */
+}
+
+/* Mark a step off the map in 0x7ed5 before the after-move vector runs
+ * (475c:0765). */
+static void check_step(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    vm->mem7c00[0x2d5] = 0;
+    if (cok_view_passage(&game->view, vm->direction, vm->map_x, vm->map_y) == 0) return;
+    int x = vm->map_x, y = vm->map_y;
+    cok_view_step(vm->direction, &x, &y);
+    if (x > 15 || x < 0) {
+        vm->map_x = x > 15 ? 15 : 0;
+        vm->mem7c00[0x2d5] = 1;
+    }
+    if (y > 15 || y < 0) {
+        vm->map_y = y > 15 ? 15 : 0;
+        vm->mem7c00[0x2d5] = 1;
+    }
+}
+
+/* Take a command from the adventure menu (475c:09ec in a 3D area). Returns
+ * 0 for a step forward, 'E' to camp, 'L' to look, or -1 if input ended. */
+static int command(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    vm->mem7c00[0x2c9] = 0;
+    int result = 0;
+    for (bool done = false; !done;) {
+        bool special;
+        int key;
+        if (!game->moving) {
+            key = menu_read(game, "", "Move Area Cast View Encamp Search Look", &special);
+            if (key < 0) return -1;
+            result = key;
+            /* 546c:3334 picks a character with the other keys, and the
+             * party list (6346:07ba) is redrawn; neither is ported. */
+            if (special) continue;
+            switch (key) {
+            case 'M': game->moving = true; break;
+            case 'A':
+                /* The overhead map (69ea:000f), or "Not Here". */
+                unported_command(game, "Area");
+                break;
+            case 'C':
+                if (vm->character == NULL || vm->character[0x188] == 0) {
+                    game->selected = 1;
+                    unported_command(game, "Cast");
+                }
+                break;
+            case 'V':
+                game->selected = 1;
+                unported_command(game, "View");
+                break;
+            case 'E':
+                game->selected = 1;
+                done = true;
+                break;
+            case 'S':
+                vm->mem7c00[0x2ca] ^= 1;
+                break;
+            case 'L':
+                vm->mem7c00[0x2ca] |= 2;
+                cok_adventure_pass_time(game, 2, 1);
+                done = true;
+                break;
+            default: break;
+            }
+            continue;
+        }
+        key = menu_read(game, "", "Exit", &special);
+        if (key < 0) return -1;
+        result = key;
+        if (!special) {
+            if (key == 'E') game->moving = false;
+            continue;
+        }
+        switch (key) {
+        case 0x48: check_step(game); done = true; result = 0; break;
+        case 0x50: turn(game, 4); result = 0; break;
+        case 0x4b: turn(game, 6); result = 0; break;
+        case 0x4d: turn(game, 2); result = 0; break;
+        default: break;
+        }
+    }
+    if (game->text_shown) {
+        cok_picture_fill(&game->screen, 1, 0x11 * 8, 0x26, 6 * 8, 0); /* 1128:07e6 */
+        game->text_shown = false;
+    }
+    return result;
+}
+
+/* Step ahead, wrapping at the map's edges, and pass a minute, or ten while
+ * searching (475c:0813). */
+static void advance(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    /* Sound 10 (DS:1e5c) plays first; sound is not ported. */
+    wait_ms(game, 50);
+    int x = vm->map_x, y = vm->map_y;
+    cok_view_step(vm->direction, &x, &y);
+    vm->map_x = (int8_t)(x < 0 ? 15 : x > 15 ? 0 : x);
+    vm->map_y = (int8_t)(y < 0 ? 15 : y > 15 ? 0 : y);
+    vm->ahead = cok_view_wall(&game->view, vm->direction, vm->map_x, vm->map_y);
+    for (size_t i = 0; i < 3; ++i) game->door_tries[i] = true;
+    vm->square = cok_view_square(&game->view, vm->map_x, vm->map_y);
+    log_position(game);
+    cok_adventure_pass_time(game, (vm->mem7c00[0x2ca] & 1) != 0 ? 2 : 1, 1);
+}
+
+/* Offer the ways to open a locked door (475c:0e77). Returns true if it
+ * opened. Characters are not ported, so the party is empty: as in the
+ * original with no characters, Pick and Knock are not offered and Bash
+ * fails. Choosing Pick, on either kind of door, stops it being offered
+ * until the next step. */
+static bool locked_door(cok_adventure *game)
+{
+    char items[41] = "";
+    if (game->door_tries[0]) append(items, sizeof items, "Bash");
+    /* " Pick" if 475c:0275 finds a thief, " Knock" if 475c:06c6 finds a
+     * character with spell 0x1f. */
+    append(items, sizeof items, " Exit");
+    if (strcmp(items, " Exit") == 0) return false;
+    bool special;
+    int key = menu_read(game, "Locked. ", items, &special);
+    if (key < 0 || special) return false;
+    /* Bash (475c:02f3) rolls against each character's strength. */
+    if (key == 'P') game->door_tries[1] = false;
+    return false;
+}
+
+/* Take the step chosen, unless the after-move vector set 0x7ec9 to 0xff
+ * (475c:0e77 in a 3D area). */
+static void step(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    if (vm->mem7c00[0x2c9] < 0xff) {
+        game->redraw = true;
+        uint8_t passage = cok_view_passage(&game->view, vm->direction, vm->map_x, vm->map_y);
+        bool moved = passage == 1;
+        if (passage == 2 || passage == 3) moved = locked_door(game);
+        if (moved) advance(game);
+        /* The original then redraws the status line (6346:2d75). */
+    } else {
+        vm->mem7c00[0x2c9] = 0;
+    }
+    free_frames(game); /* 6961:0537 */
+}
+
+/* Camp (2fd3:3403): run the camp vector, then the camp menu (4888:2c31),
+ * which is not ported, so the party never rests. */
+static cok_ecl_status camp(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    cok_ecl_status status = cok_ecl_run(vm, vm->vectors[2]);
+    if (status != COK_ECL_OK || vm->abort) return status;
+    unported_command(game, "Encamp");
+    game->redraw = true;
+    if (vm->mem4b00[0x138] == 0) cok_adventure_view(game);
+    return COK_ECL_OK;
+}
+
+/* Look (2fd3:3c28): run the location vector once as if searching. */
+static cok_ecl_status look(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    uint16_t searching = vm->mem7c00[0x2ca] & 1;
+    vm->mem7c00[0x2ca] = 1;
+    game->redraw = true;
+    cok_adventure_view(game);
+    cok_ecl_status status = cok_ecl_run(vm, vm->vectors[1]);
+    if (status == COK_ECL_OK && !vm->abort && vm->reload) status = enter_block(game);
+    vm->mem7c00[0x2ca] = searching;
+    return status;
+}
+
+cok_ecl_status cok_adventure_play(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    cok_ecl_status status = COK_ECL_OK;
+    vm->keep_vars = false;
+    game->moving = false;
+    while (status == COK_ECL_OK && !vm->abort) {
+        if (vm->mode != 4) {
+            /* 475c:09ec and 475c:08d5 move the party on the overland map. */
+            unported_command(game, "travel outside 3D areas");
+            break;
+        }
+        int key = command(game);
+        if (key < 0) break;
+        if (!vm->reload) vm->mem4b00[0xf2] = vm->block;
+        while (status == COK_ECL_OK && !vm->abort && (vm->mem7c00[0x2ca] > 1 || key == 'E')) {
+            status = key == 'E' ? camp(game) : look(game);
+            if (status == COK_ECL_OK && !vm->abort) key = command(game);
+        }
+        if (status != COK_ECL_OK || vm->abort) break;
+        status = cok_ecl_run(vm, vm->vectors[0]);
+        if (status != COK_ECL_OK || vm->abort) break;
+        if (vm->reload) {
+            status = enter_block(game);
+            continue;
+        }
+        vm->mem4b00[0xf0] = (uint16_t)vm->map_x;
+        vm->mem4b00[0xf1] = (uint16_t)vm->map_y;
+        step(game);
+        cok_adventure_view(game);
+        /* Sound 10 plays if the party moved. */
+        game->picture_shown = false;
+        game->view_replaced = true;
+        status = cok_ecl_run(vm, vm->vectors[1]);
+        if (status == COK_ECL_OK && !vm->abort && vm->reload) status = enter_block(game);
+    }
+    vm->abort = false;
     return status;
 }

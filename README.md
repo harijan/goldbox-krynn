@@ -23,6 +23,7 @@ make
 ./build/ecldump --block 16 Assets/ECL1.DAX
 ./build/ecldump --summary Assets/ECL*.DAX
 ./build/eclplay --keys '\r\r\r\r\r' --shots build/shots Assets 16
+./build/eclplay --play --set 4be6=1 --keys '\r\rm\^\r\^\^' Assets 32
 make test
 make sanitize
 ```
@@ -33,9 +34,10 @@ nonzero if any file or record fails. `--list` prints metadata for each validated
 record; directory entry numbers are zero-based. Duplicate IDs are retained.
 `make test` includes synthetic malformed inputs, all supplied DAX archives,
 export checks for all 26 supported graphics archives (2,363 images), and
-tests of the picture, text, menu and 3D view routines, including PIC delta
-decoding on `PIC1.DAX` and the game font in `8X8D1.DAX`, and plays the
-opening scripts and the view of Throtl with `eclplay`.
+tests of the picture, text, menu and 3D view routines and the adventure loop,
+including PIC delta decoding on `PIC1.DAX` and the game font in `8X8D1.DAX`,
+and plays the opening scripts, the view of Throtl and a walk through it with
+`eclplay`.
 `make sanitize` repeats these checks with AddressSanitizer and UBSan.
 Tests also require Python 3 (standard library only). The native tools have no
 third-party dependencies. Sanitizer targets require the compiler's ASan/UBSan
@@ -234,6 +236,7 @@ original's "not a hotkey" result. Item text is cut to 40 characters.
 | `cok_menu_parse` | `3775:176e`, then `cok_menu_layout` (`67b5:00da`) |
 | `cok_menu_draw` | `67b5:01e9` |
 | `cok_menu_horizontal` | `3775:1885` with the key loop `67b5:03e2` |
+| `cok_menu_read` | `67b5:03e2` as overlay `475c` calls it |
 | `cok_menu_list` | `67b5:1368` as `3775:1990` calls it |
 
 The selected item is drawn in colour 0 on the highlight colour. Left and
@@ -343,8 +346,11 @@ then the after-move and location vectors, starting over when `NEWECL`
 switches blocks. It prints text as it is printed (`print:`), menus with their
 `~` marks (`menu:`, `list:` and `item:`), the choices made (`choice:`) and
 input read (`input:`), and the name and operand values of each opcode that
-is not ported, in brackets. `--keys` types keys (`\r` Enter, `\e` Escape,
-`\b` Backspace, `\<` and `\>` the arrows); when they run out the run stops.
+is not ported, in brackets. `--play` then runs the adventure loop (see
+Adventure loop), which adds the party's square and facing after each step or
+turn (`at: X,Y,DIR`) and the commands that are not ported (`unported:`).
+`--keys` types keys (`\r` Enter, `\e` Escape, `\b` Backspace, `\<`, `\>`,
+`\^` and `\v` the arrows); when they run out the run stops.
 `--shots DIR` saves `DIR/NNN.bmp` each time the game waits for a key,
 `--screen FILE` the final screen. `--start ADDR` runs from a code address
 instead, `--vector N` one vector, `--at X,Y,DIR` places the party, `--set
@@ -384,7 +390,7 @@ ported; the last two are reported as unported.
 routine of overlay `6e22`. `cok_adventure_view` shows it as `6945:00ba`
 does: when `PICTURE 0xff` restores the view, and when a block is entered,
 after its load vector, if it loaded files or the area stays in 3D
-(`2fd3:3b47`). Moving the party, which also redraws it, is not ported, but
+(`2fd3:3b47`), and after each step or turn of the adventure loop;
 `eclplay --at X,Y,DIR` places the party before a block runs. Where the area
 has no 3D view (`0x4be6` and `0x4c38` both 0), `6945:00ba` shows the big
 picture in its frame instead.
@@ -407,7 +413,8 @@ each square's north side in its high nibble and east in its low nibble; the
 second south and west. The third is a byte per square, which picks the sky
 colour: below 0x80 the area word `0x4bfd`, otherwise `0x4bfe`, through the
 table at `DS:0dc4`. The fourth holds two bits per side (west highest), not
-used by the view. Off the map, squares read from the opposite edge unless
+used by the view: they say how the party may pass a side that has a wall
+(see Adventure loop). Off the map, squares read from the opposite edge unless
 the block is 0 or 0x50 (`DS:8846`); then they have no walls.
 
 A WALLDEF record holds one or two sets of five wall types, 156 bytes each:
@@ -433,6 +440,73 @@ hours 1-5 (`0x4bc9`), south at 3-5 and 13-15, and west at 13-18, and record
 down; the port draws on the screen with that offset, so the view fills cells
 3-13 across and down, as small pictures do. The overhead map that the view
 shows when `DS:6d84` is set (`69ea:000f`) and the CGA colours are not ported.
+
+## Adventure loop
+
+`cok_adventure_play` runs the loop of `2fd3:3c28` in a 3D area once a block
+has been entered; `eclplay --play` enters the block, then takes commands
+until the keys run out. Each turn takes a command from the menu on row 24
+(`475c:09ec`), runs the after-move vector, takes the step chosen
+(`475c:0e77`), shows the view and runs the location vector. `NEWECL` in any
+vector enters the new block as `2fd3:3b47` does, which also frees the small
+picture, clears `0x7ed5` and keeps the block in `0x4bf2`. The party's square
+before each step is kept in `0x4bf0` and `0x4bf1`. When the loop ends it
+clears `DS:4b57`, the flag that ends a run.
+
+The menu reads `Move Area Cast View Encamp Search Look`, laid out as it is,
+so each capital is an item and its key (`cok_menu_read`). `Move` changes the
+menu to `Exit`: then the up arrow (or 8) steps ahead, left and right (4 and
+6) turn a quarter, down (2) turns around, and `Exit` returns to the commands.
+`Search` toggles bit 0 of `0x7eca`. `Look` sets bit 1 and passes ten
+minutes; the location vector then runs once with `0x7eca` at 1, after which
+the search bit is restored. `Encamp` runs the camp vector (`2fd3:3403`).
+After a command, text that `PRINT` or `VERTICAL MENU` left in rows 17-22 is
+cleared (`DS:884e`).
+
+Before the after-move vector runs, a step that would leave the map sets
+`0x7ed5` (`475c:0765`); a vector that sets `0x7ec9` to 0xff cancels the
+step. Whether the party can pass the side it faces comes from the map
+(`69ea:0573`, `cok_view_passage`): a side with no wall is open, and
+otherwise its two bits in the fourth table give 0 for a solid wall, 1 for a
+way through, 2 for a locked door and 3 for one that cannot be picked. A step
+(`475c:0813`) waits 50 ms, moves one square, wrapping at the map's edges,
+and passes one minute, or ten while searching.
+
+At a locked door the menu shows `Locked.` and whichever of `Bash`, `Pick`
+and `Knock` may still be tried (`DS:7146`-`7148`), then `Exit`. All three
+become available again after each step; before the first step none are, and
+no menu shows. `Pick` needs a thief and `Knock` a character who knows spell
+0x1f, and `Bash` rolls against each character's strength. Characters are not
+ported, so the party is empty: as in the original with no characters, only
+`Bash` is offered, and it fails.
+
+The clock is seven words from `0x4bc6`, which carry into the next at 10,
+10, 6, 24, 30, 12 and 256 (`DS:3874`): `0x4bc7` counts minutes, `0x4bc8`
+tens of minutes and `0x4bc9` hours, then days, months and years.
+`cok_adventure_pass_time` follows `57e4:0549`: it adds one unit at a time and
+carries each full unit once. A new day counts a day in each moon's phase
+(`0x4cfc`-`0x4cfe`); after 8, 1 and 6 days a moon moves to its next phase
+(`0x4cf9`-`0x4cfb`, 0-3) and is redrawn on the frame.
+
+Not ported, and logged as `unported:`: `Area`, the overhead map
+(`69ea:000f`); `Cast` (`4888:0a0d`); `View` (`546c:0d74`); the camp menu
+(`4888:2c31`), so the party never rests and the rest vector never runs; and
+travel outside 3D areas (`475c:08d5`), where the loop stops. Also not ported:
+picking a character with the other keys (`546c:3334`), the party list and
+status line, sound, aging the characters each year, and counting down their
+spell effects (`57e4:0171`).
+
+## Checks against the original
+
+These follow the disassembly but have not been compared with the game
+running in DOSBox:
+
+- The frame's tile set (`8X8D1.DAX` record 202) is loaded with colour 13
+  transparent (`6e22:0050`), so the frame shows black where its tiles have
+  light magenta. Compare the frame's border and moons with the original.
+- Wall tiles and sky pictures are masked with colour 13 in the 3D view.
+  Compare a view, such as Throtl's street from 7, 15 facing north, for light
+  magenta or holes.
 
 ## Disassembly image
 

@@ -70,6 +70,15 @@ uint8_t cok_view_wall(const cok_view *view, unsigned dir, int x, int y);
 /* The square byte (69ea:07a5), off the map as cok_view_wall. */
 uint8_t cok_view_square(const cok_view *view, int x, int y);
 
+/* How the party can leave square x, y by side dir (69ea:0573): 1 if that
+ * side has no wall, else the side's two bits in the fourth table: 0 a solid
+ * wall, 1 a way through, 2 a locked door and 3 one that cannot be picked.
+ * Off the map with no wrap, 0. */
+uint8_t cok_view_passage(const cok_view *view, unsigned dir, int x, int y);
+
+/* Move x, y one square in direction dir 0-7 (DS:1ed6, DS:1edf). */
+void cok_view_step(unsigned dir, int *x, int *y);
+
 /* Draw tile value 1-0x127 with its top-left at cell x, y of dst, masked or
  * opaque (6e22:01ab, without the buffer offset). Values outside the tile
  * sets, which the original treats as fatal, and missing sets draw nothing. */
