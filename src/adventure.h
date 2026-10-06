@@ -57,6 +57,7 @@ struct cok_adventure {
     /* The party (DS:609a). The selected character is vm.character
      * (DS:6096), which must be a member's record or NULL. */
     cok_party party;
+    cok_item_types item_types; /* DS:5886, from ITEMS. */
 
     /* The small picture (DS:6da2): frames from PIC<file>.DAX, each with its
      * delay in hundredths of a second, drawn at cell 3, 3. */
@@ -93,7 +94,7 @@ struct cok_adventure {
     char error[600];       /* Why the last call failed. */
 };
 
-/* Load the font from assets and set up the VM with this module's hooks.
+/* Load the font and item types from assets and set up the VM with this module's hooks.
  * keys and hooks may be NULL. Returns false with game->error set. Free with
  * cok_adventure_close even on failure, which also frees the party. */
 bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keyboard *keys,

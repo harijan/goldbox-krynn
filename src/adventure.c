@@ -567,23 +567,11 @@ void cok_adventure_status(cok_adventure *game)
     cok_text_string(&game->screen, &game->font, text, 0x11, 15, 10, 0);
 }
 
-/* 66c2:0efb: whether a human's first class with a level is above its level
- * at +0xd7, so that it can use its former class (66c2:0eab). */
-static bool former_class(const uint8_t *c)
-{
-    int8_t level = 0;
-    if (c[0x5a] == 6) {
-        size_t i = 0;
-        while (i < 7 && c[0xf9 + i] == 0) ++i;
-        level = (int8_t)c[0xf9 + i];
-    }
-    return (int8_t)c[0xd7] < level;
-}
-
 static uint16_t character_value(cok_ecl *vm, uint16_t address, void *context)
 {
     cok_adventure *game = context;
-    if (address == 0x7cc9) return vm->character != NULL && former_class(vm->character);
+    if (address == 0x7cc9)
+        return vm->character != NULL && cok_character_former_class(vm->character);
     return (uint8_t)cok_party_index(&game->party, vm->character); /* 0x7eb1, 0x7eb4 */
 }
 
@@ -1006,7 +994,10 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
     if (!load_tiles(game, 4, 202) || !load_tiles(game, 0, 203)) return false;
     for (uint8_t i = 0; i < COK_VIEW_SKY_PICTURES; ++i)
         if (!load_single(game, "SKY", (uint8_t)(250 + i), 13, &game->view.sky[i])) return false;
-    return true;
+    /* 3e99:005b also reads the item types. */
+    char path[sizeof game->assets + 32];
+    snprintf(path, sizeof path, "%s/ITEMS", game->assets);
+    return cok_item_types_read(path, &game->item_types, game->error, sizeof game->error);
 }
 
 void cok_adventure_close(cok_adventure *game)
@@ -1060,7 +1051,8 @@ static bool add_characters(cok_adventure *game, const cok_saved_game *saved, con
             fail(game, "out of memory");
             return false;
         }
-        if (!cok_character_read(character, dir, base, game->error, sizeof game->error)) {
+        if (!cok_character_read(character, dir, base, &game->item_types, game->error,
+                                sizeof game->error)) {
             cok_character_free(character);
             free(character);
             return false;
@@ -1071,6 +1063,10 @@ static bool add_characters(cok_adventure *game, const cok_saved_game *saved, con
             fail(game, "%s: the party is full", file);
             return false;
         }
+        /* 4b6d:1989 recomputes an NPC's levels once it has joined. */
+        if (character->record[0xe7] >= 0x80 &&
+            !cok_character_levels(character, &game->item_types, game->error, sizeof game->error))
+            return false;
         ++vm->mem7c00[0x33e];
     }
     /* Adding a character selects it; the loader then selects the first. */
@@ -1447,7 +1443,7 @@ static bool has_class(cok_adventure *game, size_t class)
     for (size_t i = 0; i < game->party.count; ++i) {
         const uint8_t *c = game->party.members[i]->record;
         if ((int8_t)c[0xf9 + class] >= 1) return true;
-        if ((int8_t)c[0x101 + class] > 0 && former_class(c)) return true;
+        if ((int8_t)c[0x101 + class] > 0 && cok_character_former_class(c)) return true;
     }
     return false;
 }

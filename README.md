@@ -39,9 +39,11 @@ export checks for all 26 supported graphics archives (2,363 images), and
 tests of the picture, text, menu, 3D view and party routines and the
 adventure loop, including PIC delta decoding on `PIC1.DAX` and the game font
 in `8X8D1.DAX`, and plays the opening scripts, the view of Throtl and a walk
-through it with `eclplay`. With the original's saved games in `SAVE/`
-(`SAVGAMA.DAT` and its `CHRDATA*` files), it also plays them with a party;
-those tests are skipped without them.
+through it with `eclplay`. It builds `build/START_FULL.EXE` (see
+Disassembly image) to check the original's tables that the port uses. With
+the original's saved games in `SAVE/` (`SAVGAMA.DAT` and its `CHRDATA*`
+files), it also plays them with a party and checks the stats recomputed for
+their characters; those tests are skipped without them.
 `make sanitize` repeats these checks with AddressSanitizer and UBSan.
 Tests also require Python 3 (standard library only). The native tools have no
 third-party dependencies. Sanitizer targets require the compiler's ASan/UBSan
@@ -522,10 +524,9 @@ sound, aging the characters each year, and counting down their spell effects
 party as a linked list of 409-byte records from `DS:609a` (next at `+0x17f`)
 with the selected character at `DS:6096`; the port keeps an array in the same
 order, and the selected record in `vm.character`. `party.h` lists the record
-fields the port uses. Fields from `+0x18c` on, such as the armour class
-(`+0x18d`, as 60 - AC), are derived from the others and the items when a
-character loads (`6346:0d20`, `66c2:0433`); the port keeps the values saved in
-the file, so items and effects are loaded but not yet used.
+fields the port uses. Fields such as the armour class (`+0x18d`, as 60 - AC)
+are derived from the others and the items when a character loads (see
+Derived stats); spell effects are loaded but not yet used.
 
 A saved game, `SAVGAM<letter>.DAT` (`4b6d:1b34`), is 5,469 bytes: the ECL file,
 the variables `0x4b00`-`0x4eff`, `0x7c00`-`0x7fff` and `0x7a00`-`0x7bff` as
@@ -535,12 +536,14 @@ slot), the party's size and eight 40-character names. Each name, stripped of
 ` .*,?/\:;|`, cut to eight characters and upper-cased (`169c:05da`), names
 the character's files beside the saved game: `.SAV`, the record; `.STF`, its
 items, 63 bytes each; and `.SFX`, its spell effects, 9 bytes each
-(`4b6d:11e5`). Missing characters are skipped. Each character added gets
+(`4b6d:11e5`). Missing characters are skipped. Each character's derived
+fields are then recomputed (see Derived stats). Each character added gets
 the lowest combat icon slot free (`+0x137`) and is counted in `0x7f3e`
-(`4b6d:1989`). The original also loads their combat icons and deletes any
-roster copies of them (`.WHO`, `.STF`, `.SFX` named after the character); the
-port does neither. `cok_adventure_restore` then reloads the map and wall sets
-in a 3D area, sets the speed and animation from `0x4bfc` and `0x4bff`, and
+(`4b6d:1989`), and an NPC's levels are recomputed again. The original also
+loads their combat icons and deletes any roster copies of them (`.WHO`,
+`.STF`, `.SFX` named after the character); the port does neither.
+`cok_adventure_restore` then reloads the map and wall sets in a 3D area,
+sets the speed and animation from `0x4bfc` and `0x4bff`, and
 sets `DS:4b52`, so that the first block keeps its variables and the
 adventure loop redraws the screen (`6346:2c17`). Play resumes in block
 `0x4bf2`, or 0x24 if that is 0 (`2fd3:3c28`).
@@ -619,6 +622,124 @@ either way the prompt then waits for a key. The original lets spell effects
 change attack and saving rolls (`60f4:057c`), and keeps combat records;
 neither is ported.
 
+## Derived stats
+
+`cok_character_stats` ports `6346:0d20` and `cok_character_levels` ports
+`66c2:0433`, with the routines they call. The original runs both, in that
+order, at the end of loading a character (`4b6d:11e5`), and `66c2:0433`
+again when an NPC (`+0xe7` 0x80 and up) joins the party (`4b6d:1989`); the
+port does the same in `cok_character_read` and when it adds a saved game's
+characters. `6346:0d20` does not run again after `66c2:0433`, so an item
+that `66c2:0433` unreadies still counts until the next recompute, as in the
+original. Item types come from `ITEMS`, which the game reads at startup
+(`3e99:005b`): 128 records of 16 bytes from offset 2, at `DS:5886`.
+`party.h` lists the fields of records, items and item types that these
+routines use.
+
+`6346:0d20` counts the items (`+0x142`), weighs them, each weight (`+0x37`)
+times its count (`+0x39`) if that is not 0, with the six coin words from
+`+0xed`, into `+0x17d`, and adds up the hands of the readied ones (`+0x17b`).
+Each readied item fills the slot its type names (the far pointers at `+0x147`,
+which it clears first; the port sets those bytes to 0 and keeps 1 + the item's
+index in `cok_character.slots`, 0 for none): the last one of each slot
+0-8, the first two rings, and the last readied items of types 0x1e and 0x0c as
+arrows and quarrels. The base attacks, dice and damage bonus
+(`+0x10d`-`+0x112`) become `+0x191`-`+0x196`, THAC0 (`+0x18c`, as 60 - THAC0)
+starts from `+0x59`, armour class from `+0x113` and movement (`+0x198`) from
+`+0xd5`. Without a weapon, strength adds to hit and damage (`6346:1412`,
+`6346:14b5`, by the row `6346:137a` gives, when `+0x114` is set). With one
+(`6346:0023`), its type sets the attacks, dice and damage bonus; dexterity
+adds to hit for a missile weapon (`6346:12f8`) and strength when the type's
+flags say; the weapon's bonus and its readied arrows' or quarrels' add to
+both; and races 0 and 1 with types 0x12, 0x13 and 0x16-0x1a add 1 to hit, race
+5 with type 0x43 2. The armour class is the sum of five parts (`6346:02c8`):
+dexterity (`6346:1276`), a shield and its bonus, the bonuses of items whose
+type's armour class is 0 (byte 6 0x80), the best bonus of such a ring, and the
+best armour plus bonus, or the base armour class if that is better. Magic
+armour (slot 2 with a positive bonus) drops the ring part. `+0x18e`, the
+armour class from behind, is the armour, item and ring parts less 2. Those
+items and rings also add their `+0x33` to the saving throw bonus `+0x17c`.
+Armour sets the movement by its weight, 3 more with any bonus but 0, so
+cursed armour speeds its wearer too (`6346:0240`), and
+weight past the strength allowance (`6346:153b`) limits it to 9, 6 or 3
+(`6346:03e6`). `+0xce` is the highest fighter, ranger or knight level, or 1.
+
+`66c2:0433` sets the base THAC0 `+0x59` to the best for each class's level
+(`DS:3882`), one better for `+0x5d` 3, or 6 with race 3 or 4; raises the
+highest level `+0xd6`, which it never lowers; and sets `+0x10b` to 3 above
+fighter or knight level 6 or ranger level 7. `66c2:000f` and `66c2:0722` set
+the spells a day from `+0x11c` (`DS:3c99`) and the spells known: a cleric's,
+with wisdom bonuses, and a knight's from level 6 unless of order 1 (`+0x5c`),
+which know the cleric spells of each level they can cast (`DS:423b`); a
+ranger's from level 8, which knows all druid spells (`DS:31c3`); and a mage's,
+doubled for spell levels 1-3 by each readied item of power 1. `66c2:08a6` sets
+the saving throws (`DS:405b`) and `66c2:0b9f` the thief skills (`DS:3911`,
+`DS:3971` and `DS:39a9`, by level, race and dexterity). `+0x11a` then gets the
+bits (`DS:38ea`) of the classes with a level, or with a former level below
+`+0xd6`, and items in the slots whose type's classes (byte 13) share none of
+them are unreadied, unless `+0x36` is set. A human that may use its former
+class (`66c2:0efb`) also gets its former levels' THAC0, attacks and thief
+skills.
+
+The tables are the original's, and the port indexes them with the
+original's arithmetic over the original's initialized data, from `DS:3509`,
+the lowest an index can reach, to its end at `DS:43bf`. An index past a
+table reads what follows it, as the original does: the thief tables by
+level, race and dexterity lie together, dexterity 20 reads the bytes after
+them (3, 3, 18, 16 and 75), a level 13 cleric's THAC0 is the next class's at
+level 0, and a level of -1 reads the byte before the THAC0 table. Item type
+128 is the zeroed record after the 128 of `ITEMS` (the game reads 0x810
+bytes into `DS:5886`). Where the original would read data the game sets as
+it runs, an item type past 128 or a saving throw for a level of 90 or more,
+or leaves the result uninitialized, as `6346:137a` does for a strength past
+25 or an exceptional strength past 100, the port fails with an error and
+the character does not load. `make test` checks the embedded data against
+`build/START_FULL.EXE`.
+
+The port keeps these quirks of the original:
+
+- `66c2:08a6` checks a former class after its class loop rather than in
+  it, so only for class 7, the loop's last: a knight above its former
+  knight level `+0x108` also gets the throws of that level, and level 0
+  reads the entry before level 1, the thief's at level 12. A level 1 knight
+  therefore saves as a level 12 thief.
+- `66c2:0b9f` adds an uninitialized local to each thief skill. The stack
+  holds the class counter `66c2:08a6` left there, 7, so every skill is 7
+  higher, and a level 1 human thief reads languages at 7. With an item of
+  power 11, skills 1 and 2 set it to 0 or 5 and the later skills keep that,
+  as does the second call for a former thief.
+- Saving throw 0 is raised, made harder, by a constitution of 4-18 for
+  races 3, 4 and 5 or with a readied item of power 6.
+- `66c2:0b9f` stops at the first readied item of power 2 or 11, so a
+  character with both gets only the first one's effect.
+- `6346:03e6` takes the weight past the allowance as a signed word, so
+  32,768 or more past it counts as none.
+- The dexterity table gives -19 for picking pockets at dexterity 10.
+
+The twelve characters in `SAVE/` were saved by the original, and every field
+recomputed from them matches the saved value but one: the two clerics of
+`SAVGAMA.DAT` lack spell 8, which this executable's table makes them know.
+Nothing in it clears a known spell, so those saves may come from another
+version of the game (see Checks against the original). A differential test
+against the original routines, run in an 8086 emulator on random
+characters, also agreed; it is not part of the repository.
+
+Neither routine reads spell effects (`.SFX`). Effects change stats through
+their own handlers, run by `60f4:057c` and removed by `60f4:01e9` and the
+effect timers (`57e4:0171`), such as Spiritual Hammer, which adds an item
+and recomputes (`3f44:07b5`), and the stinking cloud, which recomputes and
+then worsens the armour class by 2 (`3f44:0ae0`); none is ported. The other
+places the original recomputes are not ported either: the ECL opcodes `ADD
+NPC` (`2fd3:311c`), `DESTROY ITEMS` (`2fd3:35a3`) and `COMBAT`, through
+combat setup (`3cb2:10d9`), each combatant's turn (`3995:040b`), the AI's
+choice of weapon (`3afb:1608`), attacks (`432f:1579`, `432f:1a45`), spells
+with an attack roll (`5b04:1071`) and the end of combat (`351b:1968`); taking
+an item from treasure or a shop (`36d0:034c`, `546c:32b0`) and appraising
+gems (`58e7:1929`); the character sheet (`546c:07bb`), the Items menu
+(`546c:17f9`) and Trade (`546c:2178`); and creating, training, modifying
+and changing the order of a character (`4def:06dd`, `4def:4d9e`,
+`4def:28fa`, `4def:567f`).
+
 ## Checks against the original
 
 These follow the disassembly but have not been compared with the game
@@ -634,11 +755,22 @@ running in DOSBox:
   view: the columns of AC and hit points, the colours, and `7,13 N 00:00`.
 - Fall into the pit in Throtl and compare the damage messages and how they
   page.
+- Load saved game A, save it again, and see whether KAL and SIRRION now
+  know spell 8 (`+0x6a` of their `.SAV` set), as this executable's
+  `66c2:000f` would make them. If not, the game in DOSBox is not the one in
+  `Assets/`, or something not yet found clears it.
+- The thief skills include the 7 that `66c2:0b9f` reads from the stack,
+  which the saved thieves show; an interrupt between `66c2:08a6` and
+  `66c2:0b9f` could leave another value. Load a saved game with a human
+  thief and compare its thief skills (`+0xdb`) with the port's; character
+  creation calls `66c2:0b9f` from elsewhere (`4def:06dd`), with another
+  value on the stack.
 
 ## Disassembly image
 
 `make merged` writes `build/START_FULL.EXE` and `build/START_FULL.map` with
-`tools/ovrmerge.py` (Python 3, standard library only). The game logic lives in
+`tools/ovrmerge.py` (Python 3, standard library only); `make test` and
+`make sanitize` build them too. The game logic lives in
 `GAME.OVR`, a Turbo Pascal overlay file (`FBOV`) that `START.EXE` loads through
 35 `INT 3Fh` stub segments, with 506 entry points in all. The tool unpacks
 EXEPACK, appends each overlay segment from paragraph `0x1f48` (above the stack

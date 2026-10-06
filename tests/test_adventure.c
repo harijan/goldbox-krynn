@@ -1,8 +1,11 @@
+#define _POSIX_C_SOURCE 200809L /* mkdtemp */
+
 #include "adventure.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #x); exit(1); } } while (0)
 
@@ -392,12 +395,136 @@ static void test_doors(void)
     cok_adventure_close(&game);
 }
 
+/* Whether cell x, y has a pixel that is not colour 0. */
+static bool inked(const cok_picture *p, int x, int y)
+{
+    for (int row = 0; row < 8; ++row)
+        for (int b = 0; b < 4; ++b)
+            if (p->pixels[((size_t)y * 8 + (size_t)row) * p->units * 4 + (size_t)x * 4 +
+                          (size_t)b] != 0)
+                return true;
+    return false;
+}
+
+static void write_file(const char *path, const uint8_t *data, size_t size)
+{
+    FILE *f = fopen(path, "wb");
+    CHECK(f != NULL);
+    CHECK(fwrite(data, 1, size, f) == size);
+    fclose(f);
+}
+
+/* Loading a saved game recomputes each character's derived fields from its
+ * items (6346:0d20, 66c2:0433), so the party list shows the armour class
+ * the items give, not the one saved, and DAMAGE's attacks roll against it.
+ * An NPC is recomputed again as it joins (4b6d:1989). */
+static void test_load_stats(void)
+{
+    char dir[] = "/tmp/cok_adventure_XXXXXX";
+    CHECK(mkdtemp(dir) != NULL);
+    char path[256];
+    static uint8_t save[COK_SAVED_GAME_SIZE];
+    save[0x1414] = 1;
+    memcpy(save + 0x1415, "\x03" "NPC", 4);
+    snprintf(path, sizeof path, "%s/SAVGAMC.DAT", dir);
+    write_file(path, save, sizeof save);
+    uint8_t record[COK_CHARACTER_SIZE] = {3, 'N', 'P', 'C'};
+    record[0xe7] = 0x80;
+    record[0x113] = 50;   /* AC 10 */
+    record[0x18d] = 50;   /* saved as AC 10 */
+    record[0x17] = 15;    /* dexterity: 1 better */
+    record[0x11] = 12;
+    record[0x197] = record[0x62] = 9;
+    record[0x189] = 1;
+    snprintf(path, sizeof path, "%s/NPC.SAV", dir);
+    write_file(path, record, sizeof record);
+    uint8_t item[COK_ITEM_SIZE] = {0};
+    item[0x2e] = 0x24; /* armour of 0x80 + 57 */
+    item[0x34] = 1;
+    item[0x37] = 200;
+    snprintf(path, sizeof path, "%s/NPC.STF", dir);
+    write_file(path, item, sizeof item);
+
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &s};
+    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    snprintf(path, sizeof path, "%s/SAVGAMC.DAT", dir);
+    CHECK(cok_adventure_load_party(&game, path));
+    CHECK(game.party.count == 1);
+    const uint8_t *c = game.party.members[0]->record;
+    CHECK(c[0x18d] == 58 && c[0x18e] == 55 && c[0x198] == 9);
+    CHECK(game.party.members[0]->slots[2] == 1);
+    /* The party list shows AC 2 in column 34; the saved 10 would also
+     * fill column 33. */
+    game.vm.mode = game.vm.last_mode = 4;
+    game.vm.mem4b00[0xe6] = 1;
+    cok_adventure_party(&game);
+    CHECK(inked(&game.screen, 0x22, 4) && !inked(&game.screen, 0x21, 4));
+    cok_adventure_close(&game);
+
+    /* A readied item of a type past ITEMS's buffer stops the load. */
+    item[0x2e] = 0x90;
+    snprintf(path, sizeof path, "%s/NPC.STF", dir);
+    write_file(path, item, sizeof item);
+    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    snprintf(path, sizeof path, "%s/SAVGAMC.DAT", dir);
+    CHECK(!cok_adventure_load_party(&game, path));
+    CHECK(strstr(game.error, "NPC.SAV") != NULL && strstr(game.error, "item type 144") != NULL);
+    cok_adventure_close(&game);
+
+    /* A level 1 mage with a readied item of power 1 that mages cannot use
+     * (type 0x44, knights only): loading doubles its first level spells,
+     * then unreadies the item. Joining as an NPC recomputes the levels
+     * without the item, as 4b6d:1989 does; a PC keeps the doubled spells. */
+    memset(save + 0x1415, 0, 41);
+    save[0x1414] = 2;
+    memcpy(save + 0x1415, "\x03" "WIZ", 4);
+    memcpy(save + 0x1415 + 41, "\x05" "WIZPC", 6);
+    snprintf(path, sizeof path, "%s/SAVGAMD.DAT", dir);
+    write_file(path, save, sizeof save);
+    memset(record, 0, sizeof record);
+    memcpy(record, "\x03" "WIZ", 4);
+    record[0xfe] = 1;
+    record[0xe7] = 0x80;
+    record[0x197] = record[0x62] = 4;
+    record[0x189] = 1;
+    snprintf(path, sizeof path, "%s/WIZ.SAV", dir);
+    write_file(path, record, sizeof record);
+    record[0xe7] = 0;
+    snprintf(path, sizeof path, "%s/WIZPC.SAV", dir);
+    write_file(path, record, sizeof record);
+    item[0x2e] = 0x44;
+    item[0x3e] = 0x81;
+    snprintf(path, sizeof path, "%s/WIZ.STF", dir);
+    write_file(path, item, sizeof item);
+    snprintf(path, sizeof path, "%s/WIZPC.STF", dir);
+    write_file(path, item, sizeof item);
+    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    snprintf(path, sizeof path, "%s/SAVGAMD.DAT", dir);
+    CHECK(cok_adventure_load_party(&game, path));
+    CHECK(game.party.count == 2);
+    CHECK(game.party.members[0]->record[0x12b] == 1 && game.party.members[0]->items[0][0x34] == 0);
+    CHECK(game.party.members[1]->record[0x12b] == 2 && game.party.members[1]->items[0][0x34] == 0);
+    cok_adventure_close(&game);
+
+    const char *files[] = {"SAVGAMC.DAT", "NPC.SAV", "NPC.STF", "SAVGAMD.DAT",
+                           "WIZ.SAV", "WIZ.STF", "WIZPC.SAV", "WIZPC.STF"};
+    for (size_t i = 0; i < sizeof files / sizeof *files; ++i) {
+        snprintf(path, sizeof path, "%s/%s", dir, files[i]);
+        CHECK(remove(path) == 0);
+    }
+    CHECK(rmdir(dir) == 0);
+}
+
 int main(void)
 {
     test_clock();
     test_play();
     test_party();
     test_doors();
+    test_load_stats();
     puts("adventure tests passed");
     return 0;
 }
