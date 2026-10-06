@@ -195,6 +195,21 @@ int cok_menu_horizontal(cok_picture *dst, const cok_font *font, const char *prom
     return found == NULL ? 0xff : (int)(found - menu.keys);
 }
 
+int cok_menu_read(cok_picture *dst, const cok_font *font, const char *prompt, const char *text,
+                  uint8_t prompt_color, uint8_t highlight, uint8_t normal, uint8_t *selected,
+                  const cok_keyboard *keys, bool *special)
+{
+    char shown[41];
+    snprintf(shown, sizeof shown, "%s", prompt);
+    cok_menu menu;
+    cok_menu_layout(&menu, text);
+    if (menu.count < *selected) *selected = 1;
+    int x = (int)strlen(shown);
+    if (x != 0) cok_text_string(dst, font, shown, 0, 24, prompt_color, 0);
+    *special = false;
+    return menu_key(dst, font, &menu, x, selected, highlight, normal, keys, special);
+}
+
 typedef struct {
     cok_picture *dst;
     const cok_font *font;

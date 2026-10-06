@@ -26,6 +26,9 @@ ADVENTURE_DEPS = $(ADVENTURE_SRC) src/adventure.h src/ecl.h src/menu.h src/scree
 build/eclplay: src/eclplay.c $(ADVENTURE_DEPS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) src/eclplay.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
 
+build/test_adventure: tests/test_adventure.c $(ADVENTURE_DEPS) | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_adventure.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
+
 build/test_ecl: tests/test_ecl.c src/ecl.c src/ecl.h src/text.h src/picture.h src/dax.c src/dax.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_ecl.c src/ecl.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
 
@@ -53,7 +56,7 @@ build/test_text: tests/test_text.c src/text.c src/text.h src/picture.c src/pictu
 build/test_image: tests/test_image.c src/image.c src/image.h src/dax.c src/dax.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_image.c src/image.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
 
-test: build/test_dax build/test_image build/test_picture build/test_text build/test_ecl build/test_menu build/test_view build/daxcheck build/daximages build/daxcompose build/ecldump build/eclplay
+test: build/test_dax build/test_image build/test_picture build/test_text build/test_ecl build/test_menu build/test_view build/test_adventure build/daxcheck build/daximages build/daxcompose build/ecldump build/eclplay
 	./build/test_dax
 	./build/test_image
 	./build/test_picture
@@ -61,6 +64,7 @@ test: build/test_dax build/test_image build/test_picture build/test_text build/t
 	./build/test_ecl
 	./build/test_menu
 	./build/test_view
+	./build/test_adventure
 	./build/ecldump --summary Assets/ECL*.DAX
 	$(PYTHON) tests/test_images_cli.py
 	$(PYTHON) tests/test_eclplay.py
@@ -91,10 +95,13 @@ build/test_menu_sanitize: tests/test_menu.c src/menu.c src/menu.h src/screen.c s
 build/test_view_sanitize: tests/test_view.c src/view.c src/view.h src/picture.c src/picture.h src/image.c src/image.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_view.c src/view.c src/picture.c src/image.c $(LDFLAGS) $(LDLIBS) -o $@
 
+build/test_adventure_sanitize: tests/test_adventure.c $(ADVENTURE_DEPS) | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_adventure.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
+
 build/eclplay_sanitize: src/eclplay.c $(ADVENTURE_DEPS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer src/eclplay.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
 
-sanitize: build/test_dax_sanitize build/test_image_sanitize build/test_picture_sanitize build/test_text_sanitize build/test_ecl_sanitize build/test_menu_sanitize build/test_view_sanitize build/eclplay_sanitize build/daxcheck_sanitize
+sanitize: build/test_dax_sanitize build/test_image_sanitize build/test_picture_sanitize build/test_text_sanitize build/test_ecl_sanitize build/test_menu_sanitize build/test_view_sanitize build/test_adventure_sanitize build/eclplay_sanitize build/daxcheck_sanitize
 	./build/test_dax_sanitize
 	./build/test_image_sanitize
 	./build/test_picture_sanitize
@@ -102,6 +109,8 @@ sanitize: build/test_dax_sanitize build/test_image_sanitize build/test_picture_s
 	./build/test_ecl_sanitize
 	./build/test_menu_sanitize
 	./build/test_view_sanitize
+	./build/test_adventure_sanitize
 	./build/eclplay_sanitize --keys '\r\r\r\r\r\r\r\r' Assets 16 > /dev/null
 	./build/eclplay_sanitize --start 899b --keys '\r22\r\r' Assets 48 > /dev/null
+	./build/eclplay_sanitize --play --set 4be6=1 --keys '\r\rm\^\r\^\^\r\r\>\^\<\<\v\rlsea' Assets 32 > /dev/null
 	./build/daxcheck_sanitize Assets/*.DAX

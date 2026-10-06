@@ -188,6 +188,50 @@ static void test_horizontal(void)
     CHECK(run_menu("~A", "", 0, false, &selected) == -1);
 }
 
+static int read_key(const char *text, const char *keys, size_t length, uint8_t *selected,
+                    bool *special)
+{
+    cok_font font = numbered_font();
+    cok_picture p = screen();
+    script s;
+    cok_keyboard k = keyboard(&s, keys, length);
+    int key = cok_menu_read(&p, &font, "", text, 13, 15, 10, selected, &k, special);
+    cok_picture_free(&p);
+    cok_font_free(&font);
+    return key;
+}
+
+static void test_read(void)
+{
+    /* Text is laid out as given: each capital starts an item and is its key. */
+    uint8_t selected = 1;
+    bool special = true;
+    CHECK(read_key("Move Area Look", "a", 1, &selected, &special) == 'A' && !special &&
+          selected == 2);
+    CHECK(read_key("Move Area Look", "\x01\x4d\r", 3, &selected, &special) == 'L' &&
+          !special && selected == 3);
+    CHECK(read_key("Move Area Look", "o\x1b", 2, &selected, &special) == 0);
+    /* Special keys come back as scan codes; with one item the arrows do too. */
+    CHECK(read_key("Move Area Look", "8", 1, &selected, &special) == 0x48 && special);
+    selected = 3;
+    CHECK(read_key("Exit", "\x01\x4b", 2, &selected, &special) == 0x4b && special &&
+          selected == 1);
+    CHECK(read_key("Exit", "\r", 1, &selected, &special) == 'E' && !special);
+    CHECK(read_key("Exit", "", 0, &selected, &special) == -1);
+
+    /* The prompt goes first, in its colour, and the items after it. */
+    cok_font font = numbered_font();
+    cok_picture p = screen();
+    script s;
+    cok_keyboard k = keyboard(&s, "\x1b", 1);
+    selected = 1;
+    CHECK(cok_menu_read(&p, &font, "AB ", "Bash Exit", 13, 15, 10, &selected, &k, &special) == 0);
+    CHECK(cell_glyph(&p, 0, 24) == 1 && cell_fg(&p, 0, 24) == 13);
+    CHECK(cell_glyph(&p, 3, 24) == 2 && cell_bg(&p, 3, 24) == 15);
+    cok_picture_free(&p);
+    cok_font_free(&font);
+}
+
 static void test_list(void)
 {
     cok_font font = numbered_font();
@@ -322,6 +366,7 @@ int main(void)
     test_parse();
     test_draw();
     test_horizontal();
+    test_read();
     test_list();
     test_input();
     test_screen();

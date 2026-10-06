@@ -108,6 +108,27 @@ uint8_t cok_view_square(const cok_view *view, int x, int y)
     return i < 0 ? 0 : view->map[0x200 + i];
 }
 
+uint8_t cok_view_passage(const cok_view *view, unsigned dir, int x, int y)
+{
+    int i = square_index(view, x, y);
+    if (i < 0) return 0;
+    if (cok_view_wall(view, dir, x, y) == 0) return 1;
+    uint8_t bits = view->map[0x300 + i];
+    switch (dir) {
+    case 0: return bits & 3;
+    case 2: return bits >> 2 & 3;
+    case 4: return bits >> 4 & 3;
+    case 6: return bits >> 6;
+    default: return 1;
+    }
+}
+
+void cok_view_step(unsigned dir, int *x, int *y)
+{
+    *x += step_x[dir & 7];
+    *y += step_y[dir & 7];
+}
+
 void cok_view_tile(cok_picture *dst, const cok_view *view, unsigned value, int x, int y,
                    bool masked)
 {
