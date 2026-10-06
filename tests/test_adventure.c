@@ -211,10 +211,193 @@ static void test_clock(void)
     free_game(game);
 }
 
+/* A character who can act, with hit points hp, AC 5 and a level in
+ * class. */
+static cok_character *member(const char *name, uint8_t hp, size_t class)
+{
+    cok_character *c = calloc(1, sizeof *c);
+    CHECK(c != NULL);
+    c->record[0] = (uint8_t)strlen(name);
+    memcpy(c->record + 1, name, strlen(name));
+    c->record[0x197] = c->record[0x62] = hp;
+    c->record[0x18d] = 55;
+    c->record[0x189] = 1;
+    c->record[0xf9 + class] = 1;
+    return c;
+}
+
+/* Run code from 0x8000 with keys, as a vector runs, keeping the selection
+ * for EXIT to restore. */
+static cok_ecl_status run_code(cok_adventure *game, script *s, const uint8_t *code, size_t size,
+                               const char *keys)
+{
+    s->keys = keys;
+    s->at = 0;
+    s->length = strlen(keys);
+    s->log[0] = '\0';
+    game->input_ended = false;
+    game->vm.abort = false;
+    memset(game->vm.code, 0, sizeof game->vm.code);
+    memcpy(game->vm.code, code, size);
+    game->vm.saved_character = game->vm.character;
+    return cok_ecl_run(&game->vm, COK_ECL_BASE);
+}
+
+static uint32_t experience(const uint8_t *c)
+{
+    return (uint32_t)c[0x116] | (uint32_t)c[0x117] << 8 | (uint32_t)c[0x118] << 16 | (uint32_t)c[0x119] << 24;
+}
+
+/* The colour of a cell's set pixels, or 0 if none are set. */
+static unsigned ink(const cok_picture *p, int x, int y)
+{
+    for (size_t i = 0; i < 8 * 4; ++i) {
+        uint8_t pair = p->pixels[((size_t)y * 8 + i / 4) * p->units * 4 + (size_t)x * 4 + i % 4];
+        if (pair >> 4) return pair >> 4;
+        if (pair & 15) return pair & 15;
+    }
+    return 0;
+}
+
+static void test_party(void)
+{
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &s};
+    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    cok_ecl *vm = &game.vm;
+    vm->mode = vm->last_mode = 4;
+    vm->mem4b00[0xe6] = 1;
+    cok_character *a = member("AL", 20, 2), *b = member("BO", 20, 5), *c = member("CY", 20, 6);
+    b->record[0xf9] = 3; /* two classes */
+    c->record[0x189] = 0;
+    CHECK(cok_party_add(&game.party, a) && cok_party_add(&game.party, b) &&
+          cok_party_add(&game.party, c));
+    vm->mem7c00[0x33e] = 3;
+    vm->character = a->record;
+
+    /* LOAD CHARACTER selects by position until EXIT; past the end the
+     * selection stays and 0x7d00 reads 0. */
+    const uint8_t load[] = {
+        COK_ECL_LOAD_CHARACTER, 0, 1,
+        COK_ECL_SAVE, 1, 0xb1, 0x7e, 2, 0x00, 0x4c,
+        COK_ECL_LOAD_CHARACTER, 0, 7,
+        COK_ECL_SAVE, 1, 0x00, 0x7d, 2, 0x01, 0x4c,
+        COK_ECL_SAVE, 1, 0xb4, 0x7e, 2, 0x02, 0x4c,
+        COK_ECL_EXIT,
+    };
+    vm->mem4b00[0x101] = 9;
+    CHECK(run_code(&game, &s, load, sizeof load, "") == COK_ECL_OK);
+    CHECK(vm->mem4b00[0x100] == 1 && vm->mem4b00[0x101] == 0 && vm->mem4b00[0x102] == 1);
+    CHECK(vm->character == a->record);
+
+    /* ADD EP: the selected character's points are shared among its
+     * classes; for the party, only members who can act gain them. */
+    const uint8_t add[] = {
+        COK_ECL_LOAD_CHARACTER, 0, 1,
+        COK_ECL_ADD_EP, 0, 0, 2, 0xb8, 0x0b,
+        COK_ECL_ADD_EP, 0, 1, 2, 0xe8, 0x03,
+        COK_ECL_EXIT,
+    };
+    CHECK(run_code(&game, &s, add, sizeof add, "") == COK_ECL_OK);
+    CHECK(experience(a->record) == 1000 && experience(b->record) == 1500 + 500 &&
+          experience(c->record) == 0);
+    CHECK(strcmp(s.log, "print: Congratulations BO gains experience!;"
+                        "print: Congratulations the party gains experience!;") == 0);
+    /* A character with no class divides by zero. */
+    a->record[0xfb] = 0;
+    const uint8_t none[] = {COK_ECL_ADD_EP, 0, 0, 0, 10, COK_ECL_EXIT};
+    CHECK(run_code(&game, &s, none, sizeof none, "") == COK_ECL_DIVIDE_BY_ZERO);
+    a->record[0xfb] = 1;
+
+    /* WHO: down twice wraps to the first, up to the last; S picks. The
+     * picked character stays selected, drawn white in the list. */
+    const uint8_t who[] = {COK_ECL_WHO, 0x80, 0, COK_ECL_EXIT};
+    CHECK(run_code(&game, &s, who, sizeof who, "\x01P\x01P\x01P\x01H\x01Hs") == COK_ECL_OK);
+    CHECK(vm->character == b->record);
+    CHECK(strcmp(s.log, "menu: Select;menu: Select;menu: Select;menu: Select;menu: Select;"
+                        "menu: Select;who: BO;") == 0);
+    CHECK(ink(&game.screen, 0x11, 5) == 15 && ink(&game.screen, 0x11, 4) == 0x0b &&
+          ink(&game.screen, 0x11, 6) == 0x0c);
+    /* Escape does not leave it. */
+    CHECK(run_code(&game, &s, who, sizeof who, "\x1b\x01Hs") == COK_ECL_OK);
+    CHECK(vm->character == a->record);
+
+    /* DAMAGE without dice: to the whole party with no save, then to the
+     * selected character with throw type 0, which is no save. The list
+     * shows the hit points. */
+    const uint8_t hurt[] = {
+        COK_ECL_DAMAGE, 0, 0xe0, 0, 0, 0, 0, 0, 5, 0, 0,
+        COK_ECL_DAMAGE, 0, 0x80, 0, 0, 0, 0, 0, 3, 0, 0x80,
+        COK_ECL_EXIT,
+    };
+    CHECK(run_code(&game, &s, hurt, sizeof hurt, "\r\r") == COK_ECL_OK);
+    CHECK(a->record[0x197] == 12 && b->record[0x197] == 15 && c->record[0x197] == 15);
+    CHECK(strcmp(s.log, "print:   AL is hit FOR 5 points of Damage.;"
+                        "print:   BO is hit FOR 5 points of Damage.;"
+                        "print:   CY is hit FOR 5 points of Damage.;"
+                        "print:   AL is hit FOR 3 points of Damage.;") == 0);
+    CHECK(ink(&game.screen, 0x25, 4) == 0x0e && s.at == 2);
+    /* The dead take no more; when no member can act, the party is killed
+     * and the run ends. */
+    const uint8_t kill[] = {COK_ECL_DAMAGE, 0, 0xe0, 0, 0, 0, 0, 0, 40, 0, 0,
+                            COK_ECL_DAMAGE, 0, 0xe0, 0, 0, 0, 0, 0, 40, 0, 0, COK_ECL_EXIT};
+    CHECK(run_code(&game, &s, kill, sizeof kill, "\r\r") == COK_ECL_OK);
+    CHECK(game.party_killed && vm->abort && vm->ip == 0x800b);
+    CHECK(a->record[0x188] == 6 && a->record[0x197] == 0 && a->record[0x189] == 0);
+    CHECK(strstr(s.log, "AL dies.") != NULL);
+    CHECK(strstr(s.log, "print: The entire party is killed!;") != NULL);
+
+    cok_adventure_close(&game);
+}
+
+static void test_doors(void)
+{
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &s};
+    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    load_block(&game, 0);
+    uint8_t map[0x402] = {0};
+    /* Square 5, 4: a locked door east. */
+    map[2 + 4 * 16 + 5] = 0x01;
+    map[2 + 0x300 + 4 * 16 + 5] = 0x08;
+    cok_character *strong = member("STRONG", 10, 2), *thief = member("THIEF", 10, 6);
+    strong->record[0x11] = 25;
+    thief->record[0xdc] = 100;
+    thief->record[0x20] = 0x1f; /* Knock memorized */
+    CHECK(cok_party_add(&game.party, strong) && cok_party_add(&game.party, thief));
+    game.vm.character = strong->record;
+
+    /* A strength of 25 bashes the door open, on both of its sides. */
+    play(&game, &s, map, 5, 5, "m\x01H\x01M\x01H" "b");
+    CHECK(strcmp(s.log, "at: 5,4,0;at: 5,4,2;menu: Bash Pick Knock Exit;at: 6,4,2;") == 0);
+    CHECK(game.view.map[0x300 + 4 * 16 + 5] == 0x04 && game.view.map[0x300 + 4 * 16 + 6] == 0x40);
+    /* A thief with 100% picks it. */
+    strong->record[0x11] = 3;
+    play(&game, &s, map, 5, 5, "m\x01H\x01M\x01H" "p");
+    CHECK(strcmp(s.log, "at: 5,4,0;at: 5,4,2;menu: Bash Pick Knock Exit;at: 6,4,2;") == 0);
+    /* Knock takes the party through once and is forgotten; the door stays
+     * locked. */
+    play(&game, &s, map, 5, 5, "m\x01H\x01M\x01H" "k");
+    CHECK(strcmp(s.log, "at: 5,4,0;at: 5,4,2;menu: Bash Pick Knock Exit;at: 6,4,2;") == 0);
+    CHECK(thief->record[0x20] == 0 && game.view.map[0x300 + 4 * 16 + 5] == 0x08);
+    /* A door that cannot be picked does not offer Pick again after it is
+     * chosen. */
+    map[2 + 0x300 + 4 * 16 + 5] = 0x0c;
+    play(&game, &s, map, 5, 5, "m\x01H\x01M\x01H" "p\x01H");
+    CHECK(strcmp(s.log, "at: 5,4,0;at: 5,4,2;menu: Bash Pick Exit;menu: Bash Exit;") == 0);
+    cok_adventure_close(&game);
+}
+
 int main(void)
 {
     test_clock();
     test_play();
+    test_party();
+    test_doors();
     puts("adventure tests passed");
     return 0;
 }

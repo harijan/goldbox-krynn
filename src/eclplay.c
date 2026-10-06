@@ -22,11 +22,16 @@ static void usage(const char *program)
 {
     fprintf(stderr,
             "Usage: %s [options] ASSETS BLOCK\n"
+            "       %s [options] --load SAVE ASSETS [BLOCK]\n"
             "Run ECL block BLOCK (as the game does on entering it) from the DAX files in\n"
             "ASSETS, printing its text, menus and choices.\n"
             "  --keys KEYS     keys to type; \\r Enter, \\e Escape, \\b Backspace,\n"
             "                  \\< \\> \\^ \\v the arrows, \\\\ a backslash\n"
             "  --play          then take adventure commands until the keys run out\n"
+            "  --party SAVE    add the characters of saved game SAVE (SAVGAMA.DAT) to the\n"
+            "                  party, from the files beside it\n"
+            "  --load SAVE     load saved game SAVE and its party first; BLOCK defaults to\n"
+            "                  the block it was saved in\n"
             "  --shots DIR     save DIR/NNN.bmp each time the game waits for a key\n"
             "  --screen FILE   save the final screen as FILE (BMP)\n"
             "  --file N        ECL file 1-3 (default: the first holding BLOCK)\n"
@@ -36,7 +41,7 @@ static void usage(const char *program)
             "  --set ADDR=VAL  set a variable before running, in hex (repeatable)\n"
             "  --still         load only the first frame of each picture\n"
             "  --trace         print each instruction's address and name\n",
-            program);
+            program, program);
 }
 
 static void save(player *p, const char *path)
@@ -115,6 +120,7 @@ int main(int argc, char **argv)
     const char *screen = NULL;
     unsigned long file = 0, vector = 5, start = 0;
     bool still = false, placed = false, play = false;
+    const char *party = NULL, *load = NULL;
     long x = 0, y = 0, dir = 0;
     struct { uint16_t address, value; } sets[64];
     size_t set_count = 0;
@@ -130,6 +136,10 @@ int main(int argc, char **argv)
             play = true;
         } else if (strcmp(option, "--keys") == 0 && has_value) {
             p.keys = argv[++i];
+        } else if (strcmp(option, "--party") == 0 && has_value) {
+            party = argv[++i];
+        } else if (strcmp(option, "--load") == 0 && has_value) {
+            load = argv[++i];
         } else if (strcmp(option, "--shots") == 0 && has_value) {
             p.shots = argv[++i];
         } else if (strcmp(option, "--screen") == 0 && has_value) {
@@ -161,8 +171,10 @@ int main(int argc, char **argv)
             return 2;
         }
     }
-    unsigned long block;
-    if (argc - i != 2 || !number(argv[i + 1], 0, 255, &block) ||
+    unsigned long block = 256; /* none given */
+    bool has_block = argc - i == 2;
+    if ((argc - i != 2 && !(load != NULL && argc - i == 1)) ||
+        (has_block && !number(argv[i + 1], 0, 255, &block)) ||
         (play && (vector != 5 || start != 0))) {
         usage(argv[0]);
         return 2;
@@ -182,7 +194,20 @@ int main(int argc, char **argv)
         cok_adventure_close(&game);
         return 1;
     }
-    game.animate = !still;
+    bool loaded = true;
+    if (load != NULL) loaded = cok_adventure_restore(&game, load);
+    if (loaded && party != NULL) loaded = cok_adventure_load_party(&game, party);
+    if (!loaded) {
+        fprintf(stderr, "%s\n", game.error);
+        cok_adventure_close(&game);
+        return 1;
+    }
+    if (still) game.animate = false;
+    if (!has_block) {
+        /* As 2fd3:3c28 resumes: the block saved in 0x4bf2, or 0x24. */
+        block = game.vm.mem4b00[0xf2] != 0 ? game.vm.mem4b00[0xf2] : 0x24;
+        if (file == 0) file = game.vm.file;
+    }
     if (file == 0) {
         for (unsigned n = 1; n <= 3 && file == 0; ++n) {
             size_t size;
@@ -224,6 +249,8 @@ int main(int argc, char **argv)
         fprintf(stderr, "block %u at %04x: %s\n", game.vm.block, game.vm.ip,
                 cok_ecl_status_string(status));
         result = 1;
+    } else if (game.party_killed) {
+        printf("(the party was killed in block %u)\n", game.vm.block);
     } else if (game.input_ended) {
         printf("(out of keys in block %u at %04x)\n", game.vm.block, game.vm.ip);
     } else {

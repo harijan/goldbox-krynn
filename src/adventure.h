@@ -3,6 +3,7 @@
 
 #include "ecl.h"
 #include "menu.h"
+#include "party.h"
 #include "picture.h"
 #include "text.h"
 #include "view.h"
@@ -12,10 +13,10 @@
 #include <stdint.h>
 
 /* The adventure screen's side of the ECL opcodes, from the handlers in
- * overlay 2fd3: text, menus, input, pictures, delays and the 3D view's
- * files. Other opcodes go to hooks.unported. The adventure loop moves the
- * party through 3D areas (2fd3:3c28, overlay 475c). The screen is 320x200
- * in the Tandy layout. */
+ * overlay 2fd3: text, menus, input, pictures, delays, the 3D view's files
+ * and the party's characters. Other opcodes go to hooks.unported. The
+ * adventure loop moves the party through 3D areas (2fd3:3c28, overlay
+ * 475c). The screen is 320x200 in the Tandy layout. */
 
 enum {
     COK_ADVENTURE_FRAMES = 16, /* Small picture frames kept (DS:6da2 holds 8). */
@@ -31,8 +32,9 @@ typedef struct {
     /* Text as it is printed, menus as they are shown (items with their ~
      * marks), input as it is read, pictures that fail to load, the party's
      * square and facing as "X,Y,DIR" after it moves or turns, and commands
-     * of the adventure loop that are not ported: kind is "print", "menu",
-     * "list", "item", "choice", "input", "error", "at" or "unported". */
+     * of the adventure loop that are not ported, and the name of each
+     * character WHO picks: kind is "print", "menu", "list", "item",
+     * "choice", "input", "error", "at", "unported" or "who". */
     void (*log)(cok_adventure *game, const char *kind, const char *text, void *context);
     /* Before each instruction, as cok_ecl_hooks.trace. */
     void (*trace)(cok_adventure *game, void *context);
@@ -51,6 +53,10 @@ struct cok_adventure {
      * is the frame's; see screen.h) and sky pictures. */
     cok_view view;
     int16_t wall_ids[3];   /* DS:6d8a: WALLDEF record per wall set, or -1. */
+
+    /* The party (DS:609a). The selected character is vm.character
+     * (DS:6096), which must be a member's record or NULL. */
+    cok_party party;
 
     /* The small picture (DS:6da2): frames from PIC<file>.DAX, each with its
      * delay in hundredths of a second, drawn at cell 3, 3. */
@@ -74,6 +80,7 @@ struct cok_adventure {
     bool moving;           /* DS:8858: the arrows move the party. */
     bool text_shown;       /* DS:884e clear: text to clear after a command. */
     bool door_tries[3];    /* DS:7146-7148: Bash, Pick and Knock may be tried. */
+    bool party_killed;     /* DAMAGE left no character able to act. */
 
     uint8_t speed;         /* DS:4b38, the game speed; 4 by default. */
     bool animate;          /* DS:4b4f: load every frame of a picture. */
@@ -88,7 +95,7 @@ struct cok_adventure {
 
 /* Load the font from assets and set up the VM with this module's hooks.
  * keys and hooks may be NULL. Returns false with game->error set. Free with
- * cok_adventure_close even on failure. */
+ * cok_adventure_close even on failure, which also frees the party. */
 bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keyboard *keys,
                         const cok_adventure_hooks *hooks);
 void cok_adventure_close(cok_adventure *game);
@@ -123,6 +130,34 @@ void cok_adventure_frame(cok_adventure *game);
  * (0x4be6 and 0x4c38 both 0) the big picture if game->redraw is set
  * (6945:00ba). Sets the party's square (0xc04f) and clears game->redraw. */
 void cok_adventure_view(cok_adventure *game);
+
+/* Add the characters of a saved game to the party, as 4b6d:1b34 does: for
+ * each name it holds, the character files of that name (see
+ * cok_party_file_name) in the saved game's directory, skipping names with
+ * no .SAV file. Each is counted in 0x7f3e, and the first becomes the
+ * selected character. Returns false with game->error set if the saved
+ * game or a character cannot be read, or the party is full. */
+bool cok_adventure_load_party(cok_adventure *game, const char *path);
+
+/* Load a saved game (4b6d:1b34): the variables, the party's square and
+ * facing, the modes and wall sets, the speed (0x4bfc) and animation
+ * (0x4bff), then the party as cok_adventure_load_party does, and the ECL
+ * file from 0x7f12. In a 3D area it reloads the map (if wall set 1's
+ * record was above 0) and the wall sets. The next block entered keeps the
+ * variables NEWECL would clear (DS:4b52), and the adventure loop then
+ * redraws the screen. Outside 3D areas the original also shows big
+ * picture 0x79, which is not ported. Play resumes from block 0x4bf2, or
+ * 0x24 when that is 0 (2fd3:3c28). */
+bool cok_adventure_restore(cok_adventure *game, const char *path);
+
+/* Draw the party list beside the view (6346:07ba), unless the area has no
+ * 3D view or a big picture is shown. */
+void cok_adventure_party(cok_adventure *game);
+
+/* Draw the status line on row 15 (6346:2d75): the party's square unless the
+ * overhead map is on (0x4bfb), its facing, the time, and "search" while
+ * searching. Not drawn outside 3D areas. */
+void cok_adventure_status(cok_adventure *game);
 
 /* Read a record by id from <name><file>.DAX in the asset directory, as
  * 169c:088e does; the first record with the id wins. Returns a malloc'd

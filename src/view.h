@@ -76,6 +76,10 @@ uint8_t cok_view_square(const cok_view *view, int x, int y);
  * Off the map with no wrap, 0. */
 uint8_t cok_view_passage(const cok_view *view, unsigned dir, int x, int y);
 
+/* Make side dir of square x, y a way through: its two bits in the fourth
+ * table become 1 (475c:0148). Squares off the map are left alone. */
+void cok_view_open(cok_view *view, unsigned dir, int x, int y);
+
 /* Move x, y one square in direction dir 0-7 (DS:1ed6, DS:1edf). */
 void cok_view_step(unsigned dir, int *x, int *y);
 

@@ -99,8 +99,9 @@ typedef struct {
      * value & 0x7f when 0x7f22, 0x7f24 or 0x7f26 gets a value above 0x80.
      * The VM itself sets file to (value + 1) / 2 for 0x7f12 (169c:0a3e). */
     void (*stored)(cok_ecl *vm, uint16_t address, uint16_t value, void *context);
-    /* Value of a character field the VM cannot compute: only 0x7cc9, which
-     * needs 66c2:0efb. */
+    /* Value of a character field the VM cannot compute: 0x7cc9, which needs
+     * 66c2:0efb, and 0x7eb1 and 0x7eb4, the selected character's position
+     * in the party from 0 (3775:0773). */
     uint16_t (*character_value)(cok_ecl *vm, uint16_t address, void *context);
     /* Before each instruction, with vm->ip at its opcode. */
     void (*trace)(cok_ecl *vm, void *context);
@@ -158,10 +159,9 @@ struct cok_ecl {
     bool name_cleared;        /* DS:883b, store of 0 to 0x7c00. */
     bool keep_vars;           /* DS:4b52: NEWECL keeps 0x4c00-0x4c1f and 0x7f79-0x7f82. */
 
-    /* The selected character's record (DS:6096) and its position in the
-     * party (3775:0773), maintained by the host; NULL reads as 0. */
+    /* The selected character's record (DS:6096), maintained by the host;
+     * NULL reads as 0. */
     uint8_t *character;
-    uint8_t character_slot;
     bool missing_character;    /* DS:8855: 0x7d00 then reads 0. */
     uint8_t *saved_character;  /* DS:43bf, restored by EXIT if restore is set. */
     bool restore_character;    /* DS:43ba. */

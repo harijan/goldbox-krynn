@@ -173,8 +173,7 @@ static uint16_t character_field(const cok_ecl *vm, uint16_t address, bool *found
     switch (field) {
     case 0x312: return vm->file;
     case 0x33e: return vm->mem7c00[0x33e];
-    case 0x2b1: case 0x2b4: return vm->character_slot;
-    case 0xc9:
+    case 0x2b1: case 0x2b4: case 0xc9:
         if (vm->hooks.character_value == NULL) return 0;
         return vm->hooks.character_value((cok_ecl *)vm, address, vm->hooks.context);
     case 0x100:
