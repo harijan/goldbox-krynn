@@ -62,7 +62,7 @@ build/test_text: tests/test_text.c src/text.c src/text.h src/picture.c src/pictu
 build/test_image: tests/test_image.c src/image.c src/image.h src/dax.c src/dax.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_image.c src/image.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
 
-test: build/test_dax build/test_image build/test_picture build/test_text build/test_ecl build/test_menu build/test_view build/test_party build/test_adventure build/daxcheck build/daximages build/daxcompose build/ecldump build/eclplay
+test: build/START_FULL.EXE build/test_dax build/test_image build/test_picture build/test_text build/test_ecl build/test_menu build/test_view build/test_party build/test_adventure build/daxcheck build/daximages build/daxcompose build/ecldump build/eclplay
 	./build/test_dax
 	./build/test_image
 	./build/test_picture
@@ -111,7 +111,7 @@ build/test_adventure_sanitize: tests/test_adventure.c $(ADVENTURE_DEPS) | build
 build/eclplay_sanitize: src/eclplay.c $(ADVENTURE_DEPS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer src/eclplay.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
 
-sanitize: build/test_dax_sanitize build/test_image_sanitize build/test_picture_sanitize build/test_text_sanitize build/test_ecl_sanitize build/test_menu_sanitize build/test_view_sanitize build/test_party_sanitize build/test_adventure_sanitize build/eclplay_sanitize build/daxcheck_sanitize
+sanitize: build/START_FULL.EXE build/test_dax_sanitize build/test_image_sanitize build/test_picture_sanitize build/test_text_sanitize build/test_ecl_sanitize build/test_menu_sanitize build/test_view_sanitize build/test_party_sanitize build/test_adventure_sanitize build/eclplay_sanitize build/daxcheck_sanitize
 	./build/test_dax_sanitize
 	./build/test_image_sanitize
 	./build/test_picture_sanitize
