@@ -285,6 +285,14 @@ static void test_menus_and_hooks(void)
     CHECK(run(&log) == COK_ECL_BAD_OPCODE && vm.cursor.x == 1 && vm.cursor.y == 4);
 }
 
+/* The host's character values: the selected character is third. */
+static uint16_t character_value(cok_ecl *vm_, uint16_t address, void *context)
+{
+    (void)vm_;
+    (void)context;
+    return address == 0x7eb1 || address == 0x7eb4 ? 2 : 0;
+}
+
 static void test_variables(void)
 {
     log_t log = start();
@@ -295,7 +303,7 @@ static void test_variables(void)
     record[0xec] = 0x12;
     record[0x188] = 3;
     vm.character = record;
-    vm.character_slot = 2;
+    vm.hooks.character_value = character_value;
     vm.file = 1;
 
     /* Each store and the code itself. */

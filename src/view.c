@@ -123,6 +123,14 @@ uint8_t cok_view_passage(const cok_view *view, unsigned dir, int x, int y)
     }
 }
 
+void cok_view_open(cok_view *view, unsigned dir, int x, int y)
+{
+    if (!on_map(x, y) || dir > 6 || dir % 2 != 0) return;
+    unsigned shift = dir; /* north in bits 0-1, east 2-3, south 4-5, west 6-7 */
+    uint8_t *bits = &view->map[0x300 + y * COK_VIEW_SIZE + x];
+    *bits = (uint8_t)((*bits & ~(3u << shift)) | 1u << shift);
+}
+
 void cok_view_step(unsigned dir, int *x, int *y)
 {
     *x += step_x[dir & 7];

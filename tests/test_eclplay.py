@@ -8,6 +8,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TOOL = ROOT / "build/eclplay"
 ASSETS = ROOT / "Assets"
+SAVE = ROOT / "SAVE"
 
 
 def pixel(bmp, x, y):
@@ -17,6 +18,19 @@ def pixel(bmp, x, y):
     stride = (width * 3 + 3) & ~3
     at = offset + (height - 1 - y) * stride + x * 3
     return tuple(reversed(bmp[at:at + 3]))
+
+
+def ink(bmp, x, y):
+    """The first colour other than black in cell x, y, or black."""
+    for row in range(8):
+        for column in range(8):
+            colour = pixel(bmp, x * 8 + column, y * 8 + row)
+            if colour != (0, 0, 0):
+                return colour
+    return (0, 0, 0)
+
+
+WHITE, CYAN, GREEN, YELLOW = (255, 255, 255), (85, 255, 255), (85, 255, 85), (255, 255, 85)
 
 
 class PlayTests(unittest.TestCase):
@@ -134,6 +148,75 @@ class PlayTests(unittest.TestCase):
         self.assertEqual(self.play("--vector", 5, ASSETS, 16).returncode, 2)
         self.assertEqual(self.play("--play", "--vector", 0, ASSETS, 16).returncode, 2)
         self.assertEqual(self.play(ASSETS).returncode, 2)
+
+
+@unittest.skipUnless((SAVE / "SAVGAMA.DAT").exists(), "needs the saved games in SAVE")
+class PartyTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.folder = pathlib.Path(self.temp.name)
+
+    def play(self, *args):
+        return subprocess.run([str(TOOL), *map(str, args)], capture_output=True, text=True)
+
+    def test_party_beside_the_view(self):
+        screen = self.folder / "screen.bmp"
+        # Leave the guards and pick the second character with the down arrow.
+        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
+                           "--keys", r"\r\v", "--screen", screen, ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        bmp = screen.read_bytes()
+        # Headings, then a row per character: the selected one white, the
+        # others light cyan, AC and hit points light green.
+        self.assertEqual(ink(bmp, 17, 2), WHITE)
+        self.assertEqual(ink(bmp, 17, 4), CYAN)
+        self.assertEqual(ink(bmp, 17, 5), WHITE)
+        self.assertEqual(ink(bmp, 17, 9), CYAN)
+        self.assertEqual(ink(bmp, 17, 10), (0, 0, 0))
+        self.assertEqual(ink(bmp, 33, 4), GREEN)  # AC -1
+        self.assertEqual(ink(bmp, 37, 5), GREEN)  # 30 hit points
+        # The status line: 7,15 N 00:00.
+        self.assertEqual(ink(bmp, 17, 15), GREEN)
+        self.assertEqual(ink(bmp, 28, 15), GREEN)
+        self.assertEqual(ink(bmp, 29, 15), (0, 0, 0))
+
+    def test_arrows_and_a_pit(self):
+        shots = self.folder / "shots"
+        shots.mkdir()
+        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--start", "9891", "--set", "4be6=1",
+                           "--keys", r"\r", "--shots", shots, ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[0], "print: A PIT OPENS UP BENEATH YOUR FEET!")
+        hits = [line for line in lines if " is hit FOR " in line]
+        self.assertTrue(hits)
+        self.assertTrue(all(line.endswith(" points of Damage.") for line in hits))
+        # The prompt waits on row 24 with the hurt in yellow.
+        bmp = sorted(shots.glob("*.bmp"))[0].read_bytes()
+        self.assertEqual(ink(bmp, 0, 24), WHITE)
+        self.assertIn(YELLOW, {ink(bmp, 38, y) for y in range(4, 10)})
+
+    def test_who_disarms_the_trap(self):
+        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--start", "9c8d", "--set", "4be6=1",
+                           "--keys", r"\v\v\v\r\r", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        # Down three times from the first character; the random roll
+        # against her skill (0x7ca5) succeeds.
+        who = lines.index("who: MOLLY")
+        self.assertEqual(lines[who + 1:who + 3],
+                         ["print: YOU HAVE SUCCESSFULLY DISARMED THE TRAP.",
+                          "print: Congratulations MOLLY gains experience!"])
+
+    def test_saved_game_resumes(self):
+        result = self.play("--load", SAVE / "SAVGAMA.DAT", "--keys", r"\r", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[0], "print: AT THE INN OF THE LAST HOME IN SOLACE, A BRAVE ")
+        result = self.play("--load", self.folder / "SAVGAMZ.DAT", ASSETS)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("SAVGAMZ.DAT: not found", result.stderr)
 
 
 if __name__ == "__main__":

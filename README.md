@@ -2,10 +2,11 @@
 
 The native tools are a C17 DAX archive reader, decompressor, image exporter,
 picture and text compositor, ECL script interpreter and disassembler, and a
-headless script player that shows the scripts' text, menus, pictures and 3D
-view on the adventure screen. The original DOS executable, decompiler
-output, and game data are reference inputs, kept in `Assets/`. These tools do
-not yet run the game.
+headless script player that shows the scripts' text, menus, pictures, 3D
+view and party on the adventure screen. The original DOS executable,
+decompiler output, and game data are reference inputs, kept in `Assets/`;
+saved games from the original, if any, go in `SAVE/`. These tools do not yet
+run the game.
 
 ## Build and verify
 
@@ -24,6 +25,7 @@ make
 ./build/ecldump --summary Assets/ECL*.DAX
 ./build/eclplay --keys '\r\r\r\r\r' --shots build/shots Assets 16
 ./build/eclplay --play --set 4be6=1 --keys '\r\rm\^\r\^\^' Assets 32
+./build/eclplay --load SAVE/SAVGAMA.DAT --play --keys '\r\r\r' Assets
 make test
 make sanitize
 ```
@@ -34,10 +36,12 @@ nonzero if any file or record fails. `--list` prints metadata for each validated
 record; directory entry numbers are zero-based. Duplicate IDs are retained.
 `make test` includes synthetic malformed inputs, all supplied DAX archives,
 export checks for all 26 supported graphics archives (2,363 images), and
-tests of the picture, text, menu and 3D view routines and the adventure loop,
-including PIC delta decoding on `PIC1.DAX` and the game font in `8X8D1.DAX`,
-and plays the opening scripts, the view of Throtl and a walk through it with
-`eclplay`.
+tests of the picture, text, menu, 3D view and party routines and the
+adventure loop, including PIC delta decoding on `PIC1.DAX` and the game font
+in `8X8D1.DAX`, and plays the opening scripts, the view of Throtl and a walk
+through it with `eclplay`. With the original's saved games in `SAVE/`
+(`SAVGAMA.DAT` and its `CHRDATA*` files), it also plays them with a party;
+those tests are skipped without them.
 `make sanitize` repeats these checks with AddressSanitizer and UBSan.
 Tests also require Python 3 (standard library only). The native tools have no
 third-party dependencies. Sanitizer targets require the compiler's ASan/UBSan
@@ -351,6 +355,9 @@ Adventure loop), which adds the party's square and facing after each step or
 turn (`at: X,Y,DIR`) and the commands that are not ported (`unported:`).
 `--keys` types keys (`\r` Enter, `\e` Escape, `\b` Backspace, `\<`, `\>`,
 `\^` and `\v` the arrows); when they run out the run stops.
+`--party SAVE` adds the characters of a saved game to the party (see Party),
+and `--load SAVE` loads the whole saved game first; then `BLOCK` may be left
+out to resume where it was saved. WHO prints the character picked (`who:`).
 `--shots DIR` saves `DIR/NNN.bmp` each time the game waits for a key,
 `--screen FILE` the final screen. `--start ADDR` runs from a code address
 instead, `--vector N` one vector, `--at X,Y,DIR` places the party, `--set
@@ -372,6 +379,10 @@ the gates of Gargath with the second item of a list.
 | `CLEAR BOX` | `2fd3:3063` | the adventure frame (`1128:0242`) and the first picture frame |
 | `DELAY` | `2fd3:2c33` | the `delay` hook, speed × 100 ms (`521:0b4b`) |
 | `LOAD FILES`, `LOAD PIECES` | `2fd3:0cf4` | the map and wall sets of the 3D view (see below) |
+| `LOAD CHARACTER` | `2fd3:02e9` | select a character by position until the script exits (see Party) |
+| `ADD EP` | `2fd3:36dc` | experience for the selected character or the party |
+| `WHO` | `2fd3:30b6` | pick the selected character from the party list |
+| `DAMAGE` | `2fd3:2c80` | damage by attacks or saving throws, which can kill the party |
 
 A one-item menu reading `PRESS BUTTON OR RETURN TO CONTINUE.` is shown as
 `PRESS <ENTER>/<RETURN> TO CONTINUE.`, and Enter picks it, as in the
@@ -379,10 +390,9 @@ original. Menu items are joined as `~ITEM` separated by spaces, cut to 50
 characters. Small pictures are delta collections whose groups after the first
 are animation frames, each preceded by its delay in hundredths of a second;
 with animation off (`DS:4b4f`) only the first is loaded. The game speed
-(`DS:4b38`) defaults to 4. The party list (`6346:07ba`), status line
-(`6346:2d75`), the picture path taken when `0x7ee1` is not 0xff
+(`DS:4b38`) defaults to 4. The picture path taken when `0x7ee1` is not 0xff
 (`3775:0538`) and the sequence for big picture 0x79 (`4877:0005`) are not
-ported; the last two are reported as unported.
+ported, and are reported as unported.
 
 ## 3D view
 
@@ -461,7 +471,9 @@ menu to `Exit`: then the up arrow (or 8) steps ahead, left and right (4 and
 minutes; the location vector then runs once with `0x7eca` at 1, after which
 the search bit is restored. `Encamp` runs the camp vector (`2fd3:3403`).
 After a command, text that `PRINT` or `VERTICAL MENU` left in rows 17-22 is
-cleared (`DS:884e`).
+cleared (`DS:884e`). Other special keys pick a character (`546c:3334`, see
+Party) and redraw the party list and status line, which are also redrawn
+after each step, turn and `Search` or `Look`.
 
 Before the after-move vector runs, a step that would leave the map sets
 `0x7ed5` (`475c:0765`); a vector that sets `0x7ec9` to 0xff cancels the
@@ -475,10 +487,19 @@ and passes one minute, or ten while searching.
 At a locked door the menu shows `Locked.` and whichever of `Bash`, `Pick`
 and `Knock` may still be tried (`DS:7146`-`7148`), then `Exit`. All three
 become available again after each step; before the first step none are, and
-no menu shows. `Pick` needs a thief and `Knock` a character who knows spell
-0x1f, and `Bash` rolls against each character's strength. Characters are not
-ported, so the party is empty: as in the original with no characters, only
-`Bash` is offered, and it fails.
+no menu shows. `Bash` (`475c:02f3`) rolls for each character in turn against
+its strength (`+0x11`, with exceptional strength `+0x1c`), with a harder
+table for a door that cannot be picked; a character too weak to try stops it
+being offered. `Pick` (`475c:05b6`) is offered when a character is a thief
+(`475c:0275`: a level in class 6, or a former one a human may still use,
+`66c2:0efb`), and each character who is okay rolls 1-100 against `+0xdc`; at
+a door that cannot be picked, choosing it only stops it being offered. A
+bashed or picked door opens on both sides for good (`475c:0148`). `Knock`
+(`475c:0720`) is offered when a character has memorized spell 0x1f among the
+bytes from `+0x1e`; the first such character forgets it, and the party
+passes once, leaving the door locked. As in the original, the door menu
+takes special keys by the letter of their scan code, so the down arrow
+(0x50, `P`) picks and the left arrow (0x4b, `K`) knocks.
 
 The clock is seven words from `0x4bc6`, which carry into the next at 10,
 10, 6, 24, 30, 12 and 256 (`DS:3874`): `0x4bc7` counts minutes, `0x4bc8`
@@ -492,9 +513,111 @@ Not ported, and logged as `unported:`: `Area`, the overhead map
 (`69ea:000f`); `Cast` (`4888:0a0d`); `View` (`546c:0d74`); the camp menu
 (`4888:2c31`), so the party never rests and the rest vector never runs; and
 travel outside 3D areas (`475c:08d5`), where the loop stops. Also not ported:
-picking a character with the other keys (`546c:3334`), the party list and
-status line, sound, aging the characters each year, and counting down their
-spell effects (`57e4:0171`).
+sound, aging the characters each year, and counting down their spell effects
+(`57e4:0171`).
+
+## Party
+
+`src/party.h` holds the party and its characters. The original keeps the
+party as a linked list of 409-byte records from `DS:609a` (next at `+0x17f`)
+with the selected character at `DS:6096`; the port keeps an array in the same
+order, and the selected record in `vm.character`. `party.h` lists the record
+fields the port uses. Fields from `+0x18c` on, such as the armour class
+(`+0x18d`, as 60 - AC), are derived from the others and the items when a
+character loads (`6346:0d20`, `66c2:0433`); the port keeps the values saved in
+the file, so items and effects are loaded but not yet used.
+
+A saved game, `SAVGAM<letter>.DAT` (`4b6d:1b34`), is 5,469 bytes: the ECL file,
+the variables `0x4b00`-`0x4eff`, `0x7c00`-`0x7fff` and `0x7a00`-`0x7bff` as
+words, the party's square, facing, wall ahead and square byte
+(`DS:6d85`-`6d89`), the last and current modes, three wall sets (record and
+slot), the party's size and eight 40-character names. Each name, stripped of
+` .*,?/\:;|`, cut to eight characters and upper-cased (`169c:05da`), names
+the character's files beside the saved game: `.SAV`, the record; `.STF`, its
+items, 63 bytes each; and `.SFX`, its spell effects, 9 bytes each
+(`4b6d:11e5`). Missing characters are skipped. Each character added gets
+the lowest combat icon slot free (`+0x137`) and is counted in `0x7f3e`
+(`4b6d:1989`). The original also loads their combat icons and deletes any
+roster copies of them (`.WHO`, `.STF`, `.SFX` named after the character); the
+port does neither. `cok_adventure_restore` then reloads the map and wall sets
+in a 3D area, sets the speed and animation from `0x4bfc` and `0x4bff`, and
+sets `DS:4b52`, so that the first block keeps its variables and the
+adventure loop redraws the screen (`6346:2c17`). Play resumes in block
+`0x4bf2`, or 0x24 if that is 0 (`2fd3:3c28`).
+
+The party list (`6346:07ba`) shows `Name` and `AC  HP` on row 2 from column
+17, then a character a row from row 4: the selected one's name in white,
+others light cyan, or light red when they cannot act (`+0x189` clear;
+`6346:199d`). AC is light green, right-aligned to column 34 with a minus sign
+for negative values (`6346:0984`); hit points are right-aligned to column 38,
+yellow when below the maximum (`6346:0a0d`). Each row is cleared first, and one
+more after the list, so a party that shrinks by two leaves a stale row, as in
+the original. It is not drawn outside 3D areas unless `0x4c38` is set, nor
+over a big picture (`DS:4b4e`). The status line (`6346:2d75`) on row 15, in
+light green, reads like `7,15 N 00:00 search`: the square unless the overhead
+map is on (`0x4bfb`), the facing (turned by `0x4cff`), the hour and minutes,
+and `search` while searching, or `camping` in camp. The original adds `*`
+while its debug flag (`DS:4b51`, Ctrl-D) is set; the port does not. The list
+is redrawn when a block's vectors have run, by `CLEAR BOX`, `LOAD FILES` and
+`WHO`, and after damage; the status line after steps, turns, `Search`, `Look`
+and special keys in the adventure loop.
+
+Special keys from a menu pick a character (`546c:3334`): up (or 8) the one
+before, wrapping to the last, down (or 2) the one after, wrapping to the
+first, and every other special key the first. `HORIZONTAL MENU` then redraws
+the party list (`3775:1885`), and the adventure loop the list and status
+line. The original walks off the list when the selected character is not in
+the party; the port selects none.
+
+`LOAD CHARACTER` selects the character at the position given by its operand,
+`& 0x7f`, from 0; `EXIT` restores the selection made before the vector ran
+(`DS:43bf`). Past the end of the party the selection stays and `0x7d00`
+reads 0 (`DS:8855`). With bit 7 set, the original would also remove the
+character (`4def:3b0a`) when `DS:883a` is set and its name was cleared, but
+nothing sets `DS:883a`. `0x7eb1` and `0x7eb4` read the selected character's
+position (`3775:0773`), the party's size if none is selected, and `0x7cc9`
+whether it may use a former class (`66c2:0efb`).
+
+`ADD EP` prints `Congratulations NAME gains experience!` (or `the party`)
+and waits speed × 100 ms, then adds the points, divided by the number of
+classes with a level (`+0xf9`-`+0x100`), to the 32-bit experience at `+0x116`
+of the selected character (first operand 0) or each character, if it can act.
+A character with no level divides by zero, which stops the run as runtime
+error 200 would.
+
+`WHO` clears the text window and shows its prompt and `Select` on row 24
+(`6346:32c7`), redrawing the party list with the character picked so far:
+up and down (8 and 2) move through the party, wrapping, and `S` or Enter
+picks. Escape does nothing. The original also leaves on the special keys
+whose scan codes are `E` and `S` (NumLock and Del).
+
+`DAMAGE` takes five byte operands: an attack count or flags, dice count,
+dice sides, damage bonus, and a to-hit bonus or saving throw. Damage is the
+bonus plus the dice, rolled with Turbo Pascal's `Random` (`60f4:1216`). Without
+bit 7 of the first operand, it is that many attacks on characters chosen at
+random from the size in `0x7f3e`, each hitting if a d20 (20 counting as 100)
+plus the fifth operand beats `+0x18d`, a 1 always missing (`60f4:0ffb`), and
+damage is rolled again after each. With bit 7, its low five bits are a
+saving-throw bonus and the fifth operand's low three bits the throw: with bit
+6 each character is hit unless it saves (bit 5: no save), with fifth operand
+bit 7 the selected character (throw type - 1, and none for type 0), and
+otherwise a random one; bit 4 deals the damage even on a save. A save
+(`60f4:113a`) needs a d20 plus the bonuses at `+0x17c` and in the operand,
+as a byte, to reach the throw at `+0xd0`; 1 always fails and 20 succeeds, and
+a character with a level at `+0xfe` and `+0x5e` set gets -1 or +1 from the
+word at `0x4bf8 + +0x5e`, a byte sum that wraps (perhaps meant for the
+moons). Each hit (`3775:20a6`) prints `NAME is hit FOR N points of Damage.`,
+or `NAME dies.` past its hit points plus 10, paging with `press
+<enter>/<return> to continue` when the window is full, and redraws the list;
+the dead take none. Damage equal to the hit points leaves a character
+unconscious (status 4), up to 9 more dying (5), and more dead (6), and it
+can no longer act (`6346:24d7`). The message tests more than 10 past the hit
+points but the status 10 or more, and only the low byte of the damage is
+dealt, as in the original. Afterwards, if no character can act, the frame is
+cleared, `The entire party is killed!` printed and the run ended (`DS:4b57`);
+either way the prompt then waits for a key. The original lets spell effects
+change attack and saving rolls (`60f4:057c`), and keeps combat records;
+neither is ported.
 
 ## Checks against the original
 
@@ -507,6 +630,10 @@ running in DOSBox:
 - Wall tiles and sky pictures are masked with colour 13 in the 3D view.
   Compare a view, such as Throtl's street from 7, 15 facing north, for light
   magenta or holes.
+- Load saved game A and compare the party list and status line beside the
+  view: the columns of AC and hit points, the colours, and `7,13 N 00:00`.
+- Fall into the pit in Throtl and compare the damage messages and how they
+  page.
 
 ## Disassembly image
 
