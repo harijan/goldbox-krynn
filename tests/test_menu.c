@@ -44,7 +44,7 @@ static unsigned cell_glyph(const cok_picture *p, int x, int y)
     unsigned glyph = 0;
     const uint8_t *row = p->pixels + ((size_t)y * 8 + 1) * p->units * 4 + (size_t)x * 4;
     for (unsigned i = 0; i < 8; ++i) {
-        unsigned pixel = (row[i / 2] >> (i % 2 == 0 ? 4 : 0)) & 15u;
+        unsigned pixel = ((unsigned)row[i / 2] >> (i % 2 == 0 ? 4 : 0)) & 15u;
         if (pixel == cell_fg(p, x, y) && pixel != cell_bg(p, x, y)) glyph |= 0x80u >> i;
     }
     return glyph;

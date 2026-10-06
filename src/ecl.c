@@ -90,7 +90,9 @@ int cok_ecl_operand_count(unsigned opcode)
 uint16_t cok_tp_random(uint32_t *seed, uint16_t range)
 {
     *seed = *seed * 0x08088405u + 1;
-    return range == 0 ? 0 : (uint16_t)((*seed >> 16) % range);
+    if (range == 0)
+        return 0;
+    return (uint16_t)((*seed >> 16) % range);
 }
 
 void cok_ecl_init(cok_ecl *vm, const cok_ecl_hooks *hooks)
