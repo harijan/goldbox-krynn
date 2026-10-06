@@ -45,11 +45,11 @@ static cok_keyboard keyboard(cok_adventure *game)
     return (cok_keyboard){read_key, game};
 }
 
-uint8_t *cok_adventure_record(cok_adventure *game, const char *name, unsigned file,
-                              uint8_t id, size_t *size)
+/* Read a record by id from <name>.DAX (169c:088e). */
+static uint8_t *read_record(cok_adventure *game, const char *name, uint8_t id, size_t *size)
 {
     char path[sizeof game->assets + 32];
-    snprintf(path, sizeof path, "%s/%s%u.DAX", game->assets, name, file);
+    snprintf(path, sizeof path, "%s/%s.DAX", game->assets, name);
     dax_archive archive = {0};
     dax_status status = dax_open(path, &archive);
     if (status != DAX_OK) {
@@ -84,26 +84,36 @@ uint8_t *cok_adventure_record(cok_adventure *game, const char *name, unsigned fi
     return data;
 }
 
-/* Load a record of one image or one group of frames into picture. */
-static bool load_single(cok_adventure *game, const char *name, unsigned file, uint8_t id,
+uint8_t *cok_adventure_record(cok_adventure *game, const char *name, unsigned file,
+                              uint8_t id, size_t *size)
+{
+    char label[32];
+    snprintf(label, sizeof label, "%.20s%u", name, file);
+    return read_record(game, label, id, size);
+}
+
+/* Load a record of one image or one group of frames from <name>.DAX into
+ * picture (127f:0111); transparent is as for cok_picture_load. The old
+ * picture is freed first. */
+static bool load_single(cok_adventure *game, const char *name, uint8_t id, int transparent,
                         cok_picture *picture)
 {
+    cok_picture_free(picture);
     game->error[0] = '\0';
     size_t size;
-    uint8_t *data = cok_adventure_record(game, name, file, id, &size);
+    uint8_t *data = read_record(game, name, id, &size);
     if (data == NULL) return false;
     cok_images images = {0};
     cok_image_status status = cok_images_parse(data, size, 0, &images);
     bool ok = status == COK_IMAGE_OK;
     if (!ok) {
-        fail(game, "%s%u.DAX record %u: %s", name, file, id, cok_image_status_string(status));
+        fail(game, "%s.DAX record %u: %s", name, id, cok_image_status_string(status));
     } else {
-        cok_picture_free(picture);
-        cok_picture_status loaded = cok_picture_load(picture, images.images, images.count, -1);
+        cok_picture_status loaded =
+            cok_picture_load(picture, images.images, images.count, transparent);
         ok = loaded == COK_PICTURE_OK;
         if (!ok)
-            fail(game, "%s%u.DAX record %u: %s", name, file, id,
-                 cok_picture_status_string(loaded));
+            fail(game, "%s.DAX record %u: %s", name, id, cok_picture_status_string(loaded));
     }
     cok_images_free(&images);
     free(data);
@@ -119,7 +129,7 @@ void cok_adventure_frame(cok_adventure *game)
 {
     uint16_t phase[3];
     moons(game, phase);
-    cok_screen_adventure(&game->screen, &game->tiles, phase);
+    cok_screen_adventure(&game->screen, &game->view.tiles[4], phase);
 }
 
 /* Small pictures. */
@@ -177,11 +187,35 @@ static void draw_frame(cok_adventure *game, size_t frame)
         cok_picture_draw(&game->screen, &game->frames[frame], 0, 3, 3, 0, NULL);
 }
 
-/* Show the 3D view again in place of a picture (6945:00ba), which is not
- * ported: the view is left blank. */
-static void clear_view(cok_adventure *game)
+/* The big picture in its frame (6961:085b). */
+static void draw_big(cok_adventure *game)
 {
-    cok_picture_fill(&game->screen, 3, 3 * 8, 11, 11 * 8, 0);
+    uint16_t phase[3];
+    moons(game, phase);
+    cok_screen_big(&game->screen, &game->view.tiles[4], phase);
+    if (game->big.pixels != NULL) cok_picture_draw(&game->screen, &game->big, 0, 1, 1, 0, NULL);
+}
+
+void cok_adventure_view(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    if (game->picture_id == 9) game->redraw = false;
+    if (vm->mem4b00[0xe6] == 0 && vm->mem4b00[0x138] == 0) {
+        if (game->redraw) draw_big(game);
+    } else {
+        vm->square = cok_view_square(&game->view, vm->map_x, vm->map_y);
+        /* The overhead map that 0x4bfb and DS:6d84 select is not ported. */
+        cok_view_backdrop backdrop = {
+            .sky = cok_view_sky_color(vm->mem4b00[vm->square < 0x80 ? 0xfd : 0xfe]),
+            .horizon = 0,
+            .ground = 8,
+            .hour = vm->mem4b00[0xc9],
+        };
+        game->view.wrap = vm->block != 0 && vm->block != 0x50;
+        cok_view_draw(&game->screen, &game->view, vm->map_x, vm->map_y, vm->direction,
+                      &backdrop);
+    }
+    game->redraw = false;
 }
 
 /* PICTURE (2fd3:0914). */
@@ -191,7 +225,8 @@ static void picture(cok_adventure *game)
     uint8_t id = (uint8_t)cok_ecl_value(vm, 0);
     if (id == 0xff) {
         if (!(vm->last_mode == 4 && vm->mode != 4) && game->picture_shown) {
-            clear_view(game);
+            game->redraw = true;
+            cok_adventure_view(game);
             game->picture_shown = false;
             game->view_replaced = true;
         }
@@ -215,17 +250,121 @@ static void picture(cok_adventure *game)
     free_frames(game);
     if (game->big_id != id || game->big.pixels == NULL) {
         game->big_id = COK_ADVENTURE_NO_PICTURE;
-        if (load_single(game, "BIGPIC", vm->file, id, &game->big))
+        char name[16];
+        snprintf(name, sizeof name, "BIGPIC%u", vm->file);
+        if (load_single(game, name, id, -1, &game->big))
             game->big_id = id;
         else
             log_text(game, "error", game->error);
     }
-    uint16_t phase[3];
-    moons(game, phase);
-    cok_screen_big(&game->screen, &game->tiles, phase);
-    if (game->big_id == id) cok_picture_draw(&game->screen, &game->big, 0, 1, 1, 0, NULL);
+    draw_big(game);
     /* Picture 0x79 runs 4877:0005 instead, which is not ported. */
     if (id != 0x79) game->big_shown = true;
+    game->redraw = false;
+}
+
+/* The 3D view's files. */
+
+/* Load tile set set from 8X8D<file> record id, colour 13 transparent
+ * (6e22:0050). */
+static bool load_tiles(cok_adventure *game, unsigned set, uint8_t id)
+{
+    char name[16];
+    snprintf(name, sizeof name, "8X8D%u", game->vm.file);
+    return load_single(game, name, id, 13, &game->view.tiles[set]);
+}
+
+/* Load GEO<file> record id as the map (69ea:130d). */
+static bool load_map(cok_adventure *game, uint8_t id)
+{
+    cok_ecl *vm = &game->vm;
+    game->error[0] = '\0';
+    size_t size;
+    uint8_t *data = cok_adventure_record(game, "GEO", vm->file, id, &size);
+    if (data == NULL) return false;
+    bool ok = cok_view_set_map(&game->view, data, size);
+    free(data);
+    if (!ok) {
+        fail(game, "GEO%u.DAX record %u is not a map", vm->file, id);
+        return false;
+    }
+    vm->mem4b00[0xc5] = id;
+    return true;
+}
+
+/* Load WALLDEF<file> record id into the wall sets from slot on, then the
+ * tile sets they use (69ea:1025). Slots other than 1-3 are ignored. */
+static bool load_walls(cok_adventure *game, unsigned slot, uint8_t id)
+{
+    if (slot < 1 || slot > 3) return true;
+    cok_ecl *vm = &game->vm;
+    game->error[0] = '\0';
+    size_t size;
+    uint8_t *data = cok_adventure_record(game, "WALLDEF", vm->file, id, &size);
+    if (data == NULL) return false;
+    size_t sets = cok_view_set_walls(&game->view, slot, data, size);
+    free(data);
+    if (sets == 0) {
+        fail(game, "WALLDEF%u.DAX record %u does not fit from wall set %u", vm->file, id, slot);
+        return false;
+    }
+    for (size_t i = 0; i < sets; ++i) {
+        game->wall_ids[slot - 1 + i] = -1;
+        uint8_t tiles = sets < 2 ? id : (uint8_t)(id * 10 + i + 1);
+        if (!load_tiles(game, slot + (unsigned)i, tiles)) return false;
+    }
+    game->wall_ids[slot - 1] = id;
+    return true;
+}
+
+/* LOAD FILES and LOAD PIECES (2fd3:0cf4). The original halts when a file
+ * fails to load; the run stops with COK_ECL_LOAD_FAILED. */
+static void load_files(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    uint8_t id[4] = {0};
+    for (size_t i = 1; i <= 3; ++i) id[i] = (uint8_t)cok_ecl_value(vm, i - 1);
+    game->files_loaded = true;
+    bool ok = true;
+    if (vm->opcode == COK_ECL_LOAD_FILES) {
+        game->map_loaded = true;
+        if (id[1] != 0xff && id[1] != 0x7f && vm->mem4b00[0xe6] != 0) {
+            ok = load_map(game, id[1]);
+            vm->mem7c00[0x2c9] = 0;
+        }
+    } else {
+        game->pieces_loaded = true;
+        if (id[1] == 0x7f) {
+            ok = load_walls(game, 1, 0);
+        } else if (vm->mem4b00[0xe7] == 0 || vm->mem4b00[0xe8] == 0) {
+            for (unsigned slot = 1; slot <= 3 && ok; ++slot) {
+                if (id[slot] == 0xff)
+                    game->wall_ids[slot - 1] = -1;
+                else
+                    ok = load_walls(game, slot, id[slot]);
+            }
+        } else {
+            if (id[1] == 0xff)
+                game->wall_ids[0] = -1;
+            else
+                ok = load_walls(game, 1, id[1]);
+            if (id[3] == 0xff || id[3] == 0x7f)
+                game->wall_ids[2] = -1;
+            else if (ok)
+                ok = load_walls(game, 3, id[3]);
+        }
+    }
+    if (!ok) {
+        log_text(game, "error", game->error);
+        vm->status = COK_ECL_LOAD_FAILED;
+        return;
+    }
+    if (game->pieces_loaded && game->map_loaded && vm->last_mode == 3) {
+        /* The original also redraws the party list (6346:07ba) and status
+         * line (6346:2d75), which are not ported. */
+        if (vm->mode != 3 && game->frame_pending) cok_adventure_frame(game);
+        game->frame_pending = false;
+    }
 }
 
 /* CLEAR BOX (2fd3:3063). The party list (6346:07ba) and status line
@@ -385,6 +524,7 @@ static void opcode(cok_ecl *vm, void *context)
     case COK_ECL_PICTURE: picture(game); break;
     case COK_ECL_CLEAR_BOX: clear_box(game); break;
     case COK_ECL_DELAY: wait_ms(game, game->speed * 100u); break;
+    case COK_ECL_LOAD_FILES: case COK_ECL_LOAD_PIECES: load_files(game); break;
     default:
         if (game->hooks.unported != NULL) game->hooks.unported(game, game->hooks.context);
         break;
@@ -425,6 +565,7 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
     game->picture_id = COK_ADVENTURE_NO_PICTURE;
     game->big_id = COK_ADVENTURE_NO_PICTURE;
     game->speed = 4;
+    for (size_t i = 0; i < 3; ++i) game->wall_ids[i] = -1;
     game->animate = true;
     game->selected = 1;
     if (keys != NULL) game->keys = *keys;
@@ -447,15 +588,20 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
         fail(game, "8X8D1.DAX record 201: %s", cok_picture_status_string(status));
         return false;
     }
-    /* The game loads its tile sets once, while the ECL file is still 1. */
-    return load_single(game, "8X8D", 1, 202, &game->tiles);
+    /* The game loads these once at startup, while the ECL file is still 1
+     * (3e99:005b): the frame's tile set, tile set 0, and outside CGA mode
+     * the sky pictures. */
+    if (!load_tiles(game, 4, 202) || !load_tiles(game, 0, 203)) return false;
+    for (uint8_t i = 0; i < COK_VIEW_SKY_PICTURES; ++i)
+        if (!load_single(game, "SKY", (uint8_t)(250 + i), 13, &game->view.sky[i])) return false;
+    return true;
 }
 
 void cok_adventure_close(cok_adventure *game)
 {
     free_frames(game);
     cok_picture_free(&game->big);
-    cok_picture_free(&game->tiles);
+    cok_view_free(&game->view);
     cok_picture_free(&game->screen);
     cok_font_free(&game->font);
 }
@@ -472,16 +618,25 @@ cok_ecl_status cok_adventure_load(cok_adventure *game, uint8_t block)
 cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block)
 {
     cok_ecl *vm = &game->vm;
+    /* As 2fd3:3c28 starts. */
+    game->redraw = true;
+    game->files_loaded = game->pieces_loaded = game->map_loaded = false;
+    game->frame_pending = vm->mem4b00[0xf2] != 0;
+    vm->mode = vm->mem4b00[0xe6] == 0 ? 3 : 4;
     cok_ecl_status status = cok_adventure_load(game, block);
     while (status == COK_ECL_OK && !vm->abort) {
         vm->reload = false;
         status = cok_ecl_run(vm, vm->vectors[4]);
         if (status != COK_ECL_OK || vm->abort || vm->reload) continue;
+        if (((vm->last_mode != 4 || vm->mode == 4) && game->files_loaded) ||
+            (vm->last_mode == 4 && vm->mode == 4))
+            cok_adventure_view(game);
         status = cok_ecl_run(vm, vm->vectors[0]);
         if (status != COK_ECL_OK || vm->abort || vm->reload) continue;
         status = cok_ecl_run(vm, vm->vectors[1]);
         if (status != COK_ECL_OK || vm->abort || vm->reload) continue;
         break;
     }
+    vm->last_mode = vm->mode;
     return status;
 }

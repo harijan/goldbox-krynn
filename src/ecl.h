@@ -54,7 +54,8 @@ typedef enum {
     COK_ECL_BAD_OPERAND, /* More operands or string operands than the arrays hold. */
     COK_ECL_BAD_OPCODE,  /* 0x1f, PROTECTION, or past ADD EP: the original hangs. */
     COK_ECL_DEEP_CALLS,  /* GOSUB nesting past COK_ECL_MAX_CALLS. */
-    COK_ECL_LOAD_FAILED, /* NEWECL's load hook failed; the original retries. */
+    COK_ECL_LOAD_FAILED, /* NEWECL's load hook failed, where the original retries,
+                          * or the opcode hook could not load a file. */
     COK_ECL_DIVIDE_BY_ZERO, /* The original stops with runtime error 200. */
 } cok_ecl_status;
 

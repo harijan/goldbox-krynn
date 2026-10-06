@@ -34,7 +34,7 @@ class PlayTests(unittest.TestCase):
         result = self.play("--keys", r"\r\r\r\r\r", "--shots", shots, ASSETS, 16)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
-        self.assertEqual(lines[2], "print: AS YOU TOP A RISE, YOU SPOT A CARAVAN UNDER ")
+        self.assertEqual(lines[1], "print: AS YOU TOP A RISE, YOU SPOT A CARAVAN UNDER ")
         self.assertIn("menu: ~PRESS <ENTER>/<RETURN> TO CONTINUE.", lines)
         self.assertIn("menu: ~YES ~NO", lines)
         self.assertIn("[COMBAT]", lines)
@@ -45,8 +45,11 @@ class PlayTests(unittest.TestCase):
         self.assertEqual(len(images), 6)
         first = images[0].read_bytes()
         self.assertEqual(struct.unpack_from("<ii", first, 18), (320, 200))
-        # The frame's corner tile is drawn, the menu row is inverted white.
-        self.assertNotEqual(pixel(first, 0, 0), (0, 0, 0))
+        # The frame's corner tile is drawn with colour 13 (light magenta)
+        # transparent, so black; the menu row is inverted white.
+        self.assertEqual(pixel(first, 0, 0), (0, 0, 0))
+        self.assertEqual(pixel(first, 0, 1), (85, 255, 255))
+        self.assertNotIn((255, 85, 255), {pixel(first, x, y) for x in range(320) for y in range(8)})
         self.assertEqual(pixel(first, 0, 24 * 8), (255, 255, 255))
 
     def test_no_to_the_survivors(self):
@@ -71,6 +74,30 @@ class PlayTests(unittest.TestCase):
         result = self.play("--start", "899b", "--keys", r"\r22\r", ASSETS, 48)
         self.assertIn("choice: 2", result.stdout.splitlines())
         self.assertIn("[LOAD MONSTER 36 4 35]", result.stdout.splitlines())
+
+    def test_view_of_throtl(self):
+        shots = self.folder / "shots"
+        shots.mkdir()
+        result = self.play("--set", "4be6=1", "--keys", "", "--shots", shots, ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertFalse([line for line in lines if line.startswith("[LOAD ")])
+        self.assertEqual(lines[-2], "menu: ~ATTACK ~LEAVE")
+        bmp = sorted(shots.glob("*.bmp"))[0].read_bytes()
+        # The party stands at 7, 15 facing north, down a street: grey stone
+        # sides near the view's edges and cobbles below a black sky.
+        self.assertEqual(pixel(bmp, 8 * 8 + 4, 3 * 8 + 2), (0, 0, 0))
+        self.assertEqual(pixel(bmp, 8 * 8 + 4, 13 * 8 + 4), (170, 170, 170))
+        self.assertEqual(pixel(bmp, 3 * 8 + 1, 8 * 8), (0, 170, 170))
+        colours = {pixel(bmp, x, y) for x in range(24, 112) for y in range(24, 112)}
+        self.assertGreaterEqual(len(colours), 5)
+
+    def test_missing_wall_set_halts(self):
+        # With 0x4be7 clear, LOAD PIECES 1 2 255 loads a wall set for each
+        # slot, and WALLDEF1.DAX has no record 2: the original halts.
+        result = self.play("--start", "802f", "--set", "4be6=1", "--set", "4be7=0", ASSETS, 32)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("WALLDEF1.DAX has no record 2", result.stderr)
 
     def test_missing_block_and_bad_options(self):
         result = self.play(ASSETS, 200)

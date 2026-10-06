@@ -5,14 +5,16 @@
 #include "menu.h"
 #include "picture.h"
 #include "text.h"
+#include "view.h"
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 /* The adventure screen's side of the ECL opcodes, from the handlers in
- * overlay 2fd3: text, menus, input, pictures and delays. Other opcodes go
- * to hooks.unported. The screen is 320x200 in the Tandy layout. */
+ * overlay 2fd3: text, menus, input, pictures, delays and the 3D view's
+ * files. Other opcodes go to hooks.unported. The screen is 320x200 in the
+ * Tandy layout. */
 
 enum {
     COK_ADVENTURE_FRAMES = 16, /* Small picture frames kept (DS:6da2 holds 8). */
@@ -42,7 +44,10 @@ struct cok_adventure {
     char assets[512];      /* Directory holding the DAX files. */
     cok_picture screen;    /* 40 units by 200 rows. */
     cok_font font;         /* 8X8D1.DAX record 201. */
-    cok_picture tiles;     /* Tile set 4, 8X8D1.DAX record 202; see screen.h. */
+    /* The 3D view: map, wall sets, tile sets (set 4, 8X8D1.DAX record 202,
+     * is the frame's; see screen.h) and sky pictures. */
+    cok_view view;
+    int16_t wall_ids[3];   /* DS:6d8a: WALLDEF record per wall set, or -1. */
 
     /* The small picture (DS:6da2): frames from PIC<file>.DAX, each with its
      * delay in hundredths of a second, drawn at cell 3, 3. */
@@ -57,6 +62,11 @@ struct cok_adventure {
     bool picture_shown;    /* DS:884a: the view holds a picture. */
     bool view_replaced;    /* DS:884b. */
     bool big_shown;        /* DS:4b4e: hides the status line. */
+    bool redraw;           /* DS:713a: show the big picture where there is no view. */
+    bool files_loaded;     /* DS:43bb: LOAD FILES or LOAD PIECES ran. */
+    bool pieces_loaded;    /* DS:43bc. */
+    bool map_loaded;       /* DS:43bd. */
+    bool frame_pending;    /* DS:8856: redraw the frame once both have run. */
 
     uint8_t speed;         /* DS:4b38, the game speed; 4 by default. */
     bool animate;          /* DS:4b4f: load every frame of a picture. */
@@ -80,13 +90,19 @@ void cok_adventure_close(cok_adventure *game);
  * 3775:01e8), resetting picture state as the original does. */
 cok_ecl_status cok_adventure_load(cok_adventure *game, uint8_t block);
 
-/* Load block and enter it as 2fd3:3b47 does: run the load vector, then the
+/* Load block and enter it as 2fd3:3b47 does: run the load vector, show the
+ * view if the block loaded its files or stays in 3D, then run the
  * after-move and location vectors, and start over from the load vector
  * whenever NEWECL switches blocks. */
 cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block);
 
 /* Draw the adventure screen's frame (1128:0242). */
 void cok_adventure_frame(cok_adventure *game);
+
+/* Show the 3D view from the party's square, or with no 3D view in the area
+ * (0x4be6 and 0x4c38 both 0) the big picture if game->redraw is set
+ * (6945:00ba). Sets the party's square (0xc04f) and clears game->redraw. */
+void cok_adventure_view(cok_adventure *game);
 
 /* Read a record by id from <name><file>.DAX in the asset directory, as
  * 169c:088e does; the first record with the id wins. Returns a malloc'd

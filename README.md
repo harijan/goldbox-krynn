@@ -2,10 +2,10 @@
 
 The native tools are a C17 DAX archive reader, decompressor, image exporter,
 picture and text compositor, ECL script interpreter and disassembler, and a
-headless script player that shows the scripts' text, menus and pictures on
-the adventure screen. The original DOS executable, decompiler output, and
-game data are reference inputs, kept in `Assets/`. These tools do not yet run
-the game.
+headless script player that shows the scripts' text, menus, pictures and 3D
+view on the adventure screen. The original DOS executable, decompiler
+output, and game data are reference inputs, kept in `Assets/`. These tools do
+not yet run the game.
 
 ## Build and verify
 
@@ -33,9 +33,9 @@ nonzero if any file or record fails. `--list` prints metadata for each validated
 record; directory entry numbers are zero-based. Duplicate IDs are retained.
 `make test` includes synthetic malformed inputs, all supplied DAX archives,
 export checks for all 26 supported graphics archives (2,363 images), and
-tests of the picture, text and menu routines, including PIC delta decoding on
-`PIC1.DAX` and the game font in `8X8D1.DAX`, and plays the opening scripts
-with `eclplay`.
+tests of the picture, text, menu and 3D view routines, including PIC delta
+decoding on `PIC1.DAX` and the game font in `8X8D1.DAX`, and plays the
+opening scripts and the view of Throtl with `eclplay`.
 `make sanitize` repeats these checks with AddressSanitizer and UBSan.
 Tests also require Python 3 (standard library only). The native tools have no
 third-party dependencies. Sanitizer targets require the compiler's ASan/UBSan
@@ -258,8 +258,11 @@ lists have none.
 
 `src/screen.h` draws the screen frames from the root segment `0x128` with
 tile set 4, glyphs 0x100-0x127, which the game loads from `8X8D1.DAX` record
-202 at startup (`6e22:0050`). The layouts use tiles 0x14 and up; the tables
-of tile values are at `DS:0e3a`, `0e62`, `0e7a`, `0ea1` and `0eae`.
+202 at startup (`6e22:0050`). Like every tile set it is loaded with colour 13
+transparent (`127f:0111` with 13 and 1), which clears those pixels; the
+frame is drawn opaque, so they show black. The layouts use tiles 0x14 and
+up; the tables of tile values are at `DS:0e3a`, `0e62`, `0e7a`, `0ea1` and
+`0eae`.
 `cok_screen_frame` (`1128:0000`) clears the inside and draws the border, with
 the three moons of Krynn on the top row at columns 8, 19 and 30, their tiles
 offset by the phases in game words `0x4cf9`-`0x4cfb`. `cok_screen_adventure`
@@ -362,6 +365,7 @@ the gates of Gargath with the second item of a list.
 | `PICTURE` | `2fd3:0914` | below 0x70, `PIC<file>.DAX` at cell 3, 3; else `BIGPIC<file>.DAX` at 1, 1 in its frame; 0xff restores the view |
 | `CLEAR BOX` | `2fd3:3063` | the adventure frame (`1128:0242`) and the first picture frame |
 | `DELAY` | `2fd3:2c33` | the `delay` hook, speed × 100 ms (`521:0b4b`) |
+| `LOAD FILES`, `LOAD PIECES` | `2fd3:0cf4` | the map and wall sets of the 3D view (see below) |
 
 A one-item menu reading `PRESS BUTTON OR RETURN TO CONTINUE.` is shown as
 `PRESS <ENTER>/<RETURN> TO CONTINUE.`, and Enter picks it, as in the
@@ -369,11 +373,66 @@ original. Menu items are joined as `~ITEM` separated by spaces, cut to 50
 characters. Small pictures are delta collections whose groups after the first
 are animation frames, each preceded by its delay in hundredths of a second;
 with animation off (`DS:4b4f`) only the first is loaded. The game speed
-(`DS:4b38`) defaults to 4. The 3D view (`6945:00ba`), party list
-(`6346:07ba`), status line (`6346:2d75`), the picture path taken when
-`0x7ee1` is not 0xff (`3775:0538`), the sequence for big picture 0x79
-(`4877:0005`) and the wall sets that `LOAD FILES` and `LOAD PIECES` load are
-not ported: the view is left blank and the others are reported as unported.
+(`DS:4b38`) defaults to 4. The party list (`6346:07ba`), status line
+(`6346:2d75`), the picture path taken when `0x7ee1` is not 0xff
+(`3775:0538`) and the sequence for big picture 0x79 (`4877:0005`) are not
+ported; the last two are reported as unported.
+
+## 3D view
+
+`src/view.h` ports the 3D view from overlay `69ea`, drawn with the 8×8 tile
+routine of overlay `6e22`. `cok_adventure_view` shows it as `6945:00ba`
+does: when `PICTURE 0xff` restores the view, and when a block is entered,
+after its load vector, if it loaded files or the area stays in 3D
+(`2fd3:3b47`). Moving the party, which also redraws it, is not ported, but
+`eclplay --at X,Y,DIR` places the party before a block runs. Where the area
+has no 3D view (`0x4be6` and `0x4c38` both 0), `6945:00ba` shows the big
+picture in its frame instead.
+
+`LOAD FILES` (opcode 0x21) loads a map: if its first operand is not 0xff or
+0x7f and the area is 3D (`0x4be6`), record N of `GEO<file>.DAX` (`69ea:130d`),
+which also sets `0x4bc5`. `LOAD PIECES` loads wall sets from
+`WALLDEF<file>.DAX` (`69ea:1025`) into slots 1-3: all three operands, 0xff
+leaving a slot empty, when `0x4be7` or `0x4be8` is 0; otherwise only the
+first and third, so that a record of two sets can fill slots 1 and 2.
+Scripts set those words before loading such a record; a block entered
+without them (66 or 97, alone) names a record that does not exist. The
+original halts when a file is missing or does not fit; the run then stops
+with `COK_ECL_LOAD_FAILED` and the error. With an operand of 0x7f, it loads
+record 0 into slot 1, which no shipped script does.
+
+A GEO record is two bytes, then four tables of 256 bytes, one per square of
+the 16×16 map, row by row, north up. The first holds the wall type 0-15 on
+each square's north side in its high nibble and east in its low nibble; the
+second south and west. The third is a byte per square, which picks the sky
+colour: below 0x80 the area word `0x4bfd`, otherwise `0x4bfe`, through the
+table at `DS:0dc4`. The fourth holds two bits per side (west highest), not
+used by the view. Off the map, squares read from the opposite edge unless
+the block is 0 or 0x50 (`DS:8846`); then they have no walls.
+
+A WALLDEF record holds one or two sets of five wall types, 156 bytes each:
+wall types 1-5 use slot 1, 6-10 slot 2 and 11-15 slot 3. Each type lists, row
+by row, the tile values for the ten places a wall can be seen at
+(`DS:0df4`-`0e38`): front walls one, two and three squares ahead, the side
+walls of those squares, and the edge between two front walls three squares
+ahead. Records name their tiles as tile set 1; values from 0x2d are moved up
+to the slot's set. Each slot's tile set is record N of `8X8D<file>.DAX`, or
+N × 10 + 1 and N × 10 + 2 for a record of two sets. Tile sets 0 (`8X8D1.DAX`
+record 203) and 4 (the frame's) are loaded at startup.
+
+`cok_view_draw` follows `69ea:0820`: it fills the backdrop, then draws front
+and side walls from two squares ahead back to the party's square, nearer
+walls over farther ones, each tile masked with colour 13 transparent. The
+backdrop (`69ea:0184`, outside CGA mode) is 44 rows of sky, a two-row line in
+`DS:6d82`, which only CGA mode sets (so it is black), and 42 rows of
+colour 8, then the horizon picture from `SKY.DAX` record 252. Under a sky of
+colour 11 on squares below 0x80, record 251, the sun, shows facing east at
+hours 1-5 (`0x4bc9`), south at 3-5 and 13-15, and west at 13-18, and record
+250 shows facing north. The original draws into a 21-unit by 168-row buffer
+(`DS:4b78`) that `127f:12e8` copies to the screen one unit right and one cell
+down; the port draws on the screen with that offset, so the view fills cells
+3-13 across and down, as small pictures do. The overhead map that the view
+shows when `DS:6d84` is set (`69ea:000f`) and the CGA colours are not ported.
 
 ## Disassembly image
 
