@@ -122,10 +122,19 @@ bool cok_character_read(cok_character *character, const char *dir, const char *b
         return false;
     character->items = (uint8_t (*)[COK_ITEM_SIZE])(void *)items;
     snprintf(path, sizeof path, "%s/%s.SFX", dir, base);
-    if (!read_records(path, COK_EFFECT_SIZE, &effects, &character->effect_count, error,
-                      error_size))
+    size_t effect_count;
+    if (!read_records(path, COK_EFFECT_SIZE, &effects, &effect_count, error, error_size))
         return false;
-    character->effects = (uint8_t (*)[COK_EFFECT_SIZE])(void *)effects;
+    /* 4b6d:11e5 links each record read, keeping its first five bytes. */
+    for (size_t i = 0; i < effect_count; ++i) {
+        const uint8_t *e = effects + i * COK_EFFECT_SIZE;
+        if (cok_character_add_effect(character, e[0], u16(e + 1), e[3], e[4] != 0) == NULL) {
+            free(effects);
+            fail(error, error_size, "%s: out of memory", path);
+            return false;
+        }
+    }
+    free(effects);
     /* The original flushes the keyboard (1614:045c), then recomputes. */
     char why[200];
     if (!cok_character_stats(character, types, why, sizeof why) ||
@@ -140,10 +149,32 @@ bool cok_character_read(cok_character *character, const char *dir, const char *b
 void cok_character_free(cok_character *character)
 {
     free(character->items);
-    free(character->effects);
     character->items = NULL;
-    character->effects = NULL;
-    character->item_count = character->effect_count = 0;
+    character->item_count = 0;
+    while (character->effects != NULL) {
+        cok_effect *next = character->effects->next;
+        free(character->effects);
+        character->effects = next;
+    }
+}
+
+cok_effect *cok_character_add_effect(cok_character *character, uint8_t id, uint16_t duration,
+                                     uint8_t value, bool on_remove)
+{
+    cok_effect *effect = malloc(sizeof *effect);
+    if (effect == NULL) return NULL;
+    *effect = (cok_effect){id, duration, value, on_remove, NULL};
+    cok_effect **link = &character->effects;
+    while (*link != NULL) link = &(*link)->next;
+    *link = effect;
+    return effect;
+}
+
+cok_effect *cok_character_find_effect(const cok_character *character, uint8_t id)
+{
+    cok_effect *effect = character->effects;
+    while (effect != NULL && effect->id != id) effect = effect->next;
+    return effect;
 }
 
 /* Derived stats. */
@@ -414,6 +445,10 @@ static const uint8_t cleric_spell_table[40] = { /* DS:423b, by spell level 1-4 *
     /* 3 */ 37, 39, 41, 42, 43, 0, 0, 0, 0, 0,
     /* 4 */ 67, 70, 58, 69, 0, 0, 0, 0, 0, 0,
 };
+static const uint8_t spell_level_table[54] = { /* DS:31b4, every 16th byte, to DS:3509 */
+    0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2,
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 7, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+};
 static const uint8_t spell_class_table[100] = { /* DS:31c3, every 16th byte */
     0, 0, 0, 0, 0, 0, 0, 0, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
     3, 0, 0, 0, 0, 0, 0, 0, 3, 3, 3, 3, 3, 3, 3, 4, 0, 0, 0, 0,
@@ -627,6 +662,7 @@ const cok_ds_table cok_stat_tables[] = {
     {0x423b, sizeof cleric_spell_table, 1, cleric_spell_table},
     {0x4263, sizeof data_4263, 1, data_4263},
     {0x31c3, sizeof spell_class_table, 16, spell_class_table},
+    {0x31b4, sizeof spell_level_table, 16, spell_level_table},
 };
 const size_t cok_stat_table_count = sizeof cok_stat_tables / sizeof *cok_stat_tables;
 
@@ -637,17 +673,29 @@ typedef struct {
     bool failed;
 } lookup;
 
-/* The byte at DS:offset, from whichever table holds it; the tables with a
- * stride of 1 cover DS:3509-43bf without a gap. Past DS:43bf lies data the
- * game sets as it runs, which only a saving throw for a level of 90 or more
- * reaches; then fail. */
+/* The tables with a stride of 1 cover DS:3509-43bf without a gap; the
+ * strided ones add columns of the spell table below it (DS:31b4). */
+bool cok_ds_byte(uint16_t offset, uint8_t *out)
+{
+    for (unsigned stride = 1; stride <= 16; stride += 15)
+        for (size_t i = 0; i < cok_stat_table_count; ++i) {
+            const cok_ds_table *t = &cok_stat_tables[i];
+            if (t->stride != stride || offset < t->offset) continue;
+            size_t k = (size_t)(offset - t->offset);
+            if (k % stride != 0 || k / stride >= t->size) continue;
+            *out = t->bytes[k / stride];
+            return true;
+        }
+    return false;
+}
+
+/* The byte at DS:offset, from whichever table holds it. Past DS:43bf lies
+ * data the game sets as it runs, which only a saving throw for a level of 90
+ * or more reaches; then fail. */
 static uint8_t ds_byte(lookup *l, long offset, const char *what)
 {
-    for (size_t i = 0; i < cok_stat_table_count; ++i) {
-        const cok_ds_table *t = &cok_stat_tables[i];
-        if (t->stride == 1 && offset >= t->offset && offset < (long)t->offset + t->size)
-            return t->bytes[offset - t->offset];
-    }
+    uint8_t byte;
+    if (offset >= 0 && offset <= 0xffff && cok_ds_byte((uint16_t)offset, &byte)) return byte;
     if (!l->failed)
         fail(l->error, l->error_size, "%s reads DS:%04lx, past the original's initialized data",
              what, (unsigned long)offset & 0xffff);

@@ -2,6 +2,7 @@
 #define COK_ADVENTURE_H
 
 #include "ecl.h"
+#include "effect.h"
 #include "menu.h"
 #include "party.h"
 #include "picture.h"
@@ -58,6 +59,8 @@ struct cok_adventure {
      * (DS:6096), which must be a member's record or NULL. */
     cok_party party;
     cok_item_types item_types; /* DS:5886, from ITEMS. */
+    /* The party's spell effects: the rolls they change and their timers. */
+    cok_effects effects;
 
     /* The small picture (DS:6da2): frames from PIC<file>.DAX, each with its
      * delay in hundredths of a second, drawn at cell 3, 3. */
@@ -121,8 +124,12 @@ cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block);
 cok_ecl_status cok_adventure_play(cok_adventure *game);
 
 /* Advance the game clock (0x4bc6-0x4bcc) by count of unit 0-6, carrying
- * into larger units and moving the moons on each new day (57e4:0549). */
-void cok_adventure_pass_time(cok_adventure *game, unsigned unit, unsigned count);
+ * into larger units and moving the moons on each new day (57e4:0549), then
+ * count down the party's spell effects (57e4:0171). Returns false with
+ * game->error set, logged as "error", and game->vm.status set to
+ * COK_ECL_EFFECT_FAILED if an effect that ends needs what is not ported
+ * (see effect.h). */
+bool cok_adventure_pass_time(cok_adventure *game, unsigned unit, unsigned count);
 
 /* Draw the adventure screen's frame (1128:0242). */
 void cok_adventure_frame(cok_adventure *game);
