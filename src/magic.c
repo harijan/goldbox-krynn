@@ -1,6 +1,7 @@
 #include "magic.h"
 
 #include "camp.h"
+#include "cast.h"
 #include "screen.h"
 
 #include <stdio.h>
@@ -376,10 +377,16 @@ static bool add_scroll(cok_adventure *game, spell_list *l, cok_character *charac
     return true;
 }
 
+/* The scroll an item's Use reads (DS:6e36), as an index in the selected
+ * character's items. */
+static size_t used_scroll;
+
 /* Build list kind for the selected character (5b04:0b21): 0 the spells it
- * has memorized, 1 those of its grimoire it may memorize, 3 those of its
- * scrolls, 5 those marked to memorize, 6 those marked to scribe. Lists of
- * memorized and grimoire spells get a heading before each level. */
+ * has memorized, 1 those of its grimoire it may memorize, 2 those of the
+ * scroll used (DS:6e36), 3 those of its scrolls, 5 those marked to
+ * memorize, 6 those marked to scribe. Lists of memorized and grimoire
+ * spells get a heading before each level. The scroll list counts its
+ * spells in DS:4838, which only kinds 3 and 6 (5b04:0a6f) reset. */
 static bool build_list(cok_adventure *game, spell_list *l, cok_character *character, int kind)
 {
     const uint8_t *c = character->record;
@@ -395,6 +402,12 @@ static bool build_list(cok_adventure *game, spell_list *l, cok_character *charac
             if (c[0x62 + n] != 0 && usable(game, character, n) && !granted(c, n) &&
                 !add_sorted(game, l, n))
                 return false;
+    } else if (kind == 2) {
+        /* 5b04:0981 on the scroll alone, whatever its order. */
+        l->scroll_count = game->scroll_spells;
+        bool ok = add_scroll(game, l, character, used_scroll, false);
+        game->scroll_spells = (uint8_t)l->scroll_count;
+        return ok;
     } else {
         /* 5b04:0a6f: scrolls of the character's order of magic (+0x5e): 1
          * reads those with +0x35 bit 0x20, 2 those with 0x10. */
@@ -405,7 +418,9 @@ static bool build_list(cok_adventure *game, spell_list *l, cok_character *charac
                   (c[0x5e] == 2 && (item[0x35] & 0x10) != 0)))
                 continue;
             if (!add_scroll(game, l, character, i, kind == 6)) return false;
+            game->scroll_spells = (uint8_t)l->scroll_count;
         }
+        game->scroll_spells = (uint8_t)l->scroll_count;
         return true;
     }
     if (l->count == 0) return true;
@@ -743,16 +758,6 @@ static void memorize(cok_adventure *game)
     if (redraw) cok_adventure_redraw(game);
 }
 
-/* Show text on row 24 in light green for a moment (6346:1827). */
-static void notice(cok_adventure *game, const char *text)
-{
-    cok_adventure_log(game, "print", text);
-    cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0);
-    cok_text_string(&game->screen, &game->font, text, 0, 24, 10, 0);
-    cok_adventure_wait(game, game->speed * 100u);
-    cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0);
-}
-
 /* Scribe (4888:132b): as Memorize, for the spells of scrolls. A spell
  * picked is marked on the first item with a byte equal to it, which need
  * not be a scroll, if the character has a spell a day of its class and
@@ -784,7 +789,7 @@ static void scribe(cok_adventure *game)
         }
         redraw = true;
         if (c[0x62 + spell] != 0) {
-            notice(game, "You already know that spell");
+            cok_camp_notice(game, "You already know that spell");
             continue;
         }
         bool found = false;
@@ -793,14 +798,14 @@ static void scribe(cok_adventure *game)
             if (!cok_item_is_scroll(item)) continue;
             for (size_t k = 1; k <= 3; ++k) {
                 if (item[0x3b + k] <= 0x7f || (item[0x3b + k] & 0x7f) != spell) continue;
-                notice(game, "You are already scibing that spell");
+                cok_camp_notice(game, "You are already scibing that spell");
                 found = true;
             }
         }
         if (found) continue;
         uint8_t class_ = cok_spell_class((uint8_t)spell), level = cok_spell_level((uint8_t)spell);
         if (c[0x11b + (int8_t)class_ * 5 + (int8_t)level] == 0) {
-            notice(game, "You can not scribe that spell.");
+            cok_camp_notice(game, "You can not scribe that spell.");
             continue;
         }
         for (size_t i = 0; i < character->item_count && !found; ++i)
@@ -901,6 +906,56 @@ static void display(cok_adventure *game)
     cok_adventure_redraw(game);
 }
 
+/* Casting. */
+
+int cok_magic_memorized(cok_adventure *game, cok_character *character)
+{
+    int index = -1;
+    bool nonempty;
+    return choose(game, character, 0, 0, &index, &nonempty);
+}
+
+int cok_magic_scroll(cok_adventure *game, cok_character *character, size_t item)
+{
+    used_scroll = item;
+    int index = -1;
+    bool nonempty;
+    return choose(game, character, 2, 1, &index, &nonempty);
+}
+
+void cok_magic_cast(cok_adventure *game, uint8_t frame)
+{
+    game->spell_target = NULL;
+    game->selected = 1;
+    cok_character *character = selected(game);
+    if (character == NULL) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "Cast with no character selected");
+        return;
+    }
+    uint8_t *c = character->record;
+    if (!can(game, c, 1)) return;
+    bool redraw = false;
+    int index = -1;
+    for (;;) {
+        bool nonempty;
+        int spell = choose(game, character, 0, 1, &index, &nonempty);
+        if (spell < 0) return;
+        if (spell == 0) {
+            if (nonempty)
+                redraw = true;
+            else
+                cok_camp_say(game, c, "has no spells memorized", true);
+            break;
+        }
+        redraw = true;
+        cok_picture_fill(&game->screen, 1, 0x11 * 8, 0x26, 6 * 8, 0); /* 1128:07e6 */
+        bool done = false;
+        cok_cast_spell(game, (uint8_t)spell, true, frame, &done);
+        if (game->vm.abort) return;
+    }
+    if (redraw) cok_adventure_redraw(game);
+}
+
 /* The menu. */
 
 void cok_magic(cok_adventure *game, bool *interrupted)
@@ -916,11 +971,7 @@ void cok_magic(cok_adventure *game, bool *interrupted)
             continue;
         }
         switch (key) {
-        case 'C':
-            /* Casting (4888:0a0d, then 5b04:1415 for the spell picked) is
-             * the next part to port. */
-            cok_adventure_log(game, "unported", "Cast (4888:0a0d)");
-            break;
+        case 'C': cok_magic_cast(game, COK_CAST_CAMP); break;
         case 'M': memorize(game); break;
         case 'S': scribe(game); break;
         case 'D': display(game); break;

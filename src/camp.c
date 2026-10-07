@@ -2,6 +2,7 @@
 
 #include "magic.h"
 #include "screen.h"
+#include "sheet.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -53,6 +54,20 @@ static void draw_name(cok_adventure *game, const uint8_t *c, int x, int y)
 /* Say text about c in the text window (6346:1883 outside combat): its name
  * on the window's second row, or the third while resting (DS:7138), and
  * the text wrapped below it; with wait, pause and clear the window. */
+void cok_camp_notice(cok_adventure *game, const char *text)
+{
+    cok_adventure_log(game, "print", text);
+    clear_menu(game);
+    cok_text_string(&game->screen, &game->font, text, 0, 24, 10, 0);
+    cok_adventure_wait(game, game->speed * 100u);
+    clear_menu(game);
+}
+
+void cok_camp_clear_text(cok_adventure *game)
+{
+    clear_text(game);
+}
+
 void cok_camp_say(cok_adventure *game, const uint8_t *c, const char *text, bool wait)
 {
     int top = game->resting ? 0x12 : 0x11;
@@ -294,10 +309,8 @@ static int rest_menu(cok_adventure *game)
     return result;
 }
 
-/* Say that c has learned spell (5b04:57eb outside combat): its name and
- * what it did on row 19, the spell's name on row 20, then pause and clear.
- * Returns false where the original would print other data as the name. */
-static bool learned(cok_adventure *game, const uint8_t *c, const char *what, uint8_t spell)
+bool cok_camp_spell_message(cok_adventure *game, const uint8_t *c, const char *what,
+                            uint8_t spell)
 {
     const char *name = cok_spell_name(spell);
     if (name == NULL) {
@@ -329,7 +342,7 @@ static uint8_t memorize(cok_adventure *game, cok_character *character, bool *fla
         }
         c[0x1e + i] = (uint8_t)(c[0x1e + i] - 0x80);
         show_rest(game, 0);
-        if (!learned(game, c, "has memorized", c[0x1e + i])) return 0;
+        if (!cok_camp_spell_message(game, c, "has memorized", c[0x1e + i])) return 0;
         *flag = true;
     }
     return level;
@@ -362,11 +375,7 @@ static bool free_scroll(cok_adventure *game, cok_character *character, size_t in
                            "pointer to it after freeing it (6346:1697)");
         return false;
     }
-    memmove(character->items + index, character->items + index + 1,
-            (character->item_count - index - 1) * sizeof *character->items);
-    --character->item_count;
-    for (size_t s = 0; s < COK_ITEM_SLOTS; ++s)
-        if (character->slots[s] > index + 1) --character->slots[s];
+    cok_character_remove_item(character, index);
     return true;
 }
 
@@ -399,7 +408,7 @@ static uint8_t scribe(cok_adventure *game, cok_character *character, bool *flag)
                 gone = true;
             }
             show_rest(game, 0);
-            if (!learned(game, c, "has scribed", spell)) return 0;
+            if (!cok_camp_spell_message(game, c, "has scribed", spell)) return 0;
             *flag = true;
         }
         if (gone) break;
@@ -688,6 +697,11 @@ static void remove_selected(cok_adventure *game)
     cok_ecl *vm = &game->vm;
     size_t i = cok_party_index(&game->party, vm->character);
     if (i == game->party.count) return;
+    /* The original keeps pointers to the record it frees in the spell
+     * target and the trade partner (DS:710b, 46b0); the port forgets them. */
+    uint8_t *gone = game->party.members[i]->record;
+    if (game->spell_target == gone) game->spell_target = NULL;
+    if (game->trade_partner == gone) game->trade_partner = NULL;
     cok_party_remove(&game->party, i);
     --vm->mem7c00[0x33e];
     vm->character = cok_party_record(&game->party, i > 0 ? i - 1 : 0);
@@ -917,6 +931,11 @@ bool cok_camp(cok_adventure *game)
     memset(game->rest, 0, sizeof game->rest);
     uint8_t picture = game->picture_id; /* DS:6df7, 6e01 */
     cok_adventure_redraw(game);
+    /* Loading the camp picture zero-fills the stack where View's Trade
+     * later finds its flag (see sheet.h); kept from before, the byte is
+     * whatever was there. Each command after leaves it its own way. */
+    cok_sheet_stale stale = picture != 0x3b && game->picture_id == 0x3b ? COK_SHEET_STALE_ZERO
+                                                                       : COK_SHEET_STALE_UNKNOWN;
     clear_cells(game, 1, 0x11, 0x26, 0x16);
     draw(game, "The party makes camp...", 1, 0x12, 10, true);
     forget_all(game);
@@ -928,8 +947,11 @@ bool cok_camp(cok_adventure *game)
         if (key < 0) break;
         if (special) {
             cok_camp_pick(game, (uint8_t)key);
+            stale = COK_SHEET_STALE_UNKNOWN;
             continue;
         }
+        cok_sheet_stale before = stale;
+        stale = COK_SHEET_STALE_UNKNOWN;
         switch (key) {
         case 'S':
             if (++vm->mem4b00[0x13c] >= 10) {
@@ -942,10 +964,13 @@ bool cok_camp(cok_adventure *game)
             save(game);
             if (!vm->abort && cok_camp_yes_no(game, "Quit TO DOS ", 14) == 'Y') quit(game);
             break;
-        case 'V':
+        case 'V': {
             game->selected = 1;
-            cok_adventure_log(game, "unported", "View (546c:0d74)");
+            bool done;
+            cok_sheet(game, before, &done);
+            stale = COK_SHEET_STALE_SET;
             break;
+        }
         case 'M':
             game->selected = 1;
             cok_magic(game, &interrupted);
@@ -969,9 +994,10 @@ bool cok_camp(cok_adventure *game)
     /* The picture shown before, if Copy(DS:6df7, 1, 3) is 'PIC' (4888:2df0):
      * the port loads no other small pictures, and freeing one (6961:0537)
      * empties DS:6dee and sets DS:6e00 to 0xff, so that holds exactly when
-     * one was loaded. 6961:00e4 keeps the camp's when it is the same. The
-     * spell target the original then clears (DS:710b) is not ported. */
+     * one was loaded. 6961:00e4 keeps the camp's when it is the same. Then
+     * the spell target is cleared (DS:710b, 4888:2e28). */
     if (picture != COK_ADVENTURE_NO_PICTURE) cok_adventure_load_picture(game, picture);
+    game->spell_target = NULL;
     forget_all(game);
     vm->mode = mode;
     cok_adventure_status(game);

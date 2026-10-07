@@ -158,6 +158,32 @@ void cok_character_free(cok_character *character)
     }
 }
 
+void cok_character_remove_item(cok_character *c, size_t index)
+{
+    memmove(c->items + index, c->items + index + 1, (c->item_count - index - 1) * sizeof *c->items);
+    --c->item_count;
+    for (size_t s = 0; s < COK_ITEM_SLOTS; ++s) {
+        if (c->slots[s] == index + 1) c->slots[s] = 0;
+        else if (c->slots[s] > index + 1) --c->slots[s];
+    }
+    if (c->held == index + 1) c->held = 0;
+    else if (c->held > index + 1) --c->held;
+}
+
+bool cok_character_insert_item(cok_character *c, size_t index, const uint8_t *item)
+{
+    uint8_t(*items)[COK_ITEM_SIZE] = realloc(c->items, (c->item_count + 1) * sizeof *items);
+    if (items == NULL) return false;
+    c->items = items;
+    memmove(c->items + index + 1, c->items + index, (c->item_count - index) * sizeof *c->items);
+    memcpy(c->items[index], item, COK_ITEM_SIZE);
+    ++c->item_count;
+    for (size_t s = 0; s < COK_ITEM_SLOTS; ++s)
+        if (c->slots[s] > index) ++c->slots[s];
+    if (c->held > index) ++c->held;
+    return true;
+}
+
 cok_effect *cok_character_add_effect(cok_character *character, uint8_t id, uint16_t duration,
                                      uint8_t value, bool on_remove)
 {
@@ -878,6 +904,13 @@ static int16_t strength_allowance(lookup *l, const uint8_t *c)
     if (row == 27) return 7500;
     if (row >= 28 && row <= 30) return (int16_t)((row - 28) * 3000 + 9000);
     return 0;
+}
+
+bool cok_character_allowance(const uint8_t *c, int16_t *allowance, char *error, size_t error_size)
+{
+    lookup l = {error, error_size, false};
+    *allowance = strength_allowance(&l, c);
+    return !l.failed;
 }
 
 /* 6346:0023: the readied weapon's to-hit (+0x18c), attacks, dice and

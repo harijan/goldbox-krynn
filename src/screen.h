@@ -44,4 +44,9 @@ void cok_screen_spells(cok_picture *dst, const cok_picture *tiles, const uint16_
  * of row 3. */
 void cok_screen_list(cok_picture *dst, const cok_picture *tiles, const uint16_t moons[3]);
 
+/* The character sheet's frame (1128:05fc): the whole screen but row 24
+ * cleared, the moons' row, rows 8, 16, 20 and 23 across, the sides (from
+ * DS:0f02) to row 22, and column 19 from row 9 to 19 (DS:0f19). */
+void cok_screen_sheet(cok_picture *dst, const cok_picture *tiles, const uint16_t moons[3]);
+
 #endif

@@ -38,7 +38,8 @@ record; directory entry numbers are zero-based. Duplicate IDs are retained.
 `make test` includes synthetic malformed inputs, all supplied DAX archives,
 export checks for all 26 supported graphics archives (2,363 images), and
 tests of the picture, text, menu, 3D view, party and spell effect routines,
-the adventure loop and the camp, including PIC delta decoding on `PIC1.DAX` and the game font
+the adventure loop, the camp, casting spells and the character sheet with
+its items, including PIC delta decoding on `PIC1.DAX` and the game font
 in `8X8D1.DAX`, and plays the opening scripts, the view of Throtl and a walk
 through it with `eclplay`. It builds `build/START_FULL.EXE` (see
 Disassembly image) to check the original's tables that the port uses. With
@@ -376,7 +377,9 @@ turn (`at: X,Y,DIR`) and the commands that are not ported (`unported:`).
 the next key while the party rests, which the rest loop sees (`1614:03c2`).
 `--saves DIR` is where the camp's Save writes; without it, saving logs an
 error. A spell list logs its rows as `item:` and `heading:`, and quitting
-to DOS ends the run with `(quit to DOS in block N)`.
+to DOS ends the run with `(quit to DOS in block N)`. Cast and View run
+from the commands and the camp, their lists logged as `list:` and
+`item:`.
 `--party SAVE` adds the characters of a saved game to the party (see Party),
 and `--load SAVE` loads the whole saved game first; then `BLOCK` may be left
 out to resume where it was saved. WHO prints the character picked (`who:`).
@@ -535,10 +538,12 @@ stay, does each unit that passes age each character a year (the word at
 `+0x60`, `57e4:0459`). The clock then counts down the
 party's spell effects (`57e4:0171`, see Spell effects).
 
-Not ported, and logged as `unported:`: `Area`, the overhead map
-(`69ea:000f`); `Cast` (`4888:0a0d`); `View` (`546c:0d74`); and travel
-outside 3D areas (`475c:08d5`), where the loop stops. Sound is not
-ported either.
+`Cast` (`475c:0ade`) casts for the selected character if its status is
+0 (see Casting); with none selected the original reads through NULL and
+the port stops. `View` shows the selected character (see View). Not
+ported, and logged as `unported:`: `Area`, the overhead map
+(`69ea:000f`); and travel outside 3D areas (`475c:08d5`), where the loop
+stops. Sound is not ported either.
 
 ## Party
 
@@ -752,17 +757,18 @@ their own handlers (see Spell effects): Spiritual Hammer's (`3f44:07b5`)
 removes its hammer and recomputes when it ends, which is ported, and adds
 one when cast, which is not; the stinking cloud's (`3f44:0ae0`), which
 recomputes and then makes the armour class that from behind, 2 worse,
-needs the combat record and is not. The other places the original
-recomputes are not ported either: the ECL opcodes `ADD
+needs the combat record and is not. The character sheet (`546c:07bb`),
+the Items menu after every key (`546c:17f9`) and Trade's receiver
+(`546c:2178`, `546c:32b0`) recompute, as ported (see View). The other
+places the original recomputes are not ported: the ECL opcodes `ADD
 NPC` (`2fd3:311c`), `DESTROY ITEMS` (`2fd3:35a3`) and `COMBAT`, through
 combat setup (`3cb2:10d9`), each combatant's turn (`3995:040b`), the AI's
 choice of weapon (`3afb:1608`), attacks (`432f:1579`, `432f:1a45`), spells
-with an attack roll (`5b04:1071`) and the end of combat (`351b:1968`); taking
-an item from treasure or a shop (`36d0:034c`, `546c:32b0`) and appraising
-gems (`58e7:1929`); the character sheet (`546c:07bb`), the Items menu
-(`546c:17f9`) and Trade (`546c:2178`); and creating, training, modifying
-and changing the order of a character (`4def:06dd`, `4def:4d9e`,
-`4def:28fa`, `4def:567f`).
+with an attack roll (`5b04:1071`, which no spell cast outside combat
+reaches) and the end of combat (`351b:1968`); taking an item from treasure
+or a shop (`36d0:034c`) and appraising gems (`58e7:1929`); and creating,
+training, modifying and changing the order of a character (`4def:06dd`,
+`4def:4d9e`, `4def:28fa`, `4def:567f`).
 
 ## Spell effects
 
@@ -806,10 +812,21 @@ or before, gets 10 times the excess over 18 added to its current
 exceptional strength (`+0x1c`, not the base), up to 100. The better
 strength wins at each step, where an 18 with a higher exceptional strength
 beats 19 and up, so the result depends on the item order; charisma adds
-the value of the first 0x0e. `60f4:1743` also recomputes dexterity and
-constitution (with the maximum hit points and effect 0x3e) for other
-callers, none of them ported; only strength and charisma are ported.
-Removing an effect not in the list makes the original write to
+the value of the first 0x0e. `cok_effects_ability` is `60f4:1743` for
+any ability, as Remove Curse calls it: intelligence and wisdom are worked
+out and not stored; dexterity (`+0x17`) adds 4, 2 or 1 for an item of
+power 2 by the base below 7, up to 13 or above, 1 for power 8 of kind 3
+below 18, and takes 2 for power 10; constitution (`+0x19`) adds 1 for
+power 6 or 8 of kind 4 below 18, then sets the maximum hit points
+(`+0x62`) to `+0x11b` plus, for each class, the hit points of its former
+level and of its level above `+0xd7` (capped at its top, `DS:3903`, one
+less from the top, a ranger's one more unless it has another former
+level), 1-7 a level by constitution 15-25 for fighters, rangers and
+knights, 1 at 15 and 2 above for the others, added as a byte and divided
+by the number of classes with a level (none divides by zero: the port
+stops); the hit points change as much, down to 0. At 20 and up the
+character gets effect 0x3e (60 minutes, its handler on removal) if it
+lacks it; below, its 0x3e goes. Removing an effect not in the list makes the original write to
 `0000:0005`; the port fails.
 
 `cok_effects_dispatch` runs the handlers for event 1-0x18 (`60f4:057c`),
@@ -818,13 +835,18 @@ effect with it, or, for the ids the party shares (0x15, 0x2d, 0x2e and
 0x31, the set at `60f4:0332`), the first member's when the target has
 none (`60f4:0352`). In combat only members in range count, which needs
 the combat map and is not ported. Events 6 and 9 first check magic
-resistance (`60f4:04f3`), which needs the caster's level and is not
-ported when a spell's damage or effect is pending. Handlers come from the
-table at `DS:6b94` that `3f44:38ea` fills, and get the flag (0 from the
+resistance (`60f4:04f3`) when the target has some (`+0x187`), an effect
+is pending (`6b2f`) and no damage is, or magic damage (`6b31` bit 8): a
+d100 up to the resistance plus 5 for each level the caster (the selected
+character, `cok_effects_caster_level`, see Casting) has of the spell
+(`6b33`) below 11, as a byte, clears the damage and the effect (but for
+0x5b and 0x52). Handlers come from the table at `DS:6b94` that
+`5b04:58ed` fills at startup (`3e99:0835`), and `3f44:38ea` after it
+(`3e99:083a`), and get the flag (0 from the
 dispatch, 1 on removal), the effect (the holder's, for a shared one) and
-the character. While `DS:713c` is set, which only readying an item does,
-`60f4:01a8` calls `3f44:3888` instead to add or remove the item's effect;
-that is not ported.
+the character. While `DS:713c` is set, which readying an item and Remove
+Curse do, `60f4:01a8` calls `3f44:3888` instead to add or remove the
+item's effect (see View).
 
 Of the ported code, only `DAMAGE` raises events: 0x10 for each attack and
 0x0c for each saving throw. An attack (`60f4:0ffb`) now also misses when
@@ -844,9 +866,9 @@ which is not ported) and the combat round (`714b`).
 Handlers ported, by address and effect id: `3f44:0124` (1), `0134` (2),
 `0344` (8, 0x2d), `0379` (9, 0x2e), `03ae` (0x0a), `03cd` (0x0b, its end
 and after it took hold), `04b1` (0x0c, 0x26), `05bc` (0x0e), `0625`
-(0x10), `062c` (0x11), `065d` (0x12), `0681` (0x14), `07b5` (0x17, but
-for creating the hammer), `09b3` (0x19), `0ab8` (0x1d), `0cf0` (0x21),
-`0f3f` (0x24), `0f78` (0x27, after its first time), `144c` (0x2a),
+(0x10), `062c` (0x11), `065d` (0x12), `0681` (0x14), `07b5` (0x17),
+`09b3` (0x19), `0ab8` (0x1d), `0cf0` (0x21), `0f3f` (0x24), `0f78`
+(0x27), `144c` (0x2a),
 `1469` (0x2b, for a strength of 3 or less), `15a3` (0x2f), `16ef` (0x31), `173a` (0x32), `176b` (0x36),
 `179c` (0x37), `17a3` (0x38), `17c6` (0x39), `17ea` (0x3a), `1891`
 (0x3b), `1a72` (0x3d), `1b18` (0x3f), `2665` (0x49, but for damage of
@@ -861,16 +883,27 @@ all but a few act the same when their effect ends. 0x5d, 0x64 and 0x67
 look at what the selected character strikes with (`3f44:13a9`): its
 readied weapon (slot 0), or for a missile weapon its readied arrows or
 quarrels (`6346:3111`, by the weapon type's flags), and 0x65 at the weapon
-itself. The parts of 0x17, 0x27 and 0x2b that print are not ported. Not
+itself. Handlers that print speak through the `say` hook of
+`cok_effects`, as `6346:1883` does outside combat: 0x27, haste, the first
+time it runs (its value's bit 4 clear) sets the bit and the character
+"ages" a year (`+0x60`); 0x17, Spiritual Hammer, gives a character with
+no hammer and fewer than 16 items counted (`+0x142`) one at the end of its
+items (type 6, name parts 6 and 0x79, bonus 1, `+0x3d` 0x17, `+0x3e`
+0x80) and says it "Gains an item"; its search for the new hammer, to
+ready it in an empty weapon slot, steps past it, so it is never readied.
+The part of 0x2b that prints is not ported. Not
 ported, because they need combat (its records at `+0x183`, the map,
 targets or icons): 0x07, 0x1a, 0x1b, 0x1f, 0x25, 0x33-0x35, 0x44, 0x4b, 0x69, 0x6a, 0x6f,
 0x72 and 0x73; combat and text: 3, 0x0d, 0x15, 0x1c, 0x1e (the stinking
 cloud), 0x20, 0x23, 0x28-0x29, 0x30, 0x3c, 0x40-0x43, 0x45-0x48, 0x4c,
 0x4f-0x52, 0x56-0x58, 0x70 and 0x75; dealing damage or killing, with
 text: 0x0f, 0x16, 0x22 and 0x2c; healing, with text: 0x3e; spells: 0x4a;
+a monster's breath or attack, which `5b04:58ed` installs at startup and
+event 0x0e of the combat AI runs: 4 (`5b04:4ab8`), 6, 0x53 and 0x68
+(`546e`), 0x4e (`4dc2`), 0x54 (`4eea`), 0x55 (`50cf`) and 0x5a (`5227`);
 and 0x78, whose handler is the item routine `3f44:3888`, which reads
-past the 9-byte record. Ids 0, 4, 6, 0x4e, 0x53-0x55, 0x5a and 0x68 have
-no handler: the original calls `0000:0000`. A call that reaches any of
+past the 9-byte record. Id 0 has no handler: the original calls
+`0000:0000`. A call that reaches any of
 these fails, naming the handler; `DAMAGE` and the clock then end the run
 with `COK_ECL_EFFECT_FAILED` and log the reason as an error.
 
@@ -952,8 +985,9 @@ menu, so after `Encamp`, the fifth command, Enter picks `Alter`. Special
 keys pick a character (`546c:3334`) and redraw the party list; one whose
 scan code is `E`, NumLock, also leaves. On leaving it reloads the small
 picture shown before, unmarks the spells again, and restores the mode,
-the status line, rows 18-22 and row 24. `View` is logged as unported
-(`546c:0d74`).
+the status line, rows 18-22 and row 24, and clears the spell target
+(`DS:710b`, `4888:2e28`). `View` shows the selected character (see
+View).
 
 `Rest` (`4888:0f05`) sets the rest time to what the member who needs
 longest needs to learn its marked spells and scribe its marked scrolls
@@ -1051,9 +1085,8 @@ A's clerics (see Derived stats). The original also erases roster copies
 of the characters (`4b6d:0a80`), which the port does not keep.
 
 `Magic` (`4888:1c32`) offers `Cast Memorize Scribe Display Rest Exit`
-until Exit or Escape for the selected character. `Cast` is logged as
-unported; the original goes on to `4888:0a0d` and, for a spell picked,
-`5b04:1415`. `Rest` is the camp's. A character whose status is 1 or that
+until Exit or Escape for the selected character. `Cast` casts (see
+Casting). `Rest` is the camp's. A character whose status is 1 or that
 cannot act is `in no condition to` memorize or scribe (`4888:08d8`, in
 the text window with its name, `6346:1883`).
 
@@ -1144,6 +1177,359 @@ spells with no name (430) or levels past 9 (20), a far pointer (32), or
 random data makes common. It is not part of the repository. The
 interactive rest and the menus were tested in the port only.
 
+## Casting
+
+`src/cast.h` ports casting outside combat from overlay `5b04`: the cast
+(`5b04:1415`), its targets (`5b04:127e`) and the handler of each spell
+from the table at `DS:6e3a`, which `5b04:58ed` fills at startup.
+`cok_magic_cast` (`src/magic.h`) is Cast (`4888:0a0d`), from the camp's
+Magic menu and from the adventure's commands. It clears the spell target
+(`DS:710b`) and, unless the character is in no condition to
+(`4888:08d8`, see Camp, or "cannot cast spells in this area" while
+`0x4be5` is set), lists the spells in memory (`546c:34ec`, kind 0, in
+the open frame of `1128:077c`, with `Choose Spell: ` and `Cast`) until
+none is picked. Each spell picked clears rows 17-22 and is cast; an
+empty list says "has no spells memorized" (`6346:1883`). The screen is
+redrawn for the mode after a list (`6346:2c17`).
+
+A cast (`5b04:1415`) is made by the selected character:
+
+- Outside combat, a spell whose byte 7 in the spell table is 0 shows its
+  name on row 19 and "can't be cast here..." on row 20, both light
+  green, and asks "Lose it? " (light magenta, `67b5:177f`); Yes forgets
+  it. While an item is used (`DS:711d`, see View) it shows "That Item"
+  and "is a combat-only item..." and asks "Use it? ", and Yes counts the
+  item as used. Those spells are 2, 4, 9, 0x0a, 0x0f, 0x14, 0x15, 0x17,
+  0x19, 0x1b, 0x1f (Knock, which the door menu uses), 0x21, 0x22, 0x26,
+  0x28, 0x2c, 0x2d, 0x2f, 0x31, 0x33, 0x37, 0x3c, 0x3d, 0x40-0x42, 0x44,
+  0x46, 0x48, 0x49, 0x4a, 0x4c, 0x4e, 0x4f, 0x51-0x54, 0x56, 0x57,
+  0x5b-0x5e, 0x62, 0x64, 0x66 and 0x6a.
+- A caster with effect 0x4a then miscasts on a d2 of 1 (`5b04:57eb`:
+  name and "miscasts" on row 19, the spell's name on row 20), keeping the
+  spell.
+- Otherwise, from memory, it "casts" the spell, said the same way.
+- The targets (`5b04:127e`), by byte 7: 1 the caster; 2 a member picked
+  with "Cast Spell on whom" and `Select Exit` (`6346:32c7`, from the last
+  target or the caster, after redrawing the screen); 4 the whole party.
+  With a target, the caster's invisibility (0x19) ends (`60f4:1408`), a
+  spell from memory is forgotten (`6346:161b`: the first byte equal to
+  it, so a spell marked to be learned does not count), and the handler
+  runs with the spell in `DS:6b33`. Exit picks no one, and nothing is
+  used.
+- Rows 18-22 are cleared (`6346:196a`).
+
+The caster level (`6346:29fe`, `cok_effects_caster_level`) is 6 for a
+character with no cleric or mage level, a knight level below 9 and a
+ranger level below 8; otherwise, by the spell's class (byte 0), the
+better of the cleric level and the knight level less 8 (0 and 2), the
+ranger level less 7, at least 0 (1), the better of the mage level and
+the ranger level less 8 (3), or 12 (4, the powers of items). A human
+that may use its former class (`66c2:0efb`) adds its former levels; a
+mage of an order (`+0x5e`) loses a level while its moon (`0x4cf8` +
+order) is in phase 0 and gains one in phase 2 above level 5. While an
+item is used the level is 6, but for class 4. Levels are signed bytes.
+A spell lasts (`5b04:0f78`) the caster level times byte 5 plus byte 4
+minutes, but 0x1a 3780, 0x28 1d6 × 10, 0x39 and 0x3d 5d4, 0x3b 1d4 × 10
++ 40, 0x3f (1d10 + 10) × 10 (2d10 × 10 in combat) and 0x43 1440.
+
+Most handlers apply the spell (`5b04:1071`) to each target left in the
+list: a saving throw if byte 8 is set (of type byte 9), damage if any
+(`60f4:1db7`), and the effect of byte 10 for the spell's duration, with
+the caster level or a given value (`60f4:20f7`). The effect is first
+pending (`DS:6b2f`) through event 9 (magic resistance, then the
+target's effects); if cancelled, or saved against with a save of kind
+1, the target "is Unaffected". An effect of the same id with time left
+is removed first; a permanent one stays and the new one is added after
+it. Then the target says the spell's text (`6346:228c`, which outside
+combat is `6346:1883`: name and text in rows 18-22, then a pause).
+Damage (`60f4:1db7`) runs event 6, halves or cancels for a save of kind
+2 or 1, else runs event 0x14; if any is left and the target can act, it
+"takes N points of damage" (or "takes 1 point of damage") "from Fire",
+"from Cold", "from Electricity" or "from Acid" by the type (`DS:6b31`
+without bit 8), or "from Magic" when the type has no other bit; then it
+"Goes Down", ", and is Dying", or "is killed". The party list is not
+redrawn.
+
+| Spell | Handler | Outside combat |
+| --- | --- | --- |
+| 1, 0x69 Bless | `1efb` | the party on the caster's side (`+0x18a`, `5b04:1e34`): effect 1 for 6 minutes, "is Blessed" |
+| 3 Cure Light Wounds, 0x3a Cure Serious Wounds | `1f57`, `3ddc` | 1d8, or 2d8 + 1, and 1d8 more first for a caster of deity 4; "is fully healed" or "is partially healed" (`6346:25f9`), and the party list redrawn |
+| 5, 0x0b, 0x12, 0x16, 0x1d, 0x4d, 0x67 | `2004` | effects 5, 0x10, 0x13 or 0x18: "is affected" |
+| 6, 7, 0x10, 0x11, 0x34-0x36, 0x45, 0x65 | `203e` | effects 8, 9, 0x2d, 0x2e or 0x29: "is protected" |
+| 8 Resist Cold, 0x18 Resist Fire, 0x13 Shield | `207d`, `2679`, `2456` | 0x0a "is cold-resistant", 0x14 "is fire resistant", 0x11 "is shielded" |
+| 0x6b Burning Hands | `20ab` | fire and magic damage of the caster level, no text |
+| 0x0c Enlarge | `21d7` | strength by caster level (18/00, 18/01, 18/51, 18/76, 18/91, 18/100, 19-22) as effect 0x0c if better than the base (`60f4:1592`): "is stronger"; else "is unaffected" |
+| 0x0d Reduce | `230c` | unless a save of type 4 is made, the first 0x0c goes: "has been reduced" |
+| 0x0e Friends | `23ac` | effect 0x0e of 2d4, rolled first: "is friendly"; charisma recomputed |
+| 0x1a Slow Poison | `26eb` | see below |
+| 0x1c Spiritual Hammer | `2877` | effect 0x17, then its handler, which gives the hammer |
+| 0x1e, 0x32 Invisibility, 0x3f, 0x61 | `28c7`, `3fbd`, `49ff` | effects 0x19 or 0x47: "is invisible" (0x61 no text) |
+| 0x20 Mirror Image | `293b` | effect 0x1c with 1d4 images in the value's high nibble, the level below: "is duplicated" |
+| 0x23 Strength | `2e4e` | see below |
+| 0x24, 0x5a Animate Dead, 0x38 Restoration, 0x47 Cure Critical Wounds, 0x4b Raise Dead, 0x50 Invisibility to Animals | `3000`, `3d8c`, `42a7`, `42c0`, `42e3` | nothing, though the spell is used up |
+| 0x25 Cure Blindness | `300d` | 0x21 goes, "is Cured" (`60f4:14b7`), and "can see" |
+| 0x27 Cure Disease | `3107` | 0x22 goes; if 0x2b does, 0x2c and 0x1f too, and strength is recomputed (`DS:6b38` set) |
+| 0x29, 0x2e Dispel Magic | `320f` | see below |
+| 0x2a Prayer | `358a` | the party: effect 0x31, the caster's side in the value's high nibble: "is praying" |
+| 0x2b, 0x59, 0x68 Remove Curse | `35f5` | see below |
+| 0x30 Haste | `3991` | the first members on the caster's side, as many as its level, curing Slow (0x2a) or else hasted (0x27): "is Hasted", then event 0x12, so each ages a year the first time |
+| 0x39 | `3d9b` | cures Slow, else effect 0x27: "is Speedy" |
+| 0x3b | `3e53` | effect 0x71, strength 21 if better than the base ("is stronger"), see below |
+| 0x3e, 0x63 | `3f63`, `4a40` | heal 2d4 + 2: "is Healed", the party list not redrawn |
+| 0x43 Neutralize Poison | `4098` | see below |
+| 0x55 Fire Shield | `464d` | see below |
+| 0x58 Minor Globe, 0x5f, 0x60 | `4957`, `49a3`, `49d1` | effects 0x3f "is protected", 0x49 and 0x61 with no text |
+
+Slow Poison drops a target of status 1 from the list; a poisoned one
+(0x37), whatever its status, gets at least 1 hit point, status 0, can
+act, and gets 0x16 for 3780 minutes and 0x0f for 10, each run when
+removed; 0x37 stays. Neutralize Poison likewise drops status 1; a
+poisoned target gets at least a hit point, loses 0x37, 0x16 and 0x0f
+(while curing), says "is unpoisoned" and is okay; another "is
+unaffected". Remove Curse removes Bestow Curse's 0x24 ("is Cured", "is
+un-cursed"), or else unreadies the first cursed item (`+0x36`), which
+stays cursed and counts in the stats until they are next recomputed; for
+an item with a power (`+0x3e` above 0x7f) the effect it gave goes
+(`3f44:3888`: the first of id `+0x3d`) and every ability is recomputed
+(`60f4:1743`); "has an item un-cursed". Dispel Magic removes each effect
+of its first target whose value is not 0xff, taking the low nibble as
+the level that cast it, on a d100 up to 50, plus 5 a level the caster is
+above it or less 2 a level below, as a byte (`DS:4839`, `483a`), and
+says "is affected" if any went. Fire Shield asks "flame type: " with
+`Hot Cold` (`67b5:03e2`, or a d10 above 5 for Hot for a character the
+computer controls); Hot adds 0x32 and says "is protected", Cold adds
+0x36 silently, each with 0x70, for the level + 2 minutes; any other key
+asks "Abort spell? " with `Yes No`, and Yes ends it.
+
+The port keeps these quirks:
+
+- Magic resistance at caster level 12 and up: the chance wraps, so a
+  resistance of 1-4 resists every time. A damage byte left over in
+  `DS:6b30` (from an earlier attack or damage) skips the check for
+  spells that deal none, as nothing clears it.
+- The d2 for 0x4a is rolled for a spell refused outside combat too, so
+  "miscasts" can follow "Lose it?".
+- Effects of no duration, as invisibility's, stack: each cast adds one.
+- Strength rolls 1d4 for a mage, 1d6 for a cleric or thief, 1d8 for a
+  fighter (each that applies, the last kept, former classes counting
+  above `+0xd7`); for none of those (a knight or ranger alone) the roll
+  is an uninitialized local, `[bp-6]`, which is `[bp-0x36]` of
+  `5b04:1415`. Cast from memory, that holds the frame pointer of `1415`
+  that `6346:161b` (called at `5b04:16fc`) pushed there, and its low byte
+  is fixed by the calls above it: the stack starts at 0x4000 (the MZ
+  header's SP), main (`1000:0134`) reserves 0x100, and through
+  `2fd3:3c28`, `475c:09ec` and `4888:0a0d` (the commands' `Cast`) BP is
+  0x3d74, adding 0x74 (116); through `2fd3:3c28`, `2fd3:3403`,
+  `4888:2c31`, `4888:1c32` and `4888:0a0d` (camp's `Magic`) it is 0x3d9a,
+  adding 0x9a (154). Strength as an item's power does not call `161b`,
+  and the byte is the segment of the effect pointer `60f4:1408` left
+  there, NULL after its search, so 0. An emulator run of each path agreed.
+- 0x3b adds effect 0x71 whatever the base strength (`3e73` jumps past
+  only "is stronger"); on a base of 21 or more its value is the byte
+  `[bp-1]` it never set, `[bp-0x31]` of `1415`: from an item, the high
+  byte of the return address `16eb`, so 0x16, and strength is recomputed
+  with that; from memory, the high byte of the overlay's segment, which
+  depends on where the overlay manager loaded it: the port stops with
+  `COK_ECL_UNDEFINED`.
+- Strength and 0x3b compare against the base strength (`+0x10`,
+  `+0x1d`), not the current one, so repeated casts stack.
+- Slow Poison and Neutralize Poison raise the dead who are poisoned.
+- Burning Hands, from an item outside combat, burns its user for 6.
+- Spiritual Hammer's hammer is never readied; and when it is readied and
+  then unreadied, its power 0 removes effect 0x17, whose handler then
+  takes the hammer away.
+- Dispel Magic works on the list's first target each pass (one target
+  outside combat). Its second part, the clouds on the combat map, runs
+  outside combat too and reads the map pointer (`DS:6a2e`) that combat
+  has freed; the port leaves it out.
+
+Not ported: the combat target routine (`332f:2337`) and the combat parts
+of `5b04:1415`, `6346:228c` and `60f4:1db7` (icons, missiles, sounds,
+"lost a spell"); spells cast by touch (byte 2 0xff, `60f4:1062`), which
+none outside combat is; effects whose handlers need combat or text when
+the spell's events or timers reach them, such as 0x0f and 0x16 of Slow
+Poison when they run out, 0x1c (Mirror Image) on damage and 0x47 (from
+0x3f) on event 9, which stop the run with `COK_ECL_EFFECT_FAILED`; and
+spell ids 0x6c-0x7f, which only items name, past the handler table. The
+spell target and the trade partner (`DS:710b`, `46b0`), which the
+original keeps as pointers into freed records when Alter's Drop removes
+a character, are forgotten in the port.
+
+## View
+
+`src/sheet.h` and `src/items.h` port View (`546c:0d74`), from the
+adventure's commands and the camp, for the selected character: its sheet,
+then the menu on row 24 (prompt empty, items white and light green,
+`67b5:03e2` with no keypad directions) of `Items` if it has items,
+`Spells` if any of its 58 spell bytes is set, `Trade` if it has money,
+outside combat, and is a player character (`+0xe7` below 0x80), cannot
+act, or has status 1; `Drop` if it has money; and `Exit`. `Heal` and
+`Cure` (`546c:3652`, `3665`) are never offered and do nothing. View takes
+no special keys apart: PgUp (scan 0x49) is `I`, Del `S`, shift-F1 `T`
+(whether offered or not), F10 `D`, NumLock exits. Items, Spells and Trade
+redraw the sheet; Escape or Exit leaves, and the screen is redrawn for
+the mode. View keeps the character in `DS:46ac` and starts trades from it
+(`DS:46b0`).
+
+The sheet (`546c:00a3`) recomputes the stats (`546c:07bb`, `6346:0d20`)
+and draws, in the frame of `1128:05fc` (rows 8, 16, 20 and 23 across,
+column 19 from row 9 to 19):
+
+| Row | Column | Text | Colour |
+| --- | --- | --- | --- |
+| 1 | 1 | name | 11, 12 if it cannot act |
+| 1 | 20, 27 | `Status:`, the status (`DS:1330`) | 15, 10 |
+| 3 | 1, 8 | gender (`DS:12d5`), age and ` years` | 15 |
+| 3 | 20, 31 | `Hit Points `, hit points `/` maximum (`6346:0a0d`) | 15, 14 below the maximum else 10 |
+| 4 | 1, 20 | alignment (`DS:11c0`), race (`DS:1140`) | 15 |
+| 5 | 1 | class (`DS:0f5a`), after the deity (`DS:1259`) for a cleric, the order (`DS:12b9`) and a space before its `Mage`, a knight's ` of the Crown`, ` of the Sword` or ` of the Rose` | 15 |
+| 7 | 1, 7 | `Level`, each class's level and former level, `/` between (former ones below the first class's level, `66c2:0eab`) | 15 |
+| 7 | 20 | `Experience ` and the experience | 15 |
+| 9-14 | 1, 5 | `STR `-`CHA `, each score (from column 6 below 10), `(NN)` at 7 for exceptional strength, `*` at 12 when not the base (`546c:0b50`) | 10 |
+| 9-15 | 20 | each coin but silver it has, its amount ending at 37 (`546c:0667`) | 10 |
+| 17 | 1, 15-17 | `Armor Class`, the armour class, a sign before it, from column 16, 17 for 9 to 0, 15 for 60 and -10 down (`6346:0984`) | 15, 10 |
+| 17 | 20, 33 | `Encumbrance`, the weight, five wide | 15, 10 |
+| 18 | 1, 16 | `THAC0   `, 60 less `+0x18c` as a byte, two wide | 15, 10 |
+| 18 | 20, 35 | `Movement`, doubled by 0x27, halved by 0x2a, three wide | 15, 10 |
+| 19 | 1, 11 | `Damage`, dice, sides and bonus (`1d8+6`), seven wide | 15, 10 |
+| 21, 22 | 1 | the readied weapon's and armour's names | 10 |
+
+Names come from the original's strings (`DS:0f5a`-`1dd3`, embedded and
+checked against `build/START_FULL.EXE`), indexed as signed bytes; an index
+past them stops the port, and so does one that lands in the middle of the
+table on a string that holds the NULs between names, which the original
+draws as characters. The class line's search for `M?g` reads past
+the class into the bytes the gender, alignment and race left in the
+buffer; where it would read bytes nothing set, the port stops.
+
+An item's name (`6346:0488`) is `" Yes  "` or `" No   "` in lists; `* `
+for a bonus or curse while anyone has effect 5; its count if not 0; then
+the name parts `+0x31`, `+0x30` and `+0x2f` (21 bytes each from
+`DS:1390`, 123 of them), each hidden while its bit of `+0x35` (1, 2, 4)
+is set, each followed by a space, or for a count above 1, by `s ` on one:
+the only part shown, the first of more than two (but type 0x37), the
+second when the first is hidden, the third for type 0x37, or any for
+types 0x1e, 5 and 0x0c unless `+0x31` is 0x5d (silver); the string is cut
+to 40 at each step and kept in the item's first bytes, the rest left as
+they were.
+
+Items (`546c:17f9`) lists the items, `Ready Item` on row 3, in rows 5-22
+(`67b5:1368`), with `Ready`; `Use` if the character can act, the area
+allows magic and it is camp, a plain or a 3D area; `Trade` as View
+offers it, outside combat; `Drop`; `Halve` below 16 items; `Join`; and
+in shops and temples (mode 1) `Sell` and `Id`, which are not ported and
+logged. The stats are recomputed after every key (`6346:0d20`), and the
+list redrawn when the count changes. It ends with Escape or Exit, when
+the item count is 0, or when a use ends the turn, which only combat
+keeps.
+
+- `Ready` (`546c:1ea7`) unreadies, but not a cursed item ("It's
+  Cursed"), or readies; a notice on row 24 (`6346:1827`) says why not,
+  the last that applies: "Your hands are full!" (more than 2 with the
+  type's), "already using " and the item in its slot (for a ring, when
+  the second ring slot is taken, the first ring; for arrows or quarrels,
+  those readied), "Wrong Magical Order"
+  for a scroll (type 0x27) not of the character's order, "Usable Only By
+  Kender" (type 0x43), "Wrong Class" (`+0x11a` against the type's byte
+  13). An item with a power (`+0x3e` above 0x7f, `546c:1d96`) of 0 or 2
+  adds or removes its effect `+0x3d` (`3f44:3888`: permanent, value
+  0xff, its handler run on removal); 3 and 5 recompute strength; 9
+  unreadied removes 0x17.
+- `Use` needs the item readied ("Must be Readied"), and a scroll, or a
+  spell in `+0x3d` with `+0x3e` below 0x80 (`546c:24d7`). A scroll's
+  spells are listed (`Spells on Scroll`, `5b04:0981`, whatever its order)
+  to pick one; another item "uses an item" (its name on row 22, a pause)
+  and casts `+0x3d & 0x7f`. Either is cast as an item (`DS:711d`), at
+  level 6 but for item powers. A scroll needs a cleric or magic-user (a
+  human also by its first class or first former class, `66c2:0e4f`,
+  `0df3`), or a thief above level 9 who rolls 1-75 on a d100, or else
+  "oops!". When it took: a scroll loses the spell
+  and a use (`+0x2f`, `5b04:575d`) and goes below 100; another item with
+  charges (`+0x3c`) loses one of a stack (`+0x39`) or a charge, and goes
+  with the last; one with none lasts.
+- `Trade` (`546c:2178`), `Drop` and `Sell` first need the item unreadied
+  ("Must be unreadied"), and for a scroll marked to scribe, Yes to "is it
+  Okay to lose it? " after " was going to scribe from that scroll" in
+  yellow on row 21 (`546c:10cb`). Trade picks "Trade with Whom?" from the
+  last partner and moves the item to the end of the receiver's, unless it
+  has 16 items or the weight would pass its strength allowance + 1500
+  ("Overloaded", `546c:32b0`). Drop says "Your NAME will be gone forever"
+  in yellow on rows 21-22 and asks "Drop It? ".
+- `Halve` (`546c:2234`) splits a count into a copy of half, unreadied,
+  after it ("Can't halve that" for 1); `Join` (`546c:22e4`) adds to the
+  item every other item of its type, name parts, bonuses, curse and
+  weight, with a count and `+0x3c` below 2, up to 255, the rest staying
+  with the other.
+
+`Spells` lists the spells in memory (`546c:34ec`, `Spells in Memory`).
+`Trade` (`546c:2c75`) picks "Trade to?" from the last partner, shows the
+giver's sheet, and lists its coins (`Select type of coin ` with ` Select`
+over rows 9-15, the amount after the name padded to column 14); "How
+much platinum will you trade? " asks an amount (`58e7:028d`: digits drawn
+in white after the prompt on row 24, at most 6, a number past what it
+has becoming all of it, Backspace, Enter or Escape for 0), which the
+receiver takes unless its weight would pass its strength allowance +
+1500 (`58e7:044b`, "Overloaded"), weight and coins changing as words;
+again until the giver has none, or Escape asks for another partner.
+`Drop` (`546c:2fe2`) lists likewise, the amount right-aligned to column
+18, asks "How much ... will you drop? ", and the coins are gone; in shops
+and treasure (modes 1 and 6) they would go to a pool, logged as
+unported.
+
+The port keeps these quirks:
+
+- In Items, Join compares `+0x3c`-`+0x3e` of the other item with itself,
+  so they never stop a join, and frees readied items without their
+  powers' effects going.
+- An item whose `+0x3d` is 0x80 is spell 0: Use does nothing but leave
+  `DS:711d` set, so that the next cast from memory counts as an item's:
+  no "casts", nothing forgotten, and the "Use it?" prompt for spells for
+  combat only.
+- A scroll's list counts its spells in `DS:4838` with those listed
+  before, which only Scribe's lists reset; past 49 the original writes
+  over the data segment, and the port stops.
+- Backspace in an amount clears the cell after the last digit, so the
+  digit taken stays on the screen.
+- In Trade, Escape at the first coin list, before any amount, tests a
+  byte the original never set (`[bp-0x13c]`, `546c:2f9b`), which decides
+  whether to ask for another partner (0) or leave Trade. Loading the
+  camp's picture zero-fills that part of the stack, so in View, the first
+  command of a camp whose picture was not already loaded, Trade asks
+  again; after anything chosen before in the same View (Items, Spells,
+  Trade or Drop) or a View before in the same camp, it leaves. Elsewhere
+  (View from the commands, a camp whose picture was kept, or another camp
+  command before) the byte depends on the run's history, and the port
+  stops with `COK_ECL_UNDEFINED`. An emulator run of the whole camp
+  agreed on each case the port carries out.
+- An item used to cast a spell is followed by its position, as a spell
+  such as Dispel Magic can remove an effect whose handler removes another
+  item, Spiritual Hammer's; if the item itself goes, the original goes
+  on with the freed item, and the port stops.
+- A name's bytes past its length keep what longer names left (as the
+  original's files show).
+
+Not ported: the debug `View` item of Items (`DS:4b51`, Ctrl-D), shops'
+`Sell` (`546c:2822`) and `Id` (`546c:2a59`), the money pool of shops and
+treasure, and the combat side: the turn View ends, `Use` in combat
+(`6346:300f`, `6346:2964`), the combat panel.
+
+A differential test ran the original routines in an 8086 emulator
+against the port on random parties, items and effects: casting every
+spell from 1 to 0x6b with its targets, answers and Fire Shield's keys
+(`5b04:1415` and every handler outside combat, with the original's
+`6346:0d20`, effects and rolls), Use of wands and scrolls (`546c:24d7`),
+Ready, Halve and Join (`546c:1ea7`, `2234`, `22e4`), item names
+(`6346:0488`), caster levels (`6346:29fe`), durations (`5b04:0f78`) and
+abilities (`60f4:1743`), with the screen's texts, the records, items,
+effects, rolls and random numbers compared, Cast from the commands' and
+from camp's stack depths. Of 10,000 cases, the 9,670 the port carries out
+agreed. The 330 it refused reach a name part past the name table (257,
+which random items make common), 0x3b's value from the overlay's segment
+(30), effects whose handlers need combat or text (23) and spell ids past
+the handler table (20). It is not part of the repository. The screens
+and menus were tested in the port only, but for the Trade byte, whose
+cases were run in the emulator from the camp menu.
+
 ## Checks against the original
 
 These follow the disassembly but have not been compared with the game
@@ -1205,6 +1591,27 @@ running in DOSBox:
 - With a knight above level 6 and no cleric level who knows a granted
   power, memorize it: the port lets it be marked again and again, counting
   against 0x71 (`4888:0700`); see whether the original does.
+- Cast Strength on a knight or ranger with no other class and a
+  strength of 3: the roll is the low byte of a frame pointer (`5b04:2f03`),
+  0x74 from the commands' `Cast` and 0x9a from camp's `Magic`, so the
+  strength should become 18 and the exceptional strength 100 either way.
+  Check both.
+- `Encamp`, choose `View` first, `Trade`, pick a partner, and press
+  Escape at the first coin list: the original should ask for a partner
+  again. Choose `Spells` or `Drop` first, or `View` twice, and it should
+  leave Trade. From the commands' `View` the port stops; see what the
+  original does.
+- Use an item whose `+0x3d` is 0x80, then cast a spell from memory: it
+  should not say "casts", and the spell should stay memorized.
+- Cast Haste with a mage of level 4: each member hasted should "age" a
+  year, once (its value's bit 4).
+- Open a character's sheet: compare the layout and colours with the
+  table in View, a fighter/mage's class line (`Fighter/Red Mage`) and an
+  exceptional strength (`18(00)`).
+- Ready the Spiritual Hammer a cleric conjured, then unready it: it
+  should vanish (power 0 removes effect 0x17).
+- In an amount, type more than the coins there are, then Backspace: the
+  last digit stays on the screen.
 
 ## Disassembly image
 

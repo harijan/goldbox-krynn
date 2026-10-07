@@ -48,6 +48,16 @@ static size_t count(const cok_character *c)
     return n;
 }
 
+/* What the say hook was given, each ended by ";". */
+static char said_text[256];
+
+static void said(cok_effects *effects, cok_character *c, const char *text, void *context)
+{
+    (void)effects, (void)c, (void)context;
+    size_t used = strlen(said_text);
+    snprintf(said_text + used, sizeof said_text - used, "%s;", text);
+}
+
 /* The ids of c's effects, as a string of hex pairs. */
 static const char *ids(const cok_character *c)
 {
@@ -91,9 +101,12 @@ static void test_list(void)
     add(c, 0x3a, 6, 0, true);
     CHECK(cok_effects_remove(&fx, c, NULL, 0x3a) && strcmp(ids(c), "053b3c") == 0);
     CHECK(c->effects->next->next->duration == 3 && c->effects->next->next->on_remove);
-    /* Effect 4 has no handler: the original calls 0000:0000. */
+    /* Effect 0 has no handler: the original calls 0000:0000. Effect 4's
+     * is a monster's attack, which 5b04:58ed installs at startup. */
+    add(c, 0x00, 0, 0, true);
+    CHECK(!cok_effects_remove(&fx, c, NULL, 0x00) && strstr(fx.error, "0000:0000") != NULL);
     add(c, 0x04, 0, 0, true);
-    CHECK(!cok_effects_remove(&fx, c, NULL, 0x04) && strstr(fx.error, "0000:0000") != NULL);
+    CHECK(!cok_effects_remove(&fx, c, NULL, 0x04) && strstr(fx.error, "5b04:4ab8") != NULL);
     /* A handler that needs combat is not ported. */
     add(c, 0x1a, 0, 0, true);
     CHECK(!cok_effects_remove(&fx, c, NULL, 0x1a) && strstr(fx.error, "3f44:09e8") != NULL);
@@ -182,8 +195,8 @@ static void test_hammer(void)
     CHECK(cok_effects_remove(&fx, c, NULL, 0x17));
     CHECK(c->item_count == 1 && c->items[0][0x2e] == 0x10 && c->slots[0] == 0);
     CHECK(c->record[0x193] == 2 && c->record[0x142] == 1);
-    /* Gaining the hammer prints, which is not ported. With a hammer, or 16
-     * items as last counted (+0x142), it only recomputes the stats. */
+    /* With a hammer, or 16 items as last counted (+0x142), it only
+     * recomputes the stats. */
     add(c, 0x17, 0, 0, false);
     c->record[0x142] = 16;
     c->record[0x193] = 99;
@@ -192,8 +205,20 @@ static void test_hammer(void)
     c->items[0][0x31] = 0x79;
     c->record[0x193] = 99;
     CHECK(cok_effects_dispatch(&fx, c, 0x13) && c->record[0x193] == 2 && c->item_count == 1);
+    /* Without one it adds a hammer at the end, unreadied, and says so; it
+     * cannot without a way to print. */
     c->items[0][0x31] = 0;
     CHECK(!cok_effects_dispatch(&fx, c, 0x13) && strstr(fx.error, "3f44:07b5") != NULL);
+    CHECK(c->item_count == 2);
+    c->item_count = 1;
+    fx.say = said;
+    said_text[0] = '\0';
+    CHECK(cok_effects_dispatch(&fx, c, 0x13) && strcmp(said_text, "Gains an item;") == 0);
+    const uint8_t *h = c->items[1];
+    CHECK(c->item_count == 2 && h[0x2e] == 6 && h[0x30] == 6 && h[0x31] == 0x79 && h[0x32] == 1);
+    CHECK(h[0x3d] == 0x17 && h[0x3e] == 0x80 && h[0x34] == 0 && h[0x39] == 0 && h[0x2f] == 0);
+    CHECK(c->slots[0] == 0 && c->record[0x142] == 2);
+    fx.say = NULL;
 }
 
 /* A readied item of type for c, with bonus. */
@@ -428,13 +453,48 @@ static void test_dispatch(void)
     add(c, 0x3b, 0, 0, false);
     k->amount = 9;
     CHECK(cok_effects_dispatch(&fx, c, 5) && k->amount == 0);
-    /* Magic resistance against a pending spell needs spells. */
+    /* Magic resistance against a pending spell needs the caster's level,
+     * from the selected character. */
+    reset();
+    c = member();
     c->record[0x187] = 10;
     k->pending = 0x34;
-    CHECK(!cok_effects_dispatch(&fx, c, 6) && strstr(fx.error, "60f4:04f3") != NULL);
-    /* The handlers of event 0x0e are mostly missing. */
+    k->amount = 0;
+    vm.character = NULL;
+    CHECK(!cok_effects_dispatch(&fx, c, 6) && strstr(fx.error, "6346:29fe") != NULL);
+    /* At level 6 (no cleric or mage level), 10 + 5 * 5 = 35: a d100 up to
+     * 35 resists; magic damage too; other damage is not checked. */
+    vm.character = c->record;
+    k->spell = 0x34;
+    bool resisted = false, kept = false;
+    for (int i = 0; i < 40; ++i) {
+        uint32_t seed = vm.seed;
+        uint8_t d100 = (uint8_t)(cok_tp_random(&seed, 100) + 1);
+        k->pending = 0x34;
+        k->amount = 0;
+        CHECK(cok_effects_dispatch(&fx, c, 9));
+        CHECK((k->pending == 0) == (d100 <= 35));
+        if (d100 <= 35) resisted = true; else kept = true;
+    }
+    CHECK(resisted && kept);
+    k->pending = 0x34;
+    k->amount = 5;
+    k->damage_type = 1;
+    uint32_t before = vm.seed;
+    CHECK(cok_effects_dispatch(&fx, c, 9) && k->pending == 0x34 && vm.seed == before);
+    /* 0x5b and 0x52 lose only the damage; level 12 and up wraps, so that
+     * a resistance of 1 to 4 always resists. */
+    c->record[0x187] = 3;
+    c->record[0xfe] = 12;
+    k->damage_type = 8;
+    k->pending = 0x5b;
+    CHECK(cok_effects_dispatch(&fx, c, 9) && k->pending == 0x5b && k->amount == 0);
+    c->record[0xfe] = 0;
+    c->record[0x187] = 0;
+    k->spell = 0;
+    /* The handlers of event 0x0e are monsters' attacks in combat. */
     add(c, 0x55, 0, 0, false);
-    CHECK(!cok_effects_dispatch(&fx, c, 0x0e) && strstr(fx.error, "0000:0000") != NULL);
+    CHECK(!cok_effects_dispatch(&fx, c, 0x0e) && strstr(fx.error, "5b04:50cf") != NULL);
 }
 
 /* What the handlers do when their effect ends, for those that look at it
@@ -478,13 +538,20 @@ static void test_removal(void)
     CHECK(c->effects->duration == 255 && c->effects->value == 0xff && !c->effects->on_remove);
     add(c, 0x38, 0, 0, false);
     CHECK(cok_effects_dispatch(&fx, c, 0x08) && strcmp(ids(c), "193819") == 0);
-    /* 0x27, haste, doubles the rate; the first time it ages the character,
-     * with a message, which is not ported. */
-    cok_effect *haste = add(c, 0x27, 0, 0, false);
+    /* 0x27, haste, doubles the rate; the first time it ages the character
+     * a year and says so, which needs a way to print. */
+    cok_effect *haste = add(c, 0x27, 0, 0x0f, false);
     fx.rolls.rate = 6;
     CHECK(!cok_effects_dispatch(&fx, c, 0x12) && strstr(fx.error, "3f44:0f78") != NULL);
-    haste->value = 0x10;
-    CHECK(cok_effects_dispatch(&fx, c, 0x12) && fx.rolls.rate == 12);
+    haste->value = 0x0f;
+    c->record[0x60] = 0xff;
+    c->record[0x61] = 0;
+    fx.say = said;
+    said_text[0] = '\0';
+    CHECK(cok_effects_dispatch(&fx, c, 0x12) && fx.rolls.rate == 12 && haste->value == 0x1f);
+    CHECK(c->record[0x60] == 0 && c->record[0x61] == 1 && strcmp(said_text, "ages;") == 0);
+    CHECK(cok_effects_dispatch(&fx, c, 0x12) && fx.rolls.rate == 24 && c->record[0x60] == 0);
+    fx.say = NULL;
     /* 0x2b, strength drain, comes back each hour; above 3 it weakens, with a
      * message; at 3 or less it brings 0x1f; while curing nothing. */
     reset();
@@ -666,6 +733,129 @@ static void test_saved(void)
     CHECK(!cok_effects_remove(&fx, molly, NULL, 0x07) && strstr(fx.error, "3f44:0208") != NULL);
 }
 
+/* 60f4:1743 for the other abilities: dexterity from items of power 2, 8
+ * and 10; constitution with the maximum hit points; intelligence and
+ * wisdom are not stored. */
+static void test_more_abilities(void)
+{
+    reset();
+    cok_character *c = member();
+    uint8_t *r = c->record;
+    c->items = calloc(3, COK_ITEM_SIZE);
+    c->item_count = 3;
+    for (size_t i = 0; i < 3; ++i) c->items[i][0x34] = 1;
+    /* Power 2 adds 4 below dexterity 7, 2 up to 13 and 1 above. */
+    c->items[0][0x3e] = 0x82;
+    uint8_t dex[] = {6, 7, 13, 14};
+    uint8_t want[] = {10, 9, 15, 15};
+    for (size_t i = 0; i < 4; ++i) {
+        r[0x16] = dex[i];
+        CHECK(cok_effects_ability(&fx, c, 3) && r[0x17] == want[i]);
+    }
+    /* Power 8 of kind 3 adds 1 below 18, power 10 takes 2; power 0 and
+     * unreadied items count for nothing. */
+    c->items[1][0x3e] = 0x88;
+    c->items[1][0x3d] = 3;
+    c->items[2][0x3e] = 0x8a;
+    r[0x16] = 17;
+    CHECK(cok_effects_ability(&fx, c, 3) && r[0x17] == 17);
+    c->items[2][0x34] = 0;
+    CHECK(cok_effects_ability(&fx, c, 3) && r[0x17] == 19);
+    c->items[0][0x3e] = 0x80;
+    c->items[1][0x3e] = 0x80;
+    CHECK(cok_effects_ability(&fx, c, 3) && r[0x17] == 17);
+    /* Intelligence: nothing changes. */
+    r[0x13] = 7;
+    c->items[0][0x3e] = 0x8c;
+    CHECK(cok_effects_ability(&fx, c, 1) && r[0x13] == 7);
+    memset(c->items, 0, 3 * COK_ITEM_SIZE);
+    /* Constitution: a level 3 fighter of constitution 17 with 30 of 40
+     * hit points and 10 for its first level gets 3 a level above level 0,
+     * 10 + 9 = 19; it loses 21, as many as it lacks, so 9 are left. A
+     * ranger gets one more level; a mage 2 a level above 15. */
+    r[0x18] = 17;
+    r[0x62] = 40;
+    r[0x197] = 30;
+    r[0x11b] = 10;
+    r[0xfb] = 3;
+    CHECK(cok_effects_ability(&fx, c, 4) && r[0x19] == 17 && r[0x62] == 19 && r[0x197] == 9);
+    r[0x197] = 30;
+    r[0x62] = 19;
+    r[0xfb] = 0;
+    r[0xfd] = 3;
+    CHECK(cok_effects_ability(&fx, c, 4) && r[0x62] == 22 && r[0x197] == 33);
+    /* Two classes divide; a level at its class's top (DS:3903) or above
+     * counts as one less, and constitution 15 gives 1 a level: the ranger
+     * 4 (3, and one more), the mage 11 (20 capped at 12). */
+    r[0xfe] = 20;
+    r[0x18] = 15;
+    CHECK(cok_effects_ability(&fx, c, 4) && r[0x62] == 10 + (4 + 11) / 2);
+    /* 20 and up brings effect 0x3e; below, it goes, with its handler, which
+     * is not ported. */
+    r[0x18] = 20;
+    CHECK(cok_effects_ability(&fx, c, 4) && strcmp(ids(c), "3e") == 0);
+    CHECK(c->effects->duration == 0x3c && c->effects->value == 0xff && c->effects->on_remove);
+    CHECK(cok_effects_ability(&fx, c, 4) && strcmp(ids(c), "3e") == 0);
+    r[0x18] = 19;
+    CHECK(!cok_effects_ability(&fx, c, 4) && strstr(fx.error, "3f44:1acd") != NULL);
+    /* With no class level the original divides by zero. */
+    memset(r + 0xf9, 0, 8);
+    CHECK(!cok_effects_ability(&fx, c, 4) && strstr(fx.error, "200") != NULL);
+}
+
+/* 6346:29fe: the selected character's caster level by the spell's class. */
+static void test_caster_level(void)
+{
+    reset();
+    cok_character *c = member();
+    uint8_t *r = c->record;
+    uint8_t level = 0;
+    CHECK(!cok_effects_caster_level(&fx, 1, &level) && strstr(fx.error, "6346:29fe") != NULL);
+    vm.character = r;
+    /* No cleric or mage level, a knight below 9 and a ranger below 8: 6. */
+    r[0x100] = 8;
+    r[0xfd] = 7;
+    CHECK(cok_effects_caster_level(&fx, 1, &level) && level == 6);
+    /* Cleric spells: the cleric level or the knight level - 8. */
+    r[0xf9] = 3;
+    r[0x100] = 12;
+    CHECK(cok_effects_caster_level(&fx, 1, &level) && level == 4);
+    CHECK(cok_effects_caster_level(&fx, 0x65, &level) && level == 4); /* class 2 */
+    /* Druid spells: the ranger level - 7, at least 0. */
+    CHECK(cok_effects_caster_level(&fx, 0x4d, &level) && level == 0);
+    r[0xfd] = 9;
+    CHECK(cok_effects_caster_level(&fx, 0x4d, &level) && level == 2);
+    /* Magic-user spells: the mage level, one less under moon phase 0 of
+     * its order, one more at 2 above level 5, or the ranger level - 8. */
+    r[0xfe] = 6;
+    r[0x5e] = 2;
+    vm.mem4b00[0x1fa] = 0;
+    CHECK(cok_effects_caster_level(&fx, 0x0f, &level) && level == 5);
+    vm.mem4b00[0x1fa] = 2;
+    CHECK(cok_effects_caster_level(&fx, 0x0f, &level) && level == 7);
+    r[0xfe] = 5;
+    CHECK(cok_effects_caster_level(&fx, 0x0f, &level) && level == 5);
+    vm.mem4b00[0x1fa] = 1;
+    r[0xfe] = 0;
+    r[0xfd] = 10;
+    CHECK(cok_effects_caster_level(&fx, 0x0f, &level) && level == 2);
+    /* Items' powers (class 4): 12; any other spell of an item: 6. */
+    CHECK(cok_effects_caster_level(&fx, 0x39, &level) && level == 12);
+    fx.rolls.item = 1;
+    CHECK(cok_effects_caster_level(&fx, 0x39, &level) && level == 12);
+    CHECK(cok_effects_caster_level(&fx, 1, &level) && level == 6);
+    fx.rolls.item = 0;
+    /* A human's former cleric level counts while it may use it. */
+    r[0x5a] = 6;
+    r[0xf9] = 0;
+    r[0x101] = 7;
+    r[0xd7] = 3;
+    r[0xfb] = 4;
+    r[0x100] = 0;
+    CHECK(cok_effects_caster_level(&fx, 1, &level) && level == 7);
+    vm.character = NULL;
+}
+
 int main(void)
 {
     char error[300];
@@ -675,6 +865,8 @@ int main(void)
     }
     test_list();
     test_abilities();
+    test_more_abilities();
+    test_caster_level();
     test_hammer();
     test_weapons();
     test_dispatch();

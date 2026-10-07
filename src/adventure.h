@@ -109,6 +109,9 @@ struct cok_adventure {
     uint8_t bonus_spells;  /* DS:7144: magic-user spells the moons allow beyond a day's. */
     uint16_t rest_ticks;   /* DS:4b53: five minutes rested toward an encounter roll. */
     char save_dir[512];    /* Where Save writes (DS:5784); empty for nowhere. */
+    uint8_t *spell_target; /* DS:710b: the last member a spell was cast on, or NULL. */
+    uint8_t *trade_partner; /* DS:46b0: whom View's trades start from. */
+    uint8_t scroll_spells; /* DS:4838: the spells of scroll lists, since Scribe's last. */
     bool quit;             /* The player quit to DOS (1614:0000); the run was aborted. */
 
     cok_keyboard keys;
@@ -209,6 +212,12 @@ void cok_adventure_redraw(cok_adventure *game);
  * cell 3, 3, as the camp's menus do while they wait (6961:000a). */
 void cok_adventure_load_picture(cok_adventure *game, uint8_t id);
 void cok_adventure_show_picture(cok_adventure *game);
+/* Pick a member with prompt and "Select", and "Exit" if exit_item, which
+ * picks none, starting from who (6346:32c7): the party list shows the
+ * pick, and up and down (8 and 2) move it; in camp the small picture shows
+ * too. Returns the pick; *ended is set when input ended. */
+uint8_t *cok_adventure_pick(cok_adventure *game, const char *prompt, uint8_t *who, bool exit_item,
+                           bool *ended);
 /* Print text wrapped in window from game->vm.cursor in fg on 0, paging as
  * PRINT does, without a delay between characters (1521:04ac). */
 void cok_adventure_print(cok_adventure *game, const char *text, cok_text_window window,

@@ -16,10 +16,10 @@
  * its handler with flag 1 if the effect asks for it (60f4:01e9).
  *
  * Handlers that need systems not yet ported (combat, its map and records,
- * spells, text output) are not ported: a call that reaches one fails with
- * the handler's address in the error. So does anything the original
- * mishandles, such as an effect with no handler (the original calls
- * 0000:0000). */
+ * damage and killing with text) are not ported: a call that reaches one
+ * fails with the handler's address in the error. Those that only speak do
+ * so through the say hook. So does anything the original mishandles fail,
+ * such as an effect with no handler (the original calls 0000:0000). */
 
 /* The working bytes of the rolls in the original's data segment, which the
  * handlers read and change. They keep their values between calls, as in
@@ -40,8 +40,13 @@ typedef struct {
     uint8_t save_type;    /* DS:6b43: the saving throw's type. */
     uint8_t save_made;    /* DS:6b44. */
     uint8_t saved;        /* DS:5885: set when the game is saved in camp (4b6d:22de)
-                           * until the camp menu returns; the port does not save. */
+                           * until the camp menu returns. */
     uint8_t round;        /* DS:714b: the combat round, 0 outside combat. */
+    uint8_t item;         /* DS:711d: set while an item's spell is used (546c:24d7), which
+                           * casts it at level 6 (6346:29fe); cleared at startup and by
+                           * the next use. */
+    uint8_t images;       /* DS:6b39: the spell being cast takes no mirror image; read only
+                           * in combat (3f44:0a57). */
 } cok_rolls;
 
 enum {
@@ -49,7 +54,9 @@ enum {
     COK_EFFECT_TIMED = 0x48, /* DS:46b4. */
 };
 
-typedef struct {
+typedef struct cok_effects cok_effects;
+
+struct cok_effects {
     /* The game: its mode (DS:4b49), selected character (DS:6096), moons
      * (0x4bf8 on), party size (0x7f3e) and Random seed. */
     cok_ecl *vm;
@@ -65,7 +72,11 @@ typedef struct {
     size_t removed_count, removed_capacity;
     bool failed;
     char error[300]; /* Why the last call failed. */
-} cok_effects;
+    /* Say text about character c in the text window and wait (6346:1883
+     * outside combat). The handlers that print fail without it. */
+    void (*say)(cok_effects *fx, cok_character *c, const char *text, void *context);
+    void *context;
+};
 
 /* Set up fx for the game's VM, party and item types. */
 void cok_effects_init(cok_effects *fx, cok_ecl *vm, cok_party *party, const cok_item_types *types);
@@ -87,6 +98,11 @@ bool cok_effects_dispatch(cok_effects *fx, cok_character *target, uint8_t event)
 bool cok_effects_remove(cok_effects *fx, cok_character *character, cok_effect *effect,
                         uint8_t id);
 
+/* Run the handler of id for character with flag 0 and effect, which may
+ * be NULL (60f4:01a8), as Spiritual Hammer does for 0x17 when cast. Fails
+ * as cok_effects_dispatch does. */
+bool cok_effects_run(cok_effects *fx, cok_character *character, uint8_t id, cok_effect *effect);
+
 /* An attack on target with bonus (60f4:0ffb): a d20, 20 counting as 100,
  * that is not 1 and, after target's effects for event 0x10, is not negative
  * and beats target's AC (+0x18d, as 60 - AC) with bonus. */
@@ -106,6 +122,28 @@ bool cok_effects_save(cok_effects *fx, cok_character *target, uint8_t type, uint
  * removed as cok_effects_remove does. In camp (mode 2) nothing is counted
  * unless a member had an effect with time left at the last count. */
 bool cok_effects_pass_time(cok_effects *fx, unsigned unit, unsigned count);
+
+/* The caster level of spell for the selected character (6346:29fe): 6
+ * for one with no cleric or mage level, knight level below 9 and ranger
+ * level below 8; otherwise by the spell's class, the best of the cleric
+ * level and the knight level - 8 (classes 0 and 2), the ranger level - 7
+ * (1), the best of the mage level, changed by the moon of its order, and
+ * the ranger level - 8 (3), or 12 (4); former levels count for a human
+ * who may use them. While an item is used (rolls.item), it is 6 unless
+ * the class is 4. Fails with none selected, where the original reads
+ * through NULL, and for a class past 4, where it returns an uninitialized
+ * byte. */
+bool cok_effects_caster_level(cok_effects *fx, uint8_t spell, uint8_t *level);
+
+/* Recompute ability stat (0 strength ... 5 charisma) of character from its
+ * base score, readied items and effects (60f4:1743): strength and
+ * charisma as removing an effect does, dexterity with items of power 2, 8
+ * and 10, and constitution with the maximum hit points it gives by level
+ * and effect 0x3e at 20 and up. Intelligence and wisdom are computed and
+ * not stored, as in the original. Fails where the original divides by
+ * zero (a constitution recomputed with no class level) or an effect's
+ * handler is not ported. */
+bool cok_effects_ability(cok_effects *fx, cok_character *character, unsigned stat);
 
 /* How many of each clock unit make the next (DS:3874), 0x4bc6 on. */
 extern const uint16_t cok_clock_units[7];

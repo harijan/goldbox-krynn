@@ -125,6 +125,11 @@ typedef struct {
      * (11, type 0x1e) and quarrels (12, type 0x0c). The original keeps far
      * pointers at +0x147; the port sets those bytes to 0. */
     size_t slots[COK_ITEM_SLOTS];
+    /* An item a routine holds across a call that may take items away or
+     * add them, as 1 + its index, kept on the same item by
+     * cok_character_remove_item and cok_character_insert_item; 0 for none,
+     * or once that item is gone. The original holds a pointer. */
+    size_t held;
 } cok_character;
 
 typedef struct {
@@ -146,6 +151,16 @@ bool cok_character_read(cok_character *character, const char *dir, const char *b
                         const cok_item_types *types, char *error, size_t error_size);
 /* Free the items and effects. */
 void cok_character_free(cok_character *character);
+
+/* Take item index from character and free it (6346:1697), which changes
+ * nothing else in the original: the item count (+0x142) and the readied
+ * slots wait for the stats to be recomputed. The port renumbers the slots,
+ * which the original keeps as pointers, and the held item. */
+void cok_character_remove_item(cok_character *character, size_t index);
+/* Insert a copy of item at index of character's items (6346:178b appends
+ * one), renumbering the slots and the held item. Returns false when out of
+ * memory. */
+bool cok_character_insert_item(cok_character *character, size_t index, const uint8_t *item);
 
 /* Add an effect at the end of the character's list (60f4:1285): id, minutes
  * left (0 for none), its value and whether its handler runs when it is
@@ -178,6 +193,11 @@ bool cok_character_stats(cok_character *character, const cok_item_types *types, 
  * of 90 or more reads past the initialized data. */
 bool cok_character_levels(cok_character *character, const cok_item_types *types, char *error,
                           size_t error_size);
+
+/* The weight c may carry before its strength slows it (6346:153b), which
+ * can be negative. Returns false with error set where its strength row is
+ * uninitialized (a strength past 25 or past 18/00). */
+bool cok_character_allowance(const uint8_t *c, int16_t *allowance, char *error, size_t error_size);
 
 /* 66c2:0efb: whether a human's first class with a level is above its level
  * at +0xd7, so that it can use its former class (66c2:0eab). */
