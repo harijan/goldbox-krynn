@@ -35,6 +35,13 @@ bool cok_ds_string(uint16_t offset, char out[256]);
  * COK_ECL_UNDEFINED, for a part past the name table. */
 bool cok_item_name(cok_adventure *game, uint8_t *item, bool readied_column, char out[41]);
 
+/* Unready item as 546c:1ea7 does given a readied item: a cursed one
+ * (+0x36) stays readied, with "It's Cursed"; otherwise it is unreadied,
+ * and the effect of its power, if any, is taken from the selected
+ * character, whose item it need not be. Returns false, ending the run,
+ * where that cannot be carried out. */
+bool cok_item_unready(cok_adventure *game, uint8_t *item);
+
 /* The Items menu (546c:17f9) for the selected character, until Exit or
  * Escape, *done is set, or it has no items: the list of its items with
  * "Ready Use Trade Drop Halve Join", as the character and the items allow

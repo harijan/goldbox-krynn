@@ -87,7 +87,7 @@ class PlayTests(unittest.TestCase):
         self.assertEqual(pixel(bmp, 8, 19 * 8 + 7), (255, 255, 255))
         result = self.play("--start", "899b", "--keys", r"\r22\r", ASSETS, 48)
         self.assertIn("choice: 2", result.stdout.splitlines())
-        self.assertIn("[LOAD MONSTER 36 4 35]", result.stdout.splitlines())
+        self.assertIn("monster: 4 EVIL FIGHTER, icon 35 in slot 8", result.stdout.splitlines())
 
     def test_view_of_throtl(self):
         shots = self.folder / "shots"
@@ -97,7 +97,15 @@ class PlayTests(unittest.TestCase):
         lines = result.stdout.splitlines()
         self.assertFalse([line for line in lines if line.startswith("[LOAD ")])
         self.assertEqual(lines[-2], "menu: ~ATTACK ~LEAVE")
-        bmp = sorted(shots.glob("*.bmp"))[0].read_bytes()
+        # The guards stand in the gateway, a wall ahead (of a kind the party
+        # can pass), so at distance 0: their picture replaces the view.
+        self.assertEqual(lines[1:3], ["monster: sprite 12 at 0", "monster: picture 12"])
+        # After the fight the screen is redrawn with the view.
+        final = self.folder / "final.bmp"
+        result = self.play("--set", "4be6=1", "--keys", r"\r", "--screen", final, ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("[COMBAT]", result.stdout.splitlines())
+        bmp = final.read_bytes()
         # The party stands at 7, 15 facing north, down a street: grey stone
         # sides near the view's edges and cobbles below a black sky.
         self.assertEqual(pixel(bmp, 8 * 8 + 4, 3 * 8 + 2), (0, 0, 0))
@@ -122,12 +130,14 @@ class PlayTests(unittest.TestCase):
         self.assertIn("print: MONSTERS ATTACK!", lines)
         self.assertEqual(lines[-1], "(out of keys in block 32 at 8335)")
         # Each step and turn redraws the view: from the start, three
-        # squares north, east and back north, with the man's portrait.
+        # squares north, east and back north, with the man's portrait, and
+        # the hobgoblins' close-up, at the gate and in the ambush.
         def view(shot):
             bmp = shot.read_bytes()
             return tuple(pixel(bmp, x, y) for x in range(24, 112, 4) for y in range(24, 112, 4))
         views = [view(shot) for shot in sorted(shots.glob("*.bmp"))]
-        self.assertEqual(len(set(views)), 6)
+        self.assertEqual(len(set(views)), 7)
+        self.assertEqual(views[0], views[4])
         self.assertNotEqual(views[-1], views[-2])
         self.assertEqual(views[-1], views[-4])
 
@@ -136,7 +146,7 @@ class PlayTests(unittest.TestCase):
         shots.mkdir()
         # Attack (combat is not ported), camp, rest an hour, and leave; then
         # camp again, rest an hour, and stop at once with a key.
-        keys = r"\rerhar\e" "erhar\kyy\e"
+        keys = r"\rerhar\e" r"erhar\kyy\e"
         result = self.play("--play", "--set", "4be6=1", "--keys", keys, "--shots", shots,
                            ASSETS, 32)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -176,6 +186,12 @@ class PlayTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("WALLDEF1.DAX has no record 2", result.stderr)
 
+    def test_encounter_menu_needs_a_party(self):
+        # With no party, 3775:1f8b reads 0000:0198: the port stops.
+        result = self.play("--start", "851e", "--keys", r"\r", ASSETS, 33)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("ENCOUNTER MENU with an empty party", result.stderr)
+
     def test_missing_block_and_bad_options(self):
         result = self.play(ASSETS, 200)
         self.assertEqual(result.returncode, 1)
@@ -197,6 +213,57 @@ class PartyTests(unittest.TestCase):
 
     def play(self, *args):
         return subprocess.run([str(TOOL), *map(str, args)], capture_output=True, text=True)
+
+    def test_the_cleric_comes_round_the_corner(self):
+        shots = self.folder / "shots"
+        shots.mkdir()
+        # ENCOUNTER MENU in Throtl's temple: wait twice while he approaches,
+        # parlay, and answer slyly.
+        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--set", "4be6=1", "--start", "851e",
+                           "--keys", r"wwps\r\r", "--shots", shots, ASSETS, 33)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[:6], ["monster: sprite 35 at 2",
+                                     "print: YOU SEE A CLERIC ROUND THE CORNER.",
+                                     "menu: ~COMBAT ~WAIT ~FLEE ~ADVANCE", "choice: 1",
+                                     "monster: sprite 35 at 1", "print: A CLERIC APPROACHES."])
+        self.assertIn("menu: ~COMBAT ~WAIT ~FLEE ~PARLAY", lines)
+        menu = lines.index("menu: ~HAUGHTY ~SLY ~NICE ~MEEK ~ABUSIVE")
+        self.assertEqual(lines[menu + 1:menu + 3],
+                         ["choice: 1", "print: THE CLERIC NODS AND POINTS YOU TO A STACK OF PAPERS."])
+        # The menu shows no close-up: the sprite's nearest group stands in
+        # the (empty) view.
+        self.assertNotIn("monster: picture 41", lines)
+        def colours(shot):
+            bmp = shot.read_bytes()
+            return {pixel(bmp, x, y) for x in range(24, 112) for y in range(24, 112)}
+        images = sorted(shots.glob("*.bmp"))
+        self.assertGreaterEqual(len(colours(images[0])), 3)
+        self.assertNotEqual(colours(images[0]), colours(images[2]))
+
+    def test_the_patrol(self):
+        # The patrol of Throtl's outpost: a won fight sends another; a fled
+        # one, [7ec7] 0x81, ends the script.
+        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--combat", "won", "--start", "8cda",
+                           "--keys", r"\r", ASSETS, 16)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertIn("monster: 9 RED DRAGON, icon 21 in slot 8", lines)
+        self.assertIn("combat: won", lines)
+        self.assertIn("combat: removed 9 RED DRAGON, 9 BOZAK, 9 SIVAK; 27 dropped", lines)
+        self.assertIn("print: THE CITY IS SENDING ANOTHER PATROL. DO YOU FLEE?", lines)
+        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--combat", "fled", "--start", "8cda",
+                           "--keys", r"\r", ASSETS, 16)
+        lines = result.stdout.splitlines()
+        self.assertIn("combat: fled", lines)
+        self.assertNotIn("print: THE CITY IS SENDING ANOTHER PATROL. DO YOU FLEE?", lines)
+        self.assertEqual(lines[-1], "(done in block 16)")
+        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--combat", "lost", "--start", "8cda",
+                           "--keys", r"\r", ASSETS, 16)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[-2:], ["print: The monsters rejoice for the party has been destroyed",
+                                      "(the party was killed in block 16)"])
+        self.assertEqual(self.play("--combat", "draw", ASSETS, 16).returncode, 2)
 
     def test_party_beside_the_view(self):
         screen = self.folder / "screen.bmp"

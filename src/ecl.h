@@ -213,6 +213,13 @@ void cok_ecl_store_string(cok_ecl *vm, uint16_t address, const char *text);
  * modulo range, or 0 for range 0 (1a46:1179). */
 uint16_t cok_tp_random(uint32_t *seed, uint16_t range);
 
+/* The game's dice (60f4:1216): the sum, as a byte, of count rolls of
+ * Random(sides) + 1. Nearly every roll in the game goes through it. */
+uint8_t cok_dice(uint32_t *seed, uint8_t count, uint8_t sides);
+/* 60f4:1261: cok_dice, after storing count in *dice (DS:6b34, the dice of
+ * the damage being dealt). */
+uint8_t cok_dice_count(uint32_t *seed, uint8_t count, uint8_t sides, uint8_t *dice);
+
 /* The operand count of opcode's handler, COK_ECL_LIST for a header and
  * list (see cok_ecl.header), or COK_ECL_HANG. */
 enum { COK_ECL_LIST = -1, COK_ECL_HANG = -2 };

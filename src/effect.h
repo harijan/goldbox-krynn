@@ -84,8 +84,9 @@ void cok_effects_free(cok_effects *fx);
 
 /* Run the handlers of target's effects for event 1-0x18 (60f4:057c), each
  * with flag 0: the event's effect ids in order, each for target's first
- * effect with the id, or for ids 0x15, 0x2d, 0x2e and 0x31 the first party
- * member's that has one when target has none. Returns false with fx->error
+ * effect with the id, or for ids 0x15, 0x2d, 0x2e and 0x31 the first
+ * record's in the list, a monster's too, that has one when target has
+ * none. Returns false with fx->error
  * set when a handler is not ported or the original would misbehave. */
 bool cok_effects_dispatch(cok_effects *fx, cok_character *target, uint8_t event);
 

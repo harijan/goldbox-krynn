@@ -14,7 +14,7 @@ typedef struct {
     cok_character *caster;
     uint8_t spell;
     uint8_t frame; /* The low byte of 5b04:1415's BP. */
-    cok_character *targets[COK_PARTY_MAX];
+    cok_character *targets[COK_PARTY_RECORDS]; /* DS:6feb holds 72. */
     size_t count;
 } cast;
 
@@ -47,13 +47,10 @@ static bool undefined(cok_adventure *game, const char *what)
     return false;
 }
 
-/* Sum count rolls of 1 to sides, as a byte (60f4:1216). */
+/* The dice (60f4:1216). */
 static uint8_t roll(cok_adventure *game, uint8_t count, uint8_t sides)
 {
-    uint8_t sum = 0;
-    for (unsigned i = 0; i < count; ++i)
-        sum = (uint8_t)(sum + cok_tp_random(&game->vm.seed, sides) + 1);
-    return sum;
+    return cok_dice(&game->vm.seed, count, sides);
 }
 
 static bool level_of(cok_adventure *game, uint8_t spell, uint8_t *level)
@@ -782,6 +779,7 @@ static bool target(cast *cx)
         return true;
     }
     case 4:
+        /* The whole list from DS:609a, monsters loaded too. */
         for (size_t i = 0; i < game->party.count; ++i) cx->targets[i] = game->party.members[i];
         cx->count = game->party.count;
         return true;

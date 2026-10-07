@@ -148,6 +148,8 @@ bool cok_character_read(cok_character *character, const char *dir, const char *b
 
 void cok_character_free(cok_character *character)
 {
+    free(character->combat);
+    character->combat = NULL;
     free(character->items);
     character->items = NULL;
     character->item_count = 0;
@@ -156,6 +158,12 @@ void cok_character_free(cok_character *character)
         free(character->effects);
         character->effects = next;
     }
+}
+
+const cok_combat_record *cok_character_combat(const cok_character *character)
+{
+    static const cok_combat_record none;
+    return character->combat != NULL ? character->combat : &none;
 }
 
 void cok_character_remove_item(cok_character *c, size_t index)
@@ -1351,7 +1359,7 @@ bool cok_character_levels(cok_character *character, const cok_item_types *types,
 
 bool cok_party_add(cok_party *party, cok_character *character)
 {
-    if (party->count == COK_PARTY_MAX) return false;
+    if (party->count == COK_PARTY_RECORDS) return false;
     bool used[COK_PARTY_MAX] = {false};
     for (size_t i = 0; i < party->count; ++i) {
         uint8_t slot = party->members[i]->record[0x137];
@@ -1360,6 +1368,13 @@ bool cok_party_add(cok_party *party, cok_character *character)
     uint8_t slot = 0;
     while (slot < COK_PARTY_MAX && used[slot]) ++slot;
     character->record[0x137] = slot;
+    party->members[party->count++] = character;
+    return true;
+}
+
+bool cok_party_append(cok_party *party, cok_character *character)
+{
+    if (party->count == COK_PARTY_RECORDS) return false;
     party->members[party->count++] = character;
     return true;
 }
@@ -1395,7 +1410,9 @@ uint8_t *cok_party_special(const cok_party *party, const uint8_t *selected, uint
     if (party->count == 0) return NULL;
     size_t i = cok_party_index(party, selected);
     if (scan == 0x48) {
-        if (i == 0) return cok_party_record(party, party->count - 1);
+        /* With none selected, the walk for the one before it stops at the
+         * last, whose next is NULL. */
+        if (i == 0 || selected == NULL) return cok_party_record(party, party->count - 1);
         /* The original walks to the member before selected, and off the
          * end of the list when selected is not a member. */
         return i < party->count ? cok_party_record(party, i - 1) : NULL;

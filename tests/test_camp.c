@@ -291,6 +291,20 @@ static void test_rest(void)
     CHECK(!cok_camp_rest(&game, false) && clock[2] == 3 && game.rest_ticks == 0);
     game.vm.mem7c00[0x2d2] = 0;
 
+    /* The learning timers are by position (DS:712e), eight of them: a
+     * ninth record, a monster loaded and not fought, would overrun them. */
+    {
+        size_t members = game.party.count;
+        while (game.party.count <= COK_PARTY_MAX)
+            CHECK(cok_party_append(&game.party, member("MONSTER", 1, 1, 2)));
+        keys("");
+        set_rest(0, 1, 0, 0);
+        CHECK(!cok_camp_rest(&game, false) && game.vm.status == COK_ECL_UNDEFINED);
+        while (game.party.count > members) cok_party_remove(&game.party, game.party.count - 1);
+        game.vm.status = COK_ECL_OK;
+        memset(game.rest, 0, sizeof game.rest);
+    }
+
     /* The rest menu: Hours, Add twice, Subtract, Rest: an hour. A key
      * pressed while resting asks whether to stop. */
     memset(clock, 0, 7 * sizeof *clock);

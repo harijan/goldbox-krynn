@@ -26,6 +26,31 @@ enum {
 
 typedef struct cok_adventure cok_adventure;
 
+enum {
+    COK_ICON_SLOTS = 26, /* DS:6172: 0-7 the party's, 8 on monsters', 13-25 missiles. */
+    COK_MONSTERS_MAX = 63, /* DS:43be: records LOAD MONSTER adds between CLEARMONSTERS. */
+    COK_COINS = 7,
+};
+
+/* The treasure pool: the coins (DS:6b0c, seven longs: silver, copper,
+ * bronze, platinum, steel, gems and jewelry) and the items (DS:6b28, a list
+ * of 63-byte items linked at +0x2a, kept here in list order). TREASURE and
+ * the end of combat fill it; CLEARMONSTERS empties it. */
+typedef struct {
+    uint32_t coins[COK_COINS];
+    uint8_t (*items)[COK_ITEM_SIZE];
+    size_t item_count;
+} cok_pool;
+
+/* How eclplay's --combat resolves a battle, which is not ported. */
+typedef enum {
+    COK_COMBAT_UNPORTED, /* Log COMBAT's battle as unported. */
+    COK_COMBAT_WON,      /* Every record against the party (+0x18a 1) drops. */
+    COK_COMBAT_FLED,     /* The whole party flees. */
+    COK_COMBAT_LOST,     /* The whole party dies. */
+    COK_COMBAT_GODS,     /* The original's Helm cheat (432f:41e2) ends it. */
+} cok_combat_stub;
+
 typedef struct {
     /* An opcode not carried out here, with its operands decoded in
      * game->vm. NULL ignores it. */
@@ -35,9 +60,10 @@ typedef struct {
      * to load, the party's square and facing as "X,Y,DIR" after it moves
      * or turns, and commands of the adventure loop and camp that are not
      * ported, the name of each character WHO picks, the rows of spell
-     * lists, and quitting to DOS: kind is "print", "menu", "list", "item",
-     * "heading", "choice", "input", "error", "at", "unported", "who" or
-     * "quit". */
+     * lists, quitting to DOS, the monsters loaded, the encounter's sprite
+     * and money robbed, and the end of a fight: kind is "print", "menu",
+     * "list", "item", "heading", "choice", "input", "error", "at",
+     * "unported", "who", "quit", "monster" or "combat". */
     void (*log)(cok_adventure *game, const char *kind, const char *text, void *context);
     /* Before each instruction, as cok_ecl_hooks.trace. */
     void (*trace)(cok_adventure *game, void *context);
@@ -77,6 +103,7 @@ struct cok_adventure {
     size_t frame;          /* DS:6da3, 0-based here. */
     uint8_t picture_id;    /* DS:6e00, COK_ADVENTURE_NO_PICTURE if none. */
     uint8_t picture_file;
+    bool picture_sprite;   /* DS:6dee: the slot holds a SPRIT record, not a PIC. */
     cok_picture big;       /* BIGPIC<file>.DAX, drawn at cell 1, 1 (DS:6e02). */
     uint8_t big_id;        /* DS:6e06, COK_ADVENTURE_NO_PICTURE if none. */
     bool picture_shown;    /* DS:884a: the view holds a picture. */
@@ -113,6 +140,25 @@ struct cok_adventure {
     uint8_t *trade_partner; /* DS:46b0: whom View's trades start from. */
     uint8_t scroll_spells; /* DS:4838: the spells of scroll lists, since Scribe's last. */
     bool quit;             /* The player quit to DOS (1614:0000); the run was aborted. */
+
+    /* Monsters and encounters (see monster.h). */
+    uint8_t monsters;      /* DS:43be: records LOAD MONSTER added since CLEARMONSTERS. */
+    uint8_t icon_slot;     /* DS:72eb: the icon slot of the next LOAD MONSTER. */
+    bool monsters_loaded;  /* DS:8851: COMBAT fights. */
+    uint8_t undead;        /* DS:8859: LOAD MONSTERs of undead (+0xda), for Turn. */
+    /* DS:6172: each slot's two combat icons, ready and attacking, from
+     * CPIC<file> records N and N + 0x80 (6d21:01d0); nothing draws them yet. */
+    cok_picture icons[COK_ICON_SLOTS][2];
+    uint8_t sprite_id;     /* DS:72e9: the SPRIT<file> record of the encounter. */
+    uint8_t closeup_id;    /* DS:72ea: the PIC<file> record shown at distance 0. */
+    bool sprite_loaded;    /* DS:8830: the sprite is in the small picture slot. */
+    bool closeup_shown;    /* DS:8831: the close-up picture replaced it. */
+    bool sprite_shown;     /* DS:884d: a sprite is drawn over the view. */
+    bool in_encounter;     /* DS:8853: ENCOUNTER MENU runs. */
+    uint8_t closeup_head;  /* DS:8854: 0x7ee1 when the close-up was shown. */
+    cok_pool pool;
+    cok_combat_stub combat_stub;
+    bool restoring;        /* The block's vectors run; DS:43bf is restored after them. */
 
     cok_keyboard keys;
     cok_adventure_hooks hooks;
@@ -211,7 +257,33 @@ void cok_adventure_redraw(cok_adventure *game);
  * (6961:00e4), logging an error if it fails; and draw its current frame at
  * cell 3, 3, as the camp's menus do while they wait (6961:000a). */
 void cok_adventure_load_picture(cok_adventure *game, uint8_t id);
+/* Load SPRIT<file> record id into the small picture slot unless it is
+ * there (6961:00e4 with mode 1): every group, colour 0 transparent and 13
+ * drawn black, as cok_picture_load_sprite loads them; not for 0xff. A
+ * record that cannot be had logs an error and leaves the slot empty. */
+void cok_adventure_load_sprite(cok_adventure *game, uint8_t id);
+/* Free the small picture and load BIGPIC<file> record id as the big
+ * picture unless it is loaded (6961:07ed). A record that is not there
+ * leaves no big picture, silently, as in the original; a missing file
+ * logs an error. */
+void cok_adventure_load_big(cok_adventure *game, uint8_t id);
+/* Draw group frame 1-3 of the sprite masked over the view (6961:072e), at
+ * its header's x and y + 2, which the view's buffer puts at cells x + 3,
+ * y + 3; nothing for a group not loaded. */
+void cok_adventure_draw_sprite(cok_adventure *game, unsigned frame);
 void cok_adventure_show_picture(cok_adventure *game);
+/* Draw frame (from 0) of the small picture at cell 3, 3 (6961:000a). */
+void cok_adventure_show_frame(cok_adventure *game, size_t frame);
+/* A menu of the ECL opcodes on row 24 (3775:1885): prompt in light
+ * magenta, items in normal with the hotkeys and the selection in white;
+ * special keys pick a character and redraw the party list. Logs the items
+ * as "menu". Returns the item picked, or -1 if input ended. */
+int cok_adventure_horizontal(cok_adventure *game, const char *prompt, const char *items,
+                             uint8_t normal, bool enter_returns);
+/* Type text in the text window (rows 17-22) from game->vm.cursor in fg on
+ * 0, a character at a time with the text delay, paging as PRINT does
+ * (1521:04ac with DS:4b59 set). Logs it as "print". */
+void cok_adventure_type(cok_adventure *game, const char *text, uint8_t fg, bool clear);
 /* Pick a member with prompt and "Select", and "Exit" if exit_item, which
  * picks none, starting from who (6346:32c7): the party list shows the
  * pick, and up and down (8 and 2) move it; in camp the small picture shows
@@ -230,5 +302,19 @@ void cok_adventure_fail(cok_adventure *game, cok_ecl_status status, const char *
  * buffer, or NULL with game->error set. */
 uint8_t *cok_adventure_record(cok_adventure *game, const char *name, unsigned file,
                               uint8_t id, size_t *size);
+/* Read a record by id from <name>.DAX, a full name such as "MON1CHA",
+ * also saying whether the archive itself could not be opened, where the
+ * original asks for the disk and waits. */
+uint8_t *cok_adventure_find_record(cok_adventure *game, const char *name, uint8_t id,
+                                   size_t *size, bool *no_file);
+/* Load the record of one image or one group of frames, id, from
+ * <name>.DAX (a full name such as "CPIC1") into picture (127f:0111), with
+ * transparent as for cok_picture_load. The old picture is freed first, so
+ * it is left empty when the record cannot be had. Returns false with
+ * game->error set. */
+bool cok_adventure_load_image(cok_adventure *game, const char *name, uint8_t id, int transparent,
+                              cok_picture *picture);
+/* Show text on row 24 in white and wait for a key (1521:096c). */
+void cok_adventure_prompt_key(cok_adventure *game, const char *text);
 
 #endif
