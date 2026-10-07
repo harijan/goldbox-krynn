@@ -242,7 +242,7 @@ int main(int argc, char **argv)
     }
     if (screen != NULL) save(&p, screen);
     int result = 0;
-    if (status == COK_ECL_LOAD_FAILED) {
+    if (status == COK_ECL_LOAD_FAILED || status == COK_ECL_EFFECT_FAILED) {
         fprintf(stderr, "%s\n", game.error);
         result = 1;
     } else if (status != COK_ECL_OK) {

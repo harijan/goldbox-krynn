@@ -57,6 +57,8 @@ typedef enum {
     COK_ECL_LOAD_FAILED, /* NEWECL's load hook failed, where the original retries,
                           * or the opcode hook could not load a file. */
     COK_ECL_DIVIDE_BY_ZERO, /* The original stops with runtime error 200. */
+    COK_ECL_EFFECT_FAILED, /* A spell effect needs what is not ported, or the original
+                            * mishandles it; the opcode hook says why. */
 } cok_ecl_status;
 
 const char *cok_ecl_status_string(cok_ecl_status status);

@@ -201,7 +201,9 @@ static void test_files(void)
     items[COK_ITEM_SIZE + 0x2e] = 0x1e;
     snprintf(path, sizeof path, "%s/KAL.STF", dir);
     write_file(path, items, sizeof items);
-    uint8_t effects[COK_EFFECT_SIZE] = {0x2f, 10, 0, 0xff};
+    /* Two effects and part of a third; the stale next pointers are not kept. */
+    uint8_t effects[2 * COK_EFFECT_SIZE + 4] = {0x2f, 10, 1, 0xff, 0, 0xaa, 0xbb, 0xcc, 0xdd,
+                                                0x07, 0, 0, 0x12, 1};
     snprintf(path, sizeof path, "%s/KAL.SFX", dir);
     write_file(path, effects, sizeof effects);
     cok_character c;
@@ -210,7 +212,12 @@ static void test_files(void)
     /* 6346:0d20 clears the slots' far pointers. */
     for (size_t k = 0; k < 4 * COK_ITEM_SLOTS; ++k) CHECK(c.record[0x147 + k] == 0);
     CHECK(c.item_count == 2 && c.items[1][0x2e] == 0x1e);
-    CHECK(c.effect_count == 1 && c.effects[0][0] == 0x2f);
+    const cok_effect *e = c.effects;
+    CHECK(e != NULL && e->id == 0x2f && e->duration == 0x10a && e->value == 0xff && !e->on_remove);
+    e = e->next;
+    CHECK(e != NULL && e->id == 0x07 && e->duration == 0 && e->value == 0x12 && e->on_remove);
+    CHECK(e->next == NULL && cok_character_find_effect(&c, 0x07) == e);
+    CHECK(cok_character_find_effect(&c, 0x12) == NULL);
     /* Loading recomputes the derived fields, here of a record of zeros. */
     CHECK(c.record[0xce] == 1 && c.record[0x18e] == 0xfe && c.record[0x59] == 40);
     cok_character_free(&c);
@@ -234,7 +241,7 @@ static void test_files(void)
     snprintf(path, sizeof path, "%s/KAL.SFX", dir);
     remove(path);
     CHECK(cok_character_read(&c, dir, "KAL", &types, error, sizeof error));
-    CHECK(c.item_count == 0 && c.items == NULL && c.effect_count == 0);
+    CHECK(c.item_count == 0 && c.items == NULL && c.effects == NULL);
     cok_character_free(&c);
     CHECK(!cok_character_read(&c, dir, "NOBODY", &types, error, sizeof error));
     CHECK(strstr(error, "NOBODY.SAV") != NULL);

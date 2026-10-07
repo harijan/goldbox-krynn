@@ -21,6 +21,7 @@ static cok_adventure *game_with_tiles(void)
 {
     static cok_adventure game;
     memset(&game, 0, sizeof game);
+    cok_effects_init(&game.effects, &game.vm, &game.party, &game.item_types);
     CHECK(cok_picture_create(&game.screen, 40, 200, 1, 0) == COK_PICTURE_OK);
     cok_picture *tiles = &game.view.tiles[4];
     CHECK(cok_picture_create(tiles, 1, 8, 0x28, 0) == COK_PICTURE_OK);
@@ -31,6 +32,8 @@ static cok_adventure *game_with_tiles(void)
 
 static void free_game(cok_adventure *game)
 {
+    cok_party_free(&game->party);
+    cok_effects_free(&game->effects);
     cok_picture_free(&game->screen);
     cok_view_free(&game->view);
 }
@@ -209,8 +212,23 @@ static void test_clock(void)
     /* A full last unit stays full. */
     clock[5] = 11;
     clock[6] = 255;
-    cok_adventure_pass_time(game, 5, 1);
+    CHECK(cok_adventure_pass_time(game, 5, 1));
     CHECK(clock[5] == 0 && clock[6] == 256);
+    /* With 256 years, each unit that passes ages the party a year (+0x60);
+     * the year before did not. */
+    cok_character *c = calloc(1, sizeof *c);
+    CHECK(c != NULL && cok_party_add(&game->party, c));
+    c->record[0x60] = 0xff;
+    CHECK(cok_adventure_pass_time(game, 1, 2) && c->record[0x60] == 1 && c->record[0x61] == 1);
+    clock[6] = 0;
+    /* The party's spell effects lose the time that passes, and end. */
+    cok_effect *e = cok_character_add_effect(c, 0x13, 15, 0, false);
+    CHECK(e != NULL && cok_adventure_pass_time(game, 1, 5) && e->duration == 10);
+    CHECK(cok_adventure_pass_time(game, 2, 1) && c->effects == NULL);
+    /* One whose end is not ported stops the game. */
+    CHECK(cok_character_add_effect(c, 0x1a, 1, 0xff, true) != NULL);
+    CHECK(!cok_adventure_pass_time(game, 1, 1) && game->vm.status == COK_ECL_EFFECT_FAILED);
+    CHECK(strstr(game->error, "3f44:09e8") != NULL && game->vm.abort);
     free_game(game);
 }
 
@@ -244,6 +262,16 @@ static cok_ecl_status run_code(cok_adventure *game, script *s, const uint8_t *co
     memcpy(game->vm.code, code, size);
     game->vm.saved_character = game->vm.character;
     return cok_ecl_run(&game->vm, COK_ECL_BASE);
+}
+
+/* A seed whose second Random number makes a d20 of roll. */
+static uint32_t second_d20(unsigned roll)
+{
+    for (uint32_t seed = 1;; ++seed) {
+        uint32_t t = seed;
+        cok_tp_random(&t, 20);
+        if (cok_tp_random(&t, 20) + 1u == roll) return seed;
+    }
 }
 
 static uint32_t experience(const uint8_t *c)
@@ -326,6 +354,29 @@ static void test_party(void)
     /* Escape does not leave it. */
     CHECK(run_code(&game, &s, who, sizeof who, "\x1b\x01Hs") == COK_ECL_OK);
     CHECK(vm->character == a->record);
+
+    /* A saving throw against DAMAGE runs the character's effects: 0x63
+     * makes throws of type 0 (fifth operand 0x81: the selected character,
+     * throw 1 - 1). A d20 of 1 fails before them, so the seed gives 10,
+     * after the roll for a target. */
+    a->record[0xd0] = 20;
+    cok_effect *immune = cok_character_add_effect(a, 0x63, 0, 0xff, false);
+    CHECK(immune != NULL);
+    const uint8_t save[] = {COK_ECL_DAMAGE, 0, 0x80, 0, 0, 0, 0, 0, 4, 0, 0x81, COK_ECL_EXIT};
+    vm->seed = second_d20(10);
+    CHECK(run_code(&game, &s, save, sizeof save, "\r") == COK_ECL_OK && a->record[0x197] == 20);
+    CHECK(game.effects.rolls.save_roll == 100 && game.effects.rolls.save_type == 0);
+    /* An effect that is not ported stops the run: constitution 2 makes
+     * 0x5e add an uninitialized local. */
+    CHECK(cok_effects_remove(&game.effects, a, immune, 0x63));
+    CHECK(cok_character_add_effect(a, 0x5e, 0, 0xff, false) != NULL);
+    a->record[0x19] = 2;
+    vm->seed = second_d20(10);
+    CHECK(run_code(&game, &s, save, sizeof save, "\r") == COK_ECL_EFFECT_FAILED);
+    CHECK(strstr(s.log, "error: effect 0x5e (3f44:32a8)") != NULL && a->record[0x197] == 20);
+    CHECK(cok_effects_remove(&game.effects, a, NULL, 0x5e));
+    a->record[0xd0] = 0;
+    vm->abort = false;
 
     /* DAMAGE without dice: to the whole party with no save, then to the
      * selected character with throw type 0, which is no save. The list

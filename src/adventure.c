@@ -753,36 +753,37 @@ static uint8_t roll(cok_adventure *game, uint8_t count, uint8_t sides)
     return sum;
 }
 
-/* Whether an attack with bonus hits character c (60f4:0ffb): a d20, 20
- * counting as 100, plus bonus above its 60 - AC; 1 always misses. The
- * original then lets the character's spell effects change the roll
- * (60f4:057c with event 0x10), which is not ported. */
-static bool attack_hits(cok_adventure *game, const uint8_t *c, uint8_t bonus)
+/* The party member whose record is c, or NULL. */
+static cok_character *member_of(cok_adventure *game, const uint8_t *c)
 {
-    uint8_t r = roll(game, 1, 20);
-    if ((int8_t)r <= 1) return false;
-    if (r == 20) r = 100;
-    return (int)(int8_t)r + bonus > c[0x18d];
+    size_t i = cok_party_index(&game->party, c);
+    return i < game->party.count ? game->party.members[i] : NULL;
 }
 
-/* Whether character c makes saving throw type with bonus (60f4:113a): 1
- * always fails and 20 always succeeds; otherwise the d20 plus its bonus
- * (+0x17c) and bonus, as a byte, must reach the throw at +0xd0 + type. A
- * character with a level at +0xfe and +0x5e set gets -1 or +1 by the
- * word at 0x4bf8 + +0x5e (the byte sum wraps), perhaps meant for the
- * moons. Spell effects (60f4:057c with event 0x0c) are not ported. */
-static bool save_made(cok_adventure *game, const uint8_t *c, uint8_t type, uint8_t bonus)
+/* A spell effect could not be carried out: say why and end the run. */
+static void effect_failed(cok_adventure *game)
 {
-    uint8_t r = roll(game, 1, 20);
-    if (r == 1) return false;
-    if (r == 20) return true;
-    if ((int8_t)c[0xfe] > 0 && c[0x5e] != 0) {
-        uint16_t moon = game->vm.mem4b00[(uint8_t)(c[0x5e] + 0xf8)];
-        if (moon == 0) --bonus;
-        else if (moon == 2) ++bonus;
-    }
-    r = (uint8_t)(r + c[0x17c] + bonus);
-    return c[0xd0 + (type & 7)] <= r;
+    fail(game, "%s", game->effects.error);
+    log_text(game, "error", game->error);
+    game->vm.status = COK_ECL_EFFECT_FAILED;
+    game->vm.abort = true;
+}
+
+/* Whether an attack with bonus hits member c (60f4:0ffb, see effect.h). */
+static bool attack_hits(cok_adventure *game, uint8_t *c, uint8_t bonus, bool *hit)
+{
+    if (cok_effects_attack(&game->effects, member_of(game, c), bonus, hit)) return true;
+    effect_failed(game);
+    return false;
+}
+
+/* Whether member c makes saving throw type with bonus (60f4:113a, see
+ * effect.h). */
+static bool save_made(cok_adventure *game, uint8_t *c, uint8_t type, uint8_t bonus, bool *made)
+{
+    if (cok_effects_save(&game->effects, member_of(game, c), type, bonus, made)) return true;
+    effect_failed(game);
+    return false;
 }
 
 /* Damage character c and say so in the text window, a page at a time, then
@@ -833,7 +834,8 @@ static uint8_t *member_rolled(cok_adventure *game, uint8_t rolled)
  * (throw type - 1, none for type 0), and otherwise a random member. Bit 4
  * deals it even when the save is made. If no member can act afterwards,
  * the party is killed and the run ends. Members are rolled from the size in
- * 0x7f3e. */
+ * 0x7f3e. The members' spell effects change the attack and saving rolls;
+ * one that is not ported stops the run with COK_ECL_EFFECT_FAILED. */
 static void damage(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -844,31 +846,38 @@ static void damage(cok_adventure *game)
     uint16_t amount = (uint16_t)(op[3] + roll(game, op[1], op[2]));
     uint8_t target = 0;
     if ((op[0] & 0x40) == 0) target = roll(game, 1, size);
+    bool ok = true, hit, made;
     if ((op[0] & 0x80) == 0) {
-        for (unsigned k = 1; k <= op[0]; ++k) {
+        for (unsigned k = 1; k <= op[0] && ok; ++k) {
             uint8_t *c = member_rolled(game, roll(game, 1, size));
-            if (c != NULL && attack_hits(game, c, op[4])) apply_damage(game, c, amount);
+            if (c != NULL && (ok = attack_hits(game, c, op[4], &hit)) && hit)
+                apply_damage(game, c, amount);
             amount = (uint16_t)(op[3] + roll(game, op[1], op[2]));
         }
     } else {
         uint8_t bonus = op[0] & 0x1f, type = op[4] & 7;
         bool always = (op[0] & 0x10) != 0;
         if ((op[0] & 0x40) != 0) {
-            for (size_t i = 0; i < game->party.count; ++i) {
+            for (size_t i = 0; i < game->party.count && ok; ++i) {
                 uint8_t *c = game->party.members[i]->record;
-                if ((op[0] & 0x20) != 0 || !save_made(game, c, type, bonus) || always)
-                    apply_damage(game, c, amount);
+                made = false;
+                if ((op[0] & 0x20) == 0) ok = save_made(game, c, type, bonus, &made);
+                if (ok && (!made || always)) apply_damage(game, c, amount);
             }
         } else if ((op[4] & 0x80) != 0) {
             uint8_t *c = vm->character;
-            if (c != NULL &&
-                (type == 0 || !save_made(game, c, (uint8_t)(type - 1), bonus) || always))
-                apply_damage(game, c, amount);
+            made = false;
+            if (c != NULL && type != 0) ok = save_made(game, c, (uint8_t)(type - 1), bonus, &made);
+            if (c != NULL && ok && (!made || always)) apply_damage(game, c, amount);
         } else {
             uint8_t *c = member_rolled(game, target);
-            if (c != NULL && (!save_made(game, c, type, bonus) || always))
+            if (c != NULL && (ok = save_made(game, c, type, bonus, &made)) && (!made || always))
                 apply_damage(game, c, amount);
         }
+    }
+    if (!ok) {
+        vm->character = saved;
+        return;
     }
     bool alive = false;
     for (size_t i = 0; i < game->party.count; ++i)
@@ -960,6 +969,7 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
     cok_ecl_hooks vm_hooks = {.load = load_block, .opcode = opcode, .trace = trace,
                               .character_value = character_value, .context = game};
     cok_ecl_init(&game->vm, &vm_hooks);
+    cok_effects_init(&game->effects, &game->vm, &game->party, &game->item_types);
     game->vm.file = 1;
     game->picture_id = COK_ADVENTURE_NO_PICTURE;
     game->big_id = COK_ADVENTURE_NO_PICTURE;
@@ -1003,6 +1013,7 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
 void cok_adventure_close(cok_adventure *game)
 {
     cok_party_free(&game->party);
+    cok_effects_free(&game->effects);
     game->vm.character = NULL;
     free_frames(game);
     cok_picture_free(&game->big);
@@ -1164,10 +1175,6 @@ cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block)
 
 /* The game clock. */
 
-/* Units of the clock at 0x4bc6-0x4bcc and how many of each make the next
- * (DS:3874): 0x4bc9 is the hour. */
-static const uint16_t clock_units[7] = {10, 10, 6, 24, 30, 12, 256};
-
 /* Advance moon i's days in its phase (0x4cfc-0x4cfe), and once they reach
  * days, its phase (0x4cf9-0x4cfb), redrawing it on the frame (57e4:001e). */
 static void moon(cok_adventure *game, unsigned i, uint16_t days)
@@ -1188,12 +1195,22 @@ static void moon(cok_adventure *game, unsigned i, uint16_t days)
 static void carry(cok_adventure *game, uint16_t clock[7])
 {
     for (size_t i = 0; i < 7; ++i) {
-        if (clock[i] < clock_units[i]) continue;
-        /* A full last unit ages each character (field 0x60), and stays
-         * full; characters are not ported. */
-        if (i == 6) continue;
+        if (clock[i] < cok_clock_units[i]) continue;
+        if (i == 6) {
+            /* A full last unit, 256 years, stays full and ages each
+             * character a year (the word at +0x60) every time a unit
+             * passes. Months carry into years without aging anyone. */
+            for (size_t k = 0; k < game->party.count; ++k) {
+                uint8_t *c = game->party.members[k]->record;
+                uint16_t age = (uint16_t)(c[0x60] | c[0x61] << 8);
+                ++age;
+                c[0x60] = (uint8_t)age;
+                c[0x61] = (uint8_t)(age >> 8);
+            }
+            continue;
+        }
         ++clock[i + 1];
-        clock[i] -= clock_units[i];
+        clock[i] -= cok_clock_units[i];
         if (i == 3) {
             moon(game, 0, 8);
             moon(game, 1, 1);
@@ -1202,17 +1219,19 @@ static void carry(cok_adventure *game, uint16_t clock[7])
     }
 }
 
-void cok_adventure_pass_time(cok_adventure *game, unsigned unit, unsigned count)
+bool cok_adventure_pass_time(cok_adventure *game, unsigned unit, unsigned count)
 {
+    if (unit > 6) return true;
     uint16_t clock[7];
     memcpy(clock, &game->vm.mem4b00[0xc6], sizeof clock);
-    for (unsigned i = 0; i < count && unit < 7; ++i) {
+    for (unsigned i = 0; i < count; ++i) {
         ++clock[unit];
         carry(game, clock);
     }
     memcpy(&game->vm.mem4b00[0xc6], clock, sizeof clock);
-    /* 57e4:0171 then counts down the characters' spell effects, which are
-     * not ported. */
+    if (cok_effects_pass_time(&game->effects, unit, count)) return true;
+    effect_failed(game);
+    return false;
 }
 
 /* The adventure loop. */
@@ -1540,6 +1559,7 @@ static cok_ecl_status camp(cok_adventure *game)
     cok_ecl_status status = cok_ecl_run(vm, vm->vectors[2]);
     if (status != COK_ECL_OK || vm->abort) return status;
     unported_command(game, "Encamp");
+    game->effects.rolls.saved = 0; /* DS:5885 */
     game->redraw = true;
     if (vm->mem4b00[0x138] == 0) cok_adventure_view(game);
     return COK_ECL_OK;
@@ -1621,6 +1641,7 @@ cok_ecl_status cok_adventure_play(cok_adventure *game)
         vm->mem4b00[0xf0] = (uint16_t)vm->map_x;
         vm->mem4b00[0xf1] = (uint16_t)vm->map_y;
         step(game);
+        if (vm->status == COK_ECL_EFFECT_FAILED) break; /* the effect timers */
         cok_adventure_view(game);
         /* Sound 10 plays if the party moved. */
         game->picture_shown = false;
@@ -1628,6 +1649,8 @@ cok_ecl_status cok_adventure_play(cok_adventure *game)
         status = cok_ecl_run(vm, vm->vectors[1]);
         if (status == COK_ECL_OK && !vm->abort && vm->reload) status = enter_block(game);
     }
+    /* The effect timers fail between runs (cok_adventure_pass_time). */
+    if (status == COK_ECL_OK && vm->status == COK_ECL_EFFECT_FAILED) status = vm->status;
     vm->abort = false;
     return status;
 }

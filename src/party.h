@@ -14,11 +14,15 @@
  * it is an array in the same order. Record fields (offsets):
  *
  *   +0x000  name, a Pascal string[15]
- *   +0x011  strength (+0x1c exceptional strength), +0x015 wisdom,
- *           +0x017 dexterity, +0x019 constitution
+ *   +0x010  base and current scores, two bytes each: strength (+0x11
+ *           current, with exceptional strength +0x1c, base +0x1d),
+ *           intelligence, wisdom (+0x15), dexterity (+0x17), constitution
+ *           (+0x19) and charisma (+0x1b)
  *   +0x059  base THAC0 as 60 - THAC0 (66c2:0433)
  *   +0x05a  race (6 human), +0x05c knightly order, +0x05d deity,
  *           +0x05e order of magic
+ *   +0x05f  set from the knight level when effect 0x6e ends
+ *   +0x060  age in years, a word
  *   +0x062  maximum hit points; +0x062 + N is set when spell N is known
  *   +0x0ce  highest fighter, ranger or knight level (6346:0d20); it is
  *           also the byte of spell 108
@@ -27,11 +31,14 @@
  *   +0x0d6  highest level; +0x0d7 a human's level must pass to use its
  *           former class (66c2:0efb)
  *   +0x0db  thief skills, eight (66c2:0b9f)
- *   +0x0e7  0x80 and up for NPCs
+ *   +0x0e3  the spell effects (a far pointer; see cok_effect)
+ *   +0x0e7  0x80 and up for NPCs; 0xb3 for a player character an effect
+ *           has turned
  *   +0x0ed  coins, six words, weighed with the items
  *   +0x0f9  levels in each of eight classes (signed bytes): 0 cleric,
  *           2 fighter, 4 ranger, 5 mage, 6 thief, 7 knight
  *   +0x101  levels in former classes, the same way
+ *   +0x10a  alignment, 0-8 (2, 5 and 8 evil; 0, 3 and 6 good)
  *   +0x10b  set to 3 at high fighter, ranger and knight levels
  *   +0x10d  base attacks, dice and damage bonus, two of each
  *   +0x113  base armour class as 60 - AC
@@ -41,11 +48,14 @@
  *   +0x11c  spells a day: cleric levels 1-5, ranger druid 1-3 (+0x121),
  *           mage 1-5 (+0x12b)
  *   +0x137  combat icon slot
+ *   +0x13f  creature flags that effects test
  *   +0x142  number of items, +0x17b hands in use, +0x17d weight carried
  *   +0x17c  saving throw bonus (signed)
+ *   +0x187  magic resistance
  *   +0x188  status: 0 okay, 4 unconscious, 5 dying, 6 dead
  *   +0x189  set while the character can act; cleared when it drops
  *   +0x18a  1 for a character fighting against the party
+ *   +0x18b  set while the computer controls it
  *   +0x18c  THAC0 as 60 - THAC0
  *   +0x18d  armour class as 60 - AC, +0x18e from behind
  *   +0x191  attacks, +0x193 dice sides, +0x195 damage bonus, two of each
@@ -88,14 +98,28 @@ typedef struct {
  * error set if it cannot be read. */
 bool cok_item_types_read(const char *path, cok_item_types *types, char *error, size_t error_size);
 
+/* A spell effect, a 9-byte record in the original (and in .SFX files):
+ * +0 its id, +1 the minutes it has left as a word, 0 for one that does not
+ * end (57e4:0171), +3 a value its handler uses, +4 set to call the handler
+ * with flag 1 when it is removed, +5 a far pointer to the next. The port
+ * keeps the list linked as the original does, and does not keep the stale
+ * pointers of the files. */
+typedef struct cok_effect {
+    uint8_t id;
+    uint16_t duration;
+    uint8_t value;
+    bool on_remove;
+    struct cok_effect *next;
+} cok_effect;
+
 typedef struct {
     uint8_t record[COK_CHARACTER_SIZE];
-    /* Items (.STF) and spell effects (.SFX) as stored, in file order; the
-     * original links them from +0x143 and +0xe3. */
+    /* Items (.STF) as stored, in file order; the original links them from
+     * +0x143. */
     uint8_t (*items)[COK_ITEM_SIZE];
     size_t item_count;
-    uint8_t (*effects)[COK_EFFECT_SIZE];
-    size_t effect_count;
+    /* Spell effects (.SFX), linked from +0xe3 in the original, in file order. */
+    cok_effect *effects;
     /* The readied items 6346:0d20 finds, as 1 + their index in items, or 0
      * for none: the slots 0-8 of their types, two rings (9, 10), arrows
      * (11, type 0x1e) and quarrels (12, type 0x0c). The original keeps far
@@ -120,7 +144,18 @@ void cok_party_file_name(const char *name, char out[9]);
  * set. Free with cok_character_free. */
 bool cok_character_read(cok_character *character, const char *dir, const char *base,
                         const cok_item_types *types, char *error, size_t error_size);
+/* Free the items and effects. */
 void cok_character_free(cok_character *character);
+
+/* Add an effect at the end of the character's list (60f4:1285): id, minutes
+ * left (0 for none), its value and whether its handler runs when it is
+ * removed. Returns the effect, or NULL when out of memory, where the
+ * original does not check. Effects are removed with cok_effects_remove
+ * (effect.h), which runs their handlers. */
+cok_effect *cok_character_add_effect(cok_character *character, uint8_t id, uint16_t duration,
+                                     uint8_t value, bool on_remove);
+/* The first effect with id, or NULL (6346:2447). */
+cok_effect *cok_character_find_effect(const cok_character *character, uint8_t id);
 
 /* Recompute the stats that come from the items and abilities (6346:0d20):
  * the readied slots, item count, hands, weight carried, attacks and
@@ -157,6 +192,10 @@ typedef struct {
 } cok_ds_table;
 extern const cok_ds_table cok_stat_tables[];
 extern const size_t cok_stat_table_count;
+
+/* The byte at DS:offset from those tables, preferring a table with a stride
+ * of 1. False for a byte they do not hold. */
+bool cok_ds_byte(uint16_t offset, uint8_t *out);
 
 /* Add a character to the end of the party (4b6d:1989), giving it the lowest
  * combat icon slot (+0x137) no member uses. The party takes ownership of a

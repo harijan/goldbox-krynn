@@ -36,14 +36,15 @@ nonzero if any file or record fails. `--list` prints metadata for each validated
 record; directory entry numbers are zero-based. Duplicate IDs are retained.
 `make test` includes synthetic malformed inputs, all supplied DAX archives,
 export checks for all 26 supported graphics archives (2,363 images), and
-tests of the picture, text, menu, 3D view and party routines and the
-adventure loop, including PIC delta decoding on `PIC1.DAX` and the game font
+tests of the picture, text, menu, 3D view, party and spell effect routines
+and the adventure loop, including PIC delta decoding on `PIC1.DAX` and the game font
 in `8X8D1.DAX`, and plays the opening scripts, the view of Throtl and a walk
 through it with `eclplay`. It builds `build/START_FULL.EXE` (see
 Disassembly image) to check the original's tables that the port uses. With
 the original's saved games in `SAVE/` (`SAVGAMA.DAT` and its `CHRDATA*`
-files), it also plays them with a party and checks the stats recomputed for
-their characters; those tests are skipped without them.
+files), it also plays them with a party, checks the stats recomputed for
+their characters and runs their spell effects; those tests are skipped
+without them.
 `make sanitize` repeats these checks with AddressSanitizer and UBSan.
 Tests also require Python 3 (standard library only). The native tools have no
 third-party dependencies. Sanitizer targets require the compiler's ASan/UBSan
@@ -352,7 +353,8 @@ then the after-move and location vectors, starting over when `NEWECL`
 switches blocks. It prints text as it is printed (`print:`), menus with their
 `~` marks (`menu:`, `list:` and `item:`), the choices made (`choice:`) and
 input read (`input:`), and the name and operand values of each opcode that
-is not ported, in brackets. `--play` then runs the adventure loop (see
+is not ported, in brackets. A spell effect the port cannot carry out ends
+the run with its reason (see Spell effects). `--play` then runs the adventure loop (see
 Adventure loop), which adds the party's square and facing after each step or
 turn (`at: X,Y,DIR`) and the commands that are not ported (`unported:`).
 `--keys` types keys (`\r` Enter, `\e` Escape, `\b` Backspace, `\<`, `\>`,
@@ -509,14 +511,17 @@ tens of minutes and `0x4bc9` hours, then days, months and years.
 `cok_adventure_pass_time` follows `57e4:0549`: it adds one unit at a time and
 carries each full unit once. A new day counts a day in each moon's phase
 (`0x4cfc`-`0x4cfe`); after 8, 1 and 6 days a moon moves to its next phase
-(`0x4cf9`-`0x4cfb`, 0-3) and is redrawn on the frame.
+(`0x4cf9`-`0x4cfb`, 0-3) and is redrawn on the frame. Months carry into
+years without aging anyone; only once the years reach 256, where they
+stay, does each unit that passes age each character a year (the word at
+`+0x60`, `57e4:0459`). The clock then counts down the
+party's spell effects (`57e4:0171`, see Spell effects).
 
 Not ported, and logged as `unported:`: `Area`, the overhead map
 (`69ea:000f`); `Cast` (`4888:0a0d`); `View` (`546c:0d74`); the camp menu
 (`4888:2c31`), so the party never rests and the rest vector never runs; and
-travel outside 3D areas (`475c:08d5`), where the loop stops. Also not ported:
-sound, aging the characters each year, and counting down their spell effects
-(`57e4:0171`).
+travel outside 3D areas (`475c:08d5`), where the loop stops. Sound is not
+ported either.
 
 ## Party
 
@@ -526,7 +531,7 @@ with the selected character at `DS:6096`; the port keeps an array in the same
 order, and the selected record in `vm.character`. `party.h` lists the record
 fields the port uses. Fields such as the armour class (`+0x18d`, as 60 - AC)
 are derived from the others and the items when a character loads (see
-Derived stats); spell effects are loaded but not yet used.
+Derived stats); its spell effects are a list (see Spell effects).
 
 A saved game, `SAVGAM<letter>.DAT` (`4b6d:1b34`), is 5,469 bytes: the ECL file,
 the variables `0x4b00`-`0x4eff`, `0x7c00`-`0x7fff` and `0x7a00`-`0x7bff` as
@@ -618,9 +623,9 @@ can no longer act (`6346:24d7`). The message tests more than 10 past the hit
 points but the status 10 or more, and only the low byte of the damage is
 dealt, as in the original. Afterwards, if no character can act, the frame is
 cleared, `The entire party is killed!` printed and the run ended (`DS:4b57`);
-either way the prompt then waits for a key. The original lets spell effects
-change attack and saving rolls (`60f4:057c`), and keeps combat records;
-neither is ported.
+either way the prompt then waits for a key. The characters' spell effects
+change the attack and saving rolls (see Spell effects); the original also
+keeps combat records, which are not ported.
 
 ## Derived stats
 
@@ -725,11 +730,12 @@ against the original routines, run in an 8086 emulator on random
 characters, also agreed; it is not part of the repository.
 
 Neither routine reads spell effects (`.SFX`). Effects change stats through
-their own handlers, run by `60f4:057c` and removed by `60f4:01e9` and the
-effect timers (`57e4:0171`), such as Spiritual Hammer, which adds an item
-and recomputes (`3f44:07b5`), and the stinking cloud, which recomputes and
-then worsens the armour class by 2 (`3f44:0ae0`); none is ported. The other
-places the original recomputes are not ported either: the ECL opcodes `ADD
+their own handlers (see Spell effects): Spiritual Hammer's (`3f44:07b5`)
+removes its hammer and recomputes when it ends, which is ported, and adds
+one when cast, which is not; the stinking cloud's (`3f44:0ae0`), which
+recomputes and then makes the armour class that from behind, 2 worse,
+needs the combat record and is not. The other places the original
+recomputes are not ported either: the ECL opcodes `ADD
 NPC` (`2fd3:311c`), `DESTROY ITEMS` (`2fd3:35a3`) and `COMBAT`, through
 combat setup (`3cb2:10d9`), each combatant's turn (`3995:040b`), the AI's
 choice of weapon (`3afb:1608`), attacks (`432f:1579`, `432f:1a45`), spells
@@ -739,6 +745,164 @@ gems (`58e7:1929`); the character sheet (`546c:07bb`), the Items menu
 (`546c:17f9`) and Trade (`546c:2178`); and creating, training, modifying
 and changing the order of a character (`4def:06dd`, `4def:4d9e`,
 `4def:28fa`, `4def:567f`).
+
+## Spell effects
+
+`src/effect.h` ports the characters' spell effects: the rolls that consult
+them and their dispatch (overlay `60f4`), their handlers (overlay `3f44`)
+and their timers (`57e4:0171`). A character's effects are a list of 9-byte
+records linked from the far pointer at `+0xe3`, read from `.SFX` in file
+order (`4b6d:11e5`): `+0` the effect id, `+1` the minutes left as a word,
+0 for an effect that does not end, `+3` a value its handler uses, `+4` set
+to run its handler when the effect is removed, and `+5` the far pointer to
+the next. The port keeps the list linked (`cok_effect`), without the
+file's stale pointers. The characters in `SAVE/` hold only permanent
+effects, each of value 0xff: 0x07, 0x12, 0x1a, 0x2f, 0x5c, 0x5e, 0x5f and
+0x69, given by race or class; only Molly's 0x07 asks for its handler on removal.
+
+| Function | Original |
+| --- | --- |
+| `cok_character_add_effect` | `60f4:1285` |
+| `cok_character_find_effect` | `6346:2447` |
+| `cok_effects_remove` | `60f4:01e9`, then `60f4:1743` for strength or charisma |
+| `cok_effects_dispatch` | `60f4:057c`, `60f4:0352`, `60f4:01a8` |
+| `cok_effects_attack` | `60f4:0ffb` |
+| `cok_effects_save` | `60f4:113a` |
+| `cok_effects_pass_time` | `57e4:0171` |
+
+An effect is added at the end of the list; the original does not check
+its allocation. Removing one takes it or, given none, the first with an
+id; if its `+4` is set, the handler of the id given (not the effect's own)
+runs with flag 1 first. It is then unlinked and freed. Removing id 0x0e
+recomputes charisma, and 0x0c or 0x26 strength (`60f4:1743`), from the
+base scores (`+0x10`, `+0x12` ... `+0x1a`, and `+0x1d` for exceptional
+strength) into the current ones (`+0x11` ... `+0x1b`, `+0x1c`). Readied
+items with a power (`+0x3e` 0x80 + power, `+0x3d` its kind) change them:
+for strength, power 3, or 5 of kind 0, gives 18/100, 5 of kinds 1-6 19-24,
+8 of kind 0 the base + 1 below 18, and 0x0d sets 3; for charisma, power 6
+takes 1 and 8 of kind 5 adds 1 below 18. Then effects 0x26, 0x71 and 0x0c
+give strengths by their value: up to 101, 18 with the value - 1 as
+exceptional strength (so 0 gives 18/255), above that the value - 100.
+0x26's strength is added to one below 19; a fighter, ranger or knight, now
+or before, gets 10 times the excess over 18 added to its current
+exceptional strength (`+0x1c`, not the base), up to 100. The better
+strength wins at each step, where an 18 with a higher exceptional strength
+beats 19 and up, so the result depends on the item order; charisma adds
+the value of the first 0x0e. `60f4:1743` also recomputes dexterity and
+constitution (with the maximum hit points and effect 0x3e) for other
+callers, none of them ported; only strength and charisma are ported.
+Removing an effect not in the list makes the original write to
+`0000:0005`; the port fails.
+
+`cok_effects_dispatch` runs the handlers for event 1-0x18 (`60f4:057c`),
+each a fixed list of effect ids, in order; for each id the target's first
+effect with it, or, for the ids the party shares (0x15, 0x2d, 0x2e and
+0x31, the set at `60f4:0332`), the first member's when the target has
+none (`60f4:0352`). In combat only members in range count, which needs
+the combat map and is not ported. Events 6 and 9 first check magic
+resistance (`60f4:04f3`), which needs the caster's level and is not
+ported when a spell's damage or effect is pending. Handlers come from the
+table at `DS:6b94` that `3f44:38ea` fills, and get the flag (0 from the
+dispatch, 1 on removal), the effect (the holder's, for a shared one) and
+the character. While `DS:713c` is set, which only readying an item does,
+`60f4:01a8` calls `3f44:3888` instead to add or remove the item's effect;
+that is not ported.
+
+Of the ported code, only `DAMAGE` raises events: 0x10 for each attack and
+0x0c for each saving throw. An attack (`60f4:0ffb`) now also misses when
+its roll is negative after the effects. The timers reach every handler,
+with flag 1. Handlers work through bytes of the original's data segment,
+which keep their values between calls (`cok_rolls`): the saving throw
+(`6b2e`), its type and result (`6b43`, `6b44`), the attack roll (`6b3b`),
+the damage and its type (`6b30`, `6b31`: 1 fire, 2 cold, 4 electricity, 8
+magic, 0x10 acid), the effect a spell is adding (`6b2f`), the spell
+(`6b33`), its dice (`6b34`), the rate (`6b32`), morale (`6b3e`), whether
+the target can be attacked (`6b37`), whether effects are being cured
+(`6b38`), whether the game was saved in the current camp (`5885`: set by
+Save, `4b6d:22de`, and cleared when the camp menu returns at `2fd3:344d`,
+at startup by `3e99:005b` and `0843`, and by the start menu, `4def:01b4`;
+the port does not save) and the combat round (`714b`).
+
+Handlers ported, by address and effect id: `3f44:0124` (1), `0134` (2),
+`0344` (8, 0x2d), `0379` (9, 0x2e), `03ae` (0x0a), `03cd` (0x0b, its end
+and after it took hold), `04b1` (0x0c, 0x26), `05bc` (0x0e), `0625`
+(0x10), `062c` (0x11), `065d` (0x12), `0681` (0x14), `07b5` (0x17, but
+for creating the hammer), `09b3` (0x19), `0ab8` (0x1d), `0cf0` (0x21),
+`0f3f` (0x24), `0f78` (0x27, after its first time), `144c` (0x2a),
+`1469` (0x2b, for a strength of 3 or less), `15a3` (0x2f), `16ef` (0x31), `173a` (0x32), `176b` (0x36),
+`179c` (0x37), `17a3` (0x38), `17c6` (0x39), `17ea` (0x3a), `1891`
+(0x3b), `1a72` (0x3d), `1b18` (0x3f), `2665` (0x49, but for damage of
+type 0x20), `29d5` (0x4d, but for choosing a target in combat), `320f`
+(0x59), `3258` (0x5b), `32a8` (0x5e), `3328` (0x5f), `334c` (0x60),
+`325f` (0x5d), `3361` (0x61), `336f` (0x62), `3386` (0x63), `33a7`
+(0x64), `3406` (0x65), `3449` (0x66), `3450` (0x67), `34f9`
+(0x6b, its end), `3619` (0x6c), `363c` (0x6d), `3643` (0x6e), `3768`
+(0x71), `37e8` (0x74), `386a` (0x76), `3876` (0x77) and `3881` (5, 0x13,
+0x18, 0x5c). Many do nothing but mark the character for other code, and
+all but a few act the same when their effect ends. 0x5d, 0x64 and 0x67
+look at what the selected character strikes with (`3f44:13a9`): its
+readied weapon (slot 0), or for a missile weapon its readied arrows or
+quarrels (`6346:3111`, by the weapon type's flags), and 0x65 at the weapon
+itself. The parts of 0x17, 0x27 and 0x2b that print are not ported. Not
+ported, because they need combat (its records at `+0x183`, the map,
+targets or icons): 0x07, 0x1a, 0x1b, 0x1f, 0x25, 0x33-0x35, 0x44, 0x4b, 0x69, 0x6a, 0x6f,
+0x72 and 0x73; combat and text: 3, 0x0d, 0x15, 0x1c, 0x1e (the stinking
+cloud), 0x20, 0x23, 0x28-0x29, 0x30, 0x3c, 0x40-0x43, 0x45-0x48, 0x4c,
+0x4f-0x52, 0x56-0x58, 0x70 and 0x75; dealing damage or killing, with
+text: 0x0f, 0x16, 0x22 and 0x2c; healing, with text: 0x3e; spells: 0x4a;
+and 0x78, whose handler is the item routine `3f44:3888`, which reads
+past the 9-byte record. Ids 0, 4, 6, 0x4e, 0x53-0x55, 0x5a and 0x68 have
+no handler: the original calls `0000:0000`. A call that reaches any of
+these fails, naming the handler; `DAMAGE` and the clock then end the run
+with `COK_ECL_EFFECT_FAILED` and log the reason as an error.
+
+`57e4:0549` calls `57e4:0171` with the unit and count once the clock has
+moved. It turns them into minutes as a word, which wraps past 45 days,
+with unit 0 counting as minutes, and counts them down ten at a time. Each
+pass walks the members whose flag at `DS:46b4` (by position) is set,
+clearing it: an effect with no time skips, one with more time left than
+the pass loses it and sets the flag again, and one with no more is
+removed as `cok_effects_remove` does. The walk stops after the effect that
+was last when it began, so effects that removal handlers add are not
+counted down in that pass. Outside camp (mode 2) every flag is set first;
+in camp nothing is counted while none is set. When the effect that ends
+is second in the list and was not the last when the walk began, the walk
+starts again from the first, which loses the time twice; the port keeps
+this. (Ending as the last, it has already stopped the walk.) When a
+handler removes the effect the walk goes to next, the original reads it
+after freeing it; the port fails.
+
+The port keeps these quirks of the handlers:
+
+- 0x5e (`3f44:32a8`), a racial bonus, adds 1-5 by constitution (4-6 ... 18-20)
+  to saving throws of types 0, 2 and 4, on top of the change `66c2:08a6`
+  makes to throw 0. For a constitution outside 4-20 the original adds an
+  uninitialized local, whatever earlier calls left on the stack, which
+  depends on the opcodes and members before; the port fails.
+- 0x36 (`3f44:176b`) doubles cold damage unless the game was saved in the
+  current camp (`DS:5885`), where 0x32 (`3f44:173a`) tests the failed save
+  for fire.
+- 0x11, 0x21 and 0x39 change the armour class in place each time they run,
+  until the stats are next recomputed.
+- 0x08 and 0x09 test the alignment (`+0x10a`) of the selected character,
+  the attacker in combat, whoever is selected otherwise; with none selected
+  the original reads through NULL and the port fails, as for 0x19 and 0x2f.
+- 0x3d makes 1 damage of 1 die 255 when the fire is magical.
+- 0x59's miss is used up by the first attack roll and comes back only at
+  the start of combat (a roll of 0 in round 0).
+- 0x6e divides by 5 the knight levels less 1; below 1 that overflows, a
+  runtime error 200, and the port fails.
+- 0x12 and 0x5f roll a d100 even when nothing is being resisted.
+
+A differential test ran the original routines in an 8086 emulator against
+the port on random characters, items and effects: every ported handler
+with both flags, the dispatch for every event, attacks, saving throws,
+removal (with the strength and charisma recomputed) and the timers, with
+the stats recomputed first in half the cases so that weapons are readied.
+Of 18,000 cases, the 17,120 the port carries out agreed in the records,
+item and effect lists, the working bytes, the timer flags and the random
+numbers drawn; the rest reach what is not ported or what the original
+mishandles. It is not part of the repository.
 
 ## Checks against the original
 
@@ -765,6 +929,17 @@ running in DOSBox:
   thief and compare its thief skills (`+0xdb`) with the port's; character
   creation calls `66c2:0b9f` from elsewhere (`4def:06dd`), with another
   value on the stack.
+- Load saved game B and rest a day: the effects in the `.SFX` files of its
+  characters, all permanent, should be unchanged when it is saved again.
+- Give a character with no effects (not a dwarf, elf, half-elf, kender or
+  ranger, whose racial and class effects load first from `.SFX`) a long
+  timed effect, then a short one, then any third, from spells cast in that
+  order outside combat, and let time pass until the short one ends: in the
+  ten minutes in which it ends, the long one should lose twenty
+  (`57e4:0171` restarts its walk). With only the two, it loses ten.
+- With a dwarf or kender of constitution 19 in the party, compare the
+  saving throws against a trap's `DAMAGE` with those of another race: the
+  port adds 5 (effect 0x5e) to throws of types 0, 2 and 4.
 
 ## Disassembly image
 
