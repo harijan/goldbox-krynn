@@ -67,6 +67,13 @@ typedef struct {
     uint8_t cell;
 } cok_combat_body;
 
+/* A combatant listed around a cell (DS:6a30 + 3k, 6b30:08d8). */
+typedef struct {
+    uint8_t index;     /* Its combatant. */
+    uint8_t distance;  /* In half cells: 2 a straight step, 3 a diagonal one. */
+    uint8_t direction; /* 0-7 from north, clockwise; 8 for any. */
+} cok_combat_listing;
+
 typedef struct {
     bool active;             /* DS:6a2e is not NULL: a battle is set up. */
     int8_t view_x, view_y;   /* Map +2, +3: the top-left cell of the 7 by 7 shown. */
@@ -93,6 +100,26 @@ typedef struct {
     uint8_t round_limit;     /* DS:714c: rounds without an attack before it ends. */
     bool magic_on;           /* DS:7198: Auto characters cast (Alt-M). */
     uint8_t *yelled;         /* DS:71a7: the kender who yelled this battle (60f4:0023). */
+    /* The rounds (see round.h). DS:71ae: the turn order, combatants' records
+     * from entry 1 to 72 (3995:02a0), NULL after the last; DS:72ce the
+     * entry whose turn it is. */
+    cok_character *turn[COK_COMBATANTS + 1];
+    uint8_t turn_index;
+    bool panel;              /* DS:71ac: the side panel is to be drawn (6346:0af6). */
+    bool show_actions;       /* DS:71ad: the actor's moves are shown (3995:040b). */
+    /* DS:6a30 + 3k, k from 1 (count DS:6a32): the combatants around a cell
+     * (6b30:08d8), nearest first. */
+    cok_combat_listing listed[COK_COMBATANTS + 1];
+    uint8_t listed_count;
+    /* DS:714d on: the enemies of the last 6346:26e2, as combatants, from 1. */
+    uint8_t enemies[COK_COMBATANTS + 1];
+    /* DS:6b45, 6b95: the dead that explode after the turn (effect 0x44),
+     * at most 20, from 1; DS:6b96 while they do (60f4:2375). */
+    cok_character *exploding[21];
+    uint8_t exploding_count;
+    bool exploding_now;
+    /* The drawing of the combat screen not ported, logged once a battle. */
+    uint8_t screen_logged;
     /* DS:616a: the tile set, 40 frames of 24 by 24, which each setup loads
      * DUNGCOM or WILDCOM into from frame 0 and RANDCOM into from 0x22
      * (6d21:002c); frames it does not load keep what an earlier battle
@@ -118,13 +145,14 @@ extern const size_t cok_combat_table_count;
  * be carried out. */
 bool cok_combat_setup(cok_adventure *game);
 
-/* The end of the battle (3995:004b) without the clouds, the flash
- * picture and the spell target hook: charmed records that are okay run
- * if more than one enemy could act, every record loses the first effect of
- * each id that lasts only through the battle (60f4:1440), a berserk
- * turned record goes back to the party's side, and the map is freed.
- * Returns false, with game->vm.status set, where an effect's removal
- * cannot be carried out. */
+/* The end of the battle (3995:004b): charmed records that are okay run
+ * if more than one enemy could act at the last count, every record loses
+ * the first effect of each id that lasts only through the battle
+ * (60f4:1440), a berserk turned record goes back to the party's side,
+ * the map is freed and spells pick their targets outside combat again
+ * (DS:6e3a). The lists of clouds and the flash picture, which the
+ * original frees too, are not ported. Returns false, with
+ * game->vm.status set, where an effect's removal cannot be carried out. */
 bool cok_combat_end(cok_adventure *game);
 
 /* The map's pieces, with explicit inputs. */

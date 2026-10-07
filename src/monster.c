@@ -3,6 +3,7 @@
 #include "camp.h"
 #include "effect.h"
 #include "items.h"
+#include "round.h"
 #include "screen.h"
 #include "shop.h"
 #include "treasure.h"
@@ -823,41 +824,11 @@ static void rob(cok_adventure *game)
 
 /* COMBAT (2fd3:191c). */
 
-/* The battle (3995:0172), of which setup is ported (3cb2:1c58, see
- * combat.h) and the rest not: unless eclplay's --combat resolves it, it
- * is logged as unported (the opcode, as before). The stub then decides
- * the outcome: every record against the party (+0x18a 1) drops (won, and
- * the Gods intervening, 432f:41e2, the original's Helm cheat), every
- * party record that can act flees (fled), or the whole party dies
- * (lost); the battle's end (3995:004b) and the end of combat (351b:1968)
- * follow. */
+/* The battle (3995:0172, see round.h), then the end of combat
+ * (351b:1968) unless the battle could not be carried out or input ended. */
 static void battle(cok_adventure *game)
 {
-    cok_party *party = &game->party;
-    if (!cok_combat_setup(game)) return;
-    if (game->hooks.battlefield != NULL) game->hooks.battlefield(game, game->hooks.context);
-    cok_combat_stub stub = game->combat_stub;
-    if (stub == COK_COMBAT_UNPORTED && game->hooks.unported != NULL)
-        game->hooks.unported(game, game->hooks.context);
-    if (stub == COK_COMBAT_GODS) cok_camp_notice(game, "The Gods intervene!"); /* 6346:1827 */
-    static const char *const outcome[] = {"", "won", "fled", "lost", "the Gods intervene"};
-    if (stub != COK_COMBAT_UNPORTED) log_text(game, "combat", outcome[stub]);
-    for (size_t i = 0; i < party->count; ++i) {
-        uint8_t *r = party->members[i]->record;
-        bool member = cok_character_combat(party->members[i])->not_party != 1 && r[0x18a] != 1;
-        if ((stub == COK_COMBAT_WON || stub == COK_COMBAT_GODS) && r[0x18a] == 1) {
-            r[0x188] = 6;
-            r[0x189] = 0;
-        } else if (stub == COK_COMBAT_LOST && member) {
-            r[0x188] = 6;
-            r[0x189] = 0;
-            r[0x197] = 0;
-        } else if (stub == COK_COMBAT_FLED && member && r[0x189] != 0) {
-            r[0x188] = 3;
-            r[0x189] = 0;
-        }
-    }
-    if (!cok_combat_end(game)) return;
+    if (!cok_combat_battle(game) || game->vm.abort) return;
     cok_treasure_end_of_combat(game);
 }
 

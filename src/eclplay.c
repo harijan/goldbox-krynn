@@ -37,10 +37,12 @@ static void usage(const char *program)
             "  --load SAVE     load saved game SAVE and its party first; BLOCK defaults to\n"
             "                  the block it was saved in\n"
             "  --saves DIR     write saved games (camp's Save) to DIR\n"
-            "  --combat HOW    resolve COMBAT's battle, which is not ported: won (every\n"
-            "                  monster against the party drops), fled (the party flees),\n"
-            "                  lost (the party dies) or gods (the original's Helm cheat)\n"
+            "  --combat HOW    decide COMBAT's battle in place of its rounds, whose turns\n"
+            "                  pass: won (every monster against the party drops), fled\n"
+            "                  (the party flees) or lost (the party dies); or gods, the\n"
+            "                  original's Helm cheat at each player's turn\n"
             "  --combat-map FILE  write each battle's map and combatants to FILE as text\n"
+            "  --seed N        start Turbo Pascal's Random from N (default 0)\n"
             "  --shots DIR     save DIR/NNN.bmp each time the game waits for a key\n"
             "  --screen FILE   save the final screen as FILE (BMP)\n"
             "  --file N        ECL file 1-3 (default: the first holding BLOCK)\n"
@@ -282,7 +284,8 @@ int main(int argc, char **argv)
 {
     player p = {.keys = "", .pending = -1};
     const char *screen = NULL;
-    unsigned long file = 0, vector = 5, start = 0, fixture = 0;
+    unsigned long file = 0, vector = 5, start = 0, fixture = 0, seed = 0;
+    bool seeded = false;
     bool still = false, placed = false, play = false;
     const char *party = NULL, *load = NULL, *saves = NULL;
     cok_combat_stub combat = COK_COMBAT_UNPORTED;
@@ -319,6 +322,10 @@ int main(int argc, char **argv)
                 usage(argv[0]);
                 return 2;
             }
+        } else if (strcmp(option, "--seed") == 0 && has_value &&
+                   number(argv[i + 1], 10, 0xffffffffUL, &seed)) {
+            seeded = true;
+            ++i;
         } else if (strcmp(option, "--combat-map") == 0 && has_value) {
             p.map = argv[++i];
         } else if (strcmp(option, "--shots") == 0 && has_value) {
@@ -400,6 +407,7 @@ int main(int argc, char **argv)
         return 1;
     }
     if (still) game.animate = false;
+    if (seeded) game.vm.seed = (uint32_t)seed;
     game.combat_stub = combat;
     if (!has_block) {
         /* As 2fd3:3c28 resumes: the block saved in 0x4bf2, or 0x24. */

@@ -765,6 +765,13 @@ static const struct {
 static bool target(cast *cx)
 {
     cok_adventure *game = cx->game;
+    if (game->combat_targets) {
+        /* DS:6e3a holds 432f:2337 while a battle runs. */
+        cok_adventure_fail(game, COK_ECL_EFFECT_FAILED,
+                           "spells cast in combat pick their targets with 432f:2337, which is "
+                           "not ported");
+        return false;
+    }
     if (game->spell_target == NULL) game->spell_target = cx->caster->record;
     cx->targets[0] = cx->caster;
     cx->count = 1;

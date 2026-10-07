@@ -193,6 +193,10 @@ struct cok_adventure {
     bool shop_frame;
     /* The battle's map, combatants and tile set (see combat.h). */
     cok_combat combat;
+    /* DS:6e3a: spells pick their targets with the combat routine
+     * (432f:2337, not ported) rather than 5b04:127e; set while a battle
+     * runs (3995:0172 to 004b). */
+    bool combat_targets;
     bool restoring;        /* The block's vectors run; DS:43bf is restored after them. */
 
     cok_keyboard keys;

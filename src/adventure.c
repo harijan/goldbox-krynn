@@ -5,6 +5,7 @@
 #include "cast.h"
 #include "magic.h"
 #include "monster.h"
+#include "round.h"
 #include "treasure.h"
 #include "sheet.h"
 #include "screen.h"
@@ -1107,6 +1108,86 @@ static void effect_say(cok_effects *fx, cok_character *c, const char *text, void
     cok_camp_say(context, c->record, text, true);
 }
 
+static void effect_log(cok_effects *fx, const char *kind, const char *text, void *context)
+{
+    (void)fx;
+    cok_adventure_log(context, kind, text);
+}
+
+/* 60f4:0352 in combat: whether target is among the combatants listed
+ * within radius of holder (6b30:08d8); the list is put back after, but
+ * for its count. */
+static bool effect_in_range(cok_effects *fx, cok_character *holder, cok_character *target,
+                            uint8_t radius, bool *in, char *error, size_t error_size,
+                            void *context)
+{
+    (void)fx;
+    cok_adventure *game = context;
+    cok_combat *combat = &game->combat;
+    cok_combat_listing saved[COK_COMBATANTS + 1];
+    memcpy(saved, combat->listed, sizeof saved);
+    const uint8_t *r = holder->record;
+    bool ok = cok_combat_list(combat, cok_combat_x(combat, r), cok_combat_y(combat, r), radius,
+                              0xff, cok_combat_size(combat, r));
+    *in = false;
+    uint8_t n = cok_combat_index(combat, target->record);
+    for (unsigned i = 1; ok && i <= combat->listed_count; ++i)
+        if (combat->listed[i].index == n) *in = true;
+    memcpy(&combat->listed[1], &saved[1], sizeof saved - sizeof saved[0]);
+    if (!ok)
+        snprintf(error, error_size, "the list of combatants around one (6b30:08d8) reads past "
+                                    "its tables");
+    return ok;
+}
+
+/* 6b30:08d8 around c for a handler, the list kept as it leaves it. */
+static bool effect_around(cok_effects *fx, cok_character *c, uint8_t radius,
+                          cok_character **listed, uint8_t *count, char *error,
+                          size_t error_size, void *context)
+{
+    (void)fx;
+    cok_adventure *game = context;
+    cok_combat *combat = &game->combat;
+    const uint8_t *r = c->record;
+    *count = 0;
+    if (!combat->active) {
+        snprintf(error, error_size, "the combatants around one (6b30:08d8) are listed with no "
+                                    "combat map");
+        return false;
+    }
+    if (!cok_combat_list(combat, cok_combat_x(combat, r), cok_combat_y(combat, r), radius, 0xff,
+                         cok_combat_size(combat, r))) {
+        snprintf(error, error_size, "the list of combatants around one (6b30:08d8) reads past "
+                                    "its tables");
+        return false;
+    }
+    for (unsigned i = 1; i <= combat->listed_count; ++i) {
+        uint8_t n = combat->listed[i].index;
+        listed[i] = n <= COK_COMBATANTS ? combat->combatant[n].character : NULL;
+        if (listed[i] == NULL) {
+            snprintf(error, error_size, "a listed combatant has no record (6b30:08d8)");
+            return false;
+        }
+    }
+    *count = combat->listed_count;
+    return true;
+}
+
+static bool effect_distance(cok_effects *fx, const uint8_t *origin, const uint8_t *target,
+                            uint8_t *distance, char *error, size_t error_size, void *context)
+{
+    (void)fx;
+    cok_adventure *game = context;
+    if (!game->combat.active) {
+        snprintf(error, error_size, "the distance (6346:2888) is worked out with no combat map");
+        return false;
+    }
+    if (cok_combat_distance(&game->combat, origin, target, distance)) return true;
+    snprintf(error, error_size, "the distance (6346:2888) lists the combatants around one "
+                                "(6b30:08d8) past its tables");
+    return false;
+}
+
 bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keyboard *keys,
                         const cok_adventure_hooks *hooks)
 {
@@ -1116,6 +1197,10 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
     cok_ecl_init(&game->vm, &vm_hooks);
     cok_effects_init(&game->effects, &game->vm, &game->party, &game->item_types);
     game->effects.say = effect_say;
+    game->effects.log = effect_log;
+    game->effects.in_range = effect_in_range;
+    game->effects.around = effect_around;
+    game->effects.distance = effect_distance;
     game->effects.context = game;
     game->vm.file = 1;
     game->picture_id = COK_ADVENTURE_NO_PICTURE;

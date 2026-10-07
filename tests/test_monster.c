@@ -634,10 +634,10 @@ static void test_rob(void)
 }
 
 /* A party of two, A unable to act, with goblins and an ally loaded, then
- * COMBAT resolved by stub. */
-static cok_ecl_status fight(cok_combat_stub stub)
+ * COMBAT resolved by stub, with keys. */
+static cok_ecl_status fight(cok_combat_stub stub, const char *keys)
 {
-    reset("\rE");
+    reset(keys);
     cok_character *a = member("A", 12);
     member("B", 12);
     a->record[0x189] = 0;
@@ -664,11 +664,14 @@ static cok_ecl_status fight(cok_combat_stub stub)
 
 static void test_combat(void)
 {
-    /* Unported, the battle is logged and the monsters removed as the end
-     * of combat removes them: the goblins (against the party) and KILDIRF
-     * (past the party's size). */
-    CHECK(fight(COK_COMBAT_UNPORTED) == COK_ECL_OK);
-    CHECK(strstr(s.log, "[COMBAT];combat: removed 3 GOBLIN, 1 KILDIRF; 0 dropped;") != NULL);
+    /* Unresolved, the battle runs its rounds, every turn passing, until
+     * the limit, and the monsters are removed as the end of combat removes
+     * them: the goblins (against the party) and KILDIRF (past the party's
+     * size). */
+    CHECK(fight(COK_COMBAT_UNPORTED, "\rE") == COK_ECL_OK);
+    CHECK(strstr(s.log, "[COMBAT]") == NULL && strstr(s.log, "round: 15:") != NULL &&
+          strstr(s.log, "round: 16:") == NULL);
+    CHECK(strstr(s.log, "combat: removed 3 GOBLIN, 1 KILDIRF; 0 dropped;") != NULL);
     CHECK(game.party.count == 2 && game.vm.mem7c00[0x33e] == 2);
     CHECK(game.party.members[0]->combat == NULL && game.party.members[1]->combat == NULL);
     CHECK(game.vm.mem7c00[0x2c7] == 0 && game.vm.mem7c00[0x2c8] == 0);
@@ -678,20 +681,23 @@ static void test_combat(void)
     CHECK(game.icons[8][0].pixels == NULL && game.vm.character == game.party.members[0]->record);
     /* Won: the goblins drop, the first enemy among them (0x4cf8); KILDIRF,
      * on the party's side, does not, though it goes. */
-    CHECK(fight(COK_COMBAT_WON) == COK_ECL_OK);
+    CHECK(fight(COK_COMBAT_WON, "\rE") == COK_ECL_OK);
     CHECK(strstr(s.log, "combat: won;") != NULL && game.party.count == 2);
     CHECK(game.vm.mem7c00[0x2c7] == 0 && game.vm.mem7c00[0x2c8] == 3 && game.vm.mem4b00[0x1f8] == 1);
-    /* So do the Gods. */
-    CHECK(fight(COK_COMBAT_GODS) == COK_ECL_OK);
-    CHECK(strstr(s.log, "print: The Gods intervene!;combat: the Gods intervene;") != NULL);
+    /* So do the Gods, at B's first turn; then the battle may go on, but
+     * does not. */
+    CHECK(fight(COK_COMBAT_GODS, "\r\rE") == COK_ECL_OK);
+    CHECK(strstr(s.log, "turn: B (initiative ") != NULL);
+    CHECK(strstr(s.log, "print: The Gods intervene!;") != NULL);
+    CHECK(strstr(s.log, "menu: Continue Battle:;choice: N;") != NULL);
     CHECK(game.vm.mem7c00[0x2c8] == 3);
     /* Fled: B comes back; A, who could not run, is left behind. */
-    CHECK(fight(COK_COMBAT_FLED) == COK_ECL_OK);
+    CHECK(fight(COK_COMBAT_FLED, "\rE") == COK_ECL_OK);
     CHECK(game.vm.mem7c00[0x2c7] == 0x81 && game.party.count == 1);
     CHECK(game.vm.mem7c00[0x33e] == 1 && game.party.members[0]->record[0x188] == 0 &&
           game.party.members[0]->record[0x189] == 1);
     /* Lost: the party is removed and the run ends. */
-    CHECK(fight(COK_COMBAT_LOST) == COK_ECL_OK);
+    CHECK(fight(COK_COMBAT_LOST, "\rE") == COK_ECL_OK);
     CHECK(game.vm.mem7c00[0x2c7] == 0x80 && game.party.count == 0 && game.vm.mem7c00[0x33e] == 0);
     CHECK(game.party_killed && game.vm.abort);
     CHECK(strstr(s.log, "print: The monsters rejoice for the party has been destroyed;") != NULL);

@@ -297,6 +297,18 @@ uint8_t *cok_party_special(const cok_party *party, const uint8_t *selected, uint
 void cok_party_draw(cok_picture *dst, const cok_font *font, const cok_party *party,
                     const uint8_t *selected, int x, bool combat);
 
+/* 6346:12f8: the to-hit bonus for dexterity (+0x17) with missile weapons,
+ * which is also the bonus to initiative in combat: -4 below 3, dexterity
+ * less 6 for 3-5, less 15 for 16-18, then 3, 4 and 5 for 19-20, 21-23 and
+ * 24-25; else 0. */
+int8_t cok_character_dexterity_missile(const uint8_t *c);
+
+/* 6346:1412 (to hit) or, with damage, 6346:14b5: strength's bonus, 0
+ * unless +0x114 is set. Returns false with error set for a strength the
+ * original's table (6346:137a) has no row for. */
+bool cok_character_strength_bonus(const uint8_t *c, bool damage, int8_t *bonus, char *error,
+                                  size_t error_size);
+
 /* Apply damage to a character's hit points and status (6346:24d7):
  * damage of exactly its hit points leaves it unconscious, up to 9 more
  * dying, and 10 or more past them dead, as is any damage that takes the

@@ -45,8 +45,11 @@ typedef struct {
     uint8_t item;         /* DS:711d: set while an item's spell is used (546c:24d7), which
                            * casts it at level 6 (6346:29fe); cleared at startup and by
                            * the next use. */
-    uint8_t images;       /* DS:6b39: the spell being cast takes no mirror image; read only
-                           * in combat (3f44:0a57). */
+    uint8_t images;       /* DS:6b39: the spell being cast takes no mirror image, read
+                           * (3f44:0a57) whenever a spell (DS:6b33) is cast, in camp
+                           * too. */
+    uint8_t hits[2];      /* DS:6b3c, 6b3d: the attack's hits with its two slots. */
+    uint8_t *target;      /* DS:6b3f: the record a handler takes as the attacker's target. */
 } cok_rolls;
 
 enum {
@@ -75,6 +78,34 @@ struct cok_effects {
     /* Say text about character c in the text window and wait (6346:1883
      * outside combat). The handlers that print fail without it. */
     void (*say)(cok_effects *fx, cok_character *c, const char *text, void *context);
+    /* Set while a battle runs (3995:0172 to 3995:004b). A handler, or the
+     * part of one, that is not ported is then logged as "unported" and
+     * skipped, and effects that end are logged as "effect". */
+    bool in_battle;
+    /* The event whose handlers run, 0 while an effect is removed or a
+     * handler is run directly. */
+    uint8_t event;
+    /* Log text of kind (see cok_adventure_hooks.log); NULL logs nothing. */
+    void (*log)(cok_effects *fx, const char *kind, const char *text, void *context);
+    /* Whether target is within radius of holder on the combat map, for an
+     * effect the party shares in combat (60f4:0352, 6b30:08d8). Returns
+     * false with error set where that cannot be worked out; NULL fails. */
+    bool (*in_range)(cok_effects *fx, cok_character *holder, cok_character *target,
+                     uint8_t radius, bool *in, char *error, size_t error_size, void *context);
+    /* The combatants listed within radius of c on the combat map
+     * (6b30:08d8, the list kept as it leaves it), from listed[1] to
+     * listed[*count]. Returns false with error set where the list cannot
+     * be made; NULL fails. */
+    bool (*around)(cok_effects *fx, cok_character *c, uint8_t radius, cok_character **listed,
+                   uint8_t *count, char *error, size_t error_size, void *context);
+    /* The distance in squares from origin to target on the combat map
+     * (6346:2888). Returns false with error set where it cannot be worked
+     * out; NULL fails. */
+    bool (*distance)(cok_effects *fx, const uint8_t *origin, const uint8_t *target,
+                     uint8_t *distance, char *error, size_t error_size, void *context);
+    /* How many removals of effects whose handlers run (60f4:01e9) are
+     * nested. */
+    unsigned removing;
     void *context;
 };
 
@@ -86,8 +117,10 @@ void cok_effects_free(cok_effects *fx);
  * with flag 0: the event's effect ids in order, each for target's first
  * effect with the id, or for ids 0x15, 0x2d, 0x2e and 0x31 the first
  * record's in the list, a monster's too, that has one when target has
- * none. Returns false with fx->error
- * set when a handler is not ported or the original would misbehave. */
+ * none; in combat (mode 5) the first whose holder has target within 6
+ * cells (0x31) or 1 (the others) on the map (fx->in_range). Returns
+ * false with fx->error set when a handler is not ported (outside a
+ * battle) or the original would misbehave. */
 bool cok_effects_dispatch(cok_effects *fx, cok_character *target, uint8_t event);
 
 /* Remove effect from character, or if it is NULL the first effect with id
