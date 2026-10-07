@@ -184,6 +184,9 @@ struct cok_adventure {
     int32_t experience;
     bool experience_known;
     cok_combat_stub combat_stub;
+    /* DS:883c: a shop or the temple redraws its frame (see shop.h); clear
+     * for its first redraw. */
+    bool shop_frame;
     bool restoring;        /* The block's vectors run; DS:43bf is restored after them. */
 
     cok_keyboard keys;
@@ -278,7 +281,10 @@ bool cok_adventure_key_pending(cok_adventure *game);
 void cok_adventure_carry(cok_adventure *game, uint16_t clock[7]);
 /* Redraw the screen for the mode (6346:2c17): in camp the frame, the party
  * list and status line, and PIC record 0x3b loaded as the small picture;
- * for treasure (mode 6) PIC record 0x3c and no status line. */
+ * for treasure (mode 6) PIC record 0x3c and no status line; in shops and
+ * the temple (mode 1) the frame unless game->shop_frame is clear, the
+ * small picture's first frame outside 3D areas (in them the portrait last
+ * shown, logged as unported), the party list and the status line. */
 void cok_adventure_redraw(cok_adventure *game);
 /* Load PIC<file> record id as the small picture unless it is loaded
  * (6961:00e4), logging an error if it fails; and draw its current frame at

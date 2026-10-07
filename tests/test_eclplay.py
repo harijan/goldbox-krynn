@@ -207,6 +207,100 @@ class PlayTests(unittest.TestCase):
                 after = images[9].read_bytes()  # the commands, after the first camp
                 self.assertEqual(ink(after, 31, 15), (0, 0, 0))
 
+    def test_the_caravans_shop(self):
+        # The caravan's shop (prices at 16 here): Buy lists the stock, the
+        # price ending at column 30; the party's money pooled, the wand is
+        # still too dear; leaving with money asks, Yes goes back, Share
+        # empties the pool and Exit leaves.
+        result = self.play("--test-party", 4, "--start", "891c",
+                           "--keys", r"y\rB\v\v\r\ePB\r\eEySE", ASSETS, 16)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        shop = lines.index("shop: prices at 16")
+        self.assertEqual(lines[shop + 1:shop + 4],
+                         ["menu: Buy View Pool Appraise Exit",
+                          "item: Wand of Magic Missiles    3500",
+                          "item: Potion of Healing          200"])
+        self.assertIn("item: 20 Arrows                    1", lines)
+        bought = lines.index("choice: 20 Arrows                    1")
+        self.assertEqual(lines[bought + 1:bought + 3],
+                         ["shop: ALDA pays 1 steel", "print: ALDA buys 20 Arrows "])
+        self.assertIn("print: Not enough Money.", lines)
+        leave = lines.index('print: As you Leave the Shopkeeper says, "Excuse me but you have '
+                            'Left Some Money here."  ')
+        self.assertEqual(lines[leave + 1:leave + 5],
+                         ["print: Do you want to go back and get your Money?", "menu: ~Yes ~No",
+                          "menu: Buy View Take Pool Share Appraise Exit",
+                          "menu: Buy View Pool Appraise Exit"])
+        self.assertEqual(lines[-1], "(out of keys in block 16 at 8dd1)")
+
+    def test_every_shop(self):
+        # Each of the six shops, buying the first item listed with a
+        # fighter's 20 steel. The weapon smith of ECL2 block 50 (at 8cea)
+        # sets no price factor; with none set before, Buy charges 15.
+        cases = [
+            ("891c", 16, r"y\rB\r\eE", "shop: prices at 16", "print: Not enough Money."),
+            ("8782", 17, r"B\r\eE", "shop: prices at 16", "shop: ALDA pays 2 steel"),
+            ("8b84", 50, r"B\r\eE", "shop: prices at 64", "print: Not enough Money."),
+            ("8cea", 50, r"B\r\eE", "shop: prices at 0", "shop: ALDA pays 15 steel"),
+            ("8efc", 80, r"B\r\eE", "shop: prices at 64", "shop: ALDA pays 8 steel"),
+            ("9457", 80, r"B\r\eE", "shop: prices at 64", "print: Not enough Money."),
+        ]
+        for start, block, keys, prices, outcome in cases:
+            with self.subTest(start=start):
+                result = self.play("--test-party", 4, "--start", start, "--keys", keys, ASSETS,
+                                   block)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                lines = result.stdout.splitlines()
+                self.assertIn(prices, lines)
+                self.assertIn(outcome, lines)
+                self.assertNotIn("unported: the shop (36d0:07da)", lines)
+        result = self.play("--test-party", 4, "--start", "8cea", "--keys", r"B\r\eE",
+                           ASSETS, 50)
+        self.assertIn("choice: Battle Axe                   2", result.stdout.splitlines())
+
+    def test_sell_and_id(self):
+        # In Throtl's armoury: buy a hoopak, then sell it from View's Items
+        # for half its value, and ask Id about the chain mail.
+        result = self.play("--test-party", 4, "--start", "8782",
+                           "--keys", r"B\r\eVI\v\vSyI\ry\e\eE", ASSETS, 17)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertIn("menu: Ready Trade Drop Halve Join Sell Id", lines)
+        sold = lines.index("print: I'll give you 1 steel pieces for your Hoopak ")
+        self.assertEqual(lines[sold + 1:sold + 5],
+                         ["menu: Is It a Deal? ", "choice: Y", "print: Sold!",
+                          "shop: sold for 1 steel"])
+        self.assertIn("print: For 100 steel pieces I'll identify your Chain Mail ", lines)
+        self.assertEqual(lines[-1], "(out of keys in block 17 at 86ec)")
+
+    def test_temples(self):
+        # The pilgrims' temple: Pool, then Heal's Cure Light Wounds, paid
+        # from the pool; leaving with money asks.
+        result = self.play("--test-party", 4, "--start", "8a8f",
+                           "--keys", r"\rPH\v\vHy\eEn\r", ASSETS, 16)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        heal = lines.index("print: ALDA, how can we help you?")
+        self.assertEqual(lines[heal + 1], "item: Cure Blindness")
+        self.assertEqual(lines[heal + 10], "item: Stone to Flesh")
+        paid = lines.index("choice: Cure Light Wounds")
+        self.assertEqual(lines[paid + 1:paid + 7],
+                         ["print: Cure Light Wounds will only cost 50 steel pieces.",
+                          "menu: pay for cure ", "choice: Y", "shop: the pool pays 50 steel",
+                          "print: ALDA", "print: is cured."])
+        self.assertIn('print: As you leave a priest says, "Excuse me but you have left some '
+                      'money here" ', lines)
+        self.assertEqual(lines[-1], "(done in block 16)")
+        # Throtl's temple: a cure the character does not need asks first.
+        result = self.play("--test-party", 4, "--start", "87ab", "--keys", r"HH\r\eE",
+                           ASSETS, 17)
+        lines = result.stdout.splitlines()
+        anyway = lines.index("print: is not blind.")
+        self.assertEqual(lines[anyway + 1:anyway + 3],
+                         ["menu: cast cure anyway: ", "choice: N"])
+        self.assertEqual(lines[-1], "(out of keys in block 17 at 86ec)")
+
     def test_yes_survives_escape(self):
         for party in PARTIES:
             with self.subTest(party=party[0]):

@@ -4,6 +4,8 @@
 #include "cast.h"
 #include "magic.h"
 #include "screen.h"
+#include "shop.h"
+#include "treasure.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -440,9 +442,7 @@ static bool recompute(cok_adventure *game, cok_character *c)
     return undefined(game, error);
 }
 
-/* Draw c's name at x, y (6346:199d), with "'s" if possessive: light red if
- * it cannot act, yellow in combat on the other side, else light cyan. */
-static void draw_name(cok_adventure *game, const uint8_t *c, int x, int y, bool possessive)
+void cok_item_draw_name(cok_adventure *game, const uint8_t *c, int x, int y, bool possessive)
 {
     char name[20];
     size_t length = c[0] > 15 ? 15 : c[0];
@@ -584,7 +584,7 @@ static int may_part(cok_adventure *game, const uint8_t *c, const uint8_t *item)
                (item[0x3c] <= 0x7f && item[0x3d] <= 0x7f && item[0x3e] <= 0x7f)) {
         ok = 1;
     } else {
-        draw_name(game, c, 1, 0x15, false);
+        cok_item_draw_name(game, c, 1, 0x15, false);
         game->vm.cursor = (cok_text_cursor){c[0] + 2, 0x15};
         print_low(game, " was going to scribe from that scroll", false);
         int answer = cok_camp_yes_no(game, "is it Okay to lose it? ", 13);
@@ -792,6 +792,102 @@ static bool use(cok_adventure *game, cok_character *character, size_t index, boo
     return true;
 }
 
+/* Sell (546c:2822), in shops: half the value (+0x3a), or for a count
+ * above 1 the count times that, a word, over 20, offered in rows 21-22;
+ * "Is It a Deal? " Yes says "Sold!", the item goes, and the price goes to
+ * the character's steel as a word, or what would overload it (58e7:006d,
+ * the item still weighed) "Overloaded.  Money will be put in pool." to
+ * the pool's steel. Returns 1 when sold, 0 when not, -1 when the run
+ * ended. */
+static int sell(cok_adventure *game, cok_character *character, size_t index)
+{
+    uint8_t *c = character->record, *item = character->items[index];
+    uint16_t price = (uint16_t)((item[0x3a] | item[0x3b] << 8) >> 1);
+    /* A test of type 0x1e then 0x0c meant to multiply arrows and quarrels
+     * instead can never pass (546c:2851). */
+    if (item[0x39] > 1) price = (uint16_t)((uint16_t)(item[0x39] * price) / 20);
+    char name[41], text[96];
+    if (!cok_item_name(game, item, false, name)) return -1;
+    snprintf(text, sizeof text, "I'll give you %u steel pieces for your %s", price, name);
+    print_low(game, text, true);
+    int answer = cok_camp_yes_no(game, "Is It a Deal? ", 13);
+    if (answer < 0) return -1;
+    if (answer == 'Y') {
+        cok_camp_notice(game, "Sold!");
+        delete_item(character, index); /* 6346:1697, the stats left as they are */
+        bool full;
+        uint16_t fits;
+        if (!cok_pool_overloaded(game, c, price, &full, &fits)) return -1;
+        uint16_t steel = (uint16_t)(c[0xf3] | c[0xf4] << 8);
+        if (full) {
+            /* No pause, and the coins' weight is left to the recompute. */
+            cok_camp_notice(game, "Overloaded.  Money will be put in pool.");
+            if (fits > price) {
+                steel = (uint16_t)(steel + price);
+            } else {
+                steel = (uint16_t)(steel + fits);
+                game->pool.coins[4] += (uint16_t)(price - fits);
+            }
+        } else {
+            steel = (uint16_t)(steel + price);
+        }
+        c[0xf3] = (uint8_t)steel;
+        c[0xf4] = (uint8_t)(steel >> 8);
+        snprintf(text, sizeof text, "sold for %u steel", price);
+        cok_adventure_log(game, "shop", text);
+    }
+    clear_cells(game, 1, 0x15, 0x26, 0x16);
+    return answer == 'Y';
+}
+
+/* Id (546c:2a59), in shops: "For 100 steel pieces I'll identify your
+ * NAME" and "Is It a Deal? "; Yes pays 100 from the character's money in
+ * steel (546c:3424), all its coins then steel (58e7:0155), or else from
+ * the pool's (58e7:00d3, 018f), or says "Not Enough Money". Paid, an item
+ * with hidden parts (+0x35 bits 0-2) shows them, "It looks like some sort
+ * of NAME", and the list is redrawn; one with none says "I can't tell
+ * anything new about your NAME" all the same. Returns false when the run
+ * ended. */
+static bool identify(cok_adventure *game, cok_character *character, size_t index, bool *redraw)
+{
+    uint8_t *c = character->record, *item = character->items[index];
+    char name[41], text[96];
+    if (!cok_item_name(game, item, false, name)) return false;
+    snprintf(text, sizeof text, "For 100 steel pieces I'll identify your %s", name);
+    print_low(game, text, true);
+    int answer = cok_camp_yes_no(game, "Is It a Deal? ", 13);
+    if (answer < 0) return false;
+    bool paid = false;
+    if (answer == 'Y') {
+        int32_t money = cok_shop_money(c), value;
+        if (money >= 100) {
+            paid = true;
+            cok_pool_pay(c, (uint16_t)(money - 100));
+            cok_adventure_log(game, "shop", "identified for 100 steel");
+        } else if ((value = cok_pool_value(game->pool.coins)) >= 100) {
+            paid = true;
+            cok_pool_set_steel(&game->pool, (uint16_t)(value - 100));
+            cok_adventure_log(game, "shop", "identified for 100 steel from the pool");
+        } else {
+            cok_camp_notice(game, "Not Enough Money");
+        }
+    }
+    if (paid) {
+        if ((item[0x35] & 7) == 0) {
+            snprintf(text, sizeof text, "I can't tell anything new about your %s", name);
+        } else {
+            item[0x35] &= 0xf8;
+            if (!cok_item_name(game, item, false, name)) return false;
+            snprintf(text, sizeof text, "It looks like some sort of %s", name);
+            *redraw = true;
+        }
+        print_low(game, text, true);
+        cok_adventure_wait(game, game->speed * 100u); /* 1521:0b4b */
+    }
+    clear_cells(game, 1, 0x15, 0x26, 0x16);
+    return true;
+}
+
 /* The menu. */
 
 void cok_items(cok_adventure *game, bool *done)
@@ -831,7 +927,7 @@ void cok_items(cok_adventure *game, bool *done)
             uint16_t moons[3];
             for (size_t i = 0; i < 3; ++i) moons[i] = game->vm.mem4b00[0x1f9 + i];
             cok_screen_list(&game->screen, &game->view.tiles[4], moons);
-            draw_name(game, c, 1, 1, true);
+            cok_item_draw_name(game, c, 1, 1, true);
             cok_text_string(&game->screen, &game->font, "Items", c[0] + 4, 1, 10, 0);
             cok_text_string(&game->screen, &game->font, "Ready Item", 1, 3, 15, 0);
             redraw = true;
@@ -885,10 +981,10 @@ void cok_items(cok_adventure *game, bool *done)
             case 'J': join_items(character, picked); break;
             case 'S':
                 ok = may_part(game, c, item);
-                if (ok == 1) cok_adventure_log(game, "unported", "Sell (546c:2822)");
+                if (ok == 1) ok = sell(game, character, picked) >= 0;
                 else if (ok == 0) key = ' ', ok = 1;
                 break;
-            case 'I': cok_adventure_log(game, "unported", "Id (546c:2a59)"); break;
+            case 'I': ok = identify(game, character, picked, &redraw); break;
             default: break;
             }
             if (ok <= 0 || game->vm.abort) return;

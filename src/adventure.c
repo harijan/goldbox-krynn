@@ -1846,12 +1846,24 @@ static cok_ecl_status look(cok_adventure *game)
  * the frame, the party list and the status line, loading the camp picture
  * (PIC record 0x3b), which the camp's menus show; for treasure (mode 6)
  * the same with the treasure's picture (PIC record 0x3c) and no status
- * line. Only the camp, treasure, 3D and plain area modes are ported. */
+ * line; in shops and the temple (mode 1) the frame but for their first
+ * redraw (DS:883c), the small picture's first frame at cell 3, 3 (the
+ * slot's first entry, DS:6da8, 6961:000a), or in 3D areas the portrait
+ * last shown (DS:4b55, 4b56: 6961:05b9, 06bd), which is not ported, then
+ * the party list and the status line. Modes 0 and 5 are not ported. */
 static void redraw_screen(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     game->redraw = true;
-    if (vm->mode == 2 || vm->mode == 6) {
+    if (vm->mode == 1) {
+        if (game->shop_frame) cok_adventure_frame(game);
+        if (vm->mem4b00[0xe6] == 0)
+            draw_frame(game, 0);
+        else
+            log_text(game, "unported", "the portrait (6961:05b9, 06bd)");
+        cok_adventure_party(game);
+        cok_adventure_status(game);
+    } else if (vm->mode == 2 || vm->mode == 6) {
         uint8_t picture = vm->mode == 2 ? 0x3b : 0x3c;
         cok_adventure_frame(game);
         load_picture(game, picture);

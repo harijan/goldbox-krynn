@@ -777,12 +777,15 @@ static void test_combat(void)
     CHECK(game.pool.items == NULL && game.pool.coins[0] == 50);
     CHECK(strstr(s.log, "[COMBAT]") == NULL &&
           strstr(s.log, "print: The party has found Treasure!;") != NULL);
-    reset("");
+    reset("EE");
+    member("A", 12);
     game.vm.mem7c00[0x36c] = 1;
     CHECK(RUN(COK_ECL_COMBAT) == COK_ECL_OK && game.vm.mem7c00[0x36c] == 0);
-    CHECK(strcmp(s.log, "unported: the shop (36d0:07da);") == 0);
+    CHECK(strstr(s.log, "shop: prices at 0;menu: Buy View Pool Appraise Exit;") != NULL);
+    CHECK(game.vm.mode == 4);
     game.vm.mem7c00[0x2e2] = 1;
     CHECK(RUN(COK_ECL_COMBAT) == COK_ECL_OK && game.vm.mem7c00[0x2e2] == 0);
+    CHECK(strstr(s.log, "menu: Heal View Pool Appraise Exit;") != NULL && s.at == s.length);
 }
 
 /* Walks of the party list that hold eight entries stop where nine records
