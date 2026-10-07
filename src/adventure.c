@@ -5,6 +5,7 @@
 #include "cast.h"
 #include "magic.h"
 #include "monster.h"
+#include "treasure.h"
 #include "sheet.h"
 #include "screen.h"
 
@@ -1068,7 +1069,7 @@ static void opcode(cok_ecl *vm, void *context)
     case COK_ECL_DAMAGE: damage(game); break;
     case COK_ECL_CALL: call(game); break;
     default:
-        if (cok_monster_opcode(game)) break;
+        if (cok_monster_opcode(game) || cok_treasure_opcode(game)) break;
         if (game->hooks.unported != NULL) game->hooks.unported(game, game->hooks.context);
         break;
     }
@@ -1170,6 +1171,9 @@ void cok_adventure_close(cok_adventure *game)
     for (size_t i = 0; i < COK_ICON_SLOTS; ++i)
         for (size_t pose = 0; pose < 2; ++pose) cok_picture_free(&game->icons[i][pose]);
     cok_pool_free(&game->pool);
+    free(game->lost_weapons);
+    game->lost_weapons = NULL;
+    game->lost_weapon_count = 0;
     cok_view_free(&game->view);
     cok_picture_free(&game->screen);
     cok_font_free(&game->font);
@@ -1441,6 +1445,11 @@ uint8_t *cok_adventure_pick(cok_adventure *game, const char *prompt, uint8_t *wh
                            bool *ended)
 {
     return pick_character(game, prompt, who, exit_item, ended);
+}
+
+void cok_adventure_free_picture(cok_adventure *game)
+{
+    free_frames(game);
 }
 
 void cok_adventure_load_picture(cok_adventure *game, uint8_t id)
@@ -1835,18 +1844,20 @@ static cok_ecl_status look(cok_adventure *game)
 /* Redraw the screen for the mode (6346:2c17): in a 3D area the frame, the
  * view unless 0x4c38 is set, the party list and the status line; in camp
  * the frame, the party list and the status line, loading the camp picture
- * (PIC record 0x3b), which the camp's menus show. Only the camp, 3D and
- * plain area modes are ported. */
+ * (PIC record 0x3b), which the camp's menus show; for treasure (mode 6)
+ * the same with the treasure's picture (PIC record 0x3c) and no status
+ * line. Only the camp, treasure, 3D and plain area modes are ported. */
 static void redraw_screen(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     game->redraw = true;
-    if (vm->mode == 2) {
+    if (vm->mode == 2 || vm->mode == 6) {
+        uint8_t picture = vm->mode == 2 ? 0x3b : 0x3c;
         cok_adventure_frame(game);
-        load_picture(game, 0x3b);
-        if (game->picture_id != 0x3b) log_text(game, "error", game->error);
+        load_picture(game, picture);
+        if (game->picture_id != picture) log_text(game, "error", game->error);
         cok_adventure_party(game);
-        cok_adventure_status(game);
+        if (vm->mode == 2) cok_adventure_status(game);
     } else if (vm->mode == 4) {
         cok_adventure_frame(game);
         if (vm->mem4b00[0x138] == 0) cok_adventure_view(game);

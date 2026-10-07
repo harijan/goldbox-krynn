@@ -637,7 +637,7 @@ static void test_rob(void)
  * COMBAT resolved by stub. */
 static cok_ecl_status fight(cok_combat_stub stub)
 {
-    reset("\r\r");
+    reset("\rE");
     cok_character *a = member("A", 12);
     member("B", 12);
     a->record[0x189] = 0;
@@ -651,7 +651,7 @@ static cok_ecl_status fight(cok_combat_stub stub)
     game.vm.mem7c00[0x2c1] = 2;
     game.vm.mem7c00[0x2ca] = 3;
     game.vm.mem7c00[0x370] = 4;
-    game.vm.mem7c00[0x2e6] = 1;
+    game.vm.mem7c00[0x2e3] = 1;
     game.vm.mem4b00[0x1f5] = 1;
     game.vm.mem4b00[0x1f8] = 0;
     /* CLEARMONSTERS, LOAD MONSTER 9 3 9 (goblins), 15 1 15 (KILDIRF, on
@@ -668,13 +668,12 @@ static void test_combat(void)
      * of combat removes them: the goblins (against the party) and KILDIRF
      * (past the party's size). */
     CHECK(fight(COK_COMBAT_UNPORTED) == COK_ECL_OK);
-    CHECK(strstr(s.log, "[COMBAT];unported: the party after combat and its experience "
-                        "(351b:0574);combat: removed 3 GOBLIN, 1 KILDIRF; 0 dropped;") != NULL);
+    CHECK(strstr(s.log, "[COMBAT];combat: removed 3 GOBLIN, 1 KILDIRF; 0 dropped;") != NULL);
     CHECK(game.party.count == 2 && game.vm.mem7c00[0x33e] == 2);
     CHECK(game.party.members[0]->combat == NULL && game.party.members[1]->combat == NULL);
     CHECK(game.vm.mem7c00[0x2c7] == 0 && game.vm.mem7c00[0x2c8] == 0);
     CHECK(game.vm.mode == 4 && game.vm.mem7c00[0x2ca] == 1 && game.vm.mem7c00[0x370] == 0);
-    CHECK(game.vm.mem7c00[0x2e6] == 0);
+    CHECK(game.vm.mem7c00[0x2e3] == 0);
     CHECK(game.vm.mem4b00[0x1f5] == 0 && game.vm.mem7c00[0x2c1] == 1);
     CHECK(game.icons[8][0].pixels == NULL && game.vm.character == game.party.members[0]->record);
     /* Won: the goblins drop, the first enemy among them (0x4cf8); KILDIRF,
@@ -729,7 +728,7 @@ static void test_combat(void)
      * the walk of those who fled, which ends at the first record past the
      * party's size; it goes with the enemies, counted out of 0x7f3e as A,
      * left behind, is. */
-    reset("");
+    reset("\rE");
     cok_character *dying = member("A", 12);
     dying->record[0x189] = 0;
     dying->record[0x188] = 5;
@@ -744,14 +743,14 @@ static void test_combat(void)
     CHECK(game.vm.mem7c00[0x33e] == 1);
     /* An enemy that fled (status 3) sets 0x7ec7 to 1 when it is 0
      * (351b:1493). */
-    reset("");
+    reset("\rE");
     member("A", 12);
     CHECK(RUN(COK_ECL_LOAD_MONSTER, 0, 9, 0, 2, 0, 9) == COK_ECL_OK);
     game.party.members[2]->record[0x188] = 3;
     CHECK(RUN(COK_ECL_COMBAT) == COK_ECL_OK && game.vm.mem7c00[0x2c7] == 1);
     /* The second module has no overland map: nothing is shown, and
      * nothing is said. */
-    reset("");
+    reset("\rE");
     member("A", 12);
     game.vm.file = 2;
     game.vm.mem4b00[0xe6] = 0;
@@ -760,7 +759,7 @@ static void test_combat(void)
     game.vm.file = 1;
     /* Outside 3D areas the monsters stand two squares off, and the
      * overland map is shown afterwards. */
-    reset("");
+    reset("\rE");
     member("A", 12);
     game.vm.mem4b00[0xe6] = 0;
     game.vm.mem7c00[0x2c1] = 0;
@@ -769,14 +768,15 @@ static void test_combat(void)
     CHECK(strstr(s.log, "unported: the party on the overland map (4877:0005);") != NULL);
     /* With no monsters loaded: treasure, whose items go; a shop; the
      * temple. */
-    reset("");
+    reset("\rEN");
     member("A", 12);
     game.pool.coins[0] = 50;
     game.pool.items = calloc(1, COK_ITEM_SIZE);
     game.pool.item_count = 1;
     CHECK(RUN(COK_ECL_COMBAT) == COK_ECL_OK);
     CHECK(game.pool.items == NULL && game.pool.coins[0] == 50);
-    CHECK(strstr(s.log, "[COMBAT]") == NULL && strstr(s.log, "unported: the treasure") != NULL);
+    CHECK(strstr(s.log, "[COMBAT]") == NULL &&
+          strstr(s.log, "print: The party has found Treasure!;") != NULL);
     reset("");
     game.vm.mem7c00[0x36c] = 1;
     CHECK(RUN(COK_ECL_COMBAT) == COK_ECL_OK && game.vm.mem7c00[0x36c] == 0);

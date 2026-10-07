@@ -29,6 +29,8 @@ static void usage(const char *program)
             "                  \\< \\> \\^ \\v the arrows, \\\\ a backslash; \\k presses the\n"
             "                  next key while the party rests\n"
             "  --play          then take adventure commands until the keys run out\n"
+            "  --test-party N  add N (1-8) characters made up for testing, without saved\n"
+            "                  games: fighters, clerics, mages and thieves of level 1\n"
             "  --party SAVE    add the characters of saved game SAVE (SAVGAMA.DAT) to the\n"
             "                  party, from the files beside it\n"
             "  --load SAVE     load saved game SAVE and its party first; BLOCK defaults to\n"
@@ -123,6 +125,96 @@ static void trace(cok_adventure *game, void *context)
     printf("  %04x %s\n", vm->ip, name != NULL ? name : "?");
 }
 
+/* An item of type with name part `part`, weight and readied. */
+static void give_item(cok_character *c, uint8_t type, uint8_t part, uint8_t armour, uint16_t weight)
+{
+    uint8_t item[COK_ITEM_SIZE] = {0};
+    item[0x2e] = type;
+    item[0x31] = part;
+    item[0x30] = armour;
+    item[0x34] = 1;
+    item[0x37] = (uint8_t)weight;
+    item[0x38] = (uint8_t)(weight >> 8);
+    cok_character_insert_item(c, c->item_count, item);
+}
+
+/* Add count characters made up for testing, as a saved game's would be
+ * (4b6d:1b34): a fighter, a cleric of Mishakal, a White mage and a thief
+ * in turn, human, of level 1, with their weapons and armour readied, a
+ * little steel, the cleric's Cure Light Wounds and the mage's Detect Magic
+ * memorized; their stats computed as a character's are when it loads
+ * (6346:0d20, 66c2:0433), each counted in 0x7f3e and the first selected. */
+static bool test_party(cok_adventure *game, unsigned long count)
+{
+    static const char *const names[8] = {"ALDA", "BRAM", "CERA", "DUNN",
+                                         "ELIN", "FARO", "GWEN", "HOLT"};
+    /* Class (+0x5b), the level's byte (+0xf9 on), prime requisite, hit
+     * points and the spell memorized. */
+    static const struct { uint8_t class_, level, prime, hp, spell; } kinds[4] = {
+        {2, 2, 0, 10, 0}, {0, 0, 2, 7, 3}, {5, 5, 1, 4, 0x0b}, {6, 6, 3, 5, 0},
+    };
+    for (unsigned long i = 0; i < count; ++i) {
+        cok_character *c = calloc(1, sizeof *c);
+        if (c == NULL) {
+            snprintf(game->error, sizeof game->error, "out of memory");
+            return false;
+        }
+        uint8_t *r = c->record;
+        r[0] = (uint8_t)strlen(names[i]);
+        memcpy(r + 1, names[i], strlen(names[i]));
+        const uint8_t *kind = &kinds[i % 4].class_;
+        static const uint8_t scores[6] = {15, 13, 13, 14, 15, 12};
+        for (int k = 0; k < 6; ++k)
+            r[0x10 + 2 * k] = r[0x11 + 2 * k] = k == kind[2] ? 17 : scores[k];
+        r[0x5a] = 6;               /* human */
+        r[0x5b] = kind[0];
+        r[0x5d] = kind[0] == 0 ? 4 : 0; /* Mishakal */
+        r[0x5e] = kind[0] == 5 ? 1 : 0;  /* White */
+        r[0x60] = 20;              /* years */
+        r[0x62] = r[0x197] = r[0x11b] = kind[3];
+        r[0xd5] = 12;              /* movement */
+        r[0xf9 + kind[1]] = 1;
+        r[0x109] = (uint8_t)(i & 1);
+        r[0x10a] = 0;
+        r[0x10b] = 2;              /* one attack a round, doubled */
+        r[0x10d] = 1;
+        r[0x10f] = 2;
+        r[0x113] = 50;             /* armour class 10 */
+        r[0xeb + 8] = 20;          /* steel */
+        r[0x189] = 1;
+        if (kind[4] != 0) {
+            r[0x62 + kind[4]] = 1; /* known */
+            r[0x1e] = kind[4];     /* memorized */
+        }
+        if (kind[0] == 2) {
+            give_item(c, 0x12, 0x12, 0, 60);     /* Long Sword */
+            give_item(c, 0x22, 0x22, 0x2f, 300); /* Chain Mail */
+        } else if (kind[0] == 0) {
+            give_item(c, 0x08, 0x08, 0, 100);    /* Mace */
+            give_item(c, 0x25, 0x25, 0, 50);     /* Shield */
+        } else if (kind[0] == 5) {
+            give_item(c, 0x0f, 0x0f, 0, 50);     /* Quarter Staff */
+        } else {
+            give_item(c, 0x13, 0x13, 0, 35);     /* Short Sword */
+            give_item(c, 0x1f, 0x1f, 0x30, 150); /* Leather Armor */
+        }
+        bool ok = cok_character_stats(c, &game->item_types, game->error, sizeof game->error) &&
+                  cok_character_levels(c, &game->item_types, game->error, sizeof game->error);
+        if (ok && !cok_party_add(&game->party, c)) {
+            snprintf(game->error, sizeof game->error, "the party is full");
+            ok = false;
+        }
+        if (!ok) {
+            cok_character_free(c);
+            free(c);
+            return false;
+        }
+        ++game->vm.mem7c00[0x33e];
+    }
+    game->vm.character = cok_party_record(&game->party, 0);
+    return true;
+}
+
 static bool number(const char *text, int base, unsigned long max, unsigned long *value)
 {
     char *end;
@@ -135,7 +227,7 @@ int main(int argc, char **argv)
 {
     player p = {.keys = "", .pending = -1};
     const char *screen = NULL;
-    unsigned long file = 0, vector = 5, start = 0;
+    unsigned long file = 0, vector = 5, start = 0, fixture = 0;
     bool still = false, placed = false, play = false;
     const char *party = NULL, *load = NULL, *saves = NULL;
     cok_combat_stub combat = COK_COMBAT_UNPORTED;
@@ -154,6 +246,9 @@ int main(int argc, char **argv)
             play = true;
         } else if (strcmp(option, "--keys") == 0 && has_value) {
             p.keys = argv[++i];
+        } else if (strcmp(option, "--test-party") == 0 && has_value &&
+                   number(argv[i + 1], 10, 8, &fixture) && fixture >= 1) {
+            ++i;
         } else if (strcmp(option, "--party") == 0 && has_value) {
             party = argv[++i];
         } else if (strcmp(option, "--load") == 0 && has_value) {
@@ -232,6 +327,7 @@ int main(int argc, char **argv)
     bool loaded = true;
     if (load != NULL) loaded = cok_adventure_restore(&game, load);
     if (loaded && party != NULL) loaded = cok_adventure_load_party(&game, party);
+    if (loaded && fixture > 0) loaded = test_party(&game, fixture);
     if (!loaded) {
         fprintf(stderr, "%s\n", game.error);
         cok_adventure_close(&game);
