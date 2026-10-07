@@ -64,7 +64,8 @@ class PlayTests(unittest.TestCase):
         shots.mkdir()
         result = self.play("--keys", r"\r\r\r\r\r", "--shots", shots, ASSETS, 16)
         lines = result.stdout.splitlines()
-        self.assertEqual(lines[1], "print: AS YOU TOP A RISE, YOU SPOT A CARAVAN UNDER ")
+        # DESTROY ITEMS 63 runs first (block 16 at 82be) and logs nothing.
+        self.assertEqual(lines[0], "print: AS YOU TOP A RISE, YOU SPOT A CARAVAN UNDER ")
         self.assertIn("menu: ~PRESS <ENTER>/<RETURN> TO CONTINUE.", lines)
         # With no party the first record is a monster two squares north, in
         # row 1, and the view's top row is above the map: the original would
@@ -261,6 +262,64 @@ class PlayTests(unittest.TestCase):
         start = lines.index("sound: 4")
         self.assertEqual(lines[start:start + 3], ["sound: 4", "print: ALDA", "print: is terrified"])
         self.assertEqual(lines.count("sound: 4"), 6)
+
+    # Block 16, the overland map, entered as from the first outpost (block
+    # 17, 0x4bf2 0x11), the party there (1, 3) and the caravan met
+    # (0x4c2d); --set takes hex.
+    OVERLAND = ["--test-party", 4, "--play", "--set", "4bf2=11", "--set", "4bc3=1",
+                "--set", "4bc4=3", "--set", "4c2d=1"]
+
+    def cursor_at(self, bmp, x, y):
+        """Whether cell x, y holds the overland map's cursor."""
+        return (pixel(bmp, x * 8, y * 8) == WHITE and pixel(bmp, x * 8 + 1, y * 8 + 1) == (0, 0, 0)
+                and pixel(bmp, x * 8 + 3, y * 8 + 4) == YELLOW)
+
+    def test_overland_travel(self):
+        # Decline the outpost, travel north-east and north to Throtl
+        # (2, 1), go in, leave its guards and travel south: each step is
+        # marked on the map, 0x4bc3 + 1 across and 0x4bc4 + 1 down.
+        final = self.folder / "final.bmp"
+        result = self.play(*self.OVERLAND, "--keys", "nm98yLn2", "--screen", final, ASSETS, 16)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual([line for line in lines if line.startswith("overland: ")],
+                         ["overland: 2,2,1", "overland: 2,1,0", "overland: 2,2,4"])
+        self.assertEqual(lines.count("print: THROTL"), 2)
+        self.assertIn("print: 'THROTL'S OFF LIMITS TO YOU. LEAVE AND NO ONE GETS HURT.'", lines)
+        self.assertEqual(lines[-1], "(out of keys in block 16 at 8824)")
+        bmp = final.read_bytes()
+        self.assertTrue(self.cursor_at(bmp, 3, 3))
+        self.assertFalse(self.cursor_at(bmp, 3, 2) or self.cursor_at(bmp, 2, 4))
+        # Swimming: the after-move vector stops the step into the sea.
+        result = self.play(*self.OVERLAND[:5], "--set", "4bc3=23", "--set", "4bc4=4",
+                           "--set", "4c2d=1", "--keys", r"m3\r2", ASSETS, 16)
+        lines = result.stdout.splitlines()
+        self.assertIn("print: YOU QUICKLY TIRE OF SWIMMING AND RETURN TO SHORE.", lines)
+        self.assertEqual([line for line in lines if line.startswith("overland: ")],
+                         ["overland: 35,5,4"])
+
+    def test_overland_encounter(self):
+        # Ten steps in the wild, then a roll each step (block 16 at 8813):
+        # with this seed the eleventh meets hill giants and kapaks; the
+        # fight won, the map is shown again with the party marked, and
+        # camping there shows it again too.
+        final = self.folder / "final.bmp"
+        result = self.play(*self.OVERLAND, "--seed", 3, "--combat", "won", "--keys",
+                           "nm" + r"\>" * 11 + r"\r\rENm\v" + "eee", "--screen", final,
+                           ASSETS, 16)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        steps = [line for line in lines if line.startswith("overland: ")]
+        self.assertEqual(steps[10:], ["overland: 12,3,2", "overland: 12,4,4"])
+        found = lines.index("print: YOU HAVE DISCOVERED SOME HOSTILE CREATURES.")
+        self.assertLess(lines.index(steps[10]), found)
+        self.assertIn("combat: open ground facing E, the enemy 2 squares ahead", lines)
+        self.assertIn("print: The party has won.", lines)
+        self.assertIn("print: The party makes camp...", lines)
+        self.assertNotIn("4877", result.stdout)
+        bmp = final.read_bytes()
+        self.assertTrue(self.cursor_at(bmp, 13, 5))
+        self.assertFalse(self.cursor_at(bmp, 13, 4))
 
     def test_view_of_throtl(self):
         shots = self.folder / "shots"

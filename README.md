@@ -27,6 +27,8 @@ make
 ./build/eclplay --play --set 4be6=1 --keys '\r\rm\^\r\^\^' Assets 32
 ./build/eclplay --load SAVE/SAVGAMA.DAT --play --keys '\r\r\r' Assets
 ./build/eclplay --play --set 4be6=1 --saves build --keys '\rerharsan\e' Assets 32
+./build/eclplay --test-party 4 --play --set 4bf2=11 --set 4bc3=1 --set 4bc4=3 \
+    --set 4c2d=1 --keys 'nm98y' Assets 16
 make test
 make sanitize
 ```
@@ -46,7 +48,8 @@ screen,
 including PIC delta decoding on `PIC1.DAX` and the game font in
 `8X8D1.DAX`, and plays the opening scripts, the view of Throtl and, with
 a party made up for testing (`eclplay --test-party`), its fights, round
-by round, a walk through it and a camp. It builds `build/START_FULL.EXE` (see Disassembly
+by round, a walk through it and a camp, and travel on the overland map
+with its encounters. It builds `build/START_FULL.EXE` (see Disassembly
 image) to check the original's tables that the port uses. With the
 original's saved games in `SAVE/` (`SAVGAMA.DAT` and its `CHRDATA*`
 files), it also plays those with their party, through encounters, fights
@@ -382,7 +385,8 @@ and input read (`input:`), and the name and operand values of each opcode
 that is not ported, in brackets. A spell effect the port cannot carry out
 ends the run with its reason (see Spell effects). `--play` then runs the
 adventure loop (see Adventure loop), which adds the party's square and
-facing after each step or turn (`at: X,Y,DIR`), the overhead map going on
+facing after each step or turn (`at: X,Y,DIR`), its place on the overland
+map after each step there (`overland: X,Y,DIR`), the overhead map going on
 and off (`area: on`, `area: off`; see Overhead map) and the commands that
 are not ported (`unported:`); `--helm` plays as a game started with
 `Helm`, which lifts `Area`'s `Not Here` and enables the Gods cheat;
@@ -451,8 +455,9 @@ characters. Small pictures are delta collections whose groups after the first
 are animation frames, each preceded by its delay in hundredths of a second;
 with animation off (`DS:4b4f`) only the first is loaded. The game speed
 (`DS:4b38`) defaults to 4. The picture path taken when `0x7ee1` is not 0xff
-(`3775:0538`) and the sequence for big picture 0x79 (`4877:0005`) are not
-ported, and are reported as unported.
+(`3775:0538`) is not ported, and is reported as unported. Big picture 0x79,
+the overland map, marks the party on it (`4877:0005`) and does not count
+as a big picture shown (see The overland map).
 
 ## 3D view
 
@@ -641,9 +646,158 @@ party's spell effects (`57e4:0171`, see Spell effects).
 `Cast` (`475c:0ade`) casts for the selected character if its status is
 0 (see Casting); with none selected the original reads through NULL and
 the port stops. `View` shows the selected character (see View). `Area`
-shows the overhead map (see Overhead map). Not ported, and logged as
-`unported:`: travel outside 3D areas (`475c:08d5`), where the loop
-stops. Sound is not ported either.
+shows the overhead map (see Overhead map). Outside 3D areas the loop
+travels the overland map (see The overland map). Sound is not ported.
+
+## The overland map
+
+Outside 3D areas (`0x4be6` 0, mode 3) the adventure loop travels the
+overland map, the lands around Throtl that ECL1 block 16 runs. It is
+`BIGPIC1.DAX` record 0x79, 38 units by 120 rows, drawn at cell 1, 1 in
+the frame of `1128:0344` (`6961:085b`); each 8×8 cell is a square, 38
+across and 15 down. The party's place there is var `0x4bc3` across and
+`0x4bc4` down, words saved with the game, which travel and the scripts
+set: block 16 puts the party at 1, 3, the first outpost, when the game
+starts out (`0x4bf2` 0x24, at `803e`) and when it helps the caravan's
+survivors there (`879e`), and at 17, 8 when Maya leads it to Neraka
+(`80a2`); ECL3 block 98 at 12, 4 before it returns there. The scripts
+set it before showing the map or leaving it. `cok_adventure_travel`
+and `cok_adventure_mark` are the step and the mark.
+
+The commands (`475c:09ec`) need var `0x4cf7`, which block 16's load
+vector sets and clears again before it leaves for a location. The menu on
+row 24 reads `Move Encamp`, as the 3D menu is laid out and coloured.
+`Move` clears row 24 (`67b5:0c7b`) and shows `Exit`: then any special
+key ends the command, an arrow or keypad key (`DS:1fdf`) first facing the
+party (`DS:6d87`) by its scan code, `H I M Q P O K G` north to north-west
+(keypad 8 9 6 3 2 1 4 7); any other special key, keypad 5 among them,
+leaves the facing as it is. `Exit` goes back to the commands; Move mode
+otherwise lasts through steps and blocks. `Encamp` camps (see Camp).
+Special keys from the commands pick no character, and the party list and
+status line are not drawn in mode 3 (`6346:07ba`, `2d75`). Without
+`0x4cf7`, or in a mode other than 3 and 4, the command is a byte of the
+stack the routine never sets (`[bp-3]`), which the calls before it left
+there: 9, the counter of `3775:01e8`'s loop, after a block is entered,
+but a byte of a segment that `2fd3:3b47` pushed after a `NEWECL` in the
+load vector, or 0 when overlay `475c` had to be loaded. The loop then runs
+the after-move vector and, in mode 3, the step, which does not test
+`0x4cf7`: the party travels on with no key read, step after step. No
+shipped script reaches the loop so (block 18 clears `0x4be6` but always
+leaves); the port stops with `COK_ECL_UNDEFINED`.
+
+The loop then runs the after-move vector, keeps the party's 3D square in
+`0x4bf0` and `0x4bf1` as it does in 3D areas, and takes the step
+(`475c:0e77`): unless the vector set `0x7ec9` to 0xff, `475c:08d5` puts
+back the cell under the mark (`4877:00d6`), keeps the place in `0x4bf0`
+and `0x4bf1`, adds the facing's step (`DS:1ed6` across, `DS:1edf` down)
+to the low byte of each word, kept as a signed byte within 0-37 and 0-14,
+marks the party there and passes twelve hours (`57e4:0549`, unit 3, count
+12), so that a day passes every second step. Then the view (`6945:00ba`,
+which here draws the map only while `DS:713a` is set) and the location
+vector run. A stopped step leaves `0x7ec9` at 0xff through the location
+vector, where the 3D loop clears it. `eclplay` logs each step as
+`overland: X,Y,DIR`: with `--set 4bf2=11 --set 4bc3=1 --set 4bc4=3 --set
+4c2d=1` (hex; as if from the first outpost, the caravan met), the keys
+`nm98y` decline the outpost, travel north-east and north, and enter
+Throtl.
+
+The mark (`4877:0005`) is `CURSOR.DAX` record 1, loaded at startup with
+colour 13 transparent (`3e99:07b8`, `DS:8965`): a cell white around a
+black ring around yellow, which has no colour 13 and covers the square.
+It saves the screen cell at `0x4bc3` + 1, `0x4bc4` + 1 (`127f:0edb`) in a
+picture of a cell (`DS:6162`, zeroed at startup), draws that and the
+cursor masked into another (`DS:6166`, `127f:08d7`) and puts it on the
+screen (`127f:10e7`); then it clears the view buffer's dirty tables
+(`DS:4b90`, `4c38`, `4d88`, `4ed8`), which are not ported. Both copies
+take the words times 4 bytes across and 8 rows down, unclipped. `PICTURE`
+0x79 marks the party after drawing the map, and the
+camp (`2fd3:3403`) and `COMBAT` (`2fd3:1c5a`) after showing the map again
+outside 3D areas, unless `0x4c38` is set (for `COMBAT`, also unless the
+run ended). Loading a saved game outside 3D areas loads big picture 0x79
+(`4b6d:1b34`) without drawing it.
+
+Where to go and what is met is block 16's script. Its location vector
+looks the place up in a table of eleven (at `8e72` and `8e7e`) and asks
+`YOU ARE NEAR NAME. DO YOU ENTER?`; Yes sets `0x4be6` 1 and `0x4cf7` 0,
+picks the ECL file and runs `NEWECL`, and each place left for the map
+sets `0x7f12` 1 and runs `NEWECL 16`. In the wild it counts the steps in
+`0x4c06`, cleared with the block's variables, and from the tenth rolls
+`RANDOM 99` each step, until one meets something, against a third of
+each of `0x4bc3` and `0x4bc4`, plus 10: monsters by region below 50
+(`COMBAT` outside 3D areas: open ground, the monsters two squares off),
+then a merchant caravan's shop, pilgrims'
+temple, aged adventurers' training (`PROGRAM 0`) or knights' camp
+(`PROGRAM 9`). The after-move vector stops steps into the sea (`YOU
+QUICKLY TIRE OF SWIMMING AND RETURN TO SHORE.`) by place and facing (var
+`0x4bea`), and the camp vector sets the rate of encounters while resting
+(`0x7ed2` 96, `0x7ed3` 10; none after the knights' hospitality, `0x4c05`).
+
+`DESTROY ITEMS type` (`2fd3:35a3`), which block 16's location vector
+runs on entering the block and after each step (`DESTROY ITEMS 63`),
+takes every item of that type (`+0x2e`) from every record in the list
+(`6346:1697`), unreadied first if readied (`546c:1ea7`) with its record
+selected, so that the effect of its power goes from it; a cursed one says
+"It's Cursed" and goes readied. Each record's stats are then recomputed
+(`6346:0d20`), and the selection restored. Type 63 is the Long Sword +5
+of the tomb of ECL2 block 67 (`ITEM2` record 66, given at `92a6`: "THESE
+SWORDS ARE ONLY TO BE USED WITHIN THE TEST OF HONOR"), which that block
+takes back itself in places and ECL3 block 98 too (`8c10`, with six other
+types): it is gone once the party is back on the map. The original
+reads the next item before it unreadies one, so where an item's power
+takes items away or adds them (Spiritual Hammer's), the item or the next
+may be freed; the port stops with `COK_ECL_UNDEFINED` when the items
+change.
+
+`PROGRAM` (`2fd3:3473`) turns Move mode off while it runs and first
+restores the selection `LOAD CHARACTER` changed (`DS:43ba`). 9 camps
+(`2fd3:3403`, see Camp) in the middle of the script, which goes on after
+it (`DS:4b43` kept), and then ends the script as `EXIT` does
+(`2fd3:0050`) unless `0x4c38` is set: the knights' camp, the inn of
+ECL1 block 17, and ECL3 blocks 96 and 97. 0 opens the start menu's
+training (`4def:01b4`), which is not ported and logs as `[PROGRAM 0]`;
+other values (ECL2 block 57's 3) do nothing.
+
+The port keeps these quirks:
+
+- The cell put back is the one saved at the last mark, put back at the
+  party's place now: a script that moves the party while the map is
+  shown leaves the old mark behind and pastes the cell it covered at the
+  new place, and before any mark the cell is black. The shipped scripts
+  set the place only before `PICTURE` 0x79 or a `NEWECL`.
+- The step works on the low byte of each word, so 0x4002 travels as 2,
+  and 0xffff, -1, stops at 0; the mark takes the words times 4 and 8, so
+  0x4002 is marked in column 3 and 0xffff in column 0.
+- Ctrl-F8 in Move mode, whose scan code 0x65 is `e`, camps: the loop
+  camps on `UpCase` of the key (`2fd3:3db9`), with the facing unchanged
+  and no step. (NumLock's scan code is `E`, but the BIOS never queues
+  it.)
+- A stopped step keeps `0x7ec9` at 0xff through the location vector, and
+  `0x4bf0` and `0x4bf1` hold the 3D square the loop stored.
+- A facing past 8, which only a saved game could hold, takes its step
+  from the bytes after the tables, the combat terrain table from
+  `DS:1ee4` (`cok_combat_terrain`); 8 does not move.
+
+A mark on a cell off the screen, a column past 39 or a row past 24 once
+the words are multiplied, which the original reads and writes outside its
+rows or past its table of rows (`DS:55e8`), stops the run with
+`COK_ECL_UNDEFINED`; the step itself keeps the party on the map, so only
+a script or a saved game can put it there. The mouse calls around the
+step (`1743:0051`, `0030`) and sound are not ported.
+
+A differential test ran the original's step (`475c:08d5`, after
+`4877:0005` in half the cases), `PICTURE` 0x79 (`6961:07ed`, `085b` and
+`4877:0005`) and the command (`475c:09ec` in mode 3, its menu fed
+scripted results) in an 8086 emulator against the port, in Tandy mode on
+a linear screen of noise: random places, mostly on the map, words that
+wrap or lie off the screen, facings 0-8 and past the tables, and random
+cells in `DS:6162`, comparing the screen (for the map, cells 1-38 by
+1-15), the cell saved, the place, `0x4bf0`-`0x4bf1` and the time passed,
+and for the command the menus shown, the facing, Move mode, camping,
+`0x7ec9` and the item selected. Of 20,000 cases, the 17,753 the port
+carries out agreed: 8,945 steps, 3,769 maps and 5,039 commands. The port
+alone refused 2,246 marks off the screen, which the original writes
+outside it; both refused one, in which the emulator then met an opcode it
+does not implement. It is not part of the repository.
 
 ## Party
 
@@ -674,6 +828,7 @@ gets its combat icons (`4b6d:1b34`, see The combat screen). The original
 also deletes any roster copies of the characters (`.WHO`, `.STF`, `.SFX`
 named after them); the port does not.
 `cok_adventure_restore` then reloads the map and wall sets in a 3D area,
+or else loads the overland map, big picture 0x79, without drawing it,
 sets the speed and animation from `0x4bfc` and `0x4bff`, and
 sets `DS:4b52`, so that the first block keeps its variables and the
 adventure loop redraws the screen (`6346:2c17`). Play resumes in block
@@ -724,7 +879,9 @@ error 200 would, even one that cannot act, as the division comes first.
 (`6346:32c7`), redrawing the party list with the character picked so far:
 up and down (8 and 2) move through the party, wrapping, and `S` or Enter
 picks. Escape does nothing. The original also leaves on the special keys
-whose scan codes are `E` and `S` (NumLock and Del).
+whose scan codes are `E` and `S`: Del, and NumLock, which the BIOS never
+puts in the keyboard buffer that the game reads (`Crt.ReadKey`, INT 16h),
+so that only Del does.
 
 `DAMAGE` takes five byte operands: an attack count or flags, dice count,
 dice sides, damage bonus, and a to-hit bonus or saving throw. Damage is the
@@ -864,8 +1021,8 @@ recomputes and then makes the armour class that from behind, 2 worse,
 needs the combat record and is not. The character sheet (`546c:07bb`),
 the Items menu after every key (`546c:17f9`) and Trade's receiver
 (`546c:2178`, `546c:32b0`) recompute, as ported (see View). The other
-places the original recomputes are not ported: the ECL opcodes `ADD
-NPC` (`2fd3:311c`) and `DESTROY ITEMS` (`2fd3:35a3`), the AI's
+places the original recomputes are not ported: the ECL opcode `ADD
+NPC` (`2fd3:311c`), the AI's
 choice of weapon (`3afb:1608`), attacks (`432f:1579`, `432f:1a45`), spells
 with an attack roll (`5b04:1071`, which no spell cast outside combat
 reaches); and creating, training, modifying and changing the order of a
@@ -873,9 +1030,10 @@ character (`4def:06dd`, `4def:4d9e`, `4def:28fa`, `4def:567f`). Combat
 setup (`3cb2:10d9`) recomputes every record (see The battlefield), each
 combatant's turn (`3995:040b`) the combatant (see The rounds), the end
 of combat (`351b:1968`) every record left, taking an item (`36d0:034c`,
-which buying does too) the taker, and appraising gems (`58e7:1929`) the
-appraiser after each key, as ported (see Treasure and the end of combat,
-and Shops and the temple).
+which buying does too) the taker, appraising gems (`58e7:1929`) the
+appraiser after each key, and `DESTROY ITEMS` (`2fd3:35a3`) every
+record, as ported (see Treasure and the end of combat, Shops and the
+temple, and The overland map).
 
 ## Spell effects
 
@@ -1081,8 +1239,8 @@ vector (`4b3d`), then the camp menu; if an encounter interrupted a rest, it
 redraws the screen and runs the rest vector (`4b3f`), which scripts use to
 start the encounter. Then it shows the view, clears `DS:5885`
 (`2fd3:344d`), so that the game counts as saved only in the camp it was
-saved in, and outside 3D areas would mark the party on the overland map
-(`4877:0005`, not ported). As in the original, a `NEWECL` in either vector
+saved in, and outside 3D areas marks the party on the overland map
+(`4877:0005`, see The overland map). As in the original, a `NEWECL` in either vector
 enters the new block only after the next command. When the camp vector
 ends the run (`DS:4b57`, as when the party is killed), the original opens
 the camp menu all the same; the port does not.
@@ -1100,7 +1258,8 @@ in white and light green as the adventure's, and takes keys until Exit or
 Escape, or a rest is interrupted. It keeps the item selected by the last
 menu, so after `Encamp`, the fifth command, Enter picks `Alter`. Special
 keys pick a character (`546c:3334`) and redraw the party list; one whose
-scan code is `E`, NumLock, also leaves. On leaving it reloads the small
+scan code is `E` would also leave, but that is NumLock, which never
+reaches the game (see Party). On leaving it reloads the small
 picture shown before, unmarks the spells again, and restores the mode,
 the status line, rows 18-22 and row 24, and clears the spell target
 (`DS:710b`, `4888:2e28`). `View` shows the selected character (see
@@ -1486,7 +1645,8 @@ outside combat, and is a player character (`+0xe7` below 0x80), cannot
 act, or has status 1; `Drop` if it has money; and `Exit`. `Heal` and
 `Cure` (`546c:3652`, `3665`) are never offered and do nothing. View takes
 no special keys apart: PgUp (scan 0x49) is `I`, Del `S`, shift-F1 `T`
-(whether offered or not), F10 `D`, NumLock exits. Items, Spells and Trade
+(whether offered or not), F10 `D`; NumLock would exit, but never reaches
+the game (see Party). Items, Spells and Trade
 redraw the sheet; Escape or Exit leaves, and the screen is redrawn for
 the mode. View keeps the character in `DS:46ac` and starts trades from it
 (`DS:46b0`).
@@ -1859,8 +2019,8 @@ Then the mode is 4, or 3 outside 3D areas, var `0x7eca` keeps only its
 search bit, the sprite and picture are forgotten (`DS:8830`, `884a`) and,
 unless a shop or the temple closed outside 3D areas, the screen is redrawn
 for the mode (`6346:2c17`), and outside 3D areas, unless the run ended or
-`0x4c38` is set, the party would be marked on the overland map
-(`4877:0005`, logged as unported). The preloads of overlays (`XXXX:0000`,
+`0x4c38` is set, the party is marked on the overland map (`4877:0005`,
+see The overland map). The preloads of overlays (`XXXX:0000`,
 `432f:1e96`) and the sound driver's stops around them are left out.
 
 The battle (`3995:0172`) sets up the battlefield (`3cb2:1c58`, see The
@@ -3016,7 +3176,8 @@ The screens, each on a cleared frame (`1128:0000`), are:
 if it has no items, else offers `Take: ` and `Money Items Exit` until one
 runs out, Exit or Escape. It takes special keys by their scan codes'
 letters, as Pics does: up and down (`H`, `P`) pick a character, PgUp
-(`I`) takes items and NumLock (`E`) leaves. Items (`351b:0ec5`, `0df1`)
+(`I`) takes items, and `E`, NumLock, would leave but never reaches the
+game (see Party). Items (`351b:0ec5`, `0df1`)
 lists the pool's items, each named first, in cells 1-38 by 1-22 of the
 open frame, with `Items: ` and `Take` (`cok_menu_rows`, the first row
 shown kept as lists keep it, the pick from the first each time); the one
@@ -3532,6 +3693,23 @@ running in DOSBox:
   should show the map there, and the next step should turn it off.
 - Walk into the catacombs with the map on: the first view inside should
   be the 3D view.
+
+- Start a new game; Solace leads straight into the first outpost. Choose
+  `LEAVE` there (ECL1 block 17 at `8d86`): the overland map should show
+  with the party's mark, white around black around yellow, on the
+  outpost (cell 2, 4, over its star), and `YOU ARE NEAR AN OUTPOST. DO
+  YOU ENTER?`. Answer No, then `Move` and the right arrow: the mark should move a square east, the outpost's
+  cell show as it was, and every second step the moons move a day.
+- On the overland map in `Move` mode, press Ctrl-F8: the party should
+  camp, without a step; after leaving camp the map should show again
+  with the mark.
+- At 35, 4, on the east coast, press keypad 3, south-east: `YOU QUICKLY
+  TIRE OF SWIMMING AND RETURN TO SHORE.`, and no step. Keypad 5, or F1,
+  then tries the same way again.
+- Win a fight on the overland map: after the treasure menu the map
+  should show with the mark where the party stood.
+- Meet the knights' camp (ECL1 block 16, `PROGRAM 9`) and leave the camp
+  menu: the map should show again, and the script end there.
 
 ## Disassembly image
 

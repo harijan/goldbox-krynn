@@ -784,14 +784,18 @@ static void test_combat(void)
     CHECK(game.big_id == 0x79 && game.big.pixels == NULL && strstr(s.log, "error") == NULL);
     game.vm.file = 1;
     /* Outside 3D areas the monsters stand two squares off, and the
-     * overland map is shown afterwards. */
+     * overland map is shown afterwards, the party marked on it at 0x4bc3
+     * + 1, 0x4bc4 + 1 (4877:0005): the cursor's yellow in its middle. */
     reset("\rE");
     member("A", 12);
     game.vm.mem4b00[0xe6] = 0;
     game.vm.mem7c00[0x2c1] = 0;
+    game.vm.mem4b00[0xc3] = game.vm.mem4b00[0xc4] = 1;
     CHECK(RUN(COK_ECL_LOAD_MONSTER, 0, 9, 0, 1, 0, 9, COK_ECL_COMBAT) == COK_ECL_OK);
     CHECK(game.vm.mem7c00[0x2c1] == 2 && game.vm.mode == 3 && game.big_id == 0x79);
-    CHECK(strstr(s.log, "unported: the party on the overland map (4877:0005);") != NULL);
+    CHECK(strstr(s.log, "4877") == NULL);
+    CHECK(game.screen.pixels[(2 * 8 + 4) * 160 + 2 * 4 + 1] == 0xee);
+    CHECK(game.screen.pixels[(1 * 8 + 4) * 160 + 1 * 4 + 1] != 0xee);
     /* With no monsters loaded: treasure, whose items go; a shop; the
      * temple. */
     reset("\rEN");

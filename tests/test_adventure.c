@@ -233,11 +233,15 @@ static void test_play(void)
     play(&game, &s, map, 5, 5, "m\x01H");
     CHECK(strcmp(s.log, "") == 0 && game.vm.map_y == 5 && game.vm.mem7c00[0x2c9] == 0);
 
-    /* Outside 3D areas the loop stops. */
+    /* Outside 3D areas without the overland menu (0x4cf7), and in any
+     * other mode, the original's command is a byte it never set: the run
+     * stops. */
     s.log[0] = '\0';
     game.vm.mode = 3;
-    CHECK(cok_adventure_play(&game) == COK_ECL_OK);
-    CHECK(strcmp(s.log, "unported: travel outside 3D areas;") == 0);
+    CHECK(cok_adventure_play(&game) == COK_ECL_UNDEFINED);
+    CHECK(strstr(game.error, "475c:09ec") != NULL && strstr(game.error, "0x4cf7") != NULL);
+    game.vm.mode = 1;
+    CHECK(cok_adventure_play(&game) == COK_ECL_UNDEFINED);
     cok_adventure_close(&game);
 }
 
@@ -389,11 +393,13 @@ static void test_area(void)
     load_block_off_map(&game);
     CHECK(play_to(&game, &s, map, 5, 5, "m\x01Hm") == COK_ECL_UNDEFINED && s.at == 3);
     CHECK(game.vm.map_x == 16 && game.vm.map_y == 5);
-    /* A later play starts with no failure left over: outside 3D areas it
-     * stops at once. */
+    /* A later play starts with no failure left over: on the overland map
+     * it waits for a command. */
     game.vm.abort = false;
     game.vm.mode = 3;
-    CHECK(cok_adventure_play(&game) == COK_ECL_OK);
+    game.vm.mem4b00[0x1f7] = 1;
+    s.at = s.length = 0;
+    CHECK(cok_adventure_play(&game) == COK_ECL_OK && game.input_ended);
     cok_adventure_close(&game);
 }
 
@@ -796,6 +802,386 @@ static void test_load_stats(void)
     CHECK(rmdir(dir) == 0);
 }
 
+/* A block for the overland map whose after-move vector saves after_move
+ * to 0x7ec9, whose location vector copies 0x7ec9 to 0x4c01, and whose camp
+ * vector saves 1 to 0x4c02; then from 0x8030 a script that runs PROGRAM
+ * program, saves 1 to 0x4c03 and the selected character's position
+ * (0x7eb1) to 0x4c04, and exits. */
+static void load_overland_block(cok_adventure *game, uint8_t after_move, uint8_t program)
+{
+    static const uint8_t vectors[] = {
+        0, 0, /* Skipped. */
+        1, 2, 0x15, 0x80, 1, 2, 0x1d, 0x80, 1, 2, 0x25, 0x80, 1, 2, 0x2c, 0x80, 1, 2, 0x14, 0x80,
+        COK_ECL_EXIT,
+    };
+    uint8_t record[0x50] = {0};
+    memcpy(record, vectors, sizeof vectors);
+    const uint8_t code[] = {
+        COK_ECL_SAVE, 0, after_move, 1, 0xc9, 0x7e, COK_ECL_EXIT, COK_ECL_EXIT,
+        COK_ECL_SAVE, 1, 0xc9, 0x7e, 1, 0x01, 0x4c, COK_ECL_EXIT,
+        COK_ECL_SAVE, 0, 1, 1, 0x02, 0x4c, COK_ECL_EXIT,
+        COK_ECL_EXIT,
+    };
+    memcpy(record + 2 + 0x15, code, sizeof code);
+    const uint8_t program_code[] = {
+        COK_ECL_PROGRAM, 0, program, COK_ECL_SAVE, 0, 1, 1, 0x03, 0x4c,
+        COK_ECL_SAVE, 1, 0xb1, 0x7e, 1, 0x04, 0x4c, COK_ECL_EXIT,
+    };
+    memcpy(record + 2 + 0x30, program_code, sizeof program_code);
+    CHECK(cok_ecl_load(&game->vm, record, sizeof record) == COK_ECL_OK);
+    CHECK(cok_ecl_start(&game->vm, true) == COK_ECL_OK);
+}
+
+/* Travel from x, y on the overland map facing dir with keys. */
+static cok_ecl_status travel_to(cok_adventure *game, script *s, uint16_t x, uint16_t y,
+                                uint8_t dir, const char *keys)
+{
+    s->keys = keys;
+    s->at = 0;
+    s->length = strlen(keys);
+    s->log[0] = '\0';
+    game->input_ended = false;
+    game->vm.abort = false;
+    game->vm.mode = game->vm.last_mode = 3;
+    game->vm.mem4b00[0xe6] = 0;
+    game->vm.mem4b00[0x1f7] = 1;
+    game->vm.mem4b00[0xc3] = x;
+    game->vm.mem4b00[0xc4] = y;
+    game->vm.direction = dir;
+    return cok_adventure_play(game);
+}
+
+static void travel(cok_adventure *game, script *s, uint16_t x, uint16_t y, uint8_t dir,
+                   const char *keys)
+{
+    CHECK(travel_to(game, s, x, y, dir, keys) == COK_ECL_OK);
+    CHECK(game->input_ended);
+}
+
+/* Whether cell x, y shows the overland cursor: white around a black ring
+ * around yellow. */
+static bool cursor_at(const cok_picture *p, int x, int y)
+{
+    return pixel_at(p, x * 8, y * 8) == 15 && pixel_at(p, x * 8 + 7, y * 8 + 7) == 15 &&
+           pixel_at(p, x * 8 + 1, y * 8 + 1) == 0 && pixel_at(p, x * 8 + 3, y * 8 + 4) == 14;
+}
+
+/* Whether every pixel of cell x, y is colour. */
+static bool cell_is(const cok_picture *p, int x, int y, unsigned colour)
+{
+    for (int row = 0; row < 8; ++row)
+        for (int col = 0; col < 8; ++col)
+            if (pixel_at(p, x * 8 + col, y * 8 + row) != colour) return false;
+    return true;
+}
+
+static unsigned unported_count;
+
+static void count_unported(cok_adventure *game, void *context)
+{
+    (void)game;
+    (void)context;
+    ++unported_count;
+}
+
+static void test_overland(void)
+{
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s};
+    cok_adventure_hooks hooks = {.log = log_line, .unported = count_unported, .context = &s};
+    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    uint16_t *mem = game.vm.mem4b00;
+    load_overland_block(&game, 0, 0);
+    cok_picture_fill(&game.screen, 0, 0, 40, 200, 5);
+
+    /* Before the party was ever marked, the cell put back where it stood is
+     * the one saved at startup, zeroed (DS:6162): black. */
+    travel(&game, &s, 2, 3, 2, "m\x01M");
+    CHECK(strcmp(s.log, "overland: 3,3,2;") == 0);
+    CHECK(cell_is(&game.screen, 3, 4, 0) && cursor_at(&game.screen, 4, 4));
+    /* A step keeps the place it left in 0x4bf0 and 0x4bf1 and passes twelve
+     * hours (57e4:0549, unit 3); the location vector runs after it. */
+    CHECK(mem[0xf0] == 2 && mem[0xf1] == 3 && mem[0xc9] == 12 && mem[0xca] == 0);
+    CHECK(mem[0x101] == 0);
+    /* The menu stays on Exit, Move mode kept, until Exit; another step is
+     * another half day. */
+    travel(&game, &s, 3, 3, 2, "m\x01Me" "m\x01P");
+    CHECK(strcmp(s.log, "overland: 4,3,2;overland: 4,4,4;") == 0);
+    CHECK(mem[0xc9] == 12 && mem[0xca] == 1 && cell_is(&game.screen, 4, 4, 5));
+    CHECK(cell_is(&game.screen, 5, 4, 5) && cursor_at(&game.screen, 5, 5) &&
+          cell_is(&game.screen, 3, 4, 0));
+
+    /* The arrows and keypad keys face the eight ways, and any other special
+     * key steps the way the party faces. */
+    cok_picture_fill(&game.screen, 0, 0, 40, 200, 5);
+    cok_adventure_mark(&game);
+    travel(&game, &s, 10, 7, 0, "m89632147" "5\x01S");
+    CHECK(strcmp(s.log, "overland: 10,6,0;overland: 11,5,1;overland: 12,5,2;overland: 13,6,3;"
+                        "overland: 13,7,4;overland: 12,8,5;overland: 11,8,6;overland: 10,7,7;"
+                        "overland: 9,6,7;overland: 8,5,7;") == 0);
+    CHECK(cursor_at(&game.screen, 9, 6) && cell_is(&game.screen, 11, 8, 5));
+    /* The way stays within 0-37 across and 0-14 down. */
+    travel(&game, &s, 37, 14, 0, "m3\x01M");
+    CHECK(strcmp(s.log, "overland: 37,14,3;overland: 37,14,2;") == 0);
+    travel(&game, &s, 0, 0, 0, "m7");
+    CHECK(strcmp(s.log, "overland: 0,0,7;") == 0);
+    /* The step is added to the low byte of each word: 0x4002 is 2, and so
+     * is the cell it marks, as the column is a word times four. 0xffff is
+     * -1, marked in column 0, and a step west from it stops at 0. */
+    cok_adventure_mark(&game);
+    cok_picture_fill(&game.screen, 0, 0, 40, 200, 5);
+    mem[0xc3] = 0x4002;
+    mem[0xc4] = 3;
+    cok_adventure_mark(&game);
+    CHECK(cursor_at(&game.screen, 3, 4));
+    travel(&game, &s, 0x4002, 3, 0, "m\x01M");
+    CHECK(strcmp(s.log, "overland: 3,3,2;") == 0 && mem[0xc3] == 3 && cell_is(&game.screen, 3, 4, 5));
+    mem[0xc3] = 0xffff;
+    cok_adventure_mark(&game);
+    CHECK(cursor_at(&game.screen, 0, 4) && game.vm.status == COK_ECL_OK);
+    travel(&game, &s, 0xffff, 3, 0, "m\x01K");
+    CHECK(strcmp(s.log, "overland: 0,3,6;") == 0 && cursor_at(&game.screen, 1, 4));
+
+    /* Facing 8 does not move; past 8 the step is read from the bytes after
+     * the tables, the combat terrain table from DS:1ee4: 9 takes -1 and
+     * terrain 1's cost, 0xff; 40 terrain 6's blocking height, 2, and
+     * terrain 8's tile, 7. */
+    const uint8_t facings[3] = {8, 9, 40};
+    const uint16_t to[3][2] = {{5, 5}, {4, 4}, {7, 12}};
+    for (size_t i = 0; i < 3; ++i) {
+        mem[0xc3] = mem[0xc4] = 5;
+        game.vm.direction = facings[i];
+        cok_adventure_travel(&game);
+        CHECK(game.vm.status == COK_ECL_OK && mem[0xc3] == to[i][0] && mem[0xc4] == to[i][1]);
+    }
+    /* 249 reads past DS:1ed6 + 0xff: terrain 58's tile (DS:1fcf) and
+     * terrain 61's cost (DS:1fd8), 4. */
+    mem[0xc3] = mem[0xc4] = 5;
+    game.vm.direction = 249;
+    cok_adventure_travel(&game);
+    int sx = 5 + (int8_t)cok_combat_terrain[58].tile, sy = 5 + (int8_t)cok_combat_terrain[61].cost;
+    CHECK(cok_combat_terrain[61].cost == 4);
+    CHECK(mem[0xc3] == (uint16_t)(sx < 0 ? 0 : sx > 37 ? 37 : sx) &&
+          mem[0xc4] == (uint16_t)(sy < 0 ? 0 : sy > 14 ? 14 : sy));
+
+    /* The cell put back is the one saved at the last mark, wherever the
+     * party is now: a script that moves it leaves the old mark behind. */
+    cok_picture_fill(&game.screen, 0, 0, 40, 200, 5);
+    cok_picture_fill(&game.screen, 3, 4 * 8, 1, 8, 9);
+    mem[0xc3] = 2;
+    mem[0xc4] = 3;
+    cok_adventure_mark(&game);
+    travel(&game, &s, 5, 3, 2, "m\x01M");
+    CHECK(cursor_at(&game.screen, 3, 4) && cell_is(&game.screen, 6, 4, 9) &&
+          cursor_at(&game.screen, 7, 4));
+    /* A cell off the screen, which the original reads and writes outside
+     * its rows, stops the run: here the mark at column 40, and the cell put
+     * back at row 25 before the step. The last cell on the screen is
+     * 39, 24. */
+    mem[0xc3] = 38;
+    mem[0xc4] = 23;
+    cok_adventure_mark(&game);
+    CHECK(game.vm.status == COK_ECL_OK && cursor_at(&game.screen, 39, 24));
+    mem[0xc3] = 39;
+    cok_adventure_mark(&game);
+    CHECK(game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "4877:0005") != NULL);
+    game.vm.status = COK_ECL_OK;
+    /* The column is a word: 0xff is 0x400 bytes across, off the screen. */
+    mem[0xc3] = 0xff;
+    mem[0xc4] = 3;
+    cok_adventure_mark(&game);
+    CHECK(game.vm.status == COK_ECL_UNDEFINED);
+    game.vm.status = COK_ECL_OK;
+    uint16_t hours = mem[0xc9];
+    CHECK(travel_to(&game, &s, 3, 24, 0, "m\x01H") == COK_ECL_UNDEFINED);
+    CHECK(strncmp(s.log, "error: ", 7) == 0 && mem[0xc4] == 24 && mem[0xc9] == hours);
+
+    /* An after-move vector that sets 0x7ec9 to 0xff stops the step; there
+     * 0x7ec9 stays set through the location vector, and 0x4bf0 and 0x4bf1
+     * hold the party's square in the 3D map, as the loop set them. */
+    load_overland_block(&game, 0xff, 0);
+    game.vm.map_x = 7;
+    game.vm.map_y = 9;
+    travel(&game, &s, 4, 4, 2, "m\x01M");
+    CHECK(strcmp(s.log, "") == 0 && mem[0xc3] == 4 && mem[0x101] == 0xff);
+    CHECK(mem[0xf0] == 7 && mem[0xf1] == 9);
+    load_overland_block(&game, 0, 0);
+
+    /* Encamp camps; so does Ctrl-F8 in Move mode, whose scan code 0x65 is
+     * 'e', the way unchanged and no step taken. Then the overland map is shown
+     * and the party marked. Special keys in the commands pick no one. */
+    cok_character *a = member("ANN", 5, 2), *b = member("BOB", 5, 2);
+    CHECK(cok_party_add(&game.party, a) && cok_party_add(&game.party, b));
+    game.vm.character = a->record;
+    game.vm.mem7c00[0x33e] = 2;
+    mem[0x102] = 0;
+    cok_picture_fill(&game.screen, 0, 0, 40, 200, 5);
+    travel(&game, &s, 6, 6, 2, "\x01P" "e" "e");
+    CHECK(game.vm.character == a->record);
+    CHECK(strcmp(s.log, "print: The party makes camp...;menu: Save View Magic Rest Alter Fix Exit;")
+          == 0);
+    CHECK(mem[0x102] == 1 && cursor_at(&game.screen, 7, 7) && game.vm.mode == 3);
+    /* Encamp selects the first item for the camp menu, where Enter then
+     * picks Save. */
+    game.selected = 3;
+    travel(&game, &s, 6, 6, 2, "e\r");
+    CHECK(strstr(s.log, "menu: A B C D E F G H I J;") != NULL);
+    mem[0x102] = 0;
+    travel(&game, &s, 6, 6, 2, "m\x01" "ee");
+    CHECK(strcmp(s.log, "print: The party makes camp...;menu: Save View Magic Rest Alter Fix Exit;")
+          == 0);
+    CHECK(mem[0x102] == 1 && mem[0xc3] == 6 && game.vm.direction == 2);
+
+    /* In a 3D area the camp marks no one. */
+    uint8_t map[0x402] = {0};
+    load_block(&game, 0);
+    cok_picture_fill(&game.screen, 0, 0, 40, 200, 5);
+    mem[0xc3] = mem[0xc4] = 1;
+    play(&game, &s, map, 5, 5, "ee");
+    CHECK(mem[0x102] == 1 && !cursor_at(&game.screen, 2, 2));
+    game.vm.mem4b00[0xe6] = 0;
+    game.vm.mode = 3;
+    mem[0xc4] = 6;
+    load_overland_block(&game, 0, 0);
+
+    /* PICTURE 0x79, the overland map, marks the party on it and does not
+     * count as a big picture shown (DS:4b4e); any other big picture does. */
+    const uint8_t picture[] = {COK_ECL_PICTURE, 0, 0x79, COK_ECL_EXIT};
+    mem[0xc3] = 2;
+    CHECK(run_code(&game, &s, picture, sizeof picture, "") == COK_ECL_OK);
+    CHECK(game.big_id == 0x79 && game.big.pixels != NULL && cursor_at(&game.screen, 3, 7));
+    CHECK(!game.big_shown && !cursor_at(&game.screen, 7, 7));
+    const uint8_t caravan[] = {COK_ECL_PICTURE, 0, 0x72, COK_ECL_EXIT};
+    CHECK(run_code(&game, &s, caravan, sizeof caravan, "") == COK_ECL_OK);
+    CHECK(game.big_shown && !cursor_at(&game.screen, 3, 7));
+    game.big_shown = false;
+
+    /* PROGRAM 9 camps in the middle of a script, then exits unless 0x4c38
+     * is set; PROGRAM 0, the training hall, is not ported; others do
+     * nothing. Each first restores the selection LOAD CHARACTER changed. */
+    load_overland_block(&game, 0, 9);
+    mem[0x102] = mem[0x103] = 0;
+    s.keys = "e";
+    s.at = 0;
+    s.length = 1;
+    game.vm.mode = 3;
+    game.vm.character = b->record;
+    game.vm.saved_character = a->record;
+    game.vm.restore_character = true;
+    game.moving = false;
+    cok_picture_fill(&game.screen, 0, 0, 40, 200, 5);
+    CHECK(cok_ecl_run(&game.vm, 0x8030) == COK_ECL_OK);
+    CHECK(mem[0x102] == 1 && mem[0x103] == 0 && game.vm.character == a->record);
+    CHECK(!game.moving && cursor_at(&game.screen, 3, 7));
+    mem[0x102] = 0;
+    mem[0x138] = 1;
+    s.at = 0;
+    game.moving = true;
+    CHECK(cok_ecl_run(&game.vm, 0x8030) == COK_ECL_OK);
+    CHECK(mem[0x102] == 1 && mem[0x103] == 1 && game.moving);
+    mem[0x138] = 0;
+    load_overland_block(&game, 0, 0);
+    mem[0x103] = 0;
+    unported_count = 0;
+    CHECK(cok_ecl_run(&game.vm, 0x8030) == COK_ECL_OK && unported_count == 1 && mem[0x103] == 1);
+    load_overland_block(&game, 0, 3);
+    mem[0x103] = 0;
+    game.vm.character = b->record;
+    game.vm.restore_character = true;
+    CHECK(cok_ecl_run(&game.vm, 0x8030) == COK_ECL_OK && unported_count == 1 && mem[0x103] == 1);
+    CHECK(game.vm.character == a->record && mem[0x104] == 0);
+    cok_adventure_close(&game);
+
+    /* DESTROY ITEMS 63, which block 16's location vector runs on entering
+     * it and after every step, takes the tomb's Long Sword +5 (type 63) from
+     * every record, unreadied first, a cursed one after "It's Cursed", and
+     * recomputes the stats; other items and the selection stay. */
+    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    cok_character *f = member("FIG", 9, 2), *g = member("GIL", 9, 2);
+    for (size_t i = 0; i < 6; ++i)
+        f->record[0x10 + 2 * i] = f->record[0x11 + 2 * i] = g->record[0x10 + 2 * i] =
+            g->record[0x11 + 2 * i] = 12;
+    uint8_t sword[COK_ITEM_SIZE] = {0}, other[COK_ITEM_SIZE] = {0};
+    sword[0x2e] = 63;
+    sword[0x34] = 1;
+    sword[0x37] = 60;
+    other[0x2e] = 0x12;
+    other[0x37] = 60;
+    CHECK(cok_character_insert_item(f, 0, sword) && cok_character_insert_item(f, 1, other) &&
+          cok_character_insert_item(f, 2, sword));
+    /* One with a power: its effect (0x13) goes from its owner, selected for
+     * it, not from the character selected before. */
+    uint8_t charm[COK_ITEM_SIZE];
+    memcpy(charm, sword, sizeof charm);
+    charm[0x3d] = 0x13;
+    charm[0x3e] = 0x80;
+    CHECK(cok_character_insert_item(f, 3, charm) &&
+          cok_character_add_effect(f, 0x13, 0, 0xff, false) != NULL);
+    sword[0x36] = 1;
+    CHECK(cok_character_insert_item(g, 0, sword));
+    CHECK(cok_party_add(&game.party, f) && cok_party_add(&game.party, g));
+    CHECK(cok_character_add_effect(g, 0x13, 0, 0xff, false) != NULL);
+    game.vm.mem7c00[0x33e] = 2;
+    game.vm.character = f->record;
+    game.vm.mem4b00[0xf2] = 0x11;
+    game.vm.mem4b00[0xc3] = 1;
+    game.vm.mem4b00[0xc4] = 3;
+    game.vm.mem4b00[0x12d] = 1;
+    s.keys = "n";
+    s.at = 0;
+    s.length = 1;
+    s.log[0] = '\0';
+    unported_count = 0;
+    CHECK(cok_adventure_enter(&game, 16) == COK_ECL_OK);
+    CHECK(f->item_count == 1 && f->items[0][0x2e] == 0x12 && g->item_count == 0);
+    CHECK(f->record[0x142] == 1 && f->record[0x17d] == 60 && game.vm.character == f->record);
+    CHECK(cok_character_find_effect(f, 0x13) == NULL && cok_character_find_effect(g, 0x13) != NULL);
+    CHECK(strstr(s.log, "print: It's Cursed;") != NULL && unported_count == 0);
+    /* After a step on the map. */
+    sword[0x36] = 0;
+    CHECK(cok_character_insert_item(g, 0, sword));
+    s.keys = "m\x01M";
+    s.at = 0;
+    s.length = 3;
+    CHECK(cok_adventure_play(&game) == COK_ECL_OK && game.vm.mem4b00[0xc3] == 2);
+    CHECK(g->item_count == 0 && f->item_count == 1);
+    /* The opcode alone: the effect of a power goes from the item's owner,
+     * selected for it, and the selection is restored after, though the
+     * last owner (here GIL) was selected last. */
+    CHECK(cok_character_insert_item(f, 0, charm) && cok_character_insert_item(g, 0, sword));
+    CHECK(cok_character_add_effect(f, 0x13, 0, 0xff, false) != NULL);
+    const uint8_t destroy[] = {COK_ECL_DESTROY_ITEMS, 0, 63, COK_ECL_EXIT};
+    game.vm.character = g->record;
+    CHECK(run_code(&game, &s, destroy, sizeof destroy, "") == COK_ECL_OK);
+    CHECK(cok_character_find_effect(f, 0x13) == NULL && cok_character_find_effect(g, 0x13) != NULL);
+    CHECK(f->item_count == 1 && g->item_count == 0);
+    CHECK(cok_character_insert_item(g, 0, sword));
+    game.vm.character = f->record;
+    CHECK(run_code(&game, &s, destroy, sizeof destroy, "") == COK_ECL_OK);
+    CHECK(game.vm.character == f->record && g->item_count == 0);
+    cok_adventure_close(&game);
+
+    /* A saved game outside 3D areas loads the overland map, not drawn. */
+    char dir[] = "/tmp/cok_overland_XXXXXX";
+    CHECK(mkdtemp(dir) != NULL);
+    char path[256];
+    static uint8_t save[COK_SAVED_GAME_SIZE];
+    save[1 + 0x400 * 2 + 0x312 * 2] = 1; /* 0x7f12, the ECL file */
+    snprintf(path, sizeof path, "%s/SAVGAMA.DAT", dir);
+    write_file(path, save, sizeof save);
+    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_restore(&game, path));
+    CHECK(game.big_id == 0x79 && game.big.pixels != NULL && cell_is(&game.screen, 3, 3, 0));
+    cok_adventure_close(&game);
+    save[1 + 0xe6 * 2] = 1; /* 0x4be6 */
+    write_file(path, save, sizeof save);
+    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_restore(&game, path) && game.big_id == COK_ADVENTURE_NO_PICTURE);
+    cok_adventure_close(&game);
+    CHECK(remove(path) == 0 && rmdir(dir) == 0);
+}
+
 int main(void)
 {
     test_clock();
@@ -804,6 +1190,7 @@ int main(void)
     test_party();
     test_doors();
     test_load_stats();
+    test_overland();
     puts("adventure tests passed");
     return 0;
 }
