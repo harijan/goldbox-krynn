@@ -1,5 +1,6 @@
 #include "adventure.h"
 
+#include "arena.h"
 #include "camp.h"
 #include "dax.h"
 #include "cast.h"
@@ -896,13 +897,16 @@ static cok_character *member_of(cok_adventure *game, const uint8_t *c)
     return i < game->party.count ? game->party.members[i] : NULL;
 }
 
-/* A spell effect could not be carried out: say why and end the run. */
+bool cok_adventure_effect_failed(cok_adventure *game)
+{
+    if (game->vm.status == COK_ECL_OK)
+        cok_adventure_fail(game, COK_ECL_EFFECT_FAILED, "%s", game->effects.error);
+    return false;
+}
+
 static void effect_failed(cok_adventure *game)
 {
-    fail(game, "%s", game->effects.error);
-    log_text(game, "error", game->error);
-    game->vm.status = COK_ECL_EFFECT_FAILED;
-    game->vm.abort = true;
+    cok_adventure_effect_failed(game);
 }
 
 /* Whether an attack with bonus hits member c (60f4:0ffb, see effect.h). */
@@ -1128,11 +1132,38 @@ static void trace(cok_ecl *vm, void *context)
     if (game->hooks.trace != NULL) game->hooks.trace(game, game->hooks.context);
 }
 
-/* The effects' handlers speak in the text window (6346:1883). */
-static void effect_say(cok_effects *fx, cok_character *c, const char *text, void *context)
+/* The effects' handlers speak in the text window, or in combat the side
+ * panel (6346:1883, on row 10 with a pause), or with a flash on the
+ * character (6346:228c), after which 60f4:20f7 clears the text
+ * (6346:196a). */
+static void effect_say(cok_effects *fx, cok_character *c, const char *text, bool wait,
+                       void *context)
 {
     (void)fx;
-    cok_camp_say(context, c->record, text, true);
+    (void)cok_arena_say(context, c, text, 10, wait); /* row 10 is in the panel */
+}
+
+static bool effect_flash(cok_effects *fx, cok_character *c, uint8_t kind, const char *text,
+                         bool clear, void *context)
+{
+    cok_adventure *game = context;
+    if (!cok_arena_flash(game, c, kind, text)) {
+        /* The reason, for the effect's failure. */
+        snprintf(fx->error, sizeof fx->error, "%.299s", game->error);
+        fx->failed = true;
+        return false;
+    }
+    if (clear) cok_arena_clear_text(game);
+    return true;
+}
+
+static bool effect_panel(cok_effects *fx, cok_character *c, void *context)
+{
+    cok_adventure *game = context;
+    if (cok_arena_panel(game, c)) return true;
+    snprintf(fx->error, sizeof fx->error, "%.299s", game->error);
+    fx->failed = true;
+    return false;
 }
 
 static void effect_log(cok_effects *fx, const char *kind, const char *text, void *context)
@@ -1228,6 +1259,8 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
     game->effects.in_range = effect_in_range;
     game->effects.around = effect_around;
     game->effects.distance = effect_distance;
+    game->effects.flash = effect_flash;
+    game->effects.panel = effect_panel;
     game->effects.context = game;
     game->vm.file = 1;
     game->picture_id = COK_ADVENTURE_NO_PICTURE;
@@ -1265,6 +1298,11 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
      * (3e99:005b): the frame's tile set, tile set 0, and outside CGA mode
      * the sky pictures. */
     if (!load_tiles(game, 4, 202) || !load_tiles(game, 0, 203)) return false;
+    /* Then the icons of missiles, flashes and the cursor: COMSPR ids 0-11
+     * in slots 13-24, and 25 in 25 (3e99:06e0, 072a). */
+    for (uint8_t i = 0; i <= 11; ++i)
+        if (!cok_arena_load_icon(game, "COMSPR", i, (uint8_t)(13 + i))) return false;
+    if (!cok_arena_load_icon(game, "COMSPR", 25, 25)) return false;
     for (uint8_t i = 0; i < COK_VIEW_SKY_PICTURES; ++i)
         if (!load_single(game, "SKY", (uint8_t)(250 + i), 13, &game->view.sky[i])) return false;
     /* 3e99:005b also reads the item types. */
@@ -1284,6 +1322,9 @@ void cok_adventure_close(cok_adventure *game)
         for (size_t pose = 0; pose < 2; ++pose) cok_picture_free(&game->icons[i][pose]);
     cok_pool_free(&game->pool);
     cok_picture_free(&game->combat.tiles);
+    cok_picture_free(&game->combat.buffer);
+    cok_picture_free(&game->combat.under);
+    cok_picture_free(&game->combat.flash);
     free(game->lost_weapons);
     game->lost_weapons = NULL;
     game->lost_weapon_count = 0;
@@ -1314,7 +1355,8 @@ static void directory_of(const char *path, char *out, size_t size)
 }
 
 /* Add the characters a saved game names, from its directory. */
-static bool add_characters(cok_adventure *game, const cok_saved_game *saved, const char *path)
+static bool add_characters(cok_adventure *game, const cok_saved_game *saved, const char *path,
+                           uint8_t ecl_file)
 {
     cok_ecl *vm = &game->vm;
     char dir[4096];
@@ -1350,6 +1392,9 @@ static bool add_characters(cok_adventure *game, const cok_saved_game *saved, con
             return false;
         ++vm->mem7c00[0x33e];
     }
+    /* Then every record's combat icons, an NPC's from CPIC of the saved
+     * game's file (4b6d:1fff). */
+    if (!cok_arena_join(game, ecl_file)) return false;
     /* Adding a character selects it; the loader then selects the first. */
     vm->character = cok_party_record(&game->party, 0);
     return true;
@@ -1360,7 +1405,7 @@ bool cok_adventure_load_party(cok_adventure *game, const char *path)
     static cok_saved_game saved;
     game->error[0] = '\0';
     if (!cok_saved_game_read(path, &saved, game->error, sizeof game->error)) return false;
-    return add_characters(game, &saved, path);
+    return add_characters(game, &saved, path, game->vm.file);
 }
 
 bool cok_adventure_restore(cok_adventure *game, const char *path)
@@ -1382,7 +1427,7 @@ bool cok_adventure_restore(cok_adventure *game, const char *path)
     game->pictures = (uint8_t)(vm->mem4b00[0xff] >> 1); /* DS:4b4d */
     game->speed = (uint8_t)vm->mem4b00[0xfc];
     vm->mem7c00[0x33e] = 0;
-    if (!add_characters(game, &saved, path)) return false;
+    if (!add_characters(game, &saved, path, saved.file)) return false;
     /* The save holds the ECL file twice; the loader takes it from 0x7f12. */
     vm->file = (uint8_t)vm->mem7c00[0x312];
     /* The loader reads DS:6d8a as saved, then reloads what it names. */

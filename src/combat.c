@@ -1,6 +1,7 @@
 #include "combat.h"
 
 #include "adventure.h"
+#include "arena.h"
 #include "round.h"
 #include "treasure.h"
 
@@ -999,9 +1000,11 @@ static bool load_tiles(cok_adventure *game, const char *name, uint8_t first, uin
         return false;
     }
     bool ok = set.frame_size == combat->tiles.frame_size && set.frames >= count;
-    if (ok)
+    if (ok) {
         memcpy(combat->tiles.pixels + first * combat->tiles.frame_size, set.pixels,
                count * set.frame_size);
+        combat->tiles_loaded |= ((UINT64_C(1) << count) - 1) << first;
+    }
     cok_picture_free(&set);
     if (!ok) cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s.DAX holds no %u tiles", name, count);
     return ok;
@@ -1074,8 +1077,7 @@ bool cok_combat_setup(cok_adventure *game)
     game->effects.rolls.round = 0;
     combat->round_limit = 15;
     game->effects.rolls.attack_roll = 0;
-    combat->bodies = 0;
-    memset(combat->body, 0, sizeof combat->body);
+    combat->bodies = 0; /* the entries are kept (6beb:0e08 can read them) */
     combat->yelled = NULL;
     memset(combat->exploding, 0, sizeof combat->exploding);
     combat->exploding_count = 0;
@@ -1099,7 +1101,7 @@ bool cok_combat_setup(cok_adventure *game)
     drop_key(game);
     /* The view's origin, from the first record, whether or not it is on the
      * map; then the screen (6346:300f), which draws the map centred there
-     * (6beb:096b), scrolling only to work out the screen positions. */
+     * (6beb:096b), its scroll working out the screen positions. */
     uint8_t *first = cok_party_record(&game->party, 0);
     combat->view_x = s8(cok_combat_x(combat, first) - 3);
     combat->view_y = s8(cok_combat_y(combat, first) - 3);
@@ -1112,18 +1114,16 @@ bool cok_combat_setup(cok_adventure *game)
         combat->view_x = s8(combat->combatant[1].x - 3);
         combat->view_y = s8(combat->combatant[1].y - 3);
     }
-    cok_combat_scroll(combat, s8(combat->view_x + 3), s8(combat->view_y + 3), 0xff);
     char text[80];
     snprintf(text, sizeof text, "the view from %d,%d", combat->view_x, combat->view_y);
     log_text(game, "combat", text);
-    log_text(game, "unported", "the combat screen (6346:300f)");
+    if (!cok_arena_redraw(game)) return false;
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];
         c->combat->turns = 0;
         if (!cok_effects_dispatch(&game->effects, c, 8) ||
             !cok_effects_dispatch(&game->effects, c, 0x16)) {
-            cok_adventure_fail(game, COK_ECL_EFFECT_FAILED, "%s", game->effects.error);
-            return false;
+            return cok_adventure_effect_failed(game);
         }
     }
     cok_combat_enemy_health(combat, &game->party);

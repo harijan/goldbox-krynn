@@ -430,8 +430,7 @@ static cok_character *member_of(cok_adventure *game, const uint8_t *record)
 
 static bool effect_failed(cok_adventure *game)
 {
-    cok_adventure_fail(game, COK_ECL_EFFECT_FAILED, "%s", game->effects.error);
-    return false;
+    return cok_adventure_effect_failed(game);
 }
 
 /* 6346:0d20 on c, ending the run where it fails. */

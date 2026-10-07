@@ -51,9 +51,10 @@ static size_t count(const cok_character *c)
 /* What the say hook was given, each ended by ";". */
 static char said_text[256];
 
-static void said(cok_effects *effects, cok_character *c, const char *text, void *context)
+static void said(cok_effects *effects, cok_character *c, const char *text, bool wait,
+                 void *context)
 {
-    (void)effects, (void)c, (void)context;
+    (void)effects, (void)c, (void)context, (void)wait;
     size_t used = strlen(said_text);
     snprintf(said_text + used, sizeof said_text - used, "%s;", text);
 }

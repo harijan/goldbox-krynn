@@ -54,10 +54,11 @@ static void unported(cok_adventure *g, void *context)
     snprintf(s->log + used, sizeof s->log - used, "[%s];", cok_ecl_opcode_name(g->vm.opcode));
 }
 
-static void say(cok_effects *fx, cok_character *c, const char *text, void *context)
+static void say(cok_effects *fx, cok_character *c, const char *text, bool wait, void *context)
 {
     (void)fx;
     (void)c;
+    (void)wait;
     log_line(NULL, "say", text, context);
 }
 

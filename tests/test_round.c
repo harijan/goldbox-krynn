@@ -98,7 +98,6 @@ static void reset(const char *keys)
     c->exploding_count = 0;
     c->yelled = NULL;
     c->show_actions = false;
-    c->screen_logged = 0;
     c->active = true;
     s.keys = keys;
     s.at = 0;
@@ -1442,12 +1441,27 @@ static void test_battle(void)
     CHECK(game.vm.status == COK_ECL_EFFECT_FAILED && LOGGED("432f:2337"));
 }
 
+/* The combat screen draws with a battle's tiles (6d21:002c): a setup
+ * loads them, and the fixtures after keep them. */
+static void load_screen(void)
+{
+    reset("");
+    record('A', 0, 0, 0);
+    record('M', 1, 0, 0);
+    game.vm.mode = 4;
+    game.vm.mem7c00[0x33e] = 2;
+    game.vm.character = cok_party_record(&game.party, 0);
+    CHECK(cok_combat_setup(&game));
+    CHECK(cok_combat_end(&game));
+}
+
 int main(void)
 {
     cok_keyboard keys = {scripted, &s};
     cok_adventure_hooks hooks = {.log = log_line, .unported = unported, .battlefield = battlefield,
                                  .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    load_screen();
     test_tables();
     test_turn_order();
     test_round_start();

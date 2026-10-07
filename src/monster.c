@@ -1,5 +1,6 @@
 #include "monster.h"
 
+#include "arena.h"
 #include "camp.h"
 #include "effect.h"
 #include "items.h"
@@ -161,32 +162,11 @@ static cok_character *copy_monster(const cok_character *first)
 }
 
 /* Load the combat icons of id into slot (6d21:01d0): CPIC<file> records id
- * and id + 0x80, colour 0 transparent. A missing record leaves the slot's
- * picture empty, as the original does; a missing file makes it ask for
- * the disk, and fails the run. The CGA recolour (DS:4b76) is not ported. */
+ * and id + 0x80, colour 0 transparent and colour 8 drawn black (see
+ * arena.h). */
 static bool load_icons(cok_adventure *game, uint8_t id, uint8_t slot)
 {
-    if (slot >= COK_ICON_SLOTS) {
-        cok_adventure_fail(game, COK_ECL_UNDEFINED,
-                           "icon slot %u is past the icon table (DS:6172 + 8 * slot)", slot);
-        return false;
-    }
-    char name[16];
-    snprintf(name, sizeof name, "CPIC%c", file_digit(game));
-    for (unsigned pose = 0; pose < 2; ++pose) {
-        uint8_t record = (uint8_t)(id + 0x80 * pose);
-        if (cok_adventure_load_image(game, name, record, 0, &game->icons[slot][pose])) continue;
-        bool no_file;
-        size_t size;
-        uint8_t *data = cok_adventure_find_record(game, name, record, &size, &no_file);
-        free(data);
-        if (no_file) {
-            cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
-            return false;
-        }
-        log_text(game, "error", game->error);
-    }
-    return true;
+    return cok_arena_load_icon(game, "CPIC", id, slot);
 }
 
 /* LOAD MONSTER (2fd3:0465): unless 63 records were loaded since

@@ -75,9 +75,10 @@ struct cok_effects {
     size_t removed_count, removed_capacity;
     bool failed;
     char error[300]; /* Why the last call failed. */
-    /* Say text about character c in the text window and wait (6346:1883
-     * outside combat). The handlers that print fail without it. */
-    void (*say)(cok_effects *fx, cok_character *c, const char *text, void *context);
+    /* Say text about character c (6346:1883, on row 10), with a pause
+     * and the text cleared after if wait. The handlers that print fail
+     * without it. */
+    void (*say)(cok_effects *fx, cok_character *c, const char *text, bool wait, void *context);
     /* Set while a battle runs (3995:0172 to 3995:004b). A handler, or the
      * part of one, that is not ported is then logged as "unported" and
      * skipped, and effects that end are logged as "effect". */
@@ -106,6 +107,17 @@ struct cok_effects {
     /* How many removals of effects whose handlers run (60f4:01e9) are
      * nested. */
     unsigned removing;
+    /* Say text about c with a flash of kind on it (6346:228c), which in
+     * combat draws, and outside combat says it as say does; then, if
+     * clear, clear the text (6346:196a), as 60f4:20f7 does. Returns false,
+     * which ends the call, where it cannot be drawn; it may then set
+     * fx->failed and fx->error to say why. NULL says it with say. */
+    bool (*flash)(cok_effects *fx, cok_character *c, uint8_t kind, const char *text, bool clear,
+                  void *context);
+    /* Draw the side panel for c (6346:0af6), which draws it only while
+     * DS:71ac is set. Returns false, as flash does, where it cannot be
+     * drawn. NULL draws nothing. */
+    bool (*panel)(cok_effects *fx, cok_character *c, void *context);
     void *context;
 };
 

@@ -44,6 +44,12 @@ void cok_screen_spells(cok_picture *dst, const cok_picture *tiles, const uint16_
  * of row 3. */
 void cok_screen_list(cok_picture *dst, const cok_picture *tiles, const uint16_t moons[3]);
 
+/* The combat screen's frame (1128:04c1): the whole screen but row 24
+ * cleared, the moons' row, columns 0, 22 and 39 to row 22 (DS:0ebd,
+ * 0ed4 and 0eeb, which hold the same), then row 22 across. The map shows
+ * inside the box of cells 1-21, the side panel in cells 23-38. */
+void cok_screen_combat(cok_picture *dst, const cok_picture *tiles, const uint16_t moons[3]);
+
 /* The character sheet's frame (1128:05fc): the whole screen but row 24
  * cleared, the moons' row, rows 8, 16, 20 and 23 across, the sides (from
  * DS:0f02) to row 22, and column 19 from row 9 to 19 (DS:0f19). */
