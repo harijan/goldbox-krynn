@@ -39,15 +39,17 @@ record; directory entry numbers are zero-based. Duplicate IDs are retained.
 export checks for all 26 supported graphics archives (2,363 images), and
 tests of the picture, text, menu, 3D view, party and spell effect routines,
 the adventure loop, the camp, casting spells, the character sheet with its
-items, and monsters and encounters, including PIC delta decoding on
-`PIC1.DAX` and the game font in `8X8D1.DAX`, and plays the opening scripts,
-the view of Throtl and a walk through it with `eclplay`, with encounters,
-and fights resolved by `--combat`. It builds `build/START_FULL.EXE` (see
-Disassembly image) to check the original's tables that the port uses. With
-the original's saved games in `SAVE/` (`SAVGAMA.DAT` and its `CHRDATA*`
-files), it also plays them with a party, checks the stats recomputed for
-their characters, runs their spell effects, and saves them again to compare
-the files; those tests are skipped without them.
+items, monsters and encounters, and treasure and the end of combat,
+including PIC delta decoding on `PIC1.DAX` and the game font in
+`8X8D1.DAX`, and plays the opening scripts, the view of Throtl and, with
+a party made up for testing (`eclplay --test-party`), its fights, a walk
+through it and a camp. It builds `build/START_FULL.EXE` (see Disassembly
+image) to check the original's tables that the port uses. With the
+original's saved games in `SAVE/` (`SAVGAMA.DAT` and its `CHRDATA*`
+files), it also plays those with their party, through encounters, fights
+resolved by `--combat` and every treasure the scripts give out, checks the
+stats recomputed for their characters, runs their spell effects, and saves
+them again to compare the files; those tests are skipped without them.
 `make sanitize` repeats these checks with AddressSanitizer and UBSan.
 Tests also require Python 3 (standard library only). The native tools have no
 third-party dependencies. Sanitizer targets require the compiler's ASan/UBSan
@@ -382,9 +384,17 @@ error. A spell list logs its rows as `item:` and `heading:`, and quitting
 to DOS ends the run with `(quit to DOS in block N)`. Cast and View run
 from the commands and the camp, their lists logged as `list:` and
 `item:`. Monsters loaded, the encounter's sprite and close-up and the
-money robbed log as `monster:`, and the end of a fight as `combat:` (see
-Monsters and encounters). `COMBAT`'s battle is not ported: it logs as
-`[COMBAT]`, unless `--combat won`, `fled`, `lost` or `gods` resolves it.
+money robbed log as `monster:`, the end of a fight as `combat:` (see
+Monsters and encounters), and the coins and items `TREASURE` adds as
+`treasure:` (see Treasure and the end of combat). `COMBAT`'s battle is not
+ported: it logs as `[COMBAT]`, unless `--combat won`, `fled`, `lost` or
+`gods` resolves it. A fight ends with the results and the treasure menu,
+which read keys; with no party at all the monsters rejoice and the run
+ends. `--test-party N` adds N (1-8) characters made up for testing, as a
+saved game's are added: a fighter, a cleric of Mishakal, a White mage and
+a thief in turn, human, of level 1, their weapons and armour readied, 20
+steel each, the cleric's Cure Light Wounds and the mage's Detect Magic
+memorized, their stats computed as a loaded character's are.
 `--party SAVE` adds the characters of a saved game to the party (see Party),
 and `--load SAVE` loads the whole saved game first; then `BLOCK` may be left
 out to resume where it was saved. WHO prints the character picked (`who:`).
@@ -774,11 +784,11 @@ NPC` (`2fd3:311c`), `DESTROY ITEMS` (`2fd3:35a3`) and `COMBAT`, through
 combat setup (`3cb2:10d9`), each combatant's turn (`3995:040b`), the AI's
 choice of weapon (`3afb:1608`), attacks (`432f:1579`, `432f:1a45`), spells
 with an attack roll (`5b04:1071`, which no spell cast outside combat
-reaches); taking an item from treasure
-or a shop (`36d0:034c`) and appraising gems (`58e7:1929`); and creating,
-training, modifying and changing the order of a character (`4def:06dd`,
-`4def:4d9e`, `4def:28fa`, `4def:567f`). The end of combat (`351b:1968`)
-recomputes every record left, as ported (see Monsters and encounters).
+reaches); buying in a shop and appraising gems (`58e7:1929`); and
+creating, training, modifying and changing the order of a character
+(`4def:06dd`, `4def:4d9e`, `4def:28fa`, `4def:567f`). The end of combat
+(`351b:1968`) recomputes every record left, and taking an item
+(`36d0:034c`) the taker, as ported (see Treasure and the end of combat).
 
 ## Spell effects
 
@@ -1482,9 +1492,9 @@ receiver takes unless its weight would pass its strength allowance +
 1500 (`58e7:044b`, "Overloaded"), weight and coins changing as words;
 again until the giver has none, or Escape asks for another partner.
 `Drop` (`546c:2fe2`) lists likewise, the amount right-aligned to column
-18, asks "How much ... will you drop? ", and the coins are gone; in shops
-and treasure (modes 1 and 6) they would go to a pool, logged as
-unported.
+18, asks "How much ... will you drop? ", and the coins are gone, but in
+shops and treasure (modes 1 and 6), where they go to the pool
+(`58e7:09fa`, see Treasure and the end of combat).
 
 The port keeps these quirks:
 
@@ -1510,7 +1520,8 @@ The port keeps these quirks:
   (View from the commands, a camp whose picture was kept, or another camp
   command before) the byte depends on the run's history, and the port
   stops with `COK_ECL_UNDEFINED`. An emulator run of the whole camp
-  agreed on each case the port carries out.
+  agreed on each case the port carries out. The treasure menu's View
+  works the same way (see Treasure and the end of combat).
 - An item used to cast a spell is followed by its position, as a spell
   such as Dispel Magic can remove an effect whose handler removes another
   item, Spiritual Hammer's; if the item itself goes, the original goes
@@ -1519,8 +1530,7 @@ The port keeps these quirks:
   original's files show).
 
 Not ported: the debug `View` item of Items (`DS:4b51`, Ctrl-D), shops'
-`Sell` (`546c:2822`) and `Id` (`546c:2a59`), the money pool of shops and
-treasure, and the combat side: the turn View ends, `Use` in combat
+`Sell` (`546c:2822`) and `Id` (`546c:2a59`), and the combat side: the turn View ends, `Use` in combat
 (`6346:300f`, `6346:2964`), the combat panel.
 
 A differential test ran the original routines in an 8086 emulator
@@ -1754,8 +1764,9 @@ for the mode (`6346:2c17`), and outside 3D areas, unless the run ended or
 `432f:1e96`) and the sound driver's stops around them are left out.
 
 The battle (`3995:0172`) is not ported. Before it, as combat setup
-(`3cb2:10d9`) does, every record gets a combat record, zeroed, its `+0x13`
-set past the party's size; the rest of setup is not ported. Unless
+(`3cb2:1c58`) does, the small picture is freed and forgotten
+(`6961:0537`), and every record gets a combat record, zeroed (`3cb2:10d9`),
+its `+0x13` set past the party's size; the rest of setup is not ported. Unless
 `eclplay --combat` resolves it, the battle is logged as unported (`[COMBAT]`,
 as before) and changes nothing, and the end of combat follows. The stub
 (`cok_adventure.combat_stub`) decides instead: `won`, every record against
@@ -1763,41 +1774,13 @@ the party (`+0x18a` 1) drops (status 6, cannot act), and those on its side
 past the party's size do not; `gods`, the original's cheat when started
 with `Helm` (`432f:41e2`), says "The Gods intervene!" on row 24 and drops
 them as `won` does; `fled`, every party record that can act flees (status
-3); `lost`, the whole party dies. Then a stand-in for the party's part of
-the end of combat's `351b:0574`, which is not ported (P2's), decides as it
-does, over the party records before the first one past the party's size:
-the party is destroyed unless one has status 0, 1 or 3, is on the party's
-side and is not an NPC, and then they are removed and `0x7f3e` is 0; when
-some fled and none has status 0 or 1, var `0x7ec7` is 0x81, those who fled
-come back (status 0) and the rest are left behind, removed and counted out
-of `0x7f3e`. Its non-lethal rule (var `0x7ee6`, `351b:0636`), which no
-script sets, and the effects and experience it deals with are left out.
-
-The end of combat (`351b:1968`) runs after every battle, and for
-treasure: var `0x7ec7` is 0 (won, or no battle) before the stub's outcome,
-the mode is 6, the enemies are removed (`351b:1493`: every record whose
-`+0x13` or `+0x18a` is 1, with `4def:3b0a`, freeing its icon slot,
-counting one not past the party's size out of `0x7f3e`; `0x7ec8` counts
-those that dropped, `+0x189` not 1, `0x4cf8` is set if the first one did,
-and `0x7ec7` becomes 1 for one that fled while it is 0), the others'
-combat records are freed, the first record is selected, and every
-record's stats are recomputed (`6346:0d20`). If the party was destroyed,
-`0x7ec7` is 0x80, the frame is cleared, "The monsters rejoice for the party
-has been destroyed" printed in cells 2-37 from row 5, cleared first
-(`351b:1aab`), and "Press any key to continue" shown in light magenta on
-row 24 until a key, and the run ends. Otherwise the pool's items are freed
-(its coins stay). Last, vars `0x7f70`-`0x7f72`, `0x7ee3`, `0x7ee6` and
-`0x4cf5` are cleared. So without `--combat`, `COMBAT` with monsters
-removes them, sets `0x7ec7` to 0 and the mode to 6 and back, recomputes
-the stats, frees the pool's items and clears those variables. Not ported,
-and logged: the party's state, effects and experience after combat
-(`351b:0574`), the NPCs' shares, messages and treasure screen
-(`351b:1618`, `0b23`, `118c`). The weapons recovered (`351b:185f`) are
-left out: only combat fills their list. Where the selection the original
-keeps in `DS:43bf`, which `EXIT` restores after `LOAD CHARACTER` and a
-block's vectors restore when they end (`2fd3:3b47`), is a record removed,
-the original would go on with it freed, and the port stops with
-`COK_ECL_UNDEFINED`, unless the party was destroyed and the run ends first.
+3); `lost`, the whole party dies. Then the end of combat (`351b:1968`)
+runs, after every battle and for treasure alone (see Treasure and the end
+of combat): the party's part, `351b:0574`, decides from the statuses the
+stub left whether the party won, fled or was destroyed. Without `--combat`
+nothing drops, so the party wins, with none of the monsters' experience;
+with no party at all, as in `eclplay` without `--party`, it is destroyed,
+as `351b:0574` finds no one standing, and the run ends.
 
 `CALL [2e10]` (`2fd3:329b`), which scripts run after each encounter,
 recomputes the party's square and, if a picture or sprite is shown or the
@@ -1855,6 +1838,294 @@ selected character, a field of operand type 3) each failed hundreds of
 these cases. The Reals agreed with a reference model, itself checked
 against the emulator, on 200,000 operations. It is not part of the
 repository.
+
+## Treasure and the end of combat
+
+`src/treasure.h` ports `TREASURE` (`2fd3:1d21`) with its random items
+(overlay `58e7`), the end of combat (overlay `351b`), which every `COMBAT`
+runs, with or without a battle, and the money pool's routines in `58e7`,
+which the shops will share.
+
+The pool (`cok_pool`) is the coins at `DS:6b0c`, seven signed LongInts in
+the order of a character's coins (silver, copper, bronze, platinum, steel,
+gems, jewelry; names at `DS:12e3`), and the items at `DS:6b28`, a list of
+63-byte items linked at `+0x2a`, kept in list order, the head first. Two
+lists only combat fills, both empty until it is ported, are kept with it:
+the last missile combat put in the pool (`DS:60a2`, `432f:19b6`), as the
+item it is, and the weapons lost in combat (`DS:609e`, effect 0x43,
+`3f44:1dc5`): 71-byte nodes of an item and the record it goes back to
+(`+0x3f`). The original keeps the missile as a pointer, which only combat
+setup clears (`3cb2:1c58`), so that a later item allocated where a freed
+one was can match it; the port forgets it when its item goes. The flag
+`DS:711e` ("money in the pool"), which Pool, Share and Take write and
+nothing reads, is left out.
+
+`TREASURE silver copper bronze platinum steel gems jewelry items` sets the
+pool's coins to the seven words, replacing them, and by the items
+operand's low byte adds below 0x80 the items of `ITEM<file>.DAX` record
+`items` (the file a digit, as `LOAD MONSTER`'s), each put first in the
+pool, so in the reverse order, with the names they were stored with; 0x80
+to 0xfe, that less 0x80 random items, each put first, after which every
+item in the pool is named (`6346:0488`), old ones too; 0xff none. A
+record that is not there says `Unable to find item file` on row 24, waits
+for a key and quits to DOS; no shipped `TREASURE` names one. One that is
+not whole items, which the original reads past, stops the port with
+`COK_ECL_UNDEFINED`. `eclplay` logs the coins and the items added as
+`treasure:`.
+
+Each random item's type comes from `TREASURE`'s own dice, then
+`58e7:1039` makes it:
+
+| d100 | Type |
+| --- | --- |
+| 1-20 | a second d100: 1-10, a d10 (hammer 1-2, mace 3-6, flail 7-8, quarter staff 9, staff sling 10); 11-25, a d20 (darts 1-3, javelin 4-5, long bow 6-8, composite long bow 9-10, short bow 11-12, composite short bow 13-14, sling 15-16, staff sling 17-18, arrows 19-20); else a d4, 1-3 a d20 (long sword 1-8, broad sword 9-13, scimitar 14, bastard sword 15, short sword 16-18, two-handed sword 19-20), 4 a d8 (battle axe, dagger 2-3, mace 4-5, military pick, spear, halberd) |
+| 21-65, 66-70 | a magic-user's scroll (0x27), a cleric's (0x28) |
+| 71-80, 81-85 | a shield (0x25), a ring of protection (0x3b) |
+| 86-95 | a d20: leather 1-3, banded 4-11, plate 12-16, ring 17, scale 18, chain mail 19-20 |
+| 96-100 | a d6: bracers 1-2, a potion of healing 3-4 (0x30), a wand of magic missiles 5 (0x34), a potion of giant strength 6 (0x35) |
+
+The item starts zeroed, unreadied, its type set and its parts `+0x2f` and
+`+0x30` hidden (`+0x35` 6). A weapon, armour, shield, ring or bracers has
+a bonus of +1, or +2 on a d10 of 10 (`58e7:1005`), and is named by its
+type and `+1` or `+2` (name parts 0x6f, 0x70); armour (0x1f-0x24) is its
+type, `Armor` or `Mail` and the plus, only the plus hidden; the ring
+`Ring Of Prot` and the plus; bracers `Bracers of AC 6`, bonus 4 whatever
+the roll. Weights are the original's by type; darts come twenty to the
+item at 5, and arrows, quarrels and every type not listed twenty at 4. The
+value is the bonus times 1000, or 1250 for a shield, 75 for arrows, 1500
+for ring and scale mail and bracers, 1750 for chain, 2000 banded and 2500
+plate. A scroll has a d3 of spells (`1 Spell`, `2 Spells`, `3 Spell`, sic),
+bonus 1 and weight 25; a magic-user's order is a d2, 1 Red (`+0x35` bit
+0x10) and 2 White (0x20), named `Red MU Scroll` or `White MU Scroll`, a
+cleric's `Cler Scroll` with nothing hidden; each spell is a d4 level, then
+a die of the level's table (`DS:423a`, `4262`, `428a`, ten bytes a level,
+from 1), worth 150 a level, in `+0x3c`-`+0x3e`. A wand, the potions and a
+javelin that rolls 5 on a d5 after its bonus (of lightning) take a
+template of eight words from `DS:0b88`: three name parts, weight, value
+and `+0x3c`-`+0x3e`, with bonus and saving throw bonus 1, so that Detect
+Magic marks them; it keeps the type and the hidden parts, so they show as
+`Potion`, `Wand` or `Javelin`. A potion of healing is extra healing on a
+d8 of 6-8. The generated potions are of types 0x30 and 0x35, where the
+shipped ones are 0x2f, and the healing potion's spell is 3 where the
+shipped one's is 0x3e.
+
+The end of combat (`351b:1968`), as `cok_treasure_end_of_combat`:
+
+1. Each weapon lost in combat goes back to its owner, who is selected
+   (`351b:185f`); taking an item (`36d0:034c`) puts a copy at the end of
+   the selected character's items and recomputes its stats unless it
+   would be overloaded (`546c:32b0`), which shows `OverLoaded` on row 24:
+   the weapon is lost.
+2. Var `0x7ec7` is 0, and the party's part runs (`351b:0574`), over the
+   party records: those before the first past the party's size (a combat
+   record's `+0x13`), or with no battle, every record, as the original
+   reads `0000:0013` for none. Someone running (status 3) means the party
+   fled. Each party record loses the first effect of each id that lasts
+   only through combat (`DS:0390`: 0x03, 0x0b, 0x15, 0x17, 0x1b, 0x23,
+   0x28, 0x33, 0x34, 0x35, 0x1f, removed as `cok_effects_remove` does).
+   The party is destroyed unless a party record has status 0, 1 or 3, is
+   on the party's side (`+0x18a` 0) and is not an NPC (`+0xe7` below
+   0x80), or in a fight that cannot kill (var `0x7ee6`, which no script
+   sets) anyone in the list can act or is running, unconscious or dying.
+   One that stands (status 0 or 1) means the party did not flee, and the
+   experience is worked out and given (below). If the party lives, either
+   it comes round: running and unconscious with hit points become okay,
+   dying unconscious, and in a fight that cannot kill dying and
+   unconscious are okay with a hit point; or when it fled, var `0x7ec7` is
+   0x81, those who ran are okay and the rest are left behind, removed
+   (`4def:3b0a`, the record before then selected) and counted out of
+   `0x7f3e`. A destroyed party is removed and `0x7f3e` is 0.
+3. The mode is 6, and the enemies are removed (`351b:1493`): every record
+   whose combat record's `+0x13` or whose `+0x18a` is 1 counts as a
+   monster (`DS:43c4`) and is removed (`4def:3b0a`), freeing its icon
+   slot, one not past the party's size counted out of `0x7f3e`; var
+   `0x7ec8` counts those that dropped (`+0x189` not 1), var `0x4cf8` is set
+   if the first one did, and var `0x7ec7` becomes 1 for one that fled while
+   it is 0. The others' combat records are freed, the first record is
+   selected, and every record's stats are recomputed (`6346:0d20`). Where
+   the selection the original keeps in `DS:43bf`, which `EXIT` restores
+   after `LOAD CHARACTER` and a block's vectors restore when they end
+   (`2fd3:3b47`), is a record removed here or in step 2, the original
+   would go on with it freed, and the port stops with `COK_ECL_UNDEFINED`,
+   unless the party was destroyed and the run ends first.
+4. Unless the party was destroyed: if it fled, the pool's items go; the
+   NPCs take their shares, the results show and the treasure menu runs
+   (below); then the pool's items go. Its coins stay until the next
+   `CLEARMONSTERS` or `TREASURE` replaces them. If it was destroyed, var
+   `0x7ec7` is 0x80, the frame is cleared, "The monsters rejoice for the
+   party has been destroyed" printed in cells 2-37 from row 5, cleared
+   first (`351b:1aab`), and "Press any key to continue" shown in light
+   magenta on row 24 until a key, and the run ends.
+5. Vars `0x7f70`-`0x7f72`, `0x7ee3`, `0x7ee6` and `0x4cf5` are cleared.
+
+The original's paths for a duel (`DS:883e`) and its demo (`DS:4b4b`),
+which are never set in this game, are left out.
+
+The experience (`351b:0037`) is a LongInt, `DS:8840`: each defeated enemy
+in the list (`+0x18a` 1, status neither 0 nor 3) counts as a monster
+(`DS:43c4`, which `351b:1493` sets too for each enemy it removes) and
+gives `+0x130` + `+0x132` × `+0x11b`, the product a signed word; a
+monster past the party's size puts its coins in the pool, and unless
+monsters keep their items (var `0x7ee3` 1) each of its items is named and
+put first in the pool, unreadied, in its order, so the last first. Then
+the pool's coins count, as signed LongInts: a hundredth of the silver, a
+twentieth of the copper, a tenth of the bronze, the platinum, 2 a steel,
+250 a gem and 2200 a jewel; then 400 times the bonus of each magic item,
+as a signed word, from the pool's head to the last missile recovered. The
+sum, divided by `0x7f3e` less the party records that cannot act or are
+animated (`DS:883f`), as a word, is what each gets. It is given
+(`351b:0379`), unless the bank is paying out (var `0x4cf5`), to every
+record in the list that can act and is not animated, monsters still in it
+too, added to `+0x116`: a tenth more for a cleric (`+0x5b` 0) of wisdom
+above 14, a fighter, paladin, ranger, mage or thief whose prime
+requisites (strength; strength and wisdom; strength, intelligence and
+wisdom; intelligence; dexterity) are above 15; half for two classes (8,
+10-14, 16) and a third for three (9, 15); all for the rest.
+
+The screens, each on a cleared frame (`1128:0000`), are:
+
+- The NPCs' shares (`351b:1618`). Each NPC that is okay counts `+0xe8` & 7
+  shares, every other record one, as bytes; with any NPC shares, of each
+  coin in the pool the NPCs take their shares of the pool divided by all
+  the shares, cut to a byte, and the coins are gone. Then each okay NPC
+  with `+0xe8` set says `NAME takes and hides his share.` (`her` for
+  `+0x109` not 0) in light green in cells 5-34 from row 5, two rows apart,
+  each cleared first, and `press <enter>/<return> to continue` waits on
+  row 24, all one item, black on white (`67b5:03e2`): Enter, space,
+  Escape or a special key ends it.
+- The results (`351b:0b23`), in light green from column 1: after a fight
+  (`DS:43c4`), `The party has fled.` on row 3, with no experience and the
+  pool's coins gone; `You have lost the fight.` in a fight that cannot
+  kill with none standing, with none, and var `0x7ec7` 0x80; else `The
+  party has won.`; without one, `The party has found Treasure!` on row 3,
+  or for the bank `The party makes a withdrawl.  A small` and `fee has
+  been assessed by the bank.` on rows 5 and 7. Then, but for the bank,
+  `Each character receives N` (signed) and `experience points.` on rows 5
+  and 7, and the wait for Enter.
+- The treasure menu (`351b:118c`), after the screen is redrawn for mode 6
+  (`6346:2c17`): the adventure frame, the treasure's picture (`PIC`
+  record 0x3c) in the view's place, which the menu draws as it waits, and
+  the party list, with no status line. Row 24 offers `View Take Pool
+  Share` with money in the pool, `View Take Pool` with only items, else
+  `View Pool`, then `Detect` if there are items and the selected character
+  can act and has memorized a Detect Magic (5, 0x0b, 0x4d or 0x67, the
+  first in `+0x1e`-`+0x57`), and `Exit`; the prompt is empty, the items
+  white and light green, as the camp's. Special keys pick a character.
+  `View` is View (see View), in which Drop puts the money in the pool
+  (`58e7:09fa`); `Detect` casts the spell (`5b04:1415`) without saying
+  "casts". `Exit` or Escape leaves when the pool is empty; otherwise
+  `There is still treasure left.  ` in light green and `Do you want to go
+  back and claim your treasure?` in white in rows 17-22, and `~Yes ~No`
+  (`3775:1885`, the selection kept from the menu before): No leaves, Yes
+  clears rows 17-22 and goes back.
+
+`Take` (`351b:0ff7`) takes the items if the pool has no money, the money
+if it has no items, else offers `Take: ` and `Money Items Exit` until one
+runs out, Exit or Escape. It takes special keys by their scan codes'
+letters, as Pics does: up and down (`H`, `P`) pick a character, PgUp
+(`I`) takes items and NumLock (`E`) leaves. Items (`351b:0ec5`, `0df1`)
+lists the pool's items, each named first, in cells 1-38 by 1-22 of the
+open frame, with `Items: ` and `Take` (`cok_menu_rows`, the first row
+shown kept as lists keep it, the pick from the first each time); the one
+picked goes to the selected character (`36d0:034c`) and leaves the pool,
+unless it would be overloaded, and again until the pool is empty or none
+is picked. Money (`58e7:0d01`) lists the pool's coins, jewelry first, each
+`Name amount`, in cells 2-15 by 2-8 of the frame with its row 16 divider,
+with `Select type of coin ` and `Select` (no space before it, unlike
+Drop's); the coin picked asks `How much steel  will you take? ` (two
+spaces, as for each coin but gems, `How Many Gems  will you take? `) for at
+most the pool's low word (`58e7:028d`), and the selected character takes
+it (`58e7:0a81`): if that much would overload it, `Overloaded` and nothing;
+else at most what the pool has. Again until the pool has no coins or none
+is picked. Each time the screen is redrawn after.
+
+`Pool` (`58e7:0511`) puts the money of every player character, turned
+ones too (`+0xe7` 0 or 0xb3), in the pool, lightening its weight as words;
+NPCs keep theirs. `Share` (`58e7:063a`) divides each coin by the records
+Pool counts, a byte: each record below 0x80 then takes its share of each
+coin, jewelry first, and a coin of the remainder while one is left, as
+far as it can carry (`58e7:006d`: its weight and the amount, a word that
+wraps, against its allowance + 1500, `6346:153b`); what it cannot carry
+goes back to the remainder. Then each record in the list in turn, NPCs and
+monsters too, takes as much of each remainder as it has room for, and
+what is left stays in the pool. With money and no record to count, Share
+divides by zero, runtime error 200, and the port stops. The routines the
+shops use are ported with them: the value of coins in steel (`58e7:00d3`,
+1, 5, 10, 25 and 50 for coins 0-4, over 50), paying in steel from the pool
+or from a character (`58e7:018f`, `0155`) and giving steel, the rest to the
+pool with `Overloaded.  Money will be put in Pool.` (`58e7:01f2`).
+
+The port keeps these quirks:
+
+- `TREASURE` replaces the pool's coins, so of two in a row only the
+  second's count, and both's items; its random items rename the items
+  already there.
+- The monster's experience product is a signed word, as is 400 times a
+  bonus of 82 or more; coins count by signed LongInts.
+- The divisor is a word: with everyone out it is 0, runtime error 200, and
+  the port stops with `COK_ECL_DIVIDE_BY_ZERO`; with more out than the
+  party's size (an NPC or an ally among the party records) it wraps, and
+  each gets next to nothing.
+- The experience goes to every record that can act, monsters still in the
+  list included, before they are removed; a cleric needs only wisdom 15.
+- A party member against the party that drops gives its items, not its
+  coins, and goes with the enemies.
+- A party of NPCs, or of characters on the other side, is destroyed,
+  whoever stands.
+- Only the first effect of each combat-only id goes.
+- When the experience was not worked out (no one standing) the results
+  show `DS:8840` from the last combat that did; with none before, the port
+  stops with `COK_ECL_UNDEFINED`. Only a fight that cannot kill reaches
+  this.
+- An NPC's share is cut to a byte, so at most 255 a share of each coin;
+  the coins vanish; an NPC whose `+0xe8` is 8 takes no share but says it
+  hides one; shares that wrap to 0 divide by zero, and the port stops.
+- Share counts turned characters but gives them nothing, so their shares
+  are lost, and gives records whose `+0xe7` is 1-0x7f a share they were
+  not counted in; a record already carrying more than it may takes a
+  whole remainder, its room wrapping. A hoard too heavy for the party,
+  such as the 95,000 coins of ECL3 block 98, stays in the pool after
+  Share.
+- Take money checks the amount asked against the load before it cuts it to
+  the pool's, and asks at most the pool's low word.
+- A fled party's pool loses its items before the menu and its coins at
+  the results; the menu still opens.
+
+Not ported, and logged: the shop (`36d0:07da`) and the temple
+(`340d:0ea9`), with Appraise (`58e7:1929`) and View's `Sell` and `Id`.
+The weapons lost in combat and the missile recovered stay empty until
+combat fills them.
+
+In Trade from the treasure menu's View, Escape at the first coin list
+tests a byte of the stack (see View). Loading the treasure's picture
+(`6961:01fd`, through `6346:2c17`) zero-fills it, so Trade asks for
+another partner when the menu's redraw loaded the picture: always after a
+battle, whose setup frees the picture (`3cb2:1c58`, `6961:0537`), and for
+treasure alone unless the picture was already there. After a View in the
+same menu, or Yes to go back for the treasure, the byte is set, and Trade
+is left; after Take, through the coins or the items, it holds the low
+byte of a segment, and with it unknown, as when the picture was already
+there, the port stops with `COK_ECL_UNDEFINED`. Pool, Share, Detect and
+picking a character leave it as it was. An emulator run of the paths
+agreed.
+
+A differential test ran the original routines in an 8086 emulator against
+the port. The item generator (`58e7:1039`), on 40,000 random types and
+seeds, agreed in every byte of the item and the seed. Of 30,000 cases of
+`TREASURE` with random items, `351b:0037`, `0379`, `0574` (on random
+parties, monsters and pools, half after a won, fled or lost battle),
+`1493`, `1618`, `36d0:034c` and the `58e7` routines (Pool, Share, take,
+drop, the value and the three steel routines), with the records, items,
+effects, pool, variables, flags, selection, messages and random numbers
+compared, the 28,011 the port carries out agreed. Both refused 1,719:
+Share with no one to count (698) and the experience divided by none
+(351), runtime error 200 in the original; a routine given no selected
+character, which the original reads through NULL (590); and an effect
+removed after combat whose handler needs combat, which in the original
+does not return either (80). The port alone refused 270, effects removed
+after combat whose handlers need combat (0x03, 0x15, 0x1b, 0x1f and
+0x33-0x35), which the original's handlers carried out on random data. It
+is not part of the repository. The screens were tested in the port only.
 
 ## Checks against the original
 
@@ -1952,6 +2223,28 @@ running in DOSBox:
   block 17): it should keep 476.
 - Try to flee the minotaurs of ECL3 block 80: it should always fail
   (`CHECKPARTY [7d1b]` stores nothing).
+
+- With a party of six, open the chest of ECL1 block 32 (250 steel, 5 gems
+  and 3 jewels): the results should say each character receives 1391
+  experience points (`351b:0037`). Compare
+  the results screen and the treasure menu: the chest's picture in the
+  view's place, the party list, no status line, `View Take Pool Share Exit`.
+- In that menu, `Take`: the coins should list jewelry first, and the
+  question read `How much Jewelry  will you take? ` with two spaces.
+- `Share` right away: of the 5 gems, the first five characters should get
+  one each, and the sixth none.
+- Leave with coins in the pool: `There is still treasure left.` and the
+  question should show, and `~Yes ~No` should start on the item the menu
+  before had selected, not on No.
+- With a cleric who has Detect Magic memorized, `Detect` in the treasure
+  menu: no "casts" message, and the items with a bonus should show `* `.
+- Flee a fight: the results should say `The party has fled.` and `Each
+  character receives 0`.
+- `Share` the hoard of ECL3 block 98 (95,000 coins): what the party
+  cannot carry should stay in the pool, with `Share` still offered.
+- Take a random potion from a treasure of ECL3 block 81 (`TREASURE ...
+  130`) and drink it: generated potions are of type 0x30 or 0x35, where
+  the shipped ones are 0x2f; see whether the game can use them.
 
 ## Disassembly image
 

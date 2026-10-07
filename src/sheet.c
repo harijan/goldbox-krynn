@@ -4,6 +4,7 @@
 #include "items.h"
 #include "magic.h"
 #include "screen.h"
+#include "treasure.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -483,8 +484,8 @@ static bool trade_money(cok_adventure *game, cok_character *giver, cok_sheet_sta
 }
 
 /* Drop money (546c:2fe2): kinds of coin and amounts until it has none, or
- * Escape; outside shops and treasure (modes 1 and 6, whose pool is not
- * ported) the coins are gone. */
+ * Escape; in shops and treasure (modes 1 and 6) the coins go to the pool,
+ * elsewhere they are gone. */
 static bool drop_money(cok_adventure *game, cok_character *character)
 {
     uint8_t *c = character->record;
@@ -498,10 +499,7 @@ static bool drop_money(cok_adventure *game, cok_character *character)
         snprintf(prompt, sizeof prompt, "How much %swill you drop? ", coin_word);
         int amount = cok_sheet_amount(game, prompt, word(c + 0xeb + 2 * coin));
         if (amount < 0) return false;
-        put_word(c + 0xeb + 2 * coin, (uint16_t)(word(c + 0xeb + 2 * coin) - amount));
-        put_word(c + 0x17d, (uint16_t)(word(c + 0x17d) - amount));
-        if (game->vm.mode == 6 || game->vm.mode == 1)
-            cok_adventure_log(game, "unported", "the money pool (DS:6b0c)");
+        cok_pool_drop(game, c, (uint16_t)amount, coin); /* 58e7:09fa */
         if (!has_money(c)) return true;
     }
 }

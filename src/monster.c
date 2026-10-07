@@ -4,6 +4,7 @@
 #include "effect.h"
 #include "items.h"
 #include "screen.h"
+#include "treasure.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -821,212 +822,19 @@ static void rob(cok_adventure *game)
 
 /* COMBAT (2fd3:191c). */
 
-/* Remove record index from the list as 4def:3b0a does, freeing its icon
- * slot's pictures (6d21:0156), and unless it is a monster, counting it out
- * of the party's size (0x7f3e). The spell target and trade partner the
- * original would keep pointing at it are forgotten. The selection kept in
- * DS:43bf is restored by EXIT after LOAD CHARACTER (DS:43ba) and when a
- * block's vectors end (2fd3:3b47); where either would select the freed
- * record, the original would go on with it, and this returns false,
- * ending the run, unless the party was destroyed, where the run ends
- * before either restore. */
-static bool remove_record(cok_adventure *game, size_t index, bool monster, bool destroyed)
-{
-    cok_ecl *vm = &game->vm;
-    uint8_t *gone = game->party.members[index]->record;
-    if (vm->saved_character == gone && !destroyed &&
-        (vm->restore_character || game->restoring)) {
-        cok_adventure_fail(game, COK_ECL_UNDEFINED,
-                           "the selection kept in DS:43bf would be a record the end of combat "
-                           "freed");
-        return false;
-    }
-    if (vm->saved_character == gone) vm->saved_character = NULL;
-    if (game->spell_target == gone) game->spell_target = NULL;
-    if (game->trade_partner == gone) game->trade_partner = NULL;
-    uint8_t slot = gone[0x137];
-    if (slot < COK_ICON_SLOTS)
-        for (size_t pose = 0; pose < 2; ++pose) cok_picture_free(&game->icons[slot][pose]);
-    cok_party_remove(&game->party, index);
-    if (!monster) --vm->mem7c00[0x33e];
-    return true;
-}
-
-/* Whether record c is an enemy, as the end of combat tells them. */
-static bool enemy(const cok_character *c)
-{
-    return cok_character_combat(c)->not_party == 1 || c->record[0x18a] == 1;
-}
-
-/* 351b:1493: remove the enemies, counting those that dropped (0x7ec8) and
- * whether the first did (0x4cf8, only ever set), and free the others'
- * combat records; the first record is then selected. */
-static bool remove_enemies(cok_adventure *game, bool destroyed)
-{
-    cok_ecl *vm = &game->vm;
-    bool first = true;
-    vm->mem7c00[0x2c8] = 0;
-    char text[200] = "", name[16] = "", last[16] = "";
-    unsigned same = 0;
-    for (size_t i = 0; i < game->party.count;) {
-        cok_character *c = game->party.members[i];
-        if (!enemy(c)) {
-            free(c->combat);
-            c->combat = NULL;
-            ++i;
-            continue;
-        }
-        uint8_t *r = c->record;
-        if (r[0x189] != 1) {
-            ++vm->mem7c00[0x2c8];
-            if (first) vm->mem4b00[0x1f8] = 1;
-        }
-        if (r[0x188] == 3 && vm->mem7c00[0x2c7] == 0) vm->mem7c00[0x2c7] = 1;
-        first = false;
-        name_of(r, name);
-        if (same > 0 && strcmp(name, last) != 0) {
-            size_t used = strlen(text);
-            snprintf(text + used, sizeof text - used, "%s%u %s", used > 0 ? ", " : "", same, last);
-            same = 0;
-        }
-        snprintf(last, sizeof last, "%s", name);
-        ++same;
-        if (!remove_record(game, i, cok_character_combat(c)->not_party == 1, destroyed))
-            return false;
-    }
-    if (same > 0) {
-        size_t used = strlen(text);
-        snprintf(text + used, sizeof text - used, "%s%u %s", used > 0 ? ", " : "", same, last);
-    }
-    vm->character = cok_party_record(&game->party, 0);
-    if (text[0] != '\0') {
-        char line[sizeof text + 32];
-        snprintf(line, sizeof line, "removed %s; %u dropped", text, vm->mem7c00[0x2c8]);
-        log_text(game, "combat", line);
-    }
-    return true;
-}
-
-/* The end of combat (351b:1968), as much of it as is ported: 0x7ec7 is 0
- * (won, or no battle), the mode is 6 (treasure), the enemies are removed
- * (351b:1493), the stats recomputed, and the combat's variables cleared.
- * The party's state afterwards and the experience (351b:0574), the NPCs'
- * shares, the messages and the treasure screen (351b:1618, 0b23, 118c)
- * are not ported. When the party was destroyed, the monsters rejoice and
- * the run ends. */
-static void end_of_combat(cok_adventure *game, bool destroyed)
-{
-    cok_ecl *vm = &game->vm;
-    log_text(game, "unported", "the party after combat and its experience (351b:0574)");
-    vm->mode = 6;
-    if (!remove_enemies(game, destroyed)) return;
-    for (size_t i = 0; i < game->party.count; ++i) {
-        if (cok_character_stats(game->party.members[i], &game->item_types, game->error,
-                                sizeof game->error))
-            continue;
-        cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", game->error);
-        return;
-    }
-    if (destroyed) {
-        vm->mem7c00[0x2c7] = 0x80;
-        uint16_t phase[3] = {vm->mem4b00[0x1f9], vm->mem4b00[0x1fa], vm->mem4b00[0x1fb]};
-        cok_screen_frame(&game->screen, &game->view.tiles[4], phase, true); /* 1128:0000 */
-        /* 351b:1aab: in cells 2-0x25 by 5-0x16, cleared, which puts the
-         * cursor at 2, 5. */
-        vm->cursor = (cok_text_cursor){2, 5};
-        cok_adventure_print(game, "The monsters rejoice for the party has been destroyed",
-                            (cok_text_window){2, 5, 0x25, 0x16}, 10, true);
-        cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0);
-        cok_text_string(&game->screen, &game->font, "Press any key to continue", 0, 24, 13, 0);
-        cok_keyboard keys = cok_adventure_keyboard(game);
-        keys.read(keys.context);
-        game->party_killed = true;
-        vm->abort = true;
-    } else {
-        log_text(game, "unported", "the treasure (351b:1618, 351b:0b23, 351b:118c)");
-        free(game->pool.items);
-        game->pool.items = NULL;
-        game->pool.item_count = 0;
-    }
-    static const uint16_t cleared[] = {0x370, 0x371, 0x372, 0x2e3, 0x2e6};
-    for (size_t i = 0; i < sizeof cleared / sizeof *cleared; ++i) vm->mem7c00[cleared[i]] = 0;
-    vm->mem4b00[0x1f5] = 0;
-}
-
-/* The party is destroyed, as 351b:0574 decides: unless a party record
- * (those before the first record past the party's size) has status 0, 1
- * or 3, is on the party's side and is not an NPC. */
-static bool party_destroyed(const cok_party *party)
-{
-    for (size_t i = 0; i < party->count; ++i) {
-        const cok_character *c = party->members[i];
-        if (cok_character_combat(c)->not_party == 1) break;
-        uint8_t status = c->record[0x188];
-        if ((status == 0 || status == 1 || status == 3) && c->record[0x18a] == 0 &&
-            c->record[0xe7] < 0x80)
-            return false;
-    }
-    return true;
-}
-
-/* The stub's stand-in for the party's part of 351b:0574, which is not
- * ported; P2, porting 351b:0574, replaces this, which must not then run
- * as well. The party records are those before the first record past the
- * party's size (+0x13). A destroyed party is removed, and 0x7f3e is 0.
- * When some fled (status 3) and none stands, 0x7ec7 is 0x81, those who
- * fled come back (status 0, can act) and the others are left behind,
- * removed and counted out of 0x7f3e. Left out: the effects 351b:0574
- * strips from each member (DS:038f), the experience (351b:0037, 0379),
- * and its non-lethal rule (var 0x7ee6, 351b:0636-064f), which the
- * scripts never set. Returns whether the party was destroyed; false with
- * vm.status set where a removal cannot be carried out. */
-static bool stub_party_after_combat(cok_adventure *game, bool *destroyed)
-{
-    cok_ecl *vm = &game->vm;
-    cok_party *party = &game->party;
-    *destroyed = party_destroyed(party);
-    if (*destroyed) {
-        while (party->count > 0 && cok_character_combat(party->members[0])->not_party != 1)
-            if (!remove_record(game, 0, false, true)) return false;
-        vm->mem7c00[0x33e] = 0;
-        return true;
-    }
-    bool fled = false, standing = false;
-    for (size_t i = 0; i < party->count; ++i) {
-        const cok_character *c = party->members[i];
-        if (cok_character_combat(c)->not_party == 1) break;
-        if (c->record[0x188] == 3) fled = true;
-        if (c->record[0x188] == 0 || c->record[0x188] == 1) standing = true;
-    }
-    if (!fled || standing) return true;
-    vm->mem7c00[0x2c7] = 0x81;
-    for (size_t i = 0; i < party->count;) {
-        cok_character *c = party->members[i];
-        if (cok_character_combat(c)->not_party == 1) break;
-        if (c->record[0x188] == 3) {
-            c->record[0x188] = 0;
-            c->record[0x189] = 1;
-            ++i;
-        } else if (!remove_record(game, i, false, false)) {
-            return false;
-        }
-    }
-    return true;
-}
-
 /* The battle (3995:0172), which is not ported: unless eclplay's --combat
  * resolves it, it is logged as unported (the opcode, as before). Combat
- * setup (3cb2:10d9) first gives every record a combat record, zeroed, its
- * +0x13 set past the party's size (0x7f3e); the rest of setup is not
- * ported. The stub then decides the outcome: every record against the
+ * setup (3cb2:1c58) first frees the small picture (6961:0537) and gives
+ * every record a combat record, zeroed (3cb2:10d9), its +0x13 set past the
+ * party's size (0x7f3e); the rest of setup is not ported. The stub then decides the outcome: every record against the
  * party (+0x18a 1) drops (won, and the Gods intervening, 432f:41e2, the
  * original's Helm cheat), every party record that can act flees (fled),
- * or the whole party dies (lost); then stub_party_after_combat and the end
- * of combat. */
+ * or the whole party dies (lost); then the end of combat (351b:1968). */
 static void battle(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     cok_party *party = &game->party;
+    cok_adventure_free_picture(game); /* 3cb2:1c58, 6961:0537 */
     for (size_t i = 0; i < party->count; ++i) {
         cok_character *c = party->members[i];
         free(c->combat);
@@ -1045,7 +853,7 @@ static void battle(cok_adventure *game)
     if (stub != COK_COMBAT_UNPORTED) log_text(game, "combat", outcome[stub]);
     for (size_t i = 0; i < party->count; ++i) {
         uint8_t *r = party->members[i]->record;
-        bool member = !enemy(party->members[i]);
+        bool member = cok_character_combat(party->members[i])->not_party != 1 && r[0x18a] != 1;
         if ((stub == COK_COMBAT_WON || stub == COK_COMBAT_GODS) && r[0x18a] == 1) {
             r[0x188] = 6;
             r[0x189] = 0;
@@ -1058,10 +866,7 @@ static void battle(cok_adventure *game)
             r[0x189] = 0;
         }
     }
-    vm->mem7c00[0x2c7] = 0;
-    bool destroyed = false;
-    if (stub != COK_COMBAT_UNPORTED && !stub_party_after_combat(game, &destroyed)) return;
-    end_of_combat(game, destroyed);
+    cok_treasure_end_of_combat(game);
 }
 
 /* COMBAT: fight the monsters loaded (DS:8851; a duel, DS:883e, is never
@@ -1092,8 +897,7 @@ static void combat(cok_adventure *game)
         log_text(game, "unported", "the temple (340d:0ea9)");
         fought = area;
     } else {
-        vm->mem7c00[0x2c7] = 0;
-        end_of_combat(game, false);
+        cok_treasure_end_of_combat(game);
     }
     if (vm->status != COK_ECL_OK && vm->status != COK_ECL_EFFECT_FAILED) {
         game->moving = moving;

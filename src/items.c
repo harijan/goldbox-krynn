@@ -595,10 +595,7 @@ static int may_part(cok_adventure *game, const uint8_t *c, const uint8_t *item)
     return ok;
 }
 
-/* Whether member who cannot take item (546c:32b0), after its stats are
- * recomputed: with 16 items, or its weight with the item's (+0x37, times
- * +0x39 if not 0, as words) past its allowance + 1500. */
-static int overloaded(cok_adventure *game, cok_character *who, const uint8_t *item)
+int cok_item_overloaded(cok_adventure *game, cok_character *who, const uint8_t *item)
 {
     if (!recompute(game, who)) return -1;
     uint8_t *r = who->record;
@@ -630,7 +627,7 @@ static bool trade(cok_adventure *game, cok_character *giver, size_t index)
     game->trade_partner = who;
     uint8_t item[COK_ITEM_SIZE];
     memcpy(item, giver->items[index], sizeof item);
-    int over = overloaded(game, receiver, item);
+    int over = cok_item_overloaded(game, receiver, item);
     if (over < 0) return false;
     if (over) {
         cok_camp_notice(game, "Overloaded");

@@ -42,6 +42,13 @@ bool cok_item_name(cok_adventure *game, uint8_t *item, bool readied_column, char
  * where that cannot be carried out. */
 bool cok_item_unready(cok_adventure *game, uint8_t *item);
 
+/* Whether who cannot take item (546c:32b0), after its stats are
+ * recomputed (6346:0d20): with 16 items, or its weight with the item's
+ * (+0x37, times +0x39 if not 0, as words) past its allowance + 1500.
+ * Returns 1 if so, 0 if not, and -1, ending the run, where the stats or
+ * the allowance cannot be had. */
+int cok_item_overloaded(cok_adventure *game, cok_character *who, const uint8_t *item);
+
 /* The Items menu (546c:17f9) for the selected character, until Exit or
  * Escape, *done is set, or it has no items: the list of its items with
  * "Ready Use Trade Drop Halve Join", as the character and the items allow

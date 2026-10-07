@@ -34,13 +34,29 @@ enum {
 
 /* The treasure pool: the coins (DS:6b0c, seven longs: silver, copper,
  * bronze, platinum, steel, gems and jewelry) and the items (DS:6b28, a list
- * of 63-byte items linked at +0x2a, kept here in list order). TREASURE and
- * the end of combat fill it; CLEARMONSTERS empties it. */
+ * of 63-byte items linked at +0x2a, kept here in list order, the head
+ * first). TREASURE and the end of combat fill it, and the party's money
+ * goes in and out through it in treasure and shops (modes 6 and 1);
+ * CLEARMONSTERS empties it. */
 typedef struct {
     uint32_t coins[COK_COINS];
     uint8_t (*items)[COK_ITEM_SIZE];
     size_t item_count;
+    /* DS:60a2: the last missile combat put in the pool (432f:19b6), as 1 +
+     * its index, kept on the same item as items come and go; 0 for none,
+     * or once that item is gone. The experience for magic items stops at
+     * it (351b:0037). The original keeps a pointer, which only combat setup
+     * clears (3cb2:1c58), so that a later item allocated where a freed one
+     * was can match it; the port forgets it when its item goes. */
+    size_t missile;
 } cok_pool;
+
+/* A weapon lost in combat (DS:609e, 71-byte nodes): the item, and the
+ * record it goes back to at the end of combat (+0x3f, 351b:185f). */
+typedef struct {
+    uint8_t item[COK_ITEM_SIZE];
+    uint8_t *owner;
+} cok_lost_weapon;
 
 /* How eclplay's --combat resolves a battle, which is not ported. */
 typedef enum {
@@ -61,9 +77,10 @@ typedef struct {
      * or turns, and commands of the adventure loop and camp that are not
      * ported, the name of each character WHO picks, the rows of spell
      * lists, quitting to DOS, the monsters loaded, the encounter's sprite
-     * and money robbed, and the end of a fight: kind is "print", "menu",
-     * "list", "item", "heading", "choice", "input", "error", "at",
-     * "unported", "who", "quit", "monster" or "combat". */
+     * and money robbed, the end of a fight, and the coins and items
+     * TREASURE adds: kind is "print", "menu", "list", "item", "heading",
+     * "choice", "input", "error", "at", "unported", "who", "quit",
+     * "monster", "combat" or "treasure". */
     void (*log)(cok_adventure *game, const char *kind, const char *text, void *context);
     /* Before each instruction, as cok_ecl_hooks.trace. */
     void (*trace)(cok_adventure *game, void *context);
@@ -157,6 +174,15 @@ struct cok_adventure {
     bool in_encounter;     /* DS:8853: ENCOUNTER MENU runs. */
     uint8_t closeup_head;  /* DS:8854: 0x7ee1 when the close-up was shown. */
     cok_pool pool;
+    /* DS:609e: the weapons lost in combat (effect 0x43, 3f44:1dc5), in list
+     * order, given back at its end. Nothing fills it yet. */
+    cok_lost_weapon *lost_weapons;
+    size_t lost_weapon_count;
+    /* DS:8840: the experience each character got at the end of the last
+     * combat that worked it out (351b:0037), which the results show again
+     * when one does not; false until one has. */
+    int32_t experience;
+    bool experience_known;
     cok_combat_stub combat_stub;
     bool restoring;        /* The block's vectors run; DS:43bf is restored after them. */
 
@@ -251,7 +277,8 @@ bool cok_adventure_key_pending(cok_adventure *game);
  * cok_adventure_pass_time does. */
 void cok_adventure_carry(cok_adventure *game, uint16_t clock[7]);
 /* Redraw the screen for the mode (6346:2c17): in camp the frame, the party
- * list and status line, and PIC record 0x3b loaded as the small picture. */
+ * list and status line, and PIC record 0x3b loaded as the small picture;
+ * for treasure (mode 6) PIC record 0x3c and no status line. */
 void cok_adventure_redraw(cok_adventure *game);
 /* Load PIC<file> record id as the small picture unless it is loaded
  * (6961:00e4), logging an error if it fails; and draw its current frame at
@@ -272,6 +299,9 @@ void cok_adventure_load_big(cok_adventure *game, uint8_t id);
  * y + 3; nothing for a group not loaded. */
 void cok_adventure_draw_sprite(cok_adventure *game, unsigned frame);
 void cok_adventure_show_picture(cok_adventure *game);
+/* Free the small picture and forget it (6961:0537), as combat setup does
+ * (3cb2:1c58), so that the next load reads it again. */
+void cok_adventure_free_picture(cok_adventure *game);
 /* Draw frame (from 0) of the small picture at cell 3, 3 (6961:000a). */
 void cok_adventure_show_frame(cok_adventure *game, size_t frame);
 /* A menu of the ECL opcodes on row 24 (3775:1885): prompt in light

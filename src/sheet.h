@@ -14,9 +14,9 @@
 /* What the byte Trade's first Escape tests holds when View starts: the
  * flag at [bp-0x13c] of Trade (546c:2c75) is set only by an amount, and
  * before one is a byte of the stack that earlier calls left. Loading the
- * camp picture zero-fills it, and any choice made in View, or a View
- * before in the same camp, leaves it nonzero; elsewhere what it holds
- * depends on the history of the run. */
+ * camp's or the treasure's picture zero-fills it, and any choice made in
+ * View, or a View before in the same camp or treasure menu, leaves it
+ * nonzero; elsewhere what it holds depends on the history of the run. */
 typedef enum {
     COK_SHEET_STALE_UNKNOWN, /* Escape there stops the port. */
     COK_SHEET_STALE_ZERO,    /* Escape asks for another partner. */

@@ -30,6 +30,12 @@ def ink(bmp, x, y):
     return (0, 0, 0)
 
 
+# A party for the scripts that fight: eclplay's made-up one, and the saved
+# game's when SAVE/ holds it.
+PARTIES = [("--test-party", 6)]
+if (SAVE / "SAVGAMA.DAT").exists():
+    PARTIES.append(("--party", SAVE / "SAVGAMA.DAT"))
+
 WHITE, CYAN, GREEN, YELLOW = (255, 255, 255), (85, 255, 255), (85, 255, 85), (255, 255, 85)
 
 
@@ -50,13 +56,14 @@ class PlayTests(unittest.TestCase):
         lines = result.stdout.splitlines()
         self.assertEqual(lines[1], "print: AS YOU TOP A RISE, YOU SPOT A CARAVAN UNDER ")
         self.assertIn("menu: ~PRESS <ENTER>/<RETURN> TO CONTINUE.", lines)
-        self.assertIn("menu: ~YES ~NO", lines)
         self.assertIn("[COMBAT]", lines)
-        self.assertIn("print: 'THANK YOU FOR YOUR HELP.'", lines)
-        self.assertEqual(lines[-1], "(out of keys in block 17 at 9d9b)")
-        # One screen per key read, including the one that found no key.
+        # With no party, the end of combat finds none standing (351b:0574):
+        # the monsters rejoice and the run ends.
+        self.assertEqual(lines[-2:], ["print: The monsters rejoice for the party has been destroyed",
+                                      "(the party was killed in block 16)"])
+        # One screen per key read: the caravan's and the monsters'.
         images = sorted(shots.glob("*.bmp"))
-        self.assertEqual(len(images), 6)
+        self.assertEqual(len(images), 2)
         first = images[0].read_bytes()
         self.assertEqual(struct.unpack_from("<ii", first, 18), (320, 200))
         # The frame's corner tile is drawn with colour 13 (light magenta)
@@ -65,13 +72,6 @@ class PlayTests(unittest.TestCase):
         self.assertEqual(pixel(first, 0, 1), (85, 255, 255))
         self.assertNotIn((255, 85, 255), {pixel(first, x, y) for x in range(320) for y in range(8)})
         self.assertEqual(pixel(first, 0, 24 * 8), (255, 255, 255))
-
-    def test_no_to_the_survivors(self):
-        result = self.play("--keys", r"\r\r\rn\r", ASSETS, 16)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        lines = result.stdout.splitlines()
-        menu = lines.index("menu: ~YES ~NO")
-        self.assertEqual(lines[menu + 1], "choice: 1")
 
     def test_vertical_menu_at_the_gates_of_gargath(self):
         shots = self.folder / "shots"
@@ -100,84 +100,124 @@ class PlayTests(unittest.TestCase):
         # The guards stand in the gateway, a wall ahead (of a kind the party
         # can pass), so at distance 0: their picture replaces the view.
         self.assertEqual(lines[1:3], ["monster: sprite 12 at 0", "monster: picture 12"])
-        # After the fight the screen is redrawn with the view.
-        final = self.folder / "final.bmp"
-        result = self.play("--set", "4be6=1", "--keys", r"\r", "--screen", final, ASSETS, 32)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("[COMBAT]", result.stdout.splitlines())
-        bmp = final.read_bytes()
-        # The party stands at 7, 15 facing north, down a street: grey stone
-        # sides near the view's edges and cobbles below a black sky.
-        self.assertEqual(pixel(bmp, 8 * 8 + 4, 3 * 8 + 2), (0, 0, 0))
-        self.assertEqual(pixel(bmp, 8 * 8 + 4, 13 * 8 + 4), (170, 170, 170))
-        self.assertEqual(pixel(bmp, 3 * 8 + 1, 8 * 8), (0, 170, 170))
-        colours = {pixel(bmp, x, y) for x in range(24, 112) for y in range(24, 112)}
-        self.assertGreaterEqual(len(colours), 5)
+
+    def test_the_caravan(self):
+        for party in PARTIES:
+            with self.subTest(party=party[0]):
+                # With a party, the caravan's fight ends with the results and the
+                # treasure menu; then the survivors, and the merchant's thanks.
+                result = self.play(*party, "--keys", r"\r\rE\r\r\r\r",
+                                   ASSETS, 16)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                lines = result.stdout.splitlines()
+                combat = lines.index("[COMBAT]")
+                self.assertEqual(lines[combat + 1:combat + 7],
+                                 ["combat: removed 4 BAAZ; 0 dropped",
+                                  "print: The party has won.",
+                                  "print: Each character receives 0", "print: experience points.",
+                                  "menu: press <enter>/<return> to continue",
+                                  "menu: View Pool Exit"])
+                self.assertIn("menu: ~YES ~NO", lines)
+                self.assertIn("print: 'THANK YOU FOR YOUR HELP.'", lines)
+                self.assertEqual(lines[-1], "(out of keys in block 17 at 9d9b)")
+                result = self.play(*party, "--keys", r"\r\rE\r\rn\r", ASSETS, 16)
+                lines = result.stdout.splitlines()
+                menu = lines.index("menu: ~YES ~NO")
+                self.assertEqual(lines[menu + 1], "choice: 1")
+
+    def test_view_after_the_fight(self):
+        for party in PARTIES:
+            with self.subTest(party=party[0]):
+                # After the fight at Throtl's gate the screen is redrawn with the
+                # view.
+                final = self.folder / ("final%s.bmp" % party[0])
+                result = self.play(*party, "--set", "4be6=1", "--keys", r"\r\rE",
+                                   "--screen", final, ASSETS, 32)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("[COMBAT]", result.stdout.splitlines())
+                bmp = final.read_bytes()
+                # The party stands at 7, 15 facing north, down a street: grey stone
+                # sides near the view's edges and cobbles below a black sky.
+                self.assertEqual(pixel(bmp, 8 * 8 + 4, 3 * 8 + 2), (0, 0, 0))
+                self.assertEqual(pixel(bmp, 8 * 8 + 4, 13 * 8 + 4), (170, 170, 170))
+                self.assertEqual(pixel(bmp, 3 * 8 + 1, 8 * 8), (0, 170, 170))
+                colours = {pixel(bmp, x, y) for x in range(24, 112) for y in range(24, 112)}
+                self.assertGreaterEqual(len(colours), 5)
 
     def test_walking_through_throtl(self):
-        shots = self.folder / "shots"
-        shots.mkdir()
-        # Leave the guards, move north into an ambush and the gibbering
-        # man, then turn east into a hedge, which stops the next step.
-        keys = r"\r\rm\^\r\^\^\r\r\>\^\<"
-        result = self.play("--play", "--set", "4be6=1", "--keys", keys, "--shots", shots,
-                           ASSETS, 32)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        lines = result.stdout.splitlines()
-        self.assertEqual([line for line in lines if line.startswith("at: ")],
-                         ["at: 7,14,0", "at: 7,13,0", "at: 7,12,0", "at: 7,12,2", "at: 7,12,0"])
-        self.assertIn("menu: Move Area Cast View Encamp Search Look", lines)
-        self.assertIn("print: MONSTERS ATTACK!", lines)
-        self.assertEqual(lines[-1], "(out of keys in block 32 at 8335)")
-        # Each step and turn redraws the view: from the start, three
-        # squares north, east and back north, with the man's portrait, and
-        # the hobgoblins' close-up, at the gate and in the ambush.
-        def view(shot):
-            bmp = shot.read_bytes()
-            return tuple(pixel(bmp, x, y) for x in range(24, 112, 4) for y in range(24, 112, 4))
-        views = [view(shot) for shot in sorted(shots.glob("*.bmp"))]
-        self.assertEqual(len(set(views)), 7)
-        self.assertEqual(views[0], views[4])
-        self.assertNotEqual(views[-1], views[-2])
-        self.assertEqual(views[-1], views[-4])
+        for party in PARTIES:
+            with self.subTest(party=party[0]):
+                shots = self.folder / ("shots" + party[0])
+                shots.mkdir()
+                # Fight the guards and leave the treasure, move north into an
+                # ambush, fight, and meet the gibbering man, then turn east into a
+                # hedge, which stops the next step.
+                keys = r"\r\rE\rm\^\r\rE\^\^\r\r\>\^\<"
+                result = self.play(*party, "--play", "--set", "4be6=1",
+                                   "--keys", keys, "--shots", shots, ASSETS, 32)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                lines = result.stdout.splitlines()
+                self.assertEqual([line for line in lines if line.startswith("at: ")],
+                                 ["at: 7,14,0", "at: 7,13,0", "at: 7,12,0", "at: 7,12,2",
+                                  "at: 7,12,0"])
+                self.assertIn("menu: Move Area Cast View Encamp Search Look", lines)
+                self.assertIn("print: MONSTERS ATTACK!", lines)
+                self.assertEqual(lines[-1], "(out of keys in block 32 at 8335)")
+                # Each step and turn redraws the view: from the start, three
+                # squares north, east and back north, with the man's portrait, and
+                # the hobgoblins' close-up, at the gate and in the ambush, each
+                # followed by the results and the treasure's picture.
+                def view(shot):
+                    bmp = shot.read_bytes()
+                    return tuple(pixel(bmp, x, y) for x in range(24, 112, 4)
+                                 for y in range(24, 112, 4))
+                views = [view(shot) for shot in sorted(shots.glob("*.bmp"))]
+                self.assertEqual(len(set(views)), 9)
+                self.assertEqual(views[0:3], views[6:9])
+                self.assertNotEqual(views[-1], views[-2])
+                self.assertEqual(views[-1], views[-4])
 
     def test_camp_in_throtl(self):
-        shots = self.folder / "shots"
-        shots.mkdir()
-        # Attack (combat is not ported), camp, rest an hour, and leave; then
-        # camp again, rest an hour, and stop at once with a key.
-        keys = r"\rerhar\e" r"erhar\kyy\e"
-        result = self.play("--play", "--set", "4be6=1", "--keys", keys, "--shots", shots,
-                           ASSETS, 32)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        lines = result.stdout.splitlines()
-        camp = lines.index("print: The party makes camp...")
-        self.assertEqual(lines[camp - 1], "menu: Move Area Cast View Encamp Search Look")
-        self.assertEqual(lines[camp + 1:camp + 4],
-                         ["menu: Save View Magic Rest Alter Fix Exit",
-                          "menu: Rest Days Hours Mins Add Subtract Exit",
-                          "menu: Rest Days Hours Mins Add Subtract Exit"])
-        self.assertIn("menu: Stop Resting? ", lines)
-        self.assertEqual(lines[lines.index("menu: Stop Resting? ") + 1], "choice: Y")
-        self.assertEqual(lines[-1], "(out of keys in block 32 at 80c0)")
-        # In camp the status line ends "camping" (columns 30-36) under the
-        # party's list, with the camp's picture in the view.
-        images = sorted(shots.glob("*.bmp"))
-        camping = images[2].read_bytes()
-        self.assertEqual(ink(camping, 31, 15), GREEN)
-        self.assertEqual(ink(camping, 0, 24), (255, 255, 255))
-        after = images[7].read_bytes()  # the commands, after the first camp
-        self.assertEqual(ink(after, 31, 15), (0, 0, 0))
+        for party in PARTIES:
+            with self.subTest(party=party[0]):
+                shots = self.folder / ("shots" + party[0])
+                shots.mkdir()
+                # Fight, leave the treasure, camp, rest an hour, and leave; then
+                # camp again, rest an hour, and stop at once with a key.
+                keys = r"\r\rEerhar\e" r"erhar\kyy\e"
+                result = self.play(*party, "--play", "--set", "4be6=1",
+                                   "--keys", keys, "--shots", shots, ASSETS, 32)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                lines = result.stdout.splitlines()
+                camp = lines.index("print: The party makes camp...")
+                self.assertEqual(lines[camp - 1], "menu: Move Area Cast View Encamp Search Look")
+                self.assertEqual(lines[camp + 1:camp + 4],
+                                 ["menu: Save View Magic Rest Alter Fix Exit",
+                                  "menu: Rest Days Hours Mins Add Subtract Exit",
+                                  "menu: Rest Days Hours Mins Add Subtract Exit"])
+                self.assertIn("menu: Stop Resting? ", lines)
+                self.assertEqual(lines[lines.index("menu: Stop Resting? ") + 1], "choice: Y")
+                self.assertEqual(lines[-1], "(out of keys in block 32 at 80c0)")
+                # In camp the status line ends "camping" (columns 30-36) under the
+                # party's list, with the camp's picture in the view.
+                images = sorted(shots.glob("*.bmp"))
+                camping = images[4].read_bytes()
+                self.assertEqual(ink(camping, 31, 15), GREEN)
+                self.assertEqual(ink(camping, 0, 24), (255, 255, 255))
+                after = images[9].read_bytes()  # the commands, after the first camp
+                self.assertEqual(ink(after, 31, 15), (0, 0, 0))
 
     def test_yes_survives_escape(self):
-        # Rest three hours and press a key: Yes, chosen with the left
-        # arrow, stays chosen through Escape, and Enter stops the rest.
-        result = self.play("--play", "--set", "4be6=1", "--keys", r"\rerhaaar\k\<\e\r\e",
-                           ASSETS, 32)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        lines = result.stdout.splitlines()
-        stop = lines.index("menu: Stop Resting? ")
-        self.assertEqual(lines[stop + 1], "choice: Y")
+        for party in PARTIES:
+            with self.subTest(party=party[0]):
+                # Rest three hours and press a key: Yes, chosen with the left
+                # arrow, stays chosen through Escape, and Enter stops the rest.
+                result = self.play(*party, "--play", "--set", "4be6=1",
+                                   "--keys", r"\r\rEerhaaar\k\<\e\r\e", ASSETS, 32)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                lines = result.stdout.splitlines()
+                stop = lines.index("menu: Stop Resting? ")
+                self.assertEqual(lines[stop + 1], "choice: Y")
 
     def test_missing_wall_set_halts(self):
         # With 0x4be7 clear, LOAD PIECES 1 2 255 loads a wall set for each
@@ -214,6 +254,67 @@ class PartyTests(unittest.TestCase):
     def play(self, *args):
         return subprocess.run([str(TOOL), *map(str, args)], capture_output=True, text=True)
 
+    def test_treasure(self):
+        # ECL1 block 32's TREASURE 0 0 0 0 250 5 3 255 after CLEARMONSTERS:
+        # the results, then Take: the coins, jewelry first; take the
+        # jewelry, leave, and share the rest.
+        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--start", "8bcd",
+                           "--keys", r"\rT\r3\r\eSE", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[:12],
+                         ["monster: cleared", "treasure: 250 Steel, 5 Gems, 3 Jewelry",
+                          "print: The party has found Treasure!",
+                          "print: Each character receives 1391", "print: experience points.",
+                          "menu: press <enter>/<return> to continue",
+                          "menu: View Take Pool Share Exit", "item: Jewelry 3", "item: Gems 5",
+                          "item: Steel 250", "choice: J",
+                          "menu: How much Jewelry  will you take? "])
+        share = lines.index("menu: View Pool Exit")
+        self.assertEqual(lines[share - 3:share],
+                         ["item: Gems 5", "item: Steel 250", "menu: View Take Pool Share Exit"])
+        self.assertEqual(lines[-1], "(done in block 32)")
+        # ECL3 block 81's TREASURE 0 0 0 0 100 20 5 130, two random items:
+        # Take the mace, Pool, Share, and leave the short sword behind.
+        result = self.play("--file", 3, "--party", SAVE / "SAVGAMA.DAT", "--start", "8927",
+                           "--keys", r"\rTIT\eEPSEN", ASSETS, 81)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[2:4], ["treasure: item Mace ", "treasure: item Short Sword "])
+        take = lines.index("menu: Money Items Exit")
+        self.assertEqual(lines[take + 1:take + 5],
+                         ["item: Mace ", "item: Short Sword ", "choice: Mace ",
+                          "item: Short Sword "])
+        self.assertIn("print: There is still treasure left.  ", lines)
+        self.assertEqual(lines[-1], "(done in block 81)")
+
+    def test_every_treasure(self):
+        # Each of the 26 uses of CLEARMONSTERS; TREASURE ...; COMBAT, from
+        # the CLEARMONSTERS: the results, then Pool, Share and Exit.
+        uses = [(1, 16, "8a0d"), (1, 17, "8794"), (1, 17, "8af0"), (1, 32, "8bcd"),
+                (1, 32, "92e0"), (1, 32, "9312"), (1, 34, "8754"), (1, 34, "89d3"),
+                (2, 49, "8d7c"), (2, 49, "9127"), (2, 67, "8982"), (2, 67, "928e"),
+                (2, 67, "92a5"), (2, 67, "92ea"), (2, 68, "8936"), (2, 68, "965e"),
+                (3, 80, "9996"), (3, 81, "8927"), (3, 81, "89f5"), (3, 81, "8b1a"),
+                (3, 81, "91a5"), (3, 81, "962d"), (3, 82, "90d9"), (3, 96, "9b4d"),
+                (3, 98, "8507"), (3, 99, "9297")]
+        for file, block, start in uses:
+            result = self.play("--file", file, "--party", SAVE / "SAVGAMA.DAT", "--start", start,
+                               "--keys", r"\rPSEN", ASSETS, block)
+            self.assertEqual(result.returncode, 0, (block, start, result.stderr))
+            lines = result.stdout.splitlines()
+            self.assertEqual(lines[0], "monster: cleared")
+            self.assertIn("print: The party has found Treasure!", lines)
+            # Pool and Share leave only items, or nothing; but the party
+            # cannot carry the 95,000 coins of ECL3 block 98, and what is
+            # left stays in the pool.
+            menus = [line for line in lines if line.startswith("menu: View ")]
+            if block == 98:
+                self.assertEqual(menus[2], "menu: View Take Pool Share Exit")
+            else:
+                self.assertIn(menus[2], ["menu: View Take Pool Exit", "menu: View Pool Exit"])
+            self.assertFalse([line for line in lines if line.startswith("error:")])
+
     def test_the_cleric_comes_round_the_corner(self):
         shots = self.folder / "shots"
         shots.mkdir()
@@ -245,17 +346,22 @@ class PartyTests(unittest.TestCase):
         # The patrol of Throtl's outpost: a won fight sends another; a fled
         # one, [7ec7] 0x81, ends the script.
         result = self.play("--party", SAVE / "SAVGAMA.DAT", "--combat", "won", "--start", "8cda",
-                           "--keys", r"\r", ASSETS, 16)
+                           "--keys", r"\rSE", ASSETS, 16)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
         self.assertIn("monster: 9 RED DRAGON, icon 21 in slot 8", lines)
         self.assertIn("combat: won", lines)
         self.assertIn("combat: removed 9 RED DRAGON, 9 BOZAK, 9 SIVAK; 27 dropped", lines)
+        # The dragons' experience and coins: shared, the pool is empty.
+        self.assertIn("print: Each character receives 6415", lines)
+        self.assertEqual(lines[lines.index("menu: View Take Pool Share Exit") + 1],
+                         "menu: View Pool Exit")
         self.assertIn("print: THE CITY IS SENDING ANOTHER PATROL. DO YOU FLEE?", lines)
         result = self.play("--party", SAVE / "SAVGAMA.DAT", "--combat", "fled", "--start", "8cda",
-                           "--keys", r"\r", ASSETS, 16)
+                           "--keys", r"\rE", ASSETS, 16)
         lines = result.stdout.splitlines()
         self.assertIn("combat: fled", lines)
+        self.assertIn("print: The party has fled.", lines)
         self.assertNotIn("print: THE CITY IS SENDING ANOTHER PATROL. DO YOU FLEE?", lines)
         self.assertEqual(lines[-1], "(done in block 16)")
         result = self.play("--party", SAVE / "SAVGAMA.DAT", "--combat", "lost", "--start", "8cda",
@@ -267,9 +373,10 @@ class PartyTests(unittest.TestCase):
 
     def test_party_beside_the_view(self):
         screen = self.folder / "screen.bmp"
-        # Leave the guards and pick the second character with the down arrow.
+        # Fight the guards, leave the results and the treasure, and pick the
+        # second character with the down arrow.
         result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
-                           "--keys", r"\r\v", "--screen", screen, ASSETS, 32)
+                           "--keys", r"\r\rE\v", "--screen", screen, ASSETS, 32)
         self.assertEqual(result.returncode, 0, result.stderr)
         bmp = screen.read_bytes()
         # Headings, then a row per character: the selected one white, the
@@ -319,7 +426,7 @@ class PartyTests(unittest.TestCase):
         saves.mkdir()
         # Camp, rest an hour, save as game A without quitting, and leave.
         result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
-                           "--saves", saves, "--keys", r"\rerharsan\e", ASSETS, 32)
+                           "--saves", saves, "--keys", r"\r\rEerharsan\e", ASSETS, 32)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
         save = lines.index("menu: A B C D E F G H I J")
@@ -345,7 +452,7 @@ class PartyTests(unittest.TestCase):
                           "(out of keys in block 32 at 80c0)"])
         # Quitting to DOS ends the run.
         result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
-                           "--saves", saves, "--keys", r"\resby", ASSETS, 32)
+                           "--saves", saves, "--keys", r"\r\rEesby", ASSETS, 32)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines()[-1], "(quit to DOS in block 32)")
         self.assertTrue((saves / "SAVGAMB.DAT").exists())
@@ -357,7 +464,7 @@ class PartyTests(unittest.TestCase):
     def test_drop_with_the_arrows(self):
         # Alter, Drop: Yes with the left arrow, then Escape and Enter.
         result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
-                           "--keys", r"\read\<\e\r", ASSETS, 32)
+                           "--keys", r"\r\rEead\<\e\r", ASSETS, 32)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
         self.assertIn("menu: Drop from party? ", lines)
@@ -368,7 +475,7 @@ class PartyTests(unittest.TestCase):
         screen = self.folder / "screen.bmp"
         # View the first character, unready its sword in Items, and leave.
         result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
-                           "--keys", r"\rvi\v\vr\e", "--screen", screen, ASSETS, 32)
+                           "--keys", r"\r\rEvi\v\vr\e", "--screen", screen, ASSETS, 32)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
         view = lines.index("print: Knight of the Crown")
@@ -392,7 +499,7 @@ class PartyTests(unittest.TestCase):
     def test_cast_from_the_commands(self):
         # Down to Kal, Cast, up to Bless, and cast it on the party.
         result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
-                           "--keys", r"\r\v\v\v\vc\^\^\^\^\r\e", ASSETS, 32)
+                           "--keys", r"\r\rE\v\v\v\vc\^\^\^\^\r\e", ASSETS, 32)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
         cast = lines.index("print: casts")
@@ -405,7 +512,7 @@ class PartyTests(unittest.TestCase):
         # Camp, Magic, Cast: Kal's list starts on Sleep, which cannot be
         # cast here; keep it. Then Cure Light Wounds on Molly.
         result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
-                           "--keys", r"\r\v\v\v\vemc\rn\^\^\^\r\^S\ee\e", ASSETS, 32)
+                           "--keys", r"\r\rE\v\v\v\vemc\rn\^\^\^\r\^S\ee\e", ASSETS, 32)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
         sleep = lines.index("print: can't be cast here...")
