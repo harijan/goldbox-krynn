@@ -34,4 +34,14 @@ void cok_screen_adventure(cok_picture *dst, const cok_picture *tiles, const uint
  * divider. The picture goes at cell 1. */
 void cok_screen_big(cok_picture *dst, const cok_picture *tiles, const uint16_t moons[3]);
 
+/* The frame of the Memorize lists (1128:0384): as the big picture's, but
+ * clearing only rows 1-16, so that rows 17-22 keep the table drawn there.
+ * Its right side comes from DS:0e8b, which holds the same values. */
+void cok_screen_spells(cok_picture *dst, const cok_picture *tiles, const uint16_t moons[3]);
+
+/* The frame of the other spell lists (1128:077c): the open frame
+ * (1128:0000 with 1), a row of tiles across row 2, and tile 3 on each side
+ * of row 3. */
+void cok_screen_list(cok_picture *dst, const cok_picture *tiles, const uint16_t moons[3]);
+
 #endif

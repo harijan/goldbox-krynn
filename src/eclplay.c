@@ -26,12 +26,14 @@ static void usage(const char *program)
             "Run ECL block BLOCK (as the game does on entering it) from the DAX files in\n"
             "ASSETS, printing its text, menus and choices.\n"
             "  --keys KEYS     keys to type; \\r Enter, \\e Escape, \\b Backspace,\n"
-            "                  \\< \\> \\^ \\v the arrows, \\\\ a backslash\n"
+            "                  \\< \\> \\^ \\v the arrows, \\\\ a backslash; \\k presses the\n"
+            "                  next key while the party rests\n"
             "  --play          then take adventure commands until the keys run out\n"
             "  --party SAVE    add the characters of saved game SAVE (SAVGAMA.DAT) to the\n"
             "                  party, from the files beside it\n"
             "  --load SAVE     load saved game SAVE and its party first; BLOCK defaults to\n"
             "                  the block it was saved in\n"
+            "  --saves DIR     write saved games (camp's Save) to DIR\n"
             "  --shots DIR     save DIR/NNN.bmp each time the game waits for a key\n"
             "  --screen FILE   save the final screen as FILE (BMP)\n"
             "  --file N        ECL file 1-3 (default: the first holding BLOCK)\n"
@@ -65,6 +67,8 @@ static int next_key(void *context)
         snprintf(path, sizeof path, "%s/%03u.bmp", p->shots, p->shot++);
         save(p, path);
     }
+    /* A key pressed while resting is read as any other. */
+    if (p->keys[0] == '\\' && p->keys[1] == 'k') p->keys += 2;
     if (*p->keys == '\0') return -1;
     int key = (unsigned char)*p->keys++;
     if (key != '\\' || *p->keys == '\0') return key;
@@ -78,6 +82,16 @@ static int next_key(void *context)
     case 'v': p->pending = 0x50; return 0;
     default: return (unsigned char)p->keys[-1];
     }
+}
+
+/* \k in the keys: a key waits to be read, which the rest loop polls. */
+static bool key_pending(cok_adventure *game, void *context)
+{
+    (void)game;
+    player *p = context;
+    if (p->keys[0] != '\\' || p->keys[1] != 'k') return false;
+    p->keys += 2;
+    return true;
 }
 
 static void log_line(cok_adventure *game, const char *kind, const char *text, void *context)
@@ -120,7 +134,7 @@ int main(int argc, char **argv)
     const char *screen = NULL;
     unsigned long file = 0, vector = 5, start = 0;
     bool still = false, placed = false, play = false;
-    const char *party = NULL, *load = NULL;
+    const char *party = NULL, *load = NULL, *saves = NULL;
     long x = 0, y = 0, dir = 0;
     struct { uint16_t address, value; } sets[64];
     size_t set_count = 0;
@@ -140,6 +154,8 @@ int main(int argc, char **argv)
             party = argv[++i];
         } else if (strcmp(option, "--load") == 0 && has_value) {
             load = argv[++i];
+        } else if (strcmp(option, "--saves") == 0 && has_value) {
+            saves = argv[++i];
         } else if (strcmp(option, "--shots") == 0 && has_value) {
             p.shots = argv[++i];
         } else if (strcmp(option, "--screen") == 0 && has_value) {
@@ -188,12 +204,18 @@ int main(int argc, char **argv)
     p.game = &game;
     cok_keyboard keys = {next_key, &p};
     cok_adventure_hooks hooks = {.unported = unported, .log = log_line, .trace = trace,
-                                 .context = &p};
+                                 .key_pending = key_pending, .context = &p};
     if (!cok_adventure_open(&game, argv[i], &keys, &hooks)) {
         fprintf(stderr, "%s\n", game.error);
         cok_adventure_close(&game);
         return 1;
     }
+    if (saves != NULL && strlen(saves) >= sizeof game.save_dir) {
+        fprintf(stderr, "%s: directory name too long\n", saves);
+        cok_adventure_close(&game);
+        return 1;
+    }
+    if (saves != NULL) snprintf(game.save_dir, sizeof game.save_dir, "%s", saves);
     bool loaded = true;
     if (load != NULL) loaded = cok_adventure_restore(&game, load);
     if (loaded && party != NULL) loaded = cok_adventure_load_party(&game, party);
@@ -242,13 +264,16 @@ int main(int argc, char **argv)
     }
     if (screen != NULL) save(&p, screen);
     int result = 0;
-    if (status == COK_ECL_LOAD_FAILED || status == COK_ECL_EFFECT_FAILED) {
+    if (status == COK_ECL_LOAD_FAILED || status == COK_ECL_EFFECT_FAILED ||
+        status == COK_ECL_UNDEFINED) {
         fprintf(stderr, "%s\n", game.error);
         result = 1;
     } else if (status != COK_ECL_OK) {
         fprintf(stderr, "block %u at %04x: %s\n", game.vm.block, game.vm.ip,
                 cok_ecl_status_string(status));
         result = 1;
+    } else if (game.quit) {
+        printf("(quit to DOS in block %u)\n", game.vm.block);
     } else if (game.party_killed) {
         printf("(the party was killed in block %u)\n", game.vm.block);
     } else if (game.input_ended) {

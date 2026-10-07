@@ -289,6 +289,73 @@ static void test_list(void)
     cok_font_free(&font);
 }
 
+static void test_rows(void)
+{
+    cok_font font = numbered_font();
+    cok_picture p = screen();
+    cok_menu_row rows[] = {{"1ST", true}, {"A", false}, {"B", false},
+                           {"2ND", true}, {"C", false}, {"D", false}};
+    cok_text_window w = {1, 5, 38, 7}; /* Three rows. */
+    cok_menu_style style = {"CHOOSE: ", "Memorize", 15, 10, 13, true};
+    script s;
+    int index = 0, top = 0;
+    uint8_t selected = 1;
+    bool redraw = true;
+    /* A list that starts with a heading starts on the last row shown. */
+    cok_keyboard k = keyboard(&s, "\r", 1);
+    CHECK(cok_menu_rows(&p, &font, rows, 6, w, &style, &redraw, &index, &top, &selected, &k) == 'M');
+    CHECK(index == 2 && !redraw);
+    /* Headings show in their colour; the prompt too, then the items. */
+    CHECK(cell_fg(&p, 1, 5) == 13 && cell_fg(&p, 1, 6) == 10 && cell_fg(&p, 0, 24) == 13);
+    /* Down from the last row wraps to the first, a heading, and moves on. */
+    k = keyboard(&s, "\x01\x50\r", 3);
+    CHECK(cok_menu_rows(&p, &font, rows, 6, w, &style, &redraw, &index, &top, &selected, &k) == 'M');
+    CHECK(index == 1);
+    /* Prev is offered past the leading headings only: at row 1 it is not. */
+    index = 1;
+    top = 1;
+    k = keyboard(&s, "p\r", 2);
+    CHECK(cok_menu_rows(&p, &font, rows, 6, w, &style, &redraw, &index, &top, &selected, &k) == 'M');
+    CHECK(top == 1);
+    top = 2;
+    index = 2;
+    k = keyboard(&s, "pm", 2);
+    CHECK(cok_menu_rows(&p, &font, rows, 6, w, &style, &redraw, &index, &top, &selected, &k) == 'M');
+    CHECK(top == 0);
+    /* Without redraw the window is left as it is. */
+    cok_text_glyph(&p, &font, 9, 1, 30, 6, 4, 0);
+    redraw = false;
+    index = 1;
+    top = 0;
+    k = keyboard(&s, "\x1b", 1);
+    CHECK(cok_menu_rows(&p, &font, rows, 6, w, &style, &redraw, &index, &top, &selected, &k) == 0);
+    CHECK(cell_glyph(&p, 30, 6) == 9);
+    cok_picture_free(&p);
+    cok_font_free(&font);
+}
+
+static void test_keypad(void)
+{
+    cok_font font = numbered_font();
+    cok_picture p = screen();
+    script s;
+    uint8_t selected = 1;
+    bool special;
+    /* Without the keypad, 8 is no direction; 4 still moves the selection,
+     * and with one item comes back as itself. */
+    cok_keyboard k = keyboard(&s, "84y", 3);
+    CHECK(cok_menu_ask(&p, &font, "", "Yes No", 13, 15, 10, false, &selected, &k, &special) == 'Y');
+    CHECK(selected == 1 && !special);
+    k = keyboard(&s, "4", 1);
+    CHECK(cok_menu_ask(&p, &font, "", "Exit", 13, 15, 10, false, &selected, &k, &special) == '4');
+    CHECK(!special);
+    k = keyboard(&s, "4", 1);
+    CHECK(cok_menu_ask(&p, &font, "", "Exit", 13, 15, 10, true, &selected, &k, &special) == 0x4b);
+    CHECK(special);
+    cok_picture_free(&p);
+    cok_font_free(&font);
+}
+
 static void test_input(void)
 {
     cok_font font = numbered_font();
@@ -368,6 +435,8 @@ int main(void)
     test_horizontal();
     test_read();
     test_list();
+    test_rows();
+    test_keypad();
     test_input();
     test_screen();
     puts("menu tests passed");

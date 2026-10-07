@@ -1,5 +1,6 @@
 #include "adventure.h"
 
+#include "camp.h"
 #include "dax.h"
 #include "screen.h"
 
@@ -318,12 +319,19 @@ static bool load_walls(cok_adventure *game, unsigned slot, uint8_t id)
         return false;
     }
     for (size_t i = 0; i < sets; ++i) {
-        game->wall_ids[slot - 1 + i] = -1;
+        game->wall_ids[slot - 1 + i] = game->wall_slots[slot - 1 + i] = -1;
         uint8_t tiles = sets < 2 ? id : (uint8_t)(id * 10 + i + 1);
         if (!load_tiles(game, slot + (unsigned)i, tiles)) return false;
     }
     game->wall_ids[slot - 1] = id;
+    game->wall_slots[slot - 1] = (int16_t)slot;
     return true;
+}
+
+/* Mark wall set slot empty in DS:6d8a. */
+static void no_walls(cok_adventure *game, unsigned slot)
+{
+    game->wall_ids[slot - 1] = game->wall_slots[slot - 1] = -1;
 }
 
 /* LOAD FILES and LOAD PIECES (2fd3:0cf4). The original halts when a file
@@ -348,17 +356,17 @@ static void load_files(cok_adventure *game)
         } else if (vm->mem4b00[0xe7] == 0 || vm->mem4b00[0xe8] == 0) {
             for (unsigned slot = 1; slot <= 3 && ok; ++slot) {
                 if (id[slot] == 0xff)
-                    game->wall_ids[slot - 1] = -1;
+                    no_walls(game, slot);
                 else
                     ok = load_walls(game, slot, id[slot]);
             }
         } else {
             if (id[1] == 0xff)
-                game->wall_ids[0] = -1;
+                no_walls(game, 1);
             else
                 ok = load_walls(game, 1, id[1]);
             if (id[3] == 0xff || id[3] == 0x7f)
-                game->wall_ids[2] = -1;
+                no_walls(game, 3);
             else if (ok)
                 ok = load_walls(game, 3, id[3]);
         }
@@ -974,8 +982,11 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
     game->picture_id = COK_ADVENTURE_NO_PICTURE;
     game->big_id = COK_ADVENTURE_NO_PICTURE;
     game->speed = 4;
-    for (size_t i = 0; i < 3; ++i) game->wall_ids[i] = -1;
+    for (size_t i = 0; i < 3; ++i) game->wall_ids[i] = game->wall_slots[i] = -1;
+    game->wall_ids[0] = 0; /* 3e99:005b */
+    game->wall_slots[0] = 1;
     game->animate = true;
+    game->pictures = 1;
     game->selected = 1;
     game->text_shown = true;
     if (keys != NULL) game->keys = *keys;
@@ -1108,18 +1119,22 @@ bool cok_adventure_restore(cok_adventure *game, const char *path)
     vm->direction = saved.direction;
     vm->ahead = saved.ahead;
     vm->square = saved.square;
-    game->animate = (vm->mem4b00[0xff] & 1) != 0; /* DS:4b4f; bit 1 and up are DS:4b4d */
+    game->animate = (vm->mem4b00[0xff] & 1) != 0; /* DS:4b4f */
+    game->pictures = (uint8_t)(vm->mem4b00[0xff] >> 1); /* DS:4b4d */
     game->speed = (uint8_t)vm->mem4b00[0xfc];
     vm->mem7c00[0x33e] = 0;
     if (!add_characters(game, &saved, path)) return false;
     /* The save holds the ECL file twice; the loader takes it from 0x7f12. */
     vm->file = (uint8_t)vm->mem7c00[0x312];
+    /* The loader reads DS:6d8a as saved, then reloads what it names. */
+    memcpy(game->wall_ids, saved.wall_ids, sizeof game->wall_ids);
+    memcpy(game->wall_slots, saved.wall_slots, sizeof game->wall_slots);
     if (vm->mem4b00[0xe6] != 0) {
         /* The map reloads only if wall set 1's record is above 0. */
         if (saved.wall_ids[0] > 0 && !load_map(game, (uint8_t)vm->mem4b00[0xc5])) return false;
         for (size_t i = 0; i < 3; ++i) {
             if (saved.wall_ids[i] <= 0) continue;
-            if (!load_walls(game, (unsigned)saved.wall_slots[i], (uint8_t)saved.wall_ids[i]))
+            if (!load_walls(game, (uint8_t)saved.wall_slots[i], (uint8_t)saved.wall_ids[i]))
                 return false;
         }
     }
@@ -1239,6 +1254,62 @@ bool cok_adventure_pass_time(cok_adventure *game, unsigned unit, unsigned count)
 static void unported_command(cok_adventure *game, const char *what)
 {
     log_text(game, "unported", what);
+}
+
+void cok_adventure_fail(cok_adventure *game, cok_ecl_status status, const char *format, ...)
+{
+    va_list args;
+    va_start(args, format);
+    vsnprintf(game->error, sizeof game->error, format, args);
+    va_end(args);
+    log_text(game, "error", game->error);
+    game->vm.status = status;
+    game->vm.abort = true;
+}
+
+void cok_adventure_log(cok_adventure *game, const char *kind, const char *text)
+{
+    log_text(game, kind, text);
+}
+
+cok_keyboard cok_adventure_keyboard(cok_adventure *game)
+{
+    return keyboard(game);
+}
+
+void cok_adventure_wait(cok_adventure *game, unsigned ms)
+{
+    wait_ms(game, ms);
+}
+
+bool cok_adventure_key_pending(cok_adventure *game)
+{
+    return game->hooks.key_pending != NULL && game->hooks.key_pending(game, game->hooks.context);
+}
+
+void cok_adventure_carry(cok_adventure *game, uint16_t clock[7])
+{
+    carry(game, clock);
+}
+
+void cok_adventure_load_picture(cok_adventure *game, uint8_t id)
+{
+    load_picture(game, id);
+    if (game->picture_id != id) log_text(game, "error", game->error);
+}
+
+void cok_adventure_show_picture(cok_adventure *game)
+{
+    draw_frame(game, game->frame);
+}
+
+void cok_adventure_print(cok_adventure *game, const char *text, cok_text_window window,
+                         uint8_t fg, bool clear)
+{
+    log_text(game, "print", text);
+    cok_text_hooks hooks = {page, NULL, game};
+    cok_text_wrap(&game->screen, &game->font, &game->vm.cursor, text, window, fg, 0, clear,
+                  &hooks);
 }
 
 static void log_position(cok_adventure *game)
@@ -1551,17 +1622,33 @@ static void step(cok_adventure *game)
     free_frames(game); /* 6961:0537 */
 }
 
-/* Camp (2fd3:3403): run the camp vector, then the camp menu (4888:2c31),
- * which is not ported, so the party never rests. */
+/* Camp (2fd3:3403): run the camp vector, then the camp menu (4888:2c31);
+ * if an encounter interrupted a rest, redraw the screen and run the rest
+ * vector. Then show the view, and clear DS:5885 (2fd3:344d), so that the
+ * game counts as saved only in the camp it was saved in. A vector that
+ * runs NEWECL enters the new block after the next command, as the
+ * original does; one that ends the run stops here, where the original
+ * still opens the camp menu. Outside 3D areas the original then marks the
+ * party on the overland map (4877:0005), which is not ported. */
+static void redraw_screen(cok_adventure *game);
+
 static cok_ecl_status camp(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     cok_ecl_status status = cok_ecl_run(vm, vm->vectors[2]);
     if (status != COK_ECL_OK || vm->abort) return status;
-    unported_command(game, "Encamp");
-    game->effects.rolls.saved = 0; /* DS:5885 */
+    bool interrupted = cok_camp(game);
+    if (vm->abort) return vm->status;
+    if (interrupted) {
+        redraw_screen(game);
+        status = cok_ecl_run(vm, vm->vectors[3]);
+        if (status != COK_ECL_OK || vm->abort) return status;
+    }
     game->redraw = true;
     if (vm->mem4b00[0x138] == 0) cok_adventure_view(game);
+    game->effects.rolls.saved = 0; /* DS:5885 */
+    if (vm->mem4b00[0xe6] == 0 && vm->mem4b00[0x138] == 0)
+        unported_command(game, "the party on the overland map (4877:0005)");
     return COK_ECL_OK;
 }
 
@@ -1580,13 +1667,21 @@ static cok_ecl_status look(cok_adventure *game)
 }
 
 /* Redraw the screen for the mode (6346:2c17): in a 3D area the frame, the
- * view unless 0x4c38 is set, the party list and the status line. Only the
- * 3D and plain area modes are ported. */
+ * view unless 0x4c38 is set, the party list and the status line; in camp
+ * the frame, the party list and the status line, loading the camp picture
+ * (PIC record 0x3b), which the camp's menus show. Only the camp, 3D and
+ * plain area modes are ported. */
 static void redraw_screen(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     game->redraw = true;
-    if (vm->mode == 4) {
+    if (vm->mode == 2) {
+        cok_adventure_frame(game);
+        load_picture(game, 0x3b);
+        if (game->picture_id != 0x3b) log_text(game, "error", game->error);
+        cok_adventure_party(game);
+        cok_adventure_status(game);
+    } else if (vm->mode == 4) {
         cok_adventure_frame(game);
         if (vm->mem4b00[0x138] == 0) cok_adventure_view(game);
         cok_adventure_party(game);
@@ -1595,6 +1690,11 @@ static void redraw_screen(cok_adventure *game)
     } else if (vm->mode == 3 && game->picture_id != 9 && vm->mem4b00[0x138] == 0) {
         cok_adventure_view(game);
     }
+}
+
+void cok_adventure_redraw(cok_adventure *game)
+{
+    redraw_screen(game);
 }
 
 /* Take a command and keep the character selected after it, which EXIT

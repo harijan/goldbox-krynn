@@ -203,6 +203,10 @@ bool cok_ds_byte(uint16_t offset, uint8_t *out);
  * party is full. The original then runs 66c2:0433 on an NPC (+0xe7 0x80
  * and up); the caller does that with cok_character_levels. */
 bool cok_party_add(cok_party *party, cok_character *character);
+/* Move member index one place up (toward the first) or down, as Party
+ * Order does (4888:1cea, 4888:1e42): the first moved up goes to the end and
+ * the last moved down to the front. Nothing else changes. */
+void cok_party_move(cok_party *party, size_t index, bool down);
 /* Remove member index and free it. */
 void cok_party_remove(cok_party *party, size_t index);
 void cok_party_free(cok_party *party);
@@ -237,6 +241,14 @@ void cok_party_draw(cok_picture *dst, const cok_font *font, const cok_party *par
  * the combat records in combat; combat is not ported. */
 void cok_character_damage(uint8_t *record, uint8_t damage);
 
+/* Heal record by amount (60f4:21ea) if its status is 0, 1, 4 or 5, and if
+ * only_hurt, it is below its maximum hit points. Hit points add as a byte,
+ * so they can wrap, and are capped at the maximum. A character that cannot
+ * act and is dying becomes unconscious, and an unconscious one recovers
+ * and can act again outside combat (mode 5). Returns whether it was
+ * healed. */
+bool cok_character_heal(uint8_t *record, uint8_t amount, bool only_hurt, uint8_t mode);
+
 /* A saved game, SAVGAM<letter>.DAT, as 4b6d:1b34 reads it. */
 typedef struct {
     uint8_t file;                /* DS:5782, the ECL file. */
@@ -255,5 +267,21 @@ typedef struct {
 /* Read a saved game. Returns false with error set if the file cannot be
  * read or is shorter than COK_SAVED_GAME_SIZE; the original does not check. */
 bool cok_saved_game_read(const char *path, cok_saved_game *game, char *error, size_t error_size);
+/* Write a saved game as 4b6d:22de does, the inverse of cok_saved_game_read.
+ * The bytes after each name and the slots past count, which the original
+ * fills with whatever its stack held, are 0. Returns false with error set
+ * if the file cannot be written; the original does not check. */
+bool cok_saved_game_write(const char *path, const cok_saved_game *game, char *error,
+                          size_t error_size);
+
+/* Write character files base in dir as 4b6d:0bed does, the inverse of
+ * cok_character_read: base.SAV, the record as it is; base.STF, the items,
+ * and base.SFX, the effects, each erased first and written only if there
+ * are any. The far pointers the original writes as they are in memory
+ * (+0xe3, +0x143, +0x147-+0x17a, +0x17f, +0x183, the items' +0x2a and the
+ * effects' +5) are 0 here, as the port keeps them in the record. Returns
+ * false with error set if a file cannot be written. */
+bool cok_character_write(const cok_character *character, const char *dir, const char *base,
+                         char *error, size_t error_size);
 
 #endif

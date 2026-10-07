@@ -51,6 +51,7 @@ const char *cok_ecl_status_string(cok_ecl_status status)
     case COK_ECL_LOAD_FAILED: return "ECL block failed to load";
     case COK_ECL_DIVIDE_BY_ZERO: return "division by zero";
     case COK_ECL_EFFECT_FAILED: return "spell effect not carried out";
+    case COK_ECL_UNDEFINED: return "the original's behaviour is undefined";
     }
     return "unknown status";
 }

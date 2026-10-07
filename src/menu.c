@@ -94,16 +94,16 @@ static void append_text(char *dst, size_t size, const char *text)
 }
 
 /* Keypad keys as directions (DS:1fdf), from '1'. */
-static const uint8_t keypad[9] = {0x4f, 0x50, 0x51, 0x4b, 0x20, 0x4d, 0x47, 0x48, 0x49};
+static const uint8_t keypad_scans[9] = {0x4f, 0x50, 0x51, 0x4b, 0x20, 0x4d, 0x47, 0x48, 0x49};
 
 static uint8_t keypad_scan(unsigned char c)
 {
-    return c == '\\' ? 0x37 : keypad[c - '1'];
+    return c == '\\' ? 0x37 : keypad_scans[c - '1'];
 }
 
 /* One key from 67b5:03e2: returns the key, setting *special for scan codes. */
 static int menu_key(cok_picture *dst, const cok_font *font, const cok_menu *menu, int x,
-                    uint8_t *selected, uint8_t highlight, uint8_t normal,
+                    uint8_t *selected, uint8_t highlight, uint8_t normal, bool keypad,
                     const cok_keyboard *keys, bool *special)
 {
     cok_menu_draw(dst, font, menu, x, *selected, highlight, normal);
@@ -135,6 +135,7 @@ static int menu_key(cok_picture *dst, const cok_font *font, const cok_menu *menu
         }
         if (key == '4' || key == '6') {
             if (menu->count < 2) {
+                if (!keypad) return key;
                 *special = true;
                 return keypad_scan((unsigned char)key);
             }
@@ -158,7 +159,7 @@ static int menu_key(cok_picture *dst, const cok_font *font, const cok_menu *menu
                 cok_menu_draw(dst, font, menu, x, *selected, highlight, normal);
             }
         }
-        if ((c >= '1' && c <= '9') || c == '\\') {
+        if (keypad && ((c >= '1' && c <= '9') || c == '\\')) {
             *special = true;
             return keypad_scan(c);
         }
@@ -181,7 +182,7 @@ int cok_menu_horizontal(cok_picture *dst, const cok_font *font, const char *prom
         if (menu.count < *selected) *selected = 1;
         if (x != 0) cok_text_string(dst, font, shown, 0, 24, prompt_color, 0);
         bool special = false;
-        key = menu_key(dst, font, &menu, x, selected, highlight, normal, keys, &special);
+        key = menu_key(dst, font, &menu, x, selected, highlight, normal, true, keys, &special);
         if (key < 0) return -1;
         if (special) {
             if (hooks != NULL && hooks->special != NULL)
@@ -199,6 +200,14 @@ int cok_menu_read(cok_picture *dst, const cok_font *font, const char *prompt, co
                   uint8_t prompt_color, uint8_t highlight, uint8_t normal, uint8_t *selected,
                   const cok_keyboard *keys, bool *special)
 {
+    return cok_menu_ask(dst, font, prompt, text, prompt_color, highlight, normal, true, selected,
+                        keys, special);
+}
+
+int cok_menu_ask(cok_picture *dst, const cok_font *font, const char *prompt, const char *text,
+                 uint8_t prompt_color, uint8_t highlight, uint8_t normal, bool keypad,
+                 uint8_t *selected, const cok_keyboard *keys, bool *special)
+{
     char shown[41];
     snprintf(shown, sizeof shown, "%s", prompt);
     cok_menu menu;
@@ -207,27 +216,34 @@ int cok_menu_read(cok_picture *dst, const cok_font *font, const char *prompt, co
     int x = (int)strlen(shown);
     if (x != 0) cok_text_string(dst, font, shown, 0, 24, prompt_color, 0);
     *special = false;
-    return menu_key(dst, font, &menu, x, selected, highlight, normal, keys, special);
+    return menu_key(dst, font, &menu, x, selected, highlight, normal, keypad, keys, special);
 }
 
 typedef struct {
     cok_picture *dst;
     const cok_font *font;
-    const char *const *items;
+    const cok_menu_row *items;
     int count, rows;
     cok_text_window w;
-    uint8_t highlight, normal;
+    const cok_menu_style *style;
     int *index, *top;
 } list;
 
-/* Clear the window and show the rows from *top (67b5:0d24). */
+static bool heading(const list *l, int i)
+{
+    return i >= 0 && i < l->count && l->items[i].heading;
+}
+
+/* Clear the window and show the rows from *top, headings in their colour
+ * (67b5:0d24). */
 static void draw_list(const list *l)
 {
     cok_picture_fill(l->dst, l->w.left, l->w.top * 8, (size_t)(l->w.right - l->w.left + 1),
                      (size_t)(l->w.bottom - l->w.top + 1) * 8, 0);
     for (int item = *l->top, y = l->w.top; item >= 0 && item < l->count && y <= l->w.bottom;
          ++item, ++y)
-        cok_text_string(l->dst, l->font, l->items[item], l->w.left, y, l->normal, 0);
+        cok_text_string(l->dst, l->font, l->items[item].text, l->w.left, y,
+                        l->items[item].heading ? l->style->heading : l->style->normal, 0);
 }
 
 /* Redraw the picked item's text between its first and last non-space
@@ -236,7 +252,7 @@ static void mark(const list *l, bool on)
 {
     if (*l->index < 0 || *l->index >= l->count) return;
     char text[41];
-    snprintf(text, sizeof text, "%s", l->items[*l->index]);
+    snprintf(text, sizeof text, "%s", l->items[*l->index].text);
     size_t length = strlen(text), first = 1, last = length;
     while (first < length && text[first - 1] == ' ') ++first;
     while (last > 1 && text[last - 1] == ' ') --last;
@@ -244,12 +260,31 @@ static void mark(const list *l, bool on)
     text[last] = '\0';
     int x = l->w.left + (int)first - 1, y = l->w.top + (*l->index - *l->top);
     if (on)
-        cok_text_string(l->dst, l->font, text + first - 1, x, y, 0, l->highlight);
+        cok_text_string(l->dst, l->font, text + first - 1, x, y, 0, l->style->highlight);
+    else if (l->items[*l->index].heading)
+        cok_text_string(l->dst, l->font, text + first - 1, x, y, l->style->heading, 0);
     else
-        cok_text_string(l->dst, l->font, text + first - 1, x, y, l->normal, 0);
+        cok_text_string(l->dst, l->font, text + first - 1, x, y, l->style->normal, 0);
 }
 
-/* Move one row up or down among the rows shown, wrapping (67b5:1293). */
+/* Move past headings in the direction of the last move, at most a page's
+ * rows, wrapping within the rows shown (67b5:10d1). */
+static void skip(const list *l, bool down)
+{
+    int *i = l->index, top = *l->top;
+    for (int k = 0; k < l->rows && heading(l, *i); ++k) {
+        if (down) {
+            if (++*i > top + l->rows - 1) *i = top;
+            if (*i > l->count - 1) *i = top;
+        } else {
+            if (--*i < top) *i = top + l->rows - 1;
+            if (*i > l->count - 1) *i = l->count - 1;
+        }
+    }
+}
+
+/* Move one row up or down among the rows shown, wrapping, then past
+ * headings (67b5:1293). */
 static void step(const list *l, bool down)
 {
     int *i = l->index, top = *l->top;
@@ -260,6 +295,7 @@ static void step(const list *l, bool down)
         if (++*i > top + l->rows - 1) *i = top;
         if (*i > l->count - 1) *i = top;
     }
+    skip(l, down);
 }
 
 /* Show the previous or next page, keeping the row picked (67b5:1201). */
@@ -274,39 +310,55 @@ static void page_list(const list *l, bool down)
         if (*l->top > l->count - l->rows) *l->top = l->count - l->rows;
     }
     *l->index = *l->top + row;
+    skip(l, down);
     draw_list(l);
 }
 
-int cok_menu_list(cok_picture *dst, const cok_font *font, const char *const *items,
-                  size_t count, cok_text_window window, uint8_t highlight, uint8_t normal,
-                  bool show_exit, int *index, int *top,
-                  uint8_t *selected, const cok_keyboard *keys)
+int cok_menu_rows(cok_picture *dst, const cok_font *font, const cok_menu_row *items,
+                  size_t count, cok_text_window window, const cok_menu_style *style,
+                  bool *redraw, int *index, int *top, uint8_t *selected,
+                  const cok_keyboard *keys)
 {
     if (count == 0) {
         *index = 0;
         return 0;
     }
     list l = {dst, font, items, count > 255 ? 255 : (int)count, window.bottom - window.top + 1,
-              window, highlight, normal, index, top};
+              window, style, index, top};
     *selected = 1;
+    int leading = 0;
+    while (heading(&l, leading)) ++leading;
     if (l.count <= l.rows) *top = 0;
-    if (*index < *top) *top = *index;
-    if (l.count < *top) *top = 0;
+    if (*index < *top) {
+        *top = *index;
+        *redraw = true;
+    }
+    if (l.count < *top) {
+        *top = 0;
+        *redraw = true;
+    }
     ++*index;
     step(&l, false);
-    draw_list(&l);
+    if (*redraw) draw_list(&l);
+    *redraw = false;
+    char prompt[41];
+    snprintf(prompt, sizeof prompt, "%s", style->prompt);
+    int x = (int)strlen(prompt);
     for (;;) {
         mark(&l, true);
-        char bar[41] = "Select";
-        if (*top < l.count - l.rows) append_text(bar, sizeof bar, " Next");
-        if (0 < *top) append_text(bar, sizeof bar, " Prev");
-        if (show_exit) append_text(bar, sizeof bar, " Exit");
-        bool more = *top < l.count - l.rows, less = 0 < *top;
+        char bar[41];
+        snprintf(bar, sizeof bar, "%s", style->base);
+        bool more = *top < l.count - l.rows, less = *top > leading;
+        if (more) append_text(bar, sizeof bar, " Next");
+        if (less) append_text(bar, sizeof bar, " Prev");
+        if (style->show_exit) append_text(bar, sizeof bar, " Exit");
         cok_menu menu;
         cok_menu_layout(&menu, bar);
         if (menu.count < *selected) *selected = 1;
+        if (x != 0) cok_text_string(dst, font, prompt, 0, 24, style->heading, 0);
         bool special = false;
-        int key = menu_key(dst, font, &menu, 0, selected, highlight, normal, keys, &special);
+        int key = menu_key(dst, font, &menu, x, selected, style->highlight, style->normal, true,
+                           keys, &special);
         mark(&l, false);
         if (key < 0) return -1;
         if (special) {
@@ -321,4 +373,18 @@ int cok_menu_list(cok_picture *dst, const cok_font *font, const char *const *ite
         else if (key == 0x1b || key == 'E' || key == 0) return 0;
         else return key;
     }
+}
+
+int cok_menu_list(cok_picture *dst, const cok_font *font, const char *const *items,
+                  size_t count, cok_text_window window, uint8_t highlight, uint8_t normal,
+                  bool show_exit, int *index, int *top,
+                  uint8_t *selected, const cok_keyboard *keys)
+{
+    cok_menu_row rows[255];
+    if (count > 255) count = 255;
+    for (size_t i = 0; i < count; ++i) rows[i] = (cok_menu_row){items[i], false};
+    cok_menu_style style = {"", "Select", highlight, normal, normal, show_exit};
+    bool redraw = true;
+    return cok_menu_rows(dst, font, rows, count, window, &style, &redraw, index, top, selected,
+                         keys);
 }

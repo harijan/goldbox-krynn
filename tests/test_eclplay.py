@@ -131,6 +131,44 @@ class PlayTests(unittest.TestCase):
         self.assertNotEqual(views[-1], views[-2])
         self.assertEqual(views[-1], views[-4])
 
+    def test_camp_in_throtl(self):
+        shots = self.folder / "shots"
+        shots.mkdir()
+        # Attack (combat is not ported), camp, rest an hour, and leave; then
+        # camp again, rest an hour, and stop at once with a key.
+        keys = r"\rerhar\e" "erhar\kyy\e"
+        result = self.play("--play", "--set", "4be6=1", "--keys", keys, "--shots", shots,
+                           ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        camp = lines.index("print: The party makes camp...")
+        self.assertEqual(lines[camp - 1], "menu: Move Area Cast View Encamp Search Look")
+        self.assertEqual(lines[camp + 1:camp + 4],
+                         ["menu: Save View Magic Rest Alter Fix Exit",
+                          "menu: Rest Days Hours Mins Add Subtract Exit",
+                          "menu: Rest Days Hours Mins Add Subtract Exit"])
+        self.assertIn("menu: Stop Resting? ", lines)
+        self.assertEqual(lines[lines.index("menu: Stop Resting? ") + 1], "choice: Y")
+        self.assertEqual(lines[-1], "(out of keys in block 32 at 80c0)")
+        # In camp the status line ends "camping" (columns 30-36) under the
+        # party's list, with the camp's picture in the view.
+        images = sorted(shots.glob("*.bmp"))
+        camping = images[2].read_bytes()
+        self.assertEqual(ink(camping, 31, 15), GREEN)
+        self.assertEqual(ink(camping, 0, 24), (255, 255, 255))
+        after = images[7].read_bytes()  # the commands, after the first camp
+        self.assertEqual(ink(after, 31, 15), (0, 0, 0))
+
+    def test_yes_survives_escape(self):
+        # Rest three hours and press a key: Yes, chosen with the left
+        # arrow, stays chosen through Escape, and Enter stops the rest.
+        result = self.play("--play", "--set", "4be6=1", "--keys", r"\rerhaaar\k\<\e\r\e",
+                           ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        stop = lines.index("menu: Stop Resting? ")
+        self.assertEqual(lines[stop + 1], "choice: Y")
+
     def test_missing_wall_set_halts(self):
         # With 0x4be7 clear, LOAD PIECES 1 2 255 loads a wall set for each
         # slot, and WALLDEF1.DAX has no record 2: the original halts.
@@ -208,6 +246,56 @@ class PartyTests(unittest.TestCase):
         self.assertEqual(lines[who + 1:who + 3],
                          ["print: YOU HAVE SUCCESSFULLY DISARMED THE TRAP.",
                           "print: Congratulations MOLLY gains experience!"])
+
+    def test_camp_saves_the_game(self):
+        saves = self.folder / "saves"
+        saves.mkdir()
+        # Camp, rest an hour, save as game A without quitting, and leave.
+        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
+                           "--saves", saves, "--keys", r"\rerharsan\e", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        save = lines.index("menu: A B C D E F G H I J")
+        self.assertEqual(lines[save + 1:save + 4],
+                         ["choice: A", "menu: Quit TO DOS ", "choice: N"])
+        game = (saves / "SAVGAMA.DAT").read_bytes()
+        self.assertEqual(len(game), 5469)
+        # The ECL file, an hour on the clock (0x4bc9), the block (0x4bf2),
+        # the camp's mode after the adventure's, and the six characters.
+        self.assertEqual(game[0], 1)
+        self.assertEqual(struct.unpack_from("<H", game, 1 + 2 * 0xc9)[0], 1)
+        self.assertEqual(struct.unpack_from("<H", game, 1 + 2 * 0xf2)[0], 32)
+        self.assertEqual(game[0x1406:0x1408], bytes([4, 2]))
+        self.assertEqual(game[0x1414], 6)
+        self.assertEqual(game[0x1415:0x1415 + 9], b"\x08CHRDATA1")
+        self.assertEqual((saves / "CHRDATA1.SAV").read_bytes()[1:20],
+                         (SAVE / "CHRDATA1.SAV").read_bytes()[1:20])
+        # It loads, resumes in Throtl, and camps there again.
+        result = self.play("--load", saves / "SAVGAMA.DAT", "--play", "--keys", "e", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[-2:],
+                         ["menu: Save View Magic Rest Alter Fix Exit",
+                          "(out of keys in block 32 at 80c0)"])
+        # Quitting to DOS ends the run.
+        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
+                           "--saves", saves, "--keys", r"\resby", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[-1], "(quit to DOS in block 32)")
+        self.assertTrue((saves / "SAVGAMB.DAT").exists())
+        # A directory name too long for the game is refused.
+        result = self.play("--saves", "d" * 600, ASSETS, 32)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("directory name too long", result.stderr)
+
+    def test_drop_with_the_arrows(self):
+        # Alter, Drop: Yes with the left arrow, then Escape and Enter.
+        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
+                           "--keys", r"\read\<\e\r", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertIn("menu: Drop from party? ", lines)
+        self.assertEqual(lines[lines.index("menu: Drop from party? ") + 1], "choice: Y")
+        self.assertIn("print: bids you farewell", lines)
 
     def test_saved_game_resumes(self):
         result = self.play("--load", SAVE / "SAVGAMA.DAT", "--keys", r"\r", ASSETS)

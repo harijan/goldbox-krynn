@@ -59,6 +59,9 @@ typedef enum {
     COK_ECL_DIVIDE_BY_ZERO, /* The original stops with runtime error 200. */
     COK_ECL_EFFECT_FAILED, /* A spell effect needs what is not ported, or the original
                             * mishandles it; the opcode hook says why. */
+    COK_ECL_UNDEFINED,     /* Outside the scripts, the original would read data it
+                            * never set or write past what it owns; the caller says
+                            * why. */
 } cok_ecl_status;
 
 const char *cok_ecl_status_string(cok_ecl_status status);

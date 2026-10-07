@@ -156,10 +156,16 @@ static void test_play(void)
     CHECK(game.vm.mem4b00[0x101] == 1 && game.vm.mem7c00[0x2ca] == 0);
     play(&game, &s, map, 5, 5, "m\x01H");
     CHECK(game.vm.mem4b00[0x101] == 0);
-    /* Encamp runs the camp vector; the camp menu is not ported. */
-    play(&game, &s, map, 5, 5, "eavc");
-    CHECK(strcmp(s.log, "unported: Encamp;unported: Area;unported: View;unported: Cast;") == 0);
-    CHECK(game.vm.mem4b00[0x102] == 1);
+    /* Encamp runs the camp vector, then the camp menu until Exit (see
+     * test_camp.c). */
+    game.effects.rolls.saved = 1;
+    play(&game, &s, map, 5, 5, "eeavc");
+    /* The game counts as saved only in the camp it was saved in (DS:5885,
+     * cleared at 2fd3:344d). */
+    CHECK(game.effects.rolls.saved == 0);
+    CHECK(strcmp(s.log, "print: The party makes camp...;menu: Save View Magic Rest Alter Fix Exit;"
+                        "unported: Area;unported: View;unported: Cast;") == 0);
+    CHECK(game.vm.mem4b00[0x102] == 1 && game.vm.mode == 4);
 
     /* An after-move vector that sets 0x7ec9 to 0xff stops the step, and
      * 0x7ec9 is cleared. */
