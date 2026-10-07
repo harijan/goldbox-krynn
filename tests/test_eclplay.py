@@ -56,9 +56,11 @@ class PlayTests(unittest.TestCase):
         lines = result.stdout.splitlines()
         self.assertEqual(lines[1], "print: AS YOU TOP A RISE, YOU SPOT A CARAVAN UNDER ")
         self.assertIn("menu: ~PRESS <ENTER>/<RETURN> TO CONTINUE.", lines)
-        self.assertIn("[COMBAT]", lines)
-        # With no party, the end of combat finds none standing (351b:0574):
-        # the monsters rejoice and the run ends.
+        # With no party, no round is fought (3995:0172), and the end of
+        # combat finds none standing (351b:0574): the monsters rejoice and
+        # the run ends.
+        self.assertIn("combat: removed 4 BAAZ; 0 dropped", lines)
+        self.assertFalse([line for line in lines if line.startswith("round: ")])
         self.assertEqual(lines[-2:], ["print: The monsters rejoice for the party has been destroyed",
                                       "(the party was killed in block 16)"])
         # One screen per key read: the caravan's and the monsters'.
@@ -93,7 +95,7 @@ class PlayTests(unittest.TestCase):
         # At Throtl's gate the guards stand in the gateway, at distance 0:
         # the battlefield is built from the 3D map around the party
         # (3cb2:08cd), the party placed in ranks behind 7, 15 facing north
-        # and the guards in theirs ahead; then the battle is not ported.
+        # and the guards in theirs ahead; then the rounds.
         dump = self.folder / "map.txt"
         result = self.play("--test-party", 6, "--set", "4be6=1", "--combat-map", dump,
                            "--keys", r"\r\rE", ASSETS, 32)
@@ -106,7 +108,7 @@ class PlayTests(unittest.TestCase):
                           "combat: 3 CERA at 26,13"])
         self.assertIn("combat: 7 HOBGOBLIN at 27,12", lines)
         self.assertIn("combat: 21 WARRIOR at 25,10", lines)
-        end = lines.index("[COMBAT]")
+        end = [line.startswith("round: 1: ") for line in lines].index(True)
         self.assertEqual(lines[end - 2:end], ["combat: the view from 24,10",
                                               "unported: the combat screen (6346:300f)"])
         text = dump.read_text().splitlines()
@@ -131,6 +133,96 @@ class PlayTests(unittest.TestCase):
         self.assertEqual(dump.read_text().splitlines()[0],
                          "battle in block 16: view 24,10, 10 combatants")
 
+    def test_the_rounds(self):
+        # The patrol of Throtl's outpost, fought with every turn passing:
+        # fifteen rounds without an attack end it (3995:0b6d), the order of
+        # each logged, highest initiative first, and the turns of those with
+        # initiative in that order. The script surprises the party (SAVE 1
+        # [7ecb]), whose initiatives in the first round are 0.
+        result = self.play("--test-party", 6, "--start", "8cda", "--keys", r"\rE\r", ASSETS, 16)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        rounds = [i for i, line in enumerate(lines) if line.startswith("round: ")]
+        self.assertEqual(len(rounds), 15)
+        self.assertEqual(lines[rounds[0]],
+                         "round: 1: RED DRAGON 6, RED DRAGON 6, RED DRAGON 6, RED DRAGON 4, "
+                         "BOZAK 4, RED DRAGON 3, BOZAK 3, RED DRAGON 3, RED DRAGON 3, "
+                         "RED DRAGON 1, RED DRAGON 1, FARO 0, ELIN 0, DUNN 0, ALDA 0, CERA 0, "
+                         "BRAM 0")
+        # The last round pins the dice of the fourteen before it: each
+        # round's initiatives, and each turn's rolls, come from one seed.
+        self.assertEqual(lines[rounds[14]],
+                         "round: 15: DUNN 8, RED DRAGON 6, RED DRAGON 6, BOZAK 5, RED DRAGON 5, "
+                         "RED DRAGON 5, BOZAK 5, CERA 5, RED DRAGON 5, RED DRAGON 4, ALDA 4, "
+                         "BRAM 4, FARO 3, RED DRAGON 3, RED DRAGON 2, ELIN 2, RED DRAGON 1")
+        for n, at in enumerate(rounds, 1):
+            head, order = lines[at].split(": ", 2)[1:]
+            self.assertEqual(head, str(n))
+            entries = [entry.rsplit(" ", 1) for entry in order.split(", ")]
+            self.assertEqual(len(entries), 17)
+            turns = [line for line in lines[at + 1:rounds[n] if n < 15 else None]
+                     if line.startswith("turn: ")]
+            self.assertEqual(turns, ["turn: %s (initiative %s)" % (name, value)
+                                     for name, value in entries if int(value) > 0])
+        # The screen is logged once a battle where it would be drawn.
+        for what in ("the combatant's highlight (6beb:12ef)", "the side panel (6346:0af6)",
+                     "a cell's redraw (6beb:02aa)", "the combat map's drawing (6beb:096b)"):
+            self.assertEqual(lines.count("unported: " + what), 1)
+        end = lines.index("combat: removed 9 RED DRAGON, 2 BOZAK; 0 dropped")
+        self.assertEqual(lines[end + 1:end + 3],
+                         ["print: The party has won.", "print: Each character receives 0"])
+        self.assertEqual(lines[-1], "(done in block 16)")
+        # --seed starts Random elsewhere: the script's own dice then call up
+        # nineteen of the patrol.
+        result = self.play("--test-party", 6, "--seed", 12345, "--start", "8cda",
+                           "--keys", r"\rE\r", ASSETS, 16)
+        lines = result.stdout.splitlines()
+        self.assertEqual([line for line in lines if line.startswith("round: 1: ")],
+                         ["round: 1: RED DRAGON 6, RED DRAGON 5, RED DRAGON 5, RED DRAGON 5, "
+                          "BOZAK 4, RED DRAGON 4, RED DRAGON 4, RED DRAGON 3, BOZAK 3, BOZAK 2, "
+                          "DUNN 2, BOZAK 1, RED DRAGON 1, RED DRAGON 1, ALDA 0, FARO 0, CERA 0, "
+                          "BRAM 0, ELIN 0"])
+        # The Gods intervene at the player's first turn (432f:41e2, Alt-X);
+        # with the enemy gone, "Continue Battle:" asks: Yes fights on, and
+        # the Gods intervene again.
+        result = self.play("--test-party", 6, "--combat", "gods", "--start", "8cda",
+                           "--keys", r"Y\r\rSE\r", ASSETS, 16)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines.count("print: The Gods intervene!"), 2)
+        menus = [i for i, line in enumerate(lines) if line == "menu: Continue Battle:"]
+        self.assertEqual([lines[i + 1] for i in menus], ["choice: Y", "choice: N"])
+        self.assertTrue(lines[menus[1] + 2].startswith("combat: removed 9 RED DRAGON, 2 BOZAK"))
+        self.assertIn("combat: removed 9 RED DRAGON, 2 BOZAK; 11 dropped", lines)
+        self.assertEqual(lines[-1], "(done in block 16)")
+
+    def test_the_ambush(self):
+        # Throtl's ambush (ECL1 block 32 at 835f): MONSTERS ATTACK!, four
+        # hobgoblins and two leaders against the party, fought through the
+        # rounds with every turn passing until fifteen without an attack.
+        result = self.play("--test-party", 6, "--set", "4be6=1", "--start", "835f",
+                           "--keys", r"\r\rE", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[0], "print: MONSTERS ATTACK!")
+        self.assertIn("monster: 4 HOBGOBLIN, icon 12 in slot 8", lines)
+        self.assertIn("monster: 2 HOBGOBLIN LDR, icon 13 in slot 9", lines)
+        rounds = [line for line in lines if line.startswith("round: ")]
+        self.assertEqual(len(rounds), 15)
+        self.assertEqual(rounds[0],
+                         "round: 1: DUNN 7, HOBGOBLIN 6, CERA 6, HOBGOBLIN 6, BRAM 5, "
+                         "HOBGOBLIN LDR 5, HOBGOBLIN 3, HOBGOBLIN 2, FARO 2, HOBGOBLIN LDR 1, "
+                         "ELIN 1, ALDA 1")
+        self.assertEqual(rounds[14],
+                         "round: 15: DUNN 7, FARO 6, CERA 6, HOBGOBLIN LDR 5, ALDA 3, "
+                         "HOBGOBLIN 2, HOBGOBLIN LDR 2, HOBGOBLIN 2, HOBGOBLIN 1, BRAM 1, "
+                         "ELIN 1, HOBGOBLIN 1")
+        self.assertEqual(len([line for line in lines if line.startswith("turn: ")]),
+                         sum(len([e for e in r.split(": ", 2)[2].split(", ")
+                                  if not e.endswith(" 0")]) for r in rounds))
+        end = lines.index("combat: removed 4 HOBGOBLIN, 2 HOBGOBLIN LDR; 0 dropped")
+        self.assertEqual(lines[end + 1], "print: The party has won.")
+        self.assertEqual(lines[-1], "(done in block 32)")
+
     def test_view_of_throtl(self):
         shots = self.folder / "shots"
         shots.mkdir()
@@ -152,8 +244,9 @@ class PlayTests(unittest.TestCase):
                                    ASSETS, 16)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 lines = result.stdout.splitlines()
-                combat = lines.index("[COMBAT]")
-                self.assertEqual(lines[combat + 1:combat + 7],
+                combat = lines.index("combat: removed 4 BAAZ; 0 dropped")
+                self.assertTrue(lines[combat - 1].startswith("turn: "))
+                self.assertEqual(lines[combat:combat + 6],
                                  ["combat: removed 4 BAAZ; 0 dropped",
                                   "print: The party has won.",
                                   "print: Each character receives 0", "print: experience points.",
@@ -176,7 +269,8 @@ class PlayTests(unittest.TestCase):
                 result = self.play(*party, "--set", "4be6=1", "--keys", r"\r\rE",
                                    "--screen", final, ASSETS, 32)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn("[COMBAT]", result.stdout.splitlines())
+                self.assertTrue([line for line in result.stdout.splitlines()
+                                 if line.startswith("round: 15: ")])
                 bmp = final.read_bytes()
                 # The party stands at 7, 15 facing north, down a street: grey stone
                 # sides near the view's edges and cobbles below a black sky.
@@ -191,10 +285,10 @@ class PlayTests(unittest.TestCase):
             with self.subTest(party=party[0]):
                 shots = self.folder / ("shots" + party[0])
                 shots.mkdir()
-                # Fight the guards and leave the treasure, move north into an
-                # ambush, fight, and meet the gibbering man, then turn east into a
-                # hedge, which stops the next step.
-                keys = r"\r\rE\rm\^\r\rE\^\^\r\r\>\^\<"
+                # Fight the guards and leave the treasure, move north to meet
+                # the gibbering man, then turn east into a hedge, which stops the
+                # next step.
+                keys = r"\r\rE\rm\^\^\^\r\r\>\^\<"
                 result = self.play(*party, "--play", "--set", "4be6=1",
                                    "--keys", keys, "--shots", shots, ASSETS, 32)
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -203,19 +297,18 @@ class PlayTests(unittest.TestCase):
                                  ["at: 7,14,0", "at: 7,13,0", "at: 7,12,0", "at: 7,12,2",
                                   "at: 7,12,0"])
                 self.assertIn("menu: Move Area Cast View Encamp Search Look", lines)
-                self.assertIn("print: MONSTERS ATTACK!", lines)
-                self.assertEqual(lines[-1], "(out of keys in block 32 at 8335)")
-                # Each step and turn redraws the view: from the start, three
-                # squares north, east and back north, with the man's portrait, and
-                # the hobgoblins' close-up, at the gate and in the ambush, each
-                # followed by the results and the treasure's picture.
+                self.assertEqual(lines[-1], "(out of keys in block 32 at 8320)")
+                # Each step and turn redraws the view: the guards' close-up at
+                # the gate, the results and the treasure's picture, then from the
+                # start three squares north, east and back north, with the man's
+                # portrait.
                 def view(shot):
                     bmp = shot.read_bytes()
                     return tuple(pixel(bmp, x, y) for x in range(24, 112, 4)
                                  for y in range(24, 112, 4))
                 views = [view(shot) for shot in sorted(shots.glob("*.bmp"))]
                 self.assertEqual(len(set(views)), 9)
-                self.assertEqual(views[0:3], views[6:9])
+                self.assertEqual(views[3:6], [views[3]] * 3)
                 self.assertNotEqual(views[-1], views[-2])
                 self.assertEqual(views[-1], views[-4])
 

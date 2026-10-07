@@ -39,12 +39,12 @@ record; directory entry numbers are zero-based. Duplicate IDs are retained.
 export checks for all 26 supported graphics archives (2,363 images), and
 tests of the picture, text, menu, 3D view, party and spell effect routines,
 the adventure loop, the camp, casting spells, the character sheet with its
-items, monsters and encounters, the battlefield, treasure and the end of
-combat, and the shops and the temple,
+items, monsters and encounters, the battlefield, the rounds of a battle,
+treasure and the end of combat, and the shops and the temple,
 including PIC delta decoding on `PIC1.DAX` and the game font in
 `8X8D1.DAX`, and plays the opening scripts, the view of Throtl and, with
-a party made up for testing (`eclplay --test-party`), its fights, a walk
-through it and a camp. It builds `build/START_FULL.EXE` (see Disassembly
+a party made up for testing (`eclplay --test-party`), its fights, round
+by round, a walk through it and a camp. It builds `build/START_FULL.EXE` (see Disassembly
 image) to check the original's tables that the port uses. With the
 original's saved games in `SAVE/` (`SAVGAMA.DAT` and its `CHRDATA*`
 files), it also plays those with their party, through encounters, fights
@@ -387,12 +387,15 @@ DOS ends the run with `(quit to DOS in block N)`. Cast and View run from the
 commands and the camp, their lists logged as `list:` and `item:`. Monsters
 loaded, the encounter's sprite and close-up and the money robbed log as
 `monster:`, a battle's setup, where each combatant stands, and the end of a
-fight as `combat:` (see Monsters and encounters and The battlefield), the
-coins and items `TREASURE` adds as `treasure:` (see Treasure and the end of
-combat), and what is paid and appraised in shops and the temple as `shop:`
-(see Shops and the temple). `COMBAT`'s battle is ported only as far as its
-setup and its end: between them it logs as `[COMBAT]`, unless `--combat
-won`, `fled`, `lost` or `gods` resolves it. `--combat-map FILE` writes each
+fight as `combat:` (see Monsters and encounters and The battlefield), each
+round's order of turns and each turn as `round:` and `turn:`, and effects
+ending in a battle as `effect:` (see The rounds), the coins and items
+`TREASURE` adds as `treasure:` (see Treasure and the end of combat), and
+what is paid and appraised in shops and the temple as `shop:` (see Shops
+and the temple). `COMBAT`'s battle runs its rounds with every turn passing,
+as what a combatant does is not ported, unless `--combat won`, `fled` or
+`lost` decides it instead, or `gods` has the player's turns run the
+original's cheat (see The rounds). `--combat-map FILE` writes each
 battle's map and combatants to `FILE` (see The battlefield). A fight ends
 with the results and the treasure menu, which read keys; with no party at
 all the monsters rejoice and the run ends. `--test-party N` adds N (1-8)
@@ -408,8 +411,9 @@ saves `DIR/NNN.bmp` each time the game waits for a key, `--screen FILE` the
 final screen. `--start ADDR` runs from a code address instead, `--vector N`
 one vector, `--at X,Y,DIR` places the party, `--set ADDR=VALUE` sets
 variables (in hex), `--file N` picks the ECL file (by default the first that
-holds the block), `--still` loads only the first frame of each picture, and
-`--trace` lists each instruction. For example, `./build/eclplay --start 899b
+holds the block), `--still` loads only the first frame of each picture,
+`--seed N` starts Turbo Pascal's `Random` from N (in decimal; by default
+0), and `--trace` lists each instruction. For example, `./build/eclplay --start 899b
 --keys '\r2\r' Assets 48` answers the guards at the gates of Gargath with
 the second item of a list.
 
@@ -786,13 +790,13 @@ needs the combat record and is not. The character sheet (`546c:07bb`),
 the Items menu after every key (`546c:17f9`) and Trade's receiver
 (`546c:2178`, `546c:32b0`) recompute, as ported (see View). The other
 places the original recomputes are not ported: the ECL opcodes `ADD
-NPC` (`2fd3:311c`) and `DESTROY ITEMS` (`2fd3:35a3`), in combat each
-combatant's turn (`3995:040b`), the AI's
+NPC` (`2fd3:311c`) and `DESTROY ITEMS` (`2fd3:35a3`), the AI's
 choice of weapon (`3afb:1608`), attacks (`432f:1579`, `432f:1a45`), spells
 with an attack roll (`5b04:1071`, which no spell cast outside combat
 reaches); and creating, training, modifying and changing the order of a
 character (`4def:06dd`, `4def:4d9e`, `4def:28fa`, `4def:567f`). Combat
-setup (`3cb2:10d9`) recomputes every record (see The battlefield), the end
+setup (`3cb2:10d9`) recomputes every record (see The battlefield), each
+combatant's turn (`3995:040b`) the combatant (see The rounds), the end
 of combat (`351b:1968`) every record left, taking an item (`36d0:034c`,
 which buying does too) the taker, and appraising gems (`58e7:1929`) the
 appraiser after each key, as ported (see Treasure and the end of combat,
@@ -861,8 +865,9 @@ lacks it; below, its 0x3e goes. Removing an effect not in the list makes the ori
 each a fixed list of effect ids, in order; for each id the target's first
 effect with it, or, for the ids the party shares (0x15, 0x2d, 0x2e and
 0x31, the set at `60f4:0332`), the first record's in the list, a
-monster's too, when the target has none (`60f4:0352`). In combat only members in range count, which needs
-the combat map and is not ported. Events 6 and 9 first check magic
+monster's too, when the target has none (`60f4:0352`); in combat only a
+holder that has the target within 6 cells (Prayer, 0x31) or 1 (the others)
+on the map counts (see The rounds). Events 6 and 9 first check magic
 resistance (`60f4:04f3`) when the target has some (`+0x187`), an effect
 is pending (`6b2f`) and no damage is, or magic damage (`6b31` bit 8): a
 d100 up to the resistance plus 5 for each level the caster (the selected
@@ -918,11 +923,16 @@ character with no hammer and fewer than 16 items counted (`+0x142`) one at
 the end of its items (type 6, name parts 6 and 0x79, bonus 1, `+0x3d` 0x17,
 `+0x3e` 0x80) and says it "Gains an item"; its search for the new hammer, to
 ready it in an empty weapon slot, steps past it, so it is never readied. The
-part of 0x2b that prints is not ported. Not ported, because they need combat
-(its records at `+0x183`, the map, targets or icons): 0x07, 0x1a, 0x1b,
-0x1f, 0x25, 0x33-0x35, 0x44, 0x4b, 0x69, 0x6a, 0x72 and 0x73; combat and
-text: 3, 0x0d, 0x15, 0x1c, 0x1e (the stinking cloud), 0x20, 0x23, 0x28-0x29,
-0x30, 0x3c, 0x40-0x43, 0x45-0x48, 0x4c, 0x4f-0x51, 0x56-0x58, 0x70 and 0x75;
+part of 0x2b that prints is not ported. Ported with the rounds, for a
+battle (see The rounds): `00f7` (0x1b, 0x1f, 0x33-0x35), `016a` (3),
+`06b2` (0x15), `09e8` (0x1a), `0a2f` (0x1c), `0ae0` (0x1e, the stinking
+cloud), `0d7c` (0x23), `1412` (0x29), `23a4` (0x47, but for turning a
+spell back), `24f4` (0x48), `26bf` (0x4b) and `2b5f` (0x4f); outside a
+battle those that write a combat record or read the map stop the run, as
+the original writes through records it has freed. Not ported, because they
+need combat (its records at `+0x183`, the map, targets or icons): 0x07,
+0x25, 0x44, 0x69, 0x6a, 0x72 and 0x73; combat and text: 0x0d, 0x20, 0x28, 0x30,
+0x3c, 0x40-0x43, 0x45, 0x46, 0x4c, 0x50, 0x51, 0x56-0x58, 0x70 and 0x75;
 dealing damage or killing, with text: 0x0f, 0x16, 0x22 and 0x2c; healing,
 with text: 0x3e; spells: 0x4a; a monster's breath or attack, which
 `5b04:58ed` installs at startup and event 0x0e of the combat AI runs: 4
@@ -931,7 +941,11 @@ with text: 0x3e; spells: 0x4a; a monster's breath or attack, which
 `3f44:3888`, which reads past the 9-byte record. Id 0 has no handler: the
 original calls `0000:0000`. A call that reaches any of these fails, naming
 the handler; `DAMAGE` and the clock then end the run with
-`COK_ECL_EFFECT_FAILED` and log the reason as an error.
+`COK_ECL_EFFECT_FAILED` and log the reason as an error. In a battle,
+where monsters' effects run every turn, such a handler, and the parts of
+0x0b (taking hold), 0x4d (its target) and 0x6b (applying it) that need
+combat, are skipped instead and logged, as `unported: effect 0x68
+(5b04:546e) on event 0x0e` (or `on removal`); see The rounds.
 
 `57e4:0549` calls `57e4:0171` with the unit and count once the clock has
 moved. It turns them into minutes as a word, which wraps past 45 days,
@@ -1369,13 +1383,15 @@ The port keeps these quirks:
   outside combat too and reads the map pointer (`DS:6a2e`) that combat
   has freed; the port leaves it out.
 
-Not ported: the combat target routine (`432f:2337`) and the combat parts
+Not ported: the combat target routine (`432f:2337`), which a battle puts
+in `DS:6e3a` while it runs, so that a cast then stops the run with
+`COK_ECL_EFFECT_FAILED`, and the combat parts
 of `5b04:1415`, `6346:228c` and `60f4:1db7` (icons, missiles, sounds,
 "lost a spell"); spells cast by touch (byte 2 0xff, `60f4:1062`), which
 none outside combat is; effects whose handlers need combat or text when
 the spell's events or timers reach them, such as 0x0f and 0x16 of Slow
-Poison when they run out, 0x1c (Mirror Image) on damage and 0x47 (from
-0x3f) on event 9, which stop the run with `COK_ECL_EFFECT_FAILED`; and
+Poison when they run out, and 0x47 (from 0x3f) on event 9 when it would
+turn a spell back, which stop the run with `COK_ECL_EFFECT_FAILED`; and
 spell ids 0x6c-0x7f, which only items name, past the handler table. The
 spell target and the trade partner (`DS:710b`, `46b0`), which the
 original keeps as pointers into freed records when Alter's Drop removes
@@ -1769,24 +1785,24 @@ for the mode (`6346:2c17`), and outside 3D areas, unless the run ended or
 (`4877:0005`, logged as unported). The preloads of overlays (`XXXX:0000`,
 `432f:1e96`) and the sound driver's stops around them are left out.
 
-The battle (`3995:0172`) is ported as far as its setup (`3cb2:1c58`, see
-The battlefield), which builds the map, gives every record its combat
-record and places them, removing monsters with no place; the rest is not
-ported. Unless `eclplay --combat` resolves it, the battle is logged as
-unported (`[COMBAT]`, as before) and changes nothing more; the battle's
-end (`3995:004b`, see The battlefield) and the end of combat follow. The stub
-(`cok_adventure.combat_stub`) decides instead: `won`, every record against
-the party (`+0x18a` 1) drops (status 6, cannot act), and those on its side
-past the party's size do not; `gods`, the original's cheat when started
-with `Helm` (`432f:41e2`), says "The Gods intervene!" on row 24 and drops
-them as `won` does; `fled`, every party record that can act flees (status
-3); `lost`, the whole party dies. Then the end of combat (`351b:1968`)
-runs, after every battle and for treasure alone (see Treasure and the end
-of combat): the party's part, `351b:0574`, decides from the statuses the
-stub left whether the party won, fled or was destroyed. Without `--combat`
-nothing drops, so the party wins, with none of the monsters' experience;
-with no party at all, as in `eclplay` without `--party`, it is destroyed,
-as `351b:0574` finds no one standing, and the run ends.
+The battle (`3995:0172`) sets up the battlefield (`3cb2:1c58`, see The
+battlefield), which builds the map, gives every record its combat record
+and places them, removing monsters with no place, then fights its rounds
+(see The rounds), in which what a combatant does is not ported: every
+turn passes, so that fifteen rounds without an attack end it. `eclplay`'s
+`--combat` (`cok_adventure.combat_stub`) decides the outcome instead of
+the rounds: `won`, every record against the party (`+0x18a` 1) drops
+(status 6, cannot act), and those on its side past the party's size do
+not; `fled`, every party record that can act flees (status 3); `lost`,
+the whole party dies; or `gods` has the player's first turn of each round
+run the original's cheat when started with `Helm` (`432f:41e2`). Then the
+battle's end (`3995:004b`) and the end of combat (`351b:1968`) run, after
+every battle and for treasure alone (see Treasure and the end of combat):
+the party's part, `351b:0574`, decides from the statuses the battle left
+whether the party won, fled or was destroyed. Without `--combat` nothing
+drops, so the party wins, with none of the monsters' experience; with no
+party at all, as in `eclplay` without `--party`, it is destroyed, as
+`351b:0574` finds no one standing, and the run ends.
 
 `CALL [2e10]` (`2fd3:329b`), which scripts run after each encounter,
 recomputes the party's square and, if a picture or sprite is shown or the
@@ -1998,15 +2014,17 @@ kept); a party member with none stays in the list, off the map, its place
 the last cell whose formation cell was free (or an earlier battle's, with
 none). The occupants are rebuilt after each record placed.
 
-The battle's end (`3995:004b`, `cok_combat_end`) runs after the stub:
-each record charmed (effect 0x0b) and okay runs (status 3) if more than
-one enemy could act at the last count (`DS:6b2d`); each loses the first
-effect of each id that lasts only through the battle (`60f4:1440`,
-`DS:0db4`: 0x03, 0x0b, 0x15, 0x17, 0x1b, 0x1e, 0x1f, 0x33-0x35, 0x5b,
-0x6a, 0x6b, 0x6f, 0x76 and 0x77); one berserk (0x4d) and turned (`+0xe7`
-0xb3) goes back to the party's side; and the map is freed. Freeing the
-clouds and the flash picture and restoring the spell target hook are
-left to their parts.
+The battle's end (`3995:004b`, `cok_combat_end`) runs after the rounds:
+it frees the lists of clouds on the map (`DS:7111`, `7119`; the port has
+none yet); then each record charmed (effect 0x0b) and okay runs (status
+3) if more than one enemy could act at the last count (`DS:6b2d`), which
+the end of the last round made; each loses the first effect of each id
+that lasts only through the battle (`60f4:1440`, `DS:0db4`: 0x03, 0x0b,
+0x15, 0x17, 0x1b, 0x1e, 0x1f, 0x33-0x35, 0x5b, 0x6a, 0x6b, 0x6f, 0x76 and
+0x77); one berserk (0x4d) and turned (`+0xe7` 0xb3) goes back to the
+party's side; the map is freed, and spells pick their targets outside
+combat again (`DS:6e3a` back to `5b04:127e`). Freeing the flash picture
+(`DS:719e`) is left to the combat screen.
 
 Effect 0x52, a dragon's fear (`3f44:303c`), which event 8 runs at setup
 for the red dragons of MON3 record 22 (ECL3 blocks 97 and 98), acts on
@@ -2116,15 +2134,355 @@ random seed. All 1,000 maps of open ground and all 4,000 of the 3D
 builder agreed (281 of those reading unbuilt cells). Of 6,000 setups, the
 5,537 the port carries out agreed; both refused 15, where the original
 never ends (with no party, its first two records removed; in 7 the port
-stops first at the unported handler of effect 0x47); the port alone
+stopped first at the handler of effect 0x47, then unported); the port alone
 refused 448: a side other than 0 or 1 (241), a magic resistance roll for
 a spell with no character selected, which the original reads through
-NULL (154), the unported handler of effect 0x47 on event 9 (50) and a
-body off the map (3). Of 4,000 lookups, the 3,619 the port carries out
+NULL (154), the handler of effect 0x47 on event 9, then unported (50),
+and a body off the map (3). With the rounds the port runs setup in a
+battle, where 0x47's handler is ported but for turning a spell back,
+which is skipped and logged like any unported handler (see The rounds). Of 4,000 lookups, the 3,619 the port carries out
 agreed; it alone refused 381: placing a record that is not a combatant
 (243), a side other than 0 or 1 (58), a footprint outside the occupants
 (30), sizes past the footprints (45) and placing one whose footprint
 lies outside the map (5). It is not part of the repository.
+
+## The rounds
+
+`src/round.h` ports the battle (`3995:0172`) with the rest of overlay
+`3995` but the player's commands, the start of a round for each record
+(`432f:0000`, `014d`, `0e80`, `0f9e`), the lines, sight and ranges of
+overlay `6b30`, and the helpers of overlays `432f`, `6346` and `60f4` that
+the later parts of combat share. What a combatant does on its turn, the
+computer's choice (`3afb:004b`) or the player's commands (`3995:0573`), is
+not ported: such a turn is logged as `turn: NAME (initiative N)` and ends
+(`6346:2964`). Nor is the combat screen (see below).
+
+The battle (`cok_combat_battle`), as `COMBAT` starts it: the mode becomes
+5, spells pick their targets with the combat routine (`DS:6e3a` holds
+`432f:2337`, which is not ported: a cast stops the run), the battlefield
+is set up (see The battlefield), and the battle is over before it starts
+if either side has no record that can act at the count placement made,
+before it removed the monsters with no place. Every record runs effect
+event 0x18 (a dragon's fear, a second time), then until the battle is
+over, round by round:
+
+1. The sides are counted (`6346:268a`).
+2. Each record in list order starts the round (`432f:0000`): it casts no
+   spell (combat record `+0x00`), may cast unless a stinking cloud (terrain
+   0x1e) lies under it, may use items, has not attacked, uses attack slot
+   2, has its attacks with its weapon (`+0x18f`, `432f:0e80`) and its others
+   (`+0x190`: `+0x10c` after event 0x12, haste and slow, halved by
+   `432f:0f9e`), its sweeps (`+0xce`), its initiative and its movement
+   (`432f:014d`). One that can act rolls 1d6 plus its dexterity's missile
+   bonus (`6346:12f8`), as a byte, at least 1, less 6 when its side is
+   surprised (var `0x7ecb`, side + 1: bit 0 the party's, bit 1 the
+   enemy's), and 0 outside 0-20; one that cannot gets 0 and rolls nothing.
+3. Var `0x7ecb` is cleared: surprise lasts one round.
+4. The turn order (`3995:02a0`, `DS:71ae`): every record by initiative,
+   highest first, the dead too. Each goes before the first entry from 1
+   with a lower initiative, an empty entry counting as -1, or before an
+   equal one for which a d2 rolls 1; the search stops at entry 65 and
+   later entries move down, the 72nd falling off.
+5. From entry 1 (`DS:72ce`), each entry's turn (`3995:040b`), then the
+   dead that explode (`60f4:2375`), until an empty entry or past the 72nd.
+   The entry is read again after each turn, so that turns that move
+   entries (a delayed spell, Delay, Quick) count. No side's end stops the
+   round.
+6. The end of the round (`3995:0b6d`).
+
+The battle's end (`3995:004b`) follows (see The battlefield).
+
+A turn (`3995:040b`) clears the combatant's hits and turning (`+0x0f`,
+`+0x12`) and guard (`+0x07`) and runs event 7 (held, asleep, paralysed:
+0x33-0x35, 0x1f, 0x03, 0x1b, which end the turn). If its initiative is
+then above 0, 0x14 (a turn given to the computer by Quick) becoming 0x13,
+it is selected (`DS:6096`), its actions are shown (`DS:71ad`) if it is on
+the party's side or any of its cells is on the view (`6beb:06ef`), the
+map shows it (`6beb:12ef`), its stats are recomputed (`6346:0d20`), the
+side panel drawn (`DS:71ac`, `6346:0af6`), events 0x0f and, unless it is
+casting, 0x15 run, and if its initiative is still above 0, the computer
+acts for it (`+0x18b`) or the player does; its cell is redrawn
+(`6beb:02aa`). The player's commands select the menu's first item
+(`DS:6e0f`) for one that can act and casts no spell.
+
+The end of a round (`3995:0b6d`): a minute passes (`57e4:0549`, the clock
+and every record's effects, the monsters' too, counted down: in mode 5
+every timer flag is set); the round is counted (`DS:714b`); the enemies'
+health is worked out (`432f:2df3`); each record runs event 0x13 and is
+hurt by a damaging cloud (terrain 0x1d) it stands in when it can act
+(`60f4:0dc3`, 1d6 through `60f4:1db7`, not ported: logged as unported, and
+only spells put clouds on the map); a dying one (status 5) counts a round
+(`+0x0e`, a byte) and past 9 is dead (status 6), its hit points and icon
+unchanged. Then "Your Teammate is Dying" shows on row 24 (`6346:1827`) if
+a party member on the party's side is dying (`6346:31e9`), the sides are
+counted and the map redrawn around the view. The battle is over when a
+side has none that can act or the rounds reach the limit (`DS:714c`, 15,
+which an attack moves to the round + 15); when the enemy has none and
+the party some, "Continue Battle:" (`67b5:177f`) asks, and Yes fights on,
+asking again each round.
+
+Data the rounds keep in `cok_combat`, beside the battlefield's:
+
+| Data | Meaning |
+| --- | --- |
+| `DS:71ae + 4(i - 1)` | the turn order, records from entry 1 to 72 (`turn`); `DS:72ce` the entry whose turn it is |
+| `DS:71ac`, `71ad` | the side panel is to be drawn; the actor's moves are shown |
+| `DS:6a30 + 3k`, k from 1 | the combatants around a cell (`6b30:08d8`, `listed`): combatant, length in half cells, direction; the count at `DS:6a32` |
+| `DS:714c + i`, i from 1 | the enemies `6346:26e2` found (`enemies`), combatant numbers |
+| `DS:6b41 + 4i`, i 1-20 | the dead that explode (`exploding`), count `DS:6b95`, `DS:6b96` while they do |
+
+`6b30:08d8` (`cok_combat_list`) lists each combatant on the map (size above
+0) that a footprint at x, y facing a direction (0xff any) sees within a
+range: for each cell of the combatant and each of the footprint, the cell
+in the footprint's quarter (`6b30:054a`) and seen from it (`6b30:03f1`),
+the least length kept (below 0xff), with the direction given, or for any,
+the first 0-8 whose quarter holds the pair that gave it; the one at x, y
+is listed too, at 0. The list is sorted (`6b30:0033`, an exchange sort):
+nearest first, then the lower direction first unless it is odd and the
+other even. A line (`6b30:01a5`, `024c`, `cok_combat_line`) steps a cell
+along the longer axis, adding 2 to its length, and one along the shorter
+when its error, increased by twice the shorter, reaches the longer, adding
+1 more, so that a straight step is 2 and a diagonal 3; it stops once at
+its end. Sight (`6b30:03f1`) walks the line from the start cell, which
+counts, until a cell's blocking height is above the eye height of the
+start's terrain (`DS:1ee4`: walls block 2, a table lifts the eye to 2),
+unless sight is not blocked (map `+6`), or until its length passes twice
+the range + 1. The quarter (`6b30:054a`) holds the cell itself and the
+one ahead, and is a wedge of 90 degrees from the cell ahead, by eight
+pairs of comparisons; neither cell may be off the map.
+
+The helpers:
+
+| Function | Original |
+| --- | --- |
+| `cok_combat_battle` | `3995:0172` |
+| `cok_combat_round_start` | `432f:0000` |
+| `cok_combat_turn_order` | `3995:02a0` |
+| `cok_combat_turn` | `3995:040b` |
+| `cok_combat_end_round` | `3995:0b6d` |
+| `cok_combat_end_turn` | `6346:2964` |
+| `cok_combat_damage` | `6346:24d7`, in combat |
+| `cok_combat_bandage` | `6346:31e9` |
+| `cok_combat_helpless`, `cok_combat_opposite` | `6346:0cdb`, `6346:2666` |
+| `cok_combat_movement`, `cok_combat_half_attacks` | `432f:014d`, `432f:0f9e` |
+| `cok_combat_weapon_attacks` | `432f:0e80` |
+| `cok_combat_missile_weapon`, `cok_combat_ammunition` | `6346:3043`, `6346:3111` |
+| `cok_combat_fastest_enemy` | `432f:2e82` |
+| `cok_combat_auto` | `3995:1604` |
+| `cok_combat_battle_only` | `60f4:1440` |
+| `cok_combat_leave` | `60f4:133c` |
+| `cok_combat_gods` | `432f:41e2` |
+| `cok_combat_explode` | `60f4:2375` |
+| `cok_combat_line_start`, `cok_combat_line_step` | `6b30:01a5`, `6b30:024c` |
+| `cok_combat_sight`, `cok_combat_in_arc` | `6b30:03f1`, `6b30:054a` |
+| `cok_combat_list` | `6b30:08d8`, `0033` |
+| `cok_combat_enemies`, `cok_combat_distance`, `cok_combat_direction` | `6346:26e2`, `2888`, `34e9` |
+
+`6346:24d7` in combat keeps a dying record's damage past its hit points
+as its rounds dying, and a record that drops loses its initiative and is
+counted out of its side at once. `6346:31e9` finds, and bandages if asked,
+the first dying party member on the party's side wherever it is:
+unconscious, no rounds dying, "is bandaged". `60f4:133c` takes one that can
+act out of the battle with a text, a status, its hit points 0 unless it
+runs (3), off the map, its turn ended and its effects that last through the
+battle gone. `432f:41e2` (Alt-X, or `-` in the computer's turns, when the
+game was started with `Helm`) says "The Gods intervene!", kills every record
+against the party and takes it off the map, and ends every record's turn.
+`6346:26e2` keeps, of the combatants listed around one, the enemies (on the
+side `6346:2666` gives: 1 for the party's side, else 0), into the list and
+`DS:714d`, the one who yelled (`DS:71a7`) first for one with effect 0x5b.
+`6346:2888` is the distance in squares (the length / 2) with sight not
+blocked, and `6346:34e9` the direction 0-7 from one record to another, the
+first whose wedge (by `0x26a` and `0x6a` / 256, tan 67.5° and 22.5°) holds
+it. `432f:2e82` is the most that the enemies who can act move this round,
+in squares (`432f:014d` / 2, which runs each one's event 0x12).
+
+In a battle the effects (see Spell effects) are run with the combat map:
+an effect the party shares (0x15, 0x2d, 0x2e, 0x31) counts for a target
+only from a holder that has it within 6 cells (Prayer) or 1 (the others),
+as `60f4:0352` lists them (`6b30:08d8`, with the list's entries put back
+after, but not its count). The handlers that wait for a battle are
+ported with it (see Spell effects):
+
+| Id | Handler | In a battle |
+| --- | --- | --- |
+| 0x1b, 0x1f, 0x33-0x35 | `3f44:00f7` | the turn ends (`6346:2964`), at event 7 |
+| 3 (snakes) | `016a` | the value counts down by the round's attacks (`+0x18f` + `+0x190`, a byte), the first 3 going when they reach it; "is fighting with snakes", and the turn ends |
+| 0x15 (silence) | `06b2` | one that may use items "is silenced"; it may neither use them nor cast |
+| 0x1e (nausea) | `0ae0` | the same, "is coughing", its stats recomputed and its armour class 2 worse, or 0x32 for 0x34 or less; the side panel it then draws for the selected (`6346:0af6`) is left to the combat screen |
+| 0x1c (Mirror Image) | `0a2f` | on damage, a d(images + 1) above 1, unless a spell marked `DS:6b39` is cast, takes it and the effect pending: "lost an image" |
+| 0x23 (confusion) | `0d7c` | at event 0x15 a d100: 1-10 it runs away (0x6f for ten minutes, the computer in control), 11-60 "is confused" and the turn ends, 61-80 "goes berserk" (0x4d, whose handler runs), 81-100 "is enraged"; then a saving throw of type 4 at -2 ends it |
+| 0x1a | `09e8` | against a target (`DS:6b3f`) with `+0x13f` bit 7, the attack roll 1 better |
+| 0x29 | `1412` | an attacker striking with an item of no bonus from more than a square away misses on a d100 of 100 or less: "Avoids it", no damage, the attack roll 0xff, one hit fewer (`DS:6b3c`) |
+| 0x47 (spell turning) | `23a4` | a d10; a spell turned back, on 1 for a spell of targets below 8 or always above 14, is not ported |
+| 0x48 | `24f4` | each enemy within a cell (`6b30:08d8`) without 0x5c that fails a saving throw of type 4 "is terrified" (0x6f for good) and flees |
+| 0x4b | `26bf` | against a target with `+0x140` bit 0, damage 3 times a d12 + 4 + strength's damage bonus, as a byte, and the attack roll 2 better |
+| 0x4f | `2b5f` | "emits an evil stench"; each enemy within a cell that fails a saving throw of type 4 and lacks 0x76 "is affected" |
+
+Outside a battle those that write a combat record (`+0x183`) or use the
+map stop the run, as the original's would write through records it has
+freed. Monsters carry effects that run every turn, and some of their
+handlers are still not ported: during a battle (`cok_effects.in_battle`,
+from the battle's start to its end) such a handler is skipped and logged,
+`unported: effect 0x4c (3f44:272a) on event 0x0f`, where outside a battle
+the run ends. From the first `unported: effect` line a battle's random
+numbers and records may stop following the original's, for a skipped
+handler rolls none of its dice: of those a battle reaches with every turn
+passing, 0x30 (event 0x0f) a d6 for each combatant within a cell that
+can act (`+0x189` not 0), 0x42 (0x0f) 2d6 against the first enemy beside
+it, and 0x3c (on its end) 3d6 and a saving throw (d20) for each one
+within a cell that can act, and the damage they deal (`60f4:1db7`) runs
+the targets' events, which can roll more (magic resistance's d100,
+Mirror Image's die, 0x47's d10), while 0x4c
+(0x0f), which brings a combatant back onto the map, 0x4d (berserk, 0x0f
+and 0x15), 0x0b in combat (0x13) and 0x47 turning a spell back on its
+caster rolled none in the emulator's random cases but change records;
+and of those only attacks and deaths reach, 0x07 a d6 or
+d4, 0x43 a d20, 0x46 a d6, the poisons (0x40, 0x41, 0x56, 0x57) and
+paralyses (0x45, 0x51, 0x58) a saving throw, 0x4a a d20, and the
+monsters' breath and attacks (4, 6, 0x4e, 0x53-0x55, 0x5a, 0x68) their
+d100s, saving throws and damage dice. Each effect that ends in a battle,
+by its timer or the battle's end, is logged, `effect: NAME loses 0x77`.
+The dead that explode (effect 0x44, whose handler is not ported) are
+never listed; `60f4:2375` clears the damage type (`DS:6b31`) after
+every turn all the same, and stops the run if any are listed.
+
+The combat screen is not ported. Where the battle draws, the port does
+what the drawing changes: `6beb:12ef` sets the map's cursor (`+4`, `+5`)
+and, while the actor's moves are shown, scrolls the view to it
+(`6beb:07a9`, margin 2); `6beb:096b`, at the end of each round and after
+the Gods, scrolls (margin 0xff), which works out the screen positions
+again; the side panel clears `DS:71ac`. The drawing itself, of `6beb:12ef`,
+`6beb:096b`, `6beb:02aa`, `6beb:0500` and `6346:0af6`, is logged as
+unported the first time each is reached in a battle. Texts (`6346:1883`)
+are said in the text window, as outside combat.
+
+`eclplay` logs each round's order as `round: N: NAME I, ...` (every
+record, with its initiative), and the turns not ported as `turn:`.
+`--combat won`, `fled` and `lost` decide the battle in place of its
+rounds, after event 0x18, and the sides are counted again before the
+battle's end; `--combat gods` presses Alt-X at each player's turn that
+reaches the commands, as the original allows with `Helm` on its command
+line.
+
+The port keeps these quirks:
+
+- The battle's sides are those counted before setup removed monsters with
+  no place: a battle whose monsters were all removed still starts, and its
+  first round's end finds the enemy gone.
+- Event 0x18 runs after setup's event 8, so a dragon's fear runs twice:
+  those who made their saving throw the first time throw again.
+- The turn order rolls a d2 for every tie, the dead's 0s too; an
+  initiative of -1 rolls against the empty entries, and one below that
+  passes them all to entry 65.
+- Initiative is at least 1 before surprise takes 6, so a surprised
+  combatant keeps a turn only when 1d6 and its dexterity's bonus make 7 or
+  more.
+- Half attacks round up on odd rounds, as a byte: 255 half attacks give
+  none then.
+- With ammunition, `432f:0e80` caps the attacks at its count only when the
+  count is not 0, and one arrow allows one; having attacked, a combatant
+  never gets more attacks by readying another weapon.
+- Movement takes var `0x7f72` as a byte for the party's side, and 0 or
+  above 0x60 counts as 1; haste doubles it as a byte.
+- A dying combatant's count starts at the damage past its hit points and
+  gains one at every round's end; past 9 it is dead, its hit points and
+  icon unchanged. Bandaging reaches the first dying party member anywhere.
+- Damage in combat counts a record out of its side each time it drops,
+  even when it had dropped before, and the count wraps; one running (3)
+  that is hurt drops.
+- No side's end stops a round: every remaining entry has its turn.
+- `432f:41e2` takes the dead off the map (size 0) without rebuilding the
+  occupants (`DS:63f3`), which keep their numbers.
+- The list `6346:2888` and `60f4:0352` put back keeps its new count; a
+  target `6346:2888` does not find reads the last entry, or with none
+  listed the first, stale.
+- `6b30:03f1` tests the start cell: one standing on a wall sees nothing.
+- "Continue Battle:" asks every round while the enemy is gone and the
+  answer is Yes; a battle so continued ends at the round limit or when the
+  party can no longer act.
+- An evil stench (0x4f) adds 0x76 not to the enemy affected but to its
+  holder, once for each enemy that fails, as many times as the stench
+  runs.
+- Mirror Image (0x1c) counts its value down by 1 for each hit it takes,
+  the caster's level in its low nibble first, and rolls a d(images + 1)
+  with the images in the high nibble: of a value 16N + L it takes 16N + L
+  - 15 hits, and then, its die a d1, takes none but stays until its timer
+  ends (its removal at 0, `3f44:0aad`, is never reached).
+- Confusion's berserk (0x23, 61-80) runs 0x4d's handler with no effect,
+  which is not ported: skipped.
+- 0x29 takes the hit from the first slot (`DS:6b3c`) whichever slot
+  struck.
+- A handler that runs on its effect's removal and removes it again
+  recurses. 3, removed (at its timer or the battle's end) with a value no
+  more than the round's attacks, does so without end: the original has
+  no stack check, and its stack wraps after some 150-190 levels of about
+  84 bytes and writes over memory; the port stops at once. 0x23 does by
+  its dice and ends; the port stops past 64 nested removals, and where an
+  inner removal has already unlinked the effect, which the original
+  unlinks again through NULL.
+
+Where the original misbehaves the port stops with `COK_ECL_UNDEFINED`: a
+record with no combat record in a battle (read through NULL), a record on
+a side other than 0 or 1 (counted into the bytes after `DS:6b2d`), an item
+type past `ITEMS` for a readied weapon, a footprint size past the table, a
+direction of 9-0xfe to `6b30:054a` (an uninitialized result), a map cell's
+terrain past the table, a record that is not a combatant taken off the map
+(its size would be written over the count), and a direction `6346:34e9`
+finds for no wedge, where the original loops for ever.
+The handlers ported for a battle stop the run with `COK_ECL_EFFECT_FAILED`
+where theirs misbehave: 0x4b against no target (read at `0000:0140`) and
+0x1a likewise (`0000:013f`), 0x29 reading the selected character when none
+is, a record with no combat record, and the nested removals above.
+
+Not ported: the computer's turns (`3afb:004b`), the player's commands
+(`3995:0573`), attacks, movement, spells and items in combat, the
+damaging clouds (`60f4:0dc3`), the explosions' damage, death's animation
+and bodies (`6beb:0e08`), and the combat screen.
+
+A differential test ran the original routines in an 8086 emulator against
+the port. Whole battles: setup (`3cb2:1c58`), event 0x18, rounds with
+every turn passing (`3afb:004b` and `3995:0573` replaced by the same end
+of turn, `3995:08d5` answering Alt-X for `gods`, "Continue Battle:" fed
+answers), and the battle's end, on random parties, monsters with their
+effects and items, effects with timers, maps, squares, surprise, var
+`0x7f72` and clocks, comparing the records, items, effects and combat
+records, the map and its tables, the turn order, the lists, the sides,
+round, limit, health, selection, menu item, the rolls' bytes, the clock,
+the timer flags, each round's order, the turns, the texts printed (a
+name and its text for `6346:1883` and `228c`) and the random seed. Of
+2,000 battles, the 1,825 the port carries out without skipping a handler
+agreed (1,028 to the round limit, 602 ending earlier, 195 by the Gods);
+no case differed. In 108 the port skipped a handler and was compared all
+the same: 44 still agreed (43 skipping 0x4c, which did nothing there) and
+64 parted from the original, as the sentence on skipped handlers above
+warns (0x4d 30, 0x30 13, 0x42 11, 0x0b 5, 0x4c 2, others 3). Both
+refused 5, in which the original never ended (4 within effect 3's
+removal); the port alone refused 62: magic resistance to an effect being
+added, reading the caster's level from the selected character, which
+none is (28), a side other than 0 or 1 (10), 0x23 removed by an inner
+removal and unlinked again (10), other handlers reading the selected
+character (10), 0x1a and 0x4b with no target (3) and a body off the map
+(1). Each handler (`60f4:057c` on one record, with random rolls' bytes
+and combat records): of 1,000 cases, the 935 the port carries out
+agreed, the rest refused, mostly for a selected character or a target
+that is not there and item types past `ITEMS`; and of 4,000 cases aimed
+at the handlers ported for the battle (holders at the map's edges, up to
+seven combatants around, mixed sides), the 3,585 it carries out agreed,
+both refused 8 (3's endless removal) and the port alone 407, for the same
+reasons and the handlers it skips. Each routine alone, on random battles
+laid out with random combat records: `432f:0000`, `014d`, `0e80`, `0f9e`,
+`2e82`, `3995:02a0`, `040b`, `0b6d`, `1604`, `6346:2964`,
+`24d7` in mode 5, `0cdb`, `2666`, `31e9`, `60f4:1440`, `133c`, `2375`,
+`432f:41e2`, `6346:26e2`, `2888` and `34e9`: of 4,000 cases, the 3,830
+the port carries out agreed; the port alone refused 157 (a damaging
+cloud or a handler skipped, a record with no combat record, a side other
+than 0 or 1 and item types past `ITEMS`), the original alone a delayed
+spell's cast (12), and both 1 that never ends. The map's routines
+(`6b30:08d8`, `03f1`, `054a`, with `26e2`, `2888`, `34e9`) on random maps
+and tables: 2,964 of 3,000 agreed, the rest refused for item types past
+`ITEMS`; and 1,000 lines (`6b30:01a5`, `024c`), all agreeing. It is not
+part of the repository. The screen was not compared.
 
 ## Treasure and the end of combat
 
@@ -2777,6 +3135,20 @@ running in DOSBox:
   each character of level 3 or less should flash and be "terrified"
   as the battle begins, and those of higher levels "afraid" unless they
   save.
+
+- Meet the patrol of Throtl's outpost (ECL1 block 16 at `8cda`), which
+  surprises the party (var `0x7ecb` 1): in the first round only
+  characters of dexterity 16 and up, with a high roll, should get a turn.
+- Leave a character dying (2-9 points past its hit points) in a battle:
+  "Your Teammate is Dying" should show at each round's end, and it should
+  die once the rounds counted from its damage pass 9, its hit points
+  unchanged; Bandage (in Done) should make it unconscious.
+- Win a battle that the party can still fight: "Continue Battle:" should
+  ask at the round's end; Yes should go on with another round and ask
+  again.
+- Start the game with a second argument of `Helm` (`START x Helm`) and
+  press Alt-X at a character's turn in combat: "The Gods intervene!",
+  every monster dead, the round ending.
 
 ## Disassembly image
 

@@ -81,6 +81,33 @@ static cok_character *selected(cok_effects *fx, uint8_t id)
 static bool remove_effect(cok_effects *fx, cok_character *character, cok_effect *effect,
                           uint8_t id);
 
+static void log_text(cok_effects *fx, const char *kind, const char *text)
+{
+    if (fx->log != NULL) fx->log(fx, kind, text, fx->context);
+}
+
+/* A handler of id, or the part of one, that is not ported, and needs
+ * what is said: in a battle it is logged and skipped, saying the event
+ * whose handlers ran; otherwise the call fails. */
+static bool unported(cok_effects *fx, uint8_t id, uint16_t segment, uint16_t address,
+                     bool removing, const char *needs)
+{
+    if (!fx->in_battle)
+        return fail(fx, "effect 0x%02x (%04x:%04x) needs %s, which is not ported", id, segment,
+                    address, needs);
+    char text[80];
+    if (removing)
+        snprintf(text, sizeof text, "effect 0x%02x (%04x:%04x) on removal", id, segment,
+                 address);
+    else if (fx->event != 0)
+        snprintf(text, sizeof text, "effect 0x%02x (%04x:%04x) on event 0x%02x", id, segment,
+                 address, fx->event);
+    else
+        snprintf(text, sizeof text, "effect 0x%02x (%04x:%04x)", id, segment, address);
+    log_text(fx, "unported", text);
+    return true;
+}
+
 /* Say text about c (6346:1883), or fail without the hook. */
 static bool say(cok_effects *fx, cok_character *c, uint8_t id, uint16_t handler, const char *text)
 {
@@ -289,7 +316,7 @@ static bool h_charm(cok_effects *fx, bool removing, cok_effect *effect, cok_char
         return true;
     }
     if ((effect->value & 0x20) == 0)
-        return fail(fx, "effect 0x0b (3f44:03cd) taking hold needs combat, which is not ported");
+        return unported(fx, 0x0b, 0x3f44, 0x03cd, removing, "combat, taking hold");
     fx->rolls.morale = 100;
     return true;
 }
@@ -621,7 +648,7 @@ static bool h_berserk(cok_effects *fx, bool removing, cok_effect *effect, cok_ch
     r[0x18b] = 1;
     r[0xe7] = r[0xe7] <= 0x7f || r[0xe7] == 0xb3 ? 0xb3 : 0xb2;
     if (fx->vm->mode == 5)
-        return fail(fx, "effect 0x4d (3f44:29d5) picks a target in combat, which is not ported");
+        return unported(fx, 0x4d, 0x3f44, 0x29d5, removing, "a target picked in combat");
     return true;
 }
 
@@ -792,6 +819,318 @@ static bool h_poison_immune(cok_effects *fx, bool removing, cok_effect *effect,
     return true;
 }
 
+static bool call_handler(cok_effects *fx, uint8_t id, bool removing, cok_effect *effect,
+                         cok_character *c);
+
+/* The combat record of c, which a handler writes through: with none the
+ * original writes through NULL or a stale pointer. */
+static cok_combat_record *combat_of(cok_effects *fx, cok_character *c, uint8_t id,
+                                    uint16_t handler)
+{
+    if (c->combat == NULL)
+        fail(fx, "effect 0x%02x (3f44:%04x) writes the combat record of a record with none",
+             id, handler);
+    return c->combat;
+}
+
+/* 6346:2964 for c, from a handler: its turn ends. */
+static bool end_turn(cok_effects *fx, cok_character *c, uint8_t id, uint16_t handler)
+{
+    cok_combat_record *cr = combat_of(fx, c, id, handler);
+    if (cr == NULL) return false;
+    cr->initiative = 0;
+    cr->spell = 0;
+    cr->guarding = 0;
+    cr->movement = 0;
+    return true;
+}
+
+/* The combatants within radius of c on the map (6b30:08d8), or false. */
+static bool around(cok_effects *fx, cok_character *c, uint8_t radius,
+                   cok_character *listed[COK_PARTY_RECORDS + 1], uint8_t *count)
+{
+    char why[200] = "";
+    if (!fx->in_battle || fx->around == NULL)
+        return fail(fx, "the combatants around one (6b30:08d8) are listed outside combat, on "
+                        "the map combat has freed");
+    if (!fx->around(fx, c, radius, listed, count, why, sizeof why, fx->context))
+        return fail(fx, "%s", why);
+    return true;
+}
+
+/* 3f44:00f7, 0x1b, 0x1f and 0x33-0x35 (held, asleep, paralysed), with
+ * either flag: the turn ends (6346:2964). Event 7 runs it at the start of
+ * a turn. */
+static bool h_held(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing;
+    uint8_t id = effect != NULL ? effect->id : 0;
+    if (!fx->in_battle)
+        return fail(fx, "effect 0x%02x (3f44:00f7) ends the turn outside combat, through the "
+                        "record's combat record", id);
+    return end_turn(fx, c, id, 0x00f7);
+}
+
+/* 3f44:016a, 0x03, with either flag: the value counts down by the
+ * attacks of the round (+0x18f + +0x190, a byte), and the effect goes
+ * when they reach it (the first of its id); then "is fighting with
+ * snakes" and the turn ends. */
+static bool h_snakes(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    if (effect == NULL) return fail(fx, "effect 0x03 (3f44:016a) is run with no effect");
+    uint8_t n = (uint8_t)(c->record[0x190] + c->record[0x18f]);
+    if (effect->value > n)
+        effect->value = (uint8_t)(effect->value - n);
+    else if (removing && effect->on_remove && cok_character_find_effect(c, 0x03) == effect)
+        /* Being removed, it removes itself again, and so on: the original
+         * has no stack check, and at about 84 bytes a level its 16K stack
+         * wraps to SS:FFFE after some 150-190 and writes over memory. */
+        return fail(fx, "effect 0x03 (3f44:016a) removes itself on its removal without end; "
+                        "the original recurses until its stack wraps");
+    else if (!remove_effect(fx, c, NULL, 0x03))
+        return false;
+    if (!say(fx, c, 0x03, 0x016a, "is fighting with snakes")) return false;
+    return end_turn(fx, c, 0x03, 0x016a);
+}
+
+/* 3f44:06b2, 0x15, silence, shared, with either flag: one that may use
+ * items "is silenced"; it may neither use them nor cast. */
+static bool h_silenced(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect;
+    cok_combat_record *cr = combat_of(fx, c, 0x15, 0x06b2);
+    if (cr == NULL) return false;
+    if (cr->may_use != 0 && !say(fx, c, 0x15, 0x06b2, "is silenced")) return false;
+    cr->may_use = 0;
+    cr->may_cast = 0;
+    return true;
+}
+
+/* 3f44:0ae0, 0x1e, the stinking cloud's nausea, with either flag: one
+ * that may use items "is coughing"; it may neither use them nor cast; its
+ * stats are recomputed, then its armour class from behind (+0x18e) is 2
+ * worse, or 0x32 (AC 10) for 0x34 or less, and its armour class that.
+ * The original then draws the side panel (6346:0af6) if it is selected,
+ * which is left to the combat screen. */
+static bool h_coughing(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect;
+    cok_combat_record *cr = combat_of(fx, c, 0x1e, 0x0ae0);
+    if (cr == NULL) return false;
+    if (cr->may_use != 0 && !say(fx, c, 0x1e, 0x0ae0, "is coughing")) return false;
+    cr->may_use = 0;
+    cr->may_cast = 0;
+    char why[200];
+    if (!cok_character_stats(c, fx->types, why, sizeof why)) return fail(fx, "%s", why);
+    uint8_t *r = c->record;
+    r[0x18e] = r[0x18e] > 0x34 ? (uint8_t)(r[0x18e] - 2) : 0x32;
+    r[0x18d] = r[0x18e];
+    return true;
+}
+
+/* 3f44:0a2f, 0x1c, Mirror Image, with either flag: a d(images + 1),
+ * the images in the value's high nibble, above 1 takes an image unless a
+ * spell that takes none (DS:6b39) is being cast: the damage and the
+ * effect pending are cancelled, "lost an image", and the value counts
+ * down by 1 (its low nibble first). Once the high nibble is 0 the die is
+ * a d1, so the value stops at 0x0f-0x01 and the removal of the first 0x1c
+ * at 0 (3f44:0aad) is never reached; it is kept as the original has it. */
+static bool h_images(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing;
+    if (effect == NULL) return fail(fx, "effect 0x1c (3f44:0a2f) is run with no effect");
+    if (roll(fx, 1, (uint8_t)((effect->value >> 4) + 1)) <= 1) return true;
+    if (fx->rolls.spell > 0 && fx->rolls.images != 0) return true;
+    cancel(fx, 0);
+    if (!say(fx, c, 0x1c, 0x0a2f, "lost an image")) return false;
+    --effect->value;
+    if (effect->value == 0) return remove_effect(fx, c, NULL, 0x1c);
+    return true;
+}
+
+/* 3f44:0d7c, 0x23, confusion, with either flag, a d100: 1-10 the first
+ * 0x23 goes and the character, under the computer's control (+0x18b, a
+ * player character turned, +0xe7 0xb3), forgets its target, is made to
+ * flee and gets 0x6f for ten minutes, "runs away" (60f4:20f7); 11-60 "is
+ * confused" and its turn ends; 61-80 it gets 0x4d, berserk, for a minute,
+ * with its side as the value, "goes berserk", whose handler then runs;
+ * 81-100 "is enraged". Then a saving throw of type 4 at -2 that is made
+ * takes the first 0x23. */
+static bool h_confused(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect;
+    uint8_t *r = c->record;
+    uint8_t d = roll(fx, 1, 100);
+    if (d >= 1 && d <= 10) {
+        if (!remove_effect(fx, c, NULL, 0x23)) return false;
+        cok_combat_record *cr = combat_of(fx, c, 0x23, 0x0d7c);
+        if (cr == NULL) return false;
+        cr->forced = 1;
+        r[0x18b] = 1;
+        if (r[0xe7] <= 0x7f) r[0xe7] = 0xb3;
+        cr->target = NULL;
+        if (!add_with_text(fx, c, 0x6f, 10, 0, true, 1, false, 0x0d7c, "runs away")) return false;
+    } else if (d >= 11 && d <= 60) {
+        if (!say(fx, c, 0x23, 0x0d7c, "is confused") || !end_turn(fx, c, 0x23, 0x0d7c))
+            return false;
+    } else if (d >= 61 && d <= 80) {
+        if (!add_with_text(fx, c, 0x4d, 1, r[0x18a], true, 1, false, 0x0d7c, "goes berserk") ||
+            !call_handler(fx, 0x4d, false, NULL, c))
+            return false;
+    } else if (d >= 81 && d <= 100) {
+        if (!say(fx, c, 0x23, 0x0d7c, "is enraged")) return false;
+    }
+    bool made;
+    if (!saving_throw(fx, c, 4, 0xfe, &made)) return false;
+    return !made || remove_effect(fx, c, NULL, 0x23);
+}
+
+/* 3f44:1330 for 0x29: the attacker (the selected character) with a
+ * readied weapon, more than a square from c, misses on a d100 up to
+ * chance: "Avoids it", no damage, the attack roll 0xff, one hit less
+ * with slot 1 (DS:6b3c). */
+static bool avoid(cok_effects *fx, cok_character *attacker, cok_character *c, uint8_t chance)
+{
+    if (attacker->slots[0] == 0) return true;
+    char why[200] = "";
+    uint8_t d;
+    if (!fx->in_battle || fx->distance == NULL)
+        return fail(fx, "the distance (6346:2888) is worked out outside combat, on the map "
+                        "combat has freed");
+    if (!fx->distance(fx, attacker->record, c->record, &d, why, sizeof why, fx->context))
+        return fail(fx, "%s", why);
+    if (d <= 1) return true;
+    if (roll(fx, 1, 100) > chance) return true;
+    if (!say(fx, c, 0x29, 0x1412, "Avoids it")) return false;
+    fx->rolls.amount = 0;
+    fx->rolls.attack_roll = 0xff;
+    --fx->rolls.hits[0];
+    return true;
+}
+
+/* 3f44:1412, 0x29, with either flag: against an attacker striking with
+ * an item of no bonus (+0x32 0; 3f44:13a9), 3f44:1330 with chance 100. */
+static bool h_avoid(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect;
+    cok_character *attacker = selected(fx, 0x29);
+    if (attacker == NULL) return false;
+    const uint8_t *item = striking_item(fx, attacker);
+    if (fx->failed) return false;
+    if (item == NULL || item[0x32] != 0) return true;
+    return avoid(fx, attacker, c, 100);
+}
+
+/* 3f44:23a4, 0x47, spell turning, with either flag: a d10; on 1 for a
+ * spell whose kind of targets (spell table byte 6) is below 8, or for one
+ * above 14, the spell is turned back on its caster, which needs the
+ * targets of spells in combat (DS:6fe7) and a missile: not ported. */
+static bool h_reflect(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)effect, (void)c;
+    uint8_t d = roll(fx, 1, 10);
+    uint8_t kind = spell_byte(fx->rolls.spell, 6);
+    if ((d == 1 && kind < 8) || kind > 14)
+        return unported(fx, 0x47, 0x3f44, 0x23a4, removing, "the targets of spells in combat");
+    return true;
+}
+
+/* 3f44:24f4, 0x48, a terrible presence, with either flag: each
+ * combatant listed within a cell of c (6b30:08d8; from the second, the
+ * first being c) on the other side and without 0x5c that fails a saving
+ * throw of type 4 is terrified, effect 0x6f for good (60f4:20f7), and if
+ * it took hold comes under the computer's control, a player character
+ * turned (+0xe7 0xb3), forgets its target and is made to flee. The loop's
+ * counter is DS:742f. */
+static bool h_terrible(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect;
+    cok_character *listed[COK_PARTY_RECORDS + 1];
+    uint8_t n;
+    if (!around(fx, c, 1, listed, &n)) return false;
+    for (unsigned i = 2; i <= n; ++i) {
+        cok_character *e = listed[i];
+        uint8_t *r = e->record;
+        if (r[0x18a] == c->record[0x18a] || cok_character_find_effect(e, 0x5c) != NULL) continue;
+        bool made;
+        if (!saving_throw(fx, e, 4, 0, &made)) return false;
+        if (made) continue;
+        if (!add_with_text(fx, e, 0x6f, 0, 0, true, 1, false, 0x24f4, "is terrified"))
+            return false;
+        if (cok_character_find_effect(e, 0x6f) == NULL) continue;
+        cok_combat_record *cr = combat_of(fx, e, 0x48, 0x24f4);
+        if (cr == NULL) return false;
+        r[0x18b] = 1;
+        if (r[0xe7] <= 0x7f) r[0xe7] = 0xb3;
+        cr->target = NULL;
+        cr->forced = 1;
+    }
+    return true;
+}
+
+/* 3f44:09e8, 0x1a, with either flag: against a target (combat record
+ * +0x0a, kept in DS:6b3f) whose +0x13f has bit 7, the attack roll 1
+ * better. */
+static bool h_target_bonus(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect;
+    cok_combat_record *cr = combat_of(fx, c, 0x1a, 0x09e8);
+    if (cr == NULL) return false;
+    fx->rolls.target = cr->target;
+    if (cr->target == NULL)
+        return fail(fx, "effect 0x1a (3f44:09e8) reads a target with none, at 0000:013f");
+    if ((cr->target[0x13f] & 0x80) != 0)
+        fx->rolls.attack_roll = (uint8_t)(fx->rolls.attack_roll + 1);
+    return true;
+}
+
+/* 3f44:26bf, 0x4b, with either flag: against a target (combat record
+ * +0x0a, kept in DS:6b3f) whose +0x140 has bit 0, the damage is 3d12 + 4
+ * plus strength's damage bonus (6346:14b5), as a byte, and the attack
+ * roll 2 better. */
+static bool h_giant_slayer(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect;
+    cok_combat_record *cr = combat_of(fx, c, 0x4b, 0x26bf);
+    if (cr == NULL) return false;
+    fx->rolls.target = cr->target;
+    if (cr->target == NULL)
+        return fail(fx, "effect 0x4b (3f44:26bf) reads a target with none, at 0000:0140");
+    if ((cr->target[0x140] & 1) == 0) return true;
+    int8_t bonus;
+    char why[200];
+    if (!cok_character_strength_bonus(c->record, true, &bonus, why, sizeof why))
+        return fail(fx, "%s", why);
+    uint8_t d = roll(fx, 1, 12);
+    fx->rolls.amount = (uint8_t)(d * 3 + 4 + bonus);
+    fx->rolls.attack_roll = (uint8_t)(fx->rolls.attack_roll + 2);
+    return true;
+}
+
+/* 3f44:2b5f, 0x4f, an evil stench, with either flag: "emits an evil
+ * stench"; each combatant listed within a cell (from the second) on the
+ * other side that fails a saving throw of type 4 and lacks 0x76 "is
+ * affected", and 0x76 (to hit 2 worse) for good is added, but to c, the
+ * holder, not to it: so each one that fails adds another to c. */
+static bool h_stench(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect;
+    if (!say(fx, c, 0x4f, 0x2b5f, "emits an evil stench")) return false;
+    cok_character *listed[COK_PARTY_RECORDS + 1];
+    uint8_t n;
+    if (!around(fx, c, 1, listed, &n)) return false;
+    for (unsigned i = 2; i <= n; ++i) {
+        cok_character *e = listed[i];
+        if (e->record[0x18a] == c->record[0x18a]) continue;
+        bool made;
+        if (!saving_throw(fx, e, 4, 0, &made)) return false;
+        if (made || cok_character_find_effect(e, 0x76) != NULL) continue;
+        if (!say(fx, e, 0x4f, 0x2b5f, "is affected") || !add(fx, c, 0x76, 0, 0xff, false))
+            return false;
+    }
+    return true;
+}
+
 /* 3f44:303c, 0x52, a dragon's fear, removing it or not: every record in
  * the list on the other side from c (+0x18a) without effect 0x5c, 0x6f or
  * 0x77 is terrified, effect 0x6f for good (60f4:20f7), if of level
@@ -859,8 +1198,7 @@ static bool h_terror(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
  * turns the character on the nearest combatant, which is not ported. */
 static bool h_turn(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
-    if (!removing)
-        return fail(fx, "effect 0x6b (3f44:34f9) needs combat, which is not ported");
+    if (!removing) return unported(fx, 0x6b, 0x3f44, 0x34f9, removing, "combat");
     if (c->record[0xe7] == 0xb3) c->record[0xe7] = 0;
     c->record[0x18a] = effect->value;
     return true;
@@ -914,7 +1252,7 @@ typedef struct {
 static const handler handlers[COK_EFFECT_IDS] = {
     [0x01] = {0x0124, h_bless, NULL},
     [0x02] = {0x0134, h_curse, NULL},
-    [0x03] = {0x016a, NULL, COMBAT " and " TEXT},
+    [0x03] = {0x016a, h_snakes, NULL},
     [0x04] = {0x4ab8, NULL, ATTACK, 0x5b04},
     [0x05] = {0x3881, h_none, NULL},
     [0x06] = {0x546e, NULL, ATTACK, 0x5b04},
@@ -932,27 +1270,27 @@ static const handler handlers[COK_EFFECT_IDS] = {
     [0x12] = {0x065d, h_resist_charm_30, NULL},
     [0x13] = {0x3881, h_none, NULL},
     [0x14] = {0x0681, h_resist_fire, NULL},
-    [0x15] = {0x06b2, NULL, COMBAT " and " TEXT},
+    [0x15] = {0x06b2, h_silenced, NULL},
     [0x16] = {0x0725, NULL, "killing the character, with text"},
     [0x17] = {0x07b5, h_hammer, NULL},
     [0x18] = {0x3881, h_none, NULL},
     [0x19] = {0x09b3, h_invisible, NULL},
-    [0x1a] = {0x09e8, NULL, COMBAT},
-    [0x1b] = {0x00f7, NULL, COMBAT},
-    [0x1c] = {0x0a2f, NULL, COMBAT " and " TEXT},
+    [0x1a] = {0x09e8, h_target_bonus, NULL},
+    [0x1b] = {0x00f7, h_held, NULL},
+    [0x1c] = {0x0a2f, h_images, NULL},
     [0x1d] = {0x0ab8, h_quarter_less, NULL},
-    [0x1e] = {0x0ae0, NULL, COMBAT " and " TEXT},
-    [0x1f] = {0x00f7, NULL, COMBAT},
+    [0x1e] = {0x0ae0, h_coughing, NULL},
+    [0x1f] = {0x00f7, h_held, NULL},
     [0x20] = {0x0bc9, NULL, COMBAT " and " TEXT},
     [0x21] = {0x0cf0, h_blind, NULL},
     [0x22] = {0x0d19, NULL, DAMAGE},
-    [0x23] = {0x0d7c, NULL, COMBAT " and " TEXT},
+    [0x23] = {0x0d7c, h_confused, NULL},
     [0x24] = {0x0f3f, h_minus_four, NULL},
     [0x25] = {0x0f50, NULL, COMBAT},
     [0x26] = {0x04b1, h_none, NULL},
     [0x27] = {0x0f78, h_haste, NULL},
     [0x28] = {0x0ff7, NULL, COMBAT " and " TEXT},
-    [0x29] = {0x1412, NULL, COMBAT " and " TEXT},
+    [0x29] = {0x1412, h_avoid, NULL},
     [0x2a] = {0x144c, h_slow, NULL},
     [0x2b] = {0x1469, h_drain, NULL},
     [0x2c] = {0x1504, NULL, DAMAGE},
@@ -962,9 +1300,9 @@ static const handler handlers[COK_EFFECT_IDS] = {
     [0x30] = {0x15cd, NULL, COMBAT " and " TEXT},
     [0x31] = {0x16ef, h_prayer, NULL},
     [0x32] = {0x173a, h_cold_resistant, NULL},
-    [0x33] = {0x00f7, NULL, COMBAT},
-    [0x34] = {0x00f7, NULL, COMBAT},
-    [0x35] = {0x00f7, NULL, COMBAT},
+    [0x33] = {0x00f7, h_held, NULL},
+    [0x34] = {0x00f7, h_held, NULL},
+    [0x35] = {0x00f7, h_held, NULL},
     [0x36] = {0x176b, h_fire_resistant, NULL},
     [0x37] = {0x179c, h_none, NULL},
     [0x38] = {0x17a3, h_add_invisible_1, NULL},
@@ -982,15 +1320,15 @@ static const handler handlers[COK_EFFECT_IDS] = {
     [0x44] = {0x1f97, NULL, COMBAT},
     [0x45] = {0x200b, NULL, COMBAT " and " TEXT},
     [0x46] = {0x2037, NULL, COMBAT " and " TEXT},
-    [0x47] = {0x23a4, NULL, COMBAT " and " TEXT},
-    [0x48] = {0x24f4, NULL, COMBAT " and " TEXT},
+    [0x47] = {0x23a4, h_reflect, NULL},
+    [0x48] = {0x24f4, h_terrible, NULL},
     [0x49] = {0x2665, h_unaffected, NULL},
     [0x4a] = {0x26a5, NULL, "spells"},
-    [0x4b] = {0x26bf, NULL, COMBAT},
+    [0x4b] = {0x26bf, h_giant_slayer, NULL},
     [0x4c] = {0x272a, NULL, COMBAT " and " TEXT},
     [0x4d] = {0x29d5, h_berserk, NULL},
     [0x4e] = {0x4dc2, NULL, ATTACK, 0x5b04},
-    [0x4f] = {0x2b5f, NULL, COMBAT " and " TEXT},
+    [0x4f] = {0x2b5f, h_stench, NULL},
     [0x50] = {0x2cad, NULL, COMBAT " and " TEXT},
     [0x51] = {0x3009, NULL, COMBAT " and " TEXT},
     [0x52] = {0x303c, h_fear, NULL},
@@ -1048,8 +1386,8 @@ static bool call_handler(cok_effects *fx, uint8_t id, bool removing, cok_effect 
     if (h->address == 0)
         return fail(fx, "effect 0x%02x has no handler; the original calls 0000:0000", id);
     if (h->fn == NULL)
-        return fail(fx, "effect 0x%02x (%04x:%04x) needs %s, which is not ported", id,
-                    h->segment != 0 ? h->segment : 0x3f44, h->address, h->needs);
+        return unported(fx, id, h->segment != 0 ? h->segment : 0x3f44, h->address, removing,
+                        h->needs);
     return h->fn(fx, removing, effect, c);
 }
 
@@ -1255,7 +1593,27 @@ static bool remove_effect(cok_effects *fx, cok_character *c, cok_effect *effect,
 {
     if (effect == NULL) effect = cok_character_find_effect(c, id);
     if (effect == NULL) return true;
-    if (effect->on_remove && !call_handler(fx, id, true, effect, c)) return false;
+    if (effect->on_remove) {
+        /* A handler that removes its own effect again, as 0x23 may by
+         * its dice, recurses until a pass does not; the original then
+         * unlinks an effect already gone, writing to 0000:0005. It has
+         * no stack check: past some 150 levels its stack wraps. The port
+         * stops at 64 (0x03, which never ends, fails in its handler). */
+        if (fx->removing == 64)
+            return fail(fx, "effect 0x%02x is removed 64 removals deep; the port stops there, "
+                            "where the original recurses on until it ends or its stack wraps",
+                        effect->id);
+        ++fx->removing;
+        bool ok = call_handler(fx, id, true, effect, c);
+        --fx->removing;
+        if (!ok) return false;
+    }
+    if (fx->in_battle) {
+        char text[64];
+        snprintf(text, sizeof text, "%.*s loses 0x%02x", c->record[0] > 15 ? 15 : c->record[0],
+                 (const char *)c->record + 1, effect->id);
+        log_text(fx, "effect", text);
+    }
     cok_effect **link = &c->effects;
     while (*link != NULL && *link != effect) link = &(*link)->next;
     if (*link == NULL)
@@ -1285,19 +1643,29 @@ bool cok_effects_remove(cok_effects *fx, cok_character *character, cok_effect *e
 
 /* Run the handler of id for target (60f4:0352): its own effect, or for an
  * effect the party shares, the first in the whole list, a monster's
- * too. In combat only a record in range counts, which needs the combat
- * map and is not ported. */
+ * too; in combat the first whose holder has target within 6 cells of it
+ * for Prayer (0x31), 1 for the others (6b30:08d8 around the holder,
+ * which the original runs with the list it keeps in DS:6a33 saved and
+ * restored, but not its count). */
 static bool dispatch_id(cok_effects *fx, cok_character *target, uint8_t id)
 {
     cok_effect *effect = cok_character_find_effect(target, id);
     if (effect != NULL) return call_handler(fx, id, false, effect, target);
     if (id != 0x15 && id != 0x2d && id != 0x2e && id != 0x31) return true; /* 60f4:0332 */
     for (size_t i = 0; i < fx->party->count; ++i) {
-        effect = cok_character_find_effect(fx->party->members[i], id);
+        cok_character *holder = fx->party->members[i];
+        effect = cok_character_find_effect(holder, id);
         if (effect == NULL) continue;
-        if (fx->vm->mode == 5)
-            return fail(fx, "effect 0x%02x shared in combat needs the combat map, which is not "
-                            "ported", id);
+        if (fx->vm->mode == 5) {
+            bool in = false;
+            if (fx->in_range == NULL)
+                return fail(fx, "effect 0x%02x shared in combat needs the combat map", id);
+            char why[200] = "";
+            if (!fx->in_range(fx, holder, target, id == 0x31 ? 6 : 1, &in, why, sizeof why,
+                              fx->context))
+                return fail(fx, "%s", why);
+            if (!in) continue;
+        }
         return call_handler(fx, id, false, effect, target);
     }
     return true;
@@ -1330,7 +1698,18 @@ static const uint8_t *const events[0x19] = {
     [0x18] = (const uint8_t[]){0x52, 0},
 };
 
+static bool dispatch_event(cok_effects *fx, cok_character *target, uint8_t event);
+
 static bool dispatch(cok_effects *fx, cok_character *target, uint8_t event)
+{
+    uint8_t outer = fx->event;
+    fx->event = event;
+    bool ok = dispatch_event(fx, target, event);
+    fx->event = outer;
+    return ok;
+}
+
+static bool dispatch_event(cok_effects *fx, cok_character *target, uint8_t event)
 {
     if (event >= sizeof events / sizeof *events || events[event] == NULL) return true;
     if (event == 6 || event == 9) {

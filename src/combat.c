@@ -1,6 +1,7 @@
 #include "combat.h"
 
 #include "adventure.h"
+#include "round.h"
 #include "treasure.h"
 
 #include <stdio.h>
@@ -1076,6 +1077,9 @@ bool cok_combat_setup(cok_adventure *game)
     combat->bodies = 0;
     memset(combat->body, 0, sizeof combat->body);
     combat->yelled = NULL;
+    memset(combat->exploding, 0, sizeof combat->exploding);
+    combat->exploding_count = 0;
+    combat->exploding_now = false;
     game->pool.missile = 0;
     free(game->lost_weapons);
     game->lost_weapons = NULL;
@@ -1147,30 +1151,23 @@ const cok_ds_table cok_combat_tables[] = {
 };
 const size_t cok_combat_table_count = sizeof cok_combat_tables / sizeof *cok_combat_tables;
 
-/* The end of the battle (3995:004b), but for the lists of clouds, the
- * flash picture and the spell target hook, which are not ported: each
- * record charmed (effect 0x0b) and okay runs (status 3) if more than one
- * enemy could act at the last count, then loses the first effect of each
- * id that lasts only through the battle (60f4:1440, DS:0db4: 0x03, 0x0b,
- * 0x15, 0x17, 0x1b, 0x1e, 0x1f, 0x33-0x35, 0x5b, 0x6a, 0x6b, 0x6f, 0x76,
- * 0x77), and one berserk (0x4d) and turned (+0xe7 0xb3) goes back to the
- * party's side; then the map is freed. */
+/* The end of the battle (3995:004b): it frees the lists of clouds on the
+ * map (DS:7111, 7119), which the port does not have yet; then each record
+ * charmed (effect 0x0b) and okay runs (status 3) if more than one enemy
+ * could act at the last count, and loses the first effect of each id
+ * that lasts only through the battle (60f4:1440, see round.h); the map
+ * and the flash picture (DS:719e, not ported) are freed, and spells pick
+ * their targets outside combat again (DS:6e3a). */
 bool cok_combat_end(cok_adventure *game)
 {
-    static const uint8_t battle_only[16] = {0x03, 0x0b, 0x15, 0x17, 0x1b, 0x1e, 0x1f, 0x33,
-                                            0x34, 0x35, 0x5b, 0x6a, 0x6b, 0x6f, 0x76, 0x77};
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];
         uint8_t *r = c->record;
         if (cok_character_find_effect(c, 0x0b) != NULL && r[0x188] == 0)
             r[0x188] = game->combat.sides[1] > 1 ? 3 : 0;
-        for (size_t k = 0; k < sizeof battle_only; ++k) {
-            if (cok_effects_remove(&game->effects, c, NULL, battle_only[k])) continue;
-            cok_adventure_fail(game, COK_ECL_EFFECT_FAILED, "%s", game->effects.error);
-            return false;
-        }
-        if (cok_character_find_effect(c, 0x4d) != NULL && r[0xe7] == 0xb3) r[0x18a] = 0;
+        if (!cok_combat_battle_only(game, c)) return false;
     }
     game->combat.active = false;
+    game->combat_targets = false;
     return true;
 }

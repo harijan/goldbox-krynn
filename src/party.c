@@ -830,8 +830,7 @@ static int8_t dexterity_defense(const uint8_t *c)
     return 0;
 }
 
-/* 6346:12f8: the to-hit bonus for dexterity with missile weapons. */
-static int8_t dexterity_missile(const uint8_t *c)
+int8_t cok_character_dexterity_missile(const uint8_t *c)
 {
     uint8_t dex = c[0x17];
     if (dex < 3) return -4;
@@ -897,6 +896,14 @@ static int8_t strength_damage(lookup *l, const uint8_t *c)
     return 0;
 }
 
+bool cok_character_strength_bonus(const uint8_t *c, bool damage, int8_t *bonus, char *error,
+                                  size_t error_size)
+{
+    lookup l = {error, error_size, false};
+    *bonus = damage ? strength_damage(&l, c) : strength_hit(&l, c);
+    return !l.failed;
+}
+
 /* 6346:153b: the weight carried before strength slows a character. */
 static int16_t strength_allowance(lookup *l, const uint8_t *c)
 {
@@ -934,7 +941,7 @@ static void weapon_stats(lookup *l, cok_character *character, const cok_item_typ
     if (type == NULL) return;
     uint8_t id = weapon[0x2e];
     c[0x18c] = c[0x59];
-    if ((type[14] & 2) != 0) c[0x18c] = (uint8_t)(c[0x18c] + dexterity_missile(c));
+    if ((type[14] & 2) != 0) c[0x18c] = (uint8_t)(c[0x18c] + cok_character_dexterity_missile(c));
     c[0x195] = type[11];
     if ((type[14] & 4) != 0) {
         c[0x18c] = (uint8_t)(c[0x18c] + strength_hit(l, c));

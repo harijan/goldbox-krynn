@@ -460,13 +460,17 @@ static void test_handlers(void)
     CHECK(kal->items[before][0x34] == 0 && strstr(s.log, "print: Gains an item;") != NULL);
 
     /* Burning Hands from an item burns its user for 6, from fire. Damage
-     * runs event 6, where Mirror Image's effect (3f44:0a2f) needs combat;
-     * and event 0x14, where Fire Shield's hot flame (0x32) doubles fire
-     * damage while the last saving throw (DS:6b44) was not made. */
+     * runs event 6, where Mirror Image's effect (3f44:0a2f) takes the
+     * damage on a d(images + 1) above 1, losing an image; and event 0x14,
+     * where Fire Shield's hot flame (0x32) doubles fire damage while the
+     * last saving throw (DS:6b44) was not made. */
     game.effects.rolls.item = 1;
+    uint8_t hp = kal->record[0x197];
     keys("");
     cast(0x6b, false, &done);
-    CHECK(game.vm.status == COK_ECL_EFFECT_FAILED && strstr(game.error, "3f44:0a2f") != NULL);
+    CHECK(game.vm.status == COK_ECL_OK && strcmp(s.log, "print: KAL;print: lost an image;") == 0);
+    const cok_effect *images = cok_character_find_effect(kal, 0x1c);
+    CHECK(images != NULL && (images->value & 0x0f) == 3 && kal->record[0x197] == hp);
     CHECK(cok_effects_remove(&game.effects, kal, NULL, 0x1c));
     kal->record[0x197] = 30;
     kal->record[0x62] = 30;
