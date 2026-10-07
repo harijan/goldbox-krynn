@@ -49,11 +49,16 @@ bool cok_item_unready(cok_adventure *game, uint8_t *item);
  * the allowance cannot be had. */
 int cok_item_overloaded(cok_adventure *game, cok_character *who, const uint8_t *item);
 
+/* Draw c's name at x, y (6346:199d), with "'s" if possessive: light red if
+ * it cannot act, yellow in combat on the other side, else light cyan. */
+void cok_item_draw_name(cok_adventure *game, const uint8_t *c, int x, int y, bool possessive);
+
 /* The Items menu (546c:17f9) for the selected character, until Exit or
  * Escape, *done is set, or it has no items: the list of its items with
- * "Ready Use Trade Drop Halve Join", as the character and the items allow
- * (see README). Use sets *done when it used an item, which only combat
- * keeps. The stats are recomputed (6346:0d20) after every key. */
+ * "Ready Use Trade Drop Halve Join", and in shops (mode 1) "Sell Id", as
+ * the character and the items allow (see README). Use sets *done when it
+ * used an item, which only combat keeps. The stats are recomputed
+ * (6346:0d20) after every key. */
 void cok_items(cok_adventure *game, bool *done);
 
 #endif

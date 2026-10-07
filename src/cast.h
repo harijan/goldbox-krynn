@@ -41,4 +41,10 @@ enum { COK_CAST_COMMANDS = 0x74, COK_CAST_CAMP = 0x9a };
  * caster level cannot be had. */
 bool cok_cast_duration(cok_adventure *game, uint8_t spell, uint16_t *minutes);
 
+/* Remove Curse's handler (5b04:35f5) on target, as the temple runs it with
+ * the first target (DS:6feb) set: Bestow Curse (0x24) goes, or else the
+ * first cursed item is unreadied, still cursed. Returns false, ending the
+ * run, where it cannot be carried out. */
+bool cok_cast_remove_curse(cok_adventure *game, cok_character *target);
+
 #endif

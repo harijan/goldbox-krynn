@@ -4,6 +4,7 @@
 #include "effect.h"
 #include "items.h"
 #include "screen.h"
+#include "shop.h"
 #include "treasure.h"
 
 #include <stdio.h>
@@ -873,8 +874,7 @@ static void battle(cok_adventure *game)
  * set in CoK), or open a shop (0x7f6c) or the temple (0x7ee2), or with
  * neither give out treasure; then the mode for the area, the Look bit of
  * 0x7eca cleared, the sprite forgotten and, unless a shop or temple
- * outside 3D areas, the screen redrawn. The shop and the temple are not
- * ported. */
+ * outside 3D areas, the screen redrawn. */
 static void combat(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -890,11 +890,11 @@ static void combat(cok_adventure *game)
         if (!area && vm->status == COK_ECL_OK) cok_adventure_load_big(game, 0x79);
     } else if (vm->mem7c00[0x36c] == 1) {
         vm->mem7c00[0x36c] = 0;
-        log_text(game, "unported", "the shop (36d0:07da)");
+        cok_shop(game);
         fought = area;
     } else if (vm->mem7c00[0x2e2] == 1) {
         vm->mem7c00[0x2e2] = 0;
-        log_text(game, "unported", "the temple (340d:0ea9)");
+        cok_temple(game);
         fought = area;
     } else {
         cok_treasure_end_of_combat(game);

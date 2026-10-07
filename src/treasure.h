@@ -69,6 +69,19 @@ bool cok_pool_share(cok_adventure *game);
  * overload c, "Overloaded" and nothing; else at most what the pool has.
  * Returns false, ending the run, where c's allowance cannot be had. */
 bool cok_pool_take(cok_adventure *game, uint8_t *c, uint16_t amount, int k);
+/* Whether amount more would overload c (58e7:006d): its weight + amount,
+ * a word that wraps, past its allowance + 1500 (58e7:0019); then *fits is
+ * what it may still take, 0 if it is over already or not overloaded.
+ * Returns false, ending the run, where c's allowance cannot be had. */
+bool cok_pool_overloaded(cok_adventure *game, const uint8_t *c, uint16_t amount,
+                         bool *overloaded, uint16_t *fits);
+/* Take money (58e7:0d01): in the closed frame, a list of the coins in the
+ * pool, jewelry first, each its name and amount, in cells 2-15 by 2-8,
+ * "Select type of coin " and "Select"; a coin picked asks how much the
+ * selected character takes, at most the pool's low word, and takes it
+ * (58e7:0a81). Again until the pool has no coins or none is picked.
+ * Returns false, ending the run, where it cannot be carried out. */
+bool cok_pool_take_money(cok_adventure *game);
 /* Drop amount of c's coin k (58e7:09fa), into the pool in treasure and
  * shops (modes 6 and 1). */
 void cok_pool_drop(cok_adventure *game, uint8_t *c, uint16_t amount, int k);

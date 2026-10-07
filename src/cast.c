@@ -552,6 +552,12 @@ static bool remove_curse(cast *cx)
     return true;
 }
 
+bool cok_cast_remove_curse(cok_adventure *game, cok_character *target)
+{
+    cast cx = {.game = game, .caster = target, .spell = 0x2b, .targets = {target}, .count = 1};
+    return remove_curse(&cx);
+}
+
 /* 3865: cure the first targets on side of id, up to the caster level of
  * them, dropping those cured and all others; apply; then event 0x12 on
  * those left. */

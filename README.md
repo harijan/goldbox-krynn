@@ -39,7 +39,8 @@ record; directory entry numbers are zero-based. Duplicate IDs are retained.
 export checks for all 26 supported graphics archives (2,363 images), and
 tests of the picture, text, menu, 3D view, party and spell effect routines,
 the adventure loop, the camp, casting spells, the character sheet with its
-items, monsters and encounters, and treasure and the end of combat,
+items, monsters and encounters, treasure and the end of combat, and the
+shops and the temple,
 including PIC delta decoding on `PIC1.DAX` and the game font in
 `8X8D1.DAX`, and plays the opening scripts, the view of Throtl and, with
 a party made up for testing (`eclplay --test-party`), its fights, a walk
@@ -385,12 +386,14 @@ to DOS ends the run with `(quit to DOS in block N)`. Cast and View run
 from the commands and the camp, their lists logged as `list:` and
 `item:`. Monsters loaded, the encounter's sprite and close-up and the
 money robbed log as `monster:`, the end of a fight as `combat:` (see
-Monsters and encounters), and the coins and items `TREASURE` adds as
-`treasure:` (see Treasure and the end of combat). `COMBAT`'s battle is not
-ported: it logs as `[COMBAT]`, unless `--combat won`, `fled`, `lost` or
-`gods` resolves it. A fight ends with the results and the treasure menu,
-which read keys; with no party at all the monsters rejoice and the run
-ends. `--test-party N` adds N (1-8) characters made up for testing, as a
+Monsters and encounters), the coins and items `TREASURE` adds as
+`treasure:` (see Treasure and the end of combat), and what is paid and
+appraised in shops and the temple as `shop:` (see Shops and the
+temple). `COMBAT`'s battle is not ported: it logs as `[COMBAT]`, unless
+`--combat won`, `fled`, `lost` or `gods` resolves it. A fight ends with
+the results and the treasure menu, which read keys; with no party at all
+the monsters rejoice and the run ends. `--test-party N` adds N (1-8)
+characters made up for testing, as a
 saved game's are added: a fighter, a cleric of Mishakal, a White mage and
 a thief in turn, human, of level 1, their weapons and armour readied, 20
 steel each, the cleric's Cure Light Wounds and the mage's Detect Magic
@@ -784,11 +787,12 @@ NPC` (`2fd3:311c`), `DESTROY ITEMS` (`2fd3:35a3`) and `COMBAT`, through
 combat setup (`3cb2:10d9`), each combatant's turn (`3995:040b`), the AI's
 choice of weapon (`3afb:1608`), attacks (`432f:1579`, `432f:1a45`), spells
 with an attack roll (`5b04:1071`, which no spell cast outside combat
-reaches); buying in a shop and appraising gems (`58e7:1929`); and
-creating, training, modifying and changing the order of a character
-(`4def:06dd`, `4def:4d9e`, `4def:28fa`, `4def:567f`). The end of combat
-(`351b:1968`) recomputes every record left, and taking an item
-(`36d0:034c`) the taker, as ported (see Treasure and the end of combat).
+reaches); and creating, training, modifying and changing the order of a
+character (`4def:06dd`, `4def:4d9e`, `4def:28fa`, `4def:567f`). The end
+of combat (`351b:1968`) recomputes every record left, taking an item
+(`36d0:034c`, which buying does too) the taker, and appraising gems
+(`58e7:1929`) the appraiser after each key, as ported (see Treasure and
+the end of combat, and Shops and the temple).
 
 ## Spell effects
 
@@ -1437,8 +1441,8 @@ Items (`546c:17f9`) lists the items, `Ready Item` on row 3, in rows 5-22
 (`67b5:1368`), with `Ready`; `Use` if the character can act, the area
 allows magic and it is camp, a plain or a 3D area; `Trade` as View
 offers it, outside combat; `Drop`; `Halve` below 16 items; `Join`; and
-in shops and temples (mode 1) `Sell` and `Id`, which are not ported and
-logged. The stats are recomputed after every key (`6346:0d20`), and the
+in shops and the temple (mode 1) `Sell` and `Id` (see Shops and the
+temple). The stats are recomputed after every key (`6346:0d20`), and the
 list redrawn when the count changes. It ends with Escape or Exit, when
 the item count is 0, or when a use ends the turn, which only combat
 keeps.
@@ -1529,9 +1533,9 @@ The port keeps these quirks:
 - A name's bytes past its length keep what longer names left (as the
   original's files show).
 
-Not ported: the debug `View` item of Items (`DS:4b51`, Ctrl-D), shops'
-`Sell` (`546c:2822`) and `Id` (`546c:2a59`), and the combat side: the turn View ends, `Use` in combat
-(`6346:300f`, `6346:2964`), the combat panel.
+Not ported: the debug `View` item of Items (`DS:4b51`, Ctrl-D), and the
+combat side: the turn View ends, `Use` in combat (`6346:300f`,
+`6346:2964`), the combat panel.
 
 A differential test ran the original routines in an 8086 emulator
 against the port on random parties, items and effects: casting every
@@ -1751,8 +1755,8 @@ Move mode (`DS:8858`, restored after), then:
   `BIGPIC1` holds: for the others, as for any big picture not there, the
   original's `127f:0111` leaves none, silently, and the port does too;
 - else with var `0x7f6c` 1 clears it and opens a shop (`36d0:07da`), or
-  with var `0x7ee2` 1 clears it and opens the temple (`340d:0ea9`);
-  neither is ported, and each is logged;
+  with var `0x7ee2` 1 clears it and opens the temple (`340d:0ea9`; see
+  Shops and the temple);
 - else runs the end of combat, for treasure.
 
 Then the mode is 4, or 3 outside 3D areas, var `0x7eca` keeps only its
@@ -1844,7 +1848,7 @@ repository.
 `src/treasure.h` ports `TREASURE` (`2fd3:1d21`) with its random items
 (overlay `58e7`), the end of combat (overlay `351b`), which every `COMBAT`
 runs, with or without a battle, and the money pool's routines in `58e7`,
-which the shops will share.
+which the shops share.
 
 The pool (`cok_pool`) is the coins at `DS:6b0c`, seven signed LongInts in
 the order of a character's coins (silver, copper, bronze, platinum, steel,
@@ -2091,8 +2095,6 @@ The port keeps these quirks:
 - A fled party's pool loses its items before the menu and its coins at
   the results; the menu still opens.
 
-Not ported, and logged: the shop (`36d0:07da`) and the temple
-(`340d:0ea9`), with Appraise (`58e7:1929`) and View's `Sell` and `Id`.
 The weapons lost in combat and the missile recovered stay empty until
 combat fills them.
 
@@ -2126,6 +2128,198 @@ does not return either (80). The port alone refused 270, effects removed
 after combat whose handlers need combat (0x03, 0x15, 0x1b, 0x1f and
 0x33-0x35), which the original's handlers carried out on random data. It
 is not part of the repository. The screens were tested in the port only.
+
+## Shops and the temple
+
+`src/shop.h` ports the shop (overlay `36d0`), the temple (overlay `340d`)
+and Appraise (`58e7:1929`), which `COMBAT` opens instead of a battle: a
+shop when a script has set var `0x7f6c` (`SAVE 1 [7f6c]; ... TREASURE ...;
+COMBAT`), the temple when it has set var `0x7ee2`. A shop's stock is the
+pool's items, which `TREASURE` put there; the shops are Throtl's armoury
+(ECL1 block 17 at `8782`), the caravan of ECL1 block 16 (`89be`), the magic
+shop and the weapon smith of ECL2 block 50 (`8b85`, `8ceb`) and two of ECL3
+block 80 (`8f03`, `9458`); the temples are Throtl's (ECL1 block 17, `87ac`)
+and the pilgrims' of ECL1 block 16 (`8a94`). `eclplay` logs what is paid
+and appraised as `shop:`.
+
+Both set the mode to 1, which `COMBAT` replaces with the area's when they
+end, and redraw the screen for it (`6346:2c17`): the adventure frame
+(`1128:0242`) but for this first redraw (`DS:883c`, set after it), the
+small picture's first frame at cell 3, 3 (`6961:000a` of `DS:6da8`), or in
+3D areas the head and body of the portrait last shown (`DS:4b55`, `4b56`;
+`6961:05b9`, `06bd`), which is not ported and is logged, then the party
+list and the status line. Both empty the pool's coins (`DS:6b0c`), which
+are not emptied on leaving, and the shop names the pool's items
+(`6346:0488`), which stay until the next `CLEARMONSTERS`. The menu on row
+24 is `Buy View Take Pool Share Appraise Exit` with money in the pool,
+else `Buy View Pool Appraise Exit`, or with `Heal` for `Buy` in the
+temple; the prompt is empty, the items white and light green, keypad
+digits are directions, and the selection is kept from the menu before
+(`DS:6e0f`). Special keys count as the letters of their scan codes, as in
+the treasure menu: F8 is `B`, shift-F3 `V`, shift-F1 `T`, Del `S` and F7
+`A`; only the down arrow, `P`, is told apart from Pool and picks a
+character, as the up arrow, `H`, does (`546c:3334`); in the temple `H` is
+told apart from Heal too. Escape does nothing.
+
+- `View` is View (see View), whose Items offer `Sell` and `Id` here.
+- `Take` takes coins from the pool (`58e7:0d01`), `Pool` and `Share` are
+  the treasure menu's (`58e7:0511`, `063a`; see Treasure and the end of
+  combat).
+- `Appraise` (below).
+- `Exit` leaves when the pool has no money. Otherwise rows 17-22 say `As
+  you Leave the Shopkeeper says, "Excuse me but you have Left Some Money
+  here."  ` in light green and `Do you want to go back and get your
+  Money?` in white after it, or in the temple `As you leave a priest
+  says, "Excuse me but you have left some money here" ` and `Do you want
+  to go back and retrieve your money?`, both light green and each
+  clearing the window, so that the first goes at once; then `~Yes ~No`
+  (`3775:1885`, the selection kept): No leaves, the money staying in the
+  pool, Yes clears rows 17-22 and goes back.
+- After `Buy` and `Take`, and `Appraise` when it showed anything, the
+  screen is redrawn; after every key the party list.
+
+`Buy` (`36d0:0484`) clears the frame (`1128:0000`) and lists the pool's
+items, `Items: ` and `Buy` in cells 1-38 by 1-22 (`36d0:004e`, `67b5:1368`,
+the menu selection cleared first and the first item picked on entry),
+until Escape or `Exit`. Each line is 30 wide: the price right-aligned,
+and over it the item's name; it is written into the item's name, which
+the pool's items are named again after the list, so the line's bytes
+past the new name stay, in the pool and in the copies bought. An item
+worth 0 (`+0x3a`) is first made worth 1, for good. The price is the value
+scaled by the price factor, var `0x7f6d`: 1, 2, 4 and 8 divide it by 16,
+8, 4 and 2, 0x10 keeps it, 0x20, 0x40 and 0x80 multiply it by 2, 4 and 8,
+as words. The item picked is bought by the selected character if its
+money in steel covers the price (`546c:3424`: silver, copper, bronze,
+platinum and steel worth 1, 5, 10, 25 and 50 fiftieths of a steel piece,
+the low word of the sum over 50); its coins then become all steel, that
+less the price (`58e7:0155`), the weight not changed. Otherwise the pool
+pays if its worth in steel does (`58e7:00d3`, `018f`), else `Not enough
+Money.` (`6346:1827`). Bought, a copy goes after the character's items
+(`36d0:034c`) unless it would be overloaded (`OverLoaded`, nothing paid),
+the shop keeping its own, and `NAME buys a ITEM` shows on row 24, or
+`NAME buys ITEM` for an item with a count (`+0x39`).
+
+`Appraise` (`58e7:1929`) values the selected character's gems and
+jewelry (`+0xf5`, `+0xf7`), or says `No Gems or Jewelry`. It clears cells
+1-38 by 1-22 and shows the character's name on row 1 (`6346:199d`), `You
+have a fine collection of:` on row 7, and `N Gem`, `N Gems`, `1 piece of
+Jewelry` or `N pieces of Jewelry` on rows 9 and 10, all white, with
+`Appraise : ` and `  Gems  Jewelry Exit` (the leading spaces as given), as
+it has them. Picked, a gem goes from its coins and is valued on a d100:
+1-25 5 steel, 26-50 25, 51-70 50, 71-90 250, 91-99 500 and 100 2500; a
+jewel on a d100 and then Turbo Pascal's `Random` (through Reals, which
+change nothing): 1-10 50-499, 11-20 100-599, 21-40 150-899, 41-50
+250-1499, 51-70 500-2999, 71-90 1000-3999 and 91-100 1000-5999. `The Gem
+is Valued at N steel.` (or `Jewel`) shows on row 12, and `You can : `
+offers `Sell Keep`, or `Sell` alone if the character has 16 items
+(`+0x142`) or one more would overload it (`58e7:006d`). `Keep` makes it an
+item, type 0x2f, named `Gem` or `Jewelry` (part `+0x31` 0x7a or 0x7b),
+worth the value and weighing 1, after the character's items; any other
+key sells it for the value in steel (`58e7:01f2`, what would overload
+the character going to the pool with `Overloaded.  Money will be put in
+Pool.`). The stats are recomputed (`6346:0d20`) after each key, and it
+ends when none are left, or on `Exit` or Escape.
+
+The temple's `Heal` (`340d:0be1`) clears row 24 and shows, in the frame
+of a large picture (`1128:0344`), `NAME, how can we help you?` on row 1
+in white and the cures (`DS:01cc`, 41 bytes each) in cells 2-38 by 4-15,
+with `Heal Exit` (`67b5:1368`), for the selected character, until Exit or
+Escape; then the screen is redrawn. Each pass clears the frame but the
+list is drawn only the first time, so afterwards only the row picked
+shows. A cure (`340d:027f`-`0b32`) that the character does not need says
+so (the name on row 18 and the text below it, `6346:1883`, no pause) and
+asks `cast cure anyway: ` (`67b5:177f`, No first). Then `CURE will only
+cost N steel pieces.` in rows 17-22 and `pay for cure `: Yes pays as Buy
+does, from the character's money, else the pool's, else `Not enough
+money.`; paid, the character `is cured.` (with a pause), whatever the
+cure then does, and only then are the dice rolled:
+
+| Cure | Steel | Not needed | Once paid |
+| --- | --- | --- | --- |
+| Cure Blindness | 500 | `is not blind.` (no 0x21) | 0x21 goes |
+| Cure Disease | 500 | `is not Diseased.` (none of 0x1f, 0x22, 0x2b, 0x2c, 0x32, 0x39) | while curing (`DS:6b38`) those go, the first of each, and strength is recomputed (`60f4:1743`) |
+| Cure Light, Serious, Critical Wounds | 50, 175, 300 | | 1d8, 2d8 + 1, 3d8 + 3 hit points (`60f4:21ea`) |
+| Heal | 2500 | | up to the maximum less 1d4, none if within it; 0x21, the diseases (not while curing) and 0x44 go; intelligence and wisdom are worked out, which keeps nothing |
+| Neutralize Poison | 500 | `is not poisoned.` (no 0x37) | at least a hit point; while curing 0x37, 0x16 and 0x0f go; okay and able to act |
+| Raise Dead | 2750 | `cannot be raised` (race 0 or 1, the elves), else `is not dead.` (status 6 or 1) | while curing 0x20 and 0x37 go; 1 hit point, okay, able to act, a point of constitution less; see below |
+| Remove Curse | 1750 | `is not cursed.` (no cursed item, `+0x36`, nor 0x24) | the spell's handler (`5b04:35f5`) |
+| Stone to Flesh | 1000 | `is not stoned.` (status 7) | okay, able to act, 1 hit point |
+
+Raised with a constitution left of 14 or more, a character's maximum hit
+points (`+0x62`) above those at full (`+0x11b`) are divided by a byte sum
+over its class levels (`+0xf9`-`+0x100`): each level, two for one above
+15, a fighter's times the constitution less 14; they come off the
+maximum unless the constitution is 17 or more, it has no fighter level
+and `+0xfb` is not above `+0xd7`.
+
+View's Items in shops and the temple (mode 1) add `Sell`, as Trade allows
+it, and `Id`. `Sell` (`546c:2822`) needs the item unreadied, as Drop does,
+and offers half its value, or for a count above 1 that times the count,
+a word, over 20, in yellow on rows 21-22 (`I'll give you N steel pieces
+for your ITEM`), and asks `Is It a Deal? `; Yes says `Sold!`, the item
+goes (`6346:1697`), and the price goes to the character's steel as a
+word, or what would overload it (`58e7:006d`, the item still weighed) to
+the pool's steel with `Overloaded.  Money will be put in pool.`, without
+a pause. `Id` (`546c:2a59`) offers `For 100 steel pieces I'll identify
+your ITEM`, readied or not; Yes pays 100 as a cure is paid, or says `Not
+Enough Money`; paid, an item with hidden parts (`+0x35` bits 0-2) shows
+them, `It looks like some sort of ITEM`, else `I can't tell anything new
+about your ITEM`, and either pauses.
+
+The port keeps these quirks:
+
+- A price factor not in the table shows the value in the list, but Buy
+  charges the word its stack holds there, the colour 15 that the shop's
+  menu pushed (`36d0:08b2`): 15 steel. The weapon smith of ECL2 block 50
+  (at `8ceb`) sets no factor, so before any other shop has, var `0x7f6d`
+  is 0 and everything costs 15. An emulator run agreed.
+- Money in steel is a word in Buy and the temple, so a character worth
+  65,536 steel or more is judged by the rest; paying turns all of coins
+  0-4 into steel, losing what is less than a steel piece, and the pool's
+  remainder is a word.
+- Buy and the shop's names leave a line's characters in the bytes past a
+  name, and make items worth 0 worth 1.
+- Appraise takes the coin before the overload check, which still counts
+  its weight; Escape, special keys or any other key sells; and `Keep`
+  with no items links the new item to nothing (`58e7:1df5`, `213c`), so it
+  is lost with its coin.
+- The temple charges a cure not needed when asked to cast it anyway;
+  Neutralize Poison revives the dead who are poisoned; Heal removes a
+  drain (0x2b) without curing, so its handler adds it again; Remove Curse
+  leaves the item cursed, to be paid for again; Raise Dead's sum wraps,
+  and at 0 takes the whole bonus; Stone to Flesh leaves 1 hit point.
+- `Is cured.` is said before the cure, whatever it does.
+- Heal's first pick is the word Heal's stack holds: the flag 0 that the
+  temple's menu pushed (`340d:0f47`), so the first cure. An emulator run
+  agreed.
+- A stack of 2 sells for about a tenth of one; Id charges for telling
+  nothing new.
+- In Trade from View, Escape at the first coin list tests a byte of the
+  stack (see View): on entering a shop or the temple it holds what the
+  run left, and the port stops with `COK_ECL_UNDEFINED`; a View before,
+  Yes to going back, Appraise showing the gems and, in the temple, Heal
+  set it, so Trade is left; Buy, Take, Pool, Share and picking a
+  character keep it. The temple's locals are 14 bytes fewer than the
+  shop's, so every call from its menu lands 14 bytes higher and the same.
+  An emulator run of each, in the shop and in the temple, agreed.
+
+A differential test ran the original routines in an 8086 emulator against
+the port on random parties, items and pools: Buy's lines and a purchase
+(`36d0:004e`, `0484`, with every factor, the stack word set as the menu
+leaves it), Appraise (`58e7:1929`, with its keys), each cure with its
+payment (`340d:027f`-`0b32`, `00f2`, `0045`), the money in steel
+(`546c:3424`), Sell and Id (`546c:2822`, `2a59`), comparing the records,
+items, effects, pool, texts and random numbers drawn. Of 12,000 cases, the
+11,686 the port carries out agreed. Both refused 201: no character
+selected, which the original reads through NULL (163), Buy given an index
+past the list, which it cannot pick (36), and an effect whose handler
+needs combat, and keys that ran out (1 each). The port alone refused 15,
+removals whose handlers need combat or text (0x1f, 0x22, 0x2b and 0x2c),
+which the original's carried out on random data; and 98 were left out,
+offers of Sell and Id too long for their two rows, which page and wait for
+a key in both, but which the emulator's text routine does not wrap. The
+test found the item that Appraise's Keep loses. It is not part of the
+repository. The screens were tested in the port only.
 
 ## Checks against the original
 
@@ -2245,6 +2439,33 @@ running in DOSBox:
 - Take a random potion from a treasure of ECL3 block 81 (`TREASURE ...
   130`) and drink it: generated potions are of type 0x30 or 0x35, where
   the shipped ones are 0x2f; see whether the game can use them.
+
+- Enter Throtl's armoury (ECL1 block 17): the first screen should keep
+  the view's frame as it was, with the portrait last shown (if any) in
+  the view's place, and only a redraw after `Buy` draws the frame. `Buy`
+  should list lines like `Long Sword` and `7` ending at column 30, and
+  buying say `NAME buys a Long Sword` on row 24.
+- In a new game, before visiting any other shop, the weapon smith of
+  ECL2 block 50 should list each weapon at its value and charge 15
+  steel for any of them (var `0x7f6d` 0, `36d0:0484`).
+- Appraise a gem with a character carrying no items and choose `Keep`:
+  the gem should be gone and no item gained. Press Escape at `You can : `
+  instead: the gem is sold.
+- Leave a temple with money in the pool: the priest's first sentence
+  should vanish at once behind `Do you want to go back and retrieve your
+  money?`.
+- In a temple's `Heal`, buy a cure: on the list's return only the row
+  picked should show, the first time the first cure highlighted.
+- Raise a dead fighter of constitution 15 whose maximum hit points are
+  above those at full: it should lose the whole difference.
+- Buy `10 Arrows +1` (worth 120 at ECL2 block 50's magic shop or 50 at
+  ECL3 block 80's), halve it down to a stack of 2 and a single one, and
+  sell both: the stack should fetch about a tenth of the single one's
+  price (2 x 60 / 20 = 6 against 60 for those of ECL2).
+- In a shop, `View` first, `Trade`, pick a partner and press Escape at
+  the first coin list: the port stops (the byte depends on the run); see
+  whether the original asks for a partner again. After a `View` before, it
+  should leave Trade.
 
 ## Disassembly image
 

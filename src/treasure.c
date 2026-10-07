@@ -240,11 +240,8 @@ static bool carry(cok_adventure *game, const uint8_t *c, uint16_t *out)
     return true;
 }
 
-/* Whether amount more would overload c (58e7:006d): its weight + amount,
- * a word that wraps, past what it may carry; then *fits is what it may
- * still take, 0 if it is over already. */
-static bool over(cok_adventure *game, const uint8_t *c, uint16_t amount, bool *overloaded,
-                 uint16_t *fits)
+bool cok_pool_overloaded(cok_adventure *game, const uint8_t *c, uint16_t amount,
+                         bool *overloaded, uint16_t *fits)
 {
     uint16_t cap;
     if (!carry(game, c, &cap)) return false;
@@ -323,7 +320,7 @@ bool cok_pool_share(cok_adventure *game)
         for (int k = COK_COINS - 1; k >= 0; --k) {
             bool full;
             uint16_t fits;
-            if (!over(game, c, share[k], &full, &fits)) return false;
+            if (!cok_pool_overloaded(game, c, share[k], &full, &fits)) return false;
             if (full) {
                 give(c, k, fits);
                 rest[k] = (uint16_t)(rest[k] + share[k] - fits);
@@ -331,7 +328,7 @@ bool cok_pool_share(cok_adventure *game)
             }
             give(c, k, share[k]);
             if (rest[k] == 0) continue;
-            if (!over(game, c, 1, &full, &fits)) return false;
+            if (!cok_pool_overloaded(game, c, 1, &full, &fits)) return false;
             if (full) continue;
             give(c, k, 1);
             --rest[k];
@@ -360,7 +357,7 @@ bool cok_pool_take(cok_adventure *game, uint8_t *c, uint16_t amount, int k)
 {
     bool full;
     uint16_t fits;
-    if (!over(game, c, amount, &full, &fits)) return false;
+    if (!cok_pool_overloaded(game, c, amount, &full, &fits)) return false;
     if (full) {
         overloaded_notice(game, "Overloaded");
         return true;
@@ -395,7 +392,7 @@ bool cok_pool_give_steel(cok_adventure *game, uint8_t *c, uint16_t steel)
 {
     bool full;
     uint16_t fits;
-    if (!over(game, c, steel, &full, &fits)) return false;
+    if (!cok_pool_overloaded(game, c, steel, &full, &fits)) return false;
     if (!full) {
         give(c, 4, steel);
         return true;
@@ -1006,12 +1003,7 @@ static bool results(cok_adventure *game, const outcome *result)
     return press_enter(game);
 }
 
-/* Take money (58e7:0d01): in the closed frame, a list of the coins in the
- * pool, jewelry first, each its name and amount, in cells 2-15 by 2-8,
- * "Select type of coin " and "Select"; a coin picked asks how much the
- * selected character takes, at most the pool's low word, and takes it
- * (58e7:0a81). Again until the pool has no coins or none is picked. */
-static bool take_money(cok_adventure *game)
+bool cok_pool_take_money(cok_adventure *game)
 {
     cok_pool *pool = &game->pool;
     clear_frame(game, false);
@@ -1126,7 +1118,7 @@ static bool take(cok_adventure *game, bool *reached)
     *reached = true;
     if (!money) return take_items(game);
     if (!items) {
-        if (!take_money(game)) return false;
+        if (!cok_pool_take_money(game)) return false;
         cok_adventure_redraw(game);
         return true;
     }
@@ -1138,7 +1130,7 @@ static bool take(cok_adventure *game, bool *reached)
         bool done = false;
         if (key == 'M') {
             *reached = true;
-            if (!take_money(game)) return false;
+            if (!cok_pool_take_money(game)) return false;
             cok_adventure_redraw(game);
         } else if (key == 'I') {
             *reached = true;
