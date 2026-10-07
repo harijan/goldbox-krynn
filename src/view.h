@@ -94,6 +94,18 @@ void cok_view_tile(cok_picture *dst, const cok_view *view, unsigned value, int x
 void cok_view_draw(cok_picture *dst, const cok_view *view, int x, int y, unsigned dir,
                    const cok_view_backdrop *backdrop);
 
+/* Draw the overhead map (69ea:000f) in place of the view, as 69ea:0820 does
+ * when DS:6d84 is set: the 11 by 11 squares around square x, y, kept on the
+ * map (the first column and row 0-5), each an opaque tile of the frame's
+ * set, 0x104 plus 1, 2, 4 and 8 for a wall of any type on its north, east,
+ * south and west sides, then over the party's square the party's arrow,
+ * 0x100 + dir / 2. Coordinates and dir are taken as bytes. Returns false,
+ * drawing nothing, for a square off the map, where the original draws the
+ * arrow outside the map's window, unclipped, and the screen then shows
+ * what its buffer held there, and for an arrow past the tile sets, where
+ * it halts. */
+bool cok_view_overhead(cok_picture *dst, const cok_view *view, int x, int y, unsigned dir);
+
 /* Sky colour for an area word (DS:0dc4). */
 uint8_t cok_view_sky_color(uint16_t value);
 

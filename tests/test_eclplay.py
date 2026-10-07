@@ -312,6 +312,73 @@ class PlayTests(unittest.TestCase):
                 self.assertNotEqual(views[-1], views[-2])
                 self.assertEqual(views[-1], views[-4])
 
+    def test_the_overhead_map(self):
+        for party in PARTIES:
+            with self.subTest(party=party[0]):
+                shots = self.folder / ("shots" + party[0])
+                shots.mkdir()
+                # Fight the guards and leave the treasure, turn the map on at
+                # 7,15, walk two squares north and turn east, then turn it off
+                # and on again.
+                keys = r"\r\rE\ram\^\^\>eaa"
+                result = self.play(*party, "--play", "--set", "4be6=1",
+                                   "--keys", keys, "--shots", shots, ASSETS, 32)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                lines = result.stdout.splitlines()
+                self.assertEqual([line for line in lines if line.startswith(("at: ", "area: "))],
+                                 ["area: on", "at: 7,14,0", "at: 7,13,0", "at: 7,13,2",
+                                  "area: off", "area: on"])
+                self.assertNotIn("unported: Area", lines)
+                self.assertEqual(lines[-1], "(out of keys in block 32 at 8320)")
+                images = [shot.read_bytes() for shot in sorted(shots.glob("*.bmp"))]
+                GREY, BLACK = (85, 85, 85), (0, 0, 0)
+                def view(bmp):
+                    return [pixel(bmp, x, y) for x in range(24, 112) for y in range(24, 112)]
+                def status(bmp):
+                    return [pixel(bmp, x, y) for x in range(136, 312) for y in range(120, 128)]
+                # In the view's place the map, in the frame's greys, with the
+                # party's arrow, white, at cell 8, 13 for 7,15, the window
+                # from square 2, 5; the status line as it was.
+                self.assertEqual(set(view(images[5])),
+                                 {GREY, (170, 170, 170), BLACK, WHITE})
+                self.assertEqual(pixel(images[5], 68, 105), WHITE)
+                self.assertEqual(status(images[5]), status(images[4]))
+                # At 7,13 the arrow is at cell 8, 11, then turns east.
+                self.assertEqual(pixel(images[8], 68, 89), WHITE)
+                self.assertEqual((pixel(images[9], 68, 89), pixel(images[9], 65, 91)),
+                                 (BLACK, WHITE))
+                # Off, the view; on again, the same map.
+                self.assertGreater(len(set(view(images[11]))), 4)
+                self.assertEqual(view(images[12]), view(images[10]))
+
+    def test_the_catacombs_hide_the_map(self):
+        # The catacombs of Throtl (ECL1 block 34) set 0x4bfb: Area says "Not
+        # Here", the status line has no square, and a saved game keeps it.
+        saves = self.folder / "saves"
+        saves.mkdir()
+        shots = self.folder / "shots"
+        shots.mkdir()
+        result = self.play("--test-party", 2, "--play", "--set", "4be6=1", "--saves", saves,
+                           "--shots", shots, "--keys", r"\r\reaesb\e", ASSETS, 34)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertIn("print: Not Here", lines)
+        self.assertFalse([line for line in lines if line.startswith("area: ")])
+        self.assertEqual(lines[-1], "(out of keys in block 34 at 8082)")
+        # "E 00:" from column 17, where a square would put "0,0 E".
+        bmp = sorted(shots.glob("*.bmp"))[3].read_bytes()
+        self.assertEqual((ink(bmp, 17, 15), ink(bmp, 18, 15)), (GREEN, (0, 0, 0)))
+        save = saves / "SAVGAMB.DAT"
+        result = self.play("--load", save, "--play", "--keys", r"\ra", ASSETS)
+        self.assertEqual(result.stdout.splitlines()[-3:],
+                         ["print: Not Here", "menu: Move Area Cast View Encamp Search Look",
+                          "(out of keys in block 34 at 8287)"])
+        # Started with Helm, the map shows there, until the next step's view.
+        result = self.play("--load", save, "--play", "--helm", "--keys", r"\ram\^", ASSETS)
+        lines = result.stdout.splitlines()
+        self.assertEqual([line for line in lines if line.startswith(("at: ", "area: "))],
+                         ["area: on", "at: 1,0,2", "area: off"])
+
     def test_camp_in_throtl(self):
         for party in PARTIES:
             with self.subTest(party=party[0]):

@@ -271,18 +271,34 @@ static void draw_big(cok_adventure *game)
 }
 
 /* Draw the 3D view from the party's square (69ea:0820), under the sky that
- * 6945:00ba picks for the square. */
+ * 6945:00ba last picked (DS:6d80), or the overhead map while DS:6d84 is set
+ * (69ea:000f). The original draws the map's arrow outside the view for a
+ * square off the map; the run stops. */
 static void draw_view(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
-    /* The overhead map that 0x4bfb and DS:6d84 select is not ported. */
+    if (game->overhead) {
+        if (!cok_view_overhead(&game->screen, &game->view, vm->map_x, vm->map_y,
+                               vm->direction))
+            cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                               "the overhead map of square %d,%d facing %u (69ea:000f)",
+                               vm->map_x, vm->map_y, vm->direction);
+        return;
+    }
     cok_view_backdrop backdrop = {
-        .sky = cok_view_sky_color(vm->mem4b00[vm->square < 0x80 ? 0xfd : 0xfe]),
+        .sky = game->sky,
         .horizon = 0,
         .ground = 8,
         .hour = vm->mem4b00[0xc9],
     };
     cok_view_draw(&game->screen, &game->view, vm->map_x, vm->map_y, vm->direction, &backdrop);
+}
+
+/* Turn the overhead map off (DS:6d84). */
+static void overhead_off(cok_adventure *game)
+{
+    if (game->overhead) log_text(game, "area", "off");
+    game->overhead = false;
 }
 
 void cok_adventure_view(cok_adventure *game)
@@ -293,9 +309,20 @@ void cok_adventure_view(cok_adventure *game)
         if (game->redraw) draw_big(game);
     } else {
         vm->square = cok_view_square(&game->view, vm->map_x, vm->map_y);
+        game->sky = cok_view_sky_color(vm->mem4b00[vm->square < 0x80 ? 0xfd : 0xfe]);
+        /* Where the square is hidden, the overhead map goes off. */
+        if (vm->mem4b00[0xfb] != 0) overhead_off(game);
         draw_view(game);
     }
     game->redraw = false;
+}
+
+void cok_adventure_overhead_off(cok_adventure *game)
+{
+    if (!game->overhead) return;
+    overhead_off(game);
+    game->redraw = true;
+    cok_adventure_view(game);
 }
 
 void cok_adventure_load_big(cok_adventure *game, uint8_t id)
@@ -1502,6 +1529,15 @@ void cok_adventure_fail(cok_adventure *game, cok_ecl_status status, const char *
     game->vm.abort = true;
 }
 
+void cok_adventure_notice(cok_adventure *game, const char *text, uint8_t fg)
+{
+    log_text(game, "print", text);
+    cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0);
+    cok_text_string(&game->screen, &game->font, text, 0, 24, fg, 0);
+    wait_ms(game, game->speed * 100u); /* 1521:0b4b */
+    cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0);
+}
+
 void cok_adventure_log(cok_adventure *game, const char *kind, const char *text)
 {
     log_text(game, kind, text);
@@ -1580,6 +1616,21 @@ static int menu_read(cok_adventure *game, const char *prompt, const char *items,
                          &keys, special);
 }
 
+/* Area (475c:0a75): turn the overhead map on or off (DS:6d84) and redraw
+ * the view (69ea:0820), the status line unchanged; or, where the area
+ * hides the square (0x4bfb), say "Not Here" in yellow, unless the game was
+ * started with Helm (ParamStr(2) against DS:896a). */
+static void area(cok_adventure *game)
+{
+    if (game->vm.mem4b00[0xfb] != 0 && !game->helm) {
+        cok_adventure_notice(game, "Not Here", 14);
+        return;
+    }
+    game->overhead = !game->overhead;
+    log_text(game, "area", game->overhead ? "on" : "off");
+    draw_view(game);
+}
+
 /* Turn by eighths of a full turn and redraw the view (475c:09ec). */
 static void turn(cok_adventure *game, unsigned by)
 {
@@ -1634,10 +1685,7 @@ static int command(cok_adventure *game)
             }
             switch (key) {
             case 'M': game->moving = true; break;
-            case 'A':
-                /* The overhead map (69ea:000f), or "Not Here". */
-                unported_command(game, "Area");
-                break;
+            case 'A': area(game); break;
             case 'C':
                 /* 4888:0a0d for one whose status is 0; the original reads
                  * through NULL with none selected. */
@@ -1695,6 +1743,7 @@ static int command(cok_adventure *game)
         case 0x4d: turn(game, 2); result = 0; break;
         default: break;
         }
+        if (game->vm.abort) return -1;
     }
     if (game->text_shown) {
         cok_picture_fill(&game->screen, 1, 0x11 * 8, 0x26, 6 * 8, 0); /* 1128:07e6 */
@@ -1985,6 +2034,7 @@ cok_ecl_status cok_adventure_play(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     cok_ecl_status status = COK_ECL_OK;
+    vm->status = COK_ECL_OK;
     /* A block entered from a saved game redraws the whole screen. */
     if (vm->mode != 3 && vm->keep_vars) {
         if (game->frame_pending) redraw_screen(game);
@@ -2018,14 +2068,16 @@ cok_ecl_status cok_adventure_play(cok_adventure *game)
         step(game);
         if (vm->status == COK_ECL_EFFECT_FAILED) break; /* the effect timers */
         cok_adventure_view(game);
+        if (vm->abort) break;
         /* Sound 10 plays if the party moved. */
         game->picture_shown = false;
         game->view_replaced = true;
         status = cok_ecl_run(vm, vm->vectors[1]);
         if (status == COK_ECL_OK && !vm->abort && vm->reload) status = enter_block(game);
     }
-    /* The effect timers fail between runs (cok_adventure_pass_time). */
-    if (status == COK_ECL_OK && vm->status == COK_ECL_EFFECT_FAILED) status = vm->status;
+    /* The effect timers (cok_adventure_pass_time), the commands and the
+     * view fail between runs. */
+    if (status == COK_ECL_OK && vm->status != COK_ECL_OK) status = vm->status;
     vm->abort = false;
     return status;
 }

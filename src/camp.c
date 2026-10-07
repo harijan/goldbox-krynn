@@ -56,11 +56,7 @@ static void draw_name(cok_adventure *game, const uint8_t *c, int x, int y)
  * the text wrapped below it; with wait, pause and clear the window. */
 void cok_camp_notice(cok_adventure *game, const char *text)
 {
-    cok_adventure_log(game, "print", text);
-    clear_menu(game);
-    cok_text_string(&game->screen, &game->font, text, 0, 24, 10, 0);
-    cok_adventure_wait(game, game->speed * 100u);
-    clear_menu(game);
+    cok_adventure_notice(game, text, 10);
 }
 
 void cok_camp_clear_text(cok_adventure *game)

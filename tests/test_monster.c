@@ -252,6 +252,24 @@ static void test_sprite(void)
     game.vm.mem4b00[0xe6] = 0;
     CHECK(RUN(COK_ECL_SETUP_MONSTER, 0, 35, 0, 0, 0, 41) == COK_ECL_OK);
     CHECK(s.log[0] == '\0' && !game.sprite_loaded && game.vm.mem7c00[0x2c1] == 0);
+    /* The first sprite turns the overhead map off and shows the view, in
+     * any area (3775:0575); once the sprite is loaded, the redraw that
+     * erases it shows the map. */
+    reset("");
+    game.overhead = true;
+    game.vm.map_x = game.vm.map_y = 7;
+    CHECK(RUN(COK_ECL_SETUP_MONSTER, 0, 35, 0, 2, 0, 41) == COK_ECL_OK && !game.overhead);
+    CHECK(strcmp(s.log, "area: off;monster: sprite 35 at 1;") == 0);
+    reset("");
+    game.overhead = true;
+    game.sprite_loaded = true;
+    CHECK(RUN(COK_ECL_SETUP_MONSTER, 0, 35, 0, 2, 0, 41) == COK_ECL_OK && game.overhead);
+    reset("");
+    game.overhead = true;
+    game.vm.mode = 3;
+    game.vm.mem4b00[0xe6] = 0;
+    CHECK(RUN(COK_ECL_SETUP_MONSTER, 0, 35, 0, 0, 0, 41) == COK_ECL_OK && !game.overhead);
+    CHECK(strcmp(s.log, "area: off;") == 0 && !game.sprite_loaded);
     /* A distance past 2 quits to DOS (6961:072e). */
     reset("");
     game.vm.mem7c00[0x2c1] = 4;
@@ -686,7 +704,9 @@ static void test_combat(void)
     CHECK(game.vm.mem7c00[0x2c7] == 0 && game.vm.mem7c00[0x2c8] == 3 && game.vm.mem4b00[0x1f8] == 1);
     /* So do the Gods, at B's first turn; then the battle may go on, but
      * does not. */
+    game.helm = true;
     CHECK(fight(COK_COMBAT_GODS, "\r\rE") == COK_ECL_OK);
+    game.helm = false;
     CHECK(strstr(s.log, "turn: B (initiative ") != NULL);
     CHECK(strstr(s.log, "print: The Gods intervene!;") != NULL);
     CHECK(strstr(s.log, "menu: Continue Battle:;choice: N;") != NULL);

@@ -222,4 +222,7 @@ sanitize: build/START_FULL.EXE build/test_dax_sanitize build/test_image_sanitize
 	test "$$(./build/eclplay_sanitize --test-party 4 --start 8a8f --keys '\rPH\v\vHy\eEn\r' Assets 16 | tail -n 1)" = "(done in block 16)"
 	test "$$(./build/eclplay_sanitize --test-party 6 --set 4be6=1 --combat-map build/combat-map.txt --keys '\r\rE' Assets 32 | tail -n 1)" = "(done in block 32)"
 	test "$$(head -n 1 build/combat-map.txt)" = "battle in block 32: view 24,10, 21 combatants"
+	out="$$(./build/eclplay_sanitize --test-party 6 --play --set 4be6=1 --keys '\r\rE\ram\^\^\>eaa' Assets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 32 at 8320)" && test "$$(printf '%s\n' "$$out" | grep '^area: ' | tr '\n' ' ')" = "area: on area: off area: on "
+	out="$$(./build/eclplay_sanitize --test-party 2 --play --set 4be6=1 --keys '\r\rea' Assets 34)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 34 at 8287)" && printf '%s\n' "$$out" | grep -q '^print: Not Here$$'
+	out="$$(./build/eclplay_sanitize --test-party 2 --play --set 4be6=1 --helm --keys '\r\ream\^' Assets 34)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 34 at 98e6)" && test "$$(printf '%s\n' "$$out" | grep '^area: \|^at: ' | tr '\n' ' ')" = "area: on at: 1,0,2 area: off "
 	./build/daxcheck_sanitize Assets/*.DAX

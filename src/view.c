@@ -257,6 +257,34 @@ static void backdrop(cok_picture *dst, const cok_view *view, int x, int y, unsig
         cok_picture_draw(dst, horizon, 0, 2 + BUFFER_X, 7 + BUFFER_Y, COK_DRAW_MASKED, NULL);
 }
 
+/* The overhead map's tiles in the frame's set (69ea:000f): the party facing
+ * north, east, south and west, then the squares by their walls. */
+enum { OVERHEAD_PARTY = 0x100, OVERHEAD_SQUARE = 0x104 };
+
+/* The first square of the overhead map's window, a byte (69ea:000f). */
+static int window_start(int8_t at)
+{
+    int8_t start = (int8_t)(at - 5);
+    return start < 0 ? 0 : start > 5 ? 5 : start;
+}
+
+bool cok_view_overhead(cok_picture *dst, const cok_view *view, int x, int y, unsigned dir)
+{
+    int8_t cx = (int8_t)x, cy = (int8_t)y;
+    int left = window_start(cx), top = window_start(cy);
+    unsigned party = OVERHEAD_PARTY + ((dir & 0xff) >> 1);
+    if (!on_map(cx, cy) || party > 0x127) return false;
+    for (int row = 0; row < 11; ++row)
+        for (int col = 0; col < 11; ++col) {
+            unsigned value = OVERHEAD_SQUARE;
+            for (unsigned side = 0; side < 4; ++side)
+                if (cok_view_wall(view, side * 2, left + col, top + row) != 0) value += 1u << side;
+            cok_view_tile(dst, view, value, col + 2 + BUFFER_X, row + 2 + BUFFER_Y, false);
+        }
+    cok_view_tile(dst, view, party, cx - left + 2 + BUFFER_X, cy - top + 2 + BUFFER_Y, false);
+    return true;
+}
+
 void cok_view_draw(cok_picture *dst, const cok_view *view, int x, int y, unsigned dir,
                    const cok_view_backdrop *b)
 {

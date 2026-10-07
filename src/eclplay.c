@@ -41,6 +41,8 @@ static void usage(const char *program)
             "                  pass: won (every monster against the party drops), fled\n"
             "                  (the party flees) or lost (the party dies); or gods, the\n"
             "                  original's Helm cheat at each player's turn\n"
+            "  --helm          play as if started with Helm, which lifts Area's Not Here\n"
+            "                  and enables the Gods cheat (implied by --combat gods)\n"
             "  --combat-map FILE  write each battle's map and combatants to FILE as text\n"
             "  --seed N        start Turbo Pascal's Random from N (default 0)\n"
             "  --shots DIR     save DIR/NNN.bmp each time the game waits for a key\n"
@@ -286,7 +288,7 @@ int main(int argc, char **argv)
     const char *screen = NULL;
     unsigned long file = 0, vector = 5, start = 0, fixture = 0, seed = 0;
     bool seeded = false;
-    bool still = false, placed = false, play = false;
+    bool still = false, placed = false, play = false, helm = false;
     const char *party = NULL, *load = NULL, *saves = NULL;
     cok_combat_stub combat = COK_COMBAT_UNPORTED;
     long x = 0, y = 0, dir = 0;
@@ -302,6 +304,8 @@ int main(int argc, char **argv)
             still = true;
         } else if (strcmp(option, "--play") == 0) {
             play = true;
+        } else if (strcmp(option, "--helm") == 0) {
+            helm = true;
         } else if (strcmp(option, "--keys") == 0 && has_value) {
             p.keys = argv[++i];
         } else if (strcmp(option, "--test-party") == 0 && has_value &&
@@ -318,6 +322,7 @@ int main(int argc, char **argv)
             const char *how = argv[++i];
             for (size_t k = 0; k < 4; ++k)
                 if (strcmp(how, outcomes[k]) == 0) combat = (cok_combat_stub)(COK_COMBAT_WON + k);
+            if (combat == COK_COMBAT_GODS) helm = true;
             if (combat == COK_COMBAT_UNPORTED) {
                 usage(argv[0]);
                 return 2;
@@ -409,6 +414,7 @@ int main(int argc, char **argv)
     if (still) game.animate = false;
     if (seeded) game.vm.seed = (uint32_t)seed;
     game.combat_stub = combat;
+    game.helm = helm;
     if (!has_block) {
         /* As 2fd3:3c28 resumes: the block saved in 0x4bf2, or 0x24. */
         block = game.vm.mem4b00[0xf2] != 0 ? game.vm.mem4b00[0xf2] : 0x24;

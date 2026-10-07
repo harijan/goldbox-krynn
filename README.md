@@ -37,7 +37,8 @@ nonzero if any file or record fails. `--list` prints metadata for each validated
 record; directory entry numbers are zero-based. Duplicate IDs are retained.
 `make test` includes synthetic malformed inputs, all supplied DAX archives,
 export checks for all 26 supported graphics archives (2,363 images), and
-tests of the picture, text, menu, 3D view, party and spell effect routines,
+tests of the picture, text, menu, 3D view, overhead map, party and spell
+effect routines,
 the adventure loop, the camp, casting spells, the character sheet with its
 items, monsters and encounters, the battlefield, the rounds of a battle,
 treasure and the end of combat, and the shops and the temple,
@@ -376,8 +377,11 @@ and input read (`input:`), and the name and operand values of each opcode
 that is not ported, in brackets. A spell effect the port cannot carry out
 ends the run with its reason (see Spell effects). `--play` then runs the
 adventure loop (see Adventure loop), which adds the party's square and
-facing after each step or turn (`at: X,Y,DIR`) and the commands that are not
-ported (`unported:`). `--keys` types keys (`\r` Enter, `\e` Escape, `\b`
+facing after each step or turn (`at: X,Y,DIR`), the overhead map going on
+and off (`area: on`, `area: off`; see Overhead map) and the commands that
+are not ported (`unported:`); `--helm` plays as a game started with
+`Helm`, which lifts `Area`'s `Not Here` and enables the Gods cheat;
+`--combat gods` implies it. `--keys` types keys (`\r` Enter, `\e` Escape, `\b`
 Backspace, `\<`, `\>`, `\^` and `\v` the arrows); when they run out the run
 stops. `\k` presses the next key while the party rests, which the rest loop
 sees (`1614:03c2`), or as a battle is set up, which drops it (`1614:0479`).
@@ -496,11 +500,76 @@ backdrop (`69ea:0184`, outside CGA mode) is 44 rows of sky, a two-row line in
 colour 8, then the horizon picture from `SKY.DAX` record 252. Under a sky of
 colour 11 on squares below 0x80, record 251, the sun, shows facing east at
 hours 1-5 (`0x4bc9`), south at 3-5 and 13-15, and west at 13-18, and record
-250 shows facing north. The original draws into a 21-unit by 168-row buffer
+250 shows facing north. The sky colour, and so the sun, is the one
+`6945:00ba` last picked for the party's square (`DS:6d80`), with the map on
+or not; turns and `Area` redraw with `69ea:0820` alone and keep it after a
+script has changed `0x4bfd` or `0x4bfe`, as ECL2 block 48's location
+vector does at 15:00 without showing the view again. The original draws into a 21-unit by 168-row buffer
 (`DS:4b78`) that `127f:12e8` copies to the screen one unit right and one cell
 down; the port draws on the screen with that offset, so the view fills cells
-3-13 across and down, as small pictures do. The overhead map that the view
-shows when `DS:6d84` is set (`69ea:000f`) and the CGA colours are not ported.
+3-13 across and down, as small pictures do. The CGA colours are not ported.
+While `DS:6d84` is set, the view shows the overhead map instead (see
+Overhead map).
+
+## Overhead map
+
+`Area` in the adventure commands (`475c:0a75`) turns the overhead map on
+or off (`DS:6d84`) and redraws the view (`69ea:0820`), leaving the status
+line as it is. Where the area hides the party's square, var `0x4bfb` not
+0, it shows `Not Here` on row 24 in yellow for speed × 100 ms and clears
+the row (`1521:0af1`) instead, unless the game was started with `Helm` as
+its second argument (`ParamStr(2)` against `DS:896a`, which `1960:0000`
+sets at startup; `cok_adventure.helm`, `eclplay --helm`). The catacombs of Throtl (ECL1 block 34), Gargath Keep
+(ECL2 block 49) and the flying citadel (ECL3 block 96) set `0x4bfb` and
+clear it as they are left. It is a game variable, saved with the game;
+the status line leaves out the square while it is set (`6346:2d75`, see
+Party).
+
+While `DS:6d84` is set, `69ea:0820` draws the map (`69ea:000f`) in place
+of the view and its backdrop: 11 by 11 squares, one 8×8 tile each,
+drawn opaque into the view's buffer with the tile routine (`6e22:01ab`),
+so that they fill cells 3-13 across and down. The window starts at the
+party's column and row less 5, kept to 0-5 so that it stays on the 16 by
+16 map. Each square is tile 0x104 of the frame's set (`8X8D1.DAX` record
+202) plus 1, 2, 4 and 8 for a wall of any type on its north, east, south
+and west sides (`69ea:06a2`): doors and walls the party can pass show as
+walls, and a wall shows only on the side of the square that has it. Then
+the party's arrow, tile 0x100 + facing / 2, pointing north, east, south or
+west, covers the party's square and its walls. A square is dark grey (8)
+with a line of light grey (7) along each side with a wall; the arrow is
+white (15) outlined in black. Nothing in the routine depends on the
+display mode (`DS:4b76`), so CGA mode draws the same tiles.
+
+The map stays on through steps and turns, which redraw it.
+`6945:00ba`, which shows the view after a step, when a block is entered
+and when a picture or sprite is taken away, turns it off first where
+`0x4bfb` is set, `Helm` or not. A turn (`475c:0c2d`, `0c7d`, `0ccb`) and
+`Area` redraw with `69ea:0820` alone: a map turned on before a script set
+`0x4bfb` stays on until the next step, and `Area` then says `Not Here`
+and leaves it on. The first sprite of an encounter (`3775:0575`, with no
+sprite loaded) turns it off and shows the view, or outside 3D areas the
+big picture (`DS:713a`); a sprite loaded before is erased by a redraw
+that keeps the map, but scripts forget their sprite when they exit. A
+picture in the view's place covers the map until the view is restored.
+`DS:6d84` is cleared at startup and at the end (`3e99:005b`, `0843`) and
+is not saved.
+
+For a square off the map, which only a script or `--at` can give, the
+original draws the arrow outside the window, unclipped (`127f:08d7`), and
+copies whatever its buffer holds around it to the screen; an arrow past
+the frame's tiles (a facing of 0x50 or more, which the port never has)
+halts it (`6e22:01ab`). The port stops with `COK_ECL_UNDEFINED` for both.
+
+A differential test ran `69ea:0820` with `DS:6d84` set in an 8086
+emulator on the 15 GEO maps of the three files, at every square and
+facing, with `DS:8846` 0, 0x50 or the block, and on random squares and
+facings, the tiles it drew replayed onto a screen of noise and compared
+with the port's. Of 20,360 cases, the 16,437 the port draws, the 15,360
+of every map, square and facing among them, agreed in every pixel. Both
+refused 1,979, arrows past the frame's tiles; the port alone refused
+1,944, squares off the map, whose arrow the original drew outside the
+window but inside its buffer (379) or outside the buffer (1,565). It is
+not part of the repository.
 
 ## Adventure loop
 
@@ -566,9 +635,9 @@ party's spell effects (`57e4:0171`, see Spell effects).
 
 `Cast` (`475c:0ade`) casts for the selected character if its status is
 0 (see Casting); with none selected the original reads through NULL and
-the port stops. `View` shows the selected character (see View). Not
-ported, and logged as `unported:`: `Area`, the overhead map
-(`69ea:000f`); and travel outside 3D areas (`475c:08d5`), where the loop
+the port stops. `View` shows the selected character (see View). `Area`
+shows the overhead map (see Overhead map). Not ported, and logged as
+`unported:`: travel outside 3D areas (`475c:08d5`), where the loop
 stops. Sound is not ported either.
 
 ## Party
@@ -613,8 +682,8 @@ yellow when below the maximum (`6346:0a0d`). Each row is cleared first, and one
 more after the list, so a party that shrinks by two leaves a stale row, as in
 the original. It is not drawn outside 3D areas unless `0x4c38` is set, nor
 over a big picture (`DS:4b4e`). The status line (`6346:2d75`) on row 15, in
-light green, reads like `7,15 N 00:00 search`: the square unless the overhead
-map is on (`0x4bfb`), the facing (turned by `0x4cff`), the hour and minutes,
+light green, reads like `7,15 N 00:00 search`: the square unless the area
+hides it (`0x4bfb`, see Overhead map), the facing (turned by `0x4cff`), the hour and minutes,
 and `search` while searching, or `camping` in camp. The original adds `*`
 while its debug flag (`DS:4b51`, Ctrl-D) is set; the port does not. The list
 is redrawn when a block's vectors have run, by `CLEAR BOX`, `LOAD FILES` and
@@ -1690,9 +1759,9 @@ give, says "Illegal range in Show3DSprite." and quits to DOS
 0; `SPRITE OFF` (`2fd3:2fe1`) redraws the view if a sprite is drawn.
 `EXIT` forgets the sprite and the close-up (`DS:8830`, `8831`), so a
 script's next `SETUP MONSTER` loads again; `PICTURE` 0xff erases a
-sprite as it erases a picture. The original's overhead map, which the
-first sprite turns off (`DS:6d84`), and its "Loading...Please Wait" are
-not ported.
+sprite as it erases a picture. The first sprite turns the overhead map
+off (`DS:6d84`), in any area (see Overhead map). The original's
+"Loading...Please Wait" is not ported.
 
 `ENCOUNTER MENU sprite distance picture result c0 c1 c2 c3 c4 text0 text1
 text2 flee speed` (`2fd3:23e5`) shows the monster as `SETUP MONSTER` does,
@@ -2363,7 +2432,9 @@ record, with its initiative), and the turns not ported as `turn:`.
 rounds, after event 0x18, and the sides are counted again before the
 battle's end; `--combat gods` presses Alt-X at each player's turn that
 reaches the commands, as the original allows with `Helm` on its command
-line.
+line: `432f:41e2` tests `ParamStr(2)` against `DS:896a` and returns at
+once without it, so the cheat needs `cok_adventure.helm`, which `--combat
+gods` sets (see Overhead map).
 
 The port keeps these quirks:
 
@@ -3149,6 +3220,22 @@ running in DOSBox:
 - Start the game with a second argument of `Helm` (`START x Helm`) and
   press Alt-X at a character's turn in combat: "The Gods intervene!",
   every monster dead, the round ending.
+
+- In Throtl, choose `Area` at 7, 15 facing north: the map should replace
+  the view, the party's arrow in its bottom row, the window's left column
+  square 2; compare the tiles and colours, and the status line, which
+  should still read `7,15 N`. Walk north and turn: the map should follow.
+  `Area` again should show the view.
+- With the map on, stand by a door or a wall the party can pass: it
+  should show as a wall, and only on the square whose side holds it.
+- With the map on, meet a wandering monster: the map should give way to
+  the view with the monster's sprite.
+- In the catacombs of Throtl, `Area` should show `Not Here` in yellow on
+  row 24 for a moment, and the status line should have no square. Start
+  the game with `Helm` as its second argument (`START x Helm`): `Area`
+  should show the map there, and the next step should turn it off.
+- Walk into the catacombs with the map on: the first view inside should
+  be the 3D view.
 
 ## Disassembly image
 

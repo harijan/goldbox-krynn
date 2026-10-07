@@ -79,9 +79,10 @@ typedef struct {
      * ported, the name of each character WHO picks, the rows of spell
      * lists, quitting to DOS, the monsters loaded, the encounter's sprite
      * and money robbed, the end of a fight, and the coins and items
-     * TREASURE adds: kind is "print", "menu", "list", "item", "heading",
-     * "choice", "input", "error", "at", "unported", "who", "quit",
-     * "monster", "combat" or "treasure". */
+     * TREASURE adds, and the overhead map going on and off: kind is
+     * "print", "menu", "list", "item", "heading", "choice", "input",
+     * "error", "at", "unported", "who", "quit", "monster", "combat",
+     * "treasure" or "area". */
     void (*log)(cok_adventure *game, const char *kind, const char *text, void *context);
     /* A battle has been set up (3cb2:1c58): game->combat holds its map and
      * combatants. NULL ignores it. */
@@ -137,6 +138,9 @@ struct cok_adventure {
     bool frame_pending;    /* DS:8856: redraw the frame once both have run. */
 
     bool moving;           /* DS:8858: the arrows move the party. */
+    bool overhead;         /* DS:6d84: the view shows the overhead map (Area). */
+    bool helm;             /* Started with Helm: ParamStr(2) is DS:896a's string. */
+    uint8_t sky;           /* DS:6d80: the view's sky colour, as 6945:00ba last set it. */
     bool text_shown;       /* DS:884e clear: text to clear after a command. */
     bool door_tries[3];    /* DS:7146-7148: Bash, Pick and Knock may be tried. */
     bool party_killed;     /* DAMAGE left no character able to act. */
@@ -241,9 +245,11 @@ bool cok_adventure_pass_time(cok_adventure *game, unsigned unit, unsigned count)
 /* Draw the adventure screen's frame (1128:0242). */
 void cok_adventure_frame(cok_adventure *game);
 
-/* Show the 3D view from the party's square, or with no 3D view in the area
- * (0x4be6 and 0x4c38 both 0) the big picture if game->redraw is set
- * (6945:00ba). Sets the party's square (0xc04f) and clears game->redraw. */
+/* Show the 3D view from the party's square, or the overhead map while
+ * game->overhead is set, which an area hiding the square (0x4bfb) turns
+ * off first; or with no 3D view in the area (0x4be6 and 0x4c38 both 0) the
+ * big picture if game->redraw is set (6945:00ba). Sets the party's square
+ * (0xc04f) and clears game->redraw. */
 void cok_adventure_view(cok_adventure *game);
 
 /* Add the characters of a saved game to the party, as 4b6d:1b34 does: for
@@ -265,6 +271,11 @@ bool cok_adventure_load_party(cok_adventure *game, const char *path);
  * 0x24 when that is 0 (2fd3:3c28). */
 bool cok_adventure_restore(cok_adventure *game, const char *path);
 
+/* Turn the overhead map off (DS:6d84) and, if it was on, show the view or
+ * the big picture again (6945:00ba with DS:713a set), as the first sprite
+ * of an encounter does (3775:0575). */
+void cok_adventure_overhead_off(cok_adventure *game);
+
 /* Draw the party list beside the view (6346:07ba), unless the area has no
  * 3D view or a big picture is shown. */
 void cok_adventure_party(cok_adventure *game);
@@ -276,6 +287,9 @@ void cok_adventure_status(cok_adventure *game);
 
 /* For the camp and other menus outside the scripts. */
 
+/* Show text on row 24 in colour fg for speed * 100 ms, then clear the row
+ * (1521:0af1; 6346:1827 with colour 10). */
+void cok_adventure_notice(cok_adventure *game, const char *text, uint8_t fg);
 /* Log text of kind (see cok_adventure_hooks.log). */
 void cok_adventure_log(cok_adventure *game, const char *kind, const char *text);
 /* The keyboard, which ends the run (game->vm.abort, game->input_ended) when
