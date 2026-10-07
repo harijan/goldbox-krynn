@@ -26,6 +26,7 @@ make
 ./build/eclplay --keys '\r\r\r\r\r' --shots build/shots Assets 16
 ./build/eclplay --play --set 4be6=1 --keys '\r\rm\^\r\^\^' Assets 32
 ./build/eclplay --load SAVE/SAVGAMA.DAT --play --keys '\r\r\r' Assets
+./build/eclplay --play --set 4be6=1 --saves build --keys '\rerharsan\e' Assets 32
 make test
 make sanitize
 ```
@@ -36,15 +37,15 @@ nonzero if any file or record fails. `--list` prints metadata for each validated
 record; directory entry numbers are zero-based. Duplicate IDs are retained.
 `make test` includes synthetic malformed inputs, all supplied DAX archives,
 export checks for all 26 supported graphics archives (2,363 images), and
-tests of the picture, text, menu, 3D view, party and spell effect routines
-and the adventure loop, including PIC delta decoding on `PIC1.DAX` and the game font
+tests of the picture, text, menu, 3D view, party and spell effect routines,
+the adventure loop and the camp, including PIC delta decoding on `PIC1.DAX` and the game font
 in `8X8D1.DAX`, and plays the opening scripts, the view of Throtl and a walk
 through it with `eclplay`. It builds `build/START_FULL.EXE` (see
 Disassembly image) to check the original's tables that the port uses. With
 the original's saved games in `SAVE/` (`SAVGAMA.DAT` and its `CHRDATA*`
 files), it also plays them with a party, checks the stats recomputed for
-their characters and runs their spell effects; those tests are skipped
-without them.
+their characters, runs their spell effects, and saves them again to compare
+the files; those tests are skipped without them.
 `make sanitize` repeats these checks with AddressSanitizer and UBSan.
 Tests also require Python 3 (standard library only). The native tools have no
 third-party dependencies. Sanitizer targets require the compiler's ASan/UBSan
@@ -263,8 +264,21 @@ asked. Up and down (8 and 2) move the selected row, wrapping within the rows
 shown; PgUp and PgDn (9 and 3), and `Prev` and `Next`, page. Escape or `Exit`
 cancels but leaves the index where it was. The first row shown persists
 between lists (`DS:6e0d`) as in the original, which can leave the selected
-row outside the window. Heading items (flag byte 0x29) are not ported; ECL
-lists have none.
+row outside the window. ECL lists have no headings; the spell lists do (see
+Camp).
+
+`cok_menu_ask` is `cok_menu_read` with the digits flag of `67b5:03e2`
+(`[bp+0xc]`) clear, as the yes/no prompt (`67b5:177f`), Pics and the saved
+game's letter call it: then 1-9 are not directions, and with one item 4
+and 6 return themselves. `cok_menu_rows` is `67b5:1368` in full: a prompt
+on row 24 in the heading colour, a first item other than `Select`, rows
+flagged as headings (node byte 0x29), drawn in the heading colour and
+skipped after each move or page in the same direction, at most a page's
+rows (`67b5:10d1`), so that a list that starts with a heading starts on
+its last row shown; the list drawn only when asked or when the first row
+shown moves to the pick; and `Prev` offered only while rows other than the
+leading headings are above the window. `cok_menu_list` is `cok_menu_rows`
+with no headings.
 
 `src/screen.h` draws the screen frames from the root segment `0x128` with
 tile set 4, glyphs 0x100-0x127, which the game loads from `8X8D1.DAX` record
@@ -358,7 +372,11 @@ the run with its reason (see Spell effects). `--play` then runs the adventure lo
 Adventure loop), which adds the party's square and facing after each step or
 turn (`at: X,Y,DIR`) and the commands that are not ported (`unported:`).
 `--keys` types keys (`\r` Enter, `\e` Escape, `\b` Backspace, `\<`, `\>`,
-`\^` and `\v` the arrows); when they run out the run stops.
+`\^` and `\v` the arrows); when they run out the run stops. `\k` presses
+the next key while the party rests, which the rest loop sees (`1614:03c2`).
+`--saves DIR` is where the camp's Save writes; without it, saving logs an
+error. A spell list logs its rows as `item:` and `heading:`, and quitting
+to DOS ends the run with `(quit to DOS in block N)`.
 `--party SAVE` adds the characters of a saved game to the party (see Party),
 and `--load SAVE` loads the whole saved game first; then `BLOCK` may be left
 out to resume where it was saved. WHO prints the character picked (`who:`).
@@ -473,7 +491,7 @@ menu to `Exit`: then the up arrow (or 8) steps ahead, left and right (4 and
 6) turn a quarter, down (2) turns around, and `Exit` returns to the commands.
 `Search` toggles bit 0 of `0x7eca`. `Look` sets bit 1 and passes ten
 minutes; the location vector then runs once with `0x7eca` at 1, after which
-the search bit is restored. `Encamp` runs the camp vector (`2fd3:3403`).
+the search bit is restored. `Encamp` camps (`2fd3:3403`, see Camp).
 After a command, text that `PRINT` or `VERTICAL MENU` left in rows 17-22 is
 cleared (`DS:884e`). Other special keys pick a character (`546c:3334`, see
 Party) and redraw the party list and status line, which are also redrawn
@@ -518,9 +536,8 @@ stay, does each unit that passes age each character a year (the word at
 party's spell effects (`57e4:0171`, see Spell effects).
 
 Not ported, and logged as `unported:`: `Area`, the overhead map
-(`69ea:000f`); `Cast` (`4888:0a0d`); `View` (`546c:0d74`); the camp menu
-(`4888:2c31`), so the party never rests and the rest vector never runs; and
-travel outside 3D areas (`475c:08d5`), where the loop stops. Sound is not
+(`69ea:000f`); `Cast` (`4888:0a0d`); `View` (`546c:0d74`); and travel
+outside 3D areas (`475c:08d5`), where the loop stops. Sound is not
 ported either.
 
 ## Party
@@ -533,9 +550,10 @@ fields the port uses. Fields such as the armour class (`+0x18d`, as 60 - AC)
 are derived from the others and the items when a character loads (see
 Derived stats); its spell effects are a list (see Spell effects).
 
-A saved game, `SAVGAM<letter>.DAT` (`4b6d:1b34`), is 5,469 bytes: the ECL file,
-the variables `0x4b00`-`0x4eff`, `0x7c00`-`0x7fff` and `0x7a00`-`0x7bff` as
-words, the party's square, facing, wall ahead and square byte
+A saved game, `SAVGAM<letter>.DAT` (`4b6d:1b34`; the camp's Save writes
+one, see Camp), is 5,469 bytes: the ECL file, the variables
+`0x4b00`-`0x4eff`, `0x7c00`-`0x7fff` and `0x7a00`-`0x7bff` as words, the
+party's square, facing, wall ahead and square byte
 (`DS:6d85`-`6d89`), the last and current modes, three wall sets (record and
 slot), the party's size and eight 40-character names. Each name, stripped of
 ` .*,?/\:;|`, cut to eight characters and upper-cased (`169c:05da`), names
@@ -820,8 +838,8 @@ magic, 0x10 acid), the effect a spell is adding (`6b2f`), the spell
 the target can be attacked (`6b37`), whether effects are being cured
 (`6b38`), whether the game was saved in the current camp (`5885`: set by
 Save, `4b6d:22de`, and cleared when the camp menu returns at `2fd3:344d`,
-at startup by `3e99:005b` and `0843`, and by the start menu, `4def:01b4`;
-the port does not save) and the combat round (`714b`).
+at startup by `3e99:005b` and `0843`, and by the start menu, `4def:01b4`,
+which is not ported) and the combat round (`714b`).
 
 Handlers ported, by address and effect id: `3f44:0124` (1), `0134` (2),
 `0344` (8, 0x2d), `0379` (9, 0x2e), `03ae` (0x0a), `03cd` (0x0b, its end
@@ -904,6 +922,228 @@ item and effect lists, the working bytes, the timer flags and the random
 numbers drawn; the rest reach what is not ported or what the original
 mishandles. It is not part of the repository.
 
+## Camp
+
+`src/camp.h` ports the camp from overlay `4888` and the rest loop of
+overlay `57e4`; `src/magic.h` the camp's Magic menu, with the spell lists of
+overlays `546c` and `5b04`. `Encamp` (`2fd3:3403`) runs the block's camp
+vector (`4b3d`), then the camp menu; if an encounter interrupted a rest, it
+redraws the screen and runs the rest vector (`4b3f`), which scripts use to
+start the encounter. Then it shows the view, clears `DS:5885`
+(`2fd3:344d`), so that the game counts as saved only in the camp it was
+saved in, and outside 3D areas would mark the party on the overland map
+(`4877:0005`, not ported). As in the original, a `NEWECL` in either vector
+enters the new block only after the next command. When the camp vector
+ends the run (`DS:4b57`, as when the party is killed), the original opens
+the camp menu all the same; the port does not.
+
+The camp menu (`4888:2c31`) sets the mode to 2, which shows `camping` on
+the status line and keeps the effect timers from counting down members
+with no timed effect, clears the rest time and the day's healing count,
+and redraws the screen for camp (`6346:2c17`): the frame, the party list,
+the status line and the camp's picture, `PIC` record 0x3b, which the
+menus draw at cell 3, 3 while they wait (the original animates it). It
+prints `The party makes camp...` on row 18 in light green and unmarks
+every spell marked to memorize or scribe (`4888:06b8`). The menu reads
+`Save View Magic Rest Alter Fix Exit`, prompt in light magenta and items
+in white and light green as the adventure's, and takes keys until Exit or
+Escape, or a rest is interrupted. It keeps the item selected by the last
+menu, so after `Encamp`, the fifth command, Enter picks `Alter`. Special
+keys pick a character (`546c:3334`) and redraw the party list; one whose
+scan code is `E`, NumLock, also leaves. On leaving it reloads the small
+picture shown before, unmarks the spells again, and restores the mode,
+the status line, rows 18-22 and row 24. `View` is logged as unported
+(`546c:0d74`).
+
+`Rest` (`4888:0f05`) sets the rest time to what the member who needs
+longest needs to learn its marked spells and scribe its marked scrolls
+(`4888:0032`): 4 hours if any, 6 if any is above level 2 (into `+0x58`),
+and 15 minutes a level, the levels added as bytes; a level-0 power counts
+as 1 to memorize but 0 on a scroll. The hours may pass 23. Then it rests
+(`57e4:0e3e`): row 17 shows `Rest Time:` and days, hours and minutes
+(`57e4:0764`) in light green, the unit chosen in white; the menu `Rest
+Days Hours Mins Add Subtract Exit` (`57e4:08a0`) picks a unit, adds 1 (5
+for minutes) or subtracts as much, and rests; up and down (8 and 2) add
+and subtract. Subtracting borrows from larger units, and with none to
+borrow from up to the days, clears the whole time (`57e4:05ee`); each
+change then carries full units once into the next with the clock's own
+routine (`57e4:0459`), so hours that carry into a day move the moons a
+day, and months fold into days, at most 99 (`57e4:0517`). The rest runs
+in ticks of five minutes while minutes, tens, hours or days are left, so
+it passes the time rounded up to five minutes. Each tick, if a key is
+waiting, it asks `Stop Resting? `, and the waiting key is the answer's
+first; then it takes five minutes off the rest time, passes
+them (`cok_adventure_pass_time`, unit 1, count 5, which counts the effect
+timers down: at the start every member's timer flag is set), and:
+
+- heals (`57e4:09f0`): at the 288th tick, counted across rests and Fix in
+  one camp (`DS:7136`), each member with status 0, 1, 4 or 5 gains a hit
+  point, added as a byte, so 255 wraps to 0 (`60f4:21ea`); an unconscious
+  or dying character recovers and can act. `The Whole Party Is Healed`
+  shows on row 19, whoever was healed.
+- learns (`57e4:0c9c`): each member whose timer (`DS:712e`, by position,
+  cleared when a rest starts) has run out and whose hours of preparation
+  are over scribes its first marked scroll spell above 0x80, else learns
+  its first marked spell, saying so on rows 19 and 20 (`5b04:57eb`), and
+  times the next at three ticks a level. Scribing sets the spell known
+  (`+0x62` + spell) and takes it off the scroll, which is gone once its
+  count (`+0x2f`) drops below 100 (`5b04:575d`, without the item count or
+  the stats being recomputed).
+- prepares (`57e4:0d52`): every twelfth tick counts down each member's
+  hours of preparation, after that tick's learning; at 0 its first spell
+  is timed.
+- rolls for encounters: every `0x7ed2` ticks, counted in `DS:4b53` across
+  rests, a roll of 1-100 up to `0x7ed3` shows `Your repose is suddenly
+  interrupted!` in white on row 19 and ends the rest and the camp menu.
+
+`Fix` (`4888:2b44`), if anyone lacks hit points, adds up the cure spells
+memorized by members who are okay (1d8 for Cure Light Wounds, 2d8+1
+Serious, 3d8+3 Critical), without using them, and rests, with no menu and
+no keys, as long as it takes the clerics to memorize their spells a day of
+levels 1, 4 and 5 (`4888:28f9`), shortened by the ratio of an estimate of
+the points healed to the points lacking; then it adds those spells' cures
+and heals the members in order from the total. An encounter heals no one
+and leaves the rest time it set. `Alter` (`4888:2539`) offers `Order Drop
+Speed Icon Pics Level Exit` until Exit or Escape: `Order` (`4888:1fc1`)
+selects a character and moves it up or down with the arrows (8 and 2), the
+first wrapping to the end and the last to the front; `Drop` (`4888:2126`)
+asks `Drop from party? ` after saying the character `will be gone`, then
+removes it (`4def:3b0a`), counting it out of `0x7f3e` and selecting the
+one before, or with the party's last asks `quit TO DOS: `; `Speed`
+(`4888:2384`) shows `Game Speed = N (0=fastest 9=slowest)` on row 18 and
+offers `Faster` and `Slower` (down and up) within 0-9; `Pics` toggles
+`DS:4b4d`, which nothing else reads, and the animation (`DS:4b4f`); and
+`Level` (`4888:2272`) sets the difficulty, `0x4cf4`, 1-5, `Novice` to
+`Champion`. `Icon`, the combat icon editor (`4def:408b`), is logged as
+unported.
+
+The yes/no prompts (`67b5:177f`: `Stop Resting? `, `Quit TO DOS `, `quit
+TO DOS: `, `Drop from party? ` and Magic's) select No once, before they
+read keys, and ignore Escape, so Yes chosen with the arrows stays chosen
+through Escape or other keys until Enter.
+
+`Save` counts saves in `0x4c3c`; every tenth, the original asks a word
+from the rule book (`4888:0376`) and quits to DOS on a wrong answer, which
+the port logs as unported and passes. Then it asks `Save Which Game: `
+over `A B C D E F G H I J` (`4b6d:22de`), keypad digits not directions;
+Escape cancels, but the camp then asks `Quit TO DOS ` all the same, and Y
+quits. `cok_camp_save_game` writes the game as `cok_adventure_restore`
+reads it (see Party), after setting the speed (`0x4bfc`), pictures and
+animation (`0x4bff`, 2 × `DS:4b4d` + `DS:4b4f`) and the ECL file
+(`0x7f12`): the modes as they are, so a camp's save holds 2 and the mode
+before it; the wall sets as `DS:6d8a` holds them, from record 0 at slot 1
+at startup; and the characters as `CHRDAT<letter><n>` beside it
+(`4b6d:0bed`): the 409-byte record, the items (`.STF`) and the effects
+(`.SFX`), each file erased first and written only if there are any. It
+shows `Saving...Please Wait` on row 24 in light green; with no party, it
+shows `WARNING: Problem Saving Characters` in yellow and waits for a key
+before writing the count and names (`4b6d:267d`), then writes a party of
+none. The original's disk, volume label and free space checks are left
+out. It checks no write: a file that cannot be written does not stop the
+others, and `DS:5885` is set after all (`4b6d:2809`); the port does the
+same, logging each failure as `error:`. Saving SAVE/'s
+games again gives the same bytes but for those the original writes from
+memory: the far pointers in the records (`+0xe3`, `+0x143`, `+0x147`-`+0x17a`,
+`+0x17f`, `+0x183`), items (`+0x2a`) and effects (`+5`), 0 in the port's
+files, and in the `.DAT` the bytes after each name and the slots past the
+party, which hold what was on the original's stack; and spell 8 of game
+A's clerics (see Derived stats). The original also erases roster copies
+of the characters (`4b6d:0a80`), which the port does not keep.
+
+`Magic` (`4888:1c32`) offers `Cast Memorize Scribe Display Rest Exit`
+until Exit or Escape for the selected character. `Cast` is logged as
+unported; the original goes on to `4888:0a0d` and, for a spell picked,
+`5b04:1415`. `Rest` is the camp's. A character whose status is 1 or that
+cannot act is `in no condition to` memorize or scribe (`4888:08d8`, in
+the text window with its name, `6346:1883`).
+
+`Memorize` (`4888:1098`) first lists the spells marked (`Spells to
+Memorize`) and asks `Memorize These Spells? `: No unmarks them all and
+opens the grimoire, anything else keeps them and leaves. In the grimoire,
+rows 18-22 show the spells left today (`4888:0b24`): cleric, druid,
+granted and magic-user spells of levels 1-5 (`4888:0700`: a day's less
+those memorized and marked), blank for none a day, and the bonus spells a
+magic-user of an order gets from its moon (`0x4cf8` + `+0x5e`: 1 or 2,
+less the spells it has marked beyond a day's); with no spells a day of
+any kind the character `cannot memorize any spells`. The list (`Spells in
+Grimoire`, rows 5-15) holds the known spells (`+0x62` + spell) of classes
+it can use (`5b04:0083`) by level, a heading before each, without the
+powers it has memorized. A spell picked with one of its level and class
+left, or a magic-user's while bonus spells are left, is marked in the
+first free byte (`+0x1e` on) and the bytes sorted by spell (`4888:0fb2`),
+which puts the empty ones first. On leaving, the marked spells are shown
+again with `Memorize these spells? `.
+
+`Scribe` (`4888:132b`) does the same for the spells of scrolls (`Spells
+on Scrolls`), listed when the scroll's order bit (`+0x35` 0x20 for order
+1, 0x10 for 2) matches the character's (`+0x5e`) and its low three bits
+are clear, which effect 0x10 clears for good (`5b04:0981`). A spell known
+already says `You already know that spell`, one marked `You are already
+scibing that spell` (sic), and one of a level and class with no spells a
+day `You can not scribe that spell.`, on row 24 for a moment
+(`6346:1827`). Otherwise the first byte of any item equal to the spell is
+marked, scroll or not; a sword holding the spell's id is marked instead
+of the scroll, and stays marked. With no scroll to copy, the character
+`has no copyable scrolls`. `Display` (`4888:17ae`) lists each member's
+name and its spell effects, named after the first spell of 1-0x38 that
+adds them (byte 10 of the spell table), or with their own text for
+eighteen others, or `<No Spell Effects>`, in the open frame.
+
+The lists (`546c:34ec`, `5b04:027a`, `5b04:0b21`) show `NAME's Spells
+...` on row 1, in the frame of `1128:0384` (Memorize, keeping rows 17-22)
+or `1128:077c`, with the menu `Choose Spell: ` and `Memorize` or `Scribe`
+(see `cok_menu_rows`). Marked spells show ` *` before their names, and a
+spell memorized more than once its count. The spell names (`DS:20a0`, 41
+bytes each) and the spell table (`DS:31b3`, 16 bytes each: class, level,
+and the effect at byte 10) are the original's, checked against
+`build/START_FULL.EXE` by `make test`.
+
+The port keeps these quirks of the original:
+
+- `4888:28f9` starts its estimate of the points healed from an
+  uninitialized local, which holds 14, the count of the `Move` before it,
+  and keeps the times of the last member who is okay for one who is not,
+  counting them again. An estimate 256 or 512 times the points lacking
+  makes a ratio of 0 as a byte, a division by zero: Fix then stops with
+  `COK_ECL_DIVIDE_BY_ZERO`.
+- A rest started again (Rest, or Fix) restarts the learning timers, so a
+  spell whose wait was interrupted is learned on the next rest's first
+  tick.
+- A used-up scroll ends the scribing walk, which reads its freed next
+  pointer, cleared by `6346:1697`, but first the rest of its own spells.
+- Pics takes special keys by their scan codes' letters: the down arrow
+  (0x50) toggles the pictures and F7 (0x41) the animation; the save's
+  letter takes F7-F10 as A-D, Home, up and PgUp as G-I.
+- `4888:0700` counts a power granted to one without a cleric level (a
+  knight above level 5, or a former cleric, as `5b04:0083` allows) against
+  an uninitialized local. In Memorize's call it holds the low byte of the
+  return offset of the `546c:34ec` call before it (`1098:116c`), 0x71, so
+  such a power can be memorized many times; the emulator confirms it. A
+  Turbo Pascal overlay manager that unloaded overlay `4888` during that
+  call could have rewritten the return address; the port takes 0x71. In
+  the table's own call (`4888:0b24`) the byte is never shown.
+- `4888:1098` writes past the 58 bytes when all are full; the port fails
+  with `COK_ECL_UNDEFINED`, as it does where `4888:0700`, for a level or
+  class past the spell table's, reads a far pointer, where a list would
+  show a spell with no name (ids 0 and 0x6c-0x7f) or a level past 9, or
+  hold more than 58 spells or 49 scroll spells, and where scribing frees a
+  readied scroll.
+
+A differential test ran the original routines in an 8086 emulator
+against the port on random parties, items and effects: preparation times,
+unmarking, the rest time arithmetic, healing, sorting, spell slots, whole
+rests and Fix without the menu (with the clock, moons, effect timers,
+learning, scribing, healing, encounters and the random numbers drawn, and
+in half the rests the stats recomputed first, so that used-up scrolls
+renumber readied items), the spell lists of every kind and the
+spells-left table. Of 8,000 cases, the 7,407 the port carries out agreed
+in the records, items, readied slots, effects, rest time, timers, clock,
+moons, messages, lists and random numbers drawn. The 593 it refused reach
+spells with no name (430) or levels past 9 (20), a far pointer (32), or
+`4888:0700`'s uninitialized byte called outside Memorize (111), which
+random data makes common. It is not part of the repository. The
+interactive rest and the menus were tested in the port only.
+
 ## Checks against the original
 
 These follow the disassembly but have not been compared with the game
@@ -940,6 +1180,31 @@ running in DOSBox:
 - With a dwarf or kender of constitution 19 in the party, compare the
   saving throws against a trap's `DAMAGE` with those of another race: the
   port adds 5 (effect 0x5e) to throws of types 0, 2 and 4.
+- Camp in Throtl and compare the camp screen: the campfire picture in the
+  view, `The party makes camp...` on row 18, the status line ending
+  `camping`, and the rest time on row 17 (`Rest Time: 00:00:00`, the
+  minutes in white) with the rest menu.
+- Camp right after `Encamp` and press Enter: the original opens `Alter`,
+  the fifth item, as the menu keeps the selection.
+- Save in camp, then load that game: it holds mode 2 (`0x1407`). Compare
+  how the original resumes it with how it resumes a game saved from the
+  party menu.
+- Hurt a character a few points with a cleric of two first-level spells a
+  day in the party and `Fix`: the clock should pass the time of
+  `4888:28f9`, 270 minutes divided by 41 over the points lacking, which
+  depends on the 14 it reads from the stack.
+- Rest a full day twice in one camp, and once each in two camps: the
+  party heals a point a day only counting the ticks of one camp
+  (`DS:7136`).
+- With a magic-user of an order carrying a scroll and another item whose
+  `+0x3c`-`+0x3e` hold the scroll's spell id, scribe it: the other item
+  is marked, and the scroll is not used.
+- In `Alter`'s `Pics`, press the down arrow: the pictures flag changes.
+- Open the grimoire: the first spell highlighted is the last row shown.
+- `Display` a character with effect 0x13: it shows `Find Traps`.
+- With a knight above level 6 and no cleric level who knows a granted
+  power, memorize it: the port lets it be marked again and again, counting
+  against 0x71 (`4888:0700`); see whether the original does.
 
 ## Disassembly image
 

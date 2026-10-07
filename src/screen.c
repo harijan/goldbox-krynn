@@ -21,10 +21,9 @@ static void tile(cok_picture *dst, const cok_picture *tiles, unsigned value, int
     cok_picture_draw(dst, tiles, 0x14 + value, x, y, 0, NULL);
 }
 
-void cok_screen_frame(cok_picture *dst, const cok_picture *tiles, const uint16_t moons[3],
-                      bool open)
+/* Row 0 with the moons. */
+static void top(cok_picture *dst, const cok_picture *tiles, const uint16_t moons[3])
 {
-    cok_picture_fill(dst, 1, 8, 38, 22 * 8, 0); /* 1128:07e6 */
     for (int x = 0; x < 40; ++x) {
         unsigned value = top_row[x];
         if (x == 8) value = (moons[0] + 10u) & 0xff;
@@ -32,6 +31,13 @@ void cok_screen_frame(cok_picture *dst, const cok_picture *tiles, const uint16_t
         if (x == 30) value = (moons[2] + 14u) & 0xff;
         tile(dst, tiles, value, x, 0);
     }
+}
+
+void cok_screen_frame(cok_picture *dst, const cok_picture *tiles, const uint16_t moons[3],
+                      bool open)
+{
+    cok_picture_fill(dst, 1, 8, 38, 22 * 8, 0); /* 1128:07e6 */
+    top(dst, tiles, moons);
     for (int y = 0; y < 24; ++y) {
         unsigned value = open && y >= 15 && y <= 17 ? COK_FRAME_VERTICAL : side[y];
         tile(dst, tiles, value, 0, y);
@@ -64,4 +70,24 @@ void cok_screen_big(cok_picture *dst, const cok_picture *tiles, const uint16_t m
 {
     cok_screen_frame(dst, tiles, moons, false);
     row_16(dst, tiles);
+}
+
+void cok_screen_spells(cok_picture *dst, const cok_picture *tiles, const uint16_t moons[3])
+{
+    cok_picture_fill(dst, 1, 8, 38, 16 * 8, 0); /* 1128:07e6 */
+    top(dst, tiles, moons);
+    for (int y = 0; y < 24; ++y) {
+        tile(dst, tiles, side[y], 0, y);
+        tile(dst, tiles, side[y], 39, y);
+    }
+    for (int x = 0; x < 40; ++x) tile(dst, tiles, COK_FRAME_HORIZONTAL, x, 23);
+    row_16(dst, tiles);
+}
+
+void cok_screen_list(cok_picture *dst, const cok_picture *tiles, const uint16_t moons[3])
+{
+    cok_screen_frame(dst, tiles, moons, true);
+    for (int x = 0; x < 40; ++x) tile(dst, tiles, COK_FRAME_HORIZONTAL, x, 2);
+    tile(dst, tiles, 3, 0, 3);
+    tile(dst, tiles, 3, 39, 3);
 }

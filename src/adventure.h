@@ -31,17 +31,22 @@ typedef struct {
      * game->vm. NULL ignores it. */
     void (*unported)(cok_adventure *game, void *context);
     /* Text as it is printed, menus as they are shown (items with their ~
-     * marks), input as it is read, pictures that fail to load, the party's
-     * square and facing as "X,Y,DIR" after it moves or turns, and commands
-     * of the adventure loop that are not ported, and the name of each
-     * character WHO picks: kind is "print", "menu", "list", "item",
-     * "choice", "input", "error", "at", "unported" or "who". */
+     * marks, or a yes/no prompt), input as it is read, pictures that fail
+     * to load, the party's square and facing as "X,Y,DIR" after it moves
+     * or turns, and commands of the adventure loop and camp that are not
+     * ported, the name of each character WHO picks, the rows of spell
+     * lists, and quitting to DOS: kind is "print", "menu", "list", "item",
+     * "heading", "choice", "input", "error", "at", "unported", "who" or
+     * "quit". */
     void (*log)(cok_adventure *game, const char *kind, const char *text, void *context);
     /* Before each instruction, as cok_ecl_hooks.trace. */
     void (*trace)(cok_adventure *game, void *context);
     /* Wait ms milliseconds (Crt.Delay): after each printed character, speed
      * * 3, and for DELAY, speed * 100. NULL does not wait. */
     void (*delay)(cok_adventure *game, unsigned ms, void *context);
+    /* Whether a key is waiting, without reading it (1614:03c2, KeyPressed),
+     * which resting polls. NULL never has one. */
+    bool (*key_pending)(cok_adventure *game, void *context);
     void *context;
 } cok_adventure_hooks;
 
@@ -53,7 +58,9 @@ struct cok_adventure {
     /* The 3D view: map, wall sets, tile sets (set 4, 8X8D1.DAX record 202,
      * is the frame's; see screen.h) and sky pictures. */
     cok_view view;
-    int16_t wall_ids[3];   /* DS:6d8a: WALLDEF record per wall set, or -1. */
+    /* DS:6d8a: for wall sets 1-3, the WALLDEF record and the slot it was
+     * loaded at, or -1 and -1; (0, 1) and none at startup (3e99:005b). */
+    int16_t wall_ids[3], wall_slots[3];
 
     /* The party (DS:609a). The selected character is vm.character
      * (DS:6096), which must be a member's record or NULL. */
@@ -88,9 +95,21 @@ struct cok_adventure {
 
     uint8_t speed;         /* DS:4b38, the game speed; 4 by default. */
     bool animate;          /* DS:4b4f: load every frame of a picture. */
+    uint8_t pictures;      /* DS:4b4d, Alter's "Pics", 1 at startup; nothing else reads it. */
     uint8_t selected;      /* DS:6e0f, the menu item selected. */
     int list_top;          /* DS:6e0d, the first item a list shows. */
     bool input_ended;      /* The keyboard ran out; the run was aborted. */
+
+    /* Camp (see camp.h). */
+    uint16_t rest[7];      /* DS:7120: the time left to rest, laid out as the clock. */
+    uint16_t heal_ticks;   /* DS:7136: five minutes rested toward a day's healing. */
+    uint8_t learn_ticks[COK_PARTY_MAX]; /* DS:712e: by position, ticks to the next spell. */
+    bool resting;          /* DS:7138. */
+    bool spells_changed;   /* DS:7142: a granted power was memorized; redraw the list. */
+    uint8_t bonus_spells;  /* DS:7144: magic-user spells the moons allow beyond a day's. */
+    uint16_t rest_ticks;   /* DS:4b53: five minutes rested toward an encounter roll. */
+    char save_dir[512];    /* Where Save writes (DS:5784); empty for nowhere. */
+    bool quit;             /* The player quit to DOS (1614:0000); the run was aborted. */
 
     cok_keyboard keys;
     cok_adventure_hooks hooks;
@@ -166,6 +185,36 @@ void cok_adventure_party(cok_adventure *game);
  * overhead map is on (0x4bfb), its facing, the time, and "search" while
  * searching. Not drawn outside 3D areas. */
 void cok_adventure_status(cok_adventure *game);
+
+/* For the camp and other menus outside the scripts. */
+
+/* Log text of kind (see cok_adventure_hooks.log). */
+void cok_adventure_log(cok_adventure *game, const char *kind, const char *text);
+/* The keyboard, which ends the run (game->vm.abort, game->input_ended) when
+ * keys run out. */
+cok_keyboard cok_adventure_keyboard(cok_adventure *game);
+/* Wait ms milliseconds through hooks.delay. */
+void cok_adventure_wait(cok_adventure *game, unsigned ms);
+/* Whether a key is waiting (hooks.key_pending, 1614:03c2). */
+bool cok_adventure_key_pending(cok_adventure *game);
+/* Carry each full unit of clock into the next once (57e4:0459), moving
+ * the moons on a new day and aging the party while the years are full, as
+ * cok_adventure_pass_time does. */
+void cok_adventure_carry(cok_adventure *game, uint16_t clock[7]);
+/* Redraw the screen for the mode (6346:2c17): in camp the frame, the party
+ * list and status line, and PIC record 0x3b loaded as the small picture. */
+void cok_adventure_redraw(cok_adventure *game);
+/* Load PIC<file> record id as the small picture unless it is loaded
+ * (6961:00e4), logging an error if it fails; and draw its current frame at
+ * cell 3, 3, as the camp's menus do while they wait (6961:000a). */
+void cok_adventure_load_picture(cok_adventure *game, uint8_t id);
+void cok_adventure_show_picture(cok_adventure *game);
+/* Print text wrapped in window from game->vm.cursor in fg on 0, paging as
+ * PRINT does, without a delay between characters (1521:04ac). */
+void cok_adventure_print(cok_adventure *game, const char *text, cok_text_window window,
+                         uint8_t fg, bool clear);
+/* Set game->error, log it, set game->vm.status to status and end the run. */
+void cok_adventure_fail(cok_adventure *game, cok_ecl_status status, const char *format, ...);
 
 /* Read a record by id from <name><file>.DAX in the asset directory, as
  * 169c:088e does; the first record with the id wins. Returns a malloc'd

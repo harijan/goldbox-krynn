@@ -76,6 +76,43 @@ int cok_menu_read(cok_picture *dst, const cok_font *font, const char *prompt, co
                   uint8_t prompt_color, uint8_t highlight, uint8_t normal, uint8_t *selected,
                   const cok_keyboard *keys, bool *special);
 
+/* As cok_menu_read; with keypad clear, as the yes/no prompt (67b5:177f)
+ * and the saved game letter call it, the digits are not directions: 4 and
+ * 6 still move the selection, but with a single item they return
+ * themselves, and the other digits are hotkeys or nothing. */
+int cok_menu_ask(cok_picture *dst, const cok_font *font, const char *prompt, const char *text,
+                 uint8_t prompt_color, uint8_t highlight, uint8_t normal, bool keypad,
+                 uint8_t *selected, const cok_keyboard *keys, bool *special);
+
+/* A row of a list: its text, and whether it is a heading (node byte
+ * 0x29), which is drawn in the heading colour and cannot be picked. */
+typedef struct {
+    const char *text;
+    bool heading;
+} cok_menu_row;
+
+/* How 67b5:1368 is called: the prompt, drawn at column 0 of row 24 in the
+ * heading colour, the first menu item ("Select"), the colours, and whether
+ * Exit is offered. */
+typedef struct {
+    const char *prompt;
+    const char *base;
+    uint8_t highlight, normal, heading;
+    bool show_exit;
+} cok_menu_style;
+
+/* Pick from rows as 67b5:1368 does: as cok_menu_list below, but with the
+ * style's prompt and first item, headings, and the list drawn only if
+ * *redraw is set (or the first row shown moves to the item picked), which
+ * clears *redraw. After each move the pick skips past headings in the
+ * same direction, at most a page's rows, so a list that starts with a
+ * heading starts on the last row shown. Prev is offered while rows other
+ * than the leading headings are above the window. */
+int cok_menu_rows(cok_picture *dst, const cok_font *font, const cok_menu_row *rows,
+                  size_t count, cok_text_window window, const cok_menu_style *style,
+                  bool *redraw, int *index, int *top, uint8_t *selected,
+                  const cok_keyboard *keys);
+
 /* Pick from a list of items shown in window, one per row from the top
  * (67b5:1368 as 3775:1990 calls it). *index is the item picked, 0-based,
  * and *top the first item shown (DS:6e0d), which the game keeps between
@@ -86,9 +123,7 @@ int cok_menu_read(cok_picture *dst, const cok_font *font, const char *prompt, co
  * picked one from its first to its last non-space character in colour 0 on
  * highlight, and the menu in highlight and normal with no prompt. Returns the key that picked (S, space or Enter on Select), 0 when Escape
  * or Exit cancelled, leaving *index on the last item picked, or -1 if input
- * ended. The original also shows items flagged as headings in another
- * colour and skips over them; ECL lists have none, and they are not
- * ported. */
+ * ended. ECL lists have no headings (see cok_menu_rows). */
 int cok_menu_list(cok_picture *dst, const cok_font *font, const char *const *items,
                   size_t count, cok_text_window window, uint8_t highlight, uint8_t normal,
                   bool show_exit, int *index, int *top,
