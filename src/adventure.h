@@ -1,6 +1,7 @@
 #ifndef COK_ADVENTURE_H
 #define COK_ADVENTURE_H
 
+#include "combat.h"
 #include "ecl.h"
 #include "effect.h"
 #include "menu.h"
@@ -82,6 +83,9 @@ typedef struct {
      * "choice", "input", "error", "at", "unported", "who", "quit",
      * "monster", "combat" or "treasure". */
     void (*log)(cok_adventure *game, const char *kind, const char *text, void *context);
+    /* A battle has been set up (3cb2:1c58): game->combat holds its map and
+     * combatants. NULL ignores it. */
+    void (*battlefield)(cok_adventure *game, void *context);
     /* Before each instruction, as cok_ecl_hooks.trace. */
     void (*trace)(cok_adventure *game, void *context);
     /* Wait ms milliseconds (Crt.Delay): after each printed character, speed
@@ -187,6 +191,8 @@ struct cok_adventure {
     /* DS:883c: a shop or the temple redraws its frame (see shop.h); clear
      * for its first redraw. */
     bool shop_frame;
+    /* The battle's map, combatants and tile set (see combat.h). */
+    cok_combat combat;
     bool restoring;        /* The block's vectors run; DS:43bf is restored after them. */
 
     cok_keyboard keys;

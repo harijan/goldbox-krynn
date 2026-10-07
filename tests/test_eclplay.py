@@ -89,6 +89,48 @@ class PlayTests(unittest.TestCase):
         self.assertIn("choice: 2", result.stdout.splitlines())
         self.assertIn("monster: 4 EVIL FIGHTER, icon 35 in slot 8", result.stdout.splitlines())
 
+    def test_the_battlefield(self):
+        # At Throtl's gate the guards stand in the gateway, at distance 0:
+        # the battlefield is built from the 3D map around the party
+        # (3cb2:08cd), the party placed in ranks behind 7, 15 facing north
+        # and the guards in theirs ahead; then the battle is not ported.
+        dump = self.folder / "map.txt"
+        result = self.play("--test-party", 6, "--set", "4be6=1", "--combat-map", dump,
+                           "--keys", r"\r\rE", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        start = lines.index("print: A battle begins...")
+        self.assertEqual(lines[start + 1:start + 5],
+                         ["combat: the 3D map around 7,15 facing N, the enemy 0 squares ahead",
+                          "combat: 1 ALDA at 27,13", "combat: 2 BRAM at 28,13",
+                          "combat: 3 CERA at 26,13"])
+        self.assertIn("combat: 7 HOBGOBLIN at 27,12", lines)
+        self.assertIn("combat: 21 WARRIOR at 25,10", lines)
+        end = lines.index("[COMBAT]")
+        self.assertEqual(lines[end - 2:end], ["combat: the view from 24,10",
+                                              "unported: the combat screen (6346:300f)"])
+        text = dump.read_text().splitlines()
+        self.assertEqual(text[0], "battle in block 32: view 24,10, 21 combatants")
+        picture, cells = text[1:26], text[26:51]
+        self.assertTrue(all(len(row) == 50 for row in picture))
+        self.assertTrue(all(len(row) == 100 for row in cells))
+        # The party in two ranks, the guards before them, in the street
+        # walled to the north but for the gateway.
+        self.assertEqual(picture[13][26:29], "312")
+        self.assertEqual(picture[14][27:30], "645")
+        self.assertEqual(picture[10][24:27], ".l#")
+        self.assertEqual(cells[13][52:54], "17")
+        self.assertEqual(text[51], "1 1 ALDA: at 27,13 size 1 side 0 facing 7")
+        self.assertEqual(text[71], "l 21 WARRIOR: at 25,10 size 1 side 1 facing 3")
+        # The caravan's fight is on open ground.
+        result = self.play("--test-party", 6, "--combat-map", dump, "--keys", r"\r\rE",
+                           ASSETS, 16)
+        lines = result.stdout.splitlines()
+        self.assertIn("combat: open ground facing N, the enemy 2 squares ahead", lines)
+        self.assertIn("combat: 7 BAAZ at 17,2", lines)
+        self.assertEqual(dump.read_text().splitlines()[0],
+                         "battle in block 16: view 24,10, 10 combatants")
+
     def test_view_of_throtl(self):
         shots = self.folder / "shots"
         shots.mkdir()
@@ -445,9 +487,15 @@ class PartyTests(unittest.TestCase):
         lines = result.stdout.splitlines()
         self.assertIn("monster: 9 RED DRAGON, icon 21 in slot 8", lines)
         self.assertIn("combat: won", lines)
-        self.assertIn("combat: removed 9 RED DRAGON, 9 BOZAK, 9 SIVAK; 27 dropped", lines)
+        # On open ground, with eclplay's state (no 3D map loaded, the party
+        # at 0, 0), their formations hold 11 of the 27, the dragons two cells
+        # wide; setup removes the rest (3cb2:17f7), which bring no
+        # experience.
+        self.assertEqual(lines.count("combat: BOZAK has no place and is removed"), 7)
+        self.assertEqual(lines.count("combat: SIVAK has no place and is removed"), 9)
+        self.assertIn("combat: removed 9 RED DRAGON, 2 BOZAK; 11 dropped", lines)
         # The dragons' experience and coins: shared, the pool is empty.
-        self.assertIn("print: Each character receives 6415", lines)
+        self.assertIn("print: Each character receives 4937", lines)
         self.assertEqual(lines[lines.index("menu: View Take Pool Share Exit") + 1],
                          "menu: View Pool Exit")
         self.assertIn("print: THE CITY IS SENDING ANOTHER PATROL. DO YOU FLEE?", lines)

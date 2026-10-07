@@ -39,8 +39,8 @@ record; directory entry numbers are zero-based. Duplicate IDs are retained.
 export checks for all 26 supported graphics archives (2,363 images), and
 tests of the picture, text, menu, 3D view, party and spell effect routines,
 the adventure loop, the camp, casting spells, the character sheet with its
-items, monsters and encounters, treasure and the end of combat, and the
-shops and the temple,
+items, monsters and encounters, the battlefield, treasure and the end of
+combat, and the shops and the temple,
 including PIC delta decoding on `PIC1.DAX` and the game font in
 `8X8D1.DAX`, and plays the opening scripts, the view of Throtl and, with
 a party made up for testing (`eclplay --test-party`), its fights, a walk
@@ -370,45 +370,48 @@ original leaves unset return 0.
 `eclplay [options] ASSETS BLOCK` runs an ECL block on a 320×200 adventure
 screen without a display, as `2fd3:3b47` enters a block: the load vector,
 then the after-move and location vectors, starting over when `NEWECL`
-switches blocks. It prints text as it is printed (`print:`), menus with their
-`~` marks (`menu:`, `list:` and `item:`), the choices made (`choice:`) and
-input read (`input:`), and the name and operand values of each opcode that
-is not ported, in brackets. A spell effect the port cannot carry out ends
-the run with its reason (see Spell effects). `--play` then runs the adventure loop (see
-Adventure loop), which adds the party's square and facing after each step or
-turn (`at: X,Y,DIR`) and the commands that are not ported (`unported:`).
-`--keys` types keys (`\r` Enter, `\e` Escape, `\b` Backspace, `\<`, `\>`,
-`\^` and `\v` the arrows); when they run out the run stops. `\k` presses
-the next key while the party rests, which the rest loop sees (`1614:03c2`).
+switches blocks. It prints text as it is printed (`print:`), menus with
+their `~` marks (`menu:`, `list:` and `item:`), the choices made (`choice:`)
+and input read (`input:`), and the name and operand values of each opcode
+that is not ported, in brackets. A spell effect the port cannot carry out
+ends the run with its reason (see Spell effects). `--play` then runs the
+adventure loop (see Adventure loop), which adds the party's square and
+facing after each step or turn (`at: X,Y,DIR`) and the commands that are not
+ported (`unported:`). `--keys` types keys (`\r` Enter, `\e` Escape, `\b`
+Backspace, `\<`, `\>`, `\^` and `\v` the arrows); when they run out the run
+stops. `\k` presses the next key while the party rests, which the rest loop
+sees (`1614:03c2`), or as a battle is set up, which drops it (`1614:0479`).
 `--saves DIR` is where the camp's Save writes; without it, saving logs an
-error. A spell list logs its rows as `item:` and `heading:`, and quitting
-to DOS ends the run with `(quit to DOS in block N)`. Cast and View run
-from the commands and the camp, their lists logged as `list:` and
-`item:`. Monsters loaded, the encounter's sprite and close-up and the
-money robbed log as `monster:`, the end of a fight as `combat:` (see
-Monsters and encounters), the coins and items `TREASURE` adds as
-`treasure:` (see Treasure and the end of combat), and what is paid and
-appraised in shops and the temple as `shop:` (see Shops and the
-temple). `COMBAT`'s battle is not ported: it logs as `[COMBAT]`, unless
-`--combat won`, `fled`, `lost` or `gods` resolves it. A fight ends with
-the results and the treasure menu, which read keys; with no party at all
-the monsters rejoice and the run ends. `--test-party N` adds N (1-8)
-characters made up for testing, as a
-saved game's are added: a fighter, a cleric of Mishakal, a White mage and
-a thief in turn, human, of level 1, their weapons and armour readied, 20
-steel each, the cleric's Cure Light Wounds and the mage's Detect Magic
-memorized, their stats computed as a loaded character's are.
-`--party SAVE` adds the characters of a saved game to the party (see Party),
-and `--load SAVE` loads the whole saved game first; then `BLOCK` may be left
-out to resume where it was saved. WHO prints the character picked (`who:`).
-`--shots DIR` saves `DIR/NNN.bmp` each time the game waits for a key,
-`--screen FILE` the final screen. `--start ADDR` runs from a code address
-instead, `--vector N` one vector, `--at X,Y,DIR` places the party, `--set
-ADDR=VALUE` sets variables (in hex), `--file N` picks the ECL file (by default
-the first that holds the block), `--still` loads only the first frame of each
-picture, and `--trace` lists each instruction. For example,
-`./build/eclplay --start 899b --keys '\r2\r' Assets 48` answers the guards at
-the gates of Gargath with the second item of a list.
+error. A spell list logs its rows as `item:` and `heading:`, and quitting to
+DOS ends the run with `(quit to DOS in block N)`. Cast and View run from the
+commands and the camp, their lists logged as `list:` and `item:`. Monsters
+loaded, the encounter's sprite and close-up and the money robbed log as
+`monster:`, a battle's setup, where each combatant stands, and the end of a
+fight as `combat:` (see Monsters and encounters and The battlefield), the
+coins and items `TREASURE` adds as `treasure:` (see Treasure and the end of
+combat), and what is paid and appraised in shops and the temple as `shop:`
+(see Shops and the temple). `COMBAT`'s battle is ported only as far as its
+setup and its end: between them it logs as `[COMBAT]`, unless `--combat
+won`, `fled`, `lost` or `gods` resolves it. `--combat-map FILE` writes each
+battle's map and combatants to `FILE` (see The battlefield). A fight ends
+with the results and the treasure menu, which read keys; with no party at
+all the monsters rejoice and the run ends. `--test-party N` adds N (1-8)
+characters made up for testing, as a saved game's are added: a fighter, a
+cleric of Mishakal, a White mage and a thief in turn, human, of level 1,
+their weapons and armour readied, 20 steel each, the cleric's Cure Light
+Wounds and the mage's Detect Magic memorized, one cell in combat (`+0xcf`
+1), their stats computed as a loaded character's are. `--party SAVE` adds
+the characters of a saved game to the party (see Party), and `--load SAVE`
+loads the whole saved game first; then `BLOCK` may be left out to resume
+where it was saved. WHO prints the character picked (`who:`). `--shots DIR`
+saves `DIR/NNN.bmp` each time the game waits for a key, `--screen FILE` the
+final screen. `--start ADDR` runs from a code address instead, `--vector N`
+one vector, `--at X,Y,DIR` places the party, `--set ADDR=VALUE` sets
+variables (in hex), `--file N` picks the ECL file (by default the first that
+holds the block), `--still` loads only the first frame of each picture, and
+`--trace` lists each instruction. For example, `./build/eclplay --start 899b
+--keys '\r2\r' Assets 48` answers the guards at the gates of Gargath with
+the second item of a list.
 
 `src/adventure.h` holds the screen side of the opcodes, from overlay `2fd3`:
 
@@ -783,16 +786,17 @@ needs the combat record and is not. The character sheet (`546c:07bb`),
 the Items menu after every key (`546c:17f9`) and Trade's receiver
 (`546c:2178`, `546c:32b0`) recompute, as ported (see View). The other
 places the original recomputes are not ported: the ECL opcodes `ADD
-NPC` (`2fd3:311c`), `DESTROY ITEMS` (`2fd3:35a3`) and `COMBAT`, through
-combat setup (`3cb2:10d9`), each combatant's turn (`3995:040b`), the AI's
+NPC` (`2fd3:311c`) and `DESTROY ITEMS` (`2fd3:35a3`), in combat each
+combatant's turn (`3995:040b`), the AI's
 choice of weapon (`3afb:1608`), attacks (`432f:1579`, `432f:1a45`), spells
 with an attack roll (`5b04:1071`, which no spell cast outside combat
 reaches); and creating, training, modifying and changing the order of a
-character (`4def:06dd`, `4def:4d9e`, `4def:28fa`, `4def:567f`). The end
-of combat (`351b:1968`) recomputes every record left, taking an item
-(`36d0:034c`, which buying does too) the taker, and appraising gems
-(`58e7:1929`) the appraiser after each key, as ported (see Treasure and
-the end of combat, and Shops and the temple).
+character (`4def:06dd`, `4def:4d9e`, `4def:28fa`, `4def:567f`). Combat
+setup (`3cb2:10d9`) recomputes every record (see The battlefield), the end
+of combat (`351b:1968`) every record left, taking an item (`36d0:034c`,
+which buying does too) the taker, and appraising gems (`58e7:1929`) the
+appraiser after each key, as ported (see Treasure and the end of combat,
+and Shops and the temple).
 
 ## Spell effects
 
@@ -888,48 +892,46 @@ at startup by `3e99:005b` and `0843`, and by the start menu, `4def:01b4`,
 which is not ported) and the combat round (`714b`).
 
 Handlers ported, by address and effect id: `3f44:0124` (1), `0134` (2),
-`0344` (8, 0x2d), `0379` (9, 0x2e), `03ae` (0x0a), `03cd` (0x0b, its end
-and after it took hold), `04b1` (0x0c, 0x26), `05bc` (0x0e), `0625`
-(0x10), `062c` (0x11), `065d` (0x12), `0681` (0x14), `07b5` (0x17),
-`09b3` (0x19), `0ab8` (0x1d), `0cf0` (0x21), `0f3f` (0x24), `0f78`
-(0x27), `144c` (0x2a),
-`1469` (0x2b, for a strength of 3 or less), `15a3` (0x2f), `16ef` (0x31), `173a` (0x32), `176b` (0x36),
-`179c` (0x37), `17a3` (0x38), `17c6` (0x39), `17ea` (0x3a), `1891`
-(0x3b), `1a72` (0x3d), `1b18` (0x3f), `2665` (0x49, but for damage of
-type 0x20), `29d5` (0x4d, but for choosing a target in combat), `320f`
-(0x59), `3258` (0x5b), `32a8` (0x5e), `3328` (0x5f), `334c` (0x60),
-`325f` (0x5d), `3361` (0x61), `336f` (0x62), `3386` (0x63), `33a7`
-(0x64), `3406` (0x65), `3449` (0x66), `3450` (0x67), `34f9`
-(0x6b, its end), `3619` (0x6c), `363c` (0x6d), `3643` (0x6e), `3768`
-(0x71), `37e8` (0x74), `386a` (0x76), `3876` (0x77) and `3881` (5, 0x13,
-0x18, 0x5c). Many do nothing but mark the character for other code, and
-all but a few act the same when their effect ends. 0x5d, 0x64 and 0x67
-look at what the selected character strikes with (`3f44:13a9`): its
-readied weapon (slot 0), or for a missile weapon its readied arrows or
-quarrels (`6346:3111`, by the weapon type's flags), and 0x65 at the weapon
-itself. Handlers that print speak through the `say` hook of
-`cok_effects`, as `6346:1883` does outside combat: 0x27, haste, the first
-time it runs (its value's bit 4 clear) sets the bit and the character
-"ages" a year (`+0x60`); 0x17, Spiritual Hammer, gives a character with
-no hammer and fewer than 16 items counted (`+0x142`) one at the end of its
-items (type 6, name parts 6 and 0x79, bonus 1, `+0x3d` 0x17, `+0x3e`
-0x80) and says it "Gains an item"; its search for the new hammer, to
-ready it in an empty weapon slot, steps past it, so it is never readied.
-The part of 0x2b that prints is not ported. Not
-ported, because they need combat (its records at `+0x183`, the map,
-targets or icons): 0x07, 0x1a, 0x1b, 0x1f, 0x25, 0x33-0x35, 0x44, 0x4b, 0x69, 0x6a, 0x6f,
-0x72 and 0x73; combat and text: 3, 0x0d, 0x15, 0x1c, 0x1e (the stinking
-cloud), 0x20, 0x23, 0x28-0x29, 0x30, 0x3c, 0x40-0x43, 0x45-0x48, 0x4c,
-0x4f-0x52, 0x56-0x58, 0x70 and 0x75; dealing damage or killing, with
-text: 0x0f, 0x16, 0x22 and 0x2c; healing, with text: 0x3e; spells: 0x4a;
-a monster's breath or attack, which `5b04:58ed` installs at startup and
-event 0x0e of the combat AI runs: 4 (`5b04:4ab8`), 6, 0x53 and 0x68
-(`546e`), 0x4e (`4dc2`), 0x54 (`4eea`), 0x55 (`50cf`) and 0x5a (`5227`);
-and 0x78, whose handler is the item routine `3f44:3888`, which reads
-past the 9-byte record. Id 0 has no handler: the original calls
-`0000:0000`. A call that reaches any of
-these fails, naming the handler; `DAMAGE` and the clock then end the run
-with `COK_ECL_EFFECT_FAILED` and log the reason as an error.
+`0344` (8, 0x2d), `0379` (9, 0x2e), `03ae` (0x0a), `03cd` (0x0b, its end and
+after it took hold), `04b1` (0x0c, 0x26), `05bc` (0x0e), `0625` (0x10),
+`062c` (0x11), `065d` (0x12), `0681` (0x14), `07b5` (0x17), `09b3` (0x19),
+`0ab8` (0x1d), `0cf0` (0x21), `0f3f` (0x24), `0f78` (0x27), `144c` (0x2a),
+`1469` (0x2b, for a strength of 3 or less), `15a3` (0x2f), `16ef` (0x31),
+`173a` (0x32), `176b` (0x36), `179c` (0x37), `17a3` (0x38), `17c6` (0x39),
+`17ea` (0x3a), `1891` (0x3b), `1a72` (0x3d), `1b18` (0x3f), `2665` (0x49,
+but for damage of type 0x20), `29d5` (0x4d, but for choosing a target in
+combat), `320f` (0x59), `3258` (0x5b), `32a8` (0x5e), `3328` (0x5f), `334c`
+(0x60), `325f` (0x5d), `3361` (0x61), `336f` (0x62), `3386` (0x63), `33a7`
+(0x64), `3406` (0x65), `3449` (0x66), `3450` (0x67), `34f9` (0x6b, its end),
+`3619` (0x6c), `363c` (0x6d), `3643` (0x6e), `3692` (0x6f, see The
+battlefield), `303c` (0x52, see The battlefield), `3768` (0x71), `37e8`
+(0x74), `386a` (0x76), `3876` (0x77) and `3881` (5, 0x13, 0x18, 0x5c). Many
+do nothing but mark the character for other code, and all but a few act the
+same when their effect ends. 0x5d, 0x64 and 0x67 look at what the selected
+character strikes with (`3f44:13a9`): its readied weapon (slot 0), or for a
+missile weapon its readied arrows or quarrels (`6346:3111`, by the weapon
+type's flags), and 0x65 at the weapon itself. Handlers that print speak
+through the `say` hook of `cok_effects`, as `6346:1883` does outside combat:
+0x27, haste, the first time it runs (its value's bit 4 clear) sets the bit
+and the character "ages" a year (`+0x60`); 0x17, Spiritual Hammer, gives a
+character with no hammer and fewer than 16 items counted (`+0x142`) one at
+the end of its items (type 6, name parts 6 and 0x79, bonus 1, `+0x3d` 0x17,
+`+0x3e` 0x80) and says it "Gains an item"; its search for the new hammer, to
+ready it in an empty weapon slot, steps past it, so it is never readied. The
+part of 0x2b that prints is not ported. Not ported, because they need combat
+(its records at `+0x183`, the map, targets or icons): 0x07, 0x1a, 0x1b,
+0x1f, 0x25, 0x33-0x35, 0x44, 0x4b, 0x69, 0x6a, 0x72 and 0x73; combat and
+text: 3, 0x0d, 0x15, 0x1c, 0x1e (the stinking cloud), 0x20, 0x23, 0x28-0x29,
+0x30, 0x3c, 0x40-0x43, 0x45-0x48, 0x4c, 0x4f-0x51, 0x56-0x58, 0x70 and 0x75;
+dealing damage or killing, with text: 0x0f, 0x16, 0x22 and 0x2c; healing,
+with text: 0x3e; spells: 0x4a; a monster's breath or attack, which
+`5b04:58ed` installs at startup and event 0x0e of the combat AI runs: 4
+(`5b04:4ab8`), 6, 0x53 and 0x68 (`546e`), 0x4e (`4dc2`), 0x54 (`4eea`), 0x55
+(`50cf`) and 0x5a (`5227`); and 0x78, whose handler is the item routine
+`3f44:3888`, which reads past the 9-byte record. Id 0 has no handler: the
+original calls `0000:0000`. A call that reaches any of these fails, naming
+the handler; `DAMAGE` and the clock then end the run with
+`COK_ECL_EFFECT_FAILED` and log the reason as an error.
 
 `57e4:0549` calls `57e4:0171` with the unit and count once the clock has
 moved. It turns them into minutes as a word, which wraps past 45 days,
@@ -1767,12 +1769,12 @@ for the mode (`6346:2c17`), and outside 3D areas, unless the run ended or
 (`4877:0005`, logged as unported). The preloads of overlays (`XXXX:0000`,
 `432f:1e96`) and the sound driver's stops around them are left out.
 
-The battle (`3995:0172`) is not ported. Before it, as combat setup
-(`3cb2:1c58`) does, the small picture is freed and forgotten
-(`6961:0537`), and every record gets a combat record, zeroed (`3cb2:10d9`),
-its `+0x13` set past the party's size; the rest of setup is not ported. Unless
-`eclplay --combat` resolves it, the battle is logged as unported (`[COMBAT]`,
-as before) and changes nothing, and the end of combat follows. The stub
+The battle (`3995:0172`) is ported as far as its setup (`3cb2:1c58`, see
+The battlefield), which builds the map, gives every record its combat
+record and places them, removing monsters with no place; the rest is not
+ported. Unless `eclplay --combat` resolves it, the battle is logged as
+unported (`[COMBAT]`, as before) and changes nothing more; the battle's
+end (`3995:004b`, see The battlefield) and the end of combat follow. The stub
 (`cok_adventure.combat_stub`) decides instead: `won`, every record against
 the party (`+0x18a` 1) drops (status 6, cannot act), and those on its side
 past the party's size do not; `gods`, the original's cheat when started
@@ -1843,6 +1845,287 @@ these cases. The Reals agreed with a reference model, itself checked
 against the emulator, on 200,000 operations. It is not part of the
 repository.
 
+## The battlefield
+
+`src/combat.h` ports combat setup (`3cb2:1c58`) with the rest of overlay
+`3cb2`, the combat tile loader (`6d21:002c`), the map's lookups of overlay
+`6beb`, `6346:268a` and `432f:2df3`, and keeps the battle's map and
+tables in `cok_adventure.combat` (`cok_combat`) for the parts of combat
+not yet ported.
+
+Setup runs with the mode already 5, as `3995:0172` sets it first. It
+clears the text delay flag (`DS:4b59`, which the port passes with each
+print), frees the small picture (`6961:0537`), the big one (`DS:6e02`)
+and the portrait's pieces (`6de5`, `6dea`, not ported), clears
+row 24, waits speed × 100 ms and prints "A battle begins..." there in
+light green (`1521:0353`); clears the round (`DS:714b`), the attack roll
+(`6b3b`), the bodies, the kender who yelled (`71a7`), Magic On (`7198`),
+the recovered missile (`60a2`), the weapons lost (`609e`) and var
+`0x7f33`, and sets the round limit (`714c`) to 15; builds the map
+(`3cb2:1029`), gives every record its stats and combat record
+(`3cb2:10d9`) and places them (`3cb2:17f7`); sets the view's origin to the
+first record's cell less 3 (`6beb:0bcb`, placed or not); clears `+0x11` of
+each record's combat record and runs effect events 8 and 0x16 for it;
+works out the enemies' health (`432f:2df3`) and clears the Move mode
+(`DS:8858`). A key waiting is read and dropped (`1614:0479`) after the
+map, the records and placement, and before each record is placed. The
+screen (`6346:300f`) is not drawn, and logs as unported; the scroll it
+makes (`6beb:096b`, `07a9`), which works out the screen positions
+(`6beb:0077`), is ported. The flash picture (`DS:719e`), the lists of
+clouds (`7111`-`711b`), the dead that explode (`6b45`, `6b95`, `6b96`),
+the mouse's flags (`71a5`, `71a6`) and the debug trace (`6d7e:093e`,
+Ctrl-D only) are left to the parts that use them.
+
+The map (`DS:6a2e`, 0x4e9 bytes from GetMem, freed by `3995:004b`):
+
+| Offset | Meaning |
+| --- | --- |
+| `+0`, `+1` | never used |
+| `+2`, `+3` | the view's origin, the top-left of the 7 by 7 cells shown (signed) |
+| `+4`, `+5` | the cursor is shown, its footprint (0 and 1 at setup) |
+| `+6` | sight is not blocked (`6b30:03f1`; 0 at setup) |
+| `+7` | a terrain value a cell, 50 across by 25 down, row by row |
+
+A terrain value's four bytes (`DS:1ee4`, `cok_combat_terrain`) are the
+cost of moving onto it (0xff where none can), the eye height of one
+standing there, the height that blocks sight past it and its tile:
+values 0x01-0x19 are DUNGCOM's frames 0-0x18 (0x17, frame 0x16, plain
+floor), 0x1a-0x1f RANDCOM's (table, chair, white cloud, puddle, green
+cloud, a fallen character) and 0x20-0x41 WILDCOM's 0-0x21; 0 stands for
+off the map. The tile set (`DS:616a`) holds 40 frames of 24 by 24: setup
+loads, opaque (`6d21:002c`), DUNGCOM record 1's 25 frames in a 3D area
+(var `0x4be6`), else WILDCOM's first 33 of 35, from frame 0, and
+RANDCOM's 6 from 0x22. The frames between keep what an earlier battle
+loaded; 0x21, the river bank's, is never loaded. `TILES.DAX` is not used.
+The keyboard flush after each load (`1614:045c`) is not ported, as
+elsewhere.
+
+Combatants are numbered from 1 in list order, the party first:
+
+| Data | Meaning (`cok_combatant`) |
+| --- | --- |
+| `DS:623f + 4n` | its top-left cell x and y, then n and its size, 0 while it is not on the map |
+| `DS:68d1 + 4n` | its record, a far pointer |
+| `DS:6362 + n`, `63aa + n` | its cell less the view's origin, as last worked out |
+| `DS:6242` | the count, one more than the combatants (entry 0's size) |
+| `DS:63f3` | each cell's combatant, 0 for none (`6beb:0375`) |
+| `DS:69ee + 7k` | from k 1, up to 8 (count `DS:6a2d`): a party member fallen where it stands, its x and y, and the terrain its body (0x1f) covers |
+| `DS:6b2c`, `6b2d` | the records on each side that can act (`6346:268a`) |
+| `DS:7197` | the enemies' hit points as a percentage of their most, in fives (`432f:2df3`) |
+
+A size is a footprint of up to four cells (`DS:1fe4 + 8 × size`, from
+`+0xcf` & 7): 1 one cell, 2 it and the one below, 3 it and the one to the
+right, 4 two by two. The combat record (`+0x183`, see Monsters and
+encounters) gets its facing and `+0x13` at setup.
+
+On a 3D map (`3cb2:08cd`) each 3D square from 6 west to 6 east and 2 north
+to 2 south of the party's, row by row from the north and west to east along
+each, becomes a block of 6 by 5 cells whose top-left is 6 × east + 5 × south
++ 21 across and 5 × south + 10 down: north is up and to the left, and the
+party's square is cells 21-26 of rows 10-14. Each side of a square is open,
+a wall or a door (`3cb2:0306`, `0388`): open where the 3D map has no wall, a
+wall where the party cannot pass (`69ea:0573`), else a door, the two faces
+of the edge together; off the 3D map a wall, but open to the east and west
+on the party's row. A block is floor in rows 2-4, its west edge drawn down
+the slant (`03fc`), its north edge in rows 0-1 (`04a1`) and its corners from
+the edges of its own and of the squares north, west and east of it (`051e`,
+`06f6`); blocks overlap by a column, later over earlier. A square whose byte
+has 0x40 (`69ea:07a5`), with a wall, no door, and walls where two opposite
+sides are walls on the other two as well, gets a table on a d10 of 5 or less
+on each plain floor cell a + b of row b of its block, for a 2 then 3 and b
+2-4, each followed by a chair on 9 or less on each plain floor beside it
+(`00d3`); the dice are rolled only where all that holds. Cells 6 and 7 and
+those beside them, to 8 across and the row below, belong to blocks not yet
+built, and the test for floor reads them as they are: GetMem does not clear
+the map. In play it takes the 1,264 bytes the buffer of RANDCOM's record
+held, which `6d21:002c` has just freed, so its cells hold that record from
+its byte 7 (cell 0, 0 may hold the free list's size, which nothing reads),
+and the port fills them so before building. Later blocks overwrite whatever
+the dice put there: the furniture stands only in the room's own block, and
+the rest shows only in the dice. Where the heap holds a free block of 1,264
+to 1,751 bytes below the lowest of 1,752 or more, the map goes there instead
+and holds what that held, such as an earlier battle's map or the buffers of
+`8X8D1.DAX` records 201 and 203 (1,416 and 1,457 bytes), and the dice may
+differ. Only GEO2 record 64, Neraka (ECL2 block 64), has rooms, at x 11-15
+of y 8-9 and x 8-10 of y 12-13.
+
+On open ground (`3cb2:0fc8`) every cell is floor, then come a river, trees
+and scatter by the flags of terrain type 15 (`DS:0441`, 4): the river's d100
+is rolled but needs flag 0x10 or 0x20 (`0a00`); column by column from row 1,
+a floor cell below another gets something on a d100 of 8 or less: on a
+second d100 of 8 or less a bush (0x2a, 0x2b), else a tree, its top
+(0x20-0x25) above its trunk (0x26-0x29) (`0b0b`); then each floor cell's
+d100 picks 0x30-0x31 up to 2, 0x2c-0x2f to 7, 0x37-0x39 to 17 and 0x32-0x35
+to 22 (`0e4a`, `0ca2`): about 2,700 rolls. The port takes the other types'
+flags, which no battle uses.
+
+`3cb2:10d9`, for each record in the list: its stats (`6346:0d20`), a
+combat record zeroed (the old one, which the original overwrites, freed),
+`+0x13` set past the party's size (var `0x7f3e`), facing the combat
+direction of the party's facing (`DS:03da`: north 7, east 2, south 3,
+west 6), turned round against the party (`+0x18a` 1); an ally past the
+party whose morale (`+0xe7` & 0x7f) is 0 or above 0x66 gets var `0x7ec6`
++ 0x80.
+
+Placement (`3cb2:17f7`) counts each side's records that can act
+(`6346:268a`), and gives each side a square (the party's, or the monsters'
+var `0x7ec1` squares ahead), the quadrant it faces (the party's facing, or
+the opposite), a first rank as wide as half those that can act, rounded up,
+and four formations of 11 columns by 6 rows (`DS:43cc`), one for each square
+it may stand on, free between the limits of `DS:03ee` for its quadrant, or
+for the second square those of formation 4, the widest. Then for each record
+in list order (`3cb2:1379`, `122c`): from its side's square, ranks from a
+centre set by the square and quadrant (`DS:03ca`, `03de`, `03e6`), moved
+back by the rank's number, take the centre and then cells to one side and
+the other in turn, further each pair (directions of `DS:03da`). A rank ends
+at a cell outside the formation in one of column and row, which is not
+tried, or at the cell that makes as many as the first rank's width, later
+ranks 12, which is; the first rank is the first of the record's whole
+search, so a later square's ranks all take 12. In the party's first rank
+facing east or west, the next rank is skipped if the party's square has any
+side but the one it faces that is not a wall. A cell outside in both moves
+on to the next square (`DS:03ba`: behind, then to either side) that the
+side's own is not walled off from, from rank 0; with none left there is no
+place. A cell is taken if it is free in its formation and the footprint
+there, probed (`6beb:0c9d`), meets no one and can be walked on; the
+combatant stands at column + 6 × east + 5 × south + 22, row + 5 × south +
+10, of its square. The walls asked are the 3D map's even on open ground: the
+test is for mode 3, and `3995:0172` has made it 5. A record placed that
+cannot act leaves the map (size 0), a party member leaving a body; status 9
+makes it unable to act and off the map. A monster (`+0x13`) with no place is
+removed (`4def:3b0a`: selected first, the party's size and its group's icons
+kept); a party member with none stays in the list, off the map, its place
+the last cell whose formation cell was free (or an earlier battle's, with
+none). The occupants are rebuilt after each record placed.
+
+The battle's end (`3995:004b`, `cok_combat_end`) runs after the stub:
+each record charmed (effect 0x0b) and okay runs (status 3) if more than
+one enemy could act at the last count (`DS:6b2d`); each loses the first
+effect of each id that lasts only through the battle (`60f4:1440`,
+`DS:0db4`: 0x03, 0x0b, 0x15, 0x17, 0x1b, 0x1e, 0x1f, 0x33-0x35, 0x5b,
+0x6a, 0x6b, 0x6f, 0x76 and 0x77); one berserk (0x4d) and turned (`+0xe7`
+0xb3) goes back to the party's side; and the map is freed. Freeing the
+clouds and the flash picture and restoring the spell target hook are
+left to their parts.
+
+Effect 0x52, a dragon's fear (`3f44:303c`), which event 8 runs at setup
+for the red dragons of MON3 record 22 (ECL3 blocks 97 and 98), acts on
+every record on the other side without effect 0x5c, 0x6f or 0x77: one of
+level (`+0xd6`) 0-3 is terrified, effect 0x6f for good, through
+`60f4:20f7` (event 9 first, so that magic resistance may leave it
+"Unaffected"), and if it took hold the computer controls it (`+0x18b`),
+a player character is turned (`+0xe7` 0xb3), its target is cleared and
+it flees (`+0x10`); others are afraid (0x77) unless they make a saving
+throw of type 4. The handler does the same when the effect goes. 0x6f's
+handler (`3f44:3692`), as the battle's end removes it, gives a turned
+character back (`+0xe7` 0, `+0x18b` 0) and clears `+0x10`. In combat the
+original flashes the character and says "is terrified" or "is afraid" in
+the side panel (`6346:228c`); the port says it as outside combat.
+
+| Function | Original |
+| --- | --- |
+| `cok_combat_setup` | `3cb2:1c58`, `3cb2:1029`, `6d21:002c` |
+| `cok_combat_dungeon`, `cok_combat_wilderness` | `3cb2:08cd`, `3cb2:0fc8` |
+| `cok_combat_records` | `3cb2:10d9` |
+| `cok_combat_end` | `3995:004b`, `60f4:1440` |
+| `cok_combat_place_all` | `3cb2:17f7`, `1379`, `122c`, `11fb` |
+| `cok_combat_footprint` | `6beb:000f` |
+| `cok_combat_occupy` | `6beb:0375` |
+| `cok_combat_cell` | `6beb:0493` |
+| `cok_combat_on_view`, `cok_combat_visible` | `6beb:06be`, `06ef` |
+| `cok_combat_scroll` | `6beb:07a9` and `0077`, without drawing |
+| `cok_combat_x`, `_y`, `_size`, `_index` | `6beb:0bcb`, `0bf3`, `0c1b`, `0c43` |
+| `cok_combat_probe` | `6beb:0c9d` |
+| `cok_combat_place` | `6beb:10f3` |
+| `cok_combat_count_sides`, `cok_combat_enemy_health` | `6346:268a`, `432f:2df3` |
+
+The port keeps these quirks:
+
+- The river's d100 is rolled for a type with no river; the tables' dice
+  only where a room's conditions hold, and they read cells not yet
+  built, RANDCOM's record.
+- The walls of the 3D map hold back the formations on open ground too.
+- The first rank's width counts the records that can act before any is
+  removed; a party of two has a first rank of one, so its second member
+  stands a rank back.
+- The view's origin comes from the first record, placed or not. With the
+  list's one record removed, the lookup of the first, NULL, finds entry
+  1, which the removal cleared, at the last cell tried for it. With the
+  list empty from the start it finds none, entry 1 holding a record of
+  an earlier battle, and the origin is -3, -3.
+- A record of status 9, as the ghasts of MON3 record 58 (ECL3 block 82),
+  is made unable to act and taken off the map, so that the end of combat
+  counts it as dropped (var `0x7ec8`).
+- `6beb:0375` runs a footprint at x 49 into the next row.
+- `6beb:0c9d` starts from plain floor, which a footprint all cloud and
+  puddle keeps; a cell off the map makes it 0 whatever follows; ties go to
+  the later cell.
+- `6beb:0c43` compares the entry after the last too, which during
+  placement holds the record being placed; afterwards the original's holds
+  a record of an earlier battle or NULL, the port's NULL. A record that is
+  not a combatant reads as at 0, 0, with the count as its size.
+- `6beb:10f3`, raising a party member that has no body, writes the
+  costliest terrain under its footprint into its cell; the count of
+  bodies is never lowered.
+- `6beb:07a9` moves the centre only toward its target and within 3-0x2e
+  across and 3-0x15 down, so a centre outside stays outside.
+- `6beb:06ef` reads the screen positions as last worked out.
+- `432f:2df3` multiplies the hit points by 20 as a word, which wraps above
+  3,276, and leaves the last value with no enemies.
+
+Where the original misbehaves the port stops with `COK_ECL_UNDEFINED`: a
+record on a side other than 0 or 1 (`6346:268a` counts one that can act,
+as a signed byte, into the bytes around `DS:6b2c`, and placement indexes
+the sides' formations by any); with no party, the list's first two
+records both removed (the walk goes on from the last record kept, or
+with none from the first, freed, whose next still names the second, so
+it goes back to the second for good); a 72nd
+combatant (the entry after it lies in the screen positions), a ninth body
+(the table has eight), the body of a record of size 0 placed off the map,
+a footprint outside the occupants, a size past 7 (`6beb:10f3` takes
+`+0xcf` & 0x7f) and a lookup of a record that is not a combatant with a
+count past 7, which read past the footprints, placing a record that is
+not a combatant (`6beb:10f3` writes its size over the count), a facing
+past 7, and stats that cannot be worked out.
+
+`eclplay` logs the battlefield, `combat: the 3D map around X,Y facing D,
+the enemy N squares ahead` or `open ground facing D, ...`, then each
+combatant as it is placed, `N NAME at X,Y` (`, fallen` with a body, `,
+off the map` with size 0), `N NAME has no place` or `NAME has no place
+and is removed`, then `the view from X,Y`, and the screen as unported.
+`--combat-map FILE` writes, for each battle, a line naming the block, the
+view and the count; the map, a character a cell: a combatant's mark (1-9,
+a-z, A-Z), or for the terrain `.` plain floor, `#` where none can walk,
+`T` a table, `h` a chair, `_` a body, `:` cost 2, `~` cost 4 and `,`
+anything else; the map again, each cell's value in hex; and a line for
+each combatant (mark, number, name, cell, size, side and facing) and each
+body.
+
+A differential test ran the original routines in an 8086 emulator against
+the port: open ground (`3cb2:0fc8`) on random seeds and flags, the 3D
+builder (`3cb2:08cd`) on random squares, GEO records and random maps, the
+map's cells first RANDCOM's record or other fills alike, the whole of
+setup (`3cb2:1c58`, its drawing, text and tile loads hooked, the map
+taking RANDCOM's buffer) followed by the battle's end (`3995:004b`) on
+random parties, monsters with their effects (0x52 among them), maps,
+squares, facings and distances, and each lookup on random tables,
+comparing the maps, occupants, combatant and body tables, screen
+positions, the list's records, items, effects and combat records before
+and after the end, the texts said, the selection, the counts and the
+random seed. All 1,000 maps of open ground and all 4,000 of the 3D
+builder agreed (281 of those reading unbuilt cells). Of 6,000 setups, the
+5,537 the port carries out agreed; both refused 15, where the original
+never ends (with no party, its first two records removed; in 7 the port
+stops first at the unported handler of effect 0x47); the port alone
+refused 448: a side other than 0 or 1 (241), a magic resistance roll for
+a spell with no character selected, which the original reads through
+NULL (154), the unported handler of effect 0x47 on event 9 (50) and a
+body off the map (3). Of 4,000 lookups, the 3,619 the port carries out
+agreed; it alone refused 381: placing a record that is not a combatant
+(243), a side other than 0 or 1 (58), a footprint outside the occupants
+(30), sizes past the footprints (45) and placing one whose footprint
+lies outside the map (5). It is not part of the repository.
+
 ## Treasure and the end of combat
 
 `src/treasure.h` ports `TREASURE` (`2fd3:1d21`) with its random items
@@ -1859,8 +2142,9 @@ the last missile combat put in the pool (`DS:60a2`, `432f:19b6`), as the
 item it is, and the weapons lost in combat (`DS:609e`, effect 0x43,
 `3f44:1dc5`): 71-byte nodes of an item and the record it goes back to
 (`+0x3f`). The original keeps the missile as a pointer, which only combat
-setup clears (`3cb2:1c58`), so that a later item allocated where a freed
-one was can match it; the port forgets it when its item goes. The flag
+setup clears (`3cb2:1c58`, as the port does), so that a later item
+allocated where a freed one was can match it; the port forgets it when its
+item goes. The flag
 `DS:711e` ("money in the pool"), which Pool, Share and Take write and
 nothing reads, is left out.
 
@@ -2466,6 +2750,33 @@ running in DOSBox:
   the first coin list: the port stops (the byte depends on the run); see
   whether the original asks for a partner again. After a `View` before, it
   should leave Trade.
+
+- Fight the guards at Throtl's gate with a party of six (7, 15 facing
+  north, `ATTACK`): "A battle begins..." should show on row 24 after a
+  pause; the street should run across the battlefield, walled to the
+  north but for the gateway, a guard standing in it; the party in two
+  ranks of three, the first character's in the middle of the front
+  rank, the second's to its right, the third's to its left, and the guards
+  in a rank before them. Compare the map with `eclplay --test-party 6
+  --set 4be6=1 --combat-map FILE --keys '\r\rE' Assets 32`.
+- With the second of four characters unconscious, fight anything: its
+  body should lie where the second would stand, right of the first, and
+  the third and fourth stand a rank back.
+- Stay to fight the huge patrol that sallies forth from Throtl (ECL1
+  block 16 at 8cda: 9 red dragons, 9 bozaks and 9 sivaks) on open
+  ground: count how many stand on the battlefield; those that find no
+  place are removed before the fight and bring no experience. How many
+  find one depends on the trees and on the walls of the 3D map loaded
+  and the party's square; in `eclplay`'s run (no 3D map loaded, the party
+  at 0, 0) 7 bozaks and 9 sivaks find none, and each of saved game A's
+  party receives 4937.
+- Fight in the rooms of Neraka (ECL2 block 64, squares at x 11-15 of y
+  8-9 and x 8-10 of y 12-13): tables and chairs should stand only in
+  the room's own block, never in the block to its east or below it.
+- Fight the red dragons of ECL3 block 97 with a party of low levels:
+  each character of level 3 or less should flash and be "terrified"
+  as the battle begins, and those of higher levels "afraid" unless they
+  save.
 
 ## Disassembly image
 
