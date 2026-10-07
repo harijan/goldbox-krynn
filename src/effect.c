@@ -84,6 +84,71 @@ static cok_character *selected(cok_effects *fx, uint8_t id)
 static bool remove_effect(cok_effects *fx, cok_character *character, cok_effect *effect,
                           uint8_t id);
 
+/* Say text about c (6346:1883), or fail without the hook. */
+static bool say(cok_effects *fx, cok_character *c, uint8_t id, uint16_t handler, const char *text)
+{
+    if (fx->say == NULL)
+        return fail(fx, "effect 0x%02x (3f44:%04x) prints text, which is not ported", id, handler);
+    fx->say(fx, c, text, fx->context);
+    return true;
+}
+
+/* The spell table (DS:31b3, 16 bytes an id), as the stat tables hold it. */
+static uint8_t spell_byte(uint8_t spell, unsigned column)
+{
+    uint8_t byte = 0;
+    cok_ds_byte((uint16_t)(0x31b3u + 16u * spell + column), &byte);
+    return byte;
+}
+
+static bool caster_level(cok_effects *fx, uint8_t spell, uint8_t *level)
+{
+    const uint8_t *c = fx->vm->character;
+    if (c == NULL)
+        return fail(fx, "the caster level of spell %u (6346:29fe) reads the selected character, "
+                        "and none is selected", spell);
+    uint8_t class_ = spell_byte(spell, 0);
+    /* 66c2:0efb, 0 or 1, multiplies the former levels as words. */
+    int former = cok_character_former_class(c) ? 1 : 0;
+#define LEVEL(at) ((int)(int8_t)c[at])
+    if (LEVEL(0xf9) == 0 && LEVEL(0xfe) == 0 && LEVEL(0x100) < 9 && LEVEL(0xfd) < 8) {
+        *level = 6;
+    } else if (class_ == 0 || class_ == 2) {
+        int8_t a = (int8_t)(former * LEVEL(0x101) + LEVEL(0xf9));
+        int8_t b = (int8_t)(former * LEVEL(0x108) + LEVEL(0x100) - 8);
+        *level = (uint8_t)(a > b ? a : b);
+    } else if (class_ == 1) {
+        int8_t a = (int8_t)(former * LEVEL(0x105) + LEVEL(0xfd) - 7);
+        *level = (uint8_t)(a > 0 ? a : 0);
+    } else if (class_ == 3) {
+        int8_t a = (int8_t)(former * LEVEL(0x106) + LEVEL(0xfe));
+        int8_t b = (int8_t)(former * LEVEL(0x105) + LEVEL(0xfd) - 8);
+        if (LEVEL(0xfe) > 0 && c[0x5e] != 0) {
+            /* The moon of its order, word 0x4cf8 + order (2b96). */
+            uint16_t moon = fx->vm->mem4b00[0x1f8 + c[0x5e]];
+            if (moon == 0) --a;
+            else if (moon == 2 && LEVEL(0xfe) > 5) ++a;
+        }
+        *level = (uint8_t)(a > b ? a : b);
+    } else if (class_ == 4) {
+        *level = 12;
+    } else {
+        return fail(fx, "spell %u is of class %u; its caster level (6346:29fe) is an "
+                        "uninitialized byte", spell, class_);
+    }
+#undef LEVEL
+    if (fx->rolls.item != 0 && class_ != 4) *level = 6;
+    return true;
+}
+
+bool cok_effects_caster_level(cok_effects *fx, uint8_t spell, uint8_t *level)
+{
+    begin(fx);
+    caster_level(fx, spell, level);
+    return finish(fx);
+}
+
+
 /* Add an effect, or fail when out of memory. */
 static bool add(cok_effects *fx, cok_character *c, uint8_t id, uint16_t duration, uint8_t value,
                 bool on_remove)
@@ -253,19 +318,29 @@ static bool h_resist_charm(cok_effects *fx, bool removing, cok_effect *effect, c
 /* 3f44:07b5, 0x17, spiritual hammer, on the first hammer in the items
  * (type 6, +0x31 0x79). Removing the effect frees it without unreadying it
  * (6346:1697). Applying it, with no hammer and fewer than 16 items as last
- * counted (+0x142), creates one and says so, which is not ported. Either
- * way the stats are then recomputed. */
+ * counted (+0x142), creates one at the end of the items: type 6, name parts
+ * 6 and 0x79 (+0x30, +0x31), bonus 1, effect 0x17 and power 0 (+0x3d,
+ * +0x3e), the rest 0, and says "Gains an item". It would ready it in an
+ * empty weapon slot, but its search for the new hammer steps past it, so
+ * it never does. Either way the stats are then recomputed. */
 static bool h_hammer(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
     (void)effect;
     size_t i = 0;
     while (i < c->item_count && (c->items[i][0x2e] != 6 || c->items[i][0x31] != 0x79)) ++i;
     if (removing && i < c->item_count) {
-        memmove(c->items[i], c->items[i + 1], (c->item_count - i - 1) * sizeof *c->items);
-        --c->item_count;
+        cok_character_remove_item(c, i);
     } else if (!removing && i == c->item_count && c->record[0x142] < 16) {
-        return fail(fx, "effect 0x17 (3f44:07b5) adding its hammer prints text, which is not "
-                        "ported");
+        uint8_t hammer[COK_ITEM_SIZE] = {0};
+        hammer[0x2e] = 6;
+        hammer[0x30] = 6;
+        hammer[0x31] = 0x79;
+        hammer[0x32] = 1;
+        hammer[0x3d] = 0x17;
+        hammer[0x3e] = 0x80;
+        if (!cok_character_insert_item(c, c->item_count, hammer))
+            return fail(fx, "out of memory adding the hammer");
+        if (!say(fx, c, 0x17, 0x07b5, "Gains an item")) return false;
     }
     char why[200];
     if (!cok_character_stats(c, fx->types, why, sizeof why))
@@ -319,14 +394,18 @@ static bool h_minus_four(cok_effects *fx, bool removing, cok_effect *effect, cok
 }
 
 /* 3f44:0f78, 0x27, haste: the rate doubled. The first time, bit 4 of the
- * value is set and the character ages a year, with a message, which is
- * not ported. */
+ * value is set and the character "ages" a year (+0x60). */
 static bool h_haste(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
-    (void)removing, (void)c;
-    if ((effect->value & 0x10) == 0)
-        return fail(fx, "effect 0x27 (3f44:0f78) aging the character prints text, which is not "
-                        "ported");
+    (void)removing;
+    if ((effect->value & 0x10) == 0) {
+        effect->value = (uint8_t)(effect->value + 0x10);
+        if (!say(fx, c, 0x27, 0x0f78, "ages")) return false;
+        uint16_t age = (uint16_t)(c->record[0x60] | c->record[0x61] << 8);
+        ++age;
+        c->record[0x60] = (uint8_t)age;
+        c->record[0x61] = (uint8_t)(age >> 8);
+    }
     fx->rolls.rate = (uint8_t)(fx->rolls.rate << 1);
     return true;
 }
@@ -741,17 +820,21 @@ typedef struct {
     uint16_t address;
     handler_fn *fn;
     const char *needs;
+    uint16_t segment; /* 0 for 3f44; 5b04 fills a few at startup (5b04:58ed). */
 } handler;
 
 #define COMBAT "combat"
 #define TEXT "text output"
 #define DAMAGE "dealing damage, with text"
+#define ATTACK "a monster's attack in combat"
 
 static const handler handlers[COK_EFFECT_IDS] = {
     [0x01] = {0x0124, h_bless, NULL},
     [0x02] = {0x0134, h_curse, NULL},
     [0x03] = {0x016a, NULL, COMBAT " and " TEXT},
+    [0x04] = {0x4ab8, NULL, ATTACK, 0x5b04},
     [0x05] = {0x3881, h_none, NULL},
+    [0x06] = {0x546e, NULL, ATTACK, 0x5b04},
     [0x07] = {0x0208, NULL, COMBAT},
     [0x08] = {0x0344, h_protection_evil, NULL},
     [0x09] = {0x0379, h_protection_good, NULL},
@@ -823,14 +906,19 @@ static const handler handlers[COK_EFFECT_IDS] = {
     [0x4b] = {0x26bf, NULL, COMBAT},
     [0x4c] = {0x272a, NULL, COMBAT " and " TEXT},
     [0x4d] = {0x29d5, h_berserk, NULL},
+    [0x4e] = {0x4dc2, NULL, ATTACK, 0x5b04},
     [0x4f] = {0x2b5f, NULL, COMBAT " and " TEXT},
     [0x50] = {0x2cad, NULL, COMBAT " and " TEXT},
     [0x51] = {0x3009, NULL, COMBAT " and " TEXT},
     [0x52] = {0x303c, NULL, COMBAT " and " TEXT},
+    [0x53] = {0x546e, NULL, ATTACK, 0x5b04},
+    [0x54] = {0x4eea, NULL, ATTACK, 0x5b04},
+    [0x55] = {0x50cf, NULL, ATTACK, 0x5b04},
     [0x56] = {0x31bc, NULL, COMBAT " and " TEXT},
     [0x57] = {0x31cf, NULL, COMBAT " and " TEXT},
     [0x58] = {0x31e2, NULL, COMBAT " and " TEXT},
     [0x59] = {0x320f, h_displacement, NULL},
+    [0x5a] = {0x5227, NULL, ATTACK, 0x5b04},
     [0x5b] = {0x3258, h_none, NULL},
     [0x5c] = {0x3881, h_none, NULL},
     [0x5d] = {0x325f, h_half_blunt, NULL},
@@ -844,6 +932,7 @@ static const handler handlers[COK_EFFECT_IDS] = {
     [0x65] = {0x3406, h_holy_water, NULL},
     [0x66] = {0x3449, h_none, NULL},
     [0x67] = {0x3450, h_magic_weapons, NULL},
+    [0x68] = {0x546e, NULL, ATTACK, 0x5b04},
     [0x69] = {0x349c, NULL, COMBAT},
     [0x6a] = {0x34db, NULL, COMBAT},
     [0x6b] = {0x34f9, h_turn, NULL},
@@ -876,8 +965,8 @@ static bool call_handler(cok_effects *fx, uint8_t id, bool removing, cok_effect 
     if (h->address == 0)
         return fail(fx, "effect 0x%02x has no handler; the original calls 0000:0000", id);
     if (h->fn == NULL)
-        return fail(fx, "effect 0x%02x (3f44:%04x) needs %s, which is not ported", id, h->address,
-                    h->needs);
+        return fail(fx, "effect 0x%02x (%04x:%04x) needs %s, which is not ported", id,
+                    h->segment != 0 ? h->segment : 0x3f44, h->address, h->needs);
     return h->fn(fx, removing, effect, c);
 }
 
@@ -907,11 +996,37 @@ static void better(uint8_t *strength, uint8_t *exceptional, uint8_t candidate,
     }
 }
 
-/* 60f4:1743 for strength (stat 0) and charisma (5), the two that removing
- * an effect recomputes: the base score (+0x10, +0x1a) changed by the
- * readied items' powers (+0x3e 0x80 + power, +0x3d its kind) and effects,
- * into the current one (+0x11 and +0x1c, +0x1b). */
-static void ability(cok_character *ch, unsigned stat)
+/* 60f4:1628: add a class's hit points for level to *hp, as a byte: the
+ * level is capped below the class's top (DS:3903), a ranger's raised by
+ * one unless it has a former level other than its own (+0xd7), and
+ * fighters, rangers and knights get 1-7 a level by constitution 15-25,
+ * others 1 for 15 and 2 above it. */
+static const uint8_t class_top[8] = {10, 15, 10, 10, 11, 12, 11, 10}; /* DS:3903 */
+
+static void class_hit_points(const uint8_t *c, unsigned klass, uint8_t level,
+                             uint8_t constitution, uint8_t *hp)
+{
+    if (class_top[klass] <= level) level = (uint8_t)(class_top[klass] - 1);
+    if (klass == 4 && (c[0xd7] == 0 || c[0x105] == c[0xd7])) ++level;
+    unsigned per = 0;
+    if (klass == 2 || klass == 4 || klass == 7) {
+        if (constitution >= 15 && constitution <= 19) per = constitution - 14u;
+        else if (constitution == 20) per = 5;
+        else if (constitution >= 21 && constitution <= 23) per = 6;
+        else if (constitution >= 24 && constitution <= 25) per = 7;
+    } else if (constitution > 15) {
+        per = 2;
+    } else if (constitution == 15) {
+        per = 1;
+    }
+    *hp = (uint8_t)(*hp + level * per);
+}
+
+/* 60f4:1743: the base score (+0x10 + 2 * stat; +0x1d for exceptional
+ * strength) changed by the readied items' powers (+0x3e 0x80 + power, +0x3d
+ * its kind) and effects, into the current one. Intelligence (1) and wisdom
+ * (2) are computed and not stored. */
+static bool ability(cok_effects *fx, cok_character *ch, unsigned stat)
 {
     uint8_t *c = ch->record;
     uint8_t score = c[0x10 + stat * 2], exceptional = c[0x1d];
@@ -920,7 +1035,8 @@ static void ability(cok_character *ch, unsigned stat)
         const uint8_t *item = ch->items[i];
         if (item[0x3e] <= 0x80 || item[0x34] == 0) continue;
         uint8_t power = item[0x3e] & 0x7f, kind = item[0x3d];
-        if (stat == 0) {
+        switch (stat) {
+        case 0:
             if (power == 3) {
                 candidate = 18;
                 candidate_exceptional = 100;
@@ -940,17 +1056,66 @@ static void ability(cok_character *ch, unsigned stat)
                 fixed = 3;
             }
             better(&score, &exceptional, candidate, candidate_exceptional);
-        } else if (power == 6) {
-            --score;
-        } else if (power == 8 && c[0x1a] < 18 && kind == 5) {
-            ++score;
+            break;
+        case 1: /* 0x0c and 0x0d would set 7 and 3, but nothing is stored. */
+        case 2:
+            break;
+        case 3:
+            if (power == 2) score = (uint8_t)(score + (c[0x16] <= 6 ? 4 : c[0x16] <= 13 ? 2 : 1));
+            else if (power == 8 && c[0x16] < 18 && kind == 3) ++score;
+            else if (power == 10) score = (uint8_t)(score - 2);
+            break;
+        case 4:
+            if (power == 6 || (power == 8 && c[0x18] < 18 && kind == 4)) ++score;
+            break;
+        default:
+            if (power == 6) --score;
+            else if (power == 8 && c[0x1a] < 18 && kind == 5) ++score;
+            break;
         }
+    }
+    if (stat == 1 || stat == 2) return true;
+    if (stat == 3) {
+        c[0x17] = score;
+        return true;
     }
     if (stat == 5) {
         const cok_effect *effect = cok_character_find_effect(ch, 0x0e);
         if (effect != NULL) score = (uint8_t)(score + effect->value);
         c[0x1b] = score;
-        return;
+        return true;
+    }
+    if (stat == 4) {
+        /* The maximum hit points from +0x11b (the first level's) and each
+         * class's levels, former (+0x101) and current (+0xf9, above +0xd7,
+         * capped by DS:3903), divided by the number of classes with a
+         * level; the hit points change by as much. */
+        uint8_t old = c[0x62], hp = 0, classes = 0;
+        c[0x62] = c[0x11b];
+        for (unsigned k = 0; k < 8; ++k) {
+            if (c[0x101 + k] > 0) class_hit_points(c, k, c[0x101 + k], score, &hp);
+            uint8_t level = c[0xf9 + k];
+            if (level > 0) ++classes;
+            if (class_top[k] < level) level = class_top[k];
+            if (level > c[0xd7]) class_hit_points(c, k, (uint8_t)(level - c[0xd7]), score, &hp);
+        }
+        if (classes == 0)
+            return fail(fx, "constitution's hit points (60f4:1743) divide by no classes, runtime "
+                            "error 200");
+        c[0x62] = (uint8_t)(c[0x62] + hp / classes);
+        if (c[0x62] > old) c[0x197] = (uint8_t)(c[0x197] + (c[0x62] - old));
+        if (c[0x62] < old) {
+            if (c[0x197] > old - c[0x62]) c[0x197] = (uint8_t)(c[0x197] - (old - c[0x62]));
+            else c[0x197] = 0;
+        }
+        c[0x19] = score;
+        if (c[0x19] >= 20) {
+            if (cok_character_find_effect(ch, 0x3e) == NULL &&
+                cok_character_add_effect(ch, 0x3e, 0x3c, 0xff, true) == NULL)
+                return fail(fx, "out of memory adding effect 0x3e");
+            return true;
+        }
+        return remove_effect(fx, ch, NULL, 0x3e);
     }
     const cok_effect *effect = cok_character_find_effect(ch, 0x26);
     if (effect != NULL) {
@@ -988,6 +1153,17 @@ static void ability(cok_character *ch, unsigned stat)
         c[0x11] = score;
         c[0x1c] = exceptional;
     }
+    return true;
+}
+
+bool cok_effects_ability(cok_effects *fx, cok_character *character, unsigned stat)
+{
+    begin(fx);
+    if (stat > 5)
+        fail(fx, "ability %u is past charisma", stat);
+    else
+        ability(fx, character, stat);
+    return finish(fx);
 }
 
 /* 60f4:01e9. The effect is kept in fx->removed until the public call
@@ -1011,8 +1187,8 @@ static bool remove_effect(cok_effects *fx, cok_character *c, cok_effect *effect,
     }
     *link = effect->next;
     fx->removed[fx->removed_count++] = effect;
-    if (id == 0x0e) ability(c, 5);
-    if (id == 0x0c || id == 0x26) ability(c, 0);
+    if (id == 0x0e) return ability(fx, c, 5);
+    if (id == 0x0c || id == 0x26) return ability(fx, c, 0);
     return true;
 }
 
@@ -1074,12 +1250,20 @@ static bool dispatch(cok_effects *fx, cok_character *target, uint8_t event)
 {
     if (event >= sizeof events / sizeof *events || events[event] == NULL) return true;
     if (event == 6 || event == 9) {
-        /* 60f4:04f3, magic resistance (+0x187), when a spell's damage or
-         * effect is pending; it needs the caster's level (6346:29fe). */
-        const cok_rolls *r = &fx->rolls;
-        if (target->record[0x187] != 0 && r->pending != 0 &&
-            (r->amount == 0 || (r->damage_type & 8) != 0))
-            return fail(fx, "magic resistance (60f4:04f3) needs spells, which are not ported");
+        /* 60f4:04f3, magic resistance (+0x187), when an effect is pending
+         * and no damage, or magic damage: a d100 up to the resistance plus
+         * 5 for each caster level of the spell (DS:6b33) below 11, as a
+         * byte, resists the damage and the effect (but for 0x5b and 0x52). */
+        cok_rolls *r = &fx->rolls;
+        uint8_t resistance = target->record[0x187], level;
+        if (resistance != 0 && r->pending != 0 && (r->amount == 0 || (r->damage_type & 8) != 0)) {
+            if (!caster_level(fx, r->spell, &level)) return false;
+            uint8_t chance = (uint8_t)(resistance + 5 * (11 - level));
+            if (roll(fx, 1, 100) <= chance) {
+                r->amount = 0;
+                if (r->pending != 0x5b && r->pending != 0x52) r->pending = 0;
+            }
+        }
     }
     for (const uint8_t *id = events[event]; *id != 0; ++id)
         if (!dispatch_id(fx, target, *id)) return false;
@@ -1090,6 +1274,13 @@ bool cok_effects_dispatch(cok_effects *fx, cok_character *target, uint8_t event)
 {
     begin(fx);
     dispatch(fx, target, event);
+    return finish(fx);
+}
+
+bool cok_effects_run(cok_effects *fx, cok_character *character, uint8_t id, cok_effect *effect)
+{
+    begin(fx);
+    call_handler(fx, id, false, effect, character);
     return finish(fx);
 }
 

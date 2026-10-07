@@ -75,6 +75,18 @@ bool cok_camp_prepare(cok_adventure *game);
  * in light green. With wait, pause speed * 100 ms and clear rows 18-22
  * (6346:196a). */
 void cok_camp_say(cok_adventure *game, const uint8_t *c, const char *text, bool wait);
+/* Show text on row 24 in light green for a moment, then clear the row
+ * (6346:1827). */
+void cok_camp_notice(cok_adventure *game, const char *text);
+/* Clear the text window below its first row, rows 18-22 (6346:196a outside
+ * combat). */
+void cok_camp_clear_text(cok_adventure *game);
+/* Say that c did what with spell (5b04:57eb outside combat): its name and
+ * what on row 19, the spell's name on row 20, then pause and clear rows
+ * 18-22. Returns false, ending the run, where the original would print
+ * other data as the name (ids 0 and 0x6c up). */
+bool cok_camp_spell_message(cok_adventure *game, const uint8_t *c, const char *what,
+                            uint8_t spell);
 /* Ask prompt, drawn in prompt_color, until Yes or No (67b5:177f); No is
  * selected first. Returns 'Y', 'N', or -1 if input ended. */
 int cok_camp_yes_no(cok_adventure *game, const char *prompt, uint8_t prompt_color);

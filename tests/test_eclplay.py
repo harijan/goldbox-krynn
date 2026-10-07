@@ -297,6 +297,59 @@ class PartyTests(unittest.TestCase):
         self.assertEqual(lines[lines.index("menu: Drop from party? ") + 1], "choice: Y")
         self.assertIn("print: bids you farewell", lines)
 
+    def test_view_and_ready(self):
+        screen = self.folder / "screen.bmp"
+        # View the first character, unready its sword in Items, and leave.
+        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
+                           "--keys", r"\rvi\v\vr\e", "--screen", screen, ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        view = lines.index("print: Knight of the Crown")
+        self.assertEqual(lines[view - 1:view + 3],
+                         ["print: SIR STRONGSWORD", "print: Knight of the Crown",
+                          "menu: Items Trade Drop Exit", "list: Items"])
+        self.assertEqual(lines[view + 3:view + 8],
+                         ["item:  Yes  Plate Mail ", "item:  Yes  Shield ",
+                          "item:  Yes  Long Sword ", "menu: Ready Use Trade Drop Halve Join",
+                          "choice: R"])
+        self.assertIn("item:  No   Long Sword ", lines)
+        # The sheet again: name light cyan, labels white, values light
+        # green, the menu on row 24.
+        bmp = screen.read_bytes()
+        self.assertEqual(ink(bmp, 1, 1), CYAN)
+        self.assertEqual(ink(bmp, 20, 1), WHITE)
+        self.assertEqual(ink(bmp, 27, 1), GREEN)
+        self.assertEqual(ink(bmp, 1, 21), (0, 0, 0))  # no weapon readied now
+        self.assertEqual(ink(bmp, 1, 22), GREEN)      # the plate mail
+
+    def test_cast_from_the_commands(self):
+        # Down to Kal, Cast, up to Bless, and cast it on the party.
+        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
+                           "--keys", r"\r\v\v\v\vc\^\^\^\^\r\e", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        cast = lines.index("print: casts")
+        self.assertEqual(lines[cast - 2:cast + 4],
+                         ["choice: 1", "print: KAL", "print: casts", "print: Bless",
+                          "print: SIR STRONGSWORD", "print: is Blessed"])
+        self.assertEqual(lines.count("print: is Blessed"), 6)
+
+    def test_cast_in_camp_on_one(self):
+        # Camp, Magic, Cast: Kal's list starts on Sleep, which cannot be
+        # cast here; keep it. Then Cure Light Wounds on Molly.
+        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
+                           "--keys", r"\r\v\v\v\vemc\rn\^\^\^\r\^S\ee\e", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        sleep = lines.index("print: can't be cast here...")
+        self.assertEqual(lines[sleep - 1:sleep + 3],
+                         ["print: Sleep", "print: can't be cast here...", "menu: Lose it? ",
+                          "choice: N"])
+        cure = lines.index("print: Cure Light Wounds")
+        self.assertEqual(lines[cure + 1:cure + 4],
+                         ["menu: Select Exit", "menu: Select Exit", "print: MOLLY"])
+        self.assertEqual(lines[cure + 4], "print: is fully healed")
+
     def test_saved_game_resumes(self):
         result = self.play("--load", SAVE / "SAVGAMA.DAT", "--keys", r"\r", ASSETS)
         self.assertEqual(result.returncode, 0, result.stderr)

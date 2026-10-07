@@ -91,3 +91,31 @@ void cok_screen_list(cok_picture *dst, const cok_picture *tiles, const uint16_t 
     tile(dst, tiles, 3, 0, 3);
     tile(dst, tiles, 3, 39, 3);
 }
+
+static const uint8_t sheet_side[23] = { /* DS:0f02 */
+    0, 3, 4, 4, 4, 4, 4, 5, 0, 3, 4, 4, 4, 4, 4, 5, 0, 3, 4, 5, 0, 3, 5,
+};
+static const uint8_t sheet_middle[11] = { /* DS:0f19-0f23, rows 9-19 */
+    3, 4, 4, 4, 4, 4, 5, 0, 3, 4, 5,
+};
+
+void cok_screen_sheet(cok_picture *dst, const cok_picture *tiles, const uint16_t moons[3])
+{
+    cok_picture_fill(dst, 0, 0, 40, 24 * 8, 0); /* 1128:07e6 */
+    for (int x = 0; x < 40; ++x) {
+        unsigned value = top_row[x];
+        if (x == 8) value = (moons[0] + 10u) & 0xff;
+        if (x == 19) value = (moons[1] + 6u) & 0xff;
+        if (x == 30) value = (moons[2] + 14u) & 0xff;
+        tile(dst, tiles, value, x, 0);
+        tile(dst, tiles, COK_FRAME_HORIZONTAL, x, 8);
+        tile(dst, tiles, COK_FRAME_HORIZONTAL, x, 16);
+        tile(dst, tiles, COK_FRAME_HORIZONTAL, x, 20);
+        tile(dst, tiles, COK_FRAME_HORIZONTAL, x, 23);
+    }
+    for (int y = 0; y <= 22; ++y) {
+        tile(dst, tiles, sheet_side[y], 0, y);
+        tile(dst, tiles, sheet_side[y], 39, y);
+    }
+    for (int y = 9; y <= 19; ++y) tile(dst, tiles, sheet_middle[y - 9], 19, y);
+}

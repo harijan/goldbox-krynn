@@ -91,6 +91,13 @@ static cok_character *add(cok_character *c)
     return c;
 }
 
+static size_t count(const char *text, const char *what)
+{
+    size_t n = 0;
+    for (const char *p = strstr(text, what); p != NULL; p = strstr(p + 1, what)) ++n;
+    return n;
+}
+
 static void empty_party(void)
 {
     cok_party_free(&game.party);
@@ -443,11 +450,14 @@ static void test_camp(void)
     keys("\r\x1b\x1b");
     CHECK(!cok_camp(&game));
     CHECK(strstr(s.log, "menu: Order Drop Speed Icon Pics Level Exit;") != NULL);
-    /* View and Cast are not ported. */
-    keys("vmce\x1b");
+    /* View shows the sheet, with only Exit for one with nothing (a cleric
+     * of deity 0 reads "None Cleric"); Cast
+     * says the selected character has no spells memorized. */
+    game.vm.character = game.party.members[0]->record;
+    keys("v\x1b" "mce\x1b");
     CHECK(!cok_camp(&game));
-    CHECK(strstr(s.log, "unported: View (546c:0d74);") != NULL);
-    CHECK(strstr(s.log, "unported: Cast (4888:0a0d);") != NULL);
+    CHECK(strstr(s.log, "print: KAL;print: None Cleric;menu: Exit;menu: Save View") != NULL);
+    CHECK(strstr(s.log, "print: KAL;print: has no spells memorized;") != NULL);
 
     /* Save: Escape cancels, but the camp still asks whether to quit; then
      * game A, and not quitting. The camp's mode is saved, and the game
@@ -549,6 +559,27 @@ static void test_camp(void)
     game.vm.character = kal;
     keys("f\x1b");
     CHECK(!cok_camp(&game) && kal[0x197] == 9);
+
+    /* Trade's first Escape at the coin list tests a byte of the stack
+     * (546c:2f9b): loading the camp picture leaves it 0, so View first
+     * asks for a partner again; a second View leaves Trade; with the
+     * picture kept, or another command first, the port stops. */
+    kal[0xf1] = 30;
+    game.picture_id = COK_ADVENTURE_NO_PICTURE;
+    game.selected = 1;
+    keys("vt\x01PS\x1b" "E\x1b" "vt\x01PS\x1b\x1b" "\x1b");
+    CHECK(!cok_camp(&game) && game.vm.status == COK_ECL_OK && s.at == s.length);
+    CHECK(count(s.log, "menu: Select Exit;") == 5);
+    CHECK(game.picture_id == 0x3b);
+    game.selected = 1;
+    keys("vt\x01PS\x1b");
+    CHECK(!cok_camp(&game) && game.vm.status == COK_ECL_UNDEFINED);
+    CHECK(strstr(game.error, "546c:2f9b") != NULL);
+    game.picture_id = COK_ADVENTURE_NO_PICTURE;
+    game.selected = 1;
+    keys("a\x1b" "vt\x01PS\x1b");
+    CHECK(!cok_camp(&game) && game.vm.status == COK_ECL_UNDEFINED);
+    kal[0xf1] = 0;
     remove(path);
     snprintf(path, sizeof path, "%s/SAVGAMA.DAT", dir);
     remove(path);

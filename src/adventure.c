@@ -2,6 +2,9 @@
 
 #include "camp.h"
 #include "dax.h"
+#include "cast.h"
+#include "magic.h"
+#include "sheet.h"
 #include "screen.h"
 
 #include <stdarg.h>
@@ -710,6 +713,8 @@ static uint8_t *pick_character(cok_adventure *game, const char *prompt, uint8_t 
         vm->character = who;
         cok_adventure_party(game);
         vm->character = shown;
+        /* In camp (and mode 6) 67b5:03e2 shows the small picture. */
+        if (vm->mode == 2 || vm->mode == 6) draw_frame(game, game->frame);
         bool special;
         key = menu_read(game, menu_prompt, items, &special);
         if (key < 0) {
@@ -970,6 +975,13 @@ static void trace(cok_ecl *vm, void *context)
     if (game->hooks.trace != NULL) game->hooks.trace(game, game->hooks.context);
 }
 
+/* The effects' handlers speak in the text window (6346:1883). */
+static void effect_say(cok_effects *fx, cok_character *c, const char *text, void *context)
+{
+    (void)fx;
+    cok_camp_say(context, c->record, text, true);
+}
+
 bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keyboard *keys,
                         const cok_adventure_hooks *hooks)
 {
@@ -978,6 +990,8 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
                               .character_value = character_value, .context = game};
     cok_ecl_init(&game->vm, &vm_hooks);
     cok_effects_init(&game->effects, &game->vm, &game->party, &game->item_types);
+    game->effects.say = effect_say;
+    game->effects.context = game;
     game->vm.file = 1;
     game->picture_id = COK_ADVENTURE_NO_PICTURE;
     game->big_id = COK_ADVENTURE_NO_PICTURE;
@@ -1292,6 +1306,12 @@ void cok_adventure_carry(cok_adventure *game, uint16_t clock[7])
     carry(game, clock);
 }
 
+uint8_t *cok_adventure_pick(cok_adventure *game, const char *prompt, uint8_t *who, bool exit_item,
+                           bool *ended)
+{
+    return pick_character(game, prompt, who, exit_item, ended);
+}
+
 void cok_adventure_load_picture(cok_adventure *game, uint8_t id)
 {
     load_picture(game, id);
@@ -1388,15 +1408,24 @@ static int command(cok_adventure *game)
                 unported_command(game, "Area");
                 break;
             case 'C':
-                if (vm->character == NULL || vm->character[0x188] == 0) {
+                /* 4888:0a0d for one whose status is 0; the original reads
+                 * through NULL with none selected. */
+                if (vm->character == NULL) {
+                    cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                                       "Cast with no character selected (475c:0ade)");
+                    return -1;
+                }
+                if (vm->character[0x188] == 0) {
                     game->selected = 1;
-                    unported_command(game, "Cast");
+                    cok_magic_cast(game, COK_CAST_COMMANDS);
                 }
                 break;
-            case 'V':
+            case 'V': {
                 game->selected = 1;
-                unported_command(game, "View");
+                bool used;
+                cok_sheet(game, COK_SHEET_STALE_UNKNOWN, &used);
                 break;
+            }
             case 'E':
                 game->selected = 1;
                 done = true;
@@ -1413,6 +1442,7 @@ static int command(cok_adventure *game)
                 break;
             default: break;
             }
+            if (vm->abort) return -1;
             continue;
         }
         key = menu_read(game, "", "Exit", &special);

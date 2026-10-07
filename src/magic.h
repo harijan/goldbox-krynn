@@ -11,7 +11,7 @@
  * spells it has memorized, by id; one with bit 7 set is marked to be
  * learned when the party rests. A scroll (item type 0x27 or 0x28) holds up
  * to three spells at +0x3c-+0x3e, bit 7 set while marked to be scribed.
- * Casting (4888:0a0d, 5b04:1415) is not ported. */
+ * Casting itself is in cast.h. */
 
 enum { COK_SPELLS = 0x6c }; /* Ids 1-0x6b have names. */
 
@@ -31,8 +31,29 @@ bool cok_item_is_scroll(const uint8_t *item);
 
 /* The Magic menu (4888:1c32), "Cast Memorize Scribe Display Rest Exit",
  * for the selected character, until Exit or a rest is interrupted, which
- * sets *interrupted. Cast is logged as unported. */
+ * sets *interrupted. */
 void cok_magic(cok_adventure *game, bool *interrupted);
+
+/* Cast (4888:0a0d), from Magic and the adventure's commands, for the
+ * selected character, unless it is in no condition to or the area
+ * forbids it (0x4be5): the spells in memory, "Choose Spell: " and Cast,
+ * until none is picked; each picked is cast (cok_cast_spell). With none
+ * memorized it "has no spells memorized". The screen is redrawn after
+ * any list. frame says whence (COK_CAST_COMMANDS or COK_CAST_CAMP, cast.h). */
+void cok_magic_cast(cok_adventure *game, uint8_t frame);
+
+/* Show the spells character has memorized, as View's Spells does
+ * (546c:34ec with kind 0 and no menu but Exit), unless there are none.
+ * Returns -1 when input ended or the list cannot be built. */
+int cok_magic_memorized(cok_adventure *game, cok_character *character);
+
+/* Pick a spell of character's scroll item to cast (546c:34ec with kind 2,
+ * "Spells on Scroll", for Use): its spells, whatever its order of magic,
+ * unless its low three bits of +0x35 hide them (5b04:0981). Returns the
+ * spell, 0 for none, or -1 when input ended or the list cannot be built,
+ * as when its spells, counted across such lists since Scribe last listed
+ * scrolls (DS:4838), pass 49. */
+int cok_magic_scroll(cok_adventure *game, cok_character *character, size_t item);
 
 /* Sort c's memorized spells by id, ignoring the mark, so that empty bytes
  * come first (4888:0fb2). */

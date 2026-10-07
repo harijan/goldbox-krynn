@@ -159,13 +159,36 @@ static void test_play(void)
     /* Encamp runs the camp vector, then the camp menu until Exit (see
      * test_camp.c). */
     game.effects.rolls.saved = 1;
-    play(&game, &s, map, 5, 5, "eeavc");
+    play(&game, &s, map, 5, 5, "eea");
     /* The game counts as saved only in the camp it was saved in (DS:5885,
      * cleared at 2fd3:344d). */
     CHECK(game.effects.rolls.saved == 0);
     CHECK(strcmp(s.log, "print: The party makes camp...;menu: Save View Magic Rest Alter Fix Exit;"
-                        "unported: Area;unported: View;unported: Cast;") == 0);
+                        "unported: Area;") == 0);
     CHECK(game.vm.mem4b00[0x102] == 1 && game.vm.mode == 4);
+
+    /* Cast from the commands: a knight's Strength adds the low byte of
+     * 5b04:1415's BP there, 0x74, so the effect's value is 0x74 + 100
+     * (see test_cast.c). */
+    cok_character *knight = calloc(1, sizeof *knight);
+    CHECK(knight != NULL);
+    memcpy(knight->record, "\x03SIR", 4);
+    for (size_t i = 0; i < 6; ++i) knight->record[0x10 + 2 * i] = knight->record[0x11 + 2 * i] = 12;
+    knight->record[0x10] = knight->record[0x11] = 3;
+    knight->record[0x197] = knight->record[0x62] = 9;
+    knight->record[0x189] = 1;
+    knight->record[0x5a] = 6;
+    knight->record[0x100] = 9;
+    knight->record[0x1e] = 0x23;
+    CHECK(cok_party_add(&game.party, knight));
+    game.vm.mem7c00[0x33e] = 1;
+    game.vm.character = knight->record;
+    play(&game, &s, map, 5, 5, "c\rS");
+    const cok_effect *strength = cok_character_find_effect(knight, 0x26);
+    CHECK(strength != NULL && strength->value == 0xd8);
+    cok_party_free(&game.party);
+    game.vm.character = NULL;
+    game.vm.mem7c00[0x33e] = 0;
 
     /* An after-move vector that sets 0x7ec9 to 0xff stops the step, and
      * 0x7ec9 is cleared. */
