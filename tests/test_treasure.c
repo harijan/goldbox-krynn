@@ -50,10 +50,21 @@ static void say(cok_effects *fx, cok_character *c, const char *text, void *conte
 static script s;
 static cok_adventure game;
 
+/* The missile the battle recovers (DS:60a2), as 1 + its index in the
+ * pool, which combat setup clears (3cb2:1c58); 0 for none. */
+static size_t battle_missile;
+
+static void battlefield(cok_adventure *g, void *context)
+{
+    (void)context;
+    g->pool.missile = battle_missile;
+}
+
 static void open_game(void)
 {
     cok_keyboard keys = {scripted, &s};
-    cok_adventure_hooks hooks = {.log = log_line, .unported = unported, .context = &s};
+    cok_adventure_hooks hooks = {.log = log_line, .unported = unported,
+                                 .battlefield = battlefield, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
     game.effects.say = say;
     game.effects.context = &s;
@@ -576,8 +587,9 @@ static void test_loot(void)
     kept[0x2e] = kept[0x31] = 0x13; /* "Short Sword" */
     kept[0x32] = 5;
     CHECK(cok_pool_insert(&game.pool, 0, kept));
-    game.pool.missile = 1;
+    battle_missile = 1;
     CHECK(combat(COK_COMBAT_WON) == COK_ECL_OK);
+    battle_missile = 0;
     /* 3 * 400, and 100 * 400 as a signed word, -25536; the short sword is
      * the missile, where the count stops. */
     CHECK(LOGGED("print: Each character receives -24336;"));

@@ -154,6 +154,31 @@ static bool add(cok_effects *fx, cok_character *c, uint8_t id, uint16_t duration
     return fail(fx, "out of memory adding effect 0x%02x", id);
 }
 
+static bool dispatch(cok_effects *fx, cok_character *target, uint8_t event);
+static bool saving_throw(cok_effects *fx, cok_character *target, uint8_t type, uint8_t bonus,
+                         bool *made);
+
+/* 60f4:20f7: add effect id to c unless its effects or magic resistance,
+ * on event 9, cancel the effect pending (DS:6b2f), or c saved against one
+ * with a save of kind 1; then it "is Unaffected" (6346:1883). An effect of
+ * the id with time left is removed first. Then text, if any, is said: in
+ * combat with a flash on c (6346:228c), which is not ported. cast.c has
+ * the same for spells. */
+static bool add_with_text(cok_effects *fx, cok_character *c, uint8_t id, uint16_t minutes,
+                          uint8_t value, bool on_remove, uint8_t save_kind, bool saved,
+                          uint16_t handler, const char *text)
+{
+    cok_rolls *r = &fx->rolls;
+    r->pending = id;
+    if (!dispatch(fx, c, 9)) return false;
+    if (r->pending == 0 || (saved && save_kind == 1))
+        return say(fx, c, id, handler, "is Unaffected");
+    cok_effect *old = cok_character_find_effect(c, id);
+    if (old != NULL && old->duration > 0 && !remove_effect(fx, c, old, id)) return false;
+    if (!add(fx, c, id, minutes, value, on_remove)) return false;
+    return text[0] == '\0' || say(fx, c, id, handler, text);
+}
+
 /* Handlers. Each takes flag 1 as removing, the effect (the holder's, for
  * an effect the party shares) and the character it acts on. */
 
@@ -767,6 +792,68 @@ static bool h_poison_immune(cok_effects *fx, bool removing, cok_effect *effect,
     return true;
 }
 
+/* 3f44:303c, 0x52, a dragon's fear, removing it or not: every record in
+ * the list on the other side from c (+0x18a) without effect 0x5c, 0x6f or
+ * 0x77 is terrified, effect 0x6f for good (60f4:20f7), if of level
+ * (+0xd6) 0-3; then if it has 0x6f, the computer controls it (+0x18b), a
+ * player character is turned (+0xe7 0xb3), its combat record's target is
+ * cleared and it flees (+0x10). Others are afraid, 0x77, unless they make
+ * a saving throw of type 4. The original writes through a record with no
+ * combat record (0000:000a); the port fails. */
+static bool h_fear(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect;
+    cok_party *party = fx->party;
+    for (size_t i = 0; i < party->count && i < COK_PARTY_RECORDS; ++i) {
+        cok_character *other = party->members[i];
+        uint8_t *r = other->record;
+        if (r[0x18a] == c->record[0x18a]) continue;
+        if (cok_character_find_effect(other, 0x5c) != NULL ||
+            cok_character_find_effect(other, 0x6f) != NULL ||
+            cok_character_find_effect(other, 0x77) != NULL)
+            continue;
+        int8_t level = (int8_t)r[0xd6];
+        if (level >= 0 && level <= 3) {
+            if (!add_with_text(fx, other, 0x6f, 0, 0xff, true, 1, false, 0x303c, "is terrified"))
+                return false;
+            if (cok_character_find_effect(other, 0x6f) == NULL) continue;
+            if (other->combat == NULL)
+                return fail(fx, "effect 0x52 (3f44:303c) writes the combat record of a record "
+                                "with none, at 0000:000a");
+            r[0x18b] = 1;
+            if (r[0xe7] <= 0x7f) r[0xe7] = 0xb3;
+            other->combat->target = NULL;
+            other->combat->forced = 1;
+            continue;
+        }
+        bool made;
+        if (!saving_throw(fx, other, 4, 0, &made)) return false;
+        if (!made &&
+            !add_with_text(fx, other, 0x77, 0, 0xff, true, 1, false, 0x303c, "is afraid"))
+            return false;
+    }
+    return true;
+}
+
+/* 3f44:3692, 0x6f, the terror 0x52 gives: when it goes, a player
+ * character turned by it (+0xe7 0xb3) is given back (0, and +0x18b 0),
+ * and its combat record's +0x10 is cleared. With no combat record the
+ * original writes to 0000:0010; the port fails. */
+static bool h_terror(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)effect;
+    if (!removing) return true;
+    if (c->record[0xe7] == 0xb3) {
+        c->record[0xe7] = 0;
+        c->record[0x18b] = 0;
+    }
+    if (c->combat == NULL)
+        return fail(fx, "effect 0x6f (3f44:3692) writes the combat record of a record with none, "
+                        "at 0000:0010");
+    c->combat->forced = 0;
+    return true;
+}
+
 /* 3f44:34f9, 0x6b. Removing it gives a player character made an NPC back
  * (+0xe7 0xb3 to 0) and sets the side (+0x18a) to the value. Applying it
  * turns the character on the nearest combatant, which is not ported. */
@@ -906,7 +993,7 @@ static const handler handlers[COK_EFFECT_IDS] = {
     [0x4f] = {0x2b5f, NULL, COMBAT " and " TEXT},
     [0x50] = {0x2cad, NULL, COMBAT " and " TEXT},
     [0x51] = {0x3009, NULL, COMBAT " and " TEXT},
-    [0x52] = {0x303c, NULL, COMBAT " and " TEXT},
+    [0x52] = {0x303c, h_fear, NULL},
     [0x53] = {0x546e, NULL, ATTACK, 0x5b04},
     [0x54] = {0x4eea, NULL, ATTACK, 0x5b04},
     [0x55] = {0x50cf, NULL, ATTACK, 0x5b04},
@@ -935,7 +1022,7 @@ static const handler handlers[COK_EFFECT_IDS] = {
     [0x6c] = {0x3619, h_add_invisible_255, NULL},
     [0x6d] = {0x363c, h_none, NULL},
     [0x6e] = {0x3643, h_knight, NULL},
-    [0x6f] = {0x3692, NULL, COMBAT},
+    [0x6f] = {0x3692, h_terror, NULL},
     [0x70] = {0x36e1, NULL, COMBAT " and " TEXT},
     [0x71] = {0x3768, h_none, NULL},
     [0x72] = {0x376f, NULL, COMBAT},
@@ -1296,10 +1383,9 @@ bool cok_effects_attack(cok_effects *fx, cok_character *target, uint8_t bonus, b
     return finish(fx);
 }
 
-bool cok_effects_save(cok_effects *fx, cok_character *target, uint8_t type, uint8_t bonus,
-                      bool *made)
+static bool saving_throw(cok_effects *fx, cok_character *target, uint8_t type, uint8_t bonus,
+                         bool *made)
 {
-    begin(fx);
     cok_rolls *r = &fx->rolls;
     const uint8_t *c = target->record;
     r->save_made = 1;
@@ -1325,6 +1411,14 @@ bool cok_effects_save(cok_effects *fx, cok_character *target, uint8_t type, uint
         }
     }
     *made = r->save_made != 0;
+    return !fx->failed;
+}
+
+bool cok_effects_save(cok_effects *fx, cok_character *target, uint8_t type, uint8_t bonus,
+                      bool *made)
+{
+    begin(fx);
+    saving_throw(fx, target, type, bonus, made);
     return finish(fx);
 }
 

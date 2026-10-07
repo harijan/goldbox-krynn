@@ -823,29 +823,19 @@ static void rob(cok_adventure *game)
 
 /* COMBAT (2fd3:191c). */
 
-/* The battle (3995:0172), which is not ported: unless eclplay's --combat
- * resolves it, it is logged as unported (the opcode, as before). Combat
- * setup (3cb2:1c58) first frees the small picture (6961:0537) and gives
- * every record a combat record, zeroed (3cb2:10d9), its +0x13 set past the
- * party's size (0x7f3e); the rest of setup is not ported. The stub then decides the outcome: every record against the
- * party (+0x18a 1) drops (won, and the Gods intervening, 432f:41e2, the
- * original's Helm cheat), every party record that can act flees (fled),
- * or the whole party dies (lost); then the end of combat (351b:1968). */
+/* The battle (3995:0172), of which setup is ported (3cb2:1c58, see
+ * combat.h) and the rest not: unless eclplay's --combat resolves it, it
+ * is logged as unported (the opcode, as before). The stub then decides
+ * the outcome: every record against the party (+0x18a 1) drops (won, and
+ * the Gods intervening, 432f:41e2, the original's Helm cheat), every
+ * party record that can act flees (fled), or the whole party dies
+ * (lost); the battle's end (3995:004b) and the end of combat (351b:1968)
+ * follow. */
 static void battle(cok_adventure *game)
 {
-    cok_ecl *vm = &game->vm;
     cok_party *party = &game->party;
-    cok_adventure_free_picture(game); /* 3cb2:1c58, 6961:0537 */
-    for (size_t i = 0; i < party->count; ++i) {
-        cok_character *c = party->members[i];
-        free(c->combat);
-        c->combat = calloc(1, sizeof *c->combat);
-        if (c->combat == NULL) {
-            cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
-            return;
-        }
-        c->combat->not_party = i + 1 > vm->mem7c00[0x33e];
-    }
+    if (!cok_combat_setup(game)) return;
+    if (game->hooks.battlefield != NULL) game->hooks.battlefield(game, game->hooks.context);
     cok_combat_stub stub = game->combat_stub;
     if (stub == COK_COMBAT_UNPORTED && game->hooks.unported != NULL)
         game->hooks.unported(game, game->hooks.context);
@@ -867,6 +857,7 @@ static void battle(cok_adventure *game)
             r[0x189] = 0;
         }
     }
+    if (!cok_combat_end(game)) return;
     cok_treasure_end_of_combat(game);
 }
 

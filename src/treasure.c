@@ -586,16 +586,9 @@ typedef struct {
     bool destroyed; /* DS:4b57. */
 } outcome;
 
-/* Remove record index from the list as 4def:3b0a does, freeing its icon
- * slot's pictures (6d21:0156), and unless it is a monster, counting it out
- * of the party's size (0x7f3e); the record before it is then selected, or
- * the first. The spell target and trade partner the original would keep
- * pointing at it are forgotten. The selection kept in DS:43bf is restored
- * by EXIT after LOAD CHARACTER (DS:43ba) and when a block's vectors end
- * (2fd3:3b47); where either would select the freed record, the original
- * would go on with it, and this returns false, ending the run, unless the
- * party was destroyed, where the run ends before either restore. */
-static bool remove_record(cok_adventure *game, size_t index, bool monster, bool destroyed)
+/* 4def:3b0a, which combat setup's placement also calls (see treasure.h). */
+bool cok_treasure_remove_record(cok_adventure *game, size_t index, bool keep, bool free_icon,
+                                bool destroyed)
 {
     cok_ecl *vm = &game->vm;
     uint8_t *gone = game->party.members[index]->record;
@@ -610,10 +603,10 @@ static bool remove_record(cok_adventure *game, size_t index, bool monster, bool 
     if (game->spell_target == gone) game->spell_target = NULL;
     if (game->trade_partner == gone) game->trade_partner = NULL;
     uint8_t slot = gone[0x137];
-    if (slot < COK_ICON_SLOTS)
+    if (free_icon && slot < COK_ICON_SLOTS)
         for (size_t pose = 0; pose < 2; ++pose) cok_picture_free(&game->icons[slot][pose]);
     cok_party_remove(&game->party, index);
-    if (!monster) --vm->mem7c00[0x33e];
+    if (!keep) --vm->mem7c00[0x33e];
     vm->character = cok_party_record(&game->party, index > 0 ? index - 1 : 0);
     return true;
 }
@@ -801,7 +794,7 @@ static bool after_combat(cok_adventure *game, outcome *result)
     }
     if (result->destroyed) {
         while (party->count > 0 && !past_party(party->members[0]))
-            if (!remove_record(game, 0, false, true)) return false;
+            if (!cok_treasure_remove_record(game, 0, false, true, true)) return false;
         vm->mem7c00[0x33e] = 0;
         return true;
     }
@@ -810,7 +803,7 @@ static bool after_combat(cok_adventure *game, outcome *result)
         if (result->fled) {
             vm->mem7c00[0x2c7] = 0x81;
             if (r[0x188] != 3) {
-                if (!remove_record(game, i, false, false)) return false;
+                if (!cok_treasure_remove_record(game, i, false, true, false)) return false;
                 continue;
             }
             r[0x188] = 0;
@@ -864,7 +857,8 @@ static bool remove_enemies(cok_adventure *game, outcome *result)
         }
         snprintf(last, sizeof last, "%s", name);
         ++same;
-        if (!remove_record(game, i, past_party(c), result->destroyed)) return false;
+        if (!cok_treasure_remove_record(game, i, past_party(c), true, result->destroyed))
+            return false;
     }
     if (same > 0) {
         size_t used = strlen(text);

@@ -1171,6 +1171,7 @@ void cok_adventure_close(cok_adventure *game)
     for (size_t i = 0; i < COK_ICON_SLOTS; ++i)
         for (size_t pose = 0; pose < 2; ++pose) cok_picture_free(&game->icons[i][pose]);
     cok_pool_free(&game->pool);
+    cok_picture_free(&game->combat.tiles);
     free(game->lost_weapons);
     game->lost_weapons = NULL;
     game->lost_weapon_count = 0;

@@ -41,6 +41,19 @@ void cok_treasure_end_of_combat(cok_adventure *game);
  * ending the run, where it cannot be carried out. */
 bool cok_treasure_take_item(cok_adventure *game, const uint8_t *item, bool *failed);
 
+/* Remove record index from the list as 4def:3b0a does, freeing its icon
+ * slot's pictures (6d21:0156) if free_icon, and unless keep, counting it
+ * out of the party's size (0x7f3e); the record before it is then
+ * selected, or the first. The spell target and trade partner the
+ * original would keep pointing at it are forgotten. The selection kept
+ * in DS:43bf is restored by EXIT after LOAD CHARACTER (DS:43ba) and when a
+ * block's vectors end (2fd3:3b47); where either would select the freed
+ * record, the original would go on with it, and this returns false,
+ * ending the run, unless destroyed, the party destroyed, where the run
+ * ends before either restore. */
+bool cok_treasure_remove_record(cok_adventure *game, size_t index, bool keep, bool free_icon,
+                                bool destroyed);
+
 /* The pool's items and coins, for treasure and shops (58e7). */
 
 /* Insert a copy of item at index of the pool's items, its link cleared,

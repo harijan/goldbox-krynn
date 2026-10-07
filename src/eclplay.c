@@ -14,6 +14,7 @@ typedef struct {
     int pending;          /* Scan code after a 0, or -1. */
     const char *shots;    /* Directory for BMPs, or NULL. */
     unsigned shot;
+    const char *map;      /* File for each battle's map, or NULL. */
     bool trace;
     cok_adventure *game;
 } player;
@@ -39,6 +40,7 @@ static void usage(const char *program)
             "  --combat HOW    resolve COMBAT's battle, which is not ported: won (every\n"
             "                  monster against the party drops), fled (the party flees),\n"
             "                  lost (the party dies) or gods (the original's Helm cheat)\n"
+            "  --combat-map FILE  write each battle's map and combatants to FILE as text\n"
             "  --shots DIR     save DIR/NNN.bmp each time the game waits for a key\n"
             "  --screen FILE   save the final screen as FILE (BMP)\n"
             "  --file N        ECL file 1-3 (default: the first holding BLOCK)\n"
@@ -104,6 +106,58 @@ static void log_line(cok_adventure *game, const char *kind, const char *text, vo
     (void)game;
     (void)context;
     printf("%s: %s\n", kind, text);
+}
+
+/* A combatant's mark on the map: 1-9, then a-z and A-Z, else *. */
+static char mark(unsigned n)
+{
+    static const char marks[] = "123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    return n - 1 < sizeof marks - 1 ? marks[n - 1] : '*';
+}
+
+/* Append the battle's map to the file of --combat-map: a picture of it,
+ * each cell a combatant's mark, or for its terrain . for plain floor, #
+ * where none can walk, T a table, h a chair, _ a body, : rough ground
+ * (cost 2), ~ water (cost 4) and , anything else; then each cell's
+ * value in hex; then the combatants. */
+static void battlefield(cok_adventure *game, void *context)
+{
+    player *p = context;
+    if (p->map == NULL) return;
+    FILE *f = fopen(p->map, "a");
+    if (f == NULL) {
+        perror(p->map);
+        return;
+    }
+    const cok_combat *c = &game->combat;
+    fprintf(f, "battle in block %u: view %d,%d, %u combatants\n", game->vm.block, c->view_x,
+            c->view_y, c->count - 1u);
+    for (int y = 0; y < COK_COMBAT_HEIGHT; ++y) {
+        for (int x = 0; x < COK_COMBAT_WIDTH; ++x) {
+            uint8_t v = c->cells[y][x], who = c->occupant[y][x];
+            const cok_terrain *t = &cok_combat_terrain[v < COK_COMBAT_TERRAINS ? v : 0];
+            char ch = who != 0 ? mark(who) : v == COK_COMBAT_FLOOR || v == 0x36 ? '.'
+                    : t->cost == 0xff ? '#' : v == 0x1a ? 'T' : v == 0x1b ? 'h'
+                    : v == COK_COMBAT_BODY ? '_' : t->cost == 2 ? ':' : t->cost == 4 ? '~' : ',';
+            fputc(ch, f);
+        }
+        fputc('\n', f);
+    }
+    for (int y = 0; y < COK_COMBAT_HEIGHT; ++y) {
+        for (int x = 0; x < COK_COMBAT_WIDTH; ++x) fprintf(f, "%02x", c->cells[y][x]);
+        fputc('\n', f);
+    }
+    for (unsigned n = 1; n < c->count; ++n) {
+        const cok_combatant *e = &c->combatant[n];
+        const uint8_t *r = e->character->record;
+        fprintf(f, "%c %u %.*s: at %d,%d size %u side %u facing %u\n", mark(n), n,
+                r[0] > 15 ? 15 : r[0], (const char *)r + 1, e->x, e->y, e->size, r[0x18a],
+                e->character->combat->facing);
+    }
+    for (unsigned k = 0; k < c->bodies; ++k)
+        fprintf(f, "body at %d,%d on %02x\n", c->body[k].x, c->body[k].y, c->body[k].cell);
+    fputc('\n', f);
+    fclose(f);
 }
 
 static void unported(cok_adventure *game, void *context)
@@ -180,6 +234,7 @@ static bool test_party(cok_adventure *game, unsigned long count)
         r[0x10d] = 1;
         r[0x10f] = 2;
         r[0x113] = 50;             /* armour class 10 */
+        r[0xcf] = 1;               /* one cell in combat */
         r[0xeb + 8] = 20;          /* steel */
         r[0x189] = 1;
         if (kind[4] != 0) {
@@ -264,6 +319,8 @@ int main(int argc, char **argv)
                 usage(argv[0]);
                 return 2;
             }
+        } else if (strcmp(option, "--combat-map") == 0 && has_value) {
+            p.map = argv[++i];
         } else if (strcmp(option, "--shots") == 0 && has_value) {
             p.shots = argv[++i];
         } else if (strcmp(option, "--screen") == 0 && has_value) {
@@ -304,6 +361,14 @@ int main(int argc, char **argv)
         return 2;
     }
 
+    if (p.map != NULL) {
+        FILE *f = fopen(p.map, "w");
+        if (f == NULL) {
+            perror(p.map);
+            return 1;
+        }
+        fclose(f);
+    }
     if (p.shots != NULL && mkdir(p.shots, 0755) != 0 && errno != EEXIST) {
         perror(p.shots);
         return 1;
@@ -312,7 +377,8 @@ int main(int argc, char **argv)
     p.game = &game;
     cok_keyboard keys = {next_key, &p};
     cok_adventure_hooks hooks = {.unported = unported, .log = log_line, .trace = trace,
-                                 .key_pending = key_pending, .context = &p};
+                                 .key_pending = key_pending, .battlefield = battlefield,
+                                 .context = &p};
     if (!cok_adventure_open(&game, argv[i], &keys, &hooks)) {
         fprintf(stderr, "%s\n", game.error);
         cok_adventure_close(&game);
