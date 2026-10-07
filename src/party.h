@@ -67,6 +67,8 @@
 
 enum {
     COK_PARTY_MAX = 8,          /* The game adds characters while 0x7f3e < 8. */
+    COK_PARTY_RECORDS = 72,     /* The party and the monsters after it (8 + 63); combat's
+                                 * tables hold 72. */
     COK_ITEM_SIZE = 63,
     COK_EFFECT_SIZE = 9,
     COK_SAVED_GAME_SIZE = 5469,
@@ -112,6 +114,33 @@ typedef struct cok_effect {
     struct cok_effect *next;
 } cok_effect;
 
+/* The combat record (22 bytes at the far pointer +0x183), which combat
+ * setup (3cb2:10d9) allocates zeroed for every record in the list and the
+ * end of combat (351b:1493) frees; outside combat the pointer is NULL,
+ * which the port reads as all zero (cok_character_combat), as the
+ * original's end of combat reads 0000:0013 for +0x13 when no battle ran. */
+typedef struct {
+    uint8_t spell;       /* +0x00: a spell being cast, cast at its next turn. */
+    uint8_t may_cast;    /* +0x01: may cast this round. */
+    uint8_t may_use;     /* +0x02: may use items this round. */
+    int8_t initiative;   /* +0x03: 0 once it has acted or cannot. */
+    uint8_t attack_slot; /* +0x04: the attack slot in progress. */
+    uint8_t sweeps;      /* +0x05: sweeps left this round. */
+    uint8_t movement;    /* +0x06: movement left, in half squares. */
+    uint8_t guarding;    /* +0x07. */
+    uint8_t attacked;    /* +0x08: has attacked this round. */
+    uint8_t facing;      /* +0x09: 0-7, north first, clockwise. */
+    uint8_t *target;     /* +0x0a: a far pointer to the record it aims at. */
+    uint8_t dying;       /* +0x0e: rounds dying. */
+    uint8_t hits;        /* +0x0f: times attacked since its turn or move. */
+    uint8_t forced;      /* +0x10: made to flee by an effect. */
+    uint8_t turns;       /* +0x11: attempts to turn undead. */
+    uint8_t turning;     /* +0x12: turning from attackers, for attacks from behind. */
+    uint8_t not_party;   /* +0x13: set past the party's size (0x7f3e) in the list. */
+    uint8_t fleeing;     /* +0x14. */
+    uint8_t pattern;     /* +0x15: the AI's way of moving. */
+} cok_combat_record;
+
 typedef struct {
     uint8_t record[COK_CHARACTER_SIZE];
     /* Items (.STF) as stored, in file order; the original links them from
@@ -130,10 +159,15 @@ typedef struct {
      * cok_character_remove_item and cok_character_insert_item; 0 for none,
      * or once that item is gone. The original holds a pointer. */
     size_t held;
+    /* The combat record (+0x183), or NULL outside combat. */
+    cok_combat_record *combat;
 } cok_character;
 
+/* The list from DS:609a: the party, then any monsters LOAD MONSTER
+ * appended, which stay until the end of combat removes them. count is the
+ * number of records in it; the party's size is var 0x7f3e. */
 typedef struct {
-    cok_character *members[COK_PARTY_MAX];
+    cok_character *members[COK_PARTY_RECORDS];
     size_t count;
 } cok_party;
 
@@ -149,8 +183,11 @@ void cok_party_file_name(const char *name, char out[9]);
  * set. Free with cok_character_free. */
 bool cok_character_read(cok_character *character, const char *dir, const char *base,
                         const cok_item_types *types, char *error, size_t error_size);
-/* Free the items and effects. */
+/* Free the items, effects and combat record. */
 void cok_character_free(cok_character *character);
+
+/* The character's combat record, or one of all zeros when it has none. */
+const cok_combat_record *cok_character_combat(const cok_character *character);
 
 /* Take item index from character and free it (6346:1697), which changes
  * nothing else in the original: the item count (+0x142) and the readied
@@ -217,12 +254,18 @@ extern const size_t cok_stat_table_count;
  * of 1. False for a byte they do not hold. */
 bool cok_ds_byte(uint16_t offset, uint8_t *out);
 
-/* Add a character to the end of the party (4b6d:1989), giving it the lowest
- * combat icon slot (+0x137) no member uses. The party takes ownership of a
- * malloc'd character. Returns false, leaving it with the caller, when the
- * party is full. The original then runs 66c2:0433 on an NPC (+0xe7 0x80
+/* Add a character to the end of the list (4b6d:1989), after any monsters,
+ * giving it the lowest combat icon slot 0-7 (+0x137) no record uses, or 8
+ * when all are. The party takes ownership of a malloc'd character. Returns
+ * false, leaving it with the caller, when the list is full; the original's
+ * callers add characters while var 0x7f3e is below 8, and the caller
+ * counts it there. The original then runs 66c2:0433 on an NPC (+0xe7 0x80
  * and up); the caller does that with cok_character_levels. */
 bool cok_party_add(cok_party *party, cok_character *character);
+/* Append a record to the end of the list, as LOAD MONSTER does
+ * (2fd3:0465), taking ownership of a malloc'd character. Returns false,
+ * leaving it with the caller, when the list holds COK_PARTY_RECORDS. */
+bool cok_party_append(cok_party *party, cok_character *character);
 /* Move member index one place up (toward the first) or down, as Party
  * Order does (4888:1cea, 4888:1e42): the first moved up goes to the end and
  * the last moved down to the front. Nothing else changes. */
@@ -237,10 +280,11 @@ uint8_t *cok_party_record(const cok_party *party, size_t index);
  * it is not a member. */
 size_t cok_party_index(const cok_party *party, const uint8_t *record);
 
-/* The character a special key selects from a menu (546c:3334): up (0x48)
- * the one before selected, wrapping to the last; down (0x50) the one after,
- * wrapping to the first; any other key the first. NULL for an empty party,
- * or for up when selected is not a member. */
+/* The character a special key selects from a menu (546c:3334), from the
+ * whole list, monsters loaded too: up (0x48) the one before selected,
+ * wrapping to the last, or the last with none selected; down (0x50) the one
+ * after, wrapping to the first; any other key the first. NULL for an empty
+ * list, or for up when selected is a record not in it. */
 uint8_t *cok_party_special(const cok_party *party, const uint8_t *selected, uint8_t scan);
 
 /* Draw the party list (6346:07ba) with names from column x: "Name" and

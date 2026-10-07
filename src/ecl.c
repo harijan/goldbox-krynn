@@ -97,6 +97,19 @@ uint16_t cok_tp_random(uint32_t *seed, uint16_t range)
     return (uint16_t)((*seed >> 16) % range);
 }
 
+uint8_t cok_dice(uint32_t *seed, uint8_t count, uint8_t sides)
+{
+    uint8_t sum = 0;
+    for (unsigned i = 0; i < count; ++i) sum = (uint8_t)(sum + cok_tp_random(seed, sides) + 1);
+    return sum;
+}
+
+uint8_t cok_dice_count(uint32_t *seed, uint8_t count, uint8_t sides, uint8_t *dice)
+{
+    *dice = count;
+    return cok_dice(seed, count, sides);
+}
+
 void cok_ecl_init(cok_ecl *vm, const cok_ecl_hooks *hooks)
 {
     memset(vm, 0, sizeof *vm);

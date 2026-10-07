@@ -34,6 +34,9 @@ static void usage(const char *program)
             "  --load SAVE     load saved game SAVE and its party first; BLOCK defaults to\n"
             "                  the block it was saved in\n"
             "  --saves DIR     write saved games (camp's Save) to DIR\n"
+            "  --combat HOW    resolve COMBAT's battle, which is not ported: won (every\n"
+            "                  monster against the party drops), fled (the party flees),\n"
+            "                  lost (the party dies) or gods (the original's Helm cheat)\n"
             "  --shots DIR     save DIR/NNN.bmp each time the game waits for a key\n"
             "  --screen FILE   save the final screen as FILE (BMP)\n"
             "  --file N        ECL file 1-3 (default: the first holding BLOCK)\n"
@@ -135,6 +138,7 @@ int main(int argc, char **argv)
     unsigned long file = 0, vector = 5, start = 0;
     bool still = false, placed = false, play = false;
     const char *party = NULL, *load = NULL, *saves = NULL;
+    cok_combat_stub combat = COK_COMBAT_UNPORTED;
     long x = 0, y = 0, dir = 0;
     struct { uint16_t address, value; } sets[64];
     size_t set_count = 0;
@@ -156,6 +160,15 @@ int main(int argc, char **argv)
             load = argv[++i];
         } else if (strcmp(option, "--saves") == 0 && has_value) {
             saves = argv[++i];
+        } else if (strcmp(option, "--combat") == 0 && has_value) {
+            static const char *const outcomes[] = {"won", "fled", "lost", "gods"};
+            const char *how = argv[++i];
+            for (size_t k = 0; k < 4; ++k)
+                if (strcmp(how, outcomes[k]) == 0) combat = (cok_combat_stub)(COK_COMBAT_WON + k);
+            if (combat == COK_COMBAT_UNPORTED) {
+                usage(argv[0]);
+                return 2;
+            }
         } else if (strcmp(option, "--shots") == 0 && has_value) {
             p.shots = argv[++i];
         } else if (strcmp(option, "--screen") == 0 && has_value) {
@@ -225,6 +238,7 @@ int main(int argc, char **argv)
         return 1;
     }
     if (still) game.animate = false;
+    game.combat_stub = combat;
     if (!has_block) {
         /* As 2fd3:3c28 resumes: the block saved in 0x4bf2, or 0x24. */
         block = game.vm.mem4b00[0xf2] != 0 ? game.vm.mem4b00[0xf2] : 0x24;

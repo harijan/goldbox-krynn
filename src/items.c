@@ -500,6 +500,21 @@ static bool power(cok_adventure *game, cok_character *c, const uint8_t *item, bo
     return true;
 }
 
+bool cok_item_unready(cok_adventure *game, uint8_t *item)
+{
+    if (item[0x36] != 0) {
+        cok_camp_notice(game, "It's Cursed");
+        return true;
+    }
+    item[0x34] = 0;
+    if (item[0x3e] <= 0x7f) return true;
+    cok_character *c = selected(game);
+    if (c == NULL)
+        return undefined(game, "an item's power with no character selected reads through NULL "
+                               "(546c:1d96)");
+    return power(game, c, item, false);
+}
+
 /* Ready or unready item index (546c:1ea7). */
 static bool ready(cok_adventure *game, cok_character *character, size_t index)
 {
@@ -740,7 +755,7 @@ static bool use(cok_adventure *game, cok_character *character, size_t index, boo
         cast = before == 5 || now == 5 || before == 0 || now == 0 || (int8_t)c[0xfe] > 0 ||
                (int8_t)c[0xf9] > 0;
         if (!cast && (int8_t)c[0xff] > 9) {
-            uint8_t d100 = (uint8_t)(cok_tp_random(&game->vm.seed, 100) + 1);
+            uint8_t d100 = cok_dice(&game->vm.seed, 1, 100); /* 546c:26ac */
             cast = d100 <= 75;
         }
         if (!cast) cok_camp_say(game, c, "oops!", true);

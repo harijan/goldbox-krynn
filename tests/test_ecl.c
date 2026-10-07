@@ -378,6 +378,25 @@ static void test_random(void)
     cok_tp_random(&expect, 1);
     uint16_t second = cok_tp_random(&expect, 255);
     CHECK(run(&log) == COK_ECL_OK && vm.mem4b00[1] == 0 && vm.mem4b00[2] == second);
+
+    /* The dice (60f4:1216): Random(sides) + 1 per die, summed as a byte;
+     * no dice draw nothing, and 0 sides still draw. */
+    seed = 7;
+    CHECK(cok_dice(&seed, 0, 6) == 0 && seed == 7);
+    expect = 7;
+    unsigned sum = cok_tp_random(&expect, 6) + 1u;
+    sum += cok_tp_random(&expect, 6) + 1u;
+    CHECK(cok_dice(&seed, 2, 6) == sum && seed == expect);
+    CHECK(cok_dice(&seed, 3, 0) == 3 && seed != expect);
+    /* The sum wraps as a byte. */
+    seed = expect = 9;
+    unsigned total = 0;
+    for (int i = 0; i < 200; ++i) total += cok_tp_random(&expect, 6) + 1u;
+    CHECK(total > 255 && cok_dice(&seed, 200, 6) == (uint8_t)total && seed == expect);
+    /* 60f4:1261 keeps the count in DS:6b34. */
+    uint8_t dice = 0;
+    seed = expect = 5;
+    CHECK(cok_dice_count(&seed, 4, 8, &dice) == cok_dice(&expect, 4, 8) && dice == 4);
 }
 
 typedef struct {

@@ -62,13 +62,10 @@ static bool was_removed(const cok_effects *fx, const cok_effect *effect)
     return false;
 }
 
-/* Sum count rolls of 1 to sides, as a byte (60f4:1216). */
+/* The dice (60f4:1216). */
 static uint8_t roll(cok_effects *fx, uint8_t count, uint8_t sides)
 {
-    uint8_t sum = 0;
-    for (unsigned i = 0; i < count; ++i)
-        sum = (uint8_t)(sum + cok_tp_random(&fx->vm->seed, sides) + 1);
-    return sum;
+    return cok_dice(&fx->vm->seed, count, sides);
 }
 
 /* The party member whose record is the selected character (DS:6096), or
@@ -694,8 +691,7 @@ static bool h_holy_water(cok_effects *fx, bool removing, cok_effect *effect, cok
     size_t weapon = attacker->slots[0];
     if (weapon == 0 || weapon > attacker->item_count || attacker->items[weapon - 1][0x2e] != 0x36)
         return true;
-    fx->rolls.dice = 1;
-    fx->rolls.amount = (uint8_t)(roll(fx, 1, 6) + 1);
+    fx->rolls.amount = (uint8_t)(cok_dice_count(&fx->vm->seed, 1, 6, &fx->rolls.dice) + 1);
     return true;
 }
 
@@ -1201,8 +1197,9 @@ bool cok_effects_remove(cok_effects *fx, cok_character *character, cok_effect *e
 }
 
 /* Run the handler of id for target (60f4:0352): its own effect, or for an
- * effect the party shares, the first member's. In combat only a member in
- * range counts, which needs the combat map and is not ported. */
+ * effect the party shares, the first in the whole list, a monster's
+ * too. In combat only a record in range counts, which needs the combat
+ * map and is not ported. */
 static bool dispatch_id(cok_effects *fx, cok_character *target, uint8_t id)
 {
     cok_effect *effect = cok_character_find_effect(target, id);

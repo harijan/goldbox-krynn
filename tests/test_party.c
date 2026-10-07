@@ -68,15 +68,22 @@ static void test_members(void)
     CHECK(cok_party_special(&party, c->record, 0x50) == a->record);
     CHECK(cok_party_special(&party, a->record, 0x50) == b->record);
     CHECK(cok_party_special(&party, c->record, 0x4b) == a->record);
-    CHECK(cok_party_special(&party, NULL, 0x48) == NULL);
+    /* Up with none selected walks to the last record (546c:3334). */
+    CHECK(cok_party_special(&party, NULL, 0x48) == c->record);
     /* A removed member's icon slot is the next one given. */
     cok_party_remove(&party, 1);
     CHECK(party.count == 2 && cok_party_record(&party, 1) == c->record);
     cok_character *d = make("D", 5, 5, 5);
     CHECK(cok_party_add(&party, d) && d->record[0x137] == 1);
     for (int i = 0; i < 5; ++i) CHECK(cok_party_add(&party, make("E", 1, 1, 1)));
+    /* With slots 0-7 taken the next is 8; the list holds 72 records, the
+     * party and the monsters after it. */
+    cok_character *ninth = make("N", 1, 1, 1);
+    CHECK(cok_party_add(&party, ninth) && ninth->record[0x137] == 8);
+    while (party.count < COK_PARTY_RECORDS) CHECK(cok_party_append(&party, make("M", 1, 1, 1)));
     cok_character *extra = make("F", 1, 1, 1);
-    CHECK(!cok_party_add(&party, extra) && party.count == COK_PARTY_MAX);
+    CHECK(!cok_party_add(&party, extra) && !cok_party_append(&party, extra) &&
+          party.count == COK_PARTY_RECORDS);
     free(extra);
     cok_party_free(&party);
     CHECK(party.count == 0);

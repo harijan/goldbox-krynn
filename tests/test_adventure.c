@@ -370,6 +370,11 @@ static void test_party(void)
     const uint8_t none[] = {COK_ECL_ADD_EP, 0, 0, 0, 10, COK_ECL_EXIT};
     CHECK(run_code(&game, &s, none, sizeof none, "") == COK_ECL_DIVIDE_BY_ZERO);
     a->record[0xfb] = 1;
+    /* So does one that cannot act: the division comes first (2fd3:378a). */
+    c->record[0xff] = 0;
+    const uint8_t all[] = {COK_ECL_ADD_EP, 0, 1, 0, 10, COK_ECL_EXIT};
+    CHECK(run_code(&game, &s, all, sizeof all, "") == COK_ECL_DIVIDE_BY_ZERO);
+    c->record[0xff] = 1;
 
     /* WHO: down twice wraps to the first, up to the last; S picks. The
      * picked character stays selected, drawn white in the list. */

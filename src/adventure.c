@@ -4,6 +4,7 @@
 #include "dax.h"
 #include "cast.h"
 #include "magic.h"
+#include "monster.h"
 #include "sheet.h"
 #include "screen.h"
 
@@ -52,13 +53,16 @@ static cok_keyboard keyboard(cok_adventure *game)
 static void menu_special(uint8_t scan, void *context);
 static int menu_read(cok_adventure *game, const char *prompt, const char *items, bool *special);
 
-/* Read a record by id from <name>.DAX (169c:088e). */
-static uint8_t *read_record(cok_adventure *game, const char *name, uint8_t id, size_t *size)
+/* Read a record by id from <name>.DAX (169c:088e); *no_file, if given, is
+ * set when the archive cannot be opened. */
+static uint8_t *find_record(cok_adventure *game, const char *name, uint8_t id, size_t *size,
+                            bool *no_file)
 {
     char path[sizeof game->assets + 32];
     snprintf(path, sizeof path, "%s/%s.DAX", game->assets, name);
     dax_archive archive = {0};
     dax_status status = dax_open(path, &archive);
+    if (no_file != NULL) *no_file = status != DAX_OK;
     if (status != DAX_OK) {
         fail(game, "%s: %s", path, dax_status_string(status));
         return NULL;
@@ -91,12 +95,23 @@ static uint8_t *read_record(cok_adventure *game, const char *name, uint8_t id, s
     return data;
 }
 
+static uint8_t *read_record(cok_adventure *game, const char *name, uint8_t id, size_t *size)
+{
+    return find_record(game, name, id, size, NULL);
+}
+
 uint8_t *cok_adventure_record(cok_adventure *game, const char *name, unsigned file,
                               uint8_t id, size_t *size)
 {
     char label[32];
     snprintf(label, sizeof label, "%.20s%u", name, file);
     return read_record(game, label, id, size);
+}
+
+uint8_t *cok_adventure_find_record(cok_adventure *game, const char *name, uint8_t id,
+                                   size_t *size, bool *no_file)
+{
+    return find_record(game, name, id, size, no_file);
 }
 
 /* Load a record of one image or one group of frames from <name>.DAX into
@@ -127,6 +142,12 @@ static bool load_single(cok_adventure *game, const char *name, uint8_t id, int t
     return ok;
 }
 
+bool cok_adventure_load_image(cok_adventure *game, const char *name, uint8_t id, int transparent,
+                              cok_picture *picture)
+{
+    return load_single(game, name, id, transparent, picture);
+}
+
 static void moons(const cok_adventure *game, uint16_t out[3])
 {
     for (size_t i = 0; i < 3; ++i) out[i] = game->vm.mem4b00[0x1f9 + i];
@@ -147,6 +168,7 @@ static void free_frames(cok_adventure *game)
     game->frame_count = 0;
     game->frame = 0;
     game->picture_id = COK_ADVENTURE_NO_PICTURE;
+    game->picture_sprite = false;
 }
 
 static uint32_t u32(const uint8_t *p)
@@ -158,7 +180,8 @@ static uint32_t u32(const uint8_t *p)
  * first are XOR deltas; without animation only the first is kept. */
 static void load_picture(cok_adventure *game, uint8_t id)
 {
-    if (id == game->picture_id && game->picture_file == game->vm.file) return;
+    if (id == game->picture_id && game->picture_file == game->vm.file && !game->picture_sprite)
+        return;
     free_frames(game);
     game->error[0] = '\0';
     size_t size;
@@ -185,6 +208,48 @@ static void load_picture(cok_adventure *game, uint8_t id)
     }
     cok_images_free(&images);
     free(data);
+}
+
+void cok_adventure_load_sprite(cok_adventure *game, uint8_t id)
+{
+    if (id == 0xff || (id == game->picture_id && game->picture_file == game->vm.file &&
+                       game->picture_sprite))
+        return;
+    free_frames(game);
+    game->error[0] = '\0';
+    size_t size;
+    uint8_t *data = cok_adventure_record(game, "SPRIT", game->vm.file, id, &size);
+    if (data == NULL) {
+        log_text(game, "error", game->error);
+        return;
+    }
+    game->picture_id = id;
+    game->picture_file = game->vm.file;
+    game->picture_sprite = true;
+    cok_images images = {0};
+    cok_image_status status = cok_images_parse(data, size, 1, &images);
+    if (status != COK_IMAGE_OK) {
+        fail(game, "SPRIT%u.DAX record %u: %s", game->vm.file, id, cok_image_status_string(status));
+        log_text(game, "error", game->error);
+        free(data);
+        return;
+    }
+    size_t count = images.count < COK_ADVENTURE_FRAMES ? images.count : COK_ADVENTURE_FRAMES;
+    for (size_t i = 0; i < count; ++i) {
+        game->delays[i] = u32(images.images[i].pixels - 17 - 4);
+        if (cok_picture_load_sprite(&game->frames[i], &images.images[i], 1) != COK_PICTURE_OK)
+            break;
+        game->frame_count = i + 1;
+    }
+    cok_images_free(&images);
+    free(data);
+}
+
+void cok_adventure_draw_sprite(cok_adventure *game, unsigned frame)
+{
+    if (frame < 1 || frame > game->frame_count) return;
+    const cok_picture *p = &game->frames[frame - 1];
+    cok_picture_draw(&game->screen, p, 0, p->x + 3, p->y + 3, COK_DRAW_MASKED, NULL);
 }
 
 /* Draw the current frame in the view (6961:000a). */
@@ -231,20 +296,42 @@ void cok_adventure_view(cok_adventure *game)
     game->redraw = false;
 }
 
+void cok_adventure_load_big(cok_adventure *game, uint8_t id)
+{
+    free_frames(game);
+    if (game->big_id == id && game->big.pixels != NULL) return;
+    char name[16];
+    snprintf(name, sizeof name, "BIGPIC%u", game->vm.file);
+    /* 127f:0111 frees the old picture and, for a record that is not there,
+     * returns with none; DS:6e06 takes the id all the same. A missing
+     * file, where the original asks for the disk, is logged. */
+    game->big_id = id;
+    if (load_single(game, name, id, -1, &game->big)) return;
+    bool no_file;
+    size_t size;
+    free(find_record(game, name, id, &size, &no_file));
+    if (no_file) log_text(game, "error", game->error);
+}
+
 /* PICTURE (2fd3:0914). */
 static void picture(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     uint8_t id = (uint8_t)cok_ecl_value(vm, 0);
     if (id == 0xff) {
-        if (!(vm->last_mode == 4 && vm->mode != 4) && game->picture_shown) {
+        /* An encounter's sprite over the view (DS:884d) is erased too. */
+        if (!(vm->last_mode == 4 && vm->mode != 4) &&
+            (game->picture_shown || game->sprite_shown)) {
             game->redraw = true;
             cok_adventure_view(game);
             game->picture_shown = false;
+            game->sprite_shown = false;
             game->view_replaced = true;
         }
+        game->sprite_loaded = game->closeup_shown = false; /* DS:8830, 8831 */
         return;
     }
+    game->closeup_shown = true;
     game->picture_shown = true;
     if (vm->mem7c00[0x2e1] != 0xff) {
         /* 3775:0538 draws something else when 0x7ee1 is set; not ported. */
@@ -259,17 +346,7 @@ static void picture(cok_adventure *game)
         draw_frame(game, 0);
         return;
     }
-    /* 6961:07ed frees the small picture, then loads the big one. */
-    free_frames(game);
-    if (game->big_id != id || game->big.pixels == NULL) {
-        game->big_id = COK_ADVENTURE_NO_PICTURE;
-        char name[16];
-        snprintf(name, sizeof name, "BIGPIC%u", vm->file);
-        if (load_single(game, name, id, -1, &game->big))
-            game->big_id = id;
-        else
-            log_text(game, "error", game->error);
-    }
+    cok_adventure_load_big(game, id);
     draw_big(game);
     /* Picture 0x79 runs 4877:0005 instead, which is not ported. */
     if (id != 0x79) game->big_shown = true;
@@ -456,18 +533,32 @@ static void horizontal_menu(cok_adventure *game)
         append(items, sizeof items, vm->string[i]);
         if (i + 1 < count) append(items, sizeof items, " ");
     }
-    log_text(game, "menu", items);
     if (game->picture_shown && game->view_replaced) draw_frame(game, game->frame);
-    cok_keyboard keys = keyboard(game);
-    cok_menu_hooks hooks = {menu_special, game};
-    int choice = cok_menu_horizontal(&game->screen, &game->font, "", items, 13, 15,
-                                     single ? 15 : 10, single, &game->selected, &keys, &hooks);
+    int choice = cok_adventure_horizontal(game, "", items, single ? 15 : 10, single);
     if (choice < 0) return;
     char text[16];
     snprintf(text, sizeof text, "%d", choice);
     log_text(game, "choice", text);
     cok_ecl_store(vm, address, (uint16_t)choice);
     cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0);
+}
+
+int cok_adventure_horizontal(cok_adventure *game, const char *prompt, const char *items,
+                             uint8_t normal, bool enter_returns)
+{
+    log_text(game, "menu", items);
+    cok_keyboard keys = keyboard(game);
+    cok_menu_hooks hooks = {menu_special, game};
+    return cok_menu_horizontal(&game->screen, &game->font, prompt, items, 13, 15, normal,
+                               enter_returns, &game->selected, &keys, &hooks);
+}
+
+void cok_adventure_type(cok_adventure *game, const char *text, uint8_t fg, bool clear)
+{
+    log_text(game, "print", text);
+    cok_text_hooks hooks = {page, char_delay, game};
+    cok_text_wrap(&game->screen, &game->font, &game->vm.cursor, text, text_window, fg, 0, clear,
+                  &hooks);
 }
 
 /* VERTICAL MENU (2fd3:0f9d): print the prompt, then list the items below
@@ -609,6 +700,11 @@ static void prompt_key(cok_adventure *game, const char *text)
     read_key(game);
 }
 
+void cok_adventure_prompt_key(cok_adventure *game, const char *text)
+{
+    prompt_key(game, text);
+}
+
 /* Print text in the text window in colour fg, with no delay between
  * characters (1521:04ac). */
 static void print_text(cok_adventure *game, const char *text, uint8_t fg, bool clear)
@@ -652,11 +748,12 @@ static void gain_experience(cok_adventure *game, uint8_t *c, uint16_t points)
     uint8_t classes = 0;
     for (size_t i = 0; i < 8; ++i)
         if ((int8_t)c[0xf9 + i] > 0) ++classes;
-    if (c[0x189] == 0) return;
+    /* The original divides before it tests whether the character can act. */
     if (classes == 0) {
         game->vm.status = COK_ECL_DIVIDE_BY_ZERO;
         return;
     }
+    if (c[0x189] == 0) return;
     uint32_t total = (uint32_t)c[0x116] | (uint32_t)c[0x117] << 8 | (uint32_t)c[0x118] << 16 |
                      (uint32_t)c[0x119] << 24;
     total += (uint16_t)(points / classes);
@@ -757,13 +854,10 @@ static void who(cok_adventure *game)
     log_text(game, "who", name);
 }
 
-/* Sum count rolls of 1 to sides, as a byte (60f4:1216). */
+/* The dice (60f4:1216). */
 static uint8_t roll(cok_adventure *game, uint8_t count, uint8_t sides)
 {
-    uint8_t sum = 0;
-    for (unsigned i = 0; i < count; ++i)
-        sum = (uint8_t)(sum + cok_tp_random(&game->vm.seed, sides) + 1);
-    return sum;
+    return cok_dice(&game->vm.seed, count, sides);
 }
 
 /* The party member whose record is c, or NULL. */
@@ -915,11 +1009,38 @@ static void damage(cok_adventure *game)
     prompt_key(game, "press <enter>/<return> to continue");
 }
 
+/* CALL (2fd3:329b). Address 0x2e10, which scripts call after an
+ * encounter, recomputes the party's square and, if a picture, a sprite or
+ * the party's place or view changed, redraws the view and the status line
+ * and forgets them. The other addresses, a sound (0xb203), a step forward
+ * (0xc01e), the wall ahead outside 3D areas (0xc018) and a frame of the
+ * small picture's animation (0x6803), are not ported. */
+static void call(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    if (cok_ecl_address(vm, 0) != 0x2e10) {
+        if (game->hooks.unported != NULL) game->hooks.unported(game, game->hooks.context);
+        return;
+    }
+    vm->square = cok_view_square(&game->view, vm->map_x, vm->map_y);
+    if (!game->picture_shown && !game->sprite_shown && !vm->c059_changed && !vm->view_changed &&
+        !vm->area_changed)
+        return;
+    game->sprite_loaded = game->closeup_shown = false;
+    game->redraw = true;
+    cok_adventure_view(game);
+    cok_adventure_status(game);
+    vm->area_changed = vm->c059_changed = vm->view_changed = false;
+    game->picture_shown = game->sprite_shown = false;
+    vm->ahead = cok_view_wall(&game->view, vm->direction, vm->map_x, vm->map_y);
+}
+
 /* Reset picture state for a new block, as 3775:01e8 does (DS:884a, 884c,
  * 8830). */
 static void reset_pictures(cok_adventure *game)
 {
     game->picture_shown = false;
+    cok_monster_reset(game);
 }
 
 static void opcode(cok_ecl *vm, void *context)
@@ -929,6 +1050,7 @@ static void opcode(cok_ecl *vm, void *context)
     case COK_ECL_EXIT: case COK_ECL_RETURN:
         /* The original clears DS:8830, 884a, 884c and 8848 here. */
         game->picture_shown = false;
+        game->sprite_loaded = game->closeup_shown = false;
         break;
     case COK_ECL_NEWECL: reset_pictures(game); break;
     case COK_ECL_PRINT: case COK_ECL_PRINTCLEAR: print(game); break;
@@ -944,7 +1066,9 @@ static void opcode(cok_ecl *vm, void *context)
     case COK_ECL_ADD_EP: add_experience(game); break;
     case COK_ECL_WHO: who(game); break;
     case COK_ECL_DAMAGE: damage(game); break;
+    case COK_ECL_CALL: call(game); break;
     default:
+        if (cok_monster_opcode(game)) break;
         if (game->hooks.unported != NULL) game->hooks.unported(game, game->hooks.context);
         break;
     }
@@ -1003,6 +1127,7 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
     game->pictures = 1;
     game->selected = 1;
     game->text_shown = true;
+    game->icon_slot = 8;
     if (keys != NULL) game->keys = *keys;
     if (hooks != NULL) game->hooks = *hooks;
     if (strlen(assets) >= sizeof game->assets) {
@@ -1042,6 +1167,9 @@ void cok_adventure_close(cok_adventure *game)
     game->vm.character = NULL;
     free_frames(game);
     cok_picture_free(&game->big);
+    for (size_t i = 0; i < COK_ICON_SLOTS; ++i)
+        for (size_t pose = 0; pose < 2; ++pose) cok_picture_free(&game->icons[i][pose]);
+    cok_pool_free(&game->pool);
     cok_view_free(&game->view);
     cok_picture_free(&game->screen);
     cok_font_free(&game->font);
@@ -1164,6 +1292,8 @@ static cok_ecl_status enter_block(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     cok_ecl_status status = COK_ECL_OK;
+    bool restoring = game->restoring;
+    game->restoring = true;
     do {
         free_frames(game);
         vm->reload = false;
@@ -1183,6 +1313,7 @@ static cok_ecl_status enter_block(cok_adventure *game)
         vm->character = vm->saved_character;
         cok_adventure_party(game);
     } while (status == COK_ECL_OK && !vm->abort && vm->reload);
+    game->restoring = restoring;
     vm->last_mode = vm->mode;
     return status;
 }
@@ -1321,6 +1452,11 @@ void cok_adventure_load_picture(cok_adventure *game, uint8_t id)
 void cok_adventure_show_picture(cok_adventure *game)
 {
     draw_frame(game, game->frame);
+}
+
+void cok_adventure_show_frame(cok_adventure *game, size_t frame)
+{
+    draw_frame(game, frame);
 }
 
 void cok_adventure_print(cok_adventure *game, const char *text, cok_text_window window,

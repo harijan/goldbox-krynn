@@ -472,6 +472,15 @@ bool cok_camp_rest(cok_adventure *game, bool interactive)
     cok_ecl *vm = &game->vm;
     bool interrupted = false, stop = false;
     uint8_t ticks = 0, hours = 0;
+    /* The timers are by position in the whole list (DS:712d + 1 on); a
+     * ninth record, a monster loaded and not yet fought, would write over
+     * the healing count and the resting flag after them. */
+    if (game->party.count > COK_PARTY_MAX) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                           "resting with %zu records in the party list overruns the learning "
+                           "timers (57e4:0e3e, DS:712e)", game->party.count);
+        return false;
+    }
     for (size_t i = 0; i < game->party.count; ++i) game->learn_ticks[i] = 0;
     memset(game->effects.timed, 1, sizeof game->effects.timed);
     if (interactive) {
@@ -507,7 +516,7 @@ bool cok_camp_rest(cok_adventure *game, bool interactive)
         uint16_t every = vm->mem7c00[0x2d2], chance = vm->mem7c00[0x2d3];
         if (every == 0 || ++game->rest_ticks < every) continue;
         game->rest_ticks = 0;
-        if (cok_tp_random(&vm->seed, 100) + 1u > chance) continue;
+        if (cok_dice(&vm->seed, 1, 100) > chance) continue; /* 57e4:0fbe */
         clear_text(game);
         show_rest(game, 0);
         draw(game, "Your repose is suddenly interrupted!", 1, 0x13, 15, true);
@@ -549,13 +558,10 @@ static uint16_t missing(const cok_adventure *game)
     return sum;
 }
 
-/* Roll count of 1 to sides as a byte (60f4:1216). */
+/* The dice (60f4:1216). */
 static uint8_t roll(cok_adventure *game, uint8_t count, uint8_t sides)
 {
-    uint8_t sum = 0;
-    for (unsigned i = 0; i < count; ++i)
-        sum = (uint8_t)(sum + cok_tp_random(&game->vm.seed, sides) + 1);
-    return sum;
+    return cok_dice(&game->vm.seed, count, sides);
 }
 
 /* The hit points cure spells heal: Cure Light Wounds 1d8, Cure Serious
@@ -861,6 +867,14 @@ bool cok_camp_save_game(cok_adventure *game, char letter)
     saved.mode = vm->mode;
     memcpy(saved.wall_ids, game->wall_ids, sizeof saved.wall_ids);
     memcpy(saved.wall_slots, game->wall_slots, sizeof saved.wall_slots);
+    /* The count is that of the whole list (4b6d:22de), monsters loaded too;
+     * a ninth name would be written over the routine's return address. */
+    if (game->party.count > COK_PARTY_MAX) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                           "saving %zu records overruns the names on the stack (4b6d:22de)",
+                           game->party.count);
+        return false;
+    }
     saved.count = (uint8_t)game->party.count;
     for (size_t i = 0; i < game->party.count; ++i)
         snprintf(saved.names[i], sizeof saved.names[i], "CHRDAT%c%u", letter, (unsigned)(i + 1));

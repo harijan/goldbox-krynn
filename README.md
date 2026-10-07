@@ -38,10 +38,11 @@ record; directory entry numbers are zero-based. Duplicate IDs are retained.
 `make test` includes synthetic malformed inputs, all supplied DAX archives,
 export checks for all 26 supported graphics archives (2,363 images), and
 tests of the picture, text, menu, 3D view, party and spell effect routines,
-the adventure loop, the camp, casting spells and the character sheet with
-its items, including PIC delta decoding on `PIC1.DAX` and the game font
-in `8X8D1.DAX`, and plays the opening scripts, the view of Throtl and a walk
-through it with `eclplay`. It builds `build/START_FULL.EXE` (see
+the adventure loop, the camp, casting spells, the character sheet with its
+items, and monsters and encounters, including PIC delta decoding on
+`PIC1.DAX` and the game font in `8X8D1.DAX`, and plays the opening scripts,
+the view of Throtl and a walk through it with `eclplay`, with encounters,
+and fights resolved by `--combat`. It builds `build/START_FULL.EXE` (see
 Disassembly image) to check the original's tables that the port uses. With
 the original's saved games in `SAVE/` (`SAVGAMA.DAT` and its `CHRDATA*`
 files), it also plays them with a party, checks the stats recomputed for
@@ -339,7 +340,8 @@ Pascal's generator), `SAVE`, tables and `NEWECL` itself, and decodes every
 other opcode's operands before handing it to the `opcode` hook. Those opcodes
 drive pictures, text, menus, monsters, combat, items and characters; the
 screen-side ones are ported in `src/adventure.h` (see Playing scripts), the
-rest not yet. Comparisons order the first operand against the second,
+monsters' and encounters' in `src/monster.h` (see Monsters and
+encounters), the rest not yet. Comparisons order the first operand against the second,
 but `AND` and `OR` set the flags for 0 against their result; `SUBTRAT` stores
 the second minus the first; `DIVIDE` leaves its remainder in
 `0x7f3f`. A failed `IF` skips the next instruction using its own operand
@@ -379,7 +381,10 @@ the next key while the party rests, which the rest loop sees (`1614:03c2`).
 error. A spell list logs its rows as `item:` and `heading:`, and quitting
 to DOS ends the run with `(quit to DOS in block N)`. Cast and View run
 from the commands and the camp, their lists logged as `list:` and
-`item:`.
+`item:`. Monsters loaded, the encounter's sprite and close-up and the
+money robbed log as `monster:`, and the end of a fight as `combat:` (see
+Monsters and encounters). `COMBAT`'s battle is not ported: it logs as
+`[COMBAT]`, unless `--combat won`, `fled`, `lost` or `gods` resolves it.
 `--party SAVE` adds the characters of a saved game to the party (see Party),
 and `--load SAVE` loads the whole saved game first; then `BLOCK` may be left
 out to resume where it was saved. WHO prints the character picked (`who:`).
@@ -408,6 +413,7 @@ the gates of Gargath with the second item of a list.
 | `ADD EP` | `2fd3:36dc` | experience for the selected character or the party |
 | `WHO` | `2fd3:30b6` | pick the selected character from the party list |
 | `DAMAGE` | `2fd3:2c80` | damage by attacks or saving throws, which can kill the party |
+| `CALL` | `2fd3:329b` | address 0x2e10 only, the view after an encounter (see Monsters and encounters) |
 
 A one-item menu reading `PRESS BUTTON OR RETURN TO CONTINUE.` is shown as
 `PRESS <ENTER>/<RETURN> TO CONTINUE.`, and Enter picks it, as in the
@@ -550,7 +556,9 @@ stops. Sound is not ported either.
 `src/party.h` holds the party and its characters. The original keeps the
 party as a linked list of 409-byte records from `DS:609a` (next at `+0x17f`)
 with the selected character at `DS:6096`; the port keeps an array in the same
-order, and the selected record in `vm.character`. `party.h` lists the record
+order, up to 72 records with the monsters `LOAD MONSTER` appends after the
+party (see Monsters and encounters), and the selected record in
+`vm.character`. `party.h` lists the record
 fields the port uses. Fields such as the armour class (`+0x18d`, as 60 - AC)
 are derived from the others and the items when a character loads (see
 Derived stats); its spell effects are a list (see Spell effects).
@@ -594,8 +602,9 @@ is redrawn when a block's vectors have run, by `CLEAR BOX`, `LOAD FILES` and
 and special keys in the adventure loop.
 
 Special keys from a menu pick a character (`546c:3334`): up (or 8) the one
-before, wrapping to the last, down (or 2) the one after, wrapping to the
-first, and every other special key the first. `HORIZONTAL MENU` then redraws
+before, wrapping to the last (or the last, with none selected), down (or 2)
+the one after, wrapping to the first, and every other special key the
+first. `HORIZONTAL MENU` then redraws
 the party list (`3775:1885`), and the adventure loop the list and status
 line. The original walks off the list when the selected character is not in
 the party; the port selects none.
@@ -614,7 +623,7 @@ and waits speed × 100 ms, then adds the points, divided by the number of
 classes with a level (`+0xf9`-`+0x100`), to the 32-bit experience at `+0x116`
 of the selected character (first operand 0) or each character, if it can act.
 A character with no level divides by zero, which stops the run as runtime
-error 200 would.
+error 200 would, even one that cannot act, as the division comes first.
 
 `WHO` clears the text window and shows its prompt and `Select` on row 24
 (`6346:32c7`), redrawing the party list with the character picked so far:
@@ -765,10 +774,11 @@ NPC` (`2fd3:311c`), `DESTROY ITEMS` (`2fd3:35a3`) and `COMBAT`, through
 combat setup (`3cb2:10d9`), each combatant's turn (`3995:040b`), the AI's
 choice of weapon (`3afb:1608`), attacks (`432f:1579`, `432f:1a45`), spells
 with an attack roll (`5b04:1071`, which no spell cast outside combat
-reaches) and the end of combat (`351b:1968`); taking an item from treasure
+reaches); taking an item from treasure
 or a shop (`36d0:034c`) and appraising gems (`58e7:1929`); and creating,
 training, modifying and changing the order of a character (`4def:06dd`,
-`4def:4d9e`, `4def:28fa`, `4def:567f`).
+`4def:4d9e`, `4def:28fa`, `4def:567f`). The end of combat (`351b:1968`)
+recomputes every record left, as ported (see Monsters and encounters).
 
 ## Spell effects
 
@@ -832,8 +842,8 @@ lacks it; below, its 0x3e goes. Removing an effect not in the list makes the ori
 `cok_effects_dispatch` runs the handlers for event 1-0x18 (`60f4:057c`),
 each a fixed list of effect ids, in order; for each id the target's first
 effect with it, or, for the ids the party shares (0x15, 0x2d, 0x2e and
-0x31, the set at `60f4:0332`), the first member's when the target has
-none (`60f4:0352`). In combat only members in range count, which needs
+0x31, the set at `60f4:0332`), the first record's in the list, a
+monster's too, when the target has none (`60f4:0352`). In combat only members in range count, which needs
 the combat map and is not ported. Events 6 and 9 first check magic
 resistance (`60f4:04f3`) when the target has some (`+0x187`), an effect
 is pending (`6b2f`) and no damage is, or magic damage (`6b31` bit 8): a
@@ -1343,7 +1353,7 @@ The port keeps these quirks:
   outside combat too and reads the map pointer (`DS:6a2e`) that combat
   has freed; the port leaves it out.
 
-Not ported: the combat target routine (`332f:2337`) and the combat parts
+Not ported: the combat target routine (`432f:2337`) and the combat parts
 of `5b04:1415`, `6346:228c` and `60f4:1db7` (icons, missiles, sounds,
 "lost a spell"); spells cast by touch (byte 2 0xff, `60f4:1062`), which
 none outside combat is; effects whose handlers need combat or text when
@@ -1530,6 +1540,322 @@ the handler table (20). It is not part of the repository. The screens
 and menus were tested in the port only, but for the Trade byte, whose
 cases were run in the emulator from the camp menu.
 
+## Monsters and encounters
+
+`src/monster.h` ports the ECL opcodes that load monsters and start
+encounters, from overlay `2fd3` and their helpers in `3775`, `4b6d`, `6961`
+and `6d21`, and the wrapper of `COMBAT` without the battle.
+
+A monster is a 409-byte character record from `MON<file>CHA.DAX`, with its
+effects (`MON<file>SPC`, 9-byte `.SFX` records) and items (`MON<file>ITM`,
+63-byte `.STF` items). Fields a monster uses beyond those `party.h` lists:
+
+| Offset | Meaning |
+| --- | --- |
+| `+0x0cf` | bits 0-2 the size of its combat icon, bit 7 a large creature |
+| `+0x0da` | its kind of undead, for turning; 0 for none |
+| `+0x0e7` | 0x80 and up; the low bits are its morale |
+| `+0x0eb` | coins, seven words, for the treasure |
+| `+0x10b`, `+0x10c` | attacks a round, doubled, of its two attacks |
+| `+0x10d`-`+0x112` | dice, sides and damage bonus of each (the derived `+0x191`-`+0x196`) |
+| `+0x11b` | hit points at full; `+0x130` (a word) + `+0x132` × `+0x11b` is its experience |
+| `+0x187` | magic resistance |
+| `+0x18a`, `+0x18b` | 1 against the party, 1 while the computer controls it |
+
+Monsters live in the party list. The original keeps one list from
+`DS:609a`, the party first, then the monsters `LOAD MONSTER` appends,
+which stay until the end of combat removes them; var `0x7f3e` stays the
+party's size. The port's `cok_party` holds up to 72 records (8 + 63, the
+size of combat's tables), and every walk of "the party" covers the whole
+list, as each of the original's runs to the NULL at the end: the party
+list, the special keys and the picker (`546c:3334`, `6346:32c7`, both
+wrapping through monsters), `LOAD CHARACTER`, `ADD EP`, `DAMAGE`'s
+saving throws and its check that anyone can act, Bash, Pick, Knock, aging,
+the effect timers and the effects the party shares (`60f4:0352`, a
+monster's counting), the camp, Fix, Order, Save, Display, the spell
+targets and Detect Magic. Only `DAMAGE`'s random targets and the camp's
+check for timed effects (`57e4:0171`) count to `0x7f3e`. Where the
+original's walk would run past a table of eight, the port stops with
+`COK_ECL_UNDEFINED`: resting with nine or more records (the learning
+timers by position at `DS:712e`: a ninth and tenth record's land on the
+healing count, the word at `DS:7136`, which would be deterministic, an
+eleventh's on the resting flag) and saving them (`4b6d:22de`'s names on the stack run into
+its return address). Character files of every record are saved, monsters
+too. A character added (`4b6d:1989`) goes after any monsters. None of this
+arises in the shipped scripts: every path from each of their 431 `LOAD
+MONSTER`s reaches `COMBAT` with nothing between, so monsters are in the
+list only until that `COMBAT`.
+
+Each record has a combat record, `cok_combat_record`, the 22 bytes at the
+far pointer `+0x183`. Combat setup (`3cb2:10d9`) gives every record one,
+zeroed, and the end of combat (`351b:1493`) frees them; outside combat it
+is NULL, read as all zero, as the original's end of combat reads
+`0000:0013` for `+0x13` when no battle ran.
+
+| Offset | Meaning |
+| --- | --- |
+| `+0x00` | a spell being cast, cast at its next turn |
+| `+0x01`, `+0x02` | may cast, may use items this round |
+| `+0x03` | initiative, signed; 0 once it has acted |
+| `+0x04`, `+0x05` | the attack slot in progress, sweeps left |
+| `+0x06` | movement left, in half squares |
+| `+0x07`, `+0x08` | guarding, has attacked this round |
+| `+0x09` | facing, 0-7 from north clockwise |
+| `+0x0a` | a far pointer to the record it aims at |
+| `+0x0e`, `+0x0f` | rounds dying, times attacked since its turn |
+| `+0x10` | made to flee by an effect |
+| `+0x11`, `+0x12` | attempts to turn undead, turning from attackers |
+| `+0x13` | set past the party's size in the list |
+| `+0x14`, `+0x15` | fleeing, the AI's way of moving |
+
+`LOAD MONSTER id count icon` (`2fd3:0465`), unless 63 records were loaded
+since `CLEARMONSTERS` (`DS:43be`), reads monster `id` (`4b6d:161b`): the
+record (409 bytes, its pointers cleared, the readied slots `+0x147` left as
+they are, no stats computed), its effects and its items, in file order.
+A monster against the party (`+0x18a` 1) has its hit points (`+0x197`,
+`+0x62`) scaled by the difficulty `0x4cf4`, 1-5, as `(d + 1) × hp / 4` in
+a byte; either at 0 makes both 1. An undead (`+0xda`) counts in
+`DS:8859`. The icons of the slot `DS:72eb`, `CPIC<file>` records `icon`
+and `icon + 0x80`, ready and attacking, load with colour 0 transparent
+(`6d21:01d0`; the CGA recolour, `DS:4b76`, is not ported), and are kept;
+nothing draws them yet. Then the record and `count - 1` copies (0 counts as
+1), until 63 are loaded, go to the end of the list, each with that slot
+(`+0x137`). The copies' items and effects are the first record's in the
+reverse order, as each is put first in a copy's lists. `DS:72eb` then
+moves to the next slot and `DS:8851` is set, so `COMBAT` fights. The file
+number is cut to one digit (`Str` with a width of 1). A missing record
+says `Unable to load monster` on row 24, waits for a key and quits to DOS,
+as in the original. The port stops with `COK_ECL_UNDEFINED` for a record
+shorter than 409 bytes and effects or items that are not whole records
+(the original reads past them), an icon slot past the table's 26
+(`DS:6172`), and a 73rd record. With no party, where the original writes
+through `0000:017f`, the monsters start the list.
+
+`CLEARMONSTERS` (`2fd3:12fe`) clears `DS:8859`, `43be` and `8851`, sets
+`DS:72eb` to 8 (as a block starting does, `3775:01e8`) and empties the
+treasure pool (`cok_pool`: the coins at `DS:6b0c`, seven longs, and the
+items at `DS:6b28`); it leaves the monsters in the list.
+
+`SETUP MONSTER sprite distance picture` (`2fd3:03c9`) keeps the sprite
+(`DS:72e9`), the distance wanted (var `0x7ec0`) and the close-up
+(`DS:72ea`), sets the distance (var `0x7ec1`) to the least of that and the
+open squares ahead (`3775:04a9`: a step at a time while the side faced has
+no wall at all, doors and walls the party may pass included, at most 2;
+the steps are bytes, the walls wrap as the view's do; 2, stored in
+`0x7ec1` too, outside 3D areas), and shows the monster there
+(`3775:0575`): until the close-up is shown, the first time in a 3D area
+it loads `SPRIT<file>` record `sprite` into the small picture's slot
+(`6961:00e4` with mode 1: every group, colour 0 transparent and 13 drawn
+black, `cok_picture_load_sprite`), and later redraws the view to erase
+it; in 3D mode it draws group `distance + 1` masked at its header's x and
+y + 2 (`6961:072e`), which the view's buffer puts at cells x + 3, y + 3.
+At distance 0 in 3D mode, outside `ENCOUNTER MENU`, the close-up `PIC`
+replaces it at cell 3, 3 (its first frame), or with var `0x7ee1` not 0xff
+a portrait (`3775:0538`, logged as unported). Outside 3D mode nothing is
+drawn. A distance past 2, which only a script setting var `0x7ec1` could
+give, says "Illegal range in Show3DSprite." and quits to DOS
+(`6961:072e`), as in the original. `APPROACH` (`2fd3:08d6`) moves it a square nearer unless it is at
+0; `SPRITE OFF` (`2fd3:2fe1`) redraws the view if a sprite is drawn.
+`EXIT` forgets the sprite and the close-up (`DS:8830`, `8831`), so a
+script's next `SETUP MONSTER` loads again; `PICTURE` 0xff erases a
+sprite as it erases a picture. The original's overhead map, which the
+first sprite turns off (`DS:6d84`), and its "Loading...Please Wait" are
+not ported.
+
+`ENCOUNTER MENU sprite distance picture result c0 c1 c2 c3 c4 text0 text1
+text2 flee speed` (`2fd3:23e5`) shows the monster as `SETUP MONSTER` does,
+then until a result describes it (the first text not empty from that of
+its distance on, typed in light green in rows 17-22, cleared first only in
+3D areas) and offers `~COMBAT ~WAIT ~FLEE ~ADVANCE`, or `~PARLAY` in
+place of Advance at distance 0 or outside 3D areas (`3775:1885`, the
+selection kept from the menu before). The monsters' reaction to the item
+chosen, `c0`-`c4`, decides what is stored: 0 the monsters fled ("The
+monsters flee."), 1 combat, 2 the party got away, 3 talk:
+
+| Reaction | Combat | Wait | Flee | Advance | Parlay |
+| --- | --- | --- | --- | --- | --- |
+| 0, attack | 1 | 1 | 2 if the slowest member's movement reaches `flee`, else 1 | 1 | 1 |
+| 1, hold | 1 | "Both sides wait." | 2 | nearer | nearer, at 0 3 |
+| 2, timid | 0 unless `speed` is below the fastest's, then 1 | 0 | 0 | 0 | 0 |
+| 3, advance | 1 | nearer, at 0 "Both sides wait." | 2 | nearer | nearer, at 0 3 |
+| 4, talk | 1 | nearer, at 0 3 | 2 | nearer | nearer, at 0 3 |
+
+"Nearer" approaches a square and asks again; 5 and up store nothing. The
+movements (`3775:1f8b`) are `+0x198` of every record, doubled as a byte
+with haste (0x27), else halved when slowed (0x2a), but both start from the
+first record's own; with an empty list the original reads `0000:0198`,
+and the port stops. No close-up shows in the menu. Row 24 is cleared at
+the end. `PARLAY a b c d e result` (`2fd3:2adf`) offers `~HAUGHTY ~SLY
+~NICE ~MEEK ~ABUSIVE` after the prompt " " and stores the operand of the
+attitude chosen.
+
+`CHECKPARTY field effect min max average found` (`2fd3:1517`) takes a
+field given as a variable (operand type 1) by its address, any other by
+its value: 0 tests whether a record has the effect, storing 0, 0, 0 and
+the result; the variables of charisma (`0x7c19`), the thief skills
+(`0x7ca5`-`0x7cac`) and movement (`0x7c9f`) give their least, greatest
+and average (the sum, a word, divided by the count as signed); any other
+stores nothing. So ECL3 block 80's `CHECKPARTY [7d1b] ...` (the movement
+as other opcodes read it) leaves `[7f79]` as the menu left it, and
+fleeing the minotaurs always fails, as in the original. With an empty list
+it divides by zero. `PARTYSTRENGTH result` (`2fd3:136c`) sums as a byte,
+for each record, a tenth of its mage levels × 8, its THAC0 better than 20
+and armour class better than 0 × 5 each, its hit points and its cleric
+levels × 4 (former levels for a human who may use them). `PARTY SURPRISE
+a b` (`2fd3:17b6`) stores whether a record is a ranger or cleric/ranger
+(`+0x5b` 4 or 10), and 0. `SURPRISE a b c d` (`2fd3:1856`) rolls two d6
+and stores its result to address `0x2cb`, which keeps nothing, where it
+meant var `0x7ecb`; only the dice remain. These walk the whole list too.
+
+`ROB all percent chance` (`2fd3:229e`) robs the selected character, or
+with `all` every record in the list: each of its seven coin words
+(`3775:1c7c`, `+0xeb` on) becomes `Trunc(w × ((100 - percent) / 100))`
+in Turbo Pascal 6-byte Reals, the low word kept; then each item
+(`3775:1da9`) costs a d100 and goes on one up to the chance, which an
+item of 25 or more lowers by 50 and one above 255 by 90, to no less than
+0, for itself and every item after it. A readied item taken is unreadied
+first (`546c:1ea7`): a cursed one says "It's Cursed" and goes readied; the
+effect of an item's power is taken from the selected character, whose item
+it need not be. The stats are not recomputed. With none selected the
+original reads through NULL; the port stops.
+
+The Reals are `cok_real`: byte 0 the exponent biased by 0x81, 0 for zero,
+bytes 1-5 the mantissa below its leading 1, the top bit the sign.
+`cok_real_from_long` (`1a46:1153`) is exact; the multiply (`1a46:113f`)
+and divide (`1a46:1145`) round on bit 7 of a 48-bit result, ties up, after
+one normalising shift; the divide takes 42 quotient bits. When either
+mantissa's low 24 bits are 0, as for any word converted, the multiply
+takes a short way that multiplies the lowest byte by the other's high
+byte only, which is not the exact product: so `ROB 0 10 0` leaves 476 of
+530 coins, where a C double gives 477. `cok_real_trunc` (`1a46:1157`)
+ignores the mantissa's lowest byte. A percent above 100 gives a negative
+factor, and the coins wrap: 1 of them at 255 becomes 65,535.
+
+`COMBAT` (`2fd3:191c`) clears the big picture flag (`DS:4b4e`) and the
+Move mode (`DS:8858`, restored after), then:
+
+- with monsters loaded (`DS:8851`; a duel, `DS:883e`, is never set in
+  CoK), clamps the distance (var `0x7ec1`) to the open squares ahead (2
+  outside 3D areas), fights, runs the end of combat, and outside 3D areas
+  loads the overland map, `BIGPIC<file>` 0x79 (`6961:07ed`), which only
+  `BIGPIC1` holds: for the others, as for any big picture not there, the
+  original's `127f:0111` leaves none, silently, and the port does too;
+- else with var `0x7f6c` 1 clears it and opens a shop (`36d0:07da`), or
+  with var `0x7ee2` 1 clears it and opens the temple (`340d:0ea9`);
+  neither is ported, and each is logged;
+- else runs the end of combat, for treasure.
+
+Then the mode is 4, or 3 outside 3D areas, var `0x7eca` keeps only its
+search bit, the sprite and picture are forgotten (`DS:8830`, `884a`) and,
+unless a shop or the temple closed outside 3D areas, the screen is redrawn
+for the mode (`6346:2c17`), and outside 3D areas, unless the run ended or
+`0x4c38` is set, the party would be marked on the overland map
+(`4877:0005`, logged as unported). The preloads of overlays (`XXXX:0000`,
+`432f:1e96`) and the sound driver's stops around them are left out.
+
+The battle (`3995:0172`) is not ported. Before it, as combat setup
+(`3cb2:10d9`) does, every record gets a combat record, zeroed, its `+0x13`
+set past the party's size; the rest of setup is not ported. Unless
+`eclplay --combat` resolves it, the battle is logged as unported (`[COMBAT]`,
+as before) and changes nothing, and the end of combat follows. The stub
+(`cok_adventure.combat_stub`) decides instead: `won`, every record against
+the party (`+0x18a` 1) drops (status 6, cannot act), and those on its side
+past the party's size do not; `gods`, the original's cheat when started
+with `Helm` (`432f:41e2`), says "The Gods intervene!" on row 24 and drops
+them as `won` does; `fled`, every party record that can act flees (status
+3); `lost`, the whole party dies. Then a stand-in for the party's part of
+the end of combat's `351b:0574`, which is not ported (P2's), decides as it
+does, over the party records before the first one past the party's size:
+the party is destroyed unless one has status 0, 1 or 3, is on the party's
+side and is not an NPC, and then they are removed and `0x7f3e` is 0; when
+some fled and none has status 0 or 1, var `0x7ec7` is 0x81, those who fled
+come back (status 0) and the rest are left behind, removed and counted out
+of `0x7f3e`. Its non-lethal rule (var `0x7ee6`, `351b:0636`), which no
+script sets, and the effects and experience it deals with are left out.
+
+The end of combat (`351b:1968`) runs after every battle, and for
+treasure: var `0x7ec7` is 0 (won, or no battle) before the stub's outcome,
+the mode is 6, the enemies are removed (`351b:1493`: every record whose
+`+0x13` or `+0x18a` is 1, with `4def:3b0a`, freeing its icon slot,
+counting one not past the party's size out of `0x7f3e`; `0x7ec8` counts
+those that dropped, `+0x189` not 1, `0x4cf8` is set if the first one did,
+and `0x7ec7` becomes 1 for one that fled while it is 0), the others'
+combat records are freed, the first record is selected, and every
+record's stats are recomputed (`6346:0d20`). If the party was destroyed,
+`0x7ec7` is 0x80, the frame is cleared, "The monsters rejoice for the party
+has been destroyed" printed in cells 2-37 from row 5, cleared first
+(`351b:1aab`), and "Press any key to continue" shown in light magenta on
+row 24 until a key, and the run ends. Otherwise the pool's items are freed
+(its coins stay). Last, vars `0x7f70`-`0x7f72`, `0x7ee3`, `0x7ee6` and
+`0x4cf5` are cleared. So without `--combat`, `COMBAT` with monsters
+removes them, sets `0x7ec7` to 0 and the mode to 6 and back, recomputes
+the stats, frees the pool's items and clears those variables. Not ported,
+and logged: the party's state, effects and experience after combat
+(`351b:0574`), the NPCs' shares, messages and treasure screen
+(`351b:1618`, `0b23`, `118c`). The weapons recovered (`351b:185f`) are
+left out: only combat fills their list. Where the selection the original
+keeps in `DS:43bf`, which `EXIT` restores after `LOAD CHARACTER` and a
+block's vectors restore when they end (`2fd3:3b47`), is a record removed,
+the original would go on with it freed, and the port stops with
+`COK_ECL_UNDEFINED`, unless the party was destroyed and the run ends first.
+
+`CALL [2e10]` (`2fd3:329b`), which scripts run after each encounter,
+recomputes the party's square and, if a picture or sprite is shown or the
+party's place, view or area changed (`DS:884a`, `884d`, `884f`, `8850`,
+`8852`), forgets the sprite, redraws the view and the status line, clears
+those flags and recomputes the wall ahead. Its other addresses, a sound
+(0xb203), a step forward (0xc01e), the wall ahead outside 3D areas
+(0xc018) and a frame of the small picture's animation (0x6803), are not
+ported, and log as `[CALL ...]`.
+
+The dice (`60f4:1216`), the sum as a byte of `count` rolls of `Random(sides)
++ 1`, are `cok_dice` (`ecl.h`) for every module, and `cok_dice_count` is
+`60f4:1261`, which also keeps the count in `DS:6b34`.
+
+The port keeps these quirks:
+
+- `LOAD MONSTER` checks the 63 before reading its operands' values, and
+  the icon slot moves once a load, not a copy, and is not checked.
+- Scaling is a byte: at Champion a monster of 171 or more hit points wraps,
+  and one that gives 0 gets 1, as do both fields when either is 0.
+- `CLEARMONSTERS` and a `COMBAT` that does not fight leave monsters
+  loaded in the list until a `COMBAT` that does, and every walk of the
+  party sees them meanwhile, though the shipped scripts never do this.
+- A door or any wall ahead keeps the monster at distance 0: at Throtl's
+  gate (7, 15 facing north, a wall the party may pass) the guards' close-up
+  shows at once.
+- `ENCOUNTER MENU` waits forever while both sides wait; it passes no time.
+- `CHECKPARTY [7d1b]` stores nothing; `SURPRISE` stores nowhere.
+- `ROB` lowers the chance for the items after a heavy one (above 24 by 50,
+  above 255 by 90), rolls the d100
+  even at a chance of 0, takes the power's effect from the selected
+  character, and rounds with Turbo Pascal's Reals.
+- `ADD EP` divides by the number of classes before it tests whether the
+  character can act, so a record with no class level, a monster or one
+  dead, divides by zero.
+- Up from a menu with none selected selects the last record.
+
+A differential test ran the original routines in an 8086 emulator against
+the port on random parties, monsters, maps and operands: `LOAD MONSTER`
+with the DAX reads fed the files' records and the icon loads recorded,
+`CLEARMONSTERS`, `SETUP MONSTER`, `APPROACH` and `SPRITE OFF` with the
+picture loads and draws recorded, `3775:04a9`, `3775:1f8b`, `ENCOUNTER
+MENU` and `PARLAY` with their menus fed choices and their text recorded,
+`CHECKPARTY`, `PARTYSTRENGTH`, `PARTY SURPRISE`, `SURPRISE`, `ROB` and
+`351b:1493`, comparing the variables, the list's records, items and
+effects, the counters, the icon slots, the transcript and the random
+numbers drawn. Of 13,000 cases, the 12,738 the port carries out agreed.
+Both refused 246: an empty party for `3775:1f8b` (245) and a monster id
+not in the file, which quits to DOS (1). The port alone refused 16: a 73rd
+record (7), and `ROB` with none selected (7) or taking an item's power
+from none selected (2), where the original reads through NULL. Mutations
+that the unit tests cannot see (the first enemy in `351b:1493`, `ROB`'s
+chance floored at 0, the power's effect from the
+selected character, a field of operand type 3) each failed hundreds of
+these cases. The Reals agreed with a reference model, itself checked
+against the emulator, on 200,000 operations. It is not part of the
+repository.
+
 ## Checks against the original
 
 These follow the disassembly but have not been compared with the game
@@ -1612,6 +1938,20 @@ running in DOSBox:
   should vanish (power 0 removes effect 0x17).
 - In an amount, type more than the coins there are, then Backspace: the
   last digit stays on the screen.
+
+- Enter Throtl from the south (7, 15 facing north): the guards' close-up
+  should show at once, as the wall type on that side, which the party can
+  pass, keeps the monsters at distance 0 (`3775:04a9`).
+- Meet a wandering monster in an open corridor: compare the sprite at
+  distances 2 and 1, masked over the view at its header's place + 3 cells,
+  with colour 13 black, and the close-up at 0, with the original.
+- In Throtl's temple (ECL1 block 33, the cleric round the corner), `Wait`
+  should bring him nearer, and the menu should start on the item chosen in
+  the menu before; parlaying `Sly` should lead to the stack of papers.
+- Have a character with 530 of a coin robbed of 10% (`ROB 0 10 0`, ECL1
+  block 17): it should keep 476.
+- Try to flee the minotaurs of ECL3 block 80: it should always fail
+  (`CHECKPARTY [7d1b]` stores nothing).
 
 ## Disassembly image
 
