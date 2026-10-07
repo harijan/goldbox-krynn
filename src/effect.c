@@ -108,13 +108,30 @@ static bool unported(cok_effects *fx, uint8_t id, uint16_t segment, uint16_t add
     return true;
 }
 
-/* Say text about c (6346:1883), or fail without the hook. */
-static bool say(cok_effects *fx, cok_character *c, uint8_t id, uint16_t handler, const char *text)
+/* Say text about c (6346:1883, row 10, wait 1), or fail without the
+ * hook; say_now without the wait. */
+static bool say_waiting(cok_effects *fx, cok_character *c, uint8_t id, uint16_t handler,
+                        const char *text, bool wait)
 {
     if (fx->say == NULL)
         return fail(fx, "effect 0x%02x (3f44:%04x) prints text, which is not ported", id, handler);
-    fx->say(fx, c, text, fx->context);
+    fx->say(fx, c, text, wait, fx->context);
     return true;
+}
+
+static bool say(cok_effects *fx, cok_character *c, uint8_t id, uint16_t handler, const char *text)
+{
+    return say_waiting(fx, c, id, handler, text, true);
+}
+
+/* Say text about c with a flash of kind 1 on it (6346:228c), then if
+ * clear clear it (6346:196a), or as say without the hook. */
+static bool flash(cok_effects *fx, cok_character *c, uint8_t id, uint16_t handler, const char *text,
+                  bool clear)
+{
+    if (fx->flash == NULL) return say(fx, c, id, handler, text);
+    if (fx->flash(fx, c, 1, text, clear, fx->context)) return true;
+    return fail(fx, "effect 0x%02x (3f44:%04x) could not show its text (6346:228c)", id, handler);
 }
 
 /* The spell table (DS:31b3, 16 bytes an id), as the stat tables hold it. */
@@ -188,9 +205,8 @@ static bool saving_throw(cok_effects *fx, cok_character *target, uint8_t type, u
 /* 60f4:20f7: add effect id to c unless its effects or magic resistance,
  * on event 9, cancel the effect pending (DS:6b2f), or c saved against one
  * with a save of kind 1; then it "is Unaffected" (6346:1883). An effect of
- * the id with time left is removed first. Then text, if any, is said: in
- * combat with a flash on c (6346:228c), which is not ported. cast.c has
- * the same for spells. */
+ * the id with time left is removed first. Then text, if any, is said with
+ * a flash on c (6346:228c, kind 1). cast.c has the same for spells. */
 static bool add_with_text(cok_effects *fx, cok_character *c, uint8_t id, uint16_t minutes,
                           uint8_t value, bool on_remove, uint8_t save_kind, bool saved,
                           uint16_t handler, const char *text)
@@ -203,7 +219,7 @@ static bool add_with_text(cok_effects *fx, cok_character *c, uint8_t id, uint16_
     cok_effect *old = cok_character_find_effect(c, id);
     if (old != NULL && old->duration > 0 && !remove_effect(fx, c, old, id)) return false;
     if (!add(fx, c, id, minutes, value, on_remove)) return false;
-    return text[0] == '\0' || say(fx, c, id, handler, text);
+    return text[0] == '\0' || flash(fx, c, id, handler, text, true);
 }
 
 /* Handlers. Each takes flag 1 as removing, the effect (the holder's, for
@@ -889,7 +905,7 @@ static bool h_snakes(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
                         "the original recurses until its stack wraps");
     else if (!remove_effect(fx, c, NULL, 0x03))
         return false;
-    if (!say(fx, c, 0x03, 0x016a, "is fighting with snakes")) return false;
+    if (!flash(fx, c, 0x03, 0x016a, "is fighting with snakes", true)) return false;
     return end_turn(fx, c, 0x03, 0x016a);
 }
 
@@ -910,8 +926,8 @@ static bool h_silenced(cok_effects *fx, bool removing, cok_effect *effect, cok_c
  * that may use items "is coughing"; it may neither use them nor cast; its
  * stats are recomputed, then its armour class from behind (+0x18e) is 2
  * worse, or 0x32 (AC 10) for 0x34 or less, and its armour class that.
- * The original then draws the side panel (6346:0af6) if it is selected,
- * which is left to the combat screen. */
+ * Then the side panel (6346:0af6, fx->panel) if it is selected (DS:6096),
+ * which draws only while DS:71ac is set. */
 static bool h_coughing(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
     (void)removing, (void)effect;
@@ -925,7 +941,8 @@ static bool h_coughing(cok_effects *fx, bool removing, cok_effect *effect, cok_c
     uint8_t *r = c->record;
     r[0x18e] = r[0x18e] > 0x34 ? (uint8_t)(r[0x18e] - 2) : 0x32;
     r[0x18d] = r[0x18e];
-    return true;
+    if (fx->panel == NULL || fx->vm->character != r || fx->panel(fx, c, fx->context)) return true;
+    return fail(fx, "effect 0x1e (3f44:0ae0) could not draw the side panel (6346:0af6)");
 }
 
 /* 3f44:0a2f, 0x1c, Mirror Image, with either flag: a d(images + 1),
@@ -971,14 +988,14 @@ static bool h_confused(cok_effects *fx, bool removing, cok_effect *effect, cok_c
         cr->target = NULL;
         if (!add_with_text(fx, c, 0x6f, 10, 0, true, 1, false, 0x0d7c, "runs away")) return false;
     } else if (d >= 11 && d <= 60) {
-        if (!say(fx, c, 0x23, 0x0d7c, "is confused") || !end_turn(fx, c, 0x23, 0x0d7c))
+        if (!flash(fx, c, 0x23, 0x0d7c, "is confused", true) || !end_turn(fx, c, 0x23, 0x0d7c))
             return false;
     } else if (d >= 61 && d <= 80) {
         if (!add_with_text(fx, c, 0x4d, 1, r[0x18a], true, 1, false, 0x0d7c, "goes berserk") ||
             !call_handler(fx, 0x4d, false, NULL, c))
             return false;
     } else if (d >= 81 && d <= 100) {
-        if (!say(fx, c, 0x23, 0x0d7c, "is enraged")) return false;
+        if (!flash(fx, c, 0x23, 0x0d7c, "is enraged", true)) return false;
     }
     bool made;
     if (!saving_throw(fx, c, 4, 0xfe, &made)) return false;
@@ -1115,7 +1132,8 @@ static bool h_giant_slayer(cok_effects *fx, bool removing, cok_effect *effect, c
 static bool h_stench(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
     (void)removing, (void)effect;
-    if (!say(fx, c, 0x4f, 0x2b5f, "emits an evil stench")) return false;
+    /* 3f44:2b84: 6346:1883 with no wait. */
+    if (!say_waiting(fx, c, 0x4f, 0x2b5f, "emits an evil stench", false)) return false;
     cok_character *listed[COK_PARTY_RECORDS + 1];
     uint8_t n;
     if (!around(fx, c, 1, listed, &n)) return false;
@@ -1125,7 +1143,7 @@ static bool h_stench(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
         bool made;
         if (!saving_throw(fx, e, 4, 0, &made)) return false;
         if (made || cok_character_find_effect(e, 0x76) != NULL) continue;
-        if (!say(fx, e, 0x4f, 0x2b5f, "is affected") || !add(fx, c, 0x76, 0, 0xff, false))
+        if (!flash(fx, e, 0x4f, 0x2b5f, "is affected", false) || !add(fx, c, 0x76, 0, 0xff, false))
             return false;
     }
     return true;

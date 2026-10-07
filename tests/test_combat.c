@@ -550,11 +550,13 @@ static void test_room(void)
     CHECK(cok_combat_setup(&game));
     CHECK(hash(&game.combat) == 0xd6c72e59u && game.vm.seed == 1172187917u);
     /* Empty from the start, the view is from 0, 0 (the original's entry 1
-     * holds a record of an earlier battle). */
+     * holds a record of an earlier battle); the screen's rows above the map
+     * are drawn from the heap before it (6beb:07a9), and the port stops. */
     reset("");
     game.vm.mem7c00[0x33e] = 0;
-    CHECK(cok_combat_setup(&game) && game.combat.count == 1);
-    CHECK(game.combat.view_x == -3 && game.combat.view_y == -3);
+    CHECK(!cok_combat_setup(&game) && game.vm.status == COK_ECL_UNDEFINED);
+    CHECK(strstr(game.error, "cell -3,-3 is drawn from the heap") != NULL);
+    CHECK(game.combat.count == 1 && game.combat.view_x == -3 && game.combat.view_y == -3);
 }
 
 static cok_combatant entry(int8_t x, int8_t y, uint8_t size, cok_character *c)
@@ -794,8 +796,8 @@ static void test_setup(void)
     static const char begins[] = "print: A battle begins...;combat: the 3D map around 7,7 "
                                  "facing N, the enemy 2 squares ahead;combat: 1 A at 27,13;";
     CHECK(strncmp(s.log, begins, sizeof begins - 1) == 0);
-    CHECK(strstr(s.log, "combat: the view from 24,10;unported: the combat screen (6346:300f);") !=
-          NULL);
+    CHECK(strstr(s.log, "combat: the view from 24,10;") != NULL);
+    CHECK(strstr(s.log, "unported: the combat screen") == NULL);
     CHECK(game.combat.tiles.pixels != NULL && game.combat.tiles.frames == COK_COMBAT_TILES);
     /* The tiles: DUNGCOM's 25 from frame 0 and RANDCOM's 6 from 0x22;
      * frames 0x19-0x20 keep WILDCOM's from the battle on open ground
@@ -822,11 +824,13 @@ static void test_setup(void)
     CHECK(strstr(s.log, "combat: open ground facing N, the enemy 2 squares ahead;") != NULL);
     /* The one record removed, none left: the original's lookup of the
      * first, NULL, finds entry 1, which the removal cleared, at the last
-     * cell tried for it (23, 0, as in an emulator). */
+     * cell tried for it (23, 0, as in an emulator). The screen then draws
+     * rows above the map from the heap before it, and the port stops. */
     reset("");
     fixture(0, 1, 0, 2);
     game.party.members[0]->record[0xcf] = 6;
-    CHECK(cok_combat_setup(&game) && game.party.count == 0);
+    CHECK(!cok_combat_setup(&game) && game.party.count == 0);
+    CHECK(strstr(game.error, "cell 20,-3 is drawn from the heap") != NULL);
     CHECK(game.combat.view_x == 20 && game.combat.view_y == -3 && game.combat.count == 1);
     /* Two removed first: the original's walk goes back from the first,
      * freed, to the second for good. One kept before them, it does not. */
@@ -837,7 +841,10 @@ static void test_setup(void)
     reset("");
     fixture(0, 3, 0, 2);
     game.party.members[1]->record[0xcf] = game.party.members[2]->record[0xcf] = 6;
-    CHECK(cok_combat_setup(&game) && game.party.count == 1);
+    /* (With no party, the monsters' rank two squares north starts at row
+     * 0, and the view from row -1 draws the heap above the map.) */
+    CHECK(!cok_combat_setup(&game) && game.party.count == 1);
+    CHECK(strstr(game.error, "cell 14,-1 is drawn from the heap") != NULL);
     /* A facing past the tables. */
     reset("");
     fixture(1, 1, 0, 2);

@@ -784,8 +784,7 @@ static bool after_combat(cok_adventure *game, outcome *result)
         if (r[0x189] == 0 || status == 1) ++result->out;
         for (size_t k = 0; k < sizeof combat_only; ++k) {
             if (cok_effects_remove(&game->effects, c, NULL, combat_only[k])) continue;
-            cok_adventure_fail(game, COK_ECL_EFFECT_FAILED, "%s", game->effects.error);
-            return false;
+            return cok_adventure_effect_failed(game);
         }
     }
     if (result->standing) {

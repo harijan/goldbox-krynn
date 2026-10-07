@@ -118,13 +118,22 @@ typedef struct {
     cok_character *exploding[21];
     uint8_t exploding_count;
     bool exploding_now;
-    /* The drawing of the combat screen not ported, logged once a battle. */
-    uint8_t screen_logged;
     /* DS:616a: the tile set, 40 frames of 24 by 24, which each setup loads
      * DUNGCOM or WILDCOM into from frame 0 and RANDCOM into from 0x22
      * (6d21:002c); frames it does not load keep what an earlier battle
-     * loaded there. */
+     * loaded there. tiles_loaded has bit n set once frame n has been. */
     cok_picture tiles;
+    uint64_t tiles_loaded;
+    /* The screen's pictures (see arena.h): DS:4b78, the map's buffer, 21
+     * units by 168 rows; DS:4b7c, what a masked draw that saves covered,
+     * 24 by 24, laid out as the original saves (127f:27af), under_set
+     * marking the bytes a save has written; DS:719e, the four pictures of
+     * a missile or flash, 24 by 24, masked. unknown marks the buffer's
+     * bytes drawn back from a save's byte never written, until covered
+     * (arena.c's restore). */
+    cok_picture buffer, under, flash;
+    bool under_set[24 * 12];
+    uint8_t unknown[21 * 4 * 168];
 } cok_combat;
 
 /* The constant tables of the data segment that the port's code holds,

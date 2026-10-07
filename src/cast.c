@@ -1,5 +1,6 @@
 #include "cast.h"
 
+#include "arena.h"
 #include "camp.h"
 #include "magic.h"
 
@@ -37,8 +38,7 @@ static cok_character *member_of(cok_adventure *game, const uint8_t *record)
 /* A spell effect could not be carried out: say why and end the run. */
 static bool effect_failed(cok_adventure *game)
 {
-    cok_adventure_fail(game, COK_ECL_EFFECT_FAILED, "%s", game->effects.error);
-    return false;
+    return cok_adventure_effect_failed(game);
 }
 
 static bool undefined(cok_adventure *game, const char *what)
@@ -152,10 +152,11 @@ static bool add_effect(cok_adventure *game, cok_character *c, uint8_t id, uint16
     cok_effect *old = cok_character_find_effect(c, id);
     if (old != NULL && old->duration > 0 && !remove_effect(game, c, old, id)) return false;
     if (!add_raw(game, c, id, minutes, value, on_remove)) return false;
-    if (text[0] != '\0') {
-        say(game, c, text);
-        cok_camp_clear_text(game);
-    }
+    if (text[0] == '\0') return true;
+    /* 6346:228c, kind 1, then 6346:196a: in combat a flash on c, the view
+     * centred on it unless shown whole; outside it said with a pause. */
+    if (!cok_arena_flash(game, c, 1, text)) return false;
+    cok_arena_clear_text(game);
     return true;
 }
 

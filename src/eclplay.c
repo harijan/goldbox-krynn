@@ -2,6 +2,7 @@
  * from the command line, text and menus go to standard output, and the
  * screen can be saved as a BMP whenever the game waits for a key. */
 #include "adventure.h"
+#include "arena.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -45,7 +46,8 @@ static void usage(const char *program)
             "                  and enables the Gods cheat (implied by --combat gods)\n"
             "  --combat-map FILE  write each battle's map and combatants to FILE as text\n"
             "  --seed N        start Turbo Pascal's Random from N (default 0)\n"
-            "  --shots DIR     save DIR/NNN.bmp each time the game waits for a key\n"
+            "  --shots DIR     save DIR/NNN.bmp each time the game waits for a key, and\n"
+            "                  when a battle has been set up\n"
             "  --screen FILE   save the final screen as FILE (BMP)\n"
             "  --file N        ECL file 1-3 (default: the first holding BLOCK)\n"
             "  --vector N      run only vector N (0-4) instead of entering the block\n"
@@ -127,6 +129,11 @@ static char mark(unsigned n)
 static void battlefield(cok_adventure *game, void *context)
 {
     player *p = context;
+    if (p->shots != NULL) {
+        char path[4096];
+        snprintf(path, sizeof path, "%s/%03u.bmp", p->shots, p->shot++);
+        save(p, path);
+    }
     if (p->map == NULL) return;
     FILE *f = fopen(p->map, "a");
     if (f == NULL) {
@@ -239,6 +246,13 @@ static bool test_party(cok_adventure *game, unsigned long count)
         r[0x10f] = 2;
         r[0x113] = 50;             /* armour class 10 */
         r[0xcf] = 1;               /* one cell in combat */
+        /* The icon a new character gets (4def:06dd, 4def:3c61): large for a
+         * human, a head by gender, a body by class, the template's colours. */
+        r[0x138] = 2;
+        r[0x135] = r[0x109] == 1 ? 9 : 5;
+        r[0x136] = kind[0] == 0 ? 0x17 : kind[0] == 2 ? 0x18 : kind[0] == 5 ? 0x1d : 5;
+        static const uint8_t colours[6] = {0x91, 0xa2, 0xb3, 0xc4, 0xe6, 0xf7};
+        memcpy(r + 0x139, colours, sizeof colours);
         r[0xeb + 8] = 20;          /* steel */
         r[0x189] = 1;
         if (kind[4] != 0) {
@@ -270,6 +284,7 @@ static bool test_party(cok_adventure *game, unsigned long count)
         }
         ++game->vm.mem7c00[0x33e];
     }
+    if (!cok_arena_join(game, game->vm.file)) return false;
     game->vm.character = cok_party_record(&game->party, 0);
     return true;
 }

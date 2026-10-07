@@ -471,8 +471,7 @@ void cok_shop(cok_adventure *game)
 
 static bool effect_failed(cok_adventure *game)
 {
-    cok_adventure_fail(game, COK_ECL_EFFECT_FAILED, "%s", game->effects.error);
-    return false;
+    return cok_adventure_effect_failed(game);
 }
 
 /* Remove c's first effect id (60f4:01e9), if any. */

@@ -92,6 +92,22 @@ void cok_screen_list(cok_picture *dst, const cok_picture *tiles, const uint16_t 
     tile(dst, tiles, 3, 39, 3);
 }
 
+static const uint8_t combat_side[23] = { /* DS:0ebd, 0ed4 and 0eeb */
+    0, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 0,
+};
+
+void cok_screen_combat(cok_picture *dst, const cok_picture *tiles, const uint16_t moons[3])
+{
+    cok_picture_fill(dst, 0, 0, 40, 24 * 8, 0); /* 1128:07e6 */
+    top(dst, tiles, moons);
+    for (int y = 0; y <= 22; ++y) {
+        tile(dst, tiles, combat_side[y], 0, y);
+        tile(dst, tiles, combat_side[y], 22, y);
+        tile(dst, tiles, combat_side[y], 39, y);
+    }
+    for (int x = 0; x < 40; ++x) tile(dst, tiles, COK_FRAME_HORIZONTAL, x, 22);
+}
+
 static const uint8_t sheet_side[23] = { /* DS:0f02 */
     0, 3, 4, 4, 4, 4, 4, 5, 0, 3, 4, 4, 4, 4, 4, 5, 0, 3, 4, 5, 0, 3, 5,
 };

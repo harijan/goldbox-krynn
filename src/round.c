@@ -1,6 +1,7 @@
 #include "round.h"
 
 #include "adventure.h"
+#include "arena.h"
 #include "camp.h"
 
 #include <stdio.h>
@@ -42,8 +43,7 @@ static void log_text(cok_adventure *game, const char *kind, const char *text)
 static bool event(cok_adventure *game, cok_character *c, uint8_t ev)
 {
     if (cok_effects_dispatch(&game->effects, c, ev)) return true;
-    cok_adventure_fail(game, COK_ECL_EFFECT_FAILED, "%s", game->effects.error);
-    return false;
+    return cok_adventure_effect_failed(game);
 }
 
 static bool undefined(cok_adventure *game, const char *what)
@@ -58,73 +58,6 @@ static cok_combat_record *record_of(cok_adventure *game, cok_character *c)
     if (c->combat == NULL)
         undefined(game, "a record with no combat record is read through NULL in combat");
     return c->combat;
-}
-
-/* The combat screen (6346 and 6beb), which is not ported: the drawing is
- * logged once a battle. What the drawing routines change in the state of
- * the battle, the view's scrolling, is done. */
-
-enum {
-    SCREEN_SHOW = 1,  /* 6beb:12ef */
-    SCREEN_PANEL = 2, /* 6346:0af6 */
-    SCREEN_CELL = 4,  /* 6beb:02aa */
-    SCREEN_MAP = 8,   /* 6beb:096b */
-    SCREEN_ERASE = 16, /* 6beb:0500 */
-};
-
-static void screen_unported(cok_adventure *game, uint8_t what, const char *text)
-{
-    if ((game->combat.screen_logged & what) != 0) return;
-    game->combat.screen_logged |= what;
-    log_text(game, "unported", text);
-}
-
-/* 6beb:096b: scroll toward x, y moved a step in dir (6beb:07a9) unless
- * within margin of the centre, then draw. */
-static void screen_centre(cok_adventure *game, int8_t x, int8_t y, uint8_t margin, uint8_t dir)
-{
-    uint8_t d = dir > 8 ? 8 : dir;
-    cok_combat_scroll(&game->combat, s8(x + step_x[d]), s8(y + step_y[d]), margin);
-    screen_unported(game, SCREEN_MAP, "the combat map's drawing (6beb:096b)");
-}
-
-/* 6beb:12ef: show c's turn, with the cursor if asked: the map's cursor
- * takes its footprint (map +4, +5), and if its actions are shown
- * (DS:71ad) the map is centred on it; then the cursor is cleared. */
-static void screen_show(cok_adventure *game, cok_character *c, uint8_t margin, uint8_t cursor)
-{
-    cok_combat *combat = &game->combat;
-    combat->cursor = cursor;
-    combat->cursor_size = cok_combat_size(combat, c->record);
-    if (combat->show_actions)
-        screen_centre(game, cok_combat_x(combat, c->record), cok_combat_y(combat, c->record),
-                      margin, 8);
-    combat->cursor = 0;
-    combat->cursor_size = 1;
-    screen_unported(game, SCREEN_SHOW, "the combatant's highlight (6beb:12ef)");
-}
-
-/* 6346:0af6: the side panel, drawn while DS:71ac is set, which it
- * clears. */
-static void screen_panel(cok_adventure *game, cok_character *c)
-{
-    (void)c;
-    game->combat.panel = false;
-    screen_unported(game, SCREEN_PANEL, "the side panel (6346:0af6)");
-}
-
-/* 6beb:02aa: redraw cell x, y and the combatant on it. */
-static void screen_cell(cok_adventure *game, int8_t x, int8_t y)
-{
-    (void)x, (void)y;
-    screen_unported(game, SCREEN_CELL, "a cell's redraw (6beb:02aa)");
-}
-
-/* 6beb:0500: erase combatant n's icon. */
-static void screen_erase(cok_adventure *game, uint8_t n)
-{
-    (void)n;
-    screen_unported(game, SCREEN_ERASE, "an icon's erasing (6beb:0500)");
 }
 
 /* The shared helpers. */
@@ -181,7 +114,7 @@ bool cok_combat_bandage(cok_adventure *game, bool bandage)
         if (!bandage) continue;
         r[0x188] = 4;
         if (c->combat != NULL) c->combat->dying = 0;
-        cok_camp_say(game, r, "is bandaged", true); /* 6346:1883 */
+        (void)cok_arena_say(game, c, "is bandaged", 10, true); /* 6346:326c; row 10 never fails */
         bandage = false;
     }
     return found;
@@ -322,8 +255,7 @@ bool cok_combat_battle_only(cok_adventure *game, cok_character *c)
 {
     for (size_t k = 0; k < sizeof battle_only; ++k) {
         if (cok_effects_remove(&game->effects, c, NULL, battle_only[k])) continue;
-        cok_adventure_fail(game, COK_ECL_EFFECT_FAILED, "%s", game->effects.error);
-        return false;
+        return cok_adventure_effect_failed(game);
     }
     if (cok_character_find_effect(c, 0x4d) != NULL && c->record[0xe7] == 0xb3)
         c->record[0x18a] = 0;
@@ -336,12 +268,13 @@ bool cok_combat_leave(cok_adventure *game, cok_character *c, uint8_t status, con
     uint8_t *r = c->record;
     if (r[0x189] == 0) return true;
     uint8_t n = cok_combat_index(combat, r);
-    screen_show(game, c, 3, 0);
-    cok_camp_say(game, r, text, true); /* 6346:1883 */
+    if (!cok_arena_turn(game, c, 3, false) || !cok_arena_say(game, c, text, 10, true))
+        return false;
     r[0x189] = 0;
     r[0x188] = status;
     if (status != 3) r[0x197] = 0;
-    screen_erase(game, n);
+    if (!cok_arena_erase(game, 0, 0, n)) return false;
+    if (!cok_arena_show(game)) return false; /* 60f4:13c0-13cf */
     if (n == 0)
         return undefined(game, "a record that is not a combatant leaves the map: its size is "
                                "written over the count (60f4:133c)");
@@ -371,8 +304,7 @@ bool cok_combat_gods(cok_adventure *game)
         }
         cok_combat_end_turn(c);
     }
-    screen_centre(game, s8(combat->view_x + 3), s8(combat->view_y + 3), 0xff, 8);
-    return true;
+    return cok_arena_centre(game, s8(combat->view_x + 3), s8(combat->view_y + 3), 0xff, 8);
 }
 
 bool cok_combat_explode(cok_adventure *game)
@@ -808,9 +740,7 @@ static bool act(cok_adventure *game, cok_character *c, bool computer)
     if (!computer && c->record[0x189] != 0 && c->combat->spell == 0) {
         game->selected = 1;
         if (game->combat_stub == COK_COMBAT_GODS && game->helm) {
-            if (!cok_combat_gods(game)) return false;
-            screen_show(game, c, 3, 0);
-            return true;
+            return cok_combat_gods(game) && cok_arena_turn(game, c, 3, false);
         }
     }
     cok_combat_end_turn(c);
@@ -834,19 +764,18 @@ bool cok_combat_turn(cok_adventure *game, cok_character *c)
     if (!visible && !cok_combat_visible(combat, r, false, &visible))
         return undefined(game, "a size past the footprints is read after them (6beb:06ef)");
     combat->show_actions = visible;
-    screen_show(game, c, 2, 1);
+    if (!cok_arena_turn(game, c, 2, true)) return false;
     char error[300];
     if (!cok_character_stats(c, &game->item_types, error, sizeof error)) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
         return false;
     }
     combat->panel = true;
-    screen_panel(game, c);
+    if (!cok_arena_panel(game, c)) return false;
     if (!event(game, c, 0x0f)) return false;
     if (cr->spell == 0 && !event(game, c, 0x15)) return false;
     if (cr->initiative > 0 && !act(game, c, r[0x18b] != 0)) return false;
-    screen_cell(game, cok_combat_x(combat, r), cok_combat_y(combat, r));
-    return true;
+    return cok_arena_redraw_cell(game, cok_combat_x(combat, r), cok_combat_y(combat, r));
 }
 
 /* 60f4:0dc3 with flag 0, at the end of a round: one that can act and
@@ -882,7 +811,8 @@ bool cok_combat_end_round(cok_adventure *game, bool *done)
     if (!cok_combat_count_sides(combat, &game->party))
         return undefined(game, "a record on a side other than 0 or 1 (+0x18a) counts past "
                                "DS:6b2d (6346:268a)");
-    screen_centre(game, s8(combat->view_x + 3), s8(combat->view_y + 3), 0xff, 8);
+    if (!cok_arena_centre(game, s8(combat->view_x + 3), s8(combat->view_y + 3), 0xff, 8))
+        return false;
     if (combat->sides[0] == 0 || combat->sides[1] == 0 ||
         game->effects.rolls.round >= combat->round_limit)
         *done = true;
@@ -984,7 +914,6 @@ bool cok_combat_battle(cok_adventure *game)
     /* DS:6e3a; the mode is 5 from setup on. */
     game->combat_targets = true;
     game->effects.in_battle = true;
-    game->combat.screen_logged = 0;
     bool ok = rounds(game);
     game->effects.in_battle = false;
     game->combat_targets = false;

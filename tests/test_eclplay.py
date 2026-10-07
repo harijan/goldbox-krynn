@@ -30,6 +30,17 @@ def ink(bmp, x, y):
     return (0, 0, 0)
 
 
+def block(bmp, x, y):
+    """The 8 by 8 pixels of cell x, y."""
+    return tuple(pixel(bmp, x * 8 + c, y * 8 + r) for r in range(8) for c in range(8))
+
+
+def combat_screen(bmp):
+    """Whether bmp shows the combat screen: its frame's column 22, beside
+    the map, is the side columns' tile (1128:04c1)."""
+    return block(bmp, 22, 10) == block(bmp, 0, 10)
+
+
 # A party for the scripts that fight: eclplay's made-up one, and the saved
 # game's when SAVE/ holds it.
 PARTIES = [("--test-party", 6)]
@@ -52,20 +63,18 @@ class PlayTests(unittest.TestCase):
         shots = self.folder / "shots"
         shots.mkdir()
         result = self.play("--keys", r"\r\r\r\r\r", "--shots", shots, ASSETS, 16)
-        self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
         self.assertEqual(lines[1], "print: AS YOU TOP A RISE, YOU SPOT A CARAVAN UNDER ")
         self.assertIn("menu: ~PRESS <ENTER>/<RETURN> TO CONTINUE.", lines)
-        # With no party, no round is fought (3995:0172), and the end of
-        # combat finds none standing (351b:0574): the monsters rejoice and
-        # the run ends.
-        self.assertIn("combat: removed 4 BAAZ; 0 dropped", lines)
-        self.assertFalse([line for line in lines if line.startswith("round: ")])
-        self.assertEqual(lines[-2:], ["print: The monsters rejoice for the party has been destroyed",
-                                      "(the party was killed in block 16)"])
-        # One screen per key read: the caravan's and the monsters'.
+        # With no party the first record is a monster two squares north, in
+        # row 1, and the view's top row is above the map: the original would
+        # draw it from the heap before the map (6beb:07a9), and the run stops.
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("cell 14,-1 is drawn from the heap around the combat map", result.stderr)
+        self.assertEqual(lines[-2], "combat: the view from 14,-1")
+        # One screen per key read: the caravan's.
         images = sorted(shots.glob("*.bmp"))
-        self.assertEqual(len(images), 2)
+        self.assertEqual(len(images), 1)
         first = images[0].read_bytes()
         self.assertEqual(struct.unpack_from("<ii", first, 18), (320, 200))
         # The frame's corner tile is drawn with colour 13 (light magenta)
@@ -109,8 +118,8 @@ class PlayTests(unittest.TestCase):
         self.assertIn("combat: 7 HOBGOBLIN at 27,12", lines)
         self.assertIn("combat: 21 WARRIOR at 25,10", lines)
         end = [line.startswith("round: 1: ") for line in lines].index(True)
-        self.assertEqual(lines[end - 2:end], ["combat: the view from 24,10",
-                                              "unported: the combat screen (6346:300f)"])
+        self.assertEqual(lines[end - 2:end], ["combat: 21 WARRIOR at 25,10",
+                                              "combat: the view from 24,10"])
         text = dump.read_text().splitlines()
         self.assertEqual(text[0], "battle in block 32: view 24,10, 21 combatants")
         picture, cells = text[1:26], text[26:51]
@@ -164,10 +173,9 @@ class PlayTests(unittest.TestCase):
                      if line.startswith("turn: ")]
             self.assertEqual(turns, ["turn: %s (initiative %s)" % (name, value)
                                      for name, value in entries if int(value) > 0])
-        # The screen is logged once a battle where it would be drawn.
-        for what in ("the combatant's highlight (6beb:12ef)", "the side panel (6346:0af6)",
-                     "a cell's redraw (6beb:02aa)", "the combat map's drawing (6beb:096b)"):
-            self.assertEqual(lines.count("unported: " + what), 1)
+        # The screen is drawn: nothing of it is logged as unported.
+        self.assertFalse([line for line in lines if line.startswith("unported: ")
+                          and ("6beb:" in line or "6346:0af6" in line)])
         end = lines.index("combat: removed 9 RED DRAGON, 2 BOZAK; 0 dropped")
         self.assertEqual(lines[end + 1:end + 3],
                          ["print: The party has won.", "print: Each character receives 0"])
@@ -222,6 +230,37 @@ class PlayTests(unittest.TestCase):
         end = lines.index("combat: removed 4 HOBGOBLIN, 2 HOBGOBLIN LDR; 0 dropped")
         self.assertEqual(lines[end + 1], "print: The party has won.")
         self.assertEqual(lines[-1], "(done in block 32)")
+
+    def test_the_battle_screen(self):
+        # Once the guards' battle is set up the screen is the combat screen
+        # (6346:300f): the frame's column 22, the map of 7 by 7 cells in the
+        # view's box centred on the first character, an empty panel, and "A
+        # battle begins..." left on row 24.
+        shots = self.folder / "shots"
+        shots.mkdir()
+        result = self.play("--test-party", 6, "--set", "4be6=1", "--keys", r"\r\rE",
+                           "--shots", shots, ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        battle = [shot.read_bytes() for shot in sorted(shots.glob("*.bmp"))
+                  if combat_screen(shot.read_bytes())]
+        self.assertEqual(len(battle), 1)
+        bmp = battle[0]
+        self.assertEqual(ink(bmp, 0, 24), GREEN)
+        self.assertEqual({ink(bmp, x, y) for x in range(23, 39) for y in range(1, 22)},
+                         {(0, 0, 0)})
+        # ALDA at 27, 13 of the view from 24, 10: cell 3, 3 of the map, the
+        # map's cells 24 by 24 pixels from 8, 8; a guard at 27, 12 above.
+        alda = {pixel(bmp, x, y) for x in range(80, 104) for y in range(80, 104)}
+        floor = {pixel(bmp, x, y) for x in range(8 + 2 * 24, 8 + 3 * 24) for y in range(128, 152)}
+        self.assertGreater(len(alda), len(floor))
+        self.assertTrue({(0, 0, 0), (85, 85, 85)} <= floor | alda)
+        # The red dragons' fear flashes each character in the panel (6346:228c).
+        result = self.play("--test-party", 6, "--file", 3, "--start", "99fd", "--combat", "won",
+                           "--keys", r"\r\r\r", ASSETS, 97)
+        lines = result.stdout.splitlines()
+        start = lines.index("sound: 4")
+        self.assertEqual(lines[start:start + 3], ["sound: 4", "print: ALDA", "print: is terrified"])
+        self.assertEqual(lines.count("sound: 4"), 6)
 
     def test_view_of_throtl(self):
         shots = self.folder / "shots"
@@ -306,7 +345,11 @@ class PlayTests(unittest.TestCase):
                     bmp = shot.read_bytes()
                     return tuple(pixel(bmp, x, y) for x in range(24, 112, 4)
                                  for y in range(24, 112, 4))
-                views = [view(shot) for shot in sorted(shots.glob("*.bmp"))]
+                images = [shot.read_bytes() for shot in sorted(shots.glob("*.bmp"))]
+                # And the battle's screen, once set up.
+                self.assertEqual(sum(map(combat_screen, images)), 1)
+                views = [view(shot) for shot in sorted(shots.glob("*.bmp"))
+                         if not combat_screen(shot.read_bytes())]
                 self.assertEqual(len(set(views)), 9)
                 self.assertEqual(views[3:6], [views[3]] * 3)
                 self.assertNotEqual(views[-1], views[-2])
@@ -330,7 +373,9 @@ class PlayTests(unittest.TestCase):
                                   "area: off", "area: on"])
                 self.assertNotIn("unported: Area", lines)
                 self.assertEqual(lines[-1], "(out of keys in block 32 at 8320)")
-                images = [shot.read_bytes() for shot in sorted(shots.glob("*.bmp"))]
+                # (Not the battle's screen, saved once it is set up.)
+                images = [shot.read_bytes() for shot in sorted(shots.glob("*.bmp"))
+                          if not combat_screen(shot.read_bytes())]
                 GREY, BLACK = (85, 85, 85), (0, 0, 0)
                 def view(bmp):
                     return [pixel(bmp, x, y) for x in range(24, 112) for y in range(24, 112)]
@@ -402,7 +447,8 @@ class PlayTests(unittest.TestCase):
                 self.assertEqual(lines[-1], "(out of keys in block 32 at 80c0)")
                 # In camp the status line ends "camping" (columns 30-36) under the
                 # party's list, with the camp's picture in the view.
-                images = sorted(shots.glob("*.bmp"))
+                images = [shot for shot in sorted(shots.glob("*.bmp"))
+                          if not combat_screen(shot.read_bytes())]
                 camping = images[4].read_bytes()
                 self.assertEqual(ink(camping, 31, 15), GREEN)
                 self.assertEqual(ink(camping, 0, 24), (255, 255, 255))

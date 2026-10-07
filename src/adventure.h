@@ -356,6 +356,11 @@ void cok_adventure_print(cok_adventure *game, const char *text, cok_text_window 
                          uint8_t fg, bool clear);
 /* Set game->error, log it, set game->vm.status to status and end the run. */
 void cok_adventure_fail(cok_adventure *game, cok_ecl_status status, const char *format, ...);
+/* A spell effect could not be carried out: end the run with
+ * COK_ECL_EFFECT_FAILED and the effects' error, unless a hook the effect
+ * ran (a flash, say) has already ended it, whose status and error stay.
+ * Returns false. */
+bool cok_adventure_effect_failed(cok_adventure *game);
 
 /* Read a record by id from <name><file>.DAX in the asset directory, as
  * 169c:088e does; the first record with the id wins. Returns a malloc'd

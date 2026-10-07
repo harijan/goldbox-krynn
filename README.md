@@ -23,7 +23,7 @@ make
     text Assets/8X8D1.DAX 0 1 23 14 0 "Champions of Krynn"
 ./build/ecldump --block 16 Assets/ECL1.DAX
 ./build/ecldump --summary Assets/ECL*.DAX
-./build/eclplay --keys '\r\r\r\r\r' --shots build/shots Assets 16
+./build/eclplay --test-party 4 --keys '\r\r\r\r\r' --shots build/shots Assets 16
 ./build/eclplay --play --set 4be6=1 --keys '\r\rm\^\r\^\^' Assets 32
 ./build/eclplay --load SAVE/SAVGAMA.DAT --play --keys '\r\r\r' Assets
 ./build/eclplay --play --set 4be6=1 --saves build --keys '\rerharsan\e' Assets 32
@@ -41,7 +41,8 @@ tests of the picture, text, menu, 3D view, overhead map, party and spell
 effect routines,
 the adventure loop, the camp, casting spells, the character sheet with its
 items, monsters and encounters, the battlefield, the rounds of a battle,
-treasure and the end of combat, and the shops and the temple,
+treasure and the end of combat, the shops and the temple, and the combat
+screen,
 including PIC delta decoding on `PIC1.DAX` and the game font in
 `8X8D1.DAX`, and plays the opening scripts, the view of Throtl and, with
 a party made up for testing (`eclplay --test-party`), its fights, round
@@ -149,7 +150,11 @@ PackBits; substituting a generic PackBits decoder changes the results.
 graphics unit (code segment `0x27f` in the unpacked image) for the linear
 Tandy pixel layout. Pixels match the DAX format, so 4-bit EGA colour indexes
 are kept unchanged. The CGA and EGA layouts, and the per-scanline dirty
-tables that limited copies to video memory, are not ported.
+tables that limited copies to video memory, are not ported. The clipped
+draws of the three modes (`127f:226c` CGA, `24fd` EGA, `27af` Tandy) share
+their arithmetic and copy loops (`127f:2927`, `2986`), so what they do at
+the edges, such as the counts of 65536 of The combat screen, is the same
+in every mode.
 
 | Function | Original | Ghidra name |
 | --- | --- | --- |
@@ -411,8 +416,8 @@ Wounds and the mage's Detect Magic memorized, one cell in combat (`+0xcf`
 the characters of a saved game to the party (see Party), and `--load SAVE`
 loads the whole saved game first; then `BLOCK` may be left out to resume
 where it was saved. WHO prints the character picked (`who:`). `--shots DIR`
-saves `DIR/NNN.bmp` each time the game waits for a key, `--screen FILE` the
-final screen. `--start ADDR` runs from a code address instead, `--vector N`
+saves `DIR/NNN.bmp` each time the game waits for a key and once each
+battle is set up, `--screen FILE` the final screen. `--start ADDR` runs from a code address instead, `--vector N`
 one vector, `--at X,Y,DIR` places the party, `--set ADDR=VALUE` sets
 variables (in hex), `--file N` picks the ECL file (by default the first that
 holds the block), `--still` loads only the first frame of each picture,
@@ -664,9 +669,10 @@ items, 63 bytes each; and `.SFX`, its spell effects, 9 bytes each
 (`4b6d:11e5`). Missing characters are skipped. Each character's derived
 fields are then recomputed (see Derived stats). Each character added gets
 the lowest combat icon slot free (`+0x137`) and is counted in `0x7f3e`
-(`4b6d:1989`), and an NPC's levels are recomputed again. The original also
-loads their combat icons and deletes any roster copies of them (`.WHO`,
-`.STF`, `.SFX` named after the character); the port does neither.
+(`4b6d:1989`), and an NPC's levels are recomputed again. Then every record
+gets its combat icons (`4b6d:1b34`, see The combat screen). The original
+also deletes any roster copies of the characters (`.WHO`, `.STF`, `.SFX`
+named after them); the port does not.
 `cok_adventure_restore` then reloads the map and wall sets in a 3D area,
 sets the speed and animation from `0x4bfc` and `0x4bff`, and
 sets `DS:4b52`, so that the first block keeps its variables and the
@@ -985,7 +991,9 @@ same when their effect ends. 0x5d, 0x64 and 0x67 look at what the selected
 character strikes with (`3f44:13a9`): its readied weapon (slot 0), or for a
 missile weapon its readied arrows or quarrels (`6346:3111`, by the weapon
 type's flags), and 0x65 at the weapon itself. Handlers that print speak
-through the `say` hook of `cok_effects`, as `6346:1883` does outside combat:
+through the `say` hook of `cok_effects` (`6346:1883`), and those that add an
+effect with text through its `flash` hook (`6346:228c`, see The combat
+screen):
 0x27, haste, the first time it runs (its value's bit 4 clear) sets the bit
 and the character "ages" a year (`+0x60`); 0x17, Spiritual Hammer, gives a
 character with no hammer and fewer than 16 items counted (`+0x142`) one at
@@ -1350,7 +1358,8 @@ target's effects); if cancelled, or saved against with a save of kind
 1, the target "is Unaffected". An effect of the same id with time left
 is removed first; a permanent one stays and the new one is added after
 it. Then the target says the spell's text (`6346:228c`, which outside
-combat is `6346:1883`: name and text in rows 18-22, then a pause).
+combat is `6346:1883`: name and text in rows 18-22, then a pause; in
+combat the flash, `cok_arena_flash`).
 Damage (`60f4:1db7`) runs event 6, halves or cancels for a save of kind
 2 or 1, else runs event 0x14; if any is left and the target can act, it
 "takes N points of damage" (or "takes 1 point of damage") "from Fire",
@@ -1454,9 +1463,9 @@ The port keeps these quirks:
 
 Not ported: the combat target routine (`432f:2337`), which a battle puts
 in `DS:6e3a` while it runs, so that a cast then stops the run with
-`COK_ECL_EFFECT_FAILED`, and the combat parts
-of `5b04:1415`, `6346:228c` and `60f4:1db7` (icons, missiles, sounds,
-"lost a spell"); spells cast by touch (byte 2 0xff, `60f4:1062`), which
+`COK_ECL_EFFECT_FAILED`, and the combat parts of `5b04:1415` and
+`60f4:1db7` (missiles, flashes, sounds, "lost a spell"), whose drawing is
+ported (see The combat screen); spells cast by touch (byte 2 0xff, `60f4:1062`), which
 none outside combat is; effects whose handlers need combat or text when
 the spell's events or timers reach them, such as 0x0f and 0x16 of Slow
 Poison when they run out, and 0x47 (from 0x3f) on event 9 when it would
@@ -1621,8 +1630,8 @@ The port keeps these quirks:
   original's files show).
 
 Not ported: the debug `View` item of Items (`DS:4b51`, Ctrl-D), and the
-combat side: the turn View ends, `Use` in combat (`6346:300f`,
-`6346:2964`), the combat panel.
+combat side: the turn View ends and `Use` in combat (`6346:2964`); the
+combat screen they redraw is ported (see The combat screen).
 
 A differential test ran the original routines in an 8086 emulator
 against the port on random parties, items and effects: casting every
@@ -1717,9 +1726,9 @@ A monster against the party (`+0x18a` 1) has its hit points (`+0x197`,
 `+0x62`) scaled by the difficulty `0x4cf4`, 1-5, as `(d + 1) × hp / 4` in
 a byte; either at 0 makes both 1. An undead (`+0xda`) counts in
 `DS:8859`. The icons of the slot `DS:72eb`, `CPIC<file>` records `icon`
-and `icon + 0x80`, ready and attacking, load with colour 0 transparent
-(`6d21:01d0`; the CGA recolour, `DS:4b76`, is not ported), and are kept;
-nothing draws them yet. Then the record and `count - 1` copies (0 counts as
+and `icon + 0x80`, ready and attacking, load with colour 0 transparent and
+colour 8 drawn black outside CGA mode (`6d21:01d0`, `DS:4b76`; see The
+combat screen). Then the record and `count - 1` copies (0 counts as
 1), until 63 are loaded, go to the end of the list, each with that slot
 (`+0x137`). The copies' items and effects are the first record's in the
 reverse order, as each is put first in a copy's lists. `DS:72eb` then
@@ -1949,15 +1958,14 @@ the recovered missile (`60a2`), the weapons lost (`609e`) and var
 `0x7f33`, and sets the round limit (`714c`) to 15; builds the map
 (`3cb2:1029`), gives every record its stats and combat record
 (`3cb2:10d9`) and places them (`3cb2:17f7`); sets the view's origin to the
-first record's cell less 3 (`6beb:0bcb`, placed or not); clears `+0x11` of
-each record's combat record and runs effect events 8 and 0x16 for it;
-works out the enemies' health (`432f:2df3`) and clears the Move mode
-(`DS:8858`). A key waiting is read and dropped (`1614:0479`) after the
+first record's cell less 3 (`6beb:0bcb`, placed or not) and draws the
+screen there (`6346:300f`, see The combat screen), whose scroll
+(`6beb:096b`, `07a9`) works out the screen positions (`6beb:0077`); clears
+`+0x11` of each record's combat record and runs effect events 8 and 0x16
+for it; works out the enemies' health (`432f:2df3`) and clears the Move
+mode (`DS:8858`). A key waiting is read and dropped (`1614:0479`) after the
 map, the records and placement, and before each record is placed. The
-screen (`6346:300f`) is not drawn, and logs as unported; the scroll it
-makes (`6beb:096b`, `07a9`), which works out the screen positions
-(`6beb:0077`), is ported. The flash picture (`DS:719e`), the lists of
-clouds (`7111`-`711b`), the dead that explode (`6b45`, `6b95`, `6b96`),
+lists of clouds (`7111`-`711b`), the dead that explode (`6b45`, `6b95`, `6b96`),
 the mouse's flags (`71a5`, `71a6`) and the debug trace (`6d7e:093e`,
 Ctrl-D only) are left to the parts that use them.
 
@@ -2092,8 +2100,9 @@ that lasts only through the battle (`60f4:1440`, `DS:0db4`: 0x03, 0x0b,
 0x15, 0x17, 0x1b, 0x1e, 0x1f, 0x33-0x35, 0x5b, 0x6a, 0x6b, 0x6f, 0x76 and
 0x77); one berserk (0x4d) and turned (`+0xe7` 0xb3) goes back to the
 party's side; the map is freed, and spells pick their targets outside
-combat again (`DS:6e3a` back to `5b04:127e`). Freeing the flash picture
-(`DS:719e`) is left to the combat screen.
+combat again (`DS:6e3a` back to `5b04:127e`). The original also frees
+the pictures of missiles and flashes (`DS:719e`), which setup makes
+again; the port keeps them.
 
 Effect 0x52, a dragon's fear (`3f44:303c`), which event 8 runs at setup
 for the red dragons of MON3 record 22 (ECL3 blocks 97 and 98), acts on
@@ -2106,8 +2115,8 @@ it flees (`+0x10`); others are afraid (0x77) unless they make a saving
 throw of type 4. The handler does the same when the effect goes. 0x6f's
 handler (`3f44:3692`), as the battle's end removes it, gives a turned
 character back (`+0xe7` 0, `+0x18b` 0) and clears `+0x10`. In combat the
-original flashes the character and says "is terrified" or "is afraid" in
-the side panel (`6346:228c`); the port says it as outside combat.
+character flashes and "is terrified" or "is afraid" shows in the side
+panel (`6346:228c`, see The combat screen).
 
 | Function | Original |
 | --- | --- |
@@ -2120,7 +2129,7 @@ the side panel (`6346:228c`); the port says it as outside combat.
 | `cok_combat_occupy` | `6beb:0375` |
 | `cok_combat_cell` | `6beb:0493` |
 | `cok_combat_on_view`, `cok_combat_visible` | `6beb:06be`, `06ef` |
-| `cok_combat_scroll` | `6beb:07a9` and `0077`, without drawing |
+| `cok_combat_scroll` | `6beb:07a9` and `0077`, without drawing (see `cok_arena_centre`) |
 | `cok_combat_x`, `_y`, `_size`, `_index` | `6beb:0bcb`, `0bf3`, `0c1b`, `0c43` |
 | `cok_combat_probe` | `6beb:0c9d` |
 | `cok_combat_place` | `6beb:10f3` |
@@ -2179,7 +2188,7 @@ past 7, and stats that cannot be worked out.
 the enemy N squares ahead` or `open ground facing D, ...`, then each
 combatant as it is placed, `N NAME at X,Y` (`, fallen` with a body, `,
 off the map` with size 0), `N NAME has no place` or `NAME has no place
-and is removed`, then `the view from X,Y`, and the screen as unported.
+and is removed`, then `the view from X,Y`.
 `--combat-map FILE` writes, for each battle, a line naming the block, the
 view and the count; the map, a character a cell: a combatant's mark (1-9,
 a-z, A-Z), or for the terrain `.` plain floor, `#` where none can walk,
@@ -2224,7 +2233,8 @@ overlay `6b30`, and the helpers of overlays `432f`, `6346` and `60f4` that
 the later parts of combat share. What a combatant does on its turn, the
 computer's choice (`3afb:004b`) or the player's commands (`3995:0573`), is
 not ported: such a turn is logged as `turn: NAME (initiative N)` and ends
-(`6346:2964`). Nor is the combat screen (see below).
+(`6346:2964`). The screen is drawn as the battle goes (see The combat
+screen, and below).
 
 The battle (`cok_combat_battle`), as `COMBAT` starts it: the mode becomes
 5, spells pick their targets with the combat routine (`DS:6e3a` holds
@@ -2351,7 +2361,8 @@ The helpers:
 as its rounds dying, and a record that drops loses its initiative and is
 counted out of its side at once. `6346:31e9` finds, and bandages if asked,
 the first dying party member on the party's side wherever it is:
-unconscious, no rounds dying, "is bandaged". `60f4:133c` takes one that can
+unconscious, no rounds dying, "is bandaged" (in the panel, row 10, with a
+pause: `6346:326c`). `60f4:133c` takes one that can
 act out of the battle with a text, a status, its hit points 0 unless it
 runs (3), off the map, its turn ended and its effects that last through the
 battle gone. `432f:41e2` (Alt-X, or `-` in the computer's turns, when the
@@ -2378,7 +2389,7 @@ ported with it (see Spell effects):
 | 0x1b, 0x1f, 0x33-0x35 | `3f44:00f7` | the turn ends (`6346:2964`), at event 7 |
 | 3 (snakes) | `016a` | the value counts down by the round's attacks (`+0x18f` + `+0x190`, a byte), the first 3 going when they reach it; "is fighting with snakes", and the turn ends |
 | 0x15 (silence) | `06b2` | one that may use items "is silenced"; it may neither use them nor cast |
-| 0x1e (nausea) | `0ae0` | the same, "is coughing", its stats recomputed and its armour class 2 worse, or 0x32 for 0x34 or less; the side panel it then draws for the selected (`6346:0af6`) is left to the combat screen |
+| 0x1e (nausea) | `0ae0` | the same, "is coughing", its stats recomputed and its armour class 2 worse, or 0x32 for 0x34 or less; then the side panel for the selected (`6346:0af6`, drawn only while `DS:71ac` is set) |
 | 0x1c (Mirror Image) | `0a2f` | on damage, a d(images + 1) above 1, unless a spell marked `DS:6b39` is cast, takes it and the effect pending: "lost an image" |
 | 0x23 (confusion) | `0d7c` | at event 0x15 a d100: 1-10 it runs away (0x6f for ten minutes, the computer in control), 11-60 "is confused" and the turn ends, 61-80 "goes berserk" (0x4d, whose handler runs), 81-100 "is enraged"; then a saving throw of type 4 at -2 ends it |
 | 0x1a | `09e8` | against a target (`DS:6b3f`) with `+0x13f` bit 7, the attack roll 1 better |
@@ -2416,15 +2427,19 @@ The dead that explode (effect 0x44, whose handler is not ported) are
 never listed; `60f4:2375` clears the damage type (`DS:6b31`) after
 every turn all the same, and stops the run if any are listed.
 
-The combat screen is not ported. Where the battle draws, the port does
-what the drawing changes: `6beb:12ef` sets the map's cursor (`+4`, `+5`)
-and, while the actor's moves are shown, scrolls the view to it
-(`6beb:07a9`, margin 2); `6beb:096b`, at the end of each round and after
-the Gods, scrolls (margin 0xff), which works out the screen positions
-again; the side panel clears `DS:71ac`. The drawing itself, of `6beb:12ef`,
-`6beb:096b`, `6beb:02aa`, `6beb:0500` and `6346:0af6`, is logged as
-unported the first time each is reached in a battle. Texts (`6346:1883`)
-are said in the text window, as outside combat.
+The battle draws the combat screen (see The combat screen) where the
+original does: a turn shows its combatant (`6beb:12ef`, margin 2, with
+the cursor), draws the side panel (`6346:0af6`) and at its end redraws
+its cell (`6beb:02aa`); the end of each round and the Gods centre on the
+view's centre (`6beb:096b`, margin 0xff); one that leaves the battle
+(`60f4:133c`) is shown (`6beb:12ef`, margin 3), says its text in the
+panel (`6346:1883`, row 10, with a pause), and is erased
+(`6beb:0500`) and the map shown (`60f4:13c0`). The effects' texts that
+the original flashes (`6346:228c`, kind 1: "is fighting with snakes", "is
+confused", "is enraged", "runs away", "goes berserk", "is terrified" and
+the stench's "is affected", which alone is not cleared after) flash on
+the combatant, which centres the view on it unless it is shown whole.
+Drawing rolls no dice: the battle's random numbers are as before.
 
 `eclplay` logs each round's order as `round: N: NAME I, ...` (every
 record, with its initiative), and the turns not ported as `turn:`.
@@ -2554,6 +2569,267 @@ spell's cast (12), and both 1 that never ends. The map's routines
 and tables: 2,964 of 3,000 agreed, the rest refused for item types past
 `ITEMS`; and 1,000 lines (`6b30:01a5`, `024c`), all agreeing. It is not
 part of the repository. The screen was not compared.
+
+## The combat screen
+
+`src/arena.h` ports the combat screen: the map's drawing of overlay `6beb`,
+the icons of overlays `6d21` and `4b6d`, and the side panel, messages,
+missiles and flashes of overlay `6346`. Setup draws the screen
+(`6346:300f`); the rounds and the later parts of combat call the rest at
+the original's points.
+
+The frame (`1128:04c1`, `cok_screen_combat`) clears cells 0-39 of rows
+0-23, draws the moons' row as the other frames do, columns 0, 22 and 39 to
+row 22 (`DS:0ebd`, `0ed4` and `0eeb`, which hold the same: tile 3 on row
+1, 4 down to row 20, 5 on row 21), then row 22 across over their ends. Row
+24 is kept, so "A battle begins..." stays below the map once setup has drawn
+it. The map shows 7 by 7 cells of 24 by 24 pixels from the view's origin
+(map `+2`, `+3`) in cells 1-21; the side panel and messages take cells
+23-38 by 1-21.
+
+The original draws the map into the 3D view's buffer (`DS:4b78`, 21 units
+by 168 rows) and shows it one unit right and one cell down (`127f:12e8`,
+which copies the bytes of each row written since it last ran); the port
+keeps the buffer (`cok_combat.buffer`) and copies it whole, so that what is
+drawn is clipped at its edges, as the original's is. A cell's terrain is
+its value's tile (`DS:1ee7`), opaque (`6d21:00f7`). The cells are read
+without a check: past a side of the map a cell is the row before's or
+after's, and cells -3 to -1 of row 0 are the map's bytes `+4` to `+6` (the
+cursor, its footprint and the sight flag); the rows above and below, which
+the original reads from the heap around the map, stop the port. An icon
+(`6d21:04b0`) is slot `+0x137`'s picture, ready or attacking, drawn masked
+from its combatant's top-left cell at its screen position (`DS:6362`,
+`63aa`, as last worked out), mirrored for a facing above 3; a large icon is
+drawn whole and clipped.
+
+| Function | Original |
+| --- | --- |
+| `cok_screen_combat` | `1128:04c1` |
+| `cok_arena_redraw` | `6346:300f` |
+| `cok_arena_centre` | `6beb:096b`, `07a9`, `00fc`, `6d21:00f7` |
+| `cok_arena_redraw_cell`, `cok_arena_erase` | `6beb:02aa`, `0500` |
+| `cok_arena_pose`, `cok_arena_turn` | `6beb:0ad8`, `12ef` |
+| `cok_arena_kill` | `6beb:0e08` |
+| `cok_arena_show` | `127f:12e8` |
+| `cok_arena_icon`, `cok_arena_load_icon`, `cok_arena_free_icon` | `6d21:04b0`, `01d0`, `0156` |
+| `cok_arena_compose`, `cok_arena_party_icon`, `cok_arena_join` | `4b6d:0784`, `0817`, `1b34` |
+| `cok_arena_panel` | `6346:0af6`, `0984`, `0a0d`, `0cdb` |
+| `cok_arena_say`, `cok_arena_clear_text` | `6346:1883`, `196a` |
+| `cok_arena_flash` | `6346:228c` |
+| `cok_arena_missile_frames`, `cok_arena_missile` | `6346:1b5b`, `1a26`, `1ba6`, `6b30:01a5`, `024c` |
+
+Centring (`6beb:096b`) takes a cell moved a step in a direction (8 for
+none). Unless it is within the margin of the view's centre (0xff: always),
+the view scrolls toward it (`6beb:07a9`, `cok_combat_scroll`) and every
+tile shown is drawn, then every combatant on the map, partly shown, that
+can act or whose status is 10. Then the cell it started from is redrawn
+(`6beb:02aa`: its terrain, and its combatant's icon whether or not it can
+act), and at the target, clamped onto the map when it is not shown, the
+terrain of each cell of the cursor's footprint (map `+5`) that is shown,
+the cursor's box (icon slot 25) over each while the cursor is on (map
+`+4`), and the target cell's combatant (`6beb:00fc`); then the map is
+shown. `6346:300f` draws the frame and centres, forced, on the view's
+centre. A turn's start (`6beb:12ef`) puts the cursor on in the combatant's
+footprint and centres on it while its moves are shown (`DS:71ad`,
+`cok_combat.show_actions`), then turns the cursor off with a footprint of 1.
+A pose (`6beb:0ad8`) centres on the combatant unless it is shown whole,
+erases it (`6beb:0500`: the terrain over its footprint) when it turns from
+one side to the other (facing / 4 changes), for the attacking image or to
+hide it, keeps the facing (combat record `+9`), and draws the image;
+the drawing only while the moves are shown, the facing whatever.
+
+A combatant that drops (`6beb:0e08`) outside combat only sounds 5 and
+pauses. In combat the screen centres on it unless it is shown whole, it is
+erased, sound 5 plays, and the skull (icon slot 24) flashes over each cell
+of its footprint that is shown, ready and attacking in turn, nine times 10
+ms apart; a party member (combat record `+0x13` clear) then leaves a body
+(`DS:69ee`) at its top-left cell, which becomes 0x1f unless it holds a
+green cloud (0x1e), the cell's value kept in the body; after a pause of
+speed × 100 ms it is erased again and taken off the map (size 0), the
+occupants are rebuilt, the view's centre cell is redrawn and its
+initiative, movement, spell and guard are cleared.
+
+The side panel (`6346:0af6`), when it is due (`DS:71ac`,
+`cok_combat.panel`, which it clears), clears cells 23-38 of rows 1-21 and
+shows:
+
+| Row | Column | Text | Colour |
+| --- | --- | --- | --- |
+| 1 | 23 | the name (`6346:1883` with " ") | 11, 14 against the party, 12 if it cannot act |
+| 3 | 23, 33 | `Hitpoints`, the hit points (`6346:0a0d`) | 10, 14 below the maximum else 10 |
+| 5 | 23, 26 | `AC`, `-` and the armour class as the sheet's (`6346:0984`) | 10 |
+| 7-9 | 23 | the readied weapon's name (`6346:0488`), wrapped to column 38 | 10 |
+| 2 below the last text | 23 | the status (`DS:1330`) if it cannot act, else `(Helpless)` with effect 0x1f or 0x33-0x35 (`6346:0cdb`), else `(Casting)` while it casts a spell (combat record `+0`) | 15 |
+
+Messages (`6346:1883`) in combat clear cells 23-38 from their row to row
+21, show the name (`6346:199d`) at column 23 and wrap the text below it in
+light green; outside combat they take rows 18-22 as before, whatever the
+row. With a wait they pause speed × 100 ms and clear the text
+(`6346:196a`: in combat rows 10-21 of the panel, outside rows 18-22).
+`6346:1827`, the notice on row 24, has no combat branch. A flash
+(`6346:228c`) in combat builds its four pictures from icon slot 0x16 (kind
+not 0, sparkles) or 0x17 (a burst), centres on the combatant unless it is
+shown whole, sounds 4 or 3, says the text on row 10 without a wait, then
+draws the pictures masked at its top-left cell, each shown 70 ms and
+erased, once for kind 0 and speed + 1 times otherwise; once, it then
+pauses speed × 100 ms. Outside combat the text is said on row 10 with a
+wait. The pictures of a missile or flash (`DS:719e`, `6346:1b5b`,
+`1a26`) are a slot's ready, ready mirrored, attacking mirrored and
+attacking.
+
+A missile (`6346:1ba6`) flies along the line from cell to cell in steps of
+8 pixels (`6b30:01a5`, `024c`: a step along the longer axis, and along the
+other as an error of twice its distance a step reaches the longer's). A
+missile to its own cell is not drawn. The screen is centred, forced, on the
+view's centre if both ends are shown, else on their midpoint (halves
+truncated) if they are at most 6 cells apart, else on the view's centre.
+Each step draws the next of `frames` pictures masked, shows the map, waits
+`delay` ms and erases it, until the step before the target; with a delay
+of 0 it is drawn only where it lies on a cell's edge across or down, which
+along a row is every step. A step that leaves the view (units 0-18 across
+and down) is drawn, then, unless the screen was centred on the midpoint or
+both ends, the screen centres near the target (on it, moved in by the
+distance it lies within 3 of an edge, by the original's arithmetic) and the
+walk goes back from the target to where it comes into this view, from which
+it flies on. At the target it is drawn; with a delay it is shown, waited
+for and erased, with none it stays.
+
+The original's masked draw with a save (`127f:09c3`, flags 5) keeps what
+it covers in `DS:4b7c` byte by byte, its rows running on by the units
+clipped on the right but not on the left, and the opaque draw of that back
+reads its rows as long as the bytes drawn in a row, so that an erase
+clipped on the right shears, drawing bytes of earlier saves. A missile is
+clipped only at the step that leaves the view; after it `6346:1ba6`
+centres with a margin of 0xff, redrawing every cell, unless that step was
+the last (`1ba6:1f6a` jumps to `21a2`): then the target is drawn and shown
+over the sheared erase, which shows through its transparent pixels, as a
+missile to a target on the map's right edge (x 49) can. The port keeps the
+same bytes (`cok_combat.under`, `under_set` marking those a save wrote)
+and stops only where a byte no save wrote, which the original takes from
+the heap, would be shown.
+
+Icons are kept by slot (`DS:6172`, `game->icons`): 0-7 the party's, 8 on
+the monsters' groups, 11 the head while a player's icon is built, and
+COMSPR's ids 0-11 in 13-24 and 25 in 25, which `cok_adventure_open` loads
+as the game does at startup (`3e99:06e0`, `072a`). A slot loads
+(`6d21:01d0`) records id and id + 0x80 of its file, masked with colour 0
+transparent: for `CHEAD` and `CBODY` followed by a letter, the letter is
+dropped and a T adds 0x40 to the id; `COMSPR` as it is; any other name
+gets the first digit of the ECL file (`DS:5782`) and, outside CGA mode
+(`DS:4b76` not 0), colour 8 drawn black (`127f:15fd` from `DS:1e26` to
+`1e36`). LOAD MONSTER's icons now load so (see Monsters and encounters).
+A player character's icon (`4b6d:0817`) is its body (`+0x136`) from CBODY
+with its head (`+0x135`) from CHEAD laid over it (`4b6d:0784`: each byte of
+the head's frame ORed into the body's pixels and ANDed into its mask, from
+the first), small or large by `+0x138` (1 S, 2 T), colour 8 drawn black,
+then each of the six bytes from `+0x139` giving the template's colours 1,
+2, 3, 4, 6 and 7 (`DS:390b`) its low nibble and those + 8 its high one. As
+a saved game's characters join (`4b6d:1b34`), every record in the list gets
+its icons: a player character's built, an NPC's (`+0xe7` 0x80 and up)
+`CPIC` record `+0x115` of the saved game's file. `eclplay --test-party`
+gives its characters the icons a new character gets (`4def:3c61`: large,
+head 9 or 5 by gender, body by class, the template's colours). The icon
+editor (`4def:408b`) is not ported.
+
+The effects' handlers that speak say their text in the panel in combat
+(row 10 with a pause, `6346:1883`; the stench's "emits an evil stench",
+`3f44:2b84`, without one), and those that add an effect with text
+(`60f4:20f7`) flash it, kind 1, then clear the text (`6346:196a`), so that
+a red dragon's fear at setup flashes each character it terrifies or
+frightens. `eclplay` logs the sound driver's commands as `sound:` and, with
+`--shots`, also saves the screen once each battle is set up.
+
+The port keeps these quirks:
+
+- `6beb:0e08` looks for a body of the combatant through a local it never
+  set (`[bp-3]`), the byte its caller's calls before it left on the stack,
+  as an index b of the body table (the record pointer at `DS:69ee` + 7b);
+  the callers' layout fixes it:
+
+  | Caller | Byte |
+  | --- | --- |
+  | `432f:0678`, `60f4:017f`, `60f4:20d2` | `60f4:1440`'s `[bp-3]` (through `60f4:057c`, which writes no local): 0, or the low byte of the segment of the combatant's effect 0x4d node if it had one |
+  | `432f:1425` | after `6346:1883`, the high byte of the far return's segment: overlay `432f`'s code segment, its stub segment, or 0 through `INT 3Fh` (`19f0:02e6` leaves the stub's IP 0x0075): unknown |
+  | `60f4:24df` | 0x24, the high byte of the return address 24bf, after a `60f4:1db7` in the pass, else 0 |
+
+  An interrupt between could leave another byte on any path. Entries 1-8
+  are the bodies, which setup does not clear (only their count, `DS:6a2d`,
+  in `3cb2:1cdd`), so an earlier battle's can be found. Entry 0 reads the
+  record pointers of combatants 71 and 72 and entry 0x24 targets 62 and 63
+  listed (`DS:6a30`), which never hold a heap pointer, so neither finds a
+  body: a combatant that drops again gets a second body, the first's 0x1f
+  under it. Bytes 0x31, 0x35 and 0x39 read the exploding list's entries 1,
+  8 and 15 (`DS:6b45`, `6b61`, `6b7d`), and 0xdb + 4j the spell targets'
+  1, 8, ..., 64 (`DS:6feb` + 28j), neither cleared with the bodies. Callers
+  pass the byte and what they hold of those lists (`cok_arena_kill`);
+  unknown, the port stops if the combatant is in any of them, where the
+  byte could find it, and else takes it as not found.
+- Centring redraws the cell it starts from with its combatant's icon even
+  if that cannot act; the scroll draws only those that can act or have
+  status 10.
+- Cells past a side of the map are the next or last row's.
+- The status shown is the 13-byte entry of `DS:1330` by the status as a
+  signed byte: status 9 shows `Battle Axe`, the item name after the
+  statuses.
+- A missile with no delay is drawn where either coordinate is on a cell's
+  edge; one centred near its target walks back to where it comes in.
+
+Where the original misbehaves the port stops with `COK_ECL_UNDEFINED`: a
+cell drawn from the heap around the map (with no party the first record
+can be a monster two squares north, its view's top row above the map, so
+that a party-less `eclplay` run stops at such a battle's setup); a terrain value past the table;
+a tile no battle loads (0x21, terrain 0x41); a sheared erase's byte that
+no save wrote, when it would be shown; a message said in combat
+from a row past 20, whose text the original prints over the frame's row
+22 and below; a record that is not a
+combatant (`6beb:0c43` gives 0, whose entry the original reads or writes
+as the count); an icon slot past the table; a footprint past the
+footprints; a direction past `DS:1ed6`; a missile's line of more than 147
+steps (its list of directions is 148 bytes), a fifth picture, a walk back
+past the line's start, or a missile that keeps leaving the view, as one
+to a target on an edge of the map from more than 6 cells away can (the
+original never ends); a status whose
+name is not one the original can show; a ninth body; the missile's
+picture slot not 24 by 24; an icon size past 2 (the letter is read from the
+strings after `DS:0877`); a head or body record that is not there to lay
+together; and any masked picture drawn with none of its rows, or of its
+bytes in a row, in the buffer (just above or below it, or left or right of
+it by its width), whose count `127f:27af` takes as 65536, copying over
+memory. The keyboard's flush after each icon load (`1614:045c`) and the
+mouse's hiding are not ported.
+
+A differential test ran the original's routines in an 8086 emulator: its
+combat setup (`3cb2:1c58`, drawing the screen and flashing for effects) on
+P4's random battlefields, parties and monsters, the icons loaded and
+composed by `6d21:01d0` and `4b6d:0817` and the screen's pictures made by
+`127f:1c2f`, then random calls of `6beb:096b`, `0500`, `02aa`, `0ad8`,
+`12ef`, `0e08` (its stack byte set), `6346:0af6`, `1883`, `196a`, `228c`,
+`1b5b` with `1ba6`, and `300f`, with the picture routines of overlay `127f`
+run as they are in Tandy mode and the text, the frame's tiles, the clears
+and `127f:12e8` hooked; what those drew was replayed on a screen by the
+port's text and picture routines and compared with the port's screen pixel
+for pixel at every pause and at the end, with the pauses' lengths, the
+sounds and the map, combatants, bodies, cursor and combat records after.
+Of 1,000 random cases, their missiles weighted toward targets on the
+map's edges, the two agreed on all 444 that both carried out (71 setups
+alone, 373 with calls after them), `DS:4b7c` included, and differed on
+none. On 185 both stopped: the original overwrote the buffer's pointer
+(`DS:4b78`) with a count of 65536 (119), never ended (59) or stopped
+otherwise (7). On 369 only the port stopped, where the original goes on
+with what is not there: a head or body not in its file (100), an icon size
+past 2 (92), an icon slot past the table (33), cells from the heap (30), a
+missile's fifth picture (27), a record removed at setup (26), a side past
+1 (24), a body's entry past the lists it can read (14), a direction past
+the steps (11), a caster level with no character selected (10, from the
+effects at setup), an icon slot not 24 by 24 (1) and text below the panel
+(1); two cases the emulator could not run (a
+page break). The party's icons (`4b6d:0817` over every head, body and
+size, and random records) agreed on all 1,482 built, and `4b6d:0784` on
+all 1,084 random pairs it can compose, the port refusing 198 sizes past
+2, 164 heads or bodies missing and 916 heads larger than their bodies.
+Missiles whose sheared erase shows under the target, from 44, 13 to 49, 2,
+45, 6 to 49, 21 and 39, 1 to 49, 21 after centring on 6, 1, agreed too. It
+is not part of the repository.
 
 ## Treasure and the end of combat
 
@@ -3220,6 +3496,26 @@ running in DOSBox:
 - Start the game with a second argument of `Helm` (`START x Helm`) and
   press Alt-X at a character's turn in combat: "The Gods intervene!",
   every monster dead, the round ending.
+- Fight the guards at Throtl's gate (as above): the combat screen should
+  have its frame's column 22 and row 22, the moons above, the map of 7 by 7
+  cells centred on the first character in the box of cells 1-21, the
+  guards facing the other way from the party, an empty panel, and "A
+  battle begins..." left on row 24. Compare with `eclplay --party
+  SAVE/SAVGAMA.DAT --set 4be6=1 --keys '\r\rE' --shots DIR Assets 32` (the
+  shot after the battle is set up). The hobgoblins' icon (CPIC1 record 12) has dark
+  grey pixels (colour 8), which should show black.
+- In the same fight, compare each of saved game A's characters' icons
+  with the port's: the head over the body in the character's colours,
+  Molly's small.
+- In the red dragons' fight (above), each terrified or frightened
+  character should flash with sparkles, at speed 4 five times, 70 ms a
+  picture, its name and "is terrified" or "is afraid" in the panel from
+  row 10, and the text then cleared.
+- Have a character drop in combat: a skull should flash over it nine
+  times, red and pink, then its body stay on its cell.
+- Shoot at a monster more than 6 cells away and out of the view: the
+  arrow should fly to the view's edge, then the screen move to the target
+  and the arrow come in from the edge near it.
 
 - In Throtl, choose `Area` at 7, 15 facing north: the map should replace
   the view, the party's arrow in its bottom row, the window's left column
