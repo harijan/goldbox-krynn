@@ -814,12 +814,22 @@ static void test_turn(void)
     /* Outside a battle it fails. */
     game.effects.in_battle = false;
     CHECK(!cok_combat_turn(&game, a) && game.vm.status == COK_ECL_EFFECT_FAILED);
-    /* The gods: the player's turn runs the Helm cheat. */
+    /* The gods: the player's turn runs the Helm cheat, in a game started
+     * with Helm; without, 432f:41e2 returns at once and the turn ends. */
     reset("");
     a = record('A', 0, 5, 5);
     m = record('M', 1, 6, 5);
     a->combat->initiative = 2;
     game.combat_stub = COK_COMBAT_GODS;
+    game.helm = false;
+    CHECK(cok_combat_turn(&game, a) && m->record[0x188] == 0);
+    CHECK(strstr(s.log, "Gods") == NULL);
+    reset("");
+    a = record('A', 0, 5, 5);
+    m = record('M', 1, 6, 5);
+    a->combat->initiative = 2;
+    game.combat_stub = COK_COMBAT_GODS;
+    game.helm = true;
     CHECK(cok_combat_turn(&game, a) && m->record[0x188] == 6);
     CHECK(LOGGED("turn: A (initiative 2);print: The Gods intervene!;"));
     /* But not one that cannot act. */
@@ -830,6 +840,7 @@ static void test_turn(void)
     a->record[0x189] = 0;
     game.combat_stub = COK_COMBAT_GODS;
     CHECK(cok_combat_turn(&game, a) && m->record[0x188] == 0 && game.selected == 3);
+    game.helm = false;
 }
 
 static void test_end_round(void)

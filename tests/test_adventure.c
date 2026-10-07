@@ -43,6 +43,8 @@ typedef struct {
     const char *keys;
     size_t at, length;
     char log[4096];
+    unsigned waited;      /* The last delay, in ms. */
+    unsigned yellow;      /* Yellow pixels on row 24 during it. */
 } script;
 
 static int scripted(void *context)
@@ -88,10 +90,38 @@ static void load_block(cok_adventure *game, uint8_t after_move)
     CHECK(cok_ecl_start(&game->vm, true) == COK_ECL_OK);
 }
 
+/* A block whose after-move vector moves the party off the map, to square
+ * 16, and stops the step; the other vectors exit. */
+static void load_block_off_map(cok_adventure *game)
+{
+    static const uint8_t record[] = {
+        0, 0, /* Skipped. */
+        1, 2, 0x15, 0x80, 1, 2, 0x14, 0x80, 1, 2, 0x14, 0x80, 1, 2, 0x14, 0x80, 1, 2, 0x14, 0x80,
+        COK_ECL_EXIT,
+        COK_ECL_SAVE, 0, 0xff, 1, 0xc9, 0x7e, COK_ECL_SAVE, 0, 16, 1, 0x4b, 0xc0, COK_ECL_EXIT,
+    };
+    CHECK(cok_ecl_load(&game->vm, record, sizeof record) == COK_ECL_OK);
+    CHECK(cok_ecl_start(&game->vm, true) == COK_ECL_OK);
+}
+
+/* A block whose location vector sets the sky, 0x4bfd, to 8 (black), as
+ * ECL2 block 48's does at 15:00 without showing the view again; the other
+ * vectors exit. */
+static void load_block_dusk(cok_adventure *game)
+{
+    static const uint8_t record[] = {
+        0, 0, /* Skipped. */
+        1, 2, 0x14, 0x80, 1, 2, 0x15, 0x80, 1, 2, 0x14, 0x80, 1, 2, 0x14, 0x80, 1, 2, 0x14, 0x80,
+        COK_ECL_EXIT, COK_ECL_SAVE, 0, 8, 1, 0xfd, 0x4b, COK_ECL_EXIT,
+    };
+    CHECK(cok_ecl_load(&game->vm, record, sizeof record) == COK_ECL_OK);
+    CHECK(cok_ecl_start(&game->vm, true) == COK_ECL_OK);
+}
+
 /* Play the test block from x, y facing north with keys, in a 3D area whose
- * map has walls only where the test sets them. */
-static void play(cok_adventure *game, script *s, const uint8_t *map, int x, int y,
-                 const char *keys)
+ * map has walls only where the test sets them; return how it ended. */
+static cok_ecl_status play_to(cok_adventure *game, script *s, const uint8_t *map, int x, int y,
+                              const char *keys)
 {
     s->keys = keys;
     s->at = 0;
@@ -106,7 +136,13 @@ static void play(cok_adventure *game, script *s, const uint8_t *map, int x, int 
     game->vm.direction = 0;
     game->view.wrap = true;
     CHECK(cok_view_set_map(&game->view, map, 0x402));
-    CHECK(cok_adventure_play(game) == COK_ECL_OK);
+    return cok_adventure_play(game);
+}
+
+static void play(cok_adventure *game, script *s, const uint8_t *map, int x, int y,
+                 const char *keys)
+{
+    CHECK(play_to(game, s, map, x, y, keys) == COK_ECL_OK);
     CHECK(game->input_ended);
 }
 
@@ -164,7 +200,8 @@ static void test_play(void)
      * cleared at 2fd3:344d). */
     CHECK(game.effects.rolls.saved == 0);
     CHECK(strcmp(s.log, "print: The party makes camp...;menu: Save View Magic Rest Alter Fix Exit;"
-                        "unported: Area;") == 0);
+                        "area: on;") == 0);
+    game.overhead = false;
     CHECK(game.vm.mem4b00[0x102] == 1 && game.vm.mode == 4);
 
     /* Cast from the commands: a knight's Strength adds the low byte of
@@ -201,6 +238,162 @@ static void test_play(void)
     game.vm.mode = 3;
     CHECK(cok_adventure_play(&game) == COK_ECL_OK);
     CHECK(strcmp(s.log, "unported: travel outside 3D areas;") == 0);
+    cok_adventure_close(&game);
+}
+
+/* A delay: how long, and the yellow pixels on row 24 meanwhile. */
+static void delayed(cok_adventure *game, unsigned ms, void *context)
+{
+    script *s = context;
+    s->waited = ms;
+    s->yellow = 0;
+    for (int x = 0; x < 320; ++x)
+        for (int y = 24 * 8; y < 200; ++y) {
+            uint8_t byte = game->screen.pixels[(size_t)y * 160 + (size_t)x / 2];
+            if ((x % 2 == 0 ? byte >> 4 : byte & 15) == 14) ++s->yellow;
+        }
+}
+
+static unsigned pixel_at(const cok_picture *p, int x, int y)
+{
+    uint8_t byte = p->pixels[(size_t)y * p->units * 4 + (size_t)x / 2];
+    return x % 2 == 0 ? byte >> 4 : byte & 15u;
+}
+
+/* In the frame's tiles, the overhead map's party facing north has black at
+ * pixel 4, 0 of its cell and facing east at 0, 2; a square is dark grey
+ * there, light grey along a side with a wall. */
+static bool arrow(const cok_picture *p, int x, int y, unsigned dir)
+{
+    return dir == 0 ? pixel_at(p, x * 8 + 4, y * 8) == 0 && pixel_at(p, x * 8, y * 8 + 2) == 8
+                    : pixel_at(p, x * 8 + 4, y * 8) == 8 && pixel_at(p, x * 8, y * 8 + 2) == 0;
+}
+
+static void test_area(void)
+{
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s};
+    cok_adventure_hooks hooks = {.log = log_line, .delay = delayed, .context = &s};
+    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    load_block(&game, 0);
+    uint8_t map[0x402] = {0};
+    /* Square 5, 4 has a wall north. */
+    map[2 + 4 * 16 + 5] = 0x10;
+
+    /* Area turns the overhead map on in the view's place, the window from
+     * square 0, 0 and the party at cell 8, 8; the status line is not
+     * redrawn, so it keeps the time it showed. */
+    game.vm.mode = 4;
+    game.vm.map_x = game.vm.map_y = 5;
+    cok_adventure_status(&game);
+    uint8_t status[8 * 160];
+    memcpy(status, game.screen.pixels + 15 * 8 * 160, sizeof status);
+    game.vm.mem4b00[0xc8] = 3;
+    play(&game, &s, map, 5, 5, "a");
+    game.vm.mem4b00[0xc8] = 0;
+    CHECK(strcmp(s.log, "area: on;") == 0 && game.overhead);
+    CHECK(arrow(&game.screen, 8, 8, 0) && pixel_at(&game.screen, 8 * 8, 7 * 8) == 7 &&
+          pixel_at(&game.screen, 8 * 8, 7 * 8 + 1) == 8 && pixel_at(&game.screen, 24, 24) == 8);
+    CHECK(memcmp(status, game.screen.pixels + 15 * 8 * 160, sizeof status) == 0);
+    /* It stays on through steps and turns. */
+    play(&game, &s, map, 5, 5, "m\x01H\x01M");
+    CHECK(strcmp(s.log, "at: 5,4,0;at: 5,4,2;") == 0);
+    CHECK(arrow(&game.screen, 8, 7, 2) && !arrow(&game.screen, 8, 8, 0));
+    /* Area again shows the view: the sky (0x4bfd 0, black) at cell 3, 3. */
+    play(&game, &s, map, 5, 5, "a");
+    CHECK(strcmp(s.log, "area: off;") == 0 && !game.overhead);
+    CHECK(pixel_at(&game.screen, 24, 24) == 0);
+
+    /* Where the area hides the square (0x4bfb), Area says "Not Here" in
+     * yellow on row 24 for speed * 100 ms, then clears the row. */
+    game.vm.mem4b00[0xfb] = 1;
+    play(&game, &s, map, 5, 5, "a");
+    CHECK(strcmp(s.log, "print: Not Here;") == 0 && !game.overhead);
+    CHECK(s.waited == game.speed * 100u && s.yellow > 0);
+    delayed(&game, 0, &s);
+    CHECK(s.yellow == 0 && pixel_at(&game.screen, 24, 24) == 0);
+    /* Started with Helm, it goes on there all the same, and a turn keeps it,
+     * but the next step's view (6945:00ba) turns it off. */
+    game.helm = true;
+    play(&game, &s, map, 5, 5, "am\x01M");
+    CHECK(strcmp(s.log, "area: on;at: 5,5,2;") == 0 && arrow(&game.screen, 8, 8, 2));
+    play(&game, &s, map, 5, 5, "m\x01H");
+    CHECK(strcmp(s.log, "at: 5,4,0;area: off;") == 0 && !game.overhead);
+    CHECK(pixel_at(&game.screen, 24, 24) == 0);
+    /* Without Helm, a map turned on before the square was hidden stays on:
+     * Area says "Not Here" and a turn keeps it. */
+    game.vm.mem4b00[0xfb] = 0;
+    play(&game, &s, map, 5, 5, "a");
+    game.helm = false;
+    game.vm.mem4b00[0xfb] = 1;
+    play(&game, &s, map, 5, 5, "am\x01M");
+    CHECK(strcmp(s.log, "print: Not Here;at: 5,5,2;") == 0 && game.overhead);
+    CHECK(arrow(&game.screen, 8, 8, 2));
+    game.vm.mem4b00[0xfb] = 0;
+
+    /* The first sprite of an encounter turns it off (3775:0575) and shows
+     * the view again; a map already off draws nothing. */
+    cok_adventure_overhead_off(&game);
+    CHECK(strcmp(s.log, "print: Not Here;at: 5,5,2;area: off;") == 0 && !game.overhead);
+    CHECK(pixel_at(&game.screen, 24, 24) == 0);
+    cok_picture_fill(&game.screen, 3, 24, 11, 88, 5);
+    cok_adventure_overhead_off(&game);
+    CHECK(pixel_at(&game.screen, 24, 24) == 5);
+    /* Outside 3D areas, with DS:713a set, the big picture's frame shows. */
+    game.overhead = true;
+    game.vm.mem4b00[0xe6] = 0;
+    cok_adventure_overhead_off(&game);
+    CHECK(!game.overhead && pixel_at(&game.screen, 24, 24) != 5 && !game.redraw);
+    game.vm.mem4b00[0xe6] = 1;
+
+    /* A turn and Area keep the sky the step's view picked (DS:6d80), with
+     * the sun of a sky of colour 11 (at cell 10, 5 facing east at 3:00),
+     * though the location vector then set 0x4bfd to 8, black. */
+    game.overhead = false;
+    load_block_dusk(&game);
+    game.vm.mem4b00[0xc9] = 3;
+    game.vm.mem4b00[0xfd] = 11;
+    play(&game, &s, map, 5, 5, "m\x01H\x01M");
+    CHECK(strcmp(s.log, "at: 5,4,0;at: 5,4,2;") == 0 && game.vm.mem4b00[0xfd] == 8);
+    CHECK(game.sky == 11 && pixel_at(&game.screen, 24, 24) == 11);
+    unsigned sun = 0;
+    for (int y = 40; y < 48; ++y)
+        for (int x = 80; x < 88; ++x) sun += pixel_at(&game.screen, x, y) != 11;
+    CHECK(sun > 0);
+    /* The step's view picks the sky with the map on too. */
+    game.vm.mem4b00[0xfd] = 8;
+    cok_adventure_view(&game);
+    CHECK(game.sky == 0);
+    game.vm.mem4b00[0xfd] = 11;
+    play(&game, &s, map, 5, 5, "am\x01He" "a");
+    CHECK(strcmp(s.log, "area: on;at: 5,4,0;area: off;") == 0 && game.vm.mem4b00[0xfd] == 8);
+    CHECK(game.sky == 11 && pixel_at(&game.screen, 24, 24) == 11);
+    /* The next view takes the new sky. */
+    game.vm.mem4b00[0xfd] = 8;
+    cok_adventure_view(&game);
+    CHECK(game.sky == 0 && pixel_at(&game.screen, 24, 24) == 0);
+    game.vm.mem4b00[0xc9] = 0;
+    game.vm.mem4b00[0xfd] = 0;
+    load_block(&game, 0);
+
+    /* For a square off the map, the original draws the party outside the
+     * map's window; the run stops, there at a turn, or after a step that
+     * the after-move vector stopped. */
+    game.overhead = true;
+    game.vm.map_x = 16;
+    cok_adventure_view(&game);
+    CHECK(game.vm.status == COK_ECL_UNDEFINED && game.vm.abort &&
+          strstr(game.error, "69ea:000f") != NULL);
+    CHECK(play_to(&game, &s, map, 16, 5, "m\x01M\x01H") == COK_ECL_UNDEFINED && s.at == 3);
+    load_block_off_map(&game);
+    CHECK(play_to(&game, &s, map, 5, 5, "m\x01Hm") == COK_ECL_UNDEFINED && s.at == 3);
+    CHECK(game.vm.map_x == 16 && game.vm.map_y == 5);
+    /* A later play starts with no failure left over: outside 3D areas it
+     * stops at once. */
+    game.vm.abort = false;
+    game.vm.mode = 3;
+    CHECK(cok_adventure_play(&game) == COK_ECL_OK);
     cok_adventure_close(&game);
 }
 
@@ -607,6 +800,7 @@ int main(void)
 {
     test_clock();
     test_play();
+    test_area();
     test_party();
     test_doors();
     test_load_stats();

@@ -796,8 +796,9 @@ void cok_combat_turn_order(cok_adventure *game)
  * are not ported: the turn is logged and ends (6346:2964). The player's
  * commands, for one that can act and is not casting, start by selecting
  * the menu's first item (DS:6e0f). With --combat gods the player then
- * presses Alt-X (scan code 0x2d), and the Helm cheat runs (432f:41e2),
- * showing the combatant (6beb:12ef) after. */
+ * presses Alt-X (scan code 0x2d), and in a game started with Helm the
+ * cheat runs (432f:41e2), showing the combatant (6beb:12ef) after;
+ * without, 432f:41e2 returns at once. */
 static bool act(cok_adventure *game, cok_character *c, bool computer)
 {
     char name[16], text[48];
@@ -806,7 +807,7 @@ static bool act(cok_adventure *game, cok_character *c, bool computer)
     log_text(game, "turn", text);
     if (!computer && c->record[0x189] != 0 && c->combat->spell == 0) {
         game->selected = 1;
-        if (game->combat_stub == COK_COMBAT_GODS) {
+        if (game->combat_stub == COK_COMBAT_GODS && game->helm) {
             if (!cok_combat_gods(game)) return false;
             screen_show(game, c, 3, 0);
             return true;

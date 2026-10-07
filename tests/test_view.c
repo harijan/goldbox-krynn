@@ -313,6 +313,104 @@ static void test_sky(void)
     cok_picture_free(&p);
 }
 
+/* A tile set whose tile t has colour 13, transparent, at its top-left
+ * pixel, t >> 4 and t & 15 in the next two, and colour 15 elsewhere. */
+static cok_picture numbered_set(size_t count)
+{
+    cok_picture tiles = {0};
+    CHECK(cok_picture_create(&tiles, 1, 8, count, 0) == COK_PICTURE_OK);
+    for (size_t t = 0; t < count; ++t) {
+        uint8_t *pixels = tiles.pixels + t * tiles.frame_size;
+        memset(pixels, 0xff, tiles.frame_size);
+        pixels[0] = (uint8_t)(0xd0 | t >> 4);
+        pixels[1] = (uint8_t)(t << 4 | 15);
+        /* The arrows, tiles 0-3, have colour 13 at 4, 2 too. */
+        if (t < 4) pixels[2 * 4 + 2] = 0xdf;
+    }
+    cok_image *frames = calloc(count, sizeof *frames);
+    CHECK(frames != NULL);
+    for (size_t t = 0; t < count; ++t) frames[t] = cok_picture_frame(&tiles, t);
+    cok_picture loaded = {0};
+    CHECK(cok_picture_load(&loaded, frames, count, 13) == COK_PICTURE_OK);
+    free(frames);
+    cok_picture_free(&tiles);
+    return loaded;
+}
+
+/* The pixel at 4, 2 of cell x, y. */
+static unsigned middle(const cok_picture *p, int x, int y)
+{
+    return pixel(p, x * 8 + 4, y * 8 + 2);
+}
+
+/* The frame's tile value drawn opaquely at cell x, y, or -1. */
+static int tile_at(const cok_picture *p, int x, int y)
+{
+    if (pixel(p, x * 8, y * 8) != 0 || pixel(p, x * 8 + 3, y * 8 + 7) != 15) return -1;
+    return 0x100 + (int)(pixel(p, x * 8 + 1, y * 8) << 4 | pixel(p, x * 8 + 2, y * 8));
+}
+
+static void test_overhead(void)
+{
+    cok_picture p = screen();
+    cok_view view = {0};
+    view.tiles[4] = numbered_set(0x28);
+
+    /* An empty map from 7, 13 facing north: the window starts at square
+     * 2, 5 and fills cells 3-13 across and down with tile 0x104; the
+     * party's arrow, 0x100, is at cell 8, 11. Nothing else is drawn. */
+    cok_picture_fill(&p, 0, 0, 40, 200, 6);
+    CHECK(cok_view_overhead(&p, &view, 7, 13, 0));
+    CHECK(tile_at(&p, 3, 3) == 0x104 && tile_at(&p, 13, 13) == 0x104);
+    CHECK(tile_at(&p, 8, 11) == 0x100 && tile_at(&p, 8, 10) == 0x104);
+    /* Opaque: colour 13 is black there, not the square beneath. */
+    CHECK(middle(&p, 8, 11) == 0 && middle(&p, 8, 10) == 15);
+    CHECK(cell(&p, 2, 3) == 6 && cell(&p, 14, 3) == 6 && cell(&p, 3, 2) == 6 &&
+          cell(&p, 3, 14) == 6);
+    /* The arrow faces dir / 2. */
+    CHECK(cok_view_overhead(&p, &view, 7, 13, 2) && tile_at(&p, 8, 11) == 0x101);
+    CHECK(cok_view_overhead(&p, &view, 7, 13, 4) && tile_at(&p, 8, 11) == 0x102);
+    CHECK(cok_view_overhead(&p, &view, 7, 13, 6) && tile_at(&p, 8, 11) == 0x103);
+    CHECK(cok_view_overhead(&p, &view, 7, 13, 5) && tile_at(&p, 8, 11) == 0x102);
+
+    /* A square adds 1, 2, 4 and 8 for walls of any type on its north,
+     * east, south and west sides; its neighbours' walls do not count. */
+    set_wall(&view, 4, 7, 0, 1);
+    set_wall(&view, 5, 7, 2, 15);
+    set_wall(&view, 6, 7, 4, 3);
+    set_wall(&view, 7, 7, 6, 9);
+    set_wall(&view, 8, 7, 0, 2);
+    set_wall(&view, 8, 7, 2, 2);
+    set_wall(&view, 8, 7, 4, 2);
+    set_wall(&view, 8, 7, 6, 2);
+    CHECK(cok_view_overhead(&p, &view, 7, 13, 0));
+    CHECK(tile_at(&p, 5, 5) == 0x105 && tile_at(&p, 6, 5) == 0x106 &&
+          tile_at(&p, 7, 5) == 0x108 && tile_at(&p, 8, 5) == 0x10c &&
+          tile_at(&p, 9, 5) == 0x113 && tile_at(&p, 10, 5) == 0x104);
+    CHECK(tile_at(&p, 5, 4) == 0x104 && tile_at(&p, 5, 6) == 0x104);
+    /* The arrow covers the party's own square. */
+    CHECK(cok_view_overhead(&p, &view, 8, 7, 0) && tile_at(&p, 8, 8) == 0x100);
+
+    /* The window keeps to the map: its first column and row are 0-5. */
+    CHECK(cok_view_overhead(&p, &view, 0, 0, 0) && tile_at(&p, 3, 3) == 0x100);
+    CHECK(cok_view_overhead(&p, &view, 5, 5, 0) && tile_at(&p, 8, 8) == 0x100);
+    CHECK(cok_view_overhead(&p, &view, 6, 10, 0) && tile_at(&p, 8, 8) == 0x100);
+    CHECK(tile_at(&p, 6, 5) == 0x105);
+    CHECK(cok_view_overhead(&p, &view, 11, 15, 0) && tile_at(&p, 9, 13) == 0x100);
+    CHECK(cok_view_overhead(&p, &view, 15, 15, 0) && tile_at(&p, 13, 13) == 0x100);
+    CHECK(tile_at(&p, 3, 5) == 0x106 && tile_at(&p, 6, 5) == 0x113);
+
+    /* Off the map, or an arrow past the frame's tiles, draws nothing. */
+    cok_picture_fill(&p, 0, 0, 40, 200, 6);
+    CHECK(!cok_view_overhead(&p, &view, -1, 0, 0) && !cok_view_overhead(&p, &view, 0, 16, 0));
+    CHECK(!cok_view_overhead(&p, &view, 256 + 16, 0, 0));
+    CHECK(!cok_view_overhead(&p, &view, 0, 0, 0x50));
+    CHECK(cell(&p, 3, 3) == 6 && cell(&p, 8, 8) == 6);
+    CHECK(cok_view_overhead(&p, &view, 256 + 15, 0, 0x4f) && tile_at(&p, 13, 3) == 0x127);
+    cok_view_free(&view);
+    cok_picture_free(&p);
+}
+
 int main(void)
 {
     test_map();
@@ -321,6 +419,7 @@ int main(void)
     test_tile();
     test_draw();
     test_sky();
+    test_overhead();
     puts("view tests passed");
     return 0;
 }

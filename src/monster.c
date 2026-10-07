@@ -420,18 +420,18 @@ uint8_t cok_monster_open_squares(cok_adventure *game, int x, int y, uint8_t dire
 }
 
 /* Show the monster at distance (3775:0575): until the close-up is shown,
- * load the sprite (in a 3D area) or redraw the view to erase it, and in
- * 3D mode draw the sprite's group distance + 1; at distance 0 in 3D mode,
- * outside ENCOUNTER MENU, replace it with the close-up picture. A close-up
- * of a portrait (var 0x7ee1 not 0xff, 3775:0538) is not ported. The
- * overhead map that the original first turns off (DS:6d84) is not ported
- * either. */
+ * turn the overhead map off and load the sprite (in a 3D area), or redraw
+ * the view to erase it, and in 3D mode draw the sprite's group distance +
+ * 1; at distance 0 in 3D mode, outside ENCOUNTER MENU, replace it with the
+ * close-up picture. A close-up of a portrait (var 0x7ee1 not 0xff,
+ * 3775:0538) is not ported. */
 static void show_monster(cok_adventure *game, uint8_t distance)
 {
     cok_ecl *vm = &game->vm;
     char text[64];
     if (!game->closeup_shown) {
         if (!game->sprite_loaded) {
+            cok_adventure_overhead_off(game); /* DS:6d84, in any area */
             if (vm->mem4b00[0xe6] != 0) {
                 cok_adventure_load_sprite(game, game->sprite_id);
                 game->sprite_loaded = true;
