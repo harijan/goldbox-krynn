@@ -43,13 +43,14 @@ tests of the picture, text, menu, 3D view, overhead map, party and spell
 effect routines,
 the adventure loop, the camp, casting spells, the character sheet with its
 items, monsters and encounters, the battlefield, the rounds of a battle,
-treasure and the end of combat, the shops and the temple, and the combat
-screen,
+treasure and the end of combat, the shops and the temple, the combat
+screen, and the portraits, NPCs and the other remaining opcodes,
 including PIC delta decoding on `PIC1.DAX` and the game font in
 `8X8D1.DAX`, and plays the opening scripts, the view of Throtl and, with
 a party made up for testing (`eclplay --test-party`), its fights, round
-by round, a walk through it and a camp, and travel on the overland map
-with its encounters. It builds `build/START_FULL.EXE` (see Disassembly
+by round, a walk through it and a camp, travel on the overland map
+with its encounters, NPCs joining and leaving, a shop's portrait and the
+title screen's demonstration. It builds `build/START_FULL.EXE` (see Disassembly
 image) to check the original's tables that the port uses. With the
 original's saved games in `SAVE/` (`SAVGAMA.DAT` and its `CHRDATA*`
 files), it also plays those with their party, through encounters, fights
@@ -351,9 +352,10 @@ and write fields of the selected character's 409-byte record (`3775:07d9`,
 Pascal's generator), `SAVE`, tables and `NEWECL` itself, and decodes every
 other opcode's operands before handing it to the `opcode` hook. Those opcodes
 drive pictures, text, menus, monsters, combat, items and characters; the
-screen-side ones are ported in `src/adventure.h` (see Playing scripts), the
-monsters' and encounters' in `src/monster.h` (see Monsters and
-encounters), the rest not yet. Comparisons order the first operand against the second,
+screen-side ones and the party's are ported in `src/adventure.h` (see
+Playing scripts), the monsters' and encounters' in `src/monster.h` (see
+Monsters and encounters); of their handlers only `PROGRAM 0`, the start
+menu's training, is not. Comparisons order the first operand against the second,
 but `AND` and `OR` set the flags for 0 against their result; `SUBTRAT` stores
 the second minus the first; `DIVIDE` leaves its remainder in
 `0x7f3f`. A failed `IF` skips the next instruction using its own operand
@@ -367,7 +369,9 @@ decode, 13,547 instructions. The opcode names come from the game's own trace
 table (`6d7e:0055`), including its spelling `SUBTRAT`.
 
 Where the original would misbehave, the port stops with a status instead:
-opcode `0x1f` and `PROTECTION` have no working handler and never advance,
+opcode `0x1f` and opcodes past `ADD EP` have no handler in the dispatch
+(`2fd3:386d`), and `PROTECTION`'s (`2fd3:3516`) returns at once, so none of
+them advances and the original runs it again for ever;
 division by zero is Turbo Pascal runtime error 200, and a failed `NEWECL` load
 retries forever. Code addresses outside the buffer, more than 64 operands or
 32 string operands, and `GOSUB` nesting past 256 are also errors. Variable
@@ -405,7 +409,10 @@ round's order of turns and each turn as `round:` and `turn:`, and effects
 ending in a battle as `effect:` (see The rounds), the coins and items
 `TREASURE` adds as `treasure:` (see Treasure and the end of combat), and
 what is paid and appraised in shops and the temple as `shop:` (see Shops
-and the temple). `COMBAT`'s battle runs its rounds with every turn passing,
+and the temple), the characters `ADD NPC` adds and `DUMP` removes as
+`party:` (see Party), `CALL [b203]`'s sounds as `sound:` and `CALL
+[c01e]`'s step as `at:`. `COMBAT`'s battle runs its rounds with every
+turn passing,
 as what a combatant does is not ported, unless `--combat won`, `fled` or
 `lost` decides it instead, or `gods` has the player's turns run the
 original's cheat (see The rounds). `--combat-map FILE` writes each
@@ -446,18 +453,148 @@ the second item of a list.
 | `ADD EP` | `2fd3:36dc` | experience for the selected character or the party |
 | `WHO` | `2fd3:30b6` | pick the selected character from the party list |
 | `DAMAGE` | `2fd3:2c80` | damage by attacks or saving throws, which can kill the party |
-| `CALL` | `2fd3:329b` | address 0x2e10 only, the view after an encounter (see Monsters and encounters) |
+| `CALL` | `2fd3:329b` | a routine by its address: the view after an encounter, a sound, a step forward, the wall ahead, a frame of the small picture (see below) |
+| `ADD NPC`, `DUMP` | `2fd3:311c`, `2fd3:351b` | a monster joins the party as an NPC; the selected character leaves it (see Party) |
+| `FIND ITEM`, `FIND SPECIAL` | `2fd3:2b7e`, `2fd3:354f` | whether any record has an item of a type, or the selected character an effect |
+| `SPELL` | `2fd3:318b` | which character has a spell memorized, and where |
+| `ECL CLOCK` | `2fd3:3005` | passes the time (`57e4:0549`), count first, then the unit |
 
 A one-item menu reading `PRESS BUTTON OR RETURN TO CONTINUE.` is shown as
 `PRESS <ENTER>/<RETURN> TO CONTINUE.`, and Enter picks it, as in the
 original. Menu items are joined as `~ITEM` separated by spaces, cut to 50
 characters. Small pictures are delta collections whose groups after the first
 are animation frames, each preceded by its delay in hundredths of a second;
-with animation off (`DS:4b4f`) only the first is loaded. The game speed
-(`DS:4b38`) defaults to 4. The picture path taken when `0x7ee1` is not 0xff
-(`3775:0538`) is not ported, and is reported as unported. Big picture 0x79,
-the overland map, marks the party on it (`4877:0005`) and does not count
-as a big picture shown (see The overland map).
+with animation off (`DS:4b4f`) only the first is loaded. A picture
+loaded stays loaded for the same name (`PIC` or `SPRIT`) and record
+(`DS:6dee`, `6e00`), whatever the ECL file, until the slot is freed. The
+game speed
+(`DS:4b38`) defaults to 4. Big picture 0x79, the overland map, marks the
+party on it (`4877:0005`) and does not count as a big picture shown (see
+The overland map).
+
+With var `0x7ee1` not 0xff, `PICTURE` shows a portrait instead
+(`3775:0538`), as the close-up of `SETUP MONSTER` does: the head of
+`0x7ee1` over a body of the picture's number. The shops of ECL2 block 50
+and ECL3 block 80 show their shopkeepers so (heads 68 and 69 over body
+68), and in 3D areas a shop's or the temple's redraw shows the portrait
+last shown again (`DS:4b55`, `4b56`; see Shops and the temple). The view
+is not marked as replaced (`DS:884b`). `6961:05b9` loads the head from
+`HEAD<file>.DAX` and the body from `BODY<file>.DAX` (`DS:6de5`, `6dea`),
+opaque, the file's number cut to one digit, unless the record wanted is
+the one held (`DS:6de4`, `6de9`) or 0xff; `6961:06bd` then draws the head
+at cell 3, 3 and the body at 3, 8 (`6961:000a` with 0, `127f:10e7`:
+straight to the screen, unclipped), nothing for a piece not loaded. A
+record that is not there leaves no piece and says `head not found`, for
+the body too, on row 24 in yellow, and waits for a key; it counts as held.
+None is held at startup (0xff, `3e99:0477`), and each step (`475c:0e77`)
+and combat setup (`3cb2:1c58`) free the pieces and hold none again. A file
+that is not there makes the original ask for its disk, and the run fails:
+the game has no `HEAD1.DAX` or `BODY1.DAX`, but no script of ECL1 sets
+`0x7ee1`, and its shops and temples all open outside 3D areas, so only a
+script made up or a run such as `eclplay --set 4be6=1` at one of them
+reaches it. The port keeps these quirks:
+
+- The portrait last shown is head 0 over body 0 until one is shown: a shop
+  or temple redrawn in a 3D area before any portrait says `head not found`
+  twice (the shipped scripts show their shopkeeper first).
+- A piece held stays held whatever the ECL file: after a `NEWECL` to
+  another file the same head shows until a step.
+
+The screen's redraw for the mode (`6346:2c17`), whose other modes are
+described with them (the adventure, camp, shops, treasure), draws in the
+party menu (mode 0) the cleared frame of `1128:0000` alone, and nothing in
+combat (mode 5).
+
+`CALL` takes its operand's address whatever its type (`3775:06cc`), and
+less 0x7fff picks:
+
+- 0x2e10, which scripts call after an encounter (see Monsters and
+  encounters);
+- 0xb203, a sound: 11 (`DS:1e5e`) if `0x3de` (`DS:8834`, which only
+  scripts write) holds 10, else 10 (`DS:1e5c`); scripts set it to 5;
+- 0xc01e, a step forward (`3775:1bed`): the party's square moves a square
+  the way it faces, wrapping within 0-15 (a step down from 0 or below
+  gives 15, a step up from 15 or above gives 0, as signed bytes), not at
+  all for a facing other than 0, 2, 4 and 6; then the square byte and the
+  wall ahead are worked out again and the view marked as changed
+  (`DS:8850`), so that the next `CALL [2e10]` draws it. For another facing, which only the overland map or a
+  saved game gives, the wall ahead (`69ea:06a2`) is its unset local
+  `[bp-1]`: the byte that `1bed`'s call to `69ea:07a5` pushed, AX's high
+  byte, which still holds the address less 0x7fff, so 0x40; the emulator
+  confirms it with any stack. Off the map of a block with no squares there
+  (`DS:8846` 0 or 0x50) it is 0 first. ECL2 block 48 and ECL3 blocks 97
+  and 99 use it.
+- 0xc018, the wall ahead, outside 3D areas only; there, for a facing
+  other than 0, 2, 4 and 6, the unset byte is one `3775:0032` left on the
+  stack, which depends on the opcodes before, and the port stops with
+  `COK_ECL_UNDEFINED`. No script uses it.
+- 0x6803 draws the small picture's current frame (`DS:6da3`) at cell 3,
+  3 (`6961:000a`), moves to the next, back to the first after the last,
+  and waits speed × 100 ms (`1521:0b4b`). ECL2 block 57 animates a
+  close-up and a picture so. Loading a picture starts from its first
+  frame, but `PICTURE` of the one loaded keeps the current frame
+  (`6961:00e4` returns at once, as it goes by the name and record, not
+  the ECL file), though it draws the first. Where the slot was freed
+  (`6961:0537`, as at startup, each step and combat setup) and nothing
+  loaded since, or a record was not there, the frame is 0, and entry 0
+  is the far pointer `DS:6da2`:`6da0`: segment 0 (the count and frame)
+  and as offset the segment of the sky picture loaded at startup outside
+  CGA mode (`DS:6d9e`), so the original draws from low memory; the port
+  stops with `COK_ECL_UNDEFINED`. The menus also move the frame while
+  they wait, which is not ported.
+- any other address, nothing.
+
+`FIND ITEM type` (`2fd3:2b7e`) sets the comparison flags to `=` if any
+record in the list has an item of that type (`+0x2e`), else `<>`, the
+others false; ECL2 block 67 asks for its tomb's sword (type 63) so, and
+ECL3 block 98 for another. `FIND SPECIAL id` (`2fd3:354f`) does the same
+for an effect of the selected character (`6346:2447`); with none selected
+the original reads through NULL and the port stops; no script uses it.
+`SPELL spell where who` (`2fd3:318b`) stores, for the first record in the
+list with the spell among its 58 spell bytes (`+0x1e`-`+0x57`), the byte's
+index in `where` and the record's position in `who`; with none, 0xff and
+the position of the last record (0 for none). ECL1 block 32's trap asks
+for Find Traps (22) and forgets it. The trace it then prints
+(`6d7e:093e`) shows only with the debug flag (`DS:4b51`, Ctrl-D), which is
+not ported. `ECL CLOCK count unit` (`2fd3:3005`) passes the time
+(`57e4:0549`); no script uses it.
+
+A differential test ran the original's handlers in an 8086 emulator
+against the port: `FIND ITEM`, `ECL CLOCK`, `ADD NPC` (with `4b6d:18fc`,
+`161b`, `1989`, `66c2:0433` and `6346:0d20` as they are), `SPELL`, `DUMP`
+(with `4def:3b0a`), `FIND SPECIAL` and `CALL` at 0xb203, 0xc01e, 0xc018,
+0x6803 and other addresses, on random parties of up to twelve monster
+records with their items and effects, random selections, party sizes,
+squares, facings, maps and flags, comparing every record, item and effect
+in the list, the selection, `DS:43bf`, `0x7f3e`, the flags, the square,
+the wall ahead, the square byte, the view's flag, the variables stored,
+the clock, the sounds, delays and icon slots loaded and freed; `CALL
+[6803]` one to six times after a `PIC` or `SPRIT` record of any file was
+loaded (`6961:00e4`, animation on or off) from a random frame, in a
+third of the pictures' cases after `PICTURE` of the same, half of those
+with another ECL file picked, comparing
+the frame, the screen (noise before) and the delays; and the portrait
+(`3775:0538`) after up to three portraits or steps' frees, the file
+changing between, or the shop's redraw of it (`6346:2c17` in mode 1 in a
+3D area), comparing the records held, the portrait last shown, the screen
+above row 24 and the prompts, with the picture routines of `127f` run as
+they are in Tandy mode. Of 12,000 cases, the 10,607 the port carries out
+agreed: 6,332 opcodes (1,396 `DUMP`, 1,342 `CALL`, 818 `ADD NPC`, 755
+`ECL CLOCK`, 742 `FIND ITEM`, 689 `SPELL`, 590 `FIND SPECIAL`), 2,405
+frames of pictures and sprites and 1,870 portraits and redraws. Both
+refused 1,218: monster ids not in the file, which quit to DOS (610),
+portraits of ECL1, which has no `HEAD1.DAX` or `BODY1.DAX` (500), and
+`CALL [6803]` with no picture loaded, which draws from low memory (108).
+The port alone refused 175: `FIND SPECIAL` with none selected (121) and
+`ADD NPC` with the party full and none selected (17), which read and
+write through NULL, and `CALL [c018]` facing other than a side (37),
+whose byte of the stack the emulator, which clears it, cannot know. Running `CALL [c018]` and
+`[c01e]` with `3775:0032` decoding the operand and the stack filled with
+any byte showed that byte for `c018` and 0x40 for `c01e`. Four
+mutations of the port (the wall after a step, a frame's wrap, the body's
+row and `SPELL`'s position) each made from 20 to 300 of 3,000 cases
+differ; `PICTURE` starting the frames over, as the port did before, 15
+of 2,000, and reloading a picture for another ECL file 28 of 3,000. It is not part of the repository.
 
 ## 3D view
 
@@ -755,7 +892,8 @@ it (`DS:4b43` kept), and then ends the script as `EXIT` does
 (`2fd3:0050`) unless `0x4c38` is set: the knights' camp, the inn of
 ECL1 block 17, and ECL3 blocks 96 and 97. 0 opens the start menu's
 training (`4def:01b4`), which is not ported and logs as `[PROGRAM 0]`;
-other values (ECL2 block 57's 3) do nothing.
+the handler tests no other value, so others (ECL2 block 57's 3) do
+nothing.
 
 The port keeps these quirks:
 
@@ -868,6 +1006,48 @@ nothing sets `DS:883a`. `0x7eb1` and `0x7eb4` read the selected character's
 position (`3775:0773`), the party's size if none is selected, and `0x7cc9`
 whether it may use a former class (`66c2:0efb`).
 
+`ADD NPC id morale` (`2fd3:311c`) adds monster `id` of the ECL file as an
+NPC (`4b6d:18fc`) unless the party (`0x7f3e`) has eight or more: the
+record, its effects and items read as `LOAD MONSTER` reads them
+(`4b6d:161b`, see Monsters and encounters), `id` kept in `+0x115`, then
+joined as a saved game's characters join (`4b6d:1989`): after every record
+in the list, in the lowest icon slot 0-7 free (8 if none is), selected,
+counted in `0x7f3e`, and its levels recomputed (`66c2:0433`) if it is an
+NPC (`+0xe7` 0x80 and up, as every one is); then its combat icons, `CPIC`
+records `id` and `id + 0x80` of the file, load in its slot (`6d21:01d0`).
+Then, whether it joined or not, the selected character gets `+0xe7` 0x80
++ `morale` / 2, its stats are recomputed (`6346:0d20`) and the party list
+drawn. `eclplay` logs `party: NAME joins, icon ID in slot N`. The NPCs of
+the scripts are the kender Kildirf, a soldier and Strangbourn in ECL1
+block 32, and Skyla and Mysellia in ECL2 block 50, all with morale 100,
+so 0xb2. ECL2 block 57 is the demonstration the title screen plays when no
+key is pressed: its menu times out to `D` (`DS:6e11`, `6e15`), which sets
+`DS:4b4b`, and `2fd3:3c28` then starts block 0x39 of ECL2 at speed 9 with
+no party; the block adds three NPCs to make one. The demonstration's own
+paths, where `DS:4b4b` is read (the key wait `1614:025b`, `1521:0458`,
+`CLEAR BOX`, `2fd3:3c28`, the end of combat's `351b:0574` and `1968`,
+"Continue Battle:" in `3995:0b6d`, and the title's loop), are not ported,
+so `eclplay` plays it as a game. Skyla's icons are `CPIC2` record 44, which
+is not there: she has none in combat, as in the original.
+
+`DUMP` (`2fd3:351b`) removes the selected character from the list
+(`4def:3b0a` with 0, 1, as Alter's Drop does: its icons freed, counted out
+of `0x7f3e`) and selects the record before it, or the first; with none
+selected it selects the first and removes nothing. The selection then
+becomes the one `EXIT` restores (`DS:43bf`), and the party list is drawn.
+`eclplay` logs `party: NAME leaves`.
+
+The port keeps these quirks:
+
+- With eight in the party, `ADD NPC` adds no one but still makes the
+  selected character an NPC of that morale; with none selected the
+  original writes through NULL, and the port stops.
+- The scripts select an NPC to dump by name: ECL2 block 50's search for
+  Skyla (`9add`) loads each position with `LOAD CHARACTER` and skips any
+  that does not read as able (`0x7d00` 0, status 1, 2 or 9 and up), so
+  that without her, the selection stays on the last position inside the
+  party and `DUMP` takes that character.
+
 `ADD EP` prints `Congratulations NAME gains experience!` (or `the party`)
 and waits speed × 100 ms, then adds the points, divided by the number of
 classes with a level (`+0xf9`-`+0x100`), to the 32-bit experience at `+0x116`
@@ -918,7 +1098,9 @@ keeps combat records, which are not ported.
 order, at the end of loading a character (`4b6d:11e5`), and `66c2:0433`
 again when an NPC (`+0xe7` 0x80 and up) joins the party (`4b6d:1989`); the
 port does the same in `cok_character_read` and when it adds a saved game's
-characters. `6346:0d20` does not run again after `66c2:0433`, so an item
+characters or `ADD NPC` adds one, after which `ADD NPC` (`2fd3:311c`) runs
+`6346:0d20` on the character selected (see Party). Otherwise `6346:0d20`
+does not run again after `66c2:0433`, so an item
 that `66c2:0433` unreadies still counts until the next recompute, as in the
 original. Item types come from `ITEMS`, which the game reads at startup
 (`3e99:005b`): 128 records of 16 bytes from offset 2, at `DS:5886`.
@@ -1021,8 +1203,7 @@ recomputes and then makes the armour class that from behind, 2 worse,
 needs the combat record and is not. The character sheet (`546c:07bb`),
 the Items menu after every key (`546c:17f9`) and Trade's receiver
 (`546c:2178`, `546c:32b0`) recompute, as ported (see View). The other
-places the original recomputes are not ported: the ECL opcode `ADD
-NPC` (`2fd3:311c`), the AI's
+places the original recomputes are not ported: the AI's
 choice of weapon (`3afb:1608`), attacks (`432f:1579`, `432f:1a45`), spells
 with an attack roll (`5b04:1071`, which no spell cast outside combat
 reaches); and creating, training, modifying and changing the order of a
@@ -1031,9 +1212,10 @@ setup (`3cb2:10d9`) recomputes every record (see The battlefield), each
 combatant's turn (`3995:040b`) the combatant (see The rounds), the end
 of combat (`351b:1968`) every record left, taking an item (`36d0:034c`,
 which buying does too) the taker, appraising gems (`58e7:1929`) the
-appraiser after each key, and `DESTROY ITEMS` (`2fd3:35a3`) every
-record, as ported (see Treasure and the end of combat, Shops and the
-temple, and The overland map).
+appraiser after each key, `DESTROY ITEMS` (`2fd3:35a3`) every
+record, and `ADD NPC` the character selected, as ported (see Treasure
+and the end of combat, Shops and the temple, The overland map and
+Party).
 
 ## Spell effects
 
@@ -1921,7 +2103,8 @@ it; in 3D mode it draws group `distance + 1` masked at its header's x and
 y + 2 (`6961:072e`), which the view's buffer puts at cells x + 3, y + 3.
 At distance 0 in 3D mode, outside `ENCOUNTER MENU`, the close-up `PIC`
 replaces it at cell 3, 3 (its first frame), or with var `0x7ee1` not 0xff
-a portrait (`3775:0538`, logged as unported). Outside 3D mode nothing is
+a portrait (`3775:0538`, see Playing scripts), logged as `monster:
+portrait HEAD and BODY`. Outside 3D mode nothing is
 drawn. A distance past 2, which only a script setting var `0x7ec1` could
 give, says "Illegal range in Show3DSprite." and quits to DOS
 (`6961:072e`), as in the original. `APPROACH` (`2fd3:08d6`) moves it a square nearer unless it is at
@@ -2048,8 +2231,8 @@ party's place, view or area changed (`DS:884a`, `884d`, `884f`, `8850`,
 `8852`), forgets the sprite, redraws the view and the status line, clears
 those flags and recomputes the wall ahead. Its other addresses, a sound
 (0xb203), a step forward (0xc01e), the wall ahead outside 3D areas
-(0xc018) and a frame of the small picture's animation (0x6803), are not
-ported, and log as `[CALL ...]`.
+(0xc018) and a frame of the small picture's animation (0x6803), are
+described in Playing scripts.
 
 The dice (`60f4:1216`), the sum as a byte of `count` rolls of `Random(sides)
 + 1`, are `cok_dice` (`ecl.h`) for every module, and `cok_dice_count` is
@@ -2110,7 +2293,8 @@ not yet ported.
 Setup runs with the mode already 5, as `3995:0172` sets it first. It
 clears the text delay flag (`DS:4b59`, which the port passes with each
 print), frees the small picture (`6961:0537`), the big one (`DS:6e02`)
-and the portrait's pieces (`6de5`, `6dea`, not ported), clears
+and the portrait's pieces (`6de5`, `6dea`, marking none held; see
+Playing scripts), clears
 row 24, waits speed × 100 ms and prints "A battle begins..." there in
 light green (`1521:0353`); clears the round (`DS:714b`), the attack roll
 (`6b3b`), the bodies, the kender who yelled (`71a7`), Magic On (`7198`),
@@ -3111,8 +3295,9 @@ The end of combat (`351b:1968`), as `cok_treasure_end_of_combat`:
    magenta on row 24 until a key, and the run ends.
 5. Vars `0x7f70`-`0x7f72`, `0x7ee3`, `0x7ee6` and `0x4cf5` are cleared.
 
-The original's paths for a duel (`DS:883e`) and its demo (`DS:4b4b`),
-which are never set in this game, are left out.
+The original's paths for a duel (`DS:883e`), which is never set in this
+game, and for the title screen's demonstration (`DS:4b4b`, see Party) are
+left out.
 
 The experience (`351b:0037`) is a LongInt, `DS:8840`: each defeated enemy
 in the list (`+0x18a` 1, status neither 0 nor 3) counts as a monster
@@ -3297,7 +3482,7 @@ end, and redraw the screen for it (`6346:2c17`): the adventure frame
 (`1128:0242`) but for this first redraw (`DS:883c`, set after it), the
 small picture's first frame at cell 3, 3 (`6961:000a` of `DS:6da8`), or in
 3D areas the head and body of the portrait last shown (`DS:4b55`, `4b56`;
-`6961:05b9`, `06bd`), which is not ported and is logged, then the party
+`6961:05b9`, `06bd`, see Playing scripts), then the party
 list and the status line. Both empty the pool's coins (`DS:6b0c`), which
 are not emptied on leaving, and the shop names the pool's items
 (`6346:0488`), which stay until the next `CLEARMONSTERS`. The menu on row
@@ -3710,6 +3895,24 @@ running in DOSBox:
   should show with the mark where the party stood.
 - Meet the knights' camp (ECL1 block 16, `PROGRAM 9`) and leave the camp
   menu: the map should show again, and the script end there.
+
+- In ECL2 block 50, visit the magic shop: the shopkeeper's portrait
+  should fill the view, the head (`HEAD2` record 69) over the body
+  (`BODY2` record 68); after `Buy` the redraw should show it again
+  beside the party list. The weapon smith's shows head 68.
+- Let Skyla join in ECL2 block 50 and fight: she should have no combat
+  icon (`CPIC2` has no record 44). Let the kender join in Throtl (ECL1
+  block 32): his combat icon should be `CPIC1` record 15.
+- With Find Traps memorized by the second character only, step on the
+  trap of ECL1 block 32 that asks for it, and choose `CAST SPELL`: the
+  spell should go from the second character's memory.
+- Leave Throtl (ECL1 block 32) with the kender and Strangbourn: `YOUR
+  COMPANIONS LEAVE.`, and both should be gone from the party.
+- At the title screen, press no key: the demonstration (ECL2 block 57)
+  should start with Sir Ringwald, Varianna and Lyn Swiftfoot. Compare the
+  close-up of the green dragon at the end of its first walk, whose frames
+  `CALL [6803]` steps through, and what happens after its battle, which
+  the port does not follow (`DS:4b4b`).
 
 ## Disassembly image
 

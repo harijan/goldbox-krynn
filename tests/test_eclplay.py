@@ -644,6 +644,101 @@ class PlayTests(unittest.TestCase):
         self.assertEqual(self.play("--play", "--vector", 0, ASSETS, 16).returncode, 2)
         self.assertEqual(self.play(ASSETS).returncode, 2)
 
+    def test_npcs_join_and_leave(self):
+        # The kender of ECL1 block 32 joins (ADD NPC 15 100) in the lowest
+        # icon slot free, after the party.
+        result = self.play("--test-party", 4, "--set", "4be6=1", "--start", "8c4e", "--keys",
+                           "Y", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertIn("party: KILDIRF joins, icon 15 in slot 4", lines)
+        self.assertEqual(lines[-1], "(done in block 32)")
+        # Skyla joins in ECL2 block 50 (ADD NPC 44 100); CPIC2 has no
+        # record 44, so she has no combat icon, as in the original.
+        result = self.play("--test-party", 4, "--set", "4be6=1", "--start", "8985", "--keys",
+                           r"\r\r\r", ASSETS, 50)
+        lines = result.stdout.splitlines()
+        joined = lines.index("party: SKYLA joins, icon 44 in slot 4")
+        self.assertEqual(lines[joined + 3], "print: SKYLA JOINS YOUR PARTY.")
+        # When she leaves (87c0), 9add selects her by name with LOAD
+        # CHARACTER and DUMP removes the character selected; without her the
+        # last LOAD CHARACTER inside the party, the fourth, stays selected,
+        # and DUMP takes DUNN.
+        result = self.play("--test-party", 4, "--set", "4be6=1", "--start", "87c0", "--keys",
+                           r"\r", ASSETS, 50)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[3], "party: DUNN leaves")
+
+    def test_the_spell_finds_the_trap(self):
+        # ECL1 block 32's trap (9b82): SPELL 22 finds the first character
+        # with Find Traps memorized, here ALDA's second spell byte (0x7c21,
+        # set with ALDA selected); CAST SPELL forgets it. Without it, the
+        # trap is not found and the script returns at once.
+        result = self.play("--test-party", 4, "--set", "4be6=1", "--set", "7c21=16", "--start",
+                           "9b82", "--trace", "--keys", r"C\r", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertIn("print: YOU HAVE FOUND A TRAP!", lines)
+        self.assertIn("  9c1c SAVE TABLE", lines)
+        result = self.play("--test-party", 4, "--set", "4be6=1", "--start", "9b82", "--keys",
+                           r"C\r", ASSETS, 32)
+        self.assertEqual(result.stdout.splitlines(), ["(done in block 32)"])
+
+    def test_find_item_the_tomb_sword(self):
+        # ECL2 block 67 gives the Long Sword +5 (type 63) at 92a6; FIND ITEM
+        # 63 then marks it taken (92bc) only if a character took it.
+        taken = self.play("--test-party", 4, "--set", "4be6=1", "--trace", "--start", "92a5",
+                          "--keys", r"\rT\r\e\e", ASSETS, 67)
+        left = self.play("--test-party", 4, "--set", "4be6=1", "--trace", "--start", "92a5",
+                         "--keys", r"\rEN", ASSETS, 67)
+        for result in taken, left:
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines()[-1], "(done in block 67)")
+        self.assertIn("  92bc ADD", taken.stdout.splitlines())
+        self.assertNotIn("  92bc ADD", left.stdout.splitlines())
+
+    def test_calls_step_and_sound(self):
+        # ECL2 block 48 at 8ce1: CALL [c01e] steps forward, CALL [b203]
+        # plays sound 10 twice (0x3de is 5).
+        result = self.play("--test-party", 4, "--set", "4be6=1", "--at", "5,5,0", "--start",
+                           "8ce1", ASSETS, 48)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[:3], ["at: 5,4,0", "sound: 10", "sound: 10"])
+
+    def test_the_demo(self):
+        # ECL2 block 57, a demonstration: three NPCs join, the view walks
+        # with CALL [b203]'s sounds, a portrait (0x7ee1 69 over body 68), a
+        # battle, a picture's frames (CALL [6803]) and PROGRAM 3, which does
+        # nothing, then EXIT.
+        result = self.play("--test-party", 4, "--set", "4be6=1", "--combat", "won", "--keys",
+                           r"\r\eN", ASSETS, 57)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[2:5], ["party: SIR RINGWALD joins, icon 60 in slot 4",
+                                      "party: VARIANNA joins, icon 62 in slot 5",
+                                      "party: LYN SWIFTFOOT joins, icon 61 in slot 6"])
+        self.assertEqual(lines.count("sound: 10"), 24)
+        self.assertFalse([line for line in lines if line.startswith(("[", "unported: "))])
+        self.assertEqual(lines[-1], "(done in block 57)")
+
+    def test_the_magic_shops_portrait(self):
+        # ECL2 block 50's magic shop shows its shopkeeper's portrait, HEAD2
+        # record 69 over BODY2 record 68, and the shop's redraw after Buy
+        # shows it again beside the party list.
+        shots = self.folder / "shots"
+        result = self.play("--test-party", 4, "--set", "4be6=1", "--start", "8b47", "--shots",
+                           shots, "--keys", r"\>\rB\eE", ASSETS, 50)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        images = [path.read_bytes() for path in sorted(shots.glob("*.bmp"))]
+        self.assertEqual(len(images), 5)
+
+        def view(bmp):
+            return tuple(ink(bmp, x, y) for x in range(3, 14) for y in range(3, 14))
+        self.assertEqual(view(images[0]), view(images[4]))
+        self.assertNotEqual(ink(images[0], 8, 5), (0, 0, 0))
+        self.assertNotEqual(ink(images[4], 17, 4), (0, 0, 0))  # ALDA beside it
+
 
 @unittest.skipUnless((SAVE / "SAVGAMA.DAT").exists(), "needs the saved games in SAVE")
 class PartyTests(unittest.TestCase):

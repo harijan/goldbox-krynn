@@ -64,13 +64,7 @@ static bool monster_part(cok_adventure *game, const char *kind, uint8_t id, uint
     return false;
 }
 
-/* Read monster id into m (4b6d:161b): the record, its effects from SPC
- * and its items from ITM, both in file order. The pointers in the record
- * are cleared; the readied slots (+0x147) keep what the file holds, and
- * no stats are recomputed. Returns false, ending the run, when the
- * monster cannot be loaded: a missing record says "Unable to load
- * monster" and quits to DOS, as the original does. */
-static bool read_monster(cok_adventure *game, uint8_t id, cok_character *m)
+bool cok_monster_read(cok_adventure *game, uint8_t id, cok_character *m)
 {
     memset(m, 0, sizeof *m);
     uint8_t *data;
@@ -187,7 +181,7 @@ static void load_monster(cok_adventure *game)
         cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
         return;
     }
-    if (!read_monster(game, id, first)) {
+    if (!cok_monster_read(game, id, first)) {
         cok_character_free(first);
         free(first);
         return;
@@ -403,8 +397,8 @@ uint8_t cok_monster_open_squares(cok_adventure *game, int x, int y, uint8_t dire
  * turn the overhead map off and load the sprite (in a 3D area), or redraw
  * the view to erase it, and in 3D mode draw the sprite's group distance +
  * 1; at distance 0 in 3D mode, outside ENCOUNTER MENU, replace it with the
- * close-up picture. A close-up of a portrait (var 0x7ee1 not 0xff,
- * 3775:0538) is not ported. */
+ * close-up picture, or with var 0x7ee1 not 0xff the portrait of that head
+ * over the close-up's body (3775:0538). */
 static void show_monster(cok_adventure *game, uint8_t distance)
 {
     cok_ecl *vm = &game->vm;
@@ -444,8 +438,9 @@ static void show_monster(cok_adventure *game, uint8_t distance)
     game->picture_shown = true;
     game->closeup_shown = true;
     if (head != 0xff) {
-        log_text(game, "unported", "the portrait close-up (3775:0538)");
-        game->view_replaced = false;
+        cok_adventure_portrait(game, (uint8_t)head, game->closeup_id); /* 3775:0538 */
+        snprintf(text, sizeof text, "portrait %u and %u", (uint8_t)head, game->closeup_id);
+        log_text(game, "monster", text);
         return;
     }
     cok_adventure_load_picture(game, game->closeup_id);

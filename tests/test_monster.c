@@ -66,6 +66,11 @@ static void reset(const char *k)
     game.vm.mode = 4;
     game.vm.mem4b00[0xe6] = 1;
     game.vm.mem7c00[0x2e1] = 0xff; /* no portrait */
+    /* Records 0 held with no pictures: the 3D shops here, in ECL1, which
+     * has no HEAD1.DAX, show the portrait last shown, 0 and 0, as
+     * nothing. */
+    cok_adventure_forget_portrait(&game);
+    game.head_id = game.body_id = game.portrait_head = game.portrait_body = 0;
     game.vm.file = 1;
     game.monsters = game.undead = 0;
     game.monsters_loaded = false;
@@ -275,20 +280,27 @@ static void test_sprite(void)
     game.vm.mem7c00[0x2c1] = 4;
     CHECK(RUN(COK_ECL_APPROACH) == COK_ECL_OK && game.quit);
     CHECK(strcmp(s.log, "print: Illegal range in Show3DSprite.;quit: to DOS;") == 0);
-    /* A portrait close-up is not ported. */
+    /* With 0x7ee1 set, the close-up is a portrait (3775:0538): that head
+     * over the close-up's body, HEAD2 record 69 and BODY2 record 68 at
+     * cells 3, 3 and 3, 8, and the view is not replaced. */
     reset("");
-    game.vm.mem7c00[0x2e1] = 3;
+    game.vm.file = 2;
+    game.vm.mem7c00[0x2e1] = 69;
     game.view_replaced = true;
-    CHECK(RUN(COK_ECL_SETUP_MONSTER, 0, 35, 0, 0, 0, 41) == COK_ECL_OK);
-    CHECK(strstr(s.log, "unported: the portrait close-up (3775:0538);") != NULL);
-    CHECK(!game.view_replaced);
-    /* A close-up shown stays until 0x7ee1 changes (DS:8854). */
+    cok_picture_fill(&game.screen, 0, 0, 40, 200, 0);
+    CHECK(RUN(COK_ECL_SETUP_MONSTER, 0, 35, 0, 0, 0, 68) == COK_ECL_OK);
+    CHECK(strstr(s.log, "monster: portrait 69 and 68;") != NULL && !game.view_replaced);
+    CHECK(game.head_id == 69 && game.body_id == 68 && game.portrait_body == 68);
+    /* A close-up shown stays until 0x7ee1 changes (DS:8854): here to a
+     * head HEAD1.DAX, which ECL1 lacks, would have, where the original
+     * asks for its disk. */
     reset("");
+    cok_adventure_forget_portrait(&game);
     CHECK(RUN(COK_ECL_SETUP_MONSTER, 0, 35, 0, 0, 0, 41, COK_ECL_SETUP_MONSTER, 0, 35, 0, 0, 0, 41,
               COK_ECL_SAVE, 0, 3, 1, 0xe1, 0x7e, COK_ECL_SETUP_MONSTER, 0, 35, 0, 0, 0,
-              41) == COK_ECL_OK);
-    CHECK(strcmp(s.log, "monster: sprite 35 at 0;monster: picture 41;"
-                        "unported: the portrait close-up (3775:0538);") == 0);
+              41) == COK_ECL_LOAD_FAILED);
+    CHECK(strncmp(s.log, "monster: sprite 35 at 0;monster: picture 41;error: ", 51) == 0);
+    CHECK(strstr(game.error, "HEAD1.DAX") != NULL);
 }
 
 /* ENCOUNTER MENU 35 2 41 [7f79] c0 c1 c2 c3 c4 "NEAR" "MID" "FAR" flee speed,
@@ -496,9 +508,9 @@ static void test_call(void)
     game.sprite_shown = game.sprite_loaded = true;
     CHECK(RUN(COK_ECL_CALL, 1, 0x10, 0x2e) == COK_ECL_OK);
     CHECK(!game.sprite_shown && !game.sprite_loaded && game.vm.ahead == 2);
-    /* Other addresses are not ported. */
+    /* The address is the operand's, whatever its type: 0xb203 a sound. */
     CHECK(RUN(COK_ECL_CALL, 1, 0x03, 0xb2) == COK_ECL_OK);
-    CHECK(strcmp(s.log, "[CALL];") == 0);
+    CHECK(strcmp(s.log, "sound: 10;") == 0);
 }
 
 static cok_real real(const char *hex)

@@ -80,10 +80,11 @@ typedef struct {
      * ported, the name of each character WHO picks, the rows of spell
      * lists, quitting to DOS, the monsters loaded, the encounter's sprite
      * and money robbed, the end of a fight, and the coins and items
-     * TREASURE adds, and the overhead map going on and off: kind is
+     * TREASURE adds, the overhead map going on and off, the characters ADD
+     * NPC and DUMP add and remove, and the sound driver's commands: kind is
      * "print", "menu", "list", "item", "heading", "choice", "input",
      * "error", "at", "overland", "unported", "who", "quit", "monster",
-     * "combat", "treasure" or "area". */
+     * "combat", "treasure", "area", "party" or "sound". */
     void (*log)(cok_adventure *game, const char *kind, const char *text, void *context);
     /* A battle has been set up (3cb2:1c58): game->combat holds its map and
      * combatants. NULL ignores it. */
@@ -124,10 +125,18 @@ struct cok_adventure {
     uint32_t delays[COK_ADVENTURE_FRAMES];
     size_t frame_count;
     size_t frame;          /* DS:6da3, 0-based here. */
+    bool frame_unset;      /* DS:6da3 0: the slot freed, nothing loaded since. */
     uint8_t picture_id;    /* DS:6e00, COK_ADVENTURE_NO_PICTURE if none. */
-    uint8_t picture_file;
     bool picture_sprite;   /* DS:6dee: the slot holds a SPRIT record, not a PIC. */
     cok_picture big;       /* BIGPIC<file>.DAX, drawn at cell 1, 1 (DS:6e02). */
+    /* The portrait (6961:05b9): a head from HEAD<file>.DAX and a body from
+     * BODY<file>.DAX (DS:6de5, 6dea), and the records they hold (DS:6de4,
+     * 6de9), 0xff for none, as at startup (3e99:0477) and once a step or
+     * combat setup has freed them; and the portrait last shown (DS:4b55, 4b56), which shops in 3D
+     * areas show again. */
+    cok_picture head, body;
+    uint8_t head_id, body_id;
+    uint8_t portrait_head, portrait_body;
     /* The overland map's mark of the party (4877:0005): CURSOR.DAX record
      * 1, loaded at startup with colour 13 transparent (DS:8965), and the
      * screen cell it covers, saved when it is drawn and put back before
@@ -332,7 +341,9 @@ void cok_adventure_carry(cok_adventure *game, uint16_t clock[7]);
  * for treasure (mode 6) PIC record 0x3c and no status line; in shops and
  * the temple (mode 1) the frame unless game->shop_frame is clear, the
  * small picture's first frame outside 3D areas (in them the portrait last
- * shown, logged as unported), the party list and the status line. */
+ * shown, cok_adventure_portrait), the party list and the status line; in
+ * the party menu (mode 0) the cleared frame of 1128:0000; in combat (mode
+ * 5) nothing. */
 void cok_adventure_redraw(cok_adventure *game);
 /* Load PIC<file> record id as the small picture unless it is loaded
  * (6961:00e4), logging an error if it fails; and draw its current frame at
@@ -358,6 +369,18 @@ void cok_adventure_show_picture(cok_adventure *game);
 void cok_adventure_free_picture(cok_adventure *game);
 /* Draw frame (from 0) of the small picture at cell 3, 3 (6961:000a). */
 void cok_adventure_show_frame(cok_adventure *game, size_t frame);
+/* Show the portrait of head and body (3775:0538): keep them as the one
+ * last shown (DS:4b55, 4b56), load them unless they are loaded
+ * (6961:05b9) and draw them, the head at cell 3, 3 and the body at 3, 8
+ * (6961:06bd); the view is not replaced (DS:884b). A record that is not
+ * there says "head not found" on row 24 in yellow and waits for a key; a
+ * file that is not there, where the original asks for its disk, fails and
+ * ends the run. 0xff loads nothing and keeps what is loaded. */
+void cok_adventure_portrait(cok_adventure *game, uint8_t head, uint8_t body);
+/* Free the portrait's pictures, so that the next one shown loads them
+ * again (DS:6de4 and 6de9 0xff), as a step (475c:0e77) and combat setup
+ * (3cb2:1c58) do. */
+void cok_adventure_forget_portrait(cok_adventure *game);
 /* A menu of the ECL opcodes on row 24 (3775:1885): prompt in light
  * magenta, items in normal with the hotkeys and the selection in white;
  * special keys pick a character and redraw the party list. Logs the items
