@@ -12,6 +12,7 @@
 #include "treasure.h"
 #include "sheet.h"
 #include "screen.h"
+#include "start.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -43,11 +44,26 @@ static int read_key(void *context)
 {
     cok_adventure *game = context;
     int key = game->keys.read == NULL ? -1 : game->keys.read(game->keys.context);
+    if (key == COK_KEY_TIMEOUT && game->timed) return key;
     if (key < 0) {
         game->input_ended = true;
         game->vm.abort = true;
     }
     return key;
+}
+
+/* 1614:025b called directly: a key, but in the demonstration (DS:4b4b) 0
+ * at once when none is waiting. The menus wait for KeyPressed first, so
+ * they wait in the demonstration too. */
+static int wait_key(cok_adventure *game)
+{
+    if (game->demo && !cok_adventure_key_pending(game)) return 0;
+    return read_key(game);
+}
+
+int cok_adventure_wait_key(cok_adventure *game)
+{
+    return wait_key(game);
 }
 
 static cok_keyboard keyboard(cok_adventure *game)
@@ -349,7 +365,7 @@ static void prompt_colour(cok_adventure *game, const char *text, uint8_t fg)
 {
     cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0);
     cok_text_string(&game->screen, &game->font, text, 0, 24, fg, 0);
-    read_key(game);
+    wait_key(game);
 }
 
 /* The portrait. */
@@ -595,17 +611,19 @@ static void clear_box(cok_adventure *game)
     cok_adventure_frame(game);
     cok_adventure_party(game);
     cok_adventure_status(game);
-    draw_frame(game, 0);
+    /* Not in the demonstration (2fd3:3086). */
+    if (!game->demo) draw_frame(game, 0);
     cok_adventure_status(game);
     game->frame_pending = false;
 }
 
 /* Text. */
 
+
 static void page(void *context)
 {
     cok_adventure *game = context;
-    read_key(game); /* 1614:045c then discards pending keys. */
+    wait_key(game); /* 1614:045c then discards pending keys. */
 }
 
 static void char_delay(void *context)
@@ -743,6 +761,15 @@ static void input(cok_adventure *game)
 
 /* The party. */
 
+cok_character *cok_adventure_selected(cok_adventure *game)
+{
+    uint8_t *record = game->vm.character;
+    if (record == NULL) return NULL;
+    if (game->outside != NULL && game->outside->record == record) return game->outside;
+    size_t i = cok_party_index(&game->party, record);
+    return i < game->party.count ? game->party.members[i] : NULL;
+}
+
 void cok_adventure_party(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -830,7 +857,7 @@ void cok_adventure_alert(cok_adventure *game, const char *text, uint8_t fg)
     log_text(game, "print", text);
     cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0);
     cok_text_string(&game->screen, &game->font, text, 0, 24, fg, 0);
-    read_key(game);
+    wait_key(game);
 }
 
 /* Print text in the text window in colour fg, with no delay between
@@ -1491,8 +1518,10 @@ static cok_ecl_status camp(cok_adventure *game);
  * selection LOAD CHARACTER changed restored first (DS:43ba), 9 camps as
  * Encamp does (2fd3:3403), in the middle of the script, which goes on from
  * the instruction after (DS:4b43 kept), and then ends as EXIT does unless
- * 0x4c38 is set; 0 opens the start menu's training (4def:01b4), which is
- * not ported; other values do nothing. */
+ * 0x4c38 is set; 0 opens the start menu (4def:01b4, see start.h), where
+ * the training halls' scripts have set var 0x7ea8 to allow training, and
+ * the script goes on once Begin Adventuring leaves it; other values do
+ * nothing. */
 static void program(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -1503,8 +1532,15 @@ static void program(cok_adventure *game)
         vm->restore_character = false;
     }
     uint8_t what = (uint8_t)cok_ecl_value(vm, 0);
-    if (what == 0 && game->hooks.unported != NULL) {
-        game->hooks.unported(game, game->hooks.context);
+    if (what == 0) {
+        /* The start menu, then the screen redrawn for the mode, but in 3D
+         * areas, with 0x4c38 set or picture 9 loaded. */
+        uint16_t ip = vm->ip;
+        cok_start_menu(game);
+        vm->ip = ip;
+        if (!vm->abort && game->picture_id != 9 && vm->mem4b00[0xe6] == 0 &&
+            vm->mem4b00[0x138] == 0)
+            cok_adventure_redraw(game);
     } else if (what == 9) {
         uint16_t ip = vm->ip;
         cok_ecl_status status = camp(game);
@@ -1967,7 +2003,7 @@ static bool add_characters(cok_adventure *game, const cok_saved_game *saved, con
     directory_of(path, dir, sizeof dir);
     for (size_t i = 0; i < saved->count && i < COK_PARTY_MAX; ++i) {
         char base[9];
-        cok_party_file_name(saved->names[i], base);
+        cok_party_roster_name(saved->names[i], base);
         char file[4200];
         snprintf(file, sizeof file, "%s/%s.SAV", dir, base);
         FILE *exists = fopen(file, "rb");

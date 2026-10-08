@@ -3,6 +3,7 @@
  * screen can be saved as a BMP whenever the game waits for a key. */
 #include "adventure.h"
 #include "arena.h"
+#include "start.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -25,11 +26,16 @@ static void usage(const char *program)
     fprintf(stderr,
             "Usage: %s [options] ASSETS BLOCK\n"
             "       %s [options] --load SAVE ASSETS [BLOCK]\n"
+            "       %s [options] --start-menu ASSETS\n"
             "Run ECL block BLOCK (as the game does on entering it) from the DAX files in\n"
             "ASSETS, printing its text, menus and choices.\n"
             "  --keys KEYS     keys to type; \\r Enter, \\e Escape, \\b Backspace,\n"
             "                  \\< \\> \\^ \\v the arrows, \\\\ a backslash; \\k presses the\n"
-            "                  next key while the party rests\n"
+            "                  next key while the party rests or the title waits; \\t lets\n"
+            "                  the title's menu time out\n"
+            "  --start-menu    play the game from startup: the title, its menu, the start\n"
+            "                  menu and the adventure, game after game\n"
+            "  --woof          with --start-menu, start as with Woof, without the title\n"
             "  --play          then take adventure commands until the keys run out\n"
             "  --test-party N  add N (1-8) characters made up for testing, without saved\n"
             "                  games: fighters, clerics, mages and thieves of level 1\n"
@@ -57,7 +63,7 @@ static void usage(const char *program)
             "  --set ADDR=VAL  set a variable before running, in hex (repeatable)\n"
             "  --still         load only the first frame of each picture\n"
             "  --trace         print each instruction's address and name\n",
-            program, program);
+            program, program, program);
 }
 
 static void save(player *p, const char *path)
@@ -94,6 +100,7 @@ static int next_key(void *context)
     case '>': p->pending = 0x4d; return 0;
     case '^': p->pending = 0x48; return 0;
     case 'v': p->pending = 0x50; return 0;
+    case 't': return COK_KEY_TIMEOUT;
     default: return (unsigned char)p->keys[-1];
     }
 }
@@ -304,7 +311,7 @@ int main(int argc, char **argv)
     const char *screen = NULL;
     unsigned long file = 0, vector = 5, start = 0, fixture = 0, seed = 0;
     bool seeded = false;
-    bool still = false, placed = false, play = false, helm = false;
+    bool still = false, placed = false, play = false, helm = false, front = false, woof = false;
     const char *party = NULL, *load = NULL, *saves = NULL;
     cok_combat_stub combat = COK_COMBAT_UNPORTED;
     long x = 0, y = 0, dir = 0;
@@ -322,6 +329,10 @@ int main(int argc, char **argv)
             play = true;
         } else if (strcmp(option, "--helm") == 0) {
             helm = true;
+        } else if (strcmp(option, "--start-menu") == 0) {
+            front = true;
+        } else if (strcmp(option, "--woof") == 0) {
+            woof = true;
         } else if (strcmp(option, "--keys") == 0 && has_value) {
             p.keys = argv[++i];
         } else if (strcmp(option, "--test-party") == 0 && has_value &&
@@ -382,9 +393,14 @@ int main(int argc, char **argv)
     }
     unsigned long block = 256; /* none given */
     bool has_block = argc - i == 2;
-    if ((argc - i != 2 && !(load != NULL && argc - i == 1)) ||
+    if (front && (argc - i != 1 || load != NULL || party != NULL || fixture != 0 || play ||
+                  vector != 5 || start != 0)) {
+        usage(argv[0]);
+        return 2;
+    }
+    if (!front && ((argc - i != 2 && !(load != NULL && argc - i == 1)) ||
         (has_block && !number(argv[i + 1], 0, 255, &block)) ||
-        (play && (vector != 5 || start != 0))) {
+        (play && (vector != 5 || start != 0)))) {
         usage(argv[0]);
         return 2;
     }
@@ -431,6 +447,29 @@ int main(int argc, char **argv)
     if (seeded) game.vm.seed = (uint32_t)seed;
     game.combat_stub = combat;
     game.helm = helm;
+    if (front) {
+        game.combat_stub = combat;
+        game.helm = helm;
+        if (seeded) game.vm.seed = (uint32_t)seed;
+        cok_ecl_status status = cok_start_game(&game, woof);
+        if (screen != NULL) save(&p, screen);
+        int result = 0;
+        if (status != COK_ECL_OK) {
+            fprintf(stderr, "%s\n", game.error[0] != '\0' ? game.error
+                                                           : cok_ecl_status_string(status));
+            result = 1;
+        } else if (game.quit) {
+            printf("(quit to DOS)\n");
+        } else if (game.title) {
+            printf("(out of keys at the title)\n");
+        } else if (game.vm.mode == 0) {
+            printf("(out of keys in the start menu)\n");
+        } else {
+            printf("(out of keys in block %u at %04x)\n", game.vm.block, game.vm.ip);
+        }
+        cok_adventure_close(&game);
+        return result;
+    }
     if (!has_block) {
         /* As 2fd3:3c28 resumes: the block saved in 0x4bf2, or 0x24. */
         block = game.vm.mem4b00[0xf2] != 0 ? game.vm.mem4b00[0xf2] : 0x24;

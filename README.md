@@ -3,10 +3,10 @@
 The native tools are a C17 DAX archive reader, decompressor, image exporter,
 picture and text compositor, ECL script interpreter and disassembler, and a
 headless script player that shows the scripts' text, menus, pictures, 3D
-view and party on the adventure screen. The original DOS executable,
-decompiler output, and game data are reference inputs, kept in `Assets/`;
-saved games from the original, if any, go in `SAVE/`. These tools do not yet
-run the game.
+view and party on the adventure screen, and plays the game from its title
+and start menu. The original DOS executable, decompiler output, and game
+data are reference inputs, kept in `Assets/`; saved games from the
+original, if any, go in `SAVE/`. There is no display or sound yet.
 
 ## Build and verify
 
@@ -29,6 +29,9 @@ make
 ./build/eclplay --play --set 4be6=1 --saves build --keys '\rerharsan\e' Assets 32
 ./build/eclplay --test-party 4 --play --set 4bf2=11 --set 4bc3=1 --set 4bc4=3 \
     --set 4c2d=1 --keys 'nm98y' Assets 16
+mkdir -p build/roster
+./build/eclplay --start-menu --saves build/roster \
+    --keys '\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\eYY\vS\rE\v\v\v\v\v\vS' Assets
 make test
 make sanitize
 ```
@@ -44,8 +47,9 @@ effect routines,
 the adventure loop, the camp, casting spells, the character sheet with its
 items, monsters and encounters, the battlefield, the rounds of a battle,
 treasure and the end of combat, the shops and the temple, the combat
-screen, the portraits, NPCs and the other remaining opcodes, and the
-attacks,
+screen, the portraits, NPCs and the other remaining opcodes, the
+attacks, and the start menu with creating, training and modifying
+characters, their icons and the roster,
 including PIC delta decoding on `PIC1.DAX` and the game font in
 `8X8D1.DAX`, and plays the opening scripts, the view of Throtl and, with
 a party made up for testing (`eclplay --test-party`), its fights, round
@@ -271,8 +275,10 @@ go to a `special` hook: `3775:1885` passes them to `546c:3334` and redraws
 the party, which is not ported. Because that check follows the hotkey match,
 a hotkey 1-9 can only be chosen with the arrows and Enter. With one item, the
 arrows and 4 and 6 are special too. The original also polls the mouse
-(`DS:8987`), times out (`DS:6e11`), and animates the view picture while it
-waits; none of these are ported.
+(`DS:8987`) and animates the view picture while it waits, which are not
+ported, and times out when `DS:6e11` is set, as only the title's menu does
+(see The start menu): `cok_menu_timed` returns `DS:6e15`'s result when the
+keyboard gives `COK_KEY_TIMEOUT`, the time passed with no key.
 
 `cok_menu_list` shows a list in a window with a `Select` menu on row 24,
 adding `Next` and `Prev` when there are more rows to page to, and `Exit` if
@@ -399,8 +405,8 @@ are not ported (`unported:`); `--helm` plays as a game started with
 Backspace, `\<`, `\>`, `\^` and `\v` the arrows); when they run out the run
 stops. `\k` presses the next key while the party rests, which the rest loop
 sees (`1614:03c2`), or as a battle is set up, which drops it (`1614:0479`).
-`--saves DIR` is where the camp's Save writes; without it, saving logs an
-error. A spell list logs its rows as `item:` and `heading:`, and quitting to
+`--saves DIR` is where Save writes and the roster is kept (see The start
+menu); without it, saving logs an error. A spell list logs its rows as `item:` and `heading:`, and quitting to
 DOS ends the run with `(quit to DOS in block N)`. Cast and View run from the
 commands and the camp, their lists logged as `list:` and `item:`. Monsters
 loaded, the encounter's sprite and close-up and the money robbed log as
@@ -437,7 +443,14 @@ one vector, `--at X,Y,DIR` places the party, `--set ADDR=VALUE` sets
 variables (in hex), `--file N` picks the ECL file (by default the first that
 holds the block), `--still` loads only the first frame of each picture,
 `--seed N` starts Turbo Pascal's `Random` from N (in decimal; by default
-0), and `--trace` lists each instruction. For example, `./build/eclplay --start 899b
+0), and `--trace` lists each instruction. `--start-menu ASSETS`, with no
+block, plays the game as `START.EXE` does, from startup: the title (a
+key pressed with `\k` while it waits ends it), its menu, where `\t` lets
+the time run out and plays the demonstration, then the start menu and
+the adventure, game after game (see The start menu); `--woof` starts it
+as `START Woof` does, without the title. Characters, the roster and saved
+games go in `--saves DIR`. The run ends `(out of keys at the title)`,
+`(out of keys in the start menu)` or as other runs do. For example, `./build/eclplay --start 899b
 --keys '\r2\r' Assets 48` answers the guards at the gates of Gargath with
 the second item of a list.
 
@@ -894,10 +907,12 @@ restores the selection `LOAD CHARACTER` changed (`DS:43ba`). 9 camps
 (`2fd3:3403`, see Camp) in the middle of the script, which goes on after
 it (`DS:4b43` kept), and then ends the script as `EXIT` does
 (`2fd3:0050`) unless `0x4c38` is set: the knights' camp, the inn of
-ECL1 block 17, and ECL3 blocks 96 and 97. 0 opens the start menu's
-training (`4def:01b4`), which is not ported and logs as `[PROGRAM 0]`;
-the handler tests no other value, so others (ECL2 block 57's 3) do
-nothing.
+ECL1 block 17, and ECL3 blocks 96 and 97. 0 opens the start menu
+(`4def:01b4`, see The start menu), which the scripts' training halls
+open after setting var `0x7ea8`, and the script goes on once Begin
+Adventuring leaves it; then, outside 3D areas, unless `0x4c38` is set or
+the small picture is PIC 9, the screen is redrawn for the mode
+(`6346:2c17`). Other values (ECL2 block 57's 3) do nothing.
 
 The port keeps these quirks:
 
@@ -966,9 +981,14 @@ items, 63 bytes each; and `.SFX`, its spell effects, 9 bytes each
 fields are then recomputed (see Derived stats). Each character added gets
 the lowest combat icon slot free (`+0x137`) and is counted in `0x7f3e`
 (`4b6d:1989`), and an NPC's levels are recomputed again. Then every record
-gets its combat icons (`4b6d:1b34`, see The combat screen). The original
-also deletes any roster copies of the characters (`.WHO`, `.STF`, `.SFX`
-named after them); the port does not.
+gets its combat icons (`4b6d:1b34`, see The combat screen). Loaded from
+the start menu, the roster's copies of the characters (`.WHO`, `.STF`,
+`.SFX` named after them, `4b6d:0a80`) are then erased (see The start
+menu); `eclplay --load` keeps no roster. The names are made as the
+original makes them, by `169c:05da` after `169c:050b` has taken out the
+dots: each removes one character at a time and does not test again the
+place a removal slides the next into, so of two alike in a row one stays
+(`A  B` names `A B`).
 `cok_adventure_restore` then reloads the map and wall sets in a 3D area,
 or else loads the overland map, big picture 0x79, without drawing it,
 sets the speed and animation from `0x4bfc` and `0x4bff`, and
@@ -1027,11 +1047,9 @@ block 32, and Skyla and Mysellia in ECL2 block 50, all with morale 100,
 so 0xb2. ECL2 block 57 is the demonstration the title screen plays when no
 key is pressed: its menu times out to `D` (`DS:6e11`, `6e15`), which sets
 `DS:4b4b`, and `2fd3:3c28` then starts block 0x39 of ECL2 at speed 9 with
-no party; the block adds three NPCs to make one. The demonstration's own
-paths, where `DS:4b4b` is read (the key wait `1614:025b`, `1521:0458`,
-`CLEAR BOX`, `2fd3:3c28`, the end of combat's `351b:0574` and `1968`,
-"Continue Battle:" in `3995:0b6d`, and the title's loop), are not ported,
-so `eclplay` plays it as a game. Skyla's icons are `CPIC2` record 44, which
+no party; the block adds three NPCs to make one. Its own paths, where
+`DS:4b4b` is read, are described in The start menu; `eclplay
+--start-menu` plays it from the title. Skyla's icons are `CPIC2` record 44, which
 is not there: she has none in combat, as in the original.
 
 `DUMP` (`2fd3:351b`) removes the selected character from the list
@@ -1210,8 +1228,9 @@ the Items menu after every key (`546c:17f9`) and Trade's receiver
 places the original recomputes are not ported: the AI's
 choice of weapon (`3afb:1608`), spells
 with an attack roll (`5b04:1071`, which no spell cast outside combat
-reaches); and creating, training, modifying and changing the order of a
-character (`4def:06dd`, `4def:4d9e`, `4def:28fa`, `4def:567f`). Combat
+reaches). Creating, training, modifying and changing the order of a
+character (`4def:06dd`, `4def:4d9e`, `4def:28fa`, `4def:567f`) are ported
+(see Creating characters and Training). Combat
 setup (`3cb2:10d9`) recomputes every record (see The battlefield), each
 combatant's turn (`3995:040b`) the combatant (see The rounds), an attack
 (`432f:1a45`) the attacker and a strike (`432f:1579`) the target (see
@@ -1314,8 +1333,8 @@ magic, 0x10 acid), the effect a spell is adding (`6b2f`), the spell
 the target can be attacked (`6b37`), whether effects are being cured
 (`6b38`), whether the game was saved in the current camp (`5885`: set by
 Save, `4b6d:22de`, and cleared when the camp menu returns at `2fd3:344d`,
-at startup by `3e99:005b` and `0843`, and by the start menu, `4def:01b4`,
-which is not ported) and the combat round (`714b`).
+at startup by `3e99:005b` and `0843`, and by each command of the start
+menu but Save and Exit, `4def:01b4`) and the combat round (`714b`).
 
 Handlers ported, by address and effect id: `3f44:0124` (1), `0134` (2),
 `0344` (8, 0x2d), `0379` (9, 0x2e), `03ae` (0x0a), `03cd` (0x0b, outside
@@ -1517,8 +1536,8 @@ one before, or with the party's last asks `quit TO DOS: `; `Speed`
 offers `Faster` and `Slower` (down and up) within 0-9; `Pics` toggles
 `DS:4b4d`, which nothing else reads, and the animation (`DS:4b4f`); and
 `Level` (`4888:2272`) sets the difficulty, `0x4cf4`, 1-5, `Novice` to
-`Champion`. `Icon`, the combat icon editor (`4def:408b`), is logged as
-unported.
+`Champion`. `Icon` is the combat icon editor (`4def:408b`, see Creating
+characters), then the screen redrawn for camp (`6346:2c17`).
 
 The yes/no prompts (`67b5:177f`: `Stop Resting? `, `Quit TO DOS `, `quit
 TO DOS: `, `Drop from party? ` and Magic's) select No once, before they
@@ -1550,8 +1569,8 @@ memory: the far pointers in the records (`+0xe3`, `+0x143`, `+0x147`-`+0x17a`,
 `+0x17f`, `+0x183`), items (`+0x2a`) and effects (`+5`), 0 in the port's
 files, and in the `.DAT` the bytes after each name and the slots past the
 party, which hold what was on the original's stack; and spell 8 of game
-A's clerics (see Derived stats). The original also erases roster copies
-of the characters (`4b6d:0a80`), which the port does not keep.
+A's clerics (see Derived stats). After each character's files, its
+roster copy is erased (`4b6d:0a80`, see The start menu).
 
 `Magic` (`4888:1c32`) offers `Cast Memorize Scribe Display Rest Exit`
 until Exit or Escape for the selected character. `Cast` casts (see
@@ -2655,8 +2674,8 @@ a party member on the party's side is dying (`6346:31e9`), the sides are
 counted and the map redrawn around the view. The battle is over when a
 side has none that can act or the rounds reach the limit (`DS:714c`, 15,
 which an attack moves to the round + 15); when the enemy has none and
-the party some, "Continue Battle:" (`67b5:177f`) asks, and Yes fights on,
-asking again each round.
+the party some, "Continue Battle:" (`67b5:177f`) asks (not in the
+demonstration), and Yes fights on, asking again each round.
 
 Data the rounds keep in `cok_combat`, beside the battlefield's:
 
@@ -3082,9 +3101,9 @@ then each of the six bytes from `+0x139` giving the template's colours 1,
 a saved game's characters join (`4b6d:1b34`), every record in the list gets
 its icons: a player character's built, an NPC's (`+0xe7` 0x80 and up)
 `CPIC` record `+0x115` of the saved game's file. `eclplay --test-party`
-gives its characters the icons a new character gets (`4def:3c61`: large,
-head 9 or 5 by gender, body by class, the template's colours). The icon
-editor (`4def:408b`) is not ported.
+gives its characters the icons a new human character gets (`4def:3c61`:
+large, head 9 or 5 by gender, body by class, the template's colours; see
+Creating characters).
 
 The effects' handlers that speak say their text in the panel in combat
 (row 10 with a pause, `6346:1883`; the stench's "emits an evil stench",
@@ -3678,9 +3697,11 @@ The end of combat (`351b:1968`), as `cok_treasure_end_of_combat`:
    magenta on row 24 until a key, and the run ends.
 5. Vars `0x7f70`-`0x7f72`, `0x7ee3`, `0x7ee6` and `0x4cf5` are cleared.
 
-The original's paths for a duel (`DS:883e`), which is never set in this
-game, and for the title screen's demonstration (`DS:4b4b`, see Party) are
-left out.
+The original's path for a duel (`DS:883e`), which is never set in this
+game, is left out. In the demonstration (`DS:4b4b`, see The start menu)
+the party's part is skipped and the end of combat returns once the
+enemies are removed (`351b:1982`, `1996`): no recompute, results,
+treasure or cleanup.
 
 The experience (`351b:0037`) is a LongInt, `DS:8840`: each defeated enemy
 in the list (`+0x18a` 1, status neither 0 nor 3) counts as a monster
@@ -4039,6 +4060,568 @@ a key in both, but which the emulator's text routine does not wrap. The
 test found the item that Appraise's Keep loses. It is not part of the
 repository. The screens were tested in the port only.
 
+## The start menu
+
+`src/start.h` ports the game's front end: main's loop (`1000:0134`), the
+title (overlay `2f55`), the state the game starts and ends with
+(`3e99:005b`, `3e99:0843`) and the start menu (`4def:01b4`), with the
+roster in `src/roster.h`. `eclplay --start-menu` plays from startup
+(`cok_start_game`).
+
+Main runs startup, then the title unless the first argument is `Woof`
+(`ParamStr(1)`, exact case), then the title's menu: `Champions of Krynn
+v1.2` in light magenta at column 0 of row 24 and `Play Demo` straight
+after it (`67b5:03e2`, white and light green, digits not directions), with
+`DS:6e11` 3000 hundredths: if no key comes in 30 seconds the menu returns
+`DS:6e15`, `D`, and the demonstration plays (`DS:4b4b`). Any other key
+that leaves the menu plays the game; F10, whose scan code is 0x44, `D`,
+plays the demonstration too, as the special flag is not tested. Arrow
+keys do not restart the time; past midnight `GetTime` is lower than the
+start and the menu never times out. Then, game after game: the ECL file
+is 1 (`DS:5782`), or 2 with speed 9 for the demonstration; the start menu
+runs until Begin Adventuring, then main draws the frame (`1128:0242`, or
+`1128:0344` in mode 3 without `0x4c38`) and the party list again, and the
+adventure (`2fd3:3c28`) runs from var `0x4bf2`'s block, or 0x24 when it
+is 0 (a new game: Solace). When it ends (`DS:4b57`: the party killed or
+destroyed), every member is removed (`4def:3b0a`), the end of the game
+(`3e99:0843`) resets the state, and the start menu opens again; after a
+demonstration the title shows again, then the menu with `Champions Of
+Krynn v1.2` (capital O) for 10 seconds. A `ParamStr(2)` compare against
+`Helm` after the start menu is discarded, and the code wheel question
+after it (`33c7:0131`, `1000:0218`) is never reached: nothing jumps there.
+
+| Function | Original |
+| --- | --- |
+| `cok_start_game` | `1000:0134` |
+| `cok_start_title` | `2f55:063c`, `0000`, `006d`, `0267`; `1128:0130` (`cok_screen_credits`) |
+| `cok_start_startup`, `cok_start_reset` | `3e99:005b`, `3e99:0843` |
+| `cok_start_menu`, `cok_start_command` | `4def:01b4` |
+| `cok_start_pick` | `546c:36cc` |
+| `cok_start_mouse` | `4def:5cc7`, `638d` |
+| `cok_roster_list`, `cok_roster_add`, `cok_roster_drop`, `cok_roster_remove` | `4b6d:0453`, `008b`; `4def:37a2`, `2668`; `4def:01b4` R |
+| `cok_roster_save`, `cok_roster_erase`, `cok_roster_load` | `4b6d:0bed` with no base, `0a80`, `1b34` |
+
+The title (`2f55:063c`) frees the small picture, then draws `TITLE.DAX`
+records 1 (the SSI splash) at 0, 0, then 2 at 0, 0 with 3 (240 by 88) at
+unit 5, cell 1, then 4 (320 by 88) at 0, cell 1, opaque (`127f:0111`,
+`10e7`), waiting 5, 10 and 10 seconds after them (`2f55:0000`: the
+keyboard flushed, then until a key is pressed or the time passes, then
+flushed again, so the key is thrown away). A key ends the whole title.
+Otherwise the screen is cleared, the credits show for 10 seconds, and it
+is cleared again (`2f55:006d`). The credits (`2f55:0267`) are thirty
+strings in purple (5), yellow (14) and light red (12) inside three boxes
+of the frame tiles, rows 0-4, 4-20 and 20-23, without moons
+(`1128:0130`). The title's music (overlay `1661`) and sound are not
+ported.
+
+Startup and the end of a game leave the variables cleared but for the
+difficulty (`0x4cf4` 3), a 3D area (`0x4be6` 1) and the moons in phase 2
+(`0x4cf9`-`0x4cfb`); the party at 7, 13, facing north at startup and
+south after a game (`DS:6d85`-`6d87`); the speed 4, the mode 4, no party
+or selection, the ECL file 1, the first row a list shows 1 (`DS:6e0d`),
+the menu's selection 1, the game unsaved (`DS:5885`) and the overhead map
+off. `eclplay` without `--start-menu` keeps its own state (row 0 first).
+
+The start menu (`4def:01b4`) sets the mode to 0 (the party list from
+column 1, `6346:07ba`), keeps the mode it was entered with, turns free
+training off (`DS:7140`) and starts on its first row. Each pass draws the
+open frame (`1128:0000`), the party list if a character is selected, and
+lists in cells 9-38 of rows 12-22 the items of `DS:0878` (13 string[40]s
+with a flag, 0x2a bytes apart) that the flags allow: `Create New
+Character`, `Add Character to Party` and `Exit to DOS` always; with a
+character selected `Drop`, `Modify`, `View`, `Remove Character from
+Party`, `Save Current Game` and `Begin Adventuring`, and `Train
+Character` and `Knight Change Classes` while var `0x7ea8` is set (a
+training hall) or free training is on; with none, `Load Saved Game` and
+`Initialize Mouse/Joystick`. The list (`67b5:1368`) has the prompt
+`Choose a FUNCTION ` and `Select ` (with its space), no Exit, rows in
+light green and the pick black on white, prompt in light magenta; with 11
+rows at most, there is no paging. The command is the first letter of the
+row picked, not the key: Select, Enter or space take it, and Escape,
+which leaves no row, reads the byte at `0000:0001`, the high byte of
+Turbo Pascal's INT 0 vector (0x00df), so 0: nothing. Every command but
+Save and Exit, and Escape, marks the game unsaved (`DS:5885` 0).
+
+| Letter | Command |
+| --- | --- |
+| C | Create New Character (`4def:06dd`, see Creating characters) |
+| D | Drop Character (`4def:2668`) |
+| M | Modify Character (`4def:28fa`, see Creating characters) |
+| T, K | Train Character (`4def:4d9e`), Knight Change Classes (`4def:5812`), see Training |
+| V | Pick Character, then View (`546c:0d74`, see View) |
+| A | Add Character to Party (`4def:37a2`) |
+| R | Pick Character; a player character is saved to the roster (`4b6d:0bed` with no base) and leaves the party (`4def:3b0a` 0, 1) whether it was saved or not; an NPC is dropped (`4def:2668`, which picks again) |
+| L | Load Saved Game (`4b6d:1b34`) |
+| S | Save Current Game (`4b6d:22de`, see Camp), with no rule-book question |
+| B | Begin Adventuring |
+| I | Initialize Mouse/Joystick (`4def:5cc7`) |
+| E | `Quit to DOS ` (yellow); Yes, with a party and the game unsaved, asks `Game NOT saved.  Quit anyway? `: No saves (`4b6d:22de`) and stays in the menu, Yes quits |
+| J | free training, if the game was started with `Helm` (`ParamStr(2)`): toggled, `Free training on` or `off` on row 24; no row begins with J, so it is never reached |
+
+Pick Character (`546c:36cc`) shows `Pick Character ` (light magenta) and
+`Select Exit` on row 24; special keys pick a character (`546c:3334`) and
+redraw the party list, and it ends on Select (true), Exit or Escape;
+space and other keys are ignored.
+
+Begin Adventuring needs a party (or the demonstration, which never comes
+here): the mode comes back as it was; the frame (`1128:0344` in mode 3
+without `0x4c38`, else `1128:0242`) and the party list are drawn, unless
+a game was loaded here (`DS:4b52`) and the small picture is not PIC 9 and
+it will draw them (var `0x4bf2` set and `0x4c38` clear); row 24 is
+cleared and var `0x7ea8` cleared, which closes the hall. From `PROGRAM 0`
+the script goes on (see The overland map). A game loaded in the start
+menu opened by a script replaces the variables and the party, but the
+script's block stays loaded and goes on after `PROGRAM`, as in the
+original.
+
+Initialize Mouse/Joystick (`4def:5cc7`) lists `mouse OFF`, `joystick OFF`
+and `disable both` (`Init Mouse/Joystick: `, `Select Exit`, in the same
+window) until Exit, Escape or space. The port has neither, so turning one
+on finds none and the rows stay OFF; the original rewrites `KRYNN.CFG`'s
+third line (`M`, `J` or `N`), which the port does not, and logs the
+driver calls as unported.
+
+The demonstration (`DS:4b4b`): main sets the ECL file 2 and speed 9 and
+skips the start menu; `2fd3:3c28` loads ECL2 block 0x39 and runs only its
+load vector, which is the whole demonstration (three NPCs joining, walks,
+a fight, the dragon's close-up), with no party list, then removes every
+member (`4def:3b0a` with 1, 1) and returns. Meanwhile a key read with
+none waiting returns 0 (`1614:025b`), so `PRESS ... TO CONTINUE` and
+paging do not wait; `CLEAR BOX` does not redraw the small picture
+(`2fd3:3086`); and the end of combat skips the party's part and stops
+once the enemies are removed (see Treasure and the end of combat), with
+no `Continue Battle:` (`3995:0c78`). Reads straight from `1614:025b`
+(`PROMPT KEY`, paging in the combat panel too) do not wait either; the
+menus, which read only once a key is pressed (`67b5:03e2`), do. Not
+ported: the
+line input ending after one key (`1521:0739`), which block 57 does not
+use. No key ends the demonstration.
+
+The port keeps these quirks:
+
+- The command is the row's first letter: Escape is 0, and free training
+  (J) is unreachable.
+- Escape, like any command but Save and Exit, marks the game unsaved.
+- No at `Game NOT saved.  Quit anyway? ` saves and returns to the menu.
+- Pick Character cannot be left with space.
+- The title's menu takes F10 as `D`.
+
+### The roster
+
+Characters wait between games in the save directory (`DS:5784`, `--saves`)
+as `NAME.WHO` (the 409-byte record), `NAME.STF` (items) and `NAME.SFX`
+(effects). The list (`4b6d:0453`, `008b`) holds each `*.WHO` file of
+exactly 409 bytes whose byte `+0xf7`, the jewelry's low byte, is below
+0x80 (surely meant to be the NPC flag `+0xe7`), named as its record is,
+padded to 15 columns, unless a record in the list has that name; DOS
+lists them in directory order, the port in the order of their file names.
+
+Add Character to Party (`4def:37a2`, nothing with no roster) shows the
+list in cells 1-38 of rows 2-22 with `Add a character: ` (light magenta)
+and `Add ` and `Exit`. Exit is offered by a byte the routine never sets
+(`[bp-0x1c]`): from the start menu it holds 0x2e, the low byte of a
+return address that `FreeMem` (`1a46:042b`) leaves there as the start
+menu frees its list, so Exit shows; the game booted in an emulator with
+Turbo Pascal's heap confirmed it in every history tried (see below). Add
+(or Enter) on a row not marked `* ` loads the file (`4b6d:11e5`,
+`Loading...Please Wait` on row 24 in light green) and marks the row. The
+first character joins an empty party with no checks; after it, one joins
+if no record has its name and `+0x115` (a duplicate), it would not be a
+seventh player character (or for an NPC, the party holds fewer than 8,
+`0x7f3e`), it is not a paladin while an evil character is in the party,
+not a fourth ranger, and not evil while a paladin is. Joining counts it
+(`4b6d:1989`) and builds its icon (`4b6d:0817`). A character turned away
+loses its mark, and at most one message shows on row 24 (`6346:1827`),
+whichever applies first of `paladins do not join with evil scum` (with a
+second pause), `too many rangers in party` and `NAME will tolerate no
+evil!` (the last paladin seen), whatever the reason was. Only the
+rangers' rule can be met in play: no race may be a paladin, and no
+alignment Create offers is evil (codes 2, 5 and 8). It ends on Exit,
+Escape, or when 6 player characters or 8 records are counted. Add does
+not erase the roster's files.
+
+Drop Character (`4def:2668`) picks a character, asks `Drop NAME
+forever? ` and `Are you sure? ` (yellow), and on Yes to both says `You
+dump NAME out back.` (one who cannot act) or `NAME bids you farewell.`,
+erases its roster copy and removes it; No says `NAME breathes a sigh of
+relief.`. The party list is redrawn.
+
+Saving to the roster (`4b6d:0bed` with no base) names the file
+`cok_party_roster_name`'s base of the character's name with `.WHO`; if
+that file is there, `Overwrite NAME? ` (yellow) asks, and No asks `New
+file name: ` (light green, 8 characters, upper-cased) until one is typed,
+which becomes the character's name too, and checks again. The record,
+then the items and effects (each file erased first, written only if
+there are any), are written as for a saved game (see Party). The roster
+copy of a character (`4b6d:0a80`, by `cok_party_file_name` of its name:
+`.WHO`, `.STF`, `.SFX`) is erased when it is dropped, when a game is
+loaded from the start menu (every record) and after each character a
+game saves (`4b6d:22de`).
+
+Load Saved Game (`4b6d:1b34`) offers the letters A-J whose
+`SAVGAM<letter>.DAT` is there (`Load Which Game: `, light magenta, digits
+not directions), and does nothing at all with none; Escape cancels;
+special keys count as their scan codes' letters (F7-F10, Home, up, PgUp
+as A-D, G-I) when that game is there. Then `Loading...Please Wait` on row
+24, the game is loaded (`cok_adventure_restore`, see Party) and the
+roster's copies erased; the mode is 0 and the last mode the saved one.
+
+The original's checks of the save disk (`4b6d:0555`: the volume label
+`CHAMP` on a floppy, `Put save disk in X:`, creating the save directory
+with `MkDir`), of free space (`Can't save.  No room on this disk.`,
+`Lose character? `) and an error check after `Reset` that reads
+`Dos.DosError`, which `Reset` does not set, are left out.
+
+The port keeps these quirks:
+
+- The list leaves out characters whose jewelry's low byte is 0x80 or
+  more.
+- The duplicate test needs the same name and `+0x115`; a player
+  character is not counted against 8 records, only 6 players.
+- The message names the first rule that applies, not why the character
+  was turned away; a duplicate or a full party says nothing.
+- With a space as the first key of Add, before any choice, the original
+  tests a count it never set (`[bp-0x1e]`), and Add ends when it is above
+  5. It holds what `FreeMem` (`1a46:03d3`) left when the start menu freed
+  its last row (`4def:0381`): the offset of the free block below the row,
+  or the low byte of DS (0xc6) when the row joins that block. The game
+  booted in an 8086 emulator with Turbo Pascal's own heap left 8 or 0xc6
+  there in every history tried, so the space leaves Add, as in the port:
+  the title seen or skipped at each wait, or `Woof`; the demonstration
+  first; a character created and saved, a creation cancelled, the mouse
+  screen or an Escape first; saved game A or B loaded; game A begun and
+  the outpost's `HALL` (`PROGRAM 0`) opening the start menu; and the EGA,
+  Tandy and CGA settings of `KRYNN.CFG`. Other heaps leave 0 and the
+  space does nothing: an empty heap or two font blocks, and a later Add
+  in the same visit to the start menu after an earlier one, since each
+  Add leaks its list of file names (`4b6d:0453`, 0x30 bytes a file),
+  which moves the start menu's rows. The port leaves Add every time.
+- Refusing to overwrite renames the character to the new file's name.
+- The file names keep one of two separators in a row (`169c:050b`).
+
+## Creating characters
+
+`src/create.h` ports Create New Character (`4def:06dd`) with the knight's
+items (`4def:5534`) and the default icon (`4def:3c61`), and `src/icon.h`
+the combat icon editor (`4def:408b`, `3d41`, `3e20`), which camp's Alter
+`Icon` also opens.
+
+The new record starts zeroed with the icon's colours as the template's
+(`+0x139`-`+0x13e` 91 a2 b3 c4 e6 f7), armour class 10 (`+0x113`), THAC0
+20 (`+0x59` 0x28), able to act, one cell in combat, icon slot 10, and a
+`Random(256)` in `+0x115`, the first number drawn. Five lists follow, each
+in cells 1-38 of rows 2-22 under its heading in light magenta, the rows
+indented two spaces in light green, `Select` and `Exit` on row 24
+(`67b5:1368`), starting on the first row; Escape or Exit discards the
+character. Pick Race (`DS:1140`): a kender gets effects 0x5c and 0x5e, a
+dwarf 0x5e, 0x1a and 0x2f, an elf 0x5f, a half-elf 0x12, each permanent
+with value 0xff; dwarves and kender are small (`+0x138` 1). Pick Gender.
+Pick Class, the race's classes from `DS:3a50` (15 bytes a race: the count
+and the classes), sets the levels and experience:
+
+| Class | Levels | Experience |
+| --- | --- | --- |
+| Cleric | 1 | 0, then 2000 good or 1500 neutral |
+| Fighter, Ranger, Mage, Thief | 2 | 2001, 2251, 5000, 1251 |
+| Knight | 1, order of the Crown | 2500 |
+| Cleric/Fighter, Cleric/Ranger | 1/1 | 2001, 2251 |
+| Cleric/Thief | 1/1 | 0, then as a cleric |
+| others | 1 each | 5000, Fighter/Thief 2001 |
+
+A ranger gets effect 0x69. Then the thief skills (`66c2:0b9f`), the THAC0
+and class bits of the levels and the saving throws (`66c2:08a6`) are set
+with every score still 0. Pick God, for clerics (dwarves have only
+Reorx): spells known by deity (Paladine 101, Majere 102, Kiri-Jolith 103
+and THAC0 one better, Mishakal 104-106, Sirrion 107, Reorx THAC0 one
+better for a dwarf, Shinare 106), and the alignments allowed, good for
+deities 1-4, neutral for 5-7. Pick Alignment offers the class's
+alignments (`DS:3c45`) the deity allows, lawful, true or chaotic good or
+neutral (`DS:0a9a`); never evil. A mage gets order 1 (White) when good,
+2 (Red) when neutral.
+
+The age (`+0x60`) is a single class's base and dice (`DS:3ab9`, race ×
+32 + class × 4), or for more classes the most one class's dice can give,
+with no roll. The character is then selected and its sheet drawn
+(`546c:00a3`). Then, and again on each reroll: the levels become 1;
+each score is the best of six rolls of 3d6 + 1, in the order strength,
+intelligence, wisdom, dexterity, constitution, charisma, changed by the
+age's thresholds (`DS:3b99`: strength +1 past the first, -1, -2, -1 past
+the next three; intelligence +1 past the second and fourth; wisdom -1
+at or below the first and +1 past the second, third and fourth;
+dexterity -2 and -1; constitution -1 three times), kept within the
+race's limits (`DS:39e0`, strength's by gender) and raised to the
+class's minimum (`DS:3bdf`), wisdom to 13 for a cleric of more than one
+class, and at 18 a fighter, ranger or knight rolls exceptional strength
+d100, at most the race's; each is drawn as it is rolled (`546c:0b50`).
+Movement 12, one attack of 1d2, strength's bonus; the money, in steel
+(`+0xf3`), is the classes' dice (cleric 3d6, fighter and ranger 5d4,
+mage 2d4, thief 2d6; a knight's 1d4 replaces it) and a fifth more; a
+cleric's spells a day (`66c2:0722`) and spells 1, 3, 5, 6 and 8 known, a
+mage's spell a day and spells 11, 12, 15, 18 and 21. Hit points come from
+`4def:4b3a` for every class (see Training), then the character trains
+silently (`4def:4d9e` with `DS:4b58`) until no class can rise, with var
+`0x7ea8` 0xff meanwhile, restored as its low byte; the level line is
+written over the sheet's at 7, 7 in white, and the combat figures and
+money are drawn. `Reroll stats? ` (light magenta, No first) rolls again.
+Then the sheet is redrawn, `Character name: ` (light magenta, 15
+characters, upper-cased) asks until a name is typed, the default icon is
+set and the icon editor opens, the scores become the base, and `Save
+NAME? ` saves it to the roster (see The start menu), a knight with its
+Plate Mail, Shield and Long Sword (not readied, linked Plate Mail,
+Shield, Long Sword after the last recompute, so the weight saved leaves
+them out). The record never joins the party; it is freed, saved or not.
+
+The random numbers, in order: `Random(256)`; the age's dice; per score
+18 d6 (and d100 after strength's for exceptional strength); the money's
+dice in class order; then `4def:4b3a`'s and the silent training's; and a
+reroll repeats all but the first two.
+
+The port keeps these quirks:
+
+- No score is adjusted by race: the code tests the race list's loop
+  counter, always 6, the human, instead of the race.
+- A multi-class's money is not divided: the test reads the class loop's
+  counter, always 7 after it.
+- A multi-class's age is its most, with no roll.
+- Exceptional strength is rolled even where the race allows none, then
+  cut to 0.
+- The young (at or below the first threshold) lose a point of wisdom.
+- `66c2:0b9f` at the class step reads 0x0a as its uninitialized byte,
+  the normal colour the class list was given (`4def:0ee7`); every class
+  with a thief level trains, and training's `66c2:0433` reads the usual
+  7, so it never reaches the file.
+- A single cleric or knight does not train: it keeps the saving throws
+  computed with every score 0, and `+0xd6` 0.
+- Var `0x7ea8` comes back as its low byte.
+- The knight's items are not in the weight saved.
+- A name is asked until one is typed; Escape does not cancel it. No name
+  is checked against others.
+
+Where creation would never end, free training (no row offers it) or a
+character not okay (it cannot be), the port stops with
+`COK_ECL_UNDEFINED`.
+
+### The icon
+
+The default icon (`4def:3c61`): head 3 for a kender, else 9 (large) or 7
+for a woman and 5 or 0 for a man; body 0x17 for a cleric, else 1 for a
+ranger, 0x18 for a knight or fighter, 0x1d for a mage, 5 for a thief.
+
+The editor (`4def:408b`) clears the open frame and shows the icon as it
+is, `old`, at cells 4-6 (ready) and 13-15 (attacking) of rows 7-9, and
+as it is being changed, `new`, on rows 13-15, each over COMSPR's frame
+(slot 25), with `old`, `new` and `ready   action` in white (cells 8, 6;
+3, 10; 8, 12; 3, 16). The working icon is built in slot 12 from the
+record's (`4b6d:0817` without colours) and recoloured (`4def:3e20`). Its
+menus, on row 24 with no prompt (`67b5:03e2`, white and light green,
+digits not directions, the selection kept from the menu before):
+
+| Menu | Items | What they do |
+| --- | --- | --- |
+| 1 | `Parts 1st-color 2nd-color Size Exit` | the menus below; Exit or Escape leaves |
+| 2 | `Head Weapon Exit` | `Weapon` edits the body (`+0x136`), whose pictures hold the weapon |
+| 3 | `Weapon Body Hair Shield Arm Leg Exit` (`Face` for 2nd-color) | the part's colour: body 1, arm 2, leg 3, hair or face 4, shield 5, weapon 6 (`+0x139` on), the low nibble for 1st-color, the high for 2nd |
+| 4 | `Small Keep Exit` or `Large Keep Exit` | the size to change to (`+0x138`) |
+| 5 | `Next Prev Keep Exit` | heads 0-13, bodies 0-31, nibbles 0-15, wrapping; Keep keeps the field, Exit or Escape puts it back |
+
+Leaving puts back what was not kept, copies the icon to the record's slot
+with its colours, frees slot 12 and asks `Is this icon ok? ` (light
+magenta); No starts again from the icon as it is, without the frame. The
+camp's Alter then redraws the camp's screen. The CGA path (`Sorry, not in
+CGA`) is not ported.
+
+The port keeps these quirks: a space in `Parts` opens menu 5 with nothing
+to edit, and no key leaves it; `Weapon` edits the body; menu 3's text is
+patched in the data segment (`Hair` or `Face`); the selection carries
+over from the menu before (from creation `1st-color`, from the camp
+`Size`). The level whose key was last handled is uninitialized before the
+first; a special key first whose scan code is 0 or 0x45 would test it,
+and the port stops with `COK_ECL_UNDEFINED`, though the keyboard never
+gives either.
+
+### Modify Character
+
+Modify (`4def:28fa`) picks a character and changes it only if its
+experience is that of a new character (1500, 1251, 2000, 2001, 2251,
+2500 or 5000) and `+0xd7` is 0; otherwise `NAME can't be modified.` in
+yellow. Over the sheet, the field being changed is drawn in light
+magenta (`4def:278c`): the scores 0-5, the name (6, the character at
+the cursor in white, `%` for a space) and the maximum hit points (7).
+`Modify: ` and `Add Subtract Keep Exit` (digits as directions) take keys
+for the scores and hit points; the name reads keys raw (`1614:025b`).
+Up and down (8 and 2) move between fields, wrapping, as Enter does in
+the name. Subtract and Add change a score within its race's limits
+(`DS:39e0`), Subtract keeping the class's minimum (`DS:3bdf`); strength
+above 18 raises a fighter's, ranger's or knight's exceptional strength
+to the race's most, and Subtract takes it down first; wisdom sets a
+cleric's spells a day `+0x11c` to 1; constitution and the hit points
+keep the maximum between the least and the most the levels allow
+(`4def:4808`, `48e9`), the hit points then the maximum. In the name
+Subtract and Add move the cursor, wrapping; Del deletes at the cursor,
+Backspace before it; letters, digit 0 and others from space to `z` are
+typed. After each key the stats are recomputed (`6346:0d20`, `546c:07bb`).
+Keep recomputes the spells a day (`66c2:0722`), sets `+0xe8`, sets the hit
+points at full (`+0x11b`) to the maximum less the constitution's average
+bonus, and makes the scores the base; Exit or Escape puts back the
+scores, exceptional strength, maximum and name, and the hit points become
+the maximum.
+
+The port keeps these quirks: in the name, upper-case A and S move the
+cursor, and K is typed and then keeps; digits 1-9 and `\` are directions;
+Backspace does not move the cursor back; typing at the end adds a space,
+which is kept; Exit leaves `+0x11c` as a wisdom change left it; Keep's
+bonus sum is a byte divided unsigned (a cleric/fighter of constitution 5
+and a maximum of 8 gets 137 at full); `4def:48e9` past a class's top
+level sets its sum rather than adding to it; the least counts a ranger's
+and a knight's extra level, the most also a cleric's of a deity up to 4;
+the name is redrawn in light green after a constitution change; the `*`
+beside a changed score is never erased. Modify does not recompute THAC0,
+saving throws or thief skills. Where `4def:257c` returns its
+uninitialized local (a constitution outside 3-19), the port stops.
+
+## Training
+
+`src/train.h` ports Train Character (`4def:4d9e`) with its hit points
+(`4def:4b3a`, `4789`) and the experience table's row (`6346:371e`), and
+Knight Change Classes (`4def:5812`, `567f`, `257c`). Training is free.
+
+The training halls' scripts set var `0x7ea8` to the classes they train,
+bits of `DS:38f2` (127, every class, in all three: ECL1 block 16's aged
+adventurers, the outpost's HALL in block 17, and block 18 once), then run
+`PROGRAM 0`; Begin Adventuring clears it. Train picks a character; one
+not okay is refused (`we only train conscious people`, yellow) unless
+free training is on. For each class with a level, the experience its
+next level needs is the LongInt of `DS:3c65` (ten rows of 99 bytes: 0 and
+1 clerics by deity, 2 fighters, 3-5 knights by order, 6 rangers, 7 and 8
+mages by order of magic, 9 thieves) at 4 × (level + 1); 0 or less is the
+top (level 8, rangers 7, thieves 9). A kender fighter or ranger stops at
+5 below strength 17, at 6 at 17 and at 7 above. Experience past the
+second next level is cut to one less than it, before anything is asked.
+`We don't train that class here` or `Not Enough Experience` (yellow) end
+it, else the frame's inside is cleared and `NAME will become:` (the
+name light cyan at 4, 4) lists `    a level N Class`, then `and a level
+N Class` from column 6, and `Do you wish to train? ` (light magenta, No
+first) asks; Yes says `Congratulations...` on row 24. Each class the hall
+trains rises a level, the levels are recomputed (`66c2:0433`), a mage
+rising learns a spell, and the hit points rise (`4def:4b3a`) if the
+highest level passed `+0xd7`.
+
+A spell is learned from `NAME's Spells to Choose` (`546c:34ec` kind 4,
+`5b04:0b21`): for each mage spell level 1-4 with a spell a day, the
+spells of the order's table (`DS:4208` + 40 × (order 1 ? 2 : 3) + 10 ×
+level, to the first 0) the character does not know, under headings, with
+`Choose Spell: ` and `Learn` and no Exit; Escape shows it again.
+
+The hit points (`4def:4b3a`): each class trained below its top level
+(`DS:3903`) rolls its dice twice and keeps the better (at level 1
+`DS:0b6e` of `DS:0b76`'s sides: cleric 2d8, or 1d8 for a deity above 4,
+fighter and paladin 1d10, ranger 2d8, mage 1d4, thief 1d6, knight 2d10;
+above it one die), and adds its constitution bonus (`4def:4789`: `DS:3c53`
+by constitution, a fighter, ranger or knight one more at 17 up to five at
+24-25) times the dice; at or above its top a class gives a fixed 3
+(fighter, knight), 2 (cleric, ranger, thief) or 1 (mage) in place of the
+sum so far. Sum and bonus are each divided by the classes with a level,
+the sum at least 1: the maximum (`+0x62`) gains both, `+0x11b` the sum,
+and the hit points stay as far below the maximum as they were.
+
+In creation (`DS:4b58`) nothing is shown or asked, no experience is cut,
+each class with the experience rises one level each call, the hall being
+every class, and a mage of level 2, 3, 4 or 5 after it knows spell 15,
+34 and 10, 31, or 47.
+
+Knight Change Classes (`4def:5812`) picks a character and clears the
+frame's inside; a knight of the Crown or the Sword shows, in light
+green, its name centred on row 3, `is petitioning to become a` and
+`Knight Of The sword` (or `rose`, in lower case) and, on row 9, `NAME is
+too inexperienced.` (level 3 and 12,000 experience for the Sword; level
+4 and 27,000, without the full stop, for the Rose), `NAME does not
+qualify.` (base scores 12, 9, 13, 9, 10, 3 or 15, 10, 13, 12, 15, 3,
+`DS:0b7e`) or `NAME may become a` and `Knight Of The Sword` (or `Rose`)
+with `Change Exit`, else `Exit`. Change (`4def:567f`) moves it to the
+next order; if its experience is below the new order's for its level, it
+loses a level and hit points (`+0x11b` divided by the level + 1, and the
+constitution bonus of `4def:257c`). The levels are recomputed; experience
+is kept.
+
+The port keeps these quirks:
+
+- Training adds class bits, so a cleric and druid, or paladin and
+  knight, make another class's bit.
+- Experience past the second next level is lost even when No is
+  answered or the hall refuses.
+- The second pass for the experience cut reads the last class's row and
+  level for every class (only visible with the kender's limits).
+- A kender at level 6 with strength below 17 is not stopped.
+- The constitution bonus divides unsigned: two or three classes with a
+  negative bonus gain about 127 hit points.
+- At the top level a fixed amount replaces earlier classes' rolls.
+- Free training trains the unconscious and the dead, raises the
+  experience to what each level needs, and at the top level still gives
+  a hit point; nothing offers it.
+- F9, whose scan code 0x43 is `C`, changes a knight's order even when
+  only `Exit` is offered, as the special flag is not tested.
+- The Rose's `is too inexperienced` has no full stop; `sword` and `rose`
+  are in lower case on row 7.
+
+Where the original reads an uninitialized local, the port follows what
+the calls before leave there or stops:
+
+- The experience row of a druid, a paladin or a knight of no order
+  (`6346:371e`) is the row of the class before it in the same call; for
+  the first class it is 0x74, the `t` of `Pick Character ` that Pick
+  Character (`546c:36cc`) copies to its frame on every key at the very
+  slot, whether the start menu came from the title or `PROGRAM 0`. Row
+  0x74 reads the combatants' far pointers (`DS:6945` on), NULL or a
+  segment above 0x2000, so such a class never trains and cuts no
+  experience. With free training, which would take the pointer as
+  experience, or with experience of 0x20000000 or more, the port stops
+  with `COK_ECL_UNDEFINED`. No race's class list (`DS:3a50`) has a druid
+  or paladin, and Create makes knights of the Crown, so only an edited
+  file reaches this.
+- A knight of no order petitions to become a `Knight Of The `: the
+  order's name is a local never set (`[bp-6]` of `4def:5812`), which the
+  start menu's freeing of its rows (`67b5:18a1` from `4def:0381`) leaves
+  an empty string. The experience and scores are not checked and only
+  `Exit` is offered; F9 changes the order all the same.
+- `4def:257c` for a constitution outside 3-19 stops the port.
+
+A differential test ran the original's routines in an 8086 emulator
+against the port. Creation (`4def:06dd`, its lists fed picks and its
+icon editor passed, the rest as it is, `4b3a`, `4d9e` and `66c2`
+included) on random races, genders, classes, deities, alignments,
+rerolls, names, seeds and var `0x7ea8`: the record saved, its items and
+effects and the random seed after agreed in all 20,000 cases. Training
+(`4def:4d9e` in both modes, with Pick Character and `546c:34ec`'s list
+built and picked) and Knight Change Classes (`567f`) on random
+characters, halls, answers and seeds: of 20,000 cases, the 19,685 the
+port carries out agreed in the record, the seed, the texts drawn, the
+notices and the spells listed, 421 of them with a first class that has
+no row (0x74); the port alone refused 315 with such a class, 205 in
+creation and 110 with free training. Modify (`4def:28fa` with the sheet,
+menus and keyboard as they are) on random characters, constitutions 0 to
+255 included, and keystrokes, and `4808` and `48e9` alone: the 13,627
+Modify runs and 5,254 hit point pairs the port carries out agreed; the
+port alone refused 385 runs and 704 pairs, a constitution outside 3-19
+(`4def:257c`). The icon editor (`4def:408b` with `0817`, `3e20`, `3d41`
+and the picture routines in Tandy mode on a linear frame buffer) on
+5,000 random icons and keystrokes: all agreed in the record and every
+pixel of both icons. The start menu (`4def:01b4` with Pick Character,
+the lists, menus and party list, and each command as far as an Escape or
+No takes it) on random parties, halls and keystrokes, its text and tiles
+replayed by the port's routines and compared at every key read: of 5,000
+cases, 3,440 agreed in every screen and the state after; 1,558 reached
+commands the test does not drive (View, Add, Save and the mouse) and 2
+the emulator's `Crt.ReadKey`. Add Character to Party, from the start
+menu, with its listing, `4b6d:0555`, `008b` and the file reads running
+over a small DOS layer on random rosters, and Turbo Pascal's own heap
+laid out as the game booted in the emulator left it after the start menu
+freed its rows: of 3,550 cases, 3,541 agreed in every screen and the
+party after, 698 of them with a space first; in 9 a later Add ignored a
+first space where the port leaves (see The roster). `169c:05da` with
+`050b` on 1,450 random strings agreed. The title (`2f55:063c`): its five
+screens agreed pixel for pixel. It is not part of the repository; `make
+test` checks cases of each that the emulator ran (`tests/test_start.c`).
+
 ## Checks against the original
 
 These follow the disassembly but have not been compared with the game
@@ -4061,9 +4644,9 @@ running in DOSBox:
 - The thief skills include the 7 that `66c2:0b9f` reads from the stack,
   which the saved thieves show; an interrupt between `66c2:08a6` and
   `66c2:0b9f` could leave another value. Load a saved game with a human
-  thief and compare its thief skills (`+0xdb`) with the port's; character
-  creation calls `66c2:0b9f` from elsewhere (`4def:06dd`), with another
-  value on the stack.
+  thief and compare its thief skills (`+0xdb`) with the port's. Character
+  creation calls `66c2:0b9f` from elsewhere (`4def:06dd`), where the byte
+  is 0x0a, but its training then recomputes the skills with the 7.
 - Load saved game B and rest a day: the effects in the `.SFX` files of its
   characters, all permanent, should be unchanged when it is saved again.
 - Give a character with no effects (not a dwarf, elf, half-elf, kender or
@@ -4311,8 +4894,39 @@ running in DOSBox:
 - At the title screen, press no key: the demonstration (ECL2 block 57)
   should start with Sir Ringwald, Varianna and Lyn Swiftfoot. Compare the
   close-up of the green dragon at the end of its first walk, whose frames
-  `CALL [6803]` steps through, and what happens after its battle, which
-  the port does not follow (`DS:4b4b`).
+  `CALL [6803]` steps through, and what happens after its battle: no
+  `Continue Battle:`, no treasure, and the title again.
+- Wait 30 seconds at the title's menu: the demonstration should play;
+  press F10 there instead: it should play too (scan code 0x44, `D`).
+  After it the title should show again and its menu read `Champions Of
+  Krynn v1.2`.
+- In the start menu, press Escape, then Save: the game should count as
+  unsaved, so `Exit to DOS` and Yes ask `Game NOT saved.  Quit anyway? `;
+  No there should open `Save Which Game: ` and stay in the menu.
+- Create characters: no score should ever show a racial adjustment
+  (a dwarf's constitution, an elf's dexterity), a multi-class's money
+  should not be divided, and a human cleric of 19 or 20 years should
+  lose a point of wisdom. Create a human thief and compare its thief
+  skills with the port's, which take the 7 of training.
+- Create a knight: its Plate Mail, Shield and Long Sword should be
+  carried but not readied, and its encumbrance should leave them out
+  until it is loaded again.
+- In the icon editor, choose `Parts` and press space: no key should
+  leave the menu that follows.
+- Add a roster character with 128 or more jewels: it should not be
+  listed. Make the first key of Add a space: Add should end. Add a
+  character, leave, and open Add again with a space: it may stay.
+- Add a ranger to a party with three rangers: `too many rangers in
+  party`.
+- Remove a character and save it over an existing file, answering No to
+  `Overwrite`: the character should take the new file's name.
+- In a training hall, train a character with experience past the second
+  next level, and answer No: the experience should be cut all the same.
+- At Knight Change Classes, press F9 for a knight who is too
+  inexperienced: the order should change.
+- Modify a character's name typing an upper-case `K`: Modify should keep
+  and end. Change the wisdom of a cleric with two spells a day and exit:
+  it should keep one until it is loaded again.
 
 ## Disassembly image
 

@@ -746,8 +746,7 @@ bool cok_arena_join(cok_adventure *game, uint8_t file)
 /* The window is full: wait for a key (1614:025b), as PRINT pages. */
 static void page(void *context)
 {
-    cok_keyboard keys = cok_adventure_keyboard(context);
-    keys.read(keys.context);
+    cok_adventure_wait_key(context);
 }
 
 /* Print text wrapped in window from the cursor, clearing it first, without

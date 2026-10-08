@@ -1,6 +1,9 @@
 #include "camp.h"
 
+#include "arena.h"
+#include "icon.h"
 #include "magic.h"
+#include "roster.h"
 #include "screen.h"
 #include "sheet.h"
 
@@ -121,7 +124,7 @@ void cok_camp_pick(cok_adventure *game, uint8_t scan)
 }
 
 /* Quit to DOS (1614:0000): the run ends. */
-static void quit(cok_adventure *game)
+void cok_camp_quit(cok_adventure *game)
 {
     cok_adventure_log(game, "quit", "to DOS");
     game->quit = true;
@@ -693,7 +696,8 @@ static void order(cok_adventure *game)
 }
 
 /* Remove the selected character from the party (4def:3b0a with 0, 1),
- * counting it out of 0x7f3e, and select the one before it, or the first. */
+ * freeing its icons, counting it out of 0x7f3e, and select the one before
+ * it, or the first. */
 static void remove_selected(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -704,6 +708,7 @@ static void remove_selected(cok_adventure *game)
     uint8_t *gone = game->party.members[i]->record;
     if (game->spell_target == gone) game->spell_target = NULL;
     if (game->trade_partner == gone) game->trade_partner = NULL;
+    if (gone[0x137] < COK_ICON_SLOTS) cok_arena_free_icon(game, gone[0x137]); /* 6d21:0156 */
     cok_party_remove(&game->party, i);
     --vm->mem7c00[0x33e];
     vm->character = cok_party_record(&game->party, i > 0 ? i - 1 : 0);
@@ -723,7 +728,7 @@ static void drop(cok_adventure *game)
     if (game->party.count == 1) {
         if (cok_camp_yes_no(game, "quit TO DOS: ", 14) != 'Y') return;
         remove_selected(game);
-        quit(game);
+        cok_camp_quit(game);
         return;
     }
     cok_camp_say(game, c, "will be gone", false);
@@ -811,7 +816,7 @@ static void level(cok_adventure *game)
 }
 
 /* Alter (4888:2539): "Order Drop Speed Icon Pics Level Exit" until Exit or
- * Escape. Icon, the combat icon editor (4def:408b), is not ported. */
+ * Escape. Icon is the combat icon editor (4def:408b, see icon.h). */
 static void alter(cok_adventure *game)
 {
     int key = ' ';
@@ -828,7 +833,10 @@ static void alter(cok_adventure *game)
         case 'O': order(game); break;
         case 'D': drop(game); break;
         case 'S': speed(game); break;
-        case 'I': cok_adventure_log(game, "unported", "Icon (4def:408b)"); break;
+        case 'I':
+            /* 4888:25d9: the combat icon editor, then the screen redrawn. */
+            if (cok_icon_edit(game)) cok_adventure_redraw(game);
+            break;
         case 'P': pictures(game); break;
         default: break;
         }
@@ -886,12 +894,14 @@ bool cok_camp_save_game(cok_adventure *game, char letter)
         cok_adventure_log(game, "error", error);
     }
     for (size_t i = 0; i < game->party.count; ++i) {
-        if (cok_character_write(game->party.members[i], game->save_dir, saved.names[i], error,
-                                sizeof error))
-            continue;
-        ok = false;
-        snprintf(game->error, sizeof game->error, "%s", error);
-        cok_adventure_log(game, "error", error);
+        if (!cok_character_write(game->party.members[i], game->save_dir, saved.names[i], error,
+                                 sizeof error)) {
+            ok = false;
+            snprintf(game->error, sizeof game->error, "%s", error);
+            cok_adventure_log(game, "error", error);
+        }
+        /* 4b6d:0a80: the roster's copy of the character goes. */
+        cok_roster_erase(game, game->party.members[i]->record);
     }
     game->effects.rolls.saved = 1; /* DS:5885 */
     return ok;
@@ -902,7 +912,7 @@ bool cok_camp_save_game(cok_adventure *game, char letter)
  * Home G, up H and PgUp I. The original's checks for the disk, its volume
  * label and free space are left out; it ignores write errors, which are
  * logged here. */
-static void save(cok_adventure *game)
+void cok_camp_save(cok_adventure *game)
 {
     int key;
     do {
@@ -971,8 +981,8 @@ bool cok_camp(cok_adventure *game)
                 cok_adventure_redraw(game);
                 vm->mem4b00[0x13c] = 0;
             }
-            save(game);
-            if (!vm->abort && cok_camp_yes_no(game, "Quit TO DOS ", 14) == 'Y') quit(game);
+            cok_camp_save(game);
+            if (!vm->abort && cok_camp_yes_no(game, "Quit TO DOS ", 14) == 'Y') cok_camp_quit(game);
             break;
         case 'V': {
             game->selected = 1;

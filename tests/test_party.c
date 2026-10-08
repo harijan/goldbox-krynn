@@ -52,6 +52,15 @@ static void test_names(void)
     CHECK(strcmp(out, "'CINDER") == 0);
     cok_party_file_name("", out);
     CHECK(strcmp(out, "") == 0);
+    /* 169c:050b does not test again the position a deletion fills. */
+    cok_party_file_name("A  B", out);
+    CHECK(strcmp(out, "A B") == 0);
+    cok_party_file_name("A...B", out);
+    CHECK(strcmp(out, "A.B") == 0);
+    cok_party_roster_name("A...B", out);
+    CHECK(strcmp(out, "AB") == 0);
+    cok_party_roster_name("a.b c", out);
+    CHECK(strcmp(out, "ABC") == 0);
 }
 
 static void test_members(void)

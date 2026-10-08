@@ -13,16 +13,36 @@ static void fail(char *error, size_t size, const char *format, ...)
     va_end(args);
 }
 
+/* 169c:050b: remove each occurrence of c from s, testing positions 1 to the
+ * original length once each, so that the character that slides into a
+ * deleted one's place is not tested. */
+static void remove_char(char *s, char c)
+{
+    size_t bound = strlen(s);
+    for (size_t i = 0; i < bound; ++i)
+        if (i < strlen(s) && s[i] == c) memmove(s + i, s + i + 1, strlen(s + i));
+}
+
 void cok_party_file_name(const char *name, char out[9])
 {
     static const char removed[] = " .*,?/\\:;|"; /* DS:0f3c */
+    char s[256];
+    snprintf(s, sizeof s, "%s", name);
+    for (const char *c = removed; *c != '\0'; ++c) remove_char(s, *c);
     size_t length = 0;
-    for (; *name != '\0' && length < 8; ++name) {
-        if (strchr(removed, *name) != NULL) continue;
-        char c = *name;
-        out[length++] = c >= 'a' && c <= 'z' ? (char)(c - 'a' + 'A') : c;
+    for (; s[length] != '\0' && length < 8; ++length) {
+        char c = s[length];
+        out[length] = c >= 'a' && c <= 'z' ? (char)(c - 'a' + 'A') : c;
     }
     out[length] = '\0';
+}
+
+void cok_party_roster_name(const char *name, char out[9])
+{
+    char s[256];
+    snprintf(s, sizeof s, "%s", name);
+    remove_char(s, '.');
+    cok_party_file_name(s, out);
 }
 
 static uint16_t u16(const uint8_t *p)
@@ -99,9 +119,16 @@ static bool read_records(const char *path, size_t size, uint8_t **out, size_t *c
 bool cok_character_read(cok_character *character, const char *dir, const char *base,
                         const cok_item_types *types, char *error, size_t error_size)
 {
+    return cok_character_read_file(character, dir, base, "SAV", types, error, error_size);
+}
+
+bool cok_character_read_file(cok_character *character, const char *dir, const char *base,
+                             const char *extension, const cok_item_types *types, char *error,
+                             size_t error_size)
+{
     memset(character, 0, sizeof *character);
     char path[4096];
-    snprintf(path, sizeof path, "%s/%s.SAV", dir, base);
+    snprintf(path, sizeof path, "%s/%s.%s", dir, base, extension);
     bool missing;
     size_t size = 0;
     uint8_t *data = read_file(path, &size, &missing);
@@ -139,7 +166,7 @@ bool cok_character_read(cok_character *character, const char *dir, const char *b
     char why[200];
     if (!cok_character_stats(character, types, why, sizeof why) ||
         !cok_character_levels(character, types, why, sizeof why)) {
-        snprintf(path, sizeof path, "%s/%s.SAV", dir, base);
+        snprintf(path, sizeof path, "%s/%s.%s", dir, base, extension);
         fail(error, error_size, "%s: %s", path, why);
         return false;
     }
@@ -1364,6 +1391,28 @@ bool cok_character_levels(cok_character *character, const cok_item_types *types,
     return !l.failed;
 }
 
+bool cok_character_cleric_spells(cok_character *character, char *error, size_t error_size)
+{
+    lookup l = {error, error_size, false};
+    cleric_spells(&l, character->record);
+    return !l.failed;
+}
+
+bool cok_character_saving_throws(cok_character *character, char *error, size_t error_size)
+{
+    lookup l = {error, error_size, false};
+    saving_throws(&l, character);
+    return !l.failed;
+}
+
+bool cok_character_thief_skills(cok_character *character, uint8_t extra, char *error,
+                                size_t error_size)
+{
+    lookup l = {error, error_size, false};
+    thief_skills(&l, character, &extra);
+    return !l.failed;
+}
+
 bool cok_party_add(cok_party *party, cok_character *character)
 {
     if (party->count == COK_PARTY_RECORDS) return false;
@@ -1592,8 +1641,14 @@ bool cok_saved_game_write(const char *path, const cok_saved_game *game, char *er
 bool cok_character_write(const cok_character *character, const char *dir, const char *base,
                          char *error, size_t error_size)
 {
+    return cok_character_write_file(character, dir, base, "SAV", error, error_size);
+}
+
+bool cok_character_write_file(const cok_character *character, const char *dir, const char *base,
+                              const char *extension, char *error, size_t error_size)
+{
     char path[4096];
-    snprintf(path, sizeof path, "%s/%s.SAV", dir, base);
+    snprintf(path, sizeof path, "%s/%s.%s", dir, base, extension);
     /* The record goes as it is; its far pointers, which the original
      * writes as they are in memory and its loader clears, are 0 here. */
     if (!write_file(path, character->record, COK_CHARACTER_SIZE, error, error_size)) return false;

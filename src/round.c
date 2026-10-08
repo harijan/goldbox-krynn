@@ -862,8 +862,8 @@ bool cok_combat_end_round(cok_adventure *game, bool *done)
     if (combat->sides[0] == 0 || combat->sides[1] == 0 ||
         game->effects.rolls.round >= combat->round_limit)
         *done = true;
-    /* The title screen's demo (DS:4b4b, not ported) would not ask. */
-    if (combat->sides[0] > 0 && combat->sides[1] == 0) {
+    /* The demonstration (DS:4b4b) does not ask (3995:0c78). */
+    if (!game->demo && combat->sides[0] > 0 && combat->sides[1] == 0) {
         int answer = cok_camp_yes_no(game, "Continue Battle:", 13); /* 67b5:177f */
         if (answer == 'Y') *done = false;
     }

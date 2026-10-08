@@ -172,8 +172,15 @@ typedef struct {
 } cok_party;
 
 /* The file name the game makes from a character name (169c:05da): remove
- * " .*,?/\:;|", keep 8 characters and upper-case them. */
+ * " .*,?/\:;|", keep 8 characters and upper-case them. Each character is
+ * removed by 169c:050b, which does not test again the position a deletion
+ * slides the next one into, so of two alike in a row only the first goes:
+ * "A  B" gives "A B". */
 void cok_party_file_name(const char *name, char out[9]);
+/* The file name of a roster character or a saved game's (4b6d:0bed,
+ * 4b6d:1b34): its dots removed by 169c:050b first, then
+ * cok_party_file_name. */
+void cok_party_roster_name(const char *name, char out[9]);
 
 /* Read character file base (with no extension) from dir: base.SAV, a
  * 409-byte record, then the items in base.STF and the effects in base.SFX
@@ -183,6 +190,11 @@ void cok_party_file_name(const char *name, char out[9]);
  * set. Free with cok_character_free. */
 bool cok_character_read(cok_character *character, const char *dir, const char *base,
                         const cok_item_types *types, char *error, size_t error_size);
+/* As cok_character_read, from base.extension (4b6d:11e5 takes the file's
+ * whole name): "WHO" for the start menu's roster (4def:37a2). */
+bool cok_character_read_file(cok_character *character, const char *dir, const char *base,
+                             const char *extension, const cok_item_types *types, char *error,
+                             size_t error_size);
 /* Free the items, effects and combat record. */
 void cok_character_free(cok_character *character);
 
@@ -230,6 +242,16 @@ bool cok_character_stats(cok_character *character, const cok_item_types *types, 
  * of 90 or more reads past the initialized data. */
 bool cok_character_levels(cok_character *character, const cok_item_types *types, char *error,
                           size_t error_size);
+
+/* The parts of 66c2:0433 that character creation (4def:06dd) and Modify
+ * (4def:28fa) call alone: a cleric's spells a day with its wisdom bonus
+ * (66c2:0722), the saving throws (66c2:08a6), and the thief skills
+ * (66c2:0b9f) with extra, the byte its uninitialized local holds. Each
+ * returns false with error set as cok_character_levels does. */
+bool cok_character_cleric_spells(cok_character *character, char *error, size_t error_size);
+bool cok_character_saving_throws(cok_character *character, char *error, size_t error_size);
+bool cok_character_thief_skills(cok_character *character, uint8_t extra, char *error,
+                                size_t error_size);
 
 /* The weight c may carry before its strength slows it (6346:153b), which
  * can be negative. Returns false with error set where its strength row is
@@ -359,5 +381,9 @@ bool cok_saved_game_write(const char *path, const cok_saved_game *game, char *er
  * false with error set if a file cannot be written. */
 bool cok_character_write(const cok_character *character, const char *dir, const char *base,
                          char *error, size_t error_size);
+/* As cok_character_write, the record to base.extension: "WHO" for the
+ * roster (4b6d:0bed with no base given). */
+bool cok_character_write_file(const cok_character *character, const char *dir, const char *base,
+                              const char *extension, char *error, size_t error_size);
 
 #endif

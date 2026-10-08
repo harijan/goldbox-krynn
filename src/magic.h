@@ -55,6 +55,15 @@ int cok_magic_memorized(cok_adventure *game, cok_character *character);
  * scrolls (DS:4838), pass 49. */
 int cok_magic_scroll(cok_adventure *game, cok_character *character, size_t item);
 
+/* Learn a magic-user spell on rising a level, as training does
+ * (4def:4d9e with 546c:34ec kind 4, mode 4): "Spells to Choose", the
+ * spells of levels 1-4 with a spell a day, of the table of its order, that
+ * character does not know, with "Choose Spell: " and Learn and no Exit;
+ * Escape shows the list again. The spell picked becomes known. Returns
+ * it, 0 when there is none to learn, or -1 when input ended or the list
+ * cannot be built. */
+int cok_magic_learn(cok_adventure *game, cok_character *character);
+
 /* Sort c's memorized spells by id, ignoring the mark, so that empty bytes
  * come first (4888:0fb2). */
 void cok_magic_sort(uint8_t *record);

@@ -383,7 +383,8 @@ static size_t used_scroll;
 
 /* Build list kind for the selected character (5b04:0b21): 0 the spells it
  * has memorized, 1 those of its grimoire it may memorize, 2 those of the
- * scroll used (DS:6e36), 3 those of its scrolls, 5 those marked to
+ * scroll used (DS:6e36), 3 those of its scrolls, 4 the magic-user spells
+ * it may learn on rising a level, 5 those marked to
  * memorize, 6 those marked to scribe. Lists of memorized and grimoire
  * spells get a heading before each level. The scroll list counts its
  * spells in DS:4838, which only kinds 3 and 6 (5b04:0a6f) reset. */
@@ -402,6 +403,20 @@ static bool build_list(cok_adventure *game, spell_list *l, cok_character *charac
             if (c[0x62 + n] != 0 && usable(game, character, n) && !granted(c, n) &&
                 !add_sorted(game, l, n))
                 return false;
+    } else if (kind == 4) {
+        /* 5b04:0cb8: the magic-user spells of each level 1-4 with a spell a
+         * day (+0x12b on) that it does not know, from the table of its
+         * order (DS:4208 + 40 * table + 10 * level, to the first 0): 2 for
+         * order 1, else 3. Level 5 is never offered. */
+        int table = c[0x5e] == 1 ? 2 : 3;
+        for (int level = 1; level <= 4; ++level) {
+            if (c[0x12a + level] == 0) continue;
+            uint8_t spell = 0xff;
+            for (int k = 1; k <= 10 && spell != 0; ++k) {
+                cok_ds_byte((uint16_t)(0x4208 + table * 40 + level * 10 + k), &spell);
+                if (spell != 0 && c[0x62 + spell] == 0 && !add_sorted(game, l, spell)) return false;
+            }
+        }
     } else if (kind == 2) {
         /* 5b04:0981 on the scroll alone, whatever its order. */
         l->scroll_count = game->scroll_spells;
@@ -511,6 +526,18 @@ static int choose(cok_adventure *game, cok_character *character, int kind, int m
     snprintf(picked, sizeof picked, "%u", l.spells[k]);
     cok_adventure_log(game, "choice", picked);
     return l.spells[k];
+}
+
+int cok_magic_learn(cok_adventure *game, cok_character *character)
+{
+    int index = -1;
+    bool nonempty;
+    int spell;
+    do {
+        spell = choose(game, character, 4, 4, &index, &nonempty);
+    } while (spell == 0 && nonempty && !game->vm.abort);
+    if (spell > 0) character->record[0x62 + spell] = 1;
+    return spell;
 }
 
 /* Memorizing. */

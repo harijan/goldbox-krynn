@@ -55,4 +55,9 @@ void cok_screen_combat(cok_picture *dst, const cok_picture *tiles, const uint16_
  * DS:0f02) to row 22, and column 19 from row 9 to 19 (DS:0f19). */
 void cok_screen_sheet(cok_picture *dst, const cok_picture *tiles, const uint16_t moons[3]);
 
+/* The credits' frame (1128:0130): cells 1-38 by 1-22 cleared, rows 0, 4,
+ * 20 and 23 across, without moons, and columns 0 and 39 between, making
+ * three boxes. */
+void cok_screen_credits(cok_picture *dst, const cok_picture *tiles);
+
 #endif

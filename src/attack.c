@@ -193,8 +193,7 @@ static void wait_speed(cok_adventure *game)
 /* The text's window is full: wait for a key (1614:025b), as PRINT pages. */
 static void page(void *context)
 {
-    cok_keyboard keys = cok_adventure_keyboard(context);
-    keys.read(keys.context);
+    cok_adventure_wait_key(context);
 }
 
 /* 6346:161b: forget the first memorized byte equal to spell. */

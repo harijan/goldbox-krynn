@@ -1071,5 +1071,115 @@ class PartyTests(unittest.TestCase):
         self.assertIn("SAVGAMZ.DAT: not found", result.stderr)
 
 
+# From the title (a key skips it) and its menu (Play) to the start menu.
+TITLE = r"\kxP"
+# Create a human male fighter, lawful good, named BOB, keeping his first
+# rolls and icon, and save him to the roster.
+CREATE_BOB = r"\r" + r"\v" * 6 + r"\r\r\v\r\rNBOB\r\eYY"
+
+
+class StartMenuTests(unittest.TestCase):
+    """The game from its title: the start menu, creating characters, the
+    roster, training and saved games (eclplay --start-menu)."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.folder = pathlib.Path(self.temp.name)
+
+    def play(self, keys, *args):
+        return subprocess.run([str(TOOL), "--start-menu", "--saves", str(self.folder), *map(str, args),
+                               "--keys", keys, str(ASSETS)], capture_output=True, text=True)
+
+    def test_the_title_times_out_to_the_demonstration(self):
+        # A key while the title waits ends it; the menu's time running out
+        # (\t) plays ECL2 block 57; afterwards the title shows again, in
+        # full without a key, and its menu.
+        result = self.play(r"\kx\t", "--combat", "won")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[2:4], ["menu: Play Demo", "choice: Demo"])
+        self.assertEqual(lines[4], "print: EVEN WITH THE DEFEAT OF THE DRAGONARMIES,")
+        self.assertIn("print: Electronic Arts", lines)
+        self.assertEqual(lines.count("menu: Play Demo"), 2)
+        self.assertEqual(lines[-1], "(out of keys at the title)")
+        # Fought round by round, the demonstration's battle reads no key and
+        # asks no "Continue Battle:"; the credits and the title follow.
+        result = self.play(r"\kx\t")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(len([line for line in lines if line.startswith("party: ")
+                              and line.endswith(("slot 0", "slot 1", "slot 2"))]), 3)
+        self.assertTrue([line for line in lines if line.startswith("round: ")])
+        self.assertNotIn("menu: Continue Battle:", lines)
+        self.assertEqual(lines[-3:], ["print: Electronic Arts", "menu: Play Demo",
+                                      "(out of keys at the title)"])
+        # Without a key or a timeout the title's menu waits.
+        result = self.play(r"\kx")
+        self.assertEqual(result.stdout.splitlines()[-1], "(out of keys at the title)")
+        self.assertNotIn("print: Electronic Arts", result.stdout)
+
+    def test_a_space_first_leaves_add(self):
+        # Add's loop tests a count not yet set when the first key is a
+        # space; what the start menu's FreeMem leaves there ends it.
+        result = self.play(TITLE + CREATE_BOB + r"\vS ")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        add = lines.index("list: Add a character: ")
+        self.assertEqual(lines[add + 1:add + 3], ["item: BOB            ", "list: Choose a FUNCTION "])
+        self.assertNotIn("party: BOB joins", lines)
+        self.assertEqual(lines[-1], "(out of keys in the start menu)")
+
+    def test_a_new_character_joins_saves_trains_and_loads(self):
+        shots = self.folder / "shots"
+        shots.mkdir()
+        result = self.play(TITLE + CREATE_BOB, "--shots", shots)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[-1], "(out of keys in the start menu)")
+        self.assertIn("roster: BOB.WHO", lines)
+        self.assertEqual(lines[lines.index("list: Pick Race") + 7], "item:   Human")
+        # A fighter of 2001 experience trains to level 2 as he is made.
+        bob = bytearray((self.folder / "BOB.WHO").read_bytes())
+        self.assertEqual(len(bob), 409)
+        self.assertEqual((bob[0x5a], bob[0x5b], bob[0xfb], bob[0x10a]), (6, 2, 2, 0))
+        self.assertEqual(int.from_bytes(bob[0x116:0x11a], "little"), 2001)
+        # Enough for level 3 (4001).
+        bob[0x116:0x11a] = (4001).to_bytes(4, "little")
+        (self.folder / "BOB.WHO").write_bytes(bob)
+        # Add him, save game A, begin; at the outpost's HALL (PROGRAM 0) the
+        # start menu offers training; then back to the outpost.
+        keys = (TITLE + r"\vS\rE" + r"\v" * 5 + "SA" + r"\vS" + r"\r" * 7 + "H" + r"\v" * 3 +
+                "SSY" + r"\v" * 6 + "S")
+        result = self.play(keys)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertIn("party: BOB joins", lines)
+        self.assertEqual(lines.count("choice: Begin Adventuring"), 2)
+        self.assertIn("item: Train Character", lines)
+        self.assertIn("print:     a level 3 Fighter", lines)
+        self.assertIn("print: Congratulations...", lines)
+        self.assertEqual(lines[-2:], ["menu: ~INN ~HALL ~COMMANDANT ~ARMOURY ~NEXT ~LEAVE",
+                                      "(out of keys in block 17 at 86ec)"])
+        # Saving erased his roster copy; the game holds him.
+        self.assertFalse((self.folder / "BOB.WHO").exists())
+        self.assertTrue((self.folder / "SAVGAMA.DAT").exists())
+        self.assertEqual((self.folder / "CHRDATA1.SAV").read_bytes()[:4], b"\x03BOB")
+        # Load it from the start menu and begin again.
+        result = self.play(TITLE + r"\v\vSA" + r"\v" * 5 + "S")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertIn("menu: A", lines)
+        self.assertEqual(lines[-1], "(out of keys in block 36 at 817f)")
+        self.assertIn("print: AT THE INN OF THE LAST HOME IN SOLACE, A BRAVE ", lines)
+        # The screens: the title's menu, the start menu and the lists.
+        self.assertGreater(len(list(shots.glob("*.bmp"))), 20)
+
+    def test_quitting_from_the_start_menu(self):
+        result = self.play(TITLE + r"\^SY")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[-2:], ["quit: to DOS", "(quit to DOS)"])
+
+
 if __name__ == "__main__":
     unittest.main()
