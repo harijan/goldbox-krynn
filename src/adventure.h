@@ -75,14 +75,15 @@ typedef struct {
     /* Text as it is printed, menus as they are shown (items with their ~
      * marks, or a yes/no prompt), input as it is read, pictures that fail
      * to load, the party's square and facing as "X,Y,DIR" after it moves
-     * or turns, and commands of the adventure loop and camp that are not
+     * or turns, its place on the overland map likewise after each step
+     * there, and commands of the adventure loop and camp that are not
      * ported, the name of each character WHO picks, the rows of spell
      * lists, quitting to DOS, the monsters loaded, the encounter's sprite
      * and money robbed, the end of a fight, and the coins and items
      * TREASURE adds, and the overhead map going on and off: kind is
      * "print", "menu", "list", "item", "heading", "choice", "input",
-     * "error", "at", "unported", "who", "quit", "monster", "combat",
-     * "treasure" or "area". */
+     * "error", "at", "overland", "unported", "who", "quit", "monster",
+     * "combat", "treasure" or "area". */
     void (*log)(cok_adventure *game, const char *kind, const char *text, void *context);
     /* A battle has been set up (3cb2:1c58): game->combat holds its map and
      * combatants. NULL ignores it. */
@@ -127,6 +128,12 @@ struct cok_adventure {
     uint8_t picture_file;
     bool picture_sprite;   /* DS:6dee: the slot holds a SPRIT record, not a PIC. */
     cok_picture big;       /* BIGPIC<file>.DAX, drawn at cell 1, 1 (DS:6e02). */
+    /* The overland map's mark of the party (4877:0005): CURSOR.DAX record
+     * 1, loaded at startup with colour 13 transparent (DS:8965), and the
+     * screen cell it covers, saved when it is drawn and put back before
+     * the party moves (DS:6162, one unit by eight rows, zeroed at
+     * startup). */
+    cok_picture cursor, under;
     uint8_t big_id;        /* DS:6e06, COK_ADVENTURE_NO_PICTURE if none. */
     bool picture_shown;    /* DS:884a: the view holds a picture. */
     bool view_replaced;    /* DS:884b. */
@@ -229,9 +236,11 @@ cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block);
  * ends or a run fails, take a command from the adventure menu (475c:09ec),
  * run the after-move vector, take a step (475c:0e77), show the view and run
  * the location vector. NEWECL enters the new block as cok_adventure_enter
- * does. Only 3D areas are ported: outside them the loop stops and logs
- * "unported". Clears game->vm.abort on return, as the original clears
- * DS:4b57. */
+ * does. In 3D areas the party walks the map; outside them (mode 3) it
+ * travels the overland map while 0x4cf7 is set (475c:08d5), and without
+ * it the original's command is unset: the run stops with
+ * COK_ECL_UNDEFINED. Clears game->vm.abort on return, as the original
+ * clears DS:4b57. */
 cok_ecl_status cok_adventure_play(cok_adventure *game);
 
 /* Advance the game clock (0x4bc6-0x4bcc) by count of unit 0-6, carrying
@@ -264,17 +273,32 @@ bool cok_adventure_load_party(cok_adventure *game, const char *path);
  * facing, the modes and wall sets, the speed (0x4bfc) and animation
  * (0x4bff), then the party as cok_adventure_load_party does, and the ECL
  * file from 0x7f12. In a 3D area it reloads the map (if wall set 1's
- * record was above 0) and the wall sets. The next block entered keeps the
- * variables NEWECL would clear (DS:4b52), and the adventure loop then
- * redraws the screen. Outside 3D areas the original also shows big
- * picture 0x79, which is not ported. Play resumes from block 0x4bf2, or
- * 0x24 when that is 0 (2fd3:3c28). */
+ * record was above 0) and the wall sets; outside them it loads the
+ * overland map, big picture 0x79, without drawing it. The next block
+ * entered keeps the variables NEWECL would clear (DS:4b52), and the
+ * adventure loop then redraws the screen. Play resumes from block 0x4bf2,
+ * or 0x24 when that is 0 (2fd3:3c28). */
 bool cok_adventure_restore(cok_adventure *game, const char *path);
 
 /* Turn the overhead map off (DS:6d84) and, if it was on, show the view or
  * the big picture again (6945:00ba with DS:713a set), as the first sprite
  * of an encounter does (3775:0575). */
 void cok_adventure_overhead_off(cok_adventure *game);
+
+/* Mark the party on the overland map (4877:0005): save the screen cell at
+ * the party's place there, 0x4bc3 + 1 across and 0x4bc4 + 1 down, in
+ * game->under, then draw the cursor over it. A cell off the screen, which
+ * the original reads and writes outside its rows, stops the run with
+ * COK_ECL_UNDEFINED. */
+void cok_adventure_mark(cok_adventure *game);
+
+/* Travel a square on the overland map (475c:08d5): put back the cell the
+ * mark covered (4877:00d6), keep the party's place in 0x4bf0 and 0x4bf1,
+ * step the way it faces (DS:1ed6, DS:1edf), within 0-37 across and 0-14
+ * down, log it as "overland", mark it there and pass twelve hours. The step
+ * is added to the low byte of each word. A cell off the screen stops the
+ * run as cok_adventure_mark does. */
+void cok_adventure_travel(cok_adventure *game);
 
 /* Draw the party list beside the view (6346:07ba), unless the area has no
  * 3D view or a big picture is shown. */

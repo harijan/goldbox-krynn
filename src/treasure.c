@@ -1102,7 +1102,8 @@ static bool take_items(cok_adventure *game)
 /* Take (351b:0ff7): items alone, money alone, or "Take: " with "Money
  * Items Exit" until either runs out or Exit or Escape. The menu takes
  * special keys by their scan codes' letters: up and down (H, P) pick a
- * character, PgUp (I) takes items and NumLock (E) leaves. *reached is
+ * character, PgUp (I) takes items and E (NumLock, which never reaches
+ * the game) would leave. *reached is
  * set when it took coins or items, or offered them. */
 static bool take(cok_adventure *game, bool *reached)
 {

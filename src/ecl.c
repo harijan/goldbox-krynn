@@ -743,6 +743,11 @@ cok_ecl_status cok_ecl_start(cok_ecl *vm, bool reset_vars)
     return COK_ECL_OK;
 }
 
+void cok_ecl_exit(cok_ecl *vm)
+{
+    exit_script(vm);
+}
+
 cok_ecl_status cok_ecl_run(cok_ecl *vm, uint16_t address)
 {
     vm->ip = address;

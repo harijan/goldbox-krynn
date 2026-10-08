@@ -195,6 +195,11 @@ cok_ecl_status cok_ecl_start(cok_ecl *vm, bool reset_vars);
  * nest, from hooks; the caller saves vm->ip if it must resume. */
 cok_ecl_status cok_ecl_run(cok_ecl *vm, uint16_t address);
 
+/* End the running script as EXIT does (2fd3:0050), from a hook: restore
+ * the selection LOAD CHARACTER changed, forget the GOSUB stack and reset
+ * the text cursor. */
+void cok_ecl_exit(cok_ecl *vm);
+
 /* Decode count operands after the opcode at vm->ip and leave vm->ip on the
  * next opcode (3775:0032). Strings fill slots from the first. */
 cok_ecl_status cok_ecl_operands(cok_ecl *vm, size_t count);

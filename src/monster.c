@@ -852,7 +852,7 @@ static void combat(cok_adventure *game)
     if (fought) {
         cok_adventure_redraw(game);
         if (!area && !vm->abort && vm->mem4b00[0x138] == 0)
-            log_text(game, "unported", "the party on the overland map (4877:0005)");
+            cok_adventure_mark(game);
     }
     game->moving = moving;
 }

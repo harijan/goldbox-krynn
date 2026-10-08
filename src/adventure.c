@@ -4,6 +4,7 @@
 #include "camp.h"
 #include "dax.h"
 #include "cast.h"
+#include "items.h"
 #include "magic.h"
 #include "monster.h"
 #include "round.h"
@@ -378,8 +379,11 @@ static void picture(cok_adventure *game)
     }
     cok_adventure_load_big(game, id);
     draw_big(game);
-    /* Picture 0x79 runs 4877:0005 instead, which is not ported. */
-    if (id != 0x79) game->big_shown = true;
+    /* The overland map, 0x79, marks the party on it instead (4877:0005). */
+    if (id == 0x79)
+        cok_adventure_mark(game);
+    else
+        game->big_shown = true;
     game->redraw = false;
 }
 
@@ -823,8 +827,9 @@ static void add_experience(cok_adventure *game)
  * selected (6346:32c7). Up and down (8 and 2) move through the party,
  * wrapping; S or Enter picks. Exit, or Escape while Exit is offered,
  * picks none, but only Exit ends the menu. The original also ends it on
- * the special keys whose scan codes are 'E' and 'S' (0x45 NumLock, 0x53
- * Del). Returns the character, or NULL; *ended is set if input ended. */
+ * the special keys whose scan codes are 'E' and 'S': 0x53 Del, and 0x45
+ * NumLock, which the BIOS never queues for Crt.ReadKey. Returns the
+ * character, or NULL; *ended is set if input ended. */
 static uint8_t *pick_character(cok_adventure *game, const char *prompt, uint8_t *who,
                                bool exit_item, bool *ended)
 {
@@ -1076,15 +1081,96 @@ static void reset_pictures(cok_adventure *game)
     cok_monster_reset(game);
 }
 
+/* A script ended (2fd3:0050). The original clears DS:8830, 884a, 884c and
+ * 8848 here. */
+static void exited(cok_adventure *game)
+{
+    game->picture_shown = false;
+    game->sprite_loaded = game->closeup_shown = false;
+}
+
+/* DESTROY ITEMS type (2fd3:35a3): every item of that type (+0x2e) of
+ * every record in the list goes (6346:1697), unreadied first if readied
+ * (546c:1ea7) with its record selected, so that the effect of its power
+ * goes from it; a cursed one says "It's Cursed" and goes readied. Each
+ * record's stats are then recomputed (6346:0d20), whether it lost any or
+ * not, and the selection is restored. The original reads the next item
+ * before it unreadies one: where the item's power takes items away or adds
+ * them, the item or the next may be freed, and the run stops. */
+static void destroy_items(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    uint8_t type = (uint8_t)cok_ecl_value(vm, 0);
+    uint8_t *saved = vm->character;
+    for (size_t k = 0; k < game->party.count; ++k) {
+        cok_character *c = game->party.members[k];
+        for (size_t i = 0; i < c->item_count;) {
+            if (c->items[i][0x2e] != type) {
+                ++i;
+                continue;
+            }
+            vm->character = c->record;
+            size_t count = c->item_count;
+            c->held = i + 1;
+            if (c->items[i][0x34] != 0 && !cok_item_unready(game, c->items[i])) return;
+            size_t held = c->held;
+            c->held = 0;
+            if (held != i + 1 || c->item_count != count) {
+                cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                                   "DESTROY ITEMS: an item's power changed the items it walks, "
+                                   "which the original holds by pointers (2fd3:35a3)");
+                return;
+            }
+            cok_character_remove_item(c, i);
+        }
+        char error[300];
+        if (!cok_character_stats(c, &game->item_types, error, sizeof error)) {
+            cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
+            return;
+        }
+    }
+    vm->character = saved;
+}
+
+static cok_ecl_status camp(cok_adventure *game);
+
+/* PROGRAM (2fd3:3473): with Move mode off meanwhile (DS:8858), and the
+ * selection LOAD CHARACTER changed restored first (DS:43ba), 9 camps as
+ * Encamp does (2fd3:3403), in the middle of the script, which goes on from
+ * the instruction after (DS:4b43 kept), and then ends as EXIT does unless
+ * 0x4c38 is set; 0 opens the start menu's training (4def:01b4), which is
+ * not ported; other values do nothing. */
+static void program(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    bool moving = game->moving;
+    game->moving = false;
+    if (vm->restore_character) {
+        vm->character = vm->saved_character;
+        vm->restore_character = false;
+    }
+    uint8_t what = (uint8_t)cok_ecl_value(vm, 0);
+    if (what == 0 && game->hooks.unported != NULL) {
+        game->hooks.unported(game, game->hooks.context);
+    } else if (what == 9) {
+        uint16_t ip = vm->ip;
+        cok_ecl_status status = camp(game);
+        vm->ip = ip;
+        if (status != COK_ECL_OK) {
+            vm->status = status;
+        } else if (!vm->abort && vm->mem4b00[0x138] == 0) {
+            cok_ecl_exit(vm);
+            exited(game);
+        }
+    }
+    game->moving = moving;
+}
+
 static void opcode(cok_ecl *vm, void *context)
 {
     cok_adventure *game = context;
     switch (vm->opcode) {
-    case COK_ECL_EXIT: case COK_ECL_RETURN:
-        /* The original clears DS:8830, 884a, 884c and 8848 here. */
-        game->picture_shown = false;
-        game->sprite_loaded = game->closeup_shown = false;
-        break;
+    case COK_ECL_EXIT: case COK_ECL_RETURN: exited(game); break;
     case COK_ECL_NEWECL: reset_pictures(game); break;
     case COK_ECL_PRINT: case COK_ECL_PRINTCLEAR: print(game); break;
     case COK_ECL_PRINT_RETURN: break;
@@ -1100,6 +1186,8 @@ static void opcode(cok_ecl *vm, void *context)
     case COK_ECL_WHO: who(game); break;
     case COK_ECL_DAMAGE: damage(game); break;
     case COK_ECL_CALL: call(game); break;
+    case COK_ECL_PROGRAM: program(game); break;
+    case COK_ECL_DESTROY_ITEMS: destroy_items(game); break;
     default:
         if (cok_monster_opcode(game) || cok_treasure_opcode(game)) break;
         if (game->hooks.unported != NULL) game->hooks.unported(game, game->hooks.context);
@@ -1305,6 +1393,12 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
     if (!cok_arena_load_icon(game, "COMSPR", 25, 25)) return false;
     for (uint8_t i = 0; i < COK_VIEW_SKY_PICTURES; ++i)
         if (!load_single(game, "SKY", (uint8_t)(250 + i), 13, &game->view.sky[i])) return false;
+    /* The overland map's cursor and the cell it covers (3e99:01fd, 07b8). */
+    if (!load_single(game, "CURSOR", 1, 13, &game->cursor)) return false;
+    if (cok_picture_create(&game->under, 1, 8, 1, 0) != COK_PICTURE_OK) {
+        fail(game, "out of memory");
+        return false;
+    }
     /* 3e99:005b also reads the item types. */
     char path[sizeof game->assets + 32];
     snprintf(path, sizeof path, "%s/ITEMS", game->assets);
@@ -1318,6 +1412,8 @@ void cok_adventure_close(cok_adventure *game)
     game->vm.character = NULL;
     free_frames(game);
     cok_picture_free(&game->big);
+    cok_picture_free(&game->cursor);
+    cok_picture_free(&game->under);
     for (size_t i = 0; i < COK_ICON_SLOTS; ++i)
         for (size_t pose = 0; pose < 2; ++pose) cok_picture_free(&game->icons[i][pose]);
     cok_pool_free(&game->pool);
@@ -1441,6 +1537,9 @@ bool cok_adventure_restore(cok_adventure *game, const char *path)
             if (!load_walls(game, (uint8_t)saved.wall_slots[i], (uint8_t)saved.wall_ids[i]))
                 return false;
         }
+    } else {
+        /* Outside 3D areas the overland map is loaded, not drawn. */
+        cok_adventure_load_big(game, 0x79);
     }
     vm->last_mode = saved.mode;
     vm->mode = 0; /* the party menu */
@@ -1557,11 +1656,6 @@ bool cok_adventure_pass_time(cok_adventure *game, unsigned unit, unsigned count)
 }
 
 /* The adventure loop. */
-
-static void unported_command(cok_adventure *game, const char *what)
-{
-    log_text(game, "unported", what);
-}
 
 void cok_adventure_fail(cok_adventure *game, cok_ecl_status status, const char *format, ...)
 {
@@ -1708,14 +1802,68 @@ static void check_step(cok_adventure *game)
     }
 }
 
-/* Take a command from the adventure menu (475c:09ec in a 3D area). Returns
- * 0 for a step forward, 'E' to camp, 'L' to look, or -1 if input ended. */
+/* Take a command from the overland menu (475c:09ec outside 3D areas, with
+ * 0x4cf7 set): "Move Encamp", where Move changes the menu to "Exit" and
+ * any special key then ends it, after turning the party to face the way
+ * of an arrow or keypad key (H I M Q P O K G, north to north-west).
+ * Special keys pick no character here. Returns 'E' to camp, the special
+ * key's scan code to travel (Ctrl-F8's, 0x65 'e', camps instead), or
+ * -1 if input ended. */
+static int overland_command(cok_adventure *game)
+{
+    static const char ways[8] = {'H', 'I', 'M', 'Q', 'P', 'O', 'K', 'G'};
+    for (;;) {
+        bool special;
+        int key;
+        if (!game->moving) {
+            key = menu_read(game, "", "Move Encamp", &special);
+            if (key < 0) return -1;
+            if (special) continue;
+            if (key == 'M') {
+                cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 67b5:0c7b */
+                game->moving = true;
+            } else if (key == 'E') {
+                game->selected = 1;
+                return key;
+            }
+            continue;
+        }
+        key = menu_read(game, "", "Exit", &special);
+        if (key < 0) return -1;
+        if (!special) {
+            if (key == 'E') game->moving = false;
+            continue;
+        }
+        for (uint8_t dir = 0; dir < 8; ++dir)
+            if (key == ways[dir]) game->vm.direction = dir;
+        cok_adventure_status(game);
+        return key;
+    }
+}
+
+/* Take a command from the adventure menu (475c:09ec): in a 3D area, 0 for
+ * a step forward, 'E' to camp, 'L' to look; outside one, as
+ * overland_command; or -1 if input ended. In any other case the original
+ * returns a byte of its stack that it never sets: 9, from 3775:01e8's loop
+ * counter, after a block is entered, other values after a NEWECL in the
+ * load vector or when its overlay was loaded. The loop then travels in
+ * mode 3 with no key read, step after step, which no shipped script
+ * reaches; the run stops. */
 static int command(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     vm->mem7c00[0x2c9] = 0;
     int result = 0;
-    for (bool done = false; !done;) {
+    if (vm->mode == 3 && vm->mem4b00[0x1f7] != 0) {
+        result = overland_command(game);
+    } else if (vm->mode != 4) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                           "the adventure's command in mode %u%s is a byte left on the stack "
+                           "(475c:09ec)", vm->mode,
+                           vm->mode == 3 ? " without the overland menu (0x4cf7)" : "");
+        return -1;
+    }
+    for (bool done = vm->mode != 4; !done;) {
         bool special;
         int key;
         if (!game->moving) {
@@ -1790,6 +1938,7 @@ static int command(cok_adventure *game)
         }
         if (game->vm.abort) return -1;
     }
+    if (result < 0) return result;
     if (game->text_shown) {
         cok_picture_fill(&game->screen, 1, 0x11 * 8, 0x26, 6 * 8, 0); /* 1128:07e6 */
         game->text_shown = false;
@@ -1959,12 +2108,117 @@ static bool locked_door(cok_adventure *game, uint8_t passage)
     return false;
 }
 
+/* The overland map. */
+
+/* DS:1ed6 + offset: the steps across (DS:1ed6) and down (DS:1edf) for
+ * facings 0-8; a facing past 8 reads on into the combat terrain table,
+ * which the second overlaps from DS:1ee4. */
+static int8_t step_byte(unsigned offset)
+{
+    static const int8_t steps[14] = {0, 1, 1, 1, 0, -1, -1, -1, 0, -1, -1, 0, 1, 1};
+    if (offset < sizeof steps) return steps[offset];
+    const cok_terrain *t = &cok_combat_terrain[(offset - sizeof steps) / 4];
+    const uint8_t bytes[4] = {t->cost, t->eye, t->block, t->tile};
+    return (int8_t)bytes[(offset - sizeof steps) % 4];
+}
+
+/* The screen cell of the party's mark on the overland map: 127f:0edb and
+ * 10e7 take 0x4bc3 + 1 and 0x4bc4 + 1 as words, the column times 4 bytes
+ * and the row times 8 rows, unclipped. False where that lies off the
+ * screen: the original reads and writes outside the row it starts on, or
+ * beyond its table of rows. */
+static bool mark_cell(cok_adventure *game, int *x, int *y)
+{
+    const uint16_t *mem = game->vm.mem4b00;
+    uint16_t column = (uint16_t)((uint16_t)(mem[0xc3] + 1u) << 2);
+    int16_t row = (int16_t)(uint16_t)((uint16_t)(mem[0xc4] + 1u) << 3);
+    if (column > 39 * 4 || row < 0 || row > 24 * 8) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                           "the party's mark on the overland map at %d,%d lies off the screen "
+                           "(4877:0005)", (int16_t)mem[0xc3], (int16_t)mem[0xc4]);
+        return false;
+    }
+    *x = column / 4;
+    *y = row / 8;
+    return true;
+}
+
+/* Copy the screen cell at x, y to or from game->under (127f:0edb, 10e7). */
+static void copy_cell(cok_adventure *game, int x, int y, bool save)
+{
+    size_t stride = (size_t)game->screen.units * 4;
+    for (size_t row = 0; row < 8; ++row) {
+        uint8_t *screen = game->screen.pixels + ((size_t)y * 8 + row) * stride + (size_t)x * 4;
+        uint8_t *under = game->under.pixels + row * 4;
+        if (save)
+            memcpy(under, screen, 4);
+        else
+            memcpy(screen, under, 4);
+    }
+}
+
+static bool have_under(cok_adventure *game)
+{
+    if (game->under.pixels != NULL) return true;
+    if (cok_picture_create(&game->under, 1, 8, 1, 0) == COK_PICTURE_OK) return true;
+    cok_adventure_fail(game, COK_ECL_UNDEFINED, "out of memory");
+    return false;
+}
+
+void cok_adventure_mark(cok_adventure *game)
+{
+    int x, y;
+    if (!mark_cell(game, &x, &y) || !have_under(game)) return;
+    copy_cell(game, x, y, true);
+    /* The original draws the cell and the cursor, masked, into a picture
+     * of a cell (DS:6166) and puts that on the screen; the dirty tables it
+     * then clears (DS:4b90, 4c38, 4d88, 4ed8) are not ported. */
+    cok_picture_draw(&game->screen, &game->cursor, 0, x, y, COK_DRAW_MASKED, NULL);
+}
+
+/* Put back the cell the mark covered, at the party's place now
+ * (4877:00d6). */
+static bool unmark(cok_adventure *game)
+{
+    int x, y;
+    if (!mark_cell(game, &x, &y) || !have_under(game)) return false;
+    copy_cell(game, x, y, false);
+    return true;
+}
+
+void cok_adventure_travel(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    uint16_t *mem = vm->mem4b00;
+    if (!unmark(game)) return;
+    mem[0xf0] = mem[0xc3];
+    mem[0xf1] = mem[0xc4];
+    int8_t x = (int8_t)(uint8_t)(mem[0xc3] + (uint16_t)step_byte(vm->direction));
+    int8_t y = (int8_t)(uint8_t)(mem[0xc4] + (uint16_t)step_byte(9u + vm->direction));
+    x = x < 0 ? 0 : x > 0x25 ? 0x25 : x;
+    y = y < 0 ? 0 : y > 0x0e ? 0x0e : y;
+    mem[0xc3] = (uint16_t)x;
+    mem[0xc4] = (uint16_t)y;
+    char text[32];
+    snprintf(text, sizeof text, "%d,%d,%u", x, y, vm->direction);
+    log_text(game, "overland", text);
+    cok_adventure_mark(game);
+    if (vm->abort) return;
+    cok_adventure_pass_time(game, 3, 12);
+}
+
 /* Take the step chosen, unless the after-move vector set 0x7ec9 to 0xff
- * (475c:0e77 in a 3D area). */
+ * (475c:0e77): in a 3D area a square of its map, outside one a square of
+ * the overland map, where 0x7ec9 stays as it is. */
 static void step(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
-    if (vm->mem7c00[0x2c9] < 0xff) {
+    if (vm->mode == 3) {
+        if (vm->mem7c00[0x2c9] < 0xff) {
+            cok_adventure_travel(game);
+            cok_adventure_status(game);
+        }
+    } else if (vm->mode == 4 && vm->mem7c00[0x2c9] < 0xff) {
         game->redraw = true;
         uint8_t passage = cok_view_passage(&game->view, vm->direction, vm->map_x, vm->map_y);
         bool moved = passage == 1;
@@ -1983,8 +2237,8 @@ static void step(cok_adventure *game)
  * game counts as saved only in the camp it was saved in. A vector that
  * runs NEWECL enters the new block after the next command, as the
  * original does; one that ends the run stops here, where the original
- * still opens the camp menu. Outside 3D areas the original then marks the
- * party on the overland map (4877:0005), which is not ported. */
+ * still opens the camp menu. Outside 3D areas it then marks the party on
+ * the overland map (4877:0005). */
 static void redraw_screen(cok_adventure *game);
 
 static cok_ecl_status camp(cok_adventure *game)
@@ -2002,9 +2256,8 @@ static cok_ecl_status camp(cok_adventure *game)
     game->redraw = true;
     if (vm->mem4b00[0x138] == 0) cok_adventure_view(game);
     game->effects.rolls.saved = 0; /* DS:5885 */
-    if (vm->mem4b00[0xe6] == 0 && vm->mem4b00[0x138] == 0)
-        unported_command(game, "the party on the overland map (4877:0005)");
-    return COK_ECL_OK;
+    if (vm->mem4b00[0xe6] == 0 && vm->mem4b00[0x138] == 0) cok_adventure_mark(game);
+    return vm->abort ? vm->status : COK_ECL_OK;
 }
 
 /* Look (2fd3:3c28): run the location vector once as if searching. */
@@ -2089,16 +2342,14 @@ cok_ecl_status cok_adventure_play(cok_adventure *game)
     vm->keep_vars = false;
     game->moving = false;
     while (status == COK_ECL_OK && !vm->abort) {
-        if (vm->mode != 4) {
-            /* 475c:09ec and 475c:08d5 move the party on the overland map. */
-            unported_command(game, "travel outside 3D areas");
-            break;
-        }
         int key = next_command(game);
         if (key < 0) break;
         if (!vm->reload) vm->mem4b00[0xf2] = vm->block;
-        while (status == COK_ECL_OK && !vm->abort && (vm->mem7c00[0x2ca] > 1 || key == 'E')) {
-            status = key == 'E' ? camp(game) : look(game);
+        /* The loop camps on UpCase(key) 'E', which Ctrl-F8 in the
+         * overland's Move mode is too (scan code 0x65, 'e'). */
+        while (status == COK_ECL_OK && !vm->abort &&
+               (vm->mem7c00[0x2ca] > 1 || key == 'E' || key == 'e')) {
+            status = key == 'E' || key == 'e' ? camp(game) : look(game);
             if (status == COK_ECL_OK && !vm->abort) key = next_command(game);
         }
         if (status != COK_ECL_OK || vm->abort) break;
