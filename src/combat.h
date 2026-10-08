@@ -118,6 +118,11 @@ typedef struct {
     cok_character *exploding[21];
     uint8_t exploding_count;
     bool exploding_now;
+    /* DS:7195, 7196: the attacks made with slots 1 and 2 in the last
+     * attack (432f:1579), whose ammunition 432f:1a45 then uses up; [0] is
+     * DS:7194, which a helpless target's blow from slot 0 counts, the byte
+     * the list of enemies (DS:714d) holds its 72nd in. */
+    uint8_t swings[3];
     /* DS:616a: the tile set, 40 frames of 24 by 24, which each setup loads
      * DUNGCOM or WILDCOM into from frame 0 and RANDCOM into from 0x22
      * (6d21:002c); frames it does not load keep what an earlier battle

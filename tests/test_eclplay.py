@@ -204,6 +204,41 @@ class PlayTests(unittest.TestCase):
         self.assertIn("combat: removed 9 RED DRAGON, 2 BOZAK; 11 dropped", lines)
         self.assertEqual(lines[-1], "(done in block 16)")
 
+    def test_melee(self):
+        # The ambush of ECL1 block 32 with --combat melee: every turn attacks
+        # the nearest enemy it can reach (432f:1a45). The round lines, the
+        # attacks and the seed at the battle's end pin the dice.
+        result = self.play("--test-party", 6, "--set", "4be6=1", "--start", "835f", "--seed", 1,
+                           "--combat", "melee", "--keys", r"\r\rEN", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        rounds = [line for line in lines if line.startswith("round: ")]
+        self.assertEqual(len(rounds), 21)
+        self.assertEqual(rounds[0],
+                         "round: 1: FARO 6, BRAM 6, HOBGOBLIN 6, HOBGOBLIN LDR 5, HOBGOBLIN 5, "
+                         "CERA 5, ALDA 5, HOBGOBLIN 3, DUNN 3, ELIN 2, HOBGOBLIN 2, HOBGOBLIN LDR 1")
+        attacks = [line for line in lines if line.startswith("attack: ")]
+        self.assertEqual(len(attacks), 27)
+        self.assertEqual(attacks[:6], ["attack: HOBGOBLIN and Misses",
+                                       "attack: CERA Hitting for 3 points of damage",
+                                       "attack: HOBGOBLIN and Misses",
+                                       "attack: HOBGOBLIN and Misses",
+                                       "attack: BRAM and Misses",
+                                       "attack: ALDA and Misses"])
+        at = lines.index("turn: BRAM (initiative 6)")
+        # A miss: sound 9, then the panel's lines (6346:1883, 1521:04ac).
+        self.assertEqual(lines[at + 1:at + 5], ["sound: 9", "print: BRAM", "print: Attacks",
+                                                "attack: HOBGOBLIN and Misses"])
+        self.assertIn("print: Your Teammate is Dying", lines)
+        self.assertIn("attack: and is Dying", lines)
+        self.assertIn("combat: seed 1879734825", lines)
+        self.assertIn("combat: removed 4 HOBGOBLIN, 2 HOBGOBLIN LDR; 3 dropped", lines)
+        self.assertIn("print: Each character receives 16", lines)
+        self.assertEqual(lines[-1], "(done in block 32)")
+        # The last attack moves the round limit: 15 rounds after it.
+        last = max(i for i, line in enumerate(lines) if line.startswith("attack: "))
+        self.assertEqual(sum(1 for line in lines[last:] if line.startswith("round: ")), 14)
+
     def test_the_ambush(self):
         # Throtl's ambush (ECL1 block 32 at 835f): MONSTERS ATTACK!, four
         # hobgoblins and two leaders against the party, fought through the

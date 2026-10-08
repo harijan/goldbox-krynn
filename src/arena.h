@@ -219,6 +219,15 @@ bool cok_arena_flash(cok_adventure *game, cok_character *c, uint8_t kind, const 
  * attacking. The slot's pictures must be 24 by 24, as COMSPR's are. */
 bool cok_arena_missile_frames(cok_adventure *game, uint8_t slot);
 
+/* Build picture frame (0-3) of a missile (DS:719e) from icon image (0
+ * ready, 1 attacking) of slot, mirrored if mirror (6346:1a26), as an
+ * arrow's flight builds its one picture by its direction (432f:2beb). */
+bool cok_arena_missile_frame(cok_adventure *game, uint8_t slot, uint8_t image, uint8_t frame,
+                             bool mirror);
+
+/* The sound driver's command n (17e8:0020), logged as "sound". */
+void cok_arena_sound(cok_adventure *game, unsigned n);
+
 /* Fly a missile from cell x0, y0 to x1, y1 (6346:1ba6), along the line
  * between them in steps of 8 pixels (6b30:01a5, 6b30:024c). The screen is
  * centred, forced, on the view's centre if both ends are shown, else on

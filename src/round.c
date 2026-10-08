@@ -2,7 +2,9 @@
 
 #include "adventure.h"
 #include "arena.h"
+#include "attack.h"
 #include "camp.h"
+#include "cast.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -312,12 +314,54 @@ bool cok_combat_explode(cok_adventure *game)
     cok_combat *combat = &game->combat;
     combat->exploding_now = true;
     game->effects.rolls.damage_type = 0;
+    /* The count is read again each pass: those the damage makes explode
+     * explode in turn. */
+    for (unsigned i = 1; i <= combat->exploding_count; ++i) {
+        cok_character *x = combat->exploding[i];
+        if (x == NULL)
+            return undefined(game, "the dead that explode hold NULL, written through at "
+                                   "0000:0188 (60f4:24c7)");
+        if (!cok_arena_say(game, x, "explodes.", 10, true)) return false;
+        const uint8_t *r = x->record;
+        if (!cok_combat_list(combat, cok_combat_x(combat, r), cok_combat_y(combat, r), 1, 0xff,
+                             cok_combat_size(combat, r)))
+            return undefined(game, "the list of combatants around one (6b30:08d8) reads past "
+                                   "its tables");
+        /* The others listed, copied first into bytes of the stack below
+         * the exploding record's pointer, which a ninth overwrites. */
+        bool hurt = false;
+        if (combat->listed_count > 1) {
+            unsigned m = combat->listed_count - 1u;
+            if (m > 8)
+                return undefined(game, "more than eight around one that explodes overwrite its "
+                                       "pointer on the stack (60f4:2452)");
+            uint8_t near[9];
+            for (unsigned j = 2; j <= combat->listed_count; ++j)
+                near[j - 1] = combat->listed[j].index;
+            for (unsigned k = 1; k <= m; ++k) {
+                cok_character *e = near[k] <= COK_COMBATANTS ?
+                                       combat->combatant[near[k]].character : NULL;
+                if (e == NULL)
+                    return undefined(game, "a listed combatant has no record (60f4:2375)");
+                if (e->record[0x188] == 10) continue;
+                uint8_t d = cok_dice_count(&game->vm.seed, 1, 6, &game->effects.rolls.dice);
+                if (!cok_cast_damage(game, e, d, 0, false)) return false;
+                hurt = true;
+            }
+        }
+        x->record[0x189] = 0;
+        x->record[0x188] = 6;
+        /* 6beb:0e08's stale byte: 0x24, the high byte of the return
+         * address of 60f4:1db7 (24bf), after damage in the pass, else 0
+         * (see arena.h). */
+        cok_arena_reachable also = {{combat->exploding[1], combat->exploding[8],
+                                     combat->exploding[15]},
+                                    {NULL}};
+        if (!cok_arena_kill(game, x, hurt ? 0x24 : 0, &also)) return false;
+    }
     if (combat->exploding_count > 0) {
-        /* Effect 0x44's handler, which fills the list, is not ported. */
-        cok_adventure_fail(game, COK_ECL_EFFECT_FAILED,
-                           "the dead that explode (60f4:2375) deal damage in combat (60f4:1db7), "
-                           "which is not ported");
-        return false;
+        combat->exploding_count = 0;
+        memset(&combat->exploding[1], 0, 20 * sizeof combat->exploding[1]); /* DS:6b45, 0x50 */
     }
     combat->exploding_now = false;
     return true;
@@ -730,7 +774,8 @@ void cok_combat_turn_order(cok_adventure *game)
  * the menu's first item (DS:6e0f). With --combat gods the player then
  * presses Alt-X (scan code 0x2d), and in a game started with Helm the
  * cheat runs (432f:41e2), showing the combatant (6beb:12ef) after;
- * without, 432f:41e2 returns at once. */
+ * without, 432f:41e2 returns at once. With --combat melee every turn
+ * attacks the nearest enemy it can reach (cok_combat_melee). */
 static bool act(cok_adventure *game, cok_character *c, bool computer)
 {
     char name[16], text[48];
@@ -743,6 +788,7 @@ static bool act(cok_adventure *game, cok_character *c, bool computer)
             return cok_combat_gods(game) && cok_arena_turn(game, c, 3, false);
         }
     }
+    if (game->combat_stub == COK_COMBAT_MELEE) return cok_combat_melee(game, c);
     cok_combat_end_turn(c);
     return true;
 }
@@ -906,6 +952,11 @@ static bool rounds(cok_adventure *game)
         if (vm->abort || !cok_combat_end_round(game, &done)) break;
     }
     if (vm->status != COK_ECL_OK) return false;
+    if (game->combat_stub == COK_COMBAT_MELEE) {
+        char text[32];
+        snprintf(text, sizeof text, "seed %lu", (unsigned long)vm->seed);
+        log_text(game, "combat", text);
+    }
     return cok_combat_end(game);
 }
 

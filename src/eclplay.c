@@ -41,7 +41,8 @@ static void usage(const char *program)
             "  --combat HOW    decide COMBAT's battle in place of its rounds, whose turns\n"
             "                  pass: won (every monster against the party drops), fled\n"
             "                  (the party flees) or lost (the party dies); or gods, the\n"
-            "                  original's Helm cheat at each player's turn\n"
+            "                  original's Helm cheat at each player's turn; or melee,\n"
+            "                  every turn attacking the nearest enemy it can reach\n"
             "  --helm          play as if started with Helm, which lifts Area's Not Here\n"
             "                  and enables the Gods cheat (implied by --combat gods)\n"
             "  --combat-map FILE  write each battle's map and combatants to FILE as text\n"
@@ -333,9 +334,9 @@ int main(int argc, char **argv)
         } else if (strcmp(option, "--saves") == 0 && has_value) {
             saves = argv[++i];
         } else if (strcmp(option, "--combat") == 0 && has_value) {
-            static const char *const outcomes[] = {"won", "fled", "lost", "gods"};
+            static const char *const outcomes[] = {"won", "fled", "lost", "gods", "melee"};
             const char *how = argv[++i];
-            for (size_t k = 0; k < 4; ++k)
+            for (size_t k = 0; k < 5; ++k)
                 if (strcmp(how, outcomes[k]) == 0) combat = (cok_combat_stub)(COK_COMBAT_WON + k);
             if (combat == COK_COMBAT_GODS) helm = true;
             if (combat == COK_COMBAT_UNPORTED) {

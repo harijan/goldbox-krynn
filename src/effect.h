@@ -99,6 +99,11 @@ struct cok_effects {
      * be made; NULL fails. */
     bool (*around)(cok_effects *fx, cok_character *c, uint8_t radius, cok_character **listed,
                    uint8_t *count, char *error, size_t error_size, void *context);
+    /* The combatants listed now (DS:6a30, count DS:6a32), as a listing and
+     * what ran since (6346:2888 puts the entries back, not the count) left
+     * them, without listing again. NULL fails. */
+    bool (*listed)(cok_effects *fx, cok_character **listed, uint8_t *count, char *error,
+                   size_t error_size, void *context);
     /* The distance in squares from origin to target on the combat map
      * (6346:2888). Returns false with error set where it cannot be worked
      * out; NULL fails. */
@@ -118,7 +123,46 @@ struct cok_effects {
      * DS:71ac is set. Returns false, as flash does, where it cannot be
      * drawn. NULL draws nothing. */
     bool (*panel)(cok_effects *fx, cok_character *c, void *context);
+    /* The battle's side of the handlers ported with the attacks (see
+     * attack.h). Each returns false, as flash does, where it cannot be
+     * carried out; NULL fails. A hook may call this module's public
+     * functions again, which then neither reset fx->failed nor free the
+     * effects removed until the outermost call returns. */
+    /* 6346:268a: count the records on each side that can act. */
+    bool (*count_sides)(cok_effects *fx, void *context);
+    /* 60f4:1db7: amount of damage to c, with a save of save_kind made if
+     * saved (cok_cast_damage). */
+    bool (*damage)(cok_effects *fx, cok_character *c, uint8_t amount, uint8_t save_kind,
+                   bool saved, void *context);
+    /* 60f4:00eb: c is killed with text and status (cok_combat_kill). */
+    bool (*kill)(cok_effects *fx, cok_character *c, uint8_t status, const char *text,
+                 void *context);
+    /* 60f4:22b7: c is put back on the map with hp hit points and text
+     * (cok_combat_revive), *placed if it fits. */
+    bool (*revive)(cok_effects *fx, cok_character *c, uint8_t hp, const char *text, bool *placed,
+                   void *context);
+    /* The dead that explode (DS:6b45 on, count DS:6b95): with c, c is
+     * listed as effect 0x44 lists it (3f44:1f97: the count one more, a
+     * byte, at least 1; past 20, it stays 20 and c is not listed); with c
+     * NULL, *now says whether they explode now (DS:6b96). */
+    bool (*exploding)(cok_effects *fx, cok_character *c, bool *now, void *context);
+    /* Effect 0x43 (3f44:1dc5): killer loses item (1 + its index): it is
+     * unreadied (546c:1ea7), kept with killer as its owner in the weapons
+     * lost in combat (DS:609e), and removed (6346:1697); killer's weapon
+     * slot (+0x147) is cleared and its panel drawn (6346:0af6). */
+    bool (*lose_weapon)(cok_effects *fx, cok_character *killer, size_t item, void *context);
+    /* 6b30:08d8 around c, with any range and direction: the record of the
+     * second combatant listed (DS:6a36), stale when fewer are, NULL for
+     * none. */
+    bool (*second)(cok_effects *fx, cok_character *c, uint8_t **record, void *context);
+    /* 60f4:2375: the dead that explode go off (cok_combat_explode). */
+    bool (*explode)(cok_effects *fx, void *context);
+    /* Effect 0x4c's gating (3f44:272a, cok_combat_gate): those waiting
+     * (status 9) are put on the map around c's enemies. */
+    bool (*gate)(cok_effects *fx, cok_character *c, void *context);
     void *context;
+    /* How deep the public calls are nested, a hook calling back in. */
+    unsigned depth;
 };
 
 /* Set up fx for the game's VM, party and item types. */

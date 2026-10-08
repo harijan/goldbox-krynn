@@ -548,10 +548,12 @@ static void test_explode(void)
     game.effects.rolls.damage_type = 9;
     CHECK(cok_combat_explode(&game) && game.effects.rolls.damage_type == 0);
     CHECK(!game.combat.exploding_now);
-    cok_character *a = record('A', 0, 5, 5);
-    game.combat.exploding[1] = a;
+    /* A NULL entry, which 3f44:1f97 never lists, is written through. The
+     * explosions themselves are tested with the attacks (test_attack). */
+    record('A', 0, 5, 5);
+    game.combat.exploding[1] = NULL;
     game.combat.exploding_count = 1;
-    CHECK(!cok_combat_explode(&game) && game.vm.status == COK_ECL_EFFECT_FAILED);
+    CHECK(!cok_combat_explode(&game) && game.vm.status == COK_ECL_UNDEFINED);
 }
 
 static void test_lines(void)
@@ -783,12 +785,13 @@ static void test_turn(void)
     CHECK(cok_combat_turn(&game, a) && !LOGGED("turn:"));
     CHECK(a->combat->initiative == 0 && a->combat->movement == 0);
     CHECK(cok_effects_remove(&game.effects, a, NULL, 0x33));
-    /* An unported handler is logged and skipped in a battle. */
+    /* Event 0x0f runs at the start of the turn: gating (0x4c) at more
+     * than half the hit points does nothing. */
     CHECK(cok_character_add_effect(a, 0x4c, 0, 0, false) != NULL);
     a->combat->initiative = 3;
     s.log[0] = '\0';
     CHECK(cok_combat_turn(&game, a));
-    CHECK(LOGGED("unported: effect 0x4c (3f44:272a) on event 0x0f;turn: A (initiative 3);"));
+    CHECK(LOGGED("turn: A (initiative 3);") && cok_character_find_effect(a, 0x4c) != NULL);
     CHECK(cok_effects_remove(&game.effects, a, NULL, 0x4c));
     /* Event 0x15 runs only for one not casting: 0x23's d100 there. */
     CHECK(cok_character_add_effect(a, 0x23, 0, 0, false) != NULL);
@@ -799,13 +802,15 @@ static void test_turn(void)
     a->combat->initiative = 3;
     a->combat->spell = 0;
     CHECK(cok_combat_turn(&game, a) && game.vm.seed != seed);
-    /* Charm taking hold needs combat: skipped. */
+    /* Charm taking hold at event 0x0f: the computer controls it (see
+     * test_attack). */
     CHECK(cok_character_add_effect(a, 0x0b, 0, 0, false) != NULL);
     a->combat->initiative = 3;
     a->combat->spell = 0;
     s.log[0] = '\0';
-    CHECK(cok_combat_turn(&game, a) && LOGGED("unported: effect 0x0b (3f44:03cd) on event 0x0f;"));
+    CHECK(cok_combat_turn(&game, a) && !LOGGED("unported") && a->record[0x18b] == 1);
     CHECK(cok_effects_remove(&game.effects, a, NULL, 0x0b));
+    a->record[0x18b] = 0;
     /* Effects that end in a battle are logged. */
     CHECK(cok_character_add_effect(a, 0x77, 0, 0, false) != NULL);
     CHECK(cok_effects_remove(&game.effects, a, NULL, 0x77) && LOGGED("effect: A loses 0x77;"));
@@ -1052,7 +1057,10 @@ static void test_handlers(void)
     CHECK(run(b, 0x15) && LOGGED("print: goes berserk;"));
     cok_effect *berserk = cok_character_find_effect(b, 0x4d);
     CHECK(berserk != NULL && berserk->duration == 1 && berserk->value == 0);
-    CHECK(LOGGED("unported: effect 0x4d (3f44:29d5) on event 0x15;"));
+    /* Then 0x4d's handler, with no effect: it aims at the nearest other
+     * and takes the side against it (see test_attack). */
+    CHECK(b->combat->target == n->record && b->record[0x18a] == 0 && b->combat->may_cast == 0);
+    CHECK(!LOGGED("unported"));
     CHECK(cok_effects_remove(&game.effects, b, NULL, 0x4d));
     game.vm.seed = seed_for(100, 81, 100);
     CHECK(run(b, 0x15) && LOGGED("print: is enraged;"));
@@ -1403,11 +1411,11 @@ static void test_battle(void)
     CHECK(game.vm.seed == 0x329cf077);
     /* Fifteen minutes passed. */
     CHECK(game.vm.mem4b00[0xc7] == 5 && game.vm.mem4b00[0xc8] == 1);
-    /* A held (0x33) has no turn; one with an unported handler (0x4c)
-     * fights on, logged. */
+    /* A held (0x33) has no turn; one gating (0x4c) at its full hit points
+     * fights on. */
     CHECK(fight("\rE", COK_COMBAT_UNPORTED, held) == COK_ECL_OK);
     CHECK(LOGGED("round: 15: ") && !LOGGED("turn: A ") && LOGGED("turn: B "));
-    CHECK(LOGGED("unported: effect 0x4c (3f44:272a) on event 0x0f;turn: B "));
+    CHECK(!LOGGED("unported:") && !LOGGED("gates in"));
     /* With won, the sides are counted again before the battle's end: a
      * charmed party member does not run, the enemy all down. */
     CHECK(fight("\rE", COK_COMBAT_WON, charmed) == COK_ECL_OK);

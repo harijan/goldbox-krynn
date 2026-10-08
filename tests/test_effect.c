@@ -634,8 +634,9 @@ static void test_timers(void)
     add(c, 0x3a, 6, 0, true);
     CHECK(cok_effects_pass_time(&fx, 2, 1) && strcmp(ids(c), "3b3c") == 0);
     CHECK(c->effects->next->duration == 3);
-    /* The explosion that 0x3c sets off when it ends is not ported. */
-    CHECK(!cok_effects_pass_time(&fx, 2, 1) && strstr(fx.error, "3f44:18b9") != NULL);
+    /* The explosion that 0x3c sets off when it ends lists those around on
+     * the combat map, which outside a battle is gone. */
+    CHECK(!cok_effects_pass_time(&fx, 2, 1) && strstr(fx.error, "6b30:08d8") != NULL);
     /* The stats an effect changed are restored when it ends. */
     reset();
     c = member();

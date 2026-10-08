@@ -41,6 +41,21 @@ enum { COK_CAST_COMMANDS = 0x74, COK_CAST_CAMP = 0x9a };
  * caster level cannot be had. */
 bool cok_cast_duration(cok_adventure *game, uint8_t spell, uint16_t *minutes);
 
+/* 60f4:1db7: amount of damage to c, of the type in DS:6b31, after its
+ * event 6 (magic resistance first), then halved or none for a save of
+ * kind 2 or 1 made, or its event 0x14 if not saved. If any is left and c
+ * can act, it "takes N points of damage" and "from Fire", "from Cold",
+ * "from Electricity", "from Acid" or "from Magic" by the type; then if it
+ * drops it "Goes Down", ", and is Dying", or "is killed". In combat
+ * (mode 5) the damage flashes on c (6346:228c, kind 0) and goes through
+ * cok_combat_damage, one hurt may no longer cast, and one casting "lost a
+ * spell" and its turn; one that drops loses its battle's effects
+ * (60f4:1440), runs event 0x0d and, unless exploding, dies on the screen
+ * (6beb:0e08). Returns false, ending the run, where it cannot be carried
+ * out. */
+bool cok_cast_damage(cok_adventure *game, cok_character *c, uint8_t amount, uint8_t save_kind,
+                     bool saved);
+
 /* Remove Curse's handler (5b04:35f5) on target, as the temple runs it with
  * the first target (DS:6feb) set: Bestow Curse (0x24) goes, or else the
  * first cursed item is unreadied, still cursed. Returns false, ending the
