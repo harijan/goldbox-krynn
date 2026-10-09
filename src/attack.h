@@ -11,9 +11,9 @@
  * 432f (432f:1a45 and the routines it calls), sweeps, guards, attacks of
  * opportunity, a step on the map, fleeing and the choice of a target, the
  * attack roll and the deaths of overlay 60f4, and the weapon tests of
- * 6346. The computer's turns (3afb, P8) and the player's commands (3995,
- * P9) call these; until they are ported, eclplay's --combat melee has
- * every combatant attack through cok_combat_melee.
+ * 6346, and turning undead. The computer's turns (ai.h) and the player's
+ * commands (3995, not ported) call these; eclplay's --combat melee has
+ * every combatant attack through cok_combat_melee instead.
  *
  * Functions take their records in the order the original pushes them.
  * An item a routine is given is one of the attacker's, as 1 + its index
@@ -179,14 +179,39 @@ bool cok_combat_revive(cok_adventure *game, cok_character *c, uint8_t hp, const 
  * through entry 0 (over the count). */
 bool cok_combat_gate(cok_adventure *game, cok_character *c);
 
+/* 432f:14a2: of the enemies of c (6346:26e2, range 0xff) not made to
+ * flee (combat record +0x10), the first of the highest kind of undead
+ * (+0xda, as a signed byte above 0) no higher than *limit, into *undead
+ * and *found; *limit becomes that kind, 0 for none. */
+bool cok_combat_undead(cok_adventure *game, cok_character *c, cok_character **undead,
+                       uint8_t *limit, bool *found);
+
+/* 432f:12b7, c turns undead: "turns undead..." (row 10, no wait), row 24
+ * cleared and a pause; its attempts (combat record +0x11) count one more;
+ * 1d12 of them may be turned, against one d20: its level, the cleric's
+ * (+0xf9) and the former cleric's (+0x101) that a human may use, + 2 for
+ * deity 2 (+0x5d), a byte. While cok_combat_undead finds one of the kinds
+ * left (from 13 down) and some are left to turn: the table's value for
+ * its kind and the level (DS:0444 + 13 * kind + level, signed, not
+ * clamped: past 12 it reads the next kind's), if the d20 does not reach
+ * its size, makes the kinds left below it; else it is shown (6beb:12ef)
+ * with its panel, and above 0 "is turned" (60f4:133c, running), else "Is
+ * destroyed" (no wait), dies on the screen (6beb:0e08) and is gone
+ * (status 8); one fewer is left to turn, but at the last a destroyed one
+ * (below 0) keeps one while six bonus turns last, and the text is
+ * cleared. With none turned, "Nothing Happens..." on row 24. Then the
+ * sides are counted, the turn ends and the text is cleared. Fails where
+ * the table is read past what the port holds. */
+bool cok_combat_turn_undead(cok_adventure *game, cok_character *c);
+
 /* 6346:30bd: whether c's readied weapon is a missile weapon
  * (cok_combat_missile_weapon) that is thrown (its type's flags & 0x14 =
  * 0x14) or a hoopak (type 0x43). 6346:3086: whether it is a hoopak. */
 bool cok_combat_thrown(const cok_item_types *types, const cok_character *c, bool *thrown);
 bool cok_combat_hoopak(const cok_character *c);
 
-/* eclplay's --combat melee, for c's turn until the computer's and the
- * player's are ported: the nearest enemy it can attack (6346:26e2,
+/* eclplay's --combat melee, for c's turn in place of the computer's and
+ * the player's: the nearest enemy it can attack (6346:26e2,
  * 432f:11d4) a square away, or with a missile weapon and its ammunition
  * and none a square away within the weapon's range (byte 12 less 1), is
  * attacked as the player's Aim does (432f:3219: the cursor off, the view

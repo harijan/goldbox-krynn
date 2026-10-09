@@ -1,6 +1,7 @@
 #include "round.h"
 
 #include "adventure.h"
+#include "ai.h"
 #include "arena.h"
 #include "attack.h"
 #include "camp.h"
@@ -768,14 +769,30 @@ void cok_combat_turn_order(cok_adventure *game)
     }
 }
 
-/* 3afb:004b, the computer's turn, and 3995:0573, the player's commands,
- * are not ported: the turn is logged and ends (6346:2964). The player's
- * commands, for one that can act and is not casting, start by selecting
- * the menu's first item (DS:6e0f). With --combat gods the player then
- * presses Alt-X (scan code 0x2d), and in a game started with Helm the
- * cheat runs (432f:41e2), showing the combatant (6beb:12ef) after;
- * without, 432f:41e2 returns at once. With --combat melee every turn
- * attacks the nearest enemy it can reach (cok_combat_melee). */
+/* Alt-Q in the player's commands (3995:078d): the turn is given back
+ * (DS:72ce less 1, the initiative 0x14), the computer takes every record
+ * in the list (3995:1604), row 24 is cleared and, after 200 ms, the battle
+ * runs c's turn again, the computer's now. */
+static bool quick(cok_adventure *game, cok_character *c)
+{
+    --game->combat.turn_index;
+    c->combat->initiative = 0x14;
+    for (size_t i = 0; i < game->party.count; ++i) cok_combat_auto(game->party.members[i]);
+    cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 67b5:0c7b */
+    cok_adventure_wait(game, 200);                            /* 1962:029c */
+    return true;
+}
+
+/* The computer's turn is 3afb:004b (cok_combat_computer). 3995:0573, the
+ * player's commands, is not ported: the turn is logged and ends
+ * (6346:2964). The player's commands, for one that can act and is not
+ * casting, start by selecting the menu's first item (DS:6e0f). With
+ * --combat gods the player then presses Alt-X (scan code 0x2d), and in a
+ * game started with Helm the cheat runs (432f:41e2), showing the
+ * combatant (6beb:12ef) after; without, 432f:41e2 returns at once. With
+ * --combat auto the player presses Alt-Q. With --combat melee every turn
+ * attacks the nearest enemy it can reach (cok_combat_melee), and with
+ * --combat pass every turn passes, the computer's too. */
 static bool act(cok_adventure *game, cok_character *c, bool computer)
 {
     char name[16], text[48];
@@ -787,8 +804,10 @@ static bool act(cok_adventure *game, cok_character *c, bool computer)
         if (game->combat_stub == COK_COMBAT_GODS && game->helm) {
             return cok_combat_gods(game) && cok_arena_turn(game, c, 3, false);
         }
+        if (game->combat_stub == COK_COMBAT_AUTO) return quick(game, c);
     }
     if (game->combat_stub == COK_COMBAT_MELEE) return cok_combat_melee(game, c);
+    if (computer && game->combat_stub != COK_COMBAT_PASS) return cok_combat_computer(game, c);
     cok_combat_end_turn(c);
     return true;
 }
@@ -952,7 +971,7 @@ static bool rounds(cok_adventure *game)
         if (vm->abort || !cok_combat_end_round(game, &done)) break;
     }
     if (vm->status != COK_ECL_OK) return false;
-    if (game->combat_stub == COK_COMBAT_MELEE) {
+    if (game->combat_stub == COK_COMBAT_MELEE || game->combat_stub == COK_COMBAT_AUTO) {
         char text[32];
         snprintf(text, sizeof text, "seed %lu", (unsigned long)vm->seed);
         log_text(game, "combat", text);

@@ -26,10 +26,33 @@ enum {
     SOUND_ARROW = 0x0c /* DS:1e60 */
 };
 
+/* DS:0451-050f: turning undead (432f:12b7), DS:0444 + 13 * kind + level
+ * for kinds 1-12 and levels 0-12: the d20 to reach, 99 never, 0 or less
+ * destroyed (-1 more of them); level 0 reads the kind before's level 13.
+ * Past the last kind's level 12 lie the camp menu's strings. */
+static const uint8_t turning[0x50f - 0x451 + 1] = {
+    0x20, 0x0a, 0x07, 0x04, 0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0x0d, 0x0a, 0x07, 0x01, 0x01, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0x10, 0x0d, 0x0a, 0x04, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x13, 0x10, 0x0d, 0x07, 0x04, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x14, 0x13, 0x10, 0x0a, 0x07, 0x04, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x63, 0x14, 0x13, 0x0d, 0x0a, 0x07, 0x04, 0x01, 0x01, 0x01, 0x01, 0x01,
+    0x01, 0x63, 0x63, 0x14, 0x10, 0x0d, 0x0a, 0x07, 0x04, 0x01, 0x01, 0x01, 0x01,
+    0x01, 0x63, 0x63, 0x63, 0x14, 0x10, 0x0d, 0x0a, 0x07, 0x04, 0x04, 0x04, 0x04,
+    0x04, 0x63, 0x63, 0x63, 0x63, 0x14, 0x10, 0x0d, 0x0a, 0x07, 0x07, 0x07, 0x07,
+    0x07, 0x63, 0x63, 0x63, 0x63, 0x63, 0x14, 0x10, 0x0d, 0x0a, 0x0a, 0x0a, 0x0a,
+    0x0a, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x14, 0x10, 0x0d, 0x0a, 0x0a, 0x0a,
+    0x0a, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63,
+    0x63, 0x23, 0x53, 0x61, 0x76, 0x65, 0x20, 0x56, 0x69, 0x65, 0x77, 0x20, 0x4d,
+    0x61, 0x67, 0x69, 0x63, 0x20, 0x52, 0x65, 0x73, 0x74, 0x20, 0x41, 0x6c, 0x74,
+    0x65, 0x72, 0x20, 0x46, 0x69, 0x78, 0x20, 0x45, 0x78,
+};
+
 const cok_ds_table cok_attack_tables[] = {
     {0x1ed6, sizeof step_x, 1, (const uint8_t *)step_x},
     {0x1edf, sizeof step_y, 1, (const uint8_t *)step_y},
     {0x1e54, sizeof sound_words, 1, sound_words},
+    {0x0451, sizeof turning, 1, turning},
 };
 const size_t cok_attack_table_count = sizeof cok_attack_tables / sizeof *cok_attack_tables;
 
@@ -1101,6 +1124,91 @@ bool cok_combat_revive(cok_adventure *game, cok_character *c, uint8_t hp, const 
     if (!cok_combat_count_sides(combat, &game->party))
         return undefined(game, "a record on a side other than 0 or 1 (+0x18a) counts past "
                                "DS:6b2d (6346:268a)");
+    return true;
+}
+
+/* Turning undead. */
+
+bool cok_combat_undead(cok_adventure *game, cok_character *c, cok_character **undead,
+                       uint8_t *limit, bool *found)
+{
+    cok_combat *combat = &game->combat;
+    uint8_t best = 0, n;
+    *undead = NULL;
+    *found = false;
+    if (!cok_combat_enemies(game, c, 0xff, &n)) return false;
+    for (unsigned i = 1; i <= n; ++i) {
+        cok_character *e = combatant(game, combat->enemies[i], "432f:14f8");
+        if (e == NULL) return false;
+        cok_combat_record *ce = record_of(game, e);
+        if (ce == NULL) return false;
+        int8_t kind = (int8_t)e->record[0xda];
+        if (ce->forced != 0 || kind <= 0 || kind <= (int8_t)best || kind > (int8_t)*limit)
+            continue;
+        best = (uint8_t)kind;
+        *undead = e;
+        *found = true;
+    }
+    *limit = best;
+    return true;
+}
+
+bool cok_combat_turn_undead(cok_adventure *game, cok_character *c)
+{
+    cok_combat *combat = &game->combat;
+    uint8_t *r = c->record;
+    cok_combat_record *cr = record_of(game, c);
+    if (cr == NULL || !cok_arena_say(game, c, "turns undead...", 10, false)) return false;
+    cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 67b5:0c7b */
+    wait_speed(game);
+    bool any = false;
+    ++cr->turns;
+    uint8_t limit = 13, extra = 6;
+    uint8_t count = roll(game, 1, 12), d20 = roll(game, 1, 20);
+    /* The words' product and sum, as a byte. */
+    int former = cok_character_former_class(r) ? 1 : 0;
+    uint8_t level = (uint8_t)(former * (int8_t)r[0x101] + (int8_t)r[0xf9]);
+    if (r[0x5d] == 2) level = (uint8_t)(level + 2);
+    for (;;) {
+        cok_character *u;
+        bool found;
+        if (!cok_combat_undead(game, c, &u, &limit, &found)) return false;
+        if (!found || count == 0) break;
+        int at = 13 * (int8_t)u->record[0xda] + (int8_t)level;
+        if (at < 0x451 - 0x444 || at > 0x50f - 0x444)
+            return undefined(game, "turning undead of kind %d at level %d reads DS:%04x, which the "
+                                   "port does not hold (432f:1397)",
+                             (int8_t)u->record[0xda], (int8_t)level, (0x444 + at) & 0xffff);
+        int8_t v = (int8_t)turning[at - (0x451 - 0x444)];
+        if (d20 < (v < 0 ? -v : v)) {
+            --limit;
+            continue;
+        }
+        any = true;
+        if (!cok_arena_turn(game, u, 3, false)) return false;
+        combat->panel = true;
+        if (!cok_arena_panel(game, u)) return false;
+        if (v > 0) {
+            if (!cok_combat_leave(game, u, 3, "is turned")) return false;
+        } else {
+            /* 6beb:0e08's stale byte follows 6346:1883 (432f:1425). */
+            if (!cok_arena_say(game, u, "Is destroyed", 10, false) ||
+                !kill(game, u, COK_ARENA_STALE_UNKNOWN))
+                return false;
+            u->record[0x188] = 8;
+            u->record[0x189] = 0;
+        }
+        if (extra > 0) --extra;
+        --count;
+        if (count == 0 && extra > 0 && v < 0) ++count;
+        cok_arena_clear_text(game);
+    }
+    if (!any) cok_camp_notice(game, "Nothing Happens..."); /* 6346:1827 */
+    if (!cok_combat_count_sides(combat, &game->party))
+        return undefined(game, "a record on a side other than 0 or 1 (+0x18a) counts past "
+                               "DS:6b2d (6346:268a)");
+    cok_combat_end_turn(c);
+    cok_arena_clear_text(game);
     return true;
 }
 

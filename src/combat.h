@@ -107,6 +107,14 @@ typedef struct {
     uint8_t turn_index;
     bool panel;              /* DS:71ac: the side panel is to be drawn (6346:0af6). */
     bool show_actions;       /* DS:71ad: the actor's moves are shown (3995:040b). */
+    /* DS:71ab: the computer's target is within reach (3afb:0d49), then
+     * whether it has ammunition; read by its next step, kept from turn to
+     * turn and battle to battle. */
+    bool in_reach;
+    /* DS:43c8, 43c9, 43ca: the computer's last step's direction (8 none)
+     * and how often it has been stuck (3afb:095a), and a byte 3afb:0d49
+     * clears that nothing reads. */
+    uint8_t last_step, stuck, stuck_more;
     /* DS:6a30 + 3k, k from 1 (count DS:6a32): the combatants around a cell
      * (6b30:08d8), nearest first. */
     cok_combat_listing listed[COK_COMBATANTS + 1];

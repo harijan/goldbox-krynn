@@ -1399,10 +1399,10 @@ static void fearless(void)
 
 static void test_battle(void)
 {
-    /* COMBAT with no --combat: rounds until the limit, every turn passing,
+    /* COMBAT with --combat pass: rounds until the limit, every turn passing,
      * the order of each round logged. A, surprised with B, has its first
      * turn in round 2; the damage type is cleared after every turn. */
-    CHECK(fight("\rE", COK_COMBAT_UNPORTED, surprised) == COK_ECL_OK);
+    CHECK(fight("\rE", COK_COMBAT_PASS, surprised) == COK_ECL_OK);
     CHECK(LOGGED("round: 1: GOBLIN ") && LOGGED("A 0") && LOGGED("round: 15: ") &&
           !LOGGED("round: 16: "));
     const char *two = strstr(s.log, "round: 2: ");
@@ -1419,7 +1419,7 @@ static void test_battle(void)
     CHECK(game.vm.mem4b00[0xc7] == 5 && game.vm.mem4b00[0xc8] == 1);
     /* A held (0x33) has no turn; one gating (0x4c) at its full hit points
      * fights on. */
-    CHECK(fight("\rE", COK_COMBAT_UNPORTED, held) == COK_ECL_OK);
+    CHECK(fight("\rE", COK_COMBAT_PASS, held) == COK_ECL_OK);
     CHECK(LOGGED("round: 15: ") && !LOGGED("turn: A ") && LOGGED("turn: B "));
     CHECK(!LOGGED("unported:") && !LOGGED("gates in"));
     /* With won, the sides are counted again before the battle's end: a

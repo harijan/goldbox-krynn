@@ -420,12 +420,14 @@ death), the coins and items
 what is paid and appraised in shops and the temple as `shop:` (see Shops
 and the temple), the characters `ADD NPC` adds and `DUMP` removes as
 `party:` (see Party), `CALL [b203]`'s sounds as `sound:` and `CALL
-[c01e]`'s step as `at:`. `COMBAT`'s battle runs its rounds with every
-turn passing,
-as what a combatant does is not ported, unless `--combat won`, `fled` or
-`lost` decides it instead, `gods` has the player's turns run the
-original's cheat (see The rounds), or `melee` has every turn attack the
-nearest enemy it can (see Attacks, movement and death). `--combat-map FILE` writes each
+[c01e]`'s step as `at:`. `COMBAT`'s battle runs its rounds, the computer
+playing the monsters and the party's NPCs (see The computer's turns) and
+the player's turns passing, as the player's commands are not ported,
+unless `--combat won`, `fled` or `lost` decides it instead, `gods` has
+the player's turns run the original's cheat (see The rounds), `melee` has
+every turn attack the nearest enemy it can (see Attacks, movement and
+death), `auto` has the player press Alt-Q, the computer then playing
+every turn, or `pass` has every turn pass, the computer's too. `--combat-map FILE` writes each
 battle's map and combatants to `FILE` (see The battlefield). A fight ends
 with the results and the treasure menu, which read keys; with no party at
 all the monsters rejoice and the run ends. `--test-party N` adds N (1-8)
@@ -1225,12 +1227,12 @@ recomputes and then makes the armour class that from behind, 2 worse,
 needs the combat record and is not. The character sheet (`546c:07bb`),
 the Items menu after every key (`546c:17f9`) and Trade's receiver
 (`546c:2178`, `546c:32b0`) recompute, as ported (see View). The other
-places the original recomputes are not ported: the AI's
-choice of weapon (`3afb:1608`), spells
+places the original recomputes are not ported: spells
 with an attack roll (`5b04:1071`, which no spell cast outside combat
 reaches). Creating, training, modifying and changing the order of a
 character (`4def:06dd`, `4def:4d9e`, `4def:28fa`, `4def:567f`) are ported
-(see Creating characters and Training). Combat
+(see Creating characters and Training), and so is the computer's choice of
+weapon in combat (`3afb:1608`, see The computer's turns). Combat
 setup (`3cb2:10d9`) recomputes every record (see The battlefield), each
 combatant's turn (`3995:040b`) the combatant (see The rounds), an attack
 (`432f:1a45`) the attacker and a strike (`432f:1579`) the target (see
@@ -2240,22 +2242,28 @@ see The overland map). The preloads of overlays (`XXXX:0000`,
 The battle (`3995:0172`) sets up the battlefield (`3cb2:1c58`, see The
 battlefield), which builds the map, gives every record its combat record
 and places them, removing monsters with no place, then fights its rounds
-(see The rounds), in which what a combatant does is not ported: every
-turn passes, so that fifteen rounds without an attack end it. `eclplay`'s
-`--combat` (`cok_adventure.combat_stub`) decides the outcome instead of
-the rounds: `won`, every record against the party (`+0x18a` 1) drops
-(status 6, cannot act), and those on its side past the party's size do
-not; `fled`, every party record that can act flees (status 3); `lost`,
-the whole party dies; `gods` has the player's first turn of each round
-run the original's cheat when started with `Helm` (`432f:41e2`); or
-`melee` fights the rounds with every turn attacking (see Attacks,
-movement and death). Then the
-battle's end (`3995:004b`) and the end of combat (`351b:1968`) run, after
+(see The rounds), in which the computer plays the monsters, the NPCs and
+party members on Auto (see The computer's turns) and the player's
+commands, not ported, pass: with no `--combat` the monsters fight a party
+that does nothing, which usually ends with the party killed. (This
+default follows what is ported; `--combat pass` gives the earlier one.)
+`eclplay`'s `--combat`
+(`cok_adventure.combat_stub`) decides the outcome instead of the rounds:
+`won`, every record against the party (`+0x18a` 1) drops (status 6,
+cannot act), and those on its side past the party's size do not; `fled`,
+every party record that can act flees (status 3); `lost`, the whole party
+dies. Or it plays the rounds otherwise: `gods` has the player's first turn
+of each round run the original's cheat when started with `Helm`
+(`432f:41e2`); `melee` has every turn attack (see Attacks, movement and
+death); `auto` has the player's first turn press Alt-Q, putting the party
+on Auto, so that the computer plays every turn; and `pass` has every turn
+pass, the computer's too, so that fifteen rounds without an attack end
+it. Then the battle's end (`3995:004b`) and the end of combat (`351b:1968`) run, after
 every battle and for treasure alone (see Treasure and the end of combat):
 the party's part, `351b:0574`, decides from the statuses the battle left
-whether the party won, fled or was destroyed. Without `--combat` nothing
-drops, so the party wins, with none of the monsters' experience; with no
-party at all, as in `eclplay` without `--party`, it is destroyed, as
+whether the party won, fled or was destroyed. With `--combat pass`
+nothing drops, so the party wins, with none of the monsters' experience;
+with no party at all, as in `eclplay` without `--party`, it is destroyed, as
 `351b:0574` finds no one standing, and the run ends.
 
 `CALL [2e10]` (`2fd3:329b`), which scripts run after each encounter,
@@ -2607,10 +2615,10 @@ lies outside the map (5). It is not part of the repository.
 `3995` but the player's commands, the start of a round for each record
 (`432f:0000`, `014d`, `0e80`, `0f9e`), the lines, sight and ranges of
 overlay `6b30`, and the helpers of overlays `432f`, `6346` and `60f4` that
-the later parts of combat share. What a combatant does on its turn, the
-computer's choice (`3afb:004b`) or the player's commands (`3995:0573`), is
-not ported: such a turn is logged as `turn: NAME (initiative N)` and ends
-(`6346:2964`). The screen is drawn as the battle goes (see The combat
+the later parts of combat share. Each turn is logged as `turn: NAME
+(initiative N)`; the computer's (`3afb:004b`) is ported (see The
+computer's turns), the player's commands (`3995:0573`) are not: such a
+turn ends (`6346:2964`). The screen is drawn as the battle goes (see The combat
 screen, and below).
 
 The battle (`cok_combat_battle`), as `COMBAT` starts it: the mode becomes
@@ -2794,7 +2802,8 @@ none in the emulator's random cases but changes records. 0x30, 0x3c,
 0x42, 0x4c and 0x6a are ported with the attacks. The
 monsters' breath and attacks (4, 6, 0x4e, 0x53-0x55, 0x5a, 0x68) and
 0x4a, their d100s, d20s, saving throws and damage dice, wait for the
-computer's turns, which raise event 0x0e. The handlers the attacks reach
+spells in combat: the computer's turns raise event 0x0e, where they are
+skipped. The handlers the attacks reach
 are ported with them (see Attacks, movement and death). Each effect that
 ends in a battle, by its timer or the battle's end, is logged, `effect:
 NAME loses 0x77`. The dead that explode (effect 0x44) explode after
@@ -2895,10 +2904,10 @@ where theirs misbehave: 0x4b against no target (read at `0000:0140`) and
 0x1a likewise (`0000:013f`), 0x29 reading the selected character when none
 is, a record with no combat record, and the nested removals above.
 
-Not ported: the computer's turns (`3afb:004b`), the player's commands
-(`3995:0573`), spells and items in combat and the damaging clouds
-(`60f4:0dc3`). Attacks, movement and death are (see Attacks, movement and
-death), and `eclplay --combat melee` attacks at each turn.
+Not ported: the player's commands (`3995:0573`), spells and items in
+combat and the damaging clouds (`60f4:0dc3`). Attacks, movement and death
+are (see Attacks, movement and death), and so are the computer's turns
+(see The computer's turns); `eclplay --combat melee` attacks at each turn.
 
 A differential test ran the original routines in an 8086 emulator against
 the port. Whole battles: setup (`3cb2:1c58`), event 0x18, rounds with
@@ -3211,9 +3220,10 @@ is not part of the repository.
 it calls), sweeps, guards, attacks of opportunity, a step on the map,
 fleeing and the choice of a target, the attack roll and the deaths of
 overlay `60f4`, and the weapon tests of `6346`. `60f4:1db7`'s combat part
-is `cok_cast_damage` (`src/cast.h`). The computer's turns (`3afb:004b`) and
-the player's commands (`3995:0573`), which call them, are not ported;
-`eclplay --combat melee` attacks in their place (below).
+is `cok_cast_damage` (`src/cast.h`). The computer's turns (`3afb:004b`)
+call them (see The computer's turns); the player's commands (`3995:0573`)
+are not ported, and `eclplay --combat melee` attacks in place of either
+(below).
 
 An attack (`432f:1a45`) sets the actor's moves shown and the panel due
 (`DS:71ad`, `71ac`) and the round limit to the round + 15. A target hit
@@ -3390,7 +3400,7 @@ list is emptied.
 | `cok_combat_melee` | eclplay's `--combat melee` |
 
 `eclplay --combat melee` stands for the computer's and the player's turns
-until they are ported: each turn attacks the nearest enemy it can attack
+alike: each turn attacks the nearest enemy it can attack
 (`6346:26e2`, `432f:11d4`) a square away, or with a missile weapon and its
 ammunition and none a square away, within the weapon's range (byte 12 less
 1), as the player's `Aim` does (`432f:3219`: the cursor off, the view's
@@ -3525,8 +3535,7 @@ a footprint there (11 to 14) in between. It depends on the heap and the
 stack, so the port still stops; the player's turns (P9) reach it when
 Molly unreadies her hoopak.
 
-Not ported: the computer's turns and the player's commands; turning
-undead (`432f:12b7`, `14a2`); casting and the spell targets in combat
+Not ported: the player's commands; casting and the spell targets in combat
 (`432f:28bd`, `2337`); and the effects that need them, among them the
 monsters' breath (event 0x0e), which picks its targets through the spell
 target routine (`*DS:6e3a`, `432f:2337`) and the cones and bolts of
@@ -3576,6 +3585,308 @@ cases across every generator, with bursters that bear 0x43, agreed on
 all 5,907 both carried out. The original's `432f:0dc7` returns
 `6346:2964`'s 1 whether or not one gets away. It is not part of the
 repository.
+
+## The computer's turns
+
+`src/ai.h` ports overlay `3afb`, the turns of the monsters, of NPCs and of
+party members on Auto (`+0x18b`), with turning undead (`432f:12b7`,
+`14a2`, in `src/attack.h`). The battle's turn (`3995:040b`) hands such a
+turn to `3afb:004b` (`cok_combat_computer`); the player's commands
+(`3995:0573`) are not ported: their turns pass, but for `eclplay
+--combat`'s (below).
+
+A turn (`3afb:004b`):
+
+1. The keys (`3afb:1200`): a key waiting is read, a 0 followed by a
+   second read, as scan codes come. Alt-M (or `2`, scan code 0x32) turns
+   Magic On or Off (`DS:7198`, "Magic On" or "Magic Off" on row 24); Space
+   gives every party member (`+0xe7` below 0x80) whose status is not 1
+   back to the player, and if the one whose turn it is is among them, its
+   initiative becomes 0x14 and it does nothing more; Alt-X (or `-`) runs
+   the Helm cheat (`432f:41e2`) in a game started with `Helm`. The
+   keyboard's flush after (`1614:045c`) is not ported. Row 24 and the
+   panel's text are cleared.
+2. One that cannot act ends its turn (`6346:2964`).
+3. Its way of moving (combat record `+0x15`): a row 1-4 stays unless a d4
+   rolls 1; then, or for any other row, a d8 of 8 gives 4 + d2, else a
+   d4. The dice are rolled whatever the turn is to be.
+4. Unless the turn is over, morale (`3afb:1316`): it is not fleeing
+   (`+0x14`); one made to flee (`+0x10`: fear, confusion) flees, "is forced
+   to flee" (row 10, with a pause). An NPC or monster (`+0xe7` from 0x80)
+   holds while its morale, (`+0xe7 & 0x7f`) × 2 as a byte, 0 above 0x66,
+   in `DS:6b3e` after its effects for event 0x11, is not 0 and reaches 100
+   less its hit points as a percentage of its most (a signed division:
+   above its most, the share passes 100); else, on the side against the
+   party, while the enemies' health (`DS:7197`, again through event 0x11)
+   is not 0 and reaches 100 less var `0x7ec6`, as words. Failing both: if
+   the fastest of its enemies (`432f:2e82`) moves farther than its own
+   movement (`432f:014d`) halved, one of intelligence (`+0x13`) above 5
+   "Surrenders" (`60f4:133c`, status 4) and its turn ends, and one of 5 or
+   less fights on; else it flees, losing effects 0x4a and 0x4b. Party
+   members never test it.
+5. One fleeing that was not made to "flees in panic", at each turn.
+6. Unless the turn is over, the first that applies: an item's spell
+   (`3afb:04b2`), a spell begun at an earlier turn (`5b04:1415`), turning
+   undead (`3afb:024b`) or a spell (`3afb:0613`), each ending the turn;
+   else it readies its weapon (`3afb:1608`), reads the keys again and,
+   while its turn goes on, picks a target (`432f:3f9f` with flag, range
+   0xff) and, with one, its initiative above 0 and able to act, moves and
+   attacks (`3afb:0d49`), else guards or ends its turn (`3afb:118e`).
+
+An item's spell (`3afb:04b2`): a d7, then, if it may use items this round
+(combat record `+0x02`), some enemy can act and the area allows magic
+(var `0x4be5`), for passes 1 to the d7 at levels 7, 6 and so on, the first
+readied item that is no scroll, casts a spell (`+0x3e` below 0x80) and has
+one (`+0x3d`; one above 0x38 is tested as 0x17 less) that suits it at the
+level. A spell (`3afb:0613`): the spells it has memorized, from `+0x1f`
+(the byte at `+0x1e` is not one; those marked to be learned, + 0x80, are
+taken too) if it may cast this round (`+0x01`), and a d7; if it has any,
+is an NPC or monster or Magic is On, and some enemy can act: for passes 1
+to the d7 at levels 7, 6 and so on, three draws of a d(spells) each, the
+first that suits it. A spell suits at a level (`3afb:03b9`) if its
+priority (spell table byte 13) reaches the level and either it is not
+aimed at enemies (byte 14) or some enemy is within its range (`5b04:0ecb`:
+byte 2 plus byte 3 times the caster level, `6346:29fe`, 6 while an item is
+used; 0 is 1 when byte 6 is set, and 0xff is 1) and, for an area (byte 15,
+its radius), no enemy stands where the area (`6b30:08d8`) would take in one
+of the selected character's own side that, unless the spell's save (byte
+8 = 1) negates it, fails a saving throw of type byte 9 (`60f4:113a`, at
+-2 on the party's side, +8 on the other); every such one throws, failing
+or not (`3afb:02b7`). Cure Light Wounds (3), whose test for a target
+(`432f:1eed`) comes after the priority, has priority 0, so the computer
+never casts it, nor any spell of priority 0. The spell bytes of marked
+spells lie past the table's end (up to `DS:41a3`), which the original
+reads; the port reads them from the executable's data.
+
+Casting in combat (`432f:28bd`, `5b04:1415`) and using an item there
+(`546c:24d7`) belong to the spells in combat and are not ported: when the
+computer has chosen, by all of the tests above with their dice and saving
+throws, it is logged (`unported: NAME casts spell 0x0f (432f:28bd)`,
+`unported: NAME uses an item's spell 0x34 (546c:24d7)`, `unported: NAME
+casts spell 0x0f at its turn (5b04:1415)`) and its turn ends, as the cast
+or the use would end it. The cast's own dice (its targets, `432f:2337`,
+their saving throws and damage, and the d2 of each tie as a cast that
+takes time moves the caster down the turn order) are not rolled: from the
+first such line a battle's random numbers part from the original's, and
+the targets keep what the spell would have taken. A spell begun at an
+earlier turn is never there, as only `432f:28bd` begins one.
+
+Turning undead (`3afb:024b`): a cleric (`+0xf9` above 0, or `+0x101`
+above `+0xd7`, signed) that has tried fewer times this battle (combat
+record `+0x11`) than undead were loaded (`DS:8859`) turns if an enemy
+undead not made to flee is of a kind (`+0xda`, signed) no higher than a
+limit `3afb:024b` never sets (`[bp-6]`): the byte its callers left there,
+which the calls before it at the same depth fix. The way of moving's dice
+(`60f4:1216` pushes the sides for `Random` at that place) leave 2 or 4,
+the sides of the last; "is forced to flee" (`3afb:1316` builds the string
+over it) leaves its fifteenth letter, `l` (0x6c), and "flees in panic"
+the low byte of the return address `3afb:0142` that the call of
+`6346:1883` pushes there, 0x42. So the computer turns only kinds up to 2
+or 4 unless it flees. An interrupt between could leave another byte. The
+turn (`432f:12b7`, also the player's `Turn`): "turns undead..." (row 10,
+no wait), row 24 cleared and a pause; its tries count one more; 1d12 of
+the undead may be turned, against one d20, at its level: the cleric's and
+the former cleric's that a human may use, + 2 for deity 2 (`+0x5d`), a
+byte. While `432f:14a2` finds an enemy undead not made to flee of the
+highest kind no higher than the kinds left (from 13; the first of that
+kind in the list of enemies, range 0xff) and some are left to turn, the
+table `DS:0444` + 13 × kind + level (signed) gives what the d20 must
+reach in size: below it, the kinds left are those below; else the undead
+is shown (`6beb:12ef`) with its panel and, above 0, "is turned"
+(`60f4:133c`, running) or else "Is destroyed" (no wait), dies on the
+screen (`6beb:0e08`) and is gone (status 8). Each turned leaves one fewer
+to turn, but a destroyed one of a value below 0 at the last keeps one
+while six bonus turns last. With none turned, "Nothing Happens..." on row
+24. The sides are counted, the turn ends and the text is cleared. The
+level is not clamped: past 12 it reads the next kind's row, and past the
+last kind's the camp menu's strings, where the port stops beyond them.
+
+The weapon (`3afb:1608`): the hands of the readied weapon and shield are
+taken off those its items hold (`+0x17b`) for the while; of the items it
+may use (type byte 13 and `+0x11a`) in slot 0, the best missile weapon
+(type flags, byte 14, & 8 or & 0x10: a thrown weapon counts as both) of
+worth above 1 and the best for melee (& 8 clear) of worth above its bare
+hands (`+0x10d` × `+0x10f`, plus twice `+0x111` if positive), and the best
+shield (slot 1) by its bonus + 1 (0 below 0). A weapon's worth
+(`3afb:14ca`), a byte: its dice (bytes 9 × 10), plus 8 times its bonus
+and twice the type's bonus against small targets (byte 11) if positive;
+holy water (type 0x36) 8 against a target that is undead; a missile weapon
+(& 8) twice its rate less 2; 3 more for one hand (byte 1); 0 if its hands
+and the others held pass 3, for an alignment item (`+0x3e` 0x84) of
+another alignment (`+0x3d` & 0x0f against `+0x10a`), for `+0x3d` 0x53, or
+cursed (`+0x36`). The missile weapon is taken if worth more than half the
+other, with its ammunition (itself if thrown, flags & 0x10; for & 8 the
+arrows readied (& 1) or the quarrels (& 0x80); flags exactly 0x0a, slings,
+need none) and either a thrown missile weapon of range above 1 or no enemy
+a square away (`6346:26e2`). Unless the weapon readied is cursed or the
+one chosen, it is put away (`546c:1ea7`, Ready's toggle, on the selected
+character, which the port requires to be the one whose turn it is), the
+stats recomputed (`6346:0d20`), the shield's hands taken off again unless
+it is cursed, and the chosen one, if any, readied. With its stats and
+attacks (`432f:0e80`) recomputed: with more than two hands held, the
+shield is put away, or with none or a cursed one the chosen weapon is
+toggled; with fewer than two, unless the shield is the best or is cursed,
+it is put away and the best readied. Ready's notices are said ("It's
+Cursed", "already using ...", but not "Your hands are full!" for the
+computer), and the panel redrawn if anything was readied.
+
+Moving and attacking (`3afb:0d49`): no last step (`DS:43c8` 8), not stuck
+(`DS:43c9`, `43ca`); event 0x0e, where the monsters' breath fires (its
+handlers are not ported: skipped and logged in battle); one on the
+party's side bandages the first dying party member (`6346:31e9`), which
+ends its turn. Then at most 20 passes while its turn goes on (the 21st
+guards, and that pass goes on all the same): one fleeing steps while it
+has movement and initiative other than 0x14; with its reach, its weapon's
+range (byte 12) less 1, 1 for 0, 0xff or no weapon, it keeps its target
+only if that can act and is on the side against the party (a monster's
+target is always dropped), can be attacked (`432f:11d4`) and is seen
+within reach with sight blocked (`6b30:03f1`, map `+6` cleared); else a
+d(enemies within reach) picks one, or with none `432f:3f9f` picks one to
+step toward (or it guards, and the call goes on); with a missile weapon
+not thrown (`6346:30bd`) and an enemy a square away it readies another
+(`3afb:1608`) and the call ends; the one picked is attacked if a square
+away or it can be attacked. The attack (`DS:71ab` set): the screen
+centred toward it (`6beb:096b`), a sweep (`432f:0fce`) that ends the
+turn, or the defender booked (`432f:19b6`) and attacked (`432f:1a45`)
+with the ammunition, none for a thrown weapon a square away, `DS:71ab`
+then whether it has any. An attack that leaves attacks ends nothing;
+a target that drops ends the call with the turn going on, and the turn
+picks a target again. A turn that picks without end (a cursed missile
+weapon with an enemy a square away readies nothing and leaves again),
+where the original loops for ever, stops the port.
+
+A step (`3afb:095a`): "Move/Attack, Move Left = N" on row 24, the keys;
+then it holds (`3afb:118e`) with no move (half its movement 0) or
+initiative left; every NPC and monster rolls a d100, and one on the
+party's side holds if the enemies' health passes it plus the morale
+(`DS:6b3e`, left by the last morale tested); one not fleeing that wears no
+armour (slot 2) with `+0x5b` 5 holds. Its way: toward its target
+(`6346:34e9`), or, fleeing, a d2 for its row and the party's facing
+(`DS:6d87`) turned to 7, 2, 3 or 6 for 0, 2, 4 and 6, the other way for
+the party's side. Of the row's five turns (`DS:0396`: row 1 0, -1, -2, +1,
++2; 2 0, +1, +2, -1, -2; 3 -1, +1, 0, -2, +2; 4 +1, -1, 0, +2, -2; 5 0,
+-1, -2, -3, 4; 6 0, +1, +2, +3, 4) it takes the first it can step to
+(`3afb:0743`: on the map, not held, a cell that can be walked on costing,
+twice or three times on a diagonal as a byte, less than its movement
+left; a green cloud costs all unless it has 0x20, 0x1e, 0x63 or 0x3f, is
+made to flee or makes a saving throw of type 0; a puddle all for one
+below level 7 unless 0x63 or made to flee); one fleeing that would step
+off the map tries to get away (`432f:0dc7`) and stops fleeing. None, or
+the way back (opposite the last step): stuck once more, the next row; at
+twice the target is forgotten and picked again (`432f:3f9f` with flag)
+or it guards; at three times no movement is left. Then, shown if its
+target was in reach, it is on the view or on the party's side
+(`DS:71ad`), it turns there (`6beb:0ad8`), the enemies it leaves attack it
+(`432f:0986`), and it steps (`432f:077a`); one that drops or is helpless
+ends its turn; the cloud under it (`60f4:0dc3`) is not ported, but only
+spells, not ported, lay clouds. Guarding (`3afb:118e`): one not helpless,
+without a missile weapon and with initiative guards (`6346:29b3`: its turn
+ends and, unless made to flee, it guards, "Guarding" on row 24); others
+end their turn.
+
+| Function | Original |
+| --- | --- |
+| `cok_combat_computer` | `3afb:004b` |
+| `cok_ai_keys`, `cok_ai_pattern`, `cok_ai_morale` | `3afb:1200`, `004b`, `1316` |
+| `cok_ai_use_item`, `cok_ai_cast`, `cok_ai_spell_fits` | `3afb:04b2`, `0613`, `03b9` with `02b7`, `5b04:0ecb` |
+| `cok_ai_turn_undead`, `cok_combat_turn_undead`, `cok_combat_undead` | `3afb:024b`, `432f:12b7`, `14a2` |
+| `cok_ai_weapon_score`, `cok_ai_choose_weapon` | `3afb:14ca`, `1608` |
+| `cok_ai_fight`, `cok_ai_step`, `cok_ai_can_step`, `cok_ai_guard` | `3afb:0d49`, `095a`, `0743`, `118e` with `6346:29b3` |
+| `cok_item_ready` | `546c:1ea7` |
+
+`eclplay --combat auto` has the player's first turn press Alt-Q
+(`3995:078d`): the turn is given back (`DS:72ce` less 1, initiative 0x14),
+every record in the list goes to the computer (`3995:1604`), row 24 is
+cleared and after 200 ms the battle runs the turn again, the computer's
+(0x14 becoming 0x13): whole battles decided by the computer. The seed at
+its end is logged (`combat: seed N`). `--combat pass` has every turn pass,
+the computer's too, as the rounds did before the computer's turns were
+ported. With no `--combat` the computer plays and the player's turns
+pass.
+
+The port keeps these quirks:
+
+- A monster drops its target at each call of `3afb:0d49`, which keeps
+  only targets on the side against the party: only a party member on Auto
+  keeps its target.
+- The 21st pass of `3afb:0d49` guards and goes on to attack all the same;
+  a call that finds no one to attack or step toward guards but returns
+  with its turn going on, and the turn picks a target again.
+- Every NPC and monster rolls a d100 at each step, which only an NPC on
+  the party's side uses.
+- The limit of turning undead, the stack's byte above.
+- Marked spells are tested at the bytes past the spell table.
+- A spell id above 0x38 on an item is tested as 0x17 less, and logged as
+  it is.
+- Every ally in a spell's area throws its save, though one failure
+  rejects the spell.
+- Morale: monsters on the party's side never pass the second test; the
+  percentage is a signed division.
+- `DS:71ab`, whether the target was in reach (or the ammunition), is read
+  by the next step, from any earlier call, battle or turn.
+
+Where the original misbehaves the port stops with `COK_ECL_UNDEFINED`:
+the weapon chosen readied with Ready on a selected character other than
+the one whose turn it is (the original's Ready works on the selected);
+toggling the chosen weapon when none was chosen, with more than two hands
+held and no shield, or a cursed one, to put away (`3afb:1ac1` passes NULL
+to Ready, which reads the interrupt table); a step
+toward no target (`6346:34e9` reads where none stands, the one after the
+last combatant); a turn that never ends; morale with no most hit points
+(runtime error 200); turning past the table; an area spell's side read
+with no selected character; a way of moving past its table, and item
+types past `ITEMS`.
+
+A differential test ran the original's whole battle, `3995:0172` with its
+setup and end and the computer's turns (`3afb:004b`) as they are, in an
+8086 emulator against the port's, with the same seed: the drawing run as
+in P6's harness, the texts, sounds and delays recorded, no key waiting,
+the player's commands (`3995:0573`) run with their key routine
+(`3995:08d5`) answering Alt-Q, "Continue Battle:" No, `GetMem` a bump
+allocator, the stack and heap filled with 0xa5 (and again with 0x5a and
+0), `DS:6de4` and `6de9` 0xff as at startup, and `432f:28bd`,
+`546c:24d7` and `5b04:1415` called from `3afb` logging what the port logs
+and ending the turn. Parties of one to six of `SAVE/`'s characters and
+`--test-party`'s fought the monster groups the scripts load before each
+`COMBAT` (`LOAD MONSTER`'s constant operands in the three ECL files,
+built as `LOAD MONSTER` builds them, at most eight monsters), on 3D maps
+from `GEO` and on open ground, some party members given a bow or a wand.
+Every record, item, effect and combat record, the tables, sides, rounds,
+rolls, pool, seed and the transcript (texts, attacks, sounds, the rounds'
+orders and turns) were compared at the end. Of 10,000 battles, 9,256
+agreed and none differed; in 509 the port skipped an effect handler not
+ported (breath, 4, 6, 0x53-0x55, 0x5a, 0x68, and 0x46, 0x4a, 0x4e) and
+was not compared; in 233 it stopped at Ready given no item (`3afb:1ac1`),
+each time on a character of `SAVE/` to whom the harness had given a second
+weapon readied on top of the first, two items in slot 0 that Ready never
+makes (given unreadied, with arrows and quarrels readied, 1,898 of 2,000
+battles agreed and none stopped); in 2 the original ran past the
+emulator's limit of 400 million instructions (in an earlier run such a
+battle, of 242 rounds, agreed with a higher limit). In the
+agreeing battles the computer had 383,769 turns, took 1,064,754 steps, was
+stuck 443,307 times and held 19,371, attacked 158,425 times and swept 65,
+readied weapons 199,824 times (switched to one for melee with an enemy a
+square away once), guarded 179,918 times, bandaged 5,621, fled in panic
+7,692 times and surrendered 5,309, tried to leave the map 1,754 times,
+tested items for a spell 39,468 times and used 1,359, drew 58,184 spells
+and chose 3,629, tried to turn undead 2,331 times and turned 220. Made to
+flee (fear: the dragons' breath) only in battles with skipped handlers;
+a spell begun earlier never. Filled with 0x5a instead, 1,852 of 2,000
+agreed and none differed. A fresh batch of 5,000 agreed on 4,628, none
+differing. With Magic On set at each round on both sides, so that party
+members on Auto cast too, 1,834 of 2,000 agreed (86,994 spells drawn); and
+with a key waiting at a chosen poll of the rounds (`1614:03c2`) on both
+sides, Alt-M (`2`), Space and `-` alone and together, 1,848 of 2,000
+agreed, none differing. A port whose limit for turning undead was 13
+instead of the stack's byte differed from the original in 86 battles of
+3,000 with casters (the review's control run), where this one agreed on
+all it carried out. Each piece alone (`3afb:14ca`, `1608`,
+`1316`, `004b`'s dice, `0743`, `095a`, `004b`, `03b9`, `118e`, with random
+pokes of records and combat records between) on battlefields set up by
+both: of 4,000 cases 3,947 agreed and none differed, the rest the port's
+stops above (a step toward no target, which only a step run alone
+reaches, and Ready given no item) and skipped handlers; with the stack
+and heap filled with 0, 2,964 of 3,000. It is not part of the repository.
 
 ## Treasure and the end of combat
 
@@ -4627,6 +4938,18 @@ test` checks cases of each that the emulator ran (`tests/test_start.c`).
 These follow the disassembly but have not been compared with the game
 running in DOSBox:
 
+- A cleric on Auto against undead (see The computer's turns): `3afb:024b`
+  takes the highest kind to turn from a stack byte its calls leave, the
+  way of moving's last die's sides, 2 or 4. Put a cleric of level 5 or
+  more on Auto (Alt-Q) against undead only of kinds (`+0xda`) above 4:
+  the port's never tries to turn them, where the player's `Turn` would.
+  Then against undead of kind 1 or 2, which it should try to turn.
+- Space during the computer's turns gives the party back: the turn it
+  interrupts is given up (initiative 0x14 with no `DS:72ce` decrement in
+  `3afb:1200`), and the next party member's turn is the player's.
+- With Alt-Q, the first combatant's turn runs twice: compare whether its
+  effects for event 7 and 0x0f act twice (a held one, a snake bite) in that
+  turn.
 - The frame's tile set (`8X8D1.DAX` record 202) is loaded with colour 13
   transparent (`6e22:0050`), so the frame shows black where its tiles have
   light magenta. Compare the frame's border and moons with the original.
