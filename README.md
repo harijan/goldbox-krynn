@@ -44,7 +44,8 @@ effect routines,
 the adventure loop, the camp, casting spells, the character sheet with its
 items, monsters and encounters, the battlefield, the rounds of a battle,
 treasure and the end of combat, the shops and the temple, the combat
-screen, and the portraits, NPCs and the other remaining opcodes,
+screen, the portraits, NPCs and the other remaining opcodes, and the
+attacks,
 including PIC delta decoding on `PIC1.DAX` and the game font in
 `8X8D1.DAX`, and plays the opening scripts, the view of Throtl and, with
 a party made up for testing (`eclplay --test-party`), its fights, round
@@ -406,7 +407,9 @@ loaded, the encounter's sprite and close-up and the money robbed log as
 `monster:`, a battle's setup, where each combatant stands, and the end of a
 fight as `combat:` (see Monsters and encounters and The battlefield), each
 round's order of turns and each turn as `round:` and `turn:`, and effects
-ending in a battle as `effect:` (see The rounds), the coins and items
+ending in a battle as `effect:` (see The rounds), the lines of an attack
+not said in the side panel as `attack:` (see Attacks, movement and
+death), the coins and items
 `TREASURE` adds as `treasure:` (see Treasure and the end of combat), and
 what is paid and appraised in shops and the temple as `shop:` (see Shops
 and the temple), the characters `ADD NPC` adds and `DUMP` removes as
@@ -414,8 +417,9 @@ and the temple), the characters `ADD NPC` adds and `DUMP` removes as
 [c01e]`'s step as `at:`. `COMBAT`'s battle runs its rounds with every
 turn passing,
 as what a combatant does is not ported, unless `--combat won`, `fled` or
-`lost` decides it instead, or `gods` has the player's turns run the
-original's cheat (see The rounds). `--combat-map FILE` writes each
+`lost` decides it instead, `gods` has the player's turns run the
+original's cheat (see The rounds), or `melee` has every turn attack the
+nearest enemy it can (see Attacks, movement and death). `--combat-map FILE` writes each
 battle's map and combatants to `FILE` (see The battlefield). A fight ends
 with the results and the treasure menu, which read keys; with no party at
 all the monsters rejoice and the run ends. `--test-party N` adds N (1-8)
@@ -1204,12 +1208,14 @@ needs the combat record and is not. The character sheet (`546c:07bb`),
 the Items menu after every key (`546c:17f9`) and Trade's receiver
 (`546c:2178`, `546c:32b0`) recompute, as ported (see View). The other
 places the original recomputes are not ported: the AI's
-choice of weapon (`3afb:1608`), attacks (`432f:1579`, `432f:1a45`), spells
+choice of weapon (`3afb:1608`), spells
 with an attack roll (`5b04:1071`, which no spell cast outside combat
 reaches); and creating, training, modifying and changing the order of a
 character (`4def:06dd`, `4def:4d9e`, `4def:28fa`, `4def:567f`). Combat
 setup (`3cb2:10d9`) recomputes every record (see The battlefield), each
-combatant's turn (`3995:040b`) the combatant (see The rounds), the end
+combatant's turn (`3995:040b`) the combatant (see The rounds), an attack
+(`432f:1a45`) the attacker and a strike (`432f:1579`) the target (see
+Attacks, movement and death), the end
 of combat (`351b:1968`) every record left, taking an item (`36d0:034c`,
 which buying does too) the taker, appraising gems (`58e7:1929`) the
 appraiser after each key, `DESTROY ITEMS` (`2fd3:35a3`) every
@@ -1312,15 +1318,14 @@ at startup by `3e99:005b` and `0843`, and by the start menu, `4def:01b4`,
 which is not ported) and the combat round (`714b`).
 
 Handlers ported, by address and effect id: `3f44:0124` (1), `0134` (2),
-`0344` (8, 0x2d), `0379` (9, 0x2e), `03ae` (0x0a), `03cd` (0x0b, its end and
-after it took hold), `04b1` (0x0c, 0x26), `05bc` (0x0e), `0625` (0x10),
+`0344` (8, 0x2d), `0379` (9, 0x2e), `03ae` (0x0a), `03cd` (0x0b, outside
+combat its end and after it took hold), `04b1` (0x0c, 0x26), `05bc` (0x0e), `0625` (0x10),
 `062c` (0x11), `065d` (0x12), `0681` (0x14), `07b5` (0x17), `09b3` (0x19),
 `0ab8` (0x1d), `0cf0` (0x21), `0f3f` (0x24), `0f78` (0x27), `144c` (0x2a),
 `1469` (0x2b, for a strength of 3 or less), `15a3` (0x2f), `16ef` (0x31),
 `173a` (0x32), `176b` (0x36), `179c` (0x37), `17a3` (0x38), `17c6` (0x39),
 `17ea` (0x3a), `1891` (0x3b), `1a72` (0x3d), `1b18` (0x3f), `2665` (0x49,
-but for damage of type 0x20), `29d5` (0x4d, but for choosing a target in
-combat), `320f` (0x59), `3258` (0x5b), `32a8` (0x5e), `3328` (0x5f), `334c`
+but for damage of type 0x20), `29d5` (0x4d, outside combat), `320f` (0x59), `3258` (0x5b), `32a8` (0x5e), `3328` (0x5f), `334c`
 (0x60), `325f` (0x5d), `3361` (0x61), `336f` (0x62), `3386` (0x63), `33a7`
 (0x64), `3406` (0x65), `3449` (0x66), `3450` (0x67), `34f9` (0x6b, its end),
 `3619` (0x6c), `363c` (0x6d), `3643` (0x6e), `3692` (0x6f, see The
@@ -1344,12 +1349,18 @@ part of 0x2b that prints is not ported. Ported with the rounds, for a
 battle (see The rounds): `00f7` (0x1b, 0x1f, 0x33-0x35), `016a` (3),
 `06b2` (0x15), `09e8` (0x1a), `0a2f` (0x1c), `0ae0` (0x1e, the stinking
 cloud), `0d7c` (0x23), `1412` (0x29), `23a4` (0x47, but for turning a
-spell back), `24f4` (0x48), `26bf` (0x4b) and `2b5f` (0x4f); outside a
+spell back), `24f4` (0x48), `26bf` (0x4b) and `2b5f` (0x4f); with the
+attacks (see Attacks, movement and death): `0208` (0x07), `04c2` (0x0d),
+`0bc9` (0x20), `0f50` (0x25), `1b55` with `1c21`, `1c34`, `31bc` and
+`31cf` (0x40, 0x41, 0x56, 0x57), `1dc5` (0x43), `1f97` (0x44), `000d` with
+`200b`, `3009` and `31e2` (0x45, 0x51, 0x58), `349c` (0x69), `36e1`
+(0x70), `376f` (0x72), `37b0` (0x73), `37fc` (0x75), `15cd` (0x30),
+`18b9` (0x3c), `1c54` (0x42), `272a` (0x4c), `34db` (0x6a), and the
+combat parts of `03cd` (0x0b taking hold) and `29d5` (0x4d); outside a
 battle those that write a combat record or read the map stop the run, as
-the original writes through records it has freed. Not ported, because they
-need combat (its records at `+0x183`, the map, targets or icons): 0x07,
-0x25, 0x44, 0x69, 0x6a, 0x72 and 0x73; combat and text: 0x0d, 0x20, 0x28, 0x30,
-0x3c, 0x40-0x43, 0x45, 0x46, 0x4c, 0x50, 0x51, 0x56-0x58, 0x70 and 0x75;
+the original writes through records it has freed. Not ported, because
+they need combat (its records at `+0x183`, the map, targets or icons)
+and text: 0x28, 0x46 and 0x50;
 dealing damage or killing, with text: 0x0f, 0x16, 0x22 and 0x2c; healing,
 with text: 0x3e; spells: 0x4a; a monster's breath or attack, which
 `5b04:58ed` installs at startup and event 0x0e of the combat AI runs: 4
@@ -1360,8 +1371,8 @@ original calls `0000:0000`. A call that reaches any of these fails, naming
 the handler; `DAMAGE` and the clock then end the run with
 `COK_ECL_EFFECT_FAILED` and log the reason as an error. In a battle,
 where monsters' effects run every turn, such a handler, and the parts of
-0x0b (taking hold), 0x4d (its target) and 0x6b (applying it) that need
-combat, are skipped instead and logged, as `unported: effect 0x68
+0x47 (turning a spell back) and 0x6b (applying it) that need combat, are
+skipped instead and logged, as `unported: effect 0x68
 (5b04:546e) on event 0x0e` (or `on removal`); see The rounds.
 
 `57e4:0549` calls `57e4:0171` with the unit and count once the clock has
@@ -1804,9 +1815,10 @@ The port keeps these quirks:
 
 Not ported: the combat target routine (`432f:2337`), which a battle puts
 in `DS:6e3a` while it runs, so that a cast then stops the run with
-`COK_ECL_EFFECT_FAILED`, and the combat parts of `5b04:1415` and
-`60f4:1db7` (missiles, flashes, sounds, "lost a spell"), whose drawing is
-ported (see The combat screen); spells cast by touch (byte 2 0xff, `60f4:1062`), which
+`COK_ECL_EFFECT_FAILED`, and the combat part of `5b04:1415` (missiles,
+flashes, sounds), whose drawing is ported (see The combat screen) and
+whose damage (`60f4:1db7` in combat) is (see Attacks, movement and
+death); spells cast by touch (byte 2 0xff, `60f4:1062`), which
 none outside combat is; effects whose handlers need combat or text when
 the spell's events or timers reach them, such as 0x0f and 0x16 of Slow
 Poison when they run out, and 0x47 (from 0x3f) on event 9 when it would
@@ -2215,8 +2227,10 @@ turn passes, so that fifteen rounds without an attack end it. `eclplay`'s
 the rounds: `won`, every record against the party (`+0x18a` 1) drops
 (status 6, cannot act), and those on its side past the party's size do
 not; `fled`, every party record that can act flees (status 3); `lost`,
-the whole party dies; or `gods` has the player's first turn of each round
-run the original's cheat when started with `Helm` (`432f:41e2`). Then the
+the whole party dies; `gods` has the player's first turn of each round
+run the original's cheat when started with `Helm` (`432f:41e2`); or
+`melee` fights the rounds with every turn attacking (see Attacks,
+movement and death). Then the
 battle's end (`3995:004b`) and the end of combat (`351b:1968`) run, after
 every battle and for treasure alone (see Treasure and the end of combat):
 the party's part, `351b:0574`, decides from the statuses the battle left
@@ -2748,28 +2762,25 @@ map stop the run, as the original's would write through records it has
 freed. Monsters carry effects that run every turn, and some of their
 handlers are still not ported: during a battle (`cok_effects.in_battle`,
 from the battle's start to its end) such a handler is skipped and logged,
-`unported: effect 0x4c (3f44:272a) on event 0x0f`, where outside a battle
+`unported: effect 0x46 (3f44:2037) on event 0x0d`, where outside a battle
 the run ends. From the first `unported: effect` line a battle's random
 numbers and records may stop following the original's, for a skipped
 handler rolls none of its dice: of those a battle reaches with every turn
-passing, 0x30 (event 0x0f) a d6 for each combatant within a cell that
-can act (`+0x189` not 0), 0x42 (0x0f) 2d6 against the first enemy beside
-it, and 0x3c (on its end) 3d6 and a saving throw (d20) for each one
-within a cell that can act, and the damage they deal (`60f4:1db7`) runs
-the targets' events, which can roll more (magic resistance's d100,
-Mirror Image's die, 0x47's d10), while 0x4c
-(0x0f), which brings a combatant back onto the map, 0x4d (berserk, 0x0f
-and 0x15), 0x0b in combat (0x13) and 0x47 turning a spell back on its
-caster rolled none in the emulator's random cases but change records;
-and of those only attacks and deaths reach, 0x07 a d6 or
-d4, 0x43 a d20, 0x46 a d6, the poisons (0x40, 0x41, 0x56, 0x57) and
-paralyses (0x45, 0x51, 0x58) a saving throw, 0x4a a d20, and the
-monsters' breath and attacks (4, 6, 0x4e, 0x53-0x55, 0x5a, 0x68) their
-d100s, saving throws and damage dice. Each effect that ends in a battle,
-by its timer or the battle's end, is logged, `effect: NAME loses 0x77`.
-The dead that explode (effect 0x44, whose handler is not ported) are
-never listed; `60f4:2375` clears the damage type (`DS:6b31`) after
-every turn all the same, and stops the run if any are listed.
+passing, or with `--combat melee`'s attacks, 0x46 (at death) a d6, and
+the damage it deals (`60f4:1db7`) runs the targets' events, which can
+roll more (magic resistance's d100, Mirror Image's die, 0x47's d10); and
+the timers' damage over time (0x0f, 0x16, 0x22, 0x2c) their saving
+throws and deaths; while 0x47 turning a spell back on its caster rolled
+none in the emulator's random cases but changes records. 0x30, 0x3c,
+0x42, 0x4c and 0x6a are ported with the attacks. The
+monsters' breath and attacks (4, 6, 0x4e, 0x53-0x55, 0x5a, 0x68) and
+0x4a, their d100s, d20s, saving throws and damage dice, wait for the
+computer's turns, which raise event 0x0e. The handlers the attacks reach
+are ported with them (see Attacks, movement and death). Each effect that
+ends in a battle, by its timer or the battle's end, is logged, `effect:
+NAME loses 0x77`. The dead that explode (effect 0x44) explode after
+every attack and every turn (`60f4:2375`, see Attacks, movement and
+death), which clears the damage type (`DS:6b31`) all the same.
 
 The battle draws the combat screen (see The combat screen) where the
 original does: a turn shows its combatant (`6beb:12ef`, margin 2, with
@@ -2866,9 +2877,9 @@ where theirs misbehave: 0x4b against no target (read at `0000:0140`) and
 is, a record with no combat record, and the nested removals above.
 
 Not ported: the computer's turns (`3afb:004b`), the player's commands
-(`3995:0573`), attacks, movement, spells and items in combat, the
-damaging clouds (`60f4:0dc3`), the explosions' damage, death's animation
-and bodies (`6beb:0e08`), and the combat screen.
+(`3995:0573`), spells and items in combat and the damaging clouds
+(`60f4:0dc3`). Attacks, movement and death are (see Attacks, movement and
+death), and `eclplay --combat melee` attacks at each turn.
 
 A differential test ran the original routines in an 8086 emulator against
 the port. Whole battles: setup (`3cb2:1c58`), event 0x18, rounds with
@@ -3175,6 +3186,378 @@ Missiles whose sheared erase shows under the target, from 44, 13 to 49, 2,
 45, 6 to 49, 21 and 39, 1 to 49, 21 after centring on 6, 1, agreed too. It
 is not part of the repository.
 
+## Attacks, movement and death
+
+`src/attack.h` ports the attacks of overlay `432f` (`432f:1a45` and what
+it calls), sweeps, guards, attacks of opportunity, a step on the map,
+fleeing and the choice of a target, the attack roll and the deaths of
+overlay `60f4`, and the weapon tests of `6346`. `60f4:1db7`'s combat part
+is `cok_cast_damage` (`src/cast.h`). The computer's turns (`3afb:004b`) and
+the player's commands (`3995:0573`), which call them, are not ported;
+`eclplay --combat melee` attacks in their place (below).
+
+An attack (`432f:1a45`) sets the actor's moves shown and the panel due
+(`DS:71ad`, `71ac`) and the round limit to the round + 15. A target hit
+fewer than twice, unless the attack is from behind (`432f:0986`'s), turns
+away from the attacker (its facing, combat record `+9`, the direction to
+the attacker + 4); then, if any cell of it is on the view (`6beb:06ef`),
+it is drawn facing the attacker (`6beb:0ad8`), which sets its facing to
+that. One hit twice or more that is shown flips (+ 4, not from behind)
+and is drawn back as it was. The attacker shows its panel, turns to the
+target in its attacking image, aims at it (`+0x0a`), and after 100 ms the
+item it was given flies (`432f:2beb`, below), then a sling's stone
+(weapon type 0x1c or 0x1d). With attacks left (`+0x18f` or `+0x190`) it is
+selected (`DS:6096`) while it strikes (`432f:1579`), and the item is used
+up: but for a hoopak's (`6346:3086`), its count (`+0x39`), if not 0, less
+the attacks made with slot 1 (`DS:7195`), a byte; at 0 it goes
+(`6346:1697`), and if the weapon is thrown (`6346:30bd`: a missile weapon
+whose type's flags have 0x14, or a hoopak) and the item is not a
+spiritual hammer (`+0x3d` 0x17), a copy, unreadied, goes into the pool
+after the missile recovered (`DS:60a2`) or at its end, and becomes that
+missile. Its stats are then recomputed (`6346:0d20`), undoing the dice for
+large targets. With no attacks left, its turn ends (`6346:2964`); if it is
+shown it is drawn back in its ready image.
+
+A strike (`432f:1579`) clears the hits (`DS:6b3c`, `6b3d`), the attacks
+made (`DS:7195`, `7196`) and the damage, and marks the attacker as having
+attacked (`+0x08`). A helpless target (`6346:0cdb`) is slain from the slot
+in progress (`+0x04`), or the first below it with attacks left, counted in
+`DS:7194` + slot: "slays helpless", "with one cruel blow", its hit points +
+5 dealt, as a byte (dying unless that wraps); the attacker's invisibility
+ends and it has no attacks left. Otherwise:
+
+1. Against a large target (`+0xcf` above 0x80 or `& 7` above 1) with a
+   weapon readied, slot 1's dice are the type's for large ones (bytes 2
+   and 3), the bonus less byte 11 plus byte 4.
+2. The target's stats are recomputed and its event 0x0b runs.
+3. The armour class is the target's from behind (`+0x18e`) less 4 for a
+   backstab (`432f:2af0`); else from behind when asked, or when the target
+   has been hit more than once, faces as the attacker's direction to it
+   and has turned more than 4 (`+0x12`); else `+0x18d`. Range then worsens
+   it (`432f:1ddc`): for a missile weapon, by 2 and then 3 more for each
+   third of its range less 1 (byte 12) the distance passes.
+4. From the slot in progress down to 1, each attack left (`+0x18e` +
+   slot) while the target has not dropped: counted, the slot recorded,
+   the roll (`60f4:1062`); a hit, or a helpless target, counts in
+   `DS:6b3b` + slot, sounds 7, rolls the damage (`432f:01ba`), says it
+   (`432f:033e`) to a target that can act, and runs event slot + 1 (2 or
+   3: poison, paralysis) on the attacker while the target can act and
+   some was dealt; then a target that dropped ends the attacks, and an
+   attacker that dropped loses that slot's (not the next one's). Only a
+   hit tests them: a target that dropped otherwise is swung at until one
+   lands. The dead that explode go off after each attack (`60f4:2375`).
+5. With no hit, sound 9 and "and Misses" once.
+
+The turn is over when no attacks are left, or the attacker cannot act;
+then it ends. The sweeps left (`+0x05`) are 0.
+
+The roll (`60f4:1062`) ends the attacker's invisibility (`60f4:1408`) and
+rolls a d20 (`DS:6b3b`): 1 or less misses, 20 counts as 100. Then the
+attacker's effects for event 0x0a and the target's for 0x10 change it; it
+hits if not negative and, with the attacker's THAC0 (`+0x18c`) and var
+`0x7f71` for the party's side or `0x7f70` for the other as a signed byte,
+it reaches the armour class. A case on the constant 500 that would adjust
+the party's (`60f4:10c8`, perhaps meant for the difficulty) never matches.
+The damage (`432f:01ba`) is slot's dice (`+0x190` + slot of `+0x192` +
+slot, `60f4:1261`) plus its bonus (`+0x194` + slot, signed), a byte; the
+attacker's effects for event 4 and the target's for 5 change it; a
+backstab multiplies it by 2 + (thief levels - 1) / 4 (former ones counting
+as `66c2:0efb` allows), a byte; the damage type is 0. A backstab
+(`432f:2af0`) is a thief's (`+0xff`, or `+0x107` usable) with no weapon or
+a hoopak, club, dagger or broad, long or short sword (types 0x43, 3, 4,
+0x11-0x13) against a target hit more than once, a square away
+(`6346:2888`), of one cell (`+0xcf & 0x7f` at most 1), facing as the
+attacker's direction to it. Before an attack the callers book it
+(`432f:19b6`): the defender's hits count one more and its turning
+(`+0x12`) the turn from its facing to the attacker, 0-4, modulo 8.
+
+The message (`432f:033e`): the attacker's name and "Attacks",
+"-Backstabs-" or "slays helpless" from row 10 (`6346:1883`, no wait), the
+target's name on row 12 (`6346:199d`), and in cells 23-38 of rows 13-16
+"(from behind) " and "Hitting for N points of damage" ("1 point"), "with
+one cruel blow" or "and Misses" (`1521:04ac`), the damage dealt
+(`6346:24d7` in combat) before it is printed, unless the target is gone
+(status 8). Damage takes the target's may-cast (`+0x01`); one casting
+(`+0x00`) "lost a spell" (row 12, with a pause), forgets it (`6346:161b`)
+and its turn ends. After a pause, a target that dropped "goes down" from
+the row after the text, then "and is Dying" (status 5, `1521:0353`) or "is
+killed" (6-8) two rows below, loses the effects that last only through the
+battle (`60f4:1440`), runs event 0x0d and, unless exploding (status 10),
+dies on the screen (`6beb:0e08`), else pauses. The text is cleared
+(`6346:196a`).
+
+A missile (`432f:2beb`) sounds 0x0c and flies (`6346:1ba6`) from the
+attacker's cell to the target's: darts, javelins, quarrels and arrows
+(types 5, 7, 0x0c, 0x1e) as one picture of COMSPR's arrows by the
+direction (slots 13-15, ready or attacking, mirrored for 5 and 7,
+`6346:1a26`), sound 0x0c again, 10 ms a step; hand axes, clubs and hammers
+(2, 3, 6) spinning (slot 0x10's four), sound 9, and 0x36 and 0x37 (slot
+0x11's), sound 6, 50 ms a step; sling stones (0x1c, 0x1d, 0x43; slot 0x15)
+10 ms, sound 6; anything else (slot 0x14) 20 ms, sound 9.
+
+A sweep (`432f:0fce`) by an attacker with fewer attacks left (`+0x18f`)
+than sweeps (`+0x05`, the fighter levels at the round's start), against a
+target below 1 hit die (`+0xd6` 0) a square away: if more enemies a square
+away (`6346:26e2`) are below 1 hit die than it has attacks, it "sweeps"
+(row 10, with a pause), the target moved to the head of the list, and
+attacks each of them in order, one attack each, at most its sweeps.
+`432f:11d4` says whether one can attack another: no one for none, itself
+yes, else unless the target's effects for event 1 make it so it cannot
+(`DS:6b37`: invisibility, blink), then the attacker's for event 0, which
+runs no handler, its aim the target meanwhile. `432f:3f9f` picks a target
+for the computer (P8) and some effects: it keeps one on the other side
+that can act and can be attacked, unless forced; else up to 20 times a
+d(the enemies within range), but the one who yelled (`DS:71a7`) listed
+first at the first try for one with effect 0x5b, takes one that can be
+attacked, or takes it off the list; a second pass sees through walls (map
+`+6`) unless forced, where flag takes the pick untested.
+
+A step (`432f:077a`) costs the cell's terrain cost twice, or three times
+on a diagonal, as a byte; with less movement left, none is left. The
+computer's actor is centred on first when the cell is off the view; the
+actor is erased, moved, the occupants rebuilt, and drawn there; its hits
+and turning are cleared, sound 0x0a, and each enemy beside it that guards
+(`+0x07`) and is not helpless stops guarding and attacks it (`432f:068f`).
+One that cannot act or is helpless after has no movement left. Before a
+step, each enemy beside the mover, not helpless or made to flee (`+0x10`),
+that it would leave (`432f:0986`, its place moved for the while to list
+those beside it after) attacks it once from behind if it can attack it and
+has no missile weapon, or a thrown one: at once if it has not had its turn
+or not been hit, else if the mover lies in its arc (`6b30:054a`) from one
+of five directions from its facing + 6; the last of its two slots with
+attacks left, or 1 (2 with no attacks in the first), given one attack if
+it has none; its aim put back. `432f:0dc7`, fleeing: with no enemy on the
+map, or moving farther than the fastest enemy (`432f:2e82`), or as far and
+a d2 of 1, it "Got Away" (`60f4:133c`, running); else "Escape is blocked"
+on row 24; its turn ends.
+
+`60f4:00eb` kills with a text (row 10, no wait): unless dead, stoned or
+gone already, which only says it, the record takes the status, cannot act,
+has no hit points, loses its battle's effects, runs event 0x0d and, if it
+stays down and is not exploding, dies on the screen; then a pause, the text
+cleared, and outside combat the party list redrawn. `60f4:22b7` puts a
+record back on the map where it was (`6beb:10f3`, its bodies taken back);
+if it fits it is okay with the hit points given, shown (`6beb:12ef`) in
+combat, flashes with a text (`6346:228c`, kind 1), and the sides are
+counted. `60f4:1db7` in combat (`cok_cast_damage`) flashes its text
+("takes N points of damage", kind 0, a burst), deals the damage through
+`6346:24d7`, takes the may-cast, makes one casting lose its spell, and for
+one that drops says "Goes Down" (", and is Dying", or "is killed") from the
+row after the text, then as the message above. The dead that explode
+(`60f4:2375`, after each attack and turn) each say "explodes." (row 10,
+with a pause), deal 1d6 (`60f4:1261`) through `60f4:1db7` to each other
+combatant `6b30:08d8` lists within a cell, but those exploding, in the
+order listed before any damage; then each is dead and dies on the screen.
+Those that explode meanwhile are added and go off in the same pass. The
+list is emptied.
+
+| Function | Original |
+| --- | --- |
+| `cok_combat_attack` | `432f:1a45`, `2beb` |
+| `cok_combat_strike` | `432f:1579`, `033e` |
+| `cok_combat_hit`, `cok_combat_reveal` | `60f4:1062`, `1408` |
+| `cok_combat_damage_roll` | `432f:01ba` |
+| `cok_combat_book`, `cok_combat_backstab`, `cok_combat_range` | `432f:19b6`, `2af0`, `1ddc` |
+| `cok_combat_sweep` | `432f:0fce` |
+| `cok_combat_can_attack`, `cok_combat_pick_target` | `432f:11d4`, `3f9f` |
+| `cok_combat_step` | `432f:077a`, `068f` |
+| `cok_combat_opportunity` | `432f:0986` |
+| `cok_combat_flee` | `432f:0dc7` |
+| `cok_combat_kill`, `cok_combat_revive` | `60f4:00eb`, `22b7` |
+| `cok_cast_damage` | `60f4:1db7` |
+| `cok_combat_explode` | `60f4:2375` |
+| `cok_combat_thrown`, `cok_combat_hoopak` | `6346:30bd`, `3086` |
+| `cok_arena_missile_frame` | `6346:1a26` |
+| `cok_combat_melee` | eclplay's `--combat melee` |
+
+`eclplay --combat melee` stands for the computer's and the player's turns
+until they are ported: each turn attacks the nearest enemy it can attack
+(`6346:26e2`, `432f:11d4`) a square away, or with a missile weapon and its
+ammunition and none a square away, within the weapon's range (byte 12 less
+1), as the player's `Aim` does (`432f:3219`: the cursor off, the view's
+centre redrawn, a sweep, or the target booked and attacked with the
+ammunition, but none for a thrown weapon a square away); again while the
+turn goes on (a target felled with attacks left); with none, the turn ends.
+An attack's text that does not go through `6346:1883` is logged as
+`attack:` (the target's name and the line of `1521:04ac`, or "and is
+Dying"), and the seed at the battle's end as `combat: seed N`.
+
+Effects whose handlers the attacks reach are ported with them (see Spell
+effects): poison on a hit (0x40, 0x41, 0x56, 0x57, `3f44:1b55`: a saving
+throw of type 0 by the attacker's target with the bonus of each and the
+value of its 0x74, or "is Poisoned", 0x37 and "is killed"), paralysis
+(0x45, 0x51 with no damage, 0x58 against races above 1, `3f44:000d`: a
+saving throw, or a flash, "is Paralyzed", 0x34 for 100 minutes), Molly's
+weapon (0x07, `3f44:0208`), blink (0x25, `0f50`), the damages of 0x69,
+0x72 and 0x73 (`349c`, `376f`, `37b0`), disruption (0x75, `37fc`), fire
+shield (0x70, `36e1`), and at death the weapon lost (0x43, `1dc5`), the
+dead that explode (0x44, `1f97`) and going mad and arising in a new form
+(0x0d, 0x20, `04c2`, `0bc9`); and the combat parts of charm taking hold
+(0x0b, `03cd`) and of berserk (0x4d, `29d5`). A weapon lost (0x43) goes to
+`DS:609e`, after those lost before, and back at the end of combat
+(`351b:185f`, see Treasure and the end of combat).
+
+The monsters' handlers that the start of a turn (event 0x0f) and the
+end of an effect reach need only these routines and are ported too:
+immolation (0x30, `3f44:15cd`: "immolates" with a pause, then 1d6 through
+`60f4:1db7` to each other combatant within a cell that can act, listed
+before), zapping (0x42, `1c54`: the first listed within a cell on another
+side "gets zapped!" and takes 2d6, and the holder's turn ends), bursting
+(0x3c, `18b9`, only when it ends, as death throes' 0x3a leave it: with
+those within a cell listed, it "explodes!" and is gone (`60f4:00eb`,
+status 8); each other listed then that can act takes 3d6 (the list is
+read after the death, whose events can work out a distance, `6346:2888`,
+as 0x43 does, which puts the entries back but not the count, so others
+listed before may be reached, and past them entries of none, read at
+`0000:0189`, where the port stops) and, unless it makes a
+saving throw of type 4 (`60f4:113a`), "is stunned" and gets 0x6a for
+good; then the dead that explode go off), stunned (0x6a, `34db`: the
+turn ends) and gating (0x4c, `272a`, Sir Lebaum's: below half its hit
+points (`+0x197` < `+0x62` / 2) the records waiting (status 9) in the
+party list, from the first, are put back (`60f4:22b7`, "gates in", with
+their full hit points) on the first free cell of floor (0x17) found
+going round the first record on another side, north first and clockwise,
+the next direction for the next one, then around the next such record
+and lastly the holder; it stops at the first not waiting, and the
+holder's 0x4c goes). The dice are `60f4:1261`'s.
+
+The port keeps these quirks:
+
+- A target turns its facing away from its attacker unless it is shown:
+  the view decides whether a later attack is from behind.
+- A helpless target's blow searches the slots down past 1 to 0, whose
+  "attacks" are the armour class from behind (`+0x18e`), counted in
+  `DS:7194`, which the list of enemies holds its 72nd entry in.
+- Damage of a negative total wraps (`432f:01ba`'s test for it compares
+  unsigned), and a backstab's product is a byte.
+- A large target's dice stay the attacker's until its stats are
+  recomputed after the strike; the target's are recomputed before.
+- An attacker that drops in its own strike (an explosion, a fire shield)
+  loses that slot's attacks but strikes on with the next; a target that
+  drops other than by a hit (an explosion) is swung at until a hit
+  lands.
+- The ammunition's count drops by the attacks made with slot 1, a byte,
+  and wraps when fewer are left; one item uncounted (0) goes at once.
+  Darts and javelins (flags 0x1a) are not thrown weapons by `6346:30bd`:
+  they are lost, where hand axes, clubs, hammers and hoopaks go into the
+  pool.
+- `6346:3111` takes a sling's flags (0x0a) as having ammunition: slings
+  never run out.
+- An attack's item that an effect takes during the strike (0x43 takes the
+  striking item, the arrows of a bow, from an archer that kills a bearer a
+  square away; or darts and javelins) is unlinked and freed, and
+  `432f:1c1f` goes on with the freed node, whose count is intact: less the
+  attacks made with slot 1, and at 0 `6346:1697`, not finding it among
+  the attacker's items, says "Tried to Lose item & couldn't find it!" on
+  row 24 in yellow and waits for a key (`6346:1670`, `1521:096c`). The
+  weapons lost keep the count it had. Its tests of a hoopak and a thrown
+  weapon read the readied weapon, which 0x43 has just cleared
+  (`3f44:1f7a`): the freed node is never copied into the pool.
+- The pool's missile is the item a thrown weapon's copy lands after;
+  experience for magic items stops there (see Treasure and the end of
+  combat).
+- An attack of opportunity's attacker that has had its turn and been hit
+  tests five arcs from its facing + 6; one that has not attacks whatever
+  its facing.
+- A step's cost is a byte: a wall's 0xff twice is 0xfe.
+- With no weapon readied, `432f:1a45` reads the weapon's type through NULL
+  (`0000:002e`, a byte of the interrupt vector of IRQ 3) for a sling; the
+  port takes it as no sling.
+- Molly's weapon (0x07) rolls its die at the attack roll and again at the
+  damage, and sets the THAC0 to the base before adding to it.
+- A charm that takes hold (0x0b) puts the record on side 0 unless its
+  value passes 0x7f (`3f44:045d`).
+- Poison kills on a failed save; disruption of an undead of a kind makes
+  it gone (status 8).
+- A record that goes mad (0x0d) or arises (0x20) is okay and can act even
+  when it cannot be put back on the map.
+- Fire shield's zap ends with the damage and its type put back.
+
+Where the original misbehaves the port stops with `COK_ECL_UNDEFINED`: more
+than eight around one that immolates or bursts
+(`3f44:15cd` and `18b9` copy the ninth over their loop's count), or none
+listed around one that immolates, off the map (`3f44:163b`'s count less
+1 wraps to 255 and it hurts what the stack holds); gating
+that tries a cell off the map, which it then tries forever (`3f44:2895`
+moves to the next direction only after a cell on the map), reads past the
+party list's last record, places a record that is not a combatant
+through entry 0, over the count (`3f44:2901`), or, the last waiting not
+put back, places the next, through NULL (`3f44:28e2`); a helpless
+target's slot search past the record; an attack slot past 2; a
+target a sweep's list lacks (its place a byte never set, `432f:110b`); a
+step off the map (the heap around it); more than 12 enemies beside one
+(`432f:0986`'s list) or 8 around one that explodes (`60f4:2452` copies
+them over its own pointer); a NULL in the list of the dead that explode; a
+target of an effect that is none (Molly's weapon with none, poison,
+paralysis, the damages and disruption, read at `0000:...`); Molly's weapon
+with no weapon readied, whose bonus is a local never set (`3f44:024c`); and
+records that are not combatants, have no combat record or lie on a side
+other than 0 or 1.
+
+Molly's local (`[bp-6]` of `3f44:0208`) is what the stack held. At the
+attack roll (event 0x0a) it is whatever earlier code left there: the
+emulator's harness zeroes the stack (filled with 0xa5 it reads 0xa5), and
+with 0x2d or 0x2e in the party it is a byte of a stack address. At the
+damage (event 4) the frame lies 2 bytes higher, where the same handler at
+the attack roll kept the offset of its target's pointer (`[bp-4]`,
+`3f44:0262`): its low byte, 0 or 8 by where the heap put the target's
+record, unless prayer (0x31) in the party had `6b30:08d8` write a row of
+a footprint there (11 to 14) in between. It depends on the heap and the
+stack, so the port still stops; the player's turns (P9) reach it when
+Molly unreadies her hoopak.
+
+Not ported: the computer's turns and the player's commands; turning
+undead (`432f:12b7`, `14a2`); casting and the spell targets in combat
+(`432f:28bd`, `2337`); and the effects that need them, among them the
+monsters' breath (event 0x0e), which picks its targets through the spell
+target routine (`*DS:6e3a`, `432f:2337`) and the cones and bolts of
+overlay `5b04`, and turning a spell back (0x47), which needs the spell
+targets (`DS:6fea`, `6feb`).
+
+A differential test ran the original routines in an 8086 emulator against
+the port: P6's random battlefields set up by both (`3cb2:1c58`), then
+random calls of `60f4:1062`, `432f:01ba`, `1579`, `1a45` (with its
+missiles and ammunition), `0fce`, `11d4`, `3f9f`, `077a`, `0986`, `0dc7`,
+`60f4:00eb`, `22b7`, `19b6`, `2af0`, `1ddc`, `60f4:2375`, `1db7` in combat,
+`01e9` (an effect's end), the events the attacks and turns raise and the
+`--combat melee` rule (`432f:3219` at the nearest enemy), with records,
+combat records and the battle's tables poked between: every record's
+attack slot in progress (combat record `+4`, which only a round's start
+sets) at the start and, mostly, before each attack, with its attacks left
+and THAC0 at times, so that strikes swing and hit. The records, items,
+effects, combat records, map, tables, rolls, seed, pool and weapons lost
+were compared after, and the lines logged as `print`, `attack`, `sound`
+and `unported`. Besides the general cases, generators aimed at thrown
+weapons and missiles with and without ammunition, the pool, backstabs,
+sweeps, guards and attacks of opportunity, the ported effects, the
+turn's handlers, gating, and archers killing bearers of 0x43. Of 49,000
+cases, 22,820 ran through on both and agreed, and none differed: 10,096
+of 20,000 general ones, 863 of 3,000 battles fought out (40 to 120 calls
+each, most of them turns of the melee rule), and the rest of the aimed
+ones. In samples of those carried out, strikes hit 263 times (158 of
+1,045 general cases) and 319 times in 113 of 136 long battles; backstabs
+163, sweeps 28, attacks of opportunity and guards 163 (105 from behind);
+immolation 305, zapping 22, bursting 151 (154 stunned), gating 307 put
+back; weapons lost 117, and the freed arrows' "Tried to Lose item" 15.
+On the cases where a handler not ported ran (0x46 at a death, 0x47 at
+setup) the port parts from the original as the rounds' section warns;
+otherwise only the port stopped, where the original reads or writes what
+is not there (as listed above, chiefly a target or selected character
+that is none, an icon slot past the table, a revived record that is not
+a combatant and a step off the map), or both did; and the setups stopped
+as P6's do. A ninth body (`DS:69ee`, which the original writes over its
+count and the map's pointer) takes a party member killed twice in one
+battle, which play cannot do: the random setups' records killed again
+make the few left in the long battles. Two divergences the runs found are
+fixed in the harness (a slot left pointing at an item freed during a
+strike run alone compares as none, as `1a45` recomputes the slots after)
+and in the port (immolation with none listed is refused: `3f44:163b`'s
+count less 1 wraps to 255). A last sample of 13,000 fresh
+cases across every generator, with bursters that bear 0x43, agreed on
+all 5,907 both carried out. The original's `432f:0dc7` returns
+`6346:2964`'s 1 whether or not one gets away. It is not part of the
+repository.
+
 ## Treasure and the end of combat
 
 `src/treasure.h` ports `TREASURE` (`2fd3:1d21`) with its random items
@@ -3187,7 +3570,7 @@ the order of a character's coins (silver, copper, bronze, platinum, steel,
 gems, jewelry; names at `DS:12e3`), and the items at `DS:6b28`, a list of
 63-byte items linked at `+0x2a`, kept in list order, the head first. Two
 lists only combat fills, both empty until it is ported, are kept with it:
-the last missile combat put in the pool (`DS:60a2`, `432f:19b6`), as the
+the last missile combat put in the pool (`DS:60a2`, `432f:1a45`), as the
 item it is, and the weapons lost in combat (`DS:609e`, effect 0x43,
 `3f44:1dc5`): 71-byte nodes of an item and the record it goes back to
 (`+0x3f`). The original keeps the missile as a pointer, which only combat
@@ -3430,8 +3813,8 @@ The port keeps these quirks:
 - A fled party's pool loses its items before the menu and its coins at
   the results; the menu still opens.
 
-The weapons lost in combat and the missile recovered stay empty until
-combat fills them.
+Combat fills the weapons lost (effect 0x43) and the missile recovered (a
+thrown weapon used up, `432f:1a45`); see Attacks, movement and death.
 
 In Trade from the treasure menu's View, Escape at the first coin list
 tests a byte of the stack (see View). Loading the treasure's picture
@@ -3862,6 +4245,23 @@ running in DOSBox:
 - Shoot at a monster more than 6 cells away and out of the view: the
   arrow should fly to the view's edge, then the screen move to the target
   and the arrow come in from the edge near it.
+
+- Attack a hobgoblin at Throtl's gate: the panel should show the
+  attacker's name on row 10, `Attacks` below it, the target's name on row
+  12 and `Hitting for N points of damage` from row 13, in light green; a
+  target that drops `goes down`, `and is Dying` two rows below, then the
+  skull. A miss says `and Misses` once for all the attacks of a turn.
+- Shoot at a monster with a long bow and arrows: the arrow's picture
+  should point the way it flies, one picture for the whole flight, and
+  the arrows' count drop by the shots made. Throw a hand axe until none
+  is left and win: it should be in the treasure pool; darts and javelins
+  thrown to the last should not.
+- Kill a bozak beside two characters: "explodes." and each beside it
+  "takes N points of damage" (1-6).
+- Kill a baaz with a sword a square away: on a high roll the killer "loses
+  his weapon", and has it back after the fight.
+- Step away from a hobgoblin beside a character: it should attack once,
+  `(from behind)`.
 
 - In Throtl, choose `Area` at 7, 15 facing north: the map should replace
   the view, the party's arrow in its bottom row, the window's left column

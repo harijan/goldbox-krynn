@@ -1,6 +1,7 @@
 #include "adventure.h"
 
 #include "arena.h"
+#include "attack.h"
 #include "camp.h"
 #include "dax.h"
 #include "cast.h"
@@ -824,6 +825,14 @@ void cok_adventure_prompt_key(cok_adventure *game, const char *text)
     prompt_key(game, text);
 }
 
+void cok_adventure_alert(cok_adventure *game, const char *text, uint8_t fg)
+{
+    log_text(game, "print", text);
+    cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0);
+    cok_text_string(&game->screen, &game->font, text, 0, 24, fg, 0);
+    read_key(game);
+}
+
 /* Print text in the text window in colour fg, with no delay between
  * characters (1521:04ac). */
 static void print_text(cok_adventure *game, const char *text, uint8_t fg, bool clear)
@@ -1604,6 +1613,123 @@ static bool effect_panel(cok_effects *fx, cok_character *c, void *context)
     return false;
 }
 
+/* The battle's side of the handlers ported with the attacks. A failure
+ * has ended the run; the effect's failure says why. */
+static bool effect_hook_failed(cok_effects *fx, cok_adventure *game)
+{
+    snprintf(fx->error, sizeof fx->error, "%.299s", game->error);
+    fx->failed = true;
+    return false;
+}
+
+static bool effect_count_sides(cok_effects *fx, void *context)
+{
+    cok_adventure *game = context;
+    if (cok_combat_count_sides(&game->combat, &game->party)) return true;
+    cok_adventure_fail(game, COK_ECL_UNDEFINED, "a record on a side other than 0 or 1 (+0x18a) "
+                                                "counts past DS:6b2d (6346:268a)");
+    return effect_hook_failed(fx, game);
+}
+
+static bool effect_damage(cok_effects *fx, cok_character *c, uint8_t amount, uint8_t save_kind,
+                          bool saved, void *context)
+{
+    cok_adventure *game = context;
+    return cok_cast_damage(game, c, amount, save_kind, saved) || effect_hook_failed(fx, game);
+}
+
+static bool effect_kill(cok_effects *fx, cok_character *c, uint8_t status, const char *text,
+                        void *context)
+{
+    cok_adventure *game = context;
+    return cok_combat_kill(game, c, status, text) || effect_hook_failed(fx, game);
+}
+
+static bool effect_revive(cok_effects *fx, cok_character *c, uint8_t hp, const char *text,
+                          bool *placed, void *context)
+{
+    cok_adventure *game = context;
+    return cok_combat_revive(game, c, hp, text, placed) || effect_hook_failed(fx, game);
+}
+
+/* 3f44:1f97's list of the dead that explode (DS:6b95 a byte), or
+ * DS:6b96. */
+static bool effect_exploding(cok_effects *fx, cok_character *c, bool *now, void *context)
+{
+    (void)fx;
+    cok_combat *combat = &((cok_adventure *)context)->combat;
+    *now = combat->exploding_now;
+    if (c == NULL) return true;
+    ++combat->exploding_count;
+    if (combat->exploding_count < 1) combat->exploding_count = 1;
+    if (combat->exploding_count <= 20)
+        combat->exploding[combat->exploding_count] = c;
+    else
+        combat->exploding_count = 20;
+    return true;
+}
+
+/* 3f44:1dc5's loss: unreadied (546c:1ea7, the item not cursed), copied
+ * with its owner after the weapons lost in combat (DS:609e), removed
+ * (6346:1697), the weapon slot cleared and the panel drawn. */
+static bool effect_lose_weapon(cok_effects *fx, cok_character *killer, size_t item,
+                               void *context)
+{
+    cok_adventure *game = context;
+    uint8_t *it = killer->items[item - 1];
+    if (!cok_item_unready(game, it)) return effect_hook_failed(fx, game);
+    cok_lost_weapon *more =
+        realloc(game->lost_weapons, (game->lost_weapon_count + 1) * sizeof *more);
+    if (more == NULL) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "out of memory");
+        return effect_hook_failed(fx, game);
+    }
+    game->lost_weapons = more;
+    cok_lost_weapon *lost = &more[game->lost_weapon_count++];
+    memcpy(lost->item, it, sizeof lost->item);
+    lost->owner = killer->record;
+    cok_character_remove_item(killer, item - 1);
+    killer->slots[0] = 0;
+    /* 6346:0af6, which draws only while DS:71ac is set. */
+    return cok_arena_panel(game, killer) || effect_hook_failed(fx, game);
+}
+
+static bool effect_explode(cok_effects *fx, void *context)
+{
+    cok_adventure *game = context;
+    return cok_combat_explode(game) || effect_hook_failed(fx, game);
+}
+
+static bool effect_gate(cok_effects *fx, cok_character *c, void *context)
+{
+    cok_adventure *game = context;
+    return cok_combat_gate(game, c) || effect_hook_failed(fx, game);
+}
+
+/* 6b30:08d8 around c with any range: the second listed (DS:6a36). */
+static bool effect_second(cok_effects *fx, cok_character *c, uint8_t **record, void *context)
+{
+    cok_adventure *game = context;
+    cok_combat *combat = &game->combat;
+    const uint8_t *r = c->record;
+    *record = NULL;
+    if (!combat->active) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "the combatants around one (6b30:08d8) are "
+                                                    "listed with no combat map");
+        return effect_hook_failed(fx, game);
+    }
+    if (!cok_combat_list(combat, cok_combat_x(combat, r), cok_combat_y(combat, r), 0xff, 0xff,
+                         cok_combat_size(combat, r))) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "the list of combatants around one "
+                                                    "(6b30:08d8) reads past its tables");
+        return effect_hook_failed(fx, game);
+    }
+    uint8_t n = combat->listed[2].index;
+    const cok_character *second = n <= COK_COMBATANTS ? combat->combatant[n].character : NULL;
+    *record = second != NULL ? (uint8_t *)second->record : NULL;
+    return true;
+}
+
 static void effect_log(cok_effects *fx, const char *kind, const char *text, void *context)
 {
     (void)fx;
@@ -1636,6 +1762,9 @@ static bool effect_in_range(cok_effects *fx, cok_character *holder, cok_characte
     return ok;
 }
 
+static bool effect_listed(cok_effects *fx, cok_character **listed, uint8_t *count, char *error,
+                          size_t error_size, void *context);
+
 /* 6b30:08d8 around c for a handler, the list kept as it leaves it. */
 static bool effect_around(cok_effects *fx, cok_character *c, uint8_t radius,
                           cok_character **listed, uint8_t *count, char *error,
@@ -1655,6 +1784,21 @@ static bool effect_around(cok_effects *fx, cok_character *c, uint8_t radius,
                          cok_combat_size(combat, r))) {
         snprintf(error, error_size, "the list of combatants around one (6b30:08d8) reads past "
                                     "its tables");
+        return false;
+    }
+    return effect_listed(fx, listed, count, error, error_size, context);
+}
+
+/* The list as it is now (DS:6a30, count DS:6a32), not made again. */
+static bool effect_listed(cok_effects *fx, cok_character **listed, uint8_t *count, char *error,
+                          size_t error_size, void *context)
+{
+    (void)fx;
+    cok_adventure *game = context;
+    cok_combat *combat = &game->combat;
+    *count = 0;
+    if (!combat->active) {
+        snprintf(error, error_size, "the combatants listed (DS:6a30) are read with no combat map");
         return false;
     }
     for (unsigned i = 1; i <= combat->listed_count; ++i) {
@@ -1696,9 +1840,19 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
     game->effects.log = effect_log;
     game->effects.in_range = effect_in_range;
     game->effects.around = effect_around;
+    game->effects.listed = effect_listed;
     game->effects.distance = effect_distance;
     game->effects.flash = effect_flash;
     game->effects.panel = effect_panel;
+    game->effects.count_sides = effect_count_sides;
+    game->effects.damage = effect_damage;
+    game->effects.kill = effect_kill;
+    game->effects.revive = effect_revive;
+    game->effects.exploding = effect_exploding;
+    game->effects.lose_weapon = effect_lose_weapon;
+    game->effects.second = effect_second;
+    game->effects.explode = effect_explode;
+    game->effects.gate = effect_gate;
     game->effects.context = game;
     game->vm.file = 1;
     game->picture_id = COK_ADVENTURE_NO_PICTURE;

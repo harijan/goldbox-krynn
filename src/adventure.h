@@ -66,6 +66,7 @@ typedef enum {
     COK_COMBAT_FLED,     /* The whole party flees. */
     COK_COMBAT_LOST,     /* The whole party dies. */
     COK_COMBAT_GODS,     /* The original's Helm cheat (432f:41e2) ends it. */
+    COK_COMBAT_MELEE,    /* Every turn attacks the nearest enemy (cok_combat_melee). */
 } cok_combat_stub;
 
 typedef struct {
@@ -428,5 +429,8 @@ bool cok_adventure_load_image(cok_adventure *game, const char *name, uint8_t id,
                               cok_picture *picture);
 /* Show text on row 24 in white and wait for a key (1521:096c). */
 void cok_adventure_prompt_key(cok_adventure *game, const char *text);
+/* Show text on row 24 in colour fg, logged as "print", and wait for a key
+ * (1521:096c). */
+void cok_adventure_alert(cok_adventure *game, const char *text, uint8_t fg);
 
 #endif

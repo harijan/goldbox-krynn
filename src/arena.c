@@ -62,12 +62,16 @@ static bool fail(cok_adventure *game, const char *format, ...)
     return false;
 }
 
-/* The sound driver's command n (17e8:0020), logged. */
-static void sound(cok_adventure *game, unsigned n)
+void cok_arena_sound(cok_adventure *game, unsigned n)
 {
     char text[16];
     snprintf(text, sizeof text, "%u", n);
     cok_adventure_log(game, "sound", text);
+}
+
+static void sound(cok_adventure *game, unsigned n)
+{
+    cok_arena_sound(game, n);
 }
 
 /* Clear cells x1-x2 of rows y1-y2 (1128:07e6). */
@@ -843,34 +847,44 @@ bool cok_arena_panel(cok_adventure *game, cok_character *c)
 
 /* Missiles and flashes. */
 
-bool cok_arena_missile_frames(cok_adventure *game, uint8_t slot)
+bool cok_arena_missile_frame(cok_adventure *game, uint8_t slot, uint8_t image, uint8_t frame,
+                             bool mirror)
 {
     if (!pictures(game)) return false;
-    if (slot >= COK_ICON_SLOTS)
-        return fail(game, "icon slot %u is past the icon table (6346:1a26)", slot);
+    if (slot >= COK_ICON_SLOTS || image > 1)
+        return fail(game, "icon slot %u's picture %u is past the icon table (6346:1a26)", slot,
+                    image);
+    cok_picture *flash = &game->combat.flash;
+    if (frame >= flash->frames)
+        return fail(game, "the missile's picture %u is past its four (DS:719e, 6346:1a26)", frame);
+    const cok_picture *icon = &game->icons[slot][image];
+    if (icon->pixels == NULL || icon->mask == NULL || icon->units != flash->units ||
+        icon->height != flash->height)
+        return fail(game, "icon slot %u is not a picture of 24 by 24 (6346:1a26)", slot);
+    cok_picture copy = {0};
+    const cok_picture *from = icon;
+    if (mirror) {
+        if (cok_picture_create(&copy, 3, 24, 1, 1) != COK_PICTURE_OK ||
+            cok_picture_mirror(&copy, icon) != COK_PICTURE_OK) {
+            cok_picture_free(&copy);
+            cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
+            return false;
+        }
+        from = &copy;
+    }
+    memcpy(flash->pixels + frame * flash->frame_size, from->pixels, flash->frame_size);
+    memcpy(flash->mask + frame * flash->frame_size, from->mask, flash->frame_size);
+    cok_picture_free(&copy);
+    return true;
+}
+
+bool cok_arena_missile_frames(cok_adventure *game, uint8_t slot)
+{
     /* 6346:1b5b: ready, ready mirrored, attacking mirrored, attacking. */
     static const uint8_t images[4] = {0, 0, 1, 1}, mirrors[4] = {0, 1, 1, 0};
-    cok_picture *flash = &game->combat.flash;
-    for (unsigned frame = 0; frame < 4; ++frame) {
-        const cok_picture *icon = &game->icons[slot][images[frame]];
-        if (icon->pixels == NULL || icon->mask == NULL || icon->units != flash->units ||
-            icon->height != flash->height)
-            return fail(game, "icon slot %u is not a picture of 24 by 24 (6346:1a26)", slot);
-        cok_picture copy = {0};
-        const cok_picture *from = icon;
-        if (mirrors[frame]) {
-            if (cok_picture_create(&copy, 3, 24, 1, 1) != COK_PICTURE_OK ||
-                cok_picture_mirror(&copy, icon) != COK_PICTURE_OK) {
-                cok_picture_free(&copy);
-                cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
-                return false;
-            }
-            from = &copy;
-        }
-        memcpy(flash->pixels + frame * flash->frame_size, from->pixels, flash->frame_size);
-        memcpy(flash->mask + frame * flash->frame_size, from->mask, flash->frame_size);
-        cok_picture_free(&copy);
-    }
+    for (uint8_t frame = 0; frame < 4; ++frame)
+        if (!cok_arena_missile_frame(game, slot, images[frame], frame, mirrors[frame] != 0))
+            return false;
     return true;
 }
 

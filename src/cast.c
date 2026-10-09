@@ -3,6 +3,7 @@
 #include "arena.h"
 #include "camp.h"
 #include "magic.h"
+#include "round.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -160,17 +161,23 @@ static bool add_effect(cok_adventure *game, cok_character *c, uint8_t id, uint16
     return true;
 }
 
-/* 60f4:1db7 outside combat: amount of damage to c, of the type in DS:6b31,
- * after event 6 (magic resistance first) and a save of kind 1 (none) or 2
- * (half), or event 0x14 when not saved. If any is left and c can act, it
- * "takes N points of damage" from the type, or "from Magic" when the
- * type's only bit is 8 or there is none; then if it drops it "Goes Down",
- * ", and is Dying", or "is killed". The party list is not redrawn. */
-static bool damage(cok_adventure *game, cok_character *c, uint8_t amount, uint8_t save_kind,
-                   bool saved)
+/* 6346:161b: forget the first memorized byte equal to spell; a spell
+ * marked to be learned does not match. */
+static void forget(uint8_t *c, uint8_t spell)
+{
+    for (size_t i = 0; i <= 0x39; ++i)
+        if (c[0x1e + i] == spell) {
+            c[0x1e + i] = 0;
+            return;
+        }
+}
+
+bool cok_cast_damage(cok_adventure *game, cok_character *c, uint8_t amount, uint8_t save_kind,
+                     bool saved)
 {
     cok_rolls *r = &game->effects.rolls;
     uint8_t *record = c->record;
+    bool combat = game->vm.mode == 5;
     r->amount = amount;
     if (!dispatch(game, c, 6)) return false;
     if (saved) {
@@ -191,14 +198,54 @@ static bool damage(cok_adventure *game, cok_character *c, uint8_t amount, uint8_
     for (size_t i = 0; i < sizeof from / sizeof *from; ++i)
         if ((r->damage_type & 0xf7) == from[i].type) strcat(text, from[i].text);
     if ((r->damage_type & 8) == r->damage_type) strcat(text, "from Magic");
-    say(game, c, text);
-    cok_character_damage(record, r->amount);
+    if (!combat) {
+        say(game, c, text);
+        cok_character_damage(record, r->amount);
+    } else {
+        /* 6346:228c kind 0, a burst, then 6346:24d7 in combat; one casting
+         * that is hurt "lost a spell" and its turn. */
+        if (!cok_arena_flash(game, c, 0, text)) return false;
+        if (c->combat == NULL)
+            return undefined(game, "a record with no combat record is read through NULL in "
+                                   "combat (60f4:1f95)");
+        if (!cok_combat_damage(&game->combat, c, r->amount, 5))
+            return undefined(game, "a record on a side other than 0 or 1 (+0x18a) is counted past "
+                                   "DS:6b2d (6346:24d7)");
+        c->combat->may_cast = 0;
+        if (c->combat->spell > 0) {
+            if (!cok_arena_say(game, c, "lost a spell", 12, true)) return false;
+            forget(record, c->combat->spell);
+            cok_combat_end_turn(c);
+        }
+    }
     if (record[0x189] == 0) {
         snprintf(text, sizeof text, "Goes Down%s", record[0x188] == 5 ? ", and is Dying" : "");
         if (record[0x188] >= 6 && record[0x188] <= 8) snprintf(text, sizeof text, "is killed");
-        say(game, c, text);
+        if (!combat) {
+            say(game, c, text);
+        } else {
+            /* From the row after the text, then the battle's effects go
+             * (60f4:1440), event 0x0d, and unless exploding the death
+             * (6beb:0e08), whose stale byte is 1440's (see arena.h). */
+            if (!cok_arena_say(game, c, text, (uint8_t)(game->vm.cursor.y + 1), false) ||
+                !cok_combat_battle_only(game, c))
+                return false;
+            int stale = cok_character_find_effect(c, 0x4d) != NULL ? COK_ARENA_STALE_UNKNOWN : 0;
+            if (!dispatch(game, c, 0x0d)) return false;
+            if (record[0x189] == 0 && record[0x188] != 10) {
+                const cok_combat *k = &game->combat;
+                cok_arena_reachable also = {{k->exploding[1], k->exploding[8], k->exploding[15]},
+                                            {NULL}};
+                if (!cok_arena_kill(game, c, stale, &also)) return false;
+            } else {
+                cok_adventure_wait(game, game->speed * 100u); /* 1521:0b4b */
+            }
+        }
     }
-    cok_camp_clear_text(game);
+    if (combat)
+        cok_arena_clear_text(game);
+    else
+        cok_camp_clear_text(game);
     return true;
 }
 
@@ -223,7 +270,7 @@ static bool apply(cast *cx, uint8_t value, bool on_remove, uint8_t amount, uint8
         if (spell_byte(r->spell, 2) == 0xff)
             return undefined(game, "a spell cast by touch rolls to hit (60f4:1062), which is not "
                                    "ported");
-        if (amount != 0 && !damage(game, c, amount, save_kind, saved)) return false;
+        if (amount != 0 && !cok_cast_damage(game, c, amount, save_kind, saved)) return false;
         if (effect == 0) continue;
         uint16_t minutes;
         if (!cok_cast_duration(game, cx->spell, &minutes) ||
@@ -799,17 +846,6 @@ static bool target(cast *cx)
         return true;
     default: return false;
     }
-}
-
-/* 6346:161b: forget the first memorized byte equal to spell; a spell
- * marked to be learned does not match. */
-static void forget(uint8_t *c, uint8_t spell)
-{
-    for (size_t i = 0; i <= 0x39; ++i)
-        if (c[0x1e + i] == spell) {
-            c[0x1e + i] = 0;
-            return;
-        }
 }
 
 void cok_cast_spell(cok_adventure *game, uint8_t spell, bool announce, uint8_t frame, bool *done)
