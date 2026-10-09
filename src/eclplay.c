@@ -44,11 +44,16 @@ static void usage(const char *program)
             "  --load SAVE     load saved game SAVE and its party first; BLOCK defaults to\n"
             "                  the block it was saved in\n"
             "  --saves DIR     write saved games (camp's Save) to DIR\n"
-            "  --combat HOW    decide COMBAT's battle in place of its rounds, whose turns\n"
-            "                  pass: won (every monster against the party drops), fled\n"
-            "                  (the party flees) or lost (the party dies); or gods, the\n"
-            "                  original's Helm cheat at each player's turn; or melee,\n"
-            "                  every turn attacking the nearest enemy it can reach\n"
+            "  --combat HOW    without it, COMBAT's rounds have the computer play its\n"
+            "                  turns (the monsters') while the player's pass, which the\n"
+            "                  party seldom survives; HOW decides the battle in place of\n"
+            "                  its rounds: won (every monster against the party\n"
+            "                  drops), fled (the party flees) or lost (the party dies);\n"
+            "                  or play the rounds with gods, the original's Helm cheat\n"
+            "                  at each player's turn; melee, every turn attacking the\n"
+            "                  nearest enemy it can reach; auto, the player's first turn\n"
+            "                  pressing Alt-Q, which puts the whole party on Auto; or\n"
+            "                  pass, every turn passing, the computer's too\n"
             "  --helm          play as if started with Helm, which lifts Area's Not Here\n"
             "                  and enables the Gods cheat (implied by --combat gods)\n"
             "  --combat-map FILE  write each battle's map and combatants to FILE as text\n"
@@ -313,6 +318,8 @@ int main(int argc, char **argv)
     bool seeded = false;
     bool still = false, placed = false, play = false, helm = false, front = false, woof = false;
     const char *party = NULL, *load = NULL, *saves = NULL;
+    /* With no --combat the computer plays its turns (COK_COMBAT_UNPORTED);
+     * COK_COMBAT_PASS here would have every turn pass by default. */
     cok_combat_stub combat = COK_COMBAT_UNPORTED;
     long x = 0, y = 0, dir = 0;
     struct { uint16_t address, value; } sets[64];
@@ -345,12 +352,17 @@ int main(int argc, char **argv)
         } else if (strcmp(option, "--saves") == 0 && has_value) {
             saves = argv[++i];
         } else if (strcmp(option, "--combat") == 0 && has_value) {
-            static const char *const outcomes[] = {"won", "fled", "lost", "gods", "melee"};
+            static const char *const outcomes[] = {"won",  "fled", "lost", "gods",
+                                                   "melee", "auto", "pass"};
             const char *how = argv[++i];
-            for (size_t k = 0; k < 5; ++k)
-                if (strcmp(how, outcomes[k]) == 0) combat = (cok_combat_stub)(COK_COMBAT_WON + k);
+            bool known = false;
+            for (size_t k = 0; k < 7; ++k)
+                if (strcmp(how, outcomes[k]) == 0) {
+                    combat = (cok_combat_stub)(COK_COMBAT_WON + k);
+                    known = true;
+                }
             if (combat == COK_COMBAT_GODS) helm = true;
-            if (combat == COK_COMBAT_UNPORTED) {
+            if (!known) {
                 usage(argv[0]);
                 return 2;
             }

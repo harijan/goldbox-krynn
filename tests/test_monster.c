@@ -694,11 +694,21 @@ static cok_ecl_status fight(cok_combat_stub stub, const char *keys)
 
 static void test_combat(void)
 {
-    /* Unresolved, the battle runs its rounds, every turn passing, until
-     * the limit, and the monsters are removed as the end of combat removes
-     * them: the goblins (against the party) and KILDIRF (past the party's
-     * size). */
+    /* Unresolved, the battle runs its rounds, the player's turns passing:
+     * with the party off the map the goblins find no one and guard, and
+     * KILDIRF, an ally of no morale, flees in panic and gets away, which
+     * counts as one dropped (351b:1493). */
     CHECK(fight(COK_COMBAT_UNPORTED, "\rE") == COK_ECL_OK);
+    CHECK(strstr(s.log, "round: 15:") != NULL && strstr(s.log, "round: 16:") == NULL);
+    CHECK(strstr(s.log, "turn: GOBLIN (initiative 5);print: Guarding;") != NULL);
+    CHECK(strstr(s.log, "print: KILDIRF;print: flees in panic;") != NULL);
+    CHECK(strstr(s.log, "print: KILDIRF;print: Got Away;") != NULL);
+    CHECK(strstr(s.log, "combat: removed 3 GOBLIN, 1 KILDIRF; 1 dropped;") != NULL);
+    CHECK(game.vm.mem7c00[0x2c7] == 1 && game.vm.mem7c00[0x2c8] == 1);
+    /* With pass every turn passes until the limit, and the monsters are
+     * removed as the end of combat removes them: the goblins (against the
+     * party) and KILDIRF (past the party's size). */
+    CHECK(fight(COK_COMBAT_PASS, "\rE") == COK_ECL_OK);
     CHECK(strstr(s.log, "[COMBAT]") == NULL && strstr(s.log, "round: 15:") != NULL &&
           strstr(s.log, "round: 16:") == NULL);
     CHECK(strstr(s.log, "combat: removed 3 GOBLIN, 1 KILDIRF; 0 dropped;") != NULL);

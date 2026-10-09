@@ -515,7 +515,7 @@ bool cok_item_unready(cok_adventure *game, uint8_t *item)
 }
 
 /* Ready or unready item index (546c:1ea7). */
-static bool ready(cok_adventure *game, cok_character *character, size_t index)
+bool cok_item_ready(cok_adventure *game, cok_character *character, size_t index)
 {
     uint8_t *c = character->record, *item = character->items[index];
     bool has_power = item[0x3e] > 0x7f;
@@ -948,7 +948,7 @@ void cok_items(cok_adventure *game, bool *done)
             cok_adventure_log(game, "choice", choice);
             int ok = 1;
             switch (key) {
-            case 'R': ok = ready(game, character, picked); break;
+            case 'R': ok = cok_item_ready(game, character, picked); break;
             case 'U':
                 if (item[0x34] == 0) {
                     cok_camp_notice(game, "Must be Readied");

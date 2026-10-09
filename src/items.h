@@ -42,6 +42,17 @@ bool cok_item_name(cok_adventure *game, uint8_t *item, bool readied_column, char
  * where that cannot be carried out. */
 bool cok_item_unready(cok_adventure *game, uint8_t *item);
 
+/* Ready, or unready, item index of character, which the original takes to
+ * be the selected one (546c:1ea7): a readied item unreadied unless cursed
+ * ("It's Cursed"), taking its power's effect; one not readied readied,
+ * with its power's effect, unless it is of a wrong class, its slot is in
+ * use ("already using ..."), the hands it needs and those character's
+ * items hold (+0x17b) pass 2 ("Your hands are full!", not said for the
+ * computer in combat), it is a scroll of another magical order or a hoopak
+ * for one not a kender. Returns false, ending the run, where that cannot
+ * be carried out. */
+bool cok_item_ready(cok_adventure *game, cok_character *character, size_t index);
+
 /* Whether who cannot take item (546c:32b0), after its stats are
  * recomputed (6346:0d20): with 16 items, or its weight with the item's
  * (+0x37, times +0x39 if not 0, as words) past its allowance + 1500.

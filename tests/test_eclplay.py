@@ -149,7 +149,8 @@ class PlayTests(unittest.TestCase):
         # each logged, highest initiative first, and the turns of those with
         # initiative in that order. The script surprises the party (SAVE 1
         # [7ecb]), whose initiatives in the first round are 0.
-        result = self.play("--test-party", 6, "--start", "8cda", "--keys", r"\rE\r", ASSETS, 16)
+        result = self.play("--combat", "pass",
+                           "--test-party", 6, "--start", "8cda", "--keys", r"\rE\r", ASSETS, 16)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
         rounds = [i for i, line in enumerate(lines) if line.startswith("round: ")]
@@ -183,7 +184,8 @@ class PlayTests(unittest.TestCase):
         self.assertEqual(lines[-1], "(done in block 16)")
         # --seed starts Random elsewhere: the script's own dice then call up
         # nineteen of the patrol.
-        result = self.play("--test-party", 6, "--seed", 12345, "--start", "8cda",
+        result = self.play("--combat", "pass",
+                           "--test-party", 6, "--seed", 12345, "--start", "8cda",
                            "--keys", r"\rE\r", ASSETS, 16)
         lines = result.stdout.splitlines()
         self.assertEqual([line for line in lines if line.startswith("round: 1: ")],
@@ -239,11 +241,59 @@ class PlayTests(unittest.TestCase):
         last = max(i for i, line in enumerate(lines) if line.startswith("attack: "))
         self.assertEqual(sum(1 for line in lines[last:] if line.startswith("round: ")), 14)
 
+    def test_auto(self):
+        # The ambush of ECL1 block 32 with --combat auto: FARO's first turn
+        # presses Alt-Q, putting the whole party on Auto, and has its turn
+        # again, the computer's (0x14 then 0x13); from then on the computer
+        # plays every turn (3afb:004b). The round lines, the texts and the
+        # seed at the battle's end pin the dice.
+        result = self.play("--test-party", 6, "--set", "4be6=1", "--start", "835f", "--seed", 1,
+                           "--combat", "auto", "--keys", r"\r\rEN", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        rounds = [line for line in lines if line.startswith("round: ")]
+        self.assertEqual(len(rounds), 2)
+        at = lines.index(rounds[0])
+        self.assertEqual(lines[at + 1:at + 3],
+                         ["turn: FARO (initiative 6)", "turn: FARO (initiative 19)"])
+        # It steps up (sound 10 a step) and attacks.
+        texts = [line for line in lines[at + 3:] if not line.startswith("sound: 10")]
+        self.assertEqual(texts[:4], ["sound: 9", "print: FARO", "print: Attacks",
+                                     "attack: HOBGOBLIN and Misses"])
+        self.assertEqual(len([line for line in lines if line.startswith("attack: ")]), 15)
+        self.assertEqual(lines.count("print: is bandaged"), 2)
+        self.assertEqual(lines.count("print: Surrenders"), 5)
+        self.assertIn("print: Guarding", lines)
+        self.assertIn("combat: seed 3958868712", lines)
+        self.assertIn("combat: removed 4 HOBGOBLIN, 2 HOBGOBLIN LDR; 6 dropped", lines)
+        self.assertEqual(lines[-1], "(out of keys in block 32 at 8417)")
+        # Another seed: hobgoblins of low morale flee in panic, said at each
+        # of their turns, and are struck from behind as they go.
+        result = self.play("--test-party", 6, "--set", "4be6=1", "--start", "835f", "--seed", 15,
+                           "--combat", "auto", "--keys", r"\r\rEN", ASSETS, 32)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines.count("print: flees in panic"), 9)
+        self.assertEqual(lines.count("print: Got Away"), 1)
+        self.assertEqual(lines.count("print: Surrenders"), 2)
+        self.assertIn("attack: HOBGOBLIN (from behind) Hitting for 2 points of damage", lines)
+        self.assertIn("combat: seed 1835066672", lines)
+        # With no --combat the computer plays the monsters, while the player's
+        # turns pass: the party falls.
+        result = self.play("--test-party", 6, "--set", "4be6=1", "--start", "835f", "--seed", 1,
+                           "--keys", r"\r\rEN", ASSETS, 32)
+        lines = result.stdout.splitlines()
+        self.assertIn("turn: HOBGOBLIN (initiative 6)", lines)
+        at = lines.index("turn: HOBGOBLIN (initiative 6)")
+        self.assertEqual(lines[at + 2:at + 4], ["print: HOBGOBLIN", "print: Attacks"])
+        self.assertNotIn("turn: FARO (initiative 19)", lines)
+        self.assertEqual(lines[-1], "(the party was killed in block 32)")
+
     def test_the_ambush(self):
         # Throtl's ambush (ECL1 block 32 at 835f): MONSTERS ATTACK!, four
         # hobgoblins and two leaders against the party, fought through the
         # rounds with every turn passing until fifteen without an attack.
-        result = self.play("--test-party", 6, "--set", "4be6=1", "--start", "835f",
+        result = self.play("--combat", "pass",
+                           "--test-party", 6, "--set", "4be6=1", "--start", "835f",
                            "--keys", r"\r\rE", ASSETS, 32)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
@@ -373,7 +423,7 @@ class PlayTests(unittest.TestCase):
             with self.subTest(party=party[0]):
                 # With a party, the caravan's fight ends with the results and the
                 # treasure menu; then the survivors, and the merchant's thanks.
-                result = self.play(*party, "--keys", r"\r\rE\r\r\r\r",
+                result = self.play("--combat", "pass", *party, "--keys", r"\r\rE\r\r\r\r",
                                    ASSETS, 16)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 lines = result.stdout.splitlines()
@@ -388,7 +438,8 @@ class PlayTests(unittest.TestCase):
                 self.assertIn("menu: ~YES ~NO", lines)
                 self.assertIn("print: 'THANK YOU FOR YOUR HELP.'", lines)
                 self.assertEqual(lines[-1], "(out of keys in block 17 at 9d9b)")
-                result = self.play(*party, "--keys", r"\r\rE\r\rn\r", ASSETS, 16)
+                result = self.play("--combat", "pass",
+                                   *party, "--keys", r"\r\rE\r\rn\r", ASSETS, 16)
                 lines = result.stdout.splitlines()
                 menu = lines.index("menu: ~YES ~NO")
                 self.assertEqual(lines[menu + 1], "choice: 1")
@@ -399,7 +450,8 @@ class PlayTests(unittest.TestCase):
                 # After the fight at Throtl's gate the screen is redrawn with the
                 # view.
                 final = self.folder / ("final%s.bmp" % party[0])
-                result = self.play(*party, "--set", "4be6=1", "--keys", r"\r\rE",
+                result = self.play("--combat", "pass",
+                                   *party, "--set", "4be6=1", "--keys", r"\r\rE",
                                    "--screen", final, ASSETS, 32)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertTrue([line for line in result.stdout.splitlines()
@@ -422,7 +474,7 @@ class PlayTests(unittest.TestCase):
                 # the gibbering man, then turn east into a hedge, which stops the
                 # next step.
                 keys = r"\r\rE\rm\^\^\^\r\r\>\^\<"
-                result = self.play(*party, "--play", "--set", "4be6=1",
+                result = self.play("--combat", "pass", *party, "--play", "--set", "4be6=1",
                                    "--keys", keys, "--shots", shots, ASSETS, 32)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 lines = result.stdout.splitlines()
@@ -458,7 +510,7 @@ class PlayTests(unittest.TestCase):
                 # 7,15, walk two squares north and turn east, then turn it off
                 # and on again.
                 keys = r"\r\rE\ram\^\^\>eaa"
-                result = self.play(*party, "--play", "--set", "4be6=1",
+                result = self.play("--combat", "pass", *party, "--play", "--set", "4be6=1",
                                    "--keys", keys, "--shots", shots, ASSETS, 32)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 lines = result.stdout.splitlines()
@@ -526,7 +578,7 @@ class PlayTests(unittest.TestCase):
                 # Fight, leave the treasure, camp, rest an hour, and leave; then
                 # camp again, rest an hour, and stop at once with a key.
                 keys = r"\r\rEerhar\e" r"erhar\kyy\e"
-                result = self.play(*party, "--play", "--set", "4be6=1",
+                result = self.play("--combat", "pass", *party, "--play", "--set", "4be6=1",
                                    "--keys", keys, "--shots", shots, ASSETS, 32)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 lines = result.stdout.splitlines()
@@ -648,7 +700,7 @@ class PlayTests(unittest.TestCase):
             with self.subTest(party=party[0]):
                 # Rest three hours and press a key: Yes, chosen with the left
                 # arrow, stays chosen through Escape, and Enter stops the rest.
-                result = self.play(*party, "--play", "--set", "4be6=1",
+                result = self.play("--combat", "pass", *party, "--play", "--set", "4be6=1",
                                    "--keys", r"\r\rEerhaaar\k\<\e\r\e", ASSETS, 32)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 lines = result.stdout.splitlines()
@@ -912,7 +964,8 @@ class PartyTests(unittest.TestCase):
         screen = self.folder / "screen.bmp"
         # Fight the guards, leave the results and the treasure, and pick the
         # second character with the down arrow.
-        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
+        result = self.play("--combat", "pass",
+                           "--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
                            "--keys", r"\r\rE\v", "--screen", screen, ASSETS, 32)
         self.assertEqual(result.returncode, 0, result.stderr)
         bmp = screen.read_bytes()
@@ -962,7 +1015,8 @@ class PartyTests(unittest.TestCase):
         saves = self.folder / "saves"
         saves.mkdir()
         # Camp, rest an hour, save as game A without quitting, and leave.
-        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
+        result = self.play("--combat", "pass",
+                           "--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
                            "--saves", saves, "--keys", r"\r\rEerharsan\e", ASSETS, 32)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
@@ -982,25 +1036,28 @@ class PartyTests(unittest.TestCase):
         self.assertEqual((saves / "CHRDATA1.SAV").read_bytes()[1:20],
                          (SAVE / "CHRDATA1.SAV").read_bytes()[1:20])
         # It loads, resumes in Throtl, and camps there again.
-        result = self.play("--load", saves / "SAVGAMA.DAT", "--play", "--keys", "e", ASSETS)
+        result = self.play("--combat", "pass",
+                           "--load", saves / "SAVGAMA.DAT", "--play", "--keys", "e", ASSETS)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines()[-2:],
                          ["menu: Save View Magic Rest Alter Fix Exit",
                           "(out of keys in block 32 at 80c0)"])
         # Quitting to DOS ends the run.
-        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
+        result = self.play("--combat", "pass",
+                           "--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
                            "--saves", saves, "--keys", r"\r\rEesby", ASSETS, 32)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines()[-1], "(quit to DOS in block 32)")
         self.assertTrue((saves / "SAVGAMB.DAT").exists())
         # A directory name too long for the game is refused.
-        result = self.play("--saves", "d" * 600, ASSETS, 32)
+        result = self.play("--combat", "pass", "--saves", "d" * 600, ASSETS, 32)
         self.assertEqual(result.returncode, 1)
         self.assertIn("directory name too long", result.stderr)
 
     def test_drop_with_the_arrows(self):
         # Alter, Drop: Yes with the left arrow, then Escape and Enter.
-        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
+        result = self.play("--combat", "pass",
+                           "--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
                            "--keys", r"\r\rEead\<\e\r", ASSETS, 32)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
@@ -1011,7 +1068,8 @@ class PartyTests(unittest.TestCase):
     def test_view_and_ready(self):
         screen = self.folder / "screen.bmp"
         # View the first character, unready its sword in Items, and leave.
-        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
+        result = self.play("--combat", "pass",
+                           "--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
                            "--keys", r"\r\rEvi\v\vr\e", "--screen", screen, ASSETS, 32)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
@@ -1035,7 +1093,8 @@ class PartyTests(unittest.TestCase):
 
     def test_cast_from_the_commands(self):
         # Down to Kal, Cast, up to Bless, and cast it on the party.
-        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
+        result = self.play("--combat", "pass",
+                           "--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
                            "--keys", r"\r\rE\v\v\v\vc\^\^\^\^\r\e", ASSETS, 32)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
@@ -1048,7 +1107,8 @@ class PartyTests(unittest.TestCase):
     def test_cast_in_camp_on_one(self):
         # Camp, Magic, Cast: Kal's list starts on Sleep, which cannot be
         # cast here; keep it. Then Cure Light Wounds on Molly.
-        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
+        result = self.play("--combat", "pass",
+                           "--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
                            "--keys", r"\r\rE\v\v\v\vemc\rn\^\^\^\r\^S\ee\e", ASSETS, 32)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()

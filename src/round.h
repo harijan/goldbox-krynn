@@ -13,13 +13,10 @@
  * sight and ranges of the combat map (overlay 6b30), and the helpers of
  * overlays 6346 and 60f4 the later parts of combat share.
  *
- * What a combatant does on its turn, the computer's choice (3afb:004b)
- * or the player's commands (3995:0573), is not ported: such a turn is
- * logged as "turn: NAME (initiative N)" and ends (6346:2964), so a battle
- * runs its rounds until a side can no longer act or 15 rounds pass with
- * no attack. Neither is the combat screen: where the original draws, the
- * port does what the drawing routines change in the battle's state (the
- * view's scrolling) and logs the drawing as unported once a battle. */
+ * Each turn is logged as "turn: NAME (initiative N)". The computer's
+ * (3afb:004b) is in ai.h; the player's commands (3995:0573) are not
+ * ported: such a turn ends (6346:2964), so a battle runs its rounds until
+ * a side can no longer act or 15 rounds pass with no attack. */
 
 typedef struct cok_adventure cok_adventure;
 
@@ -30,7 +27,9 @@ typedef struct cok_adventure cok_adventure;
  * and the battle's end (3995:004b). eclplay's --combat won, fled and
  * lost (game->combat_stub) decide the outcome instead of the rounds;
  * gods has the player's first turn of each round run the original's Helm
- * cheat (432f:41e2). Unported effect handlers are logged and skipped
+ * cheat (432f:41e2), auto press Alt-Q, putting the party on Auto, melee
+ * every turn attack (cok_combat_melee) and pass every turn pass, the
+ * computer's too. Unported effect handlers are logged and skipped
  * throughout (cok_effects.in_battle). Returns false, with game->vm.status
  * set, where the battle cannot be carried out; the end of combat
  * (351b:1968) is the caller's. */
