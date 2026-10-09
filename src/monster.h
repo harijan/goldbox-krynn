@@ -33,6 +33,15 @@
  * decoded. Returns false for any other opcode. */
 bool cok_monster_opcode(cok_adventure *game);
 
+/* Read monster id into m (4b6d:161b): the record, its effects from SPC
+ * and its items from ITM, both in file order. The pointers in the record
+ * are cleared; the readied slots (+0x147) keep what the file holds, and
+ * no stats are recomputed. Returns false, ending the run, when the
+ * monster cannot be loaded: a missing record says "Unable to load
+ * monster" and quits to DOS, as the original does. LOAD MONSTER and ADD
+ * NPC read their records so. */
+bool cok_monster_read(cok_adventure *game, uint8_t id, cok_character *m);
+
 /* Reset the encounter's state as a block starting does (3775:01e8): the
  * next icon slot (DS:72eb) is 8 and no sprite is loaded (DS:8830). */
 void cok_monster_reset(cok_adventure *game);

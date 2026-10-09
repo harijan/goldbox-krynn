@@ -171,6 +171,7 @@ static void free_frames(cok_adventure *game)
     for (size_t i = 0; i < game->frame_count; ++i) cok_picture_free(&game->frames[i]);
     game->frame_count = 0;
     game->frame = 0;
+    game->frame_unset = true; /* 6961:0537 zeroes DS:6da2-6de3 */
     game->picture_id = COK_ADVENTURE_NO_PICTURE;
     game->picture_sprite = false;
 }
@@ -180,19 +181,19 @@ static uint32_t u32(const uint8_t *p)
     return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
 }
 
-/* Load PIC<file> record id unless it is loaded (6961:00e4). Groups after the
+/* Load PIC<file> record id unless it is loaded (6961:00e4), which goes by
+ * the name and the record (DS:6dee, 6e00), not the file. Groups after the
  * first are XOR deltas; without animation only the first is kept. */
 static void load_picture(cok_adventure *game, uint8_t id)
 {
-    if (id == game->picture_id && game->picture_file == game->vm.file && !game->picture_sprite)
-        return;
+    if (id == game->picture_id && !game->picture_sprite) return;
     free_frames(game);
     game->error[0] = '\0';
     size_t size;
     uint8_t *data = cok_adventure_record(game, "PIC", game->vm.file, id, &size);
     if (data == NULL) return;
     game->picture_id = id;
-    game->picture_file = game->vm.file;
+    game->frame_unset = false; /* DS:6da3 1 */
     cok_images images = {0};
     cok_image_status status = cok_images_undelta(data, size);
     if (status == COK_IMAGE_OK) status = cok_images_parse(data, size, 1, &images);
@@ -216,9 +217,7 @@ static void load_picture(cok_adventure *game, uint8_t id)
 
 void cok_adventure_load_sprite(cok_adventure *game, uint8_t id)
 {
-    if (id == 0xff || (id == game->picture_id && game->picture_file == game->vm.file &&
-                       game->picture_sprite))
-        return;
+    if (id == 0xff || (id == game->picture_id && game->picture_sprite)) return;
     free_frames(game);
     game->error[0] = '\0';
     size_t size;
@@ -228,7 +227,7 @@ void cok_adventure_load_sprite(cok_adventure *game, uint8_t id)
         return;
     }
     game->picture_id = id;
-    game->picture_file = game->vm.file;
+    game->frame_unset = false;
     game->picture_sprite = true;
     cok_images images = {0};
     cok_image_status status = cok_images_parse(data, size, 1, &images);
@@ -344,6 +343,93 @@ void cok_adventure_load_big(cok_adventure *game, uint8_t id)
     if (no_file) log_text(game, "error", game->error);
 }
 
+/* Show text on row 24 in fg and wait for a key (1521:096c). */
+static void prompt_colour(cok_adventure *game, const char *text, uint8_t fg)
+{
+    cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0);
+    cok_text_string(&game->screen, &game->font, text, 0, 24, fg, 0);
+    read_key(game);
+}
+
+/* The portrait. */
+
+/* Load record id of HEAD<file> or BODY<file> into piece, opaque
+ * (127f:0111 with 0, 0), unless it holds that record (*loaded; DS:6de4,
+ * 6de9) or id is 0xff (6961:05b9). The file's number is cut to one digit,
+ * as Str with a width of 1 makes it. A record that is not there leaves
+ * no picture and says "head not found", for the body too; a file that is
+ * not there fails. */
+static bool load_piece(cok_adventure *game, const char *kind, uint8_t id, uint8_t *loaded,
+                       cok_picture *piece)
+{
+    if (id == 0xff || (*loaded != 0xff && *loaded == id)) return true;
+    char digits[8], name[16];
+    snprintf(digits, sizeof digits, "%u", game->vm.file);
+    snprintf(name, sizeof name, "%s%c", kind, digits[0]);
+    game->error[0] = '\0';
+    bool no_file;
+    size_t size;
+    uint8_t *data = find_record(game, name, id, &size, &no_file);
+    free(data);
+    if (no_file) {
+        cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
+        return false;
+    }
+    if (data == NULL) {
+        cok_picture_free(piece);
+        static const char missing[] = "head not found";
+        log_text(game, "print", missing);
+        prompt_colour(game, missing, 14);
+    } else if (!load_single(game, name, id, -1, piece)) {
+        cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
+        return false;
+    }
+    *loaded = id;
+    return true;
+}
+
+/* Draw a piece of the portrait at cell x, y, opaque and unclipped
+ * (6961:000a with 0, 127f:10e7): nothing for none. */
+static bool draw_piece(cok_adventure *game, const cok_picture *piece, int x, int y)
+{
+    if (piece->pixels == NULL) return true;
+    if (x + piece->units > 40 || y * 8 + piece->height > 200) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                           "a portrait's piece of %u units by %u rows at cell %d, %d runs off "
+                           "the screen, which 127f:10e7 does not clip", piece->units,
+                           piece->height, x, y);
+        return false;
+    }
+    cok_picture_draw(&game->screen, piece, 0, x, y, 0, NULL);
+    return true;
+}
+
+/* Load the portrait (6961:05b9) and draw the head at cell 3, 3 and the
+ * body five cells below it (6961:06bd with 1). */
+static void show_portrait(cok_adventure *game, uint8_t head, uint8_t body)
+{
+    if (!load_piece(game, "HEAD", head, &game->head_id, &game->head) ||
+        !load_piece(game, "BODY", body, &game->body_id, &game->body) || game->vm.abort)
+        return;
+    /* 1614:045c, the keyboard's flush, is not ported. */
+    if (draw_piece(game, &game->head, 3, 3)) draw_piece(game, &game->body, 3, 8);
+}
+
+void cok_adventure_portrait(cok_adventure *game, uint8_t head, uint8_t body)
+{
+    game->view_replaced = false; /* DS:884b */
+    game->portrait_head = head;
+    game->portrait_body = body;
+    show_portrait(game, head, body);
+}
+
+void cok_adventure_forget_portrait(cok_adventure *game)
+{
+    cok_picture_free(&game->head);
+    cok_picture_free(&game->body);
+    game->head_id = game->body_id = 0xff;
+}
+
 /* PICTURE (2fd3:0914). */
 static void picture(cok_adventure *game)
 {
@@ -365,15 +451,16 @@ static void picture(cok_adventure *game)
     game->closeup_shown = true;
     game->picture_shown = true;
     if (vm->mem7c00[0x2e1] != 0xff) {
-        /* 3775:0538 draws something else when 0x7ee1 is set; not ported. */
-        if (game->hooks.unported != NULL) game->hooks.unported(game, game->hooks.context);
+        /* With 0x7ee1 set, a portrait: 0x7ee1's head over this body. */
+        cok_adventure_portrait(game, (uint8_t)vm->mem7c00[0x2e1], id);
         return;
     }
     game->view_replaced = true;
     if (id < 0x70) {
+        /* Loading starts the frames from the first (DS:6da3); a picture
+         * already loaded keeps its current one. The first is drawn. */
         load_picture(game, id);
         if (game->picture_id != id) log_text(game, "error", game->error);
-        game->frame = 0;
         draw_frame(game, 0);
         return;
     }
@@ -729,9 +816,7 @@ static void menu_special(uint8_t scan, void *context)
 /* Show text on row 24 in white and wait for a key (1521:096c). */
 static void prompt_key(cok_adventure *game, const char *text)
 {
-    cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0);
-    cok_text_string(&game->screen, &game->font, text, 0, 24, 15, 0);
-    read_key(game);
+    prompt_colour(game, text, 15);
 }
 
 void cok_adventure_prompt_key(cok_adventure *game, const char *text)
@@ -1047,30 +1132,132 @@ static void damage(cok_adventure *game)
     prompt_key(game, "press <enter>/<return> to continue");
 }
 
-/* CALL (2fd3:329b). Address 0x2e10, which scripts call after an
- * encounter, recomputes the party's square and, if a picture, a sprite or
- * the party's place or view changed, redraws the view and the status line
- * and forgets them. The other addresses, a sound (0xb203), a step forward
- * (0xc01e), the wall ahead outside 3D areas (0xc018) and a frame of the
- * small picture's animation (0x6803), are not ported. */
+/* Log the party's square and facing ("at"). */
+static void log_position(cok_adventure *game)
+{
+    char text[32];
+    snprintf(text, sizeof text, "%d,%d,%u", game->vm.map_x, game->vm.map_y, game->vm.direction);
+    log_text(game, "at", text);
+}
+
+/* Whether 69ea:06a2 gives 0 for the party's square before it looks at the
+ * facing: off the map, where the block has no squares (DS:8846 0 or
+ * 0x50). */
+static bool no_square(const cok_adventure *game)
+{
+    const cok_ecl *vm = &game->vm;
+    bool on_map = vm->map_x >= 0 && vm->map_x <= 15 && vm->map_y >= 0 && vm->map_y <= 15;
+    return !on_map && !game->view.wrap;
+}
+
+static bool facing_known(unsigned dir)
+{
+    return dir <= 6 && dir % 2 == 0;
+}
+
+/* The wall ahead (69ea:06a2) after CALL's step forward (3775:1bed). For a
+ * facing other than 0, 2, 4 and 6, which only the overland map or a saved
+ * game gives, 06a2 returns its local [bp-1] unset: there it holds the byte
+ * 3775:1bed's call to 69ea:07a5 pushed, the high byte of AX, which still
+ * holds CALL's address less 0x7fff, 0x401f, so 0x40. */
+static uint8_t wall_after_step(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    if (no_square(game) || facing_known(vm->direction))
+        return cok_view_wall(&game->view, vm->direction, vm->map_x, vm->map_y);
+    return 0x40;
+}
+
+/* A step forward (3775:1bed): the party's square moves one the way it
+ * faces, wrapping within 0-15 (a coordinate already past 15 going on to
+ * 0, one below 0 going back to 15, as signed bytes), not at all for
+ * another facing; then the square byte and the wall ahead are worked out
+ * again and the view is marked as changed (DS:8850), so that the next
+ * CALL [2e10] draws it. Logged as "at", as the loop's steps are. */
+static void step_forward(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    switch (vm->direction) {
+    case 0: vm->map_y = (int8_t)(vm->map_y > 0 ? vm->map_y - 1 : 15); break;
+    case 2: vm->map_x = (int8_t)(vm->map_x < 15 ? vm->map_x + 1 : 0); break;
+    case 4: vm->map_y = (int8_t)(vm->map_y < 15 ? vm->map_y + 1 : 0); break;
+    case 6: vm->map_x = (int8_t)(vm->map_x > 0 ? vm->map_x - 1 : 15); break;
+    default: break;
+    }
+    vm->square = cok_view_square(&game->view, vm->map_x, vm->map_y);
+    vm->ahead = wall_after_step(game);
+    vm->view_changed = true;
+    log_position(game);
+}
+
+/* CALL (2fd3:329b) runs a routine of the game by its address:
+ *
+ * - 0x2e10, which scripts call after an encounter, recomputes the party's
+ *   square and, if a picture, a sprite or the party's place or view
+ *   changed, redraws the view and the status line and forgets them;
+ * - 0xb203 plays sound 11 (DS:1e5e) if 0x3de (DS:8834) holds 10, else
+ *   sound 10 (DS:1e5c);
+ * - 0xc01e steps forward (3775:1bed);
+ * - 0xc018 recomputes the wall ahead (69ea:06a2) outside 3D areas
+ *   (0x4be6 0); with a facing other than 0, 2, 4 and 6 that is a byte of
+ *   the stack that 3775:0032 left, unless it read a string, which depends
+ *   on the opcodes before, and the run stops;
+ * - 0x6803 draws the small picture's current frame at cell 3, 3
+ *   (6961:000a), moves to the next, back to the first after the last, and
+ *   waits speed * 100 ms (1521:0b4b); with the slot freed and nothing
+ *   loaded since, the original draws from low memory, and the run stops;
+ * - any other address does nothing. */
 static void call(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
-    if (cok_ecl_address(vm, 0) != 0x2e10) {
-        if (game->hooks.unported != NULL) game->hooks.unported(game, game->hooks.context);
-        return;
+    switch (cok_ecl_address(vm, 0)) {
+    case 0x2e10:
+        vm->square = cok_view_square(&game->view, vm->map_x, vm->map_y);
+        if (!game->picture_shown && !game->sprite_shown && !vm->c059_changed &&
+            !vm->view_changed && !vm->area_changed)
+            return;
+        game->sprite_loaded = game->closeup_shown = false;
+        game->redraw = true;
+        cok_adventure_view(game);
+        cok_adventure_status(game);
+        vm->area_changed = vm->c059_changed = vm->view_changed = false;
+        game->picture_shown = game->sprite_shown = false;
+        vm->ahead = cok_view_wall(&game->view, vm->direction, vm->map_x, vm->map_y);
+        break;
+    case 0xb203:
+        log_text(game, "sound", vm->value_3de == 10 ? "11" : "10"); /* 17e8:0020 */
+        break;
+    case 0xc01e: step_forward(game); break;
+    case 0xc018:
+        if (vm->mem4b00[0xe6] != 0) break;
+        if (!no_square(game) && !facing_known(vm->direction)) {
+            cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                               "CALL [c018] facing %u: 69ea:06a2 returns a byte of the stack "
+                               "the opcodes before left (2fd3:329b)", vm->direction);
+            break;
+        }
+        vm->ahead = cok_view_wall(&game->view, vm->direction, vm->map_x, vm->map_y);
+        break;
+    case 0x6803:
+        /* With the slot freed (6961:0537) and no picture loaded since,
+         * DS:6da3 is 0, and entry 0 is the far pointer DS:6da2:6da0: a
+         * segment of 0 (the count and frame) and as offset the segment of
+         * the picture at DS:6d9e, the sky picture 252 loaded at startup
+         * outside CGA mode: the original draws from low memory. */
+        if (game->frame_unset) {
+            cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                               "CALL [6803] with no picture loaded draws entry 0 of DS:6da2, "
+                               "0000:DS:6da0, from low memory (2fd3:33cb)");
+            break;
+        }
+        /* The mouse's hiding around the draw (1743:0051, 0030) is not
+         * ported. */
+        draw_frame(game, game->frame);
+        game->frame = game->frame + 1 < game->frame_count ? game->frame + 1 : 0;
+        wait_ms(game, game->speed * 100u);
+        break;
+    default: break;
     }
-    vm->square = cok_view_square(&game->view, vm->map_x, vm->map_y);
-    if (!game->picture_shown && !game->sprite_shown && !vm->c059_changed && !vm->view_changed &&
-        !vm->area_changed)
-        return;
-    game->sprite_loaded = game->closeup_shown = false;
-    game->redraw = true;
-    cok_adventure_view(game);
-    cok_adventure_status(game);
-    vm->area_changed = vm->c059_changed = vm->view_changed = false;
-    game->picture_shown = game->sprite_shown = false;
-    vm->ahead = cok_view_wall(&game->view, vm->direction, vm->map_x, vm->map_y);
 }
 
 /* Reset picture state for a new block, as 3775:01e8 does (DS:884a, 884c,
@@ -1132,6 +1319,163 @@ static void destroy_items(cok_adventure *game)
     vm->character = saved;
 }
 
+/* FIND ITEM type (2fd3:2b7e): the flags say whether any record in the
+ * list has an item of type (+0x2e): = if so, else <>, every other false. */
+static void find_item(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    uint8_t type = (uint8_t)cok_ecl_value(vm, 0);
+    bool found = false;
+    for (size_t k = 0; k < game->party.count && !found; ++k) {
+        const cok_character *c = game->party.members[k];
+        for (size_t i = 0; i < c->item_count && !found; ++i) found = c->items[i][0x2e] == type;
+    }
+    memset(vm->flags, 0, sizeof vm->flags);
+    vm->flags[found ? 0 : 1] = true;
+}
+
+/* FIND SPECIAL id (2fd3:354f): the flags say whether the selected
+ * character has effect id (6346:2447): = if so, else <>. With none
+ * selected the original reads through NULL. */
+static void find_special(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    memset(vm->flags, 0, sizeof vm->flags);
+    const cok_character *c = member_of(game, vm->character);
+    if (c == NULL) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                           "FIND SPECIAL with no character selected reads through NULL "
+                           "(6346:2447)");
+        return;
+    }
+    vm->flags[cok_character_find_effect(c, (uint8_t)cok_ecl_value(vm, 0)) != NULL ? 0 : 1] = true;
+}
+
+/* SPELL spell where who (2fd3:318b): the first record in the list with
+ * spell among its 58 spell bytes (+0x1e-+0x57) stores the byte's index in
+ * the second operand's variable and its position in the list in the
+ * third's; with none, 0xff and the position of the last record (0 for an
+ * empty list). The trace the original then writes (6d7e:093e) is shown
+ * only with its debug flag (Ctrl-D), which is not ported. */
+static void spell(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    uint8_t wanted = (uint8_t)cok_ecl_value(vm, 0), index = 0xff, position = 0;
+    bool found = false;
+    for (size_t k = 0; k < game->party.count && !found; ++k) {
+        const uint8_t *r = game->party.members[k]->record;
+        for (uint8_t i = 0; i < 0x3a && !found; ++i) {
+            found = r[0x1e + i] == wanted;
+            if (found) index = i;
+        }
+        if (!found && k + 1 < game->party.count) ++position;
+    }
+    cok_ecl_store(vm, cok_ecl_address(vm, 1), index);
+    cok_ecl_store(vm, cok_ecl_address(vm, 2), position);
+}
+
+/* ECL CLOCK count unit (2fd3:3005): pass the time (57e4:0549). */
+static void ecl_clock(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    cok_adventure_pass_time(game, (uint8_t)cok_ecl_value(vm, 1), (uint8_t)cok_ecl_value(vm, 0));
+}
+
+/* Add monster id of the ECL file to the party as an NPC (4b6d:18fc), if
+ * the party (0x7f3e) has at most seven: read as LOAD MONSTER reads it
+ * (4b6d:161b), its id kept in +0x115, then joined as a saved game's
+ * characters join (4b6d:1989): after every record in the list, in the
+ * lowest icon slot 0-7 free (8 if none is), selected, counted in 0x7f3e,
+ * its levels recomputed (66c2:0433) if it is an NPC (+0xe7 0x80 and up);
+ * then its combat icons, CPIC<file> records id and id + 0x80, loaded in
+ * its slot (6d21:01d0). */
+static bool join_npc(cok_adventure *game, uint8_t id)
+{
+    cok_ecl *vm = &game->vm;
+    cok_character *npc = malloc(sizeof *npc);
+    if (npc == NULL) {
+        cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
+        return false;
+    }
+    if (!cok_monster_read(game, id, npc)) {
+        cok_character_free(npc);
+        free(npc);
+        return false;
+    }
+    npc->record[0x115] = id;
+    if (!cok_party_add(&game->party, npc)) {
+        cok_character_free(npc);
+        free(npc);
+        cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                           "the party list holds %u records; combat's tables hold no more",
+                           COK_PARTY_RECORDS);
+        return false;
+    }
+    vm->character = npc->record;
+    ++vm->mem7c00[0x33e];
+    char error[300];
+    if (npc->record[0xe7] >= 0x80 &&
+        !cok_character_levels(npc, &game->item_types, error, sizeof error)) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
+        return false;
+    }
+    char name[16], text[64];
+    name_of(npc->record, name);
+    snprintf(text, sizeof text, "%s joins, icon %u in slot %u", name, id, npc->record[0x137]);
+    log_text(game, "party", text);
+    return cok_arena_load_icon(game, "CPIC", id, npc->record[0x137]);
+}
+
+/* ADD NPC id morale (2fd3:311c): unless the party has eight or more, add
+ * monster id as an NPC, which is then selected (join_npc); then the
+ * selected character, whoever it is, gets +0xe7 0x80 + morale / 2, its
+ * stats are recomputed (6346:0d20) and the party list drawn. With the
+ * party full and none selected the original writes through NULL. */
+static void add_npc(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    uint8_t id = (uint8_t)cok_ecl_value(vm, 0);
+    if (vm->mem7c00[0x33e] <= 7 && !join_npc(game, id)) return;
+    cok_character *c = member_of(game, vm->character);
+    if (c == NULL) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                           "ADD NPC with the party full and no character selected writes "
+                           "through NULL (2fd3:311c)");
+        return;
+    }
+    c->record[0xe7] = (uint8_t)((uint8_t)cok_ecl_value(vm, 1) >> 1 | 0x80);
+    char error[300];
+    if (!cok_character_stats(c, &game->item_types, error, sizeof error)) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
+        return;
+    }
+    cok_adventure_party(game);
+}
+
+/* DUMP (2fd3:351b): remove the selected character from the list
+ * (4def:3b0a with 0, 1: its icons freed, counted out of 0x7f3e) and select
+ * the record before it, or the first; with none selected, select the
+ * first. The selection becomes the one EXIT restores after LOAD CHARACTER
+ * (DS:43bf), and the party list is drawn. */
+static void dump(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    size_t i = cok_party_index(&game->party, vm->character);
+    if (i < game->party.count) {
+        char name[16], text[32];
+        name_of(vm->character, name);
+        snprintf(text, sizeof text, "%s leaves", name);
+        log_text(game, "party", text);
+        /* DS:43bf is set from the new selection below. */
+        vm->saved_character = NULL;
+        if (!cok_treasure_remove_record(game, i, false, true, false)) return;
+    } else if (game->party.count > 0) {
+        vm->character = game->party.members[0]->record;
+    }
+    vm->saved_character = vm->character;
+    cok_adventure_party(game);
+}
+
 static cok_ecl_status camp(cok_adventure *game);
 
 /* PROGRAM (2fd3:3473): with Move mode off meanwhile (DS:8858), and the
@@ -1188,6 +1532,12 @@ static void opcode(cok_ecl *vm, void *context)
     case COK_ECL_CALL: call(game); break;
     case COK_ECL_PROGRAM: program(game); break;
     case COK_ECL_DESTROY_ITEMS: destroy_items(game); break;
+    case COK_ECL_FIND_ITEM: find_item(game); break;
+    case COK_ECL_FIND_SPECIAL: find_special(game); break;
+    case COK_ECL_SPELL: spell(game); break;
+    case COK_ECL_ECL_CLOCK: ecl_clock(game); break;
+    case COK_ECL_ADD_NPC: add_npc(game); break;
+    case COK_ECL_DUMP: dump(game); break;
     default:
         if (cok_monster_opcode(game) || cok_treasure_opcode(game)) break;
         if (game->hooks.unported != NULL) game->hooks.unported(game, game->hooks.context);
@@ -1353,6 +1703,8 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
     game->vm.file = 1;
     game->picture_id = COK_ADVENTURE_NO_PICTURE;
     game->big_id = COK_ADVENTURE_NO_PICTURE;
+    game->head_id = game->body_id = 0xff; /* 3e99:0477 */
+    game->frame_unset = true;             /* DS:6da3 0 */
     game->speed = 4;
     for (size_t i = 0; i < 3; ++i) game->wall_ids[i] = game->wall_slots[i] = -1;
     game->wall_ids[0] = 0; /* 3e99:005b */
@@ -1412,6 +1764,8 @@ void cok_adventure_close(cok_adventure *game)
     game->vm.character = NULL;
     free_frames(game);
     cok_picture_free(&game->big);
+    cok_picture_free(&game->head);
+    cok_picture_free(&game->body);
     cok_picture_free(&game->cursor);
     cok_picture_free(&game->under);
     for (size_t i = 0; i < COK_ICON_SLOTS; ++i)
@@ -1659,10 +2013,13 @@ bool cok_adventure_pass_time(cok_adventure *game, unsigned unit, unsigned count)
 
 void cok_adventure_fail(cok_adventure *game, cok_ecl_status status, const char *format, ...)
 {
+    /* Callers pass game->error itself as an argument: format apart. */
+    char text[sizeof game->error];
     va_list args;
     va_start(args, format);
-    vsnprintf(game->error, sizeof game->error, format, args);
+    vsnprintf(text, sizeof text, format, args);
     va_end(args);
+    memcpy(game->error, text, sizeof text);
     log_text(game, "error", game->error);
     game->vm.status = status;
     game->vm.abort = true;
@@ -1736,13 +2093,6 @@ void cok_adventure_print(cok_adventure *game, const char *text, cok_text_window 
     cok_text_hooks hooks = {page, NULL, game};
     cok_text_wrap(&game->screen, &game->font, &game->vm.cursor, text, window, fg, 0, clear,
                   &hooks);
-}
-
-static void log_position(cok_adventure *game)
-{
-    char text[32];
-    snprintf(text, sizeof text, "%d,%d,%u", game->vm.map_x, game->vm.map_y, game->vm.direction);
-    log_text(game, "at", text);
 }
 
 /* One key from a menu of the adventure loop (67b5:03e2): prompt in 13,
@@ -2229,6 +2579,7 @@ static void step(cok_adventure *game)
         vm->mem7c00[0x2c9] = 0;
     }
     free_frames(game); /* 6961:0537 */
+    cok_adventure_forget_portrait(game);
 }
 
 /* Camp (2fd3:3403): run the camp vector, then the camp menu (4888:2c31);
@@ -2282,18 +2633,24 @@ static cok_ecl_status look(cok_adventure *game)
  * line; in shops and the temple (mode 1) the frame but for their first
  * redraw (DS:883c), the small picture's first frame at cell 3, 3 (the
  * slot's first entry, DS:6da8, 6961:000a), or in 3D areas the portrait
- * last shown (DS:4b55, 4b56: 6961:05b9, 06bd), which is not ported, then
- * the party list and the status line. Modes 0 and 5 are not ported. */
+ * last shown (DS:4b55, 4b56: 6961:05b9, 06bd), then the party list and
+ * the status line; in the party menu (mode 0) the frame of 1128:0000,
+ * cleared; in combat (mode 5) nothing. */
 static void redraw_screen(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     game->redraw = true;
-    if (vm->mode == 1) {
+    if (vm->mode == 0) {
+        uint16_t phase[3];
+        moons(game, phase);
+        cok_screen_frame(&game->screen, &game->view.tiles[4], phase, true);
+    } else if (vm->mode == 1) {
         if (game->shop_frame) cok_adventure_frame(game);
         if (vm->mem4b00[0xe6] == 0)
             draw_frame(game, 0);
         else
-            log_text(game, "unported", "the portrait (6961:05b9, 06bd)");
+            show_portrait(game, game->portrait_head, game->portrait_body);
+        if (vm->abort) return;
         cok_adventure_party(game);
         cok_adventure_status(game);
     } else if (vm->mode == 2 || vm->mode == 6) {

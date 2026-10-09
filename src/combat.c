@@ -1064,8 +1064,9 @@ bool cok_combat_setup(cok_adventure *game)
                            "facing %u is past the tables of directions (3cb2:10d9)", vm->direction);
         return false;
     }
-    /* 6961:0537 and the big picture; the portraits are not ported. */
+    /* 6961:0537, the portrait's pieces and the big picture. */
     cok_adventure_free_picture(game);
+    cok_adventure_forget_portrait(game);
     cok_picture_free(&game->big);
     game->big_id = COK_ADVENTURE_NO_PICTURE;
     cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 67b5:0c7b */

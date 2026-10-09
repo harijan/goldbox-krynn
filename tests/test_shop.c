@@ -125,6 +125,10 @@ static void reset(const char *k)
     game.vm.mode = 4;
     game.vm.mem4b00[0xe6] = 1;
     game.vm.file = 1;
+    /* Records 0 held with no pictures: these 3D shops, in ECL1, which has
+     * no HEAD1.DAX, show the portrait last shown, 0 and 0, as nothing. */
+    cok_adventure_forget_portrait(&game);
+    game.head_id = game.body_id = game.portrait_head = game.portrait_body = 0;
     game.monsters = game.undead = 0;
     game.monsters_loaded = false;
     game.icon_slot = 8;
@@ -401,18 +405,26 @@ static void test_keys(void)
     CHECK(shop(0x10) == COK_ECL_OK && word(b->record + 0xf3) == 13 && b->item_count == 1);
 }
 
+/* Show the portrait of ECL2's head 69 over body 68, as the magic shop of
+ * ECL2 block 50 does (8b47), and clear the screen. */
+static void show_portrait(void)
+{
+    CHECK(RUN(COK_ECL_SAVE, 0, 69, 1, 0xe1, 0x7e, COK_ECL_PICTURE, 0, 68, COK_ECL_SAVE, 0, 0xff,
+              1, 0xe1, 0x7e) == COK_ECL_OK);
+    cok_picture_fill(&game.screen, 0, 0, 40, 200, 0);
+}
+
 static void test_screen(void)
 {
     /* The shop's first redraw has no frame; later ones do, here after Buy
-     * (with the portrait again) but not after Appraise with nothing to
-     * show. */
+     * (with the portrait again, 0 and 0, showing nothing) but not after Appraise
+     * with nothing to show. */
     reset("BB\033AE");
     member("A", 20);
     stock(0x12, 7, 0);
     cok_picture_fill(&game.screen, 0, 0, 40, 200, 0);
     first_ink = -1;
-    CHECK(shop(0x10) == COK_ECL_OK && first_ink == 0);
-    CHECK(logged_times("unported: the portrait (6961:05b9, 06bd);") == 2);
+    CHECK(shop(0x10) == COK_ECL_OK && first_ink == 0 && !LOGGED("unported"));
     game.vm.mode = 1;
     cok_picture_fill(&game.screen, 0, 0, 40, 200, 0);
     first_ink = -1;
@@ -420,15 +432,23 @@ static void test_screen(void)
     cok_adventure_redraw(&game);
     scripted(&s);
     CHECK(first_ink == 1);
-    /* In a 3D area the shop shows the portrait last shown, which is not
-     * ported; elsewhere the small picture, and no portrait. */
+    /* In a 3D area the shop shows the portrait last shown (6961:05b9,
+     * 06bd), here ECL2's head 69 over body 68, as the magic shop of ECL2
+     * block 50 shows it first; elsewhere the small picture, and no
+     * portrait. */
     reset("E");
+    game.vm.file = 2;
     member("A", 0);
-    CHECK(shop(0x10) == COK_ECL_OK && LOGGED("unported: the portrait (6961:05b9, 06bd);"));
+    show_portrait();
+    cok_picture_fill(&game.screen, 0, 0, 40, 200, 0);
+    snap_key = 0;
+    CHECK(shop(0x10) == COK_ECL_OK && ink(8, 5) != 0 && ink(8, 10) != 0);
     reset("E");
     game.vm.mem4b00[0xe6] = 0;
     member("A", 0);
-    CHECK(shop(0x10) == COK_ECL_OK && !LOGGED("portrait"));
+    cok_picture_fill(&game.screen, 0, 0, 40, 200, 0);
+    snap_key = 0;
+    CHECK(shop(0x10) == COK_ECL_OK && ink(8, 5) == 0 && ink(8, 10) == 0);
 }
 
 static void test_appraise(void)
@@ -806,15 +826,19 @@ static void test_more(void)
     CHECK(temple() == COK_ECL_OK && cok_character_find_effect(a, 0x2b) != NULL &&
           cok_character_find_effect(a, 0x1f) != NULL);
 
-    /* Take redraws the screen, here the portrait again. */
+    /* Take redraws the screen, here the portrait again over its list. */
     reset("\001TE");
+    game.vm.file = 2;
     member("A", 0);
-    CHECK(shop(0x10) == COK_ECL_OK);
-    CHECK(logged_times("unported: the portrait (6961:05b9, 06bd);") == 2);
+    show_portrait();
+    snap_key = 2;
+    CHECK(shop(0x10) == COK_ECL_OK && ink(8, 5) != 0);
     reset("\001TE");
+    game.vm.file = 2;
     member("A", 0);
-    CHECK(temple() == COK_ECL_OK);
-    CHECK(logged_times("unported: the portrait (6961:05b9, 06bd);") == 2);
+    show_portrait();
+    snap_key = 2;
+    CHECK(temple() == COK_ECL_OK && ink(8, 5) != 0);
 
     /* Id pauses once paid. */
     unsigned unpaid, paid;
