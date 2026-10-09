@@ -104,12 +104,21 @@ static uint8_t keypad_scan(unsigned char c)
 /* One key from 67b5:03e2: returns the key, setting *special for scan codes. */
 static int menu_key(cok_picture *dst, const cok_font *font, const cok_menu *menu, int x,
                     uint8_t *selected, uint8_t highlight, uint8_t normal, bool keypad,
-                    const cok_keyboard *keys, bool *special)
+                    const cok_keyboard *keys, bool *special, int timeout)
 {
     cok_menu_draw(dst, font, menu, x, *selected, highlight, normal);
     size_t length = strlen(menu->text);
     for (;;) {
         int key = keys == NULL || keys->read == NULL ? -1 : keys->read(keys->context);
+        if (key == COK_KEY_TIMEOUT) {
+            /* 67b5:0579: the time passed with no key; the result is
+             * DS:6e15's, the selection as it was. */
+            if (timeout != 0) {
+                *special = false;
+                return timeout;
+            }
+            continue;
+        }
         if (key < 0) return -1;
         if (key == 0) {
             key = keys->read(keys->context);
@@ -182,7 +191,7 @@ int cok_menu_horizontal(cok_picture *dst, const cok_font *font, const char *prom
         if (menu.count < *selected) *selected = 1;
         if (x != 0) cok_text_string(dst, font, shown, 0, 24, prompt_color, 0);
         bool special = false;
-        key = menu_key(dst, font, &menu, x, selected, highlight, normal, true, keys, &special);
+        key = menu_key(dst, font, &menu, x, selected, highlight, normal, true, keys, &special, 0);
         if (key < 0) return -1;
         if (special) {
             if (hooks != NULL && hooks->special != NULL)
@@ -216,7 +225,23 @@ int cok_menu_ask(cok_picture *dst, const cok_font *font, const char *prompt, con
     int x = (int)strlen(shown);
     if (x != 0) cok_text_string(dst, font, shown, 0, 24, prompt_color, 0);
     *special = false;
-    return menu_key(dst, font, &menu, x, selected, highlight, normal, keypad, keys, special);
+    return menu_key(dst, font, &menu, x, selected, highlight, normal, keypad, keys, special, 0);
+}
+
+int cok_menu_timed(cok_picture *dst, const cok_font *font, const char *prompt, const char *text,
+                   uint8_t prompt_color, uint8_t highlight, uint8_t normal, uint8_t *selected,
+                   const cok_keyboard *keys, int timeout)
+{
+    char shown[41];
+    snprintf(shown, sizeof shown, "%s", prompt);
+    cok_menu menu;
+    cok_menu_layout(&menu, text);
+    if (menu.count < *selected) *selected = 1;
+    int x = (int)strlen(shown);
+    if (x != 0) cok_text_string(dst, font, shown, 0, 24, prompt_color, 0);
+    bool special = false;
+    return menu_key(dst, font, &menu, x, selected, highlight, normal, false, keys, &special,
+                    timeout);
 }
 
 typedef struct {
@@ -358,7 +383,7 @@ int cok_menu_rows(cok_picture *dst, const cok_font *font, const cok_menu_row *it
         if (x != 0) cok_text_string(dst, font, prompt, 0, 24, style->heading, 0);
         bool special = false;
         int key = menu_key(dst, font, &menu, x, selected, style->highlight, style->normal, true,
-                           keys, &special);
+                           keys, &special, 0);
         mark(&l, false);
         if (key < 0) return -1;
         if (special) {

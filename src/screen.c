@@ -135,3 +135,18 @@ void cok_screen_sheet(cok_picture *dst, const cok_picture *tiles, const uint16_t
     }
     for (int y = 9; y <= 19; ++y) tile(dst, tiles, sheet_middle[y - 9], 19, y);
 }
+
+void cok_screen_credits(cok_picture *dst, const cok_picture *tiles)
+{
+    cok_picture_fill(dst, 1, 8, 38, 22 * 8, 0); /* 1128:07e6 */
+    for (int y = 0; y < 24; ++y) {
+        if (y == 0 || y == 4 || y == 20 || y == 23) {
+            for (int x = 0; x < 40; ++x) tile(dst, tiles, COK_FRAME_HORIZONTAL, x, y);
+            continue;
+        }
+        unsigned value = y == 1 || y == 5 || y == 21 ? 3 : y == 3 || y == 19 || y == 22 ? 5
+                                                                                      : COK_FRAME_VERTICAL;
+        tile(dst, tiles, value, 0, y);
+        tile(dst, tiles, value, 39, y);
+    }
+}

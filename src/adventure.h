@@ -82,10 +82,11 @@ typedef struct {
      * lists, quitting to DOS, the monsters loaded, the encounter's sprite
      * and money robbed, the end of a fight, and the coins and items
      * TREASURE adds, the overhead map going on and off, the characters ADD
-     * NPC and DUMP add and remove, and the sound driver's commands: kind is
-     * "print", "menu", "list", "item", "heading", "choice", "input",
-     * "error", "at", "overland", "unported", "who", "quit", "monster",
-     * "combat", "treasure", "area", "party" or "sound". */
+     * NPC and DUMP add and remove or that join from the roster, one saved
+     * to the roster, and the sound driver's commands: kind is "print",
+     * "menu", "list", "item", "heading", "choice", "input", "error", "at",
+     * "overland", "unported", "who", "quit", "monster", "combat",
+     * "treasure", "area", "party", "roster" or "sound". */
     void (*log)(cok_adventure *game, const char *kind, const char *text, void *context);
     /* A battle has been set up (3cb2:1c58): game->combat holds its map and
      * combatants. NULL ignores it. */
@@ -220,6 +221,16 @@ struct cok_adventure {
     bool combat_targets;
     bool restoring;        /* The block's vectors run; DS:43bf is restored after them. */
 
+    /* The start menu (see start.h). */
+    bool demo;             /* DS:4b4b: the demonstration plays. */
+    bool free_training;    /* DS:7140: Helm's free training. */
+    bool timed;            /* A menu that times out reads keys (DS:6e11 set). */
+    bool title;            /* The title or its menu shows. */
+    /* A record outside the list that the selection (DS:6096) may name: the
+     * character being created (4def:06dd), or NULL. */
+    cok_character *outside;
+    /* DS:5885 is game->effects.rolls.saved; DS:4b52 is vm.keep_vars. */
+
     cok_keyboard keys;
     cok_adventure_hooks hooks;
     char error[600];       /* Why the last call failed. */
@@ -310,6 +321,10 @@ void cok_adventure_mark(cok_adventure *game);
  * run as cok_adventure_mark does. */
 void cok_adventure_travel(cok_adventure *game);
 
+/* The selected character (DS:6096): the member whose record vm.character
+ * is, or game->outside's; NULL for none. */
+cok_character *cok_adventure_selected(cok_adventure *game);
+
 /* Draw the party list beside the view (6346:07ba), unless the area has no
  * 3D view or a big picture is shown. */
 void cok_adventure_party(cok_adventure *game);
@@ -333,6 +348,9 @@ cok_keyboard cok_adventure_keyboard(cok_adventure *game);
 void cok_adventure_wait(cok_adventure *game, unsigned ms);
 /* Whether a key is waiting (hooks.key_pending, 1614:03c2). */
 bool cok_adventure_key_pending(cok_adventure *game);
+/* A key read as 1614:025b reads it, without waiting for one first: in the
+ * demonstration 0 at once when none is pending. */
+int cok_adventure_wait_key(cok_adventure *game);
 /* Carry each full unit of clock into the next once (57e4:0459), moving
  * the moons on a new day and aging the party while the years are full, as
  * cok_adventure_pass_time does. */

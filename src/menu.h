@@ -84,6 +84,14 @@ int cok_menu_ask(cok_picture *dst, const cok_font *font, const char *prompt, con
                  uint8_t prompt_color, uint8_t highlight, uint8_t normal, bool keypad,
                  uint8_t *selected, const cok_keyboard *keys, bool *special);
 
+/* cok_menu_ask with the digits as keys, and a timeout (67b5:03e2 with
+ * DS:6e11 set, as the title menu calls it): when the keyboard gives
+ * COK_KEY_TIMEOUT, the time passed with no key, it returns timeout
+ * (DS:6e15). Special keys return their scan codes. */
+int cok_menu_timed(cok_picture *dst, const cok_font *font, const char *prompt, const char *text,
+                   uint8_t prompt_color, uint8_t highlight, uint8_t normal, uint8_t *selected,
+                   const cok_keyboard *keys, int timeout);
+
 /* A row of a list: its text, and whether it is a heading (node byte
  * 0x29), which is drawn in the heading colour and cannot be picked. */
 typedef struct {

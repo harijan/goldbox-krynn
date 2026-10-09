@@ -79,6 +79,11 @@ typedef struct {
     void *context;
 } cok_keyboard;
 
+/* What read returns when no key came in the time a menu waits before it
+ * times out (67b5:03e2 with DS:6e11, as the title menu does). Only
+ * cok_menu_timed takes it; menus without a timeout keep waiting. */
+enum { COK_KEY_TIMEOUT = -2 };
+
 /* Edit a line on row 24 after prompt, which is cut to 40 characters and
  * drawn at column 0 in fg on bg (521:0739). Keys 0x20-0x7a append while the
  * line is shorter than max; each is drawn in colour 15 one column further

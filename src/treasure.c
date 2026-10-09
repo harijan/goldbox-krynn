@@ -1254,9 +1254,11 @@ void cok_treasure_end_of_combat(cok_adventure *game)
     if (!weapons_back(game)) return;
     vm->mem7c00[0x2c7] = 0;
     outcome result = {0};
-    if (!after_combat(game, &result)) return;
+    /* The demonstration (DS:4b4b) skips the party's part and everything
+     * after the enemies go (351b:1982, 1996). */
+    if (!game->demo && !after_combat(game, &result)) return;
     vm->mode = 6;
-    if (!remove_enemies(game, &result)) return;
+    if (!remove_enemies(game, &result) || game->demo) return;
     for (size_t i = 0; i < game->party.count; ++i) {
         if (cok_character_stats(game->party.members[i], &game->item_types, game->error,
                                 sizeof game->error))

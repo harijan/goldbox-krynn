@@ -1081,15 +1081,43 @@ static void test_overland(void)
     CHECK(cok_ecl_run(&game.vm, 0x8030) == COK_ECL_OK);
     CHECK(mem[0x102] == 1 && mem[0x103] == 1 && game.moving);
     mem[0x138] = 0;
+    /* PROGRAM 0 opens the start menu, with the mode 0 meanwhile; Begin
+     * Adventuring, the eighth item with a character selected and no hall,
+     * goes back to the script, the mode restored and var 0x7ea8 cleared. */
     load_overland_block(&game, 0, 0);
     mem[0x103] = 0;
     unported_count = 0;
-    CHECK(cok_ecl_run(&game.vm, 0x8030) == COK_ECL_OK && unported_count == 1 && mem[0x103] == 1);
+    game.vm.mem7c00[0x2a8] = 0;
+    s.keys = "\x01P\x01P\x01P\x01P\x01P\x01P\x01PS";
+    s.at = 0;
+    s.length = strlen(s.keys);
+    s.log[0] = '\0';
+    CHECK(cok_ecl_run(&game.vm, 0x8030) == COK_ECL_OK && unported_count == 0 && mem[0x103] == 1);
+    CHECK(strstr(s.log, "choice: Begin Adventuring;") != NULL && game.vm.mode == 3);
+    CHECK(game.vm.mem7c00[0x2a8] == 0 && s.at == s.length);
+    /* In a 3D area the screen is not redrawn after it: Begin's frame
+     * stays, with no status line. */
+    mem[0xe6] = 1;
+    game.vm.mode = 4;
+    s.at = 0;
+    CHECK(cok_ecl_run(&game.vm, 0x8030) == COK_ECL_OK && game.vm.mode == 4);
+    CHECK(cell_is(&game.screen, 17, 15, 0) && cell_is(&game.screen, 20, 15, 0));
+    mem[0xe6] = 0;
+    game.vm.mode = 3;
+    /* In the demonstration CLEAR BOX leaves out the small picture. */
+    const uint8_t clear[] = {COK_ECL_CLEAR_BOX, COK_ECL_EXIT};
+    cok_adventure_load_picture(&game, 0x3b);
+    game.demo = true;
+    CHECK(run_code(&game, &s, clear, sizeof clear, "") == COK_ECL_OK);
+    CHECK(cell_is(&game.screen, 6, 6, 0) && cell_is(&game.screen, 10, 10, 0));
+    game.demo = false;
+    CHECK(run_code(&game, &s, clear, sizeof clear, "") == COK_ECL_OK);
+    CHECK(!cell_is(&game.screen, 6, 6, 0) || !cell_is(&game.screen, 10, 10, 0));
     load_overland_block(&game, 0, 3);
     mem[0x103] = 0;
     game.vm.character = b->record;
     game.vm.restore_character = true;
-    CHECK(cok_ecl_run(&game.vm, 0x8030) == COK_ECL_OK && unported_count == 1 && mem[0x103] == 1);
+    CHECK(cok_ecl_run(&game.vm, 0x8030) == COK_ECL_OK && unported_count == 0 && mem[0x103] == 1);
     CHECK(game.vm.character == a->record && mem[0x104] == 0);
     cok_adventure_close(&game);
 

@@ -883,6 +883,12 @@ static void test_end_round(void)
     CHECK(cok_combat_end_round(&game, &done) && !done);
     CHECK(LOGGED("menu: Continue Battle:;choice: Y;"));
     CHECK(cok_combat_end_round(&game, &done) && done && LOGGED("choice: N;"));
+    /* The demonstration does not ask (3995:0c78). */
+    s.log[0] = '\0';
+    done = false;
+    game.demo = true;
+    CHECK(cok_combat_end_round(&game, &done) && done && !LOGGED("Continue"));
+    game.demo = false;
     /* Both gone: no question. */
     s.log[0] = '\0';
     done = false;

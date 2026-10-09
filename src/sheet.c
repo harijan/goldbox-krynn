@@ -18,8 +18,7 @@ static bool undefined(cok_adventure *game, const char *what)
 
 static cok_character *selected(cok_adventure *game)
 {
-    size_t i = cok_party_index(&game->party, game->vm.character);
-    return i < game->party.count ? game->party.members[i] : NULL;
+    return cok_adventure_selected(game);
 }
 
 static void draw(cok_adventure *game, const char *text, int x, int y, uint8_t fg)
@@ -139,9 +138,9 @@ static int8_t first_level(const uint8_t *c)
 /* Ability i on row 9 + i (546c:0b50): the current score from column 5, 6
  * below 10; exceptional strength at 18 as "(NN)", "(00)" for 100; and "*"
  * at column 12 when it differs from the base. */
-static void ability(cok_adventure *game, const uint8_t *c, int i)
+void cok_sheet_ability(cok_adventure *game, const uint8_t *c, int i, uint8_t color)
 {
-    uint8_t color = 10, score = c[0x11 + 2 * i];
+    uint8_t score = c[0x11 + 2 * i];
     char text[16];
     clear_cells(game, 5, 9 + i, 0x0b, 9 + i);
     snprintf(text, sizeof text, "%u", score);
@@ -158,7 +157,7 @@ static void ability(cok_adventure *game, const uint8_t *c, int i)
 
 /* The money (546c:0667): each kind but silver that the character has, from
  * row 9, its name at column 20 and its amount ending at column 37. */
-static bool money(cok_adventure *game, const uint8_t *c)
+bool cok_sheet_money(cok_adventure *game, const uint8_t *c)
 {
     clear_cells(game, 0x14, 9, 0x26, 0x0f);
     int row = 9;
@@ -185,7 +184,18 @@ static void pad(char *out, size_t size, const char *text, size_t width)
 /* The combat figures (546c:07bb), after recomputing the stats (6346:0d20):
  * hit points, armour class, encumbrance, THAC0, movement (doubled by
  * haste, 0x27, halved by slow, 0x2a) and damage. */
-static bool combat(cok_adventure *game, cok_character *character)
+void cok_sheet_hit_points(cok_adventure *game, const uint8_t *c, int x, int y, bool highlight,
+                          bool show_max)
+{
+    char text[8], value[8];
+    snprintf(text, sizeof text, "%u", c[0x197]);
+    draw(game, text, x, y, highlight ? 13 : c[0x197] < c[0x62] ? 14 : 10);
+    if (!show_max) return;
+    snprintf(value, sizeof value, "/%u", c[0x62]);
+    draw(game, value, x + (int)strlen(text), y, 10);
+}
+
+bool cok_sheet_figures(cok_adventure *game, cok_character *character)
 {
     char error[300], text[64], value[48];
     if (!cok_character_stats(character, &game->item_types, error, sizeof error))
@@ -194,10 +204,7 @@ static bool combat(cok_adventure *game, cok_character *character)
     draw(game, "Hit Points ", 0x14, 3, 15);
     clear_cells(game, 0x1f, 3, 0x25, 3);
     /* 6346:0a0d: hit points, yellow while below the maximum, "/" and it. */
-    snprintf(text, sizeof text, "%u", c[0x197]);
-    draw(game, text, 0x1f, 3, c[0x197] < c[0x62] ? 14 : 10);
-    snprintf(value, sizeof value, "/%u", c[0x62]);
-    draw(game, value, 0x1f + (int)strlen(text), 3, 10);
+    cok_sheet_hit_points(game, c, 0x1f, 3, false, true);
     draw(game, "Armor Class", 1, 0x11, 15);
     uint8_t ac = c[0x18d];
     int x = ac >= 1 && ac <= 0x32 ? 0x10 : ac >= 0x33 && ac <= 0x3c ? 0x11 : ac >= 0x3d && ac <= 0x45 ? 0x10 : 0x0f;
@@ -284,9 +291,9 @@ bool cok_sheet_draw(cok_adventure *game)
     static const char *const labels[6] = {"STR ", "INT ", "WIS ", "DEX ", "CON ", "CHA "};
     for (int i = 0; i < 6; ++i) {
         draw(game, labels[i], 1, 9 + i, 10);
-        ability(game, c, i);
+        cok_sheet_ability(game, c, i, 10);
     }
-    if (!money(game, c) || !combat(game, character)) return false;
+    if (!cok_sheet_money(game, c) || !cok_sheet_figures(game, character)) return false;
     char item_name[41];
     for (size_t k = 0; k < 2; ++k) {
         size_t slot = k == 0 ? 0 : 2;
@@ -443,7 +450,7 @@ static bool trade_money(cok_adventure *game, cok_character *giver, cok_sheet_sta
         cok_character *receiver = game->party.members[i];
         if (!cok_sheet_draw(game)) return false;
         for (;;) {
-            if (!money(game, g)) return false;
+            if (!cok_sheet_money(game, g)) return false;
             game->trade_partner = who;
             const char *coin_word;
             int coin = pick_coin(game, g, 14, false, &coin_word);
@@ -490,7 +497,7 @@ static bool drop_money(cok_adventure *game, cok_character *character)
 {
     uint8_t *c = character->record;
     for (;;) {
-        if (!money(game, c)) return false;
+        if (!cok_sheet_money(game, c)) return false;
         const char *coin_word;
         int coin = pick_coin(game, c, 18, true, &coin_word);
         if (coin < 0) return false;
@@ -539,7 +546,7 @@ void cok_sheet(cok_adventure *game, cok_sheet_stale stale, bool *done)
         case 'I': cok_items(game, done); ok = !game->vm.abort; break;
         case 'S': ok = cok_magic_memorized(game, character) >= 0; break;
         case 'T': ok = trade_money(game, character, stale); break;
-        case 'D': ok = drop_money(game, character) && money(game, c); break;
+        case 'D': ok = drop_money(game, character) && cok_sheet_money(game, c); break;
         default: break; /* Heal and Cure are never offered, and do nothing. */
         }
         if (!ok || game->vm.abort) return;
