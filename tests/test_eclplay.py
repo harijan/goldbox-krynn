@@ -254,10 +254,11 @@ class PlayTests(unittest.TestCase):
         rounds = [line for line in lines if line.startswith("round: ")]
         self.assertEqual(len(rounds), 2)
         at = lines.index(rounds[0])
-        self.assertEqual(lines[at + 1:at + 3],
-                         ["turn: FARO (initiative 6)", "turn: FARO (initiative 19)"])
+        self.assertEqual(lines[at + 1:at + 4],
+                         ["turn: FARO (initiative 6)", "menu: Move View Aim Use Cast Done",
+                          "turn: FARO (initiative 19)"])
         # It steps up (sound 10 a step) and attacks.
-        texts = [line for line in lines[at + 3:] if not line.startswith("sound: 10")]
+        texts = [line for line in lines[at + 4:] if not line.startswith("sound: 10")]
         self.assertEqual(texts[:4], ["sound: 9", "print: FARO", "print: Attacks",
                                      "attack: HOBGOBLIN and Misses"])
         self.assertEqual(len([line for line in lines if line.startswith("attack: ")]), 15)
@@ -278,15 +279,120 @@ class PlayTests(unittest.TestCase):
         self.assertIn("attack: HOBGOBLIN (from behind) Hitting for 2 points of damage", lines)
         self.assertIn("combat: seed 1835066672", lines)
         # With no --combat the computer plays the monsters, while the player's
-        # turns pass: the party falls.
+        # turns read the keys: here the first quits (Done, Quit) and the
+        # second runs out of them.
         result = self.play("--test-party", 6, "--set", "4be6=1", "--start", "835f", "--seed", 1,
-                           "--keys", r"\r\rEN", ASSETS, 32)
+                           "--keys", r"\rDQ", ASSETS, 32)
         lines = result.stdout.splitlines()
-        self.assertIn("turn: HOBGOBLIN (initiative 6)", lines)
-        at = lines.index("turn: HOBGOBLIN (initiative 6)")
-        self.assertEqual(lines[at + 2:at + 4], ["print: HOBGOBLIN", "print: Attacks"])
-        self.assertNotIn("turn: FARO (initiative 19)", lines)
+        at = lines.index("turn: FARO (initiative 6)")
+        self.assertEqual(lines[at:at + 4],
+                         ["turn: FARO (initiative 6)", "menu: Move View Aim Use Cast Done",
+                          "menu: Guard Delay Quit Auto Speed Exit", "turn: BRAM (initiative 6)"])
+        self.assertEqual(lines[-3:], ["menu: Move View Aim Use Cast Done",
+                                      "combat: seed 2996491197",
+                                      "(out of keys in block 32 at 8417)"])
+
+    def test_player_turns(self):
+        # The skeletons of ECL1 block 32 at 87b4, the player's turns played
+        # by the keys (3995:0573): FARO and BRAM, clerics, Turn the undead
+        # (432f:12b7); CERA Views herself, then Done, Speed, Slower, Exit,
+        # Quit; ALDA Aims at BRAM, an ally (Attack Ally: No), Moves two
+        # north and Guards; DUNN Delays, ELIN Moves into the curate and
+        # attacks, DUNN's turn comes again at the end of the round, Done,
+        # Auto: the computer plays it; FARO presses Alt-Q in round 2, and
+        # the computer finishes the battle.
+        keys = r"TTVEDSSEQANTNM88DDGDDM887DA\@qN\rEN\r\r"
+        result = self.play("--test-party", 6, "--set", "4be6=1", "--start", "87b4", "--seed", 1,
+                           "--keys", keys, ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        turns = [line for line in lines if line.startswith("turn: ")]
+        self.assertEqual(turns[:9], ["turn: FARO (initiative 6)", "turn: BRAM (initiative 6)",
+                                     "turn: CERA (initiative 5)", "turn: ALDA (initiative 5)",
+                                     "turn: EVIL CURATE (initiative 4)",
+                                     "turn: DUNN (initiative 3)", "turn: ELIN (initiative 2)",
+                                     "turn: DUNN (initiative 1)", "turn: DUNN (initiative 6)"])
+        at = lines.index("turn: FARO (initiative 6)")
+        self.assertEqual(lines[at + 1:at + 4], ["menu: Move View Aim Use Cast Turn Done",
+                                                "print: FARO", "print: turns undead..."])
+        self.assertEqual(lines.count("print: is turned"), 10)
+        at = lines.index("turn: CERA (initiative 5)")
+        self.assertEqual(lines[at + 1:at + 10],
+                         ["menu: Move View Aim Use Cast Done", "print: CERA", "print: White Mage",
+                          "menu: Items Spells Drop Exit", "menu: Move View Aim Use Cast Done",
+                          "menu: Guard Delay Quit Auto Speed Exit",
+                          "menu:  Slower Faster Exit", "menu:  Slower Faster Exit",
+                          "menu: Guard Delay Quit Auto Speed Exit"])
+        at = lines.index("turn: ALDA (initiative 5)")
+        self.assertEqual(lines[at + 1:at + 6],
+                         ["menu: Move View Aim Use Done", "menu: Next Prev Manual Center Exit",
+                          "menu: Next Prev Manual Target Center Exit", "menu: Attack Ally: ",
+                          "choice: N"])
+        self.assertIn("print: Guarding", lines[at:lines.index("turn: EVIL CURATE (initiative 4)")])
+        at = lines.index("turn: ELIN (initiative 2)")
+        self.assertIn("attack: EVIL CURATE and Misses", lines[at:at + 12])
+        self.assertIn("round: 2: DUNN 6, EVIL CURATE 6, FARO 5, BRAM 3, ALDA 3, CERA 2, ELIN 1, "
+                      "SKELETON 0, ZOMBIE 0, SKELETON 0, ZOMBIE 0, SKELETON 0, SKELETON 0, "
+                      "SKELETON 0, SKELETON 0, SKELETON 0, SKELETON 0", lines)
+        at = lines.index("turn: FARO (initiative 5)")
+        self.assertEqual(lines[at + 1:at + 3],
+                         ["menu: Move View Aim Use Cast Turn Done", "turn: FARO (initiative 19)"])
+        self.assertIn("print: Surrenders", lines)
+        self.assertIn("combat: seed 669777574", lines)
+        self.assertIn("combat: removed 8 SKELETON, 2 ZOMBIE, 1 EVIL CURATE; 11 dropped", lines)
+        self.assertEqual(lines[-1], "(done in block 32)")
+        # Without --keys the player's turns pass, and the passive party is
+        # killed.
+        result = self.play("--test-party", 6, "--set", "4be6=1", "--start", "87b4", "--seed", 1,
+                           ASSETS, 32)
+        lines = result.stdout.splitlines()
+        self.assertNotIn("menu: Move View Aim Use Cast Turn Done", lines)
         self.assertEqual(lines[-1], "(the party was killed in block 32)")
+
+    def test_player_ambush(self):
+        # The ambush of ECL1 block 32, played: FARO Moves west twice and
+        # Escape takes the moves back, then Guards; BRAM Aims at the
+        # hobgoblin north of him and strikes (Target); ALDA Bandages CERA,
+        # who is dying; DUNN moves the cursor onto BRAM's body (Manual, no
+        # target there), leaves and Quits; ELIN presses Alt-Q.
+        keys = r"\rM44\eDGANTDBAM8\e\eDQ\@qN\rEN"
+        result = self.play("--test-party", 6, "--set", "4be6=1", "--start", "835f", "--seed", 1,
+                           "--keys", keys, ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        at = lines.index("turn: FARO (initiative 6)")
+        self.assertEqual(lines[at:at + 13],
+                         ["turn: FARO (initiative 6)", "menu: Move View Aim Use Cast Done",
+                          "menu:  Done", "sound: 10", "menu:  Done", "sound: 10", "menu:  Done",
+                          "menu: Move View Aim Use Cast Done",
+                          "menu: Guard Delay Quit Auto Speed Exit", "print: Guarding",
+                          "turn: BRAM (initiative 6)", "menu: Move View Aim Use Cast Done",
+                          "menu: Next Prev Manual Center Exit"])
+        self.assertEqual(lines[at + 13:at + 18],
+                         ["menu: Next Prev Manual Target Center Exit", "sound: 9", "print: BRAM",
+                          "print: Attacks", "attack: HOBGOBLIN and Misses"])
+        at = lines.index("turn: ALDA (initiative 5)")
+        self.assertEqual(lines[at + 1:at + 5],
+                         ["menu: Move View Aim Use Done",
+                          "menu: Guard Delay Quit Bandage Auto Speed Exit", "print: CERA",
+                          "print: is bandaged"])
+        at = lines.index("turn: DUNN (initiative 3)")
+        self.assertEqual(lines[at + 1:at + 8],
+                         ["menu: Move View Aim Use Done", "menu: Next Prev Manual Center Exit",
+                          "menu: Exit", "menu: Exit", "menu: Next Prev Manual Center Exit",
+                          "menu: Move View Aim Use Done",
+                          "menu: Guard Delay Quit Bandage Auto Speed Exit"])
+        self.assertEqual(lines[at + 8:at + 11], ["turn: ELIN (initiative 2)",
+                                                 "menu: Move View Aim Use Done",
+                                                 "turn: ELIN (initiative 19)"])
+        self.assertEqual(len([line for line in lines if line.startswith("attack: ")]), 21)
+        self.assertIn("combat: seed 2970518320", lines)
+        self.assertIn("combat: removed 4 HOBGOBLIN, 2 HOBGOBLIN LDR; 6 dropped", lines)
+        self.assertEqual(lines[-1], "(done in block 32)")
+        # Alt-Q by its scan code: the same battle.
+        again = self.play("--test-party", 6, "--set", "4be6=1", "--start", "835f", "--seed", 1,
+                          "--keys", keys.replace(r"\@q", r"\#10"), ASSETS, 32)
+        self.assertEqual(again.stdout, result.stdout)
 
     def test_the_ambush(self):
         # Throtl's ambush (ECL1 block 32 at 835f): MONSTERS ATTACK!, four
@@ -324,8 +430,8 @@ class PlayTests(unittest.TestCase):
         # battle begins..." left on row 24.
         shots = self.folder / "shots"
         shots.mkdir()
-        result = self.play("--test-party", 6, "--set", "4be6=1", "--keys", r"\r\rE",
-                           "--shots", shots, ASSETS, 32)
+        result = self.play("--test-party", 6, "--set", "4be6=1", "--combat", "pass", "--keys",
+                           r"\r\rE", "--shots", shots, ASSETS, 32)
         self.assertEqual(result.returncode, 0, result.stderr)
         battle = [shot.read_bytes() for shot in sorted(shots.glob("*.bmp"))
                   if combat_screen(shot.read_bytes())]

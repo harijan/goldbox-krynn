@@ -528,6 +528,13 @@ static int choose(cok_adventure *game, cok_character *character, int kind, int m
     return l.spells[k];
 }
 
+int cok_magic_pick(cok_adventure *game, cok_character *character)
+{
+    int index = -1;
+    bool nonempty;
+    return choose(game, character, 0, 1, &index, &nonempty);
+}
+
 int cok_magic_learn(cok_adventure *game, cok_character *character)
 {
     int index = -1;

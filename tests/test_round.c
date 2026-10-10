@@ -818,8 +818,9 @@ static void test_turn(void)
     /* Outside a battle it fails. */
     game.effects.in_battle = false;
     CHECK(!cok_combat_turn(&game, a) && game.vm.status == COK_ECL_EFFECT_FAILED);
-    /* The gods: the player's turn runs the Helm cheat, in a game started
-     * with Helm; without, 432f:41e2 returns at once and the turn ends. */
+    /* The gods: the player's commands start with Alt-X, which runs the
+     * Helm cheat in a game started with Helm; without, "That doesn't
+     * work" and the menu reads the keys, here none. */
     reset("");
     a = record('A', 0, 5, 5);
     m = record('M', 1, 6, 5);
@@ -827,7 +828,8 @@ static void test_turn(void)
     game.combat_stub = COK_COMBAT_GODS;
     game.helm = false;
     CHECK(cok_combat_turn(&game, a) && m->record[0x188] == 0);
-    CHECK(strstr(s.log, "Gods") == NULL);
+    CHECK(strstr(s.log, "Gods") == NULL && LOGGED("print: That doesn't work;"));
+    CHECK(game.vm.abort && game.input_ended);
     reset("");
     a = record('A', 0, 5, 5);
     m = record('M', 1, 6, 5);
@@ -835,7 +837,7 @@ static void test_turn(void)
     game.combat_stub = COK_COMBAT_GODS;
     game.helm = true;
     CHECK(cok_combat_turn(&game, a) && m->record[0x188] == 6);
-    CHECK(LOGGED("turn: A (initiative 2);print: The Gods intervene!;"));
+    CHECK(LOGGED("turn: A (initiative 2);menu: View Aim Done;print: The Gods intervene!;"));
     /* But not one that cannot act. */
     reset("");
     a = record('A', 0, 5, 5);
@@ -1441,8 +1443,8 @@ static void test_battle(void)
     reset("");
     game.combat_targets = true;
     CHECK(cok_combat_end(&game) && !game.combat_targets);
-    /* Casting picks targets with the combat routine in a battle, which is
-     * not ported. */
+    /* Casting in a battle (5b04:1415 with its targets 432f:2337) is not
+     * ported: logged, nothing done. */
     reset("");
     cok_character *a = record('A', 0, 5, 5);
     a->record[0x1e] = 3;
@@ -1451,8 +1453,10 @@ static void test_battle(void)
     game.vm.mode = 5;
     game.combat_targets = true;
     bool done = false;
+    uint32_t before = game.vm.seed;
     cok_cast_spell(&game, 3, 0, 1, &done);
-    CHECK(game.vm.status == COK_ECL_EFFECT_FAILED && LOGGED("432f:2337"));
+    CHECK(game.vm.status == COK_ECL_OK && !done && game.vm.seed == before);
+    CHECK(LOGGED("unported: A casts spell 0x03 (5b04:1415);") && a->record[0x1e] == 3);
 }
 
 /* The combat screen draws with a battle's tiles (6d21:002c): a setup

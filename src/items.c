@@ -1,8 +1,10 @@
 #include "items.h"
 
+#include "arena.h"
 #include "camp.h"
 #include "cast.h"
 #include "magic.h"
+#include "round.h"
 #include "screen.h"
 #include "shop.h"
 #include "treasure.h"
@@ -738,11 +740,19 @@ static bool use(cok_adventure *game, cok_character *character, size_t index, boo
         *done = false;
         return true;
     }
+    bool combat = game->vm.mode == 5;
+    if (combat && c[0x18b] == 0 && !cok_arena_redraw(game)) return false; /* 6346:300f */
     if (r->item != 0) {
-        cok_camp_say(game, c, "uses an item", false);
-        if (!draw_item(game, item, 1, 0x16)) return false;
-        cok_adventure_wait(game, game->speed * 100u);
-        cok_camp_clear_text(game);
+        if (!cok_arena_say(game, character, "uses an item", 10, false)) return false;
+        if (combat) {
+            cok_adventure_log(game, "print", "Item:");
+            cok_text_string(&game->screen, &game->font, "Item:", 0, 0x17, 10, 0); /* 1521:0353 */
+            if (!draw_item(game, item, 5, 0x17)) return false;
+        } else if (!draw_item(game, item, 1, 0x16)) {
+            return false;
+        }
+        cok_adventure_wait(game, game->speed * 100u); /* 1521:0b4b */
+        cok_arena_clear_text(game);
     }
     r->item = 1;
     bool cast = true;
@@ -754,7 +764,9 @@ static bool use(cok_adventure *game, cok_character *character, size_t index, boo
             uint8_t d100 = cok_dice(&game->vm.seed, 1, 100); /* 546c:26ac */
             cast = d100 <= 75;
         }
-        if (!cast) cok_camp_say(game, c, "oops!", true);
+        if (!cast && !cok_arena_say(game, character, "oops!", (uint8_t)(game->vm.cursor.y + 1),
+                                    true))
+            return false;
     }
     /* The cast may take items away (Dispel Magic ending Spiritual Hammer)
      * or add them; the original holds the item by its pointer. */
@@ -764,6 +776,14 @@ static bool use(cok_adventure *game, cok_character *character, size_t index, boo
     character->held = 0;
     if (game->vm.abort) return false;
     r->item = 0;
+    /* In combat a spell that can be cast there (byte 11) ends the turn. */
+    uint8_t usable = 0;
+    if (combat && (!cok_ds_byte((uint16_t)(0x31beu + 16u * (unsigned)spell), &usable)))
+        return undefined(game, "a spell past the spell table is read (DS:31be, 546c:272c)");
+    if (combat && usable != 0) {
+        cok_combat_end_turn(character);
+        *done = true;
+    }
     if (!*done) return true;
     if (held == 0)
         return undefined(game, "the item used was freed while its spell was cast; the original "
@@ -908,7 +928,8 @@ void cok_items(cok_adventure *game, bool *done)
         if (game->vm.abort) return;
         char items[41] = "Ready";
         if (c[0x189] != 0 && game->vm.mem4b00[0xe5] == 0 &&
-            (game->vm.mode == 2 || game->vm.mode == 3 || game->vm.mode == 4))
+            (game->vm.mode == 2 || game->vm.mode == 3 || game->vm.mode == 4 ||
+             (game->vm.mode == 5 && cok_character_combat(character)->may_use != 0)))
             join(items, " Use");
         bool may_trade = c[0xe7] < 0x80 || c[0x189] == 0 || c[0x188] == 1;
         if (may_trade && game->vm.mode != 5) join(items, " Trade");

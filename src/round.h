@@ -14,9 +14,8 @@
  * overlays 6346 and 60f4 the later parts of combat share.
  *
  * Each turn is logged as "turn: NAME (initiative N)". The computer's
- * (3afb:004b) is in ai.h; the player's commands (3995:0573) are not
- * ported: such a turn ends (6346:2964), so a battle runs its rounds until
- * a side can no longer act or 15 rounds pass with no attack. */
+ * (3afb:004b) is in ai.h, the player's commands (3995:0573) in command.h;
+ * eclplay without --keys has the player's turns end (6346:2964) instead. */
 
 typedef struct cok_adventure cok_adventure;
 
@@ -25,10 +24,11 @@ typedef struct cok_adventure cok_adventure;
  * decide whether any round is fought, effect event 0x18 for every record
  * (a dragon's fear), then rounds until one decides the battle is done,
  * and the battle's end (3995:004b). eclplay's --combat won, fled and
- * lost (game->combat_stub) decide the outcome instead of the rounds;
- * gods has the player's first turn of each round run the original's Helm
- * cheat (432f:41e2), auto press Alt-Q, putting the party on Auto, melee
- * every turn attack (cok_combat_melee) and pass every turn pass, the
+ * lost (game->combat_stub) decide the outcome instead of the rounds; the
+ * player's turns read the keys (COK_COMBAT_PLAYER) or pass (the default);
+ * gods has the player's commands start with Alt-X, the original's Helm
+ * cheat (432f:41e2), auto with Alt-Q, putting the party on Auto; melee
+ * has every turn attack (cok_combat_melee) and pass every turn pass, the
  * computer's too. Unported effect handlers are logged and skipped
  * throughout (cok_effects.in_battle). Returns false, with game->vm.status
  * set, where the battle cannot be carried out; the end of combat
@@ -92,6 +92,13 @@ bool cok_combat_damage(cok_combat *combat, cok_character *c, uint8_t damage, uin
  * past the party's size) is dying; with bandage, the first is bandaged:
  * unconscious, no rounds dying, and "is bandaged" said. */
 bool cok_combat_bandage(cok_adventure *game, bool bandage);
+
+/* 60f4:0dc3 with flag 1, after a step: one that can act standing in a
+ * green cloud (terrain 0x1e) that is not undead and has neither 0x1f nor
+ * 0x63 throws against it, and in a puddle (0x1d) takes 1d6 (60f4:1261)
+ * through 60f4:1db7. Only spells, not yet ported, put either on the map:
+ * the port logs them as unported. */
+bool cok_combat_step_cloud(cok_adventure *game, cok_character *c);
 
 /* 6346:0cdb: whether c has effect 0x33, 0x34, 0x35 or 0x1f (DS:200c). */
 bool cok_combat_helpless(const cok_character *c);

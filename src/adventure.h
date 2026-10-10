@@ -59,8 +59,8 @@ typedef struct {
     uint8_t *owner;
 } cok_lost_weapon;
 
-/* How eclplay's --combat resolves a battle, or plays the player's turns,
- * which are not ported. */
+/* How eclplay's --combat resolves a battle, or plays the player's turns
+ * (3995:0573, command.h). */
 typedef enum {
     COK_COMBAT_UNPORTED, /* The rounds: the computer plays, the player's turns pass. */
     COK_COMBAT_WON,      /* Every record against the party (+0x18a 1) drops. */
@@ -70,6 +70,7 @@ typedef enum {
     COK_COMBAT_MELEE,    /* Every turn attacks the nearest enemy (cok_combat_melee). */
     COK_COMBAT_AUTO,     /* The player's first turn presses Alt-Q: the computer plays all. */
     COK_COMBAT_PASS,     /* Every turn passes, the computer's too. */
+    COK_COMBAT_PLAYER,   /* The rounds: the player's commands read the keyboard. */
 } cok_combat_stub;
 
 typedef struct {

@@ -489,7 +489,13 @@ static void test_no_place(void)
     game.view.map[0x100 + 6 * 16 + 7] = 0x01; /* west */
     cok_character *third = game.party.members[4];
     game.vm.character = game.party.members[3]->record;
+    /* DS:68d1's entries: an earlier battle's record in entry 5. */
+    memset(game.combat.entry_held, 0, sizeof game.combat.entry_held);
+    game.combat.entry_held[5] = true;
     CHECK(cok_combat_setup(&game));
+    /* Each try writes its entry (3cb2:1a33), the removal clears it (1bdb). */
+    for (unsigned n = 1; n <= 4; ++n) CHECK(game.combat.entry_held[n]);
+    CHECK(!game.combat.entry_held[5]);
     CHECK(game.party.count == 4 && cok_party_index(&game.party, third->record) == 4);
     CHECK(at(3, 22, 7, 4) && at(4, 20, 6, 4) && game.combat.count == 5);
     CHECK(game.vm.mem7c00[0x33e] == 2 && game.icons[8][0].pixels != NULL);

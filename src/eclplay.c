@@ -5,6 +5,7 @@
 #include "arena.h"
 #include "start.h"
 
+#include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,9 +31,11 @@ static void usage(const char *program)
             "Run ECL block BLOCK (as the game does on entering it) from the DAX files in\n"
             "ASSETS, printing its text, menus and choices.\n"
             "  --keys KEYS     keys to type; \\r Enter, \\e Escape, \\b Backspace,\n"
-            "                  \\< \\> \\^ \\v the arrows, \\\\ a backslash; \\k presses the\n"
-            "                  next key while the party rests or the title waits; \\t lets\n"
-            "                  the title's menu time out\n"
+            "                  \\< \\> \\^ \\v the arrows, \\@X Alt and letter X, \\#HH the\n"
+            "                  scan code HH (hex), \\\\ a backslash; \\k presses the next\n"
+            "                  key while the party rests or the title waits; \\t lets\n"
+            "                  the title's menu time out. In a battle the player's turns\n"
+            "                  read them (3995:0573) unless --combat says otherwise\n"
             "  --start-menu    play the game from startup: the title, its menu, the start\n"
             "                  menu and the adventure, game after game\n"
             "  --woof          with --start-menu, start as with Woof, without the title\n"
@@ -45,15 +48,16 @@ static void usage(const char *program)
             "                  the block it was saved in\n"
             "  --saves DIR     write saved games (camp's Save) to DIR\n"
             "  --combat HOW    without it, COMBAT's rounds have the computer play its\n"
-            "                  turns (the monsters') while the player's pass, which the\n"
-            "                  party seldom survives; HOW decides the battle in place of\n"
-            "                  its rounds: won (every monster against the party\n"
-            "                  drops), fled (the party flees) or lost (the party dies);\n"
-            "                  or play the rounds with gods, the original's Helm cheat\n"
-            "                  at each player's turn; melee, every turn attacking the\n"
-            "                  nearest enemy it can reach; auto, the player's first turn\n"
-            "                  pressing Alt-Q, which puts the whole party on Auto; or\n"
-            "                  pass, every turn passing, the computer's too\n"
+            "                  turns (the monsters') while the player's read the keys,\n"
+            "                  or with no --keys pass, which the party seldom survives;\n"
+            "                  HOW decides the battle in place of its rounds: won (every\n"
+            "                  monster against the party drops), fled (the party flees)\n"
+            "                  or lost (the party dies); or play the rounds with gods,\n"
+            "                  the original's Helm cheat (Alt-X) at each player's turn;\n"
+            "                  melee, every turn attacking the nearest enemy it can\n"
+            "                  reach; auto, the player's first turn pressing Alt-Q, which\n"
+            "                  puts the whole party on Auto; or pass, every turn\n"
+            "                  passing, the computer's too\n"
             "  --helm          play as if started with Helm, which lifts Area's Not Here\n"
             "                  and enables the Gods cheat (implied by --combat gods)\n"
             "  --combat-map FILE  write each battle's map and combatants to FILE as text\n"
@@ -106,6 +110,26 @@ static int next_key(void *context)
     case '^': p->pending = 0x48; return 0;
     case 'v': p->pending = 0x50; return 0;
     case 't': return COK_KEY_TIMEOUT;
+    case '@': {
+        /* Alt and a letter: its key's scan code. */
+        static const char letters[] = "QWERTYUIOP\0\0\0\0ASDFGHJKL\0\0\0\0\0ZXCVBNM";
+        char letter = *p->keys >= 'a' && *p->keys <= 'z' ? (char)(*p->keys - 32) : *p->keys;
+        const char *at = letter != '\0' ? memchr(letters, letter, sizeof letters - 1) : NULL;
+        if (at == NULL) return '@';
+        ++p->keys;
+        p->pending = 0x10 + (int)(at - letters);
+        return 0;
+    }
+    case '#': {
+        /* A scan code in two hex digits. */
+        unsigned scan;
+        if (!isxdigit((unsigned char)p->keys[0]) || !isxdigit((unsigned char)p->keys[1]) ||
+            sscanf(p->keys, "%2x", &scan) != 1)
+            return '#';
+        p->keys += 2;
+        p->pending = (int)scan;
+        return 0;
+    }
     default: return (unsigned char)p->keys[-1];
     }
 }
@@ -318,9 +342,12 @@ int main(int argc, char **argv)
     bool seeded = false;
     bool still = false, placed = false, play = false, helm = false, front = false, woof = false;
     const char *party = NULL, *load = NULL, *saves = NULL;
-    /* With no --combat the computer plays its turns (COK_COMBAT_UNPORTED);
-     * COK_COMBAT_PASS here would have every turn pass by default. */
+    /* With no --combat the computer plays its turns, and the player's read
+     * the keys (COK_COMBAT_PLAYER) or, with no --keys, pass
+     * (COK_COMBAT_UNPORTED); COK_COMBAT_PASS here would have every turn
+     * pass by default. */
     cok_combat_stub combat = COK_COMBAT_UNPORTED;
+    bool keyed = false, chosen = false;
     long x = 0, y = 0, dir = 0;
     struct { uint16_t address, value; } sets[64];
     size_t set_count = 0;
@@ -342,6 +369,7 @@ int main(int argc, char **argv)
             woof = true;
         } else if (strcmp(option, "--keys") == 0 && has_value) {
             p.keys = argv[++i];
+            keyed = true;
         } else if (strcmp(option, "--test-party") == 0 && has_value &&
                    number(argv[i + 1], 10, 8, &fixture) && fixture >= 1) {
             ++i;
@@ -362,6 +390,7 @@ int main(int argc, char **argv)
                     known = true;
                 }
             if (combat == COK_COMBAT_GODS) helm = true;
+            chosen = known;
             if (!known) {
                 usage(argv[0]);
                 return 2;
@@ -403,6 +432,7 @@ int main(int argc, char **argv)
             return 2;
         }
     }
+    if (keyed && !chosen) combat = COK_COMBAT_PLAYER;
     unsigned long block = 256; /* none given */
     bool has_block = argc - i == 2;
     if (front && (argc - i != 1 || load != NULL || party != NULL || fixture != 0 || play ||

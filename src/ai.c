@@ -3,6 +3,7 @@
 #include "arena.h"
 #include "attack.h"
 #include "camp.h"
+#include "command.h"
 #include "items.h"
 #include "magic.h"
 #include "round.h"
@@ -592,11 +593,7 @@ bool cok_ai_guard(cok_adventure *game, cok_character *c)
     if (!cok_combat_helpless(c)) {
         if (!cok_combat_missile_weapon(&game->item_types, c, &missile)) return type_past(game);
         if (!missile && cr->initiative != 0) {
-            cok_combat_end_turn(c); /* 6346:29b3 */
-            if (cr->forced == 0) {
-                cr->guarding = 1;
-                cok_camp_notice(game, "Guarding"); /* 6346:1827 */
-            }
+            cok_combat_guard(game, c); /* 6346:29b3 */
             return true;
         }
     }
@@ -650,26 +647,6 @@ bool cok_ai_can_step(cok_adventure *game, cok_character *c, uint8_t try_, uint8_
         cr->forced == 0)
         cost = (uint8_t)(cr->movement + 1);
     *ok = cr->movement >= cost;
-    return true;
-}
-
-/* 60f4:0dc3 with flag 1, after a step: one that can act standing in a
- * green cloud (terrain 0x1e) that is not undead and has neither 0x1f nor
- * 0x63 throws against it, and in a puddle (0x1d) takes 1d6 (60f4:1261)
- * through 60f4:1db7. Only spells, not yet ported, put either on the map:
- * the port logs them as unported. */
-static bool cloud(cok_adventure *game, cok_character *c)
-{
-    const uint8_t *r = c->record;
-    if (r[0x189] == 0) return true;
-    uint8_t occupant, terrain;
-    bool green, puddle;
-    if (!cok_combat_probe(&game->combat, r, 8, &occupant, &terrain, &green, &puddle))
-        return undefined(game, "a size past the footprints is read after them (6beb:0c9d)");
-    if (green && r[0xda] == 0 && cok_character_find_effect(c, 0x1f) == NULL &&
-        cok_character_find_effect(c, 0x63) == NULL)
-        cok_adventure_log(game, "unported", "a green cloud's saving throw (60f4:0dc3)");
-    if (puddle) cok_adventure_log(game, "unported", "a damaging cloud's damage (60f4:0dc3)");
     return true;
 }
 
@@ -772,7 +749,7 @@ bool cok_ai_step(cok_adventure *game, cok_character *c)
     }
     if (cr->movement > 0 && !cok_combat_step(game, c, cr->facing)) return false;
     if (r[0x189] == 0 || cok_combat_helpless(c)) cok_combat_end_turn(c);
-    return cloud(game, c);
+    return cok_combat_step_cloud(game, c);
 }
 
 /* 0d49: the last step (DS:43c8) none, not stuck (43c9, and 43ca), event

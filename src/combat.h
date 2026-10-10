@@ -89,6 +89,11 @@ typedef struct {
      * read as count, as the original reads DS:6242. */
     cok_combatant combatant[COK_COMBATANTS + 1];
     uint8_t count;           /* DS:6242. */
+    /* Whether entry n of DS:68d1 holds a record in the original, which
+     * placement writes at each try (3cb2:1a33) and clears for a monster it
+     * removes (3cb2:1bdb), and nothing clears between battles: the entry
+     * after the last combatant can hold an earlier battle's record. */
+    bool entry_held[COK_COMBATANTS + 1];
     cok_combat_body body[COK_COMBAT_BODIES]; /* DS:69ee + 7, ... */
     uint8_t bodies;          /* DS:6a2d. */
     /* DS:6b2c, 6b2d: the records on the party's side and against it that
