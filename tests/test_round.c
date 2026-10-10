@@ -1085,9 +1085,12 @@ static void test_handlers(void)
     b->record[0xd4] = 0;
     game.vm.seed = seed_for(100, 81, 100);
     CHECK(run(b, 0x15) && cok_character_find_effect(b, 0x23) == NULL);
-    /* Spell turning (0x47): a d10, and kinds above 14 always turn back,
-     * which is not ported. */
+    /* Spell turning (0x47): a d10, and kinds above 14 always turn back
+     * (cok_cast_reflect): on the selected character, A. */
     CHECK(cok_character_add_effect(m, 0x47, 0, 0, false) != NULL);
+    game.vm.character = a->record;
+    memset(game.spell_targets, 0, sizeof game.spell_targets);
+    game.spell_target_count = 0;
     uint32_t seed = game.vm.seed = seed_for(10, 2, 10);
     game.effects.rolls.spell = 1;
     s.log[0] = '\0';
@@ -1102,7 +1105,9 @@ static void test_handlers(void)
     }
     CHECK(spell != 0);
     game.effects.rolls.spell = spell;
-    CHECK(run(m, 9) && LOGGED("unported: effect 0x47 (3f44:23a4) on event 0x09;"));
+    cok_character *turned = m;
+    CHECK(cok_effects_dispatch_at(&game.effects, &turned, 9) && turned == a);
+    CHECK(LOGGED("print: M;print: reflects the spell;") && !LOGGED("unported"));
     /* On a 1, a spell of kind 7 turns back; one of kind 8 does not. */
     uint8_t seven = 0, eight = 0;
     for (unsigned k = 1; k < 0x6c; ++k) {
@@ -1115,11 +1120,11 @@ static void test_handlers(void)
     game.effects.rolls.spell = seven;
     game.vm.seed = seed_for(10, 1, 1);
     s.log[0] = '\0';
-    CHECK(run(m, 9) && LOGGED("unported: effect 0x47"));
+    CHECK(run(m, 9) && LOGGED("reflects the spell"));
     game.effects.rolls.spell = eight;
     game.vm.seed = seed_for(10, 1, 1);
     s.log[0] = '\0';
-    CHECK(run(m, 9) && !LOGGED("unported"));
+    CHECK(run(m, 9) && !LOGGED("reflects"));
     game.effects.rolls.spell = 0;
     CHECK(cok_effects_remove(&game.effects, m, NULL, 0x47));
     /* A terrible presence (0x48) terrifies an enemy within a cell that
@@ -1443,20 +1448,6 @@ static void test_battle(void)
     reset("");
     game.combat_targets = true;
     CHECK(cok_combat_end(&game) && !game.combat_targets);
-    /* Casting in a battle (5b04:1415 with its targets 432f:2337) is not
-     * ported: logged, nothing done. */
-    reset("");
-    cok_character *a = record('A', 0, 5, 5);
-    a->record[0x1e] = 3;
-    a->record[0xf9] = 1;
-    game.vm.character = a->record;
-    game.vm.mode = 5;
-    game.combat_targets = true;
-    bool done = false;
-    uint32_t before = game.vm.seed;
-    cok_cast_spell(&game, 3, 0, 1, &done);
-    CHECK(game.vm.status == COK_ECL_OK && !done && game.vm.seed == before);
-    CHECK(LOGGED("unported: A casts spell 0x03 (5b04:1415);") && a->record[0x1e] == 3);
 }
 
 /* The combat screen draws with a battle's tiles (6d21:002c): a setup

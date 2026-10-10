@@ -1,4 +1,5 @@
 #include "treasure.h"
+#include "arena.h"
 
 #include "camp.h"
 #include "items.h"
@@ -764,8 +765,11 @@ static void test_after_combat(void)
     game.pool.coins[4] = 500;
     uint8_t loot[COK_ITEM_SIZE] = {0};
     CHECK(cok_pool_insert(&game.pool, 0, loot));
+    game.spell_targets[1] = b; /* marked when it goes */
     CHECK(combat(COK_COMBAT_FLED) == COK_ECL_OK);
     CHECK(game.vm.mem7c00[0x2c7] == 0x81 && game.party.count == 1 && game.party.members[0] == a);
+    CHECK(game.spell_targets[1] == &cok_arena_freed);
+    game.spell_targets[1] = NULL;
     CHECK(a->record[0x188] == 0 && a->record[0x189] == 1 && game.vm.mem7c00[0x33e] == 1);
     CHECK(LOGGED("print: The party has fled.;print: Each character receives 0;"));
     CHECK(LOGGED("menu: View Pool Exit;") && game.pool.coins[4] == 0);

@@ -3,6 +3,7 @@
 #include "arena.h"
 #include "attack.h"
 #include "camp.h"
+#include "cast.h"
 #include "command.h"
 #include "items.h"
 #include "magic.h"
@@ -329,9 +330,14 @@ bool cok_ai_spell_fits(cok_adventure *game, cok_character *c, uint8_t spell, uin
         *fits = true;
         return true;
     }
-    if (spell == 3)
-        return undefined(game, "Cure Light Wounds' target for the computer (432f:1eed) is not "
-                               "ported");
+    if (spell == 3) {
+        cok_character *ally;
+        if (!cok_cast_wounded_ally(game, c, &ally)) return false;
+        if (ally != NULL) {
+            *fits = true;
+            return true;
+        }
+    }
     uint8_t range = 0, n;
     if (!spell_range(game, spell, &range) || !enemies(game, c, range, &n)) return false;
     if (n == 0) return true;
@@ -374,11 +380,8 @@ bool cok_ai_use_item(cok_adventure *game, cok_character *c, bool *used)
         }
     }
     if (found == 0) return true;
-    char name[16], text[80];
-    name_of(c->record, name);
-    snprintf(text, sizeof text, "%s uses an item's spell 0x%02x (546c:24d7)", name,
-             c->items[found - 1][0x3d]);
-    cok_adventure_log(game, "unported", text);
+    bool done = false;
+    if (!cok_item_use(game, c, found - 1, &done)) return false;
     *used = true;
     return true;
 }
@@ -407,13 +410,7 @@ bool cok_ai_cast(cok_adventure *game, cok_character *c, bool *cast)
             }
     }
     if (chosen == 0) return true;
-    char name[16], text[80];
-    name_of(r, name);
-    snprintf(text, sizeof text, "%s casts spell 0x%02x (432f:28bd)", name, chosen);
-    cok_adventure_log(game, "unported", text);
-    cok_combat_end_turn(c);
-    *cast = true;
-    return true;
+    return cok_combat_cast(game, cast, true, chosen); /* 432f:28bd */
 }
 
 /* Turning undead. */
@@ -933,11 +930,11 @@ bool cok_combat_computer(cok_adventure *game, cok_character *c)
         return true;
     }
     if (cr->spell > 0) {
-        char name[16], text[80];
-        name_of(r, name);
-        snprintf(text, sizeof text, "%s casts spell 0x%02x at its turn (5b04:1415)", name,
-                 cr->spell);
-        cok_adventure_log(game, "unported", text);
+        /* Unlike the player's turn (3995:0573), the spell is not cleared
+         * first: one hurt while casting it, by its own fireball, say,
+         * "lost a spell" and forgets it again. */
+        cok_cast_spell(game, cr->spell, true, true, 0, &done); /* 5b04:1415 */
+        if (game->vm.status != COK_ECL_OK) return false;
         cok_combat_end_turn(c);
         return true;
     }

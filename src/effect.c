@@ -201,6 +201,7 @@ static bool add(cok_effects *fx, cok_character *c, uint8_t id, uint16_t duration
 }
 
 static bool dispatch(cok_effects *fx, cok_character *target, uint8_t event);
+static bool dispatch_at(cok_effects *fx, cok_character **target, uint8_t event);
 static bool saving_throw(cok_effects *fx, cok_character *target, uint8_t type, uint8_t bonus,
                          bool *made);
 
@@ -215,7 +216,7 @@ static bool add_with_text(cok_effects *fx, cok_character *c, uint8_t id, uint16_
 {
     cok_rolls *r = &fx->rolls;
     r->pending = id;
-    if (!dispatch(fx, c, 9)) return false;
+    if (!dispatch_at(fx, &c, 9)) return false;
     if (r->pending == 0 || (saved && save_kind == 1))
         return say(fx, c, id, handler, "is Unaffected");
     cok_effect *old = cok_character_find_effect(c, id);
@@ -1072,16 +1073,24 @@ static bool h_avoid(cok_effects *fx, bool removing, cok_effect *effect, cok_char
 }
 
 /* 3f44:23a4, 0x47, spell turning, with either flag: a d10; on 1 for a
- * spell whose kind of targets (spell table byte 6) is below 8, or for one
- * above 14, the spell is turned back on its caster, which needs the
- * targets of spells in combat (DS:6fe7) and a missile: not ported. */
+ * spell whose kind of targets (spell table byte 6 of DS:6b33, spell 0's
+ * all 0 when none is cast) is below 8, or for one above 14, c "reflects
+ * the spell": the caster (the selected character) takes its place in the
+ * spell's targets and in the record the event was run for, so that the
+ * damage or effect goes to it (the reflect hook). */
 static bool h_reflect(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
-    (void)effect, (void)c;
+    (void)effect;
     uint8_t d = roll(fx, 1, 10);
     uint8_t kind = spell_byte(fx->rolls.spell, 6);
-    if ((d == 1 && kind < 8) || kind > 14)
+    if (!((d == 1 && kind < 8) || kind > 14)) return true;
+    if (!fx->in_battle || fx->reflect == NULL)
         return unported(fx, 0x47, 0x3f44, 0x23a4, removing, "the targets of spells in combat");
+    cok_character *caster;
+    char why[200] = "";
+    if (!fx->reflect(fx, c, &caster, why, sizeof why, fx->context))
+        return fx->failed ? false : fail(fx, "%s", why);
+    if (fx->target != NULL) *fx->target = caster;
     return true;
 }
 
@@ -1228,8 +1237,8 @@ static bool poison(cok_effects *fx, cok_character *c, uint8_t id, uint16_t handl
  * with damage (events 2 and 3): poison with a bonus of 0, 4, -2 and 1. */
 static bool h_poison(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
-    (void)removing;
-    uint8_t id = effect != NULL ? effect->id : 0;
+    (void)removing, (void)effect;
+    uint8_t id = fx->running;
     switch (id) {
     case 0x40: return poison(fx, c, id, 0x1c21, 0);
     case 0x41: return poison(fx, c, id, 0x1c34, 4);
@@ -1885,6 +1894,7 @@ static bool call_handler(cok_effects *fx, uint8_t id, bool removing, cok_effect 
     if (h->fn == NULL)
         return unported(fx, id, h->segment != 0 ? h->segment : 0x3f44, h->address, removing,
                         h->needs);
+    fx->running = id;
     return h->fn(fx, removing, effect, c);
 }
 
@@ -2101,7 +2111,10 @@ static bool remove_effect(cok_effects *fx, cok_character *c, cok_effect *effect,
                             "where the original recurses on until it ends or its stack wraps",
                         effect->id);
         ++fx->removing;
+        cok_character *who = c, **outer = fx->target;
+        fx->target = &who;
         bool ok = call_handler(fx, id, true, effect, c);
+        fx->target = outer;
         --fx->removing;
         if (!ok) return false;
     }
@@ -2195,18 +2208,29 @@ static const uint8_t *const events[0x19] = {
     [0x18] = (const uint8_t[]){0x52, 0},
 };
 
-static bool dispatch_event(cok_effects *fx, cok_character *target, uint8_t event);
+static bool dispatch_event(cok_effects *fx, cok_character **target, uint8_t event);
 
-static bool dispatch(cok_effects *fx, cok_character *target, uint8_t event)
+/* 60f4:057c, given the caller's pointer to its record, which a handler
+ * (0x47's turning) may change: the handlers after it, and the caller, then
+ * work on the new one. */
+static bool dispatch_at(cok_effects *fx, cok_character **target, uint8_t event)
 {
     uint8_t outer = fx->event;
+    cok_character **outer_target = fx->target;
     fx->event = event;
+    fx->target = target;
     bool ok = dispatch_event(fx, target, event);
     fx->event = outer;
+    fx->target = outer_target;
     return ok;
 }
 
-static bool dispatch_event(cok_effects *fx, cok_character *target, uint8_t event)
+static bool dispatch(cok_effects *fx, cok_character *target, uint8_t event)
+{
+    return dispatch_at(fx, &target, event);
+}
+
+static bool dispatch_event(cok_effects *fx, cok_character **target, uint8_t event)
 {
     if (event >= sizeof events / sizeof *events || events[event] == NULL) return true;
     if (event == 6 || event == 9) {
@@ -2215,7 +2239,7 @@ static bool dispatch_event(cok_effects *fx, cok_character *target, uint8_t event
          * 5 for each caster level of the spell (DS:6b33) below 11, as a
          * byte, resists the damage and the effect (but for 0x5b and 0x52). */
         cok_rolls *r = &fx->rolls;
-        uint8_t resistance = target->record[0x187], level;
+        uint8_t resistance = (*target)->record[0x187], level;
         if (resistance != 0 && r->pending != 0 && (r->amount == 0 || (r->damage_type & 8) != 0)) {
             if (!caster_level(fx, r->spell, &level)) return false;
             uint8_t chance = (uint8_t)(resistance + 5 * (11 - level));
@@ -2226,7 +2250,7 @@ static bool dispatch_event(cok_effects *fx, cok_character *target, uint8_t event
         }
     }
     for (const uint8_t *id = events[event]; *id != 0; ++id)
-        if (!dispatch_id(fx, target, *id)) return false;
+        if (!dispatch_id(fx, *target, *id)) return false;
     return true;
 }
 
@@ -2237,10 +2261,20 @@ bool cok_effects_dispatch(cok_effects *fx, cok_character *target, uint8_t event)
     return finish(fx);
 }
 
+bool cok_effects_dispatch_at(cok_effects *fx, cok_character **target, uint8_t event)
+{
+    begin(fx);
+    dispatch_at(fx, target, event);
+    return finish(fx);
+}
+
 bool cok_effects_run(cok_effects *fx, cok_character *character, uint8_t id, cok_effect *effect)
 {
     begin(fx);
+    cok_character *who = character, **outer = fx->target;
+    fx->target = &who;
     call_handler(fx, id, false, effect, character);
+    fx->target = outer;
     return finish(fx);
 }
 

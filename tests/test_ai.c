@@ -58,6 +58,8 @@ static void reset(const char *keys)
     memset(game.vm.mem4b00, 0, sizeof game.vm.mem4b00);
     memset(game.vm.mem7c00, 0, sizeof game.vm.mem7c00);
     memset(&game.effects.rolls, 0, sizeof game.effects.rolls);
+    memset(game.spell_targets, 0, sizeof game.spell_targets); /* a new game's */
+    game.spell_target_count = 0;
     game.vm.mode = 5;
     game.vm.file = 1;
     game.vm.seed = 1;
@@ -835,8 +837,8 @@ static void test_cast(void)
      * draws. */
     m->record[0x20] = 1;
     game.vm.seed = seed_seq(1, (const unsigned[]){7, 7, 7});
-    CHECK(cok_ai_cast(&game, m, &cast) && cast && m->combat->initiative == 0);
-    CHECK(LOGGED("unported: M casts spell 0x01 (432f:28bd);"));
+    CHECK(cok_ai_cast(&game, m, &cast) && cast && m->combat->spell == 1);
+    CHECK(LOGGED("print: Begins Casting;"));
     game.vm.seed = seed_seq(1, (const unsigned[]){7, 1, 6});
     start = game.vm.seed;
     CHECK(cok_ai_cast(&game, m, &cast) && !cast);
@@ -858,6 +860,8 @@ static void test_cast(void)
     CHECK(cok_ai_cast(&game, m, &cast) && !cast);
     game.combat.magic_on = true;
     game.vm.seed = seed_seq(1, (const unsigned[]){7, 7, 7});
+    memset(game.combat.turn, 0, sizeof game.combat.turn);
+    game.combat.turn_index = 1;
     CHECK(cok_ai_cast(&game, m, &cast) && cast);
     /* No enemy that can act. */
     game.combat.sides[0] = 0;
@@ -875,9 +879,11 @@ static void test_use_item(void)
     size_t wand = give(m, 0x34, true, 0);
     m->items[wand - 1][0x3d] = 0x0f;
     m->record[0xfe] = 1;
+    m->record[0x18b] = 1;
+    game.combat_targets = true;
     game.vm.seed = seed_seq(1, (const unsigned[]){7, 3, 3});
     CHECK(cok_ai_use_item(&game, m, &used) && used);
-    CHECK(LOGGED("unported: M uses an item's spell 0x0f (546c:24d7);"));
+    CHECK(LOGGED("print: uses an item;") && LOGGED("takes"));
     /* At pass 2, level 6, it no longer suits. */
     game.vm.seed = seed_seq(1, (const unsigned[]){7, 1, 1});
     CHECK(cok_ai_use_item(&game, m, &used) && !used);
@@ -908,7 +914,7 @@ static void test_use_item(void)
     m->items[wand - 1][0x3d] = 0x4a;
     game.vm.seed = seed_seq(1, (const unsigned[]){7, 1, 1});
     CHECK(cok_ai_use_item(&game, m, &used) && used);
-    CHECK(LOGGED("uses an item's spell 0x4a"));
+    CHECK(LOGGED("print: uses an item;"));
 }
 
 static void test_turn_undead(void)
@@ -1008,12 +1014,17 @@ static void test_computer(void)
     uint32_t start = game.vm.seed;
     CHECK(cok_combat_computer(&game, m) && m->combat->initiative == 0);
     CHECK(game.vm.seed == after(start, 1, (const unsigned[]){4}) && s.log[0] == '\0');
-    /* A spell begun earlier: not ported, logged, the turn over. */
+    /* A spell begun earlier is cast (5b04:1415, the computer picking the
+     * target), and the turn is over. */
     a = duel(&m, 6, 5);
     game.vm.character = m->record;
+    game.combat_targets = true;
     m->combat->spell = 0x0f;
-    CHECK(cok_combat_computer(&game, m) && m->combat->initiative == 0 && a->record[0x189] == 1);
-    CHECK(LOGGED("unported: M casts spell 0x0f at its turn (5b04:1415);"));
+    m->record[0x1e] = 0x0f;
+    CHECK(cok_combat_computer(&game, m) && m->combat->initiative == 0 && m->combat->spell == 0);
+    CHECK(LOGGED("print: Casts a Spell;print: Spell:Magic Missile;"));
+    CHECK(LOGGED("print: A;print: takes"));
+    CHECK(m->record[0x1e] == 0);
     /* Fleeing in panic, said each turn, then away from the party. */
     a = duel(&m, 6, 5);
     game.vm.character = m->record;
@@ -1558,9 +1569,10 @@ static void test_computer_more(void)
     m->record[0xe7] = 0x80 + 0x30;
     size_t wand = give(m, 0x34, true, 0);
     m->items[wand - 1][0x3d] = 0x01; /* Bless: no target needed */
+    game.combat_targets = true;
     game.vm.seed = seed_seq(4, (const unsigned[]){4, 2, 4, 7, 7, 7, 7, 7, 7, 7, 7, 7});
-    CHECK(cok_combat_computer(&game, m) && LOGGED("uses an item's spell") &&
-          m->combat->initiative == 0);
+    CHECK(cok_combat_computer(&game, m) && LOGGED("print: uses an item;") &&
+          LOGGED("print: M;print: is Blessed;") && m->combat->initiative == 0);
     /* Its weapon is readied first. */
     a = duel(&m, 6, 5);
     game.vm.character = a->record;
@@ -1619,9 +1631,11 @@ static void test_review(void)
     size_t w1 = give(m, 0x34, true, 0), w2 = give(m, 0x34, true, 0);
     m->items[w1 - 1][0x3d] = 0x0f;
     m->items[w2 - 1][0x3d] = 0x01;
+    m->record[0x18b] = 1;
+    game.combat_targets = true;
     game.vm.seed = seed_seq(1, (const unsigned[]){7, 7, 7});
-    CHECK(cok_ai_use_item(&game, m, &used) && used && LOGGED("uses an item's spell 0x0f"));
-    CHECK(!LOGGED("spell 0x01"));
+    CHECK(cok_ai_use_item(&game, m, &used) && used && LOGGED("print: takes"));
+    CHECK(!LOGGED("is Blessed"));
     /* The draw d(spells) - 1: a 1 takes the first memorized, 0x55
      * (priority 7), not 0x58 (6). */
     duel(&m, 7, 5);
@@ -1630,7 +1644,7 @@ static void test_review(void)
     m->record[0x20] = 0x58;
     game.vm.seed = seed_seq(2, (const unsigned[]){7, 1, 7, 2, 1, 1});
     uint32_t start = game.vm.seed;
-    CHECK(cok_ai_cast(&game, m, &cast) && cast && LOGGED("M casts spell 0x55 (432f:28bd)"));
+    CHECK(cok_ai_cast(&game, m, &cast) && cast && m->combat->spell == 0x55);
     CHECK(game.vm.seed == after(start, 2, (const unsigned[]){7, 2})); /* the first draw */
     /* Three hands held, the shield cursed: the chosen weapon is toggled,
      * here refused ("already using"), the shield never ("It's Cursed"). */

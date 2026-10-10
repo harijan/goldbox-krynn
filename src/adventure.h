@@ -184,6 +184,15 @@ struct cok_adventure {
     uint16_t rest_ticks;   /* DS:4b53: five minutes rested toward an encounter roll. */
     char save_dir[512];    /* Where Save writes (DS:5784); empty for nowhere. */
     uint8_t *spell_target; /* DS:710b: the last member a spell was cast on, or NULL. */
+    /* DS:6fea, 6feb: the targets of the spell being cast or the last one,
+     * spell_targets[1] to [spell_target_count] (DS:6fe7 + 4i), NULL where a
+     * handler took one off. Nothing clears them: entries past the count
+     * keep earlier casts' records, freed ones too, which 6beb:0e08 can
+     * read (see arena.h). DS:710f, 7110: the cell a spell in combat aims
+     * at. */
+    cok_character *spell_targets[COK_PARTY_RECORDS + 1];
+    uint8_t spell_target_count;
+    int8_t spell_x, spell_y;
     uint8_t *trade_partner; /* DS:46b0: whom View's trades start from. */
     uint8_t scroll_spells; /* DS:4838: the spells of scroll lists, since Scribe's last. */
     bool quit;             /* The player quit to DOS (1614:0000); the run was aborted. */

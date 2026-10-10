@@ -86,6 +86,8 @@ static void reset(void)
     memset(game.vm.mem4b00, 0, sizeof game.vm.mem4b00);
     memset(game.vm.mem7c00, 0, sizeof game.vm.mem7c00);
     memset(&game.effects.rolls, 0, sizeof game.effects.rolls);
+    memset(game.spell_targets, 0, sizeof game.spell_targets); /* a new game's */
+    game.spell_target_count = 0;
     game.vm.mode = 5;
     game.vm.file = 1;
     game.vm.seed = 1;
@@ -431,14 +433,15 @@ static void test_menu(void)
     a->combat->movement = 4;
     CHECK(cok_combat_commands(&game, a, 0));
     CHECK(a->combat->initiative == 0 && a->combat->movement == 0 && !LOGGED("menu"));
-    /* A spell begun at an earlier turn is cast (not ported: logged) and
-     * the turn ends, without a menu. */
+    /* A spell begun at an earlier turn is cast and the turn ends, without
+     * a menu. */
     reset();
     a = record('A', 0, 5, 5);
     turn_of(a, 1);
     a->combat->spell = 5;
     CHECK(cok_combat_commands(&game, a, 0));
-    CHECK(LOGGED("unported: A casts spell 0x05 (5b04:1415);") && !LOGGED("menu"));
+    CHECK(LOGGED("print: Casts a Spell;print: Spell:Detect Magic;") && !LOGGED("menu"));
+    CHECK(LOGGED("print: A;print: is affected;"));
     CHECK(a->combat->spell == 0 && a->combat->initiative == 0 && a->combat->movement == 0);
     /* Keys running out end the run. */
     reset();
@@ -1110,18 +1113,16 @@ static void test_cast(void)
     KEYS("C");
     CHECK(cok_combat_cast(&game, &done, false, 0) && !done);
     CHECK(LOGGED("list: Spells in Memory;") && LOGGED("print: Camp Only Spell;"));
-    CHECK(a->combat->initiative == 5 && !LOGGED("unported"));
+    CHECK(a->combat->initiative == 5 && !LOGGED("Casts a Spell"));
     /* None picked. */
     KEYS("\x1b");
     CHECK(cok_combat_cast(&game, &done, false, 0) && !done);
-    /* At once (time 0): cast, not ported, logged; the turn ends. */
+    /* At once (time 0): cast, and forgotten; the turn ends. */
     s.log[0] = '\0';
     a->record[0x1e] = quick;
     KEYS("C");
     CHECK(cok_combat_cast(&game, &done, false, 0) && done && a->combat->initiative == 0);
-    char text[64];
-    snprintf(text, sizeof text, "unported: A casts spell 0x%02x (5b04:1415);", quick);
-    CHECK(LOGGED(text) && a->record[0x1e] == quick);
+    CHECK(LOGGED("print: Casts a Spell;") && a->record[0x1e] == 0);
     /* A spell that takes time: "Begins Casting", kept for the next turn,
      * the initiative down by the time in thirds, and the caster moved down
      * the order past those of more initiative, and of as much where a d2
@@ -1165,13 +1166,16 @@ static void test_cast(void)
     game.vm.status = COK_ECL_OK;
     game.vm.abort = false;
     memset(game.combat.turn, 0, sizeof game.combat.turn);
-    /* At its next turn the spell is cast (not ported: logged). */
+    /* At its next turn the spell is cast: Bless, aimed at A's own cell
+     * (Target), A and B beside it blessed. */
     s.log[0] = '\0';
     a->combat->spell = slow;
     a->combat->initiative = 1;
+    a->record[0x1e] = slow;
+    KEYS("T");
     CHECK(cok_combat_commands(&game, a, 0) && a->combat->spell == 0);
-    snprintf(text, sizeof text, "unported: A casts spell 0x%02x (5b04:1415);", slow);
-    CHECK(LOGGED(text) && a->combat->initiative == 0);
+    CHECK(LOGGED("print: A;print: is Blessed;") && LOGGED("print: B;print: is Blessed;"));
+    CHECK(a->combat->initiative == 0 && a->record[0x1e] == 0);
 }
 
 static void test_yell(void)
@@ -1223,19 +1227,19 @@ static void test_use(void)
     CHECK(cok_combat_commands(&game, a, 0));
     CHECK(LOGGED("menu: Ready Use Drop Halve Join;") && LOGGED("print: uses an item;"));
     CHECK(LOGGED("print: Item:;"));
-    char text[64];
-    snprintf(text, sizeof text, "unported: A casts spell 0x%02x (5b04:1415);", quick);
-    CHECK(LOGGED(text) && a->items[wand - 1][0x3c] == 2 && a->combat->initiative == 0);
+    CHECK(LOGGED("print: A;print: is affected;") && a->items[wand - 1][0x3c] == 2 &&
+          a->combat->initiative == 0);
     CHECK(s.at == s.length && !game.vm.abort);
-    /* A spell only for camp: cast (logged), the turn going on, no charge
-     * used; then Exit from the menus, Done, Quit. */
+    /* A spell only for camp: cast (Read Magic, "is affected") and a charge
+     * used, the turn going on (byte 11 is 0), but the cast's target sets
+     * what Use and the turn's menus share, so the menus end. */
     a->combat->initiative = 5;
     a->items[wand - 1][0x3d] = camp;
     s.log[0] = '\0';
-    KEYS("UUEDQ");
+    KEYS("UU");
     CHECK(cok_combat_commands(&game, a, 0));
-    snprintf(text, sizeof text, "unported: A casts spell 0x%02x (5b04:1415);", camp);
-    CHECK(LOGGED(text) && a->items[wand - 1][0x3c] == 2 && s.at == s.length);
+    CHECK(LOGGED("print: A;print: is affected;") && a->items[wand - 1][0x3c] == 1 &&
+          s.at == s.length && a->combat->initiative == 5);
     /* No Use when it may not use items this round, nor in View. */
     a->combat->may_use = 0;
     a->combat->initiative = 5;
@@ -1522,14 +1526,16 @@ static void test_review(void)
     KEYS("NT");
     CHECK(cok_combat_aim(&game, a, 0xff, 1, 0, 1, &done, &res) && res.target == f->record);
     CHECK(a->item_count == 0);
-    /* Use in combat: "Item:" and the item's name on row 23. */
-    uint8_t quick = find_spell(quick_spell);
+    /* Use in combat: "Item:" and the item's name on row 23, there while
+     * the spell is aimed (the keys run out there), until the cast's end
+     * clears the row. */
     reset();
     a = record('A', 0, 10, 10);
+    record('F', 1, 12, 10);
     turn_of(a, 1);
     a->record[0xf9] = 1;
     size_t wand = give(a, 0x45, true);
-    a->items[wand - 1][0x3d] = quick;
+    a->items[wand - 1][0x3d] = 0x0f;
     KEYS("UU");
     CHECK(cok_combat_commands(&game, a, 0) && shows(0, 0x17, "Item:", 10));
     /* The cell of no target with an earlier battle's record left in the

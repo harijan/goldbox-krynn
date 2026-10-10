@@ -2,6 +2,7 @@
 
 #include "arena.h"
 #include "camp.h"
+#include "cast.h"
 #include "items.h"
 #include "round.h"
 #include "treasure.h"
@@ -179,18 +180,6 @@ static bool missile_weapon(cok_adventure *game, const cok_character *c, bool *mi
     return undefined(game, "an item type past ITEMS reads past the table (DS:5886)");
 }
 
-/* What 6beb:0e08's stale byte can read outside the bodies (see arena.h):
- * the exploding list's entries 1, 8 and 15. The spell targets are not
- * held. */
-static cok_arena_reachable reachable(const cok_adventure *game)
-{
-    const cok_combat *combat = &game->combat;
-    cok_arena_reachable also = {{combat->exploding[1], combat->exploding[8],
-                                 combat->exploding[15]},
-                                {NULL}};
-    return also;
-}
-
 /* 60f4:1440 for c, and the byte it leaves at [bp-3], which its callers'
  * 6beb:0e08 then reads (see arena.h): the low byte of the segment of the
  * effect 0x4d node 6346:2447 found, NULL when none, which depends on the
@@ -204,7 +193,7 @@ static bool battle_only(cok_adventure *game, cok_character *c, int *stale)
 
 static bool kill(cok_adventure *game, cok_character *c, int stale)
 {
-    cok_arena_reachable also = reachable(game);
+    cok_arena_reachable also = cok_cast_reachable(game); /* see arena.h */
     return cok_arena_kill(game, c, stale, &also);
 }
 

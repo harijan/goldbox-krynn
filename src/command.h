@@ -14,10 +14,8 @@
  * keyboard through the menus on row 24 (67b5:03e2); the mouse is not
  * ported.
  *
- * Casting in combat (5b04:1415, with its targets 432f:2337) is not ported:
- * cok_cast_spell logs it as unported in a battle and does nothing, so a
- * spell cast from Cast, begun earlier, or from an item used is logged and
- * the turn goes on as the original's would after the cast.
+ * The cast in combat (5b04:1415, with its targets 432f:2337) is
+ * cok_cast_spell's (cast.h), from Cast, a spell begun earlier or an item.
  *
  * Functions take their records in the order the original pushes them.
  * Each returns false, with game->vm.status set and the run ended, where
@@ -32,16 +30,23 @@ typedef struct {
     int8_t x, y;
 } cok_combat_aimed;
 
+/* The cell of record (6beb:0bcb, 0bf3). For none, 6beb:0c43 finds NULL
+ * in the entry after the last combatant: the cell placement last tried
+ * there or an earlier battle left; where an earlier battle's record is
+ * still in that entry it reads entry 0's cell, other data, and the run
+ * stops. */
+bool cok_combat_cell_of(cok_adventure *game, const uint8_t *record, int8_t *x, int8_t *y);
+
 /* 3995:0573, c's turn when the player has it. One that cannot act ends its
- * turn; one casting a spell begun at an earlier turn casts it
- * (5b04:1415, not ported: logged) and ends its turn. Otherwise, until the
- * turn is over: the menu's first item is selected (DS:6e0f) and the menu
- * (cok_combat_command_text) read until it gives one of its commands or
- * the hidden keys: Move (cok_combat_move), View (546c:0d74) or Use (the
- * Items menu, 546c:17f9, with its second item selected), each followed by
- * c's attacks recomputed (432f:0e80) and, unless an item used ended the
- * turn, the screen redrawn (6346:300f), Aim (cok_combat_aim with c's
- * weapon's range), Cast (cok_combat_cast), Turn (432f:12b7) and Yell
+ * turn; one casting a spell begun at an earlier turn clears it, casts it
+ * (5b04:1415) and ends its turn. Otherwise, until the turn is over: the
+ * menu's first item is selected (DS:6e0f) and the menu
+ * (cok_combat_command_text) read until it gives one of its commands or the
+ * hidden keys: Move (cok_combat_move), View (546c:0d74) or Use (the Items
+ * menu, 546c:17f9, with its second item selected), each followed by c's
+ * attacks recomputed (432f:0e80) and, unless an item used ended the turn,
+ * the screen redrawn (6346:300f), Aim (cok_combat_aim with c's weapon's
+ * range), Cast (cok_combat_cast), Turn (432f:12b7) and Yell
  * (cok_combat_yell), each ending the turn, and Done (cok_combat_done);
  * Space gives every party member (+0xe7 below 0x80) back to the player
  * (+0x18b); Alt-M turns Magic On or Off (DS:7198); Alt-Q or Alt-A give the
@@ -50,9 +55,9 @@ typedef struct {
  * runs the turn again, the computer's; Alt-X runs the Helm cheat
  * (432f:41e2) in a game started with Helm, showing c after, else "That
  * doesn't work"; Q and Alt-R do nothing. While the turn goes on c is shown
- * (6beb:12ef) and its panel redrawn. pressed, if not 0, is a scan code
- * the first key read gives, as if the player pressed it: eclplay's
- * --combat gods presses Alt-X (0x2d), auto Alt-Q (0x10). */
+ * (6beb:12ef) and its panel redrawn. pressed, if not 0, is a scan code the
+ * first key read gives, as if the player pressed it: eclplay's --combat
+ * gods presses Alt-X (0x2d), auto Alt-Q (0x10). */
 bool cok_combat_commands(cok_adventure *game, cok_character *c, uint8_t pressed);
 
 /* 3995:08d5's menu for c, cut to 40 characters: "Move " while it has
@@ -131,8 +136,9 @@ void cok_combat_speed(cok_adventure *game);
 
 /* 432f:28bd, Cast, for the selected character (DS:6096): spell, or if 0
  * one picked from its spells in memory (546c:34ec), refused with "Camp
- * Only Spell" where the spell table's byte 11 is 0; unless redrawn the
- * combat screen is redrawn and the caster shown with its panel. A spell
+ * Only Spell" where the spell table's byte 11 is 0; unless redrawn (the
+ * computer's flag, which the cast then gets) the combat screen is redrawn
+ * and the caster shown with its panel. A spell
  * whose casting time (byte 12, in thirds) is 0 is cast (5b04:1415) and the
  * turn ends; a longer one "Begins Casting" (row 10, with a pause): the
  * spell is kept (combat record +0x00) for the caster's next turn, its
