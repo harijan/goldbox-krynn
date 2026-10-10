@@ -16,7 +16,10 @@
  * with game->vm.status COK_ECL_EFFECT_FAILED or COK_ECL_UNDEFINED, and end
  * the run. */
 
-/* Cast spell 1-0x6b for the selected character (5b04:1415). Outside combat
+/* Cast spell 1-0x6b for the selected character (5b04:1415). In a battle
+ * (game->combat_targets) the cast is not ported: it is logged as
+ * "unported: NAME casts spell 0xNN (5b04:1415)" and nothing is done,
+ * *done left as it was. Outside combat
  * a spell that can only be cast in combat (byte 7 of DS:31b3 + 16 * spell
  * is 0) asks "Lose it? " and forgets it on Yes, or, while an item is used
  * (game->effects.rolls.item), asks "Use it? " and sets *done on Yes. A
@@ -55,6 +58,16 @@ bool cok_cast_duration(cok_adventure *game, uint8_t spell, uint16_t *minutes);
  * out. */
 bool cok_cast_damage(cok_adventure *game, cok_character *c, uint8_t amount, uint8_t save_kind,
                      bool saved);
+
+/* 60f4:20f7: add effect id to c for minutes with value, unless its effects
+ * on event 9 cancel it (DS:6b2f) or c saved against a spell whose save is
+ * of kind 1, when it "is Unaffected"; an effect of the id with time left
+ * is removed first, permanent ones stay. Then text, if any, is said with
+ * a flash on c (6346:228c, kind 1) and the text cleared. Returns false,
+ * ending the run, where it cannot be carried out. */
+bool cok_cast_add_effect(cok_adventure *game, cok_character *c, uint8_t id, uint16_t minutes,
+                         uint8_t value, bool on_remove, uint8_t save_kind, bool saved,
+                         const char *text);
 
 /* Remove Curse's handler (5b04:35f5) on target, as the temple runs it with
  * the first target (DS:6feb) set: Bestow Curse (0x24) goes, or else the

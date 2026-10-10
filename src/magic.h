@@ -42,6 +42,12 @@ void cok_magic(cok_adventure *game, bool *interrupted);
  * any list. frame says whence (COK_CAST_COMMANDS or COK_CAST_CAMP, cast.h). */
 void cok_magic_cast(cok_adventure *game, uint8_t frame);
 
+/* Pick a spell character has memorized to cast (546c:34ec with kind 0 and
+ * mode 1, as 4888:0a0d and 432f:28bd call it): "Spells in Memory" with
+ * "Choose Spell: " and Cast. Returns the spell, 0 for none or none
+ * memorized, or -1 when input ended or the list cannot be built. */
+int cok_magic_pick(cok_adventure *game, cok_character *character);
+
 /* Show the spells character has memorized, as View's Spells does
  * (546c:34ec with kind 0 and no menu but Exit), unless there are none.
  * Returns -1 when input ended or the list cannot be built. */

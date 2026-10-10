@@ -402,8 +402,9 @@ and off (`area: on`, `area: off`; see Overhead map) and the commands that
 are not ported (`unported:`); `--helm` plays as a game started with
 `Helm`, which lifts `Area`'s `Not Here` and enables the Gods cheat;
 `--combat gods` implies it. `--keys` types keys (`\r` Enter, `\e` Escape, `\b`
-Backspace, `\<`, `\>`, `\^` and `\v` the arrows); when they run out the run
-stops. `\k` presses the next key while the party rests, which the rest loop
+Backspace, `\<`, `\>`, `\^` and `\v` the arrows, `\@X` Alt and letter `X`,
+`\#HH` the extended key of scan code `HH`, in hex: `\@q` and `\#10` are
+Alt-Q); when they run out the run stops. `\k` presses the next key while the party rests, which the rest loop
 sees (`1614:03c2`), or as a battle is set up, which drops it (`1614:0479`).
 `--saves DIR` is where Save writes and the roster is kept (see The start
 menu); without it, saving logs an error. A spell list logs its rows as `item:` and `heading:`, and quitting to
@@ -422,12 +423,15 @@ and the temple), the characters `ADD NPC` adds and `DUMP` removes as
 `party:` (see Party), `CALL [b203]`'s sounds as `sound:` and `CALL
 [c01e]`'s step as `at:`. `COMBAT`'s battle runs its rounds, the computer
 playing the monsters and the party's NPCs (see The computer's turns) and
-the player's turns passing, as the player's commands are not ported,
-unless `--combat won`, `fled` or `lost` decides it instead, `gods` has
-the player's turns run the original's cheat (see The rounds), `melee` has
-every turn attack the nearest enemy it can (see Attacks, movement and
-death), `auto` has the player press Alt-Q, the computer then playing
-every turn, or `pass` has every turn pass, the computer's too. `--combat-map FILE` writes each
+the player's turns reading the keys (see The player's commands), or,
+without `--keys`, passing, unless `--combat won`, `fled` or `lost` decides
+it instead, `gods` has the player's turns start with Alt-X, the original's
+cheat (see The rounds), `melee` has every turn attack the nearest enemy it
+can (see Attacks, movement and death), `auto` has the player press Alt-Q,
+the computer then playing every turn, or `pass` has every turn pass, the
+computer's too. Keys that run out in a battle end the run there, `(out of
+keys in block N at ADDR)`, as anywhere else: the battle's end and its
+treasure are not reached. `--combat-map FILE` writes each
 battle's map and combatants to `FILE` (see The battlefield). A fight ends
 with the results and the treasure menu, which read keys; with no party at
 all the monsters rejoice and the run ends. `--test-party N` adds N (1-8)
@@ -1835,8 +1839,9 @@ The port keeps these quirks:
   has freed; the port leaves it out.
 
 Not ported: the combat target routine (`432f:2337`), which a battle puts
-in `DS:6e3a` while it runs, so that a cast then stops the run with
-`COK_ECL_EFFECT_FAILED`, and the combat part of `5b04:1415` (missiles,
+in `DS:6e3a` while it runs, so that a cast in a battle (`5b04:1415`) is
+logged as unported and does nothing (see The player's commands), and the
+combat part of `5b04:1415` (missiles,
 flashes, sounds), whose drawing is ported (see The combat screen) and
 whose damage (`60f4:1db7` in combat) is (see Attacks, movement and
 death); spells cast by touch (byte 2 0xff, `60f4:1062`), which
@@ -2004,9 +2009,10 @@ The port keeps these quirks:
 - A name's bytes past its length keep what longer names left (as the
   original's files show).
 
-Not ported: the debug `View` item of Items (`DS:4b51`, Ctrl-D), and the
-combat side: the turn View ends and `Use` in combat (`6346:2964`); the
-combat screen they redraw is ported (see The combat screen).
+Not ported: the debug `View` item of Items (`DS:4b51`, Ctrl-D). The
+combat side (no Trade, `Use` while the combatant may use items this
+round, the item's use ending the turn) is with the player's commands (see
+The player's commands).
 
 A differential test ran the original routines in an 8086 emulator
 against the port on random parties, items and effects: casting every
@@ -2243,22 +2249,24 @@ The battle (`3995:0172`) sets up the battlefield (`3cb2:1c58`, see The
 battlefield), which builds the map, gives every record its combat record
 and places them, removing monsters with no place, then fights its rounds
 (see The rounds), in which the computer plays the monsters, the NPCs and
-party members on Auto (see The computer's turns) and the player's
-commands, not ported, pass: with no `--combat` the monsters fight a party
-that does nothing, which usually ends with the party killed. (This
-default follows what is ported; `--combat pass` gives the earlier one.)
-`eclplay`'s `--combat`
+party members on Auto (see The computer's turns) and the player's turns
+take the player's commands from the keys (see The player's commands;
+`COK_COMBAT_PLAYER`, which `eclplay --keys` with no `--combat` sets).
+Without keys (`COK_COMBAT_UNPORTED`, `eclplay` with neither) the player's
+turns pass: the monsters fight a party that does nothing, which usually
+ends with the party killed; `--combat pass` has the computer's turns pass
+too. `eclplay`'s `--combat`
 (`cok_adventure.combat_stub`) decides the outcome instead of the rounds:
 `won`, every record against the party (`+0x18a` 1) drops (status 6,
 cannot act), and those on its side past the party's size do not; `fled`,
 every party record that can act flees (status 3); `lost`, the whole party
-dies. Or it plays the rounds otherwise: `gods` has the player's first turn
-of each round run the original's cheat when started with `Helm`
-(`432f:41e2`); `melee` has every turn attack (see Attacks, movement and
-death); `auto` has the player's first turn press Alt-Q, putting the party
-on Auto, so that the computer plays every turn; and `pass` has every turn
-pass, the computer's too, so that fifteen rounds without an attack end
-it. Then the battle's end (`3995:004b`) and the end of combat (`351b:1968`) run, after
+dies. Or it plays the rounds otherwise: `gods` has the player's commands
+start with Alt-X, which runs the original's cheat when started with
+`Helm` (`432f:41e2`); `melee` has every turn attack (see Attacks,
+movement and death); `auto` has the player's first turn press Alt-Q,
+putting the party on Auto, so that the computer plays every turn; and
+`pass` has every turn pass, the computer's too, so that fifteen rounds
+without an attack end it. Then the battle's end (`3995:004b`) and the end of combat (`351b:1968`) run, after
 every battle and for treasure alone (see Treasure and the end of combat):
 the party's part, `351b:0574`, decides from the statuses the battle left
 whether the party won, fled or was destroyed. With `--combat pass`
@@ -2616,14 +2624,15 @@ lies outside the map (5). It is not part of the repository.
 (`432f:0000`, `014d`, `0e80`, `0f9e`), the lines, sight and ranges of
 overlay `6b30`, and the helpers of overlays `432f`, `6346` and `60f4` that
 the later parts of combat share. Each turn is logged as `turn: NAME
-(initiative N)`; the computer's (`3afb:004b`) is ported (see The
-computer's turns), the player's commands (`3995:0573`) are not: such a
-turn ends (`6346:2964`). The screen is drawn as the battle goes (see The combat
-screen, and below).
+(initiative N)`; the computer's (`3afb:004b`, see The computer's turns)
+and the player's commands (`3995:0573`, see The player's commands) are
+ported; with no keys the player's turn ends (`6346:2964`). The screen is
+drawn as the battle goes (see The combat screen, and below).
 
 The battle (`cok_combat_battle`), as `COMBAT` starts it: the mode becomes
 5, spells pick their targets with the combat routine (`DS:6e3a` holds
-`432f:2337`, which is not ported: a cast stops the run), the battlefield
+`432f:2337`, which is not ported: a cast in a battle, `5b04:1415`, is
+logged as unported and does nothing, see The player's commands), the battlefield
 is set up (see The battlefield), and the battle is over before it starts
 if either side has no record that can act at the count placement made,
 before it removed the monsters with no place. Every record runs effect
@@ -2666,8 +2675,9 @@ map shows it (`6beb:12ef`), its stats are recomputed (`6346:0d20`), the
 side panel drawn (`DS:71ac`, `6346:0af6`), events 0x0f and, unless it is
 casting, 0x15 run, and if its initiative is still above 0, the computer
 acts for it (`+0x18b`) or the player does; its cell is redrawn
-(`6beb:02aa`). The player's commands select the menu's first item
-(`DS:6e0f`) for one that can act and casts no spell.
+(`6beb:02aa`). A turn that passes for want of keys selects the menu's
+first item (`DS:6e0f`) for one that can act and casts no spell, as the
+player's commands start.
 
 The end of a round (`3995:0b6d`): a minute passes (`57e4:0549`, the clock
 and every record's effects, the monsters' too, counted down: in mode 5
@@ -2825,12 +2835,12 @@ the combatant, which centres the view on it unless it is shown whole.
 Drawing rolls no dice: the battle's random numbers are as before.
 
 `eclplay` logs each round's order as `round: N: NAME I, ...` (every
-record, with its initiative), and the turns not ported as `turn:`.
+record, with its initiative), and each turn as `turn:`.
 `--combat won`, `fled` and `lost` decide the battle in place of its
 rounds, after event 0x18, and the sides are counted again before the
 battle's end; `--combat gods` presses Alt-X at each player's turn that
-reaches the commands, as the original allows with `Helm` on its command
-line: `432f:41e2` tests `ParamStr(2)` against `DS:896a` and returns at
+reaches the menu (see The player's commands), as the original allows with
+`Helm` on its command line: `432f:41e2` tests `ParamStr(2)` against `DS:896a` and returns at
 once without it, so the cheat needs `cok_adventure.helm`, which `--combat
 gods` sets (see Overhead map).
 
@@ -2904,10 +2914,11 @@ where theirs misbehave: 0x4b against no target (read at `0000:0140`) and
 0x1a likewise (`0000:013f`), 0x29 reading the selected character when none
 is, a record with no combat record, and the nested removals above.
 
-Not ported: the player's commands (`3995:0573`), spells and items in
-combat and the damaging clouds (`60f4:0dc3`). Attacks, movement and death
-are (see Attacks, movement and death), and so are the computer's turns
-(see The computer's turns); `eclplay --combat melee` attacks at each turn.
+Not ported: spells and items' spells in combat (`5b04:1415` with
+`432f:2337`) and the damaging clouds (`60f4:0dc3`). Attacks, movement and
+death are (see Attacks, movement and death), and so are the computer's
+turns and the player's commands (see The computer's turns and The
+player's commands); `eclplay --combat melee` attacks at each turn.
 
 A differential test ran the original routines in an 8086 emulator against
 the port. Whole battles: setup (`3cb2:1c58`), event 0x18, rounds with
@@ -3221,9 +3232,9 @@ it calls), sweeps, guards, attacks of opportunity, a step on the map,
 fleeing and the choice of a target, the attack roll and the deaths of
 overlay `60f4`, and the weapon tests of `6346`. `60f4:1db7`'s combat part
 is `cok_cast_damage` (`src/cast.h`). The computer's turns (`3afb:004b`)
-call them (see The computer's turns); the player's commands (`3995:0573`)
-are not ported, and `eclplay --combat melee` attacks in place of either
-(below).
+call them (see The computer's turns), and so do the player's commands
+(`3995:0573`, see The player's commands); `eclplay --combat melee` attacks
+in place of either (below).
 
 An attack (`432f:1a45`) sets the actor's moves shown and the panel due
 (`DS:71ad`, `71ac`) and the round limit to the round + 15. A target hit
@@ -3532,11 +3543,11 @@ the attack roll kept the offset of its target's pointer (`[bp-4]`,
 `3f44:0262`): its low byte, 0 or 8 by where the heap put the target's
 record, unless prayer (0x31) in the party had `6b30:08d8` write a row of
 a footprint there (11 to 14) in between. It depends on the heap and the
-stack, so the port still stops; the player's turns (P9) reach it when
-Molly unreadies her hoopak.
+stack, so the port still stops; the player's turns reach it when Molly
+unreadies her hoopak (View, Items, Ready) and then attacks.
 
-Not ported: the player's commands; casting and the spell targets in combat
-(`432f:28bd`, `2337`); and the effects that need them, among them the
+Not ported: casting and the spell targets in combat (`5b04:1415`,
+`432f:2337`); and the effects that need them, among them the
 monsters' breath (event 0x0e), which picks its targets through the spell
 target routine (`*DS:6e3a`, `432f:2337`) and the cones and bolts of
 overlay `5b04`, and turning a spell back (0x47), which needs the spell
@@ -3591,9 +3602,8 @@ repository.
 `src/ai.h` ports overlay `3afb`, the turns of the monsters, of NPCs and of
 party members on Auto (`+0x18b`), with turning undead (`432f:12b7`,
 `14a2`, in `src/attack.h`). The battle's turn (`3995:040b`) hands such a
-turn to `3afb:004b` (`cok_combat_computer`); the player's commands
-(`3995:0573`) are not ported: their turns pass, but for `eclplay
---combat`'s (below).
+turn to `3afb:004b` (`cok_combat_computer`), and the player's to the
+player's commands (`3995:0573`, see The player's commands).
 
 A turn (`3afb:004b`):
 
@@ -3801,8 +3811,8 @@ cleared and after 200 ms the battle runs the turn again, the computer's
 (0x14 becoming 0x13): whole battles decided by the computer. The seed at
 its end is logged (`combat: seed N`). `--combat pass` has every turn pass,
 the computer's too, as the rounds did before the computer's turns were
-ported. With no `--combat` the computer plays and the player's turns
-pass.
+ported. With no `--combat` the computer plays and the player's turns read
+the keys, or with no `--keys` pass.
 
 The port keeps these quirks:
 
@@ -3887,6 +3897,302 @@ both: of 4,000 cases 3,947 agreed and none differed, the rest the port's
 stops above (a step toward no target, which only a step run alone
 reaches, and Ready given no item) and skipped handlers; with the stack
 and heap filled with 0, 2,964 of 3,000. It is not part of the repository.
+
+## The player's commands
+
+`src/command.h` ports the player's turn in a battle (`3995:0573`, overlay
+`3995`) and the commands it leads to: Move (`3995:0d9c`, `0cad`, `1117`),
+aiming (`432f:3b80`, `38d2`, `39ad`, `3026`, `33ce`, `3219`, `2f12`),
+Done (`3995:121c`, `14cf`, with Guard `6346:29b3`), Cast (`432f:28bd`),
+Yell (`60f4:0023`) and the hidden keys, with Turn (`432f:12b7`, see The
+computer's turns) and the combat side of View and Use (`546c:0d74`,
+`17f9`, `24d7`, see View). The battle's turn (`3995:040b`) hands a
+combatant the player controls (`+0x18b` 0) to it (`cok_combat_commands`).
+Keys come through the menus on row 24 (`67b5:03e2`, see Library); the
+mouse is not ported.
+
+A turn (`3995:0573`): one that cannot act ends it (`6346:2964`); one with
+a spell begun at an earlier turn (combat record `+0x00`) casts it
+(`5b04:1415`) and ends it. Otherwise, until the turn is over: the menu's
+first item is selected (`DS:6e0f`) and the menu read (`3995:08d5`), its
+items `Move ` while it has movement left (`+0x06`), `View Aim `, `Use `
+while it has items (`+0x142`), `Cast ` with a spell memorized
+(`+0x1e`-`+0x57`) when it may cast this round (`+0x01`) and the area
+allows magic (var `0x4be5`), `Turn ` for a cleric (`+0xf9` above 0, or a
+former one, `+0x101`, that a human may use, `66c2:0efb`) that has tried
+fewer times this battle (`+0x11`) than undead were loaded (`DS:8859`),
+`Yell ` for a kender (`+0x5a` 5) while no one has yelled this battle
+(`DS:71a7`), and `Done`, cut to 40 characters (the debug flag's `*`,
+`DS:4b51`, is not ported). It is read until it gives a command letter or
+Space, or one of the scan codes of Alt-Q, Alt-R, Alt-A, Alt-X and Alt-M;
+other scan codes (the keypad's digits among them) count as nothing. Row
+24 is cleared. Then:
+
+| Key | What it does |
+| --- | --- |
+| `M` | Move (below) |
+| `V` | View (`546c:0d74`): Trade is not offered in combat |
+| `U` | the Items menu (`546c:17f9`) with its second item selected (`DS:6e0f` 2, which the list's menu, `67b5:1368`, sets back to the first): `Use` is offered while it can act, the area allows magic and it may use items this round (`+0x02`) |
+| `A` | Aim with its weapon's range (below) |
+| `C` | Cast (below) |
+| `T` | Turn (`432f:12b7`), and the turn ends |
+| `Y` | Yell (below), and the turn ends |
+| `D` | Done (below) |
+| Space | every party member (`+0xe7` below 0x80) back to the player (`+0x18b` 0), whatever its status |
+| Alt-M | Magic On or Off (`DS:7198`, "Magic On" or "Magic Off" on row 24) |
+| Alt-Q, Alt-A | the turn given back (`DS:72ce` less 1, initiative 0x14), every record in the list to the computer (`3995:1604`, forgetting a target on its own side), row 24 cleared, 200 ms: the battle runs the turn again, the computer's (0x14 becoming 0x13) |
+| Alt-X | in a game started with `Helm`, the Gods' cheat (`432f:41e2`) and the combatant shown (`6beb:12ef`), ending the turn; else "That doesn't work" |
+| `Q`, Alt-R | nothing (`Q` is in the keys taken but no item has it) |
+
+After View and Use its attacks this round are worked out again
+(`432f:0e80`) and, unless an item used ended the turn, the combat screen
+redrawn (`6346:300f`). While the turn goes on the combatant is shown
+(`6beb:12ef`) and its panel drawn (`6346:0af6`).
+
+Move (`3995:0d9c`): until Enter or `D` (the single item, `Done`), Escape,
+or the turn is over, "Move/Attack, Move Left = N" (half its movement) on
+row 24 with ` Done`, the keypad's eight directions (the arrows, Home, End,
+PgUp and PgDn, or 1-9 but 5): it turns that way (`6beb:0ad8`); what its
+footprint would stand on there (`6beb:0c9d`): another combatant is
+attacked (below); off the map, "Flee:" Yes tries to get away
+(`432f:0dc7`), which ends the turn; else the cost, the costliest terrain
+under the footprint (`DS:1ee4`) twice, three times on a diagonal, as a
+byte, 0xff for a cell none can enter, more than its movement left says
+"can't go there"; else the enemies it leaves attack it (`432f:0986`), and
+unless it dropped it steps (`432f:077a`) while it has movement, the cloud
+under it acts (`60f4:0dc3`, not ported but logged; only spells lay
+clouds), and one that dropped or is helpless ends its turn. Escape first
+undoes the moves (`3995:0cad`): the movement and facing come back, it is
+erased and put back where it started (`6beb:10f3`), which, where another
+now stands, leaves it off the map (size 0) and ends the turn. Leaving Move
+does not end the turn; half a square left is lost. Moving into another
+(`3995:1117`): with a missile weapon not thrown (`6346:3043`, `30bd`),
+"Not with that weapon"; else unless it is an ally the player will not
+attack (`432f:2f12`), it aims at it (`+0x0a`) and sweeps (`432f:0fce`),
+which ends Move, or books and attacks it (`432f:19b6`, `432f:1a45`).
+
+`432f:2f12`, attacking an ally: no question where the attacker is on the
+side opposite the target's (`6346:2666` of the target) or the computer
+controls the attacker; else "Attack Ally: ", and Yes sets var `0x7f33` and
+`DS:714a` (which nothing reads) and turns every NPC that is okay (`+0xe7`
+from 0x80, but 0xb3, status 0) against the party, forgetting its target,
+and the sides are counted.
+
+Aim (`432f:3b80`, `cok_combat_aim`): the range, the weapon's (type byte
+12) less 1, 0 and 0xff becoming 1 (1 with no weapon). Its targets
+(`432f:38d2`) are the combatants around it within 0x7f (`6b30:08d8`, any
+direction) that it can attack (`432f:11d4`), nearest first: itself first.
+A target is shown (`432f:3026`): attacking, "Range = N" on row 23 (the
+distance with sight not blocked, halved); its panel; and "Next Prev Manual Center
+Exit" with `Target` before Center when it is within range, the cell
+valid, and, attacking, it is not the attacker itself and the attacker has
+no missile weapon, or has ammunition (`6346:3111`) and either no enemy
+beside it or a thrown weapon. Next and Prev step through the targets,
+wrapping, the cursor flying from one to the next (`432f:39ad`,
+`6346:1ba6` with the cursor's picture, icon slot 0x19); Center centres
+the map there with the cursor; Target sets what is picked, ends the
+aiming and attacks (`432f:3219`): unless an ally the player will not
+attack (which clears what was picked), the cursor off, the screen
+centred, a sweep, which ends the turn, or the target booked and attacked
+with the ammunition, none for a thrown weapon a square away; Exit and
+Escape leave, the turn going on. Manual (`432f:33ce`) moves a cursor from
+the target's cell with the keypad, kept on the map: the cell is valid
+when seen from the attacker within range (sight blocked, `6b30:03f1`),
+not a wall, and its creature (a combatant, or a body's record) can be
+attacked, or empty where empty cells may be (never for Aim); attacking,
+not the attacker nor a body, and the missile rules above. `Target` (or
+`Exit`) with "(Use Cursor keys)"; Space centres the map on the cursor.
+(Its exits also clear `DS:742e`, a byte of the menus' mouse handling, not
+ported.)
+Target picks it (the menu's fourth item then selected), as Target does;
+Exit or Escape go back to the targets with nothing picked but the cell
+where the cursor started (Manual, the third item, selected).
+
+Done (`3995:121c`): "Guard " unless a missile weapon not thrown, "Delay
+Quit ", "Bandage " while a party member on the party's side is dying
+(`6346:31e9`), and "Auto Speed Exit", until Exit or Escape or the turn is
+over. Guard (`6346:29b3`): the turn ends and, unless made to flee
+(`+0x10`), it guards, "Guarding". Delay: initiative 1, and it moves to the
+end of the round's order, those after it moving up, as far as entry 72;
+the battle goes on with the next (`DS:72ce` less 1). Quit: the turn ends.
+Bandage: the first dying party member is bandaged (unconscious, no
+rounds dying, "is bandaged"), and the turn ends. Speed (`3995:14cf`):
+"GameSpeed (N) :" with " Slower " below 9 and "Faster " above 0, and
+Exit, until Exit or Escape: Slower and Faster change the game speed
+(`DS:4b38`, `game->speed`). Auto: the computer takes it (`3995:1604`),
+row 24 is cleared, 200 ms pass and the computer plays the rest of its
+turn (`3afb:004b`). The keyboard's flush there (`1614:045c`) is not
+ported.
+
+Cast (`432f:28bd`, `cok_combat_cast`), for the selected character: a
+spell picked from its spells in memory (`546c:34ec`), or none; one whose
+spell table byte 11 is 0 is refused, "Camp Only Spell". Unless the
+caller already did (the computer's casts), the combat screen is redrawn
+and the caster shown with its panel. A spell whose casting time (byte 12)
+in thirds is 0 is cast (`5b04:1415`) and the turn ends. A longer one
+"Begins Casting" (row 10, with a pause): the spell is kept (combat record
+`+0x00`) for the caster's next turn, its initiative falls by the time, at
+least to 1, and it moves down the round's order past those of more
+initiative and, a d2 of 1 each, those of as much, the turn over; the
+battle goes on with the next.
+
+Yell (`60f4:0023`): the kender is the one who yelled this battle
+(`DS:71a7`); every record that is okay, of intelligence (`+0x13`) above 3,
+on another side and not helpless, that fails a saving throw of type 4
+(`60f4:113a`), gets effect 0x5b (no time, value 0xff), "wants to kill
+NAME" flashed on it (`60f4:20f7`), which steers the computer's targets
+(see The computer's turns).
+
+Use in combat (`546c:24d7`): after the item's spell is known (a scroll's
+picked from its list) the combat screen is redrawn unless the computer
+has the character; an item other than a scroll "uses an item" (row 10)
+with "Item:" and its name on row 23, a pause and the text cleared; a
+scroll a thief may fail to read ("oops!", said from the row after the
+text's last, `DS:6135`). The spell is cast (`5b04:1415`), and in combat a
+spell its table's byte 11 allows ends the turn (`6346:2964`); the turn's
+end uses up the scroll's spell or a charge, as outside combat.
+
+Casting in a battle (`5b04:1415`, with its targets `432f:2337` and the
+handlers on the map) is not ported: `cok_cast_spell` (after refusing a
+spell past the handler table, as an item's 0x6c-0x7f) logs it, as
+`unported: NAME casts spell 0xNN (5b04:1415)`, and does nothing, leaving
+what the caller does after (ending the turn, using a charge) as the
+original's would be after a cast. Random numbers part from the original's
+at the first such line: the cast's own dice (a d2 for a caster with 0x4a,
+its targets, saving throws and damage) are not rolled. The computer's
+casts and item uses are still logged at `432f:28bd` and `546c:24d7` (see
+The computer's turns).
+
+| Function | Original |
+| --- | --- |
+| `cok_combat_commands`, `cok_combat_command_text` | `3995:0573`, `08d5` |
+| `cok_combat_move`, `cok_combat_charge` | `3995:0d9c` with `0cad`, `1117` |
+| `cok_combat_ally` | `432f:2f12` |
+| `cok_combat_aim` | `432f:3b80` with `38d2`, `39ad`, `3026`, `33ce`, `3219` |
+| `cok_combat_done`, `cok_combat_speed`, `cok_combat_guard` | `3995:121c`, `14cf`, `6346:29b3` |
+| `cok_combat_cast` | `432f:28bd` |
+| `cok_combat_yell` | `60f4:0023` |
+
+`eclplay --keys` with no `--combat` has the player's turns read the keys;
+`\@X` types Alt and a letter and `\#HH` the extended key of scan code
+`HH` (Alt-Q is `\@q` or `\#10`). Each menu read logs its items (`menu:`).
+When the keys run out during a battle the run ends there, as anywhere
+else: "(out of keys in block N at ADDR)", the end of combat and its
+treasure not reached (the battle's own end, `3995:004b`, runs). Without
+`--keys` the player's turns pass. `--combat gods` and `auto` press Alt-X
+and Alt-Q for the player at the first read of each player's turn; the
+menu is shown and logged first.
+
+The port keeps these quirks:
+
+- Escape in Move undoes the steps but not what they caused: attacks of
+  opportunity, damage, the squares' effects and the sounds stay. Put back
+  where another now stands, the combatant is off the map and its turn
+  ends.
+- Move's cost is the costliest terrain under the footprint, the step's
+  (`432f:077a`) that of its first cell; half a square left after Move is
+  lost, and with it the `Move` item.
+- `432f:2f12` tests the attacker's computer control, not the target's:
+  a player's character attacking a party member the computer controls
+  is still asked; one on Auto never is.
+- Delay when last in the order gives the turn straight back, running the
+  turn's start (events 7, 0x0f and 0x15) again; so does Alt-Q.
+- Bandage reaches the first dying party member anywhere on the map, and
+  its result is overwritten by the turn's end.
+- The Done menu's and Speed's special keys count as their scan codes'
+  letters: F8 (0x42) is `B`, which ends the turn even with nothing to
+  bandage; Home (0x47) `G`; PgDn (0x51) `Q`; F7 (0x41) `A`, Auto; F10
+  (0x44) `D`, Delay; Del (0x53) `S`; in Speed, Del slows and Scroll Lock
+  (0x46) speeds up past the bounds, the speed a byte. In Move, F10 leaves
+  as `D`; in Aim, a special key is not acted on, but NumLock (0x45) and
+  shift-F1 (0x54) leave it, and keypad + (0x4e), Down (0x50, `P`) and
+  shift-F1 take the cell of the target shown again.
+- After Manual's Exit there is no target, and the cell may still be valid:
+  `Target` is offered (and attacking reads through NULL, below); Down
+  then takes the cell of no target: `6beb:0c43` finds NULL in the entry
+  after the last combatant, whose cell is where placement last tried a
+  monster it removed, or what an earlier battle left there (0, 0 at
+  first). The port keeps those cells, and which entries of `DS:68d1`
+  hold a record, as the original does: placement writes an entry at each
+  try (`3cb2:1a33`) and clears it for a monster it removes (`1bdb`), and
+  nothing clears them between battles. Where an earlier battle's record
+  is still in that entry the original finds none and reads entry 0's
+  cell (`DS:623f`, `6240`), other data: the port stops. A cell off the
+  map there makes the sight read past the map: the port stops too.
+- Aiming lists the attacker itself first; it is never a target while
+  attacking.
+- Turn's level is not clamped (see The computer's turns); a "Turn" that
+  turns nothing still counts a try.
+- Space gives back to the player party members of any status; the
+  computer's own key poll (`3afb:1200`) skips status 1.
+- `Q` and Alt-R are taken by the menu but do nothing.
+
+Where the original misbehaves the port stops with `COK_ECL_UNDEFINED`:
+attacking with no target after Manual's Exit (`432f:2f12` reads
+`0000:018a`); a Cast that would move the caster past entry 72 of the
+order (no bound: `DS:72ce` read as a record); aiming with no target
+listed (a combatant off the map: `432f:39ad` reads its frame's entry
+never written); the cell of no target where an earlier battle's record
+is left in the entry after the last combatant (entry 0's cell, other
+data), or off the map (sight reads past it); a cell past the terrain
+table; "oops!" said from a row past 20 (the row after the
+text's last, `DS:6135`), which the original prints over the frame (see
+The combat screen); an item type past `ITEMS`; a record with no combat
+record. Molly's hoopak power (effect
+0x07) with no weapon readied still stops (see Attacks, movement and
+death): the player's turns reach it when she unreadies the hoopak and
+attacks.
+
+A differential test ran the original's whole battle, `3995:0172` with
+the player's commands and everything they call as they are (`08d5`,
+`67b5:03e2`, `177f`, `1368`, View, Items, the spell lists), in an 8086
+emulator against the port's, with the same seed and the same keys: the
+battles of the computer's turns' test (random parties of `SAVE/`'s and
+`--test-party`'s characters, the scripts' monster groups, 3D maps and open
+ground), the player's turns reading a random key script through Crt's
+`KeyPressed` and `ReadKey` (`1614:03c2`, `025b`) wherever they are called
+but the computer's poll, the script ending with Escapes, No and Alt-Q so
+that the computer finishes the battle; `1521:09ba` (the time, for the
+menus' timeout and animation, neither used) 0; `5b04:1415` from the
+player's side logging what the port logs. Every record, item, effect and
+combat record, the tables, sides, rounds, rolls, pool, seed, the menu item
+selected, Magic On, the speed, var `0x7f33`, the one who yelled, the
+round's order and its index, the keys read and the transcript (attacks,
+sounds, turns, rounds, unported lines) were compared at the end, and,
+for a sample, the screen at every key read and every pause, the
+original's drawing replayed as P6's harness does. Of 10,000 battles,
+9,324 agreed and none differed; in 555 the port skipped an effect handler
+not ported (breath and the like, as in The computer's turns), 92 stopped
+at Target with no target after Manual's Exit, 25 at Ready given no item
+(the harness gave every member a readied wand while Molly kept her
+readied hoopak, two readied weapons that Ready never makes: with the
+wand unreadied, all 25 agree) and 4 at
+sight read off the map from the cell of no target. In the agreeing
+battles the player read 214,367 menus over 67,090 turns: 65,826 Moves
+with 99,009 steps, 102,178 refused for their cost, 99,953 checks of
+attacks of opportunity, 20,767 undone with Escape, 17,420 moves into
+another (7,245 attacks, 1,839 "Not with that weapon", 20 sweeps), 208
+"Flee:" asked and 91 flights tried; 38,183 Aims with 34,407 Next and 8,247
+Prev, 24,980 cursors (874 picks), 18,249 Centers, 3,450 Targets, 4,324
+strikes (1,687 attacks, 258 with ammunition, 3 sweeps), 17,019 "Attack
+Ally:" asked and 6,069 answered Yes; 39,195 Done menus with 6,885
+guards, 10,958 delays (42,297 entries moved up), 7,673 quits, 314
+bandages, 4,018 Speed menus and 6,385 Autos; 10,393 Casts (1,737 camp
+only, 2,482 at once, 2,846 begun with 1,806 d2s in the order, 2,645 cast
+at the next turn); 12,878 Views, 23,127 Item menus with 7,571 items used
+(827 scrolls misread, "oops!"); 2,060 Turns, turning 1,336 and destroying
+854; 931 Yells; 6,876 Spaces, 4,930 Alt-M, 6,802 Alt-Q and 1,586 Alt-X.
+With the screens compared at every key read and pause, 932 of 1,000
+agreed (two stopped at "oops!" said below the side panel); filled with
+0x5a, 1,858 of 2,000, and with 0, 941 of 1,000, none differing. A first
+version that took the cell of no target as 0, 0 showed in the screens
+(two of 1,000: "Range = 18" where the port said 34). After the review
+(the entries of `DS:68d1` kept, a spell past the handler table refused
+before the in-battle log), 3,000 fresh battles: 2,687 agreed and none
+differed, 124 stopped at a harness wand's spell 0x72 (past the handler
+table), 37 at Target with no target, 1 at sight off the map, the rest
+skipped handlers; with the screens, 270 of 300 agreed, none differing.
+It is not part of the repository.
 
 ## Treasure and the end of combat
 
@@ -4938,6 +5244,25 @@ test` checks cases of each that the emulator ran (`tests/test_start.c`).
 These follow the disassembly but have not been compared with the game
 running in DOSBox:
 
+- The player's commands in a battle (see The player's commands): in Aim,
+  Manual, then Escape, then Down: the port takes the cell of the entry
+  after the last combatant (its record NULL), and stops in a later
+  battle with fewer combatants than an earlier one, whose record is then
+  in that entry: compare where Center then centres the map in both.
+- In the Done menu, F8 (scan 0x42, `B`) with no one dying ends the turn
+  as Bandage would; Home (0x47) guards; in Speed, Del slows past 9.
+- Escape in Move after a step that drew an attack of opportunity: the
+  combatant goes back with the wounds kept.
+- `Target` after Manual's Exit (no target, the cursor's last cell valid):
+  the original reads the interrupt table at `0000:018a`; the port stops.
+  Compare what DOSBox does ("Attack Ally:" asked, or an attack on
+  nothing).
+- The mouse in the combat menus and the cursor (`DS:71a5`, `71a6`) is not
+  ported: compare that the keyboard alone gives the same results, and the
+  cursor's flight between Aim's targets (`6346:1ba6` with delay 0).
+- A cast in combat from Cast, Use or a spell begun earlier is not ported
+  (logged); a cleric's long spell ("Begins Casting") moves it down the
+  round's order with a d2 at each tie: compare the order after it.
 - A cleric on Auto against undead (see The computer's turns): `3afb:024b`
   takes the highest kind to turn from a stack byte its calls leave, the
   way of moving's last die's sides, 2 or 4. Put a cleric of level 5 or

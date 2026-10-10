@@ -903,6 +903,7 @@ bool cok_combat_place_all(cok_adventure *game)
         }
         cok_combatant *e = &combat->combatant[d];
         e->character = c;
+        combat->entry_held[d] = true;
         if (r[0x18a] > 1) {
             cok_adventure_fail(game, COK_ECL_UNDEFINED,
                                "a record on side %u indexes past the sides' formations "
@@ -925,6 +926,7 @@ bool cok_combat_place_all(cok_adventure *game)
                     return false;
                 }
                 e->character = NULL;
+                combat->entry_held[d] = false;
                 snprintf(text, sizeof text, "%s has no place and is removed", name);
                 log_text(game, "combat", text);
                 /* 4def:3b0a removes the selected record: the original

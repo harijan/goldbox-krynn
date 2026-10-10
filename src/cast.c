@@ -139,9 +139,9 @@ static void healed(cok_adventure *game, cok_character *c)
  * with a save of kind 1; then it "is Unaffected". An effect of the id with
  * time left is removed first; permanent ones stay, and the new one is
  * added after them. Then text, if any, is said. */
-static bool add_effect(cok_adventure *game, cok_character *c, uint8_t id, uint16_t minutes,
-                       uint8_t value, bool on_remove, uint8_t save_kind, bool saved,
-                       const char *text)
+bool cok_cast_add_effect(cok_adventure *game, cok_character *c, uint8_t id, uint16_t minutes,
+                         uint8_t value, bool on_remove, uint8_t save_kind, bool saved,
+                         const char *text)
 {
     cok_rolls *r = &game->effects.rolls;
     r->pending = id;
@@ -274,7 +274,8 @@ static bool apply(cast *cx, uint8_t value, bool on_remove, uint8_t amount, uint8
         if (effect == 0) continue;
         uint16_t minutes;
         if (!cok_cast_duration(game, cx->spell, &minutes) ||
-            !add_effect(game, c, effect, minutes, value, on_remove, save_kind, saved, text))
+            !cok_cast_add_effect(game, c, effect, minutes, value, on_remove, save_kind, saved,
+                                 text))
             return false;
     }
     r->damage_type = 0;
@@ -727,10 +728,10 @@ static bool fire_shield(cast *cx)
         if (key == 'H' || key == 'C') {
             uint16_t minutes;
             if (!cok_cast_duration(game, 0x55, &minutes) ||
-                !add_effect(game, c, key == 'H' ? 0x32 : 0x36, minutes, 0, false, 0, false,
-                            key == 'H' ? "is protected" : "") ||
+                !cok_cast_add_effect(game, c, key == 'H' ? 0x32 : 0x36, minutes, 0, false, 0,
+                                     false, key == 'H' ? "is protected" : "") ||
                 !cok_cast_duration(game, 0x55, &minutes) ||
-                !add_effect(game, c, 0x70, minutes, 0, false, 0, false, ""))
+                !cok_cast_add_effect(game, c, 0x70, minutes, 0, false, 0, false, ""))
                 return false;
             return true;
         }
@@ -813,13 +814,6 @@ static const struct {
 static bool target(cast *cx)
 {
     cok_adventure *game = cx->game;
-    if (game->combat_targets) {
-        /* DS:6e3a holds 432f:2337 while a battle runs. */
-        cok_adventure_fail(game, COK_ECL_EFFECT_FAILED,
-                           "spells cast in combat pick their targets with 432f:2337, which is "
-                           "not ported");
-        return false;
-    }
     if (game->spell_target == NULL) game->spell_target = cx->caster->record;
     cx->targets[0] = cx->caster;
     cx->count = 1;
@@ -861,6 +855,18 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool announce, uint8_t f
         char text[96];
         snprintf(text, sizeof text, "spell %u is past the handler table (DS:6e3a)", spell);
         undefined(game, text);
+        return;
+    }
+    if (game->combat_targets) {
+        /* In a battle the cast picks its targets with 432f:2337 (DS:6e3a)
+         * and the handlers act on the map: not ported. P10's hook. */
+        const uint8_t *who = cx.caster->record;
+        char name[16], text[64];
+        size_t length = who[0] > 15 ? 15 : who[0];
+        memcpy(name, who + 1, length);
+        name[length] = '\0';
+        snprintf(text, sizeof text, "%s casts spell 0x%02x (5b04:1415)", name, spell);
+        cok_adventure_log(game, "unported", text);
         return;
     }
     uint8_t *c = cx.caster->record;
