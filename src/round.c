@@ -6,6 +6,7 @@
 #include "attack.h"
 #include "camp.h"
 #include "cast.h"
+#include "cloud.h"
 #include "command.h"
 
 #include <stdio.h>
@@ -574,6 +575,7 @@ bool cok_combat_list(cok_combat *combat, int8_t x, int8_t y, uint16_t range, uin
                 if (!in) continue;
                 int8_t sx = tx[k], sy = ty[k];
                 uint16_t r = range;
+                combat->sight_step = sign(tx[k] - vx[j]);
                 if (!cok_combat_sight(combat, vx[j], vy[j], &sx, &sy, &r, &seen)) return false;
                 if (!seen) continue;
                 found = true;
@@ -832,36 +834,6 @@ bool cok_combat_turn(cok_adventure *game, cok_character *c)
     return cok_arena_redraw_cell(game, cok_combat_x(combat, r), cok_combat_y(combat, r));
 }
 
-/* 60f4:0dc3 with flag 0, at the end of a round: one that can act and
- * stands in a damaging cloud (terrain 0x1d) takes 1d6 (60f4:1261) through
- * 60f4:1db7, which in combat is not ported. Only spells, not yet ported,
- * put clouds on the map. */
-static bool cloud(cok_adventure *game, cok_character *c)
-{
-    if (c->record[0x189] == 0) return true;
-    uint8_t occupant, terrain;
-    bool green, puddle;
-    if (!cok_combat_probe(&game->combat, c->record, 8, &occupant, &terrain, &green, &puddle))
-        return undefined(game, "a size past the footprints is read after them (6beb:0c9d)");
-    if (puddle) log_text(game, "unported", "a damaging cloud's damage (60f4:0dc3)");
-    return true;
-}
-
-bool cok_combat_step_cloud(cok_adventure *game, cok_character *c)
-{
-    const uint8_t *r = c->record;
-    if (r[0x189] == 0) return true;
-    uint8_t occupant, terrain;
-    bool green, puddle;
-    if (!cok_combat_probe(&game->combat, r, 8, &occupant, &terrain, &green, &puddle))
-        return undefined(game, "a size past the footprints is read after them (6beb:0c9d)");
-    if (green && r[0xda] == 0 && cok_character_find_effect(c, 0x1f) == NULL &&
-        cok_character_find_effect(c, 0x63) == NULL)
-        log_text(game, "unported", "a green cloud's saving throw (60f4:0dc3)");
-    if (puddle) log_text(game, "unported", "a damaging cloud's damage (60f4:0dc3)");
-    return true;
-}
-
 bool cok_combat_end_round(cok_adventure *game, bool *done)
 {
     cok_combat *combat = &game->combat;
@@ -870,7 +842,7 @@ bool cok_combat_end_round(cok_adventure *game, bool *done)
     cok_combat_enemy_health(combat, &game->party);
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];
-        if (!event(game, c, 0x13) || !cloud(game, c)) return false;
+        if (!event(game, c, 0x13) || !cok_cloud_square(game, c, false)) return false;
         if (c->record[0x188] != 5) continue;
         cok_combat_record *cr = record_of(game, c);
         if (cr == NULL) return false;

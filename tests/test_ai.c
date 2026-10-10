@@ -1497,11 +1497,13 @@ static void test_fight_more(void)
     a = duel(&m, 6, 5);
     game.vm.character = a->record;
     CHECK(cok_ai_fight(&game, a, &over) && m->combat->hits == 1);
-    /* Event 0x0e: a breath not ported, logged. */
+    /* Event 0x0e: a monster's breath (effect 4, see test_cloud) runs: at
+     * round 0 its uses become 3, one gone if it breathed. */
     a = duel(&m, 6, 5);
     game.vm.character = m->record;
-    CHECK(cok_character_add_effect(m, 0x04, 0, 0, false) != NULL);
-    CHECK(cok_ai_fight(&game, m, &over) && LOGGED("on event 0x0e"));
+    cok_effect *breath = cok_character_add_effect(m, 0x04, 0, 0, false);
+    CHECK(breath != NULL && cok_ai_fight(&game, m, &over) && !LOGGED("unported"));
+    CHECK(breath->value == 3 || breath->value == 2);
     /* A thrown club a square away strikes, not readying another, and is
      * not thrown: it stays. */
     a = duel(&m, 6, 5);

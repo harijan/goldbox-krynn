@@ -103,7 +103,8 @@ static void test_list(void)
     CHECK(cok_effects_remove(&fx, c, NULL, 0x3a) && strcmp(ids(c), "053b3c") == 0);
     CHECK(c->effects->next->next->duration == 3 && c->effects->next->next->on_remove);
     /* Effect 0 has no handler: the original calls 0000:0000. Effect 4's
-     * is a monster's attack, which 5b04:58ed installs at startup. */
+     * is a monster's attack, which 5b04:58ed installs at startup, and
+     * which breathes only in combat. */
     add(c, 0x00, 0, 0, true);
     CHECK(!cok_effects_remove(&fx, c, NULL, 0x00) && strstr(fx.error, "0000:0000") != NULL);
     add(c, 0x04, 0, 0, true);

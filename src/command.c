@@ -5,6 +5,7 @@
 #include "attack.h"
 #include "camp.h"
 #include "cast.h"
+#include "cloud.h"
 #include "items.h"
 #include "magic.h"
 #include "round.h"
@@ -449,7 +450,7 @@ static bool move_step(cok_adventure *game, cok_character *c, uint8_t dir, bool *
         cok_combat_end_turn(c);
         *done = true;
     }
-    if (!cok_combat_step_cloud(game, c)) return false; /* 60f4:0dc3 */
+    if (!cok_cloud_square(game, c, true)) return false; /* 60f4:0dc3 */
     if (cok_combat_helpless(c)) {
         cok_combat_end_turn(c);
         *done = true;

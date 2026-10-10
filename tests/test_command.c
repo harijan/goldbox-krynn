@@ -1309,10 +1309,19 @@ static void test_more(void)
     cok_character *a = record('A', 0, 10, 10);
     turn_of(a, 1);
     bool done = false;
-    /* A puddle under it after the step: its damage (not ported) logged. */
+    /* A puddle under it after the step: 1d6 (60f4:0dc3). */
     game.combat.cells[10][11] = 0x1d;
     KEYS("6D");
-    CHECK(cok_combat_move(&game, a, &done) && LOGGED("unported: a damaging cloud's damage"));
+    uint8_t hp = a->record[0x197];
+    CHECK(cok_combat_move(&game, a, &done) && LOGGED("print: A;print: takes"));
+    CHECK(a->record[0x197] < hp && !LOGGED("unported"));
+    /* A green cloud: it throws (60f4:0dc3 with the flag). */
+    game.combat.cells[10][12] = 0x1e;
+    a->combat->movement = 12;
+    a->combat->initiative = 5;
+    KEYS("6D");
+    CHECK(cok_combat_move(&game, a, &done));
+    CHECK(LOGGED("print: A;print: starts to cough;") || LOGGED("print: A;print: chokes"));
     /* Helpless after a step: the turn ends there. */
     CHECK(cok_character_add_effect(a, 0x33, 0, 0, false) != NULL);
     a->combat->movement = 12;

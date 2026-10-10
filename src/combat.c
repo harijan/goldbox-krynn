@@ -2,6 +2,7 @@
 
 #include "adventure.h"
 #include "arena.h"
+#include "cloud.h"
 #include "round.h"
 #include "treasure.h"
 
@@ -1085,6 +1086,7 @@ bool cok_combat_setup(cok_adventure *game)
     memset(combat->exploding, 0, sizeof combat->exploding);
     combat->exploding_count = 0;
     combat->exploding_now = false;
+    cok_cloud_free(combat); /* DS:7111, 7119 (and 7115) cleared */
     game->pool.missile = 0;
     free(game->lost_weapons);
     game->lost_weapons = NULL;
@@ -1154,15 +1156,16 @@ const cok_ds_table cok_combat_tables[] = {
 };
 const size_t cok_combat_table_count = sizeof cok_combat_tables / sizeof *cok_combat_tables;
 
-/* The end of the battle (3995:004b): it frees the lists of clouds on the
- * map (DS:7111, 7119), which the port does not have yet; then each record
- * charmed (effect 0x0b) and okay runs (status 3) if more than one enemy
- * could act at the last count, and loses the first effect of each id
- * that lasts only through the battle (60f4:1440, see round.h); the map
- * and the flash picture (DS:719e, not ported) are freed, and spells pick
- * their targets outside combat again (DS:6e3a). */
+/* The end of the battle (3995:004b): it frees the lists of clouds and
+ * pools on the map (DS:7111, 7119); then each record charmed (effect
+ * 0x0b) and okay runs (status 3) if more than one enemy could act at the
+ * last count, and loses the first effect of each id that lasts only
+ * through the battle (60f4:1440, see round.h); the map and the flash
+ * picture (DS:719e, not ported) are freed, and spells pick their targets
+ * outside combat again (DS:6e3a). */
 bool cok_combat_end(cok_adventure *game)
 {
+    cok_cloud_free(&game->combat);
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];
         uint8_t *r = c->record;

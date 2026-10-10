@@ -146,6 +146,18 @@ static void play(cok_adventure *game, script *s, const uint8_t *map, int x, int 
     CHECK(game->input_ended);
 }
 
+/* The battle stack pointers (cok_adventure.battle_sp) the scripts ran
+ * with: bit 0 COK_BATTLE_SP, bit 1 6 less, bit 2 8 less, bit 3 others. */
+static unsigned battle_sps;
+
+static void trace_sp(cok_adventure *game, void *context)
+{
+    (void)context;
+    uint16_t sp = game->battle_sp;
+    battle_sps |= sp == COK_BATTLE_SP ? 1u : sp == COK_BATTLE_SP - 6 ? 2u
+                                       : sp == COK_BATTLE_SP - 8 ? 4u : 8u;
+}
+
 static void test_play(void)
 {
     static cok_adventure game;
@@ -193,9 +205,17 @@ static void test_play(void)
     play(&game, &s, map, 5, 5, "m\x01H");
     CHECK(game.vm.mem4b00[0x101] == 0);
     /* Encamp runs the camp vector, then the camp menu until Exit (see
-     * test_camp.c). */
+     * test_camp.c). The vectors the loop runs run at the battle stack
+     * pointer measured, the camp vector 8 bytes deeper (through 3403). */
     game.effects.rolls.saved = 1;
+    game.hooks.trace = trace_sp;
+    battle_sps = 0;
+    play(&game, &s, map, 5, 5, "m\x01H");
+    CHECK(battle_sps == 1);
+    battle_sps = 0;
     play(&game, &s, map, 5, 5, "eea");
+    CHECK(battle_sps == 4 && game.battle_sp == COK_BATTLE_SP);
+    game.hooks.trace = NULL;
     /* The game counts as saved only in the camp it was saved in (DS:5885,
      * cleared at 2fd3:344d). */
     CHECK(game.effects.rolls.saved == 0);
@@ -242,6 +262,23 @@ static void test_play(void)
     CHECK(strstr(game.error, "475c:09ec") != NULL && strstr(game.error, "0x4cf7") != NULL);
     game.vm.mode = 1;
     CHECK(cok_adventure_play(&game) == COK_ECL_UNDEFINED);
+    /* A block entered after NEWECL (here ECL1's block 16, from an
+     * after-move vector) runs its vectors through 3b47, 6 bytes deeper. */
+    {
+        static const uint8_t record[] = {
+            0, 0, /* Skipped. */
+            1, 2, 0x15, 0x80, 1, 2, 0x14, 0x80, 1, 2, 0x14, 0x80, 1, 2, 0x14, 0x80, 1, 2, 0x14,
+            0x80, COK_ECL_EXIT, COK_ECL_NEWECL, 0, 16, COK_ECL_EXIT,
+        };
+        CHECK(cok_ecl_load(&game.vm, record, sizeof record) == COK_ECL_OK);
+        CHECK(cok_ecl_start(&game.vm, true) == COK_ECL_OK);
+        game.vm.file = 1;
+        game.hooks.trace = trace_sp;
+        battle_sps = 0;
+        play_to(&game, &s, map, 5, 5, "m\x01H");
+        CHECK(game.vm.block == 16 && battle_sps == 3 && game.battle_sp == COK_BATTLE_SP);
+        game.hooks.trace = NULL;
+    }
     cok_adventure_close(&game);
 }
 
@@ -1071,7 +1108,13 @@ static void test_overland(void)
     game.vm.restore_character = true;
     game.moving = false;
     cok_picture_fill(&game.screen, 0, 0, 40, 200, 5);
+    /* The camp vector runs at a depth not known (bit 3), the script at the
+     * measured one. */
+    game.hooks.trace = trace_sp;
+    battle_sps = 0;
     CHECK(cok_ecl_run(&game.vm, 0x8030) == COK_ECL_OK);
+    CHECK(battle_sps == 9 && game.battle_sp == COK_BATTLE_SP);
+    game.hooks.trace = NULL;
     CHECK(mem[0x102] == 1 && mem[0x103] == 0 && game.vm.character == a->record);
     CHECK(!game.moving && cursor_at(&game.screen, 3, 7));
     mem[0x102] = 0;
@@ -1161,7 +1204,12 @@ static void test_overland(void)
     s.length = 1;
     s.log[0] = '\0';
     unported_count = 0;
+    /* 2fd3:3c28 runs the first block's vectors itself: the measured depth. */
+    game.hooks.trace = trace_sp;
+    battle_sps = 0;
     CHECK(cok_adventure_enter(&game, 16) == COK_ECL_OK);
+    CHECK(battle_sps == 1);
+    game.hooks.trace = NULL;
     CHECK(f->item_count == 1 && f->items[0][0x2e] == 0x12 && g->item_count == 0);
     CHECK(f->record[0x142] == 1 && f->record[0x17d] == 60 && game.vm.character == f->record);
     CHECK(cok_character_find_effect(f, 0x13) == NULL && cok_character_find_effect(g, 0x13) != NULL);

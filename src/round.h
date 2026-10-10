@@ -67,8 +67,8 @@ bool cok_combat_turn(cok_adventure *game, cok_character *c);
 /* 3995:0b6d: the end of a round. A minute passes (57e4:0549, every
  * record's effects counted down in mode 5), the round is counted
  * (DS:714b), the enemies' health worked out (432f:2df3); each record runs
- * event 0x13, is hurt by a damaging cloud it stands in (60f4:0dc3, not
- * ported: logged), and if dying (status 5) counts a round, dying at 10;
+ * event 0x13, is hurt by a puddle it stands in (60f4:0dc3, see cloud.h),
+ * and if dying (status 5) counts a round, dying at 10;
  * "Your Teammate is Dying" if a party member is (6346:31e9); the sides
  * are counted and the map redrawn around the view. *done is set when a
  * side cannot act or the rounds reach the limit; with the enemy's side
@@ -92,13 +92,6 @@ bool cok_combat_damage(cok_combat *combat, cok_character *c, uint8_t damage, uin
  * past the party's size) is dying; with bandage, the first is bandaged:
  * unconscious, no rounds dying, and "is bandaged" said. */
 bool cok_combat_bandage(cok_adventure *game, bool bandage);
-
-/* 60f4:0dc3 with flag 1, after a step: one that can act standing in a
- * green cloud (terrain 0x1e) that is not undead and has neither 0x1f nor
- * 0x63 throws against it, and in a puddle (0x1d) takes 1d6 (60f4:1261)
- * through 60f4:1db7. Only Stinking Cloud's clouds and acid pools, not yet
- * ported, put either on the map: the port logs them as unported. */
-bool cok_combat_step_cloud(cok_adventure *game, cok_character *c);
 
 /* 6346:0cdb: whether c has effect 0x33, 0x34, 0x35 or 0x1f (DS:200c). */
 bool cok_combat_helpless(const cok_character *c);

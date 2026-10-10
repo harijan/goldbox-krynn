@@ -655,14 +655,16 @@ static bool h_minor_globe(cok_effects *fx, bool removing, cok_effect *effect, co
     return true;
 }
 
-/* 3f44:2665, 0x49: against damage of type 0x20, none, and a message, which
- * is not ported. */
+/* 3f44:2665, 0x49 (a dragon's, against breath): against damage of a type
+ * with bit 0x20 (the breath's: 0x20, 0x21, 0x22, 0x24, 0x30, or one left
+ * in DS:6b31), none and no effect (3f44:009b), and "is unaffected"
+ * (row 10, a pause). */
 static bool h_unaffected(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
-    (void)removing, (void)effect, (void)c;
-    if ((fx->rolls.damage_type & 0x20) != 0)
-        return fail(fx, "effect 0x49 (3f44:2665) prints text, which is not ported");
-    return true;
+    (void)removing, (void)effect;
+    if ((fx->rolls.damage_type & 0x20) == 0) return true;
+    cancel(fx, 0);
+    return say(fx, c, 0x49, 0x2665, "is unaffected");
 }
 
 /* 3f44:29d5, 0x4d, berserk: the character comes under the computer's
@@ -1535,6 +1537,47 @@ static bool h_gate(cok_effects *fx, bool removing, cok_effect *effect, cok_chara
     return remove_effect(fx, c, NULL, 0x4c);
 }
 
+/* 3f44:0ff7 (0x28, a cloud's end), 2037 (0x46, acid at death, event
+ * 0x0d) and 2cad (0x50, a pool's end), with either flag: the clouds and
+ * pools of the combat map (fx->clouds, see cloud.h). Outside combat the
+ * clouds' and pools' lists are empty: the ends find none. */
+static bool h_cloud(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing;
+    uint8_t id = fx->running;
+    uint16_t handler = id == 0x28 ? 0x0ff7 : id == 0x46 ? 0x2037 : 0x2cad;
+    if (effect == NULL && id != 0x46)
+        return fail(fx, "effect 0x%02x (3f44:%04x) is run with no effect, whose value it reads",
+                    id, handler);
+    if (fx->clouds == NULL || !fx->clouds(fx, id, effect, c, fx->context))
+        return fail(fx, "effect 0x%02x (3f44:%04x) could not be carried out on the combat map",
+                    id, handler);
+    return true;
+}
+
+/* 5b04:4ab8 (4), 4dc2 (0x4e), 4eea (0x54), 50cf (0x55), 5227 (0x5a) and
+ * 546e (6, 0x53, 0x68), with either flag (event 0x0e): a monster breathes
+ * or attacks (fx->breathe, cok_cast_breath). */
+static bool h_breath(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing;
+    uint8_t id = fx->running;
+    uint16_t handler = id == 4      ? 0x4ab8
+                       : id == 0x4e ? 0x4dc2
+                       : id == 0x54 ? 0x4eea
+                       : id == 0x55 ? 0x50cf
+                       : id == 0x5a ? 0x5227
+                                    : 0x546e;
+    if (effect == NULL)
+        return fail(fx, "effect 0x%02x (5b04:%04x) is run with no effect", id, handler);
+    if (!fx->in_battle || fx->breathe == NULL)
+        return fail(fx, "effect 0x%02x (5b04:%04x) breathes outside combat, through the combat "
+                        "targets and the map", id, handler);
+    if (!fx->breathe(fx, effect, c, fx->context))
+        return fail(fx, "effect 0x%02x (5b04:%04x) could not breathe", id, handler);
+    return true;
+}
+
 /* 3f44:34db, 0x6a (stunned), with either flag: the turn ends
  * (6346:2964). */
 static bool h_stunned(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
@@ -1750,18 +1793,15 @@ typedef struct {
     uint16_t segment; /* 0 for 3f44; 5b04 fills a few at startup (5b04:58ed). */
 } handler;
 
-#define COMBAT "combat"
-#define TEXT "text output"
 #define DAMAGE "dealing damage, with text"
-#define ATTACK "a monster's attack in combat"
 
 static const handler handlers[COK_EFFECT_IDS] = {
     [0x01] = {0x0124, h_bless, NULL},
     [0x02] = {0x0134, h_curse, NULL},
     [0x03] = {0x016a, h_snakes, NULL},
-    [0x04] = {0x4ab8, NULL, ATTACK, 0x5b04},
+    [0x04] = {0x4ab8, h_breath, NULL, 0x5b04},
     [0x05] = {0x3881, h_none, NULL},
-    [0x06] = {0x546e, NULL, ATTACK, 0x5b04},
+    [0x06] = {0x546e, h_breath, NULL, 0x5b04},
     [0x07] = {0x0208, h_kender, NULL},
     [0x08] = {0x0344, h_protection_evil, NULL},
     [0x09] = {0x0379, h_protection_good, NULL},
@@ -1795,7 +1835,7 @@ static const handler handlers[COK_EFFECT_IDS] = {
     [0x25] = {0x0f50, h_blink, NULL},
     [0x26] = {0x04b1, h_none, NULL},
     [0x27] = {0x0f78, h_haste, NULL},
-    [0x28] = {0x0ff7, NULL, COMBAT " and " TEXT},
+    [0x28] = {0x0ff7, h_cloud, NULL},
     [0x29] = {0x1412, h_avoid, NULL},
     [0x2a] = {0x144c, h_slow, NULL},
     [0x2b] = {0x1469, h_drain, NULL},
@@ -1825,7 +1865,7 @@ static const handler handlers[COK_EFFECT_IDS] = {
     [0x43] = {0x1dc5, h_lose_weapon, NULL},
     [0x44] = {0x1f97, h_explodes, NULL},
     [0x45] = {0x200b, h_paralysis, NULL},
-    [0x46] = {0x2037, NULL, COMBAT " and " TEXT},
+    [0x46] = {0x2037, h_cloud, NULL},
     [0x47] = {0x23a4, h_reflect, NULL},
     [0x48] = {0x24f4, h_terrible, NULL},
     [0x49] = {0x2665, h_unaffected, NULL},
@@ -1833,19 +1873,19 @@ static const handler handlers[COK_EFFECT_IDS] = {
     [0x4b] = {0x26bf, h_giant_slayer, NULL},
     [0x4c] = {0x272a, h_gate, NULL},
     [0x4d] = {0x29d5, h_berserk, NULL},
-    [0x4e] = {0x4dc2, NULL, ATTACK, 0x5b04},
+    [0x4e] = {0x4dc2, h_breath, NULL, 0x5b04},
     [0x4f] = {0x2b5f, h_stench, NULL},
-    [0x50] = {0x2cad, NULL, COMBAT " and " TEXT},
+    [0x50] = {0x2cad, h_cloud, NULL},
     [0x51] = {0x3009, h_paralysis, NULL},
     [0x52] = {0x303c, h_fear, NULL},
-    [0x53] = {0x546e, NULL, ATTACK, 0x5b04},
-    [0x54] = {0x4eea, NULL, ATTACK, 0x5b04},
-    [0x55] = {0x50cf, NULL, ATTACK, 0x5b04},
+    [0x53] = {0x546e, h_breath, NULL, 0x5b04},
+    [0x54] = {0x4eea, h_breath, NULL, 0x5b04},
+    [0x55] = {0x50cf, h_breath, NULL, 0x5b04},
     [0x56] = {0x31bc, h_poison, NULL},
     [0x57] = {0x31cf, h_poison, NULL},
     [0x58] = {0x31e2, h_paralysis, NULL},
     [0x59] = {0x320f, h_displacement, NULL},
-    [0x5a] = {0x5227, NULL, ATTACK, 0x5b04},
+    [0x5a] = {0x5227, h_breath, NULL, 0x5b04},
     [0x5b] = {0x3258, h_none, NULL},
     [0x5c] = {0x3881, h_none, NULL},
     [0x5d] = {0x325f, h_half_blunt, NULL},
@@ -1859,7 +1899,7 @@ static const handler handlers[COK_EFFECT_IDS] = {
     [0x65] = {0x3406, h_holy_water, NULL},
     [0x66] = {0x3449, h_none, NULL},
     [0x67] = {0x3450, h_magic_weapons, NULL},
-    [0x68] = {0x546e, NULL, ATTACK, 0x5b04},
+    [0x68] = {0x546e, h_breath, NULL, 0x5b04},
     [0x69] = {0x349c, h_slayer, NULL},
     [0x6a] = {0x34db, h_stunned, NULL},
     [0x6b] = {0x34f9, h_turn, NULL},

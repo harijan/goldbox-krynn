@@ -242,9 +242,10 @@ static void give_item(cok_character *c, uint8_t type, uint8_t part, uint8_t armo
 
 /* Add count characters made up for testing, as a saved game's would be
  * (4b6d:1b34): a fighter, a cleric of Mishakal, a White mage and a thief
- * in turn, human, of level 1, with their weapons and armour readied, a
- * little steel, the cleric's Cure Light Wounds and the mage's Detect Magic
- * memorized (the seventh also Charm Monsters, with a wand); their stats
+ * in turn (the eighth a mage), human, of level 1, with their weapons and
+ * armour readied, a little steel, the cleric's Cure Light Wounds and the
+ * mage's Detect Magic memorized (the seventh also Charm Monsters, with a
+ * wand; the eighth Stinking Cloud instead); their stats
  * computed as a character's are when it loads (6346:0d20, 66c2:0433),
  * each counted in 0x7f3e and the first selected. */
 static bool test_party(cok_adventure *game, unsigned long count)
@@ -265,7 +266,7 @@ static bool test_party(cok_adventure *game, unsigned long count)
         uint8_t *r = c->record;
         r[0] = (uint8_t)strlen(names[i]);
         memcpy(r + 1, names[i], strlen(names[i]));
-        const uint8_t *kind = &kinds[i % 4].class_;
+        const uint8_t *kind = &kinds[i == 7 ? 2 : i % 4].class_; /* HOLT a mage */
         static const uint8_t scores[6] = {15, 13, 13, 14, 15, 12};
         for (int k = 0; k < 6; ++k)
             r[0x10 + 2 * k] = r[0x11 + 2 * k] = k == kind[2] ? 17 : scores[k];
@@ -318,6 +319,11 @@ static bool test_party(cok_adventure *game, unsigned long count)
             give_item(c, 0x34, 0x33, 0, 10);
             c->items[c->item_count - 1][0x3c] = 5;
             c->items[c->item_count - 1][0x3d] = 0x0f;
+        }
+        if (i == 7) {
+            /* The eighth, a mage too, has Stinking Cloud memorized. */
+            r[0x62 + 0x22] = 1;
+            r[0x1e] = 0x22;
         }
         bool ok = cok_character_stats(c, &game->item_types, game->error, sizeof game->error) &&
                   cok_character_levels(c, &game->item_types, game->error, sizeof game->error);

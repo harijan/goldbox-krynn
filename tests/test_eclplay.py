@@ -195,15 +195,17 @@ class PlayTests(unittest.TestCase):
                           "BRAM 0, ELIN 0"])
         # The Gods intervene at the player's first turn (432f:41e2, Alt-X);
         # with the enemy gone, "Continue Battle:" asks: Yes fights on, and
-        # the Gods intervene again.
-        result = self.play("--test-party", 6, "--combat", "gods", "--start", "8cda",
+        # the Gods intervene again. (From the default seed the dragons'
+        # fire kills the surprised party first; seed 5 leaves DUNN a turn.)
+        result = self.play("--test-party", 6, "--combat", "gods", "--seed", 5, "--start", "8cda",
                            "--keys", r"Y\r\rSE\r", ASSETS, 16)
         lines = result.stdout.splitlines()
         self.assertEqual(lines.count("print: The Gods intervene!"), 2)
+        self.assertIn("print: breathes Fire", lines)
         menus = [i for i, line in enumerate(lines) if line == "menu: Continue Battle:"]
         self.assertEqual([lines[i + 1] for i in menus], ["choice: Y", "choice: N"])
-        self.assertTrue(lines[menus[1] + 2].startswith("combat: removed 9 RED DRAGON, 2 BOZAK"))
-        self.assertIn("combat: removed 9 RED DRAGON, 2 BOZAK; 11 dropped", lines)
+        self.assertTrue(lines[menus[1] + 2].startswith("combat: removed 9 RED DRAGON, 4 BOZAK"))
+        self.assertIn("combat: removed 9 RED DRAGON, 4 BOZAK; 13 dropped", lines)
         self.assertEqual(lines[-1], "(done in block 16)")
 
     def test_melee(self):
@@ -318,6 +320,88 @@ class PlayTests(unittest.TestCase):
         self.assertEqual(lines.count("cast: CLERIC: Hold Person"), 1)
         self.assertIn("combat: seed 457552249", lines)
         self.assertIn("combat: removed 2 CLERIC; 2 dropped", lines)
+
+    def test_dragon_cone_side_byte(self):
+        # ECL3 block 98's red dragons at 8f44, seed 8: a cone whose line
+        # meets no one takes its side lines from a stack byte (5b04:1b2a),
+        # the game's for a script 2fd3:3c28 runs (0xe0, 0xea after a
+        # mirror; see cok_cast_breath). The 256 values would give different
+        # targets; the measured one lets the battle go on.
+        result = self.play("--file", 3, "--test-party", 6, "--combat", "auto", "--seed", 8,
+                           "--start", "8f44", "--keys", "\\r" * 20, ASSETS, 98)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = [line for line in result.stdout.splitlines() if not line.startswith("sound:")]
+        breaths = [i for i, line in enumerate(lines) if line == "print: breathes Fire"]
+        self.assertEqual([lines[i + 1:i + 3] for i in breaths],
+                         [["print: CERA", "print: takes 33 points of damage "],
+                          ["print: DUNN", "print: takes 33 points of damage "],
+                          ["print: ELIN", "print: takes 16 points of damage "]])
+        self.assertEqual(lines[-1], "(the party was killed in block 98)")
+
+    def test_dragons_breathe(self):
+        # The red dragons of ECL1 block 16 at 8cda against the test party on
+        # Auto: on event 0x0e (3afb:0d49) a dragon breathes fire (effect
+        # 0x68, 5b04:546e) in a cone of width 3 and length 9 at a target the
+        # computer's spell 0x3d picks: each in it throws (type 3) and takes
+        # the dragon's most hit points, 33, half if saved; the damage type
+        # 0x21 names no element. The party dies.
+        result = self.play("--test-party", 6, "--combat", "auto", "--seed", 5, "--start", "8cda",
+                           "--keys", r"\r\r\r\r", ASSETS, 16)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = [line for line in result.stdout.splitlines() if not line.startswith("sound:")]
+        breaths = [i for i, line in enumerate(lines) if line == "print: breathes Fire"]
+        self.assertEqual([lines[i - 1] for i in breaths], ["print: RED DRAGON"] * 3)
+        self.assertEqual([lines[i + 1:i + 3] for i in breaths],
+                         [["print: ELIN", "print: takes 33 points of damage "],
+                          ["print: ALDA", "print: takes 16 points of damage "],
+                          ["print: FARO", "print: takes 33 points of damage "]])
+        self.assertIn("combat: seed 2266347106", lines)
+        self.assertEqual(lines[-1], "(the party was killed in block 16)")
+        # Played by the keys, DUNN guarding: the dragons breathe three times.
+        keys = r"\r" + "DG" * 12 + r"\r\r\r"
+        result = self.play("--test-party", 6, "--seed", 5, "--start", "8cda", "--keys", keys,
+                           ASSETS, 16)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines.count("print: breathes Fire"), 3)
+        self.assertIn("combat: seed 393207360", lines)
+        self.assertEqual(lines[-1], "(the party was killed in block 16)")
+
+    def test_kapak_dissolves(self):
+        # The guards of Gargath Keep (ECL2 block 49 at 8440): a kapak that
+        # drops dissolves into acid (effect 0x46 on event 0x0d, 3f44:2037),
+        # a pool on its cell (terrain 0x1d) for 1d6 minutes (0x50).
+        result = self.play("--file", 2, "--test-party", 6, "--start", "8440", "--seed", 6,
+                           "--combat", "auto", "--keys", r"\r\r\r\r\r", ASSETS, 49)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = [line for line in result.stdout.splitlines() if not line.startswith("sound:")]
+        at = lines.index("print: dissolves into acid!")
+        self.assertEqual(lines[at - 4:at + 1], ["print: KAPAK", "print: goes down",
+                                                "attack: and is Dying", "print: KAPAK",
+                                                "print: dissolves into acid!"])
+        self.assertIn("combat: seed 593253837", lines)
+        self.assertIn("combat: removed 2 KAPAK, 3 BAAZ, 4 ELVISH KILLER; 9 dropped", lines)
+
+    def test_stinking_cloud(self):
+        # The ambush of ECL1 block 32 at 835f: HOLT, the eighth of the test
+        # party, casts Stinking Cloud at the second target the aim offers
+        # (5b04:29de): "Creates a noxious cloud", then each in its four
+        # cells throws (60f4:0dc3): FARO saves and coughs (0x1e), HOLT,
+        # beside him, fails and chokes (0x1f), losing its turns. Then
+        # Alt-Q: FARO, stepping in the cloud again, coughs anew.
+        result = self.play("--test-party", 8, "--set", "4be6=1", "--start", "835f", "--seed", 1,
+                           "--keys", r"\rCCNT\@qN\rEN\r\r", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = [line for line in result.stdout.splitlines() if not line.startswith("sound:")]
+        at = lines.index("cast: HOLT: Stinking Cloud")
+        self.assertEqual(lines[at + 6:at + 14],
+                         ["print: HOLT", "print: Creates a noxious cloud", "print: FARO",
+                          "print: starts to cough", "print: FARO", "print: is coughing",
+                          "print: HOLT", "print: chokes and gags from nausea"])
+        at = lines.index("turn: FARO (initiative 6)")
+        self.assertEqual(lines[at + 1:at + 4],
+                         ["effect: FARO loses 0x1e", "print: FARO", "print: starts to cough"])
+        self.assertIn("combat: seed 1404601903", lines)
+        self.assertEqual(lines[-1], "(done in block 32)")
 
     def test_player_turns(self):
         # The skeletons of ECL1 block 32 at 87b4, the player's turns played

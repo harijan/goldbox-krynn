@@ -139,6 +139,7 @@ static bool terrain(cok_adventure *game, int xu, int yc, int x, int y, const cha
         return fail(game, "tile 0x%02x of the combat tile set was never loaded (DS:616a, %s)", tile,
                     where);
     cok_picture_draw(&c->buffer, &c->tiles, tile, s8(xu), s8(yc), 0, NULL); /* 127f:08d7 */
+    ++c->tiles_drawn;
     /* The bytes it covers are known again. */
     for (int row = yc * 8; row < yc * 8 + 24; ++row)
         for (int b = xu * 4; b < xu * 4 + 12; ++b)
@@ -324,6 +325,11 @@ bool cok_arena_icon(cok_adventure *game, int8_t x, int8_t y, uint8_t facing, uin
         cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
         return false;
     }
+    /* 127f:0b94 swaps each byte (127f:0b63), the mask's after the
+     * pixels', the last the first of the mask's last row, whose locals stay
+     * on the stack (see cok_combat.mirrored). */
+    game->combat.mirrored = mirrored.mask[(size_t)icon->height * icon->units * 4 - 1];
+    ++game->combat.mirrors;
     bool ok = buffer_draw(game, &mirrored, 0, x * 3, y * 3, "6d21:04b0");
     cok_picture_free(&mirrored);
     return ok;

@@ -28,6 +28,7 @@ enum {
 typedef struct cok_adventure cok_adventure;
 
 enum {
+    COK_BATTLE_SP = 0x3dd4, /* SP at 3995:0172 for a script 2fd3:3c28 runs. */
     COK_ICON_SLOTS = 26, /* DS:6172: 0-7 the party's, 8 on monsters', 13-25 missiles. */
     COK_MONSTERS_MAX = 63, /* DS:43be: records LOAD MONSTER adds between CLEARMONSTERS. */
     COK_COINS = 7,
@@ -233,6 +234,15 @@ struct cok_adventure {
      * runs (3995:0172 to 004b). */
     bool combat_targets;
     bool restoring;        /* The block's vectors run; DS:43bf is restored after them. */
+    /* The stack pointer 3995:0172 starts a battle at, which the path the
+     * script was run by fixes (from the MZ header's 0x4000, main's frame
+     * and the calls on the way): COK_BATTLE_SP for a vector 2fd3:3c28 runs
+     * (an emulator booting the game measured it in the demonstration's
+     * battle), 6 less through 3b47 (entering a block), 8 less through 3403
+     * (Encamp in the adventure loop); 0 where it is not known (PROGRAM 9's
+     * camp, in the middle of a script). A dragon's cone reads a byte of
+     * the stack below it (see cok_cast_breath). */
+    uint16_t battle_sp;
 
     /* The start menu (see start.h). */
     bool demo;             /* DS:4b4b: the demonstration plays. */
