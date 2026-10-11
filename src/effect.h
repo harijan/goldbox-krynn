@@ -15,11 +15,12 @@
  * progress through the working bytes in cok_rolls; removing an effect runs
  * its handler with flag 1 if the effect asks for it (60f4:01e9).
  *
- * Handlers that need systems not yet ported (combat, its map and records,
- * damage and killing with text) are not ported: a call that reaches one
- * fails with the handler's address in the error. Those that only speak do
- * so through the say hook. So does anything the original mishandles fail,
- * such as an effect with no handler (the original calls 0000:0000). */
+ * Every handler is ported; those that act on the battle, deal damage,
+ * kill, heal, speak or cast work through the hooks below. A call fails,
+ * with the handler's address in the error, where the original
+ * mishandles it, such as an effect with no handler (the original calls
+ * 0000:0000), or a handler that writes the combat record of one with
+ * none or reads the map combat has freed. */
 
 /* The working bytes of the rolls in the original's data segment, which the
  * handlers read and change. They keep their values between calls, as in
@@ -69,9 +70,14 @@ struct cok_effects {
     /* DS:46b4: by party position, whether a member had an effect with time
      * left when they were last counted down. */
     uint8_t timed[COK_EFFECT_TIMED];
-    /* Effects removed during a call. They are freed when it returns, so that
-     * a handler that removes one the caller still holds is caught. */
-    cok_effect **removed;
+    /* Effects removed during a call, each with how many effects had been
+     * made when it was (cok_effects_made). They are freed when it returns,
+     * so that a handler that removes one the caller still holds is
+     * caught. */
+    struct cok_removed {
+        cok_effect *effect;
+        uint32_t made;
+    } *removed;
     size_t removed_count, removed_capacity;
     bool failed;
     char error[300]; /* Why the last call failed. */
@@ -79,9 +85,9 @@ struct cok_effects {
      * and the text cleared after if wait. The handlers that print fail
      * without it. */
     void (*say)(cok_effects *fx, cok_character *c, const char *text, bool wait, void *context);
-    /* Set while a battle runs (3995:0172 to 3995:004b). A handler, or the
-     * part of one, that is not ported is then logged as "unported" and
-     * skipped, and effects that end are logged as "effect". */
+    /* Set while a battle runs (3995:0172 to 3995:004b): effects that end
+     * are then logged as "effect", and the handlers that act on the map
+     * may. */
     bool in_battle;
     /* The event whose handlers run, 0 while an effect is removed or a
      * handler is run directly. */
@@ -183,6 +189,14 @@ struct cok_effects {
     /* A monster's breath or attack on event 0x0e (5b04:4ab8, 4dc2, 4eea,
      * 50cf, 5227, 546e; cok_cast_breath) for c holding effect. */
     bool (*breathe)(cok_effects *fx, cok_effect *effect, cok_character *c, void *context);
+    /* Effect 0x4a's casting (3f44:26a5): the handler of spell 0x29, Dispel
+     * Magic (5b04:320f, through DS:6ede), as if the selected character
+     * cast it, on the targets, spell and cell the last cast left
+     * (cok_cast_dispel). */
+    bool (*dispel)(cok_effects *fx, void *context);
+    /* Draw the party list again (6346:07ba), as the timers 0x0f, 0x2c and
+     * 0x3e do outside combat. NULL draws nothing. */
+    void (*party_list)(cok_effects *fx, void *context);
     void *context;
     /* How deep the public calls are nested, a hook calling back in. */
     unsigned depth;
@@ -198,8 +212,8 @@ void cok_effects_free(cok_effects *fx);
  * record's in the list, a monster's too, that has one when target has
  * none; in combat (mode 5) the first whose holder has target within 6
  * cells (0x31) or 1 (the others) on the map (fx->in_range). Returns
- * false with fx->error set when a handler is not ported (outside a
- * battle) or the original would misbehave. */
+ * false with fx->error set where a hook fails or the original would
+ * misbehave. */
 bool cok_effects_dispatch(cok_effects *fx, cok_character *target, uint8_t event);
 
 /* cok_effects_dispatch, given the caller's pointer to target, which a
@@ -260,7 +274,7 @@ bool cok_effects_caster_level(cok_effects *fx, uint8_t spell, uint8_t *level);
  * and effect 0x3e at 20 and up. Intelligence and wisdom are computed and
  * not stored, as in the original. Fails where the original divides by
  * zero (a constitution recomputed with no class level) or an effect's
- * handler is not ported. */
+ * handler fails. */
 bool cok_effects_ability(cok_effects *fx, cok_character *character, unsigned stat);
 
 /* How many of each clock unit make the next (DS:3874), 0x4bc6 on. */

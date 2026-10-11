@@ -30,7 +30,7 @@ void cok_effects_init(cok_effects *fx, cok_ecl *vm, cok_party *party, const cok_
 
 static void release(cok_effects *fx)
 {
-    for (size_t i = 0; i < fx->removed_count; ++i) free(fx->removed[i]);
+    for (size_t i = 0; i < fx->removed_count; ++i) free(fx->removed[i].effect);
     fx->removed_count = 0;
 }
 
@@ -60,7 +60,18 @@ static bool finish(cok_effects *fx)
 static bool was_removed(const cok_effects *fx, const cok_effect *effect)
 {
     for (size_t i = 0; i < fx->removed_count; ++i)
-        if (fx->removed[i] == effect) return true;
+        if (fx->removed[i].effect == effect) return true;
+    return false;
+}
+
+/* Whether effect was removed (and in the original freed) during this
+ * call, and now was made after: then the original's comparison of their
+ * addresses depends on where TP's GetMem (first fit) put now, perhaps in
+ * the block effect left. */
+static bool maybe_reused(const cok_effects *fx, const cok_effect *effect, const cok_effect *now)
+{
+    for (size_t i = 0; i < fx->removed_count; ++i)
+        if (fx->removed[i].effect == effect) return now != NULL && now->made > fx->removed[i].made;
     return false;
 }
 
@@ -88,35 +99,13 @@ static void log_text(cok_effects *fx, const char *kind, const char *text)
     if (fx->log != NULL) fx->log(fx, kind, text, fx->context);
 }
 
-/* A handler of id, or the part of one, that is not ported, and needs
- * what is said: in a battle it is logged and skipped, saying the event
- * whose handlers ran; otherwise the call fails. */
-static bool unported(cok_effects *fx, uint8_t id, uint16_t segment, uint16_t address,
-                     bool removing, const char *needs)
-{
-    if (!fx->in_battle)
-        return fail(fx, "effect 0x%02x (%04x:%04x) needs %s, which is not ported", id, segment,
-                    address, needs);
-    char text[80];
-    if (removing)
-        snprintf(text, sizeof text, "effect 0x%02x (%04x:%04x) on removal", id, segment,
-                 address);
-    else if (fx->event != 0)
-        snprintf(text, sizeof text, "effect 0x%02x (%04x:%04x) on event 0x%02x", id, segment,
-                 address, fx->event);
-    else
-        snprintf(text, sizeof text, "effect 0x%02x (%04x:%04x)", id, segment, address);
-    log_text(fx, "unported", text);
-    return true;
-}
-
 /* Say text about c (6346:1883, row 10, wait 1), or fail without the
  * hook; say_now without the wait. */
 static bool say_waiting(cok_effects *fx, cok_character *c, uint8_t id, uint16_t handler,
                         const char *text, bool wait)
 {
     if (fx->say == NULL)
-        return fail(fx, "effect 0x%02x (3f44:%04x) prints text, which is not ported", id, handler);
+        return fail(fx, "effect 0x%02x (3f44:%04x) says text, with no say hook", id, handler);
     fx->say(fx, c, text, wait, fx->context);
     return true;
 }
@@ -321,6 +310,8 @@ static bool h_resist_fire(cok_effects *fx, bool removing, cok_effect *effect, co
 
 static cok_combat_record *combat_of(cok_effects *fx, cok_character *c, uint8_t id,
                                     uint16_t handler);
+static bool call_handler(cok_effects *fx, uint8_t id, bool removing, cok_effect *effect,
+                         cok_character *c);
 
 /* 3f44:03cd, 0x0b, charm. Removing it puts the character back on the side
  * kept in bit 6 of the value and, if it was made an NPC (+0xe7 0xb3), back
@@ -503,21 +494,131 @@ static bool h_slow(cok_effects *fx, bool removing, cok_effect *effect, cok_chara
     return true;
 }
 
+/* 3f44:00ba: unless effects are being cured (DS:6b38), add id again for
+ * minutes, with the value of the effect being run and its handler on
+ * removal (60f4:1285, at the end of the list); *again says whether it
+ * was. The handlers that call it read the value through the effect before
+ * 00ba tests DS:6b38, which with none is 0000:0003, and used only when
+ * not curing: the port stops then. (No caller in the game runs these
+ * handlers with no effect; only cok_effects_run can.) */
+static bool again(cok_effects *fx, cok_character *c, uint8_t id, uint16_t handler,
+                  const cok_effect *effect, uint16_t minutes, bool *added)
+{
+    *added = false;
+    if (fx->rolls.curing != 0) return true;
+    if (effect == NULL)
+        return fail(fx, "effect 0x%02x (3f44:%04x) is run with no effect, whose value it reads",
+                    id, handler);
+    *added = true;
+    return add(fx, c, id, minutes, effect->value, true);
+}
+
+/* 6346:07ba outside combat: the party list is drawn again. */
+static void party_list(cok_effects *fx)
+{
+    if (fx->vm->mode != 5 && fx->party_list != NULL) fx->party_list(fx, fx->context);
+}
+
 /* 3f44:1469, 0x2b, strength drain, with either flag: unless effects are
  * being cured (DS:6b38), it adds itself again for an hour, with its
- * handler; then a strength (+0x11) above 3 loses a point, with a message,
- * which is not ported, and one of 3 or less brings effect 0x1f, if the
- * character lacks it. */
+ * handler; then a strength (+0x11) above 3 "is weakened" (row 10, with a
+ * pause) and loses a point, and one of 3 or less brings effect 0x1f for
+ * good, if the character lacks it. */
 static bool h_drain(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
     (void)removing;
-    if (fx->rolls.curing != 0) return true; /* 3f44:00ba */
-    if (c->record[0x11] > 3)
-        return fail(fx, "effect 0x2b (3f44:1469) weakening the character prints text, which is "
-                        "not ported");
-    if (!add(fx, c, 0x2b, 0x3c, effect->value, true)) return false;
+    bool added;
+    if (!again(fx, c, 0x2b, 0x1469, effect, 0x3c, &added) || !added) return !fx->failed;
+    if (c->record[0x11] > 3) {
+        if (!say(fx, c, 0x2b, 0x1469, "is weakened")) return false;
+        --c->record[0x11];
+        return true;
+    }
     if (cok_character_find_effect(c, 0x1f) == NULL) return add(fx, c, 0x1f, 0, 0xff, false);
     return true;
+}
+
+/* 3f44:05c3 (0x0f, poison) and 1504 (0x2c, wasting), with either flag:
+ * unless effects are being cured, each adds itself again for ten minutes;
+ * then one with more than a hit point (+0x197) takes 1 of type 0
+ * (DS:6b31) through 60f4:1db7, "from Magic", and outside combat the party
+ * list is drawn again (6346:07ba). With a hit point or none, 0x2c brings
+ * effect 0x1f for good, if the character lacks it; 0x0f nothing. */
+static bool h_ticking(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing;
+    uint8_t id = fx->running;
+    uint16_t handler = id == 0x0f ? 0x05c3 : 0x1504;
+    bool added;
+    if (!again(fx, c, id, handler, effect, 10, &added) || !added) return !fx->failed;
+    if (c->record[0x197] > 1) {
+        fx->rolls.damage_type = 0;
+        if (fx->damage == NULL || !fx->damage(fx, c, 1, 0, false, fx->context))
+            return fail(fx, "effect 0x%02x (3f44:%04x) could not deal damage (60f4:1db7)", id,
+                        handler);
+        party_list(fx);
+        return true;
+    }
+    if (id == 0x2c && cok_character_find_effect(c, 0x1f) == NULL)
+        return add(fx, c, 0x1f, 0, 0xff, false);
+    return true;
+}
+
+/* 3f44:0725, 0x16 (Slow Poison's), with either flag: a poisoned character
+ * (effect 0x37) "dies from poison" (60f4:00eb, status 6) and loses its
+ * 0x37; then, effects being cured (DS:6b38 set, and cleared after, even
+ * if it was set before), its first 0x0f goes. */
+static bool h_poisoned(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect;
+    if (cok_character_find_effect(c, 0x37) != NULL) {
+        if (fx->kill == NULL || !fx->kill(fx, c, 6, "dies from poison", fx->context))
+            return fail(fx, "effect 0x16 (3f44:0725) could not kill (60f4:00eb)");
+        if (!remove_effect(fx, c, NULL, 0x37)) return false;
+    }
+    fx->rolls.curing = 1;
+    bool ok = remove_effect(fx, c, NULL, 0x0f);
+    fx->rolls.curing = 0;
+    return ok;
+}
+
+/* 3f44:0d19, 0x22 (Cause Disease's), with either flag: the handlers of
+ * 0x2b and 0x2c run (60f4:01a8) with its flag and this effect, whose value
+ * they add again with. */
+static bool h_disease(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    return call_handler(fx, 0x2b, removing, effect, c) &&
+           call_handler(fx, 0x2c, removing, effect, c);
+}
+
+/* 3f44:1acd, 0x3e (a constitution of 20 or more), with either flag:
+ * unless effects are being cured, it adds itself again for an hour; then
+ * one that 60f4:21ea heals a hit point (of status 0, 1, 4 or 5, below its
+ * most) "is fully healed" or "is partially healed" (6346:25f9, row 10,
+ * with a pause), and outside combat the party list is drawn again. */
+static bool h_regenerate(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing;
+    bool added;
+    if (!again(fx, c, 0x3e, 0x1acd, effect, 0x3c, &added) || !added) return !fx->failed;
+    uint8_t *r = c->record;
+    if (!cok_character_heal(r, 1, true, fx->vm->mode)) return true;
+    if (!say(fx, c, 0x3e, 0x1acd, r[0x197] == r[0x62] ? "is fully healed" : "is partially healed"))
+        return false;
+    party_list(fx);
+    return true;
+}
+
+/* 3f44:26a5, 0x4a, with either flag (event 0x0e, the computer's turn): on
+ * a d20 of 1, the handler of spell 0x29, Dispel Magic (5b04:320f, through
+ * DS:6ede), runs as if cast by the selected character, on the targets,
+ * spell (DS:6b33) and cell the last cast or breath left (fx->dispel). */
+static bool h_dispelling(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect, (void)c;
+    if (roll(fx, 1, 20) != 1) return true;
+    if (fx->dispel != NULL && fx->dispel(fx, fx->context)) return true;
+    return fail(fx, "effect 0x4a (3f44:26a5) could not dispel (5b04:320f)");
 }
 
 /* 3f44:15a3, 0x2f: an attack roll 4 lower when the selected character (the
@@ -871,9 +972,6 @@ static bool h_poison_immune(cok_effects *fx, bool removing, cok_effect *effect,
     return true;
 }
 
-static bool call_handler(cok_effects *fx, uint8_t id, bool removing, cok_effect *effect,
-                         cok_character *c);
-
 /* The combat record of c, which a handler writes through: with none the
  * original writes through NULL or a stale pointer. */
 static cok_combat_record *combat_of(cok_effects *fx, cok_character *c, uint8_t id,
@@ -1082,12 +1180,15 @@ static bool h_avoid(cok_effects *fx, bool removing, cok_effect *effect, cok_char
  * damage or effect goes to it (the reflect hook). */
 static bool h_reflect(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
-    (void)effect;
+    (void)removing, (void)effect;
     uint8_t d = roll(fx, 1, 10);
     uint8_t kind = spell_byte(fx->rolls.spell, 6);
     if (!((d == 1 && kind < 8) || kind > 14)) return true;
     if (!fx->in_battle || fx->reflect == NULL)
-        return unported(fx, 0x47, 0x3f44, 0x23a4, removing, "the targets of spells in combat");
+        return fail(fx, "effect 0x47 (3f44:23a4) turns a spell back outside combat: the cells "
+                        "(6beb:0bcb) are read from the last battle's tables, the missile's "
+                        "pictures copied into the buffer (DS:719e, 6346:1b5b) and the view "
+                        "centred (6346:1ba6, 6beb:096b) over the combat map that battle freed");
     cok_character *caster;
     char why[200] = "";
     if (!fx->reflect(fx, c, &caster, why, sizeof why, fx->context))
@@ -1743,13 +1844,38 @@ static bool h_terror(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
 }
 
 /* 3f44:34f9, 0x6b. Removing it gives a player character made an NPC back
- * (+0xe7 0xb3 to 0) and sets the side (+0x18a) to the value. Applying it
- * turns the character on the nearest combatant, which is not ported. */
+ * (+0xe7 0xb3 to 0) and sets the side (+0x18a) to the value. Applied (no
+ * event or spell runs it so; an effect a file gave), as berserk in combat
+ * but in any mode and without its text: the computer controls the
+ * character (+0x18b), made an NPC (+0xe7 0xb3, or 0xb2 for another NPC),
+ * its combat record's target becomes the second combatant 6b30:08d8 lists
+ * around it (DS:6a36), and its side the one against that one's. Outside
+ * combat the original writes through the combat record that combat freed;
+ * the port fails. */
 static bool h_turn(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
-    if (!removing) return unported(fx, 0x6b, 0x3f44, 0x34f9, removing, "combat");
-    if (c->record[0xe7] == 0xb3) c->record[0xe7] = 0;
-    c->record[0x18a] = effect->value;
+    uint8_t *r = c->record;
+    if (removing) {
+        /* A removal always gives the effect; this guards direct calls. */
+        if (effect == NULL)
+            return fail(fx, "effect 0x6b (3f44:34f9) is run with no effect, whose value it reads");
+        if (r[0xe7] == 0xb3) r[0xe7] = 0;
+        r[0x18a] = effect->value;
+        return true;
+    }
+    r[0x18b] = 1;
+    r[0xe7] = r[0xe7] <= 0x7f || r[0xe7] == 0xb3 ? 0xb3 : 0xb2;
+    cok_combat_record *cr = combat_of(fx, c, 0x6b, 0x34f9);
+    if (cr == NULL) return false;
+    cr->target = NULL;
+    uint8_t *target = NULL;
+    if (!fx->in_battle || fx->second == NULL || !fx->second(fx, c, &target, fx->context))
+        return fail(fx, "effect 0x6b (3f44:34f9) could not list the combatants around one "
+                        "(6b30:08d8)");
+    cr->target = target;
+    if (target == NULL)
+        return fail(fx, "effect 0x6b (3f44:34f9) reads a target with none, at 0000:018a");
+    r[0x18a] = (uint8_t)(target[0x18a] ^ 1);
     return true;
 }
 
@@ -1783,146 +1909,156 @@ static bool h_minus_one(cok_effects *fx, bool removing, cok_effect *effect, cok_
     return true;
 }
 
+/* 3f44:3888, 0x78: the item routine (see call_handler), which takes the
+ * effect it is given for an item and adds (flag 0) or removes (flag 1) the
+ * effect of id +0x3d. Run as an effect's own handler, which no item,
+ * monster or spell gives (only a file could), it reads that id 61 bytes
+ * into a 9-byte record: in the heap block three after it, or the slack of
+ * one, or another record, as the heap was laid out; the port fails. */
+static bool h_item(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect, (void)c;
+    return fail(fx, "effect 0x78 (3f44:3888) run for its own effect reads an id at +0x3d, past "
+                    "the 9-byte record, from whatever the heap holds there");
+}
+
 /* The handler table the original fills at DS:6b94 (3f44:38ea), by effect
- * id: the handler's address in overlay 3f44, 0 for none, and the port, or
- * NULL with what it needs. */
+ * id: the handler's address in overlay 3f44 (or 5b04, which fills a few
+ * at startup, 5b04:58ed), 0 for none, and the port. */
 typedef struct {
     uint16_t address;
     handler_fn *fn;
-    const char *needs;
-    uint16_t segment; /* 0 for 3f44; 5b04 fills a few at startup (5b04:58ed). */
 } handler;
 
-#define DAMAGE "dealing damage, with text"
-
 static const handler handlers[COK_EFFECT_IDS] = {
-    [0x01] = {0x0124, h_bless, NULL},
-    [0x02] = {0x0134, h_curse, NULL},
-    [0x03] = {0x016a, h_snakes, NULL},
-    [0x04] = {0x4ab8, h_breath, NULL, 0x5b04},
-    [0x05] = {0x3881, h_none, NULL},
-    [0x06] = {0x546e, h_breath, NULL, 0x5b04},
-    [0x07] = {0x0208, h_kender, NULL},
-    [0x08] = {0x0344, h_protection_evil, NULL},
-    [0x09] = {0x0379, h_protection_good, NULL},
-    [0x0a] = {0x03ae, h_resist_cold, NULL},
-    [0x0b] = {0x03cd, h_charm, NULL},
-    [0x0c] = {0x04b1, h_none, NULL},
-    [0x0d] = {0x04c2, h_new_form, NULL},
-    [0x0e] = {0x05bc, h_none, NULL},
-    [0x0f] = {0x05c3, NULL, DAMAGE},
-    [0x10] = {0x0625, h_none, NULL},
-    [0x11] = {0x062c, h_shield, NULL},
-    [0x12] = {0x065d, h_resist_charm_30, NULL},
-    [0x13] = {0x3881, h_none, NULL},
-    [0x14] = {0x0681, h_resist_fire, NULL},
-    [0x15] = {0x06b2, h_silenced, NULL},
-    [0x16] = {0x0725, NULL, "killing the character, with text"},
-    [0x17] = {0x07b5, h_hammer, NULL},
-    [0x18] = {0x3881, h_none, NULL},
-    [0x19] = {0x09b3, h_invisible, NULL},
-    [0x1a] = {0x09e8, h_target_bonus, NULL},
-    [0x1b] = {0x00f7, h_held, NULL},
-    [0x1c] = {0x0a2f, h_images, NULL},
-    [0x1d] = {0x0ab8, h_quarter_less, NULL},
-    [0x1e] = {0x0ae0, h_coughing, NULL},
-    [0x1f] = {0x00f7, h_held, NULL},
-    [0x20] = {0x0bc9, h_new_form, NULL},
-    [0x21] = {0x0cf0, h_blind, NULL},
-    [0x22] = {0x0d19, NULL, DAMAGE},
-    [0x23] = {0x0d7c, h_confused, NULL},
-    [0x24] = {0x0f3f, h_minus_four, NULL},
-    [0x25] = {0x0f50, h_blink, NULL},
-    [0x26] = {0x04b1, h_none, NULL},
-    [0x27] = {0x0f78, h_haste, NULL},
-    [0x28] = {0x0ff7, h_cloud, NULL},
-    [0x29] = {0x1412, h_avoid, NULL},
-    [0x2a] = {0x144c, h_slow, NULL},
-    [0x2b] = {0x1469, h_drain, NULL},
-    [0x2c] = {0x1504, NULL, DAMAGE},
-    [0x2d] = {0x0344, h_protection_evil, NULL},
-    [0x2e] = {0x0379, h_protection_good, NULL},
-    [0x2f] = {0x15a3, h_against_flag4, NULL},
-    [0x30] = {0x15cd, h_immolate, NULL},
-    [0x31] = {0x16ef, h_prayer, NULL},
-    [0x32] = {0x173a, h_cold_resistant, NULL},
-    [0x33] = {0x00f7, h_held, NULL},
-    [0x34] = {0x00f7, h_held, NULL},
-    [0x35] = {0x00f7, h_held, NULL},
-    [0x36] = {0x176b, h_fire_resistant, NULL},
-    [0x37] = {0x179c, h_none, NULL},
-    [0x38] = {0x17a3, h_add_invisible_1, NULL},
-    [0x39] = {0x17c6, h_plus_two, NULL},
-    [0x3a] = {0x17ea, h_death_throes, NULL},
-    [0x3b] = {0x1891, h_immune, NULL},
-    [0x3c] = {0x18b9, h_burst, NULL},
-    [0x3d] = {0x1a72, h_fire_resistance, NULL},
-    [0x3e] = {0x1acd, NULL, "healing, with text"},
-    [0x3f] = {0x1b18, h_minor_globe, NULL},
-    [0x40] = {0x1c21, h_poison, NULL},
-    [0x41] = {0x1c34, h_poison, NULL},
-    [0x42] = {0x1c54, h_zap, NULL},
-    [0x43] = {0x1dc5, h_lose_weapon, NULL},
-    [0x44] = {0x1f97, h_explodes, NULL},
-    [0x45] = {0x200b, h_paralysis, NULL},
-    [0x46] = {0x2037, h_cloud, NULL},
-    [0x47] = {0x23a4, h_reflect, NULL},
-    [0x48] = {0x24f4, h_terrible, NULL},
-    [0x49] = {0x2665, h_unaffected, NULL},
-    [0x4a] = {0x26a5, NULL, "spells"},
-    [0x4b] = {0x26bf, h_giant_slayer, NULL},
-    [0x4c] = {0x272a, h_gate, NULL},
-    [0x4d] = {0x29d5, h_berserk, NULL},
-    [0x4e] = {0x4dc2, h_breath, NULL, 0x5b04},
-    [0x4f] = {0x2b5f, h_stench, NULL},
-    [0x50] = {0x2cad, h_cloud, NULL},
-    [0x51] = {0x3009, h_paralysis, NULL},
-    [0x52] = {0x303c, h_fear, NULL},
-    [0x53] = {0x546e, h_breath, NULL, 0x5b04},
-    [0x54] = {0x4eea, h_breath, NULL, 0x5b04},
-    [0x55] = {0x50cf, h_breath, NULL, 0x5b04},
-    [0x56] = {0x31bc, h_poison, NULL},
-    [0x57] = {0x31cf, h_poison, NULL},
-    [0x58] = {0x31e2, h_paralysis, NULL},
-    [0x59] = {0x320f, h_displacement, NULL},
-    [0x5a] = {0x5227, h_breath, NULL, 0x5b04},
-    [0x5b] = {0x3258, h_none, NULL},
-    [0x5c] = {0x3881, h_none, NULL},
-    [0x5d] = {0x325f, h_half_blunt, NULL},
-    [0x5e] = {0x32a8, h_constitution_save, NULL},
-    [0x5f] = {0x3328, h_resist_charm_90, NULL},
-    [0x60] = {0x334c, h_resist_charm, NULL},
-    [0x61] = {0x3361, h_free_action, NULL},
-    [0x62] = {0x336f, h_cold_immune, NULL},
-    [0x63] = {0x3386, h_poison_immune, NULL},
-    [0x64] = {0x33a7, h_half_edged, NULL},
-    [0x65] = {0x3406, h_holy_water, NULL},
-    [0x66] = {0x3449, h_none, NULL},
-    [0x67] = {0x3450, h_magic_weapons, NULL},
-    [0x68] = {0x546e, h_breath, NULL, 0x5b04},
-    [0x69] = {0x349c, h_slayer, NULL},
-    [0x6a] = {0x34db, h_stunned, NULL},
-    [0x6b] = {0x34f9, h_turn, NULL},
-    [0x6c] = {0x3619, h_add_invisible_255, NULL},
-    [0x6d] = {0x363c, h_none, NULL},
-    [0x6e] = {0x3643, h_knight, NULL},
-    [0x6f] = {0x3692, h_terror, NULL},
-    [0x70] = {0x36e1, h_fire_shield, NULL},
-    [0x71] = {0x3768, h_none, NULL},
-    [0x72] = {0x376f, h_slayer, NULL},
-    [0x73] = {0x37b0, h_slayer, NULL},
-    [0x74] = {0x37e8, h_none, NULL},
-    [0x75] = {0x37fc, h_disrupt, NULL},
-    [0x76] = {0x386a, h_minus_two, NULL},
-    [0x77] = {0x3876, h_minus_one, NULL},
-    /* 3f44:3888 adds or removes an item's effect; reached as an effect's
-     * own handler it reads +0x3d past the 9-byte record. */
-    [0x78] = {0x3888, NULL, "an item, and reads past the effect record"},
+    [0x01] = {0x0124, h_bless},
+    [0x02] = {0x0134, h_curse},
+    [0x03] = {0x016a, h_snakes},
+    [0x04] = {0x4ab8, h_breath},
+    [0x05] = {0x3881, h_none},
+    [0x06] = {0x546e, h_breath},
+    [0x07] = {0x0208, h_kender},
+    [0x08] = {0x0344, h_protection_evil},
+    [0x09] = {0x0379, h_protection_good},
+    [0x0a] = {0x03ae, h_resist_cold},
+    [0x0b] = {0x03cd, h_charm},
+    [0x0c] = {0x04b1, h_none},
+    [0x0d] = {0x04c2, h_new_form},
+    [0x0e] = {0x05bc, h_none},
+    [0x0f] = {0x05c3, h_ticking},
+    [0x10] = {0x0625, h_none},
+    [0x11] = {0x062c, h_shield},
+    [0x12] = {0x065d, h_resist_charm_30},
+    [0x13] = {0x3881, h_none},
+    [0x14] = {0x0681, h_resist_fire},
+    [0x15] = {0x06b2, h_silenced},
+    [0x16] = {0x0725, h_poisoned},
+    [0x17] = {0x07b5, h_hammer},
+    [0x18] = {0x3881, h_none},
+    [0x19] = {0x09b3, h_invisible},
+    [0x1a] = {0x09e8, h_target_bonus},
+    [0x1b] = {0x00f7, h_held},
+    [0x1c] = {0x0a2f, h_images},
+    [0x1d] = {0x0ab8, h_quarter_less},
+    [0x1e] = {0x0ae0, h_coughing},
+    [0x1f] = {0x00f7, h_held},
+    [0x20] = {0x0bc9, h_new_form},
+    [0x21] = {0x0cf0, h_blind},
+    [0x22] = {0x0d19, h_disease},
+    [0x23] = {0x0d7c, h_confused},
+    [0x24] = {0x0f3f, h_minus_four},
+    [0x25] = {0x0f50, h_blink},
+    [0x26] = {0x04b1, h_none},
+    [0x27] = {0x0f78, h_haste},
+    [0x28] = {0x0ff7, h_cloud},
+    [0x29] = {0x1412, h_avoid},
+    [0x2a] = {0x144c, h_slow},
+    [0x2b] = {0x1469, h_drain},
+    [0x2c] = {0x1504, h_ticking},
+    [0x2d] = {0x0344, h_protection_evil},
+    [0x2e] = {0x0379, h_protection_good},
+    [0x2f] = {0x15a3, h_against_flag4},
+    [0x30] = {0x15cd, h_immolate},
+    [0x31] = {0x16ef, h_prayer},
+    [0x32] = {0x173a, h_cold_resistant},
+    [0x33] = {0x00f7, h_held},
+    [0x34] = {0x00f7, h_held},
+    [0x35] = {0x00f7, h_held},
+    [0x36] = {0x176b, h_fire_resistant},
+    [0x37] = {0x179c, h_none},
+    [0x38] = {0x17a3, h_add_invisible_1},
+    [0x39] = {0x17c6, h_plus_two},
+    [0x3a] = {0x17ea, h_death_throes},
+    [0x3b] = {0x1891, h_immune},
+    [0x3c] = {0x18b9, h_burst},
+    [0x3d] = {0x1a72, h_fire_resistance},
+    [0x3e] = {0x1acd, h_regenerate},
+    [0x3f] = {0x1b18, h_minor_globe},
+    [0x40] = {0x1c21, h_poison},
+    [0x41] = {0x1c34, h_poison},
+    [0x42] = {0x1c54, h_zap},
+    [0x43] = {0x1dc5, h_lose_weapon},
+    [0x44] = {0x1f97, h_explodes},
+    [0x45] = {0x200b, h_paralysis},
+    [0x46] = {0x2037, h_cloud},
+    [0x47] = {0x23a4, h_reflect},
+    [0x48] = {0x24f4, h_terrible},
+    [0x49] = {0x2665, h_unaffected},
+    [0x4a] = {0x26a5, h_dispelling},
+    [0x4b] = {0x26bf, h_giant_slayer},
+    [0x4c] = {0x272a, h_gate},
+    [0x4d] = {0x29d5, h_berserk},
+    [0x4e] = {0x4dc2, h_breath},
+    [0x4f] = {0x2b5f, h_stench},
+    [0x50] = {0x2cad, h_cloud},
+    [0x51] = {0x3009, h_paralysis},
+    [0x52] = {0x303c, h_fear},
+    [0x53] = {0x546e, h_breath},
+    [0x54] = {0x4eea, h_breath},
+    [0x55] = {0x50cf, h_breath},
+    [0x56] = {0x31bc, h_poison},
+    [0x57] = {0x31cf, h_poison},
+    [0x58] = {0x31e2, h_paralysis},
+    [0x59] = {0x320f, h_displacement},
+    [0x5a] = {0x5227, h_breath},
+    [0x5b] = {0x3258, h_none},
+    [0x5c] = {0x3881, h_none},
+    [0x5d] = {0x325f, h_half_blunt},
+    [0x5e] = {0x32a8, h_constitution_save},
+    [0x5f] = {0x3328, h_resist_charm_90},
+    [0x60] = {0x334c, h_resist_charm},
+    [0x61] = {0x3361, h_free_action},
+    [0x62] = {0x336f, h_cold_immune},
+    [0x63] = {0x3386, h_poison_immune},
+    [0x64] = {0x33a7, h_half_edged},
+    [0x65] = {0x3406, h_holy_water},
+    [0x66] = {0x3449, h_none},
+    [0x67] = {0x3450, h_magic_weapons},
+    [0x68] = {0x546e, h_breath},
+    [0x69] = {0x349c, h_slayer},
+    [0x6a] = {0x34db, h_stunned},
+    [0x6b] = {0x34f9, h_turn},
+    [0x6c] = {0x3619, h_add_invisible_255},
+    [0x6d] = {0x363c, h_none},
+    [0x6e] = {0x3643, h_knight},
+    [0x6f] = {0x3692, h_terror},
+    [0x70] = {0x36e1, h_fire_shield},
+    [0x71] = {0x3768, h_none},
+    [0x72] = {0x376f, h_slayer},
+    [0x73] = {0x37b0, h_slayer},
+    [0x74] = {0x37e8, h_none},
+    [0x75] = {0x37fc, h_disrupt},
+    [0x76] = {0x386a, h_minus_two},
+    [0x77] = {0x3876, h_minus_one},
+    [0x78] = {0x3888, h_item},
 };
 
-/* Run the handler of id (60f4:01a8). The original calls 3f44:3888 instead
- * while DS:713c is set, which only readying items does; that is not
- * ported. */
+/* Run the handler of id (60f4:01a8). While DS:713c is set the original
+ * calls 3f44:3888, entry 0x78 (DS:6d74), instead, with an item for the
+ * effect: only readying or unreadying an item with a power (546c:1d96)
+ * and Remove Curse (5b04:35f5) set it, just before their call, and 3888
+ * clears it first; the port does what they do there (items.c, cast.c),
+ * so it is never set here. */
 static bool call_handler(cok_effects *fx, uint8_t id, bool removing, cok_effect *effect,
                          cok_character *c)
 {
@@ -1931,9 +2067,6 @@ static bool call_handler(cok_effects *fx, uint8_t id, bool removing, cok_effect 
     const handler *h = &handlers[id];
     if (h->address == 0)
         return fail(fx, "effect 0x%02x has no handler; the original calls 0000:0000", id);
-    if (h->fn == NULL)
-        return unported(fx, id, h->segment != 0 ? h->segment : 0x3f44, h->address, removing,
-                        h->needs);
     fx->running = id;
     return h->fn(fx, removing, effect, c);
 }
@@ -2171,13 +2304,13 @@ static bool remove_effect(cok_effects *fx, cok_character *c, cok_effect *effect,
                         "0000:0005", effect->id);
     if (fx->removed_count == fx->removed_capacity) {
         size_t capacity = fx->removed_capacity == 0 ? 16 : fx->removed_capacity * 2;
-        cok_effect **bigger = realloc(fx->removed, capacity * sizeof *bigger);
+        struct cok_removed *bigger = realloc(fx->removed, capacity * sizeof *bigger);
         if (bigger == NULL) return fail(fx, "out of memory");
         fx->removed = bigger;
         fx->removed_capacity = capacity;
     }
     *link = effect->next;
-    fx->removed[fx->removed_count++] = effect;
+    fx->removed[fx->removed_count++] = (struct cok_removed){effect, cok_effects_made()};
     if (id == 0x0e) return ability(fx, c, 5);
     if (id == 0x0c || id == 0x26) return ability(fx, c, 0);
     return true;
@@ -2387,6 +2520,10 @@ static bool count_down(cok_effects *fx, cok_character *member, uint8_t minutes, 
         if (was_removed(fx, current))
             return fail(fx, "a handler removed effect 0x%02x as it was counted down; the original "
                             "reads it after freeing it", current->id);
+        if (maybe_reused(fx, last, current))
+            return fail(fx, "a handler removed effect 0x%02x, the last to count down, and effect "
+                            "0x%02x made since may be where the heap put it, which the walk "
+                            "would take for the last", last->id, current->id);
         if (current == last) done = true;
         if (current->duration == 0) {
             current = current->next;
@@ -2397,6 +2534,10 @@ static bool count_down(cok_effects *fx, cok_character *member, uint8_t minutes, 
         } else {
             cok_effect *next = current->next;
             if (!remove_effect(fx, member, current, current->id)) return false;
+            if (maybe_reused(fx, before, member->effects))
+                return fail(fx, "a handler removed effect 0x%02x, before the one counted down, "
+                                "and effect 0x%02x made since, now the first, may be where the "
+                                "heap put it", before->id, member->effects->id);
             current = before == member->effects ? member->effects : next;
         }
         before = member->effects;

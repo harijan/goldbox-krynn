@@ -490,7 +490,8 @@ static void test_clock(void)
     cok_effect *e = cok_character_add_effect(c, 0x13, 15, 0, false);
     CHECK(e != NULL && cok_adventure_pass_time(game, 1, 5) && e->duration == 10);
     CHECK(cok_adventure_pass_time(game, 2, 1) && c->effects == NULL);
-    /* One whose end is not ported stops the game. */
+    /* One whose end the original mishandles (0x1a writes through the
+     * combat record of one with none) stops the game. */
     CHECK(cok_character_add_effect(c, 0x1a, 1, 0xff, true) != NULL);
     CHECK(!cok_adventure_pass_time(game, 1, 1) && game->vm.status == COK_ECL_EFFECT_FAILED);
     CHECK(strstr(game->error, "3f44:09e8") != NULL && game->vm.abort);
@@ -783,6 +784,25 @@ static void test_load_stats(void)
     game.vm.mem4b00[0xe6] = 1;
     cok_adventure_party(&game);
     CHECK(inked(&game.screen, 0x22, 4) && !inked(&game.screen, 0x21, 4));
+    /* Slow Poison's 0x0f, ending, puts itself back and takes a hit point
+     * "from Magic"; the party list is drawn again (6346:07ba) with the
+     * hit points left. */
+    cok_character *npc = game.party.members[0];
+    npc->record[0x197] = 5;
+    cok_adventure_party(&game);
+    size_t rows = (size_t)game.screen.units * 4 * 8 * 16;
+    uint8_t *before = malloc(rows), *after = malloc(rows);
+    CHECK(before != NULL && after != NULL);
+    memcpy(before, game.screen.pixels, rows);
+    CHECK(cok_character_add_effect(npc, 0x0f, 1, 0, true) != NULL);
+    CHECK(cok_adventure_pass_time(&game, 1, 1) && npc->record[0x197] == 4);
+    CHECK(npc->effects != NULL && npc->effects->id == 0x0f && npc->effects->duration == 10);
+    memcpy(after, game.screen.pixels, rows);
+    CHECK(memcmp(before, after, rows) != 0);
+    cok_adventure_party(&game);
+    CHECK(memcmp(after, game.screen.pixels, rows) == 0);
+    free(before);
+    free(after);
     cok_adventure_close(&game);
 
     /* A readied item of a type past ITEMS's buffer stops the load. */

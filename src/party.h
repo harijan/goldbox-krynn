@@ -112,7 +112,14 @@ typedef struct cok_effect {
     uint8_t value;
     bool on_remove;
     struct cok_effect *next;
+    /* When it was made, as cok_effects_made counted then: the timers'
+     * walk (57e4:0171) compares addresses, which the heap may give an
+     * effect made after another was freed. */
+    uint32_t made;
 } cok_effect;
+
+/* How many effects cok_character_add_effect has made. */
+uint32_t cok_effects_made(void);
 
 /* The combat record (22 bytes at the far pointer +0x183), which combat
  * setup (3cb2:10d9) allocates zeroed for every record in the list and the
