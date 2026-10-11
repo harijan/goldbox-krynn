@@ -244,8 +244,9 @@ static void give_item(cok_character *c, uint8_t type, uint8_t part, uint8_t armo
  * (4b6d:1b34): a fighter, a cleric of Mishakal, a White mage and a thief
  * in turn, human, of level 1, with their weapons and armour readied, a
  * little steel, the cleric's Cure Light Wounds and the mage's Detect Magic
- * memorized; their stats computed as a character's are when it loads
- * (6346:0d20, 66c2:0433), each counted in 0x7f3e and the first selected. */
+ * memorized (the seventh also Charm Monsters, with a wand); their stats
+ * computed as a character's are when it loads (6346:0d20, 66c2:0433),
+ * each counted in 0x7f3e and the first selected. */
 static bool test_party(cok_adventure *game, unsigned long count)
 {
     static const char *const names[8] = {"ALDA", "BRAM", "CERA", "DUNN",
@@ -307,6 +308,16 @@ static bool test_party(cok_adventure *game, unsigned long count)
         } else {
             give_item(c, 0x13, 0x13, 0, 35);     /* Short Sword */
             give_item(c, 0x1f, 0x1f, 0x30, 150); /* Leather Armor */
+        }
+        if (i == 6) {
+            /* The seventh, a mage, also has Charm Monsters memorized and a
+             * Wand of Magic Missiles readied with 5 charges, for casts of
+             * weighed picks and from an item. */
+            r[0x62 + 0x51] = 1;
+            r[0x1f] = 0x51;
+            give_item(c, 0x34, 0x33, 0, 10);
+            c->items[c->item_count - 1][0x3c] = 5;
+            c->items[c->item_count - 1][0x3d] = 0x0f;
         }
         bool ok = cok_character_stats(c, &game->item_types, game->error, sizeof game->error) &&
                   cok_character_levels(c, &game->item_types, game->error, sizeof game->error);

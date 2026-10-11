@@ -1674,6 +1674,14 @@ static bool effect_damage(cok_effects *fx, cok_character *c, uint8_t amount, uin
     return cok_cast_damage(game, c, amount, save_kind, saved) || effect_hook_failed(fx, game);
 }
 
+static bool effect_reflect(cok_effects *fx, cok_character *c, cok_character **caster,
+                           char *error, size_t error_size, void *context)
+{
+    (void)error, (void)error_size;
+    cok_adventure *game = context;
+    return cok_cast_reflect(game, c, caster) || effect_hook_failed(fx, game);
+}
+
 static bool effect_kill(cok_effects *fx, cok_character *c, uint8_t status, const char *text,
                         void *context)
 {
@@ -1883,6 +1891,7 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
     game->effects.count_sides = effect_count_sides;
     game->effects.damage = effect_damage;
     game->effects.kill = effect_kill;
+    game->effects.reflect = effect_reflect;
     game->effects.revive = effect_revive;
     game->effects.exploding = effect_exploding;
     game->effects.lose_weapon = effect_lose_weapon;

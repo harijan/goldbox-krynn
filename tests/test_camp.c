@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L /* mkdtemp */
 
 #include "camp.h"
+#include "arena.h"
 #include "magic.h"
 
 #include <stdio.h>
@@ -555,8 +556,11 @@ static void test_camp(void)
     CHECK(!cok_camp(&game) && game.party.count == 3);
     CHECK(strstr(s.log, "print: Breathes A sigh of relief;") != NULL);
     game.vm.mem7c00[0x33e] = 3;
+    game.spell_targets[1] = game.party.members[1]; /* marked when it goes */
     keys("ad\x01K\x1b\r\x1b\x1b");
     CHECK(!cok_camp(&game) && game.party.count == 2 && game.vm.mem7c00[0x33e] == 2);
+    CHECK(game.spell_targets[1] == &cok_arena_freed);
+    game.spell_targets[1] = NULL;
     CHECK(game.vm.character == game.party.members[0]->record);
     CHECK(strstr(s.log, "print: bids you farewell;") != NULL);
 

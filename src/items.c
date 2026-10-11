@@ -722,7 +722,7 @@ static uint8_t first_class(const uint8_t *c, size_t base)
  * an item with no charges lasts. A scroll needs a cleric or magic-user,
  * now or before, or a thief above level 9 who rolls up to 75, else "oops!".
  * An item whose spell is 0 leaves DS:711d set. */
-static bool use(cok_adventure *game, cok_character *character, size_t index, bool *done)
+bool cok_item_use(cok_adventure *game, cok_character *character, size_t index, bool *done)
 {
     uint8_t *c = character->record, *item = character->items[index];
     cok_rolls *r = &game->effects.rolls;
@@ -771,7 +771,7 @@ static bool use(cok_adventure *game, cok_character *character, size_t index, boo
     /* The cast may take items away (Dispel Magic ending Spiritual Hammer)
      * or add them; the original holds the item by its pointer. */
     character->held = index + 1;
-    if (cast) cok_cast_spell(game, (uint8_t)spell, false, 0, done);
+    if (cast) cok_cast_spell(game, (uint8_t)spell, c[0x18b] != 0, false, 0, done);
     size_t held = character->held;
     character->held = 0;
     if (game->vm.abort) return false;
@@ -975,7 +975,7 @@ void cok_items(cok_adventure *game, bool *done)
                     cok_camp_notice(game, "Must be Readied");
                     key = ' ';
                 } else if (cok_item_is_scroll(item) || (item[0x3d] > 0 && item[0x3e] < 0x80)) {
-                    ok = use(game, character, picked, done);
+                    ok = cok_item_use(game, character, picked, done);
                     if (game->vm.mode != 5) *done = false;
                     if (!*done) header = true;
                 }

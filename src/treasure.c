@@ -605,6 +605,7 @@ bool cok_treasure_remove_record(cok_adventure *game, size_t index, bool keep, bo
     uint8_t slot = gone[0x137];
     if (free_icon && slot < COK_ICON_SLOTS)
         for (size_t pose = 0; pose < 2; ++pose) cok_picture_free(&game->icons[slot][pose]);
+    cok_cast_forget(game, game->party.members[index]);
     cok_party_remove(&game->party, index);
     if (!keep) --vm->mem7c00[0x33e];
     vm->character = cok_party_record(&game->party, index > 0 ? index - 1 : 0);
@@ -1218,7 +1219,7 @@ static bool treasure_menu(cok_adventure *game)
         case 'D': {
             bool used = false;
             /* The frame only matters to Strength's roll (see cast.h). */
-            cok_cast_spell(game, spell, false, 0, &used);
+            cok_cast_spell(game, spell, false, false, 0, &used);
             break;
         }
         case 'E': case 0:

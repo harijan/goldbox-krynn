@@ -416,7 +416,8 @@ fight as `combat:` (see Monsters and encounters and The battlefield), each
 round's order of turns and each turn as `round:` and `turn:`, and effects
 ending in a battle as `effect:` (see The rounds), the lines of an attack
 not said in the side panel as `attack:` (see Attacks, movement and
-death), the coins and items
+death), each cast in a battle as `cast:` (see Spells in combat), the coins
+and items
 `TREASURE` adds as `treasure:` (see Treasure and the end of combat), and
 what is paid and appraised in shops and the temple as `shop:` (see Shops
 and the temple), the characters `ADD NPC` adds and `DUMP` removes as
@@ -439,7 +440,9 @@ characters made up for testing, as a saved game's are added: a fighter, a
 cleric of Mishakal, a White mage and a thief in turn, human, of level 1,
 their weapons and armour readied, 20 steel each, the cleric's Cure Light
 Wounds and the mage's Detect Magic memorized, one cell in combat (`+0xcf`
-1), their stats computed as a loaded character's are. `--party SAVE` adds
+1), their stats computed as a loaded character's are; the seventh, GWEN,
+has Charm Monsters memorized too and a Wand of Magic Missiles readied with
+5 charges. `--party SAVE` adds
 the characters of a saved game to the party (see Party), and `--load SAVE`
 loads the whole saved game first; then `BLOCK` may be left out to resume
 where it was saved. WHO prints the character picked (`who:`). `--shots DIR`
@@ -1230,10 +1233,10 @@ one when cast, which is not; the stinking cloud's (`3f44:0ae0`), which
 recomputes and then makes the armour class that from behind, 2 worse,
 needs the combat record and is not. The character sheet (`546c:07bb`),
 the Items menu after every key (`546c:17f9`) and Trade's receiver
-(`546c:2178`, `546c:32b0`) recompute, as ported (see View). The other
-places the original recomputes are not ported: spells
-with an attack roll (`5b04:1071`, which no spell cast outside combat
-reaches). Creating, training, modifying and changing the order of a
+(`546c:2178`, `546c:32b0`) recompute, as ported (see View), and so do
+spells by touch, before the attack roll (`5b04:1071`, which no spell cast
+outside combat reaches; see Spells in combat).
+Creating, training, modifying and changing the order of a
 character (`4def:06dd`, `4def:4d9e`, `4def:28fa`, `4def:567f`) are ported
 (see Creating characters and Training), and so is the computer's choice of
 weapon in combat (`3afb:1608`, see The computer's turns). Combat
@@ -1373,13 +1376,13 @@ ready it in an empty weapon slot, steps past it, so it is never readied. The
 part of 0x2b that prints is not ported. Ported with the rounds, for a
 battle (see The rounds): `00f7` (0x1b, 0x1f, 0x33-0x35), `016a` (3),
 `06b2` (0x15), `09e8` (0x1a), `0a2f` (0x1c), `0ae0` (0x1e, the stinking
-cloud), `0d7c` (0x23), `1412` (0x29), `23a4` (0x47, but for turning a
-spell back), `24f4` (0x48), `26bf` (0x4b) and `2b5f` (0x4f); with the
-attacks (see Attacks, movement and death): `0208` (0x07), `04c2` (0x0d),
-`0bc9` (0x20), `0f50` (0x25), `1b55` with `1c21`, `1c34`, `31bc` and
-`31cf` (0x40, 0x41, 0x56, 0x57), `1dc5` (0x43), `1f97` (0x44), `000d` with
-`200b`, `3009` and `31e2` (0x45, 0x51, 0x58), `349c` (0x69), `36e1`
-(0x70), `376f` (0x72), `37b0` (0x73), `37fc` (0x75), `15cd` (0x30),
+cloud), `0d7c` (0x23), `1412` (0x29), `23a4` (0x47; turning a spell
+back with the spells in combat), `24f4` (0x48), `26bf` (0x4b) and `2b5f`
+(0x4f); with the attacks (see Attacks, movement and death): `0208` (0x07),
+`04c2` (0x0d), `0bc9` (0x20), `0f50` (0x25), `1b55` with `1c21`, `1c34`,
+`31bc` and `31cf` (0x40, 0x41, 0x56, 0x57), `1dc5` (0x43), `1f97` (0x44),
+`000d` with `200b`, `3009` and `31e2` (0x45, 0x51, 0x58), `349c` (0x69),
+`36e1` (0x70), `376f` (0x72), `37b0` (0x73), `37fc` (0x75), `15cd` (0x30),
 `18b9` (0x3c), `1c54` (0x42), `272a` (0x4c), `34db` (0x6a), and the
 combat parts of `03cd` (0x0b taking hold) and `29d5` (0x4d); outside a
 battle those that write a combat record or read the map stop the run, as
@@ -1395,8 +1398,8 @@ with text: 0x3e; spells: 0x4a; a monster's breath or attack, which
 original calls `0000:0000`. A call that reaches any of these fails, naming
 the handler; `DAMAGE` and the clock then end the run with
 `COK_ECL_EFFECT_FAILED` and log the reason as an error. In a battle,
-where monsters' effects run every turn, such a handler, and the parts of
-0x47 (turning a spell back) and 0x6b (applying it) that need combat, are
+where monsters' effects run every turn, such a handler, and the part of
+0x6b (applying it) that needs combat, are
 skipped instead and logged, as `unported: effect 0x68
 (5b04:546e) on event 0x0e` (or `on removal`); see The rounds.
 
@@ -1838,15 +1841,11 @@ The port keeps these quirks:
   outside combat too and reads the map pointer (`DS:6a2e`) that combat
   has freed; the port leaves it out.
 
-Not ported: the combat target routine (`432f:2337`), which a battle puts
-in `DS:6e3a` while it runs, so that a cast in a battle (`5b04:1415`) is
-logged as unported and does nothing (see The player's commands), and the
-combat part of `5b04:1415` (missiles,
-flashes, sounds), whose drawing is ported (see The combat screen) and
-whose damage (`60f4:1db7` in combat) is (see Attacks, movement and
-death); spells cast by touch (byte 2 0xff, `60f4:1062`), which
-none outside combat is; effects whose handlers need combat or text when
-the spell's events or timers reach them, such as 0x0f and 0x16 of Slow
+In a battle the cast picks its targets with the combat routine
+(`432f:2337`) that the battle puts in `DS:6e3a`, flies its missile and
+runs the handlers that act on the map: see Spells in combat. Not ported
+outside combat: effects whose handlers need combat or text when the
+spell's events or timers reach them, such as 0x0f and 0x16 of Slow
 Poison when they run out, and 0x47 (from 0x3f) on event 9 when it would
 turn a spell back, which stop the run with `COK_ECL_EFFECT_FAILED`; and
 spell ids 0x6c-0x7f, which only items name, past the handler table. The
@@ -2610,8 +2609,8 @@ refused 448: a side other than 0 or 1 (241), a magic resistance roll for
 a spell with no character selected, which the original reads through
 NULL (154), the handler of effect 0x47 on event 9, then unported (50),
 and a body off the map (3). With the rounds the port runs setup in a
-battle, where 0x47's handler is ported but for turning a spell back,
-which is skipped and logged like any unported handler (see The rounds). Of 4,000 lookups, the 3,619 the port carries out
+battle, where 0x47's handler is ported, turning a spell back included
+(see Spells in combat). Of 4,000 lookups, the 3,619 the port carries out
 agreed; it alone refused 381: placing a record that is not a combatant
 (243), a side other than 0 or 1 (58), a footprint outside the occupants
 (30), sizes past the footprints (45) and placing one whose footprint
@@ -2631,8 +2630,7 @@ drawn as the battle goes (see The combat screen, and below).
 
 The battle (`cok_combat_battle`), as `COMBAT` starts it: the mode becomes
 5, spells pick their targets with the combat routine (`DS:6e3a` holds
-`432f:2337`, which is not ported: a cast in a battle, `5b04:1415`, is
-logged as unported and does nothing, see The player's commands), the battlefield
+`432f:2337`, see Spells in combat), the battlefield
 is set up (see The battlefield), and the battle is over before it starts
 if either side has no record that can act at the count placement made,
 before it removed the monsters with no place. Every record runs effect
@@ -2789,7 +2787,7 @@ ported with it (see Spell effects):
 | 0x23 (confusion) | `0d7c` | at event 0x15 a d100: 1-10 it runs away (0x6f for ten minutes, the computer in control), 11-60 "is confused" and the turn ends, 61-80 "goes berserk" (0x4d, whose handler runs), 81-100 "is enraged"; then a saving throw of type 4 at -2 ends it |
 | 0x1a | `09e8` | against a target (`DS:6b3f`) with `+0x13f` bit 7, the attack roll 1 better |
 | 0x29 | `1412` | an attacker striking with an item of no bonus from more than a square away misses on a d100 of 100 or less: "Avoids it", no damage, the attack roll 0xff, one hit fewer (`DS:6b3c`) |
-| 0x47 (spell turning) | `23a4` | a d10; a spell turned back, on 1 for a spell of targets below 8 or always above 14, is not ported |
+| 0x47 (spell turning) | `23a4` | a d10; on 1 for a spell of targets below 8, or always above 14, the spell is turned back on its caster (see Spells in combat) |
 | 0x48 | `24f4` | each enemy within a cell (`6b30:08d8`) without 0x5c that fails a saving throw of type 4 "is terrified" (0x6f for good) and flees |
 | 0x4b | `26bf` | against a target with `+0x140` bit 0, damage 3 times a d12 + 4 + strength's damage bonus, as a byte, and the attack roll 2 better |
 | 0x4f | `2b5f` | "emits an evil stench"; each enemy within a cell that fails a saving throw of type 4 and lacks 0x76 "is affected" |
@@ -2807,13 +2805,12 @@ passing, or with `--combat melee`'s attacks, 0x46 (at death) a d6, and
 the damage it deals (`60f4:1db7`) runs the targets' events, which can
 roll more (magic resistance's d100, Mirror Image's die, 0x47's d10); and
 the timers' damage over time (0x0f, 0x16, 0x22, 0x2c) their saving
-throws and deaths; while 0x47 turning a spell back on its caster rolled
-none in the emulator's random cases but changes records. 0x30, 0x3c,
+throws and deaths. 0x30, 0x3c,
 0x42, 0x4c and 0x6a are ported with the attacks. The
 monsters' breath and attacks (4, 6, 0x4e, 0x53-0x55, 0x5a, 0x68) and
 0x4a, their d100s, d20s, saving throws and damage dice, wait for the
-spells in combat: the computer's turns raise event 0x0e, where they are
-skipped. The handlers the attacks reach
+clouds and breath (P11): the computer's turns raise event 0x0e, where
+they are skipped. The handlers the attacks reach
 are ported with them (see Attacks, movement and death). Each effect that
 ends in a battle, by its timer or the battle's end, is logged, `effect:
 NAME loses 0x77`. The dead that explode (effect 0x44) explode after
@@ -2914,11 +2911,11 @@ where theirs misbehave: 0x4b against no target (read at `0000:0140`) and
 0x1a likewise (`0000:013f`), 0x29 reading the selected character when none
 is, a record with no combat record, and the nested removals above.
 
-Not ported: spells and items' spells in combat (`5b04:1415` with
-`432f:2337`) and the damaging clouds (`60f4:0dc3`). Attacks, movement and
+Not ported: the damaging clouds (`60f4:0dc3`). Attacks, movement and
 death are (see Attacks, movement and death), and so are the computer's
-turns and the player's commands (see The computer's turns and The
-player's commands); `eclplay --combat melee` attacks at each turn.
+turns, the player's commands and the spells (see The computer's turns,
+The player's commands and Spells in combat); `eclplay --combat melee`
+attacks at each turn.
 
 A differential test ran the original routines in an 8086 emulator against
 the port. Whole battles: setup (`3cb2:1c58`), event 0x18, rounds with
@@ -3157,7 +3154,11 @@ The port keeps these quirks:
   1, 8, ..., 64 (`DS:6feb` + 28j), neither cleared with the bodies. Callers
   pass the byte and what they hold of those lists (`cok_arena_kill`);
   unknown, the port stops if the combatant is in any of them, where the
-  byte could find it, and else takes it as not found.
+  byte could find it, and else takes it as not found. An entry whose
+  record was freed since (a party member dropped by Alter or removed by
+  treasure: `cok_cast_forget` marks it) matches whatever record the heap
+  puts at its address: a byte reaching one, or an unknown byte with one
+  among the entries, stops the port.
 - Centring redraws the cell it starts from with its combatant's icon even
   if that cannot act; the scroll draws only those that can act or have
   status 10.
@@ -3546,12 +3547,11 @@ a footprint there (11 to 14) in between. It depends on the heap and the
 stack, so the port still stops; the player's turns reach it when Molly
 unreadies her hoopak (View, Items, Ready) and then attacks.
 
-Not ported: casting and the spell targets in combat (`5b04:1415`,
-`432f:2337`); and the effects that need them, among them the
-monsters' breath (event 0x0e), which picks its targets through the spell
-target routine (`*DS:6e3a`, `432f:2337`) and the cones and bolts of
-overlay `5b04`, and turning a spell back (0x47), which needs the spell
-targets (`DS:6fea`, `6feb`).
+Not ported: the monsters' breath (event 0x0e), which picks its targets
+through the spell target routine (`*DS:6e3a`, `432f:2337`, ported with
+the spells in combat) and the cones and bolts of overlay `5b04` (P11).
+Casting in combat and turning a spell back (0x47) are ported (see Spells
+in combat).
 
 A differential test ran the original routines in an 8086 emulator against
 the port: P6's random battlefields set up by both (`3cb2:1c58`), then
@@ -3663,23 +3663,21 @@ of the selected character's own side that, unless the spell's save (byte
 8 = 1) negates it, fails a saving throw of type byte 9 (`60f4:113a`, at
 -2 on the party's side, +8 on the other); every such one throws, failing
 or not (`3afb:02b7`). Cure Light Wounds (3), whose test for a target
-(`432f:1eed`) comes after the priority, has priority 0, so the computer
-never casts it, nor any spell of priority 0. The spell bytes of marked
-spells lie past the table's end (up to `DS:41a3`), which the original
-reads; the port reads them from the executable's data.
+(`432f:1eed`, see Spells in combat) comes after the priority, has
+priority 0, so the computer never chooses it, nor any spell of priority
+0; it casts one begun while the player had the character. The spell
+bytes of marked spells lie past the table's end (up to `DS:41a3`), which the
+original reads; the port reads them from the executable's data.
 
-Casting in combat (`432f:28bd`, `5b04:1415`) and using an item there
-(`546c:24d7`) belong to the spells in combat and are not ported: when the
-computer has chosen, by all of the tests above with their dice and saving
-throws, it is logged (`unported: NAME casts spell 0x0f (432f:28bd)`,
-`unported: NAME uses an item's spell 0x34 (546c:24d7)`, `unported: NAME
-casts spell 0x0f at its turn (5b04:1415)`) and its turn ends, as the cast
-or the use would end it. The cast's own dice (its targets, `432f:2337`,
-their saving throws and damage, and the d2 of each tie as a cast that
-takes time moves the caster down the turn order) are not rolled: from the
-first such line a battle's random numbers part from the original's, and
-the targets keep what the spell would have taken. A spell begun at an
-earlier turn is never there, as only `432f:28bd` begins one.
+What the computer has chosen, by all of the tests above with their dice
+and saving throws, it casts (`432f:28bd` with the computer's flag:
+`cok_combat_cast`, no redraw, "Begins Casting" for a spell that takes
+time) or uses (`546c:24d7`, `cok_item_use`), the turn then over; a spell
+begun at an earlier turn is cast (`5b04:1415`, the computer picking its
+targets) and the turn ends. Unlike the player's turn (`3995:0573`), the
+computer's leaves the spell begun in its combat record while it casts
+it, so one hurt by its own spell (a Fireball around itself) "lost a
+spell" and forgets another of it. See Spells in combat.
 
 Turning undead (`3afb:024b`): a cleric (`+0xf9` above 0, or `+0x101`
 above `+0xd7`, signed) that has tried fewer times this battle (combat
@@ -3855,12 +3853,13 @@ the player's commands (`3995:0573`) run with their key routine
 (`3995:08d5`) answering Alt-Q, "Continue Battle:" No, `GetMem` a bump
 allocator, the stack and heap filled with 0xa5 (and again with 0x5a and
 0), `DS:6de4` and `6de9` 0xff as at startup, and `432f:28bd`,
-`546c:24d7` and `5b04:1415` called from `3afb` logging what the port logs
-and ending the turn. Parties of one to six of `SAVE/`'s characters and
-`--test-party`'s fought the monster groups the scripts load before each
-`COMBAT` (`LOAD MONSTER`'s constant operands in the three ECL files,
-built as `LOAD MONSTER` builds them, at most eight monsters), on 3D maps
-from `GEO` and on open ground, some party members given a bow or a wand.
+`546c:24d7` and `5b04:1415` called from `3afb` logging what the port then
+logged and ending the turn (the casts are now carried out: see Spells in
+combat for the test that runs them). Parties of one to six of `SAVE/`'s
+characters and `--test-party`'s fought the monster groups the scripts load
+before each `COMBAT` (`LOAD MONSTER`'s constant operands in the three ECL
+files, built as `LOAD MONSTER` builds them, at most eight monsters), on 3D
+maps from `GEO` and on open ground, some party members given a bow or a wand.
 Every record, item, effect and combat record, the tables, sides, rounds,
 rolls, pool, seed and the transcript (texts, attacks, sounds, the rounds'
 orders and turns) were compared at the end. Of 10,000 battles, 9,256
@@ -4052,16 +4051,11 @@ text's last, `DS:6135`). The spell is cast (`5b04:1415`), and in combat a
 spell its table's byte 11 allows ends the turn (`6346:2964`); the turn's
 end uses up the scroll's spell or a charge, as outside combat.
 
-Casting in a battle (`5b04:1415`, with its targets `432f:2337` and the
-handlers on the map) is not ported: `cok_cast_spell` (after refusing a
-spell past the handler table, as an item's 0x6c-0x7f) logs it, as
-`unported: NAME casts spell 0xNN (5b04:1415)`, and does nothing, leaving
-what the caller does after (ending the turn, using a charge) as the
-original's would be after a cast. Random numbers part from the original's
-at the first such line: the cast's own dice (a d2 for a caster with 0x4a,
-its targets, saving throws and damage) are not rolled. The computer's
-casts and item uses are still logged at `432f:28bd` and `546c:24d7` (see
-The computer's turns).
+The cast itself, from Cast, a spell begun earlier or an item, is in
+Spells in combat. A camp-only spell from an item (byte 11 0, which Use
+does not test) is cast, sets what Use and the turn's menus share when it
+finds a target, so the menus end, and uses its charge, though the turn
+goes on.
 
 | Function | Original |
 | --- | --- |
@@ -4193,6 +4187,285 @@ differed, 124 stopped at a harness wand's spell 0x72 (past the handler
 table), 37 at Target with no target, 1 at sight off the map, the rest
 skipped handlers; with the screens, 270 of 300 agreed, none differing.
 It is not part of the repository.
+
+## Spells in combat
+
+`src/cast.h` ports casting in a battle: the combat part of the cast
+(`5b04:1415`, with `5b04:57eb`), the targets in combat (`432f:2337`, which
+the battle puts in `DS:6e3a`, with `432f:210b`, `432f:1eed` and
+`5b04:0ecb`), the apply routine's touch (`5b04:1071` with `60f4:1062`),
+the handlers of the spells cast only in combat (table `DS:6e3a`, filled
+by `5b04:58ed`) with their helpers `5b04:1cbd` (missiles), `1e34` (sides),
+`39bb` and `3a6f` (bolts) and `1903` with `17aa`, `17eb` and `1836`
+(cones), and effect 0x47 turning a spell back (`3f44:23a4`). Cast
+(`432f:28bd`, see The player's commands), a spell begun at an earlier
+turn (`3995:0573`, `3afb:004b`) and Use (`546c:24d7`) all cast through
+`cok_cast_spell`; the computer's casts (`3afb:0613`) go through Cast with
+its flag, and its items (`3afb:04b2`) through Use (`cok_item_use`). Each
+cast in a battle is logged, `cast: NAME: SPELL`.
+
+The cast in combat (`5b04:1415`, the mode 5): the refusal of spells of
+byte 7 0 is skipped; a caster with 0x4a miscasts on a d2 of 1; then, or
+when announced and from memory, `5b04:57eb` says in the side panel that
+the caster "Casts a Spell" (row 10, with a pause), whatever the verb, so
+"miscasts" never shows in combat, and puts "Spell:" and the spell's name
+on row 23 (light green). Until it is over: the targets (`432f:2337`,
+below, with the computer's flag of the caller: Cast's, `3afb:004b`'s 1,
+`3995:0573`'s 0, Use's the user's `+0x18b`); with any, the flight: the
+spell's missile (`6346:1b5b`, icon slot 0x12), the caster turned toward
+the spell's cell (`DS:710f`, `7110`; the first direction from north whose
+quarter, `6b30:054a`, holds it) in its casting pose (`6beb:0ad8`,
+`DS:71ad` set), sound 0x0b for Fireball, 8 for Lightning Bolt, else 2,
+the missile flown (`6346:1ba6`, four pictures, 30 ms a step), and the
+caster, if shown (`6beb:06ef`), drawn back in its ready pose; then as
+outside combat its invisibility ends, the spell is forgotten unless an
+item is used, and the handler runs with the spell in `DS:6b33`. With no
+target the player is asked "Abort Spell? " (yellow): No aims again; Yes,
+and the computer at once, "Spell Aborted" (row 24), the spell forgotten
+unless an item is used. Then the panel's text and row 23 are cleared.
+
+The targets in combat (`432f:2337`) clear the list (`DS:6fea`), the area
+flag (`DS:6b39`) and set the spell's cell to the caster's, then by the
+low nibble k of the spell table's byte 6:
+
+| k | Spells | Targets |
+| --- | --- | --- |
+| 0 | Detect Magic, Shield, Mirror Image, Prayer, Snake Charm, Animate Dead, Fire Shield and the like | the caster |
+| 5 | Faerie Fire (0x4f), Charm Monsters (0x51) | picks while the sum of their weights is within an allowance (the caster level for Faerie Fire, else 2d4): by hit dice (`+0xd6`: 0 or 1 count 1, 2 2, 3 4, others 8) or for Faerie Fire by size (`+0xcf`: 1, 2 or 4); a pick already taken costs the computer a point of its allowance and gives the player "Already been targeted"; picks stop past the allowance with two or more, on none, or at an allowance of 0 |
+| 15 | Silence (0x19, 0x66) | one pick: the caster's target (`+0x0a`), or with none (the player's Target after Manual's Exit) those at the cell, radius (k >> 4), 0 |
+| 8-14 | Bless, Sleep, Fireball, Lightning Bolt, Haste, Slow, Dispel Magic, Confusion, Fear, Dimension Door, Ice Storm, Cone of Cold and others | a cell (an empty one allowed), then everyone around it within byte 6 & 7 (`6b30:08d8`, any direction, a footprint of 1), either side, the caster too, nearest first; the area flag set |
+| others | single targets: 1 pick for byte 6 & 3 = 0, up to 4 for Hold Person (0x31), Hold Monsters and 0x3f | (byte 6 & 3) + 1 picks: one already taken is refused ("Already been targeted", the computer losing the pick), the caster too for Hold Person (0x17, 0x31: "Cannot target yourself"); the spell's cell becomes the last pick's |
+
+Each pick (`432f:210b`): the player aims (`432f:3b80`, see The player's
+commands: not attacking, an empty cell allowed for an area, a creature
+unless Dimension Door) within the spell's range (`5b04:0ecb`: byte 2 plus
+byte 3 times the caster level, 6 while an item is used, as a byte; 0 with
+byte 6 set, and 0xff, a touch, become 1), and the pick, or none, becomes
+the caster's target (`+0x0a`); the computer takes itself for a spell not
+aimed at enemies (byte 14 0), or for Cure Light Wounds the ally
+`432f:1eed` finds; else `432f:3f9f` picks an enemy within the range
+afresh (a d(enemies) a try), which is refused if it is helpless
+(`6346:0cdb`) and the spell's effect (byte 10) is one that makes it so
+(`DS:200c`: 0x33-0x35, 0x1f). A pick sets the spell's cell. With no
+target at all *done is cleared, but never for k 5 (its handler then runs
+with none), nor for an area whose cell holds no one. `432f:1eed`: of the
+eight cells around the caster and its own (`DS:1ed6`, `1edf`), the
+combatant on its side that is hurt with the fewest hit points, or the
+caster itself below half its most; but where none has fewer than 8, the
+last body found on a body's cell (0x1f, `DS:69ee`) whose record is not
+dead, stoned or gone (statuses 6-8). The computer's test of Cure Light
+Wounds (`3afb:03b9`) uses it too.
+
+The apply routine (`5b04:1071`) in combat: for a spell cast by touch
+(byte 2 of `DS:6b33` 0xff), after its saving throw, the target's stats
+(`6346:0d20`), its event 0x0b, and the caster's attack roll against its
+armour class (`60f4:1062`, see Attacks, movement and death); a miss
+counts as saved and leaves no damage, for that target and those after it.
+Each step reads the target from the list again. Damage in combat is
+`60f4:1db7`'s (see Attacks, movement and death): the flash, a hurt
+caster's spell lost.
+
+| Spell | Handler | In combat |
+| --- | --- | --- |
+| 2 Curse | `1f2c` | those against the caster (`1e34`): effect 2, "is Cursed" |
+| 1, 0x69 Bless | `1efb` | those on the caster's side, in combat but one with an enemy beside it (`6346:26e2` within 1) |
+| 4 Cause Light Wounds | `1fc2` | by touch, 1d8 of magic (`60f4:1261`) |
+| 0x0a, 0x6a Charm Person | `20f8` | the first target, unless a monster of some kind (`+0x13f` above 1) or larger than a man (`+0xcf`): "is unaffected"; else 0x0b valued at the caster level and the caster's side in bit 7, run when removed, "is charmed", and 0x0b's handler takes hold |
+| 0x0f Magic Missile | `23f3` | (level + 1) / 2 missiles of 1d4 + 1, magic |
+| 0x14 Shocking Grasp | `2484` | by touch, 1d8 + the level, electricity and magic |
+| 0x15 Sleep | `24d8` | 4d4 hit dice, each target in turn by its own (`+0xd6`, signed: up to 1 counts 1, 2 2, 3 4, 4 6, 5 10 for an elf, 20 for others and above): those unconscious, asleep (0x35) or past what is left are taken off; the rest "falls asleep", no save |
+| 0x17, 0x31, 0x5e Hold | `2616` | through `1cbd` with a save 2 easier for one (3 for 0x31, 0x5e), 1 for two, none for three or four: "is held" |
+| 0x19, 0x66 Silence | `26b2` | 0x15, "is silenced" |
+| 0x1b Snake Charm | `279a` | every snake in the list (`+0x13f` & 0x10), either side, that can act and is not charmed, while their hit points are within the caster's: 0x33, "is charmed" |
+| 0x1f Knock | `2900` | nothing (no effect to add) |
+| 0x21, 0x26, 0x28, 0x2c, 0x2d, 0x3d, 0x64 | `2999`, `3053`, `3124`, `3705`, `373e`, `3f2c` | "is weakened", "is blind", "is diseased" (run when removed), "has been cursed!" (0x64 adds none), "is blinking", "is paralyzed" |
+| 0x2f Fireball, 0x40 | `376c` | the caster level's d6 (0x40: 2 × 1d3 + 1), fire and magic; outside a 3D area (var 0x4be6 0) those within 2 of the cell, not 3; the screen centred there |
+| 0x33 Lightning Bolt | `3d04` | the level's d6 (`60f4:1216`), electricity and magic, on the cell, then a bolt of 7 |
+| 0x3c | `3ed8` | 1d6 + 20 of electricity on the cell, then a bolt of 3 doing 20 |
+| 0x37 Slow | `3d5e` | those against the caster, as many as its level: Haste (0x27) cured, else "is Slowed" (0x2a) |
+| 0x41 | `3feb` | 2d4 + 2 of magic |
+| 0x42 Cause Serious Wounds | `4026` | by touch, 2d8 + 1, + 3 for a caster of deity 4 |
+| 0x44 Poison | `418e` | the spell applied (a save that changes nothing); then the caster's target runs event 9 for 0x40, and unless that cancels it, 0x40's handler poisons it (`3f44:1b55`) |
+| 0x46 Sticks to Snakes | `4214` | the first target, of fewer than 6 hit dice: effect 3 at the caster level and its handler, "is fighting with snakes"; else "smashes them flat" |
+| 0x51 Charm Monsters | `42f3` | through `1cbd`, "is charmed", then 0x0b's handler for each |
+| 0x52 Confusion | `4382` | at most 2d8 of the targets, each throwing type 4: 0x23 for the spell's duration, a save of kind 1 |
+| 0x53 Dimension Door | `4446` | the caster erased and put at the cell (`6beb:10f3`), off the map where another stands, the screen centred on it, "teleports" |
+| 0x54 Fear | `44ed` | the cone (3, 6) toward the cell, either side: each throws type 4; failing, 0x6f (run when removed), "runs in terror", and whatever became of the effect it flees (`+0x10`), the computer controls it, a player's character is turned (`+0xe7` 0xb3) and it forgets its target; else "is unaffected" |
+| 0x56 Fumble | `4801` | the first target throws type 4 (the damage type 0x40): failing, 0x1b "is clumsy" and its handler, the turn lost; else 0x2a "is slowed"; then the spell applied again: a second save and 0x1b once more |
+| 0x57 Ice Storm | `4914` | 3d10 of cold |
+| 0x48, 0x49, 0x4a, 0x4c, 0x4e, 0x4f, 0x5b, 0x5c, 0x5d, 0x62 | `42b1`-`42de`, `4984`-`4998`, `4a2c` | nothing: Cause Critical Wounds, Dispel Evil, Flame Strike, Slay Living, Entangle, Faerie Fire, Cloud Kill, Cone of Cold, Feeblemind and 0x62 are used up |
+| 0x22 Stinking Cloud | `29de` | not ported: logged, `unported: Stinking Cloud's clouds (5b04:29de)` |
+
+The handlers ported outside combat run in combat too, their texts in the
+side panel (`6346:1883`: "is Cured", "is Unaffected", healing, "is
+stronger") or flashed (`6346:228c`: "can see", Dispel Magic's "is
+affected", "is un-cursed", "is Healed"). `5b04:1cbd`: from the last
+target to the first, a missile to each but the last picked (sound 2), a
+saving throw of the spell's type (byte 9) with the bonus given, an elf
+(`+0x5a` 7) always saving against Hold Person, Faerie Fire and Charm
+Monsters counting the last picked as saved against a save of kind 1;
+then the spell's effect for its duration, valued at the caster level.
+
+A bolt (`5b04:3a6f`, after `39bb` on the cell): from the spell's cell on,
+away from the caster, its length in cells (2 a step, 3 a diagonal one),
+in segments that end at another combatant, off the map, at a cell costing
+more than 1, at the line's end or the length; each flies the bolt (icon
+slot 0x13, 50 ms a step) and hits its last cell (`39bb`): a combatant
+other than the one the last segment hit throws (type 4, 3 for breath)
+and takes the damage, half if saved. A wall in a 3D area (var 0x4be6 1)
+reached with its flag clear bounces: the wall becomes the spell's cell,
+the bolt turns back along the line from it to the caster (alternately
+toward and away from it), anyone may be hit again, and for Lightning
+Bolt's first bounce the 8 the line back costs where it is 8 or shorter is
+charged. A cone (`5b04:1903`): the aim pushed on, repeating the line's own
+steps, until the length walked reaches the cone's length or the aim
+reaches the map's edge, kept on the map and pulled back to the first cell
+that blocks sight (`6b30:03f1`); the combatants on the line to it,
+nearest first, each once, then for a width of 2 or more those on a line
+to the end's neighbour on the right, by the direction of the last step
+that met one, and for 3 the left (`DS:0d94`-`0dac`); for a width of 0xff
+those within 3 of the end instead; the caster left out.
+
+Effect 0x47 (`3f44:23a4`, on events 6 and 9) turns a spell back on a d10
+of 1 for one whose targets (byte 6 of `DS:6b33`, spell 0's, all 0, when
+none is cast) are below 8, or always above 14: the holder "reflects the
+spell" (no pause), the selected character's cell becomes the spell's, it
+takes the holder's place in the targets, the spell's missile (one
+picture, 30 ms a step) flies from the holder to the first target, and the
+damage or effect goes to it: `60f4:057c`'s record is the caller's
+(`cok_effects_dispatch_at`), so the event's later handlers, and the
+damage (`60f4:1db7`) or the effect (`60f4:20f7`), take the new one.
+
+The port keeps these quirks:
+
+- "miscasts" never shows in combat: 57eb says "Casts a Spell".
+- Silence's area radius is always 0 ((byte 6 & 15) >> 4).
+- Charm Monsters' and Faerie Fire's last pick counts as saved against a
+  save of kind 1 (`1cbd`), so a lone target is always "Unaffected"; their
+  picks never clear *done, and their handler runs with none.
+- An area keeps *done with no one in it: the spell is used up on no one.
+- The computer's second pick of one already taken costs it a pick; the
+  player is told and picks again.
+- Ten combat spells do nothing; Bestow Curse 0x64 adds no effect; Knock
+  adds none.
+- Poison ignores its own saving throw; Fumble throws twice and can add
+  0x1b twice; 0x3c's bolt does a flat 20 past the cell.
+- Fireball's area is recomputed with radius 2 outside 3D areas.
+- Sleep weighs the caster too when aimed at its own cell, and can put the
+  caster's allies to sleep; Fear frightens allies in the cone.
+- The computer's Dimension Door aims at an enemy's cell, where the caster
+  cannot stand: it leaves the map.
+- A bolt's length on a line after a bounce counts the length of the line
+  before it, as a byte: a first segment shorter than that ends the bolt.
+- A cone's "already listed" flag is never cleared on its main line: after
+  one met a second time (a large monster's second cell) no one further on
+  is added.
+- Bless in combat leaves out an ally with an enemy beside it.
+- The computer leaves its spell begun in its combat record while it casts
+  it (`3afb:004b`, unlike `3995:0573`): hurt by its own Fireball it "lost a
+  spell", forgets another of it and ends its turn.
+- A camp-only spell from an item is cast in combat (Use does not test
+  byte 11) and does not end the turn.
+- Effect 0x47 turns damage dealt outside a spell too (event 6 of
+  `60f4:1db7` from an explosion or an effect, with no spell: spell 0's
+  byte 6 is 0), flying the missile toward the last spell's first target.
+
+Where the original misbehaves the port stops with `COK_ECL_UNDEFINED`:
+a handler reading its first target (`DS:6feb`) through NULL, as Target
+after Manual's Exit makes it (the original reads the interrupt table at
+`0000:0000`), or weighing such a pick (Charm Monsters); Hold's save bonus
+for more than four targets (a local never set; the targeting never gives
+more; with none it is not read); a cone aimed at the cell of a caster
+larger than one cell, or cast by a caster not shown after its flight (its
+range and side then come from the missile's stack); a cone's list past 30
+(into its directions); a bolt that ends its line short of its length on a
+cell it does not bounce from (the original passes there for ever); 0x47
+turning a spell toward a first target whose record was freed with the
+party member it was (removed in camp or by treasure, marked when it is);
+terrain past the table.
+
+Bytes `1903` reads from the stack, never set there, are those of the
+calls before it. The sight's range is the return address the caster's
+terrain blit (`6346:2678` in Tandy mode, 0x2705; 0x21d0 CGA, 0x2458 EGA)
+left: no limit in any mode. The side line's direction where no one is on
+the main line is the low byte of the data segment that blit pushed, which
+depends on where DOS loaded the game (PSP + 0x10 + 0x0bc6): 0xc6 for a
+PSP of 0xnnf0, as in the emulator (load segment 0x1000), the port's
+assumption. Its entries of the neighbour tables are then the screen
+frame's bytes: the right line ends 4 cells east of the end, the left at
+the end. A probe computing the cone for all 256 values of the byte found
+the same targets in each of 88 Fear casts with no one on the line. Aimed
+at the caster's own cell (Fear with `T` at once: the aim starts there),
+the step directions are the locals that drawing the caster's icon at the
+cast's end left (`6beb:0ad8`, `6d21:04b0`, Tandy's), the screen offsets
+of its cell on the view: with sx, sy its place on the view, the bytes 0,
+12 (6 - sx), 0, 12, 0, 32, 1, then the word 2016 (sy + 1), 24, 0, 24 sy,
+0, 12 sx, 0, 0, then zeros; a probe of 78 casts, every view cell it
+reached, agrees. The other display modes' blits may leave others (a
+DOSBox check below). The spell's cell after no pick is entry 0's
+(`DS:6fe7` is the handler table's last bytes and the count), which
+nothing reads before the next cast sets it.
+
+Not ported: Stinking Cloud's clouds and the acid pools (P11: `5b04:29de`,
+`60f4:0dc3`), with Dispel Magic's part for the clouds (`5b04:3352`), which
+does nothing while no cloud lies on the map; the breath of monsters, which
+picks its targets through `432f:2337` and uses the cones and bolts (P11);
+effects the spells add whose handlers are not ported, which are logged
+and skipped as before: 0x22 of Cause Disease when it ends, the clouds'
+0x1e and 0x1f, and the timers' 0x0f and 0x16 of Slow Poison from an item.
+
+| Function | Original |
+| --- | --- |
+| `cok_cast_spell` | `5b04:1415`, `57eb`, `1071`, `432f:2337`, `210b` |
+| `cok_cast_range` | `5b04:0ecb` |
+| `cok_cast_wounded_ally` | `432f:1eed` |
+| `cok_cast_reflect` | `3f44:23a4`'s turning |
+| `cok_effects_dispatch_at` | `60f4:057c` with the caller's record |
+| `cok_item_use` | `546c:24d7` |
+
+A differential test ran the original's whole battle (`3995:0172`) in an
+8086 emulator against the port's, as for the player's commands, but with
+`432f:28bd`, `546c:24d7` and `5b04:1415` run as they are on both sides:
+the battles of the computer's turns' test, the party's and some monsters'
+records given random spells of the table's combat ones (Stinking Cloud
+left out) and some effect 0x47, the player's keys casting at random (Cast,
+the spell list's arrows, the aiming keys, Exit and the "Abort Spell?"
+answers, Alt-M and Alt-Q), or every turn the computer's with Magic On.
+Records, items, effects, combat records, the tables, rounds, rolls, seed,
+the order and the transcript (casts, prints from a cast to the next turn,
+attacks, sounds, turns, rounds, keys, unported lines) were compared at the
+end, and for a sample the screen at every key read and pause. Of 10,000
+such battles 8,542 agreed and none differed; of 3,000 with every turn the
+computer's, 2,789 (one more after a run past the emulator's instruction
+limit); of 3,000 of the player's commands' kinds, 2,531; filled with 0x5a,
+1,708 of 2,000, and with 0, 844 of 1,000; with the screens, 858 of 1,000;
+none differing. The rest skipped a handler not ported (the breath of
+monsters at event 0x0e, 0x46 at a death, Stinking Cloud's clouds, 0x22 of
+Cause Disease twice), stopped where the original misbehaves (a cone
+aimed at its own cell 71 times in 10,000, then a stop; a first target of
+none, a pick of none weighed) or at the earlier parts' stops (a harness wand's
+spell past the handler table, Target after Manual's Exit, sight off the
+map), or both did. In the 10,000 agreeing battles 25,837 spells were
+cast, 103 of them, each at least once (Friends and Knock once, Stinking
+Cloud's twice through items); targets: the caster 4,714, areas 9,884,
+separate picks 17,384, weighed picks 353, Silence 561; 22,776 flights;
+no target 10,120 times, "Abort Spell?" 9,659 and 3,061 aborted; the
+computer's casts 9,736 with 6,128 spells begun cast at their next turn
+(the player's 7,461), its items 1,079; saving throws 25,285 (in the
+computer's 3,000: 7,167 made, 12,646 failed); magic resistance rolled 493
+times and resisting 255; touch rolls 784 with 462 misses; 718 missiles to
+extra targets (`1cbd`); bolts 2,881 cells and 233 bounces; 209 cones;
+216 spells turned back (0x47); 189 spells lost; Cure Light Wounds' ally
+found 16 times. A later 1,500, after 6beb:0e08's reachable entries took
+the spell targets, agreed on 1,282, none differing (one more stop: a
+destroyed undead among them, where the stale byte is not known). After the
+review (the cone at its own cell modelled, freed entries marked), 4,500
+fresh battles: of 2,000 of the mixed kinds 1,706 agreed; of 1,000 that
+start with both sides' target lists filled as an earlier battle leaves
+them, 905; of 500 casting only Fear, 456, with 2,349 cones; of 1,000
+filled with 0x33, 846. None differed, and none stopped at a cone's own
+cell (before, 71 of 10,000 above and 187 of 400 battles of Fear in the
+review's run stopped there). It is not part of the repository.
 
 ## Treasure and the end of combat
 
@@ -4901,7 +5174,9 @@ The port keeps these quirks:
   tests a count it never set (`[bp-0x1e]`), and Add ends when it is above
   5. It holds what `FreeMem` (`1a46:03d3`) left when the start menu freed
   its last row (`4def:0381`): the offset of the free block below the row,
-  or the low byte of DS (0xc6) when the row joins that block. The game
+  or the low byte of DS (0xc6 where DOS loads the game at a PSP of
+  0xnnf0, as the emulator does; see Spells in combat) when the row joins
+  that block. The game
   booted in an 8086 emulator with Turbo Pascal's own heap left 8 or 0xc6
   there in every history tried, so the space leaves Add, as in the port:
   the title seen or skipped at each wait, or `Woof`; the demonstration
@@ -5260,9 +5535,8 @@ running in DOSBox:
 - The mouse in the combat menus and the cursor (`DS:71a5`, `71a6`) is not
   ported: compare that the keyboard alone gives the same results, and the
   cursor's flight between Aim's targets (`6346:1ba6` with delay 0).
-- A cast in combat from Cast, Use or a spell begun earlier is not ported
-  (logged); a cleric's long spell ("Begins Casting") moves it down the
-  round's order with a d2 at each tie: compare the order after it.
+- A cleric's long spell ("Begins Casting") moves it down the round's
+  order with a d2 at each tie: compare the order after it.
 - A cleric on Auto against undead (see The computer's turns): `3afb:024b`
   takes the highest kind to turn from a stack byte its calls leave, the
   way of moving's last die's sides, 2 or 4. Put a cleric of level 5 or
@@ -5575,6 +5849,30 @@ running in DOSBox:
 - Modify a character's name typing an upper-case `K`: Modify should keep
   and end. Change the wisdom of a cleric with two spells a day and exit:
   it should keep one until it is loaded again.
+- In a battle, cast Magic Missile with Cast: the caster should turn toward
+  the target in its attacking pose, the spell's missile fly to it, "Casts
+  a Spell" (not "casts") show in the side panel with "Spell:Magic Missile"
+  on row 23, and the target flash. Cast while under 0x4a (a curse that
+  miscasts): still "Casts a Spell".
+- Cast Hold Person at three targets: a missile should fly from the caster
+  to the first two, none to the last picked; pick the caster: "Cannot
+  target yourself".
+- Cast Fear at an empty cell with no one on the line to it (and on past
+  it, 6 cells in all), a creature on the line from the caster to 4 cells
+  east of the line's end and none on the line to the end itself: the
+  creature should run in terror (the stack byte 0xc6, which needs DOS to
+  load the game at a PSP of 0xnnf0: note DOSBox's, the segment `mem`
+  shows for the game, or `DS - 0x0bd6`). Repeat in EGA and CGA mode.
+- Cast Fear and press `T` at once (the aim on the caster's own cell), in
+  Tandy mode with the caster at a few places on the view: the cone should
+  go as the port's does (the directions drawing the caster's icon left).
+  Repeat in EGA mode, where the port may differ.
+- In a 3D area, cast Lightning Bolt at an enemy beside a wall: the bolt
+  should come back once, hitting the enemy again but not the caster.
+- Let a cleric begin casting a spell that takes time, then hit it: "lost
+  a spell", and its memorized spell gone.
+- Cast Magic Missile at a creature turning spells (effect 0x47) until it
+  "reflects the spell": the caster should take the damage.
 
 ## Disassembly image
 

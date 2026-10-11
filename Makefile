@@ -56,6 +56,9 @@ build/test_ai: tests/test_ai.c $(ADVENTURE_DEPS) | build
 build/test_command: tests/test_command.c $(ADVENTURE_DEPS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_command.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
 
+build/test_spell: tests/test_spell.c $(ADVENTURE_DEPS) | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_spell.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
+
 build/test_attack: tests/test_attack.c $(ADVENTURE_DEPS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_attack.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
 
@@ -107,7 +110,7 @@ build/test_text: tests/test_text.c src/text.c src/text.h src/picture.c src/pictu
 build/test_image: tests/test_image.c src/image.c src/image.h src/dax.c src/dax.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_image.c src/image.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
 
-test: build/START_FULL.EXE build/test_dax build/test_image build/test_picture build/test_text build/test_ecl build/test_menu build/test_view build/test_party build/test_effect build/test_adventure build/test_camp build/test_cast build/test_items build/test_monster build/test_combat build/test_round build/test_arena build/test_attack build/test_ai build/test_command build/test_treasure build/test_shop build/test_start build/daxcheck build/daximages build/daxcompose build/ecldump build/eclplay
+test: build/START_FULL.EXE build/test_dax build/test_image build/test_picture build/test_text build/test_ecl build/test_menu build/test_view build/test_party build/test_effect build/test_adventure build/test_camp build/test_cast build/test_items build/test_monster build/test_combat build/test_round build/test_arena build/test_attack build/test_ai build/test_command build/test_spell build/test_treasure build/test_shop build/test_start build/daxcheck build/daximages build/daxcompose build/ecldump build/eclplay
 	./build/test_dax
 	./build/test_image
 	./build/test_picture
@@ -128,6 +131,7 @@ test: build/START_FULL.EXE build/test_dax build/test_image build/test_picture bu
 	./build/test_attack
 	./build/test_ai
 	./build/test_command
+	./build/test_spell
 	./build/test_treasure
 	./build/test_shop
 	./build/test_start
@@ -191,6 +195,9 @@ build/test_round_sanitize: tests/test_round.c $(ADVENTURE_DEPS) | build
 build/test_ai_sanitize: tests/test_ai.c $(ADVENTURE_DEPS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_ai.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
 
+build/test_spell_sanitize: tests/test_spell.c $(ADVENTURE_DEPS) | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_spell.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
+
 build/test_command_sanitize: tests/test_command.c $(ADVENTURE_DEPS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_command.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
 
@@ -212,7 +219,7 @@ build/test_treasure_sanitize: tests/test_treasure.c $(ADVENTURE_DEPS) | build
 build/eclplay_sanitize: src/eclplay.c $(ADVENTURE_DEPS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer src/eclplay.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
 
-sanitize: build/START_FULL.EXE build/test_dax_sanitize build/test_image_sanitize build/test_picture_sanitize build/test_text_sanitize build/test_ecl_sanitize build/test_menu_sanitize build/test_view_sanitize build/test_party_sanitize build/test_effect_sanitize build/test_adventure_sanitize build/test_camp_sanitize build/test_cast_sanitize build/test_items_sanitize build/test_monster_sanitize build/test_combat_sanitize build/test_round_sanitize build/test_arena_sanitize build/test_attack_sanitize build/test_ai_sanitize build/test_command_sanitize build/test_treasure_sanitize build/test_shop_sanitize build/test_start_sanitize build/eclplay_sanitize build/daxcheck_sanitize
+sanitize: build/START_FULL.EXE build/test_dax_sanitize build/test_image_sanitize build/test_picture_sanitize build/test_text_sanitize build/test_ecl_sanitize build/test_menu_sanitize build/test_view_sanitize build/test_party_sanitize build/test_effect_sanitize build/test_adventure_sanitize build/test_camp_sanitize build/test_cast_sanitize build/test_items_sanitize build/test_monster_sanitize build/test_combat_sanitize build/test_round_sanitize build/test_arena_sanitize build/test_attack_sanitize build/test_ai_sanitize build/test_command_sanitize build/test_spell_sanitize build/test_treasure_sanitize build/test_shop_sanitize build/test_start_sanitize build/eclplay_sanitize build/daxcheck_sanitize
 	./build/test_dax_sanitize
 	./build/test_image_sanitize
 	./build/test_picture_sanitize
@@ -233,6 +240,7 @@ sanitize: build/START_FULL.EXE build/test_dax_sanitize build/test_image_sanitize
 	./build/test_attack_sanitize
 	./build/test_ai_sanitize
 	./build/test_command_sanitize
+	./build/test_spell_sanitize
 	./build/test_treasure_sanitize
 	./build/test_shop_sanitize
 	./build/test_start_sanitize
@@ -251,7 +259,9 @@ sanitize: build/START_FULL.EXE build/test_dax_sanitize build/test_image_sanitize
 	out="$$(./build/eclplay_sanitize --test-party 6 --set 4be6=1 --start 835f --seed 1 --combat melee --keys '\r\rEN' Assets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(done in block 32)" && printf '%s\n' "$$out" | grep -q '^combat: seed 1879734825$$' && test "$$(printf '%s\n' "$$out" | grep -c '^attack: ')" = 27
 	out="$$(./build/eclplay_sanitize --test-party 6 --set 4be6=1 --start 835f --seed 1 --combat auto --keys '\r\rEN' Assets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 32 at 8417)" && printf '%s\n' "$$out" | grep -q '^combat: seed 3958868712$$' && test "$$(printf '%s\n' "$$out" | grep -c '^print: Surrenders$$')" = 5
 	test "$$(./build/eclplay_sanitize --test-party 6 --set 4be6=1 --start 87b4 --seed 1 Assets 32 | tail -n 1)" = "(the party was killed in block 32)"
-	out="$$(./build/eclplay_sanitize --test-party 6 --set 4be6=1 --start 87b4 --seed 1 --keys 'TTVEDSSEQANTNM88DDGDDM887DA\@qN\rEN\r\r' Assets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(done in block 32)" && printf '%s\n' "$$out" | grep -q '^combat: seed 669777574$$' && test "$$(printf '%s\n' "$$out" | grep -c '^print: is turned$$')" = 10
+	out="$$(./build/eclplay_sanitize --test-party 6 --set 4be6=1 --start 87b4 --seed 1 --keys 'TTVEDSSEQANTNM88DDGDDDA\@qN\rEN\r\r' Assets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(done in block 32)" && printf '%s\n' "$$out" | grep -q '^combat: seed 1876183322$$' && test "$$(printf '%s\n' "$$out" | grep -c '^print: is turned$$')" = 10 && test "$$(printf '%s\n' "$$out" | grep -c '^print: is held$$')" = 2
+	out="$$(./build/eclplay_sanitize --file 1 --test-party 6 --start 86a4 --set 4be6=1 --combat auto --keys '\r\r\r\r\r' Assets 33)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 33 at 86ac)" && printf '%s\n' "$$out" | grep -q '^combat: seed 457552249$$' && printf '%s\n' "$$out" | grep -q '^print: lost a spell$$'
+	if [ -f SAVE/SAVGAMA.DAT ]; then out="$$(./build/eclplay_sanitize --party SAVE/SAVGAMA.DAT --start 835f --seed 1 --keys '\rC\#50\#50CNTCCNTDQCCNTDQDQ' Assets 32)" && test "$$(printf '%s\n' "$$out" | grep -c '^print: is Blessed$$')" = 6 && test "$$(printf '%s\n' "$$out" | grep -c '^print: falls asleep$$')" = 2; fi
 	out="$$(./build/eclplay_sanitize --test-party 6 --set 4be6=1 --start 835f --seed 1 --keys '\rM44\eDGANTDBAM8\e\eDQ\@qN\rEN' Assets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(done in block 32)" && printf '%s\n' "$$out" | grep -q '^combat: seed 2970518320$$' && printf '%s\n' "$$out" | grep -q '^print: is bandaged$$'
 	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --set 4be6=1 --start 828a --keys '\r\rE\r' Assets 33 | tail -n 1)" = "(done in block 33)"
 	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --party SAVE/SAVGAMA.DAT --set 4be6=1 --start 851e --keys 'wwps\r\r' Assets 33 | tail -n 1)" = "(out of keys in block 33 at 87b5)"; fi

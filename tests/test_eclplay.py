@@ -292,26 +292,55 @@ class PlayTests(unittest.TestCase):
                                       "combat: seed 2996491197",
                                       "(out of keys in block 32 at 8417)"])
 
+    def test_casters_on_auto(self):
+        # Two clerics of ECL1 block 33 at 86a4 against the test party on
+        # Auto (3afb:0613, 432f:28bd): one Begins Casting Hold Person (time
+        # 1), moves down the round's order and casts it at its next turn
+        # (5b04:1415 from 3afb:004b): the computer's three picks, each
+        # throwing, missiles (sound 2) to all but the last picked; the
+        # other's spell, begun, is lost when FARO hits it.
+        result = self.play("--file", 1, "--test-party", 6, "--start", "86a4", "--set", "4be6=1",
+                           "--combat", "auto", "--keys", r"\r\r\r\r\r", ASSETS, 33)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        at = lines.index("turn: CLERIC (initiative 6)")
+        self.assertEqual(lines[at + 1:at + 3], ["print: CLERIC", "print: Begins Casting"])
+        at = lines.index("cast: CLERIC: Hold Person")
+        self.assertEqual(lines[at - 1:at + 16],
+                         ["turn: CLERIC (initiative 5)", "cast: CLERIC: Hold Person",
+                          "print: CLERIC", "print: Casts a Spell", "print: Spell:Hold Person",
+                          "sound: 2", "sound: 4", "print: BRAM", "print: is held", "sound: 2",
+                          "print: FARO", "print: is Unaffected", "sound: 2", "sound: 4",
+                          "print: DUNN", "print: is held", "turn: CLERIC (initiative 2)"])
+        at = lines.index("turn: FARO (initiative 2)")
+        hit = lines.index("attack: CLERIC Hitting for 2 points of damage", at)
+        self.assertEqual(lines[hit + 1:hit + 3], ["print: CLERIC", "print: lost a spell"])
+        self.assertEqual(lines.count("cast: CLERIC: Hold Person"), 1)
+        self.assertIn("combat: seed 457552249", lines)
+        self.assertIn("combat: removed 2 CLERIC; 2 dropped", lines)
+
     def test_player_turns(self):
         # The skeletons of ECL1 block 32 at 87b4, the player's turns played
         # by the keys (3995:0573): FARO and BRAM, clerics, Turn the undead
         # (432f:12b7); CERA Views herself, then Done, Speed, Slower, Exit,
         # Quit; ALDA Aims at BRAM, an ally (Attack Ally: No), Moves two
-        # north and Guards; DUNN Delays, ELIN Moves into the curate and
-        # attacks, DUNN's turn comes again at the end of the round, Done,
-        # Auto: the computer plays it; FARO presses Alt-Q in round 2, and
-        # the computer finishes the battle.
-        keys = r"TTVEDSSEQANTNM88DDGDDM887DA\@qN\rEN\r\r"
+        # north and Guards. The curate Begins Casting Hold Person and casts
+        # it at its turn again (5b04:1415, the computer's three picks, each
+        # thrown against, 5b04:1cbd's missiles to all but the last): FARO
+        # and ELIN are held and lose their turns. DUNN Delays, and at its
+        # turn again presses Done, Auto; CERA Alt-Q in round 2, and the
+        # computer finishes the battle.
+        keys = r"TTVEDSSEQANTNM88DDGDDDA\@qN\rEN\r\r"
         result = self.play("--test-party", 6, "--set", "4be6=1", "--start", "87b4", "--seed", 1,
                            "--keys", keys, ASSETS, 32)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
         turns = [line for line in lines if line.startswith("turn: ")]
-        self.assertEqual(turns[:9], ["turn: FARO (initiative 6)", "turn: BRAM (initiative 6)",
+        self.assertEqual(turns[:8], ["turn: FARO (initiative 6)", "turn: BRAM (initiative 6)",
                                      "turn: CERA (initiative 5)", "turn: ALDA (initiative 5)",
                                      "turn: EVIL CURATE (initiative 4)",
-                                     "turn: DUNN (initiative 3)", "turn: ELIN (initiative 2)",
-                                     "turn: DUNN (initiative 1)", "turn: DUNN (initiative 6)"])
+                                     "turn: EVIL CURATE (initiative 3)",
+                                     "turn: DUNN (initiative 3)", "turn: DUNN (initiative 1)"])
         at = lines.index("turn: FARO (initiative 6)")
         self.assertEqual(lines[at + 1:at + 4], ["menu: Move View Aim Use Cast Turn Done",
                                                 "print: FARO", "print: turns undead..."])
@@ -329,16 +358,24 @@ class PlayTests(unittest.TestCase):
                           "menu: Next Prev Manual Target Center Exit", "menu: Attack Ally: ",
                           "choice: N"])
         self.assertIn("print: Guarding", lines[at:lines.index("turn: EVIL CURATE (initiative 4)")])
-        at = lines.index("turn: ELIN (initiative 2)")
-        self.assertIn("attack: EVIL CURATE and Misses", lines[at:at + 12])
-        self.assertIn("round: 2: DUNN 6, EVIL CURATE 6, FARO 5, BRAM 3, ALDA 3, CERA 2, ELIN 1, "
+        at = lines.index("turn: EVIL CURATE (initiative 4)")
+        self.assertEqual(lines[at + 1:at + 19],
+                         ["print: EVIL CURATE", "print: Begins Casting",
+                          "turn: EVIL CURATE (initiative 3)", "cast: EVIL CURATE: Hold Person",
+                          "print: EVIL CURATE", "print: Casts a Spell",
+                          "print: Spell:Hold Person", "sound: 2", "print: DUNN",
+                          "print: is Unaffected", "sound: 2", "sound: 4", "print: FARO",
+                          "print: is held", "sound: 2", "sound: 4", "print: ELIN",
+                          "print: is held"])
+        self.assertIn("round: 2: DUNN 7, CERA 5, ALDA 5, ELIN 3, EVIL CURATE 2, FARO 2, BRAM 1, "
                       "SKELETON 0, ZOMBIE 0, SKELETON 0, ZOMBIE 0, SKELETON 0, SKELETON 0, "
                       "SKELETON 0, SKELETON 0, SKELETON 0, SKELETON 0", lines)
-        at = lines.index("turn: FARO (initiative 5)")
+        self.assertNotIn("turn: ELIN (initiative 3)", lines)
+        at = lines.index("turn: CERA (initiative 5)", lines.index("turn: DUNN (initiative 7)"))
         self.assertEqual(lines[at + 1:at + 3],
-                         ["menu: Move View Aim Use Cast Turn Done", "turn: FARO (initiative 19)"])
+                         ["menu: Move View Aim Use Cast Done", "turn: CERA (initiative 19)"])
         self.assertIn("print: Surrenders", lines)
-        self.assertIn("combat: seed 669777574", lines)
+        self.assertIn("combat: seed 1876183322", lines)
         self.assertIn("combat: removed 8 SKELETON, 2 ZOMBIE, 1 EVIL CURATE; 11 dropped", lines)
         self.assertEqual(lines[-1], "(done in block 32)")
         # Without --keys the player's turns pass, and the passive party is
@@ -348,6 +385,44 @@ class PlayTests(unittest.TestCase):
         lines = result.stdout.splitlines()
         self.assertNotIn("menu: Move View Aim Use Cast Turn Done", lines)
         self.assertEqual(lines[-1], "(the party was killed in block 32)")
+
+    def test_wand_and_weighed_picks(self):
+        # The ambush of ECL1 block 32 with seven of the test party: ALDA
+        # Moves north into a hobgoblin and attacks (3995:1117); GWEN Uses
+        # her Wand of Magic Missiles (546c:24d7, 5b04:1415 as an item: "uses
+        # an item", no "Casts a Spell"), aimed at a hobgoblin; then Begins
+        # Casting Charm Monsters and casts it at her next turn, two picks
+        # weighed (432f:2337's kind 5), the last picked saved (1cbd).
+        keys = r"\rDQDQDQM8DQDQU\#50UPTDQCCPTPPT\eDQDQDQ"
+        result = self.play("--test-party", 7, "--set", "4be6=1", "--start", "835f", "--seed", 1,
+                           "--keys", keys, ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        at = lines.index("turn: ALDA (initiative 5)")
+        self.assertEqual(lines[at + 1:at + 7],
+                         ["menu: Move View Aim Use Done", "menu:  Done", "sound: 7",
+                          "print: ALDA", "print: Attacks",
+                          "attack: HOBGOBLIN Hitting for 7 points of damage"])
+        at = lines.index("turn: GWEN (initiative 2)")
+        self.assertEqual(lines[at + 1:at + 20],
+                         ["menu: Move View Aim Use Cast Done", "list: Items",
+                          "item:  Yes  Quarter Staff ", "item:  Yes  Wand ",
+                          "menu: Ready Use Drop Halve Join", "choice: U", "print: GWEN",
+                          "print: uses an item", "print: Item:", "print: Wand ",
+                          "cast: GWEN: Magic Missile",
+                          "menu: Next Prev Manual Target Center Exit",
+                          "menu: Next Prev Manual Target Center Exit", "sound: 2", "sound: 3",
+                          "print: HOBGOBLIN", "print: takes 12 points of damage from Magic",
+                          "print: HOBGOBLIN", "print: Goes Down, and is Dying"])
+        at = lines.index("cast: GWEN: Charm Monsters")
+        self.assertEqual(lines[at - 1], "turn: GWEN (initiative 5)")
+        self.assertEqual(lines[at + 1:at + 19],
+                         ["print: GWEN", "print: Casts a Spell", "print: Spell:Charm Monsters"] +
+                         ["menu: Next Prev Manual Target Center Exit"] * 6 +
+                         ["sound: 2", "print: DUNN", "print: is Unaffected", "sound: 2",
+                          "sound: 4", "print: HOBGOBLIN LDR", "print: is charmed",
+                          "turn: HOBGOBLIN (initiative 5)", "print: HOBGOBLIN"])
+        self.assertIn("combat: seed 3176944188", lines)
 
     def test_player_ambush(self):
         # The ambush of ECL1 block 32, played: FARO Moves west twice and
@@ -1209,6 +1284,77 @@ class PartyTests(unittest.TestCase):
                          ["choice: 1", "print: KAL", "print: casts", "print: Bless",
                           "print: SIR STRONGSWORD", "print: is Blessed"])
         self.assertEqual(lines.count("print: is Blessed"), 6)
+
+    def test_casting_in_battle(self):
+        # Throtl's ambush with the saved party, casting from the combat menu
+        # (432f:28bd): KAL Begins Casting Bless; GARIN casts Sleep at once,
+        # aimed at a cell (432f:2337's area within 1, either side): 4d4 hit
+        # dice put his allies to sleep, SIRRION throwing against it; KAL
+        # casts Bless at its next turn, aimed at its own cell (within 2),
+        # every ally blessed.
+        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--start", "835f", "--seed", 1,
+                           "--keys", r"\rC\#50\#50CNTCCNTDQCCNTDQDQ", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        at = lines.index("turn: KAL (initiative 8)")
+        self.assertEqual(lines[at + 1:at + 3], ["menu: Move View Aim Use Cast Done",
+                                                "list: Spells in Memory"])
+        self.assertIn("print: Begins Casting", lines[at:at + 20])
+        at = lines.index("cast: GARIN : Sleep")
+        self.assertEqual(lines[at:at + 17],
+                         ["cast: GARIN : Sleep", "print: GARIN ", "print: Casts a Spell",
+                          "print: Spell:Sleep", "menu: Next Prev Manual Target Center Exit",
+                          "menu: Next Prev Manual Target Center Exit", "sound: 2", "sound: 4",
+                          "print: SIR STRONGSWORD", "print: falls asleep", "sound: 4",
+                          "print: ISTAN HORBIN", "print: falls asleep", "print: SIRRION",
+                          "print: is Unaffected", "turn: HOBGOBLIN (initiative 6)", "sound: 10"])
+        at = lines.index("cast: KAL: Bless")
+        self.assertEqual(lines[at - 1], "turn: KAL (initiative 5)")
+        blessed = [lines[i - 1] for i in range(at, at + 40) if lines[i] == "print: is Blessed"]
+        self.assertEqual(blessed, ["print: MOLLY", "print: ISTAN HORBIN", "print: KAL",
+                                   "print: SIRRION", "print: SIR STRONGSWORD", "print: GARIN "])
+        # Nothing picked: Exit, "Abort Spell? " No aims again, Exit, Yes:
+        # "Spell Aborted", the spell forgotten.
+        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--start", "835f", "--seed", 1,
+                           "--keys", r"\rC\#50\#50CCC\eN\eYDQ", ASSETS, 32)
+        lines = result.stdout.splitlines()
+        at = lines.index("cast: GARIN : Sleep")
+        self.assertEqual(lines[at + 4:at + 11],
+                         ["menu: Next Prev Manual Target Center Exit", "menu: Abort Spell? ",
+                          "choice: N", "menu: Next Prev Manual Target Center Exit",
+                          "menu: Abort Spell? ", "choice: Y", "print: Spell Aborted"])
+        self.assertNotIn("print: falls asleep", lines)
+        # KAL casts Detect Magic on himself (432f:2337's kind 0), GARIN Magic
+        # Missile at the nearest (a single pick), SIRRION Begins Casting
+        # Silence 15' radius and casts it at his next turn (3995:0573) at
+        # the nearest (kind 15).
+        result = self.play("--party", SAVE / "SAVGAMA.DAT", "--start", "835f", "--seed", 1,
+                           "--keys", r"\rC\#48\#48CC\#48CNTDQC\#50CDQDQNTDQ", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        at = lines.index("cast: KAL: Detect Magic")
+        self.assertEqual(lines[at + 1:at + 9],
+                         ["print: KAL", "print: Casts a Spell", "print: Spell:Detect Magic",
+                          "sound: 2", "sound: 4", "print: KAL", "print: is affected",
+                          "turn: GARIN  (initiative 7)"])
+        at = lines.index("cast: GARIN : Magic Missile")
+        self.assertEqual(lines[at + 1:at + 10],
+                         ["print: GARIN ", "print: Casts a Spell", "print: Spell:Magic Missile",
+                          "menu: Next Prev Manual Target Center Exit",
+                          "menu: Next Prev Manual Target Center Exit", "sound: 2", "sound: 3",
+                          "print: SIR STRONGSWORD",
+                          "print: takes 4 points of damage from Magic"])
+        at = lines.index("turn: SIRRION (initiative 5)")
+        self.assertIn("choice: 102", lines[at:at + 12])
+        self.assertEqual(lines[at + 12:at + 14], ["print: SIRRION", "print: Begins Casting"])
+        at = lines.index("cast: SIRRION: Silence 15' radius")
+        self.assertEqual(lines[at - 1:at + 10],
+                         ["turn: SIRRION (initiative 4)", "cast: SIRRION: Silence 15' radius",
+                          "print: SIRRION", "print: Casts a Spell",
+                          "print: Spell:Silence 15' radius",
+                          "menu: Next Prev Manual Target Center Exit",
+                          "menu: Next Prev Manual Target Center Exit", "sound: 2", "sound: 4",
+                          "print: SIR STRONGSWORD", "print: is silenced"])
 
     def test_cast_in_camp_on_one(self):
         # Camp, Magic, Cast: Kal's list starts on Sleep, which cannot be

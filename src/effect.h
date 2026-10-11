@@ -86,6 +86,13 @@ struct cok_effects {
     /* The event whose handlers run, 0 while an effect is removed or a
      * handler is run directly. */
     uint8_t event;
+    /* While an event's handlers run, the caller's pointer to the record
+     * they run for (60f4:057c's argument), which 0x47 changes. */
+    cok_character **target;
+    /* The id whose handler was last called: the poisons' handlers (3f44:1c21
+     * and the like) are told apart by it, not by the effect they are given,
+     * which Poison (5b04:418e) never sets. */
+    uint8_t running;
     /* Log text of kind (see cok_adventure_hooks.log); NULL logs nothing. */
     void (*log)(cok_effects *fx, const char *kind, const char *text, void *context);
     /* Whether target is within radius of holder on the combat map, for an
@@ -155,6 +162,13 @@ struct cok_effects {
      * second combatant listed (DS:6a36), stale when fewer are, NULL for
      * none. */
     bool (*second)(cok_effects *fx, cok_character *c, uint8_t **record, void *context);
+    /* 0x47's turning (3f44:23a4) in combat: c "reflects the spell"
+     * (6346:1883, row 10, no wait), the spell's cell becomes the
+     * selected character's, which takes c's place in the spell's targets
+     * (DS:6feb), and the spell's missile (icon slot 0x12) flies from c to
+     * the first target; *caster is the selected character. */
+    bool (*reflect)(cok_effects *fx, cok_character *c, cok_character **caster, char *error,
+                    size_t error_size, void *context);
     /* 60f4:2375: the dead that explode go off (cok_combat_explode). */
     bool (*explode)(cok_effects *fx, void *context);
     /* Effect 0x4c's gating (3f44:272a, cok_combat_gate): those waiting
@@ -178,6 +192,11 @@ void cok_effects_free(cok_effects *fx);
  * false with fx->error set when a handler is not ported (outside a
  * battle) or the original would misbehave. */
 bool cok_effects_dispatch(cok_effects *fx, cok_character *target, uint8_t event);
+
+/* cok_effects_dispatch, given the caller's pointer to target, which a
+ * handler may change (0x47 turning a spell back on its caster): the
+ * handlers after it run for the new one, which the caller then holds. */
+bool cok_effects_dispatch_at(cok_effects *fx, cok_character **target, uint8_t event);
 
 /* Remove effect from character, or if it is NULL the first effect with id
  * (60f4:01e9), first running the handler of id with flag 1 if the effect

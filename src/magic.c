@@ -984,7 +984,7 @@ void cok_magic_cast(cok_adventure *game, uint8_t frame)
         redraw = true;
         cok_picture_fill(&game->screen, 1, 0x11 * 8, 0x26, 6 * 8, 0); /* 1128:07e6 */
         bool done = false;
-        cok_cast_spell(game, (uint8_t)spell, true, frame, &done);
+        cok_cast_spell(game, (uint8_t)spell, false, true, frame, &done);
         if (game->vm.abort) return;
     }
     if (redraw) cok_adventure_redraw(game);

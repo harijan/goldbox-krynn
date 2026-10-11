@@ -528,21 +528,36 @@ bool cok_arena_turn(cok_adventure *game, cok_character *c, uint8_t margin, bool 
     return ok;
 }
 
-/* Whether entry b of the body table (DS:69ee + 7b) is c, for the bytes
- * that read a record pointer the port holds: false with *known clear for
- * any other. */
+cok_character cok_arena_freed;
+
+/* The record pointer entry b of the body table (DS:69ee + 7b) reads from
+ * the lists of also: the exploding list's for 0x31, 0x35 and 0x39, the
+ * spell targets' for 0xdb + 4j; NULL with *other set for any other b. */
+static const cok_character *reached(const cok_arena_reachable *also, unsigned b, bool *other)
+{
+    *other = false;
+    if (b == 0x31 || b == 0x35 || b == 0x39)
+        return also != NULL ? also->exploding[(b - 0x31) / 4] : NULL;
+    if (b >= 0xdb && b <= 0xff && (b - 0xdb) % 4 == 0)
+        return also != NULL ? also->targets[(b - 0xdb) / 4] : NULL;
+    *other = true;
+    return NULL;
+}
+
+/* Whether entry b of the body table is c, for the bytes that read a
+ * record pointer the port holds: false with *known clear for any other,
+ * and for an entry of a record freed since (cok_arena_freed), whose
+ * address c could have taken. */
 static bool entry_is(const cok_combat *cb, const cok_arena_reachable *also, unsigned b,
                      const cok_character *c, bool *known)
 {
     *known = true;
     if (b == 0 || b == 0x24) return false;
     if (b >= 1 && b <= COK_COMBAT_BODIES) return cb->body[b - 1].character == c;
-    if (b == 0x31 || b == 0x35 || b == 0x39)
-        return also != NULL && also->exploding[(b - 0x31) / 4] == c;
-    if (b >= 0xdb && b <= 0xff && (b - 0xdb) % 4 == 0)
-        return also != NULL && also->targets[(b - 0xdb) / 4] == c;
-    *known = false;
-    return false;
+    bool other;
+    const cok_character *e = reached(also, b, &other);
+    if (other || e == &cok_arena_freed) *known = false;
+    return e == c;
 }
 
 bool cok_arena_kill(cok_adventure *game, cok_character *c, int stale,
@@ -558,10 +573,12 @@ bool cok_arena_kill(cok_adventure *game, cok_character *c, int stale,
     /* The search for a body of c by the stale byte (see arena.h). */
     bool known;
     if (stale == COK_ARENA_STALE_UNKNOWN) {
-        for (unsigned b = 0; b < 256; ++b)
-            if (entry_is(cb, also, b, c, &known))
+        for (unsigned b = 0; b < 256; ++b) {
+            bool other;
+            if (entry_is(cb, also, b, c, &known) || reached(also, b, &other) == &cok_arena_freed)
                 return fail(game, "whether a body is found depends on a byte the stack holds "
                                   "(6beb:0e08)");
+        }
     } else {
         if (entry_is(cb, also, (unsigned)stale & 0xffu, c, &known)) return true;
         if (!known || stale < 0 || stale > 0xff)

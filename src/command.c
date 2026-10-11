@@ -99,7 +99,7 @@ static bool ammunition(cok_adventure *game, const cok_character *c, size_t *item
  * it removed) or an earlier battle left there, unless an earlier battle's
  * record is still in that entry: then it finds none and reads entry 0's
  * cell (DS:623f, 6240), which is other data, and the run stops. */
-static bool cell_of(cok_adventure *game, const uint8_t *record, int8_t *x, int8_t *y)
+bool cok_combat_cell_of(cok_adventure *game, const uint8_t *record, int8_t *x, int8_t *y)
 {
     const cok_combat *combat = &game->combat;
     if (record != NULL || combat->count > COK_COMBATANTS) {
@@ -285,7 +285,7 @@ bool cok_combat_commands(cok_adventure *game, cok_character *c, uint8_t pressed)
         uint8_t spell = cr->spell;
         cr->spell = 0;
         bool cast = false;
-        cok_cast_spell(game, spell, false, 0, &cast); /* 5b04:1415 */
+        cok_cast_spell(game, spell, false, true, 0, &cast); /* 5b04:1415 */
         if (game->vm.status != COK_ECL_OK) return false;
         cok_combat_end_turn(c);
         return true;
@@ -656,7 +656,7 @@ static bool strike(cok_adventure *game, cok_character *c, cok_character *target,
         return true;
     }
     res->target = target != NULL ? target->record : NULL;
-    if (!cell_of(game, res->target, &res->x, &res->y)) return false;
+    if (!cok_combat_cell_of(game, res->target, &res->x, &res->y)) return false;
     combat->cursor = 0;
     if (!cok_arena_centre(game, s8(combat->view_x + 3), s8(combat->view_y + 3), 3, 8))
         return false;
@@ -892,7 +892,7 @@ bool cok_combat_aim(cok_adventure *game, cok_character *c, uint8_t range, uint8_
         /* Special keys too: Down is P, keypad + N, shift-F1 T; with no
          * target (after the cursor's Escape), the cell of none. */
         if ((key == 'N' || key == 'P' || key == 'T') &&
-            !cell_of(game, target != NULL ? target->record : NULL, &x, &y))
+            !cok_combat_cell_of(game, target != NULL ? target->record : NULL, &x, &y))
             return false;
     }
     if (attack != 0) clear_cells(game, 0, 0x17, 0x27, 0x17);
@@ -1027,7 +1027,7 @@ bool cok_combat_cast(cok_adventure *game, bool *done, bool redrawn, uint8_t spel
     if (!spell_byte(game, spell, 12, &byte)) return false;
     uint8_t time = (uint8_t)(byte / 3);
     if (time == 0) {
-        cok_cast_spell(game, spell, redrawn, 0, done); /* 5b04:1415 */
+        cok_cast_spell(game, spell, redrawn, true, 0, done); /* 5b04:1415 */
         if (game->vm.status != COK_ECL_OK) return false;
         cok_combat_end_turn(caster);
         *done = true;

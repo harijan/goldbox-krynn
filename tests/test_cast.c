@@ -114,7 +114,7 @@ static void remove_effects(cok_character *c, uint8_t id)
 static void cast_from(uint8_t spell, bool announce, uint8_t frame, bool *done)
 {
     *done = false;
-    cok_cast_spell(&game, spell, announce, frame, done);
+    cok_cast_spell(&game, spell, false, announce, frame, done);
 }
 
 static void cast(uint8_t spell, bool announce, bool *done)
@@ -513,13 +513,13 @@ static void test_durations(void)
     game.effects.rolls.amount = 0;
     keys("");
     bool done = false;
-    cok_cast_spell(&game, 0x69, false, COK_CAST_CAMP, &done);
+    cok_cast_spell(&game, 0x69, false, false, COK_CAST_CAMP, &done);
     CHECK(strstr(s.log, "print: KAL;print: is Unaffected;") != NULL && kal->effects == NULL);
     /* Damage left over from before (DS:6b30) skips the check, as nothing
      * a blessing does clears it. */
     game.effects.rolls.amount = 6;
     keys("");
-    cok_cast_spell(&game, 0x69, false, COK_CAST_CAMP, &done);
+    cok_cast_spell(&game, 0x69, false, false, COK_CAST_CAMP, &done);
     CHECK(strstr(s.log, "print: KAL;print: is Blessed;") != NULL && count_effects(kal, 1) == 1);
 }
 

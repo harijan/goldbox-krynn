@@ -13,11 +13,9 @@
  * turns undead or, failing those, readies its best weapon and moves on its
  * target and attacks, through the attacks, steps and targets of attack.h.
  *
- * Casting in combat (432f:28bd, 5b04:1415) and using an item there
- * (546c:24d7) are not ported: where the computer would cast or use an item
- * it has chosen (by the original's own tests, with their dice and saving
- * throws), the port logs it as unported and its turn ends, as the cast or
- * use would end it.
+ * What the computer chooses to cast it casts through Cast
+ * (cok_combat_cast) and an item it chooses it uses (cok_item_use); see
+ * cast.h for the cast in combat.
  *
  * Functions take their records in the order the original pushes them.
  * Each returns false, with game->vm.status set and the run ended, where the
@@ -91,15 +89,16 @@ bool cok_ai_spell_fits(cok_adventure *game, cok_character *c, uint8_t spell, uin
  * passes 1 to the d7, at levels 7, 6 and so on, the first readied item
  * that is no scroll, casts a spell (+0x3e below 0x80) and has one (+0x3d,
  * less 0x17 above 0x38 for the test) that suits c (cok_ai_spell_fits).
- * The use itself (546c:24d7) is not ported: logged, *used set. */
+ * The item is used (546c:24d7, cok_item_use) and *used set. */
 bool cok_ai_use_item(cok_adventure *game, cok_character *c, bool *used);
 
 /* 3afb:0613: the spells c has memorized (+0x1f-+0x57, those marked to be
  * learned too) if it may cast this round (combat record +0x01), and a d7;
  * if any, c is an NPC or monster or Magic is On, and some enemy can act:
  * for passes 1 to the d7, at levels 7, 6 and so on, three draws of a
- * d(spells) each, the first that suits c (cok_ai_spell_fits). The cast
- * (432f:28bd) is not ported: logged, the turn ends and *cast is set. */
+ * d(spells) each, the first that suits c (cok_ai_spell_fits), is cast
+ * (432f:28bd, cok_combat_cast with the computer's flag): *cast is what it
+ * sets, as the turn is over. */
 bool cok_ai_cast(cok_adventure *game, cok_character *c, bool *cast);
 
 /* 3afb:024b: a cleric (+0xf9 above 0, or +0x101 above +0xd7) that has

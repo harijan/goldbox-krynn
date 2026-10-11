@@ -1,6 +1,7 @@
 #include "camp.h"
 
 #include "arena.h"
+#include "cast.h"
 #include "icon.h"
 #include "magic.h"
 #include "roster.h"
@@ -709,6 +710,7 @@ static void remove_selected(cok_adventure *game)
     if (game->spell_target == gone) game->spell_target = NULL;
     if (game->trade_partner == gone) game->trade_partner = NULL;
     if (gone[0x137] < COK_ICON_SLOTS) cok_arena_free_icon(game, gone[0x137]); /* 6d21:0156 */
+    cok_cast_forget(game, game->party.members[i]);
     cok_party_remove(&game->party, i);
     --vm->mem7c00[0x33e];
     vm->character = cok_party_record(&game->party, i > 0 ? i - 1 : 0);

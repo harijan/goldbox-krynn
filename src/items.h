@@ -64,6 +64,16 @@ int cok_item_overloaded(cok_adventure *game, cok_character *who, const uint8_t *
  * it cannot act, yellow in combat on the other side, else light cyan. */
 void cok_item_draw_name(cok_adventure *game, const uint8_t *c, int x, int y, bool possessive);
 
+/* Use (546c:24d7) item index of character, the selected one: a scroll's
+ * spell picked from it, or the item's spell (+0x3d), cast as an item
+ * (DS:711d, cok_cast_spell, the computer picking the targets for one it
+ * controls, +0x18b), which uses up the scroll's spell, or one of a stack
+ * (+0x39) or a charge (+0x3c), the item going with the last; in combat it
+ * "uses an item" first, and a spell its table's byte 11 allows ends the
+ * turn. Returns false, ending the run, where it cannot be carried out; see
+ * items.c. */
+bool cok_item_use(cok_adventure *game, cok_character *character, size_t index, bool *done);
+
 /* The Items menu (546c:17f9) for the selected character, until Exit or
  * Escape, *done is set, or it has no items: the list of its items with
  * "Ready Use Trade Drop Halve Join", and in shops (mode 1) "Sell Id", as

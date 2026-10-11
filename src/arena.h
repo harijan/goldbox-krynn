@@ -86,8 +86,11 @@ enum { COK_ARENA_STALE_UNKNOWN = -1 };
  * 8 and 15 (DS:6b45, 6b61, 6b7d; b 0x31, 0x35, 0x39) and the spell
  * targets' entries 1, 8, ..., 64 (DS:6feb + 28j; b 0xdb + 4j). Neither is
  * cleared with the bodies. The caller fills in what it holds (NULL for
- * none): the first from combat.exploding[1], [8] and [15]; the spell
- * targets are not held yet. */
+ * none): combat.exploding[1], [8] and [15] and game->spell_targets[1 +
+ * 7j] (cok_cast_reachable), &cok_arena_freed for an entry whose record
+ * was freed since: the original's pointer then matches whatever record
+ * the heap puts at its address. */
+extern cok_character cok_arena_freed;
 typedef struct {
     const cok_character *exploding[3];
     const cok_character *targets[10];
