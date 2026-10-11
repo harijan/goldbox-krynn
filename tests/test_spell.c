@@ -1,6 +1,7 @@
 #include "cast.h"
 
 #include "arena.h"
+#include "cloud.h"
 #include "command.h"
 #include "effect.h"
 
@@ -100,6 +101,7 @@ static void keys(const char *k, size_t n)
 
 static void reset(void)
 {
+    cok_cloud_free(&game.combat);
     cok_party_free(&game.party);
     cok_pool_free(&game.pool);
     free(game.lost_weapons);
@@ -954,8 +956,8 @@ static void test_others(void)
     CHECK(cok_character_find_effect(a, 0x2a) != NULL);
 }
 
-/* Spells whose handlers do nothing: used up all the same. Stinking
- * Cloud's clouds are logged as not ported. */
+/* Spells whose handlers do nothing: used up all the same. (Stinking
+ * Cloud's clouds: test_cloud.) */
 static void test_empty(void)
 {
     static const uint8_t empty[] = {0x48, 0x49, 0x4a, 0x4c, 0x4e, 0x4f, 0x5b, 0x5c, 0x5d, 0x62};
@@ -971,7 +973,17 @@ static void test_empty(void)
     cok_character *m = record('M', 1, 11, 10);
     record('A', 0, 10, 10);
     bool done;
-    CHECK(cast(m, 0x22, true, &done) && done && LOGGED("unported: Stinking Cloud's clouds"));
+    CHECK(cast(m, 0x22, true, &done) && done && LOGGED("print: M;print: Creates a noxious cloud;"));
+    CHECK(game.combat.clouds != NULL && game.combat.cells[10][10] == 0x1e);
+    /* Dispel Magic tries it (test_cloud): A, of level 1, against M's of
+     * level 20, 12, resisted by a d100 above. M's 0x28 is made
+     * undispellable (0xff), so that only the cloud is tried. */
+    cok_character *a = game.party.members[1];
+    CHECK(a->record[1] == 'A');
+    m->record[0xfe] = 20;
+    a->record[0xfe] = 1;
+    cok_character_find_effect(m, 0x28)->value = 0xff;
+    CHECK(cast(a, 0x29, true, &done) && done && game.combat.clouds->resisted == 1);
 }
 
 /* Slow: those against the caster within the area, up to its level;

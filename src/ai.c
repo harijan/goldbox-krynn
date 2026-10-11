@@ -4,6 +4,7 @@
 #include "attack.h"
 #include "camp.h"
 #include "cast.h"
+#include "cloud.h"
 #include "command.h"
 #include "items.h"
 #include "magic.h"
@@ -746,7 +747,7 @@ bool cok_ai_step(cok_adventure *game, cok_character *c)
     }
     if (cr->movement > 0 && !cok_combat_step(game, c, cr->facing)) return false;
     if (r[0x189] == 0 || cok_combat_helpless(c)) cok_combat_end_turn(c);
-    return cok_combat_step_cloud(game, c);
+    return cok_cloud_square(game, c, true);
 }
 
 /* 0d49: the last step (DS:43c8) none, not stuck (43c9, and 43ca), event

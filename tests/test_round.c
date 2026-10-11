@@ -902,15 +902,18 @@ static void test_end_round(void)
     a->record[0x189] = 0;
     m->record[0x189] = 1;
     CHECK(cok_combat_end_round(&game, &done) && done && !LOGGED("Continue"));
-    /* A damaging cloud (0x1d) under one that can act would hurt it,
-     * which is not ported: logged. */
+    /* A puddle (0x1d) under one that can act hurts it 1d6 (60f4:0dc3 with
+     * flag 0); one that cannot act is not hurt. */
     a->record[0x189] = 1;
     game.combat.cells[5][5] = 0x1d;
+    uint8_t hp = a->record[0x197];
     s.log[0] = '\0';
-    CHECK(cok_combat_end_round(&game, &done) && LOGGED("unported: a damaging cloud's damage"));
+    CHECK(cok_combat_end_round(&game, &done) && LOGGED("print: A;print: takes"));
+    CHECK(a->record[0x197] < hp && a->record[0x197] + 6 >= hp && !LOGGED("unported"));
     a->record[0x189] = 0;
+    hp = a->record[0x197];
     s.log[0] = '\0';
-    CHECK(cok_combat_end_round(&game, &done) && !LOGGED("cloud"));
+    CHECK(cok_combat_end_round(&game, &done) && !LOGGED("takes") && a->record[0x197] == hp);
     /* A side past 1 is refused. */
     m->record[0x18a] = 3;
     CHECK(!cok_combat_end_round(&game, &done) && game.vm.status == COK_ECL_UNDEFINED);

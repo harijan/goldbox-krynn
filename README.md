@@ -442,7 +442,8 @@ their weapons and armour readied, 20 steel each, the cleric's Cure Light
 Wounds and the mage's Detect Magic memorized, one cell in combat (`+0xcf`
 1), their stats computed as a loaded character's are; the seventh, GWEN,
 has Charm Monsters memorized too and a Wand of Magic Missiles readied with
-5 charges. `--party SAVE` adds
+5 charges; the eighth, HOLT, is a mage too, with Stinking Cloud memorized
+instead. `--party SAVE` adds
 the characters of a saved game to the party (see Party), and `--load SAVE`
 loads the whole saved game first; then `BLOCK` may be left out to resume
 where it was saved. WHO prints the character picked (`who:`). `--shots DIR`
@@ -1229,9 +1230,10 @@ characters, also agreed; it is not part of the repository.
 Neither routine reads spell effects (`.SFX`). Effects change stats through
 their own handlers (see Spell effects): Spiritual Hammer's (`3f44:07b5`)
 removes its hammer and recomputes when it ends, which is ported, and adds
-one when cast, which is not; the stinking cloud's (`3f44:0ae0`), which
-recomputes and then makes the armour class that from behind, 2 worse,
-needs the combat record and is not. The character sheet (`546c:07bb`),
+one when cast, which is not; the stinking cloud's cough (`3f44:0ae0`),
+which recomputes and then makes the armour class that from behind, 2
+worse, needs the combat record, and is ported with the rounds. The
+character sheet (`546c:07bb`),
 the Items menu after every key (`546c:17f9`) and Trade's receiver
 (`546c:2178`, `546c:32b0`) recompute, as ported (see View), and so do
 spells by touch, before the attack roll (`5b04:1071`, which no spell cast
@@ -1353,7 +1355,8 @@ combat its end and after it took hold), `04b1` (0x0c, 0x26), `05bc` (0x0e), `062
 `1469` (0x2b, for a strength of 3 or less), `15a3` (0x2f), `16ef` (0x31),
 `173a` (0x32), `176b` (0x36), `179c` (0x37), `17a3` (0x38), `17c6` (0x39),
 `17ea` (0x3a), `1891` (0x3b), `1a72` (0x3d), `1b18` (0x3f), `2665` (0x49,
-but for damage of type 0x20), `29d5` (0x4d, outside combat), `320f` (0x59), `3258` (0x5b), `32a8` (0x5e), `3328` (0x5f), `334c`
+its text with the breath of monsters), `29d5` (0x4d, outside combat),
+`320f` (0x59), `3258` (0x5b), `32a8` (0x5e), `3328` (0x5f), `334c`
 (0x60), `325f` (0x5d), `3361` (0x61), `336f` (0x62), `3386` (0x63), `33a7`
 (0x64), `3406` (0x65), `3449` (0x66), `3450` (0x67), `34f9` (0x6b, its end),
 `3619` (0x6c), `363c` (0x6d), `3643` (0x6e), `3692` (0x6f, see The
@@ -1384,16 +1387,18 @@ back with the spells in combat), `24f4` (0x48), `26bf` (0x4b) and `2b5f`
 `000d` with `200b`, `3009` and `31e2` (0x45, 0x51, 0x58), `349c` (0x69),
 `36e1` (0x70), `376f` (0x72), `37b0` (0x73), `37fc` (0x75), `15cd` (0x30),
 `18b9` (0x3c), `1c54` (0x42), `272a` (0x4c), `34db` (0x6a), and the
-combat parts of `03cd` (0x0b taking hold) and `29d5` (0x4d); outside a
-battle those that write a combat record or read the map stop the run, as
-the original writes through records it has freed. Not ported, because
-they need combat (its records at `+0x183`, the map, targets or icons)
-and text: 0x28, 0x46 and 0x50;
-dealing damage or killing, with text: 0x0f, 0x16, 0x22 and 0x2c; healing,
-with text: 0x3e; spells: 0x4a; a monster's breath or attack, which
+combat parts of `03cd` (0x0b taking hold) and `29d5` (0x4d); with the
+clouds and pools (see Clouds, pools and breath): `0ff7` (0x28), `2037`
+(0x46) and `2cad` (0x50), and a monster's breath or attack, which
 `5b04:58ed` installs at startup and event 0x0e of the combat AI runs: 4
 (`5b04:4ab8`), 6, 0x53 and 0x68 (`546e`), 0x4e (`4dc2`), 0x54 (`4eea`), 0x55
-(`50cf`) and 0x5a (`5227`); and 0x78, whose handler is the item routine
+(`50cf`) and 0x5a (`5227`); outside a battle those that write a combat
+record or read the map stop the run, as the original writes through
+records it has freed (the ends of 0x28 and 0x50 find no cloud there and do
+nothing). Not ported, because they need combat (its records at `+0x183`,
+the map, targets or icons) and text: dealing damage or killing, with
+text: 0x0f, 0x16, 0x22 and 0x2c; healing, with text: 0x3e; spells: 0x4a;
+and 0x78, whose handler is the item routine
 `3f44:3888`, which reads past the 9-byte record. Id 0 has no handler: the
 original calls `0000:0000`. A call that reaches any of these fails, naming
 the handler; `DAMAGE` and the clock then end the run with
@@ -1837,9 +1842,11 @@ The port keeps these quirks:
   then unreadied, its power 0 removes effect 0x17, whose handler then
   takes the hammer away.
 - Dispel Magic works on the list's first target each pass (one target
-  outside combat). Its second part, the clouds on the combat map, runs
-  outside combat too and reads the map pointer (`DS:6a2e`) that combat
-  has freed; the port leaves it out.
+  outside combat). Its second part, the clouds on the combat map (see
+  Clouds, pools and breath), runs outside combat too, reading the cells
+  around the spell's through the map pointer (`DS:6a2e`), NULL there: the
+  interrupt table. The port takes none of those bytes to be a green cloud,
+  in which case nothing happens.
 
 In a battle the cast picks its targets with the combat routine
 (`432f:2337`) that the battle puts in `DS:6e3a`, flies its missile and
@@ -2357,9 +2364,11 @@ screen there (`6346:300f`, see The combat screen), whose scroll
 for it; works out the enemies' health (`432f:2df3`) and clears the Move
 mode (`DS:8858`). A key waiting is read and dropped (`1614:0479`) after the
 map, the records and placement, and before each record is placed. The
-lists of clouds (`7111`-`711b`), the dead that explode (`6b45`, `6b95`, `6b96`),
-the mouse's flags (`71a5`, `71a6`) and the debug trace (`6d7e:093e`,
-Ctrl-D only) are left to the parts that use them.
+dead that explode (`6b45`, `6b95`, `6b96`), the mouse's flags (`71a5`,
+`71a6`) and the debug trace (`6d7e:093e`, Ctrl-D only) are left to the
+parts that use them; the lists of clouds and pools (`7111`, `7119`;
+`7115` is cleared and never used) are emptied (see Clouds, pools and
+breath).
 
 The map (`DS:6a2e`, 0x4e9 bytes from GetMem, freed by `3995:004b`):
 
@@ -2483,18 +2492,18 @@ kept); a party member with none stays in the list, off the map, its place
 the last cell whose formation cell was free (or an earlier battle's, with
 none). The occupants are rebuilt after each record placed.
 
-The battle's end (`3995:004b`, `cok_combat_end`) runs after the rounds:
-it frees the lists of clouds on the map (`DS:7111`, `7119`; the port has
-none yet); then each record charmed (effect 0x0b) and okay runs (status
-3) if more than one enemy could act at the last count (`DS:6b2d`), which
-the end of the last round made; each loses the first effect of each id
-that lasts only through the battle (`60f4:1440`, `DS:0db4`: 0x03, 0x0b,
-0x15, 0x17, 0x1b, 0x1e, 0x1f, 0x33-0x35, 0x5b, 0x6a, 0x6b, 0x6f, 0x76 and
-0x77); one berserk (0x4d) and turned (`+0xe7` 0xb3) goes back to the
-party's side; the map is freed, and spells pick their targets outside
-combat again (`DS:6e3a` back to `5b04:127e`). The original also frees
-the pictures of missiles and flashes (`DS:719e`), which setup makes
-again; the port keeps them.
+The battle's end (`3995:004b`, `cok_combat_end`) runs after the rounds: it
+frees the lists of clouds and pools on the map (`DS:7111`, `7119`, see
+Clouds, pools and breath); then each record charmed (effect 0x0b) and okay
+runs (status 3) if more than one enemy could act at the last count
+(`DS:6b2d`), which the end of the last round made; each loses the first
+effect of each id that lasts only through the battle (`60f4:1440`,
+`DS:0db4`: 0x03, 0x0b, 0x15, 0x17, 0x1b, 0x1e, 0x1f, 0x33-0x35, 0x5b, 0x6a,
+0x6b, 0x6f, 0x76 and 0x77); one berserk (0x4d) and turned (`+0xe7` 0xb3)
+goes back to the party's side; the map is freed, and spells pick their
+targets outside combat again (`DS:6e3a` back to `5b04:127e`). The original
+also frees the pictures of missiles and flashes (`DS:719e`), which setup
+makes again; the port keeps them.
 
 Effect 0x52, a dragon's fear (`3f44:303c`), which event 8 runs at setup
 for the red dragons of MON3 record 22 (ECL3 blocks 97 and 98), acts on
@@ -2681,9 +2690,9 @@ The end of a round (`3995:0b6d`): a minute passes (`57e4:0549`, the clock
 and every record's effects, the monsters' too, counted down: in mode 5
 every timer flag is set); the round is counted (`DS:714b`); the enemies'
 health is worked out (`432f:2df3`); each record runs event 0x13 and is
-hurt by a damaging cloud (terrain 0x1d) it stands in when it can act
-(`60f4:0dc3`, 1d6 through `60f4:1db7`, not ported: logged as unported, and
-only spells put clouds on the map); a dying one (status 5) counts a round
+hurt by a puddle (terrain 0x1d) it stands in when it can act
+(`60f4:0dc3` with no flag: 1d6 through `60f4:1db7`, see Clouds, pools
+and breath); a dying one (status 5) counts a round
 (`+0x0e`, a byte) and past 9 is dead (status 6), its hit points and icon
 unchanged. Then "Your Teammate is Dying" shows on row 24 (`6346:1827`) if
 a party member on the party's side is dying (`6346:31e9`), the sides are
@@ -2797,20 +2806,16 @@ map stop the run, as the original's would write through records it has
 freed. Monsters carry effects that run every turn, and some of their
 handlers are still not ported: during a battle (`cok_effects.in_battle`,
 from the battle's start to its end) such a handler is skipped and logged,
-`unported: effect 0x46 (3f44:2037) on event 0x0d`, where outside a battle
+`unported: effect 0x4a (3f44:26a5) on event 0x0e`, where outside a battle
 the run ends. From the first `unported: effect` line a battle's random
 numbers and records may stop following the original's, for a skipped
-handler rolls none of its dice: of those a battle reaches with every turn
-passing, or with `--combat melee`'s attacks, 0x46 (at death) a d6, and
-the damage it deals (`60f4:1db7`) runs the targets' events, which can
-roll more (magic resistance's d100, Mirror Image's die, 0x47's d10); and
-the timers' damage over time (0x0f, 0x16, 0x22, 0x2c) their saving
-throws and deaths. 0x30, 0x3c,
-0x42, 0x4c and 0x6a are ported with the attacks. The
-monsters' breath and attacks (4, 6, 0x4e, 0x53-0x55, 0x5a, 0x68) and
-0x4a, their d100s, d20s, saving throws and damage dice, wait for the
-clouds and breath (P11): the computer's turns raise event 0x0e, where
-they are skipped. The handlers the attacks reach
+handler rolls none of its dice: of those a battle reaches, the timers'
+damage over time (0x0f, 0x16, 0x22, 0x2c) their saving throws and deaths,
+and 0x4a (the computer's turns raise event 0x0e for it) a d20. 0x30,
+0x3c, 0x42, 0x4c and 0x6a are ported with the attacks, the clouds',
+pools' and the monsters' breath and attacks (0x28, 0x46, 0x50; 4, 6,
+0x4e, 0x53-0x55, 0x5a, 0x68) with the clouds and breath (see Clouds,
+pools and breath). The handlers the attacks reach
 are ported with them (see Attacks, movement and death). Each effect that
 ends in a battle, by its timer or the battle's end, is logged, `effect:
 NAME loses 0x77`. The dead that explode (effect 0x44) explode after
@@ -2911,10 +2916,10 @@ where theirs misbehave: 0x4b against no target (read at `0000:0140`) and
 0x1a likewise (`0000:013f`), 0x29 reading the selected character when none
 is, a record with no combat record, and the nested removals above.
 
-Not ported: the damaging clouds (`60f4:0dc3`). Attacks, movement and
-death are (see Attacks, movement and death), and so are the computer's
-turns, the player's commands and the spells (see The computer's turns,
-The player's commands and Spells in combat); `eclplay --combat melee`
+Attacks, movement and death are ported (see Attacks, movement and
+death), and so are the computer's turns, the player's commands, the
+spells and the clouds (see The computer's turns, The player's commands,
+Spells in combat and Clouds, pools and breath); `eclplay --combat melee`
 attacks at each turn.
 
 A differential test ran the original routines in an 8086 emulator against
@@ -3547,11 +3552,11 @@ a footprint there (11 to 14) in between. It depends on the heap and the
 stack, so the port still stops; the player's turns reach it when Molly
 unreadies her hoopak (View, Items, Ready) and then attacks.
 
-Not ported: the monsters' breath (event 0x0e), which picks its targets
-through the spell target routine (`*DS:6e3a`, `432f:2337`, ported with
-the spells in combat) and the cones and bolts of overlay `5b04` (P11).
-Casting in combat and turning a spell back (0x47) are ported (see Spells
-in combat).
+The monsters' breath (event 0x0e), which picks its targets through the
+spell target routine (`*DS:6e3a`, `432f:2337`) and uses the cones and
+bolts of overlay `5b04`, is ported with the clouds (see Clouds, pools and
+breath); casting in combat and turning a spell back (0x47) with the
+spells (see Spells in combat).
 
 A differential test ran the original routines in an 8086 emulator against
 the port: P6's random battlefields set up by both (`3cb2:1c58`), then
@@ -3739,8 +3744,8 @@ Cursed", "already using ...", but not "Your hands are full!" for the
 computer), and the panel redrawn if anything was readied.
 
 Moving and attacking (`3afb:0d49`): no last step (`DS:43c8` 8), not stuck
-(`DS:43c9`, `43ca`); event 0x0e, where the monsters' breath fires (its
-handlers are not ported: skipped and logged in battle); one on the
+(`DS:43c9`, `43ca`); event 0x0e, where the monsters' breath fires (see
+Clouds, pools and breath); one on the
 party's side bandages the first dying party member (`6346:31e9`), which
 ends its turn. Then at most 20 passes while its turn goes on (the 21st
 guards, and that pass goes on all the same): one fleeing steps while it
@@ -3763,34 +3768,33 @@ picks a target again. A turn that picks without end (a cursed missile
 weapon with an enemy a square away readies nothing and leaves again),
 where the original loops for ever, stops the port.
 
-A step (`3afb:095a`): "Move/Attack, Move Left = N" on row 24, the keys;
-then it holds (`3afb:118e`) with no move (half its movement 0) or
-initiative left; every NPC and monster rolls a d100, and one on the
-party's side holds if the enemies' health passes it plus the morale
-(`DS:6b3e`, left by the last morale tested); one not fleeing that wears no
-armour (slot 2) with `+0x5b` 5 holds. Its way: toward its target
-(`6346:34e9`), or, fleeing, a d2 for its row and the party's facing
-(`DS:6d87`) turned to 7, 2, 3 or 6 for 0, 2, 4 and 6, the other way for
-the party's side. Of the row's five turns (`DS:0396`: row 1 0, -1, -2, +1,
-+2; 2 0, +1, +2, -1, -2; 3 -1, +1, 0, -2, +2; 4 +1, -1, 0, +2, -2; 5 0,
--1, -2, -3, 4; 6 0, +1, +2, +3, 4) it takes the first it can step to
-(`3afb:0743`: on the map, not held, a cell that can be walked on costing,
-twice or three times on a diagonal as a byte, less than its movement
-left; a green cloud costs all unless it has 0x20, 0x1e, 0x63 or 0x3f, is
-made to flee or makes a saving throw of type 0; a puddle all for one
-below level 7 unless 0x63 or made to flee); one fleeing that would step
-off the map tries to get away (`432f:0dc7`) and stops fleeing. None, or
-the way back (opposite the last step): stuck once more, the next row; at
-twice the target is forgotten and picked again (`432f:3f9f` with flag)
-or it guards; at three times no movement is left. Then, shown if its
-target was in reach, it is on the view or on the party's side
-(`DS:71ad`), it turns there (`6beb:0ad8`), the enemies it leaves attack it
-(`432f:0986`), and it steps (`432f:077a`); one that drops or is helpless
-ends its turn; the cloud under it (`60f4:0dc3`) is not ported, but only
-spells, not ported, lay clouds. Guarding (`3afb:118e`): one not helpless,
-without a missile weapon and with initiative guards (`6346:29b3`: its turn
-ends and, unless made to flee, it guards, "Guarding" on row 24); others
-end their turn.
+A step (`3afb:095a`): "Move/Attack, Move Left = N" on row 24, the keys; then
+it holds (`3afb:118e`) with no move (half its movement 0) or initiative
+left; every NPC and monster rolls a d100, and one on the party's side holds
+if the enemies' health passes it plus the morale (`DS:6b3e`, left by the
+last morale tested); one not fleeing that wears no armour (slot 2) with
+`+0x5b` 5 holds. Its way: toward its target (`6346:34e9`), or, fleeing, a d2
+for its row and the party's facing (`DS:6d87`) turned to 7, 2, 3 or 6 for 0,
+2, 4 and 6, the other way for the party's side. Of the row's five turns
+(`DS:0396`: row 1 0, -1, -2, +1, +2; 2 0, +1, +2, -1, -2; 3 -1, +1, 0, -2,
++2; 4 +1, -1, 0, +2, -2; 5 0, -1, -2, -3, 4; 6 0, +1, +2, +3, 4) it takes
+the first it can step to (`3afb:0743`: on the map, not held, a cell that can
+be walked on costing, twice or three times on a diagonal as a byte, less
+than its movement left; a green cloud costs all unless it has 0x20, 0x1e,
+0x63 or 0x3f, is made to flee or makes a saving throw of type 0; a puddle
+all for one below level 7 unless 0x63 or made to flee); one fleeing that
+would step off the map tries to get away (`432f:0dc7`) and stops fleeing.
+None, or the way back (opposite the last step): stuck once more, the next
+row; at twice the target is forgotten and picked again (`432f:3f9f` with
+flag) or it guards; at three times no movement is left. Then, shown if its
+target was in reach, it is on the view or on the party's side (`DS:71ad`),
+it turns there (`6beb:0ad8`), the enemies it leaves attack it (`432f:0986`),
+and it steps (`432f:077a`); one that drops or is helpless ends its turn;
+then the cloud or puddle under it acts (`60f4:0dc3` with its flag, see
+Clouds, pools and breath). Guarding (`3afb:118e`): one not helpless, without
+a missile weapon and with initiative guards (`6346:29b3`: its turn ends and,
+unless made to flee, it guards, "Guarding" on row 24); others end their
+turn.
 
 | Function | Original |
 | --- | --- |
@@ -3959,8 +3963,8 @@ under the footprint (`DS:1ee4`) twice, three times on a diagonal, as a
 byte, 0xff for a cell none can enter, more than its movement left says
 "can't go there"; else the enemies it leaves attack it (`432f:0986`), and
 unless it dropped it steps (`432f:077a`) while it has movement, the cloud
-under it acts (`60f4:0dc3`, not ported but logged; only spells lay
-clouds), and one that dropped or is helpless ends its turn. Escape first
+or puddle under it acts (`60f4:0dc3` with its flag, see Clouds, pools and
+breath), and one that dropped or is helpless ends its turn. Escape first
 undoes the moves (`3995:0cad`): the movement and facing come back, it is
 erased and put back where it started (`6beb:10f3`), which, where another
 now stands, leaves it off the map (size 0) and ends the turn. Leaving Move
@@ -4294,7 +4298,7 @@ caster's spell lost.
 | 0x56 Fumble | `4801` | the first target throws type 4 (the damage type 0x40): failing, 0x1b "is clumsy" and its handler, the turn lost; else 0x2a "is slowed"; then the spell applied again: a second save and 0x1b once more |
 | 0x57 Ice Storm | `4914` | 3d10 of cold |
 | 0x48, 0x49, 0x4a, 0x4c, 0x4e, 0x4f, 0x5b, 0x5c, 0x5d, 0x62 | `42b1`-`42de`, `4984`-`4998`, `4a2c` | nothing: Cause Critical Wounds, Dispel Evil, Flame Strike, Slay Living, Entangle, Faerie Fire, Cloud Kill, Cone of Cold, Feeblemind and 0x62 are used up |
-| 0x22 Stinking Cloud | `29de` | not ported: logged, `unported: Stinking Cloud's clouds (5b04:29de)` |
+| 0x22 Stinking Cloud | `29de` | see Clouds, pools and breath |
 
 The handlers ported outside combat run in combat too, their texts in the
 side panel (`6346:1883`: "is Cured", "is Unaffected", healing, "is
@@ -4379,7 +4383,11 @@ more; with none it is not read); a cone aimed at the cell of a caster
 larger than one cell, or cast by a caster not shown after its flight (its
 range and side then come from the missile's stack); a cone's list past 30
 (into its directions); a bolt that ends its line short of its length on a
-cell it does not bounce from (the original passes there for ever); 0x47
+cell it does not bounce from (the original passes there for ever), or
+that starts a line after a bounce from a state it started one from
+before, its own and the seed, hit points and conditions all the same
+(between two walls as far apart as its line before was long it is
+charged nothing and bounces for ever), or after 4,096 bounces; 0x47
 turning a spell toward a first target whose record was freed with the
 party member it was (removed in camp or by treasure, marked when it is);
 terrain past the table.
@@ -4406,13 +4414,12 @@ DOSBox check below). The spell's cell after no pick is entry 0's
 (`DS:6fe7` is the handler table's last bytes and the count), which
 nothing reads before the next cast sets it.
 
-Not ported: Stinking Cloud's clouds and the acid pools (P11: `5b04:29de`,
-`60f4:0dc3`), with Dispel Magic's part for the clouds (`5b04:3352`), which
-does nothing while no cloud lies on the map; the breath of monsters, which
-picks its targets through `432f:2337` and uses the cones and bolts (P11);
-effects the spells add whose handlers are not ported, which are logged
-and skipped as before: 0x22 of Cause Disease when it ends, the clouds'
-0x1e and 0x1f, and the timers' 0x0f and 0x16 of Slow Poison from an item.
+Stinking Cloud's clouds, Dispel Magic's part for them (`5b04:3352`) and
+the breath of monsters, which picks its targets through `432f:2337` and
+uses the cones and bolts, are ported with the clouds (see Clouds, pools
+and breath). Not ported: effects the spells add whose handlers are not
+ported, which are logged and skipped as before: 0x22 of Cause Disease
+when it ends, and the timers' 0x0f and 0x16 of Slow Poison from an item.
 
 | Function | Original |
 | --- | --- |
@@ -4466,6 +4473,277 @@ them, 905; of 500 casting only Fear, 456, with 2,349 cones; of 1,000
 filled with 0x33, 846. None differed, and none stopped at a cone's own
 cell (before, 71 of 10,000 above and 187 of 400 battles of Fear in the
 review's run stopped there). It is not part of the repository.
+
+## Clouds, pools and breath
+
+`src/cloud.h` ports the clouds and pools on the combat map: Stinking
+Cloud's clouds (`5b04:29de`), what a cloud or pool does to one who stands
+in it (`60f4:0dc3`, with `60f4:0c95`), the acid pools of those that
+dissolve as they die (effect 0x46, `3f44:2037`), the ends of both (effects
+0x28 and 0x50, `3f44:0ff7` and `2cad`) and Dispel Magic's part for the
+clouds (`5b04:3352`-`357e`). `src/cast.h` ports the breath and attacks of
+monsters, the effect handlers of event 0x0e (`5b04:4ab8`, `4dc2`, `4eea`,
+`50cf`, `5227`, `546e`), with the cones and bolts of the spells in combat.
+With them the effect handlers of groups D (0x28, 0x46, 0x50) and F (4, 6,
+0x4e, 0x53-0x55, 0x5a, 0x68) are all ported, and effect 0x49's text.
+Dragons, draconians, the aurak and the kapaks need them.
+
+A cloud or a pool is a 30-byte node from the heap: its caster's record
+(`+0`), the next (`+4`), the terrain kept under each of its cells k 1-4
+(`+7` + k), whether cell k is covered (`+0x10` + k), its cell x, y
+(`+0x1a`, `+0x1b`), its index among its caster's (`+0x1c`) and whether a
+Dispel Magic failed against it (`+0x1d`). The clouds are listed from
+`DS:7111`, the pools from `DS:7119` (`cok_combat.clouds`, `pools`), in the
+order laid; `DS:7115`, a third such pointer, is only ever cleared. Setup
+(`3cb2:1c58`) clears them and the battle's end (`3995:004b`) frees them, so
+outside a battle they are empty. A cloud's cells are the cell, east,
+south-east and south of it (`DS:2092`-`2095`: 8, 2, 3, 4); a pool covers
+its cell. A covered cell's terrain becomes green cloud (0x1e) or puddle
+(0x1d), whose tiles (RANDCOM's frames 4 and 3, `cok_combat_terrain`) are
+what drawing the map shows; both are as high as floor, so sight passes.
+The rest of combat sees them through the terrain only: a step's cost
+leaves them out and notes them (`6beb:0c9d`), one in a green cloud may not
+cast that round (`432f:0000`), the computer steps into a green cloud only
+if it throws (type 0) or is immune and into a puddle only from level 7
+(`3afb:0743`), the computer's Cure Light Wounds does not see a body under
+a cloud (`432f:1eed`), and one who drops in a cloud leaves its body under
+it (`6beb:0e08`).
+
+Stinking Cloud (`5b04:29de`) for the selected character (the caster) at
+the spell's cell (`DS:710f`, `7110`): the spell takes no mirror image
+(`DS:6b39`); a node goes at the list's end, its index the caster's clouds
+counted on the way there, which never looks at the list's last node; the
+caster gets effect 0x28 for the caster level (`6346:29fe`) in minutes,
+valued the index × 16 + the level, run when removed (`60f4:1285`). Each
+of the four cells on the map and not a wall (cost 0xff) is covered; the
+terrain kept is the cell's, or for one already 0x1e the last other cloud's
+with a covered cell there that kept something else, or for a body's tile
+(0x1f) the cell any body there covered, one taken back too (its entry
+cleared to cell 0, 0). Then "Creates a noxious cloud" (row 10, no wait),
+the screen centred on the cell (forced, `6beb:096b`), a pause, the text
+cleared, and each combatant that stood on the cells, once each, is in the
+cloud (`60f4:0dc3` with its flag).
+
+`60f4:0dc3` for one who can act: with the flag (after a step, the player's
+`3995:108b` and the computer's `3afb:0d2f`, and as a cloud is laid),
+standing in a green cloud (some cell of its footprint, `6beb:0c9d`), not
+undead (`+0xda` 0) and without 0x1f or 0x63, it throws (type 0, no
+bonus); meanwhile the selected character is the cloud's caster
+(`60f4:0c95`): saved, it "starts to cough", effect 0x1e, else "chokes and
+gags from nausea", 0x1f, either for 1d4 + 1 minutes, valued 0xff
+(`60f4:20f7`), and if it then has the effect its handler runs
+(`60f4:01a8`: 0x1e's loses the round's casting and items and worsens its
+armour class, 0x1f's ends its turn). Standing in a puddle, with the flag
+or without (the end of a round, `3995:0b6d`), it takes 1d6 (`60f4:1261`)
+of the damage type `DS:6b31` holds, with no save (`60f4:1db7`).
+`60f4:0c95` finds the cloud by its top-left cell alone, the first whose
+cell k + 1's direction (`DS:2092` + k) with cell k's flag matches; none
+found gives the list's first record (`DS:609a`).
+
+Effect 0x28's end (`3f44:0ff7`): the caster's first cloud whose index is
+the value / 16 goes: "The air clears a little..." (`6346:1827`), each
+covered cell gets back its terrain, or the body's tile where a body not
+taken back lies, the node is freed, and every other cloud's cells and
+every pool's cell are covered again. The screen is not redrawn. 0x28
+lasts beyond the battle (it is not among the effects that end with it,
+though the end of combat's list `DS:0390` takes it from the party); its
+end then finds no cloud. Effect 0x46 (`3f44:2037`, event 0x0d) on one
+without hit points or unable to act: "dissolves into acid!" (no wait) after
+a pool is laid at its cell, as a cloud is (its index the holder's pools
+before the list's last), with effect 0x50 for 1d6 minutes valued the
+index, run when removed, the terrain kept as Stinking Cloud keeps it, and
+the screen centred on it (forced). Effect 0x50's end (`3f44:2cad`): the
+holder's first pool of the value's index goes: "The acid drains away.."
+(`6346:1827`), its cell gets back its terrain or the body's tile, the
+clouds' cells and the pools' are covered again (the clouds twice, around
+the node's freeing).
+
+Dispel Magic's part for the clouds (`5b04:3352`), after its targets, in
+combat: for the spell's cell and then north, north-east, east, south-east,
+south, south-west, west and north-west of it (each case moving x or y
+from the last), a cell that is a green cloud is tried against each cloud
+that has a cell there and has never resisted: a d100 up to 50, plus 5 a
+level the caster level is above the cloud's, or less 2 a level below, as
+a byte (`DS:4839`, `483a`, `5b04:3151`); the cloud's level is its caster's
+magic-user level (`+0xfe`) plus its former one (`+0x106`) times whether
+the selected character, the dispeller, may use its former class
+(`66c2:0efb`), as a byte. Taken, the caster's first 0x28 valued the
+cloud's index × 16 + a level is removed (its end above, which finds the
+first cloud of that index, maybe another); else the cloud resists, for
+good. After each such cell the screen is centred on the spell's cell
+(margin 3).
+
+The breath and attacks of monsters run on event 0x0e, which the
+computer's attack (`3afb:0d49`) raises at its start, each again when that
+returns with the turn going on. Each counts its uses in the effect's
+value, set to 3 in the first round (`DS:714b` 0), and ends the breather's
+turn (`6346:2964`) when used. A target is picked as the computer's cast of
+a spell picks it (`432f:2337` with its flag, through `DS:6e3a`, for the
+selected character): the area flag is left as that leaves it.
+
+| Id | Handler | What it does |
+| --- | --- | --- |
+| 4 | `4ab8` | a d100 up to 75 to act; with a use and a d100 up to 25, the last of those within a cell (`6b30:08d8`, after the first listed) on another side: "Breathes!", it throws (type 3): saved, 10; failed, 20, blind for good (0x21, "is blinded") and the turn over; a use goes. Otherwise (no one, no use, or above 25) up to two energy bolts: a target as for spell 0x3d, "Fires An Energy Bolt!", the spell's missile (one picture, 30 ms), 1d8 + 2, and while it can act, a second 1d8 + 2; one that drops makes a new pick for the second; then the turn ends. The damage type is what `DS:6b31` holds |
+| 0x4e | `4dc2` | a target as for Fireball (everyone within 3 of its cell, the thrower too): the spell becomes Fireball (`DS:6b33`, left so), the screen centred on the thrower (margin 0), "throws a fireball", the missile, then Fireball applied (`5b04:1071`) with 15d6 of fire and magic, half if saved; 0x4e goes. The turn goes on |
+| 0x54 | `4eea` | poison: a target as for spell 0x24, a cone from the breather of width 0xff (everyone within 3 of its end) and length 3, either side; with anyone in it, the damage type 0x20, "breathes poison", the breather turned and drawn attacking, its panel, the missile, and each throws (type 3) and takes the breather's most hit points (`+0x62`), half if saved |
+| 0x55 | `50cf` | lightning: the damage type 0x24; a target as for Lightning Bolt; "Breathes!", the bolt's missile from the breather to the cell (four pictures, 50 ms), then a bolt of the breather's most hit points (type 3 saves): the cell (`39bb`) and length 10 on (`3a6f`, no surcharge) |
+| 0x5a | `5227` | acid: the damage type 0x30; a target as for spell 0x3d, a cone of width 1 and length 6; unless one in it is on the breather's side (`6346:2666`), "breathes acid" and the damage as 0x54's |
+| 6, 0x53, 0x68 | `546e` | a dragon's: its uses 1 for 6, else 3, also above 3; the damage type 0x22, a cone of width 3 and length 8 (6) or 7 (0x53), "breathes cold", or 0x21, 9, "breathes Fire" (0x68); a target as for spell 0x3d; unless one in the cone is on its side, the damage as 0x54's |
+
+The breath's damage types name no element ("takes 33 points of
+damage"), but bit 0x20 makes effect 0x49 (`3f44:2665`, the dragons'
+own) cancel the damage and the effect and say "is unaffected" (row 10, a
+pause), also for a type left in `DS:6b31` by an earlier breath.
+
+The cone (`5b04:1903`) reads its sight's range and, where no one is on its
+line, its side line's direction from the stack, never set there: under
+breath they are what the target routine (`432f:2337`) left. For 0x54 the
+range is the line record of the last sight the routine's listing at the
+picked cell looked along (`6b30:01a5`, called by `03f1` from `08d8`): the
+high byte of its y and the low byte of its x step, which is 0 for a line
+up or down a column, cutting sight to one cell (the burst then lies by the
+breather), and else no limit. For 0x5a and 6/0x53/0x68 it is, where the
+pick's redraw (`6beb:02aa`) drew the target's icon mirrored (facing 4 or
+more), the byte the mirror (`127f:0b94`, Tandy) swapped last, the first of
+the mask's last row, nibbles swapped, twice: 0 cuts sight to one cell;
+else the segment a far call of `432f:11d4` pushed, in DOS where the
+overlay manager loaded overlay 432f from `GAME.OVR` (0x432f in the
+emulator), or 0x005b: no limit. The side, read only by the dragons'
+(width 3): 0 where the redraw drew the target's cell's terrain and no
+mirror after (`127f:08d7`'s flag of a masked draw); else the low byte of a
+stack offset: `127f:0b94`'s frame pointer where it mirrored, else the
+address of an argument of `432f:11d4` (pushed by `124b`). Those do not
+depend on where DOS loads the game, and inside a battle every breath runs
+at the same depth (`546e` 0x16e below `3995:0172`'s SP, in 6,786 calls of
+an emulator's): they are 0x16 and 0x0c above the low byte of the stack
+pointer the battle starts at, which the path the script was run by gives
+(`cok_adventure.battle_sp`): 0x3dd4 for a vector `2fd3:3c28` runs itself,
+measured by booting the game in an emulator and letting the demonstration
+reach its battle (0xea and 0xe0); 6 less through `3b47`, a block entered
+after NEWECL, and 8 less through `3403`, Encamp's camp and rest vectors,
+both from the disassembly. For PROGRAM 9's camp, run in the middle of a
+script, the depth is not known: the port works out the cone for all 256
+values and stops only where they give different targets.
+
+The port keeps these quirks:
+
+- A caster's clouds are counted before the list's last node only: its
+  second cloud gets index 0 again, and its 0x28s, alike, take the clouds in
+  list order, not their own. Pools alike.
+- `60f4:0c95` matches cell k's flag with the direction of cell k + 1, so
+  a cloud is found from a cell it does not cover (a wall's) and not from
+  one it does; one not found makes the list's first record the caster for
+  the effect's event 9 (its caster level against magic resistance).
+- The saved one's 0x1e handler runs with no effect (the pointer the search
+  for 0x63 left).
+- A puddle hurts with whatever damage type was left, and naming it.
+- A body taken back but still on the map's tile (`6beb:10f3` clears its
+  entry, cell 0, 0) still counts for a cloud laid over cell 0, 0.
+- A cloud that once resists Dispel Magic is never tried again; Dispel's
+  removal takes the caster's first cloud of the index.
+- The aurak's breath on a saved target does not end its turn; its bolts
+  use the damage type left from before.
+- 0x4e leaves the spell Fireball (`DS:6b33`) after it, which later damage
+  and magic resistance read as the spell cast; the area flag stays as the
+  target routine left it after every breath.
+- Poison breath and lightning hit friends; acid and the dragons' refuse
+  with a friend in the cone, and with no one in it; 0x54's range cuts its
+  burst to the breather's side when the target routine last looked along
+  a column.
+- A dragon's uses go back to 3 (1 for effect 6) whenever they are above 3.
+- The event's later handlers still run after a breath ended the turn: a
+  monster with two breaths can use both in one turn.
+
+Where the original misbehaves the port stops with `COK_ECL_UNDEFINED`:
+Dispel Magic going on to the next cloud from one it freed (`5b04:354a`:
+the node's next is read where FreeMem wrote the block's size, rounded to
+0x20, as the pointer 0002:0000 (`1a46:03fc`): the walk goes on into the
+interrupt vectors and through them into the BIOS's bytes, which differ
+from machine to machine); a pool laid over a body's tile (`3f44:22a0`),
+which compares the bodies with the spell's cell moved by a direction from
+a byte never set (`[bp-0xe]`, a local of `60f4:0352`'s buffer, which
+event 0x0d's calls leave unwritten for 0x46; an emulator found it 0 in 104
+calls at 8 depths): where the 256 values give different terrains, the
+pool's kept terrain is unknown and the run stops when it is put back with
+no body there; a breath's bolt bouncing for ever between two walls (see
+Spells in combat); 0x46 outside combat (the map is NULL); a breath aimed
+at its own cell; terrain past the table (Stinking Cloud's). A dragon's
+cone whose side byte changes its targets (`5b04:1b2a`) in a battle of
+PROGRAM 9's camp, whose stack depth the port does not know, stops it with
+`COK_ECL_EFFECT_FAILED`.
+Outside combat Dispel Magic's part reads the cells around the spell's
+from the interrupt table (the map pointer `DS:6a2e` is NULL): the port
+takes none of them to be a green cloud, as with none the walk does
+nothing and the screen is not centred.
+
+| Function | Original |
+| --- | --- |
+| `cok_cloud_stinking` | `5b04:29de` |
+| `cok_cloud_square` | `60f4:0dc3` |
+| `cok_cloud_caster` | `60f4:0c95` |
+| `cok_cloud_clear` | `3f44:0ff7` |
+| `cok_cloud_acid` | `3f44:2037` |
+| `cok_cloud_drain` | `3f44:2cad` |
+| `cok_cloud_dispel` | `5b04:3352`-`357e`, `3151` |
+| `cok_cloud_free` | `3995:004b`'s, `3cb2:1c58`'s clearing |
+| `cok_cast_breath` | `5b04:4ab8`, `4dc2`, `4eea`, `50cf`, `5227`, `546e` |
+
+A differential test ran the original's whole battle (`3995:0172`) in an
+8086 emulator against the port's, as for the spells in combat: the
+battles' monsters given breath (effects 4, 6, 0x4e, 0x53-0x55, 0x5a, 0x68)
+or 0x46 as the game's monsters carry them, the party's and some monsters'
+records Stinking Cloud and Dispel Magic among their spells, the player's
+keys casting at random or every turn the computer's; the lists of clouds
+and pools and the map were compared too, at each turn. Of 3,000 battles of
+these kinds 2,816 agreed and none differed; filled with 0x5a, 952 of
+1,000; of 1,000 with breath and every turn the computer's, 937; of 500
+with breath and the player's keys, 461; of 1,000 with clouds, 936; with
+the screens, 369 of 400; none differing. The rest skipped 0x4a (94 of the
+6,900), stopped at Dispel Magic's freed cloud (78, and 11 where the
+emulator also ran past its instruction limit, its FreeMem then filling
+the node with 0xdd), at a dragon's cone whose
+side byte changes its targets (53) or at the earlier parts' stops (a
+harness wand's spell past the handler table, an attack aimed at no one, a
+body found by a stale byte, sight off the map), or both did; two that the
+original did not finish within the emulator's limit agreed with ten times
+the limit. In the agreeing battles 2,447 clouds were laid (873 over
+another's cell, 209 over a body) and 1,156 cleared; 6,049 saving throws in
+a cloud, 2,898 coughing and 3,151 nauseated; the cloud's caster found by
+its cells 5,598 times and the list's first record taken 451 times; 345
+pools (9 over a cloud, 8 over a body), 166 drained, 10 puddles hurting;
+Dispel Magic found a cloud's cell 158 times and tried 57 clouds, every one
+resisting; the aurak's handler ran 3,114 times (115 breaths, 82 blinded,
+33 saved; 590 bolts, 376 of them a second); the dragons' 12,959 (1,814
+breaths, 1,285 refused for a friend in the cone, 708 with no uses left);
+0x54's 1,771 (430 breaths), 0x55's 1,447 (435), 0x5a's 871 (184, 43
+refused); 3,474 cones and 5,146 bolt cells with 452 bounces. 0x4e, which
+none of those monsters carries, ran in a unit test, which ran the
+original's routines (`5b04:29de`, `60f4:0dc3`, `0c95`, `5b04:320f` with no
+targets, events 0x0d and 0x0e, the removals of 0x28 and 0x50) on
+battlefields both set up, with effects added, cells poked, records
+changed and kills between: of 2,000 such cases (the port built with
+AddressSanitizer) 1,799 agreed, and of 1,500 that breathe 1,321, none
+differing (0x4e 501 times, 151 fireballs; 4,410 clouds, 4,167 saving
+throws in one, 44 pools); the rest stopped at Dispel Magic's freed cloud
+(294, the emulator looping in 43 more), a step off the map, or an effect
+whose removal runs it again (0x4e given the removal flag, which no
+monster's has). After the review (the side byte worked out from the
+battle's stack pointer, the harness's stack set so that `3995:0172` runs at
+0x3dd4 as in the game, and its FreeMem writing the size at +4 as TP's
+does), 2,500 fresh battles: of 1,000 of the mixed kinds 953 agreed, of 600
+breathing 579, of 300 breathing by the player's keys 282, of 600 with
+clouds, filled with 0x33, 565; none differed and none stopped at the side
+byte (in the review's 2,500 at the harness's stack, 23 had); of 1,500 unit
+cases 1,361 agreed, none differing. It is not part of the repository.
+
+`eclplay`'s transcripts over every block (none, pass, won, melee, auto as
+in Spells in combat, 17,843 runs) are the same as before these handlers
+were ported but for 373, all from where the earlier build skipped one of
+them (0x46 at a kapak's death 114, breath 208, Stinking Cloud 51); 22 of
+those then stop: 13 at a dragon's cone's side byte, 6 at a body found by a
+stale byte (`6beb:0e08`) and 3 at Molly's 0x07 outside combat, earlier
+parts' stops reached on another path. With the side byte worked out, the
+13 run to their end.
 
 ## Treasure and the end of combat
 
@@ -5518,6 +5796,37 @@ test` checks cases of each that the emulator ran (`tests/test_start.c`).
 
 These follow the disassembly but have not been compared with the game
 running in DOSBox:
+
+- Clouds and pools (see Clouds, pools and breath): cast Stinking Cloud
+  with a wall among its four cells, over a fallen party member's body and
+  over half of another cloud; compare the tiles while it lasts and after
+  "The air clears a little..." (its caster's level in rounds), and who
+  coughs or chokes. Let a kapak die on a body and the body be raised
+  before its pool drains: the port stops there (`3f44:2037`'s byte never
+  set). Compare too that the tiles are not redrawn when a cloud clears.
+- Dispel Magic at a cloud in combat: where it takes the cloud away the port
+  stops (`5b04:354a` reads the freed node's next, the size FreeMem wrote:
+  0002:0000, the interrupt vectors); see whether the game hangs, crashes or
+  goes on. Cast it in camp too: the port takes the bytes
+  the walk reads from the interrupt table (the map pointer is NULL) to be
+  no cloud; the combat map should not flash over the view.
+- Breath: a red dragon two cells across, a wall diagonally below its left
+  cell, breathing at someone seen past its right cell (the cone's line
+  stops at the wall, meeting no one): the side byte is a stack address's
+  low byte, 0xe0 (0xea after a mirror) in a battle a vector of the
+  adventure loop starts, 0xda (0xe4) after NEWECL, 0xd8 (0xe2) in a rest
+  encounter; compare who is hit in each (ECL3 block 98 at 8f44 with
+  `eclplay --test-party 6 --combat auto --seed 8` is one). A
+  green dragon breathing at a target when the last combatant listed lies
+  in the target's column: the burst should fall beside the dragon (the
+  range the target routine's last line left is 0). Acid or a dragon's
+  breath at a target facing west (its icon drawn mirrored) whose icon's
+  mask is opaque at the bottom-left: sight one cell (Tandy; EGA and CGA
+  mirror with other routines, whose leftovers are not known).
+- A blue dragon's lightning between two walls of a 3D area as far apart
+  as its line before the bounce: the original should bounce for ever (the
+  port stops).
+- The aurak's breath at one beside it that saves: its turn goes on.
 
 - The player's commands in a battle (see The player's commands): in Aim,
   Manual, then Escape, then Down: the port takes the cell of the entry

@@ -16,10 +16,8 @@
  * cok_combat_cast (command.h).
  *
  * Spells whose table byte 7 is 0 are refused outside combat, as the
- * original refuses them. The handlers that need what is not ported (the
- * clouds of Stinking Cloud, logged and skipped in a battle) fail, with
- * game->vm.status COK_ECL_EFFECT_FAILED or COK_ECL_UNDEFINED, and end the
- * run. Each cast in a battle is logged as "cast: NAME: SPELL". */
+ * original refuses them. Each cast in a battle is logged as "cast: NAME:
+ * SPELL". */
 
 /* The constant tables of the data segment that the port's code holds,
  * to check against the executable. */
@@ -118,6 +116,23 @@ bool cok_cast_add_effect(cok_adventure *game, cok_character *c, uint8_t id, uint
  * false, ending the run, where it cannot be carried out, as for a first
  * target of an earlier battle, whose record is freed. */
 bool cok_cast_reflect(cok_adventure *game, cok_character *c, cok_character **caster);
+
+/* The breath or attack of a monster (the effect handlers of event 0x0e in
+ * 5b04, DS:6b94) for c holding effect, the selected character casting
+ * through the computer's targets (432f:2337, AI 1): 4 (4ab8) breath at
+ * one beside or energy bolts, 0x4e (4dc2) a fireball, 0x54 (4eea) poison
+ * in a burst, 0x55 (50cf) a lightning bolt, 0x5a (5227) acid in a line,
+ * and 6, 0x53 and 0x68 (546e) cold or fire in a cone; each, used, ends
+ * c's turn (6346:2964). A dragon's cone that meets no one on its line
+ * takes its side lines from a byte of the stack, a fixed offset from the
+ * battle's stack pointer (cok_adventure.battle_sp). Returns false, ending
+ * the run, where it cannot be carried out. */
+bool cok_cast_breath(cok_adventure *game, cok_character *c, cok_effect *effect);
+
+/* The byte at DS:at, from 0x1ed6 to 0x1feb: the steps' tables (DS:1ed6,
+ * 1edf) and the terrain table after them (DS:1ee4), as a signed byte,
+ * which a step of any byte reads as a direction. */
+int8_t cok_cast_step_byte(uint16_t at);
 
 /* Remove Curse's handler (5b04:35f5) on target, as the temple runs it with
  * the first target (DS:6feb) set: Bestow Curse (0x24) goes, or else the

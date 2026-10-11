@@ -67,6 +67,23 @@ typedef struct {
     uint8_t cell;
 } cok_combat_body;
 
+/* A cloud of Stinking Cloud's or an acid pool on the map (a 30-byte node
+ * from the heap, 1a46:023f, see cloud.h). A cloud covers four cells from
+ * its cell x, y, k 1-4 in the directions DS:2091[k] (8, 2, 3, 4: the cell,
+ * east, south-east and south); a pool covers its cell alone, k 1. */
+typedef struct cok_combat_cloud {
+    uint8_t *caster;               /* +0: the record that laid it. */
+    struct cok_combat_cloud *next; /* +4. */
+    uint8_t saved[5];              /* +7 + k: the terrain under cell k. */
+    uint8_t covered[5];            /* +0x10 + k: cell k is on the map and no wall. */
+    int8_t x, y;                   /* +0x1a, +0x1b. */
+    uint8_t index;                 /* +0x1c: its caster's clouds or pools before it. */
+    uint8_t resisted;              /* +0x1d: a Dispel Magic failed against it. */
+    /* A pool's saved terrain is the stale byte 3f44:2037 read (see
+     * cloud.h): the run stops if the pool puts it back. */
+    bool unknown;
+} cok_combat_cloud;
+
 /* A combatant listed around a cell (DS:6a30 + 3k, 6b30:08d8). */
 typedef struct {
     uint8_t index;     /* Its combatant. */
@@ -131,6 +148,20 @@ typedef struct {
     cok_character *exploding[21];
     uint8_t exploding_count;
     bool exploding_now;
+    /* DS:7111, 7119: the clouds and the pools on the map, in the order
+     * laid (see cloud.h); setup empties them and the battle's end frees
+     * them. DS:7115, a third such pointer, is only ever cleared. */
+    cok_combat_cloud *clouds, *pools;
+    /* What the target routine's calls leave on the stack where 5b04:1903,
+     * the cone, reads its range and side when a monster breathes (see
+     * cast.c): the x step of the line 6b30:08d8 last looked along
+     * (6b30:01a5, +0x12: -1, 0 or 1); the byte an icon's mirror
+     * (127f:0b94) last swapped, the first of its mask's last row, with how
+     * many mirrors were made; and how many terrain tiles were drawn
+     * (6d21:00f7, through 127f:08d7). */
+    int16_t sight_step;
+    uint8_t mirrored;
+    unsigned mirrors, tiles_drawn;
     /* DS:7195, 7196: the attacks made with slots 1 and 2 in the last
      * attack (432f:1579), whose ammunition 432f:1a45 then uses up; [0] is
      * DS:7194, which a helpless target's blow from slot 0 counts, the byte
@@ -172,14 +203,14 @@ extern const size_t cok_combat_table_count;
  * be carried out. */
 bool cok_combat_setup(cok_adventure *game);
 
-/* The end of the battle (3995:004b): charmed records that are okay run
- * if more than one enemy could act at the last count, every record loses
- * the first effect of each id that lasts only through the battle
- * (60f4:1440), a berserk turned record goes back to the party's side,
- * the map is freed and spells pick their targets outside combat again
- * (DS:6e3a). The lists of clouds and the flash picture, which the
- * original frees too, are not ported. Returns false, with
- * game->vm.status set, where an effect's removal cannot be carried out. */
+/* The end of the battle (3995:004b): the clouds and the pools are freed,
+ * charmed records that are okay run if more than one enemy could act at
+ * the last count, every record loses the first effect of each id that
+ * lasts only through the battle (60f4:1440), a berserk turned record goes
+ * back to the party's side, the map is freed and spells pick their
+ * targets outside combat again (DS:6e3a). The flash picture, which the
+ * original frees too, is not freed. Returns false, with game->vm.status set,
+ * where an effect's removal cannot be carried out. */
 bool cok_combat_end(cok_adventure *game);
 
 /* The map's pieces, with explicit inputs. */

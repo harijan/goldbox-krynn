@@ -3,6 +3,7 @@
 #include "arena.h"
 #include "attack.h"
 #include "camp.h"
+#include "cloud.h"
 #include "command.h"
 #include "magic.h"
 #include "round.h"
@@ -23,28 +24,47 @@ typedef struct {
     /* The caster was shown when its flight ended (6beb:06ef): the stack
      * then holds what drawing it back left, which the cone reads. */
     bool shown;
+    /* A monster breathes (cok_cast_breath) rather than casts. */
+    bool breath;
     cok_character **targets;
 } cast;
 
 /* The data segment's tables the combat targets and the cone read: the
  * steps by direction 0-8 (DS:1ed6, 1edf), the effects that make one
  * helpless (DS:200c), and the cone's neighbours of its end, left and
- * right, by direction (DS:0d94, 0d9c, 0da4, 0dac). */
+ * right, by direction (DS:0d94, 0d9c, 0da4, 0dac: x and y on the left,
+ * x and y on the right, eight bytes each), with the bytes after them to
+ * DS:0eab, which a side byte past 7 reads (the battle's effects, DS:0db4,
+ * and constant tables of the screen's, DS:0dc4 on; nothing writes them). */
 static const int8_t step_x[9] = {0, 1, 1, 1, 0, -1, -1, -1, 0};
 static const int8_t step_y[9] = {-1, -1, 0, 1, 1, 1, 0, -1, 0};
 static const uint8_t disabling[4] = {0x33, 0x34, 0x35, 0x1f};
-static const int8_t cone_sides[4][8] = {
-    {-1, 0, 0, 1, 1, 0, 0, -1}, /* left x */
-    {0, -1, -1, 0, 0, 1, 1, 0}, /* left y */
-    {1, 1, 0, 0, -1, -1, 0, 0}, /* right x */
-    {0, 0, 1, 1, 0, 0, -1, -1}, /* right y */
+static const uint8_t cone_sides[0x118] = {
+    0xff, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0xff, 0x00, 0xff, 0xff, 0x00, 0x00, 0x01, 0x01, 0x00,
+    0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0xff, 0xff,
+    0x03, 0x0b, 0x15, 0x17, 0x1b, 0x1e, 0x1f, 0x33, 0x34, 0x35, 0x5b, 0x6a, 0x6b, 0x6f, 0x76, 0x77,
+    0x00, 0x0f, 0x04, 0x0b, 0x0d, 0x02, 0x09, 0x0e, 0x00, 0x0f, 0x04, 0x0b, 0x0d, 0x02, 0x09, 0x0e,
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x00, 0x0e, 0x0f,
+    0x00, 0x02, 0x06, 0x0a, 0x16, 0x26, 0x36, 0x6e, 0x84, 0x9a, 0x01, 0x01, 0x01, 0x03, 0x02, 0x02,
+    0x07, 0x02, 0x02, 0x01, 0x02, 0x04, 0x04, 0x04, 0x08, 0x08, 0x08, 0x0b, 0x0b, 0x02, 0x05, 0x00,
+    0x04, 0x00, 0x06, 0x00, 0x04, 0x00, 0x02, 0x00, 0x07, 0x00, 0x02, 0x00, 0x00, 0x00, 0x09, 0x00,
+    0x05, 0x00, 0x04, 0x00, 0x03, 0x00, 0x03, 0x00, 0x03, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03,
+    0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x05, 0x00, 0x03,
+    0x04, 0x04, 0x04, 0x04, 0x05, 0x00, 0x00, 0x03, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04,
+    0x04, 0x04, 0x04, 0x04, 0x04, 0x05, 0x00, 0x00, 0x03, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04,
+    0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x05, 0x00, 0x03, 0x04, 0x04, 0x04, 0x04, 0x05, 0x00, 0x00,
+    0x03, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04,
 };
 
 const cok_ds_table cok_cast_tables[] = {
     {0x1ed6, sizeof step_x, 1, (const uint8_t *)step_x},
     {0x1edf, sizeof step_y, 1, (const uint8_t *)step_y},
     {0x200c, sizeof disabling, 1, disabling},
-    {0x0d94, sizeof cone_sides, 1, (const uint8_t *)cone_sides},
+    {0x0d94, sizeof cone_sides, 1, cone_sides},
 };
 const size_t cok_cast_table_count = sizeof cok_cast_tables / sizeof *cok_cast_tables;
 
@@ -73,6 +93,14 @@ static bool effect_failed(cok_adventure *game)
 static bool undefined(cok_adventure *game, const char *what)
 {
     cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", what);
+    return false;
+}
+
+/* What the port does not know, though the original does it the same way
+ * each time. */
+static bool unported(cok_adventure *game, const char *what)
+{
+    cok_adventure_fail(game, COK_ECL_EFFECT_FAILED, "%s", what);
     return false;
 }
 
@@ -653,9 +681,8 @@ static bool cure_disease(cast *cx)
  * 0xff, taken as the level that cast it in its low nibble, goes on a d100
  * up to 50, plus 5 a level the caster is above it or less 2 a level it is
  * below, as a byte (DS:4839, 483a). Each pass of its loop over the targets
- * works on the first. Its second part, the clouds on the combat map, runs
- * outside combat too, reading the map pointer (DS:6a2e) that combat has
- * freed; the port leaves it out. */
+ * works on the first. Its second part tries the clouds around the spell's
+ * cell (cok_cloud_dispel). */
 static bool dispel_magic(cast *cx)
 {
     cok_adventure *game = cx->game;
@@ -687,7 +714,7 @@ static bool dispel_magic(cast *cx)
         }
         if (dispelled && !flash(game, c, "is affected")) return false;
     }
-    return true;
+    return cok_cloud_dispel(game, level);
 }
 
 /* 358a, Prayer: the caster's side in the value's high nibble. */
@@ -1142,7 +1169,10 @@ static bool bolt_cell(cast *cx, int8_t x, int8_t y, uint8_t amount, uint8_t type
  * line from it to the caster, charging 8 more for the first bounce of
  * Lightning Bolt (surcharge) where that line is 8 or shorter, and lets
  * anyone be hit again. The length of the line before a bounce is still
- * counted against the next line's first segment, as a byte. */
+ * counted against the next line's first segment, as a byte: between two
+ * walls as far apart as that line was long the bolt is charged nothing
+ * and bounces for ever, as the original does; the run stops when a line
+ * starts as one did since the bolt last hit anyone. */
 static bool bolt(cast *cx, uint8_t length, uint8_t amount, uint8_t type, bool surcharge)
 {
     cok_adventure *game = cx->game;
@@ -1159,7 +1189,40 @@ static bool bolt(cast *cx, uint8_t length, uint8_t amount, uint8_t type, bool su
     game->effects.rolls.images = 1;
     cok_combat_line line;
     bool stepped = false;
+    /* The state each line after a bounce starts from: the bolt's, the seed
+     * and the combatants' hit points and conditions, on which the rest of
+     * its way depends (a hit that kills frees the cell; one that does not
+     * rolls a save). One met again goes round for ever. */
+    typedef struct {
+        int8_t x, y, sign;
+        uint8_t remaining, last;
+        bool surcharge;
+        uint32_t seed, hash;
+    } bolt_state;
+    enum { BOLT_LINES = 4096 };
+    static bolt_state seen[BOLT_LINES]; /* bolts do not nest */
+    unsigned lines = 0;
     while (remaining > 0) {
+        if (bounce) {
+            bolt_state now = {game->spell_x, game->spell_y, sign, remaining, last, surcharge,
+                              game->vm.seed, 2166136261u};
+            for (unsigned n = 1; n <= combat->count && n <= COK_COMBATANTS; ++n) {
+                const cok_character *o = combat->combatant[n].character;
+                uint8_t bytes[3] = {combat->combatant[n].size, 0, 0};
+                if (o != NULL) bytes[1] = o->record[0x197], bytes[2] = o->record[0x189];
+                for (int k = 0; k < 3; ++k) now.hash = (now.hash ^ bytes[k]) * 16777619u;
+            }
+            for (unsigned k = 0; k < lines; ++k)
+                if (seen[k].x == now.x && seen[k].y == now.y && seen[k].sign == now.sign &&
+                    seen[k].remaining == now.remaining && seen[k].last == now.last &&
+                    seen[k].surcharge == now.surcharge && seen[k].seed == now.seed &&
+                    seen[k].hash == now.hash)
+                    return undefined(game, "a bolt bounces between walls for ever, and the "
+                                           "original with it (5b04:3aea)");
+            if (lines == BOLT_LINES)
+                return undefined(game, "a bolt bounces from 4096 walls (5b04:3aea)");
+            seen[lines++] = now;
+        }
         line = (cok_combat_line){0};
         line.x0 = game->spell_x;
         line.y0 = game->spell_y;
@@ -1411,27 +1474,49 @@ static void clamp(int8_t *x, int8_t *y)
 }
 
 /* 1836: the combatants on the line's cells after its start, each added to
- * list where it is not yet. */
-static bool add_line(cast *cx, cok_combat_line *line, uint8_t list[32])
+ * list where it is not yet; false where the list would run past 30 into
+ * the cone's directions (5b04:18e7). */
+static bool add_line(const cok_combat *combat, cok_combat_line *line, uint8_t list[32])
 {
     while (cok_combat_line_step(line)) {
         uint8_t occupant, terrain;
-        cok_combat_cell(&cx->game->combat, (int8_t)line->x, (int8_t)line->y, &occupant, &terrain);
+        cok_combat_cell(combat, (int8_t)line->x, (int8_t)line->y, &occupant, &terrain);
         if (occupant == 0) continue;
         unsigned i = 1;
         while (list[i] != occupant && list[i] != 0)
-            if (++i > 30)
-                return undefined(cx->game, "a cone's list of more than 30 runs into its "
-                                           "directions (5b04:18e7)");
+            if (++i > 30) return false;
         list[i] = occupant;
     }
     return true;
 }
 
+/* The cone's side lines from x0, y0 for width 2 or more, by side, the
+ * direction of the centre line's last step that met a combatant, any byte:
+ * to the end's right neighbour (DS:0da4 + side, 0dac + side), and for 3 or
+ * more its left (DS:0d94 + side, 0d9c + side), each kept on the map;
+ * their combatants added to list. False as add_line. */
+static bool side_lines(const cok_combat *combat, int8_t x0, int8_t y0, int8_t tx, int8_t ty,
+                       uint8_t width, uint8_t side, uint8_t list[32])
+{
+    int8_t left_x = (int8_t)(tx + (int8_t)cone_sides[side]);
+    int8_t left_y = (int8_t)(ty + (int8_t)cone_sides[8 + side]);
+    int8_t right_x = (int8_t)(tx + (int8_t)cone_sides[0x10 + side]);
+    int8_t right_y = (int8_t)(ty + (int8_t)cone_sides[0x18 + side]);
+    clamp(&left_x, &left_y);
+    clamp(&right_x, &right_y);
+    cok_combat_line line = {.x0 = x0, .y0 = y0, .x1 = right_x, .y1 = right_y};
+    cok_combat_line_start(&line);
+    if (!add_line(combat, &line, list)) return false;
+    if (width <= 2) return true;
+    line = (cok_combat_line){.x0 = x0, .y0 = y0, .x1 = left_x, .y1 = left_y};
+    cok_combat_line_start(&line);
+    return add_line(combat, &line, list);
+}
+
 /* The data segment's bytes from DS:1ed6 to 1fec, which a cone's step of
  * any byte reads as a direction (5b04:19e7): the steps' tables and the
  * terrain table after them (which share DS:1ee4-1ee7). */
-static int8_t ds_step(unsigned at)
+int8_t cok_cast_step_byte(uint16_t at)
 {
     if (at < 0x1edf) return step_x[at - 0x1ed6];
     if (at < 0x1ee4) return step_y[at - 0x1edf];
@@ -1441,15 +1526,20 @@ static int8_t ds_step(unsigned at)
 }
 
 /* The directions a cone aimed at its caster's own cell reads (dirs[0],
- * on), never written by 1903: the locals that drawing the caster's icon
- * at 1415's end (6beb:0ad8, 6d21:04b0, the Tandy blit's) left at that
- * depth: the screen offsets of its cell, sx and sy from the view's corner
- * (an emulator probe of 78 casts, every cell it reached, agrees; 6d21:04b0
- * computes them). Only bytes 0-12 are read before Fear's length (6) is
- * reached. A footprint other than one cell is not known: the run stops. */
+ * on), never written by 1903: for Fear, the locals that drawing the
+ * caster's icon at 1415's end (6beb:0ad8, 6d21:04b0, the Tandy blit's)
+ * left at that depth: the screen offsets of its cell, sx and sy from the
+ * view's corner (an emulator probe of 78 casts, every cell it reached,
+ * agrees; 6d21:04b0 computes them). Only bytes 0-12 are read before Fear's
+ * length (6) is reached. A footprint other than one cell is not known,
+ * nor what breath, which never aims at its own cell, would leave: the run
+ * stops. */
 static bool drawing_locals(cast *cx, int8_t x0, int8_t y0, uint8_t dirs[50])
 {
     cok_combat *combat = &cx->game->combat;
+    if (cx->breath)
+        return undefined(cx->game, "a monster's breath aimed at its own cell reads directions "
+                                   "432f:2337 left (5b04:19a5)");
     if (cok_combat_size(combat, cx->caster->record) != 1)
         return undefined(cx->game, "a cone aimed at the cell of a caster larger than one reads "
                                    "what drawing its icon left, which the port knows only for "
@@ -1469,33 +1559,24 @@ static bool drawing_locals(cast *cx, int8_t x0, int8_t y0, uint8_t dirs[50])
  * pushed on, repeating the line's own steps, until the length walked (2 a
  * step, 3 a diagonal one) reaches len cells or it reaches the map's edge,
  * then kept on the map and pulled back to the first cell that blocks
- * sight (6b30:03f1). The line to it gives the combatants on its cells,
- * nearest first, each once, though none after one met a second time;
- * for width 2 or more a line to the end's neighbour on the right, by the
- * direction of the last step that met one, and for 3 or more the left,
- * add theirs; width 0xff those within 3 of the end (6b30:08d8) instead.
+ * sight (6b30:03f1) within range cells. The line to it gives the
+ * combatants on its cells, nearest first, each once, though none after
+ * one met a second time; for width 2 or more a line to the end's
+ * neighbour on the right, by the direction of the last step that met one,
+ * and for 3 or more the left, add theirs (side_lines); width 0xff those
+ * within 3 of the end (6b30:08d8) instead.
  *
- * Bytes come from the stack, never set. The sight's range: the return
- * offset 127f:2678's blit pushed there when the caster's terrain was
- * drawn back in its flight (0x2705 here, Tandy; 0x21d0 or 0x2458 in the
- * other modes: no limit in any). The last direction where no one is on
- * the line: the low byte of the data segment that blit pushed, which
- * depends on where DOS loaded the game (PSP + 0x10 + 0x0bc6): 0xc6 for a
- * PSP of 0xnnf0, as the emulator's (its load segment 0x1000), assumed here,
- * whose entries of the tables of neighbours (DS:0d94-0dac) are the screen
- * frame's bytes: the right 4 cells east of the end, the left the end. (A
- * probe of 88 Fear casts with no one on the line found the same targets
- * for all 256 bytes.) Aimed at the caster's own cell, the directions are
- * what drawing its icon left (drawing_locals). A caster not shown after
- * its flight leaves other bytes: the run stops. */
+ * Bytes come from the stack, never set: the sight's range, and the side
+ * where no one is on the line, which the caller gives (side -1 for one
+ * not known: the run stops if the targets differ for any of its 256
+ * values). For Fear (fear) they are what its flight left; for breath see
+ * cok_cast_breath. Aimed at the caster's own cell, the directions are
+ * what drawing its icon left (drawing_locals). */
 static bool cone(cast *cx, int8_t x0, int8_t y0, int8_t tx, int8_t ty, uint8_t width,
-                 uint8_t len)
+                 uint8_t len, uint16_t range, int side)
 {
     cok_adventure *game = cx->game;
     cok_combat *combat = &game->combat;
-    if (!cx->shown)
-        return undefined(game, "a cone's range and side come from the stack its caster's flight "
-                               "left, the caster not shown (5b04:1a2c)");
     cok_combat_line line = {.x0 = x0, .y0 = y0, .x1 = tx, .y1 = ty};
     cok_combat_line_start(&line);
     uint8_t dirs[50], k = 0;
@@ -1511,16 +1592,15 @@ static bool cone(cast *cx, int8_t x0, int8_t y0, int8_t tx, int8_t ty, uint8_t w
     while (dist < (uint8_t)(len * 2) && tx < 0x31 && tx > 0 && ty < 0x18 && ty > 0) {
         uint8_t d = dirs[k];
         if (d <= 7) dist = (uint8_t)(dist + ((d & 1) != 0 ? 3 : 2));
-        tx = (int8_t)(tx + ds_step(0x1ed6 + d));
-        ty = (int8_t)(ty + ds_step(0x1edf + d));
+        tx = (int8_t)(tx + cok_cast_step_byte((uint16_t)(0x1ed6 + d)));
+        ty = (int8_t)(ty + cok_cast_step_byte((uint16_t)(0x1edf + d)));
         k = k == last ? 0 : (uint8_t)(k + 1);
     }
     clamp(&tx, &ty);
-    uint16_t range = 0x2705;
     bool seen;
     if (!cok_combat_sight(combat, x0, y0, &tx, &ty, &range, &seen))
         return undefined(game, "terrain past the table is read (DS:1ee4, 6b30:03f1)");
-    uint8_t list[32] = {0}, n = 1, side = 0xc6;
+    uint8_t list[32] = {0}, n = 1;
     bool again = false;
     line = (cok_combat_line){.x0 = x0, .y0 = y0, .x1 = tx, .y1 = ty};
     cok_combat_line_start(&line);
@@ -1543,24 +1623,28 @@ static bool cone(cast *cx, int8_t x0, int8_t y0, int8_t tx, int8_t ty, uint8_t w
         side = line.direction;
     }
     if (width > 1 && width != 0xff) {
-        int8_t left_x = tx, left_y = ty, right_x = (int8_t)(tx + 4), right_y = ty;
-        if (side < 8) {
-            left_x = (int8_t)(tx + cone_sides[0][side]);
-            left_y = (int8_t)(ty + cone_sides[1][side]);
-            right_x = (int8_t)(tx + cone_sides[2][side]);
-            right_y = (int8_t)(ty + cone_sides[3][side]);
-        } else if (side != 0xc6) {
-            return undefined(game, "a cone's side past its tables (5b04:1b31)");
-        }
-        clamp(&left_x, &left_y);
-        clamp(&right_x, &right_y);
-        line = (cok_combat_line){.x0 = x0, .y0 = y0, .x1 = right_x, .y1 = right_y};
-        cok_combat_line_start(&line);
-        if (!add_line(cx, &line, list)) return false;
-        if (width > 2) {
-            line = (cok_combat_line){.x0 = x0, .y0 = y0, .x1 = left_x, .y1 = left_y};
-            cok_combat_line_start(&line);
-            if (!add_line(cx, &line, list)) return false;
+        static const char overrun[] = "a cone's list of more than 30 runs into its directions "
+                                      "(5b04:18e7)";
+        if (side >= 0) {
+            if (!side_lines(combat, x0, y0, tx, ty, width, (uint8_t)side, list))
+                return undefined(game, overrun);
+        } else {
+            /* No one met, the byte not known: the same targets for every
+             * byte, or a stop. */
+            uint8_t first[32];
+            for (unsigned d = 0; d <= 0xff; ++d) {
+                uint8_t each[32];
+                memcpy(each, list, sizeof each);
+                if (!side_lines(combat, x0, y0, tx, ty, width, (uint8_t)d, each))
+                    return undefined(game, overrun);
+                if (d == 0) memcpy(first, each, sizeof first);
+                if (memcmp(first, each, sizeof first) != 0)
+                    return unported(game, "a cone's side lines come from a byte of the stack "
+                                          "432f:2337 left, whose depth this script's path "
+                                          "does not give the port, and which changes its "
+                                          "targets (5b04:1b2a)");
+            }
+            memcpy(list, first, sizeof first);
         }
     }
     if (width == 0xff) {
@@ -1596,8 +1680,22 @@ static bool fear(cast *cx)
     cok_adventure *game = cx->game;
     cok_combat *combat = &game->combat;
     const uint8_t *self = cx->caster->record;
+    /* The cone's range and side, where no one is on its line: the return
+     * offset 127f:2678's blit pushed there when the caster's terrain was
+     * drawn back in its flight (0x2705, Tandy; 0x21d0 or 0x2458 in the
+     * other modes: no limit in any), and the low byte of the data segment
+     * that blit pushed, which depends on where DOS loaded the game (PSP +
+     * 0x10 + 0x0bc6): 0xc6 for a PSP of 0xnnf0, as the emulator's (its load
+     * segment 0x1000), assumed here, whose entries of the tables of
+     * neighbours are the screen frame's bytes: the right 4 cells east of
+     * the end, the left the end. (A probe of 88 Fear casts with no one on
+     * the line found the same targets for all 256 bytes.) A caster not
+     * shown after its flight leaves other bytes: the run stops. */
+    if (!cx->shown)
+        return undefined(game, "a cone's range and side come from the stack its caster's flight "
+                               "left, the caster not shown (5b04:1a2c)");
     if (!cone(cx, cok_combat_x(combat, self), cok_combat_y(combat, self), game->spell_x,
-              game->spell_y, 3, 6))
+              game->spell_y, 3, 6, 0x2705, 0xc6))
         return false;
     uint8_t n = game->spell_target_count;
     for (uint8_t i = 1; i <= n && !game->vm.abort; ++i) {
@@ -1623,12 +1721,10 @@ static bool fear(cast *cx)
     return true;
 }
 
-/* 22: Stinking Cloud (5b04:29de) lays clouds on the map, which are not
- * ported: logged and skipped, the spell used up. */
+/* 29de, Stinking Cloud: a cloud at the spell's cell (cok_cloud_stinking). */
 static bool stinking_cloud(cast *cx)
 {
-    cok_adventure_log(cx->game, "unported", "Stinking Cloud's clouds (5b04:29de)");
-    return true;
+    return cok_cloud_stinking(cx->game);
 }
 
 /* DS:6e3a + 4 * spell, as 5b04:58ed fills it. */
@@ -2179,4 +2275,343 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, 
     if (game->vm.abort) return;
     cok_arena_clear_text(game); /* 6346:196a */
     if (combat) cok_picture_fill(&game->screen, 0, 0x17 * 8, 40, 8, 0); /* 1128:07e6 */
+}
+
+/* The breath and attacks of monsters (5b04:4ab8 to 546e), the effect
+ * handlers of event 0x0e. */
+
+/* The targets as the computer's cast of spell picks them (432f:2337, AI
+ * 1), for c's breath; *done whether there are any. */
+static bool breath_targets(cast *cx, uint8_t spell, bool *done)
+{
+    cx->spell = spell;
+    return combat_targets(cx, done);
+}
+
+/* The breath's uses, the effect's value, become 3 at the first round
+ * (DS:714b 0). */
+static void uses(cok_adventure *game, cok_effect *effect)
+{
+    if (game->effects.rolls.round == 0) effect->value = 3;
+}
+
+/* c turned toward the first target and drawn attacking, its panel drawn
+ * and the missile (icon slot 0x12, one picture, 30 ms) flown to the first
+ * target (6346:34e9, 0af6, 6beb:0ad8, 6346:1b5b, 1ba6), after text is said
+ * about c (row 10, a pause). */
+static bool breathe_at(cast *cx, cok_character *c, const char *text)
+{
+    cok_adventure *game = cx->game;
+    cok_combat *combat = &game->combat;
+    cok_character *t = cx->targets[1];
+    uint8_t dir;
+    int8_t x, y;
+    if (!say_waiting(game, c, text)) return false;
+    if (t == NULL || !cok_combat_direction(combat, c, t, &dir))
+        return undefined(game, "no direction holds the breath's first target, and the original "
+                               "looks for ever (6346:34e9)");
+    return cok_arena_panel(game, c) && cok_arena_pose(game, c, dir, 1, false) &&
+           cok_arena_missile_frames(game, 0x12) && cell(game, t, &x, &y) &&
+           cok_arena_missile(game, cok_combat_x(combat, c->record),
+                             cok_combat_y(combat, c->record), x, y, 1, 0x1e);
+}
+
+/* Each target throws (type 3) and takes c's most hit points (+0x62), half
+ * if saved; then c's uses count down and its turn ends. */
+static bool breath_damage(cast *cx, cok_character *c, cok_effect *effect)
+{
+    cok_adventure *game = cx->game;
+    uint8_t n = game->spell_target_count;
+    for (uint8_t i = 1; i <= n && !game->vm.abort; ++i) {
+        cok_character *t = cx->targets[i];
+        if (t == NULL) continue;
+        bool made;
+        if (!cok_effects_save(&game->effects, t, 3, 0, &made)) return effect_failed(game);
+        if (!cok_cast_damage(game, t, c->record[0x62], 2, made)) return false;
+    }
+    --effect->value;
+    cok_combat_end_turn(c);
+    return true;
+}
+
+/* Whether every target is on the side against c (6346:2666); a target
+ * taken off the list would be read through NULL. */
+static bool no_friend(cast *cx, cok_character *c, bool *none)
+{
+    for (uint8_t i = 1; i <= cx->game->spell_target_count; ++i) {
+        const cok_character *t = cx->targets[i];
+        if (t == NULL)
+            return undefined(cx->game, "a breath's target is read through NULL (5b04:52dc)");
+        if (t->record[0x18a] != cok_combat_opposite(c)) *none = false;
+    }
+    return true;
+}
+
+/* What 432f:2337's pick left where the cone of 546e or 5227 reads its
+ * range and side (the counts of mirrors and tiles from before it).
+ *
+ * The range: where its redraw of the pick (6beb:02aa) drew the icon
+ * mirrored, the locals of 127f:0b63, the byte the mirror swapped last
+ * twice (cok_combat.mirrored), whose 0 cuts sight to one cell; else the
+ * segment 432f:11d4's far call pushed, which in DOS is where the overlay
+ * manager loaded overlay 432f (GAME.OVR), or 0x005b of 6346:26e2's: either
+ * far above any line's length, no limit.
+ *
+ * The side: where the redraw drew the cell's terrain (127f:08d7's flag of
+ * a masked draw) and no mirror after, 0; where it mirrored, the low byte
+ * of 127f:0b94's frame pointer (pushed by 0b63), and where it drew
+ * nothing, the low byte of an address of 432f:11d4's frame (pushed by
+ * 124b). Those are offsets in the stack segment, the same wherever DOS
+ * loads the game, and within a battle every breath is at the same depth
+ * (546e at 0x16e below 3995:0172's SP): 0x16 and 0x0c above the battle's
+ * stack pointer's low byte (sp), 0xea and 0xe0 for COK_BATTLE_SP; -1
+ * where sp is 0, not known. */
+static void drawn_bytes(const cok_combat *combat, unsigned mirrors, unsigned tiles, uint16_t sp,
+                        uint16_t *range, int *side)
+{
+    *range = 0x432f;
+    *side = sp == 0 ? -1 : (uint8_t)(sp + 0x0c);
+    if (combat->mirrors != mirrors) {
+        *range = (uint16_t)(combat->mirrored << 8 | combat->mirrored);
+        *side = sp == 0 ? -1 : (uint8_t)(sp + 0x16);
+    } else if (combat->tiles_drawn != tiles) {
+        *side = 0;
+    }
+}
+
+/* 4ab8, 4: d100 up to 75 to act. With uses and a d100 up to 25, the last
+ * listed within a cell of c (6b30:08d8) on another side "Breathes!": it
+ * throws (type 3) and takes 10, or 20 and is blinded for good (0x21, "is
+ * blinded") and c's turn ends; a use goes. Else up to two energy bolts:
+ * a target as the computer's spell 0x3d picks it, "Fires An Energy
+ * Bolt!", the missile, 1d8 + 2, and while it can act a second 1d8 + 2;
+ * one that drops gives a new pick the second; then the turn ends. The
+ * damage type is what DS:6b31 holds. */
+static bool attack_4(cast *cx, cok_character *c, cok_effect *effect)
+{
+    cok_adventure *game = cx->game;
+    cok_combat *combat = &game->combat;
+    uint8_t *r = c->record;
+    uses(game, effect);
+    if (roll(game, 1, 100) > 75) return true;
+    bool breathed = false;
+    if (effect->value != 0 && roll(game, 1, 100) <= 25) {
+        if (!cok_combat_list(combat, cok_combat_x(combat, r), cok_combat_y(combat, r), 1, 0xff, 1))
+            return undefined(game, "the list of combatants around one (6b30:08d8) reads past "
+                                   "its tables");
+        cok_character *target = NULL;
+        for (unsigned i = 2; i <= combat->listed_count; ++i) {
+            cok_character *o = combat->combatant[combat->listed[i].index].character;
+            if (o == NULL) return undefined(game, "a listed combatant has no record (5b04:4b77)");
+            if (o->record[0x18a] != r[0x18a]) target = o;
+        }
+        if (target != NULL) {
+            if (!say_waiting(game, c, "Breathes!")) return false;
+            breathed = true;
+            bool made;
+            if (!cok_effects_save(&game->effects, target, 3, 0, &made)) return effect_failed(game);
+            if (made) {
+                if (!cok_cast_damage(game, target, 10, 0, true)) return false;
+            } else {
+                if (!cok_cast_damage(game, target, 20, 0, false) ||
+                    !cok_cast_add_effect(game, target, 0x21, 0, 0, false, 0, false, "is blinded"))
+                    return false;
+                cok_combat_end_turn(c);
+            }
+            --effect->value;
+        }
+    }
+    if (breathed) return true;
+    bool fired = false;
+    uint8_t bolts = 0;
+    do {
+        bool done;
+        if (!breath_targets(cx, 0x3d, &done)) return false;
+        cok_character *t = cx->targets[1];
+        if (t == NULL || !done) {
+            bolts = 2;
+            continue;
+        }
+        ++bolts;
+        int8_t x, y, x0 = cok_combat_x(combat, r), y0 = cok_combat_y(combat, r);
+        if (!say_waiting(game, c, "Fires An Energy Bolt!") ||
+            !cok_arena_missile_frames(game, 0x12) || !cell(game, t, &x, &y) ||
+            !cok_arena_missile(game, x0, y0, x, y, 1, 0x1e) ||
+            !cok_cast_damage(game, t, (uint8_t)(damage_roll(game, 1, 8) + 2), 0, false))
+            return false;
+        t = cx->targets[1];
+        if (t == NULL) return undefined(game, "the first target is read through NULL (5b04:4d46)");
+        if (t->record[0x189] != 0 && bolts == 1) {
+            if (!cok_cast_damage(game, t, (uint8_t)(damage_roll(game, 1, 8) + 2), 0, false))
+                return false;
+            ++bolts;
+        }
+        fired = true;
+    } while (bolts < 2 && !game->vm.abort);
+    if (fired) cok_combat_end_turn(c);
+    return true;
+}
+
+/* 4dc2, 0x4e: a target as the computer's Fireball picks it (everyone
+ * within 3 of its cell): the spell becomes Fireball (DS:6b33, left so), the
+ * screen centred on c, "throws a fireball", the missile, and Fireball's
+ * effect applied (5b04:1071) with 15d6 of fire and magic; 0x4e goes. */
+static bool attack_4e(cast *cx, cok_character *c)
+{
+    cok_adventure *game = cx->game;
+    cok_combat *combat = &game->combat;
+    game->effects.rolls.images = 1; /* 4dc8; the pick clears it (432f:2349), its area sets it */
+    bool done;
+    if (!breath_targets(cx, 0x2f, &done)) return false;
+    if (!done) return true;
+    game->effects.rolls.spell = 0x2f;
+    cok_character *t = cx->targets[1];
+    int8_t x, y, x0 = cok_combat_x(combat, c->record), y0 = cok_combat_y(combat, c->record);
+    if (!cok_arena_centre(game, x0, y0, 0, 8) || !say_waiting(game, c, "throws a fireball") ||
+        !cok_arena_missile_frames(game, 0x12) || !cell(game, t, &x, &y) ||
+        !cok_arena_missile(game, x0, y0, x, y, 1, 0x1e) ||
+        !apply(cx, 0, false, damage_roll(game, 15, 6), 9, ""))
+        return false;
+    return remove_effect(game, c, NULL, 0x4e);
+}
+
+/* 4eea, 0x54: with uses, a target as the computer's spell 0x24 picks it,
+ * then a cone from c, a burst of 3 at its end, length 3; with anyone in it
+ * (either side), the damage type 0x20, "breathes poison", the targets
+ * take c's most hit points (breath_damage). The cone's range is the bytes
+ * of the line the target routine last looked along at the picked cell
+ * (6b30:01a5, its y's high byte, 0, and its x step's low byte): one
+ * looking up or down the column cuts sight to one cell. */
+static bool attack_54(cast *cx, cok_character *c, cok_effect *effect)
+{
+    cok_adventure *game = cx->game;
+    cok_combat *combat = &game->combat;
+    uses(game, effect);
+    if (effect->value == 0) return true;
+    int8_t x0 = cok_combat_x(combat, c->record), y0 = cok_combat_y(combat, c->record);
+    bool done;
+    if (!breath_targets(cx, 0x24, &done)) return false;
+    if (!done) return true;
+    uint16_t range = (uint16_t)((uint8_t)combat->sight_step << 8);
+    if (!cone(cx, x0, y0, game->spell_x, game->spell_y, 0xff, 3, range, -1)) return false;
+    if (game->spell_target_count == 0) return true;
+    game->effects.rolls.damage_type = 0x20;
+    return breathe_at(cx, c, "breathes poison") && breath_damage(cx, c, effect);
+}
+
+/* 50cf, 0x55: with uses, the damage type 0x24; a target as the computer's
+ * Lightning Bolt picks it; "Breathes!", c turned and drawn, the bolt's
+ * missile (icon slot 0x13, four pictures, 50 ms) from c to the spell's
+ * cell, then a bolt of c's most hit points (type 3 saves): the cell (5b04:
+ * 39bb) and the rest, length 10 (3a6f); a use goes, the turn ends. */
+static bool attack_55(cast *cx, cok_character *c, cok_effect *effect)
+{
+    cok_adventure *game = cx->game;
+    cok_combat *combat = &game->combat;
+    uses(game, effect);
+    if (effect->value == 0) return true;
+    game->effects.rolls.damage_type = 0x24;
+    int8_t x0 = cok_combat_x(combat, c->record), y0 = cok_combat_y(combat, c->record);
+    bool done;
+    if (!breath_targets(cx, 0x33, &done)) return false;
+    if (!done) return true;
+    cok_character *t = cx->targets[1];
+    uint8_t dir;
+    if (!say_waiting(game, c, "Breathes!")) return false;
+    if (t == NULL || !cok_combat_direction(combat, c, t, &dir))
+        return undefined(game, "no direction holds the breath's first target, and the original "
+                               "looks for ever (6346:34e9)");
+    uint8_t amount = c->record[0x62];
+    /* 39bb's flag is a local of 50cf never set: it reads it only on a wall
+     * in a 3D area, to write it back to the same local, never read. */
+    bool bounce = false;
+    if (!cok_arena_panel(game, c) || !cok_arena_pose(game, c, dir, 1, false) ||
+        !cok_arena_missile_frames(game, 0x13) ||
+        !cok_arena_missile(game, x0, y0, game->spell_x, game->spell_y, 4, 0x32) ||
+        !bolt_cell(cx, game->spell_x, game->spell_y, amount, 3, 0, &bounce) ||
+        !bolt(cx, 10, amount, 3, false))
+        return false;
+    --effect->value;
+    cok_combat_end_turn(c);
+    return true;
+}
+
+/* 5227, 0x5a: with uses, the damage type 0x30; a target as the computer's
+ * spell 0x3d picks it, then a cone from c, a line of 6; unless a target is
+ * on c's side, "breathes acid" and the targets take c's most hit points
+ * (breath_damage). */
+static bool attack_5a(cast *cx, cok_character *c, cok_effect *effect)
+{
+    cok_adventure *game = cx->game;
+    cok_combat *combat = &game->combat;
+    uses(game, effect);
+    if (effect->value == 0) return true;
+    game->effects.rolls.damage_type = 0x30;
+    int8_t x0 = cok_combat_x(combat, c->record), y0 = cok_combat_y(combat, c->record);
+    unsigned mirrors = combat->mirrors, tiles = combat->tiles_drawn;
+    bool done;
+    if (!breath_targets(cx, 0x3d, &done)) return false;
+    uint16_t range;
+    int side;
+    drawn_bytes(combat, mirrors, tiles, game->battle_sp, &range, &side);
+    if (done && !cone(cx, x0, y0, game->spell_x, game->spell_y, 1, 6, range, side)) return false;
+    if (!no_friend(cx, c, &done)) return false;
+    if (!done || game->spell_target_count == 0) return true;
+    return breathe_at(cx, c, "breathes acid") && breath_damage(cx, c, effect);
+}
+
+/* 546e, 6, 0x53 and 0x68: the uses become 1 for 6, else 3, at the first
+ * round or above 3; with uses, the damage type 0x22 and a cone of width 3
+ * and length 8 (6) or 7 (0x53), "cold", or 0x21, 9, "Fire" (0x68); a
+ * target as the computer's spell 0x3d picks it, then the cone from c;
+ * unless a target is on c's side, "breathes cold" or "breathes Fire" and
+ * the targets take c's most hit points (breath_damage). */
+static bool attack_dragon(cast *cx, cok_character *c, cok_effect *effect)
+{
+    cok_adventure *game = cx->game;
+    cok_combat *combat = &game->combat;
+    uint8_t id = effect->id;
+    if (game->effects.rolls.round == 0 || effect->value > 3) effect->value = id == 6 ? 1 : 3;
+    if (effect->value == 0) return true;
+    uint8_t len = 9;
+    const char *what = "breathes Fire";
+    if (id == 6 || id == 0x53) {
+        game->effects.rolls.damage_type = 0x22;
+        len = id == 6 ? 8 : 7;
+        what = "breathes cold";
+    } else {
+        game->effects.rolls.damage_type = 0x21;
+    }
+    int8_t x0 = cok_combat_x(combat, c->record), y0 = cok_combat_y(combat, c->record);
+    unsigned mirrors = combat->mirrors, tiles = combat->tiles_drawn;
+    bool done;
+    if (!breath_targets(cx, 0x3d, &done)) return false;
+    if (!done) return true;
+    uint16_t range;
+    int side;
+    drawn_bytes(combat, mirrors, tiles, game->battle_sp, &range, &side);
+    if (!cone(cx, x0, y0, game->spell_x, game->spell_y, 3, len, range, side) ||
+        !no_friend(cx, c, &done))
+        return false;
+    if (game->spell_target_count == 0 || !done) return true;
+    return breathe_at(cx, c, what) && breath_damage(cx, c, effect);
+}
+
+bool cok_cast_breath(cok_adventure *game, cok_character *c, cok_effect *effect)
+{
+    cast cx = {.game = game, .caster = member_of(game, game->vm.character), .ai = true,
+               .breath = true, .targets = game->spell_targets};
+    if (cx.caster == NULL)
+        return undefined(game, "a monster breathes with no character selected, read through NULL "
+                               "(432f:2337)");
+    switch (effect->id) {
+    case 4: return attack_4(&cx, c, effect);
+    case 0x4e: return attack_4e(&cx, c);
+    case 0x54: return attack_54(&cx, c, effect);
+    case 0x55: return attack_55(&cx, c, effect);
+    case 0x5a: return attack_5a(&cx, c, effect);
+    case 6: case 0x53: case 0x68: return attack_dragon(&cx, c, effect);
+    default: break;
+    }
+    return undefined(game, "an effect with no breath runs a breath's handler");
 }

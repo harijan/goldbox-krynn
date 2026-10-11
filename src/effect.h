@@ -174,6 +174,15 @@ struct cok_effects {
     /* Effect 0x4c's gating (3f44:272a, cok_combat_gate): those waiting
      * (status 9) are put on the map around c's enemies. */
     bool (*gate)(cok_effects *fx, cok_character *c, void *context);
+    /* The clouds and pools of the combat map (cloud.h) for c holding
+     * effect (NULL for 0x46): 0x28's cloud clears (3f44:0ff7,
+     * cok_cloud_clear), 0x46 makes a pool (2037, cok_cloud_acid), 0x50's
+     * pool drains (2cad, cok_cloud_drain). */
+    bool (*clouds)(cok_effects *fx, uint8_t id, cok_effect *effect, cok_character *c,
+                   void *context);
+    /* A monster's breath or attack on event 0x0e (5b04:4ab8, 4dc2, 4eea,
+     * 50cf, 5227, 546e; cok_cast_breath) for c holding effect. */
+    bool (*breathe)(cok_effects *fx, cok_effect *effect, cok_character *c, void *context);
     void *context;
     /* How deep the public calls are nested, a hook calling back in. */
     unsigned depth;

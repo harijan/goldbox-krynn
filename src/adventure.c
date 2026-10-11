@@ -5,6 +5,7 @@
 #include "camp.h"
 #include "dax.h"
 #include "cast.h"
+#include "cloud.h"
 #include "items.h"
 #include "magic.h"
 #include "monster.h"
@@ -1512,7 +1513,7 @@ static void dump(cok_adventure *game)
     cok_adventure_party(game);
 }
 
-static cok_ecl_status camp(cok_adventure *game);
+static cok_ecl_status camp(cok_adventure *game, uint16_t sp);
 
 /* PROGRAM (2fd3:3473): with Move mode off meanwhile (DS:8858), and the
  * selection LOAD CHARACTER changed restored first (DS:43ba), 9 camps as
@@ -1543,7 +1544,7 @@ static void program(cok_adventure *game)
             cok_adventure_redraw(game);
     } else if (what == 9) {
         uint16_t ip = vm->ip;
-        cok_ecl_status status = camp(game);
+        cok_ecl_status status = camp(game, 0);
         vm->ip = ip;
         if (status != COK_ECL_OK) {
             vm->status = status;
@@ -1750,6 +1751,22 @@ static bool effect_gate(cok_effects *fx, cok_character *c, void *context)
     return cok_combat_gate(game, c) || effect_hook_failed(fx, game);
 }
 
+static bool effect_clouds(cok_effects *fx, uint8_t id, cok_effect *effect, cok_character *c,
+                          void *context)
+{
+    cok_adventure *game = context;
+    bool ok = id == 0x28   ? cok_cloud_clear(game, c, effect)
+              : id == 0x46 ? cok_cloud_acid(game, c)
+                           : cok_cloud_drain(game, c, effect);
+    return ok || effect_hook_failed(fx, game);
+}
+
+static bool effect_breathe(cok_effects *fx, cok_effect *effect, cok_character *c, void *context)
+{
+    cok_adventure *game = context;
+    return cok_cast_breath(game, c, effect) || effect_hook_failed(fx, game);
+}
+
 /* 6b30:08d8 around c with any range: the second listed (DS:6a36). */
 static bool effect_second(cok_effects *fx, cok_character *c, uint8_t **record, void *context)
 {
@@ -1876,6 +1893,7 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
                         const cok_adventure_hooks *hooks)
 {
     memset(game, 0, sizeof *game);
+    game->battle_sp = COK_BATTLE_SP;
     cok_ecl_hooks vm_hooks = {.load = load_block, .opcode = opcode, .trace = trace,
                               .character_value = character_value, .context = game};
     cok_ecl_init(&game->vm, &vm_hooks);
@@ -1898,6 +1916,8 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
     game->effects.second = effect_second;
     game->effects.explode = effect_explode;
     game->effects.gate = effect_gate;
+    game->effects.clouds = effect_clouds;
+    game->effects.breathe = effect_breathe;
     game->effects.context = game;
     game->vm.file = 1;
     game->picture_id = COK_ADVENTURE_NO_PICTURE;
@@ -1970,6 +1990,7 @@ void cok_adventure_close(cok_adventure *game)
     for (size_t i = 0; i < COK_ICON_SLOTS; ++i)
         for (size_t pose = 0; pose < 2; ++pose) cok_picture_free(&game->icons[i][pose]);
     cok_pool_free(&game->pool);
+    cok_cloud_free(&game->combat);
     cok_picture_free(&game->combat.tiles);
     cok_picture_free(&game->combat.buffer);
     cok_picture_free(&game->combat.under);
@@ -2101,14 +2122,19 @@ bool cok_adventure_restore(cok_adventure *game, const char *path)
 
 /* Enter the loaded block (2fd3:3b47): run its load vector, show the view if
  * it loaded files or stays in 3D, then run the after-move and location
- * vectors, starting over whenever NEWECL switches blocks. */
-static cok_ecl_status enter_block(cok_adventure *game)
+ * vectors, starting over whenever NEWECL switches blocks. first: as
+ * 2fd3:3c28 starts, which runs the first block's vectors itself, 3b47 only
+ * those after a NEWECL. */
+static cok_ecl_status enter_block(cok_adventure *game, bool first)
 {
     cok_ecl *vm = &game->vm;
     cok_ecl_status status = COK_ECL_OK;
     bool restoring = game->restoring;
+    uint16_t sp = game->battle_sp;
     game->restoring = true;
     do {
+        game->battle_sp = first ? COK_BATTLE_SP : COK_BATTLE_SP - 6;
+        first = false;
         free_frames(game);
         vm->reload = false;
         vm->square = cok_view_square(&game->view, vm->map_x, vm->map_y);
@@ -2128,6 +2154,7 @@ static cok_ecl_status enter_block(cok_adventure *game)
         cok_adventure_party(game);
     } while (status == COK_ECL_OK && !vm->abort && vm->reload);
     game->restoring = restoring;
+    game->battle_sp = sp;
     vm->last_mode = vm->mode;
     return status;
 }
@@ -2144,7 +2171,7 @@ cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block)
     if (vm->mem4b00[0xf2] == 0) cok_adventure_party(game); /* starting block 0x24 */
     if (vm->mem4b00[0xe6] == 0) vm->mode = 3;
     cok_ecl_status status = cok_adventure_load(game, block);
-    return status == COK_ECL_OK ? enter_block(game) : status;
+    return status == COK_ECL_OK ? enter_block(game, true) : status;
 }
 
 /* The game clock. */
@@ -2791,16 +2818,21 @@ static void step(cok_adventure *game)
  * the overland map (4877:0005). */
 static void redraw_screen(cok_adventure *game);
 
-static cok_ecl_status camp(cok_adventure *game)
+static cok_ecl_status camp(cok_adventure *game, uint16_t sp)
 {
     cok_ecl *vm = &game->vm;
+    uint16_t outer = game->battle_sp;
+    game->battle_sp = sp;
     cok_ecl_status status = cok_ecl_run(vm, vm->vectors[2]);
+    game->battle_sp = outer;
     if (status != COK_ECL_OK || vm->abort) return status;
     bool interrupted = cok_camp(game);
     if (vm->abort) return vm->status;
     if (interrupted) {
         redraw_screen(game);
+        game->battle_sp = sp;
         status = cok_ecl_run(vm, vm->vectors[3]);
+        game->battle_sp = outer;
         if (status != COK_ECL_OK || vm->abort) return status;
     }
     game->redraw = true;
@@ -2819,7 +2851,7 @@ static cok_ecl_status look(cok_adventure *game)
     game->redraw = true;
     cok_adventure_view(game);
     cok_ecl_status status = cok_ecl_run(vm, vm->vectors[1]);
-    if (status == COK_ECL_OK && !vm->abort && vm->reload) status = enter_block(game);
+    if (status == COK_ECL_OK && !vm->abort && vm->reload) status = enter_block(game, false);
     vm->mem7c00[0x2ca] = searching;
     return status;
 }
@@ -2905,14 +2937,14 @@ cok_ecl_status cok_adventure_play(cok_adventure *game)
          * overland's Move mode is too (scan code 0x65, 'e'). */
         while (status == COK_ECL_OK && !vm->abort &&
                (vm->mem7c00[0x2ca] > 1 || key == 'E' || key == 'e')) {
-            status = key == 'E' || key == 'e' ? camp(game) : look(game);
+            status = key == 'E' || key == 'e' ? camp(game, COK_BATTLE_SP - 8) : look(game);
             if (status == COK_ECL_OK && !vm->abort) key = next_command(game);
         }
         if (status != COK_ECL_OK || vm->abort) break;
         status = cok_ecl_run(vm, vm->vectors[0]);
         if (status != COK_ECL_OK || vm->abort) break;
         if (vm->reload) {
-            status = enter_block(game);
+            status = enter_block(game, false);
             continue;
         }
         vm->mem4b00[0xf0] = (uint16_t)vm->map_x;
@@ -2925,7 +2957,7 @@ cok_ecl_status cok_adventure_play(cok_adventure *game)
         game->picture_shown = false;
         game->view_replaced = true;
         status = cok_ecl_run(vm, vm->vectors[1]);
-        if (status == COK_ECL_OK && !vm->abort && vm->reload) status = enter_block(game);
+        if (status == COK_ECL_OK && !vm->abort && vm->reload) status = enter_block(game, false);
     }
     /* The effect timers (cok_adventure_pass_time), the commands and the
      * view fail between runs. */
