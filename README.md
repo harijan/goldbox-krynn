@@ -407,7 +407,11 @@ Backspace, `\<`, `\>`, `\^` and `\v` the arrows, `\@X` Alt and letter `X`,
 Alt-Q); when they run out the run stops. `\k` presses the next key while the party rests, which the rest loop
 sees (`1614:03c2`), or as a battle is set up, which drops it (`1614:0479`).
 `--saves DIR` is where Save writes and the roster is kept (see The start
-menu); without it, saving logs an error. A spell list logs its rows as `item:` and `heading:`, and quitting to
+menu); without it, saving logs an error. `--effect M,ID,MINUTES,VALUE`
+(hex, repeatable) gives party member M (1 the first) an effect, its
+handler run when it is removed, as a saved game's `.SFX` would hold it,
+for tests of the timers and of effects in a battle.
+A spell list logs its rows as `item:` and `heading:`, and quitting to
 DOS ends the run with `(quit to DOS in block N)`. Cast and View run from the
 commands and the camp, their lists logged as `list:` and `item:`. Monsters
 loaded, the encounter's sprite and close-up and the money robbed log as
@@ -1352,13 +1356,13 @@ Handlers ported, by address and effect id: `3f44:0124` (1), `0134` (2),
 combat its end and after it took hold), `04b1` (0x0c, 0x26), `05bc` (0x0e), `0625` (0x10),
 `062c` (0x11), `065d` (0x12), `0681` (0x14), `07b5` (0x17), `09b3` (0x19),
 `0ab8` (0x1d), `0cf0` (0x21), `0f3f` (0x24), `0f78` (0x27), `144c` (0x2a),
-`1469` (0x2b, for a strength of 3 or less), `15a3` (0x2f), `16ef` (0x31),
+`15a3` (0x2f), `16ef` (0x31),
 `173a` (0x32), `176b` (0x36), `179c` (0x37), `17a3` (0x38), `17c6` (0x39),
 `17ea` (0x3a), `1891` (0x3b), `1a72` (0x3d), `1b18` (0x3f), `2665` (0x49,
 its text with the breath of monsters), `29d5` (0x4d, outside combat),
 `320f` (0x59), `3258` (0x5b), `32a8` (0x5e), `3328` (0x5f), `334c`
 (0x60), `325f` (0x5d), `3361` (0x61), `336f` (0x62), `3386` (0x63), `33a7`
-(0x64), `3406` (0x65), `3449` (0x66), `3450` (0x67), `34f9` (0x6b, its end),
+(0x64), `3406` (0x65), `3449` (0x66), `3450` (0x67), `34f9` (0x6b),
 `3619` (0x6c), `363c` (0x6d), `3643` (0x6e), `3692` (0x6f, see The
 battlefield), `303c` (0x52, see The battlefield), `3768` (0x71), `37e8`
 (0x74), `386a` (0x76), `3876` (0x77) and `3881` (5, 0x13, 0x18, 0x5c). Many
@@ -1375,8 +1379,42 @@ and the character "ages" a year (`+0x60`); 0x17, Spiritual Hammer, gives a
 character with no hammer and fewer than 16 items counted (`+0x142`) one at
 the end of its items (type 6, name parts 6 and 0x79, bonus 1, `+0x3d` 0x17,
 `+0x3e` 0x80) and says it "Gains an item"; its search for the new hammer, to
-ready it in an empty weapon slot, steps past it, so it is never readied. The
-part of 0x2b that prints is not ported. Ported with the rounds, for a
+ready it in an empty weapon slot, steps past it, so it is never readied.
+The timers, each run when its effect ends, and 0x3e at a constitution of
+20 and up: `05c3` (0x0f, Slow Poison's poison) and `1504` (0x2c, wasting)
+each add themselves again for ten minutes with their value (`3f44:00ba`,
+unless effects are being cured, `DS:6b38`), then one with more than a hit
+point takes 1 of type 0 through `60f4:1db7` ("takes 1 point of damage from
+Magic") and outside combat the party list is drawn again (`6346:07ba`); at
+a hit point or none, 0x2c brings 0x1f for good if the character lacks it.
+`1469` (0x2b, strength drain) adds itself again for an hour, then a
+strength (`+0x11`) above 3 "is weakened" and loses a point, and one of 3
+or less brings 0x1f. `0d19` (0x22, Cause Disease's) runs 0x2b's and 0x2c's
+handlers with its own effect, so that the disease becomes both. `0725`
+(0x16, Slow Poison's) makes a poisoned character (0x37) "die from poison"
+(`60f4:00eb`, status 6) and lose its 0x37, then removes 0x0f while curing
+and clears `DS:6b38` after, even if it was set before (as when Neutralize
+Poison removes 0x16). `1acd` (0x3e) adds itself again for an hour, then
+heals a hit point (`60f4:21ea`, of status 0, 1, 4 or 5 below its most:
+"is fully healed" or "is partially healed", `6346:25f9`, and the party list
+outside combat); the effect comes back even when a constitution recomputed
+below 20 removes it, so it stays. They all speak through the `say` hook,
+deal damage and kill through the `damage` and `kill` hooks
+(`cok_cast_damage`, `cok_combat_kill`) and draw the party list through
+`party_list`, in a battle or out of one. `26a5` (0x4a, Sir Lebaum's), at
+event 0x0e of the computer's turn, rolls a d20 and on 1 runs Dispel
+Magic's spell handler (`5b04:320f`, through `DS:6ede`, `cok_cast_dispel`)
+with no cast around it: the selected character casts, at the caster
+level of whatever spell `DS:6b33` last held, on the targets, count and
+cell the last cast or breath left (`DS:6fea` on, `710f`), which may be an
+earlier battle's; one freed since stops the run, as one taken off (NULL)
+does. Applying 0x6b (`34f9`), which no event, spell or item does (only an
+effect a file gave), turns the character on the second combatant listed
+around it, as berserk does in combat but in any mode and without its text:
+the computer controls it (`+0x18b`, `+0xe7` 0xb3, or 0xb2 for another NPC)
+and it takes the side against that one's; outside combat it writes through
+the combat record combat freed, and the port stops. Ported with the
+rounds, for a
 battle (see The rounds): `00f7` (0x1b, 0x1f, 0x33-0x35), `016a` (3),
 `06b2` (0x15), `09e8` (0x1a), `0a2f` (0x1c), `0ae0` (0x1e, the stinking
 cloud), `0d7c` (0x23), `1412` (0x29), `23a4` (0x47; turning a spell
@@ -1395,18 +1433,25 @@ clouds and pools (see Clouds, pools and breath): `0ff7` (0x28), `2037`
 (`50cf`) and 0x5a (`5227`); outside a battle those that write a combat
 record or read the map stop the run, as the original writes through
 records it has freed (the ends of 0x28 and 0x50 find no cloud there and do
-nothing). Not ported, because they need combat (its records at `+0x183`,
-the map, targets or icons) and text: dealing damage or killing, with
-text: 0x0f, 0x16, 0x22 and 0x2c; healing, with text: 0x3e; spells: 0x4a;
-and 0x78, whose handler is the item routine
-`3f44:3888`, which reads past the 9-byte record. Id 0 has no handler: the
-original calls `0000:0000`. A call that reaches any of these fails, naming
-the handler; `DAMAGE` and the clock then end the run with
-`COK_ECL_EFFECT_FAILED` and log the reason as an error. In a battle,
-where monsters' effects run every turn, such a handler, and the part of
-0x6b (applying it) that needs combat, are
-skipped instead and logged, as `unported: effect 0x68
-(5b04:546e) on event 0x0e` (or `on removal`); see The rounds.
+nothing), and so does 0x47 turning a spell back (`3f44:23a4`): it reads
+the cells (`6beb:0bcb`) from the last battle's tables, copies its
+missile's pictures into the buffer that battle freed (`DS:719e`,
+`6346:1b5b`; NULL before any battle) and centres the view over the freed
+combat map (`6346:1ba6`, `6beb:096b`), which is more than drawing, so the
+turning back is not ported alone either. Every handler
+of the table is now ported. 0x78's is the item routine `3f44:3888` (see
+View), which takes the effect it is given for an item and adds or removes
+the effect of id `+0x3d`; no item, monster or spell gives effect 0x78
+(only a file could), and run for its own effect it reads that id 61 bytes
+into a 9-byte record, in whatever the heap holds there: the port stops.
+While `DS:713c` is set `60f4:01a8` calls that routine, entry 0x78, for any
+id; only readying or unreadying an item with a power (`546c:1d96`) and
+Remove Curse (`5b04:35f5`) set it, just before their call, and the routine
+clears it first, so the port does their part there (`items.c`, `cast.c`)
+and never has it set. Id 0 has no handler: the original calls
+`0000:0000`. A call that reaches a stop fails, naming the handler; `DAMAGE`,
+the clock and the battle then end the run with `COK_ECL_EFFECT_FAILED` and
+log the reason as an error.
 
 `57e4:0549` calls `57e4:0171` with the unit and count once the clock has
 moved. It turns them into minutes as a word, which wraps past 45 days,
@@ -1422,7 +1467,24 @@ is second in the list and was not the last when the walk began, the walk
 starts again from the first, which loses the time twice; the port keeps
 this. (Ending as the last, it has already stopped the walk.) When a
 handler removes the effect the walk goes to next, the original reads it
-after freeing it; the port fails.
+after freeing it: FreeMem (`1a46:03d3`) writes the block's size over its
+next pointer (`0000:0100` for one that was last, the interrupt vectors).
+At the heap's top the effect's first bytes survive: the walk takes it for
+the last, ends it again, its unlink finds it in no list, and freeing it
+again stops the game with runtime error 204. Elsewhere those bytes are
+the free list's link, which the walk takes for the time left and may
+count down, corrupting the heap, before it walks the interrupt vectors.
+The port fails. In ordinary play that happens only when Slow Poison
+lapses, 63 hours after it is cast (also in a battle), on a character
+still poisoned: 0x0f puts itself back at the end each time, so 0x16's
+handler removes the 0x0f the walk goes to next, unless an effect added
+between the poison (0x37) and 0x16 makes the walk start again from the
+first. The walk also compares the effect that was last when it began,
+and the one before the effect that ends, with what it meets: when a
+handler has removed one of them and an effect made since comes up, the
+original's comparison depends on where TP's GetMem (first fit) put that
+one, perhaps in the freed block, which the port cannot know: it fails
+there too.
 
 The port keeps these quirks of the handlers:
 
@@ -1445,6 +1507,13 @@ The port keeps these quirks of the handlers:
 - 0x6e divides by 5 the knight levels less 1; below 1 that overflows, a
   runtime error 200, and the port fails.
 - 0x12 and 0x5f roll a d100 even when nothing is being resisted.
+- 0x3e, a constitution of 20 or more's, puts itself back when it is
+  removed, also when a constitution recomputed below 20 removes it
+  (`60f4:1743`), so it keeps healing a point an hour.
+- 0x16 clears `DS:6b38` after removing 0x0f, even while a cure has it set.
+- 0x22 runs 0x2b's and 0x2c's handlers with its own effect: they add
+  themselves with 0x22's value, and the disease becomes both.
+- 0x0f and 0x2c hurt only above a hit point; neither kills.
 
 A differential test ran the original routines in an 8086 emulator against
 the port on random characters, items and effects: every ported handler
@@ -1455,6 +1524,50 @@ Of 18,000 cases, the 17,120 the port carries out agreed in the records,
 item and effect lists, the working bytes, the timer flags and the random
 numbers drawn; the rest reach what is not ported or what the original
 mishandles. It is not part of the repository.
+
+The timers' handlers, 0x4a and 0x6b were tested the same way, on
+battlefields both set up as for the attacks: effects of those ids added
+and removed, the timers run, handlers run with flag 0, event 0x0e, the
+spell's targets set as a cast leaves them, curing set, the mode switched
+to 4 and 2 between, records poked, damage and deaths. Of 4,000 cases
+(2,000 mixed, 1,000 with Dispel Magic cast from 0x4a, 1,000 with Slow
+Poison's timers) 2,887 agreed and none differed; the rest stopped where
+the original misbehaves: a handler run with no effect, whose value it
+reads at `0000:0003` (made on purpose, 347), the walk reading an effect
+freed (mostly Slow Poison's end, 696) or meeting one the heap may have put
+in a freed one's block (14, where the emulator's own heap ran out on 8),
+0x6b with no one listed, 0x4a's Dispel removing itself again. In the
+agreeing cases 0x0f's handler ran 4,662
+times (2,017 hurting), 0x2c's 8,503 (3,152), 0x2b's 2,451 (1,860
+weakening), 0x22's 609, 0x16's 643 (57 deaths), 0x3e's 1,418 (282
+heals), 0x4a's 20,727 (1,043 d20s of 1, 1,043 Dispels, 582 effects
+taken), 0x6b applied 332 times. Outside combat the camp's difftest (see
+Camp) ran the rest (`57e4:0e3e`) and the clock (`57e4:0549`) with those
+effects on the party: of 5,000 cases none differed (4,470 carried out),
+with 319 deaths from poison, 1,662 heals, 2,770 weakenings and 8,381
+points of poison or wasting; again the rest stopped at the walk's freed
+effects.
+
+Whole battles (`3995:0172`, as for the clouds and breath, see Clouds,
+pools and breath) were run with 0x4a given to some monsters (and to Sir
+Lebaum, who has it), the party given effects of other values for Dispel
+Magic to take, and the timers' effects, short enough to end in the
+battle, given to the party and some monsters, the computer's turns or the
+player's keys: of 2,000 battles 1,667 agreed and none differed (an earlier
+run's one difference was the walk meeting a new effect where the original's
+heap put it in the freed last one's block, now a stop). The rest stopped
+at the walk's freed effects (202), Ready given no item (45, the harness's
+doubly readied weapons), 0x4a's Dispel reading a first target taken off
+(9, the interrupt table at `0000:00e3`), the walk meeting a new effect
+(4), the earlier parts' stops, or both did. In the agreeing battles 0x4a's
+handler ran 9,297 times, 447 with a d20 of 1, its Dispel taking 525
+effects (274 times "is affected"); 0x0f's handler ran 1,249 times (892
+hurting), 0x2c's 1,579 (1,185), 0x2b's 857 (857 weakening), 0x22's 408,
+0x16's 198 (158 deaths), 0x3e's 806 (671 heals); the timers 11,192
+times. Every block's `eclplay` transcripts (17,843 runs with no
+`--combat`, pass, won, melee and auto) are the same as before, but for
+the eight of Sir Lebaum's battle on auto, which roll 0x4a's d20 (none of
+them a 1) where they skipped it.
 
 ## Camp
 
@@ -1850,12 +1963,13 @@ The port keeps these quirks:
 
 In a battle the cast picks its targets with the combat routine
 (`432f:2337`) that the battle puts in `DS:6e3a`, flies its missile and
-runs the handlers that act on the map: see Spells in combat. Not ported
-outside combat: effects whose handlers need combat or text when the
-spell's events or timers reach them, such as 0x0f and 0x16 of Slow
-Poison when they run out, and 0x47 (from 0x3f) on event 9 when it would
-turn a spell back, which stop the run with `COK_ECL_EFFECT_FAILED`; and
-spell ids 0x6c-0x7f, which only items name, past the handler table. The
+runs the handlers that act on the map: see Spells in combat. The effects
+spells add run their handlers when their timers end, outside combat too:
+Slow Poison's 0x0f and 0x16, Cause Disease's 0x22 (see Spell effects).
+Outside combat 0x47 (from 0x3f) on event 9, when it would turn a spell
+back, stops the run with `COK_ECL_EFFECT_FAILED`, for the original reads
+the last battle's tables and freed map; and spell ids 0x6c-0x7f, which
+only items name, are past the handler table. The
 spell target and the trade partner (`DS:710b`, `46b0`), which the
 original keeps as pointers into freed records when Alter's Drop removes
 a character, are forgotten in the port.
@@ -2803,19 +2917,16 @@ ported with it (see Spell effects):
 
 Outside a battle those that write a combat record (`+0x183`) or use the
 map stop the run, as the original's would write through records it has
-freed. Monsters carry effects that run every turn, and some of their
-handlers are still not ported: during a battle (`cok_effects.in_battle`,
-from the battle's start to its end) such a handler is skipped and logged,
-`unported: effect 0x4a (3f44:26a5) on event 0x0e`, where outside a battle
-the run ends. From the first `unported: effect` line a battle's random
-numbers and records may stop following the original's, for a skipped
-handler rolls none of its dice: of those a battle reaches, the timers'
-damage over time (0x0f, 0x16, 0x22, 0x2c) their saving throws and deaths,
-and 0x4a (the computer's turns raise event 0x0e for it) a d20. 0x30,
-0x3c, 0x42, 0x4c and 0x6a are ported with the attacks, the clouds',
-pools' and the monsters' breath and attacks (0x28, 0x46, 0x50; 4, 6,
-0x4e, 0x53-0x55, 0x5a, 0x68) with the clouds and breath (see Clouds,
-pools and breath). The handlers the attacks reach
+freed. Monsters carry effects that run every turn, and the timers run at
+the end of each round (a minute): every handler they reach is now ported,
+none is skipped. Sir Lebaum's 0x4a rolls a d20 at event 0x0e of each of
+his turns and on 1 casts Dispel Magic on what the last cast left (see
+Spell effects); the timers 0x0f, 0x16, 0x22, 0x2b, 0x2c and 0x3e hurt,
+weaken, kill and heal as their effects run out (`eclplay --effect` gives
+them for a test). 0x30, 0x3c, 0x42, 0x4c and 0x6a are ported with the
+attacks, the clouds', pools' and the monsters' breath and attacks (0x28,
+0x46, 0x50; 4, 6, 0x4e, 0x53-0x55, 0x5a, 0x68) with the clouds and breath
+(see Clouds, pools and breath). The handlers the attacks reach
 are ported with them (see Attacks, movement and death). Each effect that
 ends in a battle, by its timer or the battle's end, is logged, `effect:
 NAME loses 0x77`. The dead that explode (effect 0x44) explode after
@@ -2891,7 +3002,7 @@ The port keeps these quirks:
   - 15 hits, and then, its die a d1, takes none but stays until its timer
   ends (its removal at 0, `3f44:0aad`, is never reached).
 - Confusion's berserk (0x23, 61-80) runs 0x4d's handler with no effect,
-  which is not ported: skipped.
+  which it does not read.
 - 0x29 takes the hit from the first slot (`DS:6b3c`) whichever slot
   struck.
 - A handler that runs on its effect's removal and removes it again
@@ -4417,9 +4528,10 @@ nothing reads before the next cast sets it.
 Stinking Cloud's clouds, Dispel Magic's part for them (`5b04:3352`) and
 the breath of monsters, which picks its targets through `432f:2337` and
 uses the cones and bolts, are ported with the clouds (see Clouds, pools
-and breath). Not ported: effects the spells add whose handlers are not
-ported, which are logged and skipped as before: 0x22 of Cause Disease
-when it ends, and the timers' 0x0f and 0x16 of Slow Poison from an item.
+and breath). The effects spells add, 0x22 of Cause Disease and the
+timers' 0x0f and 0x16 of Slow Poison from an item among them, run their
+handlers when they end (see Spell effects), and Sir Lebaum's 0x4a casts
+Dispel Magic with no cast around it, on what the last cast left.
 
 | Function | Original |
 | --- | --- |
@@ -5810,6 +5922,20 @@ running in DOSBox:
   goes on. Cast it in camp too: the port takes the bytes
   the walk reads from the interrupt table (the map pointer is NULL) to be
   no cloud; the combat map should not flash over the view.
+- Timers (see Spell effects): cast Slow Poison on a poisoned character
+  and rest 63 hours: where 0x16 runs out with Slow Poison's 0x0f after
+  it, the port stops (the walk reads the 0x0f its handler freed: at the
+  heap's top it frees it again, runtime error 204; elsewhere it counts
+  down the free list's link and walks the interrupt vectors from
+  `0000:0100`); see whether the game stops with runtime error 204,
+  crashes or goes on, and whether the character "dies from poison".
+  Cast Cause Disease and wait out 0x22 (10-60 minutes): "is weakened",
+  strength a point lower each hour, and a hit point lost each ten minutes
+  down to one. A character of constitution 20 should heal a point each
+  hour ("is partially healed"), also after its constitution drops.
+- Sir Lebaum (ECL3 block 82): at each of his turns 0x4a casts Dispel Magic
+  on a d20 of 1, with no text unless an effect of value other than 0xff
+  goes ("is affected"), on whatever his last fireball or spell aimed at.
 - Breath: a red dragon two cells across, a wall diagonally below its left
   cell, breathing at someone seen past its right cell (the cone's line
   stops at the wall, meeting no one): the side byte is a stack address's

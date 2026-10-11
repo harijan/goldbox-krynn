@@ -70,6 +70,10 @@ static void usage(const char *program)
             "  --start ADDR    run only from code address ADDR (hex)\n"
             "  --at X,Y,DIR    party position and facing (0, 2, 4 or 6)\n"
             "  --set ADDR=VAL  set a variable before running, in hex (repeatable)\n"
+            "  --effect M,ID,MINUTES,VALUE  give party member M (1 the first) effect ID\n"
+            "                  for MINUTES (0 for good) with VALUE, its handler run when\n"
+            "                  it is removed, in hex, as a saved game's .SFX holds it\n"
+            "                  (repeatable)\n"
             "  --still         load only the first frame of each picture\n"
             "  --trace         print each instruction's address and name\n",
             program, program, program);
@@ -368,6 +372,8 @@ int main(int argc, char **argv)
     long x = 0, y = 0, dir = 0;
     struct { uint16_t address, value; } sets[64];
     size_t set_count = 0;
+    struct { unsigned member, id, minutes, value; } effects[64];
+    size_t effect_count = 0;
     int i = 1;
     for (; i < argc && strncmp(argv[i], "--", 2) == 0; ++i) {
         const char *option = argv[i];
@@ -444,6 +450,17 @@ int main(int argc, char **argv)
             }
             sets[set_count].address = (uint16_t)address;
             sets[set_count++].value = (uint16_t)value;
+        } else if (strcmp(option, "--effect") == 0 && has_value && effect_count < 64) {
+            unsigned m, id, minutes, value;
+            if (sscanf(argv[++i], "%x,%x,%x,%x", &m, &id, &minutes, &value) != 4 || m < 1 ||
+                id > 0xff || minutes > 0xffff || value > 0xff) {
+                usage(argv[0]);
+                return 2;
+            }
+            effects[effect_count].member = m;
+            effects[effect_count].id = id;
+            effects[effect_count].minutes = minutes;
+            effects[effect_count++].value = value;
         } else {
             usage(argv[0]);
             return 2;
@@ -497,6 +514,18 @@ int main(int argc, char **argv)
     if (load != NULL) loaded = cok_adventure_restore(&game, load);
     if (loaded && party != NULL) loaded = cok_adventure_load_party(&game, party);
     if (loaded && fixture > 0) loaded = test_party(&game, fixture);
+    for (size_t k = 0; loaded && k < effect_count; ++k) {
+        if (effects[k].member > game.party.count) {
+            snprintf(game.error, sizeof game.error, "--effect: no party member %u",
+                     effects[k].member);
+            loaded = false;
+        } else if (cok_character_add_effect(game.party.members[effects[k].member - 1],
+                                            (uint8_t)effects[k].id, (uint16_t)effects[k].minutes,
+                                            (uint8_t)effects[k].value, true) == NULL) {
+            snprintf(game.error, sizeof game.error, "out of memory");
+            loaded = false;
+        }
+    }
     if (!loaded) {
         fprintf(stderr, "%s\n", game.error);
         cok_adventure_close(&game);

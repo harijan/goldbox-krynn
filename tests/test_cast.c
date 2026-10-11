@@ -285,11 +285,13 @@ static void test_handlers(void)
     CHECK(sir->record[0x188] == 0 && sir->record[0x189] == 1 && sir->record[0x197] == 1);
     CHECK(count_effects(sir, 0x16) == 1 && count_effects(sir, 0x0f) == 1);
     CHECK(sir->effects->next->duration == 0xec4 && sir->effects->next->next->duration == 10);
-    /* Neutralize Poison would remove 0x16, whose handler (it kills, with
-     * text) is not ported. */
+    /* Neutralize Poison removes 0x37, then 0x16, whose handler finds no
+     * poison to kill with and removes 0x0f, curing; it then clears
+     * DS:6b38. */
     keys("S");
     cast(0x43, false, &done);
-    CHECK(game.vm.status == COK_ECL_EFFECT_FAILED && strstr(game.error, "3f44:0725") != NULL);
+    CHECK(game.vm.status == COK_ECL_OK && sir->effects == NULL && sir->record[0x188] == 0);
+    CHECK(strstr(s.log, "dies from poison") == NULL && game.effects.rolls.curing == 0);
     /* Without those, poison goes and the target is okay; without poison,
      * it "is unaffected", lower case. */
     while (sir->effects != NULL) {

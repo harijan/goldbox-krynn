@@ -1036,6 +1036,47 @@ static void test_wounded(void)
     CHECK(cok_cast_wounded_ally(&game, m, &ally) && ally == n);
 }
 
+/* Effect 0x4a (3f44:26a5) at event 0x0e: on a d20 of 1 Dispel Magic's
+ * handler (5b04:320f) runs for the selected character, at the caster
+ * level of the spell the last cast left (DS:6b33, which stays), on the
+ * targets it left, each pass on the first. */
+static void test_dispelling(void)
+{
+    reset();
+    cok_character *m = record('M', 1, 11, 10), *a = record('A', 0, 10, 10);
+    cok_character *b = record('B', 0, 12, 10);
+    m->record[0xfe] = 9; /* a mage of 9: Dispel at 9, Bless (a cleric's) at 0 */
+    CHECK(cok_character_add_effect(m, 0x4a, 0, 0xff, false) != NULL);
+    CHECK(cok_character_add_effect(a, 0x01, 0, 3, false) != NULL);
+    CHECK(cok_character_add_effect(b, 0x01, 0, 3, false) != NULL);
+    game.vm.character = m->record;
+    T(1) = a;
+    T(2) = b;
+    N = 2;
+    game.effects.rolls.spell = 0x01;
+    /* At level 0 against 3 the chance is 44 (50 less 2 a level): two
+     * passes on A, d100s of 45 and 80 fail, where at Dispel's own level
+     * (80) they would not. */
+    uint32_t start = SEED(3, 20, 1, 1, 100, 45, 80, 100, 45, 80);
+    CHECK(cok_effects_dispatch(&game.effects, m, 0x0e) && game.vm.status == COK_ECL_OK);
+    CHECK(a->effects != NULL && b->effects != NULL && !LOGGED("is affected"));
+    CHECK(game.vm.seed == AFTER(start, 3, 20, 100, 100) && game.effects.rolls.spell == 0x01);
+    CHECK(game.effects.rolls.images == 1);
+    /* A d20 of 2: nothing. */
+    start = SEED(1, 20, 2, 2);
+    CHECK(cok_effects_dispatch(&game.effects, m, 0x0e) && game.vm.seed == AFTER(start, 1, 20));
+    /* 44 or less takes A's Bless, "is affected"; B keeps its. */
+    SEED(2, 20, 1, 1, 100, 1, 44);
+    CHECK(cok_effects_dispatch(&game.effects, m, 0x0e) && game.vm.status == COK_ECL_OK);
+    CHECK(a->effects == NULL && b->effects != NULL && LOGGED("print: A;print: is affected;"));
+    /* A first target freed since (an earlier battle's) stops the run. */
+    T(1) = &cok_arena_freed;
+    SEED(1, 20, 1, 1);
+    CHECK(!cok_effects_dispatch(&game.effects, m, 0x0e) && game.vm.status == COK_ECL_UNDEFINED);
+    CHECK(strstr(game.error, "freed since") != NULL);
+    T(1) = NULL;
+}
+
 /* 0x47 turns a spell back on a d10 of 1: Magic Missile on its caster. */
 static void test_reflect(void)
 {
@@ -1050,14 +1091,14 @@ static void test_reflect(void)
     CHECK(flight_screens == 0xc99a884cu);
     CHECK(LOGGED("print: M;print: takes 9 points of damage") && m->record[0x197] == 91);
     CHECK(a->record[0x197] == 10 && T(1) == m && game.spell_x == 11);
-    /* Outside a battle (a spell cast in camp) the turning back is not
-     * ported. */
+    /* Outside a battle (a spell cast in camp) the turning back reads the
+     * last battle's tables and freed map: a stop. */
     game.effects.in_battle = false;
     game.effects.rolls.spell = 0x0f;
     SEED(1, 10, 1, 1);
     s.log[0] = '\0';
     CHECK(!cok_effects_run(&game.effects, a, 0x47, cok_character_find_effect(a, 0x47)));
-    CHECK(strstr(game.effects.error, "0x47 (3f44:23a4) needs") != NULL);
+    CHECK(strstr(game.effects.error, "0x47 (3f44:23a4) turns a spell back outside") != NULL);
     CHECK(!LOGGED("reflects the spell"));
     game.effects.failed = false;
     game.effects.in_battle = true;
@@ -1668,6 +1709,7 @@ int main(void)
     test_slow();
     test_wounded();
     test_reflect();
+    test_dispelling();
     test_reachable();
     test_more();
     test_wounded_more();

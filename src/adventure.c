@@ -1767,6 +1767,18 @@ static bool effect_breathe(cok_effects *fx, cok_effect *effect, cok_character *c
     return cok_cast_breath(game, c, effect) || effect_hook_failed(fx, game);
 }
 
+static bool effect_dispel(cok_effects *fx, void *context)
+{
+    cok_adventure *game = context;
+    return cok_cast_dispel(game) || effect_hook_failed(fx, game);
+}
+
+static void effect_party_list(cok_effects *fx, void *context)
+{
+    (void)fx;
+    cok_adventure_party(context);
+}
+
 /* 6b30:08d8 around c with any range: the second listed (DS:6a36). */
 static bool effect_second(cok_effects *fx, cok_character *c, uint8_t **record, void *context)
 {
@@ -1918,6 +1930,8 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
     game->effects.gate = effect_gate;
     game->effects.clouds = effect_clouds;
     game->effects.breathe = effect_breathe;
+    game->effects.dispel = effect_dispel;
+    game->effects.party_list = effect_party_list;
     game->effects.context = game;
     game->vm.file = 1;
     game->picture_id = COK_ADVENTURE_NO_PICTURE;

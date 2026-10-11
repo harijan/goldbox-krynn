@@ -338,6 +338,71 @@ class PlayTests(unittest.TestCase):
                           ["print: ELIN", "print: takes 16 points of damage "]])
         self.assertEqual(lines[-1], "(the party was killed in block 98)")
 
+    def test_lebaum_dispels(self):
+        # ECL3 block 82's Sir Lebaum on Auto, the test party blessed for good
+        # with value 3 (--effect): at event 0x0e his effect 0x4a (3f44:26a5)
+        # rolls a d20, and on 1 Dispel Magic's handler (5b04:320f) runs on
+        # what his fireball (0x4e) left, its ten targets each pass taking
+        # the first, DUNN: a d100 of 80 fails the 65, the second, 31, takes
+        # his Bless.
+        blessed = [arg for k in range(1, 7) for arg in ("--effect", "%d,1,0,3" % k)]
+        result = self.play("--file", 3, "--test-party", 6, "--combat", "auto", "--seed", 148,
+                           "--start", "9afb", "--set", "4be6=1", *blessed, "--keys", r"\r",
+                           ASSETS, 82)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = [line for line in result.stdout.splitlines() if not line.startswith("sound:")]
+        at = lines.index("effect: SIR LEBAUM loses 0x4e")
+        self.assertEqual(lines[at + 1:at + 5], ["effect: DUNN loses 0x01", "print: DUNN",
+                                                "print: is affected", "print: Guarding"])
+        self.assertEqual([line for line in lines if line.endswith("loses 0x01")],
+                         ["effect: DUNN loses 0x01"])
+        self.assertIn("combat: seed 315613810", lines)
+        self.assertNotIn("unported", result.stdout)
+
+    def test_timers_in_battle(self):
+        # Effects given by --effect run out in the hobgoblins' battle (ECL1
+        # block 32), a minute a round (57e4:0171): ALDA's 0x16 (Slow
+        # Poison's, 3f44:0725) kills her, poisoned (0x37), in the third;
+        # 0x3e (a high constitution's, 1acd) heals the hurt a point and
+        # comes back for an hour; CERA's 0x22 (Cause Disease's, 0d19) runs
+        # 0x2b's handler (1469), which weakens her, and 0x2c's (1504),
+        # which at a hit point brings 0x1f.
+        effects = ["1,37,0,ff", "1,16,3,0", "2,3e,2,ff", "3,3e,3,ff", "4,3e,2,ff", "3,22,1,7"]
+        result = self.play("--test-party", 6, "--combat", "auto", "--seed", 1, "--play",
+                           "--set", "4be6=1", *[arg for e in effects for arg in ("--effect", e)],
+                           "--keys", r"\r\r", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = [line for line in result.stdout.splitlines() if not line.startswith("sound:")]
+        weak = lines.index("print: is weakened")
+        self.assertEqual(lines[weak - 1:weak + 2],
+                         ["print: CERA", "print: is weakened", "effect: CERA loses 0x22"])
+        self.assertTrue(lines[weak + 2].startswith("round: 2: "))
+        healed = [lines[i - 1] for i, line in enumerate(lines)
+                  if line == "print: is partially healed"]
+        self.assertEqual(healed, ["print: BRAM", "print: DUNN", "print: CERA"])
+        dies = lines.index("print: dies from poison")
+        self.assertEqual(lines[dies - 1:dies + 3], ["print: ALDA", "print: dies from poison",
+                                                    "effect: ALDA loses 0x37",
+                                                    "effect: ALDA loses 0x16"])
+        self.assertIn("combat: seed 1859194198", lines)
+        self.assertIn("effect: CERA loses 0x1f", lines)
+        self.assertNotIn("unported", result.stdout)
+        # Minutes are hex words: 0x102 and 0xb outlast the battle.
+        effects = ["2,3e,102,ff", "4,3e,0b,ff"]
+        result = self.play("--test-party", 6, "--combat", "auto", "--seed", 1, "--play",
+                           "--set", "4be6=1", *[arg for e in effects for arg in ("--effect", e)],
+                           "--keys", r"\r\r", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[-1], "(the party was killed in block 32)")
+        self.assertFalse([line for line in lines if line.endswith("loses 0x3e")])
+        # A member past the party, or a value past a byte, is refused.
+        result = self.play("--test-party", 2, "--effect", "3,1,0,3", ASSETS, 32)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("--effect: no party member 3", result.stderr)
+        result = self.play("--test-party", 2, "--effect", "1,1,0,100", ASSETS, 32)
+        self.assertEqual(result.returncode, 2)
+
     def test_dragons_breathe(self):
         # The red dragons of ECL1 block 16 at 8cda against the test party on
         # Auto: on event 0x0e (3afb:0d49) a dragon breathes fire (effect

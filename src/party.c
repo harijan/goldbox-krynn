@@ -219,12 +219,19 @@ bool cok_character_insert_item(cok_character *c, size_t index, const uint8_t *it
     return true;
 }
 
+static uint32_t effects_made;
+
+uint32_t cok_effects_made(void)
+{
+    return effects_made;
+}
+
 cok_effect *cok_character_add_effect(cok_character *character, uint8_t id, uint16_t duration,
                                      uint8_t value, bool on_remove)
 {
     cok_effect *effect = malloc(sizeof *effect);
     if (effect == NULL) return NULL;
-    *effect = (cok_effect){id, duration, value, on_remove, NULL};
+    *effect = (cok_effect){id, duration, value, on_remove, NULL, ++effects_made};
     cok_effect **link = &character->effects;
     while (*link != NULL) link = &(*link)->next;
     *link = effect;

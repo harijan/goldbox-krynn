@@ -411,8 +411,14 @@ static bool apply(cast *cx, uint8_t value, bool on_remove, uint8_t amount, uint8
 static cok_character *first(cast *cx)
 {
     cok_character *t = cx->targets[1];
-    if (t == NULL)
+    if (t == NULL) {
         undefined(cx->game, "the first target is read through NULL (DS:6feb)");
+    } else if (t == &cok_arena_freed) {
+        /* Only a list an earlier cast left (effect 0x4a's Dispel Magic). */
+        undefined(cx->game, "the first target is a record freed since, read where the heap "
+                            "may have put another (DS:6feb)");
+        t = NULL;
+    }
     return t;
 }
 
@@ -2595,6 +2601,13 @@ static bool attack_dragon(cast *cx, cok_character *c, cok_effect *effect)
         return false;
     if (game->spell_target_count == 0 || !done) return true;
     return breathe_at(cx, c, what) && breath_damage(cx, c, effect);
+}
+
+bool cok_cast_dispel(cok_adventure *game)
+{
+    cast cx = {.game = game, .caster = member_of(game, game->vm.character), .ai = true,
+               .spell = game->effects.rolls.spell, .targets = game->spell_targets};
+    return dispel_magic(&cx);
 }
 
 bool cok_cast_breath(cok_adventure *game, cok_character *c, cok_effect *effect)

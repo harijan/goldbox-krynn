@@ -129,6 +129,14 @@ bool cok_cast_reflect(cok_adventure *game, cok_character *c, cok_character **cas
  * the run, where it cannot be carried out. */
 bool cok_cast_breath(cok_adventure *game, cok_character *c, cok_effect *effect);
 
+/* Effect 0x4a (3f44:26a5) casting Dispel Magic: the spell's handler
+ * (5b04:320f, DS:6ede) runs with no cast around it, for the selected
+ * character, on the spell (DS:6b33), targets (DS:6fea on) and cell (DS:710f,
+ * 7110) that the last cast or breath left, which may be of an earlier
+ * battle. Returns false, ending the run, where it cannot be carried out,
+ * as where that first target is a record freed since. */
+bool cok_cast_dispel(cok_adventure *game);
+
 /* The byte at DS:at, from 0x1ed6 to 0x1feb: the steps' tables (DS:1ed6,
  * 1edf) and the terrain table after them (DS:1ee4), as a signed byte,
  * which a step of any byte reads as a direction. */

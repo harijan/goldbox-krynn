@@ -51,12 +51,20 @@ static size_t count(const cok_character *c)
 /* What the say hook was given, each ended by ";". */
 static char said_text[256];
 
+/* Whether each say waited (6346:1883's flag), "1" or "0" a say. */
+static char said_waits[64];
+
 static void said(cok_effects *effects, cok_character *c, const char *text, bool wait,
                  void *context)
 {
-    (void)effects, (void)c, (void)context, (void)wait;
+    (void)effects, (void)c, (void)context;
     size_t used = strlen(said_text);
     snprintf(said_text + used, sizeof said_text - used, "%s;", text);
+    used = strlen(said_waits);
+    if (used + 1 < sizeof said_waits) {
+        said_waits[used] = wait ? '1' : '0';
+        said_waits[used + 1] = '\0';
+    }
 }
 
 /* The ids of c's effects, as a string of hex pairs. */
@@ -109,9 +117,14 @@ static void test_list(void)
     CHECK(!cok_effects_remove(&fx, c, NULL, 0x00) && strstr(fx.error, "0000:0000") != NULL);
     add(c, 0x04, 0, 0, true);
     CHECK(!cok_effects_remove(&fx, c, NULL, 0x04) && strstr(fx.error, "5b04:4ab8") != NULL);
-    /* A handler that needs combat is not ported. */
+    /* A handler that writes a combat record fails on one with none. */
     add(c, 0x1a, 0, 0, true);
     CHECK(!cok_effects_remove(&fx, c, NULL, 0x1a) && strstr(fx.error, "3f44:09e8") != NULL);
+    /* 0x78's handler is the item routine, which reads an item's +0x3d
+     * past the effect's 9 bytes. */
+    add(c, 0x78, 0, 0, true);
+    CHECK(!cok_effects_remove(&fx, c, NULL, 0x78) && strstr(fx.error, "3f44:3888") != NULL);
+    CHECK(strstr(fx.error, "+0x3d") != NULL);
 }
 
 /* Removing an effect that changes strength or charisma recomputes the
@@ -525,6 +538,9 @@ static void test_removal(void)
     r[0xe7] = 0xb3;
     add(c, 0x6b, 5, 1, true);
     CHECK(cok_effects_remove(&fx, c, NULL, 0x6b) && r[0x18a] == 1 && r[0xe7] == 0);
+    r[0xe7] = 0x85; /* a monster stays the computer's */
+    add(c, 0x6b, 5, 0, true);
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x6b) && r[0x18a] == 0 && r[0xe7] == 0x85);
     /* 0x6e: +0x5f from the knight level; 0 overflows the division. */
     r[0x100] = 11;
     add(c, 0x6e, 5, 0, true);
@@ -558,10 +574,25 @@ static void test_removal(void)
      * message; at 3 or less it brings 0x1f; while curing nothing. */
     reset();
     c = member();
+    cok_character *mute = member();
+    add(mute, 0x2b, 60, 7, true);
+    mute->record[0x11] = 4;
+    CHECK(!cok_effects_remove(&fx, mute, NULL, 0x2b) && strstr(fx.error, "3f44:1469") != NULL);
+    CHECK(mute->record[0x11] == 4 && strcmp(ids(mute), "2b2b") == 0);
     add(c, 0x2b, 60, 7, true);
-    CHECK(!cok_effects_remove(&fx, c, NULL, 0x2b) && strstr(fx.error, "3f44:1469") != NULL);
-    c->record[0x11] = 3;
+    c->record[0x11] = 4;
+    fx.say = said;
+    said_text[0] = '\0';
+    said_waits[0] = '\0';
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x2b) && strcmp(ids(c), "2b") == 0);
+    CHECK(c->record[0x11] == 3 && strcmp(said_text, "is weakened;") == 0);
+    CHECK(strcmp(said_waits, "1") == 0); /* row 10, with a pause */
+    fx.say = NULL;
+    CHECK(c->effects->duration == 60 && c->effects->value == 7 && c->effects->on_remove);
     CHECK(cok_effects_remove(&fx, c, NULL, 0x2b) && strcmp(ids(c), "2b1f") == 0);
+    CHECK(c->effects->next->duration == 0 && c->effects->next->value == 0xff);
+    CHECK(!c->effects->next->on_remove);
+    CHECK(c->record[0x11] == 3);
     CHECK(c->effects->duration == 60 && c->effects->value == 7 && c->effects->on_remove);
     CHECK(cok_effects_remove(&fx, c, NULL, 0x2b) && strcmp(ids(c), "1f2b") == 0);
     fx.rolls.curing = 1;
@@ -572,6 +603,382 @@ static void test_removal(void)
     c->record[0x18d] = 50;
     fx.rolls.attack_roll = 5;
     CHECK(cok_effects_dispatch(&fx, c, 0x0a) && c->record[0x18d] == 52 && fx.rolls.attack_roll == 7);
+}
+
+/* The battle's side of the timers' and 0x4a's handlers, logged into
+ * said_text with the says. */
+static uint8_t *second_record;
+
+static void log_hook(const char *format, unsigned a, unsigned b, const char *text)
+{
+    size_t used = strlen(said_text);
+    snprintf(said_text + used, sizeof said_text - used, format, a, b, text);
+}
+
+static bool hook_damage(cok_effects *effects, cok_character *c, uint8_t amount, uint8_t kind,
+                        bool saved, void *context)
+{
+    (void)context;
+    log_hook("damage %u type %u", amount, effects->rolls.damage_type, "");
+    log_hook(" kind %u saved %u;", kind, saved, "");
+    c->record[0x197] = (uint8_t)(c->record[0x197] - amount);
+    return true;
+}
+
+static bool hook_kill(cok_effects *effects, cok_character *c, uint8_t status, const char *text,
+                      void *context)
+{
+    (void)effects, (void)context;
+    log_hook("kill %u%.0u %s;", status, 0, text);
+    c->record[0x188] = status;
+    c->record[0x189] = 0;
+    return true;
+}
+
+static void hook_party(cok_effects *effects, void *context)
+{
+    (void)effects, (void)context;
+    log_hook("party;%.0u%.0u%s", 0, 0, "");
+}
+
+static bool hook_dispel(cok_effects *effects, void *context)
+{
+    (void)effects, (void)context;
+    log_hook("dispel;%.0u%.0u%s", 0, 0, "");
+    return true;
+}
+
+static bool hook_second(cok_effects *effects, cok_character *c, uint8_t **record, void *context)
+{
+    (void)effects, (void)c, (void)context;
+    *record = second_record;
+    return true;
+}
+
+/* A damage hook that also takes c's last effect and its first, and makes
+ * another (as nested public calls may). */
+static bool hook_damage_shuffle(cok_effects *effects, cok_character *c, uint8_t amount,
+                                uint8_t kind, bool saved, void *context)
+{
+    cok_effect *last = c->effects;
+    while (last->next != NULL) last = last->next;
+    last->on_remove = false;
+    CHECK(cok_effects_remove(effects, c, last, last->id));
+    CHECK(cok_effects_remove(effects, c, c->effects, c->effects->id));
+    add(c, 0x13, 0, 0, false);
+    return hook_damage(effects, c, amount, kind, saved, context);
+}
+
+/* A damage hook that, the first time, takes c's first 0x13 and makes a
+ * 0x1f for good. */
+static bool shuffled_once;
+
+static bool hook_damage_last(cok_effects *effects, cok_character *c, uint8_t amount,
+                             uint8_t kind, bool saved, void *context)
+{
+    if (!shuffled_once) {
+        shuffled_once = true;
+        CHECK(cok_effects_remove(effects, c, NULL, 0x13));
+        add(c, 0x1f, 0, 0xff, false);
+    }
+    return hook_damage(effects, c, amount, kind, saved, context);
+}
+
+static void hooks(void)
+{
+    fx.say = said;
+    fx.damage = hook_damage;
+    fx.kill = hook_kill;
+    fx.party_list = hook_party;
+    fx.dispel = hook_dispel;
+    fx.second = hook_second;
+    said_text[0] = '\0';
+    said_waits[0] = '\0';
+}
+
+/* The timers' handlers, run when their effects end (3f44:05c3, 0725, 0d19,
+ * 1469, 1504, 1acd), and 0x4a (26a5) and 0x6b applied (34f9). */
+static void test_timer_handlers(void)
+{
+    reset();
+    hooks();
+    cok_character *c = member();
+    uint8_t *r = c->record;
+    r[0x197] = 5;
+    r[0x62] = 10;
+    /* 0x0f, poison: again for ten minutes with its value, then 1 point of
+     * type 0, and the party list outside combat. */
+    add(c, 0x05, 0, 0, false);
+    add(c, 0x0f, 10, 0x23, true);
+    fx.rolls.damage_type = 9;
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x0f) && strcmp(ids(c), "050f") == 0);
+    CHECK(c->effects->next->duration == 10 && c->effects->next->value == 0x23);
+    CHECK(c->effects->next->on_remove && r[0x197] == 4 && fx.rolls.damage_type == 0);
+    CHECK(strcmp(said_text, "damage 1 type 0 kind 0 saved 0;party;") == 0);
+    /* At 2 hit points still; at 1 none, nor the list; in combat no list. */
+    r[0x197] = 2;
+    said_text[0] = '\0';
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x0f) && r[0x197] == 1);
+    CHECK(strcmp(said_text, "damage 1 type 0 kind 0 saved 0;party;") == 0);
+    said_text[0] = '\0';
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x0f) && r[0x197] == 1 && said_text[0] == '\0');
+    CHECK(strcmp(ids(c), "050f") == 0);
+    vm.mode = 5;
+    r[0x197] = 3;
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x0f) && r[0x197] == 2);
+    CHECK(strcmp(said_text, "damage 1 type 0 kind 0 saved 0;") == 0);
+    vm.mode = 4;
+    /* While curing it neither comes back nor hurts. */
+    fx.rolls.curing = 1;
+    said_text[0] = '\0';
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x0f) && strcmp(ids(c), "05") == 0);
+    CHECK(r[0x197] == 2 && said_text[0] == '\0');
+    fx.rolls.curing = 0;
+    /* Run with no effect, it reads the value through NULL. */
+    CHECK(!cok_effects_run(&fx, c, 0x0f, NULL) && strstr(fx.error, "3f44:05c3") != NULL);
+    CHECK(!cok_effects_run(&fx, c, 0x2c, NULL) && strstr(fx.error, "3f44:1504") != NULL);
+    CHECK(!cok_effects_run(&fx, c, 0x3e, NULL) && strstr(fx.error, "3f44:1acd") != NULL);
+    CHECK(!cok_effects_run(&fx, c, 0x2b, NULL) && strstr(fx.error, "3f44:1469") != NULL);
+    /* While curing the value read is never used: nothing happens. */
+    fx.rolls.curing = 1;
+    CHECK(cok_effects_run(&fx, c, 0x0f, NULL) && cok_effects_run(&fx, c, 0x3e, NULL));
+    fx.rolls.curing = 0;
+    /* Without the damage hook it fails. */
+    fx.damage = NULL;
+    add(c, 0x0f, 10, 0, true);
+    CHECK(!cok_effects_remove(&fx, c, NULL, 0x0f) && strstr(fx.error, "60f4:1db7") != NULL);
+    fx.damage = hook_damage;
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x0f));
+    /* 0x2c, wasting: the same, and at a hit point or none 0x1f, once. */
+    reset();
+    hooks();
+    c = member();
+    r = c->record;
+    r[0x197] = 2;
+    add(c, 0x2c, 0, 0x31, true);
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x2c) && strcmp(ids(c), "2c") == 0 && r[0x197] == 1);
+    CHECK(c->effects->duration == 10 && c->effects->value == 0x31 && c->effects->on_remove);
+    CHECK(strcmp(said_text, "damage 1 type 0 kind 0 saved 0;party;") == 0);
+    said_text[0] = '\0';
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x2c) && strcmp(ids(c), "2c1f") == 0);
+    CHECK(c->effects->next->duration == 0 && c->effects->next->value == 0xff);
+    CHECK(!c->effects->next->on_remove && said_text[0] == '\0');
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x2c) && strcmp(ids(c), "1f2c") == 0);
+    r[0x197] = 0;
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x2c) && strcmp(ids(c), "1f2c") == 0);
+    /* 0x22, disease, runs 0x2b's and 0x2c's handlers with its value. */
+    reset();
+    hooks();
+    c = member();
+    r = c->record;
+    r[0x197] = 6;
+    add(c, 0x22, 0, 0x42, true);
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x22) && strcmp(ids(c), "2b2c") == 0);
+    CHECK(c->effects->duration == 60 && c->effects->value == 0x42);
+    CHECK(c->effects->next->duration == 10 && c->effects->next->value == 0x42);
+    CHECK(r[0x11] == 11 && r[0x197] == 5);
+    CHECK(strcmp(said_text, "is weakened;damage 1 type 0 kind 0 saved 0;party;") == 0);
+    /* Applied (flag 0, as nothing does) the same. */
+    cok_effect *disease = add(c, 0x22, 0, 0x43, true);
+    CHECK(cok_effects_run(&fx, c, 0x22, disease) && strcmp(ids(c), "2b2c222b2c") == 0);
+    /* 0x16, Slow Poison's: the poisoned die, losing 0x37; 0x0f goes as
+     * when curing, and curing is clear after. */
+    reset();
+    hooks();
+    c = member();
+    r = c->record;
+    r[0x197] = 7;
+    add(c, 0x37, 0, 0xff, false);
+    add(c, 0x16, 0, 0, true);
+    add(c, 0x0f, 10, 0, true);
+    add(c, 0x0f, 10, 0, true);
+    fx.rolls.curing = 1;
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x16) && strcmp(ids(c), "0f") == 0);
+    CHECK(strcmp(said_text, "kill 6 dies from poison;") == 0 && fx.rolls.curing == 0);
+    CHECK(r[0x188] == 6 && r[0x197] == 7);
+    said_text[0] = '\0';
+    add(c, 0x16, 0, 0, true);
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x16) && c->effects == NULL && said_text[0] == '\0');
+    fx.kill = NULL;
+    add(c, 0x37, 0, 0xff, false);
+    add(c, 0x16, 0, 0, true);
+    CHECK(!cok_effects_remove(&fx, c, NULL, 0x16) && strstr(fx.error, "60f4:00eb") != NULL);
+    fx.kill = hook_kill;
+    /* 0x3e, a high constitution's: again for an hour, then a hit point
+     * healed below the most, "is partially healed" or "is fully healed",
+     * and the list; none for one at its most or of another status. */
+    reset();
+    hooks();
+    c = member();
+    r = c->record;
+    r[0x197] = 8;
+    r[0x62] = 10;
+    add(c, 0x3e, 0, 0x55, true);
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x3e) && strcmp(ids(c), "3e") == 0 && r[0x197] == 9);
+    CHECK(c->effects->duration == 60 && c->effects->value == 0x55 && c->effects->on_remove);
+    CHECK(strcmp(said_text, "is partially healed;party;") == 0 && strcmp(said_waits, "1") == 0);
+    said_text[0] = '\0';
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x3e) && r[0x197] == 10);
+    CHECK(strcmp(said_text, "is fully healed;party;") == 0);
+    said_text[0] = '\0';
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x3e) && r[0x197] == 10 && said_text[0] == '\0');
+    r[0x197] = 2;
+    r[0x188] = 2;
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x3e) && r[0x197] == 2 && said_text[0] == '\0');
+    /* Dying (5) and down, it heals to unconscious (4); out of combat to
+     * okay. */
+    r[0x188] = 5;
+    r[0x189] = 0;
+    r[0x197] = 0;
+    vm.mode = 5;
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x3e) && r[0x188] == 4 && r[0x197] == 1);
+    CHECK(strcmp(said_text, "is partially healed;") == 0);
+    vm.mode = 4;
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x3e) && r[0x188] == 0 && r[0x189] == 1);
+    fx.rolls.curing = 1;
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x3e) && c->effects == NULL);
+    fx.rolls.curing = 0;
+    /* 0x4a at event 0x0e: Dispel Magic on a d20 of 1. */
+    reset();
+    hooks();
+    c = member();
+    add(c, 0x4a, 0, 0xff, false);
+    vm.seed = seed_for(2);
+    CHECK(cok_effects_dispatch(&fx, c, 0x0e) && said_text[0] == '\0');
+    uint32_t after = vm.seed;
+    vm.seed = seed_for(2);
+    cok_dice(&vm.seed, 1, 20);
+    CHECK(vm.seed == after);
+    vm.seed = seed_for(11); /* a d10 of 1 */
+    CHECK(cok_effects_dispatch(&fx, c, 0x0e) && said_text[0] == '\0');
+    vm.seed = seed_for(1);
+    CHECK(cok_effects_dispatch(&fx, c, 0x0e) && strcmp(said_text, "dispel;") == 0);
+    fx.dispel = NULL;
+    vm.seed = seed_for(1);
+    CHECK(!cok_effects_dispatch(&fx, c, 0x0e) && strstr(fx.error, "5b04:320f") != NULL);
+    /* 0x6b applied: the computer controls it, made an NPC, and it turns on
+     * the second listed around it; outside a battle it fails, as without
+     * a combat record. */
+    reset();
+    hooks();
+    c = member();
+    r = c->record;
+    cok_character *other = member();
+    other->record[0x18a] = 1;
+    second_record = other->record;
+    cok_effect *turned = add(c, 0x6b, 0, 0, false);
+    r[0xe7] = 0x85;
+    CHECK(!cok_effects_run(&fx, c, 0x6b, turned) && strstr(fx.error, "3f44:34f9") != NULL);
+    CHECK(r[0x18b] == 1 && r[0xe7] == 0xb2);
+    cok_combat_record cr = {0};
+    c->combat = &cr;
+    CHECK(!cok_effects_run(&fx, c, 0x6b, turned) && strstr(fx.error, "6b30:08d8") != NULL);
+    fx.in_battle = true;
+    r[0xe7] = 0x10;
+    r[0x18a] = 1;
+    CHECK(cok_effects_run(&fx, c, 0x6b, turned) && r[0xe7] == 0xb3 && r[0x18a] == 0);
+    CHECK(cr.target == other->record && said_text[0] == '\0');
+    CHECK(cok_effects_run(&fx, c, 0x6b, turned) && r[0xe7] == 0xb3);
+    second_record = NULL;
+    CHECK(!cok_effects_run(&fx, c, 0x6b, turned) && strstr(fx.error, "0000:018a") != NULL);
+    CHECK(cr.target == NULL);
+    fx.in_battle = false;
+    c->combat = NULL;
+    /* A handler removes the walk's last effect (0x16's, 0x0f) and another
+     * makes one later (0x2c again): the original's walk takes that for the
+     * last if the heap put it where the last was; the port stops. */
+    reset();
+    hooks();
+    c = member();
+    c->record[0x197] = 5;
+    add(c, 0x16, 10, 0, true);
+    add(c, 0x2c, 10, 0, true);
+    add(c, 0x05, 0, 0, false);
+    add(c, 0x0f, 20, 0, true);
+    CHECK(!cok_effects_pass_time(&fx, 1, 10) && strstr(fx.error, "heap put it") != NULL);
+    CHECK(strstr(fx.error, "0x0f, the last") != NULL);
+    /* Without the later one it goes on. */
+    reset();
+    hooks();
+    c = member();
+    c->record[0x197] = 5;
+    add(c, 0x16, 10, 0, true);
+    add(c, 0x05, 0, 0, false);
+    add(c, 0x0f, 20, 0, true);
+    CHECK(cok_effects_pass_time(&fx, 1, 10) && strcmp(ids(c), "05") == 0);
+    /* An effect that ends second in the list starts the walk again from
+     * the first. Here 0x0f does, putting itself back, then 0x16 does,
+     * taking the last (another 0x0f); the copy, ten minutes passing, ends
+     * at once and puts back another, made after the last went, which the
+     * walk meets after starting again: the original's walk would end there
+     * only if the heap put it in the last's block, and otherwise go on
+     * the same way, perhaps for ever. */
+    reset();
+    hooks();
+    c = member();
+    c->record[0x197] = 9;
+    add(c, 0x05, 0, 0, false);
+    add(c, 0x0f, 10, 0, true);
+    add(c, 0x16, 10, 0, true);
+    add(c, 0x0f, 20, 0, true);
+    CHECK(!cok_effects_pass_time(&fx, 2, 1) && strstr(fx.error, "0x0f, the last") != NULL);
+    CHECK(c->record[0x197] == 7);
+    /* The same when the effect made since is for good (0x1f): the
+     * original's walk would end at it too if it took the last's block. */
+    reset();
+    hooks();
+    fx.damage = hook_damage_last;
+    shuffled_once = false;
+    c = member();
+    c->record[0x197] = 9;
+    add(c, 0x05, 0, 0, false);
+    add(c, 0x0f, 10, 0, true);
+    add(c, 0x13, 20, 0, false);
+    CHECK(!cok_effects_pass_time(&fx, 2, 1) && strstr(fx.error, "0x13, the last") != NULL);
+    CHECK(strstr(fx.error, "effect 0x1f made since") != NULL);
+    /* Slow Poison's 0x16, the last, ending after 0x0f (second) put itself
+     * back: the walk is done, and the rest of the list it then looks at
+     * (for time left) starts at the copy 0x16's handler freed. */
+    reset();
+    hooks();
+    c = member();
+    c->record[0x197] = 9;
+    add(c, 0x37, 0, 0xff, false);
+    add(c, 0x0f, 10, 0, true);
+    add(c, 0x16, 10, 0, true);
+    CHECK(!cok_effects_pass_time(&fx, 2, 1) && strstr(fx.error, "as it was counted down") != NULL);
+    CHECK(strstr(fx.error, "0x0f") != NULL);
+    /* Second and last, it ends the walk: the copy is not counted. */
+    reset();
+    hooks();
+    c = member();
+    c->record[0x197] = 9;
+    add(c, 0x05, 0, 0, false);
+    add(c, 0x0f, 10, 0, true);
+    CHECK(cok_effects_pass_time(&fx, 2, 1) && strcmp(ids(c), "050f") == 0);
+    CHECK(c->effects->next->duration == 10 && c->record[0x197] == 8);
+    /* The one before the effect that ends removed, and the first made
+     * since: the original compares them too. */
+    reset();
+    hooks();
+    fx.damage = hook_damage_shuffle;
+    c = member();
+    c->record[0x197] = 5;
+    add(c, 0x05, 0, 0, false);
+    add(c, 0x0f, 10, 0, true);
+    CHECK(!cok_effects_pass_time(&fx, 1, 10) && strstr(fx.error, "before the one") != NULL);
+    CHECK(strstr(fx.error, "0x13 made since") != NULL);
+    /* 0x47 turning a spell back outside a battle stops. */
+    reset();
+    c = member();
+    add(c, 0x47, 0, 0xff, false);
+    fx.rolls.spell = 0x0f;
+    for (vm.seed = 1;; ++vm.seed) {
+        uint32_t t = vm.seed;
+        if (cok_tp_random(&t, 10) == 0) break;
+    }
+    CHECK(!cok_effects_dispatch(&fx, c, 6) && strstr(fx.error, "3f44:23a4") != NULL);
+    CHECK(strstr(fx.error, "6346:1ba6") != NULL);
 }
 
 /* 57e4:0171: effects lose the minutes that pass, ten at a time, and end. */
@@ -794,13 +1201,21 @@ static void test_more_abilities(void)
     r[0x18] = 15;
     CHECK(cok_effects_ability(&fx, c, 4) && r[0x62] == 10 + (4 + 11) / 2);
     /* 20 and up brings effect 0x3e; below, it goes, with its handler, which
-     * is not ported. */
+     * adds it again and heals a point. */
     r[0x18] = 20;
     CHECK(cok_effects_ability(&fx, c, 4) && strcmp(ids(c), "3e") == 0);
     CHECK(c->effects->duration == 0x3c && c->effects->value == 0xff && c->effects->on_remove);
-    CHECK(cok_effects_ability(&fx, c, 4) && strcmp(ids(c), "3e") == 0);
+    cok_effect *kept = c->effects;
+    kept->duration = 7;
+    CHECK(cok_effects_ability(&fx, c, 4) && c->effects == kept && kept->duration == 7);
     r[0x18] = 19;
-    CHECK(!cok_effects_ability(&fx, c, 4) && strstr(fx.error, "3f44:1acd") != NULL);
+    r[0x197] = 3;
+    fx.say = said;
+    said_text[0] = '\0';
+    CHECK(cok_effects_ability(&fx, c, 4) && strcmp(ids(c), "3e") == 0 && c->effects != kept);
+    CHECK(c->effects->duration == 0x3c && c->effects->value == 0xff && c->effects->on_remove);
+    CHECK(r[0x197] == 4 && strcmp(said_text, "is partially healed;") == 0);
+    fx.say = NULL;
     /* With no class level the original divides by zero. */
     memset(r + 0xf9, 0, 8);
     CHECK(!cok_effects_ability(&fx, c, 4) && strstr(fx.error, "200") != NULL);
@@ -875,6 +1290,7 @@ int main(void)
     test_dispatch();
     test_removal();
     test_timers();
+    test_timer_handlers();
     test_rolls();
     test_saved();
     reset();
