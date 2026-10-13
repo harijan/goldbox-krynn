@@ -134,7 +134,7 @@ bool cok_roster_save(cok_adventure *game, cok_character *character)
         int answer = cok_camp_yes_no(game, prompt, 14);
         if (answer < 0) return false;
         if (answer == 'Y') break;
-        cok_keyboard keys = cok_adventure_keyboard(game);
+        cok_keyboard keys = cok_adventure_keyboard_raw(game);
         base[0] = '\0';
         while (base[0] == '\0') {
             cok_adventure_log(game, "input", "New file name: ");

@@ -485,7 +485,7 @@ static bool roll(cok_adventure *game, cok_character *character)
 /* Name the character (4def:245e): until a name is typed. */
 static bool name(cok_adventure *game, uint8_t *c)
 {
-    cok_keyboard keys = cok_adventure_keyboard(game);
+    cok_keyboard keys = cok_adventure_keyboard_raw(game);
     char line[41] = "";
     while (line[0] == '\0') {
         cok_adventure_log(game, "input", "Character name: ");

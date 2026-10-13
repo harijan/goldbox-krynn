@@ -20,8 +20,8 @@ build/START_FULL.EXE: tools/ovrmerge.py Assets/START.EXE Assets/GAME.OVR | build
 build/ecldump: src/ecldump.c src/ecl.c src/ecl.h src/text.h src/picture.h src/dax.c src/dax.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) src/ecldump.c src/ecl.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
 
-ADVENTURE_SRC = src/adventure.c src/ai.c src/cloud.c src/command.c src/start.c src/roster.c src/create.c src/train.c src/modify.c src/icon.c src/arena.c src/attack.c src/combat.c src/round.c src/monster.c src/treasure.c src/shop.c src/camp.c src/magic.c src/cast.c src/items.c src/sheet.c src/effect.c src/party.c src/ecl.c src/menu.c src/screen.c src/text.c src/view.c src/picture.c src/image.c src/dax.c
-ADVENTURE_DEPS = $(ADVENTURE_SRC) src/adventure.h src/ai.h src/cloud.h src/command.h src/start.h src/roster.h src/create.h src/train.h src/modify.h src/icon.h src/arena.h src/attack.h src/combat.h src/round.h src/monster.h src/treasure.h src/shop.h src/camp.h src/magic.h src/cast.h src/items.h src/sheet.h src/effect.h src/party.h src/ecl.h src/menu.h src/screen.h src/text.h src/view.h src/picture.h src/image.h src/dax.h
+ADVENTURE_SRC = src/adventure.c src/ai.c src/cloud.c src/command.c src/start.c src/roster.c src/create.c src/train.c src/modify.c src/icon.c src/arena.c src/attack.c src/combat.c src/round.c src/monster.c src/treasure.c src/shop.c src/camp.c src/magic.c src/cast.c src/items.c src/sheet.c src/effect.c src/party.c src/ecl.c src/menu.c src/screen.c src/text.c src/view.c src/picture.c src/image.c src/sound.c src/dax.c
+ADVENTURE_DEPS = $(ADVENTURE_SRC) src/adventure.h src/ai.h src/cloud.h src/command.h src/start.h src/roster.h src/create.h src/train.h src/modify.h src/icon.h src/arena.h src/attack.h src/combat.h src/round.h src/monster.h src/treasure.h src/shop.h src/camp.h src/magic.h src/cast.h src/items.h src/sheet.h src/effect.h src/party.h src/ecl.h src/menu.h src/screen.h src/text.h src/view.h src/picture.h src/image.h src/sound.h src/dax.h
 
 KEYSCRIPT = src/keyscript.c src/keyscript.h
 
@@ -46,6 +46,11 @@ build/cok: $(COK_DEPS) | build
 
 build/cok_sanitize: $(COK_DEPS) | build
 	$(CC) $(CPPFLAGS) $(SDL_CFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer $(COK_SRC) $(LDFLAGS) $(SDL_LIBS) $(LDLIBS) -o $@
+
+# cok with ThreadSanitizer: the game's calls into the sound against the
+# audio thread's rendering.
+build/cok_tsan: $(COK_DEPS) | build
+	$(CC) $(CPPFLAGS) $(SDL_CFLAGS) $(CFLAGS) -g -fsanitize=thread $(COK_SRC) $(LDFLAGS) $(SDL_LIBS) $(LDLIBS) -o $@
 
 build/test_keymap_sanitize: tests/test_keymap.c src/keymap.c src/keymap.h $(KEYSCRIPT) src/text.h | build
 	$(CC) $(CPPFLAGS) $(SDL_CFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_keymap.c src/keymap.c src/keyscript.c $(LDFLAGS) $(SDL_LIBS) $(LDLIBS) -o $@
@@ -111,6 +116,12 @@ build/test_shop: tests/test_shop.c $(ADVENTURE_DEPS) | build
 build/test_items: tests/test_items.c $(ADVENTURE_DEPS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_items.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
 
+build/test_sound: tests/test_sound.c tests/test_sound_data.h src/sound.c src/sound.h src/dax.c src/dax.h | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_sound.c src/sound.c src/dax.c $(LDFLAGS) $(LDLIBS) -lm -o $@
+
+build/test_sound_sanitize: tests/test_sound.c tests/test_sound_data.h src/sound.c src/sound.h src/dax.c src/dax.h | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_sound.c src/sound.c src/dax.c $(LDFLAGS) $(LDLIBS) -lm -o $@
+
 build/test_ecl: tests/test_ecl.c src/ecl.c src/ecl.h src/text.h src/picture.h src/dax.c src/dax.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_ecl.c src/ecl.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
 
@@ -150,7 +161,7 @@ build/test_text: tests/test_text.c src/text.c src/text.h src/picture.c src/pictu
 build/test_image: tests/test_image.c src/image.c src/image.h src/dax.c src/dax.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_image.c src/image.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
 
-test: build/START_FULL.EXE build/test_dax build/test_image build/test_picture build/test_text build/test_ecl build/test_menu build/test_view build/test_party build/test_effect build/test_adventure build/test_camp build/test_cast build/test_items build/test_monster build/test_combat build/test_round build/test_arena build/test_attack build/test_ai build/test_command build/test_spell build/test_cloud build/test_treasure build/test_shop build/test_start build/test_hooks build/daxcheck build/daximages build/daxcompose build/ecldump build/eclplay $(if $(HAVE_SDL),build/cok build/test_keymap)
+test: build/START_FULL.EXE build/test_dax build/test_image build/test_picture build/test_text build/test_ecl build/test_menu build/test_view build/test_party build/test_effect build/test_adventure build/test_camp build/test_cast build/test_items build/test_monster build/test_combat build/test_round build/test_arena build/test_attack build/test_ai build/test_command build/test_spell build/test_cloud build/test_treasure build/test_shop build/test_start build/test_hooks build/test_sound build/daxcheck build/daximages build/daxcompose build/ecldump build/eclplay $(if $(HAVE_SDL),build/cok build/test_keymap)
 	./build/test_dax
 	./build/test_image
 	./build/test_picture
@@ -177,6 +188,7 @@ test: build/START_FULL.EXE build/test_dax build/test_image build/test_picture bu
 	./build/test_shop
 	./build/test_start
 	./build/test_hooks
+	./build/test_sound
 	./build/ecldump --summary Assets/ECL*.DAX
 	$(PYTHON) tests/test_images_cli.py
 	$(PYTHON) tests/test_eclplay.py
@@ -266,7 +278,7 @@ build/test_treasure_sanitize: tests/test_treasure.c $(ADVENTURE_DEPS) | build
 build/eclplay_sanitize: src/eclplay.c $(KEYSCRIPT) $(ADVENTURE_DEPS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer src/eclplay.c src/keyscript.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
 
-sanitize: build/START_FULL.EXE build/test_dax_sanitize build/test_image_sanitize build/test_picture_sanitize build/test_text_sanitize build/test_ecl_sanitize build/test_menu_sanitize build/test_view_sanitize build/test_party_sanitize build/test_effect_sanitize build/test_adventure_sanitize build/test_camp_sanitize build/test_cast_sanitize build/test_items_sanitize build/test_monster_sanitize build/test_combat_sanitize build/test_round_sanitize build/test_arena_sanitize build/test_attack_sanitize build/test_ai_sanitize build/test_command_sanitize build/test_spell_sanitize build/test_cloud_sanitize build/test_treasure_sanitize build/test_shop_sanitize build/test_start_sanitize build/test_hooks_sanitize build/eclplay_sanitize build/daxcheck_sanitize $(if $(HAVE_SDL),build/cok_sanitize build/test_keymap_sanitize)
+sanitize: build/START_FULL.EXE build/test_dax_sanitize build/test_image_sanitize build/test_picture_sanitize build/test_text_sanitize build/test_ecl_sanitize build/test_menu_sanitize build/test_view_sanitize build/test_party_sanitize build/test_effect_sanitize build/test_adventure_sanitize build/test_camp_sanitize build/test_cast_sanitize build/test_items_sanitize build/test_monster_sanitize build/test_combat_sanitize build/test_round_sanitize build/test_arena_sanitize build/test_attack_sanitize build/test_ai_sanitize build/test_command_sanitize build/test_spell_sanitize build/test_cloud_sanitize build/test_treasure_sanitize build/test_shop_sanitize build/test_start_sanitize build/test_hooks_sanitize build/test_sound_sanitize build/eclplay_sanitize build/daxcheck_sanitize $(if $(HAVE_SDL),build/cok_sanitize build/cok_tsan build/test_keymap_sanitize)
 	./build/test_dax_sanitize
 	./build/test_image_sanitize
 	./build/test_picture_sanitize
@@ -293,6 +305,7 @@ sanitize: build/START_FULL.EXE build/test_dax_sanitize build/test_image_sanitize
 	./build/test_shop_sanitize
 	./build/test_start_sanitize
 	./build/test_hooks_sanitize
+	./build/test_sound_sanitize
 	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --keys '\r\rE\r\r\r\r\r\r\r' Assets 16 | tail -n 1)" = "(out of keys in block 17 at 9d9b)"
 	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --start 899b --keys '\r22\r\rE\r\r\r\r' Assets 48 | tail -n 1)" = "(done in block 48)"
 	out="$$(./build/eclplay_sanitize --combat pass --test-party 6 --play --set 4be6=1 --keys '\r\rE\rm\^\^\^\r\r\>\^\<\<\v\rlsea' Assets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 32 at 80c0)" && printf '%s\n' "$$out" | grep -q '^print: A MAN GIBBERING WITH FEAR' && printf '%s\n' "$$out" | grep -q '^print: The party makes camp'
@@ -345,5 +358,7 @@ sanitize: build/START_FULL.EXE build/test_dax_sanitize build/test_image_sanitize
 	out="$$(./build/eclplay_sanitize --file 3 --test-party 6 --combat auto --seed 148 --start 9afb --set 4be6=1 --effect 1,1,0,3 --effect 2,1,0,3 --effect 3,1,0,3 --effect 4,1,0,3 --effect 5,1,0,3 --effect 6,1,0,3 --keys '\r' Assets 82)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(the party was killed in block 82)" && printf '%s\n' "$$out" | grep -q '^effect: DUNN loses 0x01$$' && printf '%s\n' "$$out" | grep -q '^print: is affected$$' && ! printf '%s\n' "$$out" | grep -q '^unported'
 	out="$$(./build/eclplay_sanitize --test-party 6 --combat auto --seed 1 --play --set 4be6=1 --effect 1,37,0,ff --effect 1,16,3,0 --effect 2,3e,2,ff --effect 3,3e,3,ff --effect 4,3e,2,ff --effect 3,22,1,7 --keys '\r\r' Assets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(the party was killed in block 32)" && printf '%s\n' "$$out" | grep -q '^print: dies from poison$$' && printf '%s\n' "$$out" | grep -q '^print: is weakened$$' && test "$$(printf '%s\n' "$$out" | grep -c '^print: is partially healed$$')" = 3
 	./build/daxcheck_sanitize Assets/*.DAX
+	rm -rf build/sanitize_wav && mkdir -p build/sanitize_wav && test "$$(./build/eclplay_sanitize --start-menu --saves build/sanitize_wav --seed 3 --wav build/sanitize_wav/a.wav --keys '\p50.\t' Assets | tail -n 1)" = "(out of keys at the title)" && test "$$(./build/eclplay_sanitize --start-menu --saves build/sanitize_wav --seed 3 --sound speaker --wav build/sanitize_wav/b.wav --keys '\t' Assets | tail -n 1)" = "(out of keys at the title)"
 	$(if $(HAVE_SDL),./build/test_keymap_sanitize,@echo "SDL2 not found (pkg-config sdl2): skipped build/cok_sanitize")
-	$(if $(HAVE_SDL),rm -rf build/sanitize_cok && test "$$(SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software ./build/cok_sanitize --saves build/sanitize_cok --no-delay --seed 7 --helm --keys '$(COK_GAME)')" = "(out of keys in the start menu)")
+	$(if $(HAVE_SDL),rm -rf build/sanitize_cok && test "$$(SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy ./build/cok_sanitize --saves build/sanitize_cok --no-delay --seed 7 --helm --keys '$(COK_GAME)')" = "(out of keys in the start menu)")
+	$(if $(HAVE_SDL),rm -rf build/sanitize_cok && test "$$(TSAN_OPTIONS='halt_on_error=1 exitcode=66' SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy ./build/cok_tsan --saves build/sanitize_cok --no-delay --sound-clock real --seed 7 --helm --keys '\p50.$(COK_GAME)')" = "(out of keys in the start menu)")

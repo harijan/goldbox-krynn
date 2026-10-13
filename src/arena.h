@@ -228,7 +228,8 @@ bool cok_arena_missile_frames(cok_adventure *game, uint8_t slot);
 bool cok_arena_missile_frame(cok_adventure *game, uint8_t slot, uint8_t image, uint8_t frame,
                              bool mirror);
 
-/* The sound driver's command n (17e8:0020), logged as "sound". */
+/* The sound driver's command n (17e8:0020), logged as "sound" and passed
+ * to hooks.sound. */
 void cok_arena_sound(cok_adventure *game, unsigned n);
 
 /* Fly a missile from cell x0, y0 to x1, y1 (6346:1ba6), along the line

@@ -75,8 +75,7 @@ bool cok_monster_read(cok_adventure *game, uint8_t id, cok_character *m)
         log_text(game, "print", "Unable to load monster");
         cok_adventure_prompt_key(game, "Unable to load monster");
         log_text(game, "quit", "to DOS");
-        game->quit = true;
-        game->vm.abort = true;
+        cok_adventure_quit(game);
         return false;
     }
     if (size < COK_CHARACTER_SIZE) {
@@ -421,8 +420,7 @@ static void show_monster(cok_adventure *game, uint8_t distance)
              * above 2 would make it say so and quit to DOS. */
             log_text(game, "print", "Illegal range in Show3DSprite.");
             log_text(game, "quit", "to DOS");
-            game->quit = true;
-            vm->abort = true;
+            cok_adventure_quit(game);
             return;
         }
         if (vm->mode == 4) {
@@ -807,14 +805,20 @@ static void rob(cok_adventure *game)
 static void battle(cok_adventure *game)
 {
     if (!cok_combat_battle(game) || game->vm.abort) return;
+    /* The sound driver is off through the end of combat (2fd3:1b6e to
+     * 1b84), with 351b's overlay loaded. */
+    cok_adventure_sound(game, COK_SOUND_OVERLAY, 0);
     cok_treasure_end_of_combat(game);
+    cok_adventure_sound(game, COK_SOUND_OVERLAY_END, 0);
 }
 
 /* COMBAT: fight the monsters loaded (DS:8851; a duel, DS:883e, is never
  * set in CoK), or open a shop (0x7f6c) or the temple (0x7ee2), or with
  * neither give out treasure; then the mode for the area, the Look bit of
  * 0x7eca cleared, the sprite forgotten and, unless a shop or temple
- * outside 3D areas, the screen redrawn. */
+ * outside 3D areas, the screen redrawn. Around each overlay
+ * it loads, the sound driver is unhooked and hooked again
+ * (cok_adventure_overlay). */
 static void combat(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -826,18 +830,26 @@ static void combat(cok_adventure *game)
     if (game->monsters_loaded) {
         uint8_t open = cok_monster_open_squares(game, vm->map_x, vm->map_y, vm->direction);
         if (open < vm->mem7c00[0x2c1]) vm->mem7c00[0x2c1] = open;
+        cok_adventure_overlay(game); /* 3995, 3cb2, 3afb, 432f, 6b30, 69ea */
         battle(game);
+        if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game); /* 475c or 6961 */
         if (!area && vm->status == COK_ECL_OK) cok_adventure_load_big(game, 0x79);
     } else if (vm->mem7c00[0x36c] == 1) {
         vm->mem7c00[0x36c] = 0;
+        cok_adventure_overlay(game); /* 36d0 */
         cok_shop(game);
+        if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game);
         fought = area;
     } else if (vm->mem7c00[0x2e2] == 1) {
         vm->mem7c00[0x2e2] = 0;
+        cok_adventure_overlay(game); /* 340d */
         cok_temple(game);
+        if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game);
         fought = area;
     } else {
+        cok_adventure_overlay(game); /* 351b */
         cok_treasure_end_of_combat(game);
+        if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game);
     }
     if (vm->status != COK_ECL_OK && vm->status != COK_ECL_EFFECT_FAILED) {
         game->moving = moving;

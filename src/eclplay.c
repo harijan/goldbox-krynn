@@ -4,6 +4,7 @@
 #include "adventure.h"
 #include "arena.h"
 #include "keyscript.h"
+#include "sound.h"
 #include "start.h"
 
 #include <errno.h>
@@ -24,6 +25,13 @@ typedef struct {
     const char *map;      /* File for each battle's map, or NULL. */
     bool trace;
     cok_adventure *game;
+    /* --wav: the sound rendered as the game's time passes (its delays and
+     * the script's \pN. pauses; key reads take none), to a WAV file. */
+    cok_sound *sound;
+    FILE *wav;
+    const char *wav_path;
+    uint64_t ms, frames;
+    bool calls; /* --sound-calls */
 } player;
 
 static void usage(const char *program)
@@ -81,10 +89,21 @@ static void usage(const char *program)
             "  --effect M,ID,MINUTES,VALUE  give party member M (1 the first) effect ID\n"
             "                  for MINUTES (0 for good) with VALUE, its handler run when\n"
             "                  it is removed, in hex, as a saved game's .SFX holds it\n"
-            "                  (repeatable)\n"
-            "  --still         load only the first frame of each picture\n"
-            "  --trace         print each instruction's address and name\n",
+            "                  (repeatable)\n",
             program, program, program);
+    fputs("  --still         load only the first frame of each picture\n"
+          "  --wav FILE      render the sound to FILE (16-bit mono WAV, 44,100 Hz) as\n"
+          "                  the game's time passes: its delays and \\pN. in the keys\n"
+          "                  (N hundredths of a second); key reads take none; a second\n"
+          "                  more at the end\n"
+          "  --sound DEVICE  with --wav, the sound device KRYNN.CFG would name: tandy\n"
+          "                  (the default), speaker or off; without the title (a\n"
+          "                  block, --load) the driver is installed first, as main does\n"
+          "  --sound-calls   print the game's calls to the sound driver as call: lines\n"
+          "                  (17e8's commands, its installs, the overlays' uninstalls,\n"
+          "                  DAX reads, Ctrl-S, the title's music, quitting)\n"
+          "  --trace         print each instruction's address and name\n",
+          stderr);
 }
 
 static void save(player *p, const char *path)
@@ -93,6 +112,83 @@ static void save(player *p, const char *path)
     cok_image_status status = cok_image_bmp(&image, path);
     if (status != COK_IMAGE_OK)
         fprintf(stderr, "%s: %s\n", path, cok_image_status_string(status));
+}
+
+/* The sound's time moves on by ms, the samples due written. */
+static void advance(player *p, uint64_t ms)
+{
+    if (p->sound == NULL) return;
+    p->ms += ms;
+    uint64_t due = p->ms * COK_SOUND_RATE / 1000;
+    int16_t buffer[4096];
+    uint8_t bytes[sizeof buffer];
+    while (p->frames < due) {
+        size_t n = due - p->frames < 4096 ? (size_t)(due - p->frames) : 4096;
+        cok_sound_render(p->sound, buffer, n);
+        for (size_t k = 0; k < n; ++k) {
+            bytes[2 * k] = (uint8_t)buffer[k];
+            bytes[2 * k + 1] = (uint8_t)((uint16_t)buffer[k] >> 8);
+        }
+        if (p->wav != NULL) fwrite(bytes, 2, n, p->wav);
+        p->frames += n;
+    }
+}
+
+static void put32(uint8_t *at, uint32_t v)
+{
+    for (int k = 0; k < 4; ++k) at[k] = (uint8_t)(v >> (8 * k));
+}
+
+/* A WAV header for frames 16-bit mono samples at COK_SOUND_RATE. */
+static void wav_header(uint8_t header[44], uint64_t frames)
+{
+    uint32_t data = (uint32_t)(frames * 2);
+    memcpy(header, "RIFF\0\0\0\0WAVEfmt \x10\0\0\0\x01\0\x01\0", 24);
+    put32(header + 4, 36 + data);
+    put32(header + 24, COK_SOUND_RATE);
+    put32(header + 28, COK_SOUND_RATE * 2);
+    memcpy(header + 32, "\x02\0\x10\0data", 8);
+    put32(header + 40, data);
+}
+
+/* The game's call to the sound driver. */
+static void sound(cok_adventure *game, cok_sound_call call, unsigned value, void *context)
+{
+    (void)game;
+    player *p = context;
+    if (p->calls) {
+        static const char *const names[] = {"command", "install", "overlay", "overlay end",
+                                            "record", "ctrl-s", "music", "music end", "quit"};
+        if (call == COK_SOUND_COMMAND)
+            printf("call: command %u\n", value);
+        else
+            printf("call: %s\n", names[call]);
+    }
+    if (p->sound != NULL) cok_sound_call_at(p->sound, call, value);
+}
+
+/* The run is over: the tail rendered, the header written. */
+static int finish_wav(player *p)
+{
+    if (p->sound == NULL) return 0;
+    advance(p, COK_SOUND_TAIL_MS);
+    int result = 0;
+    if (p->wav != NULL) {
+        uint8_t header[44];
+        wav_header(header, p->frames);
+        if (fseek(p->wav, 0, SEEK_SET) != 0 || fwrite(header, 1, sizeof header, p->wav) != 44 ||
+            fclose(p->wav) != 0) {
+            perror(p->wav_path);
+            result = 1;
+        }
+        p->wav = NULL;
+    }
+    if (p->sound->divide_error)
+        fprintf(stderr, "sound: the music driver divided by too little (runtime error 200)\n");
+    cok_sound_free(p->sound);
+    free(p->sound);
+    p->sound = NULL;
+    return result;
 }
 
 /* Put a group of keys typed ahead in the buffer, if the script has one
@@ -123,6 +219,8 @@ static int next_key(void *context)
         p->owed = k.scan;
         return k.code;
     }
+    unsigned long pause;
+    while (cok_key_script_pause(&p->keys, &pause)) advance(p, pause * 10u);
     return cok_key_script_read(&p->keys);
 }
 
@@ -138,12 +236,13 @@ static bool key_pending(cok_adventure *game, void *context)
     return cok_key_script_poll(&p->keys);
 }
 
-/* Crt.Delay: no waiting here, but keys typed ahead may arrive. */
+/* Crt.Delay: no waiting here, but keys typed ahead may arrive, and the
+ * sound's time moves on. */
 static void delay(cok_adventure *game, unsigned ms, void *context)
 {
     (void)game;
-    (void)ms;
     player *p = context;
+    advance(p, ms);
     cok_key_script_tick(&p->keys);
     type_ahead(p, false);
 }
@@ -369,9 +468,13 @@ static bool number(const char *text, int base, unsigned long max, unsigned long 
     return errno == 0 && end != text && *end == '\0' && *value <= max;
 }
 
-int main(int argc, char **argv)
+static player p;
+
+static int run(int argc, char **argv)
 {
-    player p = {.keys = cok_key_script_start(NULL), .owed = -1};
+    p = (player){.keys = cok_key_script_start(NULL), .owed = -1};
+    cok_sound_device device = COK_SOUND_TANDY;
+    bool sound_given = false;
     const char *screen = NULL;
     unsigned long file = 0, vector = 5, start = 0, fixture = 0, seed = 0;
     bool seeded = false;
@@ -440,6 +543,17 @@ int main(int argc, char **argv)
             p.map = argv[++i];
         } else if (strcmp(option, "--shots") == 0 && has_value) {
             p.shots = argv[++i];
+        } else if (strcmp(option, "--sound-calls") == 0) {
+            p.calls = true;
+        } else if (strcmp(option, "--wav") == 0 && has_value) {
+            p.wav_path = argv[++i];
+        } else if (strcmp(option, "--sound") == 0 && has_value &&
+                   (strcmp(argv[i + 1], "tandy") == 0 || strcmp(argv[i + 1], "speaker") == 0 ||
+                    strcmp(argv[i + 1], "off") == 0)) {
+            const char *name = argv[++i];
+            sound_given = true;
+            device = name[0] == 't' ? COK_SOUND_TANDY : name[0] == 's' ? COK_SOUND_SPEAKER
+                                                                         : COK_SOUND_NONE;
         } else if (strcmp(option, "--screen") == 0 && has_value) {
             screen = argv[++i];
         } else if (strcmp(option, "--file") == 0 && has_value &&
@@ -507,12 +621,32 @@ int main(int argc, char **argv)
         perror(p.shots);
         return 1;
     }
+    if (sound_given && p.wav_path == NULL) {
+        fprintf(stderr, "--sound needs --wav: eclplay renders sound only to a file\n");
+        return 2;
+    }
+    if (p.wav_path != NULL) {
+        p.wav = fopen(p.wav_path, "wb");
+        p.sound = malloc(sizeof *p.sound);
+        if (p.wav == NULL || p.sound == NULL) {
+            perror(p.wav_path);
+            return 1;
+        }
+        uint8_t header[44];
+        wav_header(header, 0);
+        fwrite(header, 1, sizeof header, p.wav);
+        cok_sound_init(p.sound, device);
+        if (!cok_sound_load(p.sound, argv[i]))
+            fprintf(stderr, "sound: no music: %s\n", p.sound->music_error);
+    }
     static cok_adventure game;
     p.game = &game;
     cok_keyboard keys = {next_key, &p, NULL};
     cok_adventure_hooks hooks = {.unported = unported, .log = log_line, .trace = trace,
                                  .key_pending = key_pending, .battlefield = battlefield,
-                                 .delay = delay, .flush = flush, .context = &p};
+                                 .delay = delay, .flush = flush,
+                                 .sound = p.wav_path != NULL || p.calls ? sound : NULL,
+                                 .context = &p};
     if (!cok_adventure_open(&game, argv[i], &keys, &hooks)) {
         fprintf(stderr, "%s\n", game.error);
         cok_adventure_close(&game);
@@ -524,6 +658,9 @@ int main(int argc, char **argv)
         return 1;
     }
     if (saves != NULL) snprintf(game.save_dir, sizeof game.save_dir, "%s", saves);
+    /* Past main's install of the effects driver (1000:0160), unless the
+     * run starts from the title. */
+    if (!front) cok_adventure_sound(&game, COK_SOUND_INSTALL, 0);
     bool loaded = true;
     if (load != NULL) loaded = cok_adventure_restore(&game, load);
     if (loaded && party != NULL) loaded = cok_adventure_load_party(&game, party);
@@ -630,4 +767,11 @@ int main(int argc, char **argv)
     }
     cok_adventure_close(&game);
     return result;
+}
+
+int main(int argc, char **argv)
+{
+    int result = run(argc, argv);
+    int written = finish_wav(&p);
+    return result != 0 ? result : written;
 }

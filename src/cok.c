@@ -8,6 +8,7 @@
 #include "adventure.h"
 #include "keymap.h"
 #include "keyscript.h"
+#include "sound.h"
 #include "start.h"
 
 #include <SDL.h>
@@ -26,11 +27,34 @@ enum {
     SCREEN_BYTES = SCREEN_W * SCREEN_H / 2, /* The Tandy layout, two pixels a byte. */
     KEYS_MAX = COK_KEYS_BUFFERED,           /* The BIOS's buffer holds 15 keystrokes. */
     REST_MS = 10,                           /* A rest's step: GetTime's hundredth. */
+    FIFO_MAX = 1 << 19, /* By the game's clock, at most 11.9 s rendered ahead of the device. */
     PRESENT_MS = 16,                        /* At most about 60 frames a second. */
 };
 
+/* The sound through SDL's audio device. In real time (the default) the
+ * device's callback renders from the drivers as it plays, so that the
+ * timer runs as the original's interrupt did, through delays and while
+ * the game waits for a key, and the game's calls land as they come. By
+ * the game's clock (--no-delay, or --sound-clock game), the game renders as its delays and \p
+ * pauses pass, as eclplay --wav does, and the callback plays what it
+ * rendered, waiting for more: the same samples for the same keys. */
+typedef struct {
+    SDL_AudioDeviceID device; /* 0 for none: silent. */
+    SDL_mutex *lock;
+    SDL_cond *changed;
+    cok_sound *sound;
+    bool game_clock;
+    int16_t *fifo;            /* By the game's clock: rendered, not yet played. */
+    size_t capacity, head, count;
+    uint64_t ms, frames;      /* The game's time, and the samples due by it. */
+    uint64_t dropped;         /* Samples the FIFO's limit dropped. */
+    bool writer;              /* SDL's disk writer: the game waits for it rather than drop. */
+    bool ended;
+} audio;
+
 typedef struct {
     cok_adventure *game;
+    audio audio;
     SDL_Window *window;
     SDL_Renderer *renderer;
     SDL_Texture *texture;  /* The screen, 320x200. */
@@ -101,7 +125,15 @@ static void usage(const char *program)
             "                  the run ends when they run out\n"
             "  --continue      with --keys, then read the keyboard\n"
             "  --no-delay      do not wait where the game waits (for tests; a rest keeps\n"
-            "                  its pace)\n"
+            "                  its pace); the sound follows the game's delays and \\p\n"
+            "                  pauses, as eclplay --wav renders it\n"
+            "  --sound DEVICE  tandy (the default: the Tandy's three voices and noise),\n"
+            "                  speaker (the PC speaker) or off, as KRYNN.CFG names it\n"
+            "  --no-sound      open no audio device\n"
+            "  --sound-clock C real (the default without --no-delay): the device's\n"
+            "                  playing times the drivers; game (with it): the game's\n"
+            "                  delays and \\p pauses do\n"
+            "  --volume N      0-100 (default 100)\n"
             "  --shots DIR     save DIR/NNN.bmp of the window each time the game waits\n"
             "                  for a key and when a battle is set up, as eclplay does\n",
             program);
@@ -441,6 +473,173 @@ static void type_ahead(frontend *f, bool now)
     if (n > 0) pump(f, 0);
 }
 
+/* The sound. */
+
+static void audio_callback(void *context, Uint8 *stream, int len)
+{
+    audio *a = context;
+    int16_t *out = (int16_t *)(void *)stream;
+    size_t n = (size_t)len / sizeof *out, done = 0;
+    SDL_LockMutex(a->lock);
+    if (!a->game_clock) {
+        cok_sound_render(a->sound, out, n);
+        done = n;
+    } else {
+        while (done < n) {
+            if (a->count == 0) {
+                if (a->ended) break;
+                /* Wait for the game to render more (its time to pass). */
+                SDL_CondWaitTimeout(a->changed, a->lock, 100);
+                continue;
+            }
+            size_t k = n - done < a->count ? n - done : a->count;
+            if (k > a->capacity - a->head) k = a->capacity - a->head;
+            memcpy(out + done, a->fifo + a->head, k * sizeof *out);
+            a->head = (a->head + k) % a->capacity;
+            a->count -= k;
+            done += k;
+        }
+        SDL_CondBroadcast(a->changed);
+    }
+    SDL_UnlockMutex(a->lock);
+    memset(out + done, 0, (n - done) * sizeof *out);
+}
+
+/* By the game's clock: its time moves on by ms; the samples due go in the
+ * FIFO. */
+static void audio_advance(frontend *f, uint64_t ms)
+{
+    audio *a = &f->audio;
+    if (a->device == 0 || !a->game_clock) return;
+    SDL_LockMutex(a->lock);
+    a->ms += ms;
+    uint64_t due = a->ms * COK_SOUND_RATE / 1000;
+    while (a->frames < due) {
+        while (a->writer && a->count == a->capacity && a->capacity >= FIFO_MAX)
+            SDL_CondWaitTimeout(a->changed, a->lock, 100); /* the disk writer catches up */
+        if (a->count == a->capacity && a->capacity >= FIFO_MAX) {
+            /* The device is twelve seconds behind (a real one with
+             * --no-delay, playing as fast as it plays): the oldest samples
+             * are dropped. */
+            size_t drop = a->capacity / 4;
+            a->head = (a->head + drop) % a->capacity;
+            a->count -= drop;
+            a->dropped += drop;
+        }
+        if (a->count == a->capacity) {
+            size_t capacity = a->capacity == 0 ? 65536 : a->capacity * 2;
+            int16_t *fifo = malloc(capacity * sizeof *fifo);
+            if (fifo == NULL) break;
+            for (size_t k = 0; k < a->count; ++k) fifo[k] = a->fifo[(a->head + k) % a->capacity];
+            free(a->fifo);
+            a->fifo = fifo;
+            a->capacity = capacity;
+            a->head = 0;
+        }
+        size_t tail = (a->head + a->count) % a->capacity;
+        size_t room = a->head + a->count < a->capacity ? a->capacity - tail : a->head - tail;
+        size_t n = due - a->frames < room ? (size_t)(due - a->frames) : room;
+        cok_sound_render(a->sound, a->fifo + tail, n);
+        a->count += n;
+        a->frames += n;
+    }
+    SDL_CondBroadcast(a->changed);
+    SDL_UnlockMutex(a->lock);
+}
+
+static void sound(cok_adventure *game, cok_sound_call call, unsigned value, void *context)
+{
+    (void)game;
+    audio *a = &((frontend *)context)->audio;
+    if (a->device == 0) return;
+    SDL_LockMutex(a->lock);
+    cok_sound_call_at(a->sound, call, value);
+    SDL_UnlockMutex(a->lock);
+}
+
+/* Open the audio device (or play silently, saying why). */
+static void audio_open(frontend *f, const char *assets, cok_sound_device device, unsigned volume)
+{
+    audio *a = &f->audio;
+    a->sound = malloc(sizeof *a->sound);
+    a->lock = SDL_CreateMutex();
+    a->changed = SDL_CreateCond();
+    if (a->sound == NULL || a->lock == NULL || a->changed == NULL) {
+        fprintf(stderr, "sound: out of memory; playing silently\n");
+        return;
+    }
+    cok_sound_init(a->sound, device);
+    a->sound->volume = volume * 256 / 100;
+    if (!cok_sound_load(a->sound, assets))
+        fprintf(stderr, "sound: no music: %s\n", a->sound->music_error);
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
+        fprintf(stderr, "sound: %s; playing silently\n", SDL_GetError());
+        return;
+    }
+    SDL_AudioSpec want = {0}, have;
+    want.freq = COK_SOUND_RATE;
+    want.format = AUDIO_S16SYS;
+    want.channels = 1;
+    want.samples = 1024;
+    want.callback = audio_callback;
+    want.userdata = a;
+    a->device = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
+    if (a->device == 0) {
+        fprintf(stderr, "sound: no audio device (%s); playing silently\n", SDL_GetError());
+        return;
+    }
+    const char *driver = SDL_GetCurrentAudioDriver();
+    a->writer = driver != NULL && strcmp(driver, "disk") == 0;
+    if (f->log) {
+        const char *name = device == COK_SOUND_TANDY     ? "tandy"
+                           : device == COK_SOUND_SPEAKER ? "speaker"
+                                                         : "off";
+        fprintf(stderr, "sound: %s, %s\n", SDL_GetCurrentAudioDriver(), name);
+    }
+    SDL_PauseAudioDevice(a->device, 0);
+}
+
+/* By the game's clock, into SDL's disk writer (SDL_AUDIODRIVER=disk) and
+ * at the run's own end, the last second rendered and played out (up to a
+ * few seconds), so that the file holds all of it; then the device
+ * closed. */
+static void audio_close(frontend *f)
+{
+    audio *a = &f->audio;
+    if (a->device != 0) {
+        if (a->game_clock && !f->closing && a->writer) {
+            audio_advance(f, COK_SOUND_TAIL_MS);
+            Uint64 until = SDL_GetTicks64() + 5000;
+            SDL_LockMutex(a->lock);
+            a->ended = true;
+            SDL_CondBroadcast(a->changed);
+            while (a->count > 0 && SDL_GetTicks64() < until)
+                SDL_CondWaitTimeout(a->changed, a->lock, 100);
+            SDL_UnlockMutex(a->lock);
+        } else {
+            SDL_LockMutex(a->lock);
+            a->ended = true;
+            SDL_CondBroadcast(a->changed);
+            SDL_UnlockMutex(a->lock);
+        }
+        if (f->log && a->dropped > 0)
+            fprintf(stderr, "sound: %llu samples dropped, the device behind the game\n",
+                    (unsigned long long)a->dropped);
+        SDL_CloseAudioDevice(a->device);
+        a->device = 0;
+    }
+    if (a->sound != NULL) {
+        if (a->sound->divide_error)
+            fprintf(stderr, "sound: the music driver divided by too little (runtime error 200)\n");
+        cok_sound_free(a->sound);
+        free(a->sound);
+    }
+    free(a->fifo);
+    if (a->changed != NULL) SDL_DestroyCond(a->changed);
+    if (a->lock != NULL) SDL_DestroyMutex(a->lock);
+    memset(a, 0, sizeof *a);
+}
+
 /* The game's hooks. */
 
 static void timing_off(frontend *f)
@@ -481,8 +680,10 @@ static int read_key(void *context)
         }
         now = SDL_GetTicks64();
         unsigned long pause;
-        if (f->scripted && f->pause_until == 0 && cok_key_script_pause(&f->script, &pause))
+        if (f->scripted && f->pause_until == 0 && cok_key_script_pause(&f->script, &pause)) {
             f->pause_until = now + pause * 10;
+            audio_advance(f, pause * 10u); /* by the game's clock, the pause is its time */
+        }
         if (f->scripted && f->pause_until <= now) {
             f->pause_until = 0;
             bool timeout;
@@ -574,6 +775,7 @@ static void delay(cok_adventure *game, unsigned ms, void *context)
     timing_off(f);
     cok_key_script_tick(&f->script);
     type_ahead(f, false);
+    audio_advance(f, ms);
     Uint64 until = SDL_GetTicks64() + (f->no_delay ? 0 : ms);
     for (;;) {
         pump(f, 0);
@@ -709,7 +911,10 @@ int main(int argc, char **argv)
     f.screenshots = "screenshots";
     const char *assets = "Assets", *saves = "saves", *keys = NULL;
     unsigned long scale = 3, seed = 0;
-    bool seeded = false, woof = false, helm = false, fullscreen = false;
+    bool seeded = false, woof = false, helm = false, fullscreen = false, sounding = true;
+    cok_sound_device device = COK_SOUND_TANDY;
+    unsigned long volume = 100;
+    int clock = -1; /* 0 real, 1 game, -1 by --no-delay */
     for (int i = 1; i < argc; ++i) {
         const char *option = argv[i];
         bool has_value = i + 1 < argc;
@@ -743,6 +948,20 @@ int main(int argc, char **argv)
             f.keep_playing = true;
         } else if (strcmp(option, "--no-delay") == 0) {
             f.no_delay = true;
+        } else if (strcmp(option, "--sound-clock") == 0 && has_value &&
+                   (strcmp(argv[i + 1], "real") == 0 || strcmp(argv[i + 1], "game") == 0)) {
+            clock = strcmp(argv[++i], "game") == 0;
+        } else if (strcmp(option, "--no-sound") == 0) {
+            sounding = false;
+        } else if (strcmp(option, "--sound") == 0 && has_value &&
+                   (strcmp(argv[i + 1], "tandy") == 0 || strcmp(argv[i + 1], "speaker") == 0 ||
+                    strcmp(argv[i + 1], "off") == 0)) {
+            const char *name = argv[++i];
+            device = name[0] == 't' ? COK_SOUND_TANDY : name[0] == 's' ? COK_SOUND_SPEAKER
+                                                                         : COK_SOUND_NONE;
+        } else if (strcmp(option, "--volume") == 0 && has_value &&
+                   number(argv[i + 1], 100, &volume)) {
+            ++i;
         } else if (strcmp(option, "--shots") == 0 && has_value) {
             f.shots = argv[++i];
         } else {
@@ -811,10 +1030,13 @@ int main(int argc, char **argv)
         fprintf(stderr, "window: %dx%d\n", w, h);
     }
 
+    f.audio.game_clock = clock < 0 ? f.no_delay : clock == 1;
+    if (sounding) audio_open(&f, assets, device, (unsigned)volume);
     cok_keyboard keyboard = {read_key, &f, NULL};
     cok_adventure_hooks hooks = {.unported = unported, .log = log_line, .delay = delay,
                                  .key_pending = key_pending, .flush = flush_keys,
-                                 .battlefield = battlefield, .context = &f};
+                                 .battlefield = battlefield,
+                                 .sound = sounding ? sound : NULL, .context = &f};
     int result = 0;
     if (!cok_adventure_open(&game, assets, &keyboard, &hooks)) {
         fprintf(stderr, "%s\n", game.error);
@@ -851,6 +1073,7 @@ int main(int argc, char **argv)
             printf("(out of keys in block %u at %04x)\n", game.vm.block, game.vm.ip);
         }
     }
+    audio_close(&f);
     cok_adventure_close(&game);
     if (f.upscaled != NULL) SDL_DestroyTexture(f.upscaled);
     SDL_DestroyTexture(f.texture);

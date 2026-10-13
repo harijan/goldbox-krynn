@@ -40,8 +40,9 @@ static void wait_ms(cok_adventure *game, unsigned ms)
     if (game->hooks.delay != NULL) game->hooks.delay(game, ms, game->hooks.context);
 }
 
-/* Keys go through here so that the run stops when they run out. */
-static int read_key(void *context)
+/* Keys go through here so that the run stops when they run out. Crt's
+ * ReadKey (1962:030f), as text input reads them. */
+static int read_raw(void *context)
 {
     cok_adventure *game = context;
     int key = game->keys.read == NULL ? -1 : game->keys.read(game->keys.context);
@@ -50,6 +51,16 @@ static int read_key(void *context)
         game->input_ended = true;
         game->vm.abort = true;
     }
+    return key;
+}
+
+/* 1614:025b, as every other read goes: Ctrl-S, or the scan code 0x13
+ * after Alt-R's 0, turns the sound off or back on (the key is returned
+ * all the same). */
+static int read_key(void *context)
+{
+    int key = read_raw(context);
+    if (key == 0x13) cok_adventure_sound(context, COK_SOUND_CTRL_S, 0x13);
     return key;
 }
 
@@ -77,6 +88,17 @@ static cok_keyboard keyboard(cok_adventure *game)
     return (cok_keyboard){read_key, game, flush_keys};
 }
 
+/* Text input's keyboard (1521:0739 reads Crt.ReadKey itself). */
+static cok_keyboard keyboard_raw(cok_adventure *game)
+{
+    return (cok_keyboard){read_raw, game, flush_keys};
+}
+
+cok_keyboard cok_adventure_keyboard_raw(cok_adventure *game)
+{
+    return keyboard_raw(game);
+}
+
 static void menu_special(uint8_t scan, void *context);
 static int menu_read(cok_adventure *game, const char *prompt, const char *items, bool *special);
 
@@ -87,6 +109,9 @@ static uint8_t *find_record(cok_adventure *game, const char *name, uint8_t id, s
 {
     char path[sizeof game->assets + 32];
     snprintf(path, sizeof path, "%s/%s.DAX", game->assets, name);
+    /* 169c:088e: the sound stopped (command 0) before the file is read and
+     * let on again (1) after, found or not. Reading takes no time here. */
+    cok_adventure_sound(game, COK_SOUND_RECORD, 0);
     dax_archive archive = {0};
     dax_status status = dax_open(path, &archive);
     if (no_file != NULL) *no_file = status != DAX_OK;
@@ -753,7 +778,7 @@ static void input(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     uint16_t address = cok_ecl_address(vm, 1);
-    cok_keyboard keys = keyboard(game);
+    cok_keyboard keys = keyboard_raw(game);
     if (vm->opcode == COK_ECL_INPUT_NUMBER) {
         uint16_t number;
         if (!cok_text_number(&game->screen, &game->font, "", 10, 0, &keys, &number))
@@ -1276,6 +1301,7 @@ static void call(cok_adventure *game)
         break;
     case 0xb203:
         log_text(game, "sound", vm->value_3de == 10 ? "11" : "10"); /* 17e8:0020 */
+        cok_adventure_sound(game, COK_SOUND_COMMAND, vm->value_3de == 10 ? 11 : 10);
         break;
     case 0xc01e: step_forward(game); break;
     case 0xc018:
@@ -2289,6 +2315,24 @@ void cok_adventure_notice(cok_adventure *game, const char *text, uint8_t fg)
     cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0);
 }
 
+void cok_adventure_sound(cok_adventure *game, cok_sound_call call, unsigned value)
+{
+    if (game->hooks.sound != NULL) game->hooks.sound(game, call, value, game->hooks.context);
+}
+
+void cok_adventure_overlay(cok_adventure *game)
+{
+    cok_adventure_sound(game, COK_SOUND_OVERLAY, 0);
+    cok_adventure_sound(game, COK_SOUND_OVERLAY_END, 0);
+}
+
+void cok_adventure_quit(cok_adventure *game)
+{
+    cok_adventure_sound(game, COK_SOUND_QUIT, 0);
+    game->quit = true;
+    game->vm.abort = true;
+}
+
 void cok_adventure_log(cok_adventure *game, const char *kind, const char *text)
 {
     log_text(game, kind, text);
@@ -2406,8 +2450,9 @@ static void area(cok_adventure *game)
 static void turn(cok_adventure *game, unsigned by)
 {
     cok_ecl *vm = &game->vm;
-    /* Turning left or right first plays sound 10 (DS:1e5c); sound is not
-     * ported. */
+    /* Turning left or right first plays sound 10 (DS:1e5c, 475c:0c58,
+     * 0ca6), not logged. */
+    cok_adventure_sound(game, COK_SOUND_COMMAND, 10);
     vm->direction = (uint8_t)((vm->direction + by) % 8);
     vm->ahead = cok_view_wall(&game->view, vm->direction, vm->map_x, vm->map_y);
     log_position(game);
@@ -2583,7 +2628,8 @@ static int command(cok_adventure *game)
 static void advance(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
-    /* Sound 10 (DS:1e5c) plays first; sound is not ported. */
+    /* Sound 10 (DS:1e5c, 475c:081a) plays first, not logged. */
+    cok_adventure_sound(game, COK_SOUND_COMMAND, 10);
     wait_ms(game, 50);
     int x = vm->map_x, y = vm->map_y;
     cok_view_step(vm->direction, &x, &y);
@@ -3009,7 +3055,11 @@ cok_ecl_status cok_adventure_play(cok_adventure *game)
         if (vm->status == COK_ECL_EFFECT_FAILED) break; /* the effect timers */
         cok_adventure_view(game);
         if (vm->abort) break;
-        /* Sound 10 plays if the party moved. */
+        /* Sound 10 again (2fd3:3eb9, not logged) if the party's square
+         * changed or is negative. */
+        if (vm->map_x < 0 || vm->map_x != (int16_t)vm->mem4b00[0xf0] || vm->map_y < 0 ||
+            vm->map_y != (int16_t)vm->mem4b00[0xf1])
+            cok_adventure_sound(game, COK_SOUND_COMMAND, 10);
         game->picture_shown = false;
         game->view_replaced = true;
         status = cok_ecl_run(vm, vm->vectors[1]);

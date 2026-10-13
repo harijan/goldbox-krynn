@@ -67,6 +67,7 @@ void cok_arena_sound(cok_adventure *game, unsigned n)
     char text[16];
     snprintf(text, sizeof text, "%u", n);
     cok_adventure_log(game, "sound", text);
+    cok_adventure_sound(game, COK_SOUND_COMMAND, n);
 }
 
 static void sound(cok_adventure *game, unsigned n)

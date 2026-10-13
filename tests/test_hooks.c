@@ -1,13 +1,15 @@
 #define _POSIX_C_SOURCE 200809L /* mkdtemp */
 
 /* The hooks a front end relies on beyond the keys: where the game flushes
- * the keyboard (1614:045c, hooks.flush) and which menus animate the small
- * picture while they wait (67b5:03e2's flag, game->menu_animates). */
+ * the keyboard (1614:045c, hooks.flush), which menus animate the small
+ * picture while they wait (67b5:03e2's flag, game->menu_animates), and
+ * the calls to the sound driver (hooks.sound). */
 #include "adventure.h"
 #include "ai.h"
 #include "arena.h"
 #include "camp.h"
 #include "monster.h"
+#include "start.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -203,10 +205,92 @@ static void test_animating(void)
     cok_party_free(&game.party);
 }
 
+/* The sound driver's calls, as letters: C and the command, I install, O
+ * and E an overlay's uninstall and reinstall, R a DAX record read, K
+ * Ctrl-S, M and N the title's music and its end, Q quitting. */
+static char calls[8192];
+
+static void sounded(cok_adventure *g, cok_sound_call call, unsigned value, void *context)
+{
+    (void)g;
+    (void)context;
+    static const char letters[] = "CIOERKMNQ";
+    size_t used = strlen(calls);
+    if (call == COK_SOUND_COMMAND)
+        snprintf(calls + used, sizeof calls - used, "C%u ", value);
+    else
+        snprintf(calls + used, sizeof calls - used, "%c ", letters[call]);
+}
+
+static unsigned count(const char *text, const char *what)
+{
+    unsigned n = 0;
+    for (const char *p = strstr(text, what); p != NULL; p = strstr(p + 1, what)) ++n;
+    return n;
+}
+
+/* Where the game calls the sound driver: each DAX record read (169c:088e,
+ * commands 0 and 1), the sounds the combat screen plays, Ctrl-S (or Alt-R's
+ * scan code) read by a menu (1614:025b) but not by text input (Crt's
+ * ReadKey), quitting (1614:0000), the title's music and the install after
+ * it (1000:0160). */
+static void test_sounds(void)
+{
+    cok_picture picture = {0};
+    calls[0] = '\0';
+    keys("");
+    CHECK(cok_adventure_load_image(&game, "TITLE", 1, -1, &picture));
+    CHECK(!cok_adventure_load_image(&game, "TITLE", 200, -1, &picture));
+    CHECK(strcmp(calls, "R R ") == 0);
+    cok_picture_free(&picture);
+
+    calls[0] = '\0';
+    cok_arena_sound(&game, 7);
+    CHECK(strcmp(calls, "C7 ") == 0);
+
+    uint8_t *who = member("ALDA")->record;
+    bool ended;
+    calls[0] = '\0';
+    keys("\x13\x01\x13\x1b");
+    cok_adventure_pick(&game, "Pick", who, true, &ended);
+    CHECK(strcmp(calls, "K K ") == 0);
+    cok_party_free(&game.party);
+
+    char line[41];
+    calls[0] = '\0';
+    keys("\x13" "A\r");
+    cok_keyboard raw = cok_adventure_keyboard_raw(&game);
+    CHECK(cok_text_input(&game.screen, &game.font, "", 10, 0, 40, &raw, line));
+    CHECK(calls[0] == '\0');
+    keys("\x13" "A\r");
+    cok_keyboard read = cok_adventure_keyboard(&game);
+    CHECK(cok_text_input(&game.screen, &game.font, "", 10, 0, 40, &read, line));
+    CHECK(strcmp(calls, "K ") == 0);
+
+    calls[0] = '\0';
+    cok_camp_quit(&game);
+    CHECK(strcmp(calls, "Q ") == 0 && game.quit && game.vm.abort);
+    game.quit = false;
+
+    /* The title: its music first, its pictures read, its end; then the
+     * driver hooked, and the title's menu (no keys: the run ends). */
+    calls[0] = '\0';
+    keys("");
+    cok_start_game(&game, false);
+    CHECK(strncmp(calls, "M R ", 4) == 0 && count(calls, "R ") == 4);
+    CHECK(strcmp(calls + strlen(calls) - 4, "N I ") == 0);
+    calls[0] = '\0';
+    keys("");
+    cok_start_game(&game, true);
+    CHECK(strcmp(calls, "I ") == 0);
+    game.vm.abort = false;
+    game.input_ended = false;
+}
+
 int main(void)
 {
     cok_keyboard k = {scripted, &s, NULL};
-    cok_adventure_hooks hooks = {.flush = flushed, .context = &s};
+    cok_adventure_hooks hooks = {.flush = flushed, .sound = sounded, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &k, &hooks));
     char dir[] = "/tmp/cok-hooks-XXXXXX";
     CHECK(mkdtemp(dir) != NULL);
@@ -215,6 +299,7 @@ int main(void)
     test_waits();
     test_saved_game();
     test_animating();
+    test_sounds();
     cok_adventure_close(&game);
     DIR *d = opendir(dir);
     CHECK(d != NULL);
