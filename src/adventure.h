@@ -104,6 +104,10 @@ typedef struct {
     /* Whether a key is waiting, without reading it (1614:03c2, KeyPressed),
      * which resting polls. NULL never has one. */
     bool (*key_pending)(cok_adventure *game, void *context);
+    /* Discard the keys waiting (1614:045c), as the menus do once they have
+     * their key, paging does after its key, and the title before and after
+     * each wait. NULL keeps them. */
+    void (*flush)(cok_adventure *game, void *context);
     void *context;
 } cok_adventure_hooks;
 
@@ -248,6 +252,13 @@ struct cok_adventure {
     bool demo;             /* DS:4b4b: the demonstration plays. */
     bool free_training;    /* DS:7140: Helm's free training. */
     bool timed;            /* A menu that times out reads keys (DS:6e11 set). */
+    uint16_t timeout;      /* DS:6e11: how long it waits, in hundredths of a second. */
+    /* 67b5:03e2's flag ([bp+0xa]): the menu waiting for a key animates the
+     * small picture, each frame shown for its delay * 10 hundredths, as the
+     * camp's, treasure's and the scripts' menus over a picture do. The port
+     * sets it while such a menu reads; a front end that waits does the
+     * animating (cok_adventure_show_frame with game->frame). */
+    bool menu_animates;
     bool title;            /* The title or its menu shows. */
     /* A record outside the list that the selection (DS:6096) may name: the
      * character being created (4def:06dd), or NULL. */
@@ -371,6 +382,8 @@ cok_keyboard cok_adventure_keyboard(cok_adventure *game);
 void cok_adventure_wait(cok_adventure *game, unsigned ms);
 /* Whether a key is waiting (hooks.key_pending, 1614:03c2). */
 bool cok_adventure_key_pending(cok_adventure *game);
+/* Discard the keys waiting (hooks.flush, 1614:045c). */
+void cok_adventure_flush(cok_adventure *game);
 /* A key read as 1614:025b reads it, without waiting for one first: in the
  * demonstration 0 at once when none is pending. */
 int cok_adventure_wait_key(cok_adventure *game);
@@ -411,6 +424,18 @@ void cok_adventure_show_picture(cok_adventure *game);
 void cok_adventure_free_picture(cok_adventure *game);
 /* Draw frame (from 0) of the small picture at cell 3, 3 (6961:000a). */
 void cok_adventure_show_frame(cok_adventure *game, size_t frame);
+/* While a menu waits for a key with game->menu_animates set (67b5:03e2):
+ * whether the small picture animates, and then in *ms how long its current
+ * frame stays, its delay * 10 hundredths of a second, at least one
+ * hundredth (a delay of 0, which the original redraws as fast as its
+ * loop runs, as every sprite's groups have). Nothing animates
+ * where the slot was freed and nothing loaded since (DS:6da3 0) or the
+ * picture has fewer than two frames. */
+bool cok_adventure_menu_animates(const cok_adventure *game, uint32_t *ms);
+/* The next frame of the small picture (DS:6da3 + 1, the first after the
+ * last), drawn at cell 3, 3, as 67b5:03e2 shows it once the current one's
+ * time is up. */
+void cok_adventure_menu_frame(cok_adventure *game);
 /* Show the portrait of head and body (3775:0538): keep them as the one
  * last shown (DS:4b55, 4b56), load them unless they are loaded
  * (6961:05b9) and draw them, the head at cell 3, 3 and the body at 3, 8

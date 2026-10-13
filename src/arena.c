@@ -686,7 +686,8 @@ static bool load_icon(cok_adventure *game, const char *name, size_t length, uint
         }
         cok_adventure_log(game, "error", game->error);
     }
-    return true; /* 1614:045c, the keyboard's flush, is not ported. */
+    cok_adventure_flush(game); /* 1614:045c */
+    return true;
 }
 
 bool cok_arena_load_icon(cok_adventure *game, const char *name, uint8_t id, uint8_t slot)
@@ -749,6 +750,7 @@ bool cok_arena_party_icon(cok_adventure *game, cok_character *c, bool colours)
     cok_arena_free_icon(game, SLOT_HEAD); /* 6d21:0156 */
     if (!ok && game->vm.status == COK_ECL_OK)
         cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
+    if (ok) cok_adventure_flush(game); /* 4b6d:0a66 */
     return ok;
 }
 

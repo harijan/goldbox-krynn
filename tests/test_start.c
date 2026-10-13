@@ -25,11 +25,30 @@ typedef struct {
     size_t at, length;
     char log[16384];
     unsigned waits;
+    unsigned long waited; /* Milliseconds. */
+    unsigned press_after; /* Not 0: the poll that many polls on finds a key. */
+    unsigned flushes;
 } script;
+
+/* The timeouts of the timed menus that read keys, in order, and the
+ * hooks' calls meanwhile: D a delay, F a flush, T such a read. */
+static const cok_adventure *timing;
+static unsigned timeouts[4], timeout_count;
+static char events[16384];
+static size_t event_count;
+
+static void event(char e)
+{
+    if (timing != NULL && event_count + 1 < sizeof events) events[event_count++] = e;
+}
 
 static int scripted(void *context)
 {
     script *s = context;
+    if (timing != NULL && timing->timed && timeout_count < 4) {
+        timeouts[timeout_count++] = timing->timeout;
+        event('T');
+    }
     while (s->at < s->length && s->keys[s->at] == 2) ++s->at;
     if (s->at == s->length) return -1;
     char c = s->keys[s->at++];
@@ -40,6 +59,7 @@ static bool pending(cok_adventure *game, void *context)
 {
     (void)game;
     script *s = context;
+    if (s->press_after != 0) return --s->press_after == 0;
     if (s->at == s->length || s->keys[s->at] != 2) return false;
     ++s->at;
     return true;
@@ -53,12 +73,21 @@ static void log_line(cok_adventure *game, const char *kind, const char *text, vo
     snprintf(s->log + used, sizeof s->log - used, "%s: %s;", kind, text);
 }
 
+static void flush(cok_adventure *game, void *context)
+{
+    (void)game;
+    script *s = context;
+    ++s->flushes;
+    event('F');
+}
+
 static void delay(cok_adventure *game, unsigned ms, void *context)
 {
     (void)game;
-    (void)ms;
     script *s = context;
     ++s->waits;
+    s->waited += ms;
+    event('D');
 }
 
 static script s;
@@ -72,6 +101,9 @@ static void keys(const char *k)
     s.length = strlen(k);
     s.log[0] = '\0';
     s.waits = 0;
+    s.waited = 0;
+    s.press_after = 0;
+    s.flushes = 0;
     game.input_ended = false;
     game.quit = false;
     game.vm.abort = false;
@@ -531,6 +563,9 @@ static void test_roster_rules(void)
     keys("AA");
     cok_roster_add(&game);
     CHECK(game.party.count == 6 && logged("party: ROSTA joins;") && s.at == 1);
+    /* Flushes: the list's after its key, the character's files read
+     * (4b6d:15ce), and its icon composed (7, see test_hooks). */
+    CHECK(s.flushes == 1 + 1 + 7);
     /* Add ends with six; the next is turned away saying nothing. */
     keys("A");
     cok_roster_add(&game);
@@ -1168,13 +1203,40 @@ static void test_title(void)
     /* Without a timed menu the timeout ends the run. */
     keys("\x03");
     CHECK(k.read(k.context) < 0 && game.input_ended);
-    /* The title: four waits and the credits; a key while it waits ends it. */
+    /* The title: four waits, 5, 10, 10 and 10 seconds polled each
+     * hundredth, and the credits; a key while it waits ends it. */
     keys("");
     cok_start_title(&game);
-    CHECK(s.waits == 4 && logged("print: Electronic Arts;"));
+    CHECK(s.waits == 3500 && s.waited == 35000 && logged("print: Electronic Arts;"));
     keys("\x02x");
     cok_start_title(&game);
     CHECK(s.waits == 0 && s.at == s.length && !logged("Electronic Arts"));
+    /* 2f55:0000 flushes, then polls each hundredth: a key pressed a second
+     * into the second picture's wait ends it there, read and flushed. */
+    keys("xy");
+    s.press_after = 600;
+    cok_start_title(&game);
+    /* Flushes: after each of TITLE.DAX records 1-3 loaded (127f:029a),
+     * before and after each wait, after the key too. */
+    CHECK(s.waits == 599 && s.waited == 5990 && s.at == 1 && s.flushes == 7);
+    CHECK(!logged("Electronic Arts"));
+    /* The title's menu waits 30 seconds (DS:6e11 3000 hundredths), then
+     * after a demonstration 10 (1000, 1000:0318). */
+    keys("\x03");
+    timing = &game;
+    timeout_count = 0;
+    event_count = 0;
+    cok_start_game(&game, false);
+    timing = NULL;
+    events[event_count] = '\0';
+    CHECK(timeout_count == 2 && timeouts[0] == 3000 && timeouts[1] == 1000);
+    CHECK(logged("choice: Demo;"));
+    /* Before each, the flush ending the title's last wait (2f55:005f), and
+     * before the second also main's (1000:0313). */
+    char *second = strrchr(events, 'T'), *first = strchr(events, 'T');
+    CHECK(first != NULL && second != NULL && first != second);
+    CHECK(first[-1] == 'F' && first[-2] == 'D');
+    CHECK(second[-1] == 'F' && second[-2] == 'F' && second[-3] == 'D');
     /* The state a game starts and ends with. */
     game.vm.mem4b00[0x10] = 9;
     cok_start_reset(&game);
@@ -1318,8 +1380,8 @@ int main(void)
 {
     snprintf(dir, sizeof dir, "build/start_XXXXXX");
     CHECK(mkdtemp(dir) != NULL);
-    cok_keyboard k = {scripted, &s};
-    cok_adventure_hooks hooks = {.log = log_line, .key_pending = pending, .delay = delay,
+    cok_keyboard k = {scripted, &s, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .key_pending = pending, .delay = delay, .flush = flush,
                                  .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &k, &hooks));
     test_tables();

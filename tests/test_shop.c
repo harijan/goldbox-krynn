@@ -105,7 +105,7 @@ static int inked_rows(int x1, int y1, int x2, int y2)
 
 static void open_game(void)
 {
-    cok_keyboard keys = {scripted, &s};
+    cok_keyboard keys = {scripted, &s, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .unported = unported, .delay = delayed,
                                  .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));

@@ -67,9 +67,14 @@ int cok_adventure_wait_key(cok_adventure *game)
     return wait_key(game);
 }
 
+static void flush_keys(void *context)
+{
+    cok_adventure_flush(context);
+}
+
 static cok_keyboard keyboard(cok_adventure *game)
 {
-    return (cok_keyboard){read_key, game};
+    return (cok_keyboard){read_key, game, flush_keys};
 }
 
 static void menu_special(uint8_t scan, void *context);
@@ -161,6 +166,7 @@ static bool load_single(cok_adventure *game, const char *name, uint8_t id, int t
     }
     cok_images_free(&images);
     free(data);
+    if (ok) cok_adventure_flush(game); /* 127f:029a, once a record was loaded */
     return ok;
 }
 
@@ -231,6 +237,7 @@ static void load_picture(cok_adventure *game, uint8_t id)
     }
     cok_images_free(&images);
     free(data);
+    cok_adventure_flush(game); /* 6961:0514 */
 }
 
 void cok_adventure_load_sprite(cok_adventure *game, uint8_t id)
@@ -264,6 +271,7 @@ void cok_adventure_load_sprite(cok_adventure *game, uint8_t id)
     }
     cok_images_free(&images);
     free(data);
+    cok_adventure_flush(game); /* 6961:0514 */
 }
 
 void cok_adventure_draw_sprite(cok_adventure *game, unsigned frame)
@@ -429,7 +437,7 @@ static void show_portrait(cok_adventure *game, uint8_t head, uint8_t body)
     if (!load_piece(game, "HEAD", head, &game->head_id, &game->head) ||
         !load_piece(game, "BODY", body, &game->body_id, &game->body) || game->vm.abort)
         return;
-    /* 1614:045c, the keyboard's flush, is not ported. */
+    cok_adventure_flush(game); /* 1614:045c */
     if (draw_piece(game, &game->head, 3, 3)) draw_piece(game, &game->body, 3, 8);
 }
 
@@ -624,7 +632,8 @@ static void clear_box(cok_adventure *game)
 static void page(void *context)
 {
     cok_adventure *game = context;
-    wait_key(game); /* 1614:045c then discards pending keys. */
+    wait_key(game);
+    cok_adventure_flush(game); /* 1614:045c */
 }
 
 static void char_delay(void *context)
@@ -674,8 +683,10 @@ static void horizontal_menu(cok_adventure *game)
         append(items, sizeof items, vm->string[i]);
         if (i + 1 < count) append(items, sizeof items, " ");
     }
-    if (game->picture_shown && game->view_replaced) draw_frame(game, game->frame);
+    game->menu_animates = game->picture_shown && game->view_replaced;
+    if (game->menu_animates) draw_frame(game, game->frame);
     int choice = cok_adventure_horizontal(game, "", items, single ? 15 : 10, single);
+    game->menu_animates = false;
     if (choice < 0) return;
     char text[16];
     snprintf(text, sizeof text, "%d", choice);
@@ -968,9 +979,11 @@ static uint8_t *pick_character(cok_adventure *game, const char *prompt, uint8_t 
         cok_adventure_party(game);
         vm->character = shown;
         /* In camp (and mode 6) 67b5:03e2 shows the small picture. */
-        if (vm->mode == 2 || vm->mode == 6) draw_frame(game, game->frame);
+        game->menu_animates = vm->mode == 2 || vm->mode == 6;
+        if (game->menu_animates) draw_frame(game, game->frame);
         bool special;
         key = menu_read(game, menu_prompt, items, &special);
+        game->menu_animates = false;
         if (key < 0) {
             *ended = true;
             return who;
@@ -2064,6 +2077,7 @@ static bool add_characters(cok_adventure *game, const cok_saved_game *saved, con
             free(character);
             return false;
         }
+        cok_adventure_flush(game); /* 4b6d:15ce, in 11e5 before the recompute */
         if (!cok_party_add(&game->party, character)) {
             cok_character_free(character);
             free(character);
@@ -2131,6 +2145,7 @@ bool cok_adventure_restore(cok_adventure *game, const char *path)
     }
     vm->last_mode = saved.mode;
     vm->mode = 0; /* the party menu */
+    cok_adventure_flush(game); /* 4b6d:20ef */
     return true;
 }
 
@@ -2294,6 +2309,11 @@ bool cok_adventure_key_pending(cok_adventure *game)
     return game->hooks.key_pending != NULL && game->hooks.key_pending(game, game->hooks.context);
 }
 
+void cok_adventure_flush(cok_adventure *game)
+{
+    if (game->hooks.flush != NULL) game->hooks.flush(game, game->hooks.context);
+}
+
 void cok_adventure_carry(cok_adventure *game, uint16_t clock[7])
 {
     carry(game, clock);
@@ -2324,6 +2344,28 @@ void cok_adventure_show_picture(cok_adventure *game)
 void cok_adventure_show_frame(cok_adventure *game, size_t frame)
 {
     draw_frame(game, frame);
+}
+
+bool cok_adventure_menu_animates(const cok_adventure *game, uint32_t *ms)
+{
+    if (!game->menu_animates || game->frame_unset || game->frame_count < 2 ||
+        game->frame >= game->frame_count)
+        return false;
+    /* 67b5:0502: the delay (DS:6d9c + 8 * frame) times 10 against GetTime's
+     * hundredths. */
+    uint32_t delay = game->delays[game->frame];
+    *ms = delay > UINT32_MAX / 100 ? UINT32_MAX : delay * 100;
+    /* A delay of 0, as every group of a sprite has, the original's loop
+     * takes as up at once, redrawing as fast as it runs; a hundredth,
+     * GetTime's unit, here. */
+    if (*ms < 10) *ms = 10;
+    return true;
+}
+
+void cok_adventure_menu_frame(cok_adventure *game)
+{
+    game->frame = game->frame + 1 < game->frame_count ? game->frame + 1 : 0;
+    draw_frame(game, game->frame);
 }
 
 void cok_adventure_print(cok_adventure *game, const char *text, cok_text_window window,

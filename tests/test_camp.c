@@ -20,9 +20,14 @@ typedef struct {
     char log[8192];
 } script;
 
+/* Whether a menu read its last key with the small picture animating. */
+static const cok_adventure *watched;
+static bool read_animating;
+
 static int scripted(void *context)
 {
     script *s = context;
+    if (watched != NULL) read_animating = watched->menu_animates;
     while (s->at < s->length && s->keys[s->at] == 2) ++s->at;
     if (s->at == s->length) return -1;
     char c = s->keys[s->at++];
@@ -51,7 +56,7 @@ static cok_adventure game;
 
 static void open_game(void)
 {
-    cok_keyboard keys = {scripted, &s};
+    cok_keyboard keys = {scripted, &s, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .key_pending = pending, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
     game.vm.mode = 4;
@@ -841,9 +846,60 @@ static void test_round_trip(void)
     rmdir(dir);
 }
 
+/* 67b5:03e2 animates the small picture while the camp's menus wait: each
+ * frame for its delay * 10 hundredths (PIC1 record 12: 4, 2, 2 and 2), the
+ * first after the last; not with one frame, nor once the slot is freed. */
+static void test_animation(void)
+{
+    watched = &game;
+    uint8_t file = game.vm.file;
+    game.vm.file = 1;
+    cok_adventure_free_picture(&game);
+    cok_adventure_load_picture(&game, 12);
+    CHECK(game.frame_count == 4 && game.frame == 0);
+    uint32_t ms = 0;
+    CHECK(!cok_adventure_menu_animates(&game, &ms));
+    game.menu_animates = true;
+    CHECK(cok_adventure_menu_animates(&game, &ms) && ms == 400);
+    cok_picture_fill(&game.screen, 3, 24, 10, 80, 0);
+    cok_adventure_menu_frame(&game);
+    CHECK(game.frame == 1 && cok_adventure_menu_animates(&game, &ms) && ms == 200);
+    cok_image shown = cok_picture_frame(&game.screen, 0), frame = cok_picture_frame(&game.frames[1], 0);
+    for (size_t y = 0; y < frame.height; ++y)
+        CHECK(memcmp(shown.pixels + (24 + y) * 160 + 12, frame.pixels + y * frame.width / 2,
+                     frame.width / 2) == 0);
+    for (int i = 0; i < 3; ++i) cok_adventure_menu_frame(&game);
+    CHECK(game.frame == 0);
+    cok_adventure_free_picture(&game);
+    CHECK(!cok_adventure_menu_animates(&game, &ms));
+    game.animate = false;
+    cok_adventure_load_picture(&game, 12);
+    CHECK(game.frame_count == 1 && !cok_adventure_menu_animates(&game, &ms));
+    game.animate = true;
+    /* A sprite's groups have delays of 0, which the original redraws as
+     * fast as its loop runs: a hundredth here, never nothing. */
+    cok_adventure_load_sprite(&game, 12);
+    CHECK(game.frame_count >= 2 && game.delays[0] == 0);
+    CHECK(cok_adventure_menu_animates(&game, &ms) && ms == 10);
+    cok_adventure_free_picture(&game);
+    game.menu_animates = false;
+    /* The camp's menus set it while they read, others do not. */
+    keys("x");
+    bool special;
+    cok_camp_menu(&game, "", "Save Exit", true, true, &special);
+    CHECK(read_animating && !game.menu_animates);
+    keys("x");
+    cok_camp_menu(&game, "", "Save Exit", true, false, &special);
+    CHECK(!read_animating);
+    cok_adventure_free_picture(&game);
+    game.vm.file = file;
+    watched = NULL;
+}
+
 int main(void)
 {
     open_game();
+    test_animation();
     test_rest_time();
     test_preparation();
     test_heal();

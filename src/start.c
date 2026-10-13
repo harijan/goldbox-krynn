@@ -103,16 +103,24 @@ void cok_start_reset(cok_adventure *game)
     clear_menu(game);
 }
 
-/* 2f55:0000: wait seconds unless a key is pressed, which is thrown away.
+/* 2f55:0000: flush the keyboard, then wait seconds, polling each
+ * hundredth (GetTime's), unless a key is pressed, which is read; then flush
+ * it again (1614:045c), so that the key and any others are thrown away.
  * Returns true for a key. */
 static bool title_wait(cok_adventure *game, unsigned seconds)
 {
-    if (cok_adventure_key_pending(game)) {
-        cok_keyboard keys = cok_adventure_keyboard(game);
-        keys.read(keys.context); /* 1614:045c */
-        return true;
+    cok_adventure_flush(game);
+    for (unsigned hundredths = 0; hundredths < seconds * 100u; ++hundredths) {
+        if (cok_adventure_key_pending(game)) {
+            cok_keyboard keys = cok_adventure_keyboard(game);
+            keys.read(keys.context);
+            cok_adventure_flush(game);
+            return true;
+        }
+        if (game->vm.abort) return false;
+        cok_adventure_wait(game, 10);
     }
-    cok_adventure_wait(game, seconds * 1000u);
+    cok_adventure_flush(game); /* 2f55:005f, the time passed too */
     return false;
 }
 
@@ -177,11 +185,12 @@ void cok_start_title(cok_adventure *game)
 /* The title's menu (1000:0165, 0335): Play or Demo, which the time running
  * out with no key picks (30 seconds, after a demonstration 10: DS:6e11);
  * so does F10, whose scan code is 0x44, D. */
-static int title_menu(cok_adventure *game, const char *prompt)
+static int title_menu(cok_adventure *game, const char *prompt, uint16_t timeout)
 {
     cok_adventure_log(game, "menu", "Play Demo");
     cok_keyboard keys = cok_adventure_keyboard(game);
     game->timed = game->title = true;
+    game->timeout = timeout;
     int key = cok_menu_timed(&game->screen, &game->font, prompt, "Play Demo", 13, 15, 10,
                              &game->selected, &keys, 'D');
     game->timed = false;
@@ -386,7 +395,7 @@ cok_ecl_status cok_start_game(cok_adventure *game, bool woof)
     if (!woof) cok_start_title(game);
     if (vm->abort) return vm->status;
     cok_adventure_log(game, "unported", "the sound driver (17e8:00da)");
-    int key = title_menu(game, "Champions of Krynn v1.2");
+    int key = title_menu(game, "Champions of Krynn v1.2", 3000);
     if (key < 0) return vm->status;
     game->demo = key == 'D';
     for (;;) {
@@ -411,7 +420,8 @@ cok_ecl_status cok_start_game(cok_adventure *game, bool woof)
         if (game->demo) {
             cok_start_title(game);
             if (vm->abort) break;
-            key = title_menu(game, "Champions Of Krynn v1.2");
+            cok_adventure_flush(game); /* 1000:0313 */
+            key = title_menu(game, "Champions Of Krynn v1.2", 1000);
             if (key < 0) break;
             game->demo = key == 'D';
         }

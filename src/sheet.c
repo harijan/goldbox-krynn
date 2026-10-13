@@ -478,6 +478,7 @@ static bool trade_money(cok_adventure *game, cok_character *giver, cok_sheet_sta
             if ((uint16_t)(word(r + 0x17d) + amount) > (uint16_t)(allowance + 1500)) {
                 cok_camp_notice(game, "Overloaded");
                 cok_adventure_wait(game, game->speed * 100u);
+                cok_adventure_flush(game); /* 58e7:0506 */
             } else {
                 put_word(g + 0xeb + 2 * coin, (uint16_t)(word(g + 0xeb + 2 * coin) - amount));
                 put_word(g + 0x17d, (uint16_t)(word(g + 0x17d) - amount));

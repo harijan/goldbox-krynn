@@ -3,9 +3,9 @@
  * screen can be saved as a BMP whenever the game waits for a key. */
 #include "adventure.h"
 #include "arena.h"
+#include "keyscript.h"
 #include "start.h"
 
-#include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,8 +13,12 @@
 #include <sys/stat.h>
 
 typedef struct {
-    const char *keys;     /* Remaining key script. */
-    int pending;          /* Scan code after a 0, or -1. */
+    cok_key_script keys;
+    /* Keys typed ahead (\[...\]), waiting in the keyboard's buffer, and the
+     * scan code owed after one of them read as 0, or -1. */
+    cok_keystroke buffer[COK_KEYS_BUFFERED];
+    size_t buffered;
+    int owed;
     const char *shots;    /* Directory for BMPs, or NULL. */
     unsigned shot;
     const char *map;      /* File for each battle's map, or NULL. */
@@ -34,8 +38,12 @@ static void usage(const char *program)
             "                  \\< \\> \\^ \\v the arrows, \\@X Alt and letter X, \\#HH the\n"
             "                  scan code HH (hex), \\\\ a backslash; \\k presses the next\n"
             "                  key while the party rests or the title waits; \\t lets\n"
-            "                  the title's menu time out. In a battle the player's turns\n"
-            "                  read them (3995:0573) unless --combat says otherwise\n"
+            "                  the title's menu time out; \\[KEYS\\] types KEYS ahead,\n"
+            "                  at once at the game's next wait (a delay or a poll) or key\n"
+            "                  read, into the buffer, where a flush drops them (logged as\n"
+            "                  flush:); \\wN. holds what follows back for N of the game's\n"
+            "                  waits. In a battle the player's turns read them (3995:0573)\n"
+            "                  unless --combat says otherwise\n"
             "  --start-menu    play the game from startup: the title, its menu, the start\n"
             "                  menu and the adventure, game after game\n"
             "  --woof          with --start-menu, start as with Woof, without the title\n"
@@ -87,65 +95,71 @@ static void save(player *p, const char *path)
         fprintf(stderr, "%s: %s\n", path, cok_image_status_string(status));
 }
 
+/* Put a group of keys typed ahead in the buffer, if the script has one
+ * due (now: at a key read). */
+static void type_ahead(player *p, bool now)
+{
+    p->buffered += cok_key_script_ahead(&p->keys, now, p->buffer + p->buffered,
+                                        COK_KEYS_BUFFERED - p->buffered);
+}
+
 static int next_key(void *context)
 {
     player *p = context;
-    if (p->pending >= 0) {
-        int key = p->pending;
-        p->pending = -1;
-        return key;
+    if (p->owed >= 0) {
+        int scan = p->owed;
+        p->owed = -1;
+        return scan;
     }
-    if (p->shots != NULL) {
+    if (!cok_key_script_owed(&p->keys) && p->shots != NULL) {
         char path[4096];
         snprintf(path, sizeof path, "%s/%03u.bmp", p->shots, p->shot++);
         save(p, path);
     }
-    /* A key pressed while resting is read as any other. */
-    if (p->keys[0] == '\\' && p->keys[1] == 'k') p->keys += 2;
-    if (*p->keys == '\0') return -1;
-    int key = (unsigned char)*p->keys++;
-    if (key != '\\' || *p->keys == '\0') return key;
-    switch (*p->keys++) {
-    case 'r': return 13;
-    case 'e': return 27;
-    case 'b': return 8;
-    case '<': p->pending = 0x4b; return 0;
-    case '>': p->pending = 0x4d; return 0;
-    case '^': p->pending = 0x48; return 0;
-    case 'v': p->pending = 0x50; return 0;
-    case 't': return COK_KEY_TIMEOUT;
-    case '@': {
-        /* Alt and a letter: its key's scan code. */
-        static const char letters[] = "QWERTYUIOP\0\0\0\0ASDFGHJKL\0\0\0\0\0ZXCVBNM";
-        char letter = *p->keys >= 'a' && *p->keys <= 'z' ? (char)(*p->keys - 32) : *p->keys;
-        const char *at = letter != '\0' ? memchr(letters, letter, sizeof letters - 1) : NULL;
-        if (at == NULL) return '@';
-        ++p->keys;
-        p->pending = 0x10 + (int)(at - letters);
-        return 0;
+    if (!cok_key_script_owed(&p->keys) && p->buffered == 0) type_ahead(p, true);
+    if (p->buffered > 0 && !cok_key_script_owed(&p->keys)) {
+        cok_keystroke k = p->buffer[0];
+        memmove(p->buffer, p->buffer + 1, --p->buffered * sizeof *p->buffer);
+        p->owed = k.scan;
+        return k.code;
     }
-    case '#': {
-        /* A scan code in two hex digits. */
-        unsigned scan;
-        if (!isxdigit((unsigned char)p->keys[0]) || !isxdigit((unsigned char)p->keys[1]) ||
-            sscanf(p->keys, "%2x", &scan) != 1)
-            return '#';
-        p->keys += 2;
-        p->pending = (int)scan;
-        return 0;
-    }
-    default: return (unsigned char)p->keys[-1];
-    }
+    return cok_key_script_read(&p->keys);
 }
 
-/* \k in the keys: a key waits to be read, which the rest loop polls. */
+/* KeyPressed: a key typed ahead waits, or \k in the keys (which the rest
+ * loop polls). */
 static bool key_pending(cok_adventure *game, void *context)
 {
     (void)game;
     player *p = context;
-    if (p->keys[0] != '\\' || p->keys[1] != 'k') return false;
-    p->keys += 2;
-    return true;
+    cok_key_script_tick(&p->keys);
+    type_ahead(p, false);
+    if (p->buffered > 0 || p->owed >= 0) return true;
+    return cok_key_script_poll(&p->keys);
+}
+
+/* Crt.Delay: no waiting here, but keys typed ahead may arrive. */
+static void delay(cok_adventure *game, unsigned ms, void *context)
+{
+    (void)game;
+    (void)ms;
+    player *p = context;
+    cok_key_script_tick(&p->keys);
+    type_ahead(p, false);
+}
+
+/* 1614:045c: the keys typed ahead are lost (the script's own, typed as the
+ * game reads them, are not), and logged as "flush". */
+static void flush(cok_adventure *game, void *context)
+{
+    (void)game;
+    player *p = context;
+    if (p->buffered == 0 && p->owed < 0) return;
+    char text[64];
+    snprintf(text, sizeof text, "%zu keys typed ahead dropped", p->buffered + (p->owed >= 0));
+    printf("flush: %s\n", text);
+    p->buffered = 0;
+    p->owed = -1;
 }
 
 static void log_line(cok_adventure *game, const char *kind, const char *text, void *context)
@@ -357,7 +371,7 @@ static bool number(const char *text, int base, unsigned long max, unsigned long 
 
 int main(int argc, char **argv)
 {
-    player p = {.keys = "", .pending = -1};
+    player p = {.keys = cok_key_script_start(NULL), .owed = -1};
     const char *screen = NULL;
     unsigned long file = 0, vector = 5, start = 0, fixture = 0, seed = 0;
     bool seeded = false;
@@ -391,7 +405,7 @@ int main(int argc, char **argv)
         } else if (strcmp(option, "--woof") == 0) {
             woof = true;
         } else if (strcmp(option, "--keys") == 0 && has_value) {
-            p.keys = argv[++i];
+            p.keys = cok_key_script_start(argv[++i]);
             keyed = true;
         } else if (strcmp(option, "--test-party") == 0 && has_value &&
                    number(argv[i + 1], 10, 8, &fixture) && fixture >= 1) {
@@ -495,10 +509,10 @@ int main(int argc, char **argv)
     }
     static cok_adventure game;
     p.game = &game;
-    cok_keyboard keys = {next_key, &p};
+    cok_keyboard keys = {next_key, &p, NULL};
     cok_adventure_hooks hooks = {.unported = unported, .log = log_line, .trace = trace,
                                  .key_pending = key_pending, .battlefield = battlefield,
-                                 .context = &p};
+                                 .delay = delay, .flush = flush, .context = &p};
     if (!cok_adventure_open(&game, argv[i], &keys, &hooks)) {
         fprintf(stderr, "%s\n", game.error);
         cok_adventure_close(&game);

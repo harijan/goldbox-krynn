@@ -121,6 +121,7 @@ bool cok_monster_read(cok_adventure *game, uint8_t id, cok_character *m)
         free(data);
     }
     if (!ok) cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
+    else cok_adventure_flush(game); /* 4b6d:18ec */
     return ok;
 }
 
@@ -561,11 +562,13 @@ static void encounter_menu(cok_adventure *game)
          * overprints. */
         encounter_line(game, text, area && text[0] != '\0');
         bool parlay = distance == 0 || !area;
-        if (game->picture_shown && game->view_replaced && area && game->picture_id != 9)
-            cok_adventure_show_picture(game);
+        game->menu_animates =
+            game->picture_shown && game->view_replaced && area && game->picture_id != 9;
+        if (game->menu_animates) cok_adventure_show_picture(game);
         int choice = cok_adventure_horizontal(
             game, "", parlay ? "~COMBAT ~WAIT ~FLEE ~PARLAY" : "~COMBAT ~WAIT ~FLEE ~ADVANCE", 10,
             false);
+        game->menu_animates = false;
         if (choice < 0) break;
         char number[16];
         snprintf(number, sizeof number, "%d", choice);

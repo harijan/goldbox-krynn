@@ -4,9 +4,11 @@ The native tools are a C17 DAX archive reader, decompressor, image exporter,
 picture and text compositor, ECL script interpreter and disassembler, and a
 headless script player that shows the scripts' text, menus, pictures, 3D
 view and party on the adventure screen, and plays the game from its title
-and start menu. The original DOS executable, decompiler output, and game
-data are reference inputs, kept in `Assets/`; saved games from the
-original, if any, go in `SAVE/`. There is no display or sound yet.
+and start menu; and `cok`, which plays the game in a window with SDL2,
+from the title, with the keyboard (see Playing). The original DOS
+executable, decompiler output, and game data are reference inputs, kept in
+`Assets/`; saved games from the original, if any, go in `SAVE/`. There is
+no sound yet.
 
 ## Build and verify
 
@@ -34,7 +36,24 @@ mkdir -p build/roster
     --keys '\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\eYY\vS\rE\v\v\v\v\v\vS' Assets
 make test
 make sanitize
+make cok
+./build/cok
 ```
+
+`make cok` builds `build/cok`, the playable front end (see Playing), which
+needs SDL2 2.0.18 or later and finds it with `pkg-config sdl2` (Debian and
+Ubuntu: `libsdl2-dev`; Fedora: `SDL2-devel`; macOS: Homebrew's `sdl2` and
+`pkg-config`). Nothing else needs SDL2: `make`, `make test` and `make
+sanitize` work without it, and then skip `build/cok` and its tests, saying
+so. With it, `make test` also builds the front end and checks it under
+SDL's dummy video driver (`tests/test_keymap.c`, `tests/test_cok.py`).
+The dev container installs `libsdl2-dev` but has no display: build and run
+`cok` on the host (`make cok && ./build/cok` from the project directory,
+with the game's files in `Assets/`), or give the container the host's X
+server (on a Linux host, run it with `-v /tmp/.X11-unix:/tmp/.X11-unix -e
+DISPLAY=$DISPLAY` and allow it with `xhost +local:`; or `ssh -X` into a
+machine with the build). SDL picks Wayland, X11 or the console's driver
+itself; `SDL_VIDEODRIVER` overrides it.
 
 `daxcheck` reads archives without modifying them. It validates every directory
 entry and decompresses every record, checking the decoded byte count. It exits
@@ -66,6 +85,181 @@ them again to compare the files; those tests are skipped without them.
 Tests also require Python 3 (standard library only). The native tools have no
 third-party dependencies. Sanitizer targets require the compiler's ASan/UBSan
 runtime libraries, which were unavailable on the initial development system.
+
+## Playing
+
+`build/cok [options]` plays the game in a window, as `eclplay
+--start-menu` plays it without one: main's loop (`1000:0134`, see The
+start menu), the title, its menu and the demonstration, the start menu,
+then the adventure, camp, shops and combat, game after game, the
+player's turns in a battle reading the keyboard (`3995:0573`,
+`COK_COMBAT_PLAYER`). The game's code calls the keyboard and the delay
+hook and waits in them; they handle the window's events, show the screen
+when it has changed and sleep until a key comes, the delay is over, a
+timed menu runs out or the small picture's next frame is due.
+
+| Option | |
+| --- | --- |
+| `--assets DIR` | the game's DAX files (default `Assets`) |
+| `--saves DIR` | the roster and saved games (default `saves`, created if missing; ignored by git); never `SAVE/` itself: to play the original's games, copy them into it (`mkdir -p saves && cp SAVE/* saves/`) and pick Load Saved Game |
+| `--scale N` | the window's size, N (1-16) times the screen (default 3: 960×720) |
+| `--aspect 4:3`, `--aspect 1:1` | 4:3, the default, shows the 200 lines as 240, as a 4:3 monitor showed the 320×200 mode: the game was drawn for it (the moons and the portraits are round so); 1:1 keeps the pixels square |
+| `--fullscreen` | start full screen |
+| `--screenshots DIR` | where F12 saves the screen (default `screenshots`, created when needed, ignored by git) |
+| `--seed N` | start Turbo Pascal's `Random` from N; by default the clock seeds it, as startup's `Randomize` (`1a46:1200` from `3e99:005b`) does |
+| `--woof`, `--helm` | start as `START Woof` (no title) or with `Helm` (`Area` anywhere, the Gods' cheat Alt-X, free training) |
+| `--log` | print the game's text, menus, choices, sounds and what is not ported to standard error, as `eclplay` prints them; the window's size and where the screen is shown in it; keys typed ahead that a flush drops (`flush:`); and a check that the window keeps up: `stale:` if, through the game's delays, the window kept an older screen than the game's for more than 160 ms |
+| `--keys KEYS` | type KEYS first, in `eclplay`'s escapes (see Playing scripts), each turned into the key that gives it and sent through SDL's key events as the game asks for a key (`\k` as it polls, `\t` the timed menu running out, `\[KEYS\]` typed ahead and `\wN.` as in Playing scripts; besides, `\pN.` pauses N hundredths of a second before the next key is typed as the game reads it, and `\#85` and `\#86`, codes the game never gets, press F11 and F12; a key repeated in a group typed ahead is held, its repeats sent as a held key's are; each a real keystroke, so that a flush after its 0 is read loses its scan code, which `eclplay` keeps for keys not typed ahead); the run then ends as `eclplay`'s does, printing `(out of keys ...)`, unless `--continue` hands over to the keyboard |
+| `--no-delay` | do not wait where the game waits (for tests); a rest keeps the front end's pace (see below) |
+| `--shots DIR` | save `DIR/NNN.bmp` each time the game waits for a key and when a battle is set up, as `eclplay --shots` does, but read back from the window: each pixel of the screen where its area's middle is shown must be one of the 16 colours, and at a whole multiple of 320×200 its whole block; in 4:3 it needs `--scale 2` or more, as at 320×240 the smoothing blends every row |
+
+The window can be resized; the screen keeps its aspect, letterboxed. It is
+scaled up by whole numbers with square pixels to at least the size shown,
+then smoothly to that size, so the pixels stay even at any size and are
+sharp at whole multiples. Colours are the 16 of the Tandy and EGA modes,
+as the BMP export gives them (`cok_image_rgb`).
+
+Keys, as Turbo Pascal's `Crt.ReadKey` reads them through INT 16h function
+0 (`src/keymap.h`; `tests/test_keymap.c` checks each, and that every code
+the port compares a key against can be typed):
+
+| Key | The game reads | For |
+| --- | --- | --- |
+| letters | `a`-`z`, with Shift or CapsLock `A`-`Z` | menu hotkeys (either case), names and other text |
+| digits, punctuation | ASCII; with Shift as on a US keyboard | text input (0x20-0x7a), amounts, digit hotkeys; 1-9 as the keypad's in menus that take directions |
+| Space | 32 | menus that take it; in combat on Auto, the player back in charge |
+| Enter, keypad Enter | 13 (with Ctrl 10) | the selected item; the end of a line |
+| Escape | 27 | Exit, cancel |
+| Backspace | 8 (with Ctrl 127) | erase in text input |
+| Tab, Shift-Tab | 9; 0, 0x0f | nothing |
+| arrows | 0, then 0x48 up, 0x50 down, 0x4b left, 0x4d right | menu items, picking a character, lists, Move in 3D (step, turn), facing on the overland map, combat directions, Modify's fields, Rest and Speed |
+| Home, PgUp, End, PgDn | 0, then 0x47, 0x49, 0x4f, 0x51 | the diagonals in combat and on the overland map; PgUp and PgDn page lists |
+| Ins, Del | 0, then 0x52, 0x53 | Del deletes in Modify's name |
+| keypad digits and `.` | `0`-`9`, `.`: NumLock is on, as startup sets it (`3e99:005b`, `0040:0017` bit 5), whatever the host's | directions (`DS:1fdf`): 8 up, 2 down, 4 left, 6 right, 7 9 1 3 the diagonals, 5 the centre in combat's aim |
+| Shift and a keypad key | the cursor key's code (none for 5) | as the arrows |
+| keypad `/ * - +` | ASCII | nothing |
+| Ctrl and Left, Right, Home, End, PgUp, PgDn | 0, then 0x73, 0x74, 0x77, 0x75, 0x84, 0x76 | nothing |
+| F1-F10 | 0, then 0x3b-0x44; with Shift 0x54-0x5d, Ctrl 0x5e-0x67, Alt 0x68-0x71 | F10 picks Demo on the title's menu; Ctrl-F8 camps on the overland map; menus that do not tell scan codes from letters take F7-F10 (0x41-0x44) as A-D, Home, Up and PgUp as G, H and I, and so on (saved games A-J, Yes and No) |
+| Alt and a letter | 0, then the letter's scan code | in combat Alt-Q and Alt-A Auto, Alt-M Magic on and off, Alt-X the Gods (with `--helm`), Alt-R nothing |
+| Alt and a digit, `-` or `=` | 0, then 0x78-0x83 | nothing |
+| Ctrl and a letter | 1-26; Ctrl `[ \ ] 6 -` 27-31; Ctrl-2 0, 0x03 | nothing: the original's Ctrl-S (sound), and Ctrl-D, Ctrl-Z and Ctrl-C of its debug mode (`1614:025b`), are not ported |
+| F11 or Alt-Enter | nothing (function 0 drops them) | full screen on and off |
+| F12 | nothing | save the screen, 320×200, as `cokNNN.bmp` in `screenshots/` or `--screenshots DIR` |
+
+Keys the game cannot read give nothing: those only an enhanced keyboard's
+function 0x10 returns (Ctrl or Alt with the arrows, Alt-Enter, F11, F12),
+Ctrl with Alt, keys with the GUI (Windows) key or AltGr, Alt with the
+keypad's digits (DOS's character codes), and non-ASCII keys. Letters and
+unshifted punctuation follow the host's layout; shifted punctuation is the
+US layout's. Keys typed ahead wait, up to 15 as in the BIOS's buffer
+(more are lost), and are thrown away where the original flushes the
+keyboard (`1614:045c`: `ReadKey` while `KeyPressed`, the scan code owed
+after a 0 too), through the adventure's `flush` hook. Its 21 calls in
+`START_FULL.EXE`, each ported but the last:
+
+| Call | In | When |
+| --- | --- | --- |
+| `67b5:0c28` | `67b5:03e2` | every menu, once it has its key or has timed out |
+| `1521:06ea` | `1521:04ac` | paging running text, after its key |
+| `2f55:0006`, `005f` | `2f55:0000` | before and after each of the title's waits |
+| `1000:0313` | main's loop | after the title that follows a demonstration, before its menu |
+| `127f:029a` | `127f:0111` | an image loaded from a DAX file (title pictures, portraits' pieces, combat icons and tiles, big pictures), not when the record is not there |
+| `6961:0514` | `6961:00e4` | the small picture or a sprite loaded, not one already held |
+| `6961:06b2` | `6961:05b9` | a portrait shown, its pieces held or not |
+| `6d21:04a5` | `6d21:01d0` | a combatant's icons loaded |
+| `6d21:00ec` | `6d21:002c` | combat's terrain tiles loaded |
+| `4b6d:0a66` | `4b6d:0817` | a character's icon composed |
+| `4b6d:15ce` | `4b6d:11e5` | a character's files read (a saved game's party, the roster's Add) |
+| `4b6d:18ec` | `4b6d:161b` | a monster's records read (`LOAD MONSTER`, `ADD NPC`) |
+| `4b6d:20ef` | `4b6d:1b34` | a saved game loaded |
+| `58e7:0229`, `0ab6` | `58e7:01f2`, `0a81` | "Overloaded" taking money from the pool, after its pause |
+| `58e7:0506` | `58e7:044b` | "Overloaded" trading money, after its pause |
+| `3995:145f` | `3995:121c` | combat's Auto, before its 200 ms |
+| `432f:34ae` | `432f:33ce` | each step of combat's aiming cursor |
+| `3afb:12eb` | `3afb:1200` | the computer's turn's poll of the keys, as it returns, with no key waiting too |
+| `6e22:017d` | `6e22:0050` | after "Bad symbol number..." and quitting to DOS (`1614:0000`): never reached, as the run has ended |
+
+The delays are the game's: each character of running text waits speed × 3
+ms and `DELAY` and the notices speed × 100 ms, the speed being camp's Alter
+Speed (`DS:4b38`, 4 at startup, 9 in the demonstration); the title waits
+5, 10, 10 and 10 seconds, polling for a key each hundredth; the title's
+menu runs out after 30 seconds (10 after a demonstration) and plays the
+demonstration, from when it opens, arrows not restarting it (`DS:6e11`; the
+original never runs out past midnight, when `GetTime` wraps; the front end
+does). While a menu that the original asks to (`67b5:03e2`'s flag)
+waits, the small picture animates as there: each frame stays its delay ×
+10 hundredths of a second (the pictures' delays count tenths there), then
+the next is drawn at cell 3, 3, the first after the last, for pictures of
+two frames or more loaded since the slot was freed. The menus that ask are
+the camp's (Save, View, Magic, Rest, Alter and Alter's, Fix), treasure's,
+Pick Character in camp and treasure (modes 2 and 6), Save Which Game in
+camp, and the scripts' `HORIZONTAL MENU` and `ENCOUNTER MENU` over a
+picture that replaced the view (`DS:884a`, `884b`; for `ENCOUNTER MENU` in
+a 3D area and not PIC 9). The frame advances in the game's state
+(`DS:6da3`), as in the original, so a script's `CALL [6803]` goes on from
+it; the frame's time starts again each time a menu reads a key (the
+original's at `67b5:03e2`'s start and after each frame), so arrow keys
+delay the next frame a little. Nothing else animates while the game waits.
+The screen is shown when it has changed, at most 60 times a second while
+the game runs and at once when it waits for a key, which it does asleep in
+`SDL_WaitEventTimeout`: `tests/test_cok.py` measures the CPU time over two
+seconds at the title's menu and in the title's waits, which must be under
+a tenth of a core (it is under 1% here). A present the rate holds back is
+owed, and every wait wakes for it, so the window never keeps an old screen
+through a delay or while the game waits for a key; nor after it is
+exposed or resized. Frames whose delay is 0 (every sprite's groups have
+it), which the original's loop redraws as fast as it runs, stay a
+hundredth.
+
+Resting (`57e4`'s loop, from camp's Rest) polls the keyboard once each
+five minutes rested and waits for nothing, so the original rested at its
+machine's pace, showing the time left every five steps (`57e4:0764`); a
+key stops it with `Stop Resting?`. The front end gives each step a
+hundredth, so that eight hours take about a second, the count shows and a
+key can stop it.
+
+Closing the window (or `SIGINT`, `SIGTERM`, even where a shell started it
+in the background with `SIGINT` ignored) ends the run at once: the key
+read returns the end of input, or the delay sets the abort flag the end of
+input sets, and the game returns as `eclplay`'s does when its keys run out,
+writing nothing more; a save under way finishes first, as saving reads no
+key. `cok` then exits with status 0. Quitting to DOS (the start menu's
+Exit to DOS, or Yes to `Quit TO DOS` after camp's Save) ends it too,
+printing `(quit to DOS)`.
+
+Where the port stops (`COK_ECL_UNDEFINED`, `COK_ECL_EFFECT_FAILED`, an
+unported routine, a file missing or unreadable), `cok` prints `stopped in
+block N at ADDR: ` and the reason to standard error, writes the reason in
+light red on the screen's last rows over black, with `Press a key to
+quit.` in white, waits for a key or the window's close, and exits with
+status 1 (2 for bad options or a `--keys` code no key gives). Without the
+font, a message box says it.
+
+Not done: sound and music (`--log` shows the sound driver's commands as
+`sound:` and the music as `unported:`); the CGA and EGA layouts (the
+Tandy layout's 16 colours only); the mouse and joystick; the BIOS's NumLock
+toggled during play (the keypad always types digits). `tests/test_cok.py`
+plays the title and the demonstration, and a new game from the title
+(creating a character, the overland map, two fights with the player's
+keys, camps in an inn and in 3D, walking in Throtl, saving the game) with
+the same keys as `eclplay --start-menu --shots`, typed through SDL's
+events, and checks that every frame the window shows, read back at
+640×400, at 960×720 and full screen letterboxed at 1024×640, is
+`eclplay`'s byte for byte, and the saved game written the same; keys
+typed ahead dropped by a menu's flush and kept by the name's line, and
+pressed in the middle of the title's waits and of a rest, as `eclplay`
+has them; from the frames SDL's dummy driver saves as they are presented
+(`SDL_VIDEO_DUMMY_SAVE_FRAMES`), that the window shows the title while it
+waits and the title's menu, once, as `eclplay` draws it, and the
+hobgoblin's picture animating in Throtl, each frame for its delay; the
+title's menu timing out 10 seconds after it opens following a
+demonstration, an arrow half way not starting it again; a rest taking its
+pace with the time left shown; closing in the middle of the
+demonstration's delays ending at once; F11's full screen shown at once
+and F12's screenshot; SIGINT with SIGINT ignored; and, with real delays
+through the first fight, that the window never kept an old screen
+(`--log`'s check) nor showed more than about 60 frames a second. `tests/test_hooks.c` checks each flush and
+which menus animate.
 
 ## Image export
 
@@ -275,8 +469,11 @@ go to a `special` hook: `3775:1885` passes them to `546c:3334` and redraws
 the party, which is not ported. Because that check follows the hotkey match,
 a hotkey 1-9 can only be chosen with the arrows and Enter. With one item, the
 arrows and 4 and 6 are special too. The original also polls the mouse
-(`DS:8987`) and animates the view picture while it waits, which are not
-ported, and times out when `DS:6e11` is set, as only the title's menu does
+(`DS:8987`), which is not ported; animates the small picture while it
+waits when its caller asks (its flag at `[bp+0xa]`, `game->menu_animates`,
+which a front end that waits does: see Playing); flushes the keyboard
+(`1614:045c`, `cok_keyboard.flush`) once it has its key, so that keys typed
+ahead are lost; and times out when `DS:6e11` is set, as only the title's menu does
 (see The start menu): `cok_menu_timed` returns `DS:6e15`'s result when the
 keyboard gives `COK_KEY_TIMEOUT`, the time passed with no key.
 
@@ -406,6 +603,20 @@ Backspace, `\<`, `\>`, `\^` and `\v` the arrows, `\@X` Alt and letter `X`,
 `\#HH` the extended key of scan code `HH`, in hex: `\@q` and `\#10` are
 Alt-Q); when they run out the run stops. `\k` presses the next key while the party rests, which the rest loop
 sees (`1614:03c2`), or as a battle is set up, which drops it (`1614:0479`).
+Keys are otherwise typed one at a time as the game reads them, but
+`\[KEYS\]` types KEYS ahead: all at once into the keyboard's buffer (15
+keystrokes; more are lost), at the game's next wait (a delay or a poll of
+`KeyPressed`) or key read, whichever comes first, where they wait to be
+read or are thrown away by the game's flushes (`1614:045c`, see Playing),
+each flush that drops some logged as `flush: N keys typed ahead dropped`;
+a group typed ahead makes `KeyPressed` true while it lasts. `\wN.` holds
+back what follows until N more of the game's waits have passed (a key
+read ends it at once), so that a key arrives in the middle of a wait: the
+title waits polling and sleeping each hundredth, two waits a hundredth
+(`\w600.\[x\]` ends it a second into its second picture), and a rest
+polls once a step. `eclplay` has no delays; it counts the calls to the
+delay hook as the window's front end does, and passes over `cok`'s
+`\pN.` (a pause in real time).
 `--saves DIR` is where Save writes and the roster is kept (see The start
 menu); without it, saving logs an error. `--effect M,ID,MINUTES,VALUE`
 (hex, repeatable) gives party member M (1 the first) an effect, its
@@ -494,7 +705,9 @@ A one-item menu reading `PRESS BUTTON OR RETURN TO CONTINUE.` is shown as
 `PRESS <ENTER>/<RETURN> TO CONTINUE.`, and Enter picks it, as in the
 original. Menu items are joined as `~ITEM` separated by spaces, cut to 50
 characters. Small pictures are delta collections whose groups after the first
-are animation frames, each preceded by its delay in hundredths of a second;
+are animation frames, each preceded by its delay, which the menus that
+animate the picture (`67b5:03e2`) count in tenths of a second (see
+Playing);
 with animation off (`DS:4b4f`) only the first is loaded. A picture
 loaded stays loaded for the same name (`PIC` or `SPRIT`) and record
 (`DS:6dee`, `6e00`), whatever the ECL file, until the slot is freed. The
@@ -571,8 +784,8 @@ less 0x7fff picks:
   is the far pointer `DS:6da2`:`6da0`: segment 0 (the count and frame)
   and as offset the segment of the sky picture loaded at startup outside
   CGA mode (`DS:6d9e`), so the original draws from low memory; the port
-  stops with `COK_ECL_UNDEFINED`. The menus also move the frame while
-  they wait, which is not ported.
+  stops with `COK_ECL_UNDEFINED`. The menus that animate the small
+  picture also move the frame while they wait (see Playing).
 - any other address, nothing.
 
 `FIND ITEM type` (`2fd3:2b7e`) sets the comparison flags to `=` if any
@@ -1589,7 +1802,7 @@ the status line and keeps the effect timers from counting down members
 with no timed effect, clears the rest time and the day's healing count,
 and redraws the screen for camp (`6346:2c17`): the frame, the party list,
 the status line and the camp's picture, `PIC` record 0x3b, which the
-menus draw at cell 3, 3 while they wait (the original animates it). It
+menus draw at cell 3, 3 and animate while they wait (see Playing). It
 prints `The party makes camp...` on row 18 in light green and unmarks
 every spell marked to memorize or scribe (`4888:06b8`). The menu reads
 `Save View Magic Rest Alter Fix Exit`, prompt in light magenta and items
@@ -2505,8 +2718,8 @@ loads, opaque (`6d21:002c`), DUNGCOM record 1's 25 frames in a 3D area
 (var `0x4be6`), else WILDCOM's first 33 of 35, from frame 0, and
 RANDCOM's 6 from 0x22. The frames between keep what an earlier battle
 loaded; 0x21, the river bank's, is never loaded. `TILES.DAX` is not used.
-The keyboard flush after each load (`1614:045c`) is not ported, as
-elsewhere.
+The keyboard flush after each load (`1614:045c`) goes through the `flush`
+hook (see Playing).
 
 Combatants are numbered from 1 in list order, the party first:
 
@@ -3306,8 +3519,8 @@ strings after `DS:0877`); a head or body record that is not there to lay
 together; and any masked picture drawn with none of its rows, or of its
 bytes in a row, in the buffer (just above or below it, or left or right of
 it by its width), whose count `127f:27af` takes as 65536, copying over
-memory. The keyboard's flush after each icon load (`1614:045c`) and the
-mouse's hiding are not ported.
+memory. The keyboard's flush after each icon load (`1614:045c`) goes
+through the `flush` hook; the mouse's hiding is not ported.
 
 A differential test ran the original's routines in an 8086 emulator: its
 combat setup (`3cb2:1c58`, drawing the screen and flashing for effects) on
@@ -3730,7 +3943,8 @@ A turn (`3afb:004b`):
    back to the player, and if the one whose turn it is is among them, its
    initiative becomes 0x14 and it does nothing more; Alt-X (or `-`) runs
    the Helm cheat (`432f:41e2`) in a game started with `Helm`. The
-   keyboard's flush after (`1614:045c`) is not ported. Row 24 and the
+   keyboard's flush after (`1614:045c`, `3afb:12eb`, with no key too) goes
+   through the `flush` hook. Row 24 and the
    panel's text are cleared.
 2. One that cannot act ends its turn (`6346:2964`).
 3. Its way of moving (combat record `+0x15`): a row 1-4 stays unless a d4
@@ -4135,8 +4349,8 @@ rounds dying, "is bandaged"), and the turn ends. Speed (`3995:14cf`):
 Exit, until Exit or Escape: Slower and Faster change the game speed
 (`DS:4b38`, `game->speed`). Auto: the computer takes it (`3995:1604`),
 row 24 is cleared, 200 ms pass and the computer plays the rest of its
-turn (`3afb:004b`). The keyboard's flush there (`1614:045c`) is not
-ported.
+turn (`3afb:004b`). The keyboard's flush there (`1614:045c`) goes
+through the `flush` hook.
 
 Cast (`432f:28bd`, `cok_combat_cast`), for the selected character: a
 spell picked from its spells in memory (`546c:34ec`), or none; one whose
@@ -5386,7 +5600,9 @@ records 1 (the SSI splash) at 0, 0, then 2 at 0, 0 with 3 (240 by 88) at
 unit 5, cell 1, then 4 (320 by 88) at 0, cell 1, opaque (`127f:0111`,
 `10e7`), waiting 5, 10 and 10 seconds after them (`2f55:0000`: the
 keyboard flushed, then until a key is pressed or the time passes, then
-flushed again, so the key is thrown away). A key ends the whole title.
+flushed again, so the key is thrown away; the port polls `key_pending`
+each hundredth, as often as `GetTime` changes, and waits 10 ms between
+through the `delay` hook). A key ends the whole title.
 Otherwise the screen is cleared, the credits show for 10 seconds, and it
 is cleared again (`2f55:006d`). The credits (`2f55:0267`) are thirty
 strings in purple (5), yellow (14) and light red (12) inside three boxes
