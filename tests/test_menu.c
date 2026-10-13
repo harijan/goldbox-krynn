@@ -67,7 +67,44 @@ static int scripted(void *context)
 static cok_keyboard keyboard(script *s, const char *keys, size_t length)
 {
     *s = (script){keys, 0, length};
-    return (cok_keyboard){scripted, s};
+    return (cok_keyboard){scripted, s, NULL};
+}
+
+/* A keyboard that counts its flushes and drops the keys left, as
+ * 1614:045c does. */
+static unsigned flushes;
+
+static void flush_rest(void *context)
+{
+    script *s = context;
+    s->at = s->length;
+    ++flushes;
+}
+
+/* 67b5:03e2 flushes the keyboard once it has its key, not when input
+ * ends; keys typed ahead are lost. */
+static void test_flush(void)
+{
+    cok_font font = numbered_font();
+    cok_picture p = screen();
+    script s = {"\x01\x4dLx", 0, 4};
+    cok_keyboard k = {scripted, &s, flush_rest};
+    uint8_t selected = 1;
+    bool special;
+    flushes = 0;
+    CHECK(cok_menu_read(&p, &font, "", "Move Area Look", 13, 15, 10, &selected, &k, &special) ==
+          'L');
+    CHECK(flushes == 1 && s.at == s.length);
+    CHECK(cok_menu_read(&p, &font, "", "Move Area Look", 13, 15, 10, &selected, &k, &special) ==
+          -1);
+    CHECK(flushes == 1);
+    /* An extended key is taken whole, then the rest goes. */
+    s = (script){"\x01\x48\x01\x50", 0, 4};
+    CHECK(cok_menu_read(&p, &font, "", "Move Area Look", 13, 15, 10, &selected, &k, &special) ==
+              0x48 &&
+          special && flushes == 2 && s.at == s.length);
+    cok_picture_free(&p);
+    cok_font_free(&font);
 }
 
 static void test_parse(void)
@@ -439,6 +476,7 @@ int main(void)
     test_keypad();
     test_input();
     test_screen();
+    test_flush();
     puts("menu tests passed");
     return 0;
 }

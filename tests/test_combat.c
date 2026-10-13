@@ -42,6 +42,14 @@ static void log_line(cok_adventure *game, const char *kind, const char *text, vo
     snprintf(s->log + used, sizeof s->log - used, "%s: %s;", kind, text);
 }
 
+/* The keyboard's flushes (1614:045c), logged as "flush;" while asked. */
+static bool log_flushes;
+
+static void flushed(cok_adventure *game, void *context)
+{
+    if (log_flushes) log_line(game, "flush", "", context);
+}
+
 static void battlefield(cok_adventure *game, void *context)
 {
     (void)game;
@@ -372,7 +380,13 @@ static void test_placement(void)
      * right; the monsters two squares ahead fill theirs facing south. */
     reset("");
     fixture(4, 4, 0, 2);
+    log_flushes = true;
     CHECK(cok_combat_setup(&game));
+    log_flushes = false;
+    /* DUNGCOM's and RANDCOM's tiles, each read (127f:029a) and copied
+     * (6d21:00ec), then the map. */
+    CHECK(strstr(s.log, "print: A battle begins...;flush: ;flush: ;flush: ;flush: ;combat: ") !=
+          NULL);
     CHECK(at(1, 27, 13, 1) && at(2, 28, 13, 1) && at(3, 28, 14, 1) && at(4, 29, 14, 1));
     CHECK(at(5, 17, 2, 1) && at(6, 16, 2, 1) && at(7, 16, 1, 1) && at(8, 15, 1, 1));
     CHECK(game.combat.count == 9 && game.combat.combatant[9].size == 0);
@@ -937,9 +951,9 @@ static void unported(cok_adventure *g, void *context)
 
 int main(void)
 {
-    cok_keyboard keys = {scripted, &s};
+    cok_keyboard keys = {scripted, &s, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .unported = unported, .key_pending = pending,
-                                 .battlefield = battlefield, .context = &s};
+                                 .battlefield = battlefield, .flush = flushed, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
     test_tables();
     test_footprints();

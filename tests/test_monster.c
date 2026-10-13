@@ -19,10 +19,15 @@ typedef struct {
 static uint8_t shown[40 * 4 * 200];
 static const cok_picture *watched;
 
+/* Whether the menu reading the last key animates the small picture. */
+static bool read_animating;
+static const cok_adventure *reading;
+
 static int scripted(void *context)
 {
     script *s = context;
     if (watched != NULL) memcpy(shown, watched->pixels, sizeof shown);
+    if (reading != NULL) read_animating = reading->menu_animates;
     if (s->at == s->length) return -1;
     char c = s->keys[s->at++];
     return c == 1 ? 0 : (unsigned char)c;
@@ -48,7 +53,7 @@ static cok_adventure game;
 
 static void open_game(void)
 {
-    cok_keyboard keys = {scripted, &s};
+    cok_keyboard keys = {scripted, &s, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .unported = unported, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
     watched = &game.screen;
@@ -306,6 +311,7 @@ static void test_sprite(void)
 /* ENCOUNTER MENU 35 2 41 [7f79] c0 c1 c2 c3 c4 "NEAR" "MID" "FAR" flee speed,
  * with the keys given, from a square open two ahead. */
 static bool flat = false; /* outside 3D areas */
+static bool replaced = false; /* a picture replaced the view (DS:884a, 884b) */
 
 static uint16_t encounter(const char *keys, const uint8_t reaction[5], uint8_t flee,
                           uint8_t speed, const char *texts[3])
@@ -323,6 +329,7 @@ static uint16_t encounter(const char *keys, const uint8_t reaction[5], uint8_t f
     game.view.wrap = true;
     game.vm.map_x = game.vm.map_y = 7;
     game.vm.mem7c00[0x379] = 0x55;
+    game.picture_shown = game.view_replaced = replaced;
     uint8_t code[128] = {COK_ECL_ENCOUNTER_MENU, 0, 35, 0, 2, 0, 41, 1, 0x79, 0x7f};
     size_t n = 10;
     for (size_t i = 0; i < 5; ++i) {
@@ -357,6 +364,23 @@ static uint16_t encounter(const char *keys, const uint8_t reaction[5], uint8_t f
 static void test_encounter_menu(void)
 {
     const char *texts[3] = {"NEAR", "MID", "FAR"};
+    /* 2fd3:23e5 animates the small picture while it waits over a picture
+     * that replaced the view, in a 3D area, unless it is PIC 9. */
+    {
+        static const uint8_t hold[5] = {1, 1, 1, 1, 1};
+        reading = &game;
+        for (int r = 0; r < 2; ++r) {
+            for (int f = 0; f < 2; ++f) {
+                replaced = r;
+                flat = f;
+                read_animating = !replaced;
+                encounter("\x1b", hold, 0, 0, texts);
+                CHECK(read_animating == (replaced && !flat) && !game.menu_animates);
+            }
+        }
+        replaced = flat = false;
+        reading = NULL;
+    }
     /* Monsters that attack: Combat, Wait and Advance fight. */
     static const uint8_t attack[5] = {0, 0, 0, 0, 0};
     CHECK(encounter("C", attack, 12, 12, texts) == 1);

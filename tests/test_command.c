@@ -59,6 +59,18 @@ static void on_delay(cok_adventure *g, unsigned ms, void *context)
     snprintf(sc->log + used, sizeof sc->log - used, "wait: %u;", ms);
 }
 
+/* The keyboard's flushes (1614:045c), logged as "flush;" while asked. */
+static bool log_flushes;
+
+static void on_flush(cok_adventure *g, void *context)
+{
+    (void)g;
+    if (!log_flushes) return;
+    script *sc = context;
+    size_t used = strlen(sc->log);
+    snprintf(sc->log + used, sizeof sc->log - used, "flush;");
+}
+
 static void dump(void)
 {
     if (getenv("COMMAND_LOG") != NULL) fprintf(stderr, "%s\n", s.log);
@@ -871,6 +883,15 @@ static void test_manual(void)
     KEYS("M6\x1b" "T");
     CHECK(!cok_combat_aim(&game, a, 0xff, 1, 0, 1, &done, &res));
     CHECK(game.vm.status == COK_ECL_UNDEFINED);
+    /* 432f:34ae flushes after each step of the cursor, before its menu,
+     * which flushes once it has its key. */
+    game.vm.status = COK_ECL_OK;
+    log_flushes = true;
+    s.log[0] = '\0';
+    KEYS("M6\x1b" "E");
+    CHECK(cok_combat_aim(&game, a, 0xff, 1, 0, 1, &done, &res) && !done);
+    CHECK(LOGGED("flush;menu: Exit;flush;flush;menu: Target;flush;"));
+    log_flushes = false;
     game.vm.status = COK_ECL_OK;
     game.vm.abort = false;
     /* Down there (a scan code, P) reads the cell of no target: that of
@@ -1061,9 +1082,13 @@ static void test_done(void)
     c = record('C', 1, 11, 10);
     turn_of(a, 1);
     give(a, 0x12, true);
+    log_flushes = true;
     KEYS("A");
     CHECK(cok_combat_done(&game, a, &done) && done && a->record[0x18b] == 1);
     CHECK(LOGGED("wait: 200;") && LOGGED("print: A;print: Attacks;") && c->combat->hits == 1);
+    /* 3995:145f: the menu's flush, then Auto's before its 200 ms. */
+    CHECK(LOGGED("flush;flush;wait: 200;"));
+    log_flushes = false;
     /* A thrown weapon allows Guard. */
     reset();
     a = record('A', 0, 10, 10);
@@ -1589,8 +1614,9 @@ static void test_review(void)
 
 int main(void)
 {
-    cok_keyboard k = {scripted, &s};
-    cok_adventure_hooks hooks = {.log = log_line, .delay = on_delay, .context = &s};
+    cok_keyboard k = {scripted, &s, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .delay = on_delay, .flush = on_flush,
+                                 .context = &s};
     if (!cok_adventure_open(&game, "Assets", &k, &hooks)) {
         puts("command: Assets not found; tests skipped");
         return 0;

@@ -280,6 +280,7 @@ void cok_roster_add(cok_adventure *game)
             cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
             return;
         }
+        cok_adventure_flush(game); /* 4b6d:15ce, in 11e5 before the recompute */
         uint8_t *r = c->record;
         char marked[41];
         snprintf(marked, sizeof marked, "* %s", text[index]);

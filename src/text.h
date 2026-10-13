@@ -73,10 +73,13 @@ void cok_text_wrap(cok_picture *dst, const cok_font *font, cok_text_cursor *curs
 /* Keys as the game reads them (Crt.ReadKey, 1962:030f): an ASCII code, or 0
  * and then a scan code for an extended key. read returns a negative value
  * when input has ended; routines waiting for keys then return what they
- * have. */
+ * have. flush, which may be NULL, discards the keys waiting, the scan code
+ * owed after a 0 too (1614:045c: ReadKey while KeyPressed), as the menus
+ * do once they have their key. */
 typedef struct {
     int (*read)(void *context);
     void *context;
+    void (*flush)(void *context);
 } cok_keyboard;
 
 /* What read returns when no key came in the time a menu waits before it

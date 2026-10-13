@@ -164,6 +164,13 @@ static int press_read(void *context)
     return p->keys.read(p->keys.context);
 }
 
+static void press_flush(void *context)
+{
+    pressing *p = context;
+    p->next = p->count;
+    if (p->keys.flush != NULL) p->keys.flush(p->keys.context);
+}
+
 /* One key from a menu on row 24 (67b5:03e2) after prompt, its items in
  * white and light green, the keypad's keys as directions if keypad;
  * *special is set for a scan code (DS:6e10). *pressed, if not 0, is read
@@ -179,7 +186,7 @@ static int menu(cok_adventure *game, const char *prompt, const char *items, bool
         p.count = 2;
         *pressed = 0;
     }
-    cok_keyboard keys = {press_read, &p};
+    cok_keyboard keys = {press_read, &p, press_flush};
     return cok_menu_ask(&game->screen, &game->font, prompt, items, 13, 15, 10, keypad,
                         &game->selected, &keys, special);
 }
@@ -711,6 +718,7 @@ static bool manual(cok_adventure *game, cok_character *c, uint8_t range, uint8_t
         if (cy < 0) cy = 0;
         if (cx > 0x31) cx = 0x31;
         if (cy > 0x18) cy = 0x18;
+        cok_adventure_flush(game); /* 432f:34ae: after each step of the cursor */
         uint8_t occupant, terrain;
         cok_combat_cell(combat, cx, cy, &occupant, &terrain);
         *valid = false;
@@ -974,7 +982,7 @@ bool cok_combat_done(cok_adventure *game, cok_character *c, bool *done)
         case 'A':
             cok_combat_auto(c);
             clear_row(game);
-            /* The keyboard's flush (1614:045c) is not ported. */
+            cok_adventure_flush(game); /* 1614:045c */
             cok_adventure_wait(game, 200); /* 1962:029c */
             *done = true;
             if (!cok_combat_computer(game, c)) return false;

@@ -62,11 +62,22 @@ static void battlefield(cok_adventure *g, void *context)
     g->pool.missile = battle_missile;
 }
 
+/* The keyboard's flushes (1614:045c). */
+static unsigned flushes;
+
+static void counted(cok_adventure *g, void *context)
+{
+    (void)g;
+    (void)context;
+    ++flushes;
+}
+
 static void open_game(void)
 {
-    cok_keyboard keys = {scripted, &s};
+    cok_keyboard keys = {scripted, &s, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .unported = unported,
-                                 .battlefield = battlefield, .context = &s};
+                                 .battlefield = battlefield, .flush = counted,
+                                 .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
     game.effects.say = say;
     game.effects.context = &s;
@@ -487,9 +498,11 @@ static void test_pool(void)
     a = member("A");
     put_word(a->record + 0x17d, (uint16_t)(cap - 10));
     game.pool.coins[3] = 5;
+    flushes = 0;
     CHECK(cok_pool_take(&game, a->record, 11, 3));
     CHECK(game.pool.coins[3] == 5 && LOGGED("print: Overloaded;"));
-    CHECK(cok_pool_take(&game, a->record, 10, 3));
+    CHECK(flushes == 1); /* 58e7:0229 */
+    CHECK(cok_pool_take(&game, a->record, 10, 3) && flushes == 1);
     CHECK(game.pool.coins[3] == 0 && word(a->record + 0xeb + 6) == 5);
     CHECK(word(a->record + 0x17d) == cap - 5);
     /* Drop into the pool in treasure and shops only. */
@@ -512,7 +525,8 @@ static void test_pool(void)
     /* Steel given beyond what one can carry goes to the pool. */
     s.log[0] = '\0';
     put_word(a->record + 0x17d, (uint16_t)(cap - 4));
-    CHECK(cok_pool_give_steel(&game, a->record, 10));
+    flushes = 0;
+    CHECK(cok_pool_give_steel(&game, a->record, 10) && flushes == 1); /* 58e7:0ab6 */
     CHECK(word(a->record + 0xeb + 8) == 70 && game.pool.coins[4] == 77 + 6);
     CHECK(LOGGED("print: Overloaded.  Money will be put in Pool.;"));
 }

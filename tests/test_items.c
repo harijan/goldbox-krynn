@@ -36,6 +36,18 @@ static void log_line(cok_adventure *game, const char *kind, const char *text, vo
 static script s;
 static cok_adventure game;
 
+/* The keyboard's flushes (1614:045c), logged as "flush;" while asked. */
+static bool log_flushes;
+
+static void flushed(cok_adventure *g, void *context)
+{
+    (void)g;
+    if (!log_flushes) return;
+    script *sc = context;
+    size_t used = strlen(sc->log);
+    snprintf(sc->log + used, sizeof sc->log - used, "flush;");
+}
+
 static void keys(const char *k)
 {
     s.keys = k;
@@ -546,12 +558,23 @@ static void test_view(void)
     CHECK(game.vm.status == COK_ECL_OK && !game.input_ended && s.at == s.length);
     CHECK(sir->record[0xf1] == 20 && c->record[0xf1] == 7);
     CHECK(strstr(s.log, "menu: How much platinum will you trade? ;input: 20;") != NULL);
+    /* More than the partner can carry: "Overloaded", the pause, and the
+     * keyboard's flush (58e7:0506). */
+    sir->record[0x17d] = 0xf0;
+    sir->record[0x17e] = 0xff;
+    keys("t" "\x01PS" "\r" "5\r" "\x1b" "E" "\x1b");
+    log_flushes = true;
+    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
+    log_flushes = false;
+    /* Then the coin list's flush (the list is not logged here). */
+    CHECK(c->record[0xf1] == 7 &&
+          strstr(s.log, "print: Overloaded;flush;flush;menu: Select Exit;") != NULL);
 }
 
 int main(void)
 {
-    cok_keyboard k = {scripted, &s};
-    cok_adventure_hooks hooks = {.log = log_line, .context = &s};
+    cok_keyboard k = {scripted, &s, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .flush = flushed, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &k, &hooks));
     game.vm.mem4b00[0xe6] = 1;
     test_tables();

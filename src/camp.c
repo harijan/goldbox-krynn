@@ -82,16 +82,19 @@ void cok_camp_say(cok_adventure *game, const uint8_t *c, const char *text, bool 
 
 /* One key from a menu on row 24 (67b5:03e2): prompt in light magenta,
  * items in white and light green. With show, the small picture's frame is
- * drawn first, as the camp's menus do; they also animate it, which is not
- * ported. */
+ * drawn first, as the camp's menus do, and animated while the menu waits
+ * (game->menu_animates). */
 int cok_camp_menu(cok_adventure *game, const char *prompt, const char *items, bool keypad,
                 bool show, bool *special)
 {
     if (show) cok_adventure_show_picture(game);
     cok_adventure_log(game, "menu", items);
     cok_keyboard keys = cok_adventure_keyboard(game);
-    return cok_menu_ask(&game->screen, &game->font, prompt, items, 13, 15, 10, keypad,
-                        &game->selected, &keys, special);
+    game->menu_animates = show;
+    int key = cok_menu_ask(&game->screen, &game->font, prompt, items, 13, 15, 10, keypad,
+                           &game->selected, &keys, special);
+    game->menu_animates = false;
+    return key;
 }
 
 /* Ask prompt, in prompt_color, until Yes or No (67b5:177f); No is

@@ -527,7 +527,7 @@ static void test_durations(void)
 
 int main(void)
 {
-    cok_keyboard k = {scripted, &s};
+    cok_keyboard k = {scripted, &s, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &k, &hooks));
     game.vm.mem4b00[0xe6] = 1;

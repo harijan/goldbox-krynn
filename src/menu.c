@@ -102,7 +102,7 @@ static uint8_t keypad_scan(unsigned char c)
 }
 
 /* One key from 67b5:03e2: returns the key, setting *special for scan codes. */
-static int menu_key(cok_picture *dst, const cok_font *font, const cok_menu *menu, int x,
+static int menu_wait(cok_picture *dst, const cok_font *font, const cok_menu *menu, int x,
                     uint8_t *selected, uint8_t highlight, uint8_t normal, bool keypad,
                     const cok_keyboard *keys, bool *special, int timeout)
 {
@@ -174,6 +174,18 @@ static int menu_key(cok_picture *dst, const cok_font *font, const cok_menu *menu
         }
         if (done) return c;
     }
+}
+
+/* 67b5:03e2 flushes the keyboard (1614:045c) once it has its key, so keys
+ * typed ahead are lost. */
+static int menu_key(cok_picture *dst, const cok_font *font, const cok_menu *menu, int x,
+                    uint8_t *selected, uint8_t highlight, uint8_t normal, bool keypad,
+                    const cok_keyboard *keys, bool *special, int timeout)
+{
+    int key = menu_wait(dst, font, menu, x, selected, highlight, normal, keypad, keys, special,
+                        timeout);
+    if (key != -1 && keys->flush != NULL) keys->flush(keys->context);
+    return key;
 }
 
 int cok_menu_horizontal(cok_picture *dst, const cok_font *font, const char *prompt,

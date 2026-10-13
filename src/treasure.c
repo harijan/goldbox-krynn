@@ -258,12 +258,13 @@ static void give(uint8_t *c, int k, uint16_t amount)
     put_word(c + 0x17d, (uint16_t)(word(c + 0x17d) + amount));
 }
 
-/* "Overloaded" on row 24 (6346:1827), then another pause (1521:0b4b); the
- * original then flushes the keyboard (1614:045c). */
+/* "Overloaded" on row 24 (6346:1827), then another pause (1521:0b4b), then
+ * the keyboard's flush (1614:045c). */
 static void overloaded_notice(cok_adventure *game, const char *text)
 {
     cok_camp_notice(game, text);
     cok_adventure_wait(game, game->speed * 100u);
+    cok_adventure_flush(game);
 }
 
 void cok_pool_status(const cok_pool *pool, bool *money, bool *items)

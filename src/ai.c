@@ -148,7 +148,18 @@ static bool spell_byte(cok_adventure *game, uint8_t spell, unsigned column, uint
 
 /* The keys. */
 
+/* 3afb:1200 flushes the keyboard as it returns (3afb:12eb), whether or
+ * not a key was waiting. */
+static bool poll_keys(cok_adventure *game, cok_character *c, bool *back);
+
 bool cok_ai_keys(cok_adventure *game, cok_character *c, bool *back)
+{
+    bool ok = poll_keys(game, c, back);
+    if (ok) cok_adventure_flush(game);
+    return ok;
+}
+
+static bool poll_keys(cok_adventure *game, cok_character *c, bool *back)
 {
     cok_combat *combat = &game->combat;
     *back = false;

@@ -1,0 +1,497 @@
+"""Play the SDL front end (build/cok) under SDL's dummy video driver
+and check that its window shows exactly what eclplay draws for the same
+keys, typed through SDL's key events; that it sleeps while it waits, ends
+at once when closed, and shows where the port stops (stdlib only)."""
+import os
+import pathlib
+import shutil
+import signal
+import subprocess
+import tempfile
+import threading
+import time
+import unittest
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+COK = ROOT / "build/cok"
+ECLPLAY = ROOT / "build/eclplay"
+ASSETS = ROOT / "Assets"
+
+ENV = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_RENDER_DRIVER="software",
+           SDL_AUDIODRIVER="dummy")
+
+# From the title: Play, then the start menu: create BOB (eclplay's roster
+# test), train, Begin; leave the outpost, step onto the caravan and fight
+# it with Alt-X (the Gods, with --helm), decline the treasure, help the
+# survivors to the inn and camp there; leave again, travel north-east and
+# north to Throtl, fight at its gate, walk up the street in 3D, leave an
+# encounter, turn and camp in 3D: Rest, then Save as game A (not quitting),
+# then Exit.
+NEW_GAME = (r"P\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\eYY\vS\rE\v\v\v\v\vSA\vS\r\r\r\r\r\r\rH"
+            r"\v\v\vSS\v\v\v\v\v\vSLNM\>\r\@xN\r\eN\r\r\r\r\r\rELN98yA\@xN\r\eN"
+            r"\^\^\>\^L\vEERESANE")
+
+
+# The new game up to the hobgoblin's ATTACK/LEAVE/PARLAY menu in Throtl,
+# over PIC1 record 12 (frames of 400, 200, 200 and 200 ms), the title
+# skipped (\kx).
+TO_HOBGOBLIN = r"\kx" + NEW_GAME[:NEW_GAME.index(r"L\vEERE")]
+# Up to the Gods' cheat in the caravan fight.
+TO_GODS = r"\kx" + NEW_GAME[:NEW_GAME.index(r"\@x") + 3]
+# The new game's 3D camp, Rest: three hours to rest.
+TO_REST = NEW_GAME[:NEW_GAME.index(r"L\vEERE")] + r"L\vEERHAAAR"
+
+
+def region(bmp, x, y, w, h):
+    """The bytes of a w by h pixel box of a bottom-up 24-bit 320x200 BMP."""
+    data = bmp[54:]
+    return b"".join(data[(199 - row) * 960 + x * 3:(199 - row) * 960 + (x + w) * 3]
+                    for row in range(y, y + h))
+
+
+def cpu_seconds(pid):
+    fields = (pathlib.Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()
+    return (int(fields[11]) + int(fields[12])) / os.sysconf("SC_CLK_TCK")
+
+
+class FrontEndTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.folder = pathlib.Path(self.temp.name)
+
+    def eclplay(self, keys, *args):
+        saves, shots = self.folder / "eclplay-saves", self.folder / "eclplay-shots"
+        saves.mkdir()
+        run = subprocess.run([str(ECLPLAY), "--start-menu", "--saves", str(saves), "--shots",
+                              str(shots), "--keys", keys, *args, str(ASSETS)],
+                             capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return run, saves, shots
+
+    def cok(self, keys, *args, name="cok"):
+        saves, shots = self.folder / f"{name}-saves", self.folder / f"{name}-shots"
+        run = subprocess.run([str(COK), "--assets", str(ASSETS), "--saves", str(saves),
+                              "--shots", str(shots), "--no-delay", "--keys", keys, *args],
+                             capture_output=True, text=True, env=ENV, timeout=300)
+        return run, saves, shots
+
+    def assertSameShots(self, expected, shown):
+        names = sorted(p.name for p in expected.glob("*.bmp"))
+        self.assertTrue(names)
+        self.assertEqual(names, sorted(p.name for p in shown.glob("*.bmp")))
+        for name in names:
+            self.assertEqual((expected / name).read_bytes(), (shown / name).read_bytes(), name)
+
+    def assertSameDirs(self, a, b):
+        self.assertEqual(sorted(p.name for p in a.iterdir()), sorted(p.name for p in b.iterdir()))
+        for p in a.iterdir():
+            self.assertEqual(p.read_bytes(), (b / p.name).read_bytes(), p.name)
+
+    def test_title_and_demonstration(self):
+        """The title (a key ends its wait), its menu timing out with \\t,
+        and the demonstration's walks and fight, frame for frame."""
+        keys = r"\kx\t"
+        expected, _, eshots = self.eclplay(keys, "--seed", "3")
+        run, _, shots = self.cok(keys, "--seed", "3", "--aspect", "1:1", "--scale", "2")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.stdout.splitlines()[-1], "(out of keys at the title)")
+        self.assertEqual(run.stdout.splitlines()[-1], expected.stdout.splitlines()[-1])
+        self.assertSameShots(eshots, shots)
+
+    def test_new_game(self):
+        """A new game from the title: creating a character, the overland
+        map, two fights with the player's keys, a camp, walking in 3D and
+        camping and saving there, frame for frame, in both aspects; and the
+        saved game written the same."""
+        expected, esaves, eshots = self.eclplay(NEW_GAME, "--seed", "7", "--helm")
+        self.assertGreater(len(list(eshots.glob("*.bmp"))), 90)
+        for aspect, scale in (("1:1", 2), ("4:3", 3)):
+            run, saves, shots = self.cok(NEW_GAME, "--seed", "7", "--helm", "--aspect", aspect,
+                                         "--scale", str(scale), "--log", name=aspect + "x")
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertEqual(run.stdout, expected.stdout.splitlines()[-1] + "\n")
+            # --log prints eclplay's lines.
+            self.assertIn("print: The Gods intervene!", run.stderr)
+            self.assertIn("at: 7,13,0", run.stderr)
+            self.assertIn("print: The party makes camp...", run.stderr)
+            width, height = 320 * scale, (240 if aspect == "4:3" else 200) * scale
+            self.assertIn(f"window: {width}x{height}", run.stderr)
+            self.assertIn(f"shown: {width}x{height} at 0,0 of {width}x{height}", run.stderr)
+            self.assertSameShots(eshots, shots)
+            self.assertTrue((saves / "SAVGAMA.DAT").exists())
+            self.assertSameDirs(esaves, saves)
+
+    def test_letterbox(self):
+        """Full screen on the dummy driver's 1024x768: the screen 1024x640,
+        letterboxed, scaled by 3.2, still shows eclplay's frames."""
+        keys = r"\kx\t"
+        _, _, eshots = self.eclplay(keys, "--seed", "3")
+        run, _, shots = self.cok(keys, "--seed", "3", "--aspect", "1:1", "--fullscreen", "--log")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("shown: 1024x640 at 0,64 of 1024x768", run.stderr)
+        self.assertSameShots(eshots, shots)
+
+    def test_presented(self):
+        """What the window presents, as SDL's dummy driver saves each frame
+        it is given (SDL_VIDEO_DUMMY_SAVE_FRAMES): waiting at the title's
+        menu (--woof), the menu eclplay draws, presented once."""
+        _, _, eshots = self.eclplay("", "--woof")
+        shown = self.presented("--woof")
+        self.assertTrue(1 <= len(shown) <= 2, shown)
+        # Both 320x200, 24 bits, bottom-up, after a 54-byte header.
+        self.assertEqual(shown[-1].read_bytes()[54:], (eshots / "000.bmp").read_bytes()[54:])
+        # The title's first picture, shown while it waits in the delay hook:
+        # TITLE.DAX record 1 (2f55:063c), drawn whole at 0, 0.
+        shown = self.presented()
+        self.assertTrue(1 <= len(shown) <= 2, shown)
+        self.assertGreater(len(set(shown[-1].read_bytes()[54:])), 2)
+
+    def presented(self, *args):
+        frames = self.folder / ("frames" + "".join(args))
+        frames.mkdir()
+        process = subprocess.Popen([str(COK), "--assets", str(ASSETS), "--saves",
+                                    str(self.folder / "s"), "--aspect", "1:1", "--scale", "1",
+                                    *args], cwd=frames,
+                                   env=dict(ENV, SDL_VIDEO_DUMMY_SAVE_FRAMES="1"),
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            time.sleep(1.5)
+        finally:
+            process.send_signal(signal.SIGTERM)
+            process.communicate(timeout=5)
+        return sorted(frames.glob("SDL_window*.bmp"))
+
+    def test_type_ahead_flushed(self):
+        """Keys typed ahead (\\[...\\]) wait in the buffer: the title's menu
+        takes P and its flush (67b5:0c28) drops the down arrow, so Enter
+        then picks the start menu's first row, in both players."""
+        keys = r"\kx\[P\v\]\r"
+        expected, _, eshots = self.eclplay(keys)
+        self.assertIn("flush: 1 keys typed ahead dropped", expected.stdout)
+        self.assertIn("choice: Create New Character", expected.stdout)
+        run, _, shots = self.cok(keys, "--aspect", "1:1", "--log")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("flush: 1 keys typed ahead dropped", run.stderr)
+        self.assertIn("choice: Create New Character", run.stderr)
+        self.assertSameShots(eshots, shots)
+
+    def test_type_ahead_kept(self):
+        """Typed ahead into the name's line, which does not flush, every
+        key is read, a held key's repeats too: the new game comes out the
+        same."""
+        # BOOB: the second O comes as the held key's repeat.
+        keys = NEW_GAME.replace(r"NBOB\r", r"N\[BOOB\r\]", 1)
+        self.assertNotEqual(keys, NEW_GAME)
+        expected, esaves, eshots = self.eclplay(keys, "--seed", "7", "--helm")
+        self.assertNotIn("flush:", expected.stdout)
+        run, saves, shots = self.cok(keys, "--seed", "7", "--helm", "--aspect", "1:1")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertSameShots(eshots, shots)
+        self.assertSameDirs(esaves, saves)
+        self.assertTrue((saves / "SAVGAMA.DAT").exists())
+
+    def test_key_during_the_title(self):
+        """A key pressed in the middle of the title's waits (after 600 of
+        the game's waits: the first picture's 500 polls and delays, then
+        50 of the second's) ends the title there, as KeyPressed sees it;
+        no credits."""
+        keys = r"\w600.\[x\]P\v\v\v\v\rY"
+        expected, _, eshots = self.eclplay(keys)
+        self.assertNotIn("Electronic Arts", expected.stdout)
+        self.assertEqual(expected.stdout.splitlines()[-1], "(quit to DOS)")
+        run, _, shots = self.cok(keys, "--aspect", "1:1", "--log")
+        self.assertEqual((run.returncode, run.stdout), (0, "(quit to DOS)\n"), run.stderr)
+        self.assertNotIn("Electronic Arts", run.stderr)
+        self.assertSameShots(eshots, shots)
+
+    def test_arrow_during_the_title(self):
+        """F10 pressed in the title's wait: KeyPressed sees it, the title
+        reads its 0 and flushes the scan code owed (2f55:005f), which the
+        title's menu would take as D, the demonstration."""
+        keys = r"\w600.\[\#44\]P\v\v\v\v\rY"
+        expected, _, eshots = self.eclplay(keys)
+        self.assertIn("flush: 1 keys typed ahead dropped", expected.stdout)
+        run, _, shots = self.cok(keys, "--aspect", "1:1", "--log")
+        self.assertEqual((run.returncode, run.stdout), (0, "(quit to DOS)\n"), run.stderr)
+        self.assertIn("flush: 1 keys typed ahead dropped", run.stderr)
+        self.assertSameShots(eshots, shots)
+
+    def test_key_during_a_rest(self):
+        """A key pressed in the middle of a rest (57e4's loop polls once a
+        step) stops it at that step: Stop Resting?, Yes."""
+        shots = []
+        for wait in (2, 30):
+            keys = TO_REST + r"\w%d.\[x\]YE" % wait
+            expected, _, eshots = self.eclplay(keys, "--seed", "7", "--helm")
+            self.assertIn("menu: Stop Resting? ", expected.stdout)
+            run, _, cshots = self.cok(keys, "--seed", "7", "--helm", "--aspect", "1:1",
+                                      name="rest%d" % wait)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertSameShots(eshots, cshots)
+            shots.append([p.read_bytes() for p in sorted(eshots.glob("*.bmp"))])
+            shutil.rmtree(eshots.parent / "eclplay-saves")
+            shutil.rmtree(eshots)
+        # Later is less time left: the screens from Stop Resting? on differ.
+        self.assertEqual(len(shots[0]), len(shots[1]))
+        self.assertNotEqual(shots[0], shots[1])
+
+    def start(self, *args, frames=None):
+        """cok running in the background, its standard error read line by
+        line as it comes, with the time of each."""
+        env = dict(ENV)
+        if frames is not None:
+            frames.mkdir()
+            env["SDL_VIDEO_DUMMY_SAVE_FRAMES"] = "1"
+        process = subprocess.Popen([str(COK), "--assets", str(ASSETS), "--saves",
+                                    str(self.folder / "bg"), *args], cwd=frames,
+                                   env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   text=True)
+        lines = []
+
+        def collect():
+            for line in process.stderr:
+                lines.append((time.monotonic(), line.rstrip("\n")))
+
+        reader = threading.Thread(target=collect)
+        reader.start()
+
+        def stop():
+            if process.poll() is None:
+                process.send_signal(signal.SIGTERM)
+            try:
+                process.wait(timeout=5)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+            reader.join()
+        self.addCleanup(stop)
+        return process, lines, stop
+
+    def wait_for(self, lines, text, timeout):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            for t, line in list(lines):
+                if line == text:
+                    return t
+            time.sleep(0.05)
+        self.fail(f"no {text!r} in {timeout} s")
+
+    def test_timed_menu(self):
+        """After a demonstration the title's menu waits 10 seconds from
+        when it opens (DS:6e11 1000 hundredths), then plays it again."""
+        # Half way, an arrow, which does not start the time again (\p500.:
+        # five seconds before it is typed).
+        frames = self.folder / "frames"
+        _, lines, stop = self.start("--no-delay", "--log", "--keys", r"\kx\t\p500.\>",
+                                    "--continue", frames=frames)
+        self.wait_for(lines, "choice: Demo", 30)
+        menus = []
+        end = time.monotonic() + 30
+        while time.monotonic() < end:
+            menus = [t for t, line in lines if line == "menu: Play Demo"]
+            demos = [t for t, line in lines if line == "choice: Demo"]
+            if len(demos) >= 2:
+                break
+            time.sleep(0.05)
+        stop()
+        self.assertGreaterEqual(len(menus), 2)
+        self.assertEqual(len(demos), 2)
+        self.assertGreater(demos[1] - menus[1], 9.8)
+        self.assertLess(demos[1] - menus[1], 11)
+        # The arrow, five seconds in, redrew the menu's selection.
+        wall = time.time() - time.monotonic()
+        moved = [p for p in frames.glob("SDL_window*.bmp")
+                 if menus[1] + 4.5 + wall < p.stat().st_mtime < menus[1] + 6 + wall]
+        self.assertEqual(len(moved), 1)
+
+    def test_animation(self):
+        """The hobgoblin's menu (HORIZONTAL MENU over PIC1 record 12, which
+        replaced the view) animates the picture at cell 3, 3 while it
+        waits: its four frames in turn, 1 s round."""
+        frames = self.folder / "frames"
+        _, lines, stop = self.start("--seed", "7", "--helm", "--no-delay", "--aspect", "1:1",
+                                    "--scale", "1", "--log", "--continue",
+                                    "--keys", TO_HOBGOBLIN, frames=frames)
+        shown = self.wait_for(lines, "menu: ~ATTACK ~LEAVE ~PARLAY", 30)
+        time.sleep(3)
+        stop()
+        late = [p for p in sorted(frames.glob("SDL_window*.bmp"))
+                if p.stat().st_mtime > time.time() - (time.monotonic() - shown)]
+        boxes = [region(p.read_bytes(), 24, 24, 88, 88) for p in late]
+        self.assertGreaterEqual(len(boxes), 10, len(boxes))
+        self.assertEqual(len(set(boxes[1:9])), 4)
+        self.assertEqual(boxes[1:5], boxes[5:9])
+        # Each frame stays its own delay: a round of the four is a second,
+        # the first frame's 400 ms the longest.
+        times = [p.stat().st_mtime for p in late]
+        steps = [b - a for a, b in zip(times[1:], times[2:])]
+        self.assertAlmostEqual(sum(steps[:4]), 1.0, delta=0.1)
+        self.assertEqual(sorted(round(t, 1) for t in steps[:4]), [0.2, 0.2, 0.2, 0.4])
+
+    def test_never_stale(self):
+        """With real delays, what the game drew before a delay is shown
+        within a few frames of it (--log's check), through the Gods' long
+        pause in the caravan fight."""
+        frames = self.folder / "frames"
+        _, lines, stop = self.start("--seed", "7", "--helm", "--log", "--aspect", "1:1",
+                                    "--scale", "1", "--keys", TO_GODS, frames=frames)
+        self.wait_for(lines, "print: The Gods intervene!", 120)
+        self.wait_for(lines, "menu: Continue Battle:", 10)
+        stop()
+        self.assertEqual([line for _, line in lines if line.startswith("stale")], [])
+        # And at most about 60 frames a second, however fast the text types.
+        times = sorted(p.stat().st_mtime for p in frames.glob("SDL_window*.bmp"))
+        self.assertGreater(len(times), 100)
+        busiest = max(sum(1 for t in times[i:] if t < start + 1) for i, start in enumerate(times))
+        self.assertLessEqual(busiest, 66)
+
+    def test_rest_pace(self):
+        """Three hours' rest, 36 steps of five minutes, a hundredth each,
+        the time left shown as it goes."""
+        frames = self.folder / "frames"
+        _, lines, stop = self.start("--seed", "7", "--helm", "--no-delay", "--aspect", "1:1",
+                                    "--scale", "1", "--log", "--continue", "--keys", TO_REST,
+                                    frames=frames)
+        self.wait_for(lines, "menu: Save View Magic Rest Alter Fix Exit", 60)
+        time.sleep(0.5)
+        stop()
+        rests = [t for t, line in lines if line == "menu: Rest Days Hours Mins Add Subtract Exit"]
+        done = [t for t, line in lines if line == "menu: Save View Magic Rest Alter Fix Exit"]
+        took = done[-1] - rests[-1]
+        self.assertGreater(took, 0.33)
+        self.assertLess(took, 2)
+        # The count shown on the way, a frame a few steps.
+        wall = time.time() - time.monotonic()
+        during = [p for p in frames.glob("SDL_window*.bmp")
+                  if rests[-1] + wall < p.stat().st_mtime < done[-1] + wall]
+        self.assertGreaterEqual(len(during), 4)
+
+    def test_close_during_delays(self):
+        """Closed while the demonstration types its text, delay after
+        delay, cok ends at once."""
+        process, lines, stop = self.start("--log", "--keys", r"\kx\t")
+        self.wait_for(lines, "choice: Demo", 30)
+        time.sleep(2.5)
+        start = time.monotonic()
+        process.send_signal(signal.SIGTERM)
+        process.wait(timeout=5)
+        self.assertLess(time.monotonic() - start, 0.3)
+        self.assertEqual(process.returncode, 0)
+
+    def test_front_end_keys(self):
+        """F11 (\\#85 in a script) makes the window full screen, which is
+        shown at once, letterboxed; F12 (\\#86) saves the screen in
+        screenshots/, as eclplay saves it."""
+        _, _, eshots = self.eclplay("", "--woof")
+        frames = self.folder / "frames"
+        _, lines, stop = self.start("--woof", "--aspect", "1:1", "--scale", "1", "--log",
+                                    "--continue", "--keys", r"\p50.\#85\#86", frames=frames)
+        self.wait_for(lines, "shown: 1024x640 at 0,64 of 1024x768", 10)
+        time.sleep(0.5)
+        stop()
+        last = sorted(frames.glob("SDL_window*.bmp"))[-1].read_bytes()
+        self.assertEqual(int.from_bytes(last[18:22], "little"), 1024)
+        self.assertEqual((frames / "screenshots/cok000.bmp").read_bytes(),
+                         (eshots / "000.bmp").read_bytes())
+
+    def test_sigint_in_the_background(self):
+        """Started with SIGINT ignored, as a shell starts a job in the
+        background, SIGINT still ends it."""
+        process = subprocess.Popen([str(COK), "--assets", str(ASSETS), "--saves",
+                                    str(self.folder / "s"), "--woof"], env=ENV,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN))
+        try:
+            time.sleep(1)
+            process.send_signal(signal.SIGINT)
+            process.communicate(timeout=3)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+        self.assertEqual(process.returncode, 0)
+
+    def test_shots_need_two_rows(self):
+        run, _, _ = self.cok(r"\kx", "--scale", "1")
+        self.assertEqual(run.returncode, 2)
+        self.assertIn("--scale 2", run.stderr)
+
+    def test_quit_to_dos(self):
+        run, _, _ = self.cok(r"\kxP\v\v\v\v\rY", "--aspect", "1:1")
+        self.assertEqual((run.returncode, run.stdout), (0, "(quit to DOS)\n"), run.stderr)
+
+    def test_keys_no_keyboard_has(self):
+        """NumLock's scan code is not a key the game can be given."""
+        run, _, _ = self.cok(r"\kxP\#45")
+        self.assertEqual(run.returncode, 2)
+        self.assertIn("no key gives scan code 45", run.stderr)
+
+    def test_stop(self):
+        """A missing file stops the port: the reason on stderr and on the
+        screen's last rows, in light red, and a status of 1."""
+        assets = self.folder / "assets"
+        assets.mkdir()
+        for p in ASSETS.iterdir():
+            if p.name != "TITLE.DAX":
+                (assets / p.name).symlink_to(p)
+        run = subprocess.run([str(COK), "--assets", str(assets), "--saves",
+                              str(self.folder / "s"), "--shots", str(self.folder / "shots"),
+                              "--aspect", "1:1", "--keys", "x"],
+                             capture_output=True, text=True, env=ENV, timeout=60)
+        self.assertEqual(run.returncode, 1)
+        self.assertIn("TITLE.DAX", run.stderr)
+        bmp = (self.folder / "shots/000.bmp").read_bytes()
+        # Bottom-up rows: row 199 (the last, "Press a key") first; the
+        # reason's rows above it hold light red (255, 85, 85).
+        offset = int.from_bytes(bmp[10:14], "little")
+        rows = [bmp[offset + (199 - y) * 960:offset + (200 - y) * 960] for y in range(160, 192)]
+        self.assertTrue(any(bytes((85, 85, 255)) in row for row in rows))
+
+    def idle(self, *args):
+        """Start cok waiting without keys; return its CPU seconds over two
+        seconds of wall time, then close it (SIGTERM is SDL_QUIT, as the
+        window's close is) and check it ends at once, writing nothing."""
+        saves = self.folder / "idle"
+        process = subprocess.Popen([str(COK), "--assets", str(ASSETS), "--saves", str(saves),
+                                    "--log", *args], env=ENV, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, text=True)
+        try:
+            time.sleep(1.5)
+            self.assertIsNone(process.poll(), "cok ended early")
+            before = cpu_seconds(process.pid)
+            time.sleep(2)
+            used = cpu_seconds(process.pid) - before
+            start = time.monotonic()
+            process.send_signal(signal.SIGTERM)
+            out, err = process.communicate(timeout=5)
+            self.assertLess(time.monotonic() - start, 1)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+        self.assertEqual((process.returncode, out), (0, ""), err)
+        self.assertEqual(list(saves.iterdir()), [])
+        self.log = err
+        return used
+
+    def test_waiting_for_a_key_sleeps(self):
+        """The title's menu waits for a key (--woof: no title): well under
+        a tenth of a core."""
+        self.assertLess(self.idle("--woof"), 0.2)
+        # 3.5 seconds are not the 30 the menu waits.
+        self.assertIn("menu: Play Demo", self.log)
+        self.assertNotIn("choice:", self.log)
+
+    def test_waiting_in_a_delay_sleeps(self):
+        """The title's pictures wait seconds through the delay hook,
+        polling for a key each hundredth."""
+        self.assertLess(self.idle(), 0.2)
+        # Still on the title's pictures (5 + 10 seconds), not its menu.
+        self.assertIn("unported: the title's music", self.log)
+        self.assertNotIn("menu: Play Demo", self.log)
+
+
+if __name__ == "__main__":
+    unittest.main()

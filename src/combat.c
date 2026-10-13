@@ -1010,6 +1010,7 @@ static bool load_tiles(cok_adventure *game, const char *name, uint8_t first, uin
     }
     cok_picture_free(&set);
     if (!ok) cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s.DAX holds no %u tiles", name, count);
+    else cok_adventure_flush(game); /* 6d21:00ec */
     return ok;
 }
 
