@@ -167,7 +167,10 @@ void cok_start_title(cok_adventure *game)
 {
     game->title = true;
     cok_adventure_free_picture(game); /* 6961:0537 */
-    cok_adventure_log(game, "unported", "the title's music (1661:000a)");
+    /* 2f55:063c: DS:5780 set and the music started (1661:000a, 02e6,
+     * 014d, 02b3) unless the sound is off. */
+    cok_adventure_log(game, "sound", "music");
+    cok_adventure_sound(game, COK_SOUND_MUSIC, 0);
     bool key = !title_picture(game, 1, 0, 0) || title_wait(game, 5);
     if (!key) key = !title_picture(game, 2, 0, 0) || !title_picture(game, 3, 5, 1) ||
                     title_wait(game, 10);
@@ -177,8 +180,9 @@ void cok_start_title(cok_adventure *game)
         credits(game);
         title_wait(game, 10);
     }
-    /* 2f55:006d. */
+    /* 2f55:006d: the music stopped (1661:0353, 00da), DS:5780 cleared. */
     cok_picture_fill(&game->screen, 0, 0, 40, 200, 0);
+    cok_adventure_sound(game, COK_SOUND_MUSIC_END, 0);
     game->title = false;
 }
 
@@ -394,12 +398,16 @@ cok_ecl_status cok_start_game(cok_adventure *game, bool woof)
     cok_start_startup(game);
     if (!woof) cok_start_title(game);
     if (vm->abort) return vm->status;
-    cok_adventure_log(game, "unported", "the sound driver (17e8:00da)");
+    /* 1000:0160: the effects driver hooked (17e8:00da), logged where the
+     * port logged it unported. */
+    cok_adventure_log(game, "sound", "install");
+    cok_adventure_sound(game, COK_SOUND_INSTALL, 0);
     int key = title_menu(game, "Champions of Krynn v1.2", 3000);
     if (key < 0) return vm->status;
     game->demo = key == 'D';
     for (;;) {
         vm->file = game->demo ? 2 : 1;
+        cok_adventure_overlay(game); /* 1000:01d8, around 4def:0000 */
         if (game->demo) {
             game->speed = 9;
         } else {
@@ -414,16 +422,22 @@ cok_ecl_status cok_start_game(cok_adventure *game, bool woof)
                 cok_screen_adventure(&game->screen, &game->view.tiles[4], phases);
             cok_adventure_party(game);
         }
+        cok_adventure_overlay(game); /* 1000:0282, around 6961:0890 */
+        cok_adventure_overlay(game); /* 1000:02b8, around 2fd3:0000 */
         cok_ecl_status status = adventure(game);
         if (status != COK_ECL_OK || vm->abort) return status;
+        cok_adventure_overlay(game); /* 1000:02de, around 3e99:0000 */
         cok_start_reset(game);
         if (game->demo) {
+            cok_adventure_sound(game, COK_SOUND_COMMAND, 0xff); /* 1000:0304 */
             cok_start_title(game);
             if (vm->abort) break;
+            cok_adventure_sound(game, COK_SOUND_INSTALL, 0); /* 1000:030e */
             cok_adventure_flush(game); /* 1000:0313 */
             key = title_menu(game, "Champions Of Krynn v1.2", 1000);
             if (key < 0) break;
             game->demo = key == 'D';
+            cok_adventure_sound(game, COK_SOUND_COMMAND, 0); /* 1000:036d */
         }
     }
     return vm->status;

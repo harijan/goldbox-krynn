@@ -131,8 +131,7 @@ void cok_camp_pick(cok_adventure *game, uint8_t scan)
 void cok_camp_quit(cok_adventure *game)
 {
     cok_adventure_log(game, "quit", "to DOS");
-    game->quit = true;
-    game->vm.abort = true;
+    cok_adventure_quit(game);
 }
 
 /* Preparing spells. */

@@ -10,7 +10,7 @@
   // python3: tests and tools/ovrmerge.py (standard library only).
   // binutils: objdump -m i8086 for checking the decompile. gdb: debugging.
   // libsdl2-dev (with pkg-config): build/cok, the SDL2 front end; its tests use SDL's dummy
-  // video driver, so no display is needed.
+  // video driver and its dummy and disk audio drivers, so no display or sound device is needed.
   "onCreateCommand": "sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential python3 binutils gdb pkg-config libsdl2-dev && sudo rm -rf /var/lib/apt/lists/*",
   // The claude-code-config volume is created root-owned (the image has no ~/.claude to copy
   // ownership from), so hand it to vscode.

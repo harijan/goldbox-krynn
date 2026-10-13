@@ -1642,5 +1642,185 @@ class StartMenuTests(unittest.TestCase):
         self.assertEqual(result.stdout.splitlines()[-2:], ["quit: to DOS", "(quit to DOS)"])
 
 
+def wav_data(path):
+    """The samples of a 16-bit mono 44,100 Hz WAV file, as bytes, its
+    header checked."""
+    data = path.read_bytes()
+    riff, size, wave, fmt, fmt_size, tag, channels, rate, rate2, align, bits, name, length = \
+        struct.unpack_from("<4sI4s4sIHHIIHH4sI", data)
+    assert (riff, wave, fmt, name) == (b"RIFF", b"WAVE", b"fmt ", b"data"), data[:44]
+    assert (fmt_size, tag, channels, rate, rate2, align, bits) == (16, 1, 1, 44100, 88200, 2, 16)
+    assert size == len(data) - 8 and length == len(data) - 44
+    return data[44:]
+
+
+class SoundTests(unittest.TestCase):
+    """The game's calls to the sound driver (--sound-calls) where the
+    original makes them, and the sound rendered by the game's clock
+    (--wav)."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.folder = pathlib.Path(self.temp.name)
+
+    def calls(self, *args):
+        result = subprocess.run([str(TOOL), "--sound-calls", *map(str, args)], capture_output=True,
+                                text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return [line for line in result.stdout.splitlines() if line != "call: record"]
+
+    def test_logged_sounds_are_the_drivers_commands(self):
+        # Every sound logged is the driver's command (17e8:0020) at once;
+        # the other commands are sound 10 for steps and turns, and main's.
+        for args in (["--test-party", 6, "--set", "4be6=1", "--start", "835f", "--seed", 1,
+                      "--combat", "auto", "--keys", r"\r\rEN", ASSETS, 32],
+                     ["--start-menu", "--saves", self.folder, "--keys", r"\kx\t", ASSETS]):
+            lines = self.calls(*args)
+            logged = [i for i, line in enumerate(lines) if line.startswith("sound: ")
+                      and line[7:].isdigit()]
+            self.assertGreater(len(logged), 20)
+            for i in logged:
+                self.assertEqual(lines[i + 1], "call: command " + lines[i][7:])
+            unlogged = {line for i, line in enumerate(lines) if line.startswith("call: command ")
+                        and i - 1 not in logged}
+            self.assertLessEqual(unlogged, {"call: command 10", "call: command 255"})
+
+    def test_overlays_unhook_the_driver(self):
+        # COMBAT (2fd3:191c): the driver unhooked and hooked again around
+        # each overlay it loads; through the end of combat (351b) it stays
+        # off.
+        lines = self.calls("--test-party", 6, "--set", "4be6=1", "--start", "835f", "--seed", 1,
+                           "--combat", "auto", "--keys", r"\r\rEN", ASSETS, 32)
+        begins = lines.index("print: A battle begins...")
+        self.assertEqual(lines[begins - 2:begins], ["call: overlay", "call: overlay end"])
+        removed = next(i for i, line in enumerate(lines) if line.startswith("combat: removed"))
+        self.assertEqual(lines[removed - 1], "call: overlay")
+        self.assertEqual(lines[removed + 1:].count("call: overlay end"), 1)
+        self.assertNotIn("call: command", " ".join(lines[removed:]))
+        # A shop (36d0) and treasure alone (351b): before and after.
+        lines = self.calls("--test-party", 4, "--start", "891c", "--keys",
+                           r"y\rB\v\v\r\ePB\r\eEySE", ASSETS, 16)
+        shop = lines.index("menu: Buy View Pool Appraise Exit")
+        self.assertEqual(lines[shop - 3:shop - 1], ["call: overlay", "call: overlay end"])
+        self.assertEqual(lines.count("call: overlay"), 2)
+        lines = self.calls("--test-party", 6, "--start", "8bcd", "--keys", r"\rT\r3\r\eSE",
+                           ASSETS, 32)
+        first = lines.index("call: overlay")
+        self.assertEqual(lines[first + 1], "call: overlay end")
+        self.assertLess(first, lines.index("menu: View Take Pool Share Exit"))
+        self.assertEqual(lines.count("call: overlay"), 2)
+        # The temple (340d): before it and after.
+        lines = self.calls("--test-party", 4, "--start", "8a8f", "--keys", r"\rPH\v\vHy\eEn\r",
+                           ASSETS, 16)
+        lines = [line for line in lines if line.startswith(("call: overlay", "menu: Heal View Pool"))
+                 or line == "menu: ~Yes ~No"]
+        self.assertEqual(lines, ["call: overlay", "call: overlay end", "menu: Heal View Pool Appraise Exit",
+                                 "menu: ~Yes ~No", "call: overlay", "call: overlay end"])
+        # A battle won: before it, around the end of combat, and after
+        # (475c or 6961).
+        lines = self.calls("--test-party", 6, "--combat", "won", "--start", "8cda", "--keys", r"\rSE\r",
+                           ASSETS, 16)
+        lines = [line for line in lines if line.startswith("call: overlay")
+                 or line == "menu: View Take Pool Share Exit"]
+        self.assertEqual(lines, ["call: overlay", "call: overlay end", "call: overlay",
+                                 "menu: View Take Pool Share Exit", "call: overlay end",
+                                 "call: overlay", "call: overlay end"])
+
+    def test_install_without_the_title(self):
+        # A block or saved game runs past main's install (1000:0160); --sound
+        # wants --wav.
+        lines = self.calls("--test-party", 4, "--play", "--set", "4be6=1", "--keys", r"\r\rm\^",
+                           ASSETS, 32)
+        self.assertEqual(lines[0], "call: install")
+        result = subprocess.run([str(TOOL), "--sound", "speaker", "--start-menu", str(ASSETS)],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--sound needs --wav", result.stderr)
+
+    def test_the_title_and_main(self):
+        lines = self.calls("--start-menu", "--saves", self.folder, "--keys", r"\kx\t", ASSETS)
+        self.assertEqual(lines[:3], ["sound: music", "call: music", "call: music end"])
+        self.assertEqual(lines[3:5], ["sound: install", "call: install"])
+        demo = lines.index("choice: Demo")
+        # 1000:01d8, 0282 and 02b8.
+        self.assertEqual(lines[demo + 1:demo + 7], ["call: overlay", "call: overlay end"] * 3)
+        # After the demonstration (3e99:0000), the driver off for the title
+        # (1000:0304) and on again after it (1000:030e).
+        title = len(lines) - lines[::-1].index("call: command 255") - 1
+        self.assertEqual(lines[title - 2:title], ["call: overlay", "call: overlay end"])
+        self.assertEqual(lines[title + 1:title + 3], ["sound: music", "call: music"])
+        self.assertEqual([line for line in lines[title:] if line.startswith("call: ")],
+                         ["call: command 255", "call: music", "call: music end", "call: install"])
+
+    def test_steps_and_turns(self):
+        # A step forward plays sound 10 as it starts (475c:081a) and again
+        # once the party is on its new square (2fd3:3eb9); a turn plays it
+        # (475c:0c58); none is logged.
+        lines = self.calls("--combat", "pass", "--test-party", 6, "--play", "--set", "4be6=1",
+                           "--keys", r"\r\rE\rm\^\>", ASSETS, 32)
+        lines = [line for line in lines if line.startswith(("at: ", "call: ", "sound: "))]
+        start = lines.index("at: 7,14,0") - 1
+        self.assertEqual(lines[start:start + 5], ["call: command 10", "at: 7,14,0", "call: command 10",
+                                                  "call: command 10", "at: 7,14,2"])
+        self.assertNotIn("sound: 10", lines)
+
+    def test_ctrl_s(self):
+        # Ctrl-S read by a menu (1614:025b) calls the driver; typed into a
+        # name (1521:0739, Crt's ReadKey) it does not.
+        lines = self.calls("--start-menu", "--saves", self.folder, "--keys",
+                           r"\kx" + "\x13" + r"P\r" + r"\v" * 6 + r"\r\r\v\r\rN" + "\x13" + r"BOB\r",
+                           ASSETS)
+        self.assertEqual(lines.count("call: ctrl-s"), 1)
+        self.assertLess(lines.index("call: ctrl-s"), lines.index("list: Choose a FUNCTION "))
+
+    def test_wav(self):
+        # By the game's clock: the same samples each time; the title's
+        # music for its 35 seconds and more; a \p pause before a key read
+        # its hundredths more; the speaker's sound unlike the Tandy's; none
+        # with the sound off.
+        def render(name, keys, *args):
+            path = self.folder / name
+            result = subprocess.run([str(TOOL), "--start-menu", "--saves", self.folder, "--wav", path,
+                                     *map(str, args), "--keys", keys, str(ASSETS)],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return wav_data(path)
+        tandy = render("a.wav", r"\kx")
+        self.assertEqual(tandy, render("b.wav", r"\kx"))
+        # \kx ends the title at its first poll: then a second of the tail.
+        self.assertEqual(len(tandy), 2 * 44100)
+        paused = render("c.wav", r"\kx\p250.x")
+        self.assertEqual(len(paused) - len(tandy), 2 * 110250)
+        title = render("d.wav", r"\t")
+        samples = struct.unpack("<%dh" % (len(title) // 2), title)
+        self.assertGreater(len(samples), 35 * 44100)
+        for second in range(34):
+            chunk = samples[second * 44100:(second + 1) * 44100]
+            self.assertGreater(max(chunk) - min(chunk), 2000, second)
+        speaker = render("e.wav", r"\t", "--sound", "speaker")
+        self.assertEqual(len(speaker), len(title))
+        self.assertNotEqual(speaker, title)
+        off = render("f.wav", r"\t", "--sound", "off")
+        self.assertEqual(off, bytes(len(title)))
+
+    def test_without_the_music_files(self):
+        # Without MIDI.DAX the title is silent and says why; the effects
+        # play all the same.
+        assets = self.folder / "assets"
+        assets.mkdir()
+        for path in ASSETS.iterdir():
+            if path.name != "MIDI.DAX":
+                (assets / path.name).symlink_to(path)
+        path = self.folder / "a.wav"
+        result = subprocess.run([str(TOOL), "--start-menu", "--saves", self.folder, "--wav", path,
+                                 "--keys", r"\kx\t", str(assets)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("sound: no music: ", result.stderr)
+        self.assertIn("MIDI.DAX", result.stderr)
+        samples = wav_data(path)
+        self.assertTrue(any(samples))
+
+
 if __name__ == "__main__":
     unittest.main()

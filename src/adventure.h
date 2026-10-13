@@ -7,6 +7,7 @@
 #include "menu.h"
 #include "party.h"
 #include "picture.h"
+#include "sound.h"
 #include "text.h"
 #include "view.h"
 
@@ -108,6 +109,13 @@ typedef struct {
      * their key, paging does after its key, and the title before and after
      * each wait. NULL keeps them. */
     void (*flush)(cok_adventure *game, void *context);
+    /* The sound driver's calls, as the original makes them (see sound.h
+     * and the README's Sound): its commands (17e8:0020, those logged as
+     * "sound" and the ones that are not: a step, a turn, a DAX record
+     * read), its install and the uninstall around each overlay's load, the
+     * title's music, Ctrl-S read by 1614:025b, quitting. A front end
+     * passes them to its cok_sound. NULL ignores them. */
+    void (*sound)(cok_adventure *game, cok_sound_call call, unsigned value, void *context);
     void *context;
 } cok_adventure_hooks;
 
@@ -384,6 +392,17 @@ void cok_adventure_wait(cok_adventure *game, unsigned ms);
 bool cok_adventure_key_pending(cok_adventure *game);
 /* Discard the keys waiting (hooks.flush, 1614:045c). */
 void cok_adventure_flush(cok_adventure *game);
+/* Text input's keyboard: Crt.ReadKey's keys (1521:0739), which do not
+ * turn the sound on and off as 1614:025b's do. */
+cok_keyboard cok_adventure_keyboard_raw(cok_adventure *game);
+/* A call to the sound driver (hooks.sound). */
+void cok_adventure_sound(cok_adventure *game, cok_sound_call call, unsigned value);
+/* The pair of calls around an overlay's load (if DS:577c, 17e8:0020(0xff);
+ * then unless DS:577c, 17e8:00da), as main and COMBAT make them. */
+void cok_adventure_overlay(cok_adventure *game);
+/* Quit to DOS (1614:0000): the sound stopped, game->quit and the run
+ * aborted. */
+void cok_adventure_quit(cok_adventure *game);
 /* A key read as 1614:025b reads it, without waiting for one first: in the
  * demonstration 0 at once when none is pending. */
 int cok_adventure_wait_key(cok_adventure *game);

@@ -5,10 +5,11 @@ picture and text compositor, ECL script interpreter and disassembler, and a
 headless script player that shows the scripts' text, menus, pictures, 3D
 view and party on the adventure screen, and plays the game from its title
 and start menu; and `cok`, which plays the game in a window with SDL2,
-from the title, with the keyboard (see Playing). The original DOS
+from the title, with the keyboard and with its sound: the Tandy's three
+voices and noise, or the PC speaker, the effects and the title's music
+(see Playing and Sound). The original DOS
 executable, decompiler output, and game data are reference inputs, kept in
-`Assets/`; saved games from the original, if any, go in `SAVE/`. There is
-no sound yet.
+`Assets/`; saved games from the original, if any, go in `SAVE/`.
 
 ## Build and verify
 
@@ -34,6 +35,7 @@ make
 mkdir -p build/roster
 ./build/eclplay --start-menu --saves build/roster \
     --keys '\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\eYY\vS\rE\v\v\v\v\v\vS' Assets
+./build/eclplay --start-menu --saves build/roster --wav build/title.wav --keys '\t' Assets
 make test
 make sanitize
 make cok
@@ -53,7 +55,11 @@ with the game's files in `Assets/`), or give the container the host's X
 server (on a Linux host, run it with `-v /tmp/.X11-unix:/tmp/.X11-unix -e
 DISPLAY=$DISPLAY` and allow it with `xhost +local:`; or `ssh -X` into a
 machine with the build). SDL picks Wayland, X11 or the console's driver
-itself; `SDL_VIDEODRIVER` overrides it.
+itself; `SDL_VIDEODRIVER` overrides it; likewise PulseAudio, PipeWire or
+ALSA for the sound, `SDL_AUDIODRIVER` overriding it (the container has no
+sound device: `cok` says so and plays silently; `SDL_AUDIODRIVER=disk`
+writes the samples to `sdlaudio.raw` or `SDL_DISKAUDIOFILE`, 16-bit mono
+at 44,100 Hz).
 
 `daxcheck` reads archives without modifying them. It validates every directory
 entry and decompresses every record, checking the decoded byte count. It exits
@@ -62,7 +68,8 @@ record; directory entry numbers are zero-based. Duplicate IDs are retained.
 `make test` includes synthetic malformed inputs, all supplied DAX archives,
 export checks for all 26 supported graphics archives (2,363 images), and
 tests of the picture, text, menu, 3D view, overhead map, party and spell
-effect routines,
+effect routines, the sound (`tests/test_sound.c`: the drivers' port writes
+against the original's, recorded in an emulator, and the synthesis),
 the adventure loop, the camp, casting spells, the character sheet with its
 items, monsters and encounters, the battlefield, the rounds of a battle,
 treasure and the end of combat, the shops and the temple, the combat
@@ -108,9 +115,13 @@ timed menu runs out or the small picture's next frame is due.
 | `--screenshots DIR` | where F12 saves the screen (default `screenshots`, created when needed, ignored by git) |
 | `--seed N` | start Turbo Pascal's `Random` from N; by default the clock seeds it, as startup's `Randomize` (`1a46:1200` from `3e99:005b`) does |
 | `--woof`, `--helm` | start as `START Woof` (no title) or with `Helm` (`Area` anywhere, the Gods' cheat Alt-X, free training) |
-| `--log` | print the game's text, menus, choices, sounds and what is not ported to standard error, as `eclplay` prints them; the window's size and where the screen is shown in it; keys typed ahead that a flush drops (`flush:`); and a check that the window keeps up: `stale:` if, through the game's delays, the window kept an older screen than the game's for more than 160 ms |
+| `--log` | print the game's text, menus, choices, sounds and what is not ported to standard error, as `eclplay` prints them; the window's size and where the screen is shown in it; keys typed ahead that a flush drops (`flush:`); the audio driver and the sound device (`sound:`); and a check that the window keeps up: `stale:` if, through the game's delays, the window kept an older screen than the game's for more than 160 ms |
 | `--keys KEYS` | type KEYS first, in `eclplay`'s escapes (see Playing scripts), each turned into the key that gives it and sent through SDL's key events as the game asks for a key (`\k` as it polls, `\t` the timed menu running out, `\[KEYS\]` typed ahead and `\wN.` as in Playing scripts; besides, `\pN.` pauses N hundredths of a second before the next key is typed as the game reads it, and `\#85` and `\#86`, codes the game never gets, press F11 and F12; a key repeated in a group typed ahead is held, its repeats sent as a held key's are; each a real keystroke, so that a flush after its 0 is read loses its scan code, which `eclplay` keeps for keys not typed ahead); the run then ends as `eclplay`'s does, printing `(out of keys ...)`, unless `--continue` hands over to the keyboard |
-| `--no-delay` | do not wait where the game waits (for tests); a rest keeps the front end's pace (see below) |
+| `--no-delay` | do not wait where the game waits (for tests); a rest keeps the front end's pace (see below); the sound then goes by the game's clock (see Sound) |
+| `--sound tandy`, `--sound speaker`, `--sound off` | the sound device, as `KRYNN.CFG`'s second line names it (`T`, `P`, `N`): the Tandy's three voices and noise (the default), the PC speaker, or none |
+| `--no-sound` | open no audio device |
+| `--volume N` | 0-100 (default 100) |
+| `--sound-clock real`, `--sound-clock game` | what times the sound drivers: the audio device as it plays (the default; with `--no-delay`, `game`), or the game's delays and `\pN.` pauses, as `eclplay --wav` renders them |
 | `--shots DIR` | save `DIR/NNN.bmp` each time the game waits for a key and when a battle is set up, as `eclplay --shots` does, but read back from the window: each pixel of the screen where its area's middle is shown must be one of the 16 colours, and at a whole multiple of 320×200 its whole block; in 4:3 it needs `--scale 2` or more, as at 320×240 the smoothing blends every row |
 
 The window can be resized; the screen keeps its aspect, letterboxed. It is
@@ -142,7 +153,7 @@ the port compares a key against can be typed):
 | F1-F10 | 0, then 0x3b-0x44; with Shift 0x54-0x5d, Ctrl 0x5e-0x67, Alt 0x68-0x71 | F10 picks Demo on the title's menu; Ctrl-F8 camps on the overland map; menus that do not tell scan codes from letters take F7-F10 (0x41-0x44) as A-D, Home, Up and PgUp as G, H and I, and so on (saved games A-J, Yes and No) |
 | Alt and a letter | 0, then the letter's scan code | in combat Alt-Q and Alt-A Auto, Alt-M Magic on and off, Alt-X the Gods (with `--helm`), Alt-R nothing |
 | Alt and a digit, `-` or `=` | 0, then 0x78-0x83 | nothing |
-| Ctrl and a letter | 1-26; Ctrl `[ \ ] 6 -` 27-31; Ctrl-2 0, 0x03 | nothing: the original's Ctrl-S (sound), and Ctrl-D, Ctrl-Z and Ctrl-C of its debug mode (`1614:025b`), are not ported |
+| Ctrl and a letter | 1-26; Ctrl `[ \ ] 6 -` 27-31; Ctrl-2 0, 0x03 | Ctrl-S the sound off and on again (`1614:025b`, see Sound); Ctrl-D, Ctrl-Z and Ctrl-C of the original's debug mode are not ported |
 | F11 or Alt-Enter | nothing (function 0 drops them) | full screen on and off |
 | F12 | nothing | save the screen, 320×200, as `cokNNN.bmp` in `screenshots/` or `--screenshots DIR` |
 
@@ -235,8 +246,7 @@ quit.` in white, waits for a key or the window's close, and exits with
 status 1 (2 for bad options or a `--keys` code no key gives). Without the
 font, a message box says it.
 
-Not done: sound and music (`--log` shows the sound driver's commands as
-`sound:` and the music as `unported:`); the CGA and EGA layouts (the
+Not done: the music of CMS, the MT-32 and AdLib (see Sound); the CGA and EGA layouts (the
 Tandy layout's 16 colours only); the mouse and joystick; the BIOS's NumLock
 toggled during play (the keypad always types digits). `tests/test_cok.py`
 plays the title and the demonstration, and a new game from the title
@@ -258,8 +268,261 @@ pace with the time left shown; closing in the middle of the
 demonstration's delays ending at once; F11's full screen shown at once
 and F12's screenshot; SIGINT with SIGINT ignored; and, with real delays
 through the first fight, that the window never kept an old screen
-(`--log`'s check) nor showed more than about 60 frames a second. `tests/test_hooks.c` checks each flush and
-which menus animate.
+(`--log`'s check) nor showed more than about 60 frames a second; and the
+sound through SDL's disk writer: by the game's clock (`--no-delay`) the
+same samples as `eclplay --wav` for the same keys and seed, after the
+silence the device starts with; in real time the title's music playing on
+through the title's wait, a step's sound playing out while the game waits
+for a key, and without a device, with `--no-sound` or without `SOUND.DAX`
+the game playing on, saying why. `tests/test_hooks.c` checks each flush,
+which menus animate, and the sound driver's calls.
+
+## Sound
+
+`src/sound.c` is the sound, without SDL: the original's effects driver
+(`17e8`, assembler linked into `START.EXE`), its title music (`1661`,
+which loads its driver from `MIDI.DAX` and the score from `SOUND.DAX`),
+the timer interrupt that runs them, and the hardware they write to. The
+game calls it through `hooks.sound` (`cok_sound_call`) as the original
+calls the drivers; `cok` plays it through SDL's audio device and
+`eclplay --wav FILE` renders it to a WAV file (16-bit mono, 44,100 Hz).
+The drivers (what the original computes) are kept apart from the
+synthesis (what the hardware did): each port write they make goes to
+`cok_sound.trace` as well as to the hardware, and those writes were
+compared with the original's, run in an 8086 emulator (see below).
+
+### Devices
+
+Startup reads the sound device from `KRYNN.CFG`'s second line into
+`DS:577a` (`3e99`): `C` 0 (CMS, the Game Blaster, ports 0x220-0x223), `R`
+1 (an MT-32 through an MPU-401, 0x330), `A` 2 (AdLib, 0x388), `T` 3 (the
+Tandy's sound chip, 0xC0), `P` 4 (the PC speaker), anything else 5, none.
+There is no other choice of it, in the game or on its command line. The
+effects play on the Tandy's chip for `T` and on the PC speaker for the
+others; the music's driver is `MIDI.DAX` record device + 1. The port has
+`T` and `P`: `--sound tandy` (the default, as `Assets/KRYNN.CFG` has it
+and as the Tandy layout is the display ported), `--sound speaker` and
+`--sound off`, in `cok` and `eclplay`; it does not read `KRYNN.CFG`. Not
+ported: the music of CMS, the MT-32 and AdLib (`MIDI.DAX` records 1-3;
+their effects are the speaker's, which `--sound speaker` plays).
+
+### The effects driver
+
+`17e8:0020` takes a command (a word; the set at `17e8:0000` lets 0-15
+and 0xff through), unless the title's music plays (`DS:5780`); with the
+device off (5) only 15 does anything:
+
+| Command | Does |
+| --- | --- |
+| 0 | stop: both chips' channels start sound 0, which silences them |
+| 1 | let the channels sound (`17e8:0156`, which both chips' output checks; 1 from the start, and nothing clears it) |
+| 2-12 | sound command - 1, on the Tandy (device 3) or the speaker |
+| 13, 14 | nothing |
+| 15 | arm a copy-protection counter (`DS:4b22` points at `17e8:0124`): 5,000 ticks later the interrupt prints `Run-time  Error 209 at 0BAD:0038` and quits to DOS; nothing sends it |
+| 0xff | stop, unhook the timer (`12fa`: `INT 8` back, PIT channel 0 to 0xffff, the speaker and the four voices silenced), `DS:577c` 0 |
+
+`17e8:00da` hooks it: `DS:577b` = `DS:577a`, `DS:577c` 1, and unless the
+device is off `INT 8` to `17e8:1333` and PIT channel 0 to 0x13b1 (written
+after channel 2's control word 0xb6, so channel 0 keeps its mode), 236.7
+interrupts a second, every 13th passed on to the BIOS's (13 × 0x13b1 is
+65,533), then sound 0. Main hooks it after the title (`1000:0160`).
+Around every overlay the game loads, main's (`1000:01d8`, `0282`, `02b8`,
+`02de`) and `COMBAT`'s (`2fd3:191c`: before the battle, around the end
+of combat, which so runs with the driver off, around a shop's, the
+temple's or treasure's overlay, and after them), it unhooks the driver
+with 0xff if `DS:577c` is set and hooks it again after unless it is.
+Before the title that follows a
+demonstration it sends 0xff and hooks it after (`1000:0304`, `030e`),
+and stops the sound after its menu (`1000:036d`). Every DAX record read
+(`169c:088e`) sends 0 before reading and 1 after, so a picture, an icon,
+a monster or a script loaded cuts the sound playing; the port sends them
+from its record reads (`find_record`).
+
+Each chip has four channels of 0x30 bytes (the speaker's at `17e8:0176`,
+the Tandy's at `0310`); a sound's table entry (`04a8` + 8n, `0550` + 8n)
+names a script for each, and every sound names all four (an empty script
+for those it does not use), so a sound replaces the one playing whole:
+sounds cut each other, nothing queues, and the game never waits for one.
+Each interrupt, unless a sound is being started, runs the speaker's
+channels, then the Tandy's, whatever the device: per channel a volume
+slide, a pitch slide, vibrato from a table, a note-off countdown, the
+script when its count runs out, and an envelope (pairs of a slide and a
+count, 0xffff setting the level). Scripts set any field (0xff), loop on a
+counter (0xfe), switch to another channel (0xfd), call and return (0xfc,
+0xfb), clear the channel (0xfa) and play groups of three-byte notes (the
+octaves from a table at `02f6` or `0490`, shifted right); the shipped
+sounds use the field writes alone. Then the speaker plays the first
+channel sounding (PIT channel 2's count, port 0x61 bits 0-1 its volume &
+3), and the Tandy's four voices are all written, pitch and volume, every
+interrupt (the noise voice only its control byte); after a stop
+(`17e8:0148` 0) the speaker is turned off and the voices silenced each
+interrupt. The sounds, where they play, and how long they sound (from
+the command to the driver's last tick with a voice louder than
+attenuation 15 on the Tandy, or with port 0x61's bits 0 and 1 both set
+on the speaker):
+
+| Command | Sound | Where | Tandy, speaker |
+| --- | --- | --- | --- |
+| 2 | 1 | a spell cast in combat (`5b04:166e`), but Fireball and Lightning Bolt; each missile of a spell that sends one to each target but the last picked (`5b04:1d26`) | 0.81 s, 1.01 s |
+| 3 | 2 | text flashed over a combatant, kind 0 (`6346:2316`) | 0.21 s, 0.15 s |
+| 4 | 3 | text flashed over a combatant, other kinds (`6346:230b`) | 1.01 s, 0.89 s |
+| 5 | 4 | a combatant drops (`6beb:0e19`, `0eb8`) | 1.59 s, 0.74 s |
+| 6 | 5 | item types 0x36 and 0x37 and sling stones flying (`432f:2d15`, `2d66`) | 1.01 s, 0.63 s |
+| 7 | 6 | a hit (`432f:15d0`, `1873`) | 0.08 s, 0.27 s |
+| 8 | 7 | Lightning Bolt (`5b04:1663`) | 2.38 s, 2.53 s |
+| 9 | 8 | a miss (`432f:1926`); hand axes, clubs, hammers and other thrown things flying (`2ceb`, `2da7`) | 0.25 s, 0.04 s |
+| 10 | 9 | a step or turn in 3D (`475c:081a`, `0c58`, `0ca6`), the party on a new square (`2fd3:3eb9`), `CALL [b203]` (the scripts' steps on the overland map), a combatant's step (`432f:094a`) | 0.07 s, 0.03 s |
+| 11 | 10 | Fireball (`5b04:1654`); `CALL [b203]` with `0x3de` 10 | 1.81 s, 1.44 s |
+| 12 | 11 | a missile set off (`432f:2bf5`), then darts, javelins, quarrels and arrows flying (`2cbd`) | 0.13 s, 0.13 s |
+
+The port logs the commands it logged before as `sound:` (combat's, `CALL
+[b203]`'s); the steps and turns, the record reads, the hooks and
+unhooks are not logged, but `eclplay --sound-calls` prints every call as
+`call:`.
+
+Ctrl-S (0x13) read by `1614:025b`, through which every key is read but
+text input's (`1521:0739` reads `Crt.ReadKey` itself), turns the sound
+off (`DS:577b` = the device, command 0, the device 5) or back on (the
+device = `DS:577b` and command 1), the latter only for the Tandy or the
+speaker (the set at `1614:022c`), and not while the title's music plays.
+The key is still returned, and Alt-R's scan code (0x13 after a 0) does
+the same. Since `17e8:00da` copies the device to `DS:577b`, a title after
+a demonstration played with the sound off leaves it off for good.
+Quitting to DOS (`1614:0000`) puts the device back from `DS:577b`, then
+stops the title's music or sends 0xff.
+
+### The title's music
+
+The title (`2f55:063c`) sets `DS:5780` and, unless the device is off,
+loads the driver (`1661:000a`: `MIDI.DAX` record device + 1, afresh
+each time), hooks `INT 8` (`1661:02e6`, PIT channel 0 at 0x5555: 54.6
+interrupts a second, every third passed on), loads the score (`014d`:
+`SOUND.DAX` record 1, 14,064 bytes, one for every device) and plays it
+(`02b3`: the driver called with AH 1). Each interrupt calls the driver
+with AH 0; at the title's end (`2f55:006d`, after the credits' wait or
+a key) AH 2 stops it, `00da` unhooks it and `DS:5780` is cleared. Only
+the title has music. The score is MIDI-like: delta times in ticks, notes
+on and off, programs, pitch bends, running status, `FC` ending it (`FC
+80` would loop; the title's does not). It lasts 7,860 ticks (2 min 24 s),
+longer than the title, which always cuts it.
+
+The Tandy's driver (record 4) plays four voices, the MIDI channels at
+score bytes 0x43-0x46 (1, 3, 2 and 9) transposed by 0x47-0x4a, notes
+folded into its table's 51 by octaves; each voice takes its channel's
+instrument (an attenuation envelope, a vibrato table and its depth); a
+note finding its channel's voices busy takes the one sounding longest;
+channel 9's notes 0x24 and 0x26 are a bass drum and a snare on the noise
+voice. The speaker's (record 5) plays one voice, the channel at byte
+0x4b transposed by 0x4c, and channel 15's notes 0 and 1 as short pitch
+sweeps (one pseudo-random). A pitch bend or vibrato that would overflow
+the driver's divides ends the original with runtime error 200; the port
+stops the music there and says so (`sound.divide_error`); the shipped
+score never does. Without `MIDI.DAX` or `SOUND.DAX` the title is silent
+and `cok` and `eclplay --wav` say why on standard error.
+
+### Time
+
+The original's drivers run from the timer interrupt between any two of
+the game's instructions; the game never waits for them. `cok_sound`
+counts time in clocks of the PC's 14,318,181.8 Hz crystal (157.5 MHz /
+11; the PIT counts every 12th, the Tandy's chip steps every 64th), runs each interrupt when
+its time comes, and renders samples at 44,100 Hz; a call lands at the
+next sample. Rendering in one piece or in any number gives the same
+samples. A count written to PIT channel 0 after a control word restarts
+its interrupts; one written alone (`17e8:12c5`, `12fa`) takes over at
+the next interrupt.
+
+`cok` by default lets the audio device time the drivers: its callback
+renders as the device plays, so the music and the sounds go on through
+the game's delays and while it waits for a key, as the interrupt-driven
+original's did, and the game's calls land as they come, a buffer (23 ms)
+ahead of the speaker. With `--no-delay` (or `--sound-clock game`) the
+game's own clock times them instead: its delays (`Crt.Delay`: the text's
+characters, `DELAY`, the title's waits, the missiles' steps) and the
+`\pN.` pauses of `--keys`; a key read takes no time. That is how `eclplay
+--wav` renders, with a second more at the end, and `cok` then gives SDL's
+disk writer (`SDL_AUDIODRIVER=disk`) the same samples, played out to the
+end of that second before it closes. The game runs on as it renders; at most 12
+seconds of samples wait for a device that plays slower (a real one with
+`--no-delay`), the oldest dropped beyond that (`--log` counts them),
+while the disk writer is waited for instead. By the game's clock a sound cut
+short by the next command or by a key read that took no time is cut
+there; in real time it plays as long as the player takes.
+
+### The hardware
+
+The Tandy's chip is modelled as MAME has the NCR 8496 of the Tandy 1000:
+three square waves of 3,579,545 / (32 N) Hz, N 0 counting as 1024 (MAME's
+`sn76496_base_device::write` gives every chip but Sega's PSGs a period
+of 0x400 for 0: `if ((m_register[r] != 0) || m_sega_style_psg)
+m_period[c] = m_register[r]; else m_period[c] = 0x400;`; the effects
+driver writes 0 on the first tick of most sounds), and a noise
+voice shifting a 16-bit register every 32, 64 or 128 steps or at tone 2's
+rate, fed back at bit 15 from bit 1 (periodic noise) or from bits 1 and 5
+XNOR'd (white), the register reset to 0x8000 only when the
+white/periodic bit changes (the effects driver writes the noise's control
+every interrupt); a data byte goes to the register latched last;
+attenuation in 2 dB steps from 8,191, 15 silent. Each voice adds its
+level while its output is high; the sum is averaged over the chip's
+steps in each sample. The PC speaker is PIT channel 2's square wave
+(mode 3, a new count taking over at a half-wave's end, the gate in port
+0x61 bit 0 holding it high and restarting it), heard while bit 1 is set,
+at 8,191. A machine with a speaker only hears no `0xC0` writes. The sum
+goes through the coupling capacitor (a high-pass at about 14 Hz), is
+scaled by `--volume` and clipped to 16 bits. Averaging over each sample
+is the only filter, so the square waves' harmonics above 22 kHz alias
+somewhat; the game's tones are low enough that this is faint.
+
+### Checks
+
+The drivers were run against the original's code in an 8086 emulator
+booting nothing: `START_FULL.EXE` loaded and relocated, `17e8:0105`,
+`0020`, `00da` and the interrupt `1333`, `1661:02e6`, `02b3`, `0353`,
+`0321` and the interrupt `035a` with `MIDI.DAX` records 4 and 5 loaded,
+`1614:025b` reading Ctrl-S and `1614:0010`-`0039` for quitting; each
+operation's and each interrupt's port writes (0x40-0x43, 0x61, 0xC0)
+compared, write for write. 2,704 scenarios on devices 0-5 agreed, 0
+differed (3.2 million lines): 800 random runs of commands, installs,
+overlay pairs, record reads, Ctrl-S and quitting with interrupts between
+(every command, overlapping sounds, the toggle on every device), some
+with the title's music first; the whole score 16 times on both drivers;
+800 scores made up to take every path (bends, the divide overflows,
+unknown statuses, running status, loops, every instrument); 200 runs of
+the speaker's drums with every opcode of their scripts; 800 sets of
+effect scripts made up with every opcode, notes, envelopes and vibrato;
+the sounds no command plays (12-20); and the copy protection's
+counter. Every instruction of the effects driver and of both music
+drivers ran but their padding and one unused routine. `tests/test_sound.c`
+checks the port's writes against digests of the original's for 112 of
+these scenarios and the first ticks byte for byte, the driver's data
+against `START_FULL.EXE`, Ctrl-S, the timer's rates, the chip's tones,
+noise and volumes, the speaker's tone and gate, and rendering in pieces;
+`tests/test_hooks.c` and `tests/test_adventure.c` where the game calls
+the driver, and `tests/test_eclplay.py` and `tests/test_cok.py` the
+calls in whole games, `--wav` and the audio device (see Playing).
+`make sanitize` also builds `cok` with ThreadSanitizer (`build/cok_tsan`)
+and plays sound through it in real time, the game's calls crossing the
+audio thread's rendering, so that a call made without the lock fails.
+
+What the comparison does not show: the time between interrupts (it
+compares one operation or interrupt at a time; the PIT's rates and the
+sample clock are `tests/test_sound.c`'s), the BIOS's tick every 13th or
+3rd interrupt (only its count, `17e8:0120`, as data), the music's
+loading (`1661:000a` and `014d`: the emulator gets the records' bytes put
+in place; their record reads come after `DS:5780` is set, so they do
+nothing), and what happens after a divide overflow or the copy
+protection's counter ends the original (it compares up to there; that
+the port stops the music or the driver then is `tests/test_sound.c`'s).
+The emulator starts from the executable's own data segment and
+`17e8:0105`, as the game does.
+
+Not modelled: the time the original's disk reads and overlay loads took
+(the sound stays stopped meanwhile there; here they take none); the
+port's record reads stand for `169c:088e`'s, and where the port reads a
+record twice or keeps one the original read again, the sound stops at
+the same moment or one read sooner or later; port 0x61's other bits
+(read as 0); and, in the hardware, anything MAME's model of the NCR 8496
+leaves out (see Checks against the original).
 
 ## Image export
 
@@ -675,7 +938,12 @@ the time run out and plays the demonstration, then the start menu and
 the adventure, game after game (see The start menu); `--woof` starts it
 as `START Woof` does, without the title. Characters, the roster and saved
 games go in `--saves DIR`. The run ends `(out of keys at the title)`,
-`(out of keys in the start menu)` or as other runs do. For example, `./build/eclplay --start 899b
+`(out of keys in the start menu)` or as other runs do. `--wav FILE`
+renders the sound to FILE as the game's time passes (see Sound), with
+`--sound tandy` (the default), `speaker` or `off` (which need `--wav`);
+a run that does not start from the title installs the effects driver
+first, as main has by then (`1000:0160`); `--sound-calls` prints
+the game's calls to the sound driver as `call:` lines among the rest. For example, `./build/eclplay --start 899b
 --keys '\r2\r' Assets 48` answers the guards at the gates of Gargath with
 the second item of a list.
 
@@ -1028,7 +1296,10 @@ party's spell effects (`57e4:0171`, see Spell effects).
 0 (see Casting); with none selected the original reads through NULL and
 the port stops. `View` shows the selected character (see View). `Area`
 shows the overhead map (see Overhead map). Outside 3D areas the loop
-travels the overland map (see The overland map). Sound is not ported.
+travels the overland map (see The overland map). A step forward plays
+sound 10 as it starts (`475c:081a`) and again once the view shows the new
+square (`2fd3:3eb9`, when the party's square changed or is below 0); a
+turn plays it (`475c:0c58`, `0ca6`); see Sound.
 
 ## The overland map
 
@@ -1166,7 +1437,8 @@ the words are multiplied, which the original reads and writes outside its
 rows or past its table of rows (`DS:55e8`), stops the run with
 `COK_ECL_UNDEFINED`; the step itself keeps the party on the map, so only
 a script or a saved game can put it there. The mouse calls around the
-step (`1743:0051`, `0030`) and sound are not ported.
+step (`1743:0051`, `0030`) are not ported; the scripts sound each step
+(`CALL [b203]`).
 
 A differential test ran the original's step (`475c:08d5`, after
 `4877:0005` in half the cases), `PICTURE` 0x79 (`6961:07ed`, `085b` and
@@ -2576,7 +2848,10 @@ unless a shop or the temple closed outside 3D areas, the screen is redrawn
 for the mode (`6346:2c17`), and outside 3D areas, unless the run ended or
 `0x4c38` is set, the party is marked on the overland map (`4877:0005`,
 see The overland map). The preloads of overlays (`XXXX:0000`,
-`432f:1e96`) and the sound driver's stops around them are left out.
+`432f:1e96`) are left out; the sound driver's uninstall and install
+around them are made (see Sound): before the battle, around the end of
+combat (which runs with the driver off), around a shop's, the temple's or
+treasure's overlay, and after them.
 
 The battle (`3995:0172`) sets up the battlefield (`3cb2:1c58`, see The
 battlefield), which builds the map, gives every record its combat record
@@ -5607,8 +5882,8 @@ Otherwise the screen is cleared, the credits show for 10 seconds, and it
 is cleared again (`2f55:006d`). The credits (`2f55:0267`) are thirty
 strings in purple (5), yellow (14) and light red (12) inside three boxes
 of the frame tiles, rows 0-4, 4-20 and 20-23, without moons
-(`1128:0130`). The title's music (overlay `1661`) and sound are not
-ported.
+(`1128:0130`). The title's music plays from its start to its end
+(`1661`, see Sound).
 
 Startup and the end of a game leave the variables cleared but for the
 difficulty (`0x4cf4` 3), a 3D area (`0x4be6` 1) and the moons in phase 2
@@ -6125,6 +6400,32 @@ test` checks cases of each that the emulator ran (`tests/test_start.c`).
 These follow the disassembly but have not been compared with the game
 running in DOSBox:
 
+- The Tandy's chip given a tone of divisor 0 (the effects driver writes
+  one, loud, on the first tick of commands 2, 4, 5, 6, 8 and 12): the
+  port follows MAME in taking it as 1024, a 109 Hz tone; a chip that
+  took it as a period of 0 would toggle every step, inaudibly. Record
+  the first 5 ms of those sounds on a Tandy 1000.
+- The sound (see Sound) against a Tandy 1000, or DOSBox with `machine=tandy`
+  and `KRYNN.CFG`'s second line `T` (then `P` for the PC speaker):
+  record the title's music and a few sounds (a step in 3D, a turn, a hit,
+  a miss, an arrow, Fireball, Lightning Bolt, a death) and compare them
+  with `eclplay --wav` and `cok`: the pitches and tempo (the drivers' port
+  writes agree with the original's; the synthesis is MAME's NCR 8496),
+  the noise's character in the steps and the title's drums (the NCR 8496
+  feeds back bits 1 and 5 XNOR'd and keeps its register through the
+  effects driver's rewrites of the noise control each tick; a chip that
+  reset it on every write would sound different), the voices' loudness
+  against each other and against the speaker's (the port's levels are
+  MAME's, the speaker's a guess), and the clicks the coupling smooths.
+- The sounds a record read cuts (see Sound): a step on the overland map
+  next to a place whose picture loads, a sound followed by a portrait;
+  whether the original's sound stops there as the port's does, and for
+  how long the disk read keeps it stopped.
+- Ctrl-S: turn the sound off, let the title's menu run out into the
+  demonstration and come back; Ctrl-S should no longer turn it on (the
+  install after the title copies the device, off, to `DS:577b`). And
+  Alt-R (in combat, where nothing else takes it) should turn the sound
+  off as Ctrl-S does.
 - Clouds and pools (see Clouds, pools and breath): cast Stinking Cloud
   with a wall among its four cells, over a fallen party member's body and
   over half of another cloud; compare the tiles while it lasts and after

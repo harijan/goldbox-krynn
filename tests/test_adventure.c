@@ -1636,10 +1636,87 @@ static void test_portrait(void)
     cok_adventure_close(&game);
 }
 
+/* The sound driver's commands, as "n " each. */
+static void sounded(cok_adventure *game, cok_sound_call call, unsigned value, void *context)
+{
+    (void)game;
+    script *s = context;
+    if (call != COK_SOUND_COMMAND) return;
+    size_t used = strlen(s->log);
+    snprintf(s->log + used, sizeof s->log - used, "sound %u;", value);
+}
+
+/* Sound 10 (17e8:0020 with DS:1e5c) where the party moves: a step forward
+ * plays it as it starts (475c:081a) and again once the view shows the
+ * square changed (2fd3:3eb9); a turn plays it (475c:0c58, 0ca6); a bump
+ * into a wall plays nothing. Only CALL [b203]'s are logged as "sound". */
+static void test_step_sounds(void)
+{
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .sound = sounded, .context = &s};
+    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    load_block(&game, 0);
+    uint8_t map[0x402] = {0};
+    map[2 + 4 * 16 + 5] = 0x11; /* a wall north of square 5, 4 */
+    play(&game, &s, map, 5, 5, "m\x01H\x01H\x01M\x01K");
+    CHECK(strcmp(s.log, "sound 10;at: 5,4,0;sound 10;sound 10;at: 5,4,2;sound 10;at: 5,4,0;") ==
+          0);
+    /* A square below 0 (a script's doing) counts as moved, the byte
+     * sign-extended against the word (2fd3:3eb9): a step that cannot be
+     * taken there plays sound 10 all the same. */
+    s.keys = "m\x01H";
+    s.at = 0;
+    s.length = strlen(s.keys);
+    s.log[0] = '\0';
+    game.input_ended = game.vm.abort = false;
+    game.vm.map_x = 5;
+    game.vm.map_y = -3;
+    game.vm.direction = 0;
+    game.view.wrap = false; /* off the map: no passage, so no step */
+    CHECK(cok_adventure_play(&game) == COK_ECL_OK && game.input_ended);
+    CHECK(game.vm.map_y == -3 && strcmp(s.log, "sound 10;") == 0);
+    cok_adventure_close(&game);
+}
+
+static void counted(cok_adventure *game, cok_sound_call call, unsigned value, void *context)
+{
+    (void)game;
+    (void)value;
+    script *s = context;
+    size_t used = strlen(s->log);
+    if (call == COK_SOUND_CTRL_S) snprintf(s->log + used, sizeof s->log - used, "ctrl-s;");
+    if (call == COK_SOUND_COMMAND)
+        snprintf(s->log + used, sizeof s->log - used, "command %u;", value);
+}
+
+/* CALL [b203]'s command for the driver; INPUT STRING reads Crt's ReadKey
+ * (1521:0739), where Ctrl-S is a key like any other, not 1614:025b. */
+static void test_opcode_sounds(void)
+{
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .sound = counted, .context = &s};
+    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    const uint8_t sound[] = {COK_ECL_SAVE, 0, 10, 2, 0xde, 0x03, COK_ECL_CALL, 2, 0x03, 0xb2,
+                             COK_ECL_SAVE, 0, 8, 2, 0xde, 0x03, COK_ECL_CALL, 2, 0x03, 0xb2,
+                             COK_ECL_EXIT};
+    CHECK(run_code(&game, &s, sound, sizeof sound, "") == COK_ECL_OK);
+    CHECK(strcmp(s.log, "sound: 11;command 11;sound: 10;command 10;") == 0);
+    const uint8_t input[] = {COK_ECL_INPUT_STRING, 0, 0, 2, 0x50, 0x4c, COK_ECL_EXIT};
+    CHECK(run_code(&game, &s, input, sizeof input, "\x13" "A\r") == COK_ECL_OK);
+    CHECK(strcmp(s.log, "input: A;") == 0);
+    cok_adventure_close(&game);
+}
+
 int main(void)
 {
     test_clock();
     test_play();
+    test_step_sounds();
+    test_opcode_sounds();
     test_area();
     test_party();
     test_doors();

@@ -444,8 +444,7 @@ static bool load_items(cok_adventure *game, uint8_t id)
         log_text(game, "print", "Unable to find item file");
         cok_adventure_prompt_key(game, "Unable to find item file");
         log_text(game, "quit", "to DOS");
-        game->quit = true;
-        game->vm.abort = true;
+        cok_adventure_quit(game);
         return false;
     }
     if (size % COK_ITEM_SIZE != 0) {

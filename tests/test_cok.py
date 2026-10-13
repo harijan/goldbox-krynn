@@ -489,8 +489,140 @@ class FrontEndTests(unittest.TestCase):
         polling for a key each hundredth."""
         self.assertLess(self.idle(), 0.2)
         # Still on the title's pictures (5 + 10 seconds), not its menu.
-        self.assertIn("unported: the title's music", self.log)
+        self.assertIn("sound: music", self.log)
         self.assertNotIn("menu: Play Demo", self.log)
+
+
+def bursts(samples, rate=44100):
+    """The runs of sound in samples, as (start, end) in seconds, gaps of
+    silence (|x| < 300) shorter than 20 ms joined."""
+    runs, start, last = [], None, None
+    for i, x in enumerate(samples):
+        if abs(x) >= 300:
+            if start is None or i - last > rate // 50:
+                if start is not None:
+                    runs.append((start / rate, (last + 1) / rate))
+                start = i
+            last = i
+    if start is not None:
+        runs.append((start / rate, (last + 1) / rate))
+    return runs
+
+
+class SoundTests(unittest.TestCase):
+    """The sound through SDL's disk writer: by the game's clock the samples
+    eclplay --wav renders; in real time the drivers timed by the device,
+    the music and the sounds going on while the game waits."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.folder = pathlib.Path(self.temp.name)
+
+    def disk(self, *args, delay=None, timeout=300, sleep=None):
+        out = self.folder / "disk.raw"
+        env = dict(ENV, SDL_AUDIODRIVER="disk", SDL_DISKAUDIOFILE=str(out))
+        if delay is not None:
+            env["SDL_DISKAUDIODELAY"] = str(delay)
+        process = subprocess.Popen([str(COK), "--assets", str(ASSETS), "--saves",
+                                    str(self.folder / "saves"), *args], env=env,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if sleep is not None:
+            time.sleep(sleep)
+            process.send_signal(signal.SIGTERM)
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+        self.assertEqual(process.returncode, 0, stderr)
+        return out.read_bytes(), stdout, stderr
+
+    def test_the_game_clock(self):
+        """With --no-delay the sound goes by the game's delays and \\p
+        pauses: the disk writer gets eclplay's samples for the same keys,
+        seed and device (the title's music, a pause at its menu, the
+        demonstration's sounds and the title again), after the silence
+        the device starts with; the Tandy's unlike the speaker's."""
+        keys = r"\p150.\t"
+        renders = []
+        for device in ("tandy", "speaker"):
+            wav = self.folder / f"eclplay-{device}.wav"
+            saves = self.folder / f"eclplay-saves-{device}"
+            saves.mkdir()
+            run = subprocess.run([str(ECLPLAY), "--start-menu", "--saves", str(saves), "--seed", "3",
+                                  "--sound", device, "--wav", str(wav), "--keys", keys, str(ASSETS)],
+                                 capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            expected = wav.read_bytes()[44:]
+            self.assertGreater(len(expected), 2 * 44100 * 150)
+            raw, stdout, stderr = self.disk("--no-delay", "--seed", "3", "--sound", device,
+                                            "--keys", keys, delay=0)
+            self.assertEqual(stdout, run.stdout.splitlines()[-1] + "\n")
+            at = raw.find(expected)
+            self.assertGreaterEqual(at, 0, device)
+            self.assertEqual(at % 2, 0)
+            self.assertFalse(any(raw[:at]))
+            self.assertFalse(any(raw[at + len(expected):]))
+            renders.append(expected)
+        self.assertNotEqual(renders[0], renders[1])
+
+    def test_music_in_real_time(self):
+        """In real time the device's playing times the drivers, as the
+        original's timer interrupt did: the title's music plays on
+        through the title's wait for a key (its delays and polls)."""
+        raw, _, stderr = self.disk("--log", sleep=3.5)
+        self.assertIn("sound: disk, tandy", stderr)
+        samples = memoryview(raw).cast("h")
+        first = next(i for i, x in enumerate(samples) if x)
+        for k in range(25):
+            window = samples[first + 4410 * k:first + 4410 * (k + 1)]
+            self.assertGreater(max(window) - min(window), 800, k)
+
+    def test_a_sound_while_waiting_for_a_key(self):
+        """In real time a sound plays out while the game waits for a key:
+        a step on the overland map (CALL [b203], sound 10) before the
+        next, typed a second and a half later (\\p150.)."""
+        keys = r"\kx" + NEW_GAME[:NEW_GAME.index("ELN98") + 4] + r"\p150.8"
+        raw, stdout, stderr = self.disk("--no-delay", "--sound-clock", "real", "--seed", "7",
+                                        "--helm", "--keys", keys)
+        samples = memoryview(raw).cast("h")
+        runs = bursts(samples)
+        self.assertIn(len(runs), (1, 2), runs)
+        start, end = runs[0]
+        self.assertAlmostEqual(end - start, 0.07, delta=0.02)
+        later = runs[1][0] if len(runs) == 2 else len(samples) / 44100
+        self.assertGreater(later - end, 1.3)
+
+    def test_without_sound(self):
+        """--no-sound opens no device; with no device to be had, or no
+        MIDI.DAX, the game plays on silently, saying why."""
+        keys = r"\kx\t"
+        run = subprocess.run([str(COK), "--assets", str(ASSETS), "--saves", str(self.folder / "a"),
+                              "--no-delay", "--no-sound", "--keys", keys, "--log"],
+                             capture_output=True, text=True, env=ENV, timeout=300)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn("sound: dummy", run.stderr)
+        self.assertEqual(run.stdout, "(out of keys at the title)\n")
+        run = subprocess.run([str(COK), "--assets", str(ASSETS), "--saves", str(self.folder / "b"),
+                              "--no-delay", "--keys", keys],
+                             capture_output=True, text=True,
+                             env=dict(ENV, SDL_AUDIODRIVER="no-such-driver"), timeout=300)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("playing silently", run.stderr)
+        self.assertEqual(run.stdout, "(out of keys at the title)\n")
+        assets = self.folder / "assets"
+        assets.mkdir()
+        for path in ASSETS.iterdir():
+            if path.name != "SOUND.DAX":
+                (assets / path.name).symlink_to(path)
+        run = subprocess.run([str(COK), "--assets", str(assets), "--saves", str(self.folder / "c"),
+                              "--no-delay", "--keys", keys],
+                             capture_output=True, text=True, env=ENV, timeout=300)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("sound: no music: ", run.stderr)
+        self.assertIn("SOUND.DAX", run.stderr)
 
 
 if __name__ == "__main__":
