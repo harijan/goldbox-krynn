@@ -519,12 +519,12 @@ class SoundTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.folder = pathlib.Path(self.temp.name)
 
-    def disk(self, *args, delay=None, timeout=300, sleep=None):
+    def disk(self, *args, delay=None, timeout=300, sleep=None, assets=ASSETS):
         out = self.folder / "disk.raw"
         env = dict(ENV, SDL_AUDIODRIVER="disk", SDL_DISKAUDIOFILE=str(out))
         if delay is not None:
             env["SDL_DISKAUDIODELAY"] = str(delay)
-        process = subprocess.Popen([str(COK), "--assets", str(ASSETS), "--saves",
+        process = subprocess.Popen([str(COK), "--assets", str(assets), "--saves",
                                     str(self.folder / "saves"), *args], env=env,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if sleep is not None:
@@ -568,12 +568,38 @@ class SoundTests(unittest.TestCase):
             renders.append(expected)
         self.assertNotEqual(renders[0], renders[1])
 
+    def test_krynn_cfg(self):
+        """The device is KRYNN.CFG's (11c7:031a): a copy of the assets
+        whose file says P plays the speaker, as eclplay --sound speaker
+        renders it."""
+        assets = self.folder / "assets"
+        assets.mkdir()
+        for path in ASSETS.iterdir():
+            if path.name.upper() != "KRYNN.CFG":
+                (assets / path.name).symlink_to(path)
+        (assets / "KRYNN.CFG").write_bytes(b"E\r\nP\r\nM\r\n")
+        keys = r"\kx\t"
+        wav = self.folder / "eclplay.wav"
+        saves = self.folder / "eclplay-saves"
+        saves.mkdir()
+        run = subprocess.run([str(ECLPLAY), "--start-menu", "--saves", str(saves), "--seed", "3",
+                              "--sound", "speaker", "--wav", str(wav), "--keys", keys, str(ASSETS)],
+                             capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        expected = wav.read_bytes()[44:]
+        raw, _, stderr = self.disk("--no-delay", "--seed", "3", "--log", "--keys", keys, delay=0,
+                                   assets=assets)
+        self.assertIn("sound: disk, PC", stderr)
+        at = raw.find(expected)
+        self.assertGreaterEqual(at, 0)
+        self.assertFalse(any(raw[:at]) or any(raw[at + len(expected):]))
+
     def test_music_in_real_time(self):
         """In real time the device's playing times the drivers, as the
         original's timer interrupt did: the title's music plays on
         through the title's wait for a key (its delays and polls)."""
         raw, _, stderr = self.disk("--log", sleep=3.5)
-        self.assertIn("sound: disk, tandy", stderr)
+        self.assertIn("sound: disk, Tandy 1000", stderr)
         samples = memoryview(raw).cast("h")
         first = next(i for i, x in enumerate(samples) if x)
         for k in range(25):

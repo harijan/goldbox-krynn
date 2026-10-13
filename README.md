@@ -118,7 +118,7 @@ timed menu runs out or the small picture's next frame is due.
 | `--log` | print the game's text, menus, choices, sounds and what is not ported to standard error, as `eclplay` prints them; the window's size and where the screen is shown in it; keys typed ahead that a flush drops (`flush:`); the audio driver and the sound device (`sound:`); and a check that the window keeps up: `stale:` if, through the game's delays, the window kept an older screen than the game's for more than 160 ms |
 | `--keys KEYS` | type KEYS first, in `eclplay`'s escapes (see Playing scripts), each turned into the key that gives it and sent through SDL's key events as the game asks for a key (`\k` as it polls, `\t` the timed menu running out, `\[KEYS\]` typed ahead and `\wN.` as in Playing scripts; besides, `\pN.` pauses N hundredths of a second before the next key is typed as the game reads it, and `\#85` and `\#86`, codes the game never gets, press F11 and F12; a key repeated in a group typed ahead is held, its repeats sent as a held key's are; each a real keystroke, so that a flush after its 0 is read loses its scan code, which `eclplay` keeps for keys not typed ahead); the run then ends as `eclplay`'s does, printing `(out of keys ...)`, unless `--continue` hands over to the keyboard |
 | `--no-delay` | do not wait where the game waits (for tests); a rest keeps the front end's pace (see below); the sound then goes by the game's clock (see Sound) |
-| `--sound tandy`, `--sound speaker`, `--sound off` | the sound device, as `KRYNN.CFG`'s second line names it (`T`, `P`, `N`): the Tandy's three voices and noise (the default), the PC speaker, or none |
+| `--sound tandy`, `--sound speaker`, `--sound off` | the sound device in place of the one `KRYNN.CFG` in the assets directory names (its second line: `T`, `P`, `S`; `C`, `R` and `A` play the effects on the speaker and no music; the Tandy without the file, see Sound): the Tandy's three voices and noise, the PC speaker, or none |
 | `--no-sound` | open no audio device |
 | `--volume N` | 0-100 (default 100) |
 | `--sound-clock real`, `--sound-clock game` | what times the sound drivers: the audio device as it plays (the default; with `--no-delay`, `game`), or the game's delays and `\pN.` pauses, as `eclplay --wav` renders them |
@@ -274,7 +274,8 @@ same samples as `eclplay --wav` for the same keys and seed, after the
 silence the device starts with; in real time the title's music playing on
 through the title's wait, a step's sound playing out while the game waits
 for a key, and without a device, with `--no-sound` or without `SOUND.DAX`
-the game playing on, saying why. `tests/test_hooks.c` checks each flush,
+the game playing on, saying why; a copy of the assets whose `KRYNN.CFG`
+says `P` playing the speaker. `tests/test_hooks.c` checks each flush,
 which menus animate, and the sound driver's calls.
 
 ## Sound
@@ -293,18 +294,36 @@ compared with the original's, run in an 8086 emulator (see below).
 
 ### Devices
 
-Startup reads the sound device from `KRYNN.CFG`'s second line into
-`DS:577a` (`3e99`): `C` 0 (CMS, the Game Blaster, ports 0x220-0x223), `R`
-1 (an MT-32 through an MPU-401, 0x330), `A` 2 (AdLib, 0x388), `T` 3 (the
-Tandy's sound chip, 0xC0), `P` 4 (the PC speaker), anything else 5, none.
-There is no other choice of it, in the game or on its command line. The
-effects play on the Tandy's chip for `T` and on the PC speaker for the
-others; the music's driver is `MIDI.DAX` record device + 1. The port has
-`T` and `P`: `--sound tandy` (the default, as `Assets/KRYNN.CFG` has it
-and as the Tandy layout is the display ported), `--sound speaker` and
-`--sound off`, in `cok` and `eclplay`; it does not read `KRYNN.CFG`. Not
-ported: the music of CMS, the MT-32 and AdLib (`MIDI.DAX` records 1-3;
-their effects are the speaker's, which `--sound speaker` plays).
+Startup (`11c7:031a`) reads `krynn.cfg` in the game's directory, as
+Turbo Pascal's text reads go: `Read` of the first line's first character
+(the display: `E` EGA, `T` Tandy, else CGA), `ReadLn`, then `Read` of
+the second line's first character, the sound device, into `DS:577a`: `C`
+0 (CMS, the Game Blaster, ports 0x220-0x223), `R` 1 (Roland LAPC, an
+MT-32 through an MPU-401, 0x330), `A` 2 (AdLib, 0x388), `T` 3 (the
+Tandy's sound chip, 0xC0), `P` 4 (the PC speaker), anything else 5, none
+(the setup's `[6] Silent` writes `S`). Only those upper-case letters
+count; nothing is skipped before them, so a space, a lower-case letter or
+an empty line is 5. `ReadLn` ends a line at a CR (and a LF after it) and
+stops at a Ctrl-Z or the end, where `Read` gives Ctrl-Z: a file of one
+line, or with LF line ends only (one line to Turbo Pascal), is 5 too.
+Without the file the original shows its setup (graphics adapter, sound
+type `[1] C/MS` to `[6] Silent`, input, save path), writes it and reads
+it. There is no other choice of the device, in the game or on its
+command line. The effects play on the Tandy's chip for `T` and on the PC
+speaker for `C`, `R`, `A` and `P`; the music's driver is `MIDI.DAX`
+record device + 1.
+
+The port reads `KRYNN.CFG` (or `krynn.cfg`) in the assets directory the
+same way (`cok_sound_read_config`; `Assets/KRYNN.CFG` says `T`); without
+one, or with one it cannot read, it shows no setup and writes nothing,
+says so on standard error and takes the Tandy, as the display ported is
+the Tandy layout. `--sound tandy`, `--sound speaker` or `--sound off`,
+in `cok` and `eclplay`, override it. With `C`, `R` or `A` the effects
+play on the speaker and the title is silent: their music drivers
+(`MIDI.DAX` records 1-3) are not ported, which is logged as `unported:
+the title's music on C/MS (MIDI.DAX record 1)` (or `Roland LAPC`, 2;
+`AdLib`, 3) when the title starts, and said on standard error at
+startup.
 
 ### The effects driver
 
@@ -939,8 +958,9 @@ the adventure, game after game (see The start menu); `--woof` starts it
 as `START Woof` does, without the title. Characters, the roster and saved
 games go in `--saves DIR`. The run ends `(out of keys at the title)`,
 `(out of keys in the start menu)` or as other runs do. `--wav FILE`
-renders the sound to FILE as the game's time passes (see Sound), with
-`--sound tandy` (the default), `speaker` or `off` (which need `--wav`);
+renders the sound to FILE as the game's time passes (see Sound), on the
+device `KRYNN.CFG` in ASSETS names, or `--sound tandy`, `speaker` or
+`off` (which need `--wav`);
 a run that does not start from the title installs the effects driver
 first, as main has by then (`1000:0160`); `--sound-calls` prints
 the game's calls to the sound driver as `call:` lines among the rest. For example, `./build/eclplay --start 899b
@@ -6406,7 +6426,8 @@ running in DOSBox:
   took it as a period of 0 would toggle every step, inaudibly. Record
   the first 5 ms of those sounds on a Tandy 1000.
 - The sound (see Sound) against a Tandy 1000, or DOSBox with `machine=tandy`
-  and `KRYNN.CFG`'s second line `T` (then `P` for the PC speaker):
+  and `KRYNN.CFG`'s second line `T` (then `P` for the PC speaker; and a
+  file with LF line ends, which should give no sound):
   record the title's music and a few sounds (a step in 3D, a turn, a hit,
   a miss, an arrow, Fireball, Lightning Bolt, a death) and compare them
   with `eclplay --wav` and `cok`: the pitches and tempo (the drivers' port

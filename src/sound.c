@@ -1617,7 +1617,10 @@ void cok_sound_render(cok_sound *s, int16_t *samples, size_t frames)
 void cok_sound_init(cok_sound *s, cok_sound_device hardware)
 {
     memset(s, 0, sizeof *s);
-    s->hardware = hardware == COK_SOUND_SPEAKER ? COK_SOUND_SPEAKER : COK_SOUND_TANDY;
+    /* The Tandy's chip for the Tandy (and none); a PC's speaker for the
+     * others, whose effects play there. */
+    s->hardware = hardware == COK_SOUND_TANDY || hardware == COK_SOUND_NONE ? COK_SOUND_TANDY
+                                                                            : COK_SOUND_SPEAKER;
     s->device = (uint8_t)hardware; /* DS:577b is 0 until 00da copies it. */
     memcpy(s->fx, fx_image, sizeof fx_image);
     ww(s->fx, 0x124, 0); /* 17e8:0105 */
@@ -1665,6 +1668,12 @@ bool cok_sound_load(cok_sound *s, const char *assets)
 {
     cok_sound_free(s);
     s->music_error[0] = '\0';
+    if (s->device < COK_SOUND_TANDY) {
+        snprintf(s->music_error, sizeof s->music_error,
+                 "the music driver for %s (MIDI.DAX record %u) is not ported",
+                 cok_sound_device_name((cok_sound_device)s->device), s->device + 1u);
+        return false;
+    }
     uint8_t id = s->hardware == COK_SOUND_TANDY ? 4 : 5;
     size_t driver_size = 0, score_size = 0;
     uint8_t *driver = load_record(assets, "MIDI.DAX", id, &driver_size, s->music_error,
@@ -1698,4 +1707,76 @@ void cok_sound_free(cok_sound *s)
     free(s->score);
     s->driver = s->score = NULL;
     s->driver_size = s->score_size = 0;
+}
+
+/* KRYNN.CFG. */
+
+const char *cok_sound_device_name(cok_sound_device device)
+{
+    static const char *const names[] = {"C/MS", "Roland LAPC", "AdLib", "Tandy 1000", "PC",
+                                        "Silent"};
+    return device <= COK_SOUND_NONE ? names[device] : "Silent";
+}
+
+/* Turbo Pascal's Read(f, c) (1a46:0898): the next character, or Ctrl-Z at
+ * the end, where it stays. */
+static uint8_t read_char(const uint8_t *text, size_t size, size_t *at)
+{
+    if (*at >= size) return 0x1a;
+    return text[(*at)++];
+}
+
+/* ReadLn (1a46:081c): up to and past a CR, and a LF after it; it stops
+ * before a Ctrl-Z. */
+static void read_line(const uint8_t *text, size_t size, size_t *at)
+{
+    while (*at < size && text[*at] != 0x1a) {
+        if (text[(*at)++] == '\r') {
+            if (*at < size && text[*at] == '\n') ++*at;
+            return;
+        }
+    }
+}
+
+cok_sound_device cok_sound_parse_config(const uint8_t *text, size_t size)
+{
+    size_t at = 0;
+    read_char(text, size, &at); /* the display: E, T or C */
+    read_line(text, size, &at);
+    switch (read_char(text, size, &at)) {
+    case 'C': return COK_SOUND_CMS;
+    case 'R': return COK_SOUND_ROLAND;
+    case 'A': return COK_SOUND_ADLIB;
+    case 'T': return COK_SOUND_TANDY;
+    case 'P': return COK_SOUND_SPEAKER;
+    default: return COK_SOUND_NONE;
+    }
+}
+
+bool cok_sound_read_config(const char *assets, cok_sound_device *device)
+{
+    static const char *const names[] = {"KRYNN.CFG", "krynn.cfg"};
+    for (size_t i = 0; i < 2; ++i) {
+        char path[1100];
+        snprintf(path, sizeof path, "%.1000s/%s", assets, names[i]);
+        FILE *f = fopen(path, "rb");
+        if (f == NULL) continue;
+        enum { MOST = 65536 };
+        uint8_t *text = malloc(MOST);
+        size_t size = text != NULL ? fread(text, 1, MOST, f) : 0;
+        bool failed = text == NULL || ferror(f) != 0;
+        fclose(f);
+        if (!failed) *device = cok_sound_parse_config(text, size);
+        free(text);
+        return !failed;
+    }
+    return false;
+}
+
+bool cok_sound_music_unported(const cok_sound *s, char *text, size_t size)
+{
+    if (!s->music || s->device >= COK_SOUND_TANDY) return false;
+    snprintf(text, size, "the title's music on %s (MIDI.DAX record %u)",
+             cok_sound_device_name((cok_sound_device)s->device), s->device + 1u);
+    return true;
 }
