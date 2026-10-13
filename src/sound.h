@@ -42,10 +42,13 @@ typedef enum {
     COK_SOUND_QUIT,        /* Quitting to DOS (1614:0000). */
 } cok_sound_call;
 
-/* KRYNN.CFG's sound device, DS:577a: 3 Tandy, 4 the PC speaker, 5 none.
- * (0-2, CMS, MT-32 and AdLib, are not ported: their effects are the
- * speaker's.) */
+/* KRYNN.CFG's sound device, DS:577a: 0 CMS, 1 an MT-32 (Roland LAPC), 2
+ * AdLib, 3 Tandy, 4 the PC speaker, 5 none. The music of 0-2 is not
+ * ported (their effects are the speaker's, as in the original). */
 typedef enum {
+    COK_SOUND_CMS = 0,
+    COK_SOUND_ROLAND = 1,
+    COK_SOUND_ADLIB = 2,
     COK_SOUND_TANDY = 3,
     COK_SOUND_SPEAKER = 4,
     COK_SOUND_NONE = 5,
@@ -128,6 +131,25 @@ typedef struct cok_sound {
     void (*trace)(void *context, uint16_t port, uint8_t value);
     void *trace_context;
 } cok_sound;
+
+/* The device KRYNN.CFG names, read as startup reads it (11c7:031a):
+ * Read(f, c) and ReadLn for the first line (the display), then Read(f, c)
+ * for the second: 'C', 'R', 'A', 'T' or 'P' (upper case only) give 0-4,
+ * any other character 5, none. Turbo Pascal's text reads end a line at a
+ * CR, a LF after it skipped, and stop at the end or a Ctrl-Z, where Read
+ * gives Ctrl-Z: so an empty second line, a single line or LF-only line
+ * ends (the whole file one line) give 5. */
+cok_sound_device cok_sound_parse_config(const uint8_t *text, size_t size);
+/* Read ASSETS/KRYNN.CFG (or krynn.cfg) into *device. Returns false when
+ * there is none or it cannot be read: the original then asks for the
+ * graphics, sound and input (11c7:031a's screens) and writes the file;
+ * the port does neither, and the caller chooses. */
+bool cok_sound_read_config(const char *assets, cok_sound_device *device);
+/* After COK_SOUND_MUSIC: whether the title's music would play on a
+ * device whose driver is not ported (0-2), with text saying so. */
+bool cok_sound_music_unported(const cok_sound *s, char *text, size_t size);
+/* The device's name, as the original's setup lists it. */
+const char *cok_sound_device_name(cok_sound_device device);
 
 /* Set up s for hardware, the device KRYNN.CFG would name (DS:577a), as
  * startup leaves it (17e8:0105): nothing hooked, the timer at 18.2 Hz.

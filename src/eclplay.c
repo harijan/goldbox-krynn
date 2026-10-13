@@ -96,9 +96,10 @@ static void usage(const char *program)
           "                  the game's time passes: its delays and \\pN. in the keys\n"
           "                  (N hundredths of a second); key reads take none; a second\n"
           "                  more at the end\n"
-          "  --sound DEVICE  with --wav, the sound device KRYNN.CFG would name: tandy\n"
-          "                  (the default), speaker or off; without the title (a\n"
-          "                  block, --load) the driver is installed first, as main does\n"
+          "  --sound DEVICE  with --wav, the sound device: tandy, speaker or off, in\n"
+          "                  place of KRYNN.CFG's (ASSETS/KRYNN.CFG, the Tandy without\n"
+          "                  one); without the title (a block, --load) the driver is\n"
+          "                  installed first, as main does\n"
           "  --sound-calls   print the game's calls to the sound driver as call: lines\n"
           "                  (17e8's commands, its installs, the overlays' uninstalls,\n"
           "                  DAX reads, Ctrl-S, the title's music, quitting)\n"
@@ -154,7 +155,6 @@ static void wav_header(uint8_t header[44], uint64_t frames)
 /* The game's call to the sound driver. */
 static void sound(cok_adventure *game, cok_sound_call call, unsigned value, void *context)
 {
-    (void)game;
     player *p = context;
     if (p->calls) {
         static const char *const names[] = {"command", "install", "overlay", "overlay end",
@@ -164,7 +164,11 @@ static void sound(cok_adventure *game, cok_sound_call call, unsigned value, void
         else
             printf("call: %s\n", names[call]);
     }
-    if (p->sound != NULL) cok_sound_call_at(p->sound, call, value);
+    if (p->sound == NULL) return;
+    cok_sound_call_at(p->sound, call, value);
+    char text[100];
+    if (call == COK_SOUND_MUSIC && cok_sound_music_unported(p->sound, text, sizeof text))
+        cok_adventure_log(game, "unported", text);
 }
 
 /* The run is over: the tail rendered, the header written. */
@@ -635,6 +639,9 @@ static int run(int argc, char **argv)
         uint8_t header[44];
         wav_header(header, 0);
         fwrite(header, 1, sizeof header, p.wav);
+        if (!sound_given && !cok_sound_read_config(argv[i], &device))
+            fprintf(stderr, "sound: no KRYNN.CFG in %s, where the original would ask for the "
+                            "devices: the Tandy\n", argv[i]);
         cok_sound_init(p.sound, device);
         if (!cok_sound_load(p.sound, argv[i]))
             fprintf(stderr, "sound: no music: %s\n", p.sound->music_error);

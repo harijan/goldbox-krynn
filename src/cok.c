@@ -127,8 +127,9 @@ static void usage(const char *program)
             "  --no-delay      do not wait where the game waits (for tests; a rest keeps\n"
             "                  its pace); the sound follows the game's delays and \\p\n"
             "                  pauses, as eclplay --wav renders it\n"
-            "  --sound DEVICE  tandy (the default: the Tandy's three voices and noise),\n"
-            "                  speaker (the PC speaker) or off, as KRYNN.CFG names it\n"
+            "  --sound DEVICE  tandy (the Tandy's three voices and noise), speaker (the\n"
+            "                  PC speaker) or off, in place of the device KRYNN.CFG names\n"
+            "                  (the Tandy without one)\n"
             "  --no-sound      open no audio device\n"
             "  --sound-clock C real (the default without --no-delay): the device's\n"
             "                  playing times the drivers; game (with it): the game's\n"
@@ -549,12 +550,14 @@ static void audio_advance(frontend *f, uint64_t ms)
 
 static void sound(cok_adventure *game, cok_sound_call call, unsigned value, void *context)
 {
-    (void)game;
     audio *a = &((frontend *)context)->audio;
     if (a->device == 0) return;
+    char text[100];
     SDL_LockMutex(a->lock);
     cok_sound_call_at(a->sound, call, value);
+    bool unported = call == COK_SOUND_MUSIC && cok_sound_music_unported(a->sound, text, sizeof text);
     SDL_UnlockMutex(a->lock);
+    if (unported) cok_adventure_log(game, "unported", text);
 }
 
 /* Open the audio device (or play silently, saying why). */
@@ -591,10 +594,8 @@ static void audio_open(frontend *f, const char *assets, cok_sound_device device,
     const char *driver = SDL_GetCurrentAudioDriver();
     a->writer = driver != NULL && strcmp(driver, "disk") == 0;
     if (f->log) {
-        const char *name = device == COK_SOUND_TANDY     ? "tandy"
-                           : device == COK_SOUND_SPEAKER ? "speaker"
-                                                         : "off";
-        fprintf(stderr, "sound: %s, %s\n", SDL_GetCurrentAudioDriver(), name);
+        fprintf(stderr, "sound: %s, %s\n", SDL_GetCurrentAudioDriver(),
+                cok_sound_device_name(device));
     }
     SDL_PauseAudioDevice(a->device, 0);
 }
@@ -913,6 +914,7 @@ int main(int argc, char **argv)
     unsigned long scale = 3, seed = 0;
     bool seeded = false, woof = false, helm = false, fullscreen = false, sounding = true;
     cok_sound_device device = COK_SOUND_TANDY;
+    bool sound_given = false;
     unsigned long volume = 100;
     int clock = -1; /* 0 real, 1 game, -1 by --no-delay */
     for (int i = 1; i < argc; ++i) {
@@ -957,6 +959,7 @@ int main(int argc, char **argv)
                    (strcmp(argv[i + 1], "tandy") == 0 || strcmp(argv[i + 1], "speaker") == 0 ||
                     strcmp(argv[i + 1], "off") == 0)) {
             const char *name = argv[++i];
+            sound_given = true;
             device = name[0] == 't' ? COK_SOUND_TANDY : name[0] == 's' ? COK_SOUND_SPEAKER
                                                                          : COK_SOUND_NONE;
         } else if (strcmp(option, "--volume") == 0 && has_value &&
@@ -1031,6 +1034,9 @@ int main(int argc, char **argv)
     }
 
     f.audio.game_clock = clock < 0 ? f.no_delay : clock == 1;
+    if (sounding && !sound_given && !cok_sound_read_config(assets, &device))
+        fprintf(stderr, "sound: no KRYNN.CFG in %s, where the original would ask for the "
+                        "devices: the Tandy\n", assets);
     if (sounding) audio_open(&f, assets, device, (unsigned)volume);
     cok_keyboard keyboard = {read_key, &f, NULL};
     cok_adventure_hooks hooks = {.unported = unported, .log = log_line, .delay = delay,

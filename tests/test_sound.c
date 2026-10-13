@@ -4,12 +4,16 @@
  * data against build/START_FULL.EXE, and the synthesis on known inputs:
  * the chip's square waves and noise, its volumes, the speaker's square
  * wave, and rendering split anyhow giving the same samples. */
+#define _POSIX_C_SOURCE 200809L /* mkdtemp */
+
 #include "sound.h"
 
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #x); exit(1); } } while (0)
 
@@ -67,7 +71,7 @@ static void setup(cok_sound_device device, trace *t)
     cok_sound_free(&s);
     cok_sound_init(&s, device == COK_SOUND_SPEAKER ? COK_SOUND_SPEAKER : COK_SOUND_TANDY);
     s.device = (uint8_t)device; /* 0-2 too: effects on the speaker */
-    CHECK(cok_sound_load(&s, assets));
+    CHECK(cok_sound_load(&s, assets) || device < COK_SOUND_TANDY);
     s.score_segment = 0xc000; /* where the emulator put the score */
     *t = (trace){0x811c9dc5u, 0, {0}, 0};
     s.trace = traced;
@@ -491,8 +495,94 @@ static void test_missing_files(void)
     cok_sound_free(&s);
 }
 
+static cok_sound_device parsed(const char *text)
+{
+    return cok_sound_parse_config((const uint8_t *)text, strlen(text));
+}
+
+static void write_file(const char *path, const char *text)
+{
+    FILE *f = fopen(path, "wb");
+    CHECK(f != NULL);
+    fputs(text, f);
+    fclose(f);
+}
+
+/* KRYNN.CFG's second line, read as 11c7:031a reads it with Turbo
+ * Pascal's Read and ReadLn. */
+static void test_config(void)
+{
+    CHECK(parsed("E\r\nC\r\nM\r\n") == COK_SOUND_CMS);
+    CHECK(parsed("E\r\nR\r\nM\r\n") == COK_SOUND_ROLAND);
+    CHECK(parsed("E\r\nA\r\nM\r\n") == COK_SOUND_ADLIB);
+    CHECK(parsed("E\r\nT\r\nM\r\n") == COK_SOUND_TANDY);
+    CHECK(parsed("E\r\nP\r\nM\r\n") == COK_SOUND_SPEAKER);
+    CHECK(parsed("E\r\nS\r\nM\r\n") == COK_SOUND_NONE); /* [6] Silent */
+    CHECK(parsed("E\r\nTandy\r\n") == COK_SOUND_TANDY); /* the first character */
+    CHECK(parsed("E\r\nt\r\n") == COK_SOUND_NONE);      /* upper case only */
+    CHECK(parsed("E\r\n T\r\n") == COK_SOUND_NONE);     /* no space skipped */
+    CHECK(parsed("E\r\n\r\nT\r\n") == COK_SOUND_NONE); /* an empty line: CR */
+    CHECK(parsed("Tandy-display\r\nP") == COK_SOUND_SPEAKER); /* the rest of line 1 skipped */
+    CHECK(parsed("E\rP\r") == COK_SOUND_SPEAKER);         /* CR alone ends a line */
+    CHECK(parsed("E\nP\n") == COK_SOUND_NONE);            /* LF alone does not */
+    CHECK(parsed("E") == COK_SOUND_NONE);                 /* one line */
+    CHECK(parsed("") == COK_SOUND_NONE);
+    CHECK(parsed("E\x1a\r\nT\r\n") == COK_SOUND_NONE);  /* ReadLn stops at Ctrl-Z */
+    CHECK(parsed("\x1a\r\nT\r\n") == COK_SOUND_TANDY);  /* Read passes over one */
+
+    cok_sound_device device = COK_SOUND_NONE;
+    CHECK(cok_sound_read_config(assets, &device) && device == COK_SOUND_TANDY);
+    char dir[] = "/tmp/cok-sound-XXXXXX";
+    CHECK(mkdtemp(dir) != NULL);
+    char path[100];
+    device = COK_SOUND_CMS;
+    CHECK(!cok_sound_read_config(dir, &device) && device == COK_SOUND_CMS); /* none */
+    snprintf(path, sizeof path, "%s/krynn.cfg", dir);
+    write_file(path, "C\r\nP\r\nN\r\n");
+    CHECK(cok_sound_read_config(dir, &device) && device == COK_SOUND_SPEAKER);
+    unlink(path);
+    snprintf(path, sizeof path, "%s/KRYNN.CFG", dir);
+    CHECK(mkdir(path, 0755) == 0); /* not a file: unreadable */
+    CHECK(!cok_sound_read_config(dir, &device));
+    rmdir(path);
+    rmdir(dir);
+
+    /* CMS, MT-32 and AdLib: the effects on the speaker, no music. */
+    for (int d = COK_SOUND_CMS; d <= COK_SOUND_ADLIB; ++d) {
+        cok_sound_free(&s);
+        cok_sound_init(&s, (cok_sound_device)d);
+        CHECK(s.hardware == COK_SOUND_SPEAKER && s.device == d);
+        CHECK(!cok_sound_load(&s, assets) && strstr(s.music_error, "not ported") != NULL);
+        char text[100];
+        CHECK(!cok_sound_music_unported(&s, text, sizeof text));
+        cok_sound_call_at(&s, COK_SOUND_MUSIC, 0);
+        CHECK(cok_sound_music_unported(&s, text, sizeof text));
+        CHECK(strstr(text, cok_sound_device_name((cok_sound_device)d)) != NULL);
+        CHECK(s.isr == COK_SOUND_BIOS);
+        cok_sound_call_at(&s, COK_SOUND_MUSIC_END, 0);
+        cok_sound_call_at(&s, COK_SOUND_INSTALL, 0);
+        cok_sound_call_at(&s, COK_SOUND_COMMAND, 7);
+        static int16_t samples[COK_SOUND_RATE / 2];
+        cok_sound_render(&s, samples, COK_SOUND_RATE / 2);
+        bool sounding = false;
+        for (size_t i = 0; i < COK_SOUND_RATE / 2; ++i) sounding |= samples[i] != 0;
+        CHECK(sounding); /* the speaker's sound 6 */
+    }
+    cok_sound_free(&s);
+    cok_sound_init(&s, COK_SOUND_TANDY);
+    CHECK(cok_sound_load(&s, assets));
+    cok_sound_call_at(&s, COK_SOUND_MUSIC, 0);
+    char text[100];
+    CHECK(!cok_sound_music_unported(&s, text, sizeof text));
+    cok_sound_free(&s);
+    cok_sound_init(&s, COK_SOUND_NONE);
+    CHECK(s.hardware == COK_SOUND_TANDY);
+    CHECK(strcmp(cok_sound_device_name(COK_SOUND_SPEAKER), "PC") == 0);
+}
+
 int main(void)
 {
+    test_config();
     test_image();
     test_scenarios();
     test_first_ticks();

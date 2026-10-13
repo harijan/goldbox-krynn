@@ -1804,6 +1804,50 @@ class SoundTests(unittest.TestCase):
         off = render("f.wav", r"\t", "--sound", "off")
         self.assertEqual(off, bytes(len(title)))
 
+    def assets_with(self, config):
+        """A copy of the assets (links) whose KRYNN.CFG holds config, or
+        none."""
+        assets = self.folder / ("assets-%d" % len(list(self.folder.glob("assets-*"))))
+        assets.mkdir()
+        for path in ASSETS.iterdir():
+            if path.name.upper() != "KRYNN.CFG":
+                (assets / path.name).symlink_to(path)
+        if config is not None:
+            (assets / "KRYNN.CFG").write_bytes(config)
+        return assets
+
+    def test_krynn_cfg(self):
+        # The device is KRYNN.CFG's second line's first character (11c7:031a);
+        # --sound overrides it; without the file the Tandy, said on
+        # standard error.
+        def render(assets, *args, keys=r"\t"):
+            path = self.folder / ("r%d.wav" % len(list(self.folder.glob("r*.wav"))))
+            result = subprocess.run([str(TOOL), "--start-menu", "--saves", self.folder, "--wav", path,
+                                     *map(str, args), "--keys", keys, str(assets)],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return result, wav_data(path)
+        _, tandy = render(ASSETS)
+        _, speaker = render(ASSETS, "--sound", "speaker")
+        _, off = render(ASSETS, "--sound", "off")
+        result, data = render(self.assets_with(b"E\r\nP\r\nM\r\n"))
+        self.assertEqual(data, speaker)
+        self.assertEqual(render(self.assets_with(b"E\r\nP\r\n"), "--sound", "tandy")[1], tandy)
+        self.assertEqual(render(self.assets_with(b"E\r\nS\r\n"))[1], off)
+        result, data = render(self.assets_with(None))
+        self.assertEqual(data, tandy)
+        self.assertIn("sound: no KRYNN.CFG in ", result.stderr)
+        # CMS, the MT-32, AdLib: the title silent, its music logged as not
+        # ported, the effects on the speaker.
+        for letter, name, record in ((b"C", "C/MS", 1), (b"R", "Roland LAPC", 2), (b"A", "AdLib", 3)):
+            result, data = render(self.assets_with(b"E\r\n" + letter + b"\r\nM\r\n"))
+            line = "unported: the title's music on %s (MIDI.DAX record %d)" % (name, record)
+            self.assertIn(line, result.stdout.splitlines())
+            self.assertIn("not ported", result.stderr)
+            samples = struct.unpack("<%dh" % (len(data) // 2), data)
+            self.assertFalse(any(samples[:35 * 44100]))
+            self.assertTrue(any(samples[35 * 44100:]))
+
     def test_without_the_music_files(self):
         # Without MIDI.DAX the title is silent and says why; the effects
         # play all the same.
