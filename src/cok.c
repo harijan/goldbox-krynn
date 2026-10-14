@@ -7,8 +7,10 @@
  * menu's timeout or the small picture's next frame. */
 #include "adventure.h"
 #include "config.h"
+#include "crt.h"
 #include "keymap.h"
 #include "keyscript.h"
+#include "setup.h"
 #include "sound.h"
 #include "start.h"
 
@@ -26,6 +28,7 @@ enum {
     SCREEN_W = 320,
     SCREEN_H = 200,
     SCREEN_BYTES = SCREEN_W * SCREEN_H / 2, /* The Tandy layout, two pixels a byte. */
+    TEXT_BYTES = COK_CRT_WIDTH * COK_CRT_HEIGHT / 2, /* Startup's text screen, 640x200. */
     KEYS_MAX = COK_KEYS_BUFFERED,           /* The BIOS's buffer holds 15 keystrokes. */
     REST_MS = 10,                           /* A rest's step: GetTime's hundredth. */
     FIFO_MAX = 1 << 19, /* By the game's clock, at most 11.9 s rendered ahead of the device. */
@@ -59,13 +62,22 @@ typedef struct {
     SDL_Window *window;
     SDL_Renderer *renderer;
     SDL_Texture *texture;  /* The screen, 320x200. */
+    SDL_Texture *text_texture; /* Startup's text screen, 640x200, while it shows. */
+    /* Startup's text screen (11c7:031a) while it shows, in place of the
+     * game's, its font, and its pixels as last rendered. */
+    cok_crt *text;
+    cok_font text_font;
+    uint8_t text_pixels[TEXT_BYTES];
+    bool text_uploaded;
     SDL_Texture *upscaled; /* It scaled up whole, or NULL without render targets. */
     int up_x, up_y;        /* upscaled's factors across and down. */
+    int up_w;              /* The width of what it scales up. */
     bool crt;              /* Stretch 200 lines to 240, as a 4:3 monitor showed them. */
     bool fullscreen;
     uint8_t shown[SCREEN_BYTES]; /* The screen as last put in the texture. */
+    uint8_t text_shown[TEXT_BYTES]; /* The text screen as last put in its texture. */
     uint8_t on_window[SCREEN_BYTES]; /* As last presented, for --log's check. */
-    uint8_t rgb[SCREEN_W * SCREEN_H * 3];
+    uint8_t rgb[COK_CRT_WIDTH * COK_CRT_HEIGHT * 3];
     uint8_t palette[16][3];
     bool uploaded, expose;
     SDL_Rect where;        /* Where the screen was last shown, for --log. */
@@ -110,6 +122,8 @@ static void usage(const char *program)
             "  --saves DIR     the roster and saved games (default saves, created if\n"
             "                  missing); point it at a copy of SAVE/ to play the\n"
             "                  original's games\n"
+            "  --config FILE   KRYNN.CFG, read, or written by the setup if missing\n"
+            "                  (default: DIR/KRYNN.CFG of --saves, else the assets')\n"
             "  --scale N       window size, N times 320x200 (default 3)\n"
             "  --aspect A      4:3 (default) shows the 200 lines as 240, as a 4:3\n"
             "                  monitor did; 1:1 keeps the pixels square\n"
@@ -131,10 +145,9 @@ static void usage(const char *program)
             "                  its pace); the sound follows the game's delays and \\p\n"
             "                  pauses, as eclplay --wav renders it\n"
             "  --display MODE  ega, tandy or cga, in place of the display KRYNN.CFG\n"
-            "                  names (the Tandy without one)\n"
+            "                  names\n"
             "  --sound DEVICE  tandy (the Tandy's three voices and noise), speaker (the\n"
             "                  PC speaker) or off, in place of the device KRYNN.CFG names\n"
-            "                  (the Tandy without one)\n"
             "  --no-sound      open no audio device\n"
             "  --sound-clock C real (the default without --no-delay): the device's\n"
             "                  playing times the drivers; game (with it): the game's\n"
@@ -165,9 +178,36 @@ static SDL_Rect fit(const frontend *f)
     return r;
 }
 
+/* What the window shows: the text screen while startup shows it, else
+ * the game's; its size in pixels. */
+static int source_width(const frontend *f)
+{
+    return f->text != NULL ? COK_CRT_WIDTH : SCREEN_W;
+}
+
+static int source_height(const frontend *f)
+{
+    return f->text != NULL ? COK_CRT_HEIGHT : SCREEN_H;
+}
+
+/* Render the text screen and copy it into its texture if it changed. */
+static bool upload_text(frontend *f)
+{
+    cok_crt_render(f->text, &f->text_font, f->text_pixels);
+    if (f->text_uploaded && memcmp(f->text_shown, f->text_pixels, TEXT_BYTES) == 0) return false;
+    memcpy(f->text_shown, f->text_pixels, TEXT_BYTES);
+    cok_image image = {.width = COK_CRT_WIDTH, .height = COK_CRT_HEIGHT,
+                       .pixels = f->text_pixels};
+    cok_image_rgb(&image, f->rgb);
+    SDL_UpdateTexture(f->text_texture, NULL, f->rgb, COK_CRT_WIDTH * 3);
+    f->text_uploaded = true;
+    return true;
+}
+
 /* Copy the screen into the texture if it changed. */
 static bool upload(frontend *f)
 {
+    if (f->text != NULL) return upload_text(f);
     const cok_picture *screen = &f->game->screen;
     if (screen->pixels == NULL || screen->frame_size != SCREEN_BYTES) return false;
     if (f->uploaded && memcmp(f->shown, screen->pixels, SCREEN_BYTES) == 0) return false;
@@ -194,27 +234,30 @@ static void render(frontend *f, SDL_Rect *where)
     SDL_Rect dst = fit(f);
     SDL_SetRenderDrawColor(f->renderer, 0, 0, 0, 255);
     SDL_RenderClear(f->renderer);
-    int kx = factor(dst.w, SCREEN_W), ky = factor(dst.h, SCREEN_H);
-    if (f->upscaled != NULL && (f->up_x != kx || f->up_y != ky)) {
+    int sw = source_width(f), sh = source_height(f);
+    SDL_Texture *texture = f->text != NULL ? f->text_texture : f->texture;
+    int kx = factor(dst.w, sw), ky = factor(dst.h, sh);
+    if (f->upscaled != NULL && (f->up_x != kx || f->up_y != ky || f->up_w != sw)) {
         SDL_DestroyTexture(f->upscaled);
         f->upscaled = NULL;
         f->up_x = f->up_y = 0;
     }
     if (f->up_x == 0 && SDL_RenderTargetSupported(f->renderer)) {
         f->upscaled = SDL_CreateTexture(f->renderer, SDL_PIXELFORMAT_RGB888,
-                                        SDL_TEXTUREACCESS_TARGET, SCREEN_W * kx, SCREEN_H * ky);
+                                        SDL_TEXTUREACCESS_TARGET, sw * kx, sh * ky);
         if (f->upscaled != NULL) {
             SDL_SetTextureScaleMode(f->upscaled, SDL_ScaleModeLinear);
             f->up_x = kx;
             f->up_y = ky;
+            f->up_w = sw;
         }
     }
     if (f->upscaled != NULL && SDL_SetRenderTarget(f->renderer, f->upscaled) == 0) {
-        SDL_RenderCopy(f->renderer, f->texture, NULL, NULL);
+        SDL_RenderCopy(f->renderer, texture, NULL, NULL);
         SDL_SetRenderTarget(f->renderer, NULL);
         SDL_RenderCopy(f->renderer, f->upscaled, NULL, &dst);
     } else {
-        SDL_RenderCopy(f->renderer, f->texture, NULL, &dst);
+        SDL_RenderCopy(f->renderer, texture, NULL, &dst);
     }
     if (where != NULL) *where = dst;
 }
@@ -233,11 +276,12 @@ static void shot_error(frontend *f, const char *format, const char *detail)
  * block must be that colour. */
 static void save_shown(frontend *f, const SDL_Rect *dst, const char *path)
 {
-    bool whole = dst->w % SCREEN_W == 0 && dst->h % SCREEN_H == 0;
-    int kx = whole ? dst->w / SCREEN_W : 1, ky = whole ? dst->h / SCREEN_H : 1;
+    const int sw = source_width(f), sh = source_height(f);
+    bool whole = dst->w % sw == 0 && dst->h % sh == 0;
+    int kx = whole ? dst->w / sw : 1, ky = whole ? dst->h / sh : 1;
     size_t pitch = (size_t)dst->w * 3;
     uint8_t *shown = malloc(pitch * (size_t)dst->h);
-    uint8_t *pixels = calloc(SCREEN_BYTES, 1);
+    uint8_t *pixels = calloc((size_t)(sw * sh / 2), 1);
     if (shown == NULL || pixels == NULL ||
         SDL_RenderReadPixels(f->renderer, dst, SDL_PIXELFORMAT_RGB24, shown, (int)pitch) != 0) {
         shot_error(f, "%s: cannot read the window back", path);
@@ -245,14 +289,14 @@ static void save_shown(frontend *f, const SDL_Rect *dst, const char *path)
         free(pixels);
         return;
     }
-    for (int y = 0; y < SCREEN_H && !f->shot_failed; ++y) {
-        for (int x = 0; x < SCREEN_W && !f->shot_failed; ++x) {
+    for (int y = 0; y < sh && !f->shot_failed; ++y) {
+        for (int x = 0; x < sw && !f->shot_failed; ++x) {
             const uint8_t *p;
             if (whole) {
                 p = shown + (size_t)(y * ky) * pitch + (size_t)(x * kx) * 3;
             } else {
-                long mx = ((2L * x + 1) * dst->w) / (2 * SCREEN_W);
-                long my = ((2L * y + 1) * dst->h) / (2 * SCREEN_H);
+                long mx = ((2L * x + 1) * dst->w) / (2 * sw);
+                long my = ((2L * y + 1) * dst->h) / (2 * sh);
                 p = shown + (size_t)my * pitch + (size_t)mx * 3;
             }
             int colour = -1;
@@ -266,12 +310,14 @@ static void save_shown(frontend *f, const SDL_Rect *dst, const char *path)
                               "colours", path);
                 break;
             }
-            pixels[(y * SCREEN_W + x) / 2] |= (uint8_t)(x % 2 == 0 ? colour << 4 : colour);
+            pixels[(y * sw + x) / 2] |= (uint8_t)(x % 2 == 0 ? colour << 4 : colour);
         }
     }
     if (!f->shot_failed) {
-        cok_image image = {.width = SCREEN_W, .height = SCREEN_H, .pixels = pixels,
-                           .palette = cok_picture_frame(&f->game->screen, 0).palette};
+        cok_image image = {.width = (size_t)sw, .height = (size_t)sh, .pixels = pixels,
+                           .palette = f->text != NULL
+                                          ? NULL
+                                          : cok_picture_frame(&f->game->screen, 0).palette};
         cok_image_status status = cok_image_bmp(&image, path);
         if (status != COK_IMAGE_OK) shot_error(f, "%s", cok_image_status_string(status));
     }
@@ -281,8 +327,13 @@ static void save_shown(frontend *f, const SDL_Rect *dst, const char *path)
 
 /* Whether the window owes a present: the screen has changed since it was
  * last shown, or the window was exposed or resized. */
-static bool owed(const frontend *f)
+static bool owed(frontend *f)
 {
+    if (f->text != NULL) {
+        cok_crt_render(f->text, &f->text_font, f->text_pixels);
+        return f->expose || !f->text_uploaded ||
+               memcmp(f->text_shown, f->text_pixels, TEXT_BYTES) != 0;
+    }
     const cok_picture *screen = &f->game->screen;
     bool valid = screen->pixels != NULL && screen->frame_size == SCREEN_BYTES;
     return f->expose ||
@@ -309,12 +360,12 @@ static void present(frontend *f, bool force, const char *path)
     if (path != NULL) save_shown(f, &dst, path);
     SDL_RenderPresent(f->renderer);
     f->presented = now;
-    if (f->log) memcpy(f->on_window, f->shown, SCREEN_BYTES);
+    if (f->log && f->text == NULL) memcpy(f->on_window, f->shown, SCREEN_BYTES);
     f->expose = false;
 }
 
 /* Milliseconds until an owed present is due, or at least limit. */
-static Uint64 present_due(const frontend *f, Uint64 now, Uint64 limit)
+static Uint64 present_due(frontend *f, Uint64 now, Uint64 limit)
 {
     if (!owed(f)) return limit;
     Uint64 due = f->presented + PRESENT_MS;
@@ -350,6 +401,12 @@ static void screenshot(frontend *f)
         snprintf(path, sizeof path, "%s/cok%03u.bmp", f->screenshots, f->screenshot++);
     } while (stat(path, &st) == 0 && f->screenshot < 1000);
     cok_image image = cok_picture_frame(&f->game->screen, 0);
+    if (f->text != NULL) {
+        /* Startup's text screen, 640x200. */
+        cok_crt_render(f->text, &f->text_font, f->text_pixels);
+        image = (cok_image){.width = COK_CRT_WIDTH, .height = COK_CRT_HEIGHT,
+                            .pixels = f->text_pixels};
+    }
     cok_image_status status = cok_image_bmp(&image, path);
     if (status != COK_IMAGE_OK)
         fprintf(stderr, "%s: %s\n", path, cok_image_status_string(status));
@@ -861,7 +918,7 @@ static void delay(cok_adventure *game, unsigned ms, void *context)
     /* With --log, a check that the window keeps up: what the game drew
      * before it waits must be shown within a frame or two of waiting. */
     const cok_picture *screen = &game->screen;
-    if (f->log && !f->no_delay && screen->frame_size == SCREEN_BYTES &&
+    if (f->log && !f->no_delay && f->text == NULL && screen->frame_size == SCREEN_BYTES &&
         memcmp(f->on_window, screen->pixels, SCREEN_BYTES) != 0) {
         Uint64 now = SDL_GetTicks64();
         if (f->owed_from == 0) {
@@ -898,6 +955,62 @@ static void unported(cok_adventure *game, void *context)
     for (size_t i = 0; i < game->vm.operands; ++i)
         fprintf(stderr, " %u", cok_ecl_value(&game->vm, i));
     fprintf(stderr, "]\n");
+}
+
+/* Startup's Crt.Delay, as the game's. */
+static void text_delay(unsigned ms, void *context)
+{
+    frontend *f = context;
+    delay(f->game, ms, f);
+}
+
+/* A row of the text screen as the cursor leaves it, for --log. */
+static void text_log(const char *row, void *context)
+{
+    frontend *f = context;
+    if (f->log) fprintf(stderr, "crt: %s\n", row);
+}
+
+/* Startup's text screens (11c7:031a): the setup when there is no
+ * KRYNN.CFG, then the note to Tandy users. Returns 0 to go on, else the
+ * exit status, -1 for the run ended in the setup. */
+static int startup(frontend *f, const cok_keyboard *keyboard, const char *path, bool found,
+                   const char *assets, cok_config *config)
+{
+    static cok_crt text;
+    text.log = text_log;
+    text.context = f;
+    cok_crt_init(&text);
+    f->text = &text;
+    if (!cok_setup_font(assets, &f->text_font))
+        fprintf(stderr, "%s/8X8D1.DAX: no font for the text screen\n", assets);
+    cok_setup_hooks hooks = {text_delay, f};
+    char error[1200];
+    cok_setup_status status =
+        cok_setup_startup(&text, keyboard, &hooks, path, found, config, error, sizeof error);
+    int result = 0;
+    if (status == COK_SETUP_ENDED || f->closing) {
+        result = -1;
+    } else if (status != COK_SETUP_OK) {
+        /* The run stops: the screen ends with the reason (after the
+         * original's message for a file it cannot make, where it halts),
+         * shown until a key or the window's close. */
+        fprintf(stderr, "%s\n", error);
+        present(f, true, NULL);
+        if (f->scripted) {
+            shoot(f);
+        } else {
+            while (!f->closing && f->count == 0) {
+                pump(f, 1000);
+                present(f, false, NULL);
+            }
+        }
+        result = 1;
+    }
+    f->text = NULL;
+    cok_font_free(&f->text_font);
+    f->expose = true;
+    return result;
 }
 
 /* Where the port stops: the reason on the screen's last rows, over a black
@@ -978,7 +1091,7 @@ int main(int argc, char **argv)
     f.owed = -1;
     f.crt = true;
     f.screenshots = "screenshots";
-    const char *assets = "Assets", *saves = "saves", *keys = NULL;
+    const char *assets = "Assets", *saves = "saves", *keys = NULL, *config_option = NULL;
     unsigned long scale = 3, seed = 0;
     bool seeded = false, woof = false, helm = false, fullscreen = false, sounding = true;
     cok_sound_device device = COK_SOUND_TANDY;
@@ -994,6 +1107,8 @@ int main(int argc, char **argv)
             assets = argv[++i];
         } else if (strcmp(option, "--saves") == 0 && has_value) {
             saves = argv[++i];
+        } else if (strcmp(option, "--config") == 0 && has_value) {
+            config_option = argv[++i];
         } else if (strcmp(option, "--scale") == 0 && has_value &&
                    number(argv[i + 1], 16, &scale) && scale >= 1) {
             ++i;
@@ -1063,19 +1178,10 @@ int main(int argc, char **argv)
     f.scripted = keys != NULL;
     f.script = cok_key_script_start(keys);
 
-    /* KRYNN.CFG, as startup reads it (11c7:031a). */
-    cok_config config = {COK_DISPLAY_TANDY, COK_SOUND_TANDY};
-    bool config_read = cok_config_read(assets, &config);
-    if (!display_given) display = config.display;
-    if (!sound_given) device = config.sound;
-    if (!display_given && !config_read)
-        cok_config_missing("display", assets);
-    if (f.log) fprintf(stderr, "display: %s\n", cok_display_name(display));
-
-    /* The palette, as cok_image_rgb gives the 16 colours, or CGA's 4. */
+    /* The palette, as cok_image_rgb gives the 16 colours (the text
+     * screen's too). */
     uint8_t ramp[8] = {0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};
-    cok_image colours = {.width = 16, .height = 1, .pixels = ramp,
-                         .palette = display == COK_DISPLAY_CGA ? cok_cga_palette : NULL};
+    cok_image colours = {.width = 16, .height = 1, .pixels = ramp};
     cok_image_rgb(&colours, &f.palette[0][0]);
 
     /* SDL turns SIGINT and SIGTERM into a quit only where they are not
@@ -1099,13 +1205,17 @@ int main(int argc, char **argv)
         SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
         f.texture = SDL_CreateTexture(f.renderer, SDL_PIXELFORMAT_RGB24,
                                       SDL_TEXTUREACCESS_STREAMING, SCREEN_W, SCREEN_H);
+        f.text_texture = SDL_CreateTexture(f.renderer, SDL_PIXELFORMAT_RGB24,
+                                           SDL_TEXTUREACCESS_STREAMING, COK_CRT_WIDTH,
+                                           COK_CRT_HEIGHT);
     }
-    if (f.texture == NULL) {
+    if (f.texture == NULL || f.text_texture == NULL) {
         fprintf(stderr, "SDL: %s\n", SDL_GetError());
         SDL_Quit();
         return 1;
     }
     SDL_SetTextureScaleMode(f.texture, SDL_ScaleModeNearest);
+    SDL_SetTextureScaleMode(f.text_texture, SDL_ScaleModeNearest);
     SDL_SetWindowMinimumSize(f.window, SCREEN_W, height);
     SDL_StopTextInput(); /* Keys come as key events; no input method's window. */
     if (f.log) {
@@ -1114,11 +1224,38 @@ int main(int argc, char **argv)
         fprintf(stderr, "window: %dx%d\n", w, h);
     }
 
-    f.audio.game_clock = clock < 0 ? f.no_delay : clock == 1;
-    if (sounding && !sound_given && !config_read)
-        cok_config_missing("sound", assets);
-    if (sounding) audio_open(&f, assets, device, (unsigned)volume);
     cok_keyboard keyboard = {read_key, &f, NULL};
+    /* KRYNN.CFG, as startup reads it (11c7:031a), after the setup when
+     * there is none, and the note to Tandy users. */
+    char config_path[1024], config_write[1024];
+    bool found = cok_config_find(config_option, saves, assets, config_path, config_write,
+                                 sizeof config_path);
+    cok_config config = {.display = COK_DISPLAY_TANDY, .sound = COK_SOUND_TANDY};
+    int started = startup(&f, &keyboard, config_path, found, assets, &config);
+    if (started != 0) {
+        int result = started < 0 ? 0 : started;
+        if (started < 0 && f.script_error[0] != '\0') {
+            fprintf(stderr, "--keys: %s\n", f.script_error);
+            result = 2;
+        } else if (started < 0 && !f.closing) {
+            printf("(out of keys in the setup)\n");
+        }
+        SDL_DestroyTexture(f.text_texture);
+        SDL_DestroyTexture(f.texture);
+        SDL_DestroyRenderer(f.renderer);
+        SDL_DestroyWindow(f.window);
+        SDL_Quit();
+        return result;
+    }
+    if (!display_given) display = config.display;
+    if (!sound_given) device = config.sound;
+    if (f.log) fprintf(stderr, "display: %s\n", cok_display_name(display));
+    /* CGA's 4 colours. */
+    colours.palette = display == COK_DISPLAY_CGA ? cok_cga_palette : NULL;
+    cok_image_rgb(&colours, &f.palette[0][0]);
+
+    f.audio.game_clock = clock < 0 ? f.no_delay : clock == 1;
+    if (sounding) audio_open(&f, assets, device, (unsigned)volume);
     cok_adventure_hooks hooks = {.unported = unported, .log = log_line, .delay = delay,
                                  .key_pending = key_pending, .flush = flush_keys,
                                  .battlefield = battlefield,
@@ -1130,6 +1267,8 @@ int main(int argc, char **argv)
         result = 1;
     } else {
         snprintf(game.save_dir, sizeof game.save_dir, "%s", saves);
+        snprintf(game.config_path, sizeof game.config_path, "%s", config_path);
+        snprintf(game.config_write, sizeof game.config_write, "%s", config_write);
         game.combat_stub = COK_COMBAT_PLAYER; /* The player's turns read the keys. */
         game.helm = helm;
         game.vm.seed = seeded ? (uint32_t)seed : randomize();
@@ -1162,6 +1301,7 @@ int main(int argc, char **argv)
     audio_close(&f);
     cok_adventure_close(&game);
     if (f.upscaled != NULL) SDL_DestroyTexture(f.upscaled);
+    SDL_DestroyTexture(f.text_texture);
     SDL_DestroyTexture(f.texture);
     SDL_DestroyRenderer(f.renderer);
     SDL_DestroyWindow(f.window);

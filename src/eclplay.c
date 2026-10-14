@@ -4,7 +4,9 @@
 #include "adventure.h"
 #include "arena.h"
 #include "config.h"
+#include "crt.h"
 #include "keyscript.h"
+#include "setup.h"
 #include "sound.h"
 #include "start.h"
 
@@ -33,6 +35,10 @@ typedef struct {
     const char *wav_path;
     uint64_t ms, frames;
     bool calls; /* --sound-calls */
+    /* The text screen while startup shows it (11c7:031a), or NULL, and the
+     * font it is shown in. */
+    cok_crt *crt;
+    cok_font crt_font;
 } player;
 
 static void usage(const char *program)
@@ -65,7 +71,10 @@ static void usage(const char *program)
             "                  party, from the files beside it\n"
             "  --load SAVE     load saved game SAVE and its party first; BLOCK defaults to\n"
             "                  the block it was saved in\n"
-            "  --saves DIR     write saved games (camp's Save) to DIR\n"
+            "  --saves DIR     write saved games (camp's Save) to DIR; KRYNN.CFG there\n"
+            "                  comes before the assets' and is where the setup writes\n"
+            "  --config FILE   KRYNN.CFG: read FILE, or with --start-menu write it there\n"
+            "                  from the setup if it is missing\n"
             "  --combat HOW    without it, COMBAT's rounds have the computer play its\n"
             "                  turns (the monsters') while the player's read the keys,\n"
             "                  or with no --keys pass, which the party seldom survives;\n"
@@ -100,10 +109,11 @@ static void usage(const char *program)
           "                  (N hundredths of a second); key reads take none; a second\n"
           "                  more at the end\n"
           "  --display MODE  ega, tandy or cga, in place of KRYNN.CFG's (its first\n"
-          "                  line; the Tandy without one); --shots and --screen\n"
+          "                  line; with --start-menu the setup asks without one, else\n"
+          "                  the Tandy); --shots and --screen\n"
           "                  show CGA in its four colours\n"
           "  --sound DEVICE  with --wav, the sound device: tandy, speaker or off, in\n"
-          "                  place of KRYNN.CFG's (ASSETS/KRYNN.CFG, the Tandy without\n"
+          "                  place of KRYNN.CFG's (the setup's, or the Tandy without\n"
           "                  one); without the title (a block, --load) the driver is\n"
           "                  installed first, as main does\n"
           "  --sound-calls   print the game's calls to the sound driver as call: lines\n"
@@ -125,6 +135,17 @@ static void save(player *p, const char *path)
         exit(1);
     }
     cok_image image = cok_picture_frame(&p->game->screen, 0);
+    cok_image_status status = cok_image_bmp(&image, path);
+    if (status != COK_IMAGE_OK)
+        fprintf(stderr, "%s: %s\n", path, cok_image_status_string(status));
+}
+
+/* The text screen, 640x200, as a BMP. */
+static void save_crt(player *p, const char *path)
+{
+    static uint8_t pixels[COK_CRT_WIDTH * COK_CRT_HEIGHT / 2];
+    cok_crt_render(p->crt, &p->crt_font, pixels);
+    cok_image image = {.width = COK_CRT_WIDTH, .height = COK_CRT_HEIGHT, .pixels = pixels};
     cok_image_status status = cok_image_bmp(&image, path);
     if (status != COK_IMAGE_OK)
         fprintf(stderr, "%s: %s\n", path, cok_image_status_string(status));
@@ -229,7 +250,10 @@ static int next_key(void *context)
     if (!cok_key_script_owed(&p->keys) && p->shots != NULL) {
         char path[4096];
         snprintf(path, sizeof path, "%s/%03u.bmp", p->shots, p->shot++);
-        save(p, path);
+        if (p->crt != NULL)
+            save_crt(p, path);
+        else
+            save(p, path);
     }
     if (!cok_key_script_owed(&p->keys) && p->buffered == 0) type_ahead(p, true);
     if (p->buffered > 0 && !cok_key_script_owed(&p->keys)) {
@@ -278,6 +302,23 @@ static void flush(cok_adventure *game, void *context)
     printf("flush: %s\n", text);
     p->buffered = 0;
     p->owed = -1;
+}
+
+/* Startup's Crt.Delay: keys typed ahead may arrive; the sound's time
+ * starts with the game's, after the text screens. */
+static void crt_delay(unsigned ms, void *context)
+{
+    (void)ms;
+    player *p = context;
+    cok_key_script_tick(&p->keys);
+    type_ahead(p, false);
+}
+
+/* A row of the text screen, as the cursor leaves it. */
+static void crt_log(const char *row, void *context)
+{
+    (void)context;
+    printf("crt: %s\n", row);
 }
 
 static void log_line(cok_adventure *game, const char *kind, const char *text, void *context)
@@ -500,7 +541,7 @@ static int run(int argc, char **argv)
     unsigned long file = 0, vector = 5, start = 0, fixture = 0, seed = 0;
     bool seeded = false;
     bool still = false, placed = false, play = false, helm = false, front = false, woof = false;
-    const char *party = NULL, *load = NULL, *saves = NULL;
+    const char *party = NULL, *load = NULL, *saves = NULL, *config_option = NULL;
     /* With no --combat the computer plays its turns, and the player's read
      * the keys (COK_COMBAT_PLAYER) or, with no --keys, pass
      * (COK_COMBAT_UNPORTED); COK_COMBAT_PASS here would have every turn
@@ -540,6 +581,8 @@ static int run(int argc, char **argv)
             load = argv[++i];
         } else if (strcmp(option, "--saves") == 0 && has_value) {
             saves = argv[++i];
+        } else if (strcmp(option, "--config") == 0 && has_value) {
+            config_option = argv[++i];
         } else if (strcmp(option, "--combat") == 0 && has_value) {
             static const char *const outcomes[] = {"won",  "fled", "lost", "gods",
                                                    "melee", "auto", "pass"};
@@ -647,12 +690,44 @@ static int run(int argc, char **argv)
         fprintf(stderr, "--sound needs --wav: eclplay renders sound only to a file\n");
         return 2;
     }
-    /* KRYNN.CFG, as startup reads it (11c7:031a). */
-    cok_config config = {COK_DISPLAY_TANDY, COK_SOUND_TANDY};
-    bool config_read = cok_config_read(argv[i], &config);
+    /* KRYNN.CFG, as startup reads it (11c7:031a): from the title, the
+     * setup when there is none, and the note to Tandy users. */
+    cok_config config = {.display = COK_DISPLAY_TANDY, .sound = COK_SOUND_TANDY};
+    char config_path[1024], config_write[1024];
+    bool found = cok_config_find(config_option, saves, argv[i], config_path, config_write,
+                                 sizeof config_path);
+    bool config_read;
+    if (front) {
+        static cok_crt crt;
+        crt.log = crt_log;
+        crt.context = &p;
+        cok_crt_init(&crt);
+        p.crt = &crt;
+        cok_setup_font(argv[i], &p.crt_font);
+        cok_keyboard crt_keys = {next_key, &p, NULL};
+        cok_setup_hooks crt_hooks = {crt_delay, &p};
+        char error[1200];
+        cok_setup_status status = cok_setup_startup(&crt, &crt_keys, &crt_hooks, config_path,
+                                                    found, &config, error, sizeof error);
+        p.crt = NULL;
+        cok_font_free(&p.crt_font);
+        if (status == COK_SETUP_ENDED) {
+            printf("(out of keys in the setup)\n");
+            return 0;
+        }
+        if (status != COK_SETUP_OK) {
+            fprintf(stderr, "%s\n", error);
+            return 1;
+        }
+        if (!found && config_path[0] == '\0')
+            fprintf(stderr, "setup: KRYNN.CFG written nowhere (no --saves or --config)\n");
+        config_read = true;
+    } else {
+        config_read = found && cok_config_read_file(config_path, &config);
+    }
     if (!display_given) display = config.display;
     if (!display_given && !config_read)
-        cok_config_missing("display", argv[i]);
+        cok_config_missing("display", config_option, saves, argv[i]);
     if (p.wav_path != NULL) {
         p.wav = fopen(p.wav_path, "wb");
         p.sound = malloc(sizeof *p.sound);
@@ -664,7 +739,7 @@ static int run(int argc, char **argv)
         wav_header(header, 0);
         fwrite(header, 1, sizeof header, p.wav);
         if (!sound_given && !config_read)
-            cok_config_missing("sound", argv[i]);
+            cok_config_missing("sound", config_option, saves, argv[i]);
         if (!sound_given && config_read) device = config.sound;
         cok_sound_init(p.sound, device);
         if (!cok_sound_load(p.sound, argv[i]))
@@ -689,6 +764,9 @@ static int run(int argc, char **argv)
         return 1;
     }
     if (saves != NULL) snprintf(game.save_dir, sizeof game.save_dir, "%s", saves);
+    if (found || (front && config_write[0] != '\0'))
+        snprintf(game.config_path, sizeof game.config_path, "%s", config_path);
+    snprintf(game.config_write, sizeof game.config_write, "%s", config_write);
     /* Past main's install of the effects driver (1000:0160), unless the
      * run starts from the title. */
     if (!front) cok_adventure_sound(&game, COK_SOUND_INSTALL, 0);

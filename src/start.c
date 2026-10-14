@@ -226,11 +226,22 @@ void cok_start_mouse(cok_adventure *game)
                                 (cok_text_window){9, 12, 0x26, 0x16}, &style, &redraw, &index,
                                 &game->list_top, &game->selected, &keys);
         if (key != 'S') return;
-        /* KRYNN.CFG's third line is written N: neither is found. */
         if (index == 0)
             cok_adventure_log(game, "unported", "the mouse driver (1743:0000)");
         else if (index == 1)
             cok_adventure_log(game, "unported", "the joystick (177c:0000)");
+        /* KRYNN.CFG rewritten with its third line N: neither is found (the
+         * port's in its own place, never the assets'). */
+        if (game->config_write[0] == '\0') {
+            cok_adventure_log(game, "config", "line 3 N, written nowhere");
+        } else if (cok_config_rewrite(game->config_path, game->config_write, 'N')) {
+            snprintf(game->config_path, sizeof game->config_path, "%s", game->config_write);
+            cok_adventure_log(game, "config", "line 3 N");
+        } else {
+            char text[1100];
+            snprintf(text, sizeof text, "%s cannot be written", game->config_write);
+            cok_adventure_log(game, "config", text);
+        }
     }
 }
 
