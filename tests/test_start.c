@@ -73,12 +73,20 @@ static void log_line(cok_adventure *game, const char *kind, const char *text, vo
     snprintf(s->log + used, sizeof s->log - used, "%s: %s;", kind, text);
 }
 
+/* Flushes that found "Loading...Please Wait" alone on row 24. */
+static unsigned loading_flushes;
+
 static void flush(cok_adventure *game, void *context)
 {
-    (void)game;
     script *s = context;
     ++s->flushes;
     event('F');
+    cok_picture row = {0};
+    if (cok_picture_create(&row, 40, 200, 1, 0) != COK_PICTURE_OK) return;
+    cok_text_string(&row, &game->font, "Loading...Please Wait", 0, 24, 10, 0);
+    if (memcmp(row.pixels + 192 * 160, game->screen.pixels + 192 * 160, 8 * 160) == 0)
+        ++loading_flushes;
+    cok_picture_free(&row);
 }
 
 static void delay(cok_adventure *game, unsigned ms, void *context)
@@ -561,8 +569,12 @@ static void test_roster_rules(void)
     cok_character *q = member("ROSTB", 2, 1);
     CHECK(cok_character_write_file(q, rules, "R01", "WHO", error, sizeof error));
     keys("AA");
+    loading_flushes = 0;
     cok_roster_add(&game);
     CHECK(game.party.count == 6 && logged("party: ROSTA joins;") && s.at == 1);
+    /* "Loading...Please Wait" on row 24 while its files are read
+     * (4b6d:1283), seen at their flush (4b6d:15ce). */
+    CHECK(loading_flushes >= 1);
     /* Flushes: the list's after its key, the character's files read
      * (4b6d:15ce), and its icon composed (7, see test_hooks). */
     CHECK(s.flushes == 1 + 1 + 7);
@@ -649,7 +661,9 @@ static void test_roster_rules(void)
     CHECK(cok_character_write_file(r, rules, "ROSTA", "WHO", error, sizeof error));
     empty_party();
     keys("C");
+    loading_flushes = 0;
     CHECK(cok_roster_load(&game) && access(path, F_OK) != 0 && game.party.count == 1);
+    CHECK(loading_flushes >= 1); /* 4b6d:1d1e, seen at the characters' flush */
     for (size_t i = 0; i < 8; ++i) {
         snprintf(path, sizeof path, "%s/R%02zu.WHO", rules, i);
         remove(path);

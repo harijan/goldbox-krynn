@@ -15,6 +15,16 @@
  * (COK_KEY_TIMEOUT), \\ a backslash; \k presses the next key while the
  * game polls for one (1614:03c2) rather than reads it.
  *
+ * Keys of the keypad, as the BIOS's keyboard handler takes them (see
+ * cok_keymap_event): \n the NumLock key, which turns NumLock off and on
+ * again (on at the start, as startup turns it) and types nothing; \dC the
+ * keypad's key C (0-9 or .), its digit with NumLock on, else the cursor
+ * key's code (0 and its scan code; nothing for 5); \aN. Alt held while N
+ * (decimal digits) is typed on the keypad, then let go: the character
+ * code N makes as a byte, nothing for 0. cok presses those keys through
+ * SDL's events (cok_key_script_physical); eclplay reads the codes. In a
+ * group typed ahead they are typed as their codes.
+ *
  * Keys are typed one at a time, as the game asks for them, except a group
  * \[KEYS\], typed ahead: all of KEYS go into the keyboard's buffer at once
  * (15 keystrokes, as the BIOS's holds; more are lost), at the game's next
@@ -30,7 +40,16 @@ typedef struct {
     const char *keys;     /* What is left of the script. */
     int pending;          /* The scan code after a 0, or -1. */
     unsigned long wait;   /* The game's waits left before what follows \w. */
+    bool numlock_off;     /* As \n left NumLock. */
 } cok_key_script;
+
+/* What \n, \dC and \aN. press on the keyboard. */
+typedef enum { COK_KEY_NUMLOCK, COK_KEY_KEYPAD, COK_KEY_ALT_NUMBER } cok_physical_kind;
+typedef struct {
+    cok_physical_kind kind;
+    char keypad;     /* COK_KEY_KEYPAD: '0'-'9' or '.'. */
+    char digits[12]; /* COK_KEY_ALT_NUMBER: the keypad's digits typed with Alt. */
+} cok_physical_key;
 
 /* A keystroke: an ASCII code (scan -1), or 0 and the scan code. */
 typedef struct {
@@ -46,6 +65,10 @@ cok_key_script cok_key_script_start(const char *keys);
  * 0 first, else the next key, skipping a \k before it, a wait (\wN.) and
  * a group's brackets; -1 when the script has ended. */
 int cok_key_script_read(cok_key_script *script);
+
+/* At \n, \dC or \aN. (nothing owed): the keys to press for it, in key,
+ * and the script past it, NumLock turned as a read turns it. */
+bool cok_key_script_physical(cok_key_script *script, cok_physical_key *key);
 
 /* Whether a scan code is owed after a 0 that was read. */
 bool cok_key_script_owed(const cok_key_script *script);

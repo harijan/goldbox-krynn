@@ -12,7 +12,7 @@
  * opportunity, a step on the map, fleeing and the choice of a target, the
  * attack roll and the deaths of overlay 60f4, and the weapon tests of
  * 6346, and turning undead. The computer's turns (ai.h) and the player's
- * commands (3995, not ported) call these; eclplay's --combat melee has
+ * commands (3995, command.h) call these; eclplay's --combat melee has
  * every combatant attack through cok_combat_melee instead.
  *
  * Functions take their records in the order the original pushes them.

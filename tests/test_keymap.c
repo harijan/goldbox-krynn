@@ -291,6 +291,28 @@ static void test_script(void)
     CHECK(cok_key_script_ahead(&s, true, k, 15) == 1);
     s = cok_key_script_start("\\w3.\\[x\\]y");
     CHECK(cok_key_script_read(&s) == 'x' && cok_key_script_read(&s) == 'y');
+    /* The keypad's keys: \n NumLock (typing nothing), \dC the digit, or
+     * with NumLock off the cursor key (none for 5); \aN. Alt's number as a
+     * byte, none for 0; as codes in a group too. */
+    s = cok_key_script_start("\\d8\\n\\d8\\d5\\d.\\n\\d5\\a65.\\a0.\\a322.\\ax\\d");
+    static const int keypad[] = {'8', 0, 0x48, 0, 0x53, '5', 'A', 66, 'a', 'x', 'd', -1};
+    for (size_t i = 0; i < sizeof keypad / sizeof keypad[0]; ++i) {
+        int code = cok_key_script_read(&s);
+        if (code != keypad[i]) {
+            fprintf(stderr, "keypad script code %zu: %d, not %d\n", i, code, keypad[i]);
+            exit(1);
+        }
+    }
+    s = cok_key_script_start("\\[\\n\\d4\\a0.\\d5\\n\\]x");
+    CHECK(cok_key_script_ahead(&s, true, k, 15) == 1 && k[0].code == 0 && k[0].scan == 0x4b);
+    CHECK(s.numlock_off == false && cok_key_script_read(&s) == 'x');
+    cok_physical_key key;
+    s = cok_key_script_start("\\n\\d.\\a0123.x");
+    CHECK(cok_key_script_physical(&s, &key) && key.kind == COK_KEY_NUMLOCK && s.numlock_off);
+    CHECK(cok_key_script_physical(&s, &key) && key.kind == COK_KEY_KEYPAD && key.keypad == '.');
+    CHECK(cok_key_script_physical(&s, &key) && key.kind == COK_KEY_ALT_NUMBER &&
+          strcmp(key.digits, "0123") == 0);
+    CHECK(!cok_key_script_physical(&s, &key) && cok_key_script_read(&s) == 'x');
     /* \p: a pause in hundredths, which reads pass over. */
     unsigned long pause;
     s = cok_key_script_start("\\p50.y\\p7.z");
@@ -298,11 +320,158 @@ static void test_script(void)
     CHECK(cok_key_script_read(&s) == 'y' && cok_key_script_read(&s) == 'z');
 }
 
+/* What the BIOS's INT 9 keeps between keys (cok_keymap_event): NumLock
+ * and Alt's keypad number. */
+static int event(cok_keymap_state *state, Uint32 type, SDL_Scancode scancode, Uint16 mod,
+                 bool repeat, int codes[2])
+{
+    SDL_KeyboardEvent e = {0};
+    e.type = type;
+    e.state = type == SDL_KEYDOWN ? SDL_PRESSED : SDL_RELEASED;
+    e.repeat = repeat;
+    e.keysym.scancode = scancode;
+    /* The US layout's keycode, without SDL's video for the host's. */
+    if (scancode >= SDL_SCANCODE_A && scancode <= SDL_SCANCODE_Z)
+        e.keysym.sym = (SDL_Keycode)('a' + (scancode - SDL_SCANCODE_A));
+    else if (scancode >= SDL_SCANCODE_1 && scancode <= SDL_SCANCODE_9)
+        e.keysym.sym = (SDL_Keycode)('1' + (scancode - SDL_SCANCODE_1));
+    else
+        e.keysym.sym = (SDL_Keycode)((unsigned)scancode | (unsigned)SDLK_SCANCODE_MASK);
+    e.keysym.mod = mod;
+    codes[0] = codes[1] = -1;
+    return cok_keymap_event(state, &e, codes);
+}
+
+static bool gives(cok_keymap_state *state, SDL_Scancode scancode, Uint16 mod, int code, int scan)
+{
+    int codes[2];
+    int n = event(state, SDL_KEYDOWN, scancode, mod, false, codes);
+    if (code < 0) return n == 0;
+    return n == (code == 0 ? 2 : 1) && codes[0] == code && (code != 0 || codes[1] == scan);
+}
+
+/* Alt held over keypad keys, then let go: what its release types. */
+static int alt_number(cok_keymap_state *state, SDL_Scancode alt, const SDL_Scancode *keys,
+                      size_t count)
+{
+    int codes[2];
+    CHECK(event(state, SDL_KEYDOWN, alt, KMOD_LALT, false, codes) == 0);
+    for (size_t i = 0; i < count; ++i) {
+        int n = event(state, SDL_KEYDOWN, keys[i], KMOD_LALT, false, codes);
+        CHECK(event(state, SDL_KEYUP, keys[i], KMOD_LALT, false, codes) == 0);
+        if (n != 0 && keys[i] >= SDL_SCANCODE_KP_1 && keys[i] <= SDL_SCANCODE_KP_0) return -2;
+    }
+    int n = event(state, SDL_KEYUP, alt, KMOD_NONE, false, codes);
+    return n == 0 ? -1 : n == 1 ? codes[0] : -3;
+}
+
+static void test_bios(void)
+{
+    cok_keymap_state state = {0};
+    int codes[2];
+    /* NumLock on from startup: digits; the NumLock key turns it off, and
+     * the keypad gives the cursor keys, with Shift the digits; Ctrl's
+     * codes do not change. A held NumLock's repeats do nothing. */
+    CHECK(gives(&state, SDL_SCANCODE_KP_8, KMOD_NONE, '8', 0));
+    CHECK(gives(&state, SDL_SCANCODE_NUMLOCKCLEAR, KMOD_NONE, -1, 0) && state.numlock_off);
+    CHECK(event(&state, SDL_KEYDOWN, SDL_SCANCODE_NUMLOCKCLEAR, KMOD_NUM, true, codes) == 0);
+    CHECK(event(&state, SDL_KEYUP, SDL_SCANCODE_NUMLOCKCLEAR, KMOD_NUM, false, codes) == 0);
+    CHECK(state.numlock_off);
+    CHECK(gives(&state, SDL_SCANCODE_KP_8, KMOD_NONE, 0, 0x48));
+    CHECK(gives(&state, SDL_SCANCODE_KP_1, KMOD_NUM, 0, 0x4f));
+    CHECK(gives(&state, SDL_SCANCODE_KP_PERIOD, KMOD_NONE, 0, 0x53));
+    CHECK(gives(&state, SDL_SCANCODE_KP_5, KMOD_NONE, -1, 0));
+    CHECK(gives(&state, SDL_SCANCODE_KP_8, KMOD_LSHIFT, '8', 0));
+    CHECK(gives(&state, SDL_SCANCODE_KP_0, KMOD_RSHIFT, '0', 0));
+    CHECK(gives(&state, SDL_SCANCODE_KP_7, KMOD_LCTRL, 0, 0x77));
+    CHECK(gives(&state, SDL_SCANCODE_KP_DIVIDE, KMOD_NONE, '/', 0));
+    CHECK(gives(&state, SDL_SCANCODE_8, KMOD_NONE, '8', 0));
+    CHECK(gives(&state, SDL_SCANCODE_UP, KMOD_NONE, 0, 0x48));
+    CHECK(gives(&state, SDL_SCANCODE_NUMLOCKCLEAR, KMOD_NONE, -1, 0) && !state.numlock_off);
+    CHECK(gives(&state, SDL_SCANCODE_KP_8, KMOD_NONE, '8', 0));
+    CHECK(gives(&state, SDL_SCANCODE_KP_8, KMOD_LSHIFT, 0, 0x48));
+    /* Keys going up give nothing; the others as cok_keymap_codes. */
+    CHECK(event(&state, SDL_KEYUP, SDL_SCANCODE_A, KMOD_NONE, false, codes) == 0);
+    CHECK(gives(&state, SDL_SCANCODE_A, KMOD_NONE, 'a', 0));
+    CHECK(gives(&state, SDL_SCANCODE_A, KMOD_LALT, 0, 0x1e));
+
+    /* Alt and the keypad's digits: the character code on Alt's release,
+     * as a byte, nothing for 0; either Alt; with NumLock off too. */
+    static const SDL_Scancode a[] = {SDL_SCANCODE_KP_6, SDL_SCANCODE_KP_5};
+    CHECK(alt_number(&state, SDL_SCANCODE_LALT, a, 2) == 'A');
+    CHECK(alt_number(&state, SDL_SCANCODE_RALT, a, 2) == 'A');
+    static const SDL_Scancode wraps[] = {SDL_SCANCODE_KP_3, SDL_SCANCODE_KP_0, SDL_SCANCODE_KP_0};
+    CHECK(alt_number(&state, SDL_SCANCODE_LALT, wraps, 3) == 300 % 256);
+    static const SDL_Scancode lead[] = {SDL_SCANCODE_KP_0, SDL_SCANCODE_KP_9, SDL_SCANCODE_KP_7};
+    CHECK(alt_number(&state, SDL_SCANCODE_LALT, lead, 3) == 97);
+    static const SDL_Scancode nine[] = {SDL_SCANCODE_KP_2, SDL_SCANCODE_KP_5, SDL_SCANCODE_KP_9};
+    CHECK(alt_number(&state, SDL_SCANCODE_LALT, nine, 3) == 3);
+    static const SDL_Scancode zero[] = {SDL_SCANCODE_KP_0};
+    CHECK(alt_number(&state, SDL_SCANCODE_LALT, zero, 1) == -1);
+    CHECK(alt_number(&state, SDL_SCANCODE_LALT, NULL, 0) == -1);
+    state.numlock_off = true;
+    CHECK(alt_number(&state, SDL_SCANCODE_LALT, a, 2) == 'A');
+    state.numlock_off = false;
+    /* Another key with Alt starts the number again: Alt-6, Q, 6, 6 gives
+     * Alt-Q's scan code, then B (66). The keypad's point is another key. */
+    CHECK(event(&state, SDL_KEYDOWN, SDL_SCANCODE_LALT, KMOD_LALT, false, codes) == 0);
+    CHECK(gives(&state, SDL_SCANCODE_KP_6, KMOD_LALT, -1, 0));
+    CHECK(gives(&state, SDL_SCANCODE_Q, KMOD_LALT, 0, 0x10));
+    CHECK(gives(&state, SDL_SCANCODE_KP_6, KMOD_LALT, -1, 0));
+    CHECK(gives(&state, SDL_SCANCODE_KP_6, KMOD_LALT, -1, 0));
+    CHECK(event(&state, SDL_KEYUP, SDL_SCANCODE_LALT, KMOD_NONE, false, codes) == 1 &&
+          codes[0] == 'B');
+    static const SDL_Scancode point[] = {SDL_SCANCODE_KP_6, SDL_SCANCODE_KP_PERIOD};
+    CHECK(alt_number(&state, SDL_SCANCODE_LALT, point, 2) == -1);
+    static const SDL_Scancode after[] = {SDL_SCANCODE_KP_PERIOD, SDL_SCANCODE_KP_6, SDL_SCANCODE_KP_6};
+    CHECK(alt_number(&state, SDL_SCANCODE_LALT, after, 3) == 'B');
+    /* The other Alt going down in the middle changes nothing: the number
+     * goes on, 6, 5, 6, 6 making 6566, 166 as a byte, typed on the first
+     * release; the second types nothing. */
+    CHECK(event(&state, SDL_KEYDOWN, SDL_SCANCODE_LALT, KMOD_LALT, false, codes) == 0);
+    CHECK(gives(&state, SDL_SCANCODE_KP_6, KMOD_LALT, -1, 0));
+    CHECK(gives(&state, SDL_SCANCODE_KP_5, KMOD_LALT, -1, 0));
+    CHECK(event(&state, SDL_KEYDOWN, SDL_SCANCODE_RALT, KMOD_LALT | KMOD_RALT, false, codes) == 0);
+    CHECK(gives(&state, SDL_SCANCODE_KP_6, KMOD_LALT | KMOD_RALT, -1, 0));
+    CHECK(gives(&state, SDL_SCANCODE_KP_6, KMOD_LALT | KMOD_RALT, -1, 0));
+    CHECK(event(&state, SDL_KEYUP, SDL_SCANCODE_RALT, KMOD_LALT, false, codes) == 1 &&
+          codes[0] == 6566 % 256);
+    CHECK(event(&state, SDL_KEYUP, SDL_SCANCODE_LALT, KMOD_NONE, false, codes) == 0);
+    /* Shift, Ctrl and the lock keys going down in the middle keep it, as
+     * INT 9 takes them before Alt's keypad; Ctrl-Alt with the digits makes
+     * it too. Space types a space and keeps it (K31). */
+    static const SDL_Scancode keep[] = {SDL_SCANCODE_LSHIFT, SDL_SCANCODE_RCTRL,
+                                        SDL_SCANCODE_CAPSLOCK, SDL_SCANCODE_SCROLLLOCK};
+    for (size_t i = 0; i < sizeof keep / sizeof *keep; ++i) {
+        CHECK(event(&state, SDL_KEYDOWN, SDL_SCANCODE_LALT, KMOD_LALT, false, codes) == 0);
+        CHECK(gives(&state, SDL_SCANCODE_KP_6, KMOD_LALT, -1, 0));
+        CHECK(gives(&state, keep[i], KMOD_LALT, -1, 0));
+        CHECK(gives(&state, SDL_SCANCODE_KP_5, KMOD_LALT, -1, 0));
+        CHECK(event(&state, SDL_KEYUP, SDL_SCANCODE_LALT, KMOD_NONE, false, codes) == 1 &&
+              codes[0] == 'A');
+    }
+    CHECK(event(&state, SDL_KEYDOWN, SDL_SCANCODE_LALT, KMOD_LALT, false, codes) == 0);
+    CHECK(gives(&state, SDL_SCANCODE_KP_6, KMOD_LALT, -1, 0));
+    CHECK(gives(&state, SDL_SCANCODE_SPACE, KMOD_LALT, ' ', 0));
+    CHECK(gives(&state, SDL_SCANCODE_KP_5, KMOD_LALT, -1, 0));
+    CHECK(event(&state, SDL_KEYUP, SDL_SCANCODE_LALT, KMOD_NONE, false, codes) == 1 &&
+          codes[0] == 'A');
+    CHECK(event(&state, SDL_KEYDOWN, SDL_SCANCODE_LALT, KMOD_LALT | KMOD_LCTRL, false, codes) == 0);
+    CHECK(gives(&state, SDL_SCANCODE_KP_6, KMOD_LALT | KMOD_LCTRL, -1, 0));
+    CHECK(gives(&state, SDL_SCANCODE_KP_6, KMOD_LALT | KMOD_LCTRL, -1, 0));
+    CHECK(event(&state, SDL_KEYUP, SDL_SCANCODE_LALT, KMOD_LCTRL, false, codes) == 1 &&
+          codes[0] == 'B');
+    /* Ctrl-NumLock is Pause: NumLock stays on. */
+    CHECK(gives(&state, SDL_SCANCODE_NUMLOCKCLEAR, KMOD_LCTRL, -1, 0) && !state.numlock_off);
+    CHECK(gives(&state, SDL_SCANCODE_KP_8, KMOD_NONE, '8', 0));
+}
+
 int main(void)
 {
     test_table();
     test_find();
     test_script();
+    test_bios();
     puts("keymap tests passed");
     return 0;
 }

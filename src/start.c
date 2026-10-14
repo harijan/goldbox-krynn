@@ -96,6 +96,9 @@ void cok_start_startup(cok_adventure *game)
     fresh(game, 0);
     game->debug = false; /* 3e99:055b */
     game->demo = false;
+    /* 3e99:06a4: "Loading...Please Wait" while the tiles, the sky, the
+     * combat sprites and the item types load; the title draws over it. */
+    cok_adventure_loading(game);
 }
 
 void cok_start_reset(cok_adventure *game)

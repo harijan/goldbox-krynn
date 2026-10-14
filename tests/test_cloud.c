@@ -1379,11 +1379,16 @@ static void test_breath_bytes(void)
      * 0, its lines meet no one but the dragon: no breath. Off it: the low
      * byte of an address on the stack, 0xe0 in a battle 2fd3:3c28's script
      * starts, which sends the right line onto A; 0xda through 3b47, which
-     * does not; with the battle's stack not known, a stop, as some of the
-     * 256 values meet A and some not. */
-    for (int k = 0; k < 4; ++k) {
+     * does not, nor 0xb8 in a battle of PROGRAM 9's camp (its vectors
+     * COK_PROGRAM_CAMP_DEPTH below the script's). In CGA mode with no
+     * mirror the byte is the same stack offset's, known (k 4 as k 1). */
+    for (int k = 0; k < 5; ++k) {
         reset();
-        game.battle_sp = k == 2 ? COK_BATTLE_SP - 6 : k == 3 ? 0 : COK_BATTLE_SP;
+        game.display = k == 4 ? COK_DISPLAY_CGA : COK_DISPLAY_TANDY;
+        game.battle_sp = k == 2   ? COK_BATTLE_SP - 6
+                         : k == 3 ? COK_BATTLE_SP - COK_PROGRAM_CAMP_DEPTH
+                                  : COK_BATTLE_SP;
+        bool hit = k == 1 || k == 4;
         cok_character *w = record('W', 1, 10, 10), *a = record('A', 0, 13, 12);
         w->record[0xcf] = 3;
         game.combat.combatant[1].size = 3;
@@ -1397,13 +1402,10 @@ static void test_breath_bytes(void)
         cok_effect *e = cok_character_add_effect(w, 0x53, 0, 0xff, false);
         unsigned tiles = game.combat.tiles_drawn;
         SEED(1, 1, 1, 1);
-        if (k == 3) {
-            CHECK(!breathe(w) && strstr(game.error, "5b04:1b2a") != NULL);
-            continue;
-        }
-        CHECK(breathe(w) && LOGGED("breathes") == (k == 1) && e->value == (k == 1 ? 2 : 3));
-        CHECK((a->record[0x197] < 50) == (k == 1) && (k != 0 || game.combat.tiles_drawn > tiles));
+        CHECK(breathe(w) && LOGGED("breathes") == hit && e->value == (hit ? 2 : 3));
+        CHECK((a->record[0x197] < 50) == hit && (k != 0 || game.combat.tiles_drawn > tiles));
     }
+    game.display = COK_DISPLAY_TANDY;
     /* The same with A's icon drawn mirrored (on the view, facing 4, its
      * mask clear: no limit to sight): the side is 127f:0b94's frame
      * pointer's low byte, 0xea, which sends the line past A: no breath.
@@ -1440,18 +1442,6 @@ static void test_breath_bytes(void)
         CHECK(e->value == 3 && a->record[0x197] == 50);
         cok_picture_free(icon);
     }
-    /* Every byte is tried: with the wall at 7, 10 and A at 4, 9, bytes 0
-     * and 1 agree, others not. */
-    reset();
-    game.battle_sp = 0;
-    cok_character *w = record('W', 1, 10, 10), *a = record('A', 0, 4, 9);
-    w->record[0xcf] = 3;
-    game.combat.combatant[1].size = 3;
-    CHECK(cok_combat_occupy(&game.combat));
-    CELL(7, 10) = 0x01;
-    CHECK(cok_character_add_effect(w, 0x53, 0, 0xff, false) != NULL);
-    SEED(1, 1, 1, 1);
-    CHECK(!breathe(w) && strstr(game.error, "5b04:1b2a") != NULL && a->record[0x197] == 10);
 }
 
 /* The battle's end frees the clouds and pools (3995:004b); 0x28 ends

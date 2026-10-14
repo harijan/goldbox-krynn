@@ -148,15 +148,19 @@ static void play(cok_adventure *game, script *s, const uint8_t *map, int x, int 
 }
 
 /* The battle stack pointers (cok_adventure.battle_sp) the scripts ran
- * with: bit 0 COK_BATTLE_SP, bit 1 6 less, bit 2 8 less, bit 3 others. */
+ * with: bit 0 COK_BATTLE_SP, bit 1 6 less, bit 2 8 less, bit 3 0x128 less
+ * (PROGRAM 9's camp), bit 4 others. */
 static unsigned battle_sps;
 
 static void trace_sp(cok_adventure *game, void *context)
 {
     (void)context;
     uint16_t sp = game->battle_sp;
-    battle_sps |= sp == COK_BATTLE_SP ? 1u : sp == COK_BATTLE_SP - 6 ? 2u
-                                       : sp == COK_BATTLE_SP - 8 ? 4u : 8u;
+    battle_sps |= sp == COK_BATTLE_SP                ? 1u
+                  : sp == COK_BATTLE_SP - 6          ? 2u
+                  : sp == COK_BATTLE_SP - 8          ? 4u
+                  : sp == COK_BATTLE_SP - 0x128      ? 8u
+                                                     : 16u;
 }
 
 static void test_play(void)
@@ -1129,8 +1133,8 @@ static void test_overland(void)
     game.vm.restore_character = true;
     game.moving = false;
     cok_picture_fill(&game.screen, 0, 0, 40, 200, 5);
-    /* The camp vector runs at a depth not known (bit 3), the script at the
-     * measured one. */
+    /* The camp vector runs 0x128 bytes deeper than the script (bit 3), as
+     * the emulator measured 2fd3:3add's SP from PROGRAM 9 (3473 -> 3403). */
     game.hooks.trace = trace_sp;
     battle_sps = 0;
     CHECK(cok_ecl_run(&game.vm, 0x8030) == COK_ECL_OK);

@@ -342,8 +342,9 @@ bool cok_character_strength_bonus(const uint8_t *c, bool damage, int8_t *bonus, 
  * damage of exactly its hit points leaves it unconscious, up to 9 more
  * dying, and 10 or more past them dead, as is any damage that takes the
  * last hit point of a character with status 1. A character not okay
- * afterwards has 0 hit points and cannot act. The original also updates
- * the combat records in combat; combat is not ported. */
+ * afterwards has 0 hit points and cannot act. In combat 6346:24d7 also
+ * updates the combat records, which the battle's callers do (attack.h,
+ * cast.c). */
 void cok_character_damage(uint8_t *record, uint8_t damage);
 
 /* Heal record by amount (60f4:21ea) if its status is 0, 1, 4 or 5, and if

@@ -141,8 +141,9 @@ or in CGA mode the four of its palette, as the BMP export gives them
 (`cok_image_rgb`).
 
 Keys, as Turbo Pascal's `Crt.ReadKey` reads them through INT 16h function
-0 (`src/keymap.h`; `tests/test_keymap.c` checks each, and that every code
-the port compares a key against can be typed):
+0 (`src/keymap.h`; `tests/test_keymap.c` checks each, that every code
+the port compares a key against can be typed, and NumLock and Alt's
+keypad numbers as the BIOS keeps them, `cok_keymap_event`):
 
 | Key | The game reads | For |
 | --- | --- | --- |
@@ -156,8 +157,10 @@ the port compares a key against can be typed):
 | arrows | 0, then 0x48 up, 0x50 down, 0x4b left, 0x4d right | menu items, picking a character, lists, Move in 3D (step, turn), facing on the overland map, combat directions, Modify's fields, Rest and Speed |
 | Home, PgUp, End, PgDn | 0, then 0x47, 0x49, 0x4f, 0x51 | the diagonals in combat and on the overland map; PgUp and PgDn page lists |
 | Ins, Del | 0, then 0x52, 0x53 | Del deletes in Modify's name |
-| keypad digits and `.` | `0`-`9`, `.`: NumLock is on, as startup sets it (`3e99:005b`, `0040:0017` bit 5), whatever the host's | directions (`DS:1fdf`): 8 up, 2 down, 4 left, 6 right, 7 9 1 3 the diagonals, 5 the centre in combat's aim |
-| Shift and a keypad key | the cursor key's code (none for 5) | as the arrows |
+| keypad digits and `.` | `0`-`9`, `.`: NumLock is on, as startup sets it (`3e99:005b`, `0040:0017` bit 5), whatever the host's; with it off the cursor key's code (none for 5) | directions (`DS:1fdf`): 8 up, 2 down, 4 left, 6 right, 7 9 1 3 the diagonals, 5 the centre in combat's aim |
+| Shift and a keypad key | the cursor key's code (none for 5); with NumLock off the digit | as the arrows |
+| NumLock | nothing: NumLock off and on again, as the BIOS's keyboard handler (INT 9) turns it, the host's left as it is; with Ctrl it is Pause, not ported, and turns nothing | the keypad's digits or cursor keys |
+| Alt and keypad digits | on Alt's release, the character code they make, as a byte (DOS's `Alt`+number; none for 0), Ctrl held or not; Shift, Ctrl, the lock keys and space (which types a space) keep the number, another key with Alt starts it again | text input, as any key typing it |
 | keypad `/ * - +` | ASCII | nothing |
 | Ctrl and Left, Right, Home, End, PgUp, PgDn | 0, then 0x73, 0x74, 0x77, 0x75, 0x84, 0x76 | nothing |
 | F1-F10 | 0, then 0x3b-0x44; with Shift 0x54-0x5d, Ctrl 0x5e-0x67, Alt 0x68-0x71 | F10 picks Demo on the title's menu; Ctrl-F8 camps on the overland map; menus that do not tell scan codes from letters take F7-F10 (0x41-0x44) as A-D, Home, Up and PgUp as G, H and I, and so on (saved games A-J, Yes and No) |
@@ -169,10 +172,10 @@ the port compares a key against can be typed):
 
 Keys the game cannot read give nothing: those only an enhanced keyboard's
 function 0x10 returns (Ctrl or Alt with the arrows, Alt-Enter, F11, F12),
-Ctrl with Alt, keys with the GUI (Windows) key or AltGr, Alt with the
-keypad's digits (DOS's character codes), and non-ASCII keys. Letters and
-unshifted punctuation follow the host's layout; shifted punctuation is the
-US layout's. Keys typed ahead wait, up to 15 as in the BIOS's buffer
+Ctrl with Alt (but for the keypad's digits), keys with the GUI (Windows)
+key or AltGr, and non-ASCII keys. Letters and unshifted punctuation follow
+the host's layout; shifted punctuation is the US layout's. Keys typed
+ahead wait, up to 15 as in the BIOS's buffer
 (more are lost), and are thrown away where the original flushes the
 keyboard (`1614:045c`: `ReadKey` while `KeyPressed`, the scan code owed
 after a 0 too), through the adventure's `flush` hook. Its 21 calls in
@@ -257,8 +260,7 @@ close, and exits with status 1 (2 for bad options or a `--keys` code no key
 gives). Without the font, a message box says it.
 
 Not done: the music of CMS, the MT-32 and AdLib (see Sound); the mouse and
-joystick; the BIOS's NumLock toggled during play (the keypad always types
-digits). `tests/test_cok.py` plays the title and the demonstration, and a
+joystick. `tests/test_cok.py` plays the title and the demonstration, and a
 new game from the title (creating a character, the overland map, two fights
 with the player's keys, camps in an inn and in 3D, walking in Throtl,
 saving the game) with the same keys as `eclplay --start-menu --shots`,
@@ -275,7 +277,9 @@ title's menu timing out 10 seconds after it opens following a
 demonstration, an arrow half way not starting it again; a rest taking its
 pace with the time left shown; closing in the middle of the demonstration's
 delays ending at once; F11's full screen shown at once and F12's
-screenshot; SIGINT with SIGINT ignored; and, with real delays through the
+screenshot; NumLock, the keypad and Alt's keypad numbers pressed as keys
+(`\n`, `\dC`, `\aN.`) giving `eclplay`'s frames; SIGINT with SIGINT
+ignored; and, with real delays through the
 first fight, that the window never kept an old screen (`--log`'s check) nor
 showed more than about 60 frames a second; and the sound through SDL's disk
 writer: by the game's clock (`--no-delay`) the same samples as `eclplay
@@ -284,8 +288,10 @@ with; in real time the title's music playing on through the title's wait, a
 step's sound playing out while the game waits for a key, and without a
 device, with `--no-sound` or without `SOUND.DAX` the game playing on,
 saying why; a copy of the assets whose `KRYNN.CFG` says `P` playing the
-speaker. `tests/test_hooks.c` checks each flush, which menus animate, and
-the sound driver's calls.
+speaker. `tests/test_hooks.c` checks each flush, which menus animate, the
+sound driver's calls, and `Loading...Please Wait` and `PIC not found`
+against what the original's loaders did in an 8086 emulator
+(`tests/test_loading_data.h`, see Playing scripts).
 
 ## Sound
 
@@ -879,7 +885,7 @@ right arrows, and 4 and 6, move the selection; Enter returns the selected
 item's hotkey; Escape and space are ignored. Other extended keys, and the
 keypad digits 1-9 and `\` (mapped to scan codes by the table at `DS:1fdf`),
 go to a `special` hook: `3775:1885` passes them to `546c:3334` and redraws
-the party, which is not ported. Because that check follows the hotkey match,
+the party (see Adventure loop). Because that check follows the hotkey match,
 a hotkey 1-9 can only be chosen with the arrows and Enter. With one item, the
 arrows and 4 and 6 are special too. The original also polls the mouse
 (`DS:8987`), which is not ported; animates the small picture while it
@@ -944,7 +950,10 @@ handlers from overlay `2fd3` (dispatch `2fd3:386d`). Addresses below are from
 `START_FULL.EXE.c`; `DS:` offsets are in the data segment.
 
 An ECL record's first two bytes are skipped and the rest loads at address
-`0x8000` in a `0x1e00`-byte buffer (`3775:0361`). It starts with five
+`0x8000` in a `0x1e00`-byte buffer (`3775:0361`). Row 24 is cleared and
+shows `Loading...Please Wait` in light green while the record is read,
+then cleared again (`67b5:0c7b`); a record shorter than two bytes the
+original reads again for ever, where the port stops. It starts with five
 one-operand instructions whose operands are the entry vectors (`3775:01e8`):
 `DS:4b39` and `4b3b`, run by the adventure loop `2fd3:3c28` after moves and
 for location events; `4b3d` and `4b3f`, run when camping (`2fd3:3403`); and
@@ -1015,7 +1024,14 @@ cheat; `--combat gods` implies it. `--keys` types keys (`\r` Enter, `\e`
 Escape, `\b` Backspace, `\<`, `\>`, `\^` and `\v` the arrows, `\@X` Alt and
 letter `X`, `\cX` Ctrl and letter `X` (`\cD`, `\cZ`, `\cC` the debug
 keys, see Debug mode), `\#HH` the extended key of scan code `HH`, in hex:
-`\@q` and `\#10` are Alt-Q); when they run out the run stops. `\k` presses the next
+`\@q` and `\#10` are Alt-Q; and the keypad's keys as the BIOS takes
+them, `cok_keymap_event`: `\n` the NumLock key, turning NumLock off and on
+again and typing nothing, `\dC` the keypad's key `C` (`0`-`9`, `.`), its
+digit with NumLock on and else the cursor key's code (nothing for 5),
+`\aN.` Alt held over the keypad's digits `N`, typing their character code
+as a byte on Alt's release, nothing for 0; `cok` presses those keys
+through SDL's events, outside a group typed ahead, where they are typed as
+their codes); when they run out the run stops. `\k` presses the next
 key while the party rests, which the rest loop sees (`1614:03c2`), or as a
 battle is set up, which drops it (`1614:0479`). Keys are otherwise typed
 one at a time as the game reads them, but `\[KEYS\]` types KEYS ahead: all
@@ -1132,7 +1148,18 @@ animate the picture (`67b5:03e2`) count in tenths of a second (see
 Playing);
 with animation off (`DS:4b4f`) only the first is loaded. A picture
 loaded stays loaded for the same name (`PIC` or `SPRIT`) and record
-(`DS:6dee`, `6e00`), whatever the ECL file, until the slot is freed. The
+(`DS:6dee`, `6e00`), whatever the ECL file, until the slot is freed.
+With animation on, loading one (`6961:00e4`, pictures and sprites alike)
+clears row 24 and shows `Loading...Please Wait` in light green while it
+reads, and clears the row after the keyboard's flush, so that whatever
+row 24 held is gone; with it off row 24 is left alone. A record that is
+not there says `PIC not found` on row 24 in yellow and waits for a key
+(`1521:096c`, as `head not found`), with no flush or clearing after; the
+slot is left empty but holds that name and record, so loading it again
+does nothing. A file that is not there stops the port, where the
+original asks for it (`Couldn't find PIC1.dax. Check install.` on row 24,
+`169c:02a7`, with `DS:5884` 0 outside the monster loader) and waits for
+a key and looks again until it is there. The
 game speed
 (`DS:4b38`) defaults to 4. Big picture 0x79, the overland map, marks the
 party on it (`4877:0005`) and does not count as a big picture shown (see
@@ -1850,8 +1877,9 @@ points but the status 10 or more, and only the low byte of the damage is
 dealt, as in the original. Afterwards, if no character can act, the frame is
 cleared, `The entire party is killed!` printed and the run ended (`DS:4b57`);
 either way the prompt then waits for a key. The characters' spell effects
-change the attack and saving rolls (see Spell effects); the original also
-keeps combat records, which are not ported.
+change the attack and saving rolls (see Spell effects). In a battle
+`6346:24d7` also updates the combatant's combat record (see Attacks,
+movement and death).
 
 ## Derived stats
 
@@ -2163,8 +2191,8 @@ nothing), and so does 0x47 turning a spell back (`3f44:23a4`): it reads
 the cells (`6beb:0bcb`) from the last battle's tables, copies its
 missile's pictures into the buffer that battle freed (`DS:719e`,
 `6346:1b5b`; NULL before any battle) and centres the view over the freed
-combat map (`6346:1ba6`, `6beb:096b`), which is more than drawing, so the
-turning back is not ported alone either. Every handler
+combat map (`6346:1ba6`, `6beb:096b`): outside a battle it reads what
+that battle freed, so the port stops there too. Every handler
 of the table is now ported. 0x78's is the item routine `3f44:3888` (see
 View), which takes the effect it is given for an item and adds or removes
 the effect of id `+0x3d`; no item, monster or spell gives effect 0x78
@@ -2325,7 +2353,10 @@ menu, so after `Encamp`, the fifth command, Enter picks `Alter`. Special
 keys pick a character (`546c:3334`) and redraw the party list; one whose
 scan code is `E` would also leave, but that is NumLock, which never
 reaches the game (see Party). On leaving it reloads the small
-picture shown before, unmarks the spells again, and restores the mode,
+picture shown before if it was a `PIC` (`4888:2de7`: not a monster's
+sprite, which an encounter that ended before its close-up leaves, nor an
+empty slot; the camp's picture then stays), unmarks the spells again,
+and restores the mode,
 the status line, rows 18-22 and row 24, and clears the spell target
 (`DS:710b`, `4888:2e28`). `View` shows the selected character (see
 View).
@@ -2997,8 +3028,9 @@ give, says "Illegal range in Show3DSprite." and quits to DOS
 `EXIT` forgets the sprite and the close-up (`DS:8830`, `8831`), so a
 script's next `SETUP MONSTER` loads again; `PICTURE` 0xff erases a
 sprite as it erases a picture. The first sprite turns the overhead map
-off (`DS:6d84`), in any area (see Overhead map). The original's
-"Loading...Please Wait" is not ported.
+off (`DS:6d84`), in any area (see Overhead map). Loading the sprite or
+the close-up shows "Loading...Please Wait" while animation is on (see
+Playing scripts).
 
 `ENCOUNTER MENU sprite distance picture result c0 c1 c2 c3 c4 text0 text1
 text2 flee speed` (`2fd3:23e5`) shows the monster as `SETUP MONSTER` does,
@@ -3185,8 +3217,8 @@ repository.
 `src/combat.h` ports combat setup (`3cb2:1c58`) with the rest of overlay
 `3cb2`, the combat tile loader (`6d21:002c`), the map's lookups of overlay
 `6beb`, `6346:268a` and `432f:2df3`, and keeps the battle's map and
-tables in `cok_adventure.combat` (`cok_combat`) for the parts of combat
-not yet ported.
+tables in `cok_adventure.combat` (`cok_combat`) for the rest of combat
+(see The rounds and after).
 
 Setup runs with the mode already 5, as `3995:0172` sets it first. It
 clears the text delay flag (`DS:4b59`, which the port passes with each
@@ -5464,9 +5496,12 @@ pointer the battle starts at, which the path the script was run by gives
 measured by booting the game in an emulator and letting the demonstration
 reach its battle (0xea and 0xe0); 6 less through `3b47`, a block entered
 after NEWECL, and 8 less through `3403`, Encamp's camp and rest vectors,
-both from the disassembly. For PROGRAM 9's camp, run in the middle of a
-script, the depth is not known: the port works out the cone for all 256
-values and stops only where they give different targets.
+both from the disassembly. PROGRAM 9's camp, run in the middle of a
+script, runs its camp and rest vectors 0x128 bytes below the script
+running PROGRAM (`COK_PROGRAM_CAMP_DEPTH`): `2fd3:3add`'s SP when `3403`
+calls it from `3473` (through the dispatch `386d`) against its SP for the
+script, measured by running ECL1 block 16's `PROGRAM 9` (at 8918) in an
+emulator; so 0xc2 and 0xb8 below a script `2fd3:3c28` runs itself.
 
 The port keeps these quirks:
 
@@ -5510,10 +5545,7 @@ calls at 8 depths): where the 256 values give different terrains, the
 pool's kept terrain is unknown and the run stops when it is put back with
 no body there; a breath's bolt bouncing for ever between two walls (see
 Spells in combat); 0x46 outside combat (the map is NULL); a breath aimed
-at its own cell; terrain past the table (Stinking Cloud's). A dragon's
-cone whose side byte changes its targets (`5b04:1b2a`) in a battle of
-PROGRAM 9's camp, whose stack depth the port does not know, stops it with
-`COK_ECL_EFFECT_FAILED`.
+at its own cell; terrain past the table (Stinking Cloud's).
 Outside combat Dispel Magic's part reads the cells around the spell's
 from the interrupt table (the map pointer `DS:6a2e` is NULL): the port
 takes none of them to be a green cloud, as with none the walk does
@@ -6078,6 +6110,11 @@ title (overlay `2f55`), the state the game starts and ends with
 (`3e99:005b`, `3e99:0843`) and the start menu (`4def:01b4`), with the
 roster in `src/roster.h`. `eclplay --start-menu` plays from startup
 (`cok_start_game`).
+
+Startup shows `Loading...Please Wait` in light green on row 24, cleared
+first, once the font is loaded (`3e99:06a4`), while the tile sets, the
+sky, the combat sprites and the item types load; nothing erases it but
+the title's pictures, or after `Woof` the title's menu over it.
 
 Main runs startup, then the title unless the first argument is `Woof`
 (`ParamStr(1)`, exact case), then the title's menu: `Champions of Krynn
@@ -6703,7 +6740,8 @@ running in DOSBox:
   stops at the wall, meeting no one): the side byte is a stack address's
   low byte, 0xe0 (0xea after a mirror) in a battle a vector of the
   adventure loop starts, 0xda (0xe4) after NEWECL, 0xd8 (0xe2) in a rest
-  encounter; compare who is hit in each (ECL3 block 98 at 8f44 with
+  encounter, 0xb8 (0xc2) in one of PROGRAM 9's camp (ECL1 block 16's
+  knights); compare who is hit in each (ECL3 block 98 at 8f44 with
   `eclplay --test-party 6 --combat auto --seed 8` is one). A
   green dragon breathing at a target when the last combatant listed lies
   in the target's column: the burst should fall beside the dragon (the
@@ -6769,6 +6807,13 @@ running in DOSBox:
 - Wall tiles and sky pictures are masked with colour 13 in the 3D view.
   Compare a view, such as Throtl's street from 7, 15 facing north, for light
   magenta or holes.
+- `Loading...Please Wait` (see Playing scripts and The start menu): it
+  should show on row 24 in light green at startup before the title, in
+  each step into a new block (`NEWECL`), and with `Pics` animation on
+  while a small picture or a monster's sprite loads; with animation on,
+  text left on row 24 should be gone after a picture loads, and with it
+  off stay. The port reads in no time and draws over the message before
+  `cok` shows the screen again, so it is never seen there.
 - Load saved game A and compare the party list and status line beside the
   view: the columns of AC and hit points, the colours, and `7,13 N 00:00`.
 - Fall into the pit in Throtl and compare the damage messages and how they

@@ -165,6 +165,23 @@ class FrontEndTests(unittest.TestCase):
         self.assertSameShots(eshots, shots)
         self.assertSameDirs(esaves, saves)
         self.assertEqual((saves / "DEBUG.TXT").read_bytes(), b"who: BAAZ  sp#: 67\r\n" * 4)
+    def test_keypad_keys(self):
+        """NumLock, the keypad and Alt's keypad numbers pressed as keys
+        (\\n, \\dC, \\aN.), which cok turns into codes as the BIOS does
+        (cok_keymap_event), give what eclplay reads for the same script:
+        the menus moved by the keypad's arrows with NumLock off, and the
+        name typed with Alt's numbers (322 as a byte, 0 typing nothing),
+        keypad 5 a digit and with NumLock off nothing, in a group typed
+        ahead too."""
+        keys = (r"P\r\n\d2\d2\d2\n\d2\d2\d2\r\r\v\r\rN\a66.\a079.\d5\a0.\a322.\n\d5\d.\n"
+                r"\[\a66.\n\d8\n\]\r")
+        expected, _, eshots = self.eclplay(keys, "--seed", "7")
+        self.assertIn("input: BO5BB", expected.stdout)
+        run, _, shots = self.cok(keys, "--seed", "7", "--log")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("input: BO5BB", run.stderr)
+        self.assertEqual(run.stdout.splitlines()[-1], expected.stdout.splitlines()[-1])
+        self.assertSameShots(eshots, shots)
 
     def test_letterbox(self):
         """Full screen on the dummy driver's 1024x768: the screen 1024x640,

@@ -78,6 +78,7 @@ typedef struct {
     int queue[KEYS_MAX][2];
     unsigned head, count;
     int owed;
+    cok_keymap_state keyboard; /* NumLock and Alt's keypad number, as the BIOS keeps them. */
 
     bool closing;          /* The window was closed: end the run. */
     bool no_delay;
@@ -376,6 +377,11 @@ static void handle(frontend *f, const SDL_Event *e)
             e->window.event == SDL_WINDOWEVENT_SIZE_CHANGED)
             f->expose = true;
         break;
+    case SDL_KEYUP: {
+        int codes[2];
+        type_key(f, codes, cok_keymap_event(&f->keyboard, &e->key, codes)); /* Alt's release */
+        break;
+    }
     case SDL_KEYDOWN: {
         const SDL_Keysym *k = &e->key.keysym;
         Uint16 mod = k->mod;
@@ -394,7 +400,7 @@ static void handle(frontend *f, const SDL_Event *e)
             break;
         }
         int codes[2];
-        type_key(f, codes, cok_keymap_codes(k->sym, k->scancode, mod, codes));
+        type_key(f, codes, cok_keymap_event(&f->keyboard, &e->key, codes));
         break;
     }
     default: break;
@@ -449,12 +455,61 @@ static void sleep_for(frontend *f, Uint64 now, Uint64 ms)
     pump(f, (Uint32)(ms > 0 ? ms : 1));
 }
 
+/* Push a key going down or up through SDL's events, with modifiers mod. */
+static void push_key(frontend *f, SDL_Scancode scancode, Uint16 mod, bool down)
+{
+    SDL_Event e = {0};
+    e.type = down ? SDL_KEYDOWN : SDL_KEYUP;
+    e.key.state = down ? SDL_PRESSED : SDL_RELEASED;
+    e.key.windowID = SDL_GetWindowID(f->window);
+    e.key.keysym = (SDL_Keysym){scancode, SDL_GetKeyFromScancode(scancode), mod, 0};
+    SDL_PushEvent(&e);
+}
+
+/* \n, \dC and \aN.: the NumLock key, a keypad key, or Alt held over keypad
+ * digits, pressed as keys, which cok_keymap_event turns into what the BIOS
+ * gives. */
+static void press_physical(frontend *f, const cok_physical_key *key)
+{
+    static const char keypad[] = "1234567890.";
+    SDL_Scancode scancode;
+    switch (key->kind) {
+    case COK_KEY_NUMLOCK:
+        push_key(f, SDL_SCANCODE_NUMLOCKCLEAR, KMOD_NONE, true);
+        push_key(f, SDL_SCANCODE_NUMLOCKCLEAR, KMOD_NONE, false);
+        break;
+    case COK_KEY_KEYPAD:
+        scancode = (SDL_Scancode)(SDL_SCANCODE_KP_1 + (strchr(keypad, key->keypad) - keypad));
+        push_key(f, scancode, KMOD_NONE, true);
+        push_key(f, scancode, KMOD_NONE, false);
+        break;
+    case COK_KEY_ALT_NUMBER:
+        push_key(f, SDL_SCANCODE_LALT, KMOD_LALT, true);
+        for (const char *d = key->digits; *d != '\0'; ++d) {
+            scancode = *d == '0' ? SDL_SCANCODE_KP_0
+                                 : (SDL_Scancode)(SDL_SCANCODE_KP_1 + (*d - '1'));
+            push_key(f, scancode, KMOD_LALT, true);
+            push_key(f, scancode, KMOD_LALT, false);
+        }
+        push_key(f, SDL_SCANCODE_LALT, KMOD_NONE, false);
+        break;
+    }
+}
+
 /* Type the script's next key. Returns false when there is none: the
  * script ended (or failed), or it was \t, the time running out, which
  * *timeout says. */
 static bool type_script(frontend *f, bool *timeout)
 {
     *timeout = false;
+    cok_physical_key key;
+    if (cok_key_script_physical(&f->script, &key)) {
+        /* What it types, if anything, comes into the buffer; a key that
+         * types nothing (NumLock) leaves the next to the read's loop. */
+        press_physical(f, &key);
+        pump(f, 0);
+        return true;
+    }
     int code = cok_key_script_read(&f->script);
     if (code < 0) {
         *timeout = code == COK_KEY_TIMEOUT;

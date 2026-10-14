@@ -29,8 +29,8 @@ typedef struct cok_adventure cok_adventure;
  * gods has the player's commands start with Alt-X, the original's Helm
  * cheat (432f:41e2), auto with Alt-Q, putting the party on Auto; melee
  * has every turn attack (cok_combat_melee) and pass every turn pass, the
- * computer's too. Unported effect handlers are logged and skipped
- * throughout (cok_effects.in_battle). Returns false, with game->vm.status
+ * computer's too. The effects' handlers that need the battle have it
+ * meanwhile (cok_effects.in_battle). Returns false, with game->vm.status
  * set, where the battle cannot be carried out; the end of combat
  * (351b:1968) is the caller's. */
 bool cok_combat_battle(cok_adventure *game);

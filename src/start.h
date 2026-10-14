@@ -41,7 +41,8 @@ bool cok_start_command(cok_adventure *game, char letter);
 /* The state the game starts with (3e99:005b) beyond what
  * cok_adventure_open sets: the variables cleared but the difficulty
  * (0x4cf4) 3, a 3D area (0x4be6), moons in phase 2, the party at 7, 13
- * facing north, and the first row a list shows 1 (DS:6e0d). */
+ * facing north, and the first row a list shows 1 (DS:6e0d); and
+ * "Loading...Please Wait" on row 24 (3e99:06a4). */
 void cok_start_startup(cok_adventure *game);
 /* The end of a game (3e99:0843): the same, facing south, with the speed 4,
  * the mode 4, the selection and pictures forgotten, the ECL file 1 and
