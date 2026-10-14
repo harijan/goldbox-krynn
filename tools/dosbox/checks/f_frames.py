@@ -19,6 +19,12 @@ DS:438e HeapEnd) is read at "YOU ARE NEAR THROTL. DO YOU ENTER?", the frames
 loaded (DS:6da2) and the frames shown (DS:6da3, polled for 5 seconds while
 the menu animates) after Yes. The port always loads and shows all four
 (eclplay's frames at the menu compared for the full-memory run).
+
+Found: with less memory still, a GetMem fails and Turbo Pascal's HeapError
+(DS:439a, set by 2f48:00b2 to 2f48:0042) shows "WARNING: Insufficient
+Memory" in yellow on row 24 and waits for a key (1521:096c): the close-up is
+not shown (DS:6da2 then still holds the previous picture's count) - see
+closeup.png; with less again the run does not reach the question.
 """
 import argparse
 import os

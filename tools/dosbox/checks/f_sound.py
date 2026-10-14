@@ -115,8 +115,12 @@ def compare_music(name, ewav, bwav):
     agree, both, differ = f_wav.compare_pitches(rd_e, d_e, rd_b, d_b, offset, times)
     print(f"{name}: pitches: {agree} of {both} frames agree (strongest peak within 3%); "
           f"some that differ (t, eclplay Hz, DOSBox-X Hz): {differ}")
-    ok = (lags and drift <= 0.02 and both and agree >= 0.9 * both and
-          abs((end_e - on_e * HOP) - (end_b - on_b * HOP)) < 0.3)
+    # The music's length is the title's (its pictures load in emulated disk
+    # and CPU time in DOSBox-X, in none in eclplay): reported, not compared.
+    # DOSBox-X's WAV keeps its emulated time only to a few tenths of a percent
+    # when it runs slower than real time (see clock): a drift up to 0.1 s
+    # over the 35 s passes.
+    ok = bool(lags) and drift <= 0.1 and both and agree >= 0.9 * both
     print(f"{name}: {'AGREES' if ok else 'DIFFERS'}")
     return ok
 
@@ -198,7 +202,10 @@ def effects(name, work, verbose):
     hwav, _ = eclplay_wav(head, work / "eclplay-head", cfg_bytes("T"), [saves], seed=SEED)
     rh, h = f_wav.read(hwav)
     tail_start = len(h) / rh - 1.0
-    ekeys = head + "".join(pause + k for k in spec["tail"]) + pause
+    # A last Escape after the pause, which eclplay takes only after the pause
+    # has passed (its keys running out would end the run at once, cutting the
+    # last sound with the overlays' unhook).
+    ekeys = head + "".join(pause + k for k in spec["tail"]) + pause + r"\e"
     ewav, etext = eclplay_wav(ekeys, work / "eclplay", cfg_bytes("T"), [saves], seed=SEED)
     bwav = work / "dosbox.wav"
     with cokbox.Box(workdir=work / "box", sound="T", cfg=cfg_bytes("T"), wav=bwav,
@@ -232,6 +239,10 @@ def effects(name, work, verbose):
     # steps of the envelope); the steps' noise has no pitch to compare, and
     # the time between them is the original's drawing and disk time, which
     # eclplay's clock does not have.
+    # #4: the first sound's onset (a step followed by a record read, as the
+    # caravan's, makes none in either if the read cuts it at once).
+    print(f"effects {name}: first sound at {found[0][0][0] if found[0] else None} s (eclplay), "
+          f"{found[1][0][0] if found[1] else None} s (DOSBox-X) after the tail's start")
     pairs = f_wav.match(found[0], found[1], lambda x, y: abs(x[1] - y[1]) <= 0.015)
     lone_e = [x for i, x in enumerate(found[0]) if i not in {p[0] for p in pairs}]
     lone_b = [x for j, x in enumerate(found[1]) if j not in {p[1] for p in pairs}]
@@ -239,7 +250,9 @@ def effects(name, work, verbose):
           f"({', '.join(f'{found[0][i][1]:.3f}/{found[1][j][1]:.3f}' for i, j in pairs)}); "
           f"eclplay's alone {lone_e}; DOSBox-X's alone {lone_b}")
     ok = not lone_e and not lone_b
-    print(f"effects {name}: {'AGREES' if ok else 'DIFFERS'}")
+    print(f"effects {name}: " + ("AGREES" if ok else
+          "some sounds unmatched: commands close together merge differently, eclplay's "
+          "clock having no drawing or disk time (README Sound > Time); see the results"))
     return ok
 
 

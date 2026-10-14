@@ -1,4 +1,4 @@
-"""WAV comparison for batch F's sound checks (f_sound.py, f_sound_cut.py):
+"""WAV comparison for batch F's sound checks (f_sound.py, #3 and #4):
 standard library only. Not a check itself.
 
 DOSBox-X records 48 kHz stereo (F12+W), eclplay --wav renders 44.1 kHz
