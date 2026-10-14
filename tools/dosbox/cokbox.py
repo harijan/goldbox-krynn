@@ -510,20 +510,24 @@ class Box:
     def _start_once(self):
         self.prepare()
         self._deadline = time.monotonic() + self.timeout
-        rfd, wfd = os.pipe()
-        self.xvfb = subprocess.Popen(
-            ["Xvfb", "-displayfd", str(wfd), "-screen", "0", "1024x768x24", "-nolisten", "tcp"],
-            pass_fds=(wfd,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True)
-        os.close(wfd)
-        number = b""
-        with os.fdopen(rfd, "rb") as r:
-            while not number.endswith(b"\n"):
-                chunk = r.read(1)
-                if not chunk:
-                    raise BoxError("Xvfb did not start")
-                number += chunk
-        self.display_name = ":" + number.decode().strip()
+        displays = os.environ.get("COKBOX_DISPLAYS")
+        if displays:  # a range of X display numbers to keep to, e.g. "130-139"
+            self.display_name = _start_xvfb_in(self, displays)
+        else:
+            rfd, wfd = os.pipe()
+            self.xvfb = subprocess.Popen(
+                ["Xvfb", "-displayfd", str(wfd), "-screen", "0", "1024x768x24", "-nolisten",
+                 "tcp"], pass_fds=(wfd,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True)
+            os.close(wfd)
+            number = b""
+            with os.fdopen(rfd, "rb") as r:
+                while not number.endswith(b"\n"):
+                    chunk = r.read(1)
+                    if not chunk:
+                        raise BoxError("Xvfb did not start")
+                    number += chunk
+            self.display_name = ":" + number.decode().strip()
         env = dict(os.environ, DISPLAY=self.display_name, SDL_AUDIODRIVER="dummy")
         env.pop("WAYLAND_DISPLAY", None)
         self._log_file = open(self.workdir / "dosbox.log", "wb")
@@ -945,6 +949,27 @@ class Box:
         return not self.running
 
 
+def _start_xvfb_in(box, displays):
+    """Start BOX's Xvfb on the first free display number of DISPLAYS ("LO-HI",
+    the COKBOX_DISPLAYS environment variable: parallel runs keep apart)."""
+    lo, _, hi = displays.partition("-")
+    for n in range(int(lo), int(hi or lo) + 1):
+        if os.path.exists(f"/tmp/.X{n}-lock") or os.path.exists(f"/tmp/.X11-unix/X{n}"):
+            continue
+        box.xvfb = subprocess.Popen(
+            ["Xvfb", f":{n}", "-screen", "0", "1024x768x24", "-nolisten", "tcp"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        end = time.monotonic() + 20
+        while time.monotonic() < end and box.xvfb.poll() is None:
+            if os.path.exists(f"/tmp/.X11-unix/X{n}"):
+                return f":{n}"
+            time.sleep(0.05)
+        if box.xvfb.poll() is None:
+            os.killpg(box.xvfb.pid, signal.SIGKILL)
+            box.xvfb.wait()
+    raise BoxError(f"no free X display in {displays}")
+
+
 def _complete_png(path):
     try:
         return path.read_bytes().endswith(b"IEND\xaeB`\x82")
@@ -968,11 +993,12 @@ for _sig in (signal.SIGTERM, signal.SIGHUP):
 # ---------------------------------------------------------------- command line
 
 def eclplay(keys, out, assets=None, machine="tandy", saves=(), args=(), shots=True,
-            start_menu=True):
+            start_menu=True, block=None, binary=None):
     """Run eclplay with KEYS, as the Box would run the game: --start-menu
-    (unless START_MENU is false: ARGS then say where to start), a KRYNN.CFG
-    for MACHINE, SAVES copied into OUT/saves (its --saves). Returns (stdout,
-    saves directory, the shots' paths in order)."""
+    (unless START_MENU is false: ARGS then say where to start, and BLOCK the
+    ECL block, after the assets), a KRYNN.CFG for MACHINE, SAVES copied into
+    OUT/saves (its --saves); BINARY another eclplay than build/'s. Returns
+    (stdout, saves directory, the shots' paths in order)."""
     out = pathlib.Path(out)
     out.mkdir(parents=True, exist_ok=True)
     shot_dir, save_dir = out / "shots", out / "saves"
@@ -989,10 +1015,10 @@ def eclplay(keys, out, assets=None, machine="tandy", saves=(), args=(), shots=Tr
     cfg = out / "krynn.cfg"
     cfg.write_bytes(krynn_cfg(MACHINES[machine][1]).encode())
     result = subprocess.run(
-        [str(ROOT / "build/eclplay"), *(["--start-menu"] if start_menu else []),
+        [str(binary or ROOT / "build/eclplay"), *(["--start-menu"] if start_menu else []),
          "--config", str(cfg), "--saves",
          str(save_dir), *(["--shots", str(shot_dir)] if shots else []), *map(str, args),
-         "--keys", keys, str(assets)],
+         "--keys", keys, str(assets), *([str(block)] if block is not None else [])],
         check=False, capture_output=True, text=True, timeout=600)
     return result.stdout, save_dir, sorted(shot_dir.glob("*.bmp"))
 
