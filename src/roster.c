@@ -266,8 +266,8 @@ void cok_roster_add(cok_adventure *game)
          * ignore it. */
         if (key == ' ' && !tried) return;
         if ((key != 0x0d && key != 'A') || text[index][0] == '*') continue;
-        cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 67b5:0c7b */
-        cok_text_string(&game->screen, &game->font, "Loading...Please Wait", 0, 24, 10, 0);
+        /* 67b5:0c7b, then 4b6d:11e5's message (4b6d:1283). */
+        cok_adventure_loading(game);
         cok_character *c = malloc(sizeof *c);
         if (c == NULL) {
             undefined(game, "out of memory");
@@ -383,8 +383,7 @@ bool cok_roster_load(cok_adventure *game)
     }
     char letter[2] = {(char)key, '\0'};
     cok_adventure_log(game, "choice", letter);
-    cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0);
-    cok_text_string(&game->screen, &game->font, "Loading...Please Wait", 0, 24, 10, 0);
+    cok_adventure_loading(game); /* 4b6d:1d06, 1d1e */
     if (!cok_adventure_restore(game, path)) {
         cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
         return false;

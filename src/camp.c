@@ -954,6 +954,7 @@ bool cok_camp(cok_adventure *game)
     game->heal_ticks = 0;
     memset(game->rest, 0, sizeof game->rest);
     uint8_t picture = game->picture_id; /* DS:6df7, 6e01 */
+    bool sprite = game->picture_sprite;
     cok_adventure_redraw(game);
     /* Loading the camp picture zero-fills the stack where View's Trade
      * later finds its flag (see sheet.h); kept from before, the byte is
@@ -1015,12 +1016,13 @@ bool cok_camp(cok_adventure *game)
         vm->mode = mode;
         return interrupted;
     }
-    /* The picture shown before, if Copy(DS:6df7, 1, 3) is 'PIC' (4888:2df0):
-     * the port loads no other small pictures, and freeing one (6961:0537)
-     * empties DS:6dee and sets DS:6e00 to 0xff, so that holds exactly when
-     * one was loaded. 6961:00e4 keeps the camp's when it is the same. Then
-     * the spell target is cleared (DS:710b, 4888:2e28). */
-    if (picture != COK_ADVENTURE_NO_PICTURE) cok_adventure_load_picture(game, picture);
+    /* The picture shown before, if Copy(DS:6df7, 1, 3) is 'PIC'
+     * (4888:2de7-2e09): not a sprite (SPRIT), which an encounter that
+     * ended before its close-up leaves in the slot, and not an empty slot
+     * (6961:0537 empties DS:6dee and sets DS:6e00 to 0xff); the camp's
+     * picture then stays. 6961:00e4 keeps the camp's when it is the same.
+     * Then the spell target is cleared (DS:710b, 4888:2e28). */
+    if (!sprite && picture != COK_ADVENTURE_NO_PICTURE) cok_adventure_load_picture(game, picture);
     game->spell_target = NULL;
     forget_all(game);
     vm->mode = mode;

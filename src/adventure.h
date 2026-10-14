@@ -32,6 +32,10 @@ typedef struct cok_adventure cok_adventure;
 
 enum {
     COK_BATTLE_SP = 0x3dd4, /* SP at 3995:0172 for a script 2fd3:3c28 runs. */
+    /* How much deeper PROGRAM 9's camp runs its vectors than the script
+     * running PROGRAM (2fd3:3add's SP at the inner run, from 3403, against
+     * the outer, through 386d and 3473), as the emulator measured it. */
+    COK_PROGRAM_CAMP_DEPTH = 0x128,
     COK_ICON_SLOTS = 26, /* DS:6172: 0-7 the party's, 8 on monsters', 13-25 missiles. */
     COK_MONSTERS_MAX = 63, /* DS:43be: records LOAD MONSTER adds between CLEARMONSTERS. */
     COK_COINS = 7,
@@ -257,7 +261,7 @@ struct cok_adventure {
     /* The battle's map, combatants and tile set (see combat.h). */
     cok_combat combat;
     /* DS:6e3a: spells pick their targets with the combat routine
-     * (432f:2337, not ported) rather than 5b04:127e; set while a battle
+     * (432f:2337, see cast.h) rather than 5b04:127e; set while a battle
      * runs (3995:0172 to 004b). */
     bool combat_targets;
     bool restoring;        /* The block's vectors run; DS:43bf is restored after them. */
@@ -266,9 +270,10 @@ struct cok_adventure {
      * and the calls on the way): COK_BATTLE_SP for a vector 2fd3:3c28 runs
      * (an emulator booting the game measured it in the demonstration's
      * battle), 6 less through 3b47 (entering a block), 8 less through 3403
-     * (Encamp in the adventure loop); 0 where it is not known (PROGRAM 9's
-     * camp, in the middle of a script). A dragon's cone reads a byte of
-     * the stack below it (see cok_cast_breath). */
+     * (Encamp in the adventure loop), and COK_PROGRAM_CAMP_DEPTH less than
+     * the script's for PROGRAM 9's camp, in the middle of a script. A
+     * dragon's cone reads a byte of the stack below it (see
+     * cok_cast_breath). */
     uint16_t battle_sp;
 
     /* The start menu (see start.h). */
@@ -419,6 +424,12 @@ void cok_adventure_wait(cok_adventure *game, unsigned ms);
 bool cok_adventure_key_pending(cok_adventure *game);
 /* Discard the keys waiting (hooks.flush, 1614:045c). */
 void cok_adventure_flush(cok_adventure *game);
+/* "Loading...Please Wait" in light green on row 24, cleared first, as the
+ * original shows it while it reads the disk (67b5:0c7b or 1521:030a, then
+ * 1521:0353): loading a block (3775:0361), a small picture or sprite
+ * with animation on (6961:00e4), at startup (3e99:005b), reading a
+ * character or a saved game (4b6d:11e5, 1b34; roster.h). */
+void cok_adventure_loading(cok_adventure *game);
 /* Text input's keyboard: Crt.ReadKey's keys (1521:0739), which do not
  * turn the sound on and off as 1614:025b's do. */
 cok_keyboard cok_adventure_keyboard_raw(cok_adventure *game);
@@ -447,13 +458,15 @@ void cok_adventure_carry(cok_adventure *game, uint16_t clock[7]);
  * 5) nothing. */
 void cok_adventure_redraw(cok_adventure *game);
 /* Load PIC<file> record id as the small picture unless it is loaded
- * (6961:00e4), logging an error if it fails; and draw its current frame at
- * cell 3, 3, as the camp's menus do while they wait (6961:000a). */
+ * (6961:00e4), with "Loading...Please Wait" while animation is on; a
+ * record that is not there says "PIC not found" and waits for a key, a
+ * file that is not there stops the run, and a record that cannot be
+ * decoded logs an error and leaves the slot empty. */
 void cok_adventure_load_picture(cok_adventure *game, uint8_t id);
 /* Load SPRIT<file> record id into the small picture slot unless it is
  * there (6961:00e4 with mode 1): every group, colour 0 transparent and 13
- * drawn black, as cok_picture_load_sprite loads them; not for 0xff. A
- * record that cannot be had logs an error and leaves the slot empty. */
+ * drawn black, as cok_picture_load_sprite loads them; not for 0xff. As
+ * cok_adventure_load_picture for the message and what is not there. */
 void cok_adventure_load_sprite(cok_adventure *game, uint8_t id);
 /* Free the small picture and load BIGPIC<file> record id as the big
  * picture unless it is loaded (6961:07ed). A record that is not there

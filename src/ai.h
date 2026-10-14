@@ -46,7 +46,8 @@ bool cok_combat_computer(cok_adventure *game, cok_character *c);
  * below 0x80) whose status is not 1 back to the player (+0x18b), and if c
  * is one of them its initiative becomes 0x14 and *back is set; 0x2d
  * (Alt-X, or '-') runs the Helm cheat when the game was started with it
- * (432f:41e2). The keyboard's flush after (1614:045c) is not ported. */
+ * (432f:41e2). Then the keyboard is flushed (3afb:12eb, 1614:045c),
+ * a key waiting or not. */
 bool cok_ai_keys(cok_adventure *game, cok_character *c, bool *back);
 
 /* 004b's way of moving (combat record +0x15, a row of DS:0396): a row 1-4

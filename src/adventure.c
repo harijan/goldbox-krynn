@@ -250,24 +250,74 @@ static uint32_t u32(const uint8_t *p)
     return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
 }
 
-/* Load PIC<file> record id unless it is loaded (6961:00e4), which goes by
- * the name and the record (DS:6dee, 6e00), not the file. Groups after the
- * first are XOR deltas; without animation only the first is kept. */
+static void prompt_colour(cok_adventure *game, const char *text, uint8_t fg);
+
+void cok_adventure_loading(cok_adventure *game)
+{
+    cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0);
+    cok_text_string(&game->screen, &game->font, "Loading...Please Wait", 0, 24, 10, 0);
+}
+
+/* Load record id of <name><file> into the small picture's slot unless it
+ * holds it (6961:00e4), which goes by the name and the record (DS:6dee,
+ * 6e00), not the file, and keeps both before it reads: a record that is
+ * not there says "PIC not found" (1521:096c: row 24 in yellow, a key),
+ * leaves the slot empty and counts as loaded. With animation on (DS:4b4f)
+ * "Loading...Please Wait" shows on row 24 while it reads and the row is
+ * cleared after (not when the record is not there). Returns the record,
+ * or NULL. */
+static uint8_t *picture_record(cok_adventure *game, const char *name, uint8_t id, bool sprite,
+                               size_t *size)
+{
+    if (id == 0xff || (id == game->picture_id && sprite == game->picture_sprite)) return NULL;
+    if (game->animate) cok_adventure_loading(game); /* 6961:0128 */
+    free_frames(game);                              /* 6961:0537 */
+    game->picture_id = id;
+    game->picture_sprite = sprite;
+    game->error[0] = '\0';
+    char label[32];
+    snprintf(label, sizeof label, "%s%u", name, game->vm.file);
+    bool no_file;
+    uint8_t *data = find_record(game, label, id, size, &no_file);
+    if (data != NULL) {
+        game->frame_unset = false; /* DS:6da3 1 */
+        return data;
+    }
+    if (no_file) {
+        /* A file that is not there: the original asks for it ("Couldn't
+         * find PIC1.dax. Check install.", 169c:02a7 with DS:5884 0) and
+         * looks again after each key until it is there; the port stops,
+         * as for portraits. */
+        cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
+        return NULL;
+    }
+    static const char missing[] = "PIC not found";
+    log_text(game, "print", missing);
+    prompt_colour(game, missing, 14);
+    return NULL;
+}
+
+/* The end of 6961:00e4: the keys flushed (6961:0514), and with animation
+ * on row 24 cleared. */
+static void picture_loaded(cok_adventure *game)
+{
+    cok_adventure_flush(game); /* 6961:0514 */
+    if (game->animate) cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 6961:052c */
+}
+
+/* Load PIC<file> record id (6961:00e4 with 0). Groups after the first are
+ * XOR deltas; without animation only the first is kept. */
 static void load_picture(cok_adventure *game, uint8_t id)
 {
-    if (id == game->picture_id && !game->picture_sprite) return;
-    free_frames(game);
-    game->error[0] = '\0';
     size_t size;
-    uint8_t *data = cok_adventure_record(game, "PIC", game->vm.file, id, &size);
+    uint8_t *data = picture_record(game, "PIC", id, false, &size);
     if (data == NULL) return;
-    game->picture_id = id;
-    game->frame_unset = false; /* DS:6da3 1 */
     cok_images images = {0};
     cok_image_status status = cok_images_undelta(data, size);
     if (status == COK_IMAGE_OK) status = cok_images_parse(data, size, 1, &images);
     if (status != COK_IMAGE_OK) {
         fail(game, "PIC%u.DAX record %u: %s", game->vm.file, id, cok_image_status_string(status));
+        log_text(game, "error", game->error);
         free(data);
         return;
     }
@@ -282,23 +332,14 @@ static void load_picture(cok_adventure *game, uint8_t id)
     }
     cok_images_free(&images);
     free(data);
-    cok_adventure_flush(game); /* 6961:0514 */
+    picture_loaded(game);
 }
 
 void cok_adventure_load_sprite(cok_adventure *game, uint8_t id)
 {
-    if (id == 0xff || (id == game->picture_id && game->picture_sprite)) return;
-    free_frames(game);
-    game->error[0] = '\0';
     size_t size;
-    uint8_t *data = cok_adventure_record(game, "SPRIT", game->vm.file, id, &size);
-    if (data == NULL) {
-        log_text(game, "error", game->error);
-        return;
-    }
-    game->picture_id = id;
-    game->frame_unset = false;
-    game->picture_sprite = true;
+    uint8_t *data = picture_record(game, "SPRIT", id, true, &size);
+    if (data == NULL) return;
     cok_images images = {0};
     cok_image_status status = cok_images_parse(data, size, 1, &images);
     if (status != COK_IMAGE_OK) {
@@ -320,7 +361,7 @@ void cok_adventure_load_sprite(cok_adventure *game, uint8_t id)
     }
     cok_images_free(&images);
     free(data);
-    cok_adventure_flush(game); /* 6961:0514 */
+    picture_loaded(game);
 }
 
 void cok_adventure_draw_sprite(cok_adventure *game, unsigned frame)
@@ -550,7 +591,6 @@ static void picture(cok_adventure *game)
         /* Loading starts the frames from the first (DS:6da3); a picture
          * already loaded keeps its current one. The first is drawn. */
         load_picture(game, id);
-        if (game->picture_id != id) log_text(game, "error", game->error);
         draw_frame(game, 0);
         return;
     }
@@ -1185,7 +1225,7 @@ static uint8_t *member_rolled(cok_adventure *game, uint8_t rolled)
  * deals it even when the save is made. If no member can act afterwards,
  * the party is killed and the run ends. Members are rolled from the size in
  * 0x7f3e. The members' spell effects change the attack and saving rolls;
- * one that is not ported stops the run with COK_ECL_EFFECT_FAILED. */
+ * one the port cannot carry out stops the run with COK_ECL_EFFECT_FAILED. */
 static void damage(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -1630,7 +1670,10 @@ static void program(cok_adventure *game)
             cok_adventure_redraw(game);
     } else if (what == 9) {
         uint16_t ip = vm->ip;
-        cok_ecl_status status = camp(game, 0);
+        /* Its vectors run 0x128 bytes below the script's (2fd3:3473 ->
+         * 3403 -> 3add). */
+        cok_ecl_status status =
+            camp(game, (uint16_t)(game->battle_sp - COK_PROGRAM_CAMP_DEPTH));
         vm->ip = ip;
         if (status != COK_ECL_OK) {
             vm->status = status;
@@ -1677,9 +1720,14 @@ static void opcode(cok_ecl *vm, void *context)
     }
 }
 
+/* 3775:0361: row 24 cleared and "Loading...Please Wait" shown while the
+ * block is read, then the row cleared again (67b5:0c7b). The original
+ * reads again for ever while the record is shorter than two bytes; the
+ * port stops. */
 static bool load_block(cok_ecl *vm, uint8_t block, void *context)
 {
     cok_adventure *game = context;
+    cok_adventure_loading(game); /* 3775:037f */
     game->error[0] = '\0';
     size_t size;
     uint8_t *data = cok_adventure_record(game, "ECL", vm->file, block, &size);
@@ -1690,6 +1738,7 @@ static bool load_block(cok_ecl *vm, uint8_t block, void *context)
         fail(game, "ECL%u.DAX record %u: %s", vm->file, block, cok_ecl_status_string(status));
         return false;
     }
+    cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 3775:042c */
     /* Blocks 0 and 0x50 have no squares off the map (DS:8846). */
     game->view.wrap = block != 0 && block != 0x50;
     return true;
@@ -2453,7 +2502,6 @@ void cok_adventure_free_picture(cok_adventure *game)
 void cok_adventure_load_picture(cok_adventure *game, uint8_t id)
 {
     load_picture(game, id);
-    if (game->picture_id != id) log_text(game, "error", game->error);
 }
 
 void cok_adventure_show_picture(cok_adventure *game)
@@ -3066,7 +3114,6 @@ static void redraw_screen(cok_adventure *game)
         uint8_t picture = vm->mode == 2 ? 0x3b : 0x3c;
         cok_adventure_frame(game);
         load_picture(game, picture);
-        if (game->picture_id != picture) log_text(game, "error", game->error);
         cok_adventure_party(game);
         if (vm->mode == 2) cok_adventure_status(game);
     } else if (vm->mode == 4) {

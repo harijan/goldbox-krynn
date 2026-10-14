@@ -1170,8 +1170,9 @@ const size_t cok_combat_table_count = sizeof cok_combat_tables / sizeof *cok_com
  * pools on the map (DS:7111, 7119); then each record charmed (effect
  * 0x0b) and okay runs (status 3) if more than one enemy could act at the
  * last count, and loses the first effect of each id that lasts only
- * through the battle (60f4:1440, see round.h); the map and the flash
- * picture (DS:719e, not ported) are freed, and spells pick their targets
+ * through the battle (60f4:1440, see round.h); the map and the missile's
+ * and flash's pictures (DS:719e; the port keeps those, see combat.h) are
+ * freed, and spells pick their targets
  * outside combat again (DS:6e3a). */
 bool cok_combat_end(cok_adventure *game)
 {

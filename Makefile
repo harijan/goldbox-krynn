@@ -71,10 +71,10 @@ build/test_debug: tests/test_debug.c $(ADVENTURE_DEPS) | build
 build/test_debug_sanitize: tests/test_debug.c $(ADVENTURE_DEPS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_debug.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
 
-build/test_hooks: tests/test_hooks.c $(ADVENTURE_DEPS) | build
+build/test_hooks: tests/test_hooks.c tests/test_loading_data.h $(ADVENTURE_DEPS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_hooks.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
 
-build/test_hooks_sanitize: tests/test_hooks.c $(ADVENTURE_DEPS) | build
+build/test_hooks_sanitize: tests/test_hooks.c tests/test_loading_data.h $(ADVENTURE_DEPS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_hooks.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
 
 build/test_start: tests/test_start.c $(ADVENTURE_DEPS) | build

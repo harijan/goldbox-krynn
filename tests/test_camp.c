@@ -464,6 +464,22 @@ static void test_camp(void)
     CHECK(!cok_camp(&game));
     CHECK(strcmp(s.log, "print: The party makes camp...;menu: Save View Magic Rest Alter Fix Exit;") == 0);
     CHECK(game.vm.mode == 4 && game.picture_id == 0x3b);
+    /* A sprite left in the slot (an encounter that ended before its
+     * close-up) is not loaded again as a PIC at the end (4888:2de7): the
+     * camp's picture stays, with no "PIC not found" (PIC2 has no record
+     * 26) and no key read for it. */
+    game.vm.file = 2;
+    cok_adventure_load_sprite(&game, 26);
+    CHECK(game.picture_sprite && game.picture_id == 26);
+    keys("\x1b\r");
+    CHECK(!cok_camp(&game));
+    CHECK(strcmp(s.log, "print: The party makes camp...;menu: Save View Magic Rest Alter Fix Exit;") == 0);
+    CHECK(s.at == 1 && !game.picture_sprite && game.picture_id == 0x3b && game.frame_count > 0);
+    game.vm.file = 1;
+    cok_adventure_load_picture(&game, 12);
+    keys("\x1b");
+    CHECK(!cok_camp(&game));
+    CHECK(game.picture_id == 12 && !game.picture_sprite);
     /* The menu keeps the selection the last menu left: after Encamp, the
      * fifth item of the commands, Enter picks Alter. */
     game.selected = 5;

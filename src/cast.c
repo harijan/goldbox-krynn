@@ -1654,9 +1654,10 @@ static bool cone(cast *cx, int8_t x0, int8_t y0, int8_t tx, int8_t ty, uint8_t w
                     return undefined(game, overrun);
                 if (d == 0) memcpy(first, each, sizeof first);
                 if (memcmp(first, each, sizeof first) != 0)
-                    return unported(game, "a cone's side lines come from a byte of the stack "
-                                          "432f:2337 left, whose depth this script's path "
-                                          "does not give the port, and which changes its "
+                    return unported(game, "a cone's side lines come from the low byte of "
+                                          "the heap offset of the CGA mirror's mask, which its "
+                                          "last Move took (127f:0b94), not known to the port, "
+                                          "and which changes its "
                                           "targets (5b04:1b2a)");
             }
             memcpy(list, first, sizeof first);
@@ -2382,16 +2383,15 @@ static bool no_friend(cast *cx, cok_character *c, bool *none)
  * 124b). Those are offsets in the stack segment, the same wherever DOS
  * loads the game, and within a battle every breath is at the same depth
  * (546e at 0x16e below 3995:0172's SP): 0x16 and 0x0c above the battle's
- * stack pointer's low byte (sp), 0xea and 0xe0 for COK_BATTLE_SP; -1
- * where sp is 0, not known. */
+ * stack pointer's low byte (sp), 0xea and 0xe0 for COK_BATTLE_SP. */
 static void drawn_bytes(const cok_combat *combat, cok_display display, unsigned mirrors,
                         unsigned tiles, uint16_t sp, uint16_t *range, int *side)
 {
     *range = 0x432f;
-    *side = sp == 0 ? -1 : (uint8_t)(sp + 0x0c);
+    *side = (uint8_t)(sp + 0x0c);
     if (combat->mirrors != mirrors) {
         *range = combat->mirrored;
-        *side = sp == 0 || display == COK_DISPLAY_CGA ? -1 : (uint8_t)(sp + 0x16);
+        *side = display == COK_DISPLAY_CGA ? -1 : (uint8_t)(sp + 0x16);
     } else if (combat->tiles_drawn != tiles) {
         *side = 0;
     }

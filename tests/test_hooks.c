@@ -10,6 +10,7 @@
 #include "camp.h"
 #include "monster.h"
 #include "start.h"
+#include "test_loading_data.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,9 +33,13 @@ typedef struct {
 
 static script s;
 
+/* Set while test_loading records the screen at each read, flush and key. */
+static void (*recording)(const char *kind);
+
 static int scripted(void *context)
 {
     script *p = context;
+    if (recording != NULL) recording("key");
     p->animating = game.menu_animates;
     ++p->reads;
     if (p->at == p->length) return -1;
@@ -45,6 +50,7 @@ static int scripted(void *context)
 static void flushed(cok_adventure *g, void *context)
 {
     (void)g;
+    if (recording != NULL) recording("flush");
     ++((script *)context)->flushes;
 }
 
@@ -215,6 +221,7 @@ static void sounded(cok_adventure *g, cok_sound_call call, unsigned value, void 
     (void)g;
     (void)context;
     static const char letters[] = "CIOERKMNQ";
+    if (recording != NULL && call == COK_SOUND_RECORD) recording("read");
     size_t used = strlen(calls);
     if (call == COK_SOUND_COMMAND)
         snprintf(calls + used, sizeof calls - used, "C%u ", value);
@@ -287,6 +294,195 @@ static void test_sounds(void)
     game.input_ended = false;
 }
 
+/* "Loading...Please Wait" (and "PIC not found") against what the
+ * original's loaders do (tests/test_loading_data.h): the screen at each
+ * record read, flush and key and at the end, and what the slot holds. */
+static char events[4096];
+static const char *read_label;
+
+static unsigned long long fnv(const uint8_t *p, size_t n)
+{
+    unsigned long long h = 0xcbf29ce484222325ull;
+    for (size_t i = 0; i < n; ++i) h = (h ^ p[i]) * 0x100000001b3ull;
+    return h;
+}
+
+static void record_screen(const char *kind)
+{
+    char hex[17];
+    snprintf(hex, sizeof hex, "%016llx", fnv(game.screen.pixels, game.screen.frame_size));
+    size_t used = strlen(events);
+    snprintf(events + used, sizeof events - used, "%s%s:%.10s", used ? " " : "",
+             strcmp(kind, "read") == 0 ? read_label : kind, hex);
+}
+
+static void loading_load(const char *kind, unsigned id)
+{
+    static char label[64];
+    const char *name = strcmp(kind, "ecl") == 0 ? "ECL" : strcmp(kind, "pic") == 0 ? "PIC" : "SPRIT";
+    snprintf(label, sizeof label, "read %s%u.dax %u", name, game.vm.file, id);
+    read_label = label;
+    if (strcmp(kind, "ecl") == 0)
+        CHECK(cok_adventure_load(&game, (uint8_t)id) == COK_ECL_OK);
+    else if (strcmp(kind, "pic") == 0)
+        cok_adventure_load_picture(&game, (uint8_t)id);
+    else
+        cok_adventure_load_sprite(&game, (uint8_t)id);
+}
+
+/* Row 24's pixels as text alone would leave them on a black row. */
+static bool row24_shows(const char *text, uint8_t fg)
+{
+    cok_picture row = {0};
+    CHECK(cok_adventure_create_picture(&game, &row, 40, 200, 1, 0) == COK_PICTURE_OK);
+    cok_text_string(&row, &game.font, text, 0, 24, fg, 0);
+    bool same = memcmp(row.pixels + 192 * 160, game.screen.pixels + 192 * 160, 8 * 160) == 0;
+    cok_picture_free(&row);
+    return same;
+}
+
+static bool row24_at_read;
+
+/* What the game logs, as "kind: text;". */
+static char lines[1024];
+
+static void logged(cok_adventure *g, const char *kind, const char *text, void *context)
+{
+    (void)g, (void)context;
+    size_t used = strlen(lines);
+    snprintf(lines + used, sizeof lines - used, "%s: %s;", kind, text);
+}
+
+static void note_row24(const char *kind)
+{
+    if (strcmp(kind, "read") == 0) row24_at_read = row24_shows("Loading...Please Wait", 10);
+}
+
+/* The cases of tests/test_loading_data.h, in the game's display mode; in
+ * CGA mode a frame's mask is told only as there (m) or not. */
+static void run_loading_cases(const loading_case *cases, size_t count, bool cga)
+{
+    recording = record_screen;
+    for (size_t n = 0; n < count; ++n) {
+        char kind[16], first[64];
+        unsigned file, animate, id;
+        CHECK(sscanf(cases[n].script, "%15s %u %u %63s %u", kind, &file, &animate, first,
+                     &id) == 5);
+        cok_adventure_free_picture(&game);
+        memset(game.screen.pixels, 0, game.screen.frame_size);
+        game.vm.file = (uint8_t)file;
+        game.animate = animate != 0;
+        keys("\r\r");
+        if (strcmp(first, "-") != 0) {
+            for (char *p = strtok(first, "+"); p != NULL; p = strtok(NULL, "+")) {
+                char *colon = strchr(p, ':');
+                *colon = '\0';
+                loading_load(p, (unsigned)atoi(colon + 1));
+            }
+        }
+        cok_text_string(&game.screen, &game.font, "Row 24 was here before the load:40 cells", 0, 24, 15, 0);
+        cok_text_string(&game.screen, &game.font, "Row 23 stays", 0, 23, 14, 0);
+        events[0] = '\0';
+        loading_load(kind, id);
+        record_screen("end");
+        char got[8192];
+        int used = snprintf(got, sizeof got, "%s | ", events);
+        if (strcmp(kind, "ecl") == 0) {
+            snprintf(got + used, sizeof got - (size_t)used, "code:%.10llx",
+                     fnv(game.vm.code, sizeof game.vm.code) >> 24);
+        } else {
+            bool none = game.picture_id == COK_ADVENTURE_NO_PICTURE && !game.picture_sprite;
+            used += snprintf(got + used, sizeof got - (size_t)used, "slot:%s/%u flag:%d frames:%zu",
+                             none ? "" : game.picture_sprite ? "SPRIT" : "PIC",
+                             none ? 0u : game.picture_id, game.frame_unset ? 0 : 1,
+                             game.frame_count);
+            for (size_t i = 0; i < game.frame_count; ++i) {
+                const cok_picture *p = &game.frames[i];
+                used += snprintf(got + used, sizeof got - (size_t)used, " %08llx/",
+                                 fnv(p->pixels, p->frame_size) >> 32);
+                if (p->mask != NULL && cga)
+                    used += snprintf(got + used, sizeof got - (size_t)used, "m");
+                else if (p->mask != NULL)
+                    used += snprintf(got + used, sizeof got - (size_t)used, "%08llx",
+                                     fnv(p->mask, p->frame_size) >> 32);
+                else
+                    used += snprintf(got + used, sizeof got - (size_t)used, "-");
+            }
+        }
+        if (strcmp(got, cases[n].expect) != 0) {
+            fprintf(stderr, "%s%s\n  original: %s\n  port:     %s\n", cga ? "CGA: " : "",
+                    cases[n].script, cases[n].expect, got);
+            exit(1);
+        }
+    }
+    recording = NULL;
+}
+
+/* Read plainly: the message over a cleared row while the record is
+ * read, and the row cleared after; "PIC not found" for a record that is
+ * not there, which then counts as held; startup's message. */
+static void plain_loading(void);
+
+static void test_loading(void)
+{
+    run_loading_cases(loading_cases,
+                      sizeof loading_cases / sizeof *loading_cases, false);
+    plain_loading();
+    /* The same in CGA mode (--display cga), its text in CGA's colours. */
+    cok_keyboard keyboard = game.keys;
+    cok_adventure_hooks hooks = game.hooks;
+    char saves[sizeof game.save_dir];
+    snprintf(saves, sizeof saves, "%s", game.save_dir);
+    cok_adventure_close(&game);
+    CHECK(cok_adventure_open_display(&game, "Assets", COK_DISPLAY_CGA, &keyboard, &hooks));
+    snprintf(game.save_dir, sizeof game.save_dir, "%s", saves);
+    CHECK(game.screen.cga);
+    run_loading_cases(loading_cases_cga,
+                      sizeof loading_cases_cga / sizeof *loading_cases_cga, true);
+    plain_loading();
+}
+
+static void plain_loading(void)
+{
+
+    recording = note_row24;
+    game.vm.file = 1;
+    game.animate = true;
+    cok_adventure_free_picture(&game);
+    cok_text_string(&game.screen, &game.font, "Something on row 24", 0, 24, 15, 0);
+    keys("");
+    row24_at_read = false;
+    cok_adventure_load_picture(&game, 12);
+    CHECK(row24_at_read && row24_shows("", 0) && game.frame_count == 4);
+    game.animate = false;
+    cok_adventure_free_picture(&game);
+    cok_text_string(&game.screen, &game.font, "Something on row 24", 0, 24, 15, 0);
+    row24_at_read = true;
+    cok_adventure_load_picture(&game, 12);
+    CHECK(!row24_at_read && row24_shows("Something on row 24", 15) && game.frame_count == 1);
+    row24_at_read = false;
+    CHECK(cok_adventure_load(&game, 17) == COK_ECL_OK && row24_at_read && row24_shows("", 0));
+    keys("\r");
+    game.hooks.log = logged;
+    lines[0] = '\0';
+    cok_adventure_load_picture(&game, 2);
+    game.hooks.log = NULL;
+    CHECK(strcmp(lines, "print: PIC not found;") == 0);
+    CHECK(row24_shows("PIC not found", 14) && game.picture_id == 2 && game.frame_count == 0);
+    CHECK(s.reads == 1 && s.flushes == 0);
+    keys("");
+    cok_adventure_load_picture(&game, 2);
+    CHECK(s.reads == 0 && game.picture_id == 2);
+    recording = NULL;
+
+    /* Startup leaves it for the title to draw over (3e99:06a4). */
+    memset(game.screen.pixels, 0, game.screen.frame_size);
+    cok_start_startup(&game);
+    CHECK(row24_shows("Loading...Please Wait", 10));
+    cok_adventure_free_picture(&game);
+    game.animate = true;
+}
+
 int main(void)
 {
     cok_keyboard k = {scripted, &s, NULL};
@@ -300,6 +496,7 @@ int main(void)
     test_saved_game();
     test_animating();
     test_sounds();
+    test_loading();
     cok_adventure_close(&game);
     DIR *d = opendir(dir);
     CHECK(d != NULL);

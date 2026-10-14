@@ -46,7 +46,7 @@ int cok_keymap_codes(SDL_Keycode key, SDL_Scancode scancode, Uint16 mod, int cod
     }
     if (scancode >= SDL_SCANCODE_KP_1 && scancode <= SDL_SCANCODE_KP_PERIOD) {
         int i = (int)(scancode - SDL_SCANCODE_KP_1);
-        if (alt) return 0; /* Alt and digits type a character code, not ported. */
+        if (alt) return 0; /* Alt and digits type a character code (cok_keymap_event). */
         if (ctrl) return keypad_ctrl[i] != 0 ? extended(codes, keypad_ctrl[i]) : 0;
         if (shift) return keypad_shifted[i] != 0 ? extended(codes, keypad_shifted[i]) : 0;
         return ascii(codes, keypad_digits[i]);
@@ -102,6 +102,48 @@ int cok_keymap_codes(SDL_Keycode key, SDL_Scancode scancode, Uint16 mod, int cod
         }
     }
     return ascii(codes, shift ? shifted_marks[mark - plain_marks] : (int)key);
+}
+
+int cok_keymap_event(cok_keymap_state *state, const SDL_KeyboardEvent *event, int codes[2])
+{
+    bool down = event->type == SDL_KEYDOWN;
+    SDL_Scancode scancode = event->keysym.scancode;
+    Uint16 mod = event->keysym.mod;
+    if (scancode == SDL_SCANCODE_LALT || scancode == SDL_SCANCODE_RALT) {
+        /* Alt's release types the number, if any, and clears it
+         * (0040:0019); going down it leaves it. */
+        if (down) return 0;
+        uint8_t code = state->alt_code;
+        state->alt_code = 0;
+        return code != 0 ? ascii(codes, code) : 0;
+    }
+    if (!down) return 0;
+    switch (scancode) {
+    /* Shift and the lock keys: INT 9 takes them (K16-K22) before Alt's
+     * keypad, and they leave its number alone. With Ctrl, NumLock is
+     * Pause (K25), which does not turn NumLock and is not ported. */
+    case SDL_SCANCODE_LSHIFT: case SDL_SCANCODE_RSHIFT: case SDL_SCANCODE_LCTRL:
+    case SDL_SCANCODE_RCTRL: case SDL_SCANCODE_CAPSLOCK: case SDL_SCANCODE_SCROLLLOCK:
+        return 0;
+    case SDL_SCANCODE_NUMLOCKCLEAR:
+        if (!event->repeat && (mod & KMOD_CTRL) == 0) state->numlock_off = !state->numlock_off;
+        return 0;
+    default: break;
+    }
+    bool keypad = scancode >= SDL_SCANCODE_KP_1 && scancode <= SDL_SCANCODE_KP_PERIOD;
+    if ((mod & KMOD_ALT) != 0 && (mod & (KMOD_GUI | KMOD_MODE)) == 0) {
+        if (keypad && scancode != SDL_SCANCODE_KP_PERIOD) {
+            int digit = scancode == SDL_SCANCODE_KP_0 ? 0 : (int)(scancode - SDL_SCANCODE_KP_1) + 1;
+            state->alt_code = (uint8_t)(state->alt_code * 10 + digit);
+            return 0;
+        }
+        /* Alt-space types a space and keeps it (K31); other keys clear
+         * it (K33). */
+        if (scancode != SDL_SCANCODE_SPACE) state->alt_code = 0;
+    }
+    if (keypad && state->numlock_off && (mod & (KMOD_ALT | KMOD_CTRL)) == 0)
+        mod = (mod & KMOD_SHIFT) != 0 ? (Uint16)(mod & ~KMOD_SHIFT) : (Uint16)(mod | KMOD_LSHIFT);
+    return cok_keymap_codes(event->keysym.sym, scancode, mod, codes);
 }
 
 /* The keys of a US keyboard, the main block before the keypad, so that a
