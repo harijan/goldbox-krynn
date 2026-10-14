@@ -67,6 +67,13 @@ static int next(cok_key_script *s)
         s->pending = 0x10 + (int)(found - letters);
         return 0;
     }
+    case 'c': {
+        /* Ctrl and a letter: 1-26 (Ctrl-D 4, Ctrl-Z 0x1a, Ctrl-C 3). */
+        char letter = *s->keys >= 'a' && *s->keys <= 'z' ? (char)(*s->keys - 32) : *s->keys;
+        if (letter < 'A' || letter > 'Z') return 'c';
+        ++s->keys;
+        return letter - 'A' + 1;
+    }
     case '#': {
         /* A scan code in two hex digits. */
         unsigned scan;

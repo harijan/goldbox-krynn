@@ -56,11 +56,13 @@ static int read_raw(void *context)
 
 /* 1614:025b, as every other read goes: Ctrl-S, or the scan code 0x13
  * after Alt-R's 0, turns the sound off or back on (the key is returned
- * all the same). */
+ * all the same); then, in a game started with Woof, the debug keys
+ * (cok_debug_key), which a scan code of 3 after Ctrl-2's 0 is too. */
 static int read_key(void *context)
 {
     int key = read_raw(context);
     if (key == 0x13) cok_adventure_sound(context, COK_SOUND_CTRL_S, 0x13);
+    if (key >= 0) key = cok_debug_key(context, key);
     return key;
 }
 
@@ -434,6 +436,11 @@ static void prompt_colour(cok_adventure *game, const char *text, uint8_t fg)
     wait_key(game);
 }
 
+void cok_adventure_prompt_colour(cok_adventure *game, const char *text, uint8_t fg)
+{
+    prompt_colour(game, text, fg);
+}
+
 /* The portrait. */
 
 /* Load record id of HEAD<file> or BODY<file> into piece, opaque
@@ -560,9 +567,15 @@ static void picture(cok_adventure *game)
 /* The 3D view's files. */
 
 /* Load tile set set from 8X8D<file> record id, colour 13 transparent
- * (6e22:0050). */
+ * (6e22:0050), first writing "slotnum = SET" to DEBUG.TXT while the debug
+ * flag is set. */
 static bool load_tiles(cok_adventure *game, unsigned set, uint8_t id)
 {
+    if (game->debug) {
+        char line[32];
+        snprintf(line, sizeof line, "slotnum = %u", set);
+        cok_debug_write(game, line);
+    }
     char name[16];
     snprintf(name, sizeof name, "8X8D%u", game->vm.file);
     return load_single(game, name, id, 13, &game->view.tiles[set]);
@@ -877,7 +890,7 @@ void cok_adventure_status(cok_adventure *game)
     append(text, sizeof text, hours);
     append(text, sizeof text, ":");
     append(text, sizeof text, minutes);
-    /* A "*" follows while the debug flag DS:4b51 is set; it is not ported. */
+    if (game->debug) append(text, sizeof text, "*"); /* 6346:2f4c, DS:4b51 */
     if (vm->mode == 2)
         append(text, sizeof text, " camping");
     else if ((vm->mem7c00[0x2ca] & 1) != 0)
@@ -1464,8 +1477,8 @@ static void find_special(cok_adventure *game)
  * spell among its 58 spell bytes (+0x1e-+0x57) stores the byte's index in
  * the second operand's variable and its position in the list in the
  * third's; with none, 0xff and the position of the last record (0 for an
- * empty list). The trace the original then writes (6d7e:093e) is shown
- * only with its debug flag (Ctrl-D), which is not ported. */
+ * empty list). Then the debug trace (6d7e:093e): "spell", the index, the
+ * position and the spell. */
 static void spell(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -1481,6 +1494,7 @@ static void spell(cok_adventure *game)
     }
     cok_ecl_store(vm, cok_ecl_address(vm, 1), index);
     cok_ecl_store(vm, cok_ecl_address(vm, 2), position);
+    cok_debug_trace(game, "spell", index, position, wanted); /* 2fd3:3292 */
 }
 
 /* ECL CLOCK count unit (2fd3:3005): pass the time (57e4:0549). */
@@ -1686,6 +1700,17 @@ static void trace(cok_ecl *vm, void *context)
     (void)vm;
     cok_adventure *game = context;
     if (game->hooks.trace != NULL) game->hooks.trace(game, game->hooks.context);
+}
+
+/* 2fd3:3b1d: the debug trace of the opcode run, by its name (6d7e:024f),
+ * with three zeros. */
+static void executed(cok_ecl *vm, void *context)
+{
+    cok_adventure *game = context;
+    if (!game->debug) return;
+    char name[16];
+    cok_debug_opcode_name(vm->opcode, name);
+    cok_debug_trace(game, name, 0, 0, 0);
 }
 
 /* The effects' handlers speak in the text window, or in combat the side
@@ -1973,6 +1998,13 @@ static bool effect_distance(cok_effects *fx, const uint8_t *origin, const uint8_
     return false;
 }
 
+static void effect_trace(cok_effects *fx, const char *text, uint8_t a, uint8_t b, uint8_t c,
+                         void *context)
+{
+    (void)fx;
+    cok_debug_trace(context, text, a, b, c);
+}
+
 bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keyboard *keys,
                         const cok_adventure_hooks *hooks)
 {
@@ -1986,7 +2018,8 @@ bool cok_adventure_open_display(cok_adventure *game, const char *assets, cok_dis
     game->display = display;
     game->battle_sp = COK_BATTLE_SP;
     cok_ecl_hooks vm_hooks = {.load = load_block, .opcode = opcode, .trace = trace,
-                              .character_value = character_value, .context = game};
+                              .executed = executed, .character_value = character_value,
+                              .context = game};
     cok_ecl_init(&game->vm, &vm_hooks);
     cok_effects_init(&game->effects, &game->vm, &game->party, &game->item_types);
     game->effects.say = effect_say;
@@ -2011,6 +2044,7 @@ bool cok_adventure_open_display(cok_adventure *game, const char *assets, cok_dis
     game->effects.breathe = effect_breathe;
     game->effects.dispel = effect_dispel;
     game->effects.party_list = effect_party_list;
+    game->effects.trace = effect_trace;
     game->effects.context = game;
     game->vm.file = 1;
     game->picture_id = COK_ADVENTURE_NO_PICTURE;
@@ -2071,6 +2105,7 @@ bool cok_adventure_open_display(cok_adventure *game, const char *assets, cok_dis
 
 void cok_adventure_close(cok_adventure *game)
 {
+    cok_debug_end(game);
     cok_party_free(&game->party);
     cok_effects_free(&game->effects);
     game->vm.character = NULL;
@@ -2369,6 +2404,7 @@ void cok_adventure_overlay(cok_adventure *game)
 void cok_adventure_quit(cok_adventure *game)
 {
     cok_adventure_sound(game, COK_SOUND_QUIT, 0);
+    if (game->debug) cok_debug_close(game); /* 1614:0051 */
     game->quit = true;
     game->vm.abort = true;
 }

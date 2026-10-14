@@ -227,6 +227,7 @@ void cok_combat_command_text(cok_adventure *game, cok_character *c, char out[41]
     if (cleric && cr->turns < game->undead) append(out, "Turn ");
     if (r[0x5a] == 5 && game->combat.yelled == NULL) append(out, "Yell ");
     append(out, "Done");
+    if (game->debug) append(out, "*"); /* 3995:0aa5, DS:4b51 */
 }
 
 /* 3995:08d5: the menu read until a command or a hidden key: scan codes

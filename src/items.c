@@ -926,7 +926,9 @@ void cok_items(cok_adventure *game, bool *done)
         if (character->item_count == 0)
             undefined(game, "an item count with no items loops forever (546c:1878)");
         if (game->vm.abort) return;
-        char items[41] = "Ready";
+        /* 546c:187b: View first while the debug flag (DS:4b51) is set. */
+        char items[41];
+        snprintf(items, sizeof items, "%s", game->debug ? "View Ready" : "Ready");
         if (c[0x189] != 0 && game->vm.mem4b00[0xe5] == 0 &&
             (game->vm.mode == 2 || game->vm.mode == 3 || game->vm.mode == 4 ||
              (game->vm.mode == 5 && cok_character_combat(character)->may_use != 0)))
@@ -969,6 +971,10 @@ void cok_items(cok_adventure *game, bool *done)
             cok_adventure_log(game, "choice", choice);
             int ok = 1;
             switch (key) {
+            case 'V':
+                ok = cok_debug_item(game, item); /* 546c:12be */
+                redraw = header = true;
+                break;
             case 'R': ok = cok_item_ready(game, character, picked); break;
             case 'U':
                 if (item[0x34] == 0) {

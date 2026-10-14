@@ -55,7 +55,9 @@ static void usage(const char *program)
             "                  unless --combat says otherwise\n"
             "  --start-menu    play the game from startup: the title, its menu, the start\n"
             "                  menu and the adventure, game after game\n"
-            "  --woof          with --start-menu, start as with Woof, without the title\n"
+            "  --woof          play as if started with Woof: Ctrl-D, Ctrl-Z and Ctrl-C\n"
+            "                  work (the debug mode, DEBUG.TXT in --saves DIR); with\n"
+            "                  --start-menu, start without the title\n"
             "  --play          then take adventure commands until the keys run out\n"
             "  --test-party N  add N (1-8) characters made up for testing, without saved\n"
             "                  games: fighters, clerics, mages and thieves of level 1\n"
@@ -715,6 +717,7 @@ static int run(int argc, char **argv)
     if (seeded) game.vm.seed = (uint32_t)seed;
     game.combat_stub = combat;
     game.helm = helm;
+    game.woof = woof;
     if (front) {
         game.combat_stub = combat;
         game.helm = helm;

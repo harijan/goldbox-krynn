@@ -761,6 +761,7 @@ cok_ecl_status cok_ecl_run(cok_ecl *vm, uint16_t address)
         vm->opcode = opcode;
         run_opcode(vm);
         if (vm->status != COK_ECL_OK) break;
+        if (vm->hooks.executed != NULL) vm->hooks.executed(vm, vm->hooks.context);
     }
     cok_ecl_status status = vm->status;
     vm->stop = false;

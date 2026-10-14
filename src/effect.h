@@ -197,6 +197,10 @@ struct cok_effects {
     /* Draw the party list again (6346:07ba), as the timers 0x0f, 0x2c and
      * 0x3e do outside combat. NULL draws nothing. */
     void (*party_list)(cok_effects *fx, void *context);
+    /* The debug trace (6d7e:093e, cok_debug_trace), as effect 0x07's
+     * handler calls it. NULL shows nothing. */
+    void (*trace)(cok_effects *fx, const char *text, uint8_t a, uint8_t b, uint8_t c,
+                  void *context);
     void *context;
     /* How deep the public calls are nested, a hook calling back in. */
     unsigned depth;

@@ -3,6 +3,7 @@
 
 #include "combat.h"
 #include "config.h"
+#include "debug.h"
 #include "ecl.h"
 #include "effect.h"
 #include "menu.h"
@@ -90,10 +91,12 @@ typedef struct {
      * and money robbed, the end of a fight, and the coins and items
      * TREASURE adds, the overhead map going on and off, the characters ADD
      * NPC and DUMP add and remove or that join from the roster, one saved
-     * to the roster, and the sound driver's commands: kind is "print",
-     * "menu", "list", "item", "heading", "choice", "input", "error", "at",
-     * "overland", "unported", "who", "quit", "monster", "combat",
-     * "treasure", "area", "party", "roster" or "sound". */
+     * to the roster, the sound driver's commands, and the debug mode's
+     * switching, traces and View (see debug.h) and the lines it writes to
+     * DEBUG.TXT: kind is "print", "menu", "list", "item", "heading",
+     * "choice", "input", "error", "at", "overland", "unported", "who",
+     * "quit", "monster", "combat", "treasure", "area", "party", "roster",
+     * "sound", "debug" or "debug.txt". */
     void (*log)(cok_adventure *game, const char *kind, const char *text, void *context);
     /* A battle has been set up (3cb2:1c58): game->combat holds its map and
      * combatants. NULL ignores it. */
@@ -180,6 +183,10 @@ struct cok_adventure {
     bool moving;           /* DS:8858: the arrows move the party. */
     bool overhead;         /* DS:6d84: the view shows the overhead map (Area). */
     bool helm;             /* Started with Helm: ParamStr(2) is DS:896a's string. */
+    bool woof;             /* Started with Woof: ParamStr(1) is 1614:024c's 'Woof', and
+                            * 1614:025b takes the debug keys (see debug.h). */
+    bool debug;            /* DS:4b51, the debug flag (Ctrl-D). */
+    cok_debug_file debug_file; /* DEBUG.TXT, DS:8864. */
     uint8_t sky;           /* DS:6d80: the view's sky colour, as 6945:00ba last set it. */
     /* DS:6d81-6d83: the backdrop's line, horizon and ground below the sky,
      * which 6945:00ba sets in CGA mode only (6d83 8 in the others). */
@@ -288,7 +295,8 @@ struct cok_adventure {
 
 /* Load the font and item types from assets and set up the VM with this module's hooks.
  * keys and hooks may be NULL. Returns false with game->error set. Free with
- * cok_adventure_close even on failure, which also frees the party. */
+ * cok_adventure_close even on failure, which also frees the party and
+ * closes DEBUG.TXT (cok_debug_end). */
 bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keyboard *keys,
                         const cok_adventure_hooks *hooks);
 /* As cok_adventure_open, in the display mode given (cok_adventure_open's
@@ -419,8 +427,8 @@ void cok_adventure_sound(cok_adventure *game, cok_sound_call call, unsigned valu
 /* The pair of calls around an overlay's load (if DS:577c, 17e8:0020(0xff);
  * then unless DS:577c, 17e8:00da), as main and COMBAT make them. */
 void cok_adventure_overlay(cok_adventure *game);
-/* Quit to DOS (1614:0000): the sound stopped, game->quit and the run
- * aborted. */
+/* Quit to DOS (1614:0000): the sound stopped, DEBUG.TXT closed while the
+ * debug flag is set, game->quit and the run aborted. */
 void cok_adventure_quit(cok_adventure *game);
 /* A key read as 1614:025b reads it, without waiting for one first: in the
  * demonstration 0 at once when none is pending. */
@@ -533,6 +541,9 @@ bool cok_adventure_load_image(cok_adventure *game, const char *name, uint8_t id,
                               cok_picture *picture);
 /* Show text on row 24 in white and wait for a key (1521:096c). */
 void cok_adventure_prompt_key(cok_adventure *game, const char *text);
+/* Show text on row 24 in colour fg and wait for a key (1521:096c), not
+ * logged. */
+void cok_adventure_prompt_colour(cok_adventure *game, const char *text, uint8_t fg);
 /* Show text on row 24 in colour fg, logged as "print", and wait for a key
  * (1521:096c). */
 void cok_adventure_alert(cok_adventure *game, const char *text, uint8_t fg);
