@@ -94,12 +94,14 @@ static void fresh(cok_adventure *game, uint8_t facing)
 void cok_start_startup(cok_adventure *game)
 {
     fresh(game, 0);
+    game->debug = false; /* 3e99:055b */
     game->demo = false;
 }
 
 void cok_start_reset(cok_adventure *game)
 {
     fresh(game, 2);
+    cok_debug_reset(game); /* 3e99:0977 */
     clear_menu(game);
 }
 
@@ -396,6 +398,7 @@ cok_ecl_status cok_start_game(cok_adventure *game, bool woof)
 {
     cok_ecl *vm = &game->vm;
     cok_start_startup(game);
+    game->woof = woof;
     if (!woof) cok_start_title(game);
     if (vm->abort) return vm->status;
     /* 1000:0160: the effects driver hooked (17e8:00da), logged where the
@@ -425,7 +428,9 @@ cok_ecl_status cok_start_game(cok_adventure *game, bool woof)
         cok_adventure_overlay(game); /* 1000:0282, around 6961:0890 */
         cok_adventure_overlay(game); /* 1000:02b8, around 2fd3:0000 */
         cok_ecl_status status = adventure(game);
-        if (status != COK_ECL_OK || vm->abort) return status;
+        /* Quitting to DOS in the adventure (camp's Quit, Ctrl-C) halts the
+         * program there (1614:0000); the adventure loop clears the abort. */
+        if (status != COK_ECL_OK || vm->abort || game->quit) return status;
         cok_adventure_overlay(game); /* 1000:02de, around 3e99:0000 */
         cok_start_reset(game);
         if (game->demo) {

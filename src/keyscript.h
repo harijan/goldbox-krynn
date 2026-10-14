@@ -9,8 +9,9 @@
  * character is its ASCII code, and backslash escapes give the rest:
  * \r Enter (13), \e Escape (27), \b Backspace (8), \< \> \^ \v the arrows
  * (0, then scan code 0x4b, 0x4d, 0x48 or 0x50), \@X Alt and letter X (0,
- * then the letter's scan code), \#HH the extended key of scan code HH in
- * hex (0, then HH), \t the time running out in a menu that times out
+ * then the letter's scan code), \cX Ctrl and letter X (1-26: \cD, \cZ and
+ * \cC are the debug mode's Ctrl-D, Ctrl-Z and Ctrl-C, \cS Ctrl-S), \#HH
+ * the extended key of scan code HH in hex (0, then HH), \t the time running out in a menu that times out
  * (COK_KEY_TIMEOUT), \\ a backslash; \k presses the next key while the
  * game polls for one (1614:03c2) rather than reads it.
  *

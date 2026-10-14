@@ -60,7 +60,8 @@ void cok_start_title(cok_adventure *game);
 void cok_start_mouse(cok_adventure *game);
 
 /* The game as main runs it (1000:0134), after cok_adventure_open: the
- * startup state, the title unless woof (ParamStr(1) 'Woof'), the title
+ * startup state, the title unless woof (ParamStr(1) 'Woof', which also
+ * lets 1614:025b take the debug keys: game->woof), the title
  * menu, whose timeout (COK_KEY_TIMEOUT) plays the demonstration; then
  * game after game: the start menu, the adventure from its first block
  * (2fd3:3c28; 0x24, or the block a loaded game was saved in) until the

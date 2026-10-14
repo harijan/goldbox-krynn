@@ -1136,6 +1136,14 @@ bool cok_combat_setup(cok_adventure *game)
     cok_combat_enemy_health(combat, &game->party);
     vm->mode = 5;
     game->moving = false;
+    /* 3cb2:1e13: the debug trace of each record, its name, status (+0x188)
+     * and whether it can act (+0x189). */
+    for (size_t i = 0; i < game->party.count && game->debug; ++i) {
+        const uint8_t *r = game->party.members[i]->record;
+        char name[256];
+        cok_debug_name(r, name);
+        cok_debug_trace(game, name, r[0x188], r[0x189], 0);
+    }
     return true;
 }
 

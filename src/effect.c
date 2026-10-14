@@ -1391,12 +1391,14 @@ static bool h_paralysis(cok_effects *fx, bool removing, cok_effect *effect, cok_
  * a square of its target (6346:2888) the damage is strength's (6346:14b5)
  * + 1d6 + 2 + the readied weapon's bonus (+0x32) and the THAC0 strength's
  * better (6346:1412), else 1d4 + 1 + the bonus and dexterity's missile
- * bonus (6346:12f8), bytes; the dice are rolled at both events. Its
- * trace ("bad news", 6d7e:093e) shows only with Ctrl-D. With no weapon
- * the bonus is a local never set, which the port does not know. */
+ * bonus (6346:12f8), bytes; the dice are rolled at both events. It
+ * starts with the debug trace ("bad news", 6d7e:093e, shown only with the
+ * debug flag). With no weapon the bonus is a local never set, which the
+ * port does not know. */
 static bool h_kender(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
     (void)removing, (void)effect;
+    if (fx->trace != NULL) fx->trace(fx, "bad news", 0, 0, 0, fx->context); /* 3f44:0226 */
     uint8_t *r = c->record;
     cok_rolls *rolls = &fx->rolls;
     size_t weapon = c->slots[0];

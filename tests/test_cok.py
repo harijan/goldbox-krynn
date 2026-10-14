@@ -150,6 +150,22 @@ class FrontEndTests(unittest.TestCase):
         run, _, _ = self.cok(r"\kx\t", "--log", name="ega")
         self.assertIn("display: EGA", run.stderr)
 
+    def test_debug_mode(self):
+        """Started with Woof: Ctrl-D, Ctrl-Z and Ctrl-C typed through SDL's
+        key events, frame for frame as eclplay draws the debug mode (the
+        trace after each opcode), DEBUG.TXT written the same, and Ctrl-C
+        quitting to DOS."""
+        keys = NEW_GAME[:NEW_GAME.index(r"\@x")] + r"\cD\cZ\@xN\r\eNxxxx\cC"
+        expected, esaves, eshots = self.eclplay(keys, "--seed", "7", "--helm", "--woof")
+        self.assertIn("debug: 0 , 0 , 0 | GOSUB", expected.stdout)
+        run, saves, shots = self.cok(keys, "--seed", "7", "--helm", "--woof", "--aspect", "1:1",
+                                     "--scale", "2")
+        self.assertEqual((run.returncode, run.stdout), (0, "(quit to DOS)\n"), run.stderr)
+        self.assertEqual(expected.stdout.splitlines()[-1], "(quit to DOS)")
+        self.assertSameShots(eshots, shots)
+        self.assertSameDirs(esaves, saves)
+        self.assertEqual((saves / "DEBUG.TXT").read_bytes(), b"who: BAAZ  sp#: 67\r\n" * 4)
+
     def test_letterbox(self):
         """Full screen on the dummy driver's 1024x768: the screen 1024x640,
         letterboxed, scaled by 3.2, still shows eclplay's frames."""

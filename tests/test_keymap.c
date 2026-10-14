@@ -252,6 +252,16 @@ static void test_script(void)
     CHECK(cok_key_script_read(&s) == 'x');
     CHECK(cok_key_script_poll(&s) && !cok_key_script_poll(&s));
     CHECK(cok_key_script_read(&s) == 'y' && cok_key_script_done(&s));
+    /* \cX: Ctrl and a letter, either case; \c and anything else is c. */
+    s = cok_key_script_start("\\cD\\cz\\cC\\c1");
+    CHECK(cok_key_script_read(&s) == 4 && cok_key_script_read(&s) == 0x1a);
+    CHECK(cok_key_script_read(&s) == 3 && cok_key_script_read(&s) == 'c');
+    CHECK(cok_key_script_read(&s) == '1' && cok_key_script_done(&s));
+    /* cok types them as Ctrl and the letter. */
+    SDL_Keysym ctrl;
+    CHECK(cok_keymap_find(4, -1, &ctrl) && ctrl.sym == 'd' && (ctrl.mod & KMOD_CTRL) != 0);
+    CHECK(cok_keymap_find(0x1a, -1, &ctrl) && ctrl.sym == 'z' && (ctrl.mod & KMOD_CTRL) != 0);
+    CHECK(cok_keymap_find(3, -1, &ctrl) && ctrl.sym == 'c' && (ctrl.mod & KMOD_CTRL) != 0);
     s = cok_key_script_start("\\@a");
     CHECK(cok_key_script_read(&s) == 0 && cok_key_script_owed(&s) && !cok_key_script_done(&s));
     CHECK(cok_key_script_read(&s) == 0x1e && !cok_key_script_owed(&s));

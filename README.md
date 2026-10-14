@@ -82,7 +82,8 @@ items, monsters and encounters, the battlefield, the rounds of a battle,
 treasure and the end of combat, the shops and the temple, the combat
 screen, the portraits, NPCs and the other remaining opcodes, the
 attacks, and the start menu with creating, training and modifying
-characters, their icons and the roster,
+characters, their icons and the roster, the debug mode
+(`tests/test_debug.c`),
 including PIC delta decoding on `PIC1.DAX` and the game font in
 `8X8D1.DAX`, and plays the opening scripts, the view of Throtl and, with
 a party made up for testing (`eclplay --test-party`), its fights, round
@@ -121,7 +122,7 @@ timed menu runs out or the small picture's next frame is due.
 | `--fullscreen` | start full screen |
 | `--screenshots DIR` | where F12 saves the screen (default `screenshots`, created when needed, ignored by git) |
 | `--seed N` | start Turbo Pascal's `Random` from N; by default the clock seeds it, as startup's `Randomize` (`1a46:1200` from `3e99:005b`) does |
-| `--woof`, `--helm` | start as `START Woof` (no title) or with `Helm` (`Area` anywhere, the Gods' cheat Alt-X, free training) |
+| `--woof`, `--helm` | start as `START Woof` (no title, and the debug keys Ctrl-D, Ctrl-Z and Ctrl-C: see Debug mode) or with `Helm` (`Area` anywhere, the Gods' cheat Alt-X, free training) |
 | `--log` | print the game's text, menus, choices, sounds and what is not ported to standard error, as `eclplay` prints them; the window's size and where the screen is shown in it; keys typed ahead that a flush drops (`flush:`); the display mode (`display:`); the audio driver and the sound device (`sound:`); and a check that the window keeps up: `stale:` if, through the game's delays, the window kept an older screen than the game's for more than 160 ms |
 | `--keys KEYS` | type KEYS first, in `eclplay`'s escapes (see Playing scripts), each turned into the key that gives it and sent through SDL's key events as the game asks for a key (`\k` as it polls, `\t` the timed menu running out, `\[KEYS\]` typed ahead and `\wN.` as in Playing scripts; besides, `\pN.` pauses N hundredths of a second before the next key is typed as the game reads it, and `\#85` and `\#86`, codes the game never gets, press F11 and F12; a key repeated in a group typed ahead is held, its repeats sent as a held key's are; each a real keystroke, so that a flush after its 0 is read loses its scan code, which `eclplay` keeps for keys not typed ahead); the run then ends as `eclplay`'s does, printing `(out of keys ...)`, unless `--continue` hands over to the keyboard |
 | `--no-delay` | do not wait where the game waits (for tests); a rest keeps the front end's pace (see below); the sound then goes by the game's clock (see Sound) |
@@ -162,7 +163,7 @@ the port compares a key against can be typed):
 | F1-F10 | 0, then 0x3b-0x44; with Shift 0x54-0x5d, Ctrl 0x5e-0x67, Alt 0x68-0x71 | F10 picks Demo on the title's menu; Ctrl-F8 camps on the overland map; menus that do not tell scan codes from letters take F7-F10 (0x41-0x44) as A-D, Home, Up and PgUp as G, H and I, and so on (saved games A-J, Yes and No) |
 | Alt and a letter | 0, then the letter's scan code | in combat Alt-Q and Alt-A Auto, Alt-M Magic on and off, Alt-X the Gods (with `--helm`), Alt-R nothing |
 | Alt and a digit, `-` or `=` | 0, then 0x78-0x83 | nothing |
-| Ctrl and a letter | 1-26; Ctrl `[ \ ] 6 -` 27-31; Ctrl-2 0, 0x03 | Ctrl-S the sound off and on again (`1614:025b`, see Sound); Ctrl-D, Ctrl-Z and Ctrl-C of the original's debug mode are not ported |
+| Ctrl and a letter | 1-26; Ctrl `[ \ ] 6 -` 27-31; Ctrl-2 0, 0x03 | Ctrl-S the sound off and on again (`1614:025b`, see Sound); with `--woof`, Ctrl-D the debug mode on and off, Ctrl-Z the party's effects to `DEBUG.TXT`, Ctrl-C (and Ctrl-2, whose scan code is 3) quit to DOS (see Debug mode) |
 | F11 or Alt-Enter | nothing (function 0 drops them) | full screen on and off |
 | F12 | nothing | save the screen, 320×200, as `cokNNN.bmp` in `screenshots/` or `--screenshots DIR` |
 
@@ -244,8 +245,8 @@ read returns the end of input, or the delay sets the abort flag the end of
 input sets, and the game returns as `eclplay`'s does when its keys run out,
 writing nothing more; a save under way finishes first, as saving reads no
 key. `cok` then exits with status 0. Quitting to DOS (the start menu's
-Exit to DOS, or Yes to `Quit TO DOS` after camp's Save) ends it too,
-printing `(quit to DOS)`.
+Exit to DOS, Yes to `Quit TO DOS` after camp's Save, or Ctrl-C with
+`--woof`) ends it too, printing `(quit to DOS)`.
 
 Where the port stops (`COK_ECL_UNDEFINED`, `COK_ECL_EFFECT_FAILED`, an
 unported routine, a file missing or unreadable), `cok` prints `stopped in
@@ -1012,8 +1013,9 @@ commands that are not ported (`unported:`); `--helm` plays as a game
 started with `Helm`, which lifts `Area`'s `Not Here` and enables the Gods
 cheat; `--combat gods` implies it. `--keys` types keys (`\r` Enter, `\e`
 Escape, `\b` Backspace, `\<`, `\>`, `\^` and `\v` the arrows, `\@X` Alt and
-letter `X`, `\#HH` the extended key of scan code `HH`, in hex: `\@q` and
-`\#10` are Alt-Q); when they run out the run stops. `\k` presses the next
+letter `X`, `\cX` Ctrl and letter `X` (`\cD`, `\cZ`, `\cC` the debug
+keys, see Debug mode), `\#HH` the extended key of scan code `HH`, in hex:
+`\@q` and `\#10` are Alt-Q); when they run out the run stops. `\k` presses the next
 key while the party rests, which the rest loop sees (`1614:03c2`), or as a
 battle is set up, which drops it (`1614:0479`). Keys are otherwise typed
 one at a time as the game reads them, but `\[KEYS\]` types KEYS ahead: all
@@ -1047,7 +1049,9 @@ combat), the coins and items `TREASURE` adds as `treasure:` (see Treasure
 and the end of combat), and what is paid and appraised in shops and the
 temple as `shop:` (see Shops and the temple), the characters `ADD NPC` adds
 and `DUMP` removes as `party:` (see Party), `CALL [b203]`'s sounds as
-`sound:` and `CALL [c01e]`'s step as `at:`. `COMBAT`'s battle runs its
+`sound:` and `CALL [c01e]`'s step as `at:`, and the debug mode's
+switching, traces and View as `debug:` and the lines it writes to its file
+as `debug.txt:` (see Debug mode). `COMBAT`'s battle runs its
 rounds, the computer playing the monsters and the party's NPCs (see The
 computer's turns) and the player's turns reading the keys (see The player's
 commands), or, without `--keys`, passing, unless `--combat won`, `fled` or
@@ -1085,7 +1089,8 @@ plays the game as `START.EXE` does, from startup: the title (a key pressed
 with `\k` while it waits ends it), its menu, where `\t` lets the time run
 out and plays the demonstration, then the start menu and the adventure,
 game after game (see The start menu); `--woof` starts it as `START Woof`
-does, without the title. Characters, the roster and saved games go in
+does, without the title, and in any run lets the debug keys work (see
+Debug mode). Characters, the roster and saved games go in
 `--saves DIR`. The run ends `(out of keys at the title)`, `(out of keys in
 the start menu)` or as other runs do. `--wav FILE` renders the sound to
 FILE as the game's time passes (see Sound), on the device `KRYNN.CFG` in
@@ -1216,8 +1221,8 @@ list with the spell among its 58 spell bytes (`+0x1e`-`+0x57`), the byte's
 index in `where` and the record's position in `who`; with none, 0xff and
 the position of the last record (0 for none). ECL1 block 32's trap asks
 for Find Traps (22) and forgets it. The trace it then prints
-(`6d7e:093e`) shows only with the debug flag (`DS:4b51`, Ctrl-D), which is
-not ported. `ECL CLOCK count unit` (`2fd3:3005`) passes the time
+(`6d7e:093e`, `spell`, the index, the position and the spell) shows only
+with the debug flag (see Debug mode). `ECL CLOCK count unit` (`2fd3:3005`) passes the time
 (`57e4:0549`); no script uses it.
 
 A differential test ran the original's handlers in an 8086 emulator
@@ -1256,6 +1261,92 @@ mutations of the port (the wall after a step, a frame's wrap, the body's
 row and `SPELL`'s position) each made from 20 to 300 of 3,000 cases
 differ; `PICTURE` starting the frames over, as the port did before, 15
 of 2,000, and reloading a picture for another ECL file 28 of 3,000. It is not part of the repository.
+
+## Debug mode
+
+The original has a debug mode, `src/debug.h` in the port. Its flag,
+`DS:4b51`, clear at startup (`3e99:055b`), is toggled by Ctrl-D, which the
+key reader (`1614:025b`, which every key the game reads goes through but
+text input's and the flushes', see Playing) takes, with Ctrl-Z and
+Ctrl-C, only when the first argument is `Woof` (`ParamStr(1)` against
+`1614:024c`, exact case): `START Woof`, or `START Woof Helm` with the
+Gods' cheat too; `cok --woof` and `eclplay --woof`. No other argument or
+build is involved; the readers of the flag are in every run, but nothing
+else sets it. The key is passed on as read in every case, so a menu reads
+it too; a scan code of 3 (Ctrl-2's) is Ctrl-C as well.
+
+| Key | What it does |
+| --- | --- |
+| Ctrl-D (4) | The flag on: `DEBUG.TXT` assigned and made anew (`1a46:04f7`, `056c`); off: closed (`05c1`) |
+| Ctrl-Z (0x1a) | With the flag set, for each record of the list (`DS:609a`) and each of its effects (`+0xe3`, linked at `+5`), the line `who: NAME  sp#: ID` (`1614:007b`) |
+| Ctrl-C (3) | Quit to DOS (`1614:0000`): the sound stopped, `DEBUG.TXT` closed if the flag is set, `Halt`; not DOS's break, which Crt's `ReadKey` does not see |
+
+`DEBUG.TXT` (the Text file at `DS:8864`, which the game names
+`debug.txt` and DOS upper-cases, as the port names the saved games) is
+written as Turbo Pascal
+writes a text file on a disk, checked in the emulator: lines end CR LF and
+go into its 128-byte buffer, written out when it fills and when the file
+is closed; the game reads no I/O result (`{$I-}`). The end of a game
+(`3e99:0977`, `3e99:0843`) clears the flag and leaves the file open, so
+that what its buffer holds is never written and the next Ctrl-D makes it
+anew. The original writes it in the current directory; the port in the
+saves directory (`--saves`), or nowhere without one (`eclplay` without
+`--saves`; the file counts as open all the same), and logs each line as
+`debug.txt:`; Ctrl-D logs `debug: on` and `debug: off`, Ctrl-C `quit: to
+DOS`. In `--keys`, `\cD`, `\cZ` and `\cC` type Ctrl-D, Ctrl-Z and
+Ctrl-C (`\cX` is Ctrl and any letter, 1-26; the raw bytes 4, 0x1a and 3
+do as well), which `cok` sends as Ctrl and the letter. Besides Ctrl-Z's lines, loading a tile set
+(`6e22:0050`; the wall sets' from `LOAD FILES` and `LOAD PIECES`, slots
+1-3) writes `slotnum = N`. At the end of a run the port closes the file
+if the flag is set, as quitting would.
+
+While the flag is set:
+
+- The trace (`6d7e:093e`, `cok_debug_trace`): row 0 cleared (the frame's
+  top and its moons), three numbers drawn there as `A , B , C` in yellow,
+  a text (cut to 40) on row 24 in yellow (`1521:096c`), a key read
+  (through `1614:025b`, so Ctrl-D there turns the mode off), and row 0
+  cleared again; logged as `debug: A , B , C | TEXT`. The ECL loop
+  (`2fd3:3add`) traces each opcode once its handler returns, with zeros,
+  by the name `6d7e:024f` gives (the opcode last fetched, `DS:72e7`: a
+  nested run's, or the one a failed `IF` skipped; the trace table's names,
+  `IF = ` with a space after it, and `BULLSHIT N` for opcodes it does not
+  name, which hang before they are traced); `SPELL` traces `spell` with
+  the index, the position and the spell (`2fd3:3292`); a battle's setup
+  traces each record of the list by name with its status (`+0x188`) and
+  whether it can act (`+0x189`) (`3cb2:1e13`); effect 0x07's handler
+  traces `bad news` first (`3f44:0226`). In the demonstration the trace's
+  key read returns at once unless a key is waiting, as every key read
+  there does.
+- The status line has `*` after the time (`6346:2f4c`), and the combat
+  menu `*` after `Done` (`3995:0aa5`).
+- Items offers `View` first (`View Ready`, `546c:187b`): with an item
+  picked, `546c:12be` clears the frame (`1128:0000`) and lists in light
+  green, from row 1, `itemptr` (its type, `+0x2e`), `namenum(1)`-`(3)`
+  (`+0x2f`-`+0x31`), `plus`, `plussave`, `ready`, `identified`,
+  `cursed` (`+0x32`-`+0x36`), `value` (the word at `+0x3a`),
+  `special(1)`-`(3)` (`+0x3c`-`+0x3e`), and from its type's row of
+  `DS:5886` `missile type` (byte 14), `max range` (12) and `item type`
+  (0), their values at column 20, then `press a key` on row 24; the list
+  and its header are drawn again after. A type above 128 is read past
+  the table (from `DS:6096`); the port stops (`COK_ECL_UNDEFINED`).
+  `View` makes the menu longer: in a shop it can fill the 40 characters,
+  leaving no room for `Exit` (Escape still leaves).
+
+A differential test ran the original routines in the 8086 emulator
+against the port (the draws compared as the port's primitives draw them,
+the files byte for byte): `1614:025b`'s keys with the real Turbo Pascal
+file routines and `ParamStr` on a PSP (with `Woof`, `Woof Helm`, `woof`,
+`WOOF`, `Woofy`, none and others; Ctrl-D, Ctrl-Z, Ctrl-C, other keys and
+the end of a game's reset, random parties and effects, files past one
+buffer), the trace with the flag on and off, `546c:12be` on random items,
+the status line `6346:2d75` and the combat menu's text (`3995:08d5`) with
+the flag on and off, the Items menu `546c:17f9` with View, `SPELL`
+(`2fd3:318b`) with its trace and the ECL loop's after it, and
+`6d7e:024f`'s name for every opcode: 3,000 random cases of each and the
+256 names, all agreeing (among them 1,467 Ctrl-Ds turning the flag on
+and 719 off, 683 Ctrl-Zs writing, 318 Ctrl-Cs quitting, 1,126 resets, 181
+files past one buffer; 2,254 traces with the flag set; 1,514 Views).
 
 ## 3D view
 
@@ -1656,8 +1747,8 @@ the original. It is not drawn outside 3D areas unless `0x4c38` is set, nor
 over a big picture (`DS:4b4e`). The status line (`6346:2d75`) on row 15, in
 light green, reads like `7,15 N 00:00 search`: the square unless the area
 hides it (`0x4bfb`, see Overhead map), the facing (turned by `0x4cff`), the hour and minutes,
-and `search` while searching, or `camping` in camp. The original adds `*`
-while its debug flag (`DS:4b51`, Ctrl-D) is set; the port does not. The list
+and `search` while searching, or `camping` in camp, with `*` after the
+time while the debug flag is set (`6346:2f4c`, see Debug mode). The list
 is redrawn when a block's vectors have run, by `CLEAR BOX`, `LOAD FILES` and
 `WHO`, and after damage; the status line after steps, turns, `Search`, `Look`
 and special keys in the adventure loop.
@@ -2764,8 +2855,8 @@ The port keeps these quirks:
 - A name's bytes past its length keep what longer names left (as the
   original's files show).
 
-Not ported: the debug `View` item of Items (`DS:4b51`, Ctrl-D). The
-combat side (no Trade, `Use` while the combatant may use items this
+With the debug flag set, Items offers `View` first (`546c:187b`; see Debug
+mode). The combat side (no Trade, `Use` while the combatant may use items this
 round, the item's use ending the turn) is with the player's commands (see
 The player's commands).
 
@@ -3117,8 +3208,9 @@ for it; works out the enemies' health (`432f:2df3`) and clears the Move
 mode (`DS:8858`). A key waiting is read and dropped (`1614:0479`) after the
 map, the records and placement, and before each record is placed. The
 dead that explode (`6b45`, `6b95`, `6b96`), the mouse's flags (`71a5`,
-`71a6`) and the debug trace (`6d7e:093e`, Ctrl-D only) are left to the
-parts that use them; the lists of clouds and pools (`7111`, `7119`;
+`71a6`) are left to the parts that use them; with the debug flag set,
+each record of the list is traced last (`3cb2:1e13`, see Debug mode); the
+lists of clouds and pools (`7111`, `7119`;
 `7115` is cleared and never used) are emptied (see Clouds, pools and
 breath).
 
@@ -4675,8 +4767,8 @@ allows magic (var `0x4be5`), `Turn ` for a cleric (`+0xf9` above 0, or a
 former one, `+0x101`, that a human may use, `66c2:0efb`) that has tried
 fewer times this battle (`+0x11`) than undead were loaded (`DS:8859`),
 `Yell ` for a kender (`+0x5a` 5) while no one has yelled this battle
-(`DS:71a7`), and `Done`, cut to 40 characters (the debug flag's `*`,
-`DS:4b51`, is not ported). It is read until it gives a command letter or
+(`DS:71a7`), and `Done`, then `*` while the debug flag is set (`DS:4b51`,
+see Debug mode), cut to 40 characters. It is read until it gives a command letter or
 Space, or one of the scan codes of Alt-Q, Alt-R, Alt-A, Alt-X and Alt-M;
 other scan codes (the keypad's digits among them) count as nothing. Row
 24 is cleared. Then:
@@ -6001,8 +6093,9 @@ is 1 (`DS:5782`), or 2 with speed 9 for the demonstration; the start menu
 runs until Begin Adventuring, then main draws the frame (`1128:0242`, or
 `1128:0344` in mode 3 without `0x4c38`) and the party list again, and the
 adventure (`2fd3:3c28`) runs from var `0x4bf2`'s block, or 0x24 when it
-is 0 (a new game: Solace). When it ends (`DS:4b57`: the party killed or
-destroyed), every member is removed (`4def:3b0a`), the end of the game
+is 0 (a new game: Solace). Quitting to DOS in it (camp's `Quit TO DOS`,
+Ctrl-C) halts the program there (`1614:0000`). When it ends (`DS:4b57`:
+the party killed or destroyed), every member is removed (`4def:3b0a`), the end of the game
 (`3e99:0843`) resets the state, and the start menu opens again; after a
 demonstration the title shows again, then the menu with `Champions Of
 Krynn v1.2` (capital O) for 10 seconds. A `ParamStr(2)` compare against
@@ -6623,6 +6716,22 @@ running in DOSBox:
   as its line before the bounce: the original should bounce for ever (the
   port stops).
 - The aurak's breath at one beside it that saves: its turn goes on.
+
+- The debug mode (see Debug mode): start `START Woof`, press Ctrl-D at a
+  menu and compare the trace after each opcode (`A , B , C` on row 0 over
+  the moons, the opcode's name on row 24 in yellow, a key each), the
+  status line's `*`, and, in a battle, the trace of each combatant and
+  `Done*`. Press Ctrl-Z and compare `DEBUG.TXT`: CR LF lines, nothing on
+  the disk until 128 bytes are written or Ctrl-D closes it. Let the party
+  die (or the demonstration end) with the flag set, then press Ctrl-D:
+  the file should be empty again. Ctrl-2 should quit to DOS as Ctrl-C
+  does. In Items, `View` an item, and in a shop see that a character
+  offered `View Ready Trade Drop Halve Join Sell Id` has no `Exit`.
+- `DEBUG.TXT` in a directory where it cannot be made (read-only): the
+  original reads no I/O result, which Turbo Pascal keeps until something
+  reads it, so that a later file operation (saving a game, reading a
+  picture) may be skipped or stop the game with a runtime error; the port
+  writes nothing and goes on. See what the game does.
 
 - The player's commands in a battle (see The player's commands): in Aim,
   Manual, then Escape, then Down: the port takes the cell of the entry

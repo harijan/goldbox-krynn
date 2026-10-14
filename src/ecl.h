@@ -110,6 +110,11 @@ typedef struct {
     uint16_t (*character_value)(cok_ecl *vm, uint16_t address, void *context);
     /* Before each instruction, with vm->ip at its opcode. */
     void (*trace)(cok_ecl *vm, void *context);
+    /* After each instruction's handler has returned without an error,
+     * vm->opcode the last opcode fetched (DS:72e7, a nested run's or a
+     * failed IF's skipped one too), where 2fd3:3add calls the debug trace
+     * (6d7e:093e), the instruction that ends the run included. */
+    void (*executed)(cok_ecl *vm, void *context);
     void *context;
 } cok_ecl_hooks;
 

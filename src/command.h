@@ -67,8 +67,8 @@ bool cok_combat_commands(cok_adventure *game, cok_character *c, uint8_t pressed)
  * for a cleric (+0xf9 above 0, or a former one, +0x101, that a human may
  * use) that has tried fewer times this battle (+0x11) than undead were
  * loaded (DS:8859), "Yell " for a kender (+0x5a 5) while no one has yelled
- * this battle (DS:71a7), and "Done". The debug flag's "*" (DS:4b51) is not
- * ported. */
+ * this battle (DS:71a7), and "Done", then "*" while the debug flag
+ * (DS:4b51) is set. */
 void cok_combat_command_text(cok_adventure *game, cok_character *c, char out[41]);
 
 /* 3995:0d9c, Move: until Enter, D or Escape or the turn is over, "Move/

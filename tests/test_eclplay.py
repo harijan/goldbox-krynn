@@ -1157,6 +1157,83 @@ class PlayTests(unittest.TestCase):
         self.assertNotEqual(ink(images[0], 8, 5), (0, 0, 0))
         self.assertNotEqual(ink(images[4], 17, 4), (0, 0, 0))  # ALDA beside it
 
+    def test_debug_mode(self):
+        # Started with Woof, Ctrl-D sets the debug flag and opens DEBUG.TXT
+        # (1614:025b): after each opcode the trace waits for a key
+        # (2fd3:3add, 6d7e:093e), the battle's setup traces each record,
+        # the combat menu ends with "*", Ctrl-Z writes each record's
+        # effects and Ctrl-C quits, closing the file.
+        keys = r"\cD\r" + "x" * 14 + r"\cZ\cC"
+        result = self.play("--woof", "--test-party", 4, "--effect", "2,22,10,0", "--saves",
+                           self.folder, "--keys", keys, ASSETS, 16)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[-1], "(quit to DOS in block 16)")
+        self.assertIn("quit: to DOS", lines)
+        self.assertIn("debug: on", lines)
+        traced = [line for line in lines if line.startswith("debug: 0 , ")]
+        self.assertEqual(traced[:6], ["debug: 0 , 0 , 0 | HORIZONTAL MENU",
+                                      "debug: 0 , 0 , 0 | PRINTCLEAR", "debug: 0 , 0 , 0 | RETURN",
+                                      "debug: 0 , 0 , 0 | SETUP MONSTER",
+                                      "debug: 0 , 0 , 0 | CLEARMONSTERS",
+                                      "debug: 0 , 0 , 0 | LOAD MONSTER"])
+        self.assertEqual(traced[6:], ["debug: 0 , 1 , 0 | " + name for name in
+                                      ("ALDA", "BRAM", "CERA", "DUNN", "BAAZ", "BAAZ", "BAAZ",
+                                       "BAAZ")])
+        self.assertIn("menu: Move View Aim Use Cast Done*", lines)
+        written = ["who: BRAM  sp#: 34"] + ["who: BAAZ  sp#: 67"] * 4
+        self.assertEqual([line[11:] for line in lines if line.startswith("debug.txt: ")], written)
+        self.assertEqual((self.folder / "DEBUG.TXT").read_bytes(),
+                         "".join(line + "\r\n" for line in written).encode())
+        # The same in CGA mode (see Display modes).
+        cga = self.folder / "cga"
+        cga.mkdir()
+        result = self.play("--display", "cga", "--woof", "--test-party", 4, "--effect", "2,22,10,0",
+                           "--saves", cga, "--keys", keys, ASSETS, 16)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.replace(str(cga), str(self.folder)), "\n".join(lines) + "\n")
+        self.assertEqual((cga / "DEBUG.TXT").read_bytes(), (self.folder / "DEBUG.TXT").read_bytes())
+        # Without Woof the keys do nothing more than any other.
+        result = self.play("--test-party", 4, "--saves", self.folder / "none", "--keys",
+                           "\x04" + r"\r\r", ASSETS, 16)
+        self.assertNotIn("debug:", result.stdout)
+        self.assertIn("menu: Move View Aim Use Cast Done", result.stdout.splitlines())
+
+    def test_debug_bad_news(self):
+        # Effect 0x07's handler (3f44:0208) starts with the trace.
+        keys = r"\cD\r\rE" + "x" * 80
+        result = self.play("--woof", "--test-party", 6, "--effect", "1,7,0,0", "--set", "4be6=1",
+                           "--start", "835f", "--seed", 1, "--combat", "melee", "--keys", keys,
+                           ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertGreater(result.stdout.splitlines().count("debug: 0 , 0 , 0 | bad news"), 3)
+
+    def test_debug_view_item(self):
+        # The debug flag's View in Items (546c:12be) and the status line's
+        # "*" (6346:2d75).
+        shots = self.folder / "shots"
+        shots.mkdir()
+        result = self.play("--woof", "--combat", "pass", "--test-party", 6, "--play", "--set",
+                           "4be6=1", "--saves", self.folder, "--shots", shots, "--keys",
+                           r"\r\rE\cDvivx\e\e\e", ASSETS, 32)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[-1], "(out of keys in block 32 at 8320)")
+        self.assertIn("menu: View Ready Use Trade Drop Halve Join", lines)
+        start = lines.index("debug: itemptr:      18")
+        self.assertEqual(lines[start + 13:start + 17], ["debug: missile type: 4",
+                                                        "debug: max range :   0",
+                                                        "debug: item type :    0",
+                                                        "debug: press a key"])
+        images = sorted(shots.glob("*.bmp"))
+        view = images[-5].read_bytes()
+        self.assertEqual(ink(view, 1, 1), GREEN)
+        self.assertEqual(ink(view, 20, 1), GREEN)
+        # The adventure screen after: "7,15 N 00:15*" on row 15.
+        last = images[-1].read_bytes()
+        self.assertEqual(ink(last, 0x11 + 11, 15), GREEN)
+        self.assertEqual(ink(last, 0x11 + 12, 15), GREEN)
+        self.assertEqual(ink(last, 0x11 + 13, 15), (0, 0, 0))
+
 
 @unittest.skipUnless((SAVE / "SAVGAMA.DAT").exists(), "needs the saved games in SAVE")
 class PartyTests(unittest.TestCase):
@@ -1636,6 +1713,23 @@ class StartMenuTests(unittest.TestCase):
         self.assertIn("print: AT THE INN OF THE LAST HOME IN SOLACE, A BRAVE ", lines)
         # The screens: the title's menu, the start menu and the lists.
         self.assertGreater(len(list(shots.glob("*.bmp"))), 20)
+
+    def test_ctrl_c_quits_in_the_adventure(self):
+        # Started with Woof, Ctrl-C at the first fight's menu quits to DOS
+        # (1614:0000): the program halts, main's loop does not go on to
+        # the start menu.
+        keys = (r"P\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\eYY\vS\rE\v\v\v\v\vSA\vS\r\r\r\r\r\r\rH"
+                r"\v\v\vSS\v\v\v\v\v\vSLNM\>\r" + "\x03")
+        result = self.play(keys, "--woof", "--seed", "7")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[-1], "(quit to DOS)")
+        quit = lines.index("quit: to DOS")
+        self.assertEqual(lines[quit - 1], "menu: Move View Aim Done")
+        self.assertNotIn("list: Choose a FUNCTION ", lines[quit:])
+        # Without Woof it is a key like any other.
+        result = self.play(keys, "--seed", "7")
+        self.assertNotIn("quit: to DOS", result.stdout)
 
     def test_quitting_from_the_start_menu(self):
         result = self.play(TITLE + r"\^SY")
