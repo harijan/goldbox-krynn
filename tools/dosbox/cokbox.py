@@ -507,12 +507,13 @@ class Box:
             self.record_sound()
         return self
 
-    def _start_once(self):
-        self.prepare()
-        self._deadline = time.monotonic() + self.timeout
+    def _start_xvfb(self, display):
+        """Start Xvfb (on DISPLAY's number, or one it picks); its number, or
+        None if it ended first (the display taken)."""
         rfd, wfd = os.pipe()
         self.xvfb = subprocess.Popen(
-            ["Xvfb", "-displayfd", str(wfd), "-screen", "0", "1024x768x24", "-nolisten", "tcp"],
+            ["Xvfb", *([":" + display] if display else []), "-displayfd", str(wfd),
+             "-screen", "0", "1024x768x24", "-nolisten", "tcp"],
             pass_fds=(wfd,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True)
         os.close(wfd)
@@ -521,9 +522,33 @@ class Box:
             while not number.endswith(b"\n"):
                 chunk = r.read(1)
                 if not chunk:
-                    raise BoxError("Xvfb did not start")
+                    self.xvfb.wait()
+                    return None
                 number += chunk
-        self.display_name = ":" + number.decode().strip()
+        return number.decode().strip()
+
+    def _start_once(self):
+        self.prepare()
+        self._deadline = time.monotonic() + self.timeout
+        number = None
+        # COKBOX_DISPLAYS=LO-HI keeps Xvfb to those display numbers (runs in
+        # parallel each given their own); without it Xvfb picks a free one.
+        span = os.environ.get("COKBOX_DISPLAYS")
+        if span:
+            lo, _, hi = span.partition("-")
+            # A display in use has its lock file (a killed Xvfb may leave
+            # its socket behind, which the next one replaces).
+            choices = [str(n) for n in range(int(lo), int(hi or lo) + 1)
+                       if not os.path.exists(f"/tmp/.X{n}-lock")]
+        else:
+            choices = [None]
+        for choice in choices:
+            number = self._start_xvfb(choice)
+            if number:
+                break
+        if not number:
+            raise BoxError("Xvfb did not start" + (f" on {span}" if span else ""))
+        self.display_name = ":" + number
         env = dict(os.environ, DISPLAY=self.display_name, SDL_AUDIODRIVER="dummy")
         env.pop("WAYLAND_DISPLAY", None)
         self._log_file = open(self.workdir / "dosbox.log", "wb")
