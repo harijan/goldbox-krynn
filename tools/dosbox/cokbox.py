@@ -411,7 +411,7 @@ class Box:
         self.timeout, self.extra_conf, self.exit_after = timeout, extra_conf or {}, exit_after
         self.verbose, self.seed, self.want_psp = verbose, seed, want_psp
         self._own_workdir = workdir is None and not keep
-        self.workdir = pathlib.Path(workdir) if workdir else None
+        self.workdir = pathlib.Path(workdir).resolve() if workdir else None
         self.xvfb = self.dosbox = None
         self.display_name = None
         self.window = None
@@ -511,8 +511,20 @@ class Box:
         self.prepare()
         self._deadline = time.monotonic() + self.timeout
         rfd, wfd = os.pipe()
+        # COKBOX_DISPLAYS=LO-HI: the X display numbers this run may take (the
+        # first free one), so that runs side by side keep to their own.
+        spec = os.environ.get("COKBOX_DISPLAYS")
+        where = ["-displayfd", str(wfd)]
+        if spec:
+            lo, _, hi = spec.partition("-")
+            free = [n for n in range(int(lo), int(hi or lo) + 1)
+                    if not os.path.exists(f"/tmp/.X{n}-lock")
+                    and not os.path.exists(f"/tmp/.X11-unix/X{n}")]
+            if not free:
+                raise BoxError(f"no free X display in {spec}")
+            where = [f":{free[0]}", "-displayfd", str(wfd)]
         self.xvfb = subprocess.Popen(
-            ["Xvfb", "-displayfd", str(wfd), "-screen", "0", "1024x768x24", "-nolisten", "tcp"],
+            ["Xvfb", *where, "-screen", "0", "1024x768x24", "-nolisten", "tcp"],
             pass_fds=(wfd,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True)
         os.close(wfd)
