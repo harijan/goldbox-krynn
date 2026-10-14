@@ -637,8 +637,8 @@ class SoundTests(unittest.TestCase):
     def test_a_sound_while_waiting_for_a_key(self):
         """In real time a sound plays out while the game waits for a key:
         a step on the overland map (CALL [b203], sound 10) before the
-        next, typed a second and a half later (\\p150.)."""
-        keys = r"\kx" + NEW_GAME[:NEW_GAME.index("ELN98") + 4] + r"\p150.8"
+        next, typed two seconds later (\\p200.)."""
+        keys = r"\kx" + NEW_GAME[:NEW_GAME.index("ELN98") + 4] + r"\p200.8"
         raw, stdout, stderr = self.disk("--no-delay", "--sound-clock", "real", "--seed", "7",
                                         "--helm", "--keys", keys)
         samples = memoryview(raw).cast("h")
@@ -647,7 +647,13 @@ class SoundTests(unittest.TestCase):
         start, end = runs[0]
         self.assertAlmostEqual(end - start, 0.07, delta=0.02)
         later = runs[1][0] if len(runs) == 2 else len(samples) / 44100
-        self.assertGreater(later - end, 1.3)
+        # The gap is in the device's samples, which SDL's disk writer
+        # produces at its own thread's pace: on a loaded machine it falls
+        # behind the wall clock that times the pause (1.5 s of pause came
+        # out as 0.75 s). What matters is that the step's 70 ms sound ended
+        # while the game waited and the next step came only after the
+        # pause, which any gap of several times the sound's length shows.
+        self.assertGreater(later - end, 0.5)
 
     def test_without_sound(self):
         """--no-sound opens no device; with no device to be had, or no
