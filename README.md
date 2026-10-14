@@ -49,6 +49,7 @@ make test
 make sanitize
 make cok
 ./build/cok
+make dosbox-selftest
 ```
 
 `make cok` builds `build/cok`, the playable front end (see Playing), which
@@ -105,7 +106,9 @@ files), it also plays those with their party, through encounters, fights
 resolved by `--combat` and every treasure the scripts give out, checks the
 stats recomputed for their characters, runs their spell effects, and saves
 them again to compare the files; those tests are skipped without them.
-`make sanitize` repeats these checks with AddressSanitizer and UBSan.
+`make sanitize` repeats these checks with AddressSanitizer and UBSan. `make
+dosbox-selftest` runs the original game in DOSBox-X instead (see DOSBox-X
+harness); it needs `dosbox-x`, `Xvfb` and `xdotool`.
 Tests also require Python 3 (standard library only). The native tools have no
 third-party dependencies. Sanitizer targets require the compiler's ASan/UBSan
 runtime libraries, which were unavailable on the initial development system.
@@ -2271,8 +2274,9 @@ The port keeps these quirks of the original:
 The twelve characters in `SAVE/` were saved by the original, and every field
 recomputed from them matches the saved value but one: the two clerics of
 `SAVGAMA.DAT` lack spell 8, which this executable's table makes them know.
-Nothing in it clears a known spell, so those saves may come from another
-version of the game (see Checks against the original). A differential test
+Nothing in it clears a known spell, and the game in DOSBox-X, loading and
+saving game A, sets it (see Checks against the original), so those saves
+come from another version of the game. A differential test
 against the original routines, run in an 8086 emulator on random
 characters, also agreed; it is not part of the repository.
 
@@ -6991,10 +6995,100 @@ first space where the port leaves (see The roster). `169c:05da` with
 screens agreed pixel for pixel. It is not part of the repository; `make
 test` checks cases of each that the emulator ran (`tests/test_start.c`).
 
+## DOSBox-X harness
+
+`tools/dosbox/cokbox.py` runs the original game in DOSBox-X, unattended,
+for the checks below: Python 3's standard library, `dosbox-x` (Debian's
+2025.02.01), `Xvfb` and `xdotool`, which the dev container installs. Debian
+ships `dosbox-x` with the `cap_net_raw` file capability (for its NE2000's
+pcap), which a rootless container cannot grant, so running it fails with
+`operation not permitted` until `sudo setcap -r /usr/bin/dosbox-x` drops it
+(the dev container does). It is not part of `make test`; `make
+dosbox-selftest` boots the game in Tandy, EGA and CGA mode to the title's
+menu and compares the SSI picture and the menu with `eclplay`'s frames
+(about 15 seconds; 0 pixels differ in each).
+
+Each run (`Box`) copies `Assets/` into a scratch drive as `C:\COK`, never
+writing into `Assets/`, with a `KRYNN.CFG` written for it (the display's
+letter for the machine: `machine=tandy` with `T`, `ega` (or `vga`,
+`svga_s3`) with `E`, `cga` with `C`; a Tandy told `E` hangs after the note
+to Tandy users; sound `S` by default) or none (the setup), and saved games
+copied into `C:\COK\SAVE` (the file's save path), such as `SAVE/`'s or
+the port's: `eclplay --saves DIR` writes games the original loads, so a
+check can start at a place and party the port's scripts reach (a camp's
+Save, then the start menu's Load Saved Game and Begin Adventuring, which
+goes on where it was saved). It starts its own `Xvfb` and `dosbox-x`
+(core normal, `cycles=fixed 20000`, no EMS, XMS or UMBs, `nosound` unless
+recording), runs `HOOK.COM`, then `START.EXE` with the arguments given
+(`Woof`, `x Helm`), and kills both when it ends, after `timeout` seconds
+at most whatever the game does (`-time-limit` too). Then:
+
+- Memory: the guest's RAM is one block of `dosbox-x`'s heap, found by
+  the keyboard buffer's bounds (`0040:0080`) and the interrupt table, and
+  read and written through `/proc/PID/mem` (the Debian build has no
+  debugger): `read`, `write`, and `ds_read`, `ds_write` at the game's data
+  segment, which is found by the first 64 bytes of `START.EXE`'s (unpacked
+  as `tools/ovrmerge.py` does), the PSP being `DS - 0x0bd6`. Video memory
+  lies outside that block: `find_text` finds the 80-column text screen by
+  a string on it, `text_rows` reads it.
+- Waiting for a key: `HOOK.COM` (`tools/dosbox/hook.asm`, assembled into
+  `cokbox.py`), a TSR, hooks INT 16h and counts in a block the host finds
+  by its signature the reads (functions 0 and 0x10, with a flag while one
+  waits in the BIOS) and the polls (1 and 0x11) that found no key, with
+  their call sites and frames. The game waits when `Crt.ReadKey` waits,
+  or when `KeyPressed` keeps finding nothing (two samples running) at a
+  call site other than the flush's (`1614:0467`) and the key read's look
+  before its `ReadKey` (`1614:026c`): a menu's, the title's or a rest's
+  poll (`1614:03c2`). `where()` names the call site and its callers as
+  `START_FULL.EXE` addresses (an overlay's found by its bytes), e.g.
+  `1614:03cd`, `67b5:058e`, `1000:0199` at the title's menu.
+- Keys: `keys(TEXT)` types `eclplay`'s escapes (`\r \e \b \^ \v \< \>
+  \@X \cX \#HH \dC`, `\[...\]` typed ahead, `\pN.` a pause, and `\sNAME.`
+  a screenshot) one at a time as the game waits, by putting each key's
+  word in the BIOS's buffer (`0040:001E`) and waiting for the game to take
+  it, so that no flush loses it; a key also ends the title's waits, as
+  `\k` does in `eclplay`, and a timed menu runs out with a pause
+  (`\p3100.`). `press` presses keys through X with `xdotool` instead, for
+  what only the BIOS's keyboard handler sees (Ctrl-Break, the shift
+  flags); DOSBox-X's own keys are F12 and another (F12+P its screenshot,
+  F12+W its recording).
+- Screens: `screenshot()` takes DOSBox-X's (F12+P), a PNG of the mode's
+  pixels (320×200 in the Tandy's and CGA's modes, 640×400 in EGA's, the
+  text mode at the adapter's own), read back as a `Screen` of colour
+  indices at 320×200 (640 wide for text), the nearest of the 16 colours, as
+  `eclplay --shots` BMPs load; `diff` counts the pixels that differ and
+  their box, `save_png` marks them. About three a second.
+- Sound: `wav=FILE` records from the start to the end (F12+W, 48 kHz
+  stereo), with `KRYNN.CFG`'s second line `T` or `P`.
+- Randomness: `seed=N` sets `RandSeed` (`DS:43ae`) as the game first
+  waits for a key (the title's first picture), after startup's
+  `Randomize` (`3e99:0080`, the only one): runs repeat, and agree with
+  `eclplay --seed N` for the same keys (character creation's rolls, frame
+  for frame).
+- Memory layout: `want_psp=SEG` loads the game at that PSP (as some checks
+  need, such as Fear's 0xnnf0), `HOOK.COM` keeping as many more paragraphs
+  as it takes (it starts again once to learn it; with no pad the game's
+  PSP is `087b`).
+- Speed: `cycles` (`fixed N` or `max`) and `turbo`, which runs the
+  emulated time as fast as the host can, delays included: the title's
+  waits to its menu take 40 seconds normally, 7 with `turbo`, 1 with
+  `turbo` and `max`. A timed menu (the title's) may run out before a key
+  is typed then.
+
+`cokbox.py run` runs it from the command line (`--machine`, `--display`,
+`--sound`, `--saves`, `--args`, `--cycles`, `--turbo`, `--seed`, `--keys`,
+`--shots DIR`, `--wav`, `--dump OFF,SIZE` of DS at the end), for example
+`python3 tools/dosbox/cokbox.py run --saves SAVE --keys '\kxP\v\v\rA\sloaded.' --shots shots`
+loads game A and saves the start menu's screen. `cokbox.eclplay(KEYS, DIR,
+...)` runs `eclplay --start-menu` with the same `KRYNN.CFG` and saved
+games, for comparison. `tools/dosbox/checks/` holds checks of the list
+below run so: `save_again.py`, `slow_poison.py` and `load_game_screen.py`
+(see their bullets).
+
 ## Checks against the original
 
 These follow the disassembly but have not been compared with the game
-running in DOSBox:
+running in DOSBox (see DOSBox-X harness for running it unattended):
 
 - Startup's text screens (see Startup and the setup): run `START.EXE`
   without `krynn.cfg` in DOSBox (`machine=tandy`, then `svga_s3`) and
@@ -7057,6 +7151,16 @@ running in DOSBox:
   down the free list's link and walks the interrupt vectors from
   `0000:0100`); see whether the game stops with runtime error 204,
   crashes or goes on, and whether the character "dies from poison".
+  Done for 0x16 cut to 30 minutes (`tools/dosbox/checks/slow_poison.py`:
+  a game the port saved with the poison, 0x16 and 0x0f after it, loaded
+  in the original, an hour's rest in the outpost's inn): the character
+  takes its two points from 0x0f and "dies from poison", the rest goes on
+  to its end and the game with it, no runtime error, the interrupt table
+  unchanged; the freed 0x0f was not at the heap's top, and the walk
+  counted the step's five minutes down from its word past the id, in the
+  free list's link: the free block's next pointer went from `53dd:0000`
+  to `53dc:fb00`, so the free list now leads into garbage, for a later
+  `GetMem` to hand out. The 63 hours are still to be rested.
   Cast Cause Disease and wait out 0x22 (10-60 minutes): "is weakened",
   strength a point lower each hour, and a hit point lost each ten minutes
   down to one. A character of constitution 20 should heal a point each
@@ -7151,6 +7255,8 @@ running in DOSBox:
 - The frame's tile set (`8X8D1.DAX` record 202) is loaded with colour 13
   transparent (`6e22:0050`), so the frame shows black where its tiles have
   light magenta. Compare the frame's border and moons with the original.
+  Done: in the start menu and Solace's first page they are the port's
+  pixel for pixel in Tandy, EGA and CGA mode (see Load saved game A).
 - Wall tiles and sky pictures are masked with colour 13 in the 3D view.
   Compare a view, such as Throtl's street from 7, 15 facing north, for light
   magenta or holes.
@@ -7163,12 +7269,22 @@ running in DOSBox:
   `cok` shows the screen again, so it is never seen there.
 - Load saved game A and compare the party list and status line beside the
   view: the columns of AC and hit points, the colours, and `7,13 N 00:00`.
+  Partly done (`tools/dosbox/checks/load_game_screen.py`, in Tandy, EGA and
+  CGA mode): the start menu with game A's party is the port's pixel for
+  pixel, and so is Solace's first page after Begin Adventuring but for row
+  24: the single-item menu's text there (`2fd3:116d`, the string at
+  `2fd3:1146`) is `PRESS <ENTER>/<RETURN> TO CONTINUE`, without the full
+  stop the port adds (`src/adventure.c`), which it draws black on white at
+  column 34. To be fixed; the status line beside the view, `7,13 N
+  00:00`, is still to be compared.
 - Fall into the pit in Throtl and compare the damage messages and how they
   page.
 - Load saved game A, save it again, and see whether KAL and SIRRION now
   know spell 8 (`+0x6a` of their `.SAV` set), as this executable's
-  `66c2:000f` would make them. If not, the game in DOSBox is not the one in
-  `Assets/`, or something not yet found clears it.
+  `66c2:000f` would make them. Done (`tools/dosbox/checks/save_again.py`):
+  the original, loading and saving game A from the start menu, sets it
+  for both, as the port does, and every file it writes is the port's but
+  for the bytes it writes from memory (see Camp).
 - The thief skills include the 7 that `66c2:0b9f` reads from the stack,
   which the saved thieves show; an interrupt between `66c2:08a6` and
   `66c2:0b9f` could leave another value. Load a saved game with a human
@@ -7485,6 +7601,9 @@ running in DOSBox:
   from 0xc05f 9 and 0xc059 0x41 on entering a block). In the icon
   editor, 1st-color should say `Sorry, not in CGA`.
 - In EGA mode, the same screens should match `eclplay`'s (the Tandy's).
+  The title's first picture and menu (`make dosbox-selftest`), the start
+  menu and Solace's first page do, in CGA mode too (but for the full stop,
+  see Load saved game A); the rest are still to be compared.
 - In EGA mode, a draw of no width on a row of the 3D view or the combat
   map that nothing else marks (a picture placed just past the right edge,
   `127f:09c3` copying no byte): `127f:12e8` should copy 16 KB of the
