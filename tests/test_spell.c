@@ -824,6 +824,40 @@ static void test_fear(void)
     CHECK(game.combat.view_x == 7 && game.combat.view_y == 7);
     CHECK(N == 1 && cok_combat_x(&game.combat, T(1)->record) == 12 &&
           cok_combat_y(&game.combat, T(1)->record) == 16);
+    /* The same in EGA mode, whose blit (127f:24fd) leaves the same bytes
+     * where the cone reads; in CGA mode (226c) its byte counts are halved
+     * (2 bytes a unit). In CGA mode too with the caster at 6, 6 (the view
+     * at 0, 0) and 12, 4 (9, 0), where the frame's 144 and the cell row's
+     * 1008 (sy + 1) send the cone elsewhere than the Tandy's 288 and 2016
+     * would. Monsters on every other cell within 6. */
+    static const struct {
+        cok_display display;
+        int8_t x, y;
+        unsigned n;
+        int8_t hit[3][2];
+    } fears[] = {
+        {COK_DISPLAY_EGA, 10, 10, 1, {{12, 16}}},
+        {COK_DISPLAY_CGA, 10, 10, 3, {{10, 12}, {10, 14}, {10, 16}}},
+        {COK_DISPLAY_CGA, 6, 6, 1, {{10, 4}}},
+        {COK_DISPLAY_CGA, 12, 4, 2, {{12, 6}, {14, 10}}},
+        {COK_DISPLAY_TANDY, 6, 6, 3, {{8, 8}, {10, 10}, {12, 12}}},
+    };
+    for (size_t k = 0; k < sizeof fears / sizeof *fears; ++k) {
+        reset();
+        game.display = fears[k].display;
+        int8_t cx = fears[k].x, cy = fears[k].y;
+        a = record('A', 0, cx, cy);
+        for (int8_t y = (int8_t)(cy - 6); y <= cy + 6; y += 2)
+            for (int8_t x = (int8_t)(cx - 6); x <= cx + 6; x += 2)
+                if ((x != cx || y != cy) && x > 0 && y > 0) record('a', 1, x, y);
+        KEYS("T");
+        CHECK(cast(a, 0x54, false, &done) && done);
+        CHECK(N == fears[k].n);
+        for (unsigned i = 1; i <= N; ++i)
+            CHECK(cok_combat_x(&game.combat, T(i)->record) == fears[k].hit[i - 1][0] &&
+                  cok_combat_y(&game.combat, T(i)->record) == fears[k].hit[i - 1][1]);
+    }
+    game.display = COK_DISPLAY_TANDY;
 }
 
 /* Lightning Bolt: level d6 on the cell, then on, away from the caster, 7

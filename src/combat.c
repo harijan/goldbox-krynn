@@ -992,7 +992,8 @@ static bool load_tiles(cok_adventure *game, const char *name, uint8_t first, uin
 {
     cok_combat *combat = &game->combat;
     if (combat->tiles.pixels == NULL &&
-        cok_picture_create(&combat->tiles, 3, 24, COK_COMBAT_TILES, 0) != COK_PICTURE_OK) {
+        cok_adventure_create_picture(game, &combat->tiles, 3, 24, COK_COMBAT_TILES, 0) !=
+            COK_PICTURE_OK) {
         cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
         return false;
     }

@@ -38,8 +38,8 @@ static void test_load(void)
     const uint8_t pixels[] = {0x10, 0x02, 0x00, 0xd3, 0x45, 0x60, 0x0d, 0x78};
     const uint8_t colors[8] = {1, 2, 3, 4, 5, 6, 7, 8};
     cok_image frames[2] = {
-        {8, 1, 5, 6, 0, 0, pixels, colors},
-        {8, 1, 5, 6, 0, 1, pixels + 4, colors},
+        {8, 1, 5, 6, 0, 0, pixels, colors, NULL},
+        {8, 1, 5, 6, 0, 1, pixels + 4, colors, NULL},
     };
     cok_picture picture = {0};
     CHECK(cok_picture_load(&picture, frames, 2, -1) == COK_PICTURE_OK);
@@ -125,7 +125,7 @@ static void test_draw_masked_and_save(void)
 {
     cok_picture screen = numbered(2, 8, 1, 0x80);
     const uint8_t pixels[] = {0x00, 0x12, 0x30, 0x04};
-    cok_image image = {8, 1, 0, 0, 0, 0, pixels, NULL};
+    cok_image image = {8, 1, 0, 0, 0, 0, pixels, NULL, NULL};
     cok_picture sprite = {0}, save = {0};
     CHECK(cok_picture_load(&sprite, &image, 1, 0) == COK_PICTURE_OK);
     CHECK(cok_picture_create(&save, 1, 1, 1, 0) == COK_PICTURE_OK);
@@ -224,7 +224,7 @@ static void test_recolor(void)
 static void test_mirror(void)
 {
     const uint8_t pixels[] = {0x12, 0x34, 0x56, 0x70, 0x9a, 0xbc, 0xde, 0xf0};
-    cok_image image = {8, 2, 0, 0, 0, 0, pixels, (const uint8_t *)"ABCDEFGH"};
+    cok_image image = {8, 2, 0, 0, 0, 0, pixels, (const uint8_t *)"ABCDEFGH", NULL};
     cok_picture src = {0}, dst = {0};
     CHECK(cok_picture_load(&src, &image, 1, 0) == COK_PICTURE_OK);
     CHECK(cok_picture_create(&dst, 1, 2, 1, 1) == COK_PICTURE_OK);
@@ -300,6 +300,94 @@ static void test_frame_view(void)
     cok_picture_free(&picture);
 }
 
+/* CGA mode (DS:4b76 0): pictures of the CGA colours 0-3 in the nibbles. */
+static void test_cga(void)
+{
+    /* The map: colour n's CGA colour in nibble n, high first. Colours 0-15
+     * to 0 1 2 3 1 1 2 2 0 1 2 3 3 0 1 2. */
+    const uint8_t colors[8] = {0x01, 0x23, 0x11, 0x22, 0x01, 0x23, 0x30, 0x12};
+    const uint8_t pixels[] = {0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+                              0xd0, 0x0d, 0x11, 0x22};
+    cok_image image = {8, 2, 5, 6, 0, 0, pixels, colors, NULL};
+    cok_picture p = {0};
+    CHECK(cok_picture_load_cga(&p, &image, 1, -1) == COK_PICTURE_OK);
+    const uint8_t want[] = {0x01, 0x23, 0x11, 0x22, 0x01, 0x23, 0x30, 0x12};
+    CHECK(p.cga && p.mask == NULL && memcmp(p.pixels, want, 8) == 0);
+    CHECK(memcmp(p.colors, colors, 8) == 0 && p.x == 5 && p.y == 6);
+    cok_picture_free(&p);
+    /* Colour 13 transparent: its pixels 0 and masked, from the colour, not
+     * its CGA colour (0, as 0's and 8's). */
+    image.height = 1;
+    image.pixels = pixels + 4;
+    CHECK(cok_picture_load_cga(&p, &image, 1, 13) == COK_PICTURE_OK);
+    const uint8_t want13[] = {0x01, 0x23, 0x30, 0x12}, mask13[] = {0, 0, 0x0f, 0};
+    CHECK(memcmp(p.pixels, want13, 4) == 0 && memcmp(p.mask, mask13, 4) == 0);
+    cok_picture_free(&p);
+    /* A map value above 3 ORs the typed constants after DS:1e0e into the
+     * four pixels of its byte: colour 1 to 5, at pixel 0, gives 0x01, pixel
+     * 3's bits. */
+    const uint8_t odd[8] = {0x05, 0x00, 0, 0, 0, 0, 0, 0};
+    const uint8_t ones[] = {0x10, 0x00, 0x00, 0x00};
+    image.pixels = ones;
+    image.colors = odd;
+    CHECK(cok_picture_load_cga(&p, &image, 1, -1) == COK_PICTURE_OK);
+    const uint8_t want_odd[] = {0x00, 0x01, 0x00, 0x00};
+    CHECK(memcmp(p.pixels, want_odd, 4) == 0);
+    cok_picture_free(&p);
+
+    /* Fills through DS:1e1e, the map every caller passes (127f:1d71). */
+    const uint8_t fills[16] = {0, 0, 1, 1, 2, 2, 1, 2, 0, 1, 2, 1, 3, 0, 3, 3};
+    cok_picture f = {0};
+    CHECK(cok_picture_create(&f, 1, 1, 1, 0) == COK_PICTURE_OK);
+    f.cga = true;
+    for (uint8_t c = 0; c < 32; ++c) {
+        cok_picture_fill(&f, 0, 0, 1, 1, c);
+        for (size_t i = 0; i < 4; ++i) CHECK(f.pixels[i] == fills[c & 15] * 0x11);
+    }
+    cok_picture_free(&f);
+
+    /* Recolouring matches CGA colours through the picture's map: colour 1
+     * to 6 (CGA 1 to 2) turns every pixel of CGA 1, loaded from 1, 4, 5, 9
+     * or 14; 0 to 3 (CGA 0 to 3) the transparent pixels too, their mask
+     * kept. */
+    image = (cok_image){8, 3, 0, 0, 0, 0, pixels, colors, NULL};
+    CHECK(cok_picture_load_cga(&p, &image, 1, 13) == COK_PICTURE_OK);
+    uint8_t from[16], to[16];
+    for (uint8_t i = 0; i < 16; ++i) from[i] = to[i] = i;
+    to[1] = 6;
+    CHECK(cok_picture_recolor(&p, from, to, 0, NULL) == COK_PICTURE_OK);
+    const uint8_t recoloured[] = {0x02, 0x23, 0x22, 0x22, 0x02, 0x23, 0x30, 0x22,
+                                  0x00, 0x00, 0x22, 0x22};
+    CHECK(memcmp(p.pixels, recoloured, 12) == 0);
+    to[1] = 1;
+    to[0] = 3;
+    CHECK(cok_picture_recolor(&p, from, to, 0, NULL) == COK_PICTURE_OK);
+    const uint8_t whole[] = {0x32, 0x23, 0x22, 0x22, 0x32, 0x23, 0x33, 0x22,
+                             0x33, 0x33, 0x22, 0x22};
+    CHECK(memcmp(p.pixels, whole, 12) == 0 && p.mask[6] == 0x0f && p.mask[8] == 0xf0);
+    /* The mirror keeps the map and CGA's colours; the frame shows them in
+     * the CGA palette. */
+    cok_picture m = {0};
+    CHECK(cok_picture_create(&m, 1, 3, 1, 1) == COK_PICTURE_OK);
+    CHECK(cok_picture_mirror(&m, &p) == COK_PICTURE_OK && m.cga);
+    CHECK(memcmp(m.colors, colors, 8) == 0 && m.pixels[0] == 0x22 && m.pixels[3] == 0x23);
+    cok_image view = cok_picture_frame(&m, 0);
+    CHECK(view.palette == cok_cga_palette);
+    uint8_t rgb[8 * 3 * 3];
+    cok_image_rgb(&view, rgb);
+    CHECK(rgb[0] == 255 && rgb[1] == 85 && rgb[2] == 255);        /* 2: light magenta */
+    CHECK(rgb[21] == 255 && rgb[22] == 255 && rgb[23] == 255);    /* 3: white */
+    /* A value above 3 on a CGA picture is a bug the front ends stop at. */
+    size_t at = 99;
+    CHECK(cok_picture_cga_valid(&m, &at) && at == 99);
+    m.pixels[5] = 0x34;
+    CHECK(!cok_picture_cga_valid(&m, &at) && at == 11);
+    m.cga = false;
+    CHECK(cok_picture_cga_valid(&m, &at));
+    cok_picture_free(&m);
+    cok_picture_free(&p);
+}
+
 int main(void)
 {
     test_create();
@@ -311,6 +399,7 @@ int main(void)
     test_mirror();
     test_undelta();
     test_frame_view();
+    test_cga();
     puts("Picture tests passed");
     return 0;
 }

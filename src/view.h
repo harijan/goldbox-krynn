@@ -44,6 +44,7 @@ typedef struct {
 /* What the area words choose for the backdrop (6945:00ba). */
 typedef struct {
     uint8_t sky;     /* DS:6d80, from DS:0dc4 by 0x4bfd or 0x4bfe. */
+    uint8_t line;    /* DS:6d81, set only in CGA mode, which alone draws it. */
     uint8_t horizon; /* DS:6d82, set only in CGA mode; 0 otherwise. */
     uint8_t ground;  /* DS:6d83, 8 outside CGA mode. */
     uint16_t hour;   /* 0x4bc9, places the sun. */
@@ -89,8 +90,10 @@ void cok_view_step(unsigned dir, int *x, int *y);
 void cok_view_tile(cok_picture *dst, const cok_view *view, unsigned value, int x, int y,
                    bool masked);
 
-/* Draw the backdrop and the walls seen from square x, y facing dir (69ea:0184
- * outside CGA mode, then 69ea:0820). */
+/* Draw the backdrop and the walls seen from square x, y facing dir (69ea:0184,
+ * then 69ea:0820). Into a CGA picture the backdrop is CGA mode's: 43 rows
+ * of sky, a row of line, 2 of horizon and 42 of ground, without the
+ * pictures. */
 void cok_view_draw(cok_picture *dst, const cok_view *view, int x, int y, unsigned dir,
                    const cok_view_backdrop *backdrop);
 

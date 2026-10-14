@@ -166,6 +166,24 @@ uint8_t *cok_adventure_find_record(cok_adventure *game, const char *name, uint8_
     return find_record(game, name, id, size, no_file);
 }
 
+/* Load frames as 127f:02a5 does in the game's display mode. */
+static cok_picture_status load_frames(const cok_adventure *game, cok_picture *picture,
+                                      const cok_image *frames, size_t count, int transparent)
+{
+    return game->display == COK_DISPLAY_CGA
+               ? cok_picture_load_cga(picture, frames, count, transparent)
+               : cok_picture_load(picture, frames, count, transparent);
+}
+
+cok_picture_status cok_adventure_create_picture(const cok_adventure *game, cok_picture *picture,
+                                                size_t units, size_t height, size_t frames,
+                                                int masked)
+{
+    cok_picture_status status = cok_picture_create(picture, units, height, frames, masked);
+    if (status == COK_PICTURE_OK) picture->cga = game->display == COK_DISPLAY_CGA;
+    return status;
+}
+
 /* Load a record of one image or one group of frames from <name>.DAX into
  * picture (127f:0111); transparent is as for cok_picture_load. The old
  * picture is freed first. */
@@ -184,7 +202,7 @@ static bool load_single(cok_adventure *game, const char *name, uint8_t id, int t
         fail(game, "%s.DAX record %u: %s", name, id, cok_image_status_string(status));
     } else {
         cok_picture_status loaded =
-            cok_picture_load(picture, images.images, images.count, transparent);
+            load_frames(game, picture, images.images, images.count, transparent);
         ok = loaded == COK_PICTURE_OK;
         if (!ok)
             fail(game, "%s.DAX record %u: %s", name, id, cok_picture_status_string(loaded));
@@ -256,7 +274,7 @@ static void load_picture(cok_adventure *game, uint8_t id)
     for (size_t i = 0; i < count; ++i) {
         /* Each group's delay comes just before its header. */
         game->delays[i] = u32(images.images[i].pixels - 17 - 4);
-        if (cok_picture_load(&game->frames[i], &images.images[i], 1, -1) != COK_PICTURE_OK)
+        if (load_frames(game, &game->frames[i], &images.images[i], 1, -1) != COK_PICTURE_OK)
             break;
         game->frame_count = i + 1;
     }
@@ -290,8 +308,12 @@ void cok_adventure_load_sprite(cok_adventure *game, uint8_t id)
     size_t count = images.count < COK_ADVENTURE_FRAMES ? images.count : COK_ADVENTURE_FRAMES;
     for (size_t i = 0; i < count; ++i) {
         game->delays[i] = u32(images.images[i].pixels - 17 - 4);
-        if (cok_picture_load_sprite(&game->frames[i], &images.images[i], 1) != COK_PICTURE_OK)
-            break;
+        /* Outside CGA mode colour 13 is drawn black (6961:0497). */
+        cok_picture_status loaded =
+            game->display == COK_DISPLAY_CGA
+                ? cok_picture_load_cga(&game->frames[i], &images.images[i], 1, 0)
+                : cok_picture_load_sprite(&game->frames[i], &images.images[i], 1);
+        if (loaded != COK_PICTURE_OK) break;
         game->frame_count = i + 1;
     }
     cok_images_free(&images);
@@ -339,8 +361,9 @@ static void draw_view(cok_adventure *game)
     }
     cok_view_backdrop backdrop = {
         .sky = game->sky,
-        .horizon = 0,
-        .ground = 8,
+        .line = game->backdrop[0],
+        .horizon = game->backdrop[1],
+        .ground = game->backdrop[2],
         .hour = vm->mem4b00[0xc9],
     };
     cok_view_draw(&game->screen, &game->view, vm->map_x, vm->map_y, vm->direction, &backdrop);
@@ -362,6 +385,15 @@ void cok_adventure_view(cok_adventure *game)
     } else {
         vm->square = cok_view_square(&game->view, vm->map_x, vm->map_y);
         game->sky = cok_view_sky_color(vm->mem4b00[vm->square < 0x80 ? 0xfd : 0xfe]);
+        if (game->display != COK_DISPLAY_CGA) {
+            game->backdrop[2] = 8;
+        } else if (vm->c059_changed) {
+            /* DS:884f: from 0xc05f (DS:72d1) and 0xc059 (DS:72d0), by
+             * 6945:0014, 0048 and 007c. */
+            game->backdrop[0] = vm->c05f == 8 || vm->c05f == 0x41 ? 0 : 15;
+            game->backdrop[1] = vm->c05f == 8 ? 8 : 7;
+            game->backdrop[2] = vm->c059 == 0x0b ? 8 : vm->c059 == 6 ? 1 : 6;
+        }
         /* Where the square is hidden, the overhead map goes off. */
         if (vm->mem4b00[0xfb] != 0) overhead_off(game);
         draw_view(game);
@@ -1319,7 +1351,8 @@ static void call(cok_adventure *game)
          * DS:6da3 is 0, and entry 0 is the far pointer DS:6da2:6da0: a
          * segment of 0 (the count and frame) and as offset the segment of
          * the picture at DS:6d9e, the sky picture 252 loaded at startup
-         * outside CGA mode: the original draws from low memory. */
+         * outside CGA mode (0 in CGA mode, which loads none): the original
+         * draws from low memory. */
         if (game->frame_unset) {
             cok_adventure_fail(game, COK_ECL_UNDEFINED,
                                "CALL [6803] with no picture loaded draws entry 0 of DS:6da2, "
@@ -1943,7 +1976,14 @@ static bool effect_distance(cok_effects *fx, const uint8_t *origin, const uint8_
 bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keyboard *keys,
                         const cok_adventure_hooks *hooks)
 {
+    return cok_adventure_open_display(game, assets, COK_DISPLAY_TANDY, keys, hooks);
+}
+
+bool cok_adventure_open_display(cok_adventure *game, const char *assets, cok_display display,
+                                const cok_keyboard *keys, const cok_adventure_hooks *hooks)
+{
     memset(game, 0, sizeof *game);
+    game->display = display;
     game->battle_sp = COK_BATTLE_SP;
     cok_ecl_hooks vm_hooks = {.load = load_block, .opcode = opcode, .trace = trace,
                               .character_value = character_value, .context = game};
@@ -1993,7 +2033,7 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
         return false;
     }
     snprintf(game->assets, sizeof game->assets, "%s", assets);
-    if (cok_picture_create(&game->screen, 40, 200, 1, 0) != COK_PICTURE_OK) {
+    if (cok_adventure_create_picture(game, &game->screen, 40, 200, 1, 0) != COK_PICTURE_OK) {
         fail(game, "out of memory");
         return false;
     }
@@ -2015,11 +2055,11 @@ bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keybo
     for (uint8_t i = 0; i <= 11; ++i)
         if (!cok_arena_load_icon(game, "COMSPR", i, (uint8_t)(13 + i))) return false;
     if (!cok_arena_load_icon(game, "COMSPR", 25, 25)) return false;
-    for (uint8_t i = 0; i < COK_VIEW_SKY_PICTURES; ++i)
+    for (uint8_t i = 0; i < COK_VIEW_SKY_PICTURES && display != COK_DISPLAY_CGA; ++i)
         if (!load_single(game, "SKY", (uint8_t)(250 + i), 13, &game->view.sky[i])) return false;
     /* The overland map's cursor and the cell it covers (3e99:01fd, 07b8). */
     if (!load_single(game, "CURSOR", 1, 13, &game->cursor)) return false;
-    if (cok_picture_create(&game->under, 1, 8, 1, 0) != COK_PICTURE_OK) {
+    if (cok_adventure_create_picture(game, &game->under, 1, 8, 1, 0) != COK_PICTURE_OK) {
         fail(game, "out of memory");
         return false;
     }
@@ -2838,7 +2878,7 @@ static void copy_cell(cok_adventure *game, int x, int y, bool save)
 static bool have_under(cok_adventure *game)
 {
     if (game->under.pixels != NULL) return true;
-    if (cok_picture_create(&game->under, 1, 8, 1, 0) == COK_PICTURE_OK) return true;
+    if (cok_adventure_create_picture(game, &game->under, 1, 8, 1, 0) == COK_PICTURE_OK) return true;
     cok_adventure_fail(game, COK_ECL_UNDEFINED, "out of memory");
     return false;
 }

@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L /* mkdtemp */
 
 #include "adventure.h"
+#include "arena.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1711,6 +1712,66 @@ static void test_opcode_sounds(void)
     cok_adventure_close(&game);
 }
 
+/* The display mode (DS:4b76): CGA mode's screen and pictures hold CGA
+ * colours, startup loads no sky (3e99:0731), sprites keep colour 13
+ * (6961:0497), and 6945:00ba sets the backdrop's line, horizon and ground
+ * from 0xc05f and 0xc059 when they change (6945:0014, 0048, 007c); the
+ * others load the sky and keep the ground 8. */
+static void test_display(void)
+{
+    static cok_adventure game;
+    for (int mode = 0; mode < 3; ++mode) {
+        bool cga = mode == COK_DISPLAY_CGA;
+        CHECK(cok_adventure_open_display(&game, "Assets", (cok_display)mode, NULL, NULL));
+        CHECK(game.display == (cok_display)mode && game.screen.cga == cga);
+        CHECK((game.view.sky[2].pixels == NULL) == cga);
+        CHECK(game.view.tiles[4].cga == cga && game.cursor.cga == cga);
+        cok_adventure_load_sprite(&game, 1);
+        CHECK(game.frame_count == 3 && game.frames[0].cga == cga);
+        bool high = false, thirteen = false;
+        for (size_t i = 0; i < game.frames[0].frame_size; ++i) {
+            uint8_t b = game.frames[0].pixels[i];
+            high |= (b >> 4) > 3 || (b & 15) > 3;
+            thirteen |= (b >> 4) == 13 || (b & 15) == 13;
+        }
+        CHECK(high == !cga && !thirteen);
+        /* A small picture's frames (6961:00e4, PIC1 record 23, eight). */
+        cok_adventure_load_picture(&game, 23);
+        CHECK(game.frame_count == 8);
+        for (size_t f = 0; f < game.frame_count; ++f) {
+            size_t at;
+            CHECK(game.frames[f].cga == cga && cok_picture_cga_valid(&game.frames[f], &at));
+            cok_picture_draw(&game.screen, &game.frames[f], 0, 3, 3, 0, NULL);
+            CHECK(cok_picture_cga_valid(&game.screen, &at));
+        }
+        /* CPIC1 record 1, which has colour 8: drawn black outside CGA
+         * mode (6d21:0408); in CGA mode its CGA colour, 0, where black's is
+         * 1, so a recolour would turn its CGA 0s. */
+        cok_picture plain = {0};
+        CHECK(cok_arena_load_icon(&game, "CPIC", 1, 8));
+        CHECK(cok_adventure_load_image(&game, "CPIC1", 1, 0, &plain));
+        CHECK((memcmp(plain.pixels, game.icons[8][0].pixels, plain.frame_size) == 0) == cga);
+        cok_picture_free(&plain);
+        game.vm.mem4b00[0xe6] = 1;
+        static const struct { uint8_t c05f, c059, want[3]; } cases[] = {
+            {8, 0x0b, {0, 8, 8}}, {0x41, 6, {0, 7, 1}}, {9, 0x41, {15, 7, 6}}, {0xe8, 0xdb, {15, 7, 6}},
+        };
+        for (size_t k = 0; k < 4; ++k) {
+            game.vm.c05f = cases[k].c05f;
+            game.vm.c059 = cases[k].c059;
+            game.vm.c059_changed = true;
+            cok_adventure_view(&game);
+            if (cga) CHECK(memcmp(game.backdrop, cases[k].want, 3) == 0);
+            else CHECK(game.backdrop[0] == 0 && game.backdrop[1] == 0 && game.backdrop[2] == 8);
+        }
+        game.vm.c05f = 8;
+        game.vm.c059_changed = false;
+        cok_adventure_view(&game);
+        if (cga) CHECK(memcmp(game.backdrop, cases[3].want, 3) == 0); /* kept */
+        cok_adventure_close(&game);
+    }
+}
+
 int main(void)
 {
     test_clock();
@@ -1724,6 +1785,7 @@ int main(void)
     test_overland();
     test_opcodes();
     test_portrait();
+    test_display();
     puts("adventure tests passed");
     return 0;
 }

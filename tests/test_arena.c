@@ -966,6 +966,24 @@ static void test_icons(void)
     CHECK(!cok_arena_party_icon(&game, a, false) && strstr(game.error, "DS:0877") != NULL);
     game.vm.status = COK_ECL_OK;
     game.vm.abort = false;
+    /* In CGA mode colour 8 keeps its CGA colour (4b6d:08e0): CHEAD 3 over
+     * CBODY 24 as they load, their CGA colours ORed (CBODY's 8 is 0,
+     * black's 1). */
+    game.display = COK_DISPLAY_CGA;
+    r[0x138] = 1;
+    r[0x135] = 3;
+    CHECK(cok_arena_party_icon(&game, a, false));
+    {
+        cok_picture head = {0}, body = {0};
+        CHECK(cok_adventure_load_image(&game, "CHEAD", 3, 0, &head) &&
+              cok_adventure_load_image(&game, "CBODY", 24, 0, &body));
+        CHECK(head.cga && body.cga && cok_arena_compose(&head, &body));
+        const cok_picture *icon = &game.icons[r[0x137]][0];
+        CHECK(icon->cga && memcmp(icon->pixels, body.pixels, body.frame_size) == 0);
+        cok_picture_free(&head);
+        cok_picture_free(&body);
+    }
+    game.display = COK_DISPLAY_TANDY;
     /* A head not in CHEAD leaves nothing to compose. */
     r[0x138] = 1;
     r[0x135] = 14;

@@ -50,6 +50,13 @@ void cok_text_glyph(cok_picture *dst, const cok_font *font, unsigned glyph, size
         (size_t)y >= dst->height / 8)
         return;
     const uint8_t *bits = font->glyphs + (size_t)glyph * 8;
+    /* CGA mode's blitter (521:0d1e) takes each colour's CGA colour from
+     * DS:1de9; the EGA's (0dbd) writes the low four bits, as here. */
+    static const uint8_t cga[16] = {0, 0, 0, 1, 2, 2, 2, 3, 0, 1, 1, 1, 2, 2, 3, 3};
+    if (dst->cga) {
+        fg = cga[fg & 15];
+        bg = cga[bg & 15];
+    }
     for (long long column = x < 0 ? 0 : x;
          column < dst->units && (unsigned long long)(column - x) < count; ++column)
         cell(dst, bits, (size_t)column, (size_t)y, fg & 15, bg & 15);

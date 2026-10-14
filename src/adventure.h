@@ -2,6 +2,7 @@
 #define COK_ADVENTURE_H
 
 #include "combat.h"
+#include "config.h"
 #include "ecl.h"
 #include "effect.h"
 #include "menu.h"
@@ -122,6 +123,10 @@ typedef struct {
 struct cok_adventure {
     cok_ecl vm;
     char assets[512];      /* Directory holding the DAX files. */
+    /* DS:4b76, KRYNN.CFG's display (11c7:031a). In CGA mode the screen and
+     * every picture hold CGA colours (cok_picture.cga); EGA mode draws as
+     * the Tandy's. */
+    cok_display display;
     cok_picture screen;    /* 40 units by 200 rows. */
     cok_font font;         /* 8X8D1.DAX record 201. */
     /* The 3D view: map, wall sets, tile sets (set 4, 8X8D1.DAX record 202,
@@ -176,6 +181,9 @@ struct cok_adventure {
     bool overhead;         /* DS:6d84: the view shows the overhead map (Area). */
     bool helm;             /* Started with Helm: ParamStr(2) is DS:896a's string. */
     uint8_t sky;           /* DS:6d80: the view's sky colour, as 6945:00ba last set it. */
+    /* DS:6d81-6d83: the backdrop's line, horizon and ground below the sky,
+     * which 6945:00ba sets in CGA mode only (6d83 8 in the others). */
+    uint8_t backdrop[3];
     bool text_shown;       /* DS:884e clear: text to clear after a command. */
     bool door_tries[3];    /* DS:7146-7148: Bash, Pick and Knock may be tried. */
     bool party_killed;     /* DAMAGE left no character able to act. */
@@ -283,6 +291,17 @@ struct cok_adventure {
  * cok_adventure_close even on failure, which also frees the party. */
 bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keyboard *keys,
                         const cok_adventure_hooks *hooks);
+/* As cok_adventure_open, in the display mode given (cok_adventure_open's
+ * is the Tandy's). */
+bool cok_adventure_open_display(cok_adventure *game, const char *assets, cok_display display,
+                                const cok_keyboard *keys, const cok_adventure_hooks *hooks);
+/* cok_picture_create for the game's display: CGA pictures in CGA mode.
+ * Every picture the game makes holds its mode's colours, so all are made
+ * so, though only fills, text, recolouring and exports read the flag (the
+ * combat buffer, its tiles and the overland mark's cell take none). */
+cok_picture_status cok_adventure_create_picture(const cok_adventure *game, cok_picture *picture,
+                                                size_t units, size_t height, size_t frames,
+                                                int masked);
 void cok_adventure_close(cok_adventure *game);
 
 /* Load ECL block from ECL<game->vm.file>.DAX and start it (3775:0361,

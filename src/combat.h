@@ -155,12 +155,12 @@ typedef struct {
     /* What the target routine's calls leave on the stack where 5b04:1903,
      * the cone, reads its range and side when a monster breathes (see
      * cast.c): the x step of the line 6b30:08d8 last looked along
-     * (6b30:01a5, +0x12: -1, 0 or 1); the byte an icon's mirror
-     * (127f:0b94) last swapped, the first of its mask's last row, with how
+     * (6b30:01a5, +0x12: -1, 0 or 1); the word an icon's mirror
+     * (127f:0b94) last left, by the display mode (cok_arena_icon), with how
      * many mirrors were made; and how many terrain tiles were drawn
      * (6d21:00f7, through 127f:08d7). */
     int16_t sight_step;
-    uint8_t mirrored;
+    uint16_t mirrored;
     unsigned mirrors, tiles_drawn;
     /* DS:7195, 7196: the attacks made with slots 1 and 2 in the last
      * attack (432f:1579), whose ammunition 432f:1a45 then uses up; [0] is

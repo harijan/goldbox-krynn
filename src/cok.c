@@ -6,6 +6,7 @@
  * has changed and sleep until a key, the time a delay asks for, a timed
  * menu's timeout or the small picture's next frame. */
 #include "adventure.h"
+#include "config.h"
 #include "keymap.h"
 #include "keyscript.h"
 #include "sound.h"
@@ -127,6 +128,8 @@ static void usage(const char *program)
             "  --no-delay      do not wait where the game waits (for tests; a rest keeps\n"
             "                  its pace); the sound follows the game's delays and \\p\n"
             "                  pauses, as eclplay --wav renders it\n"
+            "  --display MODE  ega, tandy or cga, in place of the display KRYNN.CFG\n"
+            "                  names (the Tandy without one)\n"
             "  --sound DEVICE  tandy (the Tandy's three voices and noise), speaker (the\n"
             "                  PC speaker) or off, in place of the device KRYNN.CFG names\n"
             "                  (the Tandy without one)\n"
@@ -251,20 +254,22 @@ static void save_shown(frontend *f, const SDL_Rect *dst, const char *path)
                 p = shown + (size_t)my * pitch + (size_t)mx * 3;
             }
             int colour = -1;
-            for (int c = 0; c < 16 && colour < 0; ++c)
+            for (int c = 0; c < 16 && colour < 0; ++c) /* in CGA mode 0-3 */
                 if (memcmp(p, f->palette[c], 3) == 0) colour = c;
             for (int dy = 0; dy < ky && colour >= 0; ++dy)
                 for (int dx = 0; dx < kx; ++dx)
                     if (memcmp(p + (size_t)dy * pitch + (size_t)dx * 3, p, 3) != 0) colour = -1;
             if (colour < 0) {
-                shot_error(f, "%s: the window shows a pixel that is not one of the 16 colours", path);
+                shot_error(f, "%s: the window shows a pixel that is not one of the screen's "
+                              "colours", path);
                 break;
             }
             pixels[(y * SCREEN_W + x) / 2] |= (uint8_t)(x % 2 == 0 ? colour << 4 : colour);
         }
     }
     if (!f->shot_failed) {
-        cok_image image = {.width = SCREEN_W, .height = SCREEN_H, .pixels = pixels};
+        cok_image image = {.width = SCREEN_W, .height = SCREEN_H, .pixels = pixels,
+                           .palette = cok_picture_frame(&f->game->screen, 0).palette};
         cok_image_status status = cok_image_bmp(&image, path);
         if (status != COK_IMAGE_OK) shot_error(f, "%s", cok_image_status_string(status));
     }
@@ -320,6 +325,13 @@ static void shoot(frontend *f)
     if (f->shots == NULL || f->shot_failed) return;
     char path[4096];
     snprintf(path, sizeof path, "%s/%03u.bmp", f->shots, f->shot++);
+    size_t at;
+    if (!cok_picture_cga_valid(&f->game->screen, &at)) {
+        /* A port bug: a picture drawn on CGA mode's screen without its
+         * colours, which the palette would show as one of the four. */
+        shot_error(f, "%s: the screen holds a value above 3 in CGA mode", path);
+        return;
+    }
     present(f, true, path);
 }
 
@@ -915,6 +927,8 @@ int main(int argc, char **argv)
     bool seeded = false, woof = false, helm = false, fullscreen = false, sounding = true;
     cok_sound_device device = COK_SOUND_TANDY;
     bool sound_given = false;
+    cok_display display = COK_DISPLAY_TANDY;
+    bool display_given = false;
     unsigned long volume = 100;
     int clock = -1; /* 0 real, 1 game, -1 by --no-delay */
     for (int i = 1; i < argc; ++i) {
@@ -956,12 +970,13 @@ int main(int argc, char **argv)
         } else if (strcmp(option, "--no-sound") == 0) {
             sounding = false;
         } else if (strcmp(option, "--sound") == 0 && has_value &&
-                   (strcmp(argv[i + 1], "tandy") == 0 || strcmp(argv[i + 1], "speaker") == 0 ||
-                    strcmp(argv[i + 1], "off") == 0)) {
-            const char *name = argv[++i];
+                   cok_config_sound_option(argv[i + 1], &device)) {
             sound_given = true;
-            device = name[0] == 't' ? COK_SOUND_TANDY : name[0] == 's' ? COK_SOUND_SPEAKER
-                                                                         : COK_SOUND_NONE;
+            ++i;
+        } else if (strcmp(option, "--display") == 0 && has_value &&
+                   cok_config_display_option(argv[i + 1], &display)) {
+            display_given = true;
+            ++i;
         } else if (strcmp(option, "--volume") == 0 && has_value &&
                    number(argv[i + 1], 100, &volume)) {
             ++i;
@@ -992,9 +1007,19 @@ int main(int argc, char **argv)
     f.scripted = keys != NULL;
     f.script = cok_key_script_start(keys);
 
-    /* The palette, as cok_image_rgb gives the 16 colours. */
+    /* KRYNN.CFG, as startup reads it (11c7:031a). */
+    cok_config config = {COK_DISPLAY_TANDY, COK_SOUND_TANDY};
+    bool config_read = cok_config_read(assets, &config);
+    if (!display_given) display = config.display;
+    if (!sound_given) device = config.sound;
+    if (!display_given && !config_read)
+        cok_config_missing("display", assets);
+    if (f.log) fprintf(stderr, "display: %s\n", cok_display_name(display));
+
+    /* The palette, as cok_image_rgb gives the 16 colours, or CGA's 4. */
     uint8_t ramp[8] = {0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};
-    cok_image colours = {.width = 16, .height = 1, .pixels = ramp};
+    cok_image colours = {.width = 16, .height = 1, .pixels = ramp,
+                         .palette = display == COK_DISPLAY_CGA ? cok_cga_palette : NULL};
     cok_image_rgb(&colours, &f.palette[0][0]);
 
     /* SDL turns SIGINT and SIGTERM into a quit only where they are not
@@ -1034,9 +1059,8 @@ int main(int argc, char **argv)
     }
 
     f.audio.game_clock = clock < 0 ? f.no_delay : clock == 1;
-    if (sounding && !sound_given && !cok_sound_read_config(assets, &device))
-        fprintf(stderr, "sound: no KRYNN.CFG in %s, where the original would ask for the "
-                        "devices: the Tandy\n", assets);
+    if (sounding && !sound_given && !config_read)
+        cok_config_missing("sound", assets);
     if (sounding) audio_open(&f, assets, device, (unsigned)volume);
     cok_keyboard keyboard = {read_key, &f, NULL};
     cok_adventure_hooks hooks = {.unported = unported, .log = log_line, .delay = delay,
@@ -1044,7 +1068,7 @@ int main(int argc, char **argv)
                                  .battlefield = battlefield,
                                  .sound = sounding ? sound : NULL, .context = &f};
     int result = 0;
-    if (!cok_adventure_open(&game, assets, &keyboard, &hooks)) {
+    if (!cok_adventure_open_display(&game, assets, display, &keyboard, &hooks)) {
         fprintf(stderr, "%s\n", game.error);
         show_stop(&f, game.error);
         result = 1;
