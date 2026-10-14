@@ -1637,8 +1637,9 @@ class StartMenuTests(unittest.TestCase):
         result = self.play(r"\kx\t", "--combat", "won")
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
-        self.assertEqual(lines[2:4], ["menu: Play Demo", "choice: Demo"])
-        self.assertEqual(lines[4], "print: EVEN WITH THE DEFEAT OF THE DRAGONARMIES,")
+        self.assertEqual(lines[0], "crt: TANDY 1000 USERS - Make sure NUMLOCK is on.")
+        self.assertEqual(lines[3:5], ["menu: Play Demo", "choice: Demo"])
+        self.assertEqual(lines[5], "print: EVEN WITH THE DEFEAT OF THE DRAGONARMIES,")
         self.assertIn("print: Electronic Arts", lines)
         self.assertEqual(lines.count("menu: Play Demo"), 2)
         self.assertEqual(lines[-1], "(out of keys at the title)")
@@ -1835,8 +1836,10 @@ class SoundTests(unittest.TestCase):
 
     def test_the_title_and_main(self):
         lines = self.calls("--start-menu", "--saves", self.folder, "--keys", r"\kx\t", ASSETS)
-        self.assertEqual(lines[:3], ["sound: music", "call: music", "call: music end"])
-        self.assertEqual(lines[3:5], ["sound: install", "call: install"])
+        # After startup's note to Tandy users (11c7:08ac).
+        self.assertEqual(lines[0], "crt: TANDY 1000 USERS - Make sure NUMLOCK is on.")
+        self.assertEqual(lines[1:4], ["sound: music", "call: music", "call: music end"])
+        self.assertEqual(lines[4:6], ["sound: install", "call: install"])
         demo = lines.index("choice: Demo")
         # 1000:01d8, 0282 and 02b8.
         self.assertEqual(lines[demo + 1:demo + 7], ["call: overlay", "call: overlay end"] * 3)
@@ -1913,8 +1916,7 @@ class SoundTests(unittest.TestCase):
 
     def test_krynn_cfg(self):
         # The device is KRYNN.CFG's second line's first character (11c7:031a);
-        # --sound overrides it; without the file the Tandy, said on
-        # standard error.
+        # --sound overrides it; without the file the setup asks.
         def render(assets, *args, keys=r"\t"):
             path = self.folder / ("r%d.wav" % len(list(self.folder.glob("r*.wav"))))
             result = subprocess.run([str(TOOL), "--start-menu", "--saves", self.folder, "--wav", path,
@@ -1929,9 +1931,11 @@ class SoundTests(unittest.TestCase):
         self.assertEqual(data, speaker)
         self.assertEqual(render(self.assets_with(b"E\r\nP\r\n"), "--sound", "tandy")[1], tandy)
         self.assertEqual(render(self.assets_with(b"E\r\nS\r\n"))[1], off)
-        result, data = render(self.assets_with(None))
+        # Without the file the setup asks: [4] Tandy 1000.
+        result, data = render(self.assets_with(None), keys=r"343\r\t")
         self.assertEqual(data, tandy)
-        self.assertIn("sound: no KRYNN.CFG in ", result.stderr)
+        self.assertIn("crt:              [4] Tandy 1000", result.stdout.splitlines())
+        (self.folder / "KRYNN.CFG").unlink()  # the setup's, in --saves
         # CMS, the MT-32, AdLib: the title silent, its music logged as not
         # ported, the effects on the speaker.
         for letter, name, record in ((b"C", "C/MS", 1), (b"R", "Roland LAPC", 2), (b"A", "AdLib", 3)):
@@ -2085,8 +2089,8 @@ class DisplayTests(unittest.TestCase):
 
     def test_krynn_cfg(self):
         # KRYNN.CFG's first line (11c7:031a): C (or anything but E and T)
-        # CGA, T the Tandy; without the file the Tandy, said on standard
-        # error; --display overrides it.
+        # CGA, T the Tandy; without the file the setup asks; --display
+        # overrides it.
         def assets_with(config):
             assets = self.folder / ("assets-%d" % len(list(self.folder.glob("assets-*"))))
             assets.mkdir()
@@ -2105,12 +2109,170 @@ class DisplayTests(unittest.TestCase):
         self.same(self.play(keys, assets=assets_with(b"T\r\nT\r\n"))[1], tandy)
         self.same(self.play(keys, "--display", "tandy",
                             assets=assets_with(b"C\r\nT\r\n"))[1], tandy)
-        result, shots = self.play(keys, assets=assets_with(None))
-        self.same(shots, tandy)
-        self.assertIn("display: no KRYNN.CFG in ", result.stderr)
+        # Without the file the setup asks ([3] Tandy), its text screens
+        # saved at its four key reads.
+        result, shots = self.play(r"343\r" + keys, assets=assets_with(None))
+        self.assertEqual([struct.unpack_from("<i", b, 18)[0] for b in shots[:5]],
+                         [640, 640, 640, 640, 320])
+        self.same(shots[4:], tandy)
         bad = subprocess.run([str(TOOL), "--display", "vga", "--start-menu", str(ASSETS)],
                              capture_output=True, text=True)
         self.assertEqual(bad.returncode, 2)
+
+
+class SetupTests(unittest.TestCase):
+    """Startup's text screens (11c7:031a): the setup without KRYNN.CFG, which
+    writes it, and the note to Tandy users at every start."""
+
+    NOTE = "crt: TANDY 1000 USERS - Make sure NUMLOCK is on."
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.folder = pathlib.Path(self.temp.name)
+        self.assets = self.folder / "assets"
+        self.assets.mkdir()
+        for path in ASSETS.iterdir():
+            if path.name.upper() != "KRYNN.CFG":
+                (self.assets / path.name).symlink_to(path)
+
+    def play(self, keys, *args, assets=None):
+        return subprocess.run([str(TOOL), "--start-menu", *map(str, args), "--keys", keys,
+                               str(assets or self.assets)], capture_output=True, text=True)
+
+    def test_the_setup_writes_the_file(self):
+        saves, shots = self.folder / "saves", self.folder / "shots"
+        saves.mkdir()
+        # A digit out of range and a letter do nothing; Alt-M's scan code
+        # (0x32) is a 2; the path's letters are upper-cased and a \ added.
+        keys = r"91\#32\#3bx2a:\\some\\pla\b\bath\r\t"
+        result = self.play(keys, "--saves", saves, "--shots", shots, "--sound-calls")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[:11], [
+            "crt: GRAPHICS ADAPTER TYPE:  [1] CGA  [2] EGA  [3] Tandy  1",
+            "crt: SOUND TYPE:  [1] C/MS", "crt:              [2] Roland LAPC",
+            "crt:              [3] AdLib", "crt:              [4] Tandy 1000",
+            "crt:              [5] PC", "crt:              [6] Silent", "crt: 2",
+            "crt: ALTERNATE INPUT TYPE:  [1] JOYSTICK  [2] MOUSE  [3] NEITHER  2",
+            r"crt: PATH TO SAVE DATA (DEFAULT - C:\COK\SAVE):  a:\some\path",
+            self.NOTE])
+        written = (saves / "KRYNN.CFG").read_bytes()
+        self.assertEqual(written, b"C\r\nR\r\nM\r\nA:\\SOME\\PATH\\\r\nF\r\n" + b"0\r\n" * 14)
+        # CGA, as the file says, and the text screen at each key read,
+        # 640x200, light grey on black.
+        bmps = sorted(shots.glob("*.bmp"))
+        first = bmps[0].read_bytes()
+        self.assertEqual(struct.unpack_from("<ii", first, 18), (640, 200))
+        self.assertEqual(pixel(first, 0, 0), (0, 0, 0))
+        self.assertIn((170, 170, 170), {pixel(first, x, y) for x in range(8) for y in range(8)})
+        later = [b.read_bytes() for b in bmps if struct.unpack_from("<i", b.read_bytes(), 18)[0] == 320]
+        self.assertTrue(later)
+        self.assertLessEqual({pixel(later[0], x, y) for x in range(0, 320, 7) for y in range(0, 200, 7)},
+                             {(0, 0, 0), (85, 255, 255), (255, 85, 255), (255, 255, 255)})
+        # The next run reads it: only the note.
+        again = self.play(r"\t", "--saves", saves, "--sound-calls")
+        self.assertEqual(again.stdout.splitlines()[0], self.NOTE)
+        self.assertNotIn("crt: SOUND TYPE:  [1] C/MS", again.stdout.splitlines())
+        self.assertEqual((saves / "KRYNN.CFG").read_bytes(), written)
+
+    def test_the_default_path(self):
+        # Too short, no colon, a drive past P: the default, for 2 seconds;
+        # A: on a hard disk is taken.
+        for typed, line, path in ((r"c:\r", "c:", b"C:\\COK\\SAVE\\"),
+                                  (r"cx\\abc\r", "cx\\abc", b"C:\\COK\\SAVE\\"),
+                                  (r"q:\\abc\r", "q:\\abc", b"C:\\COK\\SAVE\\"),
+                                  (r"a:\\x\\\r", "a:\\x\\", b"A:\\X\\")):
+            config = self.folder / ("k%d.cfg" % len(list(self.folder.glob("k*.cfg"))))
+            wav = self.folder / "a.wav"
+            result = self.play("343" + typed + r"\t", "--config", config, "--wav", wav)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            lines = result.stdout.splitlines()
+            self.assertIn(r"crt: PATH TO SAVE DATA (DEFAULT - C:\COK\SAVE):  " + line, lines)
+            self.assertEqual(r"crt: USING DEFAULT PATH: C:\COK\SAVE" in lines,
+                             path == b"C:\\COK\\SAVE\\")
+            self.assertEqual(config.read_bytes().splitlines()[3], path)
+            # The sound's time starts after the text screens.
+            self.assertEqual(wav_data(wav), wav_data_of(self, r"\t"))
+
+    def test_the_line_editor(self):
+        # Escape erases the line, Ctrl-D and Ctrl-F bring back what the
+        # buffer holds, an extended key and Ctrl-Z do nothing.
+        config = self.folder / "k.cfg"
+        result = self.play("343xyz\\ec:\\\\ab\\b\\b\x04\\#3b\x1a\x06\\r", "--config", config)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(config.read_bytes().splitlines()[3], b"C:\\AB\\")
+
+    def test_the_end_of_the_keys(self):
+        saves = self.folder / "saves"
+        saves.mkdir()
+        result = self.play("34", "--saves", saves)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[-1], "(out of keys in the setup)")
+        self.assertFalse((saves / "KRYNN.CFG").exists())
+
+    def test_where_the_file_is(self):
+        saves = self.folder / "saves"
+        saves.mkdir()
+        # Without --saves or --config the setup's answers hold, written
+        # nowhere.
+        result = self.play(r"143c:\\x\r\t")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("written nowhere", result.stderr)
+        self.assertEqual(list(self.assets.glob("*.CFG")) + list(self.assets.glob("*.cfg")), [])
+        # It cannot be made: the original's message, status 1.
+        result = self.play("1", "--config", self.folder / "no" / "KRYNN.CFG")
+        self.assertEqual(result.returncode, 1)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[:4], [
+            "crt: Sorry, disk A can't be write-protected.", "crt: ",
+            "crt: If these are your masters, use DISKCOPY to make duplicates.", "crt: "])
+        self.assertTrue(lines[4].startswith("crt: The port stops here: "), lines)
+        self.assertIn("No such file or directory", result.stderr)
+        # Without --start-menu no setup runs: the file missing is named.
+        missing = self.folder / "no.cfg"
+        result = subprocess.run([str(TOOL), "--config", str(missing), "--keys", r"\r", "--wav",
+                                 str(self.folder / "m.wav"), str(ASSETS), "16"],
+                                capture_output=True, text=True)
+        self.assertIn("display: no %s, " % missing, result.stderr)
+        self.assertIn("sound: no %s, " % missing, result.stderr)
+        # The saves directory's comes before the assets'; --config before both.
+        (self.assets / "krynn.cfg").write_bytes(b"T\r\nT\r\nN\r\n")
+        (saves / "KRYNN.CFG").write_bytes(b"T\r\nS\r\nN\r\n")
+        wav = self.folder / "s.wav"
+        result = self.play(r"\t", "--saves", saves, "--wav", wav)
+        self.assertEqual(result.stdout.splitlines()[0], self.NOTE)
+        self.assertFalse(any(wav_data(wav)))
+        mine = self.folder / "mine.cfg"
+        mine.write_bytes(b"T\r\nT\r\n")
+        self.play(r"\t", "--saves", saves, "--config", mine, "--wav", wav)
+        self.assertTrue(any(wav_data(wav)))
+        (saves / "KRYNN.CFG").unlink()
+        self.play(r"\t", "--saves", saves, "--wav", wav)
+        self.assertTrue(any(wav_data(wav)))
+
+    def test_initialize_mouse_joystick(self):
+        # Each Select writes KRYNN.CFG again with its third line N, read
+        # from the assets, written in the saves directory.
+        saves = self.folder / "saves"
+        saves.mkdir()
+        (self.assets / "KRYNN.CFG").write_bytes(b"E\r\nT\r\nM\r\nC:\\COK\\SAVE\\\r\nF\r\n" + b"0\r\n" * 14)
+        result = self.play(r"\kxP\v\v\v\r\r\e", "--saves", saves)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("config: line 3 N", result.stdout.splitlines())
+        self.assertEqual((saves / "KRYNN.CFG").read_bytes(),
+                         b"E\r\nT\r\nN\r\nC:\\COK\\SAVE\\\r\nF\r\n" + b"0\r\n" * 14)
+        self.assertEqual((self.assets / "KRYNN.CFG").read_bytes()[6:9], b"M\r\n")
+
+
+def wav_data_of(test, keys):
+    """The WAV eclplay renders from the assets (with their KRYNN.CFG's E and
+    T) for keys."""
+    path = test.folder / "ref.wav"
+    result = subprocess.run([str(TOOL), "--start-menu", "--wav", str(path), "--sound", "tandy",
+                             "--keys", keys, str(ASSETS)], capture_output=True, text=True)
+    test.assertEqual(result.returncode, 0, result.stderr)
+    return wav_data(path)
 
 
 if __name__ == "__main__":

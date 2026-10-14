@@ -21,26 +21,64 @@
  * the Tandy's mode 9, both 16 colours. */
 typedef enum { COK_DISPLAY_CGA, COK_DISPLAY_EGA, COK_DISPLAY_TANDY } cok_display;
 
+/* The rest of the file, as startup reads it on: the third line's first
+ * character, the alternate input (J the joystick, DS:89ce; M the mouse,
+ * DS:8986; N neither; anything else leaves both as they were, off); the
+ * fourth line, the save path (DS:5784, string[255], ReadLn), which the
+ * port's --saves replaces; the fifth's first character, F setting DS:4b26,
+ * which nothing reads; then 177c:0000 keeps the joystick (DS:89ce) only
+ * if stick 1 can be read, and only then are seven pairs of integers read,
+ * a line each: its X and Y thresholds (DS:8996, 89a4, a word each). The
+ * fields are DS's as 11c7:031a leaves them. The port's machine has no
+ * stick, so joystick ends false and the thresholds 0; the mouse stays as
+ * the file says until the game's start resets the driver (1743:0000 at
+ * 3e99:0085), which finds none and turns it off. */
 typedef struct {
     cok_display display;
     cok_sound_device sound;
+    bool joystick, mouse;
+    char save_path[256];
+    bool f_line;
+    uint16_t joystick_x[7], joystick_y[7];
 } cok_config;
 
 /* "CGA", "EGA" or "Tandy". */
 const char *cok_display_name(cok_display display);
 
 cok_config cok_config_parse(const uint8_t *text, size_t size);
+/* As startup reads it on a machine with a joystick (stick) or without one,
+ * as the port's: cok_config_parse is the latter. */
+cok_config cok_config_parse_stick(const uint8_t *text, size_t size, bool stick);
+/* Read the file at path into *config. Returns false, config unchanged,
+ * when it cannot be opened or read. */
+bool cok_config_read_file(const char *path, cok_config *config);
 /* Read ASSETS/KRYNN.CFG (or krynn.cfg) into *config. Returns false, config
- * unchanged, when there is none or it cannot be read: the original then
- * asks for the graphics, sound and input (11c7:031a's screens) and writes
- * the file; the port does neither, and the caller chooses. */
+ * unchanged, when there is none or it cannot be read. */
 bool cok_config_read(const char *assets, cok_config *config);
+/* Where the port keeps KRYNN.CFG, which the original reads and writes in
+ * its directory: option (--config FILE) if given; else SAVES/KRYNN.CFG or
+ * krynn.cfg, the port's own; else the one in ASSETS, as a copy of the
+ * original's directory holds it. saves and assets may be NULL. Returns
+ * true with path the file found, false without (path then as write_path).
+ * write_path is where the setup and Initialize Mouse/Joystick write it:
+ * option, the file found in SAVES, or SAVES/KRYNN.CFG; empty for nowhere
+ * (no saves). The port never writes into the assets directory. */
+bool cok_config_find(const char *option, const char *saves, const char *assets, char *path,
+                     char *write_path, size_t size);
+/* Initialize Mouse/Joystick's rewrite (4def:5cc7): lines 1, 2, 4 and 5 of
+ * from as ReadLn reads them into string[255]s (empty if it cannot be
+ * read), input ('M', 'J' or 'N') as line 3, then the joystick's fourteen
+ * numbers, 0 without one, CR LF after each, into to. Returns false if it
+ * cannot be written. */
+bool cok_config_rewrite(const char *from, const char *to, char input);
 /* The front ends' --display ega|tandy|cga and --sound tandy|speaker|off:
  * false, *out unchanged, for another name. */
 bool cok_config_display_option(const char *name, cok_display *out);
 bool cok_config_sound_option(const char *name, cok_sound_device *out);
-/* Say on standard error, for what ("display", "sound"), that ASSETS has no
- * KRYNN.CFG and the Tandy is taken. */
-void cok_config_missing(const char *what, const char *assets);
+/* Say on standard error, for what ("display", "sound"), that there is no
+ * KRYNN.CFG where cok_config_find looked (option, or SAVES and ASSETS) and
+ * the Tandy is taken. */
+void cok_config_missing(const char *what, const char *option, const char *saves,
+                        const char *assets);
 
 #endif

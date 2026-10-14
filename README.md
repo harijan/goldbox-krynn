@@ -1,16 +1,18 @@
 # Champions of Krynn Linux port
 
-The native tools are a C17 DAX archive reader, decompressor, image exporter,
-picture and text compositor, ECL script interpreter and disassembler, and a
-headless script player that shows the scripts' text, menus, pictures, 3D
-view and party on the adventure screen, and plays the game from its title
-and start menu; and `cok`, which plays the game in a window with SDL2,
-from the title, with the keyboard and with its sound: the Tandy's three
-voices and noise, or the PC speaker, the effects and the title's music
-(see Playing and Sound), in the display mode `KRYNN.CFG` names: EGA, the
-Tandy's or CGA's four colours (see Display modes). The original DOS
-executable, decompiler output, and game data are reference inputs, kept in
-`Assets/`; saved games from the original, if any, go in `SAVE/`.
+The native tools are a C17 DAX archive reader, decompressor, image
+exporter, picture and text compositor, ECL script interpreter and
+disassembler, and a headless script player that shows the scripts' text,
+menus, pictures, 3D view and party on the adventure screen, and plays the
+game from its title and start menu; and `cok`, which plays the game in a
+window with SDL2, from the title, with the keyboard and with its sound: the
+Tandy's three voices and noise, or the PC speaker, the effects and the
+title's music (see Playing and Sound), in the display mode `KRYNN.CFG`
+names: EGA, the Tandy's or CGA's four colours (see Display modes), after
+the original's text-mode setup when there is no `KRYNN.CFG` (see Startup
+and the setup). The original DOS executable, decompiler output, and game
+data are reference inputs, kept in `Assets/`; saved games from the
+original, if any, go in `SAVE/`.
 
 ## Build and verify
 
@@ -39,6 +41,8 @@ mkdir -p build/roster
 ./build/eclplay --start-menu --saves build/roster --wav build/title.wav --keys '\t' Assets
 ./build/eclplay --start-menu --display cga --saves build/roster --shots build/cga \
     --keys '\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\r\e' Assets
+rm -f build/krynn.cfg
+./build/eclplay --start-menu --config build/krynn.cfg --keys '243d:\\krynn\r\t' Assets
 make test
 make sanitize
 make cok
@@ -73,7 +77,9 @@ export checks for all 26 supported graphics archives (2,363 images), and
 tests of the picture, text, menu, 3D view, overhead map, party and spell
 effect routines, the sound (`tests/test_sound.c`: the drivers' port writes
 against the original's, recorded in an emulator, and the synthesis),
-`KRYNN.CFG` (`tests/test_config.c`), the display modes
+`KRYNN.CFG` (`tests/test_config.c`), startup's setup and text screen
+(`tests/test_setup.c`: against the original's, run in an emulator), the
+display modes
 (`tests/test_display.c`: each screen type's drawing in CGA, EGA and Tandy
 mode against what the original's graphics and text units left, run in an
 emulator),
@@ -116,18 +122,19 @@ timed menu runs out or the small picture's next frame is due.
 | Option | |
 | --- | --- |
 | `--assets DIR` | the game's DAX files (default `Assets`) |
-| `--saves DIR` | the roster and saved games (default `saves`, created if missing; ignored by git); never `SAVE/` itself: to play the original's games, copy them into it (`mkdir -p saves && cp SAVE/* saves/`) and pick Load Saved Game |
+| `--saves DIR` | the roster and saved games (default `saves`, created if missing; ignored by git); never `SAVE/` itself: to play the original's games, copy them into it (`mkdir -p saves && cp SAVE/* saves/`) and pick Load Saved Game; and the port's `KRYNN.CFG`, read before the assets' and written by the setup (see Startup and the setup) |
+| `--config FILE` | the `KRYNN.CFG` to read, or, if it is missing, for the setup to write |
 | `--scale N` | the window's size, N (1-16) times the screen (default 3: 960×720) |
 | `--aspect 4:3`, `--aspect 1:1` | 4:3, the default, shows the 200 lines as 240, as a 4:3 monitor showed the 320×200 mode: the game was drawn for it (the moons and the portraits are round so); 1:1 keeps the pixels square |
 | `--fullscreen` | start full screen |
 | `--screenshots DIR` | where F12 saves the screen (default `screenshots`, created when needed, ignored by git) |
 | `--seed N` | start Turbo Pascal's `Random` from N; by default the clock seeds it, as startup's `Randomize` (`1a46:1200` from `3e99:005b`) does |
 | `--woof`, `--helm` | start as `START Woof` (no title, and the debug keys Ctrl-D, Ctrl-Z and Ctrl-C: see Debug mode) or with `Helm` (`Area` anywhere, the Gods' cheat Alt-X, free training) |
-| `--log` | print the game's text, menus, choices, sounds and what is not ported to standard error, as `eclplay` prints them; the window's size and where the screen is shown in it; keys typed ahead that a flush drops (`flush:`); the display mode (`display:`); the audio driver and the sound device (`sound:`); and a check that the window keeps up: `stale:` if, through the game's delays, the window kept an older screen than the game's for more than 160 ms |
+| `--log` | print the game's text, menus, choices, sounds and what is not ported to standard error, as `eclplay` prints them; the window's size and where the screen is shown in it; keys typed ahead that a flush drops (`flush:`); startup's text screen, a row at a time (`crt:`); the display mode (`display:`); the audio driver and the sound device (`sound:`); and a check that the window keeps up: `stale:` if, through the game's delays, the window kept an older screen than the game's for more than 160 ms |
 | `--keys KEYS` | type KEYS first, in `eclplay`'s escapes (see Playing scripts), each turned into the key that gives it and sent through SDL's key events as the game asks for a key (`\k` as it polls, `\t` the timed menu running out, `\[KEYS\]` typed ahead and `\wN.` as in Playing scripts; besides, `\pN.` pauses N hundredths of a second before the next key is typed as the game reads it, and `\#85` and `\#86`, codes the game never gets, press F11 and F12; a key repeated in a group typed ahead is held, its repeats sent as a held key's are; each a real keystroke, so that a flush after its 0 is read loses its scan code, which `eclplay` keeps for keys not typed ahead); the run then ends as `eclplay`'s does, printing `(out of keys ...)`, unless `--continue` hands over to the keyboard |
 | `--no-delay` | do not wait where the game waits (for tests); a rest keeps the front end's pace (see below); the sound then goes by the game's clock (see Sound) |
-| `--display ega`, `--display tandy`, `--display cga` | the display mode in place of the one `KRYNN.CFG` in the assets directory names (its first line: `E`, `T`, anything else CGA; the Tandy without the file, see Display modes): EGA and the Tandy's look the same; CGA shows four colours |
-| `--sound tandy`, `--sound speaker`, `--sound off` | the sound device in place of the one `KRYNN.CFG` in the assets directory names (its second line: `T`, `P`, `S`; `C`, `R` and `A` play the effects on the speaker and no music; the Tandy without the file, see Sound): the Tandy's three voices and noise, the PC speaker, or none |
+| `--display ega`, `--display tandy`, `--display cga` | the display mode in place of the one `KRYNN.CFG` names (its first line: `E`, `T`, anything else CGA, see Display modes): EGA and the Tandy's look the same; CGA shows four colours |
+| `--sound tandy`, `--sound speaker`, `--sound off` | the sound device in place of the one `KRYNN.CFG` names (its second line: `T`, `P`, `S`; `C`, `R` and `A` play the effects on the speaker and no music, see Sound): the Tandy's three voices and noise, the PC speaker, or none |
 | `--no-sound` | open no audio device |
 | `--volume N` | 0-100 (default 100) |
 | `--sound-clock real`, `--sound-clock game` | what times the sound drivers: the audio device as it plays (the default; with `--no-delay`, `game`), or the game's delays and `\pN.` pauses, as `eclplay --wav` renders them |
@@ -166,9 +173,9 @@ keypad numbers as the BIOS keeps them, `cok_keymap_event`):
 | F1-F10 | 0, then 0x3b-0x44; with Shift 0x54-0x5d, Ctrl 0x5e-0x67, Alt 0x68-0x71 | F10 picks Demo on the title's menu; Ctrl-F8 camps on the overland map; menus that do not tell scan codes from letters take F7-F10 (0x41-0x44) as A-D, Home, Up and PgUp as G, H and I, and so on (saved games A-J, Yes and No) |
 | Alt and a letter | 0, then the letter's scan code | in combat Alt-Q and Alt-A Auto, Alt-M Magic on and off, Alt-X the Gods (with `--helm`), Alt-R nothing |
 | Alt and a digit, `-` or `=` | 0, then 0x78-0x83 | nothing |
-| Ctrl and a letter | 1-26; Ctrl `[ \ ] 6 -` 27-31; Ctrl-2 0, 0x03 | Ctrl-S the sound off and on again (`1614:025b`, see Sound); with `--woof`, Ctrl-D the debug mode on and off, Ctrl-Z the party's effects to `DEBUG.TXT`, Ctrl-C (and Ctrl-2, whose scan code is 3) quit to DOS (see Debug mode) |
+| Ctrl and a letter | 1-26; Ctrl `[ \ ] 6 -` 27-31; Ctrl-2 0, 0x03 | Ctrl-S the sound off and on again (`1614:025b`, see Sound); with `--woof`, Ctrl-D the debug mode on and off, Ctrl-Z the party's effects to `DEBUG.TXT`, Ctrl-C (and Ctrl-2, whose scan code is 3) quit to DOS (see Debug mode); in the setup's path line, Crt's editor's: Ctrl-S erases a character, Ctrl-A the line, Ctrl-D and Ctrl-F recall (`1962:0394`, see Startup and the setup), and the debug keys and Ctrl-S's sound do nothing there |
 | F11 or Alt-Enter | nothing (function 0 drops them) | full screen on and off |
-| F12 | nothing | save the screen, 320×200, as `cokNNN.bmp` in `screenshots/` or `--screenshots DIR` |
+| F12 | nothing | save the screen, 320×200 (startup's text screen 640×200), as `cokNNN.bmp` in `screenshots/` or `--screenshots DIR` |
 
 Keys the game cannot read give nothing: those only an enhanced keyboard's
 function 0x10 returns (Ctrl or Alt with the arrows, Alt-Enter, F11, F12),
@@ -288,10 +295,148 @@ with; in real time the title's music playing on through the title's wait, a
 step's sound playing out while the game waits for a key, and without a
 device, with `--no-sound` or without `SOUND.DAX` the game playing on,
 saying why; a copy of the assets whose `KRYNN.CFG` says `P` playing the
-speaker. `tests/test_hooks.c` checks each flush, which menus animate, the
-sound driver's calls, and `Loading...Please Wait` and `PIC not found`
-against what the original's loaders did in an 8086 emulator
+speaker; and, with a copy of the assets without `KRYNN.CFG`, the setup's
+text screens at 640×200 frame for frame as `eclplay` draws them, the file
+it writes and the game in the mode it chose, the next start reading it, and
+keys that end in the setup; that the window shows startup's note to Tandy
+users before the title, and the music in real time after it.
+`tests/test_hooks.c` checks each flush, which menus animate, the sound
+driver's calls, and `Loading...Please Wait` and `PIC not found` against
+what the original's loaders did in an 8086 emulator
 (`tests/test_loading_data.h`, see Playing scripts).
+
+## Startup and the setup
+
+Startup (`11c7:031a`) works in the text mode DOS left, before it sets the
+graphics mode, through Turbo Pascal 6's `Crt` unit (`1962`) and `System`'s
+text files: Ctrl-Break is turned off (`Crt.CheckBreak`, `DS:8a44`), it
+waits for `GAME.OVR` (`169c:01c8`: `Please insert overlay disk.` and a key
+while it is missing) and looks for `krynn.cfg` in the current directory
+(`169c:04c1`, `FindFirst` with no attributes: a hidden one, or a directory
+of that name, counts as missing). Without it the setup runs: `Rewrite`
+makes the file first, and if that fails it says `Sorry, disk A can't be
+write-protected.`, a blank line and `If these are your masters, use
+DISKCOPY to make duplicates.` and halts with status 1. Then four screens,
+each after `ClrScr`, in `TextAttr` (the colour under DOS's cursor, normally
+light grey on black; nothing changes it):
+
+| Screen | Asks | Writes |
+| --- | --- | --- |
+| `GRAPHICS ADAPTER TYPE:  [1] CGA  [2] EGA  [3] Tandy  ` | a digit 1-3 | `C`, `E`, `T` |
+| `SOUND TYPE:  [1] C/MS` and five more lines to `[6] Silent` | 1-6 | `C`, `R`, `A`, `T`, `P`, `S` |
+| `ALTERNATE INPUT TYPE:  [1] JOYSTICK  [2] MOUSE  [3] NEITHER  ` | 1-3 | `J`, `M`, `N` |
+| `PATH TO SAVE DATA (DEFAULT - C:\COK\SAVE):  ` | a line | the path, then `F` and 14 numbers |
+
+A digit (`11c7:0020`) is read with `ReadKey` until it is one in range,
+then echoed; other keys do nothing, but an extended key's scan code is read
+as a character too, so Alt-N (0x31) answers 1 and Alt-M (0x32) 2. The path
+is read with `ReadLn` through `Crt`'s line editor (`1962:0394`): up to 126
+characters, echoed, wrapping at the 80th column; Backspace or Ctrl-S erases
+one, Escape or Ctrl-A all; Ctrl-D brings back one character the buffer
+still holds past the cursor (one typed and erased), Ctrl-F all of them;
+Enter ends it; other control keys and extended keys do nothing (Ctrl-Z
+would end it with `CheckEOF`, which is off). The string keeps the first 80.
+Its first character upper-cased, it is taken if it has at least 4
+characters, the second a colon and the first a drive from A to P, and not
+the floppy (A or B) the game runs on; else `USING DEFAULT PATH: ` and the
+default, for 2 seconds. Then every letter is upper-cased and a `\` added
+(unless 80 characters already fill the string). The default is the current
+directory (`FExpand('*.exe')`, cut to FSplit's 67 characters) and `SAVE`,
+or on drive A or B the other drive's root (`B:\SAVE`, `A:\SAVE`). Joystick
+calibration follows (`177c:029d`): with a stick on port 0x201, two screens
+(`Push JOYSTICK #1 to the extreme upper left position and press BUTTON
+#1.`, then lower right; `Couldn't read the joystick.  Aborting
+calibration.` on failure); without one it asks nothing and the numbers are
+0. The file, each line ended by CR LF:
+
+| Line | Holds | Read into | In the port |
+| --- | --- | --- | --- |
+| 1 | the display's letter | `DS:4b76` (see Display modes) | the display |
+| 2 | the sound device's | `DS:577a` (see Sound) | the device |
+| 3 | `J`, `M` or `N` | the joystick `DS:89ce`, the mouse `DS:8986`; another letter leaves both; then `177c:0000` (`11c7:0b16`) keeps the joystick only if stick 1 can be read, and the game's start resets the mouse (`1743:0000` at `3e99:0085`), on only with a driver | `cok_config.joystick` (false: the port's machine has no stick), `.mouse` (as the file says; the port has no mouse, so the game's reset would turn it off) |
+| 4 | the save path | `DS:5784`, string[255]: the roster and saved games, the save disk's checks (`4b6d:0555`), free space | `cok_config.save_path`; the port saves in `--saves` |
+| 5 | `F` | `DS:4b26`, 1 for `F`: nothing reads it | `cok_config.f_line` |
+| 6-19 | the stick's 7 X and 7 Y thresholds in pairs, read only with the joystick on after `177c:0000` (`Read` of an integer: blanks skipped, a sign, decimal or `$` hex; error 106 makes every later read do nothing) | `DS:8996`, `89a4` | `cok_config.joystick_x`, `_y`: 0 without a stick (`cok_config_parse_stick` reads them as a machine with one would) |
+
+Then, file or not, `ClrScr`, `TANDY 1000 USERS - Make sure NUMLOCK is on.`
+and `Delay(2000)` (a busy loop: keys typed wait in the BIOS's buffer), and
+the file is read (`Read` and `ReadLn`, see Sound's Devices) as the mode is
+set. No argument or key reaches the setup again; the start menu's
+Initialize Mouse/Joystick (`4def:5cc7`) rewrites the file (see The start
+menu).
+
+The port does the same (`src/setup.c`, on the text screen of `src/crt.c`),
+in `cok` and in `eclplay --start-menu`, before the game opens; `--display`
+and `--sound` then override what the file says. What the original showed
+depends on the machine's adapter, not on `KRYNN.CFG`, as no mode is set
+yet: on a CGA or a Tandy 1000, 80×25 at 640×200 in the ROM's 8×8
+characters, the cursor on scan lines 6 and 7; on an EGA 640×350 in 8×14
+cells; on a VGA 720×400 in 9×16. The port shows the CGA's and the Tandy's:
+640×200 in 8×8 cells, light grey on black, with the cursor's two bottom
+lines; in the game's font (`8X8D1.DAX`), as the port has no PC character
+ROM: in upper case (what is typed shows in capitals; the file keeps it as
+typed), with `$ % @ [ \ ] ^ _` and `` ` { | } ~ ``, which the font lacks,
+drawn by the port, and other bytes as the font's characters modulo 64
+(0x7f, from Ctrl-Backspace, shows as `?`, not the PC's ⌂). `cok` shows it
+in the window (F12 saves it, 640×200), `cok --log` and `eclplay` log each
+row as the cursor leaves it (`crt: `), and `eclplay --shots` saves it at
+each key read. The game's directory is taken as `C:\COK\`, where the
+assets' own `KRYNN.CFG` says the game was installed (its save path
+`C:\COK\SAVE\`), so the default path is `C:\COK\SAVE`. The sound's time
+starts after the note: `eclplay --wav` renders nothing for its 2 seconds.
+The note's `Delay(2000)` is the game's first wait, so a key script's group
+typed ahead at the start (`\[...\]`) is typed there and waits in the buffer
+until the title's flush drops it, as keys typed during the note did, and
+`\wN.` counts it as a wait.
+
+Where the port keeps the file: the original reads and writes it in its own
+directory, which the port splits into the assets (read only, the original's
+files) and `--saves` (the port's own). It reads `--config FILE` if given;
+else `KRYNN.CFG` (or `krynn.cfg`) in the saves directory; else the one in
+the assets directory, as a copy of the original's directory has it
+(`Assets/KRYNN.CFG` says `E`, `T`, `M`, `C:\COK\SAVE\`, `F` and 14 zeros).
+A file found is a regular file, as `FindFirst` finds one: a directory of
+that name counts as missing (the setup then fails to make it, as the
+original's `Rewrite` does), and a file the port cannot read stops the run,
+never made again. Without any, the setup writes `--config FILE` or
+`SAVES/KRYNN.CFG`, which later runs then read; the port never writes into
+the assets directory, which may be the repository's `Assets/` or a
+read-only copy of the game, not even with `--saves` naming it (the setup
+then writes nowhere). So the saves directory's copy, once written (by the
+setup, or by Initialize Mouse/Joystick, which copies the assets' with its
+third line changed), shadows the assets': later edits of the assets' file
+are not read, and one saves directory used with several copies of the
+assets gives them all its file. `eclplay` without `--saves` or `--config`
+writes it nowhere, saying so, and plays on with the answers. Where the
+original makes the file as the setup starts and fills it as it ends, so
+that a setup cut short leaves an empty `krynn.cfg` (read next time as CGA
+with no sound), the port makes it at the start too, to say at once that it
+cannot, but removes it again if the run ends in the setup (only a file it
+made: what was there before is left). A file it cannot make shows the
+original's message on the text screen; then, there as for a file it cannot
+read or write, a blank row and `The port stops here: ` with the reason,
+also on standard error; the run ends with status 1 (`cok` waits for a key
+or the window's close first). A run whose keys end in the setup ends `(out
+of keys in the setup)`.
+
+`tests/test_setup.c` replays 96 setups (the digits with noise around them,
+extended keys, paths typed with every editing key, long lines, floppies,
+long directories, each kind of path refused or taken on each kind of drive,
+erasing back over a wrapped line, more keys than the line holds, input
+ending early, the file that cannot be made, the file found) against what
+the original's `11c7:031a`, `Crt` and `System` left in an 8086 emulator,
+with BIOS text output, the keyboard and DOS's files modelled: the text
+screen and cursor at each key read and each delay, how it ended and the
+file written. 456 such cases agreed; every instruction of `11c7:0020` and
+of `11c7:031a` up to the file's reading ran, all of the line editor but
+Ctrl-Z with `CheckEOF`, and of `Crt`'s output all but the BIOS path
+(`DirectVideo` is on), scrolling (the setup never reaches the last row:
+`tests/test_setup.c` checks the port's), the bell and CheckSnow's waits. It
+also checks the file's lines read, where the file is found and written, the
+rewrite, the timeout key (`\t`) waiting on, the text screen's cells as it
+scrolls, its rows logged as the setup writes them, and its drawing;
+`tests/test_eclplay.py` and `tests/test_cok.py` play the setup from the
+title's start.
 
 ## Sound
 
@@ -309,30 +454,30 @@ compared with the original's, run in an 8086 emulator (see below).
 
 ### Devices
 
-Startup (`11c7:031a`) reads `krynn.cfg` in the game's directory, as
-Turbo Pascal's text reads go: `Read` of the first line's first character
-(the display: `E` EGA, `T` Tandy, else CGA), `ReadLn`, then `Read` of
-the second line's first character, the sound device, into `DS:577a`: `C`
-0 (CMS, the Game Blaster, ports 0x220-0x223), `R` 1 (Roland LAPC, an
-MT-32 through an MPU-401, 0x330), `A` 2 (AdLib, 0x388), `T` 3 (the
-Tandy's sound chip, 0xC0), `P` 4 (the PC speaker), anything else 5, none
-(the setup's `[6] Silent` writes `S`). Only those upper-case letters
-count; nothing is skipped before them, so a space, a lower-case letter or
-an empty line is 5. `ReadLn` ends a line at a CR (and a LF after it) and
-stops at a Ctrl-Z or the end, where `Read` gives Ctrl-Z: a file of one
-line, or with LF line ends only (one line to Turbo Pascal), is 5 too.
-Without the file the original shows its setup (graphics adapter, sound
-type `[1] C/MS` to `[6] Silent`, input, save path), writes it and reads
-it. There is no other choice of the device, in the game or on its
-command line. The effects play on the Tandy's chip for `T` and on the PC
-speaker for `C`, `R`, `A` and `P`; the music's driver is `MIDI.DAX`
-record device + 1.
+Startup (`11c7:031a`) reads `krynn.cfg` in the game's directory, as Turbo
+Pascal's text reads go: `Read` of the first line's first character (the
+display: `E` EGA, `T` Tandy, else CGA), `ReadLn`, then `Read` of the second
+line's first character, the sound device, into `DS:577a`: `C` 0 (CMS, the
+Game Blaster, ports 0x220-0x223), `R` 1 (Roland LAPC, an MT-32 through an
+MPU-401, 0x330), `A` 2 (AdLib, 0x388), `T` 3 (the Tandy's sound chip,
+0xC0), `P` 4 (the PC speaker), anything else 5, none (the setup's `[6]
+Silent` writes `S`). Only those upper-case letters count; nothing is
+skipped before them, so a space, a lower-case letter or an empty line is 5.
+`ReadLn` ends a line at a CR (and a LF after it) and stops at a Ctrl-Z or
+the end, where `Read` gives Ctrl-Z: a file of one line, or with LF line
+ends only (one line to Turbo Pascal), is 5 too. Without the file the
+original shows its setup (see Startup and the setup), writes it and reads
+it. There is no other choice of the device, in the game or on its command
+line. The effects play on the Tandy's chip for `T` and on the PC speaker
+for `C`, `R`, `A` and `P`; the music's driver is `MIDI.DAX` record device +
+1.
 
-The port reads `KRYNN.CFG` (or `krynn.cfg`) in the assets directory the
-same way (`cok_config_read`, `src/config.c`, which reads the display too;
-`Assets/KRYNN.CFG` says `E` and `T`); without one, or with one it cannot
-read, it shows no setup and writes nothing, says so on standard error and
-takes the Tandy, for the display as well (see Display modes). `--sound
+The port reads `KRYNN.CFG` the same way (`cok_config_parse`,
+`src/config.c`, which reads the other lines too; `Assets/KRYNN.CFG` says
+`E` and `T`), from `--config`, the saves directory or the assets (see
+Startup and the setup); without one, the setup asks and writes it.
+`eclplay` without `--start-menu` runs no setup: without a file it says so
+on standard error and takes the Tandy, for the display as well. `--sound
 tandy`, `--sound speaker` or `--sound off`, in `cok` and `eclplay`,
 override it. With `C`, `R` or `A` the effects play on the speaker and the
 title is silent: their music drivers (`MIDI.DAX` records 1-3) are not
@@ -567,10 +712,10 @@ Startup (`11c7:031a`) takes the display from `KRYNN.CFG`'s first line
 heap's end by 16 KB for its video memory (`DS:438e`, the old end kept in
 `DS:483e`, never read); anything else 0, CGA, mode 4, 320×200 in four
 colours. The setup the original shows without the file offers `[1] CGA
-[2] EGA [3] Tandy`. The port reads it with the sound device
-(`cok_config_read`): the assets' `E` plays EGA, and without the file the
-Tandy, said on standard error; `--display ega`, `tandy` or `cga` in `cok`
-and `eclplay` override it, and `cok --log` prints `display: EGA`.
+[2] EGA [3] Tandy` (see Startup and the setup). The port reads it with the
+sound device (`cok_config_parse`): the assets' `E` plays EGA; `--display
+ega`, `tandy` or `cga` in `cok` and `eclplay` override it, and `cok --log`
+prints `display: EGA`.
 `cok_adventure_open_display` opens the game in a mode (`game->display`,
 `DS:4b76`; `cok_adventure_open` in the Tandy's).
 
@@ -1022,100 +1167,106 @@ commands that are not ported (`unported:`); `--helm` plays as a game
 started with `Helm`, which lifts `Area`'s `Not Here` and enables the Gods
 cheat; `--combat gods` implies it. `--keys` types keys (`\r` Enter, `\e`
 Escape, `\b` Backspace, `\<`, `\>`, `\^` and `\v` the arrows, `\@X` Alt and
-letter `X`, `\cX` Ctrl and letter `X` (`\cD`, `\cZ`, `\cC` the debug
-keys, see Debug mode), `\#HH` the extended key of scan code `HH`, in hex:
-`\@q` and `\#10` are Alt-Q; and the keypad's keys as the BIOS takes
-them, `cok_keymap_event`: `\n` the NumLock key, turning NumLock off and on
-again and typing nothing, `\dC` the keypad's key `C` (`0`-`9`, `.`), its
-digit with NumLock on and else the cursor key's code (nothing for 5),
-`\aN.` Alt held over the keypad's digits `N`, typing their character code
-as a byte on Alt's release, nothing for 0; `cok` presses those keys
-through SDL's events, outside a group typed ahead, where they are typed as
-their codes); when they run out the run stops. `\k` presses the next
-key while the party rests, which the rest loop sees (`1614:03c2`), or as a
-battle is set up, which drops it (`1614:0479`). Keys are otherwise typed
-one at a time as the game reads them, but `\[KEYS\]` types KEYS ahead: all
-at once into the keyboard's buffer (15 keystrokes; more are lost), at the
-game's next wait (a delay or a poll of `KeyPressed`) or key read, whichever
-comes first, where they wait to be read or are thrown away by the game's
-flushes (`1614:045c`, see Playing), each flush that drops some logged as
-`flush: N keys typed ahead dropped`; a group typed ahead makes `KeyPressed`
-true while it lasts. `\wN.` holds back what follows until N more of the
-game's waits have passed (a key read ends it at once), so that a key
-arrives in the middle of a wait: the title waits polling and sleeping each
-hundredth, two waits a hundredth (`\w600.\[x\]` ends it a second into its
-second picture), and a rest polls once a step. `eclplay` has no delays; it
-counts the calls to the delay hook as the window's front end does, and
-passes over `cok`'s `\pN.` (a pause in real time). `--saves DIR` is where
-Save writes and the roster is kept (see The start menu); without it, saving
-logs an error. `--effect M,ID,MINUTES,VALUE` (hex, repeatable) gives party
-member M (1 the first) an effect, its handler run when it is removed, as a
-saved game's `.SFX` would hold it, for tests of the timers and of effects
-in a battle. A spell list logs its rows as `item:` and `heading:`, and
-quitting to DOS ends the run with `(quit to DOS in block N)`. Cast and View
-run from the commands and the camp, their lists logged as `list:` and
-`item:`. Monsters loaded, the encounter's sprite and close-up and the money
-robbed log as `monster:`, a battle's setup, where each combatant stands,
-and the end of a fight as `combat:` (see Monsters and encounters and The
-battlefield), each round's order of turns and each turn as `round:` and
-`turn:`, and effects ending in a battle as `effect:` (see The rounds), the
-lines of an attack not said in the side panel as `attack:` (see Attacks,
-movement and death), each cast in a battle as `cast:` (see Spells in
-combat), the coins and items `TREASURE` adds as `treasure:` (see Treasure
-and the end of combat), and what is paid and appraised in shops and the
-temple as `shop:` (see Shops and the temple), the characters `ADD NPC` adds
-and `DUMP` removes as `party:` (see Party), `CALL [b203]`'s sounds as
-`sound:` and `CALL [c01e]`'s step as `at:`, and the debug mode's
-switching, traces and View as `debug:` and the lines it writes to its file
-as `debug.txt:` (see Debug mode). `COMBAT`'s battle runs its
-rounds, the computer playing the monsters and the party's NPCs (see The
-computer's turns) and the player's turns reading the keys (see The player's
-commands), or, without `--keys`, passing, unless `--combat won`, `fled` or
-`lost` decides it instead, `gods` has the player's turns start with Alt-X,
-the original's cheat (see The rounds), `melee` has every turn attack the
-nearest enemy it can (see Attacks, movement and death), `auto` has the
-player press Alt-Q, the computer then playing every turn, or `pass` has
-every turn pass, the computer's too. Keys that run out in a battle end the
-run there, `(out of keys in block N at ADDR)`, as anywhere else: the
-battle's end and its treasure are not reached. `--combat-map FILE` writes
-each battle's map and combatants to `FILE` (see The battlefield). A fight
-ends with the results and the treasure menu, which read keys; with no party
-at all the monsters rejoice and the run ends. `--test-party N` adds N (1-8)
-characters made up for testing, as a saved game's are added: a fighter, a
-cleric of Mishakal, a White mage and a thief in turn, human, of level 1,
-their weapons and armour readied, 20 steel each, the cleric's Cure Light
-Wounds and the mage's Detect Magic memorized, one cell in combat (`+0xcf`
-1), their stats computed as a loaded character's are; the seventh, GWEN,
-has Charm Monsters memorized too and a Wand of Magic Missiles readied with
-5 charges; the eighth, HOLT, is a mage too, with Stinking Cloud memorized
-instead. `--party SAVE` adds the characters of a saved game to the party
-(see Party), and `--load SAVE` loads the whole saved game first; then
-`BLOCK` may be left out to resume where it was saved. WHO prints the
-character picked (`who:`). `--shots DIR` saves `DIR/NNN.bmp` each time the
-game waits for a key and once each battle is set up, `--screen FILE` the
-final screen, in the display mode `KRYNN.CFG`'s first line names or
-`--display ega`, `tandy` or `cga` (CGA in its four colours; see Display
-modes). `--start ADDR` runs from a code address instead, `--vector N` one
-vector, `--at X,Y,DIR` places the party, `--set ADDR=VALUE` sets variables
-(in hex), `--file N` picks the ECL file (by default the first that holds
-the block), `--still` loads only the first frame of each picture, `--seed
-N` starts Turbo Pascal's `Random` from N (in decimal; by default 0), and
-`--trace` lists each instruction. `--start-menu ASSETS`, with no block,
-plays the game as `START.EXE` does, from startup: the title (a key pressed
-with `\k` while it waits ends it), its menu, where `\t` lets the time run
-out and plays the demonstration, then the start menu and the adventure,
-game after game (see The start menu); `--woof` starts it as `START Woof`
-does, without the title, and in any run lets the debug keys work (see
-Debug mode). Characters, the roster and saved games go in
-`--saves DIR`. The run ends `(out of keys at the title)`, `(out of keys in
-the start menu)` or as other runs do. `--wav FILE` renders the sound to
-FILE as the game's time passes (see Sound), on the device `KRYNN.CFG` in
-ASSETS names, or `--sound tandy`, `speaker` or `off` (which need `--wav`);
-a run that does not start from the title installs the effects driver first,
-as main has by then (`1000:0160`); `--sound-calls` prints the game's calls
-to the sound driver as `call:` lines among the rest. For example,
-`./build/eclplay --start 899b --keys '\r2\r' Assets 48` answers the guards
-at the gates of Gargath with the second item of a list.
+letter `X`, `\cX` Ctrl and letter `X` (`\cD`, `\cZ`, `\cC` the debug keys,
+see Debug mode), `\#HH` the extended key of scan code `HH`, in hex: `\@q`
+and `\#10` are Alt-Q; and the keypad's keys as the BIOS takes them,
+`cok_keymap_event`: `\n` the NumLock key, turning NumLock off and on again
+and typing nothing, `\dC` the keypad's key `C` (`0`-`9`, `.`), its digit
+with NumLock on and else the cursor key's code (nothing for 5), `\aN.` Alt
+held over the keypad's digits `N`, typing their character code as a byte on
+Alt's release, nothing for 0; `cok` presses those keys through SDL's
+events, outside a group typed ahead, where they are typed as their codes);
+when they run out the run stops. `\k` presses the next key while the party
+rests, which the rest loop sees (`1614:03c2`), or as a battle is set up,
+which drops it (`1614:0479`). Keys are otherwise typed one at a time as the
+game reads them, but `\[KEYS\]` types KEYS ahead: all at once into the
+keyboard's buffer (15 keystrokes; more are lost), at the game's next wait
+(a delay or a poll of `KeyPressed`) or key read, whichever comes first,
+where they wait to be read or are thrown away by the game's flushes
+(`1614:045c`, see Playing), each flush that drops some logged as `flush: N
+keys typed ahead dropped`; a group typed ahead makes `KeyPressed` true
+while it lasts. `\wN.` holds back what follows until N more of the game's
+waits have passed (a key read ends it at once), so that a key arrives in
+the middle of a wait: the title waits polling and sleeping each hundredth,
+two waits a hundredth (`\w600.\[x\]` ends it a second into its second
+picture), and a rest polls once a step. From startup the first wait is the
+note to Tandy users' `Delay(2000)` (see Startup and the setup), where a
+group typed ahead at the start arrives, for the title's flush to drop.
+`eclplay` has no delays; it counts the calls to the delay hook as the
+window's front end does, and passes over `cok`'s `\pN.` (a pause in real
+time). `--saves DIR` is where Save writes and the roster is kept (see The
+start menu); without it, saving logs an error. `--effect
+M,ID,MINUTES,VALUE` (hex, repeatable) gives party member M (1 the first) an
+effect, its handler run when it is removed, as a saved game's `.SFX` would
+hold it, for tests of the timers and of effects in a battle. A spell list
+logs its rows as `item:` and `heading:`, and quitting to DOS ends the run
+with `(quit to DOS in block N)`. Cast and View run from the commands and
+the camp, their lists logged as `list:` and `item:`. Monsters loaded, the
+encounter's sprite and close-up and the money robbed log as `monster:`, a
+battle's setup, where each combatant stands, and the end of a fight as
+`combat:` (see Monsters and encounters and The battlefield), each round's
+order of turns and each turn as `round:` and `turn:`, and effects ending in
+a battle as `effect:` (see The rounds), the lines of an attack not said in
+the side panel as `attack:` (see Attacks, movement and death), each cast in
+a battle as `cast:` (see Spells in combat), the coins and items `TREASURE`
+adds as `treasure:` (see Treasure and the end of combat), and what is paid
+and appraised in shops and the temple as `shop:` (see Shops and the
+temple), the characters `ADD NPC` adds and `DUMP` removes as `party:` (see
+Party), `CALL [b203]`'s sounds as `sound:` and `CALL [c01e]`'s step as
+`at:`, and the debug mode's switching, traces and View as `debug:` and the
+lines it writes to its file as `debug.txt:` (see Debug mode). `COMBAT`'s
+battle runs its rounds, the computer playing the monsters and the party's
+NPCs (see The computer's turns) and the player's turns reading the keys
+(see The player's commands), or, without `--keys`, passing, unless
+`--combat won`, `fled` or `lost` decides it instead, `gods` has the
+player's turns start with Alt-X, the original's cheat (see The rounds),
+`melee` has every turn attack the nearest enemy it can (see Attacks,
+movement and death), `auto` has the player press Alt-Q, the computer then
+playing every turn, or `pass` has every turn pass, the computer's too. Keys
+that run out in a battle end the run there, `(out of keys in block N at
+ADDR)`, as anywhere else: the battle's end and its treasure are not
+reached. `--combat-map FILE` writes each battle's map and combatants to
+`FILE` (see The battlefield). A fight ends with the results and the
+treasure menu, which read keys; with no party at all the monsters rejoice
+and the run ends. `--test-party N` adds N (1-8) characters made up for
+testing, as a saved game's are added: a fighter, a cleric of Mishakal, a
+White mage and a thief in turn, human, of level 1, their weapons and armour
+readied, 20 steel each, the cleric's Cure Light Wounds and the mage's
+Detect Magic memorized, one cell in combat (`+0xcf` 1), their stats
+computed as a loaded character's are; the seventh, GWEN, has Charm Monsters
+memorized too and a Wand of Magic Missiles readied with 5 charges; the
+eighth, HOLT, is a mage too, with Stinking Cloud memorized instead.
+`--party SAVE` adds the characters of a saved game to the party (see
+Party), and `--load SAVE` loads the whole saved game first; then `BLOCK`
+may be left out to resume where it was saved. WHO prints the character
+picked (`who:`). `--shots DIR` saves `DIR/NNN.bmp` each time the game waits
+for a key and once each battle is set up, `--screen FILE` the final screen,
+in the display mode `KRYNN.CFG`'s first line names or `--display ega`,
+`tandy` or `cga` (CGA in its four colours; see Display modes). `--start
+ADDR` runs from a code address instead, `--vector N` one vector, `--at
+X,Y,DIR` places the party, `--set ADDR=VALUE` sets variables (in hex),
+`--file N` picks the ECL file (by default the first that holds the block),
+`--still` loads only the first frame of each picture, `--seed N` starts
+Turbo Pascal's `Random` from N (in decimal; by default 0), and `--trace`
+lists each instruction. `--start-menu ASSETS`, with no block, plays the
+game as `START.EXE` does, from startup: the setup if there is no
+`KRYNN.CFG` (in `--config FILE`, `--saves DIR` or ASSETS; it writes it in
+the first of the two given, see Startup and the setup) and the note to
+Tandy users, logged as `crt:` rows and saved by `--shots` at 640×200, then
+the title (a key pressed with `\k` while it waits ends it), its menu, where
+`\t` lets the time run out and plays the demonstration, then the start menu
+and the adventure, game after game (see The start menu); `--woof` starts it
+as `START Woof` does, without the title, and in any run lets the debug keys
+work (see Debug mode). Characters, the roster and saved games go in
+`--saves DIR`. The run ends `(out of keys in the setup)`, `(out of keys at
+the title)`, `(out of keys in the start menu)` or as other runs do. `--wav
+FILE` renders the sound to FILE as the game's time passes (see Sound), on
+the device `KRYNN.CFG` names, or `--sound tandy`, `speaker` or `off` (which
+need `--wav`); a run that does not start from the title installs the
+effects driver first, as main has by then (`1000:0160`); `--sound-calls`
+prints the game's calls to the sound driver as `call:` lines among the
+rest. For example, `./build/eclplay --start 899b --keys '\r2\r' Assets 48`
+answers the guards at the gates of Gargath with the second item of a list.
 
 `src/adventure.h` holds the screen side of the opcodes, from overlay `2fd3`:
 
@@ -6228,9 +6379,17 @@ original.
 Initialize Mouse/Joystick (`4def:5cc7`) lists `mouse OFF`, `joystick OFF`
 and `disable both` (`Init Mouse/Joystick: `, `Select Exit`, in the same
 window) until Exit, Escape or space. The port has neither, so turning one
-on finds none and the rows stay OFF; the original rewrites `KRYNN.CFG`'s
-third line (`M`, `J` or `N`), which the port does not, and logs the
-driver calls as unported.
+on finds none and the rows stay OFF, and logs the driver calls as unported.
+Each pass reads `KRYNN.CFG`'s first five lines (string[255]s) and each
+Select writes the file again with the third line `M`, `J` or `N` (the
+letter alone) and the joystick's 14 numbers (a joystick found calibrated
+first, in the window): with neither found, `N` and zeros. Without a file to
+read, `Reset`'s error, never checked, stops every `Write` after the
+`Rewrite`: the file is left empty (the error also stays for the game's next
+unchecked I/O, which the port does not model). The port writes it so
+(`cok_config_rewrite`, logged `config: line 3 N`) where the setup would
+(see Startup and the setup): read from the assets, it is written to the
+saves directory, which later runs read first.
 
 The demonstration (`DS:4b4b`): main sets the ECL file 2 and speed 9 and
 skips the start menu; `2fd3:3c28` loads ECL2 block 0x39 and runs only its
@@ -6680,6 +6839,19 @@ test` checks cases of each that the emulator ran (`tests/test_start.c`).
 
 These follow the disassembly but have not been compared with the game
 running in DOSBox:
+
+- Startup's text screens (see Startup and the setup): run `START.EXE`
+  without `krynn.cfg` in DOSBox (`machine=tandy`, then `svga_s3`) and
+  compare each screen, the file written and the note to Tandy users with
+  `eclplay --start-menu` for the same keys (the emulator modelled the BIOS
+  and DOS, not a real machine's): the text colour (the attribute under
+  DOS's cursor), the 80-column mode's look against the port's 640×200 in
+  the game's font, Backspace at the start of a wrapped row, and that
+  Ctrl-Break does nothing. Interrupt the setup (close DOSBox at the path)
+  and check that an empty `krynn.cfg` is left, which the next start reads
+  as CGA with no sound; and that a hidden `krynn.cfg` brings the setup
+  back. With a joystick (DOSBox's `joysticktype`), the calibration's two
+  screens, which the port has no way to show.
 
 - The Tandy's chip given a tone of divisor 0 (the effects driver writes
   one, loud, on the first tick of commands 2, 4, 5, 6, 8 and 12): the

@@ -183,6 +183,52 @@ class FrontEndTests(unittest.TestCase):
         self.assertEqual(run.stdout.splitlines()[-1], expected.stdout.splitlines()[-1])
         self.assertSameShots(eshots, shots)
 
+    def test_setup(self):
+        """Without KRYNN.CFG, startup's setup (11c7:031a) on the text
+        screen, 640x200, frame for frame as eclplay draws it, its file
+        written in the saves directory as eclplay writes it; then the game
+        in the mode it chose (CGA), as eclplay plays it, and Initialize
+        Mouse/Joystick writing the file again."""
+        assets = self.folder / "assets"
+        assets.mkdir()
+        for path in ASSETS.iterdir():
+            if path.name.upper() != "KRYNN.CFG":
+                (assets / path.name).symlink_to(path)
+        keys = r"91\#32x2c:\\gam\bmes\r\kxP\v\v\v\r\r\e"
+        esaves, eshots = self.folder / "es", self.folder / "eshots"
+        esaves.mkdir()
+        expected = subprocess.run([str(ECLPLAY), "--start-menu", "--seed", "3", "--saves",
+                                   str(esaves), "--shots", str(eshots), "--keys", keys,
+                                   str(assets)], capture_output=True, text=True)
+        self.assertEqual(expected.returncode, 0, expected.stderr)
+        saves, shots = self.folder / "s", self.folder / "shots"
+        run = subprocess.run([str(COK), "--assets", str(assets), "--saves", str(saves),
+                              "--shots", str(shots), "--no-delay", "--seed", "3", "--aspect",
+                              "1:1", "--scale", "2", "--log", "--keys", keys],
+                             capture_output=True, text=True, env=ENV, timeout=300)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("crt: PATH TO SAVE DATA (DEFAULT - C:\\COK\\SAVE):  c:\\games", run.stderr)
+        self.assertIn("display: CGA", run.stderr)
+        self.assertSameShots(eshots, shots)
+        self.assertEqual(int.from_bytes((shots / "000.bmp").read_bytes()[18:22], "little"), 640)
+        self.assertEqual((saves / "KRYNN.CFG").read_bytes(), (esaves / "KRYNN.CFG").read_bytes())
+        # Written M by the setup, then N by Initialize Mouse/Joystick.
+        self.assertEqual((saves / "KRYNN.CFG").read_bytes()[:19], b"C\r\nR\r\nN\r\nC:\\GAMES\\\r")
+        self.assertIn("crt: ALTERNATE INPUT TYPE:  [1] JOYSTICK  [2] MOUSE  [3] NEITHER  2", run.stderr)
+        self.assertIn("config: line 3 N", run.stderr)
+        # Read on the next start: no setup.
+        run = subprocess.run([str(COK), "--assets", str(assets), "--saves", str(saves),
+                              "--no-delay", "--log", "--keys", r"\kx"],
+                             capture_output=True, text=True, env=ENV, timeout=300)
+        self.assertNotIn("crt: SOUND TYPE:  [1] C/MS", run.stderr)
+        self.assertIn("crt: TANDY 1000 USERS - Make sure NUMLOCK is on.", run.stderr)
+        # Keys that end in the setup end the run there.
+        run = subprocess.run([str(COK), "--assets", str(assets), "--saves",
+                              str(self.folder / "s2"), "--no-delay", "--keys", "12"],
+                             capture_output=True, text=True, env=ENV, timeout=300)
+        self.assertEqual((run.returncode, run.stdout), (0, "(out of keys in the setup)\n"))
+        self.assertFalse((self.folder / "s2" / "KRYNN.CFG").exists())
+
     def test_letterbox(self):
         """Full screen on the dummy driver's 1024x768: the screen 1024x640,
         letterboxed, scaled by 3.2, still shows eclplay's frames."""
@@ -195,17 +241,23 @@ class FrontEndTests(unittest.TestCase):
 
     def test_presented(self):
         """What the window presents, as SDL's dummy driver saves each frame
-        it is given (SDL_VIDEO_DUMMY_SAVE_FRAMES): waiting at the title's
-        menu (--woof), the menu eclplay draws, presented once."""
+        it is given (SDL_VIDEO_DUMMY_SAVE_FRAMES): startup's note to Tandy
+        users for 2 seconds, then, waiting at the title's menu (--woof),
+        the menu eclplay draws, presented once."""
         _, _, eshots = self.eclplay("", "--woof")
         shown = self.presented("--woof")
-        self.assertTrue(1 <= len(shown) <= 2, shown)
+        self.assertTrue(2 <= len(shown) <= 4, shown)
+        # The note: light grey on black, 640x200 squeezed into the 320x200
+        # window.
+        note = shown[0].read_bytes()[54:]
+        self.assertNotEqual(note, shown[-1].read_bytes()[54:])
+        self.assertEqual(note[(199 - 100) * 960:(199 - 100) * 960 + 3], bytes(3))
         # Both 320x200, 24 bits, bottom-up, after a 54-byte header.
         self.assertEqual(shown[-1].read_bytes()[54:], (eshots / "000.bmp").read_bytes()[54:])
         # The title's first picture, shown while it waits in the delay hook:
         # TITLE.DAX record 1 (2f55:063c), drawn whole at 0, 0.
         shown = self.presented()
-        self.assertTrue(1 <= len(shown) <= 2, shown)
+        self.assertTrue(2 <= len(shown) <= 4, shown)
         self.assertGreater(len(set(shown[-1].read_bytes()[54:])), 2)
 
     def presented(self, *args):
@@ -217,7 +269,7 @@ class FrontEndTests(unittest.TestCase):
                                    env=dict(ENV, SDL_VIDEO_DUMMY_SAVE_FRAMES="1"),
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
-            time.sleep(1.5)
+            time.sleep(3.5)  # the note's 2 seconds first
         finally:
             process.send_signal(signal.SIGTERM)
             process.communicate(timeout=5)
@@ -659,7 +711,7 @@ class SoundTests(unittest.TestCase):
         """In real time the device's playing times the drivers, as the
         original's timer interrupt did: the title's music plays on
         through the title's wait for a key (its delays and polls)."""
-        raw, _, stderr = self.disk("--log", sleep=3.5)
+        raw, _, stderr = self.disk("--log", sleep=5.5)  # after the note's 2 s
         self.assertIn("sound: disk, Tandy 1000", stderr)
         samples = memoryview(raw).cast("h")
         first = next(i for i, x in enumerate(samples) if x)

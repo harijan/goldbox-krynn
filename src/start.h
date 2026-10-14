@@ -57,7 +57,9 @@ void cok_start_title(cok_adventure *game);
 
 /* Initialize Mouse/Joystick (4def:5cc7): its list of "mouse OFF",
  * "joystick OFF" and "disable both" until Exit, Escape or space; the
- * mouse and joystick are not ported, so turning either on finds none. */
+ * mouse and joystick are not ported, so turning either on finds none, and
+ * each Select rewrites KRYNN.CFG (game->config_path into
+ * game->config_write, cok_config_rewrite) with its third line N. */
 void cok_start_mouse(cok_adventure *game);
 
 /* The game as main runs it (1000:0134), after cok_adventure_open: the

@@ -215,6 +215,9 @@ struct cok_adventure {
     uint8_t bonus_spells;  /* DS:7144: magic-user spells the moons allow beyond a day's. */
     uint16_t rest_ticks;   /* DS:4b53: five minutes rested toward an encounter roll. */
     char save_dir[512];    /* Where Save writes (DS:5784); empty for nowhere. */
+    /* KRYNN.CFG, which Initialize Mouse/Joystick reads (config_path) and
+     * writes (config_write; see cok_config_find); empty for none. */
+    char config_path[1024], config_write[1024];
     uint8_t *spell_target; /* DS:710b: the last member a spell was cast on, or NULL. */
     /* DS:6fea, 6feb: the targets of the spell being cast or the last one,
      * spell_targets[1] to [spell_target_count] (DS:6fe7 + 4i), NULL where a
