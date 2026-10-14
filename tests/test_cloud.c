@@ -1334,6 +1334,45 @@ static void test_breath_bytes(void)
         CHECK(e->value == (k == 0 ? 3 : 2));
         cok_picture_free(icon);
     }
+    /* The same in the other modes (DS:4b76). EGA: 127f:0a51's byte is
+     * the mask's of the last row's first unit, a bit for each of its 8
+     * pixels transparent: pixels 0 and 1 opaque but 3 transparent give
+     * sight (A hit), where the Tandy's 2-pixel byte gives none; all 8
+     * opaque, none. CGA: the count 2 of 127f:0b94's last Move, whatever
+     * the mask: sight to 3 cells (the line runs to a length past 5),
+     * reaching A 3 away but not 4; the side byte is the heap's, not known,
+     * and the 256 tried agree (A 4 away is reached with sight not cut, in
+     * Tandy mode). */
+    for (int k = 0; k < 6; ++k) {
+        reset();
+        game.display = k < 2 ? COK_DISPLAY_EGA : k == 2 || k == 5 ? COK_DISPLAY_TANDY
+                                                                    : COK_DISPLAY_CGA;
+        cok_character *kk = record('K', 1, 10, 10), *a = record('A', 0, k >= 4 ? 14 : 13, 10);
+        kk->record[0x62] = 16;
+        a->record[0x197] = 30;
+        a->record[0x137] = 5;
+        a->combat->facing = 4;
+        game.combat.view_x = game.combat.view_y = 8;
+        CHECK(cok_combat_scroll(&game.combat, 11, 11, 0xff) || true);
+        cok_picture *icon = &game.icons[5][0];
+        cok_picture_free(icon);
+        CHECK(cok_picture_create(icon, 3, 24, 1, 1) == COK_PICTURE_OK);
+        memset(icon->mask, 0xff, icon->frame_size);
+        memset(icon->mask + 23 * 12, 0, 4);
+        if (k != 1) icon->mask[23 * 12 + 1] = 0x0f;
+        if (k == 5) icon->mask[23 * 12] = 0xf0;
+        cok_effect *e = cok_character_add_effect(kk, 0x5a, 0, 0xff, false);
+        unsigned mirrors = game.combat.mirrors;
+        SEED(2, 1, 1, 1, 20, 1, 1);
+        CHECK(breathe(kk) && game.combat.mirrors > mirrors);
+        bool hit = k == 0 || k == 3 || k == 5;
+        CHECK(game.combat.mirrored ==
+              (k == 0 ? 0x0808 : k == 3 || k == 4 ? 2 : k == 5 ? 0x0f0f : 0));
+        CHECK(LOGGED("breathes acid") == hit && a->record[0x197] == (hit ? 14 : 30));
+        CHECK(e->value == (hit ? 2 : 3));
+        cok_picture_free(icon);
+    }
+    game.display = COK_DISPLAY_TANDY;
     /* A dragon two cells across, a wall at 11, 11 below its first: its
      * cone's line stops there, meeting no one; A at 13, 12 seen from its
      * second cell. On the view, A's cell redrawn (a tile, no mirror): side
@@ -1367,9 +1406,12 @@ static void test_breath_bytes(void)
     }
     /* The same with A's icon drawn mirrored (on the view, facing 4, its
      * mask clear: no limit to sight): the side is 127f:0b94's frame
-     * pointer's low byte, 0xea, which sends the line past A: no breath. */
-    {
+     * pointer's low byte, 0xea, which sends the line past A: no breath.
+     * In CGA mode it is the low byte of the mirror's mask's offset in the
+     * heap, not known, and some of the 256 bytes meet A: a stop. */
+    for (int k = 0; k < 2; ++k) {
         reset();
+        game.display = k == 0 ? COK_DISPLAY_TANDY : COK_DISPLAY_CGA;
         cok_character *w = record('W', 1, 10, 10), *a = record('A', 0, 13, 12);
         w->record[0xcf] = 3;
         game.combat.combatant[1].size = 3;
@@ -1387,6 +1429,13 @@ static void test_breath_bytes(void)
         cok_effect *e = cok_character_add_effect(w, 0x53, 0, 0xff, false);
         unsigned mirrors = game.combat.mirrors;
         SEED(1, 1, 1, 1);
+        if (k == 1) {
+            CHECK(!breathe(w) && strstr(game.error, "5b04:1b2a") != NULL);
+            CHECK(game.combat.mirrors > mirrors && a->record[0x197] == 50);
+            cok_picture_free(icon);
+            game.display = COK_DISPLAY_TANDY;
+            continue;
+        }
         CHECK(breathe(w) && game.combat.mirrors > mirrors && !LOGGED("breathes"));
         CHECK(e->value == 3 && a->record[0x197] == 50);
         cok_picture_free(icon);

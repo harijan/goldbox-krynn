@@ -205,6 +205,19 @@ static void test_draw(void)
     CHECK(pixel(&p, 24, 68) == 0 && pixel(&p, 24, 69) == 0);
     CHECK(pixel(&p, 24, 70) == 8 && pixel(&p, 111, 111) == 8);
     CHECK(pixel(&p, 23, 24) == 0 && pixel(&p, 112, 24) == 0 && pixel(&p, 24, 112) == 0);
+    /* CGA mode's backdrop (69ea:0184): 43 rows of sky, a row of line, 2 of
+     * horizon and 42 of ground, through DS:1e1e (11 1, 15 3, 7 2, 6 1),
+     * no pictures. */
+    cok_picture c = screen();
+    c.cga = true;
+    cok_view_backdrop cga = {.sky = 11, .line = 15, .horizon = 7, .ground = 6, .hour = 3};
+    cok_view_draw(&c, &view, 5, 5, 2, &cga);
+    CHECK(pixel(&c, 24, 24) == 1 && pixel(&c, 111, 66) == 1);
+    CHECK(pixel(&c, 24, 67) == 3 && pixel(&c, 111, 67) == 3);
+    CHECK(pixel(&c, 24, 68) == 2 && pixel(&c, 24, 69) == 2);
+    CHECK(pixel(&c, 24, 70) == 1 && pixel(&c, 111, 111) == 1);
+    CHECK(pixel(&c, 23, 24) == 0 && pixel(&c, 112, 24) == 0 && pixel(&c, 24, 112) == 0);
+    cok_picture_free(&c);
 
     /* Facing north from 5, 5: the wall north of the party's square fills
      * place 6, cells 5-11 by 4-11; its west wall place 7, cells 3-4 by

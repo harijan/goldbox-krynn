@@ -122,6 +122,34 @@ class FrontEndTests(unittest.TestCase):
             self.assertTrue((saves / "SAVGAMA.DAT").exists())
             self.assertSameDirs(esaves, saves)
 
+    def test_cga(self):
+        """CGA mode (--display cga, or KRYNN.CFG's first line C): the
+        title, its menu, creating BOB and the icon editor's 'Sorry, not in
+        CGA', frame for frame as eclplay draws them, in the four CGA
+        colours read back from the window; the assets' E is EGA."""
+        keys = r"\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\r\e"
+        expected, _, eshots = self.eclplay(keys, "--seed", "3", "--display", "cga")
+        run, _, shots = self.cok(keys, "--seed", "3", "--aspect", "1:1", "--scale", "2",
+                                 "--display", "cga", "--log")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("display: CGA", run.stderr)
+        self.assertIn("print: Sorry, not in CGA", run.stderr)
+        self.assertEqual(run.stdout.splitlines()[-1], expected.stdout.splitlines()[-1])
+        self.assertSameShots(eshots, shots)
+        assets = self.folder / "assets"
+        assets.mkdir()
+        for path in ASSETS.iterdir():
+            if path.name.upper() != "KRYNN.CFG":
+                (assets / path.name).symlink_to(path)
+        (assets / "KRYNN.CFG").write_bytes(b"C\r\nT\r\n")
+        run = subprocess.run([str(COK), "--assets", str(assets), "--saves", str(self.folder / "s2"),
+                              "--no-delay", "--log", "--keys", r"\kx\t"],
+                             capture_output=True, text=True, env=ENV, timeout=300)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("display: CGA", run.stderr)
+        run, _, _ = self.cok(r"\kx\t", "--log", name="ega")
+        self.assertIn("display: EGA", run.stderr)
+
     def test_letterbox(self):
         """Full screen on the dummy driver's 1024x768: the screen 1024x640,
         letterboxed, scaled by 3.2, still shows eclplay's frames."""

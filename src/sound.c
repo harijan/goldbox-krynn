@@ -1709,68 +1709,13 @@ void cok_sound_free(cok_sound *s)
     s->driver_size = s->score_size = 0;
 }
 
-/* KRYNN.CFG. */
+/* The devices KRYNN.CFG names (config.h). */
 
 const char *cok_sound_device_name(cok_sound_device device)
 {
     static const char *const names[] = {"C/MS", "Roland LAPC", "AdLib", "Tandy 1000", "PC",
                                         "Silent"};
     return device <= COK_SOUND_NONE ? names[device] : "Silent";
-}
-
-/* Turbo Pascal's Read(f, c) (1a46:0898): the next character, or Ctrl-Z at
- * the end, where it stays. */
-static uint8_t read_char(const uint8_t *text, size_t size, size_t *at)
-{
-    if (*at >= size) return 0x1a;
-    return text[(*at)++];
-}
-
-/* ReadLn (1a46:081c): up to and past a CR, and a LF after it; it stops
- * before a Ctrl-Z. */
-static void read_line(const uint8_t *text, size_t size, size_t *at)
-{
-    while (*at < size && text[*at] != 0x1a) {
-        if (text[(*at)++] == '\r') {
-            if (*at < size && text[*at] == '\n') ++*at;
-            return;
-        }
-    }
-}
-
-cok_sound_device cok_sound_parse_config(const uint8_t *text, size_t size)
-{
-    size_t at = 0;
-    read_char(text, size, &at); /* the display: E, T or C */
-    read_line(text, size, &at);
-    switch (read_char(text, size, &at)) {
-    case 'C': return COK_SOUND_CMS;
-    case 'R': return COK_SOUND_ROLAND;
-    case 'A': return COK_SOUND_ADLIB;
-    case 'T': return COK_SOUND_TANDY;
-    case 'P': return COK_SOUND_SPEAKER;
-    default: return COK_SOUND_NONE;
-    }
-}
-
-bool cok_sound_read_config(const char *assets, cok_sound_device *device)
-{
-    static const char *const names[] = {"KRYNN.CFG", "krynn.cfg"};
-    for (size_t i = 0; i < 2; ++i) {
-        char path[1100];
-        snprintf(path, sizeof path, "%.1000s/%s", assets, names[i]);
-        FILE *f = fopen(path, "rb");
-        if (f == NULL) continue;
-        enum { MOST = 65536 };
-        uint8_t *text = malloc(MOST);
-        size_t size = text != NULL ? fread(text, 1, MOST, f) : 0;
-        bool failed = text == NULL || ferror(f) != 0;
-        fclose(f);
-        if (!failed) *device = cok_sound_parse_config(text, size);
-        free(text);
-        return !failed;
-    }
-    return false;
 }
 
 bool cok_sound_music_unported(const cok_sound *s, char *text, size_t size)

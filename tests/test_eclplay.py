@@ -1,4 +1,5 @@
 """Play the shipped ECL scripts headlessly with eclplay (stdlib only)."""
+import hashlib
 import pathlib
 import struct
 import subprocess
@@ -1864,6 +1865,158 @@ class SoundTests(unittest.TestCase):
         self.assertIn("MIDI.DAX", result.stderr)
         samples = wav_data(path)
         self.assertTrue(any(samples))
+
+
+# The CGA's colours (mode 4, palette 1 with intensity, as the BIOS leaves
+# it), and the 16 of the EGA and the Tandy.
+CGA = [(0, 0, 0), (85, 255, 255), (255, 85, 255), (255, 255, 255)]
+EGA = [(0, 0, 0), (0, 0, 170), (0, 170, 0), (0, 170, 170), (170, 0, 0), (170, 0, 170),
+       (170, 85, 0), (170, 170, 170), (85, 85, 85), (85, 85, 255), (85, 255, 85),
+       (85, 255, 255), (255, 85, 85), (255, 85, 255), (255, 255, 85), (255, 255, 255)]
+# Text's colours in CGA mode (DS:1de9, 1521:0d1e).
+CGA_TEXT = [0, 0, 0, 1, 2, 2, 2, 3, 0, 1, 1, 1, 2, 2, 3, 3]
+# From the title: Play, create BOB; at the icon editor, Enter on
+# 1st-color, then Escape.
+TO_ICON = r"\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\r\e"
+NEW_GAME = (r"P\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\eYY\vS\rE\v\v\v\v\vSA\vS\r\r\r\r\r\r\rH"
+            r"\v\v\vSS\v\v\v\v\v\vSLNM\>\r\@xN\r\eN\r\r\r\r\r\rELN98yA\@xN\r\eN"
+            r"\^\^\>\^L\vEERESANE")
+
+
+class DisplayTests(unittest.TestCase):
+    """The display mode (DS:4b76): KRYNN.CFG's first line or --display."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.folder = pathlib.Path(self.temp.name)
+
+    def play(self, keys, *args, assets=ASSETS):
+        n = len(list(self.folder.glob("run*")))
+        saves, shots = self.folder / ("run%d" % n), self.folder / ("shots%d" % n)
+        saves.mkdir()
+        result = subprocess.run([str(TOOL), "--start-menu", "--seed", "7", "--saves", str(saves),
+                                 "--shots", str(shots), *map(str, args), "--keys", keys,
+                                 str(assets)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result, [p.read_bytes() for p in sorted(shots.glob("*.bmp"))]
+
+    def same(self, shots, expected):
+        """Shots compared by digest: a failing assertEqual on lists of
+        BMPs would spend minutes diffing them."""
+        digest = lambda bmps: [hashlib.sha1(b).hexdigest() for b in bmps]
+        self.assertEqual(digest(shots), digest(expected))
+
+    def colours(self, bmp):
+        return {pixel(bmp, x, y) for x in range(320) for y in range(200)}
+
+    def test_ega_is_tandy(self):
+        # EGA's routines give the Tandy's 16-colour screens: the new game
+        # (the title, the start menu, creating BOB, the overland map, the
+        # fights, camps, Throtl in 3D) frame for frame and line for line;
+        # the assets' KRYNN.CFG says E.
+        tandy, tandy_shots = self.play(NEW_GAME, "--display", "tandy")
+        ega, ega_shots = self.play(NEW_GAME, "--display", "ega")
+        default, default_shots = self.play(NEW_GAME)
+        self.assertGreater(len(tandy_shots), 90)
+        self.assertEqual(ega.stdout, tandy.stdout)
+        self.assertEqual(default.stdout, tandy.stdout)
+        self.same(ega_shots, tandy_shots)
+        self.same(default_shots, tandy_shots)
+
+    def test_cga(self):
+        # The same game in CGA mode: the same lines, every screen in the
+        # four CGA colours; the menus' text through DS:1de9.
+        tandy, tandy_shots = self.play(NEW_GAME, "--display", "tandy")
+        cga, cga_shots = self.play(NEW_GAME, "--display", "cga")
+        self.assertEqual(cga.stdout, tandy.stdout)
+        self.assertEqual(len(cga_shots), len(tandy_shots))
+        everything = set()
+        for shot in cga_shots:
+            everything |= self.colours(shot)
+        self.assertEqual(everything, set(CGA))
+        texts = 0
+        for shot, before in zip(cga_shots, tandy_shots):
+            # Row 24 holds a menu or nothing: text alone.
+            row = [pixel(before, x, 24 * 8 + y) for x in range(320) for y in range(8)]
+            if set(row) != {(0, 0, 0)}:
+                texts += 1
+                self.assertEqual([pixel(shot, x, 24 * 8 + y) for x in range(320) for y in range(8)],
+                                 [CGA[CGA_TEXT[EGA.index(c)]] for c in row])
+        self.assertGreater(texts, 50)
+
+    def test_cga_view(self):
+        # The view after the fight at Throtl's gate (7, 15 facing north): in
+        # CGA mode the backdrop is four fills through DS:1e1e and no
+        # pictures (69ea:0184): the sky (0) black, the ground 6 (0xc059 at
+        # 0x41 when the block was entered: 6945:007c) cyan.
+        final = self.folder / "final.bmp"
+        result = subprocess.run([str(TOOL), "--display", "cga", "--combat", "pass",
+                                 "--test-party", "6", "--set", "4be6=1", "--keys", r"\r\rE",
+                                 "--screen", str(final), str(ASSETS), "32"],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        bmp = final.read_bytes()
+        self.assertEqual(pixel(bmp, 8 * 8 + 4, 3 * 8 + 2), CGA[0])
+        self.assertEqual(pixel(bmp, 8 * 8 + 4, 13 * 8 + 4), CGA[1])
+        self.assertEqual(self.colours(bmp), set(CGA))
+
+    def test_icon_editor(self):
+        # 1st-color and 2nd-color are not in CGA mode (4def:4276): the
+        # message on row 24, and the editor stays at its first menu; the
+        # icons shown on cyan (colour 3 through DS:1e1e), without COMSPR
+        # 25's frame.
+        cga, shots = self.play(TO_ICON, "--display", "cga")
+        lines = cga.stdout.splitlines()
+        at = lines.index("print: Sorry, not in CGA")
+        self.assertEqual(lines[at - 1:at + 2], ["menu: Parts 1st-color 2nd-color Size Exit"] * 1 +
+                         ["print: Sorry, not in CGA", "menu: Parts 1st-color 2nd-color Size Exit"])
+        self.assertEqual(pixel(shots[-2], 10 * 8, 7 * 8 + 4), CGA[1])
+        # The frame's corner (white in the other modes) is not there.
+        self.assertEqual(pixel(shots[-2], 4 * 8, 7 * 8), CGA[1])
+        # 2nd-color (4def:42d0) likewise, after 1st-color's message.
+        second, _ = self.play(TO_ICON[:-2] + r"2\e", "--display", "cga")
+        lines = second.stdout.splitlines()
+        self.assertEqual(lines.count("print: Sorry, not in CGA"), 2)
+        at = len(lines) - 1 - lines[::-1].index("print: Sorry, not in CGA")
+        self.assertEqual(lines[at - 1:at + 2], ["menu: Parts 1st-color 2nd-color Size Exit",
+                                                "print: Sorry, not in CGA",
+                                                "menu: Parts 1st-color 2nd-color Size Exit"])
+        self.assertNotIn("menu: Weapon Body Face Shield Arm Leg Exit", lines)
+        ega, ega_shots = self.play(TO_ICON, "--display", "ega")
+        self.assertEqual(pixel(ega_shots[-3], 10 * 8, 7 * 8 + 4), EGA[0])
+        self.assertEqual(pixel(ega_shots[-3], 4 * 8, 7 * 8), EGA[15])
+        self.assertNotIn("print: Sorry, not in CGA", ega.stdout)
+        self.assertIn("menu: Weapon Body Hair Shield Arm Leg Exit", ega.stdout.splitlines())
+
+    def test_krynn_cfg(self):
+        # KRYNN.CFG's first line (11c7:031a): C (or anything but E and T)
+        # CGA, T the Tandy; without the file the Tandy, said on standard
+        # error; --display overrides it.
+        def assets_with(config):
+            assets = self.folder / ("assets-%d" % len(list(self.folder.glob("assets-*"))))
+            assets.mkdir()
+            for path in ASSETS.iterdir():
+                if path.name.upper() != "KRYNN.CFG":
+                    (assets / path.name).symlink_to(path)
+            if config is not None:
+                (assets / "KRYNN.CFG").write_bytes(config)
+            return assets
+        keys = r"\kx\t"
+        _, tandy = self.play(keys, "--display", "tandy")
+        _, cga = self.play(keys, "--display", "cga")
+        self.assertFalse(tandy == cga)
+        self.same(self.play(keys, assets=assets_with(b"C\r\nT\r\n"))[1], cga)
+        self.same(self.play(keys, assets=assets_with(b"x\r\nT\r\n"))[1], cga)
+        self.same(self.play(keys, assets=assets_with(b"T\r\nT\r\n"))[1], tandy)
+        self.same(self.play(keys, "--display", "tandy",
+                            assets=assets_with(b"C\r\nT\r\n"))[1], tandy)
+        result, shots = self.play(keys, assets=assets_with(None))
+        self.same(shots, tandy)
+        self.assertIn("display: no KRYNN.CFG in ", result.stderr)
+        bad = subprocess.run([str(TOOL), "--display", "vga", "--start-menu", str(ASSETS)],
+                             capture_output=True, text=True)
+        self.assertEqual(bad.returncode, 2)
 
 
 if __name__ == "__main__":

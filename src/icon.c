@@ -58,14 +58,16 @@ static bool copy(cok_adventure *game, const uint8_t *c, uint8_t from, uint8_t to
  * the frame of COMSPR 25 behind each image, slot 12's ready and attacking
  * images three cells apart (6d21:04b0), and that much shown (127f:12e8),
  * a unit right and a cell down. Nothing else is drawn there, so the port
- * draws on the screen. */
+ * draws on the screen. In CGA mode (4def:3d46) the pixels are filled with
+ * colour 3 (CGA's 1, through DS:1e1e) and there is no frame. */
 static void pair(cok_adventure *game, int x, int y)
 {
-    cok_picture_fill(&game->screen, 3 * x + 1, 24 * y + 8, 12, 24, 0);
+    bool cga = game->display == COK_DISPLAY_CGA;
+    cok_picture_fill(&game->screen, 3 * x + 1, 24 * y + 8, 12, 24, cga ? 3 : 0);
     const cok_picture *frame = &game->icons[SLOT_FRAME][0];
     for (int k = 0; k < 2; ++k) {
         int at = 3 * (x + 3 * k) + 1;
-        if (frame->pixels != NULL)
+        if (frame->pixels != NULL && !cga)
             cok_picture_draw(&game->screen, frame, 0, at, 3 * y + 1, COK_DRAW_MASKED, NULL);
         const cok_picture *icon = &game->icons[SLOT_NEW][k];
         if (icon->pixels != NULL)
@@ -134,6 +136,8 @@ bool cok_icon_edit(cok_adventure *game)
             } else if (level == 1) {
                 parent = 1;
                 if (key == 'P') level = 2;
+                else if ((key == '1' || key == '2') && game->display == COK_DISPLAY_CGA)
+                    cok_adventure_notice(game, "Sorry, not in CGA", 14); /* 4def:4276 */
                 else if (key == '1' || key == '2') level = 3, second = key == '2';
                 else if (key == 'S') level = 4;
             } else if (level == 2) {

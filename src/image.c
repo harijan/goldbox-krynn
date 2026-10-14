@@ -13,6 +13,13 @@ static const uint8_t ega[16][3] = {
     {255,85,85}, {255,85,255}, {255,255,85}, {255,255,255}
 };
 
+const uint8_t cok_cga_palette[16][3] = {
+    {0,0,0}, {85,255,255}, {255,85,255}, {255,255,255},
+    {0,0,0}, {85,255,255}, {255,85,255}, {255,255,255},
+    {0,0,0}, {85,255,255}, {255,85,255}, {255,255,255},
+    {0,0,0}, {85,255,255}, {255,85,255}, {255,255,255}
+};
+
 static uint16_t u16(const uint8_t *p)
 {
     return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
@@ -61,7 +68,7 @@ cok_image_status cok_images_parse(const uint8_t *data, size_t size,
         for (size_t frame = 0; frame < frames; ++frame) {
             images[result->count++] = (cok_image){
                 units * 8, height, u16(header + 4), u16(header + 6),
-                group, frame, data + pos, header + 9
+                group, frame, data + pos, header + 9, NULL
             };
             pos += frame_size;
         }
@@ -118,7 +125,7 @@ static const uint8_t *pixel_color(const cok_image *image, size_t pixel)
 {
     uint8_t byte = image->pixels[pixel / 2];
     unsigned index = pixel % 2 == 0 ? byte >> 4 : byte & 15u;
-    return ega[index];
+    return image->palette != NULL ? image->palette[index] : ega[index];
 }
 
 void cok_image_rgb(const cok_image *image, uint8_t *rgb)

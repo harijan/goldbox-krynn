@@ -7,7 +7,8 @@ view and party on the adventure screen, and plays the game from its title
 and start menu; and `cok`, which plays the game in a window with SDL2,
 from the title, with the keyboard and with its sound: the Tandy's three
 voices and noise, or the PC speaker, the effects and the title's music
-(see Playing and Sound). The original DOS
+(see Playing and Sound), in the display mode `KRYNN.CFG` names: EGA, the
+Tandy's or CGA's four colours (see Display modes). The original DOS
 executable, decompiler output, and game data are reference inputs, kept in
 `Assets/`; saved games from the original, if any, go in `SAVE/`.
 
@@ -36,6 +37,8 @@ mkdir -p build/roster
 ./build/eclplay --start-menu --saves build/roster \
     --keys '\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\eYY\vS\rE\v\v\v\v\v\vS' Assets
 ./build/eclplay --start-menu --saves build/roster --wav build/title.wav --keys '\t' Assets
+./build/eclplay --start-menu --display cga --saves build/roster --shots build/cga \
+    --keys '\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\r\e' Assets
 make test
 make sanitize
 make cok
@@ -70,6 +73,10 @@ export checks for all 26 supported graphics archives (2,363 images), and
 tests of the picture, text, menu, 3D view, overhead map, party and spell
 effect routines, the sound (`tests/test_sound.c`: the drivers' port writes
 against the original's, recorded in an emulator, and the synthesis),
+`KRYNN.CFG` (`tests/test_config.c`), the display modes
+(`tests/test_display.c`: each screen type's drawing in CGA, EGA and Tandy
+mode against what the original's graphics and text units left, run in an
+emulator),
 the adventure loop, the camp, casting spells, the character sheet with its
 items, monsters and encounters, the battlefield, the rounds of a battle,
 treasure and the end of combat, the shops and the temple, the combat
@@ -115,20 +122,22 @@ timed menu runs out or the small picture's next frame is due.
 | `--screenshots DIR` | where F12 saves the screen (default `screenshots`, created when needed, ignored by git) |
 | `--seed N` | start Turbo Pascal's `Random` from N; by default the clock seeds it, as startup's `Randomize` (`1a46:1200` from `3e99:005b`) does |
 | `--woof`, `--helm` | start as `START Woof` (no title) or with `Helm` (`Area` anywhere, the Gods' cheat Alt-X, free training) |
-| `--log` | print the game's text, menus, choices, sounds and what is not ported to standard error, as `eclplay` prints them; the window's size and where the screen is shown in it; keys typed ahead that a flush drops (`flush:`); the audio driver and the sound device (`sound:`); and a check that the window keeps up: `stale:` if, through the game's delays, the window kept an older screen than the game's for more than 160 ms |
+| `--log` | print the game's text, menus, choices, sounds and what is not ported to standard error, as `eclplay` prints them; the window's size and where the screen is shown in it; keys typed ahead that a flush drops (`flush:`); the display mode (`display:`); the audio driver and the sound device (`sound:`); and a check that the window keeps up: `stale:` if, through the game's delays, the window kept an older screen than the game's for more than 160 ms |
 | `--keys KEYS` | type KEYS first, in `eclplay`'s escapes (see Playing scripts), each turned into the key that gives it and sent through SDL's key events as the game asks for a key (`\k` as it polls, `\t` the timed menu running out, `\[KEYS\]` typed ahead and `\wN.` as in Playing scripts; besides, `\pN.` pauses N hundredths of a second before the next key is typed as the game reads it, and `\#85` and `\#86`, codes the game never gets, press F11 and F12; a key repeated in a group typed ahead is held, its repeats sent as a held key's are; each a real keystroke, so that a flush after its 0 is read loses its scan code, which `eclplay` keeps for keys not typed ahead); the run then ends as `eclplay`'s does, printing `(out of keys ...)`, unless `--continue` hands over to the keyboard |
 | `--no-delay` | do not wait where the game waits (for tests); a rest keeps the front end's pace (see below); the sound then goes by the game's clock (see Sound) |
+| `--display ega`, `--display tandy`, `--display cga` | the display mode in place of the one `KRYNN.CFG` in the assets directory names (its first line: `E`, `T`, anything else CGA; the Tandy without the file, see Display modes): EGA and the Tandy's look the same; CGA shows four colours |
 | `--sound tandy`, `--sound speaker`, `--sound off` | the sound device in place of the one `KRYNN.CFG` in the assets directory names (its second line: `T`, `P`, `S`; `C`, `R` and `A` play the effects on the speaker and no music; the Tandy without the file, see Sound): the Tandy's three voices and noise, the PC speaker, or none |
 | `--no-sound` | open no audio device |
 | `--volume N` | 0-100 (default 100) |
 | `--sound-clock real`, `--sound-clock game` | what times the sound drivers: the audio device as it plays (the default; with `--no-delay`, `game`), or the game's delays and `\pN.` pauses, as `eclplay --wav` renders them |
-| `--shots DIR` | save `DIR/NNN.bmp` each time the game waits for a key and when a battle is set up, as `eclplay --shots` does, but read back from the window: each pixel of the screen where its area's middle is shown must be one of the 16 colours, and at a whole multiple of 320×200 its whole block; in 4:3 it needs `--scale 2` or more, as at 320×240 the smoothing blends every row |
+| `--shots DIR` | save `DIR/NNN.bmp` each time the game waits for a key and when a battle is set up, as `eclplay --shots` does, but read back from the window: each pixel of the screen where its area's middle is shown must be one of the screen's colours (16, or CGA's 4), and at a whole multiple of 320×200 its whole block; in 4:3 it needs `--scale 2` or more, as at 320×240 the smoothing blends every row |
 
 The window can be resized; the screen keeps its aspect, letterboxed. It is
 scaled up by whole numbers with square pixels to at least the size shown,
 then smoothly to that size, so the pixels stay even at any size and are
 sharp at whole multiples. Colours are the 16 of the Tandy and EGA modes,
-as the BMP export gives them (`cok_image_rgb`).
+or in CGA mode the four of its palette, as the BMP export gives them
+(`cok_image_rgb`).
 
 Keys, as Turbo Pascal's `Crt.ReadKey` reads them through INT 16h function
 0 (`src/keymap.h`; `tests/test_keymap.c` checks each, and that every code
@@ -241,42 +250,41 @@ printing `(quit to DOS)`.
 Where the port stops (`COK_ECL_UNDEFINED`, `COK_ECL_EFFECT_FAILED`, an
 unported routine, a file missing or unreadable), `cok` prints `stopped in
 block N at ADDR: ` and the reason to standard error, writes the reason in
-light red on the screen's last rows over black, with `Press a key to
-quit.` in white, waits for a key or the window's close, and exits with
-status 1 (2 for bad options or a `--keys` code no key gives). Without the
-font, a message box says it.
+light red on the screen's last rows over black, with `Press a key to quit.`
+in white (in CGA mode magenta and white), waits for a key or the window's
+close, and exits with status 1 (2 for bad options or a `--keys` code no key
+gives). Without the font, a message box says it.
 
-Not done: the music of CMS, the MT-32 and AdLib (see Sound); the CGA and EGA layouts (the
-Tandy layout's 16 colours only); the mouse and joystick; the BIOS's NumLock
-toggled during play (the keypad always types digits). `tests/test_cok.py`
-plays the title and the demonstration, and a new game from the title
-(creating a character, the overland map, two fights with the player's
-keys, camps in an inn and in 3D, walking in Throtl, saving the game) with
-the same keys as `eclplay --start-menu --shots`, typed through SDL's
-events, and checks that every frame the window shows, read back at
-640×400, at 960×720 and full screen letterboxed at 1024×640, is
-`eclplay`'s byte for byte, and the saved game written the same; keys
+Not done: the music of CMS, the MT-32 and AdLib (see Sound); the mouse and
+joystick; the BIOS's NumLock toggled during play (the keypad always types
+digits). `tests/test_cok.py` plays the title and the demonstration, and a
+new game from the title (creating a character, the overland map, two fights
+with the player's keys, camps in an inn and in 3D, walking in Throtl,
+saving the game) with the same keys as `eclplay --start-menu --shots`,
+typed through SDL's events, and checks that every frame the window shows,
+read back at 640×400, at 960×720 and full screen letterboxed at 1024×640,
+is `eclplay`'s byte for byte, and the saved game written the same; keys
 typed ahead dropped by a menu's flush and kept by the name's line, and
-pressed in the middle of the title's waits and of a rest, as `eclplay`
-has them; from the frames SDL's dummy driver saves as they are presented
+pressed in the middle of the title's waits and of a rest, as `eclplay` has
+them; from the frames SDL's dummy driver saves as they are presented
 (`SDL_VIDEO_DUMMY_SAVE_FRAMES`), that the window shows the title while it
 waits and the title's menu, once, as `eclplay` draws it, and the
 hobgoblin's picture animating in Throtl, each frame for its delay; the
 title's menu timing out 10 seconds after it opens following a
 demonstration, an arrow half way not starting it again; a rest taking its
-pace with the time left shown; closing in the middle of the
-demonstration's delays ending at once; F11's full screen shown at once
-and F12's screenshot; SIGINT with SIGINT ignored; and, with real delays
-through the first fight, that the window never kept an old screen
-(`--log`'s check) nor showed more than about 60 frames a second; and the
-sound through SDL's disk writer: by the game's clock (`--no-delay`) the
-same samples as `eclplay --wav` for the same keys and seed, after the
-silence the device starts with; in real time the title's music playing on
-through the title's wait, a step's sound playing out while the game waits
-for a key, and without a device, with `--no-sound` or without `SOUND.DAX`
-the game playing on, saying why; a copy of the assets whose `KRYNN.CFG`
-says `P` playing the speaker. `tests/test_hooks.c` checks each flush,
-which menus animate, and the sound driver's calls.
+pace with the time left shown; closing in the middle of the demonstration's
+delays ending at once; F11's full screen shown at once and F12's
+screenshot; SIGINT with SIGINT ignored; and, with real delays through the
+first fight, that the window never kept an old screen (`--log`'s check) nor
+showed more than about 60 frames a second; and the sound through SDL's disk
+writer: by the game's clock (`--no-delay`) the same samples as `eclplay
+--wav` for the same keys and seed, after the silence the device starts
+with; in real time the title's music playing on through the title's wait, a
+step's sound playing out while the game waits for a key, and without a
+device, with `--no-sound` or without `SOUND.DAX` the game playing on,
+saying why; a copy of the assets whose `KRYNN.CFG` says `P` playing the
+speaker. `tests/test_hooks.c` checks each flush, which menus animate, and
+the sound driver's calls.
 
 ## Sound
 
@@ -314,16 +322,16 @@ speaker for `C`, `R`, `A` and `P`; the music's driver is `MIDI.DAX`
 record device + 1.
 
 The port reads `KRYNN.CFG` (or `krynn.cfg`) in the assets directory the
-same way (`cok_sound_read_config`; `Assets/KRYNN.CFG` says `T`); without
-one, or with one it cannot read, it shows no setup and writes nothing,
-says so on standard error and takes the Tandy, as the display ported is
-the Tandy layout. `--sound tandy`, `--sound speaker` or `--sound off`,
-in `cok` and `eclplay`, override it. With `C`, `R` or `A` the effects
-play on the speaker and the title is silent: their music drivers
-(`MIDI.DAX` records 1-3) are not ported, which is logged as `unported:
-the title's music on C/MS (MIDI.DAX record 1)` (or `Roland LAPC`, 2;
-`AdLib`, 3) when the title starts, and said on standard error at
-startup.
+same way (`cok_config_read`, `src/config.c`, which reads the display too;
+`Assets/KRYNN.CFG` says `E` and `T`); without one, or with one it cannot
+read, it shows no setup and writes nothing, says so on standard error and
+takes the Tandy, for the display as well (see Display modes). `--sound
+tandy`, `--sound speaker` or `--sound off`, in `cok` and `eclplay`,
+override it. With `C`, `R` or `A` the effects play on the speaker and the
+title is silent: their music drivers (`MIDI.DAX` records 1-3) are not
+ported, which is logged as `unported: the title's music on C/MS (MIDI.DAX
+record 1)` (or `Roland LAPC`, 2; `AdLib`, 3) when the title starts, and
+said on standard error at startup.
 
 ### The effects driver
 
@@ -543,6 +551,123 @@ the same moment or one read sooner or later; port 0x61's other bits
 (read as 0); and, in the hardware, anything MAME's model of the NCR 8496
 leaves out (see Checks against the original).
 
+## Display modes
+
+Startup (`11c7:031a`) takes the display from `KRYNN.CFG`'s first line
+(see Sound's Devices): `E` sets `DS:4b76` to 1, EGA, video mode 0xd
+(`127f:00cf`), with the shown and drawn pages 0 (`DS:4b72`, `4b73`,
+`1521:0071`, `00a0`); `T` 2, the Tandy's mode 9, after lowering the
+heap's end by 16 KB for its video memory (`DS:438e`, the old end kept in
+`DS:483e`, never read); anything else 0, CGA, mode 4, 320×200 in four
+colours. The setup the original shows without the file offers `[1] CGA
+[2] EGA [3] Tandy`. The port reads it with the sound device
+(`cok_config_read`): the assets' `E` plays EGA, and without the file the
+Tandy, said on standard error; `--display ega`, `tandy` or `cga` in `cok`
+and `eclplay` override it, and `cok --log` prints `display: EGA`.
+`cok_adventure_open_display` opens the game in a mode (`game->display`,
+`DS:4b76`; `cok_adventure_open` in the Tandy's).
+
+The original reads the mode in these places (a scan of `START_FULL.EXE`
+for `DS:4b76`, and the tables and variables that go with it):
+
+| Where | Tandy | EGA | CGA |
+| --- | --- | --- | --- |
+| `127f:1c2f` pictures | 4 bytes a unit and row, packed nibbles | 4 plane bytes a unit | 2 bytes, 2 bits a pixel |
+| `127f:02a5` load | the record's nibbles; transparent ones masked and 0 | planes, the same pixels | each colour's CGA colour from the record's map (header bytes 9-16, nibble n for colour n, `127f:007b`, `DS:1e0e`); the mask from the colour |
+| `127f:08d7`, `09c3` draws (`2678`/`270d`, `27af`; `23d1`/`2460`, `24fd`; `2151`/`21d8`, `226c`) | | the same arithmetic scaled: the same pixels | the same, on 2-bit pixels |
+| `127f:0b94` mirror (`0b63`, `0a51`, `0ad6`) | nibbles swapped | plane bits reversed | bit pairs reversed |
+| `127f:0edb`, `10e7` save and put | | through the planes | |
+| `127f:12e8` the view to the screen | | onto page A200, then latched to A000 | |
+| `127f:15fd` recolour | nibbles | planes | CGA colours through the picture's map |
+| `127f:1d71` fill | colour × 0x11 | planes | the colour's CGA colour in the map passed, always `DS:1e1e`: 0-15 to 0 0 1 1 2 2 1 2 0 1 2 1 3 0 3 3 |
+| `1521:01df` text (`0e1d`, `0dbd`, `0d1e`) | | write mode 2 | colours through `DS:1de9`: 0 0 0 1 2 2 2 3 0 1 1 1 2 2 3 3 |
+| `1521:0a34`, `0b60`, `1128:07e6` clears | four banks | pages 0 and 1 | two banks |
+| `3e99:0731` startup | `SKY.DAX` 250-252 loaded | the same | none |
+| `69ea:0184` backdrop | 44 rows of sky, 2 of `DS:6d82` (0), 42 of `6d83` (8); the sun, the strip, the horizon | the same | 43 rows of sky, 1 of `DS:6d81`, 2 of `6d82`, 42 of `6d83`, through `DS:1e1e`; no pictures |
+| `6945:012c` after a step | `DS:6d83` 8 | the same | where `DS:884f` is set (a block entered, 0xc059 or 0xc05f written): `6d81` 0 for 0xc05f 8 or 0x41, else 15; `6d82` 8 for 8, else 7; `6d83` 8 for 0xc059 0x0b, 1 for 6, else 6 (`6945:0014`, `0048`, `007c`) |
+| `6d21:0408`, `0478` icons; `4b6d:08e0`, `0938` characters' | colour 8 drawn black (`DS:1e26` to `1e36`) | the same | not |
+| `6961:0497` sprites | colour 13 drawn black (`DS:0dd4` to `0de4`) | the same | not |
+| `4def:3d46` the icon editor's icons | on colour 0, COMSPR 25's frame behind | the same | on colour 3 (cyan), no frame |
+| `4def:4276`, `42d0` its 1st-color, 2nd-color | their menu | the same | `Sorry, not in CGA` in yellow (white) on row 24 for speed × 100 ms (`1521:0af1`); the menu stays |
+| `3e99:00ac`, `4def:5edb` the mouse's cursor | `DS:42b4` | the same | `DS:42f4` (the mouse is not ported) |
+| `169c:0000` BIOS text | | | the colour through `DS:1de9`; no caller |
+
+No file or record is the CGA's alone: every mode loads the same (`CPIC`,
+`CBODY` and `CHEAD` are the combat icons of all), and every record's map
+holds CGA colours 0-3 (`SKY.DAX`'s are all 0). No code sets a palette (no
+INT 10h AH=0Bh or 10h, no write to port 0x3D9 or the attribute
+controller), so CGA shows the BIOS's mode 4: palette 1 with intensity,
+black, light cyan, light magenta and white (`cok_cga_palette`); EGA the
+16 colours of mode 0xd, the Tandy's.
+
+EGA looks as the Tandy: its routines give the Tandy's 16-colour pixels for
+everything the game passes. They differ only past that: colours above 15
+(the EGA takes their low four bits, as the port does in every mode),
+recolouring's random flag (two `Random(256)` a unit; no caller passes it),
+fills 128 units wide or more (a signed byte counts them), and a row of the
+view marked with nothing drawn (a draw of no width on a clean row), where
+`12e8` copies 16 KB of the page A200 to the screen. The game passes none of
+the first three; of the last, a probe of 68 `eclplay` runs (the Makefile's,
+the README's, the start menu's) met no draw of no width. The port draws EGA
+as the Tandy; its game-level code reads only CGA against the others. What
+differs is two stack leftovers (below).
+
+In CGA mode the port keeps its screen of nibbles, each a CGA colour 0-3:
+a picture made or loaded for it (`cok_picture.cga`) holds them, so draws,
+mirrors, saves and the icons' composition (`4b6d:0784`) are the Tandy's
+routines on 2-bit pixels, while loading (`cok_picture_load_cga`), fills,
+text and recolouring map colours as the table says. Recolouring is lossy:
+it matches the CGA colour, so it turns every colour that shares it, and
+transparent pixels where the map gives 0 (a masked draw then ORs the new
+colour into what lies under them, as the original does). A map value
+above 3 ORs bytes of the tables after `DS:1e0e` into its byte's four
+pixels, as `127f:02a5` and `15fd` do; no record has one. A CGA picture
+shows in `cok_cga_palette` (`cok_image.palette`), in `eclplay`'s
+`--shots` and `--screen` and in `cok`'s window and screenshots. A value
+above 3 on CGA mode's screen can only come from a picture drawn on it
+without CGA's colours, a bug the palette would hide: `eclplay` stops there
+when it saves the screen, and `cok --shots` fails
+(`cok_picture_cga_valid`).
+
+Two stack leftovers depend on the blit routine (see Spells in combat):
+Fear aimed at its caster's own cell reads the locals the clipped blit of
+its icon left (`drawing_locals`); EGA's (`24fd`) are the Tandy's but for
+the unit's x, which no cone reads; CGA's (`226c`) halve every byte count
+(a unit is 2 bytes): 6 (6 - x), 6, 144, 1008 (y + 1), 6 x. A breath at a
+target drawn mirrored reads what `127f:0b94` left (`drawn_bytes`): in
+EGA mode the bit-reversed mask byte of the 8 leftmost pixels of the
+icon's bottom row, twice (0, sight to one cell, when all 8 are opaque,
+not the Tandy's 2); in CGA mode the count of its last `Move`, 2 (sight to
+3 cells), and as the side the low byte of the offset of the mirror's mask
+in the heap, not known: the run stops if its 256 values give different
+targets. Both were compared with the three routines run in the emulator.
+Memory is not modelled in any mode: CGA's pictures take half the memory
+and the Tandy's heap is 16 KB smaller, so where `6961:00e4` stops loading
+a small picture's frames (`MaxAvail` under 0xf3c) differs by mode; the
+port loads them all.
+
+`tests/test_display.c` replays each screen type's drawing (the title, big
+and small pictures, sprites, portraits, the 3D view and its backdrop, the
+overhead map, combat with mirrored icons, menus in every colour pair, the
+icon editor, recolouring, edges) on the port's routines in each mode and
+compares the screen, the view buffer, pictures and masks, 714 in all, with
+what the original's `127f` and `1521` left in an 8086 emulator (its EGA's
+planes, map mask and graphics controller modelled; the scripts and digests
+are in `tests/test_display_data.h`). There every instruction of the
+unclipped blits (`2151` to `270d`), the glyphs' (`0d1e`, `0dbd`, `0e1d`)
+and the mirrors' helpers ran, nine tenths of the clipped blits' (`226c`,
+`24fd`, `27af`: not their rejections of a picture wholly off the buffer),
+and each mode's branch of `02a5`, `0b94`, `0edb`, `10e7`, `12e8`, `15fd`
+and `1d71`. `tests/test_eclplay.py` plays the new game in each mode: EGA's
+and the assets' are the Tandy's frame for frame, CGA's the same lines in
+four colours, its menus' text through `DS:1de9`, its 3D view, its icon
+editor; `tests/test_cok.py` that `cok --display cga` shows `eclplay`'s
+frames. `tests/test_picture.c`, `test_text.c` and `test_view.c` check the
+CGA mappings and backdrop; `test_adventure.c` and `test_arena.c` the game's
+CGA paths (no sky, sprites' and icons' colours, the backdrop's colours by
+0xc05f and 0xc059); `test_cloud.c` and `test_spell.c` the leftovers in each
+mode; `test_config.c` `KRYNN.CFG`.
+
 ## Image export
 
 `daximages` writes native-size 24-bit BMP images and a labeled HTML contact
@@ -573,7 +698,8 @@ the `PIC`/`SPRIT` collections: a group-count byte, then four metadata bytes
 and an image header/payload per group. Each image header begins with 16-bit
 little-endian height, width in eight-pixel units, x and y placement fields,
 then a pixel-frame count at byte 8. Bytes 9–16 hold a 16-entry, two-bit CGA
-colour map, unused by these tools. Pixels are packed high nibble first. The
+colour map, unused by these tools (the game's CGA mode uses it; see
+Display modes). Pixels are packed high nibble first. The
 four collection metadata bytes are not yet interpreted.
 
 In `PIC1–3`, each group after the first stores its pixels XORed with the
@@ -634,8 +760,10 @@ PackBits; substituting a generic PackBits decoder changes the results.
 `src/picture.h` ports the runtime picture routines from `START.EXE`'s
 graphics unit (code segment `0x27f` in the unpacked image) for the linear
 Tandy pixel layout. Pixels match the DAX format, so 4-bit EGA colour indexes
-are kept unchanged. The CGA and EGA layouts, and the per-scanline dirty
-tables that limited copies to video memory, are not ported. The clipped
+are kept unchanged; the EGA's planes hold the same pixels, and a CGA
+picture holds its CGA colours in the nibbles (see Display modes). The
+per-scanline dirty tables that limited copies to video memory are not
+ported. The clipped
 draws of the three modes (`127f:226c` CGA, `24fd` EGA, `27af` Tandy) share
 their arithmetic and copy loops (`127f:2927`, `2986`), so what they do at
 the edges, such as the counts of 65536 of The combat screen, is the same
@@ -645,6 +773,7 @@ in every mode.
 | --- | --- | --- |
 | `cok_picture_create`, `cok_picture_free` | `27f:1c2f`, `27f:1cf6` | `FUN_1000_41e6`, `FUN_1000_42ad` |
 | `cok_picture_load` | `27f:02a5` | `FUN_1000_285c` |
+| `cok_picture_load_cga` | `27f:02a5`, its CGA path | `FUN_127f_02a5` in `START_FULL.EXE.c` |
 | `cok_picture_draw` | `27f:09c3` (clipped), `27f:08d7` (unclipped) | `FUN_1000_2f7a`, `FUN_1000_2e8e` |
 | `cok_picture_fill` | `27f:1d71` | `FUN_1000_4328` |
 | `cok_picture_recolor` | `27f:15fd` | `FUN_1000_3bb4` |
@@ -666,7 +795,8 @@ with the source frame's layout, so drawing the save picture opaquely at the
 same position restores the screen.
 
 `src/text.h` ports the 8×8 text routines from `START.EXE`'s text unit (code
-segment `0x521`), again for the Tandy layout only. The original draws straight
+segment `0x521`), again for the Tandy layout (CGA pictures mapping the
+colours). The original draws straight
 to video memory; the port draws into frame 0 of a `cok_picture`, such as a
 320×200 screen (40 units by 200 rows). Coordinates are 8×8 cells, 40×25 on
 that screen.
@@ -870,69 +1000,67 @@ original leaves unset return 0.
 screen without a display, as `2fd3:3b47` enters a block: the load vector,
 then the after-move and location vectors, starting over when `NEWECL`
 switches blocks. It prints text as it is printed (`print:`), menus with
-their `~` marks (`menu:`, `list:` and `item:`), the choices made (`choice:`)
-and input read (`input:`), and the name and operand values of each opcode
-that is not ported, in brackets. A spell effect the port cannot carry out
-ends the run with its reason (see Spell effects). `--play` then runs the
-adventure loop (see Adventure loop), which adds the party's square and
-facing after each step or turn (`at: X,Y,DIR`), its place on the overland
-map after each step there (`overland: X,Y,DIR`), the overhead map going on
-and off (`area: on`, `area: off`; see Overhead map) and the commands that
-are not ported (`unported:`); `--helm` plays as a game started with
-`Helm`, which lifts `Area`'s `Not Here` and enables the Gods cheat;
-`--combat gods` implies it. `--keys` types keys (`\r` Enter, `\e` Escape, `\b`
-Backspace, `\<`, `\>`, `\^` and `\v` the arrows, `\@X` Alt and letter `X`,
-`\#HH` the extended key of scan code `HH`, in hex: `\@q` and `\#10` are
-Alt-Q); when they run out the run stops. `\k` presses the next key while the party rests, which the rest loop
-sees (`1614:03c2`), or as a battle is set up, which drops it (`1614:0479`).
-Keys are otherwise typed one at a time as the game reads them, but
-`\[KEYS\]` types KEYS ahead: all at once into the keyboard's buffer (15
-keystrokes; more are lost), at the game's next wait (a delay or a poll of
-`KeyPressed`) or key read, whichever comes first, where they wait to be
-read or are thrown away by the game's flushes (`1614:045c`, see Playing),
-each flush that drops some logged as `flush: N keys typed ahead dropped`;
-a group typed ahead makes `KeyPressed` true while it lasts. `\wN.` holds
-back what follows until N more of the game's waits have passed (a key
-read ends it at once), so that a key arrives in the middle of a wait: the
-title waits polling and sleeping each hundredth, two waits a hundredth
-(`\w600.\[x\]` ends it a second into its second picture), and a rest
-polls once a step. `eclplay` has no delays; it counts the calls to the
-delay hook as the window's front end does, and passes over `cok`'s
-`\pN.` (a pause in real time).
-`--saves DIR` is where Save writes and the roster is kept (see The start
-menu); without it, saving logs an error. `--effect M,ID,MINUTES,VALUE`
-(hex, repeatable) gives party member M (1 the first) an effect, its
-handler run when it is removed, as a saved game's `.SFX` would hold it,
-for tests of the timers and of effects in a battle.
-A spell list logs its rows as `item:` and `heading:`, and quitting to
-DOS ends the run with `(quit to DOS in block N)`. Cast and View run from the
-commands and the camp, their lists logged as `list:` and `item:`. Monsters
-loaded, the encounter's sprite and close-up and the money robbed log as
-`monster:`, a battle's setup, where each combatant stands, and the end of a
-fight as `combat:` (see Monsters and encounters and The battlefield), each
-round's order of turns and each turn as `round:` and `turn:`, and effects
-ending in a battle as `effect:` (see The rounds), the lines of an attack
-not said in the side panel as `attack:` (see Attacks, movement and
-death), each cast in a battle as `cast:` (see Spells in combat), the coins
-and items
-`TREASURE` adds as `treasure:` (see Treasure and the end of combat), and
-what is paid and appraised in shops and the temple as `shop:` (see Shops
-and the temple), the characters `ADD NPC` adds and `DUMP` removes as
-`party:` (see Party), `CALL [b203]`'s sounds as `sound:` and `CALL
-[c01e]`'s step as `at:`. `COMBAT`'s battle runs its rounds, the computer
-playing the monsters and the party's NPCs (see The computer's turns) and
-the player's turns reading the keys (see The player's commands), or,
-without `--keys`, passing, unless `--combat won`, `fled` or `lost` decides
-it instead, `gods` has the player's turns start with Alt-X, the original's
-cheat (see The rounds), `melee` has every turn attack the nearest enemy it
-can (see Attacks, movement and death), `auto` has the player press Alt-Q,
-the computer then playing every turn, or `pass` has every turn pass, the
-computer's too. Keys that run out in a battle end the run there, `(out of
-keys in block N at ADDR)`, as anywhere else: the battle's end and its
-treasure are not reached. `--combat-map FILE` writes each
-battle's map and combatants to `FILE` (see The battlefield). A fight ends
-with the results and the treasure menu, which read keys; with no party at
-all the monsters rejoice and the run ends. `--test-party N` adds N (1-8)
+their `~` marks (`menu:`, `list:` and `item:`), the choices made
+(`choice:`) and input read (`input:`), and the name and operand values of
+each opcode that is not ported, in brackets. A spell effect the port cannot
+carry out ends the run with its reason (see Spell effects). `--play` then
+runs the adventure loop (see Adventure loop), which adds the party's square
+and facing after each step or turn (`at: X,Y,DIR`), its place on the
+overland map after each step there (`overland: X,Y,DIR`), the overhead map
+going on and off (`area: on`, `area: off`; see Overhead map) and the
+commands that are not ported (`unported:`); `--helm` plays as a game
+started with `Helm`, which lifts `Area`'s `Not Here` and enables the Gods
+cheat; `--combat gods` implies it. `--keys` types keys (`\r` Enter, `\e`
+Escape, `\b` Backspace, `\<`, `\>`, `\^` and `\v` the arrows, `\@X` Alt and
+letter `X`, `\#HH` the extended key of scan code `HH`, in hex: `\@q` and
+`\#10` are Alt-Q); when they run out the run stops. `\k` presses the next
+key while the party rests, which the rest loop sees (`1614:03c2`), or as a
+battle is set up, which drops it (`1614:0479`). Keys are otherwise typed
+one at a time as the game reads them, but `\[KEYS\]` types KEYS ahead: all
+at once into the keyboard's buffer (15 keystrokes; more are lost), at the
+game's next wait (a delay or a poll of `KeyPressed`) or key read, whichever
+comes first, where they wait to be read or are thrown away by the game's
+flushes (`1614:045c`, see Playing), each flush that drops some logged as
+`flush: N keys typed ahead dropped`; a group typed ahead makes `KeyPressed`
+true while it lasts. `\wN.` holds back what follows until N more of the
+game's waits have passed (a key read ends it at once), so that a key
+arrives in the middle of a wait: the title waits polling and sleeping each
+hundredth, two waits a hundredth (`\w600.\[x\]` ends it a second into its
+second picture), and a rest polls once a step. `eclplay` has no delays; it
+counts the calls to the delay hook as the window's front end does, and
+passes over `cok`'s `\pN.` (a pause in real time). `--saves DIR` is where
+Save writes and the roster is kept (see The start menu); without it, saving
+logs an error. `--effect M,ID,MINUTES,VALUE` (hex, repeatable) gives party
+member M (1 the first) an effect, its handler run when it is removed, as a
+saved game's `.SFX` would hold it, for tests of the timers and of effects
+in a battle. A spell list logs its rows as `item:` and `heading:`, and
+quitting to DOS ends the run with `(quit to DOS in block N)`. Cast and View
+run from the commands and the camp, their lists logged as `list:` and
+`item:`. Monsters loaded, the encounter's sprite and close-up and the money
+robbed log as `monster:`, a battle's setup, where each combatant stands,
+and the end of a fight as `combat:` (see Monsters and encounters and The
+battlefield), each round's order of turns and each turn as `round:` and
+`turn:`, and effects ending in a battle as `effect:` (see The rounds), the
+lines of an attack not said in the side panel as `attack:` (see Attacks,
+movement and death), each cast in a battle as `cast:` (see Spells in
+combat), the coins and items `TREASURE` adds as `treasure:` (see Treasure
+and the end of combat), and what is paid and appraised in shops and the
+temple as `shop:` (see Shops and the temple), the characters `ADD NPC` adds
+and `DUMP` removes as `party:` (see Party), `CALL [b203]`'s sounds as
+`sound:` and `CALL [c01e]`'s step as `at:`. `COMBAT`'s battle runs its
+rounds, the computer playing the monsters and the party's NPCs (see The
+computer's turns) and the player's turns reading the keys (see The player's
+commands), or, without `--keys`, passing, unless `--combat won`, `fled` or
+`lost` decides it instead, `gods` has the player's turns start with Alt-X,
+the original's cheat (see The rounds), `melee` has every turn attack the
+nearest enemy it can (see Attacks, movement and death), `auto` has the
+player press Alt-Q, the computer then playing every turn, or `pass` has
+every turn pass, the computer's too. Keys that run out in a battle end the
+run there, `(out of keys in block N at ADDR)`, as anywhere else: the
+battle's end and its treasure are not reached. `--combat-map FILE` writes
+each battle's map and combatants to `FILE` (see The battlefield). A fight
+ends with the results and the treasure menu, which read keys; with no party
+at all the monsters rejoice and the run ends. `--test-party N` adds N (1-8)
 characters made up for testing, as a saved game's are added: a fighter, a
 cleric of Mishakal, a White mage and a thief in turn, human, of level 1,
 their weapons and armour readied, 20 steel each, the cleric's Cure Light
@@ -940,32 +1068,33 @@ Wounds and the mage's Detect Magic memorized, one cell in combat (`+0xcf`
 1), their stats computed as a loaded character's are; the seventh, GWEN,
 has Charm Monsters memorized too and a Wand of Magic Missiles readied with
 5 charges; the eighth, HOLT, is a mage too, with Stinking Cloud memorized
-instead. `--party SAVE` adds
-the characters of a saved game to the party (see Party), and `--load SAVE`
-loads the whole saved game first; then `BLOCK` may be left out to resume
-where it was saved. WHO prints the character picked (`who:`). `--shots DIR`
-saves `DIR/NNN.bmp` each time the game waits for a key and once each
-battle is set up, `--screen FILE` the final screen. `--start ADDR` runs from a code address instead, `--vector N`
-one vector, `--at X,Y,DIR` places the party, `--set ADDR=VALUE` sets
-variables (in hex), `--file N` picks the ECL file (by default the first that
-holds the block), `--still` loads only the first frame of each picture,
-`--seed N` starts Turbo Pascal's `Random` from N (in decimal; by default
-0), and `--trace` lists each instruction. `--start-menu ASSETS`, with no
-block, plays the game as `START.EXE` does, from startup: the title (a
-key pressed with `\k` while it waits ends it), its menu, where `\t` lets
-the time run out and plays the demonstration, then the start menu and
-the adventure, game after game (see The start menu); `--woof` starts it
-as `START Woof` does, without the title. Characters, the roster and saved
-games go in `--saves DIR`. The run ends `(out of keys at the title)`,
-`(out of keys in the start menu)` or as other runs do. `--wav FILE`
-renders the sound to FILE as the game's time passes (see Sound), on the
-device `KRYNN.CFG` in ASSETS names, or `--sound tandy`, `speaker` or
-`off` (which need `--wav`);
-a run that does not start from the title installs the effects driver
-first, as main has by then (`1000:0160`); `--sound-calls` prints
-the game's calls to the sound driver as `call:` lines among the rest. For example, `./build/eclplay --start 899b
---keys '\r2\r' Assets 48` answers the guards at the gates of Gargath with
-the second item of a list.
+instead. `--party SAVE` adds the characters of a saved game to the party
+(see Party), and `--load SAVE` loads the whole saved game first; then
+`BLOCK` may be left out to resume where it was saved. WHO prints the
+character picked (`who:`). `--shots DIR` saves `DIR/NNN.bmp` each time the
+game waits for a key and once each battle is set up, `--screen FILE` the
+final screen, in the display mode `KRYNN.CFG`'s first line names or
+`--display ega`, `tandy` or `cga` (CGA in its four colours; see Display
+modes). `--start ADDR` runs from a code address instead, `--vector N` one
+vector, `--at X,Y,DIR` places the party, `--set ADDR=VALUE` sets variables
+(in hex), `--file N` picks the ECL file (by default the first that holds
+the block), `--still` loads only the first frame of each picture, `--seed
+N` starts Turbo Pascal's `Random` from N (in decimal; by default 0), and
+`--trace` lists each instruction. `--start-menu ASSETS`, with no block,
+plays the game as `START.EXE` does, from startup: the title (a key pressed
+with `\k` while it waits ends it), its menu, where `\t` lets the time run
+out and plays the demonstration, then the start menu and the adventure,
+game after game (see The start menu); `--woof` starts it as `START Woof`
+does, without the title. Characters, the roster and saved games go in
+`--saves DIR`. The run ends `(out of keys at the title)`, `(out of keys in
+the start menu)` or as other runs do. `--wav FILE` renders the sound to
+FILE as the game's time passes (see Sound), on the device `KRYNN.CFG` in
+ASSETS names, or `--sound tandy`, `speaker` or `off` (which need `--wav`);
+a run that does not start from the title installs the effects driver first,
+as main has by then (`1000:0160`); `--sound-calls` prints the game's calls
+to the sound driver as `call:` lines among the rest. For example,
+`./build/eclplay --start 899b --keys '\r2\r' Assets 48` answers the guards
+at the gates of Gargath with the second item of a list.
 
 `src/adventure.h` holds the screen side of the opcodes, from overlay `2fd3`:
 
@@ -1171,24 +1300,25 @@ to the slot's set. Each slot's tile set is record N of `8X8D<file>.DAX`, or
 N × 10 + 1 and N × 10 + 2 for a record of two sets. Tile sets 0 (`8X8D1.DAX`
 record 203) and 4 (the frame's) are loaded at startup.
 
-`cok_view_draw` follows `69ea:0820`: it fills the backdrop, then draws front
-and side walls from two squares ahead back to the party's square, nearer
-walls over farther ones, each tile masked with colour 13 transparent. The
-backdrop (`69ea:0184`, outside CGA mode) is 44 rows of sky, a two-row line in
-`DS:6d82`, which only CGA mode sets (so it is black), and 42 rows of
-colour 8, then the horizon picture from `SKY.DAX` record 252. Under a sky of
-colour 11 on squares below 0x80, record 251, the sun, shows facing east at
-hours 1-5 (`0x4bc9`), south at 3-5 and 13-15, and west at 13-18, and record
-250 shows facing north. The sky colour, and so the sun, is the one
-`6945:00ba` last picked for the party's square (`DS:6d80`), with the map on
-or not; turns and `Area` redraw with `69ea:0820` alone and keep it after a
-script has changed `0x4bfd` or `0x4bfe`, as ECL2 block 48's location
-vector does at 15:00 without showing the view again. The original draws into a 21-unit by 168-row buffer
-(`DS:4b78`) that `127f:12e8` copies to the screen one unit right and one cell
-down; the port draws on the screen with that offset, so the view fills cells
-3-13 across and down, as small pictures do. The CGA colours are not ported.
-While `DS:6d84` is set, the view shows the overhead map instead (see
-Overhead map).
+`cok_view_draw` follows `69ea:0820`: it fills the backdrop, then draws
+front and side walls from two squares ahead back to the party's square,
+nearer walls over farther ones, each tile masked with colour 13
+transparent. The backdrop (`69ea:0184`, outside CGA mode; see Display modes
+for CGA's) is 44 rows of sky, a two-row line in `DS:6d82`, which only CGA
+mode sets (so it is black), and 42 rows of colour 8, then the horizon
+picture from `SKY.DAX` record 252. Under a sky of colour 11 on squares
+below 0x80, record 251, the sun, shows facing east at hours 1-5 (`0x4bc9`),
+south at 3-5 and 13-15, and west at 13-18, and record 250 shows facing
+north. The sky colour, and so the sun, is the one `6945:00ba` last picked
+for the party's square (`DS:6d80`), with the map on or not; turns and
+`Area` redraw with `69ea:0820` alone and keep it after a script has changed
+`0x4bfd` or `0x4bfe`, as ECL2 block 48's location vector does at 15:00
+without showing the view again. The original draws into a 21-unit by
+168-row buffer (`DS:4b78`) that `127f:12e8` copies to the screen one unit
+right and one cell down; the port draws on the screen with that offset, so
+the view fills cells 3-13 across and down, as small pictures do. While
+`DS:6d84` is set, the view shows the overhead map instead (see Overhead
+map).
 
 ## Overhead map
 
@@ -2727,25 +2857,25 @@ is NULL, read as all zero, as the original's end of combat reads
 `LOAD MONSTER id count icon` (`2fd3:0465`), unless 63 records were loaded
 since `CLEARMONSTERS` (`DS:43be`), reads monster `id` (`4b6d:161b`): the
 record (409 bytes, its pointers cleared, the readied slots `+0x147` left as
-they are, no stats computed), its effects and its items, in file order.
-A monster against the party (`+0x18a` 1) has its hit points (`+0x197`,
-`+0x62`) scaled by the difficulty `0x4cf4`, 1-5, as `(d + 1) × hp / 4` in
-a byte; either at 0 makes both 1. An undead (`+0xda`) counts in
-`DS:8859`. The icons of the slot `DS:72eb`, `CPIC<file>` records `icon`
-and `icon + 0x80`, ready and attacking, load with colour 0 transparent and
-colour 8 drawn black outside CGA mode (`6d21:01d0`, `DS:4b76`; see The
-combat screen). Then the record and `count - 1` copies (0 counts as
-1), until 63 are loaded, go to the end of the list, each with that slot
+they are, no stats computed), its effects and its items, in file order. A
+monster against the party (`+0x18a` 1) has its hit points (`+0x197`,
+`+0x62`) scaled by the difficulty `0x4cf4`, 1-5, as `(d + 1) × hp / 4` in a
+byte; either at 0 makes both 1. An undead (`+0xda`) counts in `DS:8859`.
+The icons of the slot `DS:72eb`, `CPIC<file>` records `icon` and `icon +
+0x80`, ready and attacking, load with colour 0 transparent and colour 8
+drawn black outside CGA mode (`6d21:01d0`, `DS:4b76`; see Display modes and
+The combat screen). Then the record and `count - 1` copies (0 counts as 1),
+until 63 are loaded, go to the end of the list, each with that slot
 (`+0x137`). The copies' items and effects are the first record's in the
-reverse order, as each is put first in a copy's lists. `DS:72eb` then
-moves to the next slot and `DS:8851` is set, so `COMBAT` fights. The file
-number is cut to one digit (`Str` with a width of 1). A missing record
-says `Unable to load monster` on row 24, waits for a key and quits to DOS,
-as in the original. The port stops with `COK_ECL_UNDEFINED` for a record
-shorter than 409 bytes and effects or items that are not whole records
-(the original reads past them), an icon slot past the table's 26
-(`DS:6172`), and a 73rd record. With no party, where the original writes
-through `0000:017f`, the monsters start the list.
+reverse order, as each is put first in a copy's lists. `DS:72eb` then moves
+to the next slot and `DS:8851` is set, so `COMBAT` fights. The file number
+is cut to one digit (`Str` with a width of 1). A missing record says
+`Unable to load monster` on row 24, waits for a key and quits to DOS, as in
+the original. The port stops with `COK_ECL_UNDEFINED` for a record shorter
+than 409 bytes and effects or items that are not whole records (the
+original reads past them), an icon slot past the table's 26 (`DS:6172`),
+and a 73rd record. With no party, where the original writes through
+`0000:017f`, the monsters start the list.
 
 `CLEARMONSTERS` (`2fd3:12fe`) clears `DS:8859`, `43be` and `8851`, sets
 `DS:72eb` to 8 (as a block starting does, `3775:01e8`) and empties the
@@ -5014,7 +5144,7 @@ terrain past the table.
 
 Bytes `1903` reads from the stack, never set there, are those of the
 calls before it. The sight's range is the return address the caster's
-terrain blit (`6346:2678` in Tandy mode, 0x2705; 0x21d0 CGA, 0x2458 EGA)
+terrain blit (`127f:2678` in Tandy mode, 0x2705; 0x21d0 CGA, 0x2458 EGA)
 left: no limit in any mode. The side line's direction where no one is on
 the main line is the low byte of the data segment that blit pushed, which
 depends on where DOS loaded the game (PSP + 0x10 + 0x0bc6): 0xc6 for a
@@ -6220,8 +6350,9 @@ digits not directions, the selection kept from the menu before):
 Leaving puts back what was not kept, copies the icon to the record's slot
 with its colours, frees slot 12 and asks `Is this icon ok? ` (light
 magenta); No starts again from the icon as it is, without the frame. The
-camp's Alter then redraws the camp's screen. The CGA path (`Sorry, not in
-CGA`) is not ported.
+camp's Alter then redraws the camp's screen. In CGA mode 1st-color and
+2nd-color give `Sorry, not in CGA` and stay at the menu, and the icons
+show on cyan without the frame (`4def:4276`, `3d46`; see Display modes).
 
 The port keeps these quirks: a space in `Parts` opens menu 5 with nothing
 to edit, and no key leaves it; `Weapon` edits the body; menu 3's text is
@@ -6485,8 +6616,9 @@ running in DOSBox:
   in the target's column: the burst should fall beside the dragon (the
   range the target routine's last line left is 0). Acid or a dragon's
   breath at a target facing west (its icon drawn mirrored) whose icon's
-  mask is opaque at the bottom-left: sight one cell (Tandy; EGA and CGA
-  mirror with other routines, whose leftovers are not known).
+  mask is opaque at the bottom-left: sight one cell in Tandy mode (its 2
+  leftmost pixels opaque); in EGA mode only where the 8 leftmost are; in
+  CGA mode sight to 3 cells whatever the mask (see Display modes).
 - A blue dragon's lightning between two walls of a 3D area as far apart
   as its line before the bounce: the original should bounce for ever (the
   port stops).
@@ -6839,7 +6971,29 @@ running in DOSBox:
 - Cast Fear and press `T` at once (the aim on the caster's own cell), in
   Tandy mode with the caster at a few places on the view: the cone should
   go as the port's does (the directions drawing the caster's icon left).
-  Repeat in EGA mode, where the port may differ.
+  Repeat in EGA mode (the same) and CGA mode (other directions: in
+  `tests/test_spell.c` the caster at 10, 10 with the view at 7, 7 hits
+  the three below it).
+- In CGA mode (`KRYNN.CFG`'s first line `C`): compare the title, the
+  start menu, character creation, the overland map, combat, a 3D view and
+  the camp with `eclplay --display cga --shots`, colour for colour; the
+  palette should be black, light cyan, light magenta and white (the
+  BIOS's palette 1 with intensity: on a CGA without it, or a monitor
+  without intensity, the dark ones), the 3D view's ground cyan under a
+  black sky with a white line and a magenta horizon (`DS:6d81`-`6d83`
+  from 0xc05f 9 and 0xc059 0x41 on entering a block). In the icon
+  editor, 1st-color should say `Sorry, not in CGA`.
+- In EGA mode, the same screens should match `eclplay`'s (the Tandy's).
+- In EGA mode, a draw of no width on a row of the 3D view or the combat
+  map that nothing else marks (a picture placed just past the right edge,
+  `127f:09c3` copying no byte): `127f:12e8` should copy 16 KB of the
+  off-screen page A200 onto the screen from that row, where the port
+  shows nothing new (it does not model the dirty rows; no run met one).
+- A small picture of many frames (PIC1 record 23, eight) with little
+  memory free, in CGA, EGA and Tandy mode: count the frames shown.
+  `6961:00e4` stops loading them where `MaxAvail` falls under 0xf3c, which
+  differs by mode (CGA's pictures half the size, the Tandy's heap 16 KB
+  smaller); the port loads them all.
 - In a 3D area, cast Lightning Bolt at an enemy beside a wall: the bolt
   should come back once, hitting the enemy again but not the caster.
 - Let a cleric begin casting a spell that takes time, then hit it: "lost

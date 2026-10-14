@@ -229,11 +229,18 @@ static void near_row(cok_picture *dst, const cok_view *view, unsigned dir, unsig
     }
 }
 
-/* The backdrop outside CGA mode (69ea:0184). */
+/* The backdrop (69ea:0184). */
 static void backdrop(cok_picture *dst, const cok_view *view, int x, int y, unsigned dir,
                      const cok_view_backdrop *b)
 {
     int left = 2 + BUFFER_X, top = BUFFER_Y * 8;
+    if (dst->cga) { /* DS:4b76 0 */
+        cok_picture_fill(dst, left, top + 0x10, 11, 0x2b, b->sky);
+        cok_picture_fill(dst, left, top + 0x3b, 11, 1, b->line);
+        cok_picture_fill(dst, left, top + 0x3c, 11, 2, b->horizon);
+        cok_picture_fill(dst, left, top + 0x3e, 11, 0x2a, b->ground);
+        return;
+    }
     cok_picture_fill(dst, left, top + 0x10, 11, 0x2c, b->sky);
     cok_picture_fill(dst, left, top + 0x3c, 11, 2, b->horizon);
     cok_picture_fill(dst, left, top + 0x3e, 11, 0x2a, b->ground);

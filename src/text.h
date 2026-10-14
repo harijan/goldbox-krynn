@@ -7,8 +7,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* 8x8 text from the text unit in START.EXE (code segment 0x521), for the
- * linear Tandy layout. Glyphs are 1-bit, 8 bytes each, top row first, most
+/* 8x8 text from the text unit in START.EXE (code segment 0x521), into
+ * pictures in the linear Tandy layout (the EGA's cells are the same; CGA
+ * pictures map the colours). Glyphs are 1-bit, 8 bytes each, top row first, most
  * significant bit leftmost; set bits take the foreground colour. 8X8D1.DAX entry 0 (ID 201) holds 177 glyphs: 0-63 are
  * text, indexed by ASCII modulo 64; the rest are decorations. */
 typedef struct {
@@ -27,7 +28,8 @@ uint8_t cok_text_index(char c);
 /* Draw glyph count times along a row of 8x8 cells in frame 0 of dst
  * (521:01df). x and y are in cells, as for cok_picture_draw. Cells outside
  * dst, and glyphs past the end of the font, are skipped. Colours use their
- * low four bits. */
+ * low four bits; in a CGA picture they become CGA colours through DS:1de9
+ * (0-15 to 0 0 0 1 2 2 2 3 0 1 1 1 2 2 3 3, 521:0d1e). */
 void cok_text_glyph(cok_picture *dst, const cok_font *font, unsigned glyph, size_t count,
                     int x, int y, uint8_t fg, uint8_t bg);
 /* Fill count cells with colour by drawing spaces (521:030a). */

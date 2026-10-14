@@ -3,6 +3,7 @@
  * screen can be saved as a BMP whenever the game waits for a key. */
 #include "adventure.h"
 #include "arena.h"
+#include "config.h"
 #include "keyscript.h"
 #include "sound.h"
 #include "start.h"
@@ -96,6 +97,9 @@ static void usage(const char *program)
           "                  the game's time passes: its delays and \\pN. in the keys\n"
           "                  (N hundredths of a second); key reads take none; a second\n"
           "                  more at the end\n"
+          "  --display MODE  ega, tandy or cga, in place of KRYNN.CFG's (its first\n"
+          "                  line; the Tandy without one); --shots and --screen\n"
+          "                  show CGA in its four colours\n"
           "  --sound DEVICE  with --wav, the sound device: tandy, speaker or off, in\n"
           "                  place of KRYNN.CFG's (ASSETS/KRYNN.CFG, the Tandy without\n"
           "                  one); without the title (a block, --load) the driver is\n"
@@ -109,6 +113,15 @@ static void usage(const char *program)
 
 static void save(player *p, const char *path)
 {
+    size_t at;
+    if (!cok_picture_cga_valid(&p->game->screen, &at)) {
+        /* A port bug: a picture drawn on CGA mode's screen without its
+         * colours. Stop rather than show it as one of the four. */
+        fflush(stdout);
+        fprintf(stderr, "%s: the screen holds a value above 3 at %zu,%zu in CGA mode\n", path,
+                at % 320, at / 320);
+        exit(1);
+    }
     cok_image image = cok_picture_frame(&p->game->screen, 0);
     cok_image_status status = cok_image_bmp(&image, path);
     if (status != COK_IMAGE_OK)
@@ -479,6 +492,8 @@ static int run(int argc, char **argv)
     p = (player){.keys = cok_key_script_start(NULL), .owed = -1};
     cok_sound_device device = COK_SOUND_TANDY;
     bool sound_given = false;
+    cok_display display = COK_DISPLAY_TANDY;
+    bool display_given = false;
     const char *screen = NULL;
     unsigned long file = 0, vector = 5, start = 0, fixture = 0, seed = 0;
     bool seeded = false;
@@ -552,12 +567,13 @@ static int run(int argc, char **argv)
         } else if (strcmp(option, "--wav") == 0 && has_value) {
             p.wav_path = argv[++i];
         } else if (strcmp(option, "--sound") == 0 && has_value &&
-                   (strcmp(argv[i + 1], "tandy") == 0 || strcmp(argv[i + 1], "speaker") == 0 ||
-                    strcmp(argv[i + 1], "off") == 0)) {
-            const char *name = argv[++i];
+                   cok_config_sound_option(argv[i + 1], &device)) {
             sound_given = true;
-            device = name[0] == 't' ? COK_SOUND_TANDY : name[0] == 's' ? COK_SOUND_SPEAKER
-                                                                         : COK_SOUND_NONE;
+            ++i;
+        } else if (strcmp(option, "--display") == 0 && has_value &&
+                   cok_config_display_option(argv[i + 1], &display)) {
+            display_given = true;
+            ++i;
         } else if (strcmp(option, "--screen") == 0 && has_value) {
             screen = argv[++i];
         } else if (strcmp(option, "--file") == 0 && has_value &&
@@ -629,6 +645,12 @@ static int run(int argc, char **argv)
         fprintf(stderr, "--sound needs --wav: eclplay renders sound only to a file\n");
         return 2;
     }
+    /* KRYNN.CFG, as startup reads it (11c7:031a). */
+    cok_config config = {COK_DISPLAY_TANDY, COK_SOUND_TANDY};
+    bool config_read = cok_config_read(argv[i], &config);
+    if (!display_given) display = config.display;
+    if (!display_given && !config_read)
+        cok_config_missing("display", argv[i]);
     if (p.wav_path != NULL) {
         p.wav = fopen(p.wav_path, "wb");
         p.sound = malloc(sizeof *p.sound);
@@ -639,9 +661,9 @@ static int run(int argc, char **argv)
         uint8_t header[44];
         wav_header(header, 0);
         fwrite(header, 1, sizeof header, p.wav);
-        if (!sound_given && !cok_sound_read_config(argv[i], &device))
-            fprintf(stderr, "sound: no KRYNN.CFG in %s, where the original would ask for the "
-                            "devices: the Tandy\n", argv[i]);
+        if (!sound_given && !config_read)
+            cok_config_missing("sound", argv[i]);
+        if (!sound_given && config_read) device = config.sound;
         cok_sound_init(p.sound, device);
         if (!cok_sound_load(p.sound, argv[i]))
             fprintf(stderr, "sound: no music: %s\n", p.sound->music_error);
@@ -654,7 +676,7 @@ static int run(int argc, char **argv)
                                  .delay = delay, .flush = flush,
                                  .sound = p.wav_path != NULL || p.calls ? sound : NULL,
                                  .context = &p};
-    if (!cok_adventure_open(&game, argv[i], &keys, &hooks)) {
+    if (!cok_adventure_open_display(&game, argv[i], display, &keys, &hooks)) {
         fprintf(stderr, "%s\n", game.error);
         cok_adventure_close(&game);
         return 1;

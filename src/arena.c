@@ -27,7 +27,8 @@ static const int8_t step_y[9] = {-1, -1, 0, 1, 1, 1, 0, -1, 0};
 /* DS:390b: the colours of a player's icon that its six colour bytes
  * (+0x139) give, and those + 8. */
 static const uint8_t icon_colours[6] = {1, 2, 3, 4, 6, 7};
-/* DS:1e26 and DS:1e36: colour 8 drawn black, outside CGA mode. */
+/* DS:1e26 and DS:1e36: colour 8 drawn black, outside CGA mode (in CGA mode
+ * it is the record's CGA colour). */
 static const uint8_t same_colours[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
 static const uint8_t black_colours[16] = {0, 1, 2, 3, 4, 5, 6, 7, 0, 9, 10, 11, 12, 13, 14, 15};
 
@@ -89,9 +90,12 @@ static bool pictures(cok_adventure *game)
 {
     cok_combat *c = &game->combat;
     if ((c->buffer.pixels == NULL &&
-         cok_picture_create(&c->buffer, BUFFER_UNITS, BUFFER_ROWS, 1, 0) != COK_PICTURE_OK) ||
-        (c->under.pixels == NULL && cok_picture_create(&c->under, 3, 24, 1, 0) != COK_PICTURE_OK) ||
-        (c->flash.pixels == NULL && cok_picture_create(&c->flash, 3, 24, 4, 1) != COK_PICTURE_OK)) {
+         cok_adventure_create_picture(game, &c->buffer, BUFFER_UNITS, BUFFER_ROWS, 1, 0) !=
+             COK_PICTURE_OK) ||
+        (c->under.pixels == NULL &&
+         cok_adventure_create_picture(game, &c->under, 3, 24, 1, 0) != COK_PICTURE_OK) ||
+        (c->flash.pixels == NULL &&
+         cok_adventure_create_picture(game, &c->flash, 3, 24, 4, 1) != COK_PICTURE_OK)) {
         cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
         return false;
     }
@@ -326,10 +330,24 @@ bool cok_arena_icon(cok_adventure *game, int8_t x, int8_t y, uint8_t facing, uin
         cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
         return false;
     }
-    /* 127f:0b94 swaps each byte (127f:0b63), the mask's after the
-     * pixels', the last the first of the mask's last row, whose locals stay
-     * on the stack (see cok_combat.mirrored). */
-    game->combat.mirrored = mirrored.mask[(size_t)icon->height * icon->units * 4 - 1];
+    /* What 127f:0b94 leaves on the stack (see cok_combat.mirrored). The
+     * Tandy's swaps each byte (127f:0b63), the mask's after the pixels',
+     * the last the first of the mask's last row, its locals that byte
+     * twice; the EGA's reverses each plane byte (0a51), the last the
+     * mask's of the last row's first unit, a bit set for each of its 8
+     * pixels transparent, also twice; the CGA's moves each mirrored word
+     * (0ad6, then Move), whose count, 2, lies there. */
+    size_t last = (size_t)(icon->height - 1) * icon->units * 4;
+    uint8_t byte = mirrored.mask[last + icon->units * 4 - 1];
+    if (game->display == COK_DISPLAY_EGA) {
+        byte = 0;
+        for (unsigned i = 0; i < 8; ++i) {
+            unsigned two = icon->mask[last + i / 2];
+            if (((i & 1) ? two & 15u : two >> 4) != 0) byte = (uint8_t)(byte | 1u << i);
+        }
+    }
+    game->combat.mirrored =
+        (uint16_t)(game->display == COK_DISPLAY_CGA ? 2u : (unsigned)byte << 8 | byte);
     ++game->combat.mirrors;
     bool ok = buffer_draw(game, &mirrored, 0, x * 3, y * 3, "6d21:04b0");
     cok_picture_free(&mirrored);
@@ -670,8 +688,9 @@ static bool load_icon(cok_adventure *game, const char *name, size_t length, uint
         uint8_t record = (uint8_t)(id + 0x80 * image);
         cok_picture *icon = &game->icons[slot][image];
         if (cok_adventure_load_image(game, path, record, 0, icon)) { /* 127f:0111 */
-            if (cpic && cok_picture_recolor(icon, same_colours, black_colours, 0, NULL) !=
-                            COK_PICTURE_OK) {
+            if (cpic && game->display != COK_DISPLAY_CGA && /* 6d21:0408, 0478 */
+                cok_picture_recolor(icon, same_colours, black_colours, 0, NULL) !=
+                    COK_PICTURE_OK) {
                 cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
                 return false;
             }
@@ -735,7 +754,9 @@ bool cok_arena_party_icon(cok_adventure *game, cok_character *c, bool colours)
                             "compose (4b6d:0784)", r[0x135], r[0x136]);
             break;
         }
-        ok = cok_picture_recolor(icon, same_colours, black_colours, 0, NULL) == COK_PICTURE_OK;
+        if (game->display != COK_DISPLAY_CGA) /* 4b6d:08e0, 0938 */
+            ok = cok_picture_recolor(icon, same_colours, black_colours, 0, NULL) ==
+                 COK_PICTURE_OK;
     }
     if (ok && colours) {
         uint8_t to[16];

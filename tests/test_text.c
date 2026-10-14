@@ -79,6 +79,28 @@ static void test_glyph_pixels(void)
     cok_picture_free(&picture);
 }
 
+/* In a CGA picture the colours become CGA colours through DS:1de9
+ * (521:0d1e): 0-15 to 0 0 0 1 2 2 2 3 0 1 1 1 2 2 3 3. */
+static void test_glyph_cga(void)
+{
+    static const uint8_t cga[16] = {0, 0, 0, 1, 2, 2, 2, 3, 0, 1, 1, 1, 2, 2, 3, 3};
+    cok_picture picture = screen(1, 8);
+    picture.cga = true;
+    uint8_t data[8] = {0xf0, 0xf0, 0xf0, 0xf0, 0xf0, 0xf0, 0xf0, 0xf0};
+    cok_font font = {0};
+    CHECK(cok_font_load(&font, data, 8) == COK_PICTURE_OK);
+    for (unsigned fg = 0; fg < 16; ++fg)
+        for (unsigned bg = 0; bg < 16; ++bg) {
+            cok_text_glyph(&picture, &font, 0, 1, 0, 0, (uint8_t)(fg + 16), (uint8_t)bg);
+            uint8_t f = (uint8_t)(cga[fg] * 0x11), b = (uint8_t)(cga[bg] * 0x11);
+            for (size_t row = 0; row < 8; ++row)
+                CHECK(picture.pixels[row * 4] == f && picture.pixels[row * 4 + 1] == f &&
+                      picture.pixels[row * 4 + 2] == b && picture.pixels[row * 4 + 3] == b);
+        }
+    cok_font_free(&font);
+    cok_picture_free(&picture);
+}
+
 static void test_glyph_runs_and_clipping(void)
 {
     cok_font font = numbered_font();
@@ -271,6 +293,7 @@ int main(void)
     test_font_load();
     test_index();
     test_glyph_pixels();
+    test_glyph_cga();
     test_glyph_runs_and_clipping();
     test_clear_and_string();
     test_wrap();

@@ -1533,13 +1533,14 @@ int8_t cok_cast_step_byte(uint16_t at)
 
 /* The directions a cone aimed at its caster's own cell reads (dirs[0],
  * on), never written by 1903: for Fear, the locals that drawing the
- * caster's icon at 1415's end (6beb:0ad8, 6d21:04b0, the Tandy blit's)
- * left at that depth: the screen offsets of its cell, sx and sy from the
- * view's corner (an emulator probe of 78 casts, every cell it reached,
- * agrees; 6d21:04b0 computes them). Only bytes 0-12 are read before Fear's
- * length (6) is reached. A footprint other than one cell is not known,
- * nor what breath, which never aims at its own cell, would leave: the run
- * stops. */
+ * caster's icon at 1415's end (6beb:0ad8, 6d21:04b0, the clipped blit's,
+ * 127f:27af, 24fd or 226c by the display mode) left at that depth: the
+ * screen offsets of its cell, sx and sy from the view's corner (an
+ * emulator probe of 78 casts, every cell it reached, agrees; 6d21:04b0
+ * computes them; the three blits' locals were compared in the emulator).
+ * Only bytes 0-12 are read before Fear's length (6) is reached. A
+ * footprint other than one cell is not known, nor what breath, which
+ * never aims at its own cell, would leave: the run stops. */
 static bool drawing_locals(cast *cx, int8_t x0, int8_t y0, uint8_t dirs[50])
 {
     cok_combat *combat = &cx->game->combat;
@@ -1551,10 +1552,18 @@ static bool drawing_locals(cast *cx, int8_t x0, int8_t y0, uint8_t dirs[50])
                                    "what drawing its icon left, which the port knows only for "
                                    "one cell (5b04:19a5)");
     int sx = x0 - combat->view_x, sy = y0 - combat->view_y;
-    uint16_t offset = (uint16_t)(2016 * (sy + 1)); /* a cell row of the buffer, 24 x 84 */
-    const uint8_t left[16] = {0,    (uint8_t)(12 * (6 - sx)), 0, 12, 0, 32, 1,
+    /* Byte counts: a unit is 4 bytes, 2 in CGA mode (127f:226c); the EGA's
+     * blit (24fd) differs only in bytes 13-14, the unit x unscaled, which
+     * no cone reads. */
+    int unit = cx->game->display == COK_DISPLAY_CGA ? 2 : 4;
+    uint16_t skip = (uint16_t)(3 * unit * (6 - sx)), width = (uint16_t)(3 * unit);
+    uint16_t frame = (uint16_t)(24 * width);
+    uint16_t offset = (uint16_t)(24 * 21 * unit * (sy + 1)); /* a cell row */
+    uint8_t x_bytes = (uint8_t)(cx->game->display == COK_DISPLAY_EGA ? 3 * sx : 3 * unit * sx);
+    const uint8_t left[16] = {0,    (uint8_t)skip, (uint8_t)(skip >> 8), (uint8_t)width, 0,
+                              (uint8_t)frame, (uint8_t)(frame >> 8),
                               (uint8_t)offset, (uint8_t)(offset >> 8), 24, 0,
-                              (uint8_t)(24 * sy), 0, (uint8_t)(12 * sx), 0, 0};
+                              (uint8_t)(24 * sy), 0, x_bytes, 0, 0};
     memset(dirs, 0, 50);
     memcpy(dirs, left, sizeof left);
     return true;
@@ -2357,29 +2366,32 @@ static bool no_friend(cast *cx, cok_character *c, bool *none)
  * range and side (the counts of mirrors and tiles from before it).
  *
  * The range: where its redraw of the pick (6beb:02aa) drew the icon
- * mirrored, the locals of 127f:0b63, the byte the mirror swapped last
- * twice (cok_combat.mirrored), whose 0 cuts sight to one cell; else the
+ * mirrored, the word the mirror left (cok_combat.mirrored: in the Tandy
+ * and EGA modes the locals of 127f:0b63 or 0a51, a byte of the mask twice,
+ * whose 0 cuts sight to one cell; in CGA mode the count 2); else the
  * segment 432f:11d4's far call pushed, which in DOS is where the overlay
  * manager loaded overlay 432f (GAME.OVR), or 0x005b of 6346:26e2's: either
  * far above any line's length, no limit.
  *
  * The side: where the redraw drew the cell's terrain (127f:08d7's flag of
  * a masked draw) and no mirror after, 0; where it mirrored, the low byte
- * of 127f:0b94's frame pointer (pushed by 0b63), and where it drew
+ * of 127f:0b94's frame pointer (pushed by 0b63 or 0a51; in CGA mode the
+ * low byte of the offset of the mirror's mask in the heap that its last
+ * Move took, not known: -1), and where it drew
  * nothing, the low byte of an address of 432f:11d4's frame (pushed by
  * 124b). Those are offsets in the stack segment, the same wherever DOS
  * loads the game, and within a battle every breath is at the same depth
  * (546e at 0x16e below 3995:0172's SP): 0x16 and 0x0c above the battle's
  * stack pointer's low byte (sp), 0xea and 0xe0 for COK_BATTLE_SP; -1
  * where sp is 0, not known. */
-static void drawn_bytes(const cok_combat *combat, unsigned mirrors, unsigned tiles, uint16_t sp,
-                        uint16_t *range, int *side)
+static void drawn_bytes(const cok_combat *combat, cok_display display, unsigned mirrors,
+                        unsigned tiles, uint16_t sp, uint16_t *range, int *side)
 {
     *range = 0x432f;
     *side = sp == 0 ? -1 : (uint8_t)(sp + 0x0c);
     if (combat->mirrors != mirrors) {
-        *range = (uint16_t)(combat->mirrored << 8 | combat->mirrored);
-        *side = sp == 0 ? -1 : (uint8_t)(sp + 0x16);
+        *range = combat->mirrored;
+        *side = sp == 0 || display == COK_DISPLAY_CGA ? -1 : (uint8_t)(sp + 0x16);
     } else if (combat->tiles_drawn != tiles) {
         *side = 0;
     }
@@ -2559,7 +2571,7 @@ static bool attack_5a(cast *cx, cok_character *c, cok_effect *effect)
     if (!breath_targets(cx, 0x3d, &done)) return false;
     uint16_t range;
     int side;
-    drawn_bytes(combat, mirrors, tiles, game->battle_sp, &range, &side);
+    drawn_bytes(combat, game->display, mirrors, tiles, game->battle_sp, &range, &side);
     if (done && !cone(cx, x0, y0, game->spell_x, game->spell_y, 1, 6, range, side)) return false;
     if (!no_friend(cx, c, &done)) return false;
     if (!done || game->spell_target_count == 0) return true;
@@ -2595,7 +2607,7 @@ static bool attack_dragon(cast *cx, cok_character *c, cok_effect *effect)
     if (!done) return true;
     uint16_t range;
     int side;
-    drawn_bytes(combat, mirrors, tiles, game->battle_sp, &range, &side);
+    drawn_bytes(combat, game->display, mirrors, tiles, game->battle_sp, &range, &side);
     if (!cone(cx, x0, y0, game->spell_x, game->spell_y, 3, len, range, side) ||
         !no_friend(cx, c, &done))
         return false;
