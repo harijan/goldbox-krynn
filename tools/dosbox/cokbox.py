@@ -411,7 +411,7 @@ class Box:
         self.timeout, self.extra_conf, self.exit_after = timeout, extra_conf or {}, exit_after
         self.verbose, self.seed, self.want_psp = verbose, seed, want_psp
         self._own_workdir = workdir is None and not keep
-        self.workdir = pathlib.Path(workdir) if workdir else None
+        self.workdir = pathlib.Path(workdir).resolve() if workdir else None
         self.xvfb = self.dosbox = None
         self.display_name = None
         self.window = None
@@ -507,12 +507,13 @@ class Box:
             self.record_sound()
         return self
 
-    def _start_once(self):
-        self.prepare()
-        self._deadline = time.monotonic() + self.timeout
+    def _start_xvfb(self, display):
+        """Start Xvfb (on DISPLAY, e.g. ":160", or a number it picks: None);
+        its number as bytes, or None if it ended first (the display taken)."""
         rfd, wfd = os.pipe()
         self.xvfb = subprocess.Popen(
-            ["Xvfb", "-displayfd", str(wfd), "-screen", "0", "1024x768x24", "-nolisten", "tcp"],
+            ["Xvfb", *([display] if display else []), "-displayfd", str(wfd), "-screen", "0",
+             "1024x768x24", "-nolisten", "tcp"],
             pass_fds=(wfd,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True)
         os.close(wfd)
@@ -521,8 +522,20 @@ class Box:
             while not number.endswith(b"\n"):
                 chunk = r.read(1)
                 if not chunk:
-                    raise BoxError("Xvfb did not start")
+                    self.xvfb.wait()
+                    return None
                 number += chunk
+        return number
+
+    def _start_once(self):
+        self.prepare()
+        self._deadline = time.monotonic() + self.timeout
+        for display in _x_displays():
+            number = self._start_xvfb(display)
+            if number:
+                break
+        else:
+            raise BoxError("Xvfb did not start")
         self.display_name = ":" + number.decode().strip()
         env = dict(os.environ, DISPLAY=self.display_name, SDL_AUDIODRIVER="dummy")
         env.pop("WAYLAND_DISPLAY", None)
@@ -953,6 +966,19 @@ def _complete_png(path):
 
 
 _RUNNING = []
+
+
+def _x_displays():
+    """The displays to try for Xvfb: the numbers of COKBOX_DISPLAYS ("160-169",
+    for runs side by side that must keep to their own) without a lock file
+    (Xvfb ends at once on one taken, and the next is tried), else None (Xvfb
+    picks one)."""
+    span = os.environ.get("COKBOX_DISPLAYS")
+    if not span:
+        return [None]
+    lo, _, hi = span.partition("-")
+    return [f":{n}" for n in range(int(lo), int(hi or lo) + 1)
+            if not pathlib.Path(f"/tmp/.X{n}-lock").exists()]
 
 
 def _cleanup(*_):
