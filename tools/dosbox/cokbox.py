@@ -411,7 +411,7 @@ class Box:
         self.timeout, self.extra_conf, self.exit_after = timeout, extra_conf or {}, exit_after
         self.verbose, self.seed, self.want_psp = verbose, seed, want_psp
         self._own_workdir = workdir is None and not keep
-        self.workdir = pathlib.Path(workdir) if workdir else None
+        self.workdir = pathlib.Path(workdir).resolve() if workdir else None
         self.xvfb = self.dosbox = None
         self.display_name = None
         self.window = None
@@ -510,20 +510,7 @@ class Box:
     def _start_once(self):
         self.prepare()
         self._deadline = time.monotonic() + self.timeout
-        rfd, wfd = os.pipe()
-        self.xvfb = subprocess.Popen(
-            ["Xvfb", "-displayfd", str(wfd), "-screen", "0", "1024x768x24", "-nolisten", "tcp"],
-            pass_fds=(wfd,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True)
-        os.close(wfd)
-        number = b""
-        with os.fdopen(rfd, "rb") as r:
-            while not number.endswith(b"\n"):
-                chunk = r.read(1)
-                if not chunk:
-                    raise BoxError("Xvfb did not start")
-                number += chunk
-        self.display_name = ":" + number.decode().strip()
+        self.display_name = self._start_xvfb()
         env = dict(os.environ, DISPLAY=self.display_name, SDL_AUDIODRIVER="dummy")
         env.pop("WAYLAND_DISPLAY", None)
         self._log_file = open(self.workdir / "dosbox.log", "wb")
@@ -540,6 +527,44 @@ class Box:
         self.log(f"display {self.display_name}, ram at {self.base:#x}, hook at {self.hook_addr:#x}")
         if self.want_psp is not None:
             self.ds  # noqa: B018 (finds it)
+
+    def _start_xvfb(self):
+        """Start Xvfb; return its display name. COKBOX_DISPLAYS (e.g. "110-119")
+        limits it to those display numbers, the first free one taken (for runs
+        side by side with others'); otherwise Xvfb picks one (-displayfd)."""
+        args = ["-screen", "0", "1024x768x24", "-nolisten", "tcp"]
+        wanted = os.environ.get("COKBOX_DISPLAYS")
+        if wanted:
+            lo, _, hi = wanted.partition("-")
+            for n in range(int(lo), int(hi or lo) + 1):
+                if os.path.exists(f"/tmp/.X{n}-lock") or os.path.exists(f"/tmp/.X11-unix/X{n}"):
+                    continue
+                self.xvfb = subprocess.Popen(
+                    ["Xvfb", f":{n}", *args], stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL, start_new_session=True)
+                end = time.monotonic() + 20
+                while self.xvfb.poll() is None and time.monotonic() < end:
+                    if os.path.exists(f"/tmp/.X11-unix/X{n}"):
+                        return f":{n}"
+                    time.sleep(0.05)
+                if self.xvfb.poll() is None:
+                    os.killpg(self.xvfb.pid, signal.SIGKILL)
+                    self.xvfb.wait()
+            raise BoxError(f"no free X display in {wanted}")
+        rfd, wfd = os.pipe()
+        self.xvfb = subprocess.Popen(
+            ["Xvfb", "-displayfd", str(wfd), *args],
+            pass_fds=(wfd,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True)
+        os.close(wfd)
+        number = b""
+        with os.fdopen(rfd, "rb") as r:
+            while not number.endswith(b"\n"):
+                chunk = r.read(1)
+                if not chunk:
+                    raise BoxError("Xvfb did not start")
+                number += chunk
+        return ":" + number.decode().strip()
 
     def __enter__(self):
         return self.start()
