@@ -22,10 +22,6 @@ enum { COK_SETUP_FILE_MAX = 512 };
  * path C:\COK\SAVE\). */
 #define COK_SETUP_GAME_DIR "C:\\COK\\"
 
-/* The game's font (8X8D1.DAX record 201), which the port shows the text
- * screen in, from ASSETS into *font ({0} first). Returns false without it. */
-bool cok_setup_font(const char *assets, cok_font *font);
-
 typedef struct {
     /* Crt.Delay (1962:029c), a busy loop that reads no keys. */
     void (*delay)(unsigned ms, void *context);
