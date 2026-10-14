@@ -61,9 +61,15 @@ def main():
     status |= c.run(box_hook=area)
     frames, _ = cp.cok_frames(work / "cok-plain", cp.load_keys("I") + "".join(
         k for _, k in TO_STAIRS) + r"\rea\r", saves=saves, seed=1, patched=True)
-    misses = cp.match_frames(notehere["shots"] + [notehere["end"]], frames)
-    print(f"#96 Area in the catacombs: {len(notehere['shots'])} distinct screens and the one at "
-          f"the next key read; pixels differing from the nearest frame cok presents: {misses}")
+    misses = cp.match_frames(notehere["shots"], frames)
+    print(f"#96 Area in the catacombs: {len(notehere['shots'])} distinct screens; pixels "
+          f"differing from the nearest frame cok presents: {misses}")
+    _, _, shots = cp.cokbox.eclplay(cp.load_keys("I") + "".join(k for _, k in TO_STAIRS) +
+                                    r"\rea", work / "eclplay-after", saves=[saves],
+                                    args=["--seed", "1"])
+    after = min(notehere["end"].diff(cp.cokbox.Screen.load(p))[0] for p in shots)
+    print(f"  the screen at the next key read: {after} pixels differ from eclplay's")
+    misses.append(after)
     print("  port:", [l for l in c.port_text.splitlines() if "Not Here" in l or "area" in l])
     if any(misses):
         status = 1
