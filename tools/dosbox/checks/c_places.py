@@ -69,19 +69,25 @@ def name_of(raw):
 class Compare:
     """The original and eclplay, from the title, through the same keys.
 
-    steps: (name, keys) or (name, keys, probe): after each step's keys, both
+    steps: (name, keys), (name, keys, probe) or (name, keys, probe, "reads"),
+    the last typing its keys only where Crt.ReadKey blocks (text input; the
+    menus poll KeyPressed first, so not there): after each step's keys, both
     wait for a key and the original's screen is compared with the eclplay
     frame it matches best; probe(box) is called then (memory reads). saves:
-    the saved games (a directory); seed: RandSeed for both; helm: START x
+    the saved games (a directory); seed: RandSeed for both (box_seed: the
+    original's, where the two take different numbers of rolls); helm: START x
     Helm / eclplay --helm; machine: tandy, ega, cga.
     """
 
     def __init__(self, work, saves, steps, seed=None, helm=False, machine="tandy",
-                 eclargs=(), timeout=900, verbose=False, settle=1.0, retries=8):
+                 eclargs=(), timeout=900, verbose=False, settle=1.0, retries=8, cycles=None,
+                 box_seed=None):
         self.work = pathlib.Path(work)
         self.saves, self.steps, self.seed, self.helm = saves, steps, seed, helm
         self.machine, self.eclargs, self.timeout = machine, list(eclargs), timeout
         self.verbose, self.settle, self.retries = verbose, settle, retries
+        self.cycles = cycles
+        self.box_seed = seed if box_seed is None else box_seed
         self.results = {}
         self.shown = {}
         self.probes = {}
@@ -114,14 +120,20 @@ class Compare:
             pexpected = [cokbox.Screen.load(p) for p in pshots]
         differ = 0
         with cokbox.Box(workdir=self.work / "box", machine=self.machine,
-                        saves=[self.saves] if self.saves else (), seed=self.seed,
+                        saves=[self.saves] if self.saves else (), seed=self.box_seed,
                         args="x Helm" if self.helm else "", timeout=self.timeout,
-                        verbose=self.verbose) as box:
+                        verbose=self.verbose,
+                        **({"cycles": self.cycles} if self.cycles else {})) as box:
             self.box = box
             for step in self.steps:
                 name, keys = step[0], step[1]
-                box.keys(keys)
-                box.wait_input(settle=self.settle)
+                reads = len(step) > 3 and step[3] == "reads"
+                if reads:  # typed only where ReadKey waits (in a battle: not the polls)
+                    for item in cokbox.parse_keys(keys):
+                        box.key(item[1], reads_only=True)
+                else:
+                    box.keys(keys)
+                box.wait_input(reads_only=reads, settle=self.settle)
                 shown = box.screenshot(self.work / f"{name}.png")
                 best = min(range(len(expected)), key=lambda i: shown.diff(expected[i])[0])
                 count, area = shown.diff(expected[best])
@@ -167,12 +179,15 @@ SAVED_POS = 1 + 0x800 + 0x800 + 0x400
 def edit_save(saves, letter, at=None, var=None, geo=None):
     """Change saved game LETTER in SAVES: AT (x, y, dir 0-6) moves the party
     (the wall ahead and the square's byte from GEO, the map's tables), VAR
-    {address: value} sets vars of 0x4b00-0x4eff."""
+    {address: value} sets vars of 0x4b00-0x4eff and 0x7c00-0x7fff."""
     path = pathlib.Path(saves) / f"SAVGAM{letter}.DAT"
     data = bytearray(path.read_bytes())
     for addr, value in (var or {}).items():
-        assert 0x4B00 <= addr <= 0x4EFF
-        struct.pack_into("<H", data, 1 + 2 * (addr - 0x4B00), value)
+        if 0x4B00 <= addr <= 0x4EFF:
+            struct.pack_into("<H", data, 1 + 2 * (addr - 0x4B00), value)
+        else:
+            assert 0x7C00 <= addr <= 0x7FFF
+            struct.pack_into("<H", data, 1 + 0x800 + 2 * (addr - 0x7C00), value)
     if at:
         x, y, d = at
         data[SAVED_POS:SAVED_POS + 3] = bytes([x, y, d])
@@ -201,11 +216,14 @@ def throtl_save(out, letter, var=None, at=None, extra=()):
     return saves, text
 
 
-def cok_frames(out, keys, saves=None, seed=None, helm=False, machine="tandy", timeout=300):
+def cok_frames(out, keys, saves=None, seed=None, helm=False, machine="tandy", timeout=300,
+               patched=False):
     """Every frame build/cok presents for KEYS from the title (SDL's dummy
     driver saving each, 320x200 at --scale 1 --aspect 1:1, real delays), as
     Screens, consecutive repeats dropped. For screens the original shows
-    between key reads (delays, running text), which eclplay's shots miss."""
+    between key reads (delays, running text), which eclplay's shots miss.
+    PATCHED: the cok C_PATCHED_COK names instead, if set (built with a
+    fix)."""
     import shutil
     import subprocess
     out = pathlib.Path(out)
@@ -218,7 +236,8 @@ def cok_frames(out, keys, saves=None, seed=None, helm=False, machine="tandy", ti
             shutil.copyfile(f, out / "saves" / f.name)
     cfg = out / "krynn.cfg"
     cfg.write_bytes(cokbox.krynn_cfg(cokbox.MACHINES[machine][1]).encode())
-    args = [str(cokbox.ROOT / "build/cok"), "--assets", str(cokbox.ROOT / "Assets"),
+    cok = os.environ.get("C_PATCHED_COK") if patched else None
+    args = [str(cok or cokbox.ROOT / "build/cok"), "--assets", str(cokbox.ROOT / "Assets"),
             "--saves", str(out / "saves"), "--config", str(cfg), "--aspect", "1:1",
             "--scale", "1", "--input", "none", "--no-sound", "--keys", keys]
     if seed is not None:
@@ -273,3 +292,9 @@ def match_frames(shots, frames, mask=None):
     """For each screenshot, the fewest pixels it differs from any frame
     (outside MASK)."""
     return [min(masked_diff(s, f, mask) for f in frames) for s in shots]
+
+
+def var(box, addr):
+    """Game var ADDR (0x4b00-0x4eff): a word in the block DS:4b28 points to
+    (2fd3's operands read var 0x4bXX at its +2 * XX)."""
+    return box.word(box.far(box.ds * 16 + 0x4B28) + 2 * (addr - 0x4B00))

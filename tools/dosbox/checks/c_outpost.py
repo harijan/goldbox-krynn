@@ -16,8 +16,8 @@ hit points are above those at full: it should lose the whole difference."
 
 Game A's start (7 Enters from Solace) reaches the outpost's menu. Copies
 of SAVE/'s games, edited: for #68 SIR STRONGSWORD given a gem (+0xf5) and
-no items (an empty .STF); for #69-#71 GARIN (fighter 3, mage 2, a dwarf)
-dead (+0x188 6, 0 hit points), constitution 15 (+0x18, +0x19), maximum hit
+no items (an empty .STF); for #69-#71 GARIN (a dwarf, fighter 3, his mage
+level 2 taken away, +0xfe) dead (+0x188 6, 0 hit points), constitution 15 (+0x18, +0x19), maximum hit
 points 30 (+0x62) over 16 at full (+0x11b), and 3000 steel (+0xf3).
 """
 import argparse
@@ -99,6 +99,7 @@ def main():
         def dead(r):
             r[0x18] = r[0x19] = 15
             r[0x62], r[0x188], r[0x197] = 30, 6, 0
+            r[0xFE] = 0     # no mage level: a fighter of level 3 only
             struct.pack_into("<H", r, 0xF3, 3000)
         edit(saves / "CHRDATA3.SAV", dead)
         c = cp.Compare(work / "temple", saves, [

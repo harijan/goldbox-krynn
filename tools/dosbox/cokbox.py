@@ -954,15 +954,26 @@ def _start_xvfb_in(box, displays):
     the COKBOX_DISPLAYS environment variable: parallel runs keep apart)."""
     lo, _, hi = displays.partition("-")
     for n in range(int(lo), int(hi or lo) + 1):
-        if os.path.exists(f"/tmp/.X{n}-lock") or os.path.exists(f"/tmp/.X11-unix/X{n}"):
+        lock = pathlib.Path(f"/tmp/.X{n}-lock")
+        try:  # a lock left by a server killed hard: its process is gone
+            if not pathlib.Path(f"/proc/{int(lock.read_text().strip())}").exists():
+                lock.unlink()
+                pathlib.Path(f"/tmp/.X11-unix/X{n}").unlink(missing_ok=True)
+        except (OSError, ValueError):
+            pass
+        if lock.exists() or os.path.exists(f"/tmp/.X11-unix/X{n}"):
             continue
         box.xvfb = subprocess.Popen(
             ["Xvfb", f":{n}", "-screen", "0", "1024x768x24", "-nolisten", "tcp"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         end = time.monotonic() + 20
         while time.monotonic() < end and box.xvfb.poll() is None:
-            if os.path.exists(f"/tmp/.X11-unix/X{n}"):
-                return f":{n}"
+            try:  # ours once the lock names our server (two runs may race for n)
+                if int(pathlib.Path(f"/tmp/.X{n}-lock").read_text().strip()) == box.xvfb.pid \
+                        and os.path.exists(f"/tmp/.X11-unix/X{n}"):
+                    return f":{n}"
+            except (OSError, ValueError):
+                pass
             time.sleep(0.05)
         if box.xvfb.poll() is None:
             os.killpg(box.xvfb.pid, signal.SIGKILL)

@@ -5,7 +5,10 @@ should show at once"; #27 "Wall tiles and sky pictures are masked with
 colour 13 in the 3D view ... Throtl's street from 7, 15 facing north";
 #93 "In Throtl, choose `Area` at 7, 15 facing north: the map should replace
 the view ... Walk north and turn: the map should follow. `Area` again
-should show the view."
+should show the view"; #94 "With the map on, stand by a door or a wall the
+party can pass: it should show as a wall, and only on the square whose side
+holds it" (7,15's north side and 7,14's south, a wall type 1 with a way
+through; 7,13's doors, type 7, on three sides).
 
 The port writes two saved games on the overland map next to Throtl (game
 A's party, as if from the first outpost with the caravan met: vars 0x4bf2
@@ -53,6 +56,7 @@ def main():
         ("menu", "e"),                     # Exit: the adventure's menu
         ("area", "a"),                     # #93: the map in the view's place
         ("north", r"m\^"),                 # a step north with the map on
+        ("doors", r"\^"),                  # #94: 7,13, doors (wall type 7) north, east, west
         ("turn", r"\>"),                   # a turn east
         ("view", "ea"),                    # Exit Move, Area again: the view
     ], seed=1, machine=args.machine, verbose=args.verbose)
