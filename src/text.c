@@ -153,6 +153,14 @@ static int read_key(const cok_keyboard *keys)
     return keys == NULL || keys->read == NULL ? -1 : keys->read(keys->context);
 }
 
+/* 1521:0353 and 030a hide the mouse's cursor, then leave without showing
+ * it again for a column past 0x27 (037f, 032a). */
+static void off_screen(const cok_keyboard *keys, int column)
+{
+    if (column > 0x27 && keys->pointer != NULL && keys->pointer->hide != NULL)
+        keys->pointer->hide(keys->pointer->context);
+}
+
 bool cok_text_input(cok_picture *dst, const cok_font *font, const char *prompt, uint8_t fg,
                     uint8_t bg, size_t max, const cok_keyboard *keys, char out[41])
 {
@@ -172,11 +180,13 @@ bool cok_text_input(cok_picture *dst, const cok_font *font, const char *prompt, 
                 line[length++] = (char)key;
                 ++column;
                 cok_text_glyph(dst, font, cok_text_index((char)key), 1, column, 24, 15, 0);
+                off_screen(keys, column);
             }
         } else if (key == 8) {
             if (length > 0) {
                 --length;
                 cok_text_clear(dst, font, 1, column, 24, 0);
+                off_screen(keys, column);
                 --column;
             }
         } else if (key == 0) {

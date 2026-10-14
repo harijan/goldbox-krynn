@@ -186,7 +186,7 @@ static int menu(cok_adventure *game, const char *prompt, const char *items, bool
         p.count = 2;
         *pressed = 0;
     }
-    cok_keyboard keys = {press_read, &p, press_flush};
+    cok_keyboard keys = {press_read, &p, press_flush, p.keys.pointer};
     return cok_menu_ask(&game->screen, &game->font, prompt, items, 13, 15, 10, keypad,
                         &game->selected, &keys, special);
 }
@@ -466,7 +466,19 @@ static bool move_step(cok_adventure *game, cok_character *c, uint8_t dir, bool *
     return true;
 }
 
+static bool combat_move(cok_adventure *game, cok_character *c, bool *done);
+
+/* 3995:0d9c: while it runs, a click on the map is a step (DS:71a6, set at
+ * 0da3, clear at 10f7). */
 bool cok_combat_move(cok_adventure *game, cok_character *c, bool *done)
+{
+    game->combat_moving = true;
+    bool ok = combat_move(game, c, done);
+    game->combat_moving = false;
+    return ok;
+}
+
+static bool combat_move(cok_adventure *game, cok_character *c, bool *done)
 {
     cok_combat *combat = &game->combat;
     cok_combat_record *cr = record_of(game, c);
@@ -700,9 +712,25 @@ static bool strike(cok_adventure *game, cok_character *c, cok_character *target,
 /* 432f:33ce: the cursor from x, y, moved with the keypad, until Target (or
  * Enter on no items), Exit or Escape: *valid whether the cell under it
  * may be picked, *picked whether it was; *res the pick, or for none x, y. */
+static bool manual_cursor(cok_adventure *game, cok_character *c, uint8_t range, uint8_t attack,
+                          uint8_t empty, uint8_t creatures, bool *valid, bool *picked,
+                          cok_combat_aimed *res, int8_t x, int8_t y);
+
+/* While the cursor is up, a click on the map steps it (DS:71a5, set at
+ * 432f:33d5, clear at 38c7). */
 static bool manual(cok_adventure *game, cok_character *c, uint8_t range, uint8_t attack,
                    uint8_t empty, uint8_t creatures, bool *valid, bool *picked,
                    cok_combat_aimed *res, int8_t x, int8_t y)
+{
+    game->aiming = true;
+    bool ok = manual_cursor(game, c, range, attack, empty, creatures, valid, picked, res, x, y);
+    game->aiming = false;
+    return ok;
+}
+
+static bool manual_cursor(cok_adventure *game, cok_character *c, uint8_t range, uint8_t attack,
+                          uint8_t empty, uint8_t creatures, bool *valid, bool *picked,
+                          cok_combat_aimed *res, int8_t x, int8_t y)
 {
     cok_combat *combat = &game->combat;
     int8_t cx = x, cy = y; /* DS:71a3, 71a4 */
@@ -787,6 +815,8 @@ static bool manual(cok_adventure *game, cok_character *c, uint8_t range, uint8_t
             *valid = false;
         }
         bool special; /* DS:7199, which nothing reads */
+        game->aim_x = cx; /* DS:71a3, 71a4: where a click steps from */
+        game->aim_y = cy;
         key = menu(game, "(Use Cursor keys) ", *valid ? "Target" : "Exit", true, NULL, &special);
         if (key < 0) return true;
         dir = 8;

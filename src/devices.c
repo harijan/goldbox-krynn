@@ -1,0 +1,240 @@
+/* The mouse and the joystick in the game: their keys (1614:025b, 01ad,
+ * 00fa, 03c2), a menu's clicks (67b5:03e2's regions before row 24) and
+ * its wait for the buttons (67b5:0c2d), and startup's part (11c7:031a,
+ * 3e99:005b). See input.h for the units over the machine. */
+#include "adventure.h"
+
+#include <string.h>
+
+void cok_adventure_devices(cok_adventure *game, bool mouse, bool joystick,
+                           const uint16_t x[7], const uint16_t y[7])
+{
+    /* 11c7:0aa8: the third line, then 177c:0000 (11c7:0b16), and with the
+     * stick still on, its thresholds. */
+    game->mouse.on = mouse;
+    game->stick.on = joystick;
+    cok_stick_init(&game->stick, &game->port);
+    if (game->stick.on) {
+        memcpy(game->stick.x, x, sizeof game->stick.x);
+        memcpy(game->stick.y, y, sizeof game->stick.y);
+    }
+}
+
+void cok_adventure_mouse_startup(cok_adventure *game)
+{
+    /* 3e99:0085-0134: with KRYNN.CFG's M, the driver found or not; then
+     * the click's place at the middle and the pointer moved there. */
+    if (!game->mouse.on) return;
+    cok_mouse_start(&game->mouse, game->display == COK_DISPLAY_CGA);
+    game->pointer.x = 0xa0;
+    game->pointer.y = 100;
+    cok_mouse_set(&game->mouse, game->pointer.x, game->pointer.y);
+}
+
+bool cok_adventure_devices_on(const cok_adventure *game)
+{
+    return game->mouse.on || game->stick.on;
+}
+
+bool cok_adventure_device_ready(cok_adventure *game)
+{
+    if (game->device_wait == COK_WAIT_MOUSE) return game->mouse.driver.buttons != 0;
+    if (game->device_wait != COK_WAIT_STICK) return false;
+    uint16_t buttons;
+    uint8_t direction;
+    cok_stick_poll(&game->stick, &game->port, &direction, &buttons);
+    return direction < 8 || buttons != 0;
+}
+
+int cok_adventure_device_key(cok_adventure *game)
+{
+    if (game->mouse.on) {
+        /* 1614:01ad: the left button Enter, the right Escape, as a click.
+         * Other buttons (both, the middle) leave 025b's key unset, which
+         * from a menu (03c2's frame under it) holds 0: so 0 here. */
+        unsigned buttons = 0;
+        cok_mouse_get(&game->mouse, &buttons, &game->pointer.x, &game->pointer.y);
+        if (buttons == 0) return -1;
+        game->pointer.clicked = true;
+        return buttons == 1 ? 0x0d : buttons == 2 ? 0x1b : 0;
+    }
+    /* 1614:00fa: a direction its keypad digit, else button 1 Enter or 2
+     * Escape. */
+    uint8_t direction;
+    uint16_t buttons;
+    cok_stick_poll(&game->stick, &game->port, &direction, &buttons);
+    if (direction < 8) return cok_stick_key(direction);
+    if (buttons == 1) return 0x0d;
+    if (buttons == 2) return 0x1b;
+    return -1;
+}
+
+bool cok_adventure_device_pending(cok_adventure *game)
+{
+    /* 1614:03c2's devices: the mouse's position kept, a button down; the
+     * stick's button or push. */
+    if (game->mouse.on) {
+        unsigned buttons = 0;
+        cok_mouse_get(&game->mouse, &buttons, &game->pointer.x, &game->pointer.y);
+        return buttons != 0;
+    }
+    if (game->stick.on) {
+        uint8_t direction;
+        uint16_t buttons;
+        cok_stick_poll(&game->stick, &game->port, &direction, &buttons);
+        return (int16_t)buttons > 0 || direction < 8;
+    }
+    return false;
+}
+
+void cok_adventure_device_wait(cok_adventure *game, unsigned ms)
+{
+    if (game->hooks.device_wait != NULL)
+        game->hooks.device_wait(game, ms, game->hooks.context);
+}
+
+uint8_t *cok_adventure_special(cok_adventure *game, uint8_t scan)
+{
+    /* 546c:3334: a click on the party list has picked already. */
+    if (game->mouse.on && game->pointer.clicked) return game->vm.character;
+    return cok_party_special(&game->party, game->vm.character, scan);
+}
+
+/* DS:1ff5[row * 11 + col] for rows and columns 3-13 (the 3D view's
+ * cells): forward in the upper triangle, the turns at the sides, about
+ * below. */
+static const uint8_t view_keys[11][11] = {
+    {0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48},
+    {0x4b, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x4d},
+    {0x4b, 0x4b, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x4d, 0x4d},
+    {0x4b, 0x4b, 0x4b, 0x48, 0x48, 0x48, 0x48, 0x48, 0x4d, 0x4d, 0x4d},
+    {0x4b, 0x4b, 0x4b, 0x4b, 0x48, 0x48, 0x48, 0x4d, 0x4d, 0x4d, 0x4d},
+    {0x4b, 0x4b, 0x4b, 0x4b, 0x4b, 0x48, 0x4d, 0x4d, 0x4d, 0x4d, 0x4d},
+    {0x4b, 0x4b, 0x4b, 0x4b, 0x50, 0x50, 0x50, 0x4d, 0x4d, 0x4d, 0x4d},
+    {0x4b, 0x4b, 0x4b, 0x50, 0x50, 0x50, 0x50, 0x50, 0x4d, 0x4d, 0x4d},
+    {0x4b, 0x4b, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x4d, 0x4d},
+    {0x4b, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x4d},
+    {0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50},
+};
+
+/* 67b5:03e2's click (065c-0a35), the regions before row 24 and Modify's
+ * after it. */
+static int click(void *context, int col, int row, bool *special)
+{
+    cok_adventure *game = context;
+    cok_ecl *vm = &game->vm;
+    const uint16_t *mem = vm->mem4b00;
+    /* The party list (065c-077a): the member on the row picked, as Up. */
+    if (game->mouse.party_clicks && !(vm->mode == 3 && mem[0x138] == 0) && !game->moving &&
+        vm->mode != 5 && col >= game->party_left && col <= game->party_right &&
+        row >= game->party_top && row <= game->party_bottom) {
+        uint8_t *p = cok_party_record(&game->party, (uint8_t)(row - game->party_top));
+        /* A row past the party: taken, nothing given (077a). */
+        if (p == NULL) return COK_CLICK_KEEP;
+        if (game->pick_into)
+            game->pick = p;
+        else
+            vm->character = p;
+        *special = true;
+        return 0x48;
+    }
+    /* The combat map (077d-0876): a step from the cursor (Manual's) or
+     * the mover toward the cell clicked, in 24-pixel cells from cell 1. */
+    if ((game->combat_moving || game->aiming) && vm->mode == 5 && col >= 1 && col <= 21 &&
+        row >= 1 && row <= 21) {
+        const cok_combat *combat = &game->combat;
+        int fx, fy;
+        if (game->aiming) {
+            fx = game->aim_x - combat->view_x + 1;
+            fy = game->aim_y - combat->view_y + 1;
+        } else {
+            const cok_combatant *c = &combat->combatant[cok_combat_index(combat, vm->character)];
+            fx = c->x - combat->view_x + 1;
+            fy = c->y - combat->view_y + 1;
+        }
+        *special = true;
+        return cok_mouse_direction((int16_t)fx, (int16_t)fy, (int16_t)(col / 3 + 1),
+                                   (int16_t)(row / 3 + 1));
+    }
+    /* Move mode (0879-0917): the 3D view's cells 3-13, or the overland
+     * map's, from the party's place on it. */
+    if (game->moving && ((col >= 3 && col <= 13 && row >= 3 && row <= 13) ||
+                         (mem[0xe6] == 0 && vm->mode == 3 && col >= 1 && col <= 38 &&
+                          row >= 1 && row <= 15))) {
+        *special = true;
+        if (mem[0xe6] == 0)
+            return cok_mouse_direction((int16_t)(mem[0xc3] + 1), (int16_t)(mem[0xc4] + 1),
+                                       (int16_t)col, (int16_t)row);
+        return view_keys[row - 3][col - 3];
+    }
+    /* Row 24 is the menu's (091a). */
+    if (row == 24) return COK_CLICK_ON;
+    /* Modify's sheet (09c1-0a35): Home, the field clicked kept in 6e35;
+     * other rows give nothing. */
+    if (game->modifying) {
+        if (row == 1) {
+            if (col >= 1 && col <= 16) game->modify_field = 6;
+        } else if (row == 3) {
+            if (col >= 31 && col <= 33) game->modify_field = 7;
+        } else if (row >= 9 && row <= 14) {
+            if (col >= 5 && col <= 9) game->modify_field = (uint8_t)(row - 9);
+        } else {
+            return COK_CLICK_KEEP;
+        }
+        *special = true;
+        return 0x47;
+    }
+    return COK_CLICK_ON;
+}
+
+/* 67b5:0c2d: after a click, until the mouse's buttons are up; with the
+ * joystick, after any key, until its buttons are. */
+static void release(void *context)
+{
+    cok_adventure *game = context;
+    if (game->pointer.clicked) {
+        for (;;) {
+            unsigned buttons = 0;
+            int16_t x, y;
+            cok_mouse_get(&game->mouse, &buttons, &x, &y);
+            if (buttons == 0 || game->vm.abort) return;
+            cok_adventure_device_wait(game, 10);
+        }
+    } else if (game->stick.on) {
+        for (;;) {
+            uint8_t direction;
+            uint16_t buttons;
+            cok_stick_poll(&game->stick, &game->port, &direction, &buttons);
+            if (buttons == 0 || game->vm.abort) return;
+            cok_adventure_device_wait(game, COK_STICK_READ_MS);
+        }
+    }
+}
+
+static void hide(void *context)
+{
+    cok_adventure *game = context;
+    cok_mouse_hide(&game->mouse);
+}
+
+void cok_adventure_pointer_init(cok_adventure *game)
+{
+    game->pointer.click = click;
+    game->pointer.release = release;
+    game->pointer.hide = hide;
+    game->pointer.context = game;
+    game->modify_field = 0; /* DS:6e35, set by Modify (4def:29d8) before its use */
+}
+
+void cok_adventure_wrap(cok_adventure *game, cok_text_cursor *cursor, const char *text,
+                        cok_text_window window, uint8_t fg, bool clear,
+                        const cok_text_hooks *hooks)
+{
+    cok_mouse_hide(&game->mouse);
+    cok_text_wrap(&game->screen, &game->font, cursor, text, window, fg, 0, clear, hooks);
+    /* 1521:04e4: left, top, right or bottom past 0x27, 0x18, 0x27, 0x27
+     * leave without the show. */
+    if (window.left > 0x27 || window.top > 0x18 || window.right > 0x27 || window.bottom > 0x27)
+        return;
+    cok_mouse_show(&game->mouse);
+}

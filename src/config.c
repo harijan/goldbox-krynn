@@ -148,6 +148,11 @@ cok_config cok_config_parse_stick(const uint8_t *text, size_t size, bool stick)
 
 bool cok_config_read_file(const char *path, cok_config *config)
 {
+    return cok_config_read_file_stick(path, config, false);
+}
+
+bool cok_config_read_file_stick(const char *path, cok_config *config, bool stick)
+{
     FILE *f = fopen(path, "rb");
     if (f == NULL) return false;
     enum { MOST = 65536 };
@@ -155,7 +160,7 @@ bool cok_config_read_file(const char *path, cok_config *config)
     size_t size = text != NULL ? fread(text, 1, MOST, f) : 0;
     bool failed = text == NULL || ferror(f) != 0;
     fclose(f);
-    if (!failed) *config = cok_config_parse(text, size);
+    if (!failed) *config = cok_config_parse_stick(text, size, stick);
     free(text);
     return !failed;
 }
@@ -212,7 +217,8 @@ bool cok_config_find(const char *option, const char *saves, const char *assets, 
     return false;
 }
 
-bool cok_config_rewrite(const char *from, const char *to, char input)
+bool cok_config_rewrite(const char *from, const char *to, char input, const uint16_t x[7],
+                        const uint16_t y[7])
 {
     /* Each pass of its loop ReadLns lines 1-5 into string[255]s. With no
      * file Reset fails and leaves InOutRes set (nothing calls IOResult):
@@ -242,7 +248,9 @@ bool cok_config_rewrite(const char *from, const char *to, char input)
     f = fopen(to, "wb");
     if (f == NULL) return false;
     for (size_t i = 0; i < 5; ++i) fprintf(f, "%s\r\n", lines[i]);
-    for (size_t i = 0; i < 14; ++i) fputs("0\r\n", f);
+    /* The stick's thresholds as longints (4def:612f, 6154), or zeros. */
+    for (size_t i = 0; i < 7; ++i)
+        fprintf(f, "%u\r\n%u\r\n", x != NULL ? x[i] : 0u, y != NULL ? y[i] : 0u);
     bool failed = ferror(f) != 0;
     return fclose(f) == 0 && !failed;
 }

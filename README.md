@@ -5,7 +5,8 @@ exporter, picture and text compositor, ECL script interpreter and
 disassembler, and a headless script player that shows the scripts' text,
 menus, pictures, 3D view and party on the adventure screen, and plays the
 game from its title and start menu; and `cok`, which plays the game in a
-window with SDL2, from the title, with the keyboard and with its sound: the
+window with SDL2, from the title, with the keyboard, the mouse or a joystick
+(see The mouse and the joystick) and with its sound: the
 Tandy's three voices and noise, or the PC speaker, the effects and the
 title's music (see Playing and Sound), in the display mode `KRYNN.CFG`
 names: EGA, the Tandy's or CGA's four colours (see Display modes), after
@@ -43,6 +44,7 @@ mkdir -p build/roster
     --keys '\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\r\e' Assets
 rm -f build/krynn.cfg
 ./build/eclplay --start-menu --config build/krynn.cfg --keys '243d:\\krynn\r\t' Assets
+./build/eclplay --start-menu --mouse --shots build/mouse --keys '\kx\m190,195,1.' Assets
 make test
 make sanitize
 make cok
@@ -79,7 +81,8 @@ effect routines, the sound (`tests/test_sound.c`: the drivers' port writes
 against the original's, recorded in an emulator, and the synthesis),
 `KRYNN.CFG` (`tests/test_config.c`), startup's setup and text screen
 (`tests/test_setup.c`: against the original's, run in an emulator), the
-display modes
+mouse's clicks and the joystick (`tests/test_input.c`: against the
+original's, run in an emulator), the display modes
 (`tests/test_display.c`: each screen type's drawing in CGA, EGA and Tandy
 mode against what the original's graphics and text units left, run in an
 emulator),
@@ -130,14 +133,15 @@ timed menu runs out or the small picture's next frame is due.
 | `--screenshots DIR` | where F12 saves the screen (default `screenshots`, created when needed, ignored by git) |
 | `--seed N` | start Turbo Pascal's `Random` from N; by default the clock seeds it, as startup's `Randomize` (`1a46:1200` from `3e99:005b`) does |
 | `--woof`, `--helm` | start as `START Woof` (no title, and the debug keys Ctrl-D, Ctrl-Z and Ctrl-C: see Debug mode) or with `Helm` (`Area` anywhere, the Gods' cheat Alt-X, free training) |
-| `--log` | print the game's text, menus, choices, sounds and what is not ported to standard error, as `eclplay` prints them; the window's size and where the screen is shown in it; keys typed ahead that a flush drops (`flush:`); startup's text screen, a row at a time (`crt:`); the display mode (`display:`); the audio driver and the sound device (`sound:`); and a check that the window keeps up: `stale:` if, through the game's delays, the window kept an older screen than the game's for more than 160 ms |
-| `--keys KEYS` | type KEYS first, in `eclplay`'s escapes (see Playing scripts), each turned into the key that gives it and sent through SDL's key events as the game asks for a key (`\k` as it polls, `\t` the timed menu running out, `\[KEYS\]` typed ahead and `\wN.` as in Playing scripts; besides, `\pN.` pauses N hundredths of a second before the next key is typed as the game reads it, and `\#85` and `\#86`, codes the game never gets, press F11 and F12; a key repeated in a group typed ahead is held, its repeats sent as a held key's are; each a real keystroke, so that a flush after its 0 is read loses its scan code, which `eclplay` keeps for keys not typed ahead); the run then ends as `eclplay`'s does, printing `(out of keys ...)`, unless `--continue` hands over to the keyboard |
+| `--log` | print the game's text, menus, choices, sounds and what is not ported to standard error, as `eclplay` prints them; the window's size and where the screen is shown in it; keys typed ahead that a flush drops (`flush:`); startup's text screen, a row at a time (`crt:`); the display mode (`display:`); the alternate input found (`input:`); the audio driver and the sound device (`sound:`); and a check that the window keeps up: `stale:` if, through the game's delays, the window kept an older screen than the game's for more than 160 ms |
+| `--keys KEYS` | type KEYS first, in `eclplay`'s escapes (see Playing scripts), each turned into the key that gives it and sent through SDL's key events as the game asks for a key (`\k` as it polls, `\t` the timed menu running out, `\[KEYS\]` typed ahead and `\wN.` as in Playing scripts; besides, `\pN.` pauses N hundredths of a second before the next key is typed as the game reads it, and `\#85` and `\#86`, codes the game never gets, press F11 and F12; `\mX,Y,B.` and `\jX,Y,B.` click the mouse and move the stick through SDL's events, see The mouse and the joystick; a key repeated in a group typed ahead is held, its repeats sent as a held key's are; each a real keystroke, so that a flush after its 0 is read loses its scan code, which `eclplay` keeps for keys not typed ahead); the run then ends as `eclplay`'s does, printing `(out of keys ...)`, unless `--continue` hands over to the keyboard |
 | `--no-delay` | do not wait where the game waits (for tests); a rest keeps the front end's pace (see below); the sound then goes by the game's clock (see Sound) |
 | `--display ega`, `--display tandy`, `--display cga` | the display mode in place of the one `KRYNN.CFG` names (its first line: `E`, `T`, anything else CGA, see Display modes): EGA and the Tandy's look the same; CGA shows four colours |
 | `--sound tandy`, `--sound speaker`, `--sound off` | the sound device in place of the one `KRYNN.CFG` names (its second line: `T`, `P`, `S`; `C`, `R` and `A` play the effects on the speaker and no music, see Sound): the Tandy's three voices and noise, the PC speaker, or none |
 | `--no-sound` | open no audio device |
 | `--volume N` | 0-100 (default 100) |
 | `--sound-clock real`, `--sound-clock game` | what times the sound drivers: the audio device as it plays (the default; with `--no-delay`, `game`), or the game's delays and `\pN.` pauses, as `eclplay --wav` renders them |
+| `--input mouse`, `--input joystick`, `--input none` | the alternate input in place of the one `KRYNN.CFG` names (its third line: `M`, `J`, `N`; see The mouse and the joystick): `cok` always has SDL's mouse, and has a joystick when SDL finds one; `--input joystick` over a file whose third line is not `J` (which gives no thresholds) calibrates the stick at startup, as the setup's `[1]` does (`177c:029d`, on the text screen before the note to Tandy users), for the run only: the file is not written |
 | `--shots DIR` | save `DIR/NNN.bmp` each time the game waits for a key and when a battle is set up, as `eclplay --shots` does, but read back from the window: each pixel of the screen where its area's middle is shown must be one of the screen's colours (16, or CGA's 4), and at a whole multiple of 320×200 its whole block; in 4:3 it needs `--scale 2` or more, as at 320×240 the smoothing blends every row |
 
 The window can be resized; the screen keeps its aspect, letterboxed. It is
@@ -175,7 +179,13 @@ keypad numbers as the BIOS keeps them, `cok_keymap_event`):
 | Alt and a digit, `-` or `=` | 0, then 0x78-0x83 | nothing |
 | Ctrl and a letter | 1-26; Ctrl `[ \ ] 6 -` 27-31; Ctrl-2 0, 0x03 | Ctrl-S the sound off and on again (`1614:025b`, see Sound); with `--woof`, Ctrl-D the debug mode on and off, Ctrl-Z the party's effects to `DEBUG.TXT`, Ctrl-C (and Ctrl-2, whose scan code is 3) quit to DOS (see Debug mode); in the setup's path line, Crt's editor's: Ctrl-S erases a character, Ctrl-A the line, Ctrl-D and Ctrl-F recall (`1962:0394`, see Startup and the setup), and the debug keys and Ctrl-S's sound do nothing there |
 | F11 or Alt-Enter | nothing (function 0 drops them) | full screen on and off |
-| F12 | nothing | save the screen, 320×200 (startup's text screen 640×200), as `cokNNN.bmp` in `screenshots/` or `--screenshots DIR` |
+| F12 | nothing | save the screen as shown (the mouse's cursor too), 320×200 (startup's text screen 640×200), as `cokNNN.bmp` in `screenshots/` or `--screenshots DIR` |
+
+With the mouse on (`KRYNN.CFG`'s `M`, or `--input mouse`), its left button
+is Enter and its right Escape where the game reads a key, and a click goes
+where it lands in the menus (see The mouse and the joystick); the game draws
+its arrow in place of the window's pointer. With a joystick, a push is a
+keypad digit, its first button Enter, its second Escape.
 
 Keys the game cannot read give nothing: those only an enhanced keyboard's
 function 0x10 returns (Ctrl or Alt with the arrows, Alt-Enter, F11, F12),
@@ -266,8 +276,9 @@ in white (in CGA mode magenta and white), waits for a key or the window's
 close, and exits with status 1 (2 for bad options or a `--keys` code no key
 gives). Without the font, a message box says it.
 
-Not done: the music of CMS, the MT-32 and AdLib (see Sound); the mouse and
-joystick. `tests/test_cok.py` plays the title and the demonstration, and a
+Not done: the music of CMS, the MT-32 and AdLib (see Sound).
+`tests/test_cok.py` plays, with `--input none` (the keyboard alone, as
+`eclplay` without `--mouse` has it), the title and the demonstration, and a
 new game from the title (creating a character, the overland map, two fights
 with the player's keys, camps in an inn and in 3D, walking in Throtl,
 saving the game) with the same keys as `eclplay --start-menu --shots`,
@@ -298,8 +309,10 @@ saying why; a copy of the assets whose `KRYNN.CFG` says `P` playing the
 speaker; and, with a copy of the assets without `KRYNN.CFG`, the setup's
 text screens at 640×200 frame for frame as `eclplay` draws them, the file
 it writes and the game in the mode it chose, the next start reading it, and
-keys that end in the setup; that the window shows startup's note to Tandy
-users before the title, and the music in real time after it.
+keys that end in the setup (the game then with the mouse the setup chose,
+as `eclplay --mouse` plays it); that the window shows startup's note to
+Tandy users before the title, and the music in real time after it; and the
+mouse's clicks and the joystick (see The mouse and the joystick).
 `tests/test_hooks.c` checks each flush, which menus animate, the sound
 driver's calls, and `Loading...Please Wait` and `PIC not found` against
 what the original's loaders did in an 8086 emulator
@@ -343,20 +356,21 @@ default, for 2 seconds. Then every letter is upper-cased and a `\` added
 (unless 80 characters already fill the string). The default is the current
 directory (`FExpand('*.exe')`, cut to FSplit's 67 characters) and `SAVE`,
 or on drive A or B the other drive's root (`B:\SAVE`, `A:\SAVE`). Joystick
-calibration follows (`177c:029d`): with a stick on port 0x201, two screens
-(`Push JOYSTICK #1 to the extreme upper left position and press BUTTON
-#1.`, then lower right; `Couldn't read the joystick.  Aborting
-calibration.` on failure); without one it asks nothing and the numbers are
+calibration follows (`177c:029d`, see The mouse and the joystick): with a
+stick on port 0x201 and `[1]`, two screens (`Push JOYSTICK #1 to the
+extreme upper left position and press BUTTON #1.`, then lower right;
+`Couldn't read the joystick.  Aborting calibration.` on failure, the
+numbers as far as it got); without one it asks nothing and the numbers are
 0. The file, each line ended by CR LF:
 
 | Line | Holds | Read into | In the port |
 | --- | --- | --- | --- |
 | 1 | the display's letter | `DS:4b76` (see Display modes) | the display |
 | 2 | the sound device's | `DS:577a` (see Sound) | the device |
-| 3 | `J`, `M` or `N` | the joystick `DS:89ce`, the mouse `DS:8986`; another letter leaves both; then `177c:0000` (`11c7:0b16`) keeps the joystick only if stick 1 can be read, and the game's start resets the mouse (`1743:0000` at `3e99:0085`), on only with a driver | `cok_config.joystick` (false: the port's machine has no stick), `.mouse` (as the file says; the port has no mouse, so the game's reset would turn it off) |
+| 3 | `J`, `M` or `N` | the joystick `DS:89ce`, the mouse `DS:8986`; another letter leaves both; then `177c:0000` (`11c7:0b16`) keeps the joystick only if stick 1 can be read, and the game's start resets the mouse (`1743:0000` at `3e99:0085`), on only with a driver | `cok_config.joystick` (with a stick the front end has, `cok_config_parse_stick`), `.mouse` (as the file says; the game's start finds the driver or not, see The mouse and the joystick) |
 | 4 | the save path | `DS:5784`, string[255]: the roster and saved games, the save disk's checks (`4b6d:0555`), free space | `cok_config.save_path`; the port saves in `--saves` |
 | 5 | `F` | `DS:4b26`, 1 for `F`: nothing reads it | `cok_config.f_line` |
-| 6-19 | the stick's 7 X and 7 Y thresholds in pairs, read only with the joystick on after `177c:0000` (`Read` of an integer: blanks skipped, a sign, decimal or `$` hex; error 106 makes every later read do nothing) | `DS:8996`, `89a4` | `cok_config.joystick_x`, `_y`: 0 without a stick (`cok_config_parse_stick` reads them as a machine with one would) |
+| 6-19 | the stick's 7 X and 7 Y thresholds in pairs, read only with the joystick on after `177c:0000` (`Read` of an integer: blanks skipped, a sign, decimal or `$` hex; error 106 makes every later read do nothing) | `DS:8996`, `89a4` | `cok_config.joystick_x`, `_y`: 0 without a stick |
 
 Then, file or not, `ClrScr`, `TANDY 1000 USERS - Make sure NUMLOCK is on.`
 and `Delay(2000)` (a busy loop: keys typed wait in the BIOS's buffer), and
@@ -437,6 +451,126 @@ rewrite, the timeout key (`\t`) waiting on, the text screen's cells as it
 scrolls, its rows logged as the setup writes them, and its drawing;
 `tests/test_eclplay.py` and `tests/test_cok.py` play the setup from the
 title's start.
+
+## The mouse and the joystick
+
+`KRYNN.CFG`'s third line picks the alternate input (see Startup and the
+setup): `M` the mouse (`DS:8986`), `J` the joystick (`DS:89ce`), `N`
+neither. Startup then looks for them: the joystick's unit (`177c`) reads
+the stick and turns it off if it does not answer (`177c:0000` at
+`11c7:0b16`), taking its fourteen thresholds from the file only then; main's
+startup (`3e99:0085`) resets the mouse's driver (INT 33h through the unit
+`1743`), off if none answers, and with one sets its cursor (`1743:0107`: the
+arrow at `DS:42b4`, one bit a pixel, or in CGA mode `DS:42f4`, two bits a
+pixel; the hot spot at its tip), moves the pointer to x 639 and reads it
+back to learn whether the driver counts x in pixels (`DS:8984`: a driver of
+the 320×200 modes counts 0-639, two to a pixel, which the unit halves and
+doubles), shows the cursor, and puts the pointer at the screen's middle.
+`src/input.c` ports both units and models the machine under them without
+SDL: the mouse driver's pointer (virtual x 0-639, y 0-199), buttons, show
+counter and cursor, and the game port's reads of the stick; `src/devices.c`
+is the game's side.
+
+| | The original | The port |
+| --- | --- | --- |
+| a key (`1614:025b`) | with either on and no key waiting, polls them until a key or: the mouse's left button Enter, the right Escape, the last key a click (`DS:8987`) at the pointer (`DS:8989`, `898b`, pixels; `1614:01ad`); the stick pushed its keypad digit (`DS:4358`), else button 1 Enter, button 2 Escape (`1614:00fa`); a key typed meanwhile is read in its place, the click kept; in the demonstration it waits for them rather than give 0 | the front end's read gives `COK_KEY_DEVICE` while the game waits on them (`game->device_wait`) and `cok_adventure_device_ready` says they give a key; `cok_adventure_device_key` makes it. Both buttons (or the middle) leave the key unset: from a menu, or wherever `03c2` polled just before (`1614:0479`, the computer's turn), it holds `BH` of the mouse's state from `03c2`'s frame, 0 (`67b5:05ac`/`05b8`, `3afb:120a`/`1216`, `4def:2a69`/`2a72`): a menu takes it as the extended key's prefix, reads a second key as its scan code (`05c6`, 0 again while both are held) and gives scan code 0 after the release wait; paging (`1521:09ac`), the disk prompts (`169c:0136`, `0201`), `69ea:1109`, `1394` and `6e22:016b`, `022f` throw the key away; only the digit read at `58e7:02f7` gets a byte unknown (SS's low byte, from `0a46:131f`). The port gives 0 everywhere |
+| KeyPressed (`1614:03c2`) | a key, a mouse button down (the position kept), the stick's button or push | `cok_adventure_key_pending` |
+| a menu (`67b5:03e2`) | Enter from a click goes to its place's cell (x / 8, y / 8): the party list (`065c`, with `DS:8985`, outside the overland map without the list, Move mode and combat: the member on the row is selected, `DS:6096`, or picked, `DS:6e09` with `DS:6e08`, as the special key Up; a row past the party takes the click and gives nothing); in combat during Move (`DS:71a6`) or Manual's cursor (`DS:71a5`), cells 1-21: a step from the mover or the cursor toward the 24-pixel cell clicked (`1743:0167`, below, from `col / 3 + 1`); in Move mode (`DS:8858`): the 3D view's cells 3-13 forward, turn left, right or about (`DS:1ff5`), or the overland map's cells 1-38 by 1-15 a step from the party toward the cell; row 24: the item clicked, as Enter on it, selected; Modify's sheet (`DS:7141`): Home, the field clicked kept (`DS:6e35`); a list's columns (`DS:6e2f`, `6e30`): Enter if the row is at or below one of the list's rows (`DS:6e16`); else nothing, and it reads on. Then it flushes the keyboard and waits for the mouse's buttons to come up after a click, or the joystick's after any key (`67b5:0c2d`) | `menu.c` (row 24, the list's columns), the game's regions in `devices.c` (`cok_pointer.click`), the wait `cok_pointer.release` |
+| a list (`67b5:1368`) | a click on a row shown picks it out (a heading too); Select on row 24 takes it | `cok_menu_rows` |
+| the special keys (`546c:3334`) | do nothing after a click, which picked already | `cok_adventure_special` |
+| Pick Character (`546c:36cc`), the picker (`6346:32c7`) | the party list takes clicks while they ask (`DS:8985` set; the picker's only in the start menu, mode 0); Up from a click takes the member clicked | `cok_start_pick`, `pick_character` |
+| `DS:8985` | set at startup with `M`, at a new game (`3e99:0933`), turning the mouse on, leaving the start menu by Begin; cleared entering the start menu | `game->mouse.party_clicks` |
+| the cursor (`1743:0030`, `0051`) | the driver draws it in video memory while its show counter is 0: hidden through the title's waits (`2f55:0651` to `006d`) and through running text and its paging (`1521:04ac`); every other routine hides it around its drawing and shows it again before any wait | the counter kept where it matters: startup, the title, running text (`cok_adventure_wrap`), the drift below, Initialize Mouse/Joystick; the cursor composed over the screen as the window or `--shots` shows it (`cok_mouse_draw`): each pixel ANDed with the screen mask's bit and XORed with the cursor mask's, 15 for a bit in the 16-colour modes, CGA's two-bit pairs in CGA mode |
+| Initialize Mouse/Joystick (`4def:5cc7`) | see The start menu | `cok_start_mouse` |
+| the joystick's calibration (`177c:029d` in the setup, `4def:638d` in Initialize Mouse/Joystick) | the centre the mean of 20 reads; then each corner's prompt, up to 20000 polls for button 1 (`Couldn't read the joystick.  Aborting calibration.` or `Unable to read joystick` and 2 seconds), the least (upper left) or most counts of 20 reads with it held, the thresholds a third and two thirds of the way, all in 16 bits; a wait for the button to come up between | `cok_stick_calibrate` |
+
+The direction of a click (`1743:0167`): from cell (fx, fy) to (tx, ty),
+with dx and dy the distances, the first of up (ty ≤ fy and 0x26a × dx / 256 ≤
+dy, tan 67.5°), up-right (ty < fy, tx > fx, between), right (tx ≥ fx and
+0x6a × dx / 256 ≥ dy, tan 22.5°), down-right, down, down-left, left and
+up-left, so ties go to the axes and the same cell is up; the products in 16
+bits, so past about 300 cells across none holds and the original loops for
+ever (the port gives 0; only a corrupt var 0x4bc3 gets there). The stick's
+direction (`177c:003b`): its counts against the thresholds (the last of the
+1st to 5th below the count, unsigned), and only the outer bands, past two
+thirds of the way to an edge, push (`DS:4334`).
+
+The quirks kept: a click in the title menu's column 0 gives Enter (the
+list's columns `DS:6e2f`, `6e30` and rows are 0 before any list: they are
+uninitialised memory, taken as the 0s DOSBox gives; and the party list's
+rectangle `DS:6e31`-`6e34`, never cleared, likewise); the party list keeps
+taking clicks over a list drawn on it (a shop's), as Up; Modify's sheet
+gives Home for a click on a field's row beside the field, which goes back to
+the field clicked last; a click on a row of the view or map outside Move
+mode does nothing; the list takes a click below its rows from the menu as
+Enter and then does nothing; text input drawing or erasing at column 40,
+which ECL's INPUT STRING reaches with its 40 characters (`2fd3:0a57`),
+hides the cursor for good (`1521:0353` and `030a` hide it and leave
+without the show past column 39), until the mouse is turned off and on.
+Not reproduced: where the original draws under a shown cursor, the
+overland map's mark after a picture, a battle or a camp (`4877:0005` from
+`2fd3:096c`, `1c5a`, `346a`, unlike the step's `475c:08d5`), two
+artifacts: it saves the cell under it with the cursor's image in it
+(`4877:0026`, `127f:0edb`), which the next step paints back; and the cell
+it puts (`4877:008b`, `127f:10e7`) covers the arrow, so when the pointer
+next moves the driver restores the background it saved before the mark,
+and the part of the mark under the arrow's 16×16 box vanishes until the
+next redraw. The port's cursor is never in the screen. A read of the stick
+that fails as the calibration's first of the centre's twenty adds the
+words at `[bp-7]`, `[bp-9]`, which the probe did not write (it reads into
+`177c:0000`'s own locals): what the caller's previous call left there,
+fixed by the code's layout (`0a46:084a`, the WriteLn at `11c7:0840`, for
+`029d`; `0a46:056c`, the Rewrite at `4def:60aa`, for `638d`), not computed
+here; the port adds 0.
+
+The machine: `cok` always has a mouse driver (SDL's pointer) and has the
+first joystick SDL finds; `eclplay` has neither unless `--mouse` and
+`--joystick` give them, so its transcripts with the assets' `M` are those
+of a machine without a mouse. Both take `--input mouse`, `joystick` or
+`none` in place of the file's third line (`none` is `N`; `M` without a
+driver ends the same); `--input joystick` over a file without `J` calibrates
+the stick at startup (see the options). In `cok` the pointer follows the
+window's: its place over the screen as shown, letterboxed and at any scale,
+each window pixel taken at its centre, as the driver's x (0-639) and y; the game's moves of the pointer (startup's) move the
+window's where it is over it; the window's own cursor is hidden while the
+game's mouse is on. The stick's axes give counts 1-256 (the original's
+depend on the machine's speed, which is why it calibrates), its first two
+buttons buttons 1 and 2; a read of it is instant, so `cok` gives the
+calibration's polls 20 ms each (20000 of them: about 400 seconds) and a
+pushed stick a key every 60 ms, about the original's pace on a 286. Keys
+for scripts (`--keys`, both): `\mX,Y,B.` puts the pointer on pixel X, Y and
+presses buttons B (1 left, 2 right, 3 both; `,B` left out for a move
+alone), as the game reads its next key, the buttons coming up once the game
+has read the click and waits or reads again; `\jX,Y,B.` puts the stick at
+counts X, Y with buttons B (1 button 1, 2 button 2) until the next `\j`;
+where the game polls them in a loop (the menus' wait for the buttons, the
+calibration) the next `\j` or move comes, else the stick's buttons come up,
+and with nothing to change the keys' end ends the run. `cok` presses them
+through SDL's mouse events and a virtual joystick (attached at the start
+when the keys have `\j`), so the same keys give the same frames.
+
+`tests/test_input.c` replays 150 random clicks of 67b5:03e2's and 740 on
+the edges of its regions (the key, the extended flag, the selection,
+Modify's field, the selected character and the pick), 1743:0167
+from (0, 0) to every cell within 30, and 150 of the joystick unit's reads
+and both calibrations (prompts, thresholds, reads, failures) against what
+the original gave in an 8086 emulator, the menu's routine run whole with
+the keyboard and drawing stubbed and the game's state laid out in memory,
+`177c:060d` stubbed to give the stick's reads. Of 3,000 random clicks and
+880 on the regions' edges all agreed, every instruction of the click's code (`67b5:065c-0a88`) run but
+row 24's after a timeout in the same pass (the port's timeout is its own
+read); of 50,625 directions, all; of 2,000 joystick cases, all, every
+instruction of `177c:0000`, `003b` and the calibrations run but their outer
+loops' repeats (never taken) and stick 2's buttons (no caller). It also
+checks the cursor's drawing, the units, the keys they give, the cursor's
+hiding around text and INPUT STRING's drift, a list's clicks, the file
+Initialize Mouse/Joystick writes and the setup's calibration;
+`tests/test_eclplay.py` plays the menus, Modify, a walk in Throtl, the
+overland map and a battle's Move and aiming by clicks against the keys that
+do the same, frame for frame, the party list, the title's hidden cursor, the
+mouse off and on, the joystick's keys and both calibrations; and
+`tests/test_cok.py` the clicks and the joystick through SDL's events frame
+for frame as `eclplay` draws them, at two scales.
 
 ## Sound
 
@@ -741,7 +875,7 @@ for `DS:4b76`, and the tables and variables that go with it):
 | `6961:0497` sprites | colour 13 drawn black (`DS:0dd4` to `0de4`) | the same | not |
 | `4def:3d46` the icon editor's icons | on colour 0, COMSPR 25's frame behind | the same | on colour 3 (cyan), no frame |
 | `4def:4276`, `42d0` its 1st-color, 2nd-color | their menu | the same | `Sorry, not in CGA` in yellow (white) on row 24 for speed × 100 ms (`1521:0af1`); the menu stays |
-| `3e99:00ac`, `4def:5edb` the mouse's cursor | `DS:42b4` | the same | `DS:42f4` (the mouse is not ported) |
+| `3e99:00ac`, `4def:5edb` the mouse's cursor | `DS:42b4` | the same | `DS:42f4`, two bits a pixel (see The mouse and the joystick) |
 | `169c:0000` BIOS text | | | the colour through `DS:1de9`; no caller |
 
 No file or record is the CGA's alone: every mode loads the same (`CPIC`,
@@ -987,8 +1121,9 @@ for a key (`1614:025b`), flushes the keyboard (`1614:045c`), clears the window
 to colour 0 (`521:0b60`) and continues. The port does the same, but the key
 wait and flush go through the `page` hook, and the original's per-character
 `Delay(DS:4b38 * 3)`, made when `DS:4b59` is set, is the `delay` hook. The
-port leaves out the mouse hide and show calls around the routine
-(`1743:0051`, `1743:0030`). The original's window check allows a bottom row
+port hides the mouse's cursor through it and shows it after
+(`1743:0051`, `1743:0030`; `cok_adventure_wrap`, see The mouse and the
+joystick). The original's window check allows a bottom row
 up to 39, which the port keeps, but it does not reject a right edge left of
 the left one or a bottom above the top, which would make its window clear
 write far outside the window; the port prints nothing for those windows. A
@@ -1032,8 +1167,8 @@ keypad digits 1-9 and `\` (mapped to scan codes by the table at `DS:1fdf`),
 go to a `special` hook: `3775:1885` passes them to `546c:3334` and redraws
 the party (see Adventure loop). Because that check follows the hotkey match,
 a hotkey 1-9 can only be chosen with the arrows and Enter. With one item, the
-arrows and 4 and 6 are special too. The original also polls the mouse
-(`DS:8987`), which is not ported; animates the small picture while it
+arrows and 4 and 6 are special too. A click (Enter with `DS:8987`) goes to
+the regions of The mouse and the joystick; it also animates the small picture while it
 waits when its caller asks (its flag at `[bp+0xa]`, `game->menu_animates`,
 which a front end that waits does: see Playing); flushes the keyboard
 (`1614:045c`, `cok_keyboard.flush`) once it has its key, so that keys typed
@@ -1265,7 +1400,10 @@ the device `KRYNN.CFG` names, or `--sound tandy`, `speaker` or `off` (which
 need `--wav`); a run that does not start from the title installs the
 effects driver first, as main has by then (`1000:0160`); `--sound-calls`
 prints the game's calls to the sound driver as `call:` lines among the
-rest. For example, `./build/eclplay --start 899b --keys '\r2\r' Assets 48`
+rest. `--mouse` and `--joystick` give the machine a mouse driver and a
+joystick, which `\m` and `\j` in the keys click and move, and `--input
+mouse`, `joystick` or `none` picks in place of `KRYNN.CFG`'s third line
+(see The mouse and the joystick). For example, `./build/eclplay --start 899b --keys '\r2\r' Assets 48`
 answers the guards at the gates of Gargath with the second item of a list.
 
 `src/adventure.h` holds the screen side of the opcodes, from overlay `2fd3`:
@@ -1856,7 +1994,9 @@ the words are multiplied, which the original reads and writes outside its
 rows or past its table of rows (`DS:55e8`), stops the run with
 `COK_ECL_UNDEFINED`; the step itself keeps the party on the map, so only
 a script or a saved game can put it there. The mouse calls around the
-step (`1743:0051`, `0030`) are not ported; the scripts sound each step
+step (`1743:0051`, `0030`) hide the cursor around the redraw only, so the
+port, which composes the cursor over the screen, has no need of them; the
+scripts sound each step
 (`CALL [b203]`).
 
 A differential test ran the original's step (`475c:08d5`, after
@@ -3390,10 +3530,11 @@ screen there (`6346:300f`, see The combat screen), whose scroll
 for it; works out the enemies' health (`432f:2df3`) and clears the Move
 mode (`DS:8858`). A key waiting is read and dropped (`1614:0479`) after the
 map, the records and placement, and before each record is placed. The
-dead that explode (`6b45`, `6b95`, `6b96`), the mouse's flags (`71a5`,
-`71a6`) are left to the parts that use them; with the debug flag set,
-each record of the list is traced last (`3cb2:1e13`, see Debug mode); the
-lists of clouds and pools (`7111`, `7119`;
+dead that explode (`6b45`, `6b95`, `6b96`) are left to the parts that use
+them; the mouse's flags for Move and aiming (`71a6`, `71a5`) and Move mode
+(`8858`) are cleared; with the debug flag set, each record of the list is
+traced last (`3cb2:1e13`, see Debug mode); the lists of clouds and pools
+(`7111`, `7119`;
 `7115` is cleared and never used) are emptied (see Clouds, pools and
 breath).
 
@@ -4220,7 +4361,8 @@ together; and any masked picture drawn with none of its rows, or of its
 bytes in a row, in the buffer (just above or below it, or left or right of
 it by its width), whose count `127f:27af` takes as 65536, copying over
 memory. The keyboard's flush after each icon load (`1614:045c`) goes
-through the `flush` hook; the mouse's hiding is not ported.
+through the `flush` hook; the mouse's hiding around its drawing is not
+needed (the port's cursor is never in the screen).
 
 A differential test ran the original's routines in an 8086 emulator: its
 combat setup (`3cb2:1c58`, drawing the screen and flashing for effects) on
@@ -4936,8 +5078,10 @@ Yell (`60f4:0023`) and the hidden keys, with Turn (`432f:12b7`, see The
 computer's turns) and the combat side of View and Use (`546c:0d74`,
 `17f9`, `24d7`, see View). The battle's turn (`3995:040b`) hands a
 combatant the player controls (`+0x18b` 0) to it (`cok_combat_commands`).
-Keys come through the menus on row 24 (`67b5:03e2`, see Library); the
-mouse is not ported.
+Keys come through the menus on row 24 (`67b5:03e2`, see Library); a click
+on the map in Move (`DS:71a6`) or Manual's cursor (`DS:71a5`, at
+`DS:71a3`, `71a4`) is a step toward the cell (see The mouse and the
+joystick).
 
 A turn (`3995:0573`): one that cannot act ends it (`6346:2964`); one with
 a spell begun at an earlier turn (combat record `+0x00`) casts it
@@ -5030,8 +5174,9 @@ not a wall, and its creature (a combatant, or a body's record) can be
 attacked, or empty where empty cells may be (never for Aim); attacking,
 not the attacker nor a body, and the missile rules above. `Target` (or
 `Exit`) with "(Use Cursor keys)"; Space centres the map on the cursor.
-(Its exits also clear `DS:742e`, a byte of the menus' mouse handling, not
-ported.)
+(Its exits also clear `DS:742e`, the spell targets' "done" flag (5b04's
+breath and attack handlers, `3f44:1c54`), not the mouse's, as this said
+before.)
 Target picks it (the menu's fourth item then selected), as Target does;
 Exit or Escape go back to the targets with nothing picked but the cell
 where the cursor started (Manual, the third item, selected).
@@ -6376,20 +6521,31 @@ menu opened by a script replaces the variables and the party, but the
 script's block stays loaded and goes on after `PROGRAM`, as in the
 original.
 
-Initialize Mouse/Joystick (`4def:5cc7`) lists `mouse OFF`, `joystick OFF`
-and `disable both` (`Init Mouse/Joystick: `, `Select Exit`, in the same
-window) until Exit, Escape or space. The port has neither, so turning one
-on finds none and the rows stay OFF, and logs the driver calls as unported.
-Each pass reads `KRYNN.CFG`'s first five lines (string[255]s) and each
-Select writes the file again with the third line `M`, `J` or `N` (the
-letter alone) and the joystick's 14 numbers (a joystick found calibrated
-first, in the window): with neither found, `N` and zeros. Without a file to
-read, `Reset`'s error, never checked, stops every `Write` after the
-`Rewrite`: the file is left empty (the error also stays for the game's next
-unchecked I/O, which the port does not model). The port writes it so
-(`cok_config_rewrite`, logged `config: line 3 N`) where the setup would
-(see Startup and the setup): read from the assets, it is written to the
-saves directory, which later runs read first.
+Initialize Mouse/Joystick (`4def:5cc7`) lists `mouse ON` or `OFF`,
+`joystick ON` or `OFF`, as they are, and `disable both` (`Init
+Mouse/Joystick: `, `Select Exit`, in the same window) until Exit, Escape or
+space. Each pass reads `KRYNN.CFG`'s first five lines (string[255]s, empty
+without the file) and each Select writes the file again with the third line
+and the joystick's 14 numbers (without a file to read, `Reset`'s error,
+never checked, stops every `Write` after the `Rewrite`: the file is left
+empty, and the error stays for the game's next unchecked I/O, which the port
+does not model). Select on the mouse turns it over: on, its
+driver is reset and set up as at startup (`DS:8985` set, the joystick off,
+`M` and zeros; the pointer is not moved, staying at 639, 100, while the
+click's place is set to the middle); off, or no driver, `N` and zeros, the
+cursor hidden for good (the flag set for the hide, then cleared). Select on
+the joystick turns it over: on, the file is emptied first and the stick
+calibrated in the window (`4def:638d`: the window cleared, `Push JOYSTICK
+#1 to the extreme upper` and `left position and press button #1.` in light
+magenta at rows 3 and 5, then `lower` and `right`; `Unable to read
+joystick` for 2 seconds on failure, see The mouse and the joystick); still
+on (a stick found, calibrated or not), `J` and its thresholds, the mouse
+off; else `N` and zeros, the mouse as it was. `disable both` turns both off
+and writes `N`. The calibration's text stays until the start menu draws its
+frame again. The port writes the file (`cok_config_rewrite`, logged
+`config: line 3 M`, `J` or `N`) where the setup would (see Startup and the
+setup): read from the assets, it is written to the saves directory, which
+later runs read first.
 
 The demonstration (`DS:4b4b`): main sets the ECL file 2 and speed 9 and
 skips the start menu; `2fd3:3c28` loads ECL2 block 0x39 and runs only its
@@ -6851,7 +7007,8 @@ running in DOSBox:
   and check that an empty `krynn.cfg` is left, which the next start reads
   as CGA with no sound; and that a hidden `krynn.cfg` brings the setup
   back. With a joystick (DOSBox's `joysticktype`), the calibration's two
-  screens, which the port has no way to show.
+  screens and the thresholds written, against `eclplay --joystick` with
+  `\j` keys.
 
 - The Tandy's chip given a tone of divisor 0 (the effects driver writes
   one, loud, on the first tick of commands 2, 4, 5, 6, 8 and 12): the
@@ -6956,9 +7113,27 @@ running in DOSBox:
   the original reads the interrupt table at `0000:018a`; the port stops.
   Compare what DOSBox does ("Attack Ally:" asked, or an attack on
   nothing).
-- The mouse in the combat menus and the cursor (`DS:71a5`, `71a6`) is not
-  ported: compare that the keyboard alone gives the same results, and the
-  cursor's flight between Aim's targets (`6346:1ba6` with delay 0).
+- Aim's cursor's flight between targets (`6346:1ba6` with delay 0):
+  compare with the port's.
+- The mouse (see The mouse and the joystick), in DOSBox with its own
+  driver (`machine=tandy`, then `svga_s3` and `machine=cga`): the cursor's
+  look in each mode (the port draws the arrow a bit a pixel in the Tandy's
+  and EGA's modes, a two-bit pair a pixel in CGA's, as a Microsoft driver
+  does; DOSBox's own driver draws it a bit a pixel in CGA's too), where it
+  is hidden (the title's waits, running text), and that a click lands on
+  the cell under the arrow's tip. The pointer's image left in the overland
+  map: stand the pointer on the party's mark, end a battle or a camp, step
+  away, and see whether the old cell shows the arrow (the port shows none);
+  and move the pointer off the mark after a battle or a camp: does the part
+  of the mark under the arrow vanish (the port's stays)? A click in the
+  title menu's column 0 before any list (`DS:6e2f`, `6e30`, `6e16`
+  uninitialised: the port takes 0, which starts the game). Both buttons at
+  once: a menu takes the 0 as an extended key's prefix and reads the next
+  key as its scan code (the port does so); the digit read at `58e7:02f7`
+  (the port gives it 0).
+- The joystick: the keys a push gives and their pace on a real machine
+  (the port repeats a held push every 60 ms) and the calibration's
+  timeout (20000 polls; about 400 seconds in the port).
 - A cleric's long spell ("Begins Casting") moves it down the round's
   order with a d2 at each tie: compare the order after it.
 - A cleric on Auto against undead (see The computer's turns): `3afb:024b`

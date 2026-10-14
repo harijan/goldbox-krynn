@@ -74,7 +74,7 @@ static void counted(cok_adventure *g, void *context)
 
 static void open_game(void)
 {
-    cok_keyboard keys = {scripted, &s, NULL};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .unported = unported,
                                  .battlefield = battlefield, .flush = counted,
                                  .context = &s};

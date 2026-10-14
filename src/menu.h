@@ -8,8 +8,9 @@
 #include <stdint.h>
 
 /* Menus on row 24 from GAME.OVR: hotkeys in overlay 3775, layout, drawing
- * and keys in overlay 67b5. Only the keyboard is ported; the original also
- * takes mouse clicks (DS:8987) and can time out (DS:6e11). */
+ * and keys in overlay 67b5, which also takes the mouse's clicks (DS:8987,
+ * through cok_keyboard.pointer, with the game's regions) and can time out
+ * (DS:6e11). */
 
 enum { COK_MENU_MAX_ITEMS = 20 };
 
@@ -71,7 +72,16 @@ int cok_menu_horizontal(cok_picture *dst, const cok_font *font, const char *prom
  * upper-case character of text for its key or for Enter on its item, ' ',
  * or 0 for Escape. Extended keys, and those cok_menu_horizontal passes to
  * hooks->special, return their scan code with *special set. Returns -1 if
- * input ended. */
+ * input ended.
+ *
+ * All of these take the mouse's clicks (Enter with keys->pointer->clicked,
+ * 67b5:03e2's 065c-0a88): first the regions of the game's state
+ * (pointer->click: the party list, the combat map, the view and map in
+ * Move mode, Modify's sheet); then, on row 24, the item clicked, as Enter
+ * on it (selecting it); else, in the columns of a list shown, a row at or
+ * below one of its rows gives Enter; else nothing, and the menu reads on.
+ * Once it has its key, it flushes the keyboard and waits for the buttons
+ * (pointer->release, 67b5:0c2d). */
 int cok_menu_read(cok_picture *dst, const cok_font *font, const char *prompt, const char *text,
                   uint8_t prompt_color, uint8_t highlight, uint8_t normal, uint8_t *selected,
                   const cok_keyboard *keys, bool *special);
@@ -115,7 +125,10 @@ typedef struct {
  * clears *redraw. After each move the pick skips past headings in the
  * same direction, at most a page's rows, so a list that starts with a
  * heading starts on the last row shown. Prev is offered while rows other
- * than the leading headings are above the window. */
+ * than the leading headings are above the window. While it shows, its
+ * window's columns take clicks (keys->pointer, DS:6e2f, 6e30, and its rows
+ * DS:6e16): a click on a row shown picks it out, a heading too, and picks
+ * nothing; Select does. */
 int cok_menu_rows(cok_picture *dst, const cok_font *font, const cok_menu_row *rows,
                   size_t count, cok_text_window window, const cok_menu_style *style,
                   bool *redraw, int *index, int *top, uint8_t *selected,

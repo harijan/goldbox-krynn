@@ -6,6 +6,7 @@
 #include "debug.h"
 #include "ecl.h"
 #include "effect.h"
+#include "input.h"
 #include "menu.h"
 #include "party.h"
 #include "picture.h"
@@ -124,6 +125,11 @@ typedef struct {
      * title's music, Ctrl-S read by 1614:025b, quitting. A front end
      * passes them to its cok_sound. NULL ignores them. */
     void (*sound)(cok_adventure *game, cok_sound_call call, unsigned value, void *context);
+    /* The game polls the mouse or the joystick in a loop (waiting for the
+     * buttons to come up after a menu's key, 67b5:0c2d; the joystick's
+     * calibration): let up to ms pass, or less if they change. NULL lets
+     * nothing pass. */
+    void (*device_wait)(cok_adventure *game, unsigned ms, void *context);
     void *context;
 } cok_adventure_hooks;
 
@@ -295,6 +301,35 @@ struct cok_adventure {
      * character being created (4def:06dd), or NULL. */
     cok_character *outside;
     /* DS:5885 is game->effects.rolls.saved; DS:4b52 is vm.keep_vars. */
+
+    /* The mouse and the joystick (input.h, src/devices.c). mouse.driver is
+     * the machine's driver, which the front end installs and moves; port
+     * its game port. pointer is what the menus see: the click (DS:8987,
+     * 8989, 898b) and the list's columns and rows. */
+    cok_mouse mouse;
+    cok_stick stick;
+    cok_game_port port;
+    cok_pointer pointer;
+    /* While the game waits for a key with the mouse or the joystick on
+     * (1614:01ad, 00fa), which: a front end's read then gives
+     * COK_KEY_DEVICE once cok_adventure_device_ready says so. */
+    enum { COK_WAIT_KEYS, COK_WAIT_MOUSE, COK_WAIT_STICK } device_wait;
+    /* DS:71a5: combat's aiming cursor is up, at map cell DS:71a3, 71a4
+     * (432f:33ce); DS:71a6: combat's Move runs (3995:0d9c). */
+    bool aiming, combat_moving;
+    int8_t aim_x, aim_y;
+    /* DS:7141: Modify's sheet is up (4def:28fa); DS:6e35: the field a
+     * click picked, 0-5 the scores, 6 the name, 7 the hit points, 0xff
+     * none, as Modify sets it before its sheet (4def:29d8). */
+    bool modifying;
+    uint8_t modify_field;
+    /* DS:6e31-6e34: the party list's columns and rows as last drawn
+     * (6346:07ba); 0 before it is first drawn, as fresh memory holds. */
+    uint8_t party_left, party_right, party_top, party_bottom;
+    /* DS:6e08: a click on the party list picks into DS:6e09 (pick), not
+     * the selection (6346:32c7). */
+    bool pick_into;
+    uint8_t *pick;
 
     cok_keyboard keys;
     cok_adventure_hooks hooks;
@@ -563,5 +598,49 @@ void cok_adventure_prompt_colour(cok_adventure *game, const char *text, uint8_t 
 /* Show text on row 24 in colour fg, logged as "print", and wait for a key
  * (1521:096c). */
 void cok_adventure_alert(cok_adventure *game, const char *text, uint8_t fg);
+
+/* The mouse and the joystick (src/devices.c). */
+
+/* KRYNN.CFG's third line as startup takes it (11c7:0aa8): the mouse
+ * (DS:8986) or the joystick (DS:89ce) on, then 177c:0000, which clears the
+ * stick's thresholds and turns it off when it does not read, and with it
+ * still on its thresholds x and y. The front end sets game->port and the
+ * driver (game->mouse.driver.installed) first. */
+void cok_adventure_devices(cok_adventure *game, bool mouse, bool joystick,
+                           const uint16_t x[7], const uint16_t y[7]);
+/* Startup's part for the mouse (3e99:0085-0134), with KRYNN.CFG's M: see
+ * cok_mouse_start; the click's place the screen's middle, the pointer
+ * moved there. */
+void cok_adventure_mouse_startup(cok_adventure *game);
+/* The menus' click and wait for the buttons (game->pointer), set up when
+ * the game opens. */
+void cok_adventure_pointer_init(cok_adventure *game);
+/* Either on. */
+bool cok_adventure_devices_on(const cok_adventure *game);
+/* While game->device_wait says the game waits for a key with the mouse or
+ * the joystick on (1614:01ad, 00fa): whether they give it one now, a
+ * mouse button down, or the stick pushed or a button of it down. A front
+ * end's read gives COK_KEY_DEVICE then. */
+bool cok_adventure_device_ready(cok_adventure *game);
+/* The key they give (1614:01ad, 00fa): with the mouse, its left button
+ * Enter, the right Escape, both 0, and the click and where kept in
+ * game->pointer; with the joystick, a push its keypad digit (DS:4358),
+ * else button 1 Enter, 2 Escape. -1 when none is down any more. */
+int cok_adventure_device_key(cok_adventure *game);
+/* 1614:03c2's part for them: the mouse's position kept and a button down,
+ * or the stick's button or push. */
+bool cok_adventure_device_pending(cok_adventure *game);
+/* Let the game's polling of them pass (hooks.device_wait). */
+void cok_adventure_device_wait(cok_adventure *game, unsigned ms);
+/* The character a special key from a menu selects (546c:3334, see
+ * cok_party_special); the selection as it is after a click, which picked
+ * from the party list already. */
+uint8_t *cok_adventure_special(cok_adventure *game, uint8_t scan);
+/* Print running text (1521:04ac, cok_text_wrap) with the mouse's cursor
+ * hidden while it prints and pages (1743:0051 at 1521:04c7); shown again
+ * after it (054d, 072e), except where its window check returns first. */
+void cok_adventure_wrap(cok_adventure *game, cok_text_cursor *cursor, const char *text,
+                        cok_text_window window, uint8_t fg, bool clear,
+                        const cok_text_hooks *hooks);
 
 #endif

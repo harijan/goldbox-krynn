@@ -19,6 +19,9 @@ ASSETS = ROOT / "Assets"
 
 ENV = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_RENDER_DRIVER="software",
            SDL_AUDIODRIVER="dummy")
+# The assets' KRYNN.CFG says M, the mouse, which cok always finds (SDL's)
+# and eclplay only with --mouse: the tests of the keyboard leave it off.
+KEYBOARD = ("--input", "none")
 
 # From the title: Play, then the start menu: create BOB (eclplay's roster
 # test), train, Begin; leave the outpost, step onto the caravan and fight
@@ -69,10 +72,11 @@ class FrontEndTests(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr)
         return run, saves, shots
 
-    def cok(self, keys, *args, name="cok"):
+    def cok(self, keys, *args, name="cok", device=KEYBOARD):
         saves, shots = self.folder / f"{name}-saves", self.folder / f"{name}-shots"
         run = subprocess.run([str(COK), "--assets", str(ASSETS), "--saves", str(saves),
-                              "--shots", str(shots), "--no-delay", "--keys", keys, *args],
+                              "--shots", str(shots), "--no-delay", "--keys", keys, *device,
+                              *args],
                              capture_output=True, text=True, env=ENV, timeout=300)
         return run, saves, shots
 
@@ -197,9 +201,10 @@ class FrontEndTests(unittest.TestCase):
         keys = r"91\#32x2c:\\gam\bmes\r\kxP\v\v\v\r\r\e"
         esaves, eshots = self.folder / "es", self.folder / "eshots"
         esaves.mkdir()
-        expected = subprocess.run([str(ECLPLAY), "--start-menu", "--seed", "3", "--saves",
-                                   str(esaves), "--shots", str(eshots), "--keys", keys,
-                                   str(assets)], capture_output=True, text=True)
+        # The setup's 2, the mouse: the game then has it, eclplay's too.
+        expected = subprocess.run([str(ECLPLAY), "--start-menu", "--mouse", "--seed", "3",
+                                   "--saves", str(esaves), "--shots", str(eshots), "--keys",
+                                   keys, str(assets)], capture_output=True, text=True)
         self.assertEqual(expected.returncode, 0, expected.stderr)
         saves, shots = self.folder / "s", self.folder / "shots"
         run = subprocess.run([str(COK), "--assets", str(assets), "--saves", str(saves),
@@ -265,7 +270,7 @@ class FrontEndTests(unittest.TestCase):
         frames.mkdir()
         process = subprocess.Popen([str(COK), "--assets", str(ASSETS), "--saves",
                                     str(self.folder / "s"), "--aspect", "1:1", "--scale", "1",
-                                    *args], cwd=frames,
+                                    *KEYBOARD, *args], cwd=frames,
                                    env=dict(ENV, SDL_VIDEO_DUMMY_SAVE_FRAMES="1"),
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
@@ -357,7 +362,7 @@ class FrontEndTests(unittest.TestCase):
             frames.mkdir()
             env["SDL_VIDEO_DUMMY_SAVE_FRAMES"] = "1"
         process = subprocess.Popen([str(COK), "--assets", str(ASSETS), "--saves",
-                                    str(self.folder / "bg"), *args], cwd=frames,
+                                    str(self.folder / "bg"), *KEYBOARD, *args], cwd=frames,
                                    env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                    text=True)
         lines = []
@@ -604,6 +609,148 @@ class FrontEndTests(unittest.TestCase):
         # Still on the title's pictures (5 + 10 seconds), not its menu.
         self.assertIn("sound: music", self.log)
         self.assertNotIn("menu: Play Demo", self.log)
+
+
+# The mouse's clicks through SDL's mouse events, the pointer put where the
+# pixel clicked shows in the window: creating BOB, then Modify's list row,
+# Select, Pick Character's Select, a score on the sheet, Add and Keep.
+CREATE = r"\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\eYY\v\rAE"
+CLICKS = CREATE + r"\m100,116,1.\m148,196,1.\m124,196,1.\m52,84,1.\m68,196,1.\m172,196,1.\e"
+# The joystick (SDL's virtual one): a KRYNN.CFG with it calibrated, its
+# button and pushes in the menus, then Initialize Mouse/Joystick turning it
+# off and on again, calibrating it.
+JOYSTICK_CFG = (b"E\r\nT\r\nJ\r\nC:\\COK\\SAVE\\\r\nF\r\n" +
+                b"".join(b"%d\r\n%d\r\n" % (n, n) for n in (1, 40, 80, 120, 160, 200, 250)))
+PRESS, DOWN = r"\j129,129,1.\j129,129.", r"\j129,250.\j129,129."
+STICK = (r"\kx" + PRESS + DOWN * 3 + PRESS + DOWN + PRESS +
+         r"\r\j10,12,1.\j129,129.\j256,240,1.\j129,129.\e\e")
+
+
+class DeviceTests(unittest.TestCase):
+    """The mouse (SDL's, which cok always has: the assets' KRYNN.CFG says M)
+    and the joystick, frame for frame as eclplay --mouse and --joystick
+    play the same keys."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.folder = pathlib.Path(self.temp.name)
+
+    def run_both(self, keys, eclplay_args, cok_args, name, saves_cfg=None):
+        out = {}
+        for tool in ("eclplay", "cok"):
+            saves, shots = self.folder / f"{name}-{tool}-saves", self.folder / f"{name}-{tool}-shots"
+            saves.mkdir()
+            if saves_cfg is not None:
+                (saves / "KRYNN.CFG").write_bytes(saves_cfg)
+            if tool == "eclplay":
+                run = subprocess.run([str(ECLPLAY), "--start-menu", "--seed", "5", "--saves",
+                                      str(saves), "--shots", str(shots), *eclplay_args, "--keys",
+                                      keys, str(ASSETS)], capture_output=True, text=True)
+            else:
+                run = subprocess.run([str(COK), "--assets", str(ASSETS), "--saves", str(saves),
+                                      "--shots", str(shots), "--no-delay", "--seed", "5", "--log",
+                                      *cok_args, "--keys", keys],
+                                     capture_output=True, text=True, env=ENV, timeout=300)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            out[tool] = (run, saves, shots)
+        (erun, esaves, eshots), (crun, csaves, cshots) = out["eclplay"], out["cok"]
+        self.assertEqual(crun.stdout.splitlines()[-1], erun.stdout.splitlines()[-1])
+        names = sorted(p.name for p in eshots.glob("*.bmp"))
+        self.assertTrue(names)
+        self.assertEqual(names, sorted(p.name for p in cshots.glob("*.bmp")))
+        for n in names:
+            self.assertEqual((eshots / n).read_bytes(), (cshots / n).read_bytes(), n)
+        self.assertEqual(sorted(p.name for p in esaves.iterdir()),
+                         sorted(p.name for p in csaves.iterdir()))
+        for p in esaves.iterdir():
+            self.assertEqual(p.read_bytes(), (csaves / p.name).read_bytes(), p.name)
+        return crun
+
+    def test_mouse(self):
+        """Clicks in the menus and on Modify's sheet, and the cursor drawn
+        where the driver draws it, in both aspects, and full screen
+        letterboxed at 1024x768 (no whole multiple)."""
+        for aspect, scale, more in (("1:1", 2, []), ("4:3", 3, []), ("1:1", 1, ["--fullscreen"])):
+            run = self.run_both(CLICKS, ["--mouse"],
+                                ["--aspect", aspect, "--scale", str(scale), *more],
+                                f"mouse{scale}{len(more)}")
+            self.assertIn("input: mouse", run.stderr)
+            self.assertIn("choice: Modify Character", run.stderr)
+
+    def test_mouse_in_cga_with_other_keys(self):
+        """In CGA mode the cursor two bits a pixel (DS:42f4); clicks mixed
+        with the debug keys (Woof's Ctrl-D) and the keypad with NumLock
+        toggled (\\n, \\dC) and an Alt number (\\aN.)."""
+        keys = r"\d2\n\d2\n\m100,116,1.\cD\a51.\m148,196,1.\e"
+        run = self.run_both(keys, ["--mouse", "--woof", "--display", "cga"],
+                            ["--woof", "--display", "cga", "--aspect", "1:1", "--scale", "2"],
+                            "cga")
+        self.assertIn("display: CGA", run.stderr)
+
+    def test_joystick(self):
+        """SDL's stick: its button and pushes in the menus, and the
+        calibration in Initialize Mouse/Joystick, written to KRYNN.CFG."""
+        run = self.run_both(STICK, ["--joystick"], ["--aspect", "1:1", "--scale", "2"], "stick",
+                            saves_cfg=JOYSTICK_CFG)
+        self.assertIn("input: joystick", run.stderr)
+        self.assertIn("config: line 3 J", run.stderr)
+
+    def test_screenshot_shows_the_cursor(self):
+        """F12 saves the screen as shown, the mouse's cursor in it."""
+        shots = self.folder / "eshots"
+        subprocess.run([str(ECLPLAY), "--start-menu", "--mouse", "--shots", str(shots), "--keys",
+                        r"\kx", str(ASSETS)], capture_output=True, text=True)
+        run = subprocess.run([str(COK), "--assets", str(ASSETS), "--saves", str(self.folder / "s"),
+                              "--no-delay", "--screenshots", str(self.folder / "f12"), "--keys",
+                              r"\kx\#86"], capture_output=True, text=True, env=ENV, timeout=300)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual((self.folder / "f12" / "cok000.bmp").read_bytes(),
+                         (shots / "001.bmp").read_bytes())
+
+    def test_input_joystick_calibrates(self):
+        """--input joystick over the assets' M: calibrated at startup as the
+        setup's J does, then the stick's keys, as eclplay plays them."""
+        keys = r"\j10,12,1.\j129,129.\j256,240,1.\j129,129.\kx" + PRESS + DOWN + PRESS + r"\e"
+        run = self.run_both(keys, ["--joystick", "--input", "joystick"],
+                            ["--input", "joystick", "--aspect", "1:1", "--scale", "2"], "calib")
+        self.assertIn("input: joystick", run.stderr)
+        self.assertIn("crt: Push JOYSTICK #1 to the extreme lower right position and press "
+                      "BUTTON #1.", run.stderr)
+        self.assertIn("choice: Add Character to Party", run.stderr)
+
+    def test_clicks_at_scale_one(self):
+        """At 320x240 (4:3, --scale 1) the clicks land where they do at any
+        other size (the window's pixels taken by their centres)."""
+        (self.folder / "e").mkdir()
+        expected = subprocess.run([str(ECLPLAY), "--start-menu", "--mouse", "--seed", "5",
+                                   "--saves", str(self.folder / "e"), "--keys", CLICKS,
+                                   str(ASSETS)], capture_output=True, text=True)
+        run = subprocess.run([str(COK), "--assets", str(ASSETS), "--saves", str(self.folder / "c"),
+                              "--no-delay", "--seed", "5", "--log", "--aspect", "4:3", "--scale",
+                              "1", "--keys", CLICKS], capture_output=True, text=True, env=ENV,
+                             timeout=300)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        logged = [line for line in run.stderr.splitlines()
+                  if line.split(":")[0] in ("choice", "menu", "list", "item")]
+        printed = [line for line in expected.stdout.splitlines()
+                   if line.split(":")[0] in ("choice", "menu", "list", "item")]
+        self.assertEqual(logged, printed)
+
+    def test_input_option(self):
+        """--input picks the device in place of KRYNN.CFG's: none, or a
+        joystick SDL does not have."""
+        for name, expected in (("none", "input: keyboard"),
+                               ("joystick", "input: joystick not found"),
+                               ("mouse", "input: mouse")):
+            run = subprocess.run([str(COK), "--assets", str(ASSETS), "--saves",
+                                  str(self.folder / name), "--no-delay", "--log", "--input", name,
+                                  "--keys", r"\kx"], capture_output=True, text=True, env=ENV,
+                                 timeout=300)
+            self.assertIn(expected, run.stderr)
+        run = subprocess.run([str(COK), "--input", "trackball"], capture_output=True, text=True,
+                             env=ENV, timeout=300)
+        self.assertEqual(run.returncode, 2)
 
 
 def bursts(samples, rate=44100):

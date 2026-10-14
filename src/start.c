@@ -38,11 +38,17 @@ static void moons(const cok_adventure *game, uint16_t out[3])
 
 bool cok_start_pick(cok_adventure *game)
 {
+    /* 546c:36d2: a click on the party list picks while this asks. */
+    bool party_clicks = game->mouse.party_clicks;
+    game->mouse.party_clicks = true;
     int key;
     for (;;) {
         bool special;
         key = cok_camp_menu(game, "Pick Character ", "Select Exit", true, false, &special);
-        if (key < 0) return false;
+        if (key < 0) {
+            game->mouse.party_clicks = party_clicks;
+            return false;
+        }
         if (special) {
             cok_camp_pick(game, (uint8_t)key);
             continue;
@@ -50,6 +56,7 @@ bool cok_start_pick(cok_adventure *game)
         if (key == 0 || key == 'E' || key == 'S') break;
     }
     cok_adventure_party(game);
+    game->mouse.party_clicks = party_clicks; /* 546c:3764 */
     return key == 'S';
 }
 
@@ -89,10 +96,17 @@ static void fresh(cok_adventure *game, uint8_t facing)
     game->picture_shown = game->sprite_shown = game->big_shown = false;
     game->in_encounter = game->resting = game->moving = false;
     game->party_killed = false;
+    /* 3e99:0666-067f, 0a86-0a9f: no Move, aiming cursor, click, pick or
+     * Modify (DS:71a6, 71a5, 8987, 6e08, 7141). */
+    game->combat_moving = game->aiming = false;
+    game->pointer.clicked = false;
+    game->pick_into = false;
+    game->modifying = false;
 }
 
 void cok_start_startup(cok_adventure *game)
 {
+    cok_adventure_mouse_startup(game); /* 3e99:0085 */
     fresh(game, 0);
     game->debug = false; /* 3e99:055b */
     game->demo = false;
@@ -105,6 +119,7 @@ void cok_start_reset(cok_adventure *game)
 {
     fresh(game, 2);
     cok_debug_reset(game); /* 3e99:0977 */
+    game->mouse.party_clicks = true; /* 3e99:0933 */
     clear_menu(game);
 }
 
@@ -176,6 +191,9 @@ void cok_start_title(cok_adventure *game)
      * 014d, 02b3) unless the sound is off. */
     cok_adventure_log(game, "sound", "music");
     cok_adventure_sound(game, COK_SOUND_MUSIC, 0);
+    /* 2f55:0651: the mouse's cursor hidden through the title, its waits
+     * too, until 2f55:006d (0086). */
+    cok_mouse_hide(&game->mouse);
     bool key = !title_picture(game, 1, 0, 0) || title_wait(game, 5);
     if (!key) key = !title_picture(game, 2, 0, 0) || !title_picture(game, 3, 5, 1) ||
                     title_wait(game, 10);
@@ -188,6 +206,7 @@ void cok_start_title(cok_adventure *game)
     /* 2f55:006d: the music stopped (1661:0353, 00da), DS:5780 cleared. */
     cok_picture_fill(&game->screen, 0, 0, 40, 200, 0);
     cok_adventure_sound(game, COK_SOUND_MUSIC_END, 0);
+    cok_mouse_show(&game->mouse);
     game->title = false;
 }
 
@@ -211,36 +230,102 @@ static int title_menu(cok_adventure *game, const char *prompt, uint16_t timeout)
     return key;
 }
 
+/* KRYNN.CFG written again by Initialize Mouse/Joystick, its third line
+ * input and the stick's thresholds (or zeros), in the port's own place,
+ * never the assets'. */
+static void rewrite(cok_adventure *game, char input, const cok_stick *stick)
+{
+    char text[1100];
+    if (game->config_write[0] == '\0') {
+        snprintf(text, sizeof text, "line 3 %c, written nowhere", input);
+    } else if (cok_config_rewrite(game->config_path, game->config_write, input,
+                                  stick != NULL ? stick->x : NULL,
+                                  stick != NULL ? stick->y : NULL)) {
+        snprintf(game->config_path, sizeof game->config_path, "%s", game->config_write);
+        snprintf(text, sizeof text, "line 3 %c", input);
+    } else {
+        snprintf(text, sizeof text, "%s cannot be written", game->config_write);
+    }
+    cok_adventure_log(game, "config", text);
+}
+
+/* 4def:638d's screens: the window cleared (1128:07e6) and its lines in
+ * light magenta at column 1 (1521:0353); the failure's for 2 seconds. */
+static void calibration_prompt(cok_stick_prompt which, void *context)
+{
+    static const char *const lines[3][2] = {
+        {"Push JOYSTICK #1 to the extreme upper", "left position and press button #1."},
+        {"Push JOYSTICK #1 to the extreme lower", "right position and press button #1."},
+        {"Unable to read joystick", NULL},
+    };
+    cok_adventure *game = context;
+    cok_picture_fill(&game->screen, 1, 8, 0x26, 0x16 * 8, 0);
+    for (size_t i = 0; i < 2 && lines[which][i] != NULL; ++i) {
+        cok_adventure_log(game, "print", lines[which][i]);
+        cok_text_string(&game->screen, &game->font, lines[which][i], 1, 3 + 2 * (int)i, 13, 0);
+    }
+    if (which == COK_STICK_FAILED) cok_adventure_wait(game, 2000);
+}
+
 void cok_start_mouse(cok_adventure *game)
 {
-    static const char *const rows_text[3] = {"mouse OFF", "joystick OFF", "disable both"};
-    cok_menu_row rows[3];
-    for (size_t i = 0; i < 3; ++i) rows[i] = (cok_menu_row){rows_text[i], false};
     cok_menu_style style = {"Init Mouse/Joystick: ", "Select", 15, 10, 13, true};
     int index = 0;
     cok_keyboard keys = cok_adventure_keyboard(game);
     for (;;) {
+        /* 4def:5d53: the rows say what is on now. */
+        cok_menu_row rows[3] = {{game->mouse.on ? "mouse ON" : "mouse OFF", false},
+                                {game->stick.on ? "joystick ON" : "joystick OFF", false},
+                                {"disable both", false}};
         bool redraw = true;
         cok_adventure_log(game, "list", "Init Mouse/Joystick: ");
+        for (size_t i = 0; i < 3; ++i) cok_adventure_log(game, "item", rows[i].text);
         int key = cok_menu_rows(&game->screen, &game->font, rows, 3,
                                 (cok_text_window){9, 12, 0x26, 0x16}, &style, &redraw, &index,
                                 &game->list_top, &game->selected, &keys);
         if (key != 'S') return;
-        if (index == 0)
-            cok_adventure_log(game, "unported", "the mouse driver (1743:0000)");
-        else if (index == 1)
-            cok_adventure_log(game, "unported", "the joystick (177c:0000)");
-        /* KRYNN.CFG rewritten with its third line N: neither is found (the
-         * port's in its own place, never the assets'). */
-        if (game->config_write[0] == '\0') {
-            cok_adventure_log(game, "config", "line 3 N, written nowhere");
-        } else if (cok_config_rewrite(game->config_path, game->config_write, 'N')) {
-            snprintf(game->config_path, sizeof game->config_path, "%s", game->config_write);
-            cok_adventure_log(game, "config", "line 3 N");
-        } else {
-            char text[1100];
-            snprintf(text, sizeof text, "%s cannot be written", game->config_write);
-            cok_adventure_log(game, "config", text);
+        if (index == 0) {
+            /* 4def:5e8e: the mouse turned over; on, its driver found
+             * (cok_mouse_start), the joystick off and M; else N, the
+             * cursor hidden (the flag set for it) and the mouse off. */
+            game->mouse.on = !game->mouse.on;
+            if (game->mouse.on) {
+                cok_mouse_start(&game->mouse, game->display == COK_DISPLAY_CGA);
+                if (game->mouse.on) {
+                    game->stick.on = false;
+                    rewrite(game, 'M', NULL);
+                    game->pointer.x = 0xa0; /* no move: the pointer stays at 639, 100 */
+                    game->pointer.y = 100;
+                }
+            }
+            if (!game->mouse.on) {
+                rewrite(game, 'N', NULL);
+                game->mouse.on = true;
+                cok_mouse_hide(&game->mouse);
+                game->mouse.on = false;
+            }
+        } else if (index == 1) {
+            /* 4def:6087: the joystick turned over; on, calibrated in the
+             * window (4def:638d), then J and its thresholds, the mouse off;
+             * off, or not found, N, the mouse as it was. */
+            game->stick.on = !game->stick.on;
+            if (game->stick.on) {
+                cok_stick_calibrate(&game->stick, &game->port, calibration_prompt, game,
+                                    &game->vm.abort);
+                if (game->vm.abort) return;
+                if (game->stick.on) {
+                    rewrite(game, 'J', &game->stick);
+                    cok_mouse_hide(&game->mouse);
+                    game->mouse.on = false;
+                }
+            }
+            if (!game->stick.on) rewrite(game, 'N', NULL);
+        } else if (index == 2) {
+            /* 4def:621d: both off. */
+            game->stick.on = false;
+            cok_mouse_hide(&game->mouse);
+            game->mouse.on = false;
+            rewrite(game, 'N', NULL);
         }
     }
 }
@@ -321,7 +406,10 @@ bool cok_start_command(cok_adventure *game, char letter)
     case 'R': if (on[7]) cok_roster_remove(game); break;
     case 'L': if (on[8]) cok_roster_load(game); break;
     case 'S': if (on[9] && game->party.count > 0) cok_camp_save(game); break;
-    case 'B': return on[10] && begin(game, entry_mode);
+    case 'B':
+        if (!on[10]) break;
+        game->mouse.party_clicks = true; /* 4def:04c3 */
+        return begin(game, entry_mode);
     case 'I': if (on[11]) cok_start_mouse(game); break;
     case 'E': if (on[12]) leave(game); break;
     case 'J':
@@ -343,6 +431,7 @@ void cok_start_menu(cok_adventure *game)
     entry_mode = vm->mode;
     vm->mode = 0;
     game->free_training = false;
+    game->mouse.party_clicks = false; /* 4def:01bb */
     int index = 0;
     for (;;) {
         if (vm->abort) break;

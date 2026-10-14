@@ -1394,7 +1394,7 @@ int main(void)
 {
     snprintf(dir, sizeof dir, "build/start_XXXXXX");
     CHECK(mkdtemp(dir) != NULL);
-    cok_keyboard k = {scripted, &s, NULL};
+    cok_keyboard k = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .key_pending = pending, .delay = delay, .flush = flush,
                                  .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &k, &hooks));

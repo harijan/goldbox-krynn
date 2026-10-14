@@ -1503,7 +1503,7 @@ static void test_endless_bolt(void)
 
 int main(void)
 {
-    cok_keyboard keyboard = {scripted, &s, NULL};
+    cok_keyboard keyboard = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .delay = on_delay, .context = &s};
     if (!cok_adventure_open(&game, "Assets", &keyboard, &hooks)) {
         printf("cloud tests skipped: %s\n", game.error);

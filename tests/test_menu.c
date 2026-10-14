@@ -67,7 +67,7 @@ static int scripted(void *context)
 static cok_keyboard keyboard(script *s, const char *keys, size_t length)
 {
     *s = (script){keys, 0, length};
-    return (cok_keyboard){scripted, s, NULL};
+    return (cok_keyboard){scripted, s, NULL, NULL};
 }
 
 /* A keyboard that counts its flushes and drops the keys left, as
@@ -88,7 +88,7 @@ static void test_flush(void)
     cok_font font = numbered_font();
     cok_picture p = screen();
     script s = {"\x01\x4dLx", 0, 4};
-    cok_keyboard k = {scripted, &s, flush_rest};
+    cok_keyboard k = {scripted, &s, flush_rest, NULL};
     uint8_t selected = 1;
     bool special;
     flushes = 0;

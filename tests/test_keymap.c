@@ -318,6 +318,27 @@ static void test_script(void)
     s = cok_key_script_start("\\p50.y\\p7.z");
     CHECK(cok_key_script_pause(&s, &pause) && pause == 50 && !cok_key_script_pause(&s, &pause));
     CHECK(cok_key_script_read(&s) == 'y' && cok_key_script_read(&s) == 'z');
+    /* \m and \j: the mouse's and the stick's events, the buttons left out
+     * for none; a bad one is its letter; dropped in a group. */
+    s = cok_key_script_start("\\m10,195,1.\\j1,256.\\m5.x\\m1,2,3,4.");
+    CHECK(cok_key_script_read(&s) == COK_KEY_DEVICE && s.event.kind == 'm' && s.event.x == 10 &&
+          s.event.y == 195 && s.event.buttons == 1);
+    CHECK(cok_key_script_read(&s) == COK_KEY_DEVICE && s.event.kind == 'j' && s.event.x == 1 &&
+          s.event.y == 256 && s.event.buttons == 0);
+    CHECK(cok_key_script_read(&s) == 'm' && cok_key_script_read(&s) == '5');
+    CHECK(cok_key_script_read(&s) == '.' && cok_key_script_read(&s) == 'x');
+    CHECK(cok_key_script_read(&s) == 'm');
+    s = cok_key_script_start("\\[a\\m1,2,1.b\\]");
+    CHECK(cok_key_script_ahead(&s, true, k, 15) == 2 && k[1].code == 'b');
+    /* Where the game polls them: \j, and \m moving alone, not a click. */
+    s = cok_key_script_start("\\j3,4,1.\\m7,8.\\m9,9,2.x");
+    CHECK(cok_key_script_device(&s) && s.event.kind == 'j' && s.event.buttons == 1);
+    CHECK(cok_key_script_device(&s) && s.event.kind == 'm' && s.event.x == 7);
+    CHECK(!cok_key_script_device(&s));
+    CHECK(cok_key_script_read(&s) == COK_KEY_DEVICE && s.event.buttons == 2);
+    CHECK(!cok_key_script_device(&s) && cok_key_script_read(&s) == 'x');
+    CHECK(cok_key_script_moves_stick("ab\\[\\j1,2.\\]") && cok_key_script_moves_stick("\\j9,9,1."));
+    CHECK(!cok_key_script_moves_stick("\\\\j1,2.") && !cok_key_script_moves_stick("\\m1,2.j"));
 }
 
 /* What the BIOS's INT 9 keeps between keys (cok_keymap_event): NumLock

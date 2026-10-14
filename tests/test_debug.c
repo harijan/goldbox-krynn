@@ -416,7 +416,7 @@ static void test_ecl(void)
 
 int main(void)
 {
-    cok_keyboard k = {scripted, &s, NULL};
+    cok_keyboard k = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &k, &hooks));
     CHECK(cok_picture_create(&s.seen, game.screen.units, game.screen.height, 1, 0) == COK_PICTURE_OK);

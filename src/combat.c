@@ -1134,6 +1134,9 @@ bool cok_combat_setup(cok_adventure *game)
         }
     }
     cok_combat_enemy_health(combat, &game->party);
+    /* 3cb2:1dee-1dfd: no Move nor aiming cursor (DS:71a6, 71a5), the
+     * mode, no Move mode. */
+    game->combat_moving = game->aiming = false;
     vm->mode = 5;
     game->moving = false;
     /* 3cb2:1e13: the debug trace of each record, its name, status (+0x188)

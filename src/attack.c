@@ -373,8 +373,8 @@ static bool report(cok_adventure *game, cok_character *attacker, cok_character *
         snprintf(line, sizeof line, "%s %s", name, text);
         cok_adventure_log(game, "attack", line);
         cok_text_hooks hooks = {page, NULL, game};
-        cok_text_wrap(&game->screen, &game->font, &game->vm.cursor, text,
-                      (cok_text_window){0x17, row, 0x26, row + 3}, 10, 0, true, &hooks);
+        cok_adventure_wrap(game, &game->vm.cursor, text,
+                           (cok_text_window){0x17, row, 0x26, row + 3}, 10, true, &hooks);
     }
     row = (uint8_t)(game->vm.cursor.y + 1); /* DS:6135 */
     cok_combat_record *cr = record_of(game, target);

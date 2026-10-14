@@ -35,12 +35,28 @@
  * while the game is busy (a key pressed in the middle of the title's wait
  * or of a rest); a key read ends the wait at once. \pN. pauses N
  * hundredths of a second, in real time, before the next key is typed as
- * the game reads it, where there is a clock (cok; eclplay passes over it). */
+ * the game reads it, where there is a clock (cok; eclplay passes over it).
+ *
+ * The mouse and the joystick: \mX,Y,B. puts the mouse's pointer at pixel
+ * X, Y of the 320x200 screen with buttons B down (bit 0 the left, 1 the
+ * right; B and its comma may be left out for none), and \jX,Y,B. the
+ * stick at counts X, Y (177c:060d's) with buttons B (bit 0 button 1, 1
+ * button 2), as the game reads its next key: read gives COK_KEY_DEVICE
+ * and the event. A front end takes a press as a click: the buttons come
+ * up again once the game has read it and next waits or reads; a move
+ * alone goes on to the next key. */
+typedef struct {
+    char kind;            /* 'm' the mouse, 'j' the joystick. */
+    int x, y;
+    unsigned buttons;
+} cok_device_event;
+
 typedef struct {
     const char *keys;     /* What is left of the script. */
     int pending;          /* The scan code after a 0, or -1. */
     unsigned long wait;   /* The game's waits left before what follows \w. */
     bool numlock_off;     /* As \n left NumLock. */
+    cok_device_event event; /* The last \m or \j read. */
 } cok_key_script;
 
 /* What \n, \dC and \aN. press on the keyboard. */
@@ -63,7 +79,8 @@ cok_key_script cok_key_script_start(const char *keys);
 
 /* The next code the game reads (Crt.ReadKey): the scan code owed after a
  * 0 first, else the next key, skipping a \k before it, a wait (\wN.) and
- * a group's brackets; -1 when the script has ended. */
+ * a group's brackets; COK_KEY_DEVICE for \m or \j, the event in
+ * script->event; -1 when the script has ended. */
 int cok_key_script_read(cok_key_script *script);
 
 /* At \n, \dC or \aN. (nothing owed): the keys to press for it, in key,
@@ -91,6 +108,14 @@ size_t cok_key_script_ahead(cok_key_script *script, bool now, cok_keystroke *str
  * second, which only a front end with a clock (cok) keeps; reads skip it.
  * Returns false where the script goes on otherwise. */
 bool cok_key_script_pause(cok_key_script *script, unsigned long *hundredths);
+
+/* Where the game polls the mouse or the joystick in a loop: true, the
+ * event in script->event, when the script goes on with \j or with \m
+ * moving the pointer alone (a click waits for a read). */
+bool cok_key_script_device(cok_key_script *script);
+
+/* Whether keys hold a \j, as its escapes read them. */
+bool cok_key_script_moves_stick(const char *keys);
 
 /* Whether the script has ended (nothing owed, nothing left). */
 bool cok_key_script_done(const cok_key_script *script);

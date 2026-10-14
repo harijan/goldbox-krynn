@@ -1614,7 +1614,7 @@ static void test_review(void)
 
 int main(void)
 {
-    cok_keyboard k = {scripted, &s, NULL};
+    cok_keyboard k = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .delay = on_delay, .flush = on_flush,
                                  .context = &s};
     if (!cok_adventure_open(&game, "Assets", &k, &hooks)) {

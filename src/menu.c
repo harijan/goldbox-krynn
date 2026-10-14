@@ -101,6 +101,48 @@ static uint8_t keypad_scan(unsigned char c)
     return c == '\\' ? 0x37 : keypad_scans[c - '1'];
 }
 
+/* 67b5:03e2's click (Enter with DS:8987, 065c-0a88), in cell (x / 8,
+ * y / 8): the game's regions first (pointer->click), then row 24's items,
+ * an item's hotkey as Enter on it would give (it selected), then the
+ * columns of a list shown (DS:6e2f, 6e30), where a row at or below one of
+ * its rows gives Enter itself. Returns the key, or -1 to read on. */
+static int click(cok_picture *dst, const cok_font *font, const cok_menu *menu, int x,
+                 uint8_t *selected, uint8_t highlight, uint8_t normal, const cok_pointer *pointer,
+                 bool *special)
+{
+    int col = pointer->x / 8, row = pointer->y / 8;
+    if (pointer->click != NULL) {
+        int key = pointer->click(pointer->context, col, row, special);
+        if (key >= 0) return key;
+        if (key == COK_CLICK_KEEP) return -1;
+    }
+    if (row == 24) {
+        /* 091a: the position in the menu's text, items tried in turn. */
+        int found = -1;
+        if (x < col + 1) {
+            int at = col + 1 - x;
+            for (size_t item = 1; item <= menu->count; ++item) {
+                if (menu->first[item] > at || at > menu->last[item]) continue;
+                found = (unsigned char)menu->text[menu->first[item] - 1];
+                *selected = (uint8_t)item;
+                cok_menu_draw(dst, font, menu, x, *selected, highlight, normal);
+            }
+        }
+        *special = false;
+        return found;
+    }
+    if (pointer->list_left <= col && col <= pointer->list_right) {
+        /* 0a37: a row at or below one shown, not the one itself. */
+        for (size_t i = 0; i < 25 && pointer->list_rows[i] != 0xff; ++i) {
+            if (pointer->list_rows[i] <= row) {
+                *special = false;
+                return 0x0d;
+            }
+        }
+    }
+    return -1;
+}
+
 /* One key from 67b5:03e2: returns the key, setting *special for scan codes. */
 static int menu_wait(cok_picture *dst, const cok_font *font, const cok_menu *menu, int x,
                     uint8_t *selected, uint8_t highlight, uint8_t normal, bool keypad,
@@ -137,6 +179,12 @@ static int menu_wait(cok_picture *dst, const cok_font *font, const cok_menu *men
         }
         *special = false;
         if (key == 0x1b) return 0;
+        if (key == 0x0d && keys->pointer != NULL && keys->pointer->clicked) {
+            int result = click(dst, font, menu, x, selected, highlight, normal, keys->pointer,
+                               special);
+            if (result >= 0) return result;
+            continue;
+        }
         if (key == 0x0d) {
             uint8_t first = menu->first[*selected];
             int value = first == 0 ? (int)length : (unsigned char)menu->text[first - 1];
@@ -184,7 +232,12 @@ static int menu_key(cok_picture *dst, const cok_font *font, const cok_menu *menu
 {
     int key = menu_wait(dst, font, menu, x, selected, highlight, normal, keypad, keys, special,
                         timeout);
-    if (key != -1 && keys->flush != NULL) keys->flush(keys->context);
+    if (key == -1) return key;
+    if (keys->flush != NULL) keys->flush(keys->context);
+    /* 67b5:0c2d: after a click, until the mouse's buttons are up; with the
+     * joystick, its buttons. */
+    if (keys->pointer != NULL && keys->pointer->release != NULL)
+        keys->pointer->release(keys->pointer->context);
     return key;
 }
 
@@ -264,6 +317,7 @@ typedef struct {
     cok_text_window w;
     const cok_menu_style *style;
     int *index, *top;
+    cok_pointer *pointer; /* NULL without the mouse's state */
 } list;
 
 static bool heading(const list *l, int i)
@@ -277,10 +331,27 @@ static void draw_list(const list *l)
 {
     cok_picture_fill(l->dst, l->w.left, l->w.top * 8, (size_t)(l->w.right - l->w.left + 1),
                      (size_t)(l->w.bottom - l->w.top + 1) * 8, 0);
+    /* DS:6e16-6e2e: the screen row of each row shown, for clicks. */
+    if (l->pointer != NULL) memset(l->pointer->list_rows, 0xff, sizeof l->pointer->list_rows);
+    size_t shown = 0;
     for (int item = *l->top, y = l->w.top; item >= 0 && item < l->count && y <= l->w.bottom;
-         ++item, ++y)
+         ++item, ++y) {
+        if (l->pointer != NULL && shown < sizeof l->pointer->list_rows)
+            l->pointer->list_rows[shown++] = (uint8_t)y;
         cok_text_string(l->dst, l->font, l->items[item].text, l->w.left, y,
                         l->items[item].heading ? l->style->heading : l->style->normal, 0);
+    }
+}
+
+/* The list gone: its columns no longer take clicks (DS:6e2f 0x7f, 6e30
+ * 0x80). */
+static int list_end(cok_pointer *pointer, int result)
+{
+    if (pointer != NULL) {
+        pointer->list_left = 0x7f;
+        pointer->list_right = -0x80;
+    }
+    return result;
 }
 
 /* Redraw the picked item's text between its first and last non-space
@@ -356,12 +427,18 @@ int cok_menu_rows(cok_picture *dst, const cok_font *font, const cok_menu_row *it
                   bool *redraw, int *index, int *top, uint8_t *selected,
                   const cok_keyboard *keys)
 {
+    cok_pointer *pointer = keys != NULL ? keys->pointer : NULL;
     if (count == 0) {
         *index = 0;
-        return 0;
+        return list_end(pointer, 0);
     }
     list l = {dst, font, items, count > 255 ? 255 : (int)count, window.bottom - window.top + 1,
-              window, style, index, top};
+              window, style, index, top, pointer};
+    if (pointer != NULL) {
+        /* 67b5:13c5: the window's columns take clicks. */
+        pointer->list_left = (int8_t)window.left;
+        pointer->list_right = (int8_t)window.right;
+    }
     *selected = 1;
     int leading = 0;
     while (heading(&l, leading)) ++leading;
@@ -397,7 +474,7 @@ int cok_menu_rows(cok_picture *dst, const cok_font *font, const cok_menu_row *it
         int key = menu_key(dst, font, &menu, x, selected, style->highlight, style->normal, true,
                            keys, &special, 0);
         mark(&l, false);
-        if (key < 0) return -1;
+        if (key < 0) return list_end(pointer, -1);
         if (special) {
             if (key == 0x48) step(&l, false);
             else if (key == 0x50) step(&l, true);
@@ -405,10 +482,26 @@ int cok_menu_rows(cok_picture *dst, const cok_font *font, const cok_menu_row *it
             else if (key == 0x51 && more) page_list(&l, true);
             continue;
         }
-        if (key == 'P') page_list(&l, false);
-        else if (key == 'N') page_list(&l, true);
-        else if (key == 0x1b || key == 'E' || key == 0) return 0;
-        else return key;
+        if (key == 'P') {
+            page_list(&l, false);
+        } else if (key == 'N') {
+            page_list(&l, true);
+        } else if (key == 0x1b || key == 'E' || key == 0) {
+            return list_end(pointer, 0);
+        } else if (key == 0x0d && pointer != NULL && pointer->clicked) {
+            /* 67b5:167d: a click on a row shown picks it out, no more. */
+            uint8_t row = (uint8_t)(pointer->y / 8), col = (uint8_t)(pointer->x / 8);
+            if (pointer->list_left <= col && col <= pointer->list_right) {
+                for (size_t i = 0; i < 25 && pointer->list_rows[i] != 0xff; ++i) {
+                    if (pointer->list_rows[i] != row) continue;
+                    mark(&l, false);
+                    *index = (int)i + *top;
+                    mark(&l, true);
+                }
+            }
+        } else {
+            return list_end(pointer, key);
+        }
     }
 }
 

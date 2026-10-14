@@ -429,7 +429,7 @@ void cok_shop(cok_adventure *game)
             break;
         case 'P':
             if (special)
-                vm->character = cok_party_special(&game->party, vm->character, (uint8_t)key);
+                vm->character = cok_adventure_special(game, (uint8_t)key);
             else
                 cok_pool_gather(game);
             break;
@@ -456,7 +456,7 @@ void cok_shop(cok_adventure *game)
             }
             break;
         case 'H':
-            vm->character = cok_party_special(&game->party, vm->character, (uint8_t)key);
+            vm->character = cok_adventure_special(game, (uint8_t)key);
             break;
         default: break;
         }
@@ -784,7 +784,7 @@ void cok_temple(cok_adventure *game)
         switch (key) {
         case 'H':
             if (special)
-                vm->character = cok_party_special(&game->party, vm->character, (uint8_t)key);
+                vm->character = cok_adventure_special(game, (uint8_t)key);
             else if (!heal(game))
                 return;
             else
@@ -801,7 +801,7 @@ void cok_temple(cok_adventure *game)
             break;
         case 'P':
             if (special)
-                vm->character = cok_party_special(&game->party, vm->character, (uint8_t)key);
+                vm->character = cok_adventure_special(game, (uint8_t)key);
             else
                 cok_pool_gather(game);
             break;

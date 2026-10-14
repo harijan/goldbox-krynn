@@ -6,7 +6,7 @@
 
 cok_key_script cok_key_script_start(const char *keys)
 {
-    return (cok_key_script){keys != NULL ? keys : "", -1, 0, false};
+    return (cok_key_script){keys != NULL ? keys : "", -1, 0, false, {0, 0, 0, 0}};
 }
 
 /* At \XN. for escape X: N, and the script past it. */
@@ -20,6 +20,29 @@ static bool count_escape(cok_key_script *s, char escape, unsigned long *count)
     if (*p != '.') return false;
     s->keys = p + 1;
     *count = n;
+    return true;
+}
+
+/* At \mX,Y,B. or \jX,Y,B. (B optional, 0): the event, and the script past
+ * it. */
+static bool device_escape(cok_key_script *s, cok_device_event *event)
+{
+    if (s->keys[0] != '\\' || (s->keys[1] != 'm' && s->keys[1] != 'j')) return false;
+    const char *p = s->keys + 2;
+    unsigned long n[3] = {0, 0, 0};
+    size_t count = 0;
+    for (;;) {
+        if (!isdigit((unsigned char)*p)) return false;
+        while (isdigit((unsigned char)*p) && n[count] < 100000UL)
+            n[count] = n[count] * 10 + (unsigned long)(*p++ - '0');
+        ++count;
+        if (*p == '.') break;
+        if (*p != ',' || count == 3) return false;
+        ++p;
+    }
+    if (count < 2) return false;
+    *event = (cok_device_event){s->keys[1], (int)n[0], (int)n[1], (unsigned)n[2]};
+    s->keys = p + 1;
     return true;
 }
 
@@ -122,6 +145,7 @@ static int next(cok_key_script *s)
         }
     }
     if (*s->keys == '\0') return -1;
+    if (device_escape(s, &s->event)) return COK_KEY_DEVICE;
     int key = (unsigned char)*s->keys++;
     if (key != '\\' || *s->keys == '\0') return key;
     switch (*s->keys++) {
@@ -201,10 +225,14 @@ size_t cok_key_script_ahead(cok_key_script *s, bool now, cok_keystroke *strokes,
     s->keys += 2;
     size_t n = 0;
     while (*s->keys != '\0' && !at(s, ']')) {
-        if (at(s, 'k') || at(s, 'w') || at(s, 'p') || at(s, 't') || at(s, '[')) {
+        if (at(s, 'k') || at(s, 'w') || at(s, 'p') || at(s, 't') || at(s, '[') ||
+            at(s, 'm') || at(s, 'j')) {
             /* Not keys: dropped inside a group. */
             unsigned long ignored;
-            if (!wait_escape(s, &ignored) && !count_escape(s, 'p', &ignored)) s->keys += 2;
+            cok_device_event event;
+            if (!wait_escape(s, &ignored) && !count_escape(s, 'p', &ignored) &&
+                !device_escape(s, &event))
+                s->keys += 2;
             continue;
         }
         cok_physical_key key;
@@ -234,4 +262,23 @@ bool cok_key_script_pause(cok_key_script *s, unsigned long *hundredths)
 bool cok_key_script_done(const cok_key_script *s)
 {
     return s->pending < 0 && s->keys[0] == '\0';
+}
+
+bool cok_key_script_device(cok_key_script *s)
+{
+    if (s->pending >= 0) return false;
+    cok_key_script next = *s;
+    if (!device_escape(&next, &next.event)) return false;
+    /* A click waits for a key's read. */
+    if (next.event.kind == 'm' && next.event.buttons != 0) return false;
+    *s = next;
+    return true;
+}
+
+bool cok_key_script_moves_stick(const char *keys)
+{
+    cok_key_script s = cok_key_script_start(keys);
+    for (int code; (code = cok_key_script_read(&s)) != -1;)
+        if (code == COK_KEY_DEVICE && s.event.kind == 'j') return true;
+    return false;
 }
