@@ -107,7 +107,7 @@ def main():
         last = [line for line in pout.splitlines() if line.startswith(("menu:", "error:"))][-1]
         print(f"#{check} {name}: port {port_says} ({last})")
         for run in range(args.repeat):
-            with cokbox.Box(workdir=work / f"box-{name}", saves=[saves], verbose=args.verbose,
+            with E.Box(workdir=work / f"box-{name}", saves=[saves], verbose=args.verbose,
                             timeout=600, seed=args.seed) as box:
                 box.keys(E.LOAD.format(game) + keys)
                 box.wait_input(settle=0.5)

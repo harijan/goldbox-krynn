@@ -67,7 +67,7 @@ def main():
     for path in PATHS:
         p_str, p_exc, p_eff, _ = port_result(saves_c, path, work)
         print(f"port, {path}: strength {p_str}/{p_exc}, effects {p_eff}")
-        with cokbox.Box(workdir=work / f"box-{path}", saves=[saves_c], verbose=args.verbose,
+        with E.Box(workdir=work / f"box-{path}", saves=[saves_c], verbose=args.verbose,
                         timeout=600) as box:
             box.keys(E.LOAD.format("C"))
             box.wait_input(settle=0.5)

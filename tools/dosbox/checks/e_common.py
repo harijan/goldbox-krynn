@@ -21,6 +21,21 @@ PARTY = 0x609A          # the list of records (far pointer), next at +0x17f
 LOAD = r"\kxP\v\v\r{}\v\v\v\v\v\r"
 
 
+class Box(cokbox.Box):
+    """cokbox.Box started again (up to three times) when DOSBox-X shows no
+    window in time, as happens under a heavy load."""
+
+    def start(self):
+        for attempt in range(3):
+            try:
+                return super().start()
+            except cokbox.BoxError as e:
+                if "window" not in str(e) or attempt == 2:
+                    raise
+                self.log(f"{e}: starting again")
+                self.close()
+
+
 def patched_saves(out, patches, source=SAVE):
     """SOURCE's saved games copied to OUT with PATCHES applied: {file name:
     {offset: bytes}}."""
