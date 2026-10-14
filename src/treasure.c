@@ -1133,8 +1133,7 @@ static bool take(cok_adventure *game, bool *reached)
         } else if (key == 'E' || key == 0) {
             done = true;
         } else if (key == 'H' || key == 'P') {
-            game->vm.character = cok_party_special(&game->party, game->vm.character,
-                                                   (uint8_t)key); /* 546c:3334 */
+            game->vm.character = cok_adventure_special(game, (uint8_t)key); /* 546c:3334 */
         }
         if (game->vm.abort) return false;
         cok_adventure_party(game);

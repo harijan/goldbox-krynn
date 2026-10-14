@@ -29,10 +29,10 @@ typedef enum { COK_DISPLAY_CGA, COK_DISPLAY_EGA, COK_DISPLAY_TANDY } cok_display
  * which nothing reads; then 177c:0000 keeps the joystick (DS:89ce) only
  * if stick 1 can be read, and only then are seven pairs of integers read,
  * a line each: its X and Y thresholds (DS:8996, 89a4, a word each). The
- * fields are DS's as 11c7:031a leaves them. The port's machine has no
- * stick, so joystick ends false and the thresholds 0; the mouse stays as
- * the file says until the game's start resets the driver (1743:0000 at
- * 3e99:0085), which finds none and turns it off. */
+ * fields are DS's as 11c7:031a leaves them, on a machine with a stick or
+ * without (cok_config_parse_stick); the mouse stays as the file says
+ * until the game's start resets the driver (1743:0000 at 3e99:0085,
+ * cok_adventure_mouse_startup), which turns it off without one. */
 typedef struct {
     cok_display display;
     cok_sound_device sound;
@@ -50,8 +50,10 @@ cok_config cok_config_parse(const uint8_t *text, size_t size);
  * as the port's: cok_config_parse is the latter. */
 cok_config cok_config_parse_stick(const uint8_t *text, size_t size, bool stick);
 /* Read the file at path into *config. Returns false, config unchanged,
- * when it cannot be opened or read. */
+ * when it cannot be opened or read. With _stick, as cok_config_parse_stick
+ * reads it. */
 bool cok_config_read_file(const char *path, cok_config *config);
+bool cok_config_read_file_stick(const char *path, cok_config *config, bool stick);
 /* Read ASSETS/KRYNN.CFG (or krynn.cfg) into *config. Returns false, config
  * unchanged, when there is none or it cannot be read. */
 bool cok_config_read(const char *assets, cok_config *config);
@@ -68,9 +70,10 @@ bool cok_config_find(const char *option, const char *saves, const char *assets, 
 /* Initialize Mouse/Joystick's rewrite (4def:5cc7): lines 1, 2, 4 and 5 of
  * from as ReadLn reads them into string[255]s (empty if it cannot be
  * read), input ('M', 'J' or 'N') as line 3, then the joystick's fourteen
- * numbers, 0 without one, CR LF after each, into to. Returns false if it
- * cannot be written. */
-bool cok_config_rewrite(const char *from, const char *to, char input);
+ * numbers, x[i] and y[i] in turn in decimal, zeros where they are NULL,
+ * CR LF after each, into to. Returns false if it cannot be written. */
+bool cok_config_rewrite(const char *from, const char *to, char input, const uint16_t x[7],
+                        const uint16_t y[7]);
 /* The front ends' --display ega|tandy|cga and --sound tandy|speaker|off:
  * false, *out unchanged, for another name. */
 bool cok_config_display_option(const char *name, cok_display *out);

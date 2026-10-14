@@ -242,6 +242,8 @@ static bool keep(modify *m)
     return true;
 }
 
+static void modify_sheet(cok_adventure *game, cok_character *character);
+
 void cok_modify(cok_adventure *game)
 {
     if (!cok_start_pick(game)) return;
@@ -263,6 +265,17 @@ void cok_modify(cok_adventure *game)
         cok_adventure_notice(game, text, 14);
         return;
     }
+    /* 4def:29d8: clicks on the sheet pick its fields (DS:7141), none yet
+     * (DS:6e35); off again however Modify ends (3539, 35b6, 3729). */
+    game->modify_field = 0xff;
+    game->modifying = true;
+    modify_sheet(game, character);
+    game->modifying = false;
+}
+
+static void modify_sheet(cok_adventure *game, cok_character *character)
+{
+    uint8_t *c = character->record;
     if (!cok_sheet_draw(game)) return;
     uint8_t scores[6], exceptional = c[0x1c], hit_points = c[0x62], name[16];
     for (size_t a = 0; a < 6; ++a) scores[a] = c[0x11 + 2 * a];
@@ -305,12 +318,16 @@ void cok_modify(cok_adventure *game)
                     --c[0];
                 }
             } else if (key == 0x50) {
+                game->modify_field = 0xff;
                 m.field = (uint8_t)(m.field == 7 ? 0 : m.field + 1);
             } else if (key == 0x48) {
+                game->modify_field = 0xff;
                 m.field = (uint8_t)(m.field == 0 ? 7 : m.field - 1);
+            } else if (key == 0x47 && game->pointer.clicked && game->modify_field != 0xff) {
+                /* 4def:2bc5: Home from a click picks the field it clicked
+                 * (the last one, for a click beside the fields). */
+                m.field = game->modify_field;
             }
-            /* Home (0x47) picks the field the mouse last clicked; with no
-             * mouse, none. */
         } else if (key == 'S') {
             if (!subtract(&m)) return;
         } else if (key == 'A') {

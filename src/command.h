@@ -11,8 +11,9 @@
  * aiming of overlay 432f, Yell of 60f4 and Guard of 6346): the menu "Move
  * View Aim Use Cast Turn Yell Done" a combatant the player controls gets
  * at its turn, and what each leads to. Keys come from the adventure's
- * keyboard through the menus on row 24 (67b5:03e2); the mouse is not
- * ported.
+ * keyboard through the menus on row 24 (67b5:03e2), with the mouse's
+ * clicks on the map a step toward the cell clicked in Move and Manual's
+ * cursor (see the README's The mouse and the joystick).
  *
  * The cast in combat (5b04:1415, with its targets 432f:2337) is
  * cok_cast_spell's (cast.h), from Cast, a spell begun earlier or an item.

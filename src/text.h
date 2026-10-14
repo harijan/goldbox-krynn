@@ -78,16 +78,55 @@ void cok_text_wrap(cok_picture *dst, const cok_font *font, cok_text_cursor *curs
  * have. flush, which may be NULL, discards the keys waiting, the scan code
  * owed after a 0 too (1614:045c: ReadKey while KeyPressed), as the menus
  * do once they have their key. */
+typedef struct cok_pointer cok_pointer;
+
 typedef struct {
     int (*read)(void *context);
     void *context;
     void (*flush)(void *context);
+    /* The mouse's clicks and the joystick, as the menus see them; NULL for
+     * none (see cok_pointer). */
+    cok_pointer *pointer;
 } cok_keyboard;
+
+/* What a menu (67b5:03e2) knows of the mouse and joystick: whether the
+ * last key read (1614:025b) was a click (DS:8987: Enter from the left
+ * button, Escape from the right) and where (DS:8989, 898b: pixels); the
+ * columns of the list shown (DS:6e2f, 6e30; 0x7f and -0x80 once it has
+ * gone) and the screen rows of its rows shown (DS:6e16-6e2e, 0xff after
+ * the last). click takes a click the game's state places before row 24
+ * (the party list, the combat map, the Move mode's view or map, Modify's
+ * sheet), at cell (col, row): its key, with *special for a scan code;
+ * COK_CLICK_ON when none of them takes it, the menu then trying row 24
+ * and the list's rows; COK_CLICK_KEEP when it is taken but gives nothing,
+ * the menu reading on. release waits, once a menu has its key, for the
+ * mouse's buttons to come up after a click, or the joystick's after any
+ * key (67b5:0c2d). Any may be NULL. */
+enum { COK_CLICK_ON = -1, COK_CLICK_KEEP = -2 };
+struct cok_pointer {
+    bool clicked;
+    int16_t x, y;
+    int8_t list_left, list_right;
+    uint8_t list_rows[25];
+    int (*click)(void *context, int col, int row, bool *special);
+    void (*release)(void *context);
+    /* Text input (cok_text_input) drew a character or erased one past
+     * column 39, where the original's text unit hides the cursor and
+     * returns without showing it again. */
+    void (*hide)(void *context);
+    void *context;
+};
 
 /* What read returns when no key came in the time a menu waits before it
  * times out (67b5:03e2 with DS:6e11, as the title menu does). Only
  * cok_menu_timed takes it; menus without a timeout keep waiting. */
 enum { COK_KEY_TIMEOUT = -2 };
+
+/* What read returns, where the game reads a key with the mouse or joystick
+ * on (1614:025b), for a press of the mouse's buttons or a push of the
+ * stick: the game then reads them. Only cok_adventure's keyboard takes
+ * it; a front end gives it only while the adventure waits on them. */
+enum { COK_KEY_DEVICE = -3 };
 
 /* Edit a line on row 24 after prompt, which is cut to 40 characters and
  * drawn at column 0 in fg on bg (521:0739). Keys 0x20-0x7a append while the

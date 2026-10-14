@@ -39,6 +39,16 @@ typedef struct {
      * font it is shown in. */
     cok_crt *crt;
     cok_font crt_font;
+    /* The machine's mouse driver and joystick (--mouse, --joystick), which
+     * the keys' \m and \j move: the stick's counts and buttons; a click's
+     * buttons, which come up once the game has read it (tapped). */
+    bool mouse, stick;
+    uint16_t stick_x, stick_y;
+    uint8_t stick_buttons;
+    bool tap, tapped;
+    bool fresh;           /* moved in a wait of the game's: its next read may take it */
+    bool ended;           /* The keys ran out where the game polls them. */
+    cok_game_port port;
 } player;
 
 static void usage(const char *program)
@@ -57,8 +67,10 @@ static void usage(const char *program)
             "                  at once at the game's next wait (a delay or a poll) or key\n"
             "                  read, into the buffer, where a flush drops them (logged as\n"
             "                  flush:); \\wN. holds what follows back for N of the game's\n"
-            "                  waits. In a battle the player's turns read them (3995:0573)\n"
-            "                  unless --combat says otherwise\n"
+            "                  waits; \\mX,Y,B. clicks the mouse's buttons B at pixel X, Y\n"
+            "                  (B left out: a move), \\jX,Y,B. puts the stick at counts X, Y\n"
+            "                  with buttons B. In a battle the player's turns read them\n"
+            "                  (3995:0573) unless --combat says otherwise\n"
             "  --start-menu    play the game from startup: the title, its menu, the start\n"
             "                  menu and the adventure, game after game\n"
             "  --woof          play as if started with Woof: Ctrl-D, Ctrl-Z and Ctrl-C\n"
@@ -119,7 +131,12 @@ static void usage(const char *program)
           "  --sound-calls   print the game's calls to the sound driver as call: lines\n"
           "                  (17e8's commands, its installs, the overlays' uninstalls,\n"
           "                  DAX reads, Ctrl-S, the title's music, quitting)\n"
-          "  --trace         print each instruction's address and name\n",
+          "  --trace         print each instruction's address and name\n"
+          "  --mouse         the machine has a mouse driver, which \\m in the keys\n"
+          "                  moves and clicks\n"
+          "  --joystick      the machine has a joystick, which \\j in the keys moves\n"
+          "  --input DEVICE  mouse, joystick or none, in place of KRYNN.CFG's (its\n"
+          "                  third line: M, J, N)\n",
           stderr);
 }
 
@@ -135,6 +152,13 @@ static void save(player *p, const char *path)
         exit(1);
     }
     cok_image image = cok_picture_frame(&p->game->screen, 0);
+    /* The mouse's cursor where its driver draws it. */
+    static uint8_t pixels[320 * 200 / 2];
+    if (image.width == 320 && image.height == 200) {
+        memcpy(pixels, image.pixels, sizeof pixels);
+        cok_mouse_draw(&p->game->mouse.driver, pixels, p->game->display == COK_DISPLAY_CGA);
+        image.pixels = pixels;
+    }
     cok_image_status status = cok_image_bmp(&image, path);
     if (status != COK_IMAGE_OK)
         fprintf(stderr, "%s: %s\n", path, cok_image_status_string(status));
@@ -239,6 +263,71 @@ static void type_ahead(player *p, bool now)
                                         COK_KEYS_BUFFERED - p->buffered);
 }
 
+/* A click's buttons up, once the game has read it. */
+static void release(player *p)
+{
+    if (!p->tapped) return;
+    p->tap = p->tapped = false;
+    if (p->game != NULL) p->game->mouse.driver.buttons = 0;
+}
+
+/* \m or \j: the pointer to the pixel given, its buttons down; the stick's
+ * counts and buttons. */
+static void apply(player *p, const cok_device_event *e)
+{
+    if (e->kind == 'm' && p->game != NULL && p->mouse) {
+        cok_mouse_driver *driver = &p->game->mouse.driver;
+        driver->x = e->x > 319 ? 638 : e->x * 2;
+        driver->y = e->y > 199 ? 199 : e->y;
+        driver->buttons = e->buttons;
+        p->tap = e->buttons != 0;
+    } else if (e->kind == 'j' && p->stick) {
+        p->stick_x = (uint16_t)e->x;
+        p->stick_y = (uint16_t)e->y;
+        p->stick_buttons = (uint8_t)e->buttons;
+    }
+}
+
+/* The game port: the stick's counts, as \j left them. */
+static bool stick_read(void *context, unsigned stick, uint16_t *x, uint16_t *y,
+                       uint8_t *buttons)
+{
+    player *p = context;
+    if (!p->stick || stick != 1) return false;
+    *x = p->stick_x;
+    *y = p->stick_y;
+    *buttons = p->stick_buttons;
+    return true;
+}
+
+/* The game polls the mouse or the stick in a loop: a click's buttons come
+ * up, and a \m or \j next in the keys comes; the keys' end ends the run. */
+static void stick_wait(void *context, unsigned ms)
+{
+    (void)ms;
+    player *p = context;
+    bool released = p->tapped;
+    release(p);
+    if (cok_key_script_device(&p->keys)) {
+        apply(p, &p->keys.event);
+        p->fresh = true;
+    } else if (p->stick_buttons != 0) {
+        p->stick_buttons = 0; /* let go, unless the keys say otherwise */
+    } else if (!released && cok_key_script_done(&p->keys)) {
+        p->ended = true;
+        if (p->game != NULL) {
+            p->game->input_ended = true;
+            p->game->vm.abort = true;
+        }
+    }
+}
+
+static void device_wait(cok_adventure *game, unsigned ms, void *context)
+{
+    (void)game;
+    stick_wait(context, ms);
+}
+
 static int next_key(void *context)
 {
     player *p = context;
@@ -247,6 +336,7 @@ static int next_key(void *context)
         p->owed = -1;
         return scan;
     }
+    release(p);
     if (!cok_key_script_owed(&p->keys) && p->shots != NULL) {
         char path[4096];
         snprintf(path, sizeof path, "%s/%03u.bmp", p->shots, p->shot++);
@@ -263,8 +353,22 @@ static int next_key(void *context)
         return k.code;
     }
     unsigned long pause;
-    while (cok_key_script_pause(&p->keys, &pause)) advance(p, pause * 10u);
-    return cok_key_script_read(&p->keys);
+    for (;;) {
+        bool device = p->fresh;
+        p->fresh = false;
+        /* \m, \j: given to the game when it waits on them and they give a
+         * key; else on to the next key. */
+        if (device && p->game != NULL && p->game->device_wait != COK_WAIT_KEYS &&
+            cok_adventure_device_ready(p->game)) {
+            p->tapped = p->tap;
+            return COK_KEY_DEVICE;
+        }
+        while (cok_key_script_pause(&p->keys, &pause)) advance(p, pause * 10u);
+        int key = cok_key_script_read(&p->keys);
+        if (key != COK_KEY_DEVICE) return key;
+        apply(p, &p->keys.event);
+        p->fresh = true;
+    }
 }
 
 /* KeyPressed: a key typed ahead waits, or \k in the keys (which the rest
@@ -533,6 +637,8 @@ static player p;
 static int run(int argc, char **argv)
 {
     p = (player){.keys = cok_key_script_start(NULL), .owed = -1};
+    p.port = (cok_game_port){stick_read, stick_wait, &p};
+    const char *input = NULL;
     cok_sound_device device = COK_SOUND_TANDY;
     bool sound_given = false;
     cok_display display = COK_DISPLAY_TANDY;
@@ -559,6 +665,15 @@ static int run(int argc, char **argv)
         bool has_value = i + 1 < argc;
         if (strcmp(option, "--trace") == 0) {
             p.trace = true;
+        } else if (strcmp(option, "--mouse") == 0) {
+            p.mouse = true;
+        } else if (strcmp(option, "--joystick") == 0) {
+            p.stick = true;
+            p.stick_x = p.stick_y = 129; /* centred */
+        } else if (strcmp(option, "--input") == 0 && has_value &&
+                   (strcmp(argv[i + 1], "mouse") == 0 || strcmp(argv[i + 1], "joystick") == 0 ||
+                    strcmp(argv[i + 1], "none") == 0)) {
+            input = argv[++i];
         } else if (strcmp(option, "--still") == 0) {
             still = true;
         } else if (strcmp(option, "--play") == 0) {
@@ -704,8 +819,9 @@ static int run(int argc, char **argv)
         cok_crt_init(&crt);
         p.crt = &crt;
         cok_setup_font(argv[i], &p.crt_font);
-        cok_keyboard crt_keys = {next_key, &p, NULL};
-        cok_setup_hooks crt_hooks = {crt_delay, &p};
+        cok_keyboard crt_keys = {next_key, &p, NULL, NULL};
+        cok_setup_hooks crt_hooks = {crt_delay, &p, &p.port, &p.ended,
+                                     input != NULL && strcmp(input, "joystick") == 0};
         char error[1200];
         cok_setup_status status = cok_setup_startup(&crt, &crt_keys, &crt_hooks, config_path,
                                                     found, &config, error, sizeof error);
@@ -723,7 +839,21 @@ static int run(int argc, char **argv)
             fprintf(stderr, "setup: KRYNN.CFG written nowhere (no --saves or --config)\n");
         config_read = true;
     } else {
-        config_read = found && cok_config_read_file(config_path, &config);
+        config_read = found && cok_config_read_file_stick(config_path, &config, p.stick);
+        if (input != NULL && strcmp(input, "joystick") == 0 && !config.joystick) {
+            /* --input joystick without the file's thresholds: calibrated
+             * here, as at startup (cok_setup_calibrate). */
+            static cok_crt crt;
+            crt.log = crt_log;
+            crt.context = &p;
+            cok_crt_init(&crt);
+            cok_setup_hooks crt_hooks = {crt_delay, &p, &p.port, &p.ended, true};
+            if (!cok_setup_calibrate(&crt, &crt_hooks, &config)) {
+                printf("(out of keys in the calibration)\n");
+                return 0;
+            }
+            cok_crt_log_rows(&crt);
+        }
     }
     if (!display_given) display = config.display;
     if (!display_given && !config_read)
@@ -747,10 +877,10 @@ static int run(int argc, char **argv)
     }
     static cok_adventure game;
     p.game = &game;
-    cok_keyboard keys = {next_key, &p, NULL};
+    cok_keyboard keys = {next_key, &p, NULL, NULL};
     cok_adventure_hooks hooks = {.unported = unported, .log = log_line, .trace = trace,
                                  .key_pending = key_pending, .battlefield = battlefield,
-                                 .delay = delay, .flush = flush,
+                                 .delay = delay, .flush = flush, .device_wait = device_wait,
                                  .sound = p.wav_path != NULL || p.calls ? sound : NULL,
                                  .context = &p};
     if (!cok_adventure_open_display(&game, argv[i], display, &keys, &hooks)) {
@@ -767,6 +897,18 @@ static int run(int argc, char **argv)
     if (found || (front && config_write[0] != '\0'))
         snprintf(game.config_path, sizeof game.config_path, "%s", config_path);
     snprintf(game.config_write, sizeof game.config_write, "%s", config_write);
+    /* The mouse and joystick: KRYNN.CFG's third line, or --input, on the
+     * machine --mouse and --joystick give (none by default); found at
+     * startup, or here past it. */
+    if (input != NULL) {
+        config.mouse = strcmp(input, "mouse") == 0;
+        config.joystick = strcmp(input, "joystick") == 0;
+    }
+    game.mouse.driver.installed = p.mouse;
+    game.port = p.port;
+    cok_adventure_devices(&game, config.mouse, config.joystick, config.joystick_x,
+                          config.joystick_y);
+    if (!front) cok_adventure_mouse_startup(&game);
     /* Past main's install of the effects driver (1000:0160), unless the
      * run starts from the title. */
     if (!front) cok_adventure_sound(&game, COK_SOUND_INSTALL, 0);

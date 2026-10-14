@@ -1153,7 +1153,7 @@ static void test_rounds_drawn(void)
 
 int main(void)
 {
-    cok_keyboard keys = {key, &s, NULL};
+    cok_keyboard keys = {key, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .delay = delay, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
     /* Startup loads COMSPR's icons into slots 13-25 (3e99:06e0). */

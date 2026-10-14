@@ -88,6 +88,42 @@ static char upcase(char c)
     return in_range(c, 'a', 'z') ? (char)(c - 0x20) : c;
 }
 
+/* 177c:029d's screens: ClrScr and its line; the failure's for 2 seconds
+ * (Delay). */
+typedef struct {
+    cok_crt *crt;
+    const cok_setup_hooks *hooks;
+} calibration;
+
+static void calibration_prompt(cok_stick_prompt which, void *context)
+{
+    static const char *const lines[3] = {
+        "Push JOYSTICK #1 to the extreme upper left position and press BUTTON #1.",
+        "Push JOYSTICK #1 to the extreme lower right position and press BUTTON #1.",
+        "Couldn't read the joystick.  Aborting calibration.",
+    };
+    const calibration *c = context;
+    cok_crt_clear(c->crt);
+    cok_crt_write_line(c->crt, lines[which]);
+    if (which == COK_STICK_FAILED && c->hooks != NULL && c->hooks->delay != NULL)
+        c->hooks->delay(2000, c->hooks->context);
+}
+
+bool cok_setup_calibrate(cok_crt *crt, const cok_setup_hooks *hooks, cok_config *config)
+{
+    cok_stick stick = {.on = true};
+    calibration c = {crt, hooks};
+    cok_stick_calibrate(&stick, hooks != NULL ? hooks->port : NULL, calibration_prompt, &c,
+                        hooks != NULL ? hooks->ended : NULL);
+    if (hooks != NULL && hooks->ended != NULL && *hooks->ended) return false;
+    if (stick.on) {
+        config->joystick = true;
+        memcpy(config->joystick_x, stick.x, sizeof stick.x);
+        memcpy(config->joystick_y, stick.y, sizeof stick.y);
+    }
+    return true;
+}
+
 bool cok_setup_ask(cok_crt *crt, const cok_keyboard *keys, const cok_setup_hooks *hooks,
                    const char *game_dir, uint8_t *file, size_t *size)
 {
@@ -116,6 +152,7 @@ bool cok_setup_ask(cok_crt *crt, const cok_keyboard *keys, const cok_setup_hooks
     answer = read_digit(crt, keys, 1, 3);
     if (answer < 0) return false;
     line(file, size, answer == 1 ? "J" : answer == 2 ? "M" : "N");
+    bool joystick = answer == 1;
 
     cok_crt_clear(crt);
     char fallback[80];
@@ -144,8 +181,20 @@ bool cok_setup_ask(cok_crt *crt, const cok_keyboard *keys, const cok_setup_hooks
     if (n > 0 && path[n - 1] != '\\') append(path, 80, "\\");
     line(file, size, path);
     line(file, size, "F");
-    /* 177c:029d, then DS:8996[i] and 89a4[i] for i 0-6, as longints. */
-    for (size_t i = 0; i < 14; ++i) line(file, size, "0");
+    /* 177c:029d (11c7:0845), then DS:8996[i] and 89a4[i] for i 0-6, as
+     * longints: J kept whatever it found. */
+    cok_stick stick = {.on = joystick};
+    calibration c = {crt, hooks};
+    cok_stick_calibrate(&stick, hooks != NULL ? hooks->port : NULL, calibration_prompt, &c,
+                        hooks != NULL ? hooks->ended : NULL);
+    if (hooks != NULL && hooks->ended != NULL && *hooks->ended) return false;
+    for (size_t i = 0; i < 7; ++i) {
+        char number[8];
+        snprintf(number, sizeof number, "%u", stick.x[i]);
+        line(file, size, number);
+        snprintf(number, sizeof number, "%u", stick.y[i]);
+        line(file, size, number);
+    }
     return true;
 }
 
@@ -180,8 +229,13 @@ cok_setup_status cok_setup_startup(cok_crt *crt, const cok_keyboard *keys,
                                    cok_config *config, char *error, size_t error_size)
 {
     error[0] = '\0';
+    /* 177c:0000 at 11c7:0b16: whether stick 1 reads, for the file's
+     * thresholds. */
+    uint16_t x, y;
+    uint8_t buttons;
+    bool stick = cok_stick_read(hooks != NULL ? hooks->port : NULL, 1, &x, &y, &buttons);
     if (found) {
-        if (!cok_config_read_file(path, config)) {
+        if (!cok_config_read_file_stick(path, config, stick)) {
             /* A file the original would read (or, unreadable, take as empty:
              * Reset's error unchecked); the port stops rather than guess. */
             snprintf(error, error_size, "%s: %s", path, strerror(errno));
@@ -224,7 +278,12 @@ cok_setup_status cok_setup_startup(cok_crt *crt, const cok_keyboard *keys,
                 return stop(crt, COK_SETUP_UNWRITABLE, error);
             }
         }
-        *config = cok_config_parse(file, size);
+        *config = cok_config_parse_stick(file, size, stick);
+    }
+    if (hooks != NULL && hooks->calibrate && !config->joystick &&
+        !cok_setup_calibrate(crt, hooks, config)) {
+        cok_crt_log_rows(crt);
+        return COK_SETUP_ENDED;
     }
     cok_setup_numlock(crt, hooks);
     cok_crt_log_rows(crt);

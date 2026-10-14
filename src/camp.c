@@ -123,7 +123,7 @@ int cok_camp_yes_no(cok_adventure *game, const char *prompt, uint8_t prompt_colo
  * redraws the party list. */
 void cok_camp_pick(cok_adventure *game, uint8_t scan)
 {
-    game->vm.character = cok_party_special(&game->party, game->vm.character, scan);
+    game->vm.character = cok_adventure_special(game, scan);
     cok_adventure_party(game);
 }
 

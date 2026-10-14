@@ -167,7 +167,7 @@ static void test_play(void)
 {
     static cok_adventure game;
     script s = {0};
-    cok_keyboard keys = {scripted, &s, NULL};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
     load_block(&game, 0);
@@ -319,7 +319,7 @@ static void test_area(void)
 {
     static cok_adventure game;
     script s = {0};
-    cok_keyboard keys = {scripted, &s, NULL};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .delay = delayed, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
     load_block(&game, 0);
@@ -565,7 +565,7 @@ static void test_party(void)
 {
     static cok_adventure game;
     script s = {0};
-    cok_keyboard keys = {scripted, &s, NULL};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
     cok_ecl *vm = &game.vm;
@@ -686,7 +686,7 @@ static void test_doors(void)
 {
     static cok_adventure game;
     script s = {0};
-    cok_keyboard keys = {scripted, &s, NULL};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
     load_block(&game, 0);
@@ -774,7 +774,7 @@ static void test_load_stats(void)
 
     static cok_adventure game;
     script s = {0};
-    cok_keyboard keys = {scripted, &s, NULL};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
     snprintf(path, sizeof path, "%s/SAVGAMC.DAT", dir);
@@ -950,7 +950,7 @@ static void test_overland(void)
 {
     static cok_adventure game;
     script s = {0};
-    cok_keyboard keys = {scripted, &s, NULL};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .unported = count_unported, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
     uint16_t *mem = game.vm.mem4b00;
@@ -1303,7 +1303,7 @@ static void test_opcodes(void)
 {
     static cok_adventure game;
     script s = {0};
-    cok_keyboard keys = {scripted, &s, NULL};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .delay = delayed, .unported = count_unported,
                                  .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
@@ -1537,7 +1537,7 @@ static void test_portrait(void)
 {
     static cok_adventure game;
     script s = {0};
-    cok_keyboard keys = {scripted, &s, NULL};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .delay = delayed, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
     cok_ecl *vm = &game.vm;
@@ -1659,7 +1659,7 @@ static void test_step_sounds(void)
 {
     static cok_adventure game;
     script s = {0};
-    cok_keyboard keys = {scripted, &s, NULL};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .sound = sounded, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
     load_block(&game, 0);
@@ -1702,7 +1702,7 @@ static void test_opcode_sounds(void)
 {
     static cok_adventure game;
     script s = {0};
-    cok_keyboard keys = {scripted, &s, NULL};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .sound = counted, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
     const uint8_t sound[] = {COK_ECL_SAVE, 0, 10, 2, 0xde, 0x03, COK_ECL_CALL, 2, 0x03, 0xb2,

@@ -2265,6 +2265,297 @@ class SetupTests(unittest.TestCase):
         self.assertEqual((self.assets / "KRYNN.CFG").read_bytes()[6:9], b"M\r\n")
 
 
+# The mouse and the joystick: \\mX,Y,B. clicks at pixel X, Y (B 1 the left
+# button, 2 the right), \\mX,Y. only moves the pointer, \\jX,Y,B. puts the
+# stick at counts X, Y with its buttons B.
+CREATE = r"\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\eYY\v\rAE"
+# A KRYNN.CFG with the joystick, calibrated: counts 1-250 across and down.
+JOYSTICK_CFG = (b"E\r\nT\r\nJ\r\nC:\\COK\\SAVE\\\r\nF\r\n" +
+                b"".join(b"%d\r\n%d\r\n" % (n, n) for n in (1, 40, 80, 120, 160, 200, 250)))
+PRESS, DOWN = r"\j129,129,1.\j129,129.", r"\j129,250.\j129,129."
+
+
+class MouseTests(unittest.TestCase):
+    """The mouse's clicks (1614:025b's, 67b5:03e2's) and the joystick's keys,
+    as eclplay --mouse and --joystick give them."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.folder = pathlib.Path(self.temp.name)
+
+    def play(self, *args):
+        return subprocess.run([str(TOOL), *map(str, args)], capture_output=True, text=True)
+
+    def both(self, clicks, keys, *args, name="", start_menu=True):
+        """The run with clicks, and with keys where the pointer moves alone to
+        each click's place: the same transcript and screens."""
+        runs = []
+        for which, script in (("c", clicks), ("k", keys)):
+            folder = self.folder / (name + which)
+            shots, saves = folder / "shots", folder / "saves"
+            saves.mkdir(parents=True)
+            front = ["--start-menu", "--saves", saves] if start_menu else []
+            result = self.play(*front, "--mouse", "--shots", shots, "--keys", script, *args)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            runs.append((result, shots, saves))
+        (clicked, cshots, csaves), (keyed, kshots, ksaves) = runs
+        self.assertEqual(clicked.stdout, keyed.stdout)
+        names = sorted(p.name for p in kshots.glob("*.bmp"))
+        self.assertEqual(sorted(p.name for p in cshots.glob("*.bmp")), names)
+        for n in names:
+            self.assertEqual((cshots / n).read_bytes(), (kshots / n).read_bytes(), n)
+        return clicked, cshots, csaves, ksaves
+
+    def test_menus_lists_and_modify(self):
+        """Clicks on a list's row (it is picked out), on row 24's items, on
+        Modify's sheet (Home to the field) are the keys that do the same."""
+        # First a click on the party's row in the start menu, which does
+        # nothing there (DS:8985 clear); on the sheet, after the score's
+        # field, Down, then a click beside a field (Home, the field kept),
+        # a click on the field it is on, Enter to the next field and the
+        # Home key (not a click: nothing).
+        clicks = (CREATE + r"\m100,36,1.\m100,116,1.\m148,196,1.\m124,196,1.\m52,84,1.\v"
+                  r"\m160,100,1.\m52,92,1.\r\#47\m68,196,1.\m172,196,1.")
+        keys = (CREATE + r"\m100,36.\#47\m100,116.\v\m148,196.\r\m124,196.\r\m52,84.\v\v"
+                r"\m160,100.\#47\m52,92.\#47\r\#47\m68,196.A\m172,196.K")
+        result, shots, csaves, ksaves = self.both(clicks, keys, "--seed", 5, ASSETS)
+        lines = result.stdout.splitlines()
+        self.assertIn("choice: Modify Character", lines)
+        self.assertEqual(lines.count("menu: Add Subtract Keep Exit"), 8)
+        self.assertEqual((csaves / "BOB.WHO").read_bytes(), (ksaves / "BOB.WHO").read_bytes())
+        # The cursor, where the last click left it: its second row white
+        # after black (DS:42b4).
+        last = sorted(shots.glob("*.bmp"))[-1].read_bytes()
+        self.assertEqual((pixel(last, 172, 197), pixel(last, 173, 197)), ((0, 0, 0), WHITE))
+
+    def test_home_needs_a_click(self):
+        """Modify's Home goes to the field clicked only after a click
+        (4def:2bc5): the name clicked, Enter to the hit points (the field
+        clicked kept), then the Home key does nothing, so Add and Keep follow
+        as without it (the name's field would read them as its keys)."""
+        enter = CREATE + r"\m100,116,1.\m148,196,1.\m124,196,1.\m20,12,1.\r"
+        runs = []
+        for extra in (r"\#47", ""):
+            saves = self.folder / ("saves" + str(len(runs)))
+            saves.mkdir()
+            result = self.play("--start-menu", "--mouse", "--seed", 5, "--saves", saves, "--keys",
+                               enter + extra + r"A\m172,196,1.", ASSETS)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            runs.append([line for line in result.stdout.splitlines()
+                         if line != "menu: Add Subtract Keep Exit"])
+        self.assertEqual(runs[0], runs[1])
+        self.assertEqual(runs[0].count("list: Choose a FUNCTION "), 4)
+
+    def test_without_a_driver(self):
+        """Without --mouse the machine has no driver: KRYNN.CFG's M finds
+        none, the clicks do nothing and no cursor shows."""
+        shots = self.folder / "shots"
+        plain = self.play("--start-menu", "--keys", r"\kxP", ASSETS)
+        result = self.play("--start-menu", "--shots", shots, "--keys", r"\kx\m190,195,1.P", ASSETS)
+        self.assertEqual(result.stdout, plain.stdout)
+        menu = sorted(shots.glob("*.bmp"))[1].read_bytes()
+        self.assertEqual(pixel(menu, 161, 101), (0, 0, 0))
+
+    def test_the_title_hides_the_cursor(self):
+        """The title hides the cursor while it waits (2f55:0651), the menu
+        after it shows it, at the screen's middle (3e99:005b)."""
+        mouse, plain = self.folder / "mouse", self.folder / "plain"
+        self.play("--start-menu", "--mouse", "--shots", mouse, "--keys", r"\kx", ASSETS)
+        self.play("--start-menu", "--shots", plain, "--keys", r"\kx", ASSETS)
+        self.assertEqual((mouse / "000.bmp").read_bytes(), (plain / "000.bmp").read_bytes())
+        menu = (mouse / "001.bmp").read_bytes()
+        self.assertEqual((pixel(menu, 160, 100), pixel(menu, 160, 101), pixel(menu, 161, 101)),
+                         ((0, 0, 0), (0, 0, 0), WHITE))
+
+    def test_initialize_mouse_off_and_on(self):
+        """Initialize Mouse/Joystick says mouse ON; turned off (N written) the
+        cursor goes and clicks do nothing; on again by key, M written."""
+        saves, shots = self.folder / "saves", self.folder / "shots"
+        saves.mkdir()
+        # The start menu's fourth row, Select; then the first row, Select.
+        keys = r"\kx\m190,195,1.\m100,124,1.\m148,196,1.\m80,100,1.\m172,196,1."
+        # Off: the pointer moved (a click there not read as one), a key that
+        # does nothing (Home), then Enter: on again.
+        result = self.play("--start-menu", "--mouse", "--saves", saves, "--shots", shots,
+                           "--keys", keys + r"\m300,60,1.\#47\r", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual([line for line in lines if line.startswith("config: ")],
+                         ["config: line 3 N", "config: line 3 M"])
+        self.assertEqual((saves / "KRYNN.CFG").read_bytes()[6:9], b"M\r\n")
+        frames = sorted(shots.glob("*.bmp"))
+        # Off: no cursor where the pointer went (4def:6072's hide).
+        off = frames[-2].read_bytes()
+        self.assertEqual((pixel(off, 300, 60), pixel(off, 301, 61)), ((0, 0, 0), (0, 0, 0)))
+        # On again: the cursor shows at 639, 100 (no move: 4def:5cc7).
+        on = frames[-1].read_bytes()
+        self.assertEqual((pixel(on, 319, 100), pixel(on, 319, 101)), ((0, 0, 0), (0, 0, 0)))
+
+    def test_walking_and_travelling(self):
+        """In Move mode a click in the view steps forward, turns or turns
+        round (DS:1ff5); on the overland map it steps toward the cell
+        (1743:0167)."""
+        fwd, right, left = r"\m68,36,1.", r"\m108,68,1.", r"\m28,68,1."
+        walk = ("--combat", "pass", "--test-party", 6, "--play", "--set", "4be6=1")
+        clicks = r"\r\rE\rm" + fwd * 3 + r"\r\r" + right + fwd + left
+        keys = r"\r\rE\rm" + (r"\m68,36." + r"\^") * 3 + r"\r\r\m108,68.\>\m68,36.\^\m28,68.\<"
+        result, _, _, _ = self.both(clicks, keys, *walk, ASSETS, 32, name="walk", start_menu=False)
+        self.assertEqual([line for line in result.stdout.splitlines() if line.startswith("at: ")],
+                         ["at: 7,14,0", "at: 7,13,0", "at: 7,12,0", "at: 7,12,2", "at: 7,12,0"])
+        overland = ("--test-party", 4, "--play", "--set", "4bf2=11", "--set", "4bc3=1",
+                    "--set", "4bc4=3", "--set", "4c2d=1")
+        result, _, _, _ = self.both(r"nm\m36,20,1.\m28,12,1.y", r"nm\m36,20.9\m28,12.8y",
+                                    *overland, ASSETS, 16, name="overland", start_menu=False)
+        self.assertEqual([line for line in result.stdout.splitlines()
+                          if line.startswith("overland: ")][:2],
+                         ["overland: 2,2,1", "overland: 2,1,0"])
+
+    def test_combat_steps_and_the_cursor(self):
+        """In combat's Move a click is a step toward its cell, from the
+        mover; in Manual aim, a step of the cursor (DS:71a6, 71a5)."""
+        battle = ("--test-party", 4, "--play", "--set", "4be6=1")
+        self.both(r"\r\rm\m164,104,1.\r", r"\r\rm\m164,104.6\r", *battle, ASSETS, 32,
+                  name="move", start_menu=False)
+        result, _, _, _ = self.both(r"\rAM\m164,104,1.\m116,80,1.E", r"\rAM\m164,104.6\m116,80.9E",
+                                    *battle, ASSETS, 32, name="aim", start_menu=False)
+        self.assertIn("menu: Next Prev Manual Center Exit", result.stdout.splitlines())
+
+    def test_the_party_list_picks(self):
+        """A click on the party list beside the view selects that member
+        (DS:8985), drawn in white."""
+        shots = self.folder / "shots"
+        result = self.play("--combat", "pass", "--test-party", 6, "--play", "--set", "4be6=1",
+                           "--mouse", "--input", "mouse", "--shots", shots, "--keys",
+                           r"\r\rE\r\m140,60,1.\m140,36.", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse([line for line in result.stdout.splitlines() if line.startswith("at: ")])
+        last = sorted(shots.glob("*.bmp"))[-1].read_bytes()
+        self.assertEqual((ink(last, 0x11, 7), ink(last, 0x11, 4)), (WHITE, CYAN))
+
+    def test_modify_starts_with_no_field_clicked(self):
+        """A second Modify starts with no field clicked (4def:29d8, DS:6e35
+        0xff): a click beside a field's row does nothing, where it would go
+        back to the field the first Modify clicked."""
+        modify = r"\m100,116,1.\m148,196,1.\m124,196,1."
+        first = modify + r"\m52,84,1.\m172,196,1."  # a score clicked, Keep
+        clicks = CREATE + first + modify + r"\m20,76.\m20,76,1.A\m172,196,1."
+        keys = CREATE + first + modify + r"\m20,76.\#47A\m172,196,1."
+        self.both(clicks, keys, "--seed", 5, ASSETS)
+
+    def test_stick_pushes_and_the_file(self):
+        """Two pushes in a row are two keys (the menus wait for the stick's
+        buttons only, 67b5:0c2d); with the assets' M a stick on the machine
+        stays off, its pushes nothing."""
+        saves = self.folder / "saves"
+        saves.mkdir()
+        (saves / "KRYNN.CFG").write_bytes(JOYSTICK_CFG)
+        keys = r"\kx" + PRESS + r"\j129,250.\j129,250.\j129,129." + PRESS
+        result = self.play("--start-menu", "--joystick", "--saves", saves, "--keys", keys, ASSETS)
+        self.assertIn("choice: Load Saved Game", result.stdout.splitlines())
+        result = self.play("--start-menu", "--joystick", "--keys",
+                           r"\kxP\j129,250.\j129,129.\v\v\v\r\e", ASSETS)
+        lines = result.stdout.splitlines()
+        self.assertIn("choice: Initialize Mouse/Joystick", lines)
+        self.assertIn("item: joystick OFF", lines)
+
+    def test_input_joystick_calibrates(self):
+        """--input joystick over a file without J: the stick calibrated at
+        startup as the setup's [1] does (177c:029d), for the run, the file
+        left as it is; then a push up in Move mode is a step."""
+        keys = r"\j10,12,1.\j129,129.\j250,240,1.\j129,129."
+        result = self.play("--combat", "pass", "--test-party", 6, "--play", "--set", "4be6=1",
+                           "--input", "joystick", "--joystick", "--keys",
+                           keys + r"\r\rE\rm\j129,1.\j129,129.", ASSETS, 32)
+        lines = result.stdout.splitlines()
+        self.assertIn("crt: Push JOYSTICK #1 to the extreme upper left position and press "
+                      "BUTTON #1.", lines)
+        self.assertEqual([line for line in lines if line.startswith("at: ")], ["at: 7,14,0"])
+        saves = self.folder / "saves"
+        saves.mkdir()
+        result = self.play("--start-menu", "--input", "joystick", "--joystick", "--saves", saves,
+                           "--keys", keys + r"\kx" + PRESS, ASSETS)
+        lines = result.stdout.splitlines()
+        self.assertLess(lines.index("crt: Push JOYSTICK #1 to the extreme lower right position "
+                                    "and press BUTTON #1."),
+                        lines.index("crt: TANDY 1000 USERS - Make sure NUMLOCK is on."))
+        self.assertIn("choice: P", lines)
+        self.assertFalse((saves / "KRYNN.CFG").exists())
+
+    def test_the_joystick(self):
+        """With KRYNN.CFG's J: the stick's button is Enter, a push down the
+        keypad's 2 (1614:00fa); Initialize Mouse/Joystick turns it off (N)
+        and on again, calibrating it (4def:638d), J and its thresholds."""
+        saves = self.folder / "saves"
+        saves.mkdir()
+        (saves / "KRYNN.CFG").write_bytes(JOYSTICK_CFG)
+        keys = (r"\kx" + PRESS + DOWN * 3 + PRESS + DOWN + PRESS +
+                r"\r\j10,12,1.\j129,129.\j250,240,1.\j129,129.\e\e")
+        result = self.play("--start-menu", "--joystick", "--saves", saves, "--keys", keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual([line for line in lines if line.startswith("choice: ")][:2],
+                         ["choice: P", "choice: Initialize Mouse/Joystick"])
+        self.assertIn("print: Push JOYSTICK #1 to the extreme upper", lines)
+        self.assertEqual([line for line in lines if line.startswith("config: ")],
+                         ["config: line 3 N", "config: line 3 J"])
+        self.assertEqual((saves / "KRYNN.CFG").read_bytes(),
+                         b"E\r\nT\r\nJ\r\nC:\\COK\\SAVE\\\r\nF\r\n" +
+                         b"10\r\n12\r\n49\r\n51\r\n89\r\n90\r\n129\r\n129\r\n169\r\n166\r\n"
+                         b"209\r\n203\r\n250\r\n240\r\n")
+        # The mouse turned on there turns the joystick off (4def:5f47).
+        (saves / "KRYNN.CFG").write_bytes(JOYSTICK_CFG)
+        keys = r"\kx" + PRESS + DOWN * 3 + PRESS + PRESS + r"\e"
+        result = self.play("--start-menu", "--joystick", "--mouse", "--saves", saves, "--keys", keys,
+                           ASSETS)
+        lines = result.stdout.splitlines()
+        rows = [line for line in lines if line.startswith("item: ") and "OFF" in line or " ON" in line]
+        self.assertEqual(rows, ["item: mouse OFF", "item: joystick ON", "item: mouse ON",
+                                "item: joystick OFF"])
+        self.assertIn("config: line 3 M", lines)
+        # A block run reads the file's thresholds with the stick there: a
+        # push up in Move mode is a step (the keypad's 8).
+        cfg = self.folder / "joystick.cfg"
+        cfg.write_bytes(JOYSTICK_CFG)
+        result = self.play("--combat", "pass", "--test-party", 6, "--play", "--set", "4be6=1",
+                           "--config", cfg, "--joystick", "--keys",
+                           r"\r\rE\rm\j129,1.\j129,129.", ASSETS, 32)
+        self.assertEqual([line for line in result.stdout.splitlines() if line.startswith("at: ")],
+                         ["at: 7,14,0"])
+        # No stick on the machine: J finds none, the keyboard alone.
+        (saves / "KRYNN.CFG").write_bytes(JOYSTICK_CFG)
+        result = self.play("--start-menu", "--saves", saves, "--keys", r"\kx" + PRESS + "P", ASSETS)
+        self.assertIn("choice: P", result.stdout.splitlines())
+
+    def test_the_setups_calibration(self):
+        """Without KRYNN.CFG, the setup's [1] JOYSTICK calibrates the stick on
+        the text screen (177c:029d) and writes its thresholds; the game
+        then plays with it."""
+        assets, saves = self.folder / "assets", self.folder / "saves"
+        assets.mkdir()
+        saves.mkdir()
+        for path in ASSETS.iterdir():
+            if path.name.upper() != "KRYNN.CFG":
+                (assets / path.name).symlink_to(path)
+        keys = r"241d:\\x\r\j10,12,1.\j129,129.\j250,240,1.\j129,129.\kx" + PRESS
+        result = self.play("--start-menu", "--joystick", "--saves", saves, "--keys", keys, assets)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertIn("crt: Push JOYSTICK #1 to the extreme upper left position and press BUTTON #1.",
+                      lines)
+        self.assertIn("choice: P", lines)
+        self.assertEqual((saves / "KRYNN.CFG").read_bytes(),
+                         b"E\r\nT\r\nJ\r\nD:\\X\\\r\nF\r\n" +
+                         b"10\r\n12\r\n49\r\n51\r\n89\r\n90\r\n129\r\n129\r\n169\r\n166\r\n"
+                         b"209\r\n203\r\n250\r\n240\r\n")
+        # Without a stick: no screens, zeros.
+        saves = self.folder / "saves2"
+        saves.mkdir()
+        result = self.play("--start-menu", "--saves", saves, "--keys", r"241d:\\x\r", assets)
+        self.assertNotIn("Push JOYSTICK", result.stdout)
+        self.assertTrue((saves / "KRYNN.CFG").read_bytes().endswith(b"F\r\n" + b"0\r\n" * 14))
+
+
 def wav_data_of(test, keys):
     """The WAV eclplay renders from the assets (with their KRYNN.CFG's E and
     T) for keys."""

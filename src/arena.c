@@ -801,7 +801,7 @@ static void page(void *context)
 static void wrap(cok_adventure *game, const char *text, cok_text_window window)
 {
     cok_text_hooks hooks = {page, NULL, game};
-    cok_text_wrap(&game->screen, &game->font, &game->vm.cursor, text, window, 10, 0, true, &hooks);
+    cok_adventure_wrap(game, &game->vm.cursor, text, window, 10, true, &hooks);
 }
 
 static void text_at(cok_adventure *game, const char *text, int x, int y, uint8_t fg)

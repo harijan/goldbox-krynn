@@ -107,8 +107,8 @@ static void test_cases(void)
     for (size_t i = 0; i < count; ++i) {
         r = (replay){.c = setup_cases[i], .owed = -1, .case_index = (unsigned)i};
         cok_crt_init(&r.crt);
-        cok_keyboard keys = {read_key, NULL, NULL};
-        cok_setup_hooks hooks = {delay, NULL};
+        cok_keyboard keys = {read_key, NULL, NULL, NULL};
+        cok_setup_hooks hooks = {delay, NULL, NULL, NULL, false};
         uint8_t file[COK_SETUP_FILE_MAX];
         size_t size = 0;
         int end = 0;
@@ -300,7 +300,7 @@ static void test_lines(void)
     static cok_crt crt;
     crt.log = NULL;
     cok_crt_init(&crt);
-    cok_keyboard keys = {type, NULL, NULL};
+    cok_keyboard keys = {type, NULL, NULL, NULL};
     char line[81];
     typed = "abc\r";
     CHECK(cok_crt_read_line(&crt, &keys, line, 80) && strcmp(line, "abc") == 0);
@@ -331,7 +331,7 @@ static void test_timeouts_and_limits(void)
     cok_crt_init(&crt);
     static const int keys[] = {-2, '1', -2, '1', '1', 'c', -2, ':', 0, -2, '\\', 'x', 13, -1};
     timed = keys;
-    cok_keyboard keyboard = {timed_read, NULL, NULL};
+    cok_keyboard keyboard = {timed_read, NULL, NULL, NULL};
     uint8_t file[COK_SETUP_FILE_MAX];
     size_t size;
     CHECK(cok_setup_ask(&crt, &keyboard, NULL, COK_SETUP_GAME_DIR, file, &size));
@@ -372,7 +372,7 @@ static void test_startup(void)
     CHECK(strcmp(path, expected) == 0 && strcmp(write_path, expected) == 0);
     static cok_crt crt;
     cok_crt_init(&crt);
-    cok_keyboard keys = {type, NULL, NULL};
+    cok_keyboard keys = {type, NULL, NULL, NULL};
     cok_config config = {0};
     char error[300];
     typed = "362q:\\x\r";
@@ -410,7 +410,7 @@ static void test_startup(void)
           COK_SETUP_OK);
     CHECK(config.display == COK_DISPLAY_CGA && config.sound == COK_SOUND_SPEAKER);
     /* Initialize Mouse/Joystick's rewrite: into SAVES, line 3 N. */
-    CHECK(cok_config_rewrite(in_assets, expected, 'N'));
+    CHECK(cok_config_rewrite(in_assets, expected, 'N', NULL, NULL));
     f = fopen(expected, "rb");
     CHECK(f != NULL);
     n = fread(bytes, 1, sizeof bytes - 1, f);
@@ -421,7 +421,7 @@ static void test_startup(void)
     snprintf(nowhere, sizeof nowhere, "%s/none", dir);
     /* No file to read: Reset's error stops every Write, the file is left
      * empty. */
-    CHECK(cok_config_rewrite(nowhere, expected, 'N'));
+    CHECK(cok_config_rewrite(nowhere, expected, 'N', NULL, NULL));
     f = fopen(expected, "rb");
     CHECK(f != NULL);
     n = fread(bytes, 1, sizeof bytes - 1, f);
@@ -435,7 +435,7 @@ static void test_startup(void)
     for (int i = 0; i < 300; ++i) fputc('p', f);
     fputs("\r\nF\r\n9\r\n", f);
     fclose(f);
-    CHECK(cok_config_rewrite(in_assets, expected, 'N'));
+    CHECK(cok_config_rewrite(in_assets, expected, 'N', NULL, NULL));
     static char big[1000];
     f = fopen(expected, "rb");
     CHECK(f != NULL);

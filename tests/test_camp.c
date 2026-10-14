@@ -56,7 +56,7 @@ static cok_adventure game;
 
 static void open_game(void)
 {
-    cok_keyboard keys = {scripted, &s, NULL};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .key_pending = pending, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
     game.vm.mode = 4;

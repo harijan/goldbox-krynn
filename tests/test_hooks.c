@@ -485,7 +485,7 @@ static void plain_loading(void)
 
 int main(void)
 {
-    cok_keyboard k = {scripted, &s, NULL};
+    cok_keyboard k = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.flush = flushed, .sound = sounded, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &k, &hooks));
     char dir[] = "/tmp/cok-hooks-XXXXXX";

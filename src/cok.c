@@ -33,6 +33,10 @@ enum {
     REST_MS = 10,                           /* A rest's step: GetTime's hundredth. */
     FIFO_MAX = 1 << 19, /* By the game's clock, at most 11.9 s rendered ahead of the device. */
     PRESENT_MS = 16,                        /* At most about 60 frames a second. */
+    /* A pushed stick gives a key at each read (1614:00fa): about every
+     * three reads of its port's time (177c:018d), as the original's
+     * loops took. */
+    STICK_REPEAT_MS = 3 * COK_STICK_READ_MS,
 };
 
 /* The sound through SDL's audio device. In real time (the default) the
@@ -111,6 +115,24 @@ typedef struct {
     bool shot_failed;
     const char *screenshots;
     unsigned screenshot;
+
+    /* The mouse and the joystick: the screen as shown, with the mouse's
+     * cursor; the game opened (its driver then takes the pointer); SDL's
+     * joystick, opened at the start or attached (virtual) for the keys'
+     * \j; a click of the keys' (\m), whose buttons come up once the game
+     * has read it (tapped); whether the window's own cursor is hidden;
+     * when a pushed stick last gave a key. */
+    uint8_t composed[SCREEN_BYTES];
+    bool opened;
+    SDL_Joystick *joystick;
+    bool virtual_joystick;
+    unsigned tap;
+    bool tapped;
+    bool device_fresh;     /* the keys moved them; the read next may take it */
+    bool ended;            /* the keys ran out where the game polls them */
+    bool cursor_hidden;
+    Uint64 stick_from;
+    cok_game_port port;
 } frontend;
 
 static void usage(const char *program)
@@ -138,7 +160,8 @@ static void usage(const char *program)
             "  --log           print the game's text, menus and unported calls to\n"
             "                  standard error, as eclplay prints them\n"
             "  --keys KEYS     type KEYS first, in eclplay's escapes (\\[KEYS\\] typed\n"
-            "                  ahead, \\wN. waiting), through the window's key events;\n"
+            "                  ahead, \\wN. waiting, \\m and \\j the mouse and the stick),\n"
+            "                  through the window's events;\n"
             "                  the run ends when they run out\n"
             "  --continue      with --keys, then read the keyboard\n"
             "  --no-delay      do not wait where the game waits (for tests; a rest keeps\n"
@@ -154,7 +177,9 @@ static void usage(const char *program)
             "                  delays and \\p pauses do\n"
             "  --volume N      0-100 (default 100)\n"
             "  --shots DIR     save DIR/NNN.bmp of the window each time the game waits\n"
-            "                  for a key and when a battle is set up, as eclplay does\n",
+            "                  for a key and when a battle is set up, as eclplay does\n"
+            "  --input DEVICE  mouse, joystick or none, in place of the one KRYNN.CFG\n"
+            "                  names\n",
             program);
 }
 
@@ -204,15 +229,27 @@ static bool upload_text(frontend *f)
     return true;
 }
 
+/* The screen as the window shows it: the game's, with the mouse's cursor
+ * where its driver draws it; NULL before there is one. */
+static const uint8_t *screen_shown(frontend *f)
+{
+    const cok_picture *screen = &f->game->screen;
+    if (screen->pixels == NULL || screen->frame_size != SCREEN_BYTES) return NULL;
+    memcpy(f->composed, screen->pixels, SCREEN_BYTES);
+    cok_mouse_draw(&f->game->mouse.driver, f->composed, f->game->display == COK_DISPLAY_CGA);
+    return f->composed;
+}
+
 /* Copy the screen into the texture if it changed. */
 static bool upload(frontend *f)
 {
     if (f->text != NULL) return upload_text(f);
-    const cok_picture *screen = &f->game->screen;
-    if (screen->pixels == NULL || screen->frame_size != SCREEN_BYTES) return false;
-    if (f->uploaded && memcmp(f->shown, screen->pixels, SCREEN_BYTES) == 0) return false;
-    memcpy(f->shown, screen->pixels, SCREEN_BYTES);
-    cok_image image = cok_picture_frame(screen, 0);
+    const uint8_t *pixels = screen_shown(f);
+    if (pixels == NULL) return false;
+    if (f->uploaded && memcmp(f->shown, pixels, SCREEN_BYTES) == 0) return false;
+    memcpy(f->shown, pixels, SCREEN_BYTES);
+    cok_image image = cok_picture_frame(&f->game->screen, 0);
+    image.pixels = f->shown;
     cok_image_rgb(&image, f->rgb);
     SDL_UpdateTexture(f->texture, NULL, f->rgb, SCREEN_W * 3);
     f->uploaded = true;
@@ -334,10 +371,9 @@ static bool owed(frontend *f)
         return f->expose || !f->text_uploaded ||
                memcmp(f->text_shown, f->text_pixels, TEXT_BYTES) != 0;
     }
-    const cok_picture *screen = &f->game->screen;
-    bool valid = screen->pixels != NULL && screen->frame_size == SCREEN_BYTES;
+    const uint8_t *pixels = screen_shown(f);
     return f->expose ||
-           (valid && (!f->uploaded || memcmp(f->shown, screen->pixels, SCREEN_BYTES) != 0));
+           (pixels != NULL && (!f->uploaded || memcmp(f->shown, pixels, SCREEN_BYTES) != 0));
 }
 
 /* Show the screen if a present is owed (or force), at most every
@@ -401,6 +437,7 @@ static void screenshot(frontend *f)
         snprintf(path, sizeof path, "%s/cok%03u.bmp", f->screenshots, f->screenshot++);
     } while (stat(path, &st) == 0 && f->screenshot < 1000);
     cok_image image = cok_picture_frame(&f->game->screen, 0);
+    if (screen_shown(f) != NULL) image.pixels = f->composed; /* the cursor too, as shown */
     if (f->text != NULL) {
         /* Startup's text screen, 640x200. */
         cok_crt_render(f->text, &f->text_font, f->text_pixels);
@@ -415,6 +452,43 @@ static void screenshot(frontend *f)
 }
 
 /* Events. */
+
+/* The renderer's pixels to a window coordinate's, across (x) or down. */
+static double output_scale(const frontend *f, bool across)
+{
+    int ww, wh, ow, oh;
+    SDL_GetWindowSize(f->window, &ww, &wh);
+    if (SDL_GetRendererOutputSize(f->renderer, &ow, &oh) != 0 || ww <= 0 || wh <= 0) return 1;
+    return across ? (double)ow / ww : (double)oh / wh;
+}
+
+/* A window position as the mouse driver's: x 0-639 (two to a pixel) and
+ * y 0-199 across the screen as it is shown, each window pixel by its
+ * centre, kept on it. */
+static void pointer_from_window(const frontend *f, int wx, int wy, int *x, int *y)
+{
+    SDL_Rect r = fit(f);
+    long px = (long)(wx * output_scale(f, true)), py = (long)(wy * output_scale(f, false));
+    *x = cok_pointer_axis(px, r.x, r.w, 640);
+    *y = cok_pointer_axis(py, r.y, r.h, 200);
+}
+
+/* The window position that gives the driver's x's game pixel and its y:
+ * pointer_from_window's inverse. */
+static void window_from_pointer(const frontend *f, int x, int y, int *wx, int *wy)
+{
+    SDL_Rect r = fit(f);
+    *wx = (int)((double)cok_window_axis(x, 2, r.x, r.w, 640) / output_scale(f, true));
+    *wy = (int)((double)cok_window_axis(y, 1, r.y, r.h, 200) / output_scale(f, false));
+}
+
+/* The mouse's buttons as the driver reports them: bit 0 the left, 1 the
+ * right, 2 the middle. */
+static unsigned button_bit(Uint8 button)
+{
+    return button == SDL_BUTTON_LEFT ? 1u : button == SDL_BUTTON_RIGHT ? 2u
+                                          : button == SDL_BUTTON_MIDDLE ? 4u : 0u;
+}
 
 static void type_key(frontend *f, const int codes[2], int count)
 {
@@ -439,6 +513,33 @@ static void handle(frontend *f, const SDL_Event *e)
         type_key(f, codes, cok_keymap_event(&f->keyboard, &e->key, codes)); /* Alt's release */
         break;
     }
+    case SDL_MOUSEMOTION:
+        if (f->opened && f->text == NULL)
+            pointer_from_window(f, e->motion.x, e->motion.y, &f->game->mouse.driver.x,
+                                &f->game->mouse.driver.y);
+        break;
+    case SDL_MOUSEBUTTONDOWN:
+    case SDL_MOUSEBUTTONUP:
+        if (f->opened) {
+            cok_mouse_driver *driver = &f->game->mouse.driver;
+            if (f->text == NULL) pointer_from_window(f, e->button.x, e->button.y, &driver->x,
+                                                     &driver->y);
+            if (e->type == SDL_MOUSEBUTTONDOWN)
+                driver->buttons |= button_bit(e->button.button);
+            else
+                driver->buttons &= ~button_bit(e->button.button);
+        }
+        break;
+    case SDL_JOYDEVICEADDED:
+        /* The first stick plugged in, if none is open. */
+        if (f->joystick == NULL) f->joystick = SDL_JoystickOpen(e->jdevice.which);
+        break;
+    case SDL_JOYDEVICEREMOVED:
+        if (f->joystick != NULL && e->jdevice.which == SDL_JoystickInstanceID(f->joystick)) {
+            SDL_JoystickClose(f->joystick);
+            f->joystick = NULL;
+        }
+        break;
     case SDL_KEYDOWN: {
         const SDL_Keysym *k = &e->key.keysym;
         Uint16 mod = k->mod;
@@ -470,6 +571,40 @@ static void pump(frontend *f, Uint32 ms)
     SDL_Event e;
     if (ms > 0 && SDL_WaitEventTimeout(&e, (int)(ms > 1000 ? 1000 : ms))) handle(f, &e);
     while (SDL_PollEvent(&e)) handle(f, &e);
+    if (!f->opened) return;
+    cok_mouse_driver *driver = &f->game->mouse.driver;
+    if (driver->moved) {
+        /* The game moved the pointer (INT 33h function 4): the window's
+         * follows, where it is over the window. */
+        driver->moved = false;
+        if (!f->scripted && (SDL_GetWindowFlags(f->window) & SDL_WINDOW_MOUSE_FOCUS) != 0) {
+            int wx, wy;
+            window_from_pointer(f, driver->x, driver->y, &wx, &wy);
+            SDL_WarpMouseInWindow(f->window, wx, wy);
+        }
+    }
+    /* The game draws its own cursor while its mouse is on. */
+    bool hide = f->game->mouse.on && f->text == NULL;
+    if (hide != f->cursor_hidden) {
+        SDL_ShowCursor(hide ? SDL_DISABLE : SDL_ENABLE);
+        f->cursor_hidden = hide;
+    }
+}
+
+/* The game port (177c:060d): the stick's axes as counts 1-256 (the
+ * original's depend on its machine's speed; the calibration takes them as
+ * they come), buttons 1 and 2 as A1 and A2. */
+static bool stick_read(void *context, unsigned stick, uint16_t *x, uint16_t *y,
+                       uint8_t *buttons)
+{
+    frontend *f = context;
+    if (stick != 1 || f->joystick == NULL) return false;
+    SDL_JoystickUpdate();
+    *x = (uint16_t)(1 + (SDL_JoystickGetAxis(f->joystick, 0) + 32768) / 256);
+    *y = (uint16_t)(1 + (SDL_JoystickGetAxis(f->joystick, 1) + 32768) / 256);
+    *buttons = (uint8_t)((SDL_JoystickGetButton(f->joystick, 0) ? 1 : 0) |
+                         (SDL_JoystickGetButton(f->joystick, 1) ? 2 : 0));
+    return true;
 }
 
 /* The scan codes only an enhanced keyboard's INT 16h function 0x10 gives
@@ -553,12 +688,99 @@ static void press_physical(frontend *f, const cok_physical_key *key)
     }
 }
 
-/* Type the script's next key. Returns false when there is none: the
- * script ended (or failed), or it was \t, the time running out, which
- * *timeout says. */
-static bool type_script(frontend *f, bool *timeout)
+/* A virtual stick of SDL's in place of any other, for the keys' \j:
+ * centred, its buttons up. */
+static bool attach_joystick(frontend *f)
 {
-    *timeout = false;
+    int index = SDL_JoystickAttachVirtual(SDL_JOYSTICK_TYPE_GAMECONTROLLER, 2, 2, 0);
+    SDL_Joystick *joystick = index >= 0 ? SDL_JoystickOpen(index) : NULL;
+    if (joystick == NULL) {
+        snprintf(f->script_error, sizeof f->script_error, "no virtual joystick: %.30s",
+                 SDL_GetError());
+        return false;
+    }
+    if (f->joystick != NULL) SDL_JoystickClose(f->joystick);
+    f->joystick = joystick;
+    f->virtual_joystick = true;
+    return true;
+}
+
+/* The keys' \m and \j, through SDL's events: the pointer moved to the
+ * middle of the pixel given in the window as it is, and its buttons
+ * pressed; the stick (a virtual one SDL attaches) to the counts given,
+ * its buttons pressed or not. */
+static bool press_device(frontend *f, const cok_device_event *e)
+{
+    if (e->kind == 'm') {
+        if (!f->opened) return true; /* no driver before the game */
+        int wx, wy;
+        window_from_pointer(f, e->x > 319 ? 638 : e->x * 2, e->y > 199 ? 199 : e->y, &wx, &wy);
+        SDL_Event ev = {0};
+        ev.type = SDL_MOUSEMOTION;
+        ev.motion.windowID = SDL_GetWindowID(f->window);
+        ev.motion.x = wx;
+        ev.motion.y = wy;
+        SDL_PushEvent(&ev);
+        static const Uint8 buttons[3] = {SDL_BUTTON_LEFT, SDL_BUTTON_RIGHT, SDL_BUTTON_MIDDLE};
+        for (unsigned i = 0; i < 3; ++i) {
+            if ((e->buttons & (1u << i)) == 0) continue;
+            ev = (SDL_Event){0};
+            ev.type = SDL_MOUSEBUTTONDOWN;
+            ev.button.windowID = SDL_GetWindowID(f->window);
+            ev.button.button = buttons[i];
+            ev.button.state = SDL_PRESSED;
+            ev.button.x = wx;
+            ev.button.y = wy;
+            SDL_PushEvent(&ev);
+        }
+        f->tap = e->buttons & 7u;
+    } else {
+        if (e->x < 1 || e->x > 256 || e->y < 1 || e->y > 256) {
+            snprintf(f->script_error, sizeof f->script_error, "no stick gives counts %d,%d",
+                     e->x, e->y);
+            return false;
+        }
+        if (!f->virtual_joystick && !attach_joystick(f)) return false;
+        SDL_JoystickSetVirtualAxis(f->joystick, 0, (Sint16)((e->x - 1) * 256 - 32768));
+        SDL_JoystickSetVirtualAxis(f->joystick, 1, (Sint16)((e->y - 1) * 256 - 32768));
+        SDL_JoystickSetVirtualButton(f->joystick, 0, (e->buttons & 1) != 0);
+        SDL_JoystickSetVirtualButton(f->joystick, 1, (e->buttons & 2) != 0);
+        SDL_JoystickUpdate();
+    }
+    pump(f, 0);
+    return true;
+}
+
+/* A click of the keys' (\m) the game has read: its buttons come up. */
+static void release_taps(frontend *f)
+{
+    if (!f->tapped) return;
+    static const Uint8 buttons[3] = {SDL_BUTTON_LEFT, SDL_BUTTON_RIGHT, SDL_BUTTON_MIDDLE};
+    for (unsigned i = 0; i < 3; ++i) {
+        if ((f->tap & (1u << i)) == 0) continue;
+        SDL_Event ev = {0};
+        ev.type = SDL_MOUSEBUTTONUP;
+        ev.button.windowID = SDL_GetWindowID(f->window);
+        ev.button.button = buttons[i];
+        ev.button.state = SDL_RELEASED;
+        int wx, wy;
+        window_from_pointer(f, f->game->mouse.driver.x, f->game->mouse.driver.y, &wx, &wy);
+        ev.button.x = wx;
+        ev.button.y = wy;
+        SDL_PushEvent(&ev);
+    }
+    f->tap = 0;
+    f->tapped = false;
+    pump(f, 0);
+}
+
+/* Type the script's next key, or move the mouse or stick as it says
+ * (*device then set). Returns false when there is none: the script
+ * ended (or failed), or it was \t, the time running out, which *timeout
+ * says. */
+static bool type_script(frontend *f, bool *timeout, bool *device)
+{
+    *timeout = *device = false;
     cok_physical_key key;
     if (cok_key_script_physical(&f->script, &key)) {
         /* What it types, if anything, comes into the buffer; a key that
@@ -568,6 +790,11 @@ static bool type_script(frontend *f, bool *timeout)
         return true;
     }
     int code = cok_key_script_read(&f->script);
+    if (code == COK_KEY_DEVICE) {
+        *device = true;
+        f->device_fresh = true;
+        return press_device(f, &f->script.event);
+    }
     if (code < 0) {
         *timeout = code == COK_KEY_TIMEOUT;
         return false;
@@ -784,6 +1011,7 @@ static int read_key(void *context)
         f->owed = -1;
         return scan;
     }
+    release_taps(f);
     shoot(f);
     timing_off(f);
     if (f->count == 0) type_ahead(f, true);
@@ -796,7 +1024,7 @@ static int read_key(void *context)
     bool forced = false;
     for (;;) {
         pump(f, 0);
-        if (f->closing || f->shot_failed) return -1;
+        if (f->closing || f->shot_failed || f->ended) return -1;
         if (f->count > 0) {
             int *key = f->queue[f->head];
             f->head = (f->head + 1) % KEYS_MAX;
@@ -805,6 +1033,25 @@ static int read_key(void *context)
             return key[0];
         }
         now = SDL_GetTicks64();
+        if (f->device_fresh) {
+            /* \m, \j: given when the game waits on them and they give a
+             * key, else on to the next key, as eclplay does. */
+            f->device_fresh = false;
+            if (game->device_wait != COK_WAIT_KEYS && cok_adventure_device_ready(game)) {
+                f->tapped = f->tap != 0;
+                return COK_KEY_DEVICE;
+            }
+        }
+        if (!f->scripted && game->device_wait != COK_WAIT_KEYS &&
+            cok_adventure_device_ready(game)) {
+            /* A button down, the stick pushed (1614:01ad, 00fa); a stick
+             * held repeats at its pace. */
+            if (game->device_wait != COK_WAIT_STICK || f->no_delay ||
+                now - f->stick_from >= STICK_REPEAT_MS) {
+                f->stick_from = now;
+                return COK_KEY_DEVICE;
+            }
+        }
         unsigned long pause;
         if (f->scripted && f->pause_until == 0 && cok_key_script_pause(&f->script, &pause)) {
             f->pause_until = now + pause * 10;
@@ -812,14 +1059,17 @@ static int read_key(void *context)
         }
         if (f->scripted && f->pause_until <= now) {
             f->pause_until = 0;
-            bool timeout;
-            if (type_script(f, &timeout)) continue;
+            bool timeout, device;
+            if (type_script(f, &timeout, &device)) continue;
             if (timeout) return COK_KEY_TIMEOUT;
             if (f->script_error[0] != '\0' || !f->keep_playing) return -1;
             f->scripted = false;
         }
         Uint64 wait = f->pause_until > now ? f->pause_until - now : 1000;
         if (wait > 1000) wait = 1000;
+        if (game->device_wait == COK_WAIT_STICK && !f->scripted &&
+            STICK_REPEAT_MS - (now - f->stick_from) < wait && now - f->stick_from < STICK_REPEAT_MS)
+            wait = STICK_REPEAT_MS - (now - f->stick_from);
         if (game->timed && f->timing) {
             /* 67b5:0579: DS:6e11 hundredths since the menu began. */
             Uint64 limit = (Uint64)game->timeout * 10u;
@@ -886,11 +1136,57 @@ static bool key_pending(cok_adventure *game, void *context)
     /* Closed: the key read next ends the run. */
     if (f->closing || f->count > 0 || f->owed >= 0) return true;
     if (f->scripted && cok_key_script_poll(&f->script)) {
-        bool timeout;
-        type_script(f, &timeout);
-        return true;
+        bool timeout, device;
+        type_script(f, &timeout, &device);
+        return !device; /* a click is the game's own poll's to see */
     }
     return false;
+}
+
+/* The game polls the mouse or the stick in a loop (a menu's wait for the
+ * buttons, the calibration): a click of the keys' comes up, and a \m
+ * moving the pointer or a \j next in them comes, the keys' end ending
+ * the run; at the keyboard, up to ms pass, or less if something comes. */
+static void port_wait(void *context, unsigned ms)
+{
+    frontend *f = context;
+    bool released = f->tapped;
+    release_taps(f);
+    if (f->scripted) {
+        if (cok_key_script_device(&f->script)) {
+            press_device(f, &f->script.event);
+            f->device_fresh = true;
+        } else if (f->virtual_joystick && (SDL_JoystickGetButton(f->joystick, 0) ||
+                                           SDL_JoystickGetButton(f->joystick, 1))) {
+            /* Let go, unless the keys say otherwise. */
+            SDL_JoystickSetVirtualButton(f->joystick, 0, 0);
+            SDL_JoystickSetVirtualButton(f->joystick, 1, 0);
+            SDL_JoystickUpdate();
+        } else if (!released && cok_key_script_done(&f->script) && !f->keep_playing) {
+            f->ended = true;
+        }
+        if (f->script_error[0] != '\0') f->ended = true;
+    }
+    if (f->closing || f->ended) {
+        if (f->opened) {
+            f->game->input_ended = true;
+            f->game->vm.abort = true;
+        }
+        return;
+    }
+    if (f->scripted && !f->keep_playing) return;
+    present(f, false, NULL);
+    sleep_for(f, SDL_GetTicks64(), f->no_delay ? 1 : ms);
+    if (f->closing && f->opened) {
+        f->game->input_ended = true;
+        f->game->vm.abort = true;
+    }
+}
+
+static void device_wait(cok_adventure *game, unsigned ms, void *context)
+{
+    (void)game;
+    port_wait(context, ms);
 }
 
 /* Crt.Delay: sleep, showing the screen as it changes; keys typed meanwhile
@@ -917,9 +1213,8 @@ static void delay(cok_adventure *game, unsigned ms, void *context)
     }
     /* With --log, a check that the window keeps up: what the game drew
      * before it waits must be shown within a frame or two of waiting. */
-    const cok_picture *screen = &game->screen;
-    if (f->log && !f->no_delay && f->text == NULL && screen->frame_size == SCREEN_BYTES &&
-        memcmp(f->on_window, screen->pixels, SCREEN_BYTES) != 0) {
+    const uint8_t *pixels = f->log && !f->no_delay && f->text == NULL ? screen_shown(f) : NULL;
+    if (pixels != NULL && memcmp(f->on_window, pixels, SCREEN_BYTES) != 0) {
         Uint64 now = SDL_GetTicks64();
         if (f->owed_from == 0) {
             f->owed_from = now;
@@ -975,7 +1270,7 @@ static void text_log(const char *row, void *context)
  * KRYNN.CFG, then the note to Tandy users. Returns 0 to go on, else the
  * exit status, -1 for the run ended in the setup. */
 static int startup(frontend *f, const cok_keyboard *keyboard, const char *path, bool found,
-                   const char *assets, cok_config *config)
+                   const char *assets, cok_config *config, bool calibrate)
 {
     static cok_crt text;
     text.log = text_log;
@@ -984,7 +1279,7 @@ static int startup(frontend *f, const cok_keyboard *keyboard, const char *path, 
     f->text = &text;
     if (!cok_setup_font(assets, &f->text_font))
         fprintf(stderr, "%s/8X8D1.DAX: no font for the text screen\n", assets);
-    cok_setup_hooks hooks = {text_delay, f};
+    cok_setup_hooks hooks = {text_delay, f, &f->port, &f->ended, calibrate};
     char error[1200];
     cok_setup_status status =
         cok_setup_startup(&text, keyboard, &hooks, path, found, config, error, sizeof error);
@@ -1100,6 +1395,8 @@ int main(int argc, char **argv)
     bool display_given = false;
     unsigned long volume = 100;
     int clock = -1; /* 0 real, 1 game, -1 by --no-delay */
+    const char *input = NULL;
+    f.port = (cok_game_port){stick_read, port_wait, &f};
     for (int i = 1; i < argc; ++i) {
         const char *option = argv[i];
         bool has_value = i + 1 < argc;
@@ -1153,6 +1450,10 @@ int main(int argc, char **argv)
             ++i;
         } else if (strcmp(option, "--shots") == 0 && has_value) {
             f.shots = argv[++i];
+        } else if (strcmp(option, "--input") == 0 && has_value &&
+                   (strcmp(argv[i + 1], "mouse") == 0 || strcmp(argv[i + 1], "joystick") == 0 ||
+                    strcmp(argv[i + 1], "none") == 0)) {
+            input = argv[++i];
         } else {
             usage(argv[0]);
             return 2;
@@ -1218,20 +1519,27 @@ int main(int argc, char **argv)
     SDL_SetTextureScaleMode(f.text_texture, SDL_ScaleModeNearest);
     SDL_SetWindowMinimumSize(f.window, SCREEN_W, height);
     SDL_StopTextInput(); /* Keys come as key events; no input method's window. */
+    /* The joystick: the first SDL finds (or one plugged in later). */
+    if (SDL_InitSubSystem(SDL_INIT_JOYSTICK) == 0 && SDL_NumJoysticks() > 0)
+        f.joystick = SDL_JoystickOpen(0);
+    /* Keys that move a stick (\j) have one from the start, for startup to
+     * find. */
+    if (keys != NULL && cok_key_script_moves_stick(keys)) attach_joystick(&f);
     if (f.log) {
         int w, h;
         SDL_GetWindowSize(f.window, &w, &h);
         fprintf(stderr, "window: %dx%d\n", w, h);
     }
 
-    cok_keyboard keyboard = {read_key, &f, NULL};
+    cok_keyboard keyboard = {read_key, &f, NULL, NULL};
     /* KRYNN.CFG, as startup reads it (11c7:031a), after the setup when
      * there is none, and the note to Tandy users. */
     char config_path[1024], config_write[1024];
     bool found = cok_config_find(config_option, saves, assets, config_path, config_write,
                                  sizeof config_path);
     cok_config config = {.display = COK_DISPLAY_TANDY, .sound = COK_SOUND_TANDY};
-    int started = startup(&f, &keyboard, config_path, found, assets, &config);
+    int started = startup(&f, &keyboard, config_path, found, assets, &config,
+                          input != NULL && strcmp(input, "joystick") == 0);
     if (started != 0) {
         int result = started < 0 ? 0 : started;
         if (started < 0 && f.script_error[0] != '\0') {
@@ -1258,7 +1566,7 @@ int main(int argc, char **argv)
     if (sounding) audio_open(&f, assets, device, (unsigned)volume);
     cok_adventure_hooks hooks = {.unported = unported, .log = log_line, .delay = delay,
                                  .key_pending = key_pending, .flush = flush_keys,
-                                 .battlefield = battlefield,
+                                 .battlefield = battlefield, .device_wait = device_wait,
                                  .sound = sounding ? sound : NULL, .context = &f};
     int result = 0;
     if (!cok_adventure_open_display(&game, assets, display, &keyboard, &hooks)) {
@@ -1270,6 +1578,22 @@ int main(int argc, char **argv)
         snprintf(game.config_path, sizeof game.config_path, "%s", config_path);
         snprintf(game.config_write, sizeof game.config_write, "%s", config_write);
         game.combat_stub = COK_COMBAT_PLAYER; /* The player's turns read the keys. */
+        /* The mouse (SDL's: a driver always answers) and the joystick, as
+         * KRYNN.CFG's third line or --input picks. */
+        if (input != NULL) {
+            config.mouse = strcmp(input, "mouse") == 0;
+            config.joystick = strcmp(input, "joystick") == 0;
+        }
+        game.mouse.driver.installed = true;
+        game.port = f.port;
+        f.opened = true;
+        cok_adventure_devices(&game, config.mouse, config.joystick, config.joystick_x,
+                              config.joystick_y);
+        if (f.log)
+            fprintf(stderr, "input: %s\n", config.mouse      ? "mouse"
+                                           : game.stick.on    ? "joystick"
+                                           : config.joystick ? "joystick not found"
+                                                              : "keyboard");
         game.helm = helm;
         game.vm.seed = seeded ? (uint32_t)seed : randomize();
         cok_ecl_status status = cok_start_game(&game, woof);
@@ -1300,6 +1624,7 @@ int main(int argc, char **argv)
     }
     audio_close(&f);
     cok_adventure_close(&game);
+    if (f.joystick != NULL) SDL_JoystickClose(f.joystick);
     if (f.upscaled != NULL) SDL_DestroyTexture(f.upscaled);
     SDL_DestroyTexture(f.text_texture);
     SDL_DestroyTexture(f.texture);

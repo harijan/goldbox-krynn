@@ -47,6 +47,7 @@ static int read_raw(void *context)
     cok_adventure *game = context;
     int key = game->keys.read == NULL ? -1 : game->keys.read(game->keys.context);
     if (key == COK_KEY_TIMEOUT && game->timed) return key;
+    if (key == COK_KEY_DEVICE && game->device_wait != COK_WAIT_KEYS) return key;
     if (key < 0) {
         game->input_ended = true;
         game->vm.abort = true;
@@ -54,24 +55,50 @@ static int read_raw(void *context)
     return key;
 }
 
-/* 1614:025b, as every other read goes: Ctrl-S, or the scan code 0x13
- * after Alt-R's 0, turns the sound off or back on (the key is returned
- * all the same); then, in a game started with Woof, the debug keys
- * (cok_debug_key), which a scan code of 3 after Ctrl-2's 0 is too. */
+/* 1614:01ad, 00fa: with the mouse or the joystick on, a key, or what they
+ * give (a click kept in game->pointer); a key typed meanwhile is read in
+ * its place, the click kept (025b's KeyPressed after them). */
+static int read_device(cok_adventure *game)
+{
+    game->device_wait = game->mouse.on ? COK_WAIT_MOUSE : COK_WAIT_STICK;
+    int key;
+    for (;;) {
+        key = read_raw(game);
+        if (key != COK_KEY_DEVICE) break;
+        key = cok_adventure_device_key(game);
+        if (key < 0) continue; /* up again already: wait on */
+        game->device_wait = COK_WAIT_KEYS;
+        if (game->hooks.key_pending != NULL && game->hooks.key_pending(game, game->hooks.context))
+            key = read_raw(game);
+        break;
+    }
+    game->device_wait = COK_WAIT_KEYS;
+    return key;
+}
+
+/* 1614:025b, as every other read goes: no click yet (DS:8987); Ctrl-S,
+ * or the scan code 0x13 after Alt-R's 0, turns the sound off or back on
+ * (the key is returned all the same); then, in a game started with Woof,
+ * the debug keys (cok_debug_key), which a scan code of 3 after Ctrl-2's 0
+ * is too. */
 static int read_key(void *context)
 {
-    int key = read_raw(context);
+    cok_adventure *game = context;
+    game->pointer.clicked = false;
+    int key = cok_adventure_devices_on(game) ? read_device(game) : read_raw(game);
     if (key == 0x13) cok_adventure_sound(context, COK_SOUND_CTRL_S, 0x13);
     if (key >= 0) key = cok_debug_key(context, key);
     return key;
 }
 
-/* 1614:025b called directly: a key, but in the demonstration (DS:4b4b) 0
- * at once when none is waiting. The menus wait for KeyPressed first, so
- * they wait in the demonstration too. */
+/* 1614:025b called directly: a key, but in the demonstration (DS:4b4b),
+ * with neither the mouse nor the joystick on, 0 at once when none is
+ * waiting. The menus wait for KeyPressed first, so they wait in the
+ * demonstration too. */
 static int wait_key(cok_adventure *game)
 {
-    if (game->demo && !cok_adventure_key_pending(game)) return 0;
+    if (game->demo && !cok_adventure_devices_on(game) && !cok_adventure_key_pending(game))
+        return 0;
     return read_key(game);
 }
 
@@ -87,13 +114,13 @@ static void flush_keys(void *context)
 
 static cok_keyboard keyboard(cok_adventure *game)
 {
-    return (cok_keyboard){read_key, game, flush_keys};
+    return (cok_keyboard){read_key, game, flush_keys, &game->pointer};
 }
 
 /* Text input's keyboard (1521:0739 reads Crt.ReadKey itself). */
 static cok_keyboard keyboard_raw(cok_adventure *game)
 {
-    return (cok_keyboard){read_raw, game, flush_keys};
+    return (cok_keyboard){read_raw, game, flush_keys, &game->pointer};
 }
 
 cok_keyboard cok_adventure_keyboard_raw(cok_adventure *game)
@@ -763,8 +790,7 @@ static void print(cok_adventure *game)
     log_text(game, "print", vm->string[0]);
     game->text_shown = true;
     cok_text_hooks hooks = {page, char_delay, game};
-    cok_text_wrap(&game->screen, &game->font, &vm->cursor, vm->string[0], text_window, 10, 0,
-                  clear, &hooks);
+    cok_adventure_wrap(game, &vm->cursor, vm->string[0], text_window, 10, clear, &hooks);
 }
 
 /* Append as much of text as fits, as a Pascal string assignment cuts it. */
@@ -819,8 +845,7 @@ void cok_adventure_type(cok_adventure *game, const char *text, uint8_t fg, bool 
 {
     log_text(game, "print", text);
     cok_text_hooks hooks = {page, char_delay, game};
-    cok_text_wrap(&game->screen, &game->font, &game->vm.cursor, text, text_window, fg, 0, clear,
-                  &hooks);
+    cok_adventure_wrap(game, &game->vm.cursor, text, text_window, fg, clear, &hooks);
 }
 
 /* VERTICAL MENU (2fd3:0f9d): print the prompt, then list the items below
@@ -842,8 +867,7 @@ static void vertical_menu(cok_adventure *game)
     for (size_t i = 0; i < count; ++i) log_text(game, "item", items[i]);
     vm->cursor = (cok_text_cursor){1, 0x11};
     cok_text_hooks hooks = {page, char_delay, game};
-    cok_text_wrap(&game->screen, &game->font, &vm->cursor, vm->header_string, text_window, 10,
-                  0, true, &hooks);
+    cok_adventure_wrap(game, &vm->cursor, vm->header_string, text_window, 10, true, &hooks);
     if (game->input_ended) return;
     cok_text_window window = {1, vm->cursor.y + 1, 0x26, 0x16};
     int index = 0;
@@ -896,6 +920,11 @@ void cok_adventure_party(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     if ((vm->mode == 3 && vm->mem4b00[0x138] == 0) || game->big_shown) return;
+    /* 6346:07f1-0866: where a click picks from it, a row a member. */
+    game->party_left = vm->mode == 0 ? 1 : 0x11;
+    game->party_right = 0x26;
+    game->party_top = 4;
+    game->party_bottom = (uint8_t)(3 + game->party.count);
     cok_party_draw(&game->screen, &game->font, &game->party, vm->character,
                    vm->mode == 0 ? 1 : 0x11, vm->mode == 5);
 }
@@ -951,7 +980,7 @@ static uint16_t character_value(cok_ecl *vm, uint16_t address, void *context)
 /* A special key from a menu picks a character (546c:3334). */
 static void pick_member(cok_adventure *game, uint8_t scan)
 {
-    game->vm.character = cok_party_special(&game->party, game->vm.character, scan);
+    game->vm.character = cok_adventure_special(game, scan);
 }
 
 /* Menus of the ECL opcodes pass special keys here, and redraw the party
@@ -989,8 +1018,7 @@ static void print_text(cok_adventure *game, const char *text, uint8_t fg, bool c
     log_text(game, "print", text);
     game->text_shown = true;
     cok_text_hooks hooks = {page, NULL, game};
-    cok_text_wrap(&game->screen, &game->font, &game->vm.cursor, text, text_window, fg, 0, clear,
-                  &hooks);
+    cok_adventure_wrap(game, &game->vm.cursor, text, text_window, fg, clear, &hooks);
 }
 
 /* A character's name, from its Pascal string. */
@@ -1071,12 +1099,18 @@ static void add_experience(cok_adventure *game)
  * wrapping; S or Enter picks. Exit, or Escape while Exit is offered,
  * picks none, but only Exit ends the menu. The original also ends it on
  * the special keys whose scan codes are 'E' and 'S': 0x53 Del, and 0x45
- * NumLock, which the BIOS never queues for Crt.ReadKey. Returns the
- * character, or NULL; *ended is set if input ended. */
+ * NumLock, which the BIOS never queues for Crt.ReadKey. A click on the
+ * party list (in the start menu too, DS:8985 set for the menu) picks its
+ * member: into the pick (DS:6e08 set, DS:6e09) with into, else into the
+ * selection itself (DS:6096), as WHO's. Returns the character, or NULL;
+ * *ended is set if input ended. */
 static uint8_t *pick_character(cok_adventure *game, const char *prompt, uint8_t *who,
-                               bool exit_item, bool *ended)
+                               bool exit_item, bool into, bool *ended)
 {
     cok_ecl *vm = &game->vm;
+    bool party_clicks = game->mouse.party_clicks;
+    game->pick_into = into;
+    game->pick = vm->character;
     char menu_prompt[42];
     snprintf(menu_prompt, sizeof menu_prompt, "%.40s ", prompt);
     char items[16];
@@ -1092,14 +1126,20 @@ static uint8_t *pick_character(cok_adventure *game, const char *prompt, uint8_t 
         game->menu_animates = vm->mode == 2 || vm->mode == 6;
         if (game->menu_animates) draw_frame(game, game->frame);
         bool special;
+        if (vm->mode == 0) game->mouse.party_clicks = true; /* 6346:335c */
         key = menu_read(game, menu_prompt, items, &special);
+        game->mouse.party_clicks = party_clicks;
         game->menu_animates = false;
         if (key < 0) {
+            game->pick_into = false;
             *ended = true;
             return who;
         }
         if (!special) {
             if (exit_item && (key == 'E' || key == 0)) who = NULL;
+        } else if (key == 0x48 && game->pointer.clicked) {
+            /* 6346:340a: the member the click picked. */
+            who = into ? game->pick : vm->character;
         } else if (key == 0x50 || key == 0x48) {
             if (game->party.count == 0) {
                 who = NULL;
@@ -1112,6 +1152,7 @@ static uint8_t *pick_character(cok_adventure *game, const char *prompt, uint8_t 
             }
         }
     }
+    game->pick_into = false; /* 6346:34de */
     return who;
 }
 
@@ -1125,7 +1166,7 @@ static void who(cok_adventure *game)
     vm->missing_character = false;
     cok_picture_fill(&game->screen, 1, 0x11 * 8, 0x26, 6 * 8, 0); /* 1521:0b60 */
     bool ended;
-    uint8_t *picked = pick_character(game, vm->string[0], vm->character, false, &ended);
+    uint8_t *picked = pick_character(game, vm->string[0], vm->character, false, false, &ended);
     vm->character = picked;
     game->moving = moving;
     if (ended) return;
@@ -1284,8 +1325,8 @@ static void damage(cok_adventure *game)
         const char *text = "The entire party is killed!";
         log_text(game, "print", text);
         cok_text_hooks hooks = {page, NULL, game};
-        cok_text_wrap(&game->screen, &game->font, &vm->cursor, text,
-                      (cok_text_window){1, 1, 0x26, 0x16}, 10, 0, true, &hooks);
+        cok_adventure_wrap(game, &vm->cursor, text, (cok_text_window){1, 1, 0x26, 0x16}, 10, true,
+                           &hooks);
         wait_ms(game, 3000);
     }
     vm->character = saved;
@@ -1412,8 +1453,9 @@ static void call(cok_adventure *game)
                                "0000:DS:6da0, from low memory (2fd3:33cb)");
             break;
         }
-        /* The mouse's hiding around the draw (1743:0051, 0030) is not
-         * ported. */
+        /* The mouse's cursor hidden around the draw (1743:0051, 0030): the
+         * delay after it waits with it shown, as here (the port composes
+         * the cursor over the screen as it shows it). */
         draw_frame(game, game->frame);
         game->frame = game->frame + 1 < game->frame_count ? game->frame + 1 : 0;
         wait_ms(game, game->speed * 100u);
@@ -2109,6 +2151,7 @@ bool cok_adventure_open_display(cok_adventure *game, const char *assets, cok_dis
     game->selected = 1;
     game->text_shown = true;
     game->icon_slot = 8;
+    cok_adventure_pointer_init(game);
     if (keys != NULL) game->keys = *keys;
     if (hooks != NULL) game->hooks = *hooks;
     if (strlen(assets) >= sizeof game->assets) {
@@ -2475,7 +2518,12 @@ void cok_adventure_wait(cok_adventure *game, unsigned ms)
 
 bool cok_adventure_key_pending(cok_adventure *game)
 {
-    return game->hooks.key_pending != NULL && game->hooks.key_pending(game, game->hooks.context);
+    /* 1614:03c2: KeyPressed, or with the mouse or the joystick on a button
+     * of theirs down or the stick pushed. */
+    bool pending =
+        game->hooks.key_pending != NULL && game->hooks.key_pending(game, game->hooks.context);
+    if (cok_adventure_devices_on(game) && cok_adventure_device_pending(game)) pending = true;
+    return pending;
 }
 
 void cok_adventure_flush(cok_adventure *game)
@@ -2491,7 +2539,7 @@ void cok_adventure_carry(cok_adventure *game, uint16_t clock[7])
 uint8_t *cok_adventure_pick(cok_adventure *game, const char *prompt, uint8_t *who, bool exit_item,
                            bool *ended)
 {
-    return pick_character(game, prompt, who, exit_item, ended);
+    return pick_character(game, prompt, who, exit_item, true, ended);
 }
 
 void cok_adventure_free_picture(cok_adventure *game)
@@ -2541,8 +2589,7 @@ void cok_adventure_print(cok_adventure *game, const char *text, cok_text_window 
 {
     log_text(game, "print", text);
     cok_text_hooks hooks = {page, NULL, game};
-    cok_text_wrap(&game->screen, &game->font, &game->vm.cursor, text, window, fg, 0, clear,
-                  &hooks);
+    cok_adventure_wrap(game, &game->vm.cursor, text, window, fg, clear, &hooks);
 }
 
 /* One key from a menu of the adventure loop (67b5:03e2): prompt in 13,
