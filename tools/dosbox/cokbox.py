@@ -392,6 +392,8 @@ class Box:
     first picture), after startup's Randomize. wav: a path to record the
     sound to (F12+W), from start to close.
     timeout: seconds before the run is killed, whatever it is doing.
+    display_number: the Xvfb display to use (default: COKBOX_DISPLAYS's first
+    free one, a range such as "140-149", or else any free one Xvfb picks).
     workdir: where the C: drive, captures and logs go (default: a temporary
     directory, removed on close unless keep).
     """
@@ -399,7 +401,8 @@ class Box:
     def __init__(self, workdir=None, assets=None, machine="tandy", display=None, sound="S",
                  input="N", cfg=None, saves=(), args="", cycles="fixed 20000", turbo=False,
                  hook_pad=0, memsize=None, wav=None, timeout=600, extra_conf=None,
-                 exit_after=True, seed=None, want_psp=None, keep=False, verbose=False):
+                 exit_after=True, seed=None, want_psp=None, keep=False, verbose=False,
+                 display_number=None):
         self.assets = pathlib.Path(assets or ROOT / "Assets")
         if machine not in MACHINES:
             raise BoxError(f"machine {machine}: one of {', '.join(MACHINES)}")
@@ -410,8 +413,9 @@ class Box:
         self.hook_pad, self.memsize, self.wav = hook_pad, memsize, wav
         self.timeout, self.extra_conf, self.exit_after = timeout, extra_conf or {}, exit_after
         self.verbose, self.seed, self.want_psp = verbose, seed, want_psp
+        self.display_number = display_number
         self._own_workdir = workdir is None and not keep
-        self.workdir = pathlib.Path(workdir) if workdir else None
+        self.workdir = pathlib.Path(workdir).resolve() if workdir else None
         self.xvfb = self.dosbox = None
         self.display_name = None
         self.window = None
@@ -511,8 +515,12 @@ class Box:
         self.prepare()
         self._deadline = time.monotonic() + self.timeout
         rfd, wfd = os.pipe()
+        number = self.display_number
+        if number is None:
+            number = _free_display(os.environ.get("COKBOX_DISPLAYS", ""))
         self.xvfb = subprocess.Popen(
-            ["Xvfb", "-displayfd", str(wfd), "-screen", "0", "1024x768x24", "-nolisten", "tcp"],
+            ["Xvfb", *([f":{number}"] if number is not None else []), "-displayfd", str(wfd),
+             "-screen", "0", "1024x768x24", "-nolisten", "tcp"],
             pass_fds=(wfd,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True)
         os.close(wfd)
@@ -842,6 +850,10 @@ class Box:
     # Polls of KeyPressed that are not a wait: the flush (1614:045c) and the
     # key read's look before its ReadKey (1614:025b); their return addresses.
     NOT_WAITS = ((0x1614, 0x0467), (0x1614, 0x026C))
+    # KeyPressed's callers that poll once and go on, never waiting: the
+    # computer's turn's look for Space (3afb:1200, the call at 120a), by
+    # their return addresses (an overlay's offset is kept wherever it lies).
+    NOT_WAIT_CALLERS = ((0x3AFB, 0x120F),)
 
     def from_ghidra(self, seg, off):
         """START_FULL.EXE's SEG:OFF in the game's root image as a real one."""
@@ -861,10 +873,30 @@ class Box:
         polls = self.hook("polls")
         site = (self.hook("pollcs"), self.hook("pollip"))
         flushes = [self.from_ghidra(*a) for a in self.NOT_WAITS]
-        advancing = polls != self._last_polls and site not in flushes
+        advancing = polls != self._last_polls and site not in flushes and \
+            not self._polled_by_non_waiter()
         self._last_polls = polls
         self._streak = self._streak + 1 if advancing else 0
         return self._streak >= 2
+
+    def _polled_by_non_waiter(self):
+        """True when the last poll's caller is one of NOT_WAIT_CALLERS."""
+        frames = self.frames(self.hook("pollss"), self.hook("pollbp"), 1)
+        if not frames:
+            return False
+        cs, ip = frames[0]
+        for seg, off in self.NOT_WAIT_CALLERS:
+            if ip == off and self.read(cs * 16 + ip, 8) == self._exe_bytes(seg, off, 8):
+                return True
+        return False
+
+    def _exe_bytes(self, seg, off, size):
+        """SIZE bytes of START_FULL.EXE (`make merged`) at Ghidra SEG:OFF."""
+        if not hasattr(self, "_exe"):
+            self._exe = (ROOT / "build/START_FULL.EXE").read_bytes()
+        hdr = struct.unpack_from("<H", self._exe, 8)[0] * 16
+        start = hdr + (seg - 0x1000) * 16 + off
+        return self._exe[start:start + size]
 
     def wait_input(self, reads_only=False, seconds=120, settle=0.0):
         """Wait until the game waits for a key (see waiting); then SETTLE
@@ -945,6 +977,18 @@ class Box:
         return not self.running
 
 
+def _free_display(spec):
+    """The first display number of SPEC ("140-149") with no X server's lock
+    or socket, or None (no SPEC: Xvfb picks)."""
+    if not spec:
+        return None
+    lo, _, hi = spec.partition("-")
+    for n in range(int(lo), int(hi or lo) + 1):
+        if not os.path.exists(f"/tmp/.X{n}-lock") and not os.path.exists(f"/tmp/.X11-unix/X{n}"):
+            return n
+    raise BoxError(f"no free X display in {spec}")
+
+
 def _complete_png(path):
     try:
         return path.read_bytes().endswith(b"IEND\xaeB`\x82")
@@ -968,11 +1012,12 @@ for _sig in (signal.SIGTERM, signal.SIGHUP):
 # ---------------------------------------------------------------- command line
 
 def eclplay(keys, out, assets=None, machine="tandy", saves=(), args=(), shots=True,
-            start_menu=True):
+            start_menu=True, binary=None):
     """Run eclplay with KEYS, as the Box would run the game: --start-menu
     (unless START_MENU is false: ARGS then say where to start), a KRYNN.CFG
-    for MACHINE, SAVES copied into OUT/saves (its --saves). Returns (stdout,
-    saves directory, the shots' paths in order)."""
+    for MACHINE, SAVES copied into OUT/saves (its --saves). BINARY: another
+    build of eclplay to run. Returns (stdout, saves directory, the shots'
+    paths in order)."""
     out = pathlib.Path(out)
     out.mkdir(parents=True, exist_ok=True)
     shot_dir, save_dir = out / "shots", out / "saves"
@@ -989,7 +1034,7 @@ def eclplay(keys, out, assets=None, machine="tandy", saves=(), args=(), shots=Tr
     cfg = out / "krynn.cfg"
     cfg.write_bytes(krynn_cfg(MACHINES[machine][1]).encode())
     result = subprocess.run(
-        [str(ROOT / "build/eclplay"), *(["--start-menu"] if start_menu else []),
+        [str(binary or ROOT / "build/eclplay"), *(["--start-menu"] if start_menu else []),
          "--config", str(cfg), "--saves",
          str(save_dir), *(["--shots", str(shot_dir)] if shots else []), *map(str, args),
          "--keys", keys, str(assets)],
