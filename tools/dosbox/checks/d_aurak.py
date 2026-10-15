@@ -48,6 +48,10 @@ def main():
         t = tuple(d_lib.read_text(s, r, 23, 39)[0].strip(" ?") for r in (10, 11, 12))
         if t[0] and (not panel or panel[-1] != t):
             panel.append(t)
+    # A panel caught while its text was printed (each row a beginning of the
+    # next panel's) is that panel.
+    panel = [t for n, t in enumerate(panel)
+             if n + 1 == len(panel) or not all(b.startswith(a) for a, b in zip(t, panel[n + 1]))]
     i = next((n for n, t in enumerate(panel) if t[:2] == ("AURAK", "BREATHES!")), None)
     tail = panel[i:i + 4] if i is not None else []
     print("original's panel from the breath:", tail)
