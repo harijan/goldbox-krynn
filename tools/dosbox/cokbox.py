@@ -1070,6 +1070,19 @@ def _complete_png(path):
 _RUNNING = []
 
 
+def _x_displays():
+    """The displays to try for Xvfb: the numbers of COKBOX_DISPLAYS ("160-169",
+    for runs side by side that must keep to their own) without a lock file
+    (Xvfb ends at once on one taken, and the next is tried), else None (Xvfb
+    picks one)."""
+    span = os.environ.get("COKBOX_DISPLAYS")
+    if not span:
+        return [None]
+    lo, _, hi = span.partition("-")
+    return [f":{n}" for n in range(int(lo), int(hi or lo) + 1)
+            if not pathlib.Path(f"/tmp/.X{n}-lock").exists()]
+
+
 def _cleanup(*_):
     for box in list(_RUNNING):
         box.close()
