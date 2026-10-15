@@ -8,15 +8,18 @@ the caravan won by the Gods and the survivors taken back to the outpost
 (as d_gate.py), then Leave, decline the outpost, Move east 24 steps along
 row 3 (declining a merchant caravan on the way): at 24, 3 "YOU HAVE
 DISCOVERED SOME HOSTILE CREATURES.", 3 giant spiders and 2 bozaks. Alt-Q at
-the first turn, the computer plays the battle to "Continue Battle:". A
+the first turn, the computer plays the battle to its end (the party is
+destroyed: "The monsters rejoice ..." and "Press any key to continue"). A
 bozak drops beside SIRRION and MOLLY: "explodes.", and SIRRION, two
 spiders and MOLLY take 1d6 each. (A save on the overland map would not do:
 see d_firstblock.py.) The original runs at speed 15 (DS:4b38 poked, the
-port's too) while screenshots are taken to "Continue Battle:": they are
+port's too) while screenshots are taken to the battle's end: they are
 judged in order against the port's frames (d_lib.burst_step), the panel
 read for "EXPLODES." and the damages that follow (against eclplay's log),
 and the screen and memory (d_lib.compare_state: the party's hit points
-among it) at the first turn and at the end against the port's.
+among it) at the first turn and at the end against the port's. The
+original types the defeat's text a letter at a time (the speed's delay
+between letters): whether the port shows it so, from its frames.
 """
 import argparse
 import re
@@ -71,6 +74,19 @@ def main():
             break
         said.append((name, text.split()[1]))
     print("original's panel after \"EXPLODES.\":", said)
+    # The party's defeat: "The monsters rejoice for the party has been
+    # destroyed" (351b:1aab) in the text window, row 5 on.
+    def stages(screens):
+        """The parts of the text's first line shown on their own (typed)."""
+        full = "THE MONSTERS REJOICE FOR THE PARTY"
+        rows = {d_lib.read_text(s, 5, 1, 39)[0].strip(" ?") for s in screens}
+        return sorted(t for t in rows if t and full.startswith(t) and t != full)
+
+    typed = stages(shots)
+    print("original: the defeat's text as it was typed:", typed)
+    d_lib.value(v, "the defeat's text typed a letter at a time (some of its parts shown on "
+                "their own)", bool(typed), port, "end",
+                lambda s: bool(stages([f for _, f in port.frames])))
     v.check(i is not None and said == blast and blast and
             all(1 <= int(d) <= 6 for _, d in said),
             "#90 the original: the bozak \"EXPLODES.\" and each beside it takes 1-6, as the "

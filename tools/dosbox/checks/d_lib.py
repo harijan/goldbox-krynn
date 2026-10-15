@@ -500,12 +500,13 @@ def _nonzero(x):
 
 
 def candidates(s, frames, ints=None):
-    """Where screen S may lie among FRAMES: [(index, name)] of the frames
-    equal to it, and of each two frames in a row it lies between, each of
-    its pixels one of theirs or black in a text area (the original caught
-    between a line's clear and its glyphs). INTS: the frames' pixels as
-    integers (for speed)."""
-    out = [(j, name) for j, (name, f) in enumerate(frames) if f.pixels == s.pixels]
+    """Where screen S may lie among FRAMES, as (position, name): 2j for
+    frame j equal to it, 2j + 1 for frames j and j + 1 in a row that it
+    lies between, each of its pixels one of theirs or black in a text area
+    (the original caught between a line's clear and its glyphs), neither of
+    them equal to it. INTS: the frames' pixels as integers (for speed)."""
+    exact = {j for j, (_, f) in enumerate(frames) if f.pixels == s.pixels}
+    out = [(2 * j, frames[j][0]) for j in sorted(exact)]
     if s.width != 320 or len(frames) < 2:
         return out
     if ints is None:
@@ -513,8 +514,8 @@ def candidates(s, frames, ints=None):
     si = int.from_bytes(s.pixels, "little")
     black_ok = (_nonzero(si) ^ _ONES) & _TEXT
     off = [_nonzero(si ^ f) & ~black_ok for f in ints]
-    out += [(j, f"{frames[j][0]}~{frames[j + 1][0]}") for j in range(len(frames) - 1)
-            if not off[j] & off[j + 1]]
+    out += [(2 * j + 1, f"{frames[j][0]}~{frames[j + 1][0]}") for j in range(len(frames) - 1)
+            if j not in exact and j + 1 not in exact and not off[j] & off[j + 1]]
     return sorted(out)
 
 
@@ -523,24 +524,41 @@ def in_order(screens, frames):
     ([(name, Screen)], the port's at its key reads, pauses, map shows and
     text lines) in order: of each screen's candidates (equal to a frame, or
     between two in a row: the original caught drawing the second), the
-    choice that matches the most screens with frames that never go back
-    (a longest non-decreasing chain). Returns a list of the frames' names
-    (N~M for between) or None for a screen left out."""
-    import bisect
+    choice that matches the most screens held across two screenshots or
+    more, then the most others, with frames that never go back (a heaviest
+    non-decreasing chain). Returns a list of the frames' names (N~M for
+    between) or None for a screen left out."""
     ints = [int.from_bytes(f.pixels, "little") for _, f in frames]
-    tails, ends, back = [], [], {}
+    size = 2 * len(frames) + 1
+    tree = [(0, None)] * (size + 1)  # Fenwick tree: the best chain ending at or before
+
+    def best(pos):
+        out, i = (0, None), pos + 1
+        while i > 0:
+            out = max(out, tree[i], key=lambda t: t[0])
+            i -= i & -i
+        return out
+
+    def put(pos, item):
+        i = pos + 1
+        while i <= size:
+            if item[0] > tree[i][0]:
+                tree[i] = item
+            i += i & -i
+
+    back = {}
     for i, s in enumerate(screens):
-        for j, name in sorted(candidates(s, frames, ints), reverse=True):
-            k = bisect.bisect_right(tails, j)
-            node = (i, j, name)
-            back[node] = ends[k - 1] if k else None
-            if k == len(tails):
-                tails.append(j)
-                ends.append(node)
-            else:
-                tails[k], ends[k] = j, node
+        weight = 1000 if getattr(s, "count", 2) > 1 else 1
+        found = []
+        for pos, name in candidates(s, frames, ints):
+            total, prev = best(pos)
+            node = (i, pos, name)
+            back[node] = prev
+            found.append((pos, (total + weight, node)))
+        for pos, item in found:
+            put(pos, item)
     out = [None] * len(screens)
-    node = ends[-1] if ends else None
+    node = best(size - 1)[1]
     while node is not None:
         out[node[0]] = node[2]
         node = back[node]
@@ -570,7 +588,8 @@ def judge_sequence(v, what, screens, frames, work, prefix, fixed=None, known=Non
     if not held:
         v.ok(what, detail)
         return matched
-    detail += f"; held and matching none: {held}"
+    detail += "; held and matching none (screen: screenshots): " + \
+        ", ".join(f"{i}: {getattr(screens[i], 'count', '?')}" for i in held)
     if fixed is not None:
         again = in_order(screens, fixed())
         if all(again[i] is not None for i in held):
@@ -941,6 +960,7 @@ def burst_step(v, b, port, start, end, key, work, prefix, seconds, speed=30, kno
     shots = with_speed(b, speed, shoot)
     shown = b.screenshot(pathlib.Path(work) / f"{end}.png")
     frames = port.sequence(start, end, speed=speed)
+    port.frames = frames  # for the script's own reading of the port's frames
     matched = judge_sequence(v, f"the screens from {start} to {end}", shots, frames, work,
                              prefix, fixed=lambda: port.sequence(start, end, True, speed),
                              known=known)
@@ -1007,8 +1027,9 @@ def stable(b, seconds=20, interval=0.3):
 # ---------------------------------------------------------------- the box
 
 def box(work, seed, machine="tandy", verbose=False, saves=(), **kw):
-    """cokbox.Box with SAVE/'s games (and SAVES) and SEED, its files in WORK/box."""
-    kw.setdefault("timeout", 900)
+    """cokbox.Box with SAVE/'s games (and SAVES) and SEED, its files in WORK/box.
+    Its time limit allows for a long battle's burst judged while it waits."""
+    kw.setdefault("timeout", 3600)
     return cokbox.Box(workdir=pathlib.Path(work) / "box", machine=machine,
                       saves=[SAVES, *saves], seed=seed, verbose=verbose, **kw)
 
