@@ -196,7 +196,7 @@ def run_one(name, out, timeout):
     return (verdict if good else None), code
 
 
-def known_of(verdict):
+def recorded_as(verdict):
     return "" if verdict == "AGREES" else "new" if verdict.startswith("DIFFERS new") else None
 
 
@@ -205,7 +205,7 @@ def line(name, checks, want, verdict, code, took):
         shown, note = f"ERROR ({'timed out' if code == 'timeout' else f'status {code}'})", ""
     else:
         shown = "agrees" if verdict == "AGREES" else verdict.split(" (")[0].lower()
-        got = known_of(verdict)
+        got = recorded_as(verdict)
         note = ("as recorded" if got == want else
                 f"CHANGED (recorded: {'agrees' if not want else 'differs new'})")
     return f"{name:20} {checks:18} {shown:28} {took / 60:5.1f} min  {note}"
@@ -270,7 +270,7 @@ def main():
     for name, checks, want in todo:
         verdict, code, took = results.get(name, (None, "not run", 0))
         print(line(name, checks, want, verdict, code, took))
-        changed += verdict is None or known_of(verdict) != want
+        changed += verdict is None or recorded_as(verdict) != want
     print(f"{len(todo) - changed} as recorded, {changed} changed or in error")
     return 1 if changed else 0
 
