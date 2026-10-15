@@ -61,8 +61,11 @@ def main():
     status |= c.run(box_hook=area)
     frames, _ = cp.cok_frames(work / "cok-plain", cp.load_keys("I") + "".join(
         k for _, k in TO_STAIRS) + r"\rea\r", saves=saves, seed=1, patched=True)
-    misses = cp.match_frames(notehere["shots"], frames)
-    print(f"#96 Area in the catacombs: {len(notehere['shots'])} distinct screens; pixels "
+    # The menu the notice gives way to is the screen at the next key read,
+    # compared with eclplay's below (cok's script may end before it shows it).
+    during = [s for s in notehere["shots"] if s.pixels != notehere["end"].pixels]
+    misses = cp.match_frames(during, frames)
+    print(f"#96 Area in the catacombs: {len(during)} distinct screens before the menu; pixels "
           f"differing from the nearest frame cok presents: {misses}")
     _, _, shots = cp.cokbox.eclplay(cp.load_keys("I") + "".join(k for _, k in TO_STAIRS) +
                                     r"\rea", work / "eclplay-after", saves=[saves],
@@ -75,8 +78,8 @@ def main():
         status = 1
 
     if args.only == "plain":
-        return status
-    return status | helm(work, saves, args)
+        return 1 if status else 0
+    return 1 if status | helm(work, saves, args) else 0
 
 
 def helm(work, saves, args):

@@ -186,10 +186,18 @@ def camp(work, saves, verbose):
         counts = []
         for i, shot in enumerate(seen):
             best = min(range(len(expected)), key=lambda k: shot.diff(expected[k])[0])
-            counts.append((shot.diff(expected[best])[0], pshots[best].name))
+            count = shot.diff(expected[best])[0]
+            if count and i < len(seen) - 1:
+                # Caught while the list was cleared and drawn again: each
+                # pixel of the frame before, the frame after, or black.
+                for k in range(max(best - 2, 0), min(best + 1, len(expected) - 1)):
+                    a, b = expected[k].pixels, expected[k + 1].pixels
+                    count = min(count, sum(1 for p, q, r in zip(shot.pixels, a, b)
+                                           if p != q and p != r and p != 0))
+            counts.append((count, pshots[best].name))
         print(f"original, camp: {len(seen)} different screens after Select, each against "
-              f"eclplay's nearest: {counts}; "
-              f"{'waits at ' + ', '.join(where) if took else where}")
+              f"eclplay's nearest (or, before the last, caught drawing: two in a row and black): "
+              f"{counts}; {'waits at ' + ', '.join(where) if took else where}")
         print("  low memory changed:", ", ".join(E.low_changes(low, E.low_memory(box)))
               or "nothing")
         return all(c == 0 for c, _ in counts)

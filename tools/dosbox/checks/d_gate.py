@@ -99,8 +99,10 @@ def main():
         attack = d_lib.burst(b, args.burst, work=work, prefix="attack")
         b.ds_write(0x4B38, bytes([speed]))
         pause_frames = d_lib.frames_after(pshots, res["istan"][1], 150)
-        matched = [getattr(pause_frames.get(s.pixels), "name", None) for s in attack]
-        print("  the burst's screens equal to the port's frames at its pauses:", matched)
+        matched = [getattr(pause_frames.get(s.pixels), "name", None) or
+                   d_lib.between_frames(s, pause_frames) for s in attack]
+        print("  the burst's screens equal to the port's frames at its pauses (N~: caught "
+              "drawing the frame after N):", matched)
         texts = [d_lib.screen_text(s, range(9, 21), 23, 39) for s in attack]
         panel = []
         for t in texts:

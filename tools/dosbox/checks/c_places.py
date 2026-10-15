@@ -290,8 +290,32 @@ def masked_diff(a, b, mask=None):
 
 def match_frames(shots, frames, mask=None):
     """For each screenshot, the fewest pixels it differs from any frame
-    (outside MASK)."""
-    return [min(masked_diff(s, f, mask) for f in frames) for s in shots]
+    (outside MASK), or from two frames in a row taken together: a screen
+    caught while the game drew the next (a line half printed) has each pixel
+    of one or the other."""
+    def between(s, a, b):
+        n = 0
+        for i, (p, q, r) in enumerate(zip(s.pixels, a.pixels, b.pixels)):
+            if p != q and p != r:
+                if mask:
+                    x, y = i % s.width, i // s.width
+                    mx, my, mw, mh = mask
+                    if mx <= x < mx + mw and my <= y < my + mh:
+                        continue
+                n += 1
+        return n
+    out = []
+    for s in shots:
+        diffs = [masked_diff(s, f, mask) for f in frames]
+        best = min(diffs)
+        # The pairs around the nearest frames (the screen drawn from one to
+        # the next).
+        for i in sorted(range(len(frames)), key=diffs.__getitem__)[:3]:
+            for j in (i - 1, i):
+                if best and 0 <= j < len(frames) - 1:
+                    best = min(best, between(s, frames[j], frames[j + 1]))
+        out.append(best)
+    return out
 
 
 def var(box, addr):

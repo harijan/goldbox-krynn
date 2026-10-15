@@ -1047,7 +1047,7 @@ class Box:
         new = self._until(lambda: (set(self.captures.glob("*.png")) - before) or None, 10,
                           "the screenshot")
         png = sorted(new)[-1]
-        self._until(lambda: _complete_png(png), 5, "the screenshot to be written")
+        self._until(lambda: _complete_png(png), 30, "the screenshot to be written")
         self._shots += 1
         if path:
             pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)

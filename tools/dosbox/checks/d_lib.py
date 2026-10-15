@@ -161,6 +161,17 @@ def frames_after(shots, shown, count=200):
     return out
 
 
+def between_frames(screen, frames):
+    """The name of the first of two frames in a row of FRAMES (frames_after's
+    {pixels: path}, in order) that SCREEN lies between, each of its pixels one
+    of theirs (caught while the game drew the second), or None."""
+    pixels = list(frames)
+    for a, b in zip(pixels, pixels[1:]):
+        if all(p == q or p == r for p, q, r in zip(screen.pixels, a, b)):
+            return frames[a].name + "~"
+    return None
+
+
 def compare(shown, shots, name, work):
     count, area, path = best(shown, shots)
     print(f"  {name}: {count} pixels differ from eclplay's {path.name}"
@@ -343,7 +354,7 @@ def burst(b, seconds, until=None, work=None, prefix="b"):
         new = b._until(lambda: (set(b.captures.glob("*.png")) - before) or None, 10,
                        "the screenshot")
         png = sorted(new)[-1]
-        b._until(lambda: cokbox._complete_png(png), 5, "the screenshot to be written")
+        b._until(lambda: cokbox._complete_png(png), 30, "the screenshot to be written")
         pngs.append(png)
     seen = []
     for png in pngs:

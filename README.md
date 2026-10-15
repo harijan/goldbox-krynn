@@ -329,7 +329,9 @@ text files: Ctrl-Break is turned off (`Crt.CheckBreak`, `DS:8a44`), it
 waits for `GAME.OVR` (`169c:01c8`: `Please insert overlay disk.` and a key
 while it is missing) and looks for `krynn.cfg` in the current directory
 (`169c:04c1`, `FindFirst` with no attributes: a hidden one, or a directory
-of that name, counts as missing). Without it the setup runs: `Rewrite`
+of that name, counts as missing under MS-DOS; DOSBox-X's own DOS returns
+hidden files to such a search, so there a hidden one is found). Without
+it the setup runs: `Rewrite`
 makes the file first, and if that fails it says `Sorry, disk A can't be
 write-protected.`, a blank line and `If these are your masters, use
 DISKCOPY to make duplicates.` and halts with status 1. Then four screens,
@@ -518,7 +520,10 @@ artifacts: it saves the cell under it with the cursor's image in it
 it puts (`4877:008b`, `127f:10e7`) covers the arrow, so when the pointer
 next moves the driver restores the background it saved before the mark,
 and the part of the mark under the arrow's 16×16 box vanishes until the
-next redraw. The port's cursor is never in the screen. A read of the stick
+next redraw. The port's cursor is never in the screen. In DOSBox-X with
+its own driver (`f_mouse.py`) the second was seen after a camp (25 pixels
+of the mark gone where the arrow had been); the first, the arrow's image
+painted back after a step, was not. A read of the stick
 that fails as the calibration's first of the centre's twenty adds the
 words at `[bp-7]`, `[bp-9]`, which the probe did not write (it reads into
 `177c:0000`'s own locals): what the caller's previous call left there,
@@ -933,7 +938,16 @@ targets. Both were compared with the three routines run in the emulator.
 Memory is not modelled in any mode: CGA's pictures take half the memory
 and the Tandy's heap is 16 KB smaller, so where `6961:00e4` stops loading
 a small picture's frames (`MaxAvail` under 0xf3c) differs by mode; the
-port loads them all.
+port loads them all. In DOSBox-X (`f_frames.py`, the guards' close-up at
+Throtl's gate, PIC1 record 12's four frames, free memory cut by
+`HOOK.COM`'s pad): with `MaxAvail` 32,000 or more before, all four in
+every mode; about 25,300, two in Tandy and EGA mode, four in CGA's;
+about 18,300, three in CGA's, and in Tandy and EGA mode no close-up but
+`WARNING: Insufficient Memory` on row 24 in yellow and a wait for a key:
+Turbo Pascal's `HeapError` (`DS:439a`, set by `2f48:00b2`) is
+`2f48:0042`, which shows that (`1521:096c`) and makes `GetMem` return nil
+when `DS:4b27` is set, else prints `Insufficient Memory. Exiting
+Program`. About 10,000 reached no wait. The port has neither message.
 
 `tests/test_display.c` replays each screen type's drawing (the title, big
 and small pictures, sprites, portraits, the 3D view and its backdrop, the
@@ -1605,7 +1619,11 @@ it too; a scan code of 3 (Ctrl-2's) is Ctrl-C as well.
 written as Turbo Pascal
 writes a text file on a disk, checked in the emulator: lines end CR LF and
 go into its 128-byte buffer, written out when it fills and when the file
-is closed; the game reads no I/O result (`{$I-}`). The end of a game
+is closed; the game reads no I/O result (`{$I-}`): where the file cannot
+be made (`C:\COK` read-only in DOSBox-X, `e_debug_readonly.py`) Turbo
+Pascal's `InOutRes` holds 2, then 103 once Ctrl-D closes it, and nothing
+is skipped for it: pictures load and a Save writes every file, with no
+runtime error, as in the port. The end of a game
 (`3e99:0977`, `3e99:0843`) clears the flag and leaves the file open, so
 that what its buffer holds is never written and the next Ctrl-D makes it
 anew. The original writes it in the current directory; the port in the
@@ -2447,7 +2465,11 @@ Poison removes 0x16). `1acd` (0x3e) adds itself again for an hour, then
 heals a hit point (`60f4:21ea`, of status 0, 1, 4 or 5 below its most:
 "is fully healed" or "is partially healed", `6346:25f9`, and the party list
 outside combat); the effect comes back even when a constitution recomputed
-below 20 removes it, so it stays. They all speak through the `say` hook,
+below 20 removes it, so it stays. Each step of time up to an hour outside
+camp so takes a point of strength, a hit point or heals one; in a camp's
+rest the chain stops after its first end, since the effect a handler adds
+has no flag set (see below), in the original (DOSBox-X, `b_timers.py`) as
+in the port. They all speak through the `say` hook,
 deal damage and kill through the `damage` and `kill` hooks
 (`cok_cast_damage`, `cok_combat_kill`) and draw the party list through
 `party_list`, in a battle or out of one. `26a5` (0x4a, Sir Lebaum's), at
@@ -2533,7 +2555,14 @@ and the one before the effect that ends, with what it meets: when a
 handler has removed one of them and an effect made since comes up, the
 original's comparison depends on where TP's GetMem (first fit) put that
 one, perhaps in the freed block, which the port cannot know: it fails
-there too.
+there too. The original in DOSBox-X (`slow_poison.py`, 0x16 cut to 30
+minutes, and `b_slow_poison_63h.py`, the whole 63 hours rested), with the
+freed 0x0f not at the heap's top: the character "dies from poison"
+(status 6, no hit points, no effects left), the rest goes on to its end,
+the camp takes keys and a Save writes every file, no runtime error, the
+interrupt table untouched; but the walk counted the minutes down from the
+free list's link (`53dd:0000` became `53dc:fb00`), so the free list runs
+into garbage, for a later `GetMem` past its first block to hand out.
 
 The port keeps these quirks of the handlers:
 
@@ -2644,7 +2673,9 @@ every spell marked to memorize or scribe (`4888:06b8`). The menu reads
 `Save View Magic Rest Alter Fix Exit`, prompt in light magenta and items
 in white and light green as the adventure's, and takes keys until Exit or
 Escape, or a rest is interrupted. It keeps the item selected by the last
-menu, so after `Encamp`, the fifth command, Enter picks `Alter`. Special
+menu of its kind; right after `Encamp` (by its letter or with the arrows)
+that is `Save`, highlighted, which Enter opens, in the original (checked
+in DOSBox-X) as in the port. Special
 keys pick a character (`546c:3334`) and redraw the party list; one whose
 scan code is `E` would also leave, but that is NumLock, which never
 reaches the game (see Party). On leaving it reloads the small
@@ -2991,7 +3022,12 @@ The port keeps these quirks:
   `4888:2c31`, `4888:1c32` and `4888:0a0d` (camp's `Magic`) it is 0x3d9a,
   adding 0x9a (154). Strength as an item's power does not call `161b`,
   and the byte is the segment of the effect pointer `60f4:1408` left
-  there, NULL after its search, so 0. An emulator run of each path agreed.
+  there, NULL after its search, so 0. An emulator run of each path agreed,
+  and so did the original in DOSBox-X (`e_strength.py`): a knight alone
+  of strength 3 gets 0x26 valued 0xd8 (0x74 + 100) and 18/30 from the
+  commands' `Cast` (0xd8 & 0x7f gives 18/87, then `60f4:1743` adds the
+  score: 21 makes 18 and (21 - 18) × 10 = 30), 0xfe (0x9a + 100) and
+  18/100 from camp's `Magic`, as in the port.
 - 0x3b adds effect 0x71 whatever the base strength (`3e73` jumps past
   only "is stronger"); on a base of 21 or more its value is the byte
   `[bp-1]` it never set, `[bp-0x31]` of `1415`: from an item, the high
@@ -3172,7 +3208,12 @@ The port keeps these quirks:
   (View from the commands, a camp whose picture was kept, or another camp
   command before) the byte depends on the run's history, and the port
   stops with `COK_ECL_UNDEFINED`. An emulator run of the whole camp
-  agreed on each case the port carries out. The treasure menu's View
+  agreed on each case the port carries out, and so did the original in
+  DOSBox-X (`e_trade.py`). From the commands' View the byte (at
+  `ss:3b29`) varied there from run to run even with the same seed: 0 in 2
+  runs of 9 (Trade asks again), 0xac, 0x82 or 0x86 otherwise (it leaves),
+  what ran last at that depth (an interrupt's frame, likely) left it. The
+  treasure menu's View
   works the same way (see Treasure and the end of combat).
 - An item used to cast a spell is followed by its position, as a spell
   such as Dispel Magic can remove an effect whose handler removes another
@@ -5268,7 +5309,10 @@ The port keeps these quirks:
   a player's character attacking a party member the computer controls
   is still asked; one on Auto never is.
 - Delay when last in the order gives the turn straight back, running the
-  turn's start (events 7, 0x0f and 0x15) again; so does Alt-Q.
+  turn's start (events 7, 0x0f and 0x15) again; so does Alt-Q. In
+  DOSBox-X (`d_altq.py`) an immolating character's 0x0f burns twice so,
+  as in the port; event 7's effects end the turn before its menu, so
+  Alt-Q never runs them twice.
 - Bandage reaches the first dying party member anywhere on the map, and
   its result is overwritten by the turn's end.
 - The Done menu's and Speed's special keys count as their scan codes'
@@ -5290,7 +5334,13 @@ The port keeps these quirks:
   nothing clears them between battles. Where an earlier battle's record
   is still in that entry the original finds none and reads entry 0's
   cell (`DS:623f`, `6240`), other data: the port stops. A cell off the
-  map there makes the sight read past the map: the port stops too.
+  map there makes the sight read past the map: the port stops too. In
+  DOSBox-X (`e_manual.py`, the earlier battle's record written into the
+  entry) entry 0's bytes were 0x00, 0xe7, a y of -25: Center centred the
+  map as for 0, 0 with the cursor there, `RANGE = 52` (the distance to 0,
+  -25) on row 23, the sight reading terrain 1,243 bytes before the map,
+  and the battle went on; those bytes change from run to run (a y of 0-24
+  would centre elsewhere and could offer `Target`).
 - Aiming lists the attacker itself first; it is never a target while
   attacking.
 - Turn's level is not clamped (see The computer's turns); a "Turn" that
@@ -5314,6 +5364,15 @@ record. Molly's hoopak power (effect
 0x07) with no weapon readied still stops (see Attacks, movement and
 death): the player's turns reach it when she unreadies the hoopak and
 attacks.
+
+What the original does with no target after Manual's Exit, in DOSBox-X
+(`e_manual.py`): `0000:018a` and the NULL record's `+0x18b` are both 0
+there (INT 62h's vector unused), so the target counts as an ally not
+under the computer's control and `Attack Ally:` is asked; No gives the
+turn back, nothing written; Yes attacks the record at `0000:0000`, writing
+over the interrupt table where its fields lie (INT 2-4, INT 33h's segment,
+the mouse driver's, INT 50h-5Fh, 63h-66h), ends the turn, and the battle
+goes on (with KRYNN.CFG's mouse the next INT 33h call would jump astray).
 
 A differential test ran the original's whole battle, `3995:0172` with
 the player's commands and everything they call as they are (`08d5`,
@@ -5493,7 +5552,10 @@ other than the one the last segment hit throws (type 4, 3 for breath)
 and takes the damage, half if saved. A wall in a 3D area (var 0x4be6 1)
 reached with its flag clear bounces: the wall becomes the spell's cell,
 the bolt turns back along the line from it to the caster (alternately
-toward and away from it), anyone may be hit again, and for Lightning
+toward and away from it), anyone may be hit again, the caster too (in
+DOSBox-X a Lightning Bolt at the warrior in Throtl's gateway hit it, came
+back off the wall to hit it again and two hobgoblins, and ran on to its
+caster, as in the port: `d_bolt.py`), and for Lightning
 Bolt's first bounce the 8 the line back costs where it is 8 or shorter is
 charged. A cone (`5b04:1903`): the aim pushed on, repeating the line's own
 steps, until the length walked reaches the cone's length or the aim
@@ -5561,7 +5623,10 @@ cell it does not bounce from (the original passes there for ever), or
 that starts a line after a bounce from a state it started one from
 before, its own and the seed, hit points and conditions all the same
 (between two walls as far apart as its line before was long it is
-charged nothing and bounces for ever), or after 4,096 bounces; 0x47
+charged nothing and bounces for ever: in DOSBox-X, on a combat map
+rewritten in memory as no battle searched with `eclplay` met one, the
+bolt flies between the two walls for good, no key polled and no random
+number drawn, `e_bolt_bounce.py`), or after 4,096 bounces; 0x47
 turning a spell toward a first target whose record was freed with the
 party member it was (removed in camp or by treasure, marked when it is);
 terrain past the table.
@@ -5583,8 +5648,13 @@ cast's end left (`6beb:0ad8`, `6d21:04b0`, Tandy's), the screen offsets
 of its cell on the view: with sx, sy its place on the view, the bytes 0,
 12 (6 - sx), 0, 12, 0, 32, 1, then the word 2016 (sy + 1), 24, 0, 24 sy,
 0, 12 sx, 0, 0, then zeros; a probe of 78 casts, every view cell it
-reached, agrees. The other display modes' blits may leave others (a
-DOSBox check below). The spell's cell after no pick is entry 0's
+reached, agrees. In DOSBox-X (`d_fear.py`, Throtl's gate, the caster at
+26, 13) Fear with `T` at once struck what the port's does, in Tandy, EGA
+and CGA mode alike, with the game loaded at a PSP of 0x08f0 (DS 0x14c6);
+loaded where DOSBox-X puts it with no pad, PSP 0x087b (DS 0x1451, low
+byte 0x51), the cone went elsewhere in all three modes (a hobgoblin ran,
+no party member was touched): this cone too depends on where DOS loads
+the game. The spell's cell after no pick is entry 0's
 (`DS:6fe7` is the handler table's last bytes and the count), which
 nothing reads before the next cast sets it.
 
@@ -5850,6 +5920,17 @@ Outside combat Dispel Magic's part reads the cells around the spell's
 from the interrupt table (the map pointer `DS:6a2e` is NULL): the port
 takes none of them to be a green cloud, as with none the walk does
 nothing and the screen is not centred.
+In DOSBox-X (`e_cloud_dispel.py`, the cloud at the heap's top) the battle
+went on: no random number drawn but the dispel's own d100, nothing written
+in low memory or the heap's free list, the cloud's tiles left drawn. From
+FreeMem's 0002:0000 the walk reads INT 8's and INT 9's vectors there
+(DOSBox-X's BIOS keyboard handler, F000:E987, whose bytes at +4 make
+9090:9090, then NULL), none a cloud at the spell's cell (the freed block is
+soon used again, so memory read after the battle shows other bytes in it).
+Another machine's vectors and BIOS lead elsewhere: a 1 written into a
+garbage node, an effect removed from garbage, or a loop. In camp (the
+spell's cell 0, 0 in that run) no byte read was 0x1e and nothing happened,
+as in the port.
 
 | Function | Original |
 | --- | --- |
@@ -5989,7 +6070,9 @@ Magic marks them; it keeps the type and the hidden parts, so they show as
 `Potion`, `Wand` or `Javelin`. A potion of healing is extra healing on a
 d8 of 6-8. The generated potions are of types 0x30 and 0x35, where the
 shipped ones are 0x2f, and the healing potion's spell is 3 where the
-shipped one's is 0x3e.
+shipped one's is 0x3e. They can be used: in DOSBox-X (`c_ecl3.py`) a
+generated potion of type 0x30 from ECL3 block 81's `TREASURE ... 130`,
+readied and used, healed its drinker fully and was gone, as in the port.
 
 The end of combat (`351b:1968`), as `cok_treasure_end_of_combat`:
 
@@ -6306,9 +6389,11 @@ The temple's `Heal` (`340d:0be1`) clears row 24 and shows, in the frame
 of a large picture (`1128:0344`), `NAME, how can we help you?` on row 1
 in white and the cures (`DS:01cc`, 41 bytes each) in cells 2-38 by 4-15,
 with `Heal Exit` (`67b5:1368`), for the selected character, until Exit or
-Escape; then the screen is redrawn. Each pass clears the frame but the
-list is drawn only the first time, so afterwards only the row picked
-shows. A cure (`340d:027f`-`0b32`) that the character does not need says
+Escape; then the screen is redrawn. Each pass clears the frame and the
+list's text is drawn only the first time; yet as the list returns after a
+cure bought, all ten cures show, the row picked highlighted, in the
+original (checked in DOSBox-X with Raise Dead) as in the port. A cure
+(`340d:027f`-`0b32`) that the character does not need says
 so (the name on row 18 and the text below it, `6346:1883`, no pause) and
 asks `cast cure anyway: ` (`67b5:177f`, No first). Then `CURE will only
 cost N steel pieces.` in rows 17-22 and `pay for cure `: Yes pays as Buy
@@ -6383,7 +6468,10 @@ The port keeps these quirks:
   set it, so Trade is left; Buy, Take, Pool, Share and picking a
   character keep it. The temple's locals are 14 bytes fewer than the
   shop's, so every call from its menu lands 14 bytes higher and the same.
-  An emulator run of each, in the shop and in the temple, agreed.
+  An emulator run of each, in the shop and in the temple, agreed. In
+  DOSBox-X (`e_trade.py`) the outpost's armoury entered from the
+  outpost's menu with nothing before held 0 in 7 runs of 7, so Trade asked
+  for a partner again; other histories were not tried.
 
 A differential test ran the original routines in an 8086 emulator against
 the port on random parties, items and pools: Buy's lines and a purchase
@@ -6667,7 +6755,10 @@ The port keeps these quirks:
   space does nothing: an empty heap or two font blocks, and a later Add
   in the same visit to the start menu after an earlier one, since each
   Add leaks its list of file names (`4b6d:0453`, 0x30 bytes a file),
-  which moves the start menu's rows. The port leaves Add every time.
+  which moves the start menu's rows. The port leaves Add every time. In
+  DOSBox-X (`a_roster.py`: the title skipped with a key, Play, a character
+  added, Escape, Add again and a space) the space left Add the second
+  time too, the count above 5 there as well.
 - Refusing to overwrite renames the character to the new file's name.
 - The file names keep one of two separators in a row (`169c:050b`).
 
@@ -7021,7 +7112,17 @@ goes on where it was saved). It starts its own `Xvfb` and `dosbox-x`
 (core normal, `cycles=fixed 20000`, no EMS, XMS or UMBs, `nosound` unless
 recording), runs `HOOK.COM`, then `START.EXE` with the arguments given
 (`Woof`, `x Helm`), and kills both when it ends, after `timeout` seconds
-at most whatever the game does (`-time-limit` too). Then:
+at most whatever the game does (`-time-limit` too). `pre_commands` are DOS
+commands the autoexec runs in `C:\COK` before `START.EXE` (`ATTRIB +H
+KRYNN.CFG`), `files` more files written there, `mapper` a mapper file's
+text in place of DOSBox-X's default bindings. Under a heavy load DOSBox-X's
+SDL now and then falls back to its offscreen driver and shows no window:
+the run then starts again, up to three times. Runs side by side keep
+apart: `COKBOX_DISPLAYS=LO-HI` (or `display_number`) gives `Xvfb` the
+first free display number of that range, skipping one while its lock file
+is there, removing a lock whose server is gone, and keeping a number only
+once its lock names our own `Xvfb` (two runs may start on one together);
+without it `Xvfb` picks any. Then:
 
 - Memory: the guest's RAM is one block of `dosbox-x`'s heap, found by
   the keyboard buffer's bounds (`0040:0080`) and the interrupt table, and
@@ -7030,18 +7131,24 @@ at most whatever the game does (`-time-limit` too). Then:
   segment, which is found by the first 64 bytes of `START.EXE`'s (unpacked
   as `tools/ovrmerge.py` does), the PSP being `DS - 0x0bd6`. Video memory
   lies outside that block: `find_text` finds the 80-column text screen by
-  a string on it, `text_rows` reads it.
+  a string on it, `text_rows` reads it (a CGA's or Tandy's character and
+  attribute in turn; DOSBox-X keeps an `svga_s3`'s spread over 8 bytes a
+  cell, which it finds too).
 - Waiting for a key: `HOOK.COM` (`tools/dosbox/hook.asm`, assembled into
   `cokbox.py`), a TSR, hooks INT 16h and counts in a block the host finds
   by its signature the reads (functions 0 and 0x10, with a flag while one
   waits in the BIOS) and the polls (1 and 0x11) that found no key, with
-  their call sites and frames. The game waits when `Crt.ReadKey` waits,
-  or when `KeyPressed` keeps finding nothing (two samples running) at a
-  call site other than the flush's (`1614:0467`) and the key read's look
-  before its `ReadKey` (`1614:026c`): a menu's, the title's or a rest's
-  poll (`1614:03c2`). `where()` names the call site and its callers as
-  `START_FULL.EXE` addresses (an overlay's found by its bytes), e.g.
-  `1614:03cd`, `67b5:058e`, `1000:0199` at the title's menu.
+  their call sites and frames. The game waits when `Crt.ReadKey` waits, or
+  when `KeyPressed` keeps finding nothing (two samples running) at a call
+  site other than the flush's (`1614:0467`) and the key read's look before
+  its `ReadKey` (`1614:026c`): a menu's, the title's or a rest's poll
+  (`1614:03c2`); but not a caller that polls once and goes on
+  (`NOT_WAIT_CALLERS`: the computer's turn's look for Space, `3afb:1200`,
+  known by its bytes wherever its overlay lies), whose polls would
+  otherwise take keys typed for the next menu. `where()` names the call
+  site and its callers as `START_FULL.EXE` addresses (an overlay's found
+  by its bytes), e.g. `1614:03cd`, `67b5:058e`, `1000:0199` at the title's
+  menu.
 - Keys: `keys(TEXT)` types `eclplay`'s escapes (`\r \e \b \^ \v \< \>
   \@X \cX \#HH \dC`, `\[...\]` typed ahead, `\pN.` a pause, and `\sNAME.`
   a screenshot) one at a time as the game waits, by putting each key's
@@ -7057,7 +7164,8 @@ at most whatever the game does (`-time-limit` too). Then:
   text mode at the adapter's own), read back as a `Screen` of colour
   indices at 320×200 (640 wide for text), the nearest of the 16 colours, as
   `eclplay --shots` BMPs load; `diff` counts the pixels that differ and
-  their box, `save_png` marks them. About three a second.
+  their box, `save_png` marks them. About three a second. Each PNG is
+  deleted once read (DOSBox-X numbers them up to 999 only).
 - Sound: `wav=FILE` records from the start to the end (F12+W, 48 kHz
   stereo), with `KRYNN.CFG`'s second line `T` or `P`.
 - Randomness: `seed=N` sets `RandSeed` (`DS:43ae`) as the game first
@@ -7081,192 +7189,363 @@ at most whatever the game does (`-time-limit` too). Then:
 `python3 tools/dosbox/cokbox.py run --saves SAVE --keys '\kxP\v\v\rA\sloaded.' --shots shots`
 loads game A and saves the start menu's screen. `cokbox.eclplay(KEYS, DIR,
 ...)` runs `eclplay --start-menu` with the same `KRYNN.CFG` and saved
-games, for comparison. `tools/dosbox/checks/` holds checks of the list
-below run so: `save_again.py`, `slow_poison.py` and `load_game_screen.py`
-(see their bullets).
+games, for comparison (`block=N` after the assets where it does not start
+from the start menu, `binary=` another build of `eclplay`).
+
+`tools/dosbox/checks/` holds the checks of Checks against the original,
+one script per check or close group, named by the batch it was run in: `a_`
+startup, the title, the setup and the start menu; `b_` camp, magic, items,
+effects and saving; `c_` places (3D, the area map, the overland map,
+NPCs, shops, temples, treasure); `d_` combat; `e_` where the original
+reads freed or garbage memory; `f_` display modes, sound, the mouse and
+frame counts; and phase 1's `save_again.py`, `slow_poison.py` and
+`load_game_screen.py` (`a_common.py`, `b_lib.py`, `c_places.py`,
+`d_lib.py`, `e_common.py` and `f_wav.py` are their helpers: saved games
+the port writes at a place and patches, bursts of screenshots against
+every frame `eclplay` or `cok` shows at the game's delays, code traps in
+the overlay buffer, the party's records and effects in memory, Turbo
+Pascal's heap, WAV analysis). Each runs alone (`python3
+tools/dosbox/checks/NAME.py [--workdir DIR]`), prints what it compared,
+and exits 0 when the original and the port agree in all of it, 1 when
+something differs. `make dosbox-checks` (`run_all.py`, `--jobs`, `--only`)
+runs them all side by side, as many at a time as `COKBOX_DISPLAYS` has
+displays less two, then those that catch a short text in a burst of
+screenshots (`d_arrows`, `d_bolt`, `d_cast`, `d_gate`, `d_hold`,
+`d_turning`) one at a time (beside the others on a loaded host DOSBox-X
+wrote ten times fewer screenshots and they missed the text), and prints
+one line per script: the checks it covers, agrees or differs, and whether
+that is the verdict recorded (a script showing a known port difference,
+or the known full stop, exits 1 until the port is fixed). A full run of
+the 82 scripts takes about 21 minutes on a 16-core host with little else
+running (`f_frames.py` the longest at 11, most under two; the six alone
+about 8 of the 21); at a load average near 30 the side-by-side part alone
+took 43.
 
 ## Checks against the original
 
-These follow the disassembly but have not been compared with the game
-running in DOSBox (see DOSBox-X harness for running it unattended):
+These follow the disassembly. Each that can run unattended was then run in
+the original under DOSBox-X (see DOSBox-X harness) by a script in
+`tools/dosbox/checks/`, which compares its screens, files and memory with
+the port's for the same keys and seed; `make dosbox-checks` runs them all.
+The checks keep the numbers they had in this list (#1-#129, in its order),
+which the scripts cite.
 
-- Startup's text screens (see Startup and the setup): run `START.EXE`
-  without `krynn.cfg` in DOSBox (`machine=tandy`, then `svga_s3`) and
-  compare each screen, the file written and the note to Tandy users with
-  `eclplay --start-menu` for the same keys (the emulator modelled the BIOS
-  and DOS, not a real machine's): the text colour (the attribute under
-  DOS's cursor), the 80-column mode's look against the port's 640×200 in
-  the game's font, Backspace at the start of a wrapped row, and that
-  Ctrl-Break does nothing. Interrupt the setup (close DOSBox at the path)
-  and check that an empty `krynn.cfg` is left, which the next start reads
-  as CGA with no sound; and that a hidden `krynn.cfg` brings the setup
-  back. With a joystick (DOSBox's `joysticktype`), the calibration's two
+Checked in DOSBox-X, the original as the port unless said (where the
+original's behaviour is recorded, its section says what it does):
+
+- #1 Startup's text screens, in `machine=tandy` and `svga_s3`: at each of
+  46 key reads the 80×25 text, its attributes (all 0x07) and the cursor,
+  the note to Tandy users, Backspace back over a wrapped row's start,
+  Ctrl-Break and Ctrl-C doing nothing, and `KRYNN.CFG` byte for byte; the
+  setup closed at the path leaves an empty `KRYNN.CFG`, which the next
+  start reads as CGA with no sound: `a_setup.py`.
+- #3 The title's music with `KRYNN.CFG`'s `T` and `P`: the pitches, the
+  tempo (within DOSBox-X's WAV error, 0.2 %); LF line ends silent; the 3D
+  steps and turns, the overland steps and a battle's sounds matched by
+  length (see the rest below): `f_sound.py`.
+- #4 The step before a record read is silenced at once, as in the port
+  (how long: below): `f_sound.py`.
+- #5 Ctrl-S after the demonstration leaves the sound off for good; Alt-R
+  toggles it as Ctrl-S does (tried in the start menu): `a_ctrl_s.py`.
+- #6 Stinking Cloud with a wall among its cells and over half another
+  cloud: the tiles, who coughs and chokes, both clearings and no redraw,
+  over four rounds (the rest below): `d_cloud.py`.
+- #7 Dispel Magic at a cloud: in combat the original goes on, nothing
+  written (see Clouds, pools and breath for what its walk read); in camp
+  nothing happens, as in the port: `e_cloud_dispel.py`.
+- #8 Slow Poison's 63 hours rested: the character "dies from poison", the
+  game goes on, its free list corrupted (see Spell effects); Cause Disease
+  and a constitution of 20 as in the port, the chains stopping in a camp's
+  rest: `b_slow_poison_63h.py`, `slow_poison.py`, `b_timers.py`.
+- #9 Sir Lebaum's d20 over ten rounds: his Dispel Magic took SIRRION's
+  0x6f, as in the port: `d_lebaum.py`.
+- #11 A bolt between two walls bounces for ever in the original, the game
+  hung (on a combat map rewritten in memory; see Spells in combat):
+  `e_bolt_bounce.py`.
+- #12 The aurak's breath at one beside it that saves: 10 points, and its
+  turn goes on to an attack: `d_aurak.py`.
+- #13 The debug mode: the trace after each opcode, the status line's `*`,
+  `DEBUG.TXT` (128 bytes held, CR LF, the rest written at Ctrl-D's close,
+  identical files), Ctrl-2 quitting, Items' View and a shop's menu without
+  `Exit`; in the caravan's battle the setup's trace of each combatant and
+  the combat menu's `Done*`, 122 screens (the end of a game: below):
+  `a_debug.py`, `a_debug_battle.py`.
+- #14 `DEBUG.TXT` where it cannot be made: nothing is skipped and no
+  runtime error comes, as in the port (see Debug mode):
+  `e_debug_readonly.py`.
+- #15 Aim, Manual, Escape, Down and Center in a first battle; with an
+  earlier battle's record left in the entry the original centres on entry
+  0's cell (see The player's commands): `e_manual.py`.
+- #16 Done's F8 ends the turn, Home guards, Del slows past 9: `d_done.py`.
+- #17 Escape in Move after an attack of opportunity: back, the wounds
+  kept: `d_move.py`.
+- #18 `Target` after Manual's Exit: the original asks `Attack Ally:` (see
+  The player's commands): `e_manual.py`.
+- #22 A cleric's long spell moves it down the order, the d2s as the
+  port's: `d_cast.py`.
+- #24 Space during the computer's turns: the turn given up, the next party
+  member's the player's: `d_space.py`.
+- #25 Alt-Q runs the first turn's 0x0f twice; event 7's effects end the
+  turn before its menu, so that half cannot arise: `d_altq.py`.
+- #26 The frame's tile set: border and moons the port's in Tandy, EGA and
+  CGA mode: `load_game_screen.py`.
+- #27 No light magenta and no holes in Throtl's 3D view, but its walls
+  differ: see Wall tiles and sky pictures below: `c_throtl.py`.
+- #28 `Loading...Please Wait` shows where the port draws it, count for
+  count in 33 phases, animation on and off, row 24 after a picture as the
+  port leaves it: `f_loading.py`.
+- #29 Game A's party list and status line (`7,13 N 00:00`) beside the
+  outpost's view; Solace's row 24: see Load saved game A below:
+  `c_outpost.py`, `load_game_screen.py`.
+- #30 The pit in Throtl: three hits on one page (the view's walls: #27):
+  `c_pit.py`.
+- #31 Game A loaded and saved again: KAL and SIRRION know spell 8, every
+  file the port's: `save_again.py`.
+- #32 A human thief's skills with the 7: `b_thief_skills.py`.
+- #33 Game B rested a day: its `.SFX` files unchanged:
+  `b_rest_day_effects.py`.
+- #34 A long timed effect loses twenty in the ten minutes where a short
+  one ends: `b_effect_order.py`.
+- #35 0x5e's bonus to saving throws: a kender of constitution 18 saves
+  where a build without it fails (a dwarf saved by it alone was not met):
+  `c_pit.py`.
+- #36 Throtl's camp screen and its rest menu: `b_camp_screen.py`.
+- #37 Enter right after `Encamp` opens `Save`, not `Alter`, in both (see
+  Camp): `b_camp_screen.py`.
+- #38 A game saved in the outpost inn's camp, and `SAVE/`'s A, resume as
+  in the original; one saved in Throtl's camp differs: see Save in camp
+  below: `b_resume.py`.
+- #39 `Fix`'s time with the stack's 14: `b_fix_time.py`.
+- #40 A day's rest heals once only counting one camp's ticks (`DS:7136`):
+  `b_heal_day.py`.
+- #41 Scribing marks the other item and keeps the scroll: `b_scribe.py`.
+- #42 `Pics`' down arrow turns the pictures off (and F7 the animation):
+  `b_pics.py`.
+- #43 The grimoire highlights its last row shown: `b_grimoire.py`.
+- #44 `Display` shows 0x13 as `Find Traps`: `b_display_effects.py`.
+- #45 A knight above level 6 with no cleric level marks a granted power
+  again and again in the original too: `b_granted.py`.
+- #46 Strength on a knight alone of strength 3: 18/30 from the commands'
+  `Cast`, 18/100 from camp's `Magic`, in both (see Casting):
+  `e_strength.py`.
+- #47 Trade's byte in the four camp cases; from the commands' `View` the
+  original asks again or leaves by the run (see View): `e_trade.py`.
+- #48 After an item with `+0x3d` 0x80, a cast neither says "casts" nor
+  forgets the spell: `b_item_spell0.py`.
+- #49 Haste ages each member a year, once: `b_haste.py`.
+- #50 A character's sheet, `Fighter/Red Mage` and `18(00)`: `b_sheet.py`.
+- #51 The conjured Spiritual Hammer vanishes when unreadied; the item's
+  permanent 0x17 stays, in both: `b_hammer.py`.
+- #52 Backspace in an amount leaves the last digit shown: `b_amount.py`.
+- #53 Throtl from the south: the guards' close-up at once: `c_throtl.py`.
+- #54 A wandering monster's sprite at 2 and 1 over the view, and the
+  close-up: `c_wander.py`, `c_temple33.py`.
+- #55 The cleric round the corner: `Wait`, the menus' selection, `Sly`:
+  `c_temple33.py`.
+- #56 `ROB 0 10 0` leaves 476 of 530: `c_rob.py`.
+- #57 The minotaurs of ECL3 block 80: fleeing fails (three seeds):
+  `d_minotaurs.py`.
+- #58-62 ECL1 block 32's chest: 1391 experience points, the results and
+  treasure menu, `Take`'s jewelry first, `Share`'s gems, the pool's
+  question, `Detect`: `c_chest.py`.
+- #63 Fleeing: `The party has fled.` and 0 experience (every enemy gone
+  first; a flight past living ones not tried): `d_flee.py`.
+- #64 ECL3 block 98's hoard shared: what is left stays, `Share` still
+  offered: `c_ecl3.py`.
+- #65 A generated potion (type 0x30) can be used, as in the port (see
+  Treasure and the end of combat): `c_ecl3.py`.
+- #66 The outpost's armoury: its first screen, `Buy`'s list, the purchase
+  (the `buys` line on row 24 comes between key reads and was not caught):
+  `c_outpost.py`.
+- #67 ECL2 block 50's weapon smith charges 15: `c_block50.py`.
+- #68 Appraise's `Keep` with no items loses the gem; Escape sells it:
+  `c_outpost.py`.
+- #69 Leaving a temple with money in the pool: `c_outpost.py`.
+- #70 `Heal`'s list after a cure bought: all ten cures, the row picked
+  highlighted, in both (see Shops and the temple): `c_outpost.py`.
+- #71 Raise Dead loses the whole difference (constitution 15):
+  `c_outpost.py`.
+- #72 `10 Arrows +1` halved and sold: 6 for the two, 60 for one:
+  `c_block50.py`.
+- #73 A shop's `View` first, `Trade`, Escape: entered from the outpost's
+  menu the original asks for a partner again (7 runs); after a `View` it
+  leaves, as the port (see Shops and the temple): `e_trade.py`.
+- #74 Throtl's gate's battlefield, every combatant's cell and facing:
+  `d_gate.py`.
+- #75 The second of four unconscious: its body right of the first, at the
+  gate and on open ground: `d_ranks.py`.
+- #76 The huge patrol from 30, 3 north-west of KERNEN: 5 bozaks and 9
+  sivaks find no place in both and each receives 5033 (the bullet's 7, 9
+  and 4937 were `eclplay`'s with no 3D map at 0, 0): `d_patrol.py`.
+- #77 Neraka's room at 12, 8: tables and chairs only in the rooms' blocks
+  (the other rooms not fought in): `d_neraka.py`.
+- #78 ECL3 block 97's red dragon: levels 1-3 "terrified" (no higher level
+  in the party): `d_dragonfear.py`.
+- #79 The outpost's patrol's surprise: the first round's order, all 33
+  entries (no one of dexterity under 16 in the party): `d_patrol.py`.
+- #80 Dying: "Your Teammate is Dying" to the ninth round, dead at the
+  tenth, Bandage: `d_dying.py`.
+- #81 "Continue Battle:" at each round's end of a won battle: `d_helm.py`.
+- #82 `START x Helm` and Alt-X: "The Gods intervene!": `d_helm.py`.
+- #83 The gate's combat screen as the battle begins: `d_gate.py`.
+- #84 Game A's combat icons: `d_gate.py`.
+- #88 Attacking a hobgoblin: the panel's rows, text and colours:
+  `d_gate.py`.
+- #89 Arrows counted down by the shots (a short bow: no long bow in the
+  saved games; the rest below): `d_arrows.py`.
+- #90 A bozak explodes beside two characters, 1-6 each: `d_bozak.py`.
+- #91 A baaz's killer loses his sword and has it back after:
+  `d_weapon.py`.
+- #92 A step away draws one attack `(from behind)`: `d_move.py`.
+- #93 `Area` in Throtl, the map following a step and a turn:
+  `c_throtl.py`.
+- #94 The map's doors and passable walls, Throtl's and Sanction's
+  one-sided ones: `c_throtl.py`, `c_map80.py`.
+- #95 A wandering monster with the map on: `c_wander.py`.
+- #96 The catacombs' `Not Here`; with `Helm` the map, off at the next
+  step: `c_catacombs.py`.
+- #97 The catacombs entered with the map on show the 3D view:
+  `c_catacombs.py`.
+- #98 Leaving the first outpost: the overland map, the mark, a step east:
+  `c_overland.py`.
+- #99 Ctrl-F8 in `Move` camps without a step: `c_overland.py`.
+- #100 Swimming off 35, 4: no step, the same again on 5 or F1:
+  `c_overland.py`.
+- #101 A won fight on the overland map leaves the mark where it was:
+  `c_overland.py`.
+- #102 The knights' camp left: the map again, the script ended:
+  `c_overland.py`.
+- #103 The magic shop's and the weapon smith's portraits: `c_block50.py`.
+- #104 Skyla drawn as nothing, the kender's icon `CPIC1` record 15:
+  `c_npc.py`.
+- #105 Find Traps cast from the second character's memory at the trap:
+  `c_pit.py`.
+- #106 Leaving Throtl: the kender and Strangbourn leave: `c_npc.py`.
+- #107 The demonstration: its party, the green dragon's close-up's 12
+  frames, the title after its battle: `a_demo.py`.
+- #108 30 seconds at the title's menu, or F10, start the demonstration
+  (its `Of` cannot be told from `of`: the font has capitals only):
+  `a_demo.py`.
+- #109 Escape then Save in the start menu: unsaved, `Quit anyway?`, No
+  opens Save: `a_unsaved.py`.
+- #110 Creation: no racial adjustment shown, a multi-class's money
+  undivided, a cleric's wisdom at 19 and 20, a thief's skills:
+  `a_create.py`.
+- #111 A knight's Plate Mail, Shield and Long Sword carried, not readied;
+  its weight until loaded again: `a_create.py`.
+- #112 No key leaves the icon editor's `Parts` menu: `a_icon.py`.
+- #113 A roster character with 128 jewels is not listed; a space first
+  ends Add; and a space at a second Add left Add too (see The roster):
+  `a_roster.py`.
+- #114 A fourth ranger: `too many rangers in party`: `a_roster.py`.
+- #115 Removed and saved over a file with No: the new name taken:
+  `a_roster.py`.
+- #116 Training cut the experience before No: `a_hall.py`.
+- #117 F9 at Knight Change Classes changes the order: `a_hall.py`.
+- #118 Modify's `K` keeps and ends; the wisdom's spell kept until loaded
+  again: `a_modify.py`.
+- #119 Magic Missile with Cast: the pose, the flight, `Casts a Spell`,
+  `Spell:Magic Missile`; under 0x4a too: `d_cast.py`.
+- #120 Hold Person at three targets, `Cannot target yourself`:
+  `d_hold.py`.
+- #122 Fear with `T` at once: the port's cone in Tandy, EGA and CGA mode
+  with the game at a PSP of 0x08f0; another at 0x087b (see Spells in
+  combat): `d_fear.py`.
+- #123, #124 Every screen compared in CGA and EGA mode (the title, the
+  start menu, character creation, Solace, the outpost, the camp, a sheet,
+  the overland map, a battle's first turn and Aim, CGA's four colours,
+  `Sorry, not in CGA`) is the port's but Throtl's 3D view, which differs
+  in all three modes alike (#27): see In CGA mode below:
+  `f_display_modes.py`.
+- #126 A small picture's frames with little memory: fewer by mode, or
+  `WARNING: Insufficient Memory` (see Display modes): `f_frames.py`.
+- #127 Lightning Bolt beside a wall comes back and hits the enemy again,
+  and the caster too, in both (see Spells in combat): `d_bolt.py`.
+- #128 A cleric hit while casting "lost a spell", and the spell is gone:
+  `d_cast.py`.
+- #129 Magic Missile reflected: the caster takes the damage:
+  `d_turning.py`.
+
+Still to check, with why, and the port differences DOSBox-X found (their
+entries say what differs):
+
+- (#1) Startup and the setup, the parts DOSBox-X cannot show: a hidden
+  `krynn.cfg` should bring the setup back (`169c:04c1`'s `FindFirst`
+  passes no attributes), but DOSBox-X's DOS returns hidden files to such a
+  search, so there the game finds it: needs MS-DOS (booted in DOSBox-X, or
+  a PC). With a joystick (DOSBox's `joysticktype`), the calibration's two
   screens and the thresholds written, against `eclplay --joystick` with
-  `\j` keys.
-
-- The Tandy's chip given a tone of divisor 0 (the effects driver writes
-  one, loud, on the first tick of commands 2, 4, 5, 6, 8 and 12): the
-  port follows MAME in taking it as 1024, a 109 Hz tone; a chip that
-  took it as a period of 0 would toggle every step, inaudibly. Record
-  the first 5 ms of those sounds on a Tandy 1000.
-- The sound (see Sound) against a Tandy 1000, or DOSBox with `machine=tandy`
-  and `KRYNN.CFG`'s second line `T` (then `P` for the PC speaker; and a
-  file with LF line ends, which should give no sound):
-  record the title's music and a few sounds (a step in 3D, a turn, a hit,
-  a miss, an arrow, Fireball, Lightning Bolt, a death) and compare them
-  with `eclplay --wav` and `cok`: the pitches and tempo (the drivers' port
-  writes agree with the original's; the synthesis is MAME's NCR 8496),
-  the noise's character in the steps and the title's drums (the NCR 8496
-  feeds back bits 1 and 5 XNOR'd and keeps its register through the
-  effects driver's rewrites of the noise control each tick; a chip that
-  reset it on every write would sound different), the voices' loudness
-  against each other and against the speaker's (the port's levels are
-  MAME's, the speaker's a guess), and the clicks the coupling smooths.
-- The sounds a record read cuts (see Sound): a step on the overland map
-  next to a place whose picture loads, a sound followed by a portrait;
-  whether the original's sound stops there as the port's does, and for
-  how long the disk read keeps it stopped.
-- Ctrl-S: turn the sound off, let the title's menu run out into the
-  demonstration and come back; Ctrl-S should no longer turn it on (the
-  install after the title copies the device, off, to `DS:577b`). And
-  Alt-R (in combat, where nothing else takes it) should turn the sound
-  off as Ctrl-S does.
-- Clouds and pools (see Clouds, pools and breath): cast Stinking Cloud
-  with a wall among its four cells, over a fallen party member's body and
-  over half of another cloud; compare the tiles while it lasts and after
-  "The air clears a little..." (its caster's level in rounds), and who
-  coughs or chokes. Let a kapak die on a body and the body be raised
-  before its pool drains: the port stops there (`3f44:2037`'s byte never
-  set). Compare too that the tiles are not redrawn when a cloud clears.
-- Dispel Magic at a cloud in combat: where it takes the cloud away the port
-  stops (`5b04:354a` reads the freed node's next, the size FreeMem wrote:
-  0002:0000, the interrupt vectors); see whether the game hangs, crashes or
-  goes on. Cast it in camp too: the port takes the bytes
-  the walk reads from the interrupt table (the map pointer is NULL) to be
-  no cloud; the combat map should not flash over the view.
-- Timers (see Spell effects): cast Slow Poison on a poisoned character
-  and rest 63 hours: where 0x16 runs out with Slow Poison's 0x0f after
-  it, the port stops (the walk reads the 0x0f its handler freed: at the
-  heap's top it frees it again, runtime error 204; elsewhere it counts
-  down the free list's link and walks the interrupt vectors from
-  `0000:0100`); see whether the game stops with runtime error 204,
-  crashes or goes on, and whether the character "dies from poison".
-  Done for 0x16 cut to 30 minutes (`tools/dosbox/checks/slow_poison.py`:
-  a game the port saved with the poison, 0x16 and 0x0f after it, loaded
-  in the original, an hour's rest in the outpost's inn): the character
-  takes its two points from 0x0f and "dies from poison", the rest goes on
-  to its end and the game with it, no runtime error, the interrupt table
-  unchanged; the freed 0x0f was not at the heap's top, and the walk
-  counted the step's five minutes down from its word past the id, in the
-  free list's link: the free block's next pointer went from `53dd:0000`
-  to `53dc:fb00`, so the free list now leads into garbage, for a later
-  `GetMem` to hand out. The 63 hours are still to be rested.
-  Cast Cause Disease and wait out 0x22 (10-60 minutes): "is weakened",
-  strength a point lower each hour, and a hit point lost each ten minutes
-  down to one. A character of constitution 20 should heal a point each
-  hour ("is partially healed"), also after its constitution drops.
-- Sir Lebaum (ECL3 block 82): at each of his turns 0x4a casts Dispel Magic
-  on a d20 of 1, with no text unless an effect of value other than 0xff
-  goes ("is affected"), on whatever his last fireball or spell aimed at.
-- Breath: a red dragon two cells across, a wall diagonally below its left
-  cell, breathing at someone seen past its right cell (the cone's line
-  stops at the wall, meeting no one): the side byte is a stack address's
-  low byte, 0xe0 (0xea after a mirror) in a battle a vector of the
-  adventure loop starts, 0xda (0xe4) after NEWECL, 0xd8 (0xe2) in a rest
-  encounter, 0xb8 (0xc2) in one of PROGRAM 9's camp (ECL1 block 16's
+  `\j` keys: DOSBox-X's emulated stick did not move for mapper bindings
+  pressed through X (needs a host joystick). And the 80-column mode's look
+  (the ROM's font) against the port's 640×200 in the game's font, a
+  judgement.
+- (#2) The Tandy's chip given a tone of divisor 0 (the effects driver
+  writes one, loud, on the first tick of commands 2, 4, 5, 6, 8 and 12):
+  the port follows MAME in taking it as 1024, a 109 Hz tone; a chip that
+  took it as a period of 0 would toggle every step, inaudibly. Record the
+  first 5 ms of those sounds on a Tandy 1000. DOSBox-X's Tandy chip is
+  MAME's code, as the port's, so only the real one tells.
+- (#3) The sound (see Sound) on a Tandy 1000: the noise's character in the
+  steps and the title's drums (the NCR 8496 feeds back bits 1 and 5 XNOR'd
+  and keeps its register through the effects driver's rewrites of the
+  noise control each tick; a chip that reset it on every write would sound
+  different), the voices' loudness against each other and against the
+  speaker's (the port's levels are MAME's, the speaker's a guess), and the
+  clicks the coupling smooths: DOSBox-X's chip is MAME's code, as the
+  port's. In DOSBox-X still: an arrow, Fireball and Lightning Bolt,
+  against `eclplay --wav`.
+- (#4) The sounds a record read cuts (see Sound): for how long the disk
+  read keeps the sound stopped (DOSBox-X's reads take its own time: a real
+  disk), and a sound followed by a portrait (not run).
+- (#6) Clouds and pools (see Clouds, pools and breath): Stinking Cloud
+  over a fallen party member's body (none fell where a cloud could go in
+  the runs), and a kapak dying on a body that is raised before its pool
+  drains: the port stops there (`3f44:2037`'s byte never set).
+- (#10) Breath: a red dragon two cells across, a wall diagonally below its
+  left cell, breathing at someone seen past its right cell (the cone's
+  line stops at the wall, meeting no one): the side byte is a stack
+  address's low byte, 0xe0 (0xea after a mirror) in a battle a vector of
+  the adventure loop starts, 0xda (0xe4) after NEWECL, 0xd8 (0xe2) in a
+  rest encounter, 0xb8 (0xc2) in one of PROGRAM 9's camp (ECL1 block 16's
   knights); compare who is hit in each (ECL3 block 98 at 8f44 with
-  `eclplay --test-party 6 --combat auto --seed 8` is one). A
-  green dragon breathing at a target when the last combatant listed lies
-  in the target's column: the burst should fall beside the dragon (the
-  range the target routine's last line left is 0). Acid or a dragon's
-  breath at a target facing west (its icon drawn mirrored) whose icon's
-  mask is opaque at the bottom-left: sight one cell in Tandy mode (its 2
-  leftmost pixels opaque); in EGA mode only where the 8 leftmost are; in
-  CGA mode sight to 3 cells whatever the mask (see Display modes).
-- A blue dragon's lightning between two walls of a 3D area as far apart
-  as its line before the bounce: the original should bounce for ever (the
-  port stops).
-- The aurak's breath at one beside it that saves: its turn goes on.
-
-- The debug mode (see Debug mode): start `START Woof`, press Ctrl-D at a
-  menu and compare the trace after each opcode (`A , B , C` on row 0 over
-  the moons, the opcode's name on row 24 in yellow, a key each), the
-  status line's `*`, and, in a battle, the trace of each combatant and
-  `Done*`. Press Ctrl-Z and compare `DEBUG.TXT`: CR LF lines, nothing on
-  the disk until 128 bytes are written or Ctrl-D closes it. Let the party
-  die (or the demonstration end) with the flag set, then press Ctrl-D:
-  the file should be empty again. Ctrl-2 should quit to DOS as Ctrl-C
-  does. In Items, `View` an item, and in a shop see that a character
-  offered `View Ready Trade Drop Halve Join Sell Id` has no `Exit`.
-- `DEBUG.TXT` in a directory where it cannot be made (read-only): the
-  original reads no I/O result, which Turbo Pascal keeps until something
-  reads it, so that a later file operation (saving a game, reading a
-  picture) may be skipped or stop the game with a runtime error; the port
-  writes nothing and goes on. See what the game does.
-
-- The player's commands in a battle (see The player's commands): in Aim,
-  Manual, then Escape, then Down: the port takes the cell of the entry
-  after the last combatant (its record NULL), and stops in a later
-  battle with fewer combatants than an earlier one, whose record is then
-  in that entry: compare where Center then centres the map in both.
-- In the Done menu, F8 (scan 0x42, `B`) with no one dying ends the turn
-  as Bandage would; Home (0x47) guards; in Speed, Del slows past 9.
-- Escape in Move after a step that drew an attack of opportunity: the
-  combatant goes back with the wounds kept.
-- `Target` after Manual's Exit (no target, the cursor's last cell valid):
-  the original reads the interrupt table at `0000:018a`; the port stops.
-  Compare what DOSBox does ("Attack Ally:" asked, or an attack on
-  nothing).
-- Aim's cursor's flight between targets (`6346:1ba6` with delay 0):
-  compare with the port's.
-- The mouse (see The mouse and the joystick), in DOSBox with its own
-  driver (`machine=tandy`, then `svga_s3` and `machine=cga`): the cursor's
-  look in each mode (the port draws the arrow a bit a pixel in the Tandy's
-  and EGA's modes, a two-bit pair a pixel in CGA's, as a Microsoft driver
-  does; DOSBox's own driver draws it a bit a pixel in CGA's too), where it
-  is hidden (the title's waits, running text), and that a click lands on
-  the cell under the arrow's tip. The pointer's image left in the overland
-  map: stand the pointer on the party's mark, end a battle or a camp, step
-  away, and see whether the old cell shows the arrow (the port shows none);
-  and move the pointer off the mark after a battle or a camp: does the part
-  of the mark under the arrow vanish (the port's stays)? A click in the
-  title menu's column 0 before any list (`DS:6e2f`, `6e30`, `6e16`
-  uninitialised: the port takes 0, which starts the game). Both buttons at
-  once: a menu takes the 0 as an extended key's prefix and reads the next
-  key as its scan code (the port does so); the digit read at `58e7:02f7`
-  (the port gives it 0).
-- The joystick: the keys a push gives and their pace on a real machine
-  (the port repeats a held push every 60 ms) and the calibration's
-  timeout (20000 polls; about 400 seconds in the port).
-- A cleric's long spell ("Begins Casting") moves it down the round's
-  order with a d2 at each tie: compare the order after it.
-- A cleric on Auto against undead (see The computer's turns): `3afb:024b`
-  takes the highest kind to turn from a stack byte its calls leave, the
-  way of moving's last die's sides, 2 or 4. Put a cleric of level 5 or
-  more on Auto (Alt-Q) against undead only of kinds (`+0xda`) above 4:
-  the port's never tries to turn them, where the player's `Turn` would.
-  Then against undead of kind 1 or 2, which it should try to turn.
-- Space during the computer's turns gives the party back: the turn it
-  interrupts is given up (initiative 0x14 with no `DS:72ce` decrement in
-  `3afb:1200`), and the next party member's turn is the player's.
-- With Alt-Q, the first combatant's turn runs twice: compare whether its
-  effects for event 7 and 0x0f act twice (a held one, a snake bite) in that
-  turn.
-- The frame's tile set (`8X8D1.DAX` record 202) is loaded with colour 13
-  transparent (`6e22:0050`), so the frame shows black where its tiles have
-  light magenta. Compare the frame's border and moons with the original.
-  Done: in the start menu and Solace's first page they are the port's
-  pixel for pixel in Tandy, EGA and CGA mode (see Load saved game A).
+  `eclplay --test-party 6 --combat auto --seed 8` is one). A green dragon
+  breathing at a target when the last combatant listed lies in the
+  target's column: the burst should fall beside the dragon (the range the
+  target routine's last line left is 0). Acid or a dragon's breath at a
+  target facing west (its icon drawn mirrored) whose icon's mask is opaque
+  at the bottom-left: sight one cell in Tandy mode (its 2 leftmost pixels
+  opaque); in EGA mode only where the 8 leftmost are; in CGA mode sight to
+  3 cells whatever the mask (see Display modes). Not run in DOSBox-X: each
+  context needs its own route to a red dragon in that geometry (ECL3 block
+  98's fight at 8f44 can be reached with a patched saved game); breath
+  otherwise agrees (#12, #90).
+- (#13) The debug mode at the end of a game: let the party die with the
+  flag set, then press Ctrl-D: `DEBUG.TXT` should be empty again. Not run:
+  the party must die (with `Woof` the title, and so the demonstration, is
+  skipped).
+- (#19) Aim's cursor's flight between targets (`6346:1ba6` with delay 0):
+  compare with the port's. A person's judgement: DOSBox-X's screenshots
+  come about three a second (an AVI, F12+I, could be looked at).
+- (#20) The mouse: with both buttons at once, the digit read at
+  `58e7:02f7` (the port gives it 0); and the pointer's image left in the
+  overland map's old cell after a battle (after a camp it was not seen;
+  see The mouse and the joystick).
+- (#21) The joystick: the keys a push gives and their pace on a real
+  machine (the port repeats a held push every 60 ms) and the calibration's
+  timeout (20000 polls; about 400 seconds in the port). Needs a real
+  machine and stick.
+- (#23) A cleric on Auto against undead (see The computer's turns):
+  `3afb:024b` takes the highest kind to turn from a stack byte its calls
+  leave, the way of moving's last die's sides, 2 or 4. Put a cleric of
+  level 5 or more on Auto (Alt-Q) against undead only of kinds (`+0xda`)
+  above 4: the port's never tries to turn them, where the player's `Turn`
+  would. Then against undead of kind 1 or 2, which it should try to turn.
+  Not run: no fight reached had undead of those kinds on the map (in Sir
+  Lebaum's, `d_lebaum.py`, his kind is 0 and the ghasts found no place;
+  KAL, cleric 7 on Auto, never tried to turn in either).
 - Wall tiles and sky pictures are masked with colour 13 in the 3D view.
   Compare a view, such as Throtl's street from 7, 15 facing north, for light
   magenta or holes.
-- `Loading...Please Wait` (see Playing scripts and The start menu): it
-  should show on row 24 in light green at startup before the title, in
-  each step into a new block (`NEWECL`), and with `Pics` animation on
-  while a small picture or a monster's sprite loads; with animation on,
-  text left on row 24 should be gone after a picture loads, and with it
-  off stay. The port reads in no time and draws over the message before
-  `cok` shows the screen again, so it is never seen there.
 - Load saved game A and compare the party list and status line beside the
   view: the columns of AC and hit points, the colours, and `7,13 N 00:00`.
   Partly done (`tools/dosbox/checks/load_game_screen.py`, in Tandy, EGA and
@@ -7277,320 +7556,34 @@ running in DOSBox (see DOSBox-X harness for running it unattended):
   stop the port adds (`src/adventure.c`), which it draws black on white at
   column 34. To be fixed; the status line beside the view, `7,13 N
   00:00`, is still to be compared.
-- Fall into the pit in Throtl and compare the damage messages and how they
-  page.
-- Load saved game A, save it again, and see whether KAL and SIRRION now
-  know spell 8 (`+0x6a` of their `.SAV` set), as this executable's
-  `66c2:000f` would make them. Done (`tools/dosbox/checks/save_again.py`):
-  the original, loading and saving game A from the start menu, sets it
-  for both, as the port does, and every file it writes is the port's but
-  for the bytes it writes from memory (see Camp).
-- The thief skills include the 7 that `66c2:0b9f` reads from the stack,
-  which the saved thieves show; an interrupt between `66c2:08a6` and
-  `66c2:0b9f` could leave another value. Load a saved game with a human
-  thief and compare its thief skills (`+0xdb`) with the port's. Character
-  creation calls `66c2:0b9f` from elsewhere (`4def:06dd`), where the byte
-  is 0x0a, but its training then recomputes the skills with the 7.
-- Load saved game B and rest a day: the effects in the `.SFX` files of its
-  characters, all permanent, should be unchanged when it is saved again.
-- Give a character with no effects (not a dwarf, elf, half-elf, kender or
-  ranger, whose racial and class effects load first from `.SFX`) a long
-  timed effect, then a short one, then any third, from spells cast in that
-  order outside combat, and let time pass until the short one ends: in the
-  ten minutes in which it ends, the long one should lose twenty
-  (`57e4:0171` restarts its walk). With only the two, it loses ten.
-- With a dwarf or kender of constitution 19 in the party, compare the
-  saving throws against a trap's `DAMAGE` with those of another race: the
-  port adds 5 (effect 0x5e) to throws of types 0, 2 and 4.
-- Camp in Throtl and compare the camp screen: the campfire picture in the
-  view, `The party makes camp...` on row 18, the status line ending
-  `camping`, and the rest time on row 17 (`Rest Time: 00:00:00`, the
-  minutes in white) with the rest menu.
-- Camp right after `Encamp` and press Enter: the original opens `Alter`,
-  the fifth item, as the menu keeps the selection.
 - Save in camp, then load that game: it holds mode 2 (`0x1407`). Compare
   how the original resumes it with how it resumes a game saved from the
   party menu.
-- Hurt a character a few points with a cleric of two first-level spells a
-  day in the party and `Fix`: the clock should pass the time of
-  `4888:28f9`, 270 minutes divided by 41 over the points lacking, which
-  depends on the 14 it reads from the stack.
-- Rest a full day twice in one camp, and once each in two camps: the
-  party heals a point a day only counting the ticks of one camp
-  (`DS:7136`).
-- With a magic-user of an order carrying a scroll and another item whose
-  `+0x3c`-`+0x3e` hold the scroll's spell id, scribe it: the other item
-  is marked, and the scroll is not used.
-- In `Alter`'s `Pics`, press the down arrow: the pictures flag changes.
-- Open the grimoire: the first spell highlighted is the last row shown.
-- `Display` a character with effect 0x13: it shows `Find Traps`.
-- With a knight above level 6 and no cleric level who knows a granted
-  power, memorize it: the port lets it be marked again and again, counting
-  against 0x71 (`4888:0700`); see whether the original does.
-- Cast Strength on a knight or ranger with no other class and a
-  strength of 3: the roll is the low byte of a frame pointer (`5b04:2f03`),
-  0x74 from the commands' `Cast` and 0x9a from camp's `Magic`, so the
-  strength should become 18 and the exceptional strength 100 either way.
-  Check both.
-- `Encamp`, choose `View` first, `Trade`, pick a partner, and press
-  Escape at the first coin list: the original should ask for a partner
-  again. Choose `Spells` or `Drop` first, or `View` twice, and it should
-  leave Trade. From the commands' `View` the port stops; see what the
-  original does.
-- Use an item whose `+0x3d` is 0x80, then cast a spell from memory: it
-  should not say "casts", and the spell should stay memorized.
-- Cast Haste with a mage of level 4: each member hasted should "age" a
-  year, once (its value's bit 4).
-- Open a character's sheet: compare the layout and colours with the
-  table in View, a fighter/mage's class line (`Fighter/Red Mage`) and an
-  exceptional strength (`18(00)`).
-- Ready the Spiritual Hammer a cleric conjured, then unready it: it
-  should vanish (power 0 removes effect 0x17).
-- In an amount, type more than the coins there are, then Backspace: the
-  last digit stays on the screen.
-
-- Enter Throtl from the south (7, 15 facing north): the guards' close-up
-  should show at once, as the wall type on that side, which the party can
-  pass, keeps the monsters at distance 0 (`3775:04a9`).
-- Meet a wandering monster in an open corridor: compare the sprite at
-  distances 2 and 1, masked over the view at its header's place + 3 cells,
-  with colour 13 black, and the close-up at 0, with the original.
-- In Throtl's temple (ECL1 block 33, the cleric round the corner), `Wait`
-  should bring him nearer, and the menu should start on the item chosen in
-  the menu before; parlaying `Sly` should lead to the stack of papers.
-- Have a character with 530 of a coin robbed of 10% (`ROB 0 10 0`, ECL1
-  block 17): it should keep 476.
-- Try to flee the minotaurs of ECL3 block 80: it should always fail
-  (`CHECKPARTY [7d1b]` stores nothing).
-
-- With a party of six, open the chest of ECL1 block 32 (250 steel, 5 gems
-  and 3 jewels): the results should say each character receives 1391
-  experience points (`351b:0037`). Compare
-  the results screen and the treasure menu: the chest's picture in the
-  view's place, the party list, no status line, `View Take Pool Share Exit`.
-- In that menu, `Take`: the coins should list jewelry first, and the
-  question read `How much Jewelry  will you take? ` with two spaces.
-- `Share` right away: of the 5 gems, the first five characters should get
-  one each, and the sixth none.
-- Leave with coins in the pool: `There is still treasure left.` and the
-  question should show, and `~Yes ~No` should start on the item the menu
-  before had selected, not on No.
-- With a cleric who has Detect Magic memorized, `Detect` in the treasure
-  menu: no "casts" message, and the items with a bonus should show `* `.
-- Flee a fight: the results should say `The party has fled.` and `Each
-  character receives 0`.
-- `Share` the hoard of ECL3 block 98 (95,000 coins): what the party
-  cannot carry should stay in the pool, with `Share` still offered.
-- Take a random potion from a treasure of ECL3 block 81 (`TREASURE ...
-  130`) and drink it: generated potions are of type 0x30 or 0x35, where
-  the shipped ones are 0x2f; see whether the game can use them.
-
-- Enter Throtl's armoury (ECL1 block 17): the first screen should keep
-  the view's frame as it was, with the portrait last shown (if any) in
-  the view's place, and only a redraw after `Buy` draws the frame. `Buy`
-  should list lines like `Long Sword` and `7` ending at column 30, and
-  buying say `NAME buys a Long Sword` on row 24.
-- In a new game, before visiting any other shop, the weapon smith of
-  ECL2 block 50 should list each weapon at its value and charge 15
-  steel for any of them (var `0x7f6d` 0, `36d0:0484`).
-- Appraise a gem with a character carrying no items and choose `Keep`:
-  the gem should be gone and no item gained. Press Escape at `You can : `
-  instead: the gem is sold.
-- Leave a temple with money in the pool: the priest's first sentence
-  should vanish at once behind `Do you want to go back and retrieve your
-  money?`.
-- In a temple's `Heal`, buy a cure: on the list's return only the row
-  picked should show, the first time the first cure highlighted.
-- Raise a dead fighter of constitution 15 whose maximum hit points are
-  above those at full: it should lose the whole difference.
-- Buy `10 Arrows +1` (worth 120 at ECL2 block 50's magic shop or 50 at
-  ECL3 block 80's), halve it down to a stack of 2 and a single one, and
-  sell both: the stack should fetch about a tenth of the single one's
-  price (2 x 60 / 20 = 6 against 60 for those of ECL2).
-- In a shop, `View` first, `Trade`, pick a partner and press Escape at
-  the first coin list: the port stops (the byte depends on the run); see
-  whether the original asks for a partner again. After a `View` before, it
-  should leave Trade.
-
-- Fight the guards at Throtl's gate with a party of six (7, 15 facing
-  north, `ATTACK`): "A battle begins..." should show on row 24 after a
-  pause; the street should run across the battlefield, walled to the
-  north but for the gateway, a guard standing in it; the party in two
-  ranks of three, the first character's in the middle of the front
-  rank, the second's to its right, the third's to its left, and the guards
-  in a rank before them. Compare the map with `eclplay --test-party 6
-  --set 4be6=1 --combat-map FILE --keys '\r\rE' Assets 32`.
-- With the second of four characters unconscious, fight anything: its
-  body should lie where the second would stand, right of the first, and
-  the third and fourth stand a rank back.
-- Stay to fight the huge patrol that sallies forth from Throtl (ECL1
-  block 16 at 8cda: 9 red dragons, 9 bozaks and 9 sivaks) on open
-  ground: count how many stand on the battlefield; those that find no
-  place are removed before the fight and bring no experience. How many
-  find one depends on the trees and on the walls of the 3D map loaded
-  and the party's square; in `eclplay`'s run (no 3D map loaded, the party
-  at 0, 0) 7 bozaks and 9 sivaks find none, and each of saved game A's
-  party receives 4937.
-- Fight in the rooms of Neraka (ECL2 block 64, squares at x 11-15 of y
-  8-9 and x 8-10 of y 12-13): tables and chairs should stand only in
-  the room's own block, never in the block to its east or below it.
-- Fight the red dragons of ECL3 block 97 with a party of low levels:
-  each character of level 3 or less should flash and be "terrified"
-  as the battle begins, and those of higher levels "afraid" unless they
-  save.
-
-- Meet the patrol of Throtl's outpost (ECL1 block 16 at `8cda`), which
-  surprises the party (var `0x7ecb` 1): in the first round only
-  characters of dexterity 16 and up, with a high roll, should get a turn.
-- Leave a character dying (2-9 points past its hit points) in a battle:
-  "Your Teammate is Dying" should show at each round's end, and it should
-  die once the rounds counted from its damage pass 9, its hit points
-  unchanged; Bandage (in Done) should make it unconscious.
-- Win a battle that the party can still fight: "Continue Battle:" should
-  ask at the round's end; Yes should go on with another round and ask
-  again.
-- Start the game with a second argument of `Helm` (`START x Helm`) and
-  press Alt-X at a character's turn in combat: "The Gods intervene!",
-  every monster dead, the round ending.
-- Fight the guards at Throtl's gate (as above): the combat screen should
-  have its frame's column 22 and row 22, the moons above, the map of 7 by 7
-  cells centred on the first character in the box of cells 1-21, the
-  guards facing the other way from the party, an empty panel, and "A
-  battle begins..." left on row 24. Compare with `eclplay --party
-  SAVE/SAVGAMA.DAT --set 4be6=1 --keys '\r\rE' --shots DIR Assets 32` (the
-  shot after the battle is set up). The hobgoblins' icon (CPIC1 record 12) has dark
-  grey pixels (colour 8), which should show black.
-- In the same fight, compare each of saved game A's characters' icons
-  with the port's: the head over the body in the character's colours,
-  Molly's small.
-- In the red dragons' fight (above), each terrified or frightened
+- (#85) In the red dragons' fight (above), each terrified or frightened
   character should flash with sparkles, at speed 4 five times, 70 ms a
   picture, its name and "is terrified" or "is afraid" in the panel from
-  row 10, and the text then cleared.
-- Have a character drop in combat: a skull should flash over it nine
-  times, red and pink, then its body stay on its cell.
-- Shoot at a monster more than 6 cells away and out of the view: the
+  row 10, and the text then cleared. A person's judgement (the flashing's
+  timing).
+- (#86) Have a character drop in combat: a skull should flash over it nine
+  times, red and pink, then its body stay on its cell. A person's
+  judgement (the timing).
+- (#87) Shoot at a monster more than 6 cells away and out of the view: the
   arrow should fly to the view's edge, then the screen move to the target
-  and the arrow come in from the edge near it.
-
-- Attack a hobgoblin at Throtl's gate: the panel should show the
-  attacker's name on row 10, `Attacks` below it, the target's name on row
-  12 and `Hitting for N points of damage` from row 13, in light green; a
-  target that drops `goes down`, `and is Dying` two rows below, then the
-  skull. A miss says `and Misses` once for all the attacks of a turn.
-- Shoot at a monster with a long bow and arrows: the arrow's picture
-  should point the way it flies, one picture for the whole flight, and
-  the arrows' count drop by the shots made. Throw a hand axe until none
-  is left and win: it should be in the treasure pool; darts and javelins
-  thrown to the last should not.
-- Kill a bozak beside two characters: "explodes." and each beside it
-  "takes N points of damage" (1-6).
-- Kill a baaz with a sword a square away: on a high roll the killer "loses
-  his weapon", and has it back after the fight.
-- Step away from a hobgoblin beside a character: it should attack once,
-  `(from behind)`.
-
-- In Throtl, choose `Area` at 7, 15 facing north: the map should replace
-  the view, the party's arrow in its bottom row, the window's left column
-  square 2; compare the tiles and colours, and the status line, which
-  should still read `7,15 N`. Walk north and turn: the map should follow.
-  `Area` again should show the view.
-- With the map on, stand by a door or a wall the party can pass: it
-  should show as a wall, and only on the square whose side holds it.
-- With the map on, meet a wandering monster: the map should give way to
-  the view with the monster's sprite.
-- In the catacombs of Throtl, `Area` should show `Not Here` in yellow on
-  row 24 for a moment, and the status line should have no square. Start
-  the game with `Helm` as its second argument (`START x Helm`): `Area`
-  should show the map there, and the next step should turn it off.
-- Walk into the catacombs with the map on: the first view inside should
-  be the 3D view.
-
-- Start a new game; Solace leads straight into the first outpost. Choose
-  `LEAVE` there (ECL1 block 17 at `8d86`): the overland map should show
-  with the party's mark, white around black around yellow, on the
-  outpost (cell 2, 4, over its star), and `YOU ARE NEAR AN OUTPOST. DO
-  YOU ENTER?`. Answer No, then `Move` and the right arrow: the mark should move a square east, the outpost's
-  cell show as it was, and every second step the moons move a day.
-- On the overland map in `Move` mode, press Ctrl-F8: the party should
-  camp, without a step; after leaving camp the map should show again
-  with the mark.
-- At 35, 4, on the east coast, press keypad 3, south-east: `YOU QUICKLY
-  TIRE OF SWIMMING AND RETURN TO SHORE.`, and no step. Keypad 5, or F1,
-  then tries the same way again.
-- Win a fight on the overland map: after the treasure menu the map
-  should show with the mark where the party stood.
-- Meet the knights' camp (ECL1 block 16, `PROGRAM 9`) and leave the camp
-  menu: the map should show again, and the script end there.
-
-- In ECL2 block 50, visit the magic shop: the shopkeeper's portrait
-  should fill the view, the head (`HEAD2` record 69) over the body
-  (`BODY2` record 68); after `Buy` the redraw should show it again
-  beside the party list. The weapon smith's shows head 68.
-- Let Skyla join in ECL2 block 50 and fight: she should have no combat
-  icon (`CPIC2` has no record 44). Let the kender join in Throtl (ECL1
-  block 32): his combat icon should be `CPIC1` record 15.
-- With Find Traps memorized by the second character only, step on the
-  trap of ECL1 block 32 that asks for it, and choose `CAST SPELL`: the
-  spell should go from the second character's memory.
-- Leave Throtl (ECL1 block 32) with the kender and Strangbourn: `YOUR
-  COMPANIONS LEAVE.`, and both should be gone from the party.
-- At the title screen, press no key: the demonstration (ECL2 block 57)
-  should start with Sir Ringwald, Varianna and Lyn Swiftfoot. Compare the
-  close-up of the green dragon at the end of its first walk, whose frames
-  `CALL [6803]` steps through, and what happens after its battle: no
-  `Continue Battle:`, no treasure, and the title again.
-- Wait 30 seconds at the title's menu: the demonstration should play;
-  press F10 there instead: it should play too (scan code 0x44, `D`).
-  After it the title should show again and its menu read `Champions Of
-  Krynn v1.2`.
-- In the start menu, press Escape, then Save: the game should count as
-  unsaved, so `Exit to DOS` and Yes ask `Game NOT saved.  Quit anyway? `;
-  No there should open `Save Which Game: ` and stay in the menu.
-- Create characters: no score should ever show a racial adjustment
-  (a dwarf's constitution, an elf's dexterity), a multi-class's money
-  should not be divided, and a human cleric of 19 or 20 years should
-  lose a point of wisdom. Create a human thief and compare its thief
-  skills with the port's, which take the 7 of training.
-- Create a knight: its Plate Mail, Shield and Long Sword should be
-  carried but not readied, and its encumbrance should leave them out
-  until it is loaded again.
-- In the icon editor, choose `Parts` and press space: no key should
-  leave the menu that follows.
-- Add a roster character with 128 or more jewels: it should not be
-  listed. Make the first key of Add a space: Add should end. Add a
-  character, leave, and open Add again with a space: it may stay.
-- Add a ranger to a party with three rangers: `too many rangers in
-  party`.
-- Remove a character and save it over an existing file, answering No to
-  `Overwrite`: the character should take the new file's name.
-- In a training hall, train a character with experience past the second
-  next level, and answer No: the experience should be cut all the same.
-- At Knight Change Classes, press F9 for a knight who is too
-  inexperienced: the order should change.
-- Modify a character's name typing an upper-case `K`: Modify should keep
-  and end. Change the wisdom of a cleric with two spells a day and exit:
-  it should keep one until it is loaded again.
-- In a battle, cast Magic Missile with Cast: the caster should turn toward
-  the target in its attacking pose, the spell's missile fly to it, "Casts
-  a Spell" (not "casts") show in the side panel with "Spell:Magic Missile"
-  on row 23, and the target flash. Cast while under 0x4a (a curse that
-  miscasts): still "Casts a Spell".
-- Cast Hold Person at three targets: a missile should fly from the caster
-  to the first two, none to the last picked; pick the caster: "Cannot
-  target yourself".
-- Cast Fear at an empty cell with no one on the line to it (and on past
-  it, 6 cells in all), a creature on the line from the caster to 4 cells
-  east of the line's end and none on the line to the end itself: the
+  and the arrow come in from the edge near it. A person's judgement (the
+  flight and the screen moving).
+- (#89) Throw a hand axe until none is left and win: it should be in the
+  treasure pool; darts and javelins thrown to the last should not (no
+  character of `SAVE/`'s games carries one; a type patched into a `.STF`
+  would do). That one picture of the arrow serves its whole flight is for
+  a person to see.
+- (#121) Cast Fear at an empty cell with no one on the line to it (and on
+  past it, 6 cells in all), a creature on the line from the caster to 4
+  cells east of the line's end and none on the line to the end itself: the
   creature should run in terror (the stack byte 0xc6, which needs DOS to
-  load the game at a PSP of 0xnnf0: note DOSBox's, the segment `mem`
-  shows for the game, or `DS - 0x0bd6`). Repeat in EGA and CGA mode.
-- Cast Fear and press `T` at once (the aim on the caster's own cell), in
-  Tandy mode with the caster at a few places on the view: the cone should
-  go as the port's does (the directions drawing the caster's icon left).
-  Repeat in EGA mode (the same) and CGA mode (other directions: in
-  `tests/test_spell.c` the caster at 10, 10 with the view at 7, 7 hits
-  the three below it).
+  load the game at a PSP of 0xnnf0: note DOSBox's, the segment `mem` shows
+  for the game, or `DS - 0x0bd6`). Repeat in EGA and CGA mode. Not run: no
+  fight reached gave such a cell without a search; `d_fear.py --psp` loads
+  the game at a chosen PSP, and #122 shows the side line depending on it.
 - In CGA mode (`KRYNN.CFG`'s first line `C`): compare the title, the
   start menu, character creation, the overland map, combat, a 3D view and
   the camp with `eclplay --display cga --shots`, colour for colour; the
@@ -7604,22 +7597,12 @@ running in DOSBox (see DOSBox-X harness for running it unattended):
   The title's first picture and menu (`make dosbox-selftest`), the start
   menu and Solace's first page do, in CGA mode too (but for the full stop,
   see Load saved game A); the rest are still to be compared.
-- In EGA mode, a draw of no width on a row of the 3D view or the combat
-  map that nothing else marks (a picture placed just past the right edge,
-  `127f:09c3` copying no byte): `127f:12e8` should copy 16 KB of the
-  off-screen page A200 onto the screen from that row, where the port
-  shows nothing new (it does not model the dirty rows; no run met one).
-- A small picture of many frames (PIC1 record 23, eight) with little
-  memory free, in CGA, EGA and Tandy mode: count the frames shown.
-  `6961:00e4` stops loading them where `MaxAvail` falls under 0xf3c, which
-  differs by mode (CGA's pictures half the size, the Tandy's heap 16 KB
-  smaller); the port loads them all.
-- In a 3D area, cast Lightning Bolt at an enemy beside a wall: the bolt
-  should come back once, hitting the enemy again but not the caster.
-- Let a cleric begin casting a spell that takes time, then hit it: "lost
-  a spell", and its memorized spell gone.
-- Cast Magic Missile at a creature turning spells (effect 0x47) until it
-  "reflects the spell": the caster should take the damage.
+- (#125) In EGA mode, a draw of no width on a row of the 3D view or the
+  combat map that nothing else marks (a picture placed just past the right
+  edge, `127f:09c3` copying no byte): `127f:12e8` should copy 16 KB of the
+  off-screen page A200 onto the screen from that row, where the port shows
+  nothing new (it does not model the dirty rows; no run met one). Not run:
+  no run is known to reach such a draw.
 
 ## Disassembly image
 

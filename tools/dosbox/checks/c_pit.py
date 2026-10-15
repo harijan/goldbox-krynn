@@ -62,10 +62,13 @@ def main():
     c = cp.Compare(work / "fall", saves, [("loaded", cp.load_keys("E")), ("move", "m")],
                    seed=args.seed, verbose=args.verbose)
     status |= c.run(box_hook=the_fall)
-    misses = cp.match_frames(fall["shots"] + [fall["end"]], frames, cp.VIEW)
-    print(f"#30: {len(fall['shots'])} distinct screens of the original during the fall and "
-          "the one at the next key read; pixels differing from the nearest frame cok "
-          f"presents, outside the 3D view's cells: {misses}")
+    # The screen at the key read is eclplay's to compare (below): cok may
+    # present no frame of a wait its script's next key ends at once.
+    during = [s for s in fall["shots"] if s.pixels != fall["end"].pixels]
+    misses = cp.match_frames(during, frames, cp.VIEW)
+    print(f"#30: {len(during)} distinct screens of the original during the fall; pixels "
+          "differing from the nearest frame cok presents (or two in a row: caught "
+          f"drawing), outside the 3D view's cells: {misses}")
     pfall, _, pshots = cp.cokbox.eclplay(keys + r"\^\r", work / "eclplay-fall", saves=[saves],
                                          args=["--seed", str(args.seed)])
     best = min(pshots, key=lambda p: fall["end"].diff(cp.cokbox.Screen.load(p))[0])
@@ -73,6 +76,7 @@ def main():
     print("#30: the original's screen at the next key read against eclplay's", best.name,
           fall["end"].diff(shot), "; outside the 3D view:",
           cp.masked_diff(fall["end"], shot, cp.VIEW))
+    misses.append(cp.masked_diff(fall["end"], shot, cp.VIEW))
     port_hits = [l for l in pfall.splitlines() if " is hit " in l or l.endswith(" dies.")]
     print("#35 port's hits:", port_hits)
     print("#35 original's party after the fall (name, hp, status):", fall["hp"])
@@ -101,7 +105,7 @@ def main():
              (open(psaves / f"CHRDATG{i}.SAV", "rb").read() for i in range(1, 7))]
     print("#105 port's spell bytes saved after the trap and the fight:", after)
     print(f"files in {work}")
-    return status
+    return 1 if status else 0
 
 
 if __name__ == "__main__":

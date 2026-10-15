@@ -34,6 +34,12 @@ dosbox-selftest: build/eclplay build/START_FULL.EXE
 	$(PYTHON) tools/dosbox/cokbox.py selftest --machine ega
 	$(PYTHON) tools/dosbox/cokbox.py selftest --machine cga
 
+# Every check of the README's "Checks against the original" run in the
+# original (tools/dosbox/checks/), side by side: one verdict a script.
+.PHONY: dosbox-checks
+dosbox-checks: build/eclplay build/cok build/START_FULL.EXE
+	$(PYTHON) tools/dosbox/checks/run_all.py
+
 # The SDL2 front end (build/cok) and its tests, only where pkg-config finds
 # SDL2; its headers as system headers, so that their warnings do not fail
 # the build.
