@@ -6,9 +6,8 @@ the verdict recorded (README, "Checks against the original").
     python3 tools/dosbox/checks/run_all.py [--jobs N] [--only NAME ...] [--out DIR]
 
 Each script runs with --workdir OUT/NAME (default OUT build/dosbox-checks),
-its output in OUT/NAME.log, and ends with a line `VERDICT: AGREES`,
-`VERDICT: DIFFERS known: TAGS` (only port differences recorded, see
-checklib.KNOWN) or `VERDICT: DIFFERS new (...)`, with exit status 0, 1, 1.
+its output in OUT/NAME.log, and ends with a line `VERDICT: AGREES` or
+`VERDICT: DIFFERS new (...)`, with exit status 0 or 1.
 Anything else (another status, no verdict line, a timeout, a crash) is an
 ERROR, never a recorded verdict. COKBOX_DISPLAYS (e.g. 180-189) keeps the X
 displays to a range; --jobs defaults to the range's size less two (else 6).
@@ -29,18 +28,15 @@ import time
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 
-# (script, the checks it covers, the verdict recorded: "" agrees, the known
-# differences' tags it shows, e.g. "fullstop, walls", or "new" for a port
-# difference found and recorded in the README but not yet fixed). A known
-# difference is one the branch fixes corrects (tools/dosbox/known-fixes.patch,
-# checklib.KNOWN); once the port has the fixes, those scripts agree and the
-# recorded verdict here becomes "".
+# (script, the checks it covers, the verdict recorded: "" agrees, or "new"
+# for a port difference found and recorded in the README but not yet fixed;
+# a fix of the port then makes it "").
 CHECKS = [
     # A: startup, title, setup, the start menu
     ("a_setup", "#1", ""),
     ("a_ctrl_s", "#5", ""),
-    ("a_debug", "#13", "fullstop"),
-    ("a_debug_battle", "#13 (battle)", "fullstop"),
+    ("a_debug", "#13", ""),
+    ("a_debug_battle", "#13 (battle)", ""),
     ("a_demo", "#107 #108", ""),
     ("a_unsaved", "#109", ""),
     ("a_create", "#110 #111", ""),
@@ -54,8 +50,8 @@ CHECKS = [
     ("b_thief_skills", "#32", ""),
     ("b_rest_day_effects", "#33", ""),
     ("b_effect_order", "#34", ""),
-    ("b_camp_screen", "#36 #37", "walls"),
-    ("b_resume", "#38", "fullstop, resume, walls"),
+    ("b_camp_screen", "#36 #37", ""),
+    ("b_resume", "#38", ""),
     ("b_fix_time", "#39", ""),
     ("b_heal_day", "#40", ""),
     ("b_scribe", "#41", ""),
@@ -69,35 +65,35 @@ CHECKS = [
     ("b_hammer", "#51", ""),
     ("b_amount", "#52", ""),
     # C: places
-    ("c_throtl", "#27 #53 #93 #94", "walls"),
+    ("c_throtl", "#27 #53 #93 #94", ""),
     ("c_map80", "#94", ""),
-    ("c_pit", "#30 #35 #105", "fullstop, walls"),
-    ("c_chest", "#58-62", "fullstop, walls"),
-    ("c_rob", "#56", "fullstop"),
+    ("c_pit", "#30 #35 #105", ""),
+    ("c_chest", "#58-62", ""),
+    ("c_rob", "#56", ""),
     ("c_outpost", "#29 #66 #68-71", "new"),
-    ("c_block50", "#67 #72 #103", "resume"),
-    ("c_wander", "#54 #95", "fullstop, walls"),
-    ("c_temple33", "#55 #54", "fullstop, walls"),
-    ("c_catacombs", "#96 #97", "fullstop"),
-    ("c_overland", "#98-102", "fullstop, resume"),
-    ("c_npc", "#104 #106", "fullstop, resume, walls"),
-    ("c_ecl3", "#64 #65", "fullstop"),
+    ("c_block50", "#67 #72 #103", ""),
+    ("c_wander", "#54 #95", ""),
+    ("c_temple33", "#55 #54", ""),
+    ("c_catacombs", "#96 #97", ""),
+    ("c_overland", "#98-102", ""),
+    ("c_npc", "#104 #106", ""),
+    ("c_ecl3", "#64 #65", ""),
     # D: combat
     ("d_cloud", "#6", ""),
-    ("d_lebaum", "#9 (#23)", "resume"),
+    ("d_lebaum", "#9 (#23)", ""),
     ("d_aurak", "#12", ""),
     ("d_done", "#16", ""),
     ("d_move", "#17 #92", ""),
     ("d_cast", "#22 #119 #128", ""),
     ("d_space", "#24", ""),
     ("d_altq", "#25", ""),
-    ("d_minotaurs", "#57", "fullstop"),
+    ("d_minotaurs", "#57", ""),
     ("d_flee", "#63", ""),
     ("d_gate", "#74 #83 #84 #88", ""),
     ("d_ranks", "#75", ""),
     ("d_patrol", "#76 #79", ""),
-    ("d_neraka", "#77", "fullstop"),
-    ("d_dragonfear", "#78", "resume"),
+    ("d_neraka", "#77", ""),
+    ("d_dragonfear", "#78", ""),
     ("d_dying", "#80", ""),
     ("d_helm", "#81 #82", ""),
     ("d_arrows", "#89", ""),
@@ -107,22 +103,22 @@ CHECKS = [
     ("d_fear", "#122 (#121)", ""),
     ("d_bolt", "#127", ""),
     ("d_turning", "#129", ""),
-    ("d_firstblock", "Begin's vectors", "resume"),
+    ("d_firstblock", "Begin's vectors", ""),
     # E: freed and garbage memory
     ("e_cloud_dispel", "#7", ""),
     ("e_bolt_bounce", "#11", ""),
-    ("e_debug_readonly", "#14", "fullstop"),
+    ("e_debug_readonly", "#14", ""),
     ("e_manual", "#15 #18", ""),
-    ("e_strength", "#46", "walls"),
+    ("e_strength", "#46", ""),
     ("e_trade", "#47 #73", ""),
     # F: display modes, sound, mouse, frames
-    ("f_sound", "#3 #4", "resume"),
-    ("f_mouse", "#20", "fullstop"),
-    ("f_loading", "#28", "fullstop"),
-    ("f_display_modes", "#123 #124", "fullstop, resume, walls"),
-    ("f_frames", "#126", "resume"),
+    ("f_sound", "#3 #4", ""),
+    ("f_mouse", "#20", ""),
+    ("f_loading", "#28", ""),
+    ("f_display_modes", "#123 #124", ""),
+    ("f_frames", "#126", ""),
     # phase 1's proof checks
-    ("load_game_screen", "#26 #29", "fullstop"),
+    ("load_game_screen", "#26 #29", ""),
     ("save_again", "#31", ""),
     ("slow_poison", "#8", ""),
     # Built once here, not by several scripts at once.
@@ -137,8 +133,7 @@ ALONE = {"d_arrows", "d_aurak", "d_bolt", "d_bozak", "d_cast", "d_gate", "d_hold
 # Minutes each took in a full run (the rest a few each), for the order.
 LONG = {"a_demo": 6, "c_wander": 6, "f_frames": 5, "f_display_modes": 5, "f_sound": 4,
         "a_ctrl_s": 3, "e_bolt_bounce": 2, "f_mouse": 2, "e_manual": 2}
-VERDICT = re.compile(r"^VERDICT: (AGREES|DIFFERS known: ([a-z, ]+)|DIFFERS new.*|ERROR.*)$",
-                     re.M)
+VERDICT = re.compile(r"^VERDICT: (AGREES|DIFFERS new.*|ERROR.*)$", re.M)
 
 
 def displays():
@@ -202,12 +197,7 @@ def run_one(name, out, timeout):
 
 
 def known_of(verdict):
-    if verdict == "AGREES":
-        return ""
-    if verdict.startswith("DIFFERS new"):
-        return "new"
-    m = re.match(r"DIFFERS known: (.*)", verdict)
-    return ", ".join(sorted(t.strip() for t in m.group(1).split(","))) if m else None
+    return "" if verdict == "AGREES" else "new" if verdict.startswith("DIFFERS new") else None
 
 
 def line(name, checks, want, verdict, code, took):
@@ -217,7 +207,7 @@ def line(name, checks, want, verdict, code, took):
         shown = "agrees" if verdict == "AGREES" else verdict.split(" (")[0].lower()
         got = known_of(verdict)
         note = ("as recorded" if got == want else
-                f"CHANGED (recorded: {'agrees' if not want else 'differs ' + ('new' if want == 'new' else 'known: ' + want)})")
+                f"CHANGED (recorded: {'agrees' if not want else 'differs new'})")
     return f"{name:20} {checks:18} {shown:28} {took / 60:5.1f} min  {note}"
 
 
@@ -240,7 +230,7 @@ def main():
     # The port's builds the checks share (checklib.build), once here.
     sys.path.insert(0, str(HERE))
     import checklib
-    checklib.fixed_eclplay()
+    checklib.stopping_eclplay()
     checklib.eclplay_with_pauses()
 
     results, lock = {}, threading.Lock()

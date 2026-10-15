@@ -6,24 +6,8 @@ A check script ends through run(main): main returns 0 (the original and
 the port agree in everything compared) or 1 (something differs); an
 exception, a signal or any other return is an error, exit 3, never taken
 for a difference. Its Verdict prints each difference as
-
-    DIFFERENCE: WHAT: DETAIL                     (new: nothing explains it)
-    DIFFERENCE (known: walls): WHAT: DETAIL      (a port difference recorded)
-
-and last `VERDICT: AGREES`, `VERDICT: DIFFERS known: TAGS` (only known
-differences, the tags sorted) or `VERDICT: DIFFERS new` (at least one new),
-which run_all.py checks against what it recorded for the script.
-
-Known differences are those the branch `fixes` (6ba8fcd) corrects, kept as
-tools/dosbox/known-fixes.patch: a screen or value of the original that
-differs from the port's but equals that of the port built with the patch
-(build(fixed=True)) is a known difference, tagged by where it lies:
-`fullstop` (row 24 column 34, PRESS <ENTER>/<RETURN> TO CONTINUE.'s full
-stop, 2fd3:1146), `walls` (the 3D view: two-set WALLDEF records,
-69ea:1124), `resume` (elsewhere: a loaded game's first block runs only its
-load vector, 2fd3:3c28, and keeps the last mode, 2fd3:3b47). Once the
-source has the fixes (the patch applies in reverse) the fixed build is the
-port itself, and those differences are gone.
+`DIFFERENCE: WHAT: DETAIL`, and last `VERDICT: AGREES` or `VERDICT: DIFFERS
+new (...)`, which run_all.py checks against what it recorded for the script.
 """
 import concurrent.futures
 import hashlib
@@ -40,19 +24,10 @@ sys.path.insert(0, str(HERE.parent))
 import cokbox  # noqa: E402
 
 ROOT = cokbox.ROOT
-KNOWN_FIXES = HERE.parent / "known-fixes.patch"
 SAVES = ROOT / "SAVE"
 
-# Row 24, column 34: the full stop the port adds (8x8 pixels).
-FULLSTOP_CELL = (272, 192, 8, 8)
 # The 3D view's cells (3-13 across and down) and its frame.
 VIEW_AREA = (24, 24, 88, 88)
-KNOWN = {
-    "fullstop": "PRESS <ENTER>/<RETURN> TO CONTINUE.'s full stop (2fd3:1146 has none)",
-    "walls": "a two-set WALLDEF record's second set offset by its own slot (69ea:1124)",
-    "resume": "a loaded game's first block runs its after-move and location vectors, "
-              "or sets the last mode (2fd3:3c28 runs only the load vector)",
-}
 
 
 # ------------------------------------------------------------ ending a check
@@ -85,59 +60,35 @@ class Verdict:
 
     def __init__(self):
         self.new = []
-        self.known = set()
 
     def ok(self, what, detail=""):
         print(f"  agrees: {what}" + (f": {detail}" if detail else ""), flush=True)
 
-    def differ(self, what, detail="", known=None):
-        """A difference: new, or KNOWN (a tag of checklib.KNOWN, or a set)."""
-        tags = {known} if isinstance(known, str) else set(known or ())
-        if tags:
-            unknown = tags - set(KNOWN)
-            if unknown:
-                raise ValueError(f"not a known difference: {unknown}")
-            self.known |= tags
-            print(f"DIFFERENCE (known: {', '.join(sorted(tags))}): {what}"
-                  + (f": {detail}" if detail else ""), flush=True)
-        else:
-            self.new.append(what)
-            print(f"DIFFERENCE: {what}" + (f": {detail}" if detail else ""), flush=True)
+    def differ(self, what, detail=""):
+        self.new.append(what)
+        print(f"DIFFERENCE: {what}" + (f": {detail}" if detail else ""), flush=True)
 
-    def check(self, good, what, detail="", known=None):
-        """One assertion: GOOD true agrees; else a difference (KNOWN, if the
-        caller has shown it is that)."""
+    def check(self, good, what, detail=""):
+        """One assertion: GOOD true agrees; else a difference."""
         if good:
             self.ok(what, detail)
         else:
-            self.differ(what, detail, known)
+            self.differ(what, detail)
         return bool(good)
 
-    def value(self, what, original, port, fixed=None, known_tag=None):
-        """The original's value against the port's: equal agrees; equal to
-        the fixed build's (FIXED, when given; a function is called only when
-        needed) a known difference, tagged KNOWN_TAG (default: resume)."""
+    def value(self, what, original, port):
+        """The original's value against the port's."""
         if original == port:
             self.ok(what, f"{original!r}")
             return True
-        if callable(fixed):
-            fixed = fixed()
-        if fixed is not None and original == fixed:
-            self.differ(what, f"original {original!r}, port {port!r}, the fixed port's "
-                        f"{fixed!r}", known_tag or "resume")
-        else:
-            self.differ(what, f"original {original!r}, port {port!r}")
+        self.differ(what, f"original {original!r}, port {port!r}")
         return False
 
-    def screen(self, what, original, port, fixed=None, masks=(), work=None, known_tag=None):
+    def screen(self, what, original, port, masks=(), work=None):
         """The original's screen against the port's at the same point
         (frames_at). MASKS: (x, y, w, h, why) areas not compared, each said
-        why (DOSBox-X's own cursor, ...). Pixels that differ from the port's
-        but equal FIXED's frame are a known difference, tagged by where they
-        lie, or KNOWN_TAG when given (a route that diverged as a whole: its
-        screens differ anywhere) (FIXED may be a function, called only when
-        needed). Returns the
-        count of pixels differing from the port's."""
+        why (DOSBox-X's own cursor, ...). Returns the count of pixels
+        differing from the port's."""
         if port is None:
             self.differ(what, "the port has no screen there")
             return None
@@ -148,22 +99,13 @@ class Verdict:
             return 0
         if work is not None:
             original.save_png(pathlib.Path(work) / f"diff-{slug(what)}.png", highlight=port)
-        if callable(fixed):
-            fixed = fixed()
-        if fixed is not None and masked_diff(original, fixed, masks)[0] == 0:
-            tags = {known_tag} if known_tag else region_tags(original, port, masks)
-            self.differ(what, f"{count} pixels in {box}, as the fixed port's frame", tags)
-        else:
-            self.differ(what, f"{count} pixels differ from the port's in {box}" + note)
+        self.differ(what, f"{count} pixels differ from the port's in {box}" + note)
         return count
 
     def finish(self):
         if self.new:
             print(f"VERDICT: DIFFERS new ({len(self.new)}: {', '.join(self.new[:6])}"
                   f"{' ...' if len(self.new) > 6 else ''})", flush=True)
-            return 1
-        if self.known:
-            print(f"VERDICT: DIFFERS known: {', '.join(sorted(self.known))}", flush=True)
             return 1
         print("VERDICT: AGREES", flush=True)
         return 0
@@ -194,21 +136,6 @@ def masked_diff(a, b, masks=()):
     return n, ((x0, y0, x1, y1) if n else None)
 
 
-def region_tags(a, b, masks=()):
-    """The known tags of the pixels where A and B differ: fullstop in its
-    cell, walls in the 3D view, resume elsewhere."""
-    tags = set()
-    w = a.width
-    for i, (p, q) in enumerate(zip(a.pixels, b.pixels)):
-        if p != q:
-            x, y = i % w, i // w
-            if any(_inside(x, y, m) for m in masks):
-                continue
-            tags.add("fullstop" if _inside(x, y, FULLSTOP_CELL)
-                     else "walls" if _inside(x, y, VIEW_AREA) else "resume")
-    return tags
-
-
 # ------------------------------------------------ the port at the same point
 
 MARK = re.compile(r"\\s([^.]*)\.")
@@ -219,17 +146,17 @@ def port_keys(keys):
     return MARK.sub("", keys)
 
 
-def frames_at(keys, out, binary=None, names=None, fixed=False, **kw):
+def frames_at(keys, out, binary=None, names=None, **kw):
     """The port's screen at each \\sNAME. of KEYS (or only NAMES): eclplay
     run on the keys before the mark stops at the key read that follows, and
     its last shot there is the screen the box's \\sNAME. takes at that wait.
-    BINARY: another eclplay; by default stopping_eclplay(FIXED), the port
-    (with the known fixes when FIXED) that ends where the keys ran out. KW go
+    BINARY: another eclplay; by default stopping_eclplay(), the port that
+    ends where the keys ran out. KW go
     to cokbox.eclplay (machine, saves, args, start_menu, block). Returns
     {name: Screen, or None when eclplay took no shot}."""
     out = pathlib.Path(out)
     if binary is None:
-        binary = stopping_eclplay(fixed)
+        binary = stopping_eclplay()
     marks = [(m.group(1), keys[:m.start()]) for m in MARK.finditer(keys)
              if names is None or m.group(1) in names]
 
@@ -241,10 +168,10 @@ def frames_at(keys, out, binary=None, names=None, fixed=False, **kw):
         return dict(pool.map(one, marks))
 
 
-def frame_after(keys, out, binary=None, fixed=False, **kw):
+def frame_after(keys, out, binary=None, **kw):
     """The port's screen at the key read after all of KEYS."""
     if binary is None:
-        binary = stopping_eclplay(fixed)
+        binary = stopping_eclplay()
     return _read_shot(port_keys(keys), out, binary, kw)
 
 
@@ -271,44 +198,18 @@ def _sources(kind):
     return ["src/cok.c", "src/keymap.c", "src/keyscript.c", *adventure]
 
 
-def _patch(src_dir, reverse=False, dry=True):
-    args = ["patch", "-p1", "-s", "-f", "--no-backup-if-mismatch", "-d", str(src_dir.parent),
-            "-i", str(KNOWN_FIXES)]
-    if reverse:
-        args.append("-R")
-    if dry:
-        args.append("--dry-run")
-    return subprocess.run(args, capture_output=True, text=True).returncode == 0
-
-
-def fixes_state(src=None):
-    """'applied' when the source has the known fixes already, 'missing' when
-    the patch applies to it, else an error (the patch is stale)."""
-    src = pathlib.Path(src or cokbox.PORT_SRC)
-    if _patch(src, reverse=True):
-        return "applied"
-    if _patch(src):
-        return "missing"
-    raise cokbox.BoxError(f"{KNOWN_FIXES.name} neither applies to {src} nor is in it: "
-                          "update it from the fixes")
-
-
-def build(kind="eclplay", fixed=False, transforms=()):
+def build(kind="eclplay", transforms=()):
     """KIND (eclplay or cok) built from a copy of the port's source
-    (cokbox.PORT_SRC), with the known fixes when FIXED (none needed once the
-    source has them: the port's own build then, unless TRANSFORMS) and
-    TRANSFORMS: (file name, function of its text returning the new text),
-    each of which must change something. Cached under build/checks/ by the
+    (cokbox.PORT_SRC) with TRANSFORMS: (file name, function of its text
+    returning the new text), each of which must change something; the
+    port's own build without any. Cached under build/checks/ by the
     sources' hash. Returns the executable's path."""
     src = pathlib.Path(cokbox.PORT_SRC)
-    if fixed and fixes_state(src) == "applied":
-        fixed = False
-    if not fixed and not transforms:
+    if not transforms:
         return cokbox.COK if kind == "cok" else cokbox.ECLPLAY
     digest = hashlib.sha256()
     for f in sorted(src.glob("*.[ch]")):
         digest.update(f.name.encode() + f.read_bytes())
-    digest.update(KNOWN_FIXES.read_bytes() if fixed else b"-")
     for name, fn in transforms:
         digest.update(name.encode() + fn(name, (src / name).read_text()).encode())
     digest.update(kind.encode())
@@ -321,16 +222,14 @@ def build(kind="eclplay", fixed=False, transforms=()):
     with open(str(out) + ".lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)   # checks side by side build it once
         if not exe.exists():
-            _build(out, exe, kind, src, fixed, transforms)
+            _build(out, exe, kind, src, transforms)
     return exe
 
 
-def _build(out, exe, kind, src, fixed, transforms):
+def _build(out, exe, kind, src, transforms):
     if out.exists():
         shutil.rmtree(out)
     shutil.copytree(src, out / "src")
-    if fixed and not _patch(out / "src", dry=False):
-        raise cokbox.BoxError(f"{KNOWN_FIXES.name} did not apply")
     for name, fn in transforms:
         path = out / "src" / name
         text = path.read_text()
@@ -346,10 +245,6 @@ def _build(out, exe, kind, src, fixed, transforms):
     subprocess.run(["cc", f"-I{out / 'src'}", "-std=c17", "-O2", *files, *flags, "-lm",
                     "-o", str(exe) + ".tmp"], check=True)
     os.replace(str(exe) + ".tmp", exe)
-
-
-def fixed_eclplay(transforms=()):
-    return build("eclplay", fixed=True, transforms=transforms)
 
 
 # Instrumentation of src/eclplay.c, for build(transforms=...).
@@ -398,17 +293,16 @@ def print_read_shot(name, text):
         "p->shot++);\n", "p->shot++);\n        printf(\"read-shot: %u\\n\", p->shot - 1);\n"))
 
 
-def stopping_eclplay(fixed=False):
-    """The port's eclplay (with the known fixes when FIXED) that stops when
-    the keys run out in the adventure and says which shot is each key
-    read's: frames_at's default."""
-    return build("eclplay", fixed=fixed, transforms=[("start.c", stop_at_input_end),
-                                                     ("eclplay.c", print_read_shot)])
+def stopping_eclplay():
+    """The port's eclplay that stops when the keys run out in the
+    adventure and says which shot is each key read's: frames_at's default."""
+    return build("eclplay", transforms=[("start.c", stop_at_input_end),
+                                        ("eclplay.c", print_read_shot)])
 
 
-def eclplay_with_pauses(fixed=False):
+def eclplay_with_pauses():
     """eclplay saving a shot at each key read and each delay."""
-    return build("eclplay", fixed=fixed, transforms=[("eclplay.c", shot_at_delays)])
+    return build("eclplay", transforms=[("eclplay.c", shot_at_delays)])
 
 
 # ------------------------------------------------------------- a few helpers
