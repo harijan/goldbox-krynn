@@ -18,6 +18,7 @@ import sys
 
 import c_geo
 import c_places as cp
+import checklib
 
 ARGS = ["--load", cp.SAVE_A, "--play", "--file", "1", "--set", "4be6=1", "--set", "4c61=ff",
         "--set", "4c09=ff"]
@@ -28,12 +29,13 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    cp.need_save_a()
-    work = cp.workdir("temple33", args.workdir)
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "c-temple33")
+    v = checklib.Verdict()
     saves, _ = cp.port_save(work / "save", "ESI", ARGS, block=33)
     cp.edit_save(saves, "I", at=(7, 13, 2), var={0x4C61: 0xFF, 0x4C09: 0xFF},
                  geo=c_geo.load(1, 32))
-    c = cp.Compare(work / "run", saves, [
+    c = cp.Compare(v, work / "run", saves, [
         ("loaded", cp.load_keys("I")),
         ("mutterings", r"m\^"),
         ("corner", r"\r"),          # the sprite at 2; COMBAT WAIT FLEE ADVANCE
@@ -42,13 +44,14 @@ def main():
         ("parlay", "P"),            # HAUGHTY SLY NICE MEEK ABUSIVE
         ("sly", "S"),               # THE CLERIC NODS AND POINTS YOU TO A STACK OF PAPERS.
         ("letter", r"\r"),
-    ], seed=1, verbose=args.verbose)
-    status = c.run()
+    ], seed=1, verbose=args.verbose).run()
+    v.check("THE CLERIC NODS AND POINTS YOU TO A STACK OF PAPERS." in c.port_text,
+            "#55: Sly leads to the stack of papers (the port's log; the screens of both equal)")
     print("port:", [l for l in c.port_text.splitlines()
                     if l.startswith(("monster: sprite", "choice:")) or "PAPERS" in l][-10:])
     print(f"files in {work}")
-    return 1 if status else 0
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))

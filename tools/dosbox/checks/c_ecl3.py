@@ -19,39 +19,31 @@ records and pool are read in memory (the pool at DS:6b0c, seven longs).
 moved to 14,9 facing west; a step into the bed chamber (special 16, 90ba),
 Exit, Look: the treasure under the bed (TREASURE 0 0 0 0 0 3 2 130). Seed
 22 generates a Potion. Take it (SIR STRONGSWORD), leave the rest, View,
-Items, unready the shield, ready the potion, Use, Select: the original's
-item record is read in memory before it is drunk.
+Items, unready the shield, ready the potion, Use, Select: SIR
+STRONGSWORD's items (name, type +0x2e, readied +0x34, the bytes from
++0x2e) are read in memory after Take, after readying and after Use, and
+compared with the port's at the same key reads.
 """
 import argparse
-import struct
 import sys
 
 import c_geo
 import c_places as cp
-
-POOL = 0x6B0C
-
-
-def pool(box):
-    return list(struct.unpack("<7I", box.ds_read(POOL, 28)))
+import checklib
 
 
-def coins(box):
-    return [cp.money(raw) for _, raw in cp.party_records(box)]
+def pool_and_coins(state):
+    return {"the pool's coins": state.pool,
+            "each one's coins (silver ... steel, gems, jewelry)":
+            [(m.name, cp.money(m.record)) for m in state.members]}
 
 
-def items_of(box, n=8):
-    """SIR STRONGSWORD's items (the list his record's +0x143 points to, each
-    63 bytes, linked at +0x2a): name, type +0x2e, readied +0x34."""
-    rec, _ = cp.party_records(box)[0]
-    out = []
-    item = box.far(rec + 0x143)
-    while item is not None and len(out) < n:
-        raw = box.read(item, 63)
-        out.append((raw[1:1 + min(raw[0], 41)].decode("latin-1").strip(), "type %#x" % raw[0x2E],
-                    "readied %d" % raw[0x34], raw[0x2E:0x3F].hex()))
-        item = box.far(item + 0x2A)
-    return out
+def items_of(state):
+    """SIR STRONGSWORD's items: name, type +0x2e, readied +0x34, the bytes
+    from +0x2e."""
+    return {f"{state.members[0].name}'s items (name, type, readied, +0x2e on)":
+            [(cp.item_name(i), "type %#x" % i[0x2E], "readied %d" % i[0x34], i[0x2E:0x3F].hex())
+             for i in state.members[0].items]}
 
 
 def main():
@@ -60,9 +52,9 @@ def main():
     parser.add_argument("--only", help="vault or potion")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    cp.need_save_a()
-    work = cp.workdir("ecl3", args.workdir)
-    status = 0
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "c-ecl3")
+    v = checklib.Verdict()
 
     if args.only in (None, "vault"):
         saves, _ = cp.port_save(work / "save-98", "ESE", [
@@ -70,29 +62,24 @@ def main():
             "--set", "4be8=1", "--set", "4bf2=61", "--set", "4ce5=7", "--at", "6,1,2"], block=97)
         cp.edit_save(saves, "E", at=(6, 1, 2), var={0x4BF2: 98, 0x4C06: 5},
                      geo=c_geo.load(3, 97))
-        c = cp.Compare(work / "vault", saves, [
+        c = cp.Compare(v, work / "vault", saves, [
             ("loaded", cp.load_keys("E")),
             ("vault", r"m\^"),              # YOU HAVE REACHED A TREASURE VAULT.
             ("results", r"\r"),
-            ("menu", r"\r", lambda b: (pool(b), coins(b))),
-            ("share", "S", lambda b: (pool(b), coins(b))),   # #64
-        ], seed=1, verbose=args.verbose)
-        status |= c.run()
-        print("#64 original's pool and coins before Share:", c.probes["menu"])
-        print("#64 after Share:", c.probes["share"])
-        print("#64 port:", [l for l in c.port_text.splitlines() if l.startswith("treasure:")])
-        _, psaves, _ = cp.cokbox.eclplay(cp.load_keys("E") + r"m\^\r\rSENeESF",
-                                         work / "vault-port-save", saves=[saves], shots=False,
-                                         args=["--seed", "1"])
-        print("#64 port's coins after Share (saved in camp):",
-              [cp.money((psaves / f"CHRDATF{i}.SAV").read_bytes()) for i in range(1, 7)])
+            ("menu", r"\r", pool_and_coins),
+            ("share", "S", pool_and_coins),   # #64
+        ], seed=1, verbose=args.verbose).run()
+        before, after = c.probes["menu"]["the pool's coins"], c.probes["share"]["the pool's coins"]
+        v.check(before == [0, 60000, 20000, 10000, 5000, 3, 2] and any(after) and after != before,
+                "#64: in the original part of the hoard stays in the pool after Share "
+                "(the menu still offering Share is on the screen)", f"{before} -> {after}")
 
     if args.only in (None, "potion"):
         saves, _ = cp.port_save(work / "save-81", "ESE", [
             "--load", cp.SAVE_A, "--play", "--file", "3", "--set", "4be6=1", "--set", "4c0a=ff"],
             block=81)
         cp.edit_save(saves, "E", at=(14, 9, 6), var={0x4C0A: 0xFF}, geo=c_geo.load(3, 81))
-        c = cp.Compare(work / "potion", saves, [
+        c = cp.Compare(v, work / "potion", saves, [
             ("loaded", cp.load_keys("E")),
             ("chamber", r"m\^"),            # THIS ROOM WAS ONCE A VERY OPULENT BED CHAMBER.
             ("menu", r"\re"),
@@ -106,18 +93,18 @@ def main():
             ("ready", r"\v\vR", items_of),
             ("use", "U"),                   # uses an item / Potion: Select Exit
             ("drunk", "S", items_of),
-        ], seed=22, verbose=args.verbose)
-        status |= c.run()
-        print("#65 original's SIR STRONGSWORD's items (name, type, readied) after Take:",
-              c.probes["taken"])
-        print("#65 readied:", c.probes["ready"])
-        print("#65 after Use and Select:", c.probes["drunk"])
+        ], seed=22, verbose=args.verbose).run()
+        (taken,), (drunk,) = c.probes["taken"].values(), c.probes["drunk"].values()
+        potions = [i for i in taken if i[0].endswith("Potion")]
+        v.check(potions and potions[0][1] in ("type 0x30", "type 0x35") and
+                not any(i[0].endswith("Potion") for i in drunk),
+                "#65: in the original the generated potion (type 0x30 or 0x35) is taken, and gone "
+                "once used", f"{potions} -> {[i[0] for i in drunk]}")
         print("#65 port:", [l for l in c.port_text.splitlines()
-                            if l.startswith("treasure:") or "healed" in l or "uses" in l
-                            or "Readied" in l])
+                            if l.startswith("treasure:") or "healed" in l or "uses" in l])
     print(f"files in {work}")
-    return 1 if status else 0
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))

@@ -23,17 +23,21 @@ Run 2: a saved game the port writes at 2,2 with the caravan met (c_throtl's
 overland vars): four steps east, Ctrl-F8 (BIOS word 0x6500), Exit. Run 3:
 the same game moved in the file to 35,4 (vars 0x4bc3, 0x4bc4): 3, Enter, 5,
 Enter, F1 (0x3b00). Run 4: the game at 2,2 with the step counter (var
-0x4c06) at 10 and seeds that meet the knights a step east (75 for the
-port, 211 for the original); Yes, the camp (PROGRAM 9), Exit.
+0x4c06) at 10 and RandSeed 75 rolled once at the first key read after
+loading (c_places.Compare), which meets the knights a step east; Yes, the camp
+(PROGRAM 9), Exit. The overland square (vars 0x4bc3, 0x4bc4) is read in
+the original's memory after each step of runs 2 and 3 and compared with
+the port's.
 """
 import argparse
-import shutil
 import sys
 
 import c_places as cp
+import checklib
 
-OVERLAND = ["--load", cp.SAVE_A, "--play", "--set", "4bf2=11", "--set", "4bc3=1",
-            "--set", "4bc4=3", "--set", "4c2d=1"]
+
+def square(state):
+    return {"the overland square (vars 0x4bc3, 0x4bc4)": (state.var(0x4BC3), state.var(0x4BC4))}
 
 
 def main():
@@ -42,12 +46,12 @@ def main():
     parser.add_argument("--only", help="caravan, steps, coast or knights")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    cp.need_save_a()
-    work = cp.workdir("overland", args.workdir)
-    status = 0
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "c-overland")
+    v = checklib.Verdict()
 
     if args.only in (None, "caravan"):
-        c = cp.Compare(work / "caravan", cp.cokbox.ROOT / "SAVE", [
+        c = cp.Compare(v, work / "caravan", cp.cokbox.ROOT / "SAVE", [
             ("outpost", cp.load_keys("A") + r"\r\r\r\r\r\r\r"),
             ("leave", "L"),                 # #98: the map, the mark on the outpost, the question
             ("no", "N"),
@@ -59,68 +63,63 @@ def main():
             ("treasure", r"\r"),
             ("left", "E"),
             ("map", "N"),                   # #101: the map with the mark, the caravan's text
-        ], seed=1, helm=True, verbose=args.verbose)
-        status |= c.run()
+        ], seed=1, helm=True, verbose=args.verbose).run()
         print("port:", [l for l in c.port_text.splitlines() if l.startswith("overland:")])
 
-    saves, _ = cp.port_save(work / "save", "nm9EESC", OVERLAND, block=16)
+    saves, _ = cp.port_save(work / "save", "nm9EESC", cp.OVERLAND, block=16)
     if args.only in (None, "steps"):
-        c = cp.Compare(work / "steps", saves, [
-            ("loaded", cp.load_keys("C")),
+        c = cp.Compare(v, work / "steps", saves, [
+            ("loaded", cp.load_keys("C"), square),
             ("move", "m"),
-            ("east1", r"\>"), ("east2", r"\>"), ("east3", r"\>"), ("east4", r"\>"),
-            ("camp", r"\#65"),              # #99: Ctrl-F8 camps
-            ("map", "E"),                   # leaving camp: the map and the mark
-        ], seed=1, verbose=args.verbose)
-        status |= c.run()
+            ("east1", r"\>", square), ("east2", r"\>", square), ("east3", r"\>", square),
+            ("east4", r"\>", square),
+            ("camp", r"\#65", square),      # #99: Ctrl-F8 camps
+            ("map", "E", square),           # leaving camp: the map and the mark
+        ], seed=1, verbose=args.verbose).run()
+        got = [list(c.probes[n].values())[0] for n in ("east4", "camp", "map")]
+        v.check(got[0] == got[1] == got[2], "#99: in the original Ctrl-F8 takes no step", str(got))
         print("port:", [l for l in c.port_text.splitlines() if l.startswith("overland:")])
 
     if args.only in (None, "coast"):
-        shutil.copyfile(saves / "SAVGAMC.DAT", saves / "SAVGAMD.DAT")
-        for f in list(saves.glob("CHRDATC*")):
-            shutil.copyfile(f, saves / f.name.replace("CHRDATC", "CHRDATD"))
+        cp.copy_game(saves, "C", "D")
         cp.edit_save(saves, "D", var={0x4BC3: 35, 0x4BC4: 4})
-        c = cp.Compare(work / "coast", saves, [
-            ("loaded", cp.load_keys("D")),
+        c = cp.Compare(v, work / "coast", saves, [
+            ("loaded", cp.load_keys("D"), square),
             ("move", "m"),
             ("se", "3"),                    # #100: YOU QUICKLY TIRE OF SWIMMING ...
-            ("back", r"\r"),
+            ("back", r"\r", square),
             ("again", "5"),                 # the same way again
-            ("back2", r"\r"),
+            ("back2", r"\r", square),
             ("f1", r"\#3b"),
-            ("back3", r"\r"),
-        ], seed=1, verbose=args.verbose)
-        status |= c.run(box_hook=lambda box: print(
-            "#100 original's overland square after (vars 0x4bc3, 0x4bc4):",
-            cp.var(box, 0x4BC3), cp.var(box, 0x4BC4)))
-        print("port:", [l for l in c.port_text.splitlines()
-                        if l.startswith("overland:") or "SWIMMING" in l])
+            ("back3", r"\r", square),
+        ], seed=1, verbose=args.verbose).run()
+        got = [list(c.probes[n].values())[0] for n in ("loaded", "back", "back2", "back3")]
+        v.check(all(g == (35, 4) for g in got), "#100: in the original the party stays at 35,4",
+                str(got))
+        v.check(c.port_text.count("YOU QUICKLY TIRE OF SWIMMING") == 3,
+                "#100: 3, 5 and F1 each tire of swimming (the port's log; the screens of both "
+                "equal)")
     if args.only in (None, "knights"):
         # #102: the step counter (var 0x4c06) at 10, so that the next step
-        # rolls for an encounter. The port meets the knights (8890) with seed
-        # 75; the original, which takes no roll between the title and that
-        # step (RandSeed read in memory: still the seed), with 211 (its
-        # d100s, Random(100) = (seed >> 16) mod 100: 8 under the chance of
-        # 11, then 92). The port rolls once more, on resuming: it runs the
-        # location vector there (8849's RANDOM in --trace before the first
-        # menu: 66 from 75, then 11 and 94 at the step).
-        shutil.copyfile(saves / "SAVGAMC.DAT", saves / "SAVGAME.DAT")
-        for f in list(saves.glob("CHRDATC*")):
-            shutil.copyfile(f, saves / f.name.replace("CHRDATC", "CHRDATE"))
+        # rolls for an encounter; RandSeed 75 rolled once at the first key
+        # read after loading (where the port as it is gets from 75: it rolls
+        # once on resuming here) meets the knights (8890) a step east.
+        cp.copy_game(saves, "C", "E")
         cp.edit_save(saves, "E", var={0x4C06: 10})
-        c = cp.Compare(work / "knights", saves, [
+        c = cp.Compare(v, work / "knights", saves, [
             ("loaded", cp.load_keys("E")),
             ("move", "m"),
             ("knights", r"\>"),            # YOU COME UPON A COMPANY OF KNIGHTS ...
             ("camp", "Y"),                  # PROGRAM 9: the camp's menu
             ("map", "E"),                   # #102: the map again, the script ended
             ("step", r"\>"),
-        ], seed=75, box_seed=211, verbose=args.verbose)
-        status |= c.run()
-        print("port:", [l for l in c.port_text.splitlines()[-8:]])
+        ], seed=cp.roll(75), verbose=args.verbose).run()
+        v.check("COMPANY OF KNIGHTS" in c.port_text_of(fixed=True),
+                "#102: the step meets the knights' camp (the log of the port with the known "
+                "fixes; the original's screens are compared above)")
     print(f"files in {work}")
-    return 1 if status else 0
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))
