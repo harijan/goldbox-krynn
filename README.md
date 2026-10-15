@@ -6389,10 +6389,12 @@ The temple's `Heal` (`340d:0be1`) clears row 24 and shows, in the frame
 of a large picture (`1128:0344`), `NAME, how can we help you?` on row 1
 in white and the cures (`DS:01cc`, 41 bytes each) in cells 2-38 by 4-15,
 with `Heal Exit` (`67b5:1368`), for the selected character, until Exit or
-Escape; then the screen is redrawn. Each pass clears the frame and the
-list's text is drawn only the first time; yet as the list returns after a
-cure bought, all ten cures show, the row picked highlighted, in the
-original (checked in DOSBox-X with Raise Dead) as in the port. A cure
+Escape; then the screen is redrawn. The port clears the frame each pass
+and draws the list's text only the first time, so afterwards only the row
+picked shows. The original does not: in DOSBox-X, after Raise Dead bought,
+its list returns with all ten cures, Raise Dead highlighted, where the
+port shows `RAISE DEAD` alone (3,227 pixels, `c_outpost.py`): a port
+difference, not yet traced in `340d:0be1`. A cure
 (`340d:027f`-`0b32`) that the character does not need says
 so (the name on row 18 and the text below it, `6346:1883`, no pause) and
 asks `cast cure anyway: ` (`67b5:177f`, No first). Then `CURE will only
@@ -7377,8 +7379,10 @@ original's behaviour is recorded, its section says what it does):
 - #68 Appraise's `Keep` with no items loses the gem; Escape sells it:
   `c_outpost.py`.
 - #69 Leaving a temple with money in the pool: `c_outpost.py`.
-- #70 `Heal`'s list after a cure bought: all ten cures, the row picked
-  highlighted, in both (see Shops and the temple): `c_outpost.py`.
+- #70 `Heal`'s list after a cure bought: the PORT DIFFERS. The original
+  shows all ten cures again, the row picked highlighted; the port only the
+  row picked (see Shops and the temple). The first time, the first cure
+  highlighted, as in the port: `c_outpost.py`.
 - #71 Raise Dead loses the whole difference (constitution 15):
   `c_outpost.py`.
 - #72 `10 Arrows +1` halved and sold: 6 for the two, 60 for one:
