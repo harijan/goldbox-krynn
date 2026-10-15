@@ -109,7 +109,7 @@ def main():
                     struct.unpack_from("<H", raw, 0x17D)[0], struct.unpack_from("<H", praw, 0x17D)[0])
             v.value("KNIGHT2 in memory after Add: its items (type, readied, weight)",
                     items(its), items(pits))
-        A.judge_files(v, orig, port, A.mask_saved, pair.fixed_files, what=f"{name}: file")
+        A.judge_files(v, orig, port, A.mask_saved, what=f"{name}: file")
     print(f"files in {work}")
     return v.finish()
 

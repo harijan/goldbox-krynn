@@ -56,7 +56,7 @@ def main():
         mine = [fields(raw) for raw, _ in records[name]]
         port = [fields(raw) for raw, _ in probes[name].members]
         v.value(f"{name}: the party's (name, wisdom, wisdom, +0x11c)", mine, port)
-    A.judge_files(v, orig, pair.port_files(), A.mask_saved, pair.fixed_files)
+    A.judge_files(v, orig, pair.port_files(), A.mask_saved)
     print(f"files in {work}")
     return v.finish()
 

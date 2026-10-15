@@ -10,8 +10,7 @@ Halve Join Sell Id` has no `Exit`.").
 The original runs as `START Woof`, eclplay as --woof, with SAVE/'s games.
 trace: Play, Ctrl-D in the start menu, load game A, Begin Adventuring, then
 Enter at each key read (the trace waits for one after each opcode), each
-screen against the port's at the same key read (a difference the port with
-the known fixes does not have is the known `fullstop`), and the debug flag
+screen against the port's at the same key read, and the debug flag
 DS:4b51 at the end.
 file: Ctrl-D, load A, Ctrl-Z, Ctrl-D (off), Ctrl-D (on, made anew), Ctrl-Z,
 then Ctrl-2 (the word 0x0300) to quit. At each step the flag and DEBUG.TXT's
