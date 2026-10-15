@@ -10,12 +10,16 @@ KRYNN.CFG's third line M; DOSBox-X's own INT 33h driver, its pointer
 following X's (sdl mouse_emulation=integration: the 640x400 window's pixel
 2x, 2y is the game's pixel x, y), moved and clicked with xdotool. eclplay
 --mouse takes the same moves and clicks as \\mX,Y,B. in its keys, and its
---shots draw the port's cursor; screens are compared pixel for pixel with
-eclplay's frame that matches best.
+--shots draw the port's cursor; each screen is compared with the port's at
+the same key read (checklib.frames_at), a difference with the port built
+with the known fixes.
 
 Parts:
 - look: the title's menu with the pointer at 100,60 and at 200,150, in
-  tandy, vga (svga_s3, EGA) and cga.
+  tandy, vga (svga_s3, EGA) and cga. In CGA mode the arrow's 16x16 box is
+  not compared: DOSBox-X's driver draws CGA's cursor a bit a pixel (16
+  pixels wide), the port two bits a pixel as Microsoft's driver does (8
+  wide), as the README says (The mouse and the joystick).
 - hidden: the pointer parked over the picture through the title's first
   wait (the SSI picture), and through game A's route (Solace's running text
   and pages, the outpost, the camp, the overland map).
@@ -25,19 +29,24 @@ Parts:
 - both: both buttons at once at the title menu, then P: the menu takes
   the click's 0 as an extended key's prefix and P's scan code (0x19) after
   it (the port does so).
+- mark: the pointer on the overland map's mark through a camp, then moved
+  off, or a step first: see mark().
 """
 import argparse
-import os
 import pathlib
 import sys
-import tempfile
 import time
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-import cokbox  # noqa: E402
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import checklib  # noqa: E402
+import f_lib  # noqa: E402
 
+cokbox = checklib.cokbox
 
 CONF = {"sdl.mouse_emulation": "integration"}
+ECLPLAY_ARGS = ["--mouse", "--input", "mouse", "--seed", "1"]
+CGA_CURSOR = ("DOSBox-X's own driver draws CGA's cursor a bit a pixel, 16 wide; the port "
+              "two bits a pixel, 8 wide, as Microsoft's (README: The mouse and the joystick)")
 
 
 class MouseBox(cokbox.Box):
@@ -48,35 +57,14 @@ class MouseBox(cokbox.Box):
 
     def click(self, x, y, buttons=1):
         self.point(x, y)
-        if buttons == 3:
-            self._xdo("mousedown", "1", "mousedown", "3")
-            time.sleep(0.3)
-            self._xdo("mouseup", "1", "mouseup", "3")
-        else:
-            # Held a while: the game polls the buttons' state (INT 33h 3),
-            # which a press and release in one of DOSBox-X's event batches
-            # would never show down.
-            button = "1" if buttons == 1 else "3"
-            self._xdo("mousedown", button)
-            time.sleep(0.3)
-            self._xdo("mouseup", button)
+        down = ["1", "3"] if buttons == 3 else ["1" if buttons == 1 else "3"]
+        # Held a while: the game polls the buttons' state (INT 33h 3), which
+        # a press and release in one of DOSBox-X's event batches would never
+        # show down.
+        self._xdo(*[a for b in down for a in ("mousedown", b)])
+        time.sleep(0.3)
+        self._xdo(*[a for b in down for a in ("mouseup", b)])
         time.sleep(0.4)
-
-
-def eclplay(keys, work, machine="tandy", saves=()):
-    stdout, _, shots = cokbox.eclplay(keys, work / "eclplay", machine=machine, saves=saves,
-                                      args=["--mouse", "--input", "mouse", "--seed", "1"])
-    return stdout, [cokbox.Screen.load(p) for p in shots], shots
-
-
-def compare(name, shown, expected, names, work):
-    best = min(range(len(expected)), key=lambda i: shown.diff(expected[i])[0])
-    count, area = shown.diff(expected[best])
-    if count:
-        shown.save_png(work / f"diff-{name}.png", highlight=expected[best])
-    print(f"{name}: {count} pixels differ from eclplay's {names[best].name}"
-          + (f" in {area}" if area else ""), flush=True)
-    return count
 
 
 def box(work, machine="tandy", saves=(), verbose=False):
@@ -84,42 +72,54 @@ def box(work, machine="tandy", saves=(), verbose=False):
                     saves=list(saves), seed=1, verbose=verbose)
 
 
-def look(work, verbose):
-    status = 0
+def port(keys, work, machine="tandy", saves=()):
+    """The port's frames at KEYS' marks and the fixed port's (lazily)."""
+    return f_lib.frames(keys, work, machine=machine, saves=list(saves), args=ECLPLAY_ARGS)
+
+
+def look(v, work, verbose):
+    points = ((100, 60), (200, 150))
+    keys = r"\kx" + "".join(rf"\m{x},{y}.z\sat-{x}-{y}." for x, y in points)
     for machine in ("tandy", "vga", "cga"):
         w = work / f"look-{machine}"
-        _, expected, names = eclplay(r"\kx\m100,60.z\m200,150.z", w, machine)
+        frames, fixed = port(keys, w, machine)
+        shots = {}
         with box(w, machine, verbose=verbose) as b:
             b.keys(r"\kx")
-            for x, y in ((100, 60), (200, 150)):
+            for x, y in points:
                 b.wait_input()
                 b.point(x, y)
                 b.keys("z")
                 b.wait_input(settle=0.5)
-                shown = b.screenshot(w / f"at-{x}-{y}.png")
-                status |= bool(compare(f"look {machine} pointer at {x},{y}", shown, expected,
-                                       names, w))
-    return status
+                shots[f"at-{x}-{y}"] = b.screenshot(w / f"at-{x}-{y}.png")
+        for (x, y), (name, shot) in zip(points, shots.items()):
+            masks = ([(x, y, 16, 16, f"the arrow's 16x16 box from {x},{y}: {CGA_CURSOR}")]
+                     if machine == "cga" else [])
+            v.screen(f"look {machine} pointer at {x},{y}", shot, frames.get(name),
+                     fixed=lambda n=name: fixed().get(n), masks=masks, work=w)
 
 
-ROUTE = [("title menu", r"\kx"), ("pointer parked at the title menu", None), ("game A loaded", r"P\v\v\rA"),
-         ("Solace", r"\v\v\v\v\v\r"), ("Solace page 2", r"\r"), ("outpost", r"\r\r\r\r\r\r"),
-         ("camp", r"I\r"), ("outpost again", "E"), ("near outpost", "L"), ("overland", "N"),
-         ("move mode", "M")]
+ROUTE = [("title menu", r"\kx"), ("pointer parked at the title menu", None),
+         ("game A loaded", r"P\v\v\rA"), ("Solace", r"\v\v\v\v\v\r"), ("Solace page 2", r"\r"),
+         ("outpost", r"\r\r\r\r\r\r"), ("camp", r"I\r"), ("outpost again", "E"),
+         ("near outpost", "L"), ("overland", "N"), ("move mode", "M")]
 PARK = (60, 90)
 
 
-def hidden(work, verbose):
-    status = 0
+def hidden(v, work, verbose):
     w = work / "hidden"
-    keys = "".join(k if k is not None else r"\m%d,%d.z" % PARK for _, k in ROUTE)
-    _, expected, names = eclplay(keys, w, saves=[cokbox.ROOT / "SAVE"])
-    with box(w, saves=[cokbox.ROOT / "SAVE"], verbose=verbose) as b:
+    saves = [checklib.SAVES]
+    park = r"\m%d,%d.z" % PARK
+    steps = [(name, k if k is not None else park) for name, k in ROUTE]
+    # The pointer is parked before the title's first wait in both (eclplay
+    # moves it as the keys reach the \m, before that wait's \k).
+    frames, fixed = port(r"\m%d,%d." % PARK + f_lib.marked(steps), w, saves=saves)
+    shots = {}
+    with box(w, saves=saves, verbose=verbose) as b:
         # The title's first wait (the SSI picture): the pointer over it.
         b.point(*PARK)
         b.wait_input(settle=0.5)
-        status |= bool(compare("hidden: the title's first picture, pointer at %d,%d" % PARK,
-                               b.screenshot(w / "ssi.png"), expected, names, w))
+        ssi = b.screenshot(w / "ssi.png")
         for name, k in ROUTE:
             if k is None:  # parked, then z (nothing at the title's menu)
                 b.wait_input()
@@ -128,67 +128,79 @@ def hidden(work, verbose):
             else:
                 b.keys(k)
             b.wait_input(settle=1.0)
-            shown = b.screenshot(w / f"{name.replace(' ', '-')}.png")
-            count = compare(f"hidden: {name}", shown, expected, names, w)
-            # The known full stop after "TO CONTINUE" (load_game_screen.py).
-            status |= bool(count) and count != 59
-    return status
+            shots[name] = b.screenshot(w / f"{name.replace(' ', '-')}.png")
+    # eclplay given no key lets the title's timed waits run out, so its frame
+    # at the first wait is the first shot of a run whose \k presses a key
+    # there: the screen at that poll (a \m before it would take that wait
+    # for the move: the pointer stays where the driver puts it, hidden in
+    # both, so a cursor shown there would differ wherever it is).
+    _, _, first = cokbox.eclplay(r"\kx", w / "port-ssi", saves=saves,
+                                 args=ECLPLAY_ARGS,
+                                 binary=checklib.stopping_eclplay())
+    v.screen("hidden: the title's first picture, pointer at %d,%d" % PARK, ssi,
+             cokbox.Screen.load(first[0]) if first else None, work=w)
+    f_lib.judge(v, "hidden:", shots, frames, fixed, w)
 
 
-def click(work, verbose):
-    status = 0
+def click(v, work, verbose):
     # PLAY at row 24 (the menu "CHAMPIONS OF KRYNN V1.2 PLAY DEMO"): x 200.
     for name, (x, y) in (("click PLAY", (201, 196)), ("click column 0", (3, 100))):
         w = work / name.replace(" ", "-")
-        out, expected, names = eclplay(r"\kx\m%d,%d,1." % (x, y), w)
+        frames, fixed = port(r"\kx\m%d,%d,1.\safter." % (x, y), w)
         with box(w, verbose=verbose) as b:
             b.keys(r"\kx")
             b.wait_input()
             b.click(x, y)
             b.wait_input(settle=1.5)
-            shown = b.screenshot(w / "after.png")
-            status |= bool(compare(f"{name} at {x},{y}", shown, expected, names, w))
-            print(f"{name}: the original waits at {b.where()}; eclplay: "
-                  f"{[l for l in out.splitlines() if l.startswith(('choice', 'list'))][:3]}")
-    return status
+            shot = b.screenshot(w / "after.png")
+            print(f"  {name}: the original waits at {b.where()}")
+        v.screen(f"{name} at {x},{y}", shot, frames.get("after"),
+                 fixed=lambda: fixed().get("after"), work=w)
 
 
-def both(work, verbose):
+def both(v, work, verbose):
     w = work / "both"
-    out, expected, names = eclplay(r"\kx\m100,100,3.P", w)
+    frames, fixed = port(r"\kx\m100,100,3.P\safter.", w)
     with box(w, verbose=verbose) as b:
         b.keys(r"\kx")
         b.wait_input()
         b.click(100, 100, 3)
         b.keys("P")
         b.wait_input(settle=1.5)
-        shown = b.screenshot(w / "after.png")
-        status = bool(compare("both buttons, then P", shown, expected, names, w))
-        print(f"both: the original waits at {b.where()}; eclplay: "
-              f"{[l for l in out.splitlines() if l.startswith(('choice', 'list', 'menu'))][-3:]}")
-    return status
+        shot = b.screenshot(w / "after.png")
+        print(f"  both: the original waits at {b.where()}")
+    v.screen("both buttons, then P", shot, frames.get("after"),
+             fixed=lambda: fixed().get("after"), work=w)
 
 
 # Game A to the overland map by the first outpost: the party's mark at 1,3,
 # the screen's cell 2,4 (pixels 16-23, 32-39); the pointer's tip on it.
 MARK_KEYS = r"\kxP\v\v\rA\v\v\v\v\v\r\r\r\r\r\r\r\rLN"
 MARK_AT, AWAY = (18, 34), (100, 120)
+# The mark's cell under the arrow's box: where the original's mark loses
+# pixels (README, The mouse and the joystick: "Not reproduced").
+MARK_GONE = (18, 34, 6, 6)
+MARK_GONE_PIXELS = 25
 
 
-def mark(work, verbose):
+def mark(v, work, verbose):
     """The pointer on the party's mark through a camp (Encamp, Exit): then
-    (a) moved off: does the part of the mark under the arrow vanish? and (b)
-    left there through a step north (Move, 8), then moved off: does the old
-    cell show the arrow? (The port: neither.) The mark's cell is reported.
-    The first step meets the caravan; its text's prompt ignores the z."""
-    status = 0
-    saves = [cokbox.ROOT / "SAVE"]
+    (a) moved off: in the original the part of the mark under the arrow
+    vanishes (the driver restores the background it saved before the mark
+    was put over the arrow), which the port does not reproduce: there the
+    original's recorded observation is asserted (25 pixels of the port's
+    whole mark gone, all in the mark's cell under the arrow's box) and the
+    rest of the screen compared; (b) left there through a step north (Move,
+    8), and (c) then moved off: the screens compared (the old cell: no
+    arrow's image painted back). The first step meets the caravan; its
+    text's prompt ignores the z."""
+    saves = [checklib.SAVES]
     off = r"\m%d,%d.z" % AWAY
-    for name, after, ecl_after in (("moved off", "", off), ("step away", "M8", "M8"),
-                                   ("step away, then moved off", "M8", "M8" + off)):
-        w = work / f"mark-{name.replace(' ', '-')}"
-        keys = MARK_KEYS + r"\m%d,%d.z" % MARK_AT + "EE" + ecl_after
-        _, expected, names = eclplay(keys, w, saves=saves)
+    for name, after in (("moved off", off), ("step away", "M8"),
+                        ("step away, then moved off", "M8" + off)):
+        w = work / f"mark-{name.replace(' ', '-').replace(',', '')}"
+        keys = MARK_KEYS + r"\m%d,%d.z" % MARK_AT + "EE" + after + r"\safter."
+        frames, fixed = port(keys, w, saves=saves)
         with box(w, saves=saves, verbose=verbose) as b:
             b.keys(MARK_KEYS)
             b.wait_input()
@@ -197,40 +209,50 @@ def mark(work, verbose):
             b.keys("EE")
             b.wait_input(settle=1.0)
             b.screenshot(w / "after-camp.png")
-            b.keys(after)
-            if ecl_after.endswith(off):
+            b.keys(after[:2] if after.startswith("M") else "")
+            if after.endswith(off):
                 b.wait_input()
                 b.point(*AWAY)
                 b.keys("z")
             b.wait_input(settle=1.0)
-            shown = b.screenshot(w / "after.png")
-            status |= bool(compare(f"mark: pointer on the mark, camp, {name}", shown, expected,
-                                   names, w))
-            best = min(range(len(expected)), key=lambda i: shown.diff(expected[i])[0])
-            cell_o = shown.region(16, 32, 8, 8)
-            cell_p = expected[best].region(16, 32, 8, 8)
-            print(f"mark {name}: the mark's cell (16,32): original {cell_o.hex()}, "
-                  f"port {cell_p.hex()}{'' if cell_o == cell_p else ' DIFFER'}")
-    return status
+            shot = b.screenshot(w / "after.png")
+        other = frames.get("after")
+        what = f"mark: pointer on the mark, camp, {name}"
+        if name != "moved off":
+            v.screen(what, shot, other, fixed=lambda: fixed().get("after"), work=w)
+            continue
+        reason = ("the mark's part under the arrow vanishes in the original, not "
+                  "reproduced by the port (README: The mouse and the joystick)")
+        v.screen(what + " (but the mark's cell under the arrow)", shot, other,
+                 fixed=lambda: fixed().get("after"), masks=[MARK_GONE + (reason,)], work=w)
+        if other is None:
+            continue
+        count, area = checklib.masked_diff(shot, other)
+        inside = count - checklib.masked_diff(shot, other, [MARK_GONE])[0]
+        print(f"  {what}: the port is not compared in the mark's cell under the arrow "
+              f"({reason}); the original's observation is asserted there")
+        v.check(inside == MARK_GONE_PIXELS, f"{what}: the original's mark lost "
+                f"{MARK_GONE_PIXELS} pixels under the arrow's box, as batch F saw",
+                f"{inside} pixels differ from the port's whole mark in {area}")
+
+
+PARTS = {"look": look, "hidden": hidden, "click": click, "both": both, "mark": mark}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--workdir")
-    parser.add_argument("--part", action="append",
-                        choices=["look", "hidden", "click", "both", "mark"])
+    parser.add_argument("--part", action="append", choices=list(PARTS))
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    work = pathlib.Path(args.workdir or tempfile.mkdtemp(prefix="check-mouse-")).resolve()
-    status = 0
-    for part in args.part or ["look", "hidden", "click", "both", "mark"]:
-        status |= {"look": look, "hidden": hidden, "click": click, "both": both,
-                   "mark": mark}[part](
-            work, args.verbose)
-    print("verdict:", "AGREES" if not status else "screens differ (see above)")
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "mouse")
+    v = checklib.Verdict()
+    for part in args.part or list(PARTS):
+        PARTS[part](v, work, args.verbose)
     print(f"files in {work}")
-    return status
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))

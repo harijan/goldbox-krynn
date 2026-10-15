@@ -9,33 +9,41 @@ The original runs in DOSBox-X as a Tandy, whose video memory lies in the
 guest's RAM (0x98000, 32 KB, four banks of 8 KB, 4 bits a pixel), so row 24
 (pixel rows 192-199) can be read through /proc/PID/mem thousands of times a
 second by a thread while the keys go in: every change of the row is logged
-with its time, and a row holding light green (colour 10) pixels is matched
-against the message as startup draws it (the first such row seen, saved as
-loading.png). DOSBox-X's disk reads take emulated time but not a real
-disk's, so how long the message shows is not a real machine's.
+with its time, and a row of exactly 479 lit pixels, all light green
+(colour 10), is the message (as startup draws it; saved as loading.png).
+DOSBox-X's disk reads take emulated time but not a real disk's, so how long
+the message shows is not a real machine's.
+
+The port's side: eclplay built with a line printed, row 24's pixels with
+it, each time cok_adventure_loading has drawn the message (the only draw
+of it: start.c, roster.c, adventure.c's pictures with animation on and
+NEWECL), run on the keys up to each phase's end: the messages counted
+phase by phase must be the original's, each as the original's row pixel
+for pixel, and the screen at each phase's key wait the original's (the
+frame of the same run: the line printed changes no pixel).
 
 Phases: startup to the title; game A loaded and Begin Adventuring (block
-36, NEWECL), Solace's pages to the outpost (block 17), Leave (the overland
-map, block 16), the steps to the caravan (its picture); then the same with
-animation off (camp's Alter, Pics, F7) from the outpost's inn.
-The screens at the key waits after each are compared with eclplay's.
+36, NEWECL), Solace's pages to the outpost (block 17), the inn's camp,
+Alter, Pics, (F7: animation off, in the second run only), back, the
+outpost (its picture 58), the Commandant (57), back (58), Leave (the
+overland map, block 16), the steps to the caravan (its picture).
 """
 import argparse
-import os
 import pathlib
-import shutil
-import subprocess
 import sys
-import tempfile
 import threading
 import time
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-import cokbox  # noqa: E402
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import checklib  # noqa: E402
+import f_lib  # noqa: E402
 
+cokbox = checklib.cokbox
 
 VRAM = 0x98000
 DS_ANIMATION = 0x4B4F
+MESSAGE_PIXELS = 479
+SEED = 1
 
 
 def strip_raw(box_mem, base):
@@ -45,10 +53,14 @@ def strip_raw(box_mem, base):
         off = (y % 4) * 0x2000 + (y // 4) * 160
         box_mem.seek(base + VRAM + off)
         parts.append(box_mem.read(160))
+    return unpack(b"".join(parts))
+
+
+def unpack(packed):
+    """Two pixels a byte, the left one in the high nibble, as colours."""
     out = bytearray()
-    for part in parts:
-        for b in part:
-            out += bytes((b >> 4, b & 15))
+    for b in packed:
+        out += bytes((b >> 4, b & 15))
     return bytes(out)
 
 
@@ -65,28 +77,20 @@ class Poller(threading.Thread):
 
     def run(self):
         last = None
-        while not self.stop:
-            try:
+        try:
+            while not self.stop:
                 row = strip_raw(self.mem, self.box.base)
-            except OSError:
-                break
-            self.reads += 1
-            if row != last:
-                self.log.append((time.monotonic(), row))
-                last = row
+                self.reads += 1
+                if row != last:
+                    self.log.append((time.monotonic(), row))
+                    last = row
+        finally:
+            self.mem.close()
 
 
 def is_message(row):
-    """Row 24 holding the whole message: 479 pixels lit, all light green
-    (startup's `Loading...Please Wait`, as loading.png shows it)."""
+    """Row 24 holding the whole message: 479 pixels lit, all light green."""
     return row.count(10) == MESSAGE_PIXELS and sum(1 for p in row if p) == MESSAGE_PIXELS
-
-
-MESSAGE_PIXELS = 479
-
-
-def save_strip(row, path):
-    cokbox.Screen(320, 8, row).save_png(path)
 
 
 # Game A from the title to the outpost's inn's camp, Alter, Pics, (F7: the
@@ -113,84 +117,68 @@ PHASES = [
     ("steps to the caravan", r"\>\>\^"),
 ]
 
-
-def instrumented_eclplay(out):
-    """eclplay built from src/ with a line printed each time the port draws
-    the message (cok_adventure_loading), in OUT."""
-    src = out / "src"
-    if src.exists():
-        shutil.rmtree(src)
-    shutil.copytree(cokbox.ROOT / "src", src)
-    adv = src / "adventure.c"
-    text = adv.read_text()
-    anchor = '"Loading...Please Wait", 0, 24, 10, 0);\n'
-    if anchor not in text:
-        raise SystemExit("src/adventure.c: cok_adventure_loading not found")
-    adv.write_text(text.replace(anchor, anchor + '    printf("LOADING-MESSAGE\\n");\n', 1))
-    skip = {"cok.c", "keymap.c", "daxcheck.c", "daxcompose.c", "daximages.c", "ecldump.c"}
-    files = [str(f) for f in sorted(src.glob("*.c")) if f.name not in skip]
-    exe = out / "eclplay-loading"
-    subprocess.run(["cc", "-I", str(src), "-std=c17", "-O2", *files, "-o", str(exe)], check=True)
-    return exe
+LOADING_FN = "void cok_adventure_loading(cok_adventure *game)\n{\n"
+LOADING_PRINT = """
+    {
+        /* DOSBox-X check f_loading.py: the message drawn, row 24's pixels. */
+        cok_image shown = cok_picture_frame(&game->screen, 0);
+        printf("LOADING-MESSAGE ");
+        for (size_t i = 192 * 160; shown.width == 320 && i < 200 * 160; ++i)
+            printf("%02x", shown.pixels[i]);
+        printf("\\n");
+    }"""
 
 
-def port_counts(exe, phases, work):
-    """The port's messages in each phase: eclplay --start-menu run on the keys
-    up to each phase's end (it stops at the next key read), counted."""
-    saves = work / "port-saves"
-    cfg = work / "krynn.cfg"
-    cfg.write_bytes(cokbox.krynn_cfg("T").encode())
-    counts, total = [], 0
-    for i in range(len(phases)):
-        if saves.exists():
-            shutil.rmtree(saves)
-        saves.mkdir()
-        for f in (cokbox.ROOT / "SAVE").iterdir():
-            if f.is_file():
-                shutil.copyfile(f, saves / f.name)
-        keys = "".join(k for _, k in phases[:i + 1])
-        res = subprocess.run([str(exe), "--start-menu", "--config", str(cfg), "--saves", str(saves),
-                              "--seed", "1", "--keys", keys, str(cokbox.ROOT / "Assets")],
-                             capture_output=True, text=True, timeout=300)
-        n = res.stdout.count("LOADING-MESSAGE")
-        counts.append(n - total)
-        total = n
-    return counts
+def print_loading(name, text):
+    """src/adventure.c: a line with row 24's pixels at cok_adventure_loading's
+    end (whatever it draws, where and in what colour)."""
+    start = text.find(LOADING_FN)
+    if start < 0:
+        raise cokbox.BoxError("src/adventure.c: cok_adventure_loading not found")
+    end = text.index("\n}\n", start)
+    return text[:end] + LOADING_PRINT + text[end:]
 
 
-def run(name, phases, work, verbose, port):
-    work.mkdir(parents=True, exist_ok=True)
-    keys = "".join(k for _, k in phases)
-    _, _, eshots = cokbox.eclplay(keys, work / "eclplay", saves=[cokbox.ROOT / "SAVE"],
-                                  args=["--seed", "1"])
-    expected = [cokbox.Screen.load(p) for p in eshots]
-    marks = []
-    with cokbox.Box(workdir=work / "box", saves=[cokbox.ROOT / "SAVE"], verbose=verbose) as box:
+def port_runs(exe, phases, work):
+    """eclplay EXE run on the keys up to each phase's end (it stops at the
+    next key read): [(the messages' rows drawn in that phase, its last
+    frame)]."""
+    out, total = [], 0
+    keys = ""
+    for i, (phase, k) in enumerate(phases):
+        keys += k
+        stdout, _, shots = cokbox.eclplay(keys, work / f"{i:02d}", binary=exe,
+                                          saves=[checklib.SAVES], args=["--seed", str(SEED)])
+        rows = [unpack(bytes.fromhex(line.split(" ", 1)[1].strip() or ""))
+                for line in stdout.splitlines() if line.startswith("LOADING-MESSAGE")]
+        out.append((rows[total:], cokbox.Screen.load(shots[-1]) if shots else None))
+        total = len(rows)
+    return out
+
+
+def original(phases, work, verbose):
+    """The original's run: [(phase, animation byte, the message rows seen in
+    that phase (time shown, the row before)...)], its screens, the poller."""
+    marks, shots = [], {}
+    with cokbox.Box(workdir=work / "box", saves=[checklib.SAVES], verbose=verbose) as box:
         # Polling from HOOK.COM's start, before START.EXE's startup; the seed
         # (as Box(seed=) sets it) at the first wait for a key.
         poller = Poller(box)
         poller.start()
         t0 = time.monotonic()
         box.wait_input()
-        box.set_seed(1)
+        box.set_seed(SEED)
         for phase, k in phases:
             box.keys(k)
             box.wait_input(settle=1.0)
-            shown = box.screenshot(work / f"{phase.split(' (')[0].replace(' ', '-')}.png")
-            best = min(range(len(expected)), key=lambda i: shown.diff(expected[i])[0])
-            count, area = shown.diff(expected[best])
-            marks.append((time.monotonic(), phase, box.ds_byte(DS_ANIMATION), count, area,
-                          eshots[best].name))
+            shots[phase] = box.screenshot(work / f"{phase.split(' (')[0].replace(' ', '-')}.png")
+            marks.append((time.monotonic(), phase, box.ds_byte(DS_ANIMATION)))
         poller.stop = True
-        poller.join(2)
-    print(f"{name}: {poller.reads} reads of row 24 in {time.monotonic() - t0:.0f} s, "
+        poller.join(5)
+    print(f"  {poller.reads} reads of row 24 in {time.monotonic() - t0:.0f} s, "
           f"{len(poller.log)} changes")
-    shown_rows = [row for _, row in poller.log if is_message(row)]
-    if shown_rows:
-        save_strip(shown_rows[0], work / "loading.png")
-    status = 0
-    idx = 0
     per_phase = [[] for _ in marks]
+    idx = 0
     for i, (t, row) in enumerate(poller.log):
         while idx < len(marks) and marks[idx][0] < t:
             idx += 1
@@ -198,17 +186,33 @@ def run(name, phases, work, verbose, port):
             until = poller.log[i + 1][0] if i + 1 < len(poller.log) else t
             prev = poller.log[i - 1][1] if i else b""
             before = "blank" if not any(prev) else f"{sum(1 for p in prev if p)} px lit"
-            per_phase[idx].append(f"{(until - t) * 1000:.0f} ms after {before}")
-    for m, (tm, phase, anim, count, area, ename) in enumerate(marks):
-        shows = per_phase[m]
-        agree = len(shows) == port[m]
-        if not agree:
-            status = 1
-        print(f"{name}: {phase}: animation {anim}; the original shows it {len(shows)}x "
-              f"({', '.join(shows) or '-'}); the port {port[m]}x"
-              f"{'' if agree else ' DIFFERS'}; screen vs eclplay's {ename}: {count} px"
-              + (f" in {area}" if area else ""))
-    return status
+            per_phase[idx].append((row, f"{(until - t) * 1000:.0f} ms after {before}"))
+    return [(phase, anim, per_phase[m]) for m, (_, phase, anim) in enumerate(marks)], shots
+
+
+def run(v, name, phases, work, verbose):
+    work.mkdir(parents=True, exist_ok=True)
+    transform = [("adventure.c", print_loading)]
+    port = port_runs(f_lib.eclplay(transforms=transform), phases, work / "port")
+    fixed = f_lib.Lazy(lambda: port_runs(f_lib.eclplay(True, transforms=transform),
+                                         phases, work / "fixed"))
+    seen, shots = original(phases, work, verbose)
+    messages = [row for _, _, shows in seen for row, _ in shows]
+    if not messages:
+        v.differ(f"{name}: the original showed the message", "never seen")
+        return
+    cokbox.Screen(320, 8, messages[0]).save_png(work / "loading.png")
+    for m, (phase, anim, shows) in enumerate(seen):
+        rows, frame = port[m]
+        print(f"  {name}: {phase}: animation {anim}; the original shows it {len(shows)}x "
+              f"({', '.join(d for _, d in shows) or '-'}); the port {len(rows)}x")
+        v.value(f"{name}: {phase}: the messages shown", len(shows), len(rows),
+                fixed=lambda m=m: len(fixed()[m][0]))
+        v.check(all(r == messages[0] for r in rows),
+                f"{name}: {phase}: the port's messages are the original's row 24, pixel "
+                "for pixel", f"{sum(r != messages[0] for r in rows)} of {len(rows)} differ")
+        v.screen(f"{name}: {phase}: the screen at the key wait", shots[phase], frame,
+                 fixed=lambda m=m: fixed()[m][1], work=work)
 
 
 def main():
@@ -216,18 +220,15 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    work = pathlib.Path(args.workdir or tempfile.mkdtemp(prefix="check-loading-")).resolve()
-    work.mkdir(parents=True, exist_ok=True)
-    exe = instrumented_eclplay(work)
-    status = 0
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "loading")
+    v = checklib.Verdict()
     for name, phases in (("animation on", [p for p in PHASES if p[0] != "animation off"]),
                          ("animation off", PHASES)):
-        port = port_counts(exe, phases, work)
-        status |= run(name, phases, work / name.split()[1], args.verbose, port)
-    print("verdict:", "AGREES" if status == 0 else "the counts differ (see above)")
+        run(v, name, phases, work / name.split()[1], args.verbose)
     print(f"files in {work}")
-    return status
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))
