@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Check: the debug mode (README, Checks against the original: "The debug
-mode (see Debug mode): start `START Woof`, press Ctrl-D at a menu and
+"""Check #13: the debug mode (README, Checks against the original: "The
+debug mode (see Debug mode): start `START Woof`, press Ctrl-D at a menu and
 compare the trace after each opcode ..., the status line's `*`, and, in a
 battle, the trace of each combatant and `Done*`. Press Ctrl-Z and compare
 `DEBUG.TXT` ... Ctrl-2 should quit to DOS as Ctrl-C does. In Items, `View`
@@ -9,124 +9,102 @@ Halve Join Sell Id` has no `Exit`.").
 
 The original runs as `START Woof`, eclplay as --woof, with SAVE/'s games.
 trace: Play, Ctrl-D in the start menu, load game A, Begin Adventuring, then
-Enter at each key read (the trace waits for one after each opcode) with a
-screen each, compared with eclplay's best frame.
-file: Ctrl-D, load A, Ctrl-Z (DEBUG.TXT's size on the disk then), Ctrl-D
-(closed: its bytes), Ctrl-D (made anew), Ctrl-Z, then Ctrl-2 (the word
-0x0300) to quit; DEBUG.TXT compared with the port's after each.
+Enter at each key read (the trace waits for one after each opcode), each
+screen against the port's at the same key read (a difference the port with
+the known fixes does not have is the known `fullstop`), and the debug flag
+DS:4b51 at the end.
+file: Ctrl-D, load A, Ctrl-Z, Ctrl-D (off), Ctrl-D (on, made anew), Ctrl-Z,
+then Ctrl-2 (the word 0x0300) to quit. At each step the flag and DEBUG.TXT's
+TextRec (DS:8864: open or closed, BufPos, the bytes its 128-byte buffer
+holds: DOSBox-X's own file cache keeps the host's copy behind until the
+close) against the port's, and the screen; the file closed by the first
+Ctrl-D (off) and the file after Ctrl-2 byte for byte against the port's.
 items: in the outpost's camp, View, Items with Ctrl-D on: the menu and
-View's screen of the first item; in the armoury, View, Items: the menu.
+View's screen of the first item; in the armoury, View, Items: the menu;
+each screen against the port's.
 """
 import argparse
+import pathlib
 import sys
 
-import a_common as A
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import a_common as A  # noqa: E402
+import checklib  # noqa: E402
 
 cokbox = A.cokbox
-SAVES = [cokbox.ROOT / "SAVE"]
+WOOF = dict(saves=A.SAVES, box_args="Woof", eclplay_args=["--woof"])
 LOAD_A = r"P\cD\v\v\rA"              # Play at the title's menu, Ctrl-D, Load A
 TO_OUTPOST = r"P\v\v\rA\v\v\v\v\v\r\r\r\r\r\r\r\r"   # no debug: to the outpost's menu
+FM_OUTPUT = 0xD7B2                   # TextRec.Mode of a file open for output
 
 
-def trace(work, verbose, steps):
+def trace(v, work, verbose, steps):
     keys = LOAD_A + r"\sloaded.\v\v\v\v\v\r" + "".join(rf"\r\st{i:03d}." for i in range(steps))
-    pair = A.Pair(keys, work, saves=SAVES, box_args="Woof", eclplay_args=["--woof"],
-                  verbose=verbose)
-    traced = [l for l in pair.out.splitlines() if l.startswith("debug: ")]
+    pair = A.Pair(keys, work, verbose=verbose, **WOOF)
+    traced = [line for line in pair.out.splitlines() if line.startswith("debug: ")]
     print(f"trace: {steps} keys after Begin; the port traced {len(traced)} lines, the last "
           f"{traced[-3:]}")
-    bad = known = 0
+    last = pair.marks()[-1]
     with pair:
         pair.run()
-        for shot in sorted((pair.work / "shots").glob("*.png")):
-            count, best, area = pair.compare(shot.stem, quiet=True)
-            if count and area == (272, 192, 279, 199):
-                # Row 24, column 34: PRESS <ENTER>/<RETURN> TO CONTINUE's full
-                # stop, the port bug load_game_screen.py found (src/adventure.c).
-                known += 1
-            elif count:
-                bad += 1
-            if count:
-                print(f"  {shot.stem}: {count} pixels differ from eclplay's "
-                      f"{pair.port_shots[best].name} in {area}")
-        print(f"  {len(list((pair.work / 'shots').glob('*.png')))} screens: {bad} differ, "
-              f"{known} only by the known full stop at row 24 column 34 (PRESS <ENTER>/<RETURN> "
-              f"TO CONTINUE., load_game_screen.py); the original waits at {pair.box.where()}")
-    return bad
+        flag = pair.box.ds_byte(0x4B51)
+        print(f"  the original waits at {pair.box.where()}")
+    pair.judge_all(v)
+    v.value("the debug flag DS:4b51 at the end", flag,
+            pair.probes()[last].get("debug"))
 
 
-def debug_file(work, verbose):
-    steps = [("Ctrl-D, load A", LOAD_A), ("Ctrl-Z", r"\cZ"), ("Ctrl-D (off)", r"\cD"),
-             ("Ctrl-D (on)", r"\cD"), ("Ctrl-Z again", r"\cZ")]
-    keys = "".join(k for _, k in steps) + r"\#03"
-    pair = A.Pair(keys, work, saves=SAVES, box_args="Woof", eclplay_args=["--woof"],
-                  verbose=verbose)
-    port_lines = [l for l in pair.out.splitlines() if l.startswith(("debug", "quit"))]
-    print("file: the port logs " + " | ".join(port_lines[:4]) + f" ... ({len(port_lines)} lines)")
-    port_file = (pair.port_saves / "DEBUG.TXT").read_bytes() if \
-        (pair.port_saves / "DEBUG.TXT").exists() else None
-    bad = 0
+def debug_file(v, work, verbose):
+    keys = LOAD_A + r"\sloaded.\cZ\sctrl-z.\cD\soff.\cD\son.\cZ\sctrl-z-2."
+    pair = A.Pair(keys + r"\#03", work, verbose=verbose, **WOOF)
+    probes = pair.probes()
+    port_file = (pair.port_saves / "DEBUG.TXT").read_bytes() \
+        if (pair.port_saves / "DEBUG.TXT").exists() else None
+    state, closed = {}, None
     with pair:
         path = pair.box.game / "DEBUG.TXT"
-        for label, k in steps:
-            pair.run(k)
-            pair.box.wait_input(settle=0.3)
-            data = path.read_bytes() if path.exists() else None
-            # Turbo Pascal's TextRec at DS:8864: Mode (+2, d7b2 output, d7b0
-            # closed) and BufPos (+8), the bytes in its 128-byte buffer not yet
-            # written to DOS (DOSBox-X's own file cache keeps the host's copy
-            # behind until the file is closed).
+
+        def during(mark):
+            nonlocal closed
             mode, bufpos = pair.box.ds_word(0x8864 + 2), pair.box.ds_word(0x8864 + 8)
-            print(f"  after {label}: DEBUG.TXT on the host's disk "
-                  + ("missing" if data is None else f"{len(data)} bytes") +
-                  f"; DS:4b51 {pair.box.ds_byte(0x4B51)}; TextRec mode {mode:#06x}, "
-                  f"BufPos {bufpos}")
-            if label == "Ctrl-D (off)":
+            state[mark] = (pair.box.ds_byte(0x4B51), int(mode == FM_OUTPUT), bufpos)
+            data = path.read_bytes() if path.exists() else None
+            print(f"  {mark}: DEBUG.TXT on the host's disk "
+                  + ("missing" if data is None else f"{len(data)} bytes")
+                  + f"; TextRec mode {mode:#06x}")
+            if mark == "off":
                 closed = data
-        pair.box.key(0x0300)
-        quit_ = pair.box.wait_exit(20)
+        pair.steps(during)
+        gone = pair.box.wait_exit(20)
         final = path.read_bytes() if path.exists() else None
-    print(f"  Ctrl-2 (0x0300): the original {'quit to DOS' if quit_ else 'did not quit'}; the "
-          f"port: {'quit' if '(quit to DOS)' in pair.out else 'did not quit'}")
-    bad += quit_ != ("(quit to DOS)" in pair.out)
-    lines = closed.split(b"\r\n") if closed else []
-    print(f"  closed by Ctrl-D: {len(closed or b'')} bytes, CR LF lines {len(lines) - 1}: "
-          f"{lines[:3]} ...")
-    print(f"  at the end (after Ctrl-2): original {len(final or b'')} bytes, port "
-          f"{len(port_file or b'')} bytes, " + ("identical" if final == port_file else "DIFFER"))
-    bad += final != port_file
-    # The port's file after the first Ctrl-D (off), for the bytes closed then.
-    pair2 = A.Pair(r"".join(k for _, k in steps[:3]), work / "port-closed", saves=SAVES,
-                   box_args="Woof", eclplay_args=["--woof"])
-    port_closed = (pair2.port_saves / "DEBUG.TXT").read_bytes()
-    print(f"  the port's file closed by the same Ctrl-D: {len(port_closed)} bytes, "
-          + ("identical" if port_closed == closed else "DIFFER"))
-    bad += port_closed != closed
-    return bad
+    for mark in pair.marks():
+        pair.judge(v, mark, what=f"file, screen {mark}")
+        p = probes[mark]
+        v.value(f"{mark}: the flag, DEBUG.TXT open, BufPos", state[mark],
+                (p.get("debug"), p.get("open"), p.get("bufpos")))
+    v.value("Ctrl-2 (0x0300) quits to DOS", gone, "(quit to DOS)" in pair.out)
+    # The port's file closed by the same Ctrl-D (off).
+    _, saves, _ = cokbox.eclplay(checklib.port_keys(keys[:keys.index(r"\soff.")]),
+                                 work / "port-closed", shots=False, **pair.kw)
+    v.value("DEBUG.TXT closed by Ctrl-D (off)", closed, (saves / "DEBUG.TXT").read_bytes())
+    v.value("DEBUG.TXT after Ctrl-2", final, port_file)
 
 
-def items(work, verbose):
+def items(v, work, verbose):
     keys = (TO_OUTPOST + r"I\r\cDV\rI\scamp-items.V\scamp-view." + r"\r\e\e\e\e\cD" +
             r"\sback.")
-    pair = A.Pair(keys, work / "camp", saves=SAVES, box_args="Woof", eclplay_args=["--woof"],
-                  verbose=verbose)
-    menus = [l for l in pair.out.splitlines() if l.startswith("menu: View")]
-    print(f"items: the port's menus {menus}")
-    bad = 0
+    pair = A.Pair(keys, work / "camp", verbose=verbose, **WOOF)
+    print(f"items: the port's menus "
+          f"{[line for line in pair.out.splitlines() if line.startswith('menu: View')]}")
     with pair:
         pair.run()
-        for s in ("camp-items", "camp-view", "back"):
-            bad += pair.compare(s)[0] != 0
-    keys = TO_OUTPOST + r"A\cDVI\sshop-items."
-    pair = A.Pair(keys, work / "shop", saves=SAVES, box_args="Woof", eclplay_args=["--woof"],
-                  verbose=verbose)
-    menus = [l for l in pair.out.splitlines() if l.startswith("menu: View")]
-    print(f"  shop: the port's menus {menus}")
+    pair.judge_all(v)
+    pair = A.Pair(TO_OUTPOST + r"A\cDVI\sshop-items.", work / "shop", verbose=verbose, **WOOF)
+    print(f"  shop: the port's menus "
+          f"{[line for line in pair.out.splitlines() if line.startswith('menu: View')]}")
     with pair:
         pair.run()
-        bad += pair.compare("shop-items")[0] != 0
-        print(f"  the original waits at {pair.box.where()}")
-    return bad
+    pair.judge_all(v)
 
 
 def main():
@@ -136,18 +114,18 @@ def main():
     parser.add_argument("--steps", type=int, default=60)
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    work = A.workdir(args.workdir, "debug")
+    work = checklib.workdir(args.workdir, "debug")
     parts = args.part or ["trace", "file", "items"]
-    bad = 0
+    v = checklib.Verdict()
     if "trace" in parts:
-        bad += trace(work / "trace", args.verbose, args.steps)
+        trace(v, work / "trace", args.verbose, args.steps)
     if "file" in parts:
-        bad += debug_file(work / "file", args.verbose)
+        debug_file(v, work / "file", args.verbose)
     if "items" in parts:
-        bad += items(work / "items", args.verbose)
-    print("verdict:", "AGREES" if not bad else "PORT DIFFERS / see above", f"(files in {work})")
-    return 1 if bad else 0
+        items(v, work / "items", args.verbose)
+    print(f"files in {work}")
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))

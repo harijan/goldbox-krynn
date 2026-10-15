@@ -7,18 +7,39 @@ SAVE/'s games: game A loaded, Solace's pages to the outpost, Leave, No,
 Move, Ctrl-D (the flag on), then the step north-east that meets the
 caravan's four baaz (batch D's route), and Enter at each key read after it
 (the trace waits for one after each opcode, the battle's setup after each
-record, the combat menu reads one too), a screen each, compared with
-eclplay's best frame.
+record, the combat menu reads one too). Each screen is compared with the
+port's at the same key read (a difference the port with the known fixes
+does not have is the known `fullstop`). The battle's setup: the port's
+`debug:` lines from LOAD MONSTER's to its first combat menu, each the trace
+on the screen at one of the key reads; those screens, and the first combat
+menu's with `Done*`, must be among those compared.
 """
 import argparse
+import pathlib
 import sys
 
-import a_common as A
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import a_common as A  # noqa: E402
+import checklib  # noqa: E402
 
-cokbox = A.cokbox
-SAVES = [cokbox.ROOT / "SAVE"]
 TO_MOVE = r"P\v\v\rA\v\v\v\v\v\r" + r"\r" * 7 + "Lnm"    # the overland map, in Move
 SEED = 7
+
+
+def is_trace(line):
+    """A trace's line, `debug: A , B , C | TEXT` (not `debug: on`)."""
+    return line.startswith("debug: ") and " | " in line
+
+
+def shown(text):
+    """What the port shows where it stopped: ('debug', N) its Nth trace
+    (from 0), ('menu', TEXT) a menu, or None."""
+    lines = [line for line in text.splitlines() if is_trace(line) or line.startswith("menu: ")]
+    if not lines:
+        return None
+    if is_trace(lines[-1]):
+        return ("debug", sum(1 for line in lines if is_trace(line)) - 1)
+    return ("menu", lines[-1][6:])
 
 
 def main():
@@ -27,42 +48,43 @@ def main():
     parser.add_argument("--steps", type=int, default=120)
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    work = A.workdir(args.workdir, "debug-battle")
+    work = checklib.workdir(args.workdir, "debug-battle")
     keys = (TO_MOVE + r"\cD\son." + "9" + r"\sstep." +
             "".join(rf"\r\st{i:03d}." for i in range(args.steps)))
-    pair = A.Pair(keys, work, seed=SEED, saves=SAVES, box_args="Woof", eclplay_args=["--woof"],
+    pair = A.Pair(keys, work, seed=SEED, saves=A.SAVES, box_args="Woof", eclplay_args=["--woof"],
                   verbose=args.verbose)
     lines = pair.out.splitlines()
-    # The battle's setup traces each record by name: status, whether it can act.
-    loaded = next((i for i, l in enumerate(lines) if l.endswith("| LOAD MONSTER")), len(lines))
-    setup = [l for l in lines[loaded + 1:loaded + 11] if l.startswith("debug: ")]
-    done = [l for l in lines if l.startswith("menu: ") and "Done*" in l]
-    print(f"port: {len([l for l in lines if l.startswith('debug: ')])} trace lines; the "
-          f"battle's setup {[l.split('| ')[-1] for l in setup]}; combat menus with Done*: {len(done)} "
-          f"{done[:1]}")
-    bad = known = 0
+    traced = [line for line in lines if is_trace(line)]
+    loaded = next(i for i, line in enumerate(lines) if line.endswith("| LOAD MONSTER"))
+    menu = next(i for i in range(loaded, len(lines)) if lines[i].startswith("menu: "))
+    first = traced.index(lines[loaded])
+    setup = [line for line in lines[loaded:menu] if is_trace(line)]
+    print(f"port: {len(traced)} trace lines; the battle's setup, {len(setup)} traces: "
+          + " / ".join(line.split("| ")[-1] for line in setup) + f"; then {lines[menu]}")
+    at = {name: shown(probe.stdout) for name, probe in
+          pair.probes().items()}
+    v = checklib.Verdict()
     with pair:
         pair.run()
-        shots = sorted((pair.work / "shots").glob("*.png"))
-        for shot in shots:
-            count, best, area = pair.compare(shot.stem, quiet=True)
-            if count and area == (272, 192, 279, 199):
-                known += 1      # PRESS <ENTER>/<RETURN> TO CONTINUE.'s full stop
-            elif count:
-                bad += 1
-            if count:
-                print(f"  {shot.stem}: {count} pixels differ from eclplay's "
-                      f"{pair.port_shots[best].name} in {area}")
-        print(f"  {len(shots)} screens: {bad} differ, {known} only by the known full stop at "
-              f"row 24 column 34; the original waits at {pair.box.where()}; DS:4b51 "
-              f"{pair.box.ds_byte(0x4B51)}")
-    if not done:
-        print("  (no combat menu with Done* reached: more --steps)")
-        bad += 1
-    print("verdict:", "AGREES" if not bad else "PORT DIFFERS / see above",
-          f"(files in {work})")
-    return 1 if bad else 0
+        print(f"  the original waits at {pair.box.where()}; DS:4b51 {pair.box.ds_byte(0x4B51)}")
+    marks = {}
+    for name in pair.marks():
+        what = f"screen {name}"
+        if at[name] and at[name][0] == "debug" and first <= at[name][1] < first + len(setup):
+            what += f", the setup's trace {traced[at[name][1]][7:]!r}"
+            marks.setdefault("setup", []).append(at[name][1])
+        elif at[name] and at[name][0] == "menu" and "Done*" in at[name][1]:
+            what += f", the combat menu {at[name][1]!r}"
+            marks.setdefault("done", []).append(name)
+        pair.judge(v, name, what=what)
+    v.check(sorted(marks.get("setup", [])) == list(range(first, first + len(setup))),
+            "each of the setup's traces is on a screen compared",
+            f"{len(marks.get('setup', []))} of {len(setup)}")
+    v.check(bool(marks.get("done")), "a combat menu with Done* is on a screen compared",
+            f"{marks.get('done', [])[:3]} (more --steps if none)")
+    print(f"files in {work}")
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))
