@@ -51,10 +51,20 @@ static void unported(cok_adventure *game, void *context)
 static script s;
 static cok_adventure game;
 
+/* The delays of the speed times 3 ms, a typed character's (1521:042e). */
+static unsigned typed;
+
+static void delayed(cok_adventure *g, unsigned ms, void *context)
+{
+    (void)context;
+    if (ms == g->speed * 3u) ++typed;
+}
+
 static void open_game(void)
 {
     cok_keyboard keys = {scripted, &s, NULL, NULL};
-    cok_adventure_hooks hooks = {.log = log_line, .unported = unported, .context = &s};
+    cok_adventure_hooks hooks = {.log = log_line, .unported = unported, .delay = delayed,
+                                 .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
     watched = &game.screen;
 }
@@ -383,16 +393,25 @@ static void test_encounter_menu(void)
     }
     /* Monsters that attack: Combat, Wait and Advance fight. */
     static const uint8_t attack[5] = {0, 0, 0, 0, 0};
+    static const uint8_t hold[5] = {1, 1, 1, 1, 1};
     CHECK(encounter("C", attack, 12, 12, texts) == 1);
     CHECK(strstr(s.log, "monster: sprite 35 at 2;print: FAR;menu: ~COMBAT ~WAIT ~FLEE ~ADVANCE;"
                         "choice: 0;") != NULL);
     CHECK(encounter("W", attack, 12, 12, texts) == 1);
+    /* Its texts are typed, the text delay on from its start (2fd3:23f6)
+     * whatever it was, and off once it ends (2aae). */
+    for (int on = 0; on < 2; ++on) {
+        game.text_delay = on;
+        typed = 0;
+        CHECK(encounter("WC", hold, 12, 12, texts) == 1);
+        CHECK(typed == strlen("FAR") + strlen("Both sides wait.") + strlen("FAR"));
+        CHECK(!game.text_delay);
+    }
     /* Fleeing needs the slowest member, 6, to reach the threshold. */
     CHECK(encounter("F", attack, 7, 12, texts) == 1);
     CHECK(encounter("F", attack, 6, 12, texts) == 2);
     /* Holding monsters: waiting waits; advancing approaches, and at 0
      * the menu offers Parlay, which talks. */
-    static const uint8_t hold[5] = {1, 1, 1, 1, 1};
     CHECK(encounter("WAAP", hold, 12, 12, texts) == 3);
     CHECK(strstr(s.log, "choice: 1;print: Both sides wait.;print: FAR;") != NULL);
     CHECK(strstr(s.log, "monster: sprite 35 at 0;print: NEAR;menu: ~COMBAT ~WAIT ~FLEE ~PARLAY;"

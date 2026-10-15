@@ -607,6 +607,20 @@ class FrontEndTests(unittest.TestCase):
         # busy).
         self.assertGreaterEqual(busiest, 55)
 
+    def test_typed_after_a_battle(self):
+        """After a battle the text delay is on (DS:4b59, set at 3995:0297)
+        until the next PRINT: the treasure menu's question on leaving is
+        typed a letter at a time, the speed's 12 ms after each of its 78
+        letters (351b:13f3, 141d), the frames showing it grow."""
+        _, lines, stop = self.start("--seed", "7", "--helm", "--log", "--aspect", "1:1",
+                                    "--scale", "1", "--keys", TO_GODS + r"N\r\e")
+        left = "print: There is still treasure left.  "
+        start = self.wait_for(lines, left, 120)
+        end = self.wait_for(lines, "menu: ~Yes ~No", 60)
+        stop()
+        self.assertGreaterEqual(end - start, 78 * 12)
+        self.assertGreater(len([t for t in presents(lines) if start < t < end]), 10)
+
     def test_rest_pace(self):
         """Three hours' rest, 36 steps of five minutes, a hundredth each,
         the time left shown as it goes."""

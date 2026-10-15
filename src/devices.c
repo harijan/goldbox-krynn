@@ -226,12 +226,21 @@ void cok_adventure_pointer_init(cok_adventure *game)
     game->modify_field = 0; /* DS:6e35, set by Modify (4def:29d8) before its use */
 }
 
+/* 1521:03e2: Delay(DS:4b38 * 3) after each character while DS:4b59 is
+ * set. */
+static void typed(void *context)
+{
+    cok_adventure *game = context;
+    if (game->text_delay) cok_adventure_wait(game, game->speed * 3u);
+}
+
 void cok_adventure_wrap(cok_adventure *game, cok_text_cursor *cursor, const char *text,
                         cok_text_window window, uint8_t fg, bool clear,
                         const cok_text_hooks *hooks)
 {
+    cok_text_hooks typing = {hooks != NULL ? hooks->page : NULL, typed, game};
     cok_mouse_hide(&game->mouse);
-    cok_text_wrap(&game->screen, &game->font, cursor, text, window, fg, 0, clear, hooks);
+    cok_text_wrap(&game->screen, &game->font, cursor, text, window, fg, 0, clear, &typing);
     /* 1521:04e4: left, top, right or bottom past 0x27, 0x18, 0x27, 0x27
      * leave without the show. */
     if (window.left > 0x27 || window.top > 0x18 || window.right > 0x27 || window.bottom > 0x27)

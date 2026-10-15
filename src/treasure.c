@@ -1285,6 +1285,7 @@ void cok_treasure_end_of_combat(cok_adventure *game)
         game->party_killed = true;
         vm->abort = true;
     }
+    game->text_delay = true; /* 351b:1b00 */
     static const uint16_t cleared[] = {0x370, 0x371, 0x372, 0x2e3, 0x2e6};
     for (size_t i = 0; i < sizeof cleared / sizeof *cleared; ++i) vm->mem7c00[cleared[i]] = 0;
     vm->mem4b00[0x1f5] = 0;

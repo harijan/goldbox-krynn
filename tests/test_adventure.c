@@ -170,6 +170,7 @@ static void test_play(void)
     cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(game.text_delay); /* DS:4b59 from startup (3e99:0560) */
     load_block(&game, 0);
     uint8_t map[0x402] = {0};
     /* Square 5, 4: a solid wall north, a locked door east. */

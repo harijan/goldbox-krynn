@@ -56,10 +56,14 @@ static cok_adventure game;
  * pool, which combat setup clears (3cb2:1c58); 0 for none. */
 static size_t battle_missile;
 
+/* The text delay as the battle was set up. */
+static bool delay_at_setup;
+
 static void battlefield(cok_adventure *g, void *context)
 {
     (void)context;
     g->pool.missile = battle_missile;
+    delay_at_setup = g->text_delay;
 }
 
 /* The keyboard's flushes (1614:045c). */
@@ -72,12 +76,21 @@ static void counted(cok_adventure *g, void *context)
     ++flushes;
 }
 
+/* The delays of the speed times 3 ms, a typed character's (1521:042e). */
+static unsigned typed;
+
+static void delayed(cok_adventure *g, unsigned ms, void *context)
+{
+    (void)context;
+    if (ms == g->speed * 3u) ++typed;
+}
+
 static void open_game(void)
 {
     cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .unported = unported,
                                  .battlefield = battlefield, .flush = counted,
-                                 .context = &s};
+                                 .delay = delayed, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
     game.effects.say = say;
     game.effects.context = &s;
@@ -841,6 +854,61 @@ static void test_shares(void)
     CHECK(combat(COK_COMBAT_UNPORTED) == COK_ECL_DIVIDE_BY_ZERO);
 }
 
+/* The text delay (DS:4b59, see adventure.h): PRINT types its text
+ * whatever it was and leaves it off (2fd3:0ae3, 0b62); a battle's setup
+ * turns it off (3cb2:1c5e) and its end on (3995:0297), so the texts after
+ * it are typed: the NPCs' shares (351b:17b2), the treasure left
+ * (351b:13f3, 141d), the party destroyed's (351b:1ae1). Without a battle the end of combat keeps it as it was
+ * until it sets it (351b:1b00). */
+static void test_text_delay(void)
+{
+    for (int on = 0; on < 2; ++on) {
+        reset("");
+        game.text_delay = on;
+        typed = 0;
+        CHECK(RUN(COK_ECL_PRINT, 0, 42) == COK_ECL_OK && LOGGED("print: 42;"));
+        CHECK(typed == 2 && !game.text_delay);
+    }
+    /* VERTICAL MENU's prompt (2fd3:1047) is typed only while it is on,
+     * which it leaves as it was. */
+    for (int on = 0; on < 2; ++on) {
+        reset("\r");
+        game.text_delay = on;
+        typed = 0;
+        CHECK(RUN(COK_ECL_VERTICAL_MENU, COK_ECL_VAR, 0x01, 0x4b, COK_ECL_STRING, 2, 0x04, 0x20,
+                  COK_ECL_BYTE, 1, COK_ECL_STRING, 1, 0x0c) == COK_ECL_OK);
+        CHECK(LOGGED("list: AB;item: C;"));
+        CHECK(typed == (on ? 2u : 0u) && game.text_delay == on);
+    }
+    static const char *const destroyed = "The monsters rejoice for the party has been destroyed";
+    for (int fight = 0; fight < 2; ++fight) {
+        reset("\r");
+        member(fight ? "A" : "N")->record[0xe7] = fight ? 0 : 0x80;
+        if (fight) monster("GOBLIN", 0, 0, 0);
+        game.text_delay = false;
+        delay_at_setup = true;
+        typed = 0;
+        CHECK(combat(fight ? COK_COMBAT_LOST : COK_COMBAT_UNPORTED) == COK_ECL_OK);
+        if (!fight) CHECK(delay_at_setup); /* no battle set up */
+        CHECK(game.party_killed && LOGGED(destroyed));
+        CHECK(typed == (fight ? strlen(destroyed) : 0) && game.text_delay);
+        game.party_killed = false;
+    }
+    reset("\r\rEN");
+    member("A");
+    member("N")->record[0xe7] = 0x80;
+    game.party.members[1]->record[0xe8] = 2;
+    monster("GOBLIN", 0, 0, 0);
+    game.pool.coins[4] = 1000;
+    game.text_delay = true;
+    typed = 0;
+    CHECK(combat(COK_COMBAT_WON) == COK_ECL_OK && LOGGED("print: N takes and hides his share.;"));
+    CHECK(!delay_at_setup && game.text_delay);
+    CHECK(typed == strlen("N takes and hides his share.") +
+                       strlen("There is still treasure left.  ") +
+                       strlen("Do you want to go back and claim your treasure?"));
+}
+
 /* 351b:118c: the treasure menu, Take, Pool, Share and Detect. */
 static void test_treasure_menu(void)
 {
@@ -1068,6 +1136,7 @@ int main(void)
     test_award();
     test_after_combat();
     test_shares();
+    test_text_delay();
     test_treasure_menu();
     test_long_list();
     test_weapons_back();

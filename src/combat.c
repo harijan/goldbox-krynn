@@ -1064,6 +1064,7 @@ bool cok_combat_setup(cok_adventure *game)
     cok_ecl *vm = &game->vm;
     cok_combat *combat = &game->combat;
     vm->mode = 5; /* 3995:0172, before setup. */
+    game->text_delay = false; /* 3cb2:1c5e */
     if (vm->direction > 7) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
                            "facing %u is past the tables of directions (3cb2:10d9)", vm->direction);

@@ -953,7 +953,9 @@ static bool rounds(cok_adventure *game)
         snprintf(text, sizeof text, "seed %lu", (unsigned long)vm->seed);
         log_text(game, "combat", text);
     }
-    return cok_combat_end(game);
+    if (!cok_combat_end(game)) return false;
+    game->text_delay = true; /* 3995:0297 */
+    return true;
 }
 
 bool cok_combat_battle(cok_adventure *game)
