@@ -36,7 +36,6 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import cokbox  # noqa: E402
 
-os.environ.setdefault("COKBOX_DISPLAYS", "160-169")
 
 CONF = {"sdl.mouse_emulation": "integration"}
 

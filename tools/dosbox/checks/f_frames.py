@@ -39,7 +39,6 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import cokbox  # noqa: E402
 
-os.environ.setdefault("COKBOX_DISPLAYS", "160-169")
 
 HEAP_PTR, HEAP_END, FREE_LIST = 0x438A, 0x438E, 0x4392
 DS_COUNT, DS_FRAME, DS_ANIMATION = 0x6DA2, 0x6DA3, 0x4B4F

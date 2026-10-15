@@ -1,46 +1,41 @@
 """Screen comparisons for batch B's camp checks: the same saved game and
-keys in the original (DOSBox-X) and in eclplay --start-menu --shots, the
-original's screenshots matched to the nearest eclplay frame."""
+keys in the original (DOSBox-X) and in eclplay --start-menu; each step's
+screen in the original against the port's at the same point of the keys
+(checklib.frames_at), and against the port with the known fixes for a
+difference."""
 import pathlib
-import shutil
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import b_lib as L  # noqa: E402
+import checklib  # noqa: E402
 
 cokbox = L.cokbox
 
 
-def cells(a, b):
-    """The 8x8 text cells (col, row) where screens A and B differ."""
-    out = set()
-    for i, (x, y) in enumerate(zip(a.pixels, b.pixels)):
-        if x != y:
-            out.add(((i % a.width) // 8, (i // a.width) // 8))
-    return sorted(out, key=lambda c: (c[1], c[0]))
+def marked(steps):
+    """STEPS [(keys, name)] as one key string with a \\sNAME. after each."""
+    return "".join(rf"{k}\s{name}." for k, name in steps)
 
 
-def describe(cs, limit=24):
-    rows = {}
-    for c, r in cs:
-        rows.setdefault(r, []).append(c)
-    parts = []
-    for r, cols in sorted(rows.items()):
-        parts.append(f"row {r} cols {cols[0]}-{cols[-1]} ({len(cols)})")
-    return "; ".join(parts[:limit]) + (" ..." if len(parts) > limit else "")
-
-
-def run_pair(work, saves, steps, port_keys=None, verbose=False, settle=0.6, box_kw=None,
-             during=None):
+def run_pair(work, saves, steps, verbose=False, settle=0.6, box_kw=None, during=None):
     """STEPS: [(keys, name)]. The original types each step's keys and takes a
-    screenshot NAME; eclplay --start-menu --shots types them all (or
-    PORT_KEYS). Returns (results {name: (pixels, cells, shot path, screen)},
-    eclplay stdout). DURING(box, name) is called after each screenshot."""
+    screenshot NAME. Returns ({name: the original's Screen}, {name: the
+    port's at the same point}, a function giving the fixed port's, the
+    port's stdout for all the keys)."""
     work = pathlib.Path(work)
-    keys = "".join(k for k, _ in steps)
-    out, _, bmps = L.port_menu(port_keys if port_keys is not None else keys,
-                               work / "eclplay", saves=saves)
-    results = {}
+    keys = marked(steps)
+    out, _, _ = cokbox.eclplay(checklib.port_keys(keys), work / "eclplay", saves=saves,
+                               shots=False)
+    port = checklib.frames_at(keys, work / "eclplay", saves=saves)
+    fixed = {}
+
+    def fixed_frames():
+        if not fixed:
+            fixed.update(checklib.frames_at(keys, work / "eclplay-fixed", saves=saves,
+                                            binary=checklib.fixed_eclplay()))
+        return fixed
+
     shots = {}
     with L.box(work, saves, verbose=verbose, turbo=True, **(box_kw or {})) as box:
         for k, name in steps:
@@ -49,25 +44,14 @@ def run_pair(work, saves, steps, port_keys=None, verbose=False, settle=0.6, box_
             shots[name] = box.screenshot(work / f"{name}.png")
             if during:
                 during(box, name)
-    for name, shot in shots.items():
-        best = None
-        for p in bmps:
-            want = cokbox.Screen.load(p)
-            n, _ = shot.diff(want)
-            if best is None or n < best[0]:
-                best = (n, p, want)
-        n, p, want = best
-        cs = cells(shot, want) if n else []
-        if n:
-            shot.save_png(work / f"diff-{name}.png", highlight=want)
-        results[name] = (n, cs, p, shot)
-    return results, out
+    return shots, port, fixed_frames, out
 
 
-def report(results):
-    for name, (n, cs, p, _) in results.items():
-        print(f"  {name}: {n} pixels differ from eclplay's {p.name}" +
-              (f" in {describe(cs)}" if n else ""))
+def judge(verdict, shots, port, fixed_frames, work, names=None, masks=()):
+    """Each step's screen (or NAMES') against the port's at the same point."""
+    for name in names or shots:
+        verdict.screen(f"screen {name}", shots[name], port.get(name),
+                       fixed=lambda n=name: fixed_frames().get(n), masks=masks, work=work)
 
 
 def a_camp_steps():
@@ -75,10 +59,11 @@ def a_camp_steps():
     return [(L.load_keys("A") + L.A_TO_CAMP, "camp")]
 
 
-def check(work, saves, steps, verbose=False, during=None, must_match=None):
-    """Run STEPS (see run_pair), print the comparison; 0 if the screens in
-    MUST_MATCH (default all) are eclplay's, else 1."""
-    results, out = run_pair(work, saves, steps, verbose=verbose, during=during)
-    report(results)
-    names = must_match if must_match is not None else list(results)
-    return (0 if all(results[n][0] == 0 for n in names) else 1), results, out
+def check(work, saves, steps, verbose=False, during=None, verdict=None):
+    """Run STEPS (see run_pair) and judge every screen in VERDICT (a new one
+    by default). Returns (verdict, the original's shots, the port's frames,
+    the port's stdout)."""
+    verdict = verdict or checklib.Verdict()
+    shots, port, fixed, out = run_pair(work, saves, steps, verbose=verbose, during=during)
+    judge(verdict, shots, port, fixed, work)
+    return verdict, shots, port, out

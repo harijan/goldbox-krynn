@@ -16,7 +16,6 @@ import tempfile
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import cokbox  # noqa: E402
 
-os.environ.setdefault("COKBOX_DISPLAYS", "140-149")
 
 SAVES = cokbox.ROOT / "SAVE"
 # The title, Play, Load Saved Game A, Begin Adventuring (as load_game_screen).

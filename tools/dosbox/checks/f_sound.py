@@ -37,7 +37,6 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import cokbox  # noqa: E402
 import f_wav  # noqa: E402
 
-os.environ.setdefault("COKBOX_DISPLAYS", "160-169")
 
 DS_DEVICE, DS_MUSIC = 0x577A, 0x5780
 HOP = 0.005

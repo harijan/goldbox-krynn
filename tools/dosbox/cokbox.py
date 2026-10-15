@@ -40,6 +40,12 @@ import zlib
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
+# The port the checks compare with: build/eclplay and build/cok, built from
+# src/ (COKBOX_ECLPLAY, COKBOX_COK and COKBOX_SRC point elsewhere, e.g. at a
+# mutant's build, for a mutation check of the checks).
+ECLPLAY = pathlib.Path(os.environ.get("COKBOX_ECLPLAY") or ROOT / "build/eclplay")
+COK = pathlib.Path(os.environ.get("COKBOX_COK") or ROOT / "build/cok")
+PORT_SRC = pathlib.Path(os.environ.get("COKBOX_SRC") or ROOT / "src")
 sys.path.insert(0, str(HERE.parent))
 import ovrmerge  # noqa: E402  (tools/ovrmerge.py: EXEPACK unpacking)
 
@@ -506,7 +512,15 @@ class Box:
 
     def start(self):
         """Start Xvfb and DOSBox-X, and wait for the hook (and, with want_psp,
-        for the game's PSP); set the seed and start recording as asked."""
+        for the game's PSP); set the seed and start recording as asked. On
+        any failure both are stopped before the error goes on."""
+        try:
+            return self._start()
+        except BaseException:
+            self.close()
+            raise
+
+    def _start(self):
         for attempt in range(3):
             try:
                 self._start_once()
@@ -551,6 +565,7 @@ class Box:
             cwd=self.workdir, env=env, stdin=subprocess.DEVNULL, stdout=self._log_file,
             stderr=subprocess.STDOUT, start_new_session=True)
         _RUNNING.append(self)
+        _record_pids(self.dosbox)
         self.window = self._until(self._find_window, 90, "DOSBox-X's window")
         self._xdo("windowfocus", "--sync", self.window)
         self.base = self._until(self._find_ram, 90, "the guest's memory")
@@ -585,6 +600,7 @@ class Box:
                 self.xvfb = subprocess.Popen(
                     ["Xvfb", f":{n}", *args], stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL, start_new_session=True)
+                _record_pids(self.xvfb)
                 end = time.monotonic() + 20
                 while self.xvfb.poll() is None and time.monotonic() < end:
                     try:
@@ -603,6 +619,7 @@ class Box:
             ["Xvfb", "-displayfd", str(wfd), *args],
             pass_fds=(wfd,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True)
+        _record_pids(self.xvfb)
         os.close(wfd)
         number = b""
         with os.fdopen(rfd, "rb") as r:
@@ -1099,9 +1116,21 @@ def _cleanup(*_):
         box.close()
 
 
+def _record_pids(*procs):
+    """Append the processes' pids to COKBOX_PIDFILE (run_all's), so that a
+    check killed for its time can have them killed too (they run in their
+    own sessions)."""
+    path = os.environ.get("COKBOX_PIDFILE")
+    if path:
+        with open(path, "a") as f:
+            f.write("".join(f"{p.pid}\n" for p in procs if p is not None))
+
+
 atexit.register(_cleanup)
+# Ended by a signal: the boxes closed, and an exit status that is not 0 or 1
+# (which the checks keep for agrees and differs).
 for _sig in (signal.SIGTERM, signal.SIGHUP):
-    signal.signal(_sig, lambda *a: (_cleanup(), sys.exit(1)))
+    signal.signal(_sig, lambda n, f: (_cleanup(), sys.exit(128 + n)))
 
 
 # ---------------------------------------------------------------- command line
@@ -1111,7 +1140,7 @@ def eclplay(keys, out, assets=None, machine="tandy", saves=(), args=(), shots=Tr
     """Run eclplay with KEYS, as the Box would run the game: --start-menu
     (unless START_MENU is false: ARGS then say where to start, and BLOCK the
     ECL block, after the assets), a KRYNN.CFG for MACHINE, SAVES copied into
-    OUT/saves (its --saves); BINARY another eclplay than build/'s. Returns
+    OUT/saves (its --saves); BINARY another eclplay than ECLPLAY. Returns
     (stdout, saves directory, the shots' paths in order)."""
     out = pathlib.Path(out)
     out.mkdir(parents=True, exist_ok=True)
@@ -1129,7 +1158,7 @@ def eclplay(keys, out, assets=None, machine="tandy", saves=(), args=(), shots=Tr
     cfg = out / "krynn.cfg"
     cfg.write_bytes(krynn_cfg(MACHINES[machine][1]).encode())
     result = subprocess.run(
-        [str(binary or ROOT / "build/eclplay"), *(["--start-menu"] if start_menu else []),
+        [str(binary or ECLPLAY), *(["--start-menu"] if start_menu else []),
          "--config", str(cfg), "--saves",
          str(save_dir), *(["--shots", str(shot_dir)] if shots else []), *map(str, args),
          "--keys", keys, str(assets), *([str(block)] if block is not None else [])],

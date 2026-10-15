@@ -1,21 +1,26 @@
 #!/usr/bin/env python3
-"""Run every DOSBox-X check script (tools/dosbox/checks/) side by side and
-print one verdict per script: the README's checks it covers, its exit (0: the
-original and the port agree; 1: a screen, file or memory read differs) and
-whether that is the verdict recorded when the checks were run (README,
-"Checks against the original" > "Checked in DOSBox-X").
+"""Run every DOSBox-X check script (tools/dosbox/checks/) and print one line
+per script: the README's checks it covers, its verdict, and whether that is
+the verdict recorded (README, "Checks against the original").
 
     python3 tools/dosbox/checks/run_all.py [--jobs N] [--only NAME ...] [--out DIR]
 
 Each script runs with --workdir OUT/NAME (default OUT build/dosbox-checks),
-its output in OUT/NAME.log. COKBOX_DISPLAYS (e.g. 180-189) keeps the X
+its output in OUT/NAME.log, and ends with a line `VERDICT: AGREES`,
+`VERDICT: DIFFERS known: TAGS` (only port differences recorded, see
+checklib.KNOWN) or `VERDICT: DIFFERS new (...)`, with exit status 0, 1, 1.
+Anything else (another status, no verdict line, a timeout, a crash) is an
+ERROR, never a recorded verdict. COKBOX_DISPLAYS (e.g. 180-189) keeps the X
 displays to a range; --jobs defaults to the range's size less two (else 6).
 Needs `make build/eclplay build/cok build/START_FULL.EXE` (make dosbox-checks
-does it). Exit 0 when every script gave its recorded verdict."""
+does it; `make dosbox-checks ARGS="--only b_amount"` passes options). Exit 0
+when every script gave its recorded verdict."""
 
 import argparse
 import os
 import pathlib
+import re
+import signal
 import subprocess
 import sys
 import threading
@@ -23,115 +28,115 @@ import time
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
-sys.path.insert(0, str(HERE))
 
-# (script, the checks it covers, the exit recorded, why when 1). A known port
-# difference (or a difference the check expects, such as DOSBox-X's own CGA
-# cursor) makes a script return 1; a fix of the port then changes the
-# recorded exit here (and the README's entry).
-WALLS = "#27's two-set wall records (Throtl's 3D view)"
-STOP = "the full stop of PRESS <ENTER>/<RETURN> TO CONTINUE."
-VECTORS = "Begin Adventuring runs the first block's location vector"
+# (script, the checks it covers, the verdict recorded: "" agrees, or the
+# known differences' tags it shows, e.g. "fullstop, walls"). A known
+# difference is one the branch fixes corrects (tools/dosbox/known-fixes.patch,
+# checklib.KNOWN); once the port has the fixes, those scripts agree and the
+# recorded verdict here becomes "".
 CHECKS = [
     # A: startup, title, setup, the start menu
-    ("a_setup", "#1", 0, ""),
-    ("a_ctrl_s", "#5", 0, ""),
-    ("a_debug", "#13", 0, ""),
-    ("a_debug_battle", "#13 (battle)", 0, ""),
-    ("a_demo", "#107 #108", 0, ""),
-    ("a_unsaved", "#109", 0, ""),
-    ("a_create", "#110 #111", 0, ""),
-    ("a_icon", "#112", 0, ""),
-    ("a_roster", "#113 #114 #115", 0, ""),
-    ("a_hall", "#116 #117", 0, ""),
-    ("a_modify", "#118", 0, ""),
+    ("a_setup", "#1", ""),
+    ("a_ctrl_s", "#5", ""),
+    ("a_debug", "#13", ""),
+    ("a_debug_battle", "#13 (battle)", ""),
+    ("a_demo", "#107 #108", ""),
+    ("a_unsaved", "#109", ""),
+    ("a_create", "#110 #111", ""),
+    ("a_icon", "#112", ""),
+    ("a_roster", "#113 #114 #115", ""),
+    ("a_hall", "#116 #117", ""),
+    ("a_modify", "#118", ""),
     # B: camp, magic, items, effects, saving
-    ("b_slow_poison_63h", "#8", 0, ""),
-    ("b_timers", "#8", 0, ""),
-    ("b_thief_skills", "#32", 0, ""),
-    ("b_rest_day_effects", "#33", 0, ""),
-    ("b_effect_order", "#34", 0, ""),
-    ("b_camp_screen", "#36 #37", 0, ""),
-    ("b_resume", "#38", 1, "#38: the view resumed in Throtl's camp and the saved last mode"),
-    ("b_fix_time", "#39", 0, ""),
-    ("b_heal_day", "#40", 0, ""),
-    ("b_scribe", "#41", 0, ""),
-    ("b_pics", "#42", 0, ""),
-    ("b_grimoire", "#43", 0, ""),
-    ("b_display_effects", "#44", 0, ""),
-    ("b_granted", "#45", 0, ""),
-    ("b_item_spell0", "#48", 0, ""),
-    ("b_haste", "#49", 0, ""),
-    ("b_sheet", "#50", 0, ""),
-    ("b_hammer", "#51", 0, ""),
-    ("b_amount", "#52", 0, ""),
+    ("b_slow_poison_63h", "#8", ""),
+    ("b_timers", "#8", ""),
+    ("b_thief_skills", "#32", ""),
+    ("b_rest_day_effects", "#33", ""),
+    ("b_effect_order", "#34", ""),
+    ("b_camp_screen", "#36 #37", ""),
+    ("b_resume", "#38", ""),
+    ("b_fix_time", "#39", ""),
+    ("b_heal_day", "#40", ""),
+    ("b_scribe", "#41", ""),
+    ("b_pics", "#42", ""),
+    ("b_grimoire", "#43", ""),
+    ("b_display_effects", "#44", ""),
+    ("b_granted", "#45", ""),
+    ("b_item_spell0", "#48", ""),
+    ("b_haste", "#49", ""),
+    ("b_sheet", "#50", ""),
+    ("b_hammer", "#51", ""),
+    ("b_amount", "#52", ""),
     # C: places
-    ("c_throtl", "#27 #53 #93 #94", 1, WALLS),
-    ("c_map80", "#94", 0, ""),
-    ("c_pit", "#30 #35 #105", 1, WALLS),
-    ("c_chest", "#58-62", 1, WALLS + "; " + STOP),
-    ("c_rob", "#56", 1, STOP),
-    ("c_outpost", "#29 #66 #68-71", 0, ""),
-    ("c_block50", "#67 #72 #103", 0, ""),
-    ("c_wander", "#54 #95", 1, WALLS + "; the close-up's frames cok does not present"),
-    ("c_temple33", "#55 #54", 1, WALLS),
-    ("c_catacombs", "#96 #97", 1, STOP),
-    ("c_overland", "#98-102", 1, STOP),
-    ("c_npc", "#104 #106", 1, WALLS),
-    ("c_ecl3", "#64 #65", 1, STOP),
+    ("c_throtl", "#27 #53 #93 #94", ""),
+    ("c_map80", "#94", ""),
+    ("c_pit", "#30 #35 #105", ""),
+    ("c_chest", "#58-62", ""),
+    ("c_rob", "#56", ""),
+    ("c_outpost", "#29 #66 #68-71", ""),
+    ("c_block50", "#67 #72 #103", ""),
+    ("c_wander", "#54 #95", ""),
+    ("c_temple33", "#55 #54", ""),
+    ("c_catacombs", "#96 #97", ""),
+    ("c_overland", "#98-102", ""),
+    ("c_npc", "#104 #106", ""),
+    ("c_ecl3", "#64 #65", ""),
     # D: combat
-    ("d_cloud", "#6", 0, ""),
-    ("d_lebaum", "#9 (#23)", 0, ""),
-    ("d_aurak", "#12", 0, ""),
-    ("d_done", "#16", 0, ""),
-    ("d_move", "#17 #92", 0, ""),
-    ("d_cast", "#22 #119 #128", 0, ""),
-    ("d_space", "#24", 0, ""),
-    ("d_altq", "#25", 0, ""),
-    ("d_minotaurs", "#57", 0, ""),
-    ("d_flee", "#63", 0, ""),
-    ("d_gate", "#74 #83 #84 #88", 0, ""),
-    ("d_ranks", "#75", 0, ""),
-    ("d_patrol", "#76 #79", 0, ""),
-    ("d_neraka", "#77", 0, ""),
-    ("d_dragonfear", "#78", 0, ""),
-    ("d_dying", "#80", 0, ""),
-    ("d_helm", "#81 #82", 0, ""),
-    ("d_arrows", "#89", 0, ""),
-    ("d_bozak", "#90", 0, ""),
-    ("d_weapon", "#91", 0, ""),
-    ("d_hold", "#120", 0, ""),
-    ("d_fear", "#122 (#121)", 0, ""),
-    ("d_bolt", "#127", 0, ""),
-    ("d_turning", "#129", 0, ""),
-    ("d_firstblock", "Begin's vectors", 1, VECTORS),
+    ("d_cloud", "#6", ""),
+    ("d_lebaum", "#9 (#23)", ""),
+    ("d_aurak", "#12", ""),
+    ("d_done", "#16", ""),
+    ("d_move", "#17 #92", ""),
+    ("d_cast", "#22 #119 #128", ""),
+    ("d_space", "#24", ""),
+    ("d_altq", "#25", ""),
+    ("d_minotaurs", "#57", ""),
+    ("d_flee", "#63", ""),
+    ("d_gate", "#74 #83 #84 #88", ""),
+    ("d_ranks", "#75", ""),
+    ("d_patrol", "#76 #79", ""),
+    ("d_neraka", "#77", ""),
+    ("d_dragonfear", "#78", ""),
+    ("d_dying", "#80", ""),
+    ("d_helm", "#81 #82", ""),
+    ("d_arrows", "#89", ""),
+    ("d_bozak", "#90", ""),
+    ("d_weapon", "#91", ""),
+    ("d_hold", "#120", ""),
+    ("d_fear", "#122 (#121)", ""),
+    ("d_bolt", "#127", ""),
+    ("d_turning", "#129", ""),
+    ("d_firstblock", "Begin's vectors", ""),
     # E: freed and garbage memory
-    ("e_cloud_dispel", "#7", 0, ""),
-    ("e_bolt_bounce", "#11", 0, ""),
-    ("e_debug_readonly", "#14", 0, ""),
-    ("e_manual", "#15 #18", 0, ""),
-    ("e_strength", "#46", 0, ""),
-    ("e_trade", "#47 #73", 0, ""),
+    ("e_cloud_dispel", "#7", ""),
+    ("e_bolt_bounce", "#11", ""),
+    ("e_debug_readonly", "#14", ""),
+    ("e_manual", "#15 #18", ""),
+    ("e_strength", "#46", ""),
+    ("e_trade", "#47 #73", ""),
     # F: display modes, sound, mouse, frames
-    ("f_sound", "#3 #4", 1, "steps close together merge otherwise in eclplay's clock"),
-    ("f_mouse", "#20", 1, STOP + "; DOSBox-X's CGA cursor; the mark under the arrow vanishes"),
-    ("f_loading", "#28", 0, ""),
-    ("f_display_modes", "#123 #124", 1, WALLS + "; " + VECTORS),
-    ("f_frames", "#126", 0, ""),
+    ("f_sound", "#3 #4", ""),
+    ("f_mouse", "#20", ""),
+    ("f_loading", "#28", ""),
+    ("f_display_modes", "#123 #124", ""),
+    ("f_frames", "#126", ""),
     # phase 1's proof checks
-    ("load_game_screen", "#26 #29", 1, STOP),
-    ("save_again", "#31", 0, ""),
-    ("slow_poison", "#8", 0, ""),
+    ("load_game_screen", "#26 #29", ""),
+    ("save_again", "#31", ""),
+    ("slow_poison", "#8", ""),
+    # Built once here, not by several scripts at once.
+    # The long ones first, so that they do not end the run alone.
 ]
-
-# Minutes each took in a full run (the rest a few each), for the order.
-LONG = {"f_frames": 11, "a_demo": 6, "f_sound": 6, "d_bozak": 6, "f_display_modes": 5,
-        "a_ctrl_s": 3, "d_cast": 3, "e_bolt_bounce": 2, "f_mouse": 2, "e_manual": 2}
 
 # Checks that catch a text shown for a few seconds in a burst of screenshots
 # (d_lib.burst): run alone after the rest, as with others running beside them
 # on a loaded host DOSBox-X wrote ten times fewer and missed some.
 ALONE = {"d_arrows", "d_bolt", "d_cast", "d_gate", "d_hold", "d_turning"}
+# Minutes each took in a full run (the rest a few each), for the order.
+LONG = {"f_frames": 11, "a_demo": 6, "f_sound": 6, "d_bozak": 6, "f_display_modes": 5,
+        "a_ctrl_s": 3, "e_bolt_bounce": 2, "f_mouse": 2, "e_manual": 2}
+VERDICT = re.compile(r"^VERDICT: (AGREES|DIFFERS known: ([a-z, ]+)|DIFFERS new.*|ERROR.*)$",
+                     re.M)
 
 
 def displays():
@@ -140,6 +145,76 @@ def displays():
         return None
     lo, _, hi = span.partition("-")
     return int(hi or lo) - int(lo) + 1
+
+
+def kill_pids(path):
+    """Kill the Xvfb and DOSBox-X a check started (cokbox records them in
+    COKBOX_PIDFILE), if still there."""
+    try:
+        pids = {int(p) for p in path.read_text().split()}
+    except (OSError, ValueError):
+        return
+    for pid in pids:
+        try:
+            cmd = pathlib.Path(f"/proc/{pid}/cmdline").read_bytes()
+        except OSError:
+            continue
+        if b"Xvfb" in cmd or b"dosbox-x" in cmd:
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+
+def run_one(name, out, timeout):
+    """Run one script: (verdict text, status) with verdict None on an error."""
+    pidfile = out / f"{name}.pids"
+    pidfile.unlink(missing_ok=True)
+    env = dict(os.environ, COKBOX_PIDFILE=str(pidfile))
+    with open(out / f"{name}.log", "wb") as log:
+        proc = subprocess.Popen(
+            [sys.executable, str(HERE / f"{name}.py"), "--workdir", str(out / name)],
+            cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, env=env, start_new_session=True)
+        try:
+            code = proc.wait(timeout)
+        except subprocess.TimeoutExpired:
+            # Its signal handler closes its boxes; then the whole group.
+            os.killpg(proc.pid, signal.SIGTERM)
+            try:
+                proc.wait(15)
+            except subprocess.TimeoutExpired:
+                pass
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            proc.wait()
+            code = "timeout"
+    kill_pids(pidfile)
+    text = (out / f"{name}.log").read_text(errors="replace")
+    found = VERDICT.findall(text)
+    verdict = found[-1][0] if found else None
+    good = (code == 0 and verdict == "AGREES") or (code == 1 and verdict is not None
+                                                     and verdict.startswith("DIFFERS"))
+    return (verdict if good else None), code
+
+
+def known_of(verdict):
+    if verdict == "AGREES":
+        return ""
+    m = re.match(r"DIFFERS known: (.*)", verdict)
+    return ", ".join(sorted(t.strip() for t in m.group(1).split(","))) if m else None
+
+
+def line(name, checks, want, verdict, code, took):
+    if verdict is None:
+        shown, note = f"ERROR ({'timed out' if code == 'timeout' else f'status {code}'})", ""
+    else:
+        shown = "agrees" if verdict == "AGREES" else verdict.split(" (")[0].lower()
+        got = known_of(verdict)
+        note = ("as recorded" if got == want else
+                f"CHANGED (recorded: {'agrees' if not want else 'differs known: ' + want})")
+    return f"{name:20} {checks:18} {shown:28} {took / 60:5.1f} min  {note}"
 
 
 def main():
@@ -158,13 +233,11 @@ def main():
         parser.error(f"no such check script: {', '.join(sorted(unknown))}")
     out = pathlib.Path(opts.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
-    # Built once here, not by several scripts at once.
-    if any(name.startswith("d_") for name, *_ in todo):
-        span = os.environ.get("COKBOX_DISPLAYS")
-        import d_lib  # sets COKBOX_DISPLAYS to batch D's range when unset
-        d_lib.pause_player()
-        if span is None:
-            os.environ.pop("COKBOX_DISPLAYS", None)
+    # The port's builds the checks share (checklib.build), once here.
+    sys.path.insert(0, str(HERE))
+    import checklib
+    checklib.fixed_eclplay()
+    checklib.eclplay_with_pauses()
 
     results, lock = {}, threading.Lock()
     # The long ones first, so that they do not end the run alone.
@@ -177,20 +250,16 @@ def main():
             with lock:
                 if not queue:
                     return
-                name, checks, want, why = queue.pop(0)
+                name, checks, want = queue.pop(0)
             start = time.monotonic()
-            with open(out / f"{name}.log", "wb") as log:
-                try:
-                    code = subprocess.run(
-                        [sys.executable, str(HERE / f"{name}.py"), "--workdir", str(out / name)],
-                        cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
-                        timeout=opts.timeout).returncode
-                except subprocess.TimeoutExpired:
-                    code = None
+            try:
+                verdict, code = run_one(name, out, opts.timeout)
+            except Exception as e:  # noqa: BLE001 (an error of the runner's: reported)
+                verdict, code = None, f"runner: {e}"
             took = time.monotonic() - start
             with lock:
-                results[name] = (code, took)
-                print(line(name, checks, want, why, code, took), flush=True)
+                results[name] = (verdict, code, took)
+                print(line(name, checks, want, verdict, code, took), flush=True)
 
     print(f"{len(todo)} scripts, {jobs} at a time, then {len(alone)} alone; logs in {out}; "
           f"load average {os.getloadavg()[0]:.0f}", flush=True)
@@ -204,19 +273,12 @@ def main():
     print(f"\nall done in {(time.monotonic() - t0) / 60:.0f} min (load average "
           f"{os.getloadavg()[0]:.0f}); in the table's order:")
     changed = 0
-    for name, checks, want, why in todo:
-        code, took = results[name]
-        print(line(name, checks, want, why, code, took))
-        changed += code != want
-    print(f"{len(todo) - changed} as recorded, {changed} changed")
+    for name, checks, want in todo:
+        verdict, code, took = results.get(name, (None, "not run", 0))
+        print(line(name, checks, want, verdict, code, took))
+        changed += verdict is None or known_of(verdict) != want
+    print(f"{len(todo) - changed} as recorded, {changed} changed or in error")
     return 1 if changed else 0
-
-
-def line(name, checks, want, why, code, took):
-    verdict = {0: "agrees", 1: "differs", None: "TIMED OUT"}.get(code, f"ERROR (exit {code})")
-    note = "as recorded" if code == want else f"CHANGED (recorded: {'differs' if want else 'agrees'})"
-    known = f" [known: {why}]" if want == 1 and code == 1 else ""
-    return f"{name:20} {checks:18} {verdict:14} {took / 60:5.1f} min  {note}{known}"
 
 
 if __name__ == "__main__":

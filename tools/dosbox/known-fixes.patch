@@ -1,0 +1,164 @@
+diff --git a/src/adventure.c b/src/adventure.c
+index 27174e7..6e88150 100644
+--- a/src/adventure.c
++++ b/src/adventure.c
+@@ -809,8 +809,9 @@ static void horizontal_menu(cok_adventure *game)
+     size_t count = vm->operands;
+     game->selected = 1;
+     bool single = count == 1;
++    /* 2fd3:1122 replaced by 2fd3:1146, which has no full stop. */
+     if (single && strcmp(vm->string[0], "PRESS BUTTON OR RETURN TO CONTINUE.") == 0)
+-        snprintf(vm->string[0], sizeof vm->string[0], "PRESS <ENTER>/<RETURN> TO CONTINUE.");
++        snprintf(vm->string[0], sizeof vm->string[0], "PRESS <ENTER>/<RETURN> TO CONTINUE");
+     /* Items are ~ITEM separated by spaces, cut to 50 characters as each is
+      * added. */
+     char items[51] = "";
+@@ -2344,9 +2345,10 @@ bool cok_adventure_restore(cok_adventure *game, const char *path)
+ 
+ /* Enter the loaded block (2fd3:3b47): run its load vector, show the view if
+  * it loaded files or stays in 3D, then run the after-move and location
+- * vectors, starting over whenever NEWECL switches blocks. first: as
+- * 2fd3:3c28 starts, which runs the first block's vectors itself, 3b47 only
+- * those after a NEWECL. */
++ * vectors, starting over whenever NEWECL switches blocks, and keep the mode
++ * as the last (DS:4b4a = 4b49, at 3b47's end only). first: the first pass
++ * runs at the stack depth of a vector 2fd3:3c28 runs itself (eclplay's
++ * block, cok_adventure_enter_block), else 6 below, through 3b47. */
+ static cok_ecl_status enter_block(cok_adventure *game, bool first)
+ {
+     cok_ecl *vm = &game->vm;
+@@ -2381,18 +2383,38 @@ static cok_ecl_status enter_block(cok_adventure *game, bool first)
+     return status;
+ }
+ 
+-cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block)
++/* As 2fd3:3c28 starts, up to loading the block (3775:0361, 3775:01e8). */
++static cok_ecl_status start_block(cok_adventure *game, uint8_t block)
+ {
+     cok_ecl *vm = &game->vm;
+-    /* As 2fd3:3c28 starts. */
+     game->redraw = true;
+     game->files_loaded = game->pieces_loaded = game->map_loaded = false;
+     game->frame_pending = vm->mem4b00[0xf2] != 0;
+     vm->saved_character = vm->character;
++    vm->reload = false;
+     vm->mode = 4;
+     if (vm->mem4b00[0xf2] == 0) cok_adventure_party(game); /* starting block 0x24 */
+     if (vm->mem4b00[0xe6] == 0) vm->mode = 3;
+-    cok_ecl_status status = cok_adventure_load(game, block);
++    return cok_adventure_load(game, block);
++}
++
++cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block)
++{
++    cok_ecl *vm = &game->vm;
++    cok_ecl_status status = start_block(game, block);
++    if (status != COK_ECL_OK) return status;
++    /* Only the load vector (3cc7); the after-move and location vectors
++     * wait for the first command, and the last mode stays as it was. */
++    status = cok_ecl_run(vm, vm->vectors[4]);
++    if (status != COK_ECL_OK || vm->abort) return status;
++    if (vm->reload) return enter_block(game, false);
++    vm->mem4b00[0xf2] = vm->block;
++    return COK_ECL_OK;
++}
++
++cok_ecl_status cok_adventure_enter_block(cok_adventure *game, uint8_t block)
++{
++    cok_ecl_status status = start_block(game, block);
+     return status == COK_ECL_OK ? enter_block(game, true) : status;
+ }
+ 
+diff --git a/src/adventure.h b/src/adventure.h
+index a3b042f..477120c 100644
+--- a/src/adventure.h
++++ b/src/adventure.h
+@@ -359,12 +359,20 @@ void cok_adventure_close(cok_adventure *game);
+  * 3775:01e8), resetting picture state as the original does. */
+ cok_ecl_status cok_adventure_load(cok_adventure *game, uint8_t block);
+ 
+-/* Load block and enter it as 2fd3:3b47 does: run the load vector, show the
+- * view if the block loaded its files or stays in 3D, then run the
+- * after-move and location vectors, and start over from the load vector
+- * whenever NEWECL switches blocks. */
++/* Load block and start it as 2fd3:3c28 does, for a new game or a loaded
++ * one: run only its load vector (2fd3:3cc7), entering the next block as
++ * 2fd3:3b47 does if that runs NEWECL. The after-move and location vectors
++ * wait for the first command (cok_adventure_play), and the last mode
++ * (DS:4b4a) stays as it was unless a NEWECL ran. */
+ cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block);
+ 
++/* Load block and enter it as 2fd3:3b47 enters a block NEWECL names, for
++ * eclplay's block: run the load vector, show the view if the block loaded
++ * its files or stays in 3D, then run the after-move and location vectors,
++ * the first at the stack depth of 3c28's own, and start over from the load
++ * vector whenever NEWECL switches blocks. */
++cok_ecl_status cok_adventure_enter_block(cok_adventure *game, uint8_t block);
++
+ /* Run the adventure loop of 2fd3:3c28 in the block entered: until input
+  * ends or a run fails, take a command from the adventure menu (475c:09ec),
+  * run the after-move vector, take a step (475c:0e77), show the view and run
+diff --git a/src/eclplay.c b/src/eclplay.c
+index 4620af2..46d9c73 100644
+--- a/src/eclplay.c
++++ b/src/eclplay.c
+@@ -81,8 +81,8 @@ static void usage(const char *program)
+             "                  games: fighters, clerics, mages and thieves of level 1\n"
+             "  --party SAVE    add the characters of saved game SAVE (SAVGAMA.DAT) to the\n"
+             "                  party, from the files beside it\n"
+-            "  --load SAVE     load saved game SAVE and its party first; BLOCK defaults to\n"
+-            "                  the block it was saved in\n"
++            "  --load SAVE     load saved game SAVE first; without BLOCK resume it where\n"
++            "                  it was saved, only that block's load vector run at first\n"
+             "  --saves DIR     write saved games (camp's Save) to DIR; KRYNN.CFG there\n"
+             "                  comes before the assets' and is where the setup writes\n"
+             "  --config FILE   KRYNN.CFG: read FILE, or with --start-menu write it there\n"
+@@ -990,7 +990,11 @@ static int run(int argc, char **argv)
+     cok_ecl_status status;
+     if (vector == 5 && start == 0) {
+         for (size_t s = 0; s < set_count; ++s) cok_ecl_store(&game.vm, sets[s].address, sets[s].value);
+-        status = cok_adventure_enter(&game, (uint8_t)block);
++        /* A loaded game resumes where it was saved as 2fd3:3c28 starts
++         * (its load vector alone); a block named is entered as 3b47 enters
++         * one. */
++        status = has_block ? cok_adventure_enter_block(&game, (uint8_t)block)
++                           : cok_adventure_enter(&game, (uint8_t)block);
+         if (play && status == COK_ECL_OK) status = cok_adventure_play(&game);
+     } else {
+         status = cok_adventure_load(&game, (uint8_t)block);
+diff --git a/src/view.c b/src/view.c
+index 1dbe374..e74fd43 100644
+--- a/src/view.c
++++ b/src/view.c
+@@ -58,12 +58,15 @@ size_t cok_view_set_walls(cok_view *view, unsigned slot, const uint8_t *record,
+         return 0;
+     size_t sets = size / COK_VIEW_WALL_SET;
+     if (sets + slot > COK_VIEW_WALL_SETS + 1) return 0;
++    /* Records name set 1's tiles; values below 0x2d are set 0's. The
++     * offset is the first slot's, for every set of the record (69ea:1124,
++     * added at 69ea:1230), so a record's later sets keep their own
++     * values past set 1's. */
++    unsigned offset = tile_base[slot] - tile_base[1];
+     for (size_t i = 0; i < sets; ++i) {
+         size_t set = slot + i;
+         uint8_t *walls = view->walls + (set - 1) * COK_VIEW_WALL_SET;
+         memcpy(walls, record + i * COK_VIEW_WALL_SET, COK_VIEW_WALL_SET);
+-        /* Records name set 1's tiles; values below 0x2d are set 0's. */
+-        unsigned offset = tile_base[set] - tile_base[1];
+         for (size_t j = 0; j < COK_VIEW_WALL_SET; ++j)
+             if (walls[j] >= 0x2d) walls[j] = (uint8_t)(walls[j] + offset);
+     }
+diff --git a/src/view.h b/src/view.h
+index 9ea85b0..c6387fd 100644
+--- a/src/view.h
++++ b/src/view.h
+@@ -57,7 +57,8 @@ void cok_view_free(cok_view *view);
+ bool cok_view_set_map(cok_view *view, const uint8_t *record, size_t size);
+ 
+ /* Copy a WALLDEF record into sets slot 1-3 onward and move its tile values
+- * from 0x2d up to the slot's tile set (69ea:1025). Returns the sets copied,
++ * from 0x2d up by slot's tile set's offset from set 1's, the same for every
++ * set of the record (69ea:1025). Returns the sets copied,
+  * which name their tiles by 8X8D record id, or id * 10 + 1 and up for more
+  * than one set; 0 if slot is out of range, the record is empty or not whole
+  * sets, or the sets run past slot 3. The original halts on those. */
