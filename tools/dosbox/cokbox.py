@@ -1163,7 +1163,8 @@ def eclplay(keys, out, assets=None, machine="tandy", saves=(), args=(), shots=Tr
          str(save_dir), *(["--shots", str(shot_dir)] if shots else []), *map(str, args),
          "--keys", keys, str(assets), *([str(block)] if block is not None else [])],
         check=False, capture_output=True, text=True, timeout=600)
-    return result.stdout, save_dir, sorted(shot_dir.glob("*.bmp"))
+    # By number: eclplay names them %03u, so 1000.bmp follows 999.bmp.
+    return result.stdout, save_dir, sorted(shot_dir.glob("*.bmp"), key=lambda p: int(p.stem))
 
 
 def eclplay_shots(assets, machine, keys, out):
