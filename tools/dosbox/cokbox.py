@@ -396,6 +396,9 @@ class Box:
     (e.g. "ATTRIB +H KRYNN.CFG"); files: {name: bytes} written into C:\\COK.
     mapper: a mapper file's text (e.g. `jaxis_0_0- "key 4"` binds the A key's
     SDL scancode to stick 0 left), used instead of the default mappings.
+    display_number: the X display for Xvfb (default: the first free one of
+    COKBOX_DISPLAYS, a range such as "180-189", for runs side by side that
+    keep to their own; without it any free one Xvfb picks).
     workdir: where the C: drive, captures and logs go (default: a temporary
     directory, removed on close unless keep).
     """
@@ -404,7 +407,7 @@ class Box:
                  input="N", cfg=None, saves=(), args="", cycles="fixed 20000", turbo=False,
                  hook_pad=0, memsize=None, wav=None, timeout=600, extra_conf=None,
                  exit_after=True, seed=None, want_psp=None, keep=False, verbose=False,
-                 pre_commands=(), files=None, mapper=None):
+                 pre_commands=(), files=None, mapper=None, display_number=None):
         self.assets = pathlib.Path(assets or ROOT / "Assets")
         if machine not in MACHINES:
             raise BoxError(f"machine {machine}: one of {', '.join(MACHINES)}")
@@ -418,6 +421,7 @@ class Box:
         self.pre_commands = list(pre_commands)
         self.files = dict(files or {})
         self.mapper = mapper
+        self.display_number = display_number
         self._own_workdir = workdir is None and not keep
         self.workdir = pathlib.Path(workdir).resolve() if workdir else None
         self.xvfb = self.dosbox = None
@@ -503,7 +507,17 @@ class Box:
     def start(self):
         """Start Xvfb and DOSBox-X, and wait for the hook (and, with want_psp,
         for the game's PSP); set the seed and start recording as asked."""
-        self._start_once()
+        for attempt in range(3):
+            try:
+                self._start_once()
+                break
+            except BoxError as e:
+                # Under a heavy load DOSBox-X's SDL now and then falls back to
+                # its offscreen driver: no window shows. Start again.
+                if "window" not in str(e) or attempt == 2:
+                    raise
+                self.log(f"{e}: starting again")
+                self.close()
         if self.want_psp is not None and self.psp != self.want_psp:
             pad = self.hook_pad + self.want_psp - self.psp
             if pad < 0:
@@ -546,25 +560,35 @@ class Box:
             self.ds  # noqa: B018 (finds it)
 
     def _start_xvfb(self):
-        """Start Xvfb; return its display name. COKBOX_DISPLAYS (e.g. "110-119")
-        limits it to those display numbers, the first free one taken (for runs
-        side by side with others'); otherwise Xvfb picks one (-displayfd)."""
+        """Start Xvfb; return its display name. On display_number, or the first
+        free number of COKBOX_DISPLAYS ("LO-HI"): one is skipped while its lock
+        file is there (a killed Xvfb may leave its socket, which the next one
+        replaces), a lock whose server is gone is removed first, and a number
+        is ours only once the lock names our own Xvfb (two runs may start on
+        one together; the loser ends or is killed, and the next is tried).
+        Without either Xvfb picks one (-displayfd)."""
         args = ["-screen", "0", "1024x768x24", "-nolisten", "tcp"]
         wanted = os.environ.get("COKBOX_DISPLAYS")
-        if wanted:
+        if self.display_number is not None:
+            numbers = [int(self.display_number)]
+        elif wanted:
             lo, _, hi = wanted.partition("-")
-            for n in range(int(lo), int(hi or lo) + 1):
-                if _display_taken(n):
+            numbers = range(int(lo), int(hi or lo) + 1)
+        else:
+            numbers = None
+        if numbers is not None:
+            for n in numbers:
+                lock = pathlib.Path(f"/tmp/.X{n}-lock")
+                _remove_stale_lock(n)
+                if lock.exists():
                     continue
                 self.xvfb = subprocess.Popen(
                     ["Xvfb", f":{n}", *args], stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL, start_new_session=True)
                 end = time.monotonic() + 20
                 while self.xvfb.poll() is None and time.monotonic() < end:
-                    # Ours once its lock file names it (another run may have
-                    # taken the number at the same moment).
                     try:
-                        owner = int(pathlib.Path(f"/tmp/.X{n}-lock").read_text().strip())
+                        owner = int(lock.read_text().strip())
                     except (OSError, ValueError):
                         owner = None
                     if owner == self.xvfb.pid and os.path.exists(f"/tmp/.X11-unix/X{n}"):
@@ -572,8 +596,8 @@ class Box:
                     time.sleep(0.05)
                 if self.xvfb.poll() is None:
                     os.killpg(self.xvfb.pid, signal.SIGKILL)
-                    self.xvfb.wait()
-            raise BoxError(f"no free X display in {wanted}")
+                self.xvfb.wait()
+            raise BoxError(f"no free X display in {wanted or self.display_number}")
         rfd, wfd = os.pipe()
         self.xvfb = subprocess.Popen(
             ["Xvfb", "-displayfd", str(wfd), *args],
@@ -1044,20 +1068,20 @@ class Box:
         return not self.running
 
 
-def _display_taken(n):
-    """Whether X display N is in use: its lock file names a live process (Xvfb
-    replaces a stale one itself)."""
+def _remove_stale_lock(n):
+    """Remove X display N's lock file (and socket) when the server it names is
+    gone (killed hard, its lock left behind)."""
+    lock = pathlib.Path(f"/tmp/.X{n}-lock")
     try:
-        pid = int(pathlib.Path(f"/tmp/.X{n}-lock").read_text().strip())
+        pid = int(lock.read_text().strip())
     except (OSError, ValueError):
-        return os.path.exists(f"/tmp/.X{n}-lock")
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        pass
-    return True
+        return
+    if not pathlib.Path(f"/proc/{pid}").exists():
+        try:
+            lock.unlink()
+            pathlib.Path(f"/tmp/.X11-unix/X{n}").unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _complete_png(path):
@@ -1068,19 +1092,6 @@ def _complete_png(path):
 
 
 _RUNNING = []
-
-
-def _x_displays():
-    """The displays to try for Xvfb: the numbers of COKBOX_DISPLAYS ("160-169",
-    for runs side by side that must keep to their own) without a lock file
-    (Xvfb ends at once on one taken, and the next is tried), else None (Xvfb
-    picks one)."""
-    span = os.environ.get("COKBOX_DISPLAYS")
-    if not span:
-        return [None]
-    lo, _, hi = span.partition("-")
-    return [f":{n}" for n in range(int(lo), int(hi or lo) + 1)
-            if not pathlib.Path(f"/tmp/.X{n}-lock").exists()]
 
 
 def _cleanup(*_):
