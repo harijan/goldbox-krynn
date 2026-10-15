@@ -135,7 +135,7 @@ CHECKS = [
 ALONE = {"d_arrows", "d_aurak", "d_bolt", "d_bozak", "d_cast", "d_gate", "d_hold",
          "d_turning"}
 # Minutes each took in a full run (the rest a few each), for the order.
-LONG = {"f_frames": 11, "a_demo": 6, "f_sound": 6, "d_bozak": 6, "f_display_modes": 5,
+LONG = {"a_demo": 6, "c_wander": 6, "f_frames": 5, "f_display_modes": 5, "f_sound": 4,
         "a_ctrl_s": 3, "e_bolt_bounce": 2, "f_mouse": 2, "e_manual": 2}
 VERDICT = re.compile(r"^VERDICT: (AGREES|DIFFERS known: ([a-z, ]+)|DIFFERS new.*|ERROR.*)$",
                      re.M)

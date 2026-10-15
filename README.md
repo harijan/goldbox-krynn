@@ -7250,7 +7250,12 @@ verdict, and whether that is the verdict recorded (agrees, the known
 tags, or new for a port difference found and not yet fixed), an ERROR
 for anything else. On its timeout it kills the script's process group
 and the Xvfb and DOSBox-X it started (their pids recorded in
-`COKBOX_PIDFILE`). TIMING
+`COKBOX_PIDFILE`). A full run of the 82 scripts takes about 41 minutes on
+a 16-core host with little else running: about 11 for the rest side by
+side, then 30 for the eight alone (`d_bozak.py` 20 of them). At the last
+run all 82 gave their recorded verdict: 52 agree, 28 show only known
+differences, and two a port difference found and not yet fixed (#70's
+Heal list, `c_outpost.py`; the party destroyed's text, `d_bozak.py`).
 
 ## Checks against the original
 
