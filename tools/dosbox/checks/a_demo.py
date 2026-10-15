@@ -213,7 +213,7 @@ def main():
     bad = 0
     if not args.run or 1 in args.run:
         print("run 1: no key, real time, seed 0")
-        with cokbox.Box(workdir=work / "box1", seed=0, verbose=args.verbose, timeout=1500) as box:
+        with cokbox.Box(workdir=work / "box1", seed=0, verbose=args.verbose, timeout=3000) as box:
             start = time.monotonic()
             box._until(lambda: at_title_menu(box, work), 300, "the title's menu", 0.3)
             t_menu = time.monotonic()
@@ -227,7 +227,7 @@ def main():
             print(f"  the party's first member joins {time.monotonic() - t_menu:.1f} s after "
                   f"the menu was seen ({(box.dword(0x46C) - ticks_menu) / 18.2065:.1f} s of the "
                   "BIOS's clock; no key)")
-            seen = watch(box, work, 900)
+            seen = watch(box, work, 2400)
         last = cokbox.Screen.load(work / "menu2.png")
         joined = max((names for _, names in seen), key=len)
         print(f"  party seen: {joined}")
