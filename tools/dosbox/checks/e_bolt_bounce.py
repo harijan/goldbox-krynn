@@ -109,7 +109,7 @@ def main():
     loop = E.loop_of(frames)
     v.check(loop is not None, "the port's frames end in a loop", f"{len(frames)} frames")
     _, _, shots = E.run_port(ROUTE + TO_KAL, work / "port-kal", E.eclplay(), **kw)
-    E.poke_at(len(shots))   # for the Pair's runs, the fixed port's too
+    E.poke_at(len(shots))   # for the Pair's runs
     keys = ROUTE + TO_KAL + r"\skal." + CAST + AIM + r"\saimed."
     pair = E.Pair(keys, work / "pair", poke=POKE, **kw)
     print("port at the aim:", [line for line in pair.text("aimed").splitlines()

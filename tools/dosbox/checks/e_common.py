@@ -80,13 +80,13 @@ def _stop_at_end(poke):
     return transform
 
 
-def eclplay(fixed=False, poke=None, pauses=False):
-    """The port's eclplay (with the known fixes if FIXED) that stops at the
-    end of its keys (see _stop_at_end), with POKE, and with PAUSES a shot at
-    each of the game's delays too (checklib.shot_at_delays)."""
+def eclplay(poke=None, pauses=False):
+    """The port's eclplay that stops at the end of its keys (see
+    _stop_at_end), with POKE, and with PAUSES a shot at each of the game's
+    delays too (checklib.shot_at_delays)."""
     transforms = [("eclplay.c", checklib.shot_at_delays)] if pauses else []
     transforms.append(("eclplay.c", _stop_at_end(poke)))
-    return checklib.build("eclplay", fixed=fixed, transforms=transforms)
+    return checklib.build("eclplay", transforms=transforms)
 
 
 def run_port(keys, out, binary, **kw):
@@ -137,13 +137,12 @@ def poke_at(shot):
 
 class Pair:
     """The port's frames at the marks (\\sNAME.) of one key string (with
-    POKE: see eclplay and poke_at), and the fixed port's on demand:
-    judge(verdict, name, the original's screen)."""
+    POKE: see eclplay and poke_at): judge(verdict, name, the original's
+    screen)."""
 
     def __init__(self, keys, out, poke=None, **kw):
-        self.keys, self.out, self.poke, self.kw = keys, pathlib.Path(out), poke, kw
+        self.out, self.kw = pathlib.Path(out), kw
         self.at = port_at(keys, self.out / "port", eclplay(poke=poke), **kw)
-        self._fixed = None
 
     def frame(self, name):
         return self.at[name][0]
@@ -151,15 +150,9 @@ class Pair:
     def text(self, name):
         return self.at[name][1]
 
-    def fixed(self, name):
-        if self._fixed is None:
-            self._fixed = port_at(self.keys, self.out / "port-fixed",
-                                  eclplay(fixed=True, poke=self.poke), **self.kw)
-        return self._fixed[name][0]
-
     def judge(self, verdict, name, shot, what=None, masks=()):
         return verdict.screen(what or f"screen {name}", shot, self.frame(name),
-                              fixed=lambda: self.fixed(name), masks=masks, work=self.out)
+                              masks=masks, work=self.out)
 
 
 def marked(steps):
