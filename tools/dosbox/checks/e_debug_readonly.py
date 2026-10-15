@@ -13,24 +13,32 @@ to create files there; C:\\COK\\SAVE stays writable). START Woof, Ctrl-D at
 the start menu, game A loaded, Begin Adventuring: at the first trace Ctrl-Z
 (lines to the file) and Ctrl-D (the mode off, the file closed); Solace's
 pages to the outpost (pictures read), its inn's camp, and Save as D.
-InOutRes, ExitCode and ErrorAddr are read at each step; the saved game is
-compared with the port's for the same keys (eclplay --woof), masked as
-save_again.py masks, and the screens with eclplay's frames.
+Each step's screen against the port's at the same key read (eclplay
+--start-menu --woof), the saved game D against the port's (masked as
+save_again.py masks). The port has no directory it cannot write: the
+original's recorded behaviour is asserted for the rest: no DEBUG.TXT,
+InOutRes (DS:43ac) 0 until Ctrl-D, 2 (the create refused) until Ctrl-D
+off, 103 (Close of a file never opened) from then on, never read, with
+ExitCode and ErrorAddr 0 and the debug flag (DS:4b51) set from Ctrl-D to
+Ctrl-D off.
 """
 import argparse
 import os
 import pathlib
 import sys
-import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import checklib  # noqa: E402
 import e_common as E  # noqa: E402
 import save_again  # noqa: E402
 cokbox = E.cokbox
 
-STEPS = [("start menu", "P"), ("Ctrl-D", r"\cD"), ("loaded A", r"\v\v\rA"),
-         ("first trace", r"\v\v\v\v\v\r"), ("Ctrl-Z", r"\cZ"), ("Ctrl-D off", r"\cD"),
-         ("outpost", r"\r\r\r\r\r\r\r"), ("inn's camp", r"I\r"), ("saved D", "SD")]
+# (name, keys, InOutRes then (recorded), the debug flag set)
+STEPS = [("start menu", "P", 0, False), ("Ctrl-D", r"\cD", 2, True),
+         ("loaded A", r"\v\v\rA", 2, True), ("first trace", r"\v\v\v\v\v\r", 2, True),
+         ("Ctrl-Z", r"\cZ", 2, True), ("Ctrl-D off", r"\cD", 103, False),
+         ("outpost", r"\r\r\r\r\r\r\r", 103, False), ("inn's camp", r"I\r", 103, False),
+         ("saved D", "SD", 103, False)]
 IN_OUT_RES, EXIT_CODE, ERROR_ADDR, DEBUG_FLAG = 0x43AC, 0x43A2, 0x43A4, 0x4B51
 
 
@@ -55,55 +63,42 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    work = pathlib.Path(args.workdir or tempfile.mkdtemp(prefix="check-debug-ro-")).resolve()
-    if not (E.SAVE / "SAVGAMA.DAT").exists():
-        print("needs the original's saved games in SAVE/")
-        return 2
-    keys = "".join(k for _, k in STEPS)
-    pout, psaves, pshots = cokbox.eclplay(keys, work / "eclplay", saves=[E.SAVE],
-                                          args=["--woof"])
-    print("port:", "; ".join(line for line in pout.splitlines()
-                             if line.startswith(("debug:", "error:")))[:300], "...",
-          pout.splitlines()[-1])
-    expected = [cokbox.Screen.load(p) for p in pshots]
-    status = 0
-    box = ReadOnlyBox(workdir=work / "box", saves=[E.SAVE], args="Woof", exit_after=False,
-                      verbose=args.verbose, timeout=600)
-    try:
-        box.start()
-        for what, step in STEPS:
+    work = checklib.workdir(args.workdir, "e-debug-ro")
+    checklib.need_saves()
+    v = checklib.Verdict()
+    names = {name: name.replace(" ", "-").replace("'", "") for name, _, _, _ in STEPS}
+    keys = E.marked([(k, names[name]) for name, k, _, _ in STEPS])
+    kw = dict(saves=[E.SAVE], args=["--woof"])
+    pair = E.Pair(keys, work / "pair", **kw)
+    _, psaves, _ = E.run_port(keys, work / "port-all", E.eclplay(), **kw)
+    with ReadOnlyBox(workdir=work / "box", saves=[E.SAVE], args="Woof", exit_after=False,
+                     verbose=args.verbose, timeout=600) as box:
+        for name, step, res, flag in STEPS:
             box.keys(step)
             took, where = E.takes_keys(box, 30)
-            shown = box.screenshot(work / f"{what.replace(' ', '-')}.png")
-            best = min(range(len(expected)), key=lambda i: shown.diff(expected[i])[0])
-            count, _ = shown.diff(expected[best])
-            print(f"original, {what}: InOutRes {box.ds_word(IN_OUT_RES)}, ExitCode "
-                  f"{box.ds_word(EXIT_CODE)}, ErrorAddr {box.ds_read(ERROR_ADDR, 4).hex()}, "
-                  f"debug flag {box.ds_byte(DEBUG_FLAG)}; "
-                  f"{'waits at ' + ', '.join(where) if took else 'no wait: ' + where}; "
-                  f"{count} pixels differ from eclplay's {pshots[best].name}")
-            if count and what != "Ctrl-D off":  # Solace's page: the port's full stop
-                status = 1
+            v.check(took, f"{name}: the game waits for a key", ", ".join(where) if took
+                    else where)
+            box.wait_input(settle=0.5)
+            pair.judge(v, names[name], box.screenshot(work / f"{names[name]}.png"),
+                       f"{name}: the screen")
+            state = (box.ds_word(IN_OUT_RES), box.ds_word(EXIT_CODE),
+                     box.ds_read(ERROR_ADDR, 4).hex(), bool(box.ds_byte(DEBUG_FLAG)))
+            v.check(state == (res, 0, "00000000", flag),
+                    f"{name}: InOutRes {res}, ExitCode 0, ErrorAddr 0000:0000, the debug flag "
+                    f"{'set' if flag else 'clear'} (recorded)", str(state))
         made = sorted(f.name for f in box.game.iterdir() if f.name.upper().startswith("DEBUG"))
-        print("DEBUG.TXT in C:\\COK:", made or "none")
-        differ = []
+        v.check(not made, "no DEBUG.TXT in C:\\COK (recorded)", str(made))
         files = sorted(psaves.glob("CHRDATD*")) + sorted(psaves.glob("SAVGAMD.DAT"))
+        v.check(files, "the port saved game D", str(files))
         for f in files:
             mine = box.game / "SAVE" / f.name
-            if not mine.exists():
-                differ.append(f"{f.name} missing")
-            elif save_again.masked(f.name, mine.read_bytes()) != \
-                    save_again.masked(f.name, f.read_bytes()):
-                differ.append(f.name)
-        print(f"saved game D: {len(files)} files from the port, "
-              f"differing: {differ or 'none'}")
-        if differ:
-            status = 1
-    finally:
-        box.close()
+            v.check(mine.exists() and save_again.masked(f.name, mine.read_bytes()) ==
+                    save_again.masked(f.name, f.read_bytes()),
+                    f"saved game D: {f.name} as the port's (masked as save_again.py)",
+                    "missing" if not mine.exists() else "differs")
     print(f"files in {work}")
-    return status
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))

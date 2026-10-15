@@ -11,30 +11,34 @@ facing, 500 seeds; every square, 3 seeds), with every party member given
 the lightning breath (0x55) on Auto at Throtl's gate (600 seeds), nor with
 Lightning Bolt aimed at every cell from the casters' places at the gate.
 So the geometry is made: 5b04:3a6f (the port's bolt() in src/cast.c,
-modelled in e_boltmodel.py) bounces for ever from a caster at 31,16 aimed at 26,18
-with walls at 25,18 and 27,17 and floor elsewhere: line 1 hits 25,18 (the
-line back is longer than 8: no surcharge), line 2 from there toward the
-caster hits 27,17 at the same length, line 3 from there away from the
-caster hits 25,18 at the same length, each charged nothing.
+modelled in e_boltmodel.py) bounces for ever from a caster at 31,16 aimed
+at 26,18 with walls at 25,18 and 27,17 and floor elsewhere: line 1 hits
+25,18 (the line back is longer than 8: no surcharge), line 2 from there
+toward the caster hits 27,17 at the same length, line 3 from there away
+from the caster hits 25,18 at the same length, each charged nothing.
 
-The original: game A started with Helm, seed 7, the caravan won with the
-Gods, then Throtl's gate (as batch D's d_gate.py); game A's files patched
-so that KAL knows Lightning Bolt. At KAL's turn (MOLLY, ISTAN HORBIN and
-SIRRION quit theirs) the combat map (DS:6a2e) is rewritten: floor (0x17)
-everywhere but walls (0x01) at 25,18 and 27,17; KAL
-is put at 31,16 (its entry DS:623f and the grid DS:63f3; moving there would
-draw attacks from the warrior and hobgoblin beside him) and casts Lightning
-Bolt with Manual at 26,18. Then:
-whether it ever waits for a key again, the screens, RandSeed, the hook's
-counters.
+Game A started with Helm, seed 7, the caravan won with the Gods, then
+Throtl's gate (as batch D's d_gate.py); game A's files patched so that KAL
+knows Lightning Bolt. At KAL's turn (MOLLY, ISTAN HORBIN and SIRRION quit
+theirs; the screen against the port's there) the combat map is rewritten
+in both, the original's memory (DS:6a2e + 7) and the port's (a poke of
+eclplay at the same key read): floor (0x17) everywhere but walls (0x01) at
+25,18 and 27,17, and KAL put at 31,16 (his entry and the grid of who
+stands where). Lightning Bolt, Manual at 26,18: the aim's screen against
+the port's. Then Target: the port must stop ("bounces for ever"), with
+RandSeed where the original's stays. The original's recorded behaviour is
+asserted, the port not being compared past its stop: no key wait again
+(watched), DOSBox-X running, KeyPressed's count frozen, RandSeed constant,
+and the bolt animating: its screens the frames the port drew before it
+stopped, in order, round the loop the port found again and again.
 """
 import argparse
-import pathlib
 import sys
-import tempfile
 import time
+import pathlib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import checklib  # noqa: E402
 import e_boltmodel  # noqa: E402
 import e_common as E  # noqa: E402
 cokbox = E.cokbox
@@ -48,6 +52,19 @@ AIM = r"M\<\<\<\<\<\v\v"              # Manual: 5 west, 2 south: 26,18
 WALLS = [(25, 18), (27, 17)]
 FLOOR, WALL = 0x17, 0x01
 MAP, CELLS, OCCUPANT = 0x6A2E, 0x623F, 0x63F3   # DS:63f3 + 50y + x: who is there
+VIEW = (8, 8, 168, 168)               # the combat view: 7 x 7 cells of 24 pixels
+# The same rewrite in the port (src/combat.h's cok_combat).
+POKE = ("memset(game->combat.cells, 0x17, sizeof game->combat.cells); "
+        "game->combat.cells[18][25] = 0x01; game->combat.cells[17][27] = 0x01; "
+        "cok_combatant *k = &game->combat.combatant[5]; "
+        "game->combat.occupant[k->y][k->x] = 0; k->x = 31; k->y = 16; "
+        "game->combat.occupant[16][31] = 5; "
+        "printf(\"e: combatant 5 is %.*s\\n\", k->character->record[0], "
+        "(const char *)k->character->record + 1);")
+STOP = "a bolt bounces between walls for ever, and the original with it (5b04:3aea)"
+# The original's recorded behaviour: screens in the first 10 s and the 5 s
+# after (146 and 74 in batch E, 34 and 19 under a full run's load).
+FIRST, LATER = 5, 2
 
 
 def patched(work):
@@ -70,27 +87,44 @@ def main():
     parser.add_argument("--watch", type=float, default=90, help="seconds to watch after Target")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    work = pathlib.Path(args.workdir or tempfile.mkdtemp(prefix="check-bolt-")).resolve()
-    if not (E.SAVE / "SAVGAMA.DAT").exists():
-        print("needs the original's saved games in SAVE/")
-        return 2
+    work = checklib.workdir(args.workdir, "e-bolt")
+    checklib.need_saves()
+    v = checklib.Verdict()
     trace = []
-    print("model:", e_boltmodel.bolt(set(WALLS), AT, (26, 18), 7, True, trace), trace[:4])
+    model = e_boltmodel.bolt(set(WALLS), AT, (26, 18), 7, True, trace)
+    print("model of 5b04:3a6f:", model, trace[:4])
     saves = patched(work)
-    # The port, on the map as it is (no rewrite): where the same keys lead.
-    pout, _, pshots = cokbox.eclplay(ROUTE + TO_KAL, work / "port", saves=[saves],
-                                     args=["--helm", "--seed", str(SEED)])
-    turn = [line for line in pout.splitlines() if line.startswith("turn:")][-1]
-    print("port:", turn)
-    expected = [cokbox.Screen.load(p) for p in pshots]
-    with E.Box(workdir=work / "box", saves=[saves], args="x Helm", seed=SEED,
-               exit_after=False, verbose=args.verbose, timeout=1200) as box:
+    kw = dict(saves=[saves], args=["--helm", "--seed", str(SEED)])
+    # The port's shot number at KAL's turn, after which the poke goes, in
+    # the eclplay with a shot at each delay (the bolt's frames) and without.
+    paused = E.eclplay(poke=POKE, pauses=True)
+    _, _, shots = E.run_port(ROUTE + TO_KAL, work / "port-kal-paused", paused, **kw)
+    E.poke_at(len(shots))
+    stop, _, frames = E.run_port(ROUTE + TO_KAL + CAST + AIM + "T", work / "port-bolt", paused,
+                                 **kw)
+    _, _, before = E.run_port(ROUTE + TO_KAL + CAST + AIM, work / "port-bolt-0", paused, **kw)
+    # From the aim's key read to the stop: the view centred, line 1, then
+    # the loop the port found (a period of frames it drew twice).
+    frames = [cokbox.Screen.load(p) for p in frames[len(before) - 1:]]
+    loop = E.loop_of(frames)
+    v.check(loop is not None, "the port's frames end in a loop", f"{len(frames)} frames")
+    _, _, shots = E.run_port(ROUTE + TO_KAL, work / "port-kal", E.eclplay(), **kw)
+    E.poke_at(len(shots))   # for the Pair's runs, the fixed port's too
+    keys = ROUTE + TO_KAL + r"\skal." + CAST + AIM + r"\saimed."
+    pair = E.Pair(keys, work / "pair", poke=POKE, **kw)
+    print("port at the aim:", [line for line in pair.text("aimed").splitlines()
+                               if line.startswith("e: ")])
+    v.check("e: combatant 5 is KAL" in pair.text("aimed"), "the port's combatant 5 is KAL")
+    v.check(E.port_error(stop) == STOP, "the port stops at the bolt's loop",
+            E.port_error(stop) or "no stop")
+    print(f"  the port drew {len(frames) - 1} frames (its delays) after Target before it "
+          f"stopped: {loop and loop[0]} before its loop of {loop and loop[1]}")
+    with cokbox.Box(workdir=work / "box", saves=[saves], args="x Helm", seed=SEED,
+                    exit_after=False, verbose=args.verbose, timeout=1200) as box:
         box.keys(ROUTE + TO_KAL)
         box.wait_input(settle=0.7)
-        shown = box.screenshot(work / "kal-turn.png")
-        best = min(range(len(expected)), key=lambda i: shown.diff(expected[i])[0])
-        print(f"original at KAL's turn: {shown.diff(expected[best])[0]} pixels differ from "
-              f"eclplay's {pshots[best].name}; KAL at {cell_of(box, 5)}")
+        pair.judge(v, "kal", box.screenshot(work / "kal-turn.png"), "KAL's turn")
+        print(f"  original: KAL at {cell_of(box, KAL)}")
         m = box.far(box.ds * 16 + MAP)
         grid = bytearray([FLOOR] * (50 * 25))
         for x, y in WALLS:
@@ -103,32 +137,58 @@ def main():
         print(f"  map rewritten; KAL put at {cell_of(box, KAL)} (entry and DS:63f3's grid)")
         box.keys(CAST + AIM)
         box.wait_input(settle=0.7)
-        box.screenshot(work / "aimed.png")
-        seed0, hook0 = box.ds_dword(0x43AE), box.hook_state()
-        print(f"  aimed at 26,18 (screen aimed.png); RandSeed {seed0:#010x}")
+        pair.judge(v, "aimed", box.screenshot(work / "aimed.png"), "Lightning Bolt aimed at 26,18")
+        seed0, hook0 = box.ds_dword(E.RANDSEED), box.hook_state()
         box.key("T")
         start = time.monotonic()
-        seen = E.watch(box, 10, work, "bolt")
+        seen = checklib.watch(box, 10, work, "bolt")
         took, where = E.takes_keys(box, max(1, args.watch - 10))
+        later = checklib.watch(box, 5, work, "bolt-later")
         hook1 = box.hook_state()
-        print(f"original after Target: {len(seen)} different screens in the first 10 s; "
-              f"{'waits at ' + ', '.join(where) if took else 'no key wait'} within "
-              f"{time.monotonic() - start:.0f} s; {'running' if box.running else 'ended'}; "
-              f"RandSeed {box.ds_dword(0x43AE):#010x}; key reads {hook0['reads']} -> "
-              f"{hook1['reads']}, polls {hook0['polls']} -> {hook1['polls']}")
-        later = E.watch(box, 5, work, "bolt-later")
-        print(f"  {len(later)} different screens in 5 s more")
         samples = []
         for _ in range(4):
-            st = box.hook_state()
-            site = box.locate(st["pollcs"], st["pollip"])
-            samples.append((f"{box.ds_dword(0x43AE):#010x}", st["polls"],
-                            "%04x:%04x" % site if site else "?"))
+            samples.append((box.ds_dword(E.RANDSEED), box.hook("polls"), box.hook("reads")))
             time.sleep(2)
-        print("  RandSeed, KeyPressed's count and its last caller, 2 s apart:", samples)
+        running = box.running
+    print(f"original after Target: {len(seen)} different screens in the first 10 s, "
+          f"{len(later)} in 5 s more; {'waits at ' + ', '.join(where) if took else 'no key wait'}"
+          f" within {time.monotonic() - start:.0f} s; RandSeed {seed0:#010x} -> "
+          f"{samples[0][0]:#010x}; key reads {hook0['reads']} -> {hook1['reads']}, polls "
+          f"{hook0['polls']} -> {hook1['polls']}; 2 s apart: "
+          f"{[(f'{s:#010x}', p, r) for s, p, r in samples]}")
+    print("  the port is not compared past its stop: the original's recorded behaviour")
+    v.check(not took, "the original never waits for a key again (recorded)",
+            ", ".join(where) if took else "")
+    v.check(running, "DOSBox-X still running (recorded)")
+    v.check(hook1["reads"] == hook0["reads"] + 1 and len({p for _, p, _ in samples}) == 1
+            and len({r for _, _, r in samples}) == 1,
+            "no key read but Target's, KeyPressed's count frozen (recorded)",
+            f"reads {hook0['reads']} -> {hook1['reads']}, samples {samples}")
+    v.check(len({s for s, _, _ in samples}) == 1, "RandSeed constant (recorded: no one hit)",
+            str([hex(s) for s, _, _ in samples]))
+    v.value("RandSeed in the loop (the port's at its stop)", samples[0][0], E.port_seed(stop))
+    v.check(len(seen) >= FIRST and len(later) >= LATER,
+            f"the bolt animating ({FIRST} different screens in 10 s, {LATER} in 5 s more; "
+            "recorded)", f"{len(seen)}, {len(later)}")
+    if loop is not None:
+        start, period = loop
+        shots = seen + later
+        # The first screen after Target may catch the view being drawn
+        # again around the spell's cell (its tiles first, then the
+        # combatants on them): compared outside the view's 7 x 7 cells.
+        if shots and all(shots[0].pixels != f.pixels for f in frames):
+            v.screen("the first screen after Target, outside the view being drawn",
+                     shots[0], frames[1], masks=[VIEW + ("the view's 7 x 7 cells, drawn again "
+                                                         "(the tiles, then the combatants)",)])
+            shots = shots[1:]
+        # The rest: the port's frames in order, round its loop again and
+        # again (what the original repeats); screens caught as the bolt's
+        # picture moved from cell to cell allowed.
+        E.in_order(v, "the bolt's screens: the port's frames in order, round its loop", shots,
+                   frames[:start + period], loop_from=start, moving=True, settled=False)
     print(f"files in {work}")
-    return 0
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))
