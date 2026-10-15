@@ -899,6 +899,10 @@ class Box:
     # Polls of KeyPressed that are not a wait: the flush (1614:045c) and the
     # key read's look before its ReadKey (1614:025b); their return addresses.
     NOT_WAITS = ((0x1614, 0x0467), (0x1614, 0x026C))
+    # KeyPressed's callers that poll once and go on, never waiting: the
+    # computer's turn's look for Space (3afb:1200, the call at 120a), by
+    # their return addresses (an overlay's offset is kept wherever it lies).
+    NOT_WAIT_CALLERS = ((0x3AFB, 0x120F),)
 
     def from_ghidra(self, seg, off):
         """START_FULL.EXE's SEG:OFF in the game's root image as a real one."""
@@ -918,10 +922,30 @@ class Box:
         polls = self.hook("polls")
         site = (self.hook("pollcs"), self.hook("pollip"))
         flushes = [self.from_ghidra(*a) for a in self.NOT_WAITS]
-        advancing = polls != self._last_polls and site not in flushes
+        advancing = polls != self._last_polls and site not in flushes and \
+            not self._polled_by_non_waiter()
         self._last_polls = polls
         self._streak = self._streak + 1 if advancing else 0
         return self._streak >= 2
+
+    def _polled_by_non_waiter(self):
+        """True when the last poll's caller is one of NOT_WAIT_CALLERS."""
+        frames = self.frames(self.hook("pollss"), self.hook("pollbp"), 1)
+        if not frames:
+            return False
+        cs, ip = frames[0]
+        for seg, off in self.NOT_WAIT_CALLERS:
+            if ip == off and self.read(cs * 16 + ip, 8) == self._exe_bytes(seg, off, 8):
+                return True
+        return False
+
+    def _exe_bytes(self, seg, off, size):
+        """SIZE bytes of START_FULL.EXE (`make merged`) at Ghidra SEG:OFF."""
+        if not hasattr(self, "_exe"):
+            self._exe = (ROOT / "build/START_FULL.EXE").read_bytes()
+        hdr = struct.unpack_from("<H", self._exe, 8)[0] * 16
+        start = hdr + (seg - 0x1000) * 16 + off
+        return self._exe[start:start + size]
 
     def wait_input(self, reads_only=False, seconds=120, settle=0.0):
         """Wait until the game waits for a key (see waiting); then SETTLE
