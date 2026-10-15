@@ -415,7 +415,9 @@ def eclplay_with_pauses(fixed=False):
 
 def watch(box, seconds, out=None, prefix="watch", until=None):
     """Screenshots as fast as they come for SECONDS (or until UNTIL()):
-    the distinct ones in order (saved as PREFIX-NN.png in OUT)."""
+    the distinct ones in order (saved as PREFIX-NN.png in OUT), each with
+    .seen, the screenshots in a row that showed it (1: a screen the game was
+    drawing through, caught once)."""
     import time
     seen = []
     end = time.monotonic() + seconds
@@ -424,7 +426,10 @@ def watch(box, seconds, out=None, prefix="watch", until=None):
         if not seen or shot.pixels != seen[-1].pixels:
             if out:
                 shot.save_png(pathlib.Path(out) / f"{prefix}-{len(seen):02d}.png")
+            shot.seen = 1
             seen.append(shot)
+        else:
+            seen[-1].seen += 1
     return seen
 
 
