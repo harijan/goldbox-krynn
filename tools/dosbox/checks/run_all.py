@@ -115,13 +115,13 @@ CHECKS = [
     ("e_strength", "#46", "walls"),
     ("e_trade", "#47 #73", ""),
     # F: display modes, sound, mouse, frames
-    ("f_sound", "#3 #4", ""),
-    ("f_mouse", "#20", ""),
-    ("f_loading", "#28", ""),
-    ("f_display_modes", "#123 #124", ""),
-    ("f_frames", "#126", ""),
+    ("f_sound", "#3 #4", "resume"),
+    ("f_mouse", "#20", "fullstop"),
+    ("f_loading", "#28", "fullstop"),
+    ("f_display_modes", "#123 #124", "fullstop, resume, walls"),
+    ("f_frames", "#126", "resume"),
     # phase 1's proof checks
-    ("load_game_screen", "#26 #29", ""),
+    ("load_game_screen", "#26 #29", "fullstop"),
     ("save_again", "#31", ""),
     ("slow_poison", "#8", ""),
     # Built once here, not by several scripts at once.
