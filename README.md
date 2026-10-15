@@ -940,8 +940,8 @@ and the Tandy's heap is 16 KB smaller, so where `6961:00e4` stops loading
 a small picture's frames (`MaxAvail` under 0xf3c) differs by mode; the
 port loads them all. In DOSBox-X (`f_frames.py`, the guards' close-up at
 Throtl's gate, PIC1 record 12's four frames, free memory cut by
-`HOOK.COM`'s pad): with `MaxAvail` 32,000 or more before, all four in
-every mode; about 25,300, two in Tandy and EGA mode, four in CGA's;
+`HOOK.COM`'s pad): with `MaxAvail` 40,000 or more before, all four in
+Tandy mode (the run at 32,000 failed), 32,000 or more in EGA and CGA mode; about 25,300, two in Tandy and EGA mode, four in CGA's;
 about 18,300, three in CGA's, and in Tandy and EGA mode no close-up but
 `WARNING: Insufficient Memory` on row 24 in yellow and a wait for a key:
 Turbo Pascal's `HeapError` (`DS:439a`, set by `2f48:00b2`) is
@@ -7225,8 +7225,11 @@ took 43.
 
 These follow the disassembly. Each that can run unattended was then run in
 the original under DOSBox-X (see DOSBox-X harness) by a script in
-`tools/dosbox/checks/`, which compares its screens, files and memory with
-the port's for the same keys and seed; `make dosbox-checks` runs them all.
+`tools/dosbox/checks/`, which compares its screens (each with the port's
+at the same key read), files and memory values with the port's for the
+same keys and seed, or, where the port stops or does not model what the
+original does, asserts what the original was seen to do; `make
+dosbox-checks` runs them all.
 The checks keep the numbers they had in this list (#1-#129, in its order),
 which the scripts cite.
 
@@ -7241,12 +7244,16 @@ original's behaviour is recorded, its section says what it does):
   start reads as CGA with no sound: `a_setup.py`.
 - #3 The title's music with `KRYNN.CFG`'s `T` and `P`: the pitches, the
   tempo (within DOSBox-X's WAV error, 0.2 %); LF line ends silent; the 3D
-  steps and turns, the overland steps and a battle's sounds matched by
-  length (see the rest below): `f_sound.py`.
+  steps and turns and the overland steps matched by length; in a battle
+  the drop's sound, while the baaz turns' sounds come longer in the
+  original (0.12 + 0.22 s against 0.075 + 0.19 s), its steps spread over
+  its drawing time where `eclplay`'s clock has none (the rest below):
+  `f_sound.py`.
 - #4 The step before a record read is silenced at once, as in the port
   (how long: below): `f_sound.py`.
 - #5 Ctrl-S after the demonstration leaves the sound off for good; Alt-R
-  toggles it as Ctrl-S does (tried in the start menu): `a_ctrl_s.py`.
+  toggles it as Ctrl-S does, tried in the start menu (in combat: below):
+  `a_ctrl_s.py`.
 - #6 Stinking Cloud with a wall among its cells and over half another
   cloud: the tiles, who coughs and chokes, both clearings and no redraw,
   over four rounds (the rest below): `d_cloud.py`.
@@ -7281,6 +7288,15 @@ original's behaviour is recorded, its section says what it does):
   kept: `d_move.py`.
 - #18 `Target` after Manual's Exit: the original asks `Attack Ally:` (see
   The player's commands): `e_manual.py`.
+- #20 (part) The mouse with DOSBox-X's own driver: the arrow's look in
+  Tandy and EGA mode, hidden through the title's waits and running text,
+  clicks landing on the cell under its tip, a click in column 0 of the
+  title's menu with `DS:6e2f`, `6e30`, `6e16` unset, both buttons at the
+  title's menu; in CGA mode DOSBox-X's driver draws the arrow a bit a
+  pixel, as the README says, so its box is not compared there; after a
+  camp the part of the overland mark under the arrow vanishes in the
+  original, as recorded under The mouse and the joystick, where the port
+  does not reproduce it (the rest below): `f_mouse.py`.
 - #22 A cleric's long spell moves it down the order, the d2s as the
   port's: `d_cast.py`.
 - #24 Space during the computer's turns: the turn given up, the next party
@@ -7374,17 +7390,21 @@ original's behaviour is recorded, its section says what it does):
   `d_gate.py`.
 - #75 The second of four unconscious: its body right of the first, at the
   gate and on open ground: `d_ranks.py`.
-- #76 The huge patrol from 30, 3 north-west of KERNEN: 5 bozaks and 9
-  sivaks find no place in both and each receives 5033 (the bullet's 7, 9
-  and 4937 were `eclplay`'s with no 3D map at 0, 0): `d_patrol.py`.
+- #76 The huge patrol, the party a step south-east from 30, 2 onto KERNEN
+  at 31, 3: 5 bozaks and 9 sivaks find no place in both and each receives
+  5033 (the bullet's 7, 9 and 4937 were `eclplay`'s with no 3D map at 0,
+  0; from 30, 3 all 27 find a place, 7698 each): `d_patrol.py`.
 - #77 Neraka's room at 12, 8: tables and chairs only in the rooms' blocks
   (the other rooms not fought in): `d_neraka.py`.
 - #78 ECL3 block 97's red dragon: levels 1-3 "terrified" (no higher level
   in the party): `d_dragonfear.py`.
 - #79 The outpost's patrol's surprise: the first round's order, all 33
   entries (no one of dexterity under 16 in the party): `d_patrol.py`.
-- #80 Dying: "Your Teammate is Dying" to the ninth round, dead at the
-  tenth, Bandage: `d_dying.py`.
+- #80 Dying: the count (combat record `+0x0e`) and status in the
+  original's memory at each round's end, status 6 at 10 with the hit
+  points unchanged, as in the port, whose log says "Your Teammate is
+  Dying" to the ninth round (the text itself, overwritten by the Continue
+  prompt, was not caught on the original's screen); Bandage: `d_dying.py`.
 - #81 "Continue Battle:" at each round's end of a won battle: `d_helm.py`.
 - #82 `START x Helm` and Alt-X: "The Gods intervene!": `d_helm.py`.
 - #83 The gate's combat screen as the battle begins: `d_gate.py`.
@@ -7429,8 +7449,8 @@ original's behaviour is recorded, its section says what it does):
 - #109 Escape then Save in the start menu: unsaved, `Quit anyway?`, No
   opens Save: `a_unsaved.py`.
 - #110 Creation: no racial adjustment shown, a multi-class's money
-  undivided, a cleric's wisdom at 19 and 20, a thief's skills:
-  `a_create.py`.
+  undivided, a human cleric of 19 losing a point of wisdom and one of 21
+  not (20 not tried), a thief's skills: `a_create.py`.
 - #111 A knight's Plate Mail, Shield and Long Sword carried, not readied;
   its weight until loaded again: `a_create.py`.
 - #112 No key leaves the icon editor's `Parts` menu: `a_icon.py`.
@@ -7448,9 +7468,10 @@ original's behaviour is recorded, its section says what it does):
   `Spell:Magic Missile`; under 0x4a too: `d_cast.py`.
 - #120 Hold Person at three targets, `Cannot target yourself`:
   `d_hold.py`.
-- #122 Fear with `T` at once: the port's cone in Tandy, EGA and CGA mode
-  with the game at a PSP of 0x08f0; another at 0x087b (see Spells in
-  combat): `d_fear.py`.
+- #122 Fear with `T` at once, the caster at one place (26, 13; the bullet
+  asks for a few): the port's cone in Tandy, EGA and CGA mode with the
+  game at a PSP of 0x08f0; another at 0x087b (see Spells in combat):
+  `d_fear.py`.
 - #123, #124 Every screen compared in CGA and EGA mode (the title, the
   start menu, character creation, Solace, the outpost, the camp, a sheet,
   the overland map, a battle's first turn and Aim, CGA's four colours,
@@ -7497,6 +7518,8 @@ entries say what differs):
 - (#4) The sounds a record read cuts (see Sound): for how long the disk
   read keeps the sound stopped (DOSBox-X's reads take its own time: a real
   disk), and a sound followed by a portrait (not run).
+- (#5) Alt-R in combat, where nothing else takes it, should turn the sound
+  off as Ctrl-S does: tried only in the start menu.
 - (#6) Clouds and pools (see Clouds, pools and breath): Stinking Cloud
   over a fallen party member's body (none fell where a cloud could go in
   the runs), and a kapak dying on a body that is raised before its pool
@@ -7545,7 +7568,8 @@ entries say what differs):
   KAL, cleric 7 on Auto, never tried to turn in either).
 - Wall tiles and sky pictures are masked with colour 13 in the 3D view.
   Compare a view, such as Throtl's street from 7, 15 facing north, for light
-  magenta or holes.
+  magenta or holes. In DOSBox-X: none, but the far walls differ (a two-set
+  WALLDEF record's second set offset again: the checked list, #27).
 - Load saved game A and compare the party list and status line beside the
   view: the columns of AC and hit points, the colours, and `7,13 N 00:00`.
   Partly done (`tools/dosbox/checks/load_game_screen.py`, in Tandy, EGA and
@@ -7555,10 +7579,12 @@ entries say what differs):
   `2fd3:1146`) is `PRESS <ENTER>/<RETURN> TO CONTINUE`, without the full
   stop the port adds (`src/adventure.c`), which it draws black on white at
   column 34. To be fixed; the status line beside the view, `7,13 N
-  00:00`, is still to be compared.
+  00:00`, agrees (see the checked list, #29).
 - Save in camp, then load that game: it holds mode 2 (`0x1407`). Compare
   how the original resumes it with how it resumes a game saved from the
-  party menu.
+  party menu. In DOSBox-X the game saved in Throtl's camp resumes with the
+  walls of #27, and saved again holds 4 at `0x1406` where the original's
+  holds 2 (the checked list, #38).
 - (#85) In the red dragons' fight (above), each terrified or frightened
   character should flash with sparkles, at speed 4 five times, 70 ms a
   picture, its name and "is terrified" or "is afraid" in the panel from
@@ -7596,7 +7622,8 @@ entries say what differs):
 - In EGA mode, the same screens should match `eclplay`'s (the Tandy's).
   The title's first picture and menu (`make dosbox-selftest`), the start
   menu and Solace's first page do, in CGA mode too (but for the full stop,
-  see Load saved game A); the rest are still to be compared.
+  see Load saved game A); the rest agree but Throtl's 3D view (see the
+  checked list, #123, #124).
 - (#125) In EGA mode, a draw of no width on a row of the 3D view or the
   combat map that nothing else marks (a picture placed just past the right
   edge, `127f:09c3` copying no byte): `127f:12e8` should copy 16 KB of the
