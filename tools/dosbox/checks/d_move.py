@@ -7,20 +7,21 @@ combatant goes back with the wounds kept."
 Game A, the caravan's baaz (seed 7). Four turns end with Done Quit; at SIR
 STRONGSWORD's turn two baaz stand beside him; Move, a step south-west (1):
 each baaz attacks once "(from behind)" (one hits for 3); then Escape. The
-screens at his menu, after the step and after Escape are compared with
-eclplay's; in the original's memory his cell (DS:623f), hit points and
-movement left (combat record +0x06).
+screens at his menu, after the step and after Escape, and the memory there
+(d_lib.compare_state: his cell DS:623f and hit points among it) and his
+movement left (combat record +0x06), against the port's at the same point.
 """
 import argparse
 import sys
 
+import checklib
 import d_lib
 
+STEPS = [("sir", d_lib.LOAD_A + d_lib.TO_CARAVAN + "DQ" * 4), ("step", "M1"), ("escape", r"\e")]
 
-def state(b, name):
-    c = d_lib.by_name(d_lib.combatants(b), name)[0]
-    cr = d_lib.combat_record(b, c["rec"])
-    return (c["x"], c["y"]), c["hp"], cr[6]
+
+def movement(cs):
+    return d_lib.by_name(cs, "SIR STRONGSWORD")[0]["combat"][6]
 
 
 def main():
@@ -29,33 +30,34 @@ def main():
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    d_lib.need_saves()
-    work = d_lib.workdir("move", args.workdir)
-    steps = [("sir", d_lib.LOAD_A + d_lib.TO_CARAVAN + "DQ" * 4), ("step", "M1"),
-             ("escape", r"\e")]
-    lines, shots = d_lib.port("".join(k for _, k in steps), work / "port", args.seed)
-    i = lines.index("turn: SIR STRONGSWORD (initiative 4)")
-    attacks = [l for l in lines[i:] if l.startswith("attack:")]
-    print("port, SIR's step:", attacks)
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "d-move")
+    port = d_lib.Port(work / "eclplay", d_lib.marked(STEPS), args.seed)
+    v = checklib.Verdict()
+    seen = {}
     with d_lib.box(work, args.seed, verbose=args.verbose) as b:
-        res = {}
-        seen = []
-        for step in steps:
-            res.update(d_lib.run_steps(b, [step], shots, work))
-            seen.append(state(b, "SIR STRONGSWORD"))
-            print(f"original after {step[0]}: cell, hit points, movement left", seen[-1])
-    once = len(attacks) == 2 and all("(from behind)" in a for a in attacks)
-    status = d_lib.verdict(once and res["step"][0] == 0 and seen[1][1] == seen[0][1] - 3,
-                           "#92 the step away draws one attack \"(from behind)\" from each "
-                           "baaz beside him (screen after the step equal; 3 damage in "
-                           "both)")
-    status |= d_lib.verdict(res["escape"][0] == 0 and seen[2][0] == seen[0][0]
-                            and seen[2][1] == seen[1][1] and seen[2][2] == seen[0][2],
-                            "#17 Escape puts him back on his cell with his movement, the "
-                            "3 points of damage kept (screen equal)")
+        for name, keys in STEPS:
+            shown = d_lib.step(b, keys, name, work)
+            d_lib.screen(v, f"screen {name}", shown, port, name, work)
+            o = d_lib.compare_state(v, b, port, name)
+            sir = [f for f in o["fighters"] if f[1] == "SIR STRONGSWORD"][0]
+            seen[name] = ((sir[2], sir[3]), sir[5], movement(d_lib.combatants(b)))
+            d_lib.value(v, f"SIR's movement left (+0x06) at {name}", seen[name][2], port, name,
+                        lambda s: movement(d_lib.port_combatants(s)))
+            print(f"  original at {name}: SIR's cell, hit points, movement left {seen[name]}")
+    i = port.lines.index("turn: SIR STRONGSWORD (initiative 4)")
+    attacks = [line for line in port.lines[i:] if line.startswith("attack:")]
+    print("port, SIR's step:", attacks)
+    v.check(len(attacks) == 2 and all("(from behind)" in a for a in attacks),
+            "#92 the port: each of the two baaz beside him attacks once \"(from behind)\"")
+    v.check(seen["step"][1] == seen["sir"][1] - 3 and seen["step"][0] != seen["sir"][0],
+            "#92 the original: the step taken and 3 points of damage (one baaz hits)")
+    v.check(seen["escape"][0] == seen["sir"][0] and seen["escape"][2] == seen["sir"][2] and
+            seen["escape"][1] == seen["step"][1],
+            "#17 Escape in the original: back on his cell with his movement, the damage kept")
     print(f"files in {work}")
-    return status
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))

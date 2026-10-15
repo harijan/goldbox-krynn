@@ -9,16 +9,15 @@ caravan's baaz, seed 8 (found with eclplay): ISTAN Done/Quit, GARIN casts
 Magic Missile at SIR (Next once, Target): SIR "reflects the spell", GARIN
 "takes 2 points of damage from Magic". The speed poked to 30 and a burst of
 screenshots through the cast; the screens compared with the port's frames
-at its pauses and the panel read; GARIN's and SIR's hit points in memory.
+at its key reads and pauses in order and the panel read; the screen and the
+memory (d_lib.compare_state: GARIN's and SIR's hit points among them) at the
+aim and at the next wait against the port's there.
 """
 import argparse
 import sys
 
+import checklib
 import d_lib
-
-
-def hp(b, name):
-    return d_lib.by_name(d_lib.combatants(b), name)[0]["hp"]
 
 
 def main():
@@ -28,43 +27,39 @@ def main():
     parser.add_argument("--burst", type=float, default=20)
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    d_lib.need_saves()
-    work = d_lib.workdir("turning", args.workdir)
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "d-turning")
     saves = d_lib.make_save("F", work / "save", args=["--effect", "1,47,0,0"])
     aim = d_lib.load("F") + r"Lnm9\r" + "DQ" + r"C\^\rN"
-    lines, shots = d_lib.port(aim + "T", work / "port", args.seed, saves=[saves], pauses=True)
-    k = lines.index("print: reflects the spell")
-    print("port:", lines[k - 1:k + 3])
+    port = d_lib.Port(work / "eclplay", d_lib.marked([("aim", aim), ("after", "T")]), args.seed,
+                      saves=[saves])
+    v = checklib.Verdict()
     with d_lib.box(work, args.seed, verbose=args.verbose, saves=[saves]) as b:
-        res = d_lib.run_steps(b, [("aim", aim)], shots, work)
-        before = hp(b, "GARIN "), hp(b, "SIR STRONGSWORD")
-        speed = b.ds_byte(0x4B38)
-        b.ds_write(0x4B38, bytes([30]))
-        b.push_key(ord("t") | 0x1400)
-        burst = d_lib.burst(b, args.burst, work=work, prefix="cast")
-        b.ds_write(0x4B38, bytes([speed]))
-        after = hp(b, "GARIN "), hp(b, "SIR STRONGSWORD")
-    frames = d_lib.frames_after(shots, res["aim"][1], 150)
-    matched = [getattr(frames.get(s.pixels), "name", None) for s in burst]
-    panel = []
-    for s in burst:
-        for r, t in d_lib.screen_text(s, range(10, 16), 23, 39).items():
-            if (r, t.strip(" ?")) not in panel:
-                panel.append((r, t.strip(" ?")))
-    reflect = [m for m, s in zip(matched, burst)
-               if "REFLECTS" in d_lib.read_text(s, 11, 23, 39)[0]
-               or "REFLECTS" in d_lib.read_text(s, 12, 23, 39)[0]]
-    print("original: screens equal to port frames", matched)
+        shown = d_lib.step(b, aim, "aim", work)
+        d_lib.screen(v, "screen aim", shown, port, "aim", work)
+        before = d_lib.compare_state(v, b, port, "aim")
+        shots, matched, _ = d_lib.burst_step(v, b, port, "aim", "after", ord("t") | 0x1400, work,
+                                             "cast", args.burst)
+        after = d_lib.compare_state(v, b, port, "after")
+    panel = d_lib.panel(shots, range(10, 16))
     print("original's panel:", panel)
-    print(f"original: GARIN's and SIR's hit points before {before}, after {after}")
-    status = d_lib.verdict(res["aim"][0] == 0 and any(reflect) and before[0] - after[0] == 2
-                           and before[1] == after[1],
-                           "#129 SIR reflects GARIN's Magic Missile: GARIN takes the 2 "
-                           "points, SIR none; the screen with \"REFLECTS THE SPELL\" equals "
-                           "the port's frame")
+    k = port.lines.index("print: reflects the spell") if "print: reflects the spell" in \
+        port.lines else None
+    print("port:", port.lines[k - 1:k + 3] if k else None)
+    v.check(k is not None and port.lines[k - 1] == "print: SIR STRONGSWORD",
+            "#129 the port: SIR STRONGSWORD \"reflects the spell\"")
+    reflect = [m for m, s in zip(matched, shots) if any(
+        "REFLECTS" in d_lib.read_text(s, r, 23, 39)[0] for r in (11, 12))]
+    v.check(reflect and all(m and "~" not in m for m in reflect),
+            "#129 the original's screens with \"REFLECTS\" equal the port's frames", f"{reflect}")
+    hp = {o: {f[1]: f[5] for f in st["fighters"]} for o, st in (("before", before),
+                                                                ("after", after))}
+    lost = {n: hp["before"][n] - hp["after"][n] for n in ("GARIN ", "SIR STRONGSWORD")}
+    v.check(lost == {"GARIN ": 2, "SIR STRONGSWORD": 0},
+            "#129 the original: the caster GARIN takes the 2 points, SIR none", f"{lost}")
     print(f"files in {work}")
-    return status
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))

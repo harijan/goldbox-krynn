@@ -11,25 +11,31 @@ saved after the arrival page, then patched: the square 12, 8 (square byte
 vector), the original after Look: seed 9 (found with eclplay) gives
 "MONSTROUS FORCES SPOT YOU AND ATTACK." (4 giant rats, 5 giant
 centipedes). The original's battlefield (DS:6a2e, its tables 0x1a and
-chairs 0x1b among the terrain) and combatants' cells at the first menu
-against eclplay's --combat-map, and the screen.
+chairs 0x1b among the terrain) and combatants' cells, the rest of the
+memory (d_lib.compare_state) and the screens at Look and at the first menu
+against the port's.
+Both are given the same keys: the port as it is shows the encounter at
+Begin Adventuring, before Look (the first block's vectors, d_firstblock.py),
+so it differs from the original there and after; the port with the known
+fixes does not, and the original against it decides (known: resume).
 """
 import argparse
-import struct
 import sys
 
+import checklib
 import d_lib
-from d_gate import last_battle
+
+STEPS = [("look", d_lib.load("J") + "L"), ("menu", r"\r")]
 
 
 def save_64(work):
     saves = d_lib.make_save("J", work / "save", keys=r"\rE", block=64, args=["--file", "2"])
-    path = saves / "SAVGAMJ.DAT"
-    data = bytearray(path.read_bytes())
-    struct.pack_into("<H", data, 1 + (0x4C07 - 0x4B00) * 2, 9)
-    data[0x1401:0x1406] = bytes([12, 8, 0, 0, 0xC0])
-    path.write_bytes(bytes(data))
+    d_lib.patch_game(saves, "J", square=[12, 8, 0, 0, 0xC0], words={0x4C07: 9})
     return saves
+
+
+def field(cs, cells):
+    return [r.hex() for r in cells], [(c["n"], c["name"], c["x"], c["y"], c["size"]) for c in cs]
 
 
 def main():
@@ -38,33 +44,28 @@ def main():
     parser.add_argument("--seed", type=int, default=9)
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    d_lib.need_saves()
-    work = d_lib.workdir("neraka", args.workdir)
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "d-neraka")
     saves = save_64(work)
-    cmap = work / "combat-map.txt"
-    if cmap.exists():
-        cmap.unlink()
-    lines, shots = d_lib.port(d_lib.load("J") + r"\r", work / "port", args.seed, saves=[saves],
-                              args=["--combat-map", cmap])
-    rows, cells, facings = last_battle(cmap)
-    furniture = sum(r.count("1a") + r.count("1b") for r in
-                    [[row[i:i + 2] for i in range(0, 100, 2)] for row in rows])
+    port = d_lib.Port(work / "eclplay", d_lib.marked(STEPS), args.seed, saves=[saves])
+    v = checklib.Verdict()
     with d_lib.box(work, args.seed, verbose=args.verbose, saves=[saves]) as b:
-        res = d_lib.run_steps(b, [("look", d_lib.load("J") + "L"), ("menu", r"\r")], shots,
-                              work)
-        mine = [r.hex() for r in d_lib.battle_map(b)]
-        mycells = {c["n"]: (c["x"], c["y"]) for c in d_lib.combatants(b)}
-    found = sum(1 for r in mine for i in range(0, 100, 2) if r[i:i + 2] in ("1a", "1b"))
-    print(f"port: {furniture} tables and chairs on the battlefield; original: {found}")
-    print("map rows equal:", sum(a == b_ for a, b_ in zip(mine, rows)), "of", len(rows))
-    ok = mine == rows and {n: c for n, c in mycells.items() if n in cells} == cells and \
-        res["menu"][0] == 0
-    status = d_lib.verdict(ok, "#77 a fight in Neraka's room at 12,8: the original's "
-                           "battlefield, its tables and chairs among it, and the combatants' "
-                           "cells equal eclplay's --combat-map; the first menu's screen equal")
+        for name, keys in STEPS:
+            shown = d_lib.step(b, keys, name, work)
+            d_lib.screen(v, f"screen {name}", shown, port, name, work, known="resume")
+            d_lib.compare_state(v, b, port, name, known="resume")
+        cells = d_lib.battle_map(b)
+        d_lib.value(v, "#77 the battlefield and every combatant's cell at the first menu",
+                    field(d_lib.combatants(b), cells), port, "menu",
+                    lambda s: field(d_lib.port_combatants(s), s["cells"]))
+    furniture = [(x, y) for y, row in enumerate(cells) for x, t in enumerate(row)
+                 if t in (0x1A, 0x1B)]
+    print("original's tables and chairs:", furniture)
+    v.check(len(furniture) == 20, "#77 the original: 20 tables and chairs on the battlefield, "
+            "as batch D saw them", f"{len(furniture)}")
     print(f"files in {work}")
-    return status
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))

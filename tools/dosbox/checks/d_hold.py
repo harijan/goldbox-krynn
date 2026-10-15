@@ -10,14 +10,20 @@ caravan's baaz, seed 7: ISTAN Done/Quit, KAL casts Hold Person ("Begins
 Casting", a third of 5), and at his next turn aims: Target on himself
 ("Cannot target yourself"), then three picks (Next Target, Next Next
 Target, Next x3 Target: ISTAN, GARIN, SIR STRONGSWORD, the baaz being out
-of range). The last Target with a burst of screenshots (the speed poked to
-30): compared with eclplay's frames at its pauses (the missiles' flights
-are 30 ms steps, each a pause); and the screen at each aim.
+of range). Target on himself and the last Target with a burst of screenshots (the
+speed poked to 30), each against the port's frames at its pauses and map
+shows in order (the refusal shows during a pause; the missiles' flights
+are 30 ms steps, each a pause); the screen and memory (the effects among
+it: GARIN held, 0x34) at each aim and after the cast against the port's.
 """
 import argparse
 import sys
 
+import checklib
 import d_lib
+
+STEPS = [("aim", d_lib.load("G") + r"Lnm9\r" + "DQ" + r"C\r"), ("yourself", "T"),
+         ("pick1", "NT"), ("pick2", "NNT"), ("last", "NNN"), ("after", "T")]
 
 
 def main():
@@ -27,51 +33,40 @@ def main():
     parser.add_argument("--burst", type=float, default=25)
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    d_lib.need_saves()
-    work = d_lib.workdir("hold", args.workdir)
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "d-hold")
     saves = d_lib.make_save("G", work / "save")
     d_lib.patch_record(saves, "G", 5, 0x54, [0x17])
-    steps = [("aim", d_lib.load("G") + r"Lnm9\r" + "DQ" + r"C\r"), ("yourself", "T"),
-             ("pick1", "NT"), ("pick2", "NNT"), ("last", "NNN")]
-    lines, shots = d_lib.port("".join(k for _, k in steps) + "T", work / "port", args.seed,
-                              saves=[saves], pauses=True)
-    k = lines.index("cast: KAL: Hold Person")
-    print("port:", [l for l in lines[k:k + 30] if l.startswith("print:")])
+    port = d_lib.Port(work / "eclplay", d_lib.marked(STEPS), args.seed, saves=[saves])
+    v = checklib.Verdict()
     with d_lib.box(work, args.seed, verbose=args.verbose, saves=[saves]) as b:
-        res = d_lib.run_steps(b, steps[:1], shots, work)
-        # Target on himself: the refusal shows for a moment, then the aim again.
-        b.push_key(ord("t") | 0x1400)
-        refusal = d_lib.burst(b, 4, work=work, prefix="yourself")
-        refused = sorted({t for s in refusal for t in d_lib.screen_text(s).values()
-                          if "TARGET" in t and "YOURSELF" in t})
-        print("original after Target on himself:", refused)
-        res.update(d_lib.run_steps(b, [("yourself", "")] + steps[2:], shots, work))
-        speed = b.ds_byte(0x4B38)
-        b.ds_write(0x4B38, bytes([30]))
-        b.push_key(ord("t") | 0x1400)
-        burst = d_lib.burst(b, args.burst, work=work, prefix="cast")
-        b.ds_write(0x4B38, bytes([speed]))
-        cs = d_lib.combatants(b)
-        held = {c["name"]: [e for e in d_lib.effects(b, c["rec"])] for c in cs[:6]}
-    print("original: the effects after the cast:", held)
-    frames = d_lib.frames_after(shots, res["last"][1], 200)
-    matched = [getattr(frames.get(s.pixels), "name", None) for s in burst]
-    print("original: the burst's screens equal to port frames:", matched)
-    texts = [d_lib.screen_text(s, range(10, 14), 23, 39) for s in burst]
-    said = []
-    for t in texts:
-        for r, line in sorted(t.items()):
-            if (r, line.strip(" ?")) not in said:
-                said.append((r, line.strip(" ?")))
-    print("original's panel:", said)
-    ok = bool(refused) and all(c == 0 for c, _ in res.values()) and sum(1 for m in matched if m) >= 3 and \
-        any(0x34 in [e[0] for e in v] for v in held.values())
-    status = d_lib.verdict(ok, "#120 Hold Person: \"CANNOT TARGET YOURSELF\" on Target on "
-                           "himself; the screens at each aim equal eclplay's; the cast's screens equal its frames at "
-                           "pauses (the flights to the first two picks among them)")
+        for (before, _), (name, keys) in zip([(None, None)] + STEPS, STEPS):
+            if name == "yourself":
+                # Target on himself: the refusal shows for a moment, then the aim again.
+                refusal, _, _ = d_lib.burst_step(v, b, port, before, name, ord("t") | 0x1400,
+                                                 work, "yourself", 4, speed=4)
+            elif name == "after":
+                burst, _, _ = d_lib.burst_step(v, b, port, before, name, ord("t") | 0x1400,
+                                               work, "cast", args.burst)
+            else:
+                shown = d_lib.step(b, keys, name, work)
+                d_lib.screen(v, f"screen {name}", shown, port, name, work)
+            o = d_lib.compare_state(v, b, port, name)
+    refused = sorted({t for s in refusal for t in d_lib.screen_text(s).values()
+                      if "TARGET" in t and "YOURSELF" in t})
+    print("original after Target on himself:", refused)
+    print("original's panel in the cast:", d_lib.panel(burst, range(10, 14)))
+    k = port.lines.index("cast: KAL: Hold Person") if "cast: KAL: Hold Person" in port.lines \
+        else None
+    print("port:", [line for line in port.lines[k:k + 30] if line.startswith("print:")]
+          if k is not None else None)
+    v.check(refused, "#120 the original says \"CANNOT TARGET YOURSELF\" at Target on himself")
+    held = {f[1]: [e[0] for e in f[7]] for f in o["fighters"][:6]}
+    v.check([n for n, e in held.items() if 0x34 in e] == ["GARIN "],
+            "#120 the original: GARIN held (0x34), ISTAN and SIR unaffected", f"{held}")
     print(f"files in {work}")
-    return status
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))
