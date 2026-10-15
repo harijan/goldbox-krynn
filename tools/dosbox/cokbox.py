@@ -1059,11 +1059,12 @@ for _sig in (signal.SIGTERM, signal.SIGHUP):
 # ---------------------------------------------------------------- command line
 
 def eclplay(keys, out, assets=None, machine="tandy", saves=(), args=(), shots=True,
-            start_menu=True):
+            start_menu=True, block=None, binary=None):
     """Run eclplay with KEYS, as the Box would run the game: --start-menu
-    (unless START_MENU is false: ARGS then say where to start), a KRYNN.CFG
-    for MACHINE, SAVES copied into OUT/saves (its --saves). Returns (stdout,
-    saves directory, the shots' paths in order)."""
+    (unless START_MENU is false: ARGS then say where to start, and BLOCK the
+    ECL block, after the assets), a KRYNN.CFG for MACHINE, SAVES copied into
+    OUT/saves (its --saves); BINARY another eclplay than build/'s. Returns
+    (stdout, saves directory, the shots' paths in order)."""
     out = pathlib.Path(out)
     out.mkdir(parents=True, exist_ok=True)
     shot_dir, save_dir = out / "shots", out / "saves"
@@ -1080,10 +1081,10 @@ def eclplay(keys, out, assets=None, machine="tandy", saves=(), args=(), shots=Tr
     cfg = out / "krynn.cfg"
     cfg.write_bytes(krynn_cfg(MACHINES[machine][1]).encode())
     result = subprocess.run(
-        [str(ROOT / "build/eclplay"), *(["--start-menu"] if start_menu else []),
+        [str(binary or ROOT / "build/eclplay"), *(["--start-menu"] if start_menu else []),
          "--config", str(cfg), "--saves",
          str(save_dir), *(["--shots", str(shot_dir)] if shots else []), *map(str, args),
-         "--keys", keys, str(assets)],
+         "--keys", keys, str(assets), *([str(block)] if block is not None else [])],
         check=False, capture_output=True, text=True, timeout=600)
     return result.stdout, save_dir, sorted(shot_dir.glob("*.bmp"))
 
