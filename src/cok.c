@@ -1280,7 +1280,8 @@ static void unported(cok_adventure *game, void *context)
     frontend *f = context;
     if (!f->log) return;
     const char *name = cok_ecl_opcode_name(game->vm.opcode);
-    char line[200];
+    /* The name (15 letters at most) and up to 64 operands of " %u", whole. */
+    char line[32 + COK_ECL_MAX_OPERANDS * 11];
     size_t n = (size_t)snprintf(line, sizeof line, "[%s", name != NULL ? name : "?");
     for (size_t i = 0; i < game->vm.operands && n < sizeof line; ++i)
         n += (size_t)snprintf(line + n, sizeof line - n, " %u", cok_ecl_value(&game->vm, i));

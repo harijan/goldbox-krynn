@@ -21,8 +21,27 @@ ASSETS = ROOT / "Assets"
 # Where SDL's dummy driver saves the frames cok presents
 # (SDL_VIDEO_DUMMY_SAVE_FRAMES): it writes each in the present itself, so
 # that a disk slow to write (a FUSE overlay's, which a busy machine starves
-# of CPU, taking seconds) makes the game late; a tmpfs where there is one.
-FAST = "/dev/shm" if os.path.isdir("/dev/shm") and os.access("/dev/shm", os.W_OK) else None
+# of CPU, taking seconds) makes the game late; a tmpfs where there is one
+# with room for a test's frames (up to 15 MB seen), else the temp folder.
+SHM = "/dev/shm"
+
+
+def fast_folder():
+    if not (os.path.isdir(SHM) and os.access(SHM, os.W_OK)):
+        return None
+    free = os.statvfs(SHM)
+    return SHM if free.f_bavail * free.f_frsize >= 32 << 20 else None
+
+
+def frame(path):
+    """A frame's file, whole: SDL's dummy driver leaves it short, without a
+    word, when its disk is full."""
+    data = path.read_bytes()
+    size = int.from_bytes(data[2:6], "little") if len(data) >= 6 else -1
+    if len(data) != size:
+        raise AssertionError(f"frame {path.name} truncated ({len(data)} of {size} bytes): "
+                             f"is {path.parent} full?")
+    return data
 
 ENV = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_RENDER_DRIVER="software",
            SDL_AUDIODRIVER="dummy")
@@ -84,10 +103,10 @@ def cpu_seconds(pid):
 
 class FrontEndTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = tempfile.TemporaryDirectory(prefix="test_cok-")
         self.addCleanup(self.temp.cleanup)
         self.folder = pathlib.Path(self.temp.name)
-        fast = tempfile.TemporaryDirectory(dir=FAST)
+        fast = tempfile.TemporaryDirectory(prefix="test_cok-", dir=fast_folder())
         self.addCleanup(fast.cleanup)
         self.fast = pathlib.Path(fast.name)
 
@@ -280,22 +299,29 @@ class FrontEndTests(unittest.TestCase):
         _, _, eshots = self.eclplay("", "--woof")
         shown, lines = self.presented("menu: Play Demo", "--woof")
         self.assertTrue(2 <= len(shown) <= 4, shown)
-        # The note for its 2 seconds, by SDL's clock, then the menu, once.
-        note, menu = presents(lines)[0], at(lines, "menu: Play Demo")
-        self.assertGreaterEqual(menu - note, 2000)
+        # The note for its 2 seconds, by SDL's clock: from its line to
+        # startup's end (display:), one delay ended by one wake, late only by
+        # that wake's lateness (0-5 ms here, idle or busy), not twice its
+        # time. The menu then comes after the game's files load (up to 1.6 s
+        # more on a busy machine), presented once.
+        note = at(lines, "crt: TANDY 1000 USERS - Make sure NUMLOCK is on.")
+        ended = next(t for t, line in lines if line.startswith("display: "))
+        self.assertGreaterEqual(ended - note, 2000)
+        self.assertLess(ended - note, 2500)
+        self.assertLess(presents(lines)[0], at(lines, "menu: Play Demo"))
         self.assertEqual(len(presents(after(lines, "menu: Play Demo"))), 1)
         # The note: light grey on black, 640x200 squeezed into the 320x200
         # window.
-        note = shown[0].read_bytes()[54:]
-        self.assertNotEqual(note, shown[-1].read_bytes()[54:])
+        note = frame(shown[0])[54:]
+        self.assertNotEqual(note, frame(shown[-1])[54:])
         self.assertEqual(note[(199 - 100) * 960:(199 - 100) * 960 + 3], bytes(3))
         # Both 320x200, 24 bits, bottom-up, after a 54-byte header.
-        self.assertEqual(shown[-1].read_bytes()[54:], (eshots / "000.bmp").read_bytes()[54:])
+        self.assertEqual(frame(shown[-1])[54:], (eshots / "000.bmp").read_bytes()[54:])
         # The title's first picture, shown while it waits in the delay hook:
         # TITLE.DAX record 1 (2f55:063c), drawn whole at 0, 0.
         shown, _ = self.presented("sound: music")
         self.assertTrue(2 <= len(shown) <= 4, shown)
-        self.assertGreater(len(set(shown[-1].read_bytes()[54:])), 2)
+        self.assertGreater(len(set(frame(shown[-1])[54:])), 2)
 
     def presented(self, text, *args):
         """The frames presented up to 1.5 seconds after the log's line
@@ -481,7 +507,7 @@ class FrontEndTests(unittest.TestCase):
         self.assertLess(shown[moved[0]] - menus[1], 5500)
         frames = sorted(frames.glob("SDL_window*.bmp"))
         self.assertEqual(len(frames), len(shown))
-        self.assertNotEqual(frames[moved[0]].read_bytes(), frames[moved[0] - 1].read_bytes())
+        self.assertNotEqual(frame(frames[moved[0]]), frame(frames[moved[0] - 1]))
 
     def test_animation(self):
         """The hobgoblin's menu (HORIZONTAL MENU over PIC1 record 12, which
@@ -500,7 +526,7 @@ class FrontEndTests(unittest.TestCase):
         self.assertEqual(len(frames), len(presents(lines)))
         late = [(t, frames[int(line[9:]) - 1]) for t, line in after(lines, menu)
                 if line.startswith("present: ")]
-        boxes = [region(p.read_bytes(), 24, 24, 88, 88) for _, p in late]
+        boxes = [region(frame(p), 24, 24, 88, 88) for _, p in late]
         self.assertEqual(len(set(boxes[:4])), 4)
         self.assertEqual(boxes[:-4], boxes[4:])
         # By SDL's clock, as cok draws the frames (--log-times' frame:):
@@ -508,7 +534,8 @@ class FrontEndTests(unittest.TestCase):
         # the first, 400 ms, the others 200. Never less; more by the
         # machine's lateness in waking, which a busy machine makes tens of
         # milliseconds at times: in the least late of three rounds, under
-        # 50 ms (a quarter of the shortest delay; 0-2 ms idle).
+        # 20 ms (a tenth of the shortest delay; 0-2 ms idle, 2-3 ms with a
+        # busy loop on every core).
         drawn = [(t, line) for t, line in after(lines, menu) if line.startswith("frame: ")]
         self.assertEqual([line for _, line in drawn[:5]],
                          ["frame: 1", "frame: 2", "frame: 3", "frame: 0", "frame: 1"])
@@ -519,7 +546,7 @@ class FrontEndTests(unittest.TestCase):
         for step, delay in zip(steps, delays):
             self.assertGreaterEqual(step, delay, steps)
         for k in range(4):
-            self.assertLess(min(steps[k::4]), delays[k] + 50, steps)
+            self.assertLess(min(steps[k::4]), delays[k] + 20, steps)
         # Each presented as it is drawn: in the least late round, within a
         # frame at 60 a second.
         shows = [next(p for p in presents(lines) if p >= t) - t for t, _ in drawn[:12]]
@@ -543,6 +570,10 @@ class FrontEndTests(unittest.TestCase):
         busiest = max(sum(1 for t in times[i:] if t < start + 1000)
                       for i, start in enumerate(times))
         self.assertLessEqual(busiest, 66)
+        # And about that many when the text changes the screen as fast: no
+        # present held back longer than the rate asks (63 here, idle or
+        # busy).
+        self.assertGreaterEqual(busiest, 55)
 
     def test_rest_pace(self):
         """Three hours' rest, 36 steps of five minutes, a hundredth each,
@@ -565,12 +596,13 @@ class FrontEndTests(unittest.TestCase):
         # The count shown on the way, every five steps (57e4:0764): a frame
         # each 50 ms, more by the machine's lateness in waking from each
         # step's wait, which adds up over a rest; in the least late of the
-        # seven, under 75 ms (5 ms a step; 0-1 ms idle).
+        # seven, under 56 ms (about 1 ms a step; 0-1 ms over idle and with
+        # a busy loop on every core; 12 ms steps give 60).
         during = [t for t in presents(lines) if rests[-1] < t < done[-1]]
         self.assertGreaterEqual(len(during), 7)
         gaps = [b - a for a, b in zip(during[1:], during[2:])]
         self.assertGreater(min(gaps), 40, gaps)
-        self.assertLess(min(gaps), 75, gaps)
+        self.assertLess(min(gaps), 56, gaps)
 
     def test_close_during_delays(self):
         """Closed while the demonstration types its text, delay after
@@ -601,7 +633,7 @@ class FrontEndTests(unittest.TestCase):
             return next((int(line[9:]) for line in after if line.startswith("present: ")), None)
         self.wait_until(full, 60)
         stop()
-        last = sorted(frames.glob("SDL_window*.bmp"))[full() - 1].read_bytes()
+        last = frame(sorted(frames.glob("SDL_window*.bmp"))[full() - 1])
         self.assertEqual(int.from_bytes(last[18:22], "little"), 1024)
         self.assertEqual((frames / "screenshots/cok000.bmp").read_bytes(),
                          (eshots / "000.bmp").read_bytes())
@@ -709,7 +741,7 @@ class DeviceTests(unittest.TestCase):
     play the same keys."""
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = tempfile.TemporaryDirectory(prefix="test_cok-")
         self.addCleanup(self.temp.cleanup)
         self.folder = pathlib.Path(self.temp.name)
 
@@ -852,7 +884,7 @@ class SoundTests(unittest.TestCase):
     the music and the sounds going on while the game waits."""
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = tempfile.TemporaryDirectory(prefix="test_cok-")
         self.addCleanup(self.temp.cleanup)
         self.folder = pathlib.Path(self.temp.name)
 
@@ -972,7 +1004,11 @@ class SoundTests(unittest.TestCase):
         a step on the overland map (CALL [b203], sound 10) before the
         next, typed two seconds later (\\p200.), which plays out too while
         the game waits for the keyboard (--continue)."""
-        keys = r"\kx" + NEW_GAME[:NEW_GAME.index("ELN98") + 4] + r"\p200.8"
+        # A pause before the first step too, so that sounds before it,
+        # which --no-delay's pace cuts short by the wall clock, have ended
+        # well before it (one ended within 20 ms of it once, joining it).
+        before = NEW_GAME.index("ELN98") + 3
+        keys = r"\kx" + NEW_GAME[:before] + r"\p50.9\p200.8"
         mark = []
 
         def played(samples, lines):

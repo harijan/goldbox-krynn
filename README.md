@@ -326,27 +326,33 @@ written. A pace must never be shorter than the original's, since every
 wait is measured on that clock; it may be longer by the machine's lateness
 in waking, which is bounded only where the port itself could be too slow,
 and then in the least late of the frames or steps that repeat: the
-picture's frames each under 50 ms over their delays in one of three rounds
+picture's frames each under 20 ms over their delays in one of three rounds
 and presented within 16 ms of being drawn, the rest's count shown under
-75 ms apart (five steps of 10 ms) at least once, the menu's timeout under
-10.5 seconds after it opens and the arrow's redraw under 5.5. Waits for
-something to happen are bounded by the wall clock only to end a failing
-run. SDL's dummy driver writes each frame inside the present, so the
-tests have it write them in `/dev/shm` where there is one: on a disk slow
-to write (here a FUSE overlay, starved of CPU on a busy machine) a frame
-took seconds, and the game was late by that. The sound's checks count the
-device's samples, which SDL's disk writer produces at its own thread's
-pace, slower on a busy machine (0.8 seconds of them in 3 once): the music
-is checked over 2.5 seconds of them, and the steps' sounds once 0.4
-seconds of them follow the second step's `overland:` line, however long
-they take to come; the pause between the two sounds only for being several
-times a sound's length. Halving or doubling
-the picture's delays or the rest's step, presenting a frame 100 ms late,
-timing the menu out at 5, 15 (again from the arrow) or 20 seconds,
-presenting up to 120 frames a second or not in a delay's loop, presenting
-again at each wake, the note to Tandy users for 1 second, the device
-silent through a delay or a key's wait, or a delay not seeing the window
-close: each fails its test.
+56 ms apart (five steps of 10 ms) at least once, the note to Tandy users
+under 2.5 seconds, the menu's timeout under 10.5 seconds after it opens and
+the arrow's redraw under 5.5; and in the demonstration's busiest second
+from 55 to 66 frames presented (63 here, idle or busy). Waits for something
+to happen are bounded by the wall clock only to end a failing run. SDL's
+dummy driver writes each frame inside the present, so the tests have it
+write them in `/dev/shm` where there is one with 32 MB free (else the temp
+folder): on a disk slow to write (here a FUSE overlay, starved of CPU on a
+busy machine) a frame took seconds, and the game was late by that. The
+driver leaves a frame short without a word when its disk is full, which
+the tests report as such (its size against its header's). Their temp
+folders are named `test_cok-*`. The sound's checks count the device's
+samples, which SDL's disk writer produces at its own thread's pace, slower
+on a busy machine (0.8 seconds of them in 3 once): the music is checked
+over 2.5 seconds of them, and the steps' sounds, each after a pause, once
+0.4 seconds of them follow the second step's `overland:` line, however
+long they take to come; the pause between the two sounds only for being
+several times a sound's length. Halving or doubling the picture's delays
+or the rest's step, each of its frames 40 ms longer, steps of 12 ms,
+presenting a frame 100 ms late, every delay twice its time, timing the
+menu out at 5, 15 (again from the arrow) or 20 seconds, presenting up to
+120 or only 30 frames a second, not presenting in a delay's loop,
+presenting again at each wake, the note to Tandy users for 1 second, the
+device silent through a delay or a key's wait, or a delay not seeing the
+window close: each fails its test.
 
 `tests/test_hooks.c` checks each flush, which menus animate, the sound
 driver's calls, and `Loading...Please Wait` and `PIC not found` against
