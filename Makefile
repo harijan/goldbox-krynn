@@ -30,6 +30,7 @@ KEYSCRIPT = src/keyscript.c src/keyscript.h
 # eclplay's. Not part of make test: it needs dosbox-x, Xvfb and xdotool.
 .PHONY: dosbox-selftest
 dosbox-selftest: build/eclplay build/START_FULL.EXE
+	$(PYTHON) tools/dosbox/checks/run_all.py --self-test
 	$(PYTHON) tools/dosbox/cokbox.py selftest --machine tandy
 	$(PYTHON) tools/dosbox/cokbox.py selftest --machine ega
 	$(PYTHON) tools/dosbox/cokbox.py selftest --machine cga

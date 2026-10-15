@@ -163,37 +163,106 @@ def kill_pids(path):
                 pass
 
 
+# The scripts running now: {name: (Popen, pid file)}, for stop().
+RUNNING = {}
+RUNNING_LOCK = threading.Lock()
+STOPPING = threading.Event()
+
+
+def stop_group(proc, pidfile):
+    """End a script: SIGTERM to its process group (its handler closes its
+    boxes), SIGKILL after 15 s, then the boxes' Xvfb and DOSBox-X it
+    recorded."""
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+        proc.wait(15)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    proc.wait()
+    kill_pids(pidfile)
+
+
+def stop(signum, frame):
+    """run_all ended by a signal: every running script's group ended too,
+    and no other started."""
+    STOPPING.set()
+    with RUNNING_LOCK:
+        running = list(RUNNING.values())
+    for proc, pidfile in running:
+        stop_group(proc, pidfile)
+    sys.exit(128 + signum)
+
+
+def judge_log(text, code):
+    """The verdict of a script that ended with status CODE and wrote TEXT:
+    `AGREES` (status 0), `DIFFERS new ...` (status 1), from its last
+    VERDICT line; None (an error) for anything else."""
+    found = VERDICT.findall(text)
+    verdict = found[-1] if found else None
+    if code == 0 and verdict == "AGREES":
+        return verdict
+    if code == 1 and verdict is not None and verdict.startswith("DIFFERS new"):
+        return verdict
+    return None
+
+
+def self_test():
+    """judge_log and recorded_as on made-up logs; no DOSBox-X needed."""
+    cases = [
+        ("  agrees: x\nVERDICT: AGREES\n", 0, "AGREES", ""),
+        ("DIFFERENCE: x\nVERDICT: DIFFERS new (1: x)\n", 1, "DIFFERS new (1: x)", "new"),
+        ("VERDICT: AGREES\n", 1, None, None),                 # wrong status
+        ("VERDICT: DIFFERS new (1: x)\n", 0, None, None),     # wrong status
+        ("VERDICT: AGREES\n", 3, None, None),
+        ("Traceback ...\nVERDICT: ERROR (status 3)\n", 3, None, None),
+        ("VERDICT: ERROR (status 2)\n", 1, None, None),       # an error's line
+        ("agrees: everything\n", 0, None, None),               # no verdict
+        ("", 1, None, None),
+        ("", "timeout", None, None),
+        ("VERDICT: DIFFERS new (1: x)\nVERDICT: AGREES\n", 0, "AGREES", ""),   # the last
+        ("VERDICT: AGREESX\n", 0, None, None),
+        (" VERDICT: AGREES\n", 0, None, None),                # not at a line's start
+    ]
+    bad = 0
+    for text, code, want, recorded in cases:
+        got = judge_log(text, code)
+        rec = recorded_as(got) if got is not None else None
+        if got != want or rec != recorded:
+            bad += 1
+            print(f"self-test FAILS: status {code!r}, log {text!r}: {got!r}/{rec!r}, "
+                  f"wanted {want!r}/{recorded!r}")
+    print(f"run_all self-test: {len(cases) - bad} of {len(cases)} cases right")
+    return 1 if bad else 0
+
+
 def run_one(name, out, timeout):
     """Run one script: (verdict text, status) with verdict None on an error."""
     pidfile = out / f"{name}.pids"
     pidfile.unlink(missing_ok=True)
     env = dict(os.environ, COKBOX_PIDFILE=str(pidfile))
     with open(out / f"{name}.log", "wb") as log:
-        proc = subprocess.Popen(
-            [sys.executable, str(HERE / f"{name}.py"), "--workdir", str(out / name)],
-            cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, env=env, start_new_session=True)
+        with RUNNING_LOCK:
+            if STOPPING.is_set():
+                return None, "stopped"
+            proc = subprocess.Popen(
+                [sys.executable, str(HERE / f"{name}.py"), "--workdir", str(out / name)],
+                cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, env=env,
+                start_new_session=True)
+            RUNNING[name] = (proc, pidfile)
         try:
             code = proc.wait(timeout)
         except subprocess.TimeoutExpired:
-            # Its signal handler closes its boxes; then the whole group.
-            os.killpg(proc.pid, signal.SIGTERM)
-            try:
-                proc.wait(15)
-            except subprocess.TimeoutExpired:
-                pass
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except OSError:
-                pass
-            proc.wait()
+            stop_group(proc, pidfile)
             code = "timeout"
+        finally:
+            with RUNNING_LOCK:
+                RUNNING.pop(name, None)
     kill_pids(pidfile)
-    text = (out / f"{name}.log").read_text(errors="replace")
-    found = VERDICT.findall(text)
-    verdict = found[-1][0] if found else None
-    good = (code == 0 and verdict == "AGREES") or (code == 1 and verdict is not None
-                                                     and verdict.startswith("DIFFERS"))
-    return (verdict if good else None), code
+    return judge_log((out / f"{name}.log").read_text(errors="replace"), code), code
 
 
 def recorded_as(verdict):
@@ -218,7 +287,11 @@ def main():
     parser.add_argument("--out", default=str(ROOT / "build" / "dosbox-checks"))
     parser.add_argument("--timeout", type=float, default=3 * 3600,
                         help="seconds a script may take (default three hours)")
+    parser.add_argument("--self-test", action="store_true",
+                        help="check the verdict and status parsing only (no DOSBox-X)")
     opts = parser.parse_args()
+    if opts.self_test:
+        return self_test()
     n = displays()
     jobs = opts.jobs or (max(1, n - 2) if n else 6)
     todo = [c for c in CHECKS if not opts.only or c[0] in opts.only]
@@ -232,6 +305,9 @@ def main():
     import checklib
     checklib.stopping_eclplay()
     checklib.eclplay_with_pauses()
+    # After importing checklib: cokbox sets its own SIGTERM handler.
+    for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(signum, stop)
 
     results, lock = {}, threading.Lock()
     # The long ones first, so that they do not end the run alone.
@@ -242,7 +318,7 @@ def main():
     def worker():
         while True:
             with lock:
-                if not queue:
+                if not queue or STOPPING.is_set():
                     return
                 name, checks, want = queue.pop(0)
             start = time.monotonic()
@@ -257,13 +333,18 @@ def main():
 
     print(f"{len(todo)} scripts, {jobs} at a time, then {len(alone)} alone; logs in {out}; "
           f"load average {os.getloadavg()[0]:.0f}", flush=True)
-    threads = [threading.Thread(target=worker) for _ in range(jobs)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
+    def work(count):
+        # Joined with a timeout, so that the main thread takes a signal (stop).
+        threads = [threading.Thread(target=worker, daemon=True) for _ in range(count)]
+        for t in threads:
+            t.start()
+        while any(t.is_alive() for t in threads):
+            for t in threads:
+                t.join(0.5)
+
+    work(jobs)
     queue.extend(alone)
-    worker()
+    work(1)
     print(f"\nall done in {(time.monotonic() - t0) / 60:.0f} min (load average "
           f"{os.getloadavg()[0]:.0f}); in the table's order:")
     changed = 0
