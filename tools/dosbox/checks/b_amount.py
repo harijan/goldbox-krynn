@@ -35,8 +35,8 @@ def main():
     steps = S.a_camp_steps() + [(r"VT\vSS", "prompt"), ("9", "typed"), (r"\b", "backspace")]
     v, shots, port, out = S.check(work, [L.SAVE], steps, verbose=args.verbose)
     for name in ("prompt", "typed", "backspace"):
-        print(f"  {name}: white ink on row 24 past column 30: original {ink(shots[name])}, "
-              f"port {ink(port[name]) if port.get(name) else None}")
+        v.value(f"{name}: the cells with white ink on row 24 past column 30", ink(shots[name]),
+                ink(port[name]) if port.get(name) else None)
     v.check(ink(shots["backspace"]) == ink(shots["typed"]) != [],
             "the digit stays after Backspace in the original")
     print(f"files in {work}")

@@ -14,17 +14,21 @@ start menu and:
 #37: Encamp chosen with the arrows (four rights from Move) and Enter, then
      Enter again; and Encamp chosen by its letter, then Enter.
 
-Each of the original's screens is compared with eclplay's nearest frame,
-and where() names the routine the original waits in.
+Each of the original's screens is compared with eclplay's at the same point
+of the keys (the resumed view differs where the port without the known
+fixes draws the wall sets, #38: known, walls), and the routine the original
+waits in, with its mode (DS:4b49), must be the one recorded: the camp's
+menu (4888:2d03, mode 2), the rest's (57e4:08ed), Save's letters
+(4b6d:2327: Enter after Encamp opens Save).
 """
 import argparse
 import pathlib
 import sys
-import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import b_lib as L  # noqa: E402
 import b_screens_lib as S  # noqa: E402
+import checklib  # noqa: E402
 
 TO_THROTL_CAMP = r"\r\rEne" + L.save_keys("J")   # ATTACK, won, Exit, No, Encamp, Save J
 
@@ -38,19 +42,19 @@ def make_save(work):
     return game
 
 
+# Where the original waits after each step (batch B's run), and its mode.
+WAITS = {"camp": ("4888:2d03", 2), "rest": ("57e4:08ed", 2), "enter": ("4b6d:2327", 2)}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--workdir")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    work = pathlib.Path(args.workdir or tempfile.mkdtemp(prefix="check-b-camp-"))
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "b-camp")
     game = make_save(work)
-    waits = {}
-
-    def during(box, name):
-        waits[name] = (box.where(), box.ds_byte(0x4B49))
-
-    status = 0
+    v = checklib.Verdict()
     runs = {
         "36": [(L.load_keys("J"), "resume"), ("e", "camp"), ("R", "rest")],
         "37-arrows": [(L.load_keys("J"), "resume"), (r"\>\>\>\>\r", "camp"), (r"\r", "enter")],
@@ -58,20 +62,25 @@ def main():
     }
     for label, steps in runs.items():
         print(f"#{label}:")
-        results, out = S.run_pair(work / label, [game], steps, verbose=args.verbose,
-                                  during=during)
-        S.report(results)
-        for name in results:
-            print(f"    original waits in {waits[name][0]}, mode {waits[name][1]}")
+        waits = {}
+
+        def during(box, name):
+            waits[name] = (box.where(), box.ds_byte(0x4B49))
+
+        shots, port, fixed, out = S.run_pair(work / label, [game], steps, verbose=args.verbose,
+                                             during=during)
+        S.judge(v, shots, port, fixed, work / label)
+        for name, (where, mode) in waits.items():
+            print(f"    {name}: original waits in {where}, mode {mode}")
+            if name in WAITS:
+                v.check(WAITS[name][0] in str(where) and mode == WAITS[name][1],
+                        f"#{label} {name}: the original waits in {WAITS[name][0]}, mode "
+                        f"{WAITS[name][1]}", f"{where}, mode {mode}")
         menus = [line for line in out.splitlines() if line.startswith(("menu:", "choice:"))]
         print("  eclplay's last menus:", menus[-3:])
-        # The resumed view differs (see #38: the wall set offsets); the camp's
-        # screens must not.
-        if any(results[n][0] for n in results if n != "resume"):
-            status = 1
-    print("AGREES" if status == 0 else "PORT DIFFERS", f"(files in {work})")
-    return status
+    print(f"files in {work}")
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))
