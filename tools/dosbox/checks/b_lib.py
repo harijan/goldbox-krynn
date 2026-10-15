@@ -263,7 +263,7 @@ def port(keys, out, args, saves=(), shots=False, block=None, machine="tandy", fi
         check=False, capture_output=True, text=True, timeout=600)
     if result.returncode and not result.stdout:
         raise cokbox.BoxError("eclplay: " + result.stderr.strip())
-    return result.stdout + result.stderr, save_dir, sorted(shot_dir.glob("*.bmp"))
+    return result.stdout + result.stderr, save_dir, sorted(shot_dir.glob("*.bmp"), key=lambda p: int(p.stem))
 
 
 def saved_by_port(game, letter, keys, out, save_as="F", fixed=False):
