@@ -11,8 +11,7 @@ following X's (sdl mouse_emulation=integration: the 640x400 window's pixel
 2x, 2y is the game's pixel x, y), moved and clicked with xdotool. eclplay
 --mouse takes the same moves and clicks as \\mX,Y,B. in its keys, and its
 --shots draw the port's cursor; each screen is compared with the port's at
-the same key read (checklib.frames_at), a difference with the port built
-with the known fixes.
+the same key read (checklib.frames_at).
 
 Parts:
 - look: the title's menu with the pointer at 100,60 and at 200,150, in
@@ -73,8 +72,9 @@ def box(work, machine="tandy", saves=(), verbose=False):
 
 
 def port(keys, work, machine="tandy", saves=()):
-    """The port's frames at KEYS' marks and the fixed port's (lazily)."""
-    return f_lib.frames(keys, work, machine=machine, saves=list(saves), args=ECLPLAY_ARGS)
+    """The port's frames at KEYS' marks."""
+    return checklib.frames_at(keys, work / "port", machine=machine, saves=list(saves),
+                              args=ECLPLAY_ARGS)
 
 
 def look(v, work, verbose):
@@ -82,7 +82,7 @@ def look(v, work, verbose):
     keys = r"\kx" + "".join(rf"\m{x},{y}.z\sat-{x}-{y}." for x, y in points)
     for machine in ("tandy", "vga", "cga"):
         w = work / f"look-{machine}"
-        frames, fixed = port(keys, w, machine)
+        frames = port(keys, w, machine)
         shots = {}
         with box(w, machine, verbose=verbose) as b:
             b.keys(r"\kx")
@@ -96,7 +96,7 @@ def look(v, work, verbose):
             masks = ([(x, y, 16, 16, f"the arrow's 16x16 box from {x},{y}: {CGA_CURSOR}")]
                      if machine == "cga" else [])
             v.screen(f"look {machine} pointer at {x},{y}", shot, frames.get(name),
-                     fixed=lambda n=name: fixed().get(n), masks=masks, work=w)
+                     masks=masks, work=w)
 
 
 ROUTE = [("title menu", r"\kx"), ("pointer parked at the title menu", None),
@@ -113,7 +113,7 @@ def hidden(v, work, verbose):
     steps = [(name, k if k is not None else park) for name, k in ROUTE]
     # The pointer is parked before the title's first wait in both (eclplay
     # moves it as the keys reach the \m, before that wait's \k).
-    frames, fixed = port(r"\m%d,%d." % PARK + f_lib.marked(steps), w, saves=saves)
+    frames = port(r"\m%d,%d." % PARK + f_lib.marked(steps), w, saves=saves)
     shots = {}
     with box(w, saves=saves, verbose=verbose) as b:
         # The title's first wait (the SSI picture): the pointer over it.
@@ -139,14 +139,14 @@ def hidden(v, work, verbose):
                                  binary=checklib.stopping_eclplay())
     v.screen("hidden: the title's first picture, pointer at %d,%d" % PARK, ssi,
              cokbox.Screen.load(first[0]) if first else None, work=w)
-    f_lib.judge(v, "hidden:", shots, frames, fixed, w)
+    f_lib.judge(v, "hidden:", shots, frames, w)
 
 
 def click(v, work, verbose):
     # PLAY at row 24 (the menu "CHAMPIONS OF KRYNN V1.2 PLAY DEMO"): x 200.
     for name, (x, y) in (("click PLAY", (201, 196)), ("click column 0", (3, 100))):
         w = work / name.replace(" ", "-")
-        frames, fixed = port(r"\kx\m%d,%d,1.\safter." % (x, y), w)
+        frames = port(r"\kx\m%d,%d,1.\safter." % (x, y), w)
         with box(w, verbose=verbose) as b:
             b.keys(r"\kx")
             b.wait_input()
@@ -154,13 +154,12 @@ def click(v, work, verbose):
             b.wait_input(settle=1.5)
             shot = b.screenshot(w / "after.png")
             print(f"  {name}: the original waits at {b.where()}")
-        v.screen(f"{name} at {x},{y}", shot, frames.get("after"),
-                 fixed=lambda: fixed().get("after"), work=w)
+        v.screen(f"{name} at {x},{y}", shot, frames.get("after"), work=w)
 
 
 def both(v, work, verbose):
     w = work / "both"
-    frames, fixed = port(r"\kx\m100,100,3.P\safter.", w)
+    frames = port(r"\kx\m100,100,3.P\safter.", w)
     with box(w, verbose=verbose) as b:
         b.keys(r"\kx")
         b.wait_input()
@@ -169,8 +168,7 @@ def both(v, work, verbose):
         b.wait_input(settle=1.5)
         shot = b.screenshot(w / "after.png")
         print(f"  both: the original waits at {b.where()}")
-    v.screen("both buttons, then P", shot, frames.get("after"),
-             fixed=lambda: fixed().get("after"), work=w)
+    v.screen("both buttons, then P", shot, frames.get("after"), work=w)
 
 
 # Game A to the overland map by the first outpost: the party's mark at 1,3,
@@ -200,7 +198,7 @@ def mark(v, work, verbose):
                         ("step away, then moved off", "M8" + off)):
         w = work / f"mark-{name.replace(' ', '-').replace(',', '')}"
         keys = MARK_KEYS + r"\m%d,%d.z" % MARK_AT + "EE" + after + r"\safter."
-        frames, fixed = port(keys, w, saves=saves)
+        frames = port(keys, w, saves=saves)
         with box(w, saves=saves, verbose=verbose) as b:
             b.keys(MARK_KEYS)
             b.wait_input()
@@ -219,12 +217,12 @@ def mark(v, work, verbose):
         other = frames.get("after")
         what = f"mark: pointer on the mark, camp, {name}"
         if name != "moved off":
-            v.screen(what, shot, other, fixed=lambda: fixed().get("after"), work=w)
+            v.screen(what, shot, other, work=w)
             continue
         reason = ("the mark's part under the arrow vanishes in the original, not "
                   "reproduced by the port (README: The mouse and the joystick)")
         v.screen(what + " (but the mark's cell under the arrow)", shot, other,
-                 fixed=lambda: fixed().get("after"), masks=[MARK_GONE + (reason,)], work=w)
+                 masks=[MARK_GONE + (reason,)], work=w)
         if other is None:
             continue
         count, area = checklib.masked_diff(shot, other)

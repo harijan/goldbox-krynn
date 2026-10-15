@@ -24,9 +24,8 @@ the frames by mode and MaxAvail, and where a GetMem fails, Turbo Pascal's
 HeapError (DS:439a, set by 2f48:00b2 to 2f48:0042) showing "WARNING:
 Insufficient Memory" in yellow on row 24 (1521:096c, a key wait), the
 close-up not shown, DS:6da2 still 4 and DS:6da3 1 (the guards' sprite).
-The screens are the port's: the loaded game (the port asks "near Throtl"
-first before the fixes: the known `resume` difference), the question, and
-the close-up taken while its first frame shows (eclplay does not animate a
+The screens are the port's: the loaded game, the question, and the
+close-up taken while its first frame shows (eclplay does not animate a
 menu's picture: its frame at the menu's read is the first).
 """
 import argparse
@@ -145,15 +144,10 @@ def mode(v, machine, saves, work, verbose):
     v.check((full["count"], full["shown"]) == ALL,
             f"{machine} all memory: the four frames loaded and shown",
             f"{full['count']}, shown {full['shown']}")
-    extra = f_lib.resumed(v, f"{machine} game C loaded", full["loaded"], LOAD_C,
-                          work / "resumed", **kw)
-    marks = [("question", STEPS), ("closeup", "y")]
-    port = checklib.frames_at(LOAD_C + extra + f_lib.marked(marks), work / "port",
-                              **kw)
-    fixed = f_lib.Lazy(lambda: checklib.frames_at(LOAD_C + f_lib.marked(marks), work / "fixed",
-                                                  fixed=True, **kw))
-    f_lib.judge(v, f"{machine} all memory:", {"question": full["question"],
-                                               "closeup": full["closeup"]}, port, fixed, work)
+    marks = [("loaded", LOAD_C), ("question", STEPS), ("closeup", "y")]
+    port = checklib.frames_at(f_lib.marked(marks), work / "port", **kw)
+    f_lib.judge(v, f"{machine} all memory:", {name: full[name] for name, _ in marks}, port,
+                work)
     for target, (recorded, expected) in EXPECTED[machine].items():
         pad = max(0, (full["before"] - target) // 16)
         r = one(machine, saves, pad, work / f"pad{pad:x}", verbose)
@@ -176,7 +170,7 @@ def mode(v, machine, saves, work, verbose):
                 f"{what}: frames loaded and shown as batch F saw ({expected[0]}, "
                 f"{expected[1]})", f"{r['count']}, {r['shown']}")
         v.screen(f"{what}: the close-up's first frame", r["closeup"], port.get("closeup"),
-                 fixed=lambda: fixed().get("closeup"), work=work)
+                 work=work)
 
 
 def main():

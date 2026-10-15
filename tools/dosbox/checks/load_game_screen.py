@@ -7,9 +7,7 @@ beside the view"; and, in CGA mode, "compare ... with eclplay --display cga
 In each display mode the original in DOSBox-X and eclplay load SAVE/'s game
 A from the start menu and begin adventuring; screens are taken at the start
 menu with the party loaded and at Solace's first page of text, each
-compared with the port's at the same key read (checklib.frames_at), and a
-difference with the port built with the known fixes (Solace's row 24: the
-full stop the port adds after PRESS <ENTER>/<RETURN> TO CONTINUE).
+compared with the port's at the same key read (checklib.frames_at).
 """
 import argparse
 import pathlib
@@ -42,7 +40,7 @@ def main():
     keys = f_lib.marked(STEPS)
     for machine in args.machine or ["tandy", "ega", "cga"]:
         w = work / machine
-        port, fixed = f_lib.frames(keys, w, machine=machine, saves=saves)
+        port = checklib.frames_at(keys, w / "port", machine=machine, saves=saves)
         shots = {}
         with cokbox.Box(workdir=w / "box", machine=machine, saves=saves,
                         verbose=args.verbose) as box:
@@ -50,7 +48,7 @@ def main():
                 box.keys(step)
                 box.wait_input(settle=1.0)
                 shots[name] = box.screenshot(w / f"{name}.png")
-        f_lib.judge(v, machine, shots, port, fixed, w)
+        f_lib.judge(v, machine, shots, port, w)
         for name, shot in shots.items():
             other = port.get(name)
             parts = [r for r, a in REGIONS.items()

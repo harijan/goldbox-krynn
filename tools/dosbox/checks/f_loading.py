@@ -141,17 +141,18 @@ def print_loading(name, text):
 
 def port_runs(exe, phases, work):
     """eclplay EXE run on the keys up to each phase's end (it stops at the
-    next key read): [(the messages' rows drawn in that phase, its last
-    frame)]."""
+    next key read): [(the messages' rows drawn in that phase, the frame at
+    that key read)]."""
     out, total = [], 0
     keys = ""
+    kw = dict(saves=[checklib.SAVES], args=["--seed", str(SEED)])
     for i, (phase, k) in enumerate(phases):
         keys += k
-        stdout, _, shots = cokbox.eclplay(keys, work / f"{i:02d}", binary=exe,
-                                          saves=[checklib.SAVES], args=["--seed", str(SEED)])
+        stdout, _, _ = cokbox.eclplay(keys, work / f"{i:02d}", binary=exe, shots=False, **kw)
         rows = [unpack(bytes.fromhex(line.split(" ", 1)[1].strip() or ""))
                 for line in stdout.splitlines() if line.startswith("LOADING-MESSAGE")]
-        out.append((rows[total:], cokbox.Screen.load(shots[-1]) if shots else None))
+        out.append((rows[total:], checklib.frame_after(keys, work / f"{i:02d}-shot",
+                                                       binary=exe, **kw)))
         total = len(rows)
     return out
 
@@ -194,8 +195,6 @@ def run(v, name, phases, work, verbose):
     work.mkdir(parents=True, exist_ok=True)
     transform = [("adventure.c", print_loading)]
     port = port_runs(f_lib.eclplay(transforms=transform), phases, work / "port")
-    fixed = f_lib.Lazy(lambda: port_runs(f_lib.eclplay(True, transforms=transform),
-                                         phases, work / "fixed"))
     seen, shots = original(phases, work, verbose)
     messages = [row for _, _, shows in seen for row, _ in shows]
     if not messages:
@@ -206,13 +205,12 @@ def run(v, name, phases, work, verbose):
         rows, frame = port[m]
         print(f"  {name}: {phase}: animation {anim}; the original shows it {len(shows)}x "
               f"({', '.join(d for _, d in shows) or '-'}); the port {len(rows)}x")
-        v.value(f"{name}: {phase}: the messages shown", len(shows), len(rows),
-                fixed=lambda m=m: len(fixed()[m][0]))
+        v.value(f"{name}: {phase}: the messages shown", len(shows), len(rows))
         v.check(all(r == messages[0] for r in rows),
                 f"{name}: {phase}: the port's messages are the original's row 24, pixel "
                 "for pixel", f"{sum(r != messages[0] for r in rows)} of {len(rows)} differ")
         v.screen(f"{name}: {phase}: the screen at the key wait", shots[phase], frame,
-                 fixed=lambda m=m: fixed()[m][1], work=work)
+                 work=work)
 
 
 def main():
