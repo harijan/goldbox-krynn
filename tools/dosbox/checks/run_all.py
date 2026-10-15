@@ -110,9 +110,9 @@ CHECKS = [
     # E: freed and garbage memory
     ("e_cloud_dispel", "#7", ""),
     ("e_bolt_bounce", "#11", ""),
-    ("e_debug_readonly", "#14", ""),
+    ("e_debug_readonly", "#14", "fullstop"),
     ("e_manual", "#15 #18", ""),
-    ("e_strength", "#46", ""),
+    ("e_strength", "#46", "walls"),
     ("e_trade", "#47 #73", ""),
     # F: display modes, sound, mouse, frames
     ("f_sound", "#3 #4", ""),
