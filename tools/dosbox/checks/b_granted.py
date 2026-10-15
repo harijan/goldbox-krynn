@@ -58,9 +58,9 @@ def main():
         print(f"original after {what}: memorized/marked bytes {marked(raw)}; cleric spells a day "
               f"{raw[0x11C:0x121].hex()}")
 
-    out, psaves, odir, _, fixed = M.run_both(work, game, "".join(k for _, k in STEPS),
-                                             steps=[k for _, k in STEPS], probe=probe,
-                                             verbose=args.verbose)
+    out, psaves, odir, _ = M.run_both(work, game, "".join(k for _, k in STEPS),
+                                      steps=[k for _, k in STEPS], probe=probe,
+                                      verbose=args.verbose)
     v = checklib.Verdict()
     print("port's choices:", [ln[8:] for ln in out.splitlines() if ln.startswith("choice: ")][-12:])
     powers = sorted(int(b, 16) for b in seen[1] if 0xE5 <= int(b, 16) <= 0xEB)
@@ -69,7 +69,7 @@ def main():
             str([hex(b) for b in powers]))
     v.value("SIR STRONGSWORD's memorized bytes in camp before the Save", seen[-1],
             marked(L.sav(psaves, "F", 1)))
-    L.judge_games(v, "saved F", odir, "F", psaves, "F", fixed=fixed)
+    L.judge_games(v, "saved F", odir, "F", psaves, "F")
     print(f"files in {work}")
     return v.finish()
 

@@ -16,14 +16,9 @@ mode (DS:4b4a) where it waits against those recorded:
   modes 4, 2), then the inn, camp and Save as E in both, the files compared;
 - SAVE/'s A (modes 0 and 0: no camp), its first page.
 
-Two differences are known (tools/dosbox/known-fixes.patch), each judged
-against the port built with the fixes: the resumed view at Throtl's gate
-(walls: the port without them offsets a two-set WALLDEF record's second set
-by its own slot and draws openings where the original draws doors), and
-J's game saved again, whose last mode (SAVGAM?.DAT 0x1406) the port's first
-block sets to 4 where the original keeps 2 (resume). A's first page has the
-full stop of PRESS <ENTER>/<RETURN> TO CONTINUE (fullstop). Once the port
-has the fixes the script agrees.
+Throtl's resumed view holds a two-set WALLDEF record (doors in the far
+walls), and J's game saved again keeps the last mode (SAVGAM?.DAT 0x1406)
+of 2, which the first block does not set.
 """
 import argparse
 import pathlib
@@ -34,8 +29,6 @@ import b_lib as L  # noqa: E402
 import b_screens_lib as S  # noqa: E402
 import checklib  # noqa: E402
 from b_camp_screen import make_save as make_throtl  # noqa: E402
-
-cokbox = L.cokbox
 
 # The original's (where it waits, mode, last mode) at each step, as batch B
 # recorded them.
@@ -85,9 +78,9 @@ def main():
             if name == "saved":
                 L.keep_saves(box, orig_saves)
 
-        shots, port, fixed_frames, out = S.run_pair(work / label, [game], steps,
-                                                    verbose=args.verbose, during=during)
-        S.judge(v, shots, port, fixed_frames, work / label)
+        shots, port, out = S.run_pair(work / label, [game], steps, verbose=args.verbose,
+                                      during=during)
+        S.judge(v, shots, port, work / label)
         for name, (where, mode, last) in waits.items():
             print(f"    {name}: original waits in {where}, mode {mode}, last mode {last}")
             want = WAITS[label].get(name)
@@ -101,18 +94,9 @@ def main():
               in menus else menus[-4:])
         if "saved" in waits:
             port_saves = work / label / "eclplay" / "saves"
-            keys = S.marked(steps)
-
-            def fixed_saves(label=label, keys=keys, game=game):
-                _, saves, _ = cokbox.eclplay(checklib.port_keys(keys), work / label /
-                                             "eclplay-fixed-saves", saves=[game], shots=False,
-                                             binary=checklib.fixed_eclplay())
-                return saves, "E"
-
             print("  saved again as E: modes original", modes(orig_saves / "SAVGAME.DAT"),
                   "port", modes(port_saves / "SAVGAME.DAT"))
-            L.judge_games(v, f"{label}: saved again as E", orig_saves, "E", port_saves, "E",
-                          fixed=fixed_saves)
+            L.judge_games(v, f"{label}: saved again as E", orig_saves, "E", port_saves, "E")
     print(f"files in {work}")
     return v.finish()
 

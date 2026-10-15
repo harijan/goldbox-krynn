@@ -50,8 +50,8 @@ def main():
             for name, e in effects.items():
                 print("  ", name, e)
 
-    out, psaves, odir, _, fixed = M.run_both(work, game, KEYS + "EE", steps=[KEYS, "EE"],
-                                             probe=probe, verbose=args.verbose)
+    out, psaves, odir, _ = M.run_both(work, game, KEYS + "EE", steps=[KEYS, "EE"],
+                                      probe=probe, verbose=args.verbose)
     v = checklib.Verdict()
     print("port:", " / ".join(ln[7:] for ln in M.lines(out, ("print",))
                                  if "ages" in ln or "Hasted" in ln or "casts" in ln))
@@ -62,7 +62,7 @@ def main():
     v.value("the ages after the cast", seen, ages(psaves, "F"))
     v.value("the effects after the cast", effects,
             {L.name_of(L.sav(psaves, "F", n)): list(L.sfx(psaves, "F", n)) for n in range(1, 7)})
-    L.judge_games(v, "saved F", odir, "F", psaves, "F", fixed=fixed)
+    L.judge_games(v, "saved F", odir, "F", psaves, "F")
     print(f"files in {work}")
     return v.finish()
 

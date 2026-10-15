@@ -72,9 +72,9 @@ def main():
         print(f"original after {what}: GARIN's items (type, +0x3c-3e) {items}, knows 0x0e: "
               f"{raw[0x62 + SPELL]}, clock {L.clock(box)}")
 
-    out, psaves, odir, _, fixed = M.run_both(work, game, "".join(k for _, k in STEPS),
-                                             steps=[k for _, k in STEPS], probe=probe,
-                                             rests={1}, verbose=args.verbose)
+    out, psaves, odir, _ = M.run_both(work, game, "".join(k for _, k in STEPS),
+                                      steps=[k for _, k in STEPS], probe=probe,
+                                      rests={1}, verbose=args.verbose)
     v = checklib.Verdict()
     for i, (what, _) in enumerate(STEPS):
         items, knows = seen[i + 1]
@@ -83,9 +83,9 @@ def main():
                 "original", f"{items}, knows {knows}")
         # The first two steps end in the Magic menu: Exit to the camp's to save.
         saves = L.saved_by_port(game, "A", "".join(k for _, k in STEPS[:i + 1]) +
-                                ("E" if i < 2 else ""), work / f"port-{i}")[0]
+                                ("E" if i < 2 else ""), work / f"port-{i}")
         v.value(f"GARIN's items and spell 0x0e after {what}", seen[i + 1], port_state(saves))
-    L.judge_games(v, "saved F", odir, "F", psaves, "F", fixed=fixed)
+    L.judge_games(v, "saved F", odir, "F", psaves, "F")
     print(f"files in {work}")
     return v.finish()
 
