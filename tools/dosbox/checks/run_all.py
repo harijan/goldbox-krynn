@@ -38,8 +38,8 @@ CHECKS = [
     # A: startup, title, setup, the start menu
     ("a_setup", "#1", ""),
     ("a_ctrl_s", "#5", ""),
-    ("a_debug", "#13", ""),
-    ("a_debug_battle", "#13 (battle)", ""),
+    ("a_debug", "#13", "fullstop"),
+    ("a_debug_battle", "#13 (battle)", "fullstop"),
     ("a_demo", "#107 #108", ""),
     ("a_unsaved", "#109", ""),
     ("a_create", "#110 #111", ""),
