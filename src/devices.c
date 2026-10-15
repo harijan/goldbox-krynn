@@ -236,9 +236,9 @@ static void typed(void *context)
 
 void cok_adventure_wrap(cok_adventure *game, cok_text_cursor *cursor, const char *text,
                         cok_text_window window, uint8_t fg, bool clear,
-                        const cok_text_hooks *hooks)
+                        void (*page)(void *context))
 {
-    cok_text_hooks typing = {hooks != NULL ? hooks->page : NULL, typed, game};
+    cok_text_hooks typing = {page, typed, game};
     cok_mouse_hide(&game->mouse);
     cok_text_wrap(&game->screen, &game->font, cursor, text, window, fg, 0, clear, &typing);
     /* 1521:04e4: left, top, right or bottom past 0x27, 0x18, 0x27, 0x27

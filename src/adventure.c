@@ -20,7 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const cok_text_window text_window = {1, 0x11, 0x26, 0x16};
+const cok_text_window cok_adventure_text_window = {1, 0x11, 0x26, 0x16};
 
 static void fail(cok_adventure *game, const char *format, ...)
 {
@@ -785,8 +785,8 @@ static void print(cok_adventure *game)
     log_text(game, "print", vm->string[0]);
     game->text_shown = true;
     game->text_delay = true;
-    cok_text_hooks hooks = {page, NULL, game};
-    cok_adventure_wrap(game, &vm->cursor, vm->string[0], text_window, 10, clear, &hooks);
+    cok_adventure_wrap(game, &vm->cursor, vm->string[0], cok_adventure_text_window, 10, clear,
+                       page);
     game->text_delay = false;
 }
 
@@ -857,8 +857,8 @@ static void vertical_menu(cok_adventure *game)
     game->text_shown = true;
     for (size_t i = 0; i < count; ++i) log_text(game, "item", items[i]);
     vm->cursor = (cok_text_cursor){1, 0x11};
-    cok_text_hooks hooks = {page, NULL, game};
-    cok_adventure_wrap(game, &vm->cursor, vm->header_string, text_window, 10, true, &hooks);
+    cok_adventure_wrap(game, &vm->cursor, vm->header_string, cok_adventure_text_window, 10, true,
+                       page);
     if (game->input_ended) return;
     cok_text_window window = {1, vm->cursor.y + 1, 0x26, 0x16};
     int index = 0;
@@ -1007,8 +1007,7 @@ static void print_text(cok_adventure *game, const char *text, uint8_t fg, bool c
 {
     log_text(game, "print", text);
     game->text_shown = true;
-    cok_text_hooks hooks = {page, NULL, game};
-    cok_adventure_wrap(game, &game->vm.cursor, text, text_window, fg, clear, &hooks);
+    cok_adventure_wrap(game, &game->vm.cursor, text, cok_adventure_text_window, fg, clear, page);
 }
 
 /* A character's name, from its Pascal string. */
@@ -1314,9 +1313,8 @@ static void damage(cok_adventure *game)
         vm->cursor = (cok_text_cursor){2, 2};
         const char *text = "The entire party is killed!";
         log_text(game, "print", text);
-        cok_text_hooks hooks = {page, NULL, game};
         cok_adventure_wrap(game, &vm->cursor, text, (cok_text_window){1, 1, 0x26, 0x16}, 10, true,
-                           &hooks);
+                           page);
         wait_ms(game, 3000);
     }
     vm->character = saved;
@@ -2600,8 +2598,7 @@ void cok_adventure_print(cok_adventure *game, const char *text, cok_text_window 
                          uint8_t fg, bool clear)
 {
     log_text(game, "print", text);
-    cok_text_hooks hooks = {page, NULL, game};
-    cok_adventure_wrap(game, &game->vm.cursor, text, window, fg, clear, &hooks);
+    cok_adventure_wrap(game, &game->vm.cursor, text, window, fg, clear, page);
 }
 
 /* One key from a menu of the adventure loop (67b5:03e2): prompt in 13,

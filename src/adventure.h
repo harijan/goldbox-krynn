@@ -650,11 +650,15 @@ uint8_t *cok_adventure_special(cok_adventure *game, uint8_t scan);
 /* Print running text (1521:04ac, cok_text_wrap) with the mouse's cursor
  * hidden while it prints and pages (1743:0051 at 1521:04c7); shown again
  * after it (054d, 072e), except where its window check returns first.
- * hooks->page pages it, with game as its context; after each character
+ * page (cok_text_hooks.page, given game) pages it. After each character
  * the game waits the speed times 3 ms while game->text_delay is set
- * (1521:042e, DS:4b59), in place of hooks->delay. */
+ * (1521:042e, DS:4b59): the text delay is the flag's alone, never the
+ * caller's. */
 void cok_adventure_wrap(cok_adventure *game, cok_text_cursor *cursor, const char *text,
                         cok_text_window window, uint8_t fg, bool clear,
-                        const cok_text_hooks *hooks);
+                        void (*page)(void *context));
+/* The text window, cells 1-38 by 17-22, where PRINT and most running text
+ * go. */
+extern const cok_text_window cok_adventure_text_window;
 
 #endif

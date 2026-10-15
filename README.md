@@ -1193,7 +1193,8 @@ printed while the flag is set. Startup and a new game set it (`3e99:0560`,
 `0b62`); `ENCOUNTER MENU` sets it at its start and clears it as it returns
 (`2fd3:23f6`, `2aae`); combat setup clears it (`3cb2:1c5e`), and the end
 of the battle sets it (`3995:0297`, after `3995:004b`) as does the end of
-combat (`351b:1b00`). Nothing else writes it, and it is not saved. So
+combat (`351b:1b00`, not in the demonstration, where `3995:0297` has set it
+already). Nothing else writes it, and it is not saved. So
 `PRINT` and the encounter's texts are always typed; and after a battle,
 or from the start of a game, until the next `PRINT` or encounter, so is
 every other running text: "The monsters rejoice for the party has been

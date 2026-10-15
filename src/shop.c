@@ -108,9 +108,8 @@ int32_t cok_shop_money(const uint8_t *c)
  * having cleared rows 17-22, or -1 if input ended. */
 static int leave(cok_adventure *game, const char *said, const char *question)
 {
-    cok_text_window window = {1, 0x11, 0x26, 0x16};
-    cok_adventure_print(game, said, window, 10, true);
-    cok_adventure_print(game, question, window, 15, false);
+    cok_adventure_print(game, said, cok_adventure_text_window, 10, true);
+    cok_adventure_print(game, question, cok_adventure_text_window, 15, false);
     int answer = cok_adventure_horizontal(game, "", "~Yes ~No", 10, false);
     if (answer < 0) return -1;
     if (answer == 1) return 1;
@@ -508,7 +507,7 @@ static int pay(cok_adventure *game, cok_character *character, const char *cure, 
     uint8_t *c = character->record;
     char text[96];
     snprintf(text, sizeof text, "%s will only cost %u steel pieces.", cure, price);
-    cok_adventure_print(game, text, (cok_text_window){1, 0x11, 0x26, 0x16}, 10, true);
+    cok_adventure_print(game, text, cok_adventure_text_window, 10, true);
     int answer = cok_camp_yes_no(game, "pay for cure ", 13);
     if (answer != 'Y') return answer;
     uint16_t money = (uint16_t)cok_shop_money(c);
@@ -821,7 +820,7 @@ void cok_temple(cok_adventure *game)
                 break;
             }
             /* Both texts clear the window, so the first goes at once. */
-            cok_text_window window = {1, 0x11, 0x26, 0x16};
+            cok_text_window window = cok_adventure_text_window;
             cok_adventure_print(game,
                                 "As you leave a priest says, \"Excuse me but you have left some "
                                 "money here\" ",

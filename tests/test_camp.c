@@ -54,10 +54,20 @@ static void log_line(cok_adventure *game, const char *kind, const char *text, vo
 static script s;
 static cok_adventure game;
 
+/* The delays of the speed times 3 ms, a typed character's (1521:042e). */
+static unsigned typed;
+
+static void delayed(cok_adventure *g, unsigned ms, void *context)
+{
+    (void)context;
+    if (ms == g->speed * 3u) ++typed;
+}
+
 static void open_game(void)
 {
     cok_keyboard keys = {scripted, &s, NULL, NULL};
-    cok_adventure_hooks hooks = {.log = log_line, .key_pending = pending, .context = &s};
+    cok_adventure_hooks hooks = {.log = log_line, .key_pending = pending, .delay = delayed,
+                                 .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
     game.vm.mode = 4;
     game.vm.mem4b00[0xe6] = 1;
@@ -912,6 +922,24 @@ static void test_animation(void)
     watched = NULL;
 }
 
+/* A camp's say (6346:1883) types its text while the text delay is on,
+ * the speed times 3 ms a character (27 at speed 9), and prints it at once
+ * while it is off; it leaves the flag as it was. */
+static void test_say_typed(void)
+{
+    cok_character *c = member("ANN", 5, 5, 0);
+    game.speed = 9;
+    for (int on = 0; on < 2; ++on) {
+        keys("");
+        game.text_delay = on;
+        typed = 0;
+        cok_camp_say(&game, c->record, "is cured.", false);
+        CHECK(typed == (on ? strlen("is cured.") : 0u) && game.text_delay == on);
+    }
+    game.speed = 4;
+    free(c);
+}
+
 int main(void)
 {
     open_game();
@@ -925,6 +953,7 @@ int main(void)
     test_camp();
     test_magic();
     test_save_errors();
+    test_say_typed();
     cok_adventure_close(&game);
     test_round_trip();
     puts("camp tests passed");

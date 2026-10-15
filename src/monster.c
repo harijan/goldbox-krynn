@@ -516,7 +516,7 @@ enum { FLED, FIGHT, AWAY, TALK };
 static void encounter_line(cok_adventure *game, const char *text, bool clear)
 {
     game->vm.cursor = (cok_text_cursor){1, 0x11};
-    cok_adventure_print(game, text, (cok_text_window){1, 0x11, 0x26, 0x16}, 10, clear);
+    cok_adventure_print(game, text, cok_adventure_text_window, 10, clear);
 }
 
 /* ENCOUNTER MENU sprite distance picture result c0 c1 c2 c3 c4 text0 text1

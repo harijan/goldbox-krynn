@@ -673,12 +673,11 @@ static void hiding(void)
     game.mouse.driver.installed = true;
     game.mouse.on = true;
     game.mouse.driver.counter = 0;
-    cok_text_hooks hooks = {NULL, NULL, NULL};
     cok_adventure_wrap(&game, &game.vm.cursor, "Hello", (cok_text_window){1, 17, 38, 22}, 10,
-                       true, &hooks);
+                       true, NULL);
     CHECK(game.mouse.driver.counter == 0);
     cok_adventure_wrap(&game, &game.vm.cursor, "Hello", (cok_text_window){1, 25, 38, 26}, 10,
-                       true, &hooks);
+                       true, NULL);
     CHECK(game.mouse.driver.counter == -1);
     /* 1521:04de-04e4's limits: a top up to 0x18, a bottom or right up to
      * 0x27 show it again; a right of 0x28 does not. */
@@ -686,14 +685,14 @@ static void hiding(void)
                                             {1, 17, 38, 0x27}, {0x27, 17, 0x27, 22}};
     for (size_t i = 0; i < sizeof shown / sizeof *shown; ++i) {
         game.mouse.driver.counter = 0;
-        cok_adventure_wrap(&game, &game.vm.cursor, "Hi", shown[i], 10, true, &hooks);
+        cok_adventure_wrap(&game, &game.vm.cursor, "Hi", shown[i], 10, true, NULL);
         CHECK(game.mouse.driver.counter == 0);
     }
     static const cok_text_window hidden[] = {{1, 17, 0x28, 22}, {1, 17, 38, 0x28},
                                              {0x28, 17, 0x28, 22}};
     for (size_t i = 0; i < sizeof hidden / sizeof *hidden; ++i) {
         game.mouse.driver.counter = 0;
-        cok_adventure_wrap(&game, &game.vm.cursor, "Hi", hidden[i], 10, true, &hooks);
+        cok_adventure_wrap(&game, &game.vm.cursor, "Hi", hidden[i], 10, true, NULL);
         CHECK(game.mouse.driver.counter == -1);
     }
     game.mouse.driver.counter = 0;

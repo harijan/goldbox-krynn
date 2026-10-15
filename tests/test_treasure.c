@@ -58,12 +58,16 @@ static size_t battle_missile;
 
 /* The text delay as the battle was set up. */
 static bool delay_at_setup;
+/* A member whose combat record may use items once the battle is set up
+ * (+0x02, which the rounds set). */
+static cok_character *may_use;
 
 static void battlefield(cok_adventure *g, void *context)
 {
     (void)context;
     g->pool.missile = battle_missile;
     delay_at_setup = g->text_delay;
+    if (may_use != NULL && may_use->combat != NULL) may_use->combat->may_use = 1;
 }
 
 /* The keyboard's flushes (1614:045c). */
@@ -85,6 +89,9 @@ static void delayed(cok_adventure *g, unsigned ms, void *context)
     if (ms == g->speed * 3u) ++typed;
 }
 
+/* The adventure's own say for effects, which prints (6346:1883). */
+static void (*adventure_say)(cok_effects *, cok_character *, const char *, bool, void *);
+
 static void open_game(void)
 {
     cok_keyboard keys = {scripted, &s, NULL, NULL};
@@ -92,6 +99,7 @@ static void open_game(void)
                                  .battlefield = battlefield, .flush = counted,
                                  .delay = delayed, .context = &s};
     CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    adventure_say = game.effects.say;
     game.effects.say = say;
     game.effects.context = &s;
 }
@@ -854,7 +862,8 @@ static void test_shares(void)
     CHECK(combat(COK_COMBAT_UNPORTED) == COK_ECL_DIVIDE_BY_ZERO);
 }
 
-/* The text delay (DS:4b59, see adventure.h): PRINT types its text
+/* The text delay (DS:4b59, see adventure.h), the speed times 3 ms after
+ * each character (1521:042e): PRINT types its text
  * whatever it was and leaves it off (2fd3:0ae3, 0b62); a battle's setup
  * turns it off (3cb2:1c5e) and its end on (3995:0297), so the texts after
  * it are typed: the NPCs' shares (351b:17b2), the treasure left
@@ -868,6 +877,46 @@ static void test_text_delay(void)
         typed = 0;
         CHECK(RUN(COK_ECL_PRINT, 0, 42) == COK_ECL_OK && LOGGED("print: 42;"));
         CHECK(typed == 2 && !game.text_delay);
+    }
+    /* The delay is the speed's, 3 ms each: 27 at the demonstration's 9. */
+    reset("");
+    game.speed = 9;
+    typed = 0;
+    CHECK(RUN(COK_ECL_PRINT, 0, 42) == COK_ECL_OK && typed == 2);
+    game.speed = 4;
+    /* ADD EP's text (2fd3:3738, 380a), DAMAGE's "is hit FOR" (3775:21bd)
+     * and "dies" and its "The entire party is killed!" (2fd3:2fa8) follow
+     * the flag, which none of them changes. DAMAGE 0xe0: every member
+     * takes 100, always. */
+    static const char *const killed = "The entire party is killed!";
+    for (int on = 0; on < 2; ++on) {
+        reset("");
+        member("A")->record[0xf9] = 1;
+        game.text_delay = on;
+        typed = 0;
+        CHECK(RUN(COK_ECL_ADD_EP, 0, 1, 0, 10) == COK_ECL_OK &&
+              LOGGED("print: Congratulations the party gains experience!;"));
+        CHECK(typed == (on ? strlen("Congratulations the party gains experience!") : 0u));
+        CHECK(game.text_delay == on);
+        reset("\r");
+        member("A")->record[0x197] = 200;
+        game.text_delay = on;
+        typed = 0;
+        CHECK(RUN(COK_ECL_DAMAGE, 0, 0xe0, 0, 0, 0, 0, 0, 100, 0, 0) == COK_ECL_OK);
+        CHECK(LOGGED("print:   A is hit FOR 100 points of Damage.;") && !game.party_killed);
+        /* From column 0x26: the first space goes there, the second is
+         * dropped at the next line's start (1521:0458). */
+        CHECK(typed == (on ? 1 + strlen("A is hit FOR 100 points of Damage.") : 0u));
+        CHECK(game.text_delay == on);
+        reset("\r");
+        member("A");
+        game.text_delay = on;
+        typed = 0;
+        CHECK(RUN(COK_ECL_DAMAGE, 0, 0xe0, 0, 0, 0, 0, 0, 100, 0, 0) == COK_ECL_OK);
+        CHECK(game.party_killed && LOGGED("print:   A dies. ;") && LOGGED(killed));
+        CHECK(typed == (on ? 1 + strlen("A dies. ") + strlen(killed) : 0u));
+        CHECK(game.text_delay == on);
+        game.party_killed = false;
     }
     /* VERTICAL MENU's prompt (2fd3:1047) is typed only while it is on,
      * which it leaves as it was. */
@@ -907,6 +956,31 @@ static void test_text_delay(void)
     CHECK(typed == strlen("N takes and hides his share.") +
                        strlen("There is still treasure left.  ") +
                        strlen("Do you want to go back and claim your treasure?"));
+    /* The battle's end (3995:004b) runs before the flag is set (0297): a
+     * silence (0x15) lost there, its handler run, says "is silenced" at
+     * once (6346:1883 in the panel). */
+    reset("\rE");
+    cok_character *a = member("A");
+    CHECK(cok_character_add_effect(a, 0x15, 0, 0, true) != NULL);
+    monster("GOBLIN", 0, 0, 0);
+    game.effects.say = adventure_say;
+    game.effects.context = &game;
+    game.text_delay = false;
+    typed = 0;
+    may_use = a;
+    CHECK(combat(COK_COMBAT_WON) == COK_ECL_OK);
+    may_use = NULL;
+    game.effects.say = say;
+    game.effects.context = &s;
+    CHECK(LOGGED("print: is silenced;") && typed == 0 && game.text_delay);
+    /* In the demonstration the end of combat stops before 351b:1b00: with
+     * no battle, the flag stays as it was. */
+    reset("");
+    member("A");
+    game.demo = true;
+    game.text_delay = false;
+    CHECK(combat(COK_COMBAT_UNPORTED) == COK_ECL_OK && !game.text_delay);
+    game.demo = false;
 }
 
 /* 351b:118c: the treasure menu, Take, Pool, Share and Detect. */
