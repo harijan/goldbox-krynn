@@ -23,8 +23,8 @@ Run 2: a saved game the port writes at 2,2 with the caravan met (c_throtl's
 overland vars): four steps east, Ctrl-F8 (BIOS word 0x6500), Exit. Run 3:
 the same game moved in the file to 35,4 (vars 0x4bc3, 0x4bc4): 3, Enter, 5,
 Enter, F1 (0x3b00). Run 4: the game at 2,2 with the step counter (var
-0x4c06) at 10 and RandSeed 75 rolled once at the first key read after
-loading (c_places.Compare), which meets the knights a step east; Yes, the camp
+0x4c06) at 10 and RandSeed 75 rolled once (no roll follows until the
+step), which meets the knights a step east; Yes, the camp
 (PROGRAM 9), Exit. The overland square (vars 0x4bc3, 0x4bc4) is read in
 the original's memory after each step of runs 2 and 3 and compared with
 the port's.
@@ -101,9 +101,8 @@ def main():
                 "equal)")
     if args.only in (None, "knights"):
         # #102: the step counter (var 0x4c06) at 10, so that the next step
-        # rolls for an encounter; RandSeed 75 rolled once at the first key
-        # read after loading (where the port as it is gets from 75: it rolls
-        # once on resuming here) meets the knights (8890) a step east.
+        # rolls for an encounter; RandSeed 75 rolled once meets the knights
+        # (8890) a step east.
         cp.copy_game(saves, "C", "E")
         cp.edit_save(saves, "E", var={0x4C06: 10})
         c = cp.Compare(v, work / "knights", saves, [
@@ -114,9 +113,9 @@ def main():
             ("map", "E"),                   # #102: the map again, the script ended
             ("step", r"\>"),
         ], seed=cp.roll(75), verbose=args.verbose).run()
-        v.check("COMPANY OF KNIGHTS" in c.port_text_of(fixed=True),
-                "#102: the step meets the knights' camp (the log of the port with the known "
-                "fixes; the original's screens are compared above)")
+        v.check("COMPANY OF KNIGHTS" in c.port_text,
+                "#102: the step meets the knights' camp (the port's log; the original's "
+                "screens are compared above)")
     print(f"files in {work}")
     return v.finish()
 

@@ -39,14 +39,6 @@ def main():
     print("port's Pics menus:", [line for line in out.splitlines() if line.startswith("menu: Pics")])
     marked = L.A_TO_CAMP + "".join(rf"{k}\s{i}." for i, (_, k) in enumerate(STEPS))
     port = checklib.frames_at(marked, work / "frames", start_menu=False, args=load)
-    fixed = {}
-
-    def fixed_frame(name):
-        if not fixed:
-            fixed.update(checklib.frames_at(marked, work / "frames-fixed", start_menu=False,
-                                            args=load, binary=checklib.fixed_eclplay()))
-        return fixed.get(name)
-
     flags = []
     with L.box(work, [L.SAVE], verbose=args.verbose, turbo=True) as box:
         box.keys(L.load_keys("A") + L.A_TO_CAMP)
@@ -57,8 +49,7 @@ def main():
             box.wait_input(settle=0.5)
             shot = box.screenshot(work / f"orig-{i}.png")
             flags.append((box.ds_byte(0x4b4d), box.ds_byte(0x4b4f)))
-            v.screen(f"screen after {what}", shot, port.get(str(i)),
-                     fixed=lambda n=str(i): fixed_frame(n), work=work)
+            v.screen(f"screen after {what}", shot, port.get(str(i)), work=work)
         box.keys("E" + L.save_keys("F"))
         box.wait_input(settle=0.3)
         odir = L.keep_saves(box, work / "saved")

@@ -53,7 +53,7 @@ def main():
         pout, psaves, _ = L.port(L.A_TO_CAMP + "".join(steps) + L.save_keys("G"), work / f"port{n}",
                                  ["--load", game / "SAVGAMD.DAT", "--play"], saves=[game])
         port_hp = [L.sav(L.saved_by_port(game, "D", "".join(steps[:k + 1]),
-                                         work / f"port{n}-{k}", "G")[0], "G", 1)[0x197]
+                                         work / f"port{n}-{k}", "G"), "G", 1)[0x197]
                    for k in range(len(steps))]
         print(f"run {n} {steps}: port: healed {pout.count('The Whole Party Is Healed')} times, "
               f"SIR STRONGSWORD's hit points after each step {port_hp}")

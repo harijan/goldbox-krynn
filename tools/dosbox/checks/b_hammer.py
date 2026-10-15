@@ -63,13 +63,13 @@ def main():
         print(f"original after {what}: KAL's items {items}\n    effects {effects}")
 
     keys = "".join(k for _, k in STEPS)
-    out, psaves, odir, _, fixed = M.run_both(work, game, keys, steps=[k for _, k in STEPS],
-                                             probe=probe, verbose=args.verbose)
+    out, psaves, odir, _ = M.run_both(work, game, keys, steps=[k for _, k in STEPS],
+                                      probe=probe, verbose=args.verbose)
     v = checklib.Verdict()
     print("port:", [ln for ln in out.splitlines() if "Hammer" in ln or "Gains" in ln])
     v.check(any(is_hammer(it) for it in seen["cast"][0]), "the original's cast adds the hammer",
             str(seen["cast"][0]))
-    cast_saves, _ = L.saved_by_port(game, "A", STEPS[0][1], work / "port-cast")
+    cast_saves = L.saved_by_port(game, "A", STEPS[0][1], work / "port-cast")
     v.value("KAL's items and effects after the cast", seen["cast"], port_state(cast_saves))
     items, effects = seen["ready"]
     hammer = [it for it in items if is_hammer(it)]
@@ -81,7 +81,7 @@ def main():
             "the hammer vanishes when unreadied in the original, as recorded (the port: the "
             "end below)", str(seen["unready"][0]))
     v.value("KAL's items and effects at the end", seen["leave View"], port_state(psaves))
-    L.judge_games(v, "saved F", odir, "F", psaves, "F", fixed=fixed)
+    L.judge_games(v, "saved F", odir, "F", psaves, "F")
     print(f"files in {work}")
     return v.finish()
 

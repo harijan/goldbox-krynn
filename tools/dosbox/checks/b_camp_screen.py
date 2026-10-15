@@ -15,9 +15,7 @@ start menu and:
      Enter again; and Encamp chosen by its letter, then Enter.
 
 Each of the original's screens is compared with eclplay's at the same point
-of the keys (the resumed view differs where the port without the known
-fixes draws the wall sets, #38: known, walls), and the routine the original
-waits in, with its mode (DS:4b49), must be the one recorded: the camp's
+of the keys, and the routine the original waits in, with its mode (DS:4b49), must be the one recorded: the camp's
 menu (4888:2d03, mode 2), the rest's (57e4:08ed), Save's letters
 (4b6d:2327: Enter after Encamp opens Save).
 """
@@ -67,9 +65,9 @@ def main():
         def during(box, name):
             waits[name] = (box.where(), box.ds_byte(0x4B49))
 
-        shots, port, fixed, out = S.run_pair(work / label, [game], steps, verbose=args.verbose,
-                                             during=during)
-        S.judge(v, shots, port, fixed, work / label)
+        shots, port, out = S.run_pair(work / label, [game], steps, verbose=args.verbose,
+                                      during=during)
+        S.judge(v, shots, port, work / label)
         for name, (where, mode) in waits.items():
             print(f"    {name}: original waits in {where}, mode {mode}")
             if name in WAITS:

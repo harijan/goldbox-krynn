@@ -8,8 +8,7 @@ Move, Ctrl-D (the flag on), then the step north-east that meets the
 caravan's four baaz (batch D's route), and Enter at each key read after it
 (the trace waits for one after each opcode, the battle's setup after each
 record, the combat menu reads one too). Each screen is compared with the
-port's at the same key read (a difference the port with the known fixes
-does not have is the known `fullstop`). The battle's setup: the port's
+port's at the same key read. The battle's setup: the port's
 `debug:` lines from LOAD MONSTER's to its first combat menu, each the trace
 on the screen at one of the key reads; those screens, and the first combat
 menu's with `Done*`, must be among those compared.
