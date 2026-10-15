@@ -144,6 +144,7 @@ static void reset(const char *k)
     game.vm.abort = false;
     game.vm.status = COK_ECL_OK;
     snap_key = -1;
+    game.text_delay = false; /* as after a PRINT, the usual way in */
 }
 
 static cok_ecl_status run(const uint8_t *code, size_t length)
@@ -855,6 +856,18 @@ static void test_more(void)
     CHECK(shop(0x10) == COK_ECL_OK && LOGGED("print: I can't tell anything new about your "));
     paid = waits;
     CHECK(paid == unpaid + 1);
+    /* With the text delay on (after a battle), the texts are typed: a
+     * wait after each character (546c:2ab2, 2b9e). */
+    reset("VIIY\033\033E");
+    a = member("A", 150);
+    give(a, 0x12, 15);
+    waits = 0;
+    game.text_delay = true;
+    CHECK(shop(0x10) == COK_ECL_OK);
+    char name[41];
+    CHECK(cok_item_name(&game, a->items[0], false, name));
+    CHECK(waits == paid + strlen("For 100 steel pieces I'll identify your ") + strlen(name) +
+                       strlen("I can't tell anything new about your ") + strlen(name));
 
     /* The temple's Yes to going back sets Trade's byte. */
     reset("PT\r1\r\033EYVTS\033\033EN");
@@ -907,6 +920,30 @@ static void test_cells(void)
     member("A", 600);
     snap_key = 6;
     CHECK(temple() == COK_ECL_OK && ink(1, 0x11) == 10 && LOGGED("pay for cure"));
+    /* The list comes back whole after a cure, the frame drawn once
+     * (340d:0c81): all ten rows, the one picked highlighted, whether the
+     * cure was paid for (Cure Light Wounds), refused at the price, not
+     * afforded, or refused at "anyway" (Cure Blindness, row 4); and the
+     * last cure (Stone to Flesh, row 13) paid for anyway. */
+    static const struct {
+        const char *keys;
+        int money, row;
+        long snap;
+    } after[] = {
+        {"H\001P\001PHY\033E", 600, 6, 7},
+        {"H\001P\001PHN\033E", 600, 6, 7},
+        {"H\001P\001PHY\033E", 0, 6, 7},
+        {"HHN\033E", 600, 4, 3},
+        {"H\001HHYY\033E", 1000, 13, 6},
+    };
+    for (size_t i = 0; i < sizeof after / sizeof *after; ++i) {
+        reset(after[i].keys);
+        member("A", (uint16_t)after[i].money);
+        snap_key = after[i].snap;
+        CHECK(temple() == COK_ECL_OK);
+        CHECK(inked_rows(2, 4, 0x26, 15) == 10 && ink(1, 1) == 15);
+        for (int y = 4; y <= 13; ++y) CHECK(ink(2, y) == (y == after[i].row ? 15 : 10));
+    }
     /* Heal clears row 24 before its list shows its own menu there. */
     reset("H\033E");
     member("A", 600);

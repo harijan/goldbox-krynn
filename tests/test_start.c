@@ -1252,12 +1252,17 @@ static void test_title(void)
     CHECK(first[-1] == 'F' && first[-2] == 'D');
     CHECK(second[-1] == 'F' && second[-2] == 'F' && second[-3] == 'D');
     /* The state a game starts and ends with. */
+    /* The text delay is on in both (3e99:0560, 099d), whatever a PRINT
+     * left. */
     game.vm.mem4b00[0x10] = 9;
+    game.text_delay = false;
     cok_start_reset(&game);
     CHECK(game.vm.mem4b00[0x10] == 0 && game.vm.mem4b00[0x1f4] == 3 && game.vm.mem4b00[0xe6] == 1);
     CHECK(game.vm.direction == 2 && game.vm.map_x == 7 && game.vm.map_y == 13 && game.list_top == 1);
+    CHECK(game.text_delay);
+    game.text_delay = false;
     cok_start_startup(&game);
-    CHECK(game.vm.direction == 0 && game.vm.mode == 4 && game.speed == 4);
+    CHECK(game.vm.direction == 0 && game.vm.mode == 4 && game.speed == 4 && game.text_delay);
 }
 
 static uint32_t fnv(uint32_t h, const uint8_t *p, size_t n)

@@ -206,6 +206,13 @@ struct cok_adventure {
     bool party_killed;     /* DAMAGE left no character able to act. */
 
     uint8_t speed;         /* DS:4b38, the game speed; 4 by default. */
+    /* DS:4b59: running text is typed a character at a time, the speed's
+     * delay after each (see cok_adventure_wrap). Set at startup and for a
+     * new game (3e99:005b, 0843), by PRINT while it prints (2fd3:0acf), by
+     * ENCOUNTER MENU while it runs (2fd3:23e5) and at the end of a battle
+     * (3995:0297, 351b:1b00); cleared after PRINT and ENCOUNTER MENU and by
+     * combat setup (3cb2:1c5e). */
+    bool text_delay;
     bool animate;          /* DS:4b4f: load every frame of a picture. */
     uint8_t pictures;      /* DS:4b4d, Alter's "Pics", 1 at startup; nothing else reads it. */
     uint8_t selected;      /* DS:6e0f, the menu item selected. */
@@ -559,10 +566,6 @@ void cok_adventure_forget_portrait(cok_adventure *game);
  * as "menu". Returns the item picked, or -1 if input ended. */
 int cok_adventure_horizontal(cok_adventure *game, const char *prompt, const char *items,
                              uint8_t normal, bool enter_returns);
-/* Type text in the text window (rows 17-22) from game->vm.cursor in fg on
- * 0, a character at a time with the text delay, paging as PRINT does
- * (1521:04ac with DS:4b59 set). Logs it as "print". */
-void cok_adventure_type(cok_adventure *game, const char *text, uint8_t fg, bool clear);
 /* Pick a member with prompt and "Select", and "Exit" if exit_item, which
  * picks none, starting from who (6346:32c7): the party list shows the
  * pick, and up and down (8 and 2) move it; in camp the small picture shows
@@ -570,7 +573,7 @@ void cok_adventure_type(cok_adventure *game, const char *text, uint8_t fg, bool 
 uint8_t *cok_adventure_pick(cok_adventure *game, const char *prompt, uint8_t *who, bool exit_item,
                            bool *ended);
 /* Print text wrapped in window from game->vm.cursor in fg on 0, paging as
- * PRINT does, without a delay between characters (1521:04ac). */
+ * PRINT does (1521:04ac), typed while game->text_delay is set. */
 void cok_adventure_print(cok_adventure *game, const char *text, cok_text_window window,
                          uint8_t fg, bool clear);
 /* Set game->error, log it, set game->vm.status to status and end the run. */
@@ -646,9 +649,16 @@ void cok_adventure_device_wait(cok_adventure *game, unsigned ms);
 uint8_t *cok_adventure_special(cok_adventure *game, uint8_t scan);
 /* Print running text (1521:04ac, cok_text_wrap) with the mouse's cursor
  * hidden while it prints and pages (1743:0051 at 1521:04c7); shown again
- * after it (054d, 072e), except where its window check returns first. */
+ * after it (054d, 072e), except where its window check returns first.
+ * page (cok_text_hooks.page, given game) pages it. After each character
+ * the game waits the speed times 3 ms while game->text_delay is set
+ * (1521:042e, DS:4b59): the text delay is the flag's alone, never the
+ * caller's. */
 void cok_adventure_wrap(cok_adventure *game, cok_text_cursor *cursor, const char *text,
                         cok_text_window window, uint8_t fg, bool clear,
-                        const cok_text_hooks *hooks);
+                        void (*page)(void *context));
+/* The text window, cells 1-38 by 17-22, where PRINT and most running text
+ * go. */
+extern const cok_text_window cok_adventure_text_window;
 
 #endif

@@ -1190,16 +1190,36 @@ original clears row 24, prints "Press any key to continue" in colour 13, waits
 for a key (`1614:025b`), flushes the keyboard (`1614:045c`), clears the window
 to colour 0 (`521:0b60`) and continues. The port does the same, but the key
 wait and flush go through the `page` hook, and the original's per-character
-`Delay(DS:4b38 * 3)`, made when `DS:4b59` is set, is the `delay` hook. The
-port hides the mouse's cursor through it and shows it after
-(`1743:0051`, `1743:0030`; `cok_adventure_wrap`, see The mouse and the
-joystick). The original's window check allows a bottom row
-up to 39, which the port keeps, but it does not reject a right edge left of
-the left one or a bottom above the top, which would make its window clear
-write far outside the window; the port prints nothing for those windows. A
-final one-character word that wraps past the bottom row is printed below the
-window rather than paged, as in the original; a dead branch meant to drop a
-trailing space at the right edge is omitted.
+`Delay(DS:4b38 * 3)`, made when `DS:4b59` is set (`1521:042e`), is the `delay`
+hook. The game's printer, `cok_adventure_wrap`, waits the speed times 3 ms
+after each character while `game->text_delay` (`DS:4b59`) is set, and hides
+the mouse's cursor while it prints and shows it after (`1743:0051`,
+`1743:0030`; see The mouse and the joystick). The original's window check
+allows a bottom row up to 39, which the port keeps, but it does not reject
+a right edge left of the left one or a bottom above the top, which would
+make its window clear write far outside the window; the port prints
+nothing for those windows. A final one-character word that wraps past the
+bottom row is printed below the window rather than paged, as in the
+original; a dead branch meant to drop a trailing space at the right edge is
+omitted.
+
+The text delay is one flag for every caller of `1521:04ac`, not a choice
+of each: running text is typed a character at a time wherever it is
+printed while the flag is set. Startup and a new game set it (`3e99:0560`,
+`099d`); `PRINT` sets it while it prints and clears it after (`2fd3:0ae3`,
+`0b62`); `ENCOUNTER MENU` sets it at its start and clears it as it returns
+(`2fd3:23f6`, `2aae`); combat setup clears it (`3cb2:1c5e`), and the end
+of the battle sets it (`3995:0297`, after `3995:004b`) as does the end of
+combat (`351b:1b00`, not in the demonstration, where `3995:0297` has set it
+already). Nothing else writes it, and it is not saved. So
+`PRINT` and the encounter's texts are always typed; and after a battle,
+or from the start of a game, until the next `PRINT` or encounter, so is
+every other running text: "The monsters rejoice for the party has been
+destroyed", the NPCs' shares and the treasure left, the temple's and
+shops' texts, `ADD EP`'s and `DAMAGE`'s, a camp's say (`6346:1883`), the
+items' texts (`546c`) and `VERTICAL MENU`'s prompt, which is otherwise
+printed at once (after a `PRINT`, as it usually is). In combat it is
+off.
 
 `cok_text_input` (`521:0739`) edits a line on row 24 for the ECL input
 opcodes, and `cok_text_number` (`521:08d9`) repeats it, six characters at a
@@ -1489,9 +1509,9 @@ answers the guards at the gates of Gargath with the second item of a list.
 
 | Opcode | Handler | Port |
 | --- | --- | --- |
-| `PRINT`, `PRINTCLEAR` | `2fd3:0acf` | `cok_text_wrap` in cells 1-38 by 17-22, colour 10; a number prints in decimal |
+| `PRINT`, `PRINTCLEAR` | `2fd3:0acf` | `cok_text_wrap` in cells 1-38 by 17-22, colour 10, typed, leaving the text delay off; a number prints in decimal |
 | `HORIZONTAL MENU` | `2fd3:116d` | `cok_menu_horizontal`, colours 15 and 10, or all 15 for one item |
-| `VERTICAL MENU` | `2fd3:0f9d` | prompt as `PRINTCLEAR`, then `cok_menu_list` below it |
+| `VERTICAL MENU` | `2fd3:0f9d` | prompt as `PRINTCLEAR` (typed only while the text delay is on), then `cok_menu_list` below it |
 | `INPUT NUMBER`, `INPUT STRING` | `2fd3:0a11`, `2fd3:0a57` | `cok_text_number`; `cok_text_input`, an empty line stored as a space |
 | `PICTURE` | `2fd3:0914` | below 0x70, `PIC<file>.DAX` at cell 3, 3; else `BIGPIC<file>.DAX` at 1, 1 in its frame; 0xff restores the view |
 | `CLEAR BOX` | `2fd3:3063` | the adventure frame (`1128:0242`) and the first picture frame |
@@ -3651,11 +3671,10 @@ tables in `cok_adventure.combat` (`cok_combat`) for the rest of combat
 (see The rounds and after).
 
 Setup runs with the mode already 5, as `3995:0172` sets it first. It
-clears the text delay flag (`DS:4b59`, which the port passes with each
-print), frees the small picture (`6961:0537`), the big one (`DS:6e02`)
-and the portrait's pieces (`6de5`, `6dea`, marking none held; see
-Playing scripts), clears
-row 24, waits speed × 100 ms and prints "A battle begins..." there in
+clears the text delay flag (`DS:4b59`, see Library; the battle's end
+sets it again, `3995:0297`), frees the small picture (`6961:0537`), the
+big one (`DS:6e02`) and the portrait's pieces (`6de5`, `6dea`, marking
+none held; see Playing scripts), clears row 24, waits speed × 100 ms and prints "A battle begins..." there in
 light green (`1521:0353`); clears the round (`DS:714b`), the attack roll
 (`6b3b`), the bodies, the kender who yelled (`71a7`), Magic On (`7198`),
 the recovered missile (`60a2`), the weapons lost (`609e`) and var
@@ -6214,14 +6233,13 @@ The end of combat (`351b:1968`), as `cok_treasure_end_of_combat`:
    (below); then the pool's items go. Its coins stay until the next
    `CLEARMONSTERS` or `TREASURE` replaces them. If it was destroyed, var
    `0x7ec7` is 0x80, the frame is cleared, "The monsters rejoice for the
-   party has been destroyed" printed in cells 2-37 from row 5, cleared
-   first (`351b:1aab`), and "Press any key to continue" shown in light
-   magenta on row 24 until a key, and the run ends. The original types that
-   text a letter at a time, the speed's delay between letters (about 45 ms
-   at speed 15; in DOSBox-X, `d_bozak.py`); the port prints it at once
-   (`src/treasure.c`, `cok_adventure_print` with no character hook): a
-   port difference, the screens after it the same.
-5. Vars `0x7f70`-`0x7f72`, `0x7ee3`, `0x7ee6` and `0x4cf5` are cleared.
+   party has been destroyed" typed (the text delay is on since the
+   battle's end, see Library) in cells 2-37 from row 5, cleared first
+   (`351b:1aab`), and "Press any key to continue" shown in light
+   magenta on row 24 until a key, and the run ends (typed in the
+   original too: DOSBox-X, `d_bozak.py`).
+5. The text delay is set (`351b:1b00`), and vars `0x7f70`-`0x7f72`,
+   `0x7ee3`, `0x7ee6` and `0x4cf5` are cleared.
 
 The original's path for a duel (`DS:883e`), which is never set in this
 game, is left out. In the demonstration (`DS:4b4b`, see The start menu)
@@ -6489,14 +6507,13 @@ The temple's `Heal` (`340d:0be1`) clears row 24 and shows, in the frame
 of a large picture (`1128:0344`), `NAME, how can we help you?` on row 1
 in white and the cures (`DS:01cc`, 41 bytes each) in cells 2-38 by 4-15,
 with `Heal Exit` (`67b5:1368`), for the selected character, until Exit or
-Escape; then the screen is redrawn. The port clears the frame each pass
-and draws the list's text only the first time, so afterwards only the row
-picked shows. The original does not: in DOSBox-X, after Raise Dead bought,
-its list returns with all ten cures, Raise Dead highlighted, where the
-port shows `RAISE DEAD` alone (3,227 pixels, `c_outpost.py`): a port
-difference, not yet traced in `340d:0be1`. A cure
-(`340d:027f`-`0b32`) that the character does not need says
-so (the name on row 18 and the text below it, `6346:1883`, no pause) and
+Escape; then the screen is redrawn. The frame is drawn once (`340d:0c81`)
+and the list only the first time; the cures' texts and questions go below
+it (rows 17-22 and 24), so after a cure, paid for or not, all ten rows
+show again, the one picked highlighted (as in DOSBox-X after Raise Dead
+bought, `c_outpost.py`). A cure (`340d:027f`-`0b32`) that
+the character does not need says so (the name on row 18 and the text
+below it, `6346:1883`, no pause) and
 asks `cast cure anyway: ` (`67b5:177f`, No first). Then `CURE will only
 cost N steel pieces.` in rows 17-22 and `pay for cure `: Yes pays as Buy
 does, from the character's money, else the pool's, else `Not enough
@@ -7335,7 +7352,7 @@ screenshots (`d_arrows`, `d_aurak`, `d_bolt`, `d_bozak`, `d_cast`,
 loaded host DOSBox-X wrote ten times fewer screenshots and they missed
 the text), and prints one line per script: the checks it covers, its
 verdict, and whether that is the verdict recorded (agrees, or new for a
-port difference found and not yet fixed), an ERROR
+port difference found and not yet fixed, of which none is left), an ERROR
 for anything else. On a script's timeout, or when run_all itself gets
 SIGTERM, SIGINT or SIGHUP, it kills the running scripts' process groups
 and the Xvfb and DOSBox-X they started (their pids recorded in
@@ -7345,8 +7362,9 @@ a 16-core host with little else running: about 10 for the rest side by
 side, then 22 for the eight alone (`d_bozak.py` 12 of them). With main's
 fixes (the continue prompt's full stop, two-set wall records, a resumed
 game's first block) the last full run gave every recorded verdict: 80
-agree, and two show a port difference found and not yet fixed (#70's
-Heal list, `c_outpost.py`; the party destroyed's text, `d_bozak.py`).
+agree, and two showed a port difference since fixed (#70's Heal list,
+`c_outpost.py`; the party destroyed's text, `d_bozak.py`), which agree
+with the fix.
 
 ## Checks against the original
 
@@ -7510,10 +7528,10 @@ original's behaviour is recorded, its section says what it does):
 - #68 Appraise's `Keep` with no items loses the gem; Escape sells it:
   `c_outpost.py`.
 - #69 Leaving a temple with money in the pool: `c_outpost.py`.
-- #70 `Heal`'s list after a cure bought: the PORT DIFFERS. The original
-  shows all ten cures again, the row picked highlighted; the port only the
-  row picked (see Shops and the temple). The first time, the first cure
-  highlighted, as in the port: `c_outpost.py`.
+- #70 `Heal`'s list after a cure bought: all ten cures again, the row
+  picked highlighted, since the fix of Heal's frame (see In a temple's
+  `Heal` below); the first time, the first cure highlighted:
+  `c_outpost.py`.
 - #71 Raise Dead loses the whole difference (constitution 15):
   `c_outpost.py`.
 - #72 `10 Arrows +1` halved and sold: 6 for the two, 60 for one:
@@ -7549,9 +7567,8 @@ original's behaviour is recorded, its section says what it does):
 - #89 Arrows counted down by the shots (a short bow: no long bow in the
   saved games; the rest below): `d_arrows.py`.
 - #90 A bozak explodes beside two characters, 1-6 each; that route ends
-  with the party destroyed, whose text the original types a letter at a
-  time where the port prints it at once: the PORT DIFFERS there (see
-  Treasure and the end of combat): `d_bozak.py`.
+  with the party destroyed, whose text is typed a letter at a time since
+  the fix of the text delay (see Kill a bozak below): `d_bozak.py`.
 - #91 A baaz's killer loses his sword and has it back after:
   `d_weapon.py`.
 - #92 A step away draws one attack `(from behind)`: `d_move.py`.
@@ -7735,7 +7752,7 @@ Still to check, with why:
   no run is known to reach such a draw.
 
 The port differences DOSBox-X found and the port has since fixed (the
-checked list's #27, #29, #38, #123 and #124):
+checked list's #27, #29, #38, #70, #90, #123 and #124):
 
 - Wall tiles and sky pictures are masked with colour 13 in the 3D view.
   Compare a view, such as Throtl's street from 7, 15 facing north, for light
@@ -7786,6 +7803,22 @@ checked list's #27, #29, #38, #123 and #124):
 - In EGA mode, the same screens should match `eclplay`'s (the Tandy's).
   Checked in DOSBox-X with the CGA check above: the same, Throtl's view
   included now.
+- In a temple's `Heal`, buy a cure: on the list's return, which rows show
+  and which is highlighted. Checked in DOSBox-X
+  (`tools/dosbox/checks/c_outpost.py`, Raise Dead bought): the original
+  shows all ten cures again, the row picked highlighted, where the port
+  showed only that row (3,227 pixels): it redrew the frame each pass. The
+  port now draws the frame once, as `340d:0be1` does (`0c81`, before its
+  loop), and agrees, 0 pixels in every temple screen (#70).
+- Kill a bozak beside two characters: "explodes." and each beside it
+  "takes N points of damage" (1-6). Checked in DOSBox-X
+  (`tools/dosbox/checks/d_bozak.py`): as the port; but the route ends with
+  the party destroyed, whose text ("The monsters rejoice ...") the
+  original types a letter at a time, the speed's delay between letters,
+  where the port printed it at once. The port now keeps the original's
+  text delay flag (`DS:4b59`, see Library) for every running text and
+  types it, its frames showing the text grow as the original's
+  screenshots do (#90).
 
 ## Disassembly image
 

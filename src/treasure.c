@@ -1229,9 +1229,9 @@ static bool treasure_menu(cok_adventure *game)
             }
             vm->cursor = (cok_text_cursor){1, 0x11};
             cok_adventure_print(game, "There is still treasure left.  ",
-                                (cok_text_window){1, 0x11, 0x26, 0x16}, 10, true);
+                                cok_adventure_text_window, 10, true);
             cok_adventure_print(game, "Do you want to go back and claim your treasure?",
-                                (cok_text_window){1, 0x11, 0x26, 0x16}, 15, false);
+                                cok_adventure_text_window, 15, false);
             int answer = cok_adventure_horizontal(game, "", "~Yes ~No", 10, false);
             if (answer < 0) return false;
             if (answer == 1) {
@@ -1285,6 +1285,7 @@ void cok_treasure_end_of_combat(cok_adventure *game)
         game->party_killed = true;
         vm->abort = true;
     }
+    game->text_delay = true; /* 351b:1b00 */
     static const uint16_t cleared[] = {0x370, 0x371, 0x372, 0x2e3, 0x2e6};
     for (size_t i = 0; i < sizeof cleared / sizeof *cleared; ++i) vm->mem7c00[cleared[i]] = 0;
     vm->mem4b00[0x1f5] = 0;

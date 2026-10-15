@@ -85,6 +85,7 @@ static void fresh(cok_adventure *game, uint8_t facing)
     vm->character = NULL;
     vm->file = 1;
     game->speed = 4;
+    game->text_delay = true; /* 3e99:0560, 099d */
     game->overhead = false;
     game->list_top = 1;
     game->selected = 1;

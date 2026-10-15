@@ -108,9 +108,8 @@ int32_t cok_shop_money(const uint8_t *c)
  * having cleared rows 17-22, or -1 if input ended. */
 static int leave(cok_adventure *game, const char *said, const char *question)
 {
-    cok_text_window window = {1, 0x11, 0x26, 0x16};
-    cok_adventure_print(game, said, window, 10, true);
-    cok_adventure_print(game, question, window, 15, false);
+    cok_adventure_print(game, said, cok_adventure_text_window, 10, true);
+    cok_adventure_print(game, question, cok_adventure_text_window, 15, false);
     int answer = cok_adventure_horizontal(game, "", "~Yes ~No", 10, false);
     if (answer < 0) return -1;
     if (answer == 1) return 1;
@@ -508,7 +507,7 @@ static int pay(cok_adventure *game, cok_character *character, const char *cure, 
     uint8_t *c = character->record;
     char text[96];
     snprintf(text, sizeof text, "%s will only cost %u steel pieces.", cure, price);
-    cok_adventure_print(game, text, (cok_text_window){1, 0x11, 0x26, 0x16}, 10, true);
+    cok_adventure_print(game, text, cok_adventure_text_window, 10, true);
     int answer = cok_camp_yes_no(game, "pay for cure ", 13);
     if (answer != 'Y') return answer;
     uint16_t money = (uint16_t)cok_shop_money(c);
@@ -692,11 +691,13 @@ static int stone_to_flesh(cok_adventure *game, cok_character *character)
     return 'Y';
 }
 
-/* Heal (340d:0be1): in the big frame, "NAME, how can we help you?" on row
- * 1 in white, and the cures (DS:01cc, 41 bytes each) in cells 2-38 by
- * 4-15 with "Heal Exit", for the selected character; until Exit or
- * Escape. The list is drawn once: each pass clears the frame, so only the
- * row picked comes back. Its first pick is the word the menu before left
+/* Heal (340d:0be1): the big frame, drawn once (0c81), then until Exit or
+ * Escape "NAME, how can we help you?" on row 1 in white, and the cures
+ * (DS:01cc, 41 bytes each) in cells 2-38 by 4-15 with "Heal Exit", for
+ * the selected character. The list is drawn at the first pass only; the
+ * cures' texts and questions go below it (rows 17-22 and 24), so all ten
+ * rows stay, the one picked highlighted when the menu comes back, after a
+ * cure paid for or not. Its first pick is the word the menu before left
  * on the stack, 0 (the flag pushed for 67b5:03e2 at 340d:0f47). Then the
  * screen is redrawn. */
 static bool heal(cok_adventure *game)
@@ -711,14 +712,14 @@ static bool heal(cok_adventure *game)
     cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 1521:0b60 */
     bool redraw = true;
     int index = 0;
+    cok_ecl *vm = &game->vm;
+    uint16_t phase[3] = {vm->mem4b00[0x1f9], vm->mem4b00[0x1fa], vm->mem4b00[0x1fb]};
+    cok_screen_big(&game->screen, &game->view.tiles[4], phase); /* 1128:0344 */
     for (;;) {
         cok_character *character = selected(game);
         if (character == NULL)
             return undefined(game, "Heal with no character selected reads through NULL "
                                    "(340d:0c86)");
-        cok_ecl *vm = &game->vm;
-        uint16_t phase[3] = {vm->mem4b00[0x1f9], vm->mem4b00[0x1fa], vm->mem4b00[0x1fb]};
-        cok_screen_big(&game->screen, &game->view.tiles[4], phase);
         char name[16], header[48];
         name_of(character->record, name);
         snprintf(header, sizeof header, "%s, how can we help you?", name);
@@ -819,7 +820,7 @@ void cok_temple(cok_adventure *game)
                 break;
             }
             /* Both texts clear the window, so the first goes at once. */
-            cok_text_window window = {1, 0x11, 0x26, 0x16};
+            cok_text_window window = cok_adventure_text_window;
             cok_adventure_print(game,
                                 "As you leave a priest says, \"Excuse me but you have left some "
                                 "money here\" ",

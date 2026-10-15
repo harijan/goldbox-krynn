@@ -511,11 +511,12 @@ bool cok_monster_movement(const cok_party *party, uint8_t *fastest, uint8_t *slo
  * away, talk. */
 enum { FLED, FIGHT, AWAY, TALK };
 
-/* Print one of the encounter's lines from the window's top, typed. */
+/* Print one of the encounter's lines from the window's top, typed (the
+ * text delay is on while the menu runs). */
 static void encounter_line(cok_adventure *game, const char *text, bool clear)
 {
     game->vm.cursor = (cok_text_cursor){1, 0x11};
-    cok_adventure_type(game, text, 10, clear);
+    cok_adventure_print(game, text, cok_adventure_text_window, 10, clear);
 }
 
 /* ENCOUNTER MENU sprite distance picture result c0 c1 c2 c3 c4 text0 text1
@@ -532,6 +533,7 @@ static void encounter_menu(cok_adventure *game)
     cok_ecl *vm = &game->vm;
     game->in_encounter = true;
     game->text_shown = true;
+    game->text_delay = true; /* 2fd3:23f6 */
     uint8_t fastest, slowest;
     if (!cok_monster_movement(&game->party, &fastest, &slowest)) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
@@ -608,6 +610,7 @@ static void encounter_menu(cok_adventure *game)
         }
     }
     cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 67b5:0c7b */
+    game->text_delay = false; /* 2aae */
     game->in_encounter = false;
 }
 
