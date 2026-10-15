@@ -173,24 +173,30 @@ def loop_of(frames, least=3):
 
 
 def in_order(verdict, what, shots, frames, loop_from=None, cleared=(), moving=False,
-             settled=True):
+             settled=True, work=None):
     """SHOTS, screens of the original caught between two key reads in
     order, against FRAMES, the port's over the same stretch (its shots at
     each delay and key read): each must equal a frame at or after the one
     the screen before it matched; with LOOP_FROM, after the last frame
     comes frame LOOP_FROM again (a loop the original goes round). A screen
     other than the last (any, unless SETTLED: the last is taken at a key
-    wait) may have been caught while DOSBox-X drew the next frame: then each of its pixels must be that of a frame or of the frame
-    after it (two in a row), or black inside CLEARED, the areas (x, y, w,
+    wait) may have been caught while DOSBox-X drew the next frame: then
+    each of its pixels must be that of a frame or of the frame after it
+    (two in a row), or black inside CLEARED, the areas (x, y, w,
     h) the port fills with black before it draws them again between those
     two frames (a list's window: menu.c's draw_list), which the original
     was caught between clearing and drawing; with MOVING (a missile's
     picture moved from cell to cell: the port's arena.c restores what it
     covered, then draws it at the next cell), inside the box where the two
     frames differ, what one of FRAMES shows there (the picture taken away
-    and not yet drawn again: the ground under it). Nothing else."""
+    and not yet drawn again: the ground under it). Nothing else. A screen
+    that matches no frame but was caught in one screenshot only (.seen 1,
+    checklib.watch's), between two others, is one the original drew
+    through in stages the port has no frame of: it is left out, said and
+    saved in WORK (once-WHAT-I.png); every screen held across two or more
+    screenshots must match."""
     n = len(frames)
-    k, matched = 0, []
+    k, matched, once = 0, [], []
 
     def after(j):
         return j + 1 if j + 1 < n else loop_from
@@ -219,6 +225,12 @@ def in_order(verdict, what, shots, frames, loop_from=None, cleared=(), moving=Fa
                 if after(j) is not None and drawing(shot, frames[j], frames[after(j)]):
                     found, how = j, "drawing"
                     break
+        if found is None and getattr(shot, "seen", 2) == 1 and 0 < i < len(shots) - 1:
+            once.append(i)
+            if work is not None:
+                shot.save_png(pathlib.Path(work) / f"once-{checklib.slug(what)}-{i:02d}.png")
+            matched.append("once")
+            continue
         if found is None:
             best = min(range(n), key=lambda j: shot.diff(frames[j])[0]) if n else None
             verdict.differ(what, f"screen {i} of {len(shots)} matches no frame of the port's "
@@ -228,7 +240,9 @@ def in_order(verdict, what, shots, frames, loop_from=None, cleared=(), moving=Fa
             return False
         matched.append(found if how == "equal" else f"{found}+{after(found)}")
         k = found
-    verdict.ok(what, f"{len(shots)} screens, the port's frames {compress(matched)}")
+    verdict.ok(what, f"{len(shots)} screens, the port's frames {compress(matched)}"
+               + (f"; screens {once} seen in one screenshot only, matching no frame: left out"
+                  + (f" (saved in {work})" if work is not None else "") if once else ""))
     return True
 
 

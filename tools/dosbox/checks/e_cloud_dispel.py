@@ -121,8 +121,8 @@ def battle(v, work, saves, verbose):
                     verbose=verbose, timeout=900) as box:
         box.keys(keys)
         box.wait_input(settle=0.7)
-        pair.judge(v, "aimed", box.screenshot(work / "battle-aimed.png"),
-                   "battle: KAL's Dispel Magic aimed at 28,12")
+        aimed = box.screenshot(work / "battle-aimed.png")
+        pair.judge(v, "aimed", aimed, "battle: KAL's Dispel Magic aimed at 28,12")
         before = clouds(box)
         heap0 = E.heap(box)
         print("  clouds:", before)
@@ -141,8 +141,9 @@ def battle(v, work, saves, verbose):
         v.check(last is not None, "battle: the original shows the port's last frame before "
                 "its stop (The air clears a little...)", f"{len(seen)} screens")
         if last is not None:
+            # From the aim's screen (the port's frame 0) on.
             E.in_order(v, "battle: the screens after Target to there, in the port's order",
-                       seen[:last + 1], frames)
+                       [aimed] + seen[:last + 1], frames, work=work)
         print("  the port is not compared past its stop: the original's recorded behaviour")
         v.check(took and MENU in where, "battle: the game waits at the next player's combat "
                 "menu (recorded)", ", ".join(where) if took else where)
@@ -198,8 +199,8 @@ def camp(v, work, saves, verbose):
                     timeout=900) as box:
         box.keys(keys)
         box.wait_input(settle=0.7)
-        pair.judge(v, "cast", box.screenshot(work / "camp-cast.png"),
-                   "camp: Dispel Magic's target asked")
+        asked = box.screenshot(work / "camp-cast.png")
+        pair.judge(v, "cast", asked, "camp: Dispel Magic's target asked")
         low = E.low_memory(box)
         # The cells 5b04:3352 reads with the map pointer NULL: 0000:(7 + 50y
         # + x) for the spell's cell (DS:710f, 7110) and its eight
@@ -227,8 +228,8 @@ def camp(v, work, saves, verbose):
         # The spell list is drawn again after the cast: its window (columns
         # 1-38, rows 5-22) cleared, then each row (menu.c's draw_list), with
         # no delay between in the port: a screen caught in between.
-        E.in_order(v, "camp: the screens after Select, in the port's order", seen + [last],
-                   frames, cleared=[(8, 40, 304, 144)])
+        E.in_order(v, "camp: the screens after Select, in the port's order",
+                   [asked] + seen + [last], frames, cleared=[(8, 40, 304, 144)], work=work)
         pair.judge(v, "after", last, "camp: the screen at the next key read")
         changed = E.low_changes(low, E.low_memory(box))
         v.check(not changed, "camp: low memory unchanged (but the BIOS's own counters)",

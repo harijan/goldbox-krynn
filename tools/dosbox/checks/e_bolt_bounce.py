@@ -185,7 +185,8 @@ def main():
         # again (what the original repeats); screens caught as the bolt's
         # picture moved from cell to cell allowed.
         E.in_order(v, "the bolt's screens: the port's frames in order, round its loop", shots,
-                   frames[:start + period], loop_from=start, moving=True, settled=False)
+                   frames[:start + period], loop_from=start, moving=True, settled=False,
+                   work=work)
     print(f"files in {work}")
     return v.finish()
 
