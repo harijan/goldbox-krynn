@@ -5371,8 +5371,10 @@ there (INT 62h's vector unused), so the target counts as an ally not
 under the computer's control and `Attack Ally:` is asked; No gives the
 turn back, nothing written; Yes attacks the record at `0000:0000`, writing
 over the interrupt table where its fields lie (INT 2-4, INT 33h's segment,
-the mouse driver's, INT 50h-5Fh, 63h-66h), ends the turn, and the battle
-goes on (with KRYNN.CFG's mouse the next INT 33h call would jump astray).
+the mouse driver's, INT 50h-5Fh, 63h-66h), ends the turn, leaving two
+red `@` at column 39 of rows 12 and 14 of the next menu's screen, and the
+battle goes on (with KRYNN.CFG's mouse the next INT 33h call would jump
+astray).
 
 A differential test ran the original's whole battle, `3995:0172` with
 the player's commands and everything they call as they are (`08d5`,
@@ -7272,14 +7274,17 @@ original's behaviour is recorded, its section says what it does):
   setup closed at the path leaves an empty `KRYNN.CFG`, which the next
   start reads as CGA with no sound: `a_setup.py`.
 - #3 The title's music with `KRYNN.CFG`'s `T` and `P`: the pitches, the
-  tempo (within DOSBox-X's WAV error, 0.2 %); LF line ends silent; the 3D
-  steps and turns and the overland steps matched by length; in a battle
-  the drop's sound, while the baaz turns' sounds come longer in the
-  original (0.12 + 0.22 s against 0.075 + 0.19 s), its steps spread over
-  its drawing time where `eclplay`'s clock has none (the rest below):
-  `f_sound.py`.
-- #4 The step before a record read is silenced at once, as in the port
-  (how long: below): `f_sound.py`.
+  tempo (within DOSBox-X's WAV error); LF line ends silent; the overland
+  steps, and the 3D steps and turns, all matched by length (given a pause
+  after the last key, without which `eclplay`'s run ends before the last
+  turn's sound does); in a battle the drop's sound, the baaz turns' steps
+  two or more commands within 100 ms in `eclplay`'s clock, which has no
+  drawing time, sounding as one there where the original's spread (the
+  rest below): `f_sound.py`.
+- #4 The step before a record read is cut there, as in the port: silent in
+  one run, 10 ms in another (a timer interrupt between the command and the
+  read), never more than one interrupt's (how long the read keeps it:
+  below): `f_sound.py`.
 - #5 Ctrl-S after the demonstration leaves the sound off for good; Alt-R
   toggles it as Ctrl-S does, tried in the start menu (in combat: below):
   `a_ctrl_s.py`.
