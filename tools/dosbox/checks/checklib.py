@@ -217,13 +217,17 @@ def port_keys(keys):
     return MARK.sub("", keys)
 
 
-def frames_at(keys, out, binary=None, names=None, **kw):
+def frames_at(keys, out, binary=None, names=None, fixed=False, **kw):
     """The port's screen at each \\sNAME. of KEYS (or only NAMES): eclplay
     run on the keys before the mark stops at the key read that follows, and
     its last shot there is the screen the box's \\sNAME. takes at that wait.
-    KW go to cokbox.eclplay (machine, saves, args, start_menu, block).
-    Returns {name: Screen, or None when eclplay took no shot}."""
+    BINARY: another eclplay; by default stopping_eclplay(FIXED), the port
+    (with the known fixes when FIXED) that ends where the keys ran out. KW go
+    to cokbox.eclplay (machine, saves, args, start_menu, block). Returns
+    {name: Screen, or None when eclplay took no shot}."""
     out = pathlib.Path(out)
+    if binary is None:
+        binary = stopping_eclplay(fixed)
     marks = [(m.group(1), keys[:m.start()]) for m in MARK.finditer(keys)
              if names is None or m.group(1) in names]
 
@@ -237,8 +241,10 @@ def frames_at(keys, out, binary=None, names=None, **kw):
         return dict(pool.map(one, marks))
 
 
-def frame_after(keys, out, binary=None, **kw):
+def frame_after(keys, out, binary=None, fixed=False, **kw):
     """The port's screen at the key read after all of KEYS."""
+    if binary is None:
+        binary = stopping_eclplay(fixed)
     _, _, shots = cokbox.eclplay(port_keys(keys), out, binary=binary, shots=True, **kw)
     return cokbox.Screen.load(shots[-1]) if shots else None
 
@@ -349,6 +355,27 @@ def shot_at_delays(name, text):
         "        char path[4096];\n"
         "        snprintf(path, sizeof path, \"%s/%03u.bmp\", p->shots, p->shot++);\n"
         "        save(p, path);\n    }\n"))
+
+
+# eclplay --start-menu goes back to the start menu when the keys run out in
+# the adventure (its loop goes on after an adventure whose input ended) and
+# takes a last shot there, which frames_at would take for the screen at the
+# mark (batch B found it). This build ends where the keys ran out.
+STOP_LINE = "        if (status != COK_ECL_OK || vm->abort || game->quit) return status;\n"
+
+
+def stop_at_input_end(name, text):
+    """src/start.c: cok_start_game ends when the adventure's keys ran out."""
+    if STOP_LINE not in text:
+        raise cokbox.BoxError("src/start.c's adventure loop changed: update stop_at_input_end")
+    return text.replace(STOP_LINE, STOP_LINE.replace("game->quit)", "game->quit ||\n"
+                                                     "            game->input_ended)"))
+
+
+def stopping_eclplay(fixed=False):
+    """The port's eclplay (with the known fixes when FIXED) that stops when
+    the keys run out in the adventure: frames_at's default."""
+    return build("eclplay", fixed=fixed, transforms=[("start.c", stop_at_input_end)])
 
 
 def eclplay_with_pauses(fixed=False):
