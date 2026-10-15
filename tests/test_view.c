@@ -129,14 +129,20 @@ static void test_walls(void)
     CHECK(cok_view_set_walls(&view, 1, record, 0) == 0);
     CHECK(cok_view_set_walls(&view, 1, record, COK_VIEW_WALL_SET + 1) == 0);
     CHECK(cok_view_set_walls(&view, 3, record, sizeof record) == 0);
-    /* Two sets from slot 2: the first moves to tile set 2, the second to 3. */
+    /* Two sets from slot 2: both move by slot 2's offset (69ea:1124), the
+     * second set's values naming tiles past set 1's already. */
+    record[COK_VIEW_WALL_SET + 1] = 0x74;
+    record[COK_VIEW_WALL_SET + 2] = 0xec;
     CHECK(cok_view_set_walls(&view, 2, record, sizeof record) == 2);
     const uint8_t *set2 = view.walls + COK_VIEW_WALL_SET, *set3 = set2 + COK_VIEW_WALL_SET;
     CHECK(set2[0] == 0x2c && set2[1] == 0x2d + 0x46 && set2[2] == 0x74);
     CHECK(set2[COK_VIEW_WALL_SET - 1] == 0xb9);
-    CHECK(set3[0] == 0xba);
+    CHECK(set3[0] == 0x74 && set3[1] == 0xba && set3[2] == (uint8_t)(0xec + 0x46));
     CHECK(cok_view_set_walls(&view, 1, record, COK_VIEW_WALL_SET) == 1);
     CHECK(view.walls[2] == 0x2e && view.walls[1] == 0x2d);
+    /* From slot 1 (Throtl's WALLDEF1 record 1) neither set moves. */
+    CHECK(cok_view_set_walls(&view, 1, record, sizeof record) == 2);
+    CHECK(view.walls[1] == 0x2d && set2[0] == 0x2e && set2[1] == 0x74 && set2[2] == 0xec);
 }
 
 static void test_tile(void)

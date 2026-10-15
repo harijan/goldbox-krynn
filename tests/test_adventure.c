@@ -1229,10 +1229,11 @@ static void test_overland(void)
     s.length = 1;
     s.log[0] = '\0';
     unported_count = 0;
-    /* 2fd3:3c28 runs the first block's vectors itself: the measured depth. */
+    /* eclplay's block: its vectors at the depth of a vector 2fd3:3c28 runs
+     * itself, as the first command's are. */
     game.hooks.trace = trace_sp;
     battle_sps = 0;
-    CHECK(cok_adventure_enter(&game, 16) == COK_ECL_OK);
+    CHECK(cok_adventure_enter_block(&game, 16) == COK_ECL_OK);
     CHECK(battle_sps == 1);
     game.hooks.trace = NULL;
     CHECK(f->item_count == 1 && f->items[0][0x2e] == 0x12 && g->item_count == 0);
@@ -1281,6 +1282,126 @@ static void test_overland(void)
     CHECK(cok_adventure_restore(&game, path) && game.big_id == COK_ADVENTURE_NO_PICTURE);
     cok_adventure_close(&game);
     CHECK(remove(path) == 0 && rmdir(dir) == 0);
+}
+
+/* The battle stack pointer each block's scripts last ran with. */
+static uint16_t block_sp[256];
+
+/* DS:8856 as block 0x24's load vector starts. */
+static int pending_at_0x24;
+
+static void trace_block_sp(cok_adventure *game, void *context)
+{
+    (void)context;
+    block_sp[game->vm.block] = game->battle_sp;
+    if (game->vm.block == 0x24 && pending_at_0x24 < 0) pending_at_0x24 = game->frame_pending;
+}
+
+/* A saved game's word for var at, in 0x4b00-0x4eff or 0x7c00-0x7fff. */
+static void save_var(uint8_t *save, uint16_t at, uint16_t value)
+{
+    size_t i = at >= 0x7c00 ? 1 + 0x800 + 2 * (size_t)(at - 0x7c00) : 1 + 2 * (size_t)(at - 0x4b00);
+    save[i] = (uint8_t)value;
+    save[i + 1] = (uint8_t)(value >> 8);
+}
+
+/* Resuming a saved game (2fd3:3c28) runs only its block's load vector
+ * before the first command (475c:09ec): no location vector, so no question
+ * asked again, no step counted and no roll; the last mode (DS:4b4a) stays
+ * the one loaded. The after-move and location vectors wait for a command
+ * that returns to the loop: a step, not Encamp. eclplay's block
+ * (cok_adventure_enter_block) runs them at once, as 3b47 does. */
+static void test_resume(void)
+{
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .unported = count_unported, .context = &s};
+    uint16_t *mem = game.vm.mem4b00;
+    char dir[] = "/tmp/cok_resume_XXXXXX";
+    CHECK(mkdtemp(dir) != NULL);
+    char path[256];
+    snprintf(path, sizeof path, "%s/SAVGAMA.DAT", dir);
+    /* ECL1 block 16, the overland map at 2,2, the caravan met, the step
+     * counter one short of a roll; saved in camp (mode 2, last mode 4). */
+    static uint8_t save[COK_SAVED_GAME_SIZE];
+    save[0] = 1;
+    save_var(save, 0x7f12, 1);
+    save_var(save, 0x4bf2, 16);
+    save_var(save, 0x4bc3, 2);
+    save_var(save, 0x4bc4, 2);
+    save_var(save, 0x4c2d, 1);
+    save_var(save, 0x4c06, 9);
+    save[0x1406] = 4;
+    save[0x1407] = 2;
+    write_file(path, save, sizeof save);
+    uint32_t rolled = 10;
+    cok_tp_random(&rolled, 99);
+    for (int first = 0; first < 3; ++first) {
+        CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+        CHECK(cok_adventure_restore(&game, path));
+        game.vm.seed = 10;
+        s.keys = "";
+        s.at = s.length = 0;
+        s.log[0] = '\0';
+        if (first < 2) {
+            game.vm.reload = true; /* 3c28 clears DS:43b9 first. */
+            CHECK(cok_adventure_enter(&game, 16) == COK_ECL_OK);
+            CHECK(game.vm.seed == 10 && mem[0x106] == 9 && s.log[0] == '\0');
+            CHECK(game.vm.mode == 3 && game.vm.last_mode == 2 && mem[0x1f7] == 1);
+            /* Encamp: the camp vector, then the camp menu; Exit. */
+            s.keys = first == 0 ? "m6" : "EE";
+            s.length = 2;
+            CHECK(cok_adventure_play(&game) == COK_ECL_OK && game.input_ended);
+            if (first == 0)
+                CHECK(game.vm.seed == rolled && mem[0x106] == 10 && mem[0xc3] == 3);
+            else
+                CHECK(game.vm.seed == 10 && mem[0x106] == 9 && mem[0xc3] == 2);
+            CHECK(game.vm.last_mode == 2);
+        } else {
+            CHECK(cok_adventure_enter_block(&game, 16) == COK_ECL_OK);
+            CHECK(game.vm.seed == rolled && mem[0x106] == 10 && game.vm.last_mode == 3);
+        }
+        cok_adventure_close(&game);
+    }
+    /* On Throtl's square the location vector asks whether to enter. */
+    save_var(save, 0x4bc4, 1);
+    write_file(path, save, sizeof save);
+    for (int block = 0; block < 2; ++block) {
+        CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+        CHECK(cok_adventure_restore(&game, path));
+        s.keys = "";
+        s.at = s.length = 0;
+        s.log[0] = '\0';
+        game.input_ended = false;
+        if (block == 0)
+            CHECK(cok_adventure_enter(&game, 16) == COK_ECL_OK && !game.input_ended);
+        else
+            cok_adventure_enter_block(&game, 16);
+        CHECK((strstr(s.log, "print: YOU ARE NEAR ;") != NULL) == (block == 1));
+        cok_adventure_close(&game);
+    }
+    CHECK(remove(path) == 0 && rmdir(dir) == 0);
+
+    /* A new game: Solace's block (0x24) runs at 3c28's depth, its NEWECL
+     * enters block 16 through 3b47, 6 below. */
+    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    s.keys = "\r\r";
+    s.at = 0;
+    s.length = 2;
+    s.log[0] = '\0';
+    memset(block_sp, 0, sizeof block_sp);
+    pending_at_0x24 = -1;
+    game.hooks.trace = trace_block_sp;
+    cok_adventure_enter(&game, 0x24);
+    game.hooks.trace = NULL;
+    CHECK(block_sp[0x24] == COK_BATTLE_SP && block_sp[16] == COK_BATTLE_SP - 6);
+    /* 0x4bf2 0: DS:8856 clear (3c28); block 16 entered by 3b47, on the
+     * overland map, which keeps the mode as the last. */
+    CHECK(pending_at_0x24 == 0);
+    CHECK(game.vm.mode == 3 && game.vm.last_mode == 3);
+    CHECK(strstr(s.log, "print: AT THE INN OF THE LAST HOME IN SOLACE, A BRAVE ;") != NULL);
+    cok_adventure_close(&game);
 }
 
 /* Whether a cell holds any pixel of colour. */
@@ -1787,6 +1908,7 @@ int main(void)
     test_doors();
     test_load_stats();
     test_overland();
+    test_resume();
     test_opcodes();
     test_portrait();
     test_display();

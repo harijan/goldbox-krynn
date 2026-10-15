@@ -18,6 +18,7 @@
 
 #include <errno.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -68,9 +69,8 @@ typedef struct {
     SDL_Texture *texture;  /* The screen, 320x200. */
     SDL_Texture *text_texture; /* Startup's text screen, 640x200, while it shows. */
     /* Startup's text screen (11c7:031a) while it shows, in place of the
-     * game's, its font, and its pixels as last rendered. */
+     * game's, and its pixels as last rendered. */
     cok_crt *text;
-    cok_font text_font;
     uint8_t text_pixels[TEXT_BYTES];
     bool text_uploaded;
     SDL_Texture *upscaled; /* It scaled up whole, or NULL without render targets. */
@@ -99,6 +99,11 @@ typedef struct {
     bool closing;          /* The window was closed: end the run. */
     bool no_delay;
     bool log;
+    /* --log-times: each line of --log after SDL's clock, each present
+     * logged, counted as SDL's dummy driver numbers the frames it saves,
+     * and each frame of the small picture's animation as it is drawn. */
+    bool log_times;
+    unsigned long presents;
     /* A key script (--keys), typed through SDL's events as the game asks
      * for keys; then the keyboard if keep_playing. */
     bool scripted, keep_playing;
@@ -159,6 +164,10 @@ static void usage(const char *program)
             "                  training\n"
             "  --log           print the game's text, menus and unported calls to\n"
             "                  standard error, as eclplay prints them\n"
+            "  --log-times     with --log, start each line with SDL's clock (the\n"
+            "                  milliseconds the delays go by) and log each frame the\n"
+            "                  window presents (present: N) and each of the small\n"
+            "                  picture's frames (frame: N); for tests in real time\n"
             "  --keys KEYS     type KEYS first, in eclplay's escapes (\\[KEYS\\] typed\n"
             "                  ahead, \\wN. waiting, \\m and \\j the mouse and the stick),\n"
             "                  through the window's events;\n"
@@ -181,6 +190,31 @@ static void usage(const char *program)
             "  --input DEVICE  mouse, joystick or none, in place of the one KRYNN.CFG\n"
             "                  names\n",
             program);
+}
+
+/* A line of --log, with --log-times after SDL's clock at ms. */
+static void vlog_at(const frontend *f, Uint64 ms, const char *format, va_list args)
+{
+    if (!f->log) return;
+    if (f->log_times) fprintf(stderr, "%llu ", (unsigned long long)ms);
+    vfprintf(stderr, format, args);
+}
+
+static void log_at(const frontend *f, Uint64 ms, const char *format, ...)
+{
+    va_list args;
+    va_start(args, format);
+    vlog_at(f, ms, format, args);
+    va_end(args);
+}
+
+/* A line of --log, now. */
+static void say(const frontend *f, const char *format, ...)
+{
+    va_list args;
+    va_start(args, format);
+    vlog_at(f, SDL_GetTicks64(), format, args);
+    va_end(args);
 }
 
 /* The display. */
@@ -218,7 +252,7 @@ static int source_height(const frontend *f)
 /* Render the text screen and copy it into its texture if it changed. */
 static bool upload_text(frontend *f)
 {
-    cok_crt_render(f->text, &f->text_font, f->text_pixels);
+    cok_crt_render(f->text, f->text_pixels);
     if (f->text_uploaded && memcmp(f->text_shown, f->text_pixels, TEXT_BYTES) == 0) return false;
     memcpy(f->text_shown, f->text_pixels, TEXT_BYTES);
     cok_image image = {.width = COK_CRT_WIDTH, .height = COK_CRT_HEIGHT,
@@ -367,7 +401,7 @@ static void save_shown(frontend *f, const SDL_Rect *dst, const char *path)
 static bool owed(frontend *f)
 {
     if (f->text != NULL) {
-        cok_crt_render(f->text, &f->text_font, f->text_pixels);
+        cok_crt_render(f->text, f->text_pixels);
         return f->expose || !f->text_uploaded ||
                memcmp(f->text_shown, f->text_pixels, TEXT_BYTES) != 0;
     }
@@ -390,10 +424,11 @@ static void present(frontend *f, bool force, const char *path)
     if (f->log && memcmp(&dst, &f->where, sizeof dst) != 0) {
         int w, h;
         SDL_GetRendererOutputSize(f->renderer, &w, &h);
-        fprintf(stderr, "shown: %dx%d at %d,%d of %dx%d\n", dst.w, dst.h, dst.x, dst.y, w, h);
+        say(f, "shown: %dx%d at %d,%d of %dx%d\n", dst.w, dst.h, dst.x, dst.y, w, h);
         f->where = dst;
     }
     if (path != NULL) save_shown(f, &dst, path);
+    if (f->log_times) log_at(f, now, "present: %lu\n", ++f->presents);
     SDL_RenderPresent(f->renderer);
     f->presented = now;
     if (f->log && f->text == NULL) memcpy(f->on_window, f->shown, SCREEN_BYTES);
@@ -440,7 +475,7 @@ static void screenshot(frontend *f)
     if (screen_shown(f) != NULL) image.pixels = f->composed; /* the cursor too, as shown */
     if (f->text != NULL) {
         /* Startup's text screen, 640x200. */
-        cok_crt_render(f->text, &f->text_font, f->text_pixels);
+        cok_crt_render(f->text, f->text_pixels);
         image = (cok_image){.width = COK_CRT_WIDTH, .height = COK_CRT_HEIGHT,
                             .pixels = f->text_pixels};
     }
@@ -945,10 +980,7 @@ static void audio_open(frontend *f, const char *assets, cok_sound_device device,
     }
     const char *driver = SDL_GetCurrentAudioDriver();
     a->writer = driver != NULL && strcmp(driver, "disk") == 0;
-    if (f->log) {
-        fprintf(stderr, "sound: %s, %s\n", SDL_GetCurrentAudioDriver(),
-                cok_sound_device_name(device));
-    }
+    say(f, "sound: %s, %s\n", SDL_GetCurrentAudioDriver(), cok_sound_device_name(device));
     SDL_PauseAudioDevice(a->device, 0);
 }
 
@@ -975,9 +1007,9 @@ static void audio_close(frontend *f)
             SDL_CondBroadcast(a->changed);
             SDL_UnlockMutex(a->lock);
         }
-        if (f->log && a->dropped > 0)
-            fprintf(stderr, "sound: %llu samples dropped, the device behind the game\n",
-                    (unsigned long long)a->dropped);
+        if (a->dropped > 0)
+            say(f, "sound: %llu samples dropped, the device behind the game\n",
+                (unsigned long long)a->dropped);
         SDL_CloseAudioDevice(a->device);
         a->device = 0;
     }
@@ -1084,6 +1116,7 @@ static int read_key(void *context)
             /* 67b5:0502: the next frame once this one's time is up. */
             if (now - f->frame_from >= frame_ms) {
                 cok_adventure_menu_frame(game);
+                if (f->log_times) log_at(f, now, "frame: %zu\n", game->frame);
                 f->frame_from = now;
                 cok_adventure_menu_animates(game, &frame_ms); /* the new frame's */
             }
@@ -1102,7 +1135,7 @@ static void flush_keys(cok_adventure *game, void *context)
     (void)game;
     frontend *f = context;
     size_t dropped = f->count + (f->owed >= 0);
-    if (f->log && dropped > 0) fprintf(stderr, "flush: %zu keys typed ahead dropped\n", dropped);
+    if (dropped > 0) say(f, "flush: %zu keys typed ahead dropped\n", dropped);
     f->count = 0;
     f->owed = -1;
 }
@@ -1219,8 +1252,8 @@ static void delay(cok_adventure *game, unsigned ms, void *context)
         if (f->owed_from == 0) {
             f->owed_from = now;
         } else if (now - f->owed_from >= 10 * PRESENT_MS) {
-            fprintf(stderr, "stale: the window showed an old screen for %llu ms of delays\n",
-                    (unsigned long long)(now - f->owed_from));
+            log_at(f, now, "stale: the window showed an old screen for %llu ms of delays\n",
+                   (unsigned long long)(now - f->owed_from));
             f->owed_from = now;
         }
     } else {
@@ -1238,7 +1271,7 @@ static void log_line(cok_adventure *game, const char *kind, const char *text, vo
 {
     (void)game;
     frontend *f = context;
-    if (f->log) fprintf(stderr, "%s: %s\n", kind, text);
+    say(f, "%s: %s\n", kind, text);
 }
 
 static void unported(cok_adventure *game, void *context)
@@ -1246,10 +1279,12 @@ static void unported(cok_adventure *game, void *context)
     frontend *f = context;
     if (!f->log) return;
     const char *name = cok_ecl_opcode_name(game->vm.opcode);
-    fprintf(stderr, "[%s", name != NULL ? name : "?");
-    for (size_t i = 0; i < game->vm.operands; ++i)
-        fprintf(stderr, " %u", cok_ecl_value(&game->vm, i));
-    fprintf(stderr, "]\n");
+    /* The name (15 letters at most) and up to 64 operands of " %u", whole. */
+    char line[32 + COK_ECL_MAX_OPERANDS * 11];
+    size_t n = (size_t)snprintf(line, sizeof line, "[%s", name != NULL ? name : "?");
+    for (size_t i = 0; i < game->vm.operands && n < sizeof line; ++i)
+        n += (size_t)snprintf(line + n, sizeof line - n, " %u", cok_ecl_value(&game->vm, i));
+    say(f, "%s]\n", line);
 }
 
 /* Startup's Crt.Delay, as the game's. */
@@ -1263,22 +1298,20 @@ static void text_delay(unsigned ms, void *context)
 static void text_log(const char *row, void *context)
 {
     frontend *f = context;
-    if (f->log) fprintf(stderr, "crt: %s\n", row);
+    say(f, "crt: %s\n", row);
 }
 
 /* Startup's text screens (11c7:031a): the setup when there is no
  * KRYNN.CFG, then the note to Tandy users. Returns 0 to go on, else the
  * exit status, -1 for the run ended in the setup. */
 static int startup(frontend *f, const cok_keyboard *keyboard, const char *path, bool found,
-                   const char *assets, cok_config *config, bool calibrate)
+                   cok_config *config, bool calibrate)
 {
     static cok_crt text;
     text.log = text_log;
     text.context = f;
     cok_crt_init(&text);
     f->text = &text;
-    if (!cok_setup_font(assets, &f->text_font))
-        fprintf(stderr, "%s/8X8D1.DAX: no font for the text screen\n", assets);
     cok_setup_hooks hooks = {text_delay, f, &f->port, &f->ended, calibrate};
     char error[1200];
     cok_setup_status status =
@@ -1303,7 +1336,6 @@ static int startup(frontend *f, const cok_keyboard *keyboard, const char *path, 
         result = 1;
     }
     f->text = NULL;
-    cok_font_free(&f->text_font);
     f->expose = true;
     return result;
 }
@@ -1426,6 +1458,8 @@ int main(int argc, char **argv)
             helm = true;
         } else if (strcmp(option, "--log") == 0) {
             f.log = true;
+        } else if (strcmp(option, "--log-times") == 0) {
+            f.log_times = true;
         } else if (strcmp(option, "--keys") == 0 && has_value) {
             keys = argv[++i];
         } else if (strcmp(option, "--continue") == 0) {
@@ -1528,7 +1562,7 @@ int main(int argc, char **argv)
     if (f.log) {
         int w, h;
         SDL_GetWindowSize(f.window, &w, &h);
-        fprintf(stderr, "window: %dx%d\n", w, h);
+        say(&f, "window: %dx%d\n", w, h);
     }
 
     cok_keyboard keyboard = {read_key, &f, NULL, NULL};
@@ -1538,7 +1572,7 @@ int main(int argc, char **argv)
     bool found = cok_config_find(config_option, saves, assets, config_path, config_write,
                                  sizeof config_path);
     cok_config config = {.display = COK_DISPLAY_TANDY, .sound = COK_SOUND_TANDY};
-    int started = startup(&f, &keyboard, config_path, found, assets, &config,
+    int started = startup(&f, &keyboard, config_path, found, &config,
                           input != NULL && strcmp(input, "joystick") == 0);
     if (started != 0) {
         int result = started < 0 ? 0 : started;
@@ -1557,7 +1591,7 @@ int main(int argc, char **argv)
     }
     if (!display_given) display = config.display;
     if (!sound_given) device = config.sound;
-    if (f.log) fprintf(stderr, "display: %s\n", cok_display_name(display));
+    say(&f, "display: %s\n", cok_display_name(display));
     /* CGA's 4 colours. */
     colours.palette = display == COK_DISPLAY_CGA ? cok_cga_palette : NULL;
     cok_image_rgb(&colours, &f.palette[0][0]);
@@ -1589,11 +1623,10 @@ int main(int argc, char **argv)
         f.opened = true;
         cok_adventure_devices(&game, config.mouse, config.joystick, config.joystick_x,
                               config.joystick_y);
-        if (f.log)
-            fprintf(stderr, "input: %s\n", config.mouse      ? "mouse"
-                                           : game.stick.on    ? "joystick"
-                                           : config.joystick ? "joystick not found"
-                                                              : "keyboard");
+        say(&f, "input: %s\n", config.mouse      ? "mouse"
+                               : game.stick.on    ? "joystick"
+                               : config.joystick ? "joystick not found"
+                                                  : "keyboard");
         game.helm = helm;
         game.vm.seed = seeded ? (uint32_t)seed : randomize();
         cok_ecl_status status = cok_start_game(&game, woof);

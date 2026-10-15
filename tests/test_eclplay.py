@@ -67,7 +67,7 @@ class PlayTests(unittest.TestCase):
         lines = result.stdout.splitlines()
         # DESTROY ITEMS 63 runs first (block 16 at 82be) and logs nothing.
         self.assertEqual(lines[0], "print: AS YOU TOP A RISE, YOU SPOT A CARAVAN UNDER ")
-        self.assertIn("menu: ~PRESS <ENTER>/<RETURN> TO CONTINUE.", lines)
+        self.assertIn("menu: ~PRESS <ENTER>/<RETURN> TO CONTINUE", lines)
         # With no party the first record is a monster two squares north, in
         # row 1, and the view's top row is above the map: the original would
         # draw it from the heap before the map (6beb:07a9), and the run stops.
@@ -891,15 +891,107 @@ class PlayTests(unittest.TestCase):
         bmp = sorted(shots.glob("*.bmp"))[3].read_bytes()
         self.assertEqual((ink(bmp, 17, 15), ink(bmp, 18, 15)), (GREEN, (0, 0, 0)))
         save = saves / "SAVGAMB.DAT"
-        result = self.play("--load", save, "--play", "--keys", r"\ra", ASSETS)
-        self.assertEqual(result.stdout.splitlines()[-3:],
-                         ["print: Not Here", "menu: Move Area Cast View Encamp Search Look",
-                          "(out of keys in block 34 at 8287)"])
+        # Resumed, only the load vector runs before the first command (no
+        # entrance text from the location vector).
+        result = self.play("--load", save, "--play", "--keys", "a", ASSETS)
+        self.assertEqual(result.stdout.splitlines(),
+                         ["menu: Move Area Cast View Encamp Search Look", "print: Not Here",
+                          "menu: Move Area Cast View Encamp Search Look",
+                          "(out of keys in block 34 at 801c)"])
         # Started with Helm, the map shows there, until the next step's view.
-        result = self.play("--load", save, "--play", "--helm", "--keys", r"\ram\^", ASSETS)
+        result = self.play("--load", save, "--play", "--helm", "--keys", r"am\^", ASSETS)
         lines = result.stdout.splitlines()
         self.assertEqual([line for line in lines if line.startswith(("at: ", "area: "))],
                          ["area: on", "at: 1,0,2", "area: off"])
+
+    def test_continue_has_no_full_stop(self):
+        # 2fd3:116d replaces "PRESS BUTTON OR RETURN TO CONTINUE." with the
+        # 34 characters of 2fd3:1146, which end without a full stop: row 24
+        # is blank from column 34 (Solace's first page, ECL1 block 36).
+        screen = self.folder / "solace.bmp"
+        result = self.play("--test-party", 1, "--screen", screen, ASSETS, 36)
+        self.assertIn("menu: ~PRESS <ENTER>/<RETURN> TO CONTINUE", result.stdout.splitlines())
+        bmp = screen.read_bytes()
+        self.assertEqual(ink(bmp, 33, 24), WHITE)
+        self.assertEqual(block(bmp, 34, 24), block(bmp, 35, 24))
+        self.assertEqual(ink(bmp, 34, 24), (0, 0, 0))
+
+    def test_throtl_second_wall_set(self):
+        # Throtl's walls are WALLDEF1 record 1, two sets loaded from slot 1:
+        # 69ea:1025 adds slot 1's offset (none) to both, so the far doors two
+        # squares ahead of 7,15 facing north are the second set's own tiles.
+        # These are the original's pixels there (DOSBox-X, batch C's #27).
+        screen = self.folder / "street.bmp"
+        result = self.play("--test-party", 2, "--play", "--set", "4be6=1", "--set", "4c4d=2",
+                           "--screen", screen, "--keys", "", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        bmp = screen.read_bytes()
+        colours = [(0, 0, 0), (0, 0, 170), (0, 170, 0), (0, 170, 170), (170, 0, 0), (170, 0, 170),
+                   (170, 85, 0), (170, 170, 170), (85, 85, 85), (85, 85, 255), (85, 255, 85),
+                   (85, 255, 255), (255, 85, 85), (255, 85, 255), (255, 255, 85), (255, 255, 255)]
+        rows = ["".join("%x" % colours.index(pixel(bmp, x, y)) for x in range(56, 80))
+                for y in range(56, 80)]
+        self.assertEqual(rows, [
+            "800000000000000000000008", "300000000000000000000003", "680000000000000000000067",
+            "638800000000000000008636", "767630000000000000083873", "336308000000000000068377",
+            "763786000000000003637637", "737676880000000067367637", "777377676038386777737767",
+            "736736737367678373673673", "773776737737767377377673", "737883777373737773788377",
+            "376060373778873737606037", "376060773760607737606077", "736060737360607373606073",
+            "776060737760607377606073", "736060337877877873606037", "366060387887888873606063",
+            "736060778778877887806036", "366088788887888887806077", "676077877778787778778033",
+            "738777787787778777877063", "378887888888878887888837", "378778777877788778777787"])
+
+    def test_resumed_camp_keeps_last_mode(self):
+        # Saved in Throtl's camp: .DAT 0x1406 (DS:4b4a) 4, 0x1407 (4b49) 2.
+        # The loader sets 4b4a to the saved mode, 2; resuming (2fd3:3c28)
+        # leaves it, only 3b47 after a NEWECL copying 4b49 there. So the
+        # game camped and saved again holds 2 at 0x1406.
+        saves = self.folder / "saves"
+        saves.mkdir()
+        self.play("--test-party", 2, "--play", "--set", "4be6=1", "--set", "4c4d=2",
+                  "--saves", saves, "--keys", "eSA", ASSETS, 32)
+        first = (saves / "SAVGAMA.DAT").read_bytes()
+        self.assertEqual((first[0x1406], first[0x1407]), (4, 2))
+        # Resumed, its first screen is the street's at 7,15 facing north, as
+        # entering the block draws it: the loaded game's redraw and view
+        # (3c28's 3d36, DS:4b52) before the first command.
+        street, resumed = self.folder / "street.bmp", self.folder / "resumed.bmp"
+        self.play("--test-party", 2, "--play", "--set", "4be6=1", "--set", "4c4d=2",
+                  "--screen", street, "--keys", "", ASSETS, 32)
+        result = self.play("--load", saves / "SAVGAMA.DAT", "--play", "--screen", resumed,
+                           "--keys", "", ASSETS)
+        self.assertEqual(result.stdout.splitlines(),
+                         ["menu: Move Area Cast View Encamp Search Look",
+                          "(out of keys in block 32 at 801c)"])
+        self.assertEqual(resumed.read_bytes(), street.read_bytes())
+        result = self.play("--load", saves / "SAVGAMA.DAT", "--play", "--saves", saves,
+                           "--keys", "eSB", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        again = (saves / "SAVGAMB.DAT").read_bytes()
+        self.assertEqual((again[0x1406], again[0x1407]), (2, 2))
+
+    def test_resumed_overland_asks_nothing(self):
+        # Saved in camp on Throtl's square of the overland map: resumed, only
+        # block 16's load vector runs before the first command, so the map's
+        # menu comes, not "YOU ARE NEAR THROTL. DO YOU ENTER?" again.
+        saves = self.folder / "saves"
+        saves.mkdir()
+        result = self.play("--test-party", 4, "--play", "--set", "4bf2=11", "--set", "4bc3=1",
+                           "--set", "4bc4=3", "--set", "4c2d=1", "--saves", saves,
+                           "--keys", "nm98neeSA", ASSETS, 16)
+        self.assertIn("overland: 2,1,0", result.stdout.splitlines())
+        result = self.play("--load", saves / "SAVGAMA.DAT", "--play", "--keys", "", ASSETS)
+        self.assertEqual(result.stdout.splitlines(),
+                         ["menu: Move Encamp", "(out of keys in block 16 at 807f)"])
+        # With the block named, eclplay enters it as 3b47 does: the location
+        # vector runs at once and asks.
+        result = self.play("--load", saves / "SAVGAMA.DAT", "--play", "--keys", "", ASSETS, 16)
+        self.assertIn("print: . DO YOU ENTER?", result.stdout.splitlines())
+        # A step away and back asks again, after the step back.
+        result = self.play("--load", saves / "SAVGAMA.DAT", "--play", "--keys", "m28", ASSETS)
+        self.assertEqual(result.stdout.splitlines()[:6],
+                         ["menu: Move Encamp", "menu: Exit", "overland: 2,2,4", "menu: Exit",
+                          "overland: 2,1,0", "print: YOU ARE NEAR "])
 
     def test_camp_in_throtl(self):
         for party in PARTIES:
@@ -2166,7 +2258,15 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(struct.unpack_from("<ii", first, 18), (640, 200))
         self.assertEqual(pixel(first, 0, 0), (0, 0, 0))
         self.assertIn((170, 170, 170), {pixel(first, x, y) for x in range(8) for y in range(8)})
-        later = [b.read_bytes() for b in bmps if struct.unpack_from("<i", b.read_bytes(), 18)[0] == 320]
+        # The path as typed, in the PC-style font (src/crt.c): its a in
+        # lower case, column 44, not the A of PATH at column 1.
+        text = [b.read_bytes() for b in bmps if struct.unpack_from("<i", b.read_bytes(), 18)[0] == 640]
+        cell = lambda bmp, column: [sum(128 >> x for x in range(8)
+                                        if pixel(bmp, column * 8 + x, y) == (170, 170, 170))
+                                    for y in range(8)]
+        self.assertEqual(cell(text[-1], 44), [0x00, 0x00, 0x3c, 0x06, 0x3e, 0x66, 0x3e, 0x00])
+        self.assertEqual(cell(text[-1], 1), [0x18, 0x3c, 0x66, 0x66, 0x7e, 0x66, 0x66, 0x00])
+        later =[b.read_bytes() for b in bmps if struct.unpack_from("<i", b.read_bytes(), 18)[0] == 320]
         self.assertTrue(later)
         self.assertLessEqual({pixel(later[0], x, y) for x in range(0, 320, 7) for y in range(0, 200, 7)},
                              {(0, 0, 0), (85, 255, 255), (255, 85, 255), (255, 255, 255)})

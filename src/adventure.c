@@ -809,8 +809,9 @@ static void horizontal_menu(cok_adventure *game)
     size_t count = vm->operands;
     game->selected = 1;
     bool single = count == 1;
+    /* 2fd3:1122 replaced by 2fd3:1146, which has no full stop. */
     if (single && strcmp(vm->string[0], "PRESS BUTTON OR RETURN TO CONTINUE.") == 0)
-        snprintf(vm->string[0], sizeof vm->string[0], "PRESS <ENTER>/<RETURN> TO CONTINUE.");
+        snprintf(vm->string[0], sizeof vm->string[0], "PRESS <ENTER>/<RETURN> TO CONTINUE");
     /* Items are ~ITEM separated by spaces, cut to 50 characters as each is
      * added. */
     char items[51] = "";
@@ -2344,9 +2345,10 @@ bool cok_adventure_restore(cok_adventure *game, const char *path)
 
 /* Enter the loaded block (2fd3:3b47): run its load vector, show the view if
  * it loaded files or stays in 3D, then run the after-move and location
- * vectors, starting over whenever NEWECL switches blocks. first: as
- * 2fd3:3c28 starts, which runs the first block's vectors itself, 3b47 only
- * those after a NEWECL. */
+ * vectors, starting over whenever NEWECL switches blocks, and keep the mode
+ * as the last (DS:4b4a = 4b49, at 3b47's end only). first: the first pass
+ * runs at the stack depth of a vector 2fd3:3c28 runs itself (eclplay's
+ * block, cok_adventure_enter_block), else 6 below, through 3b47. */
 static cok_ecl_status enter_block(cok_adventure *game, bool first)
 {
     cok_ecl *vm = &game->vm;
@@ -2381,18 +2383,38 @@ static cok_ecl_status enter_block(cok_adventure *game, bool first)
     return status;
 }
 
-cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block)
+/* As 2fd3:3c28 starts, up to loading the block (3775:0361, 3775:01e8). */
+static cok_ecl_status start_block(cok_adventure *game, uint8_t block)
 {
     cok_ecl *vm = &game->vm;
-    /* As 2fd3:3c28 starts. */
     game->redraw = true;
     game->files_loaded = game->pieces_loaded = game->map_loaded = false;
     game->frame_pending = vm->mem4b00[0xf2] != 0;
     vm->saved_character = vm->character;
+    vm->reload = false;
     vm->mode = 4;
     if (vm->mem4b00[0xf2] == 0) cok_adventure_party(game); /* starting block 0x24 */
     if (vm->mem4b00[0xe6] == 0) vm->mode = 3;
-    cok_ecl_status status = cok_adventure_load(game, block);
+    return cok_adventure_load(game, block);
+}
+
+cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block)
+{
+    cok_ecl *vm = &game->vm;
+    cok_ecl_status status = start_block(game, block);
+    if (status != COK_ECL_OK) return status;
+    /* Only the load vector (3cc7); the after-move and location vectors
+     * wait for the first command, and the last mode stays as it was. */
+    status = cok_ecl_run(vm, vm->vectors[4]);
+    if (status != COK_ECL_OK || vm->abort) return status;
+    if (vm->reload) return enter_block(game, false);
+    vm->mem4b00[0xf2] = vm->block;
+    return COK_ECL_OK;
+}
+
+cok_ecl_status cok_adventure_enter_block(cok_adventure *game, uint8_t block)
+{
+    cok_ecl_status status = start_block(game, block);
     return status == COK_ECL_OK ? enter_block(game, true) : status;
 }
 

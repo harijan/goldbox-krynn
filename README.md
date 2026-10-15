@@ -137,6 +137,7 @@ timed menu runs out or the small picture's next frame is due.
 | `--seed N` | start Turbo Pascal's `Random` from N; by default the clock seeds it, as startup's `Randomize` (`1a46:1200` from `3e99:005b`) does |
 | `--woof`, `--helm` | start as `START Woof` (no title, and the debug keys Ctrl-D, Ctrl-Z and Ctrl-C: see Debug mode) or with `Helm` (`Area` anywhere, the Gods' cheat Alt-X, free training) |
 | `--log` | print the game's text, menus, choices, sounds and what is not ported to standard error, as `eclplay` prints them; the window's size and where the screen is shown in it; keys typed ahead that a flush drops (`flush:`); startup's text screen, a row at a time (`crt:`); the display mode (`display:`); the alternate input found (`input:`); the audio driver and the sound device (`sound:`); and a check that the window keeps up: `stale:` if, through the game's delays, the window kept an older screen than the game's for more than 160 ms |
+| `--log-times` | with `--log`, start each line with SDL's clock (`SDL_GetTicks64`, the milliseconds the delays and waits go by), and log each frame the window presents (`present: N`, numbered as SDL's dummy driver numbers the frames it saves with `SDL_VIDEO_DUMMY_SAVE_FRAMES`) and each frame of the small picture's animation as it is drawn (`frame: N`, 0-based): what `tests/test_cok.py` measures the pacing by in real time |
 | `--keys KEYS` | type KEYS first, in `eclplay`'s escapes (see Playing scripts), each turned into the key that gives it and sent through SDL's key events as the game asks for a key (`\k` as it polls, `\t` the timed menu running out, `\[KEYS\]` typed ahead and `\wN.` as in Playing scripts; besides, `\pN.` pauses N hundredths of a second before the next key is typed as the game reads it, and `\#85` and `\#86`, codes the game never gets, press F11 and F12; `\mX,Y,B.` and `\jX,Y,B.` click the mouse and move the stick through SDL's events, see The mouse and the joystick; a key repeated in a group typed ahead is held, its repeats sent as a held key's are; each a real keystroke, so that a flush after its 0 is read loses its scan code, which `eclplay` keeps for keys not typed ahead); the run then ends as `eclplay`'s does, printing `(out of keys ...)`, unless `--continue` hands over to the keyboard |
 | `--no-delay` | do not wait where the game waits (for tests); a rest keeps the front end's pace (see below); the sound then goes by the game's clock (see Sound) |
 | `--display ega`, `--display tandy`, `--display cga` | the display mode in place of the one `KRYNN.CFG` names (its first line: `E`, `T`, anything else CGA, see Display modes): EGA and the Tandy's look the same; CGA shows four colours |
@@ -305,9 +306,10 @@ first fight, that the window never kept an old screen (`--log`'s check) nor
 showed more than about 60 frames a second; and the sound through SDL's disk
 writer: by the game's clock (`--no-delay`) the same samples as `eclplay
 --wav` for the same keys and seed, after the silence the device starts
-with; in real time the title's music playing on through the title's wait, a
-step's sound playing out while the game waits for a key, and without a
-device, with `--no-sound` or without `SOUND.DAX` the game playing on,
+with; in real time the title's music playing on through the title's wait,
+and two steps' sounds each playing out whole while the game waits for a
+key, and without a device, with `--no-sound` or without `SOUND.DAX` the
+game playing on,
 saying why; a copy of the assets whose `KRYNN.CFG` says `P` playing the
 speaker; and, with a copy of the assets without `KRYNN.CFG`, the setup's
 text screens at 640×200 frame for frame as `eclplay` draws them, the file
@@ -316,6 +318,45 @@ keys that end in the setup (the game then with the mouse the setup chose,
 as `eclplay --mouse` plays it); that the window shows startup's note to
 Tandy users before the title, and the music in real time after it; and the
 mouse's clicks and the joystick (see The mouse and the joystick).
+
+The checks in real time hold on a busy machine (the tests run while
+other builds and tests load every core) and still fail on a change to the
+pacing they check. They time the game by SDL's clock as `cok --log
+--log-times` logs it (its lines, the frames it presents and the picture's
+frames as it draws them), not by the test's clock, which is late by however
+long the test takes to read the lines, nor by when the frames' files were
+written. A pace must never be shorter than the original's, since every
+wait is measured on that clock; it may be longer by the machine's lateness
+in waking, which is bounded only where the port itself could be too slow,
+and then in the least late of the frames or steps that repeat: the
+picture's frames each under 20 ms over their delays in one of three rounds
+and presented within 16 ms of being drawn, the rest's count shown under
+56 ms apart (five steps of 10 ms) at least once, the note to Tandy users
+under 2.5 seconds, the menu's timeout under 10.5 seconds after it opens and
+the arrow's redraw under 5.5; and in the demonstration's busiest second
+from 55 to 66 frames presented (63 here, idle or busy). Waits for something
+to happen are bounded by the wall clock only to end a failing run. SDL's
+dummy driver writes each frame inside the present, so the tests have it
+write them in `/dev/shm` where there is one with 32 MB free (else the temp
+folder): on a disk slow to write (here a FUSE overlay, starved of CPU on a
+busy machine) a frame took seconds, and the game was late by that. The
+driver leaves a frame short without a word when its disk is full, which
+the tests report as such (its size against its header's). Their temp
+folders are named `test_cok-*`. The sound's checks count the device's
+samples, which SDL's disk writer produces at its own thread's pace, slower
+on a busy machine (0.8 seconds of them in 3 once): the music is checked
+over 2.5 seconds of them, and the steps' sounds, each after a pause, once
+0.4 seconds of them follow the second step's `overland:` line, however
+long they take to come; the pause between the two sounds only for being
+several times a sound's length. Halving or doubling the picture's delays
+or the rest's step, each of its frames 40 ms longer, steps of 12 ms,
+presenting a frame 100 ms late, every delay twice its time, timing the
+menu out at 5, 15 (again from the arrow) or 20 seconds, presenting up to
+120 or only 30 frames a second, not presenting in a delay's loop,
+presenting again at each wake, the note to Tandy users for 1 second, the
+device silent through a delay or a key's wait, or a delay not seeing the
+window close: each fails its test.
+
 `tests/test_hooks.c` checks each flush, which menus animate, the sound
 driver's calls, and `Loading...Please Wait` and `PIC not found` against
 what the original's loaders did in an 8086 emulator
@@ -392,11 +433,21 @@ yet: on a CGA or a Tandy 1000, 80×25 at 640×200 in the ROM's 8×8
 characters, the cursor on scan lines 6 and 7; on an EGA 640×350 in 8×14
 cells; on a VGA 720×400 in 9×16. The port shows the CGA's and the Tandy's:
 640×200 in 8×8 cells, light grey on black, with the cursor's two bottom
-lines; in the game's font (`8X8D1.DAX`), as the port has no PC character
-ROM: in upper case (what is typed shows in capitals; the file keeps it as
-typed), with `$ % @ [ \ ] ^ _` and `` ` { | } ~ ``, which the font lacks,
-drawn by the port, and other bytes as the font's characters modulo 64
-(0x7f, from Ctrl-Backspace, shows as `?`, not the PC's ⌂). `cok` shows it
+lines, as the setup runs before the port knows the display (it is what the
+setup asks) and 8×8 is the mode of the two adapters the game draws its
+four colours on. Its characters are a PC-style 8×8 font of all 256 of code
+page 437, the ROM font's place (the port does not copy IBM's ROM, nor
+font8x8, whose ASCII is IBM's CGA font): unscii 2.1's `unscii-8` by
+viznut (<http://viznut.fi/unscii/>), in the Public Domain ("Everything
+made by me (viznut) is in the Public Domain", its `unscii.txt`), its own
+2-pixel-line design after several 8-bit system fonts; each byte as its
+Unicode meaning, 0x01-0x1f and 0x7f as the PC's pictures (smileys, suits,
+arrows, ⌂). Four that unscii lacks are drawn by the port in its style:
+☼ (0x0f), ⌂ (0x7f, from Ctrl-Backspace), ⌐ (0xa9) and ∙ (0xf9); 0x00,
+0x20 and 0xff are blank. Lower case shows as typed, as do the symbols,
+accented letters, box drawing and blocks. The table is in `src/crt.c`
+(`cok_crt_glyph`); `tools/pcfont.py unscii-8.hex` prints it. The game's
+own font (`8X8D1.DAX`) draws everything after the setup. `cok` shows it
 in the window (F12 saves it, 640×200), `cok --log` and `eclplay` log each
 row as the cursor leaves it (`crt: `), and `eclplay --shots` saves it at
 each key read. The game's directory is taken as `C:\COK\`, where the
@@ -453,7 +504,9 @@ Ctrl-Z with `CheckEOF`, and of `Crt`'s output all but the BIOS path
 `tests/test_setup.c` checks the port's), the bell and CheckSnow's waits. It
 also checks the file's lines read, where the file is found and written, the
 rewrite, the timeout key (`\t`) waiting on, the text screen's cells as it
-scrolls, its rows logged as the setup writes them, and its drawing;
+scrolls, its rows logged as the setup writes them, its drawing, and its
+font (the table's digest, glyphs of its own for every character but the
+blanks, lower case apart from capitals, box drawing to the cell's edges);
 `tests/test_eclplay.py` and `tests/test_cok.py` play the setup from the
 title's start.
 
@@ -1390,7 +1443,16 @@ memorized too and a Wand of Magic Missiles readied with 5 charges; the
 eighth, HOLT, is a mage too, with Stinking Cloud memorized instead.
 `--party SAVE` adds the characters of a saved game to the party (see
 Party), and `--load SAVE` loads the whole saved game first; then `BLOCK`
-may be left out to resume where it was saved. WHO prints the character
+may be left out to resume where it was saved, as `2fd3:3c28` starts the
+game, running only that block's load vector before the first command (see
+Adventure loop). A block named is entered at once, a test entry and not the
+original's resume: its load, after-move and location vectors run, the first
+at the stack depth of `2fd3:3c28`'s own, as `2fd3:3b47` runs them, which
+also makes the mode the last mode; with `--load` too, the saved block's
+after-move and location vectors run before any command, as the original's
+resume never does. `--at` with `--load` and no block places the party, the
+square's byte (`DS:6d89`) read from the map there, before the load vector
+runs. WHO prints the character
 picked (`who:`). `--shots DIR` saves `DIR/NNN.bmp` each time the game waits
 for a key and once each battle is set up, `--screen FILE` the final screen,
 in the display mode `KRYNN.CFG`'s first line names or `--display ega`,
@@ -1446,8 +1508,9 @@ answers the guards at the gates of Gargath with the second item of a list.
 | `ECL CLOCK` | `2fd3:3005` | passes the time (`57e4:0549`), count first, then the unit |
 
 A one-item menu reading `PRESS BUTTON OR RETURN TO CONTINUE.` is shown as
-`PRESS <ENTER>/<RETURN> TO CONTINUE.`, and Enter picks it, as in the
-original. Menu items are joined as `~ITEM` separated by spaces, cut to 50
+`PRESS <ENTER>/<RETURN> TO CONTINUE`, with no full stop (the 34 characters
+of `2fd3:1146`), and Enter picks it, as in the original. Menu items are
+joined as `~ITEM` separated by spaces, cut to 50
 characters. Small pictures are delta collections whose groups after the first
 are animation frames, each preceded by its delay, which the menus that
 animate the picture (`67b5:03e2`) count in tenths of a second (see
@@ -1689,9 +1752,10 @@ files past one buffer; 2,254 traces with the flag set; 1,514 Views).
 
 `src/view.h` ports the 3D view from overlay `69ea`, drawn with the 8×8 tile
 routine of overlay `6e22`. `cok_adventure_view` shows it as `6945:00ba`
-does: when `PICTURE 0xff` restores the view, and when a block is entered,
-after its load vector, if it loaded files or the area stays in 3D
-(`2fd3:3b47`), and after each step or turn of the adventure loop;
+does: when `PICTURE 0xff` restores the view, when a block is entered by
+`NEWECL`, after its load vector, if it loaded files or the area stays in 3D
+(`2fd3:3b47`), when a loaded game begins (see Adventure loop), and after
+each step or turn of the adventure loop;
 `eclplay --at X,Y,DIR` places the party before a block runs. Where the area
 has no 3D view (`0x4be6` and `0x4c38` both 0), `6945:00ba` shows the big
 picture in its frame instead.
@@ -1724,7 +1788,11 @@ by row, the tile values for the ten places a wall can be seen at
 (`DS:0df4`-`0e38`): front walls one, two and three squares ahead, the side
 walls of those squares, and the edge between two front walls three squares
 ahead. Records name their tiles as tile set 1; values from 0x2d are moved up
-to the slot's set. Each slot's tile set is record N of `8X8D<file>.DAX`, or
+by the first slot's offset from tile set 1 (`DS:1ec2`, worked out once at
+`69ea:1124`), the same for every set of the record (`69ea:1230`), adding
+bytes that wrap: a record of two sets already names its second set's tiles
+past set 1's, so Throtl's (`WALLDEF1.DAX` record 1, loaded into slot 1) is
+not moved at all. Each slot's tile set is record N of `8X8D<file>.DAX`, or
 N × 10 + 1 and N × 10 + 2 for a record of two sets. Tile sets 0 (`8X8D1.DAX`
 record 203) and 4 (the frame's) are loaded at startup.
 
@@ -1810,15 +1878,35 @@ not part of the repository.
 
 ## Adventure loop
 
-`cok_adventure_play` runs the loop of `2fd3:3c28` in a 3D area once a block
-has been entered; `eclplay --play` enters the block, then takes commands
-until the keys run out. Each turn takes a command from the menu on row 24
+`cok_adventure_enter` starts the game's first block as `2fd3:3c28` does, a
+new game's or a loaded one's: it runs only the block's load vector
+(`2fd3:3cc7`), entering the next block as `2fd3:3b47` does if that runs
+`NEWECL`, as Solace's (block 0x24) does. A loaded game then redraws the
+screen and shows the view (`DS:4b52`), outside the overland map (mode 3)
+only, where nothing is redrawn; the after-move and location
+vectors wait for the first command that returns to the loop: so a game
+saved on a square with an event, or on Throtl's square of the overland
+map, resumes quietly at the command menu, and no step is counted and no
+random number drawn before it. `cok_adventure_play` runs the loop of
+`2fd3:3c28` in a 3D area once a block has been entered; `eclplay --play`
+enters the block, then takes commands until the keys run out. Each turn
+takes a command from the menu on row 24
 (`475c:09ec`), runs the after-move vector, takes the step chosen
-(`475c:0e77`), shows the view and runs the location vector. `NEWECL` in any
+(`475c:0e77`), shows the view and runs the location vector. In a 3D area
+the menu returns only for a step forward (taken or not), `Encamp` and
+`Look`; `Area`, `Cast`, `View`, `Search` and turns stay in it and run no
+vector. `Encamp` camps and `Look` runs the location vector alone, each
+then taking the next command; on the overland map the menu returns for a
+step and `Encamp`. `NEWECL` in any
 vector enters the new block as `2fd3:3b47` does, which also frees the small
 picture, clears `0x7ed5` and keeps the block in `0x4bf2`. The party's square
 before each step is kept in `0x4bf0` and `0x4bf1`. When the loop ends it
-clears `DS:4b57`, the flag that ends a run.
+clears `DS:4b57`, the flag that ends a run. Not ported: when the first
+block's load vector (or a block it enters by `NEWECL`) sets `DS:4b57`, the
+party killed, `2fd3:3c28` does not test it until it has redrawn a loaded
+game's screen and read one command (`475c:09ec` at `3d64`, then `3b47` if a
+`NEWECL` was pending); the port ends the run at once. No shipped load
+vector kills the party.
 
 The menu reads `Move Area Cast View Encamp Search Look`, laid out as it is,
 so each capital is an item and its key (`cok_menu_read`). `Move` changes the
@@ -2051,8 +2139,9 @@ A saved game, `SAVGAM<letter>.DAT` (`4b6d:1b34`; the camp's Save writes
 one, see Camp), is 5,469 bytes: the ECL file, the variables
 `0x4b00`-`0x4eff`, `0x7c00`-`0x7fff` and `0x7a00`-`0x7bff` as words, the
 party's square, facing, wall ahead and square byte
-(`DS:6d85`-`6d89`), the last and current modes, three wall sets (record and
-slot), the party's size and eight 40-character names. Each name, stripped of
+(`DS:6d85`-`6d89`), the last and current modes (`0x1406` and `0x1407`:
+`DS:4b4a` and `4b49`), three wall sets (record and slot), the party's size
+and eight 40-character names. Each name, stripped of
 ` .*,?/\:;|`, cut to eight characters and upper-cased (`169c:05da`), names
 the character's files beside the saved game: `.SAV`, the record; `.STF`, its
 items, 63 bytes each; and `.SFX`, its spell effects, 9 bytes each
@@ -2072,8 +2161,13 @@ place a removal slides the next into, so of two alike in a row one stays
 or else loads the overland map, big picture 0x79, without drawing it,
 sets the speed and animation from `0x4bfc` and `0x4bff`, and
 sets `DS:4b52`, so that the first block keeps its variables and the
-adventure loop redraws the screen (`6346:2c17`). Play resumes in block
-`0x4bf2`, or 0x24 if that is 0 (`2fd3:3c28`).
+adventure loop redraws the screen (`6346:2c17`). The loader makes the
+saved mode the last mode (`DS:4b4a`) and the mode 0. Play resumes in block
+`0x4bf2`, or 0x24 if that is 0 (`2fd3:3c28`), which sets the mode to 4 (3
+outside 3D areas) and runs only that block's load vector before the first
+command (see Adventure loop); the last mode stays the loaded one until a
+`NEWECL` (`2fd3:3b47` copies the mode there at its end), so a game saved
+in camp, loaded and saved in camp again holds 2 at `0x1406`.
 
 The party list (`6346:07ba`) shows `Name` and `AC  HP` on row 2 from column
 17, then a character a row from row 4: the selected one's name in white,
@@ -7344,14 +7438,16 @@ original's behaviour is recorded, its section says what it does):
   turn before its menu, so that half cannot arise: `d_altq.py`.
 - #26 The frame's tile set: border and moons the port's in Tandy, EGA and
   CGA mode: `load_game_screen.py`.
-- #27 No light magenta and no holes in Throtl's 3D view, but its walls
-  differ: see Wall tiles and sky pictures below: `c_throtl.py`.
+- #27 No light magenta and no holes in Throtl's 3D view, and its far walls
+  the original's since the wall sets' fix (see Wall tiles and sky pictures
+  below): `c_throtl.py`.
 - #28 `Loading...Please Wait` shows where the port draws it, count for
   count in 33 phases, animation on and off, row 24 after a picture as the
   port leaves it: `f_loading.py`.
 - #29 Game A's party list and status line (`7,13 N 00:00`) beside the
-  outpost's view; Solace's row 24: see Load saved game A below:
-  `c_outpost.py`, `load_game_screen.py`.
+  outpost's view, and Solace's first page, row 24 included since the full
+  stop's fix (see Load saved game A below): `c_outpost.py`,
+  `load_game_screen.py`.
 - #30 The pit in Throtl: three hits on one page (the view's walls: #27):
   `c_pit.py`.
 - #31 Game A loaded and saved again: KAL and SIRRION know spell 8, every
@@ -7367,9 +7463,10 @@ original's behaviour is recorded, its section says what it does):
 - #36 Throtl's camp screen and its rest menu: `b_camp_screen.py`.
 - #37 Enter right after `Encamp` opens `Save`, not `Alter`, in both (see
   Camp): `b_camp_screen.py`.
-- #38 A game saved in the outpost inn's camp, and `SAVE/`'s A, resume as
-  in the original; one saved in Throtl's camp differs: see Save in camp
-  below: `b_resume.py`.
+- #38 Games saved in Throtl's camp, the outpost inn's camp and `SAVE/`'s A
+  resume as in the original, and saved again hold the same last mode,
+  since the fix of the first block's vectors and last mode (see Save in
+  camp below): `b_resume.py`.
 - #39 `Fix`'s time with the stack's 14: `b_fix_time.py`.
 - #40 A day's rest heals once only counting one camp's ticks (`DS:7136`):
   `b_heal_day.py`.
@@ -7518,10 +7615,9 @@ original's behaviour is recorded, its section says what it does):
   `d_fear.py`.
 - #123, #124 Every screen compared in CGA and EGA mode (the title, the
   start menu, character creation, Solace, the outpost, the camp, a sheet,
-  the overland map, a battle's first turn and Aim, CGA's four colours,
-  `Sorry, not in CGA`) is the port's but Throtl's 3D view, which differs
-  in all three modes alike (#27): see In CGA mode below:
-  `f_display_modes.py`.
+  the overland map, Throtl's 3D view, a battle's first turn and Aim, CGA's
+  four colours, `Sorry, not in CGA`) is the port's (see In CGA mode
+  below): `f_display_modes.py`.
 - #126 A small picture's frames with little memory: fewer by mode, or
   `WARNING: Insufficient Memory` (see Display modes): `f_frames.py`.
 - #127 Lightning Bolt beside a wall comes back and hits the enemy again,
@@ -7531,8 +7627,7 @@ original's behaviour is recorded, its section says what it does):
 - #129 Magic Missile reflected: the caster takes the damage:
   `d_turning.py`.
 
-Still to check, with why, and the port differences DOSBox-X found (their
-entries say what differs):
+Still to check, with why:
 
 - (#1) Startup and the setup, the parts DOSBox-X cannot show: a hidden
   `krynn.cfg` should bring the setup back (`169c:04c1`'s `FindFirst`
@@ -7542,7 +7637,7 @@ entries say what differs):
   screens and the thresholds written, against `eclplay --joystick` with
   `\j` keys: DOSBox-X's emulated stick did not move for mapper bindings
   pressed through X (needs a host joystick). And the 80-column mode's look
-  (the ROM's font) against the port's 640×200 in the game's font, a
+  (the ROM's font) against the port's 640×200 in unscii's 8×8 font, a
   judgement.
 - (#2) The Tandy's chip given a tone of divisor 0 (the effects driver
   writes one, loud, on the first tick of commands 2, 4, 5, 6, 8 and 12):
@@ -7610,25 +7705,6 @@ entries say what differs):
   Not run: no fight reached had undead of those kinds on the map (in Sir
   Lebaum's, `d_lebaum.py`, his kind is 0 and the ghasts found no place;
   KAL, cleric 7 on Auto, never tried to turn in either).
-- Wall tiles and sky pictures are masked with colour 13 in the 3D view.
-  Compare a view, such as Throtl's street from 7, 15 facing north, for light
-  magenta or holes. In DOSBox-X: none, but the far walls differ (a two-set
-  WALLDEF record's second set offset again: the checked list, #27).
-- Load saved game A and compare the party list and status line beside the
-  view: the columns of AC and hit points, the colours, and `7,13 N 00:00`.
-  Partly done (`tools/dosbox/checks/load_game_screen.py`, in Tandy, EGA and
-  CGA mode): the start menu with game A's party is the port's pixel for
-  pixel, and so is Solace's first page after Begin Adventuring but for row
-  24: the single-item menu's text there (`2fd3:116d`, the string at
-  `2fd3:1146`) is `PRESS <ENTER>/<RETURN> TO CONTINUE`, without the full
-  stop the port adds (`src/adventure.c`), which it draws black on white at
-  column 34. To be fixed; the status line beside the view, `7,13 N
-  00:00`, agrees (see the checked list, #29).
-- Save in camp, then load that game: it holds mode 2 (`0x1407`). Compare
-  how the original resumes it with how it resumes a game saved from the
-  party menu. In DOSBox-X the game saved in Throtl's camp resumes with the
-  walls of #27, and saved again holds 4 at `0x1406` where the original's
-  holds 2 (the checked list, #38).
 - (#85) In the red dragons' fight (above), each terrified or frightened
   character should flash with sparkles, at speed 4 five times, 70 ms a
   picture, its name and "is terrified" or "is afraid" in the panel from
@@ -7654,6 +7730,49 @@ entries say what differs):
   for the game, or `DS - 0x0bd6`). Repeat in EGA and CGA mode. Not run: no
   fight reached gave such a cell without a search; `d_fear.py --psp` loads
   the game at a chosen PSP, and #122 shows the side line depending on it.
+- (#125) In EGA mode, a draw of no width on a row of the 3D view or the
+  combat map that nothing else marks (a picture placed just past the right
+  edge, `127f:09c3` copying no byte): `127f:12e8` should copy 16 KB of the
+  off-screen page A200 onto the screen from that row, where the port shows
+  nothing new (it does not model the dirty rows; no run met one). Not run:
+  no run is known to reach such a draw.
+
+The port differences DOSBox-X found and the port has since fixed (the
+checked list's #27, #29, #38, #123 and #124):
+
+- Wall tiles and sky pictures are masked with colour 13 in the 3D view.
+  Compare a view, such as Throtl's street from 7, 15 facing north, for light
+  magenta or holes. Checked in DOSBox-X (`tools/dosbox/checks/c_throtl.py`
+  on the `dosbox` branch): no light magenta and no holes, but the far
+  walls differed, a two-set WALLDEF record's second set offset again (see
+  3D view); the port now offsets every set by the first slot's and agrees,
+  0 pixels in every screen at a key read of `c_throtl.py`, `c_pit.py`,
+  `c_chest.py`, `c_npc.py` and `c_temple33.py`.
+- Load saved game A and compare the party list and status line beside the
+  view: the columns of AC and hit points, the colours, and `7,13 N 00:00`.
+  Partly done (`tools/dosbox/checks/load_game_screen.py`, in Tandy, EGA and
+  CGA mode): the start menu with game A's party is the port's pixel for
+  pixel, and so is Solace's first page after Begin Adventuring but for row
+  24: the single-item menu's text there (`2fd3:116d`, the string at
+  `2fd3:1146`) is `PRESS <ENTER>/<RETURN> TO CONTINUE`, without the full
+  stop the port adds (`src/adventure.c`), which it draws black on white at
+  column 34. Fixed: the port now writes it without (2fd3:1146), and
+  Solace's first page is the original's pixel for pixel; the status line
+  beside the view, `7,13 N 00:00`, agrees too (the checked list, #29).
+- Save in camp, then load that game: it holds mode 2 (`0x1407`). Compare
+  how the original resumes it with how it resumes a game saved from the
+  party menu. Checked in DOSBox-X (`tools/dosbox/checks/b_resume.py`):
+  besides Throtl's walls (above), the port set the last mode as the first
+  block began, so the game saved in camp again held 4 at `0x1406` where the
+  original's holds 2; and DOSBox-X checks of saves on the overland map and
+  on squares with events (`d_firstblock.py`, `c_overland.py`, `c_npc.py`,
+  `f_display_modes.py`) found the port running the first block's
+  after-move and location vectors at Begin Adventuring (asking `YOU ARE
+  NEAR THROTL. DO YOU ENTER?` again, a roll ahead), which the original
+  runs only after the first command (see Adventure loop). The port now
+  does as the original: the three games resume with 0 pixels differing,
+  their saves again the same (modes 2, 2 and 4, 2), and RandSeed and the
+  step counter untouched until the first command.
 - In CGA mode (`KRYNN.CFG`'s first line `C`): compare the title, the
   start menu, character creation, the overland map, combat, a 3D view and
   the camp with `eclplay --display cga --shots`, colour for colour; the
@@ -7662,18 +7781,14 @@ entries say what differs):
   without intensity, the dark ones), the 3D view's ground cyan under a
   black sky with a white line and a magenta horizon (`DS:6d81`-`6d83`
   from 0xc05f 9 and 0xc059 0x41 on entering a block). In the icon
-  editor, 1st-color should say `Sorry, not in CGA`.
+  editor, 1st-color should say `Sorry, not in CGA`. Checked in DOSBox-X
+  (`tools/dosbox/checks/f_display_modes.py`): all agreed but Throtl's 3D
+  view, whose far walls differed in every mode alike (the wall sets'
+  offset, see the first of these checks); the port now agrees there too,
+  0 pixels in Tandy, EGA and CGA mode.
 - In EGA mode, the same screens should match `eclplay`'s (the Tandy's).
-  The title's first picture and menu (`make dosbox-selftest`), the start
-  menu and Solace's first page do, in CGA mode too (but for the full stop,
-  see Load saved game A); the rest agree but Throtl's 3D view (see the
-  checked list, #123, #124).
-- (#125) In EGA mode, a draw of no width on a row of the 3D view or the
-  combat map that nothing else marks (a picture placed just past the right
-  edge, `127f:09c3` copying no byte): `127f:12e8` should copy 16 KB of the
-  off-screen page A200 onto the screen from that row, where the port shows
-  nothing new (it does not model the dirty rows; no run met one). Not run:
-  no run is known to reach such a draw.
+  Checked in DOSBox-X with the CGA check above: the same, Throtl's view
+  included now.
 
 ## Disassembly image
 

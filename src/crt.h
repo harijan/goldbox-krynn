@@ -14,9 +14,9 @@
  * TextAttr (DS:8a4a: the attribute under DOS's cursor, normally 07, light
  * grey on black; nothing changes it). The port keeps the cells and shows
  * them as the CGA's and the Tandy's 80-column mode did, 8x8 cells on
- * 640x200, in the game's font (8X8D1.DAX, upper case: the port has no PC
- * character ROM; $ % @ [ \ ] ^ _ and ` { | } ~, which it lacks, drawn
- * here). */
+ * 640x200, in a PC-style font of code page 437's 256 characters (unscii's
+ * 8x8, public domain, see cok_crt_glyph; the port has no PC character
+ * ROM). */
 enum {
     COK_CRT_COLUMNS = 80,
     COK_CRT_ROWS = 25,
@@ -72,12 +72,18 @@ bool cok_crt_read_line(cok_crt *crt, const cok_keyboard *keys, char *out, size_t
 /* Log the rows written and not logged yet. */
 void cok_crt_log_rows(cok_crt *crt);
 
+/* Character c's 8 rows of 8 pixels in the text screen's font, the left
+ * pixel the high bit: unscii 2.1's 8x8 (viznut, public domain) for code
+ * page 437, the ROM font's place, with 0f, 7f, a9 and f9, which it lacks,
+ * drawn in its style; 00, 20 and ff blank. */
+const uint8_t *cok_crt_glyph(uint8_t c);
+
 /* The screen as the PC showed it, COK_CRT_WIDTH by COK_CRT_HEIGHT pixels
  * of the 16 text colours, two a byte, the left one in the high nibble:
  * each cell's glyph in its attribute's foreground (low four bits) over its
  * background (bits 4-6; bit 7 blinks, which TextAttr never has), and the
  * cursor's two bottom lines in the foreground of its cell (it blinked;
- * here it stays). Without a font the cells show only their backgrounds. */
-void cok_crt_render(const cok_crt *crt, const cok_font *font, uint8_t *pixels);
+ * here it stays). */
+void cok_crt_render(const cok_crt *crt, uint8_t *pixels);
 
 #endif

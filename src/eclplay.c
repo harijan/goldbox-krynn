@@ -35,10 +35,8 @@ typedef struct {
     const char *wav_path;
     uint64_t ms, frames;
     bool calls; /* --sound-calls */
-    /* The text screen while startup shows it (11c7:031a), or NULL, and the
-     * font it is shown in. */
+    /* The text screen while startup shows it (11c7:031a), or NULL. */
     cok_crt *crt;
-    cok_font crt_font;
     /* The machine's mouse driver and joystick (--mouse, --joystick), which
      * the keys' \m and \j move: the stick's counts and buttons; a click's
      * buttons, which come up once the game has read it (tapped). */
@@ -81,8 +79,9 @@ static void usage(const char *program)
             "                  games: fighters, clerics, mages and thieves of level 1\n"
             "  --party SAVE    add the characters of saved game SAVE (SAVGAMA.DAT) to the\n"
             "                  party, from the files beside it\n"
-            "  --load SAVE     load saved game SAVE and its party first; BLOCK defaults to\n"
-            "                  the block it was saved in\n"
+            "  --load SAVE     load saved game SAVE first; without BLOCK resume it where\n"
+            "                  it was saved, only that block's load vector run at first\n"
+            "                  (with BLOCK, the block is entered at once, all vectors)\n"
             "  --saves DIR     write saved games (camp's Save) to DIR; KRYNN.CFG there\n"
             "                  comes before the assets' and is where the setup writes\n"
             "  --config FILE   KRYNN.CFG: read FILE, or with --start-menu write it there\n"
@@ -108,13 +107,14 @@ static void usage(const char *program)
             "  --file N        ECL file 1-3 (default: the first holding BLOCK)\n"
             "  --vector N      run only vector N (0-4) instead of entering the block\n"
             "  --start ADDR    run only from code address ADDR (hex)\n"
-            "  --at X,Y,DIR    party position and facing (0, 2, 4 or 6)\n"
-            "  --set ADDR=VAL  set a variable before running, in hex (repeatable)\n"
-            "  --effect M,ID,MINUTES,VALUE  give party member M (1 the first) effect ID\n"
-            "                  for MINUTES (0 for good) with VALUE, its handler run when\n"
-            "                  it is removed, in hex, as a saved game's .SFX holds it\n"
-            "                  (repeatable)\n",
+            "  --at X,Y,DIR    party position and facing (0, 2, 4 or 6)\n",
             program, program, program);
+    fputs("  --set ADDR=VAL  set a variable before running, in hex (repeatable)\n"
+          "  --effect M,ID,MINUTES,VALUE  give party member M (1 the first) effect ID\n"
+          "                  for MINUTES (0 for good) with VALUE, its handler run when\n"
+          "                  it is removed, in hex, as a saved game's .SFX holds it\n"
+          "                  (repeatable)\n",
+          stderr);
     fputs("  --still         load only the first frame of each picture\n"
           "  --wav FILE      render the sound to FILE (16-bit mono WAV, 44,100 Hz) as\n"
           "                  the game's time passes: its delays and \\pN. in the keys\n"
@@ -168,7 +168,7 @@ static void save(player *p, const char *path)
 static void save_crt(player *p, const char *path)
 {
     static uint8_t pixels[COK_CRT_WIDTH * COK_CRT_HEIGHT / 2];
-    cok_crt_render(p->crt, &p->crt_font, pixels);
+    cok_crt_render(p->crt, pixels);
     cok_image image = {.width = COK_CRT_WIDTH, .height = COK_CRT_HEIGHT, .pixels = pixels};
     cok_image_status status = cok_image_bmp(&image, path);
     if (status != COK_IMAGE_OK)
@@ -818,7 +818,6 @@ static int run(int argc, char **argv)
         crt.context = &p;
         cok_crt_init(&crt);
         p.crt = &crt;
-        cok_setup_font(argv[i], &p.crt_font);
         cok_keyboard crt_keys = {next_key, &p, NULL, NULL};
         cok_setup_hooks crt_hooks = {crt_delay, &p, &p.port, &p.ended,
                                      input != NULL && strcmp(input, "joystick") == 0};
@@ -826,7 +825,6 @@ static int run(int argc, char **argv)
         cok_setup_status status = cok_setup_startup(&crt, &crt_keys, &crt_hooks, config_path,
                                                     found, &config, error, sizeof error);
         p.crt = NULL;
-        cok_font_free(&p.crt_font);
         if (status == COK_SETUP_ENDED) {
             printf("(out of keys in the setup)\n");
             return 0;
@@ -984,13 +982,20 @@ static int run(int argc, char **argv)
         cok_ecl_store(&game.vm, 0xc04b, (uint16_t)x);
         cok_ecl_store(&game.vm, 0xc04c, (uint16_t)y);
         game.vm.direction = (uint8_t)(dir & 6);
+        /* The square's byte (DS:6d89) for a load vector run before any
+         * step; a block entered recomputes it anyway. */
+        game.vm.square = cok_view_square(&game.view, game.vm.map_x, game.vm.map_y);
     }
     cok_adventure_frame(&game);
 
     cok_ecl_status status;
     if (vector == 5 && start == 0) {
         for (size_t s = 0; s < set_count; ++s) cok_ecl_store(&game.vm, sets[s].address, sets[s].value);
-        status = cok_adventure_enter(&game, (uint8_t)block);
+        /* A loaded game resumes where it was saved as 2fd3:3c28 starts
+         * (its load vector alone); a block named is entered as 3b47 enters
+         * one. */
+        status = has_block ? cok_adventure_enter_block(&game, (uint8_t)block)
+                           : cok_adventure_enter(&game, (uint8_t)block);
         if (play && status == COK_ECL_OK) status = cok_adventure_play(&game);
     } else {
         status = cok_adventure_load(&game, (uint8_t)block);
