@@ -29,10 +29,6 @@ import c_geo
 import c_places as cp
 import checklib
 
-# RandSeed at the first key read after loading (c_places.Compare): 1
-# rolled once, where the port as it is gets from 1 (it rolls on resuming
-# here) and the port with the fixes starts.
-SEED = cp.roll(1)
 ARGS = ["--load", cp.SAVE_A, "--play", "--file", "2", "--set", "4be6=1", "--set", "4c85=1"]
 
 
@@ -72,7 +68,7 @@ def main():
             ("buy", "B"),                   # #67: each weapon at its value
             ("pick", r"\v\v\v\v"),          # Broad Sword, 12
             ("bought", r"\r", steel),       # #67: 15 steel
-        ], seed=SEED, verbose=args.verbose).run()
+        ], seed=1, verbose=args.verbose).run()
         got = [steel_of(c, n) for n in ("loaded", "bought")]
         v.check(got == [1000, 985], "#67: the original's smith charges 15 steel for the Broad "
                 "Sword (worth 12)", str(got))
@@ -94,7 +90,7 @@ def main():
             ("deal2", "y", steel),
             ("sell1", "S"),                 # #72: the offer for the single one
             ("deal1", "y", steel),
-        ], seed=SEED, verbose=args.verbose).run()
+        ], seed=1, verbose=args.verbose).run()
         got = [steel_of(c, n) for n in ("loaded", "bought", "deal2", "deal1")]
         v.check(got == [1000, 520, 526, 586], "#72: in the original the arrows cost 480, the "
                 "stack of 2 fetches 6 and the single one 60", str(got))

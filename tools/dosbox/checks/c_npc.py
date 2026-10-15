@@ -91,8 +91,8 @@ def main():
         # 0x4c3a 0 and 0x4c5c 1, so that the guide at the gate (special 1,
         # 895c) introduces her and ADD NPC 44 adds her; moved in the file to
         # 4,5 facing north, below an open grave (special 10 at 4,4, 91c3).
-        # RandSeed at the first key read after loading: 1 rolled once (the
-        # fight's rolls as batch C's run had them).
+        # RandSeed 1 rolled once: the fight's rolls as batch C's run had
+        # them.
         ssaves, _ = cp.port_save(work / "save-skyla", r"\r\r\r\r\rESE", [
             "--load", cp.SAVE_A, "--play", "--file", "2", "--set", "4be6=1", "--set", "4c3a=0",
             "--set", "4c5c=1"], block=50)

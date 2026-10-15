@@ -15,7 +15,7 @@ NORTH WALL.`), turn north and step off the map: block 33's after-move
 vector NEWECLs 34. Then Exit and Area: `Not Here` (the game's speed, var
 0x4bfc, at 20 in the saved game: the notice stays 2 seconds, long enough
 for the screenshots), the original's screens from Area to the next key
-read compared in order with the frames cok presents. Again with `START x
+read compared in order with the port's (c_places.judge_watch). Again with `START x
 Helm` (eclplay --helm): Area shows the map in the catacombs, a step turns
 it off.
 """
