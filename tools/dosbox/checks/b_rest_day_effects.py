@@ -17,7 +17,6 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import b_lib as L  # noqa: E402
-import b_screens_lib as S  # noqa: E402
 import checklib  # noqa: E402
 
 REST_DAY = "RDAR"   # Rest, Days, Add (1), Rest
@@ -37,7 +36,7 @@ def main():
                                        shots=False)
     print("port:", " | ".join(pout.strip().splitlines()[-6:]))
     marked = keys_camp + REST_DAY + r"\srest."
-    port = S.frames_at(marked, work / "frames", saves=[L.SAVE])
+    port = checklib.frames_at(marked, work / "frames", saves=[L.SAVE])
     with L.box(work, [L.SAVE], verbose=args.verbose, turbo=True) as box:
         box.keys(keys_camp)
         box.wait_input(settle=0.3)
@@ -50,9 +49,7 @@ def main():
         box.keys(L.save_keys("C"))
         box.wait_input(settle=0.3)
         odir = L.keep_saves(box, work / "orig-saved")
-    v.screen("the screen after the rest", shot, port["rest"],
-             fixed=lambda: S.frames_at(marked, work / "frames-fixed", fixed=True,
-                                       saves=[L.SAVE])["rest"], work=work)
+    v.screen("the screen after the rest", shot, port["rest"], work=work)
     v.check(L.minutes(c1) - L.minutes(c0) == 1440, "the original rested a day",
             f"{c0[1:5]} -> {c1[1:5]}")
     for n in range(1, 7):

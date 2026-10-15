@@ -20,8 +20,7 @@ def run_both(work, game, keys, save_letter="F", verbose=False, steps=None, shots
     strings typed one after another in the original (joined they are KEYS),
     PROBE(box, i) called after each (i -1 in camp, before them; after a
     rest, the steps' indexes in RESTS, once its clock stopped). Returns
-    (port stdout, port saves dir, original saves dir, port shots, a function
-    giving the fixed port's saved game for L.judge_games)."""
+    (port stdout, port saves dir, original saves dir, port shots)."""
     work = pathlib.Path(work)
     out, psaves, pshots = L.port(L.A_TO_CAMP + keys + L.save_keys(save_letter), work / "port",
                                  ["--load", pathlib.Path(game) / "SAVGAMA.DAT", "--play"],
@@ -41,7 +40,4 @@ def run_both(work, game, keys, save_letter="F", verbose=False, steps=None, shots
         box.keys(L.save_keys(save_letter))
         box.wait_input(settle=0.3)
         odir = L.keep_saves(box, work / "saved")
-
-    def fixed():
-        return L.saved_by_port(game, "A", keys, work / "port-fixed", save_letter, fixed=True)
-    return out, psaves, odir, pshots, fixed
+    return out, psaves, odir, pshots

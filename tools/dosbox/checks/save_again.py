@@ -9,8 +9,7 @@ out what the README says the original writes from memory (Camp, Save:
 the far pointers in records, items and effects; in the .DAT the stack's
 bytes after each name and in the slots past the party). Spell 8 is `+0x6a` of
 a character's .SAV: KAL and SIRRION must know it in the original's files and
-the port's. A file that differs and equals the one the port with the known
-fixes saves is a known difference (resume).
+the port's.
 """
 import argparse
 import pathlib
@@ -81,12 +80,7 @@ def main():
         v.check(orig != 0, f"{who} knows spell 8 in the original's game saved again",
                 f"+0x6a {orig:#04x}")
         v.value(f"{who}'s +0x6a saved", orig, (port_dir / name).read_bytes()[0x6A])
-
-    def fixed():
-        _, d, _ = cokbox.eclplay(KEYS, work / "eclplay-fixed", machine=args.machine,
-                                 saves=[saves], shots=False, binary=checklib.fixed_eclplay())
-        return d, "A"
-    L.judge_games(v, "saved A", orig_dir, "A", port_dir, "A", fixed=fixed)
+    L.judge_games(v, "saved A", orig_dir, "A", port_dir, "A")
     print(f"files in {work}")
     return v.finish()
 

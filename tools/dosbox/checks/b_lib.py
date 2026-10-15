@@ -18,7 +18,6 @@ import sys
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
-import checklib  # noqa: E402
 import cokbox  # noqa: E402
 from save_again import masked  # noqa: E402,F401
 
@@ -154,19 +153,15 @@ def _offsets(x, y):
             if i >= len(x) or i >= len(y) or x[i] != y[i]]
 
 
-def judge_games(verdict, what, orig_dir, orig_letter, port_dir, port_letter, fixed=None):
+def judge_games(verdict, what, orig_dir, orig_letter, port_dir, port_letter):
     """The original's saved game against the port's, file by file, masked
     (save_again.masked: what the original writes from memory). Each file
-    that differs is a difference in VERDICT; known (resume) only if the
-    original's file equals the one the port with the known fixes saved
-    (FIXED: a function returning (its saves directory, letter), called only
-    when needed). Returns the names that differ."""
+    that differs is a difference in VERDICT. Returns the names that differ."""
     a, b = _lettered(orig_dir, orig_letter), _lettered(port_dir, port_letter)
     if not a:
         raise cokbox.BoxError(f"the original saved no game {orig_letter} in {orig_dir}")
     if not b:
         raise cokbox.BoxError(f"the port saved no game {port_letter} in {port_dir}")
-    fixed_files = []
     differ = []
     for name in sorted(set(a) | set(b)):
         if name not in a or name not in b:
@@ -178,15 +173,10 @@ def judge_games(verdict, what, orig_dir, orig_letter, port_dir, port_letter, fix
         if x == y:
             continue
         offs = _offsets(x, y)
-        detail = (f"{len(offs)} bytes differ (sizes {len(x)}, {len(y)}), original/port: " +
-                  " ".join(f"{i:#x}:{x[i] if i < len(x) else '-'}/{y[i] if i < len(y) else '-'}"
-                           for i in offs[:16]) + (" ..." if len(offs) > 16 else ""))
-        if fixed is not None and not fixed_files:
-            fixed_files.append(_lettered(*fixed()))
-        f = fixed_files[0] if fixed_files else {}
-        known = "resume" if name in f and masked(name, f[name]) == x else None
-        verdict.differ(f"{what}: {name}", detail + (", as the fixed port's" if known else ""),
-                       known)
+        verdict.differ(f"{what}: {name}", f"{len(offs)} bytes differ (sizes {len(x)}, {len(y)}), "
+                       "original/port: " +
+                       " ".join(f"{i:#x}:{x[i] if i < len(x) else '-'}/{y[i] if i < len(y) else '-'}"
+                                for i in offs[:16]) + (" ..." if len(offs) > 16 else ""))
         differ.append(name)
     same = len(set(a) | set(b)) - len(differ)
     if differ:
@@ -235,9 +225,8 @@ def write_sfx(path, effects):
 
 # ------------------------------------------------------------ the port
 
-def port(keys, out, args, saves=(), shots=False, block=None, machine="tandy", fixed=False,
-         binary=None):
-    """eclplay (cokbox.ECLPLAY; with the known fixes when FIXED; or BINARY)
+def port(keys, out, args, saves=(), shots=False, block=None, machine="tandy", binary=None):
+    """eclplay (cokbox.ECLPLAY, or BINARY)
     from a block or --load (not the start menu), BLOCK after the assets;
     returns (stdout and stderr, saves dir, shots)."""
     import subprocess
@@ -255,7 +244,7 @@ def port(keys, out, args, saves=(), shots=False, block=None, machine="tandy", fi
                 shutil.copyfile(f, save_dir / f.name.upper())
     cfg = out / "krynn.cfg"
     cfg.write_bytes(cokbox.krynn_cfg(cokbox.MACHINES[machine][1]).encode())
-    exe = binary or (checklib.fixed_eclplay() if fixed else cokbox.ECLPLAY)
+    exe = binary or cokbox.ECLPLAY
     result = subprocess.run(
         [str(exe), "--config", str(cfg), "--saves", str(save_dir),
          *(["--shots", str(shot_dir)] if shots else []), *map(str, args), "--keys", keys,
@@ -263,18 +252,18 @@ def port(keys, out, args, saves=(), shots=False, block=None, machine="tandy", fi
         check=False, capture_output=True, text=True, timeout=600)
     if result.returncode and not result.stdout:
         raise cokbox.BoxError("eclplay: " + result.stderr.strip())
-    return result.stdout + result.stderr, save_dir, sorted(shot_dir.glob("*.bmp"), key=lambda p: int(p.stem))
+    return result.stdout + result.stderr, save_dir, sorted(shot_dir.glob("*.bmp"),
+                                                         key=lambda p: int(p.stem))
 
 
-def saved_by_port(game, letter, keys, out, save_as="F", fixed=False):
+def saved_by_port(game, letter, keys, out, save_as="F"):
     """The game the port saves (as SAVE_AS) after loading GAME's LETTER,
     the outpost to the inn's camp and KEYS (which end in the camp's menu):
-    (its saves directory, SAVE_AS), for judge_games' fixed and for the
-    port's state at a step."""
+    its saves directory: the port's state at a step."""
     _, saves, _ = port(A_TO_CAMP + keys + save_keys(save_as), out,
                        ["--load", pathlib.Path(game) / f"SAVGAM{letter}.DAT", "--play"],
-                       saves=[game], fixed=fixed)
-    return saves, save_as
+                       saves=[game])
+    return saves
 
 
 def keep_saves(box, dst):
@@ -325,19 +314,38 @@ def caught(shot, frames, before, after, count=None):
     """Why SHOT, which is none of the port's FRAMES, was caught while the
     original drew between the port's frames BEFORE and AFTER (the matches
     of the screens around it), or None. Each of its pixels must be one of
-    those two frames' (the next drawn over the last); or, between frames
-    one apart, black or a pillar's: the original then redraws the screen's
-    frame and clears its window (the pillars at columns 0-7 and 312-319,
-    which a full-width window such as the spell list covers) before it
-    draws the next, slowly enough to be seen at normal speed, where the
-    port has no frame. The screens before and after must match those
-    frames, so nothing the port lacks is left on them. Last, a screen seen
-    in one screenshot only (COUNT 1) between frames one apart: the original
-    was drawing the next (a list's rows, then its highlight), as a screen
-    held for a pause or a key wait stays for several screenshots running
-    (b_item_spell0 prints the counts); it is not compared."""
-    if after is None or after - before not in (0, 1):
+    two frames in a row between them, K and K + 1 (the next drawn over the
+    last; a frame the original showed too briefly to be shot may lie
+    between BEFORE and AFTER); or black or a pillar's: the original then
+    redraws the screen's frame and clears its window (the pillars at
+    columns 0-7 and 312-319, which a full-width window such as the spell
+    list covers) before it draws the next, slowly enough to be seen at
+    normal speed, where the port has no frame. The screens before and after
+    must match those frames, so nothing the port lacks is left on them.
+    Last, a screen seen in one screenshot only (COUNT 1) between frames one
+    apart: the original was drawing the next (a list's rows, then its
+    highlight), as a screen held for a pause or a key wait mostly stays for
+    several screenshots running (b_item_spell0 prints the counts); it is
+    not compared."""
+    if after is None or after < before:
         return None
+    w = shot.width
+    pairs = [(k, min(k + 1, after)) for k in range(before, max(after, before + 1))]
+    for k, n in pairs:
+        if all(p == x or p == y for p, x, y in zip(shot.pixels, frames[k].pixels,
+                                                    frames[n].pixels)):
+            return f"caught between the port's {k} and {n}"
+    for k, n in pairs:
+        if all(p == x or p == y or p == 0 or any(lo <= i % w < hi for lo, hi in PILLARS)
+               for i, (p, x, y) in enumerate(zip(shot.pixels, frames[k].pixels,
+                                                 frames[n].pixels))):
+            return (f"caught between the port's {k} and {n} as the original redraws the "
+                    "frame and clears the window")
+    if count == 1 and after == before + 1:
+        return (f"seen in one screenshot between the port's {before} and {after}, as the "
+                f"original draws the next: not compared ({shot.diff(frames[after])[0]} pixels "
+                "differ from the next)")
+    return None
     a, b = frames[before].pixels, frames[after].pixels
     if all(p == x or p == y for p, x, y in zip(shot.pixels, a, b)):
         return f"caught between the port's {before} and {after}"
