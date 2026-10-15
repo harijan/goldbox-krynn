@@ -25,6 +25,24 @@ ADVENTURE_DEPS = $(ADVENTURE_SRC) src/adventure.h src/debug.h src/input.h src/ai
 
 KEYSCRIPT = src/keyscript.c src/keyscript.h
 
+# The original in DOSBox-X (tools/dosbox, see the README's "DOSBox-X
+# harness"): boot it to the title's menu and compare its screens with
+# eclplay's. Not part of make test: it needs dosbox-x, Xvfb and xdotool.
+.PHONY: dosbox-selftest
+dosbox-selftest: build/eclplay build/START_FULL.EXE
+	$(PYTHON) tools/dosbox/checks/run_all.py --self-test
+	$(PYTHON) tools/dosbox/cokbox.py selftest --machine tandy
+	$(PYTHON) tools/dosbox/cokbox.py selftest --machine ega
+	$(PYTHON) tools/dosbox/cokbox.py selftest --machine cga
+
+# Every check of the README's "Checks against the original" run in the
+# original (tools/dosbox/checks/), side by side: one verdict a script.
+# ARGS go to run_all.py (e.g. ARGS="--only b_amount --jobs 2"). build/cok
+# for the checks that compare the frames cok presents (c_places.cok_frames).
+.PHONY: dosbox-checks
+dosbox-checks: build/eclplay build/cok build/START_FULL.EXE
+	$(PYTHON) tools/dosbox/checks/run_all.py $(ARGS)
+
 # The SDL2 front end (build/cok) and its tests, only where pkg-config finds
 # SDL2; its headers as system headers, so that their warnings do not fail
 # the build.
