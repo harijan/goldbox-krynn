@@ -81,8 +81,8 @@ static void usage(const char *program)
             "                  games: fighters, clerics, mages and thieves of level 1\n"
             "  --party SAVE    add the characters of saved game SAVE (SAVGAMA.DAT) to the\n"
             "                  party, from the files beside it\n"
-            "  --load SAVE     load saved game SAVE and its party first; BLOCK defaults to\n"
-            "                  the block it was saved in\n"
+            "  --load SAVE     load saved game SAVE first; without BLOCK resume it where\n"
+            "                  it was saved, only that block's load vector run at first\n"
             "  --saves DIR     write saved games (camp's Save) to DIR; KRYNN.CFG there\n"
             "                  comes before the assets' and is where the setup writes\n"
             "  --config FILE   KRYNN.CFG: read FILE, or with --start-menu write it there\n"
@@ -990,7 +990,11 @@ static int run(int argc, char **argv)
     cok_ecl_status status;
     if (vector == 5 && start == 0) {
         for (size_t s = 0; s < set_count; ++s) cok_ecl_store(&game.vm, sets[s].address, sets[s].value);
-        status = cok_adventure_enter(&game, (uint8_t)block);
+        /* A loaded game resumes where it was saved as 2fd3:3c28 starts
+         * (its load vector alone); a block named is entered as 3b47 enters
+         * one. */
+        status = has_block ? cok_adventure_enter_block(&game, (uint8_t)block)
+                           : cok_adventure_enter(&game, (uint8_t)block);
         if (play && status == COK_ECL_OK) status = cok_adventure_play(&game);
     } else {
         status = cok_adventure_load(&game, (uint8_t)block);

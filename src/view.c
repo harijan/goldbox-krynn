@@ -58,12 +58,15 @@ size_t cok_view_set_walls(cok_view *view, unsigned slot, const uint8_t *record, 
         return 0;
     size_t sets = size / COK_VIEW_WALL_SET;
     if (sets + slot > COK_VIEW_WALL_SETS + 1) return 0;
+    /* Records name set 1's tiles; values below 0x2d are set 0's. The
+     * offset is the first slot's, for every set of the record (69ea:1124,
+     * added at 69ea:1230), so a record's later sets keep their own
+     * values past set 1's. */
+    unsigned offset = tile_base[slot] - tile_base[1];
     for (size_t i = 0; i < sets; ++i) {
         size_t set = slot + i;
         uint8_t *walls = view->walls + (set - 1) * COK_VIEW_WALL_SET;
         memcpy(walls, record + i * COK_VIEW_WALL_SET, COK_VIEW_WALL_SET);
-        /* Records name set 1's tiles; values below 0x2d are set 0's. */
-        unsigned offset = tile_base[set] - tile_base[1];
         for (size_t j = 0; j < COK_VIEW_WALL_SET; ++j)
             if (walls[j] >= 0x2d) walls[j] = (uint8_t)(walls[j] + offset);
     }

@@ -57,7 +57,8 @@ void cok_view_free(cok_view *view);
 bool cok_view_set_map(cok_view *view, const uint8_t *record, size_t size);
 
 /* Copy a WALLDEF record into sets slot 1-3 onward and move its tile values
- * from 0x2d up to the slot's tile set (69ea:1025). Returns the sets copied,
+ * from 0x2d up by slot's tile set's offset from set 1's, the same for every
+ * set of the record (69ea:1025). Returns the sets copied,
  * which name their tiles by 8X8D record id, or id * 10 + 1 and up for more
  * than one set; 0 if slot is out of range, the record is empty or not whole
  * sets, or the sets run past slot 3. The original halts on those. */

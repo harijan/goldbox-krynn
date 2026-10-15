@@ -359,11 +359,19 @@ void cok_adventure_close(cok_adventure *game);
  * 3775:01e8), resetting picture state as the original does. */
 cok_ecl_status cok_adventure_load(cok_adventure *game, uint8_t block);
 
-/* Load block and enter it as 2fd3:3b47 does: run the load vector, show the
- * view if the block loaded its files or stays in 3D, then run the
- * after-move and location vectors, and start over from the load vector
- * whenever NEWECL switches blocks. */
+/* Load block and start it as 2fd3:3c28 does, for a new game or a loaded
+ * one: run only its load vector (2fd3:3cc7), entering the next block as
+ * 2fd3:3b47 does if that runs NEWECL. The after-move and location vectors
+ * wait for the first command (cok_adventure_play), and the last mode
+ * (DS:4b4a) stays as it was unless a NEWECL ran. */
 cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block);
+
+/* Load block and enter it as 2fd3:3b47 enters a block NEWECL names, for
+ * eclplay's block: run the load vector, show the view if the block loaded
+ * its files or stays in 3D, then run the after-move and location vectors,
+ * the first at the stack depth of 3c28's own, and start over from the load
+ * vector whenever NEWECL switches blocks. */
+cok_ecl_status cok_adventure_enter_block(cok_adventure *game, uint8_t block);
 
 /* Run the adventure loop of 2fd3:3c28 in the block entered: until input
  * ends or a run fails, take a command from the adventure menu (475c:09ec),
