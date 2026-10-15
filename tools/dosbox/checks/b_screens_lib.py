@@ -13,31 +13,9 @@ import checklib  # noqa: E402
 cokbox = L.cokbox
 
 
-# eclplay --start-menu goes back to the start menu when the keys run out in
-# the adventure (its loop goes on after an adventure whose input ended), and
-# takes a last shot there: checklib.frames_at's last shot is then the start
-# menu, not the screen at the mark. This build stops where the keys ran out.
-STOP_LINE = "        if (status != COK_ECL_OK || vm->abort || game->quit) return status;\n"
-
-
-def stop_at_input_end(name, text):
-    """src/start.c: cok_start_game ends when the adventure's keys ran out."""
-    if STOP_LINE not in text:
-        raise cokbox.BoxError("src/start.c's adventure loop changed: update stop_at_input_end")
-    return text.replace(STOP_LINE, STOP_LINE.replace("game->quit)", "game->quit ||\n"
-                                                     "            game->input_ended)"))
-
-
-def stopping_eclplay(fixed=False):
-    """The port's eclplay (with the known fixes when FIXED) that stops when
-    the keys run out in the adventure."""
-    return checklib.build("eclplay", fixed=fixed, transforms=[("start.c", stop_at_input_end)])
-
-
 def frames_at(keys, out, fixed=False, **kw):
-    """checklib.frames_at through stopping_eclplay: the port's screen at
-    each \\sNAME. of KEYS."""
-    return checklib.frames_at(keys, out, binary=stopping_eclplay(fixed), **kw)
+    """checklib.frames_at: the port's screen at each \\sNAME. of KEYS."""
+    return checklib.frames_at(keys, out, fixed=fixed, **kw)
 
 
 def marked(steps):
