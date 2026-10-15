@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
-"""Check: Modify Character (README, Checks against the original: "Modify a
-character's name typing an upper-case `K`: Modify should keep and end.
-Change the wisdom of a cleric with two spells a day and exit: it should keep
-one until it is loaded again.").
+"""Check #118: Modify Character (README, Checks against the original:
+"Modify a character's name typing an upper-case `K`: Modify should keep and
+end. Change the wisdom of a cleric with two spells a day and exit: it should
+keep one until it is loaded again.").
 
 A human cleric of Paladine is created with seed 1 (wisdom 13, two spells a
 day, +0x11c 2), added to the party and modified twice: the name field
 (six fields down), `K`; then wisdom (two down), Add, Exit. After each step
-the record is read in the original's memory and the screen compared with
-eclplay's; the game is then saved as A in both and the files compared.
+the screen, and the record's name, wisdom and +0x11c read in the
+original's memory, are compared with the port's at the same key read; the
+game is then saved as A in both and the files compared.
 """
 import argparse
+import pathlib
 import sys
 
-import a_common as A
-from a_create import create_keys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import a_common as A  # noqa: E402
+import checklib  # noqa: E402
+from a_create import create_keys  # noqa: E402
 
 STEPS = [
     ("created", r"\kxP" + create_keys("ABE", 6, 0, 0, 0, 0) + r"\v\r\r\e"),  # create, Add, Escape
@@ -27,11 +31,10 @@ STEPS = [
 ]
 
 
-def record(box):
-    rec = box.far(box.ds * 16 + 0x609A)
-    raw = box.read(rec, 409)
-    return (f"name {raw[1:1 + raw[0]].decode('latin-1')!r}, wisdom {raw[0x14]}/{raw[0x15]}, "
-            f"spells a day +0x11c {raw[0x11c]}")
+def fields(raw):
+    """What #118 rests on: the name, the wisdom (+0x14 and +0x15) and the
+    spells a day's byte +0x11c."""
+    return (A.name_of(raw), raw[0x14], raw[0x15], raw[0x11C])
 
 
 def main():
@@ -39,29 +42,24 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    work = A.workdir(args.workdir, "modify")
+    work = checklib.workdir(args.workdir, "modify")
     keys = "".join(k + rf"\s{name}." for name, k in STEPS)
     pair = A.Pair(keys, work, seed=1, verbose=args.verbose)
-    print("port: " + " | ".join(line for line in pair.out.strip().splitlines()
-                                if line.startswith(("menu: Modify", "menu: Add", "choice", "input",
-                                                    "roster", "party"))))
-    bad = 0
+    probes = pair.probes()
+    v = checklib.Verdict()
+    records = {}
     with pair:
-        for name, k in STEPS:
-            pair.run(k)
-            pair.shot(name)
-            print(f"  {name}: the original waits at {pair.box.where()}; {record(pair.box)}")
-            bad += pair.compare(name)[0] != 0
-        orig, port = pair.box_files(), pair.port_files()
-    for label, files in (("original", orig), ("port", port)):
-        sav = files.get("CHRDATA1.SAV")
-        if sav:
-            print(f"  {label}'s CHRDATA1.SAV: name {sav[1:1 + sav[0]].decode('latin-1')!r}, "
-                  f"wisdom {sav[0x14]}/{sav[0x15]}, +0x11c {sav[0x11c]}")
-    bad += A.compare_files(orig, port, A.mask_saved)
-    print("verdict:", "AGREES" if not bad else "PORT DIFFERS / see above", f"(files in {work})")
-    return 1 if bad else 0
+        pair.steps(lambda mark: records.__setitem__(mark, A.party_records(pair.box)))
+        orig = pair.box_files()
+    for name, _ in STEPS:
+        pair.judge(v, name)
+        mine = [fields(raw) for raw, _ in records[name]]
+        port = [fields(raw) for raw, _ in probes[name].members]
+        v.value(f"{name}: the party's (name, wisdom, wisdom, +0x11c)", mine, port)
+    A.judge_files(v, orig, pair.port_files(), A.mask_saved, pair.fixed_files)
+    print(f"files in {work}")
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))

@@ -1,45 +1,235 @@
-"""Helpers for batch A's checks (startup, title, setup, the start menu):
-the same keys in eclplay and in the original under DOSBox-X, screens taken
-at `\\sNAME.` and compared with eclplay's best-matching frame, files compared.
+"""Helpers for batch A's checks (startup, title, setup, the start menu): the
+same keys in eclplay and in the original under DOSBox-X; each screen taken
+at a `\\sNAME.` judged against the port's at the same point of the keys
+(checklib.frames_at), the files and the values read in the original's
+memory against the port's at the same point (a probe build of eclplay,
+below), everything into a checklib.Verdict.
 """
+import concurrent.futures
 import os
 import pathlib
-import re
 import shutil
 import subprocess
 import sys
-import tempfile
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-import cokbox  # noqa: E402
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import checklib  # noqa: E402
 
-
-def port_keys(keys):
-    """KEYS without the box's own escapes (\\sNAME. screenshots, \\pN. pauses
-    stay: eclplay takes them)."""
-    return re.sub(r"\\s[^.]*\.", "", keys)
+cokbox = checklib.cokbox
+SAVES = [cokbox.ROOT / "SAVE"]
 
 
-def workdir(arg, name):
-    return pathlib.Path(arg).resolve() if arg else pathlib.Path(tempfile.mkdtemp(prefix=f"check-{name}-"))
+# ------------------------------------------------------- the probe build
 
+# src/eclplay.c's key read, before its shot (next_key).
+KEY_READ = "    release(p);\n    if (!cok_key_script_owed(&p->keys) && p->shots != NULL) {\n"
+SOUND_CALL = "    cok_sound_call_at(p->sound, call, value);\n"
+
+
+def _probe_reads(name, text):
+    """At each key read, `aprobe:` lines: the number its shot takes (99999
+    for none), the
+    game's DS:5885 (the game saved), the debug flag and DEBUG.TXT's state (open, BufPos), the menu's
+    timeout (DS:6e11), the display (DS:4b76), the sound's DS:577a/577b (with
+    --wav), each record of the list (409 bytes) and its items (63 bytes
+    each), in hex; in the setup's text mode, the 80x25 cells and the cursor
+    (`acrt:`)."""
+    if KEY_READ not in text:
+        raise cokbox.BoxError("src/eclplay.c's next_key changed: update a_common._probe_reads")
+    probe = r'''    if (p->crt != NULL) {
+        for (int r = 0; r < COK_CRT_ROWS; ++r) {
+            printf("acrt: %02d|", r);
+            for (int c = 0; c < COK_CRT_COLUMNS; ++c) printf("%02x", p->crt->chars[r][c]);
+            printf("|");
+            for (int c = 0; c < COK_CRT_COLUMNS; ++c) printf("%02x", p->crt->attrs[r][c]);
+            printf("\n");
+        }
+        printf("acrt: cursor %d %d\n", p->crt->x, p->crt->y);
+    } else if (p->game != NULL) {
+        cok_adventure *g = p->game;
+        printf("aprobe: read shot %u saved %u debug %u open %u bufpos %zu timeout %u "
+               "display %u", !cok_key_script_owed(&p->keys) && p->shots != NULL ? p->shot : 99999u,
+               g->effects.rolls.saved, g->debug, g->debug_file.open, g->debug_file.used,
+               g->timeout, (unsigned)g->display);
+        if (p->sound != NULL) printf(" 577a %u 577b %u", p->sound->device, p->sound->saved);
+        printf("\n");
+        for (size_t m = 0; m < g->party.count; ++m) {
+            const cok_character *ch = g->party.members[m];
+            if (ch == NULL) continue;
+            printf("aprobe: member %zu ", m);
+            for (size_t b = 0; b < sizeof ch->record; ++b) printf("%02x", ch->record[b]);
+            for (size_t k = 0; k < ch->item_count; ++k) {
+                printf(" ");
+                for (size_t b = 0; b < COK_ITEM_SIZE; ++b) printf("%02x", ch->items[k][b]);
+            }
+            printf("\n");
+        }
+    }
+'''
+    return text.replace(KEY_READ, probe + KEY_READ)
+
+
+def _delay_index(name, text):
+    """At each of the game's delays, `adelay: SHOT MS`: the number the
+    shot checklib.shot_at_delays then saves takes, and the delay's length."""
+    if checklib.DELAY_HOOK not in text:
+        raise cokbox.BoxError("src/eclplay.c's delay hook changed: update a_common._delay_index")
+    return text.replace(checklib.DELAY_HOOK, checklib.DELAY_HOOK + (
+        '    if (p->shots != NULL && p->game != NULL && ms > 0)\n'
+        '        printf("adelay: %u %u\\n", p->shot, ms);\n'))
+
+
+LOG_LINE = '    printf("%s: %s\\n", kind, text);\n}\n'
+LOADING = ("    cok_text_string(&game->screen, &game->font, \"Loading...Please Wait\", "
+           "0, 24, 10, 0);\n")
+
+
+def _shot_at_logs(name, text):
+    """src/eclplay.c: a shot at each line the game logs (but item:), each
+    announced by `alog: SHOT`: the screens the port draws between two delays
+    with no delay between them (an NPC joining, a text printed, a picture
+    shown) are presented there too."""
+    if text.count(LOG_LINE) != 1:
+        raise cokbox.BoxError("src/eclplay.c's log_line changed: update a_common._shot_at_logs")
+    return text.replace(LOG_LINE, LOG_LINE[:-2] + r'''    {
+        player *p = context;
+        if (p->shots != NULL && p->game != NULL && strcmp(kind, "item") != 0 &&
+            cok_picture_frame(&p->game->screen, 0).width == 320) {
+            char path[4096];
+            printf("alog: %u\n", p->shot);
+            snprintf(path, sizeof path, "%s/%03u.bmp", p->shots, p->shot++);
+            save(p, path);
+        }
+    }
+}
+''')
+
+
+def _log_loading(name, text):
+    """src/adventure.c: `Loading...Please Wait` logged once shown (so that
+    _shot_at_logs presents it: the original shows it while DOS reads the
+    record, the port has no delay there)."""
+    if text.count(LOADING) != 1:
+        raise cokbox.BoxError("src/adventure.c's cok_adventure_loading changed: update "
+                              "a_common._log_loading")
+    return text.replace(LOADING, LOADING + '    log_text(game, "aloading", "shown");\n')
+
+
+def probe_eclplay(fixed=False, delays=False):
+    """eclplay with batch A's probes (_probe_reads): its behaviour is the
+    port's (or with FIXED the fixed port's), only its output is more. With
+    DELAYS, a shot at each of the game's delays as well
+    (checklib.shot_at_delays), each announced by an `adelay:` line, and at
+    each line it logs (_shot_at_logs, _log_loading). Without DELAYS it ends
+    where the keys run out in the adventure, as checklib.frames_at's does
+    (with them it plays on: the demonstration runs after the keys' end)."""
+    transforms = [("eclplay.c", _probe_reads)]
+    if not delays:
+        transforms.append(("start.c", checklib.stop_at_input_end))
+    else:
+        # shot_at_delays first: _delay_index's line then goes before its shot.
+        transforms = [("eclplay.c", checklib.shot_at_delays), ("eclplay.c", _delay_index),
+                      ("eclplay.c", _shot_at_logs), ("adventure.c", _log_loading)] + transforms
+    return checklib.build("eclplay", fixed=fixed, transforms=transforms)
+
+
+class Probe:
+    """The last `aprobe:` block of an eclplay run's output: the state at the
+    key read where it stopped."""
+
+    def __init__(self, stdout):
+        self.fields, self.members = {}, []
+        for line in stdout.splitlines():
+            if line.startswith("aprobe: read "):
+                words = line.split()[2:]
+                self.fields = {words[i]: int(words[i + 1]) for i in range(0, len(words), 2)}
+                self.members = []
+            elif line.startswith("aprobe: member "):
+                parts = line.split()[3:]
+                self.members.append((bytes.fromhex(parts[0]), [bytes.fromhex(p) for p in parts[1:]]))
+        self.stdout = stdout
+
+    def get(self, key):
+        return self.fields.get(key)
+
+
+def at_marks(keys, out, names=None, fixed=False, **kw):
+    """The port at each \\sNAME. of KEYS (or only NAMES), as checklib.frames_at
+    finds it: the probe build (probe_eclplay(FIXED), which ends where the
+    keys run out, as checklib.stopping_eclplay) run on the keys before the
+    mark stops at the key read that follows, where the box's \\sNAME. takes
+    its screen and reads the original's memory. The screen is that read's
+    own shot, by the number its `aprobe:` line gives, not the run's last: a
+    battle's setup takes one more (eclplay's battlefield hook) after the
+    keys' end. KW go to cokbox.eclplay. Returns {name: (Screen or None,
+    Probe)}."""
+    out = pathlib.Path(out)
+    binary = probe_eclplay(fixed=fixed)
+    marks = [(m.group(1), keys[:m.start()]) for m in checklib.MARK.finditer(keys)
+             if names is None or m.group(1) in names]
+
+    def one(item):
+        name, prefix = item
+        text, _, shots = cokbox.eclplay(checklib.port_keys(prefix), out / f"at-{name}",
+                                        binary=binary, shots=True, **kw)
+        probe = Probe(text)
+        shot = probe.get("shot")
+        path = next((p for p in shots if int(p.stem) == shot), None)
+        return name, (cokbox.Screen.load(path) if path else None, probe)
+
+    with concurrent.futures.ThreadPoolExecutor(4) as pool:
+        return dict(pool.map(one, marks))
+
+
+def probes_at(keys, out, names=None, fixed=False, **kw):
+    """The probe build's state at each \\sNAME. of KEYS: {name: Probe}."""
+    return {name: probe for name, (_, probe) in
+            at_marks(keys, out, names=names, fixed=fixed, **kw).items()}
+
+
+# ------------------------------------------------------ records in memory
+
+def party_records(box, size=409):
+    """The original's list from DS:609a: each record's SIZE bytes and its
+    items (63 bytes each, linked from +0x143, next at +0x2a)."""
+    out = []
+    rec = box.far(box.ds * 16 + 0x609A)
+    while rec is not None and len(out) < 12:
+        raw = box.read(rec, size)
+        items, item = [], box.far(rec + 0x143)
+        while item is not None and len(items) < 40:
+            items.append(box.read(item, 63))
+            item = box.far(item + 0x2A)
+        out.append((raw, items))
+        rec = box.far(rec + 0x17F)
+    return out
+
+
+def name_of(record):
+    return record[1:1 + min(record[0], 15)].decode("latin-1")
+
+
+# --------------------------------------------------------- a pair of runs
 
 class Pair:
-    """eclplay's run (stdout, saves, shots) and the box's screens and files for
-    the same keys."""
+    """The same keys in eclplay and in the original (a Box): the port's
+    stdout and saves for all the keys, its screen and state at each \\sNAME.
+    of them (at_marks; the fixed port's screen, when one differs), and the
+    box's screens and files."""
 
-    def __init__(self, keys, work, seed=None, machine="tandy", saves=(), args=(), box_args="",
-                 verbose=False, eclplay_args=(), start_menu=True, **box_kw):
+    def __init__(self, keys, work, seed=None, machine="tandy", saves=(), box_args="",
+                 verbose=False, eclplay_args=(), **box_kw):
         self.work = pathlib.Path(work)
         self.keys = keys
-        eargs = list(eclplay_args) + (["--seed", str(seed)] if seed is not None else [])
+        args = list(eclplay_args) + (["--seed", str(seed)] if seed is not None else [])
+        self.kw = dict(machine=machine, saves=saves, args=args)
         self.out, self.port_saves, self.port_shots = cokbox.eclplay(
-            port_keys(keys), self.work / "eclplay", machine=machine, saves=saves, args=eargs,
-            start_menu=start_menu)
-        self.expected = [cokbox.Screen.load(p) for p in self.port_shots]
+            checklib.port_keys(keys), self.work / "eclplay", **self.kw)
+        self.at = at_marks(keys, self.work / "port", **self.kw)
+        self.port = {name: screen for name, (screen, _) in self.at.items()}
+        self._fixed = None
         self.box = cokbox.Box(workdir=self.work / "box", machine=machine, saves=saves,
                               args=box_args, seed=seed, verbose=verbose, **box_kw)
-        self.shots = {}
         shutil.rmtree(self.work / "shots", ignore_errors=True)
         for old in self.work.glob("diff-*.png"):
             old.unlink()
@@ -51,60 +241,122 @@ class Pair:
     def __exit__(self, *exc):
         self.box.close()
 
+    def fixed(self):
+        """The fixed port's screens at the same marks (built once needed)."""
+        if self._fixed is None:
+            self._fixed = {name: screen for name, (screen, _) in at_marks(
+                self.keys, self.work / "port-fixed", fixed=True, **self.kw).items()}
+        return self._fixed
+
+    def probes(self):
+        """The port's state at the marks: {name: Probe}."""
+        return {name: probe for name, (_, probe) in self.at.items()}
+
     def run(self, keys=None):
         """Type KEYS (default: all of them) in the box; screens at \\sNAME."""
         self.box.keys(self.keys if keys is None else keys, shots=self.work / "shots")
+
+    def steps(self, during=None):
+        """Type the keys mark by mark: at each \\sNAME. the screen, then
+        DURING(name) (reading the original's memory there); the keys after
+        the last mark are typed too."""
+        rest = self.keys
+        while r"\s" in rest:
+            head, _, tail = rest.partition(r"\s")
+            name, _, rest = tail.partition(".")
+            self.run(head)
+            self.shot(name)
+            if during:
+                during(name)
+        if rest:
+            self.run(rest)
 
     def shot(self, name):
         self.box.wait_input(settle=0.5)
         return self.box.screenshot(self.work / "shots" / f"{name}.png")
 
-    def compare(self, name, screen=None, quiet=False):
-        """The screen NAME (taken) against eclplay's best frame: (count, index, box)."""
-        if screen is None:
-            screen = cokbox.Screen.load(self.work / "shots" / f"{name}.png")
-        if not self.expected:
-            return None
-        diffs = [screen.diff(e) if (screen.width, screen.height) == (e.width, e.height)
-                 else (10 ** 9, None) for e in self.expected]
-        best = min(range(len(diffs)), key=lambda i: diffs[i][0])
-        count, area = diffs[best]
+    def original(self, name):
+        return cokbox.Screen.load(self.work / "shots" / f"{name}.png")
+
+    def judge(self, v, name, masks=(), what=None):
+        """The original's screen NAME against the port's at the same mark
+        (and the fixed port's, for a difference). Returns the pixels
+        differing."""
+        screen = self.original(name)
+        count = v.screen(what or f"screen {name}", screen, self.port.get(name),
+                         fixed=lambda: self.fixed().get(name), masks=masks, work=self.work)
         if count:
-            screen.save_png(self.work / f"diff-{name}.png", highlight=self.expected[best])
-        if not quiet:
-            print(f"  screen {name}: {count} pixels differ from eclplay's "
-                  f"{self.port_shots[best].name}" + (f" in {area}" if area else ""))
-        return count, best, area
+            self.nearest(name, screen)
+        return count
+
+    def judge_all(self, v, masks=()):
+        for name in self.marks():
+            self.judge(v, name, masks)
+
+    def marks(self):
+        return [m.group(1) for m in checklib.MARK.finditer(self.keys)]
+
+    def nearest(self, name, screen):
+        """A diagnostic only: the frame of the whole run nearest to SCREEN."""
+        best = None
+        for path in self.port_shots:
+            frame = cokbox.Screen.load(path)
+            n = checklib.masked_diff(screen, frame)[0]
+            if best is None or n < best[0]:
+                best = (n, path.name)
+        if best:
+            print(f"    (diagnostic: the nearest of all {len(self.port_shots)} port frames is "
+                  f"{best[1]}, {best[0]} pixels)")
 
     def box_files(self):
-        return {p.name: p.read_bytes() for p in (self.box.game / "SAVE").iterdir() if p.is_file()}
+        return files_in(self.box.game / "SAVE")
 
     def port_files(self):
-        return {p.name: p.read_bytes() for p in self.port_saves.iterdir() if p.is_file()}
+        return files_in(self.port_saves)
+
+    def fixed_files(self):
+        """The saved files of the fixed port for all the keys."""
+        _, saves, _ = cokbox.eclplay(checklib.port_keys(self.keys), self.work / "eclplay-fixed-all",
+                                     binary=checklib.fixed_eclplay(), shots=False, **self.kw)
+        return files_in(saves)
 
 
-def compare_files(orig, port, mask=None, show=True):
-    """Compare two {name: bytes}; MASK(name, data) zeroes bytes written from
-    memory. Returns the number of files that differ."""
+def files_in(directory):
+    return {p.name: p.read_bytes() for p in pathlib.Path(directory).iterdir() if p.is_file()}
+
+
+def judge_files(v, orig, port, mask=None, fixed=None, what="file"):
+    """Each file of ORIG (the original's) against PORT's, MASK(name, data)
+    zeroing what was written from memory (pointers, the stack); one that
+    differs but equals FIXED's (a function returning {name: bytes}) is the
+    known difference `resume`. Returns the number of files differing."""
     differ = 0
+    fixed_files = None
     for name in sorted(set(orig) | set(port)):
-        if name not in orig or name not in port:
-            if show:
-                print(f"  {name}: only in {'the original' if name in orig else 'the port'}'s")
+        a, b = orig.get(name), port.get(name)
+        if a is None or b is None:
+            v.differ(f"{what} {name}", f"only in {'the original' if a is not None else 'the port'}'s")
             differ += 1
             continue
-        a, b = orig[name], port[name]
         if mask:
             a, b = mask(name, a), mask(name, b)
+        if a == b:
+            v.ok(f"{what} {name}", "identical")
+            continue
+        differ += 1
         offs = [i for i in range(max(len(a), len(b)))
                 if i >= len(a) or i >= len(b) or a[i] != b[i]]
-        if offs:
-            differ += 1
-        if show:
-            print(f"  {name}: " + ("identical" if not offs else
-                  f"{len(offs)} bytes differ (sizes {len(a)}, {len(b)}) at "
+        detail = (f"{len(offs)} bytes differ (sizes {len(a)}, {len(b)}) at "
                   + " ".join(f"{i:#x}:{a[i] if i < len(a) else '-'}/{b[i] if i < len(b) else '-'}"
-                             for i in offs[:16]) + (" ..." if len(offs) > 16 else "")))
+                             for i in offs[:16]) + (" ..." if len(offs) > 16 else ""))
+        if fixed is not None:
+            if fixed_files is None:
+                fixed_files = fixed()
+            c = fixed_files.get(name)
+            if c is not None and (mask(name, c) if mask else c) == a:
+                v.differ(f"{what} {name}", detail + ", as the fixed port's", "resume")
+                continue
+        v.differ(f"{what} {name}", detail)
     return differ
 
 
@@ -113,11 +365,20 @@ WHO_POINTERS = [range(0xE3, 0xE7), range(0x143, 0x147), range(0x147, 0x17B),
                 range(0x17F, 0x183), range(0x183, 0x187)]
 
 
+def mask_record(record):
+    data = bytearray(record)
+    for r in WHO_POINTERS:
+        for i in r:
+            if i < len(data):
+                data[i] = 0
+    return bytes(data)
+
+
 def mask_roster(name, data):
-    data = bytearray(data)
     if name.endswith((".WHO", ".SAV")):
-        spans = WHO_POINTERS
-    elif name.endswith(".STF"):
+        return mask_record(data)
+    data = bytearray(data)
+    if name.endswith(".STF"):
         spans = [range(i + 0x2A, i + 0x2E) for i in range(0, len(data), 63)]
     elif name.endswith(".SFX"):
         spans = [range(i + 5, i + 9) for i in range(0, len(data), 9)]
@@ -148,68 +409,25 @@ def mask_saved(name, data):
     return bytes(data)
 
 
-def delay_eclplay(out):
-    """Build into OUT a copy of eclplay that also saves the screen at each of
-    the game's delays of 100 ms or more (Crt.Delay: CALL [6803]'s frames,
-    notices, the demonstration's pauses), as ECLPLAY_DELAY_SHOTS/dNNNNN.bmp,
-    printing `delayshot: N MS` there: eclplay's own shots come only at key
-    reads, which the demonstration has none of; with ECLPLAY_FRAMES=FILE,
-    every different 320x200 screen at any delay is appended to FILE (32,000
-    bytes each, two pixels a byte, as cok_picture_frame holds them). Returns
-    its path."""
+def run_probe(binary, keys, out, config_text=None, wav=False, shots=False, extra=()):
+    """BINARY (a probe build) from the title with --start-menu, a KRYNN.CFG
+    of CONFIG_TEXT (none when None: the setup runs), its own saves. Returns
+    (stdout, the shots' paths)."""
     out = pathlib.Path(out)
-    out.mkdir(parents=True, exist_ok=True)
-    root = cokbox.ROOT
-    src = (root / "src/eclplay.c").read_text()
-    hook = ("static void delay(cok_adventure *game, unsigned ms, void *context)\n{\n"
-            "    (void)game;\n    player *p = context;\n")
-    if hook not in src:
-        raise cokbox.BoxError("eclplay.c's delay hook changed: update delay_eclplay")
-    src = src.replace(hook, hook + (
-        "    {\n        static unsigned n;\n        const char *dir = getenv(\"ECLPLAY_DELAY_SHOTS\");\n"
-        "        const char *raw = getenv(\"ECLPLAY_FRAMES\");\n"
-        "        if (raw != NULL && p->game != NULL) {\n"
-        "            static uint8_t last[320 * 200 / 2];\n            static FILE *frames;\n"
-        "            cok_image im = cok_picture_frame(&p->game->screen, 0);\n"
-        "            if (im.width == 320 && im.height == 200 && memcmp(last, im.pixels, sizeof last)) {\n"
-        "                memcpy(last, im.pixels, sizeof last);\n"
-        "                if (frames == NULL) frames = fopen(raw, \"wb\");\n"
-        "                if (frames != NULL) { fwrite(last, 1, sizeof last, frames); fflush(frames); }\n"
-        "            }\n        }\n"
-        "        if (dir != NULL && ms >= 100) {\n            char path[4096];\n"
-        "            snprintf(path, sizeof path, \"%s/d%05u.bmp\", dir, n);\n"
-        "            printf(\"delayshot: %u %u\\n\", n++, ms);\n            save(p, path);\n"
-        "        }\n    }\n"))
-    # With ECLPLAY_SOUND_STATE set (and --wav, which gives eclplay its sound),
-    # each call to the sound driver prints DS:577a and 577b after it.
-    call = "    cok_sound_call_at(p->sound, call, value);\n"
-    if call not in src:
-        raise cokbox.BoxError("eclplay.c's sound hook changed: update delay_eclplay")
-    src = src.replace(call, call + (
-        "    if (getenv(\"ECLPLAY_SOUND_STATE\") != NULL)\n"
-        "        printf(\"sound-state: call %d, 577a %u, 577b %u\\n\", (int)call, p->sound->device,"
-        " p->sound->saved);\n"))
-    # With ECLPLAY_CRT_DUMP set, each key read in the text mode prints the
-    # screen: `crtdump: ROW|chars|attrs` for each row, then the cursor.
-    read = "    release(p);\n    if (!cok_key_script_owed(&p->keys) && p->shots != NULL) {\n"
-    if read not in src:
-        raise cokbox.BoxError("eclplay.c's next_key changed: update delay_eclplay")
-    src = src.replace(read, (
-        "    if (getenv(\"ECLPLAY_CRT_DUMP\") != NULL && p->crt != NULL) {\n"
-        "        for (int r = 0; r < COK_CRT_ROWS; ++r) {\n"
-        "            printf(\"crtdump: %02d|\", r);\n"
-        "            for (int c = 0; c < COK_CRT_COLUMNS; ++c) printf(\"%02x\", p->crt->chars[r][c]);\n"
-        "            printf(\"|\");\n"
-        "            for (int c = 0; c < COK_CRT_COLUMNS; ++c) printf(\"%02x\", p->crt->attrs[r][c]);\n"
-        "            printf(\"\\n\");\n        }\n"
-        "        printf(\"crtdump: cursor %d %d\\n\", p->crt->x, p->crt->y);\n    }\n") + read)
-    if "#include <stdlib.h>" not in src:
-        src = "#include <stdlib.h>\n" + src
-    (out / "eclplay_delays.c").write_text(src)
-    make = (root / "Makefile").read_text()
-    sources = re.search(r"^ADVENTURE_SRC = (.*)$", make, re.M).group(1).split()
-    exe = out / "eclplay-delays"
-    subprocess.run(["cc", "-I", str(root / "src"), "-std=c17", "-O2", str(out / "eclplay_delays.c"),
-                    str(root / "src/keyscript.c"), *(str(root / s) for s in sources), "-lm",
-                    "-o", str(exe)], check=True)
-    return exe
+    shutil.rmtree(out, ignore_errors=True)
+    (out / "saves").mkdir(parents=True)
+    cfg = out / "krynn.cfg"
+    if config_text is not None:
+        cfg.write_bytes(config_text)
+    args = [str(binary), "--start-menu", "--config", str(cfg), "--saves", str(out / "saves")]
+    if wav:
+        args += ["--wav", os.devnull]
+    if shots:
+        (out / "shots").mkdir()
+        args += ["--shots", str(out / "shots")]
+    run = subprocess.run([*args, *extra, "--keys", keys, str(cokbox.ROOT / "Assets")],
+                         capture_output=True, text=True, timeout=900)
+    (out / "log.txt").write_text(run.stdout + run.stderr)
+    # By number: past 999 the names have four digits.
+    return run.stdout, (sorted((out / "shots").glob("*.bmp"), key=lambda p: int(p.stem))
+                        if shots else [])

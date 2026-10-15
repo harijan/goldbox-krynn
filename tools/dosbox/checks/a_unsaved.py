@@ -1,52 +1,47 @@
 #!/usr/bin/env python3
-"""Check: Escape marks the game unsaved (README, Checks against the original:
-"In the start menu, press Escape, then Save: the game should count as
-unsaved, so `Exit to DOS` and Yes ask `Game NOT saved.  Quit anyway? `; No
-there should open `Save Which Game: ` and stay in the menu").
+"""Check #109: Escape marks the game unsaved (README, Checks against the
+original: "In the start menu, press Escape, then Save: the game should count
+as unsaved, so `Exit to DOS` and Yes ask `Game NOT saved.  Quit anyway? `;
+No there should open `Save Which Game: ` and stay in the menu").
 
 SAVE/'s game A is loaded in the start menu and saved as game A (Save Current
 Game sets DS:5885), then Escape is pressed in the start menu, and Exit to
-DOS, Yes, No, Escape. DS:5885 is read after each step; each screen is
-compared with eclplay's for the same keys. A second run presses Escape
-first and then saves: Exit and Yes then quit to DOS at once.
+DOS, Yes, No, Escape. At each step the screen and DS:5885 are compared with
+the port's at the same key read. A second run presses Escape first and then
+saves: Exit and Yes then quit to DOS at once, in both.
 """
 import argparse
+import pathlib
 import sys
 
-import a_common as A
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import a_common as A  # noqa: E402
+import checklib  # noqa: E402
 
 # Title, Play, Load A (the list keeps the third row, Modify, selected).
 LOAD = r"\kxP\v\v\rA\sloaded."
 SAVE = r"\v\v\v\v\rA\ssaved."    # down to Save Current Game (row 7), as game A
-ESC = r"\e\sescape."
-EXIT = r"\v\v\rY\squit.N\snot-saved.\e\sback."
-STEPS_1 = [("load A", LOAD), ("save as A", SAVE), ("Escape", ESC),
-           ("Exit, Yes, No, Escape", EXIT)]
-STEPS_2 = [("load A", LOAD), ("Escape", ESC), ("save as A", SAVE),
-           ("Exit, Yes", r"\v\v\rY")]
+RUNS = {
+    "escape-after-save": LOAD + SAVE + r"\e\sescape.\v\v\rY\squit.N\snot-saved.\e\sback.",
+    "escape-before-save": LOAD + r"\e\sescape." + SAVE + r"\v\v\rY",   # quits to DOS
+}
 
 
-def run(name, steps, work, verbose):
-    keys = "".join(k for _, k in steps)
-    pair = A.Pair(keys, work / name, saves=[A.cokbox.ROOT / "SAVE"], verbose=verbose)
-    bad = 0
+def run(v, name, keys, work, verbose):
     print(f"{name}: keys {keys}")
-    print("  port's last lines:", " | ".join(pair.out.strip().splitlines()[-6:]))
+    pair = A.Pair(keys, work / name, saves=A.SAVES, verbose=verbose)
+    probes = pair.probes()
+    saved = {}
     with pair:
-        for label, k in steps:
-            pair.run(k)
-            if pair.box.running and label != "Exit, Yes":
-                pair.box.wait_input(settle=0.3)
-                print(f"  after {label}: DS:5885 = {pair.box.ds_byte(0x5885)}, "
-                      f"waits at {pair.box.where()}")
-        if steps[-1][0] == "Exit, Yes":
-            quit_ = pair.box.wait_exit(20)
-            print(f"  after Exit, Yes: the original {'quit to DOS' if quit_ else 'is still running'}"
-                  f"; the port: {'quit' if '(quit to DOS)' in pair.out else 'did not quit'}")
-            bad += quit_ != ("(quit to DOS)" in pair.out)
-        for shot in sorted((pair.work / "shots").glob("*.png")):
-            bad += pair.compare(shot.stem)[0] != 0
-    return bad
+        pair.steps(lambda mark: saved.__setitem__(mark, pair.box.ds_byte(0x5885)))
+        quits = keys.endswith("Y")
+        if quits:
+            gone = pair.box.wait_exit(20)
+    for mark in pair.marks():
+        pair.judge(v, mark, what=f"{name}, screen {mark}")
+        v.value(f"{name}, {mark}: DS:5885 (saved)", saved[mark], probes[mark].get("saved"))
+    if quits:
+        v.value(f"{name}: Exit, Yes quits to DOS at once", gone, "(quit to DOS)" in pair.out)
 
 
 def main():
@@ -54,12 +49,13 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    work = A.workdir(args.workdir, "unsaved")
-    bad = run("escape-after-save", STEPS_1, work, args.verbose)
-    bad += run("escape-before-save", STEPS_2, work, args.verbose)
-    print("verdict:", "AGREES" if not bad else "PORT DIFFERS", f"(files in {work})")
-    return 1 if bad else 0
+    work = checklib.workdir(args.workdir, "unsaved")
+    v = checklib.Verdict()
+    for name, keys in RUNS.items():
+        run(v, name, keys, work, args.verbose)
+    print(f"files in {work}")
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))
