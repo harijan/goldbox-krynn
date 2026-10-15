@@ -13,127 +13,134 @@ order with a d2 at each tie: compare the order after it."
 "lost a spell", and its memorized spell gone."
 
 #119: seed 7, ISTAN Done/Quit, KAL Cast Magic Missile, Next six times (a
-baaz), Target, the game's speed poked to 30 for the cast and screenshots
-taken in a burst: each compared with eclplay's frames at its pauses
-(d_lib.pause_player), the panel and row 23 read with the game's font. Then
-the same with the port's game E (game A with KAL given 0x4a): the same
-dice, and KAL miscasts (no aim), "Casts a Spell" all the same. #22: seed 7, KAL casts Bless (casting time 10, a
-third of it 3): initiative 7 -> 4, past the 6s and a d2 against MOLLY and
+baaz), Target, the game's speed poked to 30 for the spell's choice and for
+the cast, and screenshots taken in bursts: each against the port's frames
+at its pauses, map shows and text lines in order (d_lib.burst_step), the
+panel and row 23 read with the game's font. Then the same with the port's
+game E (game A with KAL given 0x4a): the same dice, and KAL miscasts (no
+aim), "Casts a Spell" all the same. #22: seed 7, KAL casts Bless (casting
+time 10, a third of it 3): initiative 7 -> 4, past the 6s and a d2 against MOLLY and
 SIR STRONGSWORD at 4; the original's round order (DS:71ae) at GARIN's menu
-against the port's turns that follow. #128: seed 12 (found with eclplay),
-KAL begins Bless, a baaz hits him: his memorized spells (+0x1f-+0x57) and
-the spell kept (combat record +0x00) before and after, and his spell list
-at his next turn.
+against the port's there. #128: seed 12 (found with eclplay), KAL begins
+Bless, a baaz hits him: his memorized Blesses (+0x1f-+0x57) and the spell
+kept (combat record +0x00) before and after against the port's, and his
+spell list at his next turn. At every step the screen and the memory
+(d_lib.compare_state) against the port's at the same point.
 """
 import argparse
 import sys
 
+import checklib
 import d_lib
 
 ROUTE = d_lib.LOAD_A + d_lib.TO_CARAVAN
 BLESS = r"C\^\^\^\^\r"
+# The order batch D saw at GARIN's menu after KAL began Bless (seed 7).
+ORDER = ["ISTAN HORBIN", "BAAZ", "BAAZ", "GARIN ", "BAAZ", "MOLLY", "KAL", "SIR STRONGSWORD",
+         "SIRRION", "BAAZ"]
 
 
-def kal(b):
-    c = d_lib.by_name(d_lib.combatants(b), "KAL")[0]
-    return c["raw"][0x1F:0x58].count(1), d_lib.combat_record(b, c["rec"])[0]
+def kal(cs):
+    """KAL's Blesses (id 1) memorized (+0x1f-+0x57) and spell kept (+0x00)."""
+    c = d_lib.by_name(cs, "KAL")[0]
+    return c["raw"][0x1F:0x58].count(1), c["combat"][0]
 
 
-def missile(args, work, name, to_kal, n, seed, saves=()):
+def texts(shots):
+    """Each screen's (row 10, row 11, row 23) as the game's font reads them."""
+    return [tuple(d_lib.read_text(s, r, *cols)[0].strip(" ?") for r, cols in
+                  ((10, (23, 39)), (11, (23, 39)), (23, (0, 40)))) for s in shots]
+
+
+def missile(v, args, work, name, to_kal, n, seed, saves=()):
     """KAL's Magic Missile (TO_KAL the keys to his menu, N the Nexts to a
-    baaz): the original's screens from choosing the spell to the end of the
-    cast against the port's frames at its pauses; the texts read."""
-    keys = to_kal + r"C\^"
-    lines, shots = d_lib.port(keys + r"\r" + ("N" * n + "T" if n else ""), work / name, seed,
-                              saves=saves, pauses=True)
-    print(f"port ({name}):", [l for l in lines if l.startswith(("cast:", "print: Casts",
-                                                                 "print: Spell"))][-3:])
-    with d_lib.box(work / name, seed, verbose=args.verbose, saves=saves) as b:
-        res = d_lib.run_steps(b, [("list", keys)], shots, work / name)
-        speed = b.ds_byte(0x4B38)
-        b.ds_write(0x4B38, bytes([30]))
-        b.push_key(0x1C0D)
-        burst = d_lib.burst(b, 8, until=lambda: b.waiting(), work=work / name, prefix="chosen")
-        if n:
-            b.wait_input()
-            b.keys("N" * n)
-            b.wait_input(settle=0.5)
-            b.push_key(ord("t") | 0x1400)
-            burst += d_lib.burst(b, args.burst, work=work / name, prefix="cast")
-        b.ds_write(0x4B38, bytes([speed]))
-    frames = d_lib.frames_after(shots, res["list"][1], 150)
-    matched = [getattr(frames.get(s.pixels), "name", None) for s in burst]
-    texts = [(d_lib.read_text(s, 10, 23, 39)[0].strip(" ?"), d_lib.read_text(s, 11, 23, 39)[0]
-              .strip(" ?"), d_lib.read_text(s, 23)[0].strip(" ?")) for s in burst]
-    print(f"original ({name}): screens equal to port frames {matched}; texts "
-          f"(row 10, 11, 23): {sorted(set(texts))}")
-    # Screens caught between two of the port's pauses (row 23 being written,
-    # the map redrawn) have no frame; those at a pause must match one.
-    shown = [t for m, t in zip(matched, texts) if m]
-    said = any(t[:2] == ("KAL", "CASTS A SPELL") for t in shown) and \
-        (any(t[2] == "SPELL:MAGIC MISSILE" for t in shown) or not n) and \
-        (any(t[1].startswith("TAKES") for t in shown) or not n)
-    return res["list"][0] == 0 and said, lines
+    baaz; 0: the cast ends with the choice, a miscast): the original's
+    screens from the spell's choice to the end of the cast against the
+    port's, in order. Returns the texts read on them."""
+    out = work / name
+    steps = [("list", to_kal + r"C\^"), ("chosen", r"\r")]
+    if n:
+        steps += [("aimed", "N" * n), ("after", "T")]
+    port = d_lib.Port(out / "eclplay", d_lib.marked(steps), seed, saves=saves)
+    shots = []
+    with d_lib.box(out, seed, verbose=args.verbose, saves=saves) as b:
+        for (before, _), (mark, keys) in zip([(None, None)] + steps, steps):
+            if mark in ("chosen", "after"):
+                key = ord("t") | 0x1400 if mark == "after" else 0x1C0D  # T, Enter
+                shots += d_lib.burst_step(v, b, port, before, mark, key, out, mark,
+                                          args.burst)[0]
+            else:
+                shown = d_lib.step(b, keys, mark, out)
+                d_lib.screen(v, f"{name}: screen {mark}", shown, port, mark, out)
+            d_lib.compare_state(v, b, port, mark)
+    said = sorted(set(texts(shots)))
+    print(f"port ({name}):", [line for line in port.lines if line.startswith(
+        ("cast:", "print: Casts", "print: Spell"))][-3:])
+    print(f"original ({name}): texts (row 10, 11, 23): {said}")
+    return said, port.lines
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--workdir")
-    parser.add_argument("--burst", type=float, default=15)
+    parser.add_argument("--burst", type=float, default=30)
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    d_lib.need_saves()
-    work = d_lib.workdir("cast", args.workdir)
-    status = 0
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "d-cast")
+    v = checklib.Verdict()
 
     # #119, then under 0x4a.
-    ok, lines = missile(args, work, "missile", ROUTE + "DQ", 6, 7)
+    said, _ = missile(v, args, work, "missile", ROUTE + "DQ", 6, 7)
+    v.check(any(t[:2] == ("KAL", "CASTS A SPELL") for t in said) and
+            any(t[2] == "SPELL:MAGIC MISSILE" for t in said) and
+            any(t[1].startswith("TAKES") for t in said),
+            "#119 the original: \"CASTS A SPELL\" on row 11 under KAL, \"SPELL:MAGIC "
+            "MISSILE\" on row 23, the target's \"TAKES\"")
     saves = d_lib.make_save("E", work / "save", args=["--effect", "5,4a,0,0"])
     # The same dice: KAL miscasts (a d2 of 1), no aim, the turn over.
-    ok4a, lines = missile(args, work, "cursed", d_lib.load("E") + r"Lnm9\r" + "DQ", 0, 7,
+    said, lines = missile(v, args, work, "cursed", d_lib.load("E") + r"Lnm9\r" + "DQ", 0, 7,
                           saves=[saves])
-    k = lines.index("cast: KAL: Magic Missile")
-    print("port (cursed), after the cast:", lines[k + 1:k + 5])
-    status |= d_lib.verdict(ok and ok4a,
-                            "#119 Magic Missile: the original's screens during the cast "
-                            "equal the port's frames at its pauses; \"CASTS A SPELL\" on "
-                            "row 11 under the caster's name, \"SPELL:MAGIC MISSILE\" on row "
-                            "23; the same with 0x4a on KAL")
+    k = lines.index("cast: KAL: Magic Missile") if "cast: KAL: Magic Missile" in lines else None
+    print("port (cursed), after the cast:", lines[k + 1:k + 5] if k is not None else None)
+    v.check(any(t[:2] == ("KAL", "CASTS A SPELL") for t in said),
+            "#119 under 0x4a the original still says \"CASTS A SPELL\"")
 
     # #22
-    lines, shots = d_lib.port(ROUTE + "DQ" + BLESS + "DQ" * 5, work / "bless", 7)
-    i = lines.index("print: Begins Casting")
-    after = [l[6:].rsplit(" (", 1)[0] for l in lines[i:] if l.startswith("turn:")]
-    print("port: turns after Begins Casting:", after)
+    port = d_lib.Port(work / "bless" / "eclplay", d_lib.marked([("garin", ROUTE + "DQ" + BLESS)]),
+                      7)
     with d_lib.box(work / "bless", 7, verbose=args.verbose) as b:
-        res = d_lib.run_steps(b, [("garin", ROUTE + "DQ" + BLESS)], shots, work / "bless")
-        idx, order = d_lib.turn_entry(b)
-        print(f"original at GARIN's menu: entry {idx}, the order {order}")
-    rest = order[idx - 1:]
-    status |= d_lib.verdict(res["garin"][0] == 0 and rest[:len(after) - 2] == after[2:],
-                            "#22 Bless begun: the original's order from GARIN on "
-                            f"{rest} matches the port's turns {after[2:]}")
+        shown = d_lib.step(b, ROUTE + "DQ" + BLESS, "garin", work / "bless")
+        d_lib.screen(v, "bless: screen garin", shown, port, "garin", work / "bless")
+        d_lib.compare_state(v, b, port, "garin")
+        order = d_lib.turn_entry(b)
+    d_lib.value(v, "#22 the round's order and whose turn at GARIN's menu", order, port, "garin",
+                d_lib.port_turn)
+    print("port: turns after Begins Casting:", [line for line in port.lines
+                                                 if line.startswith("turn:")][2:])
+    v.check(order[1] == ORDER and d_lib.whose(order) == "GARIN ",
+            "#22 the original: KAL (initiative 7, Bless begun: 4) after MOLLY, before SIR "
+            "STRONGSWORD, as batch D saw it", f"{order}")
 
     # #128
-    keys = ROUTE + "DQDQ" + BLESS
-    steps = [("molly", keys), ("sir", "DQ"), ("kal-list", "DQ" * 5 + "C")]
-    lines, shots = d_lib.port("".join(k for _, k in steps), work / "lost", 12)
-    print("port:", [l for l in lines if "lost a spell" in l or "Begins" in l])
+    steps = [("molly", ROUTE + "DQDQ" + BLESS), ("sir", "DQ"), ("kal-list", "DQ" * 5 + "C")]
+    port = d_lib.Port(work / "lost" / "eclplay", d_lib.marked(steps), 12)
+    seen = {}
     with d_lib.box(work / "lost", 12, verbose=args.verbose) as b:
-        res = d_lib.run_steps(b, steps[:1], shots, work / "lost")
-        before = kal(b)
-        res.update(d_lib.run_steps(b, steps[1:2], shots, work / "lost"))
-        after = kal(b)
-        res.update(d_lib.run_steps(b, steps[2:], shots, work / "lost"))
-    print(f"original: KAL's Blesses (id 1) memorized and spell kept (+0x00): before the hit "
-          f"{before}, after {after}")
-    status |= d_lib.verdict(before == (1, 1) and after == (0, 0) and
-                            all(c == 0 for c, _ in res.values()),
-                            "#128 Bless begun then KAL hit: \"lost a spell\", one Bless "
-                            "fewer in memory, none kept; his spell list next turn equal")
+        for name, keys in steps:
+            shown = d_lib.step(b, keys, name, work / "lost")
+            d_lib.screen(v, f"lost: screen {name}", shown, port, name, work / "lost")
+            d_lib.compare_state(v, b, port, name)
+            seen[name] = kal(d_lib.combatants(b))
+            d_lib.value(v, f"#128 KAL's Blesses memorized and spell kept at {name}", seen[name],
+                        port, name, lambda s: kal(d_lib.port_combatants(s)))
+    v.check(any("lost a spell" in line for line in port.lines), "#128 the port: \"lost a spell\"")
+    v.check(seen["molly"] == (1, 1) and seen["sir"] == (0, 0),
+            "#128 the original: Bless begun (one memorized, kept), then hit: none, none kept",
+            f"{seen}")
     print(f"files in {work}")
-    return status
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))

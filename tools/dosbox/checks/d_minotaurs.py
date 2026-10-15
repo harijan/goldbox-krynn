@@ -10,26 +10,23 @@ patched: 0x4cca 1 (so that a rest encounter west of x 10 is the minotaurs'
 Begin, see d_firstblock.py, counts it down without a RANDOM) and the square
 2, 1 (square byte 0). Both load J, Encamp, Rest an hour: "Your repose is
 suddenly interrupted!", "THE MINOTAURS PREPARE TO ATTACK." DEFEND
-YOURSELVES / FLEE: Flee. For each seed the screen after it is compared
-with eclplay's and read: "NOT EVERYONE IN YOUR PARTY IS FAST ENOUGH TO GET
-AWAY!" in both, whatever the dice.
+YOURSELVES / FLEE: Flee. For each seed the screens and memory
+(d_lib.compare_state) at the menu and after Flee against the port's, and
+the page after Flee read: "NOT EVERYONE IN YOUR PARTY IS FAST ENOUGH TO GET
+AWAY!" in both, whatever the dice. (The page's PRESS <ENTER>/<RETURN> TO
+CONTINUE has the port's known full stop.)
 """
 import argparse
-import struct
 import sys
 
+import checklib
 import d_lib
 
 
 def save_80(work):
     saves = d_lib.make_save("J", work / "save", keys=r"\r\r\r\rE", block=80,
                             args=["--file", "3", "--set", "4cca=0"])
-    path = saves / "SAVGAMJ.DAT"
-    data = bytearray(path.read_bytes())
-    struct.pack_into("<H", data, 1 + (0x4CCA - 0x4B00) * 2, 1)
-    struct.pack_into("<H", data, 1 + (0x4C0E - 0x4B00) * 2, 5)
-    data[0x1401:0x1406] = bytes([2, 1, 0, 0, 0])
-    path.write_bytes(bytes(data))
+    d_lib.patch_game(saves, "J", square=[2, 1, 0, 0, 0], words={0x4CCA: 1, 0x4C0E: 5})
     return saves
 
 
@@ -39,31 +36,27 @@ def main():
     parser.add_argument("--seed", type=int, action="append")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    d_lib.need_saves()
-    work = d_lib.workdir("minotaurs", args.workdir)
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "d-minotaurs")
     saves = save_80(work)
-    status = 0
+    v = checklib.Verdict()
+    steps = [("menu", d_lib.load("J") + "ERHAR"), ("fled", "F")]
     for seed in args.seed or [7, 1, 2]:
         out = work / f"seed{seed}"
-        keys = d_lib.load("J") + "ERHAR"
-        lines, shots = d_lib.port(keys + "F", out / "port", seed, saves=[saves])
-        said = [l[7:] for l in lines if "FAST ENOUGH" in l or "AVOID THEM" in l]
+        port = d_lib.Port(out / "eclplay", d_lib.marked(steps), seed, saves=[saves])
         with d_lib.box(out, seed, verbose=args.verbose, saves=[saves]) as b:
-            res = d_lib.run_steps(b, [("menu", keys), ("fled", "F")], shots, out)
-            _, area, _ = d_lib.best(res["fled"][1], shots)
-        text = d_lib.screen_text(res["fled"][1], range(17, 24))
+            for name, keys in steps:
+                shown = d_lib.step(b, keys, name, out)
+                d_lib.screen(v, f"seed {seed}: screen {name}", shown, port, name, out)
+                d_lib.compare_state(v, b, port, name)
+        text = d_lib.screen_text(shown, range(17, 24))
+        said = [line[7:] for line in port.lines if "FAST ENOUGH" in line]
         print(f"seed {seed}: port {said}; original {text}")
-        # The page's single-item menu: the port's full stop after CONTINUE (row
-        # 24, column 34), the bug load_game_screen.py found, is the only
-        # difference allowed.
-        stop = area is None or area == (272, 192, 279, 199)
-        status |= d_lib.verdict(res["menu"][0] == 0 and stop and
-                                any("NOT EVERYONE" in t for t in text.values()),
-                                f"#57 seed {seed}: the flight fails in both (screens equal but "
-                                "the port's known full stop on row 24)")
+        v.check(any("NOT EVERYONE" in t for t in text.values()),
+                f"#57 seed {seed}: the flight fails in the original (\"NOT EVERYONE ...\")")
     print(f"files in {work}")
-    return status
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))

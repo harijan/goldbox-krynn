@@ -8,23 +8,37 @@ drop by the shots made." (Game A has no long bow: SIRRION's Short Bow with
 Caravan, seed 7: five turns Done/Quit, then SIRRION Aims (Next three times,
 a baaz), Target: "Attacks BAAZ Hitting for 3". The arrows' count (the item
 in slot 11, the far pointer at +0x147 + 4 x 11, count +0x39) read before and
-after in the original's memory; the shot's screens in a burst (the speed
-poked to 30) compared with eclplay's frames at its pauses (the arrow's
-flight steps are pauses); the next menu's screen with eclplay's.
+after in the original's memory against the port's at the same points; the
+shot's screens in a burst (the speed poked to 30) against the port's frames
+at its pauses and map shows, in order (the arrow's flight steps are
+pauses); the screens and memory at the aim, the next menu and his Items at
+his next turn against the port's.
 """
 import argparse
 import sys
 
+import checklib
 import d_lib
 
+AIM = d_lib.LOAD_A + d_lib.TO_CARAVAN + "DQ" * 5 + "ANNN"
+STEPS = [("aim", AIM), ("next", "T"), ("items", "VI")]
 
-def arrows(b):
-    rec = d_lib.by_name(d_lib.combatants(b), "SIRRION")[0]["rec"]
+
+def arrows(rec):
+    """(type, count) of the item readied in slot 11 (arrows) of record REC
+    (the original's: its item at the far pointer +0x147 + 44)."""
+    return rec["arrows"][0x2E], rec["arrows"][0x39]
+
+
+def original_arrows(b):
+    rec = d_lib.by_name(d_lib.party(b), "SIRRION")[0]["rec"]
     item = b.far(rec + 0x147 + 4 * 11)
-    if item is None:
-        return None
-    raw = b.read(item, 63)
-    return raw[0x2E], raw[0x39]
+    return None if item is None else arrows({"arrows": b.read(item, 63)})
+
+
+def port_arrows(s):
+    r = d_lib.by_name(s["records"], "SIRRION")[0]
+    return None if not r["slots"][11] else arrows({"arrows": r["items"][r["slots"][11] - 1]})
 
 
 def main():
@@ -34,40 +48,33 @@ def main():
     parser.add_argument("--burst", type=float, default=15)
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    d_lib.need_saves()
-    work = d_lib.workdir("arrows", args.workdir)
-    aim = d_lib.LOAD_A + d_lib.TO_CARAVAN + "DQ" * 5 + "ANNN"
-    lines, shots = d_lib.port(aim + "TVI", work / "port", args.seed, pauses=True)
-    port_count = [int(l.split()[2]) for l in lines if l.endswith(" Arrows ")][-1]
-    k = lines.index("turn: SIRRION (initiative 3)")
-    attacks = [l for l in lines[k:] if l.startswith("attack:")][:2]
-    print("port:", attacks)
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "d-arrows")
+    port = d_lib.Port(work / "eclplay", d_lib.marked(STEPS), args.seed)
+    v = checklib.Verdict()
+    seen = {}
     with d_lib.box(work, args.seed, verbose=args.verbose) as b:
-        res = d_lib.run_steps(b, [("aim", aim)], shots, work)
-        before = arrows(b)
-        speed = b.ds_byte(0x4B38)
-        b.ds_write(0x4B38, bytes([30]))
-        b.push_key(ord("t") | 0x1400)
-        burst = d_lib.burst(b, args.burst, work=work, prefix="shot")
-        b.ds_write(0x4B38, bytes([speed]))
-        after = arrows(b)
-        res.update(d_lib.run_steps(b, [("next", ""), ("items", "VI")], shots, work))
-    frames = d_lib.frames_after(shots, res["aim"][1], 200)
-    matched = [getattr(frames.get(s.pixels), "name", None) for s in burst]
-    print("original: (type, count) of the arrows before", before, "after", after)
-    print("original: the burst's screens equal to port frames:", matched)
-    print("port: SIRRION's items at his next turn show", port_count, "Arrows")
-    ok = before and before[0] == 0x1E and after[1] == port_count and \
-        all(c == 0 for c, _ in res.values()) and sum(1 for m in matched if m) >= 3
-    status = d_lib.verdict(ok, f"#89 SIRRION's turn of shots ({attacks}, a miss unsaid): "
-                           f"arrows {before[1]} -> {after[1]} in the original's memory, "
-                           f"{port_count} in the port's Items; the flight's screens equal "
-                           "the port's frames (the same arrow picture); the Items screen equal")
+        for name, keys in STEPS:
+            if name == "next":
+                d_lib.burst_step(v, b, port, "aim", "next", ord("t") | 0x1400, work, "shot",
+                                 args.burst)
+            else:
+                shown = d_lib.step(b, keys, name, work)
+                d_lib.screen(v, f"screen {name}", shown, port, name, work)
+            d_lib.compare_state(v, b, port, name)
+            seen[name] = original_arrows(b)
+            d_lib.value(v, f"SIRRION's arrows (type, count) at {name}", seen[name], port, name,
+                        port_arrows)
+    k = port.lines.index("turn: SIRRION (initiative 3)")
+    attacks = [line for line in port.lines[k:] if line.startswith("attack:")][:2]
+    print("port:", attacks)
+    v.check(seen["aim"] == (0x1E, 60) and seen["next"] == (0x1E, 58),
+            "#89 the original: arrows (type 0x1e) 60 -> 58 for the turn's shots", f"{seen}")
     print("#89's second half (a hand axe thrown to the last into the pool, darts and "
           "javelins not) is NOT RUN: game A's party carries no thrown weapon.")
     print(f"files in {work}")
-    return status
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))

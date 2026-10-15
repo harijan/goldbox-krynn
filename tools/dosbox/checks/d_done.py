@@ -5,14 +5,24 @@ guards; in Speed, Del slows past 9."
 
 Game A, the caravan's four baaz (seed 7): ISTAN HORBIN's turn, Done, F8; KAL's
 turn, Done, Home; GARIN's turn, Done, Speed, Del twelve times (from speed 4).
-Compared with eclplay's screens at each menu; in the original's memory the
-turn's entry (DS:72ce), KAL's guard (combat record +0x07) and the speed
-(DS:4b38).
+At each step the original's screen against the port's at the same point,
+and the original's memory against the port's state there (d_lib.compare_state:
+whose turn it is, the speed DS:4b38, the combatants, ...) and KAL's guard
+(combat record +0x07).
 """
 import argparse
 import sys
 
+import checklib
 import d_lib
+
+STEPS = [("istan", d_lib.LOAD_A + d_lib.TO_CARAVAN), ("istan-done", "D"), ("kal", r"\#42"),
+         ("kal-done", "D"), ("garin", r"\#47"), ("speed", "DS"), ("del5", r"\#53" * 5),
+         ("del12", r"\#53" * 7)]
+
+
+def guard(cs):
+    return d_lib.by_name(cs, "KAL")[0]["combat"][7]
 
 
 def main():
@@ -21,39 +31,28 @@ def main():
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    d_lib.need_saves()
-    work = d_lib.workdir("done", args.workdir)
-    steps = [("istan", d_lib.LOAD_A + d_lib.TO_CARAVAN), ("istan-done", "D"),
-             ("kal", r"\#42"), ("kal-done", "D"), ("garin", r"\#47"),
-             ("speed", "DS"), ("del5", r"\#53" * 5), ("del12", r"\#53" * 7)]
-    lines, shots = d_lib.port("".join(k for _, k in steps), work / "port", args.seed)
-    turns = [l for l in lines if l.startswith(("turn:", "print: Guarding"))]
-    print("port:", turns[:6])
-    status = 0
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "d-done")
+    port = d_lib.Port(work / "eclplay", d_lib.marked(STEPS), args.seed)
+    v = checklib.Verdict()
+    seen = {}
     with d_lib.box(work, args.seed, verbose=args.verbose) as b:
-        res = d_lib.run_steps(b, steps[:3], shots, work)
-        idx, order = d_lib.turn_entry(b)
-        print(f"original at KAL's menu: entry {idx} of {order}")
-        f8 = order[idx - 1] == "KAL"
-        res.update(d_lib.run_steps(b, steps[3:5], shots, work))
-        kal = d_lib.by_name(d_lib.combatants(b), "KAL")[0]
-        guard = d_lib.combat_record(b, kal["rec"])[7]
-        idx, order = d_lib.turn_entry(b)
-        print(f"original at GARIN's menu: entry {idx} ({order[idx - 1]}); KAL's guard {guard}")
-        res.update(d_lib.run_steps(b, steps[5:7], shots, work))
-        speed5 = b.ds_byte(0x4B38)
-        res.update(d_lib.run_steps(b, steps[7:], shots, work))
-        speed12 = b.ds_byte(0x4B38)
-        print(f"original's speed after 5 Dels {speed5}, after 12 {speed12}")
-    screens = all(c == 0 for c, _ in res.values())
-    status |= d_lib.verdict(f8 and guard and order[idx - 1] == "GARIN " and speed12 == 16
-                            and screens and "print: Guarding" in turns,
-                            "#16 F8 ends ISTAN's turn (KAL's next), Home has KAL guard "
-                            "(+0x07 set, \"Guarding\"), Del slows past 9 (speed 4 -> 16); "
-                            "every screen equal to eclplay's")
+        for name, keys in STEPS:
+            shown = d_lib.step(b, keys, name, work)
+            d_lib.screen(v, f"screen {name}", shown, port, name, work)
+            o = d_lib.compare_state(v, b, port, name)
+            seen[name] = (o["turn"], guard(d_lib.combatants(b)), o["speed"])
+            d_lib.value(v, f"KAL's guard (+0x07) at {name}", seen[name][1], port, name,
+                        lambda s: guard(d_lib.port_combatants(s)))
+    # What the README's check says, as the original showed it (batch D).
+    v.check(seen["kal"][0] == "KAL", "F8 ended ISTAN's turn in the original: KAL's next")
+    v.check(seen["garin"][1] == 1, "Home: KAL guards in the original (+0x07 1)")
+    v.check("print: Guarding" in port.lines, "the port says \"Guarding\" at KAL's place")
+    v.check((seen["del5"][2], seen["del12"][2]) == (9, 16),
+            "Del slows past 9 in the original: speed 4 -> 9 after 5, 16 after 12")
     print(f"files in {work}")
-    return status
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))

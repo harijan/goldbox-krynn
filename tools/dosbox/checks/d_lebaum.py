@@ -17,32 +17,39 @@ THE DEAD ... SIR LEBAUM", 9a07), every character's hit points and most 250
 (+0xf9). The port meets him at Begin (its first-block vectors), the
 original after Look. Two pages, then Alt-Q: the computer plays every turn,
 seed 7: 3 minotaurs, Sir Lebaum and 4 ghasts, the ghasts finding no place.
-Compared: the screen where the keys end (SIRRION's menu, round 6), the
-party's hit points and effects, Sir Lebaum's kind (+0xda) and effects
-(0x4a), KAL's turning attempts (combat record +0x11) in the original's
-memory, against eclplay's log.
+Compared: the screens and the memory (d_lib.compare_state: the party's
+hit points and effects among it) after the pages and where the keys end
+(SIRRION's menu) against the port's; Sir Lebaum's kind (+0xda) and KAL's
+turning attempts (combat record +0x11) against the port's; and KAL's
+attempts sampled through the battle (the port's log has no turning).
+Both are given the same keys: the port as it is meets him at Begin
+Adventuring, before Look (the first block's vectors, d_firstblock.py), so
+it differs from the original there and after; the port with the known
+fixes does not, and the original against it decides (known: resume).
 """
 import argparse
 import sys
-import time
 
+import checklib
 import d_lib
+
+STEPS = [("pages", d_lib.load("J") + "L"), ("turn", r"\r\r"), ("end", r"\@q")]
 
 
 def save_82(work):
     saves = d_lib.make_save("J", work / "save", keys=r"\rE", block=82, args=["--file", "3"])
-    path = saves / "SAVGAMJ.DAT"
-    data = bytearray(path.read_bytes())
-    data[0x1401:0x1406] = bytes([0, 13, 0, 0, 0x9E])
-    path.write_bytes(bytes(data))
+    d_lib.patch_game(saves, "J", square=[0, 13, 0, 0, 0x9E])
     for m in range(1, 7):
-        rec = saves / f"CHRDATJ{m}.SAV"
-        raw = bytearray(rec.read_bytes())
-        raw[0x62] = raw[0x197] = 250
-        if m == 5:
-            raw[0xF9] = 7
-        rec.write_bytes(bytes(raw))
+        d_lib.patch_record(saves, "J", m, 0x62, [250])
+        d_lib.patch_record(saves, "J", m, 0x197, [250])
+    d_lib.patch_record(saves, "J", 5, 0xF9, [7])
     return saves
+
+
+def lebaum(cs):
+    """Sir Lebaum's kind (+0xda) and KAL's turning attempts (+0x11)."""
+    return (d_lib.by_name(cs, "SIR LEBAUM")[0]["raw"][0xDA],
+            d_lib.by_name(cs, "KAL")[0]["combat"][0x11])
 
 
 def main():
@@ -51,59 +58,58 @@ def main():
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    d_lib.need_saves()
-    work = d_lib.workdir("lebaum", args.workdir)
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "d-lebaum")
     saves = save_82(work)
-    lines, shots = d_lib.port(d_lib.load("J") + r"\r\r\@q", work / "port", args.seed,
-                              saves=[saves])
-    lines = [l for l in lines if not l.startswith("sound:")]
-    turned = [l for l in lines if l in ("print: turns", "print: Turns Undead")
-              or l.startswith("print: is turned") or "destroyed" in l]
-    k = lines.index("print: is affected") if "print: is affected" in lines else None
-    dispel = lines[k - 1:k + 1] if k else []
-    print("port: KAL's turning texts", turned, "; dispels", dispel)
-    print("port: the last turns", [l for l in lines if l.startswith("turn:")][-3:])
+    port = d_lib.Port(work / "eclplay", d_lib.marked(STEPS), args.seed, saves=[saves])
+    v = checklib.Verdict()
+    attempts = set()
     with d_lib.box(work, args.seed, verbose=args.verbose, saves=[saves]) as b:
-        res = d_lib.run_steps(b, [("pages", d_lib.load("J") + "L"), ("turn", r"\r\r")],
-                              shots, work)
+        for name, keys in STEPS[:2]:
+            shown = d_lib.step(b, keys, name, work)
+            d_lib.screen(v, f"screen {name}", shown, port, name, work, known="resume")
+            d_lib.compare_state(v, b, port, name, known="resume")
         cs = d_lib.combatants(b)
-        lebaum = [c for c in cs if c["name"] == "SIR LEBAUM"][0]
-        print("original: Sir Lebaum's kind (+0xda)", lebaum["raw"][0xDA], "effects",
-              d_lib.effects(b, lebaum["rec"]))
-        kal = [c for c in cs if c["name"] == "KAL"][0]
-        b.push_key(0x1000)  # Alt-Q
-        attempts = set()
-        end = time.monotonic() + 900
-        b._last_polls, b._streak = b.hook("polls"), 0
-        while time.monotonic() < end and not b.waiting():
-            cr = d_lib.combat_record(b, kal["rec"])
+        d_lib.value(v, "Sir Lebaum's kind and KAL's turning attempts at the first menu",
+                    lebaum(cs), port, "turn", lambda s: lebaum(d_lib.port_combatants(s)),
+                    "resume")
+        kal = d_lib.by_name(cs, "KAL")[0]["rec"]
+
+        def sample():
+            cr = d_lib.combat_record(b, kal)
             if cr is not None:
                 attempts.add(cr[0x11])
-            time.sleep(0.05)
+
+        b.push_key(0x1000)  # Alt-Q: the computer plays every turn
+        b._last_polls, b._streak = b.hook("polls"), 0
+        b._until(lambda: sample() or b.waiting(), 900, "the battle on Auto", 0.05)
         b.wait_input(settle=1.0)
         shown = b.screenshot(work / "end.png")
-        count = d_lib.compare(shown, shots, "end", work)
+        d_lib.screen(v, "screen end", shown, port, "end", work, known="resume")
+        o = d_lib.compare_state(v, b, port, "end", known="resume")
         cs = d_lib.combatants(b)
-        party = {c["name"].strip(): (c["hp"], [e[0] for e in d_lib.effects(b, c["rec"])])
-                 for c in cs[:6]}
-        print("original at the end: KAL's +0x11 seen", sorted(attempts), "; party", party)
-    # #9: in eclplay's log a d20 of 1 at one of Sir Lebaum's turns dispels
-    # SIRRION's 0x6f (terrified, 3 copies): "SIRRION / is affected".
-    sirrion = party["SIRRION"][1]
-    terrified = sorted(n for n, (_, e) in party.items() if 0x6F in e)
-    status = d_lib.verdict(count == 0 and dispel == ["print: SIRRION", "print: is affected"]
-                           and 0x6F not in sirrion,
-                           f"#9 Sir Lebaum's 0x4a: eclplay's Dispel ({dispel}) took "
-                           f"SIRRION's 0x6f; the original's SIRRION has none at the end "
-                           f"(effects {sirrion}) while {terrified} keep theirs, and the "
-                           "screen where the keys end is equal")
-    print(f"#23 (in part): KAL (cleric 7) on Auto never tried to turn in the original "
-          f"(+0x11 seen {sorted(attempts)}) nor the port; but Sir Lebaum's kind is "
-          f"{lebaum['raw'][0xDA]} and the ghasts found no place: no undead of a kind above 4 "
-          "or of 1-2 was on the map, so the check is NOT RUN")
+        d_lib.value(v, "Sir Lebaum's kind and KAL's turning attempts at the end", lebaum(cs),
+                    port, "end", lambda s: lebaum(d_lib.port_combatants(s)), "resume")
+    lines = [line for line in port.lines if not line.startswith("sound:")]
+    k = lines.index("print: is affected") if "print: is affected" in lines else None
+    dispel = lines[k - 1:k + 1] if k else []
+    print("port: dispels", dispel, "; the last turns",
+          [line for line in lines if line.startswith("turn:")][-3:])
+    party = {f[1].strip(): [e[0] for e in f[7]] for f in o["fighters"][:6]}
+    print("original at the end: the party's effects", party, "; KAL's +0x11 seen",
+          sorted(attempts))
+    v.check(dispel == ["print: SIRRION", "print: is affected"],
+            "#9 the port: Sir Lebaum's 0x4a dispels SIRRION's 0x6f (\"is affected\")")
+    v.check(0x6F not in party["SIRRION"] and
+            all(0x6F in party[n] for n in ("SIR STRONGSWORD", "ISTAN HORBIN", "KAL")),
+            "#9 the original at the end: SIRRION's 0x6f gone, the others' kept", f"{party}")
+    v.check(attempts == {0}, "#23 (in part) the original: KAL (cleric 7) on Auto never tried "
+            "to turn (+0x11 0 throughout)", f"{sorted(attempts)}")
+    print(f"#23: Sir Lebaum's kind is {lebaum(cs)[0]} and the ghasts found no place: no undead "
+          "of a kind above 4 or of 1-2 was on the map, so the check is NOT RUN")
     print(f"files in {work}")
-    return status
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))
