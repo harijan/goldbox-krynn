@@ -356,7 +356,7 @@ def main():
     work = checklib.workdir(args.workdir, "demo")
     for old in [*work.glob("box-*.png"), *work.glob("watch/*.png")]:
         old.unlink()
-    (work / "watch").mkdir(exist_ok=True)
+    (work / "watch").mkdir(parents=True, exist_ok=True)
     shutil.rmtree(work / "port", ignore_errors=True)
     v = checklib.Verdict()
     if not args.run or 1 in args.run:

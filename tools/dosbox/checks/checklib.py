@@ -430,5 +430,8 @@ def watch(box, seconds, out=None, prefix="watch", until=None):
 
 def workdir(given, name):
     import tempfile
-    return (pathlib.Path(given).resolve() if given
-            else pathlib.Path(tempfile.mkdtemp(prefix=f"check-{name}-")))
+    if not given:
+        return pathlib.Path(tempfile.mkdtemp(prefix=f"check-{name}-"))
+    path = pathlib.Path(given).resolve()
+    path.mkdir(parents=True, exist_ok=True)
+    return path
