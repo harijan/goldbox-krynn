@@ -84,30 +84,30 @@ CHECKS = [
     ("c_ecl3", "#64 #65", "fullstop"),
     # D: combat
     ("d_cloud", "#6", ""),
-    ("d_lebaum", "#9 (#23)", ""),
+    ("d_lebaum", "#9 (#23)", "resume"),
     ("d_aurak", "#12", ""),
     ("d_done", "#16", ""),
     ("d_move", "#17 #92", ""),
     ("d_cast", "#22 #119 #128", ""),
     ("d_space", "#24", ""),
     ("d_altq", "#25", ""),
-    ("d_minotaurs", "#57", ""),
+    ("d_minotaurs", "#57", "fullstop"),
     ("d_flee", "#63", ""),
     ("d_gate", "#74 #83 #84 #88", ""),
     ("d_ranks", "#75", ""),
     ("d_patrol", "#76 #79", ""),
-    ("d_neraka", "#77", ""),
-    ("d_dragonfear", "#78", ""),
+    ("d_neraka", "#77", "fullstop"),
+    ("d_dragonfear", "#78", "resume"),
     ("d_dying", "#80", ""),
     ("d_helm", "#81 #82", ""),
     ("d_arrows", "#89", ""),
-    ("d_bozak", "#90", ""),
+    ("d_bozak", "#90", "new"),
     ("d_weapon", "#91", ""),
     ("d_hold", "#120", ""),
     ("d_fear", "#122 (#121)", ""),
     ("d_bolt", "#127", ""),
     ("d_turning", "#129", ""),
-    ("d_firstblock", "Begin's vectors", ""),
+    ("d_firstblock", "Begin's vectors", "resume"),
     # E: freed and garbage memory
     ("e_cloud_dispel", "#7", ""),
     ("e_bolt_bounce", "#11", ""),
@@ -132,7 +132,8 @@ CHECKS = [
 # Checks that catch a text shown for a few seconds in a burst of screenshots
 # (d_lib.burst): run alone after the rest, as with others running beside them
 # on a loaded host DOSBox-X wrote ten times fewer and missed some.
-ALONE = {"d_arrows", "d_bolt", "d_cast", "d_gate", "d_hold", "d_turning"}
+ALONE = {"d_arrows", "d_aurak", "d_bolt", "d_bozak", "d_cast", "d_gate", "d_hold",
+         "d_turning"}
 # Minutes each took in a full run (the rest a few each), for the order.
 LONG = {"f_frames": 11, "a_demo": 6, "f_sound": 6, "d_bozak": 6, "f_display_modes": 5,
         "a_ctrl_s": 3, "e_bolt_bounce": 2, "f_mouse": 2, "e_manual": 2}
