@@ -129,12 +129,14 @@ class Verdict:
             self.differ(what, f"original {original!r}, port {port!r}")
         return False
 
-    def screen(self, what, original, port, fixed=None, masks=(), work=None):
+    def screen(self, what, original, port, fixed=None, masks=(), work=None, known_tag=None):
         """The original's screen against the port's at the same point
         (frames_at). MASKS: (x, y, w, h, why) areas not compared, each said
         why (DOSBox-X's own cursor, ...). Pixels that differ from the port's
         but equal FIXED's frame are a known difference, tagged by where they
-        lie (FIXED may be a function, called only when needed). Returns the
+        lie, or KNOWN_TAG when given (a route that diverged as a whole: its
+        screens differ anywhere) (FIXED may be a function, called only when
+        needed). Returns the
         count of pixels differing from the port's."""
         if port is None:
             self.differ(what, "the port has no screen there")
@@ -149,7 +151,7 @@ class Verdict:
         if callable(fixed):
             fixed = fixed()
         if fixed is not None and masked_diff(original, fixed, masks)[0] == 0:
-            tags = region_tags(original, port, masks)
+            tags = {known_tag} if known_tag else region_tags(original, port, masks)
             self.differ(what, f"{count} pixels in {box}, as the fixed port's frame", tags)
         else:
             self.differ(what, f"{count} pixels differ from the port's in {box}" + note)

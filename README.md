@@ -7205,27 +7205,50 @@ effects and saving; `c_` places (3D, the area map, the overland map,
 NPCs, shops, temples, treasure); `d_` combat; `e_` where the original
 reads freed or garbage memory; `f_` display modes, sound, the mouse and
 frame counts; and phase 1's `save_again.py`, `slow_poison.py` and
-`load_game_screen.py` (`a_common.py`, `b_lib.py`, `c_places.py`,
-`d_lib.py`, `e_common.py` and `f_wav.py` are their helpers: saved games
-the port writes at a place and patches, bursts of screenshots against
-every frame `eclplay` or `cok` shows at the game's delays, code traps in
-the overlay buffer, the party's records and effects in memory, Turbo
-Pascal's heap, WAV analysis). Each runs alone (`python3
-tools/dosbox/checks/NAME.py [--workdir DIR]`), prints what it compared,
-and exits 0 when the original and the port agree in all of it, 1 when
-something differs. `make dosbox-checks` (`run_all.py`, `--jobs`, `--only`)
+`load_game_screen.py`. `checklib.py` is what they share; `a_common.py`,
+`b_lib.py`, `b_magic_lib.py`, `b_screens_lib.py`, `c_places.py`,
+`c_geo.py`, `d_lib.py`, `e_common.py`, `e_boltmodel.py`, `f_lib.py` and
+`f_wav.py` are the batches' helpers (saved games the port writes at a
+place and patches, the port's state printed at each key read by an
+instrumented `eclplay`, bursts of screenshots matched in order against
+every frame the port shows at its delays, code traps in the overlay
+buffer, the party's records, effects and Turbo Pascal's heap in memory,
+GEO maps, a model of the bolt, WAV analysis).
+
+Each check compares each screen of the original with the port's at the
+same key read (`checklib.frames_at`: `eclplay` run on the keys up to that
+point, built to stop where they run out, and its shot at that read; a
+screen between key reads with the port's frames in order), and compares
+the memory and file values it reads with the port's (its saved games, or
+its state printed at that read). Where the port stops or does not model
+what the original does, the check asserts what the original was seen to
+do instead, and says the port is not compared there. A harness artifact
+(DOSBox-X's own CGA cursor) is masked, and said. A difference is *known*
+when the original equals the port built with `tools/dosbox/known-fixes.patch`
+(branch `fixes`'s change: the continue prompt's full stop, two-set wall
+records, a resumed game's first block) at the same point, and is tagged
+`fullstop`, `walls` or `resume`; any other is *new*. A check ends with
+`VERDICT: AGREES` (exit 0), `VERDICT: DIFFERS known: TAGS` or `VERDICT:
+DIFFERS new (...)` (exit 1), and anything else (an exception, a signal,
+a harness failure) is an error, exit 3. Once the source has the fixes
+the patch applies in reverse, the "fixed" build is the port itself, and
+the checks showing known differences agree. `COKBOX_ECLPLAY`,
+`COKBOX_COK` and `COKBOX_SRC` point the checks at another build of the
+port, e.g. a mutant's.
+
+Each runs alone (`python3 tools/dosbox/checks/NAME.py [--workdir DIR]`).
+`make dosbox-checks` (`run_all.py`; `ARGS="--jobs N --only NAME ..."`)
 runs them all side by side, as many at a time as `COKBOX_DISPLAYS` has
 displays less two, then those that catch a short text in a burst of
-screenshots (`d_arrows`, `d_bolt`, `d_cast`, `d_gate`, `d_hold`,
-`d_turning`) one at a time (beside the others on a loaded host DOSBox-X
-wrote ten times fewer screenshots and they missed the text), and prints
-one line per script: the checks it covers, agrees or differs, and whether
-that is the verdict recorded (a script showing a known port difference,
-or the known full stop, exits 1 until the port is fixed). A full run of
-the 82 scripts takes about 21 minutes on a 16-core host with little else
-running (`f_frames.py` the longest at 11, most under two; the six alone
-about 8 of the 21); at a load average near 30 the side-by-side part alone
-took 43.
+screenshots (`d_arrows`, `d_aurak`, `d_bolt`, `d_bozak`, `d_cast`,
+`d_gate`, `d_hold`, `d_turning`) one at a time (beside the others on a
+loaded host DOSBox-X wrote ten times fewer screenshots and they missed
+the text), and prints one line per script: the checks it covers, its
+verdict, and whether that is the verdict recorded (agrees, the known
+tags, or new for a port difference found and not yet fixed), an ERROR
+for anything else. On its timeout it kills the script's process group
+and the Xvfb and DOSBox-X it started (their pids recorded in
+`COKBOX_PIDFILE`). TIMING
 
 ## Checks against the original
 
