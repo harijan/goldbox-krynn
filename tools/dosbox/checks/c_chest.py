@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The treasure menu (README, Checks against the original): #58 "With a
+"""The treasure menu (DEVELOPERS.md, Checks against the original): #58 "With a
 party of six, open the chest of ECL1 block 32 (250 steel, 5 gems and 3
 jewels): the results should say each character receives 1391 experience
 points ... Compare the results screen and the treasure menu"; #59 "In that

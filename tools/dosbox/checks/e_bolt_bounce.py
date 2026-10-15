@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Check #11: a bolt bouncing for ever between two walls of a 3D area
-(README, Checks against the original: "A blue dragon's lightning between
+(DEVELOPERS.md, Checks against the original: "A blue dragon's lightning between
 two walls of a 3D area as far apart as its line before the bounce: the
 original should bounce for ever (the port stops)").
 

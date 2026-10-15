@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Check #41: Scribe marks the first item holding the spell's id, scroll or
-not (README, Checks against the original: "With a magic-user of an order
+not (DEVELOPERS.md, Checks against the original: "With a magic-user of an order
 carrying a scroll and another item whose +0x3c-+0x3e hold the scroll's
 spell id, scribe it: the other item is marked, and the scroll is not
 used").

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Companions in Throtl (README, Checks against the original): #104 "Let
+"""Companions in Throtl (DEVELOPERS.md, Checks against the original): #104 "Let
 Skyla join in ECL2 block 50 and fight: she should have no combat icon
 (`CPIC2` has no record 44). Let the kender join in Throtl (ECL1 block 32):
 his combat icon should be `CPIC1` record 15"; #106 "Leave Throtl (ECL1 block 32) with the kender and

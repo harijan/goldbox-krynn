@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The first outpost's armoury and temple (ECL1 block 17; README, Checks
+"""The first outpost's armoury and temple (ECL1 block 17; DEVELOPERS.md, Checks
 against the original): #66 "Enter Throtl's armoury (ECL1 block 17): the
 first screen should keep the view's frame as it was, with the portrait last
 shown (if any) in the view's place, and only a redraw after `Buy` draws the

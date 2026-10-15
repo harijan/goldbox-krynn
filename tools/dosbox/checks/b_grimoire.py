@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #43: the grimoire's first highlight (README, Checks against the
+"""Check #43: the grimoire's first highlight (DEVELOPERS.md, Checks against the
 original: "Open the grimoire: the first spell highlighted is the last row
 shown").
 

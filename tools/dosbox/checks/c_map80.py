@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A wall held by one square's side only, on the overhead map (README,
+"""A wall held by one square's side only, on the overhead map (DEVELOPERS.md,
 Checks against the original, #94): "With the map on, stand by a door or a
 wall the party can pass: it should show as a wall, and only on the square
 whose side holds it."

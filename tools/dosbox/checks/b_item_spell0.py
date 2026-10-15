@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Check #48: Use of an item whose +0x3d is 0x80 (spell 0), then a cast
-from memory (README, Checks against the original: "Use an item whose
+from memory (DEVELOPERS.md, Checks against the original: "Use an item whose
 +0x3d is 0x80, then cast a spell from memory: it should not say 'casts',
 and the spell should stay memorized").
 

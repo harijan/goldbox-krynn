@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #50: the character sheet (README, Checks against the original:
+"""Check #50: the character sheet (DEVELOPERS.md, Checks against the original:
 "Open a character's sheet: compare the layout and colours with the table in
 View, a fighter/mage's class line (`Fighter/Red Mage`) and an exceptional
 strength (`18(00)`)").

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #34: the timers' walk restarting (README, Checks against the
+"""Check #34: the timers' walk restarting (DEVELOPERS.md, Checks against the
 original: "Give a character with no effects ... a long timed effect, then a
 short one, then any third ... let time pass until the short one ends: in
 the ten minutes in which it ends, the long one should lose twenty

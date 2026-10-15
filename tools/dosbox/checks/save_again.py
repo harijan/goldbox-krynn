@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Check: load saved game A, save it again (README, Checks against the
+"""Check: load saved game A, save it again (DEVELOPERS.md, Checks against the
 original: "Load saved game A, save it again, and see whether KAL and SIRRION
 now know spell 8").
 
 The original in DOSBox-X and eclplay both load SAVE/'s game A from the start
 menu and save it as A again; the files are compared byte for byte, leaving
-out what the README says the original writes from memory (Camp, Save:
+out what DEVELOPERS.md says the original writes from memory (Camp, Save:
 the far pointers in records, items and effects; in the .DAT the stack's
 bytes after each name and in the slots past the party). Spell 8 is `+0x6a` of
 a character's .SAV: KAL and SIRRION must know it in the original's files and

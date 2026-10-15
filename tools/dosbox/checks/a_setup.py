@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #1: startup's text screens (README, Checks against the original:
+"""Check #1: startup's text screens (DEVELOPERS.md, Checks against the original:
 "Startup's text screens (see Startup and the setup): run `START.EXE` without
 `krynn.cfg` in DOSBox (`machine=tandy`, then `svga_s3`) and compare each
 screen, the file written and the note to Tandy users ...; the text colour
@@ -17,7 +17,7 @@ prints its text screen at each key read); then the note to Tandy users,
 and KRYNN.CFG byte for byte. In machine tandy and svga_s3.
 interrupt: the setup closed at the path: the original leaves KRYNN.CFG
 with 0 bytes (asserted as recorded: the port is not compared there, it
-removes the file it made when its keys end in the setup, README "Startup
+removes the file it made when its keys end in the setup, DEVELOPERS.md "Startup
 and the setup"); then a start with that empty file: the display (DS:4b76)
 and the device (DS:577a) against the port's with the same file, and the
 title's first screen against the port's first shot.

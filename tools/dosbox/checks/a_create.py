@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks #110 and #111: character creation (README, Checks against the original: "Create
+"""Checks #110 and #111: character creation (DEVELOPERS.md, Checks against the original: "Create
 characters: no score should ever show a racial adjustment ..." and "Create a
 knight: its Plate Mail, Shield and Long Sword should be carried but not
 readied ...").

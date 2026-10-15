@@ -1,4 +1,7 @@
-# Champions of Krynn Linux port
+# Champions of Krynn port: developer notes
+
+How the port is built, how each part follows the original, and how it is
+checked. To build and play the game, see [README.md](README.md).
 
 The native tools are a C17 DAX archive reader, decompressor, image
 exporter, picture and text compositor, ECL script interpreter and
@@ -955,7 +958,7 @@ fills 128 units wide or more (a signed byte counts them), and a row of the
 view marked with nothing drawn (a draw of no width on a clean row), where
 `12e8` copies 16 KB of the page A200 to the screen. The game passes none of
 the first three; of the last, a probe of 68 `eclplay` runs (the Makefile's,
-the README's, the start menu's) met no draw of no width. The port draws EGA
+these notes', the start menu's) met no draw of no width. The port draws EGA
 as the Tandy; its game-level code reads only CGA against the others. What
 differs is two stack leftovers (below).
 
@@ -7441,7 +7444,7 @@ original's behaviour is recorded, its section says what it does):
   clicks landing on the cell under its tip, a click in column 0 of the
   title's menu with `DS:6e2f`, `6e30`, `6e16` unset, both buttons at the
   title's menu; in CGA mode DOSBox-X's driver draws the arrow a bit a
-  pixel, as the README says, so its box is not compared there; after a
+  pixel, as these notes say, so its box is not compared there; after a
   camp the part of the overland mark under the arrow vanishes in the
   original, as recorded under The mouse and the joystick, where the port
   does not reproduce it (the rest below): `f_mouse.py`.
