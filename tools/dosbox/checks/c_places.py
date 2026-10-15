@@ -10,9 +10,7 @@ keys have ended; nothing else changed), run on the keys up to the step:
 its screen and State at the first read after the keys end (eclplay
 --start-menu goes on to the start menu after that, so it is not the last).
 The original's State is read in memory (box_state). A probe is a function
-of a State giving {what: value}: both games' values are compared, and a
-difference is known when the port built with the known fixes has the
-original's value.
+of a State giving {what: value}: both games' values are compared.
 
 Screens between key reads (judge_watch): the original's, as fast as
 DOSBox-X takes them, each in order a screen of the port's, as drawn
@@ -25,15 +23,8 @@ animation as cok presents it.
 
 Resuming a saved game: the original makes no roll of Random between the
 title and the first key read after Begin Adventuring (2fd3:3c28 runs only
-the load vector); the port as it is runs the after-move and location
-vectors too, which may roll (the `resume` difference). Compare takes a
-seed as RandSeed at that first key read: each build of the port gets the
-title seed that leads there (from its own state at that read), the
-original the port's title seed and, at that read, the port's RandSeed. The
-rolls each made are compared (known: resume, while the fixed build's agree
-with the original's), and the rest of the run is compared from the same
-RandSeed. Once the source has the fixes the port makes no roll there and
-the seed is the title's.
+the load vector); Compare checks the port's rolls there against the
+original's.
 """
 import concurrent.futures
 import os
@@ -193,10 +184,9 @@ def state_at_reads(name, text):
     return text.replace(STATE_HOOK, STATE_PRINT + STATE_HOOK)
 
 
-def state_eclplay(fixed=False):
-    """eclplay (the port, or FIXED: with the known fixes) printing the State
-    at each key read."""
-    return checklib.build("eclplay", fixed=fixed, transforms=[("eclplay.c", state_at_reads)])
+def state_eclplay():
+    """eclplay printing the State at each key read."""
+    return checklib.build("eclplay", transforms=[("eclplay.c", state_at_reads)])
 
 
 def end_state(text):
@@ -224,12 +214,12 @@ def end_state(text):
     return State(int(head[5], 16), [int(v) for v in head[7:]], vars_, members), int(head[1])
 
 
-def port_at(keys, out, fixed=False, names=None, **kw):
+def port_at(keys, out, names=None, **kw):
     """The port's screen and State at each \\sNAME. of KEYS (or only NAMES),
     as checklib.frames_at, with state_eclplay: {name: (Screen or None,
     State or None)}. KW go to cokbox.eclplay."""
     out = pathlib.Path(out)
-    exe = state_eclplay(fixed)
+    exe = state_eclplay()
     marks = [(m.group(1), keys[:m.start()]) for m in checklib.MARK.finditer(keys)
              if names is None or m.group(1) in names]
 
@@ -306,8 +296,8 @@ def drawn_eclplay_c(name, text):
         "}\n") + text[end:]
 
 
-def drawn_eclplay(fixed=False):
-    return checklib.build("eclplay", fixed=fixed, transforms=[
+def drawn_eclplay():
+    return checklib.build("eclplay", transforms=[
         ("start.c", checklib.stop_at_input_end), ("eclplay.c", drawn_eclplay_c),
         ("adventure.c", drawn_adventure), ("text.c", drawn_text)])
 
@@ -315,19 +305,12 @@ def drawn_eclplay(fixed=False):
 # ------------------------------------------------------------ Random
 
 MUL, MASK = 0x8088405, 0xFFFFFFFF
-INV = pow(MUL, -1, 1 << 32)
 
 
 def roll(seed, n=1):
     """RandSeed after N rolls (Turbo Pascal's Random, src/ecl.c cok_tp_random)."""
     for _ in range(n):
         seed = (seed * MUL + 1) & MASK
-    return seed
-
-
-def unroll(seed, n=1):
-    for _ in range(n):
-        seed = ((seed - 1) * INV) & MASK
     return seed
 
 
@@ -348,15 +331,16 @@ class Compare:
 
     steps: (name, keys[, probe[, watch]]): after each step's keys, both wait
     for a key; the original's screen there is compared with the port's at
-    the same point (port_at), and with the fixed port's for a known
-    difference; probe(State) -> {what: value}, the original's values
-    against the port's at the same point. WATCH (seconds): the original's
-    screens while the step's keys are taken are kept too
-    (self.watched[name], for judge_watch).
-    saves: the saved games (a directory). seed: RandSeed at the first key
-    read after loading when the first step loads a game (see the module's
-    notes), else at the title. helm: START x Helm / eclplay --helm; machine:
-    tandy, ega, cga; cycles: DOSBox-X's.
+    the same point (port_at); probe(State) -> {what: value}, the original's
+    values against the port's at the same point. WATCH (seconds): the
+    original's screens while the step's keys are taken are kept too
+    (self.watched[name], for judge_watch); "animates": a wait whose picture
+    animates (see _animation).
+    saves: the saved games (a directory). seed: RandSeed at the title
+    (where cokbox sets it), for both. When the first step loads a game, the
+    rolls each makes from there to the first key read after loading are
+    compared (none in the original, 2fd3:3c28). helm: START x Helm /
+    eclplay --helm; machine: tandy, ega, cga; cycles: DOSBox-X's.
     """
 
     def __init__(self, verdict, work, saves, steps, seed=1, helm=False, machine="tandy",
@@ -371,73 +355,27 @@ class Compare:
         m = LOAD.match(steps[0][1])
         self.load = m.group(0) if m else None
         self.shown, self.probes, self.watched = {}, {}, {}
-        self._title, self._at = {}, {}
-        self.diverged = False
 
     # ---- the port
 
-    def _kw(self, title_seed):
-        args = ["--seed", str(title_seed)] + (["--helm"] if self.helm else [])
+    def _kw(self):
+        args = ["--seed", str(self.seed)] + (["--helm"] if self.helm else [])
         return dict(machine=self.machine, saves=[self.saves] if self.saves else (), args=args)
 
-    def _after_load(self, title, fixed):
-        """(the rolls the port makes from TITLE to the first key read after
-        loading, its RandSeed there)."""
-        text, _, _ = cokbox.eclplay(self.load, self.work / f"seed{'-fixed' if fixed else ''}-{title}",
-                                    binary=state_eclplay(fixed), shots=False, **self._kw(title))
-        shutil.rmtree(self.work / f"seed{'-fixed' if fixed else ''}-{title}", ignore_errors=True)
+    def rolls_after_load(self):
+        """The rolls the port makes from the title to the first key read
+        after loading."""
+        text, _, _ = cokbox.eclplay(self.load, self.work / "after-load", binary=state_eclplay(),
+                                    shots=False, **self._kw())
         state, _ = end_state(text)
         if state is None:
             raise cokbox.BoxError("the port printed no state after loading:\n" + text[-1500:])
-        n = rolls(title, state.seed)
-        if n is None:
-            raise cokbox.BoxError("the port's RandSeed after loading is no roll of its seed")
-        return n, state.seed
+        return rolls(self.seed, state.seed)
 
-    def title_seed(self, fixed=False):
-        """(the title's seed for the port (FIXED: built with the known
-        fixes), the rolls it makes before the first key read after loading,
-        its RandSeed there: the target). The target is self.seed if a title
-        seed leads there (the rolls on resuming can depend on the seed, in
-        the port as it is); else the port as it is starts from self.seed
-        and the target is where it gets, for the fixed port too."""
-        if fixed in self._title:
-            return self._title[fixed]
-        if not self.load:
-            self._title[fixed] = (self.seed, None, None)
-            return self._title[fixed]
-        target = self.title_seed()[2] if fixed else self.seed
-        n, got = self._after_load(target, fixed)
-        found = (target, n, got) if got == target else None
-        if found is None:
-            with concurrent.futures.ThreadPoolExecutor(8) as pool:
-                tries = list(pool.map(lambda k: (k, self._after_load(unroll(target, k), fixed)),
-                                      range(1, 64)))
-            found = next(((unroll(target, k), k, target) for k, (m, _) in tries if m == k), None)
-        if found is None:
-            if fixed:
-                raise cokbox.BoxError("no title seed brings the fixed port to the port's RandSeed "
-                                      "after loading")
-            found = (target, n, got)
-            print(f"note: no title seed brings the port to RandSeed {self.seed} at the first key "
-                  f"read after loading (its rolls there depend on the seed): from {self.seed} it "
-                  f"makes {n} and gets to {got}", flush=True)
-        self._title[fixed] = found
-        return found
-
-    def port(self, fixed=False):
-        """{step name: (the port's Screen, State)} (FIXED: the fixed port's)."""
-        if fixed not in self._at:
-            self._at[fixed] = port_at(self.keys, self.work / ("port-fixed" if fixed else "port"),
-                                      fixed=fixed, **self._kw(self.title_seed(fixed)[0]))
-        return self._at[fixed]
-
-    def port_text_of(self, fixed=False):
+    def port_text_of(self):
         """eclplay's stdout for all the keys (the port's log)."""
-        text, _, _ = cokbox.eclplay(checklib.port_keys(self.keys), self.work / (
-            "all-fixed" if fixed else "all"), shots=False,
-            binary=checklib.fixed_eclplay() if fixed else None,
-            **self._kw(self.title_seed(fixed)[0]))
+        text, _, _ = cokbox.eclplay(checklib.port_keys(self.keys), self.work / "all",
+                                    shots=False, **self._kw())
         return text
 
     # ---- both
@@ -445,12 +383,11 @@ class Compare:
     def run(self):
         """Run both and judge each step. Returns self (shown: the original's
         screens; probes: the original's values; port_text: the port's log)."""
-        title, port_rolls, port_seed = self.title_seed()
         self.port_text = self.port_text_of()
-        port, fixed = self.port(), self.port(fixed=True)
-        frame = lambda at, name: (at.get(name) or (None, None))[0]  # noqa: E731
+        port = port_at(self.keys, self.work / "port", **self._kw())
+        frame = lambda name: (port.get(name) or (None, None))[0]  # noqa: E731
         with cokbox.Box(workdir=self.work / "box", machine=self.machine,
-                        saves=[self.saves] if self.saves else (), seed=title,
+                        saves=[self.saves] if self.saves else (), seed=self.seed,
                         args="x Helm" if self.helm else "", timeout=self.timeout,
                         verbose=self.verbose,
                         **({"cycles": self.cycles} if self.cycles else {})) as box:
@@ -460,29 +397,25 @@ class Compare:
                 if i == 0 and self.load:
                     box.keys(self.load)
                     box.wait_input(settle=0.2)
-                    original_rolls = rolls(title, box.ds_dword(cokbox.RANDSEED))
-                    # From here the original rolls from the port's RandSeed.
-                    box.set_seed(port_seed)
+                    original_rolls = rolls(self.seed, box.ds_dword(cokbox.RANDSEED))
                     keys = keys[len(self.load):]
                 box.keys(keys)
                 if len(step) > 3 and isinstance(step[3], (int, float)):
                     (self.work / name).mkdir(parents=True, exist_ok=True)
                     self.watched[name] = checklib.watch(box, step[3], self.work / name, "watch")
                 box.wait_input(settle=self.settle)
-                self.shown[name] = self._shot(box, name, frame(port, name), frame(fixed, name))
+                self.shown[name] = self._shot(box, name, frame(name))
                 if len(step) > 2 and step[2]:
                     self.probes[name] = step[2](box_state(box))
         where = self.work.name
         if self.load:
             self.v.value(f"{where}: Random's rolls from the title to the first key read after "
-                         "loading", original_rolls, port_rolls,
-                         fixed=lambda: self.title_seed(fixed=True)[1])
+                         "loading", original_rolls, self.rolls_after_load())
         for step in self.steps:
             name = step[0]
-            if len(step) > 3 and step[3] == "animates" and self._animation(name, port, fixed):
+            if len(step) > 3 and step[3] == "animates" and self._animation(name, frame(name)):
                 continue
-            self.judge_screen(f"{where} {name}", self.shown[name], frame(port, name),
-                              frame(fixed, name))
+            self.v.screen(f"{where} {name}", self.shown[name], frame(name), work=self.work)
         for name, values in self.probes.items():
             probe = next(s[2] for s in self.steps if s[0] == name)
             state = port[name][1]
@@ -491,78 +424,38 @@ class Compare:
                 continue
             ported = probe(state)
             for what, value in values.items():
-                self.v.value(f"{where} {name}: {what}", value, ported.get(what),
-                             fixed=lambda n=name, w=what, p=probe: self._fixed_value(n, w, p))
+                self.v.value(f"{where} {name}: {what}", value, ported.get(what))
         return self
 
-    def judge_screen(self, what, shown, port, fixed):
-        """checklib's Verdict.screen, but a known difference (the original
-        equal to the fixed port's frame) is tagged by the smallest set of
-        known areas outside which it is the port's frame, else `resume`
-        alone: the port's run differs from there on (an event on loading),
-        whatever area it touches, and so do the later steps'."""
-        if port is None or fixed is None or shown.pixels == port.pixels or \
-                shown.pixels != fixed.pixels:
-            self.v.screen(what, shown, port, fixed=fixed, work=self.work)
-            return
-        shown.save_png(self.work / f"diff-{checklib.slug(what)}.png", highlight=port)
-        count, box = checklib.masked_diff(shown, port)
-        tags = {"resume"} if self.diverged else next(
-            (t for t, masks in KNOWN_AREAS if checklib.masked_diff(shown, port, masks)[0] == 0),
-            {"resume"})
-        # Once the port's run differs (an event on loading), so does the rest.
-        self.diverged = tags == {"resume"}
-        self.v.differ(what, f"{count} pixels in {box}, as the fixed port's frame", tags)
-
-    def _animation(self, name, port, fixed, pause=1000):
+    def _animation(self, name, port, pause=1000):
         """For a step whose wait shows an animating picture ("animates"):
         when the original's screen is not the port's frame at that read,
         whether it is one of the frames cok presents during PAUSE
         hundredths of a second at that wait (from the first equal to the
         port's frame at the read on: the picture's animation there), judged
-        in the verdict; or of the fixed cok's (a known difference). False
-        (not judged) when it is neither."""
+        in the verdict. False (not judged: compared with the read's frame)
+        when it is not."""
         shown, what = self.shown[name], f"{self.work.name} {name}"
-        if port.get(name) is None or port[name][0] is None or shown.pixels == port[name][0].pixels:
+        if port is None or shown.pixels == port.pixels:
             return False
-
-        def animation(fixed_build, frame):
-            frames, _ = self.cok_frames(name, fixed=fixed_build, pause=pause)
-            start = next((j for j, f in enumerate(frames) if f.pixels == frame.pixels), None)
-            return [] if start is None else frames[start:]
-
-        ported = animation(False, port[name][0])
-        hit = next((j for j, f in enumerate(ported) if f.pixels == shown.pixels), None)
-        detail = ("a frame of the picture's animation at this wait (cok's {} from the one at the "
-                  "read), not the read's own")
-        if hit is not None:
-            self.v.ok(what, detail.format(hit))
-            return True
-        if fixed.get(name) is None or fixed[name][0] is None:
+        frames, _ = self.cok_frames(name, pause=pause)
+        start = next((j for j, f in enumerate(frames) if f.pixels == port.pixels), None)
+        if start is None:
             return False
-        hit = next((j for j, f in enumerate(animation(True, fixed[name][0]))
-                    if f.pixels == shown.pixels), None)
+        hit = next((j for j in range(start, len(frames)) if frames[j].pixels == shown.pixels),
+                   None)
         if hit is None:
             return False
-        tags = next((t for t, masks in KNOWN_AREAS
-                     if any(checklib.masked_diff(shown, f, masks)[0] == 0 for f in ported)), None)
-        self.v.differ(what, detail.format(hit) + ", as the fixed cok's",
-                      tags or checklib.region_tags(shown, port[name][0]) | {"resume"})
+        self.v.ok(what, f"a frame of the picture's animation at this wait (cok's {hit - start} "
+                  "from the one at the read), not the read's own")
         return True
 
-    def _fixed_value(self, name, what, probe):
-        state = self.port(fixed=True)[name][1]
-        return None if state is None else probe(state).get(what)
-
-    def _shot(self, box, name, port, fixed):
+    def _shot(self, box, name, port):
         """The original's screen at this wait: taken again a few times while
-        it is neither the port's frame nor the fixed port's (a picture that
-        animates while a menu waits shows the port's frame in turn)."""
+        it is not the port's frame (a picture that animates while a menu
+        waits shows the port's frame in turn)."""
         def score(s):
-            if port is None or s.pixels == port.pixels or \
-                    (fixed is not None and s.pixels == fixed.pixels):
-                return 0
-            return s.diff(port)[0]
+            return 0 if port is None or s.pixels == port.pixels else s.diff(port)[0]
         shown = box.screenshot()
         best = score(shown)
         for _ in range(self.retries if best else 0):
@@ -576,26 +469,22 @@ class Compare:
 
     # ---- screens between key reads
 
-    def cok_frames(self, step, fixed=False, pause=300):
-        """Every frame cok (FIXED: built with the known fixes) presents for
-        the keys up to STEP and PAUSE hundredths of a second more at the
-        wait after it (a picture animating there)."""
+    def cok_frames(self, step, pause=300):
+        """Every frame cok presents for the keys up to STEP and PAUSE
+        hundredths of a second more at the wait after it (a picture
+        animating there)."""
         prefix = self.keys[:self.keys.index(rf"\s{step}.")]
-        return cok_frames(self.work / f"cok-{step}{'-fixed' if fixed else ''}",
-                          checklib.port_keys(prefix) + rf"\p{pause}.",
-                          saves=self.saves, seed=self.title_seed(fixed)[0], helm=self.helm,
-                          machine=self.machine, fixed=fixed)
+        return cok_frames(self.work / f"cok-{step}", checklib.port_keys(prefix) + rf"\p{pause}.",
+                          saves=self.saves, seed=self.seed, helm=self.helm, machine=self.machine)
 
-    def drawn_frames(self, step, fixed=False, pause=300):
-        """The port's screens (FIXED: the fixed port's) from the title to
-        the key read after STEP as drawn (drawn_eclplay), then the frames
-        cok presents for PAUSE hundredths of a second at that read (a
-        picture animating there), consecutive repeats dropped."""
+    def drawn_frames(self, step, pause=300):
+        """The port's screens from the title to the key read after STEP as
+        drawn (drawn_eclplay), then the frames cok presents for PAUSE
+        hundredths of a second at that read (a picture animating there),
+        consecutive repeats dropped."""
         prefix = self.keys[:self.keys.index(rf"\s{step}.")]
-        out = self.work / f"drawn-{step}{'-fixed' if fixed else ''}"
-        text, _, shots = cokbox.eclplay(checklib.port_keys(prefix), out,
-                                        binary=drawn_eclplay(fixed), shots=True,
-                                        **self._kw(self.title_seed(fixed)[0]))
+        text, _, shots = cokbox.eclplay(checklib.port_keys(prefix), self.work / f"drawn-{step}",
+                                        binary=drawn_eclplay(), shots=True, **self._kw())
         reads = re.findall(r"^read-shot: (\d+)$", text, re.M)
         if not reads:
             raise cokbox.BoxError("the port's drawn screens: no key read")
@@ -606,40 +495,33 @@ class Compare:
                 screen = cokbox.Screen.load(p)
                 if not frames or screen.pixels != frames[-1].pixels:
                     frames.append(screen)
-        animation, _ = self.cok_frames(step, fixed=fixed, pause=pause)
+        animation, _ = self.cok_frames(step, pause=pause)
         start = next((j for j, f in enumerate(animation) if f.pixels == frames[-1].pixels), None)
         for f in animation[start + 1:] if start is not None else ():
             if f.pixels != frames[-1].pixels:
                 frames.append(f)
         return frames
 
-    def sequences(self, step, fixed=False, pause=300):
-        """The port's screens from the title to the wait after STEP, two
-        ways: as drawn (drawn_frames) and as cok presents them (cok_frames:
-        it presents some states the drawn shots miss, e.g. row 24 cleared
-        before a menu is drawn)."""
-        return {"drawn": self.drawn_frames(step, fixed=fixed, pause=pause),
-                "presented by cok": self.cok_frames(step, fixed=fixed, pause=pause)[0]}
-
     def judge_watch(self, step, pause=300):
         """The original's screens watched during STEP and its screen at the
-        wait after it against the port's (sequences): each, in order, a
-        screen of the port's as drawn or as cok presents them
-        (match_in_order: from where the previous one matched on). Else,
-        against the fixed port's: a known difference if they match those,
-        tagged by the known areas outside which they match the port's."""
+        wait after it against the port's: each, in order, a screen of the
+        port's as drawn (drawn_frames) or as cok presents them (cok_frames:
+        it presents some states the drawn shots miss, e.g. row 24 cleared
+        before a menu is drawn); match_in_order: from where the previous one
+        matched on."""
         shots = self.watched[step] + [self.shown[step]]
         what = f"{self.work.name} {step}: the screens while its keys are taken, in order"
+        port = {"drawn": self.drawn_frames(step, pause=pause),
+                "presented by cok": self.cok_frames(step, pause=pause)[0]}
 
-        def first_match(seqs, masks=()):
-            for how, frames in seqs.items():
-                found = match_in_order(shots, frames, masks)
+        def first_match():
+            for how, frames in port.items():
+                found = match_in_order(shots, frames)
                 if all(r[0] is not None for r in found):
                     return how, found
             return None, None
 
-        port = self.sequences(step, pause=pause)
-        how, found = first_match(port)
+        how, found = first_match()
         if how:
             drawn = [i for i, r in enumerate(found) if r[1]]
             self.v.ok(what, f"{len(shots)} screens, each the port's ({how})" +
@@ -657,27 +539,16 @@ class Compare:
                 shots[i].save_png(self.work / f"once-{step}-{i:02d}.png")
             shots = [s for i, s in enumerate(shots) if i not in once]
             what += f" (screens {once} seen once, left out)"
-            how, found = first_match(port)
+            how, found = first_match()
             if how:
                 self.v.ok(what, f"{len(shots)} screens, each the port's ({how})")
                 return
-        frames = port["drawn"]
-        found = match_in_order(shots, frames)
+        found = match_in_order(shots, port["drawn"])
         misses = [(i, r) for i, r in enumerate(found) if r[0] is None]
         for i, _ in misses:
             shots[i].save_png(self.work / f"unmatched-{step}-{i:02d}.png")
-        detail = "; ".join(f"screen {i}: {r[2]} px from the port's drawn screen {r[3]}"
-                           for i, r in misses[:6])
-        how, _ = first_match(self.sequences(step, fixed=True, pause=pause))
-        if how:
-            tags = next((t for t, masks in KNOWN_AREAS if first_match(port, masks)[0]), None)
-            if tags is None:
-                tags = {"resume"}
-                for i, r in misses:
-                    tags |= checklib.region_tags(shots[i], frames[r[3]])
-            self.v.differ(what, detail + f"; each the fixed port's ({how}), in order", tags)
-        else:
-            self.v.differ(what, detail)
+        self.v.differ(what, "; ".join(f"screen {i}: {r[2]} px from the port's drawn screen "
+                                      f"{r[3]}" for i, r in misses[:6]))
 
 
 def match_in_order(shots, frames, masks=()):
@@ -742,12 +613,6 @@ def _differ(s, a, keep):
     return (x | x >> 1 | x >> 2 | x >> 3) & keep
 
 
-# The known differences' areas, for a sequence of screens equal to the
-# fixed port's: the smallest set of them outside which it is the port's.
-KNOWN_AREAS = [({"walls"}, [checklib.VIEW_AREA]), ({"fullstop"}, [checklib.FULLSTOP_CELL]),
-               ({"walls", "fullstop"}, [checklib.VIEW_AREA, checklib.FULLSTOP_CELL])]
-
-
 # ------------------------------------------------------------ saved games
 
 # A saved game's layout (src/party.c cok_saved_game_read): the ECL file,
@@ -802,10 +667,8 @@ def throtl_save(out, letter, var=None, at=None, extra=()):
     return saves, text
 
 
-def cok_frames(out, keys, saves=None, seed=None, helm=False, machine="tandy", timeout=300,
-               fixed=False):
-    """Every frame cok (cokbox.COK, or FIXED: built with the known fixes)
-    presents for KEYS from the title (SDL's dummy driver saving each,
+def cok_frames(out, keys, saves=None, seed=None, helm=False, machine="tandy", timeout=300):
+    """Every frame cok (cokbox.COK) presents for KEYS from the title (SDL's dummy driver saving each,
     320x200 at --scale 1 --aspect 1:1, real delays), as Screens,
     consecutive repeats dropped. For screens the original shows between key
     reads (delays, running text), which eclplay's shots miss."""
@@ -819,8 +682,7 @@ def cok_frames(out, keys, saves=None, seed=None, helm=False, machine="tandy", ti
             shutil.copyfile(f, out / "saves" / f.name)
     cfg = out / "krynn.cfg"
     cfg.write_bytes(cokbox.krynn_cfg(cokbox.MACHINES[machine][1]).encode())
-    cok = checklib.build("cok", fixed=True) if fixed else cokbox.COK
-    args = [str(cok), "--assets", str(cokbox.ROOT / "Assets"),
+    args = [str(cokbox.COK), "--assets", str(cokbox.ROOT / "Assets"),
             "--saves", str(out / "saves"), "--config", str(cfg), "--aspect", "1:1",
             "--scale", "1", "--input", "none", "--no-sound", "--keys", keys]
     if seed is not None:

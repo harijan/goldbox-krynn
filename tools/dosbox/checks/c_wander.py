@@ -12,12 +12,11 @@ A saved game inside Throtl at 7,15 N with wandering monsters on (vars
 (SETUP MONSTER from the table, distance 1, all a wanderer of Throtl
 gets), APPROACH to 0 and the close-up. The original's screens during the
 approach, as fast as DOSBox-X takes them (at 2000 cycles, so that each of
-its frames lasts long enough), are compared in order with the frames cok
-presents for the same keys and 30 seconds more at the close-up's wait (its
+its frames lasts long enough), are compared in order with the port's
+screens for the same keys, as drawn (c_places.judge_watch) or as cok
+presents them, and 30 seconds of cok's frames at the close-up's wait (its
 picture animates there: the original's screens of that wait are frames of
-that animation); the screen at the key read after it with eclplay's. The
-walls behind the sprite are those of #27 (known: walls, against the cok
-built with the known fixes).
+that animation); the screen at the key read after it with eclplay's.
 """
 import argparse
 import sys
