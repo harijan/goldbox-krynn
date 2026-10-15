@@ -11,6 +11,12 @@ turn Done/Quit until GARIN may cast (round 2), Fear ("Begins Casting"), and
 at his next turn Target at once. Compared: who "runs in terror" (effect
 0x6f in the original's records, the port's log) and the screen at the next
 menu. One caster place only (GARIN at 26,13 where the battle put him).
+
+The cone at the caster's own cell depends on where DOS loaded the game: at a
+PSP of 0xnnf0 (DS low byte 0xc6, what the port assumes; --psp 8f0, the
+default) the original agrees in all three modes; at the PSP the harness
+gives without a pad (087b, --psp 0) it terrifies a hobgoblin instead and
+no party member.
 """
 import argparse
 import sys
