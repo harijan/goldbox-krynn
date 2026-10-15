@@ -7,8 +7,8 @@ same screens should match eclplay's").
 
 In each machine (tandy, ega, cga) the original in DOSBox-X and eclplay
 --start-menu take the same keys with the same seed; each step's screen is
-compared with the port's at the same key read (checklib.frames_at), and a
-difference with the port built with the known fixes. Three routes a mode:
+compared with the port's at the same key read (checklib.frames_at). Three
+routes a mode:
 
 - adventure: the title's menu, game A loaded, Solace's first page, the
   outpost's menu, its inn's camp, a character's sheet from the camp, the
@@ -19,11 +19,9 @@ difference with the port built with the known fixes. Three routes a mode:
   (`Sorry, not in CGA` on row 24 during a delay, compared with the port's
   frame at that delay).
 - throtl: a saved game the port writes by Throtl (the guards beaten),
-  loaded: the overland map (the port asks "YOU ARE NEAR THROTL. DO YOU
-  ENTER?" there before the fixes: the known `resume` difference, and is
-  given n to go on), a step away and back, Throtl's street in 3D (its far
-  walls: the known `walls` difference), a step, a turn, the camp over the
-  view.
+  loaded: the overland map (Move Encamp, the location's question not
+  asked again), a step away and back, Throtl's street in 3D (its far
+  walls: two-set WALLDEF records), a step, a turn, the camp over the view.
 
 CGA's screens hold only its four colours (0, 11, 13, 15); the 3D view's
 colours DS:6d81-6d83 are asserted as batch F read them (the port's are
@@ -142,19 +140,8 @@ def compare(v, machine, route, work, verbose):
                         f"{machine} DS:6d81-6d83 in Throtl as batch F read them "
                         f"({VIEW_COLOURS[machine]}; the port's: through the view's pixels)",
                         colours)
-    keys = f_lib.marked(steps)
-    if route == "throtl":
-        first, load = steps[0]
-        extra = f_lib.resumed(v, f"{machine} {route} {first}", shots.pop(first), load,
-                              work / "resumed", **kw)
-        keys = f_lib.marked(steps[:1]) + extra + f_lib.marked(steps[1:])
-        fixed_keys = f_lib.marked(steps)
-        port = checklib.frames_at(keys, work / "port", names=list(shots), **kw)
-        fixed = f_lib.Lazy(lambda: checklib.frames_at(
-            fixed_keys, work / "fixed", fixed=True, names=list(shots), **kw))
-    else:
-        port, fixed = f_lib.frames(keys, work, **kw)
-    f_lib.judge(v, f"{machine} {route}", shots, port, fixed, work)
+    port = checklib.frames_at(f_lib.marked(steps), work / "port", **kw)
+    f_lib.judge(v, f"{machine} {route}", shots, port, work)
     if machine == "cga":
         seen = set().union(*(set(s.pixels) for s in shots.values()))
         v.check(seen <= CGA_COLOURS, f"cga {route}: the original's screens hold only "

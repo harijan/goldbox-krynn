@@ -256,18 +256,10 @@ def effects(v, name, work, verbose):
         box.wait_input()
         time.sleep(PAUSE)
         box.screenshot(work / "end.png")
-    # The port at the head's end: the original's screen there (a loaded game
-    # by Throtl: the known `resume` difference, the port then declining).
-    extra = ""
-    if spec["throtl"]:
-        extra = f_lib.resumed(v, f"{name}: the game loaded", at_head, spec["head"],
-                              work / "resumed", **kw)
-    else:
-        v.screen(f"{name}: the screen at the tail's start", at_head,
-                 checklib.frame_after(spec["head"], work / "head", **kw),
-                 fixed=lambda: checklib.frame_after(spec["head"], work / "head-fixed",
-                                                    fixed=True, **kw), work=work)
-    head = spec["head"] + extra
+    # Both at the same place when the tail starts.
+    head = spec["head"]
+    v.screen(f"{name}: the screen at the tail's start", at_head,
+             checklib.frame_after(head, work / "head", **kw), work=work)
     # eclplay's WAV of the head alone gives where the tail starts (less the
     # second it adds at the end). After the tail a last Escape after the
     # pause, and a pause after it: eclplay renders no time for the pause
