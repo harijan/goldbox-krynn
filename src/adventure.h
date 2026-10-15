@@ -376,8 +376,8 @@ cok_ecl_status cok_adventure_enter_block(cok_adventure *game, uint8_t block);
 /* Run the adventure loop of 2fd3:3c28 in the block entered: until input
  * ends or a run fails, take a command from the adventure menu (475c:09ec),
  * run the after-move vector, take a step (475c:0e77), show the view and run
- * the location vector. NEWECL enters the new block as cok_adventure_enter
- * does. In 3D areas the party walks the map; outside them (mode 3) it
+ * the location vector. NEWECL enters the new block as 2fd3:3b47 does
+ * (cok_adventure_enter_block's loop). In 3D areas the party walks the map; outside them (mode 3) it
  * travels the overland map while 0x4cf7 is set (475c:08d5), and without
  * it the original's command is unset: the run stops with
  * COK_ECL_UNDEFINED. Clears game->vm.abort on return, as the original

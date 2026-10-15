@@ -1287,10 +1287,14 @@ static void test_overland(void)
 /* The battle stack pointer each block's scripts last ran with. */
 static uint16_t block_sp[256];
 
+/* DS:8856 as block 0x24's load vector starts. */
+static int pending_at_0x24;
+
 static void trace_block_sp(cok_adventure *game, void *context)
 {
     (void)context;
     block_sp[game->vm.block] = game->battle_sp;
+    if (game->vm.block == 0x24 && pending_at_0x24 < 0) pending_at_0x24 = game->frame_pending;
 }
 
 /* A saved game's word for var at, in 0x4b00-0x4eff or 0x7c00-0x7fff. */
@@ -1387,10 +1391,15 @@ static void test_resume(void)
     s.length = 2;
     s.log[0] = '\0';
     memset(block_sp, 0, sizeof block_sp);
+    pending_at_0x24 = -1;
     game.hooks.trace = trace_block_sp;
     cok_adventure_enter(&game, 0x24);
     game.hooks.trace = NULL;
     CHECK(block_sp[0x24] == COK_BATTLE_SP && block_sp[16] == COK_BATTLE_SP - 6);
+    /* 0x4bf2 0: DS:8856 clear (3c28); block 16 entered by 3b47, on the
+     * overland map, which keeps the mode as the last. */
+    CHECK(pending_at_0x24 == 0);
+    CHECK(game.vm.mode == 3 && game.vm.last_mode == 3);
     CHECK(strstr(s.log, "print: AT THE INN OF THE LAST HOME IN SOLACE, A BRAVE ;") != NULL);
     cok_adventure_close(&game);
 }

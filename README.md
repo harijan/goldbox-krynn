@@ -1375,8 +1375,14 @@ eighth, HOLT, is a mage too, with Stinking Cloud memorized instead.
 Party), and `--load SAVE` loads the whole saved game first; then `BLOCK`
 may be left out to resume where it was saved, as `2fd3:3c28` starts the
 game, running only that block's load vector before the first command (see
-Adventure loop); a block named is entered as `2fd3:3b47` enters one. WHO
-prints the character
+Adventure loop). A block named is entered at once, a test entry and not the
+original's resume: its load, after-move and location vectors run, the first
+at the stack depth of `2fd3:3c28`'s own, as `2fd3:3b47` runs them, which
+also makes the mode the last mode; with `--load` too, the saved block's
+after-move and location vectors run before any command, as the original's
+resume never does. `--at` with `--load` and no block places the party, the
+square's byte (`DS:6d89`) read from the map there, before the load vector
+runs. WHO prints the character
 picked (`who:`). `--shots DIR` saves `DIR/NNN.bmp` each time the game waits
 for a key and once each battle is set up, `--screen FILE` the final screen,
 in the display mode `KRYNN.CFG`'s first line names or `--display ega`,
@@ -1802,7 +1808,8 @@ not part of the repository.
 new game's or a loaded one's: it runs only the block's load vector
 (`2fd3:3cc7`), entering the next block as `2fd3:3b47` does if that runs
 `NEWECL`, as Solace's (block 0x24) does. A loaded game then redraws the
-screen and shows the view (`DS:4b52`), and the after-move and location
+screen and shows the view (`DS:4b52`), outside the overland map (mode 3)
+only, where nothing is redrawn; the after-move and location
 vectors wait for the first command that returns to the loop: so a game
 saved on a square with an event, or on Throtl's square of the overland
 map, resumes quietly at the command menu, and no step is counted and no
@@ -1820,7 +1827,12 @@ step and `Encamp`. `NEWECL` in any
 vector enters the new block as `2fd3:3b47` does, which also frees the small
 picture, clears `0x7ed5` and keeps the block in `0x4bf2`. The party's square
 before each step is kept in `0x4bf0` and `0x4bf1`. When the loop ends it
-clears `DS:4b57`, the flag that ends a run.
+clears `DS:4b57`, the flag that ends a run. Not ported: when the first
+block's load vector (or a block it enters by `NEWECL`) sets `DS:4b57`, the
+party killed, `2fd3:3c28` does not test it until it has redrawn a loaded
+game's screen and read one command (`475c:09ec` at `3d64`, then `3b47` if a
+`NEWECL` was pending); the port ends the run at once. No shipped load
+vector kills the party.
 
 The menu reads `Move Area Cast View Encamp Search Look`, laid out as it is,
 so each capital is an item and its key (`cok_menu_read`). `Move` changes the

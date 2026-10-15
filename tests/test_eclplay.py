@@ -952,6 +952,18 @@ class PlayTests(unittest.TestCase):
                   "--saves", saves, "--keys", "eSA", ASSETS, 32)
         first = (saves / "SAVGAMA.DAT").read_bytes()
         self.assertEqual((first[0x1406], first[0x1407]), (4, 2))
+        # Resumed, its first screen is the street's at 7,15 facing north, as
+        # entering the block draws it: the loaded game's redraw and view
+        # (3c28's 3d36, DS:4b52) before the first command.
+        street, resumed = self.folder / "street.bmp", self.folder / "resumed.bmp"
+        self.play("--test-party", 2, "--play", "--set", "4be6=1", "--set", "4c4d=2",
+                  "--screen", street, "--keys", "", ASSETS, 32)
+        result = self.play("--load", saves / "SAVGAMA.DAT", "--play", "--screen", resumed,
+                           "--keys", "", ASSETS)
+        self.assertEqual(result.stdout.splitlines(),
+                         ["menu: Move Area Cast View Encamp Search Look",
+                          "(out of keys in block 32 at 801c)"])
+        self.assertEqual(resumed.read_bytes(), street.read_bytes())
         result = self.play("--load", saves / "SAVGAMA.DAT", "--play", "--saves", saves,
                            "--keys", "eSB", ASSETS)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -971,6 +983,10 @@ class PlayTests(unittest.TestCase):
         result = self.play("--load", saves / "SAVGAMA.DAT", "--play", "--keys", "", ASSETS)
         self.assertEqual(result.stdout.splitlines(),
                          ["menu: Move Encamp", "(out of keys in block 16 at 807f)"])
+        # With the block named, eclplay enters it as 3b47 does: the location
+        # vector runs at once and asks.
+        result = self.play("--load", saves / "SAVGAMA.DAT", "--play", "--keys", "", ASSETS, 16)
+        self.assertIn("print: . DO YOU ENTER?", result.stdout.splitlines())
         # A step away and back asks again, after the step back.
         result = self.play("--load", saves / "SAVGAMA.DAT", "--play", "--keys", "m28", ASSETS)
         self.assertEqual(result.stdout.splitlines()[:6],

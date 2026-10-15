@@ -83,6 +83,7 @@ static void usage(const char *program)
             "                  party, from the files beside it\n"
             "  --load SAVE     load saved game SAVE first; without BLOCK resume it where\n"
             "                  it was saved, only that block's load vector run at first\n"
+            "                  (with BLOCK, the block is entered at once, all vectors)\n"
             "  --saves DIR     write saved games (camp's Save) to DIR; KRYNN.CFG there\n"
             "                  comes before the assets' and is where the setup writes\n"
             "  --config FILE   KRYNN.CFG: read FILE, or with --start-menu write it there\n"
@@ -108,13 +109,14 @@ static void usage(const char *program)
             "  --file N        ECL file 1-3 (default: the first holding BLOCK)\n"
             "  --vector N      run only vector N (0-4) instead of entering the block\n"
             "  --start ADDR    run only from code address ADDR (hex)\n"
-            "  --at X,Y,DIR    party position and facing (0, 2, 4 or 6)\n"
-            "  --set ADDR=VAL  set a variable before running, in hex (repeatable)\n"
-            "  --effect M,ID,MINUTES,VALUE  give party member M (1 the first) effect ID\n"
-            "                  for MINUTES (0 for good) with VALUE, its handler run when\n"
-            "                  it is removed, in hex, as a saved game's .SFX holds it\n"
-            "                  (repeatable)\n",
+            "  --at X,Y,DIR    party position and facing (0, 2, 4 or 6)\n",
             program, program, program);
+    fputs("  --set ADDR=VAL  set a variable before running, in hex (repeatable)\n"
+          "  --effect M,ID,MINUTES,VALUE  give party member M (1 the first) effect ID\n"
+          "                  for MINUTES (0 for good) with VALUE, its handler run when\n"
+          "                  it is removed, in hex, as a saved game's .SFX holds it\n"
+          "                  (repeatable)\n",
+          stderr);
     fputs("  --still         load only the first frame of each picture\n"
           "  --wav FILE      render the sound to FILE (16-bit mono WAV, 44,100 Hz) as\n"
           "                  the game's time passes: its delays and \\pN. in the keys\n"
@@ -984,6 +986,9 @@ static int run(int argc, char **argv)
         cok_ecl_store(&game.vm, 0xc04b, (uint16_t)x);
         cok_ecl_store(&game.vm, 0xc04c, (uint16_t)y);
         game.vm.direction = (uint8_t)(dir & 6);
+        /* The square's byte (DS:6d89) for a load vector run before any
+         * step; a block entered recomputes it anyway. */
+        game.vm.square = cok_view_square(&game.view, game.vm.map_x, game.vm.map_y);
     }
     cok_adventure_frame(&game);
 
