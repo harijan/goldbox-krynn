@@ -24,12 +24,14 @@ import argparse
 import sys
 
 import c_places as cp
+import checklib
 
 TO_CHEST = r"m\^"
 
 
-def coins(box):
-    return [(cp.name_of(raw), cp.money(raw)) for _, raw in cp.party_records(box)]
+def coins(state):
+    return {"each one's coins (silver ... steel, gems, jewelry)":
+            [(m.name, cp.money(m.record)) for m in state.members]}
 
 
 def main():
@@ -37,13 +39,13 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    cp.need_save_a()
-    work = cp.workdir("chest", args.workdir)
-    status = 0
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "c-chest")
+    v = checklib.Verdict()
     saves, _ = cp.throtl_save(work / "save-g", "G", at=(12, 4, 4), var={0x4C4A: 4})
 
     # #58, #59, #61: the results, the menu, Take, then Exit with money left.
-    a = cp.Compare(work / "take", saves, [
+    a = cp.Compare(v, work / "take", saves, [
         ("loaded", cp.load_keys("G")),
         ("enter", TO_CHEST),        # AS YOU ENTER SOMEONE IS LEAVING ...
         ("results", r"\r"),         # #58: found Treasure, 1391 each
@@ -52,44 +54,36 @@ def main():
         ("howmuch", r"\r"),         # #59: How much Jewelry  will you take?
         ("back", r"\e"),            # 0 taken: the menu again
         ("leave", "E"),             # #61: There is still treasure left. ~Yes ~No
-    ], seed=1, verbose=args.verbose)
-    status |= a.run()
-    print("#58 port:", [l for l in a.port_text.splitlines() if "receives" in l])
+    ], seed=1, verbose=args.verbose).run()
+    v.check(any("receives 1391" in l for l in a.port_text.splitlines()),
+            "#58: each character receives 1391 experience points (the port's log; the "
+            "results screens of both equal)")
 
     # #60: Share at once.
-    b = cp.Compare(work / "share", saves, [
+    b = cp.Compare(v, work / "share", saves, [
         ("loaded", cp.load_keys("G")),
         ("menu", TO_CHEST + r"\r\r", coins),
         ("share", "S", coins),
-    ], seed=1, verbose=args.verbose)
-    status |= b.run()
-    print("#60 original's coins before Share:", b.probes["menu"])
-    print("#60 original's coins after Share:", b.probes["share"])
-    _, psaves, _ = cp.cokbox.eclplay(cp.load_keys("G") + TO_CHEST + r"\r\rSEeESI",
-                                     work / "share-port-save", saves=[saves], shots=False,
-                                     args=["--seed", "1"])
-    print("#60 port's coins after Share (saved in camp):",
-          [(cp.name_of(d), cp.money(d)) for d in
-           ((psaves / f"CHRDATI{i}.SAV").read_bytes() for i in range(1, 7))])
+    ], seed=1, verbose=args.verbose).run()
+    (shared,) = b.probes["share"].values()
+    v.check([c[5] for _, c in shared] == [1, 1, 1, 1, 1, 0],
+            "#60: in the original the first five get a gem each, the sixth none",
+            str([c[5] for _, c in shared]))
 
     # #62: Detect with KAL.
     saves, _ = cp.throtl_save(work / "save-h", "H", at=(4, 7, 6))
-    path = saves / "CHRDATH5.SAV"
-    rec = bytearray(path.read_bytes())
-    rec[0x1E] = 5
-    path.write_bytes(bytes(rec))
-    c = cp.Compare(work / "detect", saves, [
+    cp.edit_record(saves / "CHRDATH5.SAV", lambda r: r.__setitem__(0x1E, 5))
+    c = cp.Compare(v, work / "detect", saves, [
         ("loaded", cp.load_keys("H")),
         ("menu", r"m\^\r"),
         ("kal", r"\v\v\v\v"),       # View Take Pool Detect Exit
         ("detect", "D"),
         ("items", "T"),             # the pool's items, a bonus marked "* "
-    ], seed=1, verbose=args.verbose)
-    status |= c.run()
-    print("#62 port:", [l for l in c.port_text.splitlines()[-12:]])
+    ], seed=1, verbose=args.verbose).run()
+    print("#62 port:", c.port_text.splitlines()[-12:])
     print(f"files in {work}")
-    return 1 if status else 0
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))

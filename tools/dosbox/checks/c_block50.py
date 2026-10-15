@@ -16,22 +16,34 @@ that Skyla's guide at the gate, special 1, has been met; var 0x7f6d is 0 as
 in game A, no shop visited), moved in the file to 4,15 facing north, south
 of the weapon smith (special 4 at 4,14), as E; and to 5,12 facing east, west
 of the magic shop (special 2 at 6,12), as F; SIR STRONGSWORD given 1000
-steel. The original's money is read in memory after each purchase or sale.
+steel. SIR STRONGSWORD's coins are read in the original's memory after
+each purchase or sale and compared with the port's at the same key read;
+the original's must be those the README's checks give (15 for any weapon;
+480 for the arrows, 6 for the stack of 2 and 60 for the single one).
 """
 import argparse
-import shutil
 import struct
 import sys
 
 import c_geo
 import c_places as cp
+import checklib
 
+# RandSeed at the first key read after loading (c_places.Compare): 1
+# rolled once, where the port as it is gets from 1 (it rolls on resuming
+# here) and the port with the fixes starts.
+SEED = cp.roll(1)
 ARGS = ["--load", cp.SAVE_A, "--play", "--file", "2", "--set", "4be6=1", "--set", "4c85=1"]
 
 
-def steel(box):
-    _, raw = cp.party_records(box)[0]
-    return cp.name_of(raw), cp.money(raw)
+def steel(state):
+    m = state.members[0]
+    return {f"{m.name}'s coins (silver ... steel, gems, jewelry)": cp.money(m.record)}
+
+
+def steel_of(c, name):
+    (coins,) = c.probes[name].values()
+    return coins[4]
 
 
 def main():
@@ -40,38 +52,33 @@ def main():
     parser.add_argument("--only", help="smith or magic")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    cp.need_save_a()
-    work = cp.workdir("block50", args.workdir)
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "c-block50")
+    v = checklib.Verdict()
     saves, _ = cp.port_save(work / "save", "ESE", ARGS, block=50)
-    shutil.copyfile(saves / "SAVGAME.DAT", saves / "SAVGAMF.DAT")
-    for f in list(saves.glob("CHRDATE*")):
-        shutil.copyfile(f, saves / f.name.replace("CHRDATE", "CHRDATF"))
+    cp.copy_game(saves, "E", "F")
     geo = c_geo.load(2, 50)
     cp.edit_save(saves, "E", at=(4, 15, 0), geo=geo)
     cp.edit_save(saves, "F", at=(5, 12, 2), geo=geo)
     for letter in "EF":
-        path = saves / f"CHRDAT{letter}1.SAV"
-        rec = bytearray(path.read_bytes())
-        struct.pack_into("<H", rec, 0xF3, 1000)
-        path.write_bytes(bytes(rec))
-    status = 0
+        cp.edit_record(saves / f"CHRDAT{letter}1.SAV",
+                       lambda r: struct.pack_into("<H", r, 0xF3, 1000))
 
     if args.only in (None, "smith"):
-        c = cp.Compare(work / "smith", saves, [
+        c = cp.Compare(v, work / "smith", saves, [
             ("loaded", cp.load_keys("E"), steel),
             ("smith", r"m\^"),              # #103: head 68; DO YOU WISH TO PURCHASE WEAPONS?
             ("shop", "y"),
             ("buy", "B"),                   # #67: each weapon at its value
             ("pick", r"\v\v\v\v"),          # Broad Sword, 12
             ("bought", r"\r", steel),       # #67: 15 steel
-        ], seed=1, verbose=args.verbose)
-        status |= c.run()
-        print("#67 original's SIR STRONGSWORD before and after:", c.probes["loaded"],
-              c.probes["bought"])
-        print("#67 port:", [l for l in c.port_text.splitlines() if l.startswith("shop:")])
+        ], seed=SEED, verbose=args.verbose).run()
+        got = [steel_of(c, n) for n in ("loaded", "bought")]
+        v.check(got == [1000, 985], "#67: the original's smith charges 15 steel for the Broad "
+                "Sword (worth 12)", str(got))
 
     if args.only in (None, "magic"):
-        c = cp.Compare(work / "magic", saves, [
+        c = cp.Compare(v, work / "magic", saves, [
             ("loaded", cp.load_keys("F"), steel),
             ("shop", r"m\^"),               # #103: head 69 over body 68
             ("menu", "y"),
@@ -87,16 +94,13 @@ def main():
             ("deal2", "y", steel),
             ("sell1", "S"),                 # #72: the offer for the single one
             ("deal1", "y", steel),
-        ], seed=1, verbose=args.verbose)
-        status |= c.run()
-        print("#72 original's SIR STRONGSWORD's coins: before", c.probes["loaded"], "bought",
-              c.probes["bought"], "after selling 2", c.probes["deal2"], "after selling 1",
-              c.probes["deal1"])
-        print("#72 port:", [l for l in c.port_text.splitlines()
-                            if l.startswith("shop:") or "give you" in l])
+        ], seed=SEED, verbose=args.verbose).run()
+        got = [steel_of(c, n) for n in ("loaded", "bought", "deal2", "deal1")]
+        v.check(got == [1000, 520, 526, 586], "#72: in the original the arrows cost 480, the "
+                "stack of 2 fetches 6 and the single one 60", str(got))
     print(f"files in {work}")
-    return 1 if status else 0
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))

@@ -18,6 +18,7 @@ import sys
 
 import c_geo
 import c_places as cp
+import checklib
 
 PLACES = {"west-of-0-7": (0, 7, 6), "above-15-7": (15, 6, 4), "beside-15-7": (14, 7, 2)}
 
@@ -27,25 +28,24 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    cp.need_save_a()
-    work = cp.workdir("map80", args.workdir)
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "c-map80")
+    v = checklib.Verdict()
     saves, _ = cp.port_save(work / "save", r"\r\rESE", [
         "--load", cp.SAVE_A, "--play", "--file", "3", "--set", "4be6=1"], block=80)
     geo = c_geo.load(3, 80)
-    status = 0
     for name, at in PLACES.items():
         here = work / f"saves-{name}"
         shutil.copytree(saves, here)
         cp.edit_save(here, "E", at=at, geo=geo)
-        c = cp.Compare(work / name, here, [
+        cp.Compare(v, work / name, here, [
             ("loaded", cp.load_keys("E")),
             ("map", "a"),
             ("turned", r"m\>"),
-        ], seed=1, verbose=args.verbose)
-        status |= c.run()
+        ], seed=1, verbose=args.verbose).run()
     print(f"files in {work}")
-    return 1 if status else 0
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))
