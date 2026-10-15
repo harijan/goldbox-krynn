@@ -5,30 +5,45 @@ Compare how the original resumes it with how it resumes a game saved from
 the party menu").
 
 Three games, each loaded from the start menu (Begin Adventuring) in the
-original and in eclplay --start-menu, the screens compared and where() the
-original waits named, with its mode (DS:4b49) and last mode (DS:4b4a):
+original and in eclplay --start-menu, each screen compared with the port's
+at the same point of the keys, and the original's mode (DS:4b49) and last
+mode (DS:4b4a) where it waits against those recorded:
 
 - J, saved by the port in camp at Throtl's gate (3D, modes 4 then 2; see
-  b_camp_screen.py), then Encamp and Save as E in both, the files compared;
+  b_camp_screen.py), then Encamp and Save as E in both, the files compared
+  (masked);
 - D, saved by the port in the outpost inn's camp (game A's start, the inn;
-  modes 0 then 2), then the inn, camp and Save as E in both;
+  modes 4, 2), then the inn, camp and Save as E in both, the files compared;
 - SAVE/'s A (modes 0 and 0: no camp), its first page.
 
-The resumed view at Throtl's gate differs: the original draws doors where
-the port draws openings. Built with the wall sets' tiles offset by the slot
-the record is loaded at (69ea:1025's DS:1ec2[slot] - DS:1ec4, once for the
-record), the port's frame is the original's (--patched ECLPLAY).
+Two differences are known (tools/dosbox/known-fixes.patch), each judged
+against the port built with the fixes: the resumed view at Throtl's gate
+(walls: the port without them offsets a two-set WALLDEF record's second set
+by its own slot and draws openings where the original draws doors), and
+J's game saved again, whose last mode (SAVGAM?.DAT 0x1406) the port's first
+block sets to 4 where the original keeps 2 (resume). A's first page has the
+full stop of PRESS <ENTER>/<RETURN> TO CONTINUE (fullstop). Once the port
+has the fixes the script agrees.
 """
 import argparse
 import pathlib
-import shutil
 import sys
-import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import b_lib as L  # noqa: E402
 import b_screens_lib as S  # noqa: E402
+import checklib  # noqa: E402
 from b_camp_screen import make_save as make_throtl  # noqa: E402
+
+cokbox = L.cokbox
+
+# The original's (where it waits, mode, last mode) at each step, as batch B
+# recorded them.
+WAITS = {
+    "throtl": {"resume": ("475c:0a51", 4, 2)},
+    "inn": {"resume": ("3775:18ec", 3, 4)},
+    "A": {"resume": ("3775:18ec", 4, 0)},
+}
 
 
 def make_inn(work):
@@ -45,14 +60,13 @@ def modes(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--workdir")
-    parser.add_argument("--patched", help="an eclplay built with the slot's offset, to show "
-                        "its resumed view is the original's")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    work = pathlib.Path(args.workdir or tempfile.mkdtemp(prefix="check-b-resume-"))
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "b-resume")
     throtl = make_throtl(work)
     inn = make_inn(work)
-    status = 0
+    v = checklib.Verdict()
     cases = [
         ("throtl", throtl, "J", [(L.load_keys("J"), "resume"), ("e", "camp"),
                                  (L.save_keys("E"), "saved")]),
@@ -61,47 +75,47 @@ def main():
         ("A", L.SAVE, "A", [(L.load_keys("A"), "resume")]),
     ]
     for label, game, letter, steps in cases:
-        print(f"{label}: SAVGAM{letter}.DAT modes (0x1406, 0x1407) = {modes(game / f'SAVGAM{letter}.DAT')}")
+        print(f"{label}: SAVGAM{letter}.DAT modes (0x1406, 0x1407) = "
+              f"{modes(game / f'SAVGAM{letter}.DAT')}")
         waits = {}
         orig_saves = work / label / "orig-saves"
 
         def during(box, name):
             waits[name] = (box.where(), box.ds_byte(0x4B49), box.ds_byte(0x4B4A))
             if name == "saved":
-                shutil.copytree(box.game / "SAVE", orig_saves, dirs_exist_ok=True)
+                L.keep_saves(box, orig_saves)
 
-        results, out = S.run_pair(work / label, [game], steps, verbose=args.verbose,
-                                  during=during)
-        S.report(results)
-        for name in results:
-            print(f"    {name}: original waits in {waits[name][0]}, mode {waits[name][1]}, "
-                  f"last mode {waits[name][2]}")
+        shots, port, fixed_frames, out = S.run_pair(work / label, [game], steps,
+                                                    verbose=args.verbose, during=during)
+        S.judge(v, shots, port, fixed_frames, work / label)
+        for name, (where, mode, last) in waits.items():
+            print(f"    {name}: original waits in {where}, mode {mode}, last mode {last}")
+            want = WAITS[label].get(name)
+            if want:
+                v.check(want[0] in str(where) and (mode, last) == want[1:],
+                        f"{label} {name}: the original waits in {want[0]}, modes {want[1:]}",
+                        f"{where}, modes {(mode, last)}")
         menus = [line for line in out.splitlines() if line.startswith("menu:")]
         print("  eclplay's menus after Begin Adventuring:",
               menus[menus.index("menu: Load Saved Game") + 1:][:4] if "menu: Load Saved Game"
               in menus else menus[-4:])
-        if label == "throtl" and args.patched:
-            shot = results["resume"][3]
-            out2 = work / label / "patched"
-            out2.mkdir(parents=True, exist_ok=True)
-            import subprocess
-            subprocess.run([args.patched, "--load", str(game / "SAVGAMJ.DAT"), "--play",
-                            "--screen", str(out2 / "resume.bmp"), "--keys", "",
-                            str(L.ROOT / "Assets")], capture_output=True, check=False)
-            n, _ = shot.diff(L.cokbox.Screen.load(out2 / "resume.bmp"))
-            print(f"  resume: {n} pixels differ from the patched eclplay's view")
         if "saved" in waits:
             port_saves = work / label / "eclplay" / "saves"
+            keys = S.marked(steps)
+
+            def fixed_saves(label=label, keys=keys, game=game):
+                _, saves, _ = cokbox.eclplay(checklib.port_keys(keys), work / label /
+                                             "eclplay-fixed-saves", saves=[game], shots=False,
+                                             binary=checklib.fixed_eclplay())
+                return saves, "E"
+
             print("  saved again as E: modes original", modes(orig_saves / "SAVGAME.DAT"),
                   "port", modes(port_saves / "SAVGAME.DAT"))
-            if L.compare_games(orig_saves, "E", port_saves, "E",
-                               report=lambda s: print("  " + s)):
-                status = 1
-        if any(results[n][0] for n in results):
-            status = 1
-    print("AGREES" if status == 0 else "PORT DIFFERS", f"(files in {work})")
-    return status
+            L.judge_games(v, f"{label}: saved again as E", orig_saves, "E", port_saves, "E",
+                          fixed=fixed_saves)
+    print(f"files in {work}")
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))

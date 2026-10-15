@@ -6,18 +6,19 @@ saved again").
 
 The original (DOSBox-X) and the port (eclplay) load SAVE/'s game B, go from
 its start to the outpost inn's camp, rest a day (Rest, Days, Add, Rest),
-and save as C. The .SFX files are compared with SAVE/'s B (effects: id,
-minutes, value, run-on-removal), and the whole saved games with each
-other, masked as save_again.py does.
+and save as C. Each .SFX (effects: id, minutes, value, run-on-removal)
+must be SAVE/'s B's in the original and the port, the original's clock a
+day on, its screen after the rest the port's at the same point of the
+keys, and the whole saved game the port's, masked as save_again.py does.
 """
 import argparse
 import pathlib
-import shutil
 import sys
-import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import b_lib as L  # noqa: E402
+import b_screens_lib as S  # noqa: E402
+import checklib  # noqa: E402
 
 REST_DAY = "RDAR"   # Rest, Days, Add (1), Rest
 
@@ -27,38 +28,43 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    work = pathlib.Path(args.workdir or tempfile.mkdtemp(prefix="check-b-restday-"))
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "b-restday")
+    v = checklib.Verdict()
     keys_camp = L.load_keys("B") + L.A_TO_CAMP
     after = REST_DAY + L.save_keys("C")
-    pout, psaves, _ = L.port_menu(keys_camp + after, work / "port", saves=[L.SAVE], shots=False)
+    pout, psaves, _ = L.cokbox.eclplay(keys_camp + after, work / "port", saves=[L.SAVE],
+                                       shots=False)
     print("port:", " | ".join(pout.strip().splitlines()[-6:]))
+    marked = keys_camp + REST_DAY + r"\srest."
+    port = S.frames_at(marked, work / "frames", saves=[L.SAVE])
     with L.box(work, [L.SAVE], verbose=args.verbose, turbo=True) as box:
         box.keys(keys_camp)
         box.wait_input(settle=0.3)
         c0 = L.clock(box)
         box.keys(REST_DAY)
+        c1 = L.wait_rest(box)
         box.wait_input(settle=0.3)
-        c1 = L.clock(box)
-        box.screenshot(work / "after-rest.png")
+        shot = box.screenshot(work / "after-rest.png")
         print(f"original: clock {c0} -> {c1}; waits at {box.where()}")
         box.keys(L.save_keys("C"))
         box.wait_input(settle=0.3)
-        odir = work / "orig-saved"
-        shutil.copytree(box.game / "SAVE", odir, dirs_exist_ok=True)
-    status = 0
+        odir = L.keep_saves(box, work / "orig-saved")
+    v.screen("the screen after the rest", shot, port["rest"],
+             fixed=lambda: S.frames_at(marked, work / "frames-fixed", fixed=True,
+                                       saves=[L.SAVE])["rest"], work=work)
+    v.check(L.minutes(c1) - L.minutes(c0) == 1440, "the original rested a day",
+            f"{c0[1:5]} -> {c1[1:5]}")
     for n in range(1, 7):
         before = L.sfx(L.SAVE, "B", n)
-        o, p = L.sfx(odir, "C", n), L.sfx(psaves, "C", n)
-        same = before == o == p
-        status |= not same
-        print(f"{L.name_of(L.sav(odir, 'C', n)):16} SAVE/ {before}  original {o}  port {p}"
-              + ("" if same else "  <- differ"))
-    print("saved C, the original's against the port's:")
-    if L.compare_games(odir, "C", psaves, "C", report=lambda s: print("  " + s)):
-        status = 1
-    print("AGREES" if status == 0 else "DIFFERS", f"(files in {work})")
-    return status
+        who = L.name_of(L.sav(odir, "C", n))
+        v.check(L.sfx(odir, "C", n) == before, f"{who}'s effects in the original's C are B's",
+                str(before))
+        v.value(f"{who}'s effects saved", L.sfx(odir, "C", n), L.sfx(psaves, "C", n))
+    L.judge_games(v, "saved C", odir, "C", psaves, "C")
+    print(f"files in {work}")
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))

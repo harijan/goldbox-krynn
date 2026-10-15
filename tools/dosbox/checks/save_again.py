@@ -8,15 +8,18 @@ menu and save it as A again; the files are compared byte for byte, leaving
 out what the README says the original writes from memory (Camp, Save:
 the far pointers in records, items and effects; in the .DAT the stack's
 bytes after each name and in the slots past the party). Spell 8 is `+0x6a` of
-a character's .SAV.
+a character's .SAV: KAL and SIRRION must know it in the original's files and
+the port's. A file that differs and equals the one the port with the known
+fixes saves is a known difference (resume).
 """
 import argparse
 import pathlib
 import sys
-import tempfile
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-import cokbox  # noqa: E402
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import checklib  # noqa: E402
+
+cokbox = checklib.cokbox
 
 KEYS = r"\kxP\v\v\rA\v\v\v\v\rA"
 # Bytes of a 409-byte record the original writes from memory (Camp, Save).
@@ -58,45 +61,35 @@ def main():
     parser.add_argument("--machine", default="tandy")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    work = pathlib.Path(args.workdir or tempfile.mkdtemp(prefix="check-save-again-"))
+    checklib.need_saves()
+    import b_lib as L   # its masked() is this file's
+    work = checklib.workdir(args.workdir, "save-again")
     saves = cokbox.ROOT / "SAVE"
-    if not (saves / "SAVGAMA.DAT").exists():
-        print("needs the original's saved games in SAVE/")
-        return 2
+    v = checklib.Verdict()
     stdout, port_dir, _ = cokbox.eclplay(KEYS, work / "eclplay", machine=args.machine,
                                          saves=[saves], shots=False)
     with cokbox.Box(workdir=work / "box", machine=args.machine, saves=[saves],
                     verbose=args.verbose) as box:
         box.keys(KEYS + r"\sfinal.", shots=work)
         # Saving writes the files before the menu waits again.
-        orig_dir = box.game / "SAVE"
-        files = {p.name: p.read_bytes() for p in orig_dir.iterdir()}
+        orig_dir = L.keep_saves(box, work / "orig-saves")
     before = {p.name: p.read_bytes() for p in saves.iterdir() if p.is_file()}
-    port = {p.name: p.read_bytes() for p in port_dir.iterdir()}
-    learnt = True
     for who, n in (("KAL", 5), ("SIRRION", 6)):
         name = f"CHRDATA{n}.SAV"
-        learnt = learnt and files[name][0x6A] != 0
-        print(f"{who} ({name}) +0x6a: SAVE/ {before[name][0x6a]:#04x}, "
-              f"original saved {files[name][0x6a]:#04x}, port saved {port[name][0x6a]:#04x}")
-    same = differ = 0
-    for name in sorted(set(files) | set(port)):
-        if name not in files or name not in port:
-            print(f"{name}: only in {'the original' if name in files else 'the port'}'s")
-            differ += 1
-            continue
-        a, b = masked(name, files[name]), masked(name, port[name])
-        if a == b:
-            same += 1
-            continue
-        differ += 1
-        offs = [i for i in range(max(len(a), len(b)))
-                if i >= len(a) or i >= len(b) or a[i] != b[i]]
-        print(f"{name}: {len(offs)} bytes differ (sizes {len(a)}, {len(b)}) at "
-              + " ".join(f"{i:#x}" for i in offs[:24]) + (" ..." if len(offs) > 24 else ""))
-    print(f"{same} files the same (pointers masked), {differ} differ; files in {work}")
-    return 0 if learnt and differ == 0 else 1
+        orig = (orig_dir / name).read_bytes()[0x6A]
+        print(f"{who} ({name}) +0x6a: SAVE/ {before[name][0x6a]:#04x}")
+        v.check(orig != 0, f"{who} knows spell 8 in the original's game saved again",
+                f"+0x6a {orig:#04x}")
+        v.value(f"{who}'s +0x6a saved", orig, (port_dir / name).read_bytes()[0x6A])
+
+    def fixed():
+        _, d, _ = cokbox.eclplay(KEYS, work / "eclplay-fixed", machine=args.machine,
+                                 saves=[saves], shots=False, binary=checklib.fixed_eclplay())
+        return d, "A"
+    L.judge_games(v, "saved A", orig_dir, "A", port_dir, "A", fixed=fixed)
+    print(f"files in {work}")
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))

@@ -15,8 +15,9 @@ Copies of SAVE/'s game A, SIR STRONGSWORD changed in the files:
      removal) in its .SFX, as a character whose constitution dropped below
      20 keeps it; rested 3 hours.
 Each game is loaded in the original (DOSBox-X) and the port (eclplay), taken
-to the outpost inn's camp, the record read in memory, rested, read again,
-and saved as G; the original's G is compared with the port's.
+to the outpost inn's camp, the record read in memory, rested, read again
+(strength, constitution, hit points, status, effects: these must be the
+port's, from its G), and saved as G, which must be the port's, masked.
 
 In camp the timers count only the members whose flag the rest set at its
 start (57e4:0171), so the effects an ending one adds are not counted down
@@ -32,10 +33,10 @@ import argparse
 import pathlib
 import shutil
 import sys
-import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import b_lib as L  # noqa: E402
+import checklib  # noqa: E402
 
 
 def rest_hours(n):
@@ -63,8 +64,9 @@ def main():
     parser.add_argument("--cases", default="DEFHJ")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    work = pathlib.Path(args.workdir or tempfile.mkdtemp(prefix="check-b-timers-"))
-    status = 0
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "b-timers")
+    v = checklib.Verdict()
     for letter in args.cases:
         edits, effects, hours = CASES[letter]
         game = work / f"game{letter}"
@@ -97,8 +99,7 @@ def main():
         start = max(i for i, s in enumerate(said) if "makes camp" in s or "PRESS" in s
                     or "WHERE DO YOU" in s) if not overland else 0
         print("  port's text:", " / ".join(s.strip() for s in said[start + 1:] if s.strip()))
-        p = L.sav(psaves, "G", 1)
-        print("  port, after:", state(p, [(i, m, v) for i, m, v, _ in L.sfx(psaves, "G", 1)]))
+        port_after = state(L.sav(psaves, "G", 1), [(i, m, x) for i, m, x, _ in L.sfx(psaves, "G", 1)])
         with L.box(work / f"run{letter}", [game], verbose=args.verbose, turbo=True) as box:
             box.keys(L.load_keys(letter) + route)
             box.wait_input(settle=0.3)
@@ -120,17 +121,16 @@ def main():
                 box.keys(action)
                 c = L.wait_rest(box, each=each)
             raw = box.read(addr, L.REC)
-            print(f"  original, after (clock {c[1:5]}):", state(raw, L.effects_at(box, addr + 0xE3)))
+            orig_after = state(raw, L.effects_at(box, addr + 0xE3))
+            print(f"  original, after: the clock {c[1:5]}")
             box.keys(L.save_keys("G"))
             box.wait_input(settle=0.3)
-            odir = work / f"run{letter}" / "saved"
-            shutil.copytree(box.game / "SAVE", odir, dirs_exist_ok=True)
-        print("  saved G, the original's against the port's:")
-        if L.compare_games(odir, "G", psaves, "G", report=lambda s: print("    " + s)):
-            status = 1
-    print("AGREES" if status == 0 else "DIFFERS", f"(files in {work})")
-    return status
+            odir = L.keep_saves(box, work / f"run{letter}" / "saved")
+        v.value(f"game {letter}: SIR STRONGSWORD after", orig_after, port_after)
+        L.judge_games(v, f"game {letter}: saved G", odir, "G", psaves, "G")
+    print(f"files in {work}")
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))

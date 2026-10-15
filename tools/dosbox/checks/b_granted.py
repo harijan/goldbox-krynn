@@ -16,16 +16,19 @@ camp, Magic, Memorize, up eleven rows to the first power, Enter eight times
 (seven powers, then the cleric's Bless that moves up), Exit, Exit (the
 list of those marked), Yes, Exit,
 Save as F. The original's memorized bytes (+0x1e-+0x57) are read after the
-picks, and the saved game compared with the port's.
+picks: all seven powers marked, as recorded (the port does not stop at the
+picks, so that is the original's observation); read again in camp before
+the Save they must be the port's (its F), and the saved game the port's,
+masked.
 """
 import argparse
 import pathlib
 import sys
-import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import b_lib as L  # noqa: E402
 import b_magic_lib as M  # noqa: E402
+import checklib  # noqa: E402
 
 STEPS = [("the picks", "MM" + r"\^" * 11 + r"\r" * 8), ("Exit", "E"),
          ("the list of those marked", "E"), ("Yes", "Y"), ("Exit", "E")]
@@ -40,7 +43,8 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    work = pathlib.Path(args.workdir or tempfile.mkdtemp(prefix="check-b-granted-"))
+    checklib.need_saves()
+    work = checklib.workdir(args.workdir, "b-granted")
     game = L.copy_game(L.SAVE, "A", work / "game")
     edits = {0x100: 7, 0x5C: 2}
     edits.update({0x62 + i: 1 for i in range(0x65, 0x6C)})
@@ -54,19 +58,21 @@ def main():
         print(f"original after {what}: memorized/marked bytes {marked(raw)}; cleric spells a day "
               f"{raw[0x11C:0x121].hex()}")
 
-    out, psaves, odir, _ = M.run_both(work, game, "".join(k for _, k in STEPS),
-                                      steps=[k for _, k in STEPS], probe=probe,
-                                      verbose=args.verbose)
+    out, psaves, odir, _, fixed = M.run_both(work, game, "".join(k for _, k in STEPS),
+                                             steps=[k for _, k in STEPS], probe=probe,
+                                             verbose=args.verbose)
+    v = checklib.Verdict()
     print("port's choices:", [ln[8:] for ln in out.splitlines() if ln.startswith("choice: ")][-12:])
-    print("port's saved bytes:", marked(L.sav(psaves, "F", 1)))
-    powers = sum(1 for b in seen[1] if 0xE5 <= int(b, 16) <= 0xEB)
-    print(f"powers marked in the original: {powers}")
-    print("saved F compared with the port's F:")
-    differ = L.compare_games(odir, "F", psaves, "F", report=lambda s: print("  " + s))
-    status = 1 if differ else 0
-    print("AGREES" if status == 0 else "PORT DIFFERS", f"(files in {work})")
-    return status
+    powers = sorted(int(b, 16) for b in seen[1] if 0xE5 <= int(b, 16) <= 0xEB)
+    v.check(powers == list(range(0xE5, 0xEC)), "the original marks all seven powers "
+            "(0xe5-0xeb) after the picks, as recorded; the port is compared in camp below",
+            str([hex(b) for b in powers]))
+    v.value("SIR STRONGSWORD's memorized bytes in camp before the Save", seen[-1],
+            marked(L.sav(psaves, "F", 1)))
+    L.judge_games(v, "saved F", odir, "F", psaves, "F", fixed=fixed)
+    print(f"files in {work}")
+    return v.finish()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(checklib.run(main))
