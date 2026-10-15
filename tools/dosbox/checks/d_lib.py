@@ -118,12 +118,13 @@ def load(letter):
     return rf"\kxP\v\v\r{letter}\v\v\v\v\v\r"
 
 
-def make_save(letter, out, args=(), keys=TO_INN_CAMP):
-    """Game A as eclplay loads it with ARGS (--effect, --set), saved as game
-    LETTER in the outpost inn's camp; returns the directory of its files."""
+def make_save(letter, out, args=(), keys=TO_INN_CAMP, block=None):
+    """Game A as eclplay loads it with ARGS (--effect, --set) and BLOCK,
+    saved as game LETTER in the camp KEYS reach (by default the outpost
+    inn's); returns the directory of its files."""
     out = pathlib.Path(out)
     stdout, saves, _ = cokbox.eclplay(keys + "S" + letter, out, shots=False,
-                                      start_menu=False,
+                                      start_menu=False, block=block,
                                       args=["--load", SAVES / "SAVGAMA.DAT", "--play", *args])
     if not (saves / f"SAVGAM{letter}.DAT").exists():
         raise SystemExit("eclplay wrote no saved game: " + stdout[-300:])
@@ -394,7 +395,13 @@ def trap(b, seg, off, until, seconds=30):
     patched = []
     end = time.monotonic() + seconds
     while time.monotonic() < end:
+        # Only in the overlay buffer (Turbo Pascal's OvrHeapOrg and OvrHeapEnd,
+        # DS:437a and 437e): stale copies of the code elsewhere may lie in
+        # memory the game has since allocated and reads uninitialized.
+        lo, hi = b.ds_word(0x437A) * 16, b.ds_word(0x437E) * 16
         for addr in find_code(b, seg, off):
+            if not lo <= addr < hi:
+                continue
             patched.append((addr, b.read(addr, 2)))
             b.write(addr, b"\xeb\xfe")
         if patched and until():
@@ -448,3 +455,14 @@ def load_bmp(path):
             out[k] = v
             k += 1
     return cokbox.Screen(320, 200, out)
+
+
+def effects(b, rec):
+    """The record's spell effects: (id, minutes, value) along +0xe3's list."""
+    out = []
+    eff = b.far(rec + 0xE3)
+    while eff is not None and len(out) < 30:
+        e = b.read(eff, 9)
+        out.append((e[0], struct.unpack_from("<H", e, 1)[0], e[3]))
+        eff = b.far(eff + 5)
+    return out

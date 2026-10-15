@@ -1012,11 +1012,11 @@ for _sig in (signal.SIGTERM, signal.SIGHUP):
 # ---------------------------------------------------------------- command line
 
 def eclplay(keys, out, assets=None, machine="tandy", saves=(), args=(), shots=True,
-            start_menu=True, binary=None):
+            start_menu=True, binary=None, block=None):
     """Run eclplay with KEYS, as the Box would run the game: --start-menu
     (unless START_MENU is false: ARGS then say where to start), a KRYNN.CFG
     for MACHINE, SAVES copied into OUT/saves (its --saves). BINARY: another
-    build of eclplay to run. Returns (stdout, saves directory, the shots'
+    build of eclplay to run; BLOCK: the ECL block to run (after the assets). Returns (stdout, saves directory, the shots'
     paths in order)."""
     out = pathlib.Path(out)
     out.mkdir(parents=True, exist_ok=True)
@@ -1037,7 +1037,7 @@ def eclplay(keys, out, assets=None, machine="tandy", saves=(), args=(), shots=Tr
         [str(binary or ROOT / "build/eclplay"), *(["--start-menu"] if start_menu else []),
          "--config", str(cfg), "--saves",
          str(save_dir), *(["--shots", str(shot_dir)] if shots else []), *map(str, args),
-         "--keys", keys, str(assets)],
+         "--keys", keys, str(assets), *([str(block)] if block is not None else [])],
         check=False, capture_output=True, text=True, timeout=600)
     return result.stdout, save_dir, sorted(shot_dir.glob("*.bmp"))
 
