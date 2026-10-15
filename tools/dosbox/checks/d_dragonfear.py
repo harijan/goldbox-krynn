@@ -8,19 +8,14 @@ The port writes game J: game A in ECL3 block 97 (eclplay --load, --file 3,
 vars 0x4be6-0x4be8 1 so that its wall sets load, 0x4ce4 0x80 so that the
 hostages' dragons stay away while the save is made), camped and saved;
 then the saved game's square is patched to 10, 5 (square byte 0x8b, type
-11: "HERE LIES AN OLD AND BATTERED DRAGON", 990f) and 0x4ce4 to 0. The
-port, at Begin Adventuring, runs the block's location vector at once (see
-d_firstblock.py); the original does not, so its keys add Look (`L`: the
-location vector runs once more, ten minutes pass). Then ATTACK: one red
+11: "HERE LIES AN OLD AND BATTERED DRAGON", 990f) and 0x4ce4 to 0. Begin
+Adventuring runs only the block's load vector (d_firstblock.py), so the
+keys add Look (`L`: the location vector runs, ten minutes pass). Then ATTACK: one red
 dragon of MON3 record 22, whose fear (0x52) acts at setup. Compared: the
 party's effects in the original (0x6f terrified, 0x77 afraid) against
 eclplay's "is terrified" lines, and the screens and memory
 (d_lib.compare_state) at Look and at the first menu against the port's.
 Seed 7. Every character of game A is of level 3 or less.
-Both are given the same keys: the port as it is shows the encounter at
-Begin Adventuring, before Look (the first block's vectors, d_firstblock.py),
-so it differs from the original there and after; the port with the known
-fixes does not, and the original against it decides (known: resume).
 """
 import argparse
 import sys
@@ -45,8 +40,8 @@ def main():
     with d_lib.box(work, args.seed, verbose=args.verbose, saves=[saves]) as b:
         for name, keys in STEPS:
             shown = d_lib.step(b, keys, name, work)
-            d_lib.screen(v, f"screen {name}", shown, port, name, work, known="resume")
-            o = d_lib.compare_state(v, b, port, name, known="resume")
+            d_lib.screen(v, f"screen {name}", shown, port, name, work)
+            o = d_lib.compare_state(v, b, port, name)
     eff = {f[1].strip(): [e[0] for e in f[7]] for f in o["fighters"][:6]}
     print("original's effects at the first menu:", eff)
     terrified = sorted(n for n, e in eff.items() if 0x6F in e)

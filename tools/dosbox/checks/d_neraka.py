@@ -7,17 +7,13 @@ block to its east or below it."
 The port writes game J: game A in ECL2 block 64 (eclplay --load --file 2),
 saved after the arrival page, then patched: the square 12, 8 (square byte
 0xc0: a room, 0x40, of type 0, the random encounters of 8456) and var 0x4c07
-(steps counted) 9. The port rolls at Begin (its first-block location
-vector), the original after Look: seed 9 (found with eclplay) gives
+(steps counted) 9. Both roll after Look (Begin Adventuring runs only the
+first block's load vector, d_firstblock.py): seed 9 (found with eclplay) gives
 "MONSTROUS FORCES SPOT YOU AND ATTACK." (4 giant rats, 5 giant
 centipedes). The original's battlefield (DS:6a2e, its tables 0x1a and
 chairs 0x1b among the terrain) and combatants' cells, the rest of the
 memory (d_lib.compare_state) and the screens at Look and at the first menu
 against the port's.
-Both are given the same keys: the port as it is shows the encounter at
-Begin Adventuring, before Look (the first block's vectors, d_firstblock.py),
-so it differs from the original there and after; the port with the known
-fixes does not, and the original against it decides (known: resume).
 """
 import argparse
 import sys
@@ -52,8 +48,8 @@ def main():
     with d_lib.box(work, args.seed, verbose=args.verbose, saves=[saves]) as b:
         for name, keys in STEPS:
             shown = d_lib.step(b, keys, name, work)
-            d_lib.screen(v, f"screen {name}", shown, port, name, work, known="resume")
-            d_lib.compare_state(v, b, port, name, known="resume")
+            d_lib.screen(v, f"screen {name}", shown, port, name, work)
+            d_lib.compare_state(v, b, port, name)
         cells = d_lib.battle_map(b)
         d_lib.value(v, "#77 the battlefield and every combatant's cell at the first menu",
                     field(d_lib.combatants(b), cells), port, "menu",

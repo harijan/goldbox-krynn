@@ -11,8 +11,7 @@ the key read that follows, and a build of eclplay instrumented here
 their combat records and effects, the combatants, the turn order, the
 battlefield, the speed, the round, RandSeed, the variables), read as the
 original's memory is (DS:623f, 68d1, 6a2e, 71ae, 72ce, 4b38, 714b, 43ae, the
-records' bytes). A difference is known only when the original equals the
-port built with the known fixes (checklib) at the same mark.
+records' bytes).
 
 Screens taken between two key reads (a burst while a spell flies, a watch
 while the computer plays) are matched with the port's frames at its key
@@ -298,16 +297,15 @@ def shot_at_shows(name, text):
         "    cok_d_shown = d_shown;\n"))
 
 
-def player(fixed=False, pauses=False):
+def player(pauses=False):
     """eclplay writing the state at each key read (and with PAUSES a shot at
     each of the game's delays too, checklib.shot_at_delays, and in a battle
-    at each show of its map and each line of text, shot_at_shows); FIXED
-    with the known fixes."""
+    at each show of its map and each line of text, shot_at_shows)."""
     transforms = [("eclplay.c", state_dump)]
     if pauses:
         transforms += [("eclplay.c", checklib.shot_at_delays), ("eclplay.c", shot_at_shows),
                        ("arena.c", shot_at_shows), ("text.c", shot_at_shows)]
-    return checklib.build("eclplay", fixed=fixed, transforms=transforms)
+    return checklib.build("eclplay", transforms=transforms)
 
 
 def read_state(bmp):
@@ -360,8 +358,7 @@ class Mark:
 
 class Port:
     """The port's runs of KEYS (with \\sNAME. marks): its log (LINES, the
-    whole keys) and each mark's screen and state, from the port as it is
-    and, when asked, from the port with the known fixes."""
+    whole keys) and each mark's screen and state."""
 
     def __init__(self, work, keys, seed, saves=(), args=(), machine="tandy", log_args=()):
         self.work = pathlib.Path(work)
@@ -374,51 +371,43 @@ class Port:
         (self.work / "log" / "stdout.txt").write_text(out)
         self.lines = out.splitlines()
         self.names = [m.group(1) for m in checklib.MARK.finditer(keys)]
-        self.at = self._marks(False)
-        self._fixed = None
+        self.at = self._marks()
 
     def _prefix(self, name):
         m = next(m for m in checklib.MARK.finditer(self.keys) if m.group(1) == name)
         return checklib.port_keys(self.keys[:m.start()])
 
-    def _marks(self, fixed):
-        out = self.work / ("fixed" if fixed else "port")
+    def _marks(self):
+        out = self.work / "port"
 
         def one(name):
             _, _, shots = cokbox.eclplay(self._prefix(name), out / name, shots=True,
-                                         binary=player(fixed), **self.kw)
+                                         binary=player(), **self.kw)
             return name, Mark(shots)
 
         with concurrent.futures.ThreadPoolExecutor(4) as pool:
             return dict(pool.map(one, self.names))
 
-    def fixed(self, name):
-        """The port with the known fixes at mark NAME."""
-        if self._fixed is None:
-            self._fixed = self._marks(True)
-        return self._fixed[name]
+    def frame(self, name):
+        return self.at[name].screen
 
-    def frame(self, name, fixed=False):
-        return (self.fixed(name) if fixed else self.at[name]).screen
+    def state(self, name):
+        return self.at[name].state
 
-    def state(self, name, fixed=False):
-        return (self.fixed(name) if fixed else self.at[name]).state
-
-    def sequence(self, start, end, fixed=False, speed=None):
+    def sequence(self, start, end, speed=None):
         """The port's frames from its key read at mark START to the one at mark
         END, with a frame at each of the game's delays and map shows between:
         [(shot name, Screen)]. SPEED: the game's speed from START's read to
         END's (as a check pokes the original's)."""
-        first = len(reads((self.fixed(start) if fixed else self.at[start]).shots))
+        first = len(reads(self.at[start].shots))
         if not first:
             return []
         with _ENV:
             os.environ["COK_D_SPEED"] = f"{speed}:{first}" if speed is not None else ""
             try:
                 _, _, shots = cokbox.eclplay(
-                    self._prefix(end), self.work / f"pauses-{start}-{end}"
-                    f"{'-fixed' if fixed else ''}", shots=True,
-                    binary=player(fixed, pauses=True), **self.kw)
+                    self._prefix(end), self.work / f"pauses-{start}-{end}", shots=True,
+                    binary=player(pauses=True), **self.kw)
             finally:
                 del os.environ["COK_D_SPEED"]
         at, last = reads(shots), mark_read(shots)
@@ -434,41 +423,16 @@ _ENV = threading.Lock()
 
 # --------------------------------------------------- judging what is compared
 
-def screen(v, what, shown, port, name, work, masks=(), known=None):
+def screen(v, what, shown, port, name, work, masks=()):
     """The original's screen SHOWN at mark NAME against the port's there
-    (PORT a Port), and the fixed port's for a difference. KNOWN: the tag of
-    the difference the script's route has (resume, for a route through the
-    first block's vectors); without it, the tag is by where it lies
-    (Verdict.screen). Pixels only in the full stop's cell are fullstop."""
-    if known is None:
-        return v.screen(what, shown, port.frame(name), fixed=lambda: port.frame(name, True),
-                        masks=masks, work=work)
-    mine = port.frame(name)
-    count, box = checklib.masked_diff(shown, mine, masks) if mine else (None, None)
-    if count == 0:
-        v.ok(what, "0 pixels differ")
-        return 0
-    if mine is not None:
-        shown.save_png(pathlib.Path(work) / f"diff-{checklib.slug(what)}.png", highlight=mine)
-    fixed = port.frame(name, True)
-    detail = f"{count} pixels in {box}" if mine else "the port has no screen there"
-    if fixed is not None and checklib.masked_diff(shown, fixed, masks)[0] == 0:
-        cell = checklib.FULLSTOP_CELL
-        only_stop = box is not None and checklib._inside(box[0], box[1], cell) and \
-            checklib._inside(box[2], box[3], cell)
-        v.differ(what, detail + ", as the fixed port's frame", "fullstop" if only_stop else known)
-    else:
-        v.differ(what, detail + " (not the fixed port's either)")
-    return count
+    (PORT a Port)."""
+    return v.screen(what, shown, port.frame(name), masks=masks, work=work)
 
 
-def value(v, what, original, port, name, fn, known=None):
-    """The original's value against FN(the port's state at mark NAME), and
-    the fixed port's for a difference (tagged KNOWN, by default resume)."""
+def value(v, what, original, port, name, fn):
+    """The original's value against FN(the port's state at mark NAME)."""
     mine = port.state(name)
-    return v.value(what, original, fn(mine) if mine else None,
-                   fixed=lambda: (lambda s: fn(s) if s else None)(port.state(name, True)),
-                   known_tag=known)
+    return v.value(what, original, fn(mine) if mine else None)
 
 
 # The text areas: the side panel (columns 23-38, rows 1-21) and rows 23-24.
@@ -565,12 +529,11 @@ def in_order(screens, frames):
     return out
 
 
-def judge_sequence(v, what, screens, frames, work, prefix, fixed=None, known=None):
+def judge_sequence(v, what, screens, frames, work, prefix):
     """Every screen of a burst matched in order (in_order) with FRAMES. A
     screen matched by none is a difference (saved as PREFIX-unmatched-N.png),
-    known (KNOWN, by default resume) when all match the fixed port's frames
-    (FIXED, a function giving them); except one that a single screenshot
-    caught (.count 1), which is taken for the original caught drawing: it
+    except one that a single screenshot caught (.count 1), which is taken
+    for the original caught drawing: it
     draws the map, the panel and the menus straight to the screen, in
     stages the port, which shows each whole, has no frame of (a view
     recentred row by row, a list cleared before the map comes back); such
@@ -590,11 +553,6 @@ def judge_sequence(v, what, screens, frames, work, prefix, fixed=None, known=Non
         return matched
     detail += "; held and matching none (screen: screenshots): " + \
         ", ".join(f"{i}: {getattr(screens[i], 'count', '?')}" for i in held)
-    if fixed is not None:
-        again = in_order(screens, fixed())
-        if all(again[i] is not None for i in held):
-            v.differ(what, detail + "; all match the fixed port's", known or "resume")
-            return matched
     v.differ(what, detail)
     return matched
 
@@ -637,7 +595,7 @@ def port_view(s):
     return o
 
 
-def compare_state(v, b, port, name, known=None):
+def compare_state(v, b, port, name):
     """The original's memory where it waits after mark NAME against the
     port's state there: the speed, the records (name, hit points, status,
     items, effects), whether a battle is set up, and in one whose turn it
@@ -646,7 +604,7 @@ def compare_state(v, b, port, name, known=None):
     o = original_view(b)
     for key, val in o.items():
         value(v, f"{key} at {name}", val, port, name,
-              lambda s, k=key: port_view(s).get(k), known)
+              lambda s, k=key: port_view(s).get(k))
     return o
 
 
@@ -940,15 +898,14 @@ def with_speed(b, speed, fn):
         b.ds_write(DS_SPEED, bytes([was]))
 
 
-def burst_step(v, b, port, start, end, key, work, prefix, seconds, speed=30, known=None):
+def burst_step(v, b, port, start, end, key, work, prefix, seconds, speed=30):
     """At the original's wait at mark START: the speed made SPEED, KEY (a BIOS
     word) put in and a burst of screenshots taken until the game waits again
     (at most SECONDS); then the speed as it was, and the screen at that wait
     (mark END). The burst's screens are judged in order against the port's
     frames from START to END at the same speed (Port.sequence: some of the
     game's animations run once more for each step of the speed, 6346:228c),
-    the screen at END against the port's there (KNOWN: the route's known
-    difference, as for screen). Returns (the burst's screens, the frames'
+    the screen at END against the port's there. Returns (the burst's screens, the frames'
     names they matched, the screen at END)."""
     def shoot():
         b._last_polls, b._streak = b.hook("polls"), 0
@@ -962,9 +919,8 @@ def burst_step(v, b, port, start, end, key, work, prefix, seconds, speed=30, kno
     frames = port.sequence(start, end, speed=speed)
     port.frames = frames  # for the script's own reading of the port's frames
     matched = judge_sequence(v, f"the screens from {start} to {end}", shots, frames, work,
-                             prefix, fixed=lambda: port.sequence(start, end, True, speed),
-                             known=known)
-    screen(v, f"screen {end}", shown, port, end, work, known=known)
+                             prefix)
+    screen(v, f"screen {end}", shown, port, end, work)
     return shots, matched, shown
 
 
