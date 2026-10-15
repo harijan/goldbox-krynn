@@ -233,9 +233,7 @@ def frames_at(keys, out, binary=None, names=None, fixed=False, **kw):
 
     def one(item):
         name, prefix = item
-        _, _, shots = cokbox.eclplay(port_keys(prefix), out / f"at-{name}", binary=binary,
-                                     shots=True, **kw)
-        return name, (cokbox.Screen.load(shots[-1]) if shots else None)
+        return name, _read_shot(port_keys(prefix), out / f"at-{name}", binary, kw)
 
     with concurrent.futures.ThreadPoolExecutor(4) as pool:
         return dict(pool.map(one, marks))
@@ -245,8 +243,20 @@ def frame_after(keys, out, binary=None, fixed=False, **kw):
     """The port's screen at the key read after all of KEYS."""
     if binary is None:
         binary = stopping_eclplay(fixed)
-    _, _, shots = cokbox.eclplay(port_keys(keys), out, binary=binary, shots=True, **kw)
-    return cokbox.Screen.load(shots[-1]) if shots else None
+    return _read_shot(port_keys(keys), out, binary, kw)
+
+
+def _read_shot(keys, out, binary, kw):
+    """The shot of the last key read (the stopping build says which, as a
+    battle's setup may take one more, `battlefield`'s); else the last."""
+    stdout, _, shots = cokbox.eclplay(keys, out, binary=binary, shots=True, **kw)
+    if not shots:
+        return None
+    reads = re.findall(r"^read-shot: (\d+)$", stdout, re.M)
+    if reads:
+        path = pathlib.Path(out) / "shots" / f"{int(reads[-1]):03d}.bmp"
+        return cokbox.Screen.load(path)
+    return cokbox.Screen.load(shots[-1])
 
 
 # --------------------------------------------------------- builds of the port
@@ -372,10 +382,26 @@ def stop_at_input_end(name, text):
                                                      "            game->input_ended)"))
 
 
+READ_SHOT = '''        snprintf(path, sizeof path, "%s/%03u.bmp", p->shots, p->shot++);
+        if (p->crt != NULL)
+'''
+
+
+def print_read_shot(name, text):
+    """src/eclplay.c: print `read-shot: N` for the shot of each key read
+    (next_key's), which frames_at takes."""
+    if READ_SHOT not in text:
+        raise cokbox.BoxError("src/eclplay.c's next_key changed: update print_read_shot")
+    return text.replace(READ_SHOT, READ_SHOT.replace(
+        "p->shot++);\n", "p->shot++);\n        printf(\"read-shot: %u\\n\", p->shot - 1);\n"))
+
+
 def stopping_eclplay(fixed=False):
     """The port's eclplay (with the known fixes when FIXED) that stops when
-    the keys run out in the adventure: frames_at's default."""
-    return build("eclplay", fixed=fixed, transforms=[("start.c", stop_at_input_end)])
+    the keys run out in the adventure and says which shot is each key
+    read's: frames_at's default."""
+    return build("eclplay", fixed=fixed, transforms=[("start.c", stop_at_input_end),
+                                                     ("eclplay.c", print_read_shot)])
 
 
 def eclplay_with_pauses(fixed=False):
