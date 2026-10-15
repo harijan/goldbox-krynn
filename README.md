@@ -134,6 +134,7 @@ timed menu runs out or the small picture's next frame is due.
 | `--seed N` | start Turbo Pascal's `Random` from N; by default the clock seeds it, as startup's `Randomize` (`1a46:1200` from `3e99:005b`) does |
 | `--woof`, `--helm` | start as `START Woof` (no title, and the debug keys Ctrl-D, Ctrl-Z and Ctrl-C: see Debug mode) or with `Helm` (`Area` anywhere, the Gods' cheat Alt-X, free training) |
 | `--log` | print the game's text, menus, choices, sounds and what is not ported to standard error, as `eclplay` prints them; the window's size and where the screen is shown in it; keys typed ahead that a flush drops (`flush:`); startup's text screen, a row at a time (`crt:`); the display mode (`display:`); the alternate input found (`input:`); the audio driver and the sound device (`sound:`); and a check that the window keeps up: `stale:` if, through the game's delays, the window kept an older screen than the game's for more than 160 ms |
+| `--log-times` | with `--log`, start each line with SDL's clock (`SDL_GetTicks64`, the milliseconds the delays and waits go by), and log each frame the window presents (`present: N`, numbered as SDL's dummy driver numbers the frames it saves with `SDL_VIDEO_DUMMY_SAVE_FRAMES`) and each frame of the small picture's animation as it is drawn (`frame: N`, 0-based): what `tests/test_cok.py` measures the pacing by in real time |
 | `--keys KEYS` | type KEYS first, in `eclplay`'s escapes (see Playing scripts), each turned into the key that gives it and sent through SDL's key events as the game asks for a key (`\k` as it polls, `\t` the timed menu running out, `\[KEYS\]` typed ahead and `\wN.` as in Playing scripts; besides, `\pN.` pauses N hundredths of a second before the next key is typed as the game reads it, and `\#85` and `\#86`, codes the game never gets, press F11 and F12; `\mX,Y,B.` and `\jX,Y,B.` click the mouse and move the stick through SDL's events, see The mouse and the joystick; a key repeated in a group typed ahead is held, its repeats sent as a held key's are; each a real keystroke, so that a flush after its 0 is read loses its scan code, which `eclplay` keeps for keys not typed ahead); the run then ends as `eclplay`'s does, printing `(out of keys ...)`, unless `--continue` hands over to the keyboard |
 | `--no-delay` | do not wait where the game waits (for tests); a rest keeps the front end's pace (see below); the sound then goes by the game's clock (see Sound) |
 | `--display ega`, `--display tandy`, `--display cga` | the display mode in place of the one `KRYNN.CFG` names (its first line: `E`, `T`, anything else CGA, see Display modes): EGA and the Tandy's look the same; CGA shows four colours |
@@ -302,9 +303,10 @@ first fight, that the window never kept an old screen (`--log`'s check) nor
 showed more than about 60 frames a second; and the sound through SDL's disk
 writer: by the game's clock (`--no-delay`) the same samples as `eclplay
 --wav` for the same keys and seed, after the silence the device starts
-with; in real time the title's music playing on through the title's wait, a
-step's sound playing out while the game waits for a key, and without a
-device, with `--no-sound` or without `SOUND.DAX` the game playing on,
+with; in real time the title's music playing on through the title's wait,
+and two steps' sounds each playing out whole while the game waits for a
+key, and without a device, with `--no-sound` or without `SOUND.DAX` the
+game playing on,
 saying why; a copy of the assets whose `KRYNN.CFG` says `P` playing the
 speaker; and, with a copy of the assets without `KRYNN.CFG`, the setup's
 text screens at 640×200 frame for frame as `eclplay` draws them, the file
@@ -313,6 +315,45 @@ keys that end in the setup (the game then with the mouse the setup chose,
 as `eclplay --mouse` plays it); that the window shows startup's note to
 Tandy users before the title, and the music in real time after it; and the
 mouse's clicks and the joystick (see The mouse and the joystick).
+
+The checks in real time hold on a busy machine (the tests run while
+other builds and tests load every core) and still fail on a change to the
+pacing they check. They time the game by SDL's clock as `cok --log
+--log-times` logs it (its lines, the frames it presents and the picture's
+frames as it draws them), not by the test's clock, which is late by however
+long the test takes to read the lines, nor by when the frames' files were
+written. A pace must never be shorter than the original's, since every
+wait is measured on that clock; it may be longer by the machine's lateness
+in waking, which is bounded only where the port itself could be too slow,
+and then in the least late of the frames or steps that repeat: the
+picture's frames each under 20 ms over their delays in one of three rounds
+and presented within 16 ms of being drawn, the rest's count shown under
+56 ms apart (five steps of 10 ms) at least once, the note to Tandy users
+under 2.5 seconds, the menu's timeout under 10.5 seconds after it opens and
+the arrow's redraw under 5.5; and in the demonstration's busiest second
+from 55 to 66 frames presented (63 here, idle or busy). Waits for something
+to happen are bounded by the wall clock only to end a failing run. SDL's
+dummy driver writes each frame inside the present, so the tests have it
+write them in `/dev/shm` where there is one with 32 MB free (else the temp
+folder): on a disk slow to write (here a FUSE overlay, starved of CPU on a
+busy machine) a frame took seconds, and the game was late by that. The
+driver leaves a frame short without a word when its disk is full, which
+the tests report as such (its size against its header's). Their temp
+folders are named `test_cok-*`. The sound's checks count the device's
+samples, which SDL's disk writer produces at its own thread's pace, slower
+on a busy machine (0.8 seconds of them in 3 once): the music is checked
+over 2.5 seconds of them, and the steps' sounds, each after a pause, once
+0.4 seconds of them follow the second step's `overland:` line, however
+long they take to come; the pause between the two sounds only for being
+several times a sound's length. Halving or doubling the picture's delays
+or the rest's step, each of its frames 40 ms longer, steps of 12 ms,
+presenting a frame 100 ms late, every delay twice its time, timing the
+menu out at 5, 15 (again from the arrow) or 20 seconds, presenting up to
+120 or only 30 frames a second, not presenting in a delay's loop,
+presenting again at each wake, the note to Tandy users for 1 second, the
+device silent through a delay or a key's wait, or a delay not seeing the
+window close: each fails its test.
+
 `tests/test_hooks.c` checks each flush, which menus animate, the sound
 driver's calls, and `Loading...Please Wait` and `PIC not found` against
 what the original's loaders did in an 8086 emulator
