@@ -6120,7 +6120,11 @@ The end of combat (`351b:1968`), as `cok_treasure_end_of_combat`:
    `0x7ec7` is 0x80, the frame is cleared, "The monsters rejoice for the
    party has been destroyed" printed in cells 2-37 from row 5, cleared
    first (`351b:1aab`), and "Press any key to continue" shown in light
-   magenta on row 24 until a key, and the run ends.
+   magenta on row 24 until a key, and the run ends. The original types that
+   text a letter at a time, the speed's delay between letters (about 45 ms
+   at speed 15; in DOSBox-X, `d_bozak.py`); the port prints it at once
+   (`src/treasure.c`, `cok_adventure_print` with no character hook): a
+   port difference, the screens after it the same.
 5. Vars `0x7f70`-`0x7f72`, `0x7ee3`, `0x7ee6` and `0x4cf5` are cleared.
 
 The original's path for a duel (`DS:883e`), which is never set in this
@@ -7417,7 +7421,10 @@ original's behaviour is recorded, its section says what it does):
   `d_gate.py`.
 - #89 Arrows counted down by the shots (a short bow: no long bow in the
   saved games; the rest below): `d_arrows.py`.
-- #90 A bozak explodes beside two characters, 1-6 each: `d_bozak.py`.
+- #90 A bozak explodes beside two characters, 1-6 each; that route ends
+  with the party destroyed, whose text the original types a letter at a
+  time where the port prints it at once: the PORT DIFFERS there (see
+  Treasure and the end of combat): `d_bozak.py`.
 - #91 A baaz's killer loses his sword and has it back after:
   `d_weapon.py`.
 - #92 A step away draws one attack `(from behind)`: `d_move.py`.
