@@ -14,18 +14,14 @@ Duerghast), saved after its first page, then patched: the square 0, 13
 (square byte 0x9e, type 30: "A DEATH KNIGHT TURNS FROM HIS TASK OF RAISING
 THE DEAD ... SIR LEBAUM", 9a07), every character's hit points and most 250
 (+0x197, +0x62) so that the battle lasts, and KAL a cleric of level 7
-(+0xf9). The port meets him at Begin (its first-block vectors), the
-original after Look. Two pages, then Alt-Q: the computer plays every turn,
+(+0xf9). Both meet him after Look (Begin Adventuring runs only the
+first block's load vector, d_firstblock.py). Two pages, then Alt-Q: the computer plays every turn,
 seed 7: 3 minotaurs, Sir Lebaum and 4 ghasts, the ghasts finding no place.
 Compared: the screens and the memory (d_lib.compare_state: the party's
 hit points and effects among it) after the pages and where the keys end
 (SIRRION's menu) against the port's; Sir Lebaum's kind (+0xda) and KAL's
 turning attempts (combat record +0x11) against the port's; and KAL's
 attempts sampled through the battle (the port's log has no turning).
-Both are given the same keys: the port as it is meets him at Begin
-Adventuring, before Look (the first block's vectors, d_firstblock.py), so
-it differs from the original there and after; the port with the known
-fixes does not, and the original against it decides (known: resume).
 """
 import argparse
 import sys
@@ -67,12 +63,11 @@ def main():
     with d_lib.box(work, args.seed, verbose=args.verbose, saves=[saves]) as b:
         for name, keys in STEPS[:2]:
             shown = d_lib.step(b, keys, name, work)
-            d_lib.screen(v, f"screen {name}", shown, port, name, work, known="resume")
-            d_lib.compare_state(v, b, port, name, known="resume")
+            d_lib.screen(v, f"screen {name}", shown, port, name, work)
+            d_lib.compare_state(v, b, port, name)
         cs = d_lib.combatants(b)
         d_lib.value(v, "Sir Lebaum's kind and KAL's turning attempts at the first menu",
-                    lebaum(cs), port, "turn", lambda s: lebaum(d_lib.port_combatants(s)),
-                    "resume")
+                    lebaum(cs), port, "turn", lambda s: lebaum(d_lib.port_combatants(s)))
         kal = d_lib.by_name(cs, "KAL")[0]["rec"]
 
         def sample():
@@ -85,11 +80,11 @@ def main():
         b._until(lambda: sample() or b.waiting(), 900, "the battle on Auto", 0.05)
         b.wait_input(settle=1.0)
         shown = b.screenshot(work / "end.png")
-        d_lib.screen(v, "screen end", shown, port, "end", work, known="resume")
-        o = d_lib.compare_state(v, b, port, "end", known="resume")
+        d_lib.screen(v, "screen end", shown, port, "end", work)
+        o = d_lib.compare_state(v, b, port, "end")
         cs = d_lib.combatants(b)
         d_lib.value(v, "Sir Lebaum's kind and KAL's turning attempts at the end", lebaum(cs),
-                    port, "end", lambda s: lebaum(d_lib.port_combatants(s)), "resume")
+                    port, "end", lambda s: lebaum(d_lib.port_combatants(s)))
     lines = [line for line in port.lines if not line.startswith("sound:")]
     k = lines.index("print: is affected") if "print: is affected" in lines else None
     dispel = lines[k - 1:k + 1] if k else []

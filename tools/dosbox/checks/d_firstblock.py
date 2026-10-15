@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Not a numbered check (found while setting up #90): which of the first
-block's vectors run at Begin Adventuring.
+"""Not a numbered check (found while setting up #90, a port difference since
+fixed): which of the first block's vectors run at Begin Adventuring.
 
 The original's adventure loop (2fd3:3c28) runs only the first block's load
 vector (DS:4b41, the call at 3cc7) before its first command; the after-move
-and location vectors (DS:4b39, 4b3b) run after a command. The port's
-enter_block (src/adventure.c) runs all three for the first block.
+and location vectors (DS:4b39, 4b3b) run after a command. So does the port
+(src/adventure.c cok_adventure_enter).
 
 The port writes game I: game A in ECL1 block 16 (the overland map) at 8, 12
 with var 0x4c06 (steps in the wild) 8, camped and saved there (the block's
@@ -13,10 +13,9 @@ entry counts one: 9 is saved). Both load I, seed 10, Begin Adventuring, then
 step east. In the original the ECL variables are found in memory (the
 saved game's block of 0x4b00-0x4eff) and read with RandSeed: at the map,
 and after the step; against the port's at the same points, and the screens
-too. The port as it is differs (an extra step counted, a RANDOM drawn: the
-step meets hostile creatures); the port with the known fixes runs only the
-load vector, and the original against it decides (known: resume). eclplay
---trace shows which vectors and RANDOMs run.
+too (had the port run the other vectors, a step would be counted and a
+RANDOM drawn: the step meets hostile creatures). eclplay --trace shows
+which vectors and RANDOMs run.
 """
 import argparse
 import re
@@ -66,10 +65,10 @@ def main():
                     raise checklib.cokbox.BoxError("the saved game's variables not found")
             seen[name] = (b.ds_dword(checklib.cokbox.RANDSEED),
                           steps_counted(mem[base:base + 0x800]))
-            d_lib.screen(v, f"screen {name}", shown, port, name, work, known="resume")
+            d_lib.screen(v, f"screen {name}", shown, port, name, work)
             d_lib.value(v, f"RandSeed and 0x4c06 (steps counted) at {name}", seen[name], port,
-                        name, lambda s: (s["seed"], steps_counted(s["vars"])), "resume")
-            d_lib.compare_state(v, b, port, name, known="resume")
+                        name, lambda s: (s["seed"], steps_counted(s["vars"])))
+            d_lib.compare_state(v, b, port, name)
     print(f"original: RandSeed and 0x4c06 at the map {seen['map']}, after the step "
           f"{seen['step']}")
     v.check(seen["map"] == (10, 9) and seen["step"][1] == 10,

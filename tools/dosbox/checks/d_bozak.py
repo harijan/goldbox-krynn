@@ -11,8 +11,7 @@ DISCOVERED SOME HOSTILE CREATURES.", 3 giant spiders and 2 bozaks. Alt-Q at
 the first turn, the computer plays the battle to its end (the party is
 destroyed: "The monsters rejoice ..." and "Press any key to continue"). A
 bozak drops beside SIRRION and MOLLY: "explodes.", and SIRRION, two
-spiders and MOLLY take 1d6 each. (A save on the overland map would not do:
-see d_firstblock.py.) The original runs at speed 15 (DS:4b38 poked, the
+spiders and MOLLY take 1d6 each. The original runs at speed 15 (DS:4b38 poked, the
 port's too) while screenshots are taken to the battle's end: they are
 judged in order against the port's frames (d_lib.burst_step), the panel
 read for "EXPLODES." and the damages that follow (against eclplay's log),
