@@ -16,7 +16,6 @@ compared.
 """
 import argparse
 import shutil
-import struct
 import sys
 
 import a_common as A

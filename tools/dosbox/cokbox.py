@@ -392,6 +392,10 @@ class Box:
     first picture), after startup's Randomize. wav: a path to record the
     sound to (F12+W), from start to close.
     timeout: seconds before the run is killed, whatever it is doing.
+    pre_commands: DOS commands the autoexec runs in C:\\COK before START.EXE
+    (e.g. "ATTRIB +H KRYNN.CFG"); files: {name: bytes} written into C:\\COK.
+    mapper: a mapper file's text (e.g. `jaxis_0_0- "key 4"` binds the A key's
+    SDL scancode to stick 0 left), used instead of the default mappings.
     workdir: where the C: drive, captures and logs go (default: a temporary
     directory, removed on close unless keep).
     """
@@ -399,7 +403,8 @@ class Box:
     def __init__(self, workdir=None, assets=None, machine="tandy", display=None, sound="S",
                  input="N", cfg=None, saves=(), args="", cycles="fixed 20000", turbo=False,
                  hook_pad=0, memsize=None, wav=None, timeout=600, extra_conf=None,
-                 exit_after=True, seed=None, want_psp=None, keep=False, verbose=False):
+                 exit_after=True, seed=None, want_psp=None, keep=False, verbose=False,
+                 pre_commands=(), files=None, mapper=None):
         self.assets = pathlib.Path(assets or ROOT / "Assets")
         if machine not in MACHINES:
             raise BoxError(f"machine {machine}: one of {', '.join(MACHINES)}")
@@ -410,6 +415,9 @@ class Box:
         self.hook_pad, self.memsize, self.wav = hook_pad, memsize, wav
         self.timeout, self.extra_conf, self.exit_after = timeout, extra_conf or {}, exit_after
         self.verbose, self.seed, self.want_psp = verbose, seed, want_psp
+        self.pre_commands = list(pre_commands)
+        self.files = dict(files or {})
+        self.mapper = mapper
         self._own_workdir = workdir is None and not keep
         self.workdir = pathlib.Path(workdir).resolve() if workdir else None
         self.xvfb = self.dosbox = None
@@ -447,6 +455,8 @@ class Box:
             shutil.rmtree(self.game)
         (self.game / "SAVE").mkdir(parents=True)
         self.captures.mkdir(exist_ok=True)
+        for old in self.captures.glob("*.png"):  # DOSBox-X numbers them up to 999 only
+            old.unlink()
         for f in self.assets.iterdir():
             if f.is_file() and f.name.upper() != "KRYNN.CFG":
                 shutil.copyfile(f, self.game / f.name.upper())
@@ -459,6 +469,8 @@ class Box:
                 if f.is_file():
                     shutil.copyfile(f, self.game / "SAVE" / f.name.upper())
         (self.cdrive / "HOOK.COM").write_bytes(HOOK_COM)
+        for name, data in self.files.items():
+            (self.game / name).write_bytes(data)
         conf = {
             "sdl": {"output": "surface", "autolock": "false", "showmenu": "false",
                     "mapperfile": str(self.workdir / "mapper.map")},
@@ -480,9 +492,13 @@ class Box:
                        for s, props in conf.items())
         pad = f" {self.hook_pad:x}" if self.hook_pad else ""
         text += ("[autoexec]\n" + f"mount c \"{self.cdrive}\"\n" + "c:\n" +
-                 f"HOOK.COM{pad}\n" + "cd \\COK\n" + f"START.EXE {self.args}".rstrip() + "\n" +
+                 f"HOOK.COM{pad}\n" + "cd \\COK\n" +
+                 "".join(c + "\n" for c in self.pre_commands) +
+                 f"START.EXE {self.args}".rstrip() + "\n" +
                  ("exit\n" if self.exit_after else ""))
         (self.workdir / "dosbox.conf").write_text(text)
+        if self.mapper is not None:
+            (self.workdir / "mapper.map").write_text(self.mapper)
 
     def start(self):
         """Start Xvfb and DOSBox-X, and wait for the hook (and, with want_psp,
@@ -515,7 +531,8 @@ class Box:
         env.pop("WAYLAND_DISPLAY", None)
         self._log_file = open(self.workdir / "dosbox.log", "wb")
         self.dosbox = subprocess.Popen(
-            ["dosbox-x", "-defaultmapper", "-nopromptfolder", "-fastlaunch", "-nomenu",
+            ["dosbox-x", *([] if self.mapper is not None else ["-defaultmapper"]),
+             "-nopromptfolder", "-fastlaunch", "-nomenu",
              "-conf", str(self.workdir / "dosbox.conf"), "-time-limit", str(int(self.timeout))],
             cwd=self.workdir, env=env, stdin=subprocess.DEVNULL, stdout=self._log_file,
             stderr=subprocess.STDOUT, start_new_session=True)
@@ -537,14 +554,20 @@ class Box:
         if wanted:
             lo, _, hi = wanted.partition("-")
             for n in range(int(lo), int(hi or lo) + 1):
-                if os.path.exists(f"/tmp/.X{n}-lock") or os.path.exists(f"/tmp/.X11-unix/X{n}"):
+                if _display_taken(n):
                     continue
                 self.xvfb = subprocess.Popen(
                     ["Xvfb", f":{n}", *args], stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL, start_new_session=True)
                 end = time.monotonic() + 20
                 while self.xvfb.poll() is None and time.monotonic() < end:
-                    if os.path.exists(f"/tmp/.X11-unix/X{n}"):
+                    # Ours once its lock file names it (another run may have
+                    # taken the number at the same moment).
+                    try:
+                        owner = int(pathlib.Path(f"/tmp/.X{n}-lock").read_text().strip())
+                    except (OSError, ValueError):
+                        owner = None
+                    if owner == self.xvfb.pid and os.path.exists(f"/tmp/.X11-unix/X{n}"):
                         return f":{n}"
                     time.sleep(0.05)
                 if self.xvfb.poll() is None:
@@ -741,33 +764,42 @@ class Box:
         """The host address of the 80-column text screen, found by HINT (a
         string shown at ROW, COL; the attribute bytes between its characters
         may be anything): DOSBox-X keeps video memory outside the guest's RAM
-        block, so B800:0000 is not readable through read(). None if not found."""
-        pattern = b"".join(re.escape(bytes([ord(c)])) + b"." for c in hint)
+        block, so B800:0000 is not readable through read(). None if not found.
+        A CGA's or Tandy's memory holds character and attribute in turn;
+        DOSBox-X keeps an svga_s3's spread out, character and attribute then six
+        bytes more (planes), which text_rows then reads (self.text_stride, 2, 4
+        or 8)."""
         pid = self.dosbox.pid
-        for line in pathlib.Path(f"/proc/{pid}/maps").read_text().splitlines():
-            fields = line.split()
-            lo, hi = (int(v, 16) for v in fields[0].split("-"))
-            if not fields[1].startswith("rw") or hi - lo > 1 << 30 or \
-                    len(fields) > 5 and fields[5].startswith("/"):
-                continue
-            try:
-                self._mem.seek(lo)
-                data = self._mem.read(hi - lo)
-            except OSError:
-                continue
-            for m in re.finditer(pattern, data, re.DOTALL):
-                start = lo + m.start() - (row * 80 + col) * 2
-                if start >= lo and (start - self.base) % 2 == 0:
-                    return start
+        for stride in (2, 4, 8):
+            pattern = b"".join(re.escape(bytes([ord(c)])) + b"." * (stride - 1) for c in hint)
+            for line in pathlib.Path(f"/proc/{pid}/maps").read_text().splitlines():
+                fields = line.split()
+                lo, hi = (int(v, 16) for v in fields[0].split("-"))
+                if not fields[1].startswith("rw") or hi - lo > 1 << 30 or \
+                        len(fields) > 5 and fields[5].startswith("/"):
+                    continue
+                try:
+                    self._mem.seek(lo)
+                    data = self._mem.read(hi - lo)
+                except OSError:
+                    continue
+                for m in re.finditer(pattern, data, re.DOTALL):
+                    start = lo + m.start() - (row * 80 + col) * stride
+                    if start >= lo and (start - self.base) % 2 == 0:
+                        self.text_stride = stride
+                        return start
         return None
+
+    text_stride = 2
 
     def text_rows(self, address):
         """The 25 rows of the 80-column text screen at host ADDRESS (from
         find_text): (characters, attributes) each."""
+        k = self.text_stride
         self._mem.seek(address)
-        raw = self._mem.read(4000)
-        return [(raw[r * 160:(r + 1) * 160:2].decode("cp437"), raw[r * 160 + 1:(r + 1) * 160:2])
-                for r in range(25)]
+        raw = self._mem.read(2000 * k)
+        return [(raw[r * 80 * k:(r + 1) * 80 * k:k].decode("cp437"),
+                 raw[r * 80 * k + 1:(r + 1) * 80 * k:k]) for r in range(25)]
 
     def set_seed(self, seed):
         """Set Turbo Pascal's RandSeed (DS:43ae)."""
@@ -907,7 +939,23 @@ class Box:
             word = key_word(word)
         self.wait_input(reads_only, seconds)
         self.push_key(word)
-        self._until(lambda: not self.buffer(), seconds, "the game to take the key", 0.01)
+        try:
+            self._until(lambda: not self.buffer(), seconds, "the game to take the key", 0.01)
+        except (OSError, BoxError):
+            # A key that quits to DOS: DOSBox-X may be gone (its memory with
+            # it) before the buffer is seen empty.
+            if self.dosbox is not None and (self.dosbox.poll() is not None or
+                                            self._exiting()):
+                return
+            raise
+
+    def _exiting(self):
+        """DOSBox-X ends within a few seconds (after the game quit to DOS)."""
+        try:
+            self.dosbox.wait(5)
+            return True
+        except subprocess.TimeoutExpired:
+            return False
 
     def keys(self, text, seconds=120, shots=None):
         """Type eclplay-style KEYS (see parse_keys) one at a time as the game
@@ -956,7 +1004,9 @@ class Box:
         if path:
             pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(png, path)
-        return Screen.load(png, size)
+        screen = Screen.load(png, size)
+        png.unlink()  # DOSBox-X stops at start_999.png: keep the directory empty
+        return screen
 
     def record_sound(self):
         """Start or stop DOSBox-X's WAV recording (F12+W)."""
@@ -968,6 +1018,22 @@ class Box:
         while self.running and time.monotonic() < end:
             time.sleep(0.1)
         return not self.running
+
+
+def _display_taken(n):
+    """Whether X display N is in use: its lock file names a live process (Xvfb
+    replaces a stale one itself)."""
+    try:
+        pid = int(pathlib.Path(f"/tmp/.X{n}-lock").read_text().strip())
+    except (OSError, ValueError):
+        return os.path.exists(f"/tmp/.X{n}-lock")
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass
+    return True
 
 
 def _complete_png(path):
