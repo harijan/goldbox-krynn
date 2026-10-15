@@ -7336,9 +7336,11 @@ loaded host DOSBox-X wrote ten times fewer screenshots and they missed
 the text), and prints one line per script: the checks it covers, its
 verdict, and whether that is the verdict recorded (agrees, or new for a
 port difference found and not yet fixed), an ERROR
-for anything else. On its timeout it kills the script's process group
-and the Xvfb and DOSBox-X it started (their pids recorded in
-`COKBOX_PIDFILE`). A full run of the 82 scripts takes about 41 minutes on
+for anything else. On a script's timeout, or when run_all itself gets
+SIGTERM, SIGINT or SIGHUP, it kills the running scripts' process groups
+and the Xvfb and DOSBox-X they started (their pids recorded in
+`COKBOX_PIDFILE`). `run_all.py --self-test` (in `make dosbox-selftest`)
+checks its reading of verdicts and statuses without DOSBox-X. A full run of the 82 scripts takes about 41 minutes on
 a 16-core host with little else running: about 11 for the rest side by
 side, then 30 for the eight alone (`d_bozak.py` 20 of them). With main's
 fixes (the continue prompt's full stop, two-set wall records, a resumed
