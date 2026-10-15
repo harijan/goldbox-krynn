@@ -4,8 +4,8 @@
  * to Tandy users against what the original's 11c7:031a, Crt and System
  * left in an 8086 emulator (tests/test_setup_data.h): the text screen and
  * cursor at each key read and delay, and the file; then the text screen's
- * scrolling, logging and rendering, and the files cok_setup_startup reads
- * and writes. */
+ * scrolling, logging, rendering and font, and the files cok_setup_startup
+ * reads and writes. */
 #include "setup.h"
 
 #include <stdio.h>
@@ -261,28 +261,57 @@ static void test_crt(void)
     CHECK(crt.y == 24 && crt.x == 0 && crt.chars[23][79] == 'z' && crt.chars[24][0] == ' ');
 
     /* Rendering: glyphs in the attribute's colours, the cursor's lines. */
-    cok_font font = {0};
-    uint8_t glyphs[64 * 8] = {0};
-    glyphs[1 * 8 + 0] = 0x81; /* 'A' and 'a': the left and right columns */
-    CHECK(cok_font_load(&font, glyphs, sizeof glyphs) == COK_PICTURE_OK);
     cok_crt_clear(&crt);
     crt.attr = 0x1e;
-    cok_crt_write_string(&crt, "Aa\\");
+    cok_crt_write_string(&crt, "Aa\x7f\xc4");
     static uint8_t pixels[COK_CRT_WIDTH * COK_CRT_HEIGHT / 2];
-    cok_crt_render(&crt, &font, pixels);
-    CHECK(pixels[0] == 0xe1 && pixels[3] == 0x1e && pixels[4] == 0xe1 && pixels[7] == 0x1e);
-    CHECK(pixels[320] == 0x11);              /* row 1 of 'A': background */
-    CHECK(pixels[8] == 0xee && pixels[9] == 0x11); /* the backslash, drawn here: 0xc0 */
-    CHECK(pixels[6 * 320 + 12] == 0x77);     /* the cursor at 3,0, in its cell's 07 */
-    CHECK(pixels[5 * 320 + 12] == 0x00);
-    cok_crt_render(&crt, NULL, pixels);
-    CHECK(pixels[0] == 0x11);
+    cok_crt_render(&crt, pixels);
+    /* A's rows 0 and 4: ...##... and .######., yellow on blue. */
+    CHECK(pixels[0] == 0x11 && pixels[1] == 0x1e && pixels[2] == 0xe1 && pixels[3] == 0x11);
+    CHECK(pixels[4 * 320] == 0x1e && pixels[4 * 320 + 1] == 0xee &&
+          pixels[4 * 320 + 2] == 0xee && pixels[4 * 320 + 3] == 0xe1);
+    /* a, not a capital: row 0 blank, row 3 .....##. */
+    CHECK(pixels[4] == 0x11 && pixels[5] == 0x11 && pixels[6] == 0x11 && pixels[7] == 0x11);
+    CHECK(pixels[3 * 320 + 4] == 0x11 && pixels[3 * 320 + 5] == 0x11 &&
+          pixels[3 * 320 + 6] == 0x1e && pixels[3 * 320 + 7] == 0xe1);
+    /* 7f, Ctrl-Backspace's, the house: its roof's top ...##... on row 1. */
+    CHECK(pixels[8] == 0x11 && pixels[320 + 8] == 0x11 && pixels[320 + 9] == 0x1e);
+    /* c4, a byte past 7f, the box's line: rows 3 and 4 across the cell. */
+    CHECK(pixels[12] == 0x11 && pixels[2 * 320 + 15] == 0x11);
+    CHECK(pixels[3 * 320 + 12] == 0xee && pixels[4 * 320 + 15] == 0xee);
+    CHECK(pixels[6 * 320 + 16] == 0x77);     /* the cursor at 4,0, in its cell's 07 */
+    CHECK(pixels[5 * 320 + 16] == 0x00);
     /* Bit 7, blinking, which TextAttr never has, is not a bright
      * background. */
     crt.attrs[0][0] = 0x9e;
-    cok_crt_render(&crt, &font, pixels);
-    CHECK(pixels[0] == 0xe1 && pixels[320] == 0x11);
-    cok_font_free(&font);
+    cok_crt_render(&crt, pixels);
+    CHECK(pixels[0] == 0x11 && pixels[1] == 0x1e && pixels[320] == 0x11);
+}
+
+/* The text screen's font: unscii's 8x8 for code page 437 as
+ * tools/pcfont.py prints it, every character its own but the blanks. */
+static void test_font(void)
+{
+    uint8_t all[256 * 8];
+    for (int c = 0; c < 256; ++c) memcpy(all + c * 8, cok_crt_glyph((uint8_t)c), 8);
+    CHECK(fnv(all, sizeof all) == 0x55b2ed49u);
+    static const uint8_t A[8] = {0x18, 0x3c, 0x66, 0x66, 0x7e, 0x66, 0x66, 0x00};
+    static const uint8_t a[8] = {0x00, 0x00, 0x3c, 0x06, 0x3e, 0x66, 0x3e, 0x00};
+    static const uint8_t house[8] = {0x00, 0x18, 0x3c, 0x66, 0x66, 0x66, 0x7e, 0x00};
+    CHECK(memcmp(cok_crt_glyph('A'), A, 8) == 0 && memcmp(cok_crt_glyph('a'), a, 8) == 0);
+    CHECK(memcmp(cok_crt_glyph(0x7f), house, 8) == 0);
+    static const uint8_t blank[8] = {0};
+    for (int c = 0; c < 256; ++c) {
+        bool empty = c == 0 || c == ' ' || c == 0xff;
+        CHECK((memcmp(cok_crt_glyph((uint8_t)c), blank, 8) == 0) == empty);
+        for (int d = 0; d < c && !empty; ++d)
+            CHECK(memcmp(cok_crt_glyph((uint8_t)c), cok_crt_glyph((uint8_t)d), 8) != 0);
+    }
+    /* Box drawing reaches the cell's edges: c4's two rows across it, b3's
+     * column down it; db is the whole cell. */
+    const uint8_t *h = cok_crt_glyph(0xc4), *v = cok_crt_glyph(0xb3), *full = cok_crt_glyph(0xdb);
+    CHECK(h[3] == 0xff && h[4] == 0xff && h[0] == 0 && h[7] == 0);
+    for (int row = 0; row < 8; ++row) CHECK(v[row] == 0x18 && full[row] == 0xff);
 }
 
 /* A second ReadLn: Ctrl-F recalls the first line's characters the buffer
@@ -347,13 +376,13 @@ static void test_timeouts_and_limits(void)
     CHECK(cok_crt_read_line(&crt, &keyboard, line, 199));
     CHECK(strlen(line) == 126 && crt.line_end == 128 && crt.y == 2);
     CHECK(crt.chars[1][45] == 'a' + 125 % 26 && crt.chars[1][46] == ' ');
-    /* The | the port draws. */
+    /* The |, unbroken, light grey on black. */
     cok_crt_init(&crt);
     cok_crt_write_string(&crt, "|");
     static uint8_t pixels[COK_CRT_WIDTH * COK_CRT_HEIGHT / 2];
-    cok_crt_render(&crt, NULL, pixels);
+    cok_crt_render(&crt, pixels);
     CHECK(pixels[0] == 0x00 && pixels[1] == 0x07 && pixels[2] == 0x70 && pixels[3] == 0x00);
-    CHECK(pixels[3 * 320 + 1] == 0x00 && pixels[4 * 320 + 1] == 0x07);
+    CHECK(pixels[3 * 320 + 1] == 0x07 && pixels[7 * 320 + 1] == 0x00);
 }
 
 static void test_startup(void)
@@ -550,6 +579,7 @@ int main(void)
     test_parse();
     test_default_path();
     test_crt();
+    test_font();
     test_lines();
     test_timeouts_and_limits();
     test_startup();

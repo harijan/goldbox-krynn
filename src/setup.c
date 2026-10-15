@@ -1,34 +1,9 @@
 #include "setup.h"
 
-#include "dax.h"
-
 #include <errno.h>
-#include <stdlib.h>
 #include <sys/stat.h>
 #include <stdio.h>
 #include <string.h>
-
-bool cok_setup_font(const char *assets, cok_font *font)
-{
-    char path[1100];
-    snprintf(path, sizeof path, "%.1000s/8X8D1.DAX", assets);
-    dax_archive archive = {0};
-    if (dax_open(path, &archive) != DAX_OK) return false;
-    bool loaded = false;
-    for (size_t i = 0; i < archive.count && !loaded; ++i) {
-        dax_record record;
-        if (dax_record_at(&archive, i, &record) != DAX_OK) break;
-        if (record.id != 201) continue;
-        uint8_t *data = malloc(record.decoded_size == 0 ? 1 : record.decoded_size);
-        if (data != NULL &&
-            dax_decode(record.packed, record.packed_size, data, record.decoded_size) == DAX_OK)
-            loaded = cok_font_load(font, data, record.decoded_size) == COK_PICTURE_OK;
-        free(data);
-        break;
-    }
-    dax_close(&archive);
-    return loaded;
-}
 
 /* Concatenate b to a string[max] held in out, as Turbo Pascal's string
  * concatenation (1a46:0b51) and assignment (0ade) cut it. */

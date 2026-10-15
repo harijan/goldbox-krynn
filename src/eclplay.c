@@ -35,10 +35,8 @@ typedef struct {
     const char *wav_path;
     uint64_t ms, frames;
     bool calls; /* --sound-calls */
-    /* The text screen while startup shows it (11c7:031a), or NULL, and the
-     * font it is shown in. */
+    /* The text screen while startup shows it (11c7:031a), or NULL. */
     cok_crt *crt;
-    cok_font crt_font;
     /* The machine's mouse driver and joystick (--mouse, --joystick), which
      * the keys' \m and \j move: the stick's counts and buttons; a click's
      * buttons, which come up once the game has read it (tapped). */
@@ -168,7 +166,7 @@ static void save(player *p, const char *path)
 static void save_crt(player *p, const char *path)
 {
     static uint8_t pixels[COK_CRT_WIDTH * COK_CRT_HEIGHT / 2];
-    cok_crt_render(p->crt, &p->crt_font, pixels);
+    cok_crt_render(p->crt, pixels);
     cok_image image = {.width = COK_CRT_WIDTH, .height = COK_CRT_HEIGHT, .pixels = pixels};
     cok_image_status status = cok_image_bmp(&image, path);
     if (status != COK_IMAGE_OK)
@@ -818,7 +816,6 @@ static int run(int argc, char **argv)
         crt.context = &p;
         cok_crt_init(&crt);
         p.crt = &crt;
-        cok_setup_font(argv[i], &p.crt_font);
         cok_keyboard crt_keys = {next_key, &p, NULL, NULL};
         cok_setup_hooks crt_hooks = {crt_delay, &p, &p.port, &p.ended,
                                      input != NULL && strcmp(input, "joystick") == 0};
@@ -826,7 +823,6 @@ static int run(int argc, char **argv)
         cok_setup_status status = cok_setup_startup(&crt, &crt_keys, &crt_hooks, config_path,
                                                     found, &config, error, sizeof error);
         p.crt = NULL;
-        cok_font_free(&p.crt_font);
         if (status == COK_SETUP_ENDED) {
             printf("(out of keys in the setup)\n");
             return 0;

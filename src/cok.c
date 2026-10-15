@@ -68,9 +68,8 @@ typedef struct {
     SDL_Texture *texture;  /* The screen, 320x200. */
     SDL_Texture *text_texture; /* Startup's text screen, 640x200, while it shows. */
     /* Startup's text screen (11c7:031a) while it shows, in place of the
-     * game's, its font, and its pixels as last rendered. */
+     * game's, and its pixels as last rendered. */
     cok_crt *text;
-    cok_font text_font;
     uint8_t text_pixels[TEXT_BYTES];
     bool text_uploaded;
     SDL_Texture *upscaled; /* It scaled up whole, or NULL without render targets. */
@@ -218,7 +217,7 @@ static int source_height(const frontend *f)
 /* Render the text screen and copy it into its texture if it changed. */
 static bool upload_text(frontend *f)
 {
-    cok_crt_render(f->text, &f->text_font, f->text_pixels);
+    cok_crt_render(f->text, f->text_pixels);
     if (f->text_uploaded && memcmp(f->text_shown, f->text_pixels, TEXT_BYTES) == 0) return false;
     memcpy(f->text_shown, f->text_pixels, TEXT_BYTES);
     cok_image image = {.width = COK_CRT_WIDTH, .height = COK_CRT_HEIGHT,
@@ -367,7 +366,7 @@ static void save_shown(frontend *f, const SDL_Rect *dst, const char *path)
 static bool owed(frontend *f)
 {
     if (f->text != NULL) {
-        cok_crt_render(f->text, &f->text_font, f->text_pixels);
+        cok_crt_render(f->text, f->text_pixels);
         return f->expose || !f->text_uploaded ||
                memcmp(f->text_shown, f->text_pixels, TEXT_BYTES) != 0;
     }
@@ -440,7 +439,7 @@ static void screenshot(frontend *f)
     if (screen_shown(f) != NULL) image.pixels = f->composed; /* the cursor too, as shown */
     if (f->text != NULL) {
         /* Startup's text screen, 640x200. */
-        cok_crt_render(f->text, &f->text_font, f->text_pixels);
+        cok_crt_render(f->text, f->text_pixels);
         image = (cok_image){.width = COK_CRT_WIDTH, .height = COK_CRT_HEIGHT,
                             .pixels = f->text_pixels};
     }
@@ -1270,15 +1269,13 @@ static void text_log(const char *row, void *context)
  * KRYNN.CFG, then the note to Tandy users. Returns 0 to go on, else the
  * exit status, -1 for the run ended in the setup. */
 static int startup(frontend *f, const cok_keyboard *keyboard, const char *path, bool found,
-                   const char *assets, cok_config *config, bool calibrate)
+                   cok_config *config, bool calibrate)
 {
     static cok_crt text;
     text.log = text_log;
     text.context = f;
     cok_crt_init(&text);
     f->text = &text;
-    if (!cok_setup_font(assets, &f->text_font))
-        fprintf(stderr, "%s/8X8D1.DAX: no font for the text screen\n", assets);
     cok_setup_hooks hooks = {text_delay, f, &f->port, &f->ended, calibrate};
     char error[1200];
     cok_setup_status status =
@@ -1303,7 +1300,6 @@ static int startup(frontend *f, const cok_keyboard *keyboard, const char *path, 
         result = 1;
     }
     f->text = NULL;
-    cok_font_free(&f->text_font);
     f->expose = true;
     return result;
 }
@@ -1538,7 +1534,7 @@ int main(int argc, char **argv)
     bool found = cok_config_find(config_option, saves, assets, config_path, config_write,
                                  sizeof config_path);
     cok_config config = {.display = COK_DISPLAY_TANDY, .sound = COK_SOUND_TANDY};
-    int started = startup(&f, &keyboard, config_path, found, assets, &config,
+    int started = startup(&f, &keyboard, config_path, found, &config,
                           input != NULL && strcmp(input, "joystick") == 0);
     if (started != 0) {
         int result = started < 0 ? 0 : started;

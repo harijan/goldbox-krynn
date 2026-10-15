@@ -387,11 +387,21 @@ yet: on a CGA or a Tandy 1000, 80×25 at 640×200 in the ROM's 8×8
 characters, the cursor on scan lines 6 and 7; on an EGA 640×350 in 8×14
 cells; on a VGA 720×400 in 9×16. The port shows the CGA's and the Tandy's:
 640×200 in 8×8 cells, light grey on black, with the cursor's two bottom
-lines; in the game's font (`8X8D1.DAX`), as the port has no PC character
-ROM: in upper case (what is typed shows in capitals; the file keeps it as
-typed), with `$ % @ [ \ ] ^ _` and `` ` { | } ~ ``, which the font lacks,
-drawn by the port, and other bytes as the font's characters modulo 64
-(0x7f, from Ctrl-Backspace, shows as `?`, not the PC's ⌂). `cok` shows it
+lines, as the setup runs before the port knows the display (it is what the
+setup asks) and 8×8 is the mode of the two adapters the game draws its
+four colours on. Its characters are a PC-style 8×8 font of all 256 of code
+page 437, the ROM font's place (the port does not copy IBM's ROM, nor
+font8x8, whose ASCII is IBM's CGA font): unscii 2.1's `unscii-8` by
+viznut (<http://viznut.fi/unscii/>), in the Public Domain ("Everything
+made by me (viznut) is in the Public Domain", its `unscii.txt`), its own
+2-pixel-line design after several 8-bit system fonts; each byte as its
+Unicode meaning, 0x01-0x1f and 0x7f as the PC's pictures (smileys, suits,
+arrows, ⌂). Four that unscii lacks are drawn by the port in its style:
+☼ (0x0f), ⌂ (0x7f, from Ctrl-Backspace), ⌐ (0xa9) and ∙ (0xf9); 0x00,
+0x20 and 0xff are blank. Lower case shows as typed, as do the symbols,
+accented letters, box drawing and blocks. The table is in `src/crt.c`
+(`cok_crt_glyph`); `tools/pcfont.py unscii-8.hex` prints it. The game's
+own font (`8X8D1.DAX`) draws everything after the setup. `cok` shows it
 in the window (F12 saves it, 640×200), `cok --log` and `eclplay` log each
 row as the cursor leaves it (`crt: `), and `eclplay --shots` saves it at
 each key read. The game's directory is taken as `C:\COK\`, where the
@@ -448,7 +458,9 @@ Ctrl-Z with `CheckEOF`, and of `Crt`'s output all but the BIOS path
 `tests/test_setup.c` checks the port's), the bell and CheckSnow's waits. It
 also checks the file's lines read, where the file is found and written, the
 rewrite, the timeout key (`\t`) waiting on, the text screen's cells as it
-scrolls, its rows logged as the setup writes them, and its drawing;
+scrolls, its rows logged as the setup writes them, its drawing, and its
+font (the table's digest, glyphs of its own for every character but the
+blanks, lower case apart from capitals, box drawing to the cell's edges);
 `tests/test_eclplay.py` and `tests/test_cok.py` play the setup from the
 title's start.
 
@@ -7002,7 +7014,7 @@ running in DOSBox:
   `eclplay --start-menu` for the same keys (the emulator modelled the BIOS
   and DOS, not a real machine's): the text colour (the attribute under
   DOS's cursor), the 80-column mode's look against the port's 640×200 in
-  the game's font, Backspace at the start of a wrapped row, and that
+  unscii's 8×8 font, Backspace at the start of a wrapped row, and that
   Ctrl-Break does nothing. Interrupt the setup (close DOSBox at the path)
   and check that an empty `krynn.cfg` is left, which the next start reads
   as CGA with no sound; and that a hidden `krynn.cfg` brings the setup

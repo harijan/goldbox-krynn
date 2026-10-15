@@ -2166,7 +2166,15 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(struct.unpack_from("<ii", first, 18), (640, 200))
         self.assertEqual(pixel(first, 0, 0), (0, 0, 0))
         self.assertIn((170, 170, 170), {pixel(first, x, y) for x in range(8) for y in range(8)})
-        later = [b.read_bytes() for b in bmps if struct.unpack_from("<i", b.read_bytes(), 18)[0] == 320]
+        # The path as typed, in the PC-style font (src/crt.c): its a in
+        # lower case, column 44, not the A of PATH at column 1.
+        text = [b.read_bytes() for b in bmps if struct.unpack_from("<i", b.read_bytes(), 18)[0] == 640]
+        cell = lambda bmp, column: [sum(128 >> x for x in range(8)
+                                        if pixel(bmp, column * 8 + x, y) == (170, 170, 170))
+                                    for y in range(8)]
+        self.assertEqual(cell(text[-1], 44), [0x00, 0x00, 0x3c, 0x06, 0x3e, 0x66, 0x3e, 0x00])
+        self.assertEqual(cell(text[-1], 1), [0x18, 0x3c, 0x66, 0x66, 0x7e, 0x66, 0x66, 0x00])
+        later =[b.read_bytes() for b in bmps if struct.unpack_from("<i", b.read_bytes(), 18)[0] == 320]
         self.assertTrue(later)
         self.assertLessEqual({pixel(later[0], x, y) for x in range(0, 320, 7) for y in range(0, 200, 7)},
                              {(0, 0, 0), (85, 255, 255), (255, 85, 255), (255, 255, 255)})
