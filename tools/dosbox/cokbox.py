@@ -517,9 +517,10 @@ class Box:
         where = ["-displayfd", str(wfd)]
         if spec:
             lo, _, hi = spec.partition("-")
+            # In use: its lock file (a killed Xvfb may leave its socket
+            # behind, which the next one replaces).
             free = [n for n in range(int(lo), int(hi or lo) + 1)
-                    if not os.path.exists(f"/tmp/.X{n}-lock")
-                    and not os.path.exists(f"/tmp/.X11-unix/X{n}")]
+                    if not os.path.exists(f"/tmp/.X{n}-lock")]
             if not free:
                 raise BoxError(f"no free X display in {spec}")
             where = [f":{free[0]}", "-displayfd", str(wfd)]
