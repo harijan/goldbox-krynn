@@ -72,7 +72,7 @@ def main():
             pair.judge(v, mark, what=f"{name}, screen {mark}")
             v.value(f"{name}, {mark}: member {member + 1}'s (name, experience, order, levels)",
                     fields(records[mark][member][0]), fields(probes[mark].members[member][0]))
-        A.judge_files(v, orig, pair.port_files(), A.mask_saved, pair.fixed_files,
+        A.judge_files(v, orig, pair.port_files(), A.mask_saved,
                       what=f"{name}: file")
     print(f"files in {work}")
     return v.finish()

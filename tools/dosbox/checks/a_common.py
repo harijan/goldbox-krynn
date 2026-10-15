@@ -115,9 +115,9 @@ def _log_loading(name, text):
     return text.replace(LOADING, LOADING + '    log_text(game, "aloading", "shown");\n')
 
 
-def probe_eclplay(fixed=False, delays=False):
+def probe_eclplay(delays=False):
     """eclplay with batch A's probes (_probe_reads): its behaviour is the
-    port's (or with FIXED the fixed port's), only its output is more. With
+    port's, only its output is more. With
     DELAYS, a shot at each of the game's delays as well
     (checklib.shot_at_delays), each announced by an `adelay:` line, and at
     each line it logs (_shot_at_logs, _log_loading). Without DELAYS it ends
@@ -130,7 +130,7 @@ def probe_eclplay(fixed=False, delays=False):
         # shot_at_delays first: _delay_index's line then goes before its shot.
         transforms = [("eclplay.c", checklib.shot_at_delays), ("eclplay.c", _delay_index),
                       ("eclplay.c", _shot_at_logs), ("adventure.c", _log_loading)] + transforms
-    return checklib.build("eclplay", fixed=fixed, transforms=transforms)
+    return checklib.build("eclplay", transforms=transforms)
 
 
 class Probe:
@@ -153,9 +153,9 @@ class Probe:
         return self.fields.get(key)
 
 
-def at_marks(keys, out, names=None, fixed=False, **kw):
+def at_marks(keys, out, names=None, **kw):
     """The port at each \\sNAME. of KEYS (or only NAMES), as checklib.frames_at
-    finds it: the probe build (probe_eclplay(FIXED), which ends where the
+    finds it: the probe build (probe_eclplay(), which ends where the
     keys run out, as checklib.stopping_eclplay) run on the keys before the
     mark stops at the key read that follows, where the box's \\sNAME. takes
     its screen and reads the original's memory. The screen is that read's
@@ -164,7 +164,7 @@ def at_marks(keys, out, names=None, fixed=False, **kw):
     keys' end. KW go to cokbox.eclplay. Returns {name: (Screen or None,
     Probe)}."""
     out = pathlib.Path(out)
-    binary = probe_eclplay(fixed=fixed)
+    binary = probe_eclplay()
     marks = [(m.group(1), keys[:m.start()]) for m in checklib.MARK.finditer(keys)
              if names is None or m.group(1) in names]
 
@@ -181,10 +181,9 @@ def at_marks(keys, out, names=None, fixed=False, **kw):
         return dict(pool.map(one, marks))
 
 
-def probes_at(keys, out, names=None, fixed=False, **kw):
+def probes_at(keys, out, names=None, **kw):
     """The probe build's state at each \\sNAME. of KEYS: {name: Probe}."""
-    return {name: probe for name, (_, probe) in
-            at_marks(keys, out, names=names, fixed=fixed, **kw).items()}
+    return {name: probe for name, (_, probe) in at_marks(keys, out, names=names, **kw).items()}
 
 
 # ------------------------------------------------------ records in memory
@@ -214,8 +213,7 @@ def name_of(record):
 class Pair:
     """The same keys in eclplay and in the original (a Box): the port's
     stdout and saves for all the keys, its screen and state at each \\sNAME.
-    of them (at_marks; the fixed port's screen, when one differs), and the
-    box's screens and files."""
+    of them (at_marks), and the box's screens and files."""
 
     def __init__(self, keys, work, seed=None, machine="tandy", saves=(), box_args="",
                  verbose=False, eclplay_args=(), **box_kw):
@@ -227,7 +225,6 @@ class Pair:
             checklib.port_keys(keys), self.work / "eclplay", **self.kw)
         self.at = at_marks(keys, self.work / "port", **self.kw)
         self.port = {name: screen for name, (screen, _) in self.at.items()}
-        self._fixed = None
         self.box = cokbox.Box(workdir=self.work / "box", machine=machine, saves=saves,
                               args=box_args, seed=seed, verbose=verbose, **box_kw)
         shutil.rmtree(self.work / "shots", ignore_errors=True)
@@ -240,13 +237,6 @@ class Pair:
 
     def __exit__(self, *exc):
         self.box.close()
-
-    def fixed(self):
-        """The fixed port's screens at the same marks (built once needed)."""
-        if self._fixed is None:
-            self._fixed = {name: screen for name, (screen, _) in at_marks(
-                self.keys, self.work / "port-fixed", fixed=True, **self.kw).items()}
-        return self._fixed
 
     def probes(self):
         """The port's state at the marks: {name: Probe}."""
@@ -279,12 +269,11 @@ class Pair:
         return cokbox.Screen.load(self.work / "shots" / f"{name}.png")
 
     def judge(self, v, name, masks=(), what=None):
-        """The original's screen NAME against the port's at the same mark
-        (and the fixed port's, for a difference). Returns the pixels
-        differing."""
+        """The original's screen NAME against the port's at the same mark.
+        Returns the pixels differing."""
         screen = self.original(name)
-        count = v.screen(what or f"screen {name}", screen, self.port.get(name),
-                         fixed=lambda: self.fixed().get(name), masks=masks, work=self.work)
+        count = v.screen(what or f"screen {name}", screen, self.port.get(name), masks=masks,
+                         work=self.work)
         if count:
             self.nearest(name, screen)
         return count
@@ -314,24 +303,16 @@ class Pair:
     def port_files(self):
         return files_in(self.port_saves)
 
-    def fixed_files(self):
-        """The saved files of the fixed port for all the keys."""
-        _, saves, _ = cokbox.eclplay(checklib.port_keys(self.keys), self.work / "eclplay-fixed-all",
-                                     binary=checklib.fixed_eclplay(), shots=False, **self.kw)
-        return files_in(saves)
-
 
 def files_in(directory):
     return {p.name: p.read_bytes() for p in pathlib.Path(directory).iterdir() if p.is_file()}
 
 
-def judge_files(v, orig, port, mask=None, fixed=None, what="file"):
+def judge_files(v, orig, port, mask=None, what="file"):
     """Each file of ORIG (the original's) against PORT's, MASK(name, data)
-    zeroing what was written from memory (pointers, the stack); one that
-    differs but equals FIXED's (a function returning {name: bytes}) is the
-    known difference `resume`. Returns the number of files differing."""
+    zeroing what was written from memory (pointers, the stack). Returns the
+    number of files differing."""
     differ = 0
-    fixed_files = None
     for name in sorted(set(orig) | set(port)):
         a, b = orig.get(name), port.get(name)
         if a is None or b is None:
@@ -349,13 +330,6 @@ def judge_files(v, orig, port, mask=None, fixed=None, what="file"):
         detail = (f"{len(offs)} bytes differ (sizes {len(a)}, {len(b)}) at "
                   + " ".join(f"{i:#x}:{a[i] if i < len(a) else '-'}/{b[i] if i < len(b) else '-'}"
                              for i in offs[:16]) + (" ..." if len(offs) > 16 else ""))
-        if fixed is not None:
-            if fixed_files is None:
-                fixed_files = fixed()
-            c = fixed_files.get(name)
-            if c is not None and (mask(name, c) if mask else c) == a:
-                v.differ(f"{what} {name}", detail + ", as the fixed port's", "resume")
-                continue
         v.differ(f"{what} {name}", detail)
     return differ
 
