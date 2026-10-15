@@ -29,8 +29,9 @@ import time
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 
-# (script, the checks it covers, the verdict recorded: "" agrees, or the
-# known differences' tags it shows, e.g. "fullstop, walls"). A known
+# (script, the checks it covers, the verdict recorded: "" agrees, the known
+# differences' tags it shows, e.g. "fullstop, walls", or "new" for a port
+# difference found and recorded in the README but not yet fixed). A known
 # difference is one the branch fixes corrects (tools/dosbox/known-fixes.patch,
 # checklib.KNOWN); once the port has the fixes, those scripts agree and the
 # recorded verdict here becomes "".
@@ -68,19 +69,19 @@ CHECKS = [
     ("b_hammer", "#51", ""),
     ("b_amount", "#52", ""),
     # C: places
-    ("c_throtl", "#27 #53 #93 #94", ""),
+    ("c_throtl", "#27 #53 #93 #94", "walls"),
     ("c_map80", "#94", ""),
-    ("c_pit", "#30 #35 #105", ""),
-    ("c_chest", "#58-62", ""),
-    ("c_rob", "#56", ""),
-    ("c_outpost", "#29 #66 #68-71", ""),
-    ("c_block50", "#67 #72 #103", ""),
-    ("c_wander", "#54 #95", ""),
-    ("c_temple33", "#55 #54", ""),
-    ("c_catacombs", "#96 #97", ""),
-    ("c_overland", "#98-102", ""),
-    ("c_npc", "#104 #106", ""),
-    ("c_ecl3", "#64 #65", ""),
+    ("c_pit", "#30 #35 #105", "fullstop, walls"),
+    ("c_chest", "#58-62", "fullstop, walls"),
+    ("c_rob", "#56", "fullstop"),
+    ("c_outpost", "#29 #66 #68-71", "new"),
+    ("c_block50", "#67 #72 #103", "resume"),
+    ("c_wander", "#54 #95", "fullstop, walls"),
+    ("c_temple33", "#55 #54", "fullstop, walls"),
+    ("c_catacombs", "#96 #97", "fullstop"),
+    ("c_overland", "#98-102", "fullstop, resume"),
+    ("c_npc", "#104 #106", "fullstop, resume, walls"),
+    ("c_ecl3", "#64 #65", "fullstop"),
     # D: combat
     ("d_cloud", "#6", ""),
     ("d_lebaum", "#9 (#23)", ""),
@@ -202,6 +203,8 @@ def run_one(name, out, timeout):
 def known_of(verdict):
     if verdict == "AGREES":
         return ""
+    if verdict.startswith("DIFFERS new"):
+        return "new"
     m = re.match(r"DIFFERS known: (.*)", verdict)
     return ", ".join(sorted(t.strip() for t in m.group(1).split(","))) if m else None
 
@@ -213,7 +216,7 @@ def line(name, checks, want, verdict, code, took):
         shown = "agrees" if verdict == "AGREES" else verdict.split(" (")[0].lower()
         got = known_of(verdict)
         note = ("as recorded" if got == want else
-                f"CHANGED (recorded: {'agrees' if not want else 'differs known: ' + want})")
+                f"CHANGED (recorded: {'agrees' if not want else 'differs ' + ('new' if want == 'new' else 'known: ' + want)})")
     return f"{name:20} {checks:18} {shown:28} {took / 60:5.1f} min  {note}"
 
 
