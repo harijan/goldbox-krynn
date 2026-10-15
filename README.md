@@ -7319,16 +7319,10 @@ the memory and file values it reads with the port's (its saved games, or
 its state printed at that read). Where the port stops or does not model
 what the original does, the check asserts what the original was seen to
 do instead, and says the port is not compared there. A harness artifact
-(DOSBox-X's own CGA cursor) is masked, and said. A difference is *known*
-when the original equals the port built with `tools/dosbox/known-fixes.patch`
-(branch `fixes`'s change: the continue prompt's full stop, two-set wall
-records, a resumed game's first block) at the same point, and is tagged
-`fullstop`, `walls` or `resume`; any other is *new*. A check ends with
-`VERDICT: AGREES` (exit 0), `VERDICT: DIFFERS known: TAGS` or `VERDICT:
-DIFFERS new (...)` (exit 1), and anything else (an exception, a signal,
-a harness failure) is an error, exit 3. Once the source has the fixes
-the patch applies in reverse, the "fixed" build is the port itself, and
-the checks showing known differences agree. `COKBOX_ECLPLAY`,
+(DOSBox-X's own CGA cursor) is masked, and said. A check ends with
+`VERDICT: AGREES` (exit 0) or `VERDICT: DIFFERS new (...)` (exit 1), each
+difference on a `DIFFERENCE:` line before it, and anything else (an
+exception, a signal, a harness failure) is an error, exit 3. `COKBOX_ECLPLAY`,
 `COKBOX_COK` and `COKBOX_SRC` point the checks at another build of the
 port, e.g. a mutant's.
 
@@ -7340,8 +7334,8 @@ screenshots (`d_arrows`, `d_aurak`, `d_bolt`, `d_bozak`, `d_cast`,
 `d_gate`, `d_hold`, `d_turning`) one at a time (beside the others on a
 loaded host DOSBox-X wrote ten times fewer screenshots and they missed
 the text), and prints one line per script: the checks it covers, its
-verdict, and whether that is the verdict recorded (agrees, the known
-tags, or new for a port difference found and not yet fixed), an ERROR
+verdict, and whether that is the verdict recorded (agrees, or new for a
+port difference found and not yet fixed), an ERROR
 for anything else. On its timeout it kills the script's process group
 and the Xvfb and DOSBox-X it started (their pids recorded in
 `COKBOX_PIDFILE`). A full run of the 82 scripts takes about 41 minutes on
