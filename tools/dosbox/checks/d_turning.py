@@ -50,8 +50,11 @@ def main():
             "#129 the port: SIR STRONGSWORD \"reflects the spell\"")
     reflect = [m for m, s in zip(matched, shots) if any(
         "REFLECTS" in d_lib.read_text(s, r, 23, 39)[0] for r in (11, 12))]
-    v.check(reflect and all(m and "~" not in m for m in reflect),
-            "#129 the original's screens with \"REFLECTS\" equal the port's frames", f"{reflect}")
+    # Each matched (one caught while drawing the next, N~M, passes the burst's
+    # rule), and at least one exactly a port frame.
+    v.check(reflect and all(reflect) and any("~" not in m for m in reflect),
+            "#129 the original's screens with \"REFLECTS\" match the port's frames, one "
+            "exactly", f"{reflect}")
     hp = {o: {f[1]: f[5] for f in st["fighters"]} for o, st in (("before", before),
                                                                 ("after", after))}
     lost = {n: hp["before"][n] - hp["after"][n] for n in ("GARIN ", "SIR STRONGSWORD")}
