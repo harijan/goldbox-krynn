@@ -1426,7 +1426,16 @@ memorized too and a Wand of Magic Missiles readied with 5 charges; the
 eighth, HOLT, is a mage too, with Stinking Cloud memorized instead.
 `--party SAVE` adds the characters of a saved game to the party (see
 Party), and `--load SAVE` loads the whole saved game first; then `BLOCK`
-may be left out to resume where it was saved. WHO prints the character
+may be left out to resume where it was saved, as `2fd3:3c28` starts the
+game, running only that block's load vector before the first command (see
+Adventure loop). A block named is entered at once, a test entry and not the
+original's resume: its load, after-move and location vectors run, the first
+at the stack depth of `2fd3:3c28`'s own, as `2fd3:3b47` runs them, which
+also makes the mode the last mode; with `--load` too, the saved block's
+after-move and location vectors run before any command, as the original's
+resume never does. `--at` with `--load` and no block places the party, the
+square's byte (`DS:6d89`) read from the map there, before the load vector
+runs. WHO prints the character
 picked (`who:`). `--shots DIR` saves `DIR/NNN.bmp` each time the game waits
 for a key and once each battle is set up, `--screen FILE` the final screen,
 in the display mode `KRYNN.CFG`'s first line names or `--display ega`,
@@ -1482,8 +1491,9 @@ answers the guards at the gates of Gargath with the second item of a list.
 | `ECL CLOCK` | `2fd3:3005` | passes the time (`57e4:0549`), count first, then the unit |
 
 A one-item menu reading `PRESS BUTTON OR RETURN TO CONTINUE.` is shown as
-`PRESS <ENTER>/<RETURN> TO CONTINUE.`, and Enter picks it, as in the
-original. Menu items are joined as `~ITEM` separated by spaces, cut to 50
+`PRESS <ENTER>/<RETURN> TO CONTINUE`, with no full stop (the 34 characters
+of `2fd3:1146`), and Enter picks it, as in the original. Menu items are
+joined as `~ITEM` separated by spaces, cut to 50
 characters. Small pictures are delta collections whose groups after the first
 are animation frames, each preceded by its delay, which the menus that
 animate the picture (`67b5:03e2`) count in tenths of a second (see
@@ -1721,9 +1731,10 @@ files past one buffer; 2,254 traces with the flag set; 1,514 Views).
 
 `src/view.h` ports the 3D view from overlay `69ea`, drawn with the 8×8 tile
 routine of overlay `6e22`. `cok_adventure_view` shows it as `6945:00ba`
-does: when `PICTURE 0xff` restores the view, and when a block is entered,
-after its load vector, if it loaded files or the area stays in 3D
-(`2fd3:3b47`), and after each step or turn of the adventure loop;
+does: when `PICTURE 0xff` restores the view, when a block is entered by
+`NEWECL`, after its load vector, if it loaded files or the area stays in 3D
+(`2fd3:3b47`), when a loaded game begins (see Adventure loop), and after
+each step or turn of the adventure loop;
 `eclplay --at X,Y,DIR` places the party before a block runs. Where the area
 has no 3D view (`0x4be6` and `0x4c38` both 0), `6945:00ba` shows the big
 picture in its frame instead.
@@ -1756,7 +1767,11 @@ by row, the tile values for the ten places a wall can be seen at
 (`DS:0df4`-`0e38`): front walls one, two and three squares ahead, the side
 walls of those squares, and the edge between two front walls three squares
 ahead. Records name their tiles as tile set 1; values from 0x2d are moved up
-to the slot's set. Each slot's tile set is record N of `8X8D<file>.DAX`, or
+by the first slot's offset from tile set 1 (`DS:1ec2`, worked out once at
+`69ea:1124`), the same for every set of the record (`69ea:1230`), adding
+bytes that wrap: a record of two sets already names its second set's tiles
+past set 1's, so Throtl's (`WALLDEF1.DAX` record 1, loaded into slot 1) is
+not moved at all. Each slot's tile set is record N of `8X8D<file>.DAX`, or
 N × 10 + 1 and N × 10 + 2 for a record of two sets. Tile sets 0 (`8X8D1.DAX`
 record 203) and 4 (the frame's) are loaded at startup.
 
@@ -1842,15 +1857,35 @@ not part of the repository.
 
 ## Adventure loop
 
-`cok_adventure_play` runs the loop of `2fd3:3c28` in a 3D area once a block
-has been entered; `eclplay --play` enters the block, then takes commands
-until the keys run out. Each turn takes a command from the menu on row 24
+`cok_adventure_enter` starts the game's first block as `2fd3:3c28` does, a
+new game's or a loaded one's: it runs only the block's load vector
+(`2fd3:3cc7`), entering the next block as `2fd3:3b47` does if that runs
+`NEWECL`, as Solace's (block 0x24) does. A loaded game then redraws the
+screen and shows the view (`DS:4b52`), outside the overland map (mode 3)
+only, where nothing is redrawn; the after-move and location
+vectors wait for the first command that returns to the loop: so a game
+saved on a square with an event, or on Throtl's square of the overland
+map, resumes quietly at the command menu, and no step is counted and no
+random number drawn before it. `cok_adventure_play` runs the loop of
+`2fd3:3c28` in a 3D area once a block has been entered; `eclplay --play`
+enters the block, then takes commands until the keys run out. Each turn
+takes a command from the menu on row 24
 (`475c:09ec`), runs the after-move vector, takes the step chosen
-(`475c:0e77`), shows the view and runs the location vector. `NEWECL` in any
+(`475c:0e77`), shows the view and runs the location vector. In a 3D area
+the menu returns only for a step forward (taken or not), `Encamp` and
+`Look`; `Area`, `Cast`, `View`, `Search` and turns stay in it and run no
+vector. `Encamp` camps and `Look` runs the location vector alone, each
+then taking the next command; on the overland map the menu returns for a
+step and `Encamp`. `NEWECL` in any
 vector enters the new block as `2fd3:3b47` does, which also frees the small
 picture, clears `0x7ed5` and keeps the block in `0x4bf2`. The party's square
 before each step is kept in `0x4bf0` and `0x4bf1`. When the loop ends it
-clears `DS:4b57`, the flag that ends a run.
+clears `DS:4b57`, the flag that ends a run. Not ported: when the first
+block's load vector (or a block it enters by `NEWECL`) sets `DS:4b57`, the
+party killed, `2fd3:3c28` does not test it until it has redrawn a loaded
+game's screen and read one command (`475c:09ec` at `3d64`, then `3b47` if a
+`NEWECL` was pending); the port ends the run at once. No shipped load
+vector kills the party.
 
 The menu reads `Move Area Cast View Encamp Search Look`, laid out as it is,
 so each capital is an item and its key (`cok_menu_read`). `Move` changes the
@@ -2083,8 +2118,9 @@ A saved game, `SAVGAM<letter>.DAT` (`4b6d:1b34`; the camp's Save writes
 one, see Camp), is 5,469 bytes: the ECL file, the variables
 `0x4b00`-`0x4eff`, `0x7c00`-`0x7fff` and `0x7a00`-`0x7bff` as words, the
 party's square, facing, wall ahead and square byte
-(`DS:6d85`-`6d89`), the last and current modes, three wall sets (record and
-slot), the party's size and eight 40-character names. Each name, stripped of
+(`DS:6d85`-`6d89`), the last and current modes (`0x1406` and `0x1407`:
+`DS:4b4a` and `4b49`), three wall sets (record and slot), the party's size
+and eight 40-character names. Each name, stripped of
 ` .*,?/\:;|`, cut to eight characters and upper-cased (`169c:05da`), names
 the character's files beside the saved game: `.SAV`, the record; `.STF`, its
 items, 63 bytes each; and `.SFX`, its spell effects, 9 bytes each
@@ -2104,8 +2140,13 @@ place a removal slides the next into, so of two alike in a row one stays
 or else loads the overland map, big picture 0x79, without drawing it,
 sets the speed and animation from `0x4bfc` and `0x4bff`, and
 sets `DS:4b52`, so that the first block keeps its variables and the
-adventure loop redraws the screen (`6346:2c17`). Play resumes in block
-`0x4bf2`, or 0x24 if that is 0 (`2fd3:3c28`).
+adventure loop redraws the screen (`6346:2c17`). The loader makes the
+saved mode the last mode (`DS:4b4a`) and the mode 0. Play resumes in block
+`0x4bf2`, or 0x24 if that is 0 (`2fd3:3c28`), which sets the mode to 4 (3
+outside 3D areas) and runs only that block's load vector before the first
+command (see Adventure loop); the last mode stays the loaded one until a
+`NEWECL` (`2fd3:3b47` copies the mode there at its end), so a game saved
+in camp, loaded and saved in camp again holds 2 at `0x1406`.
 
 The party list (`6346:07ba`) shows `Name` and `AC  HP` on row 2 from column
 17, then a character a row from row 4: the selected one's name in white,
@@ -7206,7 +7247,12 @@ running in DOSBox:
   light magenta. Compare the frame's border and moons with the original.
 - Wall tiles and sky pictures are masked with colour 13 in the 3D view.
   Compare a view, such as Throtl's street from 7, 15 facing north, for light
-  magenta or holes.
+  magenta or holes. Checked in DOSBox-X (`tools/dosbox/checks/c_throtl.py`
+  on the `dosbox` branch): no light magenta and no holes, but the far
+  walls differed, a two-set WALLDEF record's second set offset again (see
+  3D view); the port now offsets every set by the first slot's and agrees,
+  0 pixels in every screen at a key read of `c_throtl.py`, `c_pit.py`,
+  `c_chest.py`, `c_npc.py` and `c_temple33.py`.
 - `Loading...Please Wait` (see Playing scripts and The start menu): it
   should show on row 24 in light green at startup before the title, in
   each step into a new block (`NEWECL`), and with `Pics` animation on
@@ -7247,7 +7293,18 @@ running in DOSBox:
   the fifth item, as the menu keeps the selection.
 - Save in camp, then load that game: it holds mode 2 (`0x1407`). Compare
   how the original resumes it with how it resumes a game saved from the
-  party menu.
+  party menu. Checked in DOSBox-X (`tools/dosbox/checks/b_resume.py`):
+  besides Throtl's walls (above), the port set the last mode as the first
+  block began, so the game saved in camp again held 4 at `0x1406` where the
+  original's holds 2; and DOSBox-X checks of saves on the overland map and
+  on squares with events (`d_firstblock.py`, `c_overland.py`, `c_npc.py`,
+  `f_display_modes.py`) found the port running the first block's
+  after-move and location vectors at Begin Adventuring (asking `YOU ARE
+  NEAR THROTL. DO YOU ENTER?` again, a roll ahead), which the original
+  runs only after the first command (see Adventure loop). The port now
+  does as the original: the three games resume with 0 pixels differing,
+  their saves again the same (modes 2, 2 and 4, 2), and RandSeed and the
+  step counter untouched until the first command.
 - Hurt a character a few points with a cleric of two first-level spells a
   day in the party and `Fix`: the clock should pass the time of
   `4888:28f9`, 270 minutes divided by 41 over the points lacking, which
@@ -7536,8 +7593,14 @@ running in DOSBox:
   without intensity, the dark ones), the 3D view's ground cyan under a
   black sky with a white line and a magenta horizon (`DS:6d81`-`6d83`
   from 0xc05f 9 and 0xc059 0x41 on entering a block). In the icon
-  editor, 1st-color should say `Sorry, not in CGA`.
+  editor, 1st-color should say `Sorry, not in CGA`. Checked in DOSBox-X
+  (`tools/dosbox/checks/f_display_modes.py`): all agreed but Throtl's 3D
+  view, whose far walls differed in every mode alike (the wall sets'
+  offset, see the first of these checks); the port now agrees there too,
+  0 pixels in Tandy, EGA and CGA mode.
 - In EGA mode, the same screens should match `eclplay`'s (the Tandy's).
+  Checked in DOSBox-X with the CGA check above: the same, Throtl's view
+  included now.
 - In EGA mode, a draw of no width on a row of the 3D view or the combat
   map that nothing else marks (a picture placed just past the right edge,
   `127f:09c3` copying no byte): `127f:12e8` should copy 16 KB of the

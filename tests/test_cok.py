@@ -173,6 +173,38 @@ class FrontEndTests(unittest.TestCase):
             self.assertTrue((saves / "SAVGAMA.DAT").exists())
             self.assertSameDirs(esaves, saves)
 
+    def test_resumed_game(self):
+        """A game saved in camp on Throtl's square of the overland map,
+        loaded from the start menu and begun: only block 16's load vector
+        runs before the first command (2fd3:3c28), so the map's menu comes
+        and "YOU ARE NEAR THROTL. DO YOU ENTER?" is not asked again; frame
+        for frame as eclplay draws it."""
+        made = self.folder / "made"
+        made.mkdir()
+        keys = r"\kx" + NEW_GAME[:NEW_GAME.index("ELN98") + 5] + "neESBN"
+        run = subprocess.run([str(ECLPLAY), "--start-menu", "--seed", "7", "--helm", "--saves",
+                              str(made), "--keys", keys, str(ASSETS)], capture_output=True,
+                             text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("print: . DO YOU ENTER?", run.stdout.splitlines())
+        self.assertTrue((made / "SAVGAMB.DAT").exists())
+        load = r"\kxP\v\v\rB\v\v\v\v\v\r"
+        shutil.copytree(made, self.folder / "eclplay-saves")
+        shots = self.folder / "eclplay-shots"
+        expected = subprocess.run([str(ECLPLAY), "--start-menu", "--saves",
+                                   str(self.folder / "eclplay-saves"), "--shots", str(shots),
+                                   "--keys", load, str(ASSETS)], capture_output=True, text=True)
+        self.assertEqual(expected.returncode, 0, expected.stderr)
+        lines = expected.stdout.splitlines()
+        at = lines.index("choice: Begin Adventuring")
+        self.assertEqual(lines[at + 1], "menu: Move Encamp")
+        shutil.copytree(made, self.folder / "cok-saves")
+        run, _, cshots = self.cok(load, "--aspect", "1:1", "--scale", "2", "--log")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("choice: Begin Adventuring\nmenu: Move Encamp\n", run.stderr)
+        self.assertNotIn("YOU ARE NEAR", run.stderr)
+        self.assertSameShots(shots, cshots)
+
     def test_cga(self):
         """CGA mode (--display cga, or KRYNN.CFG's first line C): the
         title, its menu, creating BOB and the icon editor's 'Sorry, not in
