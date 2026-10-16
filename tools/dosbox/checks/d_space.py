@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #24 (README, Checks against the original): "Space during the
+"""Check #24 (DEVELOPERS.md, Checks against the original): "Space during the
 computer's turns gives the party back: the turn it interrupts is given up
 (initiative 0x14 with no DS:72ce decrement in 3afb:1200), and the next
 party member's turn is the player's."

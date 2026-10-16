@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #63 (README, Checks against the original): "Flee a fight: the
+"""Check #63 (DEVELOPERS.md, Checks against the original): "Flee a fight: the
 results should say `The party has fled.` and `Each character receives 0`."
 
 Game A started with Helm (eclplay --helm), seed 7, the caravan's baaz: the

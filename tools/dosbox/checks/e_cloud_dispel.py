@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #7: Dispel Magic at a cloud in combat (README, Checks against the
+"""Check #7: Dispel Magic at a cloud in combat (DEVELOPERS.md, Checks against the
 original: "Dispel Magic at a cloud in combat: where it takes the cloud away
 the port stops").
 
@@ -24,7 +24,7 @@ SIRRION's 0x28 (as the port's), low memory unchanged but the BIOS's own
 counters, the heap's free list unchanged (the node, at the heap's top,
 merged into HeapPtr), and the battle going on to its end on Auto.
 
-Camp (the README's second part: outside combat the walk reads the cells
+Camp (DEVELOPERS.md's second part: outside combat the walk reads the cells
 from the interrupt table, the map pointer DS:6a2e NULL; the port takes
 none of them to be a green cloud): KAL's Dispel Magic from camp's Magic
 in the outpost inn's camp, on the first character: the map pointer NULL

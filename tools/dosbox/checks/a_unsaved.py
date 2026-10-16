@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #109: Escape marks the game unsaved (README, Checks against the
+"""Check #109: Escape marks the game unsaved (DEVELOPERS.md, Checks against the
 original: "In the start menu, press Escape, then Save: the game should count
 as unsaved, so `Exit to DOS` and Yes ask `Game NOT saved.  Quit anyway? `;
 No there should open `Save Which Game: ` and stay in the menu").

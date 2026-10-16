@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check: a small picture of many frames with little memory free (README,
+"""Check: a small picture of many frames with little memory free (DEVELOPERS.md,
 Checks against the original: "A small picture of many frames (PIC1 record
 23, eight) with little memory free, in CGA, EGA and Tandy mode: count the
 frames shown. 6961:00e4 stops loading them where MaxAvail falls under
@@ -18,7 +18,7 @@ block or the space above HeapPtr: DS:4392's free list, DS:438a HeapPtr,
 DS:438e HeapEnd) is read at "YOU ARE NEAR THROTL. DO YOU ENTER?", the frames
 loaded (DS:6da2) and the frames shown (DS:6da3, polled for 5 seconds while
 the menu animates) after Yes. The memory is not modelled by the port (it
-loads and shows all four in every case: README, Display modes), so there
+loads and shows all four in every case: DEVELOPERS.md, Display modes), so there
 the original's observations, batch F's table, are asserted (EXPECTED):
 the frames by mode and MaxAvail, and where a GetMem fails, Turbo Pascal's
 HeapError (DS:439a, set by 2f48:00b2 to 2f48:0042) showing "WARNING:

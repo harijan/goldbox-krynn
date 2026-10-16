@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #8, first part: Slow Poison run out after 63 hours (README, Checks
+"""Check #8, first part: Slow Poison run out after 63 hours (DEVELOPERS.md, Checks
 against the original: "Timers ... cast Slow Poison on a poisoned character
 and rest 63 hours: where 0x16 runs out with Slow Poison's 0x0f after it,
 the port stops ... see whether the game stops with runtime error 204,

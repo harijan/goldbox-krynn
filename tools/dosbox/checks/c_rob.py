@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ROB's arithmetic (README, Checks against the original, #56): "Have a
+"""ROB's arithmetic (DEVELOPERS.md, Checks against the original, #56): "Have a
 character with 530 of a coin robbed of 10% (`ROB 0 10 0`, ECL1 block 17):
 it should keep 476" (Turbo Pascal's Real multiply's short way, where exact
 arithmetic gives 477).
@@ -11,7 +11,7 @@ his tithe, 9cfc's ROB 0 10 0) and SIR STRONGSWORD, the knight, is given
 530 copper (+0xed) and 530 steel (+0xf3). Both games load it, step south-
 west onto the outpost and enter. SIR STRONGSWORD's coins at the tithe's
 message, read in the original's memory, are compared with the port's at
-the same key read (and the original's must be 476: the README's value).
+the same key read (and the original's must be 476: DEVELOPERS.md's value).
 """
 import argparse
 import struct

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks #107 and #108: the demonstration (README, Checks against the
+"""Checks #107 and #108: the demonstration (DEVELOPERS.md, Checks against the
 original: "At the title screen, press no key: the demonstration (ECL2 block
 57) should start with Sir Ringwald, Varianna and Lyn Swiftfoot. Compare the
 close-up of the green dragon ...; no `Continue Battle:`, no treasure, and

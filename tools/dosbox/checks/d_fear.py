@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #122 (README, Checks against the original): "Cast Fear and press
+"""Check #122 (DEVELOPERS.md, Checks against the original): "Cast Fear and press
 `T` at once (the aim on the caster's own cell), in Tandy mode with the
 caster at a few places on the view: the cone should go as the port's does
 (the directions drawing the caster's icon left). Repeat in EGA mode (the
@@ -17,7 +17,7 @@ The cone at the caster's own cell depends on where DOS loaded the game: at a
 PSP of 0xnnf0 (DS low byte 0xc6, what the port assumes; --psp 8f0, the
 default) the original agrees in all three modes; at the PSP the harness
 gives without a pad (087b, --psp 0) it terrifies a hobgoblin instead and
-no party member: the port, which models 0xc6 only (README), is not
+no party member: the port, which models 0xc6 only (DEVELOPERS.md), is not
 compared then, and the original's recorded behaviour is asserted.
 """
 import argparse

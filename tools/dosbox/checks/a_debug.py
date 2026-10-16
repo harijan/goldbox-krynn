@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #13: the debug mode (README, Checks against the original: "The
+"""Check #13: the debug mode (DEVELOPERS.md, Checks against the original: "The
 debug mode (see Debug mode): start `START Woof`, press Ctrl-D at a menu and
 compare the trace after each opcode ..., the status line's `*`, and, in a
 battle, the trace of each combatant and `Done*`. Press Ctrl-Z and compare

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The overland map (README, Checks against the original): #98 "Start a new
+"""The overland map (DEVELOPERS.md, Checks against the original): #98 "Start a new
 game; Solace leads straight into the first outpost. Choose `LEAVE` there
 (ECL1 block 17 at `8d86`): the overland map should show with the party's
 mark ... on the outpost (cell 2, 4, over its star), and `YOU ARE NEAR AN

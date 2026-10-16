@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #25 (README, Checks against the original): "With Alt-Q, the first
+"""Check #25 (DEVELOPERS.md, Checks against the original): "With Alt-Q, the first
 combatant's turn runs twice: compare whether its effects for event 7 and
 0x0f act twice (a held one, a snake bite) in that turn."
 

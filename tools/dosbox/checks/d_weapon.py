@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #91 (README, Checks against the original): "Kill a baaz with a
+"""Check #91 (DEVELOPERS.md, Checks against the original): "Kill a baaz with a
 sword a square away: on a high roll the killer "loses his weapon", and has
 it back after the fight."
 

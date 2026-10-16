@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #80 (README, Checks against the original): "Leave a character
+"""Check #80 (DEVELOPERS.md, Checks against the original): "Leave a character
 dying (2-9 points past its hit points) in a battle: "Your Teammate is
 Dying" should show at each round's end, and it should die once the rounds
 counted from its damage pass 9, its hit points unchanged; Bandage (in Done)

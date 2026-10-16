@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The pit of Throtl (ECL1 block 32, special 26 at 2,5; README, Checks
+"""The pit of Throtl (ECL1 block 32, special 26 at 2,5; DEVELOPERS.md, Checks
 against the original): #30 "Fall into the pit in Throtl and compare the
 damage messages and how they page"; #35 "With a dwarf or kender of
 constitution 19 in the party, compare the saving throws against a trap's

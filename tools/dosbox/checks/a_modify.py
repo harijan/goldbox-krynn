@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #118: Modify Character (README, Checks against the original:
+"""Check #118: Modify Character (DEVELOPERS.md, Checks against the original:
 "Modify a character's name typing an upper-case `K`: Modify should keep and
 end. Change the wisdom of a cleric with two spells a day and exit: it should
 keep one until it is loaded again.").

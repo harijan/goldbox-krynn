@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check: the mouse (README, Checks against the original: "The mouse (see
+"""Check: the mouse (DEVELOPERS.md, Checks against the original: "The mouse (see
 The mouse and the joystick), in DOSBox with its own driver (machine=tandy,
 then svga_s3 and machine=cga): the cursor's look in each mode ..., where it
 is hidden (the title's waits, running text), and that a click lands on the
@@ -18,7 +18,7 @@ Parts:
   tandy, vga (svga_s3, EGA) and cga. In CGA mode the arrow's 16x16 box is
   not compared: DOSBox-X's driver draws CGA's cursor a bit a pixel (16
   pixels wide), the port two bits a pixel as Microsoft's driver does (8
-  wide), as the README says (The mouse and the joystick).
+  wide), as DEVELOPERS.md says (The mouse and the joystick).
 - hidden: the pointer parked over the picture through the title's first
   wait (the SSI picture), and through game A's route (Solace's running text
   and pages, the outpost, the camp, the overland map).
@@ -45,7 +45,7 @@ cokbox = checklib.cokbox
 CONF = {"sdl.mouse_emulation": "integration"}
 ECLPLAY_ARGS = ["--mouse", "--input", "mouse", "--seed", "1"]
 CGA_CURSOR = ("DOSBox-X's own driver draws CGA's cursor a bit a pixel, 16 wide; the port "
-              "two bits a pixel, 8 wide, as Microsoft's (README: The mouse and the joystick)")
+              "two bits a pixel, 8 wide, as Microsoft's (DEVELOPERS.md: The mouse and the joystick)")
 
 
 class MouseBox(cokbox.Box):
@@ -176,7 +176,7 @@ def both(v, work, verbose):
 MARK_KEYS = r"\kxP\v\v\rA\v\v\v\v\v\r\r\r\r\r\r\r\rLN"
 MARK_AT, AWAY = (18, 34), (100, 120)
 # The mark's cell under the arrow's box: where the original's mark loses
-# pixels (README, The mouse and the joystick: "Not reproduced").
+# pixels (DEVELOPERS.md, The mouse and the joystick: "Not reproduced").
 MARK_GONE = (18, 34, 6, 6)
 MARK_GONE_PIXELS = 25
 
@@ -220,7 +220,7 @@ def mark(v, work, verbose):
             v.screen(what, shot, other, work=w)
             continue
         reason = ("the mark's part under the arrow vanishes in the original, not "
-                  "reproduced by the port (README: The mouse and the joystick)")
+                  "reproduced by the port (DEVELOPERS.md: The mouse and the joystick)")
         v.screen(what + " (but the mark's cell under the arrow)", shot, other,
                  masks=[MARK_GONE + (reason,)], work=w)
         if other is None:

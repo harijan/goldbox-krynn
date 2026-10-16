@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #112: the icon editor's Parts and space (README, Checks against the
+"""Check #112: the icon editor's Parts and space (DEVELOPERS.md, Checks against the
 original: "In the icon editor, choose `Parts` and press space: no key should
 leave the menu that follows").
 

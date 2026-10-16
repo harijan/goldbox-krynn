@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks #9 and #23 (README, Checks against the original), in part:
+"""Checks #9 and #23 (DEVELOPERS.md, Checks against the original), in part:
 #9 "Sir Lebaum (ECL3 block 82): at each of his turns 0x4a casts Dispel
 Magic on a d20 of 1, with no text unless an effect of value other than 0xff
 goes ("is affected"), on whatever his last fireball or spell aimed at."

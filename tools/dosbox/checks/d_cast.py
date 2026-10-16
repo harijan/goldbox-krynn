@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks #119, #22 and #128 (README, Checks against the original), casting
+"""Checks #119, #22 and #128 (DEVELOPERS.md, Checks against the original), casting
 in the caravan's battle (game A's KAL, cleric and mage):
 
 #119 "In a battle, cast Magic Missile with Cast: the caster should turn

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Check #14: DEBUG.TXT where it cannot be made (README, Checks against the
+"""Check #14: DEBUG.TXT where it cannot be made (DEVELOPERS.md, Checks against the
 original: "`DEBUG.TXT` in a directory where it cannot be made (read-only)").
 
 The game makes DEBUG.TXT in the current directory (C:\\COK) at Ctrl-D with
 Woof (1a46:04f7, 056c), {$I-}, never reading IOResult: Turbo Pascal keeps
-the error in InOutRes (DS:43ac) until something reads it. The README asks
+the error in InOutRes (DS:43ac) until something reads it. The DEVELOPERS.md asks
 whether a later file operation is skipped or stops the game with a runtime
 error; the port writes nothing and goes on.
 

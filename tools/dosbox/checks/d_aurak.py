@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #12 (README, Checks against the original): "The aurak's breath at
+"""Check #12 (DEVELOPERS.md, Checks against the original): "The aurak's breath at
 one beside it that saves: its turn goes on."
 
 Game J in ECL3 block 97 (d_lib.save_97) patched to square 12, 4

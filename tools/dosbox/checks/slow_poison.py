@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check: Slow Poison's 0x16 running out on a poisoned character (README,
+"""Check: Slow Poison's 0x16 running out on a poisoned character (DEVELOPERS.md,
 Checks against the original: "Timers ... cast Slow Poison on a poisoned
 character and rest 63 hours").
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #32: the thief skills of a human thief (README, Checks against the
+"""Check #32: the thief skills of a human thief (DEVELOPERS.md, Checks against the
 original: "The thief skills include the 7 that 66c2:0b9f reads from the
 stack ... Load a saved game with a human thief and compare its thief skills
 (+0xdb) with the port's").

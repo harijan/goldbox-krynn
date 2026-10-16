@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks #92 and #17 (README, Checks against the original): "Step away from
+"""Checks #92 and #17 (DEVELOPERS.md, Checks against the original): "Step away from
 a hobgoblin beside a character: it should attack once, (from behind)." and
 "Escape in Move after a step that drew an attack of opportunity: the
 combatant goes back with the wounds kept."

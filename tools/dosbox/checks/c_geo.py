@@ -1,4 +1,4 @@
-"""A GEO map's squares and passages (README, 3D view and Adventure loop:
+"""A GEO map's squares and passages (DEVELOPERS.md, 3D view and Adventure loop:
 cok_view_wall, cok_view_passage), and paths between squares as Move keys,
 for batch C's checks to walk the party in both games."""
 import collections

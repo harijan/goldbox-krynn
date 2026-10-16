@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #13's battle part (README, Checks against the original: "The debug
+"""Check #13's battle part (DEVELOPERS.md, Checks against the original: "The debug
 mode ...: and, in a battle, the trace of each combatant and `Done*`").
 
 The original runs as `START Woof`, eclplay as --woof, both with seed 7 and

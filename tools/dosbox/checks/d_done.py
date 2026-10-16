@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #16 (README, Checks against the original): "In the Done menu, F8
+"""Check #16 (DEVELOPERS.md, Checks against the original): "In the Done menu, F8
 (scan 0x42, B) with no one dying ends the turn as Bandage would; Home (0x47)
 guards; in Speed, Del slows past 9."
 
@@ -44,7 +44,7 @@ def main():
             seen[name] = (o["turn"], guard(d_lib.combatants(b)), o["speed"])
             d_lib.value(v, f"KAL's guard (+0x07) at {name}", seen[name][1], port, name,
                         lambda s: guard(d_lib.port_combatants(s)))
-    # What the README's check says, as the original showed it (batch D).
+    # What DEVELOPERS.md's check says, as the original showed it (batch D).
     v.check(seen["kal"][0] == "KAL", "F8 ended ISTAN's turn in the original: KAL's next")
     v.check(seen["garin"][1] == 1, "Home: KAL guards in the original (+0x07 1)")
     v.check("print: Guarding" in port.lines, "the port says \"Guarding\" at KAL's place")

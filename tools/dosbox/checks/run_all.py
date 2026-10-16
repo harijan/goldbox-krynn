@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run every DOSBox-X check script (tools/dosbox/checks/) and print one line
-per script: the README's checks it covers, its verdict, and whether that is
-the verdict recorded (README, "Checks against the original").
+per script: DEVELOPERS.md's checks it covers, its verdict, and whether that is
+the verdict recorded (DEVELOPERS.md, "Checks against the original").
 
     python3 tools/dosbox/checks/run_all.py [--jobs N] [--only NAME ...] [--out DIR]
 
@@ -29,7 +29,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 
 # (script, the checks it covers, the verdict recorded: "" agrees, or "new"
-# for a port difference found and recorded in the README but not yet fixed;
+# for a port difference found and recorded in DEVELOPERS.md but not yet fixed;
 # a fix of the port then makes it "").
 CHECKS = [
     # A: startup, title, setup, the start menu

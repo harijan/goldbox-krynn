@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks: the display modes (README, Checks against the original: "In CGA
+"""Checks: the display modes (DEVELOPERS.md, Checks against the original: "In CGA
 mode (KRYNN.CFG's first line C): compare the title, the start menu,
 character creation, the overland map, combat, a 3D view and the camp with
 eclplay --display cga --shots, colour for colour ..." and "In EGA mode, the
