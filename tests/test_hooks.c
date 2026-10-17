@@ -434,7 +434,7 @@ static void test_loading(void)
     char saves[sizeof game.save_dir];
     snprintf(saves, sizeof saves, "%s", game.save_dir);
     cok_adventure_close(&game);
-    CHECK(cok_adventure_open_display(&game, "Assets", COK_DISPLAY_CGA, &keyboard, &hooks));
+    CHECK(cok_adventure_open_display(&game, "COKAssets", COK_DISPLAY_CGA, &keyboard, &hooks));
     snprintf(game.save_dir, sizeof game.save_dir, "%s", saves);
     CHECK(game.screen.cga);
     run_loading_cases(loading_cases_cga,
@@ -487,7 +487,7 @@ int main(void)
 {
     cok_keyboard k = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.flush = flushed, .sound = sounded, .context = &s};
-    CHECK(cok_adventure_open(&game, "Assets", &k, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &k, &hooks));
     char dir[] = "/tmp/cok-hooks-XXXXXX";
     CHECK(mkdtemp(dir) != NULL);
     snprintf(game.save_dir, sizeof game.save_dir, "%s", dir);

@@ -3,7 +3,7 @@ PYTHON = python3
 CPPFLAGS = -Isrc
 CFLAGS = -std=c17 -O2 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
 
-.PHONY: all test sanitize merged
+.PHONY: all test sanitize merged death-merged dqk-merged
 all: build/daxcheck build/daximages build/daxcompose build/ecldump build/eclplay
 
 build:
@@ -14,8 +14,22 @@ build/daxcheck: src/daxcheck.c src/dax.c src/dax.h | build
 
 merged: build/START_FULL.EXE
 
-build/START_FULL.EXE: tools/ovrmerge.py Assets/START.EXE Assets/GAME.OVR | build
-	$(PYTHON) tools/ovrmerge.py Assets/START.EXE Assets/GAME.OVR $@ --map build/START_FULL.map
+build/START_FULL.EXE: tools/ovrmerge.py COKAssets/START.EXE COKAssets/GAME.OVR | build
+	$(PYTHON) tools/ovrmerge.py COKAssets/START.EXE COKAssets/GAME.OVR $@ --map build/START_FULL.map
+
+# Death Knights of Krynn the same way: its START.EXE and GAME.OVR in DEATH.
+DEATH = DKKAssets
+death-merged: build/death-START_FULL.EXE
+
+build/death-START_FULL.EXE: tools/ovrmerge.py $(DEATH)/START.EXE $(DEATH)/GAME.OVR | build
+	$(PYTHON) tools/ovrmerge.py $(DEATH)/START.EXE $(DEATH)/GAME.OVR $@ --map build/death-START_FULL.map
+
+# The Dark Queen of Krynn keeps its overlays inside DQK.EXE (tools/dqkmerge.py).
+DQK = DQKAssets
+dqk-merged: build/DQK_FULL.EXE
+
+build/DQK_FULL.EXE: tools/dqkmerge.py tools/ovrmerge.py $(DQK)/DQK.EXE | build
+	$(PYTHON) tools/dqkmerge.py $(DQK)/DQK.EXE $@ --map build/DQK_FULL.map
 
 build/ecldump: src/ecldump.c src/ecl.c src/ecl.h src/text.h src/picture.h src/dax.c src/dax.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) src/ecldump.c src/ecl.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
@@ -248,13 +262,13 @@ test: build/START_FULL.EXE build/test_dax build/test_image build/test_picture bu
 	./build/test_config
 	./build/test_setup
 	./build/test_input
-	./build/ecldump --summary Assets/ECL*.DAX
+	./build/ecldump --summary COKAssets/ECL*.DAX
 	$(PYTHON) tests/test_images_cli.py
 	$(PYTHON) tests/test_eclplay.py
 	$(if $(HAVE_SDL),./build/test_keymap,@echo "SDL2 not found (pkg-config sdl2): skipped building and testing build/cok")
 	$(if $(HAVE_SDL),$(PYTHON) tests/test_cok.py)
 	$(PYTHON) tests/test_ovrmerge.py
-	./build/daxcheck Assets/*.DAX
+	./build/daxcheck COKAssets/*.DAX
 
 build/test_dax_sanitize: tests/test_dax.c src/dax.c src/dax.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_dax.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
@@ -370,66 +384,66 @@ sanitize: build/START_FULL.EXE build/test_dax_sanitize build/test_image_sanitize
 	./build/test_config_sanitize
 	./build/test_setup_sanitize
 	./build/test_input_sanitize
-	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --keys '\r\rE\r\r\r\r\r\r\r' Assets 16 | tail -n 1)" = "(out of keys in block 17 at 9d9b)"
-	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --start 899b --keys '\r22\r\rE\r\r\r\r' Assets 48 | tail -n 1)" = "(done in block 48)"
-	test "$$(./build/eclplay_sanitize --woof --test-party 4 --effect 2,22,10,0 --keys '\cD\rxxxxxxxxxxxxxx\cZ\cC' Assets 16 | tail -n 1)" = "(quit to DOS in block 16)"
-	out="$$(./build/eclplay_sanitize --combat pass --test-party 6 --play --set 4be6=1 --keys '\r\rE\rm\^\^\^\r\r\>\^\<\<\v\rlsea' Assets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 32 at 80c0)" && printf '%s\n' "$$out" | grep -q '^print: A MAN GIBBERING WITH FEAR' && printf '%s\n' "$$out" | grep -q '^print: The party makes camp'
-	out="$$(./build/eclplay_sanitize --combat pass --test-party 6 --set 4be6=1 --start 835f --keys '\r\rE' Assets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(done in block 32)" && test "$$(printf '%s\n' "$$out" | head -n 1)" = "print: MONSTERS ATTACK!" && test "$$(printf '%s\n' "$$out" | grep -c '^round: ')" = 15
-	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --load SAVE/SAVGAMA.DAT --play --keys '\r\r\r\r\r\r\r' Assets | tail -n 1)" = "(out of keys in block 17 at 86ec)"; fi
-	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --play --set 4be6=1 --keys '\r\rEerhar\kn\eamm\e\e' Assets 32 | tail -n 1)" = "(out of keys in block 32 at 80c0)"
-	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --combat pass --party SAVE/SAVGAMA.DAT --play --set 4be6=1 --keys '\r\rE\v\v\v\vemm\^m\esd\e\eaos\v\e\e\e' Assets 32 | tail -n 1)" = "(out of keys in block 32 at 80c0)"; fi
-	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --combat pass --party SAVE/SAVGAMA.DAT --start 9891 --set 4be6=1 --keys '\r\rE' Assets 32 | tail -n 1)" = "(done in block 32)"; fi
-	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --play --set 4be6=1 --keys '\r\rEvi\v\vrhjtS\e\e' Assets 32 | tail -n 1)" = "(out of keys in block 32 at 8320)"
-	test "$$(./build/eclplay_sanitize --test-party 6 --file 3 --start 99fd --combat won --shots build/sanitize_shots --keys '\r\r\r' Assets 97 | tail -n 1)" = "(out of keys in block 97 at 9a06)"
-	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --combat pass --party SAVE/SAVGAMA.DAT --play --set 4be6=1 --keys '\r\rEvi\v\vrhjtS\e\e' Assets 32 | tail -n 1)" = "(out of keys in block 32 at 8320)"; fi
-	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --combat pass --party SAVE/SAVGAMA.DAT --play --set 4be6=1 --keys '\r\rE\v\v\v\vemc\rn\^\^\^\r\^S\^\^\rSee' Assets 32 | tail -n 1)" = "(out of keys in block 32 at 80c0)"; fi
-	out="$$(./build/eclplay_sanitize --test-party 6 --set 4be6=1 --start 835f --seed 1 --combat melee --keys '\r\rEN' Assets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(done in block 32)" && printf '%s\n' "$$out" | grep -q '^combat: seed 1879734825$$' && test "$$(printf '%s\n' "$$out" | grep -c '^attack: ')" = 27
-	out="$$(./build/eclplay_sanitize --test-party 6 --set 4be6=1 --start 835f --seed 1 --combat auto --keys '\r\rEN' Assets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 32 at 8417)" && printf '%s\n' "$$out" | grep -q '^combat: seed 3958868712$$' && test "$$(printf '%s\n' "$$out" | grep -c '^print: Surrenders$$')" = 5
-	test "$$(./build/eclplay_sanitize --test-party 6 --set 4be6=1 --start 87b4 --seed 1 Assets 32 | tail -n 1)" = "(the party was killed in block 32)"
-	out="$$(./build/eclplay_sanitize --test-party 6 --set 4be6=1 --start 87b4 --seed 1 --keys 'TTVEDSSEQANTNM88DDGDDDA\@qN\rEN\r\r' Assets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(done in block 32)" && printf '%s\n' "$$out" | grep -q '^combat: seed 1876183322$$' && test "$$(printf '%s\n' "$$out" | grep -c '^print: is turned$$')" = 10 && test "$$(printf '%s\n' "$$out" | grep -c '^print: is held$$')" = 2
-	out="$$(./build/eclplay_sanitize --file 1 --test-party 6 --start 86a4 --set 4be6=1 --combat auto --keys '\r\r\r\r\r' Assets 33)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 33 at 86ac)" && printf '%s\n' "$$out" | grep -q '^combat: seed 457552249$$' && printf '%s\n' "$$out" | grep -q '^print: lost a spell$$'
-	if [ -f SAVE/SAVGAMA.DAT ]; then out="$$(./build/eclplay_sanitize --party SAVE/SAVGAMA.DAT --start 835f --seed 1 --keys '\rC\#50\#50CNTCCNTDQCCNTDQDQ' Assets 32)" && test "$$(printf '%s\n' "$$out" | grep -c '^print: is Blessed$$')" = 6 && test "$$(printf '%s\n' "$$out" | grep -c '^print: falls asleep$$')" = 2; fi
-	out="$$(./build/eclplay_sanitize --test-party 6 --set 4be6=1 --start 835f --seed 1 --keys '\rM44\eDGANTDBAM8\e\eDQ\@qN\rEN' Assets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(done in block 32)" && printf '%s\n' "$$out" | grep -q '^combat: seed 2970518320$$' && printf '%s\n' "$$out" | grep -q '^print: is bandaged$$'
-	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --set 4be6=1 --start 828a --keys '\r\rE\r' Assets 33 | tail -n 1)" = "(done in block 33)"
-	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --party SAVE/SAVGAMA.DAT --set 4be6=1 --start 851e --keys 'wwps\r\r' Assets 33 | tail -n 1)" = "(out of keys in block 33 at 87b5)"; fi
-	test "$$(./build/eclplay_sanitize --test-party 6 --start 8bcd --keys '\rT\r3\r\eSE' Assets 32 | tail -n 1)" = "(done in block 32)"
-	for how in won fled; do test "$$(./build/eclplay_sanitize --test-party 6 --combat $$how --start 8cda --keys '\rSE\r' Assets 16 | tail -n 1)" = "(done in block 16)" || exit 1; done
-	test "$$(./build/eclplay_sanitize --test-party 6 --combat gods --seed 5 --start 8cda --keys 'Y\r\rSE\r' Assets 16 | tail -n 1)" = "(done in block 16)"
-	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --start 8cda --keys '\rE\r' Assets 16 | tail -n 1)" = "(done in block 16)"
-	test "$$(./build/eclplay_sanitize --test-party 6 --combat lost --start 8cda --keys '\r' Assets 16 | tail -n 1)" = "(the party was killed in block 16)"
-	if [ -f SAVE/SAVGAMA.DAT ]; then for how in won fled; do test "$$(./build/eclplay_sanitize --party SAVE/SAVGAMA.DAT --combat $$how --start 8cda --keys '\rSE\r' Assets 16 | tail -n 1)" = "(done in block 16)" || exit 1; done; fi
-	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --party SAVE/SAVGAMA.DAT --combat gods --start 8cda --keys '\r\rSE\r' Assets 16 | tail -n 1)" = "(done in block 16)"; fi
-	test "$$(./build/eclplay_sanitize --test-party 4 --start 891c --keys 'y\rB\v\v\r\ePB\r\eEySE' Assets 16 | tail -n 1)" = "(out of keys in block 16 at 8dd1)"
-	test "$$(./build/eclplay_sanitize --test-party 4 --start 8cea --keys 'B\r\eE' Assets 50 | tail -n 1)" = "(out of keys in block 50 at 9d2f)"
-	test "$$(./build/eclplay_sanitize --test-party 4 --start 8782 --keys 'B\r\eVI\v\vSyI\ry\e\eE' Assets 17 | tail -n 1)" = "(out of keys in block 17 at 86ec)"
-	test "$$(./build/eclplay_sanitize --test-party 4 --start 8a8f --keys '\rPH\v\vHy\eEn\r' Assets 16 | tail -n 1)" = "(done in block 16)"
-	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --set 4be6=1 --combat-map build/combat-map.txt --keys '\r\rE' Assets 32 | tail -n 1)" = "(done in block 32)"
+	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --keys '\r\rE\r\r\r\r\r\r\r' COKAssets 16 | tail -n 1)" = "(out of keys in block 17 at 9d9b)"
+	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --start 899b --keys '\r22\r\rE\r\r\r\r' COKAssets 48 | tail -n 1)" = "(done in block 48)"
+	test "$$(./build/eclplay_sanitize --woof --test-party 4 --effect 2,22,10,0 --keys '\cD\rxxxxxxxxxxxxxx\cZ\cC' COKAssets 16 | tail -n 1)" = "(quit to DOS in block 16)"
+	out="$$(./build/eclplay_sanitize --combat pass --test-party 6 --play --set 4be6=1 --keys '\r\rE\rm\^\^\^\r\r\>\^\<\<\v\rlsea' COKAssets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 32 at 80c0)" && printf '%s\n' "$$out" | grep -q '^print: A MAN GIBBERING WITH FEAR' && printf '%s\n' "$$out" | grep -q '^print: The party makes camp'
+	out="$$(./build/eclplay_sanitize --combat pass --test-party 6 --set 4be6=1 --start 835f --keys '\r\rE' COKAssets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(done in block 32)" && test "$$(printf '%s\n' "$$out" | head -n 1)" = "print: MONSTERS ATTACK!" && test "$$(printf '%s\n' "$$out" | grep -c '^round: ')" = 15
+	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --load SAVE/SAVGAMA.DAT --play --keys '\r\r\r\r\r\r\r' COKAssets | tail -n 1)" = "(out of keys in block 17 at 86ec)"; fi
+	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --play --set 4be6=1 --keys '\r\rEerhar\kn\eamm\e\e' COKAssets 32 | tail -n 1)" = "(out of keys in block 32 at 80c0)"
+	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --combat pass --party SAVE/SAVGAMA.DAT --play --set 4be6=1 --keys '\r\rE\v\v\v\vemm\^m\esd\e\eaos\v\e\e\e' COKAssets 32 | tail -n 1)" = "(out of keys in block 32 at 80c0)"; fi
+	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --combat pass --party SAVE/SAVGAMA.DAT --start 9891 --set 4be6=1 --keys '\r\rE' COKAssets 32 | tail -n 1)" = "(done in block 32)"; fi
+	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --play --set 4be6=1 --keys '\r\rEvi\v\vrhjtS\e\e' COKAssets 32 | tail -n 1)" = "(out of keys in block 32 at 8320)"
+	test "$$(./build/eclplay_sanitize --test-party 6 --file 3 --start 99fd --combat won --shots build/sanitize_shots --keys '\r\r\r' COKAssets 97 | tail -n 1)" = "(out of keys in block 97 at 9a06)"
+	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --combat pass --party SAVE/SAVGAMA.DAT --play --set 4be6=1 --keys '\r\rEvi\v\vrhjtS\e\e' COKAssets 32 | tail -n 1)" = "(out of keys in block 32 at 8320)"; fi
+	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --combat pass --party SAVE/SAVGAMA.DAT --play --set 4be6=1 --keys '\r\rE\v\v\v\vemc\rn\^\^\^\r\^S\^\^\rSee' COKAssets 32 | tail -n 1)" = "(out of keys in block 32 at 80c0)"; fi
+	out="$$(./build/eclplay_sanitize --test-party 6 --set 4be6=1 --start 835f --seed 1 --combat melee --keys '\r\rEN' COKAssets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(done in block 32)" && printf '%s\n' "$$out" | grep -q '^combat: seed 1879734825$$' && test "$$(printf '%s\n' "$$out" | grep -c '^attack: ')" = 27
+	out="$$(./build/eclplay_sanitize --test-party 6 --set 4be6=1 --start 835f --seed 1 --combat auto --keys '\r\rEN' COKAssets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 32 at 8417)" && printf '%s\n' "$$out" | grep -q '^combat: seed 3958868712$$' && test "$$(printf '%s\n' "$$out" | grep -c '^print: Surrenders$$')" = 5
+	test "$$(./build/eclplay_sanitize --test-party 6 --set 4be6=1 --start 87b4 --seed 1 COKAssets 32 | tail -n 1)" = "(the party was killed in block 32)"
+	out="$$(./build/eclplay_sanitize --test-party 6 --set 4be6=1 --start 87b4 --seed 1 --keys 'TTVEDSSEQANTNM88DDGDDDA\@qN\rEN\r\r' COKAssets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(done in block 32)" && printf '%s\n' "$$out" | grep -q '^combat: seed 1876183322$$' && test "$$(printf '%s\n' "$$out" | grep -c '^print: is turned$$')" = 10 && test "$$(printf '%s\n' "$$out" | grep -c '^print: is held$$')" = 2
+	out="$$(./build/eclplay_sanitize --file 1 --test-party 6 --start 86a4 --set 4be6=1 --combat auto --keys '\r\r\r\r\r' COKAssets 33)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 33 at 86ac)" && printf '%s\n' "$$out" | grep -q '^combat: seed 457552249$$' && printf '%s\n' "$$out" | grep -q '^print: lost a spell$$'
+	if [ -f SAVE/SAVGAMA.DAT ]; then out="$$(./build/eclplay_sanitize --party SAVE/SAVGAMA.DAT --start 835f --seed 1 --keys '\rC\#50\#50CNTCCNTDQCCNTDQDQ' COKAssets 32)" && test "$$(printf '%s\n' "$$out" | grep -c '^print: is Blessed$$')" = 6 && test "$$(printf '%s\n' "$$out" | grep -c '^print: falls asleep$$')" = 2; fi
+	out="$$(./build/eclplay_sanitize --test-party 6 --set 4be6=1 --start 835f --seed 1 --keys '\rM44\eDGANTDBAM8\e\eDQ\@qN\rEN' COKAssets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(done in block 32)" && printf '%s\n' "$$out" | grep -q '^combat: seed 2970518320$$' && printf '%s\n' "$$out" | grep -q '^print: is bandaged$$'
+	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --set 4be6=1 --start 828a --keys '\r\rE\r' COKAssets 33 | tail -n 1)" = "(done in block 33)"
+	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --party SAVE/SAVGAMA.DAT --set 4be6=1 --start 851e --keys 'wwps\r\r' COKAssets 33 | tail -n 1)" = "(out of keys in block 33 at 87b5)"; fi
+	test "$$(./build/eclplay_sanitize --test-party 6 --start 8bcd --keys '\rT\r3\r\eSE' COKAssets 32 | tail -n 1)" = "(done in block 32)"
+	for how in won fled; do test "$$(./build/eclplay_sanitize --test-party 6 --combat $$how --start 8cda --keys '\rSE\r' COKAssets 16 | tail -n 1)" = "(done in block 16)" || exit 1; done
+	test "$$(./build/eclplay_sanitize --test-party 6 --combat gods --seed 5 --start 8cda --keys 'Y\r\rSE\r' COKAssets 16 | tail -n 1)" = "(done in block 16)"
+	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --start 8cda --keys '\rE\r' COKAssets 16 | tail -n 1)" = "(done in block 16)"
+	test "$$(./build/eclplay_sanitize --test-party 6 --combat lost --start 8cda --keys '\r' COKAssets 16 | tail -n 1)" = "(the party was killed in block 16)"
+	if [ -f SAVE/SAVGAMA.DAT ]; then for how in won fled; do test "$$(./build/eclplay_sanitize --party SAVE/SAVGAMA.DAT --combat $$how --start 8cda --keys '\rSE\r' COKAssets 16 | tail -n 1)" = "(done in block 16)" || exit 1; done; fi
+	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --party SAVE/SAVGAMA.DAT --combat gods --start 8cda --keys '\r\rSE\r' COKAssets 16 | tail -n 1)" = "(done in block 16)"; fi
+	test "$$(./build/eclplay_sanitize --test-party 4 --start 891c --keys 'y\rB\v\v\r\ePB\r\eEySE' COKAssets 16 | tail -n 1)" = "(out of keys in block 16 at 8dd1)"
+	test "$$(./build/eclplay_sanitize --test-party 4 --start 8cea --keys 'B\r\eE' COKAssets 50 | tail -n 1)" = "(out of keys in block 50 at 9d2f)"
+	test "$$(./build/eclplay_sanitize --test-party 4 --start 8782 --keys 'B\r\eVI\v\vSyI\ry\e\eE' COKAssets 17 | tail -n 1)" = "(out of keys in block 17 at 86ec)"
+	test "$$(./build/eclplay_sanitize --test-party 4 --start 8a8f --keys '\rPH\v\vHy\eEn\r' COKAssets 16 | tail -n 1)" = "(done in block 16)"
+	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --set 4be6=1 --combat-map build/combat-map.txt --keys '\r\rE' COKAssets 32 | tail -n 1)" = "(done in block 32)"
 	test "$$(head -n 1 build/combat-map.txt)" = "battle in block 32: view 24,10, 21 combatants"
-	out="$$(./build/eclplay_sanitize --combat pass --test-party 6 --play --set 4be6=1 --keys '\r\rE\ram\^\^\>eaa' Assets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 32 at 8320)" && test "$$(printf '%s\n' "$$out" | grep '^area: ' | tr '\n' ' ')" = "area: on area: off area: on "
-	out="$$(./build/eclplay_sanitize --test-party 2 --play --set 4be6=1 --keys '\r\rea' Assets 34)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 34 at 8287)" && printf '%s\n' "$$out" | grep -q '^print: Not Here$$'
-	out="$$(./build/eclplay_sanitize --test-party 2 --play --set 4be6=1 --helm --keys '\r\ream\^' Assets 34)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 34 at 98e6)" && test "$$(printf '%s\n' "$$out" | grep '^area: \|^at: ' | tr '\n' ' ')" = "area: on at: 1,0,2 area: off "
-	out="$$(./build/eclplay_sanitize --test-party 4 --play --set 4bf2=11 --set 4bc3=1 --set 4bc4=3 --set 4c2d=1 --keys 'nm98yLn2' Assets 16)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 16 at 8824)" && test "$$(printf '%s\n' "$$out" | grep '^overland: ' | tr '\n' ' ')" = "overland: 2,2,1 overland: 2,1,0 overland: 2,2,4 "
-	out="$$(./build/eclplay_sanitize --test-party 4 --play --set 4bf2=11 --set 4bc3=1 --set 4bc4=3 --set 4c2d=1 --seed 3 --combat won --keys 'nm\>\>\>\>\>\>\>\>\>\>\>\r\rENm\veee' Assets 16)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 16 at 828b)" && printf '%s\n' "$$out" | grep -q '^print: YOU HAVE DISCOVERED SOME HOSTILE CREATURES.$$' && printf '%s\n' "$$out" | grep -q '^overland: 12,4,4$$'
-	test "$$(./build/eclplay_sanitize --test-party 4 --start 8890 --keys 'ye' Assets 16 | tail -n 1)" = "(done in block 16)"
-	out="$$(./build/eclplay_sanitize --test-party 4 --set 4be6=1 --combat won --keys '\r\eN' Assets 57)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(done in block 57)" && test "$$(printf '%s\n' "$$out" | grep -c '^party: .* joins')" = 3 && test "$$(printf '%s\n' "$$out" | grep -c '^sound: 10$$')" = 24
-	test "$$(./build/eclplay_sanitize --test-party 4 --set 4be6=1 --start 8b47 --shots build/sanitize_shots --keys '\>\rB\eE' Assets 50 | tail -n 1)" = "(done in block 50)"
-	out="$$(./build/eclplay_sanitize --test-party 4 --set 4be6=1 --start 87c0 --keys '\r' Assets 50)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 50 at 8904)" && printf '%s\n' "$$out" | grep -q '^party: DUNN leaves$$'
-	test "$$(./build/eclplay_sanitize --test-party 4 --set 4be6=1 --set 7c21=16 --start 9b82 --keys 'C\r' Assets 32 | tail -n 1)" = "(out of keys in block 32 at 9ca7)"
-	test "$$(./build/eclplay_sanitize --start-menu --combat won --keys '\kx\t' Assets | tail -n 1)" = "(out of keys at the title)"
-	rm -rf build/sanitize_roster && mkdir -p build/sanitize_roster && test "$$(./build/eclplay_sanitize --start-menu --saves build/sanitize_roster --keys '\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\eYY\vS\rE\v\v\v\v\vSA\vS\r\r\r\r\r\r\rH\v\v\vSS\v\v\v\v\v\vS' Assets | tail -n 1)" = "(out of keys in block 17 at 86ec)"
-	rm -rf build/sanitize_cga && mkdir -p build/sanitize_cga && out="$$(./build/eclplay_sanitize --start-menu --display cga --seed 7 --helm --saves build/sanitize_cga --shots build/sanitize_cga --keys '$(COK_GAME)' Assets)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in the start menu)" && test "$$(ls build/sanitize_cga/*.bmp | wc -l)" -gt 90
-	rm -rf build/sanitize_cga && mkdir -p build/sanitize_cga && test "$$(./build/eclplay_sanitize --start-menu --display cga --saves build/sanitize_cga --keys '\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\r\e' Assets | grep -c '^print: Sorry, not in CGA$$')" = 1
-	out="$$(./build/eclplay_sanitize --test-party 6 --combat auto --seed 5 --start 8cda --keys '\r\r\r\r' Assets 16)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(the party was killed in block 16)" && test "$$(printf '%s\n' "$$out" | grep -c '^print: breathes Fire$$')" = 3 && printf '%s\n' "$$out" | grep -q '^combat: seed 2266347106$$'
-	out="$$(./build/eclplay_sanitize --test-party 8 --set 4be6=1 --start 835f --seed 1 --keys '\rCCNT\@qN\rEN\r\r' Assets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(done in block 32)" && printf '%s\n' "$$out" | grep -q '^print: Creates a noxious cloud$$' && printf '%s\n' "$$out" | grep -q '^print: chokes and gags from nausea$$'
-	out="$$(./build/eclplay_sanitize --file 2 --test-party 6 --start 8440 --seed 6 --combat auto --keys '\r\r\r\r\r' Assets 49)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 49 at 82c0)" && printf '%s\n' "$$out" | grep -q '^print: dissolves into acid!$$'
-	out="$$(./build/eclplay_sanitize --file 3 --test-party 6 --combat auto --seed 148 --start 9afb --set 4be6=1 --effect 1,1,0,3 --effect 2,1,0,3 --effect 3,1,0,3 --effect 4,1,0,3 --effect 5,1,0,3 --effect 6,1,0,3 --keys '\r' Assets 82)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(the party was killed in block 82)" && printf '%s\n' "$$out" | grep -q '^effect: DUNN loses 0x01$$' && printf '%s\n' "$$out" | grep -q '^print: is affected$$' && ! printf '%s\n' "$$out" | grep -q '^unported'
-	out="$$(./build/eclplay_sanitize --test-party 6 --combat auto --seed 1 --play --set 4be6=1 --effect 1,37,0,ff --effect 1,16,3,0 --effect 2,3e,2,ff --effect 3,3e,3,ff --effect 4,3e,2,ff --effect 3,22,1,7 --keys '\r\r' Assets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(the party was killed in block 32)" && printf '%s\n' "$$out" | grep -q '^print: dies from poison$$' && printf '%s\n' "$$out" | grep -q '^print: is weakened$$' && test "$$(printf '%s\n' "$$out" | grep -c '^print: is partially healed$$')" = 3
-	./build/daxcheck_sanitize Assets/*.DAX
-	rm -rf build/sanitize_wav && mkdir -p build/sanitize_wav && test "$$(./build/eclplay_sanitize --start-menu --saves build/sanitize_wav --seed 3 --wav build/sanitize_wav/a.wav --keys '\p50.\t' Assets | tail -n 1)" = "(out of keys at the title)" && test "$$(./build/eclplay_sanitize --start-menu --saves build/sanitize_wav --seed 3 --sound speaker --wav build/sanitize_wav/b.wav --keys '\t' Assets | tail -n 1)" = "(out of keys at the title)"
-	rm -rf build/sanitize_setup && mkdir -p build/sanitize_setup/assets build/sanitize_setup/saves build/sanitize_setup/cok && for f in Assets/*; do [ "$${f##*/}" = KRYNN.CFG ] || ln -s "$$PWD/$$f" build/sanitize_setup/assets/; done && out="$$(./build/eclplay_sanitize --start-menu --saves build/sanitize_setup/saves --shots build/sanitize_setup --keys '91\#32x3xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\eq:\\x\b\r\kxP\e' build/sanitize_setup/assets)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in the start menu)" && printf '%s\n' "$$out" | grep -q '^crt: USING DEFAULT PATH: C:\\COK\\SAVE$$' && test "$$(head -n 4 build/sanitize_setup/saves/KRYNN.CFG | od -An -c | tr -d ' \n')" = 'C\r\nR\r\nN\r\nC:\COK\SAVE\\r\n'
+	out="$$(./build/eclplay_sanitize --combat pass --test-party 6 --play --set 4be6=1 --keys '\r\rE\ram\^\^\>eaa' COKAssets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 32 at 8320)" && test "$$(printf '%s\n' "$$out" | grep '^area: ' | tr '\n' ' ')" = "area: on area: off area: on "
+	out="$$(./build/eclplay_sanitize --test-party 2 --play --set 4be6=1 --keys '\r\rea' COKAssets 34)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 34 at 8287)" && printf '%s\n' "$$out" | grep -q '^print: Not Here$$'
+	out="$$(./build/eclplay_sanitize --test-party 2 --play --set 4be6=1 --helm --keys '\r\ream\^' COKAssets 34)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 34 at 98e6)" && test "$$(printf '%s\n' "$$out" | grep '^area: \|^at: ' | tr '\n' ' ')" = "area: on at: 1,0,2 area: off "
+	out="$$(./build/eclplay_sanitize --test-party 4 --play --set 4bf2=11 --set 4bc3=1 --set 4bc4=3 --set 4c2d=1 --keys 'nm98yLn2' COKAssets 16)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 16 at 8824)" && test "$$(printf '%s\n' "$$out" | grep '^overland: ' | tr '\n' ' ')" = "overland: 2,2,1 overland: 2,1,0 overland: 2,2,4 "
+	out="$$(./build/eclplay_sanitize --test-party 4 --play --set 4bf2=11 --set 4bc3=1 --set 4bc4=3 --set 4c2d=1 --seed 3 --combat won --keys 'nm\>\>\>\>\>\>\>\>\>\>\>\r\rENm\veee' COKAssets 16)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 16 at 828b)" && printf '%s\n' "$$out" | grep -q '^print: YOU HAVE DISCOVERED SOME HOSTILE CREATURES.$$' && printf '%s\n' "$$out" | grep -q '^overland: 12,4,4$$'
+	test "$$(./build/eclplay_sanitize --test-party 4 --start 8890 --keys 'ye' COKAssets 16 | tail -n 1)" = "(done in block 16)"
+	out="$$(./build/eclplay_sanitize --test-party 4 --set 4be6=1 --combat won --keys '\r\eN' COKAssets 57)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(done in block 57)" && test "$$(printf '%s\n' "$$out" | grep -c '^party: .* joins')" = 3 && test "$$(printf '%s\n' "$$out" | grep -c '^sound: 10$$')" = 24
+	test "$$(./build/eclplay_sanitize --test-party 4 --set 4be6=1 --start 8b47 --shots build/sanitize_shots --keys '\>\rB\eE' COKAssets 50 | tail -n 1)" = "(done in block 50)"
+	out="$$(./build/eclplay_sanitize --test-party 4 --set 4be6=1 --start 87c0 --keys '\r' COKAssets 50)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 50 at 8904)" && printf '%s\n' "$$out" | grep -q '^party: DUNN leaves$$'
+	test "$$(./build/eclplay_sanitize --test-party 4 --set 4be6=1 --set 7c21=16 --start 9b82 --keys 'C\r' COKAssets 32 | tail -n 1)" = "(out of keys in block 32 at 9ca7)"
+	test "$$(./build/eclplay_sanitize --start-menu --combat won --keys '\kx\t' COKAssets | tail -n 1)" = "(out of keys at the title)"
+	rm -rf build/sanitize_roster && mkdir -p build/sanitize_roster && test "$$(./build/eclplay_sanitize --start-menu --saves build/sanitize_roster --keys '\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\eYY\vS\rE\v\v\v\v\vSA\vS\r\r\r\r\r\r\rH\v\v\vSS\v\v\v\v\v\vS' COKAssets | tail -n 1)" = "(out of keys in block 17 at 86ec)"
+	rm -rf build/sanitize_cga && mkdir -p build/sanitize_cga && out="$$(./build/eclplay_sanitize --start-menu --display cga --seed 7 --helm --saves build/sanitize_cga --shots build/sanitize_cga --keys '$(COK_GAME)' COKAssets)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in the start menu)" && test "$$(ls build/sanitize_cga/*.bmp | wc -l)" -gt 90
+	rm -rf build/sanitize_cga && mkdir -p build/sanitize_cga && test "$$(./build/eclplay_sanitize --start-menu --display cga --saves build/sanitize_cga --keys '\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\r\e' COKAssets | grep -c '^print: Sorry, not in CGA$$')" = 1
+	out="$$(./build/eclplay_sanitize --test-party 6 --combat auto --seed 5 --start 8cda --keys '\r\r\r\r' COKAssets 16)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(the party was killed in block 16)" && test "$$(printf '%s\n' "$$out" | grep -c '^print: breathes Fire$$')" = 3 && printf '%s\n' "$$out" | grep -q '^combat: seed 2266347106$$'
+	out="$$(./build/eclplay_sanitize --test-party 8 --set 4be6=1 --start 835f --seed 1 --keys '\rCCNT\@qN\rEN\r\r' COKAssets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(done in block 32)" && printf '%s\n' "$$out" | grep -q '^print: Creates a noxious cloud$$' && printf '%s\n' "$$out" | grep -q '^print: chokes and gags from nausea$$'
+	out="$$(./build/eclplay_sanitize --file 2 --test-party 6 --start 8440 --seed 6 --combat auto --keys '\r\r\r\r\r' COKAssets 49)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in block 49 at 82c0)" && printf '%s\n' "$$out" | grep -q '^print: dissolves into acid!$$'
+	out="$$(./build/eclplay_sanitize --file 3 --test-party 6 --combat auto --seed 148 --start 9afb --set 4be6=1 --effect 1,1,0,3 --effect 2,1,0,3 --effect 3,1,0,3 --effect 4,1,0,3 --effect 5,1,0,3 --effect 6,1,0,3 --keys '\r' COKAssets 82)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(the party was killed in block 82)" && printf '%s\n' "$$out" | grep -q '^effect: DUNN loses 0x01$$' && printf '%s\n' "$$out" | grep -q '^print: is affected$$' && ! printf '%s\n' "$$out" | grep -q '^unported'
+	out="$$(./build/eclplay_sanitize --test-party 6 --combat auto --seed 1 --play --set 4be6=1 --effect 1,37,0,ff --effect 1,16,3,0 --effect 2,3e,2,ff --effect 3,3e,3,ff --effect 4,3e,2,ff --effect 3,22,1,7 --keys '\r\r' COKAssets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(the party was killed in block 32)" && printf '%s\n' "$$out" | grep -q '^print: dies from poison$$' && printf '%s\n' "$$out" | grep -q '^print: is weakened$$' && test "$$(printf '%s\n' "$$out" | grep -c '^print: is partially healed$$')" = 3
+	./build/daxcheck_sanitize COKAssets/*.DAX
+	rm -rf build/sanitize_wav && mkdir -p build/sanitize_wav && test "$$(./build/eclplay_sanitize --start-menu --saves build/sanitize_wav --seed 3 --wav build/sanitize_wav/a.wav --keys '\p50.\t' COKAssets | tail -n 1)" = "(out of keys at the title)" && test "$$(./build/eclplay_sanitize --start-menu --saves build/sanitize_wav --seed 3 --sound speaker --wav build/sanitize_wav/b.wav --keys '\t' COKAssets | tail -n 1)" = "(out of keys at the title)"
+	rm -rf build/sanitize_setup && mkdir -p build/sanitize_setup/assets build/sanitize_setup/saves build/sanitize_setup/cok && for f in COKAssets/*; do [ "$${f##*/}" = KRYNN.CFG ] || ln -s "$$PWD/$$f" build/sanitize_setup/assets/; done && out="$$(./build/eclplay_sanitize --start-menu --saves build/sanitize_setup/saves --shots build/sanitize_setup --keys '91\#32x3xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\eq:\\x\b\r\kxP\e' build/sanitize_setup/assets)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in the start menu)" && printf '%s\n' "$$out" | grep -q '^crt: USING DEFAULT PATH: C:\\COK\\SAVE$$' && test "$$(head -n 4 build/sanitize_setup/saves/KRYNN.CFG | od -An -c | tr -d ' \n')" = 'C\r\nR\r\nN\r\nC:\COK\SAVE\\r\n'
 	$(if $(HAVE_SDL),./build/test_keymap_sanitize,@echo "SDL2 not found (pkg-config sdl2): skipped build/cok_sanitize")
 	$(if $(HAVE_SDL),test "$$(SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy ./build/cok_sanitize --assets build/sanitize_setup/assets --saves build/sanitize_setup/cok --no-delay --keys '91\#32x3xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\eq:\\x\b\r\kxP\e')" = "(out of keys in the start menu)" && cmp build/sanitize_setup/saves/KRYNN.CFG build/sanitize_setup/cok/KRYNN.CFG)
 	$(if $(HAVE_SDL),rm -rf build/sanitize_cok && test "$$(SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy ./build/cok_sanitize --saves build/sanitize_cok --no-delay --seed 7 --helm --log --log-times --keys '$(COK_GAME)' 2>build/sanitize_cok.log)" = "(out of keys in the start menu)" && ! grep -E 'Sanitizer|runtime error' build/sanitize_cok.log && grep -q '^[0-9]* present: ' build/sanitize_cok.log)
-	rm -rf build/sanitize_mouse && mkdir -p build/sanitize_mouse && test "$$(./build/eclplay_sanitize --start-menu --mouse --seed 5 --saves build/sanitize_mouse --shots build/sanitize_mouse --keys '$(COK_CLICKS)' Assets | tail -n 1)" = "(out of keys in the start menu)" && test -f build/sanitize_mouse/BOB.WHO
+	rm -rf build/sanitize_mouse && mkdir -p build/sanitize_mouse && test "$$(./build/eclplay_sanitize --start-menu --mouse --seed 5 --saves build/sanitize_mouse --shots build/sanitize_mouse --keys '$(COK_CLICKS)' COKAssets | tail -n 1)" = "(out of keys in the start menu)" && test -f build/sanitize_mouse/BOB.WHO
 	$(if $(HAVE_SDL),rm -rf build/sanitize_stick && mkdir -p build/sanitize_stick && printf '$(COK_STICK_CFG)' > build/sanitize_stick/KRYNN.CFG && test "$$(SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy ./build/cok_sanitize --saves build/sanitize_stick --no-delay --keys '$(COK_STICK)')" = "(out of keys in the start menu)" && test "$$(sed -n 3p build/sanitize_stick/KRYNN.CFG)" = "$$(printf 'J\r')")
 	$(if $(HAVE_SDL),rm -rf build/sanitize_cok && test "$$(TSAN_OPTIONS='halt_on_error=1 exitcode=66' SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy ./build/cok_tsan --saves build/sanitize_cok --no-delay --sound-clock real --seed 7 --helm --keys '\p50.$(COK_GAME)')" = "(out of keys in the start menu)")

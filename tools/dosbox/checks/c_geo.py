@@ -40,7 +40,7 @@ def dax_record(path, wanted):
 
 def load(file, record):
     """GEO<file>.DAX record RECORD's four tables (after its two bytes)."""
-    return dax_record(cokbox.ROOT / f"Assets/GEO{file}.DAX", record)[2:]
+    return dax_record(cokbox.ROOT / f"COKAssets/GEO{file}.DAX", record)[2:]
 
 
 def wall(m, d, x, y):

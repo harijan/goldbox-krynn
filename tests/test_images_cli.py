@@ -99,7 +99,7 @@ class ExportTests(unittest.TestCase):
         for name, count in expected.items():
             with self.subTest(archive=name):
                 output = self.folder / name
-                result = self.run_tool(ROOT / "Assets" / f"{name}.DAX", output)
+                result = self.run_tool(ROOT / "COKAssets" / f"{name}.DAX", output)
                 self.assertEqual(result.returncode, 1 if name == "8X8D1" else 0, result.stderr)
                 if name == "8X8D1":
                     self.assertIn("entry 0 ID 201", result.stderr)
@@ -133,7 +133,7 @@ class ComposeTextTests(unittest.TestCase):
         return red, green, blue
 
     def test_text_draws_game_font_glyphs(self):
-        font = ROOT / "Assets/8X8D1.DAX"
+        font = ROOT / "COKAssets/8X8D1.DAX"
         # "A" (glyph 1) has row 0 = 0x0f: four background, then four foreground pixels.
         result = self.compose("text", font, 0, 1, 2, 14, 1, "a",
                               "glyph", font, 0, 32, 2, 38, 24, 15, 4)
@@ -144,11 +144,11 @@ class ComposeTextTests(unittest.TestCase):
         self.assertEqual(self.pixel(303, 199), (0, 0, 0))
 
     def test_text_rejects_bad_arguments(self):
-        font = ROOT / "Assets/8X8D1.DAX"
+        font = ROOT / "COKAssets/8X8D1.DAX"
         for command in (("text", font, 0, 0, 0, 16, 0, "A"),
                         ("glyph", font, 0, 256, 1, 0, 0, 1, 0),
                         ("text", font, 99, 0, 0, 1, 0, "A"),
-                        ("text", ROOT / "Assets/TITLE.DAX", 0, 0, 0, 1, 0, "A")):
+                        ("text", ROOT / "COKAssets/TITLE.DAX", 0, 0, 0, 1, 0, "A")):
             with self.subTest(command=command[:3]):
                 self.assertNotEqual(self.compose(*command).returncode, 0)
 

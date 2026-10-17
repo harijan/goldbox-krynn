@@ -61,7 +61,7 @@ static void traced(void *context, uint16_t port, uint8_t value)
     }
 }
 
-static const char *assets = "Assets";
+static const char *assets = "COKAssets";
 
 static void setup(cok_sound_device device, trace *t)
 {

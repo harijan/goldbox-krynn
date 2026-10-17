@@ -44,7 +44,7 @@ typedef struct {
 static uint8_t *record(const char *archive, long entry, size_t *size)
 {
     char path[64];
-    snprintf(path, sizeof path, "Assets/%s", archive);
+    snprintf(path, sizeof path, "COKAssets/%s", archive);
     dax_archive dax = {0};
     dax_record r;
     CHECK(dax_open(path, &dax) == DAX_OK && dax_record_at(&dax, (size_t)entry, &r) == DAX_OK);

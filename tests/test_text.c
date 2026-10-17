@@ -262,7 +262,7 @@ static void test_game_font(void)
 {
     dax_archive archive = {0};
     dax_record record;
-    CHECK(dax_open("Assets/8X8D1.DAX", &archive) == DAX_OK);
+    CHECK(dax_open("COKAssets/8X8D1.DAX", &archive) == DAX_OK);
     CHECK(dax_record_at(&archive, 0, &record) == DAX_OK && record.id == 201);
     uint8_t *data = malloc(record.decoded_size);
     CHECK(data != NULL);

@@ -174,7 +174,7 @@ static void test_files(void)
 {
     static cok_item_types types;
     char error[256];
-    CHECK(cok_item_types_read("Assets/ITEMS", &types, error, sizeof error));
+    CHECK(cok_item_types_read("COKAssets/ITEMS", &types, error, sizeof error));
     char dir[] = "/tmp/cok_party_XXXXXX";
     CHECK(mkdtemp(dir) != NULL);
     char path[256];
@@ -285,7 +285,7 @@ static cok_item_types *load_types(void)
 {
     static cok_item_types types;
     char error[256];
-    CHECK(cok_item_types_read("Assets/ITEMS", &types, error, sizeof error));
+    CHECK(cok_item_types_read("COKAssets/ITEMS", &types, error, sizeof error));
     return &types;
 }
 
@@ -297,7 +297,7 @@ static void test_items(void)
     CHECK(types->type[0x25][0] == 1 && types->type[0x25][6] == 0x81);
     static cok_item_types none;
     char error[256];
-    CHECK(!cok_item_types_read("Assets/NO-ITEMS", &none, error, sizeof error));
+    CHECK(!cok_item_types_read("COKAssets/NO-ITEMS", &none, error, sizeof error));
     CHECK(strstr(error, "NO-ITEMS") != NULL);
 }
 

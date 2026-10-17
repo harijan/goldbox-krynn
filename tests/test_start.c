@@ -1402,7 +1402,7 @@ int main(void)
     cok_keyboard k = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .key_pending = pending, .delay = delay, .flush = flush,
                                  .context = &s};
-    CHECK(cok_adventure_open(&game, "Assets", &k, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &k, &hooks));
     test_tables();
     test_experience();
     test_hit_points();

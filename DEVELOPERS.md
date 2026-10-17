@@ -15,8 +15,10 @@ title's music (see Playing and Sound), in the display mode `KRYNN.CFG`
 names: EGA, the Tandy's or CGA's four colours (see Display modes), after
 the original's text-mode setup when there is no `KRYNN.CFG` (see Startup
 and the setup). The original DOS executable, decompiler output, and game
-data are reference inputs, kept in `Assets/`; saved games from the
-original, if any, go in `SAVE/`.
+data are reference inputs, kept in `COKAssets/`; saved games from the
+original, if any, go in `SAVE/`. The sequels' files, for disassembly only
+(see Disassembly image), go in `DKKAssets/` (Death Knights of Krynn) and
+`DQKAssets/` (The Dark Queen of Krynn); like `COKAssets/`, they are not in git.
 
 ## Build and verify
 
@@ -24,30 +26,30 @@ Run from the project directory, with a C compiler and Make installed:
 
 ```sh
 make
-./build/daxcheck Assets/TITLE.DAX
-./build/daxcheck --list Assets/TITLE.DAX
-./build/daximages Assets/TITLE.DAX build/title
-./build/daximages --entry 0 --frame 0 Assets/PIC1.DAX build/portrait
+./build/daxcheck COKAssets/TITLE.DAX
+./build/daxcheck --list COKAssets/TITLE.DAX
+./build/daximages COKAssets/TITLE.DAX build/title
+./build/daximages --entry 0 --frame 0 COKAssets/PIC1.DAX build/portrait
 ./build/daxcompose build/demo.bmp fill 0 0 40 200 1 \
-    draw Assets/PIC1.DAX 0 4 1 1 sprite Assets/SPRIT1.DAX 0 0 4 12 \
-    text Assets/8X8D1.DAX 0 1 23 14 0 "Champions of Krynn"
-./build/ecldump --block 16 Assets/ECL1.DAX
-./build/ecldump --summary Assets/ECL*.DAX
-./build/eclplay --test-party 4 --keys '\r\r\r\r\r' --shots build/shots Assets 16
-./build/eclplay --play --set 4be6=1 --keys '\r\rm\^\r\^\^' Assets 32
-./build/eclplay --load SAVE/SAVGAMA.DAT --play --keys '\r\r\r' Assets
-./build/eclplay --play --set 4be6=1 --saves build --keys '\rerharsan\e' Assets 32
+    draw COKAssets/PIC1.DAX 0 4 1 1 sprite COKAssets/SPRIT1.DAX 0 0 4 12 \
+    text COKAssets/8X8D1.DAX 0 1 23 14 0 "Champions of Krynn"
+./build/ecldump --block 16 COKAssets/ECL1.DAX
+./build/ecldump --summary COKAssets/ECL*.DAX
+./build/eclplay --test-party 4 --keys '\r\r\r\r\r' --shots build/shots COKAssets 16
+./build/eclplay --play --set 4be6=1 --keys '\r\rm\^\r\^\^' COKAssets 32
+./build/eclplay --load SAVE/SAVGAMA.DAT --play --keys '\r\r\r' COKAssets
+./build/eclplay --play --set 4be6=1 --saves build --keys '\rerharsan\e' COKAssets 32
 ./build/eclplay --test-party 4 --play --set 4bf2=11 --set 4bc3=1 --set 4bc4=3 \
-    --set 4c2d=1 --keys 'nm98y' Assets 16
+    --set 4c2d=1 --keys 'nm98y' COKAssets 16
 mkdir -p build/roster
 ./build/eclplay --start-menu --saves build/roster \
-    --keys '\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\eYY\vS\rE\v\v\v\v\v\vS' Assets
-./build/eclplay --start-menu --saves build/roster --wav build/title.wav --keys '\t' Assets
+    --keys '\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\eYY\vS\rE\v\v\v\v\v\vS' COKAssets
+./build/eclplay --start-menu --saves build/roster --wav build/title.wav --keys '\t' COKAssets
 ./build/eclplay --start-menu --display cga --saves build/roster --shots build/cga \
-    --keys '\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\r\e' Assets
+    --keys '\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\r\e' COKAssets
 rm -f build/krynn.cfg
-./build/eclplay --start-menu --config build/krynn.cfg --keys '243d:\\krynn\r\t' Assets
-./build/eclplay --start-menu --mouse --shots build/mouse --keys '\kx\m190,195,1.' Assets
+./build/eclplay --start-menu --config build/krynn.cfg --keys '243d:\\krynn\r\t' COKAssets
+./build/eclplay --start-menu --mouse --shots build/mouse --keys '\kx\m190,195,1.' COKAssets
 make test
 make sanitize
 make cok
@@ -64,7 +66,7 @@ so. With it, `make test` also builds the front end and checks it under
 SDL's dummy video driver (`tests/test_keymap.c`, `tests/test_cok.py`).
 The dev container installs `libsdl2-dev` but has no display: build and run
 `cok` on the host (`make cok && ./build/cok` from the project directory,
-with the game's files in `Assets/`), or give the container the host's X
+with the game's files in `COKAssets/`), or give the container the host's X
 server (on a Linux host, run it with `-v /tmp/.X11-unix:/tmp/.X11-unix -e
 DISPLAY=$DISPLAY` and allow it with `xhost +local:`; or `ssh -X` into a
 machine with the build). SDL picks Wayland, X11 or the console's driver
@@ -130,7 +132,7 @@ timed menu runs out or the small picture's next frame is due.
 
 | Option | |
 | --- | --- |
-| `--assets DIR` | the game's DAX files (default `Assets`) |
+| `--assets DIR` | the game's DAX files (default `COKAssets`) |
 | `--saves DIR` | the roster and saved games (default `saves`, created if missing; ignored by git); never `SAVE/` itself: to play the original's games, copy them into it (`mkdir -p saves && cp SAVE/* saves/`) and pick Load Saved Game; and the port's `KRYNN.CFG`, read before the assets' and written by the setup (see Startup and the setup) |
 | `--config FILE` | the `KRYNN.CFG` to read, or, if it is missing, for the setup to write |
 | `--scale N` | the window's size, N (1-16) times the screen (default 3: 960×720) |
@@ -467,13 +469,13 @@ directory, which the port splits into the assets (read only, the original's
 files) and `--saves` (the port's own). It reads `--config FILE` if given;
 else `KRYNN.CFG` (or `krynn.cfg`) in the saves directory; else the one in
 the assets directory, as a copy of the original's directory has it
-(`Assets/KRYNN.CFG` says `E`, `T`, `M`, `C:\COK\SAVE\`, `F` and 14 zeros).
+(`COKAssets/KRYNN.CFG` says `E`, `T`, `M`, `C:\COK\SAVE\`, `F` and 14 zeros).
 A file found is a regular file, as `FindFirst` finds one: a directory of
 that name counts as missing (the setup then fails to make it, as the
 original's `Rewrite` does), and a file the port cannot read stops the run,
 never made again. Without any, the setup writes `--config FILE` or
 `SAVES/KRYNN.CFG`, which later runs then read; the port never writes into
-the assets directory, which may be the repository's `Assets/` or a
+the assets directory, which may be the repository's `COKAssets/` or a
 read-only copy of the game, not even with `--saves` naming it (the setup
 then writes nowhere). So the saves directory's copy, once written (by the
 setup, or by Initialize Mouse/Joystick, which copies the assets' with its
@@ -671,7 +673,7 @@ for `C`, `R`, `A` and `P`; the music's driver is `MIDI.DAX` record device +
 1.
 
 The port reads `KRYNN.CFG` the same way (`cok_config_parse`,
-`src/config.c`, which reads the other lines too; `Assets/KRYNN.CFG` says
+`src/config.c`, which reads the other lines too; `COKAssets/KRYNN.CFG` says
 `E` and `T`), from `--config`, the saves directory or the assets (see
 Startup and the setup); without one, the setup asks and writes it.
 `eclplay` without `--start-menu` runs no setup: without a file it says so
@@ -1505,7 +1507,7 @@ prints the game's calls to the sound driver as `call:` lines among the
 rest. `--mouse` and `--joystick` give the machine a mouse driver and a
 joystick, which `\m` and `\j` in the keys click and move, and `--input
 mouse`, `joystick` or `none` picks in place of `KRYNN.CFG`'s third line
-(see The mouse and the joystick). For example, `./build/eclplay --start 899b --keys '\r2\r' Assets 48`
+(see The mouse and the joystick). For example, `./build/eclplay --start 899b --keys '\r2\r' COKAssets 48`
 answers the guards at the gates of Gargath with the second item of a list.
 
 `src/adventure.h` holds the screen side of the opcodes, from overlay `2fd3`:
@@ -7221,8 +7223,8 @@ dosbox-selftest` boots the game in Tandy, EGA and CGA mode to the title's
 menu and compares the SSI picture and the menu with `eclplay`'s frames
 (about 15 seconds; 0 pixels differ in each).
 
-Each run (`Box`) copies `Assets/` into a scratch drive as `C:\COK`, never
-writing into `Assets/`, with a `KRYNN.CFG` written for it (the display's
+Each run (`Box`) copies `COKAssets/` into a scratch drive as `C:\COK`, never
+writing into `COKAssets/`, with a `KRYNN.CFG` written for it (the display's
 letter for the machine: `machine=tandy` with `T`, `ega` (or `vga`,
 `svga_s3`) with `E`, `cga` with `C`; a Tandy told `E` hangs after the note
 to Tandy users; sound `S` by default) or none (the setup), and saved games
@@ -7840,3 +7842,43 @@ unpacked ones, so `521:04ac` is `1521:04ac` at Ghidra's default load segment
 `0x1000`, with no `0x239` correction. The map lists each overlay's stub, load
 segment and `GAME.OVR` offset, and where each stub entry jumps. The output is
 for disassembly only and has not been run under DOS.
+
+The sequels get the same treatment, each with its own target:
+
+| Target | Input | Output |
+| --- | --- | --- |
+| `make merged` | `COKAssets/START.EXE`, `COKAssets/GAME.OVR` | `build/START_FULL.EXE`, `.map` |
+| `make death-merged` | `DKKAssets/START.EXE`, `DKKAssets/GAME.OVR` | `build/death-START_FULL.EXE`, `.map` |
+| `make dqk-merged` | `DQKAssets/DQK.EXE` | `build/DQK_FULL.EXE`, `.map` |
+
+`DEATH=dir` and `DQK=dir` read the files from elsewhere. Each game's Ghidra
+output (`*.EXE.c`, `*.EXE.h`) is kept beside its files.
+
+Death Knights of Krynn is built the same way as this game: an EXEPACK
+`START.EXE` and a `FBOV` `GAME.OVR`, 36 overlay segments with 475 entry
+points, appended from paragraph `0x25b9`. `tools/ovrmerge.py` also reads a
+`START.EXE` that is not packed.
+
+The Dark Queen of Krynn has no `GAME.OVR`: its overlays sit in `DQK.EXE`
+itself, after the part DOS loads (file offset `0x218e0` to the end), and a
+different overlay manager loads them, in the entry point's segment `1d99`.
+`tools/dqkmerge.py` finds its table (`1d99:0c1f`, 13 entries of 18 bytes,
+count at `1d99:0c19`): each entry gives the load segment, the file
+paragraph (relocations as offset/segment pairs, then the code from the next
+paragraph), the paragraphs in memory and read from the file, the relocation
+count, the parent overlay and a flag for overlays loaded at start. Overlays
+share load areas as a tree (children above their parent, siblings at one
+segment), so a segment number in an overlay means that overlay or one of
+its parents. Its 182 routines are called through 10-byte stubs in `1d99`,
+`CALL 058d` / `JMP FAR seg:off` / `DW overlay`.
+
+The tool leaves the root image and overlay 12 where they run: overlay 12 is
+loaded at start and is the data segment and stack (`322e`, so `422e` in
+Ghidra, as in `DQK.EXE.c`). Every other overlay gets a segment of its own
+from `0x4045`; their relocations are rewritten to the copy each segment
+number means, the table's load segments to the copies, and each stub
+becomes a `JMP FAR` to its routine. Every stub lands just after a `RETF`,
+154 of them on `PUSH BP / MOV BP,SP`. The map lists where each overlay runs
+and where it was put, every stub's target, and any segment number in an
+overlay area that no overlay owns (only `1d99:0c0f`, the top of memory,
+`4024`).

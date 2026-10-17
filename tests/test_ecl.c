@@ -510,7 +510,7 @@ static void count_down(cok_ecl *v, void *context)
 static void test_real_blocks(void)
 {
     static smoke s;
-    const char *files[] = {"Assets/ECL1.DAX", "Assets/ECL2.DAX", "Assets/ECL3.DAX"};
+    const char *files[] = {"COKAssets/ECL1.DAX", "COKAssets/ECL2.DAX", "COKAssets/ECL3.DAX"};
     for (size_t f = 0; f < 3; ++f) CHECK(dax_open(files[f], &s.archives[f]) == DAX_OK);
     size_t blocks = 0;
     for (size_t f = 0; f < 3; ++f) {

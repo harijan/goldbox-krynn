@@ -777,7 +777,7 @@ def font():
     character's glyph is its code % 64, lower case folded to upper."""
     global _FONT
     if _FONT is None:
-        _FONT = dax_record(cokbox.ROOT / "Assets" / "8X8D1.DAX", 201)[:512]
+        _FONT = dax_record(cokbox.ROOT / "COKAssets" / "8X8D1.DAX", 201)[:512]
     return _FONT
 
 

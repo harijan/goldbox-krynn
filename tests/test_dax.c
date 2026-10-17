@@ -83,7 +83,7 @@ static void test_original_title(void)
 {
     dax_archive archive = {0};
     dax_record record;
-    CHECK(dax_open("Assets/TITLE.DAX", &archive) == DAX_OK);
+    CHECK(dax_open("COKAssets/TITLE.DAX", &archive) == DAX_OK);
     CHECK(archive.count == 4);
     CHECK(dax_record_at(&archive, 0, &record) == DAX_OK);
     CHECK(record.id == 1 && record.decoded_size == 32017 && record.packed_size == 9716);

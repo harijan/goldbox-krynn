@@ -248,7 +248,7 @@ def port(keys, out, args, saves=(), shots=False, block=None, machine="tandy", bi
     result = subprocess.run(
         [str(exe), "--config", str(cfg), "--saves", str(save_dir),
          *(["--shots", str(shot_dir)] if shots else []), *map(str, args), "--keys", keys,
-         str(ROOT / "Assets"), *([str(block)] if block is not None else [])],
+         str(ROOT / "COKAssets"), *([str(block)] if block is not None else [])],
         check=False, capture_output=True, text=True, timeout=600)
     if result.returncode and not result.stdout:
         raise cokbox.BoxError("eclplay: " + result.stderr.strip())

@@ -8,7 +8,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TOOL = ROOT / "build/eclplay"
-ASSETS = ROOT / "Assets"
+ASSETS = ROOT / "COKAssets"
 SAVE = ROOT / "SAVE"
 
 

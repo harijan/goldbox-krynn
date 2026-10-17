@@ -1,8 +1,8 @@
 /build/
-/START.EXE.c
-/START_FULL.EXE.c
 __pycache__/
 /SAVE/
-/Assets/
+/COKAssets/
+/DKKAssets/
+/DQKAssets/
 /saves/
 /screenshots/
