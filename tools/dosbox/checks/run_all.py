@@ -130,7 +130,13 @@ CHECKS = [
 # (d_lib.burst): run alone after the rest, as with others running beside them
 # on a loaded host DOSBox-X wrote ten times fewer and missed some.
 ALONE = {"d_arrows", "d_aurak", "d_bolt", "d_bozak", "d_cast", "d_gate", "d_hold",
-         "d_turning"}
+         "d_turning",
+         # The battle held at its first turn (d_lib.trap) and let go: twice
+         # among others (6 and 10 at a time) the original then ended the
+         # battle at once ("THE PARTY HAS WON", 0 experience, the monsters'
+         # names cleared), its trap and set-up read agreeing; alone it agreed
+         # every time. A few seconds alone.
+         "d_patrol"}
 # Minutes each took in a full run (the rest a few each), for the order.
 LONG = {"a_demo": 6, "c_wander": 6, "f_frames": 5, "f_display_modes": 5, "f_sound": 4,
         "a_ctrl_s": 3, "e_bolt_bounce": 2, "f_mouse": 2, "e_manual": 2}
