@@ -218,8 +218,9 @@ original's code counts them, a Pascal array's lower bound: the thief
 skills 1-8, the class levels 0-7, the coins 0-6, known spells by spell id
 1-108), the stride between elements (the scores, base and current,
 interleave), rows for a table (spells a day: 4 spell classes by levels
-1-5), whether the original reads it as signed, and whether it is a far
-pointer (meaningless in a file; 0 in the port). Champions' table, with
+1-5), whether the original reads it as signed (a record of the original,
+for a later game's conversions: the accessors read any byte either way),
+and whether it is a far pointer (meaningless in a file; 0 in the port). Champions' table, with
 what each field is and where the original reads it, is
 `champions_character` in `src/rules.c`; the layout's `size` is the
 record's, at most `COK_CHARACTER_MAX`, the buffer every game's fits in,
@@ -240,9 +241,8 @@ expressions they replace were, which `-Wconversion` needs:
 | Was | Is |
 | --- | --- |
 | `c[0x197]` | `cok_field_u8(L, c, COK_FIELD_HIT_POINTS)` |
-| `(int8_t)c[0xf9 + class]` | `cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, class)` (the field is signed) |
-| `c[0x100] > c[0xce]` | `cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > ...`: `u8` reads any byte field raw, as before |
-| `(int8_t)c[0x5a]` | `(int8_t)cok_field_u8(L, c, COK_FIELD_RACE)` (the field is not signed: the cast stays) |
+| `(int8_t)c[0xf9 + class]`, `(int8_t)c[0x18d]` | `cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, class)`, `cok_field_s8(L, c, COK_FIELD_AC)`: every `(int8_t)` read is `s8`, whatever the field |
+| `c[0x100] > c[0xce]` | `cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > ...`: every plain read is `u8`, whatever the field |
 | `u16(c + 0x17d)`, `c[0x17d] \| c[0x17e] << 8` | `cok_field_u16(L, c, COK_FIELD_WEIGHT)` |
 | `word(c + 0xeb + 2 * i)` | `cok_field_u16_at(L, c, COK_FIELD_COINS, i)` |
 | the four bytes of +0x116 | `cok_field_u32(L, c, COK_FIELD_EXPERIENCE)` |
@@ -251,13 +251,15 @@ expressions they replace were, which `-Wconversion` needs:
 | `c[x] = (uint8_t)(c[x] + d)`, `++c[x]` | `cok_field_add8(L, c, f, d)` (and `_at`, `_at2`) |
 | `&c[0xd0 + type]`, `c + 1`, `memset(c + 0x11c, 0, 0x14)` | `c + cok_field_offset_at(L, f, i)`, `cok_field_offset(L, f)`, `cok_field_size(L, f)` |
 | `i <= 0x39` over the memorized spells | `i < cok_field_count(L, COK_FIELD_MEMORIZED)` |
+| `for (i = 1; i <= 6; ++i)` over the coins but silver | from `cok_field_first(L, COK_FIELD_COINS)` (at least 1) to below first + `cok_field_count` |
 
 Each asserts that the game has the field (a game without one gives it
 width 0: `cok_field_present`), that the index is one of its elements, that
-the access is as wide as the field, that `s8` reads a signed one, and that
-a single value's form is not given an array. Where the original computes
-an offset it does not bound (`cok_magic_slots`' class and level past the
-table, reaching other fields or the far pointers),
+the access is as wide as the field, and that a single value's form is not
+given an array. The assertions are compiled into the builds that play
+(no `-DNDEBUG`): one that fails stops `cok` and `eclplay`. Where the
+original computes an offset it does not bound (`cok_magic_slots`' class
+and level past the table, reaching other fields or the far pointers),
 `cok_field_offset_unchecked` does its arithmetic from the layout and
 `cok_field_pointer_at` says whether a byte is a far pointer's; the record
 is then indexed with the result, checked against the layout's `size`.
@@ -288,11 +290,19 @@ in its table.
 
 To convert a file: take each raw character offset (`c[0x...]`,
 `record[0x...]`, `c + 0x...`, a `u16`/`word` of one, a loop bound that is
-an array's count), find or add its field, and replace the expression by
-the accessor of the same type, keeping any cast whose sign differs from
-the field's (`(int8_t)` on an unsigned field) and turning one that agrees
-into `s8`; a routine that has a game declares `L` at its top, one that
-only has a record gains the rules after it and its callers pass theirs.
+an array's count or first index), find or add its field, and replace the
+expression by the accessor of the same type: a plain byte read by `u8`,
+an `(int8_t)` one by `s8`; a routine that has a game declares `L` at its
+top, one that only has a record gains the rules after it and its callers
+pass theirs. An index may go through a checked accessor only when it is a
+constant, a loop bounded by the field's elements, a choice already checked
+against them, or the game's own tables; one that comes from data (a
+byte of an item, a monster, a file or the ECL: camp.c's scroll spell,
+`item byte & 0x7f`, up to 127 where known spells end at 108; attack.c's
+attack slot 0, which reaches AC_BEHIND by the original's `+0x18e + slot`)
+goes through `cok_field_offset_unchecked` and the site's existing bound
+(the record's size, as there), never through a checked accessor that
+would stop where the code before went on.
 Count the offsets before and after (none left but those an unbounded
 original index needs, as above); then the golden outputs and the DOSBox-X
 checks' replay show nothing changed.
@@ -2340,9 +2350,10 @@ order, up to 72 records with the monsters `LOAD MONSTER` appends after the
 party (see Monsters and encounters), and the selected record in
 `vm.character`. The record's fields are named in the game's layout
 (Champions' in `src/rules.c`, see Games' "The character record's
-layout"), through which code reads them. Fields such as the armour class (`+0x18d`, as 60 - AC)
-are derived from the others and the items when a character loads (see
-Derived stats); its spell effects are a list (see Spell effects).
+layout"), through which code reads them. Fields such as the armour class
+(`+0x18d`, as 60 - AC) are derived from the others and the items when a
+character loads (see Derived stats); its spell effects are a list (see
+Spell effects).
 
 A saved game, `SAVGAM<letter>.DAT` (`4b6d:1b34`; the camp's Save writes
 one, see Camp), is 5,469 bytes: the ECL file, the variables
@@ -2509,8 +2520,9 @@ does not run again after `66c2:0433`, so an item
 that `66c2:0433` unreadies still counts until the next recompute, as in the
 original. Item types come from `ITEMS`, which the game reads at startup
 (`3e99:005b`): 128 records of 16 bytes from offset 2, at `DS:5886`.
-`party.h` lists the fields of records, items and item types that these
-routines use.
+The character record's fields these routines use are in Champions'
+layout (`champions_character` in `src/rules.c`, see Games), the items'
+and item types' in `party.h`.
 
 `6346:0d20` counts the items (`+0x142`), weighs them, each weight (`+0x37`)
 times its count (`+0x39`) if that is not 0, with the six coin words from
@@ -3555,7 +3567,8 @@ and `6d21`, and the wrapper of `COMBAT` without the battle.
 
 A monster is a 409-byte character record from `MON<file>CHA.DAX`, with its
 effects (`MON<file>SPC`, 9-byte `.SFX` records) and items (`MON<file>ITM`,
-63-byte `.STF` items). Fields a monster uses beyond those `party.h` lists:
+63-byte `.STF` items). Fields a monster uses beyond those of Champions'
+layout (`champions_character` in `src/rules.c`, see Games):
 
 | Offset | Meaning |
 | --- | --- |

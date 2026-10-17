@@ -63,17 +63,19 @@ static const cok_character_layout champions_character = {
              * 475c:0683). */
             [COK_FIELD_MEMORIZED] = BYTES(0x01e, 0x3a, 0),
             /* The hours of rest that memorizing and scribing need, 0 once
-             * none are marked (4888:05fd). */
-            [COK_FIELD_STUDY_HOURS] = BYTE(0x058),
+             * none are marked (4888:05fd); read signed when counted down. */
+            [COK_FIELD_STUDY_HOURS] = SBYTE(0x058),
             /* 60 - THAC0, the best of the classes' (66c2:0433). */
             [COK_FIELD_BASE_THAC0] = BYTE(0x059),
-            /* 6 human. */
-            [COK_FIELD_RACE] = BYTE(0x05a),
+            /* 6 human. Signed here and below where the original reads it
+             * so: 6346:0d20's race < 7, the sheet's names (546c:00a3),
+             * the ECL's signed fields (ecl.c's kind 1). */
+            [COK_FIELD_RACE] = SBYTE(0x05a),
             /* The class or combination, as character creation numbers
              * them (4def:06dd; its name DS:0f5a). */
-            [COK_FIELD_CLASS] = BYTE(0x05b),
+            [COK_FIELD_CLASS] = SBYTE(0x05b),
             [COK_FIELD_KNIGHT_ORDER] = BYTE(0x05c),
-            [COK_FIELD_DEITY] = BYTE(0x05d),
+            [COK_FIELD_DEITY] = SBYTE(0x05d),
             [COK_FIELD_MAGIC_ORDER] = BYTE(0x05e),
             /* (knight level + former knight level - 1) / 5 + 1, set when
              * effect 0x6e ends (3f44:3643). */
@@ -90,10 +92,10 @@ static const cok_character_layout champions_character = {
             [COK_FIELD_SAVING_THROW] = BYTES(0x0d0, 5, 0),
             [COK_FIELD_BASE_MOVEMENT] = BYTE(0x0d5),
             /* The highest level of any class (66c2:0433). */
-            [COK_FIELD_HIGHEST_LEVEL] = BYTE(0x0d6),
+            [COK_FIELD_HIGHEST_LEVEL] = SBYTE(0x0d6),
             /* A human's level when it changed class, which its new class's
              * level must pass for it to use its former class (66c2:0efb). */
-            [COK_FIELD_CHANGE_LEVEL] = BYTE(0x0d7),
+            [COK_FIELD_CHANGE_LEVEL] = SBYTE(0x0d7),
             /* Eight, by skill 1-8 (66c2:0b9f). */
             [COK_FIELD_THIEF_SKILL] = BYTES(0x0db, 8, 1),
             /* The spell effects (see cok_effect). */
@@ -109,9 +111,9 @@ static const cok_character_layout champions_character = {
              * had before it changed class, the same way (66c2:0433). */
             [COK_FIELD_CLASS_LEVEL] = SBYTES(0x0f9, 8, 0),
             [COK_FIELD_FORMER_LEVEL] = SBYTES(0x101, 8, 0),
-            [COK_FIELD_GENDER] = BYTE(0x109),
+            [COK_FIELD_GENDER] = SBYTE(0x109),
             /* 0-8: 2, 5 and 8 evil; 0, 3 and 6 good. */
-            [COK_FIELD_ALIGNMENT] = BYTE(0x10a),
+            [COK_FIELD_ALIGNMENT] = SBYTE(0x10a),
             /* Two attacks' base: attacks a round, doubled (3 at high
              * fighter, ranger and knight levels, 66c2:0433), dice, their
              * sides and the damage bonus, which 6346:0d20 copies to
@@ -127,6 +129,13 @@ static const cok_character_layout champions_character = {
             [COK_FIELD_EXPERIENCE] = DWORD(0x116),
             /* The classes whose items it can use, as bits (DS:38ea). */
             [COK_FIELD_USABLE_CLASSES] = BYTE(0x11a),
+            /* The hit points the maximum is built from, with each class's
+             * levels and the constitution's bonus: a first level's, which
+             * training adds to (train.c), Modify sets (4def:28fa) and the
+             * constitution's recompute starts from (effect.c). Unrelated to
+             * the spells a day's +0x11b + class * 5 + level, which is the
+             * original's base for the table after it. */
+            [COK_FIELD_BASE_HIT_POINTS] = BYTE(0x11b),
             /* Spells a day by spell class (0 cleric, 1 druid, 2 a deity's
              * granted power, 3 magic-user) and spell level 1-5 (66c2:000f),
              * +0x11b + class * 5 + level. */
@@ -135,8 +144,9 @@ static const cok_character_layout champions_character = {
                  .row_stride = 5},
             /* The combat icon's slot, 0-7 (4b6d:1989). */
             [COK_FIELD_ICON] = BYTE(0x137),
-            /* Creature flags that effects test. */
-            [COK_FIELD_CREATURE_FLAGS] = BYTE(0x13f),
+            /* Creature flags that effects test, two bytes (+0x140's bit 0
+             * too, 3f44:26bf). */
+            [COK_FIELD_CREATURE_FLAGS] = BYTES(0x13f, 2, 0),
             /* The items: their number, the list, and the readied ones'
              * slots (6346:0d20). */
             [COK_FIELD_ITEM_COUNT] = BYTE(0x142),
@@ -150,7 +160,7 @@ static const cok_character_layout champions_character = {
             [COK_FIELD_COMBAT] = POINTER(0x183),
             [COK_FIELD_MAGIC_RESISTANCE] = BYTE(0x187),
             /* 0 okay, 4 unconscious, 5 dying, 6 dead. */
-            [COK_FIELD_STATUS] = BYTE(0x188),
+            [COK_FIELD_STATUS] = SBYTE(0x188),
             /* Set while the character can act; cleared when it drops. */
             [COK_FIELD_ACTIVE] = BYTE(0x189),
             /* 1 for a character fighting against the party. */

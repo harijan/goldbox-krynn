@@ -34,12 +34,12 @@ static const struct {
     {COK_FIELD_STRENGTH_EXCEPTIONAL, "STRENGTH_EXCEPTIONAL", 0x01c, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_STRENGTH_EXCEPTIONAL_BASE, "STRENGTH_EXCEPTIONAL_BASE", 0x01d, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_MEMORIZED, "MEMORIZED", 0x01e, 1, 0x3a, 0, false, false, 0, 0, 0},
-    {COK_FIELD_STUDY_HOURS, "STUDY_HOURS", 0x058, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_STUDY_HOURS, "STUDY_HOURS", 0x058, 1, 1, 0, true, false, 0, 0, 0},
     {COK_FIELD_BASE_THAC0, "BASE_THAC0", 0x059, 1, 1, 0, false, false, 0, 0, 0},
-    {COK_FIELD_RACE, "RACE", 0x05a, 1, 1, 0, false, false, 0, 0, 0},
-    {COK_FIELD_CLASS, "CLASS", 0x05b, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_RACE, "RACE", 0x05a, 1, 1, 0, true, false, 0, 0, 0},
+    {COK_FIELD_CLASS, "CLASS", 0x05b, 1, 1, 0, true, false, 0, 0, 0},
     {COK_FIELD_KNIGHT_ORDER, "KNIGHT_ORDER", 0x05c, 1, 1, 0, false, false, 0, 0, 0},
-    {COK_FIELD_DEITY, "DEITY", 0x05d, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_DEITY, "DEITY", 0x05d, 1, 1, 0, true, false, 0, 0, 0},
     {COK_FIELD_MAGIC_ORDER, "MAGIC_ORDER", 0x05e, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_KNIGHT_TIER, "KNIGHT_TIER", 0x05f, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_AGE, "AGE", 0x060, 2, 1, 0, false, false, 0, 0, 0},
@@ -48,16 +48,16 @@ static const struct {
     {COK_FIELD_FIGHTER_LEVEL, "FIGHTER_LEVEL", 0x0ce, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_SAVING_THROW, "SAVING_THROW", 0x0d0, 1, 5, 0, false, false, 0, 0, 0},
     {COK_FIELD_BASE_MOVEMENT, "BASE_MOVEMENT", 0x0d5, 1, 1, 0, false, false, 0, 0, 0},
-    {COK_FIELD_HIGHEST_LEVEL, "HIGHEST_LEVEL", 0x0d6, 1, 1, 0, false, false, 0, 0, 0},
-    {COK_FIELD_CHANGE_LEVEL, "CHANGE_LEVEL", 0x0d7, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_HIGHEST_LEVEL, "HIGHEST_LEVEL", 0x0d6, 1, 1, 0, true, false, 0, 0, 0},
+    {COK_FIELD_CHANGE_LEVEL, "CHANGE_LEVEL", 0x0d7, 1, 1, 0, true, false, 0, 0, 0},
     {COK_FIELD_THIEF_SKILL, "THIEF_SKILL", 0x0db, 1, 8, 1, false, false, 0, 0, 0},
     {COK_FIELD_EFFECTS, "EFFECTS", 0x0e3, 4, 1, 0, false, true, 0, 0, 0},
     {COK_FIELD_NPC, "NPC", 0x0e7, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_COINS, "COINS", 0x0eb, 2, 7, 0, false, false, 0, 0, 0},
     {COK_FIELD_CLASS_LEVEL, "CLASS_LEVEL", 0x0f9, 1, 8, 0, true, false, 0, 0, 0},
     {COK_FIELD_FORMER_LEVEL, "FORMER_LEVEL", 0x101, 1, 8, 0, true, false, 0, 0, 0},
-    {COK_FIELD_GENDER, "GENDER", 0x109, 1, 1, 0, false, false, 0, 0, 0},
-    {COK_FIELD_ALIGNMENT, "ALIGNMENT", 0x10a, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_GENDER, "GENDER", 0x109, 1, 1, 0, true, false, 0, 0, 0},
+    {COK_FIELD_ALIGNMENT, "ALIGNMENT", 0x10a, 1, 1, 0, true, false, 0, 0, 0},
     {COK_FIELD_BASE_ATTACKS, "BASE_ATTACKS", 0x10b, 1, 2, 1, false, false, 0, 0, 0},
     {COK_FIELD_BASE_DICE, "BASE_DICE", 0x10d, 1, 2, 1, false, false, 0, 0, 0},
     {COK_FIELD_BASE_DICE_SIDES, "BASE_DICE_SIDES", 0x10f, 1, 2, 1, false, false, 0, 0, 0},
@@ -66,9 +66,10 @@ static const struct {
     {COK_FIELD_STRENGTH_BONUSES, "STRENGTH_BONUSES", 0x114, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_EXPERIENCE, "EXPERIENCE", 0x116, 4, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_USABLE_CLASSES, "USABLE_CLASSES", 0x11a, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_BASE_HIT_POINTS, "BASE_HIT_POINTS", 0x11b, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_SPELLS_A_DAY, "SPELLS_A_DAY", 0x11c, 1, 5, 1, false, false, 0, 4, 5},
     {COK_FIELD_ICON, "ICON", 0x137, 1, 1, 0, false, false, 0, 0, 0},
-    {COK_FIELD_CREATURE_FLAGS, "CREATURE_FLAGS", 0x13f, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_CREATURE_FLAGS, "CREATURE_FLAGS", 0x13f, 1, 2, 0, false, false, 0, 0, 0},
     {COK_FIELD_ITEM_COUNT, "ITEM_COUNT", 0x142, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_ITEMS, "ITEMS", 0x143, 4, 1, 0, false, true, 0, 0, 0},
     {COK_FIELD_ITEM_SLOTS, "ITEM_SLOTS", 0x147, 4, 13, 0, false, true, 0, 0, 0},
@@ -78,7 +79,7 @@ static const struct {
     {COK_FIELD_NEXT, "NEXT", 0x17f, 4, 1, 0, false, true, 0, 0, 0},
     {COK_FIELD_COMBAT, "COMBAT", 0x183, 4, 1, 0, false, true, 0, 0, 0},
     {COK_FIELD_MAGIC_RESISTANCE, "MAGIC_RESISTANCE", 0x187, 1, 1, 0, false, false, 0, 0, 0},
-    {COK_FIELD_STATUS, "STATUS", 0x188, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_STATUS, "STATUS", 0x188, 1, 1, 0, true, false, 0, 0, 0},
     {COK_FIELD_ACTIVE, "ACTIVE", 0x189, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_HOSTILE, "HOSTILE", 0x18a, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_COMPUTER, "COMPUTER", 0x18b, 1, 1, 0, false, false, 0, 0, 0},
@@ -196,6 +197,12 @@ static void test_offsets(void)
     CHECK(cok_field_size(L, COK_FIELD_ITEM_SLOTS) == 4 * 13);
     CHECK(cok_field_size(L, COK_FIELD_SCORE) == 11);
     CHECK(cok_field_count(L, COK_FIELD_MEMORIZED) == 0x3a);
+    CHECK(cok_field_first(L, COK_FIELD_MEMORIZED) == 0);
+    CHECK(cok_field_first(L, COK_FIELD_THIEF_SKILL) == 1 &&
+          cok_field_count(L, COK_FIELD_THIEF_SKILL) == 8);
+    CHECK(cok_field_first(L, COK_FIELD_COINS) == 0 && cok_field_count(L, COK_FIELD_COINS) == 7);
+    CHECK(cok_field_offset(L, COK_FIELD_BASE_HIT_POINTS) == 0x11b);
+    CHECK(cok_field_offset_at(L, COK_FIELD_CREATURE_FLAGS, 1) == 0x140);
 }
 
 static void test_accessors(void)
@@ -206,6 +213,10 @@ static void test_accessors(void)
     CHECK(cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, 3) == c[0xfc]);
     CHECK(cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 3) == (int8_t)c[0xfc]);
     CHECK(cok_field_s8(L, c, COK_FIELD_SAVE_BONUS) == (int8_t)c[0x17c]);
+    /* s8 reads any byte field as (int8_t)c[x] did, whatever the table's
+     * is_signed (which records how the original reads it). */
+    CHECK(cok_field_s8(L, c, COK_FIELD_AC) == (int8_t)c[0x18d]);
+    CHECK(cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) == c[0x100]);
     CHECK(cok_field_u16(L, c, COK_FIELD_WEIGHT) == (uint16_t)(c[0x17d] | c[0x17e] << 8));
     CHECK(cok_field_u16_at(L, c, COK_FIELD_COINS, 4) == (uint16_t)(c[0xf3] | c[0xf4] << 8));
     CHECK(cok_field_u32(L, c, COK_FIELD_EXPERIENCE) ==
@@ -290,7 +301,7 @@ static volatile long sink;
 
 static void wide(void) { sink = cok_field_u8(L, record, COK_FIELD_WEIGHT); }
 static void narrow(void) { sink = cok_field_u16(L, record, COK_FIELD_STATUS); }
-static void unsigned_s8(void) { sink = cok_field_s8(L, record, COK_FIELD_RACE); }
+static void wide_s8(void) { sink = cok_field_s8(L, record, COK_FIELD_AGE); }
 static void past(void) { sink = cok_field_u8_at(L, record, COK_FIELD_THIEF_SKILL, 9); }
 static void before_first(void) { sink = cok_field_u8_at(L, record, COK_FIELD_THIEF_SKILL, 0); }
 static void array_single(void) { sink = cok_field_u8(L, record, COK_FIELD_SAVING_THROW); }
@@ -306,7 +317,7 @@ static void test_assertions(void)
 {
     check_aborts(wide, "a byte read of a word");
     check_aborts(narrow, "a word read of a byte");
-    check_aborts(unsigned_s8, "a signed read of an unsigned byte");
+    check_aborts(wide_s8, "a signed byte read of a word");
     check_aborts(past, "an index past the elements");
     check_aborts(before_first, "an index before the first");
     check_aborts(array_single, "an array read as one value");

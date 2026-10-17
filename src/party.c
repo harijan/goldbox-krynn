@@ -1104,8 +1104,10 @@ bool cok_character_stats(cok_character *character, const cok_rules *rules,
         if (item[0x2e] == 0x0c) character->slots[12] = i + 1;
         cok_field_add8(L, c, COK_FIELD_HANDS, type[1]);
     }
-    /* Coins: six words from +0xed. */
-    for (size_t i = 1; i <= 6; ++i)
+    /* Coins but silver (0): 1-6 in Champions. */
+    size_t coin = cok_field_first(L, COK_FIELD_COINS),
+           coins = coin + cok_field_count(L, COK_FIELD_COINS);
+    for (size_t i = coin > 1 ? coin : 1; i < coins; ++i)
         cok_field_set16(L, c, COK_FIELD_WEIGHT,
                         (uint16_t)(cok_field_u16(L, c, COK_FIELD_WEIGHT) +
                                    cok_field_u16_at(L, c, COK_FIELD_COINS, i)));
@@ -1139,7 +1141,7 @@ bool cok_character_stats(cok_character *character, const cok_rules *rules,
     /* Magic armour does not add to a ring's bonus. */
     if (magic) ac[3] = 0;
     encumbrance(&l, L, c);
-    if (ac[4] < cok_field_u8(L, c, COK_FIELD_AC)) ac[4] = (int8_t)cok_field_u8(L, c, COK_FIELD_AC);
+    if (ac[4] < cok_field_u8(L, c, COK_FIELD_AC)) ac[4] = cok_field_s8(L, c, COK_FIELD_AC);
     cok_field_set8(L, c, COK_FIELD_AC, 0);
     for (size_t i = 0; i < 5; ++i) cok_field_add8(L, c, COK_FIELD_AC, ac[i]);
     /* From behind: no dexterity or shield, and 2 worse. */
@@ -1149,7 +1151,7 @@ bool cok_character_stats(cok_character *character, const cok_rules *rules,
           cok_character_former_class(c, rules)) ||
          cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > 0 ||
          cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 4) > 0) &&
-        (int8_t)cok_field_u8(L, c, COK_FIELD_RACE) < 7) {
+        cok_field_s8(L, c, COK_FIELD_RACE) < 7) {
         cok_field_set8(L, c, COK_FIELD_FIGHTER_LEVEL, cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL,
                                                                       2));
         if (cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > cok_field_u8(L, c,
@@ -1175,7 +1177,7 @@ bool cok_character_former_class(const uint8_t *c, const cok_rules *rules)
         while (i < 7 && cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, i) == 0) ++i;
         level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i);
     }
-    return (int8_t)cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL) < level;
+    return cok_field_s8(L, c, COK_FIELD_CHANGE_LEVEL) < level;
 }
 
 /* Mark the cleric spells of each spell level 1-4 with a spell a day as
@@ -1220,7 +1222,7 @@ static void cleric_spells(lookup *l, const cok_character_layout *L, uint8_t *c)
 {
     int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0);
     if (level <= 0) return;
-    int table = (int8_t)cok_field_u8(L, c, COK_FIELD_DEITY) > 4;
+    int table = cok_field_s8(L, c, COK_FIELD_DEITY) > 4;
     memset(c + cok_field_offset_at2(L, COK_FIELD_SPELLS_A_DAY, 0, 2), 0, 4);
     cok_field_set8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, 1, (uint8_t)(table + 1));
     add_spells(l, L, c, table, 2, level, 0, 0, 1, 5);
@@ -1249,7 +1251,7 @@ static void spells(lookup *l, const cok_character_layout *L, cok_character *char
         int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, class);
         if (level <= 0) continue;
         if (class == 0) {
-            int table = (int8_t)cok_field_u8(L, c, COK_FIELD_DEITY) > 4;
+            int table = cok_field_s8(L, c, COK_FIELD_DEITY) > 4;
             cok_field_add8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, 1, 1);
             add_spells(l, L, c, table, 2, level, 0, 0, 1, 5);
             cleric_spells(l, L, c);
@@ -1369,7 +1371,7 @@ static void thief_skills(lookup *l, const cok_rules *rules, cok_character *chara
         base = 4;
         power2 = false;
     }
-    int race = (int8_t)cok_field_u8(L, c, COK_FIELD_RACE);
+    int race = cok_field_s8(L, c, COK_FIELD_RACE);
     for (int skill = 1; skill <= 8; ++skill) {
         int8_t level = base;
         if (power11 && skill == 1) {
@@ -1416,7 +1418,7 @@ bool cok_character_levels(cok_character *character, const cok_rules *rules,
         uint8_t thac0 = ds_byte(&l, 0x3882 + class * 13 + level, "THAC0");
         if (thac0 > cok_field_u8(L, c, COK_FIELD_BASE_THAC0))
             cok_field_set8(L, c, COK_FIELD_BASE_THAC0, thac0);
-        if ((int8_t)cok_field_u8(L, c, COK_FIELD_HIGHEST_LEVEL) < level)
+        if (cok_field_s8(L, c, COK_FIELD_HIGHEST_LEVEL) < level)
             cok_field_set8(L, c, COK_FIELD_HIGHEST_LEVEL, (uint8_t)level);
         if ((class == 2 && level > 6) || (class == 4 && level > 7) || (class == 7 && level > 6))
             cok_field_set8_at(L, c, COK_FIELD_BASE_ATTACKS, 1, 3);
@@ -1437,7 +1439,7 @@ bool cok_character_levels(cok_character *character, const cok_rules *rules,
         int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, class),
                former = cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, class);
         if (level > 0 ||
-            (former > 0 && former < (int8_t)cok_field_u8(L, c, COK_FIELD_HIGHEST_LEVEL)))
+            (former > 0 && former < cok_field_s8(L, c, COK_FIELD_HIGHEST_LEVEL)))
             cok_field_add8(L, c, COK_FIELD_USABLE_CLASSES, class_bits[class]);
     }
     for (size_t i = 0; i < COK_ITEM_SLOTS && !l.failed; ++i) {

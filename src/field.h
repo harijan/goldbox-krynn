@@ -65,9 +65,10 @@ typedef enum {
     COK_FIELD_STRENGTH_BONUSES,          /* Set when strength adds to hit and damage. */
     COK_FIELD_EXPERIENCE,
     COK_FIELD_USABLE_CLASSES,            /* The classes whose items it can use, as bits. */
+    COK_FIELD_BASE_HIT_POINTS,           /* The hit points the maximum is built from. */
     COK_FIELD_SPELLS_A_DAY,              /* By spell class (rows 0-3) and level, 1-5. */
     COK_FIELD_ICON,                      /* The combat icon's slot. */
-    COK_FIELD_CREATURE_FLAGS,
+    COK_FIELD_CREATURE_FLAGS,            /* Two bytes of flags. */
     COK_FIELD_ITEM_COUNT,
     COK_FIELD_ITEMS,                     /* A far pointer: the items. */
     COK_FIELD_ITEM_SLOTS,                /* Far pointers: the readied items, 0-12. */
@@ -114,7 +115,8 @@ typedef struct {
     uint8_t rows;     /* Rows of count elements: 1, or more for a table
                        * (spells a day, by spell class and level). */
     uint8_t row_stride; /* Bytes from one row to the next. */
-    bool is_signed;   /* The original reads it as signed. */
+    bool is_signed;   /* The original reads it as signed (documentation: the
+                       * accessors read a byte either way, u8 or s8). */
     bool pointer;     /* A far pointer: meaningless in a file, 0 in the port. */
 } cok_field_place;
 
@@ -133,8 +135,11 @@ typedef struct {
  * field is one). Each asserts that the game has the field, that the index
  * is one of its elements and that the field is as wide as the access:
  *
- *   u8   the byte as it is, whatever its sign, as c[x] reads it;
- *   s8   a byte the layout says is signed, as (int8_t)c[x];
+ *   u8   the byte as it is, as c[x] reads it;
+ *   s8   the byte as signed, as (int8_t)c[x] reads it, of any byte field
+ *        (the layout's is_signed records how the original reads a field,
+ *        but code reads it as the code before the layout did: a site that
+ *        cast to int8_t uses s8, one that did not uses u8);
  *   u16, u32   a little-endian word or double word;
  *   set8, set16, set32   write one;
  *   add8   c[x] = (uint8_t)(c[x] + delta), wrapping as a byte;
@@ -169,6 +174,14 @@ static inline size_t cok_field_offset_at_(const cok_character_layout *L, cok_fie
 static inline size_t cok_field_offset(const cok_character_layout *L, cok_field f)
 {
     return cok_field_offset_at2_(L, f, 0, L->field[f].first);
+}
+
+/* The index of the first element of field f: a loop over it runs from
+ * first to first + count - 1. */
+static inline size_t cok_field_first(const cok_character_layout *L, cok_field f)
+{
+    assert(L->field[f].width != 0 && "the game's records have no such field");
+    return L->field[f].first;
 }
 
 /* The number of elements of field f (of a row, in a table). */
@@ -211,37 +224,33 @@ static inline bool cok_field_pointer_at(const cok_character_layout *L, long offs
     return false;
 }
 
-/* Where an access lies, checked: kind is the access's width in bytes, or
- * -1 for a signed byte (s8). A constant at every use, so that the checks
- * fold to one or two compares: the field is that wide (which also says
- * the game has it), signed for s8, and, for one value, neither an array
- * nor a table; for element i, not a table and i one of its elements; for
- * element i of row row, both in it. */
-static inline size_t cok_field_one_(const cok_character_layout *L, cok_field f, int kind)
+/* Where an access lies, checked: width is the access's, a constant at
+ * every use, so that the checks fold to one or two compares: the field is
+ * that wide (which also says the game has it), and, for one value,
+ * neither an array nor a table; for element i, not a table and i one of
+ * its elements; for element i of row row, both in it. */
+static inline size_t cok_field_one_(const cok_character_layout *L, cok_field f, int width)
 {
     const cok_field_place *d = &L->field[f];
-    assert(d->width == (kind < 0 ? -kind : kind) && (kind > 0 || d->is_signed) &&
-           "the field is not that wide or not signed, or the game has no such field");
+    assert(d->width == width && "the field is not that wide, or the game has no such field");
     assert(d->count == 1 && d->rows == 1 && "an array: give the element");
     return d->offset;
 }
 
-static inline size_t cok_field_el_(const cok_character_layout *L, cok_field f, long i, int kind)
+static inline size_t cok_field_el_(const cok_character_layout *L, cok_field f, long i, int width)
 {
     const cok_field_place *d = &L->field[f];
-    assert(d->width == (kind < 0 ? -kind : kind) && (kind > 0 || d->is_signed) &&
-           "the field is not that wide or not signed, or the game has no such field");
+    assert(d->width == width && "the field is not that wide, or the game has no such field");
     assert(d->rows == 1 && "a table: give the row");
     assert((unsigned long)(i - d->first) < d->count && "past the field's elements");
     return d->offset + (size_t)(i - d->first) * d->stride;
 }
 
 static inline size_t cok_field_el2_(const cok_character_layout *L, cok_field f, long row, long i,
-                                    int kind)
+                                    int width)
 {
     const cok_field_place *d = &L->field[f];
-    assert(d->width == (kind < 0 ? -kind : kind) && (kind > 0 || d->is_signed) &&
-           "the field is not that wide or not signed, or the game has no such field");
+    assert(d->width == width && "the field is not that wide, or the game has no such field");
     assert((unsigned long)row < d->rows && "past the field's rows");
     assert((unsigned long)(i - d->first) < d->count && "past the field's elements");
     return d->offset + (size_t)row * d->row_stride + (size_t)(i - d->first) * d->stride;
@@ -286,15 +295,16 @@ static inline void cok_field_put32_(uint8_t *c, size_t at, uint32_t value)
 }
 
 /* The accessors by name: a single value, element i, element i of row row. */
-#define COK_FIELD_ONE_(L, f, kind) cok_field_one_((L), (f), (kind))
-#define COK_FIELD_EL_(L, f, i, kind) cok_field_el_((L), (f), (long)(i), (kind))
-#define COK_FIELD_EL2_(L, f, row, i, kind) cok_field_el2_((L), (f), (long)(row), (long)(i), (kind))
+#define COK_FIELD_ONE_(L, f, width) cok_field_one_((L), (f), (width))
+#define COK_FIELD_EL_(L, f, i, width) cok_field_el_((L), (f), (long)(i), (width))
+#define COK_FIELD_EL2_(L, f, row, i, width)                                                        \
+    cok_field_el2_((L), (f), (long)(row), (long)(i), (width))
 
 #define cok_field_offset_at(L, f, i) cok_field_offset_at_((L), (f), (long)(i))
 #define cok_field_offset_at2(L, f, row, i) cok_field_offset_at2_((L), (f), (long)(row), (long)(i))
 
 #define cok_field_u8(L, c, f) cok_field_get8_((c), COK_FIELD_ONE_(L, f, 1))
-#define cok_field_s8(L, c, f) ((int8_t)cok_field_get8_((c), COK_FIELD_ONE_(L, f, -1)))
+#define cok_field_s8(L, c, f) ((int8_t)cok_field_get8_((c), COK_FIELD_ONE_(L, f, 1)))
 #define cok_field_u16(L, c, f) cok_field_get16_((c), COK_FIELD_ONE_(L, f, 2))
 #define cok_field_u32(L, c, f) cok_field_get32_((c), COK_FIELD_ONE_(L, f, 4))
 #define cok_field_set8(L, c, f, v) cok_field_put8_((c), COK_FIELD_ONE_(L, f, 1), (v))
@@ -303,7 +313,7 @@ static inline void cok_field_put32_(uint8_t *c, size_t at, uint32_t value)
 #define cok_field_set32(L, c, f, v) cok_field_put32_((c), COK_FIELD_ONE_(L, f, 4), (v))
 
 #define cok_field_u8_at(L, c, f, i) cok_field_get8_((c), COK_FIELD_EL_(L, f, i, 1))
-#define cok_field_s8_at(L, c, f, i) ((int8_t)cok_field_get8_((c), COK_FIELD_EL_(L, f, i, -1)))
+#define cok_field_s8_at(L, c, f, i) ((int8_t)cok_field_get8_((c), COK_FIELD_EL_(L, f, i, 1)))
 #define cok_field_u16_at(L, c, f, i) cok_field_get16_((c), COK_FIELD_EL_(L, f, i, 2))
 #define cok_field_u32_at(L, c, f, i) cok_field_get32_((c), COK_FIELD_EL_(L, f, i, 4))
 #define cok_field_set8_at(L, c, f, i, v) cok_field_put8_((c), COK_FIELD_EL_(L, f, i, 1), (v))
@@ -313,7 +323,7 @@ static inline void cok_field_put32_(uint8_t *c, size_t at, uint32_t value)
 
 #define cok_field_u8_at2(L, c, f, row, i) cok_field_get8_((c), COK_FIELD_EL2_(L, f, row, i, 1))
 #define cok_field_s8_at2(L, c, f, row, i)                                                          \
-    ((int8_t)cok_field_get8_((c), COK_FIELD_EL2_(L, f, row, i, -1)))
+    ((int8_t)cok_field_get8_((c), COK_FIELD_EL2_(L, f, row, i, 1)))
 #define cok_field_set8_at2(L, c, f, row, i, v)                                                     \
     cok_field_put8_((c), COK_FIELD_EL2_(L, f, row, i, 1), (v))
 #define cok_field_add8_at2(L, c, f, row, i, d)                                                     \

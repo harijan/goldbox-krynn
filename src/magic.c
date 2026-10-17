@@ -376,7 +376,7 @@ static bool add_scroll(cok_adventure *game, spell_list *l, cok_character *charac
     if (cok_character_find_effect(character, 0x10) != NULL ||
         ((cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0) > 0 ||
           cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 0) >
-              (int8_t)cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL)) &&
+              cok_field_s8(L, c, COK_FIELD_CHANGE_LEVEL)) &&
          game->item_types.type[item[0x2e] < COK_ITEM_TYPES ? item[0x2e] : 0][0] == 0x0c))
         item[0x35] &= 0xf8;
     if ((item[0x35] & 7) != 0) return true;

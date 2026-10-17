@@ -54,6 +54,19 @@ static void append(char *s, const char *text)
 
 /* The sheet. */
 
+/* The coins the sheet shows, all but silver (0): from the layout's first,
+ * or 1, to its last (1-6 in Champions). */
+static int first_coin(const cok_character_layout *L)
+{
+    int first = (int)cok_field_first(L, COK_FIELD_COINS);
+    return first > 1 ? first : 1;
+}
+
+static int end_coin(const cok_character_layout *L)
+{
+    return (int)(cok_field_first(L, COK_FIELD_COINS) + cok_field_count(L, COK_FIELD_COINS));
+}
+
 /* The class line (in 546c:00a3): the class (DS:0f5a by +0x5b), after the
  * deity (DS:1259 by +0x5d) and a space for a cleric; for a mage, the order
  * (DS:12b9 by +0x5e) and a space inserted before the first "M?g", which
@@ -75,10 +88,10 @@ static bool class_line(cok_adventure *game, const uint8_t *c, const char *const 
     }
     const cok_character_layout *L = cok_game_rules(game)->character;
     char s[256];
-    if (!table_name(game, 0x0f5a, 27, (int8_t)cok_field_u8(L, c, COK_FIELD_CLASS), s)) return false;
+    if (!table_name(game, 0x0f5a, 27, cok_field_s8(L, c, COK_FIELD_CLASS), s)) return false;
     if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0) > 0) {
         char deity[256], line[256];
-        if (!table_name(game, 0x1259, 12, (int8_t)cok_field_u8(L, c, COK_FIELD_DEITY), deity))
+        if (!table_name(game, 0x1259, 12, cok_field_s8(L, c, COK_FIELD_DEITY), deity))
             return false;
         line[0] = '\0';
         append(line, deity);
@@ -165,7 +178,7 @@ bool cok_sheet_money(cok_adventure *game, const uint8_t *c)
     const cok_character_layout *L = cok_game_rules(game)->character;
     clear_cells(game, 0x14, 9, 0x26, 0x0f);
     int row = 9;
-    for (int i = 1; i <= 6; ++i) {
+    for (int i = first_coin(L); i < end_coin(L); ++i) {
         uint16_t amount = cok_field_u16_at(L, c, COK_FIELD_COINS, i);
         if (amount == 0) continue;
         char name[256], text[8];
@@ -268,18 +281,18 @@ bool cok_sheet_draw(cok_adventure *game)
                                                                                        : 11;
     draw(game, name, 1, 1, color);
     draw(game, "Status:", 0x14, 1, 15);
-    if (!table_name(game, 0x1330, 13, (int8_t)cok_field_u8(L, c, COK_FIELD_STATUS), status))
+    if (!table_name(game, 0x1330, 13, cok_field_s8(L, c, COK_FIELD_STATUS), status))
         return false;
     draw(game, status, 0x1b, 1, 10);
-    if (!table_name(game, 0x12d5, 7, (int8_t)cok_field_u8(L, c, COK_FIELD_GENDER), gender))
+    if (!table_name(game, 0x12d5, 7, cok_field_s8(L, c, COK_FIELD_GENDER), gender))
         return false;
     draw(game, gender, 1, 3, 15);
     snprintf(line, sizeof line, "%u years", cok_field_u16(L, c, COK_FIELD_AGE));
     draw(game, line, 8, 3, 15);
-    if (!table_name(game, 0x11c0, 17, (int8_t)cok_field_u8(L, c, COK_FIELD_ALIGNMENT), alignment))
+    if (!table_name(game, 0x11c0, 17, cok_field_s8(L, c, COK_FIELD_ALIGNMENT), alignment))
         return false;
     draw(game, alignment, 1, 4, 15);
-    if (!table_name(game, 0x1140, 16, (int8_t)cok_field_u8(L, c, COK_FIELD_RACE), race))
+    if (!table_name(game, 0x1140, 16, cok_field_s8(L, c, COK_FIELD_RACE), race))
         return false;
     draw(game, race, 0x14, 4, 15);
     const char *before[3] = {gender, alignment, race};
@@ -402,7 +415,7 @@ static int pick_coin(cok_adventure *game, const uint8_t *c, int pad_to, bool cou
     static char text[6][41];
     cok_menu_row rows[6];
     size_t count = 0;
-    for (int i = 1; i <= 6; ++i) {
+    for (int i = first_coin(L); i < end_coin(L); ++i) {
         uint16_t amount = cok_field_u16_at(L, c, COK_FIELD_COINS, i);
         if (amount == 0) continue;
         char name[256], number[16], padding[16] = "";
@@ -441,7 +454,7 @@ static int pick_coin(cok_adventure *game, const uint8_t *c, int pad_to, bool cou
 
 static bool has_money(const cok_character_layout *L, const uint8_t *c)
 {
-    for (int i = 1; i <= 6; ++i)
+    for (int i = first_coin(L); i < end_coin(L); ++i)
         if (cok_field_u16_at(L, c, COK_FIELD_COINS, i) != 0) return true;
     return false;
 }

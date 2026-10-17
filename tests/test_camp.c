@@ -725,6 +725,21 @@ static void test_magic(void)
                         "item:   Protection From Evil 10' Radius;choice: 101;") != NULL);
     CHECK(strstr(s.log, "list: Spells to Memorize;heading: Special;"
                         "item:  *Protection From Evil 10' Radius;") != NULL);
+    /* A granted power memorized keeps it out of the grimoire, but 5b04:001e
+     * looks from the second byte on: with all 58 bytes full, one in the
+     * first is not seen, and the grimoire still lists it. */
+    knight->record[0x1e] = 101;
+    memset(knight->record + 0x1f, 1, 0x39);
+    keys("mm\x1b\x1b");
+    CHECK(!cok_camp(&game));
+    CHECK(strstr(s.log, "list: Spells in Grimoire;heading: Special;"
+                        "item:   Protection From Evil 10' Radius;") != NULL);
+    knight->record[0x1f] = 101;
+    knight->record[0x1e] = 1;
+    keys("mm\x1b\x1b");
+    CHECK(!cok_camp(&game));
+    CHECK(strstr(s.log, "Protection From Evil 10' Radius") == NULL);
+    memset(knight->record + 0x1e, 0, 0x3a);
     knight->record[0x11c] = 0;
 
     /* Scribe: a magic-user of order 1 with a scroll of Shield marks the

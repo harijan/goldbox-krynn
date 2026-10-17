@@ -488,6 +488,16 @@ static void test_sheet(void)
      * label, ending at column 17 (60 - 61 = -1 at 16). */
     CHECK(ink(20, 9) == 10 && ink(37, 9) == 10 && ink(38, 9) == 0);
     CHECK(ink(16, 17) == 10 && ink(17, 17) == 10 && ink(18, 17) == 0);
+    /* The age is a word: an elf of 350 shows "350 years", columns 8-16 of
+     * row 3, where its low byte alone would end at 15. */
+    r[0x60] = 350 & 0xff;
+    r[0x61] = 350 >> 8;
+    keys("");
+    CHECK(cok_sheet_draw(&game) && ink(16, 3) == 15 && ink(17, 3) == 0);
+    r[0x60] = 94;
+    r[0x61] = 0;
+    keys("");
+    CHECK(cok_sheet_draw(&game) && ink(15, 3) == 15 && ink(16, 3) == 0);
 }
 
 /* View (546c:0d74) and money. */
