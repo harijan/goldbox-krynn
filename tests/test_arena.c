@@ -379,6 +379,15 @@ static void test_centre(void)
     for (int x = 0; x < 24; ++x)
         if (!masked(box, x, 0))
             CHECK(pixel(&game.screen, 0, 8 + 6 * 24 + x, 8 + 3 * 24) == pixel(box, 0, x, 0));
+    /* A cursor of 2 by 2 (size 4) boxes its fourth cell (+1, +1) too. */
+    uint8_t was = c->cursor_size;
+    c->cursor_size = 4;
+    CHECK(cok_arena_centre(&game, 27, 13, 3, 4));
+    for (int x = 0; x < 24; ++x)
+        if (!masked(box, x, 0))
+            CHECK(pixel(&game.screen, 0, 8 + (ea->screen_x + 1) * 24 + x,
+                        8 + (ea->screen_y + 1) * 24) == pixel(box, 0, x, 0));
+    c->cursor_size = was;
     c->cursor = 0;
     /* A direction past the steps. */
     CHECK(!cok_arena_centre(&game, 27, 13, 3, 9) && strstr(game.error, "DS:1ed6") != NULL);
@@ -401,6 +410,19 @@ static void test_erase(void)
     CHECK(cok_arena_erase(&game, ea->screen_x, ea->screen_y, 0));
     cok_arena_show(&game);
     CHECK(shows_tile(ea->screen_x, ea->screen_y, 0x16));
+    /* A footprint of 2 by 2 (size 4): every cell, the fourth (+1, +1) too,
+     * where an icon was drawn. */
+    game.combat.combatant[1].size = 4;
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
+    int8_t fx = (int8_t)(ea->screen_x + 1), fy = (int8_t)(ea->screen_y + 1);
+    uint8_t tile =
+        cok_combat_terrain(&cok_rules_champions, game.combat.cells[ea->y + 1][ea->x + 1]).tile;
+    CHECK(cok_arena_icon(&game, fx, fy, 0, 0, 8));
+    cok_arena_show(&game);
+    CHECK(!shows_tile(fx, fy, tile));
+    CHECK(cok_arena_erase(&game, 0, 0, 1));
+    cok_arena_show(&game);
+    CHECK(shows_tile(fx, fy, tile));
     /* Past the table. */
     CHECK(!cok_arena_erase(&game, 0, 0, 73));
 }
@@ -511,8 +533,12 @@ static void test_kill(void)
                 break;
             }
     CHECK(sx >= 0);
-    s.sample_x = 8 + ea->screen_x * 24 + sx;
-    s.sample_y = 8 + ea->screen_y * 24 + sy;
+    /* A of 2 by 2 (size 4): the skull flashes on its fourth cell (+1, +1)
+     * too, sampled there. */
+    game.combat.combatant[1].size = 4;
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
+    s.sample_x = 8 + (ea->screen_x + 1) * 24 + sx;
+    s.sample_y = 8 + (ea->screen_y + 1) * 24 + sy;
     CHECK(cok_arena_kill(&game, a, 0, NULL));
     s.sample_x = 0;
     /* Nine flashes of the skull 10 ms apart, ready then attacking, then
