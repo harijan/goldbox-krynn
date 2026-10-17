@@ -19,6 +19,8 @@ data are reference inputs, kept in `COKAssets/`; saved games from the
 original, if any, go in `SAVE/`. The sequels' files, for disassembly only
 (see Disassembly image), go in `DKKAssets/` (Death Knights of Krynn) and
 `DQKAssets/` (The Dark Queen of Krynn); like `COKAssets/`, they are not in git.
+The plan for playing Death Knights of Krynn too, and what it shares with
+this game, is in [DEATH-KNIGHTS.md](DEATH-KNIGHTS.md).
 
 ## Build and verify
 
