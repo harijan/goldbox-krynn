@@ -130,6 +130,27 @@ static cok_character *member(const char *name, uint8_t movement)
     return c;
 }
 
+/* Monster id of MON1CHA as cok_monster_read reads it: the record's first
+ * 409 bytes, but for the far pointers to the effects, the items, the next
+ * record and the combat record, which are cleared; the readied items'
+ * slots (+0x147) are kept. Returns the record's bytes (free them). */
+static uint8_t *check_read(uint8_t id)
+{
+    size_t size = 0;
+    bool no_file;
+    uint8_t *data = cok_adventure_find_record(&game, "MON1CHA", id, &size, &no_file);
+    CHECK(data != NULL && size >= 409);
+    cok_character read;
+    CHECK(cok_monster_read(&game, id, &read));
+    for (size_t i = 0; i < 409; ++i) {
+        bool pointer = (i >= 0xe3 && i < 0xe7) || (i >= 0x143 && i < 0x147) ||
+                       (i >= 0x17f && i < 0x187);
+        CHECK(read.record[i] == (pointer ? 0 : data[i]));
+    }
+    cok_character_free(&read);
+    return data;
+}
+
 static void test_load_monster(void)
 {
     reset("");
@@ -142,6 +163,10 @@ static void test_load_monster(void)
     CHECK(game.icons[8][0].pixels != NULL && game.icons[8][1].pixels != NULL);
     cok_character *first = game.party.members[1], *copy = game.party.members[3];
     CHECK(first->record[0x137] == 8 && copy->record[0x137] == 8);
+    /* The record read (check_read); the skeleton's has an effects pointer. */
+    uint8_t *data = check_read(26);
+    CHECK(data[0xe3] != 0);
+    free(data);
     CHECK(first->record[0x197] == 4 && first->record[0x62] == 4);
     /* The copies hold the first one's items in the reverse order. */
     CHECK(first->item_count == 2 && copy->item_count == 2);
@@ -252,6 +277,7 @@ static void undamage(void)
  * bytes, or MON1SPC.DAX's of 9. */
 static void test_damaged_files(void)
 {
+    uint8_t *data;
     /* MON1SPC with whole records: an effect is 9 bytes. */
     reset("");
     member("KAL", 12);
@@ -273,6 +299,16 @@ static void test_damaged_files(void)
     CHECK(RUN(COK_ECL_LOAD_MONSTER, 0, 1, 0, 1, 0, 1) == COK_ECL_UNDEFINED);
     CHECK(strstr(game.error, "MON1CHA record 1 has 9 bytes; 4b6d:161b copies 409, past it") !=
           NULL);
+    undamage();
+    /* A longer record (a map of GEO1 as MON1CHA): its first 409 bytes, the
+     * combat record's pointer and the movement (+0x198) included, which no
+     * monster of the game's sets. */
+    reset("");
+    damage("MON1CHA.DAX", "GEO1.DAX");
+    data = check_read(32);
+    CHECK((data[0x183] | data[0x184] | data[0x185] | data[0x186]) != 0 && data[0x198] != 0 &&
+          (data[0x17f] | data[0x180] | data[0x181] | data[0x182]) != 0);
+    free(data);
     undamage();
     /* LOAD FILES and LOAD PIECES: a map is 1026 bytes; a wall set's
      * record holds whole sets. */
@@ -608,6 +644,16 @@ static void test_party_strength(void)
     b->record[0x18c] = 39;
     CHECK(RUN(COK_ECL_PARTYSTRENGTH, 1, 0x79, 0x7f) == COK_ECL_OK);
     CHECK(game.vm.mem7c00[0x379] == 31);
+    /* A human fighter of 5 who was a cleric of 4 and a mage of 7 before it
+     * changed class at 3 may use them: (4 * 4 + 7 * 8) / 10 = 7 more. */
+    cok_character *c = member("C", 6);
+    c->record[0x5a] = 6;
+    c->record[0xfb] = 5;
+    c->record[0xd7] = 3;
+    c->record[0x101] = 4;
+    c->record[0x106] = 7;
+    CHECK(RUN(COK_ECL_PARTYSTRENGTH, 1, 0x79, 0x7f) == COK_ECL_OK);
+    CHECK(game.vm.mem7c00[0x379] == 38);
     /* PARTY SURPRISE: a ranger (class 4) or cleric/ranger (10). */
     game.vm.mem7c00[0x37a] = 0x55;
     CHECK(RUN(COK_ECL_PARTY_SURPRISE, 1, 0x79, 0x7f, 1, 0x7a, 0x7f) == COK_ECL_OK);
@@ -740,6 +786,14 @@ static void test_rob(void)
     CHECK(a->record[0xeb] == (476 & 0xff) && a->record[0xec] == 476 >> 8);
     CHECK(a->record[0xf7] == (476 & 0xff) && b->record[0xeb] == (900 & 0xff));
     CHECK(game.vm.seed == seed && a->item_count == 1 && b->item_count == 1);
+    /* Each kind of coin keeps its own share: 100, 200, ... 700 halve. */
+    for (unsigned k = 0; k < 7; ++k) {
+        a->record[0xeb + 2 * k] = (uint8_t)(100 * (k + 1));
+        a->record[0xec + 2 * k] = (uint8_t)(100 * (k + 1) >> 8);
+    }
+    CHECK(RUN(COK_ECL_ROB, 0, 0, 0, 50, 0, 0) == COK_ECL_OK);
+    for (unsigned k = 0; k < 7; ++k)
+        CHECK((a->record[0xeb + 2 * k] | a->record[0xec + 2 * k] << 8) == (int)(50 * (k + 1)));
     /* A percent past 100 leaves a negative factor: 1 becomes 65535. */
     money(b, 1);
     game.vm.character = b->record;

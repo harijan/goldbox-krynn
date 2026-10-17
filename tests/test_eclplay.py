@@ -151,6 +151,13 @@ class PlayTests(unittest.TestCase):
         self.assertEqual(cells[13][52:54], "17")
         self.assertEqual(text[51], "1 1 ALDA: at 27,13 size 1 side 0 facing 7")
         self.assertEqual(text[71], "l 21 WARRIOR: at 25,10 size 1 side 1 facing 3")
+        # The side is +0x18a (HOSTILE), not who controls it: ALDA given to
+        # the computer (0x7d0c 0x80) is still on side 0.
+        result = self.play("--test-party", 6, "--set", "4be6=1", "--set", "7d0c=80",
+                           "--combat-map", dump, "--keys", r"\r\rE", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(dump.read_text().splitlines()[51],
+                         "1 1 ALDA: at 27,13 size 1 side 0 facing 7")
         # The caravan's fight is on open ground.
         result = self.play("--test-party", 6, "--combat-map", dump, "--keys", r"\r\rE",
                            ASSETS, 16)
@@ -919,6 +926,29 @@ class PlayTests(unittest.TestCase):
         lines = result.stdout.splitlines()
         self.assertEqual([line for line in lines if line.startswith(("at: ", "area: "))],
                          ["area: on", "at: 1,0,2", "area: off"])
+
+    def test_the_test_party(self):
+        # --test-party's eight characters as a saved game writes them
+        # (CHRDATB1-8.SAV), byte for byte as eclplay made them before the
+        # layout's accessors (main a2f2ee3): their scores, base and current,
+        # heads by gender, bodies by class, hit points, attacks, spells known
+        # and memorized.
+        saves = self.folder / "saves"
+        saves.mkdir()
+        result = self.play("--test-party", 8, "--play", "--set", "4be6=1", "--saves", saves,
+                           "--keys", r"\r\reaesb\e", ASSETS, 34)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        records = [(saves / f"CHRDATB{n}.SAV").read_bytes() for n in range(1, 9)]
+        self.assertEqual([r[1:1 + r[0]] for r in records],
+                         [b"ALDA", b"BRAM", b"CERA", b"DUNN", b"ELIN", b"FARO", b"GWEN", b"HOLT"])
+        self.assertEqual(list(records[2][0x10:0x1c]),
+                         [15, 15, 17, 17, 13, 13, 14, 14, 15, 15, 12, 12])
+        self.assertEqual([r[0x135] for r in records], [5, 9, 5, 9, 5, 9, 5, 9])
+        self.assertEqual([(r[0x1e], r[0x1f]) for r in records[6:]], [(0x0b, 0x51), (0x22, 0)])
+        self.assertEqual([hashlib.sha256(r).hexdigest()[:16] for r in records],
+                         ["0a0838436110c129", "6e12d7ff2cf35b15", "bbca068830ed0de2",
+                          "d0a7f9eb6aa2295a", "4f10910897e2cf85", "b63f4444ec5908d0",
+                          "10d39830c898f89d", "83958af3d57c0625"])
 
     def test_continue_has_no_full_stop(self):
         # 2fd3:116d replaces "PRESS BUTTON OR RETURN TO CONTINUE." with the

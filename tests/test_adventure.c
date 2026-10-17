@@ -611,6 +611,13 @@ static void test_party(void)
           experience(c->record) == 0);
     CHECK(strcmp(s.log, "print: Congratulations BO gains experience!;"
                         "print: Congratulations the party gains experience!;") == 0);
+    /* The experience is a double word: the points carry into its top byte. */
+    const uint8_t carry[] = {COK_ECL_LOAD_CHARACTER, 0, 0, COK_ECL_ADD_EP, 0, 0, 2, 0x00, 0x01,
+                             COK_ECL_EXIT};
+    a->record[0x116] = 0;
+    a->record[0x117] = a->record[0x118] = 0xff;
+    CHECK(run_code(&game, &s, carry, sizeof carry, "") == COK_ECL_OK);
+    CHECK(experience(a->record) == 0x01000000);
     /* A character with no class divides by zero. */
     a->record[0xfb] = 0;
     const uint8_t none[] = {COK_ECL_ADD_EP, 0, 0, 0, 10, COK_ECL_EXIT};
@@ -673,6 +680,14 @@ static void test_party(void)
                         "print:   CY is hit FOR 5 points of Damage.;"
                         "print:   AL is hit FOR 3 points of Damage.;") == 0);
     CHECK(ink(&game.screen, 0x25, 4) == 0x0e && s.at == 2);
+    /* Whether the party lives goes by who can act (+0x189), not by the
+     * status: with none able to act it is killed, every status still 0. */
+    a->record[0x189] = b->record[0x189] = 0;
+    const uint8_t graze[] = {COK_ECL_DAMAGE, 0, 0xe0, 0, 0, 0, 0, 0, 1, 0, 0, COK_ECL_EXIT};
+    CHECK(run_code(&game, &s, graze, sizeof graze, "\r\r") == COK_ECL_OK);
+    CHECK(game.party_killed && vm->abort && a->record[0x188] == 0 && c->record[0x188] == 0);
+    a->record[0x189] = b->record[0x189] = 1;
+    game.party_killed = vm->abort = false;
     /* The dead take no more; when no member can act, the party is killed
      * and the run ends. */
     const uint8_t kill[] = {COK_ECL_DAMAGE, 0, 0xe0, 0, 0, 0, 0, 0, 40, 0, 0,
@@ -724,6 +739,20 @@ static void test_doors(void)
     map[2 + 0x300 + 4 * 16 + 5] = 0x0c;
     play(&game, &s, map, 5, 5, "m\x01H\x01M\x01H" "p\x01H");
     CHECK(strcmp(s.log, "at: 5,4,0;at: 5,4,2;menu: Bash Pick Exit;menu: Bash Exit;") == 0);
+    /* A human who was a thief (+0x107) and may use it, now a fighter of 5
+     * past the level it changed at (+0xd7 3), is offered Pick; at +0xd7 5
+     * it may not, and is not. */
+    map[2 + 0x300 + 4 * 16 + 5] = 0x08;
+    thief->record[0xff] = 0;
+    thief->record[0x107] = 3;
+    thief->record[0xfb] = 5;
+    thief->record[0x5a] = 6;
+    thief->record[0xd7] = 3;
+    play(&game, &s, map, 5, 5, "m\x01H\x01M\x01H" "p");
+    CHECK(strcmp(s.log, "at: 5,4,0;at: 5,4,2;menu: Bash Pick Exit;at: 6,4,2;") == 0);
+    thief->record[0xd7] = 5;
+    play(&game, &s, map, 5, 5, "m\x01H\x01M\x01H" "e");
+    CHECK(strncmp(s.log, "at: 5,4,0;at: 5,4,2;menu: Bash Exit;", 36) == 0);
     cok_adventure_close(&game);
 }
 
