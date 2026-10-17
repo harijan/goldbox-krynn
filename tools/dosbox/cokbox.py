@@ -1141,7 +1141,7 @@ def _cleanup(*_):
 # the checks side by side) does not make a box late: a box starved of the
 # CPU misses screens and waits (on a loaded host a check then differed, a
 # different one each run). A command's prefix.
-BELOW_BOXES = ["nice", "-n", "10"]
+BELOW_BOXES = ["nice", "-n", "19"]
 
 
 def _record_pids(*procs):

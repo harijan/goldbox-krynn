@@ -11,7 +11,9 @@ its output in OUT/NAME.log, and ends with a line `VERDICT: AGREES` or
 Anything else (another status, no verdict line, a timeout, a crash) is an
 ERROR, never a recorded verdict. COKBOX_DISPLAYS (e.g. 180-189) keeps the X
 displays to a range; --jobs defaults to the range's size less two, else to
-five eighths of the cores (10 of 16; see default_jobs).
+five eighths of the cores (10 of 16; see default_jobs). A script not as
+recorded runs once more, alone, at the end (unless --no-again): the
+verdict alone is the one that counts, its first shown beside it.
 Needs `make build/eclplay build/cok build/START_FULL.EXE` (make dosbox-checks
 does it; `make dosbox-checks ARGS="--only b_amount"` passes options). Exit 0
 when every script gave its recorded verdict."""
@@ -20,6 +22,7 @@ import argparse
 import os
 import pathlib
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -140,12 +143,12 @@ VERDICT = re.compile(r"^VERDICT: (AGREES|DIFFERS new.*|ERROR.*)$", re.M)
 def default_jobs():
     """Scripts side by side without --jobs or COKBOX_DISPLAYS: five eighths
     of the cores (10 of 16). On 16 cores, with the port's runs and builds
-    niced below the boxes (cokbox.BELOW_BOXES), 10 gave every recorded
-    verdict in each run; at 12 and 14 now and then one script did not, a
-    different one each time (most often a_demo, whose screens of the
-    demonstration are matched with the port's in order), and the time is
-    about the same (the side-by-side part then lasts about as long as its
-    longest script, a_demo)."""
+    niced below the boxes (cokbox.BELOW_BOXES), the part side by side took
+    8 minutes at 10, 7 at 12 and 14 (it lasts about as long as its longest
+    script, a_demo), 13 at 6; at 10 and up, about one run in three had one
+    script differ, a different one each time (a_demo, c_pit, d_altq: they
+    judge the original's screens or waits as they come), which agreed when
+    run again alone (see main)."""
     return max(1, (os.cpu_count() or 8) * 5 // 8)
 
 
@@ -282,15 +285,28 @@ def recorded_as(verdict):
     return "" if verdict == "AGREES" else "new" if verdict.startswith("DIFFERS new") else None
 
 
-def line(name, checks, want, verdict, code, took):
+def shown_as(verdict, code):
     if verdict is None:
-        shown, note = f"ERROR ({'timed out' if code == 'timeout' else f'status {code}'})", ""
-    else:
-        shown = "agrees" if verdict == "AGREES" else verdict.split(" (")[0].lower()
+        return f"ERROR ({'timed out' if code == 'timeout' else f'status {code}'})"
+    return "agrees" if verdict == "AGREES" else verdict.split(" (")[0].lower()
+
+
+def line(name, checks, want, verdict, code, took, first=None):
+    """A script's line; FIRST: its first (verdict, code, took) when it ran
+    again alone."""
+    shown, note = shown_as(verdict, code), ""
+    if verdict is not None:
         got = recorded_as(verdict)
         note = ("as recorded" if got == want else
                 f"CHANGED (recorded: {'agrees' if not want else 'differs new'})")
+    if first is not None:
+        note += f"; run again alone, at first: {shown_as(*first[:2])}"
     return f"{name:20} {checks:18} {shown:28} {took / 60:5.1f} min  {note}"
+
+
+def as_recorded(want, result):
+    verdict = result[0]
+    return verdict is not None and recorded_as(verdict) == want
 
 
 def main():
@@ -300,6 +316,8 @@ def main():
     parser.add_argument("--out", default=str(ROOT / "build" / "dosbox-checks"))
     parser.add_argument("--timeout", type=float, default=3 * 3600,
                         help="seconds a script may take (default three hours)")
+    parser.add_argument("--no-again", action="store_true",
+                        help="keep each script's first verdict (no run again alone)")
     parser.add_argument("--self-test", action="store_true",
                         help="check the verdict and status parsing only (no DOSBox-X)")
     opts = parser.parse_args()
@@ -358,14 +376,36 @@ def main():
     work(jobs)
     queue.extend(alone)
     work(1)
+    # A script not as recorded runs once more, alone (its first log and
+    # folder kept as NAME.first.log, NAME.first): some judge the original's
+    # screens or its waits as they come, and now and then one of them
+    # differed beside others, a different one each run (DEVELOPERS.md,
+    # Checks against the original); a difference of the port's differs
+    # again. The verdict alone counts; the line shows the first too.
+    first = {}
+    again = [] if opts.no_again or STOPPING.is_set() else [
+        c for c in todo if c[0] in results and not as_recorded(c[2], results[c[0]])]
+    if again:
+        print(f"\n{len(again)} not as recorded: each again, alone", flush=True)
+        for name, _, _ in again:
+            first[name] = results.pop(name)
+            for old, new in ((out / f"{name}.log", out / f"{name}.first.log"),
+                             (out / name, out / f"{name}.first")):
+                if new.is_dir():
+                    shutil.rmtree(new)
+                if old.exists():
+                    os.replace(old, new)
+        queue.extend(again)
+        work(1)
     print(f"\nall done in {(time.monotonic() - t0) / 60:.0f} min (load average "
           f"{os.getloadavg()[0]:.0f}); in the table's order:")
     changed = 0
     for name, checks, want in todo:
         verdict, code, took = results.get(name, (None, "not run", 0))
-        print(line(name, checks, want, verdict, code, took))
+        print(line(name, checks, want, verdict, code, took, first.get(name)))
         changed += verdict is None or recorded_as(verdict) != want
-    print(f"{len(todo) - changed} as recorded, {changed} changed or in error")
+    print(f"{len(todo) - changed} as recorded, {changed} changed or in error"
+          + (f" ({len(first)} run again alone)" if first else ""))
     return 1 if changed else 0
 
 

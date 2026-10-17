@@ -7442,27 +7442,30 @@ checklib's patched builds runs through (given the executable and its
 arguments), such as a recorder of the port's runs that, keeping each
 run's arguments and input files, can make them again without DOSBox-X.
 The port's runs and builds that a check makes (and waits for) run niced
-below the boxes (`cokbox.BELOW_BOXES`, `nice -n 10`): with many checks
+below the boxes (`cokbox.BELOW_BOXES`, `nice -n 19`): with many checks
 side by side their bursts (`frames_at`'s four `eclplay`s, a patched
 build's compiles) otherwise made a box late, and a check then differed, a
 different one each run. checklib compiles a patched build's files side by
-side.
+side, on half the cores.
 
 Each runs alone (`python3 tools/dosbox/checks/NAME.py [--workdir DIR]`).
 `make dosbox-checks` (`run_all.py`; `ARGS="--jobs N --only NAME ..."`)
 runs them all side by side, as many at a time as `COKBOX_DISPLAYS` has
-displays less two, else five eighths of the cores (10 of 16: at 12 and 14
-now and then one script differed from the load, most often `a_demo`,
-whose screens of the demonstration are matched with the port's in order;
-the time is about the same, as the part side by side then lasts about as
-long as `a_demo`), then those that catch a short text in a burst of
+displays less two, else five eighths of the cores (10 of 16: 12 and 14
+are no faster, as the part side by side then lasts about as long as
+`a_demo`, its longest), then those that catch a short text in a burst of
 screenshots (`d_arrows`, `d_aurak`, `d_bolt`, `d_bozak`, `d_cast`,
 `d_gate`, `d_hold`, `d_turning`) one at a time (beside the others on a
 loaded host DOSBox-X wrote ten times fewer screenshots and they missed
 the text), and prints one line per script: the checks it covers, its
 verdict, and whether that is the verdict recorded (agrees, or new for a
 port difference found and not yet fixed, of which none is left), an ERROR
-for anything else. On a script's timeout, or when run_all itself gets
+for anything else. A script not as recorded runs once more at the end,
+alone, and that verdict counts, the first shown beside it (`--no-again`
+keeps the first): at 10 at a time about one run in three had one script
+differ, a different one each time (`a_demo`, `c_pit`, `d_altq`, which
+judge the original's screens or waits as they come), and alone it
+agreed; a difference of the port's differs again. On a script's timeout, or when run_all itself gets
 SIGTERM, SIGINT or SIGHUP, it kills the running scripts' process groups
 and the Xvfb and DOSBox-X they started (their pids recorded in
 `COKBOX_PIDFILE`). `run_all.py --self-test` (in `make dosbox-selftest`)
