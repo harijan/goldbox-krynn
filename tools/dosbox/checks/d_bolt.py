@@ -66,7 +66,9 @@ def main():
     for name, text in shown:
         if text == "ATTACKS":
             break
-        if text.startswith("TAKES"):
+        # Repeats merge, as the port's do: a screenshot that caught the panel
+        # being redrawn put one text in twice (GARIN's 5, once).
+        if text.startswith("TAKES") and (not said or said[-1] != (name, text.split()[1])):
             said.append((name, text.split()[1]))
     merged = [h for i, h in enumerate(hits) if i == 0 or h != hits[i - 1]]
     print("original's panel in the burst:", shown)
