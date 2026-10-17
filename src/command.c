@@ -10,15 +10,11 @@
 #include "magic.h"
 #include "round.h"
 #include "sheet.h"
+#include "step.h"
 
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
-
-/* DS:1ed6 and DS:1edf: a step in direction 0-7, north first, clockwise; 8
- * for none. */
-static const int8_t step_x[9] = {0, 1, 1, 1, 0, -1, -1, -1, 0};
-static const int8_t step_y[9] = {-1, -1, 0, 1, 1, 1, 0, -1, 0};
 
 static int8_t s8(int value)
 {
@@ -760,8 +756,8 @@ static bool manual_cursor(cok_adventure *game, cok_character *c, uint8_t range, 
     uint8_t dir = 8;
     while (key != 0 && key != 0x0d && key != 'E' && key != 'T') {
         if (!cok_arena_centre(game, cx, cy, 2, dir)) return false;
-        cx = s8(cx + step_x[dir]);
-        cy = s8(cy + step_y[dir]);
+        cx = s8(cx + cok_step_x[dir]);
+        cy = s8(cy + cok_step_y[dir]);
         if (cx < 0) cx = 0;
         if (cy < 0) cy = 0;
         if (cx > 0x31) cx = 0x31;

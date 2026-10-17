@@ -30,6 +30,10 @@ enum {
     COK_COMBAT_HEIGHT = 25,
     COK_COMBATANTS = 72,        /* DS:68d1: 72 far pointers before the bodies. */
     COK_COMBAT_BODIES = 8,      /* DS:69ee: 7-byte entries from 1. */
+    /* The most cells a footprint has in a game's table (COK_DATA_FOOTPRINTS'
+     * cells, 4 in Champions and in Death Knights), for the arrays that hold
+     * one footprint's cells; tests/test_data.c checks the game's. */
+    COK_COMBAT_FOOTPRINT_CELLS = 4,
     COK_COMBAT_TILES = 40,      /* DS:616a: 24 by 24 frames. */
     COK_COMBAT_FLOOR = 0x17,    /* Plain floor: tile 0x16. */
     COK_COMBAT_BODY = 0x1f,     /* A fallen party member: RANDCOM's last frame. */

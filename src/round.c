@@ -8,14 +8,10 @@
 #include "cast.h"
 #include "cloud.h"
 #include "command.h"
+#include "step.h"
 
 #include <stdio.h>
 #include <string.h>
-
-/* DS:1ed6 and DS:1edf: a step in direction 0-7, north first, clockwise; 8
- * for none. */
-static const int8_t step_x[9] = {0, 1, 1, 1, 0, -1, -1, -1, 0};
-static const int8_t step_y[9] = {-1, -1, 0, 1, 1, 1, 0, -1, 0};
 
 static int8_t s8(int value)
 {
@@ -486,7 +482,7 @@ bool cok_combat_in_arc(int8_t x0, int8_t y0, int8_t x1, int8_t y1, uint8_t dir, 
         return true;
     if (dir == 0xff) dir = 8;
     if (dir > 8) return false;
-    int fx = s8(x0 + step_x[dir]), fy = s8(y0 + step_y[dir]);
+    int fx = s8(x0 + cok_step_x[dir]), fy = s8(y0 + cok_step_y[dir]);
     int x = x1, y = y1;
     if ((x1 == x0 && y1 == y0) || (x == fx && y == fy)) {
         *in = true;
@@ -552,9 +548,11 @@ static void sort_listed(cok_combat *combat)
 bool cok_combat_list(cok_combat *combat, const cok_rules *rules, int8_t x, int8_t y, uint16_t range,
                      uint8_t dir, uint8_t size)
 {
-    int8_t vx[4], vy[4];
+    unsigned cells = (unsigned)cok_data_count(rules->data, COK_DATA_FOOTPRINTS, 1);
+    assert(cells <= COK_COMBAT_FOOTPRINT_CELLS);
+    int8_t vx[COK_COMBAT_FOOTPRINT_CELLS], vy[COK_COMBAT_FOOTPRINT_CELLS];
     if (size >= cok_data_count(rules->data, COK_DATA_FOOTPRINTS, 0)) return false;
-    for (unsigned k = 0; k < 4; ++k) {
+    for (unsigned k = 0; k < cells; ++k) {
         int8_t dx, dy;
         if (cok_combat_footprint(rules, size, k, &dx, &dy)) {
             vx[k] = s8(dx + x);
@@ -569,8 +567,8 @@ bool cok_combat_list(cok_combat *combat, const cok_rules *rules, int8_t x, int8_
         const cok_combatant *e = &combat->combatant[n];
         if (e->size == 0) continue;
         if (e->size >= cok_data_count(rules->data, COK_DATA_FOOTPRINTS, 0)) return false;
-        int8_t tx[4], ty[4];
-        for (unsigned k = 0; k < 4; ++k) {
+        int8_t tx[COK_COMBAT_FOOTPRINT_CELLS], ty[COK_COMBAT_FOOTPRINT_CELLS];
+        for (unsigned k = 0; k < cells; ++k) {
             int8_t dx, dy;
             if (cok_combat_footprint(rules, e->size, k, &dx, &dy)) {
                 tx[k] = s8(dx + e->x);
@@ -582,10 +580,10 @@ bool cok_combat_list(cok_combat *combat, const cok_rules *rules, int8_t x, int8_
         }
         bool found = false;
         uint16_t best = 0xff;
-        unsigned bj = 4, bk = 4;
-        for (unsigned k = 0; k < 4; ++k) {
+        unsigned bj = cells, bk = cells;
+        for (unsigned k = 0; k < cells; ++k) {
             if (tx[k] < 0) continue;
-            for (unsigned j = 0; j < 4; ++j) {
+            for (unsigned j = 0; j < cells; ++j) {
                 if (vx[j] < 0) continue;
                 bool in, seen;
                 if (!cok_combat_in_arc(vx[j], vy[j], tx[k], ty[k], dir, &in)) return false;
@@ -607,7 +605,7 @@ bool cok_combat_list(cok_combat *combat, const cok_rules *rules, int8_t x, int8_
         if (!found) continue;
         /* With no length below 0xff the original takes the cells its
          * locals hold from before. */
-        if (bj == 4 || combat->listed_count >= COK_COMBATANTS) return false;
+        if (bj == cells || combat->listed_count >= COK_COMBATANTS) return false;
         uint8_t d = 0;
         if (dir < 8) {
             d = dir;

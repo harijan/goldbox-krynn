@@ -63,7 +63,7 @@ dqk-merged: build/DQK_FULL.EXE
 build/DQK_FULL.EXE: tools/dqkmerge.py tools/ovrmerge.py $(DQK)/DQK.EXE | build
 	$(PYTHON) tools/dqkmerge.py $(DQK)/DQK.EXE $@ --map build/DQK_FULL.map
 
-ADVENTURE_SRC = src/adventure.c src/debug.c src/devices.c src/input.c src/ai.c src/cloud.c src/command.c src/start.c src/roster.c src/create.c src/train.c src/modify.c src/icon.c src/arena.c src/attack.c src/combat.c src/round.c src/monster.c src/treasure.c src/shop.c src/camp.c src/magic.c src/cast.c src/items.c src/sheet.c src/effect.c src/party.c src/ecl.c src/menu.c src/screen.c src/text.c src/view.c src/picture.c src/image.c src/sound.c src/config.c src/crt.c src/setup.c src/dax.c src/rules.c src/data_champions.c
+ADVENTURE_SRC = src/adventure.c src/debug.c src/devices.c src/input.c src/ai.c src/cloud.c src/command.c src/start.c src/roster.c src/create.c src/train.c src/modify.c src/icon.c src/arena.c src/attack.c src/combat.c src/round.c src/monster.c src/treasure.c src/shop.c src/camp.c src/magic.c src/cast.c src/items.c src/sheet.c src/effect.c src/party.c src/ecl.c src/menu.c src/screen.c src/text.c src/view.c src/picture.c src/image.c src/sound.c src/config.c src/crt.c src/setup.c src/dax.c src/rules.c src/data_champions.c src/step.c
 
 # The original in DOSBox-X (tools/dosbox, see DEVELOPERS.md's "DOSBox-X
 # harness"): boot it to the title's menu and compare its screens with
@@ -157,7 +157,7 @@ test_effect_SRC = tests/test_effect.c $(EFFECT_SRC)
 test_dax_SRC = tests/test_dax.c src/dax.c
 test_rules_SRC = tests/test_rules.c src/rules.c src/data_champions.c src/dax.c
 test_layout_SRC = tests/test_layout.c src/rules.c src/data_champions.c
-test_data_SRC = tests/test_data.c src/rules.c src/data_champions.c
+test_data_SRC = tests/test_data.c src/rules.c src/data_champions.c src/step.c
 daximages_SRC = src/daximages.c src/image.c src/dax.c src/rules.c src/data_champions.c
 daxcompose_SRC = src/daxcompose.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c src/data_champions.c
 test_picture_SRC = tests/test_picture.c src/picture.c src/image.c src/dax.c src/rules.c src/data_champions.c

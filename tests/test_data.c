@@ -6,7 +6,9 @@
  * again here, over the whole range of its indices, the ones the original
  * reads past a table too; the reads that run on from one table into the
  * next; the names; and the assertions that stop a wrong access. */
+#include "combat.h"
 #include "rules.h"
+#include "step.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -330,6 +332,19 @@ static void test_counts(void)
     CHECK(cok_data_count(D, COK_DATA_SPELLS, 1) == 16);
     CHECK(cok_data_first(D, COK_DATA_THIEF_LEVEL, 0) == 1);
     CHECK(cok_data_first(D, COK_DATA_THIEF_LEVEL, 1) == 1);
+    /* The arrays that hold a footprint's cells hold the game's. */
+    CHECK(cok_data_count(D, COK_DATA_FOOTPRINTS, 1) <= COK_COMBAT_FOOTPRINT_CELLS);
+}
+
+/* The code's steps by direction (step.h) are the data segment's
+ * (DS:1ed6, 1edf), which the executable check covers. */
+static void test_steps(void)
+{
+    CHECK(cok_data_count(D, COK_DATA_STEP_X, 0) == 9 && cok_data_count(D, COK_DATA_STEP_Y, 0) == 9);
+    for (unsigned d = 0; d < 9; ++d) {
+        CHECK(cok_step_x[d] == cok_data_s8_at(D, COK_DATA_STEP_X, d));
+        CHECK(cok_step_y[d] == cok_data_s8_at(D, COK_DATA_STEP_Y, d));
+    }
 }
 
 /* Reads that run on: a step past 8 into the terrain, the terrain into the
@@ -467,6 +482,7 @@ int main(void)
     test_shapes();
     test_arithmetic();
     test_counts();
+    test_steps();
     test_reads();
     test_names();
     test_assertions();

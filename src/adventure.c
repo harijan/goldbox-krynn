@@ -3006,15 +3006,6 @@ static bool locked_door(cok_adventure *game, uint8_t passage)
 
 /* The overland map. */
 
-/* The byte at DS:at, a step across (DS:1ed6) or down (DS:1edf) for
- * facings 0-8; a facing past 8 reads on into the combat terrain table,
- * which the second overlaps from DS:1ee4 (the game's data segment holds
- * every byte a facing reaches). */
-static int8_t step_byte(const cok_data_segment *D, long at)
-{
-    return (int8_t)cok_data_held(D, at);
-}
-
 /* The screen cell of the party's mark on the overland map: 127f:0edb and
  * 10e7 take 0x4bc3 + 1 and 0x4bc4 + 1 as words, the column times 4 bytes
  * and the row times 8 rows, unclipped. False where that lies off the
@@ -3087,12 +3078,12 @@ void cok_adventure_travel(cok_adventure *game)
     if (!unmark(game)) return;
     mem[0xf0] = mem[0xc3];
     mem[0xf1] = mem[0xc4];
-    int8_t x = (int8_t)(uint8_t)(mem[0xc3] +
-                                 (uint16_t)step_byte(D, cok_data_offset(D, COK_DATA_STEP_X,
-                                                                        vm->direction)));
-    int8_t y = (int8_t)(uint8_t)(mem[0xc4] +
-                                 (uint16_t)step_byte(D, cok_data_offset(D, COK_DATA_STEP_Y,
-                                                                        vm->direction)));
+    /* A step across (DS:1ed6) or down (DS:1edf) for facings 0-8; a facing
+     * past 8 reads on into the combat terrain table. */
+    uint16_t across = (uint16_t)cok_data_offset(D, COK_DATA_STEP_X, vm->direction),
+             down = (uint16_t)cok_data_offset(D, COK_DATA_STEP_Y, vm->direction);
+    int8_t x = (int8_t)(uint8_t)(mem[0xc3] + (uint16_t)cok_cast_step_byte(D, across));
+    int8_t y = (int8_t)(uint8_t)(mem[0xc4] + (uint16_t)cok_cast_step_byte(D, down));
     x = x < 0 ? 0 : x > 0x25 ? 0x25 : x;
     y = y < 0 ? 0 : y > 0x0e ? 0x0e : y;
     mem[0xc3] = (uint16_t)x;

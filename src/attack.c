@@ -5,16 +5,12 @@
 #include "cast.h"
 #include "items.h"
 #include "round.h"
+#include "step.h"
 #include "treasure.h"
 
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
-
-/* DS:1ed6 and DS:1edf: a step in direction 0-7, north first, clockwise; 8
- * for none. */
-static const int8_t step_x[9] = {0, 1, 1, 1, 0, -1, -1, -1, 0};
-static const int8_t step_y[9] = {-1, -1, 0, 1, 1, 1, 0, -1, 0};
 
 /* The sound driver's commands for a thrown missile, a hit, a miss or a
  * missile, a step and an arrow: the words at DS:1e54-1e61. */
@@ -880,7 +876,7 @@ bool cok_combat_step(cok_adventure *game, cok_character *c, uint8_t dir)
     if (cr == NULL || !index_of(game, c, &n, "432f:077a")) return false;
     if (dir > 8) return undefined(game, "direction %u is past the steps (DS:1ed6, 432f:077a)", dir);
     int8_t x = combat->combatant[n].x, y = combat->combatant[n].y;
-    int8_t nx = s8(x + step_x[dir]), ny = s8(y + step_y[dir]);
+    int8_t nx = s8(x + cok_step_x[dir]), ny = s8(y + cok_step_y[dir]);
     /* The cell is read without a check: off the map, the heap around it. */
     int at = ny * COK_COMBAT_WIDTH + nx;
     if (at < 0 || at >= COK_COMBAT_WIDTH * COK_COMBAT_HEIGHT)
@@ -940,12 +936,12 @@ bool cok_combat_opportunity(cok_adventure *game, cok_character *c, uint8_t dir)
     /* ... that are not beside it after the step, its place moved for the
      * while. */
     cok_combatant *self = &combat->combatant[n0];
-    self->x = s8(self->x + step_x[dir]);
-    self->y = s8(self->y + step_y[dir]);
+    self->x = s8(self->x + cok_step_x[dir]);
+    self->y = s8(self->y + cok_step_y[dir]);
     uint8_t after;
     bool ok = cok_combat_enemies(game, c, 1, &after);
-    self->x = s8(self->x - step_x[dir]);
-    self->y = s8(self->y - step_y[dir]);
+    self->x = s8(self->x - cok_step_x[dir]);
+    self->y = s8(self->y - cok_step_y[dir]);
     if (!ok) return false;
     for (unsigned j = 1; j <= m; ++j)
         for (unsigned i = 1; i <= after; ++i)
@@ -1059,7 +1055,7 @@ bool cok_combat_gate(cok_adventure *game, cok_character *c)
         int8_t y = qr != NULL ? cok_combat_y(combat, qr) : 0;
         bool placed = false;
         do {
-            int8_t nx = (int8_t)(x + step_x[k]), ny = (int8_t)(y + step_y[k]);
+            int8_t nx = (int8_t)(x + cok_step_x[k]), ny = (int8_t)(y + cok_step_y[k]);
             if (nx > 0x31 || nx < 0 || ny > 0x18 || ny < 0)
                 return undefined(game, "gating tries a cell off the map, and never the next "
                                        "(3f44:2895): the game hangs");

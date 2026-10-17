@@ -7,6 +7,7 @@
 #include "command.h"
 #include "magic.h"
 #include "round.h"
+#include "step.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -28,11 +29,6 @@ typedef struct {
     bool breath;
     cok_character **targets;
 } cast;
-
-/* DS:1ed6 and DS:1edf: a step in direction 0-7, north first, clockwise; 8
- * for none. */
-static const int8_t step_x[9] = {0, 1, 1, 1, 0, -1, -1, -1, 0};
-static const int8_t step_y[9] = {-1, -1, 0, 1, 1, 1, 0, -1, 0};
 
 /* Byte column of the spell table (DS:31b3, 16 bytes an id): 2 range, 4 and
  * 5 the duration, 7 how it is targeted outside combat, 8 and 9 the saving
@@ -1896,8 +1892,8 @@ bool cok_cast_wounded_ally(cok_adventure *game, cok_character *c, cok_character 
     cok_character *best = NULL;
     uint8_t lowest = 0xff, body = 0;
     for (unsigned d = 0; d <= 8; ++d) {
-        int8_t x = (int8_t)(cok_combat_x(combat, c->record) + step_x[d]);
-        int8_t y = (int8_t)(cok_combat_y(combat, c->record) + step_y[d]);
+        int8_t x = (int8_t)(cok_combat_x(combat, c->record) + cok_step_x[d]);
+        int8_t y = (int8_t)(cok_combat_y(combat, c->record) + cok_step_y[d]);
         uint8_t occupant, terrain;
         cok_combat_cell(combat, x, y, &occupant, &terrain);
         if (occupant > 0) {

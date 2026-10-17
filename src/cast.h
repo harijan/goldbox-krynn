@@ -132,9 +132,10 @@ bool cok_cast_breath(cok_adventure *game, cok_character *c, cok_effect *effect);
  * as where that first target is a record freed since. */
 bool cok_cast_dispel(cok_adventure *game);
 
-/* The byte at DS:at, from 0x1ed6 to 0x1feb: the steps' tables (DS:1ed6,
+/* The byte at DS:at, from 0x1ed6 to 0x1fde: the steps' tables (DS:1ed6,
  * 1edf) and the terrain table after them (DS:1ee4), as a signed byte,
- * which a step of any byte reads as a direction; from the game's data
+ * which a step of any byte reads as a direction (a cone's 5b04:19e7, a
+ * cloud's body, the overland map's facing past 8); from the game's data
  * segment (D), which holds them. */
 int8_t cok_cast_step_byte(const cok_data_segment *D, uint16_t at);
 

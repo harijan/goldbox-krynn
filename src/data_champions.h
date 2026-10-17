@@ -4,8 +4,8 @@
 #include <stdint.h>
 
 /* Champions of Krynn's data segment as the port copied it
- * (data_champions.c), for its descriptor (rules.c) and the tests; shared
- * code reads it through the descriptor (data.h). */
+ * (data_champions.c), for its descriptor (rules.c), which alone includes
+ * this; shared code and the tests read it through the descriptor (data.h). */
 
 extern const uint8_t cok_champions_ways[37];
 extern const uint8_t cok_champions_quadrants[4][4];
@@ -47,7 +47,6 @@ extern const int8_t cok_champions_thief_race[56];
 extern const int8_t cok_champions_thief_dexterity[55];
 extern const uint8_t cok_champions_data_38f2[31];
 extern const uint8_t cok_champions_data_39e0[697];
-extern const uint8_t cok_champions_icon_colours[6];
 extern const uint8_t cok_champions_spells_a_day[891];
 extern const uint8_t cok_champions_saving_throws[480];
 extern const uint8_t cok_champions_cleric_spells[40];

@@ -279,6 +279,9 @@ static const cok_ds_table champions_tables[] = {
     {0x1dd4, sizeof cok_champions_line_directions, 1, &cok_champions_line_directions[0][0]},
     {0x1e26, sizeof cok_champions_same_colours, 1, cok_champions_same_colours},
     {0x1e36, sizeof cok_champions_black_colours, 1, cok_champions_black_colours},
+    /* Read by no name yet: attack.c's SOUND_* are these words as its own
+     * constants. Listed so the copy is checked, for the part that names the
+     * sound driver's commands (the spells' or the sound's). */
     {0x1e54, sizeof cok_champions_sound_words, 1, cok_champions_sound_words},
     {0x1ed6, sizeof cok_champions_step_x, 1, (const uint8_t *)cok_champions_step_x},
     {0x1edf, sizeof cok_champions_step_y, 1, (const uint8_t *)cok_champions_step_y},
@@ -291,7 +294,6 @@ static const cok_ds_table champions_tables[] = {
     {0x3882, sizeof cok_champions_thac0, 1, cok_champions_thac0},
     {0x38ea, sizeof cok_champions_class_bits, 1, cok_champions_class_bits},
     {0x38f2, sizeof cok_champions_data_38f2, 1, cok_champions_data_38f2},
-    {0x390b, sizeof cok_champions_icon_colours, 1, cok_champions_icon_colours},
     {0x3911, sizeof cok_champions_thief_level, 1, cok_champions_thief_level},
     {0x3971, sizeof cok_champions_thief_race, 1, (const uint8_t *)cok_champions_thief_race},
     {0x39a9, sizeof cok_champions_thief_dexterity, 1,

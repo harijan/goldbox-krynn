@@ -178,7 +178,7 @@ segment's tables, a section to a concern:
 | `saves` | saved games (`SAVGAM` letter `.DAT`) and their characters' names (`CHRDAT` letter number); a character's extensions: in a saved game, in the roster, its items, its effects; the debug mode's trace | `SAVGAM`, `DAT`, `CHRDAT`, `SAV`, `WHO`, `STF`, `SFX`, `DEBUG.TXT` |
 | `images` | the archives `daximages` and `daxcompose` read, by layout: XOR deltas, collections, single images; stems, `NULL`-ended | `PIC1-3`; `SPRIT1-3`; the 20 others |
 | `character` | the character record's layout (`src/field.h`): its size, its file's size, and where each field lies | 409 bytes, the fields below |
-| `data` | the original's data segment (`src/data.h`): the tables the port copied from it, by DS offset, and where each table the code reads lies and its shape | 46 tables (`src/data_champions.c`), 57 named; see below |
+| `data` | the original's data segment (`src/data.h`): the tables the port copied from it, by DS offset, and where each table the code reads lies and its shape | 45 tables (`src/data_champions.c`), 57 named; see below |
 
 A `NULL` stem says the game has no such archive (Death Knights has no
 `SKY`, `CURSOR`, `RANDCOM`, `HEAD` or `BODY`): code that reads it must not
@@ -342,8 +342,8 @@ checks' replay show nothing changed.
 The tables the port copied from the original's initialized data (its data
 segment, `DS`) are the descriptor's: `rules->data`, a `cok_data_segment`
 (`src/data.h`). Champions' bytes are in `src/data_champions.c`, which only
-the descriptor (`src/rules.c`, `champions_data`) and the tests include;
-shared code reads them through the descriptor, never by name, so that
+the descriptor (`src/rules.c`, `champions_data`) includes; shared code and
+the tests read them through the descriptor, never by name, so that
 Death Knights' tables, moved and reshaped, go beside them without touching
 it. The descriptor holds two things:
 
@@ -419,11 +419,18 @@ function of the rules and a terrain value, which must be one the table
 holds; the bounds that were `COK_COMBAT_TERRAINS` and `COK_COMBAT_SIZES`
 are the tables' counts.
 
-Not in the descriptor: the steps by direction (`DS:1ed6`, `DS:1edf`),
-which the code keeps as its own constants, the compass (the descriptor
-lists Champions' copy, which the reads that run on past direction 8 go
-through, and test_data checks it); and the tables that cite the data
-segment but the port never held as its copy of it: the screen's frames
+The steps by direction (`DS:1ed6`, `DS:1edf`), the compass, the same in
+every game, are the code's own constants, `cok_step_x` and `cok_step_y`
+(`src/step.h`), which test_data checks against `COK_DATA_STEP_X` and
+`STEP_Y`. The descriptor lists those bytes (`DS:1ed6`-`1ee7`) only for the
+reads that run on past direction 8 into the terrain table (a cone's, a
+cloud's, the overland map's), which go through `cok_cast_step_byte`. A
+footprint's cells are counted by the table (`COK_DATA_FOOTPRINTS`' second
+index); the arrays that hold one footprint's cells are
+`COK_COMBAT_FOOTPRINT_CELLS` long, which test_data checks the game's
+count against (4 in both games). Not in the descriptor: the tables that
+cite the data segment but the port never held as its copy of it: the
+screen's frames
 and colours, CGA's and the mouse's tables, the keypad's and the view's
 keys, the 3D view's places and tile sets, the start menu's items, the
 spells' and levels' names (for the spells' part), the shop's diseases,

@@ -713,6 +713,8 @@ const int8_t cok_champions_thief_dexterity[55] = { /* DS:39a9, by dexterity 9-19
     /* 18 */ 10, 15, 5, 10, 10,
     /* 19 */ 15, 20, 10, 12, 12,
 };
+/* DS:38f2-3910: training's class bits (DS:38f2), the top levels (DS:3903)
+ * and the icon's colours (DS:390b). */
 const uint8_t cok_champions_data_38f2[31] = { /* DS:38f2-3910 */
     0x02, 0x02, 0x08, 0x10, 0x20, 0x01, 0x04, 0x10, 0x10, 0x10, 0x10, 0x20,
     0x20, 0x20, 0x40, 0x40, 0x40, 0x0a, 0x0f, 0x0a, 0x0a, 0x0b, 0x0c, 0x0b,
@@ -779,10 +781,6 @@ const uint8_t cok_champions_data_39e0[697] = { /* DS:39e0-3c98 */
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0xff,
 };
-
-/* DS:390b: the colours of a player's icon that its six colour bytes
- * (+0x139) give, and those + 8. */
-const uint8_t cok_champions_icon_colours[6] = {1, 2, 3, 4, 6, 7};
 
 const uint8_t cok_champions_spells_a_day[891] = { /* DS:3c99 */
     /* table 0: spells by level 2-12 */

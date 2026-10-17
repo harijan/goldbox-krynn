@@ -4,16 +4,12 @@
 #include "arena.h"
 #include "cloud.h"
 #include "round.h"
+#include "step.h"
 #include "treasure.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-/* DS:1ed6 and DS:1edf: a step in direction 0-7, north first, clockwise; 8
- * for none. */
-static const int8_t step_x[9] = {0, 1, 1, 1, 0, -1, -1, -1, 0};
-static const int8_t step_y[9] = {-1, -1, 0, 1, 1, 1, 0, -1, 0};
 
 static int8_t s8(int value)
 {
@@ -142,7 +138,8 @@ bool cok_combat_probe(const cok_combat *combat, const cok_rules *rules, const ui
         int8_t dx, dy;
         if (!cok_combat_footprint(rules, e.size, k, &dx, &dy)) continue;
         uint8_t o, t;
-        cok_combat_cell(combat, s8(e.x + dx + step_x[dir]), s8(e.y + dy + step_y[dir]), &o, &t);
+        cok_combat_cell(combat, s8(e.x + dx + cok_step_x[dir]), s8(e.y + dy + cok_step_y[dir]), &o,
+                        &t);
         if (o == n) o = 0;
         if (o > 0) *occupant = o;
         if (t >= cok_data_count(D, COK_DATA_TERRAIN, 0)) return false;
@@ -325,7 +322,7 @@ static uint8_t edge(const dungeon *d, int8_t x, int8_t y, uint8_t dir)
 {
     uint8_t across = (uint8_t)((dir + 4) % 8);
     return side_kind(d, x, y, dir) |
-           side_kind(d, s8(x + step_x[dir]), s8(y + step_y[dir]), across);
+           side_kind(d, s8(x + cok_step_x[dir]), s8(y + cok_step_y[dir]), across);
 }
 
 /* 3cb2:03fc: the floor, rows 2-4, and the west edge drawn down its
@@ -734,8 +731,9 @@ static bool find_place(placement *p, uint8_t d, bool *found)
         if (state == 1) {
             uint8_t dir = cok_data_u8_at(D, COK_DATA_QUADRANT_DIRECTIONS, (q + 2) % 4);
             centre_column =
-                s8(rank * step_x[dir] + cok_data_s8_at2(D, COK_DATA_START_COLUMNS, k > 0, q));
-            centre_row = s8(rank * step_y[dir] + cok_data_s8_at2(D, COK_DATA_START_ROWS, k > 0, q));
+                s8(rank * cok_step_x[dir] + cok_data_s8_at2(D, COK_DATA_START_COLUMNS, k > 0, q));
+            centre_row = s8(rank * cok_step_y[dir] +
+                            cok_data_s8_at2(D, COK_DATA_START_ROWS, k > 0, q));
             column = centre_column;
             row = centre_row;
             along = 1;
@@ -743,14 +741,14 @@ static bool find_place(placement *p, uint8_t d, bool *found)
             tried = 1;
         } else if (state == 2) {
             uint8_t dir = cok_data_u8_at(D, COK_DATA_QUADRANT_DIRECTIONS, (q + 1) % 4);
-            column = s8(along * step_x[dir] + centre_column);
-            row = s8(along * step_y[dir] + centre_row);
+            column = s8(along * cok_step_x[dir] + centre_column);
+            row = s8(along * cok_step_y[dir] + centre_row);
             state = 3;
             ++tried;
         } else if (state == 3) {
             uint8_t dir = cok_data_u8_at(D, COK_DATA_QUADRANT_DIRECTIONS, (q + 3) % 4);
-            column = s8(along * step_x[dir] + centre_column);
-            row = s8(along * step_y[dir] + centre_row);
+            column = s8(along * cok_step_x[dir] + centre_column);
+            row = s8(along * cok_step_y[dir] + centre_row);
             state = 2;
             ++along;
             ++tried;
@@ -779,8 +777,8 @@ static bool find_place(placement *p, uint8_t d, bool *found)
                 int8_t x = s8(vm->map_x + p->anchor_x[side]), y = s8(vm->map_y + p->anchor_y[side]);
                 uint8_t dir = cok_data_u8_at2(D, COK_DATA_MOVES, quadrant, k);
                 if (vm->mode != 3 && edge(&map, x, y, dir) == 1) continue;
-                ax = s8(p->anchor_x[side] + step_x[dir]);
-                ay = s8(p->anchor_y[side] + step_y[dir]);
+                ax = s8(p->anchor_x[side] + cok_step_x[dir]);
+                ay = s8(p->anchor_y[side] + cok_step_y[dir]);
                 rank = 0;
                 state = 1;
             }
@@ -838,8 +836,8 @@ bool cok_combat_place_all(cok_adventure *game)
     p.quadrant[0] = facing >> 1;
     p.quadrant[1] = (uint8_t)((facing + 4) % 8) >> 1;
     uint16_t distance = vm->mem7c00[0x2c1];
-    p.anchor_x[1] = s8((int)distance * step_x[facing]);
-    p.anchor_y[1] = s8((int)distance * step_y[facing]);
+    p.anchor_x[1] = s8((int)distance * cok_step_x[facing]);
+    p.anchor_y[1] = s8((int)distance * cok_step_y[facing]);
     for (unsigned side = 0; side < 2; ++side) {
         p.width[side] = (uint8_t)((combat->sides[side] + 1) >> 1);
         for (unsigned k = 0; k < 4; ++k) {

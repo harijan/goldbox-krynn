@@ -4,15 +4,11 @@
 #include "camp.h"
 #include "cast.h"
 #include "round.h"
+#include "step.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-/* DS:1ed6, 1edf: a step in direction 0-7, north first, clockwise; 8 for
- * none. */
-static const int8_t step_x[9] = {0, 1, 1, 1, 0, -1, -1, -1, 0};
-static const int8_t step_y[9] = {-1, -1, 0, 1, 1, 1, 0, -1, 0};
 
 /* The direction of cell k (1-4) of a cloud (DS:2091 + k). */
 static uint8_t cell_dir(const cok_adventure *game, unsigned k)
@@ -63,12 +59,12 @@ static bool set_cell(cok_adventure *game, int x, int y, uint8_t terrain)
 /* A cloud's cell k (1-4). */
 static int cloud_x(const cok_adventure *game, const cok_combat_cloud *p, unsigned k)
 {
-    return p->x + step_x[cell_dir(game, k)];
+    return p->x + cok_step_x[cell_dir(game, k)];
 }
 
 static int cloud_y(const cok_adventure *game, const cok_combat_cloud *p, unsigned k)
 {
-    return p->y + step_y[cell_dir(game, k)];
+    return p->y + cok_step_y[cell_dir(game, k)];
 }
 
 /* The terrain a cloud kept for cell x, y, already a green cloud: of each
@@ -212,7 +208,8 @@ uint8_t *cok_cloud_caster(const cok_adventure *game, int8_t x, int8_t y)
         for (unsigned k = 1; k <= 4; ++k) {
             uint8_t d = cok_data_u8_at(cok_game_rules(game)->data, COK_DATA_CLOUD_CELLS,
                                        k + 1); /* DS:2092 + k */
-            if (p->covered[k] && x == p->x + step_x[d] && y == p->y + step_y[d]) return p->caster;
+            if (p->covered[k] && x == p->x + cok_step_x[d] && y == p->y + cok_step_y[d])
+                return p->caster;
         }
     return game->party.count > 0 ? game->party.members[0]->record : NULL;
 }
