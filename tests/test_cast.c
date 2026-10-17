@@ -353,6 +353,20 @@ static void test_handlers(void)
     CHECK(count_effects(sir, 0x26) == 1 && cok_character_find_effect(sir, 0x26)->value == 100);
     remove_effects(sir, 0x26);
     game.effects.rolls.item = 0;
+    /* A mage (+0xfe; not a ranger, +0xfd) rolls a d4, kept as it is under
+     * 18; with neither class it would add the commands' 0x74. */
+    sir->record[0x100] = 0;
+    sir->record[0xfe] = 2;
+    sir->record[0x10] = sir->record[0x11] = 10;
+    game.vm.seed = 5;
+    unsigned mage_d4 = peek(0, 4);
+    keys("S");
+    cast_from(0x23, false, COK_CAST_COMMANDS, &done);
+    CHECK(count_effects(sir, 0x26) == 1);
+    CHECK(cok_character_find_effect(sir, 0x26)->value == (uint8_t)(mage_d4 + 100));
+    CHECK(sir->record[0x11] == 10 + mage_d4 && sir->record[0x1c] == 0);
+    remove_effects(sir, 0x26);
+    sir->record[0xfe] = 0;
     /* A fighter of 18: past 18 into exceptional strength, which must beat
      * the base's. */
     sir->record[0x100] = 0;
