@@ -23,12 +23,12 @@
 bool cok_train_row(const uint8_t *c, unsigned class_, uint8_t *row);
 /* The LongInt of row for level, reading the original's data as it lies;
  * false where it lies past DS:43bf. */
-bool cok_train_experience(uint8_t row, int level, int32_t *need);
+bool cok_train_experience(const cok_rules *rules, uint8_t row, int level, int32_t *need);
 
 /* 4def:4789: the constitution bonus (DS:3c53 by +0x19) to a hit die of
  * class, one more for a fighter, ranger or knight at 17, two at 18, three
  * at 19-20, four at 21-23 and five at 24-25. */
-int8_t cok_train_constitution(const uint8_t *c, unsigned class_);
+int8_t cok_train_constitution(const uint8_t *c, const cok_rules *rules, unsigned class_);
 
 /* 4def:257c: the constitution bonus to a hit die of class, for the
  * selected character c: -2 at 3, -1 at 4-6, 0 at 7-14, 1 at 15, 2 at 16,

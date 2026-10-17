@@ -480,29 +480,6 @@ static void test_levels(void)
     free(c);
 }
 
-/* The tables match the original's data segment (DS 0x1bc6) in
- * build/START_FULL.EXE, if it has been built (make merged). */
-static void test_tables(void)
-{
-    FILE *f = fopen("build/START_FULL.EXE", "rb");
-    if (f == NULL) {
-        puts("party: build/START_FULL.EXE not built; tables not checked");
-        return;
-    }
-    static uint8_t exe[1 << 20];
-    size_t size = fread(exe, 1, sizeof exe, f);
-    fclose(f);
-    CHECK(size > 0x20 && exe[0] == 'M' && exe[1] == 'Z');
-    size_t ds = (size_t)(exe[8] | exe[9] << 8) * 16 + 0xbc6 * 16;
-    for (size_t i = 0; i < cok_stat_table_count; ++i) {
-        const cok_ds_table *t = &cok_stat_tables[i];
-        for (size_t k = 0; k < t->size; ++k) {
-            size_t at = ds + t->offset + k * t->stride;
-            CHECK(at < size && exe[at] == t->bytes[k]);
-        }
-    }
-}
-
 /* Characters the original saved: the recomputed fields match the saved
  * ones, but for spell 8, which this executable's cleric table (DS:423b)
  * lists and the two clerics of SAVGAMA.DAT lack. */
@@ -555,7 +532,6 @@ int main(void)
     test_items();
     test_stats();
     test_levels();
-    test_tables();
     test_saved();
     puts("party tests passed");
     return 0;

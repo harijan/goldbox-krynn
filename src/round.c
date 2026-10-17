@@ -17,16 +17,6 @@
 static const int8_t step_x[9] = {0, 1, 1, 1, 0, -1, -1, -1, 0};
 static const int8_t step_y[9] = {-1, -1, 0, 1, 1, 1, 0, -1, 0};
 
-/* DS:1dd4: the direction of a line's step, by its y and x steps + 1. */
-static const uint8_t line_direction[3][3] = {{7, 0, 1}, {6, 8, 2}, {5, 4, 3}};
-
-/* DS:0db4: the effects that last only through the battle (60f4:1440). */
-static const uint8_t battle_only[16] = {0x03, 0x0b, 0x15, 0x17, 0x1b, 0x1e, 0x1f, 0x33,
-                                        0x34, 0x35, 0x5b, 0x6a, 0x6b, 0x6f, 0x76, 0x77};
-
-/* DS:200c: the effects that leave a combatant helpless (6346:0cdb). */
-static const uint8_t helpless[4] = {0x33, 0x34, 0x35, 0x1f};
-
 static int8_t s8(int value)
 {
     return (int8_t)(uint8_t)value;
@@ -131,11 +121,13 @@ bool cok_combat_bandage(cok_adventure *game, bool bandage)
     return found;
 }
 
-bool cok_combat_helpless(const cok_character *c)
+bool cok_combat_helpless(const cok_character *c, const cok_rules *rules)
 {
+    const cok_data_segment *D = rules->data;
     bool found = false;
-    for (size_t k = 0; k < sizeof helpless; ++k)
-        if (cok_character_find_effect(c, helpless[k]) != NULL) found = true;
+    for (size_t k = 0; k < cok_data_count(D, COK_DATA_HELPLESS, 0); ++k)
+        if (cok_character_find_effect(c, cok_data_u8_at(D, COK_DATA_HELPLESS, k)) != NULL)
+            found = true;
     return found;
 }
 
@@ -275,8 +267,10 @@ void cok_combat_auto(cok_character *c, const cok_rules *rules)
 bool cok_combat_battle_only(cok_adventure *game, cok_character *c)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
-    for (size_t k = 0; k < sizeof battle_only; ++k) {
-        if (cok_effects_remove(&game->effects, c, NULL, battle_only[k])) continue;
+    const cok_data_segment *D = cok_game_rules(game)->data;
+    for (size_t k = 0; k < cok_data_count(D, COK_DATA_BATTLE_ONLY, 0); ++k) {
+        if (cok_effects_remove(&game->effects, c, NULL, cok_data_u8_at(D, COK_DATA_BATTLE_ONLY, k)))
+            continue;
         return cok_adventure_effect_failed(game);
     }
     if (cok_character_find_effect(c, 0x4d) != NULL &&
@@ -303,7 +297,7 @@ bool cok_combat_leave(cok_adventure *game, cok_character *c, uint8_t status, con
         return undefined(game, "a record that is not a combatant leaves the map: its size is "
                                "written over the count (60f4:133c)");
     combat->combatant[n].size = 0;
-    if (!cok_combat_occupy(combat))
+    if (!cok_combat_occupy(combat, cok_game_rules(game)))
         return undefined(game, "a footprint is written outside the occupants (6beb:0375)");
     cok_combat_end_turn(c);
     return cok_combat_battle_only(game, c);
@@ -347,7 +341,8 @@ bool cok_combat_explode(cok_adventure *game)
                                    "0000:0188 (60f4:24c7)");
         if (!cok_arena_say(game, x, "explodes.", 10, true)) return false;
         const uint8_t *r = x->record;
-        if (!cok_combat_list(combat, cok_combat_x(combat, r), cok_combat_y(combat, r), 1, 0xff,
+        if (!cok_combat_list(combat, cok_game_rules(game), cok_combat_x(combat, r),
+                             cok_combat_y(combat, r), 1, 0xff,
                              cok_combat_size(combat, r)))
             return undefined(game, "the list of combatants around one (6b30:08d8) reads past "
                                    "its tables");
@@ -411,7 +406,7 @@ void cok_combat_line_start(cok_combat_line *line)
     line->length = 0;
 }
 
-bool cok_combat_line_step(cok_combat_line *line)
+bool cok_combat_line_step(cok_combat_line *line, const cok_rules *rules)
 {
     bool stepped = false;
     int moved_x = 1, moved_y = 1;
@@ -442,41 +437,42 @@ bool cok_combat_line_step(cok_combat_line *line)
         }
         stepped = true;
     }
-    line->direction = line_direction[moved_y][moved_x];
+    line->direction = cok_data_u8_at2(rules->data, COK_DATA_LINE_DIRECTIONS, moved_y, moved_x);
     return stepped;
 }
 
 /* The terrain of cell x, y, which must be on the map and in the table. */
-static bool terrain_at(const cok_combat *combat, int x, int y, const cok_terrain **terrain)
+static bool terrain_at(const cok_combat *combat, const cok_rules *rules, int x, int y,
+                       cok_terrain *terrain)
 {
     if (x < 0 || x >= COK_COMBAT_WIDTH || y < 0 || y >= COK_COMBAT_HEIGHT) return false;
     uint8_t t = combat->cells[y][x];
-    if (t >= COK_COMBAT_TERRAINS) return false;
-    *terrain = &cok_combat_terrain[t];
+    if (t >= cok_data_count(rules->data, COK_DATA_TERRAIN, 0)) return false;
+    *terrain = cok_combat_terrain(rules, t);
     return true;
 }
 
-bool cok_combat_sight(const cok_combat *combat, int8_t x0, int8_t y0, int8_t *x1, int8_t *y1,
-                      uint16_t *range, bool *seen)
+bool cok_combat_sight(const cok_combat *combat, const cok_rules *rules, int8_t x0, int8_t y0,
+                      int8_t *x1, int8_t *y1, uint16_t *range, bool *seen)
 {
     uint16_t limit = (uint16_t)(*range * 2u + 1u);
     cok_combat_line line = {.x0 = x0, .y0 = y0, .x1 = *x1, .y1 = *y1};
     cok_combat_line_start(&line);
     /* The original runs a second line, at the eye's height, along the
      * first; it never leaves that height. */
-    const cok_terrain *start;
-    if (!terrain_at(combat, x0, y0, &start)) return false;
+    cok_terrain start;
+    if (!terrain_at(combat, rules, x0, y0, &start)) return false;
     *seen = false;
     for (;;) {
-        const cok_terrain *t;
-        if (!terrain_at(combat, line.x, line.y, &t)) return false;
-        if ((combat->see_all == 0 && t->block > start->eye) || line.length > limit) {
+        cok_terrain t;
+        if (!terrain_at(combat, rules, line.x, line.y, &t)) return false;
+        if ((combat->see_all == 0 && t.block > start.eye) || line.length > limit) {
             *x1 = s8(line.x);
             *y1 = s8(line.y);
             *range = line.length;
             return true;
         }
-        if (!cok_combat_line_step(&line)) break;
+        if (!cok_combat_line_step(&line, rules)) break;
     }
     *range = line.length;
     *seen = true;
@@ -553,14 +549,14 @@ static void sort_listed(cok_combat *combat)
     }
 }
 
-bool cok_combat_list(cok_combat *combat, int8_t x, int8_t y, uint16_t range, uint8_t dir,
-                     uint8_t size)
+bool cok_combat_list(cok_combat *combat, const cok_rules *rules, int8_t x, int8_t y, uint16_t range,
+                     uint8_t dir, uint8_t size)
 {
     int8_t vx[4], vy[4];
-    if (size >= COK_COMBAT_SIZES) return false;
+    if (size >= cok_data_count(rules->data, COK_DATA_FOOTPRINTS, 0)) return false;
     for (unsigned k = 0; k < 4; ++k) {
         int8_t dx, dy;
-        if (cok_combat_footprint(size, k, &dx, &dy)) {
+        if (cok_combat_footprint(rules, size, k, &dx, &dy)) {
             vx[k] = s8(dx + x);
             vy[k] = s8(dy + y);
         } else {
@@ -572,11 +568,11 @@ bool cok_combat_list(cok_combat *combat, int8_t x, int8_t y, uint16_t range, uin
     for (unsigned n = 1; n <= combat->count && n <= COK_COMBATANTS; ++n) {
         const cok_combatant *e = &combat->combatant[n];
         if (e->size == 0) continue;
-        if (e->size >= COK_COMBAT_SIZES) return false;
+        if (e->size >= cok_data_count(rules->data, COK_DATA_FOOTPRINTS, 0)) return false;
         int8_t tx[4], ty[4];
         for (unsigned k = 0; k < 4; ++k) {
             int8_t dx, dy;
-            if (cok_combat_footprint(e->size, k, &dx, &dy)) {
+            if (cok_combat_footprint(rules, e->size, k, &dx, &dy)) {
                 tx[k] = s8(dx + e->x);
                 ty[k] = s8(dy + e->y);
             } else {
@@ -597,7 +593,8 @@ bool cok_combat_list(cok_combat *combat, int8_t x, int8_t y, uint16_t range, uin
                 int8_t sx = tx[k], sy = ty[k];
                 uint16_t r = range;
                 combat->sight_step = sign(tx[k] - vx[j]);
-                if (!cok_combat_sight(combat, vx[j], vy[j], &sx, &sy, &r, &seen)) return false;
+                if (!cok_combat_sight(combat, rules, vx[j], vy[j], &sx, &sy, &r, &seen))
+                    return false;
                 if (!seen) continue;
                 found = true;
                 if (r < best) {
@@ -644,7 +641,8 @@ bool cok_combat_enemies(cok_adventure *game, cok_character *c, uint8_t range, ui
     cok_combat *combat = &game->combat;
     const uint8_t *r = c->record;
     *count = 0;
-    if (!cok_combat_list(combat, cok_combat_x(combat, r), cok_combat_y(combat, r), range, 0xff,
+    if (!cok_combat_list(combat, cok_game_rules(game), cok_combat_x(combat, r),
+                         cok_combat_y(combat, r), range, 0xff,
                          cok_combat_size(combat, r)))
         return undefined(game, "the list of combatants around one (6b30:08d8) reads past its "
                                "tables");
@@ -680,15 +678,15 @@ bool cok_combat_enemies(cok_adventure *game, cok_character *c, uint8_t range, ui
     return true;
 }
 
-bool cok_combat_distance(cok_combat *combat, const uint8_t *origin, const uint8_t *target,
-                         uint8_t *distance)
+bool cok_combat_distance(cok_combat *combat, const cok_rules *rules, const uint8_t *origin,
+                         const uint8_t *target, uint8_t *distance)
 {
     cok_combat_listing saved[COK_COMBATANTS + 1];
     memcpy(saved, combat->listed, sizeof saved);
     const uint8_t *r = origin;
     combat->see_all = 1;
-    bool ok = cok_combat_list(combat, cok_combat_x(combat, r), cok_combat_y(combat, r), 0xff, 0xff,
-                              cok_combat_size(combat, r));
+    bool ok = cok_combat_list(combat, rules, cok_combat_x(combat, r), cok_combat_y(combat, r), 0xff,
+                              0xff, cok_combat_size(combat, r));
     combat->see_all = 0;
     if (ok) {
         unsigned i = 1;
@@ -744,7 +742,7 @@ bool cok_combat_round_start(cok_adventure *game, cok_character *c)
     cr->spell = 0;
     uint8_t occupant, terrain;
     bool cloud, puddle;
-    if (!cok_combat_probe(combat, r, 8, &occupant, &terrain, &cloud, &puddle))
+    if (!cok_combat_probe(combat, cok_game_rules(game), r, 8, &occupant, &terrain, &cloud, &puddle))
         return undefined(game, "a size past the footprints is read after them (6beb:0c9d)");
     cr->may_cast = !cloud;
     cr->may_use = 1;
@@ -847,7 +845,7 @@ bool cok_combat_turn(cok_adventure *game, cok_character *c)
     if (cr->initiative == 0x14) cr->initiative = 0x13;
     game->vm.character = r;
     bool visible = cok_field_u8(L, r, COK_FIELD_HOSTILE) == 0;
-    if (!visible && !cok_combat_visible(combat, r, false, &visible))
+    if (!visible && !cok_combat_visible(combat, cok_game_rules(game), r, false, &visible))
         return undefined(game, "a size past the footprints is read after them (6beb:06ef)");
     combat->show_actions = visible;
     if (!cok_arena_turn(game, c, 2, true)) return false;
@@ -1003,10 +1001,3 @@ bool cok_combat_battle(cok_adventure *game)
     game->combat_targets = false;
     return ok;
 }
-
-const cok_ds_table cok_round_tables[] = {
-    {0x1dd4, sizeof line_direction, 1, &line_direction[0][0]},
-    {0x0db4, sizeof battle_only, 1, battle_only},
-    {0x200c, sizeof helpless, 1, helpless},
-};
-const size_t cok_round_table_count = sizeof cok_round_tables / sizeof *cok_round_tables;

@@ -11,25 +11,18 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The alignments the alignment list offers, by bit (DS:0a9a): lawful,
- * true and chaotic good and neutral; evil is never offered. */
-static const uint8_t alignment_codes[6] = {0, 1, 3, 4, 6, 7};
-
-const cok_ds_table cok_create_tables[] = {
-    {0x0a9a, sizeof alignment_codes, 1, alignment_codes},
-};
-const size_t cok_create_table_count = sizeof cok_create_tables / sizeof *cok_create_tables;
-
-static uint8_t ds(uint16_t offset)
+/* The byte and the word at DS:offset in the game's data segment, 0 where
+ * it holds none. */
+static uint8_t ds(const cok_data_segment *D, uint16_t offset)
 {
     uint8_t byte = 0;
-    cok_ds_byte(offset, &byte);
+    cok_data_byte(D, offset, &byte);
     return byte;
 }
 
-static uint16_t ds_word(uint16_t offset)
+static uint16_t ds_word(const cok_data_segment *D, uint16_t offset)
 {
-    return (uint16_t)(ds(offset) | ds((uint16_t)(offset + 1)) << 8);
+    return (uint16_t)(ds(D, offset) | ds(D, (uint16_t)(offset + 1)) << 8);
 }
 
 static void put16(uint8_t *p, uint16_t value)
@@ -121,11 +114,12 @@ static int pick(cok_adventure *game, const char *heading, char names[][41], size
     }
 }
 
-/* The name of table entry index at DS:base + stride * index. */
-static void table_name(uint16_t base, unsigned stride, unsigned index, char out[41])
+/* The name of entry index of table t (DS:base + stride * index). */
+static void table_name(const cok_adventure *game, cok_data t, unsigned index, char out[41])
 {
+    const cok_data_segment *D = cok_game_rules(game)->data;
     char name[256];
-    if (!cok_ds_string((uint16_t)(base + stride * index), name)) name[0] = '\0';
+    if (!cok_data_string(D, (uint16_t)cok_data_offset(D, t, index), name)) name[0] = '\0';
     size_t n = strlen(name);
     if (n > 40) n = 40;
     memcpy(out, name, n);
@@ -141,7 +135,7 @@ static void add_effect(cok_character *character, uint8_t id)
 static int race(cok_adventure *game, cok_character *character)
 {
     char names[7][41];
-    for (unsigned i = 0; i < 7; ++i) table_name(0x1140, 16, i, names[i]);
+    for (unsigned i = 0; i < 7; ++i) table_name(game, COK_DATA_RACE_NAMES, i, names[i]);
     int index, key = pick(game, "Pick Race", names, 7, &index);
     if (key != 'S') return key;
     uint8_t *c = character->record;
@@ -166,7 +160,7 @@ static int race(cok_adventure *game, cok_character *character)
 static int gender(cok_adventure *game, cok_character *character)
 {
     char names[2][41];
-    for (unsigned i = 0; i < 2; ++i) table_name(0x12d5, 7, i, names[i]);
+    for (unsigned i = 0; i < 2; ++i) table_name(game, COK_DATA_GENDER_NAMES, i, names[i]);
     int index, key = pick(game, "Pick Gender", names, 2, &index);
     if (key == 'S') character->record[0x109] = (uint8_t)(index - 1);
     return key;
@@ -177,16 +171,17 @@ static int gender(cok_adventure *game, cok_character *character)
  * class-time THAC0, class bits, thief skills and saving throws. */
 static int class_(cok_adventure *game, cok_character *character)
 {
+    const cok_data_segment *D = cok_game_rules(game)->data;
     uint8_t *c = character->record;
-    uint16_t base = (uint16_t)(0x3a50 + (int8_t)c[0x5a] * 15);
-    uint8_t count = ds(base);
+    uint16_t base = (uint16_t)cok_data_offset2(D, COK_DATA_RACE_CLASSES, (int8_t)c[0x5a], 0);
+    uint8_t count = ds(D, base);
     char names[16][41];
     for (unsigned i = 1; i <= count && i <= 16; ++i)
-        table_name(0x0f5a, 27, ds((uint16_t)(base + i)), names[i - 1]);
+        table_name(game, COK_DATA_CLASS_NAMES, ds(D, (uint16_t)(base + i)), names[i - 1]);
     int index, key = pick(game, "Pick Class", names, count, &index);
     if (key != 'S') return key;
     put32(c + 0x116, 0);
-    uint8_t class_id = ds((uint16_t)(base + index));
+    uint8_t class_id = ds(D, (uint16_t)(base + index));
     c[0x5b] = class_id;
     /* Levels by class (+0xf9 cleric ... +0x100 knight) and experience. */
     static const struct { uint8_t levels[8]; uint16_t experience; } kinds[17] = {
@@ -217,9 +212,10 @@ static int class_(cok_adventure *game, cok_character *character)
     for (unsigned i = 0; i < 8; ++i) {
         int8_t level = (int8_t)c[0xf9 + i];
         if (level <= 0) continue;
-        uint8_t thac0 = ds((uint16_t)(0x3882 + (int)i * 13 + level));
+        uint8_t thac0 = ds(D, (uint16_t)cok_data_offset2(D, COK_DATA_THAC0, i, level));
         if (thac0 > c[0x59]) c[0x59] = thac0;
-        c[0x11a] = (uint8_t)(c[0x11a] + ds((uint16_t)(0x38ea + i)));
+        c[0x11a] =
+            (uint8_t)(c[0x11a] + ds(D, (uint16_t)cok_data_offset(D, COK_DATA_CLASS_BITS, i)));
     }
     if (!cok_character_saving_throws(character, cok_game_rules(game), error, sizeof error))
         return undefined(game, error) ? 0 : -1;
@@ -239,7 +235,8 @@ static int deity(cok_adventure *game, cok_character *character, uint8_t *mask)
     bool dwarf = c[0x5a] == 3 || c[0x5a] == 4;
     char names[7][41];
     size_t count = dwarf ? 1 : 7;
-    for (unsigned i = 0; i < count; ++i) table_name(0x1259, 12, dwarf ? 6 : i + 1, names[i]);
+    for (unsigned i = 0; i < count; ++i)
+        table_name(game, COK_DATA_DEITY_NAMES, dwarf ? 6 : i + 1, names[i]);
     int index, key = pick(game, "Pick God", names, count, &index);
     if (key != 'S') return key;
     uint8_t god = dwarf ? 6 : (uint8_t)index;
@@ -262,15 +259,19 @@ static int deity(cok_adventure *game, cok_character *character, uint8_t *mask)
  * allows; then a cleric's experience and a mage's order of magic. */
 static int alignment(cok_adventure *game, cok_character *character, uint8_t mask)
 {
+    const cok_data_segment *D = cok_game_rules(game)->data;
     uint8_t *c = character->record;
-    uint8_t allowed = (uint8_t)(ds((uint16_t)(0x3c45 + (int8_t)c[0x5b])) & mask);
+    uint8_t allowed =
+        (uint8_t)(ds(D, (uint16_t)cok_data_offset(D, COK_DATA_CLASS_ALIGNMENTS, (int8_t)c[0x5b])) &
+                  mask);
     char names[6][41];
     uint8_t codes[6];
     size_t count = 0;
     for (unsigned j = 0; j < 6; ++j) {
         if ((allowed & 1u << j) == 0) continue;
-        codes[count] = alignment_codes[j];
-        table_name(0x11c0, 17, alignment_codes[j], names[count++]);
+        codes[count] = cok_data_u8_at(D, COK_DATA_ALIGNMENT_CODES, j);
+        table_name(game, COK_DATA_ALIGNMENT_NAMES, cok_data_u8_at(D, COK_DATA_ALIGNMENT_CODES, j),
+                   names[count++]);
     }
     int index, key = pick(game, "Pick Alignment", names, count, &index);
     if (key != 'S') return key;
@@ -294,17 +295,17 @@ static int alignment(cok_adventure *game, cok_character *character, uint8_t mask
  * the mage's for 12, 13, 15 and 16, the fighter's for 14. */
 static void age(cok_adventure *game, uint8_t *c)
 {
+    const cok_data_segment *D = cok_game_rules(game)->data;
     int8_t class_id = (int8_t)c[0x5b];
-    uint16_t base = (uint16_t)(0x3ab9 + (int8_t)c[0x5a] * 32);
     uint16_t value;
     if (class_id <= 7) {
-        uint16_t p = (uint16_t)(base + class_id * 4);
-        value = (uint16_t)(ds_word(p) + cok_dice(&game->vm.seed, ds((uint16_t)(p + 2)),
-                                                 ds((uint16_t)(p + 3))));
+        uint16_t p = (uint16_t)cok_data_offset2(D, COK_DATA_AGE_DICE, (int8_t)c[0x5a], class_id);
+        value = (uint16_t)(ds_word(D, p) + cok_dice(&game->vm.seed, ds(D, (uint16_t)(p + 2)),
+                                                    ds(D, (uint16_t)(p + 3))));
     } else {
         int entry = class_id >= 8 && class_id <= 11 ? 0 : class_id == 14 ? 2 : 5;
-        uint16_t p = (uint16_t)(base + entry * 4);
-        value = (uint16_t)(ds_word(p) + ds((uint16_t)(p + 2)) * ds((uint16_t)(p + 3)));
+        uint16_t p = (uint16_t)cok_data_offset2(D, COK_DATA_AGE_DICE, (int8_t)c[0x5a], entry);
+        value = (uint16_t)(ds_word(D, p) + ds(D, (uint16_t)(p + 2)) * ds(D, (uint16_t)(p + 3)));
     }
     put16(c + 0x60, value);
 }
@@ -319,12 +320,14 @@ static void age(cok_adventure *game, uint8_t *c)
  * which has none: no score is adjusted by race. */
 static void abilities(cok_adventure *game, uint8_t *c)
 {
+    const cok_data_segment *D = cok_game_rules(game)->data;
     uint8_t race = c[0x5a], sex = c[0x109];
-    uint16_t limits = (uint16_t)(0x39e0 + (int8_t)race * 16);
+    uint16_t limits = (uint16_t)cok_data_offset2(D, COK_DATA_SCORE_LIMITS, (int8_t)race, 0);
     uint16_t age_now = (uint16_t)(c[0x60] | c[0x61] << 8);
     bool old[4];
     for (int i = 0; i < 4; ++i)
-        old[i] = ds_word((uint16_t)(0x3b99 + (int8_t)race * 10 + 2 * i)) < age_now;
+        old[i] =
+            ds_word(D, (uint16_t)cok_data_offset2(D, COK_DATA_AGES, (int8_t)race, i)) < age_now;
     for (int a = 0; a < 6; ++a) {
         uint8_t s = 0;
         for (int k = 0; k < 6; ++k) {
@@ -338,45 +341,46 @@ static void abilities(cok_adventure *game, uint8_t *c)
             if (s > 0 && old[1]) --s;
             if (s > 0 && old[2]) s = (uint8_t)(s - 2);
             if (s > 0 && old[3]) --s;
-            low = ds((uint16_t)(limits + sex));
-            high = ds((uint16_t)(limits + 2 + sex));
+            low = ds(D, (uint16_t)(limits + sex));
+            high = ds(D, (uint16_t)(limits + 2 + sex));
             break;
         case 1:
             if (old[1]) ++s;
             if (old[3]) ++s;
-            low = ds((uint16_t)(limits + 6)), high = ds((uint16_t)(limits + 7));
+            low = ds(D, (uint16_t)(limits + 6)), high = ds(D, (uint16_t)(limits + 7));
             break;
         case 2:
             if (!old[0]) --s;
             if (old[1]) ++s;
             if (old[2]) ++s;
             if (old[3]) ++s;
-            low = ds((uint16_t)(limits + 8)), high = ds((uint16_t)(limits + 9));
+            low = ds(D, (uint16_t)(limits + 8)), high = ds(D, (uint16_t)(limits + 9));
             break;
         case 3:
             if (old[2]) s = (uint8_t)(s - 2);
             if (old[3]) --s;
-            low = ds((uint16_t)(limits + 10)), high = ds((uint16_t)(limits + 11));
+            low = ds(D, (uint16_t)(limits + 10)), high = ds(D, (uint16_t)(limits + 11));
             break;
         case 4:
             if (old[1]) --s;
             if (old[2]) --s;
             if (old[3]) --s;
-            low = ds((uint16_t)(limits + 12)), high = ds((uint16_t)(limits + 13));
+            low = ds(D, (uint16_t)(limits + 12)), high = ds(D, (uint16_t)(limits + 13));
             break;
         default:
-            low = ds((uint16_t)(limits + 14)), high = ds((uint16_t)(limits + 15));
+            low = ds(D, (uint16_t)(limits + 14)), high = ds(D, (uint16_t)(limits + 15));
             break;
         }
         if (s < low) s = low;
         if (s > high) s = high;
-        uint8_t minimum = ds((uint16_t)(0x3bdf + (int8_t)c[0x5b] * 6 + a));
+        uint8_t minimum =
+            ds(D, (uint16_t)cok_data_offset2(D, COK_DATA_CLASS_MINIMUMS, (int8_t)c[0x5b], a));
         if (s < minimum) s = minimum;
         if (a == 2 && s < 13 && c[0x5b] >= 8 && c[0x5b] <= 12) s = 13;
         if (a == 0 && s == 18 &&
             ((int8_t)c[0xfb] > 0 || (int8_t)c[0xfd] > 0 || (int8_t)c[0x100] > 0)) {
             c[0x1c] = (uint8_t)(cok_tp_random(&game->vm.seed, 100) + 1);
-            uint8_t most = ds((uint16_t)(limits + 4 + sex));
+            uint8_t most = ds(D, (uint16_t)(limits + 4 + sex));
             if (most < c[0x1c]) c[0x1c] = most;
         }
         c[0x10 + 2 * a] = c[0x11 + 2 * a] = s;
@@ -388,6 +392,7 @@ static void abilities(cok_adventure *game, uint8_t *c)
 /* The base combat fields, money and spells (4def:20e3). */
 static bool equip(cok_adventure *game, cok_character *character, uint8_t *classes)
 {
+    const cok_data_segment *D = cok_game_rules(game)->data;
     uint8_t *c = character->record;
     c[0x197] = c[0x62];
     c[0x10b] = 2;
@@ -414,7 +419,7 @@ static bool equip(cok_adventure *game, cok_character *character, uint8_t *classe
                 return undefined(game, error);
             uint8_t spell = 0xff;
             for (unsigned k = 1; k <= 10 && spell != 0; ++k) {
-                spell = ds((uint16_t)(0x423a + k));
+                spell = ds(D, (uint16_t)cok_data_offset3(D, COK_DATA_SPELL_LISTS, 1, 1, k));
                 if (spell != 0) c[0x62 + spell] = 1;
             }
         } else if (i == 5) {
@@ -504,9 +509,10 @@ static bool name(cok_adventure *game, uint8_t *c)
 
 static bool build(cok_adventure *game, cok_character *character)
 {
+    const cok_data_segment *D = cok_game_rules(game)->data;
     uint8_t *c = character->record;
     for (size_t k = 1; k <= 6; ++k) {
-        uint8_t colour = ds((uint16_t)(0x390a + k));
+        uint8_t colour = ds(D, (uint16_t)cok_data_offset(D, COK_DATA_ICON_COLOURS, k));
         c[0x138 + k] = (uint8_t)(((colour + 8) << 4) + colour);
     }
     c[0x113] = 0x32;

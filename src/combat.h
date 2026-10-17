@@ -31,8 +31,6 @@ enum {
     COK_COMBATANTS = 72,        /* DS:68d1: 72 far pointers before the bodies. */
     COK_COMBAT_BODIES = 8,      /* DS:69ee: 7-byte entries from 1. */
     COK_COMBAT_TILES = 40,      /* DS:616a: 24 by 24 frames. */
-    COK_COMBAT_TERRAINS = 0x42, /* DS:1ee4: the values the builders write. */
-    COK_COMBAT_SIZES = 8,       /* DS:1fe4: the footprints sizes 0-7 read. */
     COK_COMBAT_FLOOR = 0x17,    /* Plain floor: tile 0x16. */
     COK_COMBAT_BODY = 0x1f,     /* A fallen party member: RANDCOM's last frame. */
 };
@@ -42,11 +40,14 @@ enum {
  * height that blocks sight past it, and its tile in the combat tile set:
  * 0x01-0x19 DUNGCOM's frames, 0x1a-0x1f RANDCOM's (table, chair, white
  * cloud, puddle, green cloud, body) and 0x20-0x41 WILDCOM's. Value 0
- * stands for off the map. */
+ * stands for off the map. The values the table holds are the game's
+ * (COK_DATA_TERRAIN's count, Champions' 0x42, the values the builders
+ * write). */
 typedef struct {
     uint8_t cost, eye, block, tile;
 } cok_terrain;
-extern const cok_terrain cok_combat_terrain[COK_COMBAT_TERRAINS];
+/* The entry of a terrain value, which must be one the table holds. */
+cok_terrain cok_combat_terrain(const cok_rules *rules, uint8_t value);
 
 /* Combatant n's entry: DS:623f + 4n (x, y, n, size), DS:68d1 + 4n (its
  * record) and DS:6362 + n, 63aa + n (where it is on the screen). */
@@ -185,11 +186,6 @@ typedef struct {
     uint8_t unknown[21 * 4 * 168];
 } cok_combat;
 
-/* The constant tables of the data segment that the port's code holds,
- * to check against the executable. */
-extern const cok_ds_table cok_combat_tables[];
-extern const size_t cok_combat_table_count;
-
 /* Setup (3cb2:1c58), as the battle (3995:0172) starts it, the mode first
  * becoming 5: frees the small and big pictures, says "A battle begins..."
  * on row 24 after a pause, clears the battle's state, builds the map
@@ -224,14 +220,15 @@ bool cok_combat_end(cok_adventure *game);
  * read cells not yet built, as the map's memory holds them: setup fills
  * them with RANDCOM's record, as the heap normally leaves them. Returns
  * false where those cells were read. */
-bool cok_combat_dungeon(cok_combat *combat, const cok_view *view, int8_t x, int8_t y,
-                        uint32_t *seed);
+bool cok_combat_dungeon(cok_combat *combat, const cok_rules *rules, const cok_view *view, int8_t x,
+                        int8_t y, uint32_t *seed);
 
 /* Build a map of open ground (3cb2:0fc8): floor, then a river, trees and
  * scatter by the flags of a terrain type (DS:0432), about 2,700 rolls from
  * seed, column by column. The game always takes type 15, whose flags, 4,
  * give no river, though its d100 is rolled. */
-void cok_combat_wilderness(cok_combat *combat, uint8_t flags, uint32_t *seed);
+void cok_combat_wilderness(cok_combat *combat, const cok_rules *rules, uint8_t flags,
+                           uint32_t *seed);
 
 /* Give every record in party its stats (6346:0d20) and a combat record,
  * zeroed (3cb2:10d9): +0x13 set past party_size (var 0x7f3e), facing the
@@ -263,9 +260,11 @@ void cok_combat_enemy_health(cok_combat *combat, const cok_party *party, const c
 
 /* The lookups of overlay 6beb. */
 
-/* Cell k (0-3) of footprint size (6beb:000f), for sizes below
- * COK_COMBAT_SIZES; false for size 0 or a cell the footprint lacks. */
-bool cok_combat_footprint(unsigned size, unsigned k, int8_t *dx, int8_t *dy);
+/* Cell k (0-3) of footprint size (6beb:000f), for sizes the footprints
+ * hold (COK_DATA_FOOTPRINTS, Champions' 0-7); false for size 0 or a cell
+ * the footprint lacks. */
+bool cok_combat_footprint(const cok_rules *rules, unsigned size, unsigned k, int8_t *dx,
+                          int8_t *dy);
 
 /* The combatant whose record is record (6beb:0c43), from 1, or 0 for
  * none: entries 1 to the count, so also the one after the last, which
@@ -291,7 +290,7 @@ void cok_combat_cell(const cok_combat *combat, int8_t x, int8_t y, uint8_t *occu
  * original. Returns false where one would be written outside the
  * table, or a size is past the footprints, which the original reads
  * after them. */
-bool cok_combat_occupy(cok_combat *combat);
+bool cok_combat_occupy(cok_combat *combat, const cok_rules *rules);
 
 /* What record's footprint shifted one step in dir (0-7, 8 for none)
  * stands on (6beb:0c9d): *occupant the last other combatant found;
@@ -299,8 +298,8 @@ bool cok_combat_occupy(cok_combat *combat);
  * plain floor, which cells of green cloud (0x1e) and puddle (0x1d) do not
  * count toward, and 0 once a cell is off the map; *cloud and *puddle
  * whether a cell is one. Returns false for a size past the footprints. */
-bool cok_combat_probe(const cok_combat *combat, const uint8_t *record, uint8_t dir,
-                      uint8_t *occupant, uint8_t *terrain, bool *cloud, bool *puddle);
+bool cok_combat_probe(const cok_combat *combat, const cok_rules *rules, const uint8_t *record,
+                      uint8_t dir, uint8_t *occupant, uint8_t *terrain, bool *cloud, bool *puddle);
 
 /* Put character on the map at x, y (6beb:10f3), in combat (mode 5;
  * otherwise *placed is true and nothing changes): its size from +0xcf &
@@ -322,8 +321,8 @@ bool cok_combat_on_view(int8_t x, int8_t y);
  * screen position: any cell of it, or with all, every cell. False for
  * a combatant not on the map. Returns false where the original reads
  * past the footprints. */
-bool cok_combat_visible(const cok_combat *combat, const uint8_t *record, bool all,
-                        bool *visible);
+bool cok_combat_visible(const cok_combat *combat, const cok_rules *rules, const uint8_t *record,
+                        bool all, bool *visible);
 
 /* Scroll the view toward x, y (6beb:07a9) unless it is within margin of
  * the centre, or always for margin 0xff: the centre moves onto it a cell

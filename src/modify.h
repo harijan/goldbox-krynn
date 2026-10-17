@@ -20,7 +20,8 @@ void cok_modify(cok_adventure *game);
  * with the bonus of the selected character's constitution (4def:257c), or
  * a fixed amount at its top level. 48e9 returns false where 4def:257c's
  * result is uninitialized (a constitution outside 3-19). */
-uint8_t cok_modify_least(const uint8_t *c);
-bool cok_modify_most(const uint8_t *c, const uint8_t *selected, uint8_t *most);
+uint8_t cok_modify_least(const uint8_t *c, const cok_rules *rules);
+bool cok_modify_most(const uint8_t *c, const cok_rules *rules, const uint8_t *selected,
+                     uint8_t *most);
 
 #endif

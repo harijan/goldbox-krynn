@@ -10,23 +10,14 @@
 #include <string.h>
 
 /* DS:1ed6, 1edf: a step in direction 0-7, north first, clockwise; 8 for
- * none. DS:2092-2096: a cloud's cells, k 1-4 at DS:2091 + k, and the byte
- * after them, which 60f4:0c95 reads for cell 4. */
+ * none. */
 static const int8_t step_x[9] = {0, 1, 1, 1, 0, -1, -1, -1, 0};
 static const int8_t step_y[9] = {-1, -1, 0, 1, 1, 1, 0, -1, 0};
-static const uint8_t cells[5] = {8, 2, 3, 4, 8};
-
-const cok_ds_table cok_cloud_tables[] = {
-    {0x1ed6, sizeof step_x, 1, (const uint8_t *)step_x},
-    {0x1edf, sizeof step_y, 1, (const uint8_t *)step_y},
-    {0x2092, sizeof cells, 1, cells},
-};
-const size_t cok_cloud_table_count = sizeof cok_cloud_tables / sizeof *cok_cloud_tables;
 
 /* The direction of cell k (1-4) of a cloud (DS:2091 + k). */
-static uint8_t cell_dir(unsigned k)
+static uint8_t cell_dir(const cok_adventure *game, unsigned k)
 {
-    return cells[k - 1];
+    return cok_data_u8_at(cok_game_rules(game)->data, COK_DATA_CLOUD_CELLS, k);
 }
 
 static bool undefined(cok_adventure *game, const char *what)
@@ -52,7 +43,7 @@ static bool terrain_of(cok_adventure *game, int x, int y, uint8_t *occupant, uin
                        const char *where)
 {
     cok_combat_cell(&game->combat, (int8_t)x, (int8_t)y, occupant, terrain);
-    if (*terrain < COK_COMBAT_TERRAINS) return true;
+    if (*terrain < cok_data_count(cok_game_rules(game)->data, COK_DATA_TERRAIN, 0)) return true;
     char text[96];
     snprintf(text, sizeof text, "terrain past the table is read (DS:1ee4, %s)", where);
     return undefined(game, text);
@@ -70,14 +61,14 @@ static bool set_cell(cok_adventure *game, int x, int y, uint8_t terrain)
 }
 
 /* A cloud's cell k (1-4). */
-static int cloud_x(const cok_combat_cloud *p, unsigned k)
+static int cloud_x(const cok_adventure *game, const cok_combat_cloud *p, unsigned k)
 {
-    return p->x + step_x[cell_dir(k)];
+    return p->x + step_x[cell_dir(game, k)];
 }
 
-static int cloud_y(const cok_combat_cloud *p, unsigned k)
+static int cloud_y(const cok_adventure *game, const cok_combat_cloud *p, unsigned k)
 {
-    return p->y + step_y[cell_dir(k)];
+    return p->y + step_y[cell_dir(game, k)];
 }
 
 /* The terrain a cloud kept for cell x, y, already a green cloud: of each
@@ -89,7 +80,8 @@ static uint8_t under_cloud(cok_adventure *game, const cok_combat_cloud *p, int x
     for (const cok_combat_cloud *q = game->combat.clouds; q != NULL; q = q->next) {
         if (q == p) continue;
         for (unsigned j = 1; j <= 4; ++j)
-            if (q->covered[j] && x == cloud_x(q, j) && y == cloud_y(q, j) && q->saved[j] != 0x1e)
+            if (q->covered[j] && x == cloud_x(game, q, j) && y == cloud_y(game, q, j) &&
+                q->saved[j] != 0x1e)
                 terrain = q->saved[j];
     }
     return terrain;
@@ -100,7 +92,8 @@ static bool cover(cok_adventure *game, bool pools)
 {
     for (const cok_combat_cloud *q = game->combat.clouds; q != NULL; q = q->next)
         for (unsigned k = 1; k <= 4; ++k)
-            if (q->covered[k] && !set_cell(game, cloud_x(q, k), cloud_y(q, k), 0x1e)) return false;
+            if (q->covered[k] && !set_cell(game, cloud_x(game, q, k), cloud_y(game, q, k), 0x1e))
+                return false;
     if (!pools) return true;
     for (const cok_combat_cloud *q = game->combat.pools; q != NULL; q = q->next)
         if (!set_cell(game, q->x, q->y, 0x1d)) return false;
@@ -175,10 +168,11 @@ bool cok_cloud_stinking(cok_adventure *game)
     p->y = game->spell_y;
     uint8_t occupant[5] = {0};
     for (unsigned k = 1; k <= 4; ++k) {
-        int x = cloud_x(p, k), y = cloud_y(p, k);
+        int x = cloud_x(game, p, k), y = cloud_y(game, p, k);
         uint8_t terrain;
         if (!terrain_of(game, x, y, &occupant[k], &terrain, "5b04:2b60")) return false;
-        p->covered[k] = terrain > 0 && cok_combat_terrain[terrain].cost < 0xff;
+        p->covered[k] = terrain > 0 &&
+                        cok_combat_terrain(cok_game_rules(game), terrain).cost < 0xff;
         if (terrain == 0x1e) {
             terrain = under_cloud(game, p, x, y, terrain);
         } else if (terrain == COK_COMBAT_BODY) {
@@ -216,7 +210,8 @@ uint8_t *cok_cloud_caster(const cok_adventure *game, int8_t x, int8_t y)
 {
     for (const cok_combat_cloud *p = game->combat.clouds; p != NULL; p = p->next)
         for (unsigned k = 1; k <= 4; ++k) {
-            uint8_t d = cells[k]; /* DS:2092 + k */
+            uint8_t d = cok_data_u8_at(cok_game_rules(game)->data, COK_DATA_CLOUD_CELLS,
+                                       k + 1); /* DS:2092 + k */
             if (p->covered[k] && x == p->x + step_x[d] && y == p->y + step_y[d]) return p->caster;
         }
     return game->party.count > 0 ? game->party.members[0]->record : NULL;
@@ -230,7 +225,7 @@ bool cok_cloud_square(cok_adventure *game, cok_character *c, bool step)
     if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0) return true;
     uint8_t occupant, terrain;
     bool cloud, puddle;
-    if (!cok_combat_probe(combat, r, 8, &occupant, &terrain, &cloud, &puddle))
+    if (!cok_combat_probe(combat, cok_game_rules(game), r, 8, &occupant, &terrain, &cloud, &puddle))
         return undefined(game, "a size past the footprints is read after them (6beb:0c9d)");
     if (cloud && step && cok_field_u8(L, r, COK_FIELD_UNDEAD) == 0 &&
         cok_character_find_effect(c, 0x1f) == NULL &&
@@ -266,7 +261,7 @@ bool cok_cloud_clear(cok_adventure *game, cok_character *c, const cok_effect *ef
     cok_camp_notice(game, "The air clears a little..."); /* 6346:1827 */
     for (unsigned k = 1; k <= 4; ++k) {
         if (!p->covered[k]) continue;
-        uint8_t x = (uint8_t)cloud_x(p, k), y = (uint8_t)cloud_y(p, k);
+        uint8_t x = (uint8_t)cloud_x(game, p, k), y = (uint8_t)cloud_y(game, p, k);
         if (!set_cell(game, x, y, body_at(combat, x, y) ? COK_COMBAT_BODY : p->saved[k]))
             return false;
     }
@@ -280,12 +275,15 @@ bool cok_cloud_clear(cok_adventure *game, cok_character *c, const cok_effect *ef
  * DS:1edf + d; whether all agree. */
 static bool stale_body(cok_adventure *game, uint8_t *terrain)
 {
+    const cok_data_segment *D = cok_game_rules(game)->data;
     const cok_combat *combat = &game->combat;
     uint8_t first = 0;
     for (unsigned d = 0; d <= 0xff; ++d) {
         uint8_t t = COK_COMBAT_BODY;
-        int x = game->spell_x + cok_cast_step_byte((uint16_t)(0x1ed6 + d));
-        int y = game->spell_y + cok_cast_step_byte((uint16_t)(0x1edf + d));
+        int x = game->spell_x +
+                cok_cast_step_byte(D, (uint16_t)cok_data_offset(D, COK_DATA_STEP_X, d));
+        int y = game->spell_y +
+                cok_cast_step_byte(D, (uint16_t)cok_data_offset(D, COK_DATA_STEP_Y, d));
         for (unsigned j = 1; j <= combat->bodies && j <= COK_COMBAT_BODIES; ++j) {
             const cok_combat_body *b = &combat->body[j - 1];
             if (x == b->x && y == b->y) t = b->cell;
@@ -395,7 +393,8 @@ bool cok_cloud_dispel(cok_adventure *game, uint8_t level)
         for (cok_combat_cloud *p = combat->clouds; p != NULL;) {
             bool freed = false;
             for (unsigned i = 1; i <= 4 && !freed; ++i) {
-                if (!(x == cloud_x(p, i) && y == cloud_y(p, i) && p->resisted == 0)) continue;
+                if (!(x == cloud_x(game, p, i) && y == cloud_y(game, p, i) && p->resisted == 0))
+                    continue;
                 if (!dispelled(game, p->caster, level)) {
                     p->resisted = 1;
                     continue;

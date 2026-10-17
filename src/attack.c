@@ -16,9 +16,8 @@
 static const int8_t step_x[9] = {0, 1, 1, 1, 0, -1, -1, -1, 0};
 static const int8_t step_y[9] = {-1, -1, 0, 1, 1, 1, 0, -1, 0};
 
-/* DS:1e54-1e61: the sound driver's commands for a thrown missile, a hit,
- * a miss or a missile, a step and an arrow, as words. */
-static const uint8_t sound_words[14] = {6, 0, 7, 0, 8, 0, 9, 0, 0x0a, 0, 0x0b, 0, 0x0c, 0};
+/* The sound driver's commands for a thrown missile, a hit, a miss or a
+ * missile, a step and an arrow: the words at DS:1e54-1e61. */
 enum {
     SOUND_THROWN = 6,  /* DS:1e54 */
     SOUND_HIT = 7,     /* DS:1e56 */
@@ -26,36 +25,6 @@ enum {
     SOUND_STEP = 0x0a, /* DS:1e5c */
     SOUND_ARROW = 0x0c /* DS:1e60 */
 };
-
-/* DS:0451-050f: turning undead (432f:12b7), DS:0444 + 13 * kind + level
- * for kinds 1-12 and levels 0-12: the d20 to reach, 99 never, 0 or less
- * destroyed (-1 more of them); level 0 reads the kind before's level 13.
- * Past the last kind's level 12 lie the camp menu's strings. */
-static const uint8_t turning[0x50f - 0x451 + 1] = {
-    0x20, 0x0a, 0x07, 0x04, 0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0xff, 0x0d, 0x0a, 0x07, 0x01, 0x01, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff,
-    0xff, 0x10, 0x0d, 0x0a, 0x04, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x13, 0x10, 0x0d, 0x07, 0x04, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x14, 0x13, 0x10, 0x0a, 0x07, 0x04, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x63, 0x14, 0x13, 0x0d, 0x0a, 0x07, 0x04, 0x01, 0x01, 0x01, 0x01, 0x01,
-    0x01, 0x63, 0x63, 0x14, 0x10, 0x0d, 0x0a, 0x07, 0x04, 0x01, 0x01, 0x01, 0x01,
-    0x01, 0x63, 0x63, 0x63, 0x14, 0x10, 0x0d, 0x0a, 0x07, 0x04, 0x04, 0x04, 0x04,
-    0x04, 0x63, 0x63, 0x63, 0x63, 0x14, 0x10, 0x0d, 0x0a, 0x07, 0x07, 0x07, 0x07,
-    0x07, 0x63, 0x63, 0x63, 0x63, 0x63, 0x14, 0x10, 0x0d, 0x0a, 0x0a, 0x0a, 0x0a,
-    0x0a, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x14, 0x10, 0x0d, 0x0a, 0x0a, 0x0a,
-    0x0a, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63,
-    0x63, 0x23, 0x53, 0x61, 0x76, 0x65, 0x20, 0x56, 0x69, 0x65, 0x77, 0x20, 0x4d,
-    0x61, 0x67, 0x69, 0x63, 0x20, 0x52, 0x65, 0x73, 0x74, 0x20, 0x41, 0x6c, 0x74,
-    0x65, 0x72, 0x20, 0x46, 0x69, 0x78, 0x20, 0x45, 0x78,
-};
-
-const cok_ds_table cok_attack_tables[] = {
-    {0x1ed6, sizeof step_x, 1, (const uint8_t *)step_x},
-    {0x1edf, sizeof step_y, 1, (const uint8_t *)step_y},
-    {0x1e54, sizeof sound_words, 1, sound_words},
-    {0x0451, sizeof turning, 1, turning},
-};
-const size_t cok_attack_table_count = sizeof cok_attack_tables / sizeof *cok_attack_tables;
 
 static int8_t s8(int value)
 {
@@ -154,14 +123,15 @@ static bool direction(cok_adventure *game, const cok_character *a, const cok_cha
 static bool distance(cok_adventure *game, const cok_character *origin, const cok_character *target,
                      uint8_t *d)
 {
-    if (cok_combat_distance(&game->combat, origin->record, target->record, d)) return true;
+    if (cok_combat_distance(&game->combat, cok_game_rules(game), origin->record, target->record, d))
+        return true;
     return undefined(game, "the distance (6346:2888) lists the combatants around one "
                            "(6b30:08d8) past its tables");
 }
 
 static bool visible(cok_adventure *game, const cok_character *c, bool all, bool *shown)
 {
-    if (cok_combat_visible(&game->combat, c->record, all, shown)) return true;
+    if (cok_combat_visible(&game->combat, cok_game_rules(game), c->record, all, shown)) return true;
     return undefined(game, "a size past the footprints is read after them (6beb:06ef)");
 }
 
@@ -449,7 +419,7 @@ bool cok_combat_strike(cok_adventure *game, cok_character *attacker, cok_charact
     bool any = false, down = false;
     rolls->amount = 0;
     ca->attacked = 1;
-    if (cok_combat_helpless(target)) {
+    if (cok_combat_helpless(target, cok_game_rules(game))) {
         cok_arena_sound(game, SOUND_HIT);
         /* From the slot in progress down to one with attacks left, past
          * slot 1 to 0, +0x18e, the armour class from behind. */
@@ -519,7 +489,7 @@ bool cok_combat_strike(cok_adventure *game, cok_character *attacker, cok_charact
                 ++combat->swings[slot];
                 bool hit;
                 if (!cok_combat_hit(game, attacker, target, ac, &hit)) return false;
-                if (hit || cok_combat_helpless(target)) {
+                if (hit || cok_combat_helpless(target, cok_game_rules(game))) {
                     ++rolls->hits[slot - 1]; /* DS:6b3b + slot */
                     cok_arena_sound(game, SOUND_HIT);
                     any = true;
@@ -889,7 +859,7 @@ static bool guards(cok_adventure *game, cok_character *c)
         if (e == NULL) return false;
         cok_combat_record *ce = record_of(game, e);
         if (ce == NULL) return false;
-        if (ce->guarding == 0 || cok_combat_helpless(e)) continue;
+        if (ce->guarding == 0 || cok_combat_helpless(e, cok_game_rules(game))) continue;
         if (!cok_arena_centre(game, cok_combat_x(combat, c->record),
                               cok_combat_y(combat, c->record), 2, 8))
             return false;
@@ -916,9 +886,10 @@ bool cok_combat_step(cok_adventure *game, cok_character *c, uint8_t dir)
     if (at < 0 || at >= COK_COMBAT_WIDTH * COK_COMBAT_HEIGHT)
         return undefined(game, "a step off the map reads the heap around it (432f:07fe)");
     uint8_t value = combat->cells[at / COK_COMBAT_WIDTH][at % COK_COMBAT_WIDTH];
-    if (value >= COK_COMBAT_TERRAINS)
+    if (value >= cok_data_count(cok_game_rules(game)->data, COK_DATA_TERRAIN, 0))
         return undefined(game, "terrain 0x%02x is past the table (DS:1ee4, 432f:077a)", value);
-    uint8_t cost = (uint8_t)(cok_combat_terrain[value].cost * ((dir & 1) != 0 ? 3 : 2));
+    uint8_t cost = (uint8_t)(cok_combat_terrain(cok_game_rules(game), value).cost *
+                             ((dir & 1) != 0 ? 3 : 2));
     cr->movement = cost > cr->movement ? 0 : (uint8_t)(cr->movement - cost);
     uint8_t margin = 1;
     if (cok_field_u8(L, c->record, COK_FIELD_COMPUTER) != 0) {
@@ -930,14 +901,15 @@ bool cok_combat_step(cok_adventure *game, cok_character *c, uint8_t dir)
     if (combat->show_actions && !cok_arena_erase(game, 0, 0, n)) return false;
     combat->combatant[n].x = nx;
     combat->combatant[n].y = ny;
-    if (!cok_combat_occupy(combat))
+    if (!cok_combat_occupy(combat, cok_game_rules(game)))
         return undefined(game, "a footprint is written outside the occupants (6beb:0375)");
     if (combat->show_actions && !cok_arena_centre(game, nx, ny, margin, 8)) return false;
     cr->hits = 0;
     cr->turning = 0;
     cok_arena_sound(game, SOUND_STEP);
     if (!guards(game, c)) return false;
-    if (cok_field_u8(L, c->record, COK_FIELD_ACTIVE) == 0 || cok_combat_helpless(c))
+    if (cok_field_u8(L, c->record, COK_FIELD_ACTIVE) == 0 ||
+        cok_combat_helpless(c, cok_game_rules(game)))
         cr->movement = 0;
     return true;
 }
@@ -960,7 +932,7 @@ bool cok_combat_opportunity(cok_adventure *game, cok_character *c, uint8_t dir)
         if (e == NULL) return false;
         cok_combat_record *ce = record_of(game, e);
         if (ce == NULL) return false;
-        if (cok_combat_helpless(e) || ce->forced != 0) continue;
+        if (cok_combat_helpless(e, cok_game_rules(game)) || ce->forced != 0) continue;
         if (m == 12) return undefined(game, "more than twelve enemies beside one overrun the list "
                                             "(432f:0a3b)");
         left[++m] = combat->enemies[i];
@@ -1203,6 +1175,7 @@ bool cok_combat_undead(cok_adventure *game, cok_character *c, cok_character **un
 bool cok_combat_turn_undead(cok_adventure *game, cok_character *c)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_data_segment *D = cok_game_rules(game)->data;
     cok_combat *combat = &game->combat;
     uint8_t *r = c->record;
     cok_combat_record *cr = record_of(game, c);
@@ -1223,13 +1196,15 @@ bool cok_combat_turn_undead(cok_adventure *game, cok_character *c)
         bool found;
         if (!cok_combat_undead(game, c, &u, &limit, &found)) return false;
         if (!found || count == 0) break;
-        int at = 13 * cok_field_s8(L, u->record, COK_FIELD_UNDEAD) + (int8_t)level;
-        if (at < 0x451 - 0x444 || at > 0x50f - 0x444)
+        long at = cok_data_offset2(D, COK_DATA_TURNING,
+                                   cok_field_s8(L, u->record, COK_FIELD_UNDEAD),
+                                   (int8_t)level);
+        if (!cok_data_holds(D, COK_DATA_TURNING, at))
             return undefined(game, "turning undead of kind %d at level %d reads DS:%04x, which the "
                                    "port does not hold (432f:1397)",
                              cok_field_s8(L, u->record, COK_FIELD_UNDEAD), (int8_t)level,
-                             (0x444 + at) & 0xffff);
-        int8_t v = (int8_t)turning[at - (0x451 - 0x444)];
+                             (int)(at & 0xffff));
+        int8_t v = (int8_t)cok_data_held(D, at);
         if (d20 < (v < 0 ? -v : v)) {
             --limit;
             continue;

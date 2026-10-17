@@ -42,25 +42,13 @@ static const char *const coin_words[COK_COINS] = {"silver ", "Copper ", "bronze 
 
 /* The item generator (58e7:1039). */
 
-/* The templates of the generator's potions, wand and javelin, eight words
- * from DS:0b88 + 2 * t for t 1, 9, 0x11, 0x21 and 0x31 (0x19 and 0x29 are
- * never chosen): the name parts, weight, value and +0x3c-+0x3e. */
-static const uint8_t template_table[0x72] = { /* DS:0b88-0bf9 */
-    0x0f, 0x03, 0x5f, 0x00, 0x5e, 0x00, 0x35, 0x00, 0x01, 0x00, 0x90, 0x01, 0x03, 0x00, 0x63, 0x00,
-    0x00, 0x00, 0x50, 0x00, 0x5a, 0x00, 0x35, 0x00, 0x01, 0x00, 0x26, 0x02, 0x01, 0x00, 0x3b, 0x00,
-    0x00, 0x00, 0x5f, 0x00, 0x5a, 0x00, 0x35, 0x00, 0x01, 0x00, 0xc8, 0x00, 0x01, 0x00, 0x03, 0x00,
-    0x00, 0x00, 0x5c, 0x00, 0x5a, 0x00, 0x35, 0x00, 0x01, 0x00, 0xe1, 0x00, 0x01, 0x00, 0x30, 0x00,
-    0x00, 0x00, 0x62, 0x00, 0x5a, 0x00, 0x33, 0x00, 0x01, 0x00, 0x7c, 0x15, 0x1e, 0x00, 0x41, 0x00,
-    0x00, 0x00, 0x4e, 0x00, 0x5a, 0x00, 0x48, 0x00, 0x0a, 0x00, 0x4c, 0x1d, 0x00, 0x00, 0x26, 0x00,
-    0x83, 0x00, 0x58, 0x00, 0x5a, 0x00, 0x07, 0x00, 0x14, 0x00, 0xdc, 0x05, 0x01, 0x00, 0x33, 0x00,
-    0x00, 0x00,
-};
-
-const cok_ds_table cok_treasure_templates = {0x0b88, sizeof template_table, 1, template_table};
-
-static uint16_t template_word(unsigned index)
+/* Word index of the generator's templates (DS:0b88 + 2 * index): its
+ * potions', wand's and javelin's, eight words from t 1, 9, 0x11, 0x21 and
+ * 0x31 (0x19 and 0x29 are never chosen): the name parts, weight, value and
+ * +0x3c-+0x3e. */
+static uint16_t template_word(const cok_data_segment *D, unsigned index)
 {
-    return word(template_table + 2 * index);
+    return cok_data_u16_at(D, COK_DATA_TREASURE_TEMPLATES, index);
 }
 
 /* The bonus of a magic weapon or armour (58e7:1005): +2 on a d10 of 10,
@@ -73,15 +61,18 @@ static uint8_t bonus_roll(uint32_t *seed)
 /* A spell for a scroll of order (0 cleric, 2 White, 3 Red) at level 1-4,
  * from the tables at DS:423a (cleric), 4262 (White) and 428a (Red), ten
  * bytes a level, indexed from 1 by a die of the level's size. */
-static uint8_t scroll_spell(uint32_t *seed, uint8_t order, uint8_t level)
+static uint8_t scroll_spell(const cok_data_segment *D, uint32_t *seed, uint8_t order,
+                            uint8_t level)
 {
     static const uint8_t cleric[4] = {4, 7, 4, 4}, white[4] = {8, 3, 6, 7}, red[4] = {7, 6, 6, 4};
     const uint8_t *sides = order == 0 ? cleric : order == 2 ? white : red;
-    uint16_t base = order == 0 ? 0x423a : order == 2 ? 0x4262 : 0x428a;
+    int list = order == 0 ? 1 : order == 2 ? 2 : 3;
     uint8_t roll = cok_dice(seed, 1, sides[level - 1]), spell = 0;
-    /* The stat tables hold every byte the dice reach (DS:423b-42ac,
-     * checked by test_treasure); one they did not would read as 0. */
-    if (!cok_ds_byte((uint16_t)(base + 10 * (level - 1) + roll), &spell)) return 0;
+    /* The data segment holds every byte the dice reach (DS:423b-42ac,
+     * checked by test_treasure); one it did not would read as 0. */
+    if (!cok_data_byte(D, (uint16_t)cok_data_offset3(D, COK_DATA_SPELL_LISTS, list, level, roll),
+                       &spell))
+        return 0;
     return spell;
 }
 
@@ -112,8 +103,10 @@ static void weapon_weight(uint8_t *item)
     item[0x39] = 20;
 }
 
-void cok_treasure_item(uint32_t *seed, uint8_t type, uint8_t item[COK_ITEM_SIZE])
+void cok_treasure_item(const cok_rules *rules, uint32_t *seed, uint8_t type,
+                       uint8_t item[COK_ITEM_SIZE])
 {
+    const cok_data_segment *D = rules->data;
     memset(item, 0, COK_ITEM_SIZE);
     item[0x35] = 6; /* +0x30 and +0x2f hidden */
     item[0x2e] = type;
@@ -163,7 +156,7 @@ void cok_treasure_item(uint32_t *seed, uint8_t type, uint8_t item[COK_ITEM_SIZE]
         put_word(item + 0x37, 25);
         for (uint8_t s = 1; s <= spells; ++s) {
             uint8_t level = cok_dice(seed, 1, 4);
-            item[0x3b + s] = scroll_spell(seed, order, level);
+            item[0x3b + s] = scroll_spell(D, seed, order, level);
             put_word(item + 0x3a, (uint16_t)(word(item + 0x3a) + level * 150u));
         }
         if (order == 2)
@@ -182,13 +175,13 @@ void cok_treasure_item(uint32_t *seed, uint8_t type, uint8_t item[COK_ITEM_SIZE]
     if (template == 0) return;
     /* The template keeps the type and the hidden parts, so the name shows
      * "Potion", "Wand" or "Javelin" alone. */
-    for (unsigned i = 0; i < 3; ++i) item[0x2f + i] = (uint8_t)template_word(template + i);
+    for (unsigned i = 0; i < 3; ++i) item[0x2f + i] = (uint8_t)template_word(D, template + i);
     item[0x32] = 1;
     item[0x33] = 1;
-    put_word(item + 0x37, template_word(template + 3u));
+    put_word(item + 0x37, template_word(D, template + 3u));
     item[0x39] = 0;
-    put_word(item + 0x3a, template_word(template + 4u));
-    for (unsigned i = 1; i <= 3; ++i) item[0x3b + i] = (uint8_t)template_word(template + 4u + i);
+    put_word(item + 0x3a, template_word(D, template + 4u));
+    for (unsigned i = 1; i <= 3; ++i) item[0x3b + i] = (uint8_t)template_word(D, template + 4u + i);
 }
 
 /* The pool. */
@@ -507,7 +500,7 @@ static void treasure(cok_adventure *game)
     } else if (items != 0xff) {
         for (uint8_t i = 1; i <= items - 0x80; ++i) {
             uint8_t item[COK_ITEM_SIZE];
-            cok_treasure_item(&vm->seed, random_type(&vm->seed), item);
+            cok_treasure_item(cok_game_rules(game), &vm->seed, random_type(&vm->seed), item);
             if (cok_pool_insert(pool, 0, item)) continue;
             cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
             return;

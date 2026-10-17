@@ -9,9 +9,6 @@
 
 enum { SLOT_NEW = 12, SLOT_FRAME = 25 };
 
-/* The template's colours each part's colour byte replaces (DS:390b): body,
- * arm, leg, hair or face, shield and weapon. */
-static const uint8_t part_colours[6] = {1, 2, 3, 4, 6, 7};
 static const uint8_t same[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
 
 static bool fail(cok_adventure *game, const char *what)
@@ -42,11 +39,15 @@ static bool copy(cok_adventure *game, const uint8_t *c, uint8_t from, uint8_t to
         memcpy(dst[image].mask, src[image].mask, size);
     }
     if (!colours) return true;
+    /* The template's colours each part's colour byte replaces (DS:390b):
+     * body, arm, leg, hair or face, shield and weapon. */
+    const cok_data_segment *D = cok_game_rules(game)->data;
     uint8_t map[16];
     memcpy(map, same, sizeof map);
     for (size_t k = 0; k < 6; ++k) {
-        map[part_colours[k]] = c[0x139 + k] & 15;
-        map[part_colours[k] + 8] = c[0x139 + k] >> 4;
+        uint8_t colour = cok_data_u8_at(D, COK_DATA_ICON_COLOURS, k + 1);
+        map[colour] = c[0x139 + k] & 15;
+        map[colour + 8] = c[0x139 + k] >> 4;
     }
     for (int image = 0; image < 2; ++image)
         if (cok_picture_recolor(&dst[image], same, map, 0, NULL) != COK_PICTURE_OK)

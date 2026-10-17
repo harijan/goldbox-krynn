@@ -9,36 +9,26 @@
 #include <stdio.h>
 #include <string.h>
 
-/* The hit dice at level 1 by class (DS:0b6e), their sides (DS:0b76), and
- * the base scores a knight of the Crown (DS:0b7e) and of the Sword
- * (DS:0b84) needs for the next order. */
-static const uint8_t level_dice[8] = {2, 1, 1, 1, 2, 1, 1, 2};
-static const uint8_t die_sides[8] = {8, 8, 10, 10, 8, 4, 6, 10};
-static const uint8_t knight_scores[2][6] = {{12, 9, 13, 9, 10, 3}, {15, 10, 13, 12, 15, 3}};
-
-const cok_ds_table cok_train_tables[] = {
-    {0x0b6e, sizeof level_dice, 1, level_dice},
-    {0x0b76, sizeof die_sides, 1, die_sides},
-    {0x0b7e, sizeof knight_scores, 1, knight_scores[0]},
-};
-const size_t cok_train_table_count = sizeof cok_train_tables / sizeof *cok_train_tables;
-
-static uint8_t ds(uint16_t offset)
+/* The byte at DS:offset in the game's data segment, 0 where it holds
+ * none. */
+static uint8_t ds(const cok_data_segment *D, uint16_t offset)
 {
     uint8_t byte = 0;
-    cok_ds_byte(offset, &byte);
+    cok_data_byte(D, offset, &byte);
     return byte;
 }
 
 /* The class bits of DS:38f2 and the top levels of DS:3903, by class. */
-static uint8_t class_bit(unsigned class_)
+static uint8_t class_bit(const cok_adventure *game, unsigned class_)
 {
-    return ds((uint16_t)(0x38f2 + class_));
+    const cok_data_segment *D = cok_game_rules(game)->data;
+    return ds(D, (uint16_t)cok_data_offset(D, COK_DATA_TRAINING_BITS, class_));
 }
 
-static uint8_t top_level(unsigned class_)
+static uint8_t top_level(const cok_adventure *game, unsigned class_)
 {
-    return ds((uint16_t)(0x3903 + class_));
+    const cok_data_segment *D = cok_game_rules(game)->data;
+    return ds(D, (uint16_t)cok_data_offset(D, COK_DATA_TOP_LEVELS, class_));
 }
 
 static bool undefined(cok_adventure *game, const char *what)
@@ -75,21 +65,23 @@ bool cok_train_row(const uint8_t *c, unsigned class_, uint8_t *row)
     }
 }
 
-bool cok_train_experience(uint8_t row, int level, int32_t *need)
+bool cok_train_experience(const cok_rules *rules, uint8_t row, int level, int32_t *need)
 {
+    const cok_data_segment *D = rules->data;
     uint8_t bytes[4];
     for (int i = 0; i < 4; ++i) {
-        long at = (0x3c65 + 99L * row + 4L * level + i) & 0xffff;
-        if (!cok_ds_byte((uint16_t)at, &bytes[i])) return false;
+        long at = (cok_data_offset2(D, COK_DATA_EXPERIENCE, row, level) + i) & 0xffff;
+        if (!cok_data_byte(D, (uint16_t)at, &bytes[i])) return false;
     }
     *need = get_long(bytes);
     return true;
 }
 
-int8_t cok_train_constitution(const uint8_t *c, unsigned class_)
+int8_t cok_train_constitution(const uint8_t *c, const cok_rules *rules, unsigned class_)
 {
+    const cok_data_segment *D = rules->data;
     uint8_t con = c[0x19];
-    uint8_t bonus = ds((uint16_t)(0x3c53 + con));
+    uint8_t bonus = ds(D, (uint16_t)cok_data_offset(D, COK_DATA_CONSTITUTION, con));
     if (class_ == 2 || class_ == 7 || class_ == 4) {
         if (con == 17) bonus = (uint8_t)(bonus + 1);
         else if (con == 18) bonus = (uint8_t)(bonus + 2);
@@ -102,16 +94,20 @@ int8_t cok_train_constitution(const uint8_t *c, unsigned class_)
 
 bool cok_train_hit_points(cok_adventure *game, uint8_t *c, uint8_t mask, uint8_t count)
 {
+    const cok_data_segment *D = cok_game_rules(game)->data;
     uint8_t sum = 0, con = 0;
     for (unsigned i = 0; i < 8; ++i) {
         int8_t level = (int8_t)c[0xf9 + i];
-        if (level <= 0 || (class_bit(i) & mask) == 0) continue;
-        if (c[0xf9 + i] < top_level(i)) {
-            uint8_t dice = level > 1 ? 1 : i == 0 && (int8_t)c[0x5d] > 4 ? 1 : level_dice[i];
-            uint8_t a = cok_dice(&game->vm.seed, dice, die_sides[i]);
-            uint8_t b = cok_dice(&game->vm.seed, dice, die_sides[i]);
+        if (level <= 0 || (class_bit(game, i) & mask) == 0) continue;
+        if (c[0xf9 + i] < top_level(game, i)) {
+            uint8_t dice = level > 1 ? 1
+                           : i == 0 && (int8_t)c[0x5d] > 4
+                               ? 1
+                               : cok_data_u8_at(D, COK_DATA_LEVEL_DICE, i);
+            uint8_t a = cok_dice(&game->vm.seed, dice, cok_data_u8_at(D, COK_DATA_DIE_SIDES, i));
+            uint8_t b = cok_dice(&game->vm.seed, dice, cok_data_u8_at(D, COK_DATA_DIE_SIDES, i));
             sum = (uint8_t)(sum + (a > b ? a : b));
-            con = (uint8_t)(con + dice * cok_train_constitution(c, i));
+            con = (uint8_t)(con + dice * cok_train_constitution(c, cok_game_rules(game), i));
         } else if (i == 2 || i == 7) {
             sum = 3; /* assigned, not added */
         } else if (i == 0 || i == 4 || i == 6) {
@@ -171,11 +167,13 @@ static bool levels(cok_adventure *game, cok_character *character)
 
 static bool need_for(cok_adventure *game, uint8_t row, int level, int32_t *need)
 {
-    if (cok_train_experience(row, level, need)) return true;
+    const cok_rules *rules = cok_game_rules(game);
+    if (cok_train_experience(rules, row, level, need)) return true;
     char text[120];
     snprintf(text, sizeof text,
              "the experience for level %d reads DS:%04lx, past the original's initialized data "
-             "(4def:4d9e)", level, (0x3c65 + 99L * row + 4L * level) & 0xffff);
+             "(4def:4d9e)", level,
+             cok_data_offset2(rules->data, COK_DATA_EXPERIENCE, row, level) & 0xffff);
     return undefined(game, text);
 }
 
@@ -205,7 +203,7 @@ static bool train(cok_adventure *game, cok_character *character, bool creating, 
     int32_t experience = get_long(c + 0x116);
     for (unsigned i = 0; i < 8; ++i) {
         if ((int8_t)c[0xf9 + i] <= 0) continue;
-        present = (uint8_t)(present + class_bit(i));
+        present = (uint8_t)(present + class_bit(game, i));
         level = (int8_t)c[0xf9 + i];
         bool kender = c[0x5a] == 5 && (i == 2 || i == 4) &&
                       (level == 7 || (level == 6 && c[0x10] == 17) || (level == 5 && c[0x10] < 17));
@@ -238,7 +236,7 @@ static bool train(cok_adventure *game, cok_character *character, bool creating, 
             experience = need;
             put_long(c + 0x116, experience);
         }
-        trainable = (uint8_t)(trainable + class_bit(i));
+        trainable = (uint8_t)(trainable + class_bit(game, i));
         if (!need_for(game, row, level + 2, &next)) return false;
         if (next > 0 && experience >= next && next > cap) cap = next - 1;
     }
@@ -247,7 +245,7 @@ static bool train(cok_adventure *game, cok_character *character, bool creating, 
          * class (4def:4d9e); from row 0x74 it changes nothing. */
         int32_t best = 0, need, next;
         for (unsigned i = 0; i < 8; ++i) {
-            if ((class_bit(i) & trainable) == 0) continue;
+            if ((class_bit(game, i) & trainable) == 0) continue;
             if (!need_for(game, row, level + 1, &need)) return false;
             if (need > best) best = need;
         }
@@ -278,10 +276,11 @@ static bool train(cok_adventure *game, cok_character *character, bool creating, 
         draw(game, " will become:", c[0] + 4, 4);
         int y = 4;
         for (unsigned i = 0; i < 8; ++i) {
-            if ((int8_t)c[0xf9 + i] <= 0 || (class_bit(i) & mask) == 0) continue;
+            if ((int8_t)c[0xf9 + i] <= 0 || (class_bit(game, i) & mask) == 0) continue;
             ++y;
             char name[256], text[300];
-            cok_ds_string((uint16_t)(0x0f5a + 27 * i), name);
+            const cok_data_segment *D = cok_game_rules(game)->data;
+            cok_data_string(D, (uint16_t)cok_data_offset(D, COK_DATA_CLASS_NAMES, i), name);
             snprintf(text, sizeof text, "%s%u %s", y == 5 ? "    a level " : "and a level ",
                      (uint8_t)(c[0xf9 + i] + 1), name);
             draw(game, text, 6, y);
@@ -296,7 +295,7 @@ static bool train(cok_adventure *game, cok_character *character, bool creating, 
     for (unsigned i = 0; i < 8; ++i) {
         if ((int8_t)c[0xf9 + i] <= 0) continue;
         ++count;
-        if ((class_bit(i) & mask) == 0) continue;
+        if ((class_bit(game, i) & mask) == 0) continue;
         ++c[0xf9 + i];
         /* +0xd8 and +0xd9, which nothing else writes. */
         if (c[0xd8] > 0) {
@@ -428,7 +427,10 @@ void cok_train_knight(cok_adventure *game)
         } else {
             bool qualifies = true;
             for (size_t k = 0; k < 6; ++k)
-                if (c[0x10 + 2 * k] < knight_scores[sword ? 0 : 1][k]) qualifies = false;
+                if (c[0x10 + 2 * k] <
+                    cok_data_u8_at2(cok_game_rules(game)->data, COK_DATA_KNIGHT_SCORES,
+                                    sword ? 0 : 1, k))
+                    qualifies = false;
             if (!qualifies) {
                 snprintf(text, sizeof text, "%s does not qualify.", name);
                 centred(game, text, base, 18, 9, c[0]);

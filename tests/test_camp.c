@@ -185,17 +185,18 @@ static void test_preparation(void)
     /* Levels 1 and 2 to memorize: 4 hours and 15 minutes a level. */
     c->record[0x1e] = 0x80 | 0x12;   /* Read Magic, level 1 */
     c->record[0x1f] = 0x80 | 0x20;   /* Mirror Image, level 2 */
-    CHECK(cok_camp_preparation(c) == 4 * 60 + 3 * 15 && c->record[0x58] == 4);
+    CHECK(cok_camp_preparation(c, &cok_rules_champions) == 4 * 60 + 3 * 15 && c->record[0x58] == 4);
     /* A level-0 power counts as level 1 to memorize, but as 0 on a scroll. */
     memset(c->record + 0x1e, 0, 0x3a);
     c->record[0x1e] = 0x80 | 101;
-    CHECK(cok_camp_preparation(c) == 4 * 60 + 15);
+    CHECK(cok_camp_preparation(c, &cok_rules_champions) == 4 * 60 + 15);
     memset(c->record + 0x1e, 0, 0x3a);
     scroll(c, 0x80 | 101, 0, 0, 100);
-    CHECK(cok_camp_preparation(c) == 0 && c->record[0x58] == 0);
+    CHECK(cok_camp_preparation(c, &cok_rules_champions) == 0 && c->record[0x58] == 0);
     /* Above level 2, 6 hours; the levels add as a byte. */
     for (size_t i = 0; i < 0x3a; ++i) c->record[0x1e + i] = 0x80 | 0x5c; /* Cone of Cold, 5 */
-    CHECK(cok_camp_preparation(c) == 6 * 60 + (uint8_t)(58 * 5) * 15 && c->record[0x58] == 6);
+    CHECK(cok_camp_preparation(c, &cok_rules_champions) == 6 * 60 + (uint8_t)(58 * 5) * 15 &&
+          c->record[0x58] == 6);
     cok_camp_forget(c);
     CHECK(c->record[0x1e] == 0 && c->record[0x58] == 0 && c->items[0][0x3c] == 101);
     cok_character_free(c);
@@ -427,7 +428,9 @@ static void test_spells(void)
 {
     CHECK(strcmp(cok_spell_name(1), "Bless") == 0 && strcmp(cok_spell_name(0x6b), "Burning Hands") == 0);
     CHECK(cok_spell_name(0) == NULL && cok_spell_name(0x6c) == NULL);
-    CHECK(cok_spell_level(0x5c) == 5 && cok_spell_class(0x5c) == 3 && cok_spell_class(101) == 2);
+    CHECK(cok_spell_level(&cok_rules_champions, 0x5c) == 5 &&
+          cok_spell_class(&cok_rules_champions, 0x5c) == 3 &&
+          cok_spell_class(&cok_rules_champions, 101) == 2);
     /* The sort puts empty bytes first. */
     uint8_t r[COK_CHARACTER_SIZE] = {0};
     r[0x1e] = 9;

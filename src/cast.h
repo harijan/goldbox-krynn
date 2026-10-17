@@ -19,11 +19,6 @@
  * original refuses them. Each cast in a battle is logged as "cast: NAME:
  * SPELL". */
 
-/* The constant tables of the data segment that the port's code holds,
- * to check against the executable. */
-extern const cok_ds_table cok_cast_tables[];
-extern const size_t cok_cast_table_count;
-
 /* Cast spell 1-0x6b for the selected character (5b04:1415), the
  * computer picking its targets in a battle if ai. Outside combat a spell
  * that can only be cast in combat (byte 7 of DS:31b3 + 16 * spell is 0)
@@ -139,8 +134,9 @@ bool cok_cast_dispel(cok_adventure *game);
 
 /* The byte at DS:at, from 0x1ed6 to 0x1feb: the steps' tables (DS:1ed6,
  * 1edf) and the terrain table after them (DS:1ee4), as a signed byte,
- * which a step of any byte reads as a direction. */
-int8_t cok_cast_step_byte(uint16_t at);
+ * which a step of any byte reads as a direction; from the game's data
+ * segment (D), which holds them. */
+int8_t cok_cast_step_byte(const cok_data_segment *D, uint16_t at);
 
 /* Remove Curse's handler (5b04:35f5) on target, as the temple runs it with
  * the first target (DS:6feb) set: Bestow Curse (0x24) goes, or else the

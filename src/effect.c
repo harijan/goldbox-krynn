@@ -127,11 +127,12 @@ static bool flash(cok_effects *fx, cok_character *c, uint8_t id, uint16_t handle
     return fail(fx, "effect 0x%02x (3f44:%04x) could not show its text (6346:228c)", id, handler);
 }
 
-/* The spell table (DS:31b3, 16 bytes an id), as the stat tables hold it. */
-static uint8_t spell_byte(uint8_t spell, unsigned column)
+/* The spell table (DS:31b3, 16 bytes an id), as the data segment holds it. */
+static uint8_t spell_byte(const cok_effects *fx, uint8_t spell, unsigned column)
 {
+    const cok_data_segment *D = fx->rules->data;
     uint8_t byte = 0;
-    cok_ds_byte((uint16_t)(0x31b3u + 16u * spell + column), &byte);
+    cok_data_byte(D, (uint16_t)cok_data_offset2(D, COK_DATA_SPELLS, spell, column), &byte);
     return byte;
 }
 
@@ -142,7 +143,7 @@ static bool caster_level(cok_effects *fx, uint8_t spell, uint8_t *level)
     if (c == NULL)
         return fail(fx, "the caster level of spell %u (6346:29fe) reads the selected character, "
                         "and none is selected", spell);
-    uint8_t class_ = spell_byte(spell, 0);
+    uint8_t class_ = spell_byte(fx, spell, 0);
     /* 66c2:0efb, 0 or 1, multiplies the former levels as words. */
     int former = cok_character_former_class(c, fx->rules) ? 1 : 0;
 #define LEVEL(k) ((int)cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, k))
@@ -775,9 +776,10 @@ static bool h_minor_globe(cok_effects *fx, bool removing, cok_effect *effect, co
 {
     (void)removing, (void)effect, (void)c;
     if (fx->rolls.spell == 0) return true;
+    const cok_data_segment *D = fx->rules->data;
     uint8_t level;
-    uint16_t at = (uint16_t)(0x31b4 + 16 * fx->rolls.spell);
-    if (!cok_ds_byte(at, &level))
+    uint16_t at = (uint16_t)cok_data_offset2(D, COK_DATA_SPELLS, fx->rolls.spell, 1);
+    if (!cok_data_byte(D, at, &level))
         return fail(fx, "effect 0x3f reads DS:%04x, past the original's initialized data", at);
     if ((int8_t)level < 4) cancel(fx, 0);
     return true;
@@ -1226,7 +1228,7 @@ static bool h_reflect(cok_effects *fx, bool removing, cok_effect *effect, cok_ch
 {
     (void)removing, (void)effect;
     uint8_t d = roll(fx, 1, 10);
-    uint8_t kind = spell_byte(fx->rolls.spell, 6);
+    uint8_t kind = spell_byte(fx, fx->rolls.spell, 6);
     if (!((d == 1 && kind < 8) || kind > 14)) return true;
     if (!fx->in_battle || fx->reflect == NULL)
         return fail(fx, "effect 0x47 (3f44:23a4) turns a spell back outside combat: the cells "
@@ -2191,12 +2193,12 @@ static void better(uint8_t *strength, uint8_t *exceptional, uint8_t candidate,
  * one unless it has a former level other than its own (+0xd7), and
  * fighters, rangers and knights get 1-7 a level by constitution 15-25,
  * others 1 for 15 and 2 above it. */
-static const uint8_t class_top[8] = {10, 15, 10, 10, 11, 12, 11, 10}; /* DS:3903 */
-
-static void class_hit_points(const cok_character_layout *L, const uint8_t *c, unsigned klass,
-                             uint8_t level, uint8_t constitution, uint8_t *hp)
+static void class_hit_points(const cok_character_layout *L, const cok_data_segment *D,
+                             const uint8_t *c, unsigned klass, uint8_t level, uint8_t constitution,
+                             uint8_t *hp)
 {
-    if (class_top[klass] <= level) level = (uint8_t)(class_top[klass] - 1);
+    uint8_t top = cok_data_u8_at(D, COK_DATA_TOP_LEVELS, klass);
+    if (top <= level) level = (uint8_t)(top - 1);
     if (klass == 4 &&
         (cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL) == 0 ||
          cok_field_u8_at(L, c, COK_FIELD_FORMER_LEVEL, 4) ==
@@ -2223,6 +2225,7 @@ static void class_hit_points(const cok_character_layout *L, const uint8_t *c, un
 static bool ability(cok_effects *fx, cok_character *ch, unsigned stat)
 {
     const cok_character_layout *L = fx->rules->character;
+    const cok_data_segment *D = fx->rules->data;
     uint8_t *c = ch->record;
     uint8_t score = cok_field_u8_at(L, c, COK_FIELD_SCORE_BASE, stat),
             exceptional = cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL_BASE);
@@ -2302,13 +2305,14 @@ static bool ability(cok_effects *fx, cok_character *ch, unsigned stat)
                        cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS));
         for (unsigned k = 0; k < 8; ++k) {
             if (cok_field_u8_at(L, c, COK_FIELD_FORMER_LEVEL, k) > 0)
-                class_hit_points(L, c, k, cok_field_u8_at(L, c, COK_FIELD_FORMER_LEVEL, k), score,
-                                 &hp);
+                class_hit_points(L, D, c, k, cok_field_u8_at(L, c, COK_FIELD_FORMER_LEVEL, k),
+                                 score, &hp);
             uint8_t level = cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, k);
             if (level > 0) ++classes;
-            if (class_top[k] < level) level = class_top[k];
+            if (cok_data_u8_at(D, COK_DATA_TOP_LEVELS, k) < level)
+                level = cok_data_u8_at(D, COK_DATA_TOP_LEVELS, k);
             if (level > cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL))
-                class_hit_points(L, c, k,
+                class_hit_points(L, D, c, k,
                                  (uint8_t)(level - cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL)),
                                  score, &hp);
         }

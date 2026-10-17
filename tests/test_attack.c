@@ -162,7 +162,7 @@ static cok_character *record(char name, uint8_t side, int8_t x, int8_t y)
     ++k->count;
     k->combatant[k->count].size = 0;
     k->combatant[k->count].character = NULL;
-    CHECK(cok_combat_occupy(k));
+    CHECK(cok_combat_occupy(k, &cok_rules_champions));
     k->sides[side] = (uint8_t)(k->sides[side] + 1);
     return c;
 }
@@ -204,24 +204,6 @@ static uint32_t seed_seq(unsigned n, const unsigned *triples)
             ok = d >= triples[3 * i + 1] && d <= triples[3 * i + 2];
         }
         if (ok) return start;
-    }
-}
-
-static void test_tables(void)
-{
-    FILE *f = fopen("build/START_FULL.EXE", "rb");
-    if (f == NULL) {
-        puts("attack: build/START_FULL.EXE not built; tables not checked");
-        return;
-    }
-    static uint8_t exe[1 << 20];
-    size_t size = fread(exe, 1, sizeof exe, f);
-    fclose(f);
-    CHECK(size > 0x20 && exe[0] == 'M' && exe[1] == 'Z');
-    size_t ds = (size_t)(exe[8] | exe[9] << 8) * 16 + 0xbc6 * 16;
-    for (size_t i = 0; i < cok_attack_table_count; ++i) {
-        const cok_ds_table *t = &cok_attack_tables[i];
-        for (size_t k = 0; k < t->size; ++k) CHECK(exe[ds + t->offset + k] == t->bytes[k]);
     }
 }
 
@@ -323,7 +305,7 @@ static void test_backstab(void)
     }
     /* A square away only. */
     game.combat.combatant[2].x = 7;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     CHECK(cok_combat_backstab(&game, a, m, &b) && !b);
 }
 
@@ -340,20 +322,20 @@ static void test_range(void)
     give(a, 0x16, true, 0);
     CHECK(cok_combat_range(&game, a, m, &ac) && ac == 50);
     game.combat.combatant[2].x = 20;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     CHECK(cok_combat_range(&game, a, m, &ac) && ac == 55);
     ac = 50;
     game.combat.combatant[2].x = 17;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     CHECK(cok_combat_range(&game, a, m, &ac) && ac == 52);
     game.item_types.type[0x16][12] = 7;
     ac = 50;
     game.combat.combatant[2].x = 10;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     CHECK(cok_combat_range(&game, a, m, &ac) && ac == 55);
     /* At 4 squares, a step of 2: +2 only. */
     game.combat.combatant[2].x = 9;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     ac = 50;
     CHECK(cok_combat_range(&game, a, m, &ac) && ac == 52);
     game.item_types.type[0x16][12] = 22;
@@ -605,7 +587,7 @@ static void test_attack(void)
      * and back after. */
     c->view_x = 30;
     c->view_y = 15;
-    CHECK(cok_combat_occupy(c));
+    CHECK(cok_combat_occupy(c, &cok_rules_champions));
     game.effects.rolls.round = 3;
     game.vm.character = m->record;
     game.vm.seed = swing(10, 2, 1);
@@ -619,7 +601,7 @@ static void test_attack(void)
     m = record('M', 1, 6, 5);
     c->view_x = 2;
     c->view_y = 2;
-    CHECK(cok_combat_occupy(c));
+    CHECK(cok_combat_occupy(c, &cok_rules_champions));
     game.vm.seed = swing(10, 2, 1);
     CHECK(cok_combat_attack(&game, a, m, false, 0, &over) && m->combat->facing == 6);
     /* Hit twice before and shown: it flips, then is drawn back; not
@@ -630,7 +612,7 @@ static void test_attack(void)
     game.vm.seed = swing(10, 2, 1);
     CHECK(cok_combat_attack(&game, a, m, false, 0, &over) && m->combat->facing == 1);
     c->view_x = 30;
-    CHECK(cok_combat_occupy(c));
+    CHECK(cok_combat_occupy(c, &cok_rules_champions));
     a->record[0x18f] = 1;
     game.vm.seed = swing(10, 2, 1);
     CHECK(cok_combat_attack(&game, a, m, false, 0, &over) && m->combat->facing == 1);
@@ -881,7 +863,7 @@ static void test_step(void)
     /* Off the map: the heap around it. */
     c->combatant[1].x = 49;
     c->combatant[1].y = 24;
-    CHECK(cok_combat_occupy(c));
+    CHECK(cok_combat_occupy(c, &cok_rules_champions));
     CHECK(!cok_combat_step(&game, a, 3) && game.vm.status == COK_ECL_UNDEFINED);
     /* An enemy guarding beside the new cell attacks it, once, and stops
      * guarding; one that cannot act or is helpless after has no movement
@@ -1164,7 +1146,7 @@ static void test_explode(void)
     x = record('X', 1, 10, 10);
     x->record[0xcf] = 3; /* two across: twelve around */
     game.combat.combatant[1].size = 3;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     for (int k = 0; k < 9; ++k) record((char)('A' + k), 0, (int8_t)(9 + k % 4), k < 4 ? 9 : 11);
     c->exploding[1] = x;
     c->exploding_count = 1;
@@ -1246,7 +1228,7 @@ static void test_handlers(void)
     m->record[0x18a] = 1;
     /* Alone, the second listed is the one an earlier list left. */
     c->combatant[1].size = c->combatant[3].size = 0;
-    CHECK(cok_combat_occupy(c));
+    CHECK(cok_combat_occupy(c, &cok_rules_champions));
     c->listed[2].index = 3;
     CHECK(cok_character_add_effect(m, 0x4d, 0, 0, false) != NULL);
     CHECK(run(m, 0x0f) && m->combat->target == n->record && m->record[0x18a] == 0);
@@ -1357,7 +1339,7 @@ static void test_handlers(void)
     game.vm.seed = seed_for(6, 4, 4);
     CHECK(run(a, 4) && r->amount == 8 && a->record[0x18c] == 41 && r->dice == 1);
     game.combat.combatant[2].x = 8;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     game.vm.seed = seed_for(4, 3, 3);
     CHECK(run(a, 0x0a) && r->amount == 6 && a->record[0x18c] == 43);
     /* With no target, the distance is the last listed's: M's, 3. */
@@ -1415,7 +1397,7 @@ static void test_handlers(void)
     CHECK(run(m, 5) && a->record[0x197] == 4 && r->amount == 3 && r->damage_type == 1);
     CHECK(LOGGED("print: A;print: gets zapped;") && LOGGED("print: takes 6 points of damage from Magic;"));
     game.combat.combatant[1].x = 3;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     CHECK(run(m, 5) && a->record[0x197] == 4);
 
     /* Losing a weapon (0x43) at the death: the killer (selected), a d20
@@ -1513,7 +1495,7 @@ static void test_handlers(void)
     m->record[0x188] = 6;
     record('B', 0, 6, 5);
     game.combat.combatant[2].size = 0;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     CHECK(run(m, 0x0d) && m->record[0x188] == 0 && m->record[0x189] == 1);
     CHECK(cok_character_find_effect(m, 0x0d) != NULL);
 }
@@ -1667,7 +1649,7 @@ static void test_quirks(void)
     unsigned held[] = {20, 10, 10, 2, 1, 1, 20, 2, 19, 20, 1, 1};
     game.vm.seed = seed_seq(4, held);
     CHECK(cok_combat_strike(&game, a, m, false, &over) && r->hits[0] == 2);
-    CHECK(cok_combat_helpless(m));
+    CHECK(cok_combat_helpless(m, &cok_rules_champions));
     /* Events 2 and 3 only with damage: none, no poison. */
     reset("");
     a = record('A', 0, 5, 5);
@@ -1738,7 +1720,7 @@ static void test_quirks(void)
     m = record('M', 1, 6, 5);
     c->view_x = 2;
     c->view_y = 2;
-    CHECK(cok_combat_occupy(c));
+    CHECK(cok_combat_occupy(c, &cok_rules_champions));
     m->combat->facing = 1;
     game.vm.seed = swing(2, 0, 0);
     CHECK(cok_combat_attack(&game, a, m, true, 0, &over) && m->combat->facing == 1);
@@ -1918,7 +1900,7 @@ static void test_turn_handlers(void)
     /* Off the map, none listed: refused, as the original's count less 1
      * wraps to 255. */
     c->combatant[1].size = 0;
-    CHECK(cok_combat_occupy(c));
+    CHECK(cok_combat_occupy(c, &cok_rules_champions));
     CHECK(!run(a, 0x0f) && strstr(game.effects.error, "3f44:163b") != NULL);
     /* More than eight around: refused, as the original copies the ninth
      * over its loop's count. */
@@ -1926,7 +1908,7 @@ static void test_turn_handlers(void)
     a = record('A', 0, 10, 10);
     a->record[0xcf] = 3;
     c->combatant[1].size = 3;
-    CHECK(cok_combat_occupy(c));
+    CHECK(cok_combat_occupy(c, &cok_rules_champions));
     for (int k = 0; k < 9; ++k) record((char)('B' + k), 1, (int8_t)(9 + k % 4), k < 4 ? 9 : 11);
     CHECK(cok_character_add_effect(a, 0x30, 0, 0, false) != NULL);
     CHECK(!run(a, 0x0f) && strstr(game.effects.error, "3f44:15cd") != NULL);
@@ -1983,7 +1965,7 @@ static void test_turn_handlers(void)
     game.vm.character = a->record;
     a->record[0x197] = n->record[0x197] = m->record[0x197] = 100;
     a->record[0xd4] = n->record[0xd4] = m->record[0xd4] = 0;
-    CHECK(cok_combat_list(c, 5, 5, 0xff, 0xff, 1) && c->listed_count == 4);
+    CHECK(cok_combat_list(c, &cok_rules_champions, 5, 5, 0xff, 0xff, 1) && c->listed_count == 4);
     CHECK(c->listed[4].index == 4);
     CHECK(cok_character_add_effect(x, 0x43, 0, 0xff, false) != NULL);
     burst = cok_character_add_effect(x, 0x3c, 0, 0, true);
@@ -2033,7 +2015,7 @@ static void test_turn_handlers(void)
         c->combatant[3 + k].size = 0;
     }
     w3->record[0x188] = 6; /* not waiting: the gating stops before it */
-    CHECK(cok_combat_occupy(c));
+    CHECK(cok_combat_occupy(c, &cok_rules_champions));
     CHECK(cok_character_add_effect(l, 0x4c, 0, 0, false) != NULL);
     l->record[0x197] = 5; /* half: nothing */
     CHECK(run(l, 0x0f) && w1->record[0x188] == 9 && cok_character_find_effect(l, 0x4c) != NULL);
@@ -2054,7 +2036,7 @@ static void test_turn_handlers(void)
     w1->record[0x188] = 9;
     w1->record[0x189] = 0;
     c->combatant[4].size = 0;
-    CHECK(cok_combat_occupy(c));
+    CHECK(cok_combat_occupy(c, &cok_rules_champions));
     CHECK(cok_character_add_effect(l, 0x4c, 0, 0, false) != NULL);
     l->record[0x197] = 1;
     CHECK(run(l, 0x0f) && c->combatant[4].x == 6 && c->combatant[4].y == 5);
@@ -2068,7 +2050,7 @@ static void test_turn_handlers(void)
     w1->record[0x188] = 9;
     w1->record[0x189] = 0;
     c->combatant[4].size = 0;
-    CHECK(cok_combat_occupy(c));
+    CHECK(cok_combat_occupy(c, &cok_rules_champions));
     for (int dy = -1; dy <= 1; ++dy)
         for (int dx = -1; dx <= 1; ++dx)
             if (dx != 0 || dy != 0) c->cells[5 + dy][5 + dx] = 0x1a;
@@ -2088,7 +2070,7 @@ static void test_turn_handlers(void)
     w1->record[0xcf] = 2;
     c->combatant[4].size = 0;
     c->combatant[3].size = 0;
-    CHECK(cok_combat_occupy(c));
+    CHECK(cok_combat_occupy(c, &cok_rules_champions));
     CHECK(cok_character_add_effect(l, 0x4c, 0, 0, false) != NULL);
     l->record[0x197] = 1;
     CHECK(!run(l, 0x0f) && game.vm.status == COK_ECL_UNDEFINED);
@@ -2125,7 +2107,6 @@ int main(void)
     cok_adventure_hooks hooks = {.log = log_line, .delay = delay_line, .context = &s};
     CHECK(cok_adventure_open(&game, &cok_rules_champions, "COKAssets", &keys, &hooks));
     load_screen();
-    test_tables();
     test_hit();
     test_book();
     test_backstab();

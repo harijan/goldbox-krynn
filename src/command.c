@@ -426,7 +426,8 @@ static bool move_step(cok_adventure *game, cok_character *c, uint8_t dir, bool *
     if (!cok_arena_pose(game, c, dir, 0, false)) return false;
     uint8_t occupant, terrain;
     bool cloud, puddle;
-    if (!cok_combat_probe(combat, c->record, dir, &occupant, &terrain, &cloud, &puddle))
+    if (!cok_combat_probe(combat, cok_game_rules(game), c->record, dir, &occupant, &terrain, &cloud,
+                          &puddle))
         return undefined(game, "a size past the footprints is read after them (6beb:0c9d)");
     if (occupant > 0) {
         cok_character *target = combatant(game, occupant, "3995:0f48");
@@ -442,9 +443,9 @@ static bool move_step(cok_adventure *game, cok_character *c, uint8_t dir, bool *
         }
         return true;
     }
-    if (terrain >= COK_COMBAT_TERRAINS)
+    if (terrain >= cok_data_count(cok_game_rules(game)->data, COK_DATA_TERRAIN, 0))
         return undefined(game, "terrain 0x%02x is past the table (DS:1ee4, 3995:0fb6)", terrain);
-    uint8_t base = cok_combat_terrain[terrain].cost;
+    uint8_t base = cok_combat_terrain(cok_game_rules(game), terrain).cost;
     uint8_t cost = base == 0xff ? 0xff : (uint8_t)(base * ((dir & 1) != 0 ? 3 : 2));
     if (cost > cr->movement) {
         cok_camp_notice(game, "can't go there"); /* 6346:1827 */
@@ -462,7 +463,7 @@ static bool move_step(cok_adventure *game, cok_character *c, uint8_t dir, bool *
         *done = true;
     }
     if (!cok_cloud_square(game, c, true)) return false; /* 60f4:0dc3 */
-    if (cok_combat_helpless(c)) {
+    if (cok_combat_helpless(c, cok_game_rules(game))) {
         cok_combat_end_turn(c);
         *done = true;
     }
@@ -558,7 +559,8 @@ static bool list_targets(cok_adventure *game, cok_character *c, targets *t)
 {
     cok_combat *combat = &game->combat;
     const uint8_t *r = c->record;
-    if (!cok_combat_list(combat, cok_combat_x(combat, r), cok_combat_y(combat, r), 0x7f, 0xff,
+    if (!cok_combat_list(combat, cok_game_rules(game), cok_combat_x(combat, r),
+                         cok_combat_y(combat, r), 0x7f, 0xff,
                          cok_combat_size(combat, r)))
         return undefined(game, "the list of combatants around one (6b30:08d8) reads past its "
                                "tables");
@@ -618,7 +620,7 @@ static int show_target(cok_adventure *game, cok_character *c, cok_character *tar
     combat->see_all = 1;
     int8_t sx = x, sy = y;
     bool seen;
-    bool ok = cok_combat_sight(combat, cok_combat_x(combat, c->record),
+    bool ok = cok_combat_sight(combat, cok_game_rules(game), cok_combat_x(combat, c->record),
                                cok_combat_y(combat, c->record), &sx, &sy, &distance, &seen);
     combat->see_all = see_all;
     if (!ok) {
@@ -704,7 +706,8 @@ static bool strike(cok_adventure *game, cok_character *c, cok_character *target,
             if (!thrown(game, c, &yes)) return false;
             if (yes) {
                 uint8_t d;
-                if (!cok_combat_distance(combat, c->record, target->record, &d))
+                if (!cok_combat_distance(combat, cok_game_rules(game), c->record, target->record,
+                                         &d))
                     return undefined(game, "the distance (6346:2888) lists the combatants around "
                                            "one (6b30:08d8) past its tables");
                 if (d == 1) item = 0;
@@ -759,7 +762,7 @@ static bool manual_cursor(cok_adventure *game, cok_character *c, uint8_t range, 
         uint16_t distance = 0xff;
         int8_t sx = cx, sy = cy;
         bool seen;
-        if (!cok_combat_sight(combat, cok_combat_x(combat, c->record),
+        if (!cok_combat_sight(combat, cok_game_rules(game), cok_combat_x(combat, c->record),
                               cok_combat_y(combat, c->record), &sx, &sy, &distance, &seen))
             return undefined(game, "sight (6b30:03f1) reads a cell past the terrain table");
         if (seen) {
@@ -786,10 +789,11 @@ static bool manual_cursor(cok_adventure *game, cok_character *c, uint8_t range, 
         } else {
             clear_cells(game, 0x17, 1, 0x26, 0x15);
         }
-        if (terrain >= COK_COMBAT_TERRAINS)
+        if (terrain >= cok_data_count(cok_game_rules(game)->data, COK_DATA_TERRAIN, 0))
             return undefined(game, "terrain 0x%02x is past the table (DS:1ee4, 432f:3650)",
                              terrain);
-        if (range < distance || cok_combat_terrain[terrain].cost == 0xff) *valid = false;
+        if (range < distance || cok_combat_terrain(cok_game_rules(game), terrain).cost == 0xff)
+            *valid = false;
         if (target != NULL) {
             bool can;
             if (!cok_combat_can_attack(game, c, target->record, &can)) return false;
@@ -1035,8 +1039,9 @@ bool cok_combat_done(cok_adventure *game, cok_character *c, bool *done)
 /* Byte column of the spell table (DS:31b3 + 16 * spell). */
 static bool spell_byte(cok_adventure *game, uint8_t spell, unsigned column, uint8_t *byte)
 {
-    uint16_t at = (uint16_t)(0x31b3u + 16u * spell + column);
-    if (cok_ds_byte(at, byte)) return true;
+    const cok_data_segment *D = cok_game_rules(game)->data;
+    uint16_t at = (uint16_t)cok_data_offset2(D, COK_DATA_SPELLS, spell, column);
+    if (cok_data_byte(D, at, byte)) return true;
     return undefined(game, "spell 0x%02x reads DS:%04x past the spell table (432f:28bd)", spell,
                      at);
 }
@@ -1118,7 +1123,7 @@ bool cok_combat_yell(cok_adventure *game, cok_character *c)
         cok_character *m = game->party.members[i];
         const uint8_t *r = m->record;
         if (r[0x188] != 0 || r[0x13] <= 3 || r[0x18a] == c->record[0x18a] ||
-            cok_combat_helpless(m))
+            cok_combat_helpless(m, cok_game_rules(game)))
             continue;
         bool made;
         if (!cok_effects_save(&game->effects, m, 4, 0, &made))

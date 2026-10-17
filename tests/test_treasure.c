@@ -231,19 +231,11 @@ static void test_tables(void)
     fclose(f);
     CHECK(size > 0x20 && exe[0] == 'M' && exe[1] == 'Z');
     size_t ds = (size_t)(exe[8] | exe[9] << 8) * 16 + 0xbc6 * 16;
-    const cok_ds_table *t = &cok_treasure_templates;
-    for (size_t k = 0; k < t->size; ++k) CHECK(exe[ds + t->offset + k] == t->bytes[k]);
     /* The scrolls' spells (DS:423b-42ac), every byte the dice reach. */
     for (uint16_t at = 0x423b; at <= 0x42ac; ++at) {
         uint8_t byte;
-        CHECK(cok_ds_byte(at, &byte) && byte == exe[ds + at]);
+        CHECK(cok_data_byte(cok_rules_champions.data, at, &byte) && byte == exe[ds + at]);
     }
-    /* The coins' names. */
-    static const char *const coins[7] = {"Silver", "Copper", "Bronze", "Platinum", "Steel", "Gems",
-                                         "Jewelry"};
-    char name[256];
-    for (int k = 0; k < 7; ++k)
-        CHECK(cok_ds_string((uint16_t)(0x12e3 + 11 * k), name) && strcmp(name, coins[k]) == 0);
 }
 
 static void test_generator(void)
@@ -251,29 +243,29 @@ static void test_generator(void)
     uint8_t it[COK_ITEM_SIZE];
     /* A long sword +1 on a d10 below 10, +2 on 10; the value 1000 a plus. */
     uint32_t seed = seed_for(10, 10);
-    cok_treasure_item(&seed, 0x12, it);
+    cok_treasure_item(&cok_rules_champions, &seed, 0x12, it);
     CHECK(it[0x2e] == 0x12 && it[0x32] == 2 && it[0x31] == 0x12 && it[0x30] == 0x70);
     CHECK(it[0x35] == 6 && word(it + 0x3a) == 2000 && word(it + 0x37) == 60 && it[0x39] == 0);
     seed = seed_for(10, 9);
-    cok_treasure_item(&seed, 0x12, it);
+    cok_treasure_item(&cok_rules_champions, &seed, 0x12, it);
     CHECK(it[0x32] == 1 && it[0x30] == 0x6f && word(it + 0x3a) == 1000);
     /* Bracers are AC 6 whatever the roll: a bonus of 4, worth 6000. */
-    cok_treasure_item(&seed, 0x32, it);
+    cok_treasure_item(&cok_rules_champions, &seed, 0x32, it);
     CHECK(it[0x32] == 4 && word(it + 0x3a) == 6000 && it[0x31] == 0x32 && it[0x30] == 0x5a &&
           it[0x2f] == 0x6b && word(it + 0x37) == 10);
     /* Armour shows only its plus hidden; leather is "Armor", the rest
      * "Mail". */
-    cok_treasure_item(&seed, 0x1f, it);
+    cok_treasure_item(&cok_rules_champions, &seed, 0x1f, it);
     CHECK(it[0x30] == 0x30 && it[0x35] == 4 && word(it + 0x37) == 150);
-    cok_treasure_item(&seed, 0x24, it);
+    cok_treasure_item(&cok_rules_champions, &seed, 0x24, it);
     CHECK(it[0x30] == 0x2f && it[0x31] == 0x24 && word(it + 0x37) == 450 &&
           word(it + 0x3a) == 2500 * it[0x32]);
     /* Arrows, quarrels and darts come twenty to the item. */
-    cok_treasure_item(&seed, 0x1e, it);
+    cok_treasure_item(&cok_rules_champions, &seed, 0x1e, it);
     CHECK(it[0x39] == 20 && word(it + 0x37) == 4 && word(it + 0x3a) == 75 * it[0x32]);
-    cok_treasure_item(&seed, 5, it);
+    cok_treasure_item(&cok_rules_champions, &seed, 5, it);
     CHECK(it[0x39] == 20 && word(it + 0x37) == 5);
-    cok_treasure_item(&seed, 0x3b, it);
+    cok_treasure_item(&cok_rules_champions, &seed, 0x3b, it);
     CHECK(it[0x31] == 0x2e && it[0x30] == 0x31 && word(it + 0x37) == 1);
     /* A javelin is of lightning on a d5 of 5, after its bonus: the
      * template's parts, weight and value, its type kept, every part
@@ -285,26 +277,26 @@ static void test_generator(void)
         seed = start;
         break;
     }
-    cok_treasure_item(&seed, 7, it);
+    cok_treasure_item(&cok_rules_champions, &seed, 7, it);
     CHECK(it[0x2e] == 7 && it[0x2f] == 0x58 && it[0x30] == 0x5a && it[0x31] == 0x07);
     CHECK(word(it + 0x37) == 20 && word(it + 0x3a) == 1500 && it[0x3c] == 1 && it[0x3d] == 0x33);
     CHECK(it[0x32] == 1 && it[0x33] == 1 && it[0x39] == 0 && it[0x35] == 6);
     /* A healing potion on a d8 up to 5, else extra healing: type 0x30
      * kept, not the shipped potions' 0x2f. */
     seed = seed_for(8, 6);
-    cok_treasure_item(&seed, 0x30, it);
+    cok_treasure_item(&cok_rules_champions, &seed, 0x30, it);
     CHECK(it[0x2e] == 0x30 && it[0x3c] == 3 && it[0x3d] == 0x63 && word(it + 0x3a) == 400);
     seed = seed_for(8, 5);
-    cok_treasure_item(&seed, 0x30, it);
+    cok_treasure_item(&cok_rules_champions, &seed, 0x30, it);
     CHECK(it[0x3c] == 1 && it[0x3d] == 3 && word(it + 0x3a) == 200);
-    cok_treasure_item(&seed, 0x34, it);
+    cok_treasure_item(&cok_rules_champions, &seed, 0x34, it);
     CHECK(it[0x3c] == 0x1e && it[0x3d] == 0x41 && word(it + 0x3a) == 5500);
-    cok_treasure_item(&seed, 0x35, it);
+    cok_treasure_item(&cok_rules_champions, &seed, 0x35, it);
     CHECK(it[0x3d] == 0x3b && word(it + 0x3a) == 550);
     /* Scrolls: d3 spells, each a d4 level worth 150 a level; a mage's
      * order by a d2, Red (bit 0x10) on 1. "3 Spell" lacks its s. */
     for (int k = 0; k < 40; ++k) {
-        cok_treasure_item(&seed, (uint8_t)(k & 1 ? 0x27 : 0x28), it);
+        cok_treasure_item(&cok_rules_champions, &seed, (uint8_t)(k & 1 ? 0x27 : 0x28), it);
         unsigned spells = (unsigned)(it[0x2f] - 0x63);
         CHECK(spells >= 1 && spells <= 3 && it[0x32] == 1 && word(it + 0x37) == 25);
         CHECK(word(it + 0x3a) % 150 == 0 && word(it + 0x3a) >= 150 * spells &&
@@ -318,17 +310,17 @@ static void test_generator(void)
     /* Seed 34: a White scroll of 0x0e and 0x0a (level 1) and 0x36 (level
      * 3), worth 150 + 150 + 450. */
     seed = 34;
-    cok_treasure_item(&seed, 0x27, it);
+    cok_treasure_item(&cok_rules_champions, &seed, 0x27, it);
     CHECK(it[0x31] == 0x77 && it[0x35] == 0x24 && it[0x3c] == 0x0e && it[0x3d] == 0x0a &&
           it[0x3e] == 0x36 && word(it + 0x3a) == 750);
     seed = seed_for(3, 3);
-    cok_treasure_item(&seed, 0x28, it);
+    cok_treasure_item(&cok_rules_champions, &seed, 0x28, it);
     char name[256];
-    CHECK(it[0x2f] == 0x66 && cok_ds_string(0x1390 + 21 * 0x66, name) &&
+    CHECK(it[0x2f] == 0x66 && cok_data_string(cok_rules_champions.data, 0x1390 + 21 * 0x66, name) &&
           strcmp(name, "3 Spell") == 0);
     /* Other types are blank but for the type. */
     seed = 7;
-    cok_treasure_item(&seed, 0x40, it);
+    cok_treasure_item(&cok_rules_champions, &seed, 0x40, it);
     CHECK(seed == 7 && it[0x2e] == 0x40 && it[0x35] == 6 && it[0x32] == 0);
 }
 

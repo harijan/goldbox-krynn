@@ -412,13 +412,13 @@ static void test_edges(void)
     /* The least is at least 1: a mage of constitution 3. */
     c[0xfe] = 1;
     c[0x19] = 3;
-    CHECK(cok_modify_least(c) == 1);
+    CHECK(cok_modify_least(c, &cok_rules_champions) == 1);
     /* Past its top level a class sets the most: a fighter of level 12 has
      * 3 x 3 + 90. */
     memset(c, 0, sizeof c);
     c[0xfb] = 12;
     c[0x19] = 10;
-    CHECK(cok_modify_most(c, c, &most) && most == 99);
+    CHECK(cok_modify_most(c, &cok_rules_champions, c, &most) && most == 99);
     /* The default body of a knight. */
     memset(c, 0, sizeof c);
     c[0x100] = 1;
@@ -485,9 +485,10 @@ static void test_quirks(void)
     uint8_t c[COK_CHARACTER_SIZE] = {0};
     /* 4def:4789: 19-20 three more, 21-23 four. */
     c[0x19] = 20;
-    CHECK(cok_train_constitution(c, 4) == 5);
+    CHECK(cok_train_constitution(c, &cok_rules_champions, 4) == 5);
     c[0x19] = 21;
-    CHECK(cok_train_constitution(c, 4) == 6 && cok_train_constitution(c, 6) == 2);
+    CHECK(cok_train_constitution(c, &cok_rules_champions, 4) == 6 &&
+          cok_train_constitution(c, &cok_rules_champions, 6) == 2);
     /* 4def:4b3a with nothing trained still gives a hit point. */
     memset(c, 0, sizeof c);
     c[0xf9] = 1;
@@ -737,14 +738,6 @@ static void test_tables(void)
     size_t size = fread(exe, 1, sizeof exe, f);
     fclose(f);
     size_t ds = (size_t)(exe[8] | exe[9] << 8) * 16 + 0xbc6 * 16;
-    extern const cok_ds_table cok_train_tables[], cok_create_tables[];
-    extern const size_t cok_train_table_count, cok_create_table_count;
-    const cok_ds_table *lists[2] = {cok_train_tables, cok_create_tables};
-    size_t counts[2] = {cok_train_table_count, cok_create_table_count};
-    for (size_t l = 0; l < 2; ++l)
-        for (size_t i = 0; i < counts[l]; ++i)
-            for (size_t k = 0; k < lists[l][i].size; ++k)
-                CHECK(exe[ds + lists[l][i].offset + k * lists[l][i].stride] == lists[l][i].bytes[k]);
     /* The start menu's items, string[40]s 0x2a bytes apart from DS:0878. */
     for (unsigned i = 0; i < 13; ++i) {
         const char *item = cok_start_item(i);
@@ -774,16 +767,18 @@ static void test_experience(void)
     c[0x5c] = 3;
     CHECK(cok_train_row(c, 7, &row) && row == 5);
     int32_t need;
-    CHECK(cok_train_experience(2, 2, &need) && need == 2001);
-    CHECK(cok_train_experience(2, 3, &need) && need == 4001);
-    CHECK(cok_train_experience(6, 8, &need) && need == -1); /* rangers stop at 7 */
-    CHECK(cok_train_experience(9, 9, &need) && need == 110001);
-    CHECK(cok_train_experience(9, 10, &need) && need == -1);
+    CHECK(cok_train_experience(&cok_rules_champions, 2, 2, &need) && need == 2001);
+    CHECK(cok_train_experience(&cok_rules_champions, 2, 3, &need) && need == 4001);
+    CHECK(cok_train_experience(&cok_rules_champions, 6, 8, &need) &&
+          need == -1); /* rangers stop at 7 */
+    CHECK(cok_train_experience(&cok_rules_champions, 9, 9, &need) && need == 110001);
+    CHECK(cok_train_experience(&cok_rules_champions, 9, 10, &need) && need == -1);
     /* 4def:4789: the warriors' extra at 17-25. */
     c[0x19] = 18;
-    CHECK(cok_train_constitution(c, 2) == 4 && cok_train_constitution(c, 5) == 2);
+    CHECK(cok_train_constitution(c, &cok_rules_champions, 2) == 4 &&
+          cok_train_constitution(c, &cok_rules_champions, 5) == 2);
     c[0x19] = 3;
-    CHECK(cok_train_constitution(c, 2) == -2);
+    CHECK(cok_train_constitution(c, &cok_rules_champions, 2) == -2);
     int8_t b;
     c[0x19] = 19;
     CHECK(cok_train_hit_die(c, 7, &b) && b == 5 && cok_train_hit_die(c, 0, &b) && b == 2);
@@ -1015,9 +1010,10 @@ static void test_modify(void)
     uint8_t r[COK_CHARACTER_SIZE] = {0}, most;
     r[0xfb] = 1;
     r[0x19] = 16;
-    CHECK(cok_modify_least(r) == 3 && cok_modify_most(r, r, &most) && most == 12);
+    CHECK(cok_modify_least(r, &cok_rules_champions) == 3 &&
+          cok_modify_most(r, &cok_rules_champions, r, &most) && most == 12);
     r[0x19] = 2;
-    CHECK(!cok_modify_most(r, r, &most));
+    CHECK(!cok_modify_most(r, &cok_rules_champions, r, &most));
     empty_party();
 }
 

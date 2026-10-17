@@ -11,10 +11,12 @@
 /* The keypad as directions (DS:2010), from '1'. */
 static const uint8_t keypad_scans[9] = {0x4f, 0x50, 0x51, 0x4b, 0x20, 0x4d, 0x47, 0x48, 0x49};
 
-static uint8_t ds(uint16_t offset)
+/* The byte at DS:offset in the game's data segment, 0 where it holds
+ * none. */
+static uint8_t ds(const cok_data_segment *D, uint16_t offset)
 {
     uint8_t byte = 0;
-    cok_ds_byte(offset, &byte);
+    cok_data_byte(D, offset, &byte);
     return byte;
 }
 
@@ -24,7 +26,7 @@ static bool undefined(cok_adventure *game, const char *what)
     return false;
 }
 
-uint8_t cok_modify_least(const uint8_t *c)
+uint8_t cok_modify_least(const uint8_t *c, const cok_rules *rules)
 {
     uint8_t levels = 0, classes = 0, con = 0;
     for (unsigned i = 0; i < 8; ++i) {
@@ -33,15 +35,17 @@ uint8_t cok_modify_least(const uint8_t *c)
         levels = (uint8_t)(levels + level);
         ++classes;
         if (i == 4 || i == 7) ++levels;
-        con = (uint8_t)(con + (uint8_t)cok_train_constitution(c, i));
+        con = (uint8_t)(con + (uint8_t)cok_train_constitution(c, rules, i));
     }
     int bonus = (int8_t)con;
     if (bonus < 0 && levels <= classes + -bonus) return 1;
     return (uint8_t)((levels + bonus) / classes);
 }
 
-bool cok_modify_most(const uint8_t *c, const uint8_t *selected, uint8_t *most)
+bool cok_modify_most(const uint8_t *c, const cok_rules *rules, const uint8_t *selected,
+                     uint8_t *most)
 {
+    const cok_data_segment *D = rules->data;
     uint8_t sum = 0, classes = 0;
     for (unsigned i = 0; i < 8; ++i) {
         uint8_t level = c[0xf9 + i];
@@ -49,7 +53,7 @@ bool cok_modify_most(const uint8_t *c, const uint8_t *selected, uint8_t *most)
         int8_t b;
         if (!cok_train_hit_die(selected, i, &b)) return false;
         ++classes;
-        uint8_t top = ds((uint16_t)(0x3903 + i));
+        uint8_t top = ds(D, (uint16_t)cok_data_offset(D, COK_DATA_TOP_LEVELS, i));
         if (level < top) {
             int dice;
             switch (i) {
@@ -76,7 +80,7 @@ bool cok_modify_most(const uint8_t *c, const uint8_t *selected, uint8_t *most)
 
 static bool most(cok_adventure *game, const uint8_t *c, uint8_t *value)
 {
-    if (cok_modify_most(c, game->vm.character, value)) return true;
+    if (cok_modify_most(c, cok_game_rules(game), game->vm.character, value)) return true;
     return undefined(game, "4def:257c's constitution bonus is uninitialized for a constitution "
                            "outside 3-19 (4def:48e9)");
 }
@@ -116,9 +120,9 @@ static void draw_field(modify *m, bool highlight)
 }
 
 /* The race's limits (DS:39e0 + race * 16): strength's by gender. */
-static uint8_t limit(const uint8_t *c, unsigned offset)
+static uint8_t limit(const cok_data_segment *D, const uint8_t *c, unsigned offset)
 {
-    return ds((uint16_t)(0x39e0 + (int8_t)c[0x5a] * 16 + (int)offset));
+    return ds(D, (uint16_t)cok_data_offset2(D, COK_DATA_SCORE_LIMITS, (int8_t)c[0x5a], offset));
 }
 
 static bool constitution_redraw(modify *m)
@@ -131,6 +135,7 @@ static bool constitution_redraw(modify *m)
 
 static bool subtract(modify *m)
 {
+    const cok_data_segment *D = cok_game_rules(m->game)->data;
     uint8_t *c = m->character->record;
     if (m->field <= 5) {
         unsigned a = m->field;
@@ -140,13 +145,14 @@ static bool subtract(modify *m)
             if (c[0x1c] > 0) {
                 --c[0x1c];
                 ++*score;
-            } else if (*score < limit(c, c[0x109])) {
-                *score = limit(c, c[0x109]);
+            } else if (*score < limit(D, c, c[0x109])) {
+                *score = limit(D, c, c[0x109]);
             }
-        } else if (*score < limit(c, 4 + 2 * a)) {
-            *score = limit(c, 4 + 2 * a);
+        } else if (*score < limit(D, c, 4 + 2 * a)) {
+            *score = limit(D, c, 4 + 2 * a);
         }
-        uint8_t minimum = ds((uint16_t)(0x3bdf + (int8_t)c[0x5b] * 6 + (int)a));
+        uint8_t minimum =
+            ds(D, (uint16_t)cok_data_offset2(D, COK_DATA_CLASS_MINIMUMS, (int8_t)c[0x5b], a));
         if (*score < minimum) *score = minimum;
         if (a == 2 && c[0x11c] > 0) c[0x11c] = 1;
         if (a == 4) {
@@ -158,7 +164,7 @@ static bool subtract(modify *m)
         }
     } else if (m->field == 7) {
         --c[0x62];
-        uint8_t least = cok_modify_least(c);
+        uint8_t least = cok_modify_least(c, cok_game_rules(m->game));
         if (least > c[0x62]) c[0x62] = least;
         c[0x197] = c[0x62];
     } else if (m->field == 6) {
@@ -169,26 +175,27 @@ static bool subtract(modify *m)
 
 static bool add(modify *m)
 {
+    const cok_data_segment *D = cok_game_rules(m->game)->data;
     uint8_t *c = m->character->record;
     if (m->field <= 5) {
         unsigned a = m->field;
         uint8_t *score = &c[0x11 + 2 * a];
         ++*score;
         if (a == 0) {
-            uint8_t high = limit(c, 2u + c[0x109]);
+            uint8_t high = limit(D, c, 2u + c[0x109]);
             if (*score > high) {
                 if (*score > 18 &&
                     ((int8_t)c[0xfb] > 0 || (int8_t)c[0x100] > 0 || (int8_t)c[0xfd] > 0) &&
-                    limit(c, 4u + c[0x109]) > c[0x1c])
+                    limit(D, c, 4u + c[0x109]) > c[0x1c])
                     ++c[0x1c];
                 *score = high;
             }
-        } else if (*score > limit(c, 5 + 2 * a)) {
-            *score = limit(c, 5 + 2 * a);
+        } else if (*score > limit(D, c, 5 + 2 * a)) {
+            *score = limit(D, c, 5 + 2 * a);
         }
         if (a == 2 && c[0x11c] > 0) c[0x11c] = 1;
         if (a == 4) {
-            uint8_t least = cok_modify_least(c);
+            uint8_t least = cok_modify_least(c, cok_game_rules(m->game));
             if (least > c[0x62]) c[0x62] = least;
             c[0x197] = c[0x62];
             constitution_redraw(m);
@@ -211,6 +218,7 @@ static bool add(modify *m)
 static bool keep(modify *m)
 {
     cok_adventure *game = m->game;
+    const cok_data_segment *D = cok_game_rules(game)->data;
     uint8_t *c = m->character->record;
     char error[300];
     if (!cok_character_cleric_spells(m->character, cok_game_rules(game), error, sizeof error))
@@ -224,7 +232,7 @@ static bool keep(modify *m)
         if (!cok_train_hit_die(game->vm.character, i, &b))
             return undefined(game, "4def:257c's constitution bonus is uninitialized for a "
                                    "constitution outside 3-19 (4def:35ea)");
-        uint8_t top = ds((uint16_t)(0x3903 + i));
+        uint8_t top = ds(D, (uint16_t)cok_data_offset(D, COK_DATA_TOP_LEVELS, i));
         if ((uint8_t)level < top)
             sum = (uint8_t)(sum + b * (i == 4 ? level + 1 : level));
         else

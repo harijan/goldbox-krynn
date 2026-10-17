@@ -207,10 +207,6 @@ static void test_tables(void)
     fclose(f);
     CHECK(size > 0x20 && exe[0] == 'M' && exe[1] == 'Z');
     size_t ds = (size_t)(exe[8] | exe[9] << 8) * 16 + 0xbc6 * 16;
-    for (size_t i = 0; i < cok_arena_table_count; ++i) {
-        const cok_ds_table *t = &cok_arena_tables[i];
-        for (size_t k = 0; k < t->size; ++k) CHECK(exe[ds + t->offset + k] == t->bytes[k]);
-    }
     /* The frame's three side columns (DS:0ebd, 0ed4, 0eeb) are the same. */
     for (unsigned k = 0; k < 23; ++k)
         CHECK(exe[ds + 0xebd + k] == exe[ds + 0xed4 + k] &&
@@ -266,7 +262,7 @@ static void test_map(void)
             uint8_t occupant = c->occupant[c->view_y + ys][c->view_x + xs];
             if (occupant != 0) continue;
             uint8_t value = c->cells[c->view_y + ys][c->view_x + xs];
-            CHECK(shows_tile(xs, ys, cok_combat_terrain[value].tile));
+            CHECK(shows_tile(xs, ys, cok_combat_terrain(&cok_rules_champions, value).tile));
         }
     /* A's icon, CPIC1 1, mirrored: its pixel at 23 - x, over the floor
      * where its mask keeps it. */
@@ -462,7 +458,7 @@ static void test_turn(void)
     cok_character *d = game.party.members[3];
     d->record[0xcf] = 4;
     c->combatant[4].size = 4;
-    CHECK(cok_combat_occupy(c));
+    CHECK(cok_combat_occupy(c, &cok_rules_champions));
     game.combat.show_actions = true;
     CHECK(cok_arena_turn(&game, d, 2, true));
     CHECK(c->cursor == 0 && c->cursor_size == 1);
@@ -792,8 +788,9 @@ static void test_missile(void)
         /* Cells of differing tiles where it flies, so that bytes drawn
          * from the wrong place show. */
         uint8_t values[8], found = 0;
-        for (uint8_t v = 0; v < COK_COMBAT_TERRAINS && found < 8; ++v) {
-            uint8_t tile = cok_combat_terrain[v].tile;
+        for (uint8_t v = 0; v < cok_data_count(cok_rules_champions.data, COK_DATA_TERRAIN, 0) &&
+             found < 8; ++v) {
+            uint8_t tile = cok_combat_terrain(&cok_rules_champions, v).tile;
             if (tile < COK_COMBAT_TILES && (game.combat.tiles_loaded >> tile & 1) &&
                 v != COK_COMBAT_FLOOR)
                 values[found++] = v;
@@ -1086,7 +1083,8 @@ static void test_rounds_drawn(void)
     CHECK(cok_combat_leave(&game, a, 3, "Got Away"));
     CHECK(strstr(s.log, "print: A;print: Got Away;") != NULL);
     CHECK(s.pause_count == 1 && s.pauses[0] == 400 && blank(23, 10, 38, 21));
-    CHECK(e->size == 0 && shows_tile(sx, sy, cok_combat_terrain[c->cells[y][x]].tile));
+    CHECK(e->size == 0 &&
+          shows_tile(sx, sy, cok_combat_terrain(&cok_rules_champions, c->cells[y][x]).tile));
     /* A turn shows the combatant and draws its side panel. */
     battle();
     a = game.party.members[0];

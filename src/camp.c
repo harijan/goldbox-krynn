@@ -136,13 +136,13 @@ void cok_camp_quit(cok_adventure *game)
 
 /* Preparing spells. */
 
-uint16_t cok_camp_preparation(cok_character *character)
+uint16_t cok_camp_preparation(cok_character *character, const cok_rules *rules)
 {
     uint8_t *c = character->record;
     uint8_t memorize_max = 0, memorize_sum = 0, scribe_max = 0, scribe_sum = 0;
     for (size_t i = 0; i < 0x3a; ++i) {
         if (c[0x1e + i] <= 0x7f) continue;
-        uint8_t level = cok_spell_level(c[0x1e + i] & 0x7f);
+        uint8_t level = cok_spell_level(rules, c[0x1e + i] & 0x7f);
         if (level == 0) level = 1;
         if (level > memorize_max) memorize_max = level;
         memorize_sum = (uint8_t)(memorize_sum + level);
@@ -152,7 +152,7 @@ uint16_t cok_camp_preparation(cok_character *character)
         if (!cok_item_is_scroll(item)) continue;
         for (size_t k = 1; k <= 3; ++k) {
             if (item[0x3b + k] <= 0x7f) continue;
-            uint8_t level = cok_spell_level(item[0x3b + k] & 0x7f);
+            uint8_t level = cok_spell_level(rules, item[0x3b + k] & 0x7f);
             if (level > scribe_max) scribe_max = level;
             scribe_sum = (uint8_t)(scribe_sum + level);
         }
@@ -339,7 +339,7 @@ static uint8_t memorize(cok_adventure *game, cok_character *character, bool *fla
     for (size_t i = 0; i <= 0x39 && level == 0; ++i) {
         if (c[0x1e + i] <= 0x7f) continue;
         if (*flag) {
-            level = cok_spell_level(c[0x1e + i] & 0x7f);
+            level = cok_spell_level(cok_game_rules(game), c[0x1e + i] & 0x7f);
             continue;
         }
         c[0x1e + i] = (uint8_t)(c[0x1e + i] - 0x80);
@@ -398,7 +398,7 @@ static uint8_t scribe(cok_adventure *game, cok_character *character, bool *flag)
             uint8_t b = item[0x3b + k];
             if (b <= 0x80) continue;
             if (*flag) {
-                level = cok_spell_level(b & 0x7f);
+                level = cok_spell_level(cok_game_rules(game), b & 0x7f);
                 continue;
             }
             uint8_t spell = b & 0x7f;
@@ -537,7 +537,7 @@ bool cok_camp_prepare(cok_adventure *game)
 {
     uint16_t longest = 0;
     for (size_t i = 0; i < game->party.count; ++i) {
-        uint16_t minutes = cok_camp_preparation(game->party.members[i]);
+        uint16_t minutes = cok_camp_preparation(game->party.members[i], cok_game_rules(game));
         if (minutes > longest) longest = minutes;
     }
     set_rest(game, longest);

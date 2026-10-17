@@ -32,12 +32,14 @@ static void clear_cells(cok_adventure *game, int x1, int y1, int x2, int y2)
                      0); /* 1128:07e6 */
 }
 
-/* The name at DS:base + stride * index, index a signed byte, as the
- * original reads it, or false where it would read past the name strings. */
-static bool table_name(cok_adventure *game, uint16_t base, int stride, int8_t index, char out[256])
+/* The name index of table t (DS:base + stride * index), index a signed
+ * byte, as the original reads it, or false where it would read past the
+ * name strings. */
+static bool table_name(cok_adventure *game, cok_data t, int8_t index, char out[256])
 {
-    long at = base + (long)stride * index;
-    if (at >= 0 && at <= 0xffff && cok_ds_string((uint16_t)at, out)) return true;
+    const cok_data_segment *D = cok_game_rules(game)->data;
+    long at = cok_data_offset(D, t, index);
+    if (at >= 0 && at <= 0xffff && cok_data_string(D, (uint16_t)at, out)) return true;
     char text[96];
     snprintf(text, sizeof text, "the sheet would show the data at DS:%04lx as a name",
              (unsigned long)(at & 0xffff));
@@ -88,10 +90,11 @@ static bool class_line(cok_adventure *game, const uint8_t *c, const char *const 
     }
     const cok_character_layout *L = cok_game_rules(game)->character;
     char s[256];
-    if (!table_name(game, 0x0f5a, 27, cok_field_s8(L, c, COK_FIELD_CLASS), s)) return false;
+    if (!table_name(game, COK_DATA_CLASS_NAMES, cok_field_s8(L, c, COK_FIELD_CLASS), s))
+        return false;
     if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0) > 0) {
         char deity[256], line[256];
-        if (!table_name(game, 0x1259, 12, cok_field_s8(L, c, COK_FIELD_DEITY), deity))
+        if (!table_name(game, COK_DATA_DEITY_NAMES, cok_field_s8(L, c, COK_FIELD_DEITY), deity))
             return false;
         line[0] = '\0';
         append(line, deity);
@@ -113,8 +116,11 @@ static bool class_line(cok_adventure *game, const uint8_t *c, const char *const 
             if (at > length) break;
         }
         char order[256], insert[256];
-        if (!cok_ds_string((uint16_t)(0x12b9 + 7 * cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER)),
-                           order))
+        const cok_data_segment *D = cok_game_rules(game)->data;
+        if (!cok_data_string(D,
+                             (uint16_t)cok_data_offset(D, COK_DATA_ORDER_NAMES,
+                                                       cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER)),
+                             order))
             return undefined(game, "the order of magic is past the name strings");
         insert[0] = '\0';
         append(insert, order);
@@ -182,7 +188,7 @@ bool cok_sheet_money(cok_adventure *game, const uint8_t *c)
         uint16_t amount = cok_field_u16_at(L, c, COK_FIELD_COINS, i);
         if (amount == 0) continue;
         char name[256], text[8];
-        if (!table_name(game, 0x12e3, 11, (int8_t)i, name)) return false;
+        if (!table_name(game, COK_DATA_COIN_NAMES, (int8_t)i, name)) return false;
         draw(game, name, 0x14, row, 10);
         snprintf(text, sizeof text, "%u", amount);
         draw(game, text, 0x26 - (int)strlen(text), row, 10);
@@ -281,18 +287,19 @@ bool cok_sheet_draw(cok_adventure *game)
                                                                                        : 11;
     draw(game, name, 1, 1, color);
     draw(game, "Status:", 0x14, 1, 15);
-    if (!table_name(game, 0x1330, 13, cok_field_s8(L, c, COK_FIELD_STATUS), status))
+    if (!table_name(game, COK_DATA_STATUS_NAMES, cok_field_s8(L, c, COK_FIELD_STATUS), status))
         return false;
     draw(game, status, 0x1b, 1, 10);
-    if (!table_name(game, 0x12d5, 7, cok_field_s8(L, c, COK_FIELD_GENDER), gender))
+    if (!table_name(game, COK_DATA_GENDER_NAMES, cok_field_s8(L, c, COK_FIELD_GENDER), gender))
         return false;
     draw(game, gender, 1, 3, 15);
     snprintf(line, sizeof line, "%u years", cok_field_u16(L, c, COK_FIELD_AGE));
     draw(game, line, 8, 3, 15);
-    if (!table_name(game, 0x11c0, 17, cok_field_s8(L, c, COK_FIELD_ALIGNMENT), alignment))
+    if (!table_name(game, COK_DATA_ALIGNMENT_NAMES, cok_field_s8(L, c, COK_FIELD_ALIGNMENT),
+                    alignment))
         return false;
     draw(game, alignment, 1, 4, 15);
-    if (!table_name(game, 0x1140, 16, cok_field_s8(L, c, COK_FIELD_RACE), race))
+    if (!table_name(game, COK_DATA_RACE_NAMES, cok_field_s8(L, c, COK_FIELD_RACE), race))
         return false;
     draw(game, race, 0x14, 4, 15);
     const char *before[3] = {gender, alignment, race};
@@ -419,7 +426,7 @@ static int pick_coin(cok_adventure *game, const uint8_t *c, int pad_to, bool cou
         uint16_t amount = cok_field_u16_at(L, c, COK_FIELD_COINS, i);
         if (amount == 0) continue;
         char name[256], number[16], padding[16] = "";
-        if (!table_name(game, 0x12e3, 11, (int8_t)i, name)) return -1;
+        if (!table_name(game, COK_DATA_COIN_NAMES, (int8_t)i, name)) return -1;
         snprintf(number, sizeof number, "%u", amount);
         uint8_t spaces = (uint8_t)(pad_to - (int)strlen(name) - (count_amount ? (int)strlen(number) : 0));
         for (unsigned k = 0; k < spaces && k < 15; ++k) padding[k] = ' ', padding[k + 1] = '\0';

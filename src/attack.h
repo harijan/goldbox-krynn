@@ -24,11 +24,6 @@
  * through the combat screen (arena.h), sounds are logged as "sound", and
  * the texts of an attack that do not go through 6346:1883 as "attack". */
 
-/* The constant tables of the data segment that the port's code holds,
- * to check against the executable. */
-extern const cok_ds_table cok_attack_tables[];
-extern const size_t cok_attack_table_count;
-
 /* 60f4:1062: whether attacker hits target, whose armour class (as 60 -
  * AC) the caller gives: attacker's invisibility ends (60f4:1408), a d20
  * (DS:6b3b) of 1 or less misses, 20 counts as 100, then attacker's
