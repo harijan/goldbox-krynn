@@ -548,6 +548,15 @@ static void test_removal(void)
     r[0x100] = 0;
     add(c, 0x6e, 5, 0, true);
     CHECK(!cok_effects_remove(&fx, c, NULL, 0x6e) && strstr(fx.error, "200") != NULL);
+    /* A human's former knight levels count once its class passes the
+     * level it changed at (66c2:0efb): former 6 + knight 8 - 1 = 13. */
+    memset(r + 0xf9, 0, 16);
+    r[0x5a] = 6;
+    r[0xd7] = 5;
+    r[0x100] = 8;
+    r[0x108] = 6;
+    add(c, 0x6e, 5, 0, true);
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x6e) && r[0x5f] == 13 / 5 + 1);
     /* 0x38 and 0x6c add invisibility, for a minute or 255. */
     reset();
     c = member();
@@ -1201,6 +1210,21 @@ static void test_more_abilities(void)
     r[0xfe] = 20;
     r[0x18] = 15;
     CHECK(cok_effects_ability(&fx, c, 4) && r[0x62] == 10 + (4 + 11) / 2);
+    /* A human that changed class at ranger level 5 (+0xd7) and is now a
+     * fighter of 7: the former ranger levels get the extra level as the
+     * ranger's own did (5 + 1 at 1 a level), the fighter's 2 above +0xd7;
+     * with a former ranger level other than +0xd7, no extra level. */
+    uint8_t before_change[COK_CHARACTER_MAX];
+    memcpy(before_change, r, sizeof before_change);
+    memset(r + 0xf9, 0, 16);
+    r[0xd7] = 5;
+    r[0x105] = 5;
+    r[0xfb] = 7;
+    r[0x62] = r[0x197] = 18;
+    CHECK(cok_effects_ability(&fx, c, 4) && r[0x62] == 10 + 6 + 2);
+    r[0x105] = 4;
+    CHECK(cok_effects_ability(&fx, c, 4) && r[0x62] == 10 + 4 + 2);
+    memcpy(r, before_change, sizeof before_change);
     /* 20 and up brings effect 0x3e; below, it goes, with its handler, which
      * adds it again and heals a point. */
     r[0x18] = 20;

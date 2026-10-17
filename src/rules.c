@@ -197,7 +197,7 @@ static const cok_character_layout champions_character = {
             /* Two attacks' attacks left this round: the weapon's (432f:0e80,
              * from BASE_ATTACKS 1 or a missile's rate) and the others'
              * (432f:0000, from BASE_ATTACKS 2), each halved by the round
-             * (432f:0f9e); a blow takes one (432f's strike, +0x18e + slot). */
+             * (432f:0f9e); a blow takes one (432f:1579, +0x18e + slot). */
             [COK_FIELD_ATTACKS_LEFT] = BYTES(0x18f, 2, 1),
             /* Two attacks' dice, sides and damage bonus (6346:0023). */
             [COK_FIELD_DICE] = BYTES(0x191, 2, 1),

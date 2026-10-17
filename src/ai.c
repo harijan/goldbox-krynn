@@ -416,7 +416,10 @@ bool cok_ai_cast(cok_adventure *game, cok_character *c, bool *cast)
     *cast = false;
     cok_combat_record *cr = record_of(game, c);
     if (cr == NULL) return false;
-    uint8_t spells[0x39];
+    /* The memorized spells but the first, count - 1 of the layout's (57 in
+     * Champions, 73 in Death Knights): a field's count never exceeds the
+     * record's bytes, so the record's most holds any game's. */
+    uint8_t spells[COK_CHARACTER_MAX];
     unsigned count = 0;
     if (cr->may_cast != 0)
         for (unsigned i = 1; i < cok_field_count(L, COK_FIELD_MEMORIZED); ++i)
@@ -677,8 +680,7 @@ bool cok_ai_can_step(cok_adventure *game, cok_character *c, uint8_t try_, uint8_
         if (!made) cost = (uint8_t)(cr->movement + 1);
     }
     if (puddle && cok_field_s8(L, r, COK_FIELD_HIGHEST_LEVEL) < 7 &&
-        cok_character_find_effect(c, 0x63) == NULL &&
-        cr->forced == 0)
+        cok_character_find_effect(c, 0x63) == NULL && cr->forced == 0)
         cost = (uint8_t)(cr->movement + 1);
     *ok = cr->movement >= cost;
     return true;

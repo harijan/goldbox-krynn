@@ -14,17 +14,19 @@
  * monster uses the fields of Champions' layout (champions_character in
  * rules.c), and bytes it does not name yet (+0x130, +0x132):
  *
- *   +0x0cf  bits 0-2 the size of its combat icon, bit 7 a large creature
- *   +0x0da  its kind of undead, for turning; 0 for none
- *   +0x0e7  0x80 and up for a monster; its low bits are its morale
- *   +0x0eb  coins, seven words, for the treasure
- *   +0x10b  attacks a round, doubled, for its two attacks; +0x10d dice,
- *           +0x10f sides and +0x111 bonuses for each
- *   +0x11b  hit points at full; +0x130 (a word) and +0x132 its experience,
- *           +0x130 + +0x132 * +0x11b
- *   +0x187  magic resistance
- *   +0x18a  1 against the party
- *   +0x18b  1 while the computer controls it
+ *   +0x0cf  SIZE: bits 0-2 the size of its combat icon, bit 7 a large
+ *           creature
+ *   +0x0da  UNDEAD: its kind of undead, for turning; 0 for none
+ *   +0x0e7  NPC: 0x80 and up for a monster; its low bits are its morale
+ *   +0x0eb  COINS: seven words, for the treasure
+ *   +0x10b  BASE_ATTACKS: attacks a round, doubled, for its two attacks;
+ *           +0x10d BASE_DICE, +0x10f BASE_DICE_SIDES and +0x111
+ *           BASE_DAMAGE_BONUS for each
+ *   +0x11b  BASE_HIT_POINTS: hit points at full; +0x130 (a word) and
+ *           +0x132 its experience, +0x130 + +0x132 * +0x11b
+ *   +0x187  MAGIC_RESISTANCE
+ *   +0x18a  HOSTILE: 1 against the party
+ *   +0x18b  COMPUTER: 1 while the computer controls it
  *
  * The opcodes here are run from cok_adventure's opcode hook. */
 

@@ -325,10 +325,15 @@ bool cok_combat_damage_roll(cok_adventure *game, cok_character *attacker, cok_ch
     cok_rolls *rolls = &game->effects.rolls;
     const uint8_t *a = attacker->record;
     if (slot > 2) return undefined(game, "attack slot %u reads past the two (432f:01ba)", slot);
-    uint8_t dice = cok_dice_count(&game->vm.seed, cok_field_u8_at(L, a, COK_FIELD_DICE, slot),
-                                  cok_field_u8_at(L, a, COK_FIELD_DICE_SIDES, slot), &rolls->dice);
+    /* The original's +0x190 + slot, +0x192 + slot and +0x194 + slot: slot 0,
+     * which the guard lets by, reads the byte before each (attacks left 2,
+     * dice 2, sides 2), within the record. */
+    long dice = cok_field_offset_unchecked(L, COK_FIELD_DICE, 0, slot),
+         sides = cok_field_offset_unchecked(L, COK_FIELD_DICE_SIDES, 0, slot),
+         bonus = cok_field_offset_unchecked(L, COK_FIELD_DAMAGE_BONUS, 0, slot);
+    uint8_t n = cok_dice_count(&game->vm.seed, a[dice], a[sides], &rolls->dice);
     /* The test for a negative total compares unsigned and never holds. */
-    rolls->amount = (uint8_t)(dice + cok_field_s8_at(L, a, COK_FIELD_DAMAGE_BONUS, slot));
+    rolls->amount = (uint8_t)(n + (int8_t)a[bonus]);
     if (!event(game, attacker, 4) || !event(game, target, 5)) return false;
     bool backstab;
     if (!cok_combat_backstab(game, attacker, target, &backstab)) return false;

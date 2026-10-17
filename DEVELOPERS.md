@@ -282,11 +282,15 @@ rules, ...)`, and after the party `cok_combat_count_sides` and
 `cok_combat_enemy_health`); callers pass `cok_game_rules(game)` (a spell's
 handler `cok_game_rules(cx->game)`), the effects engine its own
 `fx->rules` (`cok_effects_init` takes them), `cok_combat_records` the
-rules it is given, and tests `&cok_rules_champions`. Two indices stay the
-original's unbounded arithmetic: a helpless target's blow at attack slot
-0 (`ATTACKS_LEFT`'s offset for slot 0 is `AC_BEHIND`'s) and a saving
-throw's signed type (`SAVING_THROW` from `+0xd0`), each checked against
-the record's size as before.
+rules it is given, and tests `&cok_rules_champions`. Three indices stay
+the original's unbounded arithmetic, through `cok_field_offset_unchecked`
+and each site's own bound as before: a helpless target's blow at attack
+slot 0 (`ATTACKS_LEFT`'s offset for slot 0 is `AC_BEHIND`'s), checked
+against the record's size; a saving throw's signed type (`SAVING_THROW`
+from `+0xd0`), likewise; and `cok_combat_damage_roll`'s slot, which its
+guard bounds at 2 only, so that slot 0 reads `DICE`, `DICE_SIDES` and
+`DAMAGE_BONUS` one byte early (`+0x190`, `+0x192`, `+0x194`), as the
+original's `+0x190 + slot` does.
 
 To add a field: name it for what it is in `cok_field` (`src/field.h`),
 with a comment; give Champions' place in `champions_character`
@@ -4193,11 +4197,12 @@ over, round by round:
    2, has its attacks with its weapon (`+0x18f`, `ATTACKS_LEFT` 1,
    `432f:0e80`) and its others (`+0x190`, `ATTACKS_LEFT` 2: `+0x10c`,
    `BASE_ATTACKS` 2, after event 0x12, haste and slow, halved by
-   `432f:0f9e`), its sweeps (`+0xce`), its initiative and its movement
-   (`432f:014d`). One that can act rolls 1d6 plus its dexterity's missile
-   bonus (`6346:12f8`), as a byte, at least 1, less 6 when its side is
-   surprised (var `0x7ecb`, side + 1: bit 0 the party's, bit 1 the
-   enemy's), and 0 outside 0-20; one that cannot gets 0 and rolls nothing.
+   `432f:0f9e`), its sweeps (`+0xce`, `FIGHTER_LEVEL`), its initiative and
+   its movement (`432f:014d`). One that can act rolls 1d6 plus its
+   dexterity's missile bonus (`6346:12f8`), as a byte, at least 1, less 6
+   when its side is surprised (var `0x7ecb`, side + 1: bit 0 the party's,
+   bit 1 the enemy's), and 0 outside 0-20; one that cannot gets 0 and rolls
+   nothing.
 3. Var `0x7ecb` is cleared: surprise lasts one round.
 4. The turn order (`3995:02a0`, `DS:71ae`): every record by initiative,
    highest first, the dead too. Each goes before the first entry from 1
@@ -4849,13 +4854,14 @@ slot, `DICE` and `DICE_SIDES` slot, `60f4:1261`) plus its bonus (`+0x194` +
 slot, `DAMAGE_BONUS`, signed), a byte; the attacker's effects for event 4
 and the target's for 5 change it; a backstab multiplies it by 2 + (thief
 levels - 1) / 4 (former ones counting as `66c2:0efb` allows), a byte; the
-damage type is 0. A backstab (`432f:2af0`) is a thief's (`+0xff`, or
-`+0x107` usable) with no weapon or a hoopak, club, dagger or broad, long or
-short sword (types 0x43, 3, 4, 0x11-0x13) against a target hit more than
-once, a square away (`6346:2888`), of one cell (`+0xcf & 0x7f` at most 1),
-facing as the attacker's direction to it. Before an attack the callers book
-it (`432f:19b6`): the defender's hits count one more and its turning
-(`+0x12`) the turn from its facing to the attacker, 0-4, modulo 8.
+damage type is 0. A backstab (`432f:2af0`) is a thief's (`+0xff`,
+`CLASS_LEVEL` 6, or `+0x107`, `FORMER_LEVEL` 6, usable) with no weapon or a
+hoopak, club, dagger or broad, long or short sword (types 0x43, 3, 4,
+0x11-0x13) against a target hit more than once, a square away (`6346:2888`),
+of one cell (`+0xcf`, `SIZE`, & 0x7f at most 1), facing as the attacker's
+direction to it. Before an attack the callers book it (`432f:19b6`): the
+defender's hits count one more and its turning (`+0x12`) the turn from its
+facing to the attacker, 0-4, modulo 8.
 
 The message (`432f:033e`): the attacker's name and "Attacks",
 "-Backstabs-" or "slays helpless" from row 10 (`6346:1883`, no wait), the
@@ -5227,31 +5233,32 @@ computer's leaves the spell begun in its combat record while it casts
 it, so one hurt by its own spell (a Fireball around itself) "lost a
 spell" and forgets another of it. See Spells in combat.
 
-Turning undead (`3afb:024b`): a cleric (`+0xf9` above 0, or `+0x101` above
-`+0xd7`, signed) that has tried fewer times this battle (combat record
-`+0x11`) than undead were loaded (`DS:8859`) turns if an enemy undead not
-made to flee is of a kind (`+0xda`, `UNDEAD`, signed) no higher than a limit
-`3afb:024b` never sets (`[bp-6]`): the byte its callers left there, which
-the calls before it at the same depth fix. The way of moving's dice
-(`60f4:1216` pushes the sides for `Random` at that place) leave 2 or 4, the
-sides of the last; "is forced to flee" (`3afb:1316` builds the string over
-it) leaves its fifteenth letter, `l` (0x6c), and "flees in panic" the low
-byte of the return address `3afb:0142` that the call of `6346:1883` pushes
-there, 0x42. So the computer turns only kinds up to 2 or 4 unless it flees.
-An interrupt between could leave another byte. The turn (`432f:12b7`, also
-the player's `Turn`): "turns undead..." (row 10, no wait), row 24 cleared
-and a pause; its tries count one more; 1d12 of the undead may be turned,
-against one d20, at its level: the cleric's and the former cleric's that a
-human may use, + 2 for deity 2 (`+0x5d`), a byte. While `432f:14a2` finds an
-enemy undead not made to flee of the highest kind no higher than the kinds
-left (from 13; the first of that kind in the list of enemies, range 0xff)
-and some are left to turn, the table `DS:0444` + 13 × kind + level (signed)
-gives what the d20 must reach in size: below it, the kinds left are those
-below; else the undead is shown (`6beb:12ef`) with its panel and, above 0,
-"is turned" (`60f4:133c`, running) or else "Is destroyed" (no wait), dies on
-the screen (`6beb:0e08`) and is gone (status 8). Each turned leaves one
-fewer to turn, but a destroyed one of a value below 0 at the last keeps one
-while six bonus turns last. With none turned, "Nothing Happens..." on row
+Turning undead (`3afb:024b`): a cleric (`+0xf9`, `CLASS_LEVEL` 0, above 0,
+or `+0x101`, `FORMER_LEVEL` 0, above `+0xd7`, `CHANGE_LEVEL`, signed) that
+has tried fewer times this battle (combat record `+0x11`) than undead were
+loaded (`DS:8859`) turns if an enemy undead not made to flee is of a kind
+(`+0xda`, `UNDEAD`, signed) no higher than a limit `3afb:024b` never sets
+(`[bp-6]`): the byte its callers left there, which the calls before it at
+the same depth fix. The way of moving's dice (`60f4:1216` pushes the sides
+for `Random` at that place) leave 2 or 4, the sides of the last; "is forced
+to flee" (`3afb:1316` builds the string over it) leaves its fifteenth
+letter, `l` (0x6c), and "flees in panic" the low byte of the return address
+`3afb:0142` that the call of `6346:1883` pushes there, 0x42. So the computer
+turns only kinds up to 2 or 4 unless it flees. An interrupt between could
+leave another byte. The turn (`432f:12b7`, also the player's `Turn`): "turns
+undead..." (row 10, no wait), row 24 cleared and a pause; its tries count
+one more; 1d12 of the undead may be turned, against one d20, at its level:
+the cleric's and the former cleric's that a human may use, + 2 for deity 2
+(`+0x5d`, `DEITY`), a byte. While `432f:14a2` finds an enemy undead not made
+to flee of the highest kind no higher than the kinds left (from 13; the
+first of that kind in the list of enemies, range 0xff) and some are left to
+turn, the table `DS:0444` + 13 × kind + level (signed) gives what the d20
+must reach in size: below it, the kinds left are those below; else the
+undead is shown (`6beb:12ef`) with its panel and, above 0, "is turned"
+(`60f4:133c`, running) or else "Is destroyed" (no wait), dies on the screen
+(`6beb:0e08`) and is gone (status 8). Each turned leaves one fewer to turn,
+but a destroyed one of a value below 0 at the last keeps one while six bonus
+turns last. With none turned, "Nothing Happens..." on row
 24. The sides are counted, the turn ends and the text is cleared. The
 level is not clamped: past 12 it reads the next kind's row, and past the
 last kind's the camp menu's strings, where the port stops beyond them.
