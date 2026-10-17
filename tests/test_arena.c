@@ -379,14 +379,15 @@ static void test_centre(void)
     for (int x = 0; x < 24; ++x)
         if (!masked(box, x, 0))
             CHECK(pixel(&game.screen, 0, 8 + 6 * 24 + x, 8 + 3 * 24) == pixel(box, 0, x, 0));
-    /* A cursor of 2 by 2 (size 4) boxes its fourth cell (+1, +1) too. */
+    /* A cursor of 2 by 2 (size 4) boxes its fourth cell (+1, +1 from the
+     * target's, the cell below A's) too. */
     uint8_t was = c->cursor_size;
     c->cursor_size = 4;
     CHECK(cok_arena_centre(&game, 27, 13, 3, 4));
     for (int x = 0; x < 24; ++x)
         if (!masked(box, x, 0))
             CHECK(pixel(&game.screen, 0, 8 + (ea->screen_x + 1) * 24 + x,
-                        8 + (ea->screen_y + 1) * 24) == pixel(box, 0, x, 0));
+                        8 + (ea->screen_y + 2) * 24) == pixel(box, 0, x, 0));
     c->cursor_size = was;
     c->cursor = 0;
     /* A direction past the steps. */
