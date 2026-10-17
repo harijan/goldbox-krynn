@@ -154,7 +154,7 @@ static cok_character *record(char name, uint8_t side, int8_t x, int8_t y)
     ++k->count;
     k->combatant[k->count].size = 0;
     k->combatant[k->count].character = NULL;
-    CHECK(cok_combat_occupy(k));
+    CHECK(cok_combat_occupy(k, &cok_rules_champions));
     k->sides[side] = (uint8_t)(k->sides[side] + 1);
     return c;
 }
@@ -193,28 +193,6 @@ static uint32_t after(uint32_t start, unsigned n, const unsigned *ranges)
 {
     for (unsigned i = 0; i < n; ++i) cok_tp_random(&start, (uint16_t)ranges[i]);
     return start;
-}
-
-static void test_tables(void)
-{
-    FILE *f = fopen("build/START_FULL.EXE", "rb");
-    if (f == NULL) {
-        puts("ai: build/START_FULL.EXE not built; tables not checked");
-        return;
-    }
-    static uint8_t exe[1 << 20];
-    size_t size = fread(exe, 1, sizeof exe, f);
-    fclose(f);
-    CHECK(size > 0x20 && exe[0] == 'M' && exe[1] == 'Z');
-    size_t ds = (size_t)(exe[8] | exe[9] << 8) * 16 + 0xbc6 * 16;
-    for (size_t i = 0; i < cok_ai_table_count; ++i) {
-        const cok_ds_table *t = &cok_ai_tables[i];
-        for (size_t k = 0; k < t->size; ++k) CHECK(exe[ds + t->offset + k] == t->bytes[k]);
-    }
-    for (size_t i = 0; i < cok_attack_table_count; ++i) {
-        const cok_ds_table *t = &cok_attack_tables[i];
-        for (size_t k = 0; k < t->size; ++k) CHECK(exe[ds + t->offset + k] == t->bytes[k]);
-    }
 }
 
 static void test_pattern(void)
@@ -529,11 +507,11 @@ static void test_can_step(void)
     CHECK(cok_ai_can_step(&game, a, 1, 0, &off, &ok) && !ok);
     /* Off the map. */
     k->combatant[1].x = 0;
-    CHECK(cok_combat_occupy(k));
+    CHECK(cok_combat_occupy(k, &cok_rules_champions));
     CHECK(cok_ai_can_step(&game, a, 1, 6, &off, &ok) && !ok && off);
     /* A puddle for one below level 7, unless 0x63 or made to flee. */
     k->combatant[1].x = 5;
-    CHECK(cok_combat_occupy(k));
+    CHECK(cok_combat_occupy(k, &cok_rules_champions));
     k->cells[5][6] = 0x1d;
     CHECK(cok_ai_can_step(&game, a, 1, 2, &off, &ok) && !ok);
     a->record[0xd6] = 7;
@@ -800,12 +778,12 @@ static void test_spells(void)
     CHECK(cok_ai_spell_fits(&game, m, 0x0f, 5, &fits) && fits);
     CHECK(cok_ai_spell_fits(&game, m, 0x0f, 6, &fits) && !fits);
     game.combat.combatant[1].x = 30;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     CHECK(cok_ai_spell_fits(&game, m, 0x0f, 5, &fits) && !fits);
     /* Shocking Grasp (0x14): touch (0xff), range 1. */
     CHECK(cok_ai_spell_fits(&game, m, 0x14, 2, &fits) && !fits);
     game.combat.combatant[1].x = 6;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     CHECK(cok_ai_spell_fits(&game, m, 0x14, 2, &fits) && fits);
     /* Sleep (0x15): an area of 1 around the enemy, with M's ally beside it
      * throwing type 4 at +8: one failure rejects it. */
@@ -1446,7 +1424,7 @@ static void test_step_more(void)
     game.combat.last_step = 8;
     game.combat.combatant[1].y = 0;
     game.combat.cells[0][6] = 0x01;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     CHECK(cok_ai_step(&game, a) && a->record[0x189] == 1 && game.combat.combatant[1].x == 6 &&
           game.combat.combatant[1].y == 1 && !LOGGED("Escape") && !LOGGED("Got Away"));
     /* A party member out of the view is shown as it steps: the view
@@ -1459,7 +1437,7 @@ static void test_step_more(void)
     game.combat.last_step = 8;
     game.combat.view_x = 20;
     game.combat.view_y = 15;
-    CHECK(cok_combat_occupy(&game.combat)); /* the screen positions */
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions)); /* the screen positions */
     CHECK(cok_ai_step(&game, a) && game.combat.show_actions && game.combat.view_x != 20);
 }
 
@@ -1480,7 +1458,8 @@ static void test_step_paralysed(void)
     m->combat->pattern = 1;
     game.combat.last_step = 8;
     CHECK(cok_ai_step(&game, m) && game.combat.combatant[2].x == 8);
-    CHECK(cok_combat_helpless(m) && m->combat->initiative == 0 && m->combat->movement == 0);
+    CHECK(cok_combat_helpless(m, &cok_rules_champions) && m->combat->initiative == 0 &&
+          m->combat->movement == 0);
 }
 
 static void test_fight_more(void)
@@ -1704,7 +1683,6 @@ int main(void)
         return 0;
     }
     load_screen();
-    test_tables();
     test_pattern();
     test_keys();
     test_morale();

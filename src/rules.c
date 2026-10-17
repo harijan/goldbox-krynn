@@ -1,5 +1,7 @@
 #include "rules.h"
 
+#include "data_champions.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -226,6 +228,223 @@ static const cok_character_layout champions_character = {
 };
 _Static_assert(COK_CHARACTER_SIZE <= COK_CHARACTER_MAX, "Champions' record fits the buffer");
 
+/* The data segment's tables (data.h): the base the original's arithmetic
+ * adds to, each element's width, and each index's first, count and stride
+ * (an innermost index's stride is the width). A table's own bytes are its
+ * elements' unless given (_IN: DS:from on, size of them). */
+#define LIST(b, w, f, n)                                                                           \
+    {.base = b, .from = (b) + (f) * (w), .size = (n) * (w), .width = w, .indices = 1,              \
+     .index = {{f, n, w}}}
+#define TABLE(b, w, f0, n0, s0, f1, n1)                                                            \
+    {.base = b, .from = (b) + (f0) * (s0) + (f1) * (w), .size = ((n0) - 1) * (s0) + (n1) * (w),    \
+     .width = w, .indices = 2, .index = {{f0, n0, s0}, {f1, n1, w}}}
+#define TABLE_IN(b, w, f0, n0, s0, f1, n1, from_, size_)                                           \
+    {.base = b, .from = from_, .size = size_, .width = w, .indices = 2,                            \
+     .index = {{f0, n0, s0}, {f1, n1, w}}}
+#define TABLE3(b, w, f0, n0, s0, f1, n1, s1, f2, n2)                                               \
+    {.base = b, .from = (b) + (f0) * (s0) + (f1) * (s1) + (f2) * (w),                              \
+     .size = ((n0) - 1) * (s0) + ((n1) - 1) * (s1) + (n2) * (w), .width = w, .indices = 3,         \
+     .index = {{f0, n0, s0}, {f1, n1, s1}, {f2, n2, w}}}
+
+/* Champions' data segment (DS 0x1bc6 in START_FULL.EXE): the tables the
+ * port holds, as data_champions.c copies them: those with a stride of 1
+ * by DS offset (the lookup's search needs the order), then the columns of
+ * the spell table (a stride of 16). Those with a stride of 1 cover
+ * DS:31b3-43bf without a gap, the lowest the stat routines' indices reach
+ * to the end of the initialized data. Some overlap, where one table's copy
+ * runs on into the next (the steps into the terrain, the terrain into the
+ * footprints, the cone's sides into the battle's effects); test_data
+ * checks that they agree, and every byte against the executable. */
+static const cok_ds_table champions_tables[] = {
+    {0x0396, sizeof cok_champions_ways, 1, cok_champions_ways},
+    {0x03ba, sizeof cok_champions_moves, 1, &cok_champions_moves[0][0]},
+    {0x03ca, sizeof cok_champions_quadrants, 1, &cok_champions_quadrants[0][0]},
+    {0x03da, sizeof cok_champions_quadrant_directions, 1, cok_champions_quadrant_directions},
+    {0x03de, sizeof cok_champions_start_columns, 1,
+     (const uint8_t *)cok_champions_start_columns},
+    {0x03e6, sizeof cok_champions_start_rows, 1, (const uint8_t *)cok_champions_start_rows},
+    {0x03ee, sizeof cok_champions_formations, 1, (const uint8_t *)cok_champions_formations},
+    {0x042a, sizeof cok_champions_beside_x, 1, (const uint8_t *)cok_champions_beside_x},
+    {0x042e, sizeof cok_champions_beside_y, 1, (const uint8_t *)cok_champions_beside_y},
+    {0x0432, sizeof cok_champions_terrain_flags, 1, cok_champions_terrain_flags},
+    {0x0451, sizeof cok_champions_turning, 1, cok_champions_turning},
+    {0x0a9a, sizeof cok_champions_alignment_codes, 1, cok_champions_alignment_codes},
+    {0x0b6e, sizeof cok_champions_level_dice, 1, cok_champions_level_dice},
+    {0x0b76, sizeof cok_champions_die_sides, 1, cok_champions_die_sides},
+    {0x0b7e, sizeof cok_champions_knight_scores, 1, cok_champions_knight_scores[0]},
+    {0x0b88, sizeof cok_champions_treasure_templates, 1, cok_champions_treasure_templates},
+    {0x0d94, sizeof cok_champions_cone_sides, 1, cok_champions_cone_sides},
+    {0x0db4, sizeof cok_champions_battle_only, 1, cok_champions_battle_only},
+    {0x0f5a, sizeof cok_champions_names, 1, cok_champions_names},
+    {0x1dd4, sizeof cok_champions_line_directions, 1, &cok_champions_line_directions[0][0]},
+    {0x1e26, sizeof cok_champions_same_colours, 1, cok_champions_same_colours},
+    {0x1e36, sizeof cok_champions_black_colours, 1, cok_champions_black_colours},
+    /* Read by no name yet: attack.c's SOUND_* are these words as its own
+     * constants. Listed so the copy is checked, for the part that names the
+     * sound driver's commands (the spells' or the sound's). */
+    {0x1e54, sizeof cok_champions_sound_words, 1, cok_champions_sound_words},
+    {0x1ed6, sizeof cok_champions_step_x, 1, (const uint8_t *)cok_champions_step_x},
+    {0x1edf, sizeof cok_champions_step_y, 1, (const uint8_t *)cok_champions_step_y},
+    {0x1ee4, sizeof cok_champions_terrain, 1, &cok_champions_terrain[0][0]},
+    {0x1fe4, sizeof cok_champions_footprints, 1, (const uint8_t *)cok_champions_footprints},
+    {0x200c, sizeof cok_champions_helpless, 1, cok_champions_helpless},
+    {0x2092, sizeof cok_champions_cloud_cells, 1, cok_champions_cloud_cells},
+    {0x31b3, sizeof cok_champions_spells, 1, cok_champions_spells},
+    {0x3509, sizeof cok_champions_data_3509, 1, cok_champions_data_3509},
+    {0x3882, sizeof cok_champions_thac0, 1, cok_champions_thac0},
+    {0x38ea, sizeof cok_champions_class_bits, 1, cok_champions_class_bits},
+    {0x38f2, sizeof cok_champions_data_38f2, 1, cok_champions_data_38f2},
+    {0x3911, sizeof cok_champions_thief_level, 1, cok_champions_thief_level},
+    {0x3971, sizeof cok_champions_thief_race, 1, (const uint8_t *)cok_champions_thief_race},
+    {0x39a9, sizeof cok_champions_thief_dexterity, 1,
+     (const uint8_t *)cok_champions_thief_dexterity},
+    {0x39e0, sizeof cok_champions_data_39e0, 1, cok_champions_data_39e0},
+    {0x3c99, sizeof cok_champions_spells_a_day, 1, cok_champions_spells_a_day},
+    {0x3ff4, sizeof cok_champions_data_3ff4, 1, cok_champions_data_3ff4},
+    {0x405b, sizeof cok_champions_saving_throws, 1, cok_champions_saving_throws},
+    {0x423b, sizeof cok_champions_cleric_spells, 1, cok_champions_cleric_spells},
+    {0x4263, sizeof cok_champions_data_4263, 1, cok_champions_data_4263},
+    {0x31c3, sizeof cok_champions_spell_classes, 16, cok_champions_spell_classes},
+    {0x31b4, sizeof cok_champions_spell_levels, 16, cok_champions_spell_levels},
+};
+
+/* Where each table the code reads lies in Champions' data segment, and
+ * the routines of the original that read it. */
+static const cok_data_segment champions_data = {
+    .tables = champions_tables,
+    .table_count = sizeof champions_tables / sizeof *champions_tables,
+    .table =
+        {
+            /* The name strings, DS:0f5a-1dd3: a name read past them fails
+             * (the original reads on). Each a string[stride - 1]. */
+            [COK_DATA_NAMES] = LIST(0x0f5a, 1, 0, 3706),
+            /* The sheet (546c), Pick Class (4def:0ae0), training. */
+            [COK_DATA_CLASS_NAMES] = LIST(0x0f5a, 27, 0, 17),
+            /* The sheet, Pick Race (4def:07a0). */
+            [COK_DATA_RACE_NAMES] = LIST(0x1140, 16, 0, 8),
+            /* The sheet, Pick Alignment (4def:1222). */
+            [COK_DATA_ALIGNMENT_NAMES] = LIST(0x11c0, 17, 0, 9),
+            /* The sheet, Pick God (4def:0f8e). */
+            [COK_DATA_DEITY_NAMES] = LIST(0x1259, 12, 0, 8),
+            /* The sheet's class line. */
+            [COK_DATA_ORDER_NAMES] = LIST(0x12b9, 7, 0, 4),
+            /* The sheet, Pick Gender. */
+            [COK_DATA_GENDER_NAMES] = LIST(0x12d5, 7, 0, 2),
+            /* The sheet's money. */
+            [COK_DATA_COIN_NAMES] = LIST(0x12e3, 11, 0, 7),
+            /* The sheet, the combat panel (arena.c). */
+            [COK_DATA_STATUS_NAMES] = LIST(0x1330, 13, 0, 9),
+            /* An item's name (546c), by the words at +0x2f-+0x31; the directions
+             * follow (DS:1dbc, 3 bytes a direction). */
+            [COK_DATA_ITEM_WORDS] = LIST(0x1390, 21, 1, 123),
+            /* DS:31b3 + 16 * spell + column, spell ids 0-0x6b: byte 0 the
+             * class, 1 the level, 10 the effect, 11 whether combat ends the
+             * turn (66c2:000f, 3afb:03b9, 432f:28bd, 546c:272c, 3f44:1b18). */
+            [COK_DATA_SPELLS] = TABLE(0x31b3, 1, 0, 108, 16, 0, 16),
+            /* DS:3882 + class * 13 + level, levels 0-12 (66c2:0433,
+             * 4def:0ae0). */
+            [COK_DATA_THAC0] = TABLE(0x3882, 1, 0, 8, 13, 0, 13),
+            /* DS:38ea + class (66c2:0433, 4def:0ae0). */
+            [COK_DATA_CLASS_BITS] = LIST(0x38ea, 1, 0, 8),
+            /* DS:38f2 + class (4def:4d9e); 9 more bytes follow to DS:3902. */
+            [COK_DATA_TRAINING_BITS] = LIST(0x38f2, 1, 0, 8),
+            /* DS:3903 + class (4def:4b3a, 4def:35ea, 3f44's hit points). */
+            [COK_DATA_TOP_LEVELS] = LIST(0x3903, 1, 0, 8),
+            /* DS:390a + k, k 1-6: body, arm, leg, hair or face, shield,
+             * weapon (4b6d:0817, 4def:06dd). */
+            [COK_DATA_ICON_COLOURS] = LIST(0x390a, 1, 1, 6),
+            /* DS:3908 + level * 8 + skill, levels 1-12 (66c2:0b9f). */
+            [COK_DATA_THIEF_LEVEL] = TABLE(0x3908, 1, 1, 12, 8, 1, 8),
+            /* DS:3970 + race * 8 + skill (66c2:0b9f). */
+            [COK_DATA_THIEF_RACE] = TABLE(0x3970, 1, 0, 7, 8, 1, 8),
+            /* DS:397b + dexterity * 5 + skill, dexterity 9-19 (66c2:0b9f). */
+            [COK_DATA_THIEF_DEXTERITY] = TABLE(0x397b, 1, 9, 11, 5, 1, 5),
+            /* DS:39e0 + race * 16: strength's least and most by gender,
+             * exceptional strength's most by gender, then the other five
+             * scores' least and most (4def:164d, 4def:278c). */
+            [COK_DATA_SCORE_LIMITS] = TABLE(0x39e0, 1, 0, 7, 16, 0, 16),
+            /* DS:3a50 + race * 15 (4def:0ae0). */
+            [COK_DATA_RACE_CLASSES] = TABLE(0x3a50, 1, 0, 7, 15, 0, 15),
+            /* DS:3ab9 + race * 32 + class * 4 (4def:1488). */
+            [COK_DATA_AGE_DICE] = TABLE(0x3ab9, 4, 0, 7, 32, 0, 8),
+            /* DS:3b99 + race * 10 + 2 * k (4def:164d). */
+            [COK_DATA_AGES] = TABLE(0x3b99, 2, 0, 7, 10, 0, 5),
+            /* DS:3bdf + class * 6 + score (4def:164d, 4def:278c). */
+            [COK_DATA_CLASS_MINIMUMS] = TABLE(0x3bdf, 1, 0, 17, 6, 0, 6),
+            /* DS:3c45 + class (4def:1222). */
+            [COK_DATA_CLASS_ALIGNMENTS] = LIST(0x3c45, 1, 0, 17),
+            /* DS:3c53 + constitution, 3-25 (4def:257c). */
+            [COK_DATA_CONSTITUTION] = LIST(0x3c53, 1, 3, 23),
+            /* DS:3c65 + 99 * row + 4 * level, rows 0-9 (6346:371e's) and
+             * levels 2-12, after each row's spells a day (4def:4d9e). */
+            [COK_DATA_EXPERIENCE] = TABLE(0x3c65, 4, 0, 10, 99, 2, 11),
+            /* DS:3c8e + 99 * table + 5 * level + spell level, levels 2-12
+             * (66c2:000f). */
+            [COK_DATA_SPELLS_A_DAY] = TABLE3(0x3c8e, 1, 0, 9, 99, 2, 11, 5, 1, 5),
+            /* DS:4056 + 60 * class + 5 * level + type, levels 1-12
+             * (66c2:08a6). */
+            [COK_DATA_SAVING_THROWS] = TABLE3(0x4056, 1, 0, 8, 60, 1, 12, 5, 0, 5),
+            /* DS:4208 + 40 * list + 10 * level + k: 1 the cleric's, 2 the
+             * White and 3 the Red mages' (66c2:000f, 5b04:0cb8, 4def:20e3,
+             * the scrolls' 58e7). */
+            [COK_DATA_SPELL_LISTS] = TABLE3(0x4208, 1, 1, 3, 40, 1, 4, 10, 1, 10),
+            /* DS:0396 + 5 * way + try, ways 1-6 (3afb:0743, 3afb:095a): the port
+             * holds DS:0396-03ba, the bytes before way 1's and the next
+             * table's first, which a sixth try reads. */
+            [COK_DATA_WAYS] = TABLE_IN(0x0396, 1, 1, 6, 5, 1, 5, 0x0396, 37),
+            /* DS:03ba, 03ca, 03da, 03de, 03e6, 03ee: placement (3cb2:17f7). */
+            [COK_DATA_MOVES] = TABLE(0x03ba, 1, 0, 4, 4, 0, 4),
+            [COK_DATA_QUADRANTS] = TABLE(0x03ca, 1, 0, 4, 4, 0, 4),
+            [COK_DATA_QUADRANT_DIRECTIONS] = LIST(0x03da, 1, 0, 4),
+            [COK_DATA_START_COLUMNS] = TABLE(0x03de, 1, 0, 2, 4, 0, 4),
+            [COK_DATA_START_ROWS] = TABLE(0x03e6, 1, 0, 2, 4, 0, 4),
+            [COK_DATA_FORMATIONS] = TABLE3(0x03ee, 1, 0, 5, 12, 0, 6, 2, 0, 2),
+            /* DS:042a, 042e: a dungeon's furniture (3cb2:0ca2). */
+            [COK_DATA_BESIDE_X] = LIST(0x042a, 1, 0, 4),
+            [COK_DATA_BESIDE_Y] = LIST(0x042e, 1, 0, 4),
+            /* DS:0432 (3cb2:0fc8). */
+            [COK_DATA_TERRAIN_FLAGS] = LIST(0x0432, 1, 0, 16),
+            /* DS:0444 + 13 * kind + level, kinds 1-12 (432f:12b7): the port
+             * holds DS:0451-050f, past the last kind's level 12 the camp
+             * menu's strings. */
+            [COK_DATA_TURNING] = TABLE_IN(0x0444, 1, 1, 12, 13, 0, 13, 0x0451, 191),
+            /* DS:0d94 + 8 * part + side (5b04:18e7): the port holds the
+             * bytes to DS:0eab, which a side byte past 7 reads. */
+            [COK_DATA_CONE_SIDES] = TABLE_IN(0x0d94, 1, 0, 4, 8, 0, 8, 0x0d94, 0x118),
+            /* DS:0db4 (60f4:1440). */
+            [COK_DATA_BATTLE_ONLY] = LIST(0x0db4, 1, 0, 16),
+            /* DS:1dd4 + 3 * (y step + 1) + x step + 1 (a line's step). */
+            [COK_DATA_LINE_DIRECTIONS] = TABLE(0x1dd4, 1, 0, 3, 3, 0, 3),
+            /* DS:1e26, 1e36: an icon's recolouring (6d21:0408, 4b6d:08e0). */
+            [COK_DATA_SAME_COLOURS] = LIST(0x1e26, 1, 0, 16),
+            [COK_DATA_BLACK_COLOURS] = LIST(0x1e36, 1, 0, 16),
+            /* DS:1ed6, 1edf, 8 for none: read as bytes of the data segment
+             * where a facing past 8 reads on (the overland map's 4877, a
+             * cone's 5b04:19e7, a cloud's 60f4). */
+            [COK_DATA_STEP_X] = LIST(0x1ed6, 1, 0, 9),
+            [COK_DATA_STEP_Y] = LIST(0x1edf, 1, 0, 9),
+            /* DS:1ee4 + 4 * value: cost, eye and blocking heights, tile
+             * (6beb). */
+            [COK_DATA_TERRAIN] = TABLE(0x1ee4, 1, 0, 66, 4, 0, 4),
+            /* DS:1fe4 + 8 * size + 2 * cell + axis (6beb:000f): sizes 1-4,
+             * and the bytes the original reads for 0 and 5-7. */
+            [COK_DATA_FOOTPRINTS] = TABLE3(0x1fe4, 1, 0, 8, 8, 0, 4, 2, 0, 2),
+            /* DS:200c (6346:0cdb, 432f:2235). */
+            [COK_DATA_HELPLESS] = LIST(0x200c, 1, 0, 4),
+            /* DS:2091 + k, k 1-4, and the byte after them, which 60f4:0c95
+             * reads for cell 4. */
+            [COK_DATA_CLOUD_CELLS] = LIST(0x2091, 1, 1, 5),
+            /* DS:0a9a (4def:1222). */
+            [COK_DATA_ALIGNMENT_CODES] = LIST(0x0a9a, 1, 0, 6),
+            /* DS:0b6e, 0b76, 0b7e (4def:4b3a, the knights' orders). */
+            [COK_DATA_LEVEL_DICE] = LIST(0x0b6e, 1, 0, 8),
+            [COK_DATA_DIE_SIDES] = LIST(0x0b76, 1, 0, 8),
+            [COK_DATA_KNIGHT_SCORES] = TABLE(0x0b7e, 1, 0, 2, 6, 0, 6),
+            /* DS:0b88 + 2 * t (58e7:1039). */
+            [COK_DATA_TREASURE_TEMPLATES] = LIST(0x0b88, 2, 0, 57),
+        },
+};
+
 const cok_rules cok_rules_champions = {
     .id = "champions",
     .assets = "COKAssets",
@@ -291,6 +510,7 @@ const cok_rules cok_rules_champions = {
             .single = champions_singles,
         },
     .character = &champions_character,
+    .data = &champions_data,
 };
 
 static const cok_rules *const games[] = {&cok_rules_champions};

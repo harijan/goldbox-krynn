@@ -427,7 +427,9 @@ static void test_spells(void)
 {
     CHECK(strcmp(cok_spell_name(1), "Bless") == 0 && strcmp(cok_spell_name(0x6b), "Burning Hands") == 0);
     CHECK(cok_spell_name(0) == NULL && cok_spell_name(0x6c) == NULL);
-    CHECK(cok_spell_level(0x5c) == 5 && cok_spell_class(0x5c) == 3 && cok_spell_class(101) == 2);
+    CHECK(cok_spell_level(&cok_rules_champions, 0x5c) == 5 &&
+          cok_spell_class(&cok_rules_champions, 0x5c) == 3 &&
+          cok_spell_class(&cok_rules_champions, 101) == 2);
     /* The sort puts empty bytes first. */
     uint8_t r[COK_CHARACTER_SIZE] = {0};
     r[0x1e] = 9;

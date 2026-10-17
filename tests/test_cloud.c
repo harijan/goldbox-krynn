@@ -205,7 +205,7 @@ static cok_character *record(char name, uint8_t side, int8_t x, int8_t y)
     ++k->count;
     k->combatant[k->count].size = 0;
     k->combatant[k->count].character = NULL;
-    CHECK(cok_combat_occupy(k));
+    CHECK(cok_combat_occupy(k, &cok_rules_champions));
     k->sides[side] = (uint8_t)(k->sides[side] + 1);
     return c;
 }
@@ -417,7 +417,7 @@ static void test_caster_selected(void)
     CELL(12, 12) = 0x1e;
     game.combat.combatant[1].x = 12;
     game.combat.combatant[1].y = 12;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     a->record[0x187] = 50;
     SEED(3, 20, 20, 20, 4, 1, 1, 100, 80, 80);
     CHECK(cok_cloud_square(&game, a, true) && LOGGED("print: A;print: starts to cough;"));
@@ -485,7 +485,7 @@ static void test_lay_more(void)
     cok_character *w = record('W', 0, 10, 10);
     w->record[0xcf] = 3;
     game.combat.combatant[2].size = 3;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     s.log[0] = '\0';
     CHECK(lay(m, 10, 10));
     CHECK(count("print: W;print: starts to cough;") + count("print: W;print: chokes") == 1);
@@ -506,7 +506,7 @@ static void test_images(void)
         w->record[0xcf] = 3;
         w->record[0x197] = 100;
         game.combat.combatant[2].size = 3;
-        CHECK(cok_combat_occupy(&game.combat));
+        CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
         CELL(10, 10) = 0x1d;
         CHECK(cok_character_add_effect(w, 0x1c, 0, 0x40, false) != NULL);
         game.vm.seed = seed;
@@ -1183,7 +1183,7 @@ static void test_aurak_target(void)
     CHECK((a->record[0x197] == 50) != (c->record[0x197] == 50));
     cok_character *hit = a->record[0x197] == 50 ? a : c;
     /* Which: the last of 6b30:08d8's listing. */
-    CHECK(cok_combat_list(&game.combat, 10, 10, 1, 0xff, 1));
+    CHECK(cok_combat_list(&game.combat, &cok_rules_champions, 10, 10, 1, 0xff, 1));
     uint8_t last = game.combat.listed[game.combat.listed_count].index;
     CHECK(game.combat.combatant[last].character == hit);
     CHECK(game.combat.listed_count == 3);
@@ -1393,7 +1393,7 @@ static void test_breath_bytes(void)
         cok_character *w = record('W', 1, 10, 10), *a = record('A', 0, 13, 12);
         w->record[0xcf] = 3;
         game.combat.combatant[1].size = 3;
-        CHECK(cok_combat_occupy(&game.combat));
+        CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
         CELL(11, 11) = 0x01;
         a->record[0x197] = 50;
         if (k == 0) {
@@ -1418,7 +1418,7 @@ static void test_breath_bytes(void)
         cok_character *w = record('W', 1, 10, 10), *a = record('A', 0, 13, 12);
         w->record[0xcf] = 3;
         game.combat.combatant[1].size = 3;
-        CHECK(cok_combat_occupy(&game.combat));
+        CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
         CELL(11, 11) = 0x01;
         a->record[0x197] = 50;
         a->record[0x137] = 5;
@@ -1493,7 +1493,7 @@ static void test_endless_bolt(void)
     l->record[0xcf] = 3;
     l->record[0x62] = 40;
     game.combat.combatant[1].size = 3;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     a->record[0x197] = 1;
     CELL(11, 12) = CELL(10, 15) = CELL(10, 11) = 0x01;
     CHECK(cok_character_add_effect(l, 0x55, 0, 0xff, false) != NULL);

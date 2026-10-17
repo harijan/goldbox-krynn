@@ -209,7 +209,7 @@ static cok_character *record(char name, uint8_t side, int8_t x, int8_t y)
     ++k->count;
     k->combatant[k->count].size = 0;
     k->combatant[k->count].character = NULL;
-    CHECK(cok_combat_occupy(k));
+    CHECK(cok_combat_occupy(k, &cok_rules_champions));
     k->sides[side] = (uint8_t)(k->sides[side] + 1);
     return c;
 }
@@ -238,7 +238,7 @@ static void turn_of(cok_character *c, uint8_t index)
 static uint8_t spell_byte(uint8_t spell, unsigned column)
 {
     uint8_t b = 0;
-    CHECK(cok_ds_byte((uint16_t)(0x31b3u + 16u * spell + column), &b));
+    CHECK(cok_data_byte(cok_rules_champions.data, (uint16_t)(0x31b3u + 16u * spell + column), &b));
     return b;
 }
 
@@ -1603,7 +1603,7 @@ static void test_cones(void)
     a = record('A', 0, 12, 10);
     x = record('X', 0, 15, 10);
     game.combat.combatant[2].size = 3;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     m->record[0xfe] = 1;
     SEED(1, 2, 1, 1);
     CHECK(cast(m, 0x54, true, &done) && done && N == 1 && T(1) == a);
@@ -1640,7 +1640,7 @@ static void test_cones(void)
     m = record('M', 1, 10, 10);
     a = record('A', 0, 14, 10);
     game.combat.combatant[1].size = 4;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     m->record[0xfe] = 1;
     CHECK(cast(m, 0x54, true, &done) && done && N == 1 && T(1) == a);
 }
@@ -1684,29 +1684,11 @@ static void test_bolt_more(void)
     m = record('M', 1, 10, 10);
     a = record('A', 0, 12, 10);
     game.combat.combatant[2].size = 3;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     game.combat.cells[10][13] = 0x30;
     m->record[0xfe] = 2;
     a->record[0x197] = a->record[0x62] = 200;
     CHECK(cast(m, 0x33, true, &done) && done && count("print: A;print: takes") == 1);
-}
-
-static void test_tables(void)
-{
-    FILE *f = fopen("build/START_FULL.EXE", "rb");
-    if (f == NULL) {
-        puts("spell: build/START_FULL.EXE not built; tables not checked");
-        return;
-    }
-    static uint8_t exe[1 << 20];
-    size_t size = fread(exe, 1, sizeof exe, f);
-    fclose(f);
-    CHECK(size > 0x20 && exe[0] == 'M' && exe[1] == 'Z');
-    size_t ds = (size_t)(exe[8] | exe[9] << 8) * 16 + 0xbc6 * 16;
-    for (size_t i = 0; i < cok_cast_table_count; ++i) {
-        const cok_ds_table *t = &cok_cast_tables[i];
-        for (size_t k = 0; k < t->size; ++k) CHECK(exe[ds + t->offset + k] == t->bytes[k]);
-    }
 }
 
 int main(void)
@@ -1717,7 +1699,6 @@ int main(void)
         printf("spell tests skipped: %s\n", game.error);
         return 0;
     }
-    test_tables();
     load_screen();
     test_self();
     test_redrawn();

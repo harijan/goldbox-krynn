@@ -20,7 +20,8 @@ bool cok_treasure_opcode(cok_adventure *game);
  * on a d10 of 10 (58e7:1005); a scroll of 1-3 spells; or a potion or wand
  * from the templates at DS:0b88. Other types are left blank but for the
  * type. */
-void cok_treasure_item(uint32_t *seed, uint8_t type, uint8_t item[COK_ITEM_SIZE]);
+void cok_treasure_item(const cok_rules *rules, uint32_t *seed, uint8_t type,
+                       uint8_t item[COK_ITEM_SIZE]);
 
 /* The end of combat (351b:1968), after every COMBAT, with a battle or
  * without: weapons lost in combat go back (351b:185f); the party's state
@@ -109,9 +110,5 @@ void cok_pool_pay(uint8_t *c, const cok_rules *rules, uint16_t steel);
  * "Overloaded.  Money will be put in Pool.". Returns false, ending the
  * run, where c's allowance cannot be had. */
 bool cok_pool_give_steel(cok_adventure *game, uint8_t *c, uint16_t steel);
-
-/* The templates the generator reads (DS:0b88), to check against the
- * executable. */
-extern const cok_ds_table cok_treasure_templates;
 
 #endif

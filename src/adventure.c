@@ -1998,7 +1998,8 @@ static bool effect_second(cok_effects *fx, cok_character *c, uint8_t **record, v
                                                     "listed with no combat map");
         return effect_hook_failed(fx, game);
     }
-    if (!cok_combat_list(combat, cok_combat_x(combat, r), cok_combat_y(combat, r), 0xff, 0xff,
+    if (!cok_combat_list(combat, cok_game_rules(game), cok_combat_x(combat, r),
+                         cok_combat_y(combat, r), 0xff, 0xff,
                          cok_combat_size(combat, r))) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED, "the list of combatants around one "
                                                     "(6b30:08d8) reads past its tables");
@@ -2029,7 +2030,8 @@ static bool effect_in_range(cok_effects *fx, cok_character *holder, cok_characte
     cok_combat_listing saved[COK_COMBATANTS + 1];
     memcpy(saved, combat->listed, sizeof saved);
     const uint8_t *r = holder->record;
-    bool ok = cok_combat_list(combat, cok_combat_x(combat, r), cok_combat_y(combat, r), radius,
+    bool ok = cok_combat_list(combat, cok_game_rules(game), cok_combat_x(combat, r),
+                              cok_combat_y(combat, r), radius,
                               0xff, cok_combat_size(combat, r));
     *in = false;
     uint8_t n = cok_combat_index(combat, target->record);
@@ -2060,7 +2062,8 @@ static bool effect_around(cok_effects *fx, cok_character *c, uint8_t radius,
                                     "combat map");
         return false;
     }
-    if (!cok_combat_list(combat, cok_combat_x(combat, r), cok_combat_y(combat, r), radius, 0xff,
+    if (!cok_combat_list(combat, cok_game_rules(game), cok_combat_x(combat, r),
+                         cok_combat_y(combat, r), radius, 0xff,
                          cok_combat_size(combat, r))) {
         snprintf(error, error_size, "the list of combatants around one (6b30:08d8) reads past "
                                     "its tables");
@@ -2102,7 +2105,8 @@ static bool effect_distance(cok_effects *fx, const uint8_t *origin, const uint8_
         snprintf(error, error_size, "the distance (6346:2888) is worked out with no combat map");
         return false;
     }
-    if (cok_combat_distance(&game->combat, origin, target, distance)) return true;
+    if (cok_combat_distance(&game->combat, cok_game_rules(game), origin, target, distance))
+        return true;
     snprintf(error, error_size, "the distance (6346:2888) lists the combatants around one "
                                 "(6b30:08d8) past its tables");
     return false;
@@ -3020,18 +3024,6 @@ static bool locked_door(cok_adventure *game, uint8_t passage)
 
 /* The overland map. */
 
-/* DS:1ed6 + offset: the steps across (DS:1ed6) and down (DS:1edf) for
- * facings 0-8; a facing past 8 reads on into the combat terrain table,
- * which the second overlaps from DS:1ee4. */
-static int8_t step_byte(unsigned offset)
-{
-    static const int8_t steps[14] = {0, 1, 1, 1, 0, -1, -1, -1, 0, -1, -1, 0, 1, 1};
-    if (offset < sizeof steps) return steps[offset];
-    const cok_terrain *t = &cok_combat_terrain[(offset - sizeof steps) / 4];
-    const uint8_t bytes[4] = {t->cost, t->eye, t->block, t->tile};
-    return (int8_t)bytes[(offset - sizeof steps) % 4];
-}
-
 /* The screen cell of the party's mark on the overland map: 127f:0edb and
  * 10e7 take 0x4bc3 + 1 and 0x4bc4 + 1 as words, the column times 4 bytes
  * and the row times 8 rows, unclipped. False where that lies off the
@@ -3098,13 +3090,18 @@ static bool unmark(cok_adventure *game)
 
 void cok_adventure_travel(cok_adventure *game)
 {
+    const cok_data_segment *D = cok_game_rules(game)->data;
     cok_ecl *vm = &game->vm;
     uint16_t *mem = vm->mem4b00;
     if (!unmark(game)) return;
     mem[0xf0] = mem[0xc3];
     mem[0xf1] = mem[0xc4];
-    int8_t x = (int8_t)(uint8_t)(mem[0xc3] + (uint16_t)step_byte(vm->direction));
-    int8_t y = (int8_t)(uint8_t)(mem[0xc4] + (uint16_t)step_byte(9u + vm->direction));
+    /* A step across (DS:1ed6) or down (DS:1edf) for facings 0-8; a facing
+     * past 8 reads on into the combat terrain table. */
+    uint16_t across = (uint16_t)cok_data_offset(D, COK_DATA_STEP_X, vm->direction),
+             down = (uint16_t)cok_data_offset(D, COK_DATA_STEP_Y, vm->direction);
+    int8_t x = (int8_t)(uint8_t)(mem[0xc3] + (uint16_t)cok_cast_step_byte(D, across));
+    int8_t y = (int8_t)(uint8_t)(mem[0xc4] + (uint16_t)cok_cast_step_byte(D, down));
     x = x < 0 ? 0 : x > 0x25 ? 0x25 : x;
     y = y < 0 ? 0 : y > 0x0e ? 0x0e : y;
     mem[0xc3] = (uint16_t)x;

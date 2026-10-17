@@ -461,15 +461,17 @@ static void battlefield(cok_adventure *game, void *context)
         return;
     }
     const cok_combat *c = &game->combat;
+    const cok_rules *rules = cok_game_rules(game);
     fprintf(f, "battle in block %u: view %d,%d, %u combatants\n", game->vm.block, c->view_x,
             c->view_y, c->count - 1u);
     for (int y = 0; y < COK_COMBAT_HEIGHT; ++y) {
         for (int x = 0; x < COK_COMBAT_WIDTH; ++x) {
             uint8_t v = c->cells[y][x], who = c->occupant[y][x];
-            const cok_terrain *t = &cok_combat_terrain[v < COK_COMBAT_TERRAINS ? v : 0];
+            const cok_terrain t = cok_combat_terrain(
+                rules, v < cok_data_count(rules->data, COK_DATA_TERRAIN, 0) ? v : 0);
             char ch = who != 0 ? mark(who) : v == COK_COMBAT_FLOOR || v == 0x36 ? '.'
-                    : t->cost == 0xff ? '#' : v == 0x1a ? 'T' : v == 0x1b ? 'h'
-                    : v == COK_COMBAT_BODY ? '_' : t->cost == 2 ? ':' : t->cost == 4 ? '~' : ',';
+                    : t.cost == 0xff ? '#' : v == 0x1a ? 'T' : v == 0x1b ? 'h'
+                    : v == COK_COMBAT_BODY ? '_' : t.cost == 2 ? ':' : t.cost == 4 ? '~' : ',';
             fputc(ch, f);
         }
         fputc('\n', f);

@@ -195,7 +195,7 @@ static cok_character *record(char name, uint8_t side, int8_t x, int8_t y)
     ++k->count;
     k->combatant[k->count].size = 0;
     k->combatant[k->count].character = NULL;
-    CHECK(cok_combat_occupy(k));
+    CHECK(cok_combat_occupy(k, &cok_rules_champions));
     k->sides[side] = (uint8_t)(k->sides[side] + 1);
     return c;
 }
@@ -224,7 +224,7 @@ static void turn_of(cok_character *c, uint8_t index)
 static uint8_t spell_byte(uint8_t spell, unsigned column)
 {
     uint8_t b = 0;
-    CHECK(cok_ds_byte((uint16_t)(0x31b3u + 16u * spell + column), &b));
+    CHECK(cok_data_byte(cok_rules_champions.data, (uint16_t)(0x31b3u + 16u * spell + column), &b));
     return b;
 }
 
@@ -232,7 +232,9 @@ static uint8_t spell_byte(uint8_t spell, unsigned column)
 static uint8_t find_spell(bool (*test)(uint8_t usable, uint8_t time))
 {
     for (uint8_t id = 1; id < 0x6c; ++id)
-        if (cok_spell_class(id) == 0 && test(spell_byte(id, 11), spell_byte(id, 12))) return id;
+        if (cok_spell_class(&cok_rules_champions, id) == 0 &&
+            test(spell_byte(id, 11), spell_byte(id, 12)))
+            return id;
     CHECK(false);
     return 0;
 }
@@ -562,8 +564,8 @@ static void test_hidden_keys(void)
 /* A terrain value whose cost (DS:1ee4) is cost. */
 static uint8_t terrain_of_cost(uint8_t cost)
 {
-    for (uint8_t t = 1; t < COK_COMBAT_TERRAINS; ++t)
-        if (cok_combat_terrain[t].cost == cost) return t;
+    for (uint8_t t = 1; t < cok_data_count(cok_rules_champions.data, COK_DATA_TERRAIN, 0); ++t)
+        if (cok_combat_terrain(&cok_rules_champions, t).cost == cost) return t;
     CHECK(false);
     return 0;
 }
@@ -636,7 +638,7 @@ static void test_move(void)
     turn_of(a, 1);
     a->record[0xcf] = 4;
     game.combat.combatant[1].size = 4;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     game.combat.cells[11][12] = rough;
     a->combat->movement = 3;
     s.log[0] = '\0';
@@ -839,7 +841,7 @@ static void test_aim_missile(void)
      * with the arrows, which are used up. */
     game.combat.combatant[2].x = 30;
     game.combat.combatant[2].y = 20;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     s.log[0] = '\0';
     KEYS("NT");
     CHECK(cok_combat_aim(&game, a, 0xff, 1, 0, 1, &done, &res) && res.target == f->record);
@@ -1475,7 +1477,7 @@ static void test_more(void)
     KEYS("M6666\x1b" "E");
     CHECK(cok_combat_aim(&game, a, 0xff, 1, 0, 1, &done, &res) && !LOGGED("menu: Target;"));
     game.combat.combatant[2].x = 30;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     s.log[0] = '\0';
     KEYS("M6666T");
     CHECK(cok_combat_aim(&game, a, 0xff, 1, 0, 1, &done, &res) && res.target == f->record);
@@ -1552,7 +1554,7 @@ static void test_review(void)
     turn_of(a, 1);
     a->record[0xcf] = 4;
     game.combat.combatant[1].size = 4;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     game.combat.cells[10][12] = terrain_of_cost(0xff);
     bool done;
     cok_combat_aimed res;

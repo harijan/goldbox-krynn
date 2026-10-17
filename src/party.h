@@ -231,20 +231,6 @@ bool cok_character_allowance(const uint8_t *c, const cok_rules *rules, int16_t *
  * at +0xd7, so that it can use its former class (66c2:0eab). */
 bool cok_character_former_class(const uint8_t *record, const cok_rules *rules);
 
-/* The original's data the stat routines read, to check against the
- * executable: the DS offset of the first byte, the number of bytes, and
- * the stride between them (1, or 16 for a column of the spell table). */
-typedef struct {
-    uint16_t offset, size, stride;
-    const uint8_t *bytes;
-} cok_ds_table;
-extern const cok_ds_table cok_stat_tables[];
-extern const size_t cok_stat_table_count;
-
-/* The byte at DS:offset from those tables, preferring a table with a stride
- * of 1. False for a byte they do not hold. */
-bool cok_ds_byte(uint16_t offset, uint8_t *out);
-
 /* Add a character to the end of the list (4b6d:1989), after any monsters,
  * giving it the lowest combat icon slot 0-7 (+0x137) no record uses, or 8
  * when all are. The party takes ownership of a malloc'd character. Returns

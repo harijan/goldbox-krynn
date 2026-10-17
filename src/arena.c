@@ -4,6 +4,7 @@
 #include "items.h"
 #include "round.h"
 #include "screen.h"
+#include "step.h"
 
 #include <ctype.h>
 #include <stdarg.h>
@@ -20,26 +21,13 @@ enum {
     SLOT_CURSOR = 25,  /* COMSPR id 25: the cursor's box. */
 };
 
-/* DS:1ed6 and DS:1edf: a step in direction 0-7, north first, clockwise; 8
- * for none. */
-static const int8_t step_x[9] = {0, 1, 1, 1, 0, -1, -1, -1, 0};
-static const int8_t step_y[9] = {-1, -1, 0, 1, 1, 1, 0, -1, 0};
-/* DS:390b: the colours of a player's icon that its six colour bytes
- * (+0x139) give, and those + 8. */
-static const uint8_t icon_colours[6] = {1, 2, 3, 4, 6, 7};
-/* DS:1e26 and DS:1e36: colour 8 drawn black, outside CGA mode (in CGA mode
- * it is the record's CGA colour). */
-static const uint8_t same_colours[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-static const uint8_t black_colours[16] = {0, 1, 2, 3, 4, 5, 6, 7, 0, 9, 10, 11, 12, 13, 14, 15};
-
-const cok_ds_table cok_arena_tables[] = {
-    {0x1ed6, sizeof step_x, 1, (const uint8_t *)step_x},
-    {0x1edf, sizeof step_y, 1, (const uint8_t *)step_y},
-    {0x390b, sizeof icon_colours, 1, icon_colours},
-    {0x1e26, sizeof same_colours, 1, same_colours},
-    {0x1e36, sizeof black_colours, 1, black_colours},
-};
-const size_t cok_arena_table_count = sizeof cok_arena_tables / sizeof *cok_arena_tables;
+/* A recolouring of the game's data segment, 16 colours: every colour as
+ * itself (DS:1e26), or colour 8 drawn black, outside CGA mode (DS:1e36; in
+ * CGA mode it is the record's CGA colour). */
+static void colour_table(const cok_data_segment *D, cok_data t, uint8_t out[16])
+{
+    for (unsigned k = 0; k < 16; ++k) out[k] = cok_data_u8_at(D, t, k);
+}
 
 static int8_t s8(int value)
 {
@@ -137,9 +125,9 @@ static bool terrain(cok_adventure *game, int xu, int yc, int x, int y, const cha
     cok_combat *c = &game->combat;
     uint8_t value;
     if (!map_byte(game, x, y, &value, where)) return false;
-    if (value >= COK_COMBAT_TERRAINS)
+    if (value >= cok_data_count(cok_game_rules(game)->data, COK_DATA_TERRAIN, 0))
         return fail(game, "terrain value 0x%02x is past the table (DS:1ee4, %s)", value, where);
-    uint8_t tile = cok_combat_terrain[value].tile;
+    uint8_t tile = cok_combat_terrain(cok_game_rules(game), value).tile;
     if (tile >= COK_COMBAT_TILES || !(c->tiles_loaded >> tile & 1))
         return fail(game, "tile 0x%02x of the combat tile set was never loaded (DS:616a, %s)", tile,
                     where);
@@ -369,7 +357,8 @@ static bool draw_combatant(cok_adventure *game, uint8_t n, const char *where)
     if (n > COK_COMBATANTS || e->character == NULL)
         return fail(game, "combatant %u has no record (%s)", n, where);
     bool shown;
-    if (!cok_combat_visible(&game->combat, e->character->record, false, &shown))
+    if (!cok_combat_visible(&game->combat, cok_game_rules(game), e->character->record, false,
+                            &shown))
         return fail(game, "combatant %u's footprint is past the table (6beb:06ef, %s)", n, where);
     if (!shown) return true;
     return cok_arena_icon(game, e->screen_x, e->screen_y, facing_of(e->character), 0,
@@ -398,12 +387,13 @@ static bool cursor(cok_adventure *game, int8_t x, int8_t y)
 {
     cok_combat *c = &game->combat;
     int8_t sx = s8(x - c->view_x), sy = s8(y - c->view_y);
-    if (c->cursor_size >= COK_COMBAT_SIZES)
+    if (c->cursor_size >= cok_data_count(cok_game_rules(game)->data, COK_DATA_FOOTPRINTS, 0))
         return fail(game, "the cursor's footprint %u is past the table (6beb:00fc)",
                     c->cursor_size);
-    for (unsigned k = 0; k < 4; ++k) {
+    size_t cells = cok_data_count(cok_game_rules(game)->data, COK_DATA_FOOTPRINTS, 1);
+    for (unsigned k = 0; k < cells; ++k) {
         int8_t dx, dy;
-        if (!cok_combat_footprint(c->cursor_size, k, &dx, &dy)) continue;
+        if (!cok_combat_footprint(cok_game_rules(game), c->cursor_size, k, &dx, &dy)) continue;
         if (!cok_combat_on_view(s8(sx + dx), s8(sy + dy))) continue;
         if (!terrain(game, (sx + dx) * 3, (sy + dy) * 3, x + dx, y + dy, "6beb:00fc")) return false;
         if (c->cursor != 0 && !cok_arena_icon(game, s8(sx + dx), s8(sy + dy), 0, 0, SLOT_CURSOR))
@@ -431,11 +421,12 @@ bool cok_arena_erase(cok_adventure *game, int8_t xs, int8_t ys, uint8_t n)
     ys = e->screen_y;
     mx = s8(c->view_x + xs);
     my = s8(c->view_y + ys);
-    if (e->size >= COK_COMBAT_SIZES)
+    if (e->size >= cok_data_count(cok_game_rules(game)->data, COK_DATA_FOOTPRINTS, 0))
         return fail(game, "combatant %u's footprint %u is past the table (6beb:0500)", n, e->size);
-    for (unsigned k = 0; k < 4; ++k) {
+    size_t cells = cok_data_count(cok_game_rules(game)->data, COK_DATA_FOOTPRINTS, 1);
+    for (unsigned k = 0; k < cells; ++k) {
         int8_t dx, dy;
-        if (!cok_combat_footprint(e->size, k, &dx, &dy)) continue;
+        if (!cok_combat_footprint(cok_game_rules(game), e->size, k, &dx, &dy)) continue;
         if (!cok_combat_on_view(s8(xs + dx), s8(ys + dy))) continue;
         if (!terrain(game, (xs + dx) * 3, (ys + dy) * 3, mx + dx, my + dy, "6beb:0500"))
             return false;
@@ -459,7 +450,7 @@ bool cok_arena_centre(cok_adventure *game, int8_t x, int8_t y, uint8_t margin, u
     if (!map_there(game, "6beb:096b")) return false;
     if (dir > 8) return fail(game, "direction %u is past the steps (DS:1ed6, 6beb:096b)", dir);
     cok_combat *c = &game->combat;
-    int8_t tx = s8(x + step_x[dir]), ty = s8(y + step_y[dir]);
+    int8_t tx = s8(x + cok_step_x[dir]), ty = s8(y + cok_step_y[dir]);
     bool redrew;
     if (!scroll(game, tx, ty, margin, &redrew)) return false;
     /* Every combatant that can act or whose status is 10, from 1 to the
@@ -510,7 +501,8 @@ static bool combatant_of(cok_adventure *game, const cok_character *c, uint8_t *n
 static bool shown_whole(cok_adventure *game, const cok_character *c, bool *whole,
                         const char *where)
 {
-    if (cok_combat_visible(&game->combat, c->record, true, whole)) return true;
+    if (cok_combat_visible(&game->combat, cok_game_rules(game), c->record, true, whole))
+        return true;
     return fail(game, "a footprint past the table (6beb:06ef, %s)", where);
 }
 
@@ -532,7 +524,7 @@ bool cok_arena_pose(cok_adventure *game, cok_character *c, uint8_t pose, uint8_t
         return false;
     c->combat->facing = pose;
     if (hide) return true;
-    if (!cok_combat_visible(cb, c->record, false, &shown))
+    if (!cok_combat_visible(cb, cok_game_rules(game), c->record, false, &shown))
         return fail(game, "a footprint past the table (6beb:06ef, 6beb:0ad8)");
     if (!shown || !cb->show_actions) return true;
     const cok_combatant *e = &cb->combatant[n];
@@ -625,14 +617,15 @@ bool cok_arena_kill(cok_adventure *game, cok_character *c, int stale,
     if (!cok_arena_erase(game, 0, 0, n)) return false;
     sound(game, 5);
     const cok_combatant *e = &cb->combatant[n];
-    if (e->size >= COK_COMBAT_SIZES)
+    if (e->size >= cok_data_count(cok_game_rules(game)->data, COK_DATA_FOOTPRINTS, 0))
         return fail(game, "combatant %u's footprint %u is past the table (6beb:0e08)", n, e->size);
     for (unsigned k = 0; k < 9; ++k) {
         const cok_picture *skull = &game->icons[SLOT_SKULL][k % 2];
         if (skull->pixels == NULL) return fail(game, "the skull's icon is not loaded (6beb:0e08)");
-        for (unsigned j = 0; j < 4; ++j) {
+        size_t cells = cok_data_count(cok_game_rules(game)->data, COK_DATA_FOOTPRINTS, 1);
+        for (unsigned j = 0; j < cells; ++j) {
             int8_t dx, dy;
-            if (!cok_combat_footprint(e->size, j, &dx, &dy)) continue;
+            if (!cok_combat_footprint(cok_game_rules(game), e->size, j, &dx, &dy)) continue;
             if (!cok_combat_on_view(s8(e->screen_x + dx), s8(e->screen_y + dy))) continue;
             if (!save_draw(game, skull, 0, (e->screen_x + dx) * 3, (e->screen_y + dy) * 3,
                            "6beb:0e08"))
@@ -656,7 +649,7 @@ bool cok_arena_kill(cok_adventure *game, cok_character *c, int stale,
     cok_adventure_wait(game, game->speed * 100u); /* 1521:0b4b */
     if (!cok_arena_erase(game, 0, 0, n)) return false;
     cb->combatant[n].size = 0;
-    if (!cok_combat_occupy(cb))
+    if (!cok_combat_occupy(cb, cok_game_rules(game)))
         return fail(game, "a footprint is written outside the occupants (6beb:0375)");
     if (!cok_arena_centre(game, s8(cb->view_x + 3), s8(cb->view_y + 3), 3, 8)) return false;
     c->combat->initiative = 0;
@@ -701,9 +694,11 @@ static bool load_icon(cok_adventure *game, const char *name, size_t length, uint
         uint8_t record = (uint8_t)(id + 0x80 * image);
         cok_picture *icon = &game->icons[slot][image];
         if (cok_adventure_load_image(game, path, record, 0, icon)) { /* 127f:0111 */
+            uint8_t same[16], black[16];
+            colour_table(cok_game_rules(game)->data, COK_DATA_SAME_COLOURS, same);
+            colour_table(cok_game_rules(game)->data, COK_DATA_BLACK_COLOURS, black);
             if (cpic && game->display != COK_DISPLAY_CGA && /* 6d21:0408, 0478 */
-                cok_picture_recolor(icon, same_colours, black_colours, 0, NULL) !=
-                    COK_PICTURE_OK) {
+                cok_picture_recolor(icon, same, black, 0, NULL) != COK_PICTURE_OK) {
                 cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
                 return false;
             }
@@ -749,6 +744,10 @@ bool cok_arena_compose(const cok_picture *head, cok_picture *body)
 bool cok_arena_party_icon(cok_adventure *game, cok_character *c, bool colours)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_data_segment *D = cok_game_rules(game)->data;
+    uint8_t same[16], black[16];
+    colour_table(D, COK_DATA_SAME_COLOURS, same);
+    colour_table(D, COK_DATA_BLACK_COLOURS, black);
     const uint8_t *r = c->record;
     uint8_t size = cok_field_u8(L, r, COK_FIELD_ICON_SIZE);
     uint8_t slot = cok_field_u8(L, r, COK_FIELD_ICON);
@@ -779,18 +778,18 @@ bool cok_arena_party_icon(cok_adventure *game, cok_character *c, bool colours)
             break;
         }
         if (game->display != COK_DISPLAY_CGA) /* 4b6d:08e0, 0938 */
-            ok = cok_picture_recolor(icon, same_colours, black_colours, 0, NULL) ==
-                 COK_PICTURE_OK;
+            ok = cok_picture_recolor(icon, same, black, 0, NULL) == COK_PICTURE_OK;
     }
     if (ok && colours) {
         uint8_t to[16];
-        memcpy(to, same_colours, sizeof to);
+        memcpy(to, same, sizeof to);
         for (unsigned k = 0; k < 6; ++k) {
-            to[icon_colours[k]] = cok_field_u8_at(L, r, COK_FIELD_ICON_COLOURS, k + 1) & 15;
-            to[icon_colours[k] + 8] = cok_field_u8_at(L, r, COK_FIELD_ICON_COLOURS, k + 1) >> 4;
+            uint8_t colour = cok_data_u8_at(D, COK_DATA_ICON_COLOURS, k + 1);
+            to[colour] = cok_field_u8_at(L, r, COK_FIELD_ICON_COLOURS, k + 1) & 15;
+            to[colour + 8] = cok_field_u8_at(L, r, COK_FIELD_ICON_COLOURS, k + 1) >> 4;
         }
         for (unsigned image = 0; image < 2 && ok; ++image)
-            ok = cok_picture_recolor(&game->icons[slot][image], same_colours, to, 0, NULL) ==
+            ok = cok_picture_recolor(&game->icons[slot][image], same, to, 0, NULL) ==
                  COK_PICTURE_OK;
     }
     cok_arena_free_icon(game, SLOT_HEAD); /* 6d21:0156 */
@@ -913,11 +912,15 @@ bool cok_arena_panel(cok_adventure *game, cok_character *c)
     int row = game->vm.cursor.y + 2;
     if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0) {
         char status[256];
-        if (!cok_ds_string((uint16_t)(0x1330 + 13 * cok_field_s8(L, r, COK_FIELD_STATUS)), status))
+        const cok_data_segment *D = cok_game_rules(game)->data;
+        if (!cok_data_string(D,
+                             (uint16_t)cok_data_offset(D, COK_DATA_STATUS_NAMES,
+                                                       cok_field_s8(L, r, COK_FIELD_STATUS)),
+                             status))
             return fail(game, "status %u has no name the original can show (DS:1330, 6346:0af6)",
                         cok_field_u8(L, r, COK_FIELD_STATUS));
         text_at(game, status, 0x17, row, 15);
-    } else if (cok_combat_helpless(c)) { /* 6346:0cdb */
+    } else if (cok_combat_helpless(c, cok_game_rules(game))) { /* 6346:0cdb */
         text_at(game, "(Helpless)", 0x17, row, 15);
     } else if (cok_character_combat(c)->spell > 0) {
         text_at(game, "(Casting)", 0x17, row, 15);
@@ -1029,7 +1032,7 @@ bool cok_arena_missile(cok_adventure *game, int x0, int y0, int x1, int y1, uint
     uint8_t n = 0;
     bool done;
     do {
-        done = !cok_combat_line_step(&l); /* 6b30:024c */
+        done = !cok_combat_line_step(&l, cok_game_rules(game)); /* 6b30:024c */
         if (n >= sizeof dirs)
             return fail(game, "a missile's line of more than 147 steps runs past its list "
                               "(6346:1ba6)");
@@ -1063,7 +1066,7 @@ bool cok_arena_missile(cok_adventure *game, int x0, int y0, int x1, int y1, uint
         bool out;
         do {
             out = false;
-            int sx = step_x[dirs[i]], sy = step_y[dirs[i]];
+            int sx = cok_step_x[dirs[i]], sy = cok_step_y[dirs[i]];
             px += sx;
             py += sy;
             if (delay > 0 || px % 3 == 0 || py % 3 == 0) {
@@ -1105,7 +1108,7 @@ bool cok_arena_missile(cok_adventure *game, int x0, int y0, int x1, int y1, uint
         i = length;
         do {
             out = false;
-            int sx = -step_x[dirs[i]], sy = -step_y[dirs[i]];
+            int sx = -cok_step_x[dirs[i]], sy = -cok_step_y[dirs[i]];
             px += sx;
             py += sy;
             if (px > LAST_SHOWN) x0 = c->view_x + 6;

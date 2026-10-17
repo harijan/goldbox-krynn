@@ -21,11 +21,6 @@
  * Each returns false, with game->vm.status set and the run ended, where the
  * original would misbehave or where what it calls cannot be carried out. */
 
-/* The constant tables of the data segment that the port's code holds,
- * to check against the executable. */
-extern const cok_ds_table cok_ai_tables[];
-extern const size_t cok_ai_table_count;
-
 /* 3afb:004b, c's turn when the computer has it: the keys (cok_ai_keys),
  * row 24 and the panel's text cleared; one that cannot act ends its turn;
  * its way of moving (cok_ai_pattern); unless a key took the turn back or

@@ -29,11 +29,6 @@
  * or write what it does not hold: a record that is not a combatant, an
  * icon slot past the table, a cell outside the map's memory. */
 
-/* The constant tables of the data segment that the port's code holds,
- * to check against the executable. */
-extern const cok_ds_table cok_arena_tables[];
-extern const size_t cok_arena_table_count;
-
 /* Draw the combat screen anew (6346:300f): the frame (1128:04c1) and the
  * map around the view's centre, forced (cok_arena_centre with margin
  * 0xff). */

@@ -774,14 +774,6 @@ static void test_tables(void)
     size_t size = fread(exe, 1, sizeof exe, f);
     fclose(f);
     size_t ds = (size_t)(exe[8] | exe[9] << 8) * 16 + 0xbc6 * 16;
-    extern const cok_ds_table cok_train_tables[], cok_create_tables[];
-    extern const size_t cok_train_table_count, cok_create_table_count;
-    const cok_ds_table *lists[2] = {cok_train_tables, cok_create_tables};
-    size_t counts[2] = {cok_train_table_count, cok_create_table_count};
-    for (size_t l = 0; l < 2; ++l)
-        for (size_t i = 0; i < counts[l]; ++i)
-            for (size_t k = 0; k < lists[l][i].size; ++k)
-                CHECK(exe[ds + lists[l][i].offset + k * lists[l][i].stride] == lists[l][i].bytes[k]);
     /* The start menu's items, string[40]s 0x2a bytes apart from DS:0878. */
     for (unsigned i = 0; i < 13; ++i) {
         const char *item = cok_start_item(i);
@@ -811,11 +803,12 @@ static void test_experience(void)
     c[0x5c] = 3;
     CHECK(cok_train_row(c, &cok_rules_champions, 7, &row) && row == 5);
     int32_t need;
-    CHECK(cok_train_experience(2, 2, &need) && need == 2001);
-    CHECK(cok_train_experience(2, 3, &need) && need == 4001);
-    CHECK(cok_train_experience(6, 8, &need) && need == -1); /* rangers stop at 7 */
-    CHECK(cok_train_experience(9, 9, &need) && need == 110001);
-    CHECK(cok_train_experience(9, 10, &need) && need == -1);
+    CHECK(cok_train_experience(&cok_rules_champions, 2, 2, &need) && need == 2001);
+    CHECK(cok_train_experience(&cok_rules_champions, 2, 3, &need) && need == 4001);
+    CHECK(cok_train_experience(&cok_rules_champions, 6, 8, &need) &&
+          need == -1); /* rangers stop at 7 */
+    CHECK(cok_train_experience(&cok_rules_champions, 9, 9, &need) && need == 110001);
+    CHECK(cok_train_experience(&cok_rules_champions, 9, 10, &need) && need == -1);
     /* 4def:4789: the warriors' extra at 17-25. */
     c[0x19] = 18;
     CHECK(cok_train_constitution(c, &cok_rules_champions, 2) == 4 && cok_train_constitution(c, &cok_rules_champions, 5) == 2);
@@ -978,6 +971,9 @@ static void test_knight(void)
     c[0x19] = 15;
     put32(c + 0x116, 12000);
     for (size_t i = 0; i < 6; ++i) c[0x10 + 2 * i] = 15;
+    /* Strength 12, the Crown's least for the Sword (DS:0b7e), below the
+     * Sword's for the Rose (DS:0b84). */
+    c[0x10] = 12;
     keys("SC");
     cok_train_knight(&game);
     CHECK(logged("may become a") && c[0x5c] == 2 && c[0x100] == 3);
@@ -1124,6 +1120,8 @@ static void test_create(void)
     keys("\x01P\x01P\x01P\x01P\x01P\x01PSS\x01P\x01P\x01PS\x01P\x01PSNBOB\r\x1bYY");
     cok_create(&game);
     CHECK(logged("roster: BOB.WHO;") && game.vm.character == NULL && game.party.count == 0);
+    /* The lists' names are the data segment's (DS:1140, 0f5a, 11c0). */
+    CHECK(logged("choice: Human;") && logged("choice: Thief;") && logged("choice: True Neutral;"));
     /* The hall's word comes back as its low byte. */
     CHECK(game.vm.mem7c00[0x2a8] == 0x34);
     cok_character *c = calloc(1, sizeof *c);

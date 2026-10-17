@@ -476,31 +476,15 @@ static void test_levels(void)
     CHECK(r[0x11c] == 4 && r[0x11d] == 0);
     CHECK(r[0x62 + 1] == 1 && r[0x62 + 8] == 1 && r[0x62 + 2] == 0 && r[0x62 + 22] == 0);
     CHECK(r[0xd0] == 10 && r[0xd4] == 15);
+    /* A ranger of level 8 knows every druid spell: those whose class (byte
+     * 0 of the spell table) is 1, ids 77-80; none of another class. */
+    memset(r + 0xf9, 0, 8);
+    memset(r + 0x63, 0, 0x6b);
+    r[0xfd] = 8;
+    CHECK(cok_character_levels(c, &cok_rules_champions, types, error, sizeof error));
+    for (unsigned id = 1; id <= 0x6b; ++id) CHECK(r[0x62 + id] == (id >= 77 && id <= 80));
     cok_character_free(c);
     free(c);
-}
-
-/* The tables match the original's data segment (DS 0x1bc6) in
- * build/START_FULL.EXE, if it has been built (make merged). */
-static void test_tables(void)
-{
-    FILE *f = fopen("build/START_FULL.EXE", "rb");
-    if (f == NULL) {
-        puts("party: build/START_FULL.EXE not built; tables not checked");
-        return;
-    }
-    static uint8_t exe[1 << 20];
-    size_t size = fread(exe, 1, sizeof exe, f);
-    fclose(f);
-    CHECK(size > 0x20 && exe[0] == 'M' && exe[1] == 'Z');
-    size_t ds = (size_t)(exe[8] | exe[9] << 8) * 16 + 0xbc6 * 16;
-    for (size_t i = 0; i < cok_stat_table_count; ++i) {
-        const cok_ds_table *t = &cok_stat_tables[i];
-        for (size_t k = 0; k < t->size; ++k) {
-            size_t at = ds + t->offset + k * t->stride;
-            CHECK(at < size && exe[at] == t->bytes[k]);
-        }
-    }
 }
 
 /* Characters the original saved: the recomputed fields match the saved
@@ -555,7 +539,6 @@ int main(void)
     test_items();
     test_stats();
     test_levels();
-    test_tables();
     test_saved();
     puts("party tests passed");
     return 0;

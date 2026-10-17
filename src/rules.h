@@ -1,6 +1,7 @@
 #ifndef COK_RULES_H
 #define COK_RULES_H
 
+#include "data.h"
 #include "field.h"
 
 #include <stdint.h>
@@ -12,10 +13,10 @@
  * cok_rules_champions; see DEVELOPERS.md's "Games".
  *
  * The descriptor holds the game's files and file sets, the saved games'
- * and characters' names, the titles, and the character record's layout
- * (field.h). Each concern is a section of its own, so that later
- * sections (the data segment's tables, the ECL's, the spells') are added
- * beside these without moving them.
+ * and characters' names, the titles, the character record's layout
+ * (field.h) and the data segment's tables (data.h). Each concern is a
+ * section of its own, so that later sections (the ECL's, the spells') are
+ * added beside these without moving them.
  *
  * A DAX archive is named by its stem: "GEO" and the ECL file's number
  * make GEO1.DAX; a stem the game reads with no number ("SKY") is the
@@ -150,6 +151,9 @@ typedef struct cok_rules {
     cok_rules_images images;
     /* Where each field of a character lies in its record (field.h). */
     const cok_character_layout *character;
+    /* The tables of the original's data segment the port holds, and where
+     * each the code reads lies and its shape (data.h). */
+    const cok_data_segment *data;
 } cok_rules;
 
 extern const cok_rules cok_rules_champions;

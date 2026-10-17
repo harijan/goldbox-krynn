@@ -166,8 +166,8 @@ a path that builds a game some other way without it stops at the first
 read of the rules, with the assertion, not reading through NULL. (Tests
 that build a game by hand set `game.rules` themselves.)
 
-The descriptor holds names and the character record's layout, a section
-to a concern:
+The descriptor holds names, the character record's layout and the data
+segment's tables, a section to a concern:
 
 | Section | Holds | Champions |
 | --- | --- | --- |
@@ -178,6 +178,7 @@ to a concern:
 | `saves` | saved games (`SAVGAM` letter `.DAT`) and their characters' names (`CHRDAT` letter number); a character's extensions: in a saved game, in the roster, its items, its effects; the debug mode's trace | `SAVGAM`, `DAT`, `CHRDAT`, `SAV`, `WHO`, `STF`, `SFX`, `DEBUG.TXT` |
 | `images` | the archives `daximages` and `daxcompose` read, by layout: XOR deltas, collections, single images; stems, `NULL`-ended | `PIC1-3`; `SPRIT1-3`; the 20 others |
 | `character` | the character record's layout (`src/field.h`): its size, its file's size, and where each field lies | 409 bytes, the fields below |
+| `data` | the original's data segment (`src/data.h`): the tables the port copied from it, by DS offset, and where each table the code reads lies and its shape | 45 tables (`src/data_champions.c`), 57 named; see below |
 
 A `NULL` stem says the game has no such archive (Death Knights has no
 `SKY`, `CURSOR`, `RANDCOM`, `HEAD` or `BODY`): code that reads it must not
@@ -350,6 +351,129 @@ would stop where the code before went on.
 Count the offsets before and after (none left but those an unbounded
 original index needs, as above); then the golden outputs and the DOSBox-X
 checks' replay show nothing changed.
+
+### The data segment's tables
+
+The tables the port copied from the original's initialized data (its data
+segment, `DS`) are the descriptor's: `rules->data`, a `cok_data_segment`
+(`src/data.h`). Champions' bytes are in `src/data_champions.c`, which only
+the descriptor (`src/rules.c`, `champions_data`) includes; shared code and
+the tests read them through the descriptor, never by name, so that
+Death Knights' tables, moved and reshaped, go beside them without touching
+it. The descriptor holds two things:
+
+- `tables`, every table the port holds, as a `cok_ds_table`: its DS
+  offset, its length, the stride between its bytes (1, or 16 for a column
+  of the spell table) and the bytes. Those with a stride of 1 come first,
+  in order of their offsets (the lookup's search relies on it), then the
+  columns. A table's copy may run on into the next one's (the steps into
+  the terrain, the terrain into the footprints, the cone's sides into the
+  battle's effects); where two hold the same byte they must agree.
+- `table[COK_DATA_...]`, a `cok_data_table` for each table the code reads,
+  named for what it is (`COK_DATA_SPELLS`, `COK_DATA_THAC0`,
+  `COK_DATA_SAVING_THROWS`, ...): `base`, the DS offset the original's
+  arithmetic adds each index times its stride to, as its code has it (the
+  thief skills' `DS:3908` for a table that starts at `DS:3911`, its level
+  and skill counted from 1); one to three indices, outermost first, each
+  with its first, its count and its stride (the innermost's the element's
+  width); and `from` and `size`, the table's own bytes, by default its
+  elements', given where the port held more than the elements (the ways
+  of moving, turning undead, the cone's sides: what a read the code
+  bounds by its copy may reach). Width 0: the game has no such table.
+
+A lookup takes the segment (`const cok_data_segment *D =
+cok_game_rules(game)->data;`, or `rules->data`) and the table's name, and
+asserts that the game has the table and that it is given the table's
+number of indices:
+
+| Was | Is |
+| --- | --- |
+| `cok_ds_byte((uint16_t)(0x31b3u + 16u * spell + column), &b)` | `cok_data_byte(D, (uint16_t)cok_data_offset2(D, COK_DATA_SPELLS, spell, column), &b)` |
+| `ds_byte(l, 0x4056 + class * 60 + level * 5 + type, ...)` (party.c) | `ds_byte(l, cok_data_offset3(l->D, COK_DATA_SAVING_THROWS, class, level, type), ...)` |
+| `ds((uint16_t)(0x3903 + i))` (train.c, modify.c) | `ds(D, (uint16_t)cok_data_offset(D, COK_DATA_TOP_LEVELS, i))` |
+| `cok_ds_string((uint16_t)(0x1330 + 13 * status), s)` | `cok_data_string(D, (uint16_t)cok_data_offset(D, COK_DATA_STATUS_NAMES, status), s)` |
+| `at = 13 * kind + level`, bounded by the copy, then `turning[...]` | `at = cok_data_offset2(D, COK_DATA_TURNING, kind, level)`, `cok_data_holds(D, COK_DATA_TURNING, at)`, `cok_data_held(D, at)` |
+| `formations[f][row][0]`, `quadrant_dir[q]` | `cok_data_s8_at3(D, COK_DATA_FORMATIONS, f, row, 0)`, `cok_data_u8_at(D, COK_DATA_QUADRANT_DIRECTIONS, q)` |
+| `template_word(t)`: `word(template_table + 2 * t)` | `cok_data_u16_at(D, COK_DATA_TREASURE_TEMPLATES, t)` |
+| `k < sizeof helpless`, `size >= COK_COMBAT_SIZES` | `k < cok_data_count(D, COK_DATA_HELPLESS, 0)`, `size >= cok_data_count(D, COK_DATA_FOOTPRINTS, 0)` |
+| `cok_combat_terrain[v].cost` | `cok_combat_terrain(rules, v).cost` |
+
+`cok_data_offset` (and `2`, `3`) is the original's arithmetic, unbounded,
+as a `long`: the site converts and bounds it as it did before (a
+`uint16_t`, as the original's 16-bit arithmetic wraps; or a check that it
+lies in 0-0xffff, failing past the initialized data, as party.c's
+`ds_byte`). `cok_data_byte` then reads the byte at that DS offset from
+whichever of the game's tables holds it, so that an index past one table
+reads the next as the original does (a level 13 cleric's THAC0 is the
+next class's level 0; a spell id up to 0xff reads on past the spell
+table), and returns false past the data the port holds; `cok_data_holds`
+says whether an offset is one of a table's own bytes, for the reads the
+port bounded by its copy of a table (the ways of moving, turning undead,
+the names); `cok_data_held` reads a byte that must be held (asserted).
+`cok_data_u8_at`, `s8`, `u16` (and `_at2`, `_at3`) are for the reads the
+code kept within a table, as a C array's bound did: each index asserted to
+be one of the table's, the width the element's. An index from data (a
+spell id, a record's byte, the ECL's) goes through `cok_data_offset` and
+the site's existing bound, never a checked accessor, as with the character
+record's fields. `cok_data_string` reads a name, a Pascal string within
+the name strings (`COK_DATA_NAMES`, `DS:0f5a`-`1dd3`), false where it would
+start or end outside them or hold a NUL; `cok_data_first` and
+`cok_data_count` give an index's range for a loop or a bound.
+
+Routines that read a table and had neither a game nor the rules take the
+rules: `cok_spell_class`, `level`, `effect(rules, id)`,
+`cok_treasure_item(rules, seed, ...)`, `cok_train_experience(rules, row,
+...)`; after the record `cok_train_constitution`, `cok_modify_least`,
+`cok_modify_most`, `cok_camp_preparation`, `cok_combat_helpless(c,
+rules)`; after the combat (whose map the footprints and the terrain lay
+out) `cok_combat_occupy`, `probe`, `visible`, `sight`, `list`, `distance`,
+`dungeon`, `wilderness`; `cok_combat_line_step(line, rules)` (the line's
+directions); first `cok_combat_footprint(rules, ...)`; and
+`cok_cast_step_byte(D, at)` the segment. `cok_combat_terrain` is a
+function of the rules and a terrain value, which must be one the table
+holds; the bounds that were `COK_COMBAT_TERRAINS` and `COK_COMBAT_SIZES`
+are the tables' counts.
+
+The steps by direction (`DS:1ed6`, `DS:1edf`), the compass, the same in
+every game, are the code's own constants, `cok_step_x` and `cok_step_y`
+(`src/step.h`), which test_data checks against `COK_DATA_STEP_X` and
+`STEP_Y`. The descriptor lists those bytes (`DS:1ed6`-`1ee7`) only for the
+reads that run on past direction 8 into the terrain table (a cone's, a
+cloud's, the overland map's), which go through `cok_cast_step_byte`. A
+footprint's cells are counted by the table (`COK_DATA_FOOTPRINTS`' second
+index); the arrays that hold one footprint's cells are
+`COK_COMBAT_FOOTPRINT_CELLS` long, which test_data checks the game's
+count against (4 in both games). Not in the descriptor: the tables that
+cite the data segment but the port never held as its copy of it: the
+screen's frames
+and colours, CGA's and the mouse's tables, the keypad's and the view's
+keys, the 3D view's places and tile sets, the start menu's items, the
+spells' and levels' names (for the spells' part), the shop's diseases,
+the treasure's coin names and rates, the icon sizes' letters, the sound's
+effects. A later part moves those a game changes.
+
+To add a table: its bytes in `src/data_champions.c` as the original
+holds them, with a comment citing its DS range and what it is, declared in
+`src/data_champions.h`; listed in `champions_tables` (`src/rules.c`) in
+order of its offset; and, if the code reads it, named in `cok_data`
+(`src/data.h`) with a comment, and placed in `champions_data` with the
+macro of its shape (`LIST(base, width, first, count)`, `TABLE` for two
+indices, `TABLE3` for three, `TABLE_IN` with its own bytes given) and a
+comment citing the routines that read it. `tests/test_data.c` checks every
+listed byte against `build/START_FULL.EXE` (`make test` builds it with
+`make merged`), that overlapping tables agree, that every named table's
+elements lie in its own bytes and are held; add the expression the code
+had to `test_arithmetic`, over the whole range of its indices, the ones
+past the table too. To add a lookup: replace the DS arithmetic by
+`cok_data_offset` of the table's name (or a checked accessor for an index
+the code keeps in range), keeping the site's own conversion and bound and
+its messages, which print the DS offset as before.
+
+A game's shapes differ (Death Knights' levels go to 18: THAC0 rows of 19,
+saving throws 90 bytes a class, spells a day and experience rows of 204
+with a spell level's 8 bytes apart, turning undead's rows of 11, every
+base moved); its descriptor gives its own bases, strides, counts and
+bytes, and the code that reads through the names follows.
 
 ## Playing
 
@@ -2656,8 +2780,9 @@ bytes into `DS:5886`). Where the original would read data the game sets as
 it runs, an item type past 128 or a saving throw for a level of 90 or more,
 or leaves the result uninitialized, as `6346:137a` does for a strength past
 25 or an exceptional strength past 100, the port fails with an error and
-the character does not load. `make test` checks the embedded data against
-`build/START_FULL.EXE`.
+the character does not load. `tests/test_data.c` checks the data segment's
+tables (`src/data_champions.c`, read through the descriptor's named
+tables: see "The data segment's tables") against `build/START_FULL.EXE`.
 
 The port keeps these quirks of the original:
 
@@ -3493,9 +3618,10 @@ column 19 from row 9 to 19):
 | 19 | 1, 11 | `Damage`, dice, sides and bonus (`1d8+6`), seven wide | 15, 10 |
 | 21, 22 | 1 | the readied weapon's and armour's names | 10 |
 
-Names come from the original's strings (`DS:0f5a`-`1dd3`, embedded and
-checked against `build/START_FULL.EXE`), indexed as signed bytes; an index
-past them stops the port, and so does one that lands in the middle of the
+Names come from the original's strings (`DS:0f5a`-`1dd3`, the data
+segment's `COK_DATA_NAMES`, checked against `build/START_FULL.EXE`), by
+the named tables `COK_DATA_CLASS_NAMES` and the like, indexed as signed
+bytes; an index past them stops the port, and so does one that lands in the middle of the
 table on a string that holds the NULs between names, which the original
 draws as characters. The class line's search for `M?g` reads past
 the class into the bytes the gender, alignment and race left in the

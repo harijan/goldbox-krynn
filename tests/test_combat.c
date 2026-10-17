@@ -142,10 +142,6 @@ static void test_tables(void)
     fclose(f);
     CHECK(size > 0x20 && exe[0] == 'M' && exe[1] == 'Z');
     size_t ds = (size_t)(exe[8] | exe[9] << 8) * 16 + 0xbc6 * 16;
-    for (size_t i = 0; i < cok_combat_table_count; ++i) {
-        const cok_ds_table *t = &cok_combat_tables[i];
-        for (size_t k = 0; k < t->size; ++k) CHECK(exe[ds + t->offset + k] == t->bytes[k]);
-    }
     /* Type 15's flags are 4: no river. */
     CHECK(exe[ds + 0x441] == 4);
 }
@@ -153,17 +149,17 @@ static void test_tables(void)
 static void test_footprints(void)
 {
     int8_t dx, dy;
-    CHECK(!cok_combat_footprint(0, 0, &dx, &dy));
-    CHECK(cok_combat_footprint(1, 0, &dx, &dy) && dx == 0 && dy == 0);
-    CHECK(!cok_combat_footprint(1, 1, &dx, &dy));
+    CHECK(!cok_combat_footprint(&cok_rules_champions, 0, 0, &dx, &dy));
+    CHECK(cok_combat_footprint(&cok_rules_champions, 1, 0, &dx, &dy) && dx == 0 && dy == 0);
+    CHECK(!cok_combat_footprint(&cok_rules_champions, 1, 1, &dx, &dy));
     /* 2 is a cell and the one below; 3 the one to the right; 4 both. */
-    CHECK(cok_combat_footprint(2, 1, &dx, &dy) && dx == 0 && dy == 1);
-    CHECK(!cok_combat_footprint(2, 2, &dx, &dy));
-    CHECK(cok_combat_footprint(3, 1, &dx, &dy) && dx == 1 && dy == 0);
-    CHECK(cok_combat_footprint(4, 3, &dx, &dy) && dx == 1 && dy == 1);
+    CHECK(cok_combat_footprint(&cok_rules_champions, 2, 1, &dx, &dy) && dx == 0 && dy == 1);
+    CHECK(!cok_combat_footprint(&cok_rules_champions, 2, 2, &dx, &dy));
+    CHECK(cok_combat_footprint(&cok_rules_champions, 3, 1, &dx, &dy) && dx == 1 && dy == 0);
+    CHECK(cok_combat_footprint(&cok_rules_champions, 4, 3, &dx, &dy) && dx == 1 && dy == 1);
     /* Sizes 5-7 read the bytes after the table: far off any map. */
-    CHECK(cok_combat_footprint(5, 0, &dx, &dy) && dx == 0x33 && dy == 0x34);
-    CHECK(!cok_combat_footprint(8, 0, &dx, &dy));
+    CHECK(cok_combat_footprint(&cok_rules_champions, 5, 0, &dx, &dy) && dx == 0x33 && dy == 0x34);
+    CHECK(!cok_combat_footprint(&cok_rules_champions, 8, 0, &dx, &dy));
 }
 
 /* Turbo Pascal's Random, count calls on. */
@@ -189,7 +185,7 @@ static void test_wilderness(void)
      * them though it draws none; trees column by column, a top above a
      * bottom. The original, in an emulator, gives the same map. */
     uint32_t seed = 12345;
-    cok_combat_wilderness(c, 4, &seed);
+    cok_combat_wilderness(c, &cok_rules_champions, 4, &seed);
     CHECK(seed == after(12345, 2689) && seed == 3846925982u);
     static const uint8_t row0[50] = {
         0x17, 0x17, 0x17, 0x17, 0x39, 0x37, 0x17, 0x17, 0x17, 0x17, 0x17, 0x17, 0x23,
@@ -214,18 +210,18 @@ static void test_wilderness(void)
     /* With flag 0x10 a d100 up to 0x4b draws a river, a column of water
      * and rapids moving right a row (3cb2:0a00); 0x80 has no trees. */
     seed = 1;
-    cok_combat_wilderness(c, 0x10, &seed);
+    cok_combat_wilderness(c, &cok_rules_champions, 0x10, &seed);
     CHECK(seed == 3028203821u);
     CHECK(c->cells[0][19] >= 0x3c && c->cells[0][19] <= 0x3d && c->cells[0][20] >= 0x3e);
     CHECK(c->cells[1][20] >= 0x3c && c->cells[1][20] <= 0x3d && c->cells[2][21] <= 0x3d);
     CHECK(hash(c) == 0x2911f855u);
     /* One reaching column 49 at row 23, whose rapids then lie off the map. */
     seed = 22;
-    cok_combat_wilderness(c, 0x10, &seed);
+    cok_combat_wilderness(c, &cok_rules_champions, 0x10, &seed);
     CHECK(seed == 1675800179u && hash(c) == 0xc0e04a27u);
     CHECK(c->cells[23][49] >= 0x3c && c->cells[23][49] <= 0x3d && c->cells[24][49] == 0x17);
     seed = 7;
-    cok_combat_wilderness(c, 0x80, &seed);
+    cok_combat_wilderness(c, &cok_rules_champions, 0x80, &seed);
     CHECK(seed == 4213331734u);
     for (int y = 0; y < COK_COMBAT_HEIGHT; ++y)
         for (int x = 0; x < COK_COMBAT_WIDTH; ++x)
@@ -248,7 +244,7 @@ static void test_dungeon(void)
      * emulator: each square a slanted block of 6 by 5 cells. */
     load_geo(1, 32);
     uint32_t seed = 1;
-    CHECK(cok_combat_dungeon(c, &game.view, 8, 8, &seed));
+    CHECK(cok_combat_dungeon(c, &cok_rules_champions, &game.view, 8, 8, &seed));
     CHECK(seed == 1); /* No rooms: no dice. */
     static const uint8_t row0[16] = {0x17, 0x17, 0x17, 0x17, 0x17, 0x02, 0x03, 0x06,
                                      0x06, 0x06, 0x06, 0x0a, 0x0e, 0x17, 0x17, 0x17};
@@ -268,7 +264,7 @@ static void test_dungeon(void)
         game.view.wrap = true;
         memset(c->cells, 1, sizeof c->cells);
         seed = 1;
-        CHECK(cok_combat_dungeon(c, &game.view, maps[i].x, maps[i].y, &seed));
+        CHECK(cok_combat_dungeon(c, &cok_rules_champions, &game.view, maps[i].x, maps[i].y, &seed));
         CHECK(seed == 1 && hash(c) == maps[i].hash);
     }
     /* Off the 3D map, a square's sides are walls but on the party's row,
@@ -276,7 +272,7 @@ static void test_dungeon(void)
      * sees open floor beyond it, and a wall above and below. */
     reset("");
     seed = 1;
-    CHECK(cok_combat_dungeon(c, &game.view, 0, 0, &seed));
+    CHECK(cok_combat_dungeon(c, &cok_rules_champions, &game.view, 0, 0, &seed));
     /* The party's row of blocks is one open corridor, walled to the
      * north; the row below, off the map, has its west walls. */
     for (int x = 0; x < COK_COMBAT_WIDTH; ++x) CHECK(c->cells[12][x] == COK_COMBAT_FLOOR);
@@ -293,7 +289,7 @@ static void test_dungeon(void)
     game.view.map[0x200 + 7 * 16 + 7] = 0x40;
     memset(c->cells, 0x01, sizeof c->cells);
     seed = 2;
-    CHECK(!cok_combat_dungeon(c, &game.view, 7, 7, &seed));
+    CHECK(!cok_combat_dungeon(c, &cok_rules_champions, &game.view, 7, 7, &seed));
     /* With the unbuilt cells walls (1), as the original gives in an
      * emulator: a table at cells 4, 2 of the block, a chair to its east;
      * north of it the wall, west the room's west wall, south the floor
@@ -312,7 +308,7 @@ static void test_dungeon(void)
     for (size_t i = 0; i < sizeof rooms / sizeof *rooms; ++i) {
         memset(c->cells, 0x01, sizeof c->cells);
         seed = rooms[i].seed;
-        CHECK(!cok_combat_dungeon(c, &game.view, 7, 7, &seed));
+        CHECK(!cok_combat_dungeon(c, &cok_rules_champions, &game.view, 7, 7, &seed));
         CHECK(seed == rooms[i].after && hash(c) == rooms[i].hash);
     }
     /* A west wall alone, open to the north and west: the corner opens
@@ -321,7 +317,8 @@ static void test_dungeon(void)
     game.view.map[0x100 + 7 * 16 + 7] = 0x01;
     memset(c->cells, 0x01, sizeof c->cells);
     seed = 1;
-    CHECK(cok_combat_dungeon(c, &game.view, 7, 7, &seed) && hash(c) == 0x2c9a5542u);
+    CHECK(cok_combat_dungeon(c, &cok_rules_champions, &game.view, 7, 7, &seed) &&
+          hash(c) == 0x2c9a5542u);
     CHECK(c->cells[10][22] == 1 && c->cells[10][21] == COK_COMBAT_FLOOR);
     game.view.map[0x200 + 7 * 16 + 7] = 0x40;
     game.view.map[7 * 16 + 7] = 0x10;
@@ -329,17 +326,17 @@ static void test_dungeon(void)
     game.view.map[7 * 16 + 7] = 0;
     game.view.map[0x100 + 7 * 16 + 7] = 0;
     seed = 4;
-    CHECK(cok_combat_dungeon(c, &game.view, 7, 7, &seed) && seed == 4);
+    CHECK(cok_combat_dungeon(c, &cok_rules_champions, &game.view, 7, 7, &seed) && seed == 4);
     CHECK(c->cells[12][25] == COK_COMBAT_FLOOR);
     /* Nor is a passage between two walls, or a square with a door. */
     game.view.map[7 * 16 + 7] = 0x10;
     game.view.map[0x100 + 7 * 16 + 7] = 0x10;
     seed = 4;
-    CHECK(cok_combat_dungeon(c, &game.view, 7, 7, &seed) && seed == 4);
+    CHECK(cok_combat_dungeon(c, &cok_rules_champions, &game.view, 7, 7, &seed) && seed == 4);
     game.view.map[0x100 + 7 * 16 + 7] = 0x01;
     game.view.map[0x300 + 7 * 16 + 7] = 0x40; /* the north wall a way through */
     seed = 4;
-    CHECK(cok_combat_dungeon(c, &game.view, 7, 7, &seed) && seed == 4);
+    CHECK(cok_combat_dungeon(c, &cok_rules_champions, &game.view, 7, 7, &seed) && seed == 4);
 }
 
 static void test_records(void)
@@ -604,16 +601,16 @@ static void test_lookups(void)
     c->combatant[3] = entry(0, 24, 0, game.party.members[2]);
     c->view_x = 5;
     c->view_y = 6;
-    CHECK(cok_combat_occupy(c));
+    CHECK(cok_combat_occupy(c, &cok_rules_champions));
     CHECK(c->occupant[3][49] == 1 && c->occupant[4][0] == 1 && c->occupant[4][49] == 1 &&
           c->occupant[5][0] == 1);
     CHECK(c->occupant[10][11] == 2);
     CHECK(c->combatant[2].screen_x == 5 && c->combatant[2].screen_y == 4);
     /* A tall one on the last row would write past the table. */
     c->combatant[3].size = 2;
-    CHECK(!cok_combat_occupy(c));
+    CHECK(!cok_combat_occupy(c, &cok_rules_champions));
     c->combatant[3].size = 0;
-    CHECK(cok_combat_occupy(c));
+    CHECK(cok_combat_occupy(c, &cok_rules_champions));
     /* The lookups by record; the entry after the last counts as one. */
     CHECK(cok_combat_index(c, b) == 2 && cok_combat_x(c, b) == 10 && cok_combat_size(c, b) == 3);
     uint8_t outsider[COK_CHARACTER_SIZE];
@@ -629,7 +626,8 @@ static void test_lookups(void)
     c->combatant[3] = entry(0, 20, 4, game.party.members[2]);
     uint8_t first_who, first_terrain;
     bool first_cloud, first_puddle;
-    CHECK(cok_combat_probe(c, game.party.members[2]->record, 6, &first_who, &first_terrain,
+    CHECK(cok_combat_probe(c, &cok_rules_champions, game.party.members[2]->record, 6, &first_who,
+                           &first_terrain,
                            &first_cloud, &first_puddle));
     CHECK(first_terrain == 0);
     c->combatant[3] = entry(0, 24, 0, game.party.members[2]);
@@ -645,42 +643,49 @@ static void test_lookups(void)
      * clouds and puddles do not count, and off the map is 0 for good. */
     bool cloud, puddle;
     c->cells[10][11] = 0x1d;
-    CHECK(cok_combat_probe(c, b, 8, &who, &terrain, &cloud, &puddle));
+    CHECK(cok_combat_probe(c, &cok_rules_champions, b, 8, &who, &terrain, &cloud, &puddle));
     CHECK(who == 0 && terrain == COK_COMBAT_FLOOR && puddle && !cloud);
     c->cells[10][10] = 0x1e;
-    CHECK(cok_combat_probe(c, b, 8, &who, &terrain, &cloud, &puddle));
+    CHECK(cok_combat_probe(c, &cok_rules_champions, b, 8, &who, &terrain, &cloud, &puddle));
     CHECK(terrain == COK_COMBAT_FLOOR && puddle && cloud);
     c->cells[10][10] = 0x30; /* cost 2 */
     c->cells[10][11] = 0x31;
-    CHECK(cok_combat_probe(c, b, 8, &who, &terrain, &cloud, &puddle) && terrain == 0x31);
+    CHECK(cok_combat_probe(c, &cok_rules_champions, b, 8, &who, &terrain, &cloud, &puddle) &&
+          terrain == 0x31);
     c->cells[10][11] = 0x17;
-    CHECK(cok_combat_probe(c, b, 8, &who, &terrain, &cloud, &puddle) && terrain == 0x30);
+    CHECK(cok_combat_probe(c, &cok_rules_champions, b, 8, &who, &terrain, &cloud, &puddle) &&
+          terrain == 0x30);
     /* Moved east onto combatant 1's cells at x 0 of rows 4-5? No: one step
      * west from 49 runs off the map, which wins over any cost. */
-    CHECK(cok_combat_probe(c, a, 2, &who, &terrain, &cloud, &puddle) && terrain == 0);
+    CHECK(cok_combat_probe(c, &cok_rules_champions, a, 2, &who, &terrain, &cloud, &puddle) &&
+          terrain == 0);
     /* B moved north-west lands on itself: no occupant. */
-    CHECK(cok_combat_probe(c, b, 6, &who, &terrain, &cloud, &puddle) && who == 0);
+    CHECK(cok_combat_probe(c, &cok_rules_champions, b, 6, &who, &terrain, &cloud, &puddle) &&
+          who == 0);
     c->combatant[3] = entry(12, 10, 1, game.party.members[2]);
-    CHECK(cok_combat_occupy(c));
-    CHECK(cok_combat_probe(c, b, 2, &who, &terrain, &cloud, &puddle) && who == 3);
+    CHECK(cok_combat_occupy(c, &cok_rules_champions));
+    CHECK(cok_combat_probe(c, &cok_rules_champions, b, 2, &who, &terrain, &cloud, &puddle) &&
+          who == 3);
     /* On the view: from the screen position as last worked out. */
     CHECK(cok_combat_on_view(0, 0) && cok_combat_on_view(6, 6) && !cok_combat_on_view(7, 0));
     bool visible;
-    CHECK(cok_combat_visible(c, b, false, &visible) && visible);
+    CHECK(cok_combat_visible(c, &cok_rules_champions, b, false, &visible) && visible);
     c->view_x = 20;
-    CHECK(cok_combat_visible(c, b, false, &visible) && visible); /* not worked out again */
+    CHECK(cok_combat_visible(c, &cok_rules_champions, b, false, &visible) &&
+          visible); /* not worked out again */
     c->view_x = 10;
     CHECK(cok_combat_scroll(c, 20, 10, 0xff));
     CHECK(c->view_x == 17 && c->combatant[2].screen_x == -7);
-    CHECK(cok_combat_visible(c, b, false, &visible) && !visible);
+    CHECK(cok_combat_visible(c, &cok_rules_champions, b, false, &visible) && !visible);
     c->combatant[2].x = 22;
-    CHECK(cok_combat_occupy(c) && cok_combat_visible(c, b, false, &visible) && visible);
+    CHECK(cok_combat_occupy(c, &cok_rules_champions) &&
+          cok_combat_visible(c, &cok_rules_champions, b, false, &visible) && visible);
     c->combatant[2].x = 23;
-    CHECK(cok_combat_occupy(c));
-    CHECK(cok_combat_visible(c, b, false, &visible) && visible);
-    CHECK(cok_combat_visible(c, b, true, &visible) && !visible);
+    CHECK(cok_combat_occupy(c, &cok_rules_champions));
+    CHECK(cok_combat_visible(c, &cok_rules_champions, b, false, &visible) && visible);
+    CHECK(cok_combat_visible(c, &cok_rules_champions, b, true, &visible) && !visible);
     c->combatant[2].size = 0;
-    CHECK(cok_combat_visible(c, b, false, &visible) && !visible);
+    CHECK(cok_combat_visible(c, &cok_rules_champions, b, false, &visible) && !visible);
     c->combatant[2].size = 3;
     /* Scrolling: within the margin of the centre nothing moves; past it
      * the centre moves onto the target while within 3-0x2e and 3-0x15. */
@@ -712,7 +717,7 @@ static void test_place(void)
     c->bodies = 1;
     c->body[0] = (cok_combat_body){.character = b, .x = 8, .y = 8, .cell = 0x30};
     c->cells[8][8] = COK_COMBAT_BODY;
-    CHECK(cok_combat_occupy(c));
+    CHECK(cok_combat_occupy(c, &cok_rules_champions));
     bool placed;
     /* Outside combat it is placed, and nothing changes. */
     CHECK(cok_combat_place(c, 4, b, &cok_rules_champions, 5, 5, false, &placed) && placed &&
