@@ -38,38 +38,37 @@ static void put16(uint8_t *p, uint16_t value)
     p[1] = (uint8_t)(value >> 8);
 }
 
-static void put32(uint8_t *p, uint32_t value)
-{
-    for (size_t i = 0; i < 4; ++i) p[i] = (uint8_t)(value >> (8 * i));
-}
-
 static bool undefined(cok_adventure *game, const char *what)
 {
     cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", what);
     return false;
 }
 
-void cok_create_icon(uint8_t *c)
+void cok_create_icon(uint8_t *c, const cok_rules *rules)
 {
-    if (c[0x5a] == 5)
-        c[0x135] = 3;
-    else if (c[0x109] == 1)
-        c[0x135] = c[0x138] == 2 ? 9 : 7;
+    const cok_character_layout *L = rules->character;
+    if (cok_field_u8(L, c, COK_FIELD_RACE) == 5)
+        cok_field_set8(L, c, COK_FIELD_ICON_HEAD, 3);
+    else if (cok_field_u8(L, c, COK_FIELD_GENDER) == 1)
+        cok_field_set8(L, c, COK_FIELD_ICON_HEAD,
+                       cok_field_u8(L, c, COK_FIELD_ICON_SIZE) == 2 ? 9 : 7);
     else
-        c[0x135] = c[0x138] == 2 ? 5 : 0;
-    if ((int8_t)c[0xf9] > 0)
-        c[0x136] = 0x17;
-    else if ((int8_t)c[0xfd] > 0)
-        c[0x136] = 1;
-    else if ((int8_t)c[0x100] > 0 || (int8_t)c[0xfb] > 0)
-        c[0x136] = 0x18;
-    else if ((int8_t)c[0xfe] > 0)
-        c[0x136] = 0x1d;
+        cok_field_set8(L, c, COK_FIELD_ICON_HEAD,
+                       cok_field_u8(L, c, COK_FIELD_ICON_SIZE) == 2 ? 5 : 0);
+    if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0) > 0)
+        cok_field_set8(L, c, COK_FIELD_ICON_BODY, 0x17);
+    else if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 4) > 0)
+        cok_field_set8(L, c, COK_FIELD_ICON_BODY, 1);
+    else if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > 0 ||
+             cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 2) > 0)
+        cok_field_set8(L, c, COK_FIELD_ICON_BODY, 0x18);
+    else if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) > 0)
+        cok_field_set8(L, c, COK_FIELD_ICON_BODY, 0x1d);
     else
-        c[0x136] = 5;
+        cok_field_set8(L, c, COK_FIELD_ICON_BODY, 5);
 }
 
-bool cok_create_knight_items(cok_character *character)
+bool cok_create_knight_items(cok_character *character, const cok_rules *rules)
 {
     /* Type, name parts +0x31 and +0x30, weight. */
     static const struct { uint8_t type, part, armour; uint16_t weight; } items[3] = {
@@ -85,7 +84,7 @@ bool cok_create_knight_items(cok_character *character)
         if (!cok_character_insert_item(character, character->item_count == 0 ? 0 : 1, item))
             return false;
     }
-    character->record[0x142] = 3;
+    cok_field_set8(rules->character, character->record, COK_FIELD_ITEM_COUNT, 3);
     return true;
 }
 
@@ -140,14 +139,15 @@ static void add_effect(cok_character *character, uint8_t id)
 /* Pick Race (4def:07a0): +0x5a, the icon's size and the race's effects. */
 static int race(cok_adventure *game, cok_character *character)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     char names[7][41];
     for (unsigned i = 0; i < 7; ++i) table_name(0x1140, 16, i, names[i]);
     int index, key = pick(game, "Pick Race", names, 7, &index);
     if (key != 'S') return key;
     uint8_t *c = character->record;
     uint8_t race = (uint8_t)(index - 1);
-    c[0x5a] = race;
-    c[0x138] = race == 3 || race == 4 || race == 5 ? 1 : 2;
+    cok_field_set8(L, c, COK_FIELD_RACE, race);
+    cok_field_set8(L, c, COK_FIELD_ICON_SIZE, race == 3 || race == 4 || race == 5 ? 1 : 2);
     if (race == 5) {
         add_effect(character, 0x5c);
         add_effect(character, 0x5e);
@@ -165,10 +165,11 @@ static int race(cok_adventure *game, cok_character *character)
 
 static int gender(cok_adventure *game, cok_character *character)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     char names[2][41];
     for (unsigned i = 0; i < 2; ++i) table_name(0x12d5, 7, i, names[i]);
     int index, key = pick(game, "Pick Gender", names, 2, &index);
-    if (key == 'S') character->record[0x109] = (uint8_t)(index - 1);
+    if (key == 'S') cok_field_set8(L, character->record, COK_FIELD_GENDER, (uint8_t)(index - 1));
     return key;
 }
 
@@ -177,17 +178,18 @@ static int gender(cok_adventure *game, cok_character *character)
  * class-time THAC0, class bits, thief skills and saving throws. */
 static int class_(cok_adventure *game, cok_character *character)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
-    uint16_t base = (uint16_t)(0x3a50 + (int8_t)c[0x5a] * 15);
+    uint16_t base = (uint16_t)(0x3a50 + cok_field_s8(L, c, COK_FIELD_RACE) * 15);
     uint8_t count = ds(base);
     char names[16][41];
     for (unsigned i = 1; i <= count && i <= 16; ++i)
         table_name(0x0f5a, 27, ds((uint16_t)(base + i)), names[i - 1]);
     int index, key = pick(game, "Pick Class", names, count, &index);
     if (key != 'S') return key;
-    put32(c + 0x116, 0);
+    cok_field_set32(L, c, COK_FIELD_EXPERIENCE, 0);
     uint8_t class_id = ds((uint16_t)(base + index));
-    c[0x5b] = class_id;
+    cok_field_set8(L, c, COK_FIELD_CLASS, class_id);
     /* Levels by class (+0xf9 cleric ... +0x100 knight) and experience. */
     static const struct { uint8_t levels[8]; uint16_t experience; } kinds[17] = {
         {{1, 0, 0, 0, 0, 0, 0, 0}, 0},    {{0}, 0},
@@ -201,25 +203,28 @@ static int class_(cok_adventure *game, cok_character *character)
         {{0, 0, 0, 0, 0, 1, 1, 0}, 5000},
     };
     if (class_id < 17) {
-        memcpy(c + 0xf9, kinds[class_id].levels, 8);
-        put32(c + 0x116, kinds[class_id].experience);
+        memcpy(c + cok_field_offset(L, COK_FIELD_CLASS_LEVEL), kinds[class_id].levels, 8);
+        cok_field_set32(L, c, COK_FIELD_EXPERIENCE, kinds[class_id].experience);
     }
     if (class_id == 4 || class_id == 10) add_effect(character, 0x69);
-    if (class_id == 7) c[0x5c] = 1;
+    if (class_id == 7) cok_field_set8(L, c, COK_FIELD_KNIGHT_ORDER, 1);
     char error[300];
     /* 66c2:0b9f's uninitialized local holds the normal colour, 0x0a, that
      * the class list's 67b5:1368 was given (4def:0ee7). Dexterity is 0. */
-    if ((int8_t)c[0xff] > 0 &&
+    if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 6) > 0 &&
         !cok_character_thief_skills(character, cok_game_rules(game), 0x0a, error, sizeof error))
         return undefined(game, error) ? 0 : -1;
-    c[0x11a] = 0;
-    c[0x59] = 0;
+    cok_field_set8(L, c, COK_FIELD_USABLE_CLASSES, 0);
+    cok_field_set8(L, c, COK_FIELD_BASE_THAC0, 0);
     for (unsigned i = 0; i < 8; ++i) {
-        int8_t level = (int8_t)c[0xf9 + i];
+        int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i);
         if (level <= 0) continue;
         uint8_t thac0 = ds((uint16_t)(0x3882 + (int)i * 13 + level));
-        if (thac0 > c[0x59]) c[0x59] = thac0;
-        c[0x11a] = (uint8_t)(c[0x11a] + ds((uint16_t)(0x38ea + i)));
+        if (thac0 > cok_field_u8(L, c, COK_FIELD_BASE_THAC0))
+            cok_field_set8(L, c, COK_FIELD_BASE_THAC0, thac0);
+        cok_field_set8(L, c, COK_FIELD_USABLE_CLASSES,
+                       (uint8_t)(cok_field_u8(L, c, COK_FIELD_USABLE_CLASSES) +
+                                 ds((uint16_t)(0x38ea + i))));
     }
     if (!cok_character_saving_throws(character, cok_game_rules(game), error, sizeof error))
         return undefined(game, error) ? 0 : -1;
@@ -230,29 +235,37 @@ static int class_(cok_adventure *game, cok_character *character)
  * alignments it allows (*mask). Dwarves have only Reorx. */
 static int deity(cok_adventure *game, cok_character *character, uint8_t *mask)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
-    if ((int8_t)c[0xf9] <= 0) {
-        c[0x5d] = 0;
+    if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0) <= 0) {
+        cok_field_set8(L, c, COK_FIELD_DEITY, 0);
         *mask = 0xff;
         return 'S';
     }
-    bool dwarf = c[0x5a] == 3 || c[0x5a] == 4;
+    bool dwarf = cok_field_u8(L, c, COK_FIELD_RACE) == 3 || cok_field_u8(L, c, COK_FIELD_RACE) == 4;
     char names[7][41];
     size_t count = dwarf ? 1 : 7;
     for (unsigned i = 0; i < count; ++i) table_name(0x1259, 12, dwarf ? 6 : i + 1, names[i]);
     int index, key = pick(game, "Pick God", names, count, &index);
     if (key != 'S') return key;
     uint8_t god = dwarf ? 6 : (uint8_t)index;
-    c[0x5d] = god;
+    cok_field_set8(L, c, COK_FIELD_DEITY, god);
     *mask = god <= 4 ? 0x15 : 0x2e;
     switch (god) {
-    case 1: c[0xc7] = 1; break;
-    case 2: c[0xc8] = 1; break;
-    case 3: c[0xc9] = 1; ++c[0x59]; break;
-    case 4: c[0xca] = c[0xcb] = c[0xcc] = 1; break;
-    case 5: c[0xcd] = 1; break;
-    case 6: if (dwarf) ++c[0x59]; break;
-    case 7: c[0xcc] = 1; break;
+    case 1: cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 101, 1); break;
+    case 2: cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 102, 1); break;
+    case 3:
+        cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 103, 1);
+        cok_field_add8(L, c, COK_FIELD_BASE_THAC0, 1);
+        break;
+    case 4:
+        cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 104, 1);
+        cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 105, 1);
+        cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 106, 1);
+        break;
+    case 5: cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 107, 1); break;
+    case 6: if (dwarf) cok_field_add8(L, c, COK_FIELD_BASE_THAC0, 1); break;
+    case 7: cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 106, 1); break;
     default: break;
     }
     return key;
@@ -262,8 +275,10 @@ static int deity(cok_adventure *game, cok_character *character, uint8_t *mask)
  * allows; then a cleric's experience and a mage's order of magic. */
 static int alignment(cok_adventure *game, cok_character *character, uint8_t mask)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
-    uint8_t allowed = (uint8_t)(ds((uint16_t)(0x3c45 + (int8_t)c[0x5b])) & mask);
+    uint8_t allowed = (uint8_t)(ds((uint16_t)(0x3c45 +
+                                              cok_field_s8(L, c, COK_FIELD_CLASS))) & mask);
     char names[6][41];
     uint8_t codes[6];
     size_t count = 0;
@@ -275,15 +290,17 @@ static int alignment(cok_adventure *game, cok_character *character, uint8_t mask
     int index, key = pick(game, "Pick Alignment", names, count, &index);
     if (key != 'S') return key;
     uint8_t code = codes[index - 1];
-    c[0x10a] = code;
-    bool cleric = (int8_t)c[0xf9] > 0, none = c[0x116] == 0 && c[0x117] == 0 &&
-                  c[0x118] == 0 && c[0x119] == 0;
+    cok_field_set8(L, c, COK_FIELD_ALIGNMENT, code);
+    bool cleric = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0) > 0,
+         none = cok_field_u32(L, c, COK_FIELD_EXPERIENCE) == 0;
     if (code == 0 || code == 3 || code == 6) {
-        if (none && cleric) put32(c + 0x116, 2000);
-        if ((int8_t)c[0xfe] > 0) c[0x5e] = 1;
+        if (none && cleric) cok_field_set32(L, c, COK_FIELD_EXPERIENCE, 2000);
+        if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) > 0)
+            cok_field_set8(L, c, COK_FIELD_MAGIC_ORDER, 1);
     } else if (code == 1 || code == 4 || code == 7) {
-        if (none && cleric) put32(c + 0x116, 1500);
-        if ((int8_t)c[0xfe] > 0) c[0x5e] = 2;
+        if (none && cleric) cok_field_set32(L, c, COK_FIELD_EXPERIENCE, 1500);
+        if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) > 0)
+            cok_field_set8(L, c, COK_FIELD_MAGIC_ORDER, 2);
     }
     return key;
 }
@@ -294,8 +311,9 @@ static int alignment(cok_adventure *game, cok_character *character, uint8_t mask
  * the mage's for 12, 13, 15 and 16, the fighter's for 14. */
 static void age(cok_adventure *game, uint8_t *c)
 {
-    int8_t class_id = (int8_t)c[0x5b];
-    uint16_t base = (uint16_t)(0x3ab9 + (int8_t)c[0x5a] * 32);
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    int8_t class_id = cok_field_s8(L, c, COK_FIELD_CLASS);
+    uint16_t base = (uint16_t)(0x3ab9 + cok_field_s8(L, c, COK_FIELD_RACE) * 32);
     uint16_t value;
     if (class_id <= 7) {
         uint16_t p = (uint16_t)(base + class_id * 4);
@@ -306,7 +324,7 @@ static void age(cok_adventure *game, uint8_t *c)
         uint16_t p = (uint16_t)(base + entry * 4);
         value = (uint16_t)(ds_word(p) + ds((uint16_t)(p + 2)) * ds((uint16_t)(p + 3)));
     }
-    put16(c + 0x60, value);
+    cok_field_set16(L, c, COK_FIELD_AGE, value);
 }
 
 /* Roll the six scores (4def:164d): each the best of six 3d6 + 1, then
@@ -319,9 +337,10 @@ static void age(cok_adventure *game, uint8_t *c)
  * which has none: no score is adjusted by race. */
 static void abilities(cok_adventure *game, uint8_t *c)
 {
-    uint8_t race = c[0x5a], sex = c[0x109];
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t race = cok_field_u8(L, c, COK_FIELD_RACE), sex = cok_field_u8(L, c, COK_FIELD_GENDER);
     uint16_t limits = (uint16_t)(0x39e0 + (int8_t)race * 16);
-    uint16_t age_now = (uint16_t)(c[0x60] | c[0x61] << 8);
+    uint16_t age_now = cok_field_u16(L, c, COK_FIELD_AGE);
     bool old[4];
     for (int i = 0; i < 4; ++i)
         old[i] = ds_word((uint16_t)(0x3b99 + (int8_t)race * 10 + 2 * i)) < age_now;
@@ -370,17 +389,26 @@ static void abilities(cok_adventure *game, uint8_t *c)
         }
         if (s < low) s = low;
         if (s > high) s = high;
-        uint8_t minimum = ds((uint16_t)(0x3bdf + (int8_t)c[0x5b] * 6 + a));
+        uint8_t minimum = ds((uint16_t)(0x3bdf + cok_field_s8(L, c, COK_FIELD_CLASS) * 6 + a));
         if (s < minimum) s = minimum;
-        if (a == 2 && s < 13 && c[0x5b] >= 8 && c[0x5b] <= 12) s = 13;
+        if (a == 2 && s < 13 && cok_field_u8(L, c, COK_FIELD_CLASS) >= 8 &&
+            cok_field_u8(L, c, COK_FIELD_CLASS) <= 12)
+            s = 13;
         if (a == 0 && s == 18 &&
-            ((int8_t)c[0xfb] > 0 || (int8_t)c[0xfd] > 0 || (int8_t)c[0x100] > 0)) {
-            c[0x1c] = (uint8_t)(cok_tp_random(&game->vm.seed, 100) + 1);
+            (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 2) > 0 ||
+             cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 4) > 0 ||
+             cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > 0)) {
+            cok_field_set8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL,
+                           (uint8_t)(cok_tp_random(&game->vm.seed, 100) + 1));
             uint8_t most = ds((uint16_t)(limits + 4 + sex));
-            if (most < c[0x1c]) c[0x1c] = most;
+            if (most < cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL))
+                cok_field_set8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL, most);
         }
-        c[0x10 + 2 * a] = c[0x11 + 2 * a] = s;
-        if (a == 0) c[0x1d] = c[0x1c];
+        cok_field_set8_at(L, c, COK_FIELD_SCORE, a, s);
+        cok_field_set8_at(L, c, COK_FIELD_SCORE_BASE, a, s);
+        if (a == 0)
+            cok_field_set8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL_BASE,
+                           cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL));
         cok_sheet_ability(game, c, a, 10);
     }
 }
@@ -388,20 +416,24 @@ static void abilities(cok_adventure *game, uint8_t *c)
 /* The base combat fields, money and spells (4def:20e3). */
 static bool equip(cok_adventure *game, cok_character *character, uint8_t *classes)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
-    c[0x197] = c[0x62];
-    c[0x10b] = 2;
-    c[0x10d] = 1;
-    c[0x10f] = 2;
-    c[0x114] = 1;
-    c[0xd5] = 12;
+    cok_field_set8(L, c, COK_FIELD_HIT_POINTS, cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS));
+    cok_field_set8_at(L, c, COK_FIELD_BASE_ATTACKS, 1, 2);
+    cok_field_set8_at(L, c, COK_FIELD_BASE_DICE, 1, 1);
+    cok_field_set8_at(L, c, COK_FIELD_BASE_DICE_SIDES, 1, 2);
+    cok_field_set8(L, c, COK_FIELD_STRENGTH_BONUSES, 1);
+    cok_field_set8(L, c, COK_FIELD_BASE_MOVEMENT, 12);
     uint8_t money = 0;
     *classes = 0;
-    memset(c + 0x11c, 0, 0x14);
+    memset(c + cok_field_offset(L, COK_FIELD_SPELLS_A_DAY), 0,
+           cok_field_size(L, COK_FIELD_SPELLS_A_DAY));
     for (unsigned i = 0; i < 8; ++i) {
-        if ((int8_t)c[0xf9 + i] <= 0) continue;
-        if (i == 0) c[0x11c] = (int8_t)c[0x5d] <= 4 ? 1 : 2;
-        if (i == 5) c[0x12b] = 1;
+        if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i) <= 0) continue;
+        if (i == 0)
+            cok_field_set8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, 1,
+                               cok_field_s8(L, c, COK_FIELD_DEITY) <= 4 ? 1 : 2);
+        if (i == 5) cok_field_set8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 3, 1, 1);
         uint32_t *seed = &game->vm.seed;
         if (i == 7) {
             money = cok_dice(seed, 1, 4);
@@ -415,11 +447,15 @@ static bool equip(cok_adventure *game, cok_character *character, uint8_t *classe
             uint8_t spell = 0xff;
             for (unsigned k = 1; k <= 10 && spell != 0; ++k) {
                 spell = ds((uint16_t)(0x423a + k));
-                if (spell != 0) c[0x62 + spell] = 1;
+                if (spell != 0) cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, spell, 1);
             }
         } else if (i == 5) {
             money = (uint8_t)(money + cok_dice(seed, 2, 4));
-            c[0x62 + 11] = c[0x62 + 18] = c[0x62 + 12] = c[0x62 + 15] = c[0x62 + 21] = 1;
+            cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 11, 1);
+            cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 18, 1);
+            cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 12, 1);
+            cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 15, 1);
+            cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 21, 1);
         } else if (i == 6) {
             money = (uint8_t)(money + cok_dice(seed, 2, 6));
         }
@@ -428,7 +464,7 @@ static bool equip(cok_adventure *game, cok_character *character, uint8_t *classe
     /* The division of a multi-class's money tests the loop's counter, 7
      * after the loop, and never happens. */
     money = (uint8_t)(money + money * 20 / 100);
-    put16(c + 0xf3, money);
+    cok_field_set16_at(L, c, COK_FIELD_COINS, 4, money);
     return true;
 }
 
@@ -436,16 +472,18 @@ static bool equip(cok_adventure *game, cok_character *character, uint8_t *classe
  * without clearing. */
 static void level_line(cok_adventure *game, const uint8_t *c)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     int8_t first = 0;
-    if (c[0x5a] == 6) {
+    if (cok_field_u8(L, c, COK_FIELD_RACE) == 6) {
         size_t i = 0;
-        while (i < 7 && c[0xf9 + i] == 0) ++i;
-        first = (int8_t)c[0xf9 + i];
+        while (i < 7 && cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, i) == 0) ++i;
+        first = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i);
     }
     char line[64] = "";
     bool any = false;
     for (unsigned i = 0; i < 8; ++i) {
-        int8_t now = (int8_t)c[0xf9 + i], before = (int8_t)c[0x101 + i];
+        int8_t now = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i),
+               before = cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, i);
         if (now <= 0 && !(before < first && before > 0)) continue;
         size_t length = strlen(line);
         snprintf(line + length, sizeof line - length, "%s%d", any ? "/" : "", now + before);
@@ -459,18 +497,22 @@ static void level_line(cok_adventure *game, const uint8_t *c)
  * hit points, and training as far as the experience allows. */
 static bool roll(cok_adventure *game, cok_character *character)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
     for (unsigned i = 0; i < 8; ++i)
-        if ((int8_t)c[0xf9 + i] > 0) c[0xf9 + i] = 1;
-    c[0x1c] = 0;
+        if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i) > 0)
+            cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, i, 1);
+    cok_field_set8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL, 0);
     abilities(game, c);
     uint8_t classes;
     if (!equip(game, character, &classes)) return false;
-    c[0x62] = c[0x11b] = c[0x197] = 0;
+    cok_field_set8(L, c, COK_FIELD_HIT_POINTS, 0);
+    cok_field_set8(L, c, COK_FIELD_BASE_HIT_POINTS, 0);
+    cok_field_set8(L, c, COK_FIELD_MAX_HIT_POINTS, 0);
     if (!cok_train_hit_points(game, c, 0xff, classes)) return false;
     /* 4def:22eb: train silently with every class allowed (var 0x7ea8 0xff,
      * its high byte lost afterwards). */
-    if (game->free_training || c[0x188] != 0)
+    if (game->free_training || cok_field_u8(L, c, COK_FIELD_STATUS) != 0)
         return undefined(game, "creation trains until no class can rise, which free training "
                                "or a status not okay never lets happen (4def:22eb)");
     uint16_t *hall = &game->vm.mem7c00[0x2a8];
@@ -486,6 +528,7 @@ static bool roll(cok_adventure *game, cok_character *character)
 /* Name the character (4def:245e): until a name is typed. */
 static bool name(cok_adventure *game, uint8_t *c)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_keyboard keys = cok_adventure_keyboard_raw(game);
     char line[41] = "";
     while (line[0] == '\0') {
@@ -496,26 +539,27 @@ static bool name(cok_adventure *game, uint8_t *c)
     cok_adventure_log(game, "input", line);
     size_t length = strlen(line);
     if (length > 15) length = 15;
-    memset(c, 0, 16);
-    c[0] = (uint8_t)length;
-    memcpy(c + 1, line, length);
+    memset(c + cok_field_offset(L, COK_FIELD_NAME), 0, cok_field_size(L, COK_FIELD_NAME));
+    cok_field_set8_at(L, c, COK_FIELD_NAME, 0, (uint8_t)length);
+    memcpy(c + cok_field_offset_at(L, COK_FIELD_NAME, 1), line, length);
     return true;
 }
 
 static bool build(cok_adventure *game, cok_character *character)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
     for (size_t k = 1; k <= 6; ++k) {
         uint8_t colour = ds((uint16_t)(0x390a + k));
-        c[0x138 + k] = (uint8_t)(((colour + 8) << 4) + colour);
+        cok_field_set8_at(L, c, COK_FIELD_ICON_COLOURS, k, (uint8_t)(((colour + 8) << 4) + colour));
     }
-    c[0x113] = 0x32;
-    c[0x59] = 0x28;
-    c[0x188] = 0;
-    c[0x189] = 1;
-    c[0xcf] = 1;
-    c[0x115] = (uint8_t)cok_tp_random(&game->vm.seed, 0x100);
-    c[0x137] = 0x0a;
+    cok_field_set8(L, c, COK_FIELD_BASE_AC, 0x32);
+    cok_field_set8(L, c, COK_FIELD_BASE_THAC0, 0x28);
+    cok_field_set8(L, c, COK_FIELD_STATUS, 0);
+    cok_field_set8(L, c, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(L, c, COK_FIELD_SIZE, 1);
+    cok_field_set8(L, c, COK_FIELD_MONSTER_ID, (uint8_t)cok_tp_random(&game->vm.seed, 0x100));
+    cok_field_set8(L, c, COK_FIELD_ICON, 0x0a);
     uint8_t mask;
     int key;
     if ((key = race(game, character)) != 'S' || (key = gender(game, character)) != 'S' ||
@@ -533,15 +577,20 @@ static bool build(cok_adventure *game, cok_character *character)
         if (answer < 0) return false;
     } while (answer != 'N');
     if (!cok_sheet_draw(game) || !name(game, c)) return false;
-    cok_create_icon(c);
+    cok_create_icon(c, cok_game_rules(game));
     if (!cok_icon_edit(game)) return false;
-    for (size_t a = 0; a < 6; ++a) c[0x10 + 2 * a] = c[0x11 + 2 * a];
-    c[0x1d] = c[0x1c];
+    for (size_t a = 0; a < 6; ++a)
+        cok_field_set8_at(L, c, COK_FIELD_SCORE_BASE, a, cok_field_u8_at(L, c, COK_FIELD_SCORE, a));
+    cok_field_set8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL_BASE,
+                   cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL));
     char prompt[48];
-    snprintf(prompt, sizeof prompt, "Save %.*s? ", c[0] > 15 ? 15 : c[0], (const char *)c + 1);
+    uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
+    snprintf(prompt, sizeof prompt, "Save %.*s? ", stored > 15 ? 15 : stored,
+             (const char *)c + cok_field_offset_at(L, COK_FIELD_NAME, 1));
     answer = cok_camp_yes_no(game, prompt, 13);
     if (answer != 'Y') return false;
-    if ((int8_t)c[0x100] > 0 && !cok_create_knight_items(character))
+    if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > 0 &&
+        !cok_create_knight_items(character, cok_game_rules(game)))
         return undefined(game, "out of memory");
     cok_roster_save(game, character);
     return true;

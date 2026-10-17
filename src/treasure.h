@@ -104,7 +104,7 @@ int32_t cok_pool_value(const uint32_t coins[COK_COINS]);
 /* Leave only steel in the pool (58e7:018f), or in c's coins (58e7:0155,
  * its weight unchanged), as shops pay. */
 void cok_pool_set_steel(cok_pool *pool, uint16_t steel);
-void cok_pool_pay(uint8_t *c, uint16_t steel);
+void cok_pool_pay(uint8_t *c, const cok_rules *rules, uint16_t steel);
 /* Give c steel (58e7:01f2): what would overload it goes to the pool, with
  * "Overloaded.  Money will be put in Pool.". Returns false, ending the
  * run, where c's allowance cannot be had. */

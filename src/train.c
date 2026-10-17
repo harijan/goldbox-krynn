@@ -47,30 +47,38 @@ static bool undefined(cok_adventure *game, const char *what)
     return false;
 }
 
-static int32_t get_long(const uint8_t *p)
+static int32_t signed_long(uint32_t v)
 {
-    uint32_t v = (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
     return v > INT32_MAX ? -(int32_t)(~v) - 1 : (int32_t)v;
 }
 
-static void put_long(uint8_t *p, int32_t value)
+static int32_t get_long(const uint8_t *p)
 {
-    uint32_t v = (uint32_t)value;
-    for (size_t i = 0; i < 4; ++i) p[i] = (uint8_t)(v >> (8 * i));
+    return signed_long((uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 |
+                       (uint32_t)p[3] << 24);
 }
 
-bool cok_train_row(const uint8_t *c, unsigned class_, uint8_t *row)
+/* The experience, a LongInt. */
+static int32_t experience_of(const cok_character_layout *L, const uint8_t *c)
 {
+    return signed_long(cok_field_u32(L, c, COK_FIELD_EXPERIENCE));
+}
+
+bool cok_train_row(const uint8_t *c, const cok_rules *rules, unsigned class_, uint8_t *row)
+{
+    const cok_character_layout *L = rules->character;
     switch (class_) {
-    case 0: *row = (int8_t)c[0x5d] > 4 ? 1 : 0; return true;
+    case 0: *row = cok_field_s8(L, c, COK_FIELD_DEITY) > 4 ? 1 : 0; return true;
     case 2: *row = 2; return true;
     case 4: *row = 6; return true;
-    case 5: *row = c[0x5e] == 1 ? 7 : 8; return true;
+    case 5: *row = cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER) == 1 ? 7 : 8; return true;
     case 6: *row = 9; return true;
-    case 7:
-        if (c[0x5c] < 1 || c[0x5c] > 3) return false;
-        *row = (uint8_t)(c[0x5c] + 2);
+    case 7: {
+        uint8_t order = cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER);
+        if (order < 1 || order > 3) return false;
+        *row = (uint8_t)(order + 2);
         return true;
+    }
     default: return false;
     }
 }
@@ -86,9 +94,10 @@ bool cok_train_experience(uint8_t row, int level, int32_t *need)
     return true;
 }
 
-int8_t cok_train_constitution(const uint8_t *c, unsigned class_)
+int8_t cok_train_constitution(const uint8_t *c, const cok_rules *rules, unsigned class_)
 {
-    uint8_t con = c[0x19];
+    const cok_character_layout *L = rules->character;
+    uint8_t con = cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION);
     uint8_t bonus = ds((uint16_t)(0x3c53 + con));
     if (class_ == 2 || class_ == 7 || class_ == 4) {
         if (con == 17) bonus = (uint8_t)(bonus + 1);
@@ -102,16 +111,18 @@ int8_t cok_train_constitution(const uint8_t *c, unsigned class_)
 
 bool cok_train_hit_points(cok_adventure *game, uint8_t *c, uint8_t mask, uint8_t count)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t sum = 0, con = 0;
     for (unsigned i = 0; i < 8; ++i) {
-        int8_t level = (int8_t)c[0xf9 + i];
+        int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i);
         if (level <= 0 || (class_bit(i) & mask) == 0) continue;
-        if (c[0xf9 + i] < top_level(i)) {
-            uint8_t dice = level > 1 ? 1 : i == 0 && (int8_t)c[0x5d] > 4 ? 1 : level_dice[i];
+        if (cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, i) < top_level(i)) {
+            bool druid = i == 0 && cok_field_s8(L, c, COK_FIELD_DEITY) > 4;
+            uint8_t dice = level > 1 ? 1 : druid ? 1 : level_dice[i];
             uint8_t a = cok_dice(&game->vm.seed, dice, die_sides[i]);
             uint8_t b = cok_dice(&game->vm.seed, dice, die_sides[i]);
             sum = (uint8_t)(sum + (a > b ? a : b));
-            con = (uint8_t)(con + dice * cok_train_constitution(c, i));
+            con = (uint8_t)(con + dice * cok_train_constitution(c, cok_game_rules(game), i));
         } else if (i == 2 || i == 7) {
             sum = 3; /* assigned, not added */
         } else if (i == 0 || i == 4 || i == 6) {
@@ -127,13 +138,17 @@ bool cok_train_hit_points(cok_adventure *game, uint8_t *c, uint8_t mask, uint8_t
     }
     sum = (uint8_t)(sum / count);
     if (sum == 0) sum = 1;
-    c[0x11b] = (uint8_t)(c[0x11b] + sum);
+    cok_field_set8(L, c, COK_FIELD_BASE_HIT_POINTS,
+                   (uint8_t)(cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS) + sum));
     /* The bonus divides as an unsigned byte: a negative one over two or
      * three classes becomes large. */
     con = (uint8_t)(con / count);
-    uint8_t lacking = (uint8_t)(c[0x62] - c[0x197]);
-    c[0x62] = (uint8_t)(c[0x62] + con + sum);
-    c[0x197] = (uint8_t)(c[0x62] - lacking);
+    uint8_t lacking = (uint8_t)(cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS) -
+                                cok_field_u8(L, c, COK_FIELD_HIT_POINTS));
+    cok_field_set8(L, c, COK_FIELD_MAX_HIT_POINTS,
+                   (uint8_t)(cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS) + con + sum));
+    cok_field_set8(L, c, COK_FIELD_HIT_POINTS,
+                   (uint8_t)(cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS) - lacking));
     return true;
 }
 
@@ -183,10 +198,11 @@ static bool need_for(cok_adventure *game, uint8_t row, int level, int32_t *need)
  * run must stop; *none is DS:713f, set when no class could rise. */
 static bool train(cok_adventure *game, cok_character *character, bool creating, bool *none)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
     bool free_training = game->free_training;
     *none = false;
-    if (c[0x188] != 0 && !free_training) {
+    if (cok_field_u8(L, c, COK_FIELD_STATUS) != 0 && !free_training) {
         /* Creating too, though a new character is always able to act. */
         cok_adventure_notice(game, "we only train conscious people", 14);
         return true;
@@ -202,14 +218,18 @@ static bool train(cok_adventure *game, cok_character *character, bool creating, 
     bool first = true, stale = false;
     uint8_t row = 0;
     int level = 0;
-    int32_t experience = get_long(c + 0x116);
+    int32_t experience = experience_of(L, c);
     for (unsigned i = 0; i < 8; ++i) {
-        if ((int8_t)c[0xf9 + i] <= 0) continue;
+        if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i) <= 0) continue;
         present = (uint8_t)(present + class_bit(i));
-        level = (int8_t)c[0xf9 + i];
-        bool kender = c[0x5a] == 5 && (i == 2 || i == 4) &&
-                      (level == 7 || (level == 6 && c[0x10] == 17) || (level == 5 && c[0x10] < 17));
-        if (cok_train_row(c, i, &row)) {
+        level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i);
+        bool kender = cok_field_u8(L, c, COK_FIELD_RACE) == 5 && (i == 2 || i == 4) &&
+                      (level == 7 ||
+                       (level == 6 &&
+                        cok_field_u8_at(L, c, COK_FIELD_SCORE_BASE, COK_SCORE_STRENGTH) == 17) ||
+                       (level == 5 &&
+                        cok_field_u8_at(L, c, COK_FIELD_SCORE_BASE, COK_SCORE_STRENGTH) < 17));
+        if (cok_train_row(c, cok_game_rules(game), i, &row)) {
             stale = false;
         } else if (first) {
             if (creating)
@@ -236,7 +256,7 @@ static bool train(cok_adventure *game, cok_character *character, bool creating, 
         if (need <= 0) continue;
         if (free_training && need > experience) {
             experience = need;
-            put_long(c + 0x116, experience);
+            cok_field_set32(L, c, COK_FIELD_EXPERIENCE, (uint32_t)experience);
         }
         trainable = (uint8_t)(trainable + class_bit(i));
         if (!need_for(game, row, level + 2, &next)) return false;
@@ -258,7 +278,7 @@ static bool train(cok_adventure *game, cok_character *character, bool creating, 
     }
     if (cap > 0 && !creating) {
         experience = cap;
-        put_long(c + 0x116, experience);
+        cok_field_set32(L, c, COK_FIELD_EXPERIENCE, (uint32_t)experience);
     }
     if (!free_training) {
         if ((present & hall) == 0 && !creating) {
@@ -275,15 +295,16 @@ static bool train(cok_adventure *game, cok_character *character, bool creating, 
     if (!creating) {
         clear_cells(game, 1, 1, 0x26, 0x16);
         cok_item_draw_name(game, c, 4, 4, false);
-        draw(game, " will become:", c[0] + 4, 4);
+        draw(game, " will become:", cok_field_u8_at(L, c, COK_FIELD_NAME, 0) + 4, 4);
         int y = 4;
         for (unsigned i = 0; i < 8; ++i) {
-            if ((int8_t)c[0xf9 + i] <= 0 || (class_bit(i) & mask) == 0) continue;
+            if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i) <= 0 || (class_bit(i) & mask) == 0)
+                continue;
             ++y;
             char name[256], text[300];
             cok_ds_string((uint16_t)(0x0f5a + 27 * i), name);
             snprintf(text, sizeof text, "%s%u %s", y == 5 ? "    a level " : "and a level ",
-                     (uint8_t)(c[0xf9 + i] + 1), name);
+                     (uint8_t)(cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, i) + 1), name);
             draw(game, text, 6, y);
         }
         int answer = cok_camp_yes_no(game, "Do you wish to train? ", 13);
@@ -291,33 +312,42 @@ static bool train(cok_adventure *game, cok_character *character, bool creating, 
         cok_camp_notice(game, "Congratulations...");
     }
     uint8_t count = 0;
-    int8_t mage = (int8_t)c[0xfe];
-    c[0x11a] = 0;
+    int8_t mage = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5);
+    cok_field_set8(L, c, COK_FIELD_USABLE_CLASSES, 0);
     for (unsigned i = 0; i < 8; ++i) {
-        if ((int8_t)c[0xf9 + i] <= 0) continue;
+        if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i) <= 0) continue;
         ++count;
         if ((class_bit(i) & mask) == 0) continue;
-        ++c[0xf9 + i];
-        /* +0xd8 and +0xd9, which nothing else writes. */
-        if (c[0xd8] > 0) {
-            c[0xd9] = (uint8_t)(c[0xd9] - c[0xd9] / c[0xd8]);
-            --c[0xd8];
+        cok_field_add8_at(L, c, COK_FIELD_CLASS_LEVEL, i, 1);
+        /* SPREAD_LEVELS and SPREAD (+0xd8, +0xd9), which nothing else
+         * writes. */
+        uint8_t over = cok_field_u8(L, c, COK_FIELD_SPREAD_LEVELS);
+        if (over > 0) {
+            uint8_t spread = cok_field_u8(L, c, COK_FIELD_SPREAD);
+            cok_field_set8(L, c, COK_FIELD_SPREAD, (uint8_t)(spread - spread / over));
+            cok_field_add8(L, c, COK_FIELD_SPREAD_LEVELS, -1);
         }
     }
     if (!levels(game, character)) return false;
-    if (!creating && ((int8_t)c[0xfe] > mage || (int8_t)c[0xfd] > 8)) {
+    if (!creating &&
+        (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) > mage ||
+         cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 4) > 8)) {
         if (cok_magic_learn(game, character) < 0) return false;
     } else if (creating) {
         /* The spells a mage of each level knows when it is made. */
-        switch (c[0xfe]) {
-        case 2: c[0x62 + 15] = 1; break;
-        case 3: c[0x62 + 34] = c[0x62 + 10] = 1; break;
-        case 4: c[0x62 + 31] = 1; break;
-        case 5: c[0x62 + 47] = 1; break;
+        switch (cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, 5)) {
+        case 2: cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 15, 1); break;
+        case 3:
+            cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 10, 1);
+            cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 34, 1);
+            break;
+        case 4: cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 31, 1); break;
+        case 5: cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 47, 1); break;
         default: break;
         }
     }
-    if ((int8_t)c[0xd6] > (int8_t)c[0xd7] && !cok_train_hit_points(game, c, mask, count))
+    if (cok_field_s8(L, c, COK_FIELD_HIGHEST_LEVEL) > cok_field_s8(L, c, COK_FIELD_CHANGE_LEVEL) &&
+        !cok_train_hit_points(game, c, mask, count))
         return false;
     return true;
 }
@@ -341,9 +371,10 @@ bool cok_train_silently(cok_adventure *game, cok_character *character)
     return !none;
 }
 
-bool cok_train_hit_die(const uint8_t *c, unsigned class_, int8_t *bonus)
+bool cok_train_hit_die(const uint8_t *c, const cok_rules *rules, unsigned class_, int8_t *bonus)
 {
-    uint8_t con = c[0x19];
+    const cok_character_layout *L = rules->character;
+    uint8_t con = cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION);
     if (con == 3) *bonus = -2;
     else if (con >= 4 && con <= 6) *bonus = -1;
     else if (con >= 7 && con <= 14) *bonus = 0;
@@ -357,28 +388,36 @@ bool cok_train_hit_die(const uint8_t *c, unsigned class_, int8_t *bonus)
 
 bool cok_train_promote(cok_adventure *game, cok_character *character)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
-    int8_t level = (int8_t)c[0x100];
+    int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7);
     int32_t need;
-    if (!need_for(game, c[0x5c] == 1 ? 4 : 5, level, &need)) return false;
-    if (need > get_long(c + 0x116)) {
-        --c[0x100];
+    if (!need_for(game, cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER) == 1 ? 4 : 5, level, &need))
+        return false;
+    if (need > experience_of(L, c)) {
+        cok_field_add8_at(L, c, COK_FIELD_CLASS_LEVEL, 7, -1);
         if (level + 1 == 0) {
             cok_adventure_fail(game, COK_ECL_DIVIDE_BY_ZERO,
                                "hit points divided by a knight level of 0 (4def:567f)");
             return false;
         }
-        uint8_t share = (uint8_t)(c[0x11b] / (level + 1));
-        c[0x11b] = (uint8_t)(c[0x11b] - share);
+        uint8_t share = (uint8_t)(cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS) / (level + 1));
+        cok_field_set8(L, c, COK_FIELD_BASE_HIT_POINTS,
+                       (uint8_t)(cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS) - share));
         int8_t bonus;
         const uint8_t *s = game->vm.character;
-        if (s == NULL || !cok_train_hit_die(s, 7, &bonus))
+        if (s == NULL || !cok_train_hit_die(s, cok_game_rules(game), 7, &bonus))
             return undefined(game, "4def:257c's constitution bonus is uninitialized for a "
                                    "constitution outside 3-19, or none selected (4def:567f)");
-        c[0x62] = (uint8_t)(c[0x62] - (uint8_t)(share + bonus));
-        if (c[0x197] >= c[0x62]) c[0x197] = c[0x62];
+        cok_field_set8(L, c, COK_FIELD_MAX_HIT_POINTS,
+                       (uint8_t)(cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS) -
+                                 (uint8_t)(share + bonus)));
+        if (cok_field_u8(L, c, COK_FIELD_HIT_POINTS) >=
+            cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS))
+            cok_field_set8(L, c, COK_FIELD_HIT_POINTS,
+                           cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS));
     }
-    ++c[0x5c];
+    cok_field_add8(L, c, COK_FIELD_KNIGHT_ORDER, 1);
     return levels(game, character);
 }
 
@@ -392,6 +431,7 @@ static void centred(cok_adventure *game, const char *text, int base, int extra, 
 
 void cok_train_knight(cok_adventure *game)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     if (!cok_start_pick(game)) return;
     cok_character *character = selected(game);
     if (character == NULL) {
@@ -403,38 +443,45 @@ void cok_train_knight(cok_adventure *game)
     uint16_t moons[3];
     for (size_t i = 0; i < 3; ++i) moons[i] = game->vm.mem4b00[0x1f9 + i];
     cok_screen_frame(&game->screen, &game->view.tiles[4], moons, true); /* 1128:0000 */
-    if (c[0x100] == 0 || ((int8_t)c[0x100] > 0 && c[0x5c] == 3)) return;
+    uint8_t order = cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER);
+    if (cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) == 0 ||
+        (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > 0 && order == 3))
+        return;
     const char *menu = "Exit";
     char name[16], text[64];
-    size_t length = c[0] > 15 ? 15 : c[0];
-    memcpy(name, c + 1, length);
+    uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
+    size_t length = stored > 15 ? 15 : stored;
+    memcpy(name, c + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
     name[length] = '\0';
-    draw(game, name, 19 - (int)(c[0] >> 1), 3);
+    draw(game, name, 19 - (int)(stored >> 1), 3);
     draw(game, "is petitioning to become a", 7, 5);
     /* For a knight of no order the suffix is a local never set, which the
      * start menu's freeing of its rows (4def:0381) leaves empty. */
     snprintf(text, sizeof text, "Knight Of The %s",
-             c[0x5c] == 1 ? "sword" : c[0x5c] == 2 ? "rose" : "");
+             order == 1 ? "sword" : order == 2 ? "rose" : "");
     draw(game, text, 10, 7);
     /* A knight of no order skips to the menu (4def:5aa0). */
-    if (c[0x5c] == 1 || c[0x5c] == 2) {
-        bool sword = c[0x5c] == 1;
+    if (order == 1 || order == 2) {
+        bool sword = order == 1;
         int32_t need;
         if (!need_for(game, sword ? 4 : 5, sword ? 3 : 4, &need)) return;
         int base = sword ? 19 : 20;
-        if ((int8_t)c[0x100] < (sword ? 3 : 4) || get_long(c + 0x116) < need) {
+        if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) < (sword ? 3 : 4) ||
+            experience_of(L, c) < need) {
             snprintf(text, sizeof text, "%s is too inexperienced%s", name, sword ? "." : "");
-            centred(game, text, base, 21, 9, c[0]);
+            centred(game, text, base, 21, 9, stored);
         } else {
             bool qualifies = true;
             for (size_t k = 0; k < 6; ++k)
-                if (c[0x10 + 2 * k] < knight_scores[sword ? 0 : 1][k]) qualifies = false;
+                if (cok_field_u8_at(L, c, COK_FIELD_SCORE_BASE, k) <
+                    knight_scores[sword ? 0 : 1][k])
+                    qualifies = false;
             if (!qualifies) {
                 snprintf(text, sizeof text, "%s does not qualify.", name);
-                centred(game, text, base, 18, 9, c[0]);
+                centred(game, text, base, 18, 9, stored);
             } else {
                 snprintf(text, sizeof text, "%s may become a", name);
-                centred(game, text, 19, 13, 9, c[0]);
+                centred(game, text, 19, 13, 9, stored);
                 draw(game, sword ? "Knight Of The Sword" : "Knight Of The Rose", 10, 11);
                 menu = "Change Exit";
             }

@@ -31,6 +31,7 @@ static bool build(cok_adventure *game, cok_character *character)
  * template's colours the record's (127f:15fd). */
 static bool copy(cok_adventure *game, const uint8_t *c, uint8_t from, uint8_t to, bool colours)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_picture *src = game->icons[from], *dst = game->icons[to];
     size_t size = dst[0].frame_size;
     for (int image = 0; image < 2; ++image) {
@@ -45,8 +46,9 @@ static bool copy(cok_adventure *game, const uint8_t *c, uint8_t from, uint8_t to
     uint8_t map[16];
     memcpy(map, same, sizeof map);
     for (size_t k = 0; k < 6; ++k) {
-        map[part_colours[k]] = c[0x139 + k] & 15;
-        map[part_colours[k] + 8] = c[0x139 + k] >> 4;
+        uint8_t colour = cok_field_u8_at(L, c, COK_FIELD_ICON_COLOURS, k + 1);
+        map[part_colours[k]] = colour & 15;
+        map[part_colours[k] + 8] = colour >> 4;
     }
     for (int image = 0; image < 2; ++image)
         if (cok_picture_recolor(&dst[image], same, map, 0, NULL) != COK_PICTURE_OK)
@@ -82,6 +84,7 @@ static void text(cok_adventure *game, const char *s, int x, int y)
 
 bool cok_icon_edit(cok_adventure *game)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_character *character = cok_adventure_selected(game);
     if (character == NULL)
         return fail(game, "the icon editor with no character selected reads through NULL "
@@ -101,13 +104,15 @@ bool cok_icon_edit(cok_adventure *game)
         if (!build(game, character)) return false;
         int level = 1;
         uint8_t colours[6];
-        memcpy(colours, c + 0x139, sizeof colours);
-        uint8_t slot = c[0x137];
-        c[0x137] = SLOT_NEW;
+        memcpy(colours, c + cok_field_offset(L, COK_FIELD_ICON_COLOURS), sizeof colours);
+        uint8_t slot = cok_field_u8(L, c, COK_FIELD_ICON);
+        cok_field_set8(L, c, COK_FIELD_ICON, SLOT_NEW);
         bool built = build(game, character);
-        c[0x137] = slot;
+        cok_field_set8(L, c, COK_FIELD_ICON, slot);
         if (!built) return false;
-        uint8_t head = c[0x135], body = c[0x136], size = c[0x138];
+        uint8_t head = cok_field_u8(L, c, COK_FIELD_ICON_HEAD),
+                body = cok_field_u8(L, c, COK_FIELD_ICON_BODY),
+                size = cok_field_u8(L, c, COK_FIELD_ICON_SIZE);
         if (!copy(game, c, slot, SLOT_NEW, true)) return false;
         pair(game, 1, 2);
         text(game, "old", 8, 6);
@@ -125,7 +130,10 @@ bool cok_icon_edit(cok_adventure *game)
                          second ? "Face" : "Hair");
             else
                 snprintf(items, sizeof items, "%s%s",
-                         level == 4 ? (c[0x138] == 2 ? "Small" : "Large") : "", menus[level]);
+                         level == 4
+                             ? (cok_field_u8(L, c, COK_FIELD_ICON_SIZE) == 2 ? "Small" : "Large")
+                             : "",
+                         menus[level]);
             bool special;
             key = cok_camp_menu(game, "", items, false, false, &special);
             if (key < 0) return false;
@@ -160,20 +168,27 @@ bool cok_icon_edit(cok_adventure *game)
                 }
                 level = key == 0 || key == 'E' ? 1 : 5;
             } else if (level == 4) {
-                if (key == 'L' && !(c[0x138] = 2, build(game, character))) return false;
-                if (key == 'S' && !(c[0x138] = 1, build(game, character))) return false;
+                if (key == 'L') {
+                    cok_field_set8(L, c, COK_FIELD_ICON_SIZE, 2);
+                    if (!build(game, character)) return false;
+                }
+                if (key == 'S') {
+                    cok_field_set8(L, c, COK_FIELD_ICON_SIZE, 1);
+                    if (!build(game, character)) return false;
+                }
                 if (key == 'K') {
-                    size = c[0x138];
+                    size = cok_field_u8(L, c, COK_FIELD_ICON_SIZE);
                     level = 1;
                     key = ' ';
                 } else if (key == 'E' || key == 0) {
-                    c[0x138] = size;
+                    cok_field_set8(L, c, COK_FIELD_ICON_SIZE, size);
                     level = 1;
                     key = ' ';
                 }
                 if (!build(game, character)) return false;
             } else if (parent == 2 && (edited == 'H' || edited == 'W')) {
-                uint8_t *field = &c[edited == 'H' ? 0x135 : 0x136];
+                cok_field part_field = edited == 'H' ? COK_FIELD_ICON_HEAD : COK_FIELD_ICON_BODY;
+                uint8_t *field = c + cok_field_offset(L, part_field);
                 uint8_t last = edited == 'H' ? 13 : 31, kept = edited == 'H' ? head : body;
                 if (key == 'P') {
                     *field = *field > 0 ? (uint8_t)(*field - 1) : last;
@@ -191,7 +206,7 @@ bool cok_icon_edit(cok_adventure *game)
                 }
                 if (!build(game, character)) return false;
             } else if (parent == 3) {
-                uint8_t *byte = &c[0x138 + part];
+                uint8_t *byte = c + cok_field_offset_at(L, COK_FIELD_ICON_COLOURS, part);
                 uint8_t low = *byte & 15, high = *byte >> 4;
                 if (key == 'N' || key == 'P') {
                     int step = key == 'N' ? 1 : 15;
@@ -199,25 +214,28 @@ bool cok_icon_edit(cok_adventure *game)
                     else low = (uint8_t)((low + step) & 15);
                     *byte = (uint8_t)(low + high * 16);
                 } else if (key == 'K') {
-                    memcpy(colours, c + 0x139, sizeof colours);
+                    memcpy(colours, c + cok_field_offset(L, COK_FIELD_ICON_COLOURS),
+                           sizeof colours);
                     level = 3;
                     key = ' ';
                 } else if (key == 'E' || key == 0) {
-                    memcpy(c + 0x139, colours, sizeof colours);
+                    memcpy(c + cok_field_offset(L, COK_FIELD_ICON_COLOURS), colours,
+                           sizeof colours);
                     level = 3;
                     key = ' ';
                 }
             }
             /* Else, after a space in Parts, nothing: the original is stuck
              * at this level for good. */
-            if (!copy(game, c, c[0x137], SLOT_NEW, true)) return false;
+            if (!copy(game, c, cok_field_u8(L, c, COK_FIELD_ICON), SLOT_NEW, true)) return false;
             if (parent == 1 && (key == 0 || key == 'E')) break;
         }
-        c[0x135] = head;
-        c[0x136] = body;
-        c[0x138] = size;
-        memcpy(c + 0x139, colours, sizeof colours);
-        if (!copy(game, c, c[0x137], SLOT_NEW, true) || !copy(game, c, SLOT_NEW, c[0x137], false))
+        cok_field_set8(L, c, COK_FIELD_ICON_HEAD, head);
+        cok_field_set8(L, c, COK_FIELD_ICON_BODY, body);
+        cok_field_set8(L, c, COK_FIELD_ICON_SIZE, size);
+        memcpy(c + cok_field_offset(L, COK_FIELD_ICON_COLOURS), colours, sizeof colours);
+        if (!copy(game, c, cok_field_u8(L, c, COK_FIELD_ICON), SLOT_NEW, true) ||
+            !copy(game, c, SLOT_NEW, cok_field_u8(L, c, COK_FIELD_ICON), false))
             return false;
         cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 67b5:0c7b */
         cok_arena_free_icon(game, SLOT_NEW);

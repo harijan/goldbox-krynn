@@ -101,6 +101,14 @@ static const cok_character_layout champions_character = {
             /* A human's level when it changed class, which its new class's
              * level must pass for it to use its former class (66c2:0efb). */
             [COK_FIELD_CHANGE_LEVEL] = SBYTE(0x0d7),
+            /* A byte shared out over a count of levels: each class that
+             * trains while the count is not 0 takes its share off it,
+             * +0xd9 - +0xd9 / +0xd8, and counts one down (4def:4d9e).
+             * Nothing else in START or the ECL reads or writes either, and
+             * no monster or saved character sets them; Death Knights'
+             * import drops both. */
+            [COK_FIELD_SPREAD_LEVELS] = BYTE(0x0d8),
+            [COK_FIELD_SPREAD] = BYTE(0x0d9),
             /* A monster's kind of undead, 0 for none: turning picks the
              * highest (432f:14a2) and reads its row of the table at DS:0444,
              * 13 a kind (432f:12b7, signed); a cloud does not choke one
@@ -113,6 +121,10 @@ static const cok_character_layout champions_character = {
             /* 0x80 and up for NPCs; 0xb3 for a player character an effect
              * has turned. */
             [COK_FIELD_NPC] = BYTE(0x0e7),
+            /* An NPC's shares of the coins after combat, bits 0-2, and,
+             * set, it says it hides its share (351b:1618); Modify's Keep
+             * sets it to 1 (4def:35ea), as every saved character has it. */
+            [COK_FIELD_SHARES] = BYTE(0x0e8),
             /* Silver, copper, bronze, platinum, steel, gems, jewelry
              * (COK_COINS); 6346:0d20 weighs 1-6. */
             [COK_FIELD_COINS] = WORDS(0x0eb, 7, 0),
@@ -157,6 +169,11 @@ static const cok_character_layout champions_character = {
             [COK_FIELD_SPELLS_A_DAY] =
                 {.offset = 0x11c, .width = 1, .count = 5, .first = 1, .stride = 1, .rows = 4,
                  .row_stride = 5},
+            /* A monster's experience for the party that defeats it, +0x130
+             * + +0x132 * BASE_HIT_POINTS (351b:0037); the ECL reads and
+             * writes both (3775:07d9, 3775:0c00). */
+            [COK_FIELD_MONSTER_EXPERIENCE] = WORD(0x130),
+            [COK_FIELD_MONSTER_HIT_POINT_EXPERIENCE] = BYTE(0x132),
             /* A player character's combat icon, composed by 4b6d:0817: its
              * head and body (records of CHEAD and CBODY, with the size's
              * letter), its size (1 small, 2 tall), and colours 1-6, each byte

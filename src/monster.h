@@ -12,7 +12,7 @@
  * and effects (MON<file>SPC); LOAD MONSTER appends it to the end of the
  * party list, where it stays until the end of combat removes it. How a
  * monster uses the fields of Champions' layout (champions_character in
- * rules.c), and bytes it does not name yet (+0x130, +0x132):
+ * rules.c):
  *
  *   +0x0cf  SIZE: bits 0-2 the size of its combat icon, bit 7 a large
  *           creature
@@ -22,8 +22,10 @@
  *   +0x10b  BASE_ATTACKS: attacks a round, doubled, for its two attacks;
  *           +0x10d BASE_DICE, +0x10f BASE_DICE_SIDES and +0x111
  *           BASE_DAMAGE_BONUS for each
- *   +0x11b  BASE_HIT_POINTS: hit points at full; +0x130 (a word) and
- *           +0x132 its experience, +0x130 + +0x132 * +0x11b
+ *   +0x11b  BASE_HIT_POINTS: hit points at full
+ *   +0x130  MONSTER_EXPERIENCE (a word) and +0x132
+ *           MONSTER_HIT_POINT_EXPERIENCE: its experience, +0x130 +
+ *           +0x132 * +0x11b
  *   +0x187  MAGIC_RESISTANCE
  *   +0x18a  HOSTILE: 1 against the party
  *   +0x18b  COMPUTER: 1 while the computer controls it

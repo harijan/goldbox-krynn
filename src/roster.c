@@ -27,10 +27,11 @@ static bool exists(const char *path)
 }
 
 /* The record's name, a string[15]. */
-static void name_of(const uint8_t *c, char out[16])
+static void name_of(const cok_character_layout *L, const uint8_t *c, char out[16])
 {
-    size_t length = c[0] > 15 ? 15 : c[0];
-    memcpy(out, c + 1, length);
+    uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
+    size_t length = stored > 15 ? 15 : stored;
+    memcpy(out, c + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
     out[length] = '\0';
 }
 
@@ -78,19 +79,22 @@ size_t cok_roster_list(cok_adventure *game, cok_roster_entry *entries, size_t ma
         snprintf(path, sizeof path, "%s/%s", game->save_dir, entry->d_name);
         FILE *f = fopen(path, "rb");
         if (f == NULL) continue;
-        uint8_t record[COK_CHARACTER_SIZE + 1];
+        const cok_character_layout *L = cok_game_rules(game)->character;
+        uint8_t record[COK_CHARACTER_MAX + 1];
         size_t size = fread(record, 1, sizeof record, f);
         fclose(f);
-        if (size != COK_CHARACTER_SIZE || record[0xf7] > 0x7f) continue;
+        /* The jewelry's low byte (COINS 6, +0xf7). */
+        if (size != L->file_size || record[cok_field_offset_at(L, COK_FIELD_COINS, 6)] > 0x7f)
+            continue;
         /* BlockRead of 16 bytes into a zeroed node: past 15 characters it
          * holds zeros. */
         char name[16], shown[16];
-        name_of(record, name);
+        name_of(L, record, name);
         padded(name, shown);
         bool joined = false;
         for (size_t i = 0; i < game->party.count && !joined; ++i) {
             char member[16], member_shown[16];
-            name_of(game->party.members[i]->record, member);
+            name_of(L, game->party.members[i]->record, member);
             padded(member, member_shown);
             joined = strcmp(member_shown, shown) == 0;
         }
@@ -107,9 +111,10 @@ size_t cok_roster_list(cok_adventure *game, cok_roster_entry *entries, size_t ma
 
 void cok_roster_erase(cok_adventure *game, const uint8_t *record)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     if (game->save_dir[0] == '\0') return;
     char name[16], base[9], path[sizeof game->save_dir + 32];
-    name_of(record, name);
+    name_of(L, record, name);
     cok_party_file_name(name, base);
     const cok_rules_saves *s = &cok_game_rules(game)->saves;
     const char *const extensions[3] = {s->roster, s->items, s->effects};
@@ -121,13 +126,14 @@ void cok_roster_erase(cok_adventure *game, const uint8_t *record)
 
 bool cok_roster_save(cok_adventure *game, cok_character *character)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     if (game->save_dir[0] == '\0') {
         cok_adventure_log(game, "error", "no directory to save characters in");
         return false;
     }
     uint8_t *c = character->record;
     char name[16], base[41], path[sizeof game->save_dir + 64];
-    name_of(c, name);
+    name_of(L, c, name);
     char file[9];
     cok_party_roster_name(name, file);
     snprintf(base, sizeof base, "%s", file);
@@ -151,8 +157,8 @@ bool cok_roster_save(cok_adventure *game, cok_character *character)
         cok_adventure_log(game, "input", base);
         /* The character takes the file's name. */
         size_t length = strlen(base) > 15 ? 15 : strlen(base);
-        c[0] = (uint8_t)length;
-        memcpy(c + 1, base, length);
+        cok_field_set8_at(L, c, COK_FIELD_NAME, 0, (uint8_t)length);
+        memcpy(c + cok_field_offset_at(L, COK_FIELD_NAME, 1), base, length);
     }
     char error[300];
     if (strpbrk(base, "/\\") != NULL) {
@@ -181,6 +187,7 @@ static bool selected_index(cok_adventure *game, size_t *index)
 
 void cok_roster_drop(cok_adventure *game)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     if (!cok_start_pick(game)) return;
     size_t index;
     if (!selected_index(game, &index)) {
@@ -189,13 +196,13 @@ void cok_roster_drop(cok_adventure *game)
     }
     uint8_t *c = game->vm.character;
     char name[16], text[80];
-    name_of(c, name);
+    name_of(L, c, name);
     snprintf(text, sizeof text, "Drop %s forever? ", name);
     int answer = cok_camp_yes_no(game, text, 14);
     if (answer == 'Y') answer = cok_camp_yes_no(game, "Are you sure? ", 14);
     if (answer < 0) return;
     if (answer == 'Y') {
-        if (c[0x189] == 0)
+        if (cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0)
             snprintf(text, sizeof text, "You dump %s out back.", name);
         else
             snprintf(text, sizeof text, "%s bids you farewell.", name);
@@ -213,6 +220,7 @@ void cok_roster_drop(cok_adventure *game)
 
 void cok_roster_remove(cok_adventure *game)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     if (game->vm.character == NULL || !cok_start_pick(game)) return;
     size_t index;
     if (!selected_index(game, &index)) {
@@ -220,7 +228,7 @@ void cok_roster_remove(cok_adventure *game)
         return;
     }
     cok_character *c = game->party.members[index];
-    if (c->record[0xe7] >= 0x80) {
+    if (cok_field_u8(L, c->record, COK_FIELD_NPC) >= 0x80) {
         cok_roster_drop(game);
         return;
     }
@@ -231,13 +239,18 @@ void cok_roster_remove(cok_adventure *game)
 }
 
 /* Whether record's name is the same string as other's, and its +0x115. */
-static bool same(const uint8_t *a, const uint8_t *b)
+static bool same(const cok_character_layout *L, const uint8_t *a, const uint8_t *b)
 {
-    return a[0] == b[0] && memcmp(a + 1, b + 1, a[0] > 15 ? 15 : a[0]) == 0 && a[0x115] == b[0x115];
+    uint8_t length = cok_field_u8_at(L, a, COK_FIELD_NAME, 0);
+    size_t text = cok_field_offset_at(L, COK_FIELD_NAME, 1);
+    return length == cok_field_u8_at(L, b, COK_FIELD_NAME, 0) &&
+           memcmp(a + text, b + text, length > 15 ? 15 : length) == 0 &&
+           cok_field_u8(L, a, COK_FIELD_MONSTER_ID) == cok_field_u8(L, b, COK_FIELD_MONSTER_ID);
 }
 
 void cok_roster_add(cok_adventure *game)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_ecl *vm = &game->vm;
     static cok_roster_entry entries[256];
     size_t count = cok_roster_list(game, entries, 256);
@@ -304,32 +317,34 @@ void cok_roster_add(cok_adventure *game)
             bool duplicate = false;
             for (size_t i = 0; i < game->party.count && !duplicate; ++i) {
                 const uint8_t *p = game->party.members[i]->record;
-                if (same(p, r)) {
+                if (same(L, p, r)) {
                     duplicate = true;
                     break;
                 }
-                if (p[0xe7] < 0x80) ++players;
-                if ((int8_t)p[0xfd] > 0) ++rangers;
-                if (((int8_t)p[0x10a] + 1) % 3 == 0) evil = true;
-                if ((int8_t)p[0xfc] > 0) {
+                if (cok_field_u8(L, p, COK_FIELD_NPC) < 0x80) ++players;
+                if (cok_field_s8_at(L, p, COK_FIELD_CLASS_LEVEL, 4) > 0) ++rangers;
+                if ((cok_field_s8(L, p, COK_FIELD_ALIGNMENT) + 1) % 3 == 0) evil = true;
+                if (cok_field_s8_at(L, p, COK_FIELD_CLASS_LEVEL, 3) > 0) {
                     paladin = true;
-                    name_of(p, paladin_name);
+                    name_of(L, p, paladin_name);
                 }
             }
             accept = !duplicate &&
-                     (r[0xe7] < 0x80 ? players < 6 : vm->mem7c00[0x33e] < 8) &&
-                     (r[0xfc] == 0 || !evil) && (r[0xfd] == 0 || rangers < 3) &&
-                     (((int8_t)r[0x10a] + 1) % 3 != 0 || !paladin);
+                     (cok_field_u8(L, r, COK_FIELD_NPC) < 0x80 ? players < 6
+                                                               : vm->mem7c00[0x33e] < 8) &&
+                     (cok_field_u8_at(L, r, COK_FIELD_CLASS_LEVEL, 3) == 0 || !evil) &&
+                     (cok_field_u8_at(L, r, COK_FIELD_CLASS_LEVEL, 4) == 0 || rangers < 3) &&
+                     ((cok_field_s8(L, r, COK_FIELD_ALIGNMENT) + 1) % 3 != 0 || !paladin);
             if (!accept) {
                 snprintf(text[index], sizeof text[index], "%s", marked + 2);
                 char message[64] = "";
                 bool extra = false;
-                if ((int8_t)r[0xfc] > 0 && evil) {
+                if (cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 3) > 0 && evil) {
                     snprintf(message, sizeof message, "paladins do not join with evil scum");
                     extra = true;
-                } else if ((int8_t)r[0xfd] > 0 && rangers > 2) {
+                } else if (cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 4) > 0 && rangers > 2) {
                     snprintf(message, sizeof message, "too many rangers in party");
-                } else if (((int8_t)r[0x10a] + 1) % 3 == 0 && paladin) {
+                } else if ((cok_field_s8(L, r, COK_FIELD_ALIGNMENT) + 1) % 3 == 0 && paladin) {
                     snprintf(message, sizeof message, "%s will tolerate no evil!", paladin_name);
                 }
                 if (message[0] != '\0') {
@@ -349,7 +364,7 @@ void cok_roster_add(cok_adventure *game)
                 return;
             }
             char error[300];
-            if (r[0xe7] >= 0x80 &&
+            if (cok_field_u8(L, r, COK_FIELD_NPC) >= 0x80 &&
                 !cok_character_levels(c, cok_game_rules(game), &game->item_types, error,
                                       sizeof error)) {
                 undefined(game, error);
@@ -359,9 +374,9 @@ void cok_roster_add(cok_adventure *game)
             vm->character = r;
             if (!cok_arena_party_icon(game, c, true)) return;
             /* The first to join is not counted (4def:38c3). */
-            if (!first && r[0xe7] < 0x80) ++players;
+            if (!first && cok_field_u8(L, r, COK_FIELD_NPC) < 0x80) ++players;
             char joined[32];
-            name_of(r, joined);
+            name_of(L, r, joined);
             snprintf(marked, sizeof marked, "%s joins", joined);
             cok_adventure_log(game, "party", marked);
         }

@@ -28,13 +28,13 @@ bool cok_camp_rest(cok_adventure *game, bool interactive);
 /* The minutes c needs to finish learning and scribing the spells marked
  * for it (4888:0032), setting its hours of preparation (+0x58): 4, or 6
  * for a spell above level 2, plus 15 minutes for each level. */
-uint16_t cok_camp_preparation(cok_character *c);
+uint16_t cok_camp_preparation(cok_character *c, const cok_rules *rules);
 
 /* Unmark the spells c was to memorize (4888:05fd), which also clears its
  * hours of preparation, and the spells of its scrolls it was to scribe
  * (4888:0640). The camp does this for each member when it starts and ends
  * (4888:06b8). */
-void cok_camp_forget(cok_character *c);
+void cok_camp_forget(cok_character *c, const cok_rules *rules);
 
 /* Take amount of unit (1 minutes ... 4 days) from the rest time, borrowing
  * from larger units; past the days it is all gone (57e4:05ee). Then carry

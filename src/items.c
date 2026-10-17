@@ -892,10 +892,10 @@ static bool identify(cok_adventure *game, cok_character *character, size_t index
     if (answer < 0) return false;
     bool paid = false;
     if (answer == 'Y') {
-        int32_t money = cok_shop_money(c), value;
+        int32_t money = cok_shop_money(c, cok_game_rules(game)), value;
         if (money >= 100) {
             paid = true;
-            cok_pool_pay(c, (uint16_t)(money - 100));
+            cok_pool_pay(c, cok_game_rules(game), (uint16_t)(money - 100));
             cok_adventure_log(game, "shop", "identified for 100 steel");
         } else if ((value = cok_pool_value(game->pool.coins)) >= 100) {
             paid = true;

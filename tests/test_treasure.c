@@ -442,6 +442,19 @@ static void test_tree(void)
     CHECK(one_of(tree_type(seed_for_tree(20, 100, 4)), other));
 }
 
+/* Pool takes every kind of coin, gems and jewelry too, and their weight. */
+static void test_gather(void)
+{
+    reset("");
+    cok_character *a = member("A");
+    put_word(a->record + 0xeb + 10, 2);
+    put_word(a->record + 0xeb + 12, 4);
+    put_word(a->record + 0x17d, 10);
+    cok_pool_gather(&game);
+    CHECK(game.pool.coins[5] == 2 && game.pool.coins[6] == 4 && word(a->record + 0x17d) == 4);
+    CHECK(word(a->record + 0xeb + 10) == 0 && word(a->record + 0xeb + 12) == 0);
+}
+
 /* The pool's money (58e7). */
 static void test_pool(void)
 {
@@ -542,7 +555,7 @@ static void test_pool(void)
     cok_pool_set_steel(&game.pool, 77);
     CHECK(game.pool.coins[3] == 0 && game.pool.coins[4] == 77);
     put_word(a->record + 0xeb, 9);
-    cok_pool_pay(a->record, 66);
+    cok_pool_pay(a->record, &cok_rules_champions, 66);
     CHECK(word(a->record + 0xeb) == 0 && word(a->record + 0xeb + 8) == 66);
     /* Steel given beyond what one can carry goes to the pool. */
     s.log[0] = '\0';
@@ -832,6 +845,9 @@ static void test_shares(void)
     n3->record[0xe8] = 3;
     n3->record[0x188] = 6; /* counts one, takes none */
     n3->record[0x189] = 0;
+    /* An okay NPC with no shares (+0xe8 0, as every monster's) takes none,
+     * counts none and says nothing. */
+    member("P")->record[0xe7] = 0x80;
     /* Four shares: steel 1000, 250 a share, two taken; gems 2000, 500 a
      * share cut to a byte, 244. */
     game.pool.coins[4] = 1000;
@@ -839,7 +855,7 @@ static void test_shares(void)
     CHECK(combat(COK_COMBAT_UNPORTED) == COK_ECL_OK);
     CHECK(LOGGED("print: N takes and hides his share.;print: M takes and hides her share.;"
                  "menu: press <enter>/<return> to continue;print: The party has found Treasure!;"));
-    CHECK(!LOGGED("O takes"));
+    CHECK(!LOGGED("O takes") && !LOGGED("P takes"));
     CHECK(game.pool.coins[4] == 500 && game.pool.coins[5] == 2000 - 488);
     /* No NPC shares: nothing taken, nothing said. */
     reset("\rEN");
@@ -1205,6 +1221,7 @@ int main(void)
     test_generator();
     test_treasure_opcode();
     test_tree();
+    test_gather();
     test_pool();
     test_experience();
     test_loot();

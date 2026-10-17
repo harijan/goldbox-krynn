@@ -124,6 +124,15 @@ static bool logged(const char *what)
     return strstr(s.log, what) != NULL;
 }
 
+/* The pixels of colour value in a picture's first frame, two to a byte. */
+static size_t nibbles(const cok_picture *p, uint8_t value)
+{
+    size_t n = 0;
+    for (size_t i = 0; i < p->frame_size; ++i)
+        n += (size_t)((p->pixels[i] >> 4) == value) + (size_t)((p->pixels[i] & 15) == value);
+    return n;
+}
+
 static void empty_party(void)
 {
     cok_party_free(&game.party);
@@ -412,17 +421,17 @@ static void test_edges(void)
     /* The least is at least 1: a mage of constitution 3. */
     c[0xfe] = 1;
     c[0x19] = 3;
-    CHECK(cok_modify_least(c) == 1);
+    CHECK(cok_modify_least(c, &cok_rules_champions) == 1);
     /* Past its top level a class sets the most: a fighter of level 12 has
      * 3 x 3 + 90. */
     memset(c, 0, sizeof c);
     c[0xfb] = 12;
     c[0x19] = 10;
-    CHECK(cok_modify_most(c, c, &most) && most == 99);
+    CHECK(cok_modify_most(c, &cok_rules_champions, c, &most) && most == 99);
     /* The default body of a knight. */
     memset(c, 0, sizeof c);
     c[0x100] = 1;
-    cok_create_icon(c);
+    cok_create_icon(c, &cok_rules_champions);
     CHECK(c[0x136] == 0x18);
     empty_party();
     /* A cleric of deity 4 trains by the first row: 3000 is not enough. */
@@ -485,9 +494,9 @@ static void test_quirks(void)
     uint8_t c[COK_CHARACTER_SIZE] = {0};
     /* 4def:4789: 19-20 three more, 21-23 four. */
     c[0x19] = 20;
-    CHECK(cok_train_constitution(c, 4) == 5);
+    CHECK(cok_train_constitution(c, &cok_rules_champions, 4) == 5);
     c[0x19] = 21;
-    CHECK(cok_train_constitution(c, 4) == 6 && cok_train_constitution(c, 6) == 2);
+    CHECK(cok_train_constitution(c, &cok_rules_champions, 4) == 6 && cok_train_constitution(c, &cok_rules_champions, 6) == 2);
     /* 4def:4b3a with nothing trained still gives a hit point. */
     memset(c, 0, sizeof c);
     c[0xf9] = 1;
@@ -625,6 +634,34 @@ static void test_roster_rules(void)
     keys("\x1b");
     cok_roster_add(&game);
     CHECK(!logged("ROSTA") && logged("ROSTB"));
+    /* 0x7f is listed. */
+    r->record[0xf7] = 0x7f;
+    CHECK(cok_character_write_file(r, &cok_rules_champions, rules, "R00", "WHO", error,
+                                   sizeof error));
+    keys("\x1b");
+    cok_roster_add(&game);
+    CHECK(logged("item: ROSTA"));
+    /* Only a file of exactly 409 bytes is listed: one a byte longer or
+     * shorter is not. */
+    static const char *const sized[2] = {"LONGER", "SHORTER"};
+    for (size_t i = 0; i < 2; ++i) {
+        cok_character *z = member(sized[i], 2, 1);
+        char base[8];
+        snprintf(base, sizeof base, "Z%02zu", i);
+        CHECK(cok_character_write_file(z, &cok_rules_champions, rules, base, "WHO", error,
+                                       sizeof error));
+        cok_character_free(z);
+        free(z);
+        snprintf(path, sizeof path, "%s/%s.WHO", rules, base);
+        CHECK(truncate(path, i == 0 ? 410 : 408) == 0);
+    }
+    keys("\x1b");
+    cok_roster_add(&game);
+    CHECK(logged("ROSTA") && !logged("LONGER") && !logged("SHORTER"));
+    for (size_t i = 0; i < 2; ++i) {
+        snprintf(path, sizeof path, "%s/Z%02zu.WHO", rules, i);
+        CHECK(remove(path) == 0);
+    }
     /* From an empty party, Add ends once six player characters are in. */
     empty_party();
     r->record[0xf7] = 0;
@@ -759,20 +796,20 @@ static void test_tables(void)
 static void test_experience(void)
 {
     uint8_t c[COK_CHARACTER_SIZE] = {0}, row = 0xaa;
-    CHECK(cok_train_row(c, 0, &row) && row == 0);
+    CHECK(cok_train_row(c, &cok_rules_champions, 0, &row) && row == 0);
     c[0x5d] = 5;
-    CHECK(cok_train_row(c, 0, &row) && row == 1);
-    CHECK(cok_train_row(c, 2, &row) && row == 2 && cok_train_row(c, 4, &row) && row == 6);
+    CHECK(cok_train_row(c, &cok_rules_champions, 0, &row) && row == 1);
+    CHECK(cok_train_row(c, &cok_rules_champions, 2, &row) && row == 2 && cok_train_row(c, &cok_rules_champions, 4, &row) && row == 6);
     c[0x5e] = 1;
-    CHECK(cok_train_row(c, 5, &row) && row == 7);
+    CHECK(cok_train_row(c, &cok_rules_champions, 5, &row) && row == 7);
     c[0x5e] = 2;
-    CHECK(cok_train_row(c, 5, &row) && row == 8 && cok_train_row(c, 6, &row) && row == 9);
+    CHECK(cok_train_row(c, &cok_rules_champions, 5, &row) && row == 8 && cok_train_row(c, &cok_rules_champions, 6, &row) && row == 9);
     /* A druid, a paladin and a knight of no order are the uninitialized local. */
     row = 0xaa;
-    CHECK(!cok_train_row(c, 1, &row) && !cok_train_row(c, 3, &row) && !cok_train_row(c, 7, &row));
+    CHECK(!cok_train_row(c, &cok_rules_champions, 1, &row) && !cok_train_row(c, &cok_rules_champions, 3, &row) && !cok_train_row(c, &cok_rules_champions, 7, &row));
     CHECK(row == 0xaa);
     c[0x5c] = 3;
-    CHECK(cok_train_row(c, 7, &row) && row == 5);
+    CHECK(cok_train_row(c, &cok_rules_champions, 7, &row) && row == 5);
     int32_t need;
     CHECK(cok_train_experience(2, 2, &need) && need == 2001);
     CHECK(cok_train_experience(2, 3, &need) && need == 4001);
@@ -781,14 +818,14 @@ static void test_experience(void)
     CHECK(cok_train_experience(9, 10, &need) && need == -1);
     /* 4def:4789: the warriors' extra at 17-25. */
     c[0x19] = 18;
-    CHECK(cok_train_constitution(c, 2) == 4 && cok_train_constitution(c, 5) == 2);
+    CHECK(cok_train_constitution(c, &cok_rules_champions, 2) == 4 && cok_train_constitution(c, &cok_rules_champions, 5) == 2);
     c[0x19] = 3;
-    CHECK(cok_train_constitution(c, 2) == -2);
+    CHECK(cok_train_constitution(c, &cok_rules_champions, 2) == -2);
     int8_t b;
     c[0x19] = 19;
-    CHECK(cok_train_hit_die(c, 7, &b) && b == 5 && cok_train_hit_die(c, 0, &b) && b == 2);
+    CHECK(cok_train_hit_die(c, &cok_rules_champions, 7, &b) && b == 5 && cok_train_hit_die(c, &cok_rules_champions, 0, &b) && b == 2);
     c[0x19] = 20;
-    CHECK(!cok_train_hit_die(c, 2, &b));
+    CHECK(!cok_train_hit_die(c, &cok_rules_champions, 2, &b));
 }
 
 /* 4def:4b3a: the better of two rolls, the bonus times the dice, divided by
@@ -1015,9 +1052,9 @@ static void test_modify(void)
     uint8_t r[COK_CHARACTER_SIZE] = {0}, most;
     r[0xfb] = 1;
     r[0x19] = 16;
-    CHECK(cok_modify_least(r) == 3 && cok_modify_most(r, r, &most) && most == 12);
+    CHECK(cok_modify_least(r, &cok_rules_champions) == 3 && cok_modify_most(r, &cok_rules_champions, r, &most) && most == 12);
     r[0x19] = 2;
-    CHECK(!cok_modify_most(r, r, &most));
+    CHECK(!cok_modify_most(r, &cok_rules_champions, r, &most));
     empty_party();
 }
 
@@ -1026,19 +1063,19 @@ static void test_icon(void)
 {
     uint8_t c[COK_CHARACTER_SIZE] = {0};
     c[0x5a] = 5;
-    cok_create_icon(c);
+    cok_create_icon(c, &cok_rules_champions);
     CHECK(c[0x135] == 3 && c[0x136] == 5);
     c[0x5a] = 6;
     c[0x109] = 1;
     c[0x138] = 1;
     c[0xfd] = 1;
-    cok_create_icon(c);
+    cok_create_icon(c, &cok_rules_champions);
     CHECK(c[0x135] == 7 && c[0x136] == 1);
     c[0x109] = 0;
     c[0x138] = 2;
     c[0xfe] = 1;
     c[0xfd] = 0;
-    cok_create_icon(c);
+    cok_create_icon(c, &cok_rules_champions);
     CHECK(c[0x135] == 5 && c[0x136] == 0x1d);
     empty_party();
     cok_character *k = add(member("ICON", 2, 1));
@@ -1062,6 +1099,17 @@ static void test_icon(void)
      * the keys run out. */
     keys("P NPKEEEEY");
     CHECK(!cok_icon_edit(&game) && game.input_ended);
+    /* The record's colours replace the template's by part (127f:15fd):
+     * the body's, colour 1, by the first byte's low nibble, and no other
+     * part's pixels become 12. */
+    game.input_ended = false;
+    static const uint8_t body_12[6] = {0x0c, 0x11, 0x11, 0x11, 0x11, 0x11};
+    CHECK(cok_arena_party_icon(&game, k, false));
+    size_t body = nibbles(&game.icons[r[0x137]][0], 1);
+    memcpy(r + 0x139, body_12, 6);
+    keys("EY");
+    CHECK(cok_icon_edit(&game));
+    CHECK(body > 0 && nibbles(&game.icons[r[0x137]][0], 12) == body);
     empty_party();
 }
 
@@ -1363,6 +1411,16 @@ static void test_vectors(void)
         }
         CHECK(h == created[k].hash);
     }
+    /* The scores rolled are the base too (4def:164d): the sheet marks none
+     * changed with "*" (column 12, rows 9-14). Input ends at "Reroll
+     * stats? ". */
+    empty_party();
+    game.vm.seed = created[0].seed;
+    game.vm.mem7c00[0x2a8] = 0;
+    keys("S\001PSS\001P\001PS\001P\001PS");
+    cok_create(&game);
+    CHECK(logged("Reroll stats? "));
+    for (int a = 0; a < 6; ++a) CHECK(cell_black(12, 9 + a) && !cell_black(5, 9 + a));
     for (size_t k = 0; k < sizeof trained / sizeof *trained; ++k) {
         empty_party();
         cok_character *c = add(build(&trained[k].who));

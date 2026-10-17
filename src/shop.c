@@ -22,10 +22,11 @@ static void put_word(uint8_t *p, uint16_t value)
     p[1] = (uint8_t)(value >> 8);
 }
 
-static void name_of(const uint8_t *c, char out[16])
+static void name_of(const cok_character_layout *L, const uint8_t *c, char out[16])
 {
-    size_t length = c[0] > 15 ? 15 : c[0];
-    memcpy(out, c + 1, length);
+    uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
+    size_t length = stored > 15 ? 15 : stored;
+    memcpy(out, c + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
     out[length] = '\0';
 }
 
@@ -96,10 +97,11 @@ bool cok_shop_price(uint16_t value, uint16_t factor, uint16_t *price)
     }
 }
 
-int32_t cok_shop_money(const uint8_t *c)
+int32_t cok_shop_money(const uint8_t *c, const cok_rules *rules)
 {
     uint32_t coins[COK_COINS] = {0};
-    for (int k = 0; k < 5; ++k) coins[k] = word(c + 0xeb + 2 * k);
+    for (int k = 0; k < 5; ++k)
+        coins[k] = cok_field_u16_at(rules->character, c, COK_FIELD_COINS, k);
     return cok_pool_value(coins);
 }
 
@@ -188,8 +190,9 @@ static int buy_list(cok_adventure *game, bool *redraw, int *index)
  * (6346:1827). */
 static void bought(cok_adventure *game, const uint8_t *c, const uint8_t *item)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     char name[16], text[80];
-    name_of(c, name);
+    name_of(L, c, name);
     size_t length = item[0] > 40 ? 40 : item[0];
     snprintf(text, sizeof text, "%s buys %s%.*s", name, item[0x39] > 0 ? "" : "a ", (int)length,
              (const char *)item + 1);
@@ -207,6 +210,7 @@ static void bought(cok_adventure *game, const uint8_t *c, const uint8_t *item)
  * be carried out. */
 static bool purchase(cok_adventure *game, size_t index)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_pool *pool = &game->pool;
     uint8_t *item = pool->items[index];
     uint16_t price;
@@ -215,15 +219,15 @@ static bool purchase(cok_adventure *game, size_t index)
     if (character == NULL)
         return undefined(game, "Buy with no character selected reads through NULL (546c:3424)");
     uint8_t *c = character->record;
-    uint16_t money = (uint16_t)cok_shop_money(c);
+    uint16_t money = (uint16_t)cok_shop_money(c, cok_game_rules(game));
     char text[64];
     bool failed;
     if (price <= money) {
         if (!cok_treasure_take_item(game, item, &failed)) return false;
         if (failed) return true;
-        cok_pool_pay(c, (uint16_t)(money - price));
+        cok_pool_pay(c, cok_game_rules(game), (uint16_t)(money - price));
         char name[16];
-        name_of(c, name);
+        name_of(L, c, name);
         snprintf(text, sizeof text, "%s pays %u steel", name, price);
     } else {
         int32_t value = cok_pool_value(pool->coins);
@@ -298,6 +302,7 @@ static uint16_t jewel_value(uint32_t *seed)
  * keys too, sells it for the value in steel (58e7:01f2). */
 static bool appraise_one(cok_adventure *game, cok_character *character, bool jewel)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
     uint16_t value = jewel ? jewel_value(&game->vm.seed) : gem_value(&game->vm.seed);
     char text[48];
@@ -306,7 +311,7 @@ static bool appraise_one(cok_adventure *game, cok_character *character, bool jew
     bool full;
     uint16_t fits;
     if (!cok_pool_overloaded(game, c, 1, &full, &fits)) return false;
-    bool keep = !full && c[0x142] < 16;
+    bool keep = !full && cok_field_u8(L, c, COK_FIELD_ITEM_COUNT) < 16;
     bool special;
     int key = cok_camp_menu(game, "You can : ", keep ? "Sell Keep" : "Sell", true, false, &special);
     if (key < 0) return false;
@@ -334,19 +339,22 @@ static bool appraise_one(cok_adventure *game, cok_character *character, bool jew
 
 bool cok_shop_appraise(cok_adventure *game, bool *shown)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     *shown = true;
     cok_character *character = selected(game);
     if (character == NULL)
         return undefined(game, "Appraise with no character selected reads through NULL "
                                "(58e7:1937)");
     uint8_t *c = character->record;
-    if (word(c + 0xf5) == 0 && word(c + 0xf7) == 0) {
+    if (cok_field_u16_at(L, c, COK_FIELD_COINS, 5) == 0 &&
+        cok_field_u16_at(L, c, COK_FIELD_COINS, 6) == 0) {
         cok_camp_notice(game, "No Gems or Jewelry");
         *shown = false;
         return true;
     }
     for (;;) {
-        uint16_t gems = word(c + 0xf5), jewels = word(c + 0xf7);
+        uint16_t gems = cok_field_u16_at(L, c, COK_FIELD_COINS, 5),
+                 jewels = cok_field_u16_at(L, c, COK_FIELD_COINS, 6);
         if (gems == 0 && jewels == 0) return true;
         char gem_text[32] = "", jewel_text[40] = "", menu[32] = "";
         if (gems > 0) snprintf(gem_text, sizeof gem_text, "%u Gem%s", gems, gems == 1 ? "" : "s");
@@ -367,10 +375,10 @@ bool cok_shop_appraise(cok_adventure *game, bool *shown)
         /* Special keys count by their scan codes' letters: Home (G) values
          * a gem. */
         if (key == 'G' && gems > 0) {
-            put_word(c + 0xf5, (uint16_t)(gems - 1));
+            cok_field_set16_at(L, c, COK_FIELD_COINS, 5, (uint16_t)(gems - 1));
             if (!appraise_one(game, character, false)) return false;
         } else if (key == 'J' && jewels > 0) {
-            put_word(c + 0xf7, (uint16_t)(jewels - 1));
+            cok_field_set16_at(L, c, COK_FIELD_COINS, 6, (uint16_t)(jewels - 1));
             if (!appraise_one(game, character, true)) return false;
         } else if (key == 'E' || key == 0) {
             done = true;
@@ -505,17 +513,18 @@ static int anyway(cok_adventure *game, const uint8_t *c, const char *text)
  * does. Returns 'Y' when paid, 'N' when not, -1 if input ended. */
 static int pay(cok_adventure *game, cok_character *character, const char *cure, uint16_t price)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
     char text[96];
     snprintf(text, sizeof text, "%s will only cost %u steel pieces.", cure, price);
     cok_adventure_print(game, text, cok_adventure_text_window, 10, true);
     int answer = cok_camp_yes_no(game, "pay for cure ", 13);
     if (answer != 'Y') return answer;
-    uint16_t money = (uint16_t)cok_shop_money(c);
+    uint16_t money = (uint16_t)cok_shop_money(c, cok_game_rules(game));
     char name[16];
-    name_of(c, name);
+    name_of(L, c, name);
     if (price <= money) {
-        cok_pool_pay(c, (uint16_t)(money - price));
+        cok_pool_pay(c, cok_game_rules(game), (uint16_t)(money - price));
         snprintf(text, sizeof text, "%s pays %u steel", name, price);
     } else {
         int32_t value = cok_pool_value(game->pool.coins);
@@ -577,6 +586,7 @@ static int cure_disease(cok_adventure *game, cok_character *c)
  * intelligence and wisdom are worked out, which keeps nothing. */
 static int wounds(cok_adventure *game, cok_character *character, unsigned kind)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     static const char *const names[4] = {"Cure Light Wounds", "Cure Serious Wounds",
                                          "Cure Critical Wounds", "Heal"};
     static const uint16_t prices[4] = {50, 175, 300, 2500};
@@ -591,7 +601,9 @@ static int wounds(cok_adventure *game, cok_character *character, unsigned kind)
     case 3: amount = (uint8_t)(cok_dice(seed, 3, 8) + 3); break;
     default: {
         uint8_t d = cok_dice(seed, 1, 4);
-        amount = c[0x197] + d > c[0x62] ? 0 : (uint8_t)(c[0x62] - c[0x197] - d);
+        uint8_t now = cok_field_u8(L, c, COK_FIELD_HIT_POINTS),
+                most = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS);
+        amount = now + d > most ? 0 : (uint8_t)(most - now - d);
         break;
     }
     }
@@ -617,23 +629,28 @@ static int wounds(cok_adventure *game, cok_character *character, unsigned kind)
  * above +0xd7. Paid "anyway", it raises no one. */
 static int raise_dead(cok_adventure *game, cok_character *character)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
-    bool dead = c[0x188] == 6 || c[0x188] == 1, elf = (int8_t)c[0x5a] < 2;
+    uint8_t status = cok_field_u8(L, c, COK_FIELD_STATUS);
+    bool dead = status == 6 || status == 1, elf = cok_field_s8(L, c, COK_FIELD_RACE) < 2;
     int answer = ask(game, character, dead && !elf, elf ? "cannot be raised" : "is not dead.",
                      "Raise Dead", 2750);
     if (answer != 'Y' || !dead || elf) return answer;
     game->effects.rolls.curing = 1;
     if (!remove_effect(game, character, 0x20) || !remove_effect(game, character, 0x37)) return -1;
     game->effects.rolls.curing = 0;
-    c[0x197] = 1;
-    c[0x188] = 0;
-    c[0x189] = 1;
-    if (c[0x19] > 0) --c[0x19];
-    uint8_t loss = c[0x62] > c[0x11b] ? (uint8_t)(c[0x62] - c[0x11b]) : 0, sum = 0;
-    uint8_t con = c[0x19];
+    cok_field_set8(L, c, COK_FIELD_HIT_POINTS, 1);
+    cok_field_set8(L, c, COK_FIELD_STATUS, 0);
+    cok_field_set8(L, c, COK_FIELD_ACTIVE, 1);
+    if (cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION) > 0)
+        cok_field_add8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION, -1);
+    uint8_t most = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS),
+            base = cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS);
+    uint8_t loss = most > base ? (uint8_t)(most - base) : 0, sum = 0;
+    uint8_t con = cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION);
     if (con < 14) return 'Y';
     for (int i = 0; i <= 7; ++i) {
-        int8_t level = (int8_t)c[0xf9 + i];
+        int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i);
         if (level <= 0) continue;
         if (i == 2)
             sum = (uint8_t)(sum + (uint16_t)level * (uint16_t)(con - 14));
@@ -641,8 +658,10 @@ static int raise_dead(cok_adventure *game, cok_character *character)
             sum = (uint8_t)(sum + (con > 15 ? 2 * level : level));
     }
     if (sum > 0) loss = (uint8_t)(loss / sum);
-    if (con < 17 || (int8_t)c[0xfb] > 0 || (int8_t)c[0xfb] > (int8_t)c[0xd7])
-        c[0x62] = (uint8_t)(c[0x62] - loss);
+    int8_t fighter = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 2);
+    if (con < 17 || fighter > 0 || fighter > cok_field_s8(L, c, COK_FIELD_CHANGE_LEVEL))
+        cok_field_set8(L, c, COK_FIELD_MAX_HIT_POINTS,
+                       (uint8_t)(cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS) - loss));
     return 'Y';
 }
 
@@ -651,18 +670,20 @@ static int raise_dead(cok_adventure *game, cok_character *character)
  * it is okay and can act. */
 static int neutralize_poison(cok_adventure *game, cok_character *character)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
     bool poisoned = cok_character_find_effect(character, 0x37) != NULL;
     int answer = ask(game, character, poisoned, "is not poisoned.", "Neutralize Poison", 500);
     if (answer != 'Y' || !poisoned) return answer;
-    if (c[0x197] == 0) c[0x197] = 1;
+    if (cok_field_u8(L, c, COK_FIELD_HIT_POINTS) == 0)
+        cok_field_set8(L, c, COK_FIELD_HIT_POINTS, 1);
     game->effects.rolls.curing = 1;
     static const uint8_t poisons[3] = {0x37, 0x16, 0x0f};
     for (size_t i = 0; i < sizeof poisons; ++i)
         if (!remove_effect(game, character, poisons[i])) return -1;
     game->effects.rolls.curing = 0;
-    c[0x189] = 1;
-    c[0x188] = 0;
+    cok_field_set8(L, c, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(L, c, COK_FIELD_STATUS, 0);
     return 'Y';
 }
 
@@ -683,12 +704,14 @@ static int remove_curse(cok_adventure *game, cok_character *character)
  * and has 1 hit point. */
 static int stone_to_flesh(cok_adventure *game, cok_character *character)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
-    int answer = ask(game, character, c[0x188] == 7, "is not stoned.", "Stone to Flesh", 1000);
-    if (answer != 'Y' || c[0x188] != 7) return answer;
-    c[0x188] = 0;
-    c[0x189] = 1;
-    c[0x197] = 1;
+    int answer = ask(game, character, cok_field_u8(L, c, COK_FIELD_STATUS) == 7, "is not stoned.",
+                     "Stone to Flesh", 1000);
+    if (answer != 'Y' || cok_field_u8(L, c, COK_FIELD_STATUS) != 7) return answer;
+    cok_field_set8(L, c, COK_FIELD_STATUS, 0);
+    cok_field_set8(L, c, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(L, c, COK_FIELD_HIT_POINTS, 1);
     return 'Y';
 }
 
@@ -703,6 +726,7 @@ static int stone_to_flesh(cok_adventure *game, cok_character *character)
  * screen is redrawn. */
 static bool heal(cok_adventure *game)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     static const char *const cures[10] = {
         "Cure Blindness", "Cure Disease", "Cure Light Wounds", "Cure Serious Wounds",
         "Cure Critical Wounds", "Heal", "Neutralize Poison", "Raise Dead", "Remove Curse",
@@ -722,7 +746,7 @@ static bool heal(cok_adventure *game)
             return undefined(game, "Heal with no character selected reads through NULL "
                                    "(340d:0c86)");
         char name[16], header[48];
-        name_of(character->record, name);
+        name_of(L, character->record, name);
         snprintf(header, sizeof header, "%s, how can we help you?", name);
         header[40] = '\0';
         draw(game, header, 1, 1, 15);
