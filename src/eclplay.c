@@ -229,7 +229,7 @@ static void sound(cok_adventure *game, cok_sound_call call, unsigned value, void
     cok_sound_call_at(p->sound, call, value);
     char text[100];
     if (call == COK_SOUND_MUSIC &&
-        cok_sound_music_unported(p->sound, game->rules, text, sizeof text))
+        cok_sound_music_unported(p->sound, cok_game_rules(game), text, sizeof text))
         cok_adventure_log(game, "unported", text);
 }
 

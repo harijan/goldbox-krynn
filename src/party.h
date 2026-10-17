@@ -192,9 +192,9 @@ void cok_party_roster_name(const char *name, char out[9]);
 
 /* Read character file base (with no extension) from dir: base.SAV, a
  * 409-byte record, then the items in base.STF and the effects in base.SFX
- * if those exist (4b6d:11e5), the extensions rules's (saves.record, items,
- * effects). The record's stale pointers are cleared.
- * Then, as 4b6d:11e5 ends, its stats are recomputed with
+ * if those exist (4b6d:11e5), with the rules' extensions (saves.record,
+ * items, effects). The record's stale pointers are cleared. Then, as
+ * 4b6d:11e5 ends, its stats are recomputed with
  * cok_character_stats and cok_character_levels. Returns false with error
  * set. Free with cok_character_free. */
 bool cok_character_read(cok_character *character, const cok_rules *rules, const char *dir,
@@ -386,10 +386,11 @@ bool cok_saved_game_write(const char *path, const cok_saved_game *game, char *er
 /* Write character files base in dir as 4b6d:0bed does, the inverse of
  * cok_character_read: base.SAV, the record as it is; base.STF, the items,
  * and base.SFX, the effects, each erased first and written only if there
- * are any (the extensions rules's). The far pointers the original writes as they are in memory
- * (+0xe3, +0x143, +0x147-+0x17a, +0x17f, +0x183, the items' +0x2a and the
- * effects' +5) are 0 here, as the port keeps them in the record. Returns
- * false with error set if a file cannot be written. */
+ * are any, with the rules' extensions. The far pointers the original
+ * writes as they are in memory (+0xe3, +0x143, +0x147-+0x17a, +0x17f,
+ * +0x183, the items' +0x2a and the effects' +5) are 0 here, as the port
+ * keeps them in the record. Returns false with error set if a file cannot
+ * be written. */
 bool cok_character_write(const cok_character *character, const cok_rules *rules, const char *dir,
                          const char *base, char *error, size_t error_size);
 /* As cok_character_write, the record to base.extension: "WHO" for the

@@ -1115,7 +1115,8 @@ static void test_saved(void)
     for (size_t i = 0; i < 4; ++i) {
         chars[i] = calloc(1, sizeof *chars[i]);
         CHECK(chars[i] != NULL);
-        if (!cok_character_read(chars[i], &cok_rules_champions, "SAVE", saved[i].base, &types, error, sizeof error)) {
+        if (!cok_character_read(chars[i], &cok_rules_champions, "SAVE", saved[i].base, &types,
+                                error, sizeof error)) {
             puts("effect: SAVE/ not present; saved characters not checked");
             free(chars[i]);
             for (size_t k = 0; k < i; ++k) {

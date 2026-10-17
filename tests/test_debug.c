@@ -181,6 +181,7 @@ static void test_keys(void)
     game.save_dir[0] = '\0';
     keys("");
     cok_debug_key(&game, 4);
+    CHECK(strstr(s.log, "debug: DEBUG.TXT opened (no saves directory: not written);") != NULL);
     cok_debug_key(&game, 0x1a);
     CHECK(strstr(s.log, "debug.txt: who: ALDA  sp#: 34;") != NULL);
     cok_debug_key(&game, 4);

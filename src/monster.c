@@ -29,7 +29,7 @@ static void name_of(const uint8_t *c, char out[16])
  * digit (the rules' file_digit). */
 static char file_digit(const cok_adventure *game)
 {
-    return game->rules->file_digit(game->vm.file);
+    return cok_game_rules(game)->archives.file_digit(game->vm.file);
 }
 
 void cok_pool_free(cok_pool *pool)
@@ -53,12 +53,13 @@ static bool monster_part(cok_adventure *game, const char *kind, uint8_t id, uint
                          size_t *size)
 {
     char name[16];
-    snprintf(name, sizeof name, "%s%c%s", game->rules->archives.monster, file_digit(game),
+    snprintf(name, sizeof name, "%s%c%s", cok_game_rules(game)->archives.monster, file_digit(game),
              kind);
     bool no_file;
     *size = 0;
     *data = cok_adventure_find_record(game, name, id, size, &no_file);
-    if (*data != NULL || !no_file || strcmp(kind, game->rules->archives.monster_record) != 0)
+    if (*data != NULL || !no_file ||
+        strcmp(kind, cok_game_rules(game)->archives.monster_record) != 0)
         return true;
     cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
     return false;
@@ -67,7 +68,7 @@ static bool monster_part(cok_adventure *game, const char *kind, uint8_t id, uint
 bool cok_monster_read(cok_adventure *game, uint8_t id, cok_character *m)
 {
     memset(m, 0, sizeof *m);
-    const cok_rules_archives *a = &game->rules->archives;
+    const cok_rules_archives *a = &cok_game_rules(game)->archives;
     uint8_t *data;
     size_t size;
     if (!monster_part(game, a->monster_record, id, &data, &size)) return false;
@@ -161,7 +162,7 @@ static cok_character *copy_monster(const cok_character *first)
  * arena.h). */
 static bool load_icons(cok_adventure *game, uint8_t id, uint8_t slot)
 {
-    return cok_arena_load_icon(game, game->rules->archives.icons, id, slot);
+    return cok_arena_load_icon(game, cok_game_rules(game)->archives.icons, id, slot);
 }
 
 /* LOAD MONSTER (2fd3:0465): unless 63 records were loaded since

@@ -22,6 +22,7 @@ static cok_adventure *game_with_tiles(void)
 {
     static cok_adventure game;
     memset(&game, 0, sizeof game);
+    game.rules = &cok_rules_champions;
     cok_effects_init(&game.effects, &game.vm, &game.party, &game.item_types);
     CHECK(cok_picture_create(&game.screen, 40, 200, 1, 0) == COK_PICTURE_OK);
     cok_picture *tiles = &game.view.tiles[4];
@@ -1848,7 +1849,8 @@ static void test_display(void)
     static cok_adventure game;
     for (int mode = 0; mode < 3; ++mode) {
         bool cga = mode == COK_DISPLAY_CGA;
-        CHECK(cok_adventure_open_display(&game, &cok_rules_champions, "COKAssets", (cok_display)mode, NULL, NULL));
+        CHECK(cok_adventure_open_display(&game, &cok_rules_champions, "COKAssets",
+                                         (cok_display)mode, NULL, NULL));
         CHECK(game.display == (cok_display)mode && game.screen.cga == cga);
         CHECK((game.view.sky[2].pixels == NULL) == cga);
         CHECK(game.view.tiles[4].cga == cga && game.cursor.cga == cga);

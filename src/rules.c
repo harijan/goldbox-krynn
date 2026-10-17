@@ -36,8 +36,7 @@ const cok_rules cok_rules_champions = {
             .geo = "GEO",
             .walldef = "WALLDEF",
             .tiles = "8X8D",
-            .font_file = 1,
-            .font_record = 201, /* 3e99:005b */
+            .font = {"8X8D", 1, 201}, /* 3e99:005b */
             .pic = "PIC",
             .sprite = "SPRIT",
             .big = "BIGPIC",
@@ -45,8 +44,10 @@ const cok_rules cok_rules_champions = {
             .body = "BODY",
             .icons = "CPIC",
             .missiles = "COMSPR",
+            .icon_head = "CHEAD",
+            .icon_body = "CBODY",
             .sky = "SKY",
-            .cursor = "CURSOR",
+            .cursor = {"CURSOR", 0, 1}, /* 3e99:01fd */
             .title = "TITLE",
             .treasure = "ITEM",
             .monster = "MON",
@@ -58,6 +59,7 @@ const cok_rules cok_rules_champions = {
             .random = "RANDCOM",
             .music_drivers = "MIDI",
             .music_score = "SOUND",
+            .file_digit = champions_file_digit,
         },
     .files =
         {
@@ -83,7 +85,6 @@ const cok_rules cok_rules_champions = {
             .collection = champions_collections,
             .single = champions_singles,
         },
-    .file_digit = champions_file_digit,
 };
 
 static const cok_rules *const games[] = {&cok_rules_champions};

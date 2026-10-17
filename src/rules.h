@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 /* What differs between the games the port plays: one descriptor a game,
- * chosen once at startup (--game) and reached through game->rules (and,
+ * chosen once at startup (--game) and reached through cok_game_rules (and,
  * in the tools without a game, passed in). Shared code reads what it needs
  * here and never asks which game it is. Champions of Krynn's is
  * cok_rules_champions; see DEVELOPERS.md's "Games".
@@ -19,7 +19,21 @@
  * make GEO1.DAX; a stem the game reads with no number ("SKY") is the
  * whole name. The original spells some of them in lower case (Assign's
  * 'debug.txt', 'midi.dax'); DOS ignores the case, and the port, as the
- * files are shipped, uses upper case. */
+ * files are shipped, uses upper case. A NULL stem: the game has no such
+ * archive, and code that reads it must not be reached for that game.
+ *
+ * Most record ids are still in the code that reads them (the startup's
+ * tile sets 202 and 203, SKY's 250-252, COMSPR's, RANDCOM's 1, the music
+ * drivers' 4 and 5); a record a game reads from another file than the
+ * other game does is a cok_rules_record here. */
+
+/* One record of one archive: <stem><file>.DAX, or <stem>.DAX for file 0,
+ * record id record. */
+typedef struct {
+    const char *stem;
+    unsigned file;
+    uint8_t record;
+} cok_rules_record;
 
 /* The archives the game reads, as stems (see above). */
 typedef struct {
@@ -29,12 +43,11 @@ typedef struct {
     const char *geo;
     /* The wall sets, WALLDEF<file> (69ea:1025). */
     const char *walldef;
-    /* The tile sets and the font, 8X8D<file> (6e22:0050); the font is
-     * record font_record of 8X8D<font_file>, read once at startup
-     * (3e99:005b) as are records 202 and 203, the frame's and set 0's. */
+    /* The tile sets, 8X8D<file> (6e22:0050), of which startup reads
+     * records 202 and 203, the frame's and set 0's, from 8X8D1
+     * (3e99:005b); and the font, 8X8D1 record 201, read there too. */
     const char *tiles;
-    unsigned font_file;
-    uint8_t font_record;
+    cok_rules_record font;
     /* The small pictures, PIC<file>, and the sprites, SPRIT<file>
      * (6961:00e4). */
     const char *pic, *sprite;
@@ -46,11 +59,14 @@ typedef struct {
     /* The combat icons of monsters and NPCs, CPIC<digit> (6d21:01d0). */
     const char *icons;
     /* The missiles', flashes' and cursor's icons, COMSPR, loaded at
-     * startup (3e99:06e0). */
-    const char *missiles;
-    /* The 3D view's skies (3e99:005b) and the overland map's cursor
-     * (3e99:01fd). */
-    const char *sky, *cursor;
+     * startup (3e99:06e0), and the party's combat icons, a head over a
+     * body, CHEAD and CBODY and a letter for the size (4b6d:0817); 6d21:01d0
+     * loads these three by name, without the file's digit. */
+    const char *missiles, *icon_head, *icon_body;
+    /* The 3D view's skies (3e99:005b). */
+    const char *sky;
+    /* The overland map's cursor (3e99:01fd): CURSOR record 1. */
+    cok_rules_record cursor;
     /* The title's pictures (2f55's). */
     const char *title;
     /* Treasure's items, ITEM<digit> (2fd3:1d21). */
@@ -64,6 +80,10 @@ typedef struct {
     /* The title's music: the drivers (1661's, record device + 1) and the
      * score (record 1). */
     const char *music_drivers, *music_score;
+    /* The digit of the files chosen by the ECL file (DS:5782) whose names
+     * hold one digit, e.g. MON1CHA: the number as Str into a string[1]
+     * makes it (4b6d:161b, 2fd3:1d21, 6961:05b9, 6d21:01d0). */
+    char (*file_digit)(unsigned file);
 } cok_rules_archives;
 
 /* The files besides the archives. */
@@ -126,10 +146,6 @@ typedef struct cok_rules {
     cok_rules_files files;
     cok_rules_saves saves;
     cok_rules_images images;
-    /* The digit of the files chosen by the ECL file (DS:5782) as their
-     * names hold it, e.g. MON1CHA: the number as Str into a string[1]
-     * makes it (4b6d:161b, 2fd3:1d21, 6961:05b9, 6d21:01d0). */
-    char (*file_digit)(unsigned file);
 } cok_rules;
 
 extern const cok_rules cok_rules_champions;

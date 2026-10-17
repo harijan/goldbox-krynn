@@ -59,13 +59,14 @@ bool cok_config_read_file_stick(const char *path, cok_config *config, bool stick
  * cannot be read. */
 bool cok_config_read(const cok_rules *rules, const char *assets, cok_config *config);
 /* Where the port keeps KRYNN.CFG (the rules' files.config), which the
- * original reads and writes in its directory: option (--config FILE) if given; else SAVES/KRYNN.CFG or
- * krynn.cfg, the port's own; else the one in ASSETS, as a copy of the
- * original's directory holds it. saves and assets may be NULL. Returns
- * true with path the file found, false without (path then as write_path).
- * write_path is where the setup and Initialize Mouse/Joystick write it:
- * option, the file found in SAVES, or SAVES/KRYNN.CFG; empty for nowhere
- * (no saves). The port never writes into the assets directory. */
+ * original reads and writes in its directory: option (--config FILE) if
+ * given; else SAVES/KRYNN.CFG or krynn.cfg, the port's own; else the one
+ * in ASSETS, as a copy of the original's directory holds it. saves and
+ * assets may be NULL. Returns true with path the file found, false
+ * without (path then as write_path). write_path is where the setup and
+ * Initialize Mouse/Joystick write it: option, the file found in SAVES, or
+ * SAVES/KRYNN.CFG; empty for nowhere (no saves). The port never writes
+ * into the assets directory. */
 bool cok_config_find(const cok_rules *rules, const char *option, const char *saves,
                      const char *assets, char *path, char *write_path, size_t size);
 /* Initialize Mouse/Joystick's rewrite (4def:5cc7): lines 1, 2, 4 and 5 of

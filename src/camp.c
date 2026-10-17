@@ -884,7 +884,7 @@ bool cok_camp_save_game(cok_adventure *game, char letter)
         return false;
     }
     saved.count = (uint8_t)game->party.count;
-    const cok_rules_saves *s = &game->rules->saves;
+    const cok_rules_saves *s = &cok_game_rules(game)->saves;
     for (size_t i = 0; i < game->party.count; ++i)
         snprintf(saved.names[i], sizeof saved.names[i], "%s%c%u", s->character, letter,
                  (unsigned)(i + 1));
@@ -900,7 +900,7 @@ bool cok_camp_save_game(cok_adventure *game, char letter)
         cok_adventure_log(game, "error", error);
     }
     for (size_t i = 0; i < game->party.count; ++i) {
-        if (!cok_character_write(game->party.members[i], game->rules, game->save_dir,
+        if (!cok_character_write(game->party.members[i], cok_game_rules(game), game->save_dir,
                                  saved.names[i], error, sizeof error)) {
             ok = false;
             snprintf(game->error, sizeof game->error, "%s", error);

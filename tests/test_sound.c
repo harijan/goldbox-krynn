@@ -501,7 +501,8 @@ static void test_devices(void)
         cok_sound_free(&s);
         cok_sound_init(&s, (cok_sound_device)d);
         CHECK(s.hardware == COK_SOUND_SPEAKER && s.device == d);
-        CHECK(!cok_sound_load(&s, &cok_rules_champions, assets) && strstr(s.music_error, "not ported") != NULL);
+        CHECK(!cok_sound_load(&s, &cok_rules_champions, assets) && strstr(s.music_error,
+                              "not ported") != NULL);
         char text[100];
         CHECK(!cok_sound_music_unported(&s, &cok_rules_champions, text, sizeof text));
         cok_sound_call_at(&s, COK_SOUND_MUSIC, 0);

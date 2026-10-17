@@ -148,7 +148,7 @@ static bool title_wait(cok_adventure *game, unsigned seconds)
 static bool title_picture(cok_adventure *game, uint8_t id, int x, int y)
 {
     cok_picture picture = {0};
-    if (!cok_adventure_load_image(game, game->rules->archives.title, id, -1, &picture)) {
+    if (!cok_adventure_load_image(game, cok_game_rules(game)->archives.title, id, -1, &picture)) {
         cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
         return false;
     }
@@ -509,7 +509,7 @@ cok_ecl_status cok_start_game(cok_adventure *game, bool woof)
      * port logged it unported. */
     cok_adventure_log(game, "sound", "install");
     cok_adventure_sound(game, COK_SOUND_INSTALL, 0);
-    int key = title_menu(game, game->rules->text.version, 3000);
+    int key = title_menu(game, cok_game_rules(game)->text.version, 3000);
     if (key < 0) return vm->status;
     game->demo = key == 'D';
     for (;;) {
@@ -543,7 +543,7 @@ cok_ecl_status cok_start_game(cok_adventure *game, bool woof)
             if (vm->abort) break;
             cok_adventure_sound(game, COK_SOUND_INSTALL, 0); /* 1000:030e */
             cok_adventure_flush(game); /* 1000:0313 */
-            key = title_menu(game, game->rules->text.version_again, 1000);
+            key = title_menu(game, cok_game_rules(game)->text.version_again, 1000);
             if (key < 0) break;
             game->demo = key == 'D';
             cok_adventure_sound(game, COK_SOUND_COMMAND, 0); /* 1000:036d */

@@ -49,6 +49,28 @@ static void check_numbered(const char *stem, const char *kind)
     }
 }
 
+/* The record is the one Champions reads (expected), and its archive is
+ * there and holds it. */
+static void check_record(const cok_rules_record *r, uint8_t expected)
+{
+    CHECK(r->record == expected);
+    char path[64];
+    if (r->file == 0)
+        snprintf(path, sizeof path, "COKAssets/%s.DAX", r->stem);
+    else
+        snprintf(path, sizeof path, "COKAssets/%s%u.DAX", r->stem, r->file);
+    dax_archive archive = {0};
+    CHECK(dax_open(path, &archive) == DAX_OK);
+    bool found = false;
+    for (size_t i = 0; i < archive.count; ++i) {
+        dax_record record;
+        CHECK(dax_record_at(&archive, i, &record) == DAX_OK);
+        found |= record.id == r->record;
+    }
+    dax_close(&archive);
+    CHECK(found);
+}
+
 static void test_lookup(void)
 {
     CHECK(cok_rules_find("champions") == &cok_rules_champions);
@@ -66,11 +88,12 @@ static void test_lookup(void)
     CHECK(strcmp(rules->text.version, "Champions of Krynn v1.2") == 0);
     CHECK(strcmp(rules->text.version_again, "Champions Of Krynn v1.2") == 0);
     /* The digit of a file's number, as Str into a string[1] makes it. */
-    CHECK(rules->file_digit(1) == '1');
-    CHECK(rules->file_digit(3) == '3');
-    CHECK(rules->file_digit(0) == '0');
-    CHECK(rules->file_digit(23) == '2');
-    CHECK(rules->file_digit(255) == '2');
+    char (*digit)(unsigned) = rules->archives.file_digit;
+    CHECK(digit(1) == '1');
+    CHECK(digit(3) == '3');
+    CHECK(digit(0) == '0');
+    CHECK(digit(23) == '2');
+    CHECK(digit(255) == '2');
 }
 
 static void test_assets(void)
@@ -82,8 +105,9 @@ static void test_assets(void)
     check_numbered(a->monster, a->monster_record);
     check_numbered(a->monster, a->monster_effects);
     check_numbered(a->monster, a->monster_items);
-    const char *const singles[] = {a->missiles, a->sky,        a->cursor, a->title,
-                                   a->dungeon,  a->wilderness, a->random, a->music_drivers,
+    const char *const singles[] = {a->missiles,      a->icon_head, a->icon_body,
+                                   a->sky,           a->title,     a->dungeon,
+                                   a->wilderness,    a->random,    a->music_drivers,
                                    a->music_score};
     for (size_t i = 0; i < sizeof singles / sizeof *singles; ++i) check_single(singles[i]);
     CHECK(exists("COKAssets", rules->files.config, ""));
@@ -96,19 +120,10 @@ static void test_assets(void)
         for (const char *const *stem = lists[i]; *stem != NULL; ++stem, ++listed)
             check_single(*stem);
     CHECK(listed == 26); /* the 26 graphics archives tests/test_images_cli.py exports */
-    /* The font: its record in its file. */
-    char path[64];
-    snprintf(path, sizeof path, "COKAssets/%s%u.DAX", a->tiles, a->font_file);
-    dax_archive archive = {0};
-    CHECK(dax_open(path, &archive) == DAX_OK);
-    bool found = false;
-    for (size_t i = 0; i < archive.count; ++i) {
-        dax_record record;
-        CHECK(dax_record_at(&archive, i, &record) == DAX_OK);
-        found |= record.id == a->font_record;
-    }
-    dax_close(&archive);
-    CHECK(found);
+    /* The font and the cursor: each record in its file. */
+    CHECK(strcmp(a->font.stem, a->tiles) == 0);
+    check_record(&a->font, 201);
+    check_record(&a->cursor, 1);
 }
 
 /* The original's saved games: SAVGAMA.DAT with its characters

@@ -15,6 +15,7 @@
 #include "text.h"
 #include "view.h"
 
+#include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -347,6 +348,15 @@ struct cok_adventure {
     cok_adventure_hooks hooks;
     char error[600];       /* Why the last call failed. */
 };
+
+/* The game's rules (game->rules), which every read of them goes through:
+ * a game set up without them (cok_adventure_open names them) stops here,
+ * on whatever path reaches them first, rather than reading through NULL. */
+static inline const cok_rules *cok_game_rules(const cok_adventure *game)
+{
+    assert(game->rules != NULL);
+    return game->rules;
+}
 
 /* Load the font and item types from assets and set up the VM with this module's hooks,
  * for the game rules describes (never NULL: every caller names the game).

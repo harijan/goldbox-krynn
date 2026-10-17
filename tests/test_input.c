@@ -839,7 +839,8 @@ static void setup_calibration(void)
     uint8_t file[COK_SETUP_FILE_MAX];
     size_t size = 0;
     setup_at = 0;
-    CHECK(cok_setup_ask(&crt, &keys, &hooks, &cok_rules_champions, cok_rules_champions.files.install_dir, file, &size));
+    CHECK(cok_setup_ask(&crt, &keys, &hooks, &cok_rules_champions,
+                        cok_rules_champions.files.install_dir, file, &size));
     file[size] = '\0';
     /* Centre 100 across (100.5 truncated) and 98 down; the least of the
      * upper left, the most of the lower right; the thirds between. */
@@ -876,7 +877,8 @@ static void setup_calibration(void)
     *s = (scripted_port){.rest = {0, 0, 0, 0}};
     setup_at = 0;
     cok_crt_init(&crt);
-    CHECK(cok_setup_ask(&crt, &keys, &hooks, &cok_rules_champions, cok_rules_champions.files.install_dir, file, &size));
+    CHECK(cok_setup_ask(&crt, &keys, &hooks, &cok_rules_champions,
+                        cok_rules_champions.files.install_dir, file, &size));
     file[size] = '\0';
     CHECK(strstr((const char *)file, "F\r\n0\r\n0\r\n0\r\n") != NULL);
 }

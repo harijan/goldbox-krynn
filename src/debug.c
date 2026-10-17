@@ -28,6 +28,7 @@ void cok_debug_write(cok_adventure *game, const char *line)
 {
     cok_debug_file *f = &game->debug_file;
     if (!f->open) return;
+    /* The transcript's tag, not the file's name (the rules' saves.debug). */
     cok_adventure_log(game, "debug.txt", line);
     put(f, line, strlen(line));
     put(f, "\r\n", 2);
@@ -59,12 +60,12 @@ static void open_file(cok_adventure *game)
     if (game->save_dir[0] == '\0') {
         char text[80];
         snprintf(text, sizeof text, "%s opened (no saves directory: not written)",
-                 game->rules->saves.debug);
+                 cok_game_rules(game)->saves.debug);
         cok_adventure_log(game, "debug", text);
         return;
     }
     char path[sizeof game->save_dir + 16];
-    snprintf(path, sizeof path, "%s/%s", game->save_dir, game->rules->saves.debug);
+    snprintf(path, sizeof path, "%s/%s", game->save_dir, cok_game_rules(game)->saves.debug);
     f->file = fopen(path, "wb");
     char text[sizeof path + 40];
     snprintf(text, sizeof text, f->file != NULL ? "%s opened" : "%s cannot be made", path);

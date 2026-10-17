@@ -1022,7 +1022,7 @@ static bool build(cok_adventure *game)
     cok_combat *combat = &game->combat;
     cok_ecl *vm = &game->vm;
     bool area = vm->mem4b00[0xe6] != 0;
-    const cok_rules_archives *a = &game->rules->archives;
+    const cok_rules_archives *a = &cok_game_rules(game)->archives;
     if (!load_tiles(game, area ? a->dungeon : a->wilderness, 0, area ? 0x19 : 0x21) ||
         !load_tiles(game, a->random, 0x22, 6))
         return false;

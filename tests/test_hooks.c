@@ -434,7 +434,8 @@ static void test_loading(void)
     char saves[sizeof game.save_dir];
     snprintf(saves, sizeof saves, "%s", game.save_dir);
     cok_adventure_close(&game);
-    CHECK(cok_adventure_open_display(&game, &cok_rules_champions, "COKAssets", COK_DISPLAY_CGA, &keyboard, &hooks));
+    CHECK(cok_adventure_open_display(&game, &cok_rules_champions, "COKAssets", COK_DISPLAY_CGA,
+                                     &keyboard, &hooks));
     snprintf(game.save_dir, sizeof game.save_dir, "%s", saves);
     CHECK(game.screen.cga);
     run_loading_cases(loading_cases_cga,
