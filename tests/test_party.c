@@ -347,6 +347,18 @@ static void test_stats(void)
     CHECK(c->slots[0] == 1 && c->slots[1] == 3 && c->slots[2] == 2 && c->slots[7] == 5 &&
           c->slots[9] == 4 && c->slots[10] == 0 && c->slots[11] == 0);
     CHECK(r[0x142] == 5 && r[0x17b] == 2 && (r[0x17d] | r[0x17e] << 8) == 661);
+    /* Every coin but silver weighs, copper (+0xed) to jewelry (+0xf7), each
+     * a word; silver (+0xeb) does not (6346:0d20). */
+    r[0xeb] = 0x34;
+    r[0xec] = 0x12;
+    for (unsigned k = 2; k <= 6; ++k) r[0xeb + 2 * k] = (uint8_t)k;
+    r[0xf8] = 1; /* jewelry 0x106 */
+    CHECK(cok_character_stats(c, &cok_rules_champions, types, error, sizeof error));
+    CHECK((r[0x17d] | r[0x17e] << 8) == 661 + 2 + 3 + 4 + 5 + 0x106);
+    memset(r + 0xeb, 0, 14);
+    r[0xed] = 10;
+    CHECK(cok_character_stats(c, &cok_rules_champions, types, error, sizeof error));
+    CHECK((r[0x17d] | r[0x17e] << 8) == 661);
     /* To hit: 40, strength +1, sword +1; damage 1d8, strength +1, sword +1. */
     CHECK(r[0x18c] == 42 && r[0x191] == 1 && r[0x193] == 8 && r[0x195] == 2);
     /* Dexterity 2, shield 1, cloak 1, plate 58; magic armour drops the

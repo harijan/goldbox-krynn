@@ -498,6 +498,15 @@ static void test_sheet(void)
     r[0x61] = 0;
     keys("");
     CHECK(cok_sheet_draw(&game) && ink(15, 3) == 15 && ink(16, 3) == 0);
+    /* The money shows every kind but silver (+0xeb), copper to jewelry
+     * (+0xed-+0xf8), a row each from row 9, the amounts ending at column
+     * 37: six rows, 9-14, and none on row 15. */
+    r[0xeb] = 7;
+    for (unsigned k = 1; k <= 6; ++k) r[0xeb + 2 * k] = (uint8_t)k;
+    keys("");
+    CHECK(cok_sheet_draw(&game));
+    for (int row = 9; row <= 14; ++row) CHECK(ink(37, row) == 10);
+    CHECK(ink(37, 15) == 0 && ink(20, 15) == 0);
 }
 
 /* View (546c:0d74) and money. */
