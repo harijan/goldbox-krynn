@@ -229,9 +229,9 @@ static bool add(modify *m)
     return true;
 }
 
-/* Keep (4def:35ea): the spells a day for the wisdom, +0xe8 set, the hit
- * points at full less the constitution's average bonus, and the scores
- * made the base. The bonus's sum is a byte divided unsigned. */
+/* Keep (4def:35ea): the spells a day for the wisdom, SHARES (+0xe8) set,
+ * the hit points at full less the constitution's average bonus, and the
+ * scores made the base. The bonus's sum is a byte divided unsigned. */
 static bool keep(modify *m)
 {
     const cok_character_layout *L = cok_game_rules(m->game)->character;

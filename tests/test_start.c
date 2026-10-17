@@ -634,6 +634,34 @@ static void test_roster_rules(void)
     keys("\x1b");
     cok_roster_add(&game);
     CHECK(!logged("ROSTA") && logged("ROSTB"));
+    /* 0x7f is listed. */
+    r->record[0xf7] = 0x7f;
+    CHECK(cok_character_write_file(r, &cok_rules_champions, rules, "R00", "WHO", error,
+                                   sizeof error));
+    keys("\x1b");
+    cok_roster_add(&game);
+    CHECK(logged("item: ROSTA"));
+    /* Only a file of exactly 409 bytes is listed: one a byte longer or
+     * shorter is not. */
+    static const char *const sized[2] = {"LONGER", "SHORTER"};
+    for (size_t i = 0; i < 2; ++i) {
+        cok_character *z = member(sized[i], 2, 1);
+        char base[8];
+        snprintf(base, sizeof base, "Z%02zu", i);
+        CHECK(cok_character_write_file(z, &cok_rules_champions, rules, base, "WHO", error,
+                                       sizeof error));
+        cok_character_free(z);
+        free(z);
+        snprintf(path, sizeof path, "%s/%s.WHO", rules, base);
+        CHECK(truncate(path, i == 0 ? 410 : 408) == 0);
+    }
+    keys("\x1b");
+    cok_roster_add(&game);
+    CHECK(logged("ROSTA") && !logged("LONGER") && !logged("SHORTER"));
+    for (size_t i = 0; i < 2; ++i) {
+        snprintf(path, sizeof path, "%s/Z%02zu.WHO", rules, i);
+        CHECK(remove(path) == 0);
+    }
     /* From an empty party, Add ends once six player characters are in. */
     empty_party();
     r->record[0xf7] = 0;
