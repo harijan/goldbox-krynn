@@ -265,32 +265,46 @@ and level past the table, reaching other fields or the far pointers),
 `cok_field_pointer_at` says whether a byte is a far pointer's; the record
 is then indexed with the result, checked against the layout's `size`.
 
-The routines in `party.c`, `items.c`, `magic.c` and `sheet.c`, and
-combat's in `attack.c`, `round.c`, `ai.c`, `cast.c`, `effect.c`,
-`combat.c`, `arena.c` and `cloud.c`, read every character field through
-the layout (the item records, 63 bytes, the effects, 9, and the combat
-record are not the character record and keep their offsets). Those that
-took only a record take the rules after it
+The routines in `party.c`, `items.c`, `magic.c` and `sheet.c`, combat's in
+`attack.c`, `round.c`, `ai.c`, `cast.c`, `effect.c`, `combat.c`, `arena.c`
+and `cloud.c`, and those of creation, Modify, training, the camp, the shops
+and temple, the treasure, the icon editor, the combat commands and the
+roster in `create.c`, `modify.c`, `train.c`, `camp.c`, `shop.c`,
+`treasure.c`, `icon.c`, `command.c` and `roster.c`, read every character
+field through the layout (the item records, 63 bytes, the effects, 9, and
+the combat record are not the character record and keep their offsets).
+Those that took only a record take the rules after it
 (`cok_character_stats(character, rules, types, ...)`,
-`cok_character_former_class(record, rules)`, `cok_character_damage`,
-`heal`, `allowance`, `strength_bonus`, `dexterity_missile`, the cleric
-spells, saving throws and thief skills, `cok_party_add(party, rules,
-character)`, `cok_party_draw`, `cok_magic_sort`, `cok_magic_slots`;
-`cok_combat_damage(combat, c, rules, ...)`, `cok_combat_opposite(c,
-rules)`, `cok_combat_auto`, `cok_combat_place(combat, mode, character,
-rules, ...)`, and after the party `cok_combat_count_sides` and
-`cok_combat_enemy_health`); callers pass `cok_game_rules(game)` (a spell's
-handler `cok_game_rules(cx->game)`), the effects engine its own
-`fx->rules` (`cok_effects_init` takes them), `cok_combat_records` the
-rules it is given, and tests `&cok_rules_champions`. Three indices stay
-the original's unbounded arithmetic, through `cok_field_offset_unchecked`
-and each site's own bound as before: a helpless target's blow at attack
-slot 0 (`ATTACKS_LEFT`'s offset for slot 0 is `AC_BEHIND`'s), checked
-against the record's size; a saving throw's signed type (`SAVING_THROW`
-from `+0xd0`), likewise; and `cok_combat_damage_roll`'s slot, which its
-guard bounds at 2 only, so that slot 0 reads `DICE`, `DICE_SIDES` and
-`DAMAGE_BONUS` one byte early (`+0x190`, `+0x192`, `+0x194`), as the
-original's `+0x190 + slot` does.
+`cok_character_former_class(record, rules)`, `cok_character_damage`, `heal`,
+`allowance`, `strength_bonus`, `dexterity_missile`, the cleric spells,
+saving throws and thief skills, `cok_party_add(party, rules, character)`,
+`cok_party_draw`, `cok_magic_sort`, `cok_magic_slots`;
+`cok_combat_damage(combat, c, rules, ...)`, `cok_combat_opposite(c, rules)`,
+`cok_combat_auto`, `cok_combat_place(combat, mode, character, rules, ...)`,
+and after the party `cok_combat_count_sides` and `cok_combat_enemy_health`;
+`cok_create_icon(record, rules)`, `cok_create_knight_items`,
+`cok_modify_least` and `cok_modify_most(c, rules, selected, ...)`,
+`cok_train_row`, `cok_train_constitution` and `cok_train_hit_die`,
+`cok_camp_preparation(character, rules)` and `cok_camp_forget`,
+`cok_shop_money` and `cok_pool_pay(c, rules, steel)`); callers pass
+`cok_game_rules(game)` (a spell's handler `cok_game_rules(cx->game)`), the
+effects engine its own `fx->rules` (`cok_effects_init` takes them),
+`cok_combat_records` the rules it is given, and tests
+`&cok_rules_champions`. Four indices stay the original's unbounded
+arithmetic, through `cok_field_offset_unchecked` and each site's own bound
+as before: a helpless target's blow at attack slot 0 (`ATTACKS_LEFT`'s
+offset for slot 0 is `AC_BEHIND`'s), checked against the record's size; a
+saving throw's signed type (`SAVING_THROW` from `+0xd0`), likewise;
+`cok_combat_damage_roll`'s slot, which its guard bounds at 2 only, so that
+slot 0 reads `DICE`, `DICE_SIDES` and `DAMAGE_BONUS` one byte early
+(`+0x190`, `+0x192`, `+0x194`), as the original's `+0x190 + slot` does; and
+the spell scribing makes known (`KNOWN_SPELL` from `+0x62`), a scroll's byte
+& 0x7f, which for 109-127 writes `+0xcf`-`+0xe1` past the known spells, as
+the original does, the record's 409 bytes bound enough. Modify's name editor
+reaches the name as the string it is (`cok_field_offset` of `NAME`), indexed
+by the cursor and the length byte as before, which a file may make more than
+15; the roster's list takes a `.WHO` of the layout's `file_size` and tests
+the jewelry's low byte (`COINS` 6's offset, `+0xf7`).
 
 To add a field: name it for what it is in `cok_field` (`src/field.h`),
 with a comment; give Champions' place in `champions_character`
@@ -3019,13 +3033,13 @@ View).
 
 `Rest` (`4888:0f05`) sets the rest time to what the member who needs
 longest needs to learn its marked spells and scribe its marked scrolls
-(`4888:0032`): 4 hours if any, 6 if any is above level 2 (into `+0x58`),
-and 15 minutes a level, the levels added as bytes; a level-0 power counts
-as 1 to memorize but 0 on a scroll. The hours may pass 23. Then it rests
-(`57e4:0e3e`): row 17 shows `Rest Time:` and days, hours and minutes
-(`57e4:0764`) in light green, the unit chosen in white; the menu `Rest
-Days Hours Mins Add Subtract Exit` (`57e4:08a0`) picks a unit, adds 1 (5
-for minutes) or subtracts as much, and rests; up and down (8 and 2) add
+(`4888:0032`): 4 hours if any, 6 if any is above level 2 (into `+0x58`,
+`STUDY_HOURS`), and 15 minutes a level, the levels added as bytes; a level-0
+power counts as 1 to memorize but 0 on a scroll. The hours may pass 23. Then
+it rests (`57e4:0e3e`): row 17 shows `Rest Time:` and days, hours and
+minutes (`57e4:0764`) in light green, the unit chosen in white; the menu
+`Rest Days Hours Mins Add Subtract Exit` (`57e4:08a0`) picks a unit, adds 1
+(5 for minutes) or subtracts as much, and rests; up and down (8 and 2) add
 and subtract. Subtracting borrows from larger units, and with none to
 borrow from up to the days, clears the whole time (`57e4:05ee`); each
 change then carries full units once into the next with the clock's own
@@ -3048,9 +3062,9 @@ timers down: at the start every member's timer flag is set), and:
   are over scribes its first marked scroll spell above 0x80, else learns
   its first marked spell, saying so on rows 19 and 20 (`5b04:57eb`), and
   times the next at three ticks a level. Scribing sets the spell known
-  (`+0x62` + spell) and takes it off the scroll, which is gone once its
-  count (`+0x2f`) drops below 100 (`5b04:575d`, without the item count or
-  the stats being recomputed).
+  (`KNOWN_SPELL`, `+0x62` + spell) and takes it off the scroll, which is
+  gone once its count (`+0x2f`) drops below 100 (`5b04:575d`, without the
+  item count or the stats being recomputed).
 - prepares (`57e4:0d52`): every twelfth tick counts down each member's
   hours of preparation, after that tick's learning; at 0 its first spell
   is timed.
@@ -3105,12 +3119,13 @@ out. It checks no write: a file that cannot be written does not stop the
 others, and `DS:5885` is set after all (`4b6d:2809`); the port does the
 same, logging each failure as `error:`. Saving SAVE/'s
 games again gives the same bytes but for those the original writes from
-memory: the far pointers in the records (`+0xe3`, `+0x143`, `+0x147`-`+0x17a`,
-`+0x17f`, `+0x183`), items (`+0x2a`) and effects (`+5`), 0 in the port's
-files, and in the `.DAT` the bytes after each name and the slots past the
-party, which hold what was on the original's stack; and spell 8 of game
-A's clerics (see Derived stats). After each character's files, its
-roster copy is erased (`4b6d:0a80`, see The start menu).
+memory: the far pointers in the records (`+0xe3` `EFFECTS`, `+0x143`
+`ITEMS`, `+0x147`-`+0x17a` `ITEM_SLOTS`, `+0x17f` `NEXT`, `+0x183`
+`COMBAT`), items (`+0x2a`) and effects (`+5`), 0 in the port's files, and in
+the `.DAT` the bytes after each name and the slots past the party, which
+hold what was on the original's stack; and spell 8 of game A's clerics (see
+Derived stats). After each character's files, its roster copy is erased
+(`4b6d:0a80`, see The start menu).
 
 `Magic` (`4888:1c32`) offers `Cast Memorize Scribe Display Rest Exit`
 until Exit or Escape for the selected character. `Cast` casts (see
@@ -3124,24 +3139,24 @@ opens the grimoire, anything else keeps them and leaves. In the grimoire,
 rows 18-22 show the spells left today (`4888:0b24`): cleric, druid,
 granted and magic-user spells of levels 1-5 (`4888:0700`: a day's less
 those memorized and marked), blank for none a day, and the bonus spells a
-magic-user of an order gets from its moon (`0x4cf8` + `+0x5e`: 1 or 2,
-less the spells it has marked beyond a day's); with no spells a day of
-any kind the character `cannot memorize any spells`. The list (`Spells in
-Grimoire`, rows 5-15) holds the known spells (`+0x62` + spell) of classes
-it can use (`5b04:0083`) by level, a heading before each, without the
-powers it has memorized. A spell picked with one of its level and class
-left, or a magic-user's while bonus spells are left, is marked in the
-first free byte (`+0x1e` on) and the bytes sorted by spell (`4888:0fb2`),
-which puts the empty ones first. On leaving, the marked spells are shown
-again with `Memorize these spells? `.
+magic-user of an order gets from its moon (`0x4cf8` + `+0x5e` `MAGIC_ORDER`:
+1 or 2, less the spells it has marked beyond a day's); with no spells a day
+of any kind the character `cannot memorize any spells`. The list (`Spells in
+Grimoire`, rows 5-15) holds the known spells (`KNOWN_SPELL`, `+0x62` +
+spell) of classes it can use (`5b04:0083`) by level, a heading before each,
+without the powers it has memorized. A spell picked with one of its level
+and class left, or a magic-user's while bonus spells are left, is marked in
+the first free byte (`MEMORIZED`, `+0x1e` on) and the bytes sorted by spell
+(`4888:0fb2`), which puts the empty ones first. On leaving, the marked
+spells are shown again with `Memorize these spells? `.
 
 `Scribe` (`4888:132b`) does the same for the spells of scrolls (`Spells
 on Scrolls`), listed when the scroll's order bit (`+0x35` 0x20 for order
-1, 0x10 for 2) matches the character's (`+0x5e`) and its low three bits
-are clear, which effect 0x10 clears for good (`5b04:0981`). A spell known
-already says `You already know that spell`, one marked `You are already
-scibing that spell` (sic), and one of a level and class with no spells a
-day `You can not scribe that spell.`, on row 24 for a moment
+1, 0x10 for 2) matches the character's (`+0x5e`, `MAGIC_ORDER`) and its low
+three bits are clear, which effect 0x10 clears for good (`5b04:0981`). A
+spell known already says `You already know that spell`, one marked `You are
+already scibing that spell` (sic), and one of a level and class with no
+spells a day `You can not scribe that spell.`, on row 24 for a moment
 (`6346:1827`). Otherwise the first byte of any item equal to the spell is
 marked, scroll or not; a sword holding the spell's id is marked instead
 of the scroll, and stays marked. With no scroll to copy, the character
@@ -3583,8 +3598,7 @@ and `6d21`, and the wrapper of `COMBAT` without the battle.
 A monster is a 409-byte character record from `MON<file>CHA.DAX`, with its
 effects (`MON<file>SPC`, 9-byte `.SFX` records) and items (`MON<file>ITM`,
 63-byte `.STF` items). What a monster keeps in the fields of Champions'
-layout (`champions_character` in `src/rules.c`, see Games), and in the
-bytes the layout does not name yet:
+layout (`champions_character` in `src/rules.c`, see Games):
 
 | Offset | Field | Meaning |
 | --- | --- | --- |
@@ -3594,7 +3608,8 @@ bytes the layout does not name yet:
 | `+0x0eb` | `COINS` | coins, seven words, for the treasure |
 | `+0x10b`, `+0x10c` | `BASE_ATTACKS` | attacks a round, doubled, of its two attacks |
 | `+0x10d`-`+0x112` | `BASE_DICE`, `BASE_DICE_SIDES`, `BASE_DAMAGE_BONUS` | dice, sides and damage bonus of each (the derived `+0x191`-`+0x196`) |
-| `+0x11b` | `BASE_HIT_POINTS` | hit points at full; `+0x130` (a word) + `+0x132` × `+0x11b` is its experience (not named yet) |
+| `+0x11b` | `BASE_HIT_POINTS` | hit points at full |
+| `+0x130`, `+0x132` | `MONSTER_EXPERIENCE`, `MONSTER_HIT_POINT_EXPERIENCE` | its experience, `+0x130` (a word) + `+0x132` × `+0x11b` (`351b:0037`) |
 | `+0x187` | `MAGIC_RESISTANCE` | magic resistance |
 | `+0x18a`, `+0x18b` | `HOSTILE`, `COMPUTER` | 1 against the party, 1 while the computer controls it |
 
@@ -5459,28 +5474,28 @@ Done (`3995:121c`, `14cf`, with Guard `6346:29b3`), Cast (`432f:28bd`),
 Yell (`60f4:0023`) and the hidden keys, with Turn (`432f:12b7`, see The
 computer's turns) and the combat side of View and Use (`546c:0d74`,
 `17f9`, `24d7`, see View). The battle's turn (`3995:040b`) hands a
-combatant the player controls (`+0x18b` 0) to it (`cok_combat_commands`).
-Keys come through the menus on row 24 (`67b5:03e2`, see Library); a click
-on the map in Move (`DS:71a6`) or Manual's cursor (`DS:71a5`, at
-`DS:71a3`, `71a4`) is a step toward the cell (see The mouse and the
-joystick).
+combatant the player controls (`+0x18b` `COMPUTER` 0) to it
+(`cok_combat_commands`). Keys come through the menus on row 24 (`67b5:03e2`,
+see Library); a click on the map in Move (`DS:71a6`) or Manual's cursor
+(`DS:71a5`, at `DS:71a3`, `71a4`) is a step toward the cell (see The mouse
+and the joystick).
 
 A turn (`3995:0573`): one that cannot act ends it (`6346:2964`); one with
 a spell begun at an earlier turn (combat record `+0x00`) casts it
 (`5b04:1415`) and ends it. Otherwise, until the turn is over: the menu's
 first item is selected (`DS:6e0f`) and the menu read (`3995:08d5`), its
 items `Move ` while it has movement left (`+0x06`), `View Aim `, `Use `
-while it has items (`+0x142`), `Cast ` with a spell memorized
-(`+0x1e`-`+0x57`) when it may cast this round (`+0x01`) and the area
-allows magic (var `0x4be5`), `Turn ` for a cleric (`+0xf9` above 0, or a
-former one, `+0x101`, that a human may use, `66c2:0efb`) that has tried
-fewer times this battle (`+0x11`) than undead were loaded (`DS:8859`),
-`Yell ` for a kender (`+0x5a` 5) while no one has yelled this battle
-(`DS:71a7`), and `Done`, then `*` while the debug flag is set (`DS:4b51`,
-see Debug mode), cut to 40 characters. It is read until it gives a command letter or
-Space, or one of the scan codes of Alt-Q, Alt-R, Alt-A, Alt-X and Alt-M;
-other scan codes (the keypad's digits among them) count as nothing. Row
-24 is cleared. Then:
+while it has items (`+0x142` `ITEM_COUNT`), `Cast ` with a spell memorized
+(`+0x1e`-`+0x57` `MEMORIZED`) when it may cast this round (`+0x01`) and the
+area allows magic (var `0x4be5`), `Turn ` for a cleric (`+0xf9`
+`CLASS_LEVEL` 0 above 0, or a former one, `+0x101` `FORMER_LEVEL` 0, that a
+human may use, `66c2:0efb`) that has tried fewer times this battle (`+0x11`)
+than undead were loaded (`DS:8859`), `Yell ` for a kender (`+0x5a` `RACE` 5)
+while no one has yelled this battle (`DS:71a7`), and `Done`, then `*` while
+the debug flag is set (`DS:4b51`, see Debug mode), cut to 40 characters. It
+is read until it gives a command letter or Space, or one of the scan codes
+of Alt-Q, Alt-R, Alt-A, Alt-X and Alt-M; other scan codes (the keypad's
+digits among them) count as nothing. Row 24 is cleared. Then:
 
 | Key | What it does |
 | --- | --- |
@@ -5492,7 +5507,7 @@ other scan codes (the keypad's digits among them) count as nothing. Row
 | `T` | Turn (`432f:12b7`), and the turn ends |
 | `Y` | Yell (below), and the turn ends |
 | `D` | Done (below) |
-| Space | every party member (`+0xe7` below 0x80) back to the player (`+0x18b` 0), whatever its status |
+| Space | every party member (`+0xe7` `NPC` below 0x80) back to the player (`+0x18b` `COMPUTER` 0), whatever its status |
 | Alt-M | Magic On or Off (`DS:7198`, "Magic On" or "Magic Off" on row 24) |
 | Alt-Q, Alt-A | the turn given back (`DS:72ce` less 1, initiative 0x14), every record in the list to the computer (`3995:1604`, forgetting a target on its own side), row 24 cleared, 200 ms: the battle runs the turn again, the computer's (0x14 becoming 0x13) |
 | Alt-X | in a game started with `Helm`, the Gods' cheat (`432f:41e2`) and the combatant shown (`6beb:12ef`), ending the turn; else "That doesn't work" |
@@ -5529,8 +5544,8 @@ which ends Move, or books and attacks it (`432f:19b6`, `432f:1a45`).
 side opposite the target's (`6346:2666` of the target) or the computer
 controls the attacker; else "Attack Ally: ", and Yes sets var `0x7f33` and
 `DS:714a` (which nothing reads) and turns every NPC that is okay (`+0xe7`
-from 0x80, but 0xb3, status 0) against the party, forgetting its target,
-and the sides are counted.
+`NPC` from 0x80, but 0xb3, status 0) against the party (`+0x18a` `HOSTILE`
+1), forgetting its target, and the sides are counted.
 
 Aim (`432f:3b80`, `cok_combat_aim`): the range, the weapon's (type byte
 12) less 1, 0 and 0xff becoming 1 (1 with no weapon). Its targets
@@ -5592,9 +5607,9 @@ initiative and, a d2 of 1 each, those of as much, the turn over; the
 battle goes on with the next.
 
 Yell (`60f4:0023`): the kender is the one who yelled this battle
-(`DS:71a7`); every record that is okay, of intelligence (`+0x13`) above 3,
-on another side and not helpless, that fails a saving throw of type 4
-(`60f4:113a`), gets effect 0x5b (no time, value 0xff), "wants to kill
+(`DS:71a7`); every record that is okay, of intelligence (`+0x13`, `SCORE` 1)
+above 3, on another side and not helpless, that fails a saving throw of type
+4 (`60f4:113a`), gets effect 0x5b (no time, value 0xff), "wants to kill
 NAME" flashed on it (`60f4:20f7`), which steers the computer's targets
 (see The computer's turns).
 
@@ -6428,30 +6443,31 @@ The end of combat (`351b:1968`), as `cok_treasure_end_of_combat`:
    only through combat (`DS:0390`: 0x03, 0x0b, 0x15, 0x17, 0x1b, 0x23,
    0x28, 0x33, 0x34, 0x35, 0x1f, removed as `cok_effects_remove` does).
    The party is destroyed unless a party record has status 0, 1 or 3, is
-   on the party's side (`+0x18a` 0) and is not an NPC (`+0xe7` below
-   0x80), or in a fight that cannot kill (var `0x7ee6`, which no script
-   sets) anyone in the list can act or is running, unconscious or dying.
-   One that stands (status 0 or 1) means the party did not flee, and the
-   experience is worked out and given (below). If the party lives, either
-   it comes round: running and unconscious with hit points become okay,
-   dying unconscious, and in a fight that cannot kill dying and
+   on the party's side (`+0x18a` `HOSTILE` 0) and is not an NPC (`+0xe7`
+   `NPC` below 0x80), or in a fight that cannot kill (var `0x7ee6`, which no
+   script sets) anyone in the list can act or is running, unconscious or
+   dying. One that stands (status 0 or 1) means the party did not flee, and
+   the experience is worked out and given (below). If the party lives,
+   either it comes round: running and unconscious with hit points become
+   okay, dying unconscious, and in a fight that cannot kill dying and
    unconscious are okay with a hit point; or when it fled, var `0x7ec7` is
    0x81, those who ran are okay and the rest are left behind, removed
    (`4def:3b0a`, the record before then selected) and counted out of
    `0x7f3e`. A destroyed party is removed and `0x7f3e` is 0.
 3. The mode is 6, and the enemies are removed (`351b:1493`): every record
-   whose combat record's `+0x13` or whose `+0x18a` is 1 counts as a
-   monster (`DS:43c4`) and is removed (`4def:3b0a`), freeing its icon
+   whose combat record's `+0x13` or whose `+0x18a` (`HOSTILE`) is 1 counts
+   as a monster (`DS:43c4`) and is removed (`4def:3b0a`), freeing its icon
    slot, one not past the party's size counted out of `0x7f3e`; var
-   `0x7ec8` counts those that dropped (`+0x189` not 1), var `0x4cf8` is set
-   if the first one did, and var `0x7ec7` becomes 1 for one that fled while
-   it is 0. The others' combat records are freed, the first record is
-   selected, and every record's stats are recomputed (`6346:0d20`). Where
-   the selection the original keeps in `DS:43bf`, which `EXIT` restores
-   after `LOAD CHARACTER` and a block's vectors restore when they end
-   (`2fd3:3b47`), is a record removed here or in step 2, the original
-   would go on with it freed, and the port stops with `COK_ECL_UNDEFINED`,
-   unless the party was destroyed and the run ends first.
+   `0x7ec8` counts those that dropped (`+0x189` `ACTIVE` not 1), var
+   `0x4cf8` is set if the first one did, and var `0x7ec7` becomes 1 for one
+   that fled while it is 0. The others' combat records are freed, the first
+   record is selected, and every record's stats are recomputed
+   (`6346:0d20`). Where the selection the original keeps in `DS:43bf`, which
+   `EXIT` restores after `LOAD CHARACTER` and a block's vectors restore when
+   they end (`2fd3:3b47`), is a record removed here or in step 2, the
+   original would go on with it freed, and the port stops with
+   `COK_ECL_UNDEFINED`, unless the party was destroyed and the run ends
+   first.
 4. Unless the party was destroyed: if it fled, the pool's items go; the
    NPCs take their shares, the results show and the treasure menu runs
    (below); then the pool's items go. Its coins stay until the next
@@ -6472,10 +6488,11 @@ enemies are removed (`351b:1982`, `1996`): no recompute, results,
 treasure or cleanup.
 
 The experience (`351b:0037`) is a LongInt, `DS:8840`: each defeated enemy
-in the list (`+0x18a` 1, status neither 0 nor 3) counts as a monster
-(`DS:43c4`, which `351b:1493` sets too for each enemy it removes) and
-gives `+0x130` + `+0x132` × `+0x11b`, the product a signed word; a
-monster past the party's size puts its coins in the pool, and unless
+in the list (`+0x18a` `HOSTILE` 1, status neither 0 nor 3) counts as a
+monster (`DS:43c4`, which `351b:1493` sets too for each enemy it removes)
+and gives `+0x130` + `+0x132` × `+0x11b` (`MONSTER_EXPERIENCE` +
+`MONSTER_HIT_POINT_EXPERIENCE` × `BASE_HIT_POINTS`), the product a signed
+word; a monster past the party's size puts its coins in the pool, and unless
 monsters keep their items (var `0x7ee3` 1) each of its items is named and
 put first in the pool, unreadied, in its order, so the last first. Then
 the pool's coins count, as signed LongInts: a hundredth of the silver, a
@@ -6486,23 +6503,23 @@ sum, divided by `0x7f3e` less the party records that cannot act or are
 animated (`DS:883f`), as a word, is what each gets. It is given
 (`351b:0379`), unless the bank is paying out (var `0x4cf5`), to every
 record in the list that can act and is not animated, monsters still in it
-too, added to `+0x116`: a tenth more for a cleric (`+0x5b` 0) of wisdom
-above 14, a fighter, paladin, ranger, mage or thief whose prime
-requisites (strength; strength and wisdom; strength, intelligence and
-wisdom; intelligence; dexterity) are above 15; half for two classes (8,
-10-14, 16) and a third for three (9, 15); all for the rest.
+too, added to `+0x116` (`EXPERIENCE`): a tenth more for a cleric (`+0x5b`
+`CLASS` 0) of wisdom above 14, a fighter, paladin, ranger, mage or thief
+whose prime requisites (strength; strength and wisdom; strength,
+intelligence and wisdom; intelligence; dexterity) are above 15; half for two
+classes (8, 10-14, 16) and a third for three (9, 15); all for the rest.
 
 The screens, each on a cleared frame (`1128:0000`), are:
 
-- The NPCs' shares (`351b:1618`). Each NPC that is okay counts `+0xe8` & 7
-  shares, every other record one, as bytes; with any NPC shares, of each
-  coin in the pool the NPCs take their shares of the pool divided by all
-  the shares, cut to a byte, and the coins are gone. Then each okay NPC
-  with `+0xe8` set says `NAME takes and hides his share.` (`her` for
-  `+0x109` not 0) in light green in cells 5-34 from row 5, two rows apart,
-  each cleared first, and `press <enter>/<return> to continue` waits on
-  row 24, all one item, black on white (`67b5:03e2`): Enter, space,
-  Escape or a special key ends it.
+- The NPCs' shares (`351b:1618`). Each NPC that is okay counts `+0xe8`
+  `SHARES` & 7 shares, every other record one, as bytes; with any NPC
+  shares, of each coin in the pool the NPCs take their shares of the pool
+  divided by all the shares, cut to a byte, and the coins are gone. Then
+  each okay NPC with `SHARES` set says `NAME takes and hides his share.`
+  (`her` for `+0x109` `GENDER` not 0) in light green in cells 5-34 from row
+  5, two rows apart, each cleared first, and `press <enter>/<return> to
+  continue` waits on row 24, all one item, black on white (`67b5:03e2`):
+  Enter, space, Escape or a special key ends it.
 - The results (`351b:0b23`), in light green from column 1: after a fight
   (`DS:43c4`), `The party has fled.` on row 3, with no experience and the
   pool's coins gone; `You have lost the fight.` in a fight that cannot
@@ -6519,10 +6536,10 @@ The screens, each on a cleared frame (`1128:0000`), are:
   Share` with money in the pool, `View Take Pool` with only items, else
   `View Pool`, then `Detect` if there are items and the selected character
   can act and has memorized a Detect Magic (5, 0x0b, 0x4d or 0x67, the
-  first in `+0x1e`-`+0x57`), and `Exit`; the prompt is empty, the items
-  white and light green, as the camp's. Special keys pick a character.
-  `View` is View (see View), in which Drop puts the money in the pool
-  (`58e7:09fa`); `Detect` casts the spell (`5b04:1415`) without saying
+  first in `+0x1e`-`+0x57` `MEMORIZED`), and `Exit`; the prompt is empty,
+  the items white and light green, as the camp's. Special keys pick a
+  character. `View` is View (see View), in which Drop puts the money in the
+  pool (`58e7:09fa`); `Detect` casts the spell (`5b04:1415`) without saying
   "casts". `Exit` or Escape leaves when the pool is empty; otherwise
   `There is still treasure left.  ` in light green and `Do you want to go
   back and claim your treasure?` in white in rows 17-22, and `~Yes ~No`
@@ -6551,10 +6568,10 @@ else at most what the pool has. Again until the pool has no coins or none
 is picked. Each time the screen is redrawn after.
 
 `Pool` (`58e7:0511`) puts the money of every player character, turned
-ones too (`+0xe7` 0 or 0xb3), in the pool, lightening its weight as words;
-NPCs keep theirs. `Share` (`58e7:063a`) divides each coin by the records
-Pool counts, a byte: each record below 0x80 then takes its share of each
-coin, jewelry first, and a coin of the remainder while one is left, as
+ones too (`+0xe7` `NPC` 0 or 0xb3), in the pool, lightening its weight as
+words; NPCs keep theirs. `Share` (`58e7:063a`) divides each coin by the
+records Pool counts, a byte: each record below 0x80 then takes its share of
+each coin, jewelry first, and a coin of the remainder while one is left, as
 far as it can carry (`58e7:006d`: its weight and the amount, a word that
 wraps, against its allowance + 1500, `6346:153b`); what it cannot carry
 goes back to the remainder. Then each record in the list in turn, NPCs and
@@ -6589,11 +6606,12 @@ The port keeps these quirks:
   stops with `COK_ECL_UNDEFINED`. Only a fight that cannot kill reaches
   this.
 - An NPC's share is cut to a byte, so at most 255 a share of each coin;
-  the coins vanish; an NPC whose `+0xe8` is 8 takes no share but says it
-  hides one; shares that wrap to 0 divide by zero, and the port stops.
+  the coins vanish; an NPC whose `+0xe8` (`SHARES`) is 8 takes no share but
+  says it hides one; shares that wrap to 0 divide by zero, and the port
+  stops.
 - Share counts turned characters but gives them nothing, so their shares
-  are lost, and gives records whose `+0xe7` is 1-0x7f a share they were
-  not counted in; a record already carrying more than it may takes a
+  are lost, and gives records whose `+0xe7` (`NPC`) is 1-0x7f a share they
+  were not counted in; a record already carrying more than it may takes a
   whole remainder, its room wrapping. A hoard too heavy for the party,
   such as the 95,000 coins of ECL3 block 98, stays in the pool after
   Share.
@@ -6707,22 +6725,22 @@ the shop keeping its own, and `NAME buys a ITEM` shows on row 24, or
 `NAME buys ITEM` for an item with a count (`+0x39`).
 
 `Appraise` (`58e7:1929`) values the selected character's gems and
-jewelry (`+0xf5`, `+0xf7`), or says `No Gems or Jewelry`. It clears cells
-1-38 by 1-22 and shows the character's name on row 1 (`6346:199d`), `You
-have a fine collection of:` on row 7, and `N Gem`, `N Gems`, `1 piece of
-Jewelry` or `N pieces of Jewelry` on rows 9 and 10, all white, with
-`Appraise : ` and `  Gems  Jewelry Exit` (the leading spaces as given), as
-it has them. Picked, a gem goes from its coins and is valued on a d100:
-1-25 5 steel, 26-50 25, 51-70 50, 71-90 250, 91-99 500 and 100 2500; a
+jewelry (`+0xf5`, `+0xf7`: `COINS` 5 and 6), or says `No Gems or Jewelry`.
+It clears cells 1-38 by 1-22 and shows the character's name on row 1
+(`6346:199d`), `You have a fine collection of:` on row 7, and `N Gem`, `N
+Gems`, `1 piece of Jewelry` or `N pieces of Jewelry` on rows 9 and 10, all
+white, with `Appraise : ` and ` Gems Jewelry Exit` (the leading spaces as
+given), as it has them. Picked, a gem goes from its coins and is valued on a
+d100: 1-25 5 steel, 26-50 25, 51-70 50, 71-90 250, 91-99 500 and 100 2500; a
 jewel on a d100 and then Turbo Pascal's `Random` (through Reals, which
 change nothing): 1-10 50-499, 11-20 100-599, 21-40 150-899, 41-50
 250-1499, 51-70 500-2999, 71-90 1000-3999 and 91-100 1000-5999. `The Gem
 is Valued at N steel.` (or `Jewel`) shows on row 12, and `You can : `
 offers `Sell Keep`, or `Sell` alone if the character has 16 items
-(`+0x142`) or one more would overload it (`58e7:006d`). `Keep` makes it an
-item, type 0x2f, named `Gem` or `Jewelry` (part `+0x31` 0x7a or 0x7b),
-worth the value and weighing 1, after the character's items; any other
-key sells it for the value in steel (`58e7:01f2`, what would overload
+(`+0x142`, `ITEM_COUNT`) or one more would overload it (`58e7:006d`). `Keep`
+makes it an item, type 0x2f, named `Gem` or `Jewelry` (part `+0x31` 0x7a or
+0x7b), worth the value and weighing 1, after the character's items; any
+other key sells it for the value in steel (`58e7:01f2`, what would overload
 the character going to the pool with `Overloaded.  Money will be put in
 Pool.`). The stats are recomputed (`6346:0d20`) after each key, and it
 ends when none are left, or on `Exit` or Escape.
@@ -6756,11 +6774,12 @@ cure then does, and only then are the dice rolled:
 | Stone to Flesh | 1000 | `is not stoned.` (status 7) | okay, able to act, 1 hit point |
 
 Raised with a constitution left of 14 or more, a character's maximum hit
-points (`+0x62`) above those at full (`+0x11b`) are divided by a byte sum
-over its class levels (`+0xf9`-`+0x100`): each level, two for one above
-15, a fighter's times the constitution less 14; they come off the
-maximum unless the constitution is 17 or more, it has no fighter level
-and `+0xfb` is not above `+0xd7`.
+points (`+0x62` `MAX_HIT_POINTS`) above those at full (`+0x11b`
+`BASE_HIT_POINTS`) are divided by a byte sum over its class levels
+(`+0xf9`-`+0x100` `CLASS_LEVEL`): each level, two for one above 15, a
+fighter's times the constitution less 14; they come off the maximum unless
+the constitution is 17 or more, it has no fighter level and `+0xfb`
+(`CLASS_LEVEL` 2) is not above `+0xd7` (`CHANGE_LEVEL`).
 
 View's Items in shops and the temple (mode 1) add `Sell`, as Trade allows
 it, and `Id`. `Sell` (`546c:2822`) needs the item unreadied, as Drop does,
@@ -7012,10 +7031,11 @@ The port keeps these quirks:
 Characters wait between games in the save directory (`DS:5784`, `--saves`)
 as `NAME.WHO` (the 409-byte record), `NAME.STF` (items) and `NAME.SFX`
 (effects). The list (`4b6d:0453`, `008b`) holds each `*.WHO` file of
-exactly 409 bytes whose byte `+0xf7`, the jewelry's low byte, is below
-0x80 (surely meant to be the NPC flag `+0xe7`), named as its record is,
-padded to 15 columns, unless a record in the list has that name; DOS
-lists them in directory order, the port in the order of their file names.
+exactly 409 bytes whose byte `+0xf7`, the jewelry's low byte (`COINS` 6), is
+below 0x80 (surely meant to be the NPC flag `+0xe7`, `NPC`), named as its
+record is, padded to 15 columns, unless a record in the list has that name;
+DOS lists them in directory order, the port in the order of their file
+names.
 
 Add Character to Party (`4def:37a2`, nothing with no roster) shows the
 list in cells 1-38 of rows 2-22 with `Add a character: ` (light magenta)
@@ -7027,9 +7047,9 @@ Turbo Pascal's heap confirmed it in every history tried (see below). Add
 (or Enter) on a row not marked `* ` loads the file (`4b6d:11e5`,
 `Loading...Please Wait` on row 24 in light green) and marks the row. The
 first character joins an empty party with no checks; after it, one joins
-if no record has its name and `+0x115` (a duplicate), it would not be a
-seventh player character (or for an NPC, the party holds fewer than 8,
-`0x7f3e`), it is not a paladin while an evil character is in the party,
+if no record has its name and `+0x115` (`MONSTER_ID`; a duplicate), it would
+not be a seventh player character (or for an NPC, the party holds fewer than
+8, `0x7f3e`), it is not a paladin while an evil character is in the party,
 not a fourth ranger, and not evil while a paladin is. Joining counts it
 (`4b6d:1989`) and builds its icon (`4b6d:0817`). A character turned away
 loses its mark, and at most one message shows on row 24 (`6346:1827`),
@@ -7077,8 +7097,8 @@ The port keeps these quirks:
 
 - The list leaves out characters whose jewelry's low byte is 0x80 or
   more.
-- The duplicate test needs the same name and `+0x115`; a player
-  character is not counted against 8 records, only 6 players.
+- The duplicate test needs the same name and `+0x115` (`MONSTER_ID`); a
+  player character is not counted against 8 records, only 6 players.
 - The message names the first rule that applies, not why the character
   was turned away; a duplicate or a full party says nothing.
 - With a space as the first key of Add, before any choice, the original
@@ -7113,17 +7133,18 @@ the combat icon editor (`4def:408b`, `3d41`, `3e20`), which camp's Alter
 `Icon` also opens.
 
 The new record starts zeroed with the icon's colours as the template's
-(`+0x139`-`+0x13e` 91 a2 b3 c4 e6 f7), armour class 10 (`+0x113`), THAC0
-20 (`+0x59` 0x28), able to act, one cell in combat, icon slot 10, and a
-`Random(256)` in `+0x115`, the first number drawn. Five lists follow, each
-in cells 1-38 of rows 2-22 under its heading in light magenta, the rows
-indented two spaces in light green, `Select` and `Exit` on row 24
-(`67b5:1368`), starting on the first row; Escape or Exit discards the
-character. Pick Race (`DS:1140`): a kender gets effects 0x5c and 0x5e, a
-dwarf 0x5e, 0x1a and 0x2f, an elf 0x5f, a half-elf 0x12, each permanent
-with value 0xff; dwarves and kender are small (`+0x138` 1). Pick Gender.
-Pick Class, the race's classes from `DS:3a50` (15 bytes a race: the count
-and the classes), sets the levels and experience:
+(`+0x139`-`+0x13e` `ICON_COLOURS` 91 a2 b3 c4 e6 f7), armour class 10
+(`+0x113` `BASE_AC`), THAC0 20 (`+0x59` `BASE_THAC0` 0x28), able to act, one
+cell in combat, icon slot 10, and a `Random(256)` in `+0x115`
+(`MONSTER_ID`), the first number drawn. Five lists follow, each in cells
+1-38 of rows 2-22 under its heading in light magenta, the rows indented two
+spaces in light green, `Select` and `Exit` on row 24 (`67b5:1368`), starting
+on the first row; Escape or Exit discards the character. Pick Race
+(`DS:1140`): a kender gets effects 0x5c and 0x5e, a dwarf 0x5e, 0x1a and
+0x2f, an elf 0x5f, a half-elf 0x12, each permanent with value 0xff; dwarves
+and kender are small (`+0x138` `ICON_SIZE` 1). Pick Gender. Pick Class, the
+race's classes from `DS:3a50` (15 bytes a race: the count and the classes),
+sets the levels and experience:
 
 | Class | Levels | Experience |
 | --- | --- | --- |
@@ -7145,8 +7166,8 @@ alignments (`DS:3c45`) the deity allows, lawful, true or chaotic good or
 neutral (`DS:0a9a`); never evil. A mage gets order 1 (White) when good,
 2 (Red) when neutral.
 
-The age (`+0x60`) is a single class's base and dice (`DS:3ab9`, race ×
-32 + class × 4), or for more classes the most one class's dice can give,
+The age (`+0x60`, `AGE`) is a single class's base and dice (`DS:3ab9`, race
+× 32 + class × 4), or for more classes the most one class's dice can give,
 with no roll. The character is then selected and its sheet drawn
 (`546c:00a3`). Then, and again on each reroll: the levels become 1;
 each score is the best of six rolls of 3d6 + 1, in the order strength,
@@ -7160,8 +7181,8 @@ class's minimum (`DS:3bdf`), wisdom to 13 for a cleric of more than one
 class, and at 18 a fighter, ranger or knight rolls exceptional strength
 d100, at most the race's; each is drawn as it is rolled (`546c:0b50`).
 Movement 12, one attack of 1d2, strength's bonus; the money, in steel
-(`+0xf3`), is the classes' dice (cleric 3d6, fighter and ranger 5d4,
-mage 2d4, thief 2d6; a knight's 1d4 replaces it) and a fifth more; a
+(`+0xf3`, `COINS` 4), is the classes' dice (cleric 3d6, fighter and ranger
+5d4, mage 2d4, thief 2d6; a knight's 1d4 replaces it) and a fifth more; a
 cleric's spells a day (`66c2:0722`) and spells 1, 3, 5, 6 and 8 known, a
 mage's spell a day and spells 11, 12, 15, 18 and 21. Hit points come from
 `4def:4b3a` for every class (see Training), then the character trains
@@ -7197,7 +7218,7 @@ The port keeps these quirks:
   with a thief level trains, and training's `66c2:0433` reads the usual
   7, so it never reaches the file.
 - A single cleric or knight does not train: it keeps the saving throws
-  computed with every score 0, and `+0xd6` 0.
+  computed with every score 0, and `+0xd6` (`HIGHEST_LEVEL`) 0.
 - Var `0x7ea8` comes back as its low byte.
 - The knight's items are not in the weight saved.
 - A name is asked until one is typed; Escape does not cancel it. No name
@@ -7225,9 +7246,9 @@ digits not directions, the selection kept from the menu before):
 | Menu | Items | What they do |
 | --- | --- | --- |
 | 1 | `Parts 1st-color 2nd-color Size Exit` | the menus below; Exit or Escape leaves |
-| 2 | `Head Weapon Exit` | `Weapon` edits the body (`+0x136`), whose pictures hold the weapon |
-| 3 | `Weapon Body Hair Shield Arm Leg Exit` (`Face` for 2nd-color) | the part's colour: body 1, arm 2, leg 3, hair or face 4, shield 5, weapon 6 (`+0x139` on), the low nibble for 1st-color, the high for 2nd |
-| 4 | `Small Keep Exit` or `Large Keep Exit` | the size to change to (`+0x138`) |
+| 2 | `Head Weapon Exit` | `Weapon` edits the body (`+0x136` `ICON_BODY`), whose pictures hold the weapon |
+| 3 | `Weapon Body Hair Shield Arm Leg Exit` (`Face` for 2nd-color) | the part's colour: body 1, arm 2, leg 3, hair or face 4, shield 5, weapon 6 (`ICON_COLOURS` 1-6, `+0x139` on), the low nibble for 1st-color, the high for 2nd |
+| 4 | `Small Keep Exit` or `Large Keep Exit` | the size to change to (`+0x138` `ICON_SIZE`) |
 | 5 | `Next Prev Keep Exit` | heads 0-13, bodies 0-31, nibbles 0-15, wrapping; Keep keeps the field, Exit or Escape puts it back |
 
 Leaving puts back what was not kept, copies the icon to the record's slot
@@ -7250,9 +7271,9 @@ gives either.
 
 Modify (`4def:28fa`) picks a character and changes it only if its
 experience is that of a new character (1500, 1251, 2000, 2001, 2251,
-2500 or 5000) and `+0xd7` is 0; otherwise `NAME can't be modified.` in
-yellow. Over the sheet, the field being changed is drawn in light
-magenta (`4def:278c`): the scores 0-5, the name (6, the character at
+2500 or 5000) and `+0xd7` (`CHANGE_LEVEL`) is 0; otherwise `NAME can't be
+modified.` in yellow. Over the sheet, the field being changed is drawn in
+light magenta (`4def:278c`): the scores 0-5, the name (6, the character at
 the cursor in white, `%` for a space) and the maximum hit points (7).
 `Modify: ` and `Add Subtract Keep Exit` (digits as directions) take keys
 for the scores and hit points; the name reads keys raw (`1614:025b`).
@@ -7261,28 +7282,28 @@ the name. Subtract and Add change a score within its race's limits
 (`DS:39e0`), Subtract keeping the class's minimum (`DS:3bdf`); strength
 above 18 raises a fighter's, ranger's or knight's exceptional strength
 to the race's most, and Subtract takes it down first; wisdom sets a
-cleric's spells a day `+0x11c` to 1; constitution and the hit points
-keep the maximum between the least and the most the levels allow
-(`4def:4808`, `48e9`), the hit points then the maximum. In the name
-Subtract and Add move the cursor, wrapping; Del deletes at the cursor,
-Backspace before it; letters, digit 0 and others from space to `z` are
-typed. After each key the stats are recomputed (`6346:0d20`, `546c:07bb`).
-Keep recomputes the spells a day (`66c2:0722`), sets `+0xe8`, sets the hit
-points at full (`+0x11b`) to the maximum less the constitution's average
-bonus, and makes the scores the base; Exit or Escape puts back the
-scores, exceptional strength, maximum and name, and the hit points become
-the maximum.
+cleric's spells a day `+0x11c` (`SPELLS_A_DAY` 0, level 1) to 1;
+constitution and the hit points keep the maximum between the least and the
+most the levels allow (`4def:4808`, `48e9`), the hit points then the
+maximum. In the name Subtract and Add move the cursor, wrapping; Del deletes
+at the cursor, Backspace before it; letters, digit 0 and others from space
+to `z` are typed. After each key the stats are recomputed (`6346:0d20`,
+`546c:07bb`). Keep recomputes the spells a day (`66c2:0722`), sets `+0xe8`
+(`SHARES`), sets the hit points at full (`+0x11b`, `BASE_HIT_POINTS`) to the
+maximum less the constitution's average bonus, and makes the scores the
+base; Exit or Escape puts back the scores, exceptional strength, maximum and
+name, and the hit points become the maximum.
 
 The port keeps these quirks: in the name, upper-case A and S move the
 cursor, and K is typed and then keeps; digits 1-9 and `\` are directions;
 Backspace does not move the cursor back; typing at the end adds a space,
-which is kept; Exit leaves `+0x11c` as a wisdom change left it; Keep's
-bonus sum is a byte divided unsigned (a cleric/fighter of constitution 5
-and a maximum of 8 gets 137 at full); `4def:48e9` past a class's top
-level sets its sum rather than adding to it; the least counts a ranger's
-and a knight's extra level, the most also a cleric's of a deity up to 4;
-the name is redrawn in light green after a constitution change; the `*`
-beside a changed score is never erased. Modify does not recompute THAC0,
+which is kept; Exit leaves `+0x11c` (`SPELLS_A_DAY`) as a wisdom change left
+it; Keep's bonus sum is a byte divided unsigned (a cleric/fighter of
+constitution 5 and a maximum of 8 gets 137 at full); `4def:48e9` past a
+class's top level sets its sum rather than adding to it; the least counts a
+ranger's and a knight's extra level, the most also a cleric's of a deity up
+to 4; the name is redrawn in light green after a constitution change; the
+`*` beside a changed score is never erased. Modify does not recompute THAC0,
 saving throws or thief skills. Where `4def:257c` returns its
 uninitialized local (a constitution outside 3-19), the port stops.
 
@@ -7309,9 +7330,12 @@ it, else the frame's inside is cleared and `NAME will become:` (the
 name light cyan at 4, 4) lists `    a level N Class`, then `and a level
 N Class` from column 6, and `Do you wish to train? ` (light magenta, No
 first) asks; Yes says `Congratulations...` on row 24. Each class the hall
-trains rises a level, the levels are recomputed (`66c2:0433`), a mage
+trains rises a level, and while `+0xd8` (`SPREAD_LEVELS`) is not 0 it takes
+`+0xd9` (`SPREAD`) down by `+0xd9` / `+0xd8` and counts `+0xd8` down, two
+bytes nothing else in Champions reads or writes (0 in every monster and
+in SAVE/'s characters); the levels are recomputed (`66c2:0433`), a mage
 rising learns a spell, and the hit points rise (`4def:4b3a`) if the
-highest level passed `+0xd7`.
+highest level (`+0xd6`, `HIGHEST_LEVEL`) passed `+0xd7` (`CHANGE_LEVEL`).
 
 A spell is learned from `NAME's Spells to Choose` (`546c:34ec` kind 4,
 `5b04:0b21`): for each mage spell level 1-4 with a spell a day, the
@@ -7328,8 +7352,9 @@ by constitution, a fighter, ranger or knight one more at 17 up to five at
 24-25) times the dice; at or above its top a class gives a fixed 3
 (fighter, knight), 2 (cleric, ranger, thief) or 1 (mage) in place of the
 sum so far. Sum and bonus are each divided by the classes with a level,
-the sum at least 1: the maximum (`+0x62`) gains both, `+0x11b` the sum,
-and the hit points stay as far below the maximum as they were.
+the sum at least 1: the maximum (`+0x62`, `MAX_HIT_POINTS`) gains both,
+`+0x11b` (`BASE_HIT_POINTS`) the sum, and the hit points stay as far below
+the maximum as they were.
 
 In creation (`DS:4b58`) nothing is shown or asked, no experience is cut,
 each class with the experience rises one level each call, the hall being
@@ -7346,9 +7371,9 @@ qualify.` (base scores 12, 9, 13, 9, 10, 3 or 15, 10, 13, 12, 15, 3,
 `DS:0b7e`) or `NAME may become a` and `Knight Of The Sword` (or `Rose`)
 with `Change Exit`, else `Exit`. Change (`4def:567f`) moves it to the
 next order; if its experience is below the new order's for its level, it
-loses a level and hit points (`+0x11b` divided by the level + 1, and the
-constitution bonus of `4def:257c`). The levels are recomputed; experience
-is kept.
+loses a level and hit points (`+0x11b`, `BASE_HIT_POINTS`, divided by the
+level + 1, and the constitution bonus of `4def:257c`). The levels are
+recomputed; experience is kept.
 
 The port keeps these quirks:
 
