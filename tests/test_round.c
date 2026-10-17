@@ -415,46 +415,53 @@ static void test_damage(void)
     c->sides[1] = 1;
     a->combat->initiative = 4;
     /* 3 past the hit points: dying, three rounds counted. */
-    CHECK(cok_combat_damage(c, a, 13, 5));
+    CHECK(cok_combat_damage(c, a, &cok_rules_champions, 13, 5));
     CHECK(a->record[0x188] == 5 && a->combat->dying == 3 && a->record[0x189] == 0);
     CHECK(c->sides[0] == 0 && a->combat->initiative == 0);
     /* Hit again, it is counted out of its side again: the byte wraps. */
-    CHECK(cok_combat_damage(c, a, 1, 5) && c->sides[0] == 0xff && a->record[0x188] == 5);
+    CHECK(cok_combat_damage(c, a, &cok_rules_champions, 1, 5) && c->sides[0] == 0xff &&
+          a->record[0x188] == 5);
     /* Exactly its hit points: unconscious. Outside combat no count. */
     m->record[0x197] = 4;
-    CHECK(cok_combat_damage(c, m, 4, 4) && m->record[0x188] == 4 && c->sides[1] == 1);
+    CHECK(cok_combat_damage(c, m, &cok_rules_champions, 4, 4) && m->record[0x188] == 4 &&
+          c->sides[1] == 1);
     m->record[0x188] = 1;
     m->record[0x197] = 4;
-    CHECK(cok_combat_damage(c, m, 6, 5) && m->record[0x188] == 6 && c->sides[1] == 0);
+    CHECK(cok_combat_damage(c, m, &cok_rules_champions, 6, 5) && m->record[0x188] == 6 &&
+          c->sides[1] == 0);
     /* Running (3) and hurt counts as dropping. */
     m->record[0x188] = 3;
     m->record[0x197] = 9;
     m->record[0x189] = 1;
-    CHECK(cok_combat_damage(c, m, 1, 5) && m->record[0x197] == 0 && m->record[0x189] == 0);
+    CHECK(cok_combat_damage(c, m, &cok_rules_champions, 1, 5) && m->record[0x197] == 0 &&
+          m->record[0x189] == 0);
     /* Other sides count past the bytes: refused. */
     m->record[0x18a] = 2;
-    CHECK(!cok_combat_damage(c, m, 50, 5));
+    CHECK(!cok_combat_damage(c, m, &cok_rules_champions, 50, 5));
     /* Ten past them: dead. */
     m->record[0x18a] = 1;
     m->record[0x188] = 0;
     m->record[0x197] = 5;
-    CHECK(cok_combat_damage(c, m, 15, 5) && m->record[0x188] == 6);
+    CHECK(cok_combat_damage(c, m, &cok_rules_champions, 15, 5) && m->record[0x188] == 6);
     m->record[0x188] = 0;
     m->record[0x197] = 5;
-    CHECK(cok_combat_damage(c, m, 14, 5) && m->record[0x188] == 5 && m->combat->dying == 9);
+    CHECK(cok_combat_damage(c, m, &cok_rules_champions, 14, 5) && m->record[0x188] == 5 &&
+          m->combat->dying == 9);
     /* Okay with hit points left. */
     a->record[0x188] = 0;
     a->record[0x197] = 9;
-    CHECK(cok_combat_damage(c, a, 3, 5) && a->record[0x197] == 6 && a->record[0x188] == 0);
+    CHECK(cok_combat_damage(c, a, &cok_rules_champions, 3, 5) && a->record[0x197] == 6 &&
+          a->record[0x188] == 0);
 }
 
 static void test_helpers(void)
 {
     reset("");
     cok_character *a = record('A', 0, 5, 5), *b = record('B', 0, 6, 5), *m = record('M', 1, 9, 9);
-    CHECK(cok_combat_opposite(a) == 1 && cok_combat_opposite(m) == 0);
+    CHECK(cok_combat_opposite(a, &cok_rules_champions) == 1 &&
+          cok_combat_opposite(m, &cok_rules_champions) == 0);
     m->record[0x18a] = 7;
-    CHECK(cok_combat_opposite(m) == 0);
+    CHECK(cok_combat_opposite(m, &cok_rules_champions) == 0);
     m->record[0x18a] = 1;
     CHECK(!cok_combat_helpless(a));
     CHECK(cok_character_add_effect(a, 0x1f, 0, 0, false) != NULL && cok_combat_helpless(a));
@@ -469,10 +476,10 @@ static void test_helpers(void)
           b->combat->movement == 0 && b->combat->facing == 4);
     /* Auto: the computer controls it, and a target on its own side goes. */
     b->combat->target = a->record;
-    cok_combat_auto(b);
+    cok_combat_auto(b, &cok_rules_champions);
     CHECK(b->record[0x18b] == 1 && b->combat->target == NULL);
     b->combat->target = m->record;
-    cok_combat_auto(b);
+    cok_combat_auto(b, &cok_rules_champions);
     CHECK(b->combat->target == m->record);
     /* Bandage: the first dying party member, wherever it is. */
     b->record[0x188] = 5;

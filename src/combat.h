@@ -254,12 +254,12 @@ bool cok_combat_place_all(cok_adventure *game);
 /* 6346:268a: count the records that can act on each side (+0x18a 0 or
  * 1). Returns false for a record on another side, which the original
  * counts, as a signed byte, in the data around DS:6b2c. */
-bool cok_combat_count_sides(cok_combat *combat, const cok_party *party);
+bool cok_combat_count_sides(cok_combat *combat, const cok_party *party, const cok_rules *rules);
 
 /* 432f:2df3: the enemies' (+0x18a 1) hit points, of those that can act,
  * as a percentage of all their most, in fives: (20 * hp as a word) /
  * most * 5, as a byte. Unchanged when the most is 0. */
-void cok_combat_enemy_health(cok_combat *combat, const cok_party *party);
+void cok_combat_enemy_health(cok_combat *combat, const cok_party *party, const cok_rules *rules);
 
 /* The lookups of overlay 6beb. */
 
@@ -311,8 +311,8 @@ bool cok_combat_probe(const cok_combat *combat, const uint8_t *record, uint8_t d
  * Returns false where the original reads past the footprints, writes
  * outside the occupants or the map, or for a record that is not a
  * combatant, whose size it would write over the count. */
-bool cok_combat_place(cok_combat *combat, uint8_t mode, cok_character *character, uint8_t x,
-                      uint8_t y, bool restore, bool *placed);
+bool cok_combat_place(cok_combat *combat, uint8_t mode, cok_character *character,
+                      const cok_rules *rules, uint8_t x, uint8_t y, bool restore, bool *placed);
 
 /* Whether x, y, relative to the view's origin, is in the 7 by 7 shown
  * (6beb:06be). */

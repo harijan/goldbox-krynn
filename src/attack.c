@@ -73,10 +73,11 @@ static bool undefined(cok_adventure *game, const char *format, ...)
     return false;
 }
 
-static void name_of(const uint8_t *r, char out[16])
+static void name_of(const cok_character_layout *L, const uint8_t *r, char out[16])
 {
-    size_t length = r[0] > 15 ? 15 : r[0];
-    memcpy(out, r + 1, length);
+    uint8_t stored = cok_field_u8_at(L, r, COK_FIELD_NAME, 0);
+    size_t length = stored > 15 ? 15 : stored;
+    memcpy(out, r + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
     out[length] = '\0';
 }
 
@@ -97,9 +98,10 @@ static uint8_t roll(cok_adventure *game, uint8_t count, uint8_t sides)
  * original reads through NULL for one without. */
 static cok_combat_record *record_of(cok_adventure *game, cok_character *c)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     if (c->combat == NULL) {
         char name[16];
-        name_of(c->record, name);
+        name_of(L, c->record, name);
         undefined(game, "%s has no combat record, read through NULL in combat", name);
     }
     return c->combat;
@@ -124,10 +126,11 @@ static cok_character *combatant(cok_adventure *game, uint8_t n, const char *wher
  * for a record that is not one. */
 static bool index_of(cok_adventure *game, const cok_character *c, uint8_t *n, const char *where)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     *n = cok_combat_index(&game->combat, c->record);
     if (*n != 0) return true;
     char name[16];
-    name_of(c->record, name);
+    name_of(L, c->record, name);
     return undefined(game, "%s is not a combatant: its entry is the count (6beb:0c43, %s)", name,
                      where);
 }
@@ -210,11 +213,11 @@ static void page(void *context)
 }
 
 /* 6346:161b: forget the first memorized byte equal to spell. */
-static void forget(uint8_t *c, uint8_t spell)
+static void forget(const cok_character_layout *L, uint8_t *c, uint8_t spell)
 {
-    for (size_t i = 0; i <= 0x39; ++i)
-        if (c[0x1e + i] == spell) {
-            c[0x1e + i] = 0;
+    for (size_t i = 0; i < cok_field_count(L, COK_FIELD_MEMORIZED); ++i)
+        if (cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) == spell) {
+            cok_field_set8_at(L, c, COK_FIELD_MEMORIZED, i, 0);
             return;
         }
 }
@@ -232,6 +235,7 @@ bool cok_combat_reveal(cok_adventure *game, cok_character *c)
 bool cok_combat_hit(cok_adventure *game, cok_character *attacker, cok_character *target,
                     uint8_t ac, bool *hit)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_rolls *rolls = &game->effects.rolls;
     *hit = false;
     if (!cok_combat_reveal(game, attacker)) return false;
@@ -242,10 +246,12 @@ bool cok_combat_hit(cok_adventure *game, cok_character *attacker, cok_character 
     /* Var 0x7f71 for the party's side, else 0x7f70, as a signed byte; the
      * party's then meets a case on the constant 500 (60f4:10c8) that never
      * matches. */
-    uint16_t var = game->vm.mem7c00[attacker->record[0x18a] == 0 ? 0x371 : 0x370];
+    uint16_t var =
+        game->vm.mem7c00[cok_field_u8(L, attacker->record, COK_FIELD_HOSTILE) == 0 ? 0x371 : 0x370];
     int8_t bonus = s8(var);
     if ((int8_t)rolls->attack_roll < 0) return true;
-    *hit = (int8_t)rolls->attack_roll + attacker->record[0x18c] + bonus >= ac;
+    *hit = (int8_t)rolls->attack_roll + cok_field_u8(L, attacker->record, COK_FIELD_THAC0) +
+               bonus >= ac;
     return true;
 }
 
@@ -266,10 +272,12 @@ bool cok_combat_book(cok_adventure *game, cok_character *attacker, cok_character
 bool cok_combat_backstab(cok_adventure *game, cok_character *attacker, cok_character *target,
                          bool *backstab)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     const uint8_t *a = attacker->record;
     *backstab = false;
-    bool thief = (int8_t)a[0xff] > 0 ||
-                 ((int8_t)a[0x107] > 0 && cok_character_former_class(a, cok_game_rules(game)));
+    bool thief = cok_field_s8_at(L, a, COK_FIELD_CLASS_LEVEL, 6) > 0 ||
+                 (cok_field_s8_at(L, a, COK_FIELD_FORMER_LEVEL, 6) > 0 &&
+                  cok_character_former_class(a, cok_game_rules(game)));
     if (!thief) return true;
     size_t weapon = attacker->slots[0];
     if (weapon != 0) {
@@ -281,7 +289,7 @@ bool cok_combat_backstab(cok_adventure *game, cok_character *attacker, cok_chara
     if (cr->hits <= 1) return true;
     uint8_t d;
     if (!distance(game, attacker, target, &d)) return false;
-    if (d >= 2 || (target->record[0xcf] & 0x7f) > 1) return true;
+    if (d >= 2 || (cok_field_u8(L, target->record, COK_FIELD_SIZE) & 0x7f) > 1) return true;
     if (!direction(game, attacker, target, &d)) return false;
     *backstab = d == cr->facing;
     return true;
@@ -313,12 +321,14 @@ bool cok_combat_range(cok_adventure *game, cok_character *attacker, cok_characte
 bool cok_combat_damage_roll(cok_adventure *game, cok_character *attacker, cok_character *target,
                             uint8_t slot)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_rolls *rolls = &game->effects.rolls;
     const uint8_t *a = attacker->record;
     if (slot > 2) return undefined(game, "attack slot %u reads past the two (432f:01ba)", slot);
-    uint8_t dice = cok_dice_count(&game->vm.seed, a[0x190 + slot], a[0x192 + slot], &rolls->dice);
+    uint8_t dice = cok_dice_count(&game->vm.seed, cok_field_u8_at(L, a, COK_FIELD_DICE, slot),
+                                  cok_field_u8_at(L, a, COK_FIELD_DICE_SIDES, slot), &rolls->dice);
     /* The test for a negative total compares unsigned and never holds. */
-    rolls->amount = (uint8_t)(dice + (int8_t)a[0x194 + slot]);
+    rolls->amount = (uint8_t)(dice + cok_field_s8_at(L, a, COK_FIELD_DAMAGE_BONUS, slot));
     if (!event(game, attacker, 4) || !event(game, target, 5)) return false;
     bool backstab;
     if (!cok_combat_backstab(game, attacker, target, &backstab)) return false;
@@ -326,8 +336,9 @@ bool cok_combat_damage_roll(cok_adventure *game, cok_character *attacker, cok_ch
         /* 2 + (thief levels - 1) / 4 as words, the former ones counted when
          * a human may use them (66c2:0efb); the product a byte. */
         uint16_t former = cok_character_former_class(a, cok_game_rules(game)) ? 1 : 0;
-        uint16_t levels = (uint16_t)((uint16_t)(int16_t)(int8_t)a[0x107] * former +
-                                     (uint16_t)(int16_t)(int8_t)a[0xff]);
+        uint16_t levels = (uint16_t)(
+            (uint16_t)(int16_t)cok_field_s8_at(L, a, COK_FIELD_FORMER_LEVEL, 6) * former +
+            (uint16_t)(int16_t)cok_field_s8_at(L, a, COK_FIELD_CLASS_LEVEL, 6));
         uint16_t times = (uint16_t)((uint16_t)(levels - 1) >> 2) + 2u;
         rolls->amount = (uint8_t)(rolls->amount * times);
     }
@@ -348,6 +359,7 @@ bool cok_combat_damage_roll(cok_adventure *game, cok_character *attacker, cok_ch
 static bool report(cok_adventure *game, cok_character *attacker, cok_character *target,
                    uint8_t mode, uint8_t dealt, uint8_t shown, bool hit)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *t = target->record;
     const char *header = mode == 2 ? "-Backstabs-" : mode == 3 ? "slays helpless" : "Attacks";
     if (!cok_arena_say(game, attacker, header, 10, false)) return false;
@@ -363,15 +375,15 @@ static bool report(cok_adventure *game, cok_character *attacker, cok_character *
         else
             snprintf(text + used, sizeof text - used, "Hitting for %u%s", shown,
                      shown == 1 ? " point of damage" : " points of damage");
-        if (!cok_combat_damage(&game->combat, target, dealt, 5))
+        if (!cok_combat_damage(&game->combat, target, cok_game_rules(game), dealt, 5))
             return undefined(game, "a record on a side other than 0 or 1 (+0x18a) is counted "
                                    "past DS:6b2d (6346:24d7)");
     } else {
         strcat(text, "and Misses");
     }
-    if (t[0x188] != 8) {
+    if (cok_field_u8(L, t, COK_FIELD_STATUS) != 8) {
         char name[16], line[128];
-        name_of(t, name);
+        name_of(L, t, name);
         snprintf(line, sizeof line, "%s %s", name, text);
         cok_adventure_log(game, "attack", line);
         cok_adventure_wrap(game, &game->vm.cursor, text,
@@ -385,24 +397,27 @@ static bool report(cok_adventure *game, cok_character *attacker, cok_character *
         wait_speed(game);
         if (cr->spell > 0) {
             if (!cok_arena_say(game, target, "lost a spell", 12, true)) return false;
-            forget(t, cr->spell);
+            forget(L, t, cr->spell);
             cok_combat_end_turn(target);
         }
     } else {
         wait_speed(game);
     }
-    if (t[0x189] == 0) {
+    if (cok_field_u8(L, t, COK_FIELD_ACTIVE) == 0) {
         if (!cok_arena_say(game, target, "goes down", row, false)) return false;
         row = (uint8_t)(row + 2);
-        if (t[0x188] == 5) {
+        if (cok_field_u8(L, t, COK_FIELD_STATUS) == 5) {
             cok_adventure_log(game, "attack", "and is Dying");
             cok_text_string(&game->screen, &game->font, "and is Dying", 0x17, row, 10, 0);
         }
-        if (t[0x188] >= 6 && t[0x188] <= 8 && !cok_arena_say(game, target, "is killed", row, false))
+        if (cok_field_u8(L, t, COK_FIELD_STATUS) >= 6 &&
+            cok_field_u8(L, t, COK_FIELD_STATUS) <= 8 &&
+            !cok_arena_say(game, target, "is killed", row, false))
             return false;
         int stale;
         if (!battle_only(game, target, &stale) || !event(game, target, 0x0d)) return false;
-        if (t[0x189] == 0 && t[0x188] != 10) {
+        if (cok_field_u8(L, t, COK_FIELD_ACTIVE) == 0 &&
+            cok_field_u8(L, t, COK_FIELD_STATUS) != 10) {
             if (!kill(game, target, stale)) return false;
         } else {
             wait_speed(game);
@@ -417,6 +432,7 @@ static bool report(cok_adventure *game, cok_character *attacker, cok_character *
 bool cok_combat_strike(cok_adventure *game, cok_character *attacker, cok_character *target,
                        bool behind, bool *over)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     cok_rolls *rolls = &game->effects.rolls;
     uint8_t *a = attacker->record, *t = target->record;
@@ -433,39 +449,46 @@ bool cok_combat_strike(cok_adventure *game, cok_character *attacker, cok_charact
         /* From the slot in progress down to one with attacks left, past
          * slot 1 to 0, +0x18e, the armour class from behind. */
         for (;;) {
-            if (0x18e + ca->attack_slot >= COK_CHARACTER_SIZE)
+            long at = cok_field_offset_unchecked(L, COK_FIELD_ATTACKS_LEFT, 0, ca->attack_slot);
+            if (at >= L->size)
                 return undefined(game, "a helpless target's blow reads attacks past the record "
                                        "(432f:15d5)");
-            if (a[0x18e + ca->attack_slot] != 0) break;
+            if (a[at] != 0) break;
             --ca->attack_slot;
         }
         if (ca->attack_slot > 2)
             return undefined(game, "attack slot %u counts its attacks past DS:7196 (432f:160e)",
                              ca->attack_slot);
         ++combat->swings[ca->attack_slot];
-        if (!report(game, attacker, target, 3, (uint8_t)(t[0x197] + 5), 1, true) ||
+        if (!report(game, attacker, target, 3,
+                    (uint8_t)(cok_field_u8(L, t, COK_FIELD_HIT_POINTS) + 5), 1, true) ||
             !cok_combat_reveal(game, attacker))
             return false;
-        a[0x18f] = a[0x190] = 0;
+        cok_field_set8_at(L, a, COK_FIELD_ATTACKS_LEFT, 1, 0);
+        cok_field_set8_at(L, a, COK_FIELD_ATTACKS_LEFT, 2, 0);
         *over = true;
     } else {
         size_t weapon = attacker->slots[0];
-        if (weapon != 0 && (t[0xcf] > 0x80 || (t[0xcf] & 7) > 1)) {
+        if (weapon != 0 &&
+            (cok_field_u8(L, t, COK_FIELD_SIZE) > 0x80 ||
+             (cok_field_u8(L, t, COK_FIELD_SIZE) & 7) > 1)) {
             /* Against a large target the weapon's dice for large ones
              * (bytes 2-4) replace slot 1's, the small ones' bonus (byte 11)
              * taken off. */
             const uint8_t *type;
             if (!weapon_type(game, attacker, &type)) return false;
-            a[0x191] = type[2];
-            a[0x193] = type[3];
-            a[0x195] = (uint8_t)((int8_t)a[0x195] - (int8_t)type[11] + (int8_t)type[4]);
+            cok_field_set8_at(L, a, COK_FIELD_DICE, 1, type[2]);
+            cok_field_set8_at(L, a, COK_FIELD_DICE_SIDES, 1, type[3]);
+            cok_field_set8_at(L, a, COK_FIELD_DAMAGE_BONUS, 1,
+                              (uint8_t)(cok_field_s8_at(L, a, COK_FIELD_DAMAGE_BONUS, 1) -
+                                        (int8_t)type[11] + (int8_t)type[4]));
         }
         if (!stats(game, target) || !event(game, target, 0x0b)) return false;
         bool backstab;
         uint8_t ac;
         if (!cok_combat_backstab(game, attacker, target, &backstab)) return false;
         if (backstab) {
-            ac = (uint8_t)(t[0x18e] - 4);
+            ac = (uint8_t)(cok_field_u8(L, t, COK_FIELD_AC_BEHIND) - 4);
         } else {
             cok_combat_record *ct = record_of(game, target);
             if (ct == NULL) return false;
@@ -474,7 +497,8 @@ bool cok_combat_strike(cok_adventure *game, cok_character *attacker, cok_charact
                 if (!direction(game, attacker, target, &d)) return false;
                 if (d == ct->facing && ct->turning > 4) behind = true;
             }
-            ac = t[0x18d + (behind ? 1 : 0)];
+            ac = behind ? cok_field_u8(L, t, COK_FIELD_AC_BEHIND)
+                        : cok_field_u8(L, t, COK_FIELD_AC);
         }
         if (!cok_combat_range(game, attacker, target, &ac)) return false;
         uint8_t mode = behind ? 1 : 0;
@@ -484,8 +508,8 @@ bool cok_combat_strike(cok_adventure *game, cok_character *attacker, cok_charact
         for (; slot >= 1; --slot) {
             if (slot > 2)
                 return undefined(game, "attack slot %u reads past the two (432f:17f2)", slot);
-            while (a[0x18e + slot] > 0 && !down) {
-                --a[0x18e + slot];
+            while (cok_field_u8_at(L, a, COK_FIELD_ATTACKS_LEFT, slot) > 0 && !down) {
+                cok_field_add8_at(L, a, COK_FIELD_ATTACKS_LEFT, slot, -1);
                 ca->attack_slot = slot;
                 ++combat->swings[slot];
                 bool hit;
@@ -495,18 +519,19 @@ bool cok_combat_strike(cok_adventure *game, cok_character *attacker, cok_charact
                     cok_arena_sound(game, SOUND_HIT);
                     any = true;
                     if (!cok_combat_damage_roll(game, attacker, target, slot)) return false;
-                    if (t[0x189] != 0 &&
+                    if (cok_field_u8(L, t, COK_FIELD_ACTIVE) != 0 &&
                         !report(game, attacker, target, mode, rolls->amount, rolls->amount, true))
                         return false;
-                    if (t[0x189] != 0 && rolls->amount > 0 &&
+                    if (cok_field_u8(L, t, COK_FIELD_ACTIVE) != 0 && rolls->amount > 0 &&
                         !event(game, attacker, (uint8_t)(slot + 1)))
                         return false;
                     /* Only after a hit: a target that dropped otherwise
                      * (an explosion, an effect at the roll) is swung at
                      * until one lands. An attacker that drops loses this
                      * slot's attacks, not the next one's. */
-                    if (t[0x189] == 0) down = true;
-                    if (a[0x189] == 0) a[0x18e + slot] = 0;
+                    if (cok_field_u8(L, t, COK_FIELD_ACTIVE) == 0) down = true;
+                    if (cok_field_u8(L, a, COK_FIELD_ACTIVE) == 0)
+                        cok_field_set8_at(L, a, COK_FIELD_ATTACKS_LEFT, slot, 0);
                 }
                 if (!cok_combat_explode(game)) return false;
             }
@@ -515,10 +540,11 @@ bool cok_combat_strike(cok_adventure *game, cok_character *attacker, cok_charact
             cok_arena_sound(game, SOUND_MISS);
             if (!report(game, attacker, target, mode, 0, 0, false)) return false;
         }
-        *over = a[0x18f] == 0 && a[0x190] == 0;
+        *over = cok_field_u8_at(L, a, COK_FIELD_ATTACKS_LEFT, 1) == 0 &&
+                cok_field_u8_at(L, a, COK_FIELD_ATTACKS_LEFT, 2) == 0;
         ca->sweeps = 0;
     }
-    if (a[0x189] == 0) *over = true;
+    if (cok_field_u8(L, a, COK_FIELD_ACTIVE) == 0) *over = true;
     if (*over) cok_combat_end_turn(attacker);
     return true;
 }
@@ -638,6 +664,7 @@ static bool use_up_freed(cok_adventure *game, cok_character *attacker, uint8_t *
 bool cok_combat_attack(cok_adventure *game, cok_character *attacker, cok_character *target,
                        bool behind, size_t item, bool *over)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     uint8_t *a = attacker->record;
     cok_combat_record *ca = record_of(game, attacker), *ct = record_of(game, target);
@@ -682,7 +709,9 @@ bool cok_combat_attack(cok_adventure *game, cok_character *attacker, cok_charact
                               attacker->items[weapon - 1][0x2e] == 0x1d))
         ok = missile(game, attacker, target, attacker->items[weapon - 1]);
     *over = true;
-    if (ok && (a[0x18f] > 0 || a[0x190] > 0)) {
+    if (ok &&
+        (cok_field_u8_at(L, a, COK_FIELD_ATTACKS_LEFT, 1) > 0 ||
+         cok_field_u8_at(L, a, COK_FIELD_ATTACKS_LEFT, 2) > 0)) {
         uint8_t *selected = game->vm.character;
         game->vm.character = a;
         ok = cok_combat_strike(game, attacker, target, behind, over);
@@ -706,12 +735,15 @@ bool cok_combat_attack(cok_adventure *game, cok_character *attacker, cok_charact
 bool cok_combat_sweep(cok_adventure *game, cok_character *attacker, cok_character *target,
                       bool *swept)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     uint8_t *a = attacker->record;
     *swept = false;
     cok_combat_record *ca = record_of(game, attacker);
     if (ca == NULL) return false;
-    if (a[0x18f] >= ca->sweeps || target->record[0xd6] != 0) return true;
+    if (cok_field_u8_at(L, a, COK_FIELD_ATTACKS_LEFT, 1) >= ca->sweeps ||
+        cok_field_u8(L, target->record, COK_FIELD_HIGHEST_LEVEL) != 0)
+        return true;
     uint8_t d, n;
     if (!distance(game, attacker, target, &d)) return false;
     if (d != 1) return true;
@@ -722,9 +754,9 @@ bool cok_combat_sweep(cok_adventure *game, cok_character *attacker, cok_characte
         cok_character *e = combatant(game, combat->enemies[i], "432f:0fce");
         if (e == NULL) return false;
         if (e == target) at = i;
-        if (e->record[0xd6] == 0) ++count;
+        if (cok_field_u8(L, e->record, COK_FIELD_HIGHEST_LEVEL) == 0) ++count;
     }
-    if (count <= a[0x18f]) return true;
+    if (count <= cok_field_u8_at(L, a, COK_FIELD_ATTACKS_LEFT, 1)) return true;
     if (count > ca->sweeps) count = ca->sweeps;
     if (!cok_arena_say(game, attacker, "sweeps", 10, true)) return false;
     /* The target goes first, where it was listed; one not listed takes
@@ -739,10 +771,10 @@ bool cok_combat_sweep(cok_adventure *game, cok_character *attacker, cok_characte
     for (unsigned i = 1; i <= n; ++i) {
         cok_character *e = combatant(game, combat->enemies[i], "432f:0fce");
         if (e == NULL) return false;
-        if (count == 0 || e->record[0xd6] != 0) continue;
+        if (count == 0 || cok_field_u8(L, e->record, COK_FIELD_HIGHEST_LEVEL) != 0) continue;
         bool over;
         if (!cok_combat_book(game, attacker, e)) return false;
-        a[0x18f] = 1;
+        cok_field_set8_at(L, a, COK_FIELD_ATTACKS_LEFT, 1, 1);
         if (!cok_combat_attack(game, attacker, e, false, 0, &over)) return false; /* DS:7199 */
         --count;
     }
@@ -781,6 +813,7 @@ bool cok_combat_can_attack(cok_adventure *game, cok_character *attacker,
 bool cok_combat_pick_target(cok_adventure *game, cok_character *c, uint8_t range, bool flag,
                             bool force, bool *found)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     cok_combat_record *cr = record_of(game, c);
     if (cr == NULL) return false;
@@ -790,7 +823,9 @@ bool cok_combat_pick_target(cok_adventure *game, cok_character *c, uint8_t range
     } else if (cr->target != NULL) {
         bool keep = false;
         const uint8_t *t = cr->target;
-        if (t[0x18a] != c->record[0x18a] && t[0x189] != 0 &&
+        if (cok_field_u8(L, t, COK_FIELD_HOSTILE) !=
+                cok_field_u8(L, c->record, COK_FIELD_HOSTILE) &&
+            cok_field_u8(L, t, COK_FIELD_ACTIVE) != 0 &&
             !cok_combat_can_attack(game, c, t, &keep))
             return false;
         if (!keep) cr->target = NULL;
@@ -839,11 +874,12 @@ bool cok_combat_pick_target(cok_adventure *game, cok_character *c, uint8_t range
  * helpless, while c can act, is shown, stops guarding and attacks it. */
 static bool guards(cok_adventure *game, cok_character *c)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     uint8_t n;
     if (!cok_combat_enemies(game, c, 1, &n)) return false;
     for (unsigned i = 1; i <= n; ++i) {
-        if (c->record[0x189] == 0) continue;
+        if (cok_field_u8(L, c->record, COK_FIELD_ACTIVE) == 0) continue;
         cok_character *e = combatant(game, combat->enemies[i], "432f:068f");
         if (e == NULL) return false;
         cok_combat_record *ce = record_of(game, e);
@@ -862,6 +898,7 @@ static bool guards(cok_adventure *game, cok_character *c)
 
 bool cok_combat_step(cok_adventure *game, cok_character *c, uint8_t dir)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     cok_combat_record *cr = record_of(game, c);
     uint8_t n;
@@ -879,7 +916,7 @@ bool cok_combat_step(cok_adventure *game, cok_character *c, uint8_t dir)
     uint8_t cost = (uint8_t)(cok_combat_terrain[value].cost * ((dir & 1) != 0 ? 3 : 2));
     cr->movement = cost > cr->movement ? 0 : (uint8_t)(cr->movement - cost);
     uint8_t margin = 1;
-    if (c->record[0x18b] != 0) {
+    if (cok_field_u8(L, c->record, COK_FIELD_COMPUTER) != 0) {
         margin = 3;
         if (!cok_combat_on_view(s8(nx - combat->view_x), s8(ny - combat->view_y)) &&
             combat->show_actions && !cok_arena_centre(game, x, y, 2, 8))
@@ -895,12 +932,14 @@ bool cok_combat_step(cok_adventure *game, cok_character *c, uint8_t dir)
     cr->turning = 0;
     cok_arena_sound(game, SOUND_STEP);
     if (!guards(game, c)) return false;
-    if (c->record[0x189] == 0 || cok_combat_helpless(c)) cr->movement = 0;
+    if (cok_field_u8(L, c->record, COK_FIELD_ACTIVE) == 0 || cok_combat_helpless(c))
+        cr->movement = 0;
     return true;
 }
 
 bool cok_combat_opportunity(cok_adventure *game, cok_character *c, uint8_t dir)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     uint8_t n0, count;
     if (!index_of(game, c, &n0, "432f:0986")) return false;
@@ -935,7 +974,7 @@ bool cok_combat_opportunity(cok_adventure *game, cok_character *c, uint8_t dir)
         for (unsigned i = 1; i <= after; ++i)
             if (combat->enemies[i] == left[j]) left[j] = 0;
     for (unsigned j = 1; j <= m; ++j) {
-        if (left[j] == 0 || c->record[0x189] == 0) continue;
+        if (left[j] == 0 || cok_field_u8(L, c->record, COK_FIELD_ACTIVE) == 0) continue;
         combat->panel = true;
         combat->show_actions = true;
         cok_character *e = combatant(game, left[j], "432f:0986");
@@ -967,17 +1006,18 @@ bool cok_combat_opportunity(cok_adventure *game, cok_character *c, uint8_t dir)
             /* The last slot of the two with attacks left, else 1 (2 with
              * no attacks a round in the first), given one attack if it has
              * none. */
-            uint8_t slot = e->record[0x10b] == 0 ? 2 : 1;
+            uint8_t slot = cok_field_u8_at(L, e->record, COK_FIELD_BASE_ATTACKS, 1) == 0 ? 2 : 1;
             for (uint8_t s = 1; s <= 2; ++s)
-                if (e->record[0x18e + s] > 0) slot = s;
-            if (e->record[0x18e + slot] == 0) e->record[0x18e + slot] = 1;
+                if (cok_field_u8_at(L, e->record, COK_FIELD_ATTACKS_LEFT, s) > 0) slot = s;
+            if (cok_field_u8_at(L, e->record, COK_FIELD_ATTACKS_LEFT, slot) == 0)
+                cok_field_set8_at(L, e->record, COK_FIELD_ATTACKS_LEFT, slot, 1);
             ce->attack_slot = slot;
             uint8_t *aimed = ce->target;
             bool over;
             if (!cok_combat_attack(game, e, c, true, 0, &over)) return false; /* DS:7199 */
             done = true;
             ce->target = aimed;
-            if (c->record[0x189] != 0) {
+            if (cok_field_u8(L, c->record, COK_FIELD_ACTIVE) != 0) {
                 combat->panel = true;
                 if (!cok_arena_panel(game, c)) return false;
             }
@@ -1010,14 +1050,15 @@ bool cok_combat_flee(cok_adventure *game, cok_character *c)
 /* 3f44:272a's gating. */
 bool cok_combat_gate(cok_adventure *game, cok_character *c)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     const cok_party *party = &game->party;
     size_t n = party->count, q = 0, p = 0;
-    uint8_t side = c->record[0x18a];
+    uint8_t side = cok_field_u8(L, c->record, COK_FIELD_HOSTILE);
     /* q: the first record of the party list (DS:609a, +0x17f) on another
      * side, n for none; p: the first waiting (status 9). */
-    while (q < n && party->members[q]->record[0x18a] == side) ++q;
-    while (p < n && party->members[p]->record[0x188] != 9) ++p;
+    while (q < n && cok_field_u8(L, party->members[q]->record, COK_FIELD_HOSTILE) == side) ++q;
+    while (p < n && cok_field_u8(L, party->members[p]->record, COK_FIELD_STATUS) != 9) ++p;
     bool done = false, around_c = false;
     int8_t k = 0;
     for (;;) {
@@ -1029,7 +1070,8 @@ bool cok_combat_gate(cok_adventure *game, cok_character *c)
                 if (q == n)
                     return undefined(game, "gating reads the side of the record after the last, "
                                            "at 0000:018a (3f44:2807)");
-                if (party->members[q]->record[0x18a] == side) around_c = done = true;
+                if (cok_field_u8(L, party->members[q]->record, COK_FIELD_HOSTILE) == side)
+                    around_c = done = true;
             }
             k = 0;
         }
@@ -1057,13 +1099,16 @@ bool cok_combat_gate(cok_adventure *game, cok_character *c)
                 if (i == 0)
                     return undefined(game, "a waiting record that is not a combatant is placed "
                                            "through entry 0, over the count (3f44:2901)");
-                combat->combatant[i].size = w->record[0xcf] & 7;
+                combat->combatant[i].size = cok_field_u8(L, w->record, COK_FIELD_SIZE) & 7;
                 combat->combatant[i].x = nx;
                 combat->combatant[i].y = ny;
-                if (!cok_combat_revive(game, w, w->record[0x62], "gates in", &placed))
+                if (!cok_combat_revive(game, w,
+                                       cok_field_u8(L, w->record, COK_FIELD_MAX_HIT_POINTS),
+                                       "gates in", &placed))
                     return false;
                 ++p;
-                if (p == n || party->members[p]->record[0x188] != 9) done = true;
+                if (p == n || cok_field_u8(L, party->members[p]->record, COK_FIELD_STATUS) != 9)
+                    done = true;
             }
             ++k;
         } while (!placed && k <= 7);
@@ -1076,15 +1121,19 @@ bool cok_combat_gate(cok_adventure *game, cok_character *c)
 
 bool cok_combat_kill(cok_adventure *game, cok_character *c, uint8_t status, const char *text)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *r = c->record;
     if (!cok_arena_say(game, c, text, 10, false)) return false;
-    if (r[0x188] >= 6 && r[0x188] <= 8) return true;
-    r[0x188] = status;
-    r[0x189] = 0;
-    r[0x197] = 0;
+    if (cok_field_u8(L, r, COK_FIELD_STATUS) >= 6 && cok_field_u8(L, r, COK_FIELD_STATUS) <= 8)
+        return true;
+    cok_field_set8(L, r, COK_FIELD_STATUS, status);
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 0);
+    cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 0);
     int stale;
     if (!battle_only(game, c, &stale) || !event(game, c, 0x0d)) return false;
-    if (r[0x189] == 0 && r[0x188] != 10 && !kill(game, c, stale)) return false;
+    if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0 && cok_field_u8(L, r, COK_FIELD_STATUS) != 10 &&
+        !kill(game, c, stale))
+        return false;
     wait_speed(game);
     cok_arena_clear_text(game);
     if (game->vm.mode != 5) cok_adventure_party(game); /* 6346:07ba */
@@ -1094,15 +1143,17 @@ bool cok_combat_kill(cok_adventure *game, cok_character *c, uint8_t status, cons
 bool cok_combat_revive(cok_adventure *game, cok_character *c, uint8_t hp, const char *text,
                        bool *placed)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     uint8_t *r = c->record;
-    if (!cok_combat_place(combat, game->vm.mode, c, (uint8_t)cok_combat_x(combat, r),
+    if (!cok_combat_place(combat, game->vm.mode, c, cok_game_rules(game),
+                          (uint8_t)cok_combat_x(combat, r),
                           (uint8_t)cok_combat_y(combat, r), true, placed))
         return undefined(game, "a record is placed outside the map's tables (6beb:10f3)");
     if (!*placed) return true;
-    r[0x188] = 0;
-    r[0x189] = 1;
-    r[0x197] = hp;
+    cok_field_set8(L, r, COK_FIELD_STATUS, 0);
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(L, r, COK_FIELD_HIT_POINTS, hp);
     if (game->vm.mode == 5) {
         bool shown = combat->show_actions;
         combat->show_actions = true;
@@ -1111,7 +1162,7 @@ bool cok_combat_revive(cok_adventure *game, cok_character *c, uint8_t hp, const 
         if (!ok) return false;
     }
     if (!cok_arena_flash(game, c, 1, text)) return false;
-    if (!cok_combat_count_sides(combat, &game->party))
+    if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game)))
         return undefined(game, "a record on a side other than 0 or 1 (+0x18a) counts past "
                                "DS:6b2d (6346:268a)");
     return true;
@@ -1122,6 +1173,7 @@ bool cok_combat_revive(cok_adventure *game, cok_character *c, uint8_t hp, const 
 bool cok_combat_undead(cok_adventure *game, cok_character *c, cok_character **undead,
                        uint8_t *limit, bool *found)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     uint8_t best = 0, n;
     *undead = NULL;
@@ -1132,7 +1184,7 @@ bool cok_combat_undead(cok_adventure *game, cok_character *c, cok_character **un
         if (e == NULL) return false;
         cok_combat_record *ce = record_of(game, e);
         if (ce == NULL) return false;
-        int8_t kind = (int8_t)e->record[0xda];
+        int8_t kind = cok_field_s8(L, e->record, COK_FIELD_UNDEAD);
         if (ce->forced != 0 || kind <= 0 || kind <= (int8_t)best || kind > (int8_t)*limit)
             continue;
         best = (uint8_t)kind;
@@ -1145,6 +1197,7 @@ bool cok_combat_undead(cok_adventure *game, cok_character *c, cok_character **un
 
 bool cok_combat_turn_undead(cok_adventure *game, cok_character *c)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     uint8_t *r = c->record;
     cok_combat_record *cr = record_of(game, c);
@@ -1157,18 +1210,20 @@ bool cok_combat_turn_undead(cok_adventure *game, cok_character *c)
     uint8_t count = roll(game, 1, 12), d20 = roll(game, 1, 20);
     /* The words' product and sum, as a byte. */
     int former = cok_character_former_class(r, cok_game_rules(game)) ? 1 : 0;
-    uint8_t level = (uint8_t)(former * (int8_t)r[0x101] + (int8_t)r[0xf9]);
-    if (r[0x5d] == 2) level = (uint8_t)(level + 2);
+    uint8_t level = (uint8_t)(former * cok_field_s8_at(L, r, COK_FIELD_FORMER_LEVEL, 0) +
+                              cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 0));
+    if (cok_field_u8(L, r, COK_FIELD_DEITY) == 2) level = (uint8_t)(level + 2);
     for (;;) {
         cok_character *u;
         bool found;
         if (!cok_combat_undead(game, c, &u, &limit, &found)) return false;
         if (!found || count == 0) break;
-        int at = 13 * (int8_t)u->record[0xda] + (int8_t)level;
+        int at = 13 * cok_field_s8(L, u->record, COK_FIELD_UNDEAD) + (int8_t)level;
         if (at < 0x451 - 0x444 || at > 0x50f - 0x444)
             return undefined(game, "turning undead of kind %d at level %d reads DS:%04x, which the "
                                    "port does not hold (432f:1397)",
-                             (int8_t)u->record[0xda], (int8_t)level, (0x444 + at) & 0xffff);
+                             cok_field_s8(L, u->record, COK_FIELD_UNDEAD), (int8_t)level,
+                             (0x444 + at) & 0xffff);
         int8_t v = (int8_t)turning[at - (0x451 - 0x444)];
         if (d20 < (v < 0 ? -v : v)) {
             --limit;
@@ -1185,8 +1240,8 @@ bool cok_combat_turn_undead(cok_adventure *game, cok_character *c)
             if (!cok_arena_say(game, u, "Is destroyed", 10, false) ||
                 !kill(game, u, COK_ARENA_STALE_UNKNOWN))
                 return false;
-            u->record[0x188] = 8;
-            u->record[0x189] = 0;
+            cok_field_set8(L, u->record, COK_FIELD_STATUS, 8);
+            cok_field_set8(L, u->record, COK_FIELD_ACTIVE, 0);
         }
         if (extra > 0) --extra;
         --count;
@@ -1194,7 +1249,7 @@ bool cok_combat_turn_undead(cok_adventure *game, cok_character *c)
         cok_arena_clear_text(game);
     }
     if (!any) cok_camp_notice(game, "Nothing Happens..."); /* 6346:1827 */
-    if (!cok_combat_count_sides(combat, &game->party))
+    if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game)))
         return undefined(game, "a record on a side other than 0 or 1 (+0x18a) counts past "
                                "DS:6b2d (6346:268a)");
     cok_combat_end_turn(c);
@@ -1256,11 +1311,12 @@ static bool aimed(cok_adventure *game, cok_character *attacker, cok_character *t
 
 bool cok_combat_melee(cok_adventure *game, cok_character *c)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     /* An attack that leaves the turn going has felled its target with
      * attacks left; each such fells one, so the list runs out. */
     for (unsigned attacks = 0; attacks < COK_COMBATANTS; ++attacks) {
-        if (c->record[0x189] == 0) break;
+        if (cok_field_u8(L, c->record, COK_FIELD_ACTIVE) == 0) break;
         bool missile, has = false;
         size_t ammunition = 0;
         uint8_t n, range = 1;

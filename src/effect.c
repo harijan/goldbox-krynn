@@ -137,6 +137,7 @@ static uint8_t spell_byte(uint8_t spell, unsigned column)
 
 static bool caster_level(cok_effects *fx, uint8_t spell, uint8_t *level)
 {
+    const cok_character_layout *L = fx->rules->character;
     const uint8_t *c = fx->vm->character;
     if (c == NULL)
         return fail(fx, "the caster level of spell %u (6346:29fe) reads the selected character, "
@@ -144,24 +145,25 @@ static bool caster_level(cok_effects *fx, uint8_t spell, uint8_t *level)
     uint8_t class_ = spell_byte(spell, 0);
     /* 66c2:0efb, 0 or 1, multiplies the former levels as words. */
     int former = cok_character_former_class(c, fx->rules) ? 1 : 0;
-#define LEVEL(at) ((int)(int8_t)c[at])
-    if (LEVEL(0xf9) == 0 && LEVEL(0xfe) == 0 && LEVEL(0x100) < 9 && LEVEL(0xfd) < 8) {
+#define LEVEL(k) ((int)cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, k))
+#define FORMER(k) ((int)cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, k))
+    if (LEVEL(0) == 0 && LEVEL(5) == 0 && LEVEL(7) < 9 && LEVEL(4) < 8) {
         *level = 6;
     } else if (class_ == 0 || class_ == 2) {
-        int8_t a = (int8_t)(former * LEVEL(0x101) + LEVEL(0xf9));
-        int8_t b = (int8_t)(former * LEVEL(0x108) + LEVEL(0x100) - 8);
+        int8_t a = (int8_t)(former * FORMER(0) + LEVEL(0));
+        int8_t b = (int8_t)(former * FORMER(7) + LEVEL(7) - 8);
         *level = (uint8_t)(a > b ? a : b);
     } else if (class_ == 1) {
-        int8_t a = (int8_t)(former * LEVEL(0x105) + LEVEL(0xfd) - 7);
+        int8_t a = (int8_t)(former * FORMER(4) + LEVEL(4) - 7);
         *level = (uint8_t)(a > 0 ? a : 0);
     } else if (class_ == 3) {
-        int8_t a = (int8_t)(former * LEVEL(0x106) + LEVEL(0xfe));
-        int8_t b = (int8_t)(former * LEVEL(0x105) + LEVEL(0xfd) - 8);
-        if (LEVEL(0xfe) > 0 && c[0x5e] != 0) {
+        int8_t a = (int8_t)(former * FORMER(5) + LEVEL(5));
+        int8_t b = (int8_t)(former * FORMER(4) + LEVEL(4) - 8);
+        if (LEVEL(5) > 0 && cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER) != 0) {
             /* The moon of its order, word 0x4cf8 + order (2b96). */
-            uint16_t moon = fx->vm->mem4b00[0x1f8 + c[0x5e]];
+            uint16_t moon = fx->vm->mem4b00[0x1f8 + cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER)];
             if (moon == 0) --a;
-            else if (moon == 2 && LEVEL(0xfe) > 5) ++a;
+            else if (moon == 2 && LEVEL(5) > 5) ++a;
         }
         *level = (uint8_t)(a > b ? a : b);
     } else if (class_ == 4) {
@@ -171,6 +173,7 @@ static bool caster_level(cok_effects *fx, uint8_t spell, uint8_t *level)
                         "uninitialized byte", spell, class_);
     }
 #undef LEVEL
+#undef FORMER
     if (fx->rolls.item != 0 && class_ != 4) *level = 6;
     return true;
 }
@@ -263,9 +266,10 @@ static bool h_curse(cok_effects *fx, bool removing, cok_effect *effect, cok_char
  * selected character stands for the attacker even outside combat. */
 static bool protection(cok_effects *fx, uint8_t id, uint8_t a, uint8_t b, uint8_t d)
 {
+    const cok_character_layout *L = fx->rules->character;
     cok_character *attacker = selected(fx, id);
     if (attacker == NULL) return false;
-    uint8_t alignment = attacker->record[0x10a];
+    uint8_t alignment = cok_field_u8(L, attacker->record, COK_FIELD_ALIGNMENT);
     if (alignment == a || alignment == b || alignment == d) {
         fx->rolls.save_roll = (uint8_t)(fx->rolls.save_roll + 2);
         fx->rolls.attack_roll = (uint8_t)(fx->rolls.attack_roll - 2);
@@ -326,20 +330,22 @@ static bool call_handler(cok_effects *fx, uint8_t id, bool removing, cok_effect 
  * 100. */
 static bool h_charm(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     uint8_t *r = c->record;
     if (removing) {
-        r[0x18a] = (uint8_t)((effect->value & 0x40) >> 6);
-        if (r[0xe7] == 0xb3) {
-            r[0xe7] = 0;
-            r[0x18b] = 0;
+        cok_field_set8(L, r, COK_FIELD_HOSTILE, (uint8_t)((effect->value & 0x40) >> 6));
+        if (cok_field_u8(L, r, COK_FIELD_NPC) == 0xb3) {
+            cok_field_set8(L, r, COK_FIELD_NPC, 0);
+            cok_field_set8(L, r, COK_FIELD_COMPUTER, 0);
         }
         return true;
     }
     if ((effect->value & 0x20) == 0) {
-        effect->value = (uint8_t)(effect->value + 0x20 + (int8_t)r[0x18a] * 64);
-        r[0x18a] = (uint8_t)(effect->value >> 7);
-        r[0x18b] = 1;
-        if (r[0xe7] <= 0x7f) r[0xe7] = 0xb3;
+        effect->value = (uint8_t)(effect->value + 0x20 +
+                                  cok_field_s8(L, r, COK_FIELD_HOSTILE) * 64);
+        cok_field_set8(L, r, COK_FIELD_HOSTILE, (uint8_t)(effect->value >> 7));
+        cok_field_set8(L, r, COK_FIELD_COMPUTER, 1);
+        if (cok_field_u8(L, r, COK_FIELD_NPC) <= 0x7f) cok_field_set8(L, r, COK_FIELD_NPC, 0xb3);
         cok_combat_record *cr = combat_of(fx, c, 0x0b, 0x03cd);
         if (cr == NULL) return false;
         cr->target = NULL;
@@ -354,8 +360,10 @@ static bool h_charm(cok_effects *fx, bool removing, cok_effect *effect, cok_char
  * are next recomputed, saves +1, and no damage from spell 0x0f. */
 static bool h_shield(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)effect;
-    if (c->record[0x18d] < 0x39) c->record[0x18d] = 0x39;
+    if (cok_field_u8(L, c->record, COK_FIELD_AC) < 0x39)
+        cok_field_set8(L, c->record, COK_FIELD_AC, 0x39);
     ++fx->rolls.save_roll;
     if (fx->rolls.spell == 0x0f) fx->rolls.amount = 0;
     return true;
@@ -403,12 +411,14 @@ static bool h_resist_charm(cok_effects *fx, bool removing, cok_effect *effect, c
  * it never does. Either way the stats are then recomputed. */
 static bool h_hammer(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)effect;
     size_t i = 0;
     while (i < c->item_count && (c->items[i][0x2e] != 6 || c->items[i][0x31] != 0x79)) ++i;
     if (removing && i < c->item_count) {
         cok_character_remove_item(c, i);
-    } else if (!removing && i == c->item_count && c->record[0x142] < 16) {
+    } else if (!removing && i == c->item_count &&
+               cok_field_u8(L, c->record, COK_FIELD_ITEM_COUNT) < 16) {
         uint8_t hammer[COK_ITEM_SIZE] = {0};
         hammer[0x2e] = 6;
         hammer[0x30] = 6;
@@ -454,10 +464,13 @@ static bool h_quarter_less(cok_effects *fx, bool removing, cok_effect *effect, c
  * changes in place each time, until the stats are next recomputed. */
 static bool h_blind(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)effect;
     fx->rolls.attack_roll = (uint8_t)(fx->rolls.attack_roll - 4);
-    c->record[0x18d] = (uint8_t)(c->record[0x18d] - 4);
-    c->record[0x18e] = (uint8_t)(c->record[0x18e] - 4);
+    cok_field_set8(L, c->record, COK_FIELD_AC,
+                   (uint8_t)(cok_field_u8(L, c->record, COK_FIELD_AC) - 4));
+    cok_field_set8(L, c->record, COK_FIELD_AC_BEHIND,
+                   (uint8_t)(cok_field_u8(L, c->record, COK_FIELD_AC_BEHIND) - 4));
     fx->rolls.save_roll = (uint8_t)(fx->rolls.save_roll - 4);
     return true;
 }
@@ -475,14 +488,14 @@ static bool h_minus_four(cok_effects *fx, bool removing, cok_effect *effect, cok
  * value is set and the character "ages" a year (+0x60). */
 static bool h_haste(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing;
     if ((effect->value & 0x10) == 0) {
         effect->value = (uint8_t)(effect->value + 0x10);
         if (!say(fx, c, 0x27, 0x0f78, "ages")) return false;
-        uint16_t age = (uint16_t)(c->record[0x60] | c->record[0x61] << 8);
+        uint16_t age = cok_field_u16(L, c->record, COK_FIELD_AGE);
         ++age;
-        c->record[0x60] = (uint8_t)age;
-        c->record[0x61] = (uint8_t)(age >> 8);
+        cok_field_set16(L, c->record, COK_FIELD_AGE, age);
     }
     fx->rolls.rate = (uint8_t)(fx->rolls.rate << 1);
     return true;
@@ -528,12 +541,13 @@ static void party_list(cok_effects *fx)
  * good, if the character lacks it. */
 static bool h_drain(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing;
     bool added;
     if (!again(fx, c, 0x2b, 0x1469, effect, 0x3c, &added) || !added) return !fx->failed;
-    if (c->record[0x11] > 3) {
+    if (cok_field_u8_at(L, c->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH) > 3) {
         if (!say(fx, c, 0x2b, 0x1469, "is weakened")) return false;
-        --c->record[0x11];
+        cok_field_add8_at(L, c->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH, -1);
         return true;
     }
     if (cok_character_find_effect(c, 0x1f) == NULL) return add(fx, c, 0x1f, 0, 0xff, false);
@@ -548,12 +562,13 @@ static bool h_drain(cok_effects *fx, bool removing, cok_effect *effect, cok_char
  * effect 0x1f for good, if the character lacks it; 0x0f nothing. */
 static bool h_ticking(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing;
     uint8_t id = fx->running;
     uint16_t handler = id == 0x0f ? 0x05c3 : 0x1504;
     bool added;
     if (!again(fx, c, id, handler, effect, 10, &added) || !added) return !fx->failed;
-    if (c->record[0x197] > 1) {
+    if (cok_field_u8(L, c->record, COK_FIELD_HIT_POINTS) > 1) {
         fx->rolls.damage_type = 0;
         if (fx->damage == NULL || !fx->damage(fx, c, 1, 0, false, fx->context))
             return fail(fx, "effect 0x%02x (3f44:%04x) could not deal damage (60f4:1db7)", id,
@@ -600,12 +615,17 @@ static bool h_disease(cok_effects *fx, bool removing, cok_effect *effect, cok_ch
  * with a pause), and outside combat the party list is drawn again. */
 static bool h_regenerate(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing;
     bool added;
     if (!again(fx, c, 0x3e, 0x1acd, effect, 0x3c, &added) || !added) return !fx->failed;
     uint8_t *r = c->record;
     if (!cok_character_heal(r, fx->rules, 1, true, fx->vm->mode)) return true;
-    if (!say(fx, c, 0x3e, 0x1acd, r[0x197] == r[0x62] ? "is fully healed" : "is partially healed"))
+    if (!say(fx, c, 0x3e, 0x1acd,
+             cok_field_u8(L, r, COK_FIELD_HIT_POINTS) ==
+                     cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS)
+                 ? "is fully healed"
+                 : "is partially healed"))
         return false;
     party_list(fx);
     return true;
@@ -627,10 +647,11 @@ static bool h_dispelling(cok_effects *fx, bool removing, cok_effect *effect, cok
  * attacker) has bit 2 of +0x13f. */
 static bool h_against_flag4(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)c;
     cok_character *attacker = selected(fx, effect->id);
     if (attacker == NULL) return false;
-    if ((attacker->record[0x13f] & 4) != 0)
+    if ((cok_field_u8_at(L, attacker->record, COK_FIELD_CREATURE_FLAGS, 0) & 4) != 0)
         fx->rolls.attack_roll = (uint8_t)(fx->rolls.attack_roll - 4);
     return true;
 }
@@ -640,8 +661,9 @@ static bool h_against_flag4(cok_effects *fx, bool removing, cok_effect *effect, 
  * worse. */
 static bool h_prayer(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing;
-    if (c->record[0x18a] == (effect->value & 0x10) >> 4) {
+    if (cok_field_u8(L, c->record, COK_FIELD_HOSTILE) == (effect->value & 0x10) >> 4) {
         ++fx->rolls.save_roll; /* 3f44:0115 */
         ++fx->rolls.attack_roll;
     } else {
@@ -696,10 +718,13 @@ static bool h_add_invisible_255(cok_effects *fx, bool removing, cok_effect *effe
 /* 3f44:17c6, 0x39: to hit +2 and AC 2 better, in place each time. */
 static bool h_plus_two(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)effect;
     fx->rolls.attack_roll = (uint8_t)(fx->rolls.attack_roll + 2);
-    c->record[0x18d] = (uint8_t)(c->record[0x18d] + 2);
-    c->record[0x18e] = (uint8_t)(c->record[0x18e] + 2);
+    cok_field_set8(L, c->record, COK_FIELD_AC,
+                   (uint8_t)(cok_field_u8(L, c->record, COK_FIELD_AC) + 2));
+    cok_field_set8(L, c->record, COK_FIELD_AC_BEHIND,
+                   (uint8_t)(cok_field_u8(L, c->record, COK_FIELD_AC_BEHIND) + 2));
     return true;
 }
 
@@ -779,18 +804,23 @@ static bool h_unaffected(cok_effects *fx, bool removing, cok_effect *effect, cok
  * player character back, and puts any character on the party's side. */
 static bool h_berserk(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)effect;
     uint8_t *r = c->record;
     if (removing) {
-        if (r[0xe7] == 0xb3) {
-            r[0xe7] = 0;
-            r[0x18b] = 0;
+        if (cok_field_u8(L, r, COK_FIELD_NPC) == 0xb3) {
+            cok_field_set8(L, r, COK_FIELD_NPC, 0);
+            cok_field_set8(L, r, COK_FIELD_COMPUTER, 0);
         }
-        r[0x18a] = 0;
+        cok_field_set8(L, r, COK_FIELD_HOSTILE, 0);
         return true;
     }
-    r[0x18b] = 1;
-    r[0xe7] = r[0xe7] <= 0x7f || r[0xe7] == 0xb3 ? 0xb3 : 0xb2;
+    cok_field_set8(L, r, COK_FIELD_COMPUTER, 1);
+    cok_field_set8(L, r, COK_FIELD_NPC,
+                   cok_field_u8(L, r, COK_FIELD_NPC) <= 0x7f ||
+                           cok_field_u8(L, r, COK_FIELD_NPC) == 0xb3
+                       ? 0xb3
+                       : 0xb2);
     if (fx->vm->mode != 5) return true;
     cok_combat_record *cr = combat_of(fx, c, 0x4d, 0x29d5);
     if (cr == NULL) return false;
@@ -803,7 +833,8 @@ static bool h_berserk(cok_effects *fx, bool removing, cok_effect *effect, cok_ch
     cr->may_cast = 0;
     if (target == NULL)
         return fail(fx, "effect 0x4d (3f44:29d5) reads a target with none, at 0000:018a");
-    r[0x18a] = (uint8_t)(target[0x18a] ^ 1);
+    cok_field_set8(L, r, COK_FIELD_HOSTILE,
+                   (uint8_t)(cok_field_u8(L, target, COK_FIELD_HOSTILE) ^ 1));
     return say(fx, c, 0x4d, 0x29d5, "goes berserk");
 }
 
@@ -907,13 +938,15 @@ static bool h_holy_water(cok_effects *fx, bool removing, cok_effect *effect, cok
  * (+0x32, any but 0). */
 static bool h_magic_weapons(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)c;
     cok_character *attacker = selected(fx, effect->id);
     if (attacker == NULL) return false;
     const uint8_t *item = striking_item(fx, attacker);
     if (fx->failed) return false;
     if ((item == NULL || item[0x32] == 0) &&
-        ((int8_t)attacker->record[0x5a] < 7 || (int8_t)attacker->record[0xd6] < 4))
+        (cok_field_s8(L, attacker->record, COK_FIELD_RACE) < 7 ||
+         cok_field_s8(L, attacker->record, COK_FIELD_HIGHEST_LEVEL) < 4))
         fx->rolls.amount = 0;
     return true;
 }
@@ -925,10 +958,11 @@ static bool h_magic_weapons(cok_effects *fx, bool removing, cok_effect *effect, 
 static bool h_constitution_save(cok_effects *fx, bool removing, cok_effect *effect,
                                 cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)effect;
     uint8_t type = fx->rolls.save_type;
     if (type != 4 && type != 2 && type != 0) return true;
-    uint8_t con = c->record[0x19], bonus;
+    uint8_t con = cok_field_u8_at(L, c->record, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION), bonus;
     if (con >= 4 && con <= 6)
         bonus = 1;
     else if (con >= 7 && con <= 10)
@@ -1029,8 +1063,10 @@ static bool h_held(cok_effects *fx, bool removing, cok_effect *effect, cok_chara
  * snakes" and the turn ends. */
 static bool h_snakes(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     if (effect == NULL) return fail(fx, "effect 0x03 (3f44:016a) is run with no effect");
-    uint8_t n = (uint8_t)(c->record[0x190] + c->record[0x18f]);
+    uint8_t n = (uint8_t)(cok_field_u8_at(L, c->record, COK_FIELD_ATTACKS_LEFT, 2) +
+                          cok_field_u8_at(L, c->record, COK_FIELD_ATTACKS_LEFT, 1));
     if (effect->value > n)
         effect->value = (uint8_t)(effect->value - n);
     else if (removing && effect->on_remove && cok_character_find_effect(c, 0x03) == effect)
@@ -1066,6 +1102,7 @@ static bool h_silenced(cok_effects *fx, bool removing, cok_effect *effect, cok_c
  * which draws only while DS:71ac is set. */
 static bool h_coughing(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)effect;
     cok_combat_record *cr = combat_of(fx, c, 0x1e, 0x0ae0);
     if (cr == NULL) return false;
@@ -1075,8 +1112,11 @@ static bool h_coughing(cok_effects *fx, bool removing, cok_effect *effect, cok_c
     char why[200];
     if (!cok_character_stats(c, fx->rules, fx->types, why, sizeof why)) return fail(fx, "%s", why);
     uint8_t *r = c->record;
-    r[0x18e] = r[0x18e] > 0x34 ? (uint8_t)(r[0x18e] - 2) : 0x32;
-    r[0x18d] = r[0x18e];
+    cok_field_set8(L, r, COK_FIELD_AC_BEHIND,
+                   cok_field_u8(L, r, COK_FIELD_AC_BEHIND) > 0x34
+                       ? (uint8_t)(cok_field_u8(L, r, COK_FIELD_AC_BEHIND) - 2)
+                       : 0x32);
+    cok_field_set8(L, r, COK_FIELD_AC, cok_field_u8(L, r, COK_FIELD_AC_BEHIND));
     if (fx->panel == NULL || fx->vm->character != r || fx->panel(fx, c, fx->context)) return true;
     return fail(fx, "effect 0x1e (3f44:0ae0) could not draw the side panel (6346:0af6)");
 }
@@ -1111,6 +1151,7 @@ static bool h_images(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
  * takes the first 0x23. */
 static bool h_confused(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)effect;
     uint8_t *r = c->record;
     uint8_t d = roll(fx, 1, 100);
@@ -1119,15 +1160,16 @@ static bool h_confused(cok_effects *fx, bool removing, cok_effect *effect, cok_c
         cok_combat_record *cr = combat_of(fx, c, 0x23, 0x0d7c);
         if (cr == NULL) return false;
         cr->forced = 1;
-        r[0x18b] = 1;
-        if (r[0xe7] <= 0x7f) r[0xe7] = 0xb3;
+        cok_field_set8(L, r, COK_FIELD_COMPUTER, 1);
+        if (cok_field_u8(L, r, COK_FIELD_NPC) <= 0x7f) cok_field_set8(L, r, COK_FIELD_NPC, 0xb3);
         cr->target = NULL;
         if (!add_with_text(fx, c, 0x6f, 10, 0, true, 1, false, 0x0d7c, "runs away")) return false;
     } else if (d >= 11 && d <= 60) {
         if (!flash(fx, c, 0x23, 0x0d7c, "is confused", true) || !end_turn(fx, c, 0x23, 0x0d7c))
             return false;
     } else if (d >= 61 && d <= 80) {
-        if (!add_with_text(fx, c, 0x4d, 1, r[0x18a], true, 1, false, 0x0d7c, "goes berserk") ||
+        if (!add_with_text(fx, c, 0x4d, 1, cok_field_u8(L, r, COK_FIELD_HOSTILE), true, 1, false,
+                           0x0d7c, "goes berserk") ||
             !call_handler(fx, 0x4d, false, NULL, c))
             return false;
     } else if (d >= 81 && d <= 100) {
@@ -1208,6 +1250,7 @@ static bool h_reflect(cok_effects *fx, bool removing, cok_effect *effect, cok_ch
  * counter is DS:742f. */
 static bool h_terrible(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)effect;
     cok_character *listed[COK_PARTY_RECORDS + 1];
     uint8_t n;
@@ -1215,7 +1258,10 @@ static bool h_terrible(cok_effects *fx, bool removing, cok_effect *effect, cok_c
     for (unsigned i = 2; i <= n; ++i) {
         cok_character *e = listed[i];
         uint8_t *r = e->record;
-        if (r[0x18a] == c->record[0x18a] || cok_character_find_effect(e, 0x5c) != NULL) continue;
+        if (cok_field_u8(L, r, COK_FIELD_HOSTILE) ==
+                cok_field_u8(L, c->record, COK_FIELD_HOSTILE) ||
+            cok_character_find_effect(e, 0x5c) != NULL)
+            continue;
         bool made;
         if (!saving_throw(fx, e, 4, 0, &made)) return false;
         if (made) continue;
@@ -1224,8 +1270,8 @@ static bool h_terrible(cok_effects *fx, bool removing, cok_effect *effect, cok_c
         if (cok_character_find_effect(e, 0x6f) == NULL) continue;
         cok_combat_record *cr = combat_of(fx, e, 0x48, 0x24f4);
         if (cr == NULL) return false;
-        r[0x18b] = 1;
-        if (r[0xe7] <= 0x7f) r[0xe7] = 0xb3;
+        cok_field_set8(L, r, COK_FIELD_COMPUTER, 1);
+        if (cok_field_u8(L, r, COK_FIELD_NPC) <= 0x7f) cok_field_set8(L, r, COK_FIELD_NPC, 0xb3);
         cr->target = NULL;
         cr->forced = 1;
     }
@@ -1237,13 +1283,14 @@ static bool h_terrible(cok_effects *fx, bool removing, cok_effect *effect, cok_c
  * better. */
 static bool h_target_bonus(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)effect;
     cok_combat_record *cr = combat_of(fx, c, 0x1a, 0x09e8);
     if (cr == NULL) return false;
     fx->rolls.target = cr->target;
     if (cr->target == NULL)
         return fail(fx, "effect 0x1a (3f44:09e8) reads a target with none, at 0000:013f");
-    if ((cr->target[0x13f] & 0x80) != 0)
+    if ((cok_field_u8_at(L, cr->target, COK_FIELD_CREATURE_FLAGS, 0) & 0x80) != 0)
         fx->rolls.attack_roll = (uint8_t)(fx->rolls.attack_roll + 1);
     return true;
 }
@@ -1254,13 +1301,14 @@ static bool h_target_bonus(cok_effects *fx, bool removing, cok_effect *effect, c
  * roll 2 better. */
 static bool h_giant_slayer(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)effect;
     cok_combat_record *cr = combat_of(fx, c, 0x4b, 0x26bf);
     if (cr == NULL) return false;
     fx->rolls.target = cr->target;
     if (cr->target == NULL)
         return fail(fx, "effect 0x4b (3f44:26bf) reads a target with none, at 0000:0140");
-    if ((cr->target[0x140] & 1) == 0) return true;
+    if ((cok_field_u8_at(L, cr->target, COK_FIELD_CREATURE_FLAGS, 1) & 1) == 0) return true;
     int8_t bonus;
     char why[200];
     if (!cok_character_strength_bonus(c->record, fx->rules, true, &bonus, why, sizeof why))
@@ -1278,6 +1326,7 @@ static bool h_giant_slayer(cok_effects *fx, bool removing, cok_effect *effect, c
  * holder, not to it: so each one that fails adds another to c. */
 static bool h_stench(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)effect;
     /* 3f44:2b84: 6346:1883 with no wait. */
     if (!say_waiting(fx, c, 0x4f, 0x2b5f, "emits an evil stench", false)) return false;
@@ -1286,7 +1335,9 @@ static bool h_stench(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
     if (!around(fx, c, 1, listed, &n)) return false;
     for (unsigned i = 2; i <= n; ++i) {
         cok_character *e = listed[i];
-        if (e->record[0x18a] == c->record[0x18a]) continue;
+        if (cok_field_u8(L, e->record, COK_FIELD_HOSTILE) ==
+            cok_field_u8(L, c->record, COK_FIELD_HOSTILE))
+            continue;
         bool made;
         if (!saving_throw(fx, e, 4, 0, &made)) return false;
         if (made || cok_character_find_effect(e, 0x76) != NULL) continue;
@@ -1373,6 +1424,7 @@ static bool paralyse(cok_effects *fx, cok_character *c, uint8_t id, uint16_t han
  * 31e2, 0x58: paralysis of a target of race (+0x5a, signed) above 1. */
 static bool h_paralysis(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing;
     uint8_t id = effect != NULL ? effect->id : 0;
     if (id == 0x45) return paralyse(fx, c, id, 0x200b);
@@ -1385,7 +1437,7 @@ static bool h_paralysis(cok_effects *fx, bool removing, cok_effect *effect, cok_
     if (cr == NULL) return false;
     cok_character *t = target_of(fx, cr->target, id, 0x31e2, 0x005a);
     if (t == NULL) return false;
-    return (int8_t)t->record[0x5a] <= 1 || paralyse(fx, c, id, 0x31e2);
+    return cok_field_s8(L, t->record, COK_FIELD_RACE) <= 1 || paralyse(fx, c, id, 0x31e2);
 }
 
 /* 3f44:0208, 0x07, Molly's weapon, at the attack roll and the damage
@@ -1399,6 +1451,7 @@ static bool h_paralysis(cok_effects *fx, bool removing, cok_effect *effect, cok_
  * port does not know. */
 static bool h_kender(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)effect;
     if (fx->trace != NULL) fx->trace(fx, "bad news", 0, 0, 0, fx->context); /* 3f44:0226 */
     uint8_t *r = c->record;
@@ -1418,7 +1471,7 @@ static bool h_kender(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
                         "combat has freed");
     if (!fx->distance(fx, r, cr->target, &d, why, sizeof why, fx->context))
         return fail(fx, "%s", why);
-    r[0x18c] = r[0x59];
+    cok_field_set8(L, r, COK_FIELD_THAC0, cok_field_u8(L, r, COK_FIELD_BASE_THAC0));
     int8_t strength;
     if (d < 2) {
         if (!cok_character_strength_bonus(r, fx->rules, true, &strength, why, sizeof why))
@@ -1427,11 +1480,14 @@ static bool h_kender(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
         rolls->amount = (uint8_t)(strength + die + 2 + bonus);
         if (!cok_character_strength_bonus(r, fx->rules, false, &strength, why, sizeof why))
             return fail(fx, "%s", why);
-        r[0x18c] = (uint8_t)(r[0x18c] + strength);
+        cok_field_set8(L, r, COK_FIELD_THAC0,
+                       (uint8_t)(cok_field_u8(L, r, COK_FIELD_THAC0) + strength));
     } else {
         uint8_t die = cok_dice_count(&fx->vm->seed, 1, 4, &rolls->dice);
         rolls->amount = (uint8_t)(die + 1 + bonus);
-        r[0x18c] = (uint8_t)(r[0x18c] + cok_character_dexterity_missile(r, fx->rules));
+        cok_field_set8(L, r, COK_FIELD_THAC0,
+                       (uint8_t)(cok_field_u8(L, r, COK_FIELD_THAC0) +
+                                 cok_character_dexterity_missile(r, fx->rules)));
     }
     return true;
 }
@@ -1458,6 +1514,7 @@ static bool h_blink(cok_effects *fx, bool removing, cok_effect *effect, cok_char
  * more. */
 static bool h_slayer(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing;
     uint8_t id = effect != NULL ? effect->id : 0;
     uint16_t handler = id == 0x69 ? 0x349c : id == 0x72 ? 0x376f : 0x37b0;
@@ -1468,11 +1525,12 @@ static bool h_slayer(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
         return fail(fx, "effect 0x%02x (3f44:%04x) reads a target with none, at 0000:%04x", id,
                     handler, id == 0x72 ? 0x140 : 0x13f);
     const uint8_t *t = cr->target;
-    if (id == 0x69 && (t[0x13f] & 8) != 0)
-        fx->rolls.amount = (uint8_t)(fx->rolls.amount + c->record[0xfd]);
-    else if (id == 0x72 && (t[0x140] & 1) != 0)
-        fx->rolls.amount = c->record[0x197];
-    else if (id == 0x73 && (t[0x13f] & 0x20) != 0)
+    if (id == 0x69 && (cok_field_u8_at(L, t, COK_FIELD_CREATURE_FLAGS, 0) & 8) != 0)
+        fx->rolls.amount = (uint8_t)(fx->rolls.amount +
+                                     cok_field_u8_at(L, c->record, COK_FIELD_CLASS_LEVEL, 4));
+    else if (id == 0x72 && (cok_field_u8_at(L, t, COK_FIELD_CREATURE_FLAGS, 1) & 1) != 0)
+        fx->rolls.amount = cok_field_u8(L, c->record, COK_FIELD_HIT_POINTS);
+    else if (id == 0x73 && (cok_field_u8_at(L, t, COK_FIELD_CREATURE_FLAGS, 0) & 0x20) != 0)
         fx->rolls.amount = (uint8_t)(fx->rolls.amount + 3);
     return true;
 }
@@ -1482,14 +1540,15 @@ static bool h_slayer(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
  * (60f4:00eb, gone), else the damage is doubled. */
 static bool h_disrupt(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)effect;
     if (fx->vm->mode != 5) return true;
     cok_combat_record *cr = combat_of(fx, c, 0x75, 0x37fc);
     if (cr == NULL) return false;
     cok_character *t = target_of(fx, cr->target, 0x75, 0x37fc, 0x013f);
     if (t == NULL) return false;
-    if ((t->record[0x13f] & 2) == 0) return true;
-    if (t->record[0xda] == 0) {
+    if ((cok_field_u8_at(L, t->record, COK_FIELD_CREATURE_FLAGS, 0) & 2) == 0) return true;
+    if (cok_field_u8(L, t->record, COK_FIELD_UNDEAD) == 0) {
         fx->rolls.amount = (uint8_t)(fx->rolls.amount << 1);
         return true;
     }
@@ -1554,6 +1613,7 @@ static bool neighbours(cok_effects *fx, cok_character *c, uint8_t id, uint16_t h
  * 60f4:1db7. */
 static bool h_immolate(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)effect;
     cok_character *listed[COK_PARTY_RECORDS + 1];
     uint8_t count;
@@ -1566,7 +1626,7 @@ static bool h_immolate(cok_effects *fx, bool removing, cok_effect *effect, cok_c
         return fail(fx, "effect 0x30 (3f44:163b) with none listed counts 255 records off the "
                         "stack");
     for (unsigned i = 2; i <= count; ++i) {
-        if (listed[i]->record[0x189] == 0) continue;
+        if (cok_field_u8(L, listed[i]->record, COK_FIELD_ACTIVE) == 0) continue;
         uint8_t d = cok_dice_count(&fx->vm->seed, 1, 6, &fx->rolls.dice);
         if (!deal(fx, listed[i], d, 0x30, 0x15cd)) return false;
     }
@@ -1581,6 +1641,7 @@ static bool h_immolate(cok_effects *fx, bool removing, cok_effect *effect, cok_c
  * (60f4:2375). */
 static bool h_burst(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)effect;
     if (!removing) return true;
     cok_character *listed[COK_PARTY_RECORDS + 1];
@@ -1599,7 +1660,7 @@ static bool h_burst(cok_effects *fx, bool removing, cok_effect *effect, cok_char
                         "loop's count");
     for (unsigned i = 2; i <= count; ++i) {
         cok_character *e = listed[i];
-        if (e->record[0x189] == 0) continue;
+        if (cok_field_u8(L, e->record, COK_FIELD_ACTIVE) == 0) continue;
         uint8_t d = cok_dice_count(&fx->vm->seed, 3, 6, &fx->rolls.dice);
         bool made;
         if (!deal(fx, e, d, 0x3c, 0x18b9) || !saving_throw(fx, e, 4, 0, &made)) return false;
@@ -1617,13 +1678,16 @@ static bool h_burst(cok_effects *fx, bool removing, cok_effect *effect, cok_char
  * pause), takes 2d6 (60f4:1261) through 60f4:1db7, and c's turn ends. */
 static bool h_zap(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)effect;
     cok_character *listed[COK_PARTY_RECORDS + 1];
     uint8_t count;
     if (!around(fx, c, 1, listed, &count)) return false;
     cok_character *t = NULL;
     for (unsigned i = 2; i <= count && t == NULL; ++i)
-        if (listed[i]->record[0x18a] != c->record[0x18a]) t = listed[i];
+        if (cok_field_u8(L, listed[i]->record, COK_FIELD_HOSTILE) !=
+            cok_field_u8(L, c->record, COK_FIELD_HOSTILE))
+            t = listed[i];
     if (t == NULL) return true;
     if (!say(fx, t, 0x42, 0x1c54, "gets zapped!")) return false;
     uint8_t d = cok_dice_count(&fx->vm->seed, 2, 6, &fx->rolls.dice);
@@ -1635,8 +1699,11 @@ static bool h_zap(cok_effects *fx, bool removing, cok_effect *effect, cok_charac
  * its enemies (cok_combat_gate) and loses its first 0x4c. */
 static bool h_gate(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)effect;
-    if (c->record[0x197] >= c->record[0x62] >> 1) return true;
+    if (cok_field_u8(L, c->record, COK_FIELD_HIT_POINTS) >=
+        cok_field_u8(L, c->record, COK_FIELD_MAX_HIT_POINTS) >> 1)
+        return true;
     if (fx->gate == NULL || !fx->gate(fx, c, fx->context))
         return fail(fx, "effect 0x4c (3f44:272a) could not gate in (6beb:0493, 60f4:22b7)");
     return remove_effect(fx, c, NULL, 0x4c);
@@ -1699,9 +1766,10 @@ static bool h_stunned(cok_effects *fx, bool removing, cok_effect *effect, cok_ch
  * turn (60f4:2375), and its first 0x44 goes. */
 static bool h_explodes(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)effect;
-    if (c->record[0x189] != 0) return true;
-    c->record[0x188] = 10;
+    if (cok_field_u8(L, c->record, COK_FIELD_ACTIVE) != 0) return true;
+    cok_field_set8(L, c->record, COK_FIELD_STATUS, 10);
     bool now;
     if (fx->exploding == NULL || !fx->exploding(fx, c, &now, fx->context))
         return fail(fx, "effect 0x44 (3f44:1f97) could not list the dead that explode");
@@ -1717,13 +1785,15 @@ static bool h_explodes(cok_effects *fx, bool removing, cok_effect *effect, cok_c
  * lost in combat (DS:609e) and back at its end (351b:185f). */
 static bool h_lose_weapon(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)effect;
     cok_character *killer = selected(fx, 0x43);
     if (killer == NULL) return false;
     const uint8_t *item = striking_item(fx, killer);
     if (fx->failed) return false;
     uint8_t d = roll(fx, 1, 20);
-    if ((int)killer->record[0x17] - 3 > d) return true;
+    if ((int)cok_field_u8_at(L, killer->record, COK_FIELD_SCORE, COK_SCORE_DEXTERITY) - 3 > d)
+        return true;
     if (fx->rolls.spell != 0 || item == NULL || item[0x36] != 0) return true;
     bool now;
     if (fx->exploding == NULL || !fx->exploding(fx, NULL, &now, fx->context))
@@ -1755,12 +1825,13 @@ static bool h_lose_weapon(cok_effects *fx, bool removing, cok_effect *effect, co
  * map. */
 static bool h_new_form(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing;
     uint8_t id = effect != NULL ? effect->id : 0;
     uint8_t *r = c->record;
-    if (r[0x188] == 0) return true;
-    r[0x188] = 0;
-    r[0x189] = 1;
+    if (cok_field_u8(L, r, COK_FIELD_STATUS) == 0) return true;
+    cok_field_set8(L, r, COK_FIELD_STATUS, 0);
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
     bool placed;
     if (fx->revive == NULL ||
         !fx->revive(fx, c, 0x14, id == 0x0d ? "goes mad!" : "Arises in a new form", &placed,
@@ -1773,7 +1844,8 @@ static bool h_new_form(cok_effects *fx, bool removing, cok_effect *effect, cok_c
             !add(fx, c, 0x39, 0, 0xff, false) || !add(fx, c, 0x3a, 6, 0xff, true) ||
             !remove_effect(fx, c, effect, 0x0d))
             return false;
-        memset(r + 0x1e, 0, 0x3a);
+        memset(r + cok_field_offset(L, COK_FIELD_MEMORIZED), 0,
+               cok_field_size(L, COK_FIELD_MEMORIZED));
         return true;
     }
     if (!add(fx, c, 0x3b, 0, 0xff, false) || !add(fx, c, 0x3c, 3, 0xff, false) ||
@@ -1795,17 +1867,19 @@ static bool h_new_form(cok_effects *fx, bool removing, cok_effect *effect, cok_c
  * combat record (0000:000a); the port fails. */
 static bool h_fear(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)effect;
     cok_party *party = fx->party;
     for (size_t i = 0; i < party->count && i < COK_PARTY_RECORDS; ++i) {
         cok_character *other = party->members[i];
         uint8_t *r = other->record;
-        if (r[0x18a] == c->record[0x18a]) continue;
+        if (cok_field_u8(L, r, COK_FIELD_HOSTILE) == cok_field_u8(L, c->record, COK_FIELD_HOSTILE))
+            continue;
         if (cok_character_find_effect(other, 0x5c) != NULL ||
             cok_character_find_effect(other, 0x6f) != NULL ||
             cok_character_find_effect(other, 0x77) != NULL)
             continue;
-        int8_t level = (int8_t)r[0xd6];
+        int8_t level = cok_field_s8(L, r, COK_FIELD_HIGHEST_LEVEL);
         if (level >= 0 && level <= 3) {
             if (!add_with_text(fx, other, 0x6f, 0, 0xff, true, 1, false, 0x303c, "is terrified"))
                 return false;
@@ -1813,8 +1887,9 @@ static bool h_fear(cok_effects *fx, bool removing, cok_effect *effect, cok_chara
             if (other->combat == NULL)
                 return fail(fx, "effect 0x52 (3f44:303c) writes the combat record of a record "
                                 "with none, at 0000:000a");
-            r[0x18b] = 1;
-            if (r[0xe7] <= 0x7f) r[0xe7] = 0xb3;
+            cok_field_set8(L, r, COK_FIELD_COMPUTER, 1);
+            if (cok_field_u8(L, r, COK_FIELD_NPC) <= 0x7f)
+                cok_field_set8(L, r, COK_FIELD_NPC, 0xb3);
             other->combat->target = NULL;
             other->combat->forced = 1;
             continue;
@@ -1834,11 +1909,12 @@ static bool h_fear(cok_effects *fx, bool removing, cok_effect *effect, cok_chara
  * original writes to 0000:0010; the port fails. */
 static bool h_terror(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)effect;
     if (!removing) return true;
-    if (c->record[0xe7] == 0xb3) {
-        c->record[0xe7] = 0;
-        c->record[0x18b] = 0;
+    if (cok_field_u8(L, c->record, COK_FIELD_NPC) == 0xb3) {
+        cok_field_set8(L, c->record, COK_FIELD_NPC, 0);
+        cok_field_set8(L, c->record, COK_FIELD_COMPUTER, 0);
     }
     if (c->combat == NULL)
         return fail(fx, "effect 0x6f (3f44:3692) writes the combat record of a record with none, "
@@ -1858,17 +1934,22 @@ static bool h_terror(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
  * the port fails. */
 static bool h_turn(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     uint8_t *r = c->record;
     if (removing) {
         /* A removal always gives the effect; this guards direct calls. */
         if (effect == NULL)
             return fail(fx, "effect 0x6b (3f44:34f9) is run with no effect, whose value it reads");
-        if (r[0xe7] == 0xb3) r[0xe7] = 0;
-        r[0x18a] = effect->value;
+        if (cok_field_u8(L, r, COK_FIELD_NPC) == 0xb3) cok_field_set8(L, r, COK_FIELD_NPC, 0);
+        cok_field_set8(L, r, COK_FIELD_HOSTILE, effect->value);
         return true;
     }
-    r[0x18b] = 1;
-    r[0xe7] = r[0xe7] <= 0x7f || r[0xe7] == 0xb3 ? 0xb3 : 0xb2;
+    cok_field_set8(L, r, COK_FIELD_COMPUTER, 1);
+    cok_field_set8(L, r, COK_FIELD_NPC,
+                   cok_field_u8(L, r, COK_FIELD_NPC) <= 0x7f ||
+                           cok_field_u8(L, r, COK_FIELD_NPC) == 0xb3
+                       ? 0xb3
+                       : 0xb2);
     cok_combat_record *cr = combat_of(fx, c, 0x6b, 0x34f9);
     if (cr == NULL) return false;
     cr->target = NULL;
@@ -1879,7 +1960,8 @@ static bool h_turn(cok_effects *fx, bool removing, cok_effect *effect, cok_chara
     cr->target = target;
     if (target == NULL)
         return fail(fx, "effect 0x6b (3f44:34f9) reads a target with none, at 0000:018a");
-    r[0x18a] = (uint8_t)(target[0x18a] ^ 1);
+    cok_field_set8(L, r, COK_FIELD_HOSTILE,
+                   (uint8_t)(cok_field_u8(L, target, COK_FIELD_HOSTILE) ^ 1));
     return true;
 }
 
@@ -1888,13 +1970,16 @@ static bool h_turn(cok_effects *fx, bool removing, cok_effect *effect, cok_chara
  * overflows: runtime error 200. */
 static bool h_knight(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
+    const cok_character_layout *L = fx->rules->character;
     (void)effect;
     if (!removing) return true;
     uint8_t *r = c->record;
-    int16_t former = cok_character_former_class(r, fx->rules) ? (int8_t)r[0x108] : 0;
-    int16_t levels = (int16_t)(former + (int8_t)r[0x100] - 1);
+    int16_t former = cok_character_former_class(r, fx->rules)
+                         ? cok_field_s8_at(L, r, COK_FIELD_FORMER_LEVEL, 7)
+                         : 0;
+    int16_t levels = (int16_t)(former + cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 7) - 1);
     if (levels < 0) return fail(fx, "effect 0x6e (3f44:3643) overflows a division (runtime error 200)");
-    r[0x5f] = (uint8_t)(levels / 5 + 1);
+    cok_field_set8(L, r, COK_FIELD_KNIGHT_TIER, (uint8_t)(levels / 5 + 1));
     return true;
 }
 
@@ -2108,11 +2193,15 @@ static void better(uint8_t *strength, uint8_t *exceptional, uint8_t candidate,
  * others 1 for 15 and 2 above it. */
 static const uint8_t class_top[8] = {10, 15, 10, 10, 11, 12, 11, 10}; /* DS:3903 */
 
-static void class_hit_points(const uint8_t *c, unsigned klass, uint8_t level,
-                             uint8_t constitution, uint8_t *hp)
+static void class_hit_points(const cok_character_layout *L, const uint8_t *c, unsigned klass,
+                             uint8_t level, uint8_t constitution, uint8_t *hp)
 {
     if (class_top[klass] <= level) level = (uint8_t)(class_top[klass] - 1);
-    if (klass == 4 && (c[0xd7] == 0 || c[0x105] == c[0xd7])) ++level;
+    if (klass == 4 &&
+        (cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL) == 0 ||
+         cok_field_u8_at(L, c, COK_FIELD_FORMER_LEVEL, 4) ==
+             cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL)))
+        ++level;
     unsigned per = 0;
     if (klass == 2 || klass == 4 || klass == 7) {
         if (constitution >= 15 && constitution <= 19) per = constitution - 14u;
@@ -2133,8 +2222,10 @@ static void class_hit_points(const uint8_t *c, unsigned klass, uint8_t level,
  * (2) are computed and not stored. */
 static bool ability(cok_effects *fx, cok_character *ch, unsigned stat)
 {
+    const cok_character_layout *L = fx->rules->character;
     uint8_t *c = ch->record;
-    uint8_t score = c[0x10 + stat * 2], exceptional = c[0x1d];
+    uint8_t score = cok_field_u8_at(L, c, COK_FIELD_SCORE_BASE, stat),
+            exceptional = cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL_BASE);
     uint8_t candidate = 0, candidate_exceptional = 0, fixed = 0xff;
     for (size_t i = 0; i < ch->item_count; ++i) {
         const uint8_t *item = ch->items[i];
@@ -2153,8 +2244,9 @@ static bool ability(cok_effects *fx, cok_character *ch, unsigned stat)
                     candidate = (uint8_t)(18 + kind);
                 }
             } else if (power == 8) {
-                if (c[0x10] < 18 && kind == 0) {
-                    candidate = (uint8_t)(c[0x10] + 1);
+                uint8_t strength = cok_field_u8_at(L, c, COK_FIELD_SCORE_BASE, COK_SCORE_STRENGTH);
+                if (strength < 18 && kind == 0) {
+                    candidate = (uint8_t)(strength + 1);
                     candidate_exceptional = 0;
                 }
             } else if (power == 0x0d) {
@@ -2165,29 +2257,39 @@ static bool ability(cok_effects *fx, cok_character *ch, unsigned stat)
         case 1: /* 0x0c and 0x0d would set 7 and 3, but nothing is stored. */
         case 2:
             break;
-        case 3:
-            if (power == 2) score = (uint8_t)(score + (c[0x16] <= 6 ? 4 : c[0x16] <= 13 ? 2 : 1));
-            else if (power == 8 && c[0x16] < 18 && kind == 3) ++score;
+        case 3: {
+            uint8_t dexterity = cok_field_u8_at(L, c, COK_FIELD_SCORE_BASE, COK_SCORE_DEXTERITY);
+            if (power == 2)
+                score = (uint8_t)(score + (dexterity <= 6 ? 4 : dexterity <= 13 ? 2 : 1));
+            else if (power == 8 && dexterity < 18 && kind == 3) ++score;
             else if (power == 10) score = (uint8_t)(score - 2);
             break;
+        }
         case 4:
-            if (power == 6 || (power == 8 && c[0x18] < 18 && kind == 4)) ++score;
+            if (power == 6 ||
+                (power == 8 &&
+                 cok_field_u8_at(L, c, COK_FIELD_SCORE_BASE, COK_SCORE_CONSTITUTION) < 18 &&
+                 kind == 4))
+                ++score;
             break;
         default:
             if (power == 6) --score;
-            else if (power == 8 && c[0x1a] < 18 && kind == 5) ++score;
+            else if (power == 8 &&
+                     cok_field_u8_at(L, c, COK_FIELD_SCORE_BASE, COK_SCORE_CHARISMA) < 18 &&
+                     kind == 5)
+                ++score;
             break;
         }
     }
     if (stat == 1 || stat == 2) return true;
     if (stat == 3) {
-        c[0x17] = score;
+        cok_field_set8_at(L, c, COK_FIELD_SCORE, COK_SCORE_DEXTERITY, score);
         return true;
     }
     if (stat == 5) {
         const cok_effect *effect = cok_character_find_effect(ch, 0x0e);
         if (effect != NULL) score = (uint8_t)(score + effect->value);
-        c[0x1b] = score;
+        cok_field_set8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CHARISMA, score);
         return true;
     }
     if (stat == 4) {
@@ -2195,26 +2297,40 @@ static bool ability(cok_effects *fx, cok_character *ch, unsigned stat)
          * class's levels, former (+0x101) and current (+0xf9, above +0xd7,
          * capped by DS:3903), divided by the number of classes with a
          * level; the hit points change by as much. */
-        uint8_t old = c[0x62], hp = 0, classes = 0;
-        c[0x62] = c[0x11b];
+        uint8_t old = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS), hp = 0, classes = 0;
+        cok_field_set8(L, c, COK_FIELD_MAX_HIT_POINTS,
+                       cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS));
         for (unsigned k = 0; k < 8; ++k) {
-            if (c[0x101 + k] > 0) class_hit_points(c, k, c[0x101 + k], score, &hp);
-            uint8_t level = c[0xf9 + k];
+            if (cok_field_u8_at(L, c, COK_FIELD_FORMER_LEVEL, k) > 0)
+                class_hit_points(L, c, k, cok_field_u8_at(L, c, COK_FIELD_FORMER_LEVEL, k), score,
+                                 &hp);
+            uint8_t level = cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, k);
             if (level > 0) ++classes;
             if (class_top[k] < level) level = class_top[k];
-            if (level > c[0xd7]) class_hit_points(c, k, (uint8_t)(level - c[0xd7]), score, &hp);
+            if (level > cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL))
+                class_hit_points(L, c, k,
+                                 (uint8_t)(level - cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL)),
+                                 score, &hp);
         }
         if (classes == 0)
             return fail(fx, "constitution's hit points (60f4:1743) divide by no classes, runtime "
                             "error 200");
-        c[0x62] = (uint8_t)(c[0x62] + hp / classes);
-        if (c[0x62] > old) c[0x197] = (uint8_t)(c[0x197] + (c[0x62] - old));
-        if (c[0x62] < old) {
-            if (c[0x197] > old - c[0x62]) c[0x197] = (uint8_t)(c[0x197] - (old - c[0x62]));
-            else c[0x197] = 0;
+        cok_field_set8(L, c, COK_FIELD_MAX_HIT_POINTS,
+                       (uint8_t)(cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS) + hp / classes));
+        if (cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS) > old)
+            cok_field_set8(L, c, COK_FIELD_HIT_POINTS,
+                           (uint8_t)(cok_field_u8(L, c, COK_FIELD_HIT_POINTS) +
+                                     (cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS) - old)));
+        if (cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS) < old) {
+            if (cok_field_u8(L, c, COK_FIELD_HIT_POINTS) >
+                old - cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS))
+                cok_field_set8(L, c, COK_FIELD_HIT_POINTS,
+                               (uint8_t)(cok_field_u8(L, c, COK_FIELD_HIT_POINTS) -
+                                         (old - cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS))));
+            else cok_field_set8(L, c, COK_FIELD_HIT_POINTS, 0);
         }
-        c[0x19] = score;
-        if (c[0x19] >= 20) {
+        cok_field_set8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION, score);
+        if (cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION) >= 20) {
             if (cok_character_find_effect(ch, 0x3e) == NULL &&
                 cok_character_add_effect(ch, 0x3e, 0x3c, 0xff, true) == NULL)
                 return fail(fx, "out of memory adding effect 0x3e");
@@ -2231,12 +2347,20 @@ static bool ability(cok_effects *fx, cok_character *ch, unsigned stat)
                 /* Fighters, rangers and knights, now or before, get the
                  * excess as exceptional strength, added to the current
                  * one each time. */
-                static const size_t classes[] = {0xfb, 0x103, 0x100, 0x108, 0xfd, 0x105};
+                static const struct {
+                    cok_field levels;
+                    uint8_t class_;
+                } classes[] = {{COK_FIELD_CLASS_LEVEL, 2}, {COK_FIELD_FORMER_LEVEL, 2},
+                               {COK_FIELD_CLASS_LEVEL, 7}, {COK_FIELD_FORMER_LEVEL, 7},
+                               {COK_FIELD_CLASS_LEVEL, 4}, {COK_FIELD_FORMER_LEVEL, 4}};
                 bool fighter = false;
                 for (size_t k = 0; k < sizeof classes / sizeof *classes; ++k)
-                    if ((int8_t)c[classes[k]] > 0) fighter = true;
+                    if (cok_field_s8_at(L, c, classes[k].levels, classes[k].class_) > 0)
+                        fighter = true;
                 if (fighter) {
-                    candidate_exceptional = (uint8_t)((candidate - 18) * 10 + c[0x1c]);
+                    candidate_exceptional =
+                        (uint8_t)((candidate - 18) * 10 +
+                                  cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL));
                     if (candidate_exceptional > 100) candidate_exceptional = 100;
                 }
                 candidate = 18;
@@ -2252,11 +2376,11 @@ static bool ability(cok_effects *fx, cok_character *ch, unsigned stat)
         better(&score, &exceptional, candidate, candidate_exceptional);
     }
     if (fixed != 0xff) {
-        c[0x11] = fixed;
-        c[0x1c] = 0;
+        cok_field_set8_at(L, c, COK_FIELD_SCORE, COK_SCORE_STRENGTH, fixed);
+        cok_field_set8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL, 0);
     } else {
-        c[0x11] = score;
-        c[0x1c] = exceptional;
+        cok_field_set8_at(L, c, COK_FIELD_SCORE, COK_SCORE_STRENGTH, score);
+        cok_field_set8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL, exceptional);
     }
     return true;
 }
@@ -2275,6 +2399,7 @@ bool cok_effects_ability(cok_effects *fx, cok_character *character, unsigned sta
  * returns. */
 static bool remove_effect(cok_effects *fx, cok_character *c, cok_effect *effect, uint8_t id)
 {
+    const cok_character_layout *L = fx->rules->character;
     if (effect == NULL) effect = cok_character_find_effect(c, id);
     if (effect == NULL) return true;
     if (effect->on_remove) {
@@ -2297,8 +2422,9 @@ static bool remove_effect(cok_effects *fx, cok_character *c, cok_effect *effect,
     }
     if (fx->in_battle) {
         char text[64];
-        snprintf(text, sizeof text, "%.*s loses 0x%02x", c->record[0] > 15 ? 15 : c->record[0],
-                 (const char *)c->record + 1, effect->id);
+        uint8_t stored = cok_field_u8_at(L, c->record, COK_FIELD_NAME, 0);
+        snprintf(text, sizeof text, "%.*s loses 0x%02x", stored > 15 ? 15 : stored,
+                 (const char *)c->record + cok_field_offset_at(L, COK_FIELD_NAME, 1), effect->id);
         log_text(fx, "effect", text);
     }
     cok_effect **link = &c->effects;
@@ -2409,6 +2535,7 @@ static bool dispatch(cok_effects *fx, cok_character *target, uint8_t event)
 
 static bool dispatch_event(cok_effects *fx, cok_character **target, uint8_t event)
 {
+    const cok_character_layout *L = fx->rules->character;
     if (event >= sizeof events / sizeof *events || events[event] == NULL) return true;
     if (event == 6 || event == 9) {
         /* 60f4:04f3, magic resistance (+0x187), when an effect is pending
@@ -2416,7 +2543,7 @@ static bool dispatch_event(cok_effects *fx, cok_character **target, uint8_t even
          * 5 for each caster level of the spell (DS:6b33) below 11, as a
          * byte, resists the damage and the effect (but for 0x5b and 0x52). */
         cok_rolls *r = &fx->rolls;
-        uint8_t resistance = (*target)->record[0x187], level;
+        uint8_t resistance = cok_field_u8(L, (*target)->record, COK_FIELD_MAGIC_RESISTANCE), level;
         if (resistance != 0 && r->pending != 0 && (r->amount == 0 || (r->damage_type & 8) != 0)) {
             if (!caster_level(fx, r->spell, &level)) return false;
             uint8_t chance = (uint8_t)(resistance + 5 * (11 - level));
@@ -2457,6 +2584,7 @@ bool cok_effects_run(cok_effects *fx, cok_character *character, uint8_t id, cok_
 
 bool cok_effects_attack(cok_effects *fx, cok_character *target, uint8_t bonus, bool *hit)
 {
+    const cok_character_layout *L = fx->rules->character;
     begin(fx);
     *hit = false;
     cok_rolls *r = &fx->rolls;
@@ -2465,7 +2593,8 @@ bool cok_effects_attack(cok_effects *fx, cok_character *target, uint8_t bonus, b
         if (r->attack_roll == 20) r->attack_roll = 100;
         if (dispatch(fx, target, 0x10))
             *hit = (int8_t)r->attack_roll >= 0 &&
-                   (int)(int8_t)r->attack_roll + bonus > target->record[0x18d];
+                   (int)(int8_t)r->attack_roll + bonus >
+                       cok_field_u8(L, target->record, COK_FIELD_AC);
     }
     return finish(fx);
 }
@@ -2473,6 +2602,7 @@ bool cok_effects_attack(cok_effects *fx, cok_character *target, uint8_t bonus, b
 static bool saving_throw(cok_effects *fx, cok_character *target, uint8_t type, uint8_t bonus,
                          bool *made)
 {
+    const cok_character_layout *L = fx->rules->character;
     cok_rolls *r = &fx->rolls;
     const uint8_t *c = target->record;
     r->save_made = 1;
@@ -2482,16 +2612,21 @@ static bool saving_throw(cok_effects *fx, cok_character *target, uint8_t type, u
     } else if (r->save_roll != 20) {
         /* A mage of an order of magic (+0x5e) gets -1 or +1 from the word
          * at 0x4bf8 + order (the byte sum wraps): 0 or 2. */
-        if ((int8_t)c[0xfe] > 0 && c[0x5e] != 0) {
-            uint16_t moon = fx->vm->mem4b00[(uint8_t)(c[0x5e] + 0xf8)];
+        if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) > 0 &&
+            cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER) != 0) {
+            uint16_t moon =
+                fx->vm->mem4b00[(uint8_t)(cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER) + 0xf8)];
             if (moon == 0) --bonus;
             else if (moon == 2) ++bonus;
         }
-        r->save_roll = (uint8_t)(r->save_roll + (int8_t)c[0x17c] + (int8_t)bonus);
+        r->save_roll = (uint8_t)(r->save_roll + cok_field_s8(L, c, COK_FIELD_SAVE_BONUS) +
+                                 (int8_t)bonus);
         r->save_type = type;
         if (dispatch(fx, target, 0x0c)) {
-            int at = 0xd0 + (int8_t)type;
-            if (at < 0 || at >= COK_CHARACTER_SIZE)
+            /* The type, signed, indexes the saving throws unbounded: kept
+             * within the record, not within the five. */
+            long at = cok_field_offset_unchecked(L, COK_FIELD_SAVING_THROW, 0, (int8_t)type);
+            if (at < 0 || at >= L->size)
                 fail(fx, "saving throw type %u is outside the record", type);
             else
                 r->save_made = c[at] <= r->save_roll;

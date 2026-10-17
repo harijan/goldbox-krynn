@@ -364,6 +364,7 @@ static uint8_t facing_of(const cok_character *c)
  * shown (6beb:00fc, 02aa). */
 static bool draw_combatant(cok_adventure *game, uint8_t n, const char *where)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     const cok_combatant *e = &game->combat.combatant[n];
     if (n > COK_COMBATANTS || e->character == NULL)
         return fail(game, "combatant %u has no record (%s)", n, where);
@@ -372,7 +373,7 @@ static bool draw_combatant(cok_adventure *game, uint8_t n, const char *where)
         return fail(game, "combatant %u's footprint is past the table (6beb:06ef, %s)", n, where);
     if (!shown) return true;
     return cok_arena_icon(game, e->screen_x, e->screen_y, facing_of(e->character), 0,
-                          e->character->record[0x137]);
+                          cok_field_u8(L, e->character->record, COK_FIELD_ICON));
 }
 
 /* 6beb:07a9: scroll toward x, y (cok_combat_scroll), and if it does, draw
@@ -454,6 +455,7 @@ bool cok_arena_redraw_cell(cok_adventure *game, int8_t x, int8_t y)
 
 bool cok_arena_centre(cok_adventure *game, int8_t x, int8_t y, uint8_t margin, uint8_t dir)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     if (!map_there(game, "6beb:096b")) return false;
     if (dir > 8) return fail(game, "direction %u is past the steps (DS:1ed6, 6beb:096b)", dir);
     cok_combat *c = &game->combat;
@@ -467,7 +469,8 @@ bool cok_arena_centre(cok_adventure *game, int8_t x, int8_t y, uint8_t margin, u
         const cok_combatant *e = &c->combatant[n];
         if (e->size == 0 || e->character == NULL) continue;
         const uint8_t *r = e->character->record;
-        if (r[0x188] != 10 && r[0x189] == 0) continue;
+        if (cok_field_u8(L, r, COK_FIELD_STATUS) != 10 && cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0)
+            continue;
         if (!draw_combatant(game, (uint8_t)n, "6beb:096b")) return false;
     }
     if (!cok_arena_redraw_cell(game, x, y)) return false;
@@ -498,8 +501,10 @@ static bool combatant_of(cok_adventure *game, const cok_character *c, uint8_t *n
 {
     *n = cok_combat_index(&game->combat, c->record);
     if (*n != 0 && c->combat != NULL) return true;
-    return fail(game, "%.*s is not a combatant (6beb:0c43, %s)",
-                c->record[0] > 15 ? 15 : c->record[0], (const char *)c->record + 1, where);
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t stored = cok_field_u8_at(L, c->record, COK_FIELD_NAME, 0);
+    return fail(game, "%.*s is not a combatant (6beb:0c43, %s)", stored > 15 ? 15 : stored,
+                (const char *)c->record + cok_field_offset_at(L, COK_FIELD_NAME, 1), where);
 }
 
 static bool shown_whole(cok_adventure *game, const cok_character *c, bool *whole,
@@ -512,6 +517,7 @@ static bool shown_whole(cok_adventure *game, const cok_character *c, bool *whole
 bool cok_arena_pose(cok_adventure *game, cok_character *c, uint8_t pose, uint8_t image,
                     bool hide)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     if (!map_there(game, "6beb:0ad8")) return false;
     cok_combat *cb = &game->combat;
     uint8_t n;
@@ -530,7 +536,8 @@ bool cok_arena_pose(cok_adventure *game, cok_character *c, uint8_t pose, uint8_t
         return fail(game, "a footprint past the table (6beb:06ef, 6beb:0ad8)");
     if (!shown || !cb->show_actions) return true;
     const cok_combatant *e = &cb->combatant[n];
-    if (!cok_arena_icon(game, e->screen_x, e->screen_y, pose, image, c->record[0x137]))
+    if (!cok_arena_icon(game, e->screen_x, e->screen_y, pose, image,
+                        cok_field_u8(L, c->record, COK_FIELD_ICON)))
         return false;
     return cok_arena_show(game);
 }
@@ -741,8 +748,10 @@ bool cok_arena_compose(const cok_picture *head, cok_picture *body)
 
 bool cok_arena_party_icon(cok_adventure *game, cok_character *c, bool colours)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     const uint8_t *r = c->record;
-    uint8_t size = r[0x138], slot = r[0x137];
+    uint8_t size = cok_field_u8(L, r, COK_FIELD_ICON_SIZE);
+    uint8_t slot = cok_field_u8(L, r, COK_FIELD_ICON);
     if (size > 2)
         return fail(game, "icon size %u reads its letter from the strings after DS:0877 "
                           "(4b6d:0817)", size);
@@ -756,15 +765,17 @@ bool cok_arena_party_icon(cok_adventure *game, cok_character *c, bool colours)
     size_t head_length = strlen(head), body_length = strlen(body);
     head[head_length++] = letters[size];
     body[body_length++] = letters[size];
-    if (!load_icon(game, head, head_length, r[0x135], SLOT_HEAD, 1) ||
-        !load_icon(game, body, body_length, r[0x136], slot, 1))
+    if (!load_icon(game, head, head_length, cok_field_u8(L, r, COK_FIELD_ICON_HEAD), SLOT_HEAD,
+                   1) ||
+        !load_icon(game, body, body_length, cok_field_u8(L, r, COK_FIELD_ICON_BODY), slot, 1))
         return false;
     bool ok = true;
     for (unsigned image = 0; image < 2 && ok; ++image) {
         cok_picture *icon = &game->icons[slot][image];
         if (!cok_arena_compose(&game->icons[SLOT_HEAD][image], icon)) {
             ok = fail(game, "a character's head or body (+0x135, +0x136: %u, %u) is not there to "
-                            "compose (4b6d:0784)", r[0x135], r[0x136]);
+                            "compose (4b6d:0784)", cok_field_u8(L, r, COK_FIELD_ICON_HEAD),
+                            cok_field_u8(L, r, COK_FIELD_ICON_BODY));
             break;
         }
         if (game->display != COK_DISPLAY_CGA) /* 4b6d:08e0, 0938 */
@@ -775,8 +786,8 @@ bool cok_arena_party_icon(cok_adventure *game, cok_character *c, bool colours)
         uint8_t to[16];
         memcpy(to, same_colours, sizeof to);
         for (unsigned k = 0; k < 6; ++k) {
-            to[icon_colours[k]] = r[0x139 + k] & 15;
-            to[icon_colours[k] + 8] = r[0x139 + k] >> 4;
+            to[icon_colours[k]] = cok_field_u8_at(L, r, COK_FIELD_ICON_COLOURS, k + 1) & 15;
+            to[icon_colours[k] + 8] = cok_field_u8_at(L, r, COK_FIELD_ICON_COLOURS, k + 1) >> 4;
         }
         for (unsigned image = 0; image < 2 && ok; ++image)
             ok = cok_picture_recolor(&game->icons[slot][image], same_colours, to, 0, NULL) ==
@@ -791,12 +802,16 @@ bool cok_arena_party_icon(cok_adventure *game, cok_character *c, bool colours)
 
 bool cok_arena_join(cok_adventure *game, uint8_t file)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];
         const uint8_t *r = c->record;
         const char *icons = cok_game_rules(game)->archives.icons;
-        bool ok = r[0xe7] < 0x80 ? cok_arena_party_icon(game, c, true)
-                                 : load_icon(game, icons, strlen(icons), r[0x115], r[0x137], file);
+        bool ok = cok_field_u8(L, r, COK_FIELD_NPC) < 0x80
+                      ? cok_arena_party_icon(game, c, true)
+                      : load_icon(game, icons, strlen(icons),
+                                  cok_field_u8(L, r, COK_FIELD_MONSTER_ID),
+                                  cok_field_u8(L, r, COK_FIELD_ICON), file);
         if (!ok) return false;
     }
     return true;
@@ -826,6 +841,7 @@ static void text_at(cok_adventure *game, const char *text, int x, int y, uint8_t
 static void say(cok_adventure *game, cok_character *c, const char *text, uint8_t row, bool wait,
                 bool log)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     if (game->vm.mode != 5) {
         cok_camp_say(game, c->record, text, wait);
         return;
@@ -834,8 +850,9 @@ static void say(cok_adventure *game, cok_character *c, const char *text, uint8_t
     cok_item_draw_name(game, c->record, 0x17, row, false); /* 6346:199d */
     if (log) {
         char name[16];
-        snprintf(name, sizeof name, "%.*s", c->record[0] > 15 ? 15 : c->record[0],
-                 (const char *)c->record + 1);
+        uint8_t stored = cok_field_u8_at(L, c->record, COK_FIELD_NAME, 0);
+        snprintf(name, sizeof name, "%.*s", stored > 15 ? 15 : stored,
+                 (const char *)c->record + cok_field_offset_at(L, COK_FIELD_NAME, 1));
         cok_adventure_log(game, "print", name);
         cok_adventure_print(game, text, (cok_text_window){0x17, row + 1, 0x26, 0x15}, 10, true);
     } else {
@@ -869,6 +886,7 @@ void cok_arena_clear_text(cok_adventure *game)
 
 bool cok_arena_panel(cok_adventure *game, cok_character *c)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *cb = &game->combat;
     if (!cb->panel) return true;
     cb->panel = false;
@@ -877,10 +895,13 @@ bool cok_arena_panel(cok_adventure *game, cok_character *c)
     say(game, c, " ", 1, false, false);
     char text[48];
     text_at(game, "Hitpoints", 0x17, 3, 10);
-    snprintf(text, sizeof text, "%u", r[0x197]); /* 6346:0a0d */
-    text_at(game, text, 0x21, 3, r[0x197] < r[0x62] ? 14 : 10);
+    snprintf(text, sizeof text, "%u", cok_field_u8(L, r, COK_FIELD_HIT_POINTS)); /* 6346:0a0d */
+    text_at(game, text, 0x21, 3,
+            cok_field_u8(L, r, COK_FIELD_HIT_POINTS) < cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS)
+                ? 14
+                : 10);
     text_at(game, "AC", 0x17, 5, 10);
-    uint8_t ac = r[0x18d]; /* 6346:0984 */
+    uint8_t ac = cok_field_u8(L, r, COK_FIELD_AC); /* 6346:0984 */
     snprintf(text, sizeof text, "%s%u", ac > 60 ? "-" : "", (unsigned)abs(ac - 60) & 0xffu);
     text_at(game, text, 0x1a, 5, 10);
     game->vm.cursor.y = 5;
@@ -890,11 +911,11 @@ bool cok_arena_panel(cok_adventure *game, cok_character *c)
         wrap(game, name, (cok_text_window){0x17, 7, 0x26, 9});
     }
     int row = game->vm.cursor.y + 2;
-    if (r[0x189] == 0) {
+    if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0) {
         char status[256];
-        if (!cok_ds_string((uint16_t)(0x1330 + 13 * (int8_t)r[0x188]), status))
+        if (!cok_ds_string((uint16_t)(0x1330 + 13 * cok_field_s8(L, r, COK_FIELD_STATUS)), status))
             return fail(game, "status %u has no name the original can show (DS:1330, 6346:0af6)",
-                        r[0x188]);
+                        cok_field_u8(L, r, COK_FIELD_STATUS));
         text_at(game, status, 0x17, row, 15);
     } else if (cok_combat_helpless(c)) { /* 6346:0cdb */
         text_at(game, "(Helpless)", 0x17, row, 15);

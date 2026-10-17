@@ -88,6 +88,11 @@ static const cok_character_layout champions_character = {
             [COK_FIELD_KNOWN_SPELL] = BYTES(0x063, 108, 1),
             /* The highest fighter, ranger or knight level, or 1 (6346:0d20). */
             [COK_FIELD_FIGHTER_LEVEL] = BYTE(0x0ce),
+            /* Its size in combat: bits 0-2 its footprint (6beb:10f3 places it
+             * by & 0x7f, 3cb2:17f7 by & 7), bit 7 a large creature (a weapon's
+             * dice for large ones, 432f:1579; no backstab, 432f:2af0); 1 a
+             * man's, which character creation gives (4def:06dd). */
+            [COK_FIELD_SIZE] = BYTE(0x0cf),
             /* By type (66c2:08a6). */
             [COK_FIELD_SAVING_THROW] = BYTES(0x0d0, 5, 0),
             [COK_FIELD_BASE_MOVEMENT] = BYTE(0x0d5),
@@ -96,6 +101,11 @@ static const cok_character_layout champions_character = {
             /* A human's level when it changed class, which its new class's
              * level must pass for it to use its former class (66c2:0efb). */
             [COK_FIELD_CHANGE_LEVEL] = SBYTE(0x0d7),
+            /* A monster's kind of undead, 0 for none: turning picks the
+             * highest (432f:14a2) and reads its row of the table at DS:0444,
+             * 13 a kind (432f:12b7, signed); a cloud does not choke one
+             * (60f4:0dc3). */
+            [COK_FIELD_UNDEAD] = SBYTE(0x0da),
             /* Eight, by skill 1-8 (66c2:0b9f). */
             [COK_FIELD_THIEF_SKILL] = BYTES(0x0db, 8, 1),
             /* The spell effects (see cok_effect). */
@@ -126,6 +136,11 @@ static const cok_character_layout champions_character = {
             [COK_FIELD_BASE_AC] = BYTE(0x113),
             /* Set when strength adds to hit and damage (6346:1412). */
             [COK_FIELD_STRENGTH_BONUSES] = BYTE(0x114),
+            /* The id of the monster an NPC was read as (4b6d:18fc), whose
+             * combat icons, its file's CPIC records id and id + 0x80, it is
+             * shown with (6d21:01d0); a random byte for a player character
+             * (4def:06dd). */
+            [COK_FIELD_MONSTER_ID] = BYTE(0x115),
             [COK_FIELD_EXPERIENCE] = DWORD(0x116),
             /* The classes whose items it can use, as bits (DS:38ea). */
             [COK_FIELD_USABLE_CLASSES] = BYTE(0x11a),
@@ -142,8 +157,16 @@ static const cok_character_layout champions_character = {
             [COK_FIELD_SPELLS_A_DAY] =
                 {.offset = 0x11c, .width = 1, .count = 5, .first = 1, .stride = 1, .rows = 4,
                  .row_stride = 5},
+            /* A player character's combat icon, composed by 4b6d:0817: its
+             * head and body (records of CHEAD and CBODY, with the size's
+             * letter), its size (1 small, 2 tall), and colours 1-6, each byte
+             * two (the low and high nibble; 4def:408b edits them). */
+            [COK_FIELD_ICON_HEAD] = BYTE(0x135),
+            [COK_FIELD_ICON_BODY] = BYTE(0x136),
             /* The combat icon's slot, 0-7 (4b6d:1989). */
             [COK_FIELD_ICON] = BYTE(0x137),
+            [COK_FIELD_ICON_SIZE] = BYTE(0x138),
+            [COK_FIELD_ICON_COLOURS] = BYTES(0x139, 6, 1),
             /* Creature flags that effects test, two bytes (+0x140's bit 0
              * too, 3f44:26bf). */
             [COK_FIELD_CREATURE_FLAGS] = BYTES(0x13f, 2, 0),
@@ -171,6 +194,11 @@ static const cok_character_layout champions_character = {
             [COK_FIELD_THAC0] = BYTE(0x18c),
             [COK_FIELD_AC] = BYTE(0x18d),
             [COK_FIELD_AC_BEHIND] = BYTE(0x18e),
+            /* Two attacks' attacks left this round: the weapon's (432f:0e80,
+             * from BASE_ATTACKS 1 or a missile's rate) and the others'
+             * (432f:0000, from BASE_ATTACKS 2), each halved by the round
+             * (432f:0f9e); a blow takes one (432f's strike, +0x18e + slot). */
+            [COK_FIELD_ATTACKS_LEFT] = BYTES(0x18f, 2, 1),
             /* Two attacks' dice, sides and damage bonus (6346:0023). */
             [COK_FIELD_DICE] = BYTES(0x191, 2, 1),
             [COK_FIELD_DICE_SIDES] = BYTES(0x193, 2, 1),

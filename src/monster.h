@@ -10,9 +10,9 @@
  * helpers in overlays 3775, 4b6d, 6961 and 6d21. A monster is a 409-byte
  * character record, from MON<file>CHA.DAX, with its items (MON<file>ITM)
  * and effects (MON<file>SPC); LOAD MONSTER appends it to the end of the
- * party list, where it stays until the end of combat removes it. Fields
- * a monster uses beyond those of Champions' layout (champions_character
- * in rules.c):
+ * party list, where it stays until the end of combat removes it. How a
+ * monster uses the fields of Champions' layout (champions_character in
+ * rules.c), and bytes it does not name yet (+0x130, +0x132):
  *
  *   +0x0cf  bits 0-2 the size of its combat icon, bit 7 a large creature
  *   +0x0da  its kind of undead, for turning; 0 for none

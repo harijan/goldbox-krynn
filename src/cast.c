@@ -202,8 +202,12 @@ static bool cure(cok_adventure *game, cok_character *c, uint8_t id, bool *cured)
 /* 6346:25f9: say how far c was healed, and redraw the party list. */
 static void healed(cok_adventure *game, cok_character *c)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     const uint8_t *r = c->record;
-    say(game, c, r[0x197] == r[0x62] ? "is fully healed" : "is partially healed");
+    say(game, c,
+        cok_field_u8(L, r, COK_FIELD_HIT_POINTS) == cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS)
+            ? "is fully healed"
+            : "is partially healed");
     if (game->vm.mode != 5) cok_adventure_party(game);
 }
 
@@ -237,11 +241,11 @@ bool cok_cast_add_effect(cok_adventure *game, cok_character *c, uint8_t id, uint
 
 /* 6346:161b: forget the first memorized byte equal to spell; a spell
  * marked to be learned does not match. */
-static void forget(uint8_t *c, uint8_t spell)
+static void forget(const cok_character_layout *L, uint8_t *c, uint8_t spell)
 {
-    for (size_t i = 0; i <= 0x39; ++i)
-        if (c[0x1e + i] == spell) {
-            c[0x1e + i] = 0;
+    for (size_t i = 0; i < cok_field_count(L, COK_FIELD_MEMORIZED); ++i)
+        if (cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) == spell) {
+            cok_field_set8_at(L, c, COK_FIELD_MEMORIZED, i, 0);
             return;
         }
 }
@@ -265,6 +269,7 @@ cok_arena_reachable cok_cast_reachable(const cok_adventure *game)
 bool cok_cast_damage(cok_adventure *game, cok_character *c, uint8_t amount, uint8_t save_kind,
                      bool saved)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_rolls *r = &game->effects.rolls;
     bool combat = game->vm.mode == 5;
     r->amount = amount;
@@ -277,7 +282,7 @@ bool cok_cast_damage(cok_adventure *game, cok_character *c, uint8_t amount, uint
     } else if (!dispatch(game, c, 0x14)) {
         return false;
     }
-    if (r->amount == 0 || record[0x189] == 0) return true;
+    if (r->amount == 0 || cok_field_u8(L, record, COK_FIELD_ACTIVE) == 0) return true;
     char text[256];
     if (r->amount == 1)
         snprintf(text, sizeof text, "takes 1 point of damage ");
@@ -299,19 +304,22 @@ bool cok_cast_damage(cok_adventure *game, cok_character *c, uint8_t amount, uint
         if (c->combat == NULL)
             return undefined(game, "a record with no combat record is read through NULL in "
                                    "combat (60f4:1f95)");
-        if (!cok_combat_damage(&game->combat, c, r->amount, 5))
+        if (!cok_combat_damage(&game->combat, c, cok_game_rules(game), r->amount, 5))
             return undefined(game, "a record on a side other than 0 or 1 (+0x18a) is counted past "
                                    "DS:6b2d (6346:24d7)");
         c->combat->may_cast = 0;
         if (c->combat->spell > 0) {
             if (!cok_arena_say(game, c, "lost a spell", 12, true)) return false;
-            forget(record, c->combat->spell);
+            forget(L, record, c->combat->spell);
             cok_combat_end_turn(c);
         }
     }
-    if (record[0x189] == 0) {
-        snprintf(text, sizeof text, "Goes Down%s", record[0x188] == 5 ? ", and is Dying" : "");
-        if (record[0x188] >= 6 && record[0x188] <= 8) snprintf(text, sizeof text, "is killed");
+    if (cok_field_u8(L, record, COK_FIELD_ACTIVE) == 0) {
+        snprintf(text, sizeof text, "Goes Down%s",
+                 cok_field_u8(L, record, COK_FIELD_STATUS) == 5 ? ", and is Dying" : "");
+        if (cok_field_u8(L, record, COK_FIELD_STATUS) >= 6 &&
+            cok_field_u8(L, record, COK_FIELD_STATUS) <= 8)
+            snprintf(text, sizeof text, "is killed");
         if (!combat) {
             say(game, c, text);
         } else {
@@ -323,7 +331,8 @@ bool cok_cast_damage(cok_adventure *game, cok_character *c, uint8_t amount, uint
                 return false;
             int stale = cok_character_find_effect(c, 0x4d) != NULL ? COK_ARENA_STALE_UNKNOWN : 0;
             if (!dispatch(game, c, 0x0d)) return false;
-            if (record[0x189] == 0 && record[0x188] != 10) {
+            if (cok_field_u8(L, record, COK_FIELD_ACTIVE) == 0 &&
+                cok_field_u8(L, record, COK_FIELD_STATUS) != 10) {
                 cok_arena_reachable also = cok_cast_reachable(game);
                 if (!cok_arena_kill(game, c, stale, &also)) return false;
             } else {
@@ -372,6 +381,7 @@ static bool area(cast *cx, uint8_t radius)
 static bool apply(cast *cx, uint8_t value, bool on_remove, uint8_t amount, uint8_t type,
                   const char *text)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     cok_rolls *r = &game->effects.rolls;
     cok_character **t = cx->targets;
@@ -387,7 +397,8 @@ static bool apply(cast *cx, uint8_t value, bool on_remove, uint8_t amount, uint8
         if (spell_byte(r->spell, 2) == 0xff) {
             bool hit;
             if (!recompute(game, t[i]) || !dispatch(game, t[i], 0x0b) ||
-                !cok_combat_hit(game, cx->caster, t[i], t[i]->record[0x18d], &hit))
+                !cok_combat_hit(game, cx->caster, t[i], cok_field_u8(L, t[i]->record, COK_FIELD_AC),
+                                &hit))
                 return false;
             if (!hit) {
                 amount = 0;
@@ -426,9 +437,13 @@ static cok_character *first(cast *cx)
 /* 60f4:1592: whether strength and exceptional strength beat c's base ones
  * (+0x10, +0x1d), and the effect value that gives them (60f4:151a): the
  * exceptional strength + 1 at 18, else the strength + 100. */
-static bool stronger(const uint8_t *c, uint8_t strength, uint8_t exceptional, uint8_t *value)
+static bool stronger(const cok_character_layout *L, const uint8_t *c, uint8_t strength,
+                     uint8_t exceptional, uint8_t *value)
 {
-    if (!(strength > c[0x10] || (strength == 18 && exceptional > c[0x1d]))) return false;
+    if (!(strength > cok_field_u8_at(L, c, COK_FIELD_SCORE_BASE, COK_SCORE_STRENGTH) ||
+          (strength == 18 &&
+           exceptional > cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL_BASE))))
+        return false;
     *value = (uint8_t)(strength == 18 ? exceptional + 1 : strength + 100);
     return true;
 }
@@ -440,6 +455,7 @@ typedef bool handler_fn(cast *cx);
 /* 1e34: keep the targets on side, then apply with text. */
 static bool sided(cast *cx, uint8_t side, const char *text)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     cok_character **t = cx->targets;
     game->effects.rolls.images = 1;
@@ -448,7 +464,7 @@ static bool sided(cast *cx, uint8_t side, const char *text)
         if (t[i] == NULL)
             return undefined(game, "a target taken off the list is read through NULL "
                                    "(5b04:1e72)");
-        if (t[i]->record[0x18a] == side) {
+        if (cok_field_u8(L, t[i]->record, COK_FIELD_HOSTILE) == side) {
             /* In combat Bless leaves out an ally with an enemy beside it. */
             uint8_t spell = game->effects.rolls.spell;
             if (!((spell == 1 || spell == 0x69) && game->vm.mode == 5)) continue;
@@ -464,16 +480,19 @@ static bool sided(cast *cx, uint8_t side, const char *text)
 /* 1efb, Bless: the party on the caster's side. */
 static bool bless(cast *cx)
 {
-    return sided(cx, cx->caster->record[0x18a], "is Blessed");
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
+    return sided(cx, cok_field_u8(L, cx->caster->record, COK_FIELD_HOSTILE), "is Blessed");
 }
 
 /* 1f57, 3ddc: heal the target count d8 + bonus, and a d8 more for a
  * caster of deity 4, rolled first. */
 static bool heal(cast *cx, uint8_t count, uint8_t bonus)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     if (game->spell_target_count == 0) return true;
-    uint8_t extra = cx->caster->record[0x5d] == 4 ? roll(game, 1, 8) : 0;
+    uint8_t extra =
+        cok_field_u8(L, cx->caster->record, COK_FIELD_DEITY) == 4 ? roll(game, 1, 8) : 0;
     uint8_t amount = (uint8_t)(roll(game, count, 8) + bonus + extra);
     cok_character *c = first(cx);
     if (c == NULL) return false;
@@ -519,6 +538,7 @@ static bool burning_hands(cast *cx)
  * than the target's base one, as effect 0x0c. */
 static bool enlarge(cast *cx)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     cok_character *c = first(cx);
     if (c == NULL) return false;
@@ -528,7 +548,7 @@ static bool enlarge(cast *cx)
     if (level >= 1 && level <= 6) exceptional = by_level[level];
     else if (level >= 7 && level <= 9) strength = (uint8_t)(12 + level);
     else if (level == 10 || level == 11) strength = 0x16;
-    if (!stronger(c->record, strength, exceptional, &value)) {
+    if (!stronger(L, c->record, strength, exceptional, &value)) {
         say(game, c, "is unaffected");
         return true;
     }
@@ -574,18 +594,20 @@ static bool fire_resistant(cast *cx)
  * dead or not, then effects 0x16 for 3780 minutes and 0x0f for 10. */
 static bool slow_poison(cast *cx)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     cok_character *c = first(cx);
     if (c == NULL) return false;
     uint8_t *r = c->record;
-    if (r[0x188] == 1) {
+    if (cok_field_u8(L, r, COK_FIELD_STATUS) == 1) {
         cx->targets[1] = NULL;
         return true;
     }
     if (cok_character_find_effect(c, 0x37) == NULL) return true;
-    if (r[0x197] == 0) r[0x197] = 1;
-    r[0x188] = 0;
-    r[0x189] = 1;
+    if (cok_field_u8(L, r, COK_FIELD_HIT_POINTS) == 0)
+        cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 1);
+    cok_field_set8(L, r, COK_FIELD_STATUS, 0);
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
     return apply(cx, 0xff, true, 0, 0, "is affected") && add_raw(game, c, 0x0f, 10, 0xff, true);
 }
 
@@ -624,27 +646,33 @@ static bool mirror_image(cast *cx)
  * found no more 0x19, so 0. */
 static bool strength(cast *cx)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     cok_character *c = first(cx);
     if (c == NULL) return false;
     const uint8_t *r = c->record;
-#define HAS(now, before) ((int8_t)r[now] > 0 || (int8_t)r[before] > (int8_t)r[0xd7])
+#define HAS(k)                                                                                     \
+    (cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, k) > 0 ||                                        \
+     cok_field_s8_at(L, r, COK_FIELD_FORMER_LEVEL, k) >                                            \
+         cok_field_s8(L, r, COK_FIELD_CHANGE_LEVEL))
     int bonus = -1;
-    if (HAS(0xfe, 0x106)) bonus = roll(game, 1, 4);
-    if (HAS(0xf9, 0x101) || HAS(0xff, 0x107)) bonus = roll(game, 1, 6);
-    if (HAS(0xfb, 0x103)) bonus = roll(game, 1, 8);
+    if (HAS(5)) bonus = roll(game, 1, 4);
+    if (HAS(0) || HAS(6)) bonus = roll(game, 1, 6);
+    if (HAS(2)) bonus = roll(game, 1, 8);
     if (bonus < 0) bonus = game->effects.rolls.item != 0 ? 0 : cx->frame;
-    uint8_t value = (uint8_t)(r[0x11] + bonus), exceptional = 0;
+    uint8_t value = (uint8_t)(cok_field_u8_at(L, r, COK_FIELD_SCORE, COK_SCORE_STRENGTH) + bonus);
+    uint8_t exceptional = 0;
     if (value > 18) {
-        if (HAS(0xfb, 0x103) || HAS(0x100, 0x108) || HAS(0xfd, 0x105)) {
-            exceptional = (uint8_t)((value - 18) * 10 + r[0x1c]);
+        if (HAS(2) || HAS(7) || HAS(4)) {
+            exceptional = (uint8_t)((value - 18) * 10 +
+                                    cok_field_u8(L, r, COK_FIELD_STRENGTH_EXCEPTIONAL));
             if (exceptional > 100) exceptional = 100;
         }
         value = 18;
     }
 #undef HAS
     uint8_t ignored;
-    if (!stronger(r, value, exceptional, &ignored)) return true;
+    if (!stronger(L, r, value, exceptional, &ignored)) return true;
     uint16_t minutes;
     return cok_cast_duration(game, game->effects.rolls.spell, &minutes) &&
            add_raw(game, c, 0x26, minutes, (uint8_t)(bonus + 100), true) && ability(game, c, 0);
@@ -728,9 +756,10 @@ static bool dispel_magic(cast *cx)
 /* 358a, Prayer: the caster's side in the value's high nibble. */
 static bool prayer(cast *cx)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     uint8_t level;
     if (!level_of(cx->game, cx->spell, &level)) return false;
-    uint8_t value = (uint8_t)(level + (int8_t)cx->caster->record[0x18a] * 16);
+    uint8_t value = (uint8_t)(level + cok_field_s8(L, cx->caster->record, COK_FIELD_HOSTILE) * 16);
     return apply(cx, value, false, 0, 0, "is praying");
 }
 
@@ -773,6 +802,7 @@ bool cok_cast_remove_curse(cok_adventure *game, cok_character *target)
  * those left. */
 static bool hasten(cast *cx, uint8_t id, uint8_t side, const char *text)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     game->effects.rolls.images = 1;
     uint8_t left;
@@ -784,7 +814,7 @@ static bool hasten(cast *cx, uint8_t id, uint8_t side, const char *text)
         if (c == NULL)
             return undefined(game, "a target taken off the list is read through NULL "
                                    "(5b04:38b6)");
-        if (c->record[0x18a] == side && left > 0) {
+        if (cok_field_u8(L, c->record, COK_FIELD_HOSTILE) == side && left > 0) {
             --left;
             bool cured;
             if (!cure(game, c, id, &cured)) return false;
@@ -802,7 +832,8 @@ static bool hasten(cast *cx, uint8_t id, uint8_t side, const char *text)
 
 static bool haste(cast *cx)
 {
-    return hasten(cx, 0x2a, cx->caster->record[0x18a], "is Hasted");
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
+    return hasten(cx, 0x2a, cok_field_u8(L, cx->caster->record, COK_FIELD_HOSTILE), "is Hasted");
 }
 
 /* 3d9b, 0x39: cure Slow, or else haste. */
@@ -822,11 +853,12 @@ static bool speedy(cast *cx)
  * call, wherever DOS loaded the overlay, which the port does not know. */
 static bool giant_strength(cast *cx)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     cok_character *c = first(cx);
     if (c == NULL) return false;
     uint8_t value;
-    if (stronger(c->record, 0x15, 0, &value)) {
+    if (stronger(L, c->record, 0x15, 0, &value)) {
         say(game, c, "is stronger");
     } else if (game->effects.rolls.item != 0) {
         value = 0x16;
@@ -856,11 +888,12 @@ static bool potion(cast *cx)
  * (while curing, DS:6b38), is "unpoisoned" and okay, whatever its status. */
 static bool neutralize_poison(cast *cx)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     cok_character *c = first(cx);
     if (c == NULL) return false;
     uint8_t *r = c->record;
-    if (r[0x188] == 1) {
+    if (cok_field_u8(L, r, COK_FIELD_STATUS) == 1) {
         cx->targets[1] = NULL;
         return true;
     }
@@ -868,15 +901,16 @@ static bool neutralize_poison(cast *cx)
         say(game, c, "is unaffected");
         return true;
     }
-    if (r[0x197] == 0) r[0x197] = 1;
+    if (cok_field_u8(L, r, COK_FIELD_HIT_POINTS) == 0)
+        cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 1);
     game->effects.rolls.curing = 1;
     bool ok = remove_effect(game, c, NULL, 0x37) && remove_effect(game, c, NULL, 0x16) &&
               remove_effect(game, c, NULL, 0x0f);
     game->effects.rolls.curing = 0;
     if (!ok) return false;
     say(game, c, "is unpoisoned");
-    r[0x189] = 1;
-    r[0x188] = 0;
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(L, r, COK_FIELD_STATUS, 0);
     return true;
 }
 
@@ -886,12 +920,13 @@ static bool neutralize_poison(cast *cx)
  * adds 0x32 and says so; Cold adds 0x36 silently; each also 0x70. */
 static bool fire_shield(cast *cx)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     cok_character *c = cx->caster;
     for (;;) {
         int key;
         bool special;
-        if (c->record[0x18b] != 0) {
+        if (cok_field_u8(L, c->record, COK_FIELD_COMPUTER) != 0) {
             key = roll(game, 1, 10) > 5 ? 'H' : 'C';
         } else {
             key = cok_camp_menu(game, "flame type: ", "Hot Cold", false, false, &special);
@@ -940,6 +975,7 @@ static bool say_waiting(cok_adventure *game, cok_character *c, const char *text)
  * caster level, with text. */
 static bool missiles(cast *cx, uint8_t bonus, const char *text)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     cok_combat *combat = &game->combat;
     cok_character **t = cx->targets;
@@ -965,7 +1001,8 @@ static bool missiles(cast *cx, uint8_t bonus, const char *text)
                 return effect_failed(game);
             kind = spell_byte(spell, 8);
         }
-        if (p->record[0x5a] == 7 && (spell == 0x17 || spell == 0x31)) saved = true;
+        if (cok_field_u8(L, p->record, COK_FIELD_RACE) == 7 && (spell == 0x17 || spell == 0x31))
+            saved = true;
         uint16_t minutes;
         uint8_t level;
         if (!cok_cast_duration(game, spell, &minutes) || !level_of(game, spell, &level) ||
@@ -979,7 +1016,7 @@ static bool missiles(cast *cx, uint8_t bonus, const char *text)
 /* 1f2c, Curse: those on the side against the caster. */
 static bool curse(cast *cx)
 {
-    return sided(cx, cok_combat_opposite(cx->caster), "is Cursed");
+    return sided(cx, cok_combat_opposite(cx->caster, cok_game_rules(cx->game)), "is Cursed");
 }
 
 /* 1fc2, Cause Light Wounds (by touch): 1d8, magic. */
@@ -994,13 +1031,17 @@ static bool cause_light(cast *cx)
  * charmed"; then 0x0b's handler takes hold (3f44:03cd). */
 static bool charm_person(cast *cx)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     cok_character *t = cx->targets[1];
     if (t == NULL) return true;
-    if (t->record[0x13f] > 1 || t->record[0xcf] > 1) return say_waiting(game, t, "is unaffected");
+    if (cok_field_u8_at(L, t->record, COK_FIELD_CREATURE_FLAGS, 0) > 1 ||
+        cok_field_u8(L, t->record, COK_FIELD_SIZE) > 1)
+        return say_waiting(game, t, "is unaffected");
     uint8_t level;
     if (!level_of(game, game->effects.rolls.spell, &level)) return false;
-    uint8_t value = (uint8_t)(level + (uint8_t)(cx->caster->record[0x18a] << 7));
+    uint8_t value =
+        (uint8_t)(level + (uint8_t)(cok_field_u8(L, cx->caster->record, COK_FIELD_HOSTILE) << 7));
     if (!apply(cx, value, true, 0, 0, "is charmed")) return false;
     cok_effect *charm = cok_character_find_effect(t, 0x0b);
     return charm == NULL || cok_effects_run(&game->effects, t, 0x0b, charm) || effect_failed(game);
@@ -1033,6 +1074,7 @@ static bool shocking_grasp(cast *cx)
  * taken off. The rest fall asleep, no saving throw. */
 static bool sleep_spell(cast *cx)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     cok_character **t = cx->targets;
     game->effects.rolls.images = 1;
@@ -1043,10 +1085,11 @@ static bool sleep_spell(cast *cx)
             return undefined(game, "a target taken off the list is read through NULL "
                                    "(5b04:2514)");
         const uint8_t *r = t[i]->record;
-        int8_t hd = (int8_t)r[0xd6];
+        int8_t hd = cok_field_s8(L, r, COK_FIELD_HIGHEST_LEVEL);
         uint8_t weight = hd >= 0 && hd <= 1 ? 1 : hd == 2 ? 2 : hd == 3 ? 4 : hd == 4 ? 6
-                         : hd == 5 && r[0x5a] == 7 ? 10 : 20;
-        if (r[0x188] != 1 && cok_character_find_effect(t[i], 0x35) == NULL && left >= weight)
+                         : hd == 5 && cok_field_u8(L, r, COK_FIELD_RACE) == 7 ? 10 : 20;
+        if (cok_field_u8(L, r, COK_FIELD_STATUS) != 1 &&
+            cok_character_find_effect(t[i], 0x35) == NULL && left >= weight)
             left = (uint8_t)(left - weight);
         else
             t[i] = NULL;
@@ -1081,16 +1124,19 @@ static bool silence(cast *cx)
  * whose hit points are within what is left of the caster's: "is charmed". */
 static bool snake_charm(cast *cx)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
-    uint8_t left = cx->caster->record[0x197];
+    uint8_t left = cok_field_u8(L, cx->caster->record, COK_FIELD_HIT_POINTS);
     game->spell_target_count = 0;
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *m = game->party.members[i];
         const uint8_t *r = m->record;
-        if ((r[0x13f] & 0x10) == 0 || r[0x189] == 0 ||
-            cok_character_find_effect(m, 0x33) != NULL || left < r[0x197])
+        if ((cok_field_u8_at(L, r, COK_FIELD_CREATURE_FLAGS, 0) & 0x10) == 0 ||
+            cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0 ||
+            cok_character_find_effect(m, 0x33) != NULL ||
+            left < cok_field_u8(L, r, COK_FIELD_HIT_POINTS))
             continue;
-        left = (uint8_t)(left - r[0x197]);
+        left = (uint8_t)(left - cok_field_u8(L, r, COK_FIELD_HIT_POINTS));
         cx->targets[++game->spell_target_count] = m;
     }
     return apply(cx, 0, false, 0, 0, "is charmed");
@@ -1184,6 +1230,7 @@ static bool bolt_cell(cast *cx, int8_t x, int8_t y, uint8_t amount, uint8_t type
  * starts as one did since the bolt last hit anyone. */
 static bool bolt(cast *cx, uint8_t length, uint8_t amount, uint8_t type, bool surcharge)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     cok_combat *combat = &game->combat;
     bool bounce = false;
@@ -1218,7 +1265,9 @@ static bool bolt(cast *cx, uint8_t length, uint8_t amount, uint8_t type, bool su
             for (unsigned n = 1; n <= combat->count && n <= COK_COMBATANTS; ++n) {
                 const cok_character *o = combat->combatant[n].character;
                 uint8_t bytes[3] = {combat->combatant[n].size, 0, 0};
-                if (o != NULL) bytes[1] = o->record[0x197], bytes[2] = o->record[0x189];
+                if (o != NULL)
+                    bytes[1] = cok_field_u8(L, o->record, COK_FIELD_HIT_POINTS),
+                    bytes[2] = cok_field_u8(L, o->record, COK_FIELD_ACTIVE);
                 for (int k = 0; k < 3; ++k) now.hash = (now.hash ^ bytes[k]) * 16777619u;
             }
             for (unsigned k = 0; k < lines; ++k)
@@ -1322,7 +1371,7 @@ static bool item_bolt(cast *cx)
  * (0x27) in those that have it, the others slowed: "is Slowed". */
 static bool slow(cast *cx)
 {
-    return hasten(cx, 0x27, cok_combat_opposite(cx->caster), "is Slowed");
+    return hasten(cx, 0x27, cok_combat_opposite(cx->caster, cok_game_rules(cx->game)), "is Slowed");
 }
 
 static bool paralyzed(cast *cx)
@@ -1340,7 +1389,8 @@ static bool item_damage(cast *cx)
  * deity 4, magic. */
 static bool cause_serious(cast *cx)
 {
-    uint8_t bonus = cx->caster->record[0x5d] == 4 ? 3 : 1;
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
+    uint8_t bonus = cok_field_u8(L, cx->caster->record, COK_FIELD_DEITY) == 4 ? 3 : 1;
     return apply(cx, 0, false, (uint8_t)(damage_roll(cx->game, 2, 8) + bonus), 8, "");
 }
 
@@ -1369,11 +1419,13 @@ static bool poison_spell(cast *cx)
  * else it "smashes them flat". */
 static bool sticks_to_snakes(cast *cx)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     cok_character *t = cx->targets[1];
     if (t == NULL)
         return undefined(game, "the first target is read through NULL (5b04:421a)");
-    if ((int8_t)t->record[0xd6] >= 6) return say_waiting(game, t, "smashes them flat");
+    if (cok_field_s8(L, t->record, COK_FIELD_HIGHEST_LEVEL) >= 6)
+        return say_waiting(game, t, "smashes them flat");
     uint8_t level;
     if (!level_of(game, game->effects.rolls.spell, &level) ||
         !apply(cx, level, false, 0, 8, ""))
@@ -1433,7 +1485,7 @@ static bool dimension_door(cast *cx)
     cok_character *c = cx->caster;
     bool placed;
     if (!cok_arena_erase(game, 0, 0, cok_combat_index(combat, c->record))) return false;
-    if (!cok_combat_place(combat, game->vm.mode, c, (uint8_t)game->spell_x,
+    if (!cok_combat_place(combat, game->vm.mode, c, cok_game_rules(game), (uint8_t)game->spell_x,
                           (uint8_t)game->spell_y, false, &placed))
         return undefined(game, "a combatant put at the spell's cell reads or writes outside its "
                                "tables (6beb:10f3)");
@@ -1696,6 +1748,7 @@ static bool cone(cast *cx, int8_t x0, int8_t y0, int8_t tx, int8_t ty, uint8_t w
  * unaffected". */
 static bool fear(cast *cx)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     cok_combat *combat = &game->combat;
     const uint8_t *self = cx->caster->record;
@@ -1733,8 +1786,9 @@ static bool fear(cast *cx)
             return undefined(game, "a record with no combat record is written through NULL "
                                    "(5b04:45a7)");
         t->combat->forced = 1;
-        t->record[0x18b] = 1;
-        if (t->record[0xe7] <= 0x7f) t->record[0xe7] = 0xb3;
+        cok_field_set8(L, t->record, COK_FIELD_COMPUTER, 1);
+        if (cok_field_u8(L, t->record, COK_FIELD_NPC) <= 0x7f)
+            cok_field_set8(L, t->record, COK_FIELD_NPC, 0xb3);
         t->combat->target = NULL;
     }
     return true;
@@ -1858,6 +1912,7 @@ bool cok_cast_range(cok_adventure *game, uint8_t spell, uint8_t *range)
 
 bool cok_cast_wounded_ally(cok_adventure *game, cok_character *c, cok_character **ally)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     cok_character *best = NULL;
     uint8_t lowest = 0xff, body = 0;
@@ -1871,10 +1926,16 @@ bool cok_cast_wounded_ally(cok_adventure *game, cok_character *c, cok_character 
             if (o == NULL)
                 return undefined(game, "a cell's combatant has no record (432f:1f8d)");
             const uint8_t *r = o->record;
-            if (r[0x18a] != c->record[0x18a] || r[0x197] >= r[0x62]) continue;
-            if (r[0x197] < lowest || (o == c && r[0x197] < r[0x62] >> 1)) {
+            if (cok_field_u8(L, r, COK_FIELD_HOSTILE) !=
+                    cok_field_u8(L, c->record, COK_FIELD_HOSTILE) ||
+                cok_field_u8(L, r, COK_FIELD_HIT_POINTS) >=
+                    cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS))
+                continue;
+            if (cok_field_u8(L, r, COK_FIELD_HIT_POINTS) < lowest ||
+                (o == c && cok_field_u8(L, r, COK_FIELD_HIT_POINTS) <
+                               cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS) >> 1)) {
                 best = o;
-                lowest = r[0x197];
+                lowest = cok_field_u8(L, r, COK_FIELD_HIT_POINTS);
             }
         } else if (terrain == COK_COMBAT_BODY) {
             for (uint8_t b = 1; b <= combat->bodies; ++b) {
@@ -1882,7 +1943,7 @@ bool cok_cast_wounded_ally(cok_adventure *game, cok_character *c, cok_character 
                     return undefined(game, "a body past the table's eighth is read (432f:2043)");
                 const cok_combat_body *e = &combat->body[b - 1];
                 if (e->character == NULL) continue;
-                uint8_t status = e->character->record[0x188];
+                uint8_t status = cok_field_u8(L, e->character->record, COK_FIELD_STATUS);
                 if (status >= 6 && status <= 8) continue; /* 432f:1ecd */
                 if (e->x == x && e->y == y) body = b;
             }
@@ -2016,6 +2077,7 @@ static bool redraw_pick(cast *cx, cok_character *t)
  * *done is cleared where none was picked, but never for k 5. */
 static bool combat_targets(cast *cx, bool *done)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     cok_rolls *r = &game->effects.rolls;
     cok_character **t = cx->targets;
@@ -2056,13 +2118,13 @@ static bool combat_targets(cast *cx, bool *done)
                     return undefined(game, "a pick of no creature is weighed through NULL "
                                            "(432f:2484)");
                 if (cx->spell != 0x4f) {
-                    int8_t hd = (int8_t)p->record[0xd6];
+                    int8_t hd = cok_field_s8(L, p->record, COK_FIELD_HIGHEST_LEVEL);
                     total = (uint8_t)(total + (hd == 0 || hd == 1 ? 1
                                                : hd == 2             ? 2
                                                : hd == 3             ? 4
                                                                      : 8));
                 } else {
-                    uint8_t size = p->record[0xcf];
+                    uint8_t size = cok_field_u8(L, p->record, COK_FIELD_SIZE);
                     total = (uint8_t)(total + (size == 1                 ? 1
                                                : size == 2 || size == 3 ? 2
                                                : size == 4              ? 4
@@ -2195,6 +2257,7 @@ static bool announce_spell(cok_adventure *game, cok_character *c, const char *ve
 void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, uint8_t frame,
                     bool *done)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_rolls *r = &game->effects.rolls;
     cast cx = {.game = game, .caster = member_of(game, game->vm.character), .spell = spell,
                .frame = frame, .ai = ai, .targets = game->spell_targets};
@@ -2213,7 +2276,9 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, 
     if (combat) {
         const char *name = cok_spell_name(spell);
         char text[80];
-        snprintf(text, sizeof text, "%.*s: %s", c[0] > 15 ? 15 : c[0], (const char *)c + 1,
+        uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
+        snprintf(text, sizeof text, "%.*s: %s", stored > 15 ? 15 : stored,
+                 (const char *)c + cok_field_offset_at(L, COK_FIELD_NAME, 1),
                  name != NULL ? name : "");
         cok_adventure_log(game, "cast", text);
     }
@@ -2229,7 +2294,7 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, 
             int answer = cok_camp_yes_no(game, "Lose it? ", 13);
             if (answer < 0) return;
             lose = answer == 'Y';
-            if (lose) forget(c, spell);
+            if (lose) forget(L, c, spell);
         } else {
             cok_adventure_log(game, "print", "That Item");
             cok_text_string(&game->screen, &game->font, "That Item", 1, 0x13, 10, 0);
@@ -2266,7 +2331,7 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, 
             cok_effect *invisible;
             while ((invisible = cok_character_find_effect(cx.caster, 0x19)) != NULL)
                 if (!remove_effect(game, cx.caster, invisible, 0x19)) return;
-            if (r->item == 0) forget(c, spell);
+            if (r->item == 0) forget(L, c, spell);
             if (handlers[spell].fn == NULL) {
                 char text[96];
                 snprintf(text, sizeof text, "spell %u (5b04:%04x) is cast only in combat", spell,
@@ -2287,7 +2352,7 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, 
                 if (answer != 'Y') continue;
             }
             cok_camp_notice(game, "Spell Aborted"); /* 6346:1827 */
-            if (r->item == 0) forget(c, spell);
+            if (r->item == 0) forget(L, c, spell);
             go = false;
         }
     }
@@ -2339,6 +2404,7 @@ static bool breathe_at(cast *cx, cok_character *c, const char *text)
  * if saved; then c's uses count down and its turn ends. */
 static bool breath_damage(cast *cx, cok_character *c, cok_effect *effect)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     uint8_t n = game->spell_target_count;
     for (uint8_t i = 1; i <= n && !game->vm.abort; ++i) {
@@ -2346,7 +2412,9 @@ static bool breath_damage(cast *cx, cok_character *c, cok_effect *effect)
         if (t == NULL) continue;
         bool made;
         if (!cok_effects_save(&game->effects, t, 3, 0, &made)) return effect_failed(game);
-        if (!cok_cast_damage(game, t, c->record[0x62], 2, made)) return false;
+        if (!cok_cast_damage(game, t, cok_field_u8(L, c->record, COK_FIELD_MAX_HIT_POINTS), 2,
+                             made))
+            return false;
     }
     --effect->value;
     cok_combat_end_turn(c);
@@ -2357,11 +2425,14 @@ static bool breath_damage(cast *cx, cok_character *c, cok_effect *effect)
  * taken off the list would be read through NULL. */
 static bool no_friend(cast *cx, cok_character *c, bool *none)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     for (uint8_t i = 1; i <= cx->game->spell_target_count; ++i) {
         const cok_character *t = cx->targets[i];
         if (t == NULL)
             return undefined(cx->game, "a breath's target is read through NULL (5b04:52dc)");
-        if (t->record[0x18a] != cok_combat_opposite(c)) *none = false;
+        if (cok_field_u8(L, t->record, COK_FIELD_HOSTILE) !=
+            cok_combat_opposite(c, cok_game_rules(cx->game)))
+            *none = false;
     }
     return true;
 }
@@ -2410,6 +2481,7 @@ static void drawn_bytes(const cok_combat *combat, cok_display display, unsigned 
  * damage type is what DS:6b31 holds. */
 static bool attack_4(cast *cx, cok_character *c, cok_effect *effect)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     cok_combat *combat = &game->combat;
     uint8_t *r = c->record;
@@ -2424,7 +2496,9 @@ static bool attack_4(cast *cx, cok_character *c, cok_effect *effect)
         for (unsigned i = 2; i <= combat->listed_count; ++i) {
             cok_character *o = combat->combatant[combat->listed[i].index].character;
             if (o == NULL) return undefined(game, "a listed combatant has no record (5b04:4b77)");
-            if (o->record[0x18a] != r[0x18a]) target = o;
+            if (cok_field_u8(L, o->record, COK_FIELD_HOSTILE) !=
+                cok_field_u8(L, r, COK_FIELD_HOSTILE))
+                target = o;
         }
         if (target != NULL) {
             if (!say_waiting(game, c, "Breathes!")) return false;
@@ -2462,7 +2536,7 @@ static bool attack_4(cast *cx, cok_character *c, cok_effect *effect)
             return false;
         t = cx->targets[1];
         if (t == NULL) return undefined(game, "the first target is read through NULL (5b04:4d46)");
-        if (t->record[0x189] != 0 && bolts == 1) {
+        if (cok_field_u8(L, t->record, COK_FIELD_ACTIVE) != 0 && bolts == 1) {
             if (!cok_cast_damage(game, t, (uint8_t)(damage_roll(game, 1, 8) + 2), 0, false))
                 return false;
             ++bolts;
@@ -2527,6 +2601,7 @@ static bool attack_54(cast *cx, cok_character *c, cok_effect *effect)
  * 39bb) and the rest, length 10 (3a6f); a use goes, the turn ends. */
 static bool attack_55(cast *cx, cok_character *c, cok_effect *effect)
 {
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     cok_combat *combat = &game->combat;
     uses(game, effect);
@@ -2542,7 +2617,7 @@ static bool attack_55(cast *cx, cok_character *c, cok_effect *effect)
     if (t == NULL || !cok_combat_direction(combat, c, t, &dir))
         return undefined(game, "no direction holds the breath's first target, and the original "
                                "looks for ever (6346:34e9)");
-    uint8_t amount = c->record[0x62];
+    uint8_t amount = cok_field_u8(L, c->record, COK_FIELD_MAX_HIT_POINTS);
     /* 39bb's flag is a local of 50cf never set: it reads it only on a wall
      * in a 3D area, to write it back to the same local, never read. */
     bool bounce = false;
