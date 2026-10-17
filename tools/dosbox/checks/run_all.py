@@ -10,7 +10,8 @@ its output in OUT/NAME.log, and ends with a line `VERDICT: AGREES` or
 `VERDICT: DIFFERS new (...)`, with exit status 0 or 1.
 Anything else (another status, no verdict line, a timeout, a crash) is an
 ERROR, never a recorded verdict. COKBOX_DISPLAYS (e.g. 180-189) keeps the X
-displays to a range; --jobs defaults to the range's size less two (else 6).
+displays to a range; --jobs defaults to the range's size less two, else to
+five eighths of the cores (10 of 16; see default_jobs).
 Needs `make build/eclplay build/cok build/START_FULL.EXE` (make dosbox-checks
 does it; `make dosbox-checks ARGS="--only b_amount"` passes options). Exit 0
 when every script gave its recorded verdict."""
@@ -134,6 +135,18 @@ ALONE = {"d_arrows", "d_aurak", "d_bolt", "d_bozak", "d_cast", "d_gate", "d_hold
 LONG = {"a_demo": 6, "c_wander": 6, "f_frames": 5, "f_display_modes": 5, "f_sound": 4,
         "a_ctrl_s": 3, "e_bolt_bounce": 2, "f_mouse": 2, "e_manual": 2}
 VERDICT = re.compile(r"^VERDICT: (AGREES|DIFFERS new.*|ERROR.*)$", re.M)
+
+
+def default_jobs():
+    """Scripts side by side without --jobs or COKBOX_DISPLAYS: five eighths
+    of the cores (10 of 16). On 16 cores, with the port's runs and builds
+    niced below the boxes (cokbox.BELOW_BOXES), 10 gave every recorded
+    verdict in each run; at 12 and 14 now and then one script did not, a
+    different one each time (most often a_demo, whose screens of the
+    demonstration are matched with the port's in order), and the time is
+    about the same (the side-by-side part then lasts about as long as its
+    longest script, a_demo)."""
+    return max(1, (os.cpu_count() or 8) * 5 // 8)
 
 
 def displays():
@@ -293,7 +306,7 @@ def main():
     if opts.self_test:
         return self_test()
     n = displays()
-    jobs = opts.jobs or (max(1, n - 2) if n else 6)
+    jobs = opts.jobs or (max(1, n - 2) if n else default_jobs())
     todo = [c for c in CHECKS if not opts.only or c[0] in opts.only]
     unknown = set(opts.only or ()) - {c[0] for c in CHECKS}
     if unknown:

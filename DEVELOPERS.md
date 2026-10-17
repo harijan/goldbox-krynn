@@ -72,8 +72,9 @@ is a target of its own (`run-NAME`; `tests/test_eclplay.py` in four parts,
 `COK_TEST_SHARD=K/N` running every Nth test from the Kth), so that `make
 -j` runs them side by side; plain `make test` runs them one after another.
 `tests/test_cok.py` plays in real time and runs last, alone, once the
-others are done: it takes about two of the two minutes a clean `make -j16
-test` takes on a 16-core host (six one at a time). The tests' temporary
+others are done: a clean `make -j16 test` takes about two minutes on a
+16-core host, 105 s of them `tests/test_cok.py`'s (plain `make test` two
+and a half; `make -j16 sanitize` 20 s). The tests' temporary
 files go to `build/tmp` (`TEST_TMPDIR`): the dev container's `/tmp` is a
 FUSE overlay, several times slower to write their many small files.
 
@@ -7327,7 +7328,9 @@ apart: `COKBOX_DISPLAYS=LO-HI` (or `display_number`) gives `Xvfb` the
 first free display number of that range, skipping one while its lock file
 is there, removing a lock whose server is gone, and keeping a number only
 once its lock names our own `Xvfb` (two runs may start on one together);
-without it `Xvfb` picks any. Then:
+without it `Xvfb` picks the first number free from `:0` up, by X's own
+lock files, so never one that another run holds (nor, unless that many
+run at once, a range such as 110-189 kept for `COKBOX_DISPLAYS`). Then:
 
 - Memory: the guest's RAM is one block of `dosbox-x`'s heap, found by
   the keyboard buffer's bounds (`0040:0080`) and the interrupt table, and
@@ -7427,12 +7430,25 @@ do instead, and says the port is not compared there. A harness artifact
 difference on a `DIFFERENCE:` line before it, and anything else (an
 exception, a signal, a harness failure) is an error, exit 3. `COKBOX_ECLPLAY`,
 `COKBOX_COK` and `COKBOX_SRC` point the checks at another build of the
-port, e.g. a mutant's.
+port, e.g. a mutant's; `COKBOX_RECORD` names a program that each of
+checklib's patched builds runs through (given the executable and its
+arguments), such as a recorder of the port's runs that, keeping each
+run's arguments and input files, can make them again without DOSBox-X.
+The port's runs and builds that a check makes (and waits for) run niced
+below the boxes (`cokbox.BELOW_BOXES`, `nice -n 10`): with many checks
+side by side their bursts (`frames_at`'s four `eclplay`s, a patched
+build's compiles) otherwise made a box late, and a check then differed, a
+different one each run. checklib compiles a patched build's files side by
+side.
 
 Each runs alone (`python3 tools/dosbox/checks/NAME.py [--workdir DIR]`).
 `make dosbox-checks` (`run_all.py`; `ARGS="--jobs N --only NAME ..."`)
 runs them all side by side, as many at a time as `COKBOX_DISPLAYS` has
-displays less two, then those that catch a short text in a burst of
+displays less two, else five eighths of the cores (10 of 16: at 12 and 14
+now and then one script differed from the load, most often `a_demo`,
+whose screens of the demonstration are matched with the port's in order;
+the time is about the same, as the part side by side then lasts about as
+long as `a_demo`), then those that catch a short text in a burst of
 screenshots (`d_arrows`, `d_aurak`, `d_bolt`, `d_bozak`, `d_cast`,
 `d_gate`, `d_hold`, `d_turning`) one at a time (beside the others on a
 loaded host DOSBox-X wrote ten times fewer screenshots and they missed

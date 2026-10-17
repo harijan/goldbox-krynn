@@ -262,11 +262,12 @@ def _build(out, exe, kind, src, transforms):
                                   check=True).stdout.split()
         cflags, libs = sdl("--cflags"), sdl("--libs")
 
-    # Each file compiled on its own, side by side, then linked.
+    # Each file compiled on its own, side by side (below the boxes running
+    # beside it), then linked.
     def compile_one(f):
         obj = f.with_suffix(".o")
-        subprocess.run(["cc", f"-I{out / 'src'}", "-std=c17", "-O2", *cflags, "-c", str(f),
-                        "-o", str(obj)], check=True)
+        subprocess.run([*cokbox.BELOW_BOXES, "cc", f"-I{out / 'src'}", "-std=c17", "-O2",
+                        *cflags, "-c", str(f), "-o", str(obj)], check=True)
         return str(obj)
 
     with concurrent.futures.ThreadPoolExecutor(os.cpu_count() or 4) as pool:

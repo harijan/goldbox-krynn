@@ -1116,6 +1116,15 @@ def _cleanup(*_):
         box.close()
 
 
+# The port's runs and builds that a check makes (and waits for) run niced
+# below the boxes, whose games run in real time beside them, so that a burst
+# of them (frames_at's four eclplays, a patched build's compiles, in each of
+# the checks side by side) does not make a box late: a box starved of the
+# CPU misses screens and waits (on a loaded host a check then differed, a
+# different one each run). A command's prefix.
+BELOW_BOXES = ["nice", "-n", "10"]
+
+
 def _record_pids(*procs):
     """Append the processes' pids to COKBOX_PIDFILE (run_all's), so that a
     check killed for its time can have them killed too (they run in their
@@ -1158,7 +1167,7 @@ def eclplay(keys, out, assets=None, machine="tandy", saves=(), args=(), shots=Tr
     cfg = out / "krynn.cfg"
     cfg.write_bytes(krynn_cfg(MACHINES[machine][1]).encode())
     result = subprocess.run(
-        [str(binary or ECLPLAY), *(["--start-menu"] if start_menu else []),
+        [*BELOW_BOXES, str(binary or ECLPLAY), *(["--start-menu"] if start_menu else []),
          "--config", str(cfg), "--saves",
          str(save_dir), *(["--shots", str(shot_dir)] if shots else []), *map(str, args),
          "--keys", keys, str(assets), *([str(block)] if block is not None else [])],

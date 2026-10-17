@@ -246,7 +246,7 @@ def port(keys, out, args, saves=(), shots=False, block=None, machine="tandy", bi
     cfg.write_bytes(cokbox.krynn_cfg(cokbox.MACHINES[machine][1]).encode())
     exe = binary or cokbox.ECLPLAY
     result = subprocess.run(
-        [str(exe), "--config", str(cfg), "--saves", str(save_dir),
+        [*cokbox.BELOW_BOXES, str(exe), "--config", str(cfg), "--saves", str(save_dir),
          *(["--shots", str(shot_dir)] if shots else []), *map(str, args), "--keys", keys,
          str(ROOT / "COKAssets"), *([str(block)] if block is not None else [])],
         check=False, capture_output=True, text=True, timeout=600)
