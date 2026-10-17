@@ -7341,7 +7341,14 @@ run at once, a range such as 110-189 kept for `COKBOX_DISPLAYS`). Then:
   lies outside that block: `find_text` finds the 80-column text screen by
   a string on it, `text_rows` reads it (a CGA's or Tandy's character and
   attribute in turn; DOSBox-X keeps an `svga_s3`'s spread over 8 bytes a
-  cell, which it finds too).
+  cell, which it finds too). `write_paused` writes with the emulation
+  paused (F12+Pause until the title says `PAUSED`, so between two
+  instructions): code the game is running changes safely only so.
+  `d_lib.trap` makes a routine spin (`EB FE` over its first two bytes) and
+  `untrap` gives them back that way: written while the game spun there,
+  the CPU could fetch the spin's `EB` with the routine's second byte, a
+  jump into another routine, which now and then ended `d_patrol`'s and
+  `d_gate`'s battles at once.
 - Waiting for a key: `HOOK.COM` (`tools/dosbox/hook.asm`, assembled into
   `cokbox.py`), a TSR, hooks INT 16h and counts in a block the host finds
   by its signature the reads (functions 0 and 0x10, with a flag while one

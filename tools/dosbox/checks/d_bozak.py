@@ -71,7 +71,10 @@ def main():
     for name, text in panel[i + 1:] if i is not None else ():
         if not text.startswith("TAKES"):
             break
-        said.append((name, text.split()[1]))
+        # The same name and damage again: a screenshot caught the panel
+        # while it was being redrawn (once seen as SIRRION's 5 twice).
+        if not said or said[-1] != (name, text.split()[1]):
+            said.append((name, text.split()[1]))
     print("original's panel after \"EXPLODES.\":", said)
     # The party's defeat: "The monsters rejoice for the party has been
     # destroyed" (351b:1aab) in the text window, row 5 on.
