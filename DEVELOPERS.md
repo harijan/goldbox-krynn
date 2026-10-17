@@ -7466,9 +7466,13 @@ for anything else. On a script's timeout, or when run_all itself gets
 SIGTERM, SIGINT or SIGHUP, it kills the running scripts' process groups
 and the Xvfb and DOSBox-X they started (their pids recorded in
 `COKBOX_PIDFILE`). `run_all.py --self-test` (in `make dosbox-selftest`)
-checks its reading of verdicts and statuses without DOSBox-X. A full run of the 82 scripts takes about 32 minutes on
-a 16-core host with little else running: about 10 for the rest side by
-side, then 22 for the eight alone (`d_bozak.py` 12 of them). With main's
+checks its reading of verdicts and statuses without DOSBox-X. A full run of the 82 scripts takes about 31 minutes on
+a 16-core host with little else running: about 8 for the rest side by
+side (10 at a time; 13 at 6), then 23 for the eight alone (`d_bozak.py`
+12 of them). The eight alone also starve on the disk: DOSBox-X writes
+each screenshot into the box's folder under `build/`, and another
+program's heavy writing there (a big `rm -rf` on the same overlay) made
+`d_turning` miss its text and `d_bolt` take eight times as long. With main's
 fixes (the continue prompt's full stop, two-set wall records, a resumed
 game's first block) the last full run gave every recorded verdict: 80
 agree, and two showed a port difference since fixed (#70's Heal list,
