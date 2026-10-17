@@ -1,5 +1,6 @@
 #include "config.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -175,10 +176,14 @@ static bool exists(const char *path)
     return stat(path, &st) == 0 && S_ISREG(st.st_mode);
 }
 
-/* DIR/KRYNN.CFG or DIR/krynn.cfg, whichever exists, into path. */
-static bool find_in(const char *dir, char *path, size_t size)
+/* DIR/KRYNN.CFG or DIR/krynn.cfg (the rules' name, then in lower case),
+ * whichever exists, into path. */
+static bool find_in(const cok_rules *rules, const char *dir, char *path, size_t size)
 {
-    static const char *const names[] = {"KRYNN.CFG", "krynn.cfg"};
+    char lower[64];
+    snprintf(lower, sizeof lower, "%s", rules->files.config);
+    for (char *c = lower; *c != '\0'; ++c) *c = (char)tolower((unsigned char)*c);
+    const char *const names[] = {rules->files.config, lower};
     for (size_t i = 0; i < 2; ++i) {
         snprintf(path, size, "%s/%s", dir, names[i]);
         if (exists(path)) return true;
@@ -194,8 +199,8 @@ static bool same_dir(const char *a, const char *b)
            sa.st_ino == sb.st_ino;
 }
 
-bool cok_config_find(const char *option, const char *saves, const char *assets, char *path,
-                     char *write_path, size_t size)
+bool cok_config_find(const cok_rules *rules, const char *option, const char *saves,
+                     const char *assets, char *path, char *write_path, size_t size)
 {
     if (option != NULL) {
         snprintf(path, size, "%s", option);
@@ -204,15 +209,15 @@ bool cok_config_find(const char *option, const char *saves, const char *assets, 
     }
     /* Never into the assets directory, --saves naming it too. */
     bool writable = saves != NULL && (assets == NULL || !same_dir(saves, assets));
-    if (saves != NULL && find_in(saves, path, size)) {
+    if (saves != NULL && find_in(rules, saves, path, size)) {
         snprintf(write_path, size, "%s", writable ? path : "");
         return true;
     }
     if (writable)
-        snprintf(write_path, size, "%s/KRYNN.CFG", saves);
+        snprintf(write_path, size, "%s/%s", saves, rules->files.config);
     else
         write_path[0] = '\0';
-    if (assets != NULL && find_in(assets, path, size)) return true;
+    if (assets != NULL && find_in(rules, assets, path, size)) return true;
     snprintf(path, size, "%s", write_path);
     return false;
 }
@@ -255,10 +260,10 @@ bool cok_config_rewrite(const char *from, const char *to, char input, const uint
     return fclose(f) == 0 && !failed;
 }
 
-bool cok_config_read(const char *assets, cok_config *config)
+bool cok_config_read(const cok_rules *rules, const char *assets, cok_config *config)
 {
     char path[1100];
-    return find_in(assets, path, sizeof path) && cok_config_read_file(path, config);
+    return find_in(rules, assets, path, sizeof path) && cok_config_read_file(path, config);
 }
 
 bool cok_config_display_option(const char *name, cok_display *out)
@@ -281,14 +286,14 @@ bool cok_config_sound_option(const char *name, cok_sound_device *out)
     return true;
 }
 
-void cok_config_missing(const char *what, const char *option, const char *saves,
-                        const char *assets)
+void cok_config_missing(const cok_rules *rules, const char *what, const char *option,
+                        const char *saves, const char *assets)
 {
     if (option != NULL)
         fprintf(stderr, "%s: no %s", what, option);
     else if (saves != NULL)
-        fprintf(stderr, "%s: no KRYNN.CFG in %s or %s", what, saves, assets);
+        fprintf(stderr, "%s: no %s in %s or %s", what, rules->files.config, saves, assets);
     else
-        fprintf(stderr, "%s: no KRYNN.CFG in %s", what, assets);
+        fprintf(stderr, "%s: no %s in %s", what, rules->files.config, assets);
     fputs(", where the original would ask for the devices: the Tandy\n", stderr);
 }

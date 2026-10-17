@@ -678,10 +678,10 @@ static bool load_icon(cok_adventure *game, const char *name, size_t length, uint
                (length == 4 && memcmp(name, "ICON", 4) == 0)) {
         snprintf(path, sizeof path, "%.*s", (int)length, name);
     } else {
-        /* Str into a string of 1: the first digit of the file's number. */
-        char digit[8];
-        snprintf(digit, sizeof digit, "%u", file);
-        snprintf(path, sizeof path, "%.*s%c", (int)(length < 16 ? length : 16), name, digit[0]);
+        /* Str into a string of 1: the first digit of the file's number
+         * (the rules' file_digit). */
+        snprintf(path, sizeof path, "%.*s%c", (int)(length < 16 ? length : 16), name,
+                 game->rules->file_digit(file));
         cpic = true;
     }
     for (unsigned image = 0; image < 2; ++image) {
@@ -782,7 +782,9 @@ bool cok_arena_join(cok_adventure *game, uint8_t file)
         cok_character *c = game->party.members[i];
         const uint8_t *r = c->record;
         bool ok = r[0xe7] < 0x80 ? cok_arena_party_icon(game, c, true)
-                                 : load_icon(game, "CPIC", 4, r[0x115], r[0x137], file);
+                                 : load_icon(game, game->rules->archives.icons,
+                                             strlen(game->rules->archives.icons), r[0x115],
+                                             r[0x137], file);
         if (!ok) return false;
     }
     return true;

@@ -1697,7 +1697,7 @@ int main(void)
 {
     cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .key_pending = key_pending, .context = &s};
-    if (!cok_adventure_open(&game, "COKAssets", &keys, &hooks)) {
+    if (!cok_adventure_open(&game, &cok_rules_champions, "COKAssets", &keys, &hooks)) {
         puts("ai: COKAssets not found; tests skipped");
         return 0;
     }

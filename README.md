@@ -140,6 +140,7 @@ also go back the other way.
 | `--input mouse`, `joystick` or `none` | mouse, joystick or keyboard only for this run |
 | `--saves DIR` | keep the roster and saved games in DIR instead of `saves/` |
 | `--assets DIR` | find the game's files in DIR instead of `COKAssets/` |
+| `--game champions` | the game to play; Champions of Krynn, the default, is the only one so far |
 | `--screenshots DIR` | where F12 saves screenshots |
 
 ## Troubleshooting

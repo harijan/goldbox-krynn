@@ -1,6 +1,7 @@
 #include "image.h"
 
 #include <limits.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -100,24 +101,25 @@ cok_image_status cok_images_undelta(uint8_t *data, size_t size)
     return status;
 }
 
+/* Whether name is one of the stems listed, with .DAX, in any case. */
+static bool listed(const char *name, const char *const *stems)
+{
+    for (; *stems != NULL; ++stems) {
+        size_t n = strlen(*stems);
+        if (strncasecmp(name, *stems, n) == 0 && strcasecmp(name + n, ".DAX") == 0) return true;
+    }
+    return false;
+}
+
 /* Restrict format selection to known graphics archives rather than guessing
  * from arbitrary game data. */
-cok_layout cok_archive_layout(const char *path)
+cok_layout cok_archive_layout(const cok_rules *rules, const char *path)
 {
     const char *name = strrchr(path, '/');
     name = name == NULL ? path : name + 1;
-    const char *deltas[] = {"PIC1.DAX", "PIC2.DAX", "PIC3.DAX"};
-    for (size_t i = 0; i < sizeof deltas / sizeof *deltas; ++i)
-        if (strcasecmp(name, deltas[i]) == 0) return COK_LAYOUT_DELTA;
-    const char *collections[] = {"SPRIT1.DAX", "SPRIT2.DAX", "SPRIT3.DAX"};
-    for (size_t i = 0; i < sizeof collections / sizeof *collections; ++i)
-        if (strcasecmp(name, collections[i]) == 0) return COK_LAYOUT_COLLECTION;
-    const char *singles[] = {"TITLE.DAX", "BIGPIC1.DAX", "BIGPIC2.DAX", "BIGPIC3.DAX",
-        "CPIC1.DAX", "CPIC2.DAX", "CPIC3.DAX", "CBODY.DAX", "CHEAD.DAX",
-        "BODY2.DAX", "BODY3.DAX", "HEAD2.DAX", "HEAD3.DAX", "COMSPR.DAX",
-        "CURSOR.DAX", "SKY.DAX", "TILES.DAX", "8X8D1.DAX", "8X8D2.DAX", "8X8D3.DAX"};
-    for (size_t i = 0; i < sizeof singles / sizeof *singles; ++i)
-        if (strcasecmp(name, singles[i]) == 0) return COK_LAYOUT_SINGLE;
+    if (listed(name, rules->images.delta)) return COK_LAYOUT_DELTA;
+    if (listed(name, rules->images.collection)) return COK_LAYOUT_COLLECTION;
+    if (listed(name, rules->images.single)) return COK_LAYOUT_SINGLE;
     return COK_LAYOUT_UNSUPPORTED;
 }
 

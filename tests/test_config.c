@@ -79,23 +79,23 @@ static void test_sound(void)
 static void test_files(void)
 {
     cok_config config = {.display = COK_DISPLAY_TANDY, .sound = COK_SOUND_NONE};
-    CHECK(cok_config_read("COKAssets", &config));
+    CHECK(cok_config_read(&cok_rules_champions, "COKAssets", &config));
     CHECK(config.display == COK_DISPLAY_EGA && config.sound == COK_SOUND_TANDY);
     char dir[] = "/tmp/cok-config-XXXXXX";
     CHECK(mkdtemp(dir) != NULL);
     char path[100];
     config = (cok_config){.display = COK_DISPLAY_TANDY, .sound = COK_SOUND_CMS};
-    CHECK(!cok_config_read(dir, &config)); /* none: unchanged */
+    CHECK(!cok_config_read(&cok_rules_champions, dir, &config)); /* none: unchanged */
     CHECK(config.display == COK_DISPLAY_TANDY && config.sound == COK_SOUND_CMS);
     snprintf(path, sizeof path, "%s/krynn.cfg", dir);
     write_file(path, "C\r\nP\r\nN\r\n");
-    CHECK(cok_config_read(dir, &config));
+    CHECK(cok_config_read(&cok_rules_champions, dir, &config));
     CHECK(config.display == COK_DISPLAY_CGA && config.sound == COK_SOUND_SPEAKER);
     unlink(path);
     snprintf(path, sizeof path, "%s/KRYNN.CFG", dir);
     CHECK(mkdir(path, 0755) == 0); /* not a file: unreadable */
     config = (cok_config){.display = COK_DISPLAY_TANDY, .sound = COK_SOUND_CMS};
-    CHECK(!cok_config_read(dir, &config));
+    CHECK(!cok_config_read(&cok_rules_champions, dir, &config));
     CHECK(config.display == COK_DISPLAY_TANDY && config.sound == COK_SOUND_CMS);
     rmdir(path);
     rmdir(dir);

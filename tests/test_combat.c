@@ -954,7 +954,7 @@ int main(void)
     cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .unported = unported, .key_pending = pending,
                                  .battlefield = battlefield, .flush = flushed, .context = &s};
-    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, &cok_rules_champions, "COKAssets", &keys, &hooks));
     test_tables();
     test_footprints();
     test_wilderness();

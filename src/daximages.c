@@ -1,5 +1,6 @@
 #include "dax.h"
 #include "image.h"
+#include "rules.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -9,9 +10,11 @@
 
 static void usage(const char *program)
 {
-    fprintf(stderr, "Usage: %s [--entry N [--frame N]] ARCHIVE OUTDIR\n"
+    fprintf(stderr, "Usage: %s [--game NAME] [--entry N [--frame N]] ARCHIVE OUTDIR\n"
                     "Exports BMP images and an index.html contact sheet.\n"
-                    "Default: all entries and frames. Numbers are zero-based.\n", program);
+                    "Default: all entries and frames. Numbers are zero-based.\n"
+                    "--game names the game whose archives these are (default champions).\n",
+            program);
 }
 
 static int number(const char *s, size_t *value)
@@ -53,9 +56,17 @@ int main(int argc, char **argv)
 {
     size_t entry_index = 0, frame_index = 0;
     int selected_entry = 0, selected_frame = 0;
+    const cok_rules *rules = &cok_rules_champions;
     int arg = 1;
     while (arg < argc && argv[arg][0] == '-') {
-        if (strcmp(argv[arg], "--entry") == 0 && !selected_entry && arg + 1 < argc) {
+        if (strcmp(argv[arg], "--game") == 0 && arg + 1 < argc) {
+            rules = cok_rules_find(argv[++arg]);
+            if (rules == NULL) {
+                fprintf(stderr, "%s: unknown game %s (games: %s)\n", argv[0], argv[arg],
+                        cok_rules_names());
+                return 1;
+            }
+        } else if (strcmp(argv[arg], "--entry") == 0 && !selected_entry && arg + 1 < argc) {
             selected_entry = 1;
             if (!number(argv[++arg], &entry_index)) { usage(argv[0]); return 1; }
         } else if (strcmp(argv[arg], "--frame") == 0 && !selected_frame && arg + 1 < argc) {
@@ -68,7 +79,7 @@ int main(int argc, char **argv)
     }
     if (argc - arg != 2 || (selected_frame && !selected_entry)) { usage(argv[0]); return 1; }
     const char *input = argv[arg], *output = argv[arg + 1];
-    cok_layout layout = cok_archive_layout(input);
+    cok_layout layout = cok_archive_layout(rules, input);
     if (layout == COK_LAYOUT_UNSUPPORTED) {
         fprintf(stderr, "%s: unsupported graphics archive type\n", input);
         return 1;

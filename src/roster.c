@@ -46,17 +46,19 @@ static int by_base(const void *a, const void *b)
     return strcmp(((const cok_roster_entry *)a)->base, ((const cok_roster_entry *)b)->base);
 }
 
-static bool is_who(const char *file, size_t *base_length)
+/* Whether file is a roster character's, base.WHO in any case (the rules'
+ * saves.roster, upper case). */
+static bool is_who(const char *file, const char *who, size_t *base_length)
 {
-    size_t length = strlen(file);
-    if (length < 5 || file[length - 4] != '.') return false;
-    const char *ext = file + length - 3;
-    for (size_t i = 0; i < 3; ++i) {
+    size_t length = strlen(file), n = strlen(who);
+    if (length < n + 2 || file[length - n - 1] != '.') return false;
+    const char *ext = file + length - n;
+    for (size_t i = 0; i < n; ++i) {
         char c = ext[i];
         if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
-        if (c != "WHO"[i]) return false;
+        if (c != who[i]) return false;
     }
-    *base_length = length - 4;
+    *base_length = length - n - 1;
     return true;
 }
 
@@ -69,7 +71,9 @@ size_t cok_roster_list(cok_adventure *game, cok_roster_entry *entries, size_t ma
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL && count < max) {
         size_t base_length;
-        if (!is_who(entry->d_name, &base_length) || base_length >= sizeof entries->base) continue;
+        if (!is_who(entry->d_name, game->rules->saves.roster, &base_length) ||
+            base_length >= sizeof entries->base)
+            continue;
         char path[sizeof game->save_dir + 300];
         snprintf(path, sizeof path, "%s/%s", game->save_dir, entry->d_name);
         FILE *f = fopen(path, "rb");
@@ -107,7 +111,8 @@ void cok_roster_erase(cok_adventure *game, const uint8_t *record)
     char name[16], base[9], path[sizeof game->save_dir + 32];
     name_of(record, name);
     cok_party_file_name(name, base);
-    static const char *const extensions[3] = {"WHO", "STF", "SFX"};
+    const cok_rules_saves *s = &game->rules->saves;
+    const char *const extensions[3] = {s->roster, s->items, s->effects};
     for (size_t i = 0; i < 3; ++i) {
         snprintf(path, sizeof path, "%s/%s.%s", game->save_dir, base, extensions[i]);
         remove(path); /* 169c:0154: only if it is there */
@@ -127,7 +132,7 @@ bool cok_roster_save(cok_adventure *game, cok_character *character)
     cok_party_roster_name(name, file);
     snprintf(base, sizeof base, "%s", file);
     for (;;) {
-        snprintf(path, sizeof path, "%s/%s.WHO", game->save_dir, base);
+        snprintf(path, sizeof path, "%s/%s.%s", game->save_dir, base, game->rules->saves.roster);
         if (!exists(path)) break;
         char prompt[64];
         snprintf(prompt, sizeof prompt, "Overwrite %s? ", base);
@@ -155,12 +160,13 @@ bool cok_roster_save(cok_adventure *game, cok_character *character)
         cok_adventure_log(game, "error", error);
         return false;
     }
-    if (!cok_character_write_file(character, game->save_dir, base, "WHO", error, sizeof error)) {
+    if (!cok_character_write_file(character, game->rules, game->save_dir, base,
+                                  game->rules->saves.roster, error, sizeof error)) {
         cok_adventure_log(game, "error", error);
         return false;
     }
     char text[64];
-    snprintf(text, sizeof text, "%s.WHO", base);
+    snprintf(text, sizeof text, "%s.%s", base, game->rules->saves.roster);
     cok_adventure_log(game, "roster", text);
     return true;
 }
@@ -273,7 +279,8 @@ void cok_roster_add(cok_adventure *game)
             undefined(game, "out of memory");
             return;
         }
-        if (!cok_character_read_file(c, game->save_dir, entries[index].base, "WHO",
+        if (!cok_character_read_file(c, game->rules, game->save_dir, entries[index].base,
+                                     game->rules->saves.roster,
                                      &game->item_types, game->error, sizeof game->error)) {
             cok_character_free(c);
             free(c);
@@ -361,9 +368,11 @@ void cok_roster_add(cok_adventure *game)
 bool cok_roster_load(cok_adventure *game)
 {
     if (game->save_dir[0] == '\0') return false;
+    const cok_rules_saves *s = &game->rules->saves;
     char items[24] = "", path[sizeof game->save_dir + 32];
     for (char letter = 'A'; letter <= 'J'; ++letter) {
-        snprintf(path, sizeof path, "%s/SAVGAM%c.DAT", game->save_dir, letter);
+        snprintf(path, sizeof path, "%s/%s%c.%s", game->save_dir, s->game, letter,
+                 s->game_extension);
         if (!exists(path)) continue;
         size_t length = strlen(items);
         if (length + 2 < sizeof items) snprintf(items + length, sizeof items - length, "%c ", letter);
@@ -378,7 +387,8 @@ bool cok_roster_load(cok_adventure *game)
         key = cok_camp_menu(game, "Load Which Game: ", items, false, false, &special);
         if (key <= 0) return false;
         if (key < 'A' || key > 'J') continue;
-        snprintf(path, sizeof path, "%s/SAVGAM%c.DAT", game->save_dir, key);
+        snprintf(path, sizeof path, "%s/%s%c.%s", game->save_dir, s->game, key,
+                 s->game_extension);
         if (exists(path)) break;
     }
     char letter[2] = {(char)key, '\0'};

@@ -14,7 +14,8 @@ static void append(char *out, size_t max, const char *b)
     out[n] = '\0';
 }
 
-void cok_setup_default_path(const char *game_dir, char *out, size_t size)
+void cok_setup_default_path(const cok_rules *rules, const char *game_dir, char *out,
+                            size_t size)
 {
     char base[80] = "";
     /* 11c7:0388: below C, a floppy: the other drive's root (DS:4ad0). */
@@ -22,7 +23,7 @@ void cok_setup_default_path(const char *game_dir, char *out, size_t size)
         append(base, 79, game_dir[0] == 'A' ? "B:\\" : "A:\\");
     else
         append(base, 67, game_dir); /* FSplit's DirStr, a string[67] */
-    append(base, 79, "SAVE"); /* DS:4a25, a string[79] */
+    append(base, 79, rules->files.save_dir); /* DS:4a25, a string[79] */
     snprintf(out, size, "%s", base);
 }
 
@@ -100,7 +101,7 @@ bool cok_setup_calibrate(cok_crt *crt, const cok_setup_hooks *hooks, cok_config 
 }
 
 bool cok_setup_ask(cok_crt *crt, const cok_keyboard *keys, const cok_setup_hooks *hooks,
-                   const char *game_dir, uint8_t *file, size_t *size)
+                   const cok_rules *rules, const char *game_dir, uint8_t *file, size_t *size)
 {
     *size = 0;
     cok_crt_clear(crt);
@@ -131,7 +132,7 @@ bool cok_setup_ask(cok_crt *crt, const cok_keyboard *keys, const cok_setup_hooks
 
     cok_crt_clear(crt);
     char fallback[80];
-    cok_setup_default_path(game_dir, fallback, sizeof fallback);
+    cok_setup_default_path(rules, game_dir, fallback, sizeof fallback);
     char prompt[256] = "PATH TO SAVE DATA (DEFAULT - ";
     append(prompt, 255, fallback);
     append(prompt, 255, "):  ");
@@ -200,8 +201,9 @@ static cok_setup_status stop(cok_crt *crt, cok_setup_status status, const char *
 }
 
 cok_setup_status cok_setup_startup(cok_crt *crt, const cok_keyboard *keys,
-                                   const cok_setup_hooks *hooks, const char *path, bool found,
-                                   cok_config *config, char *error, size_t error_size)
+                                   const cok_setup_hooks *hooks, const cok_rules *rules,
+                                   const char *path, bool found, cok_config *config, char *error,
+                                   size_t error_size)
 {
     error[0] = '\0';
     /* 177c:0000 at 11c7:0b16: whether stick 1 reads, for the file's
@@ -234,7 +236,7 @@ cok_setup_status cok_setup_startup(cok_crt *crt, const cok_keyboard *keys,
         }
         uint8_t file[COK_SETUP_FILE_MAX];
         size_t size;
-        if (!cok_setup_ask(crt, keys, hooks, COK_SETUP_GAME_DIR, file, &size)) {
+        if (!cok_setup_ask(crt, keys, hooks, rules, rules->files.install_dir, file, &size)) {
             /* The original leaves the file empty; the port leaves none. */
             if (f != NULL) {
                 fclose(f);

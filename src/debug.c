@@ -57,11 +57,14 @@ static void open_file(cok_adventure *game)
     f->used = 0;
     f->open = true;
     if (game->save_dir[0] == '\0') {
-        cok_adventure_log(game, "debug", "DEBUG.TXT opened (no saves directory: not written)");
+        char text[80];
+        snprintf(text, sizeof text, "%s opened (no saves directory: not written)",
+                 game->rules->saves.debug);
+        cok_adventure_log(game, "debug", text);
         return;
     }
     char path[sizeof game->save_dir + 16];
-    snprintf(path, sizeof path, "%s/DEBUG.TXT", game->save_dir);
+    snprintf(path, sizeof path, "%s/%s", game->save_dir, game->rules->saves.debug);
     f->file = fopen(path, "wb");
     char text[sizeof path + 40];
     snprintf(text, sizeof text, f->file != NULL ? "%s opened" : "%s cannot be made", path);

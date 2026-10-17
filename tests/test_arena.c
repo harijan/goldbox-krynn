@@ -1155,7 +1155,7 @@ int main(void)
 {
     cok_keyboard keys = {key, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .delay = delay, .context = &s};
-    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, &cok_rules_champions, "COKAssets", &keys, &hooks));
     /* Startup loads COMSPR's icons into slots 13-25 (3e99:06e0). */
     CHECK(game.icons[13][0].pixels != NULL && game.icons[24][1].pixels != NULL &&
           game.icons[25][0].pixels != NULL);

@@ -565,9 +565,9 @@ static void test_roster_rules(void)
     for (size_t i = 0; i < 5; ++i) add(member(names[i], 2, 1));
     cok_character *r = member("ROSTA", 2, 1);
     char error[300];
-    CHECK(cok_character_write_file(r, rules, "R00", "WHO", error, sizeof error));
+    CHECK(cok_character_write_file(r, &cok_rules_champions, rules, "R00", "WHO", error, sizeof error));
     cok_character *q = member("ROSTB", 2, 1);
-    CHECK(cok_character_write_file(q, rules, "R01", "WHO", error, sizeof error));
+    CHECK(cok_character_write_file(q, &cok_rules_champions, rules, "R01", "WHO", error, sizeof error));
     keys("AA");
     loading_flushes = 0;
     cok_roster_add(&game);
@@ -586,7 +586,7 @@ static void test_roster_rules(void)
     empty_party();
     for (size_t i = 0; i < 2; ++i) add(member(names[i], 2, 1));
     q->record[0xe7] = 0x80;
-    CHECK(cok_character_write_file(q, rules, "R01", "WHO", error, sizeof error));
+    CHECK(cok_character_write_file(q, &cok_rules_champions, rules, "R01", "WHO", error, sizeof error));
     keys("\x01PA\x1b");
     cok_roster_add(&game);
     CHECK(logged("party: ROSTB joins;"));
@@ -594,7 +594,7 @@ static void test_roster_rules(void)
     empty_party();
     for (size_t i = 0; i < 3; ++i) add(member(names[i], 4, 1));
     r->record[0xfd] = 1;
-    CHECK(cok_character_write_file(r, rules, "R00", "WHO", error, sizeof error));
+    CHECK(cok_character_write_file(r, &cok_rules_champions, rules, "R00", "WHO", error, sizeof error));
     keys("A\x1b");
     cok_roster_add(&game);
     CHECK(logged("print: too many rangers in party;") && game.party.count == 3);
@@ -605,7 +605,7 @@ static void test_roster_rules(void)
     e->record[0x10a] = 0xff;
     r->record[0xfd] = 0;
     r->record[0xfc] = 1;
-    CHECK(cok_character_write_file(r, rules, "R00", "WHO", error, sizeof error));
+    CHECK(cok_character_write_file(r, &cok_rules_champions, rules, "R00", "WHO", error, sizeof error));
     keys("A\x1b");
     cok_roster_add(&game);
     CHECK(logged("paladins do not join with evil scum") && game.party.count == 1);
@@ -614,25 +614,25 @@ static void test_roster_rules(void)
     /* The jewelry's low byte at 0x80 leaves a character out of the list. */
     r->record[0xfc] = 0;
     r->record[0xf7] = 0x80;
-    CHECK(cok_character_write_file(r, rules, "R00", "WHO", error, sizeof error));
+    CHECK(cok_character_write_file(r, &cok_rules_champions, rules, "R00", "WHO", error, sizeof error));
     keys("\x1b");
     cok_roster_add(&game);
     CHECK(!logged("ROSTA") && logged("ROSTB"));
     /* From an empty party, Add ends once six player characters are in. */
     empty_party();
     r->record[0xf7] = 0;
-    CHECK(cok_character_write_file(r, rules, "R00", "WHO", error, sizeof error));
+    CHECK(cok_character_write_file(r, &cok_rules_champions, rules, "R00", "WHO", error, sizeof error));
     static const char *const more[6] = {"M1", "M2", "M3", "M4", "M5", "M6"};
     for (size_t i = 0; i < 6; ++i) {
         cok_character *m = member(more[i], 2, 1);
         char base[8];
         snprintf(base, sizeof base, "R%02zu", i + 2);
-        CHECK(cok_character_write_file(m, rules, base, "WHO", error, sizeof error));
+        CHECK(cok_character_write_file(m, &cok_rules_champions, rules, base, "WHO", error, sizeof error));
         cok_character_free(m);
         free(m);
     }
     q->record[0xe7] = 0;
-    CHECK(cok_character_write_file(q, rules, "R01", "WHO", error, sizeof error));
+    CHECK(cok_character_write_file(q, &cok_rules_champions, rules, "R01", "WHO", error, sizeof error));
     keys("A\x01PA\x01PA\x01PA\x01PA\x01PA\x01PA\x01PA");
     cok_roster_add(&game);
     CHECK(game.party.count == 6 && s.at == 16);
@@ -645,8 +645,8 @@ static void test_roster_rules(void)
     CHECK(mkdir(twins, 0755) == 0);
     snprintf(game.save_dir, sizeof game.save_dir, "%s", twins);
     cok_character *d = member("TWIN", 2, 1);
-    CHECK(cok_character_write_file(d, twins, "T1", "WHO", error, sizeof error));
-    CHECK(cok_character_write_file(d, twins, "T2", "WHO", error, sizeof error));
+    CHECK(cok_character_write_file(d, &cok_rules_champions, twins, "T1", "WHO", error, sizeof error));
+    CHECK(cok_character_write_file(d, &cok_rules_champions, twins, "T2", "WHO", error, sizeof error));
     keys("A\x01PA\x1b");
     cok_roster_add(&game);
     CHECK(game.party.count == 2 && logged("party: TWIN joins;"));
@@ -658,7 +658,7 @@ static void test_roster_rules(void)
     add(member("ROSTA", 2, 1));
     CHECK(cok_camp_save_game(&game, 'C'));
     snprintf(path, sizeof path, "%s/ROSTA.WHO", rules);
-    CHECK(cok_character_write_file(r, rules, "ROSTA", "WHO", error, sizeof error));
+    CHECK(cok_character_write_file(r, &cok_rules_champions, rules, "ROSTA", "WHO", error, sizeof error));
     empty_party();
     keys("C");
     loading_flushes = 0;
@@ -1065,7 +1065,7 @@ static void test_create(void)
     /* The hall's word comes back as its low byte. */
     CHECK(game.vm.mem7c00[0x2a8] == 0x34);
     cok_character *c = calloc(1, sizeof *c);
-    CHECK(cok_character_read_file(c, dir, "BOB", "WHO", &game.item_types, game.error,
+    CHECK(cok_character_read_file(c, &cok_rules_champions, dir, "BOB", "WHO", &game.item_types, game.error,
                                   sizeof game.error));
     const uint8_t *r = c->record;
     static const struct { uint16_t at; uint8_t value; } expect[] = {
@@ -1093,7 +1093,7 @@ static void test_create(void)
     keys("\x01P\x01P\x01P\x01P\x01P\x01PSS\x01P\x01P\x01P\x01P\x01PSSNSIRK\r\x1bYY");
     cok_create(&game);
     c = calloc(1, sizeof *c);
-    CHECK(cok_character_read_file(c, dir, "SIRK", "WHO", &game.item_types, game.error,
+    CHECK(cok_character_read_file(c, &cok_rules_champions, dir, "SIRK", "WHO", &game.item_types, game.error,
                                   sizeof game.error));
     CHECK(c->item_count == 3 && c->items[0][0x2e] == 0x24 && c->items[1][0x2e] == 0x25 &&
           c->items[2][0x2e] == 0x12 && c->items[0][0x34] == 0);
@@ -1117,11 +1117,11 @@ static void test_roster(void)
     /* SIRK is a knight, not a paladin; make BOBBY a paladin: the evil
      * member keeps it out, with the extra pause. */
     cok_character *p = calloc(1, sizeof *p);
-    CHECK(cok_character_read_file(p, dir, "BOBBY", "WHO", &game.item_types, game.error,
+    CHECK(cok_character_read_file(p, &cok_rules_champions, dir, "BOBBY", "WHO", &game.item_types, game.error,
                                   sizeof game.error));
     p->record[0xfc] = 1;
     char error[300];
-    CHECK(cok_character_write_file(p, dir, "BOBBY", "WHO", error, sizeof error));
+    CHECK(cok_character_write_file(p, &cok_rules_champions, dir, "BOBBY", "WHO", error, sizeof error));
     cok_character_free(p);
     free(p);
     keys("A");
@@ -1402,7 +1402,7 @@ int main(void)
     cok_keyboard k = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .key_pending = pending, .delay = delay, .flush = flush,
                                  .context = &s};
-    CHECK(cok_adventure_open(&game, "COKAssets", &k, &hooks));
+    CHECK(cok_adventure_open(&game, &cok_rules_champions, "COKAssets", &k, &hooks));
     test_tables();
     test_experience();
     test_hit_points();

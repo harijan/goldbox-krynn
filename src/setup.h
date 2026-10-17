@@ -16,12 +16,6 @@
 /* The longest file the setup writes: five lines and fourteen numbers. */
 enum { COK_SETUP_FILE_MAX = 512 };
 
-/* The directory the original runs in (FExpand('*.exe') split, DS:4a80:
- * the current directory): the port has no DOS directory and takes C:\COK\,
- * where the assets' own KRYNN.CFG says the game was installed (its save
- * path C:\COK\SAVE\). */
-#define COK_SETUP_GAME_DIR "C:\\COK\\"
-
 typedef struct {
     /* Crt.Delay (1962:029c), a busy loop that reads no keys. */
     void (*delay)(unsigned ms, void *context);
@@ -37,9 +31,11 @@ typedef struct {
     bool calibrate;
 } cok_setup_hooks;
 
-/* The save path's default (11c7:0388, DS:4ad0 + 'SAVE', DS:4a25): the
- * game's directory, or on a floppy (drive A or B) the other drive's root. */
-void cok_setup_default_path(const char *game_dir, char *out, size_t size);
+/* The save path's default (11c7:0388, DS:4ad0 + 'SAVE', DS:4a25, the
+ * rules' files.save_dir): the game's directory, or on a floppy (drive A or
+ * B) the other drive's root. */
+void cok_setup_default_path(const cok_rules *rules, const char *game_dir, char *out,
+                            size_t size);
 
 /* The setup (11c7:041c-08a7): four screens, each after ClrScr: the
  * graphics adapter (1-3), the sound (1-6) and the alternate input (1-3),
@@ -55,7 +51,7 @@ void cok_setup_default_path(const char *game_dir, char *out, size_t size);
  * on the text screen through hooks->port), else zeros, as without a stick;
  * each line ended with CR LF. Returns false if input ended first. */
 bool cok_setup_ask(cok_crt *crt, const cok_keyboard *keys, const cok_setup_hooks *hooks,
-                   const char *game_dir, uint8_t *file, size_t *size);
+                   const cok_rules *rules, const char *game_dir, uint8_t *file, size_t *size);
 
 /* For a front end's --input joystick where the file gives no thresholds
  * (its third line not J): the calibration of the setup's [1] (177c:029d)
@@ -80,15 +76,17 @@ typedef enum {
 } cok_setup_status;
 
 /* Startup's text screens as 11c7:031a shows them: with found, the file at
- * path is read; without, the setup runs and its file is written at path
- * (made first, as Rewrite does, and removed again if input ends, unless
- * something was there before; with an empty path, nowhere) and read back
- * from its bytes; then the note to Tandy users. Where it fails, the
+ * path is read; without, the setup runs (in the directory the original
+ * runs in, as the port takes it: the rules' files.install_dir) and its
+ * file is written at path (made first, as Rewrite does, and removed again
+ * if input ends, unless something was there before; with an empty path,
+ * nowhere) and read back from its bytes; then the note to Tandy users. Where it fails, the
  * screen ends with the port's own line, "The port stops here: " and
  * error: under the original's message for a file it cannot make. The
  * rows written are logged (crt->log). */
 cok_setup_status cok_setup_startup(cok_crt *crt, const cok_keyboard *keys,
-                                   const cok_setup_hooks *hooks, const char *path, bool found,
-                                   cok_config *config, char *error, size_t error_size);
+                                   const cok_setup_hooks *hooks, const cok_rules *rules,
+                                   const char *path, bool found, cok_config *config, char *error,
+                                   size_t error_size);
 
 #endif

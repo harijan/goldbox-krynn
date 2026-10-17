@@ -226,7 +226,7 @@ static void stick_case(const char *line, char *out, size_t size)
 static void against_the_original(void)
 {
     char out[256];
-    CHECK(cok_adventure_open(&game, "COKAssets", NULL, NULL));
+    CHECK(cok_adventure_open(&game, &cok_rules_champions, "COKAssets", NULL, NULL));
     for (size_t i = 0; i < sizeof menu_cases / sizeof *menu_cases; ++i) {
         menu_case(menu_cases[i].in, out, sizeof out);
         if (strcmp(out, menu_cases[i].out) != 0) {
@@ -373,7 +373,7 @@ static void keys(void)
 {
     cok_keyboard k = {read_device, NULL, NULL, NULL};
     cok_adventure_hooks hooks = {.key_pending = no_key};
-    CHECK(cok_adventure_open(&game, "COKAssets", &k, &hooks));
+    CHECK(cok_adventure_open(&game, &cok_rules_champions, "COKAssets", &k, &hooks));
     game.mouse.driver.installed = true;
     uint16_t zero[7] = {0};
     cok_adventure_devices(&game, true, false, zero, zero);
@@ -509,7 +509,7 @@ static void open_with_steps(const input_step *s, size_t n)
 {
     static cok_keyboard k = {read_steps, NULL, NULL, NULL};
     cok_adventure_hooks hooks = {.key_pending = typed_pending, .device_wait = wait_devices};
-    CHECK(cok_adventure_open(&game, "COKAssets", &k, &hooks));
+    CHECK(cok_adventure_open(&game, &cok_rules_champions, "COKAssets", &k, &hooks));
     game.mouse.driver.installed = true;
     uint16_t zero[7] = {0};
     cok_adventure_devices(&game, true, false, zero, zero);
@@ -669,7 +669,7 @@ static int read_typed(void *context)
 static void hiding(void)
 {
     cok_keyboard k = {read_typed, NULL, NULL, NULL};
-    CHECK(cok_adventure_open(&game, "COKAssets", &k, NULL));
+    CHECK(cok_adventure_open(&game, &cok_rules_champions, "COKAssets", &k, NULL));
     game.mouse.driver.installed = true;
     game.mouse.on = true;
     game.mouse.driver.counter = 0;
@@ -738,7 +738,7 @@ static int read_clicks(void *context)
 static void list_clicks(void)
 {
     cok_keyboard k = {read_clicks, NULL, NULL, NULL};
-    CHECK(cok_adventure_open(&game, "COKAssets", &k, NULL));
+    CHECK(cok_adventure_open(&game, &cok_rules_champions, "COKAssets", &k, NULL));
     const char *items[4] = {"Alpha", "Beta", "Gamma", "Delta"};
     int index = 0, top = 0;
     uint8_t selected = 1;
@@ -839,7 +839,7 @@ static void setup_calibration(void)
     uint8_t file[COK_SETUP_FILE_MAX];
     size_t size = 0;
     setup_at = 0;
-    CHECK(cok_setup_ask(&crt, &keys, &hooks, COK_SETUP_GAME_DIR, file, &size));
+    CHECK(cok_setup_ask(&crt, &keys, &hooks, &cok_rules_champions, cok_rules_champions.files.install_dir, file, &size));
     file[size] = '\0';
     /* Centre 100 across (100.5 truncated) and 98 down; the least of the
      * upper left, the most of the lower right; the thirds between. */
@@ -876,7 +876,7 @@ static void setup_calibration(void)
     *s = (scripted_port){.rest = {0, 0, 0, 0}};
     setup_at = 0;
     cok_crt_init(&crt);
-    CHECK(cok_setup_ask(&crt, &keys, &hooks, COK_SETUP_GAME_DIR, file, &size));
+    CHECK(cok_setup_ask(&crt, &keys, &hooks, &cok_rules_champions, cok_rules_champions.files.install_dir, file, &size));
     file[size] = '\0';
     CHECK(strstr((const char *)file, "F\r\n0\r\n0\r\n0\r\n") != NULL);
 }

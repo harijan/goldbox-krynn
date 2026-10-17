@@ -26,12 +26,10 @@ static void name_of(const uint8_t *c, char out[16])
 }
 
 /* The file's number as Str(DS:5782) with a width of 1 makes it: its first
- * digit. */
+ * digit (the rules' file_digit). */
 static char file_digit(const cok_adventure *game)
 {
-    char text[8];
-    snprintf(text, sizeof text, "%u", game->vm.file);
-    return text[0];
+    return game->rules->file_digit(game->vm.file);
 }
 
 void cok_pool_free(cok_pool *pool)
@@ -55,11 +53,13 @@ static bool monster_part(cok_adventure *game, const char *kind, uint8_t id, uint
                          size_t *size)
 {
     char name[16];
-    snprintf(name, sizeof name, "MON%c%s", file_digit(game), kind);
+    snprintf(name, sizeof name, "%s%c%s", game->rules->archives.monster, file_digit(game),
+             kind);
     bool no_file;
     *size = 0;
     *data = cok_adventure_find_record(game, name, id, size, &no_file);
-    if (*data != NULL || !no_file || strcmp(kind, "CHA") != 0) return true;
+    if (*data != NULL || !no_file || strcmp(kind, game->rules->archives.monster_record) != 0)
+        return true;
     cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
     return false;
 }
@@ -67,9 +67,10 @@ static bool monster_part(cok_adventure *game, const char *kind, uint8_t id, uint
 bool cok_monster_read(cok_adventure *game, uint8_t id, cok_character *m)
 {
     memset(m, 0, sizeof *m);
+    const cok_rules_archives *a = &game->rules->archives;
     uint8_t *data;
     size_t size;
-    if (!monster_part(game, "CHA", id, &data, &size)) return false;
+    if (!monster_part(game, a->monster_record, id, &data, &size)) return false;
     if (size == 0) {
         free(data);
         log_text(game, "print", "Unable to load monster");
@@ -81,8 +82,8 @@ bool cok_monster_read(cok_adventure *game, uint8_t id, cok_character *m)
     if (size < COK_CHARACTER_SIZE) {
         free(data);
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
-                           "MON%cCHA record %u has %zu bytes; 4b6d:161b copies 409, past it",
-                           file_digit(game), id, size);
+                           "%s%c%s record %u has %zu bytes; 4b6d:161b copies 409, past it",
+                           a->monster, file_digit(game), a->monster_record, id, size);
         return false;
     }
     memcpy(m->record, data, COK_CHARACTER_SIZE);
@@ -90,12 +91,12 @@ bool cok_monster_read(cok_adventure *game, uint8_t id, cok_character *m)
     static const unsigned pointers[] = {0x143, 0xe3, 0x17f, 0x183};
     for (size_t i = 0; i < sizeof pointers / sizeof *pointers; ++i)
         memset(m->record + pointers[i], 0, 4);
-    if (!monster_part(game, "SPC", id, &data, &size)) return false;
+    if (!monster_part(game, a->monster_effects, id, &data, &size)) return false;
     if (size % COK_EFFECT_SIZE != 0) {
         free(data);
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
-                           "MON%cSPC record %u is not whole effects; 4b6d:161b reads past it",
-                           file_digit(game), id);
+                           "%s%c%s record %u is not whole effects; 4b6d:161b reads past it",
+                           a->monster, file_digit(game), a->monster_effects, id);
         return false;
     }
     bool ok = true;
@@ -105,12 +106,12 @@ bool cok_monster_read(cok_adventure *game, uint8_t id, cok_character *m)
              NULL;
     }
     free(data);
-    if (ok && !monster_part(game, "ITM", id, &data, &size)) return false;
+    if (ok && !monster_part(game, a->monster_items, id, &data, &size)) return false;
     if (ok && size % COK_ITEM_SIZE != 0) {
         free(data);
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
-                           "MON%cITM record %u is not whole items; 4b6d:161b reads past it",
-                           file_digit(game), id);
+                           "%s%c%s record %u is not whole items; 4b6d:161b reads past it",
+                           a->monster, file_digit(game), a->monster_items, id);
         return false;
     }
     if (ok && size > 0) {
@@ -160,7 +161,7 @@ static cok_character *copy_monster(const cok_character *first)
  * arena.h). */
 static bool load_icons(cok_adventure *game, uint8_t id, uint8_t slot)
 {
-    return cok_arena_load_icon(game, "CPIC", id, slot);
+    return cok_arena_load_icon(game, game->rules->archives.icons, id, slot);
 }
 
 /* LOAD MONSTER (2fd3:0465): unless 63 records were loaded since

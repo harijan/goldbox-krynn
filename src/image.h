@@ -1,6 +1,8 @@
 #ifndef COK_IMAGE_H
 #define COK_IMAGE_H
 
+#include "rules.h"
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -36,8 +38,9 @@ typedef enum {
     COK_LAYOUT_DELTA /* A collection whose later groups are XOR deltas. */
 } cok_layout;
 
-/* Select a layout from a known graphics archive name, ignoring directories. */
-cok_layout cok_archive_layout(const char *path);
+/* Select a layout from a known graphics archive name, ignoring directories:
+ * the archives rules lists (images), with .DAX, in any case. */
+cok_layout cok_archive_layout(const cok_rules *rules, const char *path);
 
 /* Initialize result to {0}; free before reuse. collection=1 selects the
  * PIC/SPRIT layout (count byte, then four metadata bytes per image group).

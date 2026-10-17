@@ -68,7 +68,7 @@ static void open_game(void)
     cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .key_pending = pending, .delay = delayed,
                                  .context = &s};
-    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, &cok_rules_champions, "COKAssets", &keys, &hooks));
     game.vm.mode = 4;
     game.vm.mem4b00[0xe6] = 1;
 }
@@ -818,7 +818,7 @@ static void test_round_trip(void)
     CHECK(mkdtemp(dir) != NULL);
     for (char letter = 'A'; letter <= 'B'; ++letter) {
         static cok_adventure copy;
-        CHECK(cok_adventure_open(&copy, "COKAssets", NULL, NULL));
+        CHECK(cok_adventure_open(&copy, &cok_rules_champions, "COKAssets", NULL, NULL));
         char path[600];
         snprintf(path, sizeof path, "SAVE/SAVGAM%c.DAT", letter);
         if (access(path, F_OK) != 0) {
