@@ -2,6 +2,10 @@ CC = cc
 PYTHON = python3
 CPPFLAGS = -Isrc
 CFLAGS = -std=c17 -O2 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
+# make sanitize's builds: AddressSanitizer and UBSan; build/cok_tsan's:
+# ThreadSanitizer.
+ASAN_FLAGS = -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
+TSAN_FLAGS = -g -fsanitize=thread
 
 .PHONY: all test sanitize merged death-merged dqk-merged
 all: build/daxcheck build/daximages build/daxcompose build/ecldump build/eclplay
@@ -9,8 +13,36 @@ all: build/daxcheck build/daximages build/daxcompose build/ecldump build/eclplay
 build:
 	mkdir -p build
 
-build/daxcheck: src/daxcheck.c src/dax.c src/dax.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) src/daxcheck.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
+# Each source is compiled once for each set of flags, and the programs are
+# linked from the objects: build/obj/ (CFLAGS), build/obj-asan/ (with
+# ASAN_FLAGS: make sanitize's builds), build/obj-tsan/ (with TSAN_FLAGS:
+# build/cok_tsan's); SDL2's flags only for SDL_SRC, which include SDL.h.
+# Each object's headers are in its .d file (-MMD -MP), which make reads, so
+# that a header's change rebuilds the objects that include it.
+SDL_SRC = src/cok.c src/keymap.c tests/test_keymap.c
+obj = $(patsubst %.c,build/obj/%.o,$(1))
+asan = $(patsubst %.c,build/obj-asan/%.o,$(1))
+tsan = $(patsubst %.c,build/obj-tsan/%.o,$(1))
+COMPILE = $(CC) $(CPPFLAGS) $(if $(filter $<,$(SDL_SRC)),$(SDL_CFLAGS)) $(CFLAGS)
+
+build/obj/%.o: %.c
+	@mkdir -p $(@D)
+	$(COMPILE) -MMD -MP -c $< -o $@
+
+build/obj-asan/%.o: %.c
+	@mkdir -p $(@D)
+	$(COMPILE) $(ASAN_FLAGS) -MMD -MP -c $< -o $@
+
+build/obj-tsan/%.o: %.c
+	@mkdir -p $(@D)
+	$(COMPILE) $(TSAN_FLAGS) -MMD -MP -c $< -o $@
+
+-include $(wildcard build/obj*/src/*.d build/obj*/tests/*.d)
+
+# A program from its objects ($^), linked with the flags they were compiled
+# with.
+LINK = $(CC) $(CFLAGS) $^ $(LDFLAGS) $(LDLIBS)
+LINK_ASAN = $(CC) $(CFLAGS) $(ASAN_FLAGS) $^ $(LDFLAGS) $(LDLIBS)
 
 merged: build/START_FULL.EXE
 
@@ -31,13 +63,7 @@ dqk-merged: build/DQK_FULL.EXE
 build/DQK_FULL.EXE: tools/dqkmerge.py tools/ovrmerge.py $(DQK)/DQK.EXE | build
 	$(PYTHON) tools/dqkmerge.py $(DQK)/DQK.EXE $@ --map build/DQK_FULL.map
 
-build/ecldump: src/ecldump.c src/ecl.c src/ecl.h src/text.h src/picture.h src/dax.c src/dax.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) src/ecldump.c src/ecl.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
-
 ADVENTURE_SRC = src/adventure.c src/debug.c src/devices.c src/input.c src/ai.c src/cloud.c src/command.c src/start.c src/roster.c src/create.c src/train.c src/modify.c src/icon.c src/arena.c src/attack.c src/combat.c src/round.c src/monster.c src/treasure.c src/shop.c src/camp.c src/magic.c src/cast.c src/items.c src/sheet.c src/effect.c src/party.c src/ecl.c src/menu.c src/screen.c src/text.c src/view.c src/picture.c src/image.c src/sound.c src/config.c src/crt.c src/setup.c src/dax.c src/rules.c
-ADVENTURE_DEPS = $(ADVENTURE_SRC) src/adventure.h src/debug.h src/input.h src/ai.h src/cloud.h src/command.h src/start.h src/roster.h src/create.h src/train.h src/modify.h src/icon.h src/arena.h src/attack.h src/combat.h src/round.h src/monster.h src/treasure.h src/shop.h src/camp.h src/magic.h src/cast.h src/items.h src/sheet.h src/effect.h src/party.h src/ecl.h src/menu.h src/screen.h src/text.h src/view.h src/picture.h src/image.h src/sound.h src/config.h src/crt.h src/setup.h src/dax.h src/rules.h
-
-KEYSCRIPT = src/keyscript.c src/keyscript.h
 
 # The original in DOSBox-X (tools/dosbox, see DEVELOPERS.md's "DOSBox-X
 # harness"): boot it to the title's menu and compare its screens with
@@ -64,7 +90,6 @@ HAVE_SDL := $(shell pkg-config --exists sdl2 2>/dev/null && echo yes)
 SDL_CFLAGS := $(patsubst -I%,-isystem %,$(shell pkg-config --cflags sdl2 2>/dev/null))
 SDL_LIBS := $(shell pkg-config --libs sdl2 2>/dev/null)
 COK_SRC = src/cok.c src/keymap.c src/keyscript.c $(ADVENTURE_SRC)
-COK_DEPS = $(COK_SRC) src/keymap.h $(KEYSCRIPT) $(ADVENTURE_DEPS)
 
 .PHONY: cok
 cok: build/cok
@@ -78,320 +103,134 @@ COK_CLICKS = \kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\eYY\v\rAE\m100,116,1.\m148,196,1
 COK_STICK = \kx\j129,129,1.\j129,129.\j129,250.\j129,129.\j129,250.\j129,129.\j129,250.\j129,129.\j129,129,1.\j129,129.\j129,250.\j129,129.\j129,129,1.\j129,129.\r\j10,12,1.\j129,129.\j250,240,1.\j129,129.\e\e
 COK_STICK_CFG = E\r\nT\r\nJ\r\nC:\\COK\\SAVE\\\r\nF\r\n1\r\n1\r\n40\r\n40\r\n80\r\n80\r\n120\r\n120\r\n160\r\n160\r\n200\r\n200\r\n250\r\n250\r\n
 
-build/cok: $(COK_DEPS) | build
-	@$(if $(HAVE_SDL),true,echo "build/cok needs SDL2, found with pkg-config sdl2 (libsdl2-dev)" >&2; exit 1)
-	$(CC) $(CPPFLAGS) $(SDL_CFLAGS) $(CFLAGS) $(COK_SRC) $(LDFLAGS) $(SDL_LIBS) $(LDLIBS) -o $@
 
-build/cok_sanitize: $(COK_DEPS) | build
-	$(CC) $(CPPFLAGS) $(SDL_CFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer $(COK_SRC) $(LDFLAGS) $(SDL_LIBS) $(LDLIBS) -o $@
+build/cok: $(call obj,$(COK_SRC)) | build
+	@$(if $(HAVE_SDL),true,echo "build/cok needs SDL2, found with pkg-config sdl2 (libsdl2-dev)" >&2; exit 1)
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(SDL_LIBS) $(LDLIBS) -o $@
+
+build/cok_sanitize: $(call asan,$(COK_SRC)) | build
+	$(CC) $(CFLAGS) $(ASAN_FLAGS) $^ $(LDFLAGS) $(SDL_LIBS) $(LDLIBS) -o $@
 
 # cok with ThreadSanitizer: the game's calls into the sound against the
 # audio thread's rendering.
-build/cok_tsan: $(COK_DEPS) | build
-	$(CC) $(CPPFLAGS) $(SDL_CFLAGS) $(CFLAGS) -g -fsanitize=thread $(COK_SRC) $(LDFLAGS) $(SDL_LIBS) $(LDLIBS) -o $@
+build/cok_tsan: $(call tsan,$(COK_SRC)) | build
+	$(CC) $(CFLAGS) $(TSAN_FLAGS) $^ $(LDFLAGS) $(SDL_LIBS) $(LDLIBS) -o $@
 
-build/test_keymap_sanitize: tests/test_keymap.c src/keymap.c src/keymap.h $(KEYSCRIPT) src/text.h | build
-	$(CC) $(CPPFLAGS) $(SDL_CFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_keymap.c src/keymap.c src/keyscript.c $(LDFLAGS) $(SDL_LIBS) $(LDLIBS) -o $@
+KEYMAP_SRC = tests/test_keymap.c src/keymap.c src/keyscript.c
 
-build/test_keymap: tests/test_keymap.c src/keymap.c src/keymap.h $(KEYSCRIPT) src/text.h | build
-	$(CC) $(CPPFLAGS) $(SDL_CFLAGS) $(CFLAGS) tests/test_keymap.c src/keymap.c src/keyscript.c $(LDFLAGS) $(SDL_LIBS) $(LDLIBS) -o $@
+build/test_keymap_sanitize: $(call asan,$(KEYMAP_SRC)) | build
+	$(CC) $(CFLAGS) $(ASAN_FLAGS) $^ $(LDFLAGS) $(SDL_LIBS) $(LDLIBS) -o $@
 
+build/test_keymap: $(call obj,$(KEYMAP_SRC)) | build
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(SDL_LIBS) $(LDLIBS) -o $@
 
-build/eclplay: src/eclplay.c $(KEYSCRIPT) $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) src/eclplay.c src/keyscript.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
+ECLPLAY_SRC = src/eclplay.c src/keyscript.c $(ADVENTURE_SRC)
 
-build/test_adventure: tests/test_adventure.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_adventure.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
+build/eclplay: $(call obj,$(ECLPLAY_SRC)) | build
+	$(LINK) -o $@
 
-build/test_debug: tests/test_debug.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_debug.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
+build/eclplay_sanitize: $(call asan,$(ECLPLAY_SRC)) | build
+	$(LINK_ASAN) -o $@
 
-build/test_debug_sanitize: tests/test_debug.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_debug.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
+# The tests of the adventure, each with the whole game: build/test_NAME from
+# tests/test_NAME.c and ADVENTURE_SRC, build/test_NAME_sanitize likewise.
+ADVENTURE_TESTS = test_adventure test_debug test_hooks test_input test_start test_camp test_cast test_monster test_combat test_round test_arena test_ai test_command test_spell test_cloud test_attack test_treasure test_shop test_items
 
-build/test_hooks: tests/test_hooks.c tests/test_loading_data.h $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_hooks.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
+$(ADVENTURE_TESTS:%=build/%): build/%: build/obj/tests/%.o $(call obj,$(ADVENTURE_SRC)) | build
+	$(LINK) -o $@
 
-build/test_hooks_sanitize: tests/test_hooks.c tests/test_loading_data.h $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_hooks.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
+$(ADVENTURE_TESTS:%=build/%_sanitize): build/%_sanitize: build/obj-asan/tests/%.o $(call asan,$(ADVENTURE_SRC)) | build
+	$(LINK_ASAN) -o $@
 
-build/test_input: tests/test_input.c tests/test_input_data.h $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_input.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_input_sanitize: tests/test_input.c tests/test_input_data.h $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_input.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_start: tests/test_start.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_start.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_camp: tests/test_camp.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_camp.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_cast: tests/test_cast.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_cast.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_monster: tests/test_monster.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_monster.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_combat: tests/test_combat.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_combat.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_round: tests/test_round.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_round.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_arena: tests/test_arena.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_arena.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_ai: tests/test_ai.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_ai.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_command: tests/test_command.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_command.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_spell: tests/test_spell.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_spell.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_cloud: tests/test_cloud.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_cloud.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_attack: tests/test_attack.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_attack.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_treasure: tests/test_treasure.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_treasure.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_shop: tests/test_shop.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_shop.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_items: tests/test_items.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_items.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_sound: tests/test_sound.c tests/test_sound_data.h src/sound.c src/sound.h src/dax.c src/dax.h src/rules.c src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_sound.c src/sound.c src/dax.c src/rules.c $(LDFLAGS) $(LDLIBS) -lm -o $@
-
-build/test_config: tests/test_config.c src/config.c src/config.h src/sound.h src/rules.c src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_config.c src/config.c src/rules.c $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_config_sanitize: tests/test_config.c src/config.c src/config.h src/sound.h src/rules.c src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_config.c src/config.c src/rules.c $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_setup: tests/test_setup.c src/setup.c src/input.c src/crt.c src/config.c src/text.c src/picture.c src/image.c src/dax.c tests/test_setup_data.h src/setup.h src/input.h src/crt.h src/config.h src/text.h src/picture.h src/image.h src/dax.h src/sound.h src/rules.c src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_setup.c src/setup.c src/input.c src/crt.c src/config.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_setup_sanitize: tests/test_setup.c src/setup.c src/input.c src/crt.c src/config.c src/text.c src/picture.c src/image.c src/dax.c tests/test_setup_data.h src/setup.h src/input.h src/crt.h src/config.h src/text.h src/picture.h src/image.h src/dax.h src/sound.h src/rules.c src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_setup.c src/setup.c src/input.c src/crt.c src/config.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_sound_sanitize: tests/test_sound.c tests/test_sound_data.h src/sound.c src/sound.h src/dax.c src/dax.h src/rules.c src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_sound.c src/sound.c src/dax.c src/rules.c $(LDFLAGS) $(LDLIBS) -lm -o $@
-
-build/test_ecl: tests/test_ecl.c src/ecl.c src/ecl.h src/text.h src/picture.h src/dax.c src/dax.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_ecl.c src/ecl.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_menu: tests/test_menu.c src/menu.c src/menu.h src/screen.c src/screen.h src/text.c src/text.h src/picture.c src/picture.h src/image.c src/image.h src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_menu.c src/menu.c src/screen.c src/text.c src/picture.c src/image.c $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_view: tests/test_view.c src/view.c src/view.h src/picture.c src/picture.h src/image.c src/image.h src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_view.c src/view.c src/picture.c src/image.c $(LDFLAGS) $(LDLIBS) -o $@
-
+# The other tests and tools, each with the sources it needs: build/NAME from
+# NAME_SRC, build/NAME_sanitize too for those make sanitize runs.
+test_sound_SRC = tests/test_sound.c src/sound.c src/dax.c src/rules.c
+test_config_SRC = tests/test_config.c src/config.c src/rules.c
+test_setup_SRC = tests/test_setup.c src/setup.c src/input.c src/crt.c src/config.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c
+test_ecl_SRC = tests/test_ecl.c src/ecl.c src/dax.c
+test_menu_SRC = tests/test_menu.c src/menu.c src/screen.c src/text.c src/picture.c src/image.c
+test_view_SRC = tests/test_view.c src/view.c src/picture.c src/image.c
 PARTY_SRC = src/party.c src/ecl.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c
-PARTY_DEPS = $(PARTY_SRC) src/party.h src/ecl.h src/text.h src/picture.h src/image.h src/dax.h src/rules.h
-
-build/test_party: tests/test_party.c $(PARTY_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_party.c $(PARTY_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
+test_party_SRC = tests/test_party.c $(PARTY_SRC)
 EFFECT_SRC = src/effect.c $(PARTY_SRC)
-EFFECT_DEPS = $(PARTY_DEPS) src/effect.c src/effect.h
+test_effect_SRC = tests/test_effect.c $(EFFECT_SRC)
+test_dax_SRC = tests/test_dax.c src/dax.c
+test_rules_SRC = tests/test_rules.c src/rules.c src/dax.c
+daximages_SRC = src/daximages.c src/image.c src/dax.c src/rules.c
+daxcompose_SRC = src/daxcompose.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c
+test_picture_SRC = tests/test_picture.c src/picture.c src/image.c src/dax.c src/rules.c
+test_text_SRC = tests/test_text.c src/text.c src/picture.c src/image.c src/dax.c
+test_display_SRC = tests/test_display.c src/picture.c src/text.c src/image.c src/dax.c src/rules.c
+test_image_SRC = tests/test_image.c src/image.c src/dax.c
+daxcheck_SRC = src/daxcheck.c src/dax.c
+ecldump_SRC = src/ecldump.c src/ecl.c src/dax.c
+test_sound_LIBS = -lm
 
-build/test_effect: tests/test_effect.c $(EFFECT_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_effect.c $(EFFECT_SRC) $(LDFLAGS) $(LDLIBS) -o $@
+# Their rules (.SECONDEXPANSION: each one's NAME_SRC read for its stem), with
+# NAME_LIBS after the libraries.
+SRC_PROGRAMS = daxcheck ecldump test_sound test_config test_setup test_ecl test_menu test_view test_party test_effect test_dax test_rules daximages daxcompose test_picture test_text test_display test_image
+SRC_SANITIZE = test_sound test_config test_setup test_ecl test_menu test_view test_party test_effect test_dax test_rules test_picture test_text test_display test_image daxcheck
+.SECONDEXPANSION:
+$(SRC_PROGRAMS:%=build/%): build/%: $$(call obj,$$($$*_SRC)) | build
+	$(LINK) $($*_LIBS) -o $@
 
-build/test_dax: tests/test_dax.c src/dax.c src/dax.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_dax.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
+$(SRC_SANITIZE:%=build/%_sanitize): build/%_sanitize: $$(call asan,$$($$*_SRC)) | build
+	$(LINK_ASAN) $($*_LIBS) -o $@
 
-build/test_rules: tests/test_rules.c src/rules.c src/rules.h src/dax.c src/dax.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_rules.c src/rules.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
+# make test and make sanitize: each test program's run is its own target
+# (run-NAME runs build/NAME), and so is each test script's, so that make -j
+# runs them side by side; plain make runs them one after another. They need
+# build/START_FULL.EXE (the original's tables). tests/test_eclplay.py runs
+# in parts, one for each of SHARDS (COK_TEST_SHARD=K/N: every Nth test from
+# the Kth).
+# tests/test_cok.py plays in real time: it runs last, alone, once the
+# others are done (make -j would otherwise run it beside them, and a loaded
+# machine makes the game late).
+TEST_PROGRAMS = test_dax test_rules test_image test_picture test_text test_display test_ecl test_menu test_view test_party test_effect test_adventure test_camp test_cast test_items test_monster test_combat test_round test_arena test_attack test_ai test_command test_spell test_cloud test_treasure test_shop test_start test_hooks test_debug test_sound test_config test_setup test_input
+SHARDS = 1 2 3 4
+ECLPLAY_RUNS = $(SHARDS:%=run-test_eclplay-%)
+TEST_RUNS = $(TEST_PROGRAMS:%=run-%) run-ecldump run-test_images_cli $(ECLPLAY_RUNS) $(if $(HAVE_SDL),run-test_keymap) run-test_ovrmerge run-daxcheck
+SANITIZE_RUNS = $(TEST_PROGRAMS:%=run-%_sanitize)
+.PHONY: $(TEST_RUNS) $(SANITIZE_RUNS) run-test_cok
 
-build/daximages: src/daximages.c src/image.c src/image.h src/dax.c src/dax.h src/rules.c src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) src/daximages.c src/image.c src/dax.c src/rules.c $(LDFLAGS) $(LDLIBS) -o $@
+# The tests' temporary files (TMPDIR) in TEST_TMPDIR: the dev container's
+# /tmp, a FUSE overlay holding many entries, is slow for their many small
+# files (the tests but test_cok.py, at -j16: 40 s with /tmp, 14 s with
+# build/tmp on the same overlay).
+TEST_TMPDIR = build/tmp
+TEST_ENV = TMPDIR=$(abspath $(TEST_TMPDIR))
+$(TEST_RUNS) $(SANITIZE_RUNS) run-test_cok: | $(TEST_TMPDIR)
+$(TEST_TMPDIR):
+	mkdir -p $@
 
-build/daxcompose: src/daxcompose.c src/text.c src/text.h src/picture.c src/picture.h src/image.c src/image.h src/dax.c src/dax.h src/rules.c src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) src/daxcompose.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c $(LDFLAGS) $(LDLIBS) -o $@
+test: $(TEST_RUNS) $(if $(HAVE_SDL),run-test_cok)
+	$(if $(HAVE_SDL),,@echo "SDL2 not found (pkg-config sdl2): skipped building and testing build/cok")
 
-build/test_picture: tests/test_picture.c src/picture.c src/picture.h src/image.c src/image.h src/dax.c src/dax.h src/rules.c src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_picture.c src/picture.c src/image.c src/dax.c src/rules.c $(LDFLAGS) $(LDLIBS) -o $@
+$(TEST_PROGRAMS:%=run-%) $(SANITIZE_RUNS) run-test_keymap: run-%: build/% build/START_FULL.EXE
+	$(TEST_ENV) ./build/$*
 
-build/test_text: tests/test_text.c src/text.c src/text.h src/picture.c src/picture.h src/image.c src/image.h src/dax.c src/dax.h src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_text.c src/text.c src/picture.c src/image.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
+run-ecldump: build/ecldump
+	$(TEST_ENV) ./build/ecldump --summary COKAssets/ECL*.DAX
 
-build/test_display: tests/test_display.c tests/test_display_data.h src/config.h src/picture.c src/picture.h src/text.c src/text.h src/image.c src/image.h src/dax.c src/dax.h src/rules.c src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_display.c src/picture.c src/text.c src/image.c src/dax.c src/rules.c $(LDFLAGS) $(LDLIBS) -o $@
+run-test_images_cli: build/daximages build/daxcompose
+	$(TEST_ENV) $(PYTHON) tests/test_images_cli.py
 
-build/test_display_sanitize: tests/test_display.c tests/test_display_data.h src/config.h src/picture.c src/picture.h src/text.c src/text.h src/image.c src/image.h src/dax.c src/dax.h src/rules.c src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_display.c src/picture.c src/text.c src/image.c src/dax.c src/rules.c $(LDFLAGS) $(LDLIBS) -o $@
+$(ECLPLAY_RUNS): run-test_eclplay-%: build/eclplay build/START_FULL.EXE
+	$(TEST_ENV) COK_TEST_SHARD=$*/$(words $(SHARDS)) $(PYTHON) tests/test_eclplay.py
 
-build/test_image: tests/test_image.c src/image.c src/image.h src/dax.c src/dax.h src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_image.c src/image.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
+run-test_ovrmerge:
+	$(TEST_ENV) $(PYTHON) tests/test_ovrmerge.py
 
-test: build/START_FULL.EXE build/test_dax build/test_rules build/test_image build/test_picture build/test_text build/test_display build/test_ecl build/test_menu build/test_view build/test_party build/test_effect build/test_adventure build/test_camp build/test_cast build/test_items build/test_monster build/test_combat build/test_round build/test_arena build/test_attack build/test_ai build/test_command build/test_spell build/test_cloud build/test_treasure build/test_shop build/test_start build/test_hooks build/test_debug build/test_sound build/test_config build/test_setup build/test_input build/daxcheck build/daximages build/daxcompose build/ecldump build/eclplay $(if $(HAVE_SDL),build/cok build/test_keymap)
-	./build/test_dax
-	./build/test_rules
-	./build/test_image
-	./build/test_picture
-	./build/test_text
-	./build/test_display
-	./build/test_ecl
-	./build/test_menu
-	./build/test_view
-	./build/test_party
-	./build/test_effect
-	./build/test_adventure
-	./build/test_camp
-	./build/test_cast
-	./build/test_items
-	./build/test_monster
-	./build/test_combat
-	./build/test_round
-	./build/test_arena
-	./build/test_attack
-	./build/test_ai
-	./build/test_command
-	./build/test_spell
-	./build/test_cloud
-	./build/test_treasure
-	./build/test_shop
-	./build/test_start
-	./build/test_hooks
-	./build/test_debug
-	./build/test_sound
-	./build/test_config
-	./build/test_setup
-	./build/test_input
-	./build/ecldump --summary COKAssets/ECL*.DAX
-	$(PYTHON) tests/test_images_cli.py
-	$(PYTHON) tests/test_eclplay.py
-	$(if $(HAVE_SDL),./build/test_keymap,@echo "SDL2 not found (pkg-config sdl2): skipped building and testing build/cok")
-	$(if $(HAVE_SDL),$(PYTHON) tests/test_cok.py)
-	$(PYTHON) tests/test_ovrmerge.py
-	./build/daxcheck COKAssets/*.DAX
+run-daxcheck: build/daxcheck
+	$(TEST_ENV) ./build/daxcheck COKAssets/*.DAX
 
-build/test_dax_sanitize: tests/test_dax.c src/dax.c src/dax.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_dax.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
+run-test_cok: build/cok build/eclplay $(TEST_RUNS)
+	$(TEST_ENV) $(PYTHON) tests/test_cok.py
 
-build/test_rules_sanitize: tests/test_rules.c src/rules.c src/rules.h src/dax.c src/dax.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_rules.c src/rules.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
-
-build/daxcheck_sanitize: src/daxcheck.c src/dax.c src/dax.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer src/daxcheck.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_image_sanitize: tests/test_image.c src/image.c src/image.h src/dax.c src/dax.h src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_image.c src/image.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_picture_sanitize: tests/test_picture.c src/picture.c src/picture.h src/image.c src/image.h src/dax.c src/dax.h src/rules.c src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_picture.c src/picture.c src/image.c src/dax.c src/rules.c $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_ecl_sanitize: tests/test_ecl.c src/ecl.c src/ecl.h src/dax.c src/dax.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_ecl.c src/ecl.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_text_sanitize: tests/test_text.c src/text.c src/text.h src/picture.c src/picture.h src/image.c src/image.h src/dax.c src/dax.h src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_text.c src/text.c src/picture.c src/image.c src/dax.c $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_menu_sanitize: tests/test_menu.c src/menu.c src/menu.h src/screen.c src/screen.h src/text.c src/text.h src/picture.c src/picture.h src/image.c src/image.h src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_menu.c src/menu.c src/screen.c src/text.c src/picture.c src/image.c $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_view_sanitize: tests/test_view.c src/view.c src/view.h src/picture.c src/picture.h src/image.c src/image.h src/rules.h | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_view.c src/view.c src/picture.c src/image.c $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_party_sanitize: tests/test_party.c $(PARTY_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_party.c $(PARTY_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_effect_sanitize: tests/test_effect.c $(EFFECT_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_effect.c $(EFFECT_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_adventure_sanitize: tests/test_adventure.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_adventure.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_camp_sanitize: tests/test_camp.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_camp.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_cast_sanitize: tests/test_cast.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_cast.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_items_sanitize: tests/test_items.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_items.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_monster_sanitize: tests/test_monster.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_monster.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_combat_sanitize: tests/test_combat.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_combat.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_round_sanitize: tests/test_round.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_round.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_ai_sanitize: tests/test_ai.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_ai.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_spell_sanitize: tests/test_spell.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_spell.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_cloud_sanitize: tests/test_cloud.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_cloud.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_command_sanitize: tests/test_command.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_command.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_attack_sanitize: tests/test_attack.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_attack.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_arena_sanitize: tests/test_arena.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_arena.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_start_sanitize: tests/test_start.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_start.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_shop_sanitize: tests/test_shop.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_shop.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/test_treasure_sanitize: tests/test_treasure.c $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_treasure.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-build/eclplay_sanitize: src/eclplay.c $(KEYSCRIPT) $(ADVENTURE_DEPS) | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer src/eclplay.c src/keyscript.c $(ADVENTURE_SRC) $(LDFLAGS) $(LDLIBS) -o $@
-
-sanitize: build/START_FULL.EXE build/test_dax_sanitize build/test_rules_sanitize build/test_image_sanitize build/test_picture_sanitize build/test_text_sanitize build/test_display_sanitize build/test_ecl_sanitize build/test_menu_sanitize build/test_view_sanitize build/test_party_sanitize build/test_effect_sanitize build/test_adventure_sanitize build/test_camp_sanitize build/test_cast_sanitize build/test_items_sanitize build/test_monster_sanitize build/test_combat_sanitize build/test_round_sanitize build/test_arena_sanitize build/test_attack_sanitize build/test_ai_sanitize build/test_command_sanitize build/test_spell_sanitize build/test_cloud_sanitize build/test_treasure_sanitize build/test_shop_sanitize build/test_start_sanitize build/test_hooks_sanitize build/test_debug_sanitize build/test_sound_sanitize build/test_config_sanitize build/test_setup_sanitize build/test_input_sanitize build/eclplay_sanitize build/daxcheck_sanitize $(if $(HAVE_SDL),build/cok_sanitize build/cok_tsan build/test_keymap_sanitize)
-	./build/test_dax_sanitize
-	./build/test_rules_sanitize
-	./build/test_image_sanitize
-	./build/test_picture_sanitize
-	./build/test_text_sanitize
-	./build/test_display_sanitize
-	./build/test_ecl_sanitize
-	./build/test_menu_sanitize
-	./build/test_view_sanitize
-	./build/test_party_sanitize
-	./build/test_effect_sanitize
-	./build/test_adventure_sanitize
-	./build/test_camp_sanitize
-	./build/test_cast_sanitize
-	./build/test_items_sanitize
-	./build/test_monster_sanitize
-	./build/test_combat_sanitize
-	./build/test_round_sanitize
-	./build/test_arena_sanitize
-	./build/test_attack_sanitize
-	./build/test_ai_sanitize
-	./build/test_command_sanitize
-	./build/test_spell_sanitize
-	./build/test_cloud_sanitize
-	./build/test_treasure_sanitize
-	./build/test_shop_sanitize
-	./build/test_start_sanitize
-	./build/test_hooks_sanitize
-	./build/test_debug_sanitize
-	./build/test_sound_sanitize
-	./build/test_config_sanitize
-	./build/test_setup_sanitize
-	./build/test_input_sanitize
+# make sanitize: its test programs' runs (SANITIZE_RUNS) side by side, then
+# eclplay's and cok's runs below one after another (some use the files of
+# those before them).
+sanitize: build/START_FULL.EXE $(SANITIZE_RUNS) build/eclplay_sanitize build/daxcheck_sanitize $(if $(HAVE_SDL),build/cok_sanitize build/cok_tsan build/test_keymap_sanitize)
 	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --keys '\r\rE\r\r\r\r\r\r\r' COKAssets 16 | tail -n 1)" = "(out of keys in block 17 at 9d9b)"
 	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --start 899b --keys '\r22\r\rE\r\r\r\r' COKAssets 48 | tail -n 1)" = "(done in block 48)"
 	test "$$(./build/eclplay_sanitize --woof --test-party 4 --effect 2,22,10,0 --keys '\cD\rxxxxxxxxxxxxxx\cZ\cC' COKAssets 16 | tail -n 1)" = "(quit to DOS in block 16)"

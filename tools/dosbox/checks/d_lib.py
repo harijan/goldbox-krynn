@@ -935,14 +935,20 @@ def find_code(b, seg, off, size=24):
     return [m.start() for m in re.finditer(re.escape(probe), data) if (m.start() - off) % 16 == 0]
 
 
-def trap(b, seg, off, until, seconds=30):
+def trap(b, seg, off, until, seconds=30, settle=None):
     """Make the routine at Ghidra SEG:OFF spin where it starts (EB FE, a jump
     to itself): every copy of its code found in memory is patched, again and
     again as the overlay manager loads it afresh, until UNTIL() is true (or
     SECONDS pass). The game then stops there, its screen as it was, until
-    untrap. Returns the patched (address, the two bytes replaced)."""
+    untrap. SETTLE: a function reading what the caller reads next; then
+    UNTIL() must also hold while SETTLE() gives the same three times running,
+    half a second apart, as UNTIL() may be true before the game gets there
+    (a value left from before, d_patrol's DS:72ce on a loaded host: the
+    combatants read while still being placed). Returns the patched
+    (address, the two bytes replaced)."""
     patched = []
     end = time.monotonic() + seconds
+    seen, same, next_read = None, 0, 0.0
     while time.monotonic() < end:
         # Only in the overlay buffer (Turbo Pascal's OvrHeapOrg and OvrHeapEnd,
         # DS:437a and 437e): stale copies of the code elsewhere may lie in
@@ -954,9 +960,18 @@ def trap(b, seg, off, until, seconds=30):
             patched.append((addr, b.read(addr, 2)))
             b.write(addr, b"\xeb\xfe")
         if patched and until():
-            break
+            if settle is None:
+                break
+            if time.monotonic() >= next_read:
+                now, next_read = settle(), time.monotonic() + 0.5
+                same = same + 1 if now == seen else 1
+                seen = now
+                if same >= 3 and until():
+                    break
+        else:
+            seen, same = None, 0
         time.sleep(0.002)
-    if not (patched and until()):
+    if not (patched and until() and (settle is None or same >= 3)):
         raise cokbox.BoxError(f"the trap at {seg:04x}:{off:04x} did not hold")
     return patched
 

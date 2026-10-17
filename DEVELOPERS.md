@@ -59,6 +59,24 @@ make cok
 make dosbox-selftest
 ```
 
+Run `make -j16 test` (`-j` the machine's cores, `nproc`), and `make -j16
+sanitize`. Make compiles each source once for each set of flags, into
+`build/obj/` (`CFLAGS`), `build/obj-asan/` (`ASAN_FLAGS`: `make
+sanitize`'s AddressSanitizer and UBSan) and `build/obj-tsan/`
+(`TSAN_FLAGS`: `build/cok_tsan`), each with its headers in a `.d` file
+(`-MMD -MP`), and links every program from those objects, so that a
+change recompiles only the objects that include it; SDL2's flags go to the
+three files that include `SDL.h` (`src/cok.c`, `src/keymap.c`,
+`tests/test_keymap.c`). Each test program's run, and each test script's,
+is a target of its own (`run-NAME`; `tests/test_eclplay.py` in four parts,
+`COK_TEST_SHARD=K/N` running every Nth test from the Kth), so that `make
+-j` runs them side by side; plain `make test` runs them one after another.
+`tests/test_cok.py` plays in real time and runs last, alone, once the
+others are done: it takes about two of the two minutes a clean `make -j16
+test` takes on a 16-core host (six one at a time). The tests' temporary
+files go to `build/tmp` (`TEST_TMPDIR`): the dev container's `/tmp` is a
+FUSE overlay, several times slower to write their many small files.
+
 `make cok` builds `build/cok`, the playable front end (see Playing), which
 needs SDL2 2.0.18 or later and finds it with `pkg-config sdl2` (Debian and
 Ubuntu: `libsdl2-dev`; Fedora: `SDL2-devel`; macOS: Homebrew's `sdl2` and

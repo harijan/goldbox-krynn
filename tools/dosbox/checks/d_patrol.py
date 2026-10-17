@@ -58,8 +58,14 @@ def main():
         shown = d_lib.step(b, steps[0][1], "flee", work)
         d_lib.screen(v, "screen flee", shown, port, "flee", work)
         d_lib.compare_state(v, b, port, "flee")
+        print(f"  DS:72ce before the battle: {b.ds_byte(d_lib.DS_ENTRY)}", flush=True)
         b.push_key(ord("n") | 0x3100)
-        handle = d_lib.trap(b, 0x3995, 0x040B, lambda: b.ds_byte(d_lib.DS_ENTRY) == 1, 60)
+        # The combatants and the order read once they stay as they are (the
+        # game spinning in the trap): DS:72ce may be 1 before the battle.
+        handle = d_lib.trap(b, 0x3995, 0x040B, lambda: b.ds_byte(d_lib.DS_ENTRY) == 1, 60,
+                            settle=lambda: (d_lib.initiatives(b), [
+                                (c["n"], c["x"], c["y"], c["size"], c["raw"])
+                                for c in d_lib.combatants(b)]))
         setup = d_lib.stable(b)
         setup.save_png(work / "setup.png")
         cs = d_lib.combatants(b)

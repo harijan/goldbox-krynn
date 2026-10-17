@@ -1,5 +1,6 @@
 """Play the shipped ECL scripts headlessly with eclplay (stdlib only)."""
 import hashlib
+import os
 import pathlib
 import struct
 import subprocess
@@ -2679,6 +2680,21 @@ def wav_data_of(test, keys):
                              "--keys", keys, str(ASSETS)], capture_output=True, text=True)
     test.assertEqual(result.returncode, 0, result.stderr)
     return wav_data(path)
+
+
+def load_tests(loader, tests, pattern):
+    """With COK_TEST_SHARD=K/N, only every Nth test from the Kth (1 to N), so
+    that make test runs the N parts side by side."""
+    shard = os.environ.get("COK_TEST_SHARD")
+    if not shard:
+        return tests
+    k, n = (int(x) for x in shard.split("/"))
+
+    def flat(suite):
+        for t in suite:
+            yield from flat(t) if isinstance(t, unittest.TestSuite) else [t]
+
+    return unittest.TestSuite(list(flat(tests))[k - 1::n])
 
 
 if __name__ == "__main__":
