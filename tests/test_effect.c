@@ -1277,7 +1277,7 @@ static void test_caster_level(void)
 int main(void)
 {
     char error[300];
-    if (!cok_item_types_read("Assets/ITEMS", &types, error, sizeof error)) {
+    if (!cok_item_types_read("COKAssets/ITEMS", &types, error, sizeof error)) {
         fprintf(stderr, "%s\n", error);
         return 1;
     }

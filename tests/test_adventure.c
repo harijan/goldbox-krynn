@@ -169,7 +169,7 @@ static void test_play(void)
     script s = {0};
     cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .context = &s};
-    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
     CHECK(game.text_delay); /* DS:4b59 from startup (3e99:0560) */
     load_block(&game, 0);
     uint8_t map[0x402] = {0};
@@ -322,7 +322,7 @@ static void test_area(void)
     script s = {0};
     cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .delay = delayed, .context = &s};
-    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
     load_block(&game, 0);
     uint8_t map[0x402] = {0};
     /* Square 5, 4 has a wall north. */
@@ -568,7 +568,7 @@ static void test_party(void)
     script s = {0};
     cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .context = &s};
-    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
     cok_ecl *vm = &game.vm;
     vm->mode = vm->last_mode = 4;
     vm->mem4b00[0xe6] = 1;
@@ -689,7 +689,7 @@ static void test_doors(void)
     script s = {0};
     cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .context = &s};
-    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
     load_block(&game, 0);
     uint8_t map[0x402] = {0};
     /* Square 5, 4: a locked door east. */
@@ -777,7 +777,7 @@ static void test_load_stats(void)
     script s = {0};
     cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .context = &s};
-    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
     snprintf(path, sizeof path, "%s/SAVGAMC.DAT", dir);
     CHECK(cok_adventure_load_party(&game, path));
     CHECK(game.party.count == 1);
@@ -815,7 +815,7 @@ static void test_load_stats(void)
     item[0x2e] = 0x90;
     snprintf(path, sizeof path, "%s/NPC.STF", dir);
     write_file(path, item, sizeof item);
-    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
     snprintf(path, sizeof path, "%s/SAVGAMC.DAT", dir);
     CHECK(!cok_adventure_load_party(&game, path));
     CHECK(strstr(game.error, "NPC.SAV") != NULL && strstr(game.error, "item type 144") != NULL);
@@ -848,7 +848,7 @@ static void test_load_stats(void)
     write_file(path, item, sizeof item);
     snprintf(path, sizeof path, "%s/WIZPC.STF", dir);
     write_file(path, item, sizeof item);
-    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
     snprintf(path, sizeof path, "%s/SAVGAMD.DAT", dir);
     CHECK(cok_adventure_load_party(&game, path));
     CHECK(game.party.count == 2);
@@ -953,7 +953,7 @@ static void test_overland(void)
     script s = {0};
     cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .unported = count_unported, .context = &s};
-    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
     uint16_t *mem = game.vm.mem4b00;
     load_overland_block(&game, 0, 0);
     cok_picture_fill(&game.screen, 0, 0, 40, 200, 5);
@@ -1194,7 +1194,7 @@ static void test_overland(void)
      * it and after every step, takes the tomb's Long Sword +5 (type 63) from
      * every record, unreadied first, a cursed one after "It's Cursed", and
      * recomputes the stats; other items and the selection stay. */
-    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
     cok_character *f = member("FIG", 9, 2), *g = member("GIL", 9, 2);
     for (size_t i = 0; i < 6; ++i)
         f->record[0x10 + 2 * i] = f->record[0x11 + 2 * i] = g->record[0x10 + 2 * i] =
@@ -1273,13 +1273,13 @@ static void test_overland(void)
     save[1 + 0x400 * 2 + 0x312 * 2] = 1; /* 0x7f12, the ECL file */
     snprintf(path, sizeof path, "%s/SAVGAMA.DAT", dir);
     write_file(path, save, sizeof save);
-    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
     CHECK(cok_adventure_restore(&game, path));
     CHECK(game.big_id == 0x79 && game.big.pixels != NULL && cell_is(&game.screen, 3, 3, 0));
     cok_adventure_close(&game);
     save[1 + 0xe6 * 2] = 1; /* 0x4be6 */
     write_file(path, save, sizeof save);
-    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
     CHECK(cok_adventure_restore(&game, path) && game.big_id == COK_ADVENTURE_NO_PICTURE);
     cok_adventure_close(&game);
     CHECK(remove(path) == 0 && rmdir(dir) == 0);
@@ -1339,7 +1339,7 @@ static void test_resume(void)
     uint32_t rolled = 10;
     cok_tp_random(&rolled, 99);
     for (int first = 0; first < 3; ++first) {
-        CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+        CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
         CHECK(cok_adventure_restore(&game, path));
         game.vm.seed = 10;
         s.keys = "";
@@ -1369,7 +1369,7 @@ static void test_resume(void)
     save_var(save, 0x4bc4, 1);
     write_file(path, save, sizeof save);
     for (int block = 0; block < 2; ++block) {
-        CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+        CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
         CHECK(cok_adventure_restore(&game, path));
         s.keys = "";
         s.at = s.length = 0;
@@ -1386,7 +1386,7 @@ static void test_resume(void)
 
     /* A new game: Solace's block (0x24) runs at 3c28's depth, its NEWECL
      * enters block 16 through 3b47, 6 below. */
-    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
     s.keys = "\r\r";
     s.at = 0;
     s.length = 2;
@@ -1428,7 +1428,7 @@ static void test_opcodes(void)
     cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .delay = delayed, .unported = count_unported,
                                  .context = &s};
-    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
     cok_ecl *vm = &game.vm;
     uint16_t *mem = vm->mem4b00;
     cok_character *a = member("ALDA", 9, 0), *b = member("BRAM", 9, 2), *c = member("CERA", 9, 3);
@@ -1661,7 +1661,7 @@ static void test_portrait(void)
     script s = {0};
     cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .delay = delayed, .context = &s};
-    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
     cok_ecl *vm = &game.vm;
     vm->file = 2;
     vm->mode = 4;
@@ -1716,7 +1716,7 @@ static void test_portrait(void)
      * head 0 over body 0 (DS:4b55, 4b56): a shop's redraw in a 3D area
      * before any portrait says "head not found" for both. */
     cok_adventure_close(&game);
-    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
     CHECK(game.head_id == 0xff && game.body_id == 0xff);
     vm->file = 2;
     vm->mode = 1;
@@ -1783,7 +1783,7 @@ static void test_step_sounds(void)
     script s = {0};
     cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .sound = sounded, .context = &s};
-    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
     load_block(&game, 0);
     uint8_t map[0x402] = {0};
     map[2 + 4 * 16 + 5] = 0x11; /* a wall north of square 5, 4 */
@@ -1826,7 +1826,7 @@ static void test_opcode_sounds(void)
     script s = {0};
     cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .sound = counted, .context = &s};
-    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
     const uint8_t sound[] = {COK_ECL_SAVE, 0, 10, 2, 0xde, 0x03, COK_ECL_CALL, 2, 0x03, 0xb2,
                              COK_ECL_SAVE, 0, 8, 2, 0xde, 0x03, COK_ECL_CALL, 2, 0x03, 0xb2,
                              COK_ECL_EXIT};
@@ -1848,7 +1848,7 @@ static void test_display(void)
     static cok_adventure game;
     for (int mode = 0; mode < 3; ++mode) {
         bool cga = mode == COK_DISPLAY_CGA;
-        CHECK(cok_adventure_open_display(&game, "Assets", (cok_display)mode, NULL, NULL));
+        CHECK(cok_adventure_open_display(&game, "COKAssets", (cok_display)mode, NULL, NULL));
         CHECK(game.display == (cok_display)mode && game.screen.cga == cga);
         CHECK((game.view.sky[2].pixels == NULL) == cga);
         CHECK(game.view.tiles[4].cga == cga && game.cursor.cga == cga);

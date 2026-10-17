@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the original Champions of Krynn in DOSBox-X, unattended (stdlib only).
 
-The game (Assets/: START.EXE, GAME.OVR, the DAX files) is copied into a
+The game (COKAssets/: START.EXE, GAME.OVR, the DAX files) is copied into a
 scratch C: drive as C:\\COK, with a KRYNN.CFG written for the run and,
 optionally, saved games in C:\\COK\\SAVE, and run in DOSBox-X under its own
 Xvfb server. The host then:
@@ -367,7 +367,7 @@ def _looks_textual(rows):
 
 def krynn_cfg(display, sound="S", input="N"):
     """A KRYNN.CFG: the display's, sound's and input's letters, the save path
-    C:\\COK\\SAVE\\, F and 14 zeros, CR LF lines (as Assets/KRYNN.CFG)."""
+    C:\\COK\\SAVE\\, F and 14 zeros, CR LF lines (as COKAssets/KRYNN.CFG)."""
     lines = [display, sound, input, "C:\\COK\\SAVE\\", "F"] + ["0"] * 14
     return "".join(line + "\r\n" for line in lines)
 
@@ -414,7 +414,7 @@ class Box:
                  hook_pad=0, memsize=None, wav=None, timeout=600, extra_conf=None,
                  exit_after=True, seed=None, want_psp=None, keep=False, verbose=False,
                  pre_commands=(), files=None, mapper=None, display_number=None):
-        self.assets = pathlib.Path(assets or ROOT / "Assets")
+        self.assets = pathlib.Path(assets or ROOT / "COKAssets")
         if machine not in MACHINES:
             raise BoxError(f"machine {machine}: one of {', '.join(MACHINES)}")
         self.machine = machine
@@ -1154,7 +1154,7 @@ def eclplay(keys, out, assets=None, machine="tandy", saves=(), args=(), shots=Tr
         for f in ([s] if s.is_file() else sorted(s.iterdir())):
             if f.is_file():
                 shutil.copyfile(f, save_dir / f.name.upper())
-    assets = pathlib.Path(assets or ROOT / "Assets")
+    assets = pathlib.Path(assets or ROOT / "COKAssets")
     cfg = out / "krynn.cfg"
     cfg.write_bytes(krynn_cfg(MACHINES[machine][1]).encode())
     result = subprocess.run(
@@ -1177,7 +1177,7 @@ def selftest(args):
     shows first, and the menu, with eclplay's frames."""
     work = pathlib.Path(args.workdir or tempfile.mkdtemp(prefix="cokbox-selftest-"))
     work.mkdir(parents=True, exist_ok=True)
-    assets = pathlib.Path(args.assets or ROOT / "Assets")
+    assets = pathlib.Path(args.assets or ROOT / "COKAssets")
     if not (ROOT / "build/eclplay").exists():
         raise BoxError("build/eclplay is missing: run make first")
     # eclplay's shots at its key reads: the title's flush reading the key that

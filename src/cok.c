@@ -145,7 +145,7 @@ static void usage(const char *program)
     fprintf(stderr,
             "Usage: %s [options]\n"
             "Play Champions of Krynn in a window, from the title.\n"
-            "  --assets DIR    the game's DAX files (default Assets)\n"
+            "  --assets DIR    the game's DAX files (default COKAssets)\n"
             "  --saves DIR     the roster and saved games (default saves, created if\n"
             "                  missing); point it at a copy of SAVE/ to play the\n"
             "                  original's games\n"
@@ -1418,7 +1418,7 @@ int main(int argc, char **argv)
     f.owed = -1;
     f.crt = true;
     f.screenshots = "screenshots";
-    const char *assets = "Assets", *saves = "saves", *keys = NULL, *config_option = NULL;
+    const char *assets = "COKAssets", *saves = "saves", *keys = NULL, *config_option = NULL;
     unsigned long scale = 3, seed = 0;
     bool seeded = false, woof = false, helm = false, fullscreen = false, sounding = true;
     cok_sound_device device = COK_SOUND_TANDY;

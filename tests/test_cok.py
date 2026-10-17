@@ -16,7 +16,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 COK = ROOT / "build/cok"
 ECLPLAY = ROOT / "build/eclplay"
-ASSETS = ROOT / "Assets"
+ASSETS = ROOT / "COKAssets"
 
 # Where SDL's dummy driver saves the frames cok presents
 # (SDL_VIDEO_DUMMY_SAVE_FRAMES): it writes each in the present itself, so

@@ -682,7 +682,7 @@ def cok_frames(out, keys, saves=None, seed=None, helm=False, machine="tandy", ti
             shutil.copyfile(f, out / "saves" / f.name)
     cfg = out / "krynn.cfg"
     cfg.write_bytes(cokbox.krynn_cfg(cokbox.MACHINES[machine][1]).encode())
-    args = [str(cokbox.COK), "--assets", str(cokbox.ROOT / "Assets"),
+    args = [str(cokbox.COK), "--assets", str(cokbox.ROOT / "COKAssets"),
             "--saves", str(out / "saves"), "--config", str(cfg), "--aspect", "1:1",
             "--scale", "1", "--input", "none", "--no-sound", "--keys", keys]
     if seed is not None:

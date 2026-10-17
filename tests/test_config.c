@@ -79,7 +79,7 @@ static void test_sound(void)
 static void test_files(void)
 {
     cok_config config = {.display = COK_DISPLAY_TANDY, .sound = COK_SOUND_NONE};
-    CHECK(cok_config_read("Assets", &config));
+    CHECK(cok_config_read("COKAssets", &config));
     CHECK(config.display == COK_DISPLAY_EGA && config.sound == COK_SOUND_TANDY);
     char dir[] = "/tmp/cok-config-XXXXXX";
     CHECK(mkdtemp(dir) != NULL);

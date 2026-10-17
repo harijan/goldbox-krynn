@@ -98,7 +98,7 @@ static void open_game(void)
     cok_adventure_hooks hooks = {.log = log_line, .unported = unported,
                                  .battlefield = battlefield, .flush = counted,
                                  .delay = delayed, .context = &s};
-    CHECK(cok_adventure_open(&game, "Assets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
     adventure_say = game.effects.say;
     game.effects.say = say;
     game.effects.context = &s;

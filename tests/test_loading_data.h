@@ -2,7 +2,7 @@
  * case run by the original's small picture loader (6961:00e4) or ECL block
  * loader (3775:0361) in an 8086 emulator, in the Tandy mode, with its DAX
  * record read (169c:088e), flush (1614:045c) and key (1614:025b) replaced
- * by traps serving Assets' records and digesting the screen. A case is
+ * by traps serving COKAssets' records and digesting the screen. A case is
  * KIND FILE ANIMATION FIRST ID: pic, sprite or ecl, the ECL file
  * (DS:5782), DS:4b4f, the loads made before ('-' for none, else KIND:ID
  * joined by +) and the record; after those, row 24 gets "Row 24 was here

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Merge START.EXE and GAME.OVR into one plain EXE for disassembly (stdlib only).
 
-START.EXE is EXEPACK-compressed and calls GAME.OVR through Turbo Pascal
+START.EXE (EXEPACK-compressed, or a plain MZ) calls GAME.OVR through Turbo Pascal
 overlay stubs: one INT 3Fh segment per overlaid code segment, holding the
 segment's place in GAME.OVR and a 5-byte entry per exported routine.  This
 tool unpacks the root image, appends every overlay segment above the
@@ -74,6 +74,21 @@ def unexepack(exe):
     return bytes(buf), (cs, ip, ss, sp), relocs, (memory + 15) // 16
 
 
+def load(exe):
+    """Return what unexepack does, for an EXEPACK file or a plain MZ one."""
+    if exe[:2] != b"MZ":
+        raise FormatError("not an MZ executable")
+    last, pages, count, header_paras, min_alloc, _, ss, sp, _, ip, cs, table = struct.unpack_from("<12H", exe, 2)
+    head = header_paras * 16 + cs * 16
+    if exe[head + 14:head + 16] == b"RB" or exe[head + 16:head + 18] == b"RB":
+        return unexepack(exe)
+    end = (pages - 1) * 512 + (last or 512)
+    image = exe[header_paras * 16:end]
+    relocs = [(seg, off) for off, seg in struct.iter_unpack("<HH", exe[table:table + 4 * count])]
+    memory = max(len(image) + min_alloc * 16, ss * 16 + sp)
+    return image, (cs, ip, ss, sp), relocs, (memory + 15) // 16
+
+
 def find_stubs(image, ovr):
     """Return [(stub_seg, file_offset, code_size, fixup_size, entry_offsets)] in GAME.OVR order."""
     if ovr[:4] != b"FBOV" or struct.unpack_from("<I", ovr, 4)[0] != len(ovr) - 8:
@@ -107,7 +122,7 @@ def find_stubs(image, ovr):
 
 def merge(exe, ovr):
     """Return (merged EXE bytes, map text)."""
-    image, (cs, ip, ss, sp), relocs, memory_paras = unexepack(exe)
+    image, (cs, ip, ss, sp), relocs, memory_paras = load(exe)
     stubs = find_stubs(image, ovr)
     out = bytearray(image) + bytes(memory_paras * 16 - len(image))
     lines = [

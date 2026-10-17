@@ -1617,8 +1617,8 @@ int main(void)
     cok_keyboard k = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .delay = on_delay, .flush = on_flush,
                                  .context = &s};
-    if (!cok_adventure_open(&game, "Assets", &k, &hooks)) {
-        puts("command: Assets not found; tests skipped");
+    if (!cok_adventure_open(&game, "COKAssets", &k, &hooks)) {
+        puts("command: COKAssets not found; tests skipped");
         return 0;
     }
     load_screen();

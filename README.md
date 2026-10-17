@@ -24,7 +24,7 @@ included here.
 
 - **The game's files.** Copy everything from your DOS *Champions of
   Krynn* directory (the `.DAX` files, `ITEMS` and the rest) into a folder
-  named `Assets` in this project. Keep their names in capitals, as
+  named `COKAssets` in this project. Keep their names in capitals, as
   shipped. Any saved games you have from the original can go in `SAVE`
   (see [Saved games](#saved-games)).
 - **A C compiler, Make and SDL2** (2.0.18 or later), found through
@@ -55,7 +55,7 @@ tools as well, and `make test` runs the test suite.
 ./build/cok
 ```
 
-Run it from the project directory, so it finds `Assets`.
+Run it from the project directory, so it finds `COKAssets`.
 
 **The first time**, the original's setup screen asks four questions,
 answered with a number key:
@@ -71,7 +71,7 @@ answered with a number key:
    `saves/`.
 
 Your answers go into `saves/KRYNN.CFG`. To be asked again, delete that
-file. If your `Assets` folder already has a `KRYNN.CFG` from the
+file. If your `COKAssets` folder already has a `KRYNN.CFG` from the
 original installation, the game uses it and skips the setup. Any of
 these choices can also be changed for one run with an option (see
 [Options](#options)).
@@ -139,7 +139,7 @@ also go back the other way.
 | `--volume N` | 0 to 100 |
 | `--input mouse`, `joystick` or `none` | mouse, joystick or keyboard only for this run |
 | `--saves DIR` | keep the roster and saved games in DIR instead of `saves/` |
-| `--assets DIR` | find the game's files in DIR instead of `Assets/` |
+| `--assets DIR` | find the game's files in DIR instead of `COKAssets/` |
 | `--screenshots DIR` | where F12 saves screenshots |
 
 ## Troubleshooting
@@ -156,7 +156,7 @@ also go back the other way.
   report it with that message, and with a saved game from just before if
   you have one.
 - **The setup didn't appear, or I want to change my answers:** delete
-  `saves/KRYNN.CFG` (and `Assets/KRYNN.CFG` if there is one), or use the
+  `saves/KRYNN.CFG` (and `COKAssets/KRYNN.CFG` if there is one), or use the
   options above.
 
 ## How faithful is it?

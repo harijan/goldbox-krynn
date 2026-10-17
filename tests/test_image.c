@@ -71,7 +71,7 @@ static void test_title(void)
 {
     dax_archive archive = {0};
     dax_record record;
-    CHECK(dax_open("Assets/TITLE.DAX", &archive) == DAX_OK);
+    CHECK(dax_open("COKAssets/TITLE.DAX", &archive) == DAX_OK);
     for (size_t i = 0; i < archive.count; ++i) {
         CHECK(dax_record_at(&archive, i, &record) == DAX_OK);
         uint8_t *data = malloc(record.decoded_size);
