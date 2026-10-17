@@ -20,7 +20,7 @@ static cok_character *member(void)
     c->record[0x189] = 1;
     c->record[0x18d] = 55;
     memset(c->record + 0xd0, 15, 5);
-    CHECK(cok_party_add(&party, c));
+    CHECK(cok_party_add(&party, &cok_rules_champions, c));
     return c;
 }
 
@@ -31,7 +31,7 @@ static void reset(void)
     cok_effects_free(&fx);
     memset(&vm, 0, sizeof vm);
     vm.mode = 4;
-    cok_effects_init(&fx, &vm, &party, &types);
+    cok_effects_init(&fx, &cok_rules_champions, &vm, &party, &types);
 }
 
 static cok_effect *add(cok_character *c, uint8_t id, uint16_t duration, uint8_t value, bool on_remove)
@@ -204,7 +204,7 @@ static void test_hammer(void)
     c->items[1][0x31] = 0x79;
     c->items[1][0x34] = 1;
     char error[200];
-    CHECK(cok_character_stats(c, &types, error, sizeof error));
+    CHECK(cok_character_stats(c, &cok_rules_champions, &types, error, sizeof error));
     CHECK(c->slots[0] == 2 && c->record[0x193] == 4 && c->record[0x142] == 2);
     add(c, 0x17, 0, 0, true);
     CHECK(cok_effects_remove(&fx, c, NULL, 0x17));
@@ -248,14 +248,14 @@ static void ready(cok_character *c, uint8_t type, int bonus)
     item[0x34] = 1;
     item[0x32] = (uint8_t)bonus;
     char error[200];
-    CHECK(cok_character_stats(c, &types, error, sizeof error));
+    CHECK(cok_character_stats(c, &cok_rules_champions, &types, error, sizeof error));
 }
 
 static void unready_all(cok_character *c)
 {
     c->item_count = 0;
     char error[200];
-    CHECK(cok_character_stats(c, &types, error, sizeof error));
+    CHECK(cok_character_stats(c, &cok_rules_champions, &types, error, sizeof error));
 }
 
 /* Damage to c (event 5) from the selected character's weapon. */
@@ -1126,7 +1126,7 @@ static void test_saved(void)
             return;
         }
         CHECK(strcmp(ids(chars[i]), saved[i].ids) == 0);
-        CHECK(cok_party_add(&party, chars[i]));
+        CHECK(cok_party_add(&party, &cok_rules_champions, chars[i]));
     }
     cok_character *molly = chars[1], *roark = chars[2];
     for (const cok_effect *e = molly->effects; e != NULL; e = e->next)

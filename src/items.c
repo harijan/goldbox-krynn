@@ -439,19 +439,22 @@ static bool effect_failed(cok_adventure *game)
 static bool recompute(cok_adventure *game, cok_character *c)
 {
     char error[300];
-    if (cok_character_stats(c, &game->item_types, error, sizeof error)) return true;
+    if (cok_character_stats(c, cok_game_rules(game), &game->item_types, error, sizeof error))
+        return true;
     return undefined(game, error);
 }
 
 void cok_item_draw_name(cok_adventure *game, const uint8_t *c, int x, int y, bool possessive)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     char name[20];
-    size_t length = c[0] > 15 ? 15 : c[0];
-    memcpy(name, c + 1, length);
+    uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
+    size_t length = stored > 15 ? 15 : stored;
+    memcpy(name, c + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
     snprintf(name + length, sizeof name - length, "%s", possessive ? "'s" : "");
-    uint8_t color = c[0x189] == 0                         ? 12
-                    : game->vm.mode == 5 && c[0x18a] == 1 ? 14
-                                                          : 11;
+    uint8_t color = cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0                         ? 12
+                    : game->vm.mode == 5 && cok_field_u8(L, c, COK_FIELD_HOSTILE) == 1 ? 14
+                                                                                       : 11;
     cok_text_string(&game->screen, &game->font, name, x, y, color, 0);
 }
 
@@ -519,6 +522,7 @@ bool cok_item_unready(cok_adventure *game, uint8_t *item)
 /* Ready or unready item index (546c:1ea7). */
 bool cok_item_ready(cok_adventure *game, cok_character *character, size_t index)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record, *item = character->items[index];
     bool has_power = item[0x3e] > 0x7f;
     if (item[0x34] != 0) {
@@ -534,13 +538,14 @@ bool cok_item_ready(cok_adventure *game, cok_character *character, size_t index)
     const uint8_t *type = game->item_types.type[item[0x2e]];
     int error = 0;
     unsigned slot = type[0];
-    if (c[0x17b] + type[1] > 2) error = 3;
+    if (cok_field_u8(L, c, COK_FIELD_HANDS) + type[1] > 2) error = 3;
     if (slot <= 8 && character->slots[slot] != 0) error = 2;
     if (slot == 9 && character->slots[10] != 0) error = 2;
+    uint8_t order = cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER);
     if (item[0x2e] == 0x27 &&
-        !(c[0x5e] == 1 && (item[0x35] & 0x20) != 0) && !(c[0x5e] == 2 && (item[0x35] & 0x10) != 0))
+        !(order == 1 && (item[0x35] & 0x20) != 0) && !(order == 2 && (item[0x35] & 0x10) != 0))
         error = 4;
-    if (item[0x2e] == 0x43 && c[0x5a] != 5) error = 5;
+    if (item[0x2e] == 0x43 && cok_field_u8(L, c, COK_FIELD_RACE) != 5) error = 5;
     if (item[0x2e] == 0x1e && character->slots[11] != 0) {
         error = 2;
         slot = 11;
@@ -549,7 +554,7 @@ bool cok_item_ready(cok_adventure *game, cok_character *character, size_t index)
         error = 2;
         slot = 12;
     }
-    if ((type[13] & c[0x11a]) == 0) error = 1;
+    if ((type[13] & cok_field_u8(L, c, COK_FIELD_USABLE_CLASSES)) == 0) error = 1;
     switch (error) {
     case 0:
         item[0x34] = 1;
@@ -566,7 +571,8 @@ bool cok_item_ready(cok_adventure *game, cok_character *character, size_t index)
         return true;
     }
     case 3:
-        if (game->vm.mode != 5 || c[0x18b] == 0) cok_camp_notice(game, "Your hands are full!");
+        if (game->vm.mode != 5 || cok_field_u8(L, c, COK_FIELD_COMPUTER) == 0)
+            cok_camp_notice(game, "Your hands are full!");
         return true;
     case 4: cok_camp_notice(game, "Wrong Magical Order"); return true;
     default: cok_camp_notice(game, "Usable Only By Kender"); return true;
@@ -586,7 +592,8 @@ static int may_part(cok_adventure *game, const uint8_t *c, const uint8_t *item)
         ok = 1;
     } else {
         cok_item_draw_name(game, c, 1, 0x15, false);
-        game->vm.cursor = (cok_text_cursor){c[0] + 2, 0x15};
+        game->vm.cursor = (cok_text_cursor){
+            cok_field_u8_at(cok_game_rules(game)->character, c, COK_FIELD_NAME, 0) + 2, 0x15};
         print_low(game, " was going to scribe from that scroll", false);
         int answer = cok_camp_yes_no(game, "is it Okay to lose it? ", 13);
         if (answer < 0) return -1;
@@ -599,17 +606,18 @@ static int may_part(cok_adventure *game, const uint8_t *c, const uint8_t *item)
 int cok_item_overloaded(cok_adventure *game, cok_character *who, const uint8_t *item)
 {
     if (!recompute(game, who)) return -1;
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *r = who->record;
-    bool over = r[0x142] > 15;
+    bool over = cok_field_u8(L, r, COK_FIELD_ITEM_COUNT) > 15;
     uint16_t weight = (uint16_t)(item[0x37] | item[0x38] << 8);
     if (item[0x39] > 0) weight = (uint16_t)(weight * item[0x39]);
     int16_t allowance;
     char error[300];
-    if (!cok_character_allowance(r, &allowance, error, sizeof error)) {
+    if (!cok_character_allowance(r, cok_game_rules(game), &allowance, error, sizeof error)) {
         undefined(game, error);
         return -1;
     }
-    uint16_t carried = (uint16_t)((r[0x17d] | r[0x17e] << 8) + weight);
+    uint16_t carried = (uint16_t)(cok_field_u16(L, r, COK_FIELD_WEIGHT) + weight);
     if ((int32_t)carried > (int32_t)(int16_t)(allowance + 1500)) over = true;
     return over;
 }
@@ -706,14 +714,14 @@ static int drop(cok_adventure *game, cok_character *c, size_t index)
     return answer == 'Y';
 }
 
-/* The first class of a human with a level, from base (66c2:0df3 for the
+/* The first class of a human with a level, in levels (66c2:0df3 for the
  * former levels +0x101, 66c2:0e4f for +0xf9), or 0x11 if none. */
-static uint8_t first_class(const uint8_t *c, size_t base)
+static uint8_t first_class(const cok_character_layout *L, const uint8_t *c, cok_field levels)
 {
-    if (c[0x5a] != 6) return 0x11;
+    if (cok_field_u8(L, c, COK_FIELD_RACE) != 6) return 0x11;
     uint8_t i = 0;
-    while (i < 7 && c[base + i] == 0) ++i;
-    return (int8_t)c[base + i] > 0 ? i : 0x11;
+    while (i < 7 && cok_field_u8_at(L, c, levels, i) == 0) ++i;
+    return cok_field_s8_at(L, c, levels, i) > 0 ? i : 0x11;
 }
 
 /* Use (546c:24d7): a scroll's spell picked from it, or an item's spell
@@ -724,6 +732,7 @@ static uint8_t first_class(const uint8_t *c, size_t base)
  * An item whose spell is 0 leaves DS:711d set. */
 bool cok_item_use(cok_adventure *game, cok_character *character, size_t index, bool *done)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record, *item = character->items[index];
     cok_rolls *r = &game->effects.rolls;
     r->item = 0;
@@ -741,7 +750,8 @@ bool cok_item_use(cok_adventure *game, cok_character *character, size_t index, b
         return true;
     }
     bool combat = game->vm.mode == 5;
-    if (combat && c[0x18b] == 0 && !cok_arena_redraw(game)) return false; /* 6346:300f */
+    if (combat && cok_field_u8(L, c, COK_FIELD_COMPUTER) == 0 && !cok_arena_redraw(game))
+        return false; /* 6346:300f */
     if (r->item != 0) {
         if (!cok_arena_say(game, character, "uses an item", 10, false)) return false;
         if (combat) {
@@ -757,10 +767,12 @@ bool cok_item_use(cok_adventure *game, cok_character *character, size_t index, b
     r->item = 1;
     bool cast = true;
     if (scroll) {
-        uint8_t before = first_class(c, 0x101), now = first_class(c, 0xf9);
-        cast = before == 5 || now == 5 || before == 0 || now == 0 || (int8_t)c[0xfe] > 0 ||
-               (int8_t)c[0xf9] > 0;
-        if (!cast && (int8_t)c[0xff] > 9) {
+        uint8_t before = first_class(L, c, COK_FIELD_FORMER_LEVEL),
+                now = first_class(L, c, COK_FIELD_CLASS_LEVEL);
+        cast = before == 5 || now == 5 || before == 0 || now == 0 ||
+               cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) > 0 ||
+               cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0) > 0;
+        if (!cast && cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 6) > 9) {
             uint8_t d100 = cok_dice(&game->vm.seed, 1, 100); /* 546c:26ac */
             cast = d100 <= 75;
         }
@@ -771,7 +783,9 @@ bool cok_item_use(cok_adventure *game, cok_character *character, size_t index, b
     /* The cast may take items away (Dispel Magic ending Spiritual Hammer)
      * or add them; the original holds the item by its pointer. */
     character->held = index + 1;
-    if (cast) cok_cast_spell(game, (uint8_t)spell, c[0x18b] != 0, false, 0, done);
+    if (cast)
+        cok_cast_spell(game, (uint8_t)spell, cok_field_u8(L, c, COK_FIELD_COMPUTER) != 0, false, 0,
+                       done);
     size_t held = character->held;
     character->held = 0;
     if (game->vm.abort) return false;
@@ -837,7 +851,8 @@ static int sell(cok_adventure *game, cok_character *character, size_t index)
         bool full;
         uint16_t fits;
         if (!cok_pool_overloaded(game, c, price, &full, &fits)) return -1;
-        uint16_t steel = (uint16_t)(c[0xf3] | c[0xf4] << 8);
+        const cok_character_layout *L = cok_game_rules(game)->character;
+        uint16_t steel = cok_field_u16_at(L, c, COK_FIELD_COINS, 4);
         if (full) {
             /* No pause, and the coins' weight is left to the recompute. */
             cok_camp_notice(game, "Overloaded.  Money will be put in pool.");
@@ -850,8 +865,7 @@ static int sell(cok_adventure *game, cok_character *character, size_t index)
         } else {
             steel = (uint16_t)(steel + price);
         }
-        c[0xf3] = (uint8_t)steel;
-        c[0xf4] = (uint8_t)(steel >> 8);
+        cok_field_set16_at(L, c, COK_FIELD_COINS, 4, steel);
         snprintf(text, sizeof text, "sold for %u steel", price);
         cok_adventure_log(game, "shop", text);
     }
@@ -916,27 +930,31 @@ void cok_items(cok_adventure *game, bool *done)
         undefined(game, "Items with no character selected reads through NULL (546c:17f9)");
         return;
     }
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
     int key = ' ', index = 0;
     bool redraw = true, header = true;
     static char text[256][41];
     cok_menu_row rows[256];
-    while (key != 0 && key != 'E' && !*done && c[0x142] > 0 && !game->vm.abort) {
-        uint8_t count = c[0x142];
+    while (key != 0 && key != 'E' && !*done && cok_field_u8(L, c, COK_FIELD_ITEM_COUNT) > 0 &&
+           !game->vm.abort) {
+        uint8_t count = cok_field_u8(L, c, COK_FIELD_ITEM_COUNT);
         if (character->item_count == 0)
             undefined(game, "an item count with no items loops forever (546c:1878)");
         if (game->vm.abort) return;
         /* 546c:187b: View first while the debug flag (DS:4b51) is set. */
         char items[41];
         snprintf(items, sizeof items, "%s", game->debug ? "View Ready" : "Ready");
-        if (c[0x189] != 0 && game->vm.mem4b00[0xe5] == 0 &&
+        if (cok_field_u8(L, c, COK_FIELD_ACTIVE) != 0 && game->vm.mem4b00[0xe5] == 0 &&
             (game->vm.mode == 2 || game->vm.mode == 3 || game->vm.mode == 4 ||
              (game->vm.mode == 5 && cok_character_combat(character)->may_use != 0)))
             join(items, " Use");
-        bool may_trade = c[0xe7] < 0x80 || c[0x189] == 0 || c[0x188] == 1;
+        bool may_trade = cok_field_u8(L, c, COK_FIELD_NPC) < 0x80 ||
+                         cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0 ||
+                         cok_field_u8(L, c, COK_FIELD_STATUS) == 1;
         if (may_trade && game->vm.mode != 5) join(items, " Trade");
         join(items, " Drop");
-        if (c[0x142] < 16) join(items, " Halve");
+        if (cok_field_u8(L, c, COK_FIELD_ITEM_COUNT) < 16) join(items, " Halve");
         join(items, " Join");
         if (may_trade && game->vm.mode == 1) join(items, " Sell");
         if (game->vm.mode == 1) join(items, " Id");
@@ -950,7 +968,8 @@ void cok_items(cok_adventure *game, bool *done)
             for (size_t i = 0; i < 3; ++i) moons[i] = game->vm.mem4b00[0x1f9 + i];
             cok_screen_list(&game->screen, &game->view.tiles[4], moons);
             cok_item_draw_name(game, c, 1, 1, true);
-            cok_text_string(&game->screen, &game->font, "Items", c[0] + 4, 1, 10, 0);
+            cok_text_string(&game->screen, &game->font, "Items",
+                            cok_field_u8_at(L, c, COK_FIELD_NAME, 0) + 4, 1, 10, 0);
             cok_text_string(&game->screen, &game->font, "Ready Item", 1, 3, 15, 0);
             redraw = true;
             header = false;
@@ -1016,6 +1035,6 @@ void cok_items(cok_adventure *game, bool *done)
             if (ok <= 0 || game->vm.abort) return;
         }
         if (!recompute(game, character)) return;
-        if (c[0x142] != count) redraw = true;
+        if (cok_field_u8(L, c, COK_FIELD_ITEM_COUNT) != count) redraw = true;
     }
 }

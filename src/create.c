@@ -209,7 +209,8 @@ static int class_(cok_adventure *game, cok_character *character)
     char error[300];
     /* 66c2:0b9f's uninitialized local holds the normal colour, 0x0a, that
      * the class list's 67b5:1368 was given (4def:0ee7). Dexterity is 0. */
-    if ((int8_t)c[0xff] > 0 && !cok_character_thief_skills(character, 0x0a, error, sizeof error))
+    if ((int8_t)c[0xff] > 0 &&
+        !cok_character_thief_skills(character, cok_game_rules(game), 0x0a, error, sizeof error))
         return undefined(game, error) ? 0 : -1;
     c[0x11a] = 0;
     c[0x59] = 0;
@@ -220,7 +221,7 @@ static int class_(cok_adventure *game, cok_character *character)
         if (thac0 > c[0x59]) c[0x59] = thac0;
         c[0x11a] = (uint8_t)(c[0x11a] + ds((uint16_t)(0x38ea + i)));
     }
-    if (!cok_character_saving_throws(character, error, sizeof error))
+    if (!cok_character_saving_throws(character, cok_game_rules(game), error, sizeof error))
         return undefined(game, error) ? 0 : -1;
     return key;
 }
@@ -409,7 +410,7 @@ static bool equip(cok_adventure *game, cok_character *character, uint8_t *classe
         } else if (i == 0) {
             money = (uint8_t)(money + cok_dice(seed, 3, 6));
             char error[300];
-            if (!cok_character_cleric_spells(character, error, sizeof error))
+            if (!cok_character_cleric_spells(character, cok_game_rules(game), error, sizeof error))
                 return undefined(game, error);
             uint8_t spell = 0xff;
             for (unsigned k = 1; k <= 10 && spell != 0; ++k) {

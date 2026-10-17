@@ -232,7 +232,7 @@ static bool carry(cok_adventure *game, const uint8_t *c, uint16_t *out)
 {
     int16_t allowance;
     char error[300];
-    if (!cok_character_allowance(c, &allowance, error, sizeof error)) {
+    if (!cok_character_allowance(c, cok_game_rules(game), &allowance, error, sizeof error)) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
         return false;
     }
@@ -622,7 +622,7 @@ bool cok_treasure_take_item(cok_adventure *game, const uint8_t *item, bool *fail
     if (!cok_character_insert_item(c, c->item_count, item))
         return undefined(game, "out of memory");
     char error[300];
-    if (!cok_character_stats(c, &game->item_types, error, sizeof error))
+    if (!cok_character_stats(c, cok_game_rules(game), &game->item_types, error, sizeof error))
         return undefined(game, error);
     return true;
 }
@@ -1254,8 +1254,8 @@ void cok_treasure_end_of_combat(cok_adventure *game)
     vm->mode = 6;
     if (!remove_enemies(game, &result) || game->demo) return;
     for (size_t i = 0; i < game->party.count; ++i) {
-        if (cok_character_stats(game->party.members[i], &game->item_types, game->error,
-                                sizeof game->error))
+        if (cok_character_stats(game->party.members[i], cok_game_rules(game), &game->item_types,
+                                game->error, sizeof game->error))
             continue;
         cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", game->error);
         return;

@@ -1,6 +1,7 @@
 #ifndef COK_ECL_H
 #define COK_ECL_H
 
+#include "field.h"
 #include "text.h"
 
 #include <stdbool.h>
@@ -21,7 +22,6 @@ enum {
     COK_ECL_MAX_OPERANDS = 64,  /* Operand arrays, DS:736e/73ae/73ee. */
     COK_ECL_MAX_STRINGS = 32,   /* String slots from DS:7430, 256 bytes each. */
     COK_ECL_MAX_CALLS = 256,    /* GOSUB depth; the original's list is unbounded. */
-    COK_CHARACTER_SIZE = 0x199,
 };
 
 typedef enum {

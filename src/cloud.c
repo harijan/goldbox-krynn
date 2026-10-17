@@ -353,7 +353,7 @@ bool cok_cloud_drain(cok_adventure *game, cok_character *c, const cok_effect *ef
  * cloud of caster's. */
 static bool dispelled(cok_adventure *game, const uint8_t *caster, uint8_t level)
 {
-    int former = cok_character_former_class(game->vm.character) ? 1 : 0;
+    int former = cok_character_former_class(game->vm.character, cok_game_rules(game)) ? 1 : 0;
     uint8_t of = (uint8_t)(former * (int8_t)caster[0x106] + (int8_t)caster[0xfe]);
     uint8_t chance = 50;
     if (level > of)

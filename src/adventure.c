@@ -936,7 +936,7 @@ void cok_adventure_party(cok_adventure *game)
     game->party_right = 0x26;
     game->party_top = 4;
     game->party_bottom = (uint8_t)(3 + game->party.count);
-    cok_party_draw(&game->screen, &game->font, &game->party, vm->character,
+    cok_party_draw(&game->screen, &game->font, &game->party, cok_game_rules(game), vm->character,
                    vm->mode == 0 ? 1 : 0x11, vm->mode == 5);
 }
 
@@ -984,7 +984,8 @@ static uint16_t character_value(cok_ecl *vm, uint16_t address, void *context)
 {
     cok_adventure *game = context;
     if (address == 0x7cc9)
-        return vm->character != NULL && cok_character_former_class(vm->character);
+        return vm->character != NULL &&
+               cok_character_former_class(vm->character, cok_game_rules(game));
     return (uint8_t)cok_party_index(&game->party, vm->character); /* 0x7eb1, 0x7eb4 */
 }
 
@@ -1252,7 +1253,7 @@ static void apply_damage(cok_adventure *game, uint8_t *c, uint16_t damage)
     print_text(game, text, 15, clear);
     /* The original passes the damage as a byte, so the message can say
      * "dies" for 256 or more while the character takes less. */
-    cok_character_damage(c, (uint8_t)damage);
+    cok_character_damage(c, cok_game_rules(game), (uint8_t)damage);
     cok_picture_fill(&game->screen, 0x11, 8, 0x26 - 0x11 + 1, 15 * 8, 0); /* 1521:0b60 */
     cok_adventure_party(game);
 }
@@ -1523,7 +1524,7 @@ static void destroy_items(cok_adventure *game)
             cok_character_remove_item(c, i);
         }
         char error[300];
-        if (!cok_character_stats(c, &game->item_types, error, sizeof error)) {
+        if (!cok_character_stats(c, cok_game_rules(game), &game->item_types, error, sizeof error)) {
             cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
             return;
         }
@@ -1616,7 +1617,7 @@ static bool join_npc(cok_adventure *game, uint8_t id)
         return false;
     }
     npc->record[0x115] = id;
-    if (!cok_party_add(&game->party, npc)) {
+    if (!cok_party_add(&game->party, cok_game_rules(game), npc)) {
         cok_character_free(npc);
         free(npc);
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
@@ -1628,7 +1629,7 @@ static bool join_npc(cok_adventure *game, uint8_t id)
     ++vm->mem7c00[0x33e];
     char error[300];
     if (npc->record[0xe7] >= 0x80 &&
-        !cok_character_levels(npc, &game->item_types, error, sizeof error)) {
+        !cok_character_levels(npc, cok_game_rules(game), &game->item_types, error, sizeof error)) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
         return false;
     }
@@ -1658,7 +1659,7 @@ static void add_npc(cok_adventure *game)
     }
     c->record[0xe7] = (uint8_t)((uint8_t)cok_ecl_value(vm, 1) >> 1 | 0x80);
     char error[300];
-    if (!cok_character_stats(c, &game->item_types, error, sizeof error)) {
+    if (!cok_character_stats(c, cok_game_rules(game), &game->item_types, error, sizeof error)) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
         return;
     }
@@ -2125,7 +2126,8 @@ bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, con
                               .executed = executed, .character_value = character_value,
                               .context = game};
     cok_ecl_init(&game->vm, &vm_hooks);
-    cok_effects_init(&game->effects, &game->vm, &game->party, &game->item_types);
+    cok_effects_init(&game->effects, cok_game_rules(game), &game->vm, &game->party,
+                     &game->item_types);
     game->effects.say = effect_say;
     game->effects.log = effect_log;
     game->effects.in_range = effect_in_range;
@@ -2290,7 +2292,7 @@ static bool add_characters(cok_adventure *game, const cok_saved_game *saved, con
             return false;
         }
         cok_adventure_flush(game); /* 4b6d:15ce, in 11e5 before the recompute */
-        if (!cok_party_add(&game->party, character)) {
+        if (!cok_party_add(&game->party, cok_game_rules(game), character)) {
             cok_character_free(character);
             free(character);
             fail(game, "%s: the party is full", file);
@@ -2298,7 +2300,8 @@ static bool add_characters(cok_adventure *game, const cok_saved_game *saved, con
         }
         /* 4b6d:1989 recomputes an NPC's levels once it has joined. */
         if (character->record[0xe7] >= 0x80 &&
-            !cok_character_levels(character, &game->item_types, game->error, sizeof game->error))
+            !cok_character_levels(character, cok_game_rules(game), &game->item_types, game->error,
+                                  sizeof game->error))
             return false;
         ++vm->mem7c00[0x33e];
     }
@@ -2925,7 +2928,8 @@ static bool has_class(cok_adventure *game, size_t class)
     for (size_t i = 0; i < game->party.count; ++i) {
         const uint8_t *c = game->party.members[i]->record;
         if ((int8_t)c[0xf9 + class] >= 1) return true;
-        if ((int8_t)c[0x101 + class] > 0 && cok_character_former_class(c)) return true;
+        if ((int8_t)c[0x101 + class] > 0 && cok_character_former_class(c, cok_game_rules(game)))
+            return true;
     }
     return false;
 }

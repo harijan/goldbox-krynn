@@ -149,7 +149,7 @@ static cok_character *record(char name, uint8_t side, int8_t x, int8_t y)
     CHECK(c->combat != NULL && cok_party_append(&game.party, c));
     c->combat->not_party = side;
     char why[300];
-    CHECK(cok_character_stats(c, &game.item_types, why, sizeof why));
+    CHECK(cok_character_stats(c, &cok_rules_champions, &game.item_types, why, sizeof why));
     r[0x18f] = 1; /* this round's attacks */
     r[0x190] = 0;
     c->combat->attack_slot = 2;
@@ -177,7 +177,7 @@ static size_t give(cok_character *c, uint8_t type, bool ready, uint8_t count)
     item[0x39] = count;
     CHECK(cok_character_insert_item(c, c->item_count, item));
     char why[300];
-    CHECK(cok_character_stats(c, &game.item_types, why, sizeof why));
+    CHECK(cok_character_stats(c, &cok_rules_champions, &game.item_types, why, sizeof why));
     c->record[0x18f] = 1;
     return c->item_count;
 }
@@ -319,7 +319,7 @@ static void test_backstab(void)
         CHECK(a->slots[0] != 0 && cok_combat_backstab(&game, a, m, &b) && b == weapons[k].stabs);
         cok_character_remove_item(a, a->item_count - 1);
         char why[300];
-        CHECK(cok_character_stats(a, &game.item_types, why, sizeof why));
+        CHECK(cok_character_stats(a, &cok_rules_champions, &game.item_types, why, sizeof why));
     }
     /* A square away only. */
     game.combat.combatant[2].x = 7;
@@ -950,7 +950,7 @@ static void test_opportunity(void)
     CHECK(cok_combat_opportunity(&game, a, 6) && !LOGGED("Attacks"));
     cok_character_remove_item(e, 0);
     char why[300];
-    CHECK(cok_character_stats(e, &game.item_types, why, sizeof why));
+    CHECK(cok_character_stats(e, &cok_rules_champions, &game.item_types, why, sizeof why));
     CHECK(cok_character_add_effect(e, 0x35, 0, 0, false) != NULL);
     CHECK(cok_combat_opportunity(&game, a, 6) && !LOGGED("Attacks"));
 }
@@ -1029,7 +1029,7 @@ static void test_weapons(void)
         CHECK(cok_combat_hoopak(a) == (kinds[k].type == 0x43));
         cok_character_remove_item(a, 0);
         char why[300];
-        CHECK(cok_character_stats(a, &game.item_types, why, sizeof why));
+        CHECK(cok_character_stats(a, &cok_rules_champions, &game.item_types, why, sizeof why));
     }
 }
 

@@ -72,7 +72,7 @@ int cok_magic_learn(cok_adventure *game, cok_character *character);
 
 /* Sort c's memorized spells by id, ignoring the mark, so that empty bytes
  * come first (4888:0fb2). */
-void cok_magic_sort(uint8_t *record);
+void cok_magic_sort(uint8_t *record, const cok_rules *rules);
 
 /* How many more spells of level and class c may memorize (4888:0700),
  * counting those memorized and marked, and set *count to the number it
@@ -82,7 +82,7 @@ void cok_magic_sort(uint8_t *record);
  * it is below 0, unknown, and this returns false. It also returns false
  * where a level or class past the spell table's would read a far pointer
  * of the record. */
-bool cok_magic_slots(const uint8_t *record, uint8_t level, uint8_t class_, int stale,
-                     uint8_t *left, uint8_t *count);
+bool cok_magic_slots(const uint8_t *record, const cok_rules *rules, uint8_t level, uint8_t class_,
+                     int stale, uint8_t *left, uint8_t *count);
 
 #endif

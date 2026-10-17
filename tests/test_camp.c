@@ -102,7 +102,7 @@ static cok_character *member(const char *name, uint8_t hp, uint8_t max, size_t c
 
 static cok_character *add(cok_character *c)
 {
-    CHECK(cok_party_add(&game.party, c));
+    CHECK(cok_party_add(&game.party, &cok_rules_champions, c));
     ++game.vm.mem7c00[0x33e];
     if (game.vm.character == NULL) game.vm.character = c->record;
     return c;
@@ -208,19 +208,21 @@ static void test_heal(void)
     r[0x62] = 255;
     r[0x197] = 255;
     /* Hit points add as a byte: 255 and 1 make 0. */
-    CHECK(cok_character_heal(r, 1, false, 2) && r[0x197] == 0);
-    CHECK(!cok_character_heal(r, 1, true, 2) || r[0x197] == 1);
+    CHECK(cok_character_heal(r, &cok_rules_champions, 1, false, 2) && r[0x197] == 0);
+    CHECK(!cok_character_heal(r, &cok_rules_champions, 1, true, 2) || r[0x197] == 1);
     /* An unconscious or dying character recovers outside combat. */
     r[0x62] = 10;
     r[0x197] = 0;
     r[0x188] = 5;
     r[0x189] = 0;
-    CHECK(cok_character_heal(r, 3, false, 2) && r[0x188] == 0 && r[0x189] == 1 && r[0x197] == 3);
+    CHECK(cok_character_heal(r, &cok_rules_champions, 3, false, 2) && r[0x188] == 0
+          && r[0x189] == 1 && r[0x197] == 3);
     r[0x188] = 5;
     r[0x189] = 0;
-    CHECK(cok_character_heal(r, 30, false, 5) && r[0x188] == 4 && r[0x197] == 10);
+    CHECK(cok_character_heal(r, &cok_rules_champions, 30, false, 5) && r[0x188] == 4
+          && r[0x197] == 10);
     r[0x188] = 6;
-    CHECK(!cok_character_heal(r, 1, false, 2));
+    CHECK(!cok_character_heal(r, &cok_rules_champions, 1, false, 2));
 }
 
 static void test_rest(void)
@@ -431,24 +433,25 @@ static void test_spells(void)
     r[0x1e] = 9;
     r[0x1f] = 0x80 | 3;
     r[0x20] = 3;
-    cok_magic_sort(r);
+    cok_magic_sort(r, &cok_rules_champions);
     CHECK(r[0x1e] == 0 && r[0x55] == 3 && r[0x56] == (0x80 | 3) && r[0x57] == 9);
     /* Slots: a day's spells less those memorized and marked. */
     r[0x11c] = 3;
     uint8_t left, count;
-    CHECK(cok_magic_slots(r, 1, 0, -1, &left, &count) && left == 1 && count == 2);
+    CHECK(cok_magic_slots(r, &cok_rules_champions, 1, 0, -1, &left, &count) && left == 1
+          && count == 2);
     /* Powers granted by a deity: 1, 3 for deity 4, 0 for deity 6, for a
      * cleric; without a cleric level the original reads an uninitialized
      * byte. */
-    CHECK(!cok_magic_slots(r, 0, 2, -1, &left, &count));
+    CHECK(!cok_magic_slots(r, &cok_rules_champions, 0, 2, -1, &left, &count));
     /* Memorize's call finds the low byte of its 34ec call's return, 0x71. */
     r[0x1e] = 101;
-    CHECK(cok_magic_slots(r, 0, 2, 0x71, &left, &count) && left == 0x70);
+    CHECK(cok_magic_slots(r, &cok_rules_champions, 0, 2, 0x71, &left, &count) && left == 0x70);
     r[0x1e] = 9;
     r[0xf9] = 1;
     r[0x5d] = 4;
     r[0x1e] = 101;
-    CHECK(cok_magic_slots(r, 0, 2, -1, &left, &count) && left == 2);
+    CHECK(cok_magic_slots(r, &cok_rules_champions, 0, 2, -1, &left, &count) && left == 2);
 }
 
 /* Game words, files and keys for the camp. */
@@ -722,6 +725,21 @@ static void test_magic(void)
                         "item:   Protection From Evil 10' Radius;choice: 101;") != NULL);
     CHECK(strstr(s.log, "list: Spells to Memorize;heading: Special;"
                         "item:  *Protection From Evil 10' Radius;") != NULL);
+    /* A granted power memorized keeps it out of the grimoire, but 5b04:001e
+     * looks from the second byte on: with all 58 bytes full, one in the
+     * first is not seen, and the grimoire still lists it. */
+    knight->record[0x1e] = 101;
+    memset(knight->record + 0x1f, 1, 0x39);
+    keys("mm\x1b\x1b");
+    CHECK(!cok_camp(&game));
+    CHECK(strstr(s.log, "list: Spells in Grimoire;heading: Special;"
+                        "item:   Protection From Evil 10' Radius;") != NULL);
+    knight->record[0x1f] = 101;
+    knight->record[0x1e] = 1;
+    keys("mm\x1b\x1b");
+    CHECK(!cok_camp(&game));
+    CHECK(strstr(s.log, "Protection From Evil 10' Radius") == NULL);
+    memset(knight->record + 0x1e, 0, 0x3a);
     knight->record[0x11c] = 0;
 
     /* Scribe: a magic-user of order 1 with a scroll of Shield marks the

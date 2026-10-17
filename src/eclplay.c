@@ -608,9 +608,11 @@ static bool test_party(cok_adventure *game, unsigned long count)
             r[0x62 + 0x22] = 1;
             r[0x1e] = 0x22;
         }
-        bool ok = cok_character_stats(c, &game->item_types, game->error, sizeof game->error) &&
-                  cok_character_levels(c, &game->item_types, game->error, sizeof game->error);
-        if (ok && !cok_party_add(&game->party, c)) {
+        bool ok = cok_character_stats(c, cok_game_rules(game), &game->item_types, game->error,
+                                      sizeof game->error) &&
+                  cok_character_levels(c, cok_game_rules(game), &game->item_types, game->error,
+                                       sizeof game->error);
+        if (ok && !cok_party_add(&game->party, cok_game_rules(game), c)) {
             snprintf(game->error, sizeof game->error, "the party is full");
             ok = false;
         }

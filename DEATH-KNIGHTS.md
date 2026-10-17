@@ -92,8 +92,8 @@ after.
 
 | Part | What | Status |
 | --- | --- | --- |
-| R1 | The descriptor, `game->rules`; Champions' file names, save extensions, titles and region digits in it; `--game` | Done (fd15149) |
-| R2a | Character field accessors: party, items, magic, sheet | |
+| R1 | The descriptor, `game->rules`; Champions' file names, save extensions, titles and region digits in it; `--game` | Done |
+| R2a | Character field accessors: party, items, magic, sheet | Done |
 | R2b | The same: attack, round, ai, cast, effect, combat, arena, cloud | |
 | R2c | The same: create, modify, train, camp, shop, treasure, icon, command, roster | |
 | R3 | The data-segment tables in the descriptor; named lookups for `ds_byte` arithmetic | |

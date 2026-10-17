@@ -192,7 +192,7 @@ static cok_character *record(char name, uint8_t side, int8_t x, int8_t y)
     c->combat->movement = 12;
     c->combat->may_use = c->combat->may_cast = 1;
     char why[300];
-    CHECK(cok_character_stats(c, &game.item_types, why, sizeof why));
+    CHECK(cok_character_stats(c, &cok_rules_champions, &game.item_types, why, sizeof why));
     r[0x18f] = 1;
     r[0x190] = 0;
     c->combat->attack_slot = 2;
@@ -696,7 +696,8 @@ static void test_dispel(void)
     m->record[0xfe] = 4;
     m->record[0x106] = 3;
     m->record[0xd7] = 5;
-    CHECK(cok_character_former_class(c->record) && !cok_character_former_class(m->record));
+    CHECK(cok_character_former_class(c->record, &cok_rules_champions)
+          && !cok_character_former_class(m->record, &cok_rules_champions));
     CHECK(lay(m, 10, 10));
     game.vm.character = c->record;
     SEED(1, 100, 60, 60);

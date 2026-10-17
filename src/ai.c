@@ -125,7 +125,8 @@ static bool direction(cok_adventure *game, const cok_character *a, const cok_cha
 static bool stats(cok_adventure *game, cok_character *c)
 {
     char error[300];
-    if (cok_character_stats(c, &game->item_types, error, sizeof error)) return true;
+    if (cok_character_stats(c, cok_game_rules(game), &game->item_types, error, sizeof error))
+        return true;
     return undefined(game, "%s", error);
 }
 

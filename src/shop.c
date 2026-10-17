@@ -67,7 +67,8 @@ static void clear_frame(cok_adventure *game)
 static bool recompute(cok_adventure *game, cok_character *c)
 {
     char error[300];
-    if (cok_character_stats(c, &game->item_types, error, sizeof error)) return true;
+    if (cok_character_stats(c, cok_game_rules(game), &game->item_types, error, sizeof error))
+        return true;
     return undefined(game, error);
 }
 
@@ -594,7 +595,7 @@ static int wounds(cok_adventure *game, cok_character *character, unsigned kind)
         break;
     }
     }
-    cok_character_heal(c, amount, false, game->vm.mode);
+    cok_character_heal(c, cok_game_rules(game), amount, false, game->vm.mode);
     if (kind != 4) return 'Y';
     if (!remove_effect(game, character, 0x21)) return -1;
     for (size_t i = 0; i < sizeof diseases; ++i)

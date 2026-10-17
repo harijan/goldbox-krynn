@@ -213,7 +213,7 @@ static bool keep(modify *m)
     cok_adventure *game = m->game;
     uint8_t *c = m->character->record;
     char error[300];
-    if (!cok_character_cleric_spells(m->character, error, sizeof error))
+    if (!cok_character_cleric_spells(m->character, cok_game_rules(game), error, sizeof error))
         return undefined(game, error);
     c[0xe8] = 1;
     uint8_t sum = 0, classes = 0;
@@ -372,12 +372,14 @@ static void modify_sheet(cok_adventure *game, cok_character *character)
             /* As strings: the bytes past the old name keep what was typed. */
             memcpy(c, name, (size_t)(name[0] > 15 ? 15 : name[0]) + 1);
             char error[300];
-            if (!cok_character_stats(character, &game->item_types, error, sizeof error))
+            if (!cok_character_stats(character, cok_game_rules(game), &game->item_types, error,
+                                     sizeof error))
                 undefined(game, error);
             return;
         }
         char error[300];
-        if (!cok_character_stats(character, &game->item_types, error, sizeof error)) {
+        if (!cok_character_stats(character, cok_game_rules(game), &game->item_types, error,
+                                 sizeof error)) {
             undefined(game, error);
             return;
         }

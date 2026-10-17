@@ -731,7 +731,7 @@ bool cok_combat_round_start(cok_adventure *game, cok_character *c)
     r[0x190] = cok_combat_half_attacks(rolls->round, rolls->rate);
     cr->sweeps = r[0xce];
     if (r[0x189] != 0) {
-        int8_t bonus = cok_character_dexterity_missile(r);
+        int8_t bonus = cok_character_dexterity_missile(r, cok_game_rules(game));
         uint8_t initiative = (uint8_t)(cok_dice(&game->vm.seed, 1, 6) + bonus);
         if ((int8_t)initiative < 1) initiative = 1;
         /* (side + 1) & var 0x7ecb: bit 0 the party's side surprised, bit 1
@@ -822,7 +822,7 @@ bool cok_combat_turn(cok_adventure *game, cok_character *c)
     combat->show_actions = visible;
     if (!cok_arena_turn(game, c, 2, true)) return false;
     char error[300];
-    if (!cok_character_stats(c, &game->item_types, error, sizeof error)) {
+    if (!cok_character_stats(c, cok_game_rules(game), &game->item_types, error, sizeof error)) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
         return false;
     }

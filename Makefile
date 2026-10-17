@@ -156,6 +156,7 @@ EFFECT_SRC = src/effect.c $(PARTY_SRC)
 test_effect_SRC = tests/test_effect.c $(EFFECT_SRC)
 test_dax_SRC = tests/test_dax.c src/dax.c
 test_rules_SRC = tests/test_rules.c src/rules.c src/dax.c
+test_layout_SRC = tests/test_layout.c src/rules.c
 daximages_SRC = src/daximages.c src/image.c src/dax.c src/rules.c
 daxcompose_SRC = src/daxcompose.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c
 test_picture_SRC = tests/test_picture.c src/picture.c src/image.c src/dax.c src/rules.c
@@ -168,8 +169,8 @@ test_sound_LIBS = -lm
 
 # Their rules (.SECONDEXPANSION: each one's NAME_SRC read for its stem), with
 # NAME_LIBS after the libraries.
-SRC_PROGRAMS = daxcheck ecldump test_sound test_config test_setup test_ecl test_menu test_view test_party test_effect test_dax test_rules daximages daxcompose test_picture test_text test_display test_image
-SRC_SANITIZE = test_sound test_config test_setup test_ecl test_menu test_view test_party test_effect test_dax test_rules test_picture test_text test_display test_image daxcheck
+SRC_PROGRAMS = daxcheck ecldump test_sound test_config test_setup test_ecl test_menu test_view test_party test_effect test_dax test_rules test_layout daximages daxcompose test_picture test_text test_display test_image
+SRC_SANITIZE = test_sound test_config test_setup test_ecl test_menu test_view test_party test_effect test_dax test_rules test_layout test_picture test_text test_display test_image daxcheck
 .SECONDEXPANSION:
 $(SRC_PROGRAMS:%=build/%): build/%: $$(call obj,$$($$*_SRC)) | build
 	$(LINK) $($*_LIBS) -o $@
@@ -187,7 +188,7 @@ $(SRC_SANITIZE:%=build/%_sanitize): build/%_sanitize: $$(call asan,$$($$*_SRC)) 
 # tests/test_cok.py plays in real time: it runs last, alone, once the
 # others are done (make -j would otherwise run it beside them, and a loaded
 # machine makes the game late).
-TEST_PROGRAMS = test_dax test_rules test_image test_picture test_text test_display test_ecl test_menu test_view test_party test_effect test_adventure test_camp test_cast test_items test_monster test_combat test_round test_arena test_attack test_ai test_command test_spell test_cloud test_treasure test_shop test_start test_hooks test_debug test_sound test_config test_setup test_input
+TEST_PROGRAMS = test_dax test_rules test_layout test_image test_picture test_text test_display test_ecl test_menu test_view test_party test_effect test_adventure test_camp test_cast test_items test_monster test_combat test_round test_arena test_attack test_ai test_command test_spell test_cloud test_treasure test_shop test_start test_hooks test_debug test_sound test_config test_setup test_input
 SHARDS = 1 2 3 4
 ECLPLAY_RUNS = $(SHARDS:%=run-test_eclplay-%)
 TEST_RUNS = $(TEST_PROGRAMS:%=run-%) run-ecldump run-test_images_cli $(ECLPLAY_RUNS) run-test_eclplay $(if $(HAVE_SDL),run-test_keymap) run-test_ovrmerge run-daxcheck

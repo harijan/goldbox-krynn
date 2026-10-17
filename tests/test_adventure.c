@@ -24,7 +24,7 @@ static cok_adventure *game_with_tiles(void)
     static cok_adventure game;
     memset(&game, 0, sizeof game);
     game.rules = &cok_rules_champions;
-    cok_effects_init(&game.effects, &game.vm, &game.party, &game.item_types);
+    cok_effects_init(&game.effects, &cok_rules_champions, &game.vm, &game.party, &game.item_types);
     CHECK(cok_picture_create(&game.screen, 40, 200, 1, 0) == COK_PICTURE_OK);
     cok_picture *tiles = &game.view.tiles[4];
     CHECK(cok_picture_create(tiles, 1, 8, 0x28, 0) == COK_PICTURE_OK);
@@ -245,7 +245,7 @@ static void test_play(void)
     knight->record[0x5a] = 6;
     knight->record[0x100] = 9;
     knight->record[0x1e] = 0x23;
-    CHECK(cok_party_add(&game.party, knight));
+    CHECK(cok_party_add(&game.party, &cok_rules_champions, knight));
     game.vm.mem7c00[0x33e] = 1;
     game.vm.character = knight->record;
     play(&game, &s, map, 5, 5, "c\rS");
@@ -490,7 +490,7 @@ static void test_clock(void)
     /* With 256 years, each unit that passes ages the party a year (+0x60);
      * the year before did not. */
     cok_character *c = calloc(1, sizeof *c);
-    CHECK(c != NULL && cok_party_add(&game->party, c));
+    CHECK(c != NULL && cok_party_add(&game->party, &cok_rules_champions, c));
     c->record[0x60] = 0xff;
     CHECK(cok_adventure_pass_time(game, 1, 2) && c->record[0x60] == 1 && c->record[0x61] == 1);
     clock[6] = 0;
@@ -577,8 +577,9 @@ static void test_party(void)
     cok_character *a = member("AL", 20, 2), *b = member("BO", 20, 5), *c = member("CY", 20, 6);
     b->record[0xf9] = 3; /* two classes */
     c->record[0x189] = 0;
-    CHECK(cok_party_add(&game.party, a) && cok_party_add(&game.party, b) &&
-          cok_party_add(&game.party, c));
+    CHECK(cok_party_add(&game.party, &cok_rules_champions, a) && cok_party_add(&game.party,
+                                                                               &cok_rules_champions, b) &&
+          cok_party_add(&game.party, &cok_rules_champions, c));
     vm->mem7c00[0x33e] = 3;
     vm->character = a->record;
 
@@ -701,7 +702,8 @@ static void test_doors(void)
     strong->record[0x11] = 25;
     thief->record[0xdc] = 100;
     thief->record[0x20] = 0x1f; /* Knock memorized */
-    CHECK(cok_party_add(&game.party, strong) && cok_party_add(&game.party, thief));
+    CHECK(cok_party_add(&game.party, &cok_rules_champions, strong) && cok_party_add(&game.party,
+                                                                                    &cok_rules_champions, thief));
     game.vm.character = strong->record;
 
     /* A strength of 25 bashes the door open, on both of its sides. */
@@ -1077,7 +1079,8 @@ static void test_overland(void)
      * 'e', the way unchanged and no step taken. Then the overland map is shown
      * and the party marked. Special keys in the commands pick no one. */
     cok_character *a = member("ANN", 5, 2), *b = member("BOB", 5, 2);
-    CHECK(cok_party_add(&game.party, a) && cok_party_add(&game.party, b));
+    CHECK(cok_party_add(&game.party, &cok_rules_champions, a) && cok_party_add(&game.party,
+                                                                               &cok_rules_champions, b));
     game.vm.character = a->record;
     game.vm.mem7c00[0x33e] = 2;
     mem[0x102] = 0;
@@ -1219,7 +1222,8 @@ static void test_overland(void)
           cok_character_add_effect(f, 0x13, 0, 0xff, false) != NULL);
     sword[0x36] = 1;
     CHECK(cok_character_insert_item(g, 0, sword));
-    CHECK(cok_party_add(&game.party, f) && cok_party_add(&game.party, g));
+    CHECK(cok_party_add(&game.party, &cok_rules_champions, f) && cok_party_add(&game.party,
+                                                                               &cok_rules_champions, g));
     CHECK(cok_character_add_effect(g, 0x13, 0, 0xff, false) != NULL);
     game.vm.mem7c00[0x33e] = 2;
     game.vm.character = f->record;
@@ -1434,8 +1438,9 @@ static void test_opcodes(void)
     cok_ecl *vm = &game.vm;
     uint16_t *mem = vm->mem4b00;
     cok_character *a = member("ALDA", 9, 0), *b = member("BRAM", 9, 2), *c = member("CERA", 9, 3);
-    CHECK(cok_party_add(&game.party, a) && cok_party_add(&game.party, b) &&
-          cok_party_add(&game.party, c));
+    CHECK(cok_party_add(&game.party, &cok_rules_champions, a) && cok_party_add(&game.party,
+                                                                               &cok_rules_champions, b) &&
+          cok_party_add(&game.party, &cok_rules_champions, c));
     vm->mem7c00[0x33e] = 3;
 
     /* FIND ITEM type: = if any record in the list has an item of that type

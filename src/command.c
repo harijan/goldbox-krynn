@@ -223,7 +223,8 @@ void cok_combat_command_text(cok_adventure *game, cok_character *c, char out[41]
     for (size_t i = 0; i <= 0x39; ++i)
         if (r[0x1e + i] > 0) memorized = true;
     if (memorized && cr->may_cast != 0 && game->vm.mem4b00[0xe5] == 0) append(out, "Cast ");
-    bool cleric = (int8_t)r[0xf9] > 0 || ((int8_t)r[0x101] > 0 && cok_character_former_class(r));
+    bool cleric = (int8_t)r[0xf9] > 0 ||
+                  ((int8_t)r[0x101] > 0 && cok_character_former_class(r, cok_game_rules(game)));
     if (cleric && cr->turns < game->undead) append(out, "Turn ");
     if (r[0x5a] == 5 && game->combat.yelled == NULL) append(out, "Yell ");
     append(out, "Done");

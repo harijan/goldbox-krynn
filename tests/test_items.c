@@ -87,7 +87,7 @@ static cok_character *add(const char *name, size_t class, uint8_t level)
     c->record[0x5a] = 6;
     c->record[0x11a] = 0xff;
     c->record[0xf9 + class] = level;
-    CHECK(cok_party_add(&game.party, c));
+    CHECK(cok_party_add(&game.party, &cok_rules_champions, c));
     ++game.vm.mem7c00[0x33e];
     if (game.vm.character == NULL) game.vm.character = c->record;
     return c;
@@ -112,7 +112,7 @@ static uint8_t *give(cok_character *c, uint8_t type, uint8_t a, uint8_t b, uint8
 static bool stats(cok_character *c)
 {
     char error[300];
-    return cok_character_stats(c, &game.item_types, error, sizeof error);
+    return cok_character_stats(c, &cok_rules_champions, &game.item_types, error, sizeof error);
 }
 
 /* The first colour other than black in cell x, y of the screen. */
@@ -488,6 +488,25 @@ static void test_sheet(void)
      * label, ending at column 17 (60 - 61 = -1 at 16). */
     CHECK(ink(20, 9) == 10 && ink(37, 9) == 10 && ink(38, 9) == 0);
     CHECK(ink(16, 17) == 10 && ink(17, 17) == 10 && ink(18, 17) == 0);
+    /* The age is a word: an elf of 350 shows "350 years", columns 8-16 of
+     * row 3, where its low byte alone would end at 15. */
+    r[0x60] = 350 & 0xff;
+    r[0x61] = 350 >> 8;
+    keys("");
+    CHECK(cok_sheet_draw(&game) && ink(16, 3) == 15 && ink(17, 3) == 0);
+    r[0x60] = 94;
+    r[0x61] = 0;
+    keys("");
+    CHECK(cok_sheet_draw(&game) && ink(15, 3) == 15 && ink(16, 3) == 0);
+    /* The money shows every kind but silver (+0xeb), copper to jewelry
+     * (+0xed-+0xf8), a row each from row 9, the amounts ending at column
+     * 37: six rows, 9-14, and none on row 15. */
+    r[0xeb] = 7;
+    for (unsigned k = 1; k <= 6; ++k) r[0xeb + 2 * k] = (uint8_t)k;
+    keys("");
+    CHECK(cok_sheet_draw(&game));
+    for (int row = 9; row <= 14; ++row) CHECK(ink(37, row) == 10);
+    CHECK(ink(37, 15) == 0 && ink(20, 15) == 0);
 }
 
 /* View (546c:0d74) and money. */

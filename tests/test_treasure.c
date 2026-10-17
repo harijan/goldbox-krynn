@@ -174,7 +174,7 @@ static cok_character *member(const char *name)
     r[0x5b] = 7;
     for (int i = 0; i < 6; ++i) r[0x10 + 2 * i] = r[0x11 + 2 * i] = 10;
     r[0x10] = r[0x11] = 18;
-    CHECK(cok_party_add(&game.party, c));
+    CHECK(cok_party_add(&game.party, &cok_rules_champions, c));
     ++game.vm.mem7c00[0x33e];
     return c;
 }
@@ -492,7 +492,8 @@ static void test_pool(void)
     npc->record[0xe7] = 0x80;
     int16_t allowance;
     char error[300];
-    CHECK(cok_character_allowance(a->record, &allowance, error, sizeof error));
+    CHECK(cok_character_allowance(a->record, &cok_rules_champions, &allowance, error,
+                                  sizeof error));
     uint16_t cap = (uint16_t)(allowance + 1500);
     put_word(a->record + 0x17d, (uint16_t)(cap - 10));
     game.pool.coins[4] = 25;
@@ -1116,7 +1117,7 @@ static void test_weapons_back(void)
     reset("\rE");
     cok_character *a = member("A"), *full = member("F");
     for (int i = 0; i < 16; ++i) item(full, 0x12, 0, 1);
-    CHECK(cok_character_stats(full, &game.item_types, s.log, sizeof s.log));
+    CHECK(cok_character_stats(full, &cok_rules_champions, &game.item_types, s.log, sizeof s.log));
     s.log[0] = '\0';
     game.lost_weapons = calloc(2, sizeof *game.lost_weapons);
     CHECK(game.lost_weapons != NULL);
