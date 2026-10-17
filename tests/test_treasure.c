@@ -442,6 +442,19 @@ static void test_tree(void)
     CHECK(one_of(tree_type(seed_for_tree(20, 100, 4)), other));
 }
 
+/* Pool takes every kind of coin, gems and jewelry too, and their weight. */
+static void test_gather(void)
+{
+    reset("");
+    cok_character *a = member("A");
+    put_word(a->record + 0xeb + 10, 2);
+    put_word(a->record + 0xeb + 12, 4);
+    put_word(a->record + 0x17d, 10);
+    cok_pool_gather(&game);
+    CHECK(game.pool.coins[5] == 2 && game.pool.coins[6] == 4 && word(a->record + 0x17d) == 4);
+    CHECK(word(a->record + 0xeb + 10) == 0 && word(a->record + 0xeb + 12) == 0);
+}
+
 /* The pool's money (58e7). */
 static void test_pool(void)
 {
@@ -1205,6 +1218,7 @@ int main(void)
     test_generator();
     test_treasure_opcode();
     test_tree();
+    test_gather();
     test_pool();
     test_experience();
     test_loot();

@@ -642,6 +642,16 @@ static void test_temple(void)
         a->record[0xf9] = 4;
         CHECK(temple() == COK_ECL_OK && a->record[0x188] == 0 && a->record[0x62] == raised[i].max);
     }
+    /* Only the fighter's level (+0xfb) counts there: a paladin (+0xfc) of
+     * level 4 at 18 loses nothing either, where its 10 / 8 would be 1. */
+    reset("H\001H\001H\001HHY\033E");
+    a = member("A", 3000);
+    a->record[0x188] = 6;
+    a->record[0x19] = 18;
+    a->record[0x62] = 30;
+    a->record[0x11b] = 20;
+    a->record[0xfc] = 4;
+    CHECK(temple() == COK_ECL_OK && a->record[0x188] == 0 && a->record[0x62] == 30);
     /* An elf "cannot be raised"; paid anyway, it stays dead. */
     reset("H\001H\001H\001HHYY\033E");
     a = member("A", 3000);

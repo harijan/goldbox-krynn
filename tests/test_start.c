@@ -124,6 +124,15 @@ static bool logged(const char *what)
     return strstr(s.log, what) != NULL;
 }
 
+/* The pixels of colour value in a picture's first frame, two to a byte. */
+static size_t nibbles(const cok_picture *p, uint8_t value)
+{
+    size_t n = 0;
+    for (size_t i = 0; i < p->frame_size; ++i)
+        n += (size_t)((p->pixels[i] >> 4) == value) + (size_t)((p->pixels[i] & 15) == value);
+    return n;
+}
+
 static void empty_party(void)
 {
     cok_party_free(&game.party);
@@ -1062,6 +1071,17 @@ static void test_icon(void)
      * the keys run out. */
     keys("P NPKEEEEY");
     CHECK(!cok_icon_edit(&game) && game.input_ended);
+    /* The record's colours replace the template's by part (127f:15fd):
+     * the body's, colour 1, by the first byte's low nibble, and no other
+     * part's pixels become 12. */
+    game.input_ended = false;
+    static const uint8_t body_12[6] = {0x0c, 0x11, 0x11, 0x11, 0x11, 0x11};
+    CHECK(cok_arena_party_icon(&game, k, false));
+    size_t body = nibbles(&game.icons[r[0x137]][0], 1);
+    memcpy(r + 0x139, body_12, 6);
+    keys("EY");
+    CHECK(cok_icon_edit(&game));
+    CHECK(body > 0 && nibbles(&game.icons[r[0x137]][0], 12) == body);
     empty_party();
 }
 
@@ -1363,6 +1383,16 @@ static void test_vectors(void)
         }
         CHECK(h == created[k].hash);
     }
+    /* The scores rolled are the base too (4def:164d): the sheet marks none
+     * changed with "*" (column 12, rows 9-14). Input ends at "Reroll
+     * stats? ". */
+    empty_party();
+    game.vm.seed = created[0].seed;
+    game.vm.mem7c00[0x2a8] = 0;
+    keys("S\001PSS\001P\001PS\001P\001PS");
+    cok_create(&game);
+    CHECK(logged("Reroll stats? "));
+    for (int a = 0; a < 6; ++a) CHECK(cell_black(12, 9 + a) && !cell_black(5, 9 + a));
     for (size_t k = 0; k < sizeof trained / sizeof *trained; ++k) {
         empty_party();
         cok_character *c = add(build(&trained[k].who));
