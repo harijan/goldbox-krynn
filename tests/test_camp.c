@@ -195,9 +195,8 @@ static void test_preparation(void)
     CHECK(cok_camp_preparation(c, &cok_rules_champions) == 0 && c->record[0x58] == 0);
     /* Above level 2, 6 hours; the levels add as a byte. */
     for (size_t i = 0; i < 0x3a; ++i) c->record[0x1e + i] = 0x80 | 0x5c; /* Cone of Cold, 5 */
-    CHECK(cok_camp_preparation(c, &cok_rules_champions) == 6 * 60 + (uint8_t)(58 * 5) * 15 &&
-          c->record[0x58] == 6);
-    cok_camp_forget(c);
+    CHECK(cok_camp_preparation(c, &cok_rules_champions) == 6 * 60 + (uint8_t)(58 * 5) * 15 && c->record[0x58] == 6);
+    cok_camp_forget(c, &cok_rules_champions);
     CHECK(c->record[0x1e] == 0 && c->record[0x58] == 0 && c->items[0][0x3c] == 101);
     cok_character_free(c);
     free(c);

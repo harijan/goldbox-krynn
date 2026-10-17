@@ -34,7 +34,7 @@ uint16_t cok_camp_preparation(cok_character *c, const cok_rules *rules);
  * hours of preparation, and the spells of its scrolls it was to scribe
  * (4888:0640). The camp does this for each member when it starts and ends
  * (4888:06b8). */
-void cok_camp_forget(cok_character *c);
+void cok_camp_forget(cok_character *c, const cok_rules *rules);
 
 /* Take amount of unit (1 minutes ... 4 days) from the rest time, borrowing
  * from larger units; past the days it is all gone (57e4:05ee). Then carry

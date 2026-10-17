@@ -277,14 +277,14 @@ static void test_prices(void)
     uint8_t r[COK_CHARACTER_SIZE] = {0};
     uint16_t coins[5] = {50, 10, 5, 2, 7};
     for (int k = 0; k < 5; ++k) put_word(r + 0xeb + 2 * k, coins[k]);
-    CHECK(cok_shop_money(r) == 11);
+    CHECK(cok_shop_money(r, &cok_rules_champions) == 11);
     memset(r, 0, sizeof r);
     put_word(r + 0xeb, 49);
     put_word(r + 0xf5, 9);
     put_word(r + 0xf7, 9);
-    CHECK(cok_shop_money(r) == 0);
+    CHECK(cok_shop_money(r, &cok_rules_champions) == 0);
     for (int k = 0; k < 5; ++k) put_word(r + 0xeb + 2 * k, 0xffff);
-    CHECK(cok_shop_money(r) == 119273);
+    CHECK(cok_shop_money(r, &cok_rules_champions) == 119273);
 }
 
 static void test_buy(void)
@@ -642,6 +642,16 @@ static void test_temple(void)
         a->record[0xf9] = 4;
         CHECK(temple() == COK_ECL_OK && a->record[0x188] == 0 && a->record[0x62] == raised[i].max);
     }
+    /* Only the fighter's level (+0xfb) counts there: a paladin (+0xfc) of
+     * level 4 at 18 loses nothing either, where its 10 / 8 would be 1. */
+    reset("H\001H\001H\001HHY\033E");
+    a = member("A", 3000);
+    a->record[0x188] = 6;
+    a->record[0x19] = 18;
+    a->record[0x62] = 30;
+    a->record[0x11b] = 20;
+    a->record[0xfc] = 4;
+    CHECK(temple() == COK_ECL_OK && a->record[0x188] == 0 && a->record[0x62] == 30);
     /* An elf "cannot be raised"; paid anyway, it stays dead. */
     reset("H\001H\001H\001HHYY\033E");
     a = member("A", 3000);

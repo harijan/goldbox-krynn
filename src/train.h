@@ -20,7 +20,7 @@
  * such a class the previous class's row, or for the first 0x74, which
  * Pick Character leaves (see train.c): never trainable, a stop under free
  * training. */
-bool cok_train_row(const uint8_t *c, unsigned class_, uint8_t *row);
+bool cok_train_row(const uint8_t *c, const cok_rules *rules, unsigned class_, uint8_t *row);
 /* The LongInt of row for level, reading the original's data as it lies;
  * false where it lies past DS:43bf. */
 bool cok_train_experience(const cok_rules *rules, uint8_t row, int level, int32_t *need);
@@ -34,7 +34,7 @@ int8_t cok_train_constitution(const uint8_t *c, const cok_rules *rules, unsigned
  * selected character c: -2 at 3, -1 at 4-6, 0 at 7-14, 1 at 15, 2 at 16,
  * and at 17-19 2, or 3-5 for a fighter, ranger or knight. False for any
  * other constitution, where it returns an uninitialized local. */
-bool cok_train_hit_die(const uint8_t *c, unsigned class_, int8_t *bonus);
+bool cok_train_hit_die(const uint8_t *c, const cok_rules *rules, unsigned class_, int8_t *bonus);
 
 /* 4def:4b3a: the hit points of the levels of the classes in mask (bits of
  * DS:38f2) with a level, divided among count classes. Below its top level

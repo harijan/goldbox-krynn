@@ -50,10 +50,13 @@ typedef enum {
     COK_FIELD_BASE_MOVEMENT,
     COK_FIELD_HIGHEST_LEVEL,
     COK_FIELD_CHANGE_LEVEL,              /* The level a human changed class at. */
+    COK_FIELD_SPREAD_LEVELS,             /* Levels SPREAD is shared out over. */
+    COK_FIELD_SPREAD,                    /* Shrinks by a share at each level trained. */
     COK_FIELD_UNDEAD,                    /* The kind of undead, for turning; 0 none. */
     COK_FIELD_THIEF_SKILL,               /* 1-8. */
     COK_FIELD_EFFECTS,                   /* A far pointer: the spell effects. */
     COK_FIELD_NPC,                       /* 0x80 and up for an NPC. */
+    COK_FIELD_SHARES,                    /* An NPC's shares of the treasure. */
     COK_FIELD_COINS,                     /* By kind, 0-6, words. */
     COK_FIELD_CLASS_LEVEL,               /* By class, 0-7. */
     COK_FIELD_FORMER_LEVEL,              /* By class, 0-7. */
@@ -70,6 +73,8 @@ typedef enum {
     COK_FIELD_USABLE_CLASSES,            /* The classes whose items it can use, as bits. */
     COK_FIELD_BASE_HIT_POINTS,           /* The hit points the maximum is built from. */
     COK_FIELD_SPELLS_A_DAY,              /* By spell class (rows 0-3) and level, 1-5. */
+    COK_FIELD_MONSTER_EXPERIENCE,        /* The experience a monster is worth, */
+    COK_FIELD_MONSTER_HIT_POINT_EXPERIENCE, /* and more for each hit point. */
     COK_FIELD_ICON_HEAD,                 /* A player's combat icon's head (CHEAD). */
     COK_FIELD_ICON_BODY,                 /* And its body (CBODY). */
     COK_FIELD_ICON,                      /* The combat icon's slot. */

@@ -39,10 +39,11 @@ static void draw(cok_adventure *game, const char *text, int x, int y, uint8_t fg
     cok_text_string(&game->screen, &game->font, text, x, y, fg, 0);
 }
 
-static void name_of(const uint8_t *c, char out[16])
+static void name_of(const cok_character_layout *L, const uint8_t *c, char out[16])
 {
-    size_t length = c[0] > 15 ? 15 : c[0];
-    memcpy(out, c + 1, length);
+    uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
+    size_t length = stored > 15 ? 15 : stored;
+    memcpy(out, c + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
     out[length] = '\0';
 }
 
@@ -50,9 +51,10 @@ static void name_of(const uint8_t *c, char out[16])
  * (6346:199d outside combat). */
 static void draw_name(cok_adventure *game, const uint8_t *c, int x, int y)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     char name[16];
-    name_of(c, name);
-    draw(game, name, x, y, c[0x189] == 0 ? 12 : 11, true);
+    name_of(L, c, name);
+    draw(game, name, x, y, cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0 ? 12 : 11, true);
 }
 
 /* Say text about c in the text window (6346:1883 outside combat): its name
@@ -138,11 +140,13 @@ void cok_camp_quit(cok_adventure *game)
 
 uint16_t cok_camp_preparation(cok_character *character, const cok_rules *rules)
 {
+    const cok_character_layout *L = rules->character;
     uint8_t *c = character->record;
     uint8_t memorize_max = 0, memorize_sum = 0, scribe_max = 0, scribe_sum = 0;
-    for (size_t i = 0; i < 0x3a; ++i) {
-        if (c[0x1e + i] <= 0x7f) continue;
-        uint8_t level = cok_spell_level(rules, c[0x1e + i] & 0x7f);
+    for (size_t i = 0; i < cok_field_count(L, COK_FIELD_MEMORIZED); ++i) {
+        if (cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) <= 0x7f) continue;
+        uint8_t level =
+            cok_spell_level(rules, cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) & 0x7f);
         if (level == 0) level = 1;
         if (level > memorize_max) memorize_max = level;
         memorize_sum = (uint8_t)(memorize_sum + level);
@@ -160,16 +164,18 @@ uint16_t cok_camp_preparation(cok_character *character, const cok_rules *rules)
     uint8_t hours = 0;
     if (memorize_sum > 0 || scribe_sum > 0) hours = 4;
     if (memorize_max > 2 || scribe_max > 2) hours = 6;
-    c[0x58] = hours;
+    cok_field_set8(L, c, COK_FIELD_STUDY_HOURS, hours);
     return (uint16_t)(scribe_sum * 15 + memorize_sum * 15 + hours * 60);
 }
 
-void cok_camp_forget(cok_character *character)
+void cok_camp_forget(cok_character *character, const cok_rules *rules)
 {
+    const cok_character_layout *L = rules->character;
     uint8_t *c = character->record;
-    for (size_t i = 0; i < 0x3a; ++i)
-        if (c[0x1e + i] > 0x7f) c[0x1e + i] = 0;
-    c[0x58] = 0;
+    for (size_t i = 0; i < cok_field_count(L, COK_FIELD_MEMORIZED); ++i)
+        if (cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) > 0x7f)
+            cok_field_set8_at(L, c, COK_FIELD_MEMORIZED, i, 0);
+    cok_field_set8(L, c, COK_FIELD_STUDY_HOURS, 0);
     for (size_t i = 0; i < character->item_count; ++i) {
         uint8_t *item = character->items[i];
         if (!cok_item_is_scroll(item)) continue;
@@ -179,7 +185,8 @@ void cok_camp_forget(cok_character *character)
 
 static void forget_all(cok_adventure *game)
 {
-    for (size_t i = 0; i < game->party.count; ++i) cok_camp_forget(game->party.members[i]);
+    for (size_t i = 0; i < game->party.count; ++i)
+        cok_camp_forget(game->party.members[i], cok_game_rules(game));
 }
 
 /* The rest time. */
@@ -314,6 +321,7 @@ static int rest_menu(cok_adventure *game)
 bool cok_camp_spell_message(cok_adventure *game, const uint8_t *c, const char *what,
                             uint8_t spell)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     const char *name = cok_spell_name(spell);
     if (name == NULL) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
@@ -323,7 +331,7 @@ bool cok_camp_spell_message(cok_adventure *game, const uint8_t *c, const char *w
     }
     clear_cells(game, 1, 0x12, 0x26, 0x16);
     draw_name(game, c, 1, 0x13);
-    draw(game, what, c[0] + 2, 0x13, 10, true);
+    draw(game, what, cok_field_u8_at(L, c, COK_FIELD_NAME, 0) + 2, 0x13, 10, true);
     draw(game, name, 1, 0x14, 10, true);
     cok_adventure_wait(game, game->speed * 100u);
     clear_text(game);
@@ -335,16 +343,20 @@ bool cok_camp_spell_message(cok_adventure *game, const uint8_t *c, const char *w
  * none. */
 static uint8_t memorize(cok_adventure *game, cok_character *character, bool *flag)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record, level = 0;
-    for (size_t i = 0; i <= 0x39 && level == 0; ++i) {
-        if (c[0x1e + i] <= 0x7f) continue;
+    for (size_t i = 0; i < cok_field_count(L, COK_FIELD_MEMORIZED) && level == 0; ++i) {
+        if (cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) <= 0x7f) continue;
         if (*flag) {
-            level = cok_spell_level(cok_game_rules(game), c[0x1e + i] & 0x7f);
+            level = cok_spell_level(cok_game_rules(game),
+                                    cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) & 0x7f);
             continue;
         }
-        c[0x1e + i] = (uint8_t)(c[0x1e + i] - 0x80);
+        cok_field_add8_at(L, c, COK_FIELD_MEMORIZED, i, -0x80);
         show_rest(game, 0);
-        if (!cok_camp_spell_message(game, c, "has memorized", c[0x1e + i])) return 0;
+        if (!cok_camp_spell_message(game, c, "has memorized",
+                                    cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i)))
+            return 0;
         *flag = true;
     }
     return level;
@@ -389,6 +401,7 @@ static bool free_scroll(cok_adventure *game, cok_character *character, size_t in
  * scroll's spells. */
 static uint8_t scribe(cok_adventure *game, cok_character *character, bool *flag)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record, level = 0;
     for (size_t i = 0; i < character->item_count && level == 0; ++i) {
         uint8_t *item = character->items[i], freed[COK_ITEM_SIZE];
@@ -402,7 +415,10 @@ static uint8_t scribe(cok_adventure *game, cok_character *character, bool *flag)
                 continue;
             }
             uint8_t spell = b & 0x7f;
-            c[0x62 + spell] = 1;
+            /* Spells 109-127 too, as the original's +0x62 + spell writes
+             * them, past the known spells (into +0xcf-+0xe1, within the
+             * record): unchecked. */
+            c[cok_field_offset_unchecked(L, COK_FIELD_KNOWN_SPELL, 0, spell)] = 1;
             if (use_scroll(item, spell)) {
                 memcpy(freed, item, sizeof freed);
                 if (!free_scroll(game, character, i)) return 0;
@@ -423,10 +439,13 @@ static uint8_t scribe(cok_adventure *game, cok_character *character, bool *flag)
  * at 15 minutes a level (57e4:0c9c). */
 static void learn_tick(cok_adventure *game)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     for (size_t i = 0; i < game->party.count && !game->vm.abort; ++i) {
         cok_character *character = game->party.members[i];
         if (game->learn_ticks[i] > 0) --game->learn_ticks[i];
-        if (game->learn_ticks[i] != 0 || character->record[0x58] != 0) continue;
+        if (game->learn_ticks[i] != 0 ||
+            cok_field_u8(L, character->record, COK_FIELD_STUDY_HOURS) != 0)
+            continue;
         bool flag = false;
         uint8_t level = scribe(game, character, &flag);
         if (level == 0 && !game->vm.abort) level = memorize(game, character, &flag);
@@ -438,13 +457,15 @@ static void learn_tick(cok_adventure *game)
  * preparation, and when they end, time its first spell (57e4:0d52). */
 static void hourly(cok_adventure *game, uint8_t *ticks)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     if (++*ticks < 12) return;
     *ticks = 0;
     for (size_t i = 0; i < game->party.count && !game->vm.abort; ++i) {
         cok_character *character = game->party.members[i];
         uint8_t *c = character->record;
-        if ((int8_t)c[0x58] <= 0) continue;
-        if (--c[0x58] != 0) continue;
+        if (cok_field_s8(L, c, COK_FIELD_STUDY_HOURS) <= 0) continue;
+        cok_field_add8(L, c, COK_FIELD_STUDY_HOURS, -1);
+        if (cok_field_u8(L, c, COK_FIELD_STUDY_HOURS) != 0) continue;
         bool flag = true;
         uint8_t level = scribe(game, character, &flag);
         if (level == 0) level = memorize(game, character, &flag);
@@ -553,10 +574,12 @@ bool cok_camp_prepare(cok_adventure *game)
  * member has more than its maximum. */
 static uint16_t missing(const cok_adventure *game)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint16_t sum = 0;
     for (size_t i = 0; i < game->party.count; ++i) {
         const uint8_t *c = game->party.members[i]->record;
-        sum = (uint16_t)(sum + c[0x62] - c[0x197]);
+        sum = (uint16_t)(sum + cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS) -
+                         cok_field_u8(L, c, COK_FIELD_HIT_POINTS));
     }
     return sum;
 }
@@ -578,6 +601,7 @@ static uint16_t cure(cok_adventure *game, unsigned kind)
 
 bool cok_camp_fix(cok_adventure *game)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_ecl *vm = &game->vm;
     if (missing(game) == 0) return false;
     /* 4888:272e: the cure spells memorized by members who are okay; they
@@ -585,11 +609,12 @@ bool cok_camp_fix(cok_adventure *game)
     uint16_t pool = 0;
     for (size_t i = 0; i < game->party.count; ++i) {
         const uint8_t *c = game->party.members[i]->record;
-        if (c[0x188] != 0) continue;
-        for (size_t s = 0; s <= 0x39; ++s) {
-            if (c[0x1e + s] == 3) pool = (uint16_t)(pool + cure(game, 0));
-            else if (c[0x1e + s] == 0x3a) pool = (uint16_t)(pool + cure(game, 1));
-            else if (c[0x1e + s] == 0x47) pool = (uint16_t)(pool + cure(game, 2));
+        if (cok_field_u8(L, c, COK_FIELD_STATUS) != 0) continue;
+        for (size_t s = 0; s < cok_field_count(L, COK_FIELD_MEMORIZED); ++s) {
+            uint8_t spell = cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, s);
+            if (spell == 3) pool = (uint16_t)(pool + cure(game, 0));
+            else if (spell == 0x3a) pool = (uint16_t)(pool + cure(game, 1));
+            else if (spell == 0x47) pool = (uint16_t)(pool + cure(game, 2));
         }
     }
     if (missing(game) == 0) {
@@ -608,13 +633,16 @@ bool cok_camp_fix(cok_adventure *game)
     for (size_t i = 0; i < game->party.count; ++i) {
         const uint8_t *c = game->party.members[i]->record;
         uint16_t time = 0;
-        if (c[0x188] == 0) {
-            counts[0] = (uint16_t)(counts[0] + c[0x11c]);
-            a = (uint16_t)(c[0x11c] * 15);
-            counts[1] = (uint16_t)(counts[1] + c[0x11f]);
-            b = (uint16_t)(c[0x11f] * 60);
-            counts[2] = (uint16_t)(counts[2] + c[0x120]);
-            d = (uint16_t)(c[0x120] * 75);
+        if (cok_field_u8(L, c, COK_FIELD_STATUS) == 0) {
+            uint8_t first = cok_field_u8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, 1),
+                    fourth = cok_field_u8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, 4),
+                    fifth = cok_field_u8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, 5);
+            counts[0] = (uint16_t)(counts[0] + first);
+            a = (uint16_t)(first * 15);
+            counts[1] = (uint16_t)(counts[1] + fourth);
+            b = (uint16_t)(fourth * 60);
+            counts[2] = (uint16_t)(counts[2] + fifth);
+            d = (uint16_t)(fifth * 75);
         }
         if (a > 0) {
             time = 240;
@@ -648,8 +676,10 @@ bool cok_camp_fix(cok_adventure *game)
     /* 4888:2a8c: heal each member in turn from the pool. */
     for (size_t i = 0; i < game->party.count; ++i) {
         uint8_t *c = game->party.members[i]->record;
-        if (c[0x62] <= c[0x197]) continue;
-        uint16_t amount = (uint16_t)(c[0x62] - c[0x197]);
+        uint8_t most = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS),
+                now = cok_field_u8(L, c, COK_FIELD_HIT_POINTS);
+        if (most <= now) continue;
+        uint16_t amount = (uint16_t)(most - now);
         if (amount > pool) amount = pool;
         if (amount == 0) continue;
         if (cok_character_heal(c, cok_game_rules(game), (uint8_t)amount, false, vm->mode) &&
@@ -705,6 +735,7 @@ static void order(cok_adventure *game)
  * it, or the first. */
 static void remove_selected(cok_adventure *game)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_ecl *vm = &game->vm;
     size_t i = cok_party_index(&game->party, vm->character);
     if (i == game->party.count) return;
@@ -713,7 +744,8 @@ static void remove_selected(cok_adventure *game)
     uint8_t *gone = game->party.members[i]->record;
     if (game->spell_target == gone) game->spell_target = NULL;
     if (game->trade_partner == gone) game->trade_partner = NULL;
-    if (gone[0x137] < COK_ICON_SLOTS) cok_arena_free_icon(game, gone[0x137]); /* 6d21:0156 */
+    uint8_t icon = cok_field_u8(L, gone, COK_FIELD_ICON);
+    if (icon < COK_ICON_SLOTS) cok_arena_free_icon(game, icon); /* 6d21:0156 */
     cok_cast_forget(game, game->party.members[i]);
     cok_party_remove(&game->party, i);
     --vm->mem7c00[0x33e];
@@ -724,6 +756,7 @@ static void remove_selected(cok_adventure *game)
  * party's last, quit. */
 static void drop(cok_adventure *game)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_ecl *vm = &game->vm;
     uint8_t *c = vm->character;
     if (c == NULL || cok_party_index(&game->party, c) == game->party.count) {
@@ -744,7 +777,10 @@ static void drop(cok_adventure *game)
         cok_camp_say(game, c, "Breathes A sigh of relief", true);
         return;
     }
-    cok_camp_say(game, c, c[0x189] != 0 ? "bids you farewell" : "is dumped in a ditch", true);
+    cok_camp_say(game, c,
+                 cok_field_u8(L, c, COK_FIELD_ACTIVE) != 0 ? "bids you farewell"
+                                                           : "is dumped in a ditch",
+                 true);
     if (vm->abort) return;
     remove_selected(game);
     clear_cells(game, 0x11, 1, 0x26, 0x0b);

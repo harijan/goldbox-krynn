@@ -269,9 +269,19 @@ static void test_text(void)
     cok_combat_command_text(&game, a, text);
     CHECK(strcmp(text, "View Aim Done") == 0);
     a->combat->movement = 1;
+    /* Use by the item count (+0x142), not the hands in use (+0x17b). */
+    r[0x17b] = 1;
+    cok_combat_command_text(&game, a, text);
+    CHECK(strcmp(text, "Move View Aim Done") == 0);
+    r[0x17b] = 0;
     give(a, 0x12, true);
     cok_combat_command_text(&game, a, text);
     CHECK(strcmp(text, "Move View Aim Use Done") == 0);
+    uint8_t hands = r[0x17b];
+    r[0x17b] = 0;
+    cok_combat_command_text(&game, a, text);
+    CHECK(strcmp(text, "Move View Aim Use Done") == 0);
+    r[0x17b] = hands;
     /* Cast: a spell memorized, from +0x1e to +0x57, may cast this round,
      * the area allows magic. */
     r[0x57] = 3;
