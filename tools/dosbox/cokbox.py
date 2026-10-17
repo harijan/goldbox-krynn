@@ -1056,6 +1056,25 @@ class Box:
         self._xdo("windowfocus", "--sync", self.window)
         self._xdo("keydown", "F12", "key", key, "keyup", "F12")
 
+    def write_paused(self, writes):
+        """WRITES [(linear address, bytes)] made with the emulation paused
+        (F12+Pause, until the window's title says PAUSED, then again): its CPU
+        then stands between two instructions. Code it is running is safe to
+        change only so: written while it runs, an instruction of two bytes
+        may be fetched half old, half new (the old EB FE spin's EB with the
+        routine's second byte, a jump into another routine)."""
+        def title():
+            return str(self._xdo("getwindowname", self.window))
+
+        self._hotkey("Pause")
+        self._until(lambda: "PAUSED" in title(), 30, "the emulation to pause", 0.02)
+        try:
+            for addr, data in writes:
+                self.write(addr, data)
+        finally:
+            self._hotkey("Pause")
+            self._until(lambda: "PAUSED" not in title(), 30, "the emulation to go on", 0.02)
+
     def screenshot(self, path=None, size=None):
         """Take DOSBox-X's screenshot and return it as a Screen; with PATH, keep
         the PNG there too."""

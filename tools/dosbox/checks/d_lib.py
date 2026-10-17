@@ -962,9 +962,12 @@ def trap(b, seg, off, until, seconds=30):
 
 
 def untrap(b, handle):
-    for addr, orig in handle:
-        if b.read(addr, 2) == b"\xeb\xfe":
-            b.write(addr, orig)
+    """The code TRAP patched given back, with the emulation paused: the game
+    spins in it, and restored while it runs, its EB could be fetched with
+    the routine's second byte (3995:040b's 89: a jump 117 bytes back), which
+    now and then ended d_patrol's and d_gate's battles at once, the monsters'
+    records cleared."""
+    b.write_paused([(addr, orig) for addr, orig in handle if b.read(addr, 2) == b"\xeb\xfe"])
 
 
 def stable(b, seconds=20, interval=0.3):

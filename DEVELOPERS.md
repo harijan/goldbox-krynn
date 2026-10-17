@@ -7452,9 +7452,7 @@ long as `a_demo`), then those that catch a short text in a burst of
 screenshots (`d_arrows`, `d_aurak`, `d_bolt`, `d_bozak`, `d_cast`,
 `d_gate`, `d_hold`, `d_turning`) one at a time (beside the others on a
 loaded host DOSBox-X wrote ten times fewer screenshots and they missed
-the text), and `d_patrol` (twice beside others the original ended its
-battle at once after the check let go of its first turn, the monsters'
-records cleared; alone it always agreed), and prints one line per script: the checks it covers, its
+the text), and prints one line per script: the checks it covers, its
 verdict, and whether that is the verdict recorded (agrees, or new for a
 port difference found and not yet fixed, of which none is left), an ERROR
 for anything else. On a script's timeout, or when run_all itself gets
