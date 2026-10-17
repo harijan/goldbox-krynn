@@ -113,7 +113,9 @@ static void dump_block(const dax_record *record, const uint8_t *data, int list, 
     char where[300];
     snprintf(where, sizeof where, "%s: ID %u", path, (unsigned)record->id);
     static cok_ecl vm;
-    cok_ecl_init(&vm, NULL);
+    /* Decoding selects no character, so the layout is never read:
+     * Champions' rules, the VM needing some. */
+    cok_ecl_init(&vm, &cok_rules_champions, NULL);
     cok_ecl_status status = cok_ecl_load(&vm, data, record->decoded_size);
     if (status == COK_ECL_OK) status = cok_ecl_start(&vm, true);
     if (status != COK_ECL_OK) {

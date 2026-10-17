@@ -99,7 +99,7 @@ static void on_store(cok_ecl *v, uint16_t address, uint16_t value, void *context
 
 static log_t start(void)
 {
-    cok_ecl_init(&vm, NULL);
+    cok_ecl_init(&vm, &cok_rules_champions, NULL);
     at = 0;
     return (log_t){0};
 }
@@ -518,7 +518,7 @@ static void test_real_blocks(void)
         for (size_t i = 0; i < archive->count; ++i) {
             dax_record record;
             CHECK(dax_record_at(archive, i, &record) == DAX_OK);
-            cok_ecl_init(&vm, &(cok_ecl_hooks){.load = load_real, .trace = count_down, .context = &s});
+            cok_ecl_init(&vm, &cok_rules_champions, &(cok_ecl_hooks){.load = load_real, .trace = count_down, .context = &s});
             vm.file = (uint8_t)(f + 1);
             CHECK(load_real(&vm, record.id, &s));
             CHECK(cok_ecl_start(&vm, true) == COK_ECL_OK && vm.vectors[4] == 0x8014);

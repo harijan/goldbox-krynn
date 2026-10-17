@@ -1159,7 +1159,7 @@ bool cok_combat_setup(cok_adventure *game)
     for (size_t i = 0; i < game->party.count && game->debug; ++i) {
         const uint8_t *r = game->party.members[i]->record;
         char name[256];
-        cok_debug_name(r, name);
+        cok_debug_name(r, cok_game_rules(game), name);
         cok_debug_trace(game, name, cok_field_u8(L, r, COK_FIELD_STATUS),
                         cok_field_u8(L, r, COK_FIELD_ACTIVE), 0);
     }

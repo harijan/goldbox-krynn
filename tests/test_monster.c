@@ -319,16 +319,16 @@ static void test_movement(void)
 {
     reset("");
     uint8_t fast, slow;
-    CHECK(!cok_monster_movement(&game.party, &fast, &slow));
+    CHECK(!cok_monster_movement(&game.party, &cok_rules_champions, &fast, &slow));
     cok_character *a = member("A", 6), *b = member("B", 12), *c = member("C", 9);
     (void)b;
-    CHECK(cok_monster_movement(&game.party, &fast, &slow) && fast == 12 && slow == 6);
+    CHECK(cok_monster_movement(&game.party, &cok_rules_champions, &fast, &slow) && fast == 12 && slow == 6);
     /* Haste doubles, slow halves, from the first's own movement. */
     CHECK(cok_character_add_effect(a, 0x27, 0, 0, false) != NULL);
     CHECK(cok_character_add_effect(c, 0x2a, 0, 0, false) != NULL);
-    CHECK(cok_monster_movement(&game.party, &fast, &slow) && fast == 12 && slow == 4);
+    CHECK(cok_monster_movement(&game.party, &cok_rules_champions, &fast, &slow) && fast == 12 && slow == 4);
     a->record[0x198] = 200;
-    CHECK(cok_monster_movement(&game.party, &fast, &slow) && fast == 200 && slow == 4);
+    CHECK(cok_monster_movement(&game.party, &cok_rules_champions, &fast, &slow) && fast == 200 && slow == 4);
 }
 
 static void test_sprite(void)

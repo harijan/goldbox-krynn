@@ -1,5 +1,6 @@
 #include "ecl.h"
 
+#include <assert.h>
 #include <string.h>
 
 static const char *const names[COK_ECL_OPCODES] = {
@@ -110,9 +111,11 @@ uint8_t cok_dice_count(uint32_t *seed, uint8_t count, uint8_t sides, uint8_t *di
     return cok_dice(seed, count, sides);
 }
 
-void cok_ecl_init(cok_ecl *vm, const cok_ecl_hooks *hooks)
+void cok_ecl_init(cok_ecl *vm, const cok_rules *rules, const cok_ecl_hooks *hooks)
 {
+    assert(rules != NULL);
     memset(vm, 0, sizeof *vm);
+    vm->rules = rules;
     if (hooks != NULL) vm->hooks = *hooks;
 }
 
@@ -157,25 +160,13 @@ static uint8_t *code_byte(const cok_ecl *vm, uint32_t address)
                : NULL;
 }
 
-static uint16_t byte_at(const uint8_t *record, unsigned offset)
+/* The selected character's layout, the game's: a VM made without
+ * cok_ecl_init's rules stops here, at its first character field, not
+ * reading through NULL. */
+static const cok_character_layout *layout(const cok_ecl *vm)
 {
-    return record[offset];
-}
-
-static uint16_t signed_at(const uint8_t *record, unsigned offset)
-{
-    return (uint16_t)(int16_t)(int8_t)record[offset];
-}
-
-static uint16_t word_at(const uint8_t *record, unsigned offset)
-{
-    return (uint16_t)(record[offset] | record[offset + 1] << 8);
-}
-
-static void set_word(uint8_t *record, unsigned offset, uint16_t value)
-{
-    record[offset] = (uint8_t)value;
-    record[offset + 1] = (uint8_t)(value >> 8);
+    assert(vm->rules != NULL);
+    return vm->rules->character;
 }
 
 /* Character fields read through 0x7c00-0x7fff (3775:07d9); *found is false
@@ -183,6 +174,7 @@ static void set_word(uint8_t *record, unsigned offset, uint16_t value)
 static uint16_t character_field(const cok_ecl *vm, uint16_t address, bool *found)
 {
     const uint8_t *c = vm->character;
+    const cok_character_layout *L = c != NULL ? layout(vm) : NULL;
     unsigned field = address - 0x7c00u;
     *found = true;
     switch (field) {
@@ -193,7 +185,7 @@ static uint16_t character_field(const cok_ecl *vm, uint16_t address, bool *found
         return vm->hooks.character_value((cok_ecl *)vm, address, vm->hooks.context);
     case 0x100:
         if (c == NULL || vm->missing_character) return 0;
-        switch (c[0x188]) {
+        switch (cok_field_u8(L, c, COK_FIELD_STATUS)) {
         case 0: return 1;
         case 3: return 6;
         case 4: return 5;
@@ -205,28 +197,58 @@ static uint16_t character_field(const cok_ecl *vm, uint16_t address, bool *found
         }
     default: break;
     }
-    if (field >= 0xa5 && field <= 0xac) return c == NULL ? 0 : byte_at(c, field - 0xa4 + 0xda);
+    /* The thief skills 1-8, which the range bounds. */
+    if (field >= 0xa5 && field <= 0xac)
+        return c == NULL ? 0 : cok_field_u8_at(L, c, COK_FIELD_THIEF_SKILL, field - 0xa4);
+    /* Each ECL field's field of the record and element (in Champions +0x13,
+     * +0x19, +0x1b, +0x5c, +0x5a, +0x5b, +0x62, +0xd1, +0xd6, +0xe7,
+     * +0xeb-+0xf3, +0xfb, +0x100, +0xfd, +0x109, +0x10a, +0x130, +0x132,
+     * +0x197 and +0x198). */
     static const struct {
-        uint16_t field, offset;
+        uint16_t field;
+        cok_field at;
+        uint8_t index;
         uint8_t kind; /* 0 byte, 1 signed byte, 2 word */
     } fields[] = {
-        {0x15, 0x13, 0}, {0x18, 0x19, 0}, {0x19, 0x1b, 0}, {0x61, 0x5c, 0}, {0x72, 0x5a, 1},
-        {0x73, 0x5b, 1}, {0x76, 0x62, 0}, {0x9b, 0xd1, 0}, {0xa0, 0xd6, 1}, {0xb8, 0xe7, 0},
-        {0xbb, 0xeb, 2}, {0xbd, 0xed, 2}, {0xbf, 0xef, 2}, {0xc1, 0xf1, 2}, {0xc3, 0xf3, 2},
-        {0xcc, 0xfb, 1}, {0xcd, 0x100, 1}, {0xd0, 0xfd, 1}, {0xd6, 0x109, 1}, {0xd8, 0x10a, 1},
-        {0xf7, 0x130, 2}, {0xf9, 0x132, 0}, {0x119, 0x197, 0}, {0x11b, 0x198, 0},
+        {0x15, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE, 0},
+        {0x18, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION, 0},
+        {0x19, COK_FIELD_SCORE, COK_SCORE_CHARISMA, 0},
+        {0x61, COK_FIELD_KNIGHT_ORDER, 0, 0},
+        {0x72, COK_FIELD_RACE, 0, 1},
+        {0x73, COK_FIELD_CLASS, 0, 1},
+        {0x76, COK_FIELD_MAX_HIT_POINTS, 0, 0},
+        {0x9b, COK_FIELD_SAVING_THROW, 1, 0},
+        {0xa0, COK_FIELD_HIGHEST_LEVEL, 0, 1},
+        {0xb8, COK_FIELD_NPC, 0, 0},
+        {0xbb, COK_FIELD_COINS, 0, 2},
+        {0xbd, COK_FIELD_COINS, 1, 2},
+        {0xbf, COK_FIELD_COINS, 2, 2},
+        {0xc1, COK_FIELD_COINS, 3, 2},
+        {0xc3, COK_FIELD_COINS, 4, 2},
+        {0xcc, COK_FIELD_CLASS_LEVEL, 2, 1},
+        {0xcd, COK_FIELD_CLASS_LEVEL, 7, 1},
+        {0xd0, COK_FIELD_CLASS_LEVEL, 4, 1},
+        {0xd6, COK_FIELD_GENDER, 0, 1},
+        {0xd8, COK_FIELD_ALIGNMENT, 0, 1},
+        {0xf7, COK_FIELD_MONSTER_EXPERIENCE, 0, 2},
+        {0xf9, COK_FIELD_MONSTER_HIT_POINT_EXPERIENCE, 0, 0},
+        {0x119, COK_FIELD_HIT_POINTS, 0, 0},
+        {0x11b, COK_FIELD_MOVEMENT, 0, 0},
     };
     for (size_t i = 0; i < sizeof fields / sizeof *fields; ++i) {
         if (fields[i].field != field) continue;
         if (c == NULL) return 0;
-        if (fields[i].kind == 0) return byte_at(c, fields[i].offset);
-        if (fields[i].kind == 1) return signed_at(c, fields[i].offset);
-        return word_at(c, fields[i].offset);
+        cok_field f = fields[i].at;
+        uint8_t k = fields[i].index;
+        if (fields[i].kind == 0) return cok_field_u8_at(L, c, f, k);
+        if (fields[i].kind == 1) return (uint16_t)(int16_t)cok_field_s8_at(L, c, f, k);
+        return cok_field_u16_at(L, c, f, k);
     }
     if (field == 0x10c) {
         if (c == NULL) return 0;
-        if (c[0x18a] == 0 && c[0x18b] != 0) return 0x80;
-        return c[0x18a] == 1 ? 0x81 : 0;
+        uint8_t hostile = cok_field_u8(L, c, COK_FIELD_HOSTILE);
+        if (hostile == 0 && cok_field_u8(L, c, COK_FIELD_COMPUTER) != 0) return 0x80;
+        return hostile == 1 ? 0x81 : 0;
     }
     /* The original leaves the result unset for 0x10d and for unlisted
      * values of 0x2cf; both read as 0 here. */
@@ -234,7 +256,9 @@ static uint16_t character_field(const cok_ecl *vm, uint16_t address, bool *found
     if (field == 0x2cf) {
         static const uint8_t table[26] = {0,  0,  0,  0,  5,  10, 15, 20, 25, 25, 25, 25, 25,
                                           30, 35, 40, 50, 55, 60, 60, 60, 60, 60, 60, 60, 60};
-        return c == NULL || c[0x1b] >= sizeof table ? 0 : table[c[0x1b]];
+        if (c == NULL) return 0;
+        uint8_t charisma = cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CHARISMA);
+        return charisma >= sizeof table ? 0 : table[charisma];
     }
     *found = false;
     return 0;
@@ -285,30 +309,34 @@ static void store_character(cok_ecl *vm, uint16_t address, uint16_t value)
     }
     uint8_t *c = vm->character;
     if (c == NULL) return;
+    const cok_character_layout *L = layout(vm);
+    /* The spells memorized, 0-0x39, which the range bounds. */
     if (field >= 0x20 && field <= 0x59) {
-        c[field - 0x20 + 0x1e] = (uint8_t)value;
+        cok_field_set8_at(L, c, COK_FIELD_MEMORIZED, field - 0x20, (uint8_t)value);
         return;
     }
     switch (field) {
-    case 0xb8: c[0xe7] = (uint8_t)(value > 0xb2 ? value - 0x32 : value); break;
-    case 0xbb: set_word(c, 0xeb, value); break;
-    case 0xbd: set_word(c, 0xed, value); break;
-    case 0xbf: set_word(c, 0xef, value); break;
-    case 0xc1: set_word(c, 0xf1, value); break;
-    case 0xc3: set_word(c, 0xf3, value); break;
-    case 0xf7: set_word(c, 0x130, value); break;
-    case 0xf9: c[0x132] = (uint8_t)value; break;
-    case 0x119: c[0x197] = (uint8_t)value; break;
+    case 0xb8:
+        cok_field_set8(L, c, COK_FIELD_NPC, (uint8_t)(value > 0xb2 ? value - 0x32 : value));
+        break;
+    case 0xbb: cok_field_set16_at(L, c, COK_FIELD_COINS, 0, value); break;
+    case 0xbd: cok_field_set16_at(L, c, COK_FIELD_COINS, 1, value); break;
+    case 0xbf: cok_field_set16_at(L, c, COK_FIELD_COINS, 2, value); break;
+    case 0xc1: cok_field_set16_at(L, c, COK_FIELD_COINS, 3, value); break;
+    case 0xc3: cok_field_set16_at(L, c, COK_FIELD_COINS, 4, value); break;
+    case 0xf7: cok_field_set16(L, c, COK_FIELD_MONSTER_EXPERIENCE, value); break;
+    case 0xf9: cok_field_set8(L, c, COK_FIELD_MONSTER_HIT_POINT_EXPERIENCE, (uint8_t)value); break;
+    case 0x119: cok_field_set8(L, c, COK_FIELD_HIT_POINTS, (uint8_t)value); break;
     case 0x100:
         if (value == 1) {
-            c[0x188] = 0;
-            c[0x189] = 1;
+            cok_field_set8(L, c, COK_FIELD_STATUS, 0);
+            cok_field_set8(L, c, COK_FIELD_ACTIVE, 1);
         }
         break;
     case 0x10c:
         if (value == 0 || value == 0x80 || value == 0x81) {
-            c[0x18a] = value == 0x81;
-            c[0x18b] = value != 0;
+            cok_field_set8(L, c, COK_FIELD_HOSTILE, value == 0x81);
+            cok_field_set8(L, c, COK_FIELD_COMPUTER, value != 0);
         }
         break;
     default: break;
@@ -356,8 +384,10 @@ void cok_ecl_load_string(const cok_ecl *vm, uint16_t address, char out[256])
     unsigned length = 0;
     if (address == 0x7c00) {
         if (vm->character != NULL) {
-            length = vm->character[0] > 15 ? 15 : vm->character[0];
-            memcpy(out, vm->character + 1, length);
+            const cok_character_layout *L = layout(vm);
+            uint8_t stored = cok_field_u8_at(L, vm->character, COK_FIELD_NAME, 0);
+            length = stored > 15 ? 15 : stored;
+            memcpy(out, vm->character + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
         }
     } else if (area == CODE) {
         const uint8_t *b;
@@ -378,9 +408,10 @@ void cok_ecl_store_string(cok_ecl *vm, uint16_t address, const char *text)
     int area = area_of(address);
     if (address == 0x7c00) {
         if (vm->character != NULL) {
+            const cok_character_layout *L = layout(vm);
             unsigned n = length > 15 ? 15 : length;
-            vm->character[0] = (uint8_t)n;
-            memcpy(vm->character + 1, text, n);
+            cok_field_set8_at(L, vm->character, COK_FIELD_NAME, 0, (uint8_t)n);
+            memcpy(vm->character + cok_field_offset_at(L, COK_FIELD_NAME, 1), text, n);
         }
         return;
     }

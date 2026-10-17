@@ -1032,10 +1032,11 @@ static void print_text(cok_adventure *game, const char *text, uint8_t fg, bool c
 }
 
 /* A character's name, from its Pascal string. */
-static void name_of(const uint8_t *c, char out[16])
+static void name_of(const cok_character_layout *L, const uint8_t *c, char out[16])
 {
-    size_t length = c[0] > 15 ? 15 : c[0];
-    memcpy(out, c + 1, length);
+    uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
+    size_t length = stored > 15 ? 15 : stored;
+    memcpy(out, c + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
     out[length] = '\0';
 }
 
@@ -1060,19 +1061,19 @@ static void load_character(cok_adventure *game)
 /* Add experience to a character, divided among its classes (2fd3:36dc). */
 static void gain_experience(cok_adventure *game, uint8_t *c, uint16_t points)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t classes = 0;
     for (size_t i = 0; i < 8; ++i)
-        if ((int8_t)c[0xf9 + i] > 0) ++classes;
+        if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i) > 0) ++classes;
     /* The original divides before it tests whether the character can act. */
     if (classes == 0) {
         game->vm.status = COK_ECL_DIVIDE_BY_ZERO;
         return;
     }
-    if (c[0x189] == 0) return;
-    uint32_t total = (uint32_t)c[0x116] | (uint32_t)c[0x117] << 8 | (uint32_t)c[0x118] << 16 |
-                     (uint32_t)c[0x119] << 24;
+    if (cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0) return;
+    uint32_t total = cok_field_u32(L, c, COK_FIELD_EXPERIENCE);
     total += (uint16_t)(points / classes);
-    for (size_t i = 0; i < 4; ++i) c[0x116 + i] = (uint8_t)(total >> (8 * i));
+    cok_field_set32(L, c, COK_FIELD_EXPERIENCE, total);
 }
 
 /* ADD EP (2fd3:36dc): the selected character when the first operand is 0,
@@ -1088,7 +1089,7 @@ static void add_experience(cok_adventure *game)
     char text[64];
     if (one) {
         char name[16] = "";
-        if (vm->character != NULL) name_of(vm->character, name);
+        if (vm->character != NULL) name_of(cok_game_rules(game)->character, vm->character, name);
         snprintf(text, sizeof text, "Congratulations %s gains experience!", name);
     } else {
         snprintf(text, sizeof text, "Congratulations the party gains experience!");
@@ -1181,7 +1182,7 @@ static void who(cok_adventure *game)
     game->moving = moving;
     if (ended) return;
     char name[16] = "";
-    if (picked != NULL) name_of(picked, name);
+    if (picked != NULL) name_of(cok_game_rules(game)->character, picked, name);
     log_text(game, "who", name);
 }
 
@@ -1232,10 +1233,11 @@ static bool save_made(cok_adventure *game, uint8_t *c, uint8_t type, uint8_t bon
 static void apply_damage(cok_adventure *game, uint8_t *c, uint16_t damage)
 {
     cok_ecl *vm = &game->vm;
-    if (c[0x188] == 6) return;
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    if (cok_field_u8(L, c, COK_FIELD_STATUS) == 6) return;
     char name[16], text[80];
-    name_of(c, name);
-    if (c[0x197] + 10 < damage) {
+    name_of(L, c, name);
+    if (cok_field_u8(L, c, COK_FIELD_HIT_POINTS) + 10 < damage) {
         snprintf(text, sizeof text, "  %s dies. ", name);
     } else {
         char points[8];
@@ -1322,7 +1324,9 @@ static void damage(cok_adventure *game)
     }
     bool alive = false;
     for (size_t i = 0; i < game->party.count; ++i)
-        if (game->party.members[i]->record[0x189] != 0) alive = true;
+        if (cok_field_u8(cok_game_rules(game)->character, game->party.members[i]->record,
+                         COK_FIELD_ACTIVE) != 0)
+            alive = true;
     game->party_killed = !alive;
     /* The original sets DS:4b57, which ends the run, to whether the party
      * died; here it also stays set when input has ended. */
@@ -1573,12 +1577,13 @@ static void find_special(cok_adventure *game)
 static void spell(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t wanted = (uint8_t)cok_ecl_value(vm, 0), index = 0xff, position = 0;
     bool found = false;
     for (size_t k = 0; k < game->party.count && !found; ++k) {
         const uint8_t *r = game->party.members[k]->record;
-        for (uint8_t i = 0; i < 0x3a && !found; ++i) {
-            found = r[0x1e + i] == wanted;
+        for (uint8_t i = 0; i < cok_field_count(L, COK_FIELD_MEMORIZED) && !found; ++i) {
+            found = cok_field_u8_at(L, r, COK_FIELD_MEMORIZED, i) == wanted;
             if (found) index = i;
         }
         if (!found && k + 1 < game->party.count) ++position;
@@ -1606,6 +1611,7 @@ static void ecl_clock(cok_adventure *game)
 static bool join_npc(cok_adventure *game, uint8_t id)
 {
     cok_ecl *vm = &game->vm;
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_character *npc = malloc(sizeof *npc);
     if (npc == NULL) {
         cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
@@ -1616,7 +1622,7 @@ static bool join_npc(cok_adventure *game, uint8_t id)
         free(npc);
         return false;
     }
-    npc->record[0x115] = id;
+    cok_field_set8(L, npc->record, COK_FIELD_MONSTER_ID, id);
     if (!cok_party_add(&game->party, cok_game_rules(game), npc)) {
         cok_character_free(npc);
         free(npc);
@@ -1628,16 +1634,17 @@ static bool join_npc(cok_adventure *game, uint8_t id)
     vm->character = npc->record;
     ++vm->mem7c00[0x33e];
     char error[300];
-    if (npc->record[0xe7] >= 0x80 &&
+    if (cok_field_u8(L, npc->record, COK_FIELD_NPC) >= 0x80 &&
         !cok_character_levels(npc, cok_game_rules(game), &game->item_types, error, sizeof error)) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
         return false;
     }
     char name[16], text[64];
-    name_of(npc->record, name);
-    snprintf(text, sizeof text, "%s joins, icon %u in slot %u", name, id, npc->record[0x137]);
+    name_of(L, npc->record, name);
+    uint8_t slot = cok_field_u8(L, npc->record, COK_FIELD_ICON);
+    snprintf(text, sizeof text, "%s joins, icon %u in slot %u", name, id, slot);
     log_text(game, "party", text);
-    return cok_arena_load_icon(game, cok_game_rules(game)->archives.icons, id, npc->record[0x137]);
+    return cok_arena_load_icon(game, cok_game_rules(game)->archives.icons, id, slot);
 }
 
 /* ADD NPC id morale (2fd3:311c): unless the party has eight or more, add
@@ -1657,7 +1664,8 @@ static void add_npc(cok_adventure *game)
                            "through NULL (2fd3:311c)");
         return;
     }
-    c->record[0xe7] = (uint8_t)((uint8_t)cok_ecl_value(vm, 1) >> 1 | 0x80);
+    cok_field_set8(cok_game_rules(game)->character, c->record, COK_FIELD_NPC,
+                   (uint8_t)((uint8_t)cok_ecl_value(vm, 1) >> 1 | 0x80));
     char error[300];
     if (!cok_character_stats(c, cok_game_rules(game), &game->item_types, error, sizeof error)) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
@@ -1677,7 +1685,7 @@ static void dump(cok_adventure *game)
     size_t i = cok_party_index(&game->party, vm->character);
     if (i < game->party.count) {
         char name[16], text[32];
-        name_of(vm->character, name);
+        name_of(cok_game_rules(game)->character, vm->character, name);
         snprintf(text, sizeof text, "%s leaves", name);
         log_text(game, "party", text);
         /* DS:43bf is set from the new selection below. */
@@ -2125,7 +2133,7 @@ bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, con
     cok_ecl_hooks vm_hooks = {.load = load_block, .opcode = opcode, .trace = trace,
                               .executed = executed, .character_value = character_value,
                               .context = game};
-    cok_ecl_init(&game->vm, &vm_hooks);
+    cok_ecl_init(&game->vm, cok_game_rules(game), &vm_hooks);
     cok_effects_init(&game->effects, cok_game_rules(game), &game->vm, &game->party,
                      &game->item_types);
     game->effects.say = effect_say;
@@ -2299,7 +2307,8 @@ static bool add_characters(cok_adventure *game, const cok_saved_game *saved, con
             return false;
         }
         /* 4b6d:1989 recomputes an NPC's levels once it has joined. */
-        if (character->record[0xe7] >= 0x80 &&
+        if (cok_field_u8(cok_game_rules(game)->character, character->record, COK_FIELD_NPC) >=
+                0x80 &&
             !cok_character_levels(character, cok_game_rules(game), &game->item_types, game->error,
                                   sizeof game->error))
             return false;
@@ -2466,12 +2475,12 @@ static void carry(cok_adventure *game, uint16_t clock[7])
             /* A full last unit, 256 years, stays full and ages each
              * character a year (the word at +0x60) every time a unit
              * passes. Months carry into years without aging anyone. */
+            const cok_character_layout *L = cok_game_rules(game)->character;
             for (size_t k = 0; k < game->party.count; ++k) {
                 uint8_t *c = game->party.members[k]->record;
-                uint16_t age = (uint16_t)(c[0x60] | c[0x61] << 8);
+                uint16_t age = cok_field_u16(L, c, COK_FIELD_AGE);
                 ++age;
-                c[0x60] = (uint8_t)age;
-                c[0x61] = (uint8_t)(age >> 8);
+                cok_field_set16(L, c, COK_FIELD_AGE, age);
             }
             continue;
         }
@@ -2777,7 +2786,8 @@ static int command(cok_adventure *game)
                                        "Cast with no character selected (475c:0ade)");
                     return -1;
                 }
-                if (vm->character[0x188] == 0) {
+                if (cok_field_u8(cok_game_rules(game)->character, vm->character,
+                                 COK_FIELD_STATUS) == 0) {
                     game->selected = 1;
                     cok_magic_cast(game, COK_CAST_COMMANDS);
                 }
@@ -2873,10 +2883,12 @@ static void open_door(cok_adventure *game)
 static bool bash(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
+    const cok_character_layout *L = cok_game_rules(game)->character;
     bool opened = false;
     for (size_t i = 0; i < game->party.count && !opened; ++i) {
         const uint8_t *c = game->party.members[i]->record;
-        uint8_t strength = c[0x11], extra = c[0x1c];
+        uint8_t strength = cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_STRENGTH),
+                extra = cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL);
         if (cok_view_passage(&game->view, vm->direction, vm->map_x, vm->map_y) == 3) {
             if (strength == 18) {
                 if (extra >= 0x5b && extra <= 99) opened = roll(game, 1, 6) == 1;
@@ -2925,10 +2937,12 @@ static bool bash(cok_adventure *game)
  * changing class (+0x101) and may use it (475c:0275). */
 static bool has_class(cok_adventure *game, size_t class)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     for (size_t i = 0; i < game->party.count; ++i) {
         const uint8_t *c = game->party.members[i]->record;
-        if ((int8_t)c[0xf9 + class] >= 1) return true;
-        if ((int8_t)c[0x101 + class] > 0 && cok_character_former_class(c, cok_game_rules(game)))
+        if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, class) >= 1) return true;
+        if (cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, class) > 0 &&
+            cok_character_former_class(c, cok_game_rules(game)))
             return true;
     }
     return false;
@@ -2939,11 +2953,13 @@ static bool has_class(cok_adventure *game, size_t class)
  * the next step. */
 static bool pick(cok_adventure *game)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     bool opened = false;
     for (size_t i = 0; i < game->party.count && !opened; ++i) {
         const uint8_t *c = game->party.members[i]->record;
         uint8_t r = roll(game, 1, 100);
-        opened = r <= c[0xdc] && c[0x188] == 0;
+        opened = r <= cok_field_u8_at(L, c, COK_FIELD_THIEF_SKILL, 2) &&
+                 cok_field_u8(L, c, COK_FIELD_STATUS) == 0;
     }
     game->door_tries[1] = false;
     if (opened) open_door(game);
@@ -2954,10 +2970,12 @@ static bool pick(cok_adventure *game)
  * 475c:0683): the 58 bytes from +0x1e. */
 static uint8_t *memorized(cok_adventure *game, uint8_t spell)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     for (size_t i = 0; i < game->party.count; ++i) {
         uint8_t *c = game->party.members[i]->record;
-        for (size_t s = 0; s < 0x3a; ++s)
-            if (c[0x1e + s] == spell) return c + 0x1e + s;
+        for (size_t s = 0; s < cok_field_count(L, COK_FIELD_MEMORIZED); ++s)
+            if (cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, s) == spell)
+                return c + cok_field_offset_at(L, COK_FIELD_MEMORIZED, s);
     }
     return NULL;
 }

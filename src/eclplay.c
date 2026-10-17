@@ -478,12 +478,15 @@ static void battlefield(cok_adventure *game, void *context)
         for (int x = 0; x < COK_COMBAT_WIDTH; ++x) fprintf(f, "%02x", c->cells[y][x]);
         fputc('\n', f);
     }
+    const cok_character_layout *L = cok_game_rules(game)->character;
     for (unsigned n = 1; n < c->count; ++n) {
         const cok_combatant *e = &c->combatant[n];
         const uint8_t *r = e->character->record;
+        uint8_t length = cok_field_u8_at(L, r, COK_FIELD_NAME, 0);
         fprintf(f, "%c %u %.*s: at %d,%d size %u side %u facing %u\n", mark(n), n,
-                r[0] > 15 ? 15 : r[0], (const char *)r + 1, e->x, e->y, e->size, r[0x18a],
-                e->character->combat->facing);
+                length > 15 ? 15 : length,
+                (const char *)r + cok_field_offset_at(L, COK_FIELD_NAME, 1), e->x, e->y, e->size,
+                cok_field_u8(L, r, COK_FIELD_HOSTILE), e->character->combat->facing);
     }
     for (unsigned k = 0; k < c->bodies; ++k)
         fprintf(f, "body at %d,%d on %02x\n", c->body[k].x, c->body[k].y, c->body[k].cell);
@@ -540,6 +543,7 @@ static bool test_party(cok_adventure *game, unsigned long count)
     static const struct { uint8_t class_, level, prime, hp, spell; } kinds[4] = {
         {2, 2, 0, 10, 0}, {0, 0, 2, 7, 3}, {5, 5, 1, 4, 0x0b}, {6, 6, 3, 5, 0},
     };
+    const cok_character_layout *L = cok_game_rules(game)->character;
     for (unsigned long i = 0; i < count; ++i) {
         cok_character *c = calloc(1, sizeof *c);
         if (c == NULL) {
@@ -547,39 +551,46 @@ static bool test_party(cok_adventure *game, unsigned long count)
             return false;
         }
         uint8_t *r = c->record;
-        r[0] = (uint8_t)strlen(names[i]);
-        memcpy(r + 1, names[i], strlen(names[i]));
+        cok_field_set8_at(L, r, COK_FIELD_NAME, 0, (uint8_t)strlen(names[i]));
+        memcpy(r + cok_field_offset_at(L, COK_FIELD_NAME, 1), names[i], strlen(names[i]));
         const uint8_t *kind = &kinds[i == 7 ? 2 : i % 4].class_; /* HOLT a mage */
         static const uint8_t scores[6] = {15, 13, 13, 14, 15, 12};
-        for (int k = 0; k < 6; ++k)
-            r[0x10 + 2 * k] = r[0x11 + 2 * k] = k == kind[2] ? 17 : scores[k];
-        r[0x5a] = 6;               /* human */
-        r[0x5b] = kind[0];
-        r[0x5d] = kind[0] == 0 ? 4 : 0; /* Mishakal */
-        r[0x5e] = kind[0] == 5 ? 1 : 0;  /* White */
-        r[0x60] = 20;              /* years */
-        r[0x62] = r[0x197] = r[0x11b] = kind[3];
-        r[0xd5] = 12;              /* movement */
-        r[0xf9 + kind[1]] = 1;
-        r[0x109] = (uint8_t)(i & 1);
-        r[0x10a] = 0;
-        r[0x10b] = 2;              /* one attack a round, doubled */
-        r[0x10d] = 1;
-        r[0x10f] = 2;
-        r[0x113] = 50;             /* armour class 10 */
-        r[0xcf] = 1;               /* one cell in combat */
+        for (int k = 0; k < 6; ++k) {
+            uint8_t score = k == kind[2] ? 17 : scores[k];
+            cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, k, score);
+            cok_field_set8_at(L, r, COK_FIELD_SCORE, k, score);
+        }
+        cok_field_set8(L, r, COK_FIELD_RACE, 6); /* human */
+        cok_field_set8(L, r, COK_FIELD_CLASS, kind[0]);
+        cok_field_set8(L, r, COK_FIELD_DEITY, kind[0] == 0 ? 4 : 0);       /* Mishakal */
+        cok_field_set8(L, r, COK_FIELD_MAGIC_ORDER, kind[0] == 5 ? 1 : 0); /* White */
+        cok_field_set16(L, r, COK_FIELD_AGE, 20); /* years (its high byte stays 0) */
+        cok_field_set8(L, r, COK_FIELD_MAX_HIT_POINTS, kind[3]);
+        cok_field_set8(L, r, COK_FIELD_HIT_POINTS, kind[3]);
+        cok_field_set8(L, r, COK_FIELD_BASE_HIT_POINTS, kind[3]);
+        cok_field_set8(L, r, COK_FIELD_BASE_MOVEMENT, 12);
+        cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, kind[1], 1);
+        cok_field_set8(L, r, COK_FIELD_GENDER, (uint8_t)(i & 1));
+        cok_field_set8(L, r, COK_FIELD_ALIGNMENT, 0);
+        cok_field_set8_at(L, r, COK_FIELD_BASE_ATTACKS, 1, 2); /* one a round, doubled */
+        cok_field_set8_at(L, r, COK_FIELD_BASE_DICE, 1, 1);
+        cok_field_set8_at(L, r, COK_FIELD_BASE_DICE_SIDES, 1, 2);
+        cok_field_set8(L, r, COK_FIELD_BASE_AC, 50); /* armour class 10 */
+        cok_field_set8(L, r, COK_FIELD_SIZE, 1);     /* one cell in combat */
         /* The icon a new character gets (4def:06dd, 4def:3c61): large for a
          * human, a head by gender, a body by class, the template's colours. */
-        r[0x138] = 2;
-        r[0x135] = r[0x109] == 1 ? 9 : 5;
-        r[0x136] = kind[0] == 0 ? 0x17 : kind[0] == 2 ? 0x18 : kind[0] == 5 ? 0x1d : 5;
+        cok_field_set8(L, r, COK_FIELD_ICON_SIZE, 2);
+        cok_field_set8(L, r, COK_FIELD_ICON_HEAD,
+                       cok_field_u8(L, r, COK_FIELD_GENDER) == 1 ? 9 : 5);
+        cok_field_set8(L, r, COK_FIELD_ICON_BODY,
+                       kind[0] == 0 ? 0x17 : kind[0] == 2 ? 0x18 : kind[0] == 5 ? 0x1d : 5);
         static const uint8_t colours[6] = {0x91, 0xa2, 0xb3, 0xc4, 0xe6, 0xf7};
-        memcpy(r + 0x139, colours, sizeof colours);
-        r[0xeb + 8] = 20;          /* steel */
-        r[0x189] = 1;
+        memcpy(r + cok_field_offset(L, COK_FIELD_ICON_COLOURS), colours, sizeof colours);
+        cok_field_set16_at(L, r, COK_FIELD_COINS, 4, 20); /* steel (the high byte stays 0) */
+        cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
         if (kind[4] != 0) {
-            r[0x62 + kind[4]] = 1; /* known */
-            r[0x1e] = kind[4];     /* memorized */
+            cok_field_set8_at(L, r, COK_FIELD_KNOWN_SPELL, kind[4], 1);
+            cok_field_set8_at(L, r, COK_FIELD_MEMORIZED, 0, kind[4]);
         }
         if (kind[0] == 2) {
             give_item(c, 0x12, 0x12, 0, 60);     /* Long Sword */
@@ -597,16 +608,16 @@ static bool test_party(cok_adventure *game, unsigned long count)
             /* The seventh, a mage, also has Charm Monsters memorized and a
              * Wand of Magic Missiles readied with 5 charges, for casts of
              * weighed picks and from an item. */
-            r[0x62 + 0x51] = 1;
-            r[0x1f] = 0x51;
+            cok_field_set8_at(L, r, COK_FIELD_KNOWN_SPELL, 0x51, 1);
+            cok_field_set8_at(L, r, COK_FIELD_MEMORIZED, 1, 0x51);
             give_item(c, 0x34, 0x33, 0, 10);
             c->items[c->item_count - 1][0x3c] = 5;
             c->items[c->item_count - 1][0x3d] = 0x0f;
         }
         if (i == 7) {
             /* The eighth, a mage too, has Stinking Cloud memorized. */
-            r[0x62 + 0x22] = 1;
-            r[0x1e] = 0x22;
+            cok_field_set8_at(L, r, COK_FIELD_KNOWN_SPELL, 0x22, 1);
+            cok_field_set8_at(L, r, COK_FIELD_MEMORIZED, 0, 0x22);
         }
         bool ok = cok_character_stats(c, cok_game_rules(game), &game->item_types, game->error,
                                       sizeof game->error) &&

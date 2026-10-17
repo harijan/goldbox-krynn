@@ -1,6 +1,8 @@
 #ifndef COK_DEBUG_H
 #define COK_DEBUG_H
 
+#include "rules.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -61,11 +63,11 @@ void cok_debug_opcode_name(unsigned opcode, char out[16]);
  * reads past. */
 bool cok_debug_item(cok_adventure *game, const uint8_t *item);
 
-/* A record's name (its string at +0) whole, as Write and the trace take a
- * string: not cut to the 15 characters the screens show (name_of in the
- * other modules), so that a record's length byte is followed as the
- * original follows it. */
-void cok_debug_name(const uint8_t *record, char out[256]);
+/* A record's name (its string, NAME, at +0) whole, as Write and the trace
+ * take a string: not cut to the 15 characters the screens show (name_of in
+ * the other modules), so that a record's length byte is followed as the
+ * original follows it, past the name's 16 bytes. */
+void cok_debug_name(const uint8_t *record, const cok_rules *rules, char out[256]);
 
 /* WriteLn(DEBUG.TXT, line), logged as "debug.txt". Only while open. */
 void cok_debug_write(cok_adventure *game, const char *line);
