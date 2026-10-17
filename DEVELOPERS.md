@@ -216,7 +216,8 @@ each field of the enum `cok_field` its offset, width (1, 2 or 4 bytes,
 little-endian), element count and first index for an array (as the
 original's code counts them, a Pascal array's lower bound: the thief
 skills 1-8, the class levels 0-7, the coins 0-6, known spells by spell id
-1-108), the stride between elements (the scores, base and current,
+1-108, the attacks left and their dice by attack 1-2, the icon's colours
+1-6), the stride between elements (the scores, base and current,
 interleave), rows for a table (spells a day: 4 spell classes by levels
 1-5), whether the original reads it as signed (a record of the original,
 for a later game's conversions: the accessors read any byte either way),
@@ -264,18 +265,32 @@ and level past the table, reaching other fields or the far pointers),
 `cok_field_pointer_at` says whether a byte is a far pointer's; the record
 is then indexed with the result, checked against the layout's `size`.
 
-The routines in `party.c`, `items.c`, `magic.c` and `sheet.c` read every
-character field through the layout (the item records, 63 bytes, the
-effects, 9, and the combat record are not the character record and keep
-their offsets). Those that took only a record take the rules after it
+The routines in `party.c`, `items.c`, `magic.c` and `sheet.c`, and
+combat's in `attack.c`, `round.c`, `ai.c`, `cast.c`, `effect.c`,
+`combat.c`, `arena.c` and `cloud.c`, read every character field through
+the layout (the item records, 63 bytes, the effects, 9, and the combat
+record are not the character record and keep their offsets). Those that
+took only a record take the rules after it
 (`cok_character_stats(character, rules, types, ...)`,
 `cok_character_former_class(record, rules)`, `cok_character_damage`,
 `heal`, `allowance`, `strength_bonus`, `dexterity_missile`, the cleric
 spells, saving throws and thief skills, `cok_party_add(party, rules,
-character)`, `cok_party_draw`, `cok_magic_sort`, `cok_magic_slots`);
-callers pass `cok_game_rules(game)`, the effects engine its own
+character)`, `cok_party_draw`, `cok_magic_sort`, `cok_magic_slots`;
+`cok_combat_damage(combat, c, rules, ...)`, `cok_combat_opposite(c,
+rules)`, `cok_combat_auto`, `cok_combat_place(combat, mode, character,
+rules, ...)`, and after the party `cok_combat_count_sides` and
+`cok_combat_enemy_health`); callers pass `cok_game_rules(game)` (a spell's
+handler `cok_game_rules(cx->game)`), the effects engine its own
 `fx->rules` (`cok_effects_init` takes them), `cok_combat_records` the
-rules it is given, and tests `&cok_rules_champions`.
+rules it is given, and tests `&cok_rules_champions`. Three indices stay
+the original's unbounded arithmetic, through `cok_field_offset_unchecked`
+and each site's own bound as before: a helpless target's blow at attack
+slot 0 (`ATTACKS_LEFT`'s offset for slot 0 is `AC_BEHIND`'s), checked
+against the record's size; a saving throw's signed type (`SAVING_THROW`
+from `+0xd0`), likewise; and `cok_combat_damage_roll`'s slot, which its
+guard bounds at 2 only, so that slot 0 reads `DICE`, `DICE_SIDES` and
+`DAMAGE_BONUS` one byte early (`+0x190`, `+0x192`, `+0x194`), as the
+original's `+0x190 + slot` does.
 
 To add a field: name it for what it is in `cok_field` (`src/field.h`),
 with a comment; give Champions' place in `champions_character`
@@ -3567,20 +3582,21 @@ and `6d21`, and the wrapper of `COMBAT` without the battle.
 
 A monster is a 409-byte character record from `MON<file>CHA.DAX`, with its
 effects (`MON<file>SPC`, 9-byte `.SFX` records) and items (`MON<file>ITM`,
-63-byte `.STF` items). Fields a monster uses beyond those of Champions'
-layout (`champions_character` in `src/rules.c`, see Games):
+63-byte `.STF` items). What a monster keeps in the fields of Champions'
+layout (`champions_character` in `src/rules.c`, see Games), and in the
+bytes the layout does not name yet:
 
-| Offset | Meaning |
-| --- | --- |
-| `+0x0cf` | bits 0-2 the size of its combat icon, bit 7 a large creature |
-| `+0x0da` | its kind of undead, for turning; 0 for none |
-| `+0x0e7` | 0x80 and up; the low bits are its morale |
-| `+0x0eb` | coins, seven words, for the treasure |
-| `+0x10b`, `+0x10c` | attacks a round, doubled, of its two attacks |
-| `+0x10d`-`+0x112` | dice, sides and damage bonus of each (the derived `+0x191`-`+0x196`) |
-| `+0x11b` | hit points at full; `+0x130` (a word) + `+0x132` × `+0x11b` is its experience |
-| `+0x187` | magic resistance |
-| `+0x18a`, `+0x18b` | 1 against the party, 1 while the computer controls it |
+| Offset | Field | Meaning |
+| --- | --- | --- |
+| `+0x0cf` | `SIZE` | bits 0-2 the size of its combat icon, bit 7 a large creature |
+| `+0x0da` | `UNDEAD` | its kind of undead, for turning; 0 for none |
+| `+0x0e7` | `NPC` | 0x80 and up; the low bits are its morale |
+| `+0x0eb` | `COINS` | coins, seven words, for the treasure |
+| `+0x10b`, `+0x10c` | `BASE_ATTACKS` | attacks a round, doubled, of its two attacks |
+| `+0x10d`-`+0x112` | `BASE_DICE`, `BASE_DICE_SIDES`, `BASE_DAMAGE_BONUS` | dice, sides and damage bonus of each (the derived `+0x191`-`+0x196`) |
+| `+0x11b` | `BASE_HIT_POINTS` | hit points at full; `+0x130` (a word) + `+0x132` × `+0x11b` is its experience (not named yet) |
+| `+0x187` | `MAGIC_RESISTANCE` | magic resistance |
+| `+0x18a`, `+0x18b` | `HOSTILE`, `COMPUTER` | 1 against the party, 1 while the computer controls it |
 
 Monsters live in the party list. The original keeps one list from
 `DS:609a`, the party first, then the monsters `LOAD MONSTER` appends,
@@ -3936,9 +3952,9 @@ Combatants are numbered from 1 in list order, the party first:
 | `DS:7197` | the enemies' hit points as a percentage of their most, in fives (`432f:2df3`) |
 
 A size is a footprint of up to four cells (`DS:1fe4 + 8 × size`, from
-`+0xcf` & 7): 1 one cell, 2 it and the one below, 3 it and the one to the
-right, 4 two by two. The combat record (`+0x183`, see Monsters and
-encounters) gets its facing and `+0x13` at setup.
+`+0xcf` & 7, the layout's `SIZE`): 1 one cell, 2 it and the one below, 3 it
+and the one to the right, 4 two by two. The combat record (`+0x183`, see
+Monsters and encounters) gets its facing and `+0x13` at setup.
 
 On a 3D map (`3cb2:08cd`) each 3D square from 6 west to 6 east and 2 north
 to 2 south of the party's, row by row from the north and west to east along
@@ -4178,13 +4194,15 @@ over, round by round:
 2. Each record in list order starts the round (`432f:0000`): it casts no
    spell (combat record `+0x00`), may cast unless a stinking cloud (terrain
    0x1e) lies under it, may use items, has not attacked, uses attack slot
-   2, has its attacks with its weapon (`+0x18f`, `432f:0e80`) and its others
-   (`+0x190`: `+0x10c` after event 0x12, haste and slow, halved by
-   `432f:0f9e`), its sweeps (`+0xce`), its initiative and its movement
-   (`432f:014d`). One that can act rolls 1d6 plus its dexterity's missile
-   bonus (`6346:12f8`), as a byte, at least 1, less 6 when its side is
-   surprised (var `0x7ecb`, side + 1: bit 0 the party's, bit 1 the
-   enemy's), and 0 outside 0-20; one that cannot gets 0 and rolls nothing.
+   2, has its attacks with its weapon (`+0x18f`, `ATTACKS_LEFT` 1,
+   `432f:0e80`) and its others (`+0x190`, `ATTACKS_LEFT` 2: `+0x10c`,
+   `BASE_ATTACKS` 2, after event 0x12, haste and slow, halved by
+   `432f:0f9e`), its sweeps (`+0xce`, `FIGHTER_LEVEL`), its initiative and
+   its movement (`432f:014d`). One that can act rolls 1d6 plus its
+   dexterity's missile bonus (`6346:12f8`), as a byte, at least 1, less 6
+   when its side is surprised (var `0x7ecb`, side + 1: bit 0 the party's,
+   bit 1 the enemy's), and 0 outside 0-20; one that cannot gets 0 and rolls
+   nothing.
 3. Var `0x7ecb` is cleared: surprise lasts one round.
 4. The turn order (`3995:02a0`, `DS:71ae`): every record by initiative,
    highest first, the dead too. Each goes before the first entry from 1
@@ -4639,18 +4657,19 @@ dropped and a T adds 0x40 to the id; `COMSPR` as it is; any other name
 gets the first digit of the ECL file (`DS:5782`) and, outside CGA mode
 (`DS:4b76` not 0), colour 8 drawn black (`127f:15fd` from `DS:1e26` to
 `1e36`). LOAD MONSTER's icons now load so (see Monsters and encounters).
-A player character's icon (`4b6d:0817`) is its body (`+0x136`) from CBODY
-with its head (`+0x135`) from CHEAD laid over it (`4b6d:0784`: each byte of
-the head's frame ORed into the body's pixels and ANDed into its mask, from
-the first), small or large by `+0x138` (1 S, 2 T), colour 8 drawn black,
-then each of the six bytes from `+0x139` giving the template's colours 1,
-2, 3, 4, 6 and 7 (`DS:390b`) its low nibble and those + 8 its high one. As
-a saved game's characters join (`4b6d:1b34`), every record in the list gets
-its icons: a player character's built, an NPC's (`+0xe7` 0x80 and up)
-`CPIC` record `+0x115` of the saved game's file. `eclplay --test-party`
-gives its characters the icons a new human character gets (`4def:3c61`:
-large, head 9 or 5 by gender, body by class, the template's colours; see
-Creating characters).
+A player character's icon (`4b6d:0817`) is its body (`+0x136`, `ICON_BODY`)
+from CBODY with its head (`+0x135`, `ICON_HEAD`) from CHEAD laid over it
+(`4b6d:0784`: each byte of the head's frame ORed into the body's pixels and
+ANDed into its mask, from the first), small or large by `+0x138`
+(`ICON_SIZE`: 1 S, 2 T), colour 8 drawn black, then each of the six bytes
+from `+0x139` (`ICON_COLOURS` 1-6) giving the template's colours 1, 2, 3, 4,
+6 and 7 (`DS:390b`) its low nibble and those + 8 its high one. As a saved
+game's characters join (`4b6d:1b34`), every record in the list gets its
+icons: a player character's built, an NPC's (`+0xe7` 0x80 and up) `CPIC`
+record `+0x115` (`MONSTER_ID`) of the saved game's file. `eclplay
+--test-party` gives its characters the icons a new human character gets
+(`4def:3c61`: large, head 9 or 5 by gender, body by class, the template's
+colours; see Creating characters).
 
 The effects' handlers that speak say their text in the panel in combat
 (row 10 with a pause, `6346:1883`; the stench's "emits an evil stench",
@@ -4778,13 +4797,13 @@ that. One hit twice or more that is shown flips (+ 4, not from behind)
 and is drawn back as it was. The attacker shows its panel, turns to the
 target in its attacking image, aims at it (`+0x0a`), and after 100 ms the
 item it was given flies (`432f:2beb`, below), then a sling's stone
-(weapon type 0x1c or 0x1d). With attacks left (`+0x18f` or `+0x190`) it is
-selected (`DS:6096`) while it strikes (`432f:1579`), and the item is used
-up: but for a hoopak's (`6346:3086`), its count (`+0x39`), if not 0, less
-the attacks made with slot 1 (`DS:7195`), a byte; at 0 it goes
-(`6346:1697`), and if the weapon is thrown (`6346:30bd`: a missile weapon
-whose type's flags have 0x14, or a hoopak) and the item is not a
-spiritual hammer (`+0x3d` 0x17), a copy, unreadied, goes into the pool
+(weapon type 0x1c or 0x1d). With attacks left (`+0x18f` or `+0x190`,
+`ATTACKS_LEFT`) it is selected (`DS:6096`) while it strikes (`432f:1579`),
+and the item is used up: but for a hoopak's (`6346:3086`), its count
+(`+0x39`), if not 0, less the attacks made with slot 1 (`DS:7195`), a byte;
+at 0 it goes (`6346:1697`), and if the weapon is thrown (`6346:30bd`: a
+missile weapon whose type's flags have 0x14, or a hoopak) and the item is
+not a spiritual hammer (`+0x3d` 0x17), a copy, unreadied, goes into the pool
 after the missile recovered (`DS:60a2`) or at its end, and becomes that
 missile. Its stats are then recomputed (`6346:0d20`), undoing the dice for
 large targets. With no attacks left, its turn ends (`6346:2964`); if it is
@@ -4798,9 +4817,9 @@ in progress (`+0x04`), or the first below it with attacks left, counted in
 5 dealt, as a byte (dying unless that wraps); the attacker's invisibility
 ends and it has no attacks left. Otherwise:
 
-1. Against a large target (`+0xcf` above 0x80 or `& 7` above 1) with a
-   weapon readied, slot 1's dice are the type's for large ones (bytes 2
-   and 3), the bonus less byte 11 plus byte 4.
+1. Against a large target (`+0xcf`, `SIZE`, above 0x80 or `& 7` above 1)
+   with a weapon readied, slot 1's dice are the type's for large ones (bytes
+   2 and 3), the bonus less byte 11 plus byte 4.
 2. The target's stats are recomputed and its event 0x0b runs.
 3. The armour class is the target's from behind (`+0x18e`) less 4 for a
    backstab (`432f:2af0`); else from behind when asked, or when the target
@@ -4808,16 +4827,16 @@ ends and it has no attacks left. Otherwise:
    and has turned more than 4 (`+0x12`); else `+0x18d`. Range then worsens
    it (`432f:1ddc`): for a missile weapon, by 2 and then 3 more for each
    third of its range less 1 (byte 12) the distance passes.
-4. From the slot in progress down to 1, each attack left (`+0x18e` +
-   slot) while the target has not dropped: counted, the slot recorded,
-   the roll (`60f4:1062`); a hit, or a helpless target, counts in
+4. From the slot in progress down to 1, each attack left (`+0x18e` + slot,
+   `ATTACKS_LEFT` slot) while the target has not dropped: counted, the slot
+   recorded, the roll (`60f4:1062`); a hit, or a helpless target, counts in
    `DS:6b3b` + slot, sounds 7, rolls the damage (`432f:01ba`), says it
-   (`432f:033e`) to a target that can act, and runs event slot + 1 (2 or
-   3: poison, paralysis) on the attacker while the target can act and
-   some was dealt; then a target that dropped ends the attacks, and an
-   attacker that dropped loses that slot's (not the next one's). Only a
-   hit tests them: a target that dropped otherwise is swung at until one
-   lands. The dead that explode go off after each attack (`60f4:2375`).
+   (`432f:033e`) to a target that can act, and runs event slot + 1 (2 or 3:
+   poison, paralysis) on the attacker while the target can act and some was
+   dealt; then a target that dropped ends the attacks, and an attacker that
+   dropped loses that slot's (not the next one's). Only a hit tests them: a
+   target that dropped otherwise is swung at until one lands. The dead that
+   explode go off after each attack (`60f4:2375`).
 5. With no hit, sound 9 and "and Misses" once.
 
 The turn is over when no attacks are left, or the attacker cannot act;
@@ -4831,17 +4850,18 @@ hits if not negative and, with the attacker's THAC0 (`+0x18c`) and var
 it reaches the armour class. A case on the constant 500 that would adjust
 the party's (`60f4:10c8`, perhaps meant for the difficulty) never matches.
 The damage (`432f:01ba`) is slot's dice (`+0x190` + slot of `+0x192` +
-slot, `60f4:1261`) plus its bonus (`+0x194` + slot, signed), a byte; the
-attacker's effects for event 4 and the target's for 5 change it; a
-backstab multiplies it by 2 + (thief levels - 1) / 4 (former ones counting
-as `66c2:0efb` allows), a byte; the damage type is 0. A backstab
-(`432f:2af0`) is a thief's (`+0xff`, or `+0x107` usable) with no weapon or
-a hoopak, club, dagger or broad, long or short sword (types 0x43, 3, 4,
-0x11-0x13) against a target hit more than once, a square away
-(`6346:2888`), of one cell (`+0xcf & 0x7f` at most 1), facing as the
-attacker's direction to it. Before an attack the callers book it
-(`432f:19b6`): the defender's hits count one more and its turning
-(`+0x12`) the turn from its facing to the attacker, 0-4, modulo 8.
+slot, `DICE` and `DICE_SIDES` slot, `60f4:1261`) plus its bonus (`+0x194` +
+slot, `DAMAGE_BONUS`, signed), a byte; the attacker's effects for event 4
+and the target's for 5 change it; a backstab multiplies it by 2 + (thief
+levels - 1) / 4 (former ones counting as `66c2:0efb` allows), a byte; the
+damage type is 0. A backstab (`432f:2af0`) is a thief's (`+0xff`,
+`CLASS_LEVEL` 6, or `+0x107`, `FORMER_LEVEL` 6, usable) with no weapon or a
+hoopak, club, dagger or broad, long or short sword (types 0x43, 3, 4,
+0x11-0x13) against a target hit more than once, a square away (`6346:2888`),
+of one cell (`+0xcf`, `SIZE`, & 0x7f at most 1), facing as the attacker's
+direction to it. Before an attack the callers book it (`432f:19b6`): the
+defender's hits count one more and its turning (`+0x12`) the turn from its
+facing to the attacker, 0-4, modulo 8.
 
 The message (`432f:033e`): the attacker's name and "Attacks",
 "-Backstabs-" or "slays helpless" from row 10 (`6346:1883`, no wait), the
@@ -4999,7 +5019,9 @@ The port keeps these quirks:
   the view decides whether a later attack is from behind.
 - A helpless target's blow searches the slots down past 1 to 0, whose
   "attacks" are the armour class from behind (`+0x18e`), counted in
-  `DS:7194`, which the list of enemies holds its 72nd entry in.
+  `DS:7194`, which the list of enemies holds its 72nd entry in. The port
+  finds the byte as the original does, `ATTACKS_LEFT`'s offset for slot 0
+  through `cok_field_offset_unchecked`, bounded by the record's size.
 - Damage of a negative total wraps (`432f:01ba`'s test for it compares
   unsigned), and a backstab's product is a byte.
 - A large target's dice stay the attacker's until its stats are
@@ -5211,32 +5233,32 @@ computer's leaves the spell begun in its combat record while it casts
 it, so one hurt by its own spell (a Fireball around itself) "lost a
 spell" and forgets another of it. See Spells in combat.
 
-Turning undead (`3afb:024b`): a cleric (`+0xf9` above 0, or `+0x101`
-above `+0xd7`, signed) that has tried fewer times this battle (combat
-record `+0x11`) than undead were loaded (`DS:8859`) turns if an enemy
-undead not made to flee is of a kind (`+0xda`, signed) no higher than a
-limit `3afb:024b` never sets (`[bp-6]`): the byte its callers left there,
-which the calls before it at the same depth fix. The way of moving's dice
-(`60f4:1216` pushes the sides for `Random` at that place) leave 2 or 4,
-the sides of the last; "is forced to flee" (`3afb:1316` builds the string
-over it) leaves its fifteenth letter, `l` (0x6c), and "flees in panic"
-the low byte of the return address `3afb:0142` that the call of
-`6346:1883` pushes there, 0x42. So the computer turns only kinds up to 2
-or 4 unless it flees. An interrupt between could leave another byte. The
-turn (`432f:12b7`, also the player's `Turn`): "turns undead..." (row 10,
-no wait), row 24 cleared and a pause; its tries count one more; 1d12 of
-the undead may be turned, against one d20, at its level: the cleric's and
-the former cleric's that a human may use, + 2 for deity 2 (`+0x5d`), a
-byte. While `432f:14a2` finds an enemy undead not made to flee of the
-highest kind no higher than the kinds left (from 13; the first of that
-kind in the list of enemies, range 0xff) and some are left to turn, the
-table `DS:0444` + 13 × kind + level (signed) gives what the d20 must
-reach in size: below it, the kinds left are those below; else the undead
-is shown (`6beb:12ef`) with its panel and, above 0, "is turned"
-(`60f4:133c`, running) or else "Is destroyed" (no wait), dies on the
-screen (`6beb:0e08`) and is gone (status 8). Each turned leaves one fewer
-to turn, but a destroyed one of a value below 0 at the last keeps one
-while six bonus turns last. With none turned, "Nothing Happens..." on row
+Turning undead (`3afb:024b`): a cleric (`+0xf9`, `CLASS_LEVEL` 0, above 0,
+or `+0x101`, `FORMER_LEVEL` 0, above `+0xd7`, `CHANGE_LEVEL`, signed) that
+has tried fewer times this battle (combat record `+0x11`) than undead were
+loaded (`DS:8859`) turns if an enemy undead not made to flee is of a kind
+(`+0xda`, `UNDEAD`, signed) no higher than a limit `3afb:024b` never sets
+(`[bp-6]`): the byte its callers left there, which the calls before it at
+the same depth fix. The way of moving's dice (`60f4:1216` pushes the sides
+for `Random` at that place) leave 2 or 4, the sides of the last; "is forced
+to flee" (`3afb:1316` builds the string over it) leaves its fifteenth
+letter, `l` (0x6c), and "flees in panic" the low byte of the return address
+`3afb:0142` that the call of `6346:1883` pushes there, 0x42. So the computer
+turns only kinds up to 2 or 4 unless it flees. An interrupt between could
+leave another byte. The turn (`432f:12b7`, also the player's `Turn`): "turns
+undead..." (row 10, no wait), row 24 cleared and a pause; its tries count
+one more; 1d12 of the undead may be turned, against one d20, at its level:
+the cleric's and the former cleric's that a human may use, + 2 for deity 2
+(`+0x5d`, `DEITY`), a byte. While `432f:14a2` finds an enemy undead not made
+to flee of the highest kind no higher than the kinds left (from 13; the
+first of that kind in the list of enemies, range 0xff) and some are left to
+turn, the table `DS:0444` + 13 × kind + level (signed) gives what the d20
+must reach in size: below it, the kinds left are those below; else the
+undead is shown (`6beb:12ef`) with its panel and, above 0, "is turned"
+(`60f4:133c`, running) or else "Is destroyed" (no wait), dies on the screen
+(`6beb:0e08`) and is gone (status 8). Each turned leaves one fewer to turn,
+but a destroyed one of a value below 0 at the last keeps one while six bonus
+turns last. With none turned, "Nothing Happens..." on row
 24. The sides are counted, the turn ends and the text is cleared. The
 level is not clamped: past 12 it reads the next kind's row, and past the
 last kind's the camp menu's strings, where the port stops beyond them.
@@ -6089,18 +6111,18 @@ cloud (`60f4:0dc3` with its flag).
 `60f4:0dc3` for one who can act: with the flag (after a step, the player's
 `3995:108b` and the computer's `3afb:0d2f`, and as a cloud is laid),
 standing in a green cloud (some cell of its footprint, `6beb:0c9d`), not
-undead (`+0xda` 0) and without 0x1f or 0x63, it throws (type 0, no
-bonus); meanwhile the selected character is the cloud's caster
+undead (`+0xda`, `UNDEAD`, 0) and without 0x1f or 0x63, it throws (type 0,
+no bonus); meanwhile the selected character is the cloud's caster
 (`60f4:0c95`): saved, it "starts to cough", effect 0x1e, else "chokes and
 gags from nausea", 0x1f, either for 1d4 + 1 minutes, valued 0xff
-(`60f4:20f7`), and if it then has the effect its handler runs
-(`60f4:01a8`: 0x1e's loses the round's casting and items and worsens its
-armour class, 0x1f's ends its turn). Standing in a puddle, with the flag
-or without (the end of a round, `3995:0b6d`), it takes 1d6 (`60f4:1261`)
-of the damage type `DS:6b31` holds, with no save (`60f4:1db7`).
-`60f4:0c95` finds the cloud by its top-left cell alone, the first whose
-cell k + 1's direction (`DS:2092` + k) with cell k's flag matches; none
-found gives the list's first record (`DS:609a`).
+(`60f4:20f7`), and if it then has the effect its handler runs (`60f4:01a8`:
+0x1e's loses the round's casting and items and worsens its armour class,
+0x1f's ends its turn). Standing in a puddle, with the flag or without (the
+end of a round, `3995:0b6d`), it takes 1d6 (`60f4:1261`) of the damage type
+`DS:6b31` holds, with no save (`60f4:1db7`). `60f4:0c95` finds the cloud by
+its top-left cell alone, the first whose cell k + 1's direction (`DS:2092` +
+k) with cell k's flag matches; none found gives the list's first record
+(`DS:609a`).
 
 Effect 0x28's end (`3f44:0ff7`): the caster's first cloud whose index is
 the value / 16 goes: "The air clears a little..." (`6346:1827`), each

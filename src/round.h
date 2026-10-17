@@ -86,7 +86,8 @@ void cok_combat_end_turn(cok_character *c);
  * (DS:6b2c + side, a byte that can wrap), even if it had dropped before.
  * Returns false for a side other than 0 or 1, whose count the original
  * keeps in the bytes after. */
-bool cok_combat_damage(cok_combat *combat, cok_character *c, uint8_t damage, uint8_t mode);
+bool cok_combat_damage(cok_combat *combat, cok_character *c, const cok_rules *rules, uint8_t damage,
+                       uint8_t mode);
 
 /* 6346:31e9: whether a party member on the party's side (+0x18a 0, not
  * past the party's size) is dying; with bandage, the first is bandaged:
@@ -98,7 +99,7 @@ bool cok_combat_helpless(const cok_character *c);
 
 /* 6346:2666: the side c's enemies are on, as the original works it out:
  * 1 for side 0, else 0. */
-uint8_t cok_combat_opposite(const cok_character *c);
+uint8_t cok_combat_opposite(const cok_character *c, const cok_rules *rules);
 
 /* 432f:014d: c's movement this round in half squares: +0x198, plus var
  * 0x7f72 as a byte on the party's side, 1 for 0 or above 0x60, doubled
@@ -138,7 +139,7 @@ bool cok_combat_fastest_enemy(cok_adventure *game, cok_character *c, uint8_t *fa
 
 /* 3995:1604: the computer controls c (+0x18b); it forgets a target on
  * its own side. */
-void cok_combat_auto(cok_character *c);
+void cok_combat_auto(cok_character *c, const cok_rules *rules);
 
 /* 60f4:1440: c loses the first effect of each id that lasts only through
  * the battle (DS:0db4), and one berserk (0x4d) and turned (+0xe7 0xb3)

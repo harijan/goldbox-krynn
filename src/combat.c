@@ -217,16 +217,17 @@ bool cok_combat_visible(const cok_combat *combat, const uint8_t *record, bool al
     return true;
 }
 
-bool cok_combat_place(cok_combat *combat, uint8_t mode, cok_character *character, uint8_t x,
-                      uint8_t y, bool restore, bool *placed)
+bool cok_combat_place(cok_combat *combat, uint8_t mode, cok_character *character,
+                      const cok_rules *rules, uint8_t x, uint8_t y, bool restore, bool *placed)
 {
+    const cok_character_layout *L = rules->character;
     *placed = true;
     if (mode != 5) return true;
     *placed = false;
     uint8_t n = cok_combat_index(combat, character->record);
     if (n == 0) return false;
     cok_combatant *e = &combat->combatant[n];
-    e->size = character->record[0xcf] & 0x7f;
+    e->size = cok_field_u8(L, character->record, COK_FIELD_SIZE) & 0x7f;
     e->x = (int8_t)x;
     e->y = (int8_t)y;
     uint8_t occupant, terrain;
@@ -285,26 +286,29 @@ bool cok_combat_scroll(cok_combat *combat, int8_t x, int8_t y, uint8_t margin)
 
 /* The sides (6346:268a) and the enemies' health (432f:2df3). */
 
-bool cok_combat_count_sides(cok_combat *combat, const cok_party *party)
+bool cok_combat_count_sides(cok_combat *combat, const cok_party *party, const cok_rules *rules)
 {
+    const cok_character_layout *L = rules->character;
     combat->sides[0] = combat->sides[1] = 0;
     for (size_t i = 0; i < party->count; ++i) {
         const uint8_t *r = party->members[i]->record;
-        if (r[0x189] == 0) continue;
-        if (r[0x18a] > 1) return false;
-        ++combat->sides[r[0x18a]];
+        if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0) continue;
+        if (cok_field_u8(L, r, COK_FIELD_HOSTILE) > 1) return false;
+        ++combat->sides[cok_field_u8(L, r, COK_FIELD_HOSTILE)];
     }
     return true;
 }
 
-void cok_combat_enemy_health(cok_combat *combat, const cok_party *party)
+void cok_combat_enemy_health(cok_combat *combat, const cok_party *party, const cok_rules *rules)
 {
+    const cok_character_layout *L = rules->character;
     uint16_t hp = 0, most = 0;
     for (size_t i = 0; i < party->count; ++i) {
         const uint8_t *r = party->members[i]->record;
-        if (r[0x18a] != 1) continue;
-        if (r[0x189] != 0) hp = (uint16_t)(hp + r[0x197]);
-        most = (uint16_t)(most + r[0x62]);
+        if (cok_field_u8(L, r, COK_FIELD_HOSTILE) != 1) continue;
+        if (cok_field_u8(L, r, COK_FIELD_ACTIVE) != 0)
+            hp = (uint16_t)(hp + cok_field_u8(L, r, COK_FIELD_HIT_POINTS));
+        most = (uint16_t)(most + cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS));
     }
     if (most > 0) combat->enemy_health = (uint8_t)((uint16_t)(20u * hp) / most * 5u);
 }
@@ -649,6 +653,7 @@ bool cok_combat_records(cok_party *party, const cok_rules *rules, const cok_item
                         uint16_t party_size, uint8_t direction, uint16_t morale, char *error,
                         size_t error_size)
 {
+    const cok_character_layout *L = rules->character;
     uint8_t n = 0;
     for (size_t i = 0; i < party->count; ++i) {
         cok_character *c = party->members[i];
@@ -663,10 +668,12 @@ bool cok_combat_records(cok_party *party, const cok_rules *rules, const cok_item
         uint8_t *r = c->record;
         if (n > party_size) c->combat->not_party = 1;
         c->combat->facing = quadrant_dir[direction >> 1];
-        if (r[0x18a] == 1) c->combat->facing = (uint8_t)((c->combat->facing + 4) % 8);
-        uint8_t own = r[0xe7] & 0x7f;
-        if (r[0x18a] == 0 && c->combat->not_party == 1 && (own == 0 || own > 0x66))
-            r[0xe7] = (uint8_t)(morale + 0x80);
+        if (cok_field_u8(L, r, COK_FIELD_HOSTILE) == 1)
+            c->combat->facing = (uint8_t)((c->combat->facing + 4) % 8);
+        uint8_t own = cok_field_u8(L, r, COK_FIELD_NPC) & 0x7f;
+        if (cok_field_u8(L, r, COK_FIELD_HOSTILE) == 0 && c->combat->not_party == 1 &&
+            (own == 0 || own > 0x66))
+            cok_field_set8(L, r, COK_FIELD_NPC, (uint8_t)(morale + 0x80));
     }
     return true;
 }
@@ -831,10 +838,11 @@ static bool find_place(placement *p, uint8_t d, bool *found)
     return true;
 }
 
-static void name_of(const uint8_t *c, char out[16])
+static void name_of(const cok_character_layout *L, const uint8_t *c, char out[16])
 {
-    size_t length = c[0] > 15 ? 15 : c[0];
-    memcpy(out, c + 1, length);
+    uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
+    size_t length = stored > 15 ? 15 : stored;
+    memcpy(out, c + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
     out[length] = '\0';
 }
 
@@ -853,9 +861,10 @@ static void drop_key(cok_adventure *game)
 
 bool cok_combat_place_all(cok_adventure *game)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     cok_ecl *vm = &game->vm;
-    if (!cok_combat_count_sides(combat, &game->party)) {
+    if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game))) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
                            "a record on a side other than 0 or 1 (+0x18a) counts past DS:6b2d "
                            "(6346:268a)");
@@ -906,18 +915,18 @@ bool cok_combat_place_all(cok_adventure *game)
         cok_combatant *e = &combat->combatant[d];
         e->character = c;
         combat->entry_held[d] = true;
-        if (r[0x18a] > 1) {
+        if (cok_field_u8(L, r, COK_FIELD_HOSTILE) > 1) {
             cok_adventure_fail(game, COK_ECL_UNDEFINED,
                                "a record on side %u indexes past the sides' formations "
-                               "(3cb2:1379)", r[0x18a]);
+                               "(3cb2:1379)", cok_field_u8(L, r, COK_FIELD_HOSTILE));
             return false;
         }
-        p.side = r[0x18a];
-        e->size = r[0xcf] & 7;
+        p.side = cok_field_u8(L, r, COK_FIELD_HOSTILE);
+        e->size = cok_field_u8(L, r, COK_FIELD_SIZE) & 7;
         bool found;
         if (!find_place(&p, d, &found)) return false;
         char name[16], text[80];
-        name_of(r, name);
+        name_of(L, r, name);
         if (!found) {
             e->size = 0;
             if (cok_character_combat(c)->not_party == 1) {
@@ -940,7 +949,7 @@ bool cok_combat_place_all(cok_adventure *game)
             log_text(game, "combat", text);
         } else {
             snprintf(text, sizeof text, "%u %s at %d,%d", d, name, e->x, e->y);
-            if (r[0x189] == 0) {
+            if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0) {
                 e->size = 0;
                 /* A duel (DS:883e) leaves no bodies; CoK has none. */
                 if (cok_character_combat(c)->not_party == 0) {
@@ -964,8 +973,8 @@ bool cok_combat_place_all(cok_adventure *game)
                     strncat(text, ", fallen", sizeof text - strlen(text) - 1);
                 }
             }
-            if (r[0x188] == 9) {
-                r[0x189] = 0;
+            if (cok_field_u8(L, r, COK_FIELD_STATUS) == 9) {
+                cok_field_set8(L, r, COK_FIELD_ACTIVE, 0);
                 e->size = 0;
             }
             if (e->size == 0) strncat(text, ", off the map", sizeof text - strlen(text) - 1);
@@ -1064,6 +1073,7 @@ static bool build(cok_adventure *game)
 
 bool cok_combat_setup(cok_adventure *game)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_ecl *vm = &game->vm;
     cok_combat *combat = &game->combat;
     vm->mode = 5; /* 3995:0172, before setup. */
@@ -1138,7 +1148,7 @@ bool cok_combat_setup(cok_adventure *game)
             return cok_adventure_effect_failed(game);
         }
     }
-    cok_combat_enemy_health(combat, &game->party);
+    cok_combat_enemy_health(combat, &game->party, cok_game_rules(game));
     /* 3cb2:1dee-1dfd: no Move nor aiming cursor (DS:71a6, 71a5), the
      * mode, no Move mode. */
     game->combat_moving = game->aiming = false;
@@ -1150,7 +1160,8 @@ bool cok_combat_setup(cok_adventure *game)
         const uint8_t *r = game->party.members[i]->record;
         char name[256];
         cok_debug_name(r, name);
-        cok_debug_trace(game, name, r[0x188], r[0x189], 0);
+        cok_debug_trace(game, name, cok_field_u8(L, r, COK_FIELD_STATUS),
+                        cok_field_u8(L, r, COK_FIELD_ACTIVE), 0);
     }
     return true;
 }
@@ -1184,12 +1195,13 @@ const size_t cok_combat_table_count = sizeof cok_combat_tables / sizeof *cok_com
  * outside combat again (DS:6e3a). */
 bool cok_combat_end(cok_adventure *game)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_cloud_free(&game->combat);
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];
         uint8_t *r = c->record;
-        if (cok_character_find_effect(c, 0x0b) != NULL && r[0x188] == 0)
-            r[0x188] = game->combat.sides[1] > 1 ? 3 : 0;
+        if (cok_character_find_effect(c, 0x0b) != NULL && cok_field_u8(L, r, COK_FIELD_STATUS) == 0)
+            cok_field_set8(L, r, COK_FIELD_STATUS, game->combat.sides[1] > 1 ? 3 : 0);
         if (!cok_combat_battle_only(game, c)) return false;
     }
     game->combat.active = false;

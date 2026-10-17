@@ -45,10 +45,12 @@ typedef enum {
     COK_FIELD_MAX_HIT_POINTS,
     COK_FIELD_KNOWN_SPELL,               /* By spell id, 1-108. */
     COK_FIELD_FIGHTER_LEVEL,             /* The highest fighter, ranger or knight level. */
+    COK_FIELD_SIZE,                      /* Its size in combat: 1 a man's; larger above. */
     COK_FIELD_SAVING_THROW,              /* By type, 0-4. */
     COK_FIELD_BASE_MOVEMENT,
     COK_FIELD_HIGHEST_LEVEL,
     COK_FIELD_CHANGE_LEVEL,              /* The level a human changed class at. */
+    COK_FIELD_UNDEAD,                    /* The kind of undead, for turning; 0 none. */
     COK_FIELD_THIEF_SKILL,               /* 1-8. */
     COK_FIELD_EFFECTS,                   /* A far pointer: the spell effects. */
     COK_FIELD_NPC,                       /* 0x80 and up for an NPC. */
@@ -63,11 +65,16 @@ typedef enum {
     COK_FIELD_BASE_DAMAGE_BONUS,         /* By attack, 1-2. */
     COK_FIELD_BASE_AC,                   /* 60 - AC. */
     COK_FIELD_STRENGTH_BONUSES,          /* Set when strength adds to hit and damage. */
+    COK_FIELD_MONSTER_ID,                /* The monster an NPC was read as: its icons. */
     COK_FIELD_EXPERIENCE,
     COK_FIELD_USABLE_CLASSES,            /* The classes whose items it can use, as bits. */
     COK_FIELD_BASE_HIT_POINTS,           /* The hit points the maximum is built from. */
     COK_FIELD_SPELLS_A_DAY,              /* By spell class (rows 0-3) and level, 1-5. */
+    COK_FIELD_ICON_HEAD,                 /* A player's combat icon's head (CHEAD). */
+    COK_FIELD_ICON_BODY,                 /* And its body (CBODY). */
     COK_FIELD_ICON,                      /* The combat icon's slot. */
+    COK_FIELD_ICON_SIZE,                 /* A player's icon's size: 1 small, 2 tall. */
+    COK_FIELD_ICON_COLOURS,              /* And its six colours, 1-6, two to a byte. */
     COK_FIELD_CREATURE_FLAGS,            /* Two bytes of flags. */
     COK_FIELD_ITEM_COUNT,
     COK_FIELD_ITEMS,                     /* A far pointer: the items. */
@@ -85,6 +92,7 @@ typedef enum {
     COK_FIELD_THAC0,                     /* 60 - THAC0. */
     COK_FIELD_AC,                        /* 60 - AC. */
     COK_FIELD_AC_BEHIND,                 /* 60 - AC from behind. */
+    COK_FIELD_ATTACKS_LEFT,              /* By attack, 1-2: attacks left this round. */
     COK_FIELD_DICE,                      /* By attack, 1-2. */
     COK_FIELD_DICE_SIDES,                /* By attack, 1-2. */
     COK_FIELD_DAMAGE_BONUS,              /* By attack, 1-2. */

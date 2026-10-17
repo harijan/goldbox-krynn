@@ -46,10 +46,12 @@ static const struct {
     {COK_FIELD_MAX_HIT_POINTS, "MAX_HIT_POINTS", 0x062, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_KNOWN_SPELL, "KNOWN_SPELL", 0x063, 1, 108, 1, false, false, 0, 0, 0},
     {COK_FIELD_FIGHTER_LEVEL, "FIGHTER_LEVEL", 0x0ce, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_SIZE, "SIZE", 0x0cf, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_SAVING_THROW, "SAVING_THROW", 0x0d0, 1, 5, 0, false, false, 0, 0, 0},
     {COK_FIELD_BASE_MOVEMENT, "BASE_MOVEMENT", 0x0d5, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_HIGHEST_LEVEL, "HIGHEST_LEVEL", 0x0d6, 1, 1, 0, true, false, 0, 0, 0},
     {COK_FIELD_CHANGE_LEVEL, "CHANGE_LEVEL", 0x0d7, 1, 1, 0, true, false, 0, 0, 0},
+    {COK_FIELD_UNDEAD, "UNDEAD", 0x0da, 1, 1, 0, true, false, 0, 0, 0},
     {COK_FIELD_THIEF_SKILL, "THIEF_SKILL", 0x0db, 1, 8, 1, false, false, 0, 0, 0},
     {COK_FIELD_EFFECTS, "EFFECTS", 0x0e3, 4, 1, 0, false, true, 0, 0, 0},
     {COK_FIELD_NPC, "NPC", 0x0e7, 1, 1, 0, false, false, 0, 0, 0},
@@ -64,11 +66,16 @@ static const struct {
     {COK_FIELD_BASE_DAMAGE_BONUS, "BASE_DAMAGE_BONUS", 0x111, 1, 2, 1, true, false, 0, 0, 0},
     {COK_FIELD_BASE_AC, "BASE_AC", 0x113, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_STRENGTH_BONUSES, "STRENGTH_BONUSES", 0x114, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_MONSTER_ID, "MONSTER_ID", 0x115, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_EXPERIENCE, "EXPERIENCE", 0x116, 4, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_USABLE_CLASSES, "USABLE_CLASSES", 0x11a, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_BASE_HIT_POINTS, "BASE_HIT_POINTS", 0x11b, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_SPELLS_A_DAY, "SPELLS_A_DAY", 0x11c, 1, 5, 1, false, false, 0, 4, 5},
+    {COK_FIELD_ICON_HEAD, "ICON_HEAD", 0x135, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_ICON_BODY, "ICON_BODY", 0x136, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_ICON, "ICON", 0x137, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_ICON_SIZE, "ICON_SIZE", 0x138, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_ICON_COLOURS, "ICON_COLOURS", 0x139, 1, 6, 1, false, false, 0, 0, 0},
     {COK_FIELD_CREATURE_FLAGS, "CREATURE_FLAGS", 0x13f, 1, 2, 0, false, false, 0, 0, 0},
     {COK_FIELD_ITEM_COUNT, "ITEM_COUNT", 0x142, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_ITEMS, "ITEMS", 0x143, 4, 1, 0, false, true, 0, 0, 0},
@@ -86,6 +93,7 @@ static const struct {
     {COK_FIELD_THAC0, "THAC0", 0x18c, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_AC, "AC", 0x18d, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_AC_BEHIND, "AC_BEHIND", 0x18e, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_ATTACKS_LEFT, "ATTACKS_LEFT", 0x18f, 1, 2, 1, false, false, 0, 0, 0},
     {COK_FIELD_DICE, "DICE", 0x191, 1, 2, 1, false, false, 0, 0, 0},
     {COK_FIELD_DICE_SIDES, "DICE_SIDES", 0x193, 1, 2, 1, false, false, 0, 0, 0},
     {COK_FIELD_DAMAGE_BONUS, "DAMAGE_BONUS", 0x195, 1, 2, 1, true, false, 0, 0, 0},
@@ -203,6 +211,17 @@ static void test_offsets(void)
     CHECK(cok_field_first(L, COK_FIELD_COINS) == 0 && cok_field_count(L, COK_FIELD_COINS) == 7);
     CHECK(cok_field_offset(L, COK_FIELD_BASE_HIT_POINTS) == 0x11b);
     CHECK(cok_field_offset_at(L, COK_FIELD_CREATURE_FLAGS, 1) == 0x140);
+    /* The combat files' (attack.c ... cloud.c): attacks left by slot,
+     * +0x18e + slot; the icon's colours, +0x138 + k (4b6d:0817). */
+    CHECK(cok_field_offset_at(L, COK_FIELD_ATTACKS_LEFT, 1) == 0x18f);
+    CHECK(cok_field_offset_at(L, COK_FIELD_ATTACKS_LEFT, 2) == 0x190);
+    CHECK(cok_field_offset_unchecked(L, COK_FIELD_ATTACKS_LEFT, 0, 0) ==
+          (long)cok_field_offset(L, COK_FIELD_AC_BEHIND));
+    CHECK(cok_field_offset_at(L, COK_FIELD_ICON_COLOURS, 1) == 0x139);
+    CHECK(cok_field_offset_at(L, COK_FIELD_ICON_COLOURS, 6) == 0x13e);
+    CHECK(cok_field_offset(L, COK_FIELD_SIZE) == 0xcf);
+    CHECK(cok_field_offset(L, COK_FIELD_UNDEAD) == 0xda);
+    CHECK(cok_field_offset(L, COK_FIELD_MONSTER_ID) == 0x115);
 }
 
 static void test_accessors(void)

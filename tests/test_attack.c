@@ -383,6 +383,13 @@ static void test_damage_roll(void)
     a->record[0x194] = 1;
     a->record[0x196] = 9;
     CHECK(cok_combat_damage_roll(&game, a, m, 2) && r->amount == 10);
+    /* Slot 0, which the guard lets by, reads the bytes before slot 1's as
+     * the original's +0x190 + slot does: attacks left 2 (+0x190) as the
+     * dice, dice 2 (+0x192) as the sides, sides 2 (+0x194) as the bonus. */
+    uint8_t left = a->record[0x190];
+    a->record[0x190] = 2;
+    CHECK(cok_combat_damage_roll(&game, a, m, 0) && r->amount == 3 && r->dice == 2);
+    a->record[0x190] = left;
     /* Events 4 (attacker: 0x1d takes a quarter) and 5 (target: 0x3b
      * none). */
     CHECK(cok_character_add_effect(a, 0x1d, 0, 0, false) != NULL);

@@ -259,7 +259,8 @@ static void quick(cok_adventure *game, cok_character *c)
 {
     --game->combat.turn_index;
     c->combat->initiative = 0x14;
-    for (size_t i = 0; i < game->party.count; ++i) cok_combat_auto(game->party.members[i]);
+    for (size_t i = 0; i < game->party.count; ++i)
+        cok_combat_auto(game->party.members[i], cok_game_rules(game));
     clear_row(game);
     cok_adventure_wait(game, 200); /* 1962:029c */
 }
@@ -380,7 +381,8 @@ static bool undo(cok_adventure *game, cok_character *c, uint8_t movement, uint8_
     cr->movement = movement;
     if (!cok_arena_erase(game, 0, 0, cok_combat_index(combat, c->record))) return false;
     bool placed;
-    if (!cok_combat_place(combat, game->vm.mode, c, (uint8_t)x0, (uint8_t)y0, false, &placed))
+    if (!cok_combat_place(combat, game->vm.mode, c, cok_game_rules(game), (uint8_t)x0, (uint8_t)y0,
+                          false, &placed))
         return undefined(game, "a combatant put back where it started reads or writes outside "
                                "its tables (6beb:10f3)");
     *done = !placed;
@@ -516,7 +518,9 @@ static bool combat_move(cok_adventure *game, cok_character *c, bool *done)
 bool cok_combat_ally(cok_adventure *game, cok_character *c, cok_character *target, bool *go)
 {
     *go = true;
-    if (cok_combat_opposite(target) == c->record[0x18a] || c->record[0x18b] != 0) return true;
+    if (cok_combat_opposite(target, cok_game_rules(game)) == c->record[0x18a] ||
+        c->record[0x18b] != 0)
+        return true;
     int answer = cok_camp_yes_no(game, "Attack Ally: ", 13); /* 67b5:177f */
     if (answer != 'Y') {
         *go = false;
@@ -532,7 +536,7 @@ bool cok_combat_ally(cok_adventure *game, cok_character *c, cok_character *targe
         if (cr == NULL) return false;
         cr->target = NULL;
     }
-    if (!cok_combat_count_sides(&game->combat, &game->party))
+    if (!cok_combat_count_sides(&game->combat, &game->party, cok_game_rules(game)))
         return undefined(game, "a record on a side other than 0 or 1 (+0x18a) counts past "
                                "DS:6b2d (6346:268a)");
     return true;
@@ -1012,7 +1016,7 @@ bool cok_combat_done(cok_adventure *game, cok_character *c, bool *done)
             break;
         case 'S': cok_combat_speed(game); break;
         case 'A':
-            cok_combat_auto(c);
+            cok_combat_auto(c, cok_game_rules(game));
             clear_row(game);
             cok_adventure_flush(game); /* 1614:045c */
             cok_adventure_wait(game, 200); /* 1962:029c */

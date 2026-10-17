@@ -1861,7 +1861,7 @@ static bool effect_hook_failed(cok_effects *fx, cok_adventure *game)
 static bool effect_count_sides(cok_effects *fx, void *context)
 {
     cok_adventure *game = context;
-    if (cok_combat_count_sides(&game->combat, &game->party)) return true;
+    if (cok_combat_count_sides(&game->combat, &game->party, cok_game_rules(game))) return true;
     cok_adventure_fail(game, COK_ECL_UNDEFINED, "a record on a side other than 0 or 1 (+0x18a) "
                                                 "counts past DS:6b2d (6346:268a)");
     return effect_hook_failed(fx, game);

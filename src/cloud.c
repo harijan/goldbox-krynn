@@ -224,14 +224,16 @@ uint8_t *cok_cloud_caster(const cok_adventure *game, int8_t x, int8_t y)
 
 bool cok_cloud_square(cok_adventure *game, cok_character *c, bool step)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     uint8_t *r = c->record;
-    if (r[0x189] == 0) return true;
+    if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0) return true;
     uint8_t occupant, terrain;
     bool cloud, puddle;
     if (!cok_combat_probe(combat, r, 8, &occupant, &terrain, &cloud, &puddle))
         return undefined(game, "a size past the footprints is read after them (6beb:0c9d)");
-    if (cloud && step && r[0xda] == 0 && cok_character_find_effect(c, 0x1f) == NULL &&
+    if (cloud && step && cok_field_u8(L, r, COK_FIELD_UNDEAD) == 0 &&
+        cok_character_find_effect(c, 0x1f) == NULL &&
         cok_character_find_effect(c, 0x63) == NULL) {
         bool made;
         if (!cok_effects_save(&game->effects, c, 0, 0, &made)) return effect_failed(game);
@@ -297,9 +299,11 @@ static bool stale_body(cok_adventure *game, uint8_t *terrain)
 
 bool cok_cloud_acid(cok_adventure *game, cok_character *c)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     uint8_t *r = c->record;
-    if (r[0x197] > 0 && r[0x189] != 0) return true;
+    if (cok_field_u8(L, r, COK_FIELD_HIT_POINTS) > 0 && cok_field_u8(L, r, COK_FIELD_ACTIVE) != 0)
+        return true;
     if (!combat->active)
         return undefined(game, "an acid pool is laid on the combat map outside combat, through "
                                "the NULL map (3f44:2037)");
@@ -353,8 +357,10 @@ bool cok_cloud_drain(cok_adventure *game, cok_character *c, const cok_effect *ef
  * cloud of caster's. */
 static bool dispelled(cok_adventure *game, const uint8_t *caster, uint8_t level)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     int former = cok_character_former_class(game->vm.character, cok_game_rules(game)) ? 1 : 0;
-    uint8_t of = (uint8_t)(former * (int8_t)caster[0x106] + (int8_t)caster[0xfe]);
+    uint8_t of = (uint8_t)(former * cok_field_s8_at(L, caster, COK_FIELD_FORMER_LEVEL, 5) +
+                           cok_field_s8_at(L, caster, COK_FIELD_CLASS_LEVEL, 5));
     uint8_t chance = 50;
     if (level > of)
         chance = (uint8_t)((level - of) * 5 + 50);

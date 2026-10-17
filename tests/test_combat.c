@@ -715,46 +715,52 @@ static void test_place(void)
     CHECK(cok_combat_occupy(c));
     bool placed;
     /* Outside combat it is placed, and nothing changes. */
-    CHECK(cok_combat_place(c, 4, b, 5, 5, false, &placed) && placed && c->combatant[2].size == 0);
+    CHECK(cok_combat_place(c, 4, b, &cok_rules_champions, 5, 5, false, &placed) && placed &&
+          c->combatant[2].size == 0);
     /* Onto another: not placed, its size 0, its place taken all the same. */
-    CHECK(cok_combat_place(c, 5, b, 5, 5, false, &placed) && !placed);
+    CHECK(cok_combat_place(c, 5, b, &cok_rules_champions, 5, 5, false, &placed) && !placed);
     CHECK(c->combatant[2].size == 0 && c->combatant[2].x == 5);
     /* Raised where it fell: the body is taken back and its cell gets the
      * terrain the body covered; the count of bodies stays. */
-    CHECK(cok_combat_place(c, 5, b, 8, 8, true, &placed) && placed);
+    CHECK(cok_combat_place(c, 5, b, &cok_rules_champions, 8, 8, true, &placed) && placed);
     CHECK(c->cells[8][8] == 0x30 && c->body[0].character == NULL && c->bodies == 1);
     CHECK(c->occupant[8][8] == 2 && c->combatant[2].size == 1);
     /* Elsewhere with no body of its own, the cell gets the terrain the
      * probe found, the costliest under it. */
     c->cells[3][3] = 0x31;
-    CHECK(cok_combat_place(c, 5, b, 3, 3, true, &placed) && placed && c->cells[3][3] == 0x31);
+    CHECK(cok_combat_place(c, 5, b, &cok_rules_champions, 3, 3, true, &placed) && placed &&
+          c->cells[3][3] == 0x31);
     b->record[0xcf] = 3;
     c->cells[3][4] = 0x32;
-    CHECK(cok_combat_place(c, 5, b, 3, 3, true, &placed) && placed && c->cells[3][3] == 0x32);
+    CHECK(cok_combat_place(c, 5, b, &cok_rules_champions, 3, 3, true, &placed) && placed &&
+          c->cells[3][3] == 0x32);
     /* A body that lay on another keeps the terrain the probe found. */
     c->bodies = 1;
     c->body[0] = (cok_combat_body){.character = b, .x = 9, .y = 9, .cell = COK_COMBAT_BODY};
     c->cells[9][9] = 0x30;
     b->record[0xcf] = 1;
-    CHECK(cok_combat_place(c, 5, b, 9, 9, true, &placed) && placed && c->cells[9][9] == 0x30);
+    CHECK(cok_combat_place(c, 5, b, &cok_rules_champions, 9, 9, true, &placed) && placed &&
+          c->cells[9][9] == 0x30);
     b->record[0xcf] = 3;
     /* Another's body there keeps the body. */
     c->body[0] = (cok_combat_body){.character = a, .x = 20, .y = 20, .cell = 0x17};
     c->cells[20][20] = COK_COMBAT_BODY;
-    CHECK(cok_combat_place(c, 5, b, 20, 20, true, &placed) && placed);
+    CHECK(cok_combat_place(c, 5, b, &cok_rules_champions, 20, 20, true, &placed) && placed);
     CHECK(c->cells[20][20] == COK_COMBAT_BODY);
     /* A monster (+0x13) takes no body back. */
     b->combat->not_party = 1;
     c->cells[30 / 2][30] = 0x31;
-    CHECK(cok_combat_place(c, 5, b, 30, 15, true, &placed) && placed && c->cells[15][30] == 0x31);
+    CHECK(cok_combat_place(c, 5, b, &cok_rules_champions, 30, 15, true, &placed) && placed &&
+          c->cells[15][30] == 0x31);
     b->record[0xcf] = 1;
     /* Walls: not placed. */
     c->cells[12][12] = 2;
-    CHECK(cok_combat_place(c, 5, b, 12, 12, false, &placed) && !placed);
+    CHECK(cok_combat_place(c, 5, b, &cok_rules_champions, 12, 12, false, &placed) && !placed);
     /* A record that is not a combatant would write over the count. */
     uint8_t count = c->count;
     cok_character outsider = {0};
-    CHECK(!cok_combat_place(c, 5, &outsider, 1, 1, false, &placed) && c->count == count);
+    CHECK(!cok_combat_place(c, 5, &outsider, &cok_rules_champions, 1, 1, false, &placed) &&
+          c->count == count);
 }
 
 static void test_sides(void)
@@ -765,11 +771,12 @@ static void test_sides(void)
     record('B', 0, true);
     cok_character *m = record('M', 1, false);
     cok_character *n = record('N', 1, true);
-    CHECK(cok_combat_count_sides(c, &game.party) && c->sides[0] == 1 && c->sides[1] == 1);
+    CHECK(cok_combat_count_sides(c, &game.party, &cok_rules_champions) && c->sides[0] == 1 &&
+          c->sides[1] == 1);
     cok_character *third = record('T', 2, false);
-    CHECK(!cok_combat_count_sides(c, &game.party));
+    CHECK(!cok_combat_count_sides(c, &game.party, &cok_rules_champions));
     third->record[0x189] = 0;
-    CHECK(cok_combat_count_sides(c, &game.party));
+    CHECK(cok_combat_count_sides(c, &game.party, &cok_rules_champions));
     /* The enemies' health: 20 times their hit points (those that can
      * act) as a word, over all their most, times 5. */
     m->record[0x197] = 10;
@@ -777,7 +784,7 @@ static void test_sides(void)
     n->record[0x197] = 30;
     n->record[0x62] = 40;
     c->enemy_health = 7;
-    cok_combat_enemy_health(c, &game.party);
+    cok_combat_enemy_health(c, &game.party, &cok_rules_champions);
     CHECK(c->enemy_health == 10);
     /* The word wraps above 3,276 hit points: 3,510 of 3,580 give 5, not
      * 95. */
@@ -785,13 +792,13 @@ static void test_sides(void)
         cok_character *e = record('E', 1, false);
         e->record[0x197] = e->record[0x62] = 250;
     }
-    cok_combat_enemy_health(c, &game.party);
+    cok_combat_enemy_health(c, &game.party, &cok_rules_champions);
     CHECK(c->enemy_health == 5);
     /* With no enemies the last value stays. */
     reset("");
     record('A', 0, false);
     c->enemy_health = 7;
-    cok_combat_enemy_health(c, &game.party);
+    cok_combat_enemy_health(c, &game.party, &cok_rules_champions);
     CHECK(c->enemy_health == 7);
 }
 
