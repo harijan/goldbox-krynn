@@ -670,18 +670,24 @@ static bool load_icon(cok_adventure *game, const char *name, size_t length, uint
         return fail(game, "icon slot %u is past the icon table (DS:6172 + 8 * slot)", slot);
     char path[32];
     bool cpic = false;
-    if (length >= 5 && (memcmp(name, "CHEAD", 5) == 0 || memcmp(name, "CBODY", 5) == 0)) {
+    /* The names 6d21:01d0 knows (the rules' icon_head, icon_body and
+     * missiles; and ICON, which names no file of Champions'). */
+    const cok_rules_archives *a = &cok_game_rules(game)->archives;
+    size_t head = strlen(a->icon_head), body = strlen(a->icon_body);
+    size_t missiles = strlen(a->missiles);
+    if ((length >= head && memcmp(name, a->icon_head, head) == 0) ||
+        (length >= body && memcmp(name, a->icon_body, body) == 0)) {
         if (toupper((unsigned char)name[length - 1]) == 'T') id = (uint8_t)(id + 0x40);
         /* The last character dropped: the letter, or "D" of a bare name. */
         snprintf(path, sizeof path, "%.*s", (int)(length - 1 < 16 ? length - 1 : 16), name);
-    } else if ((length == 6 && memcmp(name, "COMSPR", 6) == 0) ||
+    } else if ((length == missiles && memcmp(name, a->missiles, missiles) == 0) ||
                (length == 4 && memcmp(name, "ICON", 4) == 0)) {
         snprintf(path, sizeof path, "%.*s", (int)length, name);
     } else {
-        /* Str into a string of 1: the first digit of the file's number. */
-        char digit[8];
-        snprintf(digit, sizeof digit, "%u", file);
-        snprintf(path, sizeof path, "%.*s%c", (int)(length < 16 ? length : 16), name, digit[0]);
+        /* Str into a string of 1: the first digit of the file's number
+         * (the rules' file_digit). */
+        snprintf(path, sizeof path, "%.*s%c", (int)(length < 16 ? length : 16), name,
+                 a->file_digit(file));
         cpic = true;
     }
     for (unsigned image = 0; image < 2; ++image) {
@@ -741,10 +747,17 @@ bool cok_arena_party_icon(cok_adventure *game, cok_character *c, bool colours)
         return fail(game, "icon size %u reads its letter from the strings after DS:0877 "
                           "(4b6d:0817)", size);
     static const char letters[3] = {'\0', 'S', 'T'}; /* DS:0875 */
-    char head[6] = {'C', 'H', 'E', 'A', 'D', letters[size]};
-    char body[6] = {'C', 'B', 'O', 'D', 'Y', letters[size]};
-    if (!load_icon(game, head, sizeof head, r[0x135], SLOT_HEAD, 1) ||
-        !load_icon(game, body, sizeof body, r[0x136], slot, 1))
+    /* "CHEAD" and "CBODY" (the rules' icon_head and icon_body) and the
+     * letter, a NUL for none, which load_icon is given too. */
+    const cok_rules_archives *a = &cok_game_rules(game)->archives;
+    char head[16], body[16];
+    snprintf(head, sizeof head - 1, "%s", a->icon_head);
+    snprintf(body, sizeof body - 1, "%s", a->icon_body);
+    size_t head_length = strlen(head), body_length = strlen(body);
+    head[head_length++] = letters[size];
+    body[body_length++] = letters[size];
+    if (!load_icon(game, head, head_length, r[0x135], SLOT_HEAD, 1) ||
+        !load_icon(game, body, body_length, r[0x136], slot, 1))
         return false;
     bool ok = true;
     for (unsigned image = 0; image < 2 && ok; ++image) {
@@ -781,8 +794,9 @@ bool cok_arena_join(cok_adventure *game, uint8_t file)
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];
         const uint8_t *r = c->record;
+        const char *icons = cok_game_rules(game)->archives.icons;
         bool ok = r[0xe7] < 0x80 ? cok_arena_party_icon(game, c, true)
-                                 : load_icon(game, "CPIC", 4, r[0x115], r[0x137], file);
+                                 : load_icon(game, icons, strlen(icons), r[0x115], r[0x137], file);
         if (!ok) return false;
     }
     return true;

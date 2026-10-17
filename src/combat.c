@@ -1022,8 +1022,9 @@ static bool build(cok_adventure *game)
     cok_combat *combat = &game->combat;
     cok_ecl *vm = &game->vm;
     bool area = vm->mem4b00[0xe6] != 0;
-    if (!load_tiles(game, area ? "DUNGCOM" : "WILDCOM", 0, area ? 0x19 : 0x21) ||
-        !load_tiles(game, "RANDCOM", 0x22, 6))
+    const cok_rules_archives *a = &cok_game_rules(game)->archives;
+    if (!load_tiles(game, area ? a->dungeon : a->wilderness, 0, area ? 0x19 : 0x21) ||
+        !load_tiles(game, a->random, 0x22, 6))
         return false;
     combat->active = true;
     combat->cursor = 0;
@@ -1039,10 +1040,11 @@ static bool build(cok_adventure *game)
          * read the cells not yet built. */
         size_t size;
         bool no_file;
-        uint8_t *rand = cok_adventure_find_record(game, "RANDCOM", 1, &size, &no_file);
+        uint8_t *rand = cok_adventure_find_record(game, a->random, 1, &size, &no_file);
         if (rand == NULL || size < 7 + sizeof combat->cells) {
             free(rand);
-            cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "RANDCOM.DAX record 1 is too short");
+            cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s.DAX record 1 is too short",
+                               a->random);
             return false;
         }
         memcpy(combat->cells, rand + 7, sizeof combat->cells);

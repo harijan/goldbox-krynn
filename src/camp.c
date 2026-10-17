@@ -884,10 +884,12 @@ bool cok_camp_save_game(cok_adventure *game, char letter)
         return false;
     }
     saved.count = (uint8_t)game->party.count;
+    const cok_rules_saves *s = &cok_game_rules(game)->saves;
     for (size_t i = 0; i < game->party.count; ++i)
-        snprintf(saved.names[i], sizeof saved.names[i], "CHRDAT%c%u", letter, (unsigned)(i + 1));
+        snprintf(saved.names[i], sizeof saved.names[i], "%s%c%u", s->character, letter,
+                 (unsigned)(i + 1));
     char path[sizeof game->save_dir + 32];
-    snprintf(path, sizeof path, "%s/SAVGAM%c.DAT", game->save_dir, letter);
+    snprintf(path, sizeof path, "%s/%s%c.%s", game->save_dir, s->game, letter, s->game_extension);
     /* The original checks no write; it writes every file and sets DS:5885
      * (4b6d:2809) whatever happened. */
     bool ok = true;
@@ -898,8 +900,8 @@ bool cok_camp_save_game(cok_adventure *game, char letter)
         cok_adventure_log(game, "error", error);
     }
     for (size_t i = 0; i < game->party.count; ++i) {
-        if (!cok_character_write(game->party.members[i], game->save_dir, saved.names[i], error,
-                                 sizeof error)) {
+        if (!cok_character_write(game->party.members[i], cok_game_rules(game), game->save_dir,
+                                 saved.names[i], error, sizeof error)) {
             ok = false;
             snprintf(game->error, sizeof game->error, "%s", error);
             cok_adventure_log(game, "error", error);

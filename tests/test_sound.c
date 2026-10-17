@@ -68,7 +68,7 @@ static void setup(cok_sound_device device, trace *t)
     cok_sound_free(&s);
     cok_sound_init(&s, device == COK_SOUND_SPEAKER ? COK_SOUND_SPEAKER : COK_SOUND_TANDY);
     s.device = (uint8_t)device; /* 0-2 too: effects on the speaker */
-    CHECK(cok_sound_load(&s, assets) || device < COK_SOUND_TANDY);
+    CHECK(cok_sound_load(&s, &cok_rules_champions, assets) || device < COK_SOUND_TANDY);
     s.score_segment = 0xc000; /* where the emulator put the score */
     *t = (trace){0x811c9dc5u, 0, {0}, 0};
     s.trace = traced;
@@ -477,7 +477,7 @@ static void test_missing_files(void)
     cok_sound_free(&s);
     cok_sound_free(&s);
     cok_sound_init(&s, COK_SOUND_TANDY);
-    CHECK(!cok_sound_load(&s, "no-such-directory"));
+    CHECK(!cok_sound_load(&s, &cok_rules_champions, "no-such-directory"));
     CHECK(strstr(s.music_error, "MIDI.DAX") != NULL);
     cok_sound_call_at(&s, COK_SOUND_MUSIC, 0);
     CHECK(s.music && s.isr == COK_SOUND_BIOS);
@@ -501,11 +501,12 @@ static void test_devices(void)
         cok_sound_free(&s);
         cok_sound_init(&s, (cok_sound_device)d);
         CHECK(s.hardware == COK_SOUND_SPEAKER && s.device == d);
-        CHECK(!cok_sound_load(&s, assets) && strstr(s.music_error, "not ported") != NULL);
+        CHECK(!cok_sound_load(&s, &cok_rules_champions, assets) && strstr(s.music_error,
+                              "not ported") != NULL);
         char text[100];
-        CHECK(!cok_sound_music_unported(&s, text, sizeof text));
+        CHECK(!cok_sound_music_unported(&s, &cok_rules_champions, text, sizeof text));
         cok_sound_call_at(&s, COK_SOUND_MUSIC, 0);
-        CHECK(cok_sound_music_unported(&s, text, sizeof text));
+        CHECK(cok_sound_music_unported(&s, &cok_rules_champions, text, sizeof text));
         CHECK(strstr(text, cok_sound_device_name((cok_sound_device)d)) != NULL);
         CHECK(s.isr == COK_SOUND_BIOS);
         cok_sound_call_at(&s, COK_SOUND_MUSIC_END, 0);
@@ -519,10 +520,10 @@ static void test_devices(void)
     }
     cok_sound_free(&s);
     cok_sound_init(&s, COK_SOUND_TANDY);
-    CHECK(cok_sound_load(&s, assets));
+    CHECK(cok_sound_load(&s, &cok_rules_champions, assets));
     cok_sound_call_at(&s, COK_SOUND_MUSIC, 0);
     char text[100];
-    CHECK(!cok_sound_music_unported(&s, text, sizeof text));
+    CHECK(!cok_sound_music_unported(&s, &cok_rules_champions, text, sizeof text));
     cok_sound_free(&s);
     cok_sound_init(&s, COK_SOUND_NONE);
     CHECK(s.hardware == COK_SOUND_TANDY);

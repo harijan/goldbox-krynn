@@ -149,7 +149,8 @@ bool cok_arena_icon(cok_adventure *game, int8_t x, int8_t y, uint8_t facing, uin
 /* Load the icons of slot (6d21:01d0): records id and id + 0x80 of name,
  * ready and attacking, masked with colour 0 transparent (127f:0111). For
  * "CHEAD" or "CBODY" followed by a letter, the letter is dropped and a T
- * (or t) adds 0x40 to id; "COMSPR" loads as it is; any other name gets
+ * (or t) adds 0x40 to id; "COMSPR" loads as it is (these three the
+ * rules' icon_head, icon_body and missiles); any other name gets
  * the ECL file's digit (DS:5782, game->vm.file) and has colour 8 drawn
  * black (127f:15fd from DS:1e26 to 1e36, outside CGA mode). A record that
  * is not there leaves the picture empty, as the original does; a file

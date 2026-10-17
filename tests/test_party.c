@@ -223,7 +223,7 @@ static void test_files(void)
     snprintf(path, sizeof path, "%s/KAL.SFX", dir);
     write_file(path, effects, sizeof effects);
     cok_character c;
-    CHECK(cok_character_read(&c, dir, "KAL", &types, error, sizeof error));
+    CHECK(cok_character_read(&c, &cok_rules_champions, dir, "KAL", &types, error, sizeof error));
     CHECK(c.record[0] == 3 && c.record[0x197] == 21 && c.record[0x17f] == 0 && c.record[0xe3] == 0);
     /* 6346:0d20 clears the slots' far pointers. */
     for (size_t k = 0; k < 4 * COK_ITEM_SLOTS; ++k) CHECK(c.record[0x147 + k] == 0);
@@ -243,12 +243,12 @@ static void test_files(void)
     items[0x34] = 1;
     snprintf(path, sizeof path, "%s/KAL.STF", dir);
     write_file(path, items, sizeof items);
-    CHECK(cok_character_read(&c, dir, "KAL", &types, error, sizeof error));
+    CHECK(cok_character_read(&c, &cok_rules_champions, dir, "KAL", &types, error, sizeof error));
     CHECK(c.slots[0] == 1 && c.record[0x191] == 0 && c.record[0x193] == 0);
     cok_character_free(&c);
     items[0x2e] = 0x81;
     write_file(path, items, sizeof items);
-    CHECK(!cok_character_read(&c, dir, "KAL", &types, error, sizeof error));
+    CHECK(!cok_character_read(&c, &cok_rules_champions, dir, "KAL", &types, error, sizeof error));
     CHECK(strstr(error, "KAL.SAV") != NULL && strstr(error, "item type 129") != NULL);
     cok_character_free(&c);
     /* Items and effects are optional. */
@@ -256,10 +256,11 @@ static void test_files(void)
     remove(path);
     snprintf(path, sizeof path, "%s/KAL.SFX", dir);
     remove(path);
-    CHECK(cok_character_read(&c, dir, "KAL", &types, error, sizeof error));
+    CHECK(cok_character_read(&c, &cok_rules_champions, dir, "KAL", &types, error, sizeof error));
     CHECK(c.item_count == 0 && c.items == NULL && c.effects == NULL);
     cok_character_free(&c);
-    CHECK(!cok_character_read(&c, dir, "NOBODY", &types, error, sizeof error));
+    CHECK(!cok_character_read(&c, &cok_rules_champions, dir, "NOBODY", &types, error,
+                              sizeof error));
     CHECK(strstr(error, "NOBODY.SAV") != NULL);
     cok_character_free(&c);
 
@@ -509,7 +510,8 @@ static void test_saved(void)
         CHECK(f != NULL && fread(saved, 1, sizeof saved, f) == sizeof saved);
         fclose(f);
         cok_character c;
-        CHECK(cok_character_read(&c, "SAVE", names[i], types, error, sizeof error));
+        CHECK(cok_character_read(&c, &cok_rules_champions, "SAVE", names[i], types, error,
+                                 sizeof error));
         for (size_t k = 0; k < COK_CHARACTER_SIZE; ++k) {
             /* Pointers: effects, items, slots, next, combat record. */
             if ((k >= 0xe3 && k < 0xe7) || (k >= 0x143 && k < 0x17b) || (k >= 0x17f && k < 0x187))

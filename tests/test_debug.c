@@ -181,6 +181,7 @@ static void test_keys(void)
     game.save_dir[0] = '\0';
     keys("");
     cok_debug_key(&game, 4);
+    CHECK(strstr(s.log, "debug: DEBUG.TXT opened (no saves directory: not written);") != NULL);
     cok_debug_key(&game, 0x1a);
     CHECK(strstr(s.log, "debug.txt: who: ALDA  sp#: 34;") != NULL);
     cok_debug_key(&game, 4);
@@ -418,7 +419,7 @@ int main(void)
 {
     cok_keyboard k = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .context = &s};
-    CHECK(cok_adventure_open(&game, "COKAssets", &k, &hooks));
+    CHECK(cok_adventure_open(&game, &cok_rules_champions, "COKAssets", &k, &hooks));
     CHECK(cok_picture_create(&s.seen, game.screen.units, game.screen.height, 1, 0) == COK_PICTURE_OK);
     CHECK(mkdtemp(dir) != NULL);
     snprintf(game.save_dir, sizeof game.save_dir, "%s", dir);

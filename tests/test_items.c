@@ -575,7 +575,7 @@ int main(void)
 {
     cok_keyboard k = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .flush = flushed, .context = &s};
-    CHECK(cok_adventure_open(&game, "COKAssets", &k, &hooks));
+    CHECK(cok_adventure_open(&game, &cok_rules_champions, "COKAssets", &k, &hooks));
     game.vm.mem4b00[0xe6] = 1;
     test_tables();
     test_names();

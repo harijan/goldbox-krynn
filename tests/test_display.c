@@ -62,7 +62,7 @@ static void load(replay *p, int slot, const char *archive, long entry, long inde
 {
     size_t size;
     uint8_t *data = record(archive, entry, &size);
-    cok_layout layout = cok_archive_layout(archive);
+    cok_layout layout = cok_archive_layout(&cok_rules_champions, archive);
     if (layout == COK_LAYOUT_DELTA) CHECK(cok_images_undelta(data, size) == COK_IMAGE_OK);
     cok_images images = {0};
     CHECK(cok_images_parse(data, size, layout != COK_LAYOUT_SINGLE, &images) == COK_IMAGE_OK);

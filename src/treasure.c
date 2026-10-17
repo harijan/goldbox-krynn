@@ -413,15 +413,6 @@ void cok_pool_drop(cok_adventure *game, uint8_t *c, uint16_t amount, int k)
 
 /* TREASURE (2fd3:1d21). */
 
-/* The file's number as Str(DS:5782) into a string[1] makes it: its first
- * digit. */
-static char file_digit(const cok_adventure *game)
-{
-    char text[8];
-    snprintf(text, sizeof text, "%u", game->vm.file);
-    return text[0];
-}
-
 /* Put the items of ITEM<file> record id first in the pool, each before the
  * one before it, so in the reverse order. A record that is not there says
  * "Unable to find item file" and quits to DOS; the original does the same
@@ -431,7 +422,10 @@ static char file_digit(const cok_adventure *game)
 static bool load_items(cok_adventure *game, uint8_t id)
 {
     char name[16];
-    snprintf(name, sizeof name, "ITEM%c", file_digit(game));
+    /* The file's number as Str(DS:5782) into a string[1] makes it: its
+     * first digit (the rules' file_digit). */
+    snprintf(name, sizeof name, "%s%c", cok_game_rules(game)->archives.treasure,
+             cok_game_rules(game)->archives.file_digit(game->vm.file));
     bool no_file;
     size_t size = 0;
     uint8_t *data = cok_adventure_find_record(game, name, id, &size, &no_file);

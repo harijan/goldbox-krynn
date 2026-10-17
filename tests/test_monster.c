@@ -1,10 +1,13 @@
+#define _POSIX_C_SOURCE 200809L /* mkdtemp, symlink */
 #include "monster.h"
 
 #include "camp.h"
 
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #x); exit(1); } } while (0)
 
@@ -65,7 +68,7 @@ static void open_game(void)
     cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .unported = unported, .delay = delayed,
                                  .context = &s};
-    CHECK(cok_adventure_open(&game, "COKAssets", &keys, &hooks));
+    CHECK(cok_adventure_open(&game, &cok_rules_champions, "COKAssets", &keys, &hooks));
     watched = &game.screen;
 }
 
@@ -199,6 +202,97 @@ static void test_missing_monster(void)
     member("KAL", 12);
     game.icon_slot = COK_ICON_SLOTS;
     CHECK(RUN(COK_ECL_LOAD_MONSTER, 0, 8, 0, 1, 0, 8) == COK_ECL_UNDEFINED);
+}
+
+/* A copy of COKAssets in a temporary directory, its files linked, but
+ * file, which links to another of them, from: an archive whose records
+ * are not what the game reads there. game.assets points at it until
+ * undamaged. */
+static char damaged_dir[256];
+
+static void damage(const char *file, const char *from)
+{
+    char cwd[1024];
+    CHECK(getcwd(cwd, sizeof cwd) != NULL);
+    const char *temp = getenv("TMPDIR");
+    snprintf(damaged_dir, sizeof damaged_dir, "%s/test_monster-XXXXXX",
+             temp != NULL && temp[0] != '\0' ? temp : "/tmp");
+    CHECK(mkdtemp(damaged_dir) != NULL);
+    DIR *dir = opendir("COKAssets");
+    CHECK(dir != NULL);
+    for (struct dirent *e; (e = readdir(dir)) != NULL;) {
+        if (e->d_name[0] == '.') continue;
+        char target[2048], link[512];
+        bool replaced = strcmp(e->d_name, file) == 0;
+        snprintf(target, sizeof target, "%s/COKAssets/%s", cwd, replaced ? from : e->d_name);
+        snprintf(link, sizeof link, "%s/%s", damaged_dir, e->d_name);
+        CHECK(symlink(target, link) == 0);
+    }
+    closedir(dir);
+    snprintf(game.assets, sizeof game.assets, "%s", damaged_dir);
+}
+
+static void undamage(void)
+{
+    DIR *dir = opendir(damaged_dir);
+    CHECK(dir != NULL);
+    for (struct dirent *e; (e = readdir(dir)) != NULL;) {
+        if (e->d_name[0] == '.') continue;
+        char link[512];
+        snprintf(link, sizeof link, "%s/%s", damaged_dir, e->d_name);
+        CHECK(unlink(link) == 0);
+    }
+    closedir(dir);
+    CHECK(rmdir(damaged_dir) == 0);
+    snprintf(game.assets, sizeof game.assets, "COKAssets");
+}
+
+/* The names in the messages of files whose records are not what the game
+ * reads there: the archive with another's records, MON1CHA.DAX's of 409
+ * bytes, or MON1SPC.DAX's of 9. */
+static void test_damaged_files(void)
+{
+    /* MON1SPC with whole records: an effect is 9 bytes. */
+    reset("");
+    member("KAL", 12);
+    damage("MON1SPC.DAX", "MON1CHA.DAX");
+    CHECK(RUN(COK_ECL_LOAD_MONSTER, 0, 9, 0, 1, 0, 9) == COK_ECL_UNDEFINED);
+    CHECK(strstr(game.error, "MON1SPC record 9 is not whole effects; 4b6d:161b reads past it") !=
+          NULL);
+    undamage();
+    reset("");
+    member("KAL", 12);
+    damage("MON1ITM.DAX", "MON1CHA.DAX");
+    CHECK(RUN(COK_ECL_LOAD_MONSTER, 0, 9, 0, 1, 0, 9) == COK_ECL_UNDEFINED);
+    CHECK(strstr(game.error, "MON1ITM record 9 is not whole items; 4b6d:161b reads past it") !=
+          NULL);
+    undamage();
+    reset("");
+    member("KAL", 12);
+    damage("MON1CHA.DAX", "MON1SPC.DAX");
+    CHECK(RUN(COK_ECL_LOAD_MONSTER, 0, 1, 0, 1, 0, 1) == COK_ECL_UNDEFINED);
+    CHECK(strstr(game.error, "MON1CHA record 1 has 9 bytes; 4b6d:161b copies 409, past it") !=
+          NULL);
+    undamage();
+    /* LOAD FILES and LOAD PIECES: a map is 1026 bytes; a wall set's
+     * record holds whole sets. */
+    reset("");
+    damage("GEO1.DAX", "MON1CHA.DAX");
+    CHECK(RUN(COK_ECL_LOAD_FILES, 0, 9, 0, 0xff, 0, 0xff) == COK_ECL_LOAD_FAILED);
+    CHECK(strstr(s.log, "error: GEO1.DAX record 9 is not a map;") != NULL);
+    undamage();
+    reset("");
+    damage("WALLDEF1.DAX", "MON1SPC.DAX");
+    CHECK(RUN(COK_ECL_LOAD_PIECES, 0, 1, 0, 0xff, 0, 0xff) == COK_ECL_LOAD_FAILED);
+    CHECK(strstr(s.log, "error: WALLDEF1.DAX record 1 does not fit from wall set 1;") != NULL);
+    undamage();
+    /* A sprite's record that is not one. */
+    reset("");
+    damage("SPRIT1.DAX", "MON1SPC.DAX");
+    cok_adventure_load_sprite(&game, 1);
+    CHECK(strstr(s.log, "error: SPRIT1.DAX record 1: ") != NULL);
+    undamage();
+    reset("");
 }
 
 static void test_open_squares(void)
@@ -910,6 +1004,7 @@ int main(void)
     test_load_monster();
     test_difficulty();
     test_missing_monster();
+    test_damaged_files();
     test_open_squares();
     test_movement();
     test_sprite();

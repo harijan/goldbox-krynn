@@ -116,15 +116,17 @@ static bool read_records(const char *path, size_t size, uint8_t **out, size_t *c
     return true;
 }
 
-bool cok_character_read(cok_character *character, const char *dir, const char *base,
-                        const cok_item_types *types, char *error, size_t error_size)
+bool cok_character_read(cok_character *character, const cok_rules *rules, const char *dir,
+                        const char *base, const cok_item_types *types, char *error,
+                        size_t error_size)
 {
-    return cok_character_read_file(character, dir, base, "SAV", types, error, error_size);
+    return cok_character_read_file(character, rules, dir, base, rules->saves.record, types,
+                                   error, error_size);
 }
 
-bool cok_character_read_file(cok_character *character, const char *dir, const char *base,
-                             const char *extension, const cok_item_types *types, char *error,
-                             size_t error_size)
+bool cok_character_read_file(cok_character *character, const cok_rules *rules, const char *dir,
+                             const char *base, const char *extension,
+                             const cok_item_types *types, char *error, size_t error_size)
 {
     memset(character, 0, sizeof *character);
     char path[4096];
@@ -144,11 +146,11 @@ bool cok_character_read_file(cok_character *character, const char *dir, const ch
     for (size_t i = 0; i < sizeof pointers / sizeof *pointers; ++i)
         memset(character->record + pointers[i], 0, 4);
     uint8_t *items, *effects;
-    snprintf(path, sizeof path, "%s/%s.STF", dir, base);
+    snprintf(path, sizeof path, "%s/%s.%s", dir, base, rules->saves.items);
     if (!read_records(path, COK_ITEM_SIZE, &items, &character->item_count, error, error_size))
         return false;
     character->items = (uint8_t (*)[COK_ITEM_SIZE])(void *)items;
-    snprintf(path, sizeof path, "%s/%s.SFX", dir, base);
+    snprintf(path, sizeof path, "%s/%s.%s", dir, base, rules->saves.effects);
     size_t effect_count;
     if (!read_records(path, COK_EFFECT_SIZE, &effects, &effect_count, error, error_size))
         return false;
@@ -1645,14 +1647,16 @@ bool cok_saved_game_write(const char *path, const cok_saved_game *game, char *er
     return write_file(path, data, sizeof data, error, error_size);
 }
 
-bool cok_character_write(const cok_character *character, const char *dir, const char *base,
-                         char *error, size_t error_size)
+bool cok_character_write(const cok_character *character, const cok_rules *rules, const char *dir,
+                         const char *base, char *error, size_t error_size)
 {
-    return cok_character_write_file(character, dir, base, "SAV", error, error_size);
+    return cok_character_write_file(character, rules, dir, base, rules->saves.record, error,
+                                    error_size);
 }
 
-bool cok_character_write_file(const cok_character *character, const char *dir, const char *base,
-                              const char *extension, char *error, size_t error_size)
+bool cok_character_write_file(const cok_character *character, const cok_rules *rules,
+                              const char *dir, const char *base, const char *extension,
+                              char *error, size_t error_size)
 {
     char path[4096];
     snprintf(path, sizeof path, "%s/%s.%s", dir, base, extension);
@@ -1661,7 +1665,7 @@ bool cok_character_write_file(const cok_character *character, const char *dir, c
     if (!write_file(path, character->record, COK_CHARACTER_SIZE, error, error_size)) return false;
     /* 169c:0154 erases the items and effects, which are written again only
      * if there are any, each with its next pointer, 0 for the last. */
-    snprintf(path, sizeof path, "%s/%s.STF", dir, base);
+    snprintf(path, sizeof path, "%s/%s.%s", dir, base, rules->saves.items);
     remove(path);
     if (character->item_count > 0) {
         uint8_t *items = malloc(character->item_count * COK_ITEM_SIZE);
@@ -1677,7 +1681,7 @@ bool cok_character_write_file(const cok_character *character, const char *dir, c
         free(items);
         if (!ok) return false;
     }
-    snprintf(path, sizeof path, "%s/%s.SFX", dir, base);
+    snprintf(path, sizeof path, "%s/%s.%s", dir, base, rules->saves.effects);
     remove(path);
     size_t count = 0;
     for (const cok_effect *e = character->effects; e != NULL; e = e->next) ++count;

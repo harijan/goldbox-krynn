@@ -15,6 +15,7 @@
 #include "screen.h"
 #include "start.h"
 
+#include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -136,6 +137,8 @@ static int menu_read(cok_adventure *game, const char *prompt, const char *items,
 static uint8_t *find_record(cok_adventure *game, const char *name, uint8_t id, size_t *size,
                             bool *no_file)
 {
+    /* A game set up without its rules (cok_adventure_open names them). */
+    assert(game->rules != NULL);
     char path[sizeof game->assets + 32];
     snprintf(path, sizeof path, "%s/%s.DAX", game->assets, name);
     /* 169c:088e: the sound stopped (command 0) before the file is read and
@@ -179,6 +182,16 @@ static uint8_t *find_record(cok_adventure *game, const char *name, uint8_t id, s
 static uint8_t *read_record(cok_adventure *game, const char *name, uint8_t id, size_t *size)
 {
     return find_record(game, name, id, size, NULL);
+}
+
+/* The archive a descriptor's record is in: <stem><file>, or <stem> for
+ * file 0. */
+static void record_file(const cok_rules_record *r, char *out, size_t size)
+{
+    if (r->file == 0)
+        snprintf(out, size, "%s", r->stem);
+    else
+        snprintf(out, size, "%s%u", r->stem, r->file);
 }
 
 uint8_t *cok_adventure_record(cok_adventure *game, const char *name, unsigned file,
@@ -337,13 +350,15 @@ static void picture_loaded(cok_adventure *game)
 static void load_picture(cok_adventure *game, uint8_t id)
 {
     size_t size;
-    uint8_t *data = picture_record(game, "PIC", id, false, &size);
+    const char *name = cok_game_rules(game)->archives.pic;
+    uint8_t *data = picture_record(game, name, id, false, &size);
     if (data == NULL) return;
     cok_images images = {0};
     cok_image_status status = cok_images_undelta(data, size);
     if (status == COK_IMAGE_OK) status = cok_images_parse(data, size, 1, &images);
     if (status != COK_IMAGE_OK) {
-        fail(game, "PIC%u.DAX record %u: %s", game->vm.file, id, cok_image_status_string(status));
+        fail(game, "%s%u.DAX record %u: %s", name, game->vm.file, id,
+             cok_image_status_string(status));
         log_text(game, "error", game->error);
         free(data);
         return;
@@ -365,12 +380,14 @@ static void load_picture(cok_adventure *game, uint8_t id)
 void cok_adventure_load_sprite(cok_adventure *game, uint8_t id)
 {
     size_t size;
-    uint8_t *data = picture_record(game, "SPRIT", id, true, &size);
+    const char *name = cok_game_rules(game)->archives.sprite;
+    uint8_t *data = picture_record(game, name, id, true, &size);
     if (data == NULL) return;
     cok_images images = {0};
     cok_image_status status = cok_images_parse(data, size, 1, &images);
     if (status != COK_IMAGE_OK) {
-        fail(game, "SPRIT%u.DAX record %u: %s", game->vm.file, id, cok_image_status_string(status));
+        fail(game, "%s%u.DAX record %u: %s", name, game->vm.file, id,
+             cok_image_status_string(status));
         log_text(game, "error", game->error);
         free(data);
         return;
@@ -484,7 +501,7 @@ void cok_adventure_load_big(cok_adventure *game, uint8_t id)
     free_frames(game);
     if (game->big_id == id && game->big.pixels != NULL) return;
     char name[16];
-    snprintf(name, sizeof name, "BIGPIC%u", game->vm.file);
+    snprintf(name, sizeof name, "%s%u", cok_game_rules(game)->archives.big, game->vm.file);
     /* 127f:0111 frees the old picture and, for a record that is not there,
      * returns with none; DS:6e06 takes the id all the same. A missing
      * file, where the original asks for the disk, is logged. */
@@ -521,9 +538,9 @@ static bool load_piece(cok_adventure *game, const char *kind, uint8_t id, uint8_
                        cok_picture *piece)
 {
     if (id == 0xff || (*loaded != 0xff && *loaded == id)) return true;
-    char digits[8], name[16];
-    snprintf(digits, sizeof digits, "%u", game->vm.file);
-    snprintf(name, sizeof name, "%s%c", kind, digits[0]);
+    char name[16];
+    snprintf(name, sizeof name, "%s%c", kind,
+             cok_game_rules(game)->archives.file_digit(game->vm.file));
     game->error[0] = '\0';
     bool no_file;
     size_t size;
@@ -566,8 +583,9 @@ static bool draw_piece(cok_adventure *game, const cok_picture *piece, int x, int
  * body five cells below it (6961:06bd with 1). */
 static void show_portrait(cok_adventure *game, uint8_t head, uint8_t body)
 {
-    if (!load_piece(game, "HEAD", head, &game->head_id, &game->head) ||
-        !load_piece(game, "BODY", body, &game->body_id, &game->body) || game->vm.abort)
+    const cok_rules_archives *a = &cok_game_rules(game)->archives;
+    if (!load_piece(game, a->head, head, &game->head_id, &game->head) ||
+        !load_piece(game, a->body, body, &game->body_id, &game->body) || game->vm.abort)
         return;
     cok_adventure_flush(game); /* 1614:045c */
     if (draw_piece(game, &game->head, 3, 3)) draw_piece(game, &game->body, 3, 8);
@@ -644,7 +662,7 @@ static bool load_tiles(cok_adventure *game, unsigned set, uint8_t id)
         cok_debug_write(game, line);
     }
     char name[16];
-    snprintf(name, sizeof name, "8X8D%u", game->vm.file);
+    snprintf(name, sizeof name, "%s%u", cok_game_rules(game)->archives.tiles, game->vm.file);
     return load_single(game, name, id, 13, &game->view.tiles[set]);
 }
 
@@ -654,12 +672,13 @@ static bool load_map(cok_adventure *game, uint8_t id)
     cok_ecl *vm = &game->vm;
     game->error[0] = '\0';
     size_t size;
-    uint8_t *data = cok_adventure_record(game, "GEO", vm->file, id, &size);
+    const char *name = cok_game_rules(game)->archives.geo;
+    uint8_t *data = cok_adventure_record(game, name, vm->file, id, &size);
     if (data == NULL) return false;
     bool ok = cok_view_set_map(&game->view, data, size);
     free(data);
     if (!ok) {
-        fail(game, "GEO%u.DAX record %u is not a map", vm->file, id);
+        fail(game, "%s%u.DAX record %u is not a map", name, vm->file, id);
         return false;
     }
     vm->mem4b00[0xc5] = id;
@@ -674,12 +693,13 @@ static bool load_walls(cok_adventure *game, unsigned slot, uint8_t id)
     cok_ecl *vm = &game->vm;
     game->error[0] = '\0';
     size_t size;
-    uint8_t *data = cok_adventure_record(game, "WALLDEF", vm->file, id, &size);
+    const char *name = cok_game_rules(game)->archives.walldef;
+    uint8_t *data = cok_adventure_record(game, name, vm->file, id, &size);
     if (data == NULL) return false;
     size_t sets = cok_view_set_walls(&game->view, slot, data, size);
     free(data);
     if (sets == 0) {
-        fail(game, "WALLDEF%u.DAX record %u does not fit from wall set %u", vm->file, id, slot);
+        fail(game, "%s%u.DAX record %u does not fit from wall set %u", name, vm->file, id, slot);
         return false;
     }
     for (size_t i = 0; i < sets; ++i) {
@@ -1616,7 +1636,7 @@ static bool join_npc(cok_adventure *game, uint8_t id)
     name_of(npc->record, name);
     snprintf(text, sizeof text, "%s joins, icon %u in slot %u", name, id, npc->record[0x137]);
     log_text(game, "party", text);
-    return cok_arena_load_icon(game, "CPIC", id, npc->record[0x137]);
+    return cok_arena_load_icon(game, cok_game_rules(game)->archives.icons, id, npc->record[0x137]);
 }
 
 /* ADD NPC id morale (2fd3:311c): unless the party has eight or more, add
@@ -1760,12 +1780,14 @@ static bool load_block(cok_ecl *vm, uint8_t block, void *context)
     cok_adventure_loading(game); /* 3775:037f */
     game->error[0] = '\0';
     size_t size;
-    uint8_t *data = cok_adventure_record(game, "ECL", vm->file, block, &size);
+    const char *name = cok_game_rules(game)->archives.ecl;
+    uint8_t *data = cok_adventure_record(game, name, vm->file, block, &size);
     if (data == NULL) return false;
     cok_ecl_status status = cok_ecl_load(vm, data, size);
     free(data);
     if (status != COK_ECL_OK) {
-        fail(game, "ECL%u.DAX record %u: %s", vm->file, block, cok_ecl_status_string(status));
+        fail(game, "%s%u.DAX record %u: %s", name, vm->file, block,
+             cok_ecl_status_string(status));
         return false;
     }
     cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 3775:042c */
@@ -2084,16 +2106,19 @@ static void effect_trace(cok_effects *fx, const char *text, uint8_t a, uint8_t b
     cok_debug_trace(context, text, a, b, c);
 }
 
-bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keyboard *keys,
-                        const cok_adventure_hooks *hooks)
+bool cok_adventure_open(cok_adventure *game, const cok_rules *rules, const char *assets,
+                        const cok_keyboard *keys, const cok_adventure_hooks *hooks)
 {
-    return cok_adventure_open_display(game, assets, COK_DISPLAY_TANDY, keys, hooks);
+    return cok_adventure_open_display(game, rules, assets, COK_DISPLAY_TANDY, keys, hooks);
 }
 
-bool cok_adventure_open_display(cok_adventure *game, const char *assets, cok_display display,
-                                const cok_keyboard *keys, const cok_adventure_hooks *hooks)
+bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, const char *assets,
+                                cok_display display, const cok_keyboard *keys,
+                                const cok_adventure_hooks *hooks)
 {
+    assert(rules != NULL);
     memset(game, 0, sizeof *game);
+    game->rules = rules;
     game->display = display;
     game->battle_sp = COK_BATTLE_SP;
     cok_ecl_hooks vm_hooks = {.load = load_block, .opcode = opcode, .trace = trace,
@@ -2152,13 +2177,17 @@ bool cok_adventure_open_display(cok_adventure *game, const char *assets, cok_dis
         fail(game, "out of memory");
         return false;
     }
+    const cok_rules_archives *a = &rules->archives;
+    char name[32];
+    record_file(&a->font, name, sizeof name);
     size_t size;
-    uint8_t *data = cok_adventure_record(game, "8X8D", 1, 201, &size);
+    uint8_t *data = read_record(game, name, a->font.record, &size);
     if (data == NULL) return false;
     cok_picture_status status = cok_font_load(&game->font, data, size);
     free(data);
     if (status != COK_PICTURE_OK) {
-        fail(game, "8X8D1.DAX record 201: %s", cok_picture_status_string(status));
+        fail(game, "%s.DAX record %u: %s", name, a->font.record,
+             cok_picture_status_string(status));
         return false;
     }
     /* The game loads these once at startup, while the ECL file is still 1
@@ -2168,19 +2197,20 @@ bool cok_adventure_open_display(cok_adventure *game, const char *assets, cok_dis
     /* Then the icons of missiles, flashes and the cursor: COMSPR ids 0-11
      * in slots 13-24, and 25 in 25 (3e99:06e0, 072a). */
     for (uint8_t i = 0; i <= 11; ++i)
-        if (!cok_arena_load_icon(game, "COMSPR", i, (uint8_t)(13 + i))) return false;
-    if (!cok_arena_load_icon(game, "COMSPR", 25, 25)) return false;
+        if (!cok_arena_load_icon(game, a->missiles, i, (uint8_t)(13 + i))) return false;
+    if (!cok_arena_load_icon(game, a->missiles, 25, 25)) return false;
     for (uint8_t i = 0; i < COK_VIEW_SKY_PICTURES && display != COK_DISPLAY_CGA; ++i)
-        if (!load_single(game, "SKY", (uint8_t)(250 + i), 13, &game->view.sky[i])) return false;
+        if (!load_single(game, a->sky, (uint8_t)(250 + i), 13, &game->view.sky[i])) return false;
     /* The overland map's cursor and the cell it covers (3e99:01fd, 07b8). */
-    if (!load_single(game, "CURSOR", 1, 13, &game->cursor)) return false;
+    record_file(&a->cursor, name, sizeof name);
+    if (!load_single(game, name, a->cursor.record, 13, &game->cursor)) return false;
     if (cok_adventure_create_picture(game, &game->under, 1, 8, 1, 0) != COK_PICTURE_OK) {
         fail(game, "out of memory");
         return false;
     }
     /* 3e99:005b also reads the item types. */
     char path[sizeof game->assets + 32];
-    snprintf(path, sizeof path, "%s/ITEMS", game->assets);
+    snprintf(path, sizeof path, "%s/%s", game->assets, rules->files.item_types);
     return cok_item_types_read(path, &game->item_types, game->error, sizeof game->error);
 }
 
@@ -2244,7 +2274,7 @@ static bool add_characters(cok_adventure *game, const cok_saved_game *saved, con
         char base[9];
         cok_party_roster_name(saved->names[i], base);
         char file[4200];
-        snprintf(file, sizeof file, "%s/%s.SAV", dir, base);
+        snprintf(file, sizeof file, "%s/%s.%s", dir, base, cok_game_rules(game)->saves.record);
         FILE *exists = fopen(file, "rb");
         if (exists == NULL) continue; /* the original skips missing characters */
         fclose(exists);
@@ -2253,8 +2283,8 @@ static bool add_characters(cok_adventure *game, const cok_saved_game *saved, con
             fail(game, "out of memory");
             return false;
         }
-        if (!cok_character_read(character, dir, base, &game->item_types, game->error,
-                                sizeof game->error)) {
+        if (!cok_character_read(character, cok_game_rules(game), dir, base, &game->item_types,
+                                game->error, sizeof game->error)) {
             cok_character_free(character);
             free(character);
             return false;

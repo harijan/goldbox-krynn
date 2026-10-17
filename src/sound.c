@@ -1637,7 +1637,7 @@ static uint8_t *load_record(const char *assets, const char *name, uint8_t id, si
                             char *error, size_t error_size)
 {
     char path[1024];
-    snprintf(path, sizeof path, "%.1000s/%s", assets, name);
+    snprintf(path, sizeof path, "%.1000s/%s.DAX", assets, name);
     dax_archive archive = {0};
     dax_status status = dax_open(path, &archive);
     if (status != DAX_OK) {
@@ -1664,19 +1664,20 @@ static uint8_t *load_record(const char *assets, const char *name, uint8_t id, si
     return data;
 }
 
-bool cok_sound_load(cok_sound *s, const char *assets)
+bool cok_sound_load(cok_sound *s, const cok_rules *rules, const char *assets)
 {
     cok_sound_free(s);
     s->music_error[0] = '\0';
+    const char *drivers = rules->archives.music_drivers;
     if (s->device < COK_SOUND_TANDY) {
         snprintf(s->music_error, sizeof s->music_error,
-                 "the music driver for %s (MIDI.DAX record %u) is not ported",
-                 cok_sound_device_name((cok_sound_device)s->device), s->device + 1u);
+                 "the music driver for %s (%s.DAX record %u) is not ported",
+                 cok_sound_device_name((cok_sound_device)s->device), drivers, s->device + 1u);
         return false;
     }
     uint8_t id = s->hardware == COK_SOUND_TANDY ? 4 : 5;
     size_t driver_size = 0, score_size = 0;
-    uint8_t *driver = load_record(assets, "MIDI.DAX", id, &driver_size, s->music_error,
+    uint8_t *driver = load_record(assets, drivers, id, &driver_size, s->music_error,
                                   sizeof s->music_error);
     if (driver == NULL) return false;
     const music_entry *e = music_driver(s);
@@ -1684,12 +1685,12 @@ bool cok_sound_load(cok_sound *s, const char *assets)
         rw(driver, (uint16_t)(e->table + 2)) != e->play ||
         rw(driver, (uint16_t)(e->table + 4)) != e->stop) {
         snprintf(s->music_error, sizeof s->music_error,
-                 "%s/MIDI.DAX record %u is not the driver this port knows", assets, id);
+                 "%s/%s.DAX record %u is not the driver this port knows", assets, drivers, id);
         free(driver);
         return false;
     }
-    uint8_t *score = load_record(assets, "SOUND.DAX", 1, &score_size, s->music_error,
-                                 sizeof s->music_error);
+    uint8_t *score = load_record(assets, rules->archives.music_score, 1, &score_size,
+                                 s->music_error, sizeof s->music_error);
     if (score == NULL) {
         free(driver);
         return false;
@@ -1718,10 +1719,12 @@ const char *cok_sound_device_name(cok_sound_device device)
     return device <= COK_SOUND_NONE ? names[device] : "Silent";
 }
 
-bool cok_sound_music_unported(const cok_sound *s, char *text, size_t size)
+bool cok_sound_music_unported(const cok_sound *s, const cok_rules *rules, char *text,
+                              size_t size)
 {
     if (!s->music || s->device >= COK_SOUND_TANDY) return false;
-    snprintf(text, size, "the title's music on %s (MIDI.DAX record %u)",
-             cok_sound_device_name((cok_sound_device)s->device), s->device + 1u);
+    snprintf(text, size, "the title's music on %s (%s.DAX record %u)",
+             cok_sound_device_name((cok_sound_device)s->device),
+             rules->archives.music_drivers, s->device + 1u);
     return true;
 }

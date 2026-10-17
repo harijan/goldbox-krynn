@@ -87,7 +87,8 @@ export checks for all 26 supported graphics archives (2,363 images), and
 tests of the picture, text, menu, 3D view, overhead map, party and spell
 effect routines, the sound (`tests/test_sound.c`: the drivers' port writes
 against the original's, recorded in an emulator, and the synthesis),
-`KRYNN.CFG` (`tests/test_config.c`), startup's setup and text screen
+`KRYNN.CFG` (`tests/test_config.c`), the games' descriptors and `--game`
+(`tests/test_rules.c`, see Games), startup's setup and text screen
 (`tests/test_setup.c`: against the original's, run in an emulator), the
 mouse's clicks and the joystick (`tests/test_input.c`: against the
 original's, run in an emulator), the display modes
@@ -120,6 +121,62 @@ Tests also require Python 3 (standard library only). The native tools have no
 third-party dependencies. Sanitizer targets require the compiler's ASan/UBSan
 runtime libraries, which were unavailable on the initial development system.
 
+## Games
+
+The port is to play *Death Knights of Krynn* as well (see
+[DEATH-KNIGHTS.md](DEATH-KNIGHTS.md)). Everything that differs between the
+games goes in a descriptor, one a game: `cok_rules` in `src/rules.h`, with
+Champions' in `src/rules.c` (`cok_rules_champions`). A front end picks it
+once, before any file is read, from `--game` (`champions`, the only one so
+far and the default; `cok_rules_find`, an unknown name an error listing
+`cok_rules_names`), and hands it to `cok_adventure_open`, which keeps it in
+`game->rules`, read through `cok_game_rules(game)`; the code that has no game (`cok_character_read` and
+`write`, `cok_sound_load`, `cok_config_find`, the setup, `daximages` and
+`daxcompose`'s `cok_archive_layout`) takes it as an argument. Shared code
+reads what it needs from it and never asks which game it is.
+`cok_adventure_open` asserts that it was given one, and `cok_game_rules`,
+which every read of `game->rules` goes through, that the game has one:
+a path that builds a game some other way without it stops at the first
+read of the rules, with the assertion, not reading through NULL. (Tests
+that build a game by hand set `game.rules` themselves.)
+
+The descriptor holds names so far, a section to a concern:
+
+| Section | Holds | Champions |
+| --- | --- | --- |
+| `id`, `assets` | `--game`'s name; the assets' directory without `--assets` | `champions`, `COKAssets` |
+| `text` | the window's title; the title menu's heading at startup and after a demonstration (`1000:0134`, spelt differently) | `Champions of Krynn`, `Champions of Krynn v1.2`, `Champions Of Krynn v1.2` |
+| `archives` | each DAX archive the game reads, by stem: with the ECL file's number (`GEO` makes `GEO1.DAX`), with `file_digit`'s digit (`MON`, with the kinds `CHA`, `SPC`, `ITM`; `ITEM`, `HEAD`, `BODY`, `CPIC`) or alone (`SKY`); the names `6d21:01d0` loads icons by as they are; records read from a file of their own, as a `cok_rules_record` (stem, file, 0 for none, record): the font and the overland map's cursor; and `file_digit`, the digit a file's number gives the names that hold one (Str into a string[1], `4b6d:161b`, `2fd3:1d21`, `6961:05b9`, `6d21:01d0`) | `ECL`, `GEO`, `WALLDEF`, `8X8D`, `PIC`, `SPRIT`, `BIGPIC`, `HEAD`, `BODY`, `CPIC`, `COMSPR`, `CHEAD`, `CBODY`, `SKY`, `TITLE`, `ITEM`, `MON`, `DUNGCOM`, `WILDCOM`, `RANDCOM`, `MIDI`, `SOUND`; font `8X8D1` record 201, cursor `CURSOR` record 1; the first decimal digit |
+| `files` | the devices' file (looked for in upper case, then lower); the item types; the directory the setup takes the game to run in and the save path's default under it | `KRYNN.CFG`, `ITEMS`, `C:\COK\`, `SAVE` |
+| `saves` | saved games (`SAVGAM` letter `.DAT`) and their characters' names (`CHRDAT` letter number); a character's extensions: in a saved game, in the roster, its items, its effects; the debug mode's trace | `SAVGAM`, `DAT`, `CHRDAT`, `SAV`, `WHO`, `STF`, `SFX`, `DEBUG.TXT` |
+| `images` | the archives `daximages` and `daxcompose` read, by layout: XOR deltas, collections, single images; stems, `NULL`-ended | `PIC1-3`; `SPRIT1-3`; the 20 others |
+
+A `NULL` stem says the game has no such archive (Death Knights has no
+`SKY`, `CURSOR`, `RANDCOM`, `HEAD` or `BODY`): code that reads it must not
+be reached for that game. Most record ids are still in the code that
+reads them (the tile sets 202 and 203 and `SKY`'s 250-252 at startup,
+`COMSPR`'s, `RANDCOM`'s 1, the music drivers' 4 and 5); one that a game
+reads from another file goes in a `cok_rules_record` (Death Knights' cursor
+is `8X8D1` record 204).
+
+To add to it: put the field in the section of its concern (a new
+section, a struct of its own, for a new concern: the character record's
+layout, the data segment's tables, the ECL's, the spells', the routines
+that differ as function pointers), with a comment saying what it is and
+where the original holds or reads it; give Champions' value in
+`src/rules.c`; read it through `cok_game_rules(game)` (or the descriptor
+passed in) where the literal was; and check it in `tests/test_rules.c`
+(every file Champions' descriptor names must be in `COKAssets/`). The
+message strings the game shows stay where they are. The port's own
+messages that name a file build the name from the descriptor; the tests
+check them (`tests/test_monster.c`'s damaged files: `MON1CHA`, `SPC`,
+`ITM`, `GEO1`, `WALLDEF1`, `SPRIT1`; `tests/test_debug.c`'s `DEBUG.TXT`
+without a saves directory), but for a few checked by review only:
+`RANDCOM`'s "record 1 is too short" (unreachable with a record that loads
+as its six tiles, which are longer than the map it would hold), and the
+font's, `PIC`'s and `ECL`'s load errors. To add a game: a descriptor of its own
+in `src/rules.c`, listed in `games`, which `--game` then finds.
+
 ## Playing
 
 `build/cok [options]` plays the game in a window, as `eclplay
@@ -134,7 +191,8 @@ timed menu runs out or the small picture's next frame is due.
 
 | Option | |
 | --- | --- |
-| `--assets DIR` | the game's DAX files (default `COKAssets`) |
+| `--game NAME` | the game to play (see Games): `champions`, the default and so far the only one; any other name is an error that lists the games (status 2) |
+| `--assets DIR` | the game's DAX files (default `COKAssets`, the game's: see Games) |
 | `--saves DIR` | the roster and saved games (default `saves`, created if missing; ignored by git); never `SAVE/` itself: to play the original's games, copy them into it (`mkdir -p saves && cp SAVE/* saves/`) and pick Load Saved Game; and the port's `KRYNN.CFG`, read before the assets' and written by the setup (see Startup and the setup) |
 | `--config FILE` | the `KRYNN.CFG` to read, or, if it is missing, for the setup to write |
 | `--scale N` | the window's size, N (1-16) times the screen (default 3: 960×720) |
@@ -1048,7 +1106,9 @@ directories for different archives or selections.
 
 Supported archive names (case-insensitive) are `TITLE`, `BIGPIC1–3`, `PIC1–3`,
 `SPRIT1–3`, `CPIC1–3`, `CBODY`, `CHEAD`, `BODY2–3`, `HEAD2–3`, `COMSPR`,
-`CURSOR`, `SKY`, `TILES`, and `8X8D1–3`, with the `.DAX` extension. The
+`CURSOR`, `SKY`, `TILES`, and `8X8D1–3`, with the `.DAX` extension: the
+game's `images` lists (see Games). `--game NAME` (for `daxcompose`, before
+the output) names the game, `champions` by default. The
 `8X8D1.DAX` entry with ID 201 is the 8×8 font, not an image: it is reported
 as unsupported while the other entries continue exporting. Draw it with
 `daxcompose`'s `glyph` and `text` commands instead. Unsupported archive
@@ -1386,7 +1446,8 @@ original leaves unset return 0.
 `eclplay [options] ASSETS BLOCK` runs an ECL block on a 320×200 adventure
 screen without a display, as `2fd3:3b47` enters a block: the load vector,
 then the after-move and location vectors, starting over when `NEWECL`
-switches blocks. It prints text as it is printed (`print:`), menus with
+switches blocks; `--game NAME` names the game whose files ASSETS holds
+(see Games). It prints text as it is printed (`print:`), menus with
 their `~` marks (`menu:`, `list:` and `item:`), the choices made
 (`choice:`) and input read (`input:`), and the name and operand values of
 each opcode that is not ported, in brackets. A spell effect the port cannot

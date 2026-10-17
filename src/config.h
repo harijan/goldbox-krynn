@@ -54,19 +54,21 @@ cok_config cok_config_parse_stick(const uint8_t *text, size_t size, bool stick);
  * reads it. */
 bool cok_config_read_file(const char *path, cok_config *config);
 bool cok_config_read_file_stick(const char *path, cok_config *config, bool stick);
-/* Read ASSETS/KRYNN.CFG (or krynn.cfg) into *config. Returns false, config
- * unchanged, when there is none or it cannot be read. */
-bool cok_config_read(const char *assets, cok_config *config);
-/* Where the port keeps KRYNN.CFG, which the original reads and writes in
- * its directory: option (--config FILE) if given; else SAVES/KRYNN.CFG or
- * krynn.cfg, the port's own; else the one in ASSETS, as a copy of the
- * original's directory holds it. saves and assets may be NULL. Returns
- * true with path the file found, false without (path then as write_path).
- * write_path is where the setup and Initialize Mouse/Joystick write it:
- * option, the file found in SAVES, or SAVES/KRYNN.CFG; empty for nowhere
- * (no saves). The port never writes into the assets directory. */
-bool cok_config_find(const char *option, const char *saves, const char *assets, char *path,
-                     char *write_path, size_t size);
+/* Read ASSETS/KRYNN.CFG (or krynn.cfg; the rules' files.config) into
+ * *config. Returns false, config unchanged, when there is none or it
+ * cannot be read. */
+bool cok_config_read(const cok_rules *rules, const char *assets, cok_config *config);
+/* Where the port keeps KRYNN.CFG (the rules' files.config), which the
+ * original reads and writes in its directory: option (--config FILE) if
+ * given; else SAVES/KRYNN.CFG or krynn.cfg, the port's own; else the one
+ * in ASSETS, as a copy of the original's directory holds it. saves and
+ * assets may be NULL. Returns true with path the file found, false
+ * without (path then as write_path). write_path is where the setup and
+ * Initialize Mouse/Joystick write it: option, the file found in SAVES, or
+ * SAVES/KRYNN.CFG; empty for nowhere (no saves). The port never writes
+ * into the assets directory. */
+bool cok_config_find(const cok_rules *rules, const char *option, const char *saves,
+                     const char *assets, char *path, char *write_path, size_t size);
 /* Initialize Mouse/Joystick's rewrite (4def:5cc7): lines 1, 2, 4 and 5 of
  * from as ReadLn reads them into string[255]s (empty if it cannot be
  * read), input ('M', 'J' or 'N') as line 3, then the joystick's fourteen
@@ -81,7 +83,7 @@ bool cok_config_sound_option(const char *name, cok_sound_device *out);
 /* Say on standard error, for what ("display", "sound"), that there is no
  * KRYNN.CFG where cok_config_find looked (option, or SAVES and ASSETS) and
  * the Tandy is taken. */
-void cok_config_missing(const char *what, const char *option, const char *saves,
-                        const char *assets);
+void cok_config_missing(const cok_rules *rules, const char *what, const char *option,
+                        const char *saves, const char *assets);
 
 #endif

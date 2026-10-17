@@ -63,6 +63,7 @@ typedef struct {
 
 typedef struct {
     cok_adventure *game;
+    const cok_rules *rules; /* --game's */
     audio audio;
     SDL_Window *window;
     SDL_Renderer *renderer;
@@ -145,6 +146,7 @@ static void usage(const char *program)
     fprintf(stderr,
             "Usage: %s [options]\n"
             "Play Champions of Krynn in a window, from the title.\n"
+            "  --game NAME     the game to play: champions (the default)\n"
             "  --assets DIR    the game's DAX files (default COKAssets)\n"
             "  --saves DIR     the roster and saved games (default saves, created if\n"
             "                  missing); point it at a copy of SAVE/ to play the\n"
@@ -937,12 +939,14 @@ static void audio_advance(frontend *f, uint64_t ms)
 
 static void sound(cok_adventure *game, cok_sound_call call, unsigned value, void *context)
 {
-    audio *a = &((frontend *)context)->audio;
+    frontend *f = context;
+    audio *a = &f->audio;
     if (a->device == 0) return;
     char text[100];
     SDL_LockMutex(a->lock);
     cok_sound_call_at(a->sound, call, value);
-    bool unported = call == COK_SOUND_MUSIC && cok_sound_music_unported(a->sound, text, sizeof text);
+    bool unported = call == COK_SOUND_MUSIC &&
+                    cok_sound_music_unported(a->sound, f->rules, text, sizeof text);
     SDL_UnlockMutex(a->lock);
     if (unported) cok_adventure_log(game, "unported", text);
 }
@@ -960,7 +964,7 @@ static void audio_open(frontend *f, const char *assets, cok_sound_device device,
     }
     cok_sound_init(a->sound, device);
     a->sound->volume = volume * 256 / 100;
-    if (!cok_sound_load(a->sound, assets))
+    if (!cok_sound_load(a->sound, f->rules, assets))
         fprintf(stderr, "sound: no music: %s\n", a->sound->music_error);
     if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
         fprintf(stderr, "sound: %s; playing silently\n", SDL_GetError());
@@ -1315,7 +1319,8 @@ static int startup(frontend *f, const cok_keyboard *keyboard, const char *path, 
     cok_setup_hooks hooks = {text_delay, f, &f->port, &f->ended, calibrate};
     char error[1200];
     cok_setup_status status =
-        cok_setup_startup(&text, keyboard, &hooks, path, found, config, error, sizeof error);
+        cok_setup_startup(&text, keyboard, &hooks, f->rules, path, found, config, error,
+                          sizeof error);
     int result = 0;
     if (status == COK_SETUP_ENDED || f->closing) {
         result = -1;
@@ -1348,7 +1353,8 @@ static void show_stop(frontend *f, const char *reason)
     if (game->font.count == 0 || game->screen.pixels == NULL) {
         /* Nothing to write it with: a message box. */
         if (!f->scripted)
-            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Champions of Krynn", reason, f->window);
+            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, f->rules->text.name, reason,
+                                     f->window);
         return;
     }
     char lines[12][41];
@@ -1418,7 +1424,8 @@ int main(int argc, char **argv)
     f.owed = -1;
     f.crt = true;
     f.screenshots = "screenshots";
-    const char *assets = "COKAssets", *saves = "saves", *keys = NULL, *config_option = NULL;
+    f.rules = &cok_rules_champions;
+    const char *assets = NULL, *saves = "saves", *keys = NULL, *config_option = NULL;
     unsigned long scale = 3, seed = 0;
     bool seeded = false, woof = false, helm = false, fullscreen = false, sounding = true;
     cok_sound_device device = COK_SOUND_TANDY;
@@ -1432,7 +1439,14 @@ int main(int argc, char **argv)
     for (int i = 1; i < argc; ++i) {
         const char *option = argv[i];
         bool has_value = i + 1 < argc;
-        if (strcmp(option, "--assets") == 0 && has_value) {
+        if (strcmp(option, "--game") == 0 && has_value) {
+            f.rules = cok_rules_find(argv[++i]);
+            if (f.rules == NULL) {
+                fprintf(stderr, "--game: unknown game %s (games: %s)\n", argv[i],
+                        cok_rules_names());
+                return 2;
+            }
+        } else if (strcmp(option, "--assets") == 0 && has_value) {
             assets = argv[++i];
         } else if (strcmp(option, "--saves") == 0 && has_value) {
             saves = argv[++i];
@@ -1493,6 +1507,7 @@ int main(int argc, char **argv)
             return 2;
         }
     }
+    if (assets == NULL) assets = f.rules->assets;
     if (strlen(saves) >= sizeof game.save_dir) {
         fprintf(stderr, "%s: directory name too long\n", saves);
         return 1;
@@ -1529,7 +1544,7 @@ int main(int argc, char **argv)
         return 1;
     }
     int height = f.crt ? 240 : SCREEN_H;
-    f.window = SDL_CreateWindow("Champions of Krynn", SDL_WINDOWPOS_CENTERED,
+    f.window = SDL_CreateWindow(f.rules->text.name, SDL_WINDOWPOS_CENTERED,
                                 SDL_WINDOWPOS_CENTERED, SCREEN_W * (int)scale, height * (int)scale,
                                 SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI |
                                     (fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
@@ -1569,8 +1584,8 @@ int main(int argc, char **argv)
     /* KRYNN.CFG, as startup reads it (11c7:031a), after the setup when
      * there is none, and the note to Tandy users. */
     char config_path[1024], config_write[1024];
-    bool found = cok_config_find(config_option, saves, assets, config_path, config_write,
-                                 sizeof config_path);
+    bool found = cok_config_find(f.rules, config_option, saves, assets, config_path,
+                                 config_write, sizeof config_path);
     cok_config config = {.display = COK_DISPLAY_TANDY, .sound = COK_SOUND_TANDY};
     int started = startup(&f, &keyboard, config_path, found, &config,
                           input != NULL && strcmp(input, "joystick") == 0);
@@ -1603,7 +1618,7 @@ int main(int argc, char **argv)
                                  .battlefield = battlefield, .device_wait = device_wait,
                                  .sound = sounding ? sound : NULL, .context = &f};
     int result = 0;
-    if (!cok_adventure_open_display(&game, assets, display, &keyboard, &hooks)) {
+    if (!cok_adventure_open_display(&game, f.rules, assets, display, &keyboard, &hooks)) {
         fprintf(stderr, "%s\n", game.error);
         show_stop(&f, game.error);
         result = 1;

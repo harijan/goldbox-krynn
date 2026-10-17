@@ -86,6 +86,21 @@ class PlayTests(unittest.TestCase):
         self.assertNotIn((255, 85, 255), {pixel(first, x, y) for x in range(320) for y in range(8)})
         self.assertEqual(pixel(first, 0, 24 * 8), (255, 255, 255))
 
+    def test_game(self):
+        # --game names the descriptor (src/rules.c): champions is the
+        # default, the same run; an unknown name is an error that lists the
+        # games.
+        default = self.play("--test-party", 4, "--keys", r"\r\r\r\r\r", ASSETS, 16)
+        named = self.play("--game", "champions", "--test-party", 4, "--keys", r"\r\r\r\r\r",
+                          ASSETS, 16)
+        self.assertEqual(default.returncode, 0, default.stderr)
+        self.assertEqual(named.stdout, default.stdout)
+        self.assertEqual(named.stdout.splitlines()[-1], "(out of keys in block 16 at 8613)")
+        bad = self.play("--game", "dragonlance", ASSETS, 16)
+        self.assertEqual(bad.returncode, 2)
+        self.assertEqual(bad.stderr, "--game: unknown game dragonlance (games: champions)\n")
+        self.assertEqual(bad.stdout, "")
+
     def test_vertical_menu_at_the_gates_of_gargath(self):
         shots = self.folder / "shots"
         shots.mkdir()

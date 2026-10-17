@@ -703,6 +703,18 @@ class FrontEndTests(unittest.TestCase):
         run, _, _ = self.cok(r"\kxP\v\v\v\v\rY", "--aspect", "1:1")
         self.assertEqual((run.returncode, run.stdout), (0, "(quit to DOS)\n"), run.stderr)
 
+    def test_game(self):
+        """--game names the game (src/rules.c), champions by default, whose
+        assets are COKAssets unless --assets says; an unknown name is an
+        error that lists the games."""
+        run = subprocess.run([str(COK), "--game", "champions", "--saves", str(self.folder),
+                              "--no-delay", "--keys", r"\kxP\v\v\v\v\rY", *KEYBOARD],
+                             capture_output=True, text=True, env=ENV, timeout=300, cwd=ROOT)
+        self.assertEqual((run.returncode, run.stdout), (0, "(quit to DOS)\n"), run.stderr)
+        run, _, _ = self.cok(r"\kx", "--game", "krynn")
+        self.assertEqual(run.returncode, 2)
+        self.assertEqual(run.stderr, "--game: unknown game krynn (games: champions)\n")
+
     def test_keys_no_keyboard_has(self):
         """NumLock's scan code is not a key the game can be given."""
         run, _, _ = self.cok(r"\kxP\#45")

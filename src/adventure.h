@@ -10,10 +10,12 @@
 #include "menu.h"
 #include "party.h"
 #include "picture.h"
+#include "rules.h"
 #include "sound.h"
 #include "text.h"
 #include "view.h"
 
+#include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -135,6 +137,10 @@ typedef struct {
 
 struct cok_adventure {
     cok_ecl vm;
+    /* The game played (rules.h): its files' names and what else differs
+     * between the games. cok_adventure_open sets it before any file is
+     * read. */
+    const cok_rules *rules;
     char assets[512];      /* Directory holding the DAX files. */
     /* DS:4b76, KRYNN.CFG's display (11c7:031a). In CGA mode the screen and
      * every picture hold CGA colours (cok_picture.cga); EGA mode draws as
@@ -343,16 +349,27 @@ struct cok_adventure {
     char error[600];       /* Why the last call failed. */
 };
 
-/* Load the font and item types from assets and set up the VM with this module's hooks.
+/* The game's rules (game->rules), which every read of them goes through:
+ * a game set up without them (cok_adventure_open names them) stops here,
+ * on whatever path reaches them first, rather than reading through NULL. */
+static inline const cok_rules *cok_game_rules(const cok_adventure *game)
+{
+    assert(game->rules != NULL);
+    return game->rules;
+}
+
+/* Load the font and item types from assets and set up the VM with this module's hooks,
+ * for the game rules describes (never NULL: every caller names the game).
  * keys and hooks may be NULL. Returns false with game->error set. Free with
  * cok_adventure_close even on failure, which also frees the party and
  * closes DEBUG.TXT (cok_debug_end). */
-bool cok_adventure_open(cok_adventure *game, const char *assets, const cok_keyboard *keys,
-                        const cok_adventure_hooks *hooks);
+bool cok_adventure_open(cok_adventure *game, const cok_rules *rules, const char *assets,
+                        const cok_keyboard *keys, const cok_adventure_hooks *hooks);
 /* As cok_adventure_open, in the display mode given (cok_adventure_open's
  * is the Tandy's). */
-bool cok_adventure_open_display(cok_adventure *game, const char *assets, cok_display display,
-                                const cok_keyboard *keys, const cok_adventure_hooks *hooks);
+bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, const char *assets,
+                                cok_display display, const cok_keyboard *keys,
+                                const cok_adventure_hooks *hooks);
 /* cok_picture_create for the game's display: CGA pictures in CGA mode.
  * Every picture the game makes holds its mode's colours, so all are made
  * so, though only fills, text, recolouring and exports read the flag (the

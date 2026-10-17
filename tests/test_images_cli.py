@@ -73,6 +73,25 @@ class ExportTests(unittest.TestCase):
         self.assertIn("malformed image", result.stderr)
         self.assertEqual(list(output.glob("*.bmp")), [])
 
+    def test_game(self):
+        # The archives' layouts are the game's (--game, src/rules.c):
+        # champions by default; an unknown name is an error listing the games.
+        output = self.folder / "named"
+        result = self.run_tool("--game", "champions", self.archive, output)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.run_tool("--game", "nosuch", self.archive, self.folder / "bad")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("unknown game nosuch (games: champions)", result.stderr)
+        self.assertFalse((self.folder / "bad").exists())
+        compose = ROOT / "build/daxcompose"
+        bmp = self.folder / "c.bmp"
+        for game, status in (("champions", 0), ("nosuch", 1)):
+            with self.subTest(game=game):
+                result = subprocess.run([str(compose), "--game", game, str(bmp), "draw",
+                                         str(self.archive), "0", "0", "0", "0"],
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, status, result.stderr)
+
     def test_contact_sheet_escapes_input_filename(self):
         directory = self.folder / "<pictures>&"
         directory.mkdir()

@@ -57,6 +57,7 @@ static void usage(const char *program)
             "       %s [options] --start-menu ASSETS\n"
             "Run ECL block BLOCK (as the game does on entering it) from the DAX files in\n"
             "ASSETS, printing its text, menus and choices.\n"
+            "  --game NAME     the game whose files ASSETS holds: champions (the default)\n"
             "  --keys KEYS     keys to type; \\r Enter, \\e Escape, \\b Backspace,\n"
             "                  \\< \\> \\^ \\v the arrows, \\@X Alt and letter X, \\#HH the\n"
             "                  scan code HH (hex), \\\\ a backslash; \\k presses the next\n"
@@ -227,7 +228,8 @@ static void sound(cok_adventure *game, cok_sound_call call, unsigned value, void
     if (p->sound == NULL) return;
     cok_sound_call_at(p->sound, call, value);
     char text[100];
-    if (call == COK_SOUND_MUSIC && cok_sound_music_unported(p->sound, text, sizeof text))
+    if (call == COK_SOUND_MUSIC &&
+        cok_sound_music_unported(p->sound, cok_game_rules(game), text, sizeof text))
         cok_adventure_log(game, "unported", text);
 }
 
@@ -648,6 +650,7 @@ static int run(int argc, char **argv)
     bool seeded = false;
     bool still = false, placed = false, play = false, helm = false, front = false, woof = false;
     const char *party = NULL, *load = NULL, *saves = NULL, *config_option = NULL;
+    const cok_rules *rules = &cok_rules_champions;
     /* With no --combat the computer plays its turns, and the player's read
      * the keys (COK_COMBAT_PLAYER) or, with no --keys, pass
      * (COK_COMBAT_UNPORTED); COK_COMBAT_PASS here would have every turn
@@ -663,7 +666,14 @@ static int run(int argc, char **argv)
     for (; i < argc && strncmp(argv[i], "--", 2) == 0; ++i) {
         const char *option = argv[i];
         bool has_value = i + 1 < argc;
-        if (strcmp(option, "--trace") == 0) {
+        if (strcmp(option, "--game") == 0 && has_value) {
+            rules = cok_rules_find(argv[++i]);
+            if (rules == NULL) {
+                fprintf(stderr, "--game: unknown game %s (games: %s)\n", argv[i],
+                        cok_rules_names());
+                return 2;
+            }
+        } else if (strcmp(option, "--trace") == 0) {
             p.trace = true;
         } else if (strcmp(option, "--mouse") == 0) {
             p.mouse = true;
@@ -809,7 +819,7 @@ static int run(int argc, char **argv)
      * setup when there is none, and the note to Tandy users. */
     cok_config config = {.display = COK_DISPLAY_TANDY, .sound = COK_SOUND_TANDY};
     char config_path[1024], config_write[1024];
-    bool found = cok_config_find(config_option, saves, argv[i], config_path, config_write,
+    bool found = cok_config_find(rules, config_option, saves, argv[i], config_path, config_write,
                                  sizeof config_path);
     bool config_read;
     if (front) {
@@ -822,8 +832,9 @@ static int run(int argc, char **argv)
         cok_setup_hooks crt_hooks = {crt_delay, &p, &p.port, &p.ended,
                                      input != NULL && strcmp(input, "joystick") == 0};
         char error[1200];
-        cok_setup_status status = cok_setup_startup(&crt, &crt_keys, &crt_hooks, config_path,
-                                                    found, &config, error, sizeof error);
+        cok_setup_status status = cok_setup_startup(&crt, &crt_keys, &crt_hooks, rules,
+                                                    config_path, found, &config, error,
+                                                    sizeof error);
         p.crt = NULL;
         if (status == COK_SETUP_ENDED) {
             printf("(out of keys in the setup)\n");
@@ -834,7 +845,8 @@ static int run(int argc, char **argv)
             return 1;
         }
         if (!found && config_path[0] == '\0')
-            fprintf(stderr, "setup: KRYNN.CFG written nowhere (no --saves or --config)\n");
+            fprintf(stderr, "setup: %s written nowhere (no --saves or --config)\n",
+                    rules->files.config);
         config_read = true;
     } else {
         config_read = found && cok_config_read_file_stick(config_path, &config, p.stick);
@@ -855,7 +867,7 @@ static int run(int argc, char **argv)
     }
     if (!display_given) display = config.display;
     if (!display_given && !config_read)
-        cok_config_missing("display", config_option, saves, argv[i]);
+        cok_config_missing(rules, "display", config_option, saves, argv[i]);
     if (p.wav_path != NULL) {
         p.wav = fopen(p.wav_path, "wb");
         p.sound = malloc(sizeof *p.sound);
@@ -867,10 +879,10 @@ static int run(int argc, char **argv)
         wav_header(header, 0);
         fwrite(header, 1, sizeof header, p.wav);
         if (!sound_given && !config_read)
-            cok_config_missing("sound", config_option, saves, argv[i]);
+            cok_config_missing(rules, "sound", config_option, saves, argv[i]);
         if (!sound_given && config_read) device = config.sound;
         cok_sound_init(p.sound, device);
-        if (!cok_sound_load(p.sound, argv[i]))
+        if (!cok_sound_load(p.sound, rules, argv[i]))
             fprintf(stderr, "sound: no music: %s\n", p.sound->music_error);
     }
     static cok_adventure game;
@@ -881,7 +893,7 @@ static int run(int argc, char **argv)
                                  .delay = delay, .flush = flush, .device_wait = device_wait,
                                  .sound = p.wav_path != NULL || p.calls ? sound : NULL,
                                  .context = &p};
-    if (!cok_adventure_open_display(&game, argv[i], display, &keys, &hooks)) {
+    if (!cok_adventure_open_display(&game, rules, argv[i], display, &keys, &hooks)) {
         fprintf(stderr, "%s\n", game.error);
         cok_adventure_close(&game);
         return 1;
@@ -967,7 +979,8 @@ static int run(int argc, char **argv)
     if (file == 0) {
         for (unsigned n = 1; n <= 3 && file == 0; ++n) {
             size_t size;
-            uint8_t *data = cok_adventure_record(&game, "ECL", n, (uint8_t)block, &size);
+            uint8_t *data = cok_adventure_record(&game, rules->archives.ecl, n, (uint8_t)block,
+                                                 &size);
             if (data != NULL) file = n;
             free(data);
         }

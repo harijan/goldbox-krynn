@@ -263,10 +263,17 @@ static void test_undelta(void)
     data[1 + 25 + 4 + 2] = 2; /* Mismatched groups are rejected. */
     CHECK(cok_images_undelta(data, sizeof data) == COK_IMAGE_INVALID);
 
-    CHECK(cok_archive_layout("COKAssets/pic2.dax") == COK_LAYOUT_DELTA);
-    CHECK(cok_archive_layout("SPRIT1.DAX") == COK_LAYOUT_COLLECTION);
-    CHECK(cok_archive_layout("x/TITLE.DAX") == COK_LAYOUT_SINGLE);
-    CHECK(cok_archive_layout("GEO1.DAX") == COK_LAYOUT_UNSUPPORTED);
+    CHECK(cok_archive_layout(&cok_rules_champions, "COKAssets/pic2.dax") == COK_LAYOUT_DELTA);
+    CHECK(cok_archive_layout(&cok_rules_champions, "SPRIT1.DAX") == COK_LAYOUT_COLLECTION);
+    CHECK(cok_archive_layout(&cok_rules_champions, "x/TITLE.DAX") == COK_LAYOUT_SINGLE);
+    CHECK(cok_archive_layout(&cok_rules_champions, "GEO1.DAX") == COK_LAYOUT_UNSUPPORTED);
+    /* A listed stem only with .DAX after it, in any case. */
+    CHECK(cok_archive_layout(&cok_rules_champions, "Sky.dax") == COK_LAYOUT_SINGLE);
+    CHECK(cok_archive_layout(&cok_rules_champions, "PIC10.DAX") == COK_LAYOUT_UNSUPPORTED);
+    CHECK(cok_archive_layout(&cok_rules_champions, "PIC1") == COK_LAYOUT_UNSUPPORTED);
+    CHECK(cok_archive_layout(&cok_rules_champions, "PIC1.DAXX") == COK_LAYOUT_UNSUPPORTED);
+    CHECK(cok_archive_layout(&cok_rules_champions, "PIC.DAX") == COK_LAYOUT_UNSUPPORTED);
+    CHECK(cok_archive_layout(&cok_rules_champions, "8X8D3.DAX") == COK_LAYOUT_SINGLE);
 
     /* In PIC1 entry 0, deltas are mostly zero; decoded frames are not. */
     dax_archive archive = {0};

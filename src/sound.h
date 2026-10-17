@@ -16,6 +16,8 @@
  * have sounded. Deterministic: the same calls at the same sample positions
  * give the same samples, however the rendering is split. */
 
+#include "rules.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -134,7 +136,8 @@ typedef struct cok_sound {
 
 /* After COK_SOUND_MUSIC: whether the title's music would play on a
  * device whose driver is not ported (0-2), with text saying so. */
-bool cok_sound_music_unported(const cok_sound *s, char *text, size_t size);
+bool cok_sound_music_unported(const cok_sound *s, const cok_rules *rules, char *text,
+                              size_t size);
 /* The device's name, as the original's setup lists it. */
 const char *cok_sound_device_name(cok_sound_device device);
 
@@ -143,9 +146,10 @@ const char *cok_sound_device_name(cok_sound_device device);
  * It frees nothing: cok_sound_free a sound loaded before. */
 void cok_sound_init(cok_sound *s, cok_sound_device hardware);
 /* Load the music driver and the score from ASSETS (MIDI.DAX record
- * hardware + 1, SOUND.DAX record 1). Without them the title is silent:
- * returns false with s->music_error set; the effects need no files. */
-bool cok_sound_load(cok_sound *s, const char *assets);
+ * hardware + 1, SOUND.DAX record 1, the rules' music_drivers and
+ * music_score). Without them the title is silent: returns false with
+ * s->music_error set; the effects need no files. */
+bool cok_sound_load(cok_sound *s, const cok_rules *rules, const char *assets);
 void cok_sound_free(cok_sound *s);
 
 /* Carry out one of the game's calls at the current time. */

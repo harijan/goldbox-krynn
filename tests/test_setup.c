@@ -117,7 +117,8 @@ static void test_cases(void)
             end = 2;
         } else {
             bool asked = r.c->mode == 2 ||
-                         cok_setup_ask(&r.crt, &keys, &hooks, r.c->game_dir, file, &size);
+                         cok_setup_ask(&r.crt, &keys, &hooks, &cok_rules_champions, r.c->game_dir,
+                                       file, &size);
             if (asked)
                 cok_setup_numlock(&r.crt, &hooks);
             else
@@ -205,11 +206,11 @@ static void test_parse(void)
 static void test_default_path(void)
 {
     char path[80];
-    cok_setup_default_path("C:\\COK\\", path, sizeof path);
+    cok_setup_default_path(&cok_rules_champions, "C:\\COK\\", path, sizeof path);
     CHECK(strcmp(path, "C:\\COK\\SAVE") == 0);
-    cok_setup_default_path("A:\\", path, sizeof path);
+    cok_setup_default_path(&cok_rules_champions, "A:\\", path, sizeof path);
     CHECK(strcmp(path, "B:\\SAVE") == 0);
-    cok_setup_default_path("B:\\GAME\\", path, sizeof path);
+    cok_setup_default_path(&cok_rules_champions, "B:\\GAME\\", path, sizeof path);
     CHECK(strcmp(path, "A:\\SAVE") == 0);
 }
 
@@ -363,7 +364,8 @@ static void test_timeouts_and_limits(void)
     cok_keyboard keyboard = {timed_read, NULL, NULL, NULL};
     uint8_t file[COK_SETUP_FILE_MAX];
     size_t size;
-    CHECK(cok_setup_ask(&crt, &keyboard, NULL, COK_SETUP_GAME_DIR, file, &size));
+    CHECK(cok_setup_ask(&crt, &keyboard, NULL, &cok_rules_champions,
+                        cok_rules_champions.files.install_dir, file, &size));
     CHECK(memcmp(file, "C\r\nC\r\nJ\r\nC:\\X\\\r\nF\r\n", 18) == 0);
     /* 126 characters at most; the string keeps max of them. */
     cok_crt_init(&crt);
@@ -395,7 +397,8 @@ static void test_startup(void)
     snprintf(saves, sizeof saves, "%s/saves", dir);
     CHECK(mkdir(assets, 0755) == 0 && mkdir(saves, 0755) == 0);
     /* None anywhere: the setup writes SAVES/KRYNN.CFG. */
-    CHECK(!cok_config_find(NULL, saves, assets, path, write_path, sizeof path));
+    CHECK(!cok_config_find(&cok_rules_champions, NULL, saves, assets, path, write_path,
+                           sizeof path));
     char expected[200];
     snprintf(expected, sizeof expected, "%s/KRYNN.CFG", saves);
     CHECK(strcmp(path, expected) == 0 && strcmp(write_path, expected) == 0);
@@ -405,7 +408,8 @@ static void test_startup(void)
     cok_config config = {0};
     char error[300];
     typed = "362q:\\x\r";
-    CHECK(cok_setup_startup(&crt, &keys, NULL, path, false, &config, error, sizeof error) ==
+    CHECK(cok_setup_startup(&crt, &keys, NULL, &cok_rules_champions, path, false, &config, error,
+                            sizeof error) ==
           COK_SETUP_OK);
     CHECK(config.display == COK_DISPLAY_TANDY && config.sound == COK_SOUND_NONE && config.mouse);
     CHECK(strcmp(config.save_path, "C:\\COK\\SAVE\\") == 0); /* Q is past P */
@@ -417,7 +421,8 @@ static void test_startup(void)
     fclose(f);
     CHECK(n == 26 + 14 * 3 && memcmp(bytes, "T\r\nS\r\nM\r\nC:\\COK\\SAVE\\\r\nF\r\n0\r\n", 29) == 0);
     /* Found in SAVES first; the assets' after it. */
-    CHECK(cok_config_find(NULL, saves, assets, path, write_path, sizeof path));
+    CHECK(cok_config_find(&cok_rules_champions, NULL, saves, assets, path, write_path,
+                          sizeof path));
     CHECK(strcmp(path, expected) == 0 && strcmp(write_path, expected) == 0);
     char in_assets[200];
     snprintf(in_assets, sizeof in_assets, "%s/krynn.cfg", assets);
@@ -425,17 +430,20 @@ static void test_startup(void)
     CHECK(f != NULL);
     fputs("C\r\nP\r\nM\r\nA:\\\r\nF\r\n", f);
     fclose(f);
-    CHECK(cok_config_find(NULL, saves, assets, path, write_path, sizeof path));
+    CHECK(cok_config_find(&cok_rules_champions, NULL, saves, assets, path, write_path,
+                          sizeof path));
     CHECK(strcmp(path, expected) == 0);
     CHECK(unlink(expected) == 0);
-    CHECK(cok_config_find(NULL, saves, assets, path, write_path, sizeof path));
+    CHECK(cok_config_find(&cok_rules_champions, NULL, saves, assets, path, write_path,
+                          sizeof path));
     CHECK(strcmp(path, in_assets) == 0 && strcmp(write_path, expected) == 0);
-    CHECK(cok_config_find(NULL, NULL, assets, path, write_path, sizeof path));
+    CHECK(cok_config_find(&cok_rules_champions, NULL, NULL, assets, path, write_path, sizeof path));
     CHECK(strcmp(path, in_assets) == 0 && write_path[0] == '\0');
     /* Read from the assets: only the note. */
     cok_crt_init(&crt);
     typed = "";
-    CHECK(cok_setup_startup(&crt, &keys, NULL, in_assets, true, &config, error, sizeof error) ==
+    CHECK(cok_setup_startup(&crt, &keys, NULL, &cok_rules_champions, in_assets, true, &config,
+                            error, sizeof error) ==
           COK_SETUP_OK);
     CHECK(config.display == COK_DISPLAY_CGA && config.sound == COK_SOUND_SPEAKER);
     /* Initialize Mouse/Joystick's rewrite: into SAVES, line 3 N. */
@@ -474,12 +482,14 @@ static void test_startup(void)
           memcmp(big + 11 + 255, "\r\nF\r\n0\r\n", 8) == 0);
     unlink(expected);
     /* --config FILE: read there, written there. */
-    CHECK(!cok_config_find(nowhere, saves, assets, path, write_path, sizeof path));
+    CHECK(!cok_config_find(&cok_rules_champions, nowhere, saves, assets, path, write_path,
+                           sizeof path));
     CHECK(strcmp(path, nowhere) == 0 && strcmp(write_path, nowhere) == 0);
     /* Input ends in the setup: no file left. */
     cok_crt_init(&crt);
     typed = "36";
-    CHECK(cok_setup_startup(&crt, &keys, NULL, expected, false, &config, error, sizeof error) ==
+    CHECK(cok_setup_startup(&crt, &keys, NULL, &cok_rules_champions, expected, false, &config,
+                            error, sizeof error) ==
           COK_SETUP_ENDED);
     CHECK(access(expected, F_OK) != 0);
     /* It cannot be made: the original's message. */
@@ -487,7 +497,8 @@ static void test_startup(void)
     snprintf(unmade, sizeof unmade, "%s/no/KRYNN.CFG", dir);
     cok_crt_init(&crt);
     typed = "";
-    CHECK(cok_setup_startup(&crt, &keys, NULL, unmade, false, &config, error, sizeof error) ==
+    CHECK(cok_setup_startup(&crt, &keys, NULL, &cok_rules_champions, unmade, false, &config,
+                            error, sizeof error) ==
           COK_SETUP_UNWRITABLE);
     CHECK(memcmp(crt.chars[0], "Sorry, disk A can't be write-protected.", 39) == 0);
     CHECK(strstr(error, unmade) != NULL);
@@ -497,7 +508,8 @@ static void test_startup(void)
     if (access("/dev/full", W_OK) == 0) {
         cok_crt_init(&crt);
         typed = "111\r";
-        CHECK(cok_setup_startup(&crt, &keys, NULL, "/dev/full", false, &config, error,
+        CHECK(cok_setup_startup(&crt, &keys, NULL, &cok_rules_champions, "/dev/full", false,
+                                &config, error,
                                 sizeof error) == COK_SETUP_UNWRITABLE);
         CHECK(access("/dev/full", F_OK) == 0);
         CHECK(memcmp(crt.chars[3], "The port stops here: /dev/full", 30) == 0);
@@ -508,10 +520,11 @@ static void test_startup(void)
     char link[200];
     snprintf(link, sizeof link, "%s/null.cfg", dir);
     CHECK(symlink("/dev/null", link) == 0);
-    CHECK(!cok_config_find(link, NULL, NULL, path, write_path, sizeof path));
+    CHECK(!cok_config_find(&cok_rules_champions, link, NULL, NULL, path, write_path, sizeof path));
     cok_crt_init(&crt);
     typed = "1";
-    CHECK(cok_setup_startup(&crt, &keys, NULL, link, false, &config, error, sizeof error) ==
+    CHECK(cok_setup_startup(&crt, &keys, NULL, &cok_rules_champions, link, false, &config, error,
+                            sizeof error) ==
           COK_SETUP_ENDED);
     struct stat st;
     CHECK(lstat(link, &st) == 0);
@@ -520,7 +533,8 @@ static void test_startup(void)
         CHECK(symlink("/dev/full", link) == 0);
         cok_crt_init(&crt);
         typed = "111\r";
-        CHECK(cok_setup_startup(&crt, &keys, NULL, link, false, &config, error, sizeof error) ==
+        CHECK(cok_setup_startup(&crt, &keys, NULL, &cok_rules_champions, link, false, &config,
+                                error, sizeof error) ==
               COK_SETUP_UNWRITABLE);
         CHECK(lstat(link, &st) == 0);
         unlink(link);
@@ -530,10 +544,11 @@ static void test_startup(void)
     char as_dir[200];
     snprintf(as_dir, sizeof as_dir, "%s/KRYNN.CFG", saves);
     CHECK(mkdir(as_dir, 0755) == 0);
-    CHECK(!cok_config_find(NULL, saves, NULL, path, write_path, sizeof path));
+    CHECK(!cok_config_find(&cok_rules_champions, NULL, saves, NULL, path, write_path, sizeof path));
     CHECK(strcmp(path, as_dir) == 0);
     cok_crt_init(&crt);
-    CHECK(cok_setup_startup(&crt, &keys, NULL, path, false, &config, error, sizeof error) ==
+    CHECK(cok_setup_startup(&crt, &keys, NULL, &cok_rules_champions, path, false, &config, error,
+                            sizeof error) ==
           COK_SETUP_UNWRITABLE);
     CHECK(rmdir(as_dir) == 0);
     /* A file the port cannot read is found, never made again: it stops. */
@@ -543,9 +558,11 @@ static void test_startup(void)
         fputs("E\r\nT\r\n", f);
         fclose(f);
         CHECK(chmod(as_dir, 0200) == 0);
-        CHECK(cok_config_find(NULL, saves, NULL, path, write_path, sizeof path));
+        CHECK(cok_config_find(&cok_rules_champions, NULL, saves, NULL, path, write_path,
+                              sizeof path));
         cok_crt_init(&crt);
-        CHECK(cok_setup_startup(&crt, &keys, NULL, path, true, &config, error, sizeof error) ==
+        CHECK(cok_setup_startup(&crt, &keys, NULL, &cok_rules_champions, path, true, &config,
+                                error, sizeof error) ==
               COK_SETUP_UNREADABLE);
         CHECK(memcmp(crt.chars[1], "The port stops here: ", 21) == 0);
         chmod(as_dir, 0600);
@@ -557,14 +574,16 @@ static void test_startup(void)
     /* --saves naming the assets directory: never written there. */
     char same[200];
     snprintf(same, sizeof same, "%s/assets/.", dir);
-    CHECK(cok_config_find(NULL, same, assets, path, write_path, sizeof path));
+    CHECK(cok_config_find(&cok_rules_champions, NULL, same, assets, path, write_path, sizeof path));
     CHECK(strstr(path, "krynn.cfg") != NULL && write_path[0] == '\0');
-    CHECK(cok_config_find(NULL, saves, assets, path, write_path, sizeof path));
+    CHECK(cok_config_find(&cok_rules_champions, NULL, saves, assets, path, write_path,
+                          sizeof path));
     CHECK(write_path[0] != '\0');
     /* Written nowhere: the setup's file read back all the same. */
     cok_crt_init(&crt);
     typed = "111\r";
-    CHECK(cok_setup_startup(&crt, &keys, NULL, "", false, &config, error, sizeof error) ==
+    CHECK(cok_setup_startup(&crt, &keys, NULL, &cok_rules_champions, "", false, &config, error,
+                            sizeof error) ==
           COK_SETUP_OK);
     CHECK(config.display == COK_DISPLAY_CGA && config.sound == COK_SOUND_CMS && !config.joystick);
     unlink(in_assets);

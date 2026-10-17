@@ -1,6 +1,7 @@
 #include "dax.h"
 #include "image.h"
 #include "picture.h"
+#include "rules.h"
 #include "text.h"
 
 #include <errno.h>
@@ -12,8 +13,9 @@
 static void usage(const char *program)
 {
     fprintf(stderr,
-        "Usage: %s OUTPUT.bmp COMMAND...\n"
+        "Usage: %s [--game NAME] OUTPUT.bmp COMMAND...\n"
         "Draws onto a black 320x200 screen, in order, and writes a BMP.\n"
+        "--game names the game whose archives these are (default champions).\n"
         "  fill X Y UNITS ROWS COLOR       X and UNITS in 8-pixel units, Y and ROWS in rows\n"
         "  draw ARCHIVE ENTRY IMAGE X Y    opaque; X in 8-pixel units, Y in 8-row cells\n"
         "  sprite ARCHIVE ENTRY IMAGE X Y  colour 0 transparent, colour 13 drawn black\n"
@@ -61,9 +63,10 @@ static uint8_t *read_record(const char *path, long entry, size_t *size)
 }
 
 /* Load one image as a picture; sprite selects the masked loader. */
-static int load(const char *path, long entry, long index, int sprite, cok_picture *picture)
+static int load(const cok_rules *rules, const char *path, long entry, long index, int sprite,
+                cok_picture *picture)
 {
-    cok_layout layout = cok_archive_layout(path);
+    cok_layout layout = cok_archive_layout(rules, path);
     if (layout == COK_LAYOUT_UNSUPPORTED) {
         fprintf(stderr, "%s: unsupported graphics archive type\n", path);
         return 0;
@@ -94,7 +97,7 @@ static int load(const char *path, long entry, long index, int sprite, cok_pictur
     return ok;
 }
 
-static int draw(cok_picture *screen, char **args, const char *command)
+static int draw(const cok_rules *rules, cok_picture *screen, char **args, const char *command)
 {
     long entry, index, x, y;
     if (!integer(args[1], 0, LONG_MAX, &entry) || !integer(args[2], 0, LONG_MAX, &index) ||
@@ -103,7 +106,7 @@ static int draw(cok_picture *screen, char **args, const char *command)
         return -1;
     int sprite = strcmp(command, "draw") != 0;
     cok_picture picture = {0};
-    if (!load(args[0], entry, index, sprite, &picture)) return 0;
+    if (!load(rules, args[0], entry, index, sprite, &picture)) return 0;
     if (strcmp(command, "mirror") == 0) {
         cok_picture flipped = {0};
         cok_picture_status status = cok_picture_create(&flipped, picture.units, picture.height, 1, 1);
@@ -162,6 +165,19 @@ static int text(cok_picture *screen, char **args, int glyph)
 
 int main(int argc, char **argv)
 {
+    const cok_rules *rules = &cok_rules_champions;
+    if (argc > 2 && strcmp(argv[1], "--game") == 0) {
+        rules = cok_rules_find(argv[2]);
+        if (rules == NULL) {
+            fprintf(stderr, "%s: unknown game %s (games: %s)\n", argv[0], argv[2],
+                    cok_rules_names());
+            return 1;
+        }
+        /* The rest as if it had not been there. */
+        argv[2] = argv[0];
+        argv += 2;
+        argc -= 2;
+    }
     if (argc < 3) { usage(argv[0]); return 1; }
     cok_picture screen = {0};
     if (cok_picture_create(&screen, 40, 200, 1, 0) != COK_PICTURE_OK) {
@@ -186,7 +202,7 @@ int main(int argc, char **argv)
             arg += 6;
         } else if ((strcmp(command, "draw") == 0 || strcmp(command, "sprite") == 0 ||
                     strcmp(command, "mirror") == 0) && argc - arg > 5) {
-            ok = draw(&screen, argv + arg + 1, command);
+            ok = draw(rules, &screen, argv + arg + 1, command);
             arg += 6;
         } else if (strcmp(command, "text") == 0 && argc - arg > 7) {
             ok = text(&screen, argv + arg + 1, 0);
