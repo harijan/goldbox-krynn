@@ -20,9 +20,11 @@ static bool fail(cok_effects *fx, const char *format, ...)
     return false;
 }
 
-void cok_effects_init(cok_effects *fx, cok_ecl *vm, cok_party *party, const cok_item_types *types)
+void cok_effects_init(cok_effects *fx, const cok_rules *rules, cok_ecl *vm, cok_party *party,
+                      const cok_item_types *types)
 {
     memset(fx, 0, sizeof *fx);
+    fx->rules = rules;
     fx->vm = vm;
     fx->party = party;
     fx->types = types;
@@ -141,7 +143,7 @@ static bool caster_level(cok_effects *fx, uint8_t spell, uint8_t *level)
                         "and none is selected", spell);
     uint8_t class_ = spell_byte(spell, 0);
     /* 66c2:0efb, 0 or 1, multiplies the former levels as words. */
-    int former = cok_character_former_class(c) ? 1 : 0;
+    int former = cok_character_former_class(c, fx->rules) ? 1 : 0;
 #define LEVEL(at) ((int)(int8_t)c[at])
     if (LEVEL(0xf9) == 0 && LEVEL(0xfe) == 0 && LEVEL(0x100) < 9 && LEVEL(0xfd) < 8) {
         *level = 6;
@@ -419,7 +421,7 @@ static bool h_hammer(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
         if (!say(fx, c, 0x17, 0x07b5, "Gains an item")) return false;
     }
     char why[200];
-    if (!cok_character_stats(c, fx->types, why, sizeof why))
+    if (!cok_character_stats(c, fx->rules, fx->types, why, sizeof why))
         return fail(fx, "effect 0x17 (3f44:07b5): %s", why);
     return true;
 }
@@ -602,7 +604,7 @@ static bool h_regenerate(cok_effects *fx, bool removing, cok_effect *effect, cok
     bool added;
     if (!again(fx, c, 0x3e, 0x1acd, effect, 0x3c, &added) || !added) return !fx->failed;
     uint8_t *r = c->record;
-    if (!cok_character_heal(r, 1, true, fx->vm->mode)) return true;
+    if (!cok_character_heal(r, fx->rules, 1, true, fx->vm->mode)) return true;
     if (!say(fx, c, 0x3e, 0x1acd, r[0x197] == r[0x62] ? "is fully healed" : "is partially healed"))
         return false;
     party_list(fx);
@@ -1071,7 +1073,7 @@ static bool h_coughing(cok_effects *fx, bool removing, cok_effect *effect, cok_c
     cr->may_use = 0;
     cr->may_cast = 0;
     char why[200];
-    if (!cok_character_stats(c, fx->types, why, sizeof why)) return fail(fx, "%s", why);
+    if (!cok_character_stats(c, fx->rules, fx->types, why, sizeof why)) return fail(fx, "%s", why);
     uint8_t *r = c->record;
     r[0x18e] = r[0x18e] > 0x34 ? (uint8_t)(r[0x18e] - 2) : 0x32;
     r[0x18d] = r[0x18e];
@@ -1261,7 +1263,7 @@ static bool h_giant_slayer(cok_effects *fx, bool removing, cok_effect *effect, c
     if ((cr->target[0x140] & 1) == 0) return true;
     int8_t bonus;
     char why[200];
-    if (!cok_character_strength_bonus(c->record, true, &bonus, why, sizeof why))
+    if (!cok_character_strength_bonus(c->record, fx->rules, true, &bonus, why, sizeof why))
         return fail(fx, "%s", why);
     uint8_t d = roll(fx, 1, 12);
     fx->rolls.amount = (uint8_t)(d * 3 + 4 + bonus);
@@ -1419,17 +1421,17 @@ static bool h_kender(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
     r[0x18c] = r[0x59];
     int8_t strength;
     if (d < 2) {
-        if (!cok_character_strength_bonus(r, true, &strength, why, sizeof why))
+        if (!cok_character_strength_bonus(r, fx->rules, true, &strength, why, sizeof why))
             return fail(fx, "%s", why);
         uint8_t die = cok_dice_count(&fx->vm->seed, 1, 6, &rolls->dice);
         rolls->amount = (uint8_t)(strength + die + 2 + bonus);
-        if (!cok_character_strength_bonus(r, false, &strength, why, sizeof why))
+        if (!cok_character_strength_bonus(r, fx->rules, false, &strength, why, sizeof why))
             return fail(fx, "%s", why);
         r[0x18c] = (uint8_t)(r[0x18c] + strength);
     } else {
         uint8_t die = cok_dice_count(&fx->vm->seed, 1, 4, &rolls->dice);
         rolls->amount = (uint8_t)(die + 1 + bonus);
-        r[0x18c] = (uint8_t)(r[0x18c] + cok_character_dexterity_missile(r));
+        r[0x18c] = (uint8_t)(r[0x18c] + cok_character_dexterity_missile(r, fx->rules));
     }
     return true;
 }
@@ -1889,7 +1891,7 @@ static bool h_knight(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
     (void)effect;
     if (!removing) return true;
     uint8_t *r = c->record;
-    int16_t former = cok_character_former_class(r) ? (int8_t)r[0x108] : 0;
+    int16_t former = cok_character_former_class(r, fx->rules) ? (int8_t)r[0x108] : 0;
     int16_t levels = (int16_t)(former + (int8_t)r[0x100] - 1);
     if (levels < 0) return fail(fx, "effect 0x6e (3f44:3643) overflows a division (runtime error 200)");
     r[0x5f] = (uint8_t)(levels / 5 + 1);

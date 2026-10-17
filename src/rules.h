@@ -1,6 +1,8 @@
 #ifndef COK_RULES_H
 #define COK_RULES_H
 
+#include "field.h"
+
 #include <stdint.h>
 
 /* What differs between the games the port plays: one descriptor a game,
@@ -9,10 +11,10 @@
  * here and never asks which game it is. Champions of Krynn's is
  * cok_rules_champions; see DEVELOPERS.md's "Games".
  *
- * The descriptor holds names so far: the game's files and file sets, the
- * saved games' and characters' names, the titles. Each concern is a
- * section of its own, so that later sections (the character record's
- * layout, the data segment's tables, the ECL's, the spells') are added
+ * The descriptor holds the game's files and file sets, the saved games'
+ * and characters' names, the titles, and the character record's layout
+ * (field.h). Each concern is a section of its own, so that later
+ * sections (the data segment's tables, the ECL's, the spells') are added
  * beside these without moving them.
  *
  * A DAX archive is named by its stem: "GEO" and the ECL file's number
@@ -146,6 +148,8 @@ typedef struct cok_rules {
     cok_rules_files files;
     cok_rules_saves saves;
     cok_rules_images images;
+    /* Where each field of a character lies in its record (field.h). */
+    const cok_character_layout *character;
 } cok_rules;
 
 extern const cok_rules cok_rules_champions;

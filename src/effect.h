@@ -63,6 +63,7 @@ typedef struct cok_effects cok_effects;
 struct cok_effects {
     /* The game: its mode (DS:4b49), selected character (DS:6096), moons
      * (0x4bf8 on), party size (0x7f3e) and Random seed. */
+    const cok_rules *rules; /* The game's (cok_game_rules). */
     cok_ecl *vm;
     cok_party *party; /* DS:609a. */
     const cok_item_types *types;
@@ -207,7 +208,8 @@ struct cok_effects {
 };
 
 /* Set up fx for the game's VM, party and item types. */
-void cok_effects_init(cok_effects *fx, cok_ecl *vm, cok_party *party, const cok_item_types *types);
+void cok_effects_init(cok_effects *fx, const cok_rules *rules, cok_ecl *vm, cok_party *party,
+                      const cok_item_types *types);
 void cok_effects_free(cok_effects *fx);
 
 /* Run the handlers of target's effects for event 1-0x18 (60f4:057c), each

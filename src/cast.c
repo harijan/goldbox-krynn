@@ -114,7 +114,8 @@ static uint8_t roll(cok_adventure *game, uint8_t count, uint8_t sides)
 static bool recompute(cok_adventure *game, cok_character *c)
 {
     char error[300];
-    if (cok_character_stats(c, &game->item_types, error, sizeof error)) return true;
+    if (cok_character_stats(c, cok_game_rules(game), &game->item_types, error, sizeof error))
+        return true;
     return undefined(game, error);
 }
 
@@ -290,7 +291,7 @@ bool cok_cast_damage(cok_adventure *game, cok_character *c, uint8_t amount, uint
     if ((r->damage_type & 8) == r->damage_type) strcat(text, "from Magic");
     if (!combat) {
         say(game, c, text);
-        cok_character_damage(record, r->amount);
+        cok_character_damage(record, cok_game_rules(game), r->amount);
     } else {
         /* 6346:228c kind 0, a burst, then 6346:24d7 in combat; one casting
          * that is hurt "lost a spell" and its turn. */
@@ -476,7 +477,8 @@ static bool heal(cast *cx, uint8_t count, uint8_t bonus)
     uint8_t amount = (uint8_t)(roll(game, count, 8) + bonus + extra);
     cok_character *c = first(cx);
     if (c == NULL) return false;
-    if (cok_character_heal(c->record, amount, false, game->vm.mode)) healed(game, c);
+    if (cok_character_heal(c->record, cok_game_rules(game), amount, false, game->vm.mode))
+        healed(game, c);
     return true;
 }
 
@@ -843,7 +845,8 @@ static bool potion(cast *cx)
     cok_adventure *game = cx->game;
     cok_character *c = first(cx);
     if (c == NULL) return false;
-    if (cok_character_heal(c->record, (uint8_t)(roll(game, 2, 4) + 2), false, game->vm.mode))
+    if (cok_character_heal(c->record, cok_game_rules(game), (uint8_t)(roll(game, 2, 4) + 2), false,
+                           game->vm.mode))
         return flash(game, c, "is Healed");
     return true;
 }

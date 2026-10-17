@@ -645,13 +645,14 @@ void cok_combat_wilderness(cok_combat *combat, uint8_t flags, uint32_t *seed)
 
 /* The combat records (3cb2:10d9). */
 
-bool cok_combat_records(cok_party *party, const cok_item_types *types, uint16_t party_size,
-                        uint8_t direction, uint16_t morale, char *error, size_t error_size)
+bool cok_combat_records(cok_party *party, const cok_rules *rules, const cok_item_types *types,
+                        uint16_t party_size, uint8_t direction, uint16_t morale, char *error,
+                        size_t error_size)
 {
     uint8_t n = 0;
     for (size_t i = 0; i < party->count; ++i) {
         cok_character *c = party->members[i];
-        if (!cok_character_stats(c, types, error, error_size)) return false;
+        if (!cok_character_stats(c, rules, types, error, error_size)) return false;
         ++n;
         free(c->combat);
         c->combat = calloc(1, sizeof *c->combat);
@@ -1101,8 +1102,9 @@ bool cok_combat_setup(cok_adventure *game)
     if (!build(game)) return false;
     drop_key(game);
     char error[300];
-    if (!cok_combat_records(&game->party, &game->item_types, vm->mem7c00[0x33e], vm->direction,
-                            vm->mem7c00[0x2c6], error, sizeof error)) {
+    if (!cok_combat_records(&game->party, cok_game_rules(game), &game->item_types,
+                            vm->mem7c00[0x33e], vm->direction, vm->mem7c00[0x2c6], error,
+                            sizeof error)) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
         return false;
     }

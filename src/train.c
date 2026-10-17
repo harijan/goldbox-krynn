@@ -160,7 +160,9 @@ static cok_character *selected(cok_adventure *game)
 static bool levels(cok_adventure *game, cok_character *character)
 {
     char error[300];
-    if (cok_character_levels(character, &game->item_types, error, sizeof error)) return true;
+    if (cok_character_levels(character, cok_game_rules(game), &game->item_types, error,
+                             sizeof error))
+        return true;
     return undefined(game, error);
 }
 

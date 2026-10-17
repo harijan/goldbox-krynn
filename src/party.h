@@ -11,60 +11,14 @@
 
 /* The party and its characters, from overlays 4b6d (character and saved
  * game files), 546c and 6346 (the party list). The original keeps the party
- * as a linked list of 409-byte records from DS:609a, next at +0x17f; here
- * it is an array in the same order. Record fields (offsets):
- *
- *   +0x000  name, a Pascal string[15]
- *   +0x010  base and current scores, two bytes each: strength (+0x11
- *           current, with exceptional strength +0x1c, base +0x1d),
- *           intelligence, wisdom (+0x15), dexterity (+0x17), constitution
- *           (+0x19) and charisma (+0x1b)
- *   +0x059  base THAC0 as 60 - THAC0 (66c2:0433)
- *   +0x05a  race (6 human), +0x05c knightly order, +0x05d deity,
- *           +0x05e order of magic
- *   +0x05f  set from the knight level when effect 0x6e ends
- *   +0x060  age in years, a word
- *   +0x062  maximum hit points; +0x062 + N is set when spell N is known
- *   +0x0ce  highest fighter, ranger or knight level (6346:0d20); it is
- *           also the byte of spell 108
- *   +0x0d0  saving throws, by type (66c2:08a6)
- *   +0x0d5  base movement
- *   +0x0d6  highest level; +0x0d7 a human's level must pass to use its
- *           former class (66c2:0efb)
- *   +0x0db  thief skills, eight (66c2:0b9f)
- *   +0x0e3  the spell effects (a far pointer; see cok_effect)
- *   +0x0e7  0x80 and up for NPCs; 0xb3 for a player character an effect
- *           has turned
- *   +0x0ed  coins, six words, weighed with the items
- *   +0x0f9  levels in each of eight classes (signed bytes): 0 cleric,
- *           2 fighter, 4 ranger, 5 mage, 6 thief, 7 knight
- *   +0x101  levels in former classes, the same way
- *   +0x10a  alignment, 0-8 (2, 5 and 8 evil; 0, 3 and 6 good)
- *   +0x10b  set to 3 at high fighter, ranger and knight levels
- *   +0x10d  base attacks, dice and damage bonus, two of each
- *   +0x113  base armour class as 60 - AC
- *   +0x114  set when strength adds to hit and damage
- *   +0x116  experience, 32 bits
- *   +0x11a  the classes whose items it can use, as bits (DS:38ea)
- *   +0x11c  spells a day: cleric levels 1-5, ranger druid 1-3 (+0x121),
- *           mage 1-5 (+0x12b)
- *   +0x137  combat icon slot
- *   +0x13f  creature flags that effects test
- *   +0x142  number of items, +0x17b hands in use, +0x17d weight carried
- *   +0x17c  saving throw bonus (signed)
- *   +0x187  magic resistance
- *   +0x188  status: 0 okay, 4 unconscious, 5 dying, 6 dead
- *   +0x189  set while the character can act; cleared when it drops
- *   +0x18a  1 for a character fighting against the party
- *   +0x18b  set while the computer controls it
- *   +0x18c  THAC0 as 60 - THAC0
- *   +0x18d  armour class as 60 - AC, +0x18e from behind
- *   +0x191  attacks, +0x193 dice sides, +0x195 damage bonus, two of each
- *   +0x197  hit points
- *   +0x198  movement
+ * as a linked list of records from DS:609a; here it is an array in the
+ * same order. A character's record is raw bytes, as the files hold it,
+ * whose fields code reads by name through the game's layout (field.h;
+ * Champions' fields, with what each is, in rules.c).
  *
  * The derived fields are recomputed when a character loads, by 6346:0d20
- * (items, abilities) and then 66c2:0433 (classes and levels). */
+ * (items, abilities) and then 66c2:0433 (classes and levels). The routines
+ * here that read a record take the game's rules for its layout. */
 
 enum {
     COK_PARTY_MAX = 8,          /* The game adds characters while 0x7f3e < 8. */
@@ -150,7 +104,9 @@ typedef struct {
 } cok_combat_record;
 
 typedef struct {
-    uint8_t record[COK_CHARACTER_SIZE];
+    /* The record, the layout's size of it (COK_CHARACTER_MAX holds any
+     * game's). */
+    uint8_t record[COK_CHARACTER_MAX];
     /* Items (.STF) as stored, in file order; the original links them from
      * +0x143. */
     uint8_t (*items)[COK_ITEM_SIZE];
@@ -191,12 +147,12 @@ void cok_party_file_name(const char *name, char out[9]);
 void cok_party_roster_name(const char *name, char out[9]);
 
 /* Read character file base (with no extension) from dir: base.SAV, a
- * 409-byte record, then the items in base.STF and the effects in base.SFX
- * if those exist (4b6d:11e5), with the rules' extensions (saves.record,
- * items, effects). The record's stale pointers are cleared. Then, as
- * 4b6d:11e5 ends, its stats are recomputed with
- * cok_character_stats and cok_character_levels. Returns false with error
- * set. Free with cok_character_free. */
+ * record of the layout's file_size (409 bytes in Champions), then the
+ * items in base.STF and the effects in base.SFX if those exist
+ * (4b6d:11e5), with the rules' extensions (saves.record, items, effects).
+ * The record's stale pointers are cleared. Then, as 4b6d:11e5 ends, its
+ * stats are recomputed with cok_character_stats and cok_character_levels.
+ * Returns false with error set. Free with cok_character_free. */
 bool cok_character_read(cok_character *character, const cok_rules *rules, const char *dir,
                         const char *base, const cok_item_types *types, char *error,
                         size_t error_size);
@@ -239,8 +195,8 @@ cok_effect *cok_character_find_effect(const cok_character *character, uint8_t id
  * type past 128) or leaves its result uninitialized (a strength past 25 or
  * past 18/00), it returns false with error set, and the record is left
  * part-way. */
-bool cok_character_stats(cok_character *character, const cok_item_types *types, char *error,
-                         size_t error_size);
+bool cok_character_stats(cok_character *character, const cok_rules *rules,
+                         const cok_item_types *types, char *error, size_t error_size);
 
 /* Recompute the stats that come from classes and levels (66c2:0433): base
  * THAC0, highest level, attacks, spells a day and known, saving throws,
@@ -250,27 +206,30 @@ bool cok_character_stats(cok_character *character, const cok_item_types *types, 
  * are not recomputed afterwards, as in the original. Returns false with
  * error set, as cok_character_stats does, where a saving throw for a level
  * of 90 or more reads past the initialized data. */
-bool cok_character_levels(cok_character *character, const cok_item_types *types, char *error,
-                          size_t error_size);
+bool cok_character_levels(cok_character *character, const cok_rules *rules,
+                          const cok_item_types *types, char *error, size_t error_size);
 
 /* The parts of 66c2:0433 that character creation (4def:06dd) and Modify
  * (4def:28fa) call alone: a cleric's spells a day with its wisdom bonus
  * (66c2:0722), the saving throws (66c2:08a6), and the thief skills
  * (66c2:0b9f) with extra, the byte its uninitialized local holds. Each
  * returns false with error set as cok_character_levels does. */
-bool cok_character_cleric_spells(cok_character *character, char *error, size_t error_size);
-bool cok_character_saving_throws(cok_character *character, char *error, size_t error_size);
-bool cok_character_thief_skills(cok_character *character, uint8_t extra, char *error,
-                                size_t error_size);
+bool cok_character_cleric_spells(cok_character *character, const cok_rules *rules, char *error,
+                                 size_t error_size);
+bool cok_character_saving_throws(cok_character *character, const cok_rules *rules, char *error,
+                                 size_t error_size);
+bool cok_character_thief_skills(cok_character *character, const cok_rules *rules, uint8_t extra,
+                                char *error, size_t error_size);
 
 /* The weight c may carry before its strength slows it (6346:153b), which
  * can be negative. Returns false with error set where its strength row is
  * uninitialized (a strength past 25 or past 18/00). */
-bool cok_character_allowance(const uint8_t *c, int16_t *allowance, char *error, size_t error_size);
+bool cok_character_allowance(const uint8_t *c, const cok_rules *rules, int16_t *allowance,
+                             char *error, size_t error_size);
 
 /* 66c2:0efb: whether a human's first class with a level is above its level
  * at +0xd7, so that it can use its former class (66c2:0eab). */
-bool cok_character_former_class(const uint8_t *record);
+bool cok_character_former_class(const uint8_t *record, const cok_rules *rules);
 
 /* The original's data the stat routines read, to check against the
  * executable: the DS offset of the first byte, the number of bytes, and
@@ -293,7 +252,7 @@ bool cok_ds_byte(uint16_t offset, uint8_t *out);
  * callers add characters while var 0x7f3e is below 8, and the caller
  * counts it there. The original then runs 66c2:0433 on an NPC (+0xe7 0x80
  * and up); the caller does that with cok_character_levels. */
-bool cok_party_add(cok_party *party, cok_character *character);
+bool cok_party_add(cok_party *party, const cok_rules *rules, cok_character *character);
 /* Append a record to the end of the list, as LOAD MONSTER does
  * (2fd3:0465), taking ownership of a malloc'd character. Returns false,
  * leaving it with the caller, when the list holds COK_PARTY_RECORDS. */
@@ -327,19 +286,19 @@ uint8_t *cok_party_special(const cok_party *party, const uint8_t *selected, uint
  * light green, ending at column 34 (6346:0984); hit points end at column
  * 38, yellow when below the maximum, light green otherwise (6346:0a0d). */
 void cok_party_draw(cok_picture *dst, const cok_font *font, const cok_party *party,
-                    const uint8_t *selected, int x, bool combat);
+                    const cok_rules *rules, const uint8_t *selected, int x, bool combat);
 
 /* 6346:12f8: the to-hit bonus for dexterity (+0x17) with missile weapons,
  * which is also the bonus to initiative in combat: -4 below 3, dexterity
  * less 6 for 3-5, less 15 for 16-18, then 3, 4 and 5 for 19-20, 21-23 and
  * 24-25; else 0. */
-int8_t cok_character_dexterity_missile(const uint8_t *c);
+int8_t cok_character_dexterity_missile(const uint8_t *c, const cok_rules *rules);
 
 /* 6346:1412 (to hit) or, with damage, 6346:14b5: strength's bonus, 0
  * unless +0x114 is set. Returns false with error set for a strength the
  * original's table (6346:137a) has no row for. */
-bool cok_character_strength_bonus(const uint8_t *c, bool damage, int8_t *bonus, char *error,
-                                  size_t error_size);
+bool cok_character_strength_bonus(const uint8_t *c, const cok_rules *rules, bool damage,
+                                  int8_t *bonus, char *error, size_t error_size);
 
 /* Apply damage to a character's hit points and status (6346:24d7):
  * damage of exactly its hit points leaves it unconscious, up to 9 more
@@ -348,7 +307,7 @@ bool cok_character_strength_bonus(const uint8_t *c, bool damage, int8_t *bonus, 
  * afterwards has 0 hit points and cannot act. In combat 6346:24d7 also
  * updates the combat records, which the battle's callers do (attack.h,
  * cast.c). */
-void cok_character_damage(uint8_t *record, uint8_t damage);
+void cok_character_damage(uint8_t *record, const cok_rules *rules, uint8_t damage);
 
 /* Heal record by amount (60f4:21ea) if its status is 0, 1, 4 or 5, and if
  * only_hurt, it is below its maximum hit points. Hit points add as a byte,
@@ -356,7 +315,8 @@ void cok_character_damage(uint8_t *record, uint8_t damage);
  * act and is dying becomes unconscious, and an unconscious one recovers
  * and can act again outside combat (mode 5). Returns whether it was
  * healed. */
-bool cok_character_heal(uint8_t *record, uint8_t amount, bool only_hurt, uint8_t mode);
+bool cok_character_heal(uint8_t *record, const cok_rules *rules, uint8_t amount, bool only_hurt,
+                        uint8_t mode);
 
 /* A saved game, SAVGAM<letter>.DAT, as 4b6d:1b34 reads it. */
 typedef struct {

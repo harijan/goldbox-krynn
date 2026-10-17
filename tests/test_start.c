@@ -149,7 +149,7 @@ static cok_character *member(const char *name, size_t class_, uint8_t level)
 
 static cok_character *add(cok_character *c)
 {
-    CHECK(cok_party_add(&game.party, c));
+    CHECK(cok_party_add(&game.party, &cok_rules_champions, c));
     ++game.vm.mem7c00[0x33e];
     if (game.vm.character == NULL) game.vm.character = c->record;
     return c;
@@ -438,7 +438,8 @@ static void test_edges(void)
     cok_character *rt = add(member("RANGE", 4, 13));
     rt->record[0xff] = 1;
     put32(rt->record + 0x116, 2000);
-    CHECK(cok_character_levels(rt, &game.item_types, game.error, sizeof game.error));
+    CHECK(cok_character_levels(rt, &cok_rules_champions, &game.item_types, game.error,
+                               sizeof game.error));
     keys("SYL");
     cok_train(&game);
     CHECK(rt->record[0xff] == 2 && logged("list: Spells to Choose") && s.at == s.length);
@@ -904,7 +905,8 @@ static void test_train(void)
     cok_character *m = add(member("MAGEY", 5, 1));
     m->record[0x5e] = 1;
     put32(m->record + 0x116, 5000);
-    CHECK(cok_character_levels(m, &game.item_types, game.error, sizeof game.error));
+    CHECK(cok_character_levels(m, &cok_rules_champions, &game.item_types, game.error,
+                               sizeof game.error));
     game.vm.character = m->record;
     keys("SY\x1bL");
     cok_train(&game);

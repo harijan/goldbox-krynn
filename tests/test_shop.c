@@ -186,7 +186,7 @@ static cok_character *member(const char *name, uint16_t steel)
     r[0x10] = r[0x11] = 18;
     put_word(r + 0xf3, steel);
     put_word(r + 0x17d, steel); /* the weight, as the stats count it */
-    CHECK(cok_party_add(&game.party, c));
+    CHECK(cok_party_add(&game.party, &cok_rules_champions, c));
     ++game.vm.mem7c00[0x33e];
     if (game.vm.character == NULL) game.vm.character = r;
     return c;

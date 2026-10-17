@@ -343,7 +343,7 @@ static void test_weapon(void)
     CHECK(bow != 0);
     give(a, bow, 1);
     char error[300];
-    CHECK(cok_character_stats(a, t, error, sizeof error));
+    CHECK(cok_character_stats(a, &cok_rules_champions, t, error, sizeof error));
     bool missile, has;
     size_t ammo;
     CHECK(cok_combat_missile_weapon(t, a, &missile) && missile);
@@ -352,7 +352,7 @@ static void test_weapon(void)
     CHECK(cok_combat_weapon_attacks(&game, a) && r[0x18f] == 2);
     /* With 3 arrows its rate (byte 5, at least 2), at most 3. */
     give(a, 0x1e, 3);
-    CHECK(cok_character_stats(a, t, error, sizeof error));
+    CHECK(cok_character_stats(a, &cok_rules_champions, t, error, sizeof error));
     CHECK(cok_combat_ammunition(t, a, &ammo, &has) && has && ammo == 2);
     uint8_t rate = t->type[bow][5] < 2 ? 2 : t->type[bow][5];
     uint8_t n = (uint8_t)(rate >> 1);
@@ -377,7 +377,7 @@ static void test_weapon(void)
     r = a->record;
     r[0x10b] = 6;
     give(a, 0x1c, 1);
-    CHECK(cok_character_stats(a, t, error, sizeof error));
+    CHECK(cok_character_stats(a, &cok_rules_champions, t, error, sizeof error));
     CHECK(cok_combat_ammunition(t, a, &ammo, &has) && has && ammo == 0);
     CHECK(cok_combat_weapon_attacks(&game, a) && r[0x18f] == 1);
     /* A hoopak (0x43, thrown, rate 0) is its own ammunition, at 2. */
@@ -386,7 +386,7 @@ static void test_weapon(void)
     r = a->record;
     r[0x10b] = 6;
     give(a, 0x43, 1);
-    CHECK(cok_character_stats(a, t, error, sizeof error));
+    CHECK(cok_character_stats(a, &cok_rules_champions, t, error, sizeof error));
     CHECK(cok_combat_ammunition(t, a, &ammo, &has) && has && ammo == 1);
     CHECK(cok_combat_weapon_attacks(&game, a) && r[0x18f] == 1);
     /* A range of 1 is no missile weapon (no shipped type has one). */
@@ -1015,7 +1015,7 @@ static void test_handlers(void)
     bool floor = false, worse = false;
     for (uint8_t base = 0x28; base <= 0x40; ++base) {
         b->record[0x113] = base;
-        CHECK(cok_character_stats(b, &game.item_types, why, sizeof why));
+        CHECK(cok_character_stats(b, &cok_rules_champions, &game.item_types, why, sizeof why));
         uint8_t behind = b->record[0x18e];
         b->record[0x18e] = 0x77;
         CHECK(run(b, 0x0f));
@@ -1243,7 +1243,7 @@ static void test_handlers(void)
     m = record('M', 1, 13, 10);
     CHECK(cok_character_add_effect(m, 0x29, 0, 0, false) != NULL);
     give(a, 0x10, 0);
-    CHECK(cok_character_stats(a, &game.item_types, why, sizeof why));
+    CHECK(cok_character_stats(a, &cok_rules_champions, &game.item_types, why, sizeof why));
     game.vm.character = a->record;
     game.effects.rolls.amount = 7;
     game.effects.rolls.attack_roll = 9;

@@ -125,7 +125,7 @@ static cok_character *member(const char *name, uint8_t movement)
     memcpy(c->record + 1, name, strlen(name));
     c->record[0x198] = movement;
     c->record[0x189] = 1;
-    CHECK(cok_party_add(&game.party, c));
+    CHECK(cok_party_add(&game.party, &cok_rules_champions, c));
     ++game.vm.mem7c00[0x33e];
     return c;
 }

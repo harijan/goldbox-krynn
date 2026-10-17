@@ -459,7 +459,8 @@ static void heal_tick(cok_adventure *game, bool interactive)
     if (++game->heal_ticks < 0x120) return;
     bool healed = false;
     for (size_t i = 0; i < game->party.count; ++i)
-        if (cok_character_heal(game->party.members[i]->record, 1, false, game->vm.mode))
+        if (cok_character_heal(game->party.members[i]->record, cok_game_rules(game), 1, false,
+                               game->vm.mode))
             healed = true;
     if (interactive) show_rest(game, 0);
     draw(game, "The Whole Party Is Healed", 1, 0x13, 10, true);
@@ -651,7 +652,8 @@ bool cok_camp_fix(cok_adventure *game)
         uint16_t amount = (uint16_t)(c[0x62] - c[0x197]);
         if (amount > pool) amount = pool;
         if (amount == 0) continue;
-        if (cok_character_heal(c, (uint8_t)amount, false, vm->mode) && amount <= pool)
+        if (cok_character_heal(c, cok_game_rules(game), (uint8_t)amount, false, vm->mode) &&
+            amount <= pool)
             pool = (uint16_t)(pool - amount);
     }
     cok_adventure_party(game);

@@ -138,13 +138,16 @@ bool cok_character_read_file(cok_character *character, const cok_rules *rules, c
         fail(error, error_size, "%s: %s", path, missing ? "not found" : "cannot read");
         return false;
     }
+    const cok_character_layout *L = rules->character;
     /* The original reads what there is into a zeroed record. */
-    memcpy(character->record, data, size < COK_CHARACTER_SIZE ? size : COK_CHARACTER_SIZE);
+    memcpy(character->record, data, size < L->file_size ? size : L->file_size);
     free(data);
     /* Pointers left in the file: effects, items, the combat record, next. */
-    static const unsigned pointers[] = {0xe3, 0x143, 0x183, 0x17f};
+    static const cok_field pointers[] = {COK_FIELD_EFFECTS, COK_FIELD_ITEMS, COK_FIELD_COMBAT,
+                                         COK_FIELD_NEXT};
     for (size_t i = 0; i < sizeof pointers / sizeof *pointers; ++i)
-        memset(character->record + pointers[i], 0, 4);
+        memset(character->record + cok_field_offset(L, pointers[i]), 0,
+               cok_field_size(L, pointers[i]));
     uint8_t *items, *effects;
     snprintf(path, sizeof path, "%s/%s.%s", dir, base, rules->saves.items);
     if (!read_records(path, COK_ITEM_SIZE, &items, &character->item_count, error, error_size))
@@ -166,8 +169,8 @@ bool cok_character_read_file(cok_character *character, const cok_rules *rules, c
     free(effects);
     /* The original flushes the keyboard (1614:045c), then recomputes. */
     char why[200];
-    if (!cok_character_stats(character, types, why, sizeof why) ||
-        !cok_character_levels(character, types, why, sizeof why)) {
+    if (!cok_character_stats(character, rules, types, why, sizeof why) ||
+        !cok_character_levels(character, rules, types, why, sizeof why)) {
         snprintf(path, sizeof path, "%s/%s.%s", dir, base, extension);
         fail(error, error_size, "%s: %s", path, why);
         return false;
@@ -854,9 +857,9 @@ static uint8_t *slot_item(cok_character *character, size_t slot)
 }
 
 /* 6346:1276: the armour class bonus for dexterity (+0x17). */
-static int8_t dexterity_defense(const uint8_t *c)
+static int8_t dexterity_defense(const cok_character_layout *L, const uint8_t *c)
 {
-    uint8_t dex = c[0x17];
+    uint8_t dex = cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_DEXTERITY);
     if (dex >= 1 && dex <= 3) return -4;
     if (dex >= 4 && dex <= 6) return (int8_t)(dex - 7);
     if (dex >= 15 && dex <= 18) return (int8_t)(dex - 14);
@@ -866,9 +869,10 @@ static int8_t dexterity_defense(const uint8_t *c)
     return 0;
 }
 
-int8_t cok_character_dexterity_missile(const uint8_t *c)
+int8_t cok_character_dexterity_missile(const uint8_t *c, const cok_rules *rules)
 {
-    uint8_t dex = c[0x17];
+    const cok_character_layout *L = rules->character;
+    uint8_t dex = cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_DEXTERITY);
     if (dex < 3) return -4;
     if (dex <= 5) return (int8_t)(dex - 6);
     if (dex >= 16 && dex <= 18) return (int8_t)(dex - 15);
@@ -883,9 +887,10 @@ int8_t cok_character_dexterity_missile(const uint8_t *c)
  * 91-99 and 100 as 18-23, and 19-25 as 24-30. The original leaves the
  * result uninitialized for strength 26 and up or exceptional strength past
  * 100; the port fails. */
-static uint8_t strength_row(lookup *l, const uint8_t *c)
+static uint8_t strength_row(lookup *l, const cok_character_layout *L, const uint8_t *c)
 {
-    uint8_t str = c[0x11], extra = c[0x1c];
+    uint8_t str = cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_STRENGTH),
+            extra = cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL);
     if (str < 18) return str;
     if (str >= 19 && str <= 25) return (uint8_t)(str + 5);
     if (str == 18) {
@@ -903,10 +908,10 @@ static uint8_t strength_row(lookup *l, const uint8_t *c)
 }
 
 /* 6346:1412: the to-hit bonus for strength, if +0x114 is set. */
-static int8_t strength_hit(lookup *l, const uint8_t *c)
+static int8_t strength_hit(lookup *l, const cok_character_layout *L, const uint8_t *c)
 {
-    uint8_t row = strength_row(l, c);
-    if (c[0x114] == 0) return 0;
+    uint8_t row = strength_row(l, L, c);
+    if (cok_field_u8(L, c, COK_FIELD_STRENGTH_BONUSES) == 0) return 0;
     if (row >= 1 && row <= 3) return -3;
     if (row >= 4 && row <= 5) return -2;
     if (row >= 6 && row <= 7) return -1;
@@ -919,10 +924,10 @@ static int8_t strength_hit(lookup *l, const uint8_t *c)
 }
 
 /* 6346:14b5: the damage bonus for strength, if +0x114 is set. */
-static int8_t strength_damage(lookup *l, const uint8_t *c)
+static int8_t strength_damage(lookup *l, const cok_character_layout *L, const uint8_t *c)
 {
-    uint8_t row = strength_row(l, c);
-    if (c[0x114] == 0) return 0;
+    uint8_t row = strength_row(l, L, c);
+    if (cok_field_u8(L, c, COK_FIELD_STRENGTH_BONUSES) == 0) return 0;
     if (row >= 1 && row <= 2) return -2;
     if (row >= 3 && row <= 5) return -1;
     if (row == 16) return 1;
@@ -932,18 +937,19 @@ static int8_t strength_damage(lookup *l, const uint8_t *c)
     return 0;
 }
 
-bool cok_character_strength_bonus(const uint8_t *c, bool damage, int8_t *bonus, char *error,
-                                  size_t error_size)
+bool cok_character_strength_bonus(const uint8_t *c, const cok_rules *rules, bool damage,
+                                  int8_t *bonus, char *error, size_t error_size)
 {
     lookup l = {error, error_size, false};
-    *bonus = damage ? strength_damage(&l, c) : strength_hit(&l, c);
+    const cok_character_layout *L = rules->character;
+    *bonus = damage ? strength_damage(&l, L, c) : strength_hit(&l, L, c);
     return !l.failed;
 }
 
 /* 6346:153b: the weight carried before strength slows a character. */
-static int16_t strength_allowance(lookup *l, const uint8_t *c)
+static int16_t strength_allowance(lookup *l, const cok_character_layout *L, const uint8_t *c)
 {
-    uint8_t row = strength_row(l, c);
+    uint8_t row = strength_row(l, L, c);
     if (row >= 1 && row <= 3) return -350;
     if (row >= 4 && row <= 5) return -250;
     if (row >= 6 && row <= 7) return -150;
@@ -957,10 +963,11 @@ static int16_t strength_allowance(lookup *l, const uint8_t *c)
     return 0;
 }
 
-bool cok_character_allowance(const uint8_t *c, int16_t *allowance, char *error, size_t error_size)
+bool cok_character_allowance(const uint8_t *c, const cok_rules *rules, int16_t *allowance,
+                             char *error, size_t error_size)
 {
     lookup l = {error, error_size, false};
-    *allowance = strength_allowance(&l, c);
+    *allowance = strength_allowance(&l, rules->character, c);
     return !l.failed;
 }
 
@@ -968,49 +975,55 @@ bool cok_character_allowance(const uint8_t *c, int16_t *allowance, char *error, 
  * damage bonus, from the base THAC0, dexterity for a missile weapon,
  * strength when its type says, its bonus and that of the readied arrows or
  * quarrels it shoots, and a race's bonus with some types. */
-static void weapon_stats(lookup *l, cok_character *character, const cok_item_types *types)
+static void weapon_stats(lookup *l, const cok_rules *rules, cok_character *character,
+                         const cok_item_types *types)
 {
+    const cok_character_layout *L = rules->character;
     uint8_t *c = character->record;
     const uint8_t *weapon = slot_item(character, 0);
     if (weapon == NULL) return;
     const uint8_t *type = item_type(l, types, weapon);
     if (type == NULL) return;
     uint8_t id = weapon[0x2e];
-    c[0x18c] = c[0x59];
-    if ((type[14] & 2) != 0) c[0x18c] = (uint8_t)(c[0x18c] + cok_character_dexterity_missile(c));
-    c[0x195] = type[11];
+    cok_field_set8(L, c, COK_FIELD_THAC0, cok_field_u8(L, c, COK_FIELD_BASE_THAC0));
+    if ((type[14] & 2) != 0)
+        cok_field_add8(L, c, COK_FIELD_THAC0, cok_character_dexterity_missile(c, rules));
+    cok_field_set8_at(L, c, COK_FIELD_DAMAGE_BONUS, 1, type[11]);
     if ((type[14] & 4) != 0) {
-        c[0x18c] = (uint8_t)(c[0x18c] + strength_hit(l, c));
-        c[0x195] = (uint8_t)(c[0x195] + strength_damage(l, c));
+        cok_field_add8(L, c, COK_FIELD_THAC0, strength_hit(l, L, c));
+        cok_field_add8_at(L, c, COK_FIELD_DAMAGE_BONUS, 1, strength_damage(l, L, c));
     }
     uint8_t bonus = weapon[0x32];
     const uint8_t *quarrels = slot_item(character, 12), *arrows = slot_item(character, 11);
     if (type[14] > 0x7f && quarrels != NULL) bonus = (uint8_t)(bonus + quarrels[0x32]);
     if ((type[14] & 1) != 0 && arrows != NULL) bonus = (uint8_t)(bonus + arrows[0x32]);
-    c[0x195] = (uint8_t)(c[0x195] + bonus);
+    cok_field_add8_at(L, c, COK_FIELD_DAMAGE_BONUS, 1, bonus);
     /* The race bonuses add to hit only. */
-    if ((c[0x5a] == 0 || c[0x5a] == 1) && ((id > 0x15 && id < 0x1b) || id == 0x13 || id == 0x12))
+    uint8_t race = cok_field_u8(L, c, COK_FIELD_RACE);
+    if ((race == 0 || race == 1) && ((id > 0x15 && id < 0x1b) || id == 0x13 || id == 0x12))
         ++bonus;
-    if (c[0x5a] == 5 && id == 0x43) bonus = (uint8_t)(bonus + 2);
-    c[0x18c] = (uint8_t)(c[0x18c] + bonus);
-    c[0x191] = type[9];
-    c[0x193] = type[10];
+    if (race == 5 && id == 0x43) bonus = (uint8_t)(bonus + 2);
+    cok_field_add8(L, c, COK_FIELD_THAC0, bonus);
+    cok_field_set8_at(L, c, COK_FIELD_DICE, 1, type[9]);
+    cok_field_set8_at(L, c, COK_FIELD_DICE_SIDES, 1, type[10]);
 }
 
 /* 6346:0240: readied armour (slot 2) sets the movement (+0x198) by its
  * weight: the base movement up to 150, 9 up to 399, else 6; armour with a
  * bonus other than 0 adds 3 to a movement up to 9. */
-static void armour_movement(const uint8_t *item, const uint8_t *type, uint8_t *c)
+static void armour_movement(const cok_character_layout *L, const uint8_t *item, const uint8_t *type,
+                            uint8_t *c)
 {
     if (type[0] != 2) return;
     uint16_t weight = u16(item + 0x37);
     if (weight <= 0x96)
-        c[0x198] = c[0xd5];
+        cok_field_set8(L, c, COK_FIELD_MOVEMENT, cok_field_u8(L, c, COK_FIELD_BASE_MOVEMENT));
     else if (weight <= 0x18f)
-        c[0x198] = 9;
+        cok_field_set8(L, c, COK_FIELD_MOVEMENT, 9);
     else
-        c[0x198] = 6;
-    if (item[0x32] != 0 && c[0x198] <= 9) c[0x198] = (uint8_t)(c[0x198] + 3);
+        cok_field_set8(L, c, COK_FIELD_MOVEMENT, 6);
+    if (item[0x32] != 0 && cok_field_u8(L, c, COK_FIELD_MOVEMENT) <= 9)
+        cok_field_add8(L, c, COK_FIELD_MOVEMENT, 3);
 }
 
 /* 6346:02c8: a readied item's part of the armour class, for a type with
@@ -1019,8 +1032,8 @@ static void armour_movement(const uint8_t *item, const uint8_t *type, uint8_t *c
  * is 0, and [3] the best bonus of such a ring, both of which add their saving
  * throw bonus (+0x33) to +0x17c; [4] the best armour class plus bonus.
  * Magic armour (slot 2, a positive bonus) setting [4] sets *magic. */
-static void armour_class(const uint8_t *item, const uint8_t *type, int8_t ac[5], bool *magic,
-                         uint8_t *c)
+static void armour_class(const cok_character_layout *L, const uint8_t *item, const uint8_t *type,
+                         int8_t ac[5], bool *magic, uint8_t *c)
 {
     uint8_t base = type[6];
     if (base <= 0x7f) return;
@@ -1034,7 +1047,7 @@ static void armour_class(const uint8_t *item, const uint8_t *type, int8_t ac[5],
         } else {
             ac[2] = (int8_t)(uint8_t)(ac[2] + bonus);
         }
-        c[0x17c] = (uint8_t)(c[0x17c] + item[0x33]);
+        cok_field_add8(L, c, COK_FIELD_SAVE_BONUS, item[0x33]);
     } else if (base + bonus > ac[4]) {
         ac[4] = (int8_t)(uint8_t)(base + bonus);
         if (bonus > 0 && type[0] == 2) *magic = true;
@@ -1045,33 +1058,38 @@ static void armour_class(const uint8_t *item, const uint8_t *type, int8_t ac[5],
  * movement: past 512 to 9, past 768 to 6, past 1,024 to 3. The difference
  * is taken as a signed word, so a load 32,768 or more past the allowance
  * counts as none. */
-static void encumbrance(lookup *l, uint8_t *c)
+static void encumbrance(lookup *l, const cok_character_layout *L, uint8_t *c)
 {
-    int16_t over = (int16_t)(uint16_t)(u16(c + 0x17d) - (uint16_t)strength_allowance(l, c));
+    int16_t over = (int16_t)(uint16_t)(cok_field_u16(L, c, COK_FIELD_WEIGHT) -
+                                       (uint16_t)strength_allowance(l, L, c));
     if (over < 0) over = 0;
-    uint8_t limit = over <= 0x200 ? c[0x198] : over <= 0x300 ? 9 : over <= 0x400 ? 6 : 3;
-    if (limit < c[0x198]) c[0x198] = limit;
+    uint8_t movement = cok_field_u8(L, c, COK_FIELD_MOVEMENT);
+    uint8_t limit = over <= 0x200 ? movement : over <= 0x300 ? 9 : over <= 0x400 ? 6 : 3;
+    if (limit < movement) cok_field_set8(L, c, COK_FIELD_MOVEMENT, limit);
 }
 
-bool cok_character_stats(cok_character *character, const cok_item_types *types, char *error,
-                         size_t error_size)
+bool cok_character_stats(cok_character *character, const cok_rules *rules,
+                         const cok_item_types *types, char *error, size_t error_size)
 {
     lookup l = {error, error_size, false};
+    const cok_character_layout *L = rules->character;
     uint8_t *c = character->record;
     /* 6346:0d26 clears the far pointers; the port keeps them 0. */
     memset(character->slots, 0, sizeof character->slots);
-    memset(c + 0x147, 0, 4 * COK_ITEM_SLOTS);
-    c[0x142] = 0;
-    c[0x17b] = 0;
-    put16(c + 0x17d, 0);
+    memset(c + cok_field_offset(L, COK_FIELD_ITEM_SLOTS), 0, cok_field_size(L,
+                                                                            COK_FIELD_ITEM_SLOTS));
+    cok_field_set8(L, c, COK_FIELD_ITEM_COUNT, 0);
+    cok_field_set8(L, c, COK_FIELD_HANDS, 0);
+    cok_field_set16(L, c, COK_FIELD_WEIGHT, 0);
     /* The original also sums the readied items' weight in DS:483c, which
      * nothing ported reads. */
     for (size_t i = 0; i < character->item_count; ++i) {
         const uint8_t *item = character->items[i];
-        ++c[0x142];
+        cok_field_add8(L, c, COK_FIELD_ITEM_COUNT, 1);
         uint16_t weight = u16(item + 0x37);
         if (item[0x39] > 0) weight = (uint16_t)(item[0x39] * weight);
-        put16(c + 0x17d, (uint16_t)(u16(c + 0x17d) + weight));
+        cok_field_set16(L, c, COK_FIELD_WEIGHT,
+                        (uint16_t)(cok_field_u16(L, c, COK_FIELD_WEIGHT) + weight));
         if (item[0x34] == 0) continue;
         const uint8_t *type = item_type(&l, types, item);
         if (type == NULL) return false;
@@ -1084,112 +1102,135 @@ bool cok_character_stats(cok_character *character, const cok_item_types *types, 
             character->slots[10] = i + 1;
         if (item[0x2e] == 0x1e) character->slots[11] = i + 1;
         if (item[0x2e] == 0x0c) character->slots[12] = i + 1;
-        c[0x17b] = (uint8_t)(c[0x17b] + type[1]);
+        cok_field_add8(L, c, COK_FIELD_HANDS, type[1]);
     }
     /* Coins: six words from +0xed. */
     for (size_t i = 1; i <= 6; ++i)
-        put16(c + 0x17d, (uint16_t)(u16(c + 0x17d) + u16(c + 0xeb + 2 * i)));
+        cok_field_set16(L, c, COK_FIELD_WEIGHT,
+                        (uint16_t)(cok_field_u16(L, c, COK_FIELD_WEIGHT) +
+                                   cok_field_u16_at(L, c, COK_FIELD_COINS, i)));
     for (size_t i = 1; i <= 2; ++i) {
-        c[0x190 + i] = c[0x10c + i];
-        c[0x192 + i] = c[0x10e + i];
-        c[0x194 + i] = c[0x110 + i];
+        cok_field_set8_at(L, c, COK_FIELD_DICE, i, cok_field_u8_at(L, c, COK_FIELD_BASE_DICE, i));
+        cok_field_set8_at(L, c, COK_FIELD_DICE_SIDES, i,
+                          cok_field_u8_at(L, c, COK_FIELD_BASE_DICE_SIDES, i));
+        cok_field_set8_at(L, c, COK_FIELD_DAMAGE_BONUS, i,
+                          cok_field_u8_at(L, c, COK_FIELD_BASE_DAMAGE_BONUS, i));
     }
     int8_t ac[5] = {0};
     bool magic = false;
-    c[0x17c] = 0;
-    c[0x18d] = c[0x113];
-    c[0x198] = c[0xd5];
-    c[0x18c] = c[0x59];
-    ac[0] = dexterity_defense(c);
+    cok_field_set8(L, c, COK_FIELD_SAVE_BONUS, 0);
+    cok_field_set8(L, c, COK_FIELD_AC, cok_field_u8(L, c, COK_FIELD_BASE_AC));
+    cok_field_set8(L, c, COK_FIELD_MOVEMENT, cok_field_u8(L, c, COK_FIELD_BASE_MOVEMENT));
+    cok_field_set8(L, c, COK_FIELD_THAC0, cok_field_u8(L, c, COK_FIELD_BASE_THAC0));
+    ac[0] = dexterity_defense(L, c);
     if (character->slots[0] == 0) {
-        c[0x18c] = (uint8_t)(c[0x18c] + strength_hit(&l, c));
-        c[0x195] = (uint8_t)(c[0x195] + strength_damage(&l, c));
+        cok_field_add8(L, c, COK_FIELD_THAC0, strength_hit(&l, L, c));
+        cok_field_add8_at(L, c, COK_FIELD_DAMAGE_BONUS, 1, strength_damage(&l, L, c));
     }
-    weapon_stats(&l, character, types);
+    weapon_stats(&l, rules, character, types);
     for (size_t i = 0; i < character->item_count && !l.failed; ++i) {
         const uint8_t *item = character->items[i];
         if (item[0x34] == 0) continue;
         const uint8_t *type = item_type(&l, types, item);
         if (type == NULL) break;
-        armour_movement(item, type, c);
-        armour_class(item, type, ac, &magic, c);
+        armour_movement(L, item, type, c);
+        armour_class(L, item, type, ac, &magic, c);
     }
     /* Magic armour does not add to a ring's bonus. */
     if (magic) ac[3] = 0;
-    encumbrance(&l, c);
-    if (ac[4] < c[0x18d]) ac[4] = (int8_t)c[0x18d];
-    c[0x18d] = 0;
-    for (size_t i = 0; i < 5; ++i) c[0x18d] = (uint8_t)(c[0x18d] + ac[i]);
+    encumbrance(&l, L, c);
+    if (ac[4] < cok_field_u8(L, c, COK_FIELD_AC)) ac[4] = (int8_t)cok_field_u8(L, c, COK_FIELD_AC);
+    cok_field_set8(L, c, COK_FIELD_AC, 0);
+    for (size_t i = 0; i < 5; ++i) cok_field_add8(L, c, COK_FIELD_AC, ac[i]);
     /* From behind: no dexterity or shield, and 2 worse. */
-    c[0x18e] = (uint8_t)(ac[4] + ac[2] + ac[3] - 2);
-    if (((int8_t)c[0xfb] > 0 || ((int8_t)c[0x103] > 0 && cok_character_former_class(c)) ||
-         (int8_t)c[0x100] > 0 || (int8_t)c[0xfd] > 0) &&
-        (int8_t)c[0x5a] < 7) {
-        c[0xce] = c[0xfb];
-        if (c[0x100] > c[0xce]) c[0xce] = c[0x100];
-        if (c[0xfd] > c[0xce]) c[0xce] = c[0xfd];
+    cok_field_set8(L, c, COK_FIELD_AC_BEHIND, (uint8_t)(ac[4] + ac[2] + ac[3] - 2));
+    if ((cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 2) > 0 ||
+         (cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 2) > 0 &&
+          cok_character_former_class(c, rules)) ||
+         cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > 0 ||
+         cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 4) > 0) &&
+        (int8_t)cok_field_u8(L, c, COK_FIELD_RACE) < 7) {
+        cok_field_set8(L, c, COK_FIELD_FIGHTER_LEVEL, cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL,
+                                                                      2));
+        if (cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > cok_field_u8(L, c,
+                                                                           COK_FIELD_FIGHTER_LEVEL))
+            cok_field_set8(L, c, COK_FIELD_FIGHTER_LEVEL,
+                           cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, 7));
+        if (cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, 4) > cok_field_u8(L, c,
+                                                                           COK_FIELD_FIGHTER_LEVEL))
+            cok_field_set8(L, c, COK_FIELD_FIGHTER_LEVEL,
+                           cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, 4));
     } else {
-        c[0xce] = 1;
+        cok_field_set8(L, c, COK_FIELD_FIGHTER_LEVEL, 1);
     }
     return !l.failed;
 }
 
-bool cok_character_former_class(const uint8_t *c)
+bool cok_character_former_class(const uint8_t *c, const cok_rules *rules)
 {
+    const cok_character_layout *L = rules->character;
     int8_t level = 0;
-    if (c[0x5a] == 6) {
+    if (cok_field_u8(L, c, COK_FIELD_RACE) == 6) {
         size_t i = 0;
-        while (i < 7 && c[0xf9 + i] == 0) ++i;
-        level = (int8_t)c[0xf9 + i];
+        while (i < 7 && cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, i) == 0) ++i;
+        level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i);
     }
-    return (int8_t)c[0xd7] < level;
+    return (int8_t)cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL) < level;
 }
 
 /* Mark the cleric spells of each spell level 1-4 with a spell a day as
  * known (from 66c2:000f): the spells of DS:4230 + level * 10, to the first
  * 0. The original counts in DS:742f, which other routines set before use. */
-static void know_cleric_spells(lookup *l, uint8_t *c)
+static void know_cleric_spells(lookup *l, const cok_character_layout *L, uint8_t *c)
 {
     for (int level = 1; level <= 4; ++level) {
-        if (c[0x11b + level] == 0) continue;
+        if (cok_field_u8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, level) == 0) continue;
         for (int i = 1; i <= 10; ++i) {
             uint8_t spell = ds_byte(l, 0x4230 + level * 10 + i, "a cleric spell");
             if (spell == 0) break;
-            c[0x62 + spell] = 1;
+            cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, spell, 1);
         }
     }
 }
 
 /* Add the spells a day of table (DS:3c8e + table * 99) for each level from
- * first to last to the count bytes from +0x11c - 1 + offset: spell levels
- * from..to (66c2:000f). */
-static void add_spells(lookup *l, uint8_t *c, int table, int first, int last, size_t at, int from,
-                       int to)
+ * first to last to the spells a day of spell class row, columns from..to
+ * of the table to spell levels from - shift..to - shift (66c2:000f). */
+static void add_spells(lookup *l, const cok_character_layout *L, uint8_t *c, int table, int first,
+                       int last,
+                       int row, int shift, int from, int to)
 {
     for (int level = first; level <= last; ++level)
         for (int k = from; k <= to; ++k)
-            c[at + (size_t)k] = (uint8_t)(c[at + (size_t)k] +
-                                          ds_byte(l, 0x3c8e + table * 99 + level * 5 + k,
-                                                  "spells a day"));
+            cok_field_add8_at2(L, c, COK_FIELD_SPELLS_A_DAY, row, k - shift,
+                               ds_byte(l, 0x3c8e + table * 99 + level * 5 + k, "spells a day"));
+}
+
+/* A cleric's bonus spell of level, if wise enough and it has a spell of
+ * that level a day. */
+static void bonus_spell(const cok_character_layout *L, uint8_t *c, bool wise, int level)
+{
+    if (wise && cok_field_u8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, level) != 0)
+        cok_field_add8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, level, 1);
 }
 
 /* 66c2:0722: a cleric's spells a day, with the bonus spells for wisdom
  * (+0x15) 13 and up. */
-static void cleric_spells(lookup *l, uint8_t *c)
+static void cleric_spells(lookup *l, const cok_character_layout *L, uint8_t *c)
 {
-    int8_t level = (int8_t)c[0xf9];
+    int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0);
     if (level <= 0) return;
-    int table = (int8_t)c[0x5d] > 4;
-    memset(c + 0x11d, 0, 4);
-    c[0x11c] = (uint8_t)(table + 1);
-    add_spells(l, c, table, 2, level, 0x11b, 1, 5);
-    uint8_t wisdom = c[0x15];
-    if (wisdom > 12 && c[0x11c] != 0) ++c[0x11c];
-    if (wisdom > 13 && c[0x11c] != 0) ++c[0x11c];
-    if (wisdom > 14 && c[0x11d] != 0) ++c[0x11d];
-    if (wisdom > 15 && c[0x11d] != 0) ++c[0x11d];
-    if (wisdom > 16 && c[0x11e] != 0) ++c[0x11e];
-    if (wisdom > 17 && c[0x11f] != 0) ++c[0x11f];
+    int table = (int8_t)cok_field_u8(L, c, COK_FIELD_DEITY) > 4;
+    memset(c + cok_field_offset_at2(L, COK_FIELD_SPELLS_A_DAY, 0, 2), 0, 4);
+    cok_field_set8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, 1, (uint8_t)(table + 1));
+    add_spells(l, L, c, table, 2, level, 0, 0, 1, 5);
+    uint8_t wisdom = cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_WISDOM);
+    bonus_spell(L, c, wisdom > 12, 1);
+    bonus_spell(L, c, wisdom > 13, 1);
+    bonus_spell(L, c, wisdom > 14, 2);
+    bonus_spell(L, c, wisdom > 15, 2);
+    bonus_spell(L, c, wisdom > 16, 3);
+    bonus_spell(L, c, wisdom > 17, 4);
 }
 
 /* 66c2:000f: spells a day and the spells known without learning: a
@@ -1199,38 +1240,45 @@ static void cleric_spells(lookup *l, uint8_t *c)
  * +0x12b), with all druid spells (DS:31b3) known; a mage's (table 7 for
  * moon 1, else 8). Each readied item of power 1 then doubles mage spells
  * 1-3. */
-static void spells(lookup *l, cok_character *character)
+static void spells(lookup *l, const cok_character_layout *L, cok_character *character)
 {
     uint8_t *c = character->record;
-    memset(c + 0x11c, 0, 0x14);
+    memset(c + cok_field_offset(L, COK_FIELD_SPELLS_A_DAY), 0,
+           cok_field_size(L, COK_FIELD_SPELLS_A_DAY));
     for (int class = 0; class <= 7; ++class) {
-        int8_t level = (int8_t)c[0xf9 + class];
+        int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, class);
         if (level <= 0) continue;
         if (class == 0) {
-            int table = (int8_t)c[0x5d] > 4;
-            ++c[0x11c];
-            add_spells(l, c, table, 2, level, 0x11b, 1, 5);
-            cleric_spells(l, c);
-            know_cleric_spells(l, c);
+            int table = (int8_t)cok_field_u8(L, c, COK_FIELD_DEITY) > 4;
+            cok_field_add8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, 1, 1);
+            add_spells(l, L, c, table, 2, level, 0, 0, 1, 5);
+            cleric_spells(l, L, c);
+            know_cleric_spells(l, L, c);
         } else if (class == 7) {
-            if (level <= 5 || c[0x5c] == 1) continue;
-            add_spells(l, c, c[0x5c] == 2 ? 4 : 5, 6, level, 0x11b, 1, 5);
-            know_cleric_spells(l, c);
+            uint8_t order = cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER);
+            if (level <= 5 || order == 1) continue;
+            add_spells(l, L, c, order == 2 ? 4 : 5, 6, level, 0, 0, 1, 5);
+            know_cleric_spells(l, L, c);
         } else if (class == 4) {
             if (level <= 7) continue;
-            add_spells(l, c, 6, 8, level, 0x120, 1, 3);
-            add_spells(l, c, 6, 8, level, 0x127, 4, 5);
+            /* Table 6's columns 1-3 are druid spells, 4-5 mage spells 1-2. */
+            add_spells(l, L, c, 6, 8, level, 1, 0, 1, 3);
+            add_spells(l, L, c, 6, 8, level, 3, 3, 4, 5);
             for (int spell = 1; spell <= 100; ++spell)
-                if (spell_class_table[spell - 1] == 1) c[0x62 + spell] = 1;
+                if (spell_class_table[spell - 1] == 1)
+                    cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, spell, 1);
         } else if (class == 5) {
-            ++c[0x12b];
-            add_spells(l, c, c[0x5e] == 1 ? 7 : 8, 2, level, 0x12a, 1, 5);
+            cok_field_add8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 3, 1, 1);
+            add_spells(l, L, c, cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER) == 1 ? 7 : 8, 2, level, 3,
+                       0, 1, 5);
         }
     }
     for (size_t i = 0; i < character->item_count; ++i) {
         const uint8_t *item = character->items[i];
         if (item[0x3e] != 0x81 || item[0x34] == 0) continue;
-        for (size_t k = 1; k <= 3; ++k) c[0x12a + k] = (uint8_t)(c[0x12a + k] * 2);
+        for (size_t k = 1; k <= 3; ++k)
+            cok_field_set8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 3, k,
+                               (uint8_t)(cok_field_u8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 3, k) * 2));
     }
 }
 
@@ -1242,7 +1290,7 @@ static void spells(lookup *l, cok_character *character)
  * the thief's at level 12. Saving throw 0 is then raised by a constitution
  * (+0x19) of 4-18 for races 3, 4 and 5 or with an item of power 6 readied,
  * and by one of 19-25 for everyone. */
-static void saving_throws(lookup *l, cok_character *character)
+static void saving_throws(lookup *l, const cok_character_layout *L, cok_character *character)
 {
     uint8_t *c = character->record;
     bool ward = false;
@@ -1251,22 +1299,23 @@ static void saving_throws(lookup *l, cok_character *character)
         if (item[0x3e] > 0x80 && item[0x34] != 0) ward = (item[0x3e] & 0x7f) == 6;
     }
     for (int type = 0; type <= 4; ++type) {
-        uint8_t *save = &c[0xd0 + type];
+        uint8_t *save = c + cok_field_offset_at(L, COK_FIELD_SAVING_THROW, type);
         *save = 20;
         for (int class = 0; class <= 7; ++class) {
-            int8_t level = (int8_t)c[0xf9 + class];
+            int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, class);
             if (level <= 0) continue;
             uint8_t throw = ds_byte(l, 0x4056 + class * 60 + level * 5 + type, "a saving throw");
             if (*save > throw) *save = throw;
         }
-        if ((int8_t)c[0x100] > (int8_t)c[0x108]) {
-            uint8_t throw = ds_byte(l, 0x4056 + 7 * 60 + (int8_t)c[0x108] * 5 + type,
-                                    "a saving throw");
+        int8_t former = cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 7);
+        if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > former) {
+            uint8_t throw = ds_byte(l, 0x4056 + 7 * 60 + former * 5 + type, "a saving throw");
             if (*save > throw) *save = throw;
         }
         if (type != 0) continue;
-        uint8_t con = c[0x19];
-        if (c[0x5a] == 3 || c[0x5a] == 5 || c[0x5a] == 4 || ward) {
+        uint8_t con = cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION);
+        uint8_t race = cok_field_u8(L, c, COK_FIELD_RACE);
+        if (race == 3 || race == 5 || race == 4 || ward) {
             if (con >= 4 && con <= 6)
                 *save = (uint8_t)(*save + 1);
             else if (con >= 7 && con <= 10)
@@ -1301,8 +1350,10 @@ static void saving_throws(lookup *l, cok_character *character)
  * uninitialized local, the byte the previous call at that stack depth
  * left there, which the caller passes (see cok_character_levels); it is
  * set for power 11 and keeps its value for the next call. */
-static void thief_skills(lookup *l, cok_character *character, uint8_t *extra)
+static void thief_skills(lookup *l, const cok_rules *rules, cok_character *character,
+                         uint8_t *extra)
 {
+    const cok_character_layout *L = rules->character;
     uint8_t *c = character->record;
     bool power11 = false, power2 = false;
     for (size_t i = 0; i < character->item_count && !power11 && !power2; ++i) {
@@ -1311,13 +1362,14 @@ static void thief_skills(lookup *l, cok_character *character, uint8_t *extra)
         power11 = (item[0x3e] & 0x7f) == 11;
         power2 = (item[0x3e] & 0x7f) == 2;
     }
-    int8_t base = (int8_t)(uint8_t)((int8_t)c[0xff] +
-                                    (int8_t)c[0x107] * (cok_character_former_class(c) ? 1 : 0));
+    int8_t base = (int8_t)(uint8_t)(cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 6) +
+                                    cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 6) *
+                                        (cok_character_former_class(c, rules) ? 1 : 0));
     if (base < 4 && power2) {
         base = 4;
         power2 = false;
     }
-    int race = (int8_t)c[0x5a];
+    int race = (int8_t)cok_field_u8(L, c, COK_FIELD_RACE);
     for (int skill = 1; skill <= 8; ++skill) {
         int8_t level = base;
         if (power11 && skill == 1) {
@@ -1337,102 +1389,121 @@ static void thief_skills(lookup *l, cok_character *character, uint8_t *extra)
         }
         int8_t adjust = (int8_t)ds_byte(l, 0x3970 + race * 8 + skill, "a thief skill");
         uint8_t value = ds_byte(l, 0x3908 + level * 8 + skill, "a thief skill");
-        uint8_t *skill_value = &c[0xda + skill];
+        uint8_t *skill_value = c + cok_field_offset_at(L, COK_FIELD_THIEF_SKILL, skill);
         if (adjust < 0 && value < -adjust + *extra) {
             *skill_value = 0;
         } else {
             *skill_value = (uint8_t)(value + adjust + *extra);
-            if (skill < 6)
+            if (skill < 6) {
+                uint8_t dex = cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_DEXTERITY);
                 *skill_value = (uint8_t)(*skill_value +
-                                         ds_byte(l, 0x397b + c[0x17] * 5 + skill, "a thief skill"));
+                                         ds_byte(l, 0x397b + dex * 5 + skill, "a thief skill"));
+            }
         }
         if (power2) *skill_value = (uint8_t)(*skill_value + 10);
     }
 }
 
-bool cok_character_levels(cok_character *character, const cok_item_types *types, char *error,
-                          size_t error_size)
+bool cok_character_levels(cok_character *character, const cok_rules *rules,
+                          const cok_item_types *types, char *error, size_t error_size)
 {
     lookup l = {error, error_size, false};
+    const cok_character_layout *L = rules->character;
     uint8_t *c = character->record;
-    c[0x59] = 0;
+    cok_field_set8(L, c, COK_FIELD_BASE_THAC0, 0);
     for (int class = 0; class <= 7; ++class) {
-        int8_t level = (int8_t)c[0xf9 + class];
+        int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, class);
         uint8_t thac0 = ds_byte(&l, 0x3882 + class * 13 + level, "THAC0");
-        if (thac0 > c[0x59]) c[0x59] = thac0;
-        if ((int8_t)c[0xd6] < level) c[0xd6] = (uint8_t)level;
+        if (thac0 > cok_field_u8(L, c, COK_FIELD_BASE_THAC0))
+            cok_field_set8(L, c, COK_FIELD_BASE_THAC0, thac0);
+        if ((int8_t)cok_field_u8(L, c, COK_FIELD_HIGHEST_LEVEL) < level)
+            cok_field_set8(L, c, COK_FIELD_HIGHEST_LEVEL, (uint8_t)level);
         if ((class == 2 && level > 6) || (class == 4 && level > 7) || (class == 7 && level > 6))
-            c[0x10b] = 3;
+            cok_field_set8_at(L, c, COK_FIELD_BASE_ATTACKS, 1, 3);
     }
-    if ((c[0x5d] == 6 && (c[0x5a] == 3 || c[0x5a] == 4)) || c[0x5d] == 3) ++c[0x59];
-    spells(&l, character);
-    saving_throws(&l, character);
+    uint8_t deity = cok_field_u8(L, c, COK_FIELD_DEITY), race = cok_field_u8(L, c, COK_FIELD_RACE);
+    if ((deity == 6 && (race == 3 || race == 4)) || deity == 3)
+        cok_field_add8(L, c, COK_FIELD_BASE_THAC0, 1);
+    spells(&l, L, character);
+    saving_throws(&l, L, character);
     /* 66c2:0b9f's uninitialized local lies where 66c2:08a6 left its class
      * counter, 7. An interrupt between the calls could change it; the
      * characters the original saved show 7. */
     uint8_t extra = 7;
-    if ((int8_t)c[0xff] > 0) thief_skills(&l, character, &extra);
-    c[0x11a] = 0;
+    if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 6) > 0)
+        thief_skills(&l, rules, character, &extra);
+    cok_field_set8(L, c, COK_FIELD_USABLE_CLASSES, 0);
     for (int class = 0; class <= 7; ++class) {
-        int8_t level = (int8_t)c[0xf9 + class], former = (int8_t)c[0x101 + class];
-        if (level > 0 || (former > 0 && former < (int8_t)c[0xd6]))
-            c[0x11a] = (uint8_t)(c[0x11a] + class_bits[class]);
+        int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, class),
+               former = cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, class);
+        if (level > 0 ||
+            (former > 0 && former < (int8_t)cok_field_u8(L, c, COK_FIELD_HIGHEST_LEVEL)))
+            cok_field_add8(L, c, COK_FIELD_USABLE_CLASSES, class_bits[class]);
     }
     for (size_t i = 0; i < COK_ITEM_SLOTS && !l.failed; ++i) {
         uint8_t *item = slot_item(character, i);
         if (item == NULL) continue;
         const uint8_t *type = item_type(&l, types, item);
         if (type == NULL) break;
-        if ((type[13] & c[0x11a]) == 0 && item[0x36] == 0) item[0x34] = 0;
+        if ((type[13] & cok_field_u8(L, c, COK_FIELD_USABLE_CLASSES)) == 0 && item[0x36] == 0)
+            item[0x34] = 0;
     }
-    if (!l.failed && cok_character_former_class(c)) {
+    if (!l.failed && cok_character_former_class(c, rules)) {
         for (int class = 0; class <= 7; ++class) {
-            int8_t former = (int8_t)c[0x101 + class];
+            int8_t former = cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, class);
             if (((class == 2 || class == 7) && former > 6) || (class == 4 && former > 7))
-                c[0x10b] = 3;
+                cok_field_set8_at(L, c, COK_FIELD_BASE_ATTACKS, 1, 3);
             uint8_t thac0 = ds_byte(&l, 0x3882 + class * 13 + former, "THAC0");
-            if (thac0 > c[0x59]) c[0x59] = thac0;
+            if (thac0 > cok_field_u8(L, c, COK_FIELD_BASE_THAC0))
+                cok_field_set8(L, c, COK_FIELD_BASE_THAC0, thac0);
         }
-        if ((int8_t)c[0x103] > 6 || (int8_t)c[0x105] > 7 || (int8_t)c[0x108] > 6) c[0x10b] = 3;
+        if (cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 2) > 6 ||
+            cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 4) > 7 ||
+            cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 7) > 6)
+            cok_field_set8_at(L, c, COK_FIELD_BASE_ATTACKS, 1, 3);
         /* Here the local holds what the first call left, or still 7. */
-        if ((int8_t)c[0x107] > 0) thief_skills(&l, character, &extra);
+        if (cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 6) > 0)
+            thief_skills(&l, rules, character, &extra);
     }
     return !l.failed;
 }
 
-bool cok_character_cleric_spells(cok_character *character, char *error, size_t error_size)
+bool cok_character_cleric_spells(cok_character *character, const cok_rules *rules, char *error,
+                                 size_t error_size)
 {
     lookup l = {error, error_size, false};
-    cleric_spells(&l, character->record);
+    cleric_spells(&l, rules->character, character->record);
     return !l.failed;
 }
 
-bool cok_character_saving_throws(cok_character *character, char *error, size_t error_size)
+bool cok_character_saving_throws(cok_character *character, const cok_rules *rules, char *error,
+                                 size_t error_size)
 {
     lookup l = {error, error_size, false};
-    saving_throws(&l, character);
+    saving_throws(&l, rules->character, character);
     return !l.failed;
 }
 
-bool cok_character_thief_skills(cok_character *character, uint8_t extra, char *error,
-                                size_t error_size)
+bool cok_character_thief_skills(cok_character *character, const cok_rules *rules, uint8_t extra,
+                                char *error, size_t error_size)
 {
     lookup l = {error, error_size, false};
-    thief_skills(&l, character, &extra);
+    thief_skills(&l, rules, character, &extra);
     return !l.failed;
 }
 
-bool cok_party_add(cok_party *party, cok_character *character)
+bool cok_party_add(cok_party *party, const cok_rules *rules, cok_character *character)
 {
+    const cok_character_layout *L = rules->character;
     if (party->count == COK_PARTY_RECORDS) return false;
     bool used[COK_PARTY_MAX] = {false};
     for (size_t i = 0; i < party->count; ++i) {
-        uint8_t slot = party->members[i]->record[0x137];
+        uint8_t slot = cok_field_u8(L, party->members[i]->record, COK_FIELD_ICON);
         if (slot < COK_PARTY_MAX) used[slot] = true; /* the set at 4b6d:1969 is 0-7 */
     }
     uint8_t slot = 0;
     while (slot < COK_PARTY_MAX && used[slot]) ++slot;
-    character->record[0x137] = slot;
+    cok_field_set8(L, character->record, COK_FIELD_ICON, slot);
     party->members[party->count++] = character;
     return true;
 }
@@ -1491,12 +1562,13 @@ uint8_t *cok_party_special(const cok_party *party, const uint8_t *selected, uint
 }
 
 /* Draw a Pascal string[15] from a record. */
-static void draw_name(cok_picture *dst, const cok_font *font, const uint8_t *record, int x, int y,
-                      uint8_t color)
+static void draw_name(cok_picture *dst, const cok_font *font, const cok_character_layout *L,
+                      const uint8_t *record, int x, int y, uint8_t color)
 {
     char name[16];
-    size_t length = record[0] > 15 ? 15 : record[0];
-    memcpy(name, record + 1, length);
+    uint8_t stored = cok_field_u8_at(L, record, COK_FIELD_NAME, 0);
+    size_t length = stored > 15 ? 15 : stored;
+    memcpy(name, record + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
     name[length] = '\0';
     cok_text_string(dst, font, name, x, y, color, 0);
 }
@@ -1508,8 +1580,9 @@ static void clear_row(cok_picture *dst, int x, int y)
 }
 
 void cok_party_draw(cok_picture *dst, const cok_font *font, const cok_party *party,
-                    const uint8_t *selected, int x, bool combat)
+                    const cok_rules *rules, const uint8_t *selected, int x, bool combat)
 {
+    const cok_character_layout *L = rules->character;
     int y = 2;
     cok_text_string(dst, font, "Name", x, y, 15, 0);
     cok_text_string(dst, font, "AC  HP", 0x21, y, 15, 0);
@@ -1520,41 +1593,44 @@ void cok_party_draw(cok_picture *dst, const cok_font *font, const cok_party *par
         clear_row(dst, x, y);
         uint8_t color = 0x0b;
         if (c == selected) color = 15;
-        else if (c[0x189] == 0) color = 0x0c;
-        else if (c[0x18a] == 1 && combat) color = 0x0e;
-        draw_name(dst, font, c, x, y, color);
+        else if (cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0) color = 0x0c;
+        else if (cok_field_u8(L, c, COK_FIELD_HOSTILE) == 1 && combat) color = 0x0e;
+        draw_name(dst, font, L, c, x, y, color);
         /* Armour class, stored as 60 - AC, right-aligned for two digits
          * or a minus and one. */
-        uint8_t ac = c[0x18d];
+        uint8_t ac = cok_field_u8(L, c, COK_FIELD_AC);
         int width = ac <= 0x32 ? 1 : ac <= 0x3c ? 2 : ac <= 0x45 ? 1 : 0;
         snprintf(text, sizeof text, ac > 60 ? "-%d" : "%d", ac > 60 ? ac - 60 : 60 - ac);
         cok_text_string(dst, font, text, 0x20 + width, y, 0x0a, 0);
-        uint8_t hp = c[0x197];
+        uint8_t hp = cok_field_u8(L, c, COK_FIELD_HIT_POINTS);
         width = hp <= 9 ? 2 : hp <= 99 ? 1 : 0;
         snprintf(text, sizeof text, "%u", hp);
-        cok_text_string(dst, font, text, 0x24 + width, y, hp < c[0x62] ? 0x0e : 0x0a, 0);
+        cok_text_string(dst, font, text, 0x24 + width, y,
+                        hp < cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS) ? 0x0e : 0x0a, 0);
     }
     clear_row(dst, x, y);
 }
 
-void cok_character_damage(uint8_t *c, uint8_t damage)
+void cok_character_damage(uint8_t *c, const cok_rules *rules, uint8_t damage)
 {
-    uint8_t over = 0, left = 0, hp = c[0x197];
+    const cok_character_layout *L = rules->character;
+    uint8_t over = 0, left = 0, hp = cok_field_u8(L, c, COK_FIELD_HIT_POINTS);
     if (hp < damage)
         over = (uint8_t)(damage - hp);
     else
         left = (uint8_t)(hp - damage);
-    if (over > 9 || (left == 0 && c[0x188] == 1))
-        c[0x188] = 6;
+    if (over > 9 || (left == 0 && cok_field_u8(L, c, COK_FIELD_STATUS) == 1))
+        cok_field_set8(L, c, COK_FIELD_STATUS, 6);
     else if (over > 0)
-        c[0x188] = 5;
+        cok_field_set8(L, c, COK_FIELD_STATUS, 5);
     else if (left == 0)
-        c[0x188] = 4;
-    if (c[0x188] == 0 || c[0x188] == 1) {
-        c[0x197] = left;
+        cok_field_set8(L, c, COK_FIELD_STATUS, 4);
+    uint8_t status = cok_field_u8(L, c, COK_FIELD_STATUS);
+    if (status == 0 || status == 1) {
+        cok_field_set8(L, c, COK_FIELD_HIT_POINTS, left);
     } else {
-        c[0x189] = 0;
-        c[0x197] = 0;
+        cok_field_set8(L, c, COK_FIELD_ACTIVE, 0);
+        cok_field_set8(L, c, COK_FIELD_HIT_POINTS, 0);
     }
 }
 
@@ -1662,7 +1738,8 @@ bool cok_character_write_file(const cok_character *character, const cok_rules *r
     snprintf(path, sizeof path, "%s/%s.%s", dir, base, extension);
     /* The record goes as it is; its far pointers, which the original
      * writes as they are in memory and its loader clears, are 0 here. */
-    if (!write_file(path, character->record, COK_CHARACTER_SIZE, error, error_size)) return false;
+    if (!write_file(path, character->record, rules->character->file_size, error, error_size))
+        return false;
     /* 169c:0154 erases the items and effects, which are written again only
      * if there are any, each with its next pointer, 0 for the last. */
     snprintf(path, sizeof path, "%s/%s.%s", dir, base, rules->saves.items);
@@ -1703,18 +1780,22 @@ bool cok_character_write_file(const cok_character *character, const cok_rules *r
     return ok;
 }
 
-bool cok_character_heal(uint8_t *c, uint8_t amount, bool only_hurt, uint8_t mode)
+bool cok_character_heal(uint8_t *c, const cok_rules *rules, uint8_t amount, bool only_hurt,
+                        uint8_t mode)
 {
-    uint8_t status = c[0x188];
+    const cok_character_layout *L = rules->character;
+    uint8_t status = cok_field_u8(L, c, COK_FIELD_STATUS);
     if (status != 0 && status != 1 && status != 4 && status != 5) return false; /* 60f4:21ca */
-    if (only_hurt && c[0x197] >= c[0x62]) return false;
-    c[0x197] = (uint8_t)(c[0x197] + amount);
-    if (c[0x197] > c[0x62]) c[0x197] = c[0x62];
-    if (c[0x189] == 0) {
-        if (c[0x188] == 5) c[0x188] = 4;
-        if (c[0x188] == 4 && mode != 5) {
-            c[0x188] = 0;
-            c[0x189] = 1;
+    uint8_t max = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS);
+    if (only_hurt && cok_field_u8(L, c, COK_FIELD_HIT_POINTS) >= max) return false;
+    cok_field_add8(L, c, COK_FIELD_HIT_POINTS, amount);
+    if (cok_field_u8(L, c, COK_FIELD_HIT_POINTS) > max)
+        cok_field_set8(L, c, COK_FIELD_HIT_POINTS, max);
+    if (cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0) {
+        if (cok_field_u8(L, c, COK_FIELD_STATUS) == 5) cok_field_set8(L, c, COK_FIELD_STATUS, 4);
+        if (cok_field_u8(L, c, COK_FIELD_STATUS) == 4 && mode != 5) {
+            cok_field_set8(L, c, COK_FIELD_STATUS, 0);
+            cok_field_set8(L, c, COK_FIELD_ACTIVE, 1);
         }
     }
     return true;

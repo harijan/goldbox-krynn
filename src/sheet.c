@@ -32,11 +32,6 @@ static void clear_cells(cok_adventure *game, int x1, int y1, int x2, int y2)
                      0); /* 1128:07e6 */
 }
 
-static uint16_t word(const uint8_t *p)
-{
-    return (uint16_t)(p[0] | p[1] << 8);
-}
-
 /* The name at DS:base + stride * index, index a signed byte, as the
  * original reads it, or false where it would read past the name strings. */
 static bool table_name(cok_adventure *game, uint16_t base, int stride, int8_t index, char out[256])
@@ -78,11 +73,13 @@ static bool class_line(cok_adventure *game, const uint8_t *c, const char *const 
         memcpy(buffer + 1, before[k], length);
         for (size_t i = 0; i <= length; ++i) known[i] = true;
     }
+    const cok_character_layout *L = cok_game_rules(game)->character;
     char s[256];
-    if (!table_name(game, 0x0f5a, 27, (int8_t)c[0x5b], s)) return false;
-    if ((int8_t)c[0xf9] > 0) {
+    if (!table_name(game, 0x0f5a, 27, (int8_t)cok_field_u8(L, c, COK_FIELD_CLASS), s)) return false;
+    if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0) > 0) {
         char deity[256], line[256];
-        if (!table_name(game, 0x1259, 12, (int8_t)c[0x5d], deity)) return false;
+        if (!table_name(game, 0x1259, 12, (int8_t)cok_field_u8(L, c, COK_FIELD_DEITY), deity))
+            return false;
         line[0] = '\0';
         append(line, deity);
         append(line, " ");
@@ -92,7 +89,7 @@ static bool class_line(cok_adventure *game, const uint8_t *c, const char *const 
     size_t length = strlen(s);
     memcpy(buffer + 1, s, length);
     for (size_t i = 0; i <= length; ++i) known[i] = true;
-    if ((int8_t)c[0xfe] > 0) {
+    if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) > 0) {
         size_t at = 0;
         for (;;) {
             ++at;
@@ -103,7 +100,8 @@ static bool class_line(cok_adventure *game, const uint8_t *c, const char *const 
             if (at > length) break;
         }
         char order[256], insert[256];
-        if (!cok_ds_string((uint16_t)(0x12b9 + 7 * c[0x5e]), order))
+        if (!cok_ds_string((uint16_t)(0x12b9 + 7 * cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER)),
+                           order))
             return undefined(game, "the order of magic is past the name strings");
         insert[0] = '\0';
         append(insert, order);
@@ -117,9 +115,10 @@ static bool class_line(cok_adventure *game, const uint8_t *c, const char *const 
         append(line, s + keep);
         memcpy(s, line, sizeof s);
     }
-    if ((int8_t)c[0x100] > 0) {
+    if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > 0) {
         static const char *const orders[4] = {"", " of the Crown", " of the Sword", " of the Rose"};
-        if (c[0x5c] >= 1 && c[0x5c] <= 3) append(s, orders[c[0x5c]]);
+        uint8_t order = cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER);
+        if (order >= 1 && order <= 3) append(s, orders[order]);
     }
     snprintf(out, 256, "%s", s);
     return true;
@@ -127,12 +126,12 @@ static bool class_line(cok_adventure *game, const uint8_t *c, const char *const 
 
 /* 66c2:0eab: a human's level in its first class with one, the knight
  * level if none; 0 for others. */
-static int8_t first_level(const uint8_t *c)
+static int8_t first_level(const cok_character_layout *L, const uint8_t *c)
 {
-    if (c[0x5a] != 6) return 0;
+    if (cok_field_u8(L, c, COK_FIELD_RACE) != 6) return 0;
     size_t i = 0;
-    while (i < 7 && c[0xf9 + i] == 0) ++i;
-    return (int8_t)c[0xf9 + i];
+    while (i < 7 && cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, i) == 0) ++i;
+    return cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i);
 }
 
 /* Ability i on row 9 + i (546c:0b50): the current score from column 5, 6
@@ -140,29 +139,34 @@ static int8_t first_level(const uint8_t *c)
  * at column 12 when it differs from the base. */
 void cok_sheet_ability(cok_adventure *game, const uint8_t *c, int i, uint8_t color)
 {
-    uint8_t score = c[0x11 + 2 * i];
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t score = cok_field_u8_at(L, c, COK_FIELD_SCORE, i);
+    uint8_t exceptional = cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL);
     char text[16];
     clear_cells(game, 5, 9 + i, 0x0b, 9 + i);
     snprintf(text, sizeof text, "%u", score);
     draw(game, text, score < 10 ? 6 : 5, 9 + i, color);
-    if (i == 0 && score == 18 && c[0x1c] > 0) {
+    if (i == 0 && score == 18 && exceptional > 0) {
         char ex[8];
-        snprintf(ex, sizeof ex, "%s%u", c[0x1c] < 10 ? "0" : "", c[0x1c]);
-        if (c[0x1c] == 100) snprintf(ex, sizeof ex, "00");
+        snprintf(ex, sizeof ex, "%s%u", exceptional < 10 ? "0" : "", exceptional);
+        if (exceptional == 100) snprintf(ex, sizeof ex, "00");
         snprintf(text, sizeof text, "(%s)", ex);
         draw(game, text, 7, 9, color);
     }
-    if (score != c[0x10 + 2 * i] || (i == 0 && c[0x1d] != c[0x1c])) draw(game, "*", 12, 9 + i, color);
+    if (score != cok_field_u8_at(L, c, COK_FIELD_SCORE_BASE, i) ||
+        (i == 0 && cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL_BASE) != exceptional))
+        draw(game, "*", 12, 9 + i, color);
 }
 
 /* The money (546c:0667): each kind but silver that the character has, from
  * row 9, its name at column 20 and its amount ending at column 37. */
 bool cok_sheet_money(cok_adventure *game, const uint8_t *c)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     clear_cells(game, 0x14, 9, 0x26, 0x0f);
     int row = 9;
     for (int i = 1; i <= 6; ++i) {
-        uint16_t amount = word(c + 0xeb + 2 * i);
+        uint16_t amount = cok_field_u16_at(L, c, COK_FIELD_COINS, i);
         if (amount == 0) continue;
         char name[256], text[8];
         if (!table_name(game, 0x12e3, 11, (int8_t)i, name)) return false;
@@ -187,48 +191,54 @@ static void pad(char *out, size_t size, const char *text, size_t width)
 void cok_sheet_hit_points(cok_adventure *game, const uint8_t *c, int x, int y, bool highlight,
                           bool show_max)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t hp = cok_field_u8(L, c, COK_FIELD_HIT_POINTS),
+            max = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS);
     char text[8], value[8];
-    snprintf(text, sizeof text, "%u", c[0x197]);
-    draw(game, text, x, y, highlight ? 13 : c[0x197] < c[0x62] ? 14 : 10);
+    snprintf(text, sizeof text, "%u", hp);
+    draw(game, text, x, y, highlight ? 13 : hp < max ? 14 : 10);
     if (!show_max) return;
-    snprintf(value, sizeof value, "/%u", c[0x62]);
+    snprintf(value, sizeof value, "/%u", max);
     draw(game, value, x + (int)strlen(text), y, 10);
 }
 
 bool cok_sheet_figures(cok_adventure *game, cok_character *character)
 {
     char error[300], text[64], value[48];
-    if (!cok_character_stats(character, &game->item_types, error, sizeof error))
+    if (!cok_character_stats(character, cok_game_rules(game), &game->item_types, error,
+                             sizeof error))
         return undefined(game, error);
+    const cok_character_layout *L = cok_game_rules(game)->character;
     const uint8_t *c = character->record;
     draw(game, "Hit Points ", 0x14, 3, 15);
     clear_cells(game, 0x1f, 3, 0x25, 3);
     /* 6346:0a0d: hit points, yellow while below the maximum, "/" and it. */
     cok_sheet_hit_points(game, c, 0x1f, 3, false, true);
     draw(game, "Armor Class", 1, 0x11, 15);
-    uint8_t ac = c[0x18d];
+    uint8_t ac = cok_field_u8(L, c, COK_FIELD_AC);
     int x = ac >= 1 && ac <= 0x32 ? 0x10 : ac >= 0x33 && ac <= 0x3c ? 0x11 : ac >= 0x3d && ac <= 0x45 ? 0x10 : 0x0f;
     clear_cells(game, 0x0f, 0x11, 0x11, 0x11);
     /* 6346:0984: |60 - AC field| as a byte, "-" before it above 60. */
     snprintf(text, sizeof text, "%s%u", ac > 60 ? "-" : "", (unsigned)abs(ac - 60) & 0xffu);
     draw(game, text, x, 0x11, 10);
     draw(game, "Encumbrance", 0x14, 0x11, 15);
-    snprintf(value, sizeof value, "%u", word(c + 0x17d));
+    snprintf(value, sizeof value, "%u", cok_field_u16(L, c, COK_FIELD_WEIGHT));
     pad(text, sizeof text, value, 5);
     draw(game, text, 0x21, 0x11, 10);
     draw(game, "THAC0   ", 1, 0x12, 15);
-    snprintf(value, sizeof value, "%u", (uint8_t)(60 - c[0x18c]));
+    snprintf(value, sizeof value, "%u", (uint8_t)(60 - cok_field_u8(L, c, COK_FIELD_THAC0)));
     pad(text, sizeof text, value, 2);
     draw(game, text, 0x10, 0x12, 10);
-    uint8_t movement = c[0x198];
+    uint8_t movement = cok_field_u8(L, c, COK_FIELD_MOVEMENT);
     if (cok_character_find_effect(character, 0x27) != NULL) movement = (uint8_t)(movement * 2);
     if (cok_character_find_effect(character, 0x2a) != NULL) movement = (uint8_t)(movement >> 1);
     draw(game, "Movement", 0x14, 0x12, 15);
     snprintf(value, sizeof value, "%u", movement);
     pad(text, sizeof text, value, 3);
     draw(game, text, 0x23, 0x12, 10);
-    int8_t bonus = (int8_t)c[0x195];
-    snprintf(value, sizeof value, "%ud%u", c[0x191], c[0x193]);
+    int8_t bonus = cok_field_s8_at(L, c, COK_FIELD_DAMAGE_BONUS, 1);
+    snprintf(value, sizeof value, "%ud%u", cok_field_u8_at(L, c, COK_FIELD_DICE, 1),
+             cok_field_u8_at(L, c, COK_FIELD_DICE_SIDES, 1));
     if (bonus > 0) snprintf(value + strlen(value), sizeof value - strlen(value), "+%u", (unsigned)bonus);
     if (bonus < 0) snprintf(value + strlen(value), sizeof value - strlen(value), "-%u", (unsigned)(-bonus) & 0xffu);
     draw(game, "Damage", 1, 0x13, 15);
@@ -242,27 +252,35 @@ bool cok_sheet_draw(cok_adventure *game)
     cok_character *character = selected(game);
     if (character == NULL)
         return undefined(game, "the sheet with no character selected reads through NULL (546c:00a3)");
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
     uint16_t moons[3];
     for (size_t i = 0; i < 3; ++i) moons[i] = game->vm.mem4b00[0x1f9 + i];
     cok_screen_sheet(&game->screen, &game->view.tiles[4], moons);
     char name[20], status[256], gender[256], alignment[256], race[256], line[256];
-    size_t length = c[0] > 15 ? 15 : c[0];
-    memcpy(name, c + 1, length);
+    uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
+    size_t length = stored > 15 ? 15 : stored;
+    memcpy(name, c + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
     name[length] = '\0';
     cok_adventure_log(game, "print", name);
-    uint8_t color = c[0x189] == 0 ? 12 : game->vm.mode == 5 && c[0x18a] == 1 ? 14 : 11;
+    uint8_t color = cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0 ? 12
+                    : game->vm.mode == 5 && cok_field_u8(L, c, COK_FIELD_HOSTILE) == 1 ? 14
+                                                                                       : 11;
     draw(game, name, 1, 1, color);
     draw(game, "Status:", 0x14, 1, 15);
-    if (!table_name(game, 0x1330, 13, (int8_t)c[0x188], status)) return false;
+    if (!table_name(game, 0x1330, 13, (int8_t)cok_field_u8(L, c, COK_FIELD_STATUS), status))
+        return false;
     draw(game, status, 0x1b, 1, 10);
-    if (!table_name(game, 0x12d5, 7, (int8_t)c[0x109], gender)) return false;
+    if (!table_name(game, 0x12d5, 7, (int8_t)cok_field_u8(L, c, COK_FIELD_GENDER), gender))
+        return false;
     draw(game, gender, 1, 3, 15);
-    snprintf(line, sizeof line, "%u years", word(c + 0x60));
+    snprintf(line, sizeof line, "%u years", cok_field_u16(L, c, COK_FIELD_AGE));
     draw(game, line, 8, 3, 15);
-    if (!table_name(game, 0x11c0, 17, (int8_t)c[0x10a], alignment)) return false;
+    if (!table_name(game, 0x11c0, 17, (int8_t)cok_field_u8(L, c, COK_FIELD_ALIGNMENT), alignment))
+        return false;
     draw(game, alignment, 1, 4, 15);
-    if (!table_name(game, 0x1140, 16, (int8_t)c[0x5a], race)) return false;
+    if (!table_name(game, 0x1140, 16, (int8_t)cok_field_u8(L, c, COK_FIELD_RACE), race))
+        return false;
     draw(game, race, 0x14, 4, 15);
     const char *before[3] = {gender, alignment, race};
     if (!class_line(game, c, before, line)) return false;
@@ -274,8 +292,9 @@ bool cok_sheet_draw(cok_adventure *game)
     char levels[256] = "";
     bool any = false;
     for (int i = 0; i < 8; ++i) {
-        int8_t now = (int8_t)c[0xf9 + i], before_level = (int8_t)c[0x101 + i];
-        if (now <= 0 && !(before_level < first_level(c) && before_level > 0)) continue;
+        int8_t now = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i),
+               before_level = cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, i);
+        if (now <= 0 && !(before_level < first_level(L, c) && before_level > 0)) continue;
         char value[8];
         snprintf(value, sizeof value, "%u", (uint8_t)(now + before_level));
         if (any) append(levels, "/");
@@ -283,8 +302,7 @@ bool cok_sheet_draw(cok_adventure *game)
         any = true;
     }
     draw(game, levels, 7, 7, 15);
-    uint32_t bits = (uint32_t)c[0x116] | (uint32_t)c[0x117] << 8 | (uint32_t)c[0x118] << 16 |
-                    (uint32_t)c[0x119] << 24;
+    uint32_t bits = cok_field_u32(L, c, COK_FIELD_EXPERIENCE);
     int32_t experience = bits > INT32_MAX ? -(int32_t)(~bits) - 1 : (int32_t)bits;
     snprintf(line, sizeof line, "Experience %ld", (long)experience);
     draw(game, line, 0x14, 7, 15);
@@ -380,11 +398,12 @@ static int coin_of(const char *row, const char **word_out)
 static int pick_coin(cok_adventure *game, const uint8_t *c, int pad_to, bool count_amount,
                      const char **coin_word)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     static char text[6][41];
     cok_menu_row rows[6];
     size_t count = 0;
     for (int i = 1; i <= 6; ++i) {
-        uint16_t amount = word(c + 0xeb + 2 * i);
+        uint16_t amount = cok_field_u16_at(L, c, COK_FIELD_COINS, i);
         if (amount == 0) continue;
         char name[256], number[16], padding[16] = "";
         if (!table_name(game, 0x12e3, 11, (int8_t)i, name)) return -1;
@@ -420,17 +439,11 @@ static int pick_coin(cok_adventure *game, const uint8_t *c, int pad_to, bool cou
     return coin;
 }
 
-static bool has_money(const uint8_t *c)
+static bool has_money(const cok_character_layout *L, const uint8_t *c)
 {
     for (int i = 1; i <= 6; ++i)
-        if (word(c + 0xeb + 2 * i) != 0) return true;
+        if (cok_field_u16_at(L, c, COK_FIELD_COINS, i) != 0) return true;
     return false;
-}
-
-static void put_word(uint8_t *p, uint16_t value)
-{
-    p[0] = (uint8_t)value;
-    p[1] = (uint8_t)(value >> 8);
 }
 
 /* Trade money (546c:2c75): "Trade to?" from the last partner (DS:46b0),
@@ -438,6 +451,7 @@ static void put_word(uint8_t *p, uint16_t value)
  * left, or Escape in the coin list asks for another partner. */
 static bool trade_money(cok_adventure *game, cok_character *giver, cok_sheet_stale stale)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *g = giver->record;
     for (;;) {
         cok_adventure_redraw(game);
@@ -467,26 +481,35 @@ static bool trade_money(cok_adventure *game, cok_character *giver, cok_sheet_sta
             }
             char prompt[256];
             snprintf(prompt, sizeof prompt, "How much %swill you trade? ", coin_word);
-            int amount = cok_sheet_amount(game, prompt, word(g + 0xeb + 2 * coin));
+            int amount =
+                cok_sheet_amount(game, prompt, cok_field_u16_at(L, g, COK_FIELD_COINS, coin));
             if (amount < 0) return false;
             /* 58e7:044b: within what the receiver may carry, as words. */
             int16_t allowance;
             char error[300];
-            if (!cok_character_allowance(receiver->record, &allowance, error, sizeof error))
+            if (!cok_character_allowance(receiver->record, cok_game_rules(game), &allowance, error,
+                                         sizeof error))
                 return undefined(game, error);
             uint8_t *r = receiver->record;
-            if ((uint16_t)(word(r + 0x17d) + amount) > (uint16_t)(allowance + 1500)) {
+            if ((uint16_t)(cok_field_u16(L, r, COK_FIELD_WEIGHT) + amount) >
+                (uint16_t)(allowance + 1500)) {
                 cok_camp_notice(game, "Overloaded");
                 cok_adventure_wait(game, game->speed * 100u);
                 cok_adventure_flush(game); /* 58e7:0506 */
             } else {
-                put_word(g + 0xeb + 2 * coin, (uint16_t)(word(g + 0xeb + 2 * coin) - amount));
-                put_word(g + 0x17d, (uint16_t)(word(g + 0x17d) - amount));
-                put_word(r + 0xeb + 2 * coin, (uint16_t)(word(r + 0xeb + 2 * coin) + amount));
-                put_word(r + 0x17d, (uint16_t)(word(r + 0x17d) + amount));
+                cok_field_set16_at(
+                    L, g, COK_FIELD_COINS, coin,
+                    (uint16_t)(cok_field_u16_at(L, g, COK_FIELD_COINS, coin) - amount));
+                cok_field_set16(L, g, COK_FIELD_WEIGHT,
+                                (uint16_t)(cok_field_u16(L, g, COK_FIELD_WEIGHT) - amount));
+                cok_field_set16_at(
+                    L, r, COK_FIELD_COINS, coin,
+                    (uint16_t)(cok_field_u16_at(L, r, COK_FIELD_COINS, coin) + amount));
+                cok_field_set16(L, r, COK_FIELD_WEIGHT,
+                                (uint16_t)(cok_field_u16(L, r, COK_FIELD_WEIGHT) + amount));
             }
             stale = COK_SHEET_STALE_ZERO;
-            if (!has_money(g)) return true;
+            if (!has_money(L, g)) return true;
         }
     }
 }
@@ -496,6 +519,7 @@ static bool trade_money(cok_adventure *game, cok_character *giver, cok_sheet_sta
  * elsewhere they are gone. */
 static bool drop_money(cok_adventure *game, cok_character *character)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
     for (;;) {
         if (!cok_sheet_money(game, c)) return false;
@@ -505,10 +529,10 @@ static bool drop_money(cok_adventure *game, cok_character *character)
         if (coin == 0x100) return true;
         char prompt[256];
         snprintf(prompt, sizeof prompt, "How much %swill you drop? ", coin_word);
-        int amount = cok_sheet_amount(game, prompt, word(c + 0xeb + 2 * coin));
+        int amount = cok_sheet_amount(game, prompt, cok_field_u16_at(L, c, COK_FIELD_COINS, coin));
         if (amount < 0) return false;
         cok_pool_drop(game, c, (uint16_t)amount, coin); /* 58e7:09fa */
-        if (!has_money(c)) return true;
+        if (!has_money(L, c)) return true;
     }
 }
 
@@ -524,18 +548,21 @@ void cok_sheet(cok_adventure *game, cok_sheet_stale stale, bool *done)
         return;
     }
     if (!cok_sheet_draw(game)) return;
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
     int key = ' ';
     while (key != 0 && key != 'E' && !*done && !game->vm.abort) {
         char items[41] = "";
         bool memorized = false;
-        for (size_t i = 0; i < 0x3a; ++i)
-            if (c[0x1e + i] != 0) memorized = true;
-        bool may_trade = c[0xe7] < 0x80 || c[0x189] == 0 || c[0x188] == 1;
+        for (size_t i = 0; i < cok_field_count(L, COK_FIELD_MEMORIZED); ++i)
+            if (cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) != 0) memorized = true;
+        bool may_trade = cok_field_u8(L, c, COK_FIELD_NPC) < 0x80 ||
+                         cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0 ||
+                         cok_field_u8(L, c, COK_FIELD_STATUS) == 1;
         if (character->item_count > 0) strcat(items, "Items ");
         if (memorized) strcat(items, "Spells ");
-        if (may_trade && has_money(c) && game->vm.mode != 5) strcat(items, "Trade ");
-        if (has_money(c)) strcat(items, "Drop ");
+        if (may_trade && has_money(L, c) && game->vm.mode != 5) strcat(items, "Trade ");
+        if (has_money(L, c)) strcat(items, "Drop ");
         strcat(items, "Exit");
         bool special;
         key = cok_camp_menu(game, "", items, false, false, &special);

@@ -85,7 +85,7 @@ static cok_character *member(const char *name)
     c->record[0] = (uint8_t)strlen(name);
     memcpy(c->record + 1, name, strlen(name));
     c->record[0x189] = 1;
-    CHECK(cok_party_add(&game.party, c));
+    CHECK(cok_party_add(&game.party, &cok_rules_champions, c));
     return c;
 }
 

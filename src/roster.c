@@ -342,14 +342,16 @@ void cok_roster_add(cok_adventure *game)
             }
         }
         if (accept) {
-            if (!cok_party_add(&game->party, c)) {
+            if (!cok_party_add(&game->party, cok_game_rules(game), c)) {
                 cok_character_free(c);
                 free(c);
                 undefined(game, "a 73rd record in the list");
                 return;
             }
             char error[300];
-            if (r[0xe7] >= 0x80 && !cok_character_levels(c, &game->item_types, error, sizeof error)) {
+            if (r[0xe7] >= 0x80 &&
+                !cok_character_levels(c, cok_game_rules(game), &game->item_types, error,
+                                      sizeof error)) {
                 undefined(game, error);
                 return;
             }

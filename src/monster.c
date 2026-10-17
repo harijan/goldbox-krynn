@@ -688,7 +688,7 @@ static void party_strength(cok_adventure *game)
     uint8_t sum = 0;
     for (size_t i = 0; i < game->party.count; ++i) {
         const uint8_t *c = game->party.members[i]->record;
-        int former = cok_character_former_class(c) ? 1 : 0;
+        int former = cok_character_former_class(c, cok_game_rules(game)) ? 1 : 0;
         uint8_t mage = (uint8_t)((int8_t)c[0xfe] + (int8_t)c[0x106] * former);
         uint8_t cleric = (uint8_t)((int8_t)c[0xf9] + (int8_t)c[0x101] * former);
         uint8_t ac = c[0x18d] > 0x3c ? (uint8_t)(c[0x18d] - 0x3c) : 0;

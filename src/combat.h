@@ -241,8 +241,9 @@ void cok_combat_wilderness(cok_combat *combat, uint8_t flags, uint32_t *seed);
  * previous combat record is freed. Returns false with error set where
  * the stats cannot be worked out (see cok_character_stats), leaving the
  * records from that one on as they were. */
-bool cok_combat_records(cok_party *party, const cok_item_types *types, uint16_t party_size,
-                        uint8_t direction, uint16_t morale, char *error, size_t error_size);
+bool cok_combat_records(cok_party *party, const cok_rules *rules, const cok_item_types *types,
+                        uint16_t party_size, uint8_t direction, uint16_t morale, char *error,
+                        size_t error_size);
 
 /* Place every record (3cb2:17f7) on the built map; see combat.c. A
  * monster with no place is removed (4def:3b0a); a party member without

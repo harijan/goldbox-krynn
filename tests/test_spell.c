@@ -196,7 +196,7 @@ static cok_character *record(char name, uint8_t side, int8_t x, int8_t y)
     c->combat->movement = 12;
     c->combat->may_use = c->combat->may_cast = 1;
     char why[300];
-    CHECK(cok_character_stats(c, &game.item_types, why, sizeof why));
+    CHECK(cok_character_stats(c, &cok_rules_champions, &game.item_types, why, sizeof why));
     r[0x18f] = 1;
     r[0x190] = 0;
     c->combat->attack_slot = 2;
@@ -223,7 +223,7 @@ static size_t give(cok_character *c, uint8_t type, bool ready)
     item[0x34] = ready;
     CHECK(cok_character_insert_item(c, c->item_count, item));
     char why[300];
-    CHECK(cok_character_stats(c, &game.item_types, why, sizeof why));
+    CHECK(cok_character_stats(c, &cok_rules_champions, &game.item_types, why, sizeof why));
     return c->item_count;
 }
 

@@ -135,7 +135,8 @@ static bool index_of(cok_adventure *game, const cok_character *c, uint8_t *n, co
 static bool stats(cok_adventure *game, cok_character *c)
 {
     char error[300];
-    if (cok_character_stats(c, &game->item_types, error, sizeof error)) return true;
+    if (cok_character_stats(c, cok_game_rules(game), &game->item_types, error, sizeof error))
+        return true;
     return undefined(game, "%s", error);
 }
 
@@ -267,7 +268,8 @@ bool cok_combat_backstab(cok_adventure *game, cok_character *attacker, cok_chara
 {
     const uint8_t *a = attacker->record;
     *backstab = false;
-    bool thief = (int8_t)a[0xff] > 0 || ((int8_t)a[0x107] > 0 && cok_character_former_class(a));
+    bool thief = (int8_t)a[0xff] > 0 ||
+                 ((int8_t)a[0x107] > 0 && cok_character_former_class(a, cok_game_rules(game)));
     if (!thief) return true;
     size_t weapon = attacker->slots[0];
     if (weapon != 0) {
@@ -323,7 +325,7 @@ bool cok_combat_damage_roll(cok_adventure *game, cok_character *attacker, cok_ch
     if (backstab) {
         /* 2 + (thief levels - 1) / 4 as words, the former ones counted when
          * a human may use them (66c2:0efb); the product a byte. */
-        uint16_t former = cok_character_former_class(a) ? 1 : 0;
+        uint16_t former = cok_character_former_class(a, cok_game_rules(game)) ? 1 : 0;
         uint16_t levels = (uint16_t)((uint16_t)(int16_t)(int8_t)a[0x107] * former +
                                      (uint16_t)(int16_t)(int8_t)a[0xff]);
         uint16_t times = (uint16_t)((uint16_t)(levels - 1) >> 2) + 2u;
@@ -1154,7 +1156,7 @@ bool cok_combat_turn_undead(cok_adventure *game, cok_character *c)
     uint8_t limit = 13, extra = 6;
     uint8_t count = roll(game, 1, 12), d20 = roll(game, 1, 20);
     /* The words' product and sum, as a byte. */
-    int former = cok_character_former_class(r) ? 1 : 0;
+    int former = cok_character_former_class(r, cok_game_rules(game)) ? 1 : 0;
     uint8_t level = (uint8_t)(former * (int8_t)r[0x101] + (int8_t)r[0xf9]);
     if (r[0x5d] == 2) level = (uint8_t)(level + 2);
     for (;;) {

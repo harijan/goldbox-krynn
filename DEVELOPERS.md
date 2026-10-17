@@ -113,7 +113,8 @@ tests of the picture, text, menu, 3D view, overhead map, party and spell
 effect routines, the sound (`tests/test_sound.c`: the drivers' port writes
 against the original's, recorded in an emulator, and the synthesis),
 `KRYNN.CFG` (`tests/test_config.c`), the games' descriptors and `--game`
-(`tests/test_rules.c`, see Games), startup's setup and text screen
+(`tests/test_rules.c`, see Games), the character record's layout
+(`tests/test_layout.c`), startup's setup and text screen
 (`tests/test_setup.c`: against the original's, run in an emulator), the
 mouse's clicks and the joystick (`tests/test_input.c`: against the
 original's, run in an emulator), the display modes
@@ -165,7 +166,8 @@ a path that builds a game some other way without it stops at the first
 read of the rules, with the assertion, not reading through NULL. (Tests
 that build a game by hand set `game.rules` themselves.)
 
-The descriptor holds names so far, a section to a concern:
+The descriptor holds names and the character record's layout, a section
+to a concern:
 
 | Section | Holds | Champions |
 | --- | --- | --- |
@@ -175,6 +177,7 @@ The descriptor holds names so far, a section to a concern:
 | `files` | the devices' file (looked for in upper case, then lower); the item types; the directory the setup takes the game to run in and the save path's default under it | `KRYNN.CFG`, `ITEMS`, `C:\COK\`, `SAVE` |
 | `saves` | saved games (`SAVGAM` letter `.DAT`) and their characters' names (`CHRDAT` letter number); a character's extensions: in a saved game, in the roster, its items, its effects; the debug mode's trace | `SAVGAM`, `DAT`, `CHRDAT`, `SAV`, `WHO`, `STF`, `SFX`, `DEBUG.TXT` |
 | `images` | the archives `daximages` and `daxcompose` read, by layout: XOR deltas, collections, single images; stems, `NULL`-ended | `PIC1-3`; `SPRIT1-3`; the 20 others |
+| `character` | the character record's layout (`src/field.h`): its size, its file's size, and where each field lies | 409 bytes, the fields below |
 
 A `NULL` stem says the game has no such archive (Death Knights has no
 `SKY`, `CURSOR`, `RANDCOM`, `HEAD` or `BODY`): code that reads it must not
@@ -201,6 +204,98 @@ without a saves directory), but for a few checked by review only:
 as its six tiles, which are longer than the map it would hold), and the
 font's, `PIC`'s and `ECL`'s load errors. To add a game: a descriptor of its own
 in `src/rules.c`, listed in `games`, which `--game` then finds.
+
+### The character record's layout
+
+A character stays a record of raw bytes (`cok_character.record`), as the
+files and the original hold it: the ECL reads its fields by offset
+(0x7c00-0x7fff) and the saved files must be byte-exact in each game's own
+layout. Code reaches a field by name through the game's layout,
+`rules->character` (a `cok_character_layout`, `src/field.h`), which gives
+each field of the enum `cok_field` its offset, width (1, 2 or 4 bytes,
+little-endian), element count and first index for an array (as the
+original's code counts them, a Pascal array's lower bound: the thief
+skills 1-8, the class levels 0-7, the coins 0-6, known spells by spell id
+1-108), the stride between elements (the scores, base and current,
+interleave), rows for a table (spells a day: 4 spell classes by levels
+1-5), whether the original reads it as signed, and whether it is a far
+pointer (meaningless in a file; 0 in the port). Champions' table, with
+what each field is and where the original reads it, is
+`champions_character` in `src/rules.c`; the layout's `size` is the
+record's, at most `COK_CHARACTER_MAX`, the buffer every game's fits in,
+and `file_size` the bytes of its file (`.SAV`, `.WHO`), which
+`cok_character_read` and `write` read and write.
+
+The accessors are `static inline` over the table, each check folding to
+a compare or two (a combat round calls them often: the stat routines
+alone, recomputing a character a million times, take a quarter longer
+than with literal offsets, a tenth of a microsecond a character; the runs
+of `tests/test_eclplay.py` take no measurably longer). Each takes the
+layout (named `L` by convention: `const cok_character_layout *L =
+cok_game_rules(game)->character;` once at a routine's top), the record,
+the field and, for an array, the index (any integer type, as a subscript;
+`_at`), or for a table the row and index (`_at2`). They are typed as the
+expressions they replace were, which `-Wconversion` needs:
+
+| Was | Is |
+| --- | --- |
+| `c[0x197]` | `cok_field_u8(L, c, COK_FIELD_HIT_POINTS)` |
+| `(int8_t)c[0xf9 + class]` | `cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, class)` (the field is signed) |
+| `c[0x100] > c[0xce]` | `cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > ...`: `u8` reads any byte field raw, as before |
+| `(int8_t)c[0x5a]` | `(int8_t)cok_field_u8(L, c, COK_FIELD_RACE)` (the field is not signed: the cast stays) |
+| `u16(c + 0x17d)`, `c[0x17d] \| c[0x17e] << 8` | `cok_field_u16(L, c, COK_FIELD_WEIGHT)` |
+| `word(c + 0xeb + 2 * i)` | `cok_field_u16_at(L, c, COK_FIELD_COINS, i)` |
+| the four bytes of +0x116 | `cok_field_u32(L, c, COK_FIELD_EXPERIENCE)` |
+| `c[0x11b + k * 5 + level]` | `cok_field_u8_at2(L, c, COK_FIELD_SPELLS_A_DAY, k, level)` |
+| `c[x] = v`, `put16`, ... | `cok_field_set8`, `set16`, `set32` (and `_at`, `set8_at2`) |
+| `c[x] = (uint8_t)(c[x] + d)`, `++c[x]` | `cok_field_add8(L, c, f, d)` (and `_at`, `_at2`) |
+| `&c[0xd0 + type]`, `c + 1`, `memset(c + 0x11c, 0, 0x14)` | `c + cok_field_offset_at(L, f, i)`, `cok_field_offset(L, f)`, `cok_field_size(L, f)` |
+| `i <= 0x39` over the memorized spells | `i < cok_field_count(L, COK_FIELD_MEMORIZED)` |
+
+Each asserts that the game has the field (a game without one gives it
+width 0: `cok_field_present`), that the index is one of its elements, that
+the access is as wide as the field, that `s8` reads a signed one, and that
+a single value's form is not given an array. Where the original computes
+an offset it does not bound (`cok_magic_slots`' class and level past the
+table, reaching other fields or the far pointers),
+`cok_field_offset_unchecked` does its arithmetic from the layout and
+`cok_field_pointer_at` says whether a byte is a far pointer's; the record
+is then indexed with the result, checked against the layout's `size`.
+
+The routines in `party.c`, `items.c`, `magic.c` and `sheet.c` read every
+character field through the layout (the item records, 63 bytes, the
+effects, 9, and the combat record are not the character record and keep
+their offsets). Those that took only a record take the rules after it
+(`cok_character_stats(character, rules, types, ...)`,
+`cok_character_former_class(record, rules)`, `cok_character_damage`,
+`heal`, `allowance`, `strength_bonus`, `dexterity_missile`, the cleric
+spells, saving throws and thief skills, `cok_party_add(party, rules,
+character)`, `cok_party_draw`, `cok_magic_sort`, `cok_magic_slots`);
+callers pass `cok_game_rules(game)`, the effects engine its own
+`fx->rules` (`cok_effects_init` takes them), `cok_combat_records` the
+rules it is given, and tests `&cok_rules_champions`.
+
+To add a field: name it for what it is in `cok_field` (`src/field.h`),
+with a comment; give Champions' place in `champions_character`
+(`src/rules.c`) with the macro of its shape (`BYTE`, `SBYTE`, `WORD`,
+`DWORD`, `BYTES(offset, count, first)`, `SBYTES`, `WORDS`, `INTERLEAVED`,
+`POINTER`, `POINTERS`) and a comment saying what it is and where the
+original reads it; and add it to `expected` in `tests/test_layout.c`,
+which checks every field's place and that no two share a byte (a field
+that does, as known spell 108 and the highest fighter level do, is
+listed there as documented). A field Death Knights lacks will have width 0
+in its table.
+
+To convert a file: take each raw character offset (`c[0x...]`,
+`record[0x...]`, `c + 0x...`, a `u16`/`word` of one, a loop bound that is
+an array's count), find or add its field, and replace the expression by
+the accessor of the same type, keeping any cast whose sign differs from
+the field's (`(int8_t)` on an unsigned field) and turning one that agrees
+into `s8`; a routine that has a game declares `L` at its top, one that
+only has a record gains the rules after it and its callers pass theirs.
+Count the offsets before and after (none left but those an unbounded
+original index needs, as above); then the golden outputs and the DOSBox-X
+checks' replay show nothing changed.
 
 ## Playing
 
@@ -2243,8 +2338,9 @@ party as a linked list of 409-byte records from `DS:609a` (next at `+0x17f`)
 with the selected character at `DS:6096`; the port keeps an array in the same
 order, up to 72 records with the monsters `LOAD MONSTER` appends after the
 party (see Monsters and encounters), and the selected record in
-`vm.character`. `party.h` lists the record
-fields the port uses. Fields such as the armour class (`+0x18d`, as 60 - AC)
+`vm.character`. The record's fields are named in the game's layout
+(Champions' in `src/rules.c`, see Games' "The character record's
+layout"), through which code reads them. Fields such as the armour class (`+0x18d`, as 60 - AC)
 are derived from the others and the items when a character loads (see
 Derived stats); its spell effects are a list (see Spell effects).
 

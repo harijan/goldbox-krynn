@@ -87,7 +87,7 @@ static cok_character *add(const char *name, size_t class, uint8_t level)
     c->record[0x5a] = 6;
     c->record[0x11a] = 0xff;
     c->record[0xf9 + class] = level;
-    CHECK(cok_party_add(&game.party, c));
+    CHECK(cok_party_add(&game.party, &cok_rules_champions, c));
     ++game.vm.mem7c00[0x33e];
     if (game.vm.character == NULL) game.vm.character = c->record;
     return c;
@@ -112,7 +112,7 @@ static uint8_t *give(cok_character *c, uint8_t type, uint8_t a, uint8_t b, uint8
 static bool stats(cok_character *c)
 {
     char error[300];
-    return cok_character_stats(c, &game.item_types, error, sizeof error);
+    return cok_character_stats(c, &cok_rules_champions, &game.item_types, error, sizeof error);
 }
 
 /* The first colour other than black in cell x, y of the screen. */

@@ -69,7 +69,8 @@ static void test_members(void)
     cok_party party = {0};
     CHECK(cok_party_special(&party, NULL, 0x48) == NULL);
     cok_character *a = make("A", 5, 5, 5), *b = make("B", 5, 5, 5), *c = make("C", 5, 5, 5);
-    CHECK(cok_party_add(&party, a) && cok_party_add(&party, b) && cok_party_add(&party, c));
+    CHECK(cok_party_add(&party, &cok_rules_champions, a) && cok_party_add(&party,
+                                                                          &cok_rules_champions, b) && cok_party_add(&party, &cok_rules_champions, c));
     CHECK(a->record[0x137] == 0 && b->record[0x137] == 1 && c->record[0x137] == 2);
     CHECK(cok_party_index(&party, b->record) == 1 && cok_party_index(&party, NULL) == 3);
     /* Up and down wrap; other keys pick the first. */
@@ -84,15 +85,16 @@ static void test_members(void)
     cok_party_remove(&party, 1);
     CHECK(party.count == 2 && cok_party_record(&party, 1) == c->record);
     cok_character *d = make("D", 5, 5, 5);
-    CHECK(cok_party_add(&party, d) && d->record[0x137] == 1);
-    for (int i = 0; i < 5; ++i) CHECK(cok_party_add(&party, make("E", 1, 1, 1)));
+    CHECK(cok_party_add(&party, &cok_rules_champions, d) && d->record[0x137] == 1);
+    for (int i = 0; i < 5; ++i) CHECK(cok_party_add(&party, &cok_rules_champions, make("E", 1, 1,
+                                                                                       1)));
     /* With slots 0-7 taken the next is 8; the list holds 72 records, the
      * party and the monsters after it. */
     cok_character *ninth = make("N", 1, 1, 1);
-    CHECK(cok_party_add(&party, ninth) && ninth->record[0x137] == 8);
+    CHECK(cok_party_add(&party, &cok_rules_champions, ninth) && ninth->record[0x137] == 8);
     while (party.count < COK_PARTY_RECORDS) CHECK(cok_party_append(&party, make("M", 1, 1, 1)));
     cok_character *extra = make("F", 1, 1, 1);
-    CHECK(!cok_party_add(&party, extra) && !cok_party_append(&party, extra) &&
+    CHECK(!cok_party_add(&party, &cok_rules_champions, extra) && !cok_party_append(&party, extra) &&
           party.count == COK_PARTY_RECORDS);
     free(extra);
     cok_party_free(&party);
@@ -103,23 +105,23 @@ static void test_damage(void)
 {
     cok_character *c = make("A", 10, 10, 5);
     uint8_t *r = c->record;
-    cok_character_damage(r, 4);
+    cok_character_damage(r, &cok_rules_champions, 4);
     CHECK(r[0x197] == 6 && r[0x188] == 0 && r[0x189] == 1);
-    cok_character_damage(r, 6);
+    cok_character_damage(r, &cok_rules_champions, 6);
     CHECK(r[0x197] == 0 && r[0x188] == 4 && r[0x189] == 0);
     r[0x197] = 10;
     r[0x188] = 0;
     r[0x189] = 1;
-    cok_character_damage(r, 19);
+    cok_character_damage(r, &cok_rules_champions, 19);
     CHECK(r[0x197] == 0 && r[0x188] == 5 && r[0x189] == 0);
     r[0x197] = 10;
     r[0x188] = 0;
-    cok_character_damage(r, 20);
+    cok_character_damage(r, &cok_rules_champions, 20);
     CHECK(r[0x188] == 6);
     /* Status 1 dies at its last hit point. */
     r[0x197] = 3;
     r[0x188] = 1;
-    cok_character_damage(r, 3);
+    cok_character_damage(r, &cok_rules_champions, 3);
     CHECK(r[0x188] == 6 && r[0x197] == 0);
     free(c);
 }
@@ -139,9 +141,10 @@ static void test_draw(void)
     cok_character *c = make("D", 10, 10, 10);
     c->record[0x189] = 0;
     b->record[0x18a] = 1;
-    CHECK(cok_party_add(&party, a) && cok_party_add(&party, b) && cok_party_add(&party, c));
+    CHECK(cok_party_add(&party, &cok_rules_champions, a) && cok_party_add(&party,
+                                                                          &cok_rules_champions, b) && cok_party_add(&party, &cok_rules_champions, c));
     cok_picture_fill(&screen, 0, 7 * 8, 40, 8, 9); /* a stale row */
-    cok_party_draw(&screen, &font, &party, a->record, 0x11, false);
+    cok_party_draw(&screen, &font, &party, &cok_rules_champions, a->record, 0x11, false);
     CHECK(ink(&screen, 0x11, 2) == 15 && ink(&screen, 0x21, 2) == 15);
     /* Selected white; others light cyan, or light red when they cannot act. */
     CHECK(ink(&screen, 0x11, 4) == 15 && ink(&screen, 0x11, 5) == 0x0b &&
@@ -156,7 +159,7 @@ static void test_draw(void)
     /* The row after the list is cleared from x. */
     CHECK(cell(&screen, 0x11, 7) == 0 && cell(&screen, 0x10, 7) == 9);
     /* In combat, a member fighting the party is yellow. */
-    cok_party_draw(&screen, &font, &party, NULL, 1, true);
+    cok_party_draw(&screen, &font, &party, &cok_rules_champions, NULL, 1, true);
     CHECK(ink(&screen, 1, 4) == 0x0b && ink(&screen, 1, 5) == 0x0e);
     cok_party_free(&party);
     cok_picture_free(&screen);
@@ -340,7 +343,7 @@ static void test_stats(void)
     char error[256];
     cok_character *c = fighter();
     uint8_t *r = c->record;
-    CHECK(cok_character_stats(c, types, error, sizeof error));
+    CHECK(cok_character_stats(c, &cok_rules_champions, types, error, sizeof error));
     CHECK(c->slots[0] == 1 && c->slots[1] == 3 && c->slots[2] == 2 && c->slots[7] == 5 &&
           c->slots[9] == 4 && c->slots[10] == 0 && c->slots[11] == 0);
     CHECK(r[0x142] == 5 && r[0x17b] == 2 && (r[0x17d] | r[0x17e] << 8) == 661);
@@ -353,31 +356,31 @@ static void test_stats(void)
     CHECK(r[0x198] == 9 && r[0xce] == 1);
     /* Plain plate: the ring counts, and the movement is 6. */
     c->items[1][0x32] = 0;
-    CHECK(cok_character_stats(c, types, error, sizeof error));
+    CHECK(cok_character_stats(c, &cok_rules_champions, types, error, sizeof error));
     CHECK(r[0x18d] == 63 && r[0x18e] == 58 && r[0x198] == 6);
     /* Strength 3 allows -350: 1,011 over slows to 6 at most, and to 3
      * past 1,024. */
     c->items[1][0x32] = 1;
     r[0x11] = 3;
-    CHECK(cok_character_stats(c, types, error, sizeof error));
+    CHECK(cok_character_stats(c, &cok_rules_champions, types, error, sizeof error));
     CHECK(r[0x198] == 6);
     r[0xed] = 30;
-    CHECK(cok_character_stats(c, types, error, sizeof error));
+    CHECK(cok_character_stats(c, &cok_rules_champions, types, error, sizeof error));
     CHECK(r[0x198] == 3);
     /* 32,768 or more over the allowance counts as none. */
     r[0x11] = 17;
     r[0xed] = (uint8_t)39339;
     r[0xee] = 39339 >> 8;
-    CHECK(cok_character_stats(c, types, error, sizeof error));
+    CHECK(cok_character_stats(c, &cok_rules_champions, types, error, sizeof error));
     CHECK(r[0x198] == 9);
     /* Without a weapon, strength adds to the base attack. */
     c->items[0][0x34] = 0;
-    CHECK(cok_character_stats(c, types, error, sizeof error));
+    CHECK(cok_character_stats(c, &cok_rules_champions, types, error, sizeof error));
     CHECK(c->slots[0] == 0 && r[0x18c] == 41 && r[0x191] == 1 && r[0x193] == 2 &&
           r[0x195] == 1 && r[0x17b] == 1);
     /* Strength past 25 has no row in the original's tables. */
     r[0x11] = 26;
-    CHECK(!cok_character_stats(c, types, error, sizeof error));
+    CHECK(!cok_character_stats(c, &cok_rules_champions, types, error, sizeof error));
     CHECK(strstr(error, "strength 26") != NULL);
     cok_character_free(c);
     free(c);
@@ -401,8 +404,8 @@ static void test_levels(void)
     set_item(c->items[1], 0x41, true, 0, 1);  /* classes 0x01 */
     set_item(c->items[2], 0x63, true, 0, 1);  /* classes 0x01, but stuck */
     c->items[2][0x36] = 1;
-    CHECK(cok_character_stats(c, types, error, sizeof error));
-    CHECK(cok_character_levels(c, types, error, sizeof error));
+    CHECK(cok_character_stats(c, &cok_rules_champions, types, error, sizeof error));
+    CHECK(cok_character_levels(c, &cok_rules_champions, types, error, sizeof error));
     CHECK(r[0xd0] == 11 && r[0xd1] == 10 && r[0xd2] == 10 && r[0xd3] == 14 && r[0xd4] == 11);
     CHECK(r[0x59] == 40 && r[0x11a] == 0x10 && r[0xd6] == 1);
     CHECK(c->items[0][0x34] == 1 && c->items[1][0x34] == 0 && c->items[2][0x34] == 1);
@@ -416,11 +419,11 @@ static void test_levels(void)
     r[0x5a] = 6;
     r[0xff] = 1;
     r[0x17] = 13;
-    CHECK(cok_character_levels(c, types, error, sizeof error));
+    CHECK(cok_character_levels(c, &cok_rules_champions, types, error, sizeof error));
     static const uint8_t human[8] = {37, 32, 27, 22, 17, 17, 92, 7};
     CHECK(memcmp(r + 0xdb, human, 8) == 0);
     r[0x5a] = 5;
-    CHECK(cok_character_levels(c, types, error, sizeof error));
+    CHECK(cok_character_levels(c, &cok_rules_champions, types, error, sizeof error));
     static const uint8_t race5[8] = {32, 37, 32, 22, 17, 22, 97, 0};
     CHECK(memcmp(r + 0xdb, race5, 8) == 0);
     /* Indexes past a table read the data next to it, as the original's do:
@@ -429,22 +432,22 @@ static void test_levels(void)
      * the THAC0 of class 1 at level 12, 46. */
     r[0x5a] = 6;
     r[0x17] = 20;
-    CHECK(cok_character_levels(c, types, error, sizeof error));
+    CHECK(cok_character_levels(c, &cok_rules_champions, types, error, sizeof error));
     static const uint8_t dex20[8] = {40, 35, 45, 38, 92, 17, 92, 7};
     CHECK(memcmp(r + 0xdb, dex20, 8) == 0);
     r[0xff] = 0;
     r[0xf9] = 0xff;
-    CHECK(cok_character_levels(c, types, error, sizeof error));
+    CHECK(cok_character_levels(c, &cok_rules_champions, types, error, sizeof error));
     CHECK(r[0x59] == 40);
     r[0xf9] = 0;
     r[0x103] = 0xff;
     r[0xd7] = 0x80; /* so that it may use its former classes */
     r[0xfa] = 1;
-    CHECK(cok_character_levels(c, types, error, sizeof error));
+    CHECK(cok_character_levels(c, &cok_rules_champions, types, error, sizeof error));
     CHECK(r[0x59] == 46);
     /* A saving throw for level 100 reads past the initialized data. */
     r[0x100] = 100;
-    CHECK(!cok_character_levels(c, types, error, sizeof error));
+    CHECK(!cok_character_levels(c, &cok_rules_champions, types, error, sizeof error));
     CHECK(strstr(error, "saving throw reads DS:43ee") != NULL);
     memset(r + 0xf9, 0, 16);
     memset(r + 0x63, 0, 100); /* the spells it learned on the way */
@@ -457,7 +460,7 @@ static void test_levels(void)
     r[0xff] = 0;
     r[0xf9] = 2;
     r[0x15] = 18;
-    CHECK(cok_character_levels(c, types, error, sizeof error));
+    CHECK(cok_character_levels(c, &cok_rules_champions, types, error, sizeof error));
     CHECK(r[0x11c] == 4 && r[0x11d] == 0);
     CHECK(r[0x62 + 1] == 1 && r[0x62 + 8] == 1 && r[0x62 + 2] == 0 && r[0x62 + 22] == 0);
     CHECK(r[0xd0] == 10 && r[0xd4] == 15);

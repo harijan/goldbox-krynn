@@ -182,7 +182,7 @@ static cok_character *record(char name, uint8_t side, int8_t x, int8_t y)
     c->combat->movement = 12;
     c->combat->may_use = c->combat->may_cast = 1;
     char why[300];
-    CHECK(cok_character_stats(c, &game.item_types, why, sizeof why));
+    CHECK(cok_character_stats(c, &cok_rules_champions, &game.item_types, why, sizeof why));
     r[0x18f] = 1;
     r[0x190] = 0;
     c->combat->attack_slot = 2;
@@ -209,7 +209,7 @@ static size_t give(cok_character *c, uint8_t type, bool ready)
     item[0x34] = ready;
     CHECK(cok_character_insert_item(c, c->item_count, item));
     char why[300];
-    CHECK(cok_character_stats(c, &game.item_types, why, sizeof why));
+    CHECK(cok_character_stats(c, &cok_rules_champions, &game.item_types, why, sizeof why));
     return c->item_count;
 }
 
@@ -315,7 +315,7 @@ static void test_text(void)
     /* A former cleric that a human may use (66c2:0efb). */
     r[0xf9] = 0;
     r[0x101] = 3;
-    bool former = cok_character_former_class(r);
+    bool former = cok_character_former_class(r, &cok_rules_champions);
     cok_combat_command_text(&game, a, text);
     CHECK((strstr(text, "Turn") != NULL) == former);
     r[0x101] = 0x81;
@@ -818,7 +818,7 @@ static void test_aim_missile(void)
     size_t arrows = give(a, 0x1e, true);
     a->items[arrows - 1][0x39] = 5;
     char why[300];
-    CHECK(cok_character_stats(a, &game.item_types, why, sizeof why));
+    CHECK(cok_character_stats(a, &cok_rules_champions, &game.item_types, why, sizeof why));
     a->record[0x18f] = 2;
     bool done;
     cok_combat_aimed res;
@@ -1472,7 +1472,7 @@ static void test_more(void)
     /* Without ammunition, never. */
     a->items[arrows - 1][0x34] = 0;
     char why[300];
-    CHECK(cok_character_stats(a, &game.item_types, why, sizeof why));
+    CHECK(cok_character_stats(a, &cok_rules_champions, &game.item_types, why, sizeof why));
     s.log[0] = '\0';
     KEYS("M6666\x1b" "E");
     CHECK(cok_combat_aim(&game, a, 0xff, 1, 0, 1, &done, &res) && !LOGGED("menu: Target;"));
