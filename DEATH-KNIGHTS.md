@@ -97,17 +97,19 @@ after.
 | R2b | The same: attack, round, ai, cast, effect, combat, arena, cloud | Done |
 | R2c | The same: create, modify, train, camp, shop, treasure, icon, command, roster | Done |
 | R3 | The data-segment tables in the descriptor; named lookups for `ds_byte` arithmetic | Done |
-| R2d | The same as R2a: ecl, adventure, monster, eclplay | |
+| R2d | The same as R2a: ecl, adventure, monster, eclplay | Done |
+| D1 | Read Death Knights headless (step 1 below), to try the descriptor on the real game before the rest | |
 | R5 | Spell names, spell and effect handler tables, spell count, levels, moons and deities in the descriptor | |
 | R4 | ECL opcode tables in the descriptor; the variable memory behind get and set | |
-| R6 | A test descriptor with the character fields moved, to find any raw offset left | |
 
-R2c and R3 can run side by side, as can R2d and R5. R4 follows R2d, since both
-change `ecl.c` and `adventure.c` throughout.
+R2c and R3 ran side by side, as did R3 and R2d. After R2d, Death Knights is
+read headless first (D1), so that R4 and R5 are shaped by what it needs
+rather than by guesses; it takes the place of a planned test descriptor with
+the character fields moved (R6), which the real game's layout does better.
 
 ## After the refactor
 
-1. Read Death Knights headless: its descriptor, the ECL operand table,
+1. Read Death Knights headless (D1, moved before R4 and R5): its descriptor, the ECL operand table,
    images by name, wall sets by wall id, 256-tile sets and backdrops, so
    `eclplay` shows its scripts and 3D view.
 2. Characters and saved games, and importing Champions characters.

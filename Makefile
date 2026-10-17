@@ -147,7 +147,7 @@ $(ADVENTURE_TESTS:%=build/%_sanitize): build/%_sanitize: build/obj-asan/tests/%.
 test_sound_SRC = tests/test_sound.c src/sound.c src/dax.c src/rules.c src/data_champions.c
 test_config_SRC = tests/test_config.c src/config.c src/rules.c src/data_champions.c
 test_setup_SRC = tests/test_setup.c src/setup.c src/input.c src/crt.c src/config.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c src/data_champions.c
-test_ecl_SRC = tests/test_ecl.c src/ecl.c src/dax.c
+test_ecl_SRC = tests/test_ecl.c src/ecl.c src/dax.c src/rules.c src/data_champions.c
 test_menu_SRC = tests/test_menu.c src/menu.c src/screen.c src/text.c src/picture.c src/image.c
 test_view_SRC = tests/test_view.c src/view.c src/picture.c src/image.c
 PARTY_SRC = src/party.c src/ecl.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c src/data_champions.c
@@ -165,7 +165,7 @@ test_text_SRC = tests/test_text.c src/text.c src/picture.c src/image.c src/dax.c
 test_display_SRC = tests/test_display.c src/picture.c src/text.c src/image.c src/dax.c src/rules.c src/data_champions.c
 test_image_SRC = tests/test_image.c src/image.c src/dax.c
 daxcheck_SRC = src/daxcheck.c src/dax.c
-ecldump_SRC = src/ecldump.c src/ecl.c src/dax.c
+ecldump_SRC = src/ecldump.c src/ecl.c src/dax.c src/rules.c src/data_champions.c
 test_sound_LIBS = -lm
 
 # Their rules (.SECONDEXPANSION: each one's NAME_SRC read for its stem), with

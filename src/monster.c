@@ -18,10 +18,11 @@ static void log_text(cok_adventure *game, const char *kind, const char *text)
     cok_adventure_log(game, kind, text);
 }
 
-static void name_of(const uint8_t *c, char out[16])
+static void name_of(const cok_character_layout *L, const uint8_t *c, char out[16])
 {
-    size_t length = c[0] > 15 ? 15 : c[0];
-    memcpy(out, c + 1, length);
+    uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
+    size_t length = stored > 15 ? 15 : stored;
+    memcpy(out, c + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
     out[length] = '\0';
 }
 
@@ -69,6 +70,7 @@ bool cok_monster_read(cok_adventure *game, uint8_t id, cok_character *m)
 {
     memset(m, 0, sizeof *m);
     const cok_rules_archives *a = &cok_game_rules(game)->archives;
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *data;
     size_t size;
     if (!monster_part(game, a->monster_record, id, &data, &size)) return false;
@@ -80,18 +82,22 @@ bool cok_monster_read(cok_adventure *game, uint8_t id, cok_character *m)
         cok_adventure_quit(game);
         return false;
     }
-    if (size < COK_CHARACTER_SIZE) {
+    if (size < L->size) {
         free(data);
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
-                           "%s%c%s record %u has %zu bytes; 4b6d:161b copies 409, past it",
-                           a->monster, file_digit(game), a->monster_record, id, size);
+                           "%s%c%s record %u has %zu bytes; 4b6d:161b copies %u, past it",
+                           a->monster, file_digit(game), a->monster_record, id, size,
+                           (unsigned)L->size);
         return false;
     }
-    memcpy(m->record, data, COK_CHARACTER_SIZE);
+    memcpy(m->record, data, L->size);
     free(data);
-    static const unsigned pointers[] = {0x143, 0xe3, 0x17f, 0x183};
+    /* The far pointers the port does not keep: the items, the effects, the
+     * next record and the combat record (the readied items' are kept). */
+    static const cok_field pointers[] = {COK_FIELD_ITEMS, COK_FIELD_EFFECTS, COK_FIELD_NEXT,
+                                         COK_FIELD_COMBAT};
     for (size_t i = 0; i < sizeof pointers / sizeof *pointers; ++i)
-        memset(m->record + pointers[i], 0, 4);
+        memset(m->record + cok_field_offset(L, pointers[i]), 0, cok_field_size(L, pointers[i]));
     if (!monster_part(game, a->monster_effects, id, &data, &size)) return false;
     if (size % COK_EFFECT_SIZE != 0) {
         free(data);
@@ -188,17 +194,22 @@ static void load_monster(cok_adventure *game)
         free(first);
         return;
     }
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *r = first->record;
     /* The difficulty, 1-5 (Novice to Champion), scales the hit points of a
      * monster against the party by (d + 1) / 4, as bytes; either at 0 makes
      * both 1. */
     uint16_t difficulty = vm->mem4b00[0x1f4];
-    if (r[0x18a] == 1 && difficulty >= 1 && difficulty <= 5) {
-        r[0x197] = (uint8_t)(((difficulty + 1u) * r[0x197]) >> 2);
-        r[0x62] = (uint8_t)(((difficulty + 1u) * r[0x62]) >> 2);
-        if (r[0x197] == 0 || r[0x62] == 0) r[0x197] = r[0x62] = 1;
+    if (cok_field_u8(L, r, COK_FIELD_HOSTILE) == 1 && difficulty >= 1 && difficulty <= 5) {
+        uint8_t now = cok_field_u8(L, r, COK_FIELD_HIT_POINTS),
+                most = cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS);
+        now = (uint8_t)(((difficulty + 1u) * now) >> 2);
+        most = (uint8_t)(((difficulty + 1u) * most) >> 2);
+        if (now == 0 || most == 0) now = most = 1;
+        cok_field_set8(L, r, COK_FIELD_HIT_POINTS, now);
+        cok_field_set8(L, r, COK_FIELD_MAX_HIT_POINTS, most);
     }
-    if (r[0xda] != 0) ++game->undead;
+    if (cok_field_u8(L, r, COK_FIELD_UNDEAD) != 0) ++game->undead;
     uint8_t count = (uint8_t)cok_ecl_value(vm, 1), icon = (uint8_t)cok_ecl_value(vm, 2);
     if (count == 0) count = 1;
     uint8_t slot = game->icon_slot;
@@ -210,7 +221,7 @@ static void load_monster(cok_adventure *game)
     /* The original copies the record before it sets the icon slot, then
      * gives every copy the slot too. */
     cok_character *template = first;
-    r[0x137] = slot;
+    cok_field_set8(L, r, COK_FIELD_ICON, slot);
     unsigned added = 0;
     cok_character *copy = first;
     for (uint8_t i = 1; copy != NULL; ++i) {
@@ -230,12 +241,12 @@ static void load_monster(cok_adventure *game)
             cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
             return;
         }
-        copy->record[0x137] = slot;
+        cok_field_set8(L, copy->record, COK_FIELD_ICON, slot);
     }
     ++game->icon_slot;
     game->monsters_loaded = true;
     char name[16], text[80];
-    name_of(r, name);
+    name_of(L, r, name);
     snprintf(text, sizeof text, "%u %s, icon %u in slot %u", added, name, icon, slot);
     log_text(game, "monster", text);
 }
@@ -490,13 +501,15 @@ static void sprite_off(cok_adventure *game)
     game->picture_shown = false;
 }
 
-bool cok_monster_movement(const cok_party *party, uint8_t *fastest, uint8_t *slowest)
+bool cok_monster_movement(const cok_party *party, const cok_rules *rules, uint8_t *fastest,
+                          uint8_t *slowest)
 {
+    const cok_character_layout *L = rules->character;
     if (party->count == 0) return false;
-    *fastest = *slowest = party->members[0]->record[0x198];
+    *fastest = *slowest = cok_field_u8(L, party->members[0]->record, COK_FIELD_MOVEMENT);
     for (size_t i = 0; i < party->count; ++i) {
         const cok_character *c = party->members[i];
-        uint8_t m = c->record[0x198];
+        uint8_t m = cok_field_u8(L, c->record, COK_FIELD_MOVEMENT);
         if (cok_character_find_effect(c, 0x27) != NULL)
             m = (uint8_t)(m << 1);
         else if (cok_character_find_effect(c, 0x2a) != NULL)
@@ -537,7 +550,7 @@ static void encounter_menu(cok_adventure *game)
     game->text_shown = true;
     game->text_delay = true; /* 2fd3:23f6 */
     uint8_t fastest, slowest;
-    if (!cok_monster_movement(&game->party, &fastest, &slowest)) {
+    if (!cok_monster_movement(&game->party, cok_game_rules(game), &fastest, &slowest)) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
                            "ENCOUNTER MENU with an empty party reads 0000:0198 (3775:1f8b)");
         game->in_encounter = false;
@@ -652,10 +665,14 @@ static void check_party(cok_adventure *game)
             found = cok_character_find_effect(party->members[i], effect) != NULL;
         low = high = 0;
     } else {
+        /* Charisma, a thief skill 1-8 (which the range bounds) or the
+         * movement. */
+        const cok_character_layout *L = cok_game_rules(game)->character;
         size_t at;
-        if (offset == 0x19) at = 0x1b;
-        else if (offset >= 0xa5 && offset <= 0xac) at = 0xda + offset - 0xa4u;
-        else if (offset == 0x9f) at = 0x198;
+        if (offset == 0x19) at = cok_field_offset_at(L, COK_FIELD_SCORE, COK_SCORE_CHARISMA);
+        else if (offset >= 0xa5 && offset <= 0xac)
+            at = cok_field_offset_at(L, COK_FIELD_THIEF_SKILL, offset - 0xa4u);
+        else if (offset == 0x9f) at = cok_field_offset(L, COK_FIELD_MOVEMENT);
         else return;
         uint16_t sum = 0;
         uint8_t n = 0;
@@ -685,15 +702,20 @@ static void check_party(cok_adventure *game)
 static void party_strength(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t sum = 0;
     for (size_t i = 0; i < game->party.count; ++i) {
         const uint8_t *c = game->party.members[i]->record;
         int former = cok_character_former_class(c, cok_game_rules(game)) ? 1 : 0;
-        uint8_t mage = (uint8_t)((int8_t)c[0xfe] + (int8_t)c[0x106] * former);
-        uint8_t cleric = (uint8_t)((int8_t)c[0xf9] + (int8_t)c[0x101] * former);
-        uint8_t ac = c[0x18d] > 0x3c ? (uint8_t)(c[0x18d] - 0x3c) : 0;
-        uint8_t thac0 = c[0x18c] > 0x27 ? (uint8_t)(c[0x18c] - 0x27) : 0;
-        unsigned total = c[0x197] + ac * 5u + thac0 * 5u + mage * 8u + cleric * 4u;
+        uint8_t mage = (uint8_t)(cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) +
+                                 cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 5) * former);
+        uint8_t cleric = (uint8_t)(cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0) +
+                                   cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 0) * former);
+        uint8_t armour = cok_field_u8(L, c, COK_FIELD_AC), aim = cok_field_u8(L, c, COK_FIELD_THAC0);
+        uint8_t ac = armour > 0x3c ? (uint8_t)(armour - 0x3c) : 0;
+        uint8_t thac0 = aim > 0x27 ? (uint8_t)(aim - 0x27) : 0;
+        unsigned total = cok_field_u8(L, c, COK_FIELD_HIT_POINTS) + ac * 5u + thac0 * 5u +
+                         mage * 8u + cleric * 4u;
         sum = (uint8_t)(sum + (uint8_t)(total / 10));
     }
     cok_ecl_store(vm, cok_ecl_address(vm, 0), sum);
@@ -706,7 +728,9 @@ static void party_surprise(cok_adventure *game)
     cok_ecl *vm = &game->vm;
     bool ranger = false;
     for (size_t i = 0; i < game->party.count; ++i) {
-        uint8_t class_ = game->party.members[i]->record[0x5b];
+        uint8_t class_ =
+            cok_field_u8(cok_game_rules(game)->character, game->party.members[i]->record,
+                         COK_FIELD_CLASS);
         if (class_ == 4 || class_ == 10) ranger = true;
     }
     cok_ecl_store(vm, cok_ecl_address(vm, 0), ranger);
@@ -736,18 +760,18 @@ static void surprise(cok_adventure *game)
  * false, ending the run, where the original would misbehave. */
 static bool rob_one(cok_adventure *game, cok_character *c, cok_real factor, uint8_t chance)
 {
+    const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *r = c->record;
     for (unsigned i = 0; i < COK_COINS; ++i) {
-        uint8_t *w = r + 0xeb + 2 * i;
         cok_real money;
         int32_t left;
-        if (!cok_real_multiply(cok_real_from_long(w[0] | w[1] << 8), factor, &money) ||
+        if (!cok_real_multiply(cok_real_from_long(cok_field_u16_at(L, r, COK_FIELD_COINS, i)),
+                               factor, &money) ||
             !cok_real_trunc(money, &left)) {
             cok_adventure_fail(game, COK_ECL_UNDEFINED, "ROB overflows a Real (3775:1c7c)");
             return false;
         }
-        w[0] = (uint8_t)left;
-        w[1] = (uint8_t)((uint32_t)left >> 8);
+        cok_field_set16_at(L, r, COK_FIELD_COINS, i, (uint16_t)left);
     }
     /* A heavy item lowers the chance for it and every item after it; each
      * item costs a d100 whether it can be taken or not. */
@@ -768,7 +792,7 @@ static bool rob_one(cok_adventure *game, cok_character *c, cok_real factor, uint
         ++taken;
     }
     char name[16], text[64];
-    name_of(r, name);
+    name_of(L, r, name);
     snprintf(text, sizeof text, "%s robbed, %u items taken", name, taken);
     log_text(game, "monster", text);
     return true;

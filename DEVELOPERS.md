@@ -266,14 +266,22 @@ and level past the table, reaching other fields or the far pointers),
 `cok_field_pointer_at` says whether a byte is a far pointer's; the record
 is then indexed with the result, checked against the layout's `size`.
 
-The routines in `party.c`, `items.c`, `magic.c` and `sheet.c`, combat's in
-`attack.c`, `round.c`, `ai.c`, `cast.c`, `effect.c`, `combat.c`, `arena.c`
-and `cloud.c`, and those of creation, Modify, training, the camp, the shops
-and temple, the treasure, the icon editor, the combat commands and the
-roster in `create.c`, `modify.c`, `train.c`, `camp.c`, `shop.c`,
-`treasure.c`, `icon.c`, `command.c` and `roster.c`, read every character
-field through the layout (the item records, 63 bytes, the effects, 9, and
-the combat record are not the character record and keep their offsets).
+Every routine reads every character field through the layout: no file
+but `src/rules.c` names a character offset (the item records, 63 bytes, the
+effects, 9, and the combat record are not the character record and keep
+their offsets). They were converted in four parts: `party.c`, `items.c`,
+`magic.c` and `sheet.c`; combat's in `attack.c`, `round.c`, `ai.c`,
+`cast.c`, `effect.c`, `combat.c`, `arena.c` and `cloud.c`; those of
+creation, Modify, training, the camp, the shops and temple, the treasure,
+the icon editor, the combat commands and the roster in `create.c`,
+`modify.c`, `train.c`, `camp.c`, `shop.c`, `treasure.c`, `icon.c`,
+`command.c` and `roster.c`; and the ECL's, the adventure's, the monsters'
+and `eclplay`'s in `ecl.c`, `adventure.c`, `monster.c` and `eclplay.c`,
+with the debug mode's names in `debug.c`. The ECL's VM has the rules
+(`cok_ecl_init(vm, rules, hooks)`, asserting them, as its first character
+field read does again for a VM made otherwise), and its table of the
+fields at `0x7c00`-`0x7fff` gives each one's field and element where it gave
+an offset (see ECL scripts).
 Those that took only a record take the rules after it
 (`cok_character_stats(character, rules, types, ...)`,
 `cok_character_former_class(record, rules)`, `cok_character_damage`, `heal`,
@@ -287,7 +295,9 @@ and after the party `cok_combat_count_sides` and `cok_combat_enemy_health`;
 `cok_modify_least` and `cok_modify_most(c, rules, selected, ...)`,
 `cok_train_row`, `cok_train_constitution` and `cok_train_hit_die`,
 `cok_camp_preparation(character, rules)` and `cok_camp_forget`,
-`cok_shop_money` and `cok_pool_pay(c, rules, steel)`); callers pass
+`cok_shop_money` and `cok_pool_pay(c, rules, steel)`;
+`cok_monster_movement(party, rules, ...)` and
+`cok_debug_name(record, rules, out)`); callers pass
 `cok_game_rules(game)` (a spell's handler `cok_game_rules(cx->game)`), the
 effects engine its own `fx->rules` (`cok_effects_init` takes them),
 `cok_combat_records` the rules it is given, and tests
@@ -305,7 +315,12 @@ the original does, the record's 409 bytes bound enough. Modify's name editor
 reaches the name as the string it is (`cok_field_offset` of `NAME`), indexed
 by the cursor and the length byte as before, which a file may make more than
 15; the roster's list takes a `.WHO` of the layout's `file_size` and tests
-the jewelry's low byte (`COINS` 6's offset, `+0xf7`).
+the jewelry's low byte (`COINS` 6's offset, `+0xf7`). The indices the ECL
+gives (the thief skills at `0x7ca5`-`0x7cac`, read and in `CHECKPARTY`, and
+the spells memorized written at `0x7c20`-`0x7c59`) go through the checked
+accessors: each address range is the field's elements exactly, 1-8 and
+0-0x39, so the range's own test bounds them. A monster record is the
+layout's `size` long, and its far pointers are cleared by field.
 
 To add a field: name it for what it is in `cok_field` (`src/field.h`),
 with a comment; give Champions' place in `champions_character`
@@ -1692,7 +1707,35 @@ live in three game data blocks, `0x8000`-`0x9dff` are bytes of the script
 itself, and other addresses are special game state such as the map position
 (`0xc04b`, `0xc04c`) and facing (`0xc04d`). Many `0x7c00`-range addresses read
 and write fields of the selected character's 409-byte record (`3775:07d9`,
-`3775:0c00`); `0x7f12` picks the ECL file for the next block.
+`3775:0c00`), each a field of the game's layout (the VM's `rules`, which
+`cok_ecl_init` takes; see Games' "The character record's layout"), read as
+0 with none selected; `0x7f12` picks the ECL file for the next block. The
+fields, by address (Champions' offsets):
+
+| Address | Field | Read and written as |
+| --- | --- | --- |
+| `0x7c00` | `NAME` (`+0x00`) | a string, cut to 15 characters; a word store of 0 marks it cleared |
+| `0x7c15`, `0x7c18`, `0x7c19` | `SCORE` intelligence, constitution, charisma (`+0x13`, `+0x19`, `+0x1b`) | bytes, read |
+| `0x7c20`-`0x7c59` | `MEMORIZED` 0-0x39 (`+0x1e`-`+0x57`) | bytes, written |
+| `0x7c61` | `KNIGHT_ORDER` (`+0x5c`) | a byte, read |
+| `0x7c72`, `0x7c73` | `RACE`, `CLASS` (`+0x5a`, `+0x5b`) | signed bytes, read |
+| `0x7c76` | `MAX_HIT_POINTS` (`+0x62`) | a byte, read |
+| `0x7c9b` | `SAVING_THROW` 1 (`+0xd1`) | a byte, read |
+| `0x7ca0` | `HIGHEST_LEVEL` (`+0xd6`) | a signed byte, read |
+| `0x7ca5`-`0x7cac` | `THIEF_SKILL` 1-8 (`+0xdb`-`+0xe2`) | bytes, read |
+| `0x7cb8` | `NPC` (`+0xe7`) | a byte; a value above 0xb2 is written less 0x32 |
+| `0x7cbb`, `0x7cbd`, `0x7cbf`, `0x7cc1`, `0x7cc3` | `COINS` 0-4 (`+0xeb`-`+0xf4`) | words |
+| `0x7ccc`, `0x7ccd`, `0x7cd0` | `CLASS_LEVEL` 2, 7, 4 (`+0xfb`, `+0x100`, `+0xfd`) | signed bytes, read |
+| `0x7cd6`, `0x7cd8` | `GENDER`, `ALIGNMENT` (`+0x109`, `+0x10a`) | signed bytes, read |
+| `0x7cf7`, `0x7cf9` | `MONSTER_EXPERIENCE` (`+0x130`), `MONSTER_HIT_POINT_EXPERIENCE` (`+0x132`) | a word, a byte |
+| `0x7d00` | `STATUS` (`+0x188`) | read as 1 for 0 (okay), 6 for 3, 5 for 4, 4 for 5, 3 for 6, 7 for 7, 2 for 8, else 0; 0 when the selection is missing; writing 1 sets it 0 and `ACTIVE` (`+0x189`) 1 |
+| `0x7d0c` | `HOSTILE`, `COMPUTER` (`+0x18a`, `+0x18b`) | read as 0x81 against the party, 0x80 for one the computer controls on its side, else 0; writing 0, 0x80 or 0x81 sets both so |
+| `0x7d19` | `HIT_POINTS` (`+0x197`) | a byte |
+| `0x7d1b` | `MOVEMENT` (`+0x198`) | a byte, read |
+| `0x7ecf` | `SCORE` charisma | read through the reaction table, 0 from 26 |
+
+`0x7cc9`, `0x7eb1` and `0x7eb4` are the host's (see Playing scripts), and
+the other addresses of the range hold their own words.
 
 `cok_ecl_run` runs control flow, arithmetic, comparisons, `RANDOM` (Turbo
 Pascal's generator), `SAVE`, tables and `NEWECL` itself, and decodes every
@@ -1808,7 +1851,7 @@ and the run ends. `--test-party N` adds N (1-8) characters made up for
 testing, as a saved game's are added: a fighter, a cleric of Mishakal, a
 White mage and a thief in turn, human, of level 1, their weapons and armour
 readied, 20 steel each, the cleric's Cure Light Wounds and the mage's
-Detect Magic memorized, one cell in combat (`+0xcf` 1), their stats
+Detect Magic memorized, one cell in combat (`SIZE`, `+0xcf`, 1), their stats
 computed as a loaded character's are; the seventh, GWEN, has Charm Monsters
 memorized too and a Wand of Magic Missiles readied with 5 charges; the
 eighth, HOLT, is a mage too, with Stinking Cloud memorized instead.
@@ -1984,10 +2027,10 @@ ECL3 block 98 for another. `FIND SPECIAL id` (`2fd3:354f`) does the same
 for an effect of the selected character (`6346:2447`); with none selected
 the original reads through NULL and the port stops; no script uses it.
 `SPELL spell where who` (`2fd3:318b`) stores, for the first record in the
-list with the spell among its 58 spell bytes (`+0x1e`-`+0x57`), the byte's
-index in `where` and the record's position in `who`; with none, 0xff and
-the position of the last record (0 for none). ECL1 block 32's trap asks
-for Find Traps (22) and forgets it. The trace it then prints
+list with the spell among its 58 spell bytes (`MEMORIZED`, `+0x1e`-`+0x57`),
+the byte's index in `where` and the record's position in `who`; with none,
+0xff and the position of the last record (0 for none). ECL1 block 32's trap
+asks for Find Traps (22) and forgets it. The trace it then prints
 (`6d7e:093e`, `spell`, the index, the position and the spell) shows only
 with the debug flag (see Debug mode). `ECL CLOCK count unit` (`2fd3:3005`) passes the time
 (`57e4:0549`); no script uses it.
@@ -2084,11 +2127,11 @@ While the flag is set:
   `IF = ` with a space after it, and `BULLSHIT N` for opcodes it does not
   name, which hang before they are traced); `SPELL` traces `spell` with
   the index, the position and the spell (`2fd3:3292`); a battle's setup
-  traces each record of the list by name with its status (`+0x188`) and
-  whether it can act (`+0x189`) (`3cb2:1e13`); effect 0x07's handler
-  traces `bad news` first (`3f44:0226`). In the demonstration the trace's
-  key read returns at once unless a key is waiting, as every key read
-  there does.
+  traces each record of the list by name with its status (`+0x188`
+  `STATUS`) and whether it can act (`+0x189` `ACTIVE`) (`3cb2:1e13`); effect
+  0x07's handler traces `bad news` first (`3f44:0226`). In the demonstration
+  the trace's key read returns at once unless a key is waiting, as every key
+  read there does.
 - The status line has `*` after the time (`6346:2f4c`), and the combat
   menu `*` after `Done` (`3995:0aa5`).
 - Items offers `View` first (`View Ready`, `546c:187b`): with an item
@@ -2304,17 +2347,18 @@ At a locked door the menu shows `Locked.` and whichever of `Bash`, `Pick`
 and `Knock` may still be tried (`DS:7146`-`7148`), then `Exit`. All three
 become available again after each step; before the first step none are, and
 no menu shows. `Bash` (`475c:02f3`) rolls for each character in turn against
-its strength (`+0x11`, with exceptional strength `+0x1c`), with a harder
-table for a door that cannot be picked; a character too weak to try stops it
-being offered. `Pick` (`475c:05b6`) is offered when a character is a thief
-(`475c:0275`: a level in class 6, or a former one a human may still use,
-`66c2:0efb`), and each character who is okay rolls 1-100 against `+0xdc`; at
-a door that cannot be picked, choosing it only stops it being offered. A
+its strength (`+0x11`, `SCORE`, with exceptional strength `+0x1c`,
+`STRENGTH_EXCEPTIONAL`), with a harder table for a door that cannot be
+picked; a character too weak to try stops it being offered. `Pick`
+(`475c:05b6`) is offered when a character is a thief (`475c:0275`: a level
+in class 6, or a former one a human may still use, `66c2:0efb`), and each
+character who is okay rolls 1-100 against `+0xdc` (`THIEF_SKILL` 2); at a
+door that cannot be picked, choosing it only stops it being offered. A
 bashed or picked door opens on both sides for good (`475c:0148`). `Knock`
 (`475c:0720`) is offered when a character has memorized spell 0x1f among the
-bytes from `+0x1e`; the first such character forgets it, and the party
-passes once, leaving the door locked. As in the original, the door menu
-takes special keys by the letter of their scan code, so the down arrow
+bytes from `+0x1e` (`MEMORIZED`); the first such character forgets it, and
+the party passes once, leaving the door locked. As in the original, the door
+menu takes special keys by the letter of their scan code, so the down arrow
 (0x50, `P`) picks and the left arrow (0x4b, `K`) knocks.
 
 The clock is seven words from `0x4bc6`, which carry into the next at 10,
@@ -2326,7 +2370,7 @@ carries each full unit once. A new day counts a day in each moon's phase
 (`0x4cf9`-`0x4cfb`, 0-3) and is redrawn on the frame. Months carry into
 years without aging anyone; only once the years reach 256, where they
 stay, does each unit that passes age each character a year (the word at
-`+0x60`, `57e4:0459`). The clock then counts down the
+`+0x60`, `AGE`, `57e4:0459`). The clock then counts down the
 party's spell effects (`57e4:0171`, see Spell effects).
 
 `Cast` (`475c:0ade`) casts for the selected character if its status is
@@ -2520,10 +2564,10 @@ the character's files beside the saved game: `.SAV`, the record; `.STF`, its
 items, 63 bytes each; and `.SFX`, its spell effects, 9 bytes each
 (`4b6d:11e5`). Missing characters are skipped. Each character's derived
 fields are then recomputed (see Derived stats). Each character added gets
-the lowest combat icon slot free (`+0x137`) and is counted in `0x7f3e`
-(`4b6d:1989`), and an NPC's levels are recomputed again. Then every record
-gets its combat icons (`4b6d:1b34`, see The combat screen). Loaded from
-the start menu, the roster's copies of the characters (`.WHO`, `.STF`,
+the lowest combat icon slot free (`+0x137`, `ICON`) and is counted in
+`0x7f3e` (`4b6d:1989`), and an NPC's levels are recomputed again. Then every
+record gets its combat icons (`4b6d:1b34`, see The combat screen). Loaded
+from the start menu, the roster's copies of the characters (`.WHO`, `.STF`,
 `.SFX` named after them, `4b6d:0a80`) are then erased (see The start
 menu); `eclplay --load` keeps no roster. The names are made as the
 original makes them, by `169c:05da` after `169c:050b` has taken out the
@@ -2579,17 +2623,17 @@ whether it may use a former class (`66c2:0efb`).
 `ADD NPC id morale` (`2fd3:311c`) adds monster `id` of the ECL file as an
 NPC (`4b6d:18fc`) unless the party (`0x7f3e`) has eight or more: the
 record, its effects and items read as `LOAD MONSTER` reads them
-(`4b6d:161b`, see Monsters and encounters), `id` kept in `+0x115`, then
-joined as a saved game's characters join (`4b6d:1989`): after every record
-in the list, in the lowest icon slot 0-7 free (8 if none is), selected,
-counted in `0x7f3e`, and its levels recomputed (`66c2:0433`) if it is an
-NPC (`+0xe7` 0x80 and up, as every one is); then its combat icons, `CPIC`
-records `id` and `id + 0x80` of the file, load in its slot (`6d21:01d0`).
-Then, whether it joined or not, the selected character gets `+0xe7` 0x80
-+ `morale` / 2, its stats are recomputed (`6346:0d20`) and the party list
-drawn. `eclplay` logs `party: NAME joins, icon ID in slot N`. The NPCs of
-the scripts are the kender Kildirf, a soldier and Strangbourn in ECL1
-block 32, and Skyla and Mysellia in ECL2 block 50, all with morale 100,
+(`4b6d:161b`, see Monsters and encounters), `id` kept in `+0x115`
+(`MONSTER_ID`), then joined as a saved game's characters join (`4b6d:1989`):
+after every record in the list, in the lowest icon slot 0-7 free (8 if none
+is), selected, counted in `0x7f3e`, and its levels recomputed (`66c2:0433`)
+if it is an NPC (`+0xe7` `NPC` 0x80 and up, as every one is); then its
+combat icons, `CPIC` records `id` and `id + 0x80` of the file, load in its
+slot (`6d21:01d0`). Then, whether it joined or not, the selected character
+gets `+0xe7` 0x80 + `morale` / 2, its stats are recomputed (`6346:0d20`) and
+the party list drawn. `eclplay` logs `party: NAME joins, icon ID in slot N`.
+The NPCs of the scripts are the kender Kildirf, a soldier and Strangbourn in
+ECL1 block 32, and Skyla and Mysellia in ECL2 block 50, all with morale 100,
 so 0xb2. ECL2 block 57 is the demonstration the title screen plays when no
 key is pressed: its menu times out to `D` (`DS:6e11`, `6e15`), which sets
 `DS:4b4b`, and `2fd3:3c28` then starts block 0x39 of ECL2 at speed 9 with
@@ -2618,10 +2662,11 @@ The port keeps these quirks:
 
 `ADD EP` prints `Congratulations NAME gains experience!` (or `the party`)
 and waits speed × 100 ms, then adds the points, divided by the number of
-classes with a level (`+0xf9`-`+0x100`), to the 32-bit experience at `+0x116`
-of the selected character (first operand 0) or each character, if it can act.
-A character with no level divides by zero, which stops the run as runtime
-error 200 would, even one that cannot act, as the division comes first.
+classes with a level (`+0xf9`-`+0x100`, `CLASS_LEVEL`), to the 32-bit
+experience at `+0x116` (`EXPERIENCE`) of the selected character (first
+operand 0) or each character, if it can act. A character with no level
+divides by zero, which stops the run as runtime error 200 would, even one
+that cannot act, as the division comes first.
 
 `WHO` clears the text window and shows its prompt and `Select` on row 24
 (`6346:32c7`), redrawing the party list with the character picked so far:
@@ -2636,29 +2681,30 @@ dice sides, damage bonus, and a to-hit bonus or saving throw. Damage is the
 bonus plus the dice, rolled with Turbo Pascal's `Random` (`60f4:1216`). Without
 bit 7 of the first operand, it is that many attacks on characters chosen at
 random from the size in `0x7f3e`, each hitting if a d20 (20 counting as 100)
-plus the fifth operand beats `+0x18d`, a 1 always missing (`60f4:0ffb`), and
-damage is rolled again after each. With bit 7, its low five bits are a
-saving-throw bonus and the fifth operand's low three bits the throw: with bit
-6 each character is hit unless it saves (bit 5: no save), with fifth operand
-bit 7 the selected character (throw type - 1, and none for type 0), and
-otherwise a random one; bit 4 deals the damage even on a save. A save
-(`60f4:113a`) needs a d20 plus the bonuses at `+0x17c` and in the operand,
-as a byte, to reach the throw at `+0xd0`; 1 always fails and 20 succeeds, and
-a character with a level at `+0xfe` and `+0x5e` set gets -1 or +1 from the
-word at `0x4bf8 + +0x5e`, a byte sum that wraps (perhaps meant for the
-moons). Each hit (`3775:20a6`) prints `NAME is hit FOR N points of Damage.`,
-or `NAME dies.` past its hit points plus 10, paging with `press
-<enter>/<return> to continue` when the window is full, and redraws the list;
-the dead take none. Damage equal to the hit points leaves a character
-unconscious (status 4), up to 9 more dying (5), and more dead (6), and it
-can no longer act (`6346:24d7`). The message tests more than 10 past the hit
-points but the status 10 or more, and only the low byte of the damage is
-dealt, as in the original. Afterwards, if no character can act, the frame is
-cleared, `The entire party is killed!` printed and the run ended (`DS:4b57`);
-either way the prompt then waits for a key. The characters' spell effects
-change the attack and saving rolls (see Spell effects). In a battle
-`6346:24d7` also updates the combatant's combat record (see Attacks,
-movement and death).
+plus the fifth operand beats `+0x18d` (`AC`), a 1 always missing
+(`60f4:0ffb`), and damage is rolled again after each. With bit 7, its low
+five bits are a saving-throw bonus and the fifth operand's low three bits
+the throw: with bit 6 each character is hit unless it saves (bit 5: no
+save), with fifth operand bit 7 the selected character (throw type - 1, and
+none for type 0), and otherwise a random one; bit 4 deals the damage even on
+a save. A save (`60f4:113a`) needs a d20 plus the bonuses at `+0x17c`
+(`SAVE_BONUS`) and in the operand, as a byte, to reach the throw at `+0xd0`
+(`SAVING_THROW`); 1 always fails and 20 succeeds, and a character with a
+level at `+0xfe` (`CLASS_LEVEL` 5) and `+0x5e` (`MAGIC_ORDER`) set gets -1
+or +1 from the word at `0x4bf8 + +0x5e`, a byte sum that wraps (perhaps
+meant for the moons). Each hit (`3775:20a6`) prints `NAME is hit FOR N
+points of Damage.`, or `NAME dies.` past its hit points plus 10, paging with
+`press <enter>/<return> to continue` when the window is full, and redraws
+the list; the dead take none. Damage equal to the hit points leaves a
+character unconscious (status 4), up to 9 more dying (5), and more dead (6),
+and it can no longer act (`6346:24d7`). The message tests more than 10 past
+the hit points but the status 10 or more, and only the low byte of the
+damage is dealt, as in the original. Afterwards, if no character can act,
+the frame is cleared, `The entire party is killed!` printed and the run
+ended (`DS:4b57`); either way the prompt then waits for a key. The
+characters' spell effects change the attack and saving rolls (see Spell
+effects). In a battle `6346:24d7` also updates the combatant's combat record
+(see Attacks, movement and death).
 
 ## Derived stats
 
@@ -3787,26 +3833,28 @@ is NULL, read as all zero, as the original's end of combat reads
 
 `LOAD MONSTER id count icon` (`2fd3:0465`), unless 63 records were loaded
 since `CLEARMONSTERS` (`DS:43be`), reads monster `id` (`4b6d:161b`): the
-record (409 bytes, its pointers cleared, the readied slots `+0x147` left as
-they are, no stats computed), its effects and its items, in file order. A
-monster against the party (`+0x18a` 1) has its hit points (`+0x197`,
-`+0x62`) scaled by the difficulty `0x4cf4`, 1-5, as `(d + 1) × hp / 4` in a
-byte; either at 0 makes both 1. An undead (`+0xda`) counts in `DS:8859`.
-The icons of the slot `DS:72eb`, `CPIC<file>` records `icon` and `icon +
-0x80`, ready and attacking, load with colour 0 transparent and colour 8
-drawn black outside CGA mode (`6d21:01d0`, `DS:4b76`; see Display modes and
-The combat screen). Then the record and `count - 1` copies (0 counts as 1),
-until 63 are loaded, go to the end of the list, each with that slot
-(`+0x137`). The copies' items and effects are the first record's in the
-reverse order, as each is put first in a copy's lists. `DS:72eb` then moves
-to the next slot and `DS:8851` is set, so `COMBAT` fights. The file number
-is cut to one digit (`Str` with a width of 1). A missing record says
-`Unable to load monster` on row 24, waits for a key and quits to DOS, as in
-the original. The port stops with `COK_ECL_UNDEFINED` for a record shorter
-than 409 bytes and effects or items that are not whole records (the
-original reads past them), an icon slot past the table's 26 (`DS:6172`),
-and a 73rd record. With no party, where the original writes through
-`0000:017f`, the monsters start the list.
+record (the layout's size, 409 bytes; its far pointers `ITEMS`, `EFFECTS`,
+`NEXT` and `COMBAT` cleared, the readied slots `+0x147`, `ITEM_SLOTS`, left
+as they are, no stats computed), its effects and its items, in file order. A
+monster against the party (`HOSTILE`, `+0x18a`, 1) has its hit points
+(`HIT_POINTS` `+0x197`, `MAX_HIT_POINTS` `+0x62`) scaled by the difficulty
+`0x4cf4`, 1-5, as `(d + 1) × hp / 4` in a byte; either at 0 makes both 1. An
+undead (`UNDEAD`, `+0xda`) counts in `DS:8859`. The icons of the slot
+`DS:72eb`, `CPIC<file>` records `icon` and `icon + 0x80`, ready and
+attacking, load with colour 0 transparent and colour 8 drawn black outside
+CGA mode (`6d21:01d0`, `DS:4b76`; see Display modes and The combat screen).
+Then the record and `count - 1` copies (0 counts as 1), until 63 are loaded,
+go to the end of the list, each with that slot (`ICON`, `+0x137`). The
+copies' items and effects are the first record's in the reverse order, as
+each is put first in a copy's lists. `DS:72eb` then moves to the next slot
+and `DS:8851` is set, so `COMBAT` fights. The file number is cut to one
+digit (`Str` with a width of 1). A missing record says `Unable to load
+monster` on row 24, waits for a key and quits to DOS, as in the original.
+The port stops with `COK_ECL_UNDEFINED` for a record shorter than 409 bytes
+and effects or items that are not whole records (the original reads past
+them), an icon slot past the table's 26 (`DS:6172`), and a 73rd record. With
+no party, where the original writes through `0000:017f`, the monsters start
+the list.
 
 `CLEARMONSTERS` (`2fd3:12fe`) clears `DS:8859`, `43be` and `8851`, sets
 `DS:72eb` to 8 (as a block starting does, `3775:01e8`) and empties the
@@ -3860,36 +3908,37 @@ monsters flee."), 1 combat, 2 the party got away, 3 talk:
 | 4, talk | 1 | nearer, at 0 3 | 2 | nearer | nearer, at 0 3 |
 
 "Nearer" approaches a square and asks again; 5 and up store nothing. The
-movements (`3775:1f8b`) are `+0x198` of every record, doubled as a byte
-with haste (0x27), else halved when slowed (0x2a), but both start from the
-first record's own; with an empty list the original reads `0000:0198`,
-and the port stops. No close-up shows in the menu. Row 24 is cleared at
-the end. `PARLAY a b c d e result` (`2fd3:2adf`) offers `~HAUGHTY ~SLY
-~NICE ~MEEK ~ABUSIVE` after the prompt " " and stores the operand of the
-attitude chosen.
+movements (`3775:1f8b`) are `MOVEMENT` (`+0x198`) of every record, doubled
+as a byte with haste (0x27), else halved when slowed (0x2a), but both start
+from the first record's own; with an empty list the original reads
+`0000:0198`, and the port stops. No close-up shows in the menu. Row 24 is
+cleared at the end. `PARLAY a b c d e result` (`2fd3:2adf`) offers `~HAUGHTY
+~SLY ~NICE ~MEEK ~ABUSIVE` after the prompt " " and stores the operand of
+the attitude chosen.
 
 `CHECKPARTY field effect min max average found` (`2fd3:1517`) takes a
 field given as a variable (operand type 1) by its address, any other by
 its value: 0 tests whether a record has the effect, storing 0, 0, 0 and
-the result; the variables of charisma (`0x7c19`), the thief skills
-(`0x7ca5`-`0x7cac`) and movement (`0x7c9f`) give their least, greatest
-and average (the sum, a word, divided by the count as signed); any other
-stores nothing. So ECL3 block 80's `CHECKPARTY [7d1b] ...` (the movement
-as other opcodes read it) leaves `[7f79]` as the menu left it, and
-fleeing the minotaurs always fails, as in the original. With an empty list
-it divides by zero. `PARTYSTRENGTH result` (`2fd3:136c`) sums as a byte,
-for each record, a tenth of its mage levels × 8, its THAC0 better than 20
-and armour class better than 0 × 5 each, its hit points and its cleric
-levels × 4 (former levels for a human who may use them). `PARTY SURPRISE
-a b` (`2fd3:17b6`) stores whether a record is a ranger or cleric/ranger
-(`+0x5b` 4 or 10), and 0. `SURPRISE a b c d` (`2fd3:1856`) rolls two d6
-and stores its result to address `0x2cb`, which keeps nothing, where it
-meant var `0x7ecb`; only the dice remain. These walk the whole list too.
+the result; the variables of charisma (`0x7c19`, `SCORE` 5), the thief
+skills (`0x7ca5`-`0x7cac`, `THIEF_SKILL` 1-8) and movement (`0x7c9f`,
+`MOVEMENT`) give their least, greatest and average (the sum, a word, divided
+by the count as signed); any other stores nothing. So ECL3 block 80's
+`CHECKPARTY [7d1b] ...` (the movement as other opcodes read it) leaves
+`[7f79]` as the menu left it, and fleeing the minotaurs always fails, as in
+the original. With an empty list it divides by zero. `PARTYSTRENGTH result`
+(`2fd3:136c`) sums as a byte, for each record, a tenth of its mage levels ×
+8, its THAC0 better than 20 and armour class better than 0 × 5 each, its hit
+points and its cleric levels × 4 (former levels for a human who may use
+them). `PARTY SURPRISE a b` (`2fd3:17b6`) stores whether a record is a
+ranger or cleric/ranger (`CLASS`, `+0x5b`, 4 or 10), and 0. `SURPRISE a b c
+d` (`2fd3:1856`) rolls two d6 and stores its result to address `0x2cb`,
+which keeps nothing, where it meant var `0x7ecb`; only the dice remain.
+These walk the whole list too.
 
 `ROB all percent chance` (`2fd3:229e`) robs the selected character, or
 with `all` every record in the list: each of its seven coin words
-(`3775:1c7c`, `+0xeb` on) becomes `Trunc(w × ((100 - percent) / 100))`
-in Turbo Pascal 6-byte Reals, the low word kept; then each item
+(`3775:1c7c`, `COINS` from `+0xeb`) becomes `Trunc(w × ((100 - percent) /
+100))` in Turbo Pascal 6-byte Reals, the low word kept; then each item
 (`3775:1da9`) costs a d100 and goes on one up to the chance, which an
 item of 25 or more lowers by 50 and one above 255 by 90, to no less than
 0, for itself and every item after it. A readied item taken is unreadied

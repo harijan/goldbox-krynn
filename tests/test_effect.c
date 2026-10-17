@@ -30,6 +30,7 @@ static void reset(void)
     cok_party_free(&party);
     cok_effects_free(&fx);
     memset(&vm, 0, sizeof vm);
+    vm.rules = &cok_rules_champions;
     vm.mode = 4;
     cok_effects_init(&fx, &cok_rules_champions, &vm, &party, &types);
 }

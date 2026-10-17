@@ -59,11 +59,12 @@ void cok_pool_free(cok_pool *pool);
  * also stored in var 0x7ec1, where the area has no 3D view (0x4be6). */
 uint8_t cok_monster_open_squares(cok_adventure *game, int x, int y, uint8_t direction);
 
-/* The party's fastest and slowest movement (3775:1f8b): +0x198 of every
- * record in the list, doubled with haste (effect 0x27), else halved when
- * slowed (0x2a); both start from the first record's own +0x198. Returns
- * false for an empty list, where the original reads 0000:0198. */
-bool cok_monster_movement(const cok_party *party, uint8_t *fastest, uint8_t *slowest);
+/* The party's fastest and slowest movement (3775:1f8b): MOVEMENT (+0x198)
+ * of every record in the list, doubled with haste (effect 0x27), else
+ * halved when slowed (0x2a); both start from the first record's own.
+ * Returns false for an empty list, where the original reads 0000:0198. */
+bool cok_monster_movement(const cok_party *party, const cok_rules *rules, uint8_t *fastest,
+                          uint8_t *slowest);
 
 /* Turbo Pascal's 6-byte Real, as its runtime library (1a46) works it:
  * byte 0 the exponent biased by 0x81, 0 for zero; bytes 1-5 the mantissa

@@ -99,7 +99,7 @@ static void on_store(cok_ecl *v, uint16_t address, uint16_t value, void *context
 
 static log_t start(void)
 {
-    cok_ecl_init(&vm, NULL);
+    cok_ecl_init(&vm, &cok_rules_champions, NULL);
     at = 0;
     return (log_t){0};
 }
@@ -518,7 +518,7 @@ static void test_real_blocks(void)
         for (size_t i = 0; i < archive->count; ++i) {
             dax_record record;
             CHECK(dax_record_at(archive, i, &record) == DAX_OK);
-            cok_ecl_init(&vm, &(cok_ecl_hooks){.load = load_real, .trace = count_down, .context = &s});
+            cok_ecl_init(&vm, &cok_rules_champions, &(cok_ecl_hooks){.load = load_real, .trace = count_down, .context = &s});
             vm.file = (uint8_t)(f + 1);
             CHECK(load_real(&vm, record.id, &s));
             CHECK(cok_ecl_start(&vm, true) == COK_ECL_OK && vm.vectors[4] == 0x8014);
@@ -546,6 +546,112 @@ static void test_real_blocks(void)
     CHECK(blocks == 22 && s.loads > 22);
 }
 
+/* Every character field of 0x7c00-0x7fff (3775:07d9, 3775:0c00), against
+ * the record's offsets in Champions: each read as its byte, signed byte or
+ * word, and each store changing its bytes and no other. */
+static void test_character_fields(void)
+{
+    start();
+    uint8_t record[COK_CHARACTER_SIZE], expected[COK_CHARACTER_SIZE];
+    for (size_t i = 0; i < sizeof record; ++i) record[i] = (uint8_t)(i * 37 + 11);
+    vm.character = record;
+    static const struct {
+        uint16_t address, offset;
+        uint8_t kind; /* 0 byte, 1 signed byte, 2 word */
+    } reads[] = {
+        {0x7c15, 0x13, 0}, {0x7c18, 0x19, 0}, {0x7c19, 0x1b, 0}, {0x7c61, 0x5c, 0},
+        {0x7c72, 0x5a, 1}, {0x7c73, 0x5b, 1}, {0x7c76, 0x62, 0}, {0x7c9b, 0xd1, 0},
+        {0x7ca0, 0xd6, 1}, {0x7cb8, 0xe7, 0}, {0x7cbb, 0xeb, 2}, {0x7cbd, 0xed, 2},
+        {0x7cbf, 0xef, 2}, {0x7cc1, 0xf1, 2}, {0x7cc3, 0xf3, 2}, {0x7ccc, 0xfb, 1},
+        {0x7ccd, 0x100, 1}, {0x7cd0, 0xfd, 1}, {0x7cd6, 0x109, 1}, {0x7cd8, 0x10a, 1},
+        {0x7cf7, 0x130, 2}, {0x7cf9, 0x132, 0}, {0x7d19, 0x197, 0}, {0x7d1b, 0x198, 0},
+        {0x7ca5, 0xdb, 0}, {0x7ca6, 0xdc, 0}, {0x7ca7, 0xdd, 0}, {0x7ca8, 0xde, 0},
+        {0x7ca9, 0xdf, 0}, {0x7caa, 0xe0, 0}, {0x7cab, 0xe1, 0}, {0x7cac, 0xe2, 0},
+    };
+    /* Each with bit 7 set, so that a signed read differs from a plain one. */
+    for (size_t i = 0; i < sizeof reads / sizeof *reads; ++i) record[reads[i].offset] |= 0x80;
+    for (size_t i = 0; i < sizeof reads / sizeof *reads; ++i) {
+        const uint8_t *b = record + reads[i].offset;
+        uint16_t want = (uint16_t)(reads[i].kind == 0   ? b[0]
+                                   : reads[i].kind == 1 ? (uint16_t)(int16_t)(int8_t)b[0]
+                                                        : (uint16_t)(b[0] | b[1] << 8));
+        CHECK(cok_ecl_load_var(&vm, reads[i].address) == want);
+        vm.character = NULL;
+        CHECK(cok_ecl_load_var(&vm, reads[i].address) == 0);
+        vm.character = record;
+    }
+    /* The status as the scripts number it, and the sides. */
+    static const uint8_t status[][2] = {{0, 1}, {1, 0}, {2, 0}, {3, 6}, {4, 5}, {5, 4},
+                                        {6, 3}, {7, 7}, {8, 2}, {9, 0}};
+    for (size_t i = 0; i < sizeof status / sizeof *status; ++i) {
+        record[0x188] = status[i][0];
+        CHECK(cok_ecl_load_var(&vm, 0x7d00) == status[i][1]);
+    }
+    static const uint8_t sides[][3] = {{0, 0, 0}, {0, 1, 0x80}, {1, 0, 0x81}, {1, 1, 0x81},
+                                       {2, 1, 0}};
+    for (size_t i = 0; i < sizeof sides / sizeof *sides; ++i) {
+        record[0x18a] = sides[i][0];
+        record[0x18b] = sides[i][1];
+        CHECK(cok_ecl_load_var(&vm, 0x7d0c) == sides[i][2]);
+    }
+    /* The charisma's reaction table (0x7ecf), from +0x1b. */
+    record[0x1b] = 3;
+    CHECK(cok_ecl_load_var(&vm, 0x7ecf) == 0);
+    record[0x1b] = 13;
+    CHECK(cok_ecl_load_var(&vm, 0x7ecf) == 30);
+    record[0x1b] = 25;
+    CHECK(cok_ecl_load_var(&vm, 0x7ecf) == 60);
+    record[0x1b] = 26;
+    CHECK(cok_ecl_load_var(&vm, 0x7ecf) == 0);
+
+    /* Stores: each changes its own bytes only. */
+    memcpy(expected, record, sizeof record);
+    for (uint16_t k = 0; k < 0x3a; ++k) {
+        cok_ecl_store(&vm, (uint16_t)(0x7c20 + k), (uint16_t)(0x300 + k));
+        expected[0x1e + k] = (uint8_t)k;
+    }
+    cok_ecl_store(&vm, 0x7cb8, 0xb2);
+    expected[0xe7] = 0xb2;
+    CHECK(memcmp(record, expected, sizeof record) == 0);
+    cok_ecl_store(&vm, 0x7cb8, 0xb3);
+    expected[0xe7] = 0x81;
+    static const uint16_t coins[5] = {0x7cbb, 0x7cbd, 0x7cbf, 0x7cc1, 0x7cc3};
+    for (size_t k = 0; k < 5; ++k) {
+        cok_ecl_store(&vm, coins[k], (uint16_t)(0x1201 + 0x1111 * k));
+        expected[0xeb + 2 * k] = (uint8_t)(0x01 + 0x11 * k);
+        expected[0xec + 2 * k] = (uint8_t)(0x12 + 0x11 * k);
+    }
+    cok_ecl_store(&vm, 0x7cf7, 0xbeef);
+    expected[0x130] = 0xef;
+    expected[0x131] = 0xbe;
+    cok_ecl_store(&vm, 0x7cf9, 0x1ab);
+    expected[0x132] = 0xab;
+    cok_ecl_store(&vm, 0x7d19, 0x2cd);
+    expected[0x197] = 0xcd;
+    CHECK(memcmp(record, expected, sizeof record) == 0);
+    record[0x188] = expected[0x188] = 6;
+    record[0x189] = expected[0x189] = 0;
+    cok_ecl_store(&vm, 0x7d00, 2);
+    CHECK(memcmp(record, expected, sizeof record) == 0);
+    cok_ecl_store(&vm, 0x7d00, 1);
+    expected[0x188] = 0;
+    expected[0x189] = 1;
+    CHECK(memcmp(record, expected, sizeof record) == 0);
+    static const uint16_t side_stores[][3] = {{0x81, 1, 1}, {0x80, 0, 1}, {0x82, 0, 1}, {0, 0, 0}};
+    for (size_t i = 0; i < sizeof side_stores / sizeof *side_stores; ++i) {
+        cok_ecl_store(&vm, 0x7d0c, side_stores[i][0]);
+        expected[0x18a] = (uint8_t)side_stores[i][1];
+        expected[0x18b] = (uint8_t)side_stores[i][2];
+        CHECK(memcmp(record, expected, sizeof record) == 0);
+    }
+    /* Fields the VM does not write keep their bytes; the words keep the
+     * value. */
+    cok_ecl_store(&vm, 0x7c15, 9);
+    cok_ecl_store(&vm, 0x7d1b, 9);
+    CHECK(memcmp(record, expected, sizeof record) == 0 && vm.mem7c00[0x15] == 9);
+    vm.character = NULL;
+}
+
 int main(void)
 {
     test_names_and_counts();
@@ -555,6 +661,7 @@ int main(void)
     test_calls_and_tables();
     test_menus_and_hooks();
     test_variables();
+    test_character_fields();
     test_random();
     test_newecl();
     test_errors();

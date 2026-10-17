@@ -2,6 +2,7 @@
 #define COK_ECL_H
 
 #include "field.h"
+#include "rules.h"
 #include "text.h"
 
 #include <stdbool.h>
@@ -170,7 +171,8 @@ struct cok_ecl {
     bool keep_vars;           /* DS:4b52: NEWECL keeps 0x4c00-0x4c1f and 0x7f79-0x7f82. */
 
     /* The selected character's record (DS:6096), maintained by the host;
-     * NULL reads as 0. */
+     * NULL reads as 0. Its fields, 0x7c00-0x7fff, lie where the game's
+     * layout (rules->character) puts them. */
     uint8_t *character;
     bool missing_character;    /* DS:8855: 0x7d00 then reads 0. */
     uint8_t *saved_character;  /* DS:43bf, restored by EXIT if restore is set. */
@@ -180,10 +182,14 @@ struct cok_ecl {
     uint32_t seed;             /* Turbo Pascal RandSeed, DS:43ae. */
     cok_ecl_status status;
     cok_ecl_hooks hooks;
+    /* The game's descriptor, from cok_ecl_init: the character record's
+     * layout. */
+    const cok_rules *rules;
 };
 
-/* Zero the VM and set its hooks. */
-void cok_ecl_init(cok_ecl *vm, const cok_ecl_hooks *hooks);
+/* Zero the VM and set the game's rules (never NULL) and its hooks (or
+ * none). */
+void cok_ecl_init(cok_ecl *vm, const cok_rules *rules, const cok_ecl_hooks *hooks);
 
 /* Copy a decoded ECL DAX record into the code buffer, skipping its first
  * two bytes and zeroing the rest (3775:0361). */

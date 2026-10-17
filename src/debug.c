@@ -72,10 +72,12 @@ static void open_file(cok_adventure *game)
     cok_adventure_log(game, "debug", text);
 }
 
-void cok_debug_name(const uint8_t *record, char out[256])
+void cok_debug_name(const uint8_t *record, const cok_rules *rules, char out[256])
 {
-    memcpy(out, record + 1, record[0]);
-    out[record[0]] = '\0';
+    const cok_character_layout *L = rules->character;
+    uint8_t length = cok_field_u8_at(L, record, COK_FIELD_NAME, 0);
+    memcpy(out, record + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
+    out[length] = '\0';
 }
 
 /* 1614:007b for each record of the list (Ctrl-Z): a line for each of its
@@ -85,7 +87,7 @@ static void effects(cok_adventure *game)
     for (size_t i = 0; i < game->party.count; ++i) {
         const cok_character *c = game->party.members[i];
         char name[256];
-        cok_debug_name(c->record, name);
+        cok_debug_name(c->record, cok_game_rules(game), name);
         for (const cok_effect *e = c->effects; e != NULL; e = e->next) {
             char line[300];
             snprintf(line, sizeof line, "who: %s  sp#: %u", name, e->id);
