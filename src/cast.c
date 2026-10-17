@@ -7,6 +7,7 @@
 #include "command.h"
 #include "magic.h"
 #include "round.h"
+#include "step.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -29,52 +30,14 @@ typedef struct {
     cok_character **targets;
 } cast;
 
-/* The data segment's tables the combat targets and the cone read: the
- * steps by direction 0-8 (DS:1ed6, 1edf), the effects that make one
- * helpless (DS:200c), and the cone's neighbours of its end, left and
- * right, by direction (DS:0d94, 0d9c, 0da4, 0dac: x and y on the left,
- * x and y on the right, eight bytes each), with the bytes after them to
- * DS:0eab, which a side byte past 7 reads (the battle's effects, DS:0db4,
- * and constant tables of the screen's, DS:0dc4 on; nothing writes them). */
-static const int8_t step_x[9] = {0, 1, 1, 1, 0, -1, -1, -1, 0};
-static const int8_t step_y[9] = {-1, -1, 0, 1, 1, 1, 0, -1, 0};
-static const uint8_t disabling[4] = {0x33, 0x34, 0x35, 0x1f};
-static const uint8_t cone_sides[0x118] = {
-    0xff, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0xff, 0x00, 0xff, 0xff, 0x00, 0x00, 0x01, 0x01, 0x00,
-    0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0xff, 0xff,
-    0x03, 0x0b, 0x15, 0x17, 0x1b, 0x1e, 0x1f, 0x33, 0x34, 0x35, 0x5b, 0x6a, 0x6b, 0x6f, 0x76, 0x77,
-    0x00, 0x0f, 0x04, 0x0b, 0x0d, 0x02, 0x09, 0x0e, 0x00, 0x0f, 0x04, 0x0b, 0x0d, 0x02, 0x09, 0x0e,
-    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
-    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x00, 0x0e, 0x0f,
-    0x00, 0x02, 0x06, 0x0a, 0x16, 0x26, 0x36, 0x6e, 0x84, 0x9a, 0x01, 0x01, 0x01, 0x03, 0x02, 0x02,
-    0x07, 0x02, 0x02, 0x01, 0x02, 0x04, 0x04, 0x04, 0x08, 0x08, 0x08, 0x0b, 0x0b, 0x02, 0x05, 0x00,
-    0x04, 0x00, 0x06, 0x00, 0x04, 0x00, 0x02, 0x00, 0x07, 0x00, 0x02, 0x00, 0x00, 0x00, 0x09, 0x00,
-    0x05, 0x00, 0x04, 0x00, 0x03, 0x00, 0x03, 0x00, 0x03, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03,
-    0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x05, 0x00, 0x03,
-    0x04, 0x04, 0x04, 0x04, 0x05, 0x00, 0x00, 0x03, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04,
-    0x04, 0x04, 0x04, 0x04, 0x04, 0x05, 0x00, 0x00, 0x03, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04,
-    0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x05, 0x00, 0x03, 0x04, 0x04, 0x04, 0x04, 0x05, 0x00, 0x00,
-    0x03, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04,
-};
-
-const cok_ds_table cok_cast_tables[] = {
-    {0x1ed6, sizeof step_x, 1, (const uint8_t *)step_x},
-    {0x1edf, sizeof step_y, 1, (const uint8_t *)step_y},
-    {0x200c, sizeof disabling, 1, disabling},
-    {0x0d94, sizeof cone_sides, 1, cone_sides},
-};
-const size_t cok_cast_table_count = sizeof cok_cast_tables / sizeof *cok_cast_tables;
-
 /* Byte column of the spell table (DS:31b3, 16 bytes an id): 2 range, 4 and
  * 5 the duration, 7 how it is targeted outside combat, 8 and 9 the saving
  * throw, 10 the effect it adds. */
-static uint8_t spell_byte(uint8_t spell, unsigned column)
+static uint8_t spell_byte(const cok_adventure *game, uint8_t spell, unsigned column)
 {
+    const cok_data_segment *D = cok_game_rules(game)->data;
     uint8_t byte = 0;
-    cok_ds_byte((uint16_t)(0x31b3u + 16u * spell + column), &byte);
+    cok_data_byte(D, (uint16_t)cok_data_offset2(D, COK_DATA_SPELLS, spell, column), &byte);
     return byte;
 }
 
@@ -142,7 +105,7 @@ bool cok_cast_duration(cok_adventure *game, uint8_t spell, uint16_t *minutes)
     }
     uint8_t level;
     if (!level_of(game, spell, &level)) return false;
-    *minutes = (uint16_t)(level * spell_byte(spell, 5) + spell_byte(spell, 4));
+    *minutes = (uint16_t)(level * spell_byte(game, spell, 5) + spell_byte(game, spell, 4));
     return true;
 }
 
@@ -359,7 +322,8 @@ static bool area(cast *cx, uint8_t radius)
 {
     cok_adventure *game = cx->game;
     cok_combat *combat = &game->combat;
-    if (!cok_combat_list(combat, game->spell_x, game->spell_y, radius, 0xff, 1))
+    if (!cok_combat_list(combat, cok_game_rules(game), game->spell_x, game->spell_y, radius, 0xff,
+                         1))
         return undefined(game, "the list of combatants around one (6b30:08d8) reads past its "
                                "tables");
     uint8_t n = combat->listed_count;
@@ -389,12 +353,13 @@ static bool apply(cast *cx, uint8_t value, bool on_remove, uint8_t amount, uint8
     uint8_t n = game->spell_target_count;
     if (n == 0) return true;
     if (value == 0 && !level_of(game, cx->spell, &value)) return false;
-    uint8_t save_kind = spell_byte(cx->spell, 8), effect = spell_byte(cx->spell, 10);
+    uint8_t save_kind = spell_byte(game, cx->spell, 8), effect = spell_byte(game, cx->spell, 10);
     for (uint8_t i = 1; i <= n && !game->vm.abort; ++i) {
         if (t[i] == NULL) continue;
         bool saved = false;
-        if (save_kind != 0 && !save(game, t[i], spell_byte(cx->spell, 9), &saved)) return false;
-        if (spell_byte(r->spell, 2) == 0xff) {
+        if (save_kind != 0 && !save(game, t[i], spell_byte(game, cx->spell, 9), &saved))
+            return false;
+        if (spell_byte(game, r->spell, 2) == 0xff) {
             bool hit;
             if (!recompute(game, t[i]) || !dispatch(game, t[i], 0x0b) ||
                 !cok_combat_hit(game, cx->caster, t[i], cok_field_u8(L, t[i]->record, COK_FIELD_AC),
@@ -997,16 +962,16 @@ static bool missiles(cast *cx, uint8_t bonus, const char *text)
             saved = true;
             kind = 1;
         } else {
-            if (!cok_effects_save(&game->effects, p, spell_byte(spell, 9), bonus, &saved))
+            if (!cok_effects_save(&game->effects, p, spell_byte(game, spell, 9), bonus, &saved))
                 return effect_failed(game);
-            kind = spell_byte(spell, 8);
+            kind = spell_byte(game, spell, 8);
         }
         if (cok_field_u8(L, p->record, COK_FIELD_RACE) == 7 && (spell == 0x17 || spell == 0x31))
             saved = true;
         uint16_t minutes;
         uint8_t level;
         if (!cok_cast_duration(game, spell, &minutes) || !level_of(game, spell, &level) ||
-            !cok_cast_add_effect(game, p, spell_byte(spell, 10), minutes, level, false, kind,
+            !cok_cast_add_effect(game, p, spell_byte(game, spell, 10), minutes, level, false, kind,
                                  saved, text))
             return false;
     }
@@ -1203,9 +1168,9 @@ static bool bolt_cell(cast *cx, int8_t x, int8_t y, uint8_t amount, uint8_t type
     cok_combat *combat = &game->combat;
     uint8_t occupant, terrain;
     cok_combat_cell(combat, x, y, &occupant, &terrain);
-    if (terrain >= COK_COMBAT_TERRAINS)
+    if (terrain >= cok_data_count(cok_game_rules(game)->data, COK_DATA_TERRAIN, 0))
         return undefined(game, "terrain past the table is read (DS:1ee4, 5b04:39e9)");
-    *bounce = terrain > 0 && cok_combat_terrain[terrain].cost == 0xff &&
+    *bounce = terrain > 0 && cok_combat_terrain(cok_game_rules(game), terrain).cost == 0xff &&
               game->vm.mem4b00[0xe6] == 1 && !*bounce;
     if (occupant == 0 || occupant == previous) return true;
     cok_character *o = combat->combatant[occupant].character;
@@ -1294,12 +1259,12 @@ static bool bolt(cast *cx, uint8_t length, uint8_t amount, uint8_t type, bool su
             int8_t sx = (int8_t)line.x, sy = (int8_t)line.y;
             if (!(line.x0 == line.x1 && line.y0 == line.y1)) {
                 do {
-                    stepped = cok_combat_line_step(&line);
+                    stepped = cok_combat_line_step(&line, cok_game_rules(game));
                     cok_combat_cell(combat, (int8_t)line.x, (int8_t)line.y, &occupant, &terrain);
-                    if (terrain >= COK_COMBAT_TERRAINS)
+                    if (terrain >= cok_data_count(cok_game_rules(game)->data, COK_DATA_TERRAIN, 0))
                         return undefined(game, "terrain past the table is read (DS:1ee4, "
                                                "5b04:3bb0)");
-                    uint8_t cost = cok_combat_terrain[terrain].cost;
+                    uint8_t cost = cok_combat_terrain(cok_game_rules(game), terrain).cost;
                     if (cost == 1) bounce = false;
                     if (!stepped || (occupant != 0 && occupant != previous) || terrain == 0 ||
                         cost > 1)
@@ -1320,7 +1285,7 @@ static bool bolt(cast *cx, uint8_t length, uint8_t amount, uint8_t type, bool su
                 back.x1 = cx0;
                 back.y1 = cy0;
                 cok_combat_line_start(&back);
-                while (cok_combat_line_step(&back)) {}
+                while (cok_combat_line_step(&back, cok_game_rules(game))) {}
                 if (surcharge && back.length <= 8) line.length = (uint8_t)(line.length + 8);
                 sign = (int8_t)-sign;
                 surcharge = false;
@@ -1537,9 +1502,10 @@ static void clamp(int8_t *x, int8_t *y)
 /* 1836: the combatants on the line's cells after its start, each added to
  * list where it is not yet; false where the list would run past 30 into
  * the cone's directions (5b04:18e7). */
-static bool add_line(const cok_combat *combat, cok_combat_line *line, uint8_t list[32])
+static bool add_line(const cok_combat *combat, const cok_rules *rules, cok_combat_line *line,
+                     uint8_t list[32])
 {
-    while (cok_combat_line_step(line)) {
+    while (cok_combat_line_step(line, rules)) {
         uint8_t occupant, terrain;
         cok_combat_cell(combat, (int8_t)line->x, (int8_t)line->y, &occupant, &terrain);
         if (occupant == 0) continue;
@@ -1556,34 +1522,40 @@ static bool add_line(const cok_combat *combat, cok_combat_line *line, uint8_t li
  * to the end's right neighbour (DS:0da4 + side, 0dac + side), and for 3 or
  * more its left (DS:0d94 + side, 0d9c + side), each kept on the map;
  * their combatants added to list. False as add_line. */
-static bool side_lines(const cok_combat *combat, int8_t x0, int8_t y0, int8_t tx, int8_t ty,
-                       uint8_t width, uint8_t side, uint8_t list[32])
+/* The cone's step of part (0-3: left x, left y, right x, right y) for
+ * side, any byte: DS:0d94 + 8 * part + side, which the port holds. */
+static int8_t cone_side(const cok_data_segment *D, unsigned part, uint8_t side)
 {
-    int8_t left_x = (int8_t)(tx + (int8_t)cone_sides[side]);
-    int8_t left_y = (int8_t)(ty + (int8_t)cone_sides[8 + side]);
-    int8_t right_x = (int8_t)(tx + (int8_t)cone_sides[0x10 + side]);
-    int8_t right_y = (int8_t)(ty + (int8_t)cone_sides[0x18 + side]);
+    long at = cok_data_offset2(D, COK_DATA_CONE_SIDES, part, side);
+    assert(cok_data_holds(D, COK_DATA_CONE_SIDES, at));
+    return (int8_t)cok_data_held(D, at);
+}
+
+static bool side_lines(const cok_combat *combat, const cok_rules *rules, int8_t x0, int8_t y0,
+                       int8_t tx, int8_t ty, uint8_t width, uint8_t side, uint8_t list[32])
+{
+    const cok_data_segment *D = rules->data;
+    int8_t left_x = (int8_t)(tx + cone_side(D, 0, side));
+    int8_t left_y = (int8_t)(ty + cone_side(D, 1, side));
+    int8_t right_x = (int8_t)(tx + cone_side(D, 2, side));
+    int8_t right_y = (int8_t)(ty + cone_side(D, 3, side));
     clamp(&left_x, &left_y);
     clamp(&right_x, &right_y);
     cok_combat_line line = {.x0 = x0, .y0 = y0, .x1 = right_x, .y1 = right_y};
     cok_combat_line_start(&line);
-    if (!add_line(combat, &line, list)) return false;
+    if (!add_line(combat, rules, &line, list)) return false;
     if (width <= 2) return true;
     line = (cok_combat_line){.x0 = x0, .y0 = y0, .x1 = left_x, .y1 = left_y};
     cok_combat_line_start(&line);
-    return add_line(combat, &line, list);
+    return add_line(combat, rules, &line, list);
 }
 
 /* The data segment's bytes from DS:1ed6 to 1fec, which a cone's step of
  * any byte reads as a direction (5b04:19e7): the steps' tables and the
  * terrain table after them (which share DS:1ee4-1ee7). */
-int8_t cok_cast_step_byte(uint16_t at)
+int8_t cok_cast_step_byte(const cok_data_segment *D, uint16_t at)
 {
-    if (at < 0x1edf) return step_x[at - 0x1ed6];
-    if (at < 0x1ee4) return step_y[at - 0x1edf];
-    const cok_terrain *t = &cok_combat_terrain[(at - 0x1ee4) / 4];
-    const uint8_t bytes[4] = {t->cost, t->eye, t->block, t->tile};
-    return (int8_t)bytes[(at - 0x1ee4) % 4];
+    return (int8_t)cok_data_held(D, at);
 }
 
 /* The directions a cone aimed at its caster's own cell reads (dirs[0],
@@ -1646,11 +1618,12 @@ static bool cone(cast *cx, int8_t x0, int8_t y0, int8_t tx, int8_t ty, uint8_t w
                  uint8_t len, uint16_t range, int side)
 {
     cok_adventure *game = cx->game;
+    const cok_data_segment *D = cok_game_rules(game)->data;
     cok_combat *combat = &game->combat;
     cok_combat_line line = {.x0 = x0, .y0 = y0, .x1 = tx, .y1 = ty};
     cok_combat_line_start(&line);
     uint8_t dirs[50], k = 0;
-    while (cok_combat_line_step(&line)) {
+    while (cok_combat_line_step(&line, cok_game_rules(game))) {
         if (k == 50)
             return undefined(game, "a cone's line of more than 50 steps runs past its "
                                    "directions (5b04:193a)");
@@ -1662,19 +1635,19 @@ static bool cone(cast *cx, int8_t x0, int8_t y0, int8_t tx, int8_t ty, uint8_t w
     while (dist < (uint8_t)(len * 2) && tx < 0x31 && tx > 0 && ty < 0x18 && ty > 0) {
         uint8_t d = dirs[k];
         if (d <= 7) dist = (uint8_t)(dist + ((d & 1) != 0 ? 3 : 2));
-        tx = (int8_t)(tx + cok_cast_step_byte((uint16_t)(0x1ed6 + d)));
-        ty = (int8_t)(ty + cok_cast_step_byte((uint16_t)(0x1edf + d)));
+        tx = (int8_t)(tx + cok_cast_step_byte(D, (uint16_t)cok_data_offset(D, COK_DATA_STEP_X, d)));
+        ty = (int8_t)(ty + cok_cast_step_byte(D, (uint16_t)cok_data_offset(D, COK_DATA_STEP_Y, d)));
         k = k == last ? 0 : (uint8_t)(k + 1);
     }
     clamp(&tx, &ty);
     bool seen;
-    if (!cok_combat_sight(combat, x0, y0, &tx, &ty, &range, &seen))
+    if (!cok_combat_sight(combat, cok_game_rules(game), x0, y0, &tx, &ty, &range, &seen))
         return undefined(game, "terrain past the table is read (DS:1ee4, 6b30:03f1)");
     uint8_t list[32] = {0}, n = 1;
     bool again = false;
     line = (cok_combat_line){.x0 = x0, .y0 = y0, .x1 = tx, .y1 = ty};
     cok_combat_line_start(&line);
-    while (cok_combat_line_step(&line)) {
+    while (cok_combat_line_step(&line, cok_game_rules(game))) {
         uint8_t occupant, terrain;
         cok_combat_cell(combat, (int8_t)line.x, (int8_t)line.y, &occupant, &terrain);
         if (occupant == 0) continue;
@@ -1696,7 +1669,8 @@ static bool cone(cast *cx, int8_t x0, int8_t y0, int8_t tx, int8_t ty, uint8_t w
         static const char overrun[] = "a cone's list of more than 30 runs into its directions "
                                       "(5b04:18e7)";
         if (side >= 0) {
-            if (!side_lines(combat, x0, y0, tx, ty, width, (uint8_t)side, list))
+            if (!side_lines(combat, cok_game_rules(game), x0, y0, tx, ty, width, (uint8_t)side,
+                            list))
                 return undefined(game, overrun);
         } else {
             /* No one met, the byte not known: the same targets for every
@@ -1705,7 +1679,8 @@ static bool cone(cast *cx, int8_t x0, int8_t y0, int8_t tx, int8_t ty, uint8_t w
             for (unsigned d = 0; d <= 0xff; ++d) {
                 uint8_t each[32];
                 memcpy(each, list, sizeof each);
-                if (!side_lines(combat, x0, y0, tx, ty, width, (uint8_t)d, each))
+                if (!side_lines(combat, cok_game_rules(game), x0, y0, tx, ty, width, (uint8_t)d,
+                                each))
                     return undefined(game, overrun);
                 if (d == 0) memcpy(first, each, sizeof first);
                 if (memcmp(first, each, sizeof first) != 0)
@@ -1719,7 +1694,7 @@ static bool cone(cast *cx, int8_t x0, int8_t y0, int8_t tx, int8_t ty, uint8_t w
         }
     }
     if (width == 0xff) {
-        if (!cok_combat_list(combat, tx, ty, 3, 0xff, 1))
+        if (!cok_combat_list(combat, cok_game_rules(game), tx, ty, 3, 0xff, 1))
             return undefined(game, "the list of combatants around one (6b30:08d8) reads past "
                                    "its tables");
         if (combat->listed_count > 30)
@@ -1871,7 +1846,7 @@ static bool target(cast *cx)
     if (game->spell_target == NULL) game->spell_target = cx->caster->record;
     cx->targets[1] = cx->caster;
     game->spell_target_count = 1;
-    switch (spell_byte(cx->spell, 7)) {
+    switch (spell_byte(game, cx->spell, 7)) {
     case 1: return true;
     case 2: {
         cok_adventure_redraw(game);
@@ -1901,10 +1876,10 @@ static bool target(cast *cx)
 
 bool cok_cast_range(cok_adventure *game, uint8_t spell, uint8_t *range)
 {
-    uint8_t base = spell_byte(spell, 2), per = spell_byte(spell, 3), level = 6;
+    uint8_t base = spell_byte(game, spell, 2), per = spell_byte(game, spell, 3), level = 6;
     if (game->effects.rolls.item == 0 && !level_of(game, spell, &level)) return false;
     uint8_t r = (uint8_t)(base + per * level);
-    if (r == 0 && spell_byte(spell, 6) != 0) r = 1;
+    if (r == 0 && spell_byte(game, spell, 6) != 0) r = 1;
     if (r == 0xff) r = 1;
     *range = r;
     return true;
@@ -1917,8 +1892,8 @@ bool cok_cast_wounded_ally(cok_adventure *game, cok_character *c, cok_character 
     cok_character *best = NULL;
     uint8_t lowest = 0xff, body = 0;
     for (unsigned d = 0; d <= 8; ++d) {
-        int8_t x = (int8_t)(cok_combat_x(combat, c->record) + step_x[d]);
-        int8_t y = (int8_t)(cok_combat_y(combat, c->record) + step_y[d]);
+        int8_t x = (int8_t)(cok_combat_x(combat, c->record) + cok_step_x[d]);
+        int8_t y = (int8_t)(cok_combat_y(combat, c->record) + cok_step_y[d]);
         uint8_t occupant, terrain;
         cok_combat_cell(combat, x, y, &occupant, &terrain);
         if (occupant > 0) {
@@ -2004,7 +1979,7 @@ static bool pick(cast *cx, bool square, bool *found, cok_combat_aimed *res)
             return undefined(game, "a caster with no combat record is written through NULL "
                                    "(432f:2165)");
         cr->target = res->target;
-    } else if (spell_byte(cx->spell, 14) == 0) {
+    } else if (spell_byte(game, cx->spell, 14) == 0) {
         cok_character *t = c;
         if (cx->spell == 3 && !cok_cast_wounded_ally(game, c, &t)) return false;
         if (t != NULL) {
@@ -2022,9 +1997,11 @@ static bool pick(cast *cx, bool square, bool *found, cok_combat_aimed *res)
             if (t == NULL)
                 return undefined(game, "the computer's target is not in the list (432f:2235)");
             bool keep = true;
-            if (cok_combat_helpless(t)) {
-                for (unsigned k = 0; k < 4; ++k)
-                    if (disabling[k] == spell_byte(cx->spell, 10)) keep = false;
+            if (cok_combat_helpless(t, cok_game_rules(game))) {
+                const cok_data_segment *D = cok_game_rules(game)->data;
+                for (unsigned k = 0; k < cok_data_count(D, COK_DATA_HELPLESS, 0); ++k)
+                    if (cok_data_u8_at(D, COK_DATA_HELPLESS, k) == spell_byte(game, cx->spell, 10))
+                        keep = false;
             }
             if (keep) {
                 res->target = record;
@@ -2085,7 +2062,7 @@ static bool combat_targets(cast *cx, bool *done)
     game->spell_target_count = 0;
     r->images = 0;
     if (!cell(game, cx->caster, &game->spell_x, &game->spell_y)) return false;
-    uint8_t kind = spell_byte(cx->spell, 6) & 0x0f;
+    uint8_t kind = spell_byte(game, cx->spell, 6) & 0x0f;
     cok_combat_aimed res = {NULL, 0, 0};
     bool found;
     cok_character *p;
@@ -2155,7 +2132,7 @@ static bool combat_targets(cast *cx, bool *done)
             game->spell_target_count = 1;
             return true;
         }
-        return area(cx, (uint8_t)((spell_byte(cx->spell, 6) & 0x0f) >> 4));
+        return area(cx, (uint8_t)((spell_byte(game, cx->spell, 6) & 0x0f) >> 4));
     }
     if (kind >= 8 && kind <= 0x0e) {
         if (!pick(cx, true, &found, &res)) return false;
@@ -2164,9 +2141,9 @@ static bool combat_targets(cast *cx, bool *done)
             *done = false;
             return true;
         }
-        return area(cx, spell_byte(cx->spell, 6) & 7);
+        return area(cx, spell_byte(game, cx->spell, 6) & 7);
     }
-    uint8_t left = (uint8_t)((spell_byte(cx->spell, 6) & 3) + 1), picks = 0;
+    uint8_t left = (uint8_t)((spell_byte(game, cx->spell, 6) & 3) + 1), picks = 0;
     while (left > 0) {
         if (!pick(cx, false, &found, &res)) return false;
         if (game->vm.abort) return true;
@@ -2227,7 +2204,7 @@ static bool fly(cast *cx)
     cok_arena_sound(game, cx->spell == 0x2f ? 0x0b : cx->spell == 0x33 ? 8 : 2);
     if (!cok_arena_missile(game, x, y, game->spell_x, game->spell_y, 4, 0x1e)) return false;
     bool shown;
-    if (!cok_combat_visible(combat, c->record, false, &shown))
+    if (!cok_combat_visible(combat, cok_game_rules(game), c->record, false, &shown))
         return undefined(game, "a size past the footprints is read after them (6beb:06ef)");
     cx->shown = shown;
     if (!shown) return true;
@@ -2283,7 +2260,7 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, 
         cok_adventure_log(game, "cast", text);
     }
     bool go = true;
-    if (!combat && spell_byte(spell, 7) == 0) {
+    if (!combat && spell_byte(game, spell, 7) == 0) {
         bool lose;
         if (r->item == 0) {
             const char *name = cok_spell_name(spell);
@@ -2489,7 +2466,8 @@ static bool attack_4(cast *cx, cok_character *c, cok_effect *effect)
     if (roll(game, 1, 100) > 75) return true;
     bool breathed = false;
     if (effect->value != 0 && roll(game, 1, 100) <= 25) {
-        if (!cok_combat_list(combat, cok_combat_x(combat, r), cok_combat_y(combat, r), 1, 0xff, 1))
+        if (!cok_combat_list(combat, cok_game_rules(game), cok_combat_x(combat, r),
+                             cok_combat_y(combat, r), 1, 0xff, 1))
             return undefined(game, "the list of combatants around one (6b30:08d8) reads past "
                                    "its tables");
         cok_character *target = NULL;

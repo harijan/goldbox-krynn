@@ -131,7 +131,7 @@ static cok_character *record(char name, uint8_t side, int8_t x, int8_t y)
     ++k->count;
     k->combatant[k->count].size = 0;
     k->combatant[k->count].character = NULL;
-    CHECK(cok_combat_occupy(k));
+    CHECK(cok_combat_occupy(k, &cok_rules_champions));
     return c;
 }
 
@@ -139,24 +139,6 @@ static cok_character *record(char name, uint8_t side, int8_t x, int8_t y)
 static uint32_t next(uint32_t *seed, uint16_t range)
 {
     return cok_tp_random(seed, range);
-}
-
-static void test_tables(void)
-{
-    FILE *f = fopen("build/START_FULL.EXE", "rb");
-    if (f == NULL) {
-        puts("round: build/START_FULL.EXE not built; tables not checked");
-        return;
-    }
-    static uint8_t exe[1 << 20];
-    size_t size = fread(exe, 1, sizeof exe, f);
-    fclose(f);
-    CHECK(size > 0x20 && exe[0] == 'M' && exe[1] == 'Z');
-    size_t ds = (size_t)(exe[8] | exe[9] << 8) * 16 + 0xbc6 * 16;
-    for (size_t i = 0; i < cok_round_table_count; ++i) {
-        const cok_ds_table *t = &cok_round_tables[i];
-        for (size_t k = 0; k < t->size; ++k) CHECK(exe[ds + t->offset + k] == t->bytes[k]);
-    }
 }
 
 static void test_turn_order(void)
@@ -463,8 +445,9 @@ static void test_helpers(void)
     m->record[0x18a] = 7;
     CHECK(cok_combat_opposite(m, &cok_rules_champions) == 0);
     m->record[0x18a] = 1;
-    CHECK(!cok_combat_helpless(a));
-    CHECK(cok_character_add_effect(a, 0x1f, 0, 0, false) != NULL && cok_combat_helpless(a));
+    CHECK(!cok_combat_helpless(a, &cok_rules_champions));
+    CHECK(cok_character_add_effect(a, 0x1f, 0, 0, false) != NULL &&
+          cok_combat_helpless(a, &cok_rules_champions));
     /* End of turn. */
     b->combat->initiative = 5;
     b->combat->spell = 3;
@@ -568,26 +551,33 @@ static void test_lines(void)
     /* A straight step adds 2, a diagonal one 3. */
     cok_combat_line line = {.x0 = 0, .y0 = 0, .x1 = 3, .y1 = 0};
     cok_combat_line_start(&line);
-    CHECK(cok_combat_line_step(&line) && line.x == 1 && line.length == 2 && line.direction == 2);
+    CHECK(cok_combat_line_step(&line, &cok_rules_champions) && line.x == 1 && line.length == 2 &&
+          line.direction == 2);
     line = (cok_combat_line){.x0 = 0, .y0 = 0, .x1 = 2, .y1 = 2};
     cok_combat_line_start(&line);
-    CHECK(cok_combat_line_step(&line) && line.x == 1 && line.y == 1 && line.length == 3);
+    CHECK(cok_combat_line_step(&line, &cok_rules_champions) && line.x == 1 && line.y == 1 &&
+          line.length == 3);
     CHECK(line.direction == 3);
-    CHECK(cok_combat_line_step(&line) && !cok_combat_line_step(&line) && line.length == 6);
+    CHECK(cok_combat_line_step(&line, &cok_rules_champions) &&
+          !cok_combat_line_step(&line, &cok_rules_champions) && line.length == 6);
     CHECK(line.direction == 8);
     /* 2 across, 1 down: the err test steps down at once. */
     line = (cok_combat_line){.x0 = 0, .y0 = 0, .x1 = -2, .y1 = 1};
     cok_combat_line_start(&line);
-    CHECK(cok_combat_line_step(&line) && line.x == -1 && line.y == 1 && line.direction == 5);
-    CHECK(cok_combat_line_step(&line) && line.x == -2 && line.y == 1 && line.length == 5);
+    CHECK(cok_combat_line_step(&line, &cok_rules_champions) && line.x == -1 && line.y == 1 &&
+          line.direction == 5);
+    CHECK(cok_combat_line_step(&line, &cok_rules_champions) && line.x == -2 && line.y == 1 &&
+          line.length == 5);
     /* Mostly down: the shorter axis steps once the err reaches dy. */
     line = (cok_combat_line){.x0 = 0, .y0 = 0, .x1 = 1, .y1 = 2};
     cok_combat_line_start(&line);
-    CHECK(cok_combat_line_step(&line) && line.x == 1 && line.y == 1 && line.length == 3);
-    CHECK(cok_combat_line_step(&line) && line.x == 1 && line.y == 2 && line.length == 5);
+    CHECK(cok_combat_line_step(&line, &cok_rules_champions) && line.x == 1 && line.y == 1 &&
+          line.length == 3);
+    CHECK(cok_combat_line_step(&line, &cok_rules_champions) && line.x == 1 && line.y == 2 &&
+          line.length == 5);
     line = (cok_combat_line){.x0 = 4, .y0 = 4, .x1 = 4, .y1 = 0};
     cok_combat_line_start(&line);
-    CHECK(cok_combat_line_step(&line) && line.y == 3 && line.direction == 0);
+    CHECK(cok_combat_line_step(&line, &cok_rules_champions) && line.y == 3 && line.direction == 0);
 }
 
 static void test_sight(void)
@@ -597,35 +587,38 @@ static void test_sight(void)
     int8_t x1 = 10, y1 = 2;
     uint16_t range = 0xff;
     bool seen;
-    CHECK(cok_combat_sight(c, 2, 2, &x1, &y1, &range, &seen) && seen && range == 16);
+    CHECK(cok_combat_sight(c, &cok_rules_champions, 2, 2, &x1, &y1, &range, &seen) && seen &&
+          range == 16);
     /* A wall (blocking height 2) at 6, 2 stops it there. */
     c->cells[2][6] = 1;
     x1 = 10, y1 = 2, range = 0xff;
-    CHECK(cok_combat_sight(c, 2, 2, &x1, &y1, &range, &seen) && !seen);
+    CHECK(cok_combat_sight(c, &cok_rules_champions, 2, 2, &x1, &y1, &range, &seen) && !seen);
     CHECK(x1 == 6 && y1 == 2 && range == 8);
     /* From a table (eye height 2) a wall does not block. */
     c->cells[2][2] = 0x1a;
     x1 = 10, y1 = 2, range = 0xff;
-    CHECK(cok_combat_sight(c, 2, 2, &x1, &y1, &range, &seen) && seen);
+    CHECK(cok_combat_sight(c, &cok_rules_champions, 2, 2, &x1, &y1, &range, &seen) && seen);
     c->cells[2][2] = COK_COMBAT_FLOOR;
     /* Nor with sight not blocked (map +6). */
     c->see_all = 1;
     x1 = 10, y1 = 2, range = 0xff;
-    CHECK(cok_combat_sight(c, 2, 2, &x1, &y1, &range, &seen) && seen);
+    CHECK(cok_combat_sight(c, &cok_rules_champions, 2, 2, &x1, &y1, &range, &seen) && seen);
     c->see_all = 0;
     /* The range is cells: the length may reach 2 * range + 1. */
     x1 = 5, y1 = 2, range = 1;
-    CHECK(cok_combat_sight(c, 2, 2, &x1, &y1, &range, &seen) && !seen && x1 == 4 && range == 4);
+    CHECK(cok_combat_sight(c, &cok_rules_champions, 2, 2, &x1, &y1, &range, &seen) && !seen &&
+          x1 == 4 && range == 4);
     x1 = 3, y1 = 2, range = 1;
-    CHECK(cok_combat_sight(c, 2, 2, &x1, &y1, &range, &seen) && seen && range == 2);
+    CHECK(cok_combat_sight(c, &cok_rules_champions, 2, 2, &x1, &y1, &range, &seen) && seen &&
+          range == 2);
     /* The start cell is tested: standing on a wall (eye 1, blocking 2)
      * sees nothing. */
     x1 = 9, y1 = 2, range = 0xff;
-    CHECK(cok_combat_sight(c, 6, 2, &x1, &y1, &range, &seen) && !seen);
+    CHECK(cok_combat_sight(c, &cok_rules_champions, 6, 2, &x1, &y1, &range, &seen) && !seen);
     CHECK(x1 == 6 && y1 == 2 && range == 0);
     /* Off the map: refused. */
     x1 = 60, y1 = 2, range = 0xff;
-    CHECK(!cok_combat_sight(c, 48, 2, &x1, &y1, &range, &seen));
+    CHECK(!cok_combat_sight(c, &cok_rules_champions, 48, 2, &x1, &y1, &range, &seen));
 }
 
 static void test_arc(void)
@@ -673,15 +666,15 @@ static void test_list(void)
     /* Around A, any way: itself at 0, M diagonal (3) to the south-east,
      * B two across (4) to the east, N four diagonal (12); each with the
      * first direction whose quarter holds it. */
-    CHECK(cok_combat_list(c, 10, 10, 0xff, 0xff, 1));
+    CHECK(cok_combat_list(c, &cok_rules_champions, 10, 10, 0xff, 0xff, 1));
     CHECK(c->listed_count == 4);
     CHECK(c->listed[1].index == 1 && c->listed[1].distance == 0 && c->listed[1].direction == 0);
     CHECK(c->listed[2].index == 3 && c->listed[2].distance == 3 && c->listed[2].direction == 3);
     CHECK(c->listed[3].index == 2 && c->listed[3].distance == 4 && c->listed[3].direction == 2);
     CHECK(c->listed[4].index == 4 && c->listed[4].distance == 12 && c->listed[4].direction == 3);
     /* Within 1 cell (a length of 3), and facing west (6) nothing but A. */
-    CHECK(cok_combat_list(c, 10, 10, 1, 0xff, 1) && c->listed_count == 2);
-    CHECK(cok_combat_list(c, 10, 10, 0xff, 6, 1) && c->listed_count == 1);
+    CHECK(cok_combat_list(c, &cok_rules_champions, 10, 10, 1, 0xff, 1) && c->listed_count == 2);
+    CHECK(cok_combat_list(c, &cok_rules_champions, 10, 10, 0xff, 6, 1) && c->listed_count == 1);
     CHECK(c->listed[1].direction == 6);
     /* The enemies of A within 1: M, and the list keeps only them. */
     uint8_t count;
@@ -696,9 +689,11 @@ static void test_list(void)
     /* The distance in squares, with the list put back but for its count. */
     c->listed[3].index = 0x33;
     uint8_t distance;
-    CHECK(cok_combat_distance(c, a->record, n->record, &distance) && distance == 6);
+    CHECK(cok_combat_distance(c, &cok_rules_champions, a->record, n->record, &distance) &&
+          distance == 6);
     CHECK(c->listed_count == 4 && c->listed[3].index == 0x33 && c->see_all == 0);
-    CHECK(cok_combat_distance(c, a->record, m->record, &distance) && distance == 1);
+    CHECK(cok_combat_distance(c, &cok_rules_champions, a->record, m->record, &distance) &&
+          distance == 1);
     /* Directions. */
     uint8_t d;
     CHECK(cok_combat_direction(c, a, m, &d) && d == 3);
@@ -718,8 +713,9 @@ static void test_list(void)
     /* Sight is not blocked for the distance: a wall between them. */
     c->cells[12][12] = 1;
     c->cells[13][13] = 1;
-    CHECK(cok_combat_distance(c, a->record, n->record, &distance) && distance == 6);
-    CHECK(cok_combat_list(c, 10, 10, 0xff, 0xff, 1) && c->listed_count == 3);
+    CHECK(cok_combat_distance(c, &cok_rules_champions, a->record, n->record, &distance) &&
+          distance == 6);
+    CHECK(cok_combat_list(c, &cok_rules_champions, 10, 10, 0xff, 0xff, 1) && c->listed_count == 3);
     c->cells[12][12] = c->cells[13][13] = COK_COMBAT_FLOOR;
     /* The sort: equal lengths go by direction, but an odd one stays
      * after an even one. */
@@ -727,17 +723,17 @@ static void test_list(void)
     record('A', 0, 10, 10);
     record('B', 0, 14, 10); /* 8 to the east */
     record('C', 0, 10, 6);  /* 8 to the north */
-    CHECK(cok_combat_list(c, 10, 10, 0xff, 0xff, 1) && c->listed_count == 3);
+    CHECK(cok_combat_list(c, &cok_rules_champions, 10, 10, 0xff, 0xff, 1) && c->listed_count == 3);
     CHECK(c->listed[2].index == 3 && c->listed[3].index == 2);
     reset("");
     record('A', 0, 10, 10);
     record('B', 0, 13, 10); /* 6 to the east */
     record('C', 0, 12, 8);  /* 6 north-east */
-    CHECK(cok_combat_list(c, 10, 10, 0xff, 0xff, 1) && c->listed_count == 3);
+    CHECK(cok_combat_list(c, &cok_rules_champions, 10, 10, 0xff, 0xff, 1) && c->listed_count == 3);
     CHECK(c->listed[2].index == 2 && c->listed[2].direction == 2);
     CHECK(c->listed[3].index == 3 && c->listed[3].direction == 1);
     /* A size past the footprints: refused. */
-    CHECK(!cok_combat_list(c, 10, 10, 0xff, 0xff, 9));
+    CHECK(!cok_combat_list(c, &cok_rules_champions, 10, 10, 0xff, 0xff, 9));
 }
 
 static void test_turn(void)
@@ -1110,7 +1106,7 @@ static void test_handlers(void)
     uint8_t spell = 0;
     for (unsigned k = 1; k < 0x6c && spell == 0; ++k) {
         uint8_t kind = 0;
-        CHECK(cok_ds_byte((uint16_t)(0x31b9 + 16 * k), &kind));
+        CHECK(cok_data_byte(cok_rules_champions.data, (uint16_t)(0x31b9 + 16 * k), &kind));
         if (kind > 14) spell = (uint8_t)k;
     }
     CHECK(spell != 0);
@@ -1122,7 +1118,7 @@ static void test_handlers(void)
     uint8_t seven = 0, eight = 0;
     for (unsigned k = 1; k < 0x6c; ++k) {
         uint8_t kind = 0;
-        CHECK(cok_ds_byte((uint16_t)(0x31b9 + 16 * k), &kind));
+        CHECK(cok_data_byte(cok_rules_champions.data, (uint16_t)(0x31b9 + 16 * k), &kind));
         if (kind == 7 && seven == 0) seven = (uint8_t)k;
         if (kind == 8 && eight == 0) eight = (uint8_t)k;
     }
@@ -1259,10 +1255,10 @@ static void test_handlers(void)
     CHECK(game.effects.rolls.attack_roll == 0xff && game.effects.rolls.hits[0] == 1);
     game.effects.rolls.amount = 7;
     game.combat.combatant[2].x = 11;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     CHECK(run(m, 5) && game.effects.rolls.amount == 7);
     game.combat.combatant[2].x = 13;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     a->items[0][0x32] = 1;
     CHECK(run(m, 5) && game.effects.rolls.amount == 7);
     /* Outside a battle the held handler writes through a stale or NULL
@@ -1302,25 +1298,25 @@ static void test_shared(void)
      * five, 15, is too far. */
     game.combat.combatant[2].x = 10;
     game.combat.combatant[2].y = 10;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     CHECK(cok_effects_dispatch(&game.effects, a, 0x0c) && game.effects.rolls.save_roll == 0);
     game.combat.combatant[2].x = 9;
     game.combat.combatant[2].y = 9;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     CHECK(cok_effects_dispatch(&game.effects, a, 0x0c) && game.effects.rolls.save_roll == 1);
     /* A second holder in range counts when the first is not. */
     cok_character *d = record('D', 0, 30, 3);
     CHECK(cok_character_add_effect(d, 0x31, 0, 0, false) != NULL);
     game.combat.combatant[2].x = 40;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     game.combat.combatant[4].x = 6;
     game.combat.combatant[4].y = 5;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     game.effects.rolls.save_roll = 0;
     CHECK(cok_effects_dispatch(&game.effects, a, 0x0c) && game.effects.rolls.save_roll == 1);
     /* A holder off the map (size 0) lists none. */
     game.combat.combatant[4].size = 0;
-    CHECK(cok_combat_occupy(&game.combat));
+    CHECK(cok_combat_occupy(&game.combat, &cok_rules_champions));
     game.effects.rolls.save_roll = 0;
     CHECK(cok_effects_dispatch(&game.effects, a, 0x0c) && game.effects.rolls.save_roll == 0);
     /* Outside combat any holder counts. */
@@ -1481,7 +1477,6 @@ int main(void)
                                  .context = &s};
     CHECK(cok_adventure_open(&game, &cok_rules_champions, "COKAssets", &keys, &hooks));
     load_screen();
-    test_tables();
     test_turn_order();
     test_round_start();
     test_movement();

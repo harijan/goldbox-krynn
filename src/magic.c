@@ -9,26 +9,27 @@
 
 /* Spells. */
 
-static uint8_t spell_byte(uint8_t id, unsigned column)
+static uint8_t spell_byte(const cok_rules *rules, uint8_t id, unsigned column)
 {
+    const cok_data_segment *D = rules->data;
     uint8_t byte = 0;
-    cok_ds_byte((uint16_t)(0x31b3u + 16u * (id & 0x7fu) + column), &byte);
+    cok_data_byte(D, (uint16_t)cok_data_offset2(D, COK_DATA_SPELLS, id & 0x7fu, column), &byte);
     return byte;
 }
 
-uint8_t cok_spell_class(uint8_t id)
+uint8_t cok_spell_class(const cok_rules *rules, uint8_t id)
 {
-    return spell_byte(id, 0);
+    return spell_byte(rules, id, 0);
 }
 
-uint8_t cok_spell_level(uint8_t id)
+uint8_t cok_spell_level(const cok_rules *rules, uint8_t id)
 {
-    return spell_byte(id, 1);
+    return spell_byte(rules, id, 1);
 }
 
-uint8_t cok_spell_effect(uint8_t id)
+uint8_t cok_spell_effect(const cok_rules *rules, uint8_t id)
 {
-    return spell_byte(id, 10);
+    return spell_byte(rules, id, 10);
 }
 
 static const char *const spell_names[COK_SPELLS - 1] = { /* DS:20a0, string[40] each */
@@ -175,7 +176,7 @@ static bool usable(const cok_adventure *game, const cok_character *character, ui
     const cok_rules *rules = cok_game_rules(game);
     const cok_character_layout *L = rules->character;
     const uint8_t *c = character->record;
-    switch (cok_spell_class(spell & 0x7f)) {
+    switch (cok_spell_class(rules, spell & 0x7f)) {
     case 0: case 2:
         return cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_WISDOM) > 8 &&
                (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0) > 0 ||
@@ -207,10 +208,11 @@ static bool usable(const cok_adventure *game, const cok_character *character, ui
 
 /* Whether spell is a granted power c has memorized, from its second byte
  * on (5b04:001e), which keeps it out of the grimoire's list. */
-static bool granted(const cok_character_layout *L, const uint8_t *c, uint8_t spell)
+static bool granted(const cok_rules *rules, const uint8_t *c, uint8_t spell)
 {
+    const cok_character_layout *L = rules->character;
     spell &= 0x7f;
-    if (cok_spell_class(spell) != 2) return false;
+    if (cok_spell_class(rules, spell) != 2) return false;
     for (size_t i = 1; i < cok_field_count(L, COK_FIELD_MEMORIZED); ++i)
         if ((cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) & 0x7f) == spell) return true;
     return false;
@@ -295,7 +297,7 @@ static bool heading_row(cok_adventure *game, spell_list *l, size_t row, uint8_t 
  * if it is there, showing the count after its name (5b04:0628). */
 static bool add_sorted(cok_adventure *game, spell_list *l, uint8_t b)
 {
-    uint8_t spell = b & 0x7f, level = cok_spell_level(spell);
+    uint8_t spell = b & 0x7f, level = cok_spell_level(cok_game_rules(game), spell);
     size_t k = 0, row = 0;
     if (l->count == 0) {
         memset(l->counts, 0, sizeof l->counts);
@@ -308,7 +310,8 @@ static bool add_sorted(cok_adventure *game, spell_list *l, uint8_t b)
             if (l->heading[row]) {
                 ++row;
                 ++k;
-            } else if ((int8_t)cok_spell_level(l->spells[k]) > (int8_t)level ||
+            } else if ((int8_t)cok_spell_level(cok_game_rules(game), l->spells[k]) >
+                           (int8_t)level ||
                        l->spells[k] == spell) {
                 found = true;
             } else {
@@ -351,9 +354,9 @@ static bool add_scroll_spell(cok_adventure *game, spell_list *l, uint8_t b)
     uint8_t last = 0;
     for (size_t i = 0; i < l->count; ++i)
         if (!l->heading[i]) ++k;
-    if (k > 0) last = cok_spell_level(l->spells[k - 1]);
+    if (k > 0) last = cok_spell_level(cok_game_rules(game), l->spells[k - 1]);
     if (k >= LIST_SPELLS) return list_fail(game, "a spell list of more than 58 spells");
-    uint8_t level = cok_spell_level(b & 0x7f);
+    uint8_t level = cok_spell_level(cok_game_rules(game), b & 0x7f);
     if (level != last) {
         if (!insert_row(game, l, l->count) || !heading_row(game, l, l->count - 1, level))
             return false;
@@ -405,6 +408,7 @@ static size_t used_scroll;
 static bool build_list(cok_adventure *game, spell_list *l, cok_character *character, int kind)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_data_segment *D = cok_game_rules(game)->data;
     const uint8_t *c = character->record;
     memset(l, 0, sizeof *l);
     if (kind == 0 || kind == 5) {
@@ -416,7 +420,7 @@ static bool build_list(cok_adventure *game, spell_list *l, cok_character *charac
     } else if (kind == 1) {
         for (uint8_t n = 1; n <= 0x6b; ++n)
             if (cok_field_u8_at(L, c, COK_FIELD_KNOWN_SPELL, n) != 0 &&
-                usable(game, character, n) && !granted(L, c, n) &&
+                usable(game, character, n) && !granted(cok_game_rules(game), c, n) &&
                 !add_sorted(game, l, n))
                 return false;
     } else if (kind == 4) {
@@ -429,7 +433,8 @@ static bool build_list(cok_adventure *game, spell_list *l, cok_character *charac
             if (cok_field_u8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 3, level) == 0) continue;
             uint8_t spell = 0xff;
             for (int k = 1; k <= 10 && spell != 0; ++k) {
-                cok_ds_byte((uint16_t)(0x4208 + table * 40 + level * 10 + k), &spell);
+                long at = cok_data_offset3(D, COK_DATA_SPELL_LISTS, table, level, k);
+                cok_data_byte(D, (uint16_t)at, &spell);
                 if (spell != 0 && cok_field_u8_at(L, c, COK_FIELD_KNOWN_SPELL, spell) == 0 &&
                     !add_sorted(game, l, spell))
                     return false;
@@ -460,12 +465,13 @@ static bool build_list(cok_adventure *game, spell_list *l, cok_character *charac
     if (l->count == 0) return true;
     /* Headings: one before the first spell, then one before each spell of
      * a higher level than the one before it. */
-    uint8_t level = cok_spell_level(l->spells[0]);
+    uint8_t level = cok_spell_level(cok_game_rules(game), l->spells[0]);
     if (!insert_row(game, l, 0) || !heading_row(game, l, 0, level)) return false;
     size_t k = 0;
     for (size_t row = 0; row < l->count; ++row, ++k) {
         uint8_t previous = level;
-        if (k < LIST_SPELLS && l->spells[k] != 0) level = cok_spell_level(l->spells[k]);
+        if (k < LIST_SPELLS && l->spells[k] != 0)
+            level = cok_spell_level(cok_game_rules(game), l->spells[k]);
         if ((int8_t)previous < (int8_t)level) {
             if (!insert_row(game, l, row + 1) || !heading_row(game, l, row + 1, level))
                 return false;
@@ -605,7 +611,8 @@ bool cok_magic_slots(const uint8_t *c, const cok_rules *rules, uint8_t level, ui
     for (size_t i = 0; i < memorized; ++i) {
         uint8_t b = cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i);
         if (b == 0) continue;
-        if (cok_spell_level(b & 0x7f) == level && cok_spell_class(b & 0x7f) == class_) ++n;
+        if (cok_spell_level(rules, b & 0x7f) == level && cok_spell_class(rules, b & 0x7f) == class_)
+            ++n;
     }
     if (count != NULL) *count = n;
     /* Only levels and classes past the spell table's reach the far
@@ -814,7 +821,8 @@ static void memorize(cok_adventure *game)
             done = true;
             continue;
         }
-        uint8_t level = cok_spell_level((uint8_t)spell), class_ = cok_spell_class((uint8_t)spell);
+        uint8_t level = cok_spell_level(cok_game_rules(game), (uint8_t)spell),
+                class_ = cok_spell_class(cok_game_rules(game), (uint8_t)spell);
         /* For a power granted to one without a cleric level, 4888:0700
          * starts from an uninitialized local, which holds the low byte of
          * the return offset of the 34ec call before it (1098:116c), 0x71. */
@@ -886,7 +894,8 @@ static void scribe(cok_adventure *game)
             }
         }
         if (found) continue;
-        uint8_t class_ = cok_spell_class((uint8_t)spell), level = cok_spell_level((uint8_t)spell);
+        uint8_t class_ = cok_spell_class(cok_game_rules(game), (uint8_t)spell),
+                level = cok_spell_level(cok_game_rules(game), (uint8_t)spell);
         if (c[per_day_at(L, class_, level)] == 0) {
             cok_camp_notice(game, "You can not scribe that spell.");
             continue;
@@ -907,7 +916,7 @@ static void scribe(cok_adventure *game)
 /* What Display calls effect id: the name of the first spell 1-0x38 that
  * adds it, for the ids of spells, or its own text; NULL for those it does
  * not show (4888:17ae). */
-static const char *effect_text(uint8_t id, char out[41])
+static const char *effect_text(const cok_rules *rules, uint8_t id, char out[41])
 {
     static const struct { uint8_t id; const char *text; } named[] = {
         {0x04, "Dispel Evil"}, {0x1b, "Fumbling"}, {0x1f, "Helpless"}, {0x23, "Confused"},
@@ -924,7 +933,7 @@ static const char *effect_text(uint8_t id, char out[41])
                  (id >= 0x33 && id <= 0x35);
     if (spell) {
         for (uint8_t n = 1; n <= 0x38; ++n)
-            if (cok_spell_effect(n) == id) {
+            if (cok_spell_effect(rules, n) == id) {
                 snprintf(out, 41, "%s", cok_spell_name(n));
                 return out;
             }
@@ -965,7 +974,7 @@ static void display(cok_adventure *game)
         size_t shown = 0;
         for (const cok_effect *e = character->effects; e != NULL; e = e->next) {
             char buffer[41], line[41] = " ";
-            const char *what = effect_text(e->id, buffer);
+            const char *what = effect_text(cok_game_rules(game), e->id, buffer);
             if (what == NULL) continue;
             append_text(line, sizeof line, what);
             ROW(line, false);

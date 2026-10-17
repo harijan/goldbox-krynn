@@ -19,9 +19,9 @@ enum { COK_SPELLS = 0x6c }; /* Ids 1-0x6b have names. */
  * 2 granted by a deity, 3 magic-user, 4 none), its level, and the effect
  * it adds (byte 10). Ids up to 0x7f read the original's data past the
  * table, as the original does. */
-uint8_t cok_spell_class(uint8_t id);
-uint8_t cok_spell_level(uint8_t id);
-uint8_t cok_spell_effect(uint8_t id);
+uint8_t cok_spell_class(const cok_rules *rules, uint8_t id);
+uint8_t cok_spell_level(const cok_rules *rules, uint8_t id);
+uint8_t cok_spell_effect(const cok_rules *rules, uint8_t id);
 /* The name of spell id 1-0x6b (DS:2077 + 41 * id), or NULL for other ids,
  * whose names would be other data. */
 const char *cok_spell_name(uint8_t id);

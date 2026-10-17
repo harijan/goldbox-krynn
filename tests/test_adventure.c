@@ -1027,8 +1027,9 @@ static void test_overland(void)
     mem[0xc3] = mem[0xc4] = 5;
     game.vm.direction = 249;
     cok_adventure_travel(&game);
-    int sx = 5 + (int8_t)cok_combat_terrain[58].tile, sy = 5 + (int8_t)cok_combat_terrain[61].cost;
-    CHECK(cok_combat_terrain[61].cost == 4);
+    int sx = 5 + (int8_t)cok_combat_terrain(&cok_rules_champions, 58).tile,
+        sy = 5 + (int8_t)cok_combat_terrain(&cok_rules_champions, 61).cost;
+    CHECK(cok_combat_terrain(&cok_rules_champions, 61).cost == 4);
     CHECK(mem[0xc3] == (uint16_t)(sx < 0 ? 0 : sx > 37 ? 37 : sx) &&
           mem[0xc4] == (uint16_t)(sy < 0 ? 0 : sy > 14 ? 14 : sy));
 

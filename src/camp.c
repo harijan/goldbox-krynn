@@ -145,7 +145,8 @@ uint16_t cok_camp_preparation(cok_character *character, const cok_rules *rules)
     uint8_t memorize_max = 0, memorize_sum = 0, scribe_max = 0, scribe_sum = 0;
     for (size_t i = 0; i < cok_field_count(L, COK_FIELD_MEMORIZED); ++i) {
         if (cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) <= 0x7f) continue;
-        uint8_t level = cok_spell_level(cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) & 0x7f);
+        uint8_t level =
+            cok_spell_level(rules, cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) & 0x7f);
         if (level == 0) level = 1;
         if (level > memorize_max) memorize_max = level;
         memorize_sum = (uint8_t)(memorize_sum + level);
@@ -155,7 +156,7 @@ uint16_t cok_camp_preparation(cok_character *character, const cok_rules *rules)
         if (!cok_item_is_scroll(item)) continue;
         for (size_t k = 1; k <= 3; ++k) {
             if (item[0x3b + k] <= 0x7f) continue;
-            uint8_t level = cok_spell_level(item[0x3b + k] & 0x7f);
+            uint8_t level = cok_spell_level(rules, item[0x3b + k] & 0x7f);
             if (level > scribe_max) scribe_max = level;
             scribe_sum = (uint8_t)(scribe_sum + level);
         }
@@ -347,7 +348,8 @@ static uint8_t memorize(cok_adventure *game, cok_character *character, bool *fla
     for (size_t i = 0; i < cok_field_count(L, COK_FIELD_MEMORIZED) && level == 0; ++i) {
         if (cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) <= 0x7f) continue;
         if (*flag) {
-            level = cok_spell_level(cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) & 0x7f);
+            level = cok_spell_level(cok_game_rules(game),
+                                    cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) & 0x7f);
             continue;
         }
         cok_field_add8_at(L, c, COK_FIELD_MEMORIZED, i, -0x80);
@@ -409,7 +411,7 @@ static uint8_t scribe(cok_adventure *game, cok_character *character, bool *flag)
             uint8_t b = item[0x3b + k];
             if (b <= 0x80) continue;
             if (*flag) {
-                level = cok_spell_level(b & 0x7f);
+                level = cok_spell_level(cok_game_rules(game), b & 0x7f);
                 continue;
             }
             uint8_t spell = b & 0x7f;

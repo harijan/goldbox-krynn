@@ -11,10 +11,12 @@
 /* The keypad as directions (DS:2010), from '1'. */
 static const uint8_t keypad_scans[9] = {0x4f, 0x50, 0x51, 0x4b, 0x20, 0x4d, 0x47, 0x48, 0x49};
 
-static uint8_t ds(uint16_t offset)
+/* The byte at DS:offset in the game's data segment, 0 where it holds
+ * none. */
+static uint8_t ds(const cok_data_segment *D, uint16_t offset)
 {
     uint8_t byte = 0;
-    cok_ds_byte(offset, &byte);
+    cok_data_byte(D, offset, &byte);
     return byte;
 }
 
@@ -45,6 +47,7 @@ bool cok_modify_most(const uint8_t *c, const cok_rules *rules, const uint8_t *se
                      uint8_t *most)
 {
     const cok_character_layout *L = rules->character;
+    const cok_data_segment *D = rules->data;
     uint8_t sum = 0, classes = 0;
     for (unsigned i = 0; i < 8; ++i) {
         uint8_t level = cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, i);
@@ -52,7 +55,7 @@ bool cok_modify_most(const uint8_t *c, const cok_rules *rules, const uint8_t *se
         int8_t b;
         if (!cok_train_hit_die(selected, rules, i, &b)) return false;
         ++classes;
-        uint8_t top = ds((uint16_t)(0x3903 + i));
+        uint8_t top = ds(D, (uint16_t)cok_data_offset(D, COK_DATA_TOP_LEVELS, i));
         if (level < top) {
             int dice;
             switch (i) {
@@ -125,9 +128,11 @@ static void draw_field(modify *m, bool highlight)
 }
 
 /* The race's limits (DS:39e0 + race * 16): strength's by gender. */
-static uint8_t limit(const cok_character_layout *L, const uint8_t *c, unsigned offset)
+static uint8_t limit(const cok_character_layout *L, const cok_data_segment *D, const uint8_t *c,
+                     unsigned offset)
 {
-    return ds((uint16_t)(0x39e0 + cok_field_s8(L, c, COK_FIELD_RACE) * 16 + (int)offset));
+    return ds(D, (uint16_t)cok_data_offset2(D, COK_DATA_SCORE_LIMITS,
+                                            cok_field_s8(L, c, COK_FIELD_RACE), offset));
 }
 
 static bool constitution_redraw(modify *m)
@@ -141,6 +146,7 @@ static bool constitution_redraw(modify *m)
 static bool subtract(modify *m)
 {
     const cok_character_layout *L = cok_game_rules(m->game)->character;
+    const cok_data_segment *D = cok_game_rules(m->game)->data;
     uint8_t *c = m->character->record;
     if (m->field <= 5) {
         unsigned a = m->field;
@@ -150,13 +156,14 @@ static bool subtract(modify *m)
             if (cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL) > 0) {
                 cok_field_add8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL, -1);
                 ++*score;
-            } else if (*score < limit(L, c, cok_field_u8(L, c, COK_FIELD_GENDER))) {
-                *score = limit(L, c, cok_field_u8(L, c, COK_FIELD_GENDER));
+            } else if (*score < limit(L, D, c, cok_field_u8(L, c, COK_FIELD_GENDER))) {
+                *score = limit(L, D, c, cok_field_u8(L, c, COK_FIELD_GENDER));
             }
-        } else if (*score < limit(L, c, 4 + 2 * a)) {
-            *score = limit(L, c, 4 + 2 * a);
+        } else if (*score < limit(L, D, c, 4 + 2 * a)) {
+            *score = limit(L, D, c, 4 + 2 * a);
         }
-        uint8_t minimum = ds((uint16_t)(0x3bdf + cok_field_s8(L, c, COK_FIELD_CLASS) * 6 + (int)a));
+        uint8_t minimum = ds(D, (uint16_t)cok_data_offset2(D, COK_DATA_CLASS_MINIMUMS,
+                                                           cok_field_s8(L, c, COK_FIELD_CLASS), a));
         if (*score < minimum) *score = minimum;
         if (a == 2 && cok_field_u8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, 1) > 0)
             cok_field_set8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, 1, 1);
@@ -185,25 +192,26 @@ static bool subtract(modify *m)
 static bool add(modify *m)
 {
     const cok_character_layout *L = cok_game_rules(m->game)->character;
+    const cok_data_segment *D = cok_game_rules(m->game)->data;
     uint8_t *c = m->character->record;
     if (m->field <= 5) {
         unsigned a = m->field;
         uint8_t *score = c + cok_field_offset_at(L, COK_FIELD_SCORE, a);
         ++*score;
         if (a == 0) {
-            uint8_t high = limit(L, c, 2u + cok_field_u8(L, c, COK_FIELD_GENDER));
+            uint8_t high = limit(L, D, c, 2u + cok_field_u8(L, c, COK_FIELD_GENDER));
             if (*score > high) {
                 if (*score > 18 &&
                     (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 2) > 0 ||
                      cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > 0 ||
                      cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 4) > 0) &&
-                    limit(L, c, 4u + cok_field_u8(L, c, COK_FIELD_GENDER)) >
+                    limit(L, D, c, 4u + cok_field_u8(L, c, COK_FIELD_GENDER)) >
                     cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL))
                     cok_field_add8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL, 1);
                 *score = high;
             }
-        } else if (*score > limit(L, c, 5 + 2 * a)) {
-            *score = limit(L, c, 5 + 2 * a);
+        } else if (*score > limit(L, D, c, 5 + 2 * a)) {
+            *score = limit(L, D, c, 5 + 2 * a);
         }
         if (a == 2 && cok_field_u8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, 1) > 0)
             cok_field_set8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, 1, 1);
@@ -236,6 +244,7 @@ static bool keep(modify *m)
 {
     const cok_character_layout *L = cok_game_rules(m->game)->character;
     cok_adventure *game = m->game;
+    const cok_data_segment *D = cok_game_rules(game)->data;
     uint8_t *c = m->character->record;
     char error[300];
     if (!cok_character_cleric_spells(m->character, cok_game_rules(game), error, sizeof error))
@@ -249,7 +258,7 @@ static bool keep(modify *m)
         if (!cok_train_hit_die(game->vm.character, cok_game_rules(game), i, &b))
             return undefined(game, "4def:257c's constitution bonus is uninitialized for a "
                                    "constitution outside 3-19 (4def:35ea)");
-        uint8_t top = ds((uint16_t)(0x3903 + i));
+        uint8_t top = ds(D, (uint16_t)cok_data_offset(D, COK_DATA_TOP_LEVELS, i));
         if ((uint8_t)level < top)
             sum = (uint8_t)(sum + b * (i == 4 ? level + 1 : level));
         else

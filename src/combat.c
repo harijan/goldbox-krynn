@@ -4,81 +4,38 @@
 #include "arena.h"
 #include "cloud.h"
 #include "round.h"
+#include "step.h"
 #include "treasure.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-/* The constant tables of the data segment. */
-
-/* DS:1ee4, four bytes a terrain value: cost, eye and blocking heights,
- * tile. */
-const cok_terrain cok_combat_terrain[COK_COMBAT_TERRAINS] = {
-    {0x01, 0x00, 0xff, 0x00}, {0xff, 0x01, 0x02, 0x00}, {0xff, 0x01, 0x02, 0x01},
-    {0xff, 0x01, 0x02, 0x02}, {0xff, 0x01, 0x02, 0x03}, {0x01, 0x01, 0x00, 0x04},
-    {0xff, 0x01, 0x02, 0x05}, {0xff, 0x01, 0x02, 0x06}, {0xff, 0x01, 0x02, 0x07},
-    {0x01, 0x01, 0x00, 0x08}, {0xff, 0x01, 0x02, 0x09}, {0x01, 0x01, 0x00, 0x0a},
-    {0xff, 0x01, 0x02, 0x0b}, {0x01, 0x01, 0x00, 0x0c}, {0xff, 0x01, 0x02, 0x0d},
-    {0x01, 0x01, 0x00, 0x0e}, {0xff, 0x01, 0x02, 0x0f}, {0x01, 0x01, 0x00, 0x10},
-    {0xff, 0x01, 0x02, 0x11}, {0xff, 0x01, 0x02, 0x12}, {0xff, 0x01, 0x02, 0x13},
-    {0xff, 0x01, 0x02, 0x14}, {0xff, 0x01, 0x02, 0x15}, {0x01, 0x01, 0x00, 0x16},
-    {0x01, 0x01, 0x00, 0x17}, {0xff, 0x01, 0x02, 0x18}, {0x02, 0x02, 0x00, 0x22},
-    {0x01, 0x01, 0x00, 0x23}, {0x01, 0x01, 0x00, 0x24}, {0x01, 0x01, 0x00, 0x25},
-    {0x01, 0x01, 0x00, 0x26}, {0x01, 0x01, 0x00, 0x27}, {0xff, 0x01, 0x02, 0x00},
-    {0xff, 0x01, 0x02, 0x01}, {0xff, 0x01, 0x02, 0x02}, {0xff, 0x01, 0x02, 0x03},
-    {0xff, 0x01, 0x02, 0x04}, {0xff, 0x01, 0x02, 0x05}, {0x01, 0x01, 0x00, 0x06},
-    {0x01, 0x01, 0x00, 0x07}, {0x01, 0x01, 0x00, 0x08}, {0x01, 0x01, 0x00, 0x09},
-    {0xff, 0x01, 0x02, 0x0a}, {0xff, 0x01, 0x02, 0x0b}, {0x01, 0x01, 0x00, 0x0c},
-    {0x01, 0x01, 0x00, 0x0d}, {0x01, 0x01, 0x00, 0x0e}, {0x01, 0x01, 0x00, 0x0f},
-    {0x02, 0x01, 0x00, 0x10}, {0x02, 0x01, 0x00, 0x11}, {0x02, 0x01, 0x00, 0x12},
-    {0x02, 0x01, 0x00, 0x13}, {0x02, 0x01, 0x00, 0x14}, {0x02, 0x01, 0x00, 0x15},
-    {0x01, 0x01, 0x00, 0x16}, {0x01, 0x01, 0x00, 0x17}, {0x01, 0x01, 0x00, 0x18},
-    {0x01, 0x01, 0x00, 0x19}, {0x01, 0x01, 0x00, 0x1a}, {0x01, 0x01, 0x00, 0x1b},
-    {0x01, 0x01, 0x00, 0x1c}, {0x04, 0x00, 0x00, 0x1d}, {0x04, 0x00, 0x00, 0x1e},
-    {0x04, 0x00, 0x00, 0x1f}, {0x01, 0x01, 0x00, 0x20}, {0x01, 0x01, 0x00, 0x21},
-};
-
-/* DS:1fe4 + 8 * size: up to four (dx, dy) cells, dx < 0 for none. Size 0
- * is the end of the terrain table, which 6beb:000f never reads; sizes 5-7
- * are the bytes after it, effect ids and the keypad's scan codes. */
-static const int8_t footprints[COK_COMBAT_SIZES][8] = {
-    {0x01, 0x01, 0x00, 0x20, 0x01, 0x01, 0x00, 0x21},
-    {0, 0, -1, -1, -1, -1, -1, -1},
-    {0, 0, 0, 1, -1, -1, -1, -1},
-    {0, 0, 1, 0, -1, -1, -1, -1},
-    {0, 0, 1, 0, 0, 1, 1, 1},
-    {0x33, 0x34, 0x35, 0x1f, 0x4f, 0x50, 0x51, 0x4b},
-    {0x20, 0x4d, 0x47, 0x48, 0x49, 0x48, 0x48, 0x48},
-    {0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48},
-};
-
-/* DS:1ed6 and DS:1edf: a step in direction 0-7, north first, clockwise; 8
- * for none. */
-static const int8_t step_x[9] = {0, 1, 1, 1, 0, -1, -1, -1, 0};
-static const int8_t step_y[9] = {-1, -1, 0, 1, 1, 1, 0, -1, 0};
-
-/* DS:03da: the combat direction of a quadrant of the 3D map (north, east,
- * south, west), which the skewed map turns: north is up and left. */
-static const uint8_t quadrant_dir[4] = {7, 2, 3, 6};
-
-/* DS:0432: flags of the 16 terrain types of open ground; 3cb2:0fc8 always
- * takes type 15 (DS:45ec), whose flags are 4. */
-static const uint8_t terrain_flags[16] = {0x00, 0x18, 0x11, 0x15, 0x01, 0x01, 0x60, 0x14,
-                                          0x08, 0x01, 0x00, 0x21, 0x71, 0x09, 0x06, 0x04};
-
 static int8_t s8(int value)
 {
     return (int8_t)(uint8_t)value;
 }
 
+cok_terrain cok_combat_terrain(const cok_rules *rules, uint8_t value)
+{
+    const cok_data_segment *D = rules->data;
+    return (cok_terrain){cok_data_u8_at2(D, COK_DATA_TERRAIN, value, 0),
+                         cok_data_u8_at2(D, COK_DATA_TERRAIN, value, 1),
+                         cok_data_u8_at2(D, COK_DATA_TERRAIN, value, 2),
+                         cok_data_u8_at2(D, COK_DATA_TERRAIN, value, 3)};
+}
+
 /* The map's lookups (6beb). */
 
-bool cok_combat_footprint(unsigned size, unsigned k, int8_t *dx, int8_t *dy)
+bool cok_combat_footprint(const cok_rules *rules, unsigned size, unsigned k, int8_t *dx,
+                          int8_t *dy)
 {
-    if (size == 0 || size >= COK_COMBAT_SIZES || k > 3) return false;
-    *dx = footprints[size][2 * k];
-    *dy = footprints[size][2 * k + 1];
+    const cok_data_segment *D = rules->data;
+    if (size == 0 || size >= cok_data_count(D, COK_DATA_FOOTPRINTS, 0) ||
+        k >= cok_data_count(D, COK_DATA_FOOTPRINTS, 1))
+        return false;
+    *dx = cok_data_s8_at3(D, COK_DATA_FOOTPRINTS, size, k, 0);
+    *dy = cok_data_s8_at3(D, COK_DATA_FOOTPRINTS, size, k, 1);
     return *dx >= 0;
 }
 
@@ -134,16 +91,17 @@ static void screen_position(cok_combat *combat, uint8_t n)
     e->screen_y = s8(e->y - combat->view_y);
 }
 
-bool cok_combat_occupy(cok_combat *combat)
+bool cok_combat_occupy(cok_combat *combat, const cok_rules *rules)
 {
+    const cok_data_segment *D = rules->data;
     memset(combat->occupant, 0, sizeof combat->occupant);
     for (unsigned n = 1; n <= combat->count && n <= COK_COMBATANTS; ++n) {
         const cok_combatant *e = &combat->combatant[n];
         if (e->size == 0) continue;
-        if (e->size >= COK_COMBAT_SIZES) return false;
-        for (unsigned k = 0; k < 4; ++k) {
+        if (e->size >= cok_data_count(D, COK_DATA_FOOTPRINTS, 0)) return false;
+        for (unsigned k = 0; k < cok_data_count(D, COK_DATA_FOOTPRINTS, 1); ++k) {
             int8_t dx, dy;
-            if (!cok_combat_footprint(e->size, k, &dx, &dy)) continue;
+            if (!cok_combat_footprint(rules, e->size, k, &dx, &dy)) continue;
             /* The original writes y * 50 + x into the 50 by 25 table
              * without checking either, so x past 49 is the next row. */
             int at = (e->y + dy) * COK_COMBAT_WIDTH + e->x + dx;
@@ -165,41 +123,44 @@ static cok_combatant entry(const cok_combat *combat, uint8_t n)
     return none;
 }
 
-bool cok_combat_probe(const cok_combat *combat, const uint8_t *record, uint8_t dir,
-                      uint8_t *occupant, uint8_t *terrain, bool *cloud, bool *puddle)
+bool cok_combat_probe(const cok_combat *combat, const cok_rules *rules, const uint8_t *record,
+                      uint8_t dir, uint8_t *occupant, uint8_t *terrain, bool *cloud, bool *puddle)
 {
+    const cok_data_segment *D = rules->data;
     *occupant = 0;
     *terrain = COK_COMBAT_FLOOR;
     *cloud = *puddle = false;
     uint8_t highest = 1;
     uint8_t n = cok_combat_index(combat, record);
     cok_combatant e = entry(combat, n);
-    if (e.size >= COK_COMBAT_SIZES || dir > 8) return false;
-    for (unsigned k = 0; k < 4; ++k) {
+    if (e.size >= cok_data_count(D, COK_DATA_FOOTPRINTS, 0) || dir > 8) return false;
+    for (unsigned k = 0; k < cok_data_count(D, COK_DATA_FOOTPRINTS, 1); ++k) {
         int8_t dx, dy;
-        if (!cok_combat_footprint(e.size, k, &dx, &dy)) continue;
+        if (!cok_combat_footprint(rules, e.size, k, &dx, &dy)) continue;
         uint8_t o, t;
-        cok_combat_cell(combat, s8(e.x + dx + step_x[dir]), s8(e.y + dy + step_y[dir]), &o, &t);
+        cok_combat_cell(combat, s8(e.x + dx + cok_step_x[dir]), s8(e.y + dy + cok_step_y[dir]), &o,
+                        &t);
         if (o == n) o = 0;
         if (o > 0) *occupant = o;
-        if (t >= COK_COMBAT_TERRAINS) return false;
+        if (t >= cok_data_count(D, COK_DATA_TERRAIN, 0)) return false;
         if (t == 0 || *terrain == 0) {
             *terrain = 0;
         } else if (t == 0x1e) {
             *cloud = true;
         } else if (t == 0x1d) {
             *puddle = true;
-        } else if (cok_combat_terrain[t].cost >= highest) {
-            highest = cok_combat_terrain[t].cost;
+        } else if (cok_combat_terrain(rules, t).cost >= highest) {
+            highest = cok_combat_terrain(rules, t).cost;
             *terrain = t;
         }
     }
     return true;
 }
 
-bool cok_combat_visible(const cok_combat *combat, const uint8_t *record, bool all,
-                        bool *visible)
+bool cok_combat_visible(const cok_combat *combat, const cok_rules *rules, const uint8_t *record,
+                        bool all, bool *visible)
 {
+    const cok_data_segment *D = rules->data;
     uint8_t n = cok_combat_index(combat, record);
     cok_combatant e = entry(combat, n);
     *visible = true;
@@ -207,10 +168,10 @@ bool cok_combat_visible(const cok_combat *combat, const uint8_t *record, bool al
         *visible = false;
         return true;
     }
-    if (e.size >= COK_COMBAT_SIZES) return false;
-    for (unsigned k = 0; k < 4; ++k) {
+    if (e.size >= cok_data_count(D, COK_DATA_FOOTPRINTS, 0)) return false;
+    for (unsigned k = 0; k < cok_data_count(D, COK_DATA_FOOTPRINTS, 1); ++k) {
         int8_t dx, dy;
-        if (!cok_combat_footprint(e.size, k, &dx, &dy)) continue;
+        if (!cok_combat_footprint(rules, e.size, k, &dx, &dy)) continue;
         *visible = cok_combat_on_view(s8(e.screen_x + dx), s8(e.screen_y + dy));
         if (*visible != all) break;
     }
@@ -232,9 +193,10 @@ bool cok_combat_place(cok_combat *combat, uint8_t mode, cok_character *character
     e->y = (int8_t)y;
     uint8_t occupant, terrain;
     bool cloud, puddle;
-    if (!cok_combat_probe(combat, character->record, 8, &occupant, &terrain, &cloud, &puddle))
+    if (!cok_combat_probe(combat, rules, character->record, 8, &occupant, &terrain, &cloud,
+                          &puddle))
         return false;
-    if (occupant != 0 || terrain == 0 || cok_combat_terrain[terrain].cost == 0xff) {
+    if (occupant != 0 || terrain == 0 || cok_combat_terrain(rules, terrain).cost == 0xff) {
         e->size = 0;
         return true;
     }
@@ -257,7 +219,7 @@ bool cok_combat_place(cok_combat *combat, uint8_t mode, cok_character *character
             combat->cells[at / COK_COMBAT_WIDTH][at % COK_COMBAT_WIDTH] = terrain;
         }
     }
-    return cok_combat_occupy(combat);
+    return cok_combat_occupy(combat, rules);
 }
 
 bool cok_combat_scroll(cok_combat *combat, int8_t x, int8_t y, uint8_t margin)
@@ -321,6 +283,7 @@ void cok_combat_enemy_health(cok_combat *combat, const cok_party *party, const c
 typedef struct {
     cok_combat *combat;
     const cok_view *view;
+    const cok_rules *rules;
     int8_t party_y;     /* DS:6d86. */
     int8_t sx, sy;
     int8_t x, y;        /* The 3D square itself. */
@@ -359,7 +322,7 @@ static uint8_t edge(const dungeon *d, int8_t x, int8_t y, uint8_t dir)
 {
     uint8_t across = (uint8_t)((dir + 4) % 8);
     return side_kind(d, x, y, dir) |
-           side_kind(d, s8(x + step_x[dir]), s8(y + step_y[dir]), across);
+           side_kind(d, s8(x + cok_step_x[dir]), s8(y + cok_step_y[dir]), across);
 }
 
 /* 3cb2:03fc: the floor, rows 2-4, and the west edge drawn down its
@@ -482,14 +445,13 @@ static void north_east(dungeon *d)
 static bool floor_at(const dungeon *d, int8_t x, int8_t y)
 {
     uint8_t v = d->combat->cells[y][x];
-    return v < COK_COMBAT_TERRAINS && cok_combat_terrain[v].tile == 0x16;
+    return v < cok_data_count(d->rules->data, COK_DATA_TERRAIN, 0) &&
+           cok_combat_terrain(d->rules, v).tile == 0x16;
 }
-
-/* DS:042a, 042e: north, east, south and west. */
-static const int8_t beside_x[4] = {0, 1, 0, -1}, beside_y[4] = {-1, 0, 1, 0};
 
 static void furniture(dungeon *d, uint32_t *seed)
 {
+    const cok_data_segment *D = d->rules->data;
     uint8_t n = d->north, e = d->east, s = d->south, w = d->west;
     bool fits = true;
     if (n != 1 && e != 1 && s != 1 && w != 1) fits = false;
@@ -504,8 +466,9 @@ static void furniture(dungeon *d, uint32_t *seed)
             if (!floor_at(d, x, y)) continue;
             if (!d->room || !fits || cok_dice(seed, 1, 10) > 5) continue;
             d->combat->cells[y][x] = 0x1a;
-            for (unsigned k = 0; k < 4; ++k) {
-                int8_t cx = s8(x + beside_x[k]), cy = s8(y + beside_y[k]);
+            for (unsigned k = 0; k < cok_data_count(D, COK_DATA_BESIDE_X, 0); ++k) {
+                int8_t cx = s8(x + cok_data_s8_at(D, COK_DATA_BESIDE_X, k)),
+                       cy = s8(y + cok_data_s8_at(D, COK_DATA_BESIDE_Y, k));
                 if (cx < 0 || cx > 0x31 || cy < 0 || cy > 0x18) continue;
                 if (!d->built[cy][cx]) d->unbuilt = true;
                 if (!floor_at(d, cx, cy)) continue;
@@ -515,10 +478,10 @@ static void furniture(dungeon *d, uint32_t *seed)
     }
 }
 
-bool cok_combat_dungeon(cok_combat *combat, const cok_view *view, int8_t x, int8_t y,
-                        uint32_t *seed)
+bool cok_combat_dungeon(cok_combat *combat, const cok_rules *rules, const cok_view *view, int8_t x,
+                        int8_t y, uint32_t *seed)
 {
-    dungeon d = {.combat = combat, .view = view, .party_y = y};
+    dungeon d = {.combat = combat, .view = view, .rules = rules, .party_y = y};
     for (d.sy = -2; d.sy <= 2; ++d.sy) {
         for (d.sx = -6; d.sx <= 6; ++d.sx) {
             d.x = s8(x + d.sx);
@@ -540,9 +503,9 @@ bool cok_combat_dungeon(cok_combat *combat, const cok_view *view, int8_t x, int8
 
 /* The wilderness (3cb2:0fc8). */
 
-static uint8_t tile_at(const cok_combat *combat, int x, int y)
+static uint8_t tile_at(const cok_combat *combat, const cok_rules *rules, int x, int y)
 {
-    return cok_combat_terrain[combat->cells[y][x]].tile;
+    return cok_combat_terrain(rules, combat->cells[y][x]).tile;
 }
 
 /* 3cb2:0a00: a river, on a d100 at most 0x23 with flag 0x20 or 0x4b with
@@ -575,7 +538,7 @@ static void river(cok_combat *combat, uint8_t flags, uint32_t *seed)
  * column by column, from row 1, a plain floor cell below another, on a
  * d100 up to the chance, gets on a second d100 up to it a bush, else a
  * tree in both. */
-static void trees(cok_combat *combat, uint8_t flags, uint32_t *seed)
+static void trees(cok_combat *combat, const cok_rules *rules, uint8_t flags, uint32_t *seed)
 {
     if (flags & 0x80) return;
     int8_t chance = 10;
@@ -586,7 +549,8 @@ static void trees(cok_combat *combat, uint8_t flags, uint32_t *seed)
     if (chance < 0) chance = 1;
     for (int x = 0; x <= 0x31; ++x) {
         for (int y = 1; y <= 0x18; ++y) {
-            if (tile_at(combat, x, y) != 0x16 || tile_at(combat, x, y - 1) != 0x16) continue;
+            if (tile_at(combat, rules, x, y) != 0x16 || tile_at(combat, rules, x, y - 1) != 0x16)
+                continue;
             if (chance < cok_dice(seed, 1, 100)) continue;
             if (chance >= cok_dice(seed, 1, 100)) {
                 combat->cells[y][x] = (uint8_t)(0x29 + cok_dice(seed, 1, 2));
@@ -616,7 +580,7 @@ static void scatter_cell(cok_combat *combat, int x, int y, const uint8_t chance[
 /* 3cb2:0e4a: scatter on the plain floor, column by column, by a density
  * of 50, 10 more for flag 0x10, 30 for 0x20 and 20 for 0x40, 10 less for
  * 4, 20 for 2 and 50 for 0x80, which picks the chances. */
-static void scatter(cok_combat *combat, uint8_t flags, uint32_t *seed)
+static void scatter(cok_combat *combat, const cok_rules *rules, uint8_t flags, uint32_t *seed)
 {
     int density = 50;
     if (flags & 0x10) density += 10;
@@ -631,7 +595,7 @@ static void scatter(cok_combat *combat, uint8_t flags, uint32_t *seed)
     };
     for (int x = 0; x <= 0x31; ++x) {
         for (int y = 0; y <= 0x18; ++y) {
-            if (tile_at(combat, x, y) != 0x16) continue;
+            if (tile_at(combat, rules, x, y) != 0x16) continue;
             for (unsigned b = 0; b < 5; ++b)
                 if (density >= bands[b].low && density <= bands[b].high)
                     scatter_cell(combat, x, y, bands[b].chance, seed);
@@ -639,12 +603,13 @@ static void scatter(cok_combat *combat, uint8_t flags, uint32_t *seed)
     }
 }
 
-void cok_combat_wilderness(cok_combat *combat, uint8_t flags, uint32_t *seed)
+void cok_combat_wilderness(cok_combat *combat, const cok_rules *rules, uint8_t flags,
+                           uint32_t *seed)
 {
     memset(combat->cells, COK_COMBAT_FLOOR, sizeof combat->cells);
     river(combat, flags, seed);
-    trees(combat, flags, seed);
-    scatter(combat, flags, seed);
+    trees(combat, rules, flags, seed);
+    scatter(combat, rules, flags, seed);
 }
 
 /* The combat records (3cb2:10d9). */
@@ -667,7 +632,8 @@ bool cok_combat_records(cok_party *party, const cok_rules *rules, const cok_item
         }
         uint8_t *r = c->record;
         if (n > party_size) c->combat->not_party = 1;
-        c->combat->facing = quadrant_dir[direction >> 1];
+        c->combat->facing =
+            cok_data_u8_at(rules->data, COK_DATA_QUADRANT_DIRECTIONS, direction >> 1);
         if (cok_field_u8(L, r, COK_FIELD_HOSTILE) == 1)
             c->combat->facing = (uint8_t)((c->combat->facing + 4) % 8);
         uint8_t own = cok_field_u8(L, r, COK_FIELD_NPC) & 0x7f;
@@ -695,27 +661,6 @@ typedef struct {
     uint8_t side;
 } placement;
 
-/* DS:03ca: by the side's quadrant and the square k it stands on, twice
- * the quadrant its ranks are laid out for. */
-static const uint8_t quadrants[4][4] = {{0, 0, 2, 6}, {2, 2, 0, 4}, {4, 4, 2, 6}, {6, 6, 4, 0}};
-/* DS:03de, 03e6: the first rank's centre, for k 0 and other squares, by
- * that quadrant. */
-static const int8_t start_column[2][4] = {{5, 4, 5, 6}, {3, 8, 7, 2}};
-static const int8_t start_row[2][4] = {{3, 2, 2, 3}, {0, 2, 5, 3}};
-/* DS:03ba: by the side's quadrant, the 3D directions of squares 1-3
- * (behind, then to either side); 8 for square 0. */
-static const uint8_t moves[4][4] = {{8, 4, 6, 2}, {8, 6, 4, 0}, {8, 0, 6, 2}, {8, 2, 0, 4}};
-
-/* DS:03ee: for formation 0-4, the first and last free column of rows 0-5
- * (none where the first is past the last). */
-static const int8_t formations[5][6][2] = {
-    {{1, 0}, {1, 0}, {1, 0}, {2, 9}, {3, 10}, {4, 10}},
-    {{0, 2}, {0, 3}, {1, 4}, {2, 5}, {3, 6}, {4, 7}},
-    {{0, 6}, {0, 7}, {1, 8}, {1, 0}, {1, 0}, {1, 0}},
-    {{3, 6}, {4, 7}, {5, 8}, {6, 9}, {7, 10}, {8, 10}},
-    {{0, 6}, {0, 7}, {1, 8}, {2, 9}, {3, 10}, {4, 10}},
-};
-
 /* 3cb2:122c: try column, row of formation k, from square ax, ay: if the
  * formation's cell is free, the combatant stands at the cell it gives,
  * and if nothing is there and it can be walked on (6beb:0c9d), the cell is
@@ -728,14 +673,17 @@ static bool try_cell(placement *p, uint8_t d, int8_t column, int8_t row, int8_t 
     uint8_t *cell = &p->free[p->side][k][row][column];
     if (*cell == 0) return true;
     cok_combat *combat = &p->game->combat;
+    const cok_rules *rules = cok_game_rules(p->game);
     cok_combatant *e = &combat->combatant[d];
     e->x = s8(column + ax * 6 + ay * 5 + 0x16);
     e->y = s8(row + ay * 5 + 0x0a);
     uint8_t occupant, terrain;
     bool cloud, puddle;
-    if (!cok_combat_probe(combat, e->character->record, 8, &occupant, &terrain, &cloud, &puddle))
+    if (!cok_combat_probe(combat, rules, e->character->record, 8, &occupant, &terrain, &cloud,
+                          &puddle))
         return false;
-    if (occupant != 0 || terrain == 0 || cok_combat_terrain[terrain].cost == 0xff) return true;
+    if (occupant != 0 || terrain == 0 || cok_combat_terrain(rules, terrain).cost == 0xff)
+        return true;
     *placed = true;
     *cell = 0;
     return true;
@@ -765,6 +713,7 @@ enum { PLACE_STEPS = 1 << 20 };
 static bool find_place(placement *p, uint8_t d, bool *found)
 {
     cok_adventure *game = p->game;
+    const cok_data_segment *D = cok_game_rules(game)->data;
     const cok_ecl *vm = &game->vm;
     uint8_t side = p->side, quadrant = p->quadrant[side];
     bool first = true, failed = false, placed = false;
@@ -778,26 +727,28 @@ static bool find_place(placement *p, uint8_t d, bool *found)
                                "placing a combatant never ends (3cb2:1379)");
             return false;
         }
-        uint8_t q = quadrants[quadrant][k] >> 1;
+        uint8_t q = cok_data_u8_at2(D, COK_DATA_QUADRANTS, quadrant, k) >> 1;
         if (state == 1) {
-            uint8_t dir = quadrant_dir[(q + 2) % 4];
-            centre_column = s8(rank * step_x[dir] + start_column[k > 0][q]);
-            centre_row = s8(rank * step_y[dir] + start_row[k > 0][q]);
+            uint8_t dir = cok_data_u8_at(D, COK_DATA_QUADRANT_DIRECTIONS, (q + 2) % 4);
+            centre_column =
+                s8(rank * cok_step_x[dir] + cok_data_s8_at2(D, COK_DATA_START_COLUMNS, k > 0, q));
+            centre_row = s8(rank * cok_step_y[dir] +
+                            cok_data_s8_at2(D, COK_DATA_START_ROWS, k > 0, q));
             column = centre_column;
             row = centre_row;
             along = 1;
             state = 2;
             tried = 1;
         } else if (state == 2) {
-            uint8_t dir = quadrant_dir[(q + 1) % 4];
-            column = s8(along * step_x[dir] + centre_column);
-            row = s8(along * step_y[dir] + centre_row);
+            uint8_t dir = cok_data_u8_at(D, COK_DATA_QUADRANT_DIRECTIONS, (q + 1) % 4);
+            column = s8(along * cok_step_x[dir] + centre_column);
+            row = s8(along * cok_step_y[dir] + centre_row);
             state = 3;
             ++tried;
         } else if (state == 3) {
-            uint8_t dir = quadrant_dir[(q + 3) % 4];
-            column = s8(along * step_x[dir] + centre_column);
-            row = s8(along * step_y[dir] + centre_row);
+            uint8_t dir = cok_data_u8_at(D, COK_DATA_QUADRANT_DIRECTIONS, (q + 3) % 4);
+            column = s8(along * cok_step_x[dir] + centre_column);
+            row = s8(along * cok_step_y[dir] + centre_row);
             state = 2;
             ++along;
             ++tried;
@@ -810,7 +761,9 @@ static bool find_place(placement *p, uint8_t d, bool *found)
                 int8_t x = s8(vm->map_x + p->anchor_x[side]), y = s8(vm->map_y + p->anchor_y[side]);
                 bool open = false;
                 for (unsigned j = 1; j <= 3; ++j)
-                    if (vm->mode == 3 || edge(&map, x, y, moves[quadrant][j]) != 1) open = true;
+                    if (vm->mode == 3 ||
+                        edge(&map, x, y, cok_data_u8_at2(D, COK_DATA_MOVES, quadrant, j)) != 1)
+                        open = true;
                 if (open) ++rank;
             }
             state = 1;
@@ -822,10 +775,10 @@ static bool find_place(placement *p, uint8_t d, bool *found)
             while (k < 3 && state != 1) {
                 ++k;
                 int8_t x = s8(vm->map_x + p->anchor_x[side]), y = s8(vm->map_y + p->anchor_y[side]);
-                uint8_t dir = moves[quadrant][k];
+                uint8_t dir = cok_data_u8_at2(D, COK_DATA_MOVES, quadrant, k);
                 if (vm->mode != 3 && edge(&map, x, y, dir) == 1) continue;
-                ax = s8(p->anchor_x[side] + step_x[dir]);
-                ay = s8(p->anchor_y[side] + step_y[dir]);
+                ax = s8(p->anchor_x[side] + cok_step_x[dir]);
+                ay = s8(p->anchor_y[side] + cok_step_y[dir]);
                 rank = 0;
                 state = 1;
             }
@@ -862,6 +815,7 @@ static void drop_key(cok_adventure *game)
 bool cok_combat_place_all(cok_adventure *game)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_data_segment *D = cok_game_rules(game)->data;
     cok_combat *combat = &game->combat;
     cok_ecl *vm = &game->vm;
     if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game))) {
@@ -876,22 +830,23 @@ bool cok_combat_place_all(cok_adventure *game)
     for (unsigned n = 1; n <= COK_COMBATANTS; ++n) combat->combatant[n].size = 0;
     for (unsigned n = 4; n <= 0x44; n += 4)
         combat->combatant[n].screen_x = combat->combatant[n].screen_y = 0;
-    if (!cok_combat_occupy(combat)) return false;
+    if (!cok_combat_occupy(combat, cok_game_rules(game))) return false;
     placement p = {.game = game};
     uint8_t facing = vm->direction;
     p.quadrant[0] = facing >> 1;
     p.quadrant[1] = (uint8_t)((facing + 4) % 8) >> 1;
     uint16_t distance = vm->mem7c00[0x2c1];
-    p.anchor_x[1] = s8((int)distance * step_x[facing]);
-    p.anchor_y[1] = s8((int)distance * step_y[facing]);
+    p.anchor_x[1] = s8((int)distance * cok_step_x[facing]);
+    p.anchor_y[1] = s8((int)distance * cok_step_y[facing]);
     for (unsigned side = 0; side < 2; ++side) {
         p.width[side] = (uint8_t)((combat->sides[side] + 1) >> 1);
         for (unsigned k = 0; k < 4; ++k) {
             unsigned f = k == 1 ? 4 : p.quadrant[side];
             for (unsigned row = 0; row < 6; ++row)
                 for (unsigned column = 0; column < 11; ++column)
-                    p.free[side][k][row][column] = formations[f][row][0] <= (int)column &&
-                                                   formations[f][row][1] >= (int)column;
+                    p.free[side][k][row][column] =
+                        cok_data_s8_at3(D, COK_DATA_FORMATIONS, f, row, 0) <= (int)column &&
+                        cok_data_s8_at3(D, COK_DATA_FORMATIONS, f, row, 1) >= (int)column;
         }
     }
     combat->count = 1;
@@ -979,7 +934,7 @@ bool cok_combat_place_all(cok_adventure *game)
             }
             if (e->size == 0) strncat(text, ", off the map", sizeof text - strlen(text) - 1);
             log_text(game, "combat", text);
-            if (!cok_combat_occupy(combat)) {
+            if (!cok_combat_occupy(combat, cok_game_rules(game))) {
                 cok_adventure_fail(game, COK_ECL_UNDEFINED,
                                    "a footprint is written outside the occupants (6beb:0375)");
                 return false;
@@ -1059,11 +1014,14 @@ static bool build(cok_adventure *game)
         }
         memcpy(combat->cells, rand + 7, sizeof combat->cells);
         free(rand);
-        cok_combat_dungeon(combat, &game->view, vm->map_x, vm->map_y, &vm->seed);
+        cok_combat_dungeon(combat, cok_game_rules(game), &game->view, vm->map_x, vm->map_y,
+                           &vm->seed);
         snprintf(text, sizeof text, "the 3D map around %d,%d facing %s, the enemy %u squares ahead",
                  vm->map_x, vm->map_y, facing[vm->direction & 7], vm->mem7c00[0x2c1]);
     } else {
-        cok_combat_wilderness(combat, terrain_flags[15], &vm->seed);
+        const cok_rules *rules = cok_game_rules(game);
+        cok_combat_wilderness(combat, rules,
+                              cok_data_u8_at(rules->data, COK_DATA_TERRAIN_FLAGS, 15), &vm->seed);
         snprintf(text, sizeof text, "open ground facing %s, the enemy %u squares ahead",
                  facing[vm->direction & 7], vm->mem7c00[0x2c1]);
     }
@@ -1166,24 +1124,6 @@ bool cok_combat_setup(cok_adventure *game)
     return true;
 }
 
-_Static_assert(sizeof(cok_terrain) == 4, "four bytes a terrain value");
-
-const cok_ds_table cok_combat_tables[] = {
-    {0x1ee4, sizeof cok_combat_terrain, 1, (const uint8_t *)cok_combat_terrain},
-    {0x1fe4, sizeof footprints, 1, (const uint8_t *)footprints},
-    {0x1ed6, sizeof step_x, 1, (const uint8_t *)step_x},
-    {0x1edf, sizeof step_y, 1, (const uint8_t *)step_y},
-    {0x03da, sizeof quadrant_dir, 1, quadrant_dir},
-    {0x03ba, sizeof moves, 1, &moves[0][0]},
-    {0x03ca, sizeof quadrants, 1, &quadrants[0][0]},
-    {0x03de, sizeof start_column, 1, (const uint8_t *)start_column},
-    {0x03e6, sizeof start_row, 1, (const uint8_t *)start_row},
-    {0x03ee, sizeof formations, 1, (const uint8_t *)formations},
-    {0x042a, sizeof beside_x, 1, (const uint8_t *)beside_x},
-    {0x042e, sizeof beside_y, 1, (const uint8_t *)beside_y},
-    {0x0432, sizeof terrain_flags, 1, terrain_flags},
-};
-const size_t cok_combat_table_count = sizeof cok_combat_tables / sizeof *cok_combat_tables;
 
 /* The end of the battle (3995:004b): it frees the lists of clouds and
  * pools on the map (DS:7111, 7119); then each record charmed (effect

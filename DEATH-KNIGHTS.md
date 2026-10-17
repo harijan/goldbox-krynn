@@ -96,7 +96,7 @@ after.
 | R2a | Character field accessors: party, items, magic, sheet | Done |
 | R2b | The same: attack, round, ai, cast, effect, combat, arena, cloud | Done |
 | R2c | The same: create, modify, train, camp, shop, treasure, icon, command, roster | Done |
-| R3 | The data-segment tables in the descriptor; named lookups for `ds_byte` arithmetic | |
+| R3 | The data-segment tables in the descriptor; named lookups for `ds_byte` arithmetic | Done |
 | R2d | The same as R2a: ecl, adventure, monster, eclplay | |
 | R5 | Spell names, spell and effect handler tables, spell count, levels, moons and deities in the descriptor | |
 | R4 | ECL opcode tables in the descriptor; the variable memory behind get and set | |

@@ -95,7 +95,7 @@ bool cok_combat_damage(cok_combat *combat, cok_character *c, const cok_rules *ru
 bool cok_combat_bandage(cok_adventure *game, bool bandage);
 
 /* 6346:0cdb: whether c has effect 0x33, 0x34, 0x35 or 0x1f (DS:200c). */
-bool cok_combat_helpless(const cok_character *c);
+bool cok_combat_helpless(const cok_character *c, const cok_rules *rules);
 
 /* 6346:2666: the side c's enemies are on, as the original works it out:
  * 1 for side 0, else 0. */
@@ -176,7 +176,7 @@ typedef struct {
     uint8_t length, direction;
 } cok_combat_line;
 void cok_combat_line_start(cok_combat_line *line);
-bool cok_combat_line_step(cok_combat_line *line);
+bool cok_combat_line_step(cok_combat_line *line, const cok_rules *rules);
 
 /* 6b30:03f1: whether x1, y1 can be seen from x0, y0 within range cells:
  * along the line, until each cell's blocking height (the terrain's) is
@@ -184,8 +184,8 @@ bool cok_combat_line_step(cok_combat_line *line);
  * blocked (map +6), or the length passes 2 * range + 1. Seen, *range is
  * the length; else x1, y1 the cell where it stopped and *range the length
  * there. Returns false where a cell's terrain is past the table. */
-bool cok_combat_sight(const cok_combat *combat, int8_t x0, int8_t y0, int8_t *x1, int8_t *y1,
-                      uint16_t *range, bool *seen);
+bool cok_combat_sight(const cok_combat *combat, const cok_rules *rules, int8_t x0, int8_t y0,
+                      int8_t *x1, int8_t *y1, uint16_t *range, bool *seen);
 
 /* 6b30:054a: whether x1, y1 lies in the quarter before x0, y0 facing dir
  * (0-7, 8 or 0xff any): the cell itself and the one ahead always, and
@@ -200,8 +200,8 @@ bool cok_combat_in_arc(int8_t x0, int8_t y0, int8_t x1, int8_t y1, uint8_t dir, 
  * arc holds the pair), the one at x, y too; sorted (6b30:0033) nearest
  * first, then by direction, odd ones last. Returns false where the
  * original reads past its tables. */
-bool cok_combat_list(cok_combat *combat, int8_t x, int8_t y, uint16_t range, uint8_t dir,
-                     uint8_t size);
+bool cok_combat_list(cok_combat *combat, const cok_rules *rules, int8_t x, int8_t y, uint16_t range,
+                     uint8_t dir, uint8_t size);
 
 /* 6346:26e2: the enemies of c (on cok_combat_opposite's side) within
  * range of it, into combat->enemies from 1, nearest first, keeping only
@@ -213,18 +213,13 @@ bool cok_combat_enemies(cok_adventure *game, cok_character *c, uint8_t range, ui
  * length / 2) with sight not blocked; the list it makes is put back but
  * for its count. A target not listed reads the last entry, or with none
  * the first, stale. */
-bool cok_combat_distance(cok_combat *combat, const uint8_t *origin, const uint8_t *target,
-                         uint8_t *distance);
+bool cok_combat_distance(cok_combat *combat, const cok_rules *rules, const uint8_t *origin,
+                         const uint8_t *target, uint8_t *distance);
 
 /* 6346:34e9: the direction 0-7 from a to b on the map, the first whose
  * wedge holds b. Returns false where none does, and the original loops
  * for ever. */
 bool cok_combat_direction(const cok_combat *combat, const cok_character *a,
                           const cok_character *b, uint8_t *direction);
-
-/* The constant tables of the data segment that the port's code holds,
- * to check against the executable. */
-extern const cok_ds_table cok_round_tables[];
-extern const size_t cok_round_table_count;
 
 #endif

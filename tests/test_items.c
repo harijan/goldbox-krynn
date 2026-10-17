@@ -128,38 +128,6 @@ static uint8_t ink(int x, int y)
     return 0;
 }
 
-/* The name strings match the original's data segment in
- * build/START_FULL.EXE, if it has been built. */
-static void test_tables(void)
-{
-    FILE *f = fopen("build/START_FULL.EXE", "rb");
-    if (f == NULL) {
-        puts("items: build/START_FULL.EXE not built; names not checked");
-        return;
-    }
-    static uint8_t exe[1 << 20];
-    size_t size = fread(exe, 1, sizeof exe, f);
-    fclose(f);
-    CHECK(size > 0x20 && exe[0] == 'M' && exe[1] == 'Z');
-    size_t ds = (size_t)(exe[8] | exe[9] << 8) * 16 + 0xbc6 * 16;
-    for (size_t k = 0; k < cok_name_table.size; ++k)
-        CHECK(exe[ds + cok_name_table.offset + k] == cok_name_table.bytes[k]);
-    /* The hit points of a class's levels top out at DS:3903. */
-    static const uint8_t top[8] = {10, 15, 10, 10, 11, 12, 11, 10};
-    CHECK(memcmp(exe + ds + 0x3903, top, sizeof top) == 0);
-    char name[256];
-    CHECK(cok_ds_string(0x0f5a, name) && strcmp(name, "Cleric") == 0);
-    CHECK(cok_ds_string(0x1390 + 21 * 123, name) && strcmp(name, "Jewelry") == 0);
-    /* Status 9 reads the first item name part, as the original does. */
-    CHECK(cok_ds_string(0x1330 + 13 * 9, name) && strcmp(name, "Battle Axe") == 0);
-    CHECK(!cok_ds_string(0x1390 + 21 * 126, name) && !cok_ds_string(0x0f59, name));
-    /* In the middle of the table: a NUL between names is an empty string,
-     * but "Cleric"'s C (67) as a length takes in the NULs after it, which
-     * the original would draw. */
-    CHECK(cok_ds_string(0x0f5a + 20, name) && name[0] == '\0');
-    CHECK(!cok_ds_string(0x0f5b, name));
-}
-
 /* 6346:0488. */
 static void test_names(void)
 {
@@ -596,7 +564,6 @@ int main(void)
     cok_adventure_hooks hooks = {.log = log_line, .flush = flushed, .context = &s};
     CHECK(cok_adventure_open(&game, &cok_rules_champions, "COKAssets", &k, &hooks));
     game.vm.mem4b00[0xe6] = 1;
-    test_tables();
     test_names();
     test_items_menu();
     test_use();

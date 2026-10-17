@@ -113,9 +113,4 @@ bool cok_cloud_dispel(cok_adventure *game, uint8_t level);
 /* Free the clouds and the pools (3995:004b, and setup's clearing). */
 void cok_cloud_free(cok_combat *combat);
 
-/* The constant tables of the data segment that the port's code holds,
- * to check against the executable. */
-extern const cok_ds_table cok_cloud_tables[];
-extern const size_t cok_cloud_table_count;
-
 #endif
