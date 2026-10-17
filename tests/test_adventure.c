@@ -2,6 +2,7 @@
 
 #include "adventure.h"
 #include "arena.h"
+#include "test_temp.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -749,9 +750,9 @@ static void write_file(const char *path, const uint8_t *data, size_t size)
  * An NPC is recomputed again as it joins (4b6d:1989). */
 static void test_load_stats(void)
 {
-    char dir[] = "/tmp/cok_adventure_XXXXXX";
-    CHECK(mkdtemp(dir) != NULL);
-    char path[256];
+    char dir[512];
+    CHECK(test_temp_dir(dir, sizeof dir, "cok_adventure") != NULL);
+    char path[600];
     static uint8_t save[COK_SAVED_GAME_SIZE];
     save[0x1414] = 1;
     memcpy(save + 0x1415, "\x03" "NPC", 4);
@@ -1267,9 +1268,9 @@ static void test_overland(void)
     cok_adventure_close(&game);
 
     /* A saved game outside 3D areas loads the overland map, not drawn. */
-    char dir[] = "/tmp/cok_overland_XXXXXX";
-    CHECK(mkdtemp(dir) != NULL);
-    char path[256];
+    char dir[512];
+    CHECK(test_temp_dir(dir, sizeof dir, "cok_overland") != NULL);
+    char path[600];
     static uint8_t save[COK_SAVED_GAME_SIZE];
     save[1 + 0x400 * 2 + 0x312 * 2] = 1; /* 0x7f12, the ECL file */
     snprintf(path, sizeof path, "%s/SAVGAMA.DAT", dir);
@@ -1320,9 +1321,9 @@ static void test_resume(void)
     cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .unported = count_unported, .context = &s};
     uint16_t *mem = game.vm.mem4b00;
-    char dir[] = "/tmp/cok_resume_XXXXXX";
-    CHECK(mkdtemp(dir) != NULL);
-    char path[256];
+    char dir[512];
+    CHECK(test_temp_dir(dir, sizeof dir, "cok_resume") != NULL);
+    char path[600];
     snprintf(path, sizeof path, "%s/SAVGAMA.DAT", dir);
     /* ECL1 block 16, the overland map at 2,2, the caravan met, the step
      * counter one short of a roll; saved in camp (mode 2, last mode 4). */

@@ -235,9 +235,10 @@ def _recorded(exe):
     if not record:
         return exe
     stand_in = exe.with_name(exe.name + "-recorded")
-    if not stand_in.exists():
+    text = f'#!/bin/sh\nexec "{record}" "{exe}" "$@"\n'
+    if not stand_in.exists() or stand_in.read_text() != text:  # another recorder's
         tmp = stand_in.with_name(f"{stand_in.name}.{os.getpid()}")
-        tmp.write_text(f'#!/bin/sh\nexec "{record}" "{exe}" "$@"\n')
+        tmp.write_text(text)
         tmp.chmod(0o755)
         os.replace(tmp, stand_in)
     return stand_in

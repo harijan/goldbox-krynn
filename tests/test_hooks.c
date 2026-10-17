@@ -11,6 +11,7 @@
 #include "monster.h"
 #include "start.h"
 #include "test_loading_data.h"
+#include "test_temp.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -489,8 +490,8 @@ int main(void)
     cok_keyboard k = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.flush = flushed, .sound = sounded, .context = &s};
     CHECK(cok_adventure_open(&game, &cok_rules_champions, "COKAssets", &k, &hooks));
-    char dir[] = "/tmp/cok-hooks-XXXXXX";
-    CHECK(mkdtemp(dir) != NULL);
+    char dir[512];
+    CHECK(test_temp_dir(dir, sizeof dir, "cok-hooks") != NULL);
     snprintf(game.save_dir, sizeof game.save_dir, "%s", dir);
     test_loads();
     test_waits();
@@ -503,7 +504,7 @@ int main(void)
     CHECK(d != NULL);
     for (struct dirent *e; (e = readdir(d)) != NULL;) {
         if (e->d_name[0] == '.') continue;
-        char path[600];
+        char path[800];
         snprintf(path, sizeof path, "%s/%s", dir, e->d_name);
         unlink(path);
     }

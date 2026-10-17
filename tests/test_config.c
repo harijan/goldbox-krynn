@@ -3,6 +3,7 @@
  * and ReadLn; and the file found in the assets directory. */
 #define _POSIX_C_SOURCE 200809L /* mkdtemp */
 #include "config.h"
+#include "test_temp.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -81,9 +82,9 @@ static void test_files(void)
     cok_config config = {.display = COK_DISPLAY_TANDY, .sound = COK_SOUND_NONE};
     CHECK(cok_config_read(&cok_rules_champions, "COKAssets", &config));
     CHECK(config.display == COK_DISPLAY_EGA && config.sound == COK_SOUND_TANDY);
-    char dir[] = "/tmp/cok-config-XXXXXX";
-    CHECK(mkdtemp(dir) != NULL);
-    char path[100];
+    char dir[512];
+    CHECK(test_temp_dir(dir, sizeof dir, "cok-config") != NULL);
+    char path[600];
     config = (cok_config){.display = COK_DISPLAY_TANDY, .sound = COK_SOUND_CMS};
     CHECK(!cok_config_read(&cok_rules_champions, dir, &config)); /* none: unchanged */
     CHECK(config.display == COK_DISPLAY_TANDY && config.sound == COK_SOUND_CMS);

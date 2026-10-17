@@ -60,15 +60,15 @@ def main():
     for s in burst:
         t = d_lib.screen_text(s, range(10, 12), 23, 39)
         pair = (t.get(10, "").strip(" ?"), t.get(11, "").strip(" ?"))
+        if d_lib.part_of_damage(pair[1]):
+            continue  # caught being redrawn
         if pair[0] and (not shown or shown[-1] != pair):
             shown.append(pair)
     said = []
     for name, text in shown:
         if text == "ATTACKS":
             break
-        # Repeats merge, as the port's do: a screenshot that caught the panel
-        # being redrawn put one text in twice (GARIN's 5, once).
-        if text.startswith("TAKES") and (not said or said[-1] != (name, text.split()[1])):
+        if text.startswith("TAKES"):
             said.append((name, text.split()[1]))
     merged = [h for i, h in enumerate(hits) if i == 0 or h != hits[i - 1]]
     print("original's panel in the burst:", shown)

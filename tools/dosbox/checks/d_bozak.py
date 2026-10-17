@@ -64,6 +64,8 @@ def main():
     panel = []
     for s in shots:
         t = tuple(d_lib.read_text(s, r, 23, 39)[0].strip(" ?") for r in (10, 11))
+        if d_lib.part_of_damage(t[1]):
+            continue  # caught being redrawn
         if t[0] and (not panel or panel[-1] != t):
             panel.append(t)
     i = next((n for n, t in enumerate(panel) if "EXPLODES." in t), None)
@@ -71,10 +73,7 @@ def main():
     for name, text in panel[i + 1:] if i is not None else ():
         if not text.startswith("TAKES"):
             break
-        # The same name and damage again: a screenshot caught the panel
-        # while it was being redrawn (once seen as SIRRION's 5 twice).
-        if not said or said[-1] != (name, text.split()[1]):
-            said.append((name, text.split()[1]))
+        said.append((name, text.split()[1]))
     print("original's panel after \"EXPLODES.\":", said)
     # The party's defeat: "The monsters rejoice for the party has been
     # destroyed" (351b:1aab) in the text window, row 5 on.

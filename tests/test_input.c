@@ -21,6 +21,7 @@
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #x); exit(1); } } while (0)
 
 #include "test_input_data.h"
+#include "test_temp.h"
 
 static cok_adventure game;
 
@@ -770,9 +771,9 @@ static void list_clicks(void)
 /* Initialize Mouse/Joystick's file: line 3 and the thresholds. */
 static void rewrite(void)
 {
-    char dir[] = "/tmp/cok_input_XXXXXX";
-    CHECK(mkdtemp(dir) != NULL);
-    char from[64], to[64];
+    char dir[512];
+    CHECK(test_temp_dir(dir, sizeof dir, "cok_input") != NULL);
+    char from[600], to[600];
     snprintf(from, sizeof from, "%s/from", dir);
     snprintf(to, sizeof to, "%s/to", dir);
     FILE *f = fopen(from, "wb");

@@ -252,7 +252,53 @@ def self_test():
             print(f"self-test FAILS: status {code!r}, log {text!r}: {got!r}/{rec!r}, "
                   f"wanted {want!r}/{recorded!r}")
     print(f"run_all self-test: {len(cases) - bad} of {len(cases)} cases right")
+    bad += self_test_again()
     return 1 if bad else 0
+
+
+def self_test_again():
+    """run_checks' run again alone, with made-up scripts: a flaky one (differs,
+    then agrees alone) ends as recorded and is named; a real difference
+    (differs both times) and an error twice stay changed, exit 1; with
+    again=False the first verdicts stand. Returns the failures' count."""
+    import contextlib
+    import io
+    import tempfile
+
+    def runner(script):
+        calls = {}
+
+        def run(name, out):
+            calls[name] = calls.get(name, 0) + 1
+            (out / f"{name}.log").write_text(f"run {calls[name]}\n")
+            (out / name).mkdir(exist_ok=True)
+            got = script[name][min(calls[name], len(script[name])) - 1]
+            return (got, 0 if got == "AGREES" else 1) if got else (None, 3)
+        return run, calls
+
+    rows = [c for c in CHECKS if c[0] in ("b_amount", "c_rob", "d_move")]
+    cases = [  # (each script's verdicts run after run, again, status, summary's end)
+        ({"b_amount": ["DIFFERS new (1: x)", "AGREES"], "c_rob": ["AGREES"],
+          "d_move": ["AGREES"]}, True, 0, "(run again alone: b_amount)"),
+        ({"b_amount": ["AGREES"], "c_rob": ["DIFFERS new (1: y)"], "d_move": [None]},
+         True, 1, "(run again alone: c_rob, d_move)"),
+        ({"b_amount": ["DIFFERS new (1: x)", "AGREES"], "c_rob": ["AGREES"],
+          "d_move": ["AGREES"]}, False, 1, "changed or in error"),
+    ]
+    bad = 0
+    for script, again, want, summary in cases:
+        run, calls = runner(script)
+        with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(io.StringIO()) as o:
+            got = run_checks(rows, 2, pathlib.Path(d), run, again=again)
+            kept = (pathlib.Path(d) / "b_amount.first.log").exists()
+        text = o.getvalue().splitlines()
+        flaky = again and len(script["b_amount"]) > 1
+        if (got != want or not text[-1].endswith(summary) or kept != flaky or
+                (flaky and "at first: differs new" not in "\n".join(text))):
+            bad += 1
+            print(f"self-test FAILS: run again {again}, {script}: status {got}, {text[-1]!r}")
+    print(f"run_all self-test of the run again: {len(cases) - bad} of {len(cases)} cases right")
+    return bad
 
 
 def run_one(name, out, timeout):
@@ -339,7 +385,15 @@ def main():
     # After importing checklib: cokbox sets its own SIGTERM handler.
     for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         signal.signal(signum, stop)
+    return run_checks(todo, jobs, out, lambda name, out: run_one(name, out, opts.timeout),
+                      again=not opts.no_again)
 
+
+def run_checks(todo, jobs, out, run, again=True):
+    """Run TODO's scripts (CHECKS' rows) with RUN(name, out) -> (verdict,
+    code), JOBS at a time and ALONE's one at a time, then (with AGAIN) those
+    not as recorded once more, alone; print the table. Returns the exit
+    status: 1 if any is not as recorded at the end."""
     results, lock = {}, threading.Lock()
     # The long ones first, so that they do not end the run alone.
     queue = sorted((c for c in todo if c[0] not in ALONE), key=lambda c: -LONG.get(c[0], 0))
@@ -354,7 +408,7 @@ def main():
                 name, checks, want = queue.pop(0)
             start = time.monotonic()
             try:
-                verdict, code = run_one(name, out, opts.timeout)
+                verdict, code = run(name, out)
             except Exception as e:  # noqa: BLE001 (an error of the runner's: reported)
                 verdict, code = None, f"runner: {e}"
             took = time.monotonic() - start
@@ -381,9 +435,11 @@ def main():
     # screens or its waits as they come, and now and then one of them
     # differed beside others, a different one each run (DEVELOPERS.md,
     # Checks against the original); a difference of the port's differs
-    # again. The verdict alone counts; the line shows the first too.
+    # again. The verdict alone counts; the line and the summary show the
+    # first too, so that a script that keeps needing it stands out. A
+    # script that timed out gets the whole timeout again.
     first = {}
-    again = [] if opts.no_again or STOPPING.is_set() else [
+    again = [] if not again or STOPPING.is_set() else [
         c for c in todo if c[0] in results and not as_recorded(c[2], results[c[0]])]
     if again:
         print(f"\n{len(again)} not as recorded: each again, alone", flush=True)
@@ -405,7 +461,8 @@ def main():
         print(line(name, checks, want, verdict, code, took, first.get(name)))
         changed += verdict is None or recorded_as(verdict) != want
     print(f"{len(todo) - changed} as recorded, {changed} changed or in error"
-          + (f" ({len(first)} run again alone)" if first else ""))
+          + (f" (run again alone: {', '.join(n for n, _, _ in todo if n in first)})"
+             if first else ""))
     return 1 if changed else 0
 
 

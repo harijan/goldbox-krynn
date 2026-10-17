@@ -71,12 +71,18 @@ three files that include `SDL.h` (`src/cok.c`, `src/keymap.c`,
 is a target of its own (`run-NAME`; `tests/test_eclplay.py` in four parts,
 `COK_TEST_SHARD=K/N` running every Nth test from the Kth), so that `make
 -j` runs them side by side; plain `make test` runs them one after another.
-`tests/test_cok.py` plays in real time and runs last, alone, once the
-others are done: a clean `make -j16 test` takes about two minutes on a
-16-core host, 105 s of them `tests/test_cok.py`'s (plain `make test` two
-and a half; `make -j16 sanitize` 20 s). The tests' temporary
-files go to `build/tmp` (`TEST_TMPDIR`): the dev container's `/tmp` is a
-FUSE overlay, several times slower to write their many small files.
+`run-test_eclplay` then checks, from the ids each part lists, that the
+parts ran each of its tests once. `tests/test_cok.py` plays in real time
+and runs last, alone, once the others are done: a clean `make -j16 test`
+takes about two minutes on a 16-core host, 105 s of them
+`tests/test_cok.py`'s (plain `make test` two and a half; `make -j16
+sanitize` 20 s). Beside others a failing run's lines are mixed with
+theirs, and its `Error` line is not the last: `make -j16 -Otarget test`
+shows each run's output whole once it ends (and `tests/test_cok.py`'s
+progress only at its end, so it is not the default). The tests'
+temporary files go to `build/tmp` (`TEST_TMPDIR`, as `TMPDIR`; the C
+tests' folders through `tests/test_temp.h`): the dev container's `/tmp`
+is a FUSE overlay, several times slower to write their many small files.
 
 `make cok` builds `build/cok`, the playable front end (see Playing), which
 needs SDL2 2.0.18 or later and finds it with `pkg-config sdl2` (Debian and
@@ -7328,9 +7334,10 @@ apart: `COKBOX_DISPLAYS=LO-HI` (or `display_number`) gives `Xvfb` the
 first free display number of that range, skipping one while its lock file
 is there, removing a lock whose server is gone, and keeping a number only
 once its lock names our own `Xvfb` (two runs may start on one together);
-without it `Xvfb` picks the first number free from `:0` up, by X's own
-lock files, so never one that another run holds (nor, unless that many
-run at once, a range such as 110-189 kept for `COKBOX_DISPLAYS`). Then:
+without it `Xvfb` (`-displayfd`) takes the first number from `:0` up
+whose socket is free, so never one that another run holds (nor, unless
+that many run at once, a range such as 110-189 kept for
+`COKBOX_DISPLAYS`). Then:
 
 - Memory: the guest's RAM is one block of `dosbox-x`'s heap, found by
   the keyboard buffer's bounds (`0040:0080`) and the interrupt table, and
@@ -7461,24 +7468,28 @@ the text), and prints one line per script: the checks it covers, its
 verdict, and whether that is the verdict recorded (agrees, or new for a
 port difference found and not yet fixed, of which none is left), an ERROR
 for anything else. A script not as recorded runs once more at the end,
-alone, and that verdict counts, the first shown beside it (`--no-again`
-keeps the first): at 10 at a time about one run in three had one script
-differ, a different one each time (`a_demo`, `c_pit`, `d_altq`, which
-judge the original's screens or waits as they come), and alone it
-agreed; a difference of the port's differs again. On a script's timeout, or when run_all itself gets
-SIGTERM, SIGINT or SIGHUP, it kills the running scripts' process groups
-and the Xvfb and DOSBox-X they started (their pids recorded in
-`COKBOX_PIDFILE`). `run_all.py --self-test` (in `make dosbox-selftest`)
-checks its reading of verdicts and statuses without DOSBox-X. A full run of the 82 scripts takes about 31 minutes on
-a 16-core host with little else running: about 8 for the rest side by
-side (10 at a time; 13 at 6), then 23 for the eight alone (`d_bozak.py`
-12 of them). The eight alone also starve on the disk: DOSBox-X writes
-each screenshot into the box's folder under `build/`, and another
-program's heavy writing there (a big `rm -rf` on the same overlay) made
-`d_turning` miss its text and `d_bolt` take eight times as long. With main's
-fixes (the continue prompt's full stop, two-set wall records, a resumed
-game's first block) the last full run gave every recorded verdict: 80
-agree, and two showed a port difference since fixed (#70's Heal list,
+alone, and that verdict counts, the first shown beside it and the script
+named in the summary (`--no-again` keeps the first): at 10 at a time
+about one run in three had one script differ, a different one each time
+(`a_demo`, `c_pit`, `d_altq`, which judge the original's screens or
+waits as they come), and alone it agreed; a difference of the port's
+differs again. A script that keeps needing the second run deserves a look
+all the same: the untrap race (see Memory above) was such a one. On a
+script's timeout, or when run_all itself gets SIGTERM, SIGINT or SIGHUP,
+it kills the running scripts' process groups and the Xvfb and DOSBox-X
+they started (their pids recorded in `COKBOX_PIDFILE`). `run_all.py
+--self-test` (in `make dosbox-selftest`) checks its reading of verdicts
+and statuses, and the run again (with made-up scripts), without
+DOSBox-X. A full run of the 82 scripts takes about 31 minutes on a
+16-core host with little else running: about 8 for the rest side by side
+(10 at a time; 13 at 6), then 23 for the eight alone (`d_bozak.py` 12 of
+them). The checks need the host otherwise idle, its disk as well as its
+CPU: the burst checks write a screenshot a frame under `build/`, and
+heavy I/O on the same filesystem (seen: a large delete) made `d_turning`
+miss its text and `d_bolt` take eight times as long. With main's fixes
+(the continue prompt's full stop, two-set wall records, a resumed game's
+first block) the last full run gave every recorded verdict: 80 agree, and
+two showed a port difference since fixed (#70's Heal list,
 `c_outpost.py`; the party destroyed's text, `d_bozak.py`), which agree
 with the fix.
 

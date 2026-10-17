@@ -940,7 +940,14 @@ def trap(b, seg, off, until, seconds=30):
     to itself): every copy of its code found in memory is patched, again and
     again as the overlay manager loads it afresh, until UNTIL() is true (or
     SECONDS pass). The game then stops there, its screen as it was, until
-    untrap. Returns the patched (address, the two bytes replaced)."""
+    untrap. Returns the patched (address, the two bytes replaced).
+
+    The spin is written while the game runs, not with write_paused as
+    untrap's bytes are: a pause takes a few tenths of a second, in which the
+    game could pass the routine's first call (the turn the trap is for).
+    The write tears only if the CPU stands on the routine's first two bytes
+    at that instant, which it passes once a turn; untrap's spin keeps it
+    there all the time."""
     patched = []
     end = time.monotonic() + seconds
     while time.monotonic() < end:
@@ -968,6 +975,15 @@ def untrap(b, handle):
     now and then ended d_patrol's and d_gate's battles at once, the monsters'
     records cleared."""
     b.write_paused([(addr, orig) for addr, orig in handle if b.read(addr, 2) == b"\xeb\xfe"])
+
+
+def part_of_damage(text):
+    """Whether TEXT (the panel's row 11) is part of a "TAKES N POINT(S)" line
+    and not all of it (the plural as N has it): a screenshot that caught the
+    panel being redrawn, which d_bozak and d_bolt leave out (once it gave
+    SIRRION's 5, GARIN's 5, twice)."""
+    m = re.fullmatch(r"TAKES (\d+) POINT(S?)", text)
+    return text.startswith("TAKES") and not (m and (m.group(1) == "1") == (m.group(2) == ""))
 
 
 def stable(b, seconds=20, interval=0.3):

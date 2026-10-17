@@ -182,21 +182,23 @@ $(SRC_SANITIZE:%=build/%_sanitize): build/%_sanitize: $$(call asan,$$($$*_SRC)) 
 # runs them side by side; plain make runs them one after another. They need
 # build/START_FULL.EXE (the original's tables). tests/test_eclplay.py runs
 # in parts, one for each of SHARDS (COK_TEST_SHARD=K/N: every Nth test from
-# the Kth).
+# the Kth), and run-test_eclplay then checks from the ids they list
+# (COK_TEST_SHARD_LIST) that together they ran each of its tests once.
 # tests/test_cok.py plays in real time: it runs last, alone, once the
 # others are done (make -j would otherwise run it beside them, and a loaded
 # machine makes the game late).
 TEST_PROGRAMS = test_dax test_rules test_image test_picture test_text test_display test_ecl test_menu test_view test_party test_effect test_adventure test_camp test_cast test_items test_monster test_combat test_round test_arena test_attack test_ai test_command test_spell test_cloud test_treasure test_shop test_start test_hooks test_debug test_sound test_config test_setup test_input
 SHARDS = 1 2 3 4
 ECLPLAY_RUNS = $(SHARDS:%=run-test_eclplay-%)
-TEST_RUNS = $(TEST_PROGRAMS:%=run-%) run-ecldump run-test_images_cli $(ECLPLAY_RUNS) $(if $(HAVE_SDL),run-test_keymap) run-test_ovrmerge run-daxcheck
+TEST_RUNS = $(TEST_PROGRAMS:%=run-%) run-ecldump run-test_images_cli $(ECLPLAY_RUNS) run-test_eclplay $(if $(HAVE_SDL),run-test_keymap) run-test_ovrmerge run-daxcheck
 SANITIZE_RUNS = $(TEST_PROGRAMS:%=run-%_sanitize)
 .PHONY: $(TEST_RUNS) $(SANITIZE_RUNS) run-test_cok
 
 # The tests' temporary files (TMPDIR) in TEST_TMPDIR: the dev container's
 # /tmp, a FUSE overlay holding many entries, is slow for their many small
 # files (the tests but test_cok.py, at -j16: 40 s with /tmp, 14 s with
-# build/tmp on the same overlay).
+# build/tmp on the same overlay). The C tests make their folders there too
+# (tests/test_temp.h).
 TEST_TMPDIR = build/tmp
 TEST_ENV = TMPDIR=$(abspath $(TEST_TMPDIR))
 $(TEST_RUNS) $(SANITIZE_RUNS) run-test_cok: | $(TEST_TMPDIR)
@@ -215,8 +217,13 @@ run-ecldump: build/ecldump
 run-test_images_cli: build/daximages build/daxcompose
 	$(TEST_ENV) $(PYTHON) tests/test_images_cli.py
 
+SHARD_LIST = $(abspath $(TEST_TMPDIR))/eclplay-shard-$(1).txt
 $(ECLPLAY_RUNS): run-test_eclplay-%: build/eclplay build/START_FULL.EXE
-	$(TEST_ENV) COK_TEST_SHARD=$*/$(words $(SHARDS)) $(PYTHON) tests/test_eclplay.py
+	rm -f $(call SHARD_LIST,$*)
+	$(TEST_ENV) COK_TEST_SHARD=$*/$(words $(SHARDS)) COK_TEST_SHARD_LIST=$(call SHARD_LIST,$*) $(PYTHON) tests/test_eclplay.py
+
+run-test_eclplay: $(ECLPLAY_RUNS)
+	COK_TEST_SHARD_CHECK="$(foreach k,$(SHARDS),$(call SHARD_LIST,$(k)))" $(PYTHON) tests/test_eclplay.py
 
 run-test_ovrmerge:
 	$(TEST_ENV) $(PYTHON) tests/test_ovrmerge.py

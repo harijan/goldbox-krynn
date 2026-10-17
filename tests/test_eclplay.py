@@ -2682,20 +2682,50 @@ def wav_data_of(test, keys):
     return wav_data(path)
 
 
+def flat(suite):
+    for t in suite:
+        yield from flat(t) if isinstance(t, unittest.TestSuite) else [t]
+
+
 def load_tests(loader, tests, pattern):
     """With COK_TEST_SHARD=K/N, only every Nth test from the Kth (1 to N), so
-    that make test runs the N parts side by side."""
+    that make test runs the N parts side by side; their ids, one a line, in
+    the file COK_TEST_SHARD_LIST names, for check_shards."""
     shard = os.environ.get("COK_TEST_SHARD")
     if not shard:
         return tests
     k, n = (int(x) for x in shard.split("/"))
+    if not 1 <= k <= n:
+        raise SystemExit(f"COK_TEST_SHARD {shard}: K must be 1 to N")
+    chosen = list(flat(tests))[k - 1::n]
+    listing = os.environ.get("COK_TEST_SHARD_LIST")
+    if listing:
+        pathlib.Path(listing).write_text("".join(f"{t.id()}\n" for t in chosen))
+    return unittest.TestSuite(chosen)
 
-    def flat(suite):
-        for t in suite:
-            yield from flat(t) if isinstance(t, unittest.TestSuite) else [t]
 
-    return unittest.TestSuite(list(flat(tests))[k - 1::n])
+def check_shards(lists):
+    """The tests the shards ran (LISTS, their COK_TEST_SHARD_LIST files)
+    against the whole module's, loaded unsharded: each exactly once. 0 if
+    so, else 1 with the ones missing or run twice."""
+    import collections
+    import sys
+    whole = [t.id() for t in flat(unittest.defaultTestLoader.loadTestsFromModule(
+        sys.modules[__name__]))]
+    ran = collections.Counter(line for f in lists
+                              for line in pathlib.Path(f).read_text().splitlines())
+    missing = sorted(set(whole) - set(ran))
+    twice = sorted(i for i, c in ran.items() if c > 1)
+    extra = sorted(set(ran) - set(whole))
+    if missing or twice or extra:
+        print(f"test_eclplay.py's shards: {len(missing)} tests not run, {len(twice)} run "
+              f"twice, {len(extra)} unknown: {(missing + twice + extra)[:5]}")
+        return 1
+    print(f"test_eclplay.py's {len(lists)} shards ran its {len(whole)} tests, each once")
+    return 0
 
 
 if __name__ == "__main__":
+    if os.environ.get("COK_TEST_SHARD_CHECK"):
+        raise SystemExit(check_shards(os.environ["COK_TEST_SHARD_CHECK"].split()))
     unittest.main()

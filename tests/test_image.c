@@ -1,5 +1,7 @@
+#define _POSIX_C_SOURCE 200809L /* mkdtemp */
 #include "image.h"
 #include "dax.h"
+#include "test_temp.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,13 +28,19 @@ static void test_frames_and_colors(void)
         0,0,170, 85,85,255, 0,170,0, 85,255,85
     };
     CHECK(memcmp(rgb, expected, sizeof expected) == 0);
-    CHECK(cok_image_bmp(&list.images[0], "build/test-image.bmp") == COK_IMAGE_OK);
-    FILE *f = fopen("build/test-image.bmp", "rb");
+    /* In a folder of its own: make -j test sanitize runs this beside
+     * test_image_sanitize. */
+    char dir[512], path[600];
+    CHECK(test_temp_dir(dir, sizeof dir, "cok-image") != NULL);
+    snprintf(path, sizeof path, "%s/image.bmp", dir);
+    CHECK(cok_image_bmp(&list.images[0], path) == COK_IMAGE_OK);
+    FILE *f = fopen(path, "rb");
     CHECK(f != NULL);
     uint8_t bmp[78];
     CHECK(fread(bmp, 1, sizeof bmp, f) == sizeof bmp);
     CHECK(fgetc(f) == EOF);
     CHECK(fclose(f) == 0);
+    CHECK(remove(path) == 0 && remove(dir) == 0);
     CHECK(bmp[0] == 'B' && bmp[1] == 'M' && bmp[2] == 78 && bmp[10] == 54);
     CHECK(bmp[18] == 8 && bmp[22] == 1 && bmp[28] == 24);
     CHECK(bmp[54+6] == 0 && bmp[54+7] == 85 && bmp[54+8] == 170); /* Brown BGR. */
