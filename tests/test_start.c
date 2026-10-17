@@ -971,6 +971,9 @@ static void test_knight(void)
     c[0x19] = 15;
     put32(c + 0x116, 12000);
     for (size_t i = 0; i < 6; ++i) c[0x10 + 2 * i] = 15;
+    /* Strength 12, the Crown's least for the Sword (DS:0b7e), below the
+     * Sword's for the Rose (DS:0b84). */
+    c[0x10] = 12;
     keys("SC");
     cok_train_knight(&game);
     CHECK(logged("may become a") && c[0x5c] == 2 && c[0x100] == 3);
@@ -1117,6 +1120,8 @@ static void test_create(void)
     keys("\x01P\x01P\x01P\x01P\x01P\x01PSS\x01P\x01P\x01PS\x01P\x01PSNBOB\r\x1bYY");
     cok_create(&game);
     CHECK(logged("roster: BOB.WHO;") && game.vm.character == NULL && game.party.count == 0);
+    /* The lists' names are the data segment's (DS:1140, 0f5a, 11c0). */
+    CHECK(logged("choice: Human;") && logged("choice: Thief;") && logged("choice: True Neutral;"));
     /* The hall's word comes back as its low byte. */
     CHECK(game.vm.mem7c00[0x2a8] == 0x34);
     cok_character *c = calloc(1, sizeof *c);
