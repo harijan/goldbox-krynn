@@ -56,7 +56,7 @@ def throtl_save(out, letter, beaten=False):
             shutil.copyfile(f, saves / f.name)
     args = ["--load", str(checklib.SAVES / "SAVGAMA.DAT"), *THROTL_ARGS,
             *(["--set", "4c4d=2"] if beaten else [])]
-    subprocess.run([str(cokbox.ECLPLAY), *args, "--saves", str(saves),
+    subprocess.run([*cokbox.BELOW_BOXES, str(cokbox.ECLPLAY), *args, "--saves", str(saves),
                     "--keys", f"nm98nEES{letter}", str(cokbox.ROOT / "COKAssets"), "16"],
                    cwd=cokbox.ROOT, check=True, capture_output=True, timeout=120)
     if not (saves / f"SAVGAM{letter}.DAT").exists():

@@ -102,7 +102,8 @@ def eclplay_wav(keys, out, cfg, saves=(), seed=None):
             str(savedir), "--wav", str(wav), "--sound-calls"]
     if seed is not None:
         args += ["--seed", str(seed)]
-    res = subprocess.run(args + ["--keys", keys, str(cokbox.ROOT / "COKAssets")],
+    res = subprocess.run([*cokbox.BELOW_BOXES, *args, "--keys", keys,
+                          str(cokbox.ROOT / "COKAssets")],
                          capture_output=True, text=True, timeout=600, check=True)
     (out / "eclplay.txt").write_text(res.stdout + res.stderr)
     calls = []

@@ -60,6 +60,8 @@ def main():
     for s in burst:
         t = d_lib.screen_text(s, range(10, 12), 23, 39)
         pair = (t.get(10, "").strip(" ?"), t.get(11, "").strip(" ?"))
+        if d_lib.part_of_damage(pair[1]):
+            continue  # caught being redrawn
         if pair[0] and (not shown or shown[-1] != pair):
             shown.append(pair)
     said = []

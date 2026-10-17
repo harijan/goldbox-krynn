@@ -59,6 +59,31 @@ make cok
 make dosbox-selftest
 ```
 
+Run `make -j16 test` (`-j` the machine's cores, `nproc`), and `make -j16
+sanitize`. Make compiles each source once for each set of flags, into
+`build/obj/` (`CFLAGS`), `build/obj-asan/` (`ASAN_FLAGS`: `make
+sanitize`'s AddressSanitizer and UBSan) and `build/obj-tsan/`
+(`TSAN_FLAGS`: `build/cok_tsan`), each with its headers in a `.d` file
+(`-MMD -MP`), and links every program from those objects, so that a
+change recompiles only the objects that include it; SDL2's flags go to the
+three files that include `SDL.h` (`src/cok.c`, `src/keymap.c`,
+`tests/test_keymap.c`). Each test program's run, and each test script's,
+is a target of its own (`run-NAME`; `tests/test_eclplay.py` in four parts,
+`COK_TEST_SHARD=K/N` running every Nth test from the Kth), so that `make
+-j` runs them side by side; plain `make test` runs them one after another.
+`run-test_eclplay` then checks, from the ids each part lists, that the
+parts ran each of its tests once. `tests/test_cok.py` plays in real time
+and runs last, alone, once the others are done: a clean `make -j16 test`
+takes about two minutes on a 16-core host, 105 s of them
+`tests/test_cok.py`'s (plain `make test` two and a half; `make -j16
+sanitize` 20 s). Beside others a failing run's lines are mixed with
+theirs, and its `Error` line is not the last: `make -j16 -Otarget test`
+shows each run's output whole once it ends (and `tests/test_cok.py`'s
+progress only at its end, so it is not the default). The tests'
+temporary files go to `build/tmp` (`TEST_TMPDIR`, as `TMPDIR`; the C
+tests' folders through `tests/test_temp.h`): the dev container's `/tmp`
+is a FUSE overlay, several times slower to write their many small files.
+
 `make cok` builds `build/cok`, the playable front end (see Playing), which
 needs SDL2 2.0.18 or later and finds it with `pkg-config sdl2` (Debian and
 Ubuntu: `libsdl2-dev`; Fedora: `SDL2-devel`; macOS: Homebrew's `sdl2` and
@@ -7309,7 +7334,10 @@ apart: `COKBOX_DISPLAYS=LO-HI` (or `display_number`) gives `Xvfb` the
 first free display number of that range, skipping one while its lock file
 is there, removing a lock whose server is gone, and keeping a number only
 once its lock names our own `Xvfb` (two runs may start on one together);
-without it `Xvfb` picks any. Then:
+without it `Xvfb` (`-displayfd`) takes the first number from `:0` up
+whose socket is free, so never one that another run holds (nor, unless
+that many run at once, a range such as 110-189 kept for
+`COKBOX_DISPLAYS`). Then:
 
 - Memory: the guest's RAM is one block of `dosbox-x`'s heap, found by
   the keyboard buffer's bounds (`0040:0080`) and the interrupt table, and
@@ -7320,7 +7348,14 @@ without it `Xvfb` picks any. Then:
   lies outside that block: `find_text` finds the 80-column text screen by
   a string on it, `text_rows` reads it (a CGA's or Tandy's character and
   attribute in turn; DOSBox-X keeps an `svga_s3`'s spread over 8 bytes a
-  cell, which it finds too).
+  cell, which it finds too). `write_paused` writes with the emulation
+  paused (F12+Pause until the title says `PAUSED`, so between two
+  instructions): code the game is running changes safely only so.
+  `d_lib.trap` makes a routine spin (`EB FE` over its first two bytes) and
+  `untrap` gives them back that way: written while the game spun there,
+  the CPU could fetch the spin's `EB` with the routine's second byte, a
+  jump into another routine, which now and then ended `d_patrol`'s and
+  `d_gate`'s battles at once.
 - Waiting for a key: `HOOK.COM` (`tools/dosbox/hook.asm`, assembled into
   `cokbox.py`), a TSR, hooks INT 16h and counts in a block the host finds
   by its signature the reads (functions 0 and 0x10, with a flag while one
@@ -7409,28 +7444,52 @@ do instead, and says the port is not compared there. A harness artifact
 difference on a `DIFFERENCE:` line before it, and anything else (an
 exception, a signal, a harness failure) is an error, exit 3. `COKBOX_ECLPLAY`,
 `COKBOX_COK` and `COKBOX_SRC` point the checks at another build of the
-port, e.g. a mutant's.
+port, e.g. a mutant's; `COKBOX_RECORD` names a program that each of
+checklib's patched builds runs through (given the executable and its
+arguments), such as a recorder of the port's runs that, keeping each
+run's arguments and input files, can make them again without DOSBox-X.
+The port's runs and builds that a check makes (and waits for) run niced
+below the boxes (`cokbox.BELOW_BOXES`, `nice -n 19`): with many checks
+side by side their bursts (`frames_at`'s four `eclplay`s, a patched
+build's compiles) otherwise made a box late, and a check then differed, a
+different one each run. checklib compiles a patched build's files side by
+side, on half the cores.
 
 Each runs alone (`python3 tools/dosbox/checks/NAME.py [--workdir DIR]`).
 `make dosbox-checks` (`run_all.py`; `ARGS="--jobs N --only NAME ..."`)
 runs them all side by side, as many at a time as `COKBOX_DISPLAYS` has
-displays less two, then those that catch a short text in a burst of
+displays less two, else five eighths of the cores (10 of 16: 12 and 14
+are no faster, as the part side by side then lasts about as long as
+`a_demo`, its longest), then those that catch a short text in a burst of
 screenshots (`d_arrows`, `d_aurak`, `d_bolt`, `d_bozak`, `d_cast`,
 `d_gate`, `d_hold`, `d_turning`) one at a time (beside the others on a
 loaded host DOSBox-X wrote ten times fewer screenshots and they missed
 the text), and prints one line per script: the checks it covers, its
 verdict, and whether that is the verdict recorded (agrees, or new for a
 port difference found and not yet fixed, of which none is left), an ERROR
-for anything else. On a script's timeout, or when run_all itself gets
-SIGTERM, SIGINT or SIGHUP, it kills the running scripts' process groups
-and the Xvfb and DOSBox-X they started (their pids recorded in
-`COKBOX_PIDFILE`). `run_all.py --self-test` (in `make dosbox-selftest`)
-checks its reading of verdicts and statuses without DOSBox-X. A full run of the 82 scripts takes about 32 minutes on
-a 16-core host with little else running: about 10 for the rest side by
-side, then 22 for the eight alone (`d_bozak.py` 12 of them). With main's
-fixes (the continue prompt's full stop, two-set wall records, a resumed
-game's first block) the last full run gave every recorded verdict: 80
-agree, and two showed a port difference since fixed (#70's Heal list,
+for anything else. A script not as recorded runs once more at the end,
+alone, and that verdict counts, the first shown beside it and the script
+named in the summary (`--no-again` keeps the first): at 10 at a time
+about one run in three had one script differ, a different one each time
+(`a_demo`, `c_pit`, `d_altq`, which judge the original's screens or
+waits as they come), and alone it agreed; a difference of the port's
+differs again. A script that keeps needing the second run deserves a look
+all the same: the untrap race (see Memory above) was such a one. On a
+script's timeout, or when run_all itself gets SIGTERM, SIGINT or SIGHUP,
+it kills the running scripts' process groups and the Xvfb and DOSBox-X
+they started (their pids recorded in `COKBOX_PIDFILE`). `run_all.py
+--self-test` (in `make dosbox-selftest`) checks its reading of verdicts
+and statuses, and the run again (with made-up scripts), without
+DOSBox-X. A full run of the 82 scripts takes about 31 minutes on a
+16-core host with little else running: about 8 for the rest side by side
+(10 at a time; 13 at 6), then 23 for the eight alone (`d_bozak.py` 12 of
+them). The checks need the host otherwise idle, its disk as well as its
+CPU: the burst checks write a screenshot a frame under `build/`, and
+heavy I/O on the same filesystem (seen: a large delete) made `d_turning`
+miss its text and `d_bolt` take eight times as long. With main's fixes
+(the continue prompt's full stop, two-set wall records, a resumed game's
+first block) the last full run gave every recorded verdict: 80 agree, and
+two showed a port difference since fixed (#70's Heal list,
 `c_outpost.py`; the party destroyed's text, `d_bozak.py`), which agree
 with the fix.
 

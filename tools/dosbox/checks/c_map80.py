@@ -36,6 +36,7 @@ def main():
     geo = c_geo.load(3, 80)
     for name, at in PLACES.items():
         here = work / f"saves-{name}"
+        shutil.rmtree(here, ignore_errors=True)  # a run before in the same folder
         shutil.copytree(saves, here)
         cp.edit_save(here, "E", at=at, geo=geo)
         cp.Compare(v, work / name, here, [

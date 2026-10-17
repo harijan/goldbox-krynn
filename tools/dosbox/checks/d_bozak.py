@@ -64,6 +64,8 @@ def main():
     panel = []
     for s in shots:
         t = tuple(d_lib.read_text(s, r, 23, 39)[0].strip(" ?") for r in (10, 11))
+        if d_lib.part_of_damage(t[1]):
+            continue  # caught being redrawn
         if t[0] and (not panel or panel[-1] != t):
             panel.append(t)
     i = next((n for n, t in enumerate(panel) if "EXPLODES." in t), None)

@@ -9,6 +9,7 @@
 #include "debug.h"
 #include "items.h"
 #include "start.h"
+#include "test_temp.h"
 
 #include <dirent.h>
 #include <stdio.h>
@@ -61,7 +62,7 @@ static void keys(const char *k)
     game.vm.status = COK_ECL_OK;
 }
 
-static char dir[] = "/tmp/cok-debug-XXXXXX";
+static char dir[512];
 
 /* DEBUG.TXT as it is on the disk, or "none". */
 static const char *on_disk(void)
@@ -421,7 +422,7 @@ int main(void)
     cok_adventure_hooks hooks = {.log = log_line, .context = &s};
     CHECK(cok_adventure_open(&game, &cok_rules_champions, "COKAssets", &k, &hooks));
     CHECK(cok_picture_create(&s.seen, game.screen.units, game.screen.height, 1, 0) == COK_PICTURE_OK);
-    CHECK(mkdtemp(dir) != NULL);
+    CHECK(test_temp_dir(dir, sizeof dir, "cok-debug") != NULL);
     snprintf(game.save_dir, sizeof game.save_dir, "%s", dir);
     test_keys();
     test_trace();

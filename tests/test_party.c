@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L /* mkdtemp */
 
 #include "party.h"
+#include "test_temp.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -175,9 +176,9 @@ static void test_files(void)
     static cok_item_types types;
     char error[256];
     CHECK(cok_item_types_read("COKAssets/ITEMS", &types, error, sizeof error));
-    char dir[] = "/tmp/cok_party_XXXXXX";
-    CHECK(mkdtemp(dir) != NULL);
-    char path[256];
+    char dir[512];
+    CHECK(test_temp_dir(dir, sizeof dir, "cok_party") != NULL);
+    char path[600];
 
     /* A saved game: the layout of 4b6d:1b34. */
     static uint8_t save[COK_SAVED_GAME_SIZE];

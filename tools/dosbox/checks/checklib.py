@@ -216,14 +216,32 @@ def build(kind="eclplay", transforms=()):
     out = ROOT / "build" / "checks" / digest.hexdigest()[:16]
     exe = out / kind
     if exe.exists():
-        return exe
+        return _recorded(exe)
     import fcntl
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(str(out) + ".lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)   # checks side by side build it once
         if not exe.exists():
             _build(out, exe, kind, src, transforms)
-    return exe
+    return _recorded(exe)
+
+
+def _recorded(exe):
+    """EXE, or with COKBOX_RECORD (a program: a recorder of the port's runs,
+    as the golden harness's portrec.py) a script beside it that runs
+    COKBOX_RECORD with EXE and the arguments. COKBOX_ECLPLAY and COKBOX_COK
+    can name such stand-ins for the port's own builds."""
+    record = os.environ.get("COKBOX_RECORD")
+    if not record:
+        return exe
+    stand_in = exe.with_name(exe.name + "-recorded")
+    text = f'#!/bin/sh\nexec "{record}" "{exe}" "$@"\n'
+    if not stand_in.exists() or stand_in.read_text() != text:  # another recorder's
+        tmp = stand_in.with_name(f"{stand_in.name}.{os.getpid()}")
+        tmp.write_text(text)
+        tmp.chmod(0o755)
+        os.replace(tmp, stand_in)
+    return stand_in
 
 
 def _build(out, exe, kind, src, transforms):
@@ -237,13 +255,25 @@ def _build(out, exe, kind, src, transforms):
         if new == text:
             raise cokbox.BoxError(f"a transform of {name} changed nothing: update it")
         path.write_text(new)
-    files = [str(out / f) for f in _sources(kind)]
-    flags = []
+    files = [out / f for f in _sources(kind)]
+    cflags, libs = [], []
     if kind == "cok":
-        flags = subprocess.run(["pkg-config", "--cflags", "--libs", "sdl2"], capture_output=True,
-                               text=True, check=True).stdout.split()
-    subprocess.run(["cc", f"-I{out / 'src'}", "-std=c17", "-O2", *files, *flags, "-lm",
-                    "-o", str(exe) + ".tmp"], check=True)
+        def sdl(what):
+            return subprocess.run(["pkg-config", what, "sdl2"], capture_output=True, text=True,
+                                  check=True).stdout.split()
+        cflags, libs = sdl("--cflags"), sdl("--libs")
+
+    # Each file compiled on its own, side by side on half the cores (and
+    # below the boxes running beside it), then linked.
+    def compile_one(f):
+        obj = f.with_suffix(".o")
+        subprocess.run([*cokbox.BELOW_BOXES, "cc", f"-I{out / 'src'}", "-std=c17", "-O2",
+                        *cflags, "-c", str(f), "-o", str(obj)], check=True)
+        return str(obj)
+
+    with concurrent.futures.ThreadPoolExecutor(max(1, (os.cpu_count() or 4) // 2)) as pool:
+        objs = list(pool.map(compile_one, files))
+    subprocess.run(["cc", *objs, *libs, "-lm", "-o", str(exe) + ".tmp"], check=True)
     os.replace(str(exe) + ".tmp", exe)
 
 

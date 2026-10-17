@@ -35,6 +35,7 @@ typedef struct {
 } setup_case;
 
 #include "test_setup_data.h"
+#include "test_temp.h"
 
 static uint32_t fnv(const uint8_t *bytes, size_t size)
 {
@@ -389,17 +390,17 @@ static void test_timeouts_and_limits(void)
 
 static void test_startup(void)
 {
-    char dir[] = "/tmp/cok-setup-XXXXXX";
-    CHECK(mkdtemp(dir) != NULL);
-    char path[200], write_path[200];
-    char assets[100], saves[100];
+    char dir[512];
+    CHECK(test_temp_dir(dir, sizeof dir, "cok-setup") != NULL);
+    char path[600], write_path[600];
+    char assets[600], saves[600];
     snprintf(assets, sizeof assets, "%s/assets", dir);
     snprintf(saves, sizeof saves, "%s/saves", dir);
     CHECK(mkdir(assets, 0755) == 0 && mkdir(saves, 0755) == 0);
     /* None anywhere: the setup writes SAVES/KRYNN.CFG. */
     CHECK(!cok_config_find(&cok_rules_champions, NULL, saves, assets, path, write_path,
                            sizeof path));
-    char expected[200];
+    char expected[700];
     snprintf(expected, sizeof expected, "%s/KRYNN.CFG", saves);
     CHECK(strcmp(path, expected) == 0 && strcmp(write_path, expected) == 0);
     static cok_crt crt;
@@ -424,7 +425,7 @@ static void test_startup(void)
     CHECK(cok_config_find(&cok_rules_champions, NULL, saves, assets, path, write_path,
                           sizeof path));
     CHECK(strcmp(path, expected) == 0 && strcmp(write_path, expected) == 0);
-    char in_assets[200];
+    char in_assets[700];
     snprintf(in_assets, sizeof in_assets, "%s/krynn.cfg", assets);
     f = fopen(in_assets, "wb");
     CHECK(f != NULL);
@@ -454,7 +455,7 @@ static void test_startup(void)
     fclose(f);
     CHECK(n == 17 + 14 * 3 && memcmp(bytes, "C\r\nP\r\nN\r\nA:\\\r\nF\r\n0\r\n", 20) == 0);
     unlink(expected);
-    char nowhere[200];
+    char nowhere[700];
     snprintf(nowhere, sizeof nowhere, "%s/none", dir);
     /* No file to read: Reset's error stops every Write, the file is left
      * empty. */
@@ -493,7 +494,7 @@ static void test_startup(void)
           COK_SETUP_ENDED);
     CHECK(access(expected, F_OK) != 0);
     /* It cannot be made: the original's message. */
-    char unmade[200];
+    char unmade[700];
     snprintf(unmade, sizeof unmade, "%s/no/KRYNN.CFG", dir);
     cok_crt_init(&crt);
     typed = "";
@@ -517,7 +518,7 @@ static void test_startup(void)
     /* Something there before that is not a file (a link to a device):
      * the setup writes through it, but never removes it, whether input
      * ends or the write fails. */
-    char link[200];
+    char link[700];
     snprintf(link, sizeof link, "%s/null.cfg", dir);
     CHECK(symlink("/dev/null", link) == 0);
     CHECK(!cok_config_find(&cok_rules_champions, link, NULL, NULL, path, write_path, sizeof path));
@@ -541,7 +542,7 @@ static void test_startup(void)
     }
     /* A directory named KRYNN.CFG is missing to FindFirst: the setup runs
      * and cannot make the file. */
-    char as_dir[200];
+    char as_dir[700];
     snprintf(as_dir, sizeof as_dir, "%s/KRYNN.CFG", saves);
     CHECK(mkdir(as_dir, 0755) == 0);
     CHECK(!cok_config_find(&cok_rules_champions, NULL, saves, NULL, path, write_path, sizeof path));
@@ -572,7 +573,7 @@ static void test_startup(void)
         unlink(as_dir);
     }
     /* --saves naming the assets directory: never written there. */
-    char same[200];
+    char same[700];
     snprintf(same, sizeof same, "%s/assets/.", dir);
     CHECK(cok_config_find(&cok_rules_champions, NULL, same, assets, path, write_path, sizeof path));
     CHECK(strstr(path, "krynn.cfg") != NULL && write_path[0] == '\0');

@@ -1056,6 +1056,25 @@ class Box:
         self._xdo("windowfocus", "--sync", self.window)
         self._xdo("keydown", "F12", "key", key, "keyup", "F12")
 
+    def write_paused(self, writes):
+        """WRITES [(linear address, bytes)] made with the emulation paused
+        (F12+Pause, until the window's title says PAUSED, then again): its CPU
+        then stands between two instructions. Code it is running is safe to
+        change only so: written while it runs, an instruction of two bytes
+        may be fetched half old, half new (the old EB FE spin's EB with the
+        routine's second byte, a jump into another routine)."""
+        def title():
+            return str(self._xdo("getwindowname", self.window))
+
+        self._hotkey("Pause")
+        self._until(lambda: "PAUSED" in title(), 30, "the emulation to pause", 0.02)
+        try:
+            for addr, data in writes:
+                self.write(addr, data)
+        finally:
+            self._hotkey("Pause")
+            self._until(lambda: "PAUSED" not in title(), 30, "the emulation to go on", 0.02)
+
     def screenshot(self, path=None, size=None):
         """Take DOSBox-X's screenshot and return it as a Screen; with PATH, keep
         the PNG there too."""
@@ -1116,6 +1135,15 @@ def _cleanup(*_):
         box.close()
 
 
+# The port's runs and builds that a check makes (and waits for) run niced
+# below the boxes, whose games run in real time beside them, so that a burst
+# of them (frames_at's four eclplays, a patched build's compiles, in each of
+# the checks side by side) does not make a box late: a box starved of the
+# CPU misses screens and waits (on a loaded host a check then differed, a
+# different one each run). A command's prefix.
+BELOW_BOXES = ["nice", "-n", "19"]
+
+
 def _record_pids(*procs):
     """Append the processes' pids to COKBOX_PIDFILE (run_all's), so that a
     check killed for its time can have them killed too (they run in their
@@ -1158,7 +1186,7 @@ def eclplay(keys, out, assets=None, machine="tandy", saves=(), args=(), shots=Tr
     cfg = out / "krynn.cfg"
     cfg.write_bytes(krynn_cfg(MACHINES[machine][1]).encode())
     result = subprocess.run(
-        [str(binary or ECLPLAY), *(["--start-menu"] if start_menu else []),
+        [*BELOW_BOXES, str(binary or ECLPLAY), *(["--start-menu"] if start_menu else []),
          "--config", str(cfg), "--saves",
          str(save_dir), *(["--shots", str(shot_dir)] if shots else []), *map(str, args),
          "--keys", keys, str(assets), *([str(block)] if block is not None else [])],

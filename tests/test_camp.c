@@ -3,6 +3,7 @@
 #include "camp.h"
 #include "arena.h"
 #include "magic.h"
+#include "test_temp.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -466,8 +467,8 @@ static void camp_party(void)
 
 static void test_camp(void)
 {
-    char dir[] = "/tmp/cok_camp_XXXXXX";
-    CHECK(mkdtemp(dir) != NULL);
+    char dir[512];
+    CHECK(test_temp_dir(dir, sizeof dir, "cok_camp") != NULL);
     camp_party();
     /* Escape leaves camp; the mode and status line come back. */
     keys("\x1b");
@@ -763,8 +764,8 @@ static void test_magic(void)
  * and with no party warns before writing the count and the names. */
 static void test_save_errors(void)
 {
-    char dir[] = "/tmp/cok_errors_XXXXXX", path[600];
-    CHECK(mkdtemp(dir) != NULL);
+    char dir[512], path[600];
+    CHECK(test_temp_dir(dir, sizeof dir, "cok_errors") != NULL);
     camp_party();
     snprintf(game.save_dir, sizeof game.save_dir, "%s", dir);
     snprintf(path, sizeof path, "%s/CHRDATC1.SAV", dir);
@@ -814,8 +815,8 @@ static void test_round_trip(void)
         return;
     }
     fclose(probe);
-    char dir[] = "/tmp/cok_save_XXXXXX";
-    CHECK(mkdtemp(dir) != NULL);
+    char dir[512];
+    CHECK(test_temp_dir(dir, sizeof dir, "cok_save") != NULL);
     for (char letter = 'A'; letter <= 'B'; ++letter) {
         static cok_adventure copy;
         CHECK(cok_adventure_open(&copy, &cok_rules_champions, "COKAssets", NULL, NULL));

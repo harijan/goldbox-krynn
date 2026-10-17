@@ -399,7 +399,8 @@ def run_probe(binary, keys, out, config_text=None, wav=False, shots=False, extra
     if shots:
         (out / "shots").mkdir()
         args += ["--shots", str(out / "shots")]
-    run = subprocess.run([*args, *extra, "--keys", keys, str(cokbox.ROOT / "COKAssets")],
+    run = subprocess.run([*cokbox.BELOW_BOXES, *args, *extra, "--keys", keys,
+                          str(cokbox.ROOT / "COKAssets")],
                          capture_output=True, text=True, timeout=900)
     (out / "log.txt").write_text(run.stdout + run.stderr)
     # By number: past 999 the names have four digits.
