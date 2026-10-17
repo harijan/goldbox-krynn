@@ -277,14 +277,14 @@ static void test_prices(void)
     uint8_t r[COK_CHARACTER_SIZE] = {0};
     uint16_t coins[5] = {50, 10, 5, 2, 7};
     for (int k = 0; k < 5; ++k) put_word(r + 0xeb + 2 * k, coins[k]);
-    CHECK(cok_shop_money(r) == 11);
+    CHECK(cok_shop_money(r, &cok_rules_champions) == 11);
     memset(r, 0, sizeof r);
     put_word(r + 0xeb, 49);
     put_word(r + 0xf5, 9);
     put_word(r + 0xf7, 9);
-    CHECK(cok_shop_money(r) == 0);
+    CHECK(cok_shop_money(r, &cok_rules_champions) == 0);
     for (int k = 0; k < 5; ++k) put_word(r + 0xeb + 2 * k, 0xffff);
-    CHECK(cok_shop_money(r) == 119273);
+    CHECK(cok_shop_money(r, &cok_rules_champions) == 119273);
 }
 
 static void test_buy(void)

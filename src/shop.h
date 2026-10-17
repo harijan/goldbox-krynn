@@ -37,6 +37,6 @@ bool cok_shop_price(uint16_t value, uint16_t factor, uint16_t *price);
 
 /* A character's money in steel (546c:3424): coins 0-4 at 1, 5, 10, 25 and
  * 50 to a steel piece, the sum divided by 50, a LongInt. */
-int32_t cok_shop_money(const uint8_t *c);
+int32_t cok_shop_money(const uint8_t *c, const cok_rules *rules);
 
 #endif

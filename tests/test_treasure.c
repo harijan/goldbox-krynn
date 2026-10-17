@@ -542,7 +542,7 @@ static void test_pool(void)
     cok_pool_set_steel(&game.pool, 77);
     CHECK(game.pool.coins[3] == 0 && game.pool.coins[4] == 77);
     put_word(a->record + 0xeb, 9);
-    cok_pool_pay(a->record, 66);
+    cok_pool_pay(a->record, &cok_rules_champions, 66);
     CHECK(word(a->record + 0xeb) == 0 && word(a->record + 0xeb + 8) == 66);
     /* Steel given beyond what one can carry goes to the pool. */
     s.log[0] = '\0';

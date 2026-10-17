@@ -51,10 +51,13 @@ static const struct {
     {COK_FIELD_BASE_MOVEMENT, "BASE_MOVEMENT", 0x0d5, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_HIGHEST_LEVEL, "HIGHEST_LEVEL", 0x0d6, 1, 1, 0, true, false, 0, 0, 0},
     {COK_FIELD_CHANGE_LEVEL, "CHANGE_LEVEL", 0x0d7, 1, 1, 0, true, false, 0, 0, 0},
+    {COK_FIELD_SPREAD_LEVELS, "SPREAD_LEVELS", 0x0d8, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_SPREAD, "SPREAD", 0x0d9, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_UNDEAD, "UNDEAD", 0x0da, 1, 1, 0, true, false, 0, 0, 0},
     {COK_FIELD_THIEF_SKILL, "THIEF_SKILL", 0x0db, 1, 8, 1, false, false, 0, 0, 0},
     {COK_FIELD_EFFECTS, "EFFECTS", 0x0e3, 4, 1, 0, false, true, 0, 0, 0},
     {COK_FIELD_NPC, "NPC", 0x0e7, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_SHARES, "SHARES", 0x0e8, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_COINS, "COINS", 0x0eb, 2, 7, 0, false, false, 0, 0, 0},
     {COK_FIELD_CLASS_LEVEL, "CLASS_LEVEL", 0x0f9, 1, 8, 0, true, false, 0, 0, 0},
     {COK_FIELD_FORMER_LEVEL, "FORMER_LEVEL", 0x101, 1, 8, 0, true, false, 0, 0, 0},
@@ -71,6 +74,8 @@ static const struct {
     {COK_FIELD_USABLE_CLASSES, "USABLE_CLASSES", 0x11a, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_BASE_HIT_POINTS, "BASE_HIT_POINTS", 0x11b, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_SPELLS_A_DAY, "SPELLS_A_DAY", 0x11c, 1, 5, 1, false, false, 0, 4, 5},
+    {COK_FIELD_MONSTER_EXPERIENCE, "MONSTER_EXPERIENCE", 0x130, 2, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_MONSTER_HIT_POINT_EXPERIENCE, "MONSTER_HIT_POINT_EXPERIENCE", 0x132, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_ICON_HEAD, "ICON_HEAD", 0x135, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_ICON_BODY, "ICON_BODY", 0x136, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_ICON, "ICON", 0x137, 1, 1, 0, false, false, 0, 0, 0},
@@ -222,6 +227,19 @@ static void test_offsets(void)
     CHECK(cok_field_offset(L, COK_FIELD_SIZE) == 0xcf);
     CHECK(cok_field_offset(L, COK_FIELD_UNDEAD) == 0xda);
     CHECK(cok_field_offset(L, COK_FIELD_MONSTER_ID) == 0x115);
+    /* Creation's, training's, the camp's, the shops', the treasure's,
+     * the icon editor's, the combat commands' and the roster's (create.c
+     * ... roster.c): training's +0xd8 and +0xd9, the NPCs' shares +0xe8, a
+     * monster's experience +0x130 (a word) and +0x132, the jewelry's low
+     * byte the roster tests (+0xf7). */
+    CHECK(cok_field_offset(L, COK_FIELD_SPREAD_LEVELS) == 0xd8);
+    CHECK(cok_field_offset(L, COK_FIELD_SPREAD) == 0xd9);
+    CHECK(cok_field_offset(L, COK_FIELD_SHARES) == 0xe8);
+    CHECK(cok_field_offset(L, COK_FIELD_MONSTER_EXPERIENCE) == 0x130);
+    CHECK(cok_field_offset(L, COK_FIELD_MONSTER_HIT_POINT_EXPERIENCE) == 0x132);
+    CHECK(cok_field_offset_at(L, COK_FIELD_COINS, 6) == 0xf7);
+    CHECK(cok_field_offset_at2(L, COK_FIELD_SPELLS_A_DAY, 3, 1) == 0x12b); /* a mage's */
+    CHECK(cok_field_offset_at(L, COK_FIELD_KNOWN_SPELL, 101) == 0xc7);
 }
 
 static void test_accessors(void)

@@ -412,17 +412,17 @@ static void test_edges(void)
     /* The least is at least 1: a mage of constitution 3. */
     c[0xfe] = 1;
     c[0x19] = 3;
-    CHECK(cok_modify_least(c) == 1);
+    CHECK(cok_modify_least(c, &cok_rules_champions) == 1);
     /* Past its top level a class sets the most: a fighter of level 12 has
      * 3 x 3 + 90. */
     memset(c, 0, sizeof c);
     c[0xfb] = 12;
     c[0x19] = 10;
-    CHECK(cok_modify_most(c, c, &most) && most == 99);
+    CHECK(cok_modify_most(c, &cok_rules_champions, c, &most) && most == 99);
     /* The default body of a knight. */
     memset(c, 0, sizeof c);
     c[0x100] = 1;
-    cok_create_icon(c);
+    cok_create_icon(c, &cok_rules_champions);
     CHECK(c[0x136] == 0x18);
     empty_party();
     /* A cleric of deity 4 trains by the first row: 3000 is not enough. */
@@ -485,9 +485,9 @@ static void test_quirks(void)
     uint8_t c[COK_CHARACTER_SIZE] = {0};
     /* 4def:4789: 19-20 three more, 21-23 four. */
     c[0x19] = 20;
-    CHECK(cok_train_constitution(c, 4) == 5);
+    CHECK(cok_train_constitution(c, &cok_rules_champions, 4) == 5);
     c[0x19] = 21;
-    CHECK(cok_train_constitution(c, 4) == 6 && cok_train_constitution(c, 6) == 2);
+    CHECK(cok_train_constitution(c, &cok_rules_champions, 4) == 6 && cok_train_constitution(c, &cok_rules_champions, 6) == 2);
     /* 4def:4b3a with nothing trained still gives a hit point. */
     memset(c, 0, sizeof c);
     c[0xf9] = 1;
@@ -759,20 +759,20 @@ static void test_tables(void)
 static void test_experience(void)
 {
     uint8_t c[COK_CHARACTER_SIZE] = {0}, row = 0xaa;
-    CHECK(cok_train_row(c, 0, &row) && row == 0);
+    CHECK(cok_train_row(c, &cok_rules_champions, 0, &row) && row == 0);
     c[0x5d] = 5;
-    CHECK(cok_train_row(c, 0, &row) && row == 1);
-    CHECK(cok_train_row(c, 2, &row) && row == 2 && cok_train_row(c, 4, &row) && row == 6);
+    CHECK(cok_train_row(c, &cok_rules_champions, 0, &row) && row == 1);
+    CHECK(cok_train_row(c, &cok_rules_champions, 2, &row) && row == 2 && cok_train_row(c, &cok_rules_champions, 4, &row) && row == 6);
     c[0x5e] = 1;
-    CHECK(cok_train_row(c, 5, &row) && row == 7);
+    CHECK(cok_train_row(c, &cok_rules_champions, 5, &row) && row == 7);
     c[0x5e] = 2;
-    CHECK(cok_train_row(c, 5, &row) && row == 8 && cok_train_row(c, 6, &row) && row == 9);
+    CHECK(cok_train_row(c, &cok_rules_champions, 5, &row) && row == 8 && cok_train_row(c, &cok_rules_champions, 6, &row) && row == 9);
     /* A druid, a paladin and a knight of no order are the uninitialized local. */
     row = 0xaa;
-    CHECK(!cok_train_row(c, 1, &row) && !cok_train_row(c, 3, &row) && !cok_train_row(c, 7, &row));
+    CHECK(!cok_train_row(c, &cok_rules_champions, 1, &row) && !cok_train_row(c, &cok_rules_champions, 3, &row) && !cok_train_row(c, &cok_rules_champions, 7, &row));
     CHECK(row == 0xaa);
     c[0x5c] = 3;
-    CHECK(cok_train_row(c, 7, &row) && row == 5);
+    CHECK(cok_train_row(c, &cok_rules_champions, 7, &row) && row == 5);
     int32_t need;
     CHECK(cok_train_experience(2, 2, &need) && need == 2001);
     CHECK(cok_train_experience(2, 3, &need) && need == 4001);
@@ -781,14 +781,14 @@ static void test_experience(void)
     CHECK(cok_train_experience(9, 10, &need) && need == -1);
     /* 4def:4789: the warriors' extra at 17-25. */
     c[0x19] = 18;
-    CHECK(cok_train_constitution(c, 2) == 4 && cok_train_constitution(c, 5) == 2);
+    CHECK(cok_train_constitution(c, &cok_rules_champions, 2) == 4 && cok_train_constitution(c, &cok_rules_champions, 5) == 2);
     c[0x19] = 3;
-    CHECK(cok_train_constitution(c, 2) == -2);
+    CHECK(cok_train_constitution(c, &cok_rules_champions, 2) == -2);
     int8_t b;
     c[0x19] = 19;
-    CHECK(cok_train_hit_die(c, 7, &b) && b == 5 && cok_train_hit_die(c, 0, &b) && b == 2);
+    CHECK(cok_train_hit_die(c, &cok_rules_champions, 7, &b) && b == 5 && cok_train_hit_die(c, &cok_rules_champions, 0, &b) && b == 2);
     c[0x19] = 20;
-    CHECK(!cok_train_hit_die(c, 2, &b));
+    CHECK(!cok_train_hit_die(c, &cok_rules_champions, 2, &b));
 }
 
 /* 4def:4b3a: the better of two rolls, the bonus times the dice, divided by
@@ -1015,9 +1015,9 @@ static void test_modify(void)
     uint8_t r[COK_CHARACTER_SIZE] = {0}, most;
     r[0xfb] = 1;
     r[0x19] = 16;
-    CHECK(cok_modify_least(r) == 3 && cok_modify_most(r, r, &most) && most == 12);
+    CHECK(cok_modify_least(r, &cok_rules_champions) == 3 && cok_modify_most(r, &cok_rules_champions, r, &most) && most == 12);
     r[0x19] = 2;
-    CHECK(!cok_modify_most(r, r, &most));
+    CHECK(!cok_modify_most(r, &cok_rules_champions, r, &most));
     empty_party();
 }
 
@@ -1026,19 +1026,19 @@ static void test_icon(void)
 {
     uint8_t c[COK_CHARACTER_SIZE] = {0};
     c[0x5a] = 5;
-    cok_create_icon(c);
+    cok_create_icon(c, &cok_rules_champions);
     CHECK(c[0x135] == 3 && c[0x136] == 5);
     c[0x5a] = 6;
     c[0x109] = 1;
     c[0x138] = 1;
     c[0xfd] = 1;
-    cok_create_icon(c);
+    cok_create_icon(c, &cok_rules_champions);
     CHECK(c[0x135] == 7 && c[0x136] == 1);
     c[0x109] = 0;
     c[0x138] = 2;
     c[0xfe] = 1;
     c[0xfd] = 0;
-    cok_create_icon(c);
+    cok_create_icon(c, &cok_rules_champions);
     CHECK(c[0x135] == 5 && c[0x136] == 0x1d);
     empty_party();
     cok_character *k = add(member("ICON", 2, 1));
