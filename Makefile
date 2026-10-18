@@ -225,7 +225,7 @@ run-ecldump: build/ecldump
 run-test_images_cli: build/daximages build/daxcompose
 	$(TEST_ENV) $(PYTHON) tests/test_images_cli.py
 
-run-test_death_knights_py: build/eclplay build/ecldump build/daxcheck build/daximages build/daxcompose
+run-test_death_knights_py: build/eclplay build/ecldump build/daxcheck build/daximages build/daxcompose $(if $(HAVE_SDL),build/cok)
 	$(TEST_ENV) $(PYTHON) tests/test_death_knights.py
 
 SHARD_LIST = $(abspath $(TEST_TMPDIR))/eclplay-shard-$(1).txt
