@@ -337,23 +337,44 @@ def eclplay_with_pauses():
 
 # ------------------------------------------------------------- a few helpers
 
+# watch's reads of a Tandy's screen (and d_lib.burst's): every 50 ms, the
+# cadence of DOSBox-X's screenshots on an idle host (on a loaded one ten
+# times fewer).
+READ_SECONDS = 0.05
+
+
 def watch(box, seconds, out=None, prefix="watch", until=None):
-    """Screenshots as fast as they come for SECONDS (or until UNTIL()):
-    the distinct ones in order (saved as PREFIX-NN.png in OUT), each with
-    .seen, the screenshots in a row that showed it (1: a screen the game was
-    drawing through, caught once)."""
+    """The screens shown for SECONDS (or until UNTIL()): a Tandy's read from
+    its video memory (cokbox.Box.vram) every READ_SECONDS, else DOSBox-X's
+    screenshots as fast as they come; the distinct ones in order (saved as
+    PREFIX-NN.png in OUT), each with .seen, the reads or screenshots in a
+    row that showed it (1: a screen the game was drawing through, caught
+    once). A read is the screen at one moment, whatever the host's load. A
+    screenshot is DOSBox-X's frame, whose rows it draws as the emulated
+    beam passes them, each at its own moment (one taken while the game
+    cleared a panel and wrote it again showed its rows above a line as
+    before, then cleared, and those below written again: a_demo,
+    DEVELOPERS.md), and load makes them ten times fewer."""
     import time
-    seen = []
+    seen, last = [], None
     end = time.monotonic() + seconds
     while time.monotonic() < end and box.running and not (until and until()):
-        shot = box.screenshot()
-        if not seen or shot.pixels != seen[-1].pixels:
-            if out:
-                shot.save_png(pathlib.Path(out) / f"{prefix}-{len(seen):02d}.png")
-            shot.seen = 1
-            seen.append(shot)
-        else:
+        at = time.monotonic()
+        data = box.vram()
+        if data is not None and data == last:
             seen[-1].seen += 1
+        else:
+            shot = box.screenshot() if data is None else cokbox.tandy_screen(data)
+            last = data
+            if not seen or shot.pixels != seen[-1].pixels:
+                if out:
+                    shot.save_png(pathlib.Path(out) / f"{prefix}-{len(seen):02d}.png")
+                shot.seen = 1
+                seen.append(shot)
+            else:
+                seen[-1].seen += 1
+        if data is not None:
+            time.sleep(max(0.0, at + READ_SECONDS - time.monotonic()))
     return seen
 
 

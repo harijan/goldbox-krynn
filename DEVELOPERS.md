@@ -7724,7 +7724,13 @@ that many run at once, a range such as 110-189 kept for
   load (DOSBox-X keeps a Tandy's video memory there, the game's page at
   `0x98000`; `tandy_screen` decodes it), the same pixels as the
   screenshot's (`make dosbox-selftest` compares them); the other machines'
-  video memory lies outside the guest's RAM.
+  video memory lies outside the guest's RAM. `checklib.watch` and
+  `d_lib.burst` read it so every 50 ms (`checklib.READ_SECONDS`): a read
+  is the screen at one moment, where a screenshot is DOSBox-X's frame,
+  whose rows it draws as the emulated beam passes them, each at its own
+  moment (one taken while the game cleared a combatant's panel and wrote
+  it again showed the panel's rows above a line as before, then cleared,
+  and those below written again).
 - Sound: `wav=FILE` records from the start to the end (F12+W, 48 kHz
   stereo), with `KRYNN.CFG`'s second line `T` or `P`.
 - Randomness: `seed=N` sets `RandSeed` (`DS:43ae`) as the game first
@@ -7827,10 +7833,33 @@ taking minutes (`d_lib.candidates` compares every 61st pixel before the
 whole screen; `load_bmp` decodes a frame with `bytes.translate`). The
 checks need the host otherwise idle, its disk as well as its CPU: heavy
 I/O on the same filesystem (seen: a large delete) once made `d_turning`
-miss its text and `d_bolt` take eight times as long. The last full run
-(15 minutes, 6 of them `a_demo` run again) gave 81 recorded verdicts;
-`a_demo` differed, alone as well, each time at a screen caught while the
-game drew (screens 192, then 137 and 231), and needs a look.
+miss its text and `d_bolt` take eight times as long. In the run before
+last (15 minutes, 6 of them `a_demo` run again) `a_demo` differed, alone
+as well, each time at a screen caught while the game drew (screens 192,
+then 137 and 231). The game clears an area wider than what it changes,
+then draws it again: the whole screen, top down, before the battle's
+frame (its top border the same after), and a combatant's whole panel
+before writing its hit points again (its name the same). A screen caught
+between has black pixels both where the port's frames around it change
+and where they do not, which `judge_watch` allowed only all of one kind,
+not each pixel by itself as it said. The video memory read every 10 ms
+beside two runs held five such screens (the screen black down to row 95
+over the old one), each a difference by the old rule; each pixel by
+itself, they agree, and a pixel of another colour put in each still
+differs. `checklib.watch` now reads the Tandy's screen from memory
+(above): `a_demo` sees 420 to 424 screens, alone or ten at a time (340
+to 354 screenshots before). Its first read, right after the keys, can
+catch what the game draws at once: `c_catacombs` caught the menu's
+highlight moving to Area before `Not Here` (the port's `menu_wait` draws
+it too, with no frame), a screen read once, which `c_places` now leaves
+out at the start as it did between others. A difference that lasts from
+some frame on can still pass `a_demo` where a screen matches no frame,
+as that screen's frames before and after then take in the change: the
+port's combatant's name made another colour from its frame 600 on passes
+with the video memory's screens, the exact frames 83%, above the 80%
+asked; that needs a look. The last full run (10 minutes) gave 81 recorded
+verdicts, and `c_catacombs` differing as above (fixed since; it, `c_pit`
+and `c_wander` agree).
 
 ## Checks against the original
 
@@ -8063,7 +8092,10 @@ original's behaviour is recorded, its section says what it does):
   `c_pit.py`.
 - #106 Leaving Throtl: the kender and Strangbourn leave: `c_npc.py`.
 - #107 The demonstration: its party, the green dragon's close-up's 12
-  frames, the title after its battle: `a_demo.py`.
+  frames, the title after its battle; each screen, read from memory every
+  50 ms, the port's frame in order or one caught while the game drew (it
+  clears the whole screen before the battle's frame, and a combatant's
+  whole panel before writing it again): `a_demo.py`.
 - #108 30 seconds at the title's menu, or F10, start the demonstration
   (its `Of` cannot be told from `of`: the font has capitals only):
   `a_demo.py`.

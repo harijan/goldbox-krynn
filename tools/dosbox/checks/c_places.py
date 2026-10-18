@@ -527,13 +527,15 @@ class Compare:
             self.v.ok(what, f"{len(shots)} screens, each the port's ({how})" +
                       (f"; caught drawing the next: {drawn}" if drawn else ""))
             return
-        # A screen caught in one screenshot only, between others, is one the
-        # original was drawing through (a list redrawn row by row while a
-        # line is printed) in stages the port has no frame of: such screens
-        # are left out (and saved), and every screen held across screenshots
-        # must match.
+        # A screen caught in one read only (checklib.watch's), before or
+        # between others, is one the original was drawing through (a list
+        # redrawn row by row while a line is printed; the first read, right
+        # after the keys, the menu's highlight moved to the key's item, as
+        # menu_wait draws it, before c_catacombs' `Not Here`) in stages the
+        # port has no frame of: such screens are left out (and saved), and
+        # every screen held across reads must match.
         once = [i for i, s in enumerate(shots)
-                if getattr(s, "seen", 2) == 1 and 0 < i < len(shots) - 1]
+                if getattr(s, "seen", 2) == 1 and i < len(shots) - 1]
         if once:
             for i in once:
                 shots[i].save_png(self.work / f"once-{step}-{i:02d}.png")
