@@ -54,7 +54,7 @@ void cok_debug_trace(cok_adventure *game, const char *text, uint8_t a, uint8_t b
  * (cok_ecl_opcode_name, from 6d7e:0005-0244), whose IF = has a space
  * after it there, and "BULLSHIT N" (6d7e:0245) for the opcodes it does
  * not name. */
-void cok_debug_opcode_name(unsigned opcode, char out[16]);
+void cok_debug_opcode_name(const cok_rules *rules, unsigned opcode, char out[16]);
 
 /* View's item (546c:12be): the open frame (1128:0000 with 1), its fields'
  * names from row 1 at column 1 and their values at column 20, in light

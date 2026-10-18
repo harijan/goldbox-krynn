@@ -61,15 +61,15 @@ tables), the spell table is reworked and turning undead changed.
 | Files | In Death Knights |
 | --- | --- |
 | DAX archives | Same container; all 50 decompress (631 records). |
-| PIC, SPRIT, BIGPIC, CPIC, COMSPR, CHEAD, CBODY | Same formats; more files (PIC1-7, SPRIT1-4). |
+| PIC, SPRIT, BIGPIC, CPIC, COMSPR, CHEAD, CBODY | Same formats; more files (PIC1-7, SPRIT1-4), of which PIC4-7 and SPRIT4 are chosen by the picture's id, not by the ECL file. COMSPR holds icons 0-21. |
 | GEO | Same 1026-byte maps. |
-| WALLDEF, 8X8D | Five sets, chosen by wall id, not by ECL file (dkk `6d21:0ec5`); WALLDEF records hold 3 sets of 0x30c; 8X8D tile sets of 256 tiles. |
-| BACK1-5, SKYGRND | New 3D-view backdrops (88×88, and a night sky) in place of SKY. |
+| WALLDEF, 8X8D | Seven wall ids in five files (1→1, 2→4, 3-4→2, 5-6→3, 7→5), chosen by wall id, not by ECL file (dkk `6d21:0ec5`), and loaded from slot 0; WALLDEF records hold 3 sets of 0x30c; 8X8D tile sets of 256 tiles (a header's frame count 0xff means 256). Only tile set 0 and the frame's set are drawn from; startup does not load set 0. |
+| BACK1-5, SKYGRND | New 3D-view backdrops in place of SKY: BACK (88×88) chosen by the same wall id, behind squares of 0x80 and up; SKYGRND record 2 the ground by day, record 1 the night sky after hour 13. Both, and the overland cursor, are drawn without a mask. |
 | CURSOR, TILES, RANDCOM, HEAD/BODY | Gone; the overland cursor is 8X8D1 record 204. |
-| ECL | Same opcodes 0x00-0x41; 0x0c, 0x1d, 0x1f, 0x22, 0x23, 0x27, 0x29, 0x2c, 0x31 and 0x3c take other operands or mean other things. Variables are bytes (dkk `3c1e:0d85`), where Champions' are words. |
+| ECL | Same opcodes 0x00-0x41; 0x0c, 0x1d, 0x1f, 0x22, 0x23, 0x27, 0x29, 0x2c, 0x31 and 0x3c take other operands or mean other things (0x1d is PRESS KEY and 0x23 CLEAR EXIT, the most used; 0x31 is ASK MENU). CALL's redraw is at 2dcb; variable 0x4cf8 always reads 1; there is no table of opcode names (no debug overlay). Variables are bytes (dkk `3c1e:0d85`, `0bc1`), where Champions' are words. |
 | Characters | 216-byte `.GAM` record, uncompressed, with the spells in a 220-byte `.WIZ`; items (`.JNK`) and effects (`.EFF`) as Champions' `.STF` and `.SFX`. Roster files `NAME.PC`. |
 | Saved games | `SAVGAM?.PTY`, 2913 bytes: byte variables, 4 wall sets. A bank vault, `VAULT?.DAT`. |
-| Monsters | MON1 only, 216-byte records, with their spells in `MON1WIZ.DAX`. |
+| Monsters | MON1 and CPIC1 only, 216-byte records, with their spells in `MON1WIZ.DAX`. |
 | ITEMS | Same; ITEM0.DAX is a new table of 17-byte entries, not yet decoded. |
 | DKK.CFG | A fifth line, the path of Champions' saved games. |
 | MUSIC.DAX | One driver for every device and songs in a new format ("GLBR"); music plays during the game through ECL 0x2c. SOUND.DAX is not read. |
@@ -98,9 +98,9 @@ after.
 | R2c | The same: create, modify, train, camp, shop, treasure, icon, command, roster | Done |
 | R3 | The data-segment tables in the descriptor; named lookups for `ds_byte` arithmetic | Done |
 | R2d | The same as R2a: ecl, adventure, monster, eclplay | Done |
-| D1 | Read Death Knights headless (step 1 below), to try the descriptor on the real game before the rest | |
-| R5 | Spell names, spell and effect handler tables, spell count, levels, moons and deities in the descriptor | |
-| R4 | ECL opcode tables in the descriptor; the variable memory behind get and set | |
+| D1 | Read Death Knights headless (step 1 below), to try the descriptor on the real game before the rest; the ECL's opcode table and variable width moved into the descriptor | Done |
+| R5 | Spell names; the spell table (dkk DS:6a80, 16 bytes an id); spell and effect handler tables by each game's own ids; the spell count (the ECL's bound, 73 in Death Knights); MON1WIZ as a fourth monster file; levels to 18, moons and deities in the descriptor | |
+| R4 | The variables by name and width (the ~190 raw reads and writes of the variable memory outside `ecl.c`); the ECL's character fields (0x7c00-0x7fff, dkk `3c1e:073a`/`0a9a`) and special addresses per game; the handlers that kept their meaning but changed (HORIZONTAL MENU, PROGRAM, SPELL, ADD EP, COMBAT); SETUP MONSTERS' fourth operand | |
 
 R2c and R3 ran side by side, as did R3 and R2d. After R2d, Death Knights is
 read headless first (D1), so that R4 and R5 are shaped by what it needs

@@ -81,7 +81,7 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         result = self.run_tool("--game", "nosuch", self.archive, self.folder / "bad")
         self.assertEqual(result.returncode, 1)
-        self.assertIn("unknown game nosuch (games: champions)", result.stderr)
+        self.assertIn("unknown game nosuch (games: champions, death-knights)", result.stderr)
         self.assertFalse((self.folder / "bad").exists())
         compose = ROOT / "build/daxcompose"
         bmp = self.folder / "c.bmp"

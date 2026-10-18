@@ -1282,7 +1282,7 @@ static void unported(cok_adventure *game, void *context)
 {
     frontend *f = context;
     if (!f->log) return;
-    const char *name = cok_ecl_opcode_name(game->vm.opcode);
+    const char *name = cok_ecl_opcode_name(game->vm.rules, game->vm.opcode);
     /* The name (15 letters at most) and up to 64 operands of " %u", whole. */
     char line[32 + COK_ECL_MAX_OPERANDS * 11];
     size_t n = (size_t)snprintf(line, sizeof line, "[%s", name != NULL ? name : "?");
@@ -1506,6 +1506,10 @@ int main(int argc, char **argv)
             usage(argv[0]);
             return 2;
         }
+    }
+    if (f.rules->unplayable != NULL) {
+        fprintf(stderr, "%s\n", f.rules->unplayable);
+        return 1;
     }
     if (assets == NULL) assets = f.rules->assets;
     if (strlen(saves) >= sizeof game.save_dir) {

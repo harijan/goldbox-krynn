@@ -56,7 +56,7 @@ static unsigned colour_five(size_t t) { (void)t; return 5; }
 
 static void test_map(void)
 {
-    cok_view view = {0};
+    cok_view view = {.shape = &cok_rules_champions.view};
     uint8_t record[0x402] = {0};
     CHECK(!cok_view_set_map(&view, record, sizeof record - 1));
     /* Square 3, 2: north 1, east 2, south 3, west 4, square byte 0x90. */
@@ -86,7 +86,7 @@ static void test_map(void)
 
 static void test_passage(void)
 {
-    cok_view view = {0};
+    cok_view view = {.shape = &cok_rules_champions.view};
     uint8_t record[0x402] = {0};
     /* Square 3, 2: walls on all four sides; the fourth table marks north
      * open (1), east locked (2), south unpickable (3) and west solid (0).
@@ -117,7 +117,7 @@ static void test_passage(void)
 
 static void test_walls(void)
 {
-    cok_view view = {0};
+    cok_view view = {.shape = &cok_rules_champions.view};
     uint8_t record[2 * COK_VIEW_WALL_SET] = {0};
     record[0] = 0x2c;
     record[1] = 0x2d;
@@ -147,7 +147,7 @@ static void test_walls(void)
 
 static void test_tile(void)
 {
-    cok_view view = {0};
+    cok_view view = {.shape = &cok_rules_champions.view};
     cok_picture p = screen();
     view.tiles[0] = tile_set(45, colour_by_index, false);
     view.tiles[1] = tile_set(70, colour_by_index, false);
@@ -181,7 +181,7 @@ static void test_tile(void)
  * type 1 filled with tile 0x74 and of type 2 with 0xba. */
 static cok_view walled_view(void)
 {
-    cok_view view = {0};
+    cok_view view = {.shape = &cok_rules_champions.view};
     view.tiles[2] = tile_set(70, colour_two, false);
     view.tiles[3] = tile_set(70, colour_three, false);
     memset(view.walls, 0x74, COK_VIEW_WALL_TYPE);
@@ -308,7 +308,7 @@ static void test_sky(void)
 {
     cok_view_backdrop backdrop = {.sky = 11, .horizon = 0, .ground = 8, .hour = 3};
     cok_picture p = screen();
-    cok_view view = {0};
+    cok_view view = {.shape = &cok_rules_champions.view};
     view.sky[0] = tile_set(1, colour_four, false);
     view.sky[1] = tile_set(1, colour_five, false);
     view.sky[2] = tile_set(1, colour_two, false);
@@ -372,7 +372,7 @@ static int tile_at(const cok_picture *p, int x, int y)
 static void test_overhead(void)
 {
     cok_picture p = screen();
-    cok_view view = {0};
+    cok_view view = {.shape = &cok_rules_champions.view};
     view.tiles[4] = numbered_set(0x28);
 
     /* An empty map from 7, 13 facing north: the window starts at square

@@ -48,6 +48,10 @@ cok_layout cok_archive_layout(const cok_rules *rules, const char *path);
  * All bytes must match the selected layout; partial results are discarded. */
 cok_image_status cok_images_parse(const uint8_t *data, size_t size,
                                   int collection, cok_images *result);
+/* The same for the game rules describes: a count byte of 0xff gives
+ * rules->images.frames_ff frames. */
+cok_image_status cok_images_parse_as(const cok_rules *rules, const uint8_t *data, size_t size,
+                                     int collection, cok_images *result);
 void cok_images_free(cok_images *images);
 /* Decode a COK_LAYOUT_DELTA record in place, before parsing: as GAME.OVR does
  * for PIC archives, XOR each group after the first with the first group's

@@ -78,8 +78,8 @@ static int load(const cok_rules *rules, const char *path, long entry, long index
     cok_image_status image_status = layout == COK_LAYOUT_DELTA ?
         cok_images_undelta(data, size) : COK_IMAGE_OK;
     if (image_status == COK_IMAGE_OK)
-        image_status = cok_images_parse(data, size,
-                                        layout != COK_LAYOUT_SINGLE, &images);
+        image_status = cok_images_parse_as(rules, data, size, layout != COK_LAYOUT_SINGLE,
+                                           &images);
     int ok = 0;
     if (image_status != COK_IMAGE_OK) {
         fprintf(stderr, "%s entry %ld: %s\n", path, entry, cok_image_status_string(image_status));

@@ -38,7 +38,7 @@ static void unported(cok_adventure *game, void *context)
 {
     script *s = context;
     size_t used = strlen(s->log);
-    snprintf(s->log + used, sizeof s->log - used, "[%s];", cok_ecl_opcode_name(game->vm.opcode));
+    snprintf(s->log + used, sizeof s->log - used, "[%s];", cok_ecl_opcode_name(game->vm.rules, game->vm.opcode));
 }
 
 static void say(cok_effects *fx, cok_character *c, const char *text, bool wait, void *context)

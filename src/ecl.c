@@ -3,7 +3,9 @@
 #include <assert.h>
 #include <string.h>
 
-static const char *const names[COK_ECL_OPCODES] = {
+/* By meaning: Champions' trace table at 6d7e:0055 (NULL for 0x1f), then
+ * the port's names for a later game's meanings. */
+static const char *const names[COK_ECL_MEANINGS] = {
     "EXIT", "GOTO", "GOSUB", "COMPARE", "ADD", "SUBTRAT", "DIVIDE", "MULTIPLY", "RANDOM", "SAVE",
     "LOAD CHARACTER", "LOAD MONSTER", "SETUP MONSTER", "APPROACH", "PICTURE", "INPUT NUMBER",
     "INPUT STRING", "PRINT", "PRINTCLEAR", "RETURN", "COMPARE AND", "VERTICAL MENU", "IF =",
@@ -13,31 +15,44 @@ static const char *const names[COK_ECL_OPCODES] = {
     "DAMAGE", "AND", "OR", "SPRITE OFF", "FIND ITEM", "PRINT RETURN", "ECL CLOCK", "SAVE TABLE",
     "ADD NPC", "LOAD PIECES", "PROGRAM", "WHO", "DELAY", "SPELL", "PROTECTION", "CLEAR BOX",
     "DUMP", "FIND SPECIAL", "DESTROY ITEMS", "ADD EP",
+    [COK_ECL_SETUP_MONSTERS] = "SETUP MONSTERS", [COK_ECL_PRESS_KEY] = "PRESS KEY",
+    [COK_ECL_JOURNAL] = "JOURNAL", [COK_ECL_YES_NO] = "YES NO",
+    [COK_ECL_CLEAR_EXIT] = "CLEAR EXIT", [COK_ECL_TREASURE_ITEMS] = "TREASURE ITEMS",
+    [COK_ECL_NOTHING] = "NOTHING", [COK_ECL_MUSIC] = "MUSIC", [COK_ECL_ASK_MENU] = "ASK MENU",
+    [COK_ECL_STOCK] = "STOCK",
 };
 
-/* Operands each handler loads (2fd3:0050-36dc); unlisted opcodes load none. */
-static const signed char counts[COK_ECL_OPCODES] = {
-    [COK_ECL_GOTO] = 1, [COK_ECL_GOSUB] = 1, [COK_ECL_COMPARE] = 2, [COK_ECL_ADD] = 3,
-    [COK_ECL_SUBTRACT] = 3, [COK_ECL_DIVIDE] = 3, [COK_ECL_MULTIPLY] = 3, [COK_ECL_RANDOM] = 2,
-    [COK_ECL_SAVE] = 2, [COK_ECL_LOAD_CHARACTER] = 1, [COK_ECL_LOAD_MONSTER] = 3,
-    [COK_ECL_SETUP_MONSTER] = 3, [COK_ECL_PICTURE] = 1, [COK_ECL_INPUT_NUMBER] = 2,
-    [COK_ECL_INPUT_STRING] = 2, [COK_ECL_PRINT] = 1, [COK_ECL_PRINTCLEAR] = 1,
-    [COK_ECL_COMPARE_AND] = 4, [COK_ECL_VERTICAL_MENU] = COK_ECL_LIST,
-    [COK_ECL_PARTYSTRENGTH] = 1, [COK_ECL_CHECKPARTY] = 6, [COK_ECL_UNUSED_1F] = COK_ECL_HANG,
-    [COK_ECL_NEWECL] = 1, [COK_ECL_LOAD_FILES] = 3, [COK_ECL_PARTY_SURPRISE] = 2,
-    [COK_ECL_SURPRISE] = 4, [COK_ECL_ON_GOTO] = COK_ECL_LIST, [COK_ECL_ON_GOSUB] = COK_ECL_LIST,
-    [COK_ECL_TREASURE] = 8, [COK_ECL_ROB] = 3, [COK_ECL_ENCOUNTER_MENU] = 14,
-    [COK_ECL_GETTABLE] = 3, [COK_ECL_HORIZONTAL_MENU] = COK_ECL_LIST, [COK_ECL_PARLAY] = 6,
-    [COK_ECL_CALL] = 1, [COK_ECL_DAMAGE] = 5, [COK_ECL_AND] = 3, [COK_ECL_OR] = 3,
-    [COK_ECL_FIND_ITEM] = 1, [COK_ECL_ECL_CLOCK] = 2, [COK_ECL_SAVE_TABLE] = 3,
-    [COK_ECL_ADD_NPC] = 2, [COK_ECL_LOAD_PIECES] = 3, [COK_ECL_PROGRAM] = 1, [COK_ECL_WHO] = 1,
-    [COK_ECL_SPELL] = 3, [COK_ECL_PROTECTION] = COK_ECL_HANG, [COK_ECL_FIND_SPECIAL] = 1,
-    [COK_ECL_DESTROY_ITEMS] = 1, [COK_ECL_ADD_EP] = 2,
-};
-
-const char *cok_ecl_opcode_name(unsigned opcode)
+/* The game's table entry for opcode, or NULL past its table. */
+static const cok_rules_opcode *instruction(const cok_rules *rules, unsigned opcode)
 {
-    return opcode < COK_ECL_OPCODES ? names[opcode] : NULL;
+    assert(rules != NULL && rules->ecl.opcodes != NULL);
+    return opcode < rules->ecl.count ? &rules->ecl.opcodes[opcode] : NULL;
+}
+
+unsigned cok_ecl_meaning_of(const cok_rules *rules, unsigned opcode)
+{
+    const cok_rules_opcode *op = instruction(rules, opcode);
+    return op != NULL ? op->meaning : COK_ECL_MEANINGS;
+}
+
+cok_ecl_call cok_ecl_call_of(const cok_rules *rules, uint16_t address)
+{
+    for (size_t i = 0; i < sizeof rules->ecl.calls / sizeof *rules->ecl.calls; ++i)
+        if (rules->ecl.calls[i].routine != COK_ECL_CALL_NONE &&
+            rules->ecl.calls[i].address == address)
+            return (cok_ecl_call)rules->ecl.calls[i].routine;
+    return COK_ECL_CALL_NONE;
+}
+
+unsigned cok_ecl_meaning(const cok_ecl *vm)
+{
+    return cok_ecl_meaning_of(vm->rules, vm->opcode);
+}
+
+const char *cok_ecl_opcode_name(const cok_rules *rules, unsigned opcode)
+{
+    unsigned meaning = cok_ecl_meaning_of(rules, opcode);
+    return meaning < COK_ECL_MEANINGS ? names[meaning] : NULL;
 }
 
 const char *cok_ecl_status_string(cok_ecl_status status)
@@ -53,41 +68,29 @@ const char *cok_ecl_status_string(cok_ecl_status status)
     case COK_ECL_DIVIDE_BY_ZERO: return "division by zero";
     case COK_ECL_EFFECT_FAILED: return "spell effect not carried out";
     case COK_ECL_UNDEFINED: return "the original's behaviour is undefined";
+    case COK_ECL_UNPORTED: return "an opcode not ported yet";
     }
     return "unknown status";
 }
 
-/* Operands a failed IF skips with the next instruction (3775:1e74).
- * VERTICAL MENU, ON GOTO, ON GOSUB, HORIZONTAL MENU and opcodes without
- * handlers skip none, and ECL CLOCK, ADD NPC and PROTECTION one, whatever
- * their handlers load. */
-static const uint8_t skips[COK_ECL_OPCODES] = {
-    [COK_ECL_GOTO] = 1, [COK_ECL_GOSUB] = 1, [COK_ECL_LOAD_CHARACTER] = 1,
-    [COK_ECL_PICTURE] = 1, [COK_ECL_PRINT] = 1, [COK_ECL_PRINTCLEAR] = 1,
-    [COK_ECL_PARTYSTRENGTH] = 1, [COK_ECL_NEWECL] = 1, [COK_ECL_CALL] = 1,
-    [COK_ECL_FIND_ITEM] = 1, [COK_ECL_ECL_CLOCK] = 1, [COK_ECL_ADD_NPC] = 1,
-    [COK_ECL_PROGRAM] = 1, [COK_ECL_WHO] = 1, [COK_ECL_PROTECTION] = 1,
-    [COK_ECL_FIND_SPECIAL] = 1, [COK_ECL_DESTROY_ITEMS] = 1,
-    [COK_ECL_COMPARE] = 2, [COK_ECL_RANDOM] = 2, [COK_ECL_SAVE] = 2,
-    [COK_ECL_INPUT_NUMBER] = 2, [COK_ECL_INPUT_STRING] = 2, [COK_ECL_UNUSED_1F] = 2,
-    [COK_ECL_PARTY_SURPRISE] = 2, [COK_ECL_ADD_EP] = 2,
-    [COK_ECL_ADD] = 3, [COK_ECL_SUBTRACT] = 3, [COK_ECL_DIVIDE] = 3, [COK_ECL_MULTIPLY] = 3,
-    [COK_ECL_LOAD_MONSTER] = 3, [COK_ECL_SETUP_MONSTER] = 3, [COK_ECL_LOAD_FILES] = 3,
-    [COK_ECL_ROB] = 3, [COK_ECL_GETTABLE] = 3, [COK_ECL_AND] = 3, [COK_ECL_OR] = 3,
-    [COK_ECL_SAVE_TABLE] = 3, [COK_ECL_LOAD_PIECES] = 3, [COK_ECL_SPELL] = 3,
-    [COK_ECL_COMPARE_AND] = 4, [COK_ECL_SURPRISE] = 4, [COK_ECL_DAMAGE] = 5,
-    [COK_ECL_CHECKPARTY] = 6, [COK_ECL_PARLAY] = 6, [COK_ECL_TREASURE] = 8,
-    [COK_ECL_ENCOUNTER_MENU] = 14,
-};
-
-int cok_ecl_skip_count(unsigned opcode)
+int cok_ecl_skip_count(const cok_rules *rules, unsigned opcode)
 {
-    return opcode < COK_ECL_OPCODES ? skips[opcode] : 0;
+    const cok_rules_opcode *op = instruction(rules, opcode);
+    return op != NULL ? op->skip : 0;
 }
 
-int cok_ecl_operand_count(unsigned opcode)
+int cok_ecl_operand_count(const cok_rules *rules, unsigned opcode)
 {
-    return opcode < COK_ECL_OPCODES ? counts[opcode] : COK_ECL_HANG;
+    const cok_rules_opcode *op = instruction(rules, opcode);
+    return op != NULL ? op->operands : COK_ECL_HANG;
+}
+
+/* The operands of a list opcode's header, the last of which counts the
+ * list. */
+static size_t header_count(const cok_ecl *vm)
+{
+    const cok_rules_opcode *op = instruction(vm->rules, vm->opcode);
+    return op != NULL ? op->header : 0;
 }
 
 uint16_t cok_tp_random(uint32_t *seed, uint16_t range)
@@ -343,8 +346,76 @@ static void store_character(cok_ecl *vm, uint16_t address, uint16_t value)
     }
 }
 
-void cok_ecl_store(cok_ecl *vm, uint16_t address, uint16_t value)
+/* Whether each variable address holds a byte (rules->ecl.variable_bytes),
+ * so that a wide access reads or writes a word over two addresses (dkk
+ * 3c1e:0d85, 3c1e:0bc1); where each holds a word, as in Champions, the
+ * width is the word's whatever the access. */
+static bool byte_variables(const cok_ecl *vm)
 {
+    assert(vm->rules != NULL);
+    return vm->rules->ecl.variable_bytes == 1;
+}
+
+/* An operand of type 2 and up is read and written as a word where each
+ * address holds a byte (dkk 3c1e:0d85's and 0bc1's width, 1 for a type
+ * below 2). */
+static bool wide_type(uint8_t type)
+{
+    return type >= COK_ECL_WORD;
+}
+
+/* The byte after address in its store, for a word over two addresses;
+ * past the store's end 0 (the original reads on into what follows it). */
+static uint8_t next_byte(const cok_ecl *vm, uint16_t address)
+{
+    uint32_t next = (uint32_t)address + 1;
+    int area = area_of(address);
+    if (area == CODE) {
+        const uint8_t *b = code_byte(vm, next);
+        return b != NULL ? *b : 0;
+    }
+    const uint16_t *w = word(vm, area, next);
+    return w != NULL ? (uint8_t)*w : 0;
+}
+
+/* A variable read as wide or not: where each address holds a byte, a wide
+ * read of a store's variable (not a special address, the facing at
+ * 0x4bea or a character field) takes the next byte as its high one. */
+static uint16_t load_sized(const cok_ecl *vm, uint16_t address, bool wide)
+{
+    uint16_t value = cok_ecl_load_var(vm, address);
+    if (!wide || !byte_variables(vm)) return value;
+    int area = area_of(address);
+    if (area == SPECIAL || address == 0x4bea) return value;
+    if (area == GAME) {
+        bool found;
+        character_field(vm, address, &found);
+        if (found) return value;
+    }
+    return (uint16_t)((value & 0xff) | next_byte(vm, address) << 8);
+}
+
+/* Put a word's high byte after address in its store. */
+static void store_high(cok_ecl *vm, uint16_t address, uint16_t value)
+{
+    uint32_t next = (uint32_t)address + 1;
+    int area = area_of(address);
+    uint8_t *b;
+    uint16_t *w;
+    if (area == CODE && (b = code_byte(vm, next)) != NULL)
+        *b = (uint8_t)(value >> 8);
+    else if (area != CODE && (w = word(vm, area, next)) != NULL)
+        *w = (uint8_t)(value >> 8);
+}
+
+/* A store, wide or not: where each address holds a byte, a store that is
+ * not wide keeps the value's low byte, and a wide one into a store puts
+ * its high byte in the next address too (dkk 3c1e:0bc1). */
+static void store_sized(cok_ecl *vm, uint16_t address, uint16_t value, bool wide)
+{
+    bool bytes = byte_variables(vm);
+    if (bytes && !wide) value &= 0xff;
+    bool high = bytes && wide;
     switch (area_of(address)) {
     case AREA:
         if (address == 0x4bfd || address == 0x4bfe) {
@@ -353,14 +424,22 @@ void cok_ecl_store(cok_ecl *vm, uint16_t address, uint16_t value)
             vm->last_mode = vm->mode;
             vm->mode = value == 0 ? 3 : 4;
         }
-        vm->mem4b00[address - 0x4b00] = value;
+        vm->mem4b00[address - 0x4b00] = high ? value & 0xff : value;
+        if (high) store_high(vm, address, value);
         break;
     case GAME:
-        vm->mem7c00[address - 0x7c00] = value;
+        vm->mem7c00[address - 0x7c00] = high ? value & 0xff : value;
+        if (high) store_high(vm, address, value);
         store_character(vm, address, value);
         break;
-    case SCRATCH: vm->mem7a00[address - 0x7a00] = value; break;
-    case CODE: vm->code[address - COK_ECL_BASE] = (uint8_t)value; break;
+    case SCRATCH:
+        vm->mem7a00[address - 0x7a00] = high ? value & 0xff : value;
+        if (high) store_high(vm, address, value);
+        break;
+    case CODE:
+        vm->code[address - COK_ECL_BASE] = (uint8_t)value;
+        if (high) store_high(vm, address, value);
+        break;
     default:
         switch (address) {
         case 0x3de: vm->value_3de = value; break;
@@ -376,6 +455,21 @@ void cok_ecl_store(cok_ecl *vm, uint16_t address, uint16_t value)
         break;
     }
     if (vm->hooks.stored != NULL) vm->hooks.stored(vm, address, value, vm->hooks.context);
+}
+
+void cok_ecl_store(cok_ecl *vm, uint16_t address, uint16_t value)
+{
+    store_sized(vm, address, value, false);
+}
+
+void cok_ecl_store_as(cok_ecl *vm, const cok_ecl_operand *o, uint16_t value)
+{
+    store_sized(vm, (uint16_t)(o->high << 8 | o->low), value, wide_type(o->type));
+}
+
+void cok_ecl_store_to(cok_ecl *vm, size_t i, uint16_t value)
+{
+    cok_ecl_store_as(vm, &vm->operand[i], value);
 }
 
 void cok_ecl_load_string(const cok_ecl *vm, uint16_t address, char out[256])
@@ -508,7 +602,7 @@ uint16_t cok_ecl_value(const cok_ecl *vm, size_t i)
     switch (vm->operand[i].type) {
     case COK_ECL_BYTE: return vm->operand[i].low;
     case COK_ECL_VAR: case COK_ECL_VAR_3: case COK_ECL_STRING:
-        return cok_ecl_load_var(vm, cok_ecl_address(vm, i));
+        return load_sized(vm, cok_ecl_address(vm, i), wide_type(vm->operand[i].type));
     case COK_ECL_WORD: case COK_ECL_STRVAR: return cok_ecl_address(vm, i);
     default: return 0;
     }
@@ -560,21 +654,23 @@ static void skip(cok_ecl *vm)
     uint8_t opcode;
     if (!fetch(vm, vm->ip, &opcode)) return;
     vm->opcode = opcode;
-    int count = cok_ecl_skip_count(opcode);
+    int count = cok_ecl_skip_count(vm->rules, opcode);
     if (count == 0)
         ++vm->ip;
     else
         cok_ecl_operands(vm, (size_t)count);
 }
 
-/* After a header of count operands, load as many more operands as header
- * operand which gives, over the header (2fd3:0f9d, 2fd3:116d, 2fd3:1c69).
+/* After the opcode's header of operands, load as many more operands as
+ * its last gives, over the header (2fd3:0f9d, 2fd3:116d, 2fd3:1c69).
  * Returns the header's first value. */
-static uint16_t load_list(cok_ecl *vm, size_t count, size_t which)
+static uint16_t load_list(cok_ecl *vm)
 {
+    size_t count = header_count(vm);
+    assert(count >= 1 && count <= sizeof vm->header / sizeof *vm->header);
     if (cok_ecl_operands(vm, count) != COK_ECL_OK) return 0;
     uint16_t first = cok_ecl_value(vm, 0);
-    uint8_t items = (uint8_t)cok_ecl_value(vm, which);
+    uint8_t items = (uint8_t)cok_ecl_value(vm, count - 1);
     memcpy(vm->header, vm->operand, count * sizeof *vm->operand);
     vm->header_operands = count;
     memcpy(vm->header_string, vm->string[0], sizeof vm->header_string);
@@ -587,7 +683,7 @@ static void run_opcode(cok_ecl *vm)
 {
     vm->header_operands = 0;
     vm->operands = 0;
-    switch (vm->opcode) {
+    switch (cok_ecl_meaning(vm)) {
     case COK_ECL_EXIT: exit_script(vm); break;
     case COK_ECL_GOTO:
         if (cok_ecl_operands(vm, 1) == COK_ECL_OK) vm->ip = cok_ecl_address(vm, 0);
@@ -609,11 +705,12 @@ static void run_opcode(cok_ecl *vm)
     case COK_ECL_ADD: case COK_ECL_SUBTRACT: case COK_ECL_DIVIDE: case COK_ECL_MULTIPLY: {
         if (cok_ecl_operands(vm, 3) != COK_ECL_OK) return;
         uint16_t a = cok_ecl_value(vm, 0), b = cok_ecl_value(vm, 1), result;
-        if (vm->opcode == COK_ECL_ADD) {
+        unsigned meaning = cok_ecl_meaning(vm);
+        if (meaning == COK_ECL_ADD) {
             result = (uint16_t)(a + b);
-        } else if (vm->opcode == COK_ECL_SUBTRACT) {
+        } else if (meaning == COK_ECL_SUBTRACT) {
             result = (uint16_t)(b - a);
-        } else if (vm->opcode == COK_ECL_MULTIPLY) {
+        } else if (meaning == COK_ECL_MULTIPLY) {
             result = (uint16_t)((unsigned)a * b);
         } else {
             if (b == 0) {
@@ -623,20 +720,20 @@ static void run_opcode(cok_ecl *vm)
             result = a / b;
             vm->mem7c00[0x33f] = a % b;
         }
-        cok_ecl_store(vm, cok_ecl_address(vm, 2), result);
+        cok_ecl_store_to(vm, 2, result);
         return;
     }
     case COK_ECL_RANDOM: {
         if (cok_ecl_operands(vm, 2) != COK_ECL_OK) return;
         uint8_t range = (uint8_t)cok_ecl_value(vm, 0);
         if (range != 0xff) ++range;
-        cok_ecl_store(vm, cok_ecl_address(vm, 1), (uint8_t)cok_tp_random(&vm->seed, range));
+        cok_ecl_store_to(vm, 1, (uint8_t)cok_tp_random(&vm->seed, range));
         return;
     }
     case COK_ECL_SAVE:
         if (cok_ecl_operands(vm, 2) != COK_ECL_OK) return;
         if (vm->operand[0].type < 0x80)
-            cok_ecl_store(vm, cok_ecl_address(vm, 1), cok_ecl_value(vm, 0));
+            cok_ecl_store_to(vm, 1, cok_ecl_value(vm, 0));
         else
             cok_ecl_store_string(vm, cok_ecl_address(vm, 1), vm->string[0]);
         return;
@@ -660,7 +757,7 @@ static void run_opcode(cok_ecl *vm)
     case COK_ECL_IF_EQUAL: case COK_ECL_IF_NOT_EQUAL: case COK_ECL_IF_LESS:
     case COK_ECL_IF_GREATER: case COK_ECL_IF_LESS_EQUAL: case COK_ECL_IF_GREATER_EQUAL:
         ++vm->ip;
-        if (!vm->flags[vm->opcode - COK_ECL_IF_EQUAL]) skip(vm);
+        if (!vm->flags[cok_ecl_meaning(vm) - COK_ECL_IF_EQUAL]) skip(vm);
         return;
     case COK_ECL_NEWECL: {
         if (cok_ecl_operands(vm, 1) != COK_ECL_OK) return;
@@ -676,9 +773,10 @@ static void run_opcode(cok_ecl *vm)
         break;
     }
     case COK_ECL_ON_GOTO: case COK_ECL_ON_GOSUB: {
-        uint8_t choice = (uint8_t)load_list(vm, 2, 1);
+        bool jump = cok_ecl_meaning(vm) == COK_ECL_ON_GOTO;
+        uint8_t choice = (uint8_t)load_list(vm);
         if (vm->status != COK_ECL_OK || choice >= vm->operands) return;
-        if (vm->opcode == COK_ECL_ON_GOTO)
+        if (jump)
             vm->ip = cok_ecl_address(vm, choice);
         else
             push_call(vm, cok_ecl_address(vm, choice));
@@ -687,35 +785,35 @@ static void run_opcode(cok_ecl *vm)
     case COK_ECL_GETTABLE: {
         if (cok_ecl_operands(vm, 3) != COK_ECL_OK) return;
         uint16_t from = (uint16_t)(cok_ecl_address(vm, 0) + (cok_ecl_value(vm, 1) & 0xff));
-        cok_ecl_store(vm, cok_ecl_address(vm, 2), cok_ecl_load_var(vm, from));
+        cok_ecl_store_to(vm, 2, cok_ecl_load_var(vm, from));
         return;
     }
     case COK_ECL_SAVE_TABLE:
         if (cok_ecl_operands(vm, 3) != COK_ECL_OK) return;
-        cok_ecl_store(vm, (uint16_t)(cok_ecl_address(vm, 1) + cok_ecl_value(vm, 2)),
-                      cok_ecl_value(vm, 0));
+        store_sized(vm, (uint16_t)(cok_ecl_address(vm, 1) + cok_ecl_value(vm, 2)),
+                    cok_ecl_value(vm, 0), wide_type(vm->operand[1].type));
         return;
     case COK_ECL_AND: case COK_ECL_OR: {
         if (cok_ecl_operands(vm, 3) != COK_ECL_OK) return;
         uint8_t a = (uint8_t)cok_ecl_value(vm, 0), b = (uint8_t)cok_ecl_value(vm, 1);
-        uint8_t result = vm->opcode == COK_ECL_AND ? a & b : a | b;
+        uint8_t result = cok_ecl_meaning(vm) == COK_ECL_AND ? a & b : a | b;
         compare_values(vm, 0, result); /* 2fd3:0ed3 pushes 0 first */
-        cok_ecl_store(vm, cok_ecl_address(vm, 2), result);
+        cok_ecl_store_to(vm, 2, result);
         return;
     }
     case COK_ECL_PRINT_RETURN:
         ++vm->ip;
         vm->cursor = (cok_text_cursor){1, vm->cursor.y + 1};
         break;
-    case COK_ECL_VERTICAL_MENU: load_list(vm, 3, 2); break;
-    case COK_ECL_HORIZONTAL_MENU: load_list(vm, 2, 1); break;
     default: {
-        int count = cok_ecl_operand_count(vm->opcode);
+        int count = cok_ecl_operand_count(vm->rules, vm->opcode);
         if (count == COK_ECL_HANG) {
             vm->status = COK_ECL_BAD_OPCODE;
             return;
         }
-        if (count == 0)
+        if (count == COK_ECL_LIST)
+            load_list(vm);
+        else if (count == 0)
             ++vm->ip;
         else if (cok_ecl_operands(vm, (size_t)count) != COK_ECL_OK)
             return;
@@ -735,13 +833,11 @@ cok_ecl_status cok_ecl_decode(cok_ecl *vm, uint16_t address)
     uint8_t opcode;
     if (!fetch(vm, vm->ip, &opcode)) return vm->status;
     vm->opcode = opcode;
-    int count = cok_ecl_operand_count(opcode);
+    int count = cok_ecl_operand_count(vm->rules, opcode);
     if (count == COK_ECL_HANG)
         vm->status = COK_ECL_BAD_OPCODE;
-    else if (count == COK_ECL_LIST && opcode == COK_ECL_VERTICAL_MENU)
-        load_list(vm, 3, 2);
     else if (count == COK_ECL_LIST)
-        load_list(vm, 2, 1);
+        load_list(vm);
     else if (count == 0)
         ++vm->ip;
     else

@@ -118,10 +118,10 @@ int cok_debug_key(cok_adventure *game, int key)
     return key;
 }
 
-void cok_debug_opcode_name(unsigned opcode, char out[16])
+void cok_debug_opcode_name(const cok_rules *rules, unsigned opcode, char out[16])
 {
-    const char *name = cok_ecl_opcode_name(opcode);
-    if (opcode == COK_ECL_IF_EQUAL)
+    const char *name = cok_ecl_opcode_name(rules, opcode);
+    if (cok_ecl_meaning_of(rules, opcode) == COK_ECL_IF_EQUAL)
         snprintf(out, 16, "IF = ");
     else if (name != NULL)
         snprintf(out, 16, "%s", name);

@@ -4,19 +4,25 @@
 #include "data.h"
 #include "field.h"
 
+#include <stdbool.h>
 #include <stdint.h>
 
 /* What differs between the games the port plays: one descriptor a game,
  * chosen once at startup (--game) and reached through cok_game_rules (and,
  * in the tools without a game, passed in). Shared code reads what it needs
  * here and never asks which game it is. Champions of Krynn's is
- * cok_rules_champions; see DEVELOPERS.md's "Games".
+ * cok_rules_champions, Death Knights of Krynn's cok_rules_death_knights
+ * (read headless so far); see DEVELOPERS.md's "Games".
  *
  * The descriptor holds the game's files and file sets, the saved games'
  * and characters' names, the titles, the character record's layout
- * (field.h) and the data segment's tables (data.h). Each concern is a
- * section of its own, so that later sections (the ECL's, the spells') are
- * added beside these without moving them.
+ * (field.h), the data segment's tables (data.h), the ECL's opcodes and
+ * variables, the 3D view's tile and wall sets and what startup loads.
+ * Each concern is a section of its own, so that later sections (the
+ * spells') are added beside these without moving them. A section a game
+ * does not have yet is empty (a layout or data segment of width 0
+ * everywhere, a NULL stem), and code that reaches it stops at an
+ * assertion.
  *
  * A DAX archive is named by its stem: "GEO" and the ECL file's number
  * make GEO1.DAX; a stem the game reads with no number ("SKY") is the
@@ -25,10 +31,11 @@
  * files are shipped, uses upper case. A NULL stem: the game has no such
  * archive, and code that reads it must not be reached for that game.
  *
- * Most record ids are still in the code that reads them (the startup's
- * tile sets 202 and 203, SKY's 250-252, COMSPR's, RANDCOM's 1, the music
- * drivers' 4 and 5); a record a game reads from another file than the
- * other game does is a cok_rules_record here. */
+ * Most record ids are still in the code that reads them (SKY's 250-252,
+ * SKYGRND's 1 and 2, RANDCOM's 1, the music drivers' 4 and 5); startup's
+ * tile sets and icons are the startup section's; a record a game reads
+ * from another file than the other game does is a cok_rules_record
+ * here. */
 
 /* One record of one archive: <stem><file>.DAX, or <stem>.DAX for file 0,
  * record id record. */
@@ -66,8 +73,12 @@ typedef struct {
      * body, CHEAD and CBODY and a letter for the size (4b6d:0817); 6d21:01d0
      * loads these three by name, without the file's digit. */
     const char *missiles, *icon_head, *icon_body;
-    /* The 3D view's skies (3e99:005b). */
-    const char *sky;
+    /* The 3D view's skies (3e99:005b), and its ground and night sky
+     * (Death Knights' SKYGRND, dkk 4f9a:00e1). A game has one or the other:
+     * the view draws what was loaded (view.c). */
+    const char *sky, *ground;
+    /* The backdrop each wall set brings, BACK<file> (dkk 6d21:0e4e). */
+    const char *backdrop;
     /* The overland map's cursor (3e99:01fd): CURSOR record 1. */
     cok_rules_record cursor;
     /* The title's pictures (2f55's). */
@@ -87,6 +98,11 @@ typedef struct {
      * hold one digit, e.g. MON1CHA: the number as Str into a string[1]
      * makes it (4b6d:161b, 2fd3:1d21, 6961:05b9, 6d21:01d0). */
     char (*file_digit)(unsigned file);
+    /* The file a picture, a sprite or a wall set is read from, by its
+     * record id, where a game chooses it so (dkk 6ca1:00a4 for PIC and
+     * SPRIT, 6d21:0ec5 for WALLDEF, 8X8D and BACK): 256 file numbers, 0
+     * for the ECL file's. NULL: always the ECL file's, as in Champions. */
+    const uint8_t *pic_files, *sprite_files, *wall_files;
 } cok_rules_archives;
 
 /* The files besides the archives. */
@@ -128,7 +144,92 @@ typedef struct {
     const char *const *collection;
     /* One image or one group of frames a record. */
     const char *const *single;
+    /* The frames a header's count byte of 0xff gives: 255 where the
+     * loader takes the byte (127f:1c2f), 256 where it reads 0xff as 256
+     * (dkk 123c:1c58, 123c:029a: the 256-tile 8X8D sets). */
+    uint16_t frames_ff;
 } cok_rules_images;
+
+/* One ECL opcode (ecl.c): what it does, the operands its handler loads
+ * and those a failed IF skips with it. */
+typedef struct {
+    /* What it does, a cok_ecl_opcode (ecl.h): Champions' opcode for each
+     * of Champions', and for a later game's the one it does the same as,
+     * or a meaning of its own past Champions'. */
+    uint8_t meaning;
+    /* The operands its handler loads, or COK_ECL_LIST (-1): a header of
+     * header operands, the last of which counts the list loaded over it;
+     * or COK_ECL_HANG (-2): the original never advances. */
+    int8_t operands;
+    uint8_t header;
+    /* The operands a failed IF skips with it (3775:1e74), which may differ
+     * from the handler's. */
+    uint8_t skip;
+} cok_rules_opcode;
+
+/* A routine of the original that CALL runs, by its address (2fd3:329b). */
+typedef struct {
+    uint16_t address;
+    /* What it does, a cok_ecl_call (ecl.h). */
+    uint8_t routine;
+} cok_rules_call;
+
+/* The ECL's instructions and variables (ecl.c). */
+typedef struct {
+    /* By opcode byte, count of them; past them an opcode hangs. */
+    const cok_rules_opcode *opcodes;
+    unsigned count;
+    /* The addresses CALL knows, and what each does; it does nothing for
+     * others. */
+    cok_rules_call calls[5];
+    /* The bytes a variable address holds: 2 where each holds a word
+     * (Champions, 3775:0e06), 1 where each holds a byte and an operand of
+     * type 2 and up reads and writes a little-endian word over two
+     * (Death Knights, dkk 3c1e:0d85 and 3c1e:0bc1). */
+    uint8_t variable_bytes;
+} cok_rules_ecl;
+
+/* The 3D view's tile and wall sets (view.c, adventure.c). */
+typedef struct {
+    /* Each tile set's first and last tile value (6e22:01ab: DS:1ec2,
+     * the bounds in its code); a value is drawn from the first set whose
+     * last is not below it. */
+    uint16_t tile_first[5], tile_last[5];
+    /* The wall slot whose sets are wall types 1-5, which LOAD PIECES'
+     * two-set path loads first (2fd3:0cf4 loads slot 1 and 3, 69ea:1025
+     * copies slot n to set n - 1). */
+    uint8_t first_slot;
+    /* Whether a record's wall sets share one tile set, record id into the
+     * slot's (dkk 6d21:0ec5), rather than one each, id, or id * 10 + 1 and
+     * up for more than one set (69ea:1025). */
+    bool shared_tiles;
+    /* Whether tile values from 0x2d are moved up by the slot's tile set's
+     * offset from set 1's (69ea:1230). */
+    bool move_tiles;
+    /* The overhead map's tiles (69ea:000f): a square with no walls, and
+     * the party facing north. */
+    uint16_t overhead_square, overhead_party;
+    /* PICTURE's id for the overland map (2fd3:0914). */
+    uint8_t overland_picture;
+} cok_rules_view;
+
+/* What the game loads once at startup (3e99:005b), past the font. */
+typedef struct {
+    /* Tile sets from <tiles>1: set, record; count of them. */
+    struct {
+        uint8_t set, record;
+    } tiles[2];
+    unsigned tile_count;
+    /* The missiles' icons (3e99:06e0): COMSPR ids from first into icon
+     * slots from slot, count of them, each range of ranges. */
+    struct {
+        uint8_t first, slot, count;
+    } icons[2];
+    unsigned icon_ranges;
+    /* The overland map's cursor's transparent colour, -1 for none (it is
+     * loaded without a mask). */
+    int8_t cursor_transparent;
+} cok_rules_startup;
 
 /* The game's own words that are names: its title. */
 typedef struct {
@@ -154,9 +255,14 @@ typedef struct cok_rules {
     /* The tables of the original's data segment the port holds, and where
      * each the code reads lies and its shape (data.h). */
     const cok_data_segment *data;
+    cok_rules_ecl ecl;
+    cok_rules_view view;
+    cok_rules_startup startup;
+    /* Why cok cannot play the game yet, or NULL. */
+    const char *unplayable;
 } cok_rules;
 
-extern const cok_rules cok_rules_champions;
+extern const cok_rules cok_rules_champions, cok_rules_death_knights;
 
 /* The descriptor named id (--game), or NULL. */
 const cok_rules *cok_rules_find(const char *id);

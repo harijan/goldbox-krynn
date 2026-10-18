@@ -152,8 +152,10 @@ struct cok_adventure {
      * is the frame's; see screen.h) and sky pictures. */
     cok_view view;
     /* DS:6d8a: for wall sets 1-3, the WALLDEF record and the slot it was
-     * loaded at, or -1 and -1; (0, 1) and none at startup (3e99:005b). */
-    int16_t wall_ids[3], wall_slots[3];
+     * loaded at, or -1 and -1; (0, 1) and none at startup (3e99:005b). By
+     * slot from the game's first (rules->view.first_slot; dkk DS:c078 has
+     * slots 0-3, Champions' saves 1-3). */
+    int16_t wall_ids[COK_VIEW_WALL_SLOTS], wall_slots[COK_VIEW_WALL_SLOTS];
 
     /* The party (DS:609a). The selected character is vm.character
      * (DS:6096), which must be a member's record or NULL. */

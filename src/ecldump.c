@@ -30,14 +30,14 @@ static void print_operand(const cok_ecl *vm, const cok_ecl_operand *o, size_t *s
     }
 }
 
-static int is_jump(unsigned opcode)
+static int is_jump(unsigned meaning)
 {
-    return opcode == COK_ECL_GOTO || opcode == COK_ECL_GOSUB;
+    return meaning == COK_ECL_GOTO || meaning == COK_ECL_GOSUB;
 }
 
 static void print_instruction(const cok_ecl *vm, uint16_t address)
 {
-    const char *name = cok_ecl_opcode_name(vm->opcode);
+    const char *name = cok_ecl_opcode_name(vm->rules, vm->opcode);
     printf("%04x: ", address);
     if (name != NULL)
         printf("%s", name);
@@ -56,8 +56,8 @@ static void print_instruction(const cok_ecl *vm, uint16_t address)
         }
         printf(" :");
     }
-    int targets = is_jump(vm->opcode) || vm->opcode == COK_ECL_ON_GOTO ||
-                  vm->opcode == COK_ECL_ON_GOSUB;
+    unsigned meaning = cok_ecl_meaning(vm);
+    int targets = is_jump(meaning) || meaning == COK_ECL_ON_GOTO || meaning == COK_ECL_ON_GOSUB;
     for (size_t i = 0; i < vm->operands; ++i)
         print_operand(vm, &vm->operand[i], &string, targets);
     putchar('\n');
@@ -81,41 +81,44 @@ static void walk(cok_ecl *vm, uint8_t *seen, uint16_t *next, totals *t, const ch
             seen[address - COK_ECL_BASE] = 1;
             next[address - COK_ECL_BASE] = vm->ip;
             ++t->instructions;
-            uint8_t opcode = vm->opcode;
+            unsigned meaning = cok_ecl_meaning(vm);
             uint16_t after = vm->ip;
-            if (is_jump(opcode) && depth < 4096) stack[depth++] = cok_ecl_address(vm, 0);
-            if (opcode == COK_ECL_ON_GOTO || opcode == COK_ECL_ON_GOSUB)
+            if (is_jump(meaning) && depth < 4096) stack[depth++] = cok_ecl_address(vm, 0);
+            if (meaning == COK_ECL_ON_GOTO || meaning == COK_ECL_ON_GOSUB)
                 for (size_t i = 0; i < vm->operands && depth < 4096; ++i)
                     stack[depth++] = cok_ecl_address(vm, i);
-            if (opcode >= COK_ECL_IF_EQUAL && opcode <= COK_ECL_IF_GREATER_EQUAL &&
+            if (meaning >= COK_ECL_IF_EQUAL && meaning <= COK_ECL_IF_GREATER_EQUAL &&
                 cok_ecl_decode(vm, after) == COK_ECL_OK) {
-                int handler = cok_ecl_operand_count(vm->opcode);
-                if (handler != cok_ecl_skip_count(vm->opcode)) {
+                const cok_rules *rules = vm->rules;
+                int handler = cok_ecl_operand_count(rules, vm->opcode);
+                if (handler != cok_ecl_skip_count(rules, vm->opcode)) {
+                    const char *name = cok_ecl_opcode_name(rules, vm->opcode);
+                    char unnamed[16];
+                    snprintf(unnamed, sizeof unnamed, "OPCODE %02x", vm->opcode);
                     fprintf(stderr, "%s: %04x: IF skips %s with %d operands; its handler loads %s\n",
-                            where, address, cok_ecl_opcode_name(vm->opcode),
-                            cok_ecl_skip_count(vm->opcode),
+                            where, address, name != NULL ? name : unnamed,
+                            cok_ecl_skip_count(rules, vm->opcode),
                             handler == COK_ECL_LIST ? "a list" : "a different count");
                     ++t->mismatched_skips;
                 }
                 if (depth < 4096) stack[depth++] = vm->ip;
             }
-            if (opcode == COK_ECL_EXIT || opcode == COK_ECL_GOTO || opcode == COK_ECL_RETURN ||
-                opcode == COK_ECL_NEWECL)
+            if (meaning == COK_ECL_EXIT || meaning == COK_ECL_GOTO || meaning == COK_ECL_RETURN ||
+                meaning == COK_ECL_NEWECL || meaning == COK_ECL_CLEAR_EXIT)
                 break;
             address = after;
         }
     }
 }
 
-static void dump_block(const dax_record *record, const uint8_t *data, int list, totals *t,
-                       const char *path)
+static void dump_block(const cok_rules *rules, const dax_record *record, const uint8_t *data,
+                       int list, totals *t, const char *path)
 {
     char where[300];
     snprintf(where, sizeof where, "%s: ID %u", path, (unsigned)record->id);
     static cok_ecl vm;
-    /* Decoding selects no character, so the layout is never read:
-     * Champions' rules, the VM needing some. */
-    cok_ecl_init(&vm, &cok_rules_champions, NULL);
+    /* Decoding selects no character, so the layout is never read. */
+    cok_ecl_init(&vm, rules, NULL);
     cok_ecl_status status = cok_ecl_load(&vm, data, record->decoded_size);
     if (status == COK_ECL_OK) status = cok_ecl_start(&vm, true);
     if (status != COK_ECL_OK) {
@@ -148,8 +151,17 @@ int main(int argc, char **argv)
 {
     int first = 1, list = 1;
     long only = -1;
+    const cok_rules *rules = &cok_rules_champions;
     while (first < argc && strncmp(argv[first], "--", 2) == 0) {
-        if (strcmp(argv[first], "--summary") == 0) {
+        if (strcmp(argv[first], "--game") == 0 && first + 1 < argc) {
+            rules = cok_rules_find(argv[first + 1]);
+            if (rules == NULL) {
+                fprintf(stderr, "%s: unknown game %s (games: %s)\n", argv[0], argv[first + 1],
+                        cok_rules_names());
+                return EXIT_FAILURE;
+            }
+            first += 2;
+        } else if (strcmp(argv[first], "--summary") == 0) {
             list = 0;
             ++first;
         } else if (strcmp(argv[first], "--block") == 0 && first + 1 < argc) {
@@ -160,7 +172,8 @@ int main(int argc, char **argv)
         }
     }
     if (argc <= first) {
-        fprintf(stderr, "Usage: %s [--summary] [--block ID] ECLn.DAX [...]\n", argv[0]);
+        fprintf(stderr, "Usage: %s [--game NAME] [--summary] [--block ID] ECLn.DAX [...]\n",
+                argv[0]);
         return EXIT_FAILURE;
     }
     totals t = {0};
@@ -181,7 +194,7 @@ int main(int argc, char **argv)
                 status = data == NULL ? DAX_NO_MEMORY
                                       : dax_decode(record.packed, record.packed_size, data,
                                                    record.decoded_size);
-                if (status == DAX_OK) dump_block(&record, data, list, &t, argv[arg]);
+                if (status == DAX_OK) dump_block(rules, &record, data, list, &t, argv[arg]);
             }
             if (status != DAX_OK) {
                 fprintf(stderr, "%s: entry %zu: %s\n", argv[arg], i, dax_status_string(status));

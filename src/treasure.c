@@ -542,7 +542,7 @@ static void treasure(cok_adventure *game)
 
 bool cok_treasure_opcode(cok_adventure *game)
 {
-    if (game->vm.opcode != COK_ECL_TREASURE) return false;
+    if (cok_ecl_meaning(&game->vm) != COK_ECL_TREASURE) return false;
     treasure(game);
     return true;
 }

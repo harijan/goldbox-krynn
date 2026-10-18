@@ -25,6 +25,12 @@ enum {
     COK_ECL_MAX_CALLS = 256,    /* GOSUB depth; the original's list is unbounded. */
 };
 
+typedef struct cok_ecl cok_ecl;
+
+/* An opcode's operands (cok_rules_opcode): a header and a list over it, or
+ * none ever, the original hanging. */
+enum { COK_ECL_LIST = -1, COK_ECL_HANG = -2 };
+
 typedef enum {
     COK_ECL_EXIT, COK_ECL_GOTO, COK_ECL_GOSUB, COK_ECL_COMPARE, COK_ECL_ADD, COK_ECL_SUBTRACT,
     COK_ECL_DIVIDE, COK_ECL_MULTIPLY, COK_ECL_RANDOM, COK_ECL_SAVE, COK_ECL_LOAD_CHARACTER,
@@ -41,12 +47,47 @@ typedef enum {
     COK_ECL_SAVE_TABLE, COK_ECL_ADD_NPC, COK_ECL_LOAD_PIECES, COK_ECL_PROGRAM, COK_ECL_WHO,
     COK_ECL_DELAY, COK_ECL_SPELL, COK_ECL_PROTECTION, COK_ECL_CLEAR_BOX, COK_ECL_DUMP,
     COK_ECL_FIND_SPECIAL, COK_ECL_DESTROY_ITEMS, COK_ECL_ADD_EP,
-    COK_ECL_OPCODES
+    /* Champions' opcodes, 0x00-0x41, and the size of a game's table. */
+    COK_ECL_OPCODES,
+    /* What a later game's opcodes do that none of Champions' does (Death
+     * Knights', dkk 3632's handlers), named by the port: the game's
+     * descriptor gives each opcode its meaning (rules->ecl). */
+    COK_ECL_SETUP_MONSTERS = COK_ECL_OPCODES, /* 0x0c: SETUP MONSTER with 4 operands */
+    COK_ECL_PRESS_KEY,      /* 0x1d: "Press button or enter to continue" */
+    COK_ECL_JOURNAL,        /* 0x1f: "This is recorded as journal entry N." */
+    COK_ECL_YES_NO,         /* 0x22: a Yes/No menu; = for Yes */
+    COK_ECL_CLEAR_EXIT,     /* 0x23: clear the text, redraw what changed, EXIT */
+    COK_ECL_TREASURE_ITEMS, /* 0x27: coins, then a list of ITEM0's items */
+    COK_ECL_NOTHING,        /* 0x29 */
+    COK_ECL_MUSIC,          /* 0x2c: play a song */
+    COK_ECL_ASK_MENU,       /* 0x31: HORIZONTAL MENU after "what do you do" */
+    COK_ECL_STOCK,          /* 0x3c: a shop's items from ITEM0's lists */
+    COK_ECL_MEANINGS
 } cok_ecl_opcode;
 
-/* Name from the trace table at 6d7e:0055, or NULL for 0x1f and opcodes past
- * ADD EP. */
-const char *cok_ecl_opcode_name(unsigned opcode);
+/* What CALL's address runs (rules->ecl.calls; 2fd3:329b). */
+typedef enum {
+    COK_ECL_CALL_NONE,
+    COK_ECL_CALL_REDRAW,  /* show again what changed */
+    COK_ECL_CALL_SOUND,   /* a sound by 0x3de */
+    COK_ECL_CALL_STEP,    /* a step forward */
+    COK_ECL_CALL_AHEAD,   /* the wall ahead, outside 3D areas */
+    COK_ECL_CALL_ANIMATE, /* the picture's next frame */
+} cok_ecl_call;
+
+/* What CALL to address runs in the game rules describes. */
+cok_ecl_call cok_ecl_call_of(const cok_rules *rules, uint16_t address);
+
+/* What opcode does in the game rules describes (rules->ecl): a
+ * cok_ecl_opcode, COK_ECL_MEANINGS past the game's table. */
+unsigned cok_ecl_meaning_of(const cok_rules *rules, unsigned opcode);
+/* What the VM's opcode (vm->opcode) does. */
+unsigned cok_ecl_meaning(const cok_ecl *vm);
+
+/* The opcode's name: Champions' from the trace table at 6d7e:0055 (NULL
+ * for 0x1f), the port's for a meaning past them; NULL past the game's
+ * table. */
+const char *cok_ecl_opcode_name(const cok_rules *rules, unsigned opcode);
 
 typedef enum {
     COK_ECL_OK,
@@ -63,6 +104,8 @@ typedef enum {
     COK_ECL_UNDEFINED,     /* Outside the scripts, the original would read data it
                             * never set or write past what it owns; the caller says
                             * why. */
+    COK_ECL_UNPORTED,      /* An opcode of a later game that the port does not carry
+                            * out yet; the opcode hook says which. */
 } cok_ecl_status;
 
 const char *cok_ecl_status_string(cok_ecl_status status);
@@ -83,8 +126,6 @@ enum {
 typedef struct {
     uint8_t type, low, high;
 } cok_ecl_operand;
-
-typedef struct cok_ecl cok_ecl;
 
 typedef struct {
     /* Copy ECL block id into vm->code and set vm->size (3775:0361 reads
@@ -141,9 +182,10 @@ struct cok_ecl {
     size_t operands;
     char string[COK_ECL_MAX_STRINGS][256];         /* Slot n + 1; NUL-terminated. */
     size_t strings;
-    /* VERTICAL MENU, HORIZONTAL MENU, ON GOTO and ON GOSUB load a header,
-     * then that many more operands over it; header keeps the first load. */
-    cok_ecl_operand header[3];
+    /* VERTICAL MENU, HORIZONTAL MENU, ON GOTO and ON GOSUB (and a later
+     * game's list opcodes, of a header of up to 4) load a header, then that
+     * many more operands over it; header keeps the first load. */
+    cok_ecl_operand header[4];
     char header_string[256]; /* VERTICAL MENU's prompt (string slot 1). */
     size_t header_operands;  /* 0 for other opcodes. */
 
@@ -219,9 +261,17 @@ uint16_t cok_ecl_value(const cok_ecl *vm, size_t i);
 uint16_t cok_ecl_address(const cok_ecl *vm, size_t i);
 
 /* Variable access (3775:0fca, 3775:0e06, 3775:14fc, 3775:1138). Strings
- * are stored one character per variable, NUL-terminated. */
+ * are stored one character per variable, NUL-terminated. A variable is a
+ * word where each address holds one (Champions), else a byte (Death
+ * Knights; cok_ecl_value reads an operand of type 2 and up as a word over
+ * two, cok_ecl_store_to writes one). */
 uint16_t cok_ecl_load_var(const cok_ecl *vm, uint16_t address);
 void cok_ecl_store(cok_ecl *vm, uint16_t address, uint16_t value);
+/* Store value at an operand's address (operand i, or o), as wide as its
+ * type makes it where each address holds a byte (rules->ecl; dkk
+ * 3c1e:0bc1); the same as cok_ecl_store where each holds a word. */
+void cok_ecl_store_to(cok_ecl *vm, size_t i, uint16_t value);
+void cok_ecl_store_as(cok_ecl *vm, const cok_ecl_operand *o, uint16_t value);
 void cok_ecl_load_string(const cok_ecl *vm, uint16_t address, char out[256]);
 void cok_ecl_store_string(cok_ecl *vm, uint16_t address, const char *text);
 
@@ -236,14 +286,14 @@ uint8_t cok_dice(uint32_t *seed, uint8_t count, uint8_t sides);
  * the damage being dealt). */
 uint8_t cok_dice_count(uint32_t *seed, uint8_t count, uint8_t sides, uint8_t *dice);
 
-/* The operand count of opcode's handler, COK_ECL_LIST for a header and
- * list (see cok_ecl.header), or COK_ECL_HANG. */
-enum { COK_ECL_LIST = -1, COK_ECL_HANG = -2 };
-int cok_ecl_operand_count(unsigned opcode);
-/* Operands a failed IF skips with opcode (3775:1e74). Its table differs from
- * the handlers for the list opcodes (none), ECL CLOCK, ADD NPC and
- * PROTECTION (one each). */
-int cok_ecl_skip_count(unsigned opcode);
+/* The operand count of opcode's handler in the game rules describes,
+ * COK_ECL_LIST for a header and list (see cok_ecl.header), or
+ * COK_ECL_HANG, as for an opcode past the game's table. */
+int cok_ecl_operand_count(const cok_rules *rules, unsigned opcode);
+/* Operands a failed IF skips with opcode (3775:1e74). Champions' table
+ * differs from the handlers for the list opcodes (none), ECL CLOCK, ADD NPC
+ * and PROTECTION (one each). */
+int cok_ecl_skip_count(const cok_rules *rules, unsigned opcode);
 /* Decode the instruction at address without running it, leaving vm->ip on
  * the next one. String operands read variables as a run would. */
 cok_ecl_status cok_ecl_decode(cok_ecl *vm, uint16_t address);

@@ -1,5 +1,6 @@
 #include "view.h"
 
+#include <assert.h>
 #include <string.h>
 
 /* The buffer the original draws into sits one unit right and one cell down
@@ -23,8 +24,12 @@ static const uint8_t place_rows[10] = {2, 4, 4, 4, 8, 8, 8, 11, 11, 2};
 static const int place_x[10] = {5, 4, 6, 4, 2, 7, 2, 0, 9, 5};
 static const int place_y[10] = {4, 3, 3, 3, 1, 1, 1, 0, 0, 4};
 
-/* First tile value of each set (DS:1ec2). */
-static const unsigned tile_base[COK_VIEW_TILE_SETS] = {0x01, 0x2e, 0x74, 0xba, 0x100};
+/* The game's tile and wall sets: a view made without them stops here. */
+static const cok_rules_view *shape(const cok_view *view)
+{
+    assert(view->shape != NULL && "the view's game is not set");
+    return view->shape;
+}
 
 /* DS:0dc4, then the recolour tables that follow it (DS:0dd4, DS:0de4). */
 static const uint8_t sky_colors[48] = {
@@ -43,6 +48,8 @@ void cok_view_free(cok_view *view)
 {
     for (size_t i = 0; i < COK_VIEW_TILE_SETS; ++i) cok_picture_free(&view->tiles[i]);
     for (size_t i = 0; i < COK_VIEW_SKY_PICTURES; ++i) cok_picture_free(&view->sky[i]);
+    for (size_t i = 0; i < COK_VIEW_GROUND_PICTURES; ++i) cok_picture_free(&view->ground[i]);
+    cok_picture_free(&view->back);
 }
 
 bool cok_view_set_map(cok_view *view, const uint8_t *record, size_t size)
@@ -54,20 +61,25 @@ bool cok_view_set_map(cok_view *view, const uint8_t *record, size_t size)
 
 size_t cok_view_set_walls(cok_view *view, unsigned slot, const uint8_t *record, size_t size)
 {
-    if (slot < 1 || slot > COK_VIEW_WALL_SETS || size == 0 || size % COK_VIEW_WALL_SET != 0)
+    const cok_rules_view *s = shape(view);
+    if (slot < s->first_slot || slot > COK_VIEW_WALL_SETS || size == 0 ||
+        size % COK_VIEW_WALL_SET != 0)
         return 0;
     size_t sets = size / COK_VIEW_WALL_SET;
     if (sets + slot > COK_VIEW_WALL_SETS + 1) return 0;
+    /* The sets past the wall sets the view holds (dkk 6d21:0ec5's from
+     * slot 1 on, which its two-set path never loads). */
+    if (slot - s->first_slot + sets > COK_VIEW_WALL_SETS) return 0;
     /* Records name set 1's tiles; values below 0x2d are set 0's. The
      * offset is the first slot's, for every set of the record (69ea:1124,
      * added at 69ea:1230), so a record's later sets keep their own
      * values past set 1's. */
-    unsigned offset = tile_base[slot] - tile_base[1];
+    unsigned offset = s->move_tiles ? s->tile_first[slot] - s->tile_first[1] : 0;
     for (size_t i = 0; i < sets; ++i) {
-        size_t set = slot + i;
-        uint8_t *walls = view->walls + (set - 1) * COK_VIEW_WALL_SET;
+        size_t set = slot - s->first_slot + i;
+        uint8_t *walls = view->walls + set * COK_VIEW_WALL_SET;
         memcpy(walls, record + i * COK_VIEW_WALL_SET, COK_VIEW_WALL_SET);
-        for (size_t j = 0; j < COK_VIEW_WALL_SET; ++j)
+        for (size_t j = 0; j < COK_VIEW_WALL_SET && s->move_tiles; ++j)
             if (walls[j] >= 0x2d) walls[j] = (uint8_t)(walls[j] + offset);
     }
     return sets;
@@ -144,12 +156,13 @@ void cok_view_tile(cok_picture *dst, const cok_view *view, unsigned value, int x
                    bool masked)
 {
     if (value == 0) return;
-    size_t set = COK_VIEW_TILE_SETS;
-    while (set > 0 && value < tile_base[set - 1]) --set;
-    if (set == 0 || value > 0x127) return;
-    const cok_picture *tiles = &view->tiles[set - 1];
+    const cok_rules_view *s = shape(view);
+    size_t set = 0;
+    while (set < COK_VIEW_TILE_SETS && value > s->tile_last[set]) ++set;
+    if (set == COK_VIEW_TILE_SETS || value < s->tile_first[set]) return;
+    const cok_picture *tiles = &view->tiles[set];
     if (tiles->pixels == NULL) return;
-    cok_picture_draw(dst, tiles, value - tile_base[set - 1], x, y,
+    cok_picture_draw(dst, tiles, value - s->tile_first[set], x, y,
                      masked ? COK_DRAW_MASKED : 0, NULL);
 }
 
@@ -265,11 +278,20 @@ static void backdrop(cok_picture *dst, const cok_view *view, int x, int y, unsig
     }
     if (horizon->pixels != NULL)
         cok_picture_draw(dst, horizon, 0, 2 + BUFFER_X, 7 + BUFFER_Y, COK_DRAW_MASKED, NULL);
+    /* The ground's (dkk 6d21:0177), opaque (DS:42d0's 0) at the view's
+     * top-left, over the fills. */
+    const cok_picture *day = &view->ground[0], *night = &view->ground[1], *back = &view->back;
+    if (cok_view_square(view, x, y) < 0x80) {
+        if (day->pixels != NULL) {
+            cok_picture_draw(dst, day, 0, 2 + BUFFER_X, 2 + BUFFER_Y, 0, NULL);
+            if (b->hour > 13 && night->pixels != NULL)
+                cok_picture_draw(dst, night, 0, 2 + BUFFER_X, 2 + BUFFER_Y, 0, NULL);
+        }
+    } else if (back->pixels != NULL) {
+        cok_picture_draw(dst, back, 0, 2 + BUFFER_X, 2 + BUFFER_Y, 0, NULL);
+    }
 }
 
-/* The overhead map's tiles in the frame's set (69ea:000f): the party facing
- * north, east, south and west, then the squares by their walls. */
-enum { OVERHEAD_PARTY = 0x100, OVERHEAD_SQUARE = 0x104 };
 
 /* The first square of the overhead map's window, a byte (69ea:000f). */
 static int window_start(int8_t at)
@@ -282,11 +304,14 @@ bool cok_view_overhead(cok_picture *dst, const cok_view *view, int x, int y, uns
 {
     int8_t cx = (int8_t)x, cy = (int8_t)y;
     int left = window_start(cx), top = window_start(cy);
-    unsigned party = OVERHEAD_PARTY + ((dir & 0xff) >> 1);
-    if (!on_map(cx, cy) || party > 0x127) return false;
+    /* The overhead map's tiles in the frame's set (69ea:000f): the party
+     * facing north, east, south and west, then the squares by their walls. */
+    const cok_rules_view *s = shape(view);
+    unsigned party = s->overhead_party + ((dir & 0xff) >> 1);
+    if (!on_map(cx, cy) || party > s->tile_last[COK_VIEW_TILE_SETS - 1]) return false;
     for (int row = 0; row < 11; ++row)
         for (int col = 0; col < 11; ++col) {
-            unsigned value = OVERHEAD_SQUARE;
+            unsigned value = s->overhead_square;
             for (unsigned side = 0; side < 4; ++side)
                 if (cok_view_wall(view, side * 2, left + col, top + row) != 0) value += 1u << side;
             cok_view_tile(dst, view, value, col + 2 + BUFFER_X, row + 2 + BUFFER_Y, false);

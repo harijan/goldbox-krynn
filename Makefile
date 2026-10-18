@@ -63,7 +63,7 @@ dqk-merged: build/DQK_FULL.EXE
 build/DQK_FULL.EXE: tools/dqkmerge.py tools/ovrmerge.py $(DQK)/DQK.EXE | build
 	$(PYTHON) tools/dqkmerge.py $(DQK)/DQK.EXE $@ --map build/DQK_FULL.map
 
-ADVENTURE_SRC = src/adventure.c src/debug.c src/devices.c src/input.c src/ai.c src/cloud.c src/command.c src/start.c src/roster.c src/create.c src/train.c src/modify.c src/icon.c src/arena.c src/attack.c src/combat.c src/round.c src/monster.c src/treasure.c src/shop.c src/camp.c src/magic.c src/cast.c src/items.c src/sheet.c src/effect.c src/party.c src/ecl.c src/menu.c src/screen.c src/text.c src/view.c src/picture.c src/image.c src/sound.c src/config.c src/crt.c src/setup.c src/dax.c src/rules.c src/data_champions.c src/step.c
+ADVENTURE_SRC = src/adventure.c src/debug.c src/devices.c src/input.c src/ai.c src/cloud.c src/command.c src/start.c src/roster.c src/create.c src/train.c src/modify.c src/icon.c src/arena.c src/attack.c src/combat.c src/round.c src/monster.c src/treasure.c src/shop.c src/camp.c src/magic.c src/cast.c src/items.c src/sheet.c src/effect.c src/party.c src/ecl.c src/menu.c src/screen.c src/text.c src/view.c src/picture.c src/image.c src/sound.c src/config.c src/crt.c src/setup.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/step.c
 
 # The original in DOSBox-X (tools/dosbox, see DEVELOPERS.md's "DOSBox-X
 # harness"): boot it to the title's menu and compare its screens with
@@ -144,34 +144,35 @@ $(ADVENTURE_TESTS:%=build/%_sanitize): build/%_sanitize: build/obj-asan/tests/%.
 
 # The other tests and tools, each with the sources it needs: build/NAME from
 # NAME_SRC, build/NAME_sanitize too for those make sanitize runs.
-test_sound_SRC = tests/test_sound.c src/sound.c src/dax.c src/rules.c src/data_champions.c
-test_config_SRC = tests/test_config.c src/config.c src/rules.c src/data_champions.c
-test_setup_SRC = tests/test_setup.c src/setup.c src/input.c src/crt.c src/config.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c src/data_champions.c
-test_ecl_SRC = tests/test_ecl.c src/ecl.c src/dax.c src/rules.c src/data_champions.c
+test_sound_SRC = tests/test_sound.c src/sound.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c
+test_config_SRC = tests/test_config.c src/config.c src/rules.c src/data_champions.c src/rules_death_knights.c
+test_setup_SRC = tests/test_setup.c src/setup.c src/input.c src/crt.c src/config.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c
+test_ecl_SRC = tests/test_ecl.c src/ecl.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c
 test_menu_SRC = tests/test_menu.c src/menu.c src/screen.c src/text.c src/picture.c src/image.c
-test_view_SRC = tests/test_view.c src/view.c src/picture.c src/image.c
-PARTY_SRC = src/party.c src/ecl.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c src/data_champions.c
+test_view_SRC = tests/test_view.c src/view.c src/picture.c src/image.c src/rules.c src/data_champions.c src/rules_death_knights.c
+PARTY_SRC = src/party.c src/ecl.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c
 test_party_SRC = tests/test_party.c $(PARTY_SRC)
 EFFECT_SRC = src/effect.c $(PARTY_SRC)
 test_effect_SRC = tests/test_effect.c $(EFFECT_SRC)
 test_dax_SRC = tests/test_dax.c src/dax.c
-test_rules_SRC = tests/test_rules.c src/rules.c src/data_champions.c src/dax.c
-test_layout_SRC = tests/test_layout.c src/rules.c src/data_champions.c
-test_data_SRC = tests/test_data.c src/rules.c src/data_champions.c src/step.c
-daximages_SRC = src/daximages.c src/image.c src/dax.c src/rules.c src/data_champions.c
-daxcompose_SRC = src/daxcompose.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c src/data_champions.c
-test_picture_SRC = tests/test_picture.c src/picture.c src/image.c src/dax.c src/rules.c src/data_champions.c
+test_rules_SRC = tests/test_rules.c src/rules.c src/data_champions.c src/rules_death_knights.c src/dax.c
+test_death_knights_SRC = tests/test_death_knights.c src/view.c src/picture.c src/image.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c
+test_layout_SRC = tests/test_layout.c src/rules.c src/data_champions.c src/rules_death_knights.c
+test_data_SRC = tests/test_data.c src/rules.c src/data_champions.c src/rules_death_knights.c src/step.c
+daximages_SRC = src/daximages.c src/image.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c
+daxcompose_SRC = src/daxcompose.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c
+test_picture_SRC = tests/test_picture.c src/picture.c src/image.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c
 test_text_SRC = tests/test_text.c src/text.c src/picture.c src/image.c src/dax.c
-test_display_SRC = tests/test_display.c src/picture.c src/text.c src/image.c src/dax.c src/rules.c src/data_champions.c
+test_display_SRC = tests/test_display.c src/picture.c src/text.c src/image.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c
 test_image_SRC = tests/test_image.c src/image.c src/dax.c
 daxcheck_SRC = src/daxcheck.c src/dax.c
-ecldump_SRC = src/ecldump.c src/ecl.c src/dax.c src/rules.c src/data_champions.c
+ecldump_SRC = src/ecldump.c src/ecl.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c
 test_sound_LIBS = -lm
 
 # Their rules (.SECONDEXPANSION: each one's NAME_SRC read for its stem), with
 # NAME_LIBS after the libraries.
-SRC_PROGRAMS = daxcheck ecldump test_sound test_config test_setup test_ecl test_menu test_view test_party test_effect test_dax test_rules test_layout test_data daximages daxcompose test_picture test_text test_display test_image
-SRC_SANITIZE = test_sound test_config test_setup test_ecl test_menu test_view test_party test_effect test_dax test_rules test_layout test_data test_picture test_text test_display test_image daxcheck
+SRC_PROGRAMS = daxcheck ecldump test_sound test_config test_setup test_ecl test_menu test_view test_party test_effect test_dax test_rules test_death_knights test_layout test_data daximages daxcompose test_picture test_text test_display test_image
+SRC_SANITIZE = test_sound test_config test_setup test_ecl test_menu test_view test_party test_effect test_dax test_rules test_death_knights test_layout test_data test_picture test_text test_display test_image daxcheck
 .SECONDEXPANSION:
 $(SRC_PROGRAMS:%=build/%): build/%: $$(call obj,$$($$*_SRC)) | build
 	$(LINK) $($*_LIBS) -o $@
@@ -189,12 +190,12 @@ $(SRC_SANITIZE:%=build/%_sanitize): build/%_sanitize: $$(call asan,$$($$*_SRC)) 
 # tests/test_cok.py plays in real time: it runs last, alone, once the
 # others are done (make -j would otherwise run it beside them, and a loaded
 # machine makes the game late).
-TEST_PROGRAMS = test_dax test_rules test_layout test_data test_image test_picture test_text test_display test_ecl test_menu test_view test_party test_effect test_adventure test_camp test_cast test_items test_monster test_combat test_round test_arena test_attack test_ai test_command test_spell test_cloud test_treasure test_shop test_start test_hooks test_debug test_sound test_config test_setup test_input
+TEST_PROGRAMS = test_dax test_rules test_death_knights test_layout test_data test_image test_picture test_text test_display test_ecl test_menu test_view test_party test_effect test_adventure test_camp test_cast test_items test_monster test_combat test_round test_arena test_attack test_ai test_command test_spell test_cloud test_treasure test_shop test_start test_hooks test_debug test_sound test_config test_setup test_input
 SHARDS = 1 2 3 4
 ECLPLAY_RUNS = $(SHARDS:%=run-test_eclplay-%)
-TEST_RUNS = $(TEST_PROGRAMS:%=run-%) run-ecldump run-test_images_cli $(ECLPLAY_RUNS) run-test_eclplay $(if $(HAVE_SDL),run-test_keymap) run-test_ovrmerge run-daxcheck
+TEST_RUNS = $(TEST_PROGRAMS:%=run-%) run-ecldump run-test_images_cli run-test_death_knights_py $(ECLPLAY_RUNS) run-test_eclplay $(if $(HAVE_SDL),run-test_keymap) run-test_ovrmerge run-daxcheck
 SANITIZE_RUNS = $(TEST_PROGRAMS:%=run-%_sanitize)
-.PHONY: $(TEST_RUNS) $(SANITIZE_RUNS) run-test_cok
+.PHONY: $(TEST_RUNS) $(SANITIZE_RUNS) run-test_cok run-test_death_knights_py
 
 # The tests' temporary files (TMPDIR) in TEST_TMPDIR: the dev container's
 # /tmp, a FUSE overlay holding many entries, is slow for their many small
@@ -213,11 +214,19 @@ test: $(TEST_RUNS) $(if $(HAVE_SDL),run-test_cok)
 $(TEST_PROGRAMS:%=run-%) $(SANITIZE_RUNS) run-test_keymap: run-%: build/% build/START_FULL.EXE
 	$(TEST_ENV) ./build/$*
 
+# Death Knights' checks read its merged image where DKKAssets/ holds its
+# files (and skip them, saying so, where it does not).
+DEATH_EXE = $(if $(wildcard $(DEATH)/START.EXE),build/death-START_FULL.EXE)
+run-test_death_knights run-test_death_knights_sanitize run-test_death_knights_py: $(DEATH_EXE)
+
 run-ecldump: build/ecldump
 	$(TEST_ENV) ./build/ecldump --summary COKAssets/ECL*.DAX
 
 run-test_images_cli: build/daximages build/daxcompose
 	$(TEST_ENV) $(PYTHON) tests/test_images_cli.py
+
+run-test_death_knights_py: build/eclplay build/ecldump build/daxcheck build/daximages build/daxcompose
+	$(TEST_ENV) $(PYTHON) tests/test_death_knights.py
 
 SHARD_LIST = $(abspath $(TEST_TMPDIR))/eclplay-shard-$(1).txt
 $(ECLPLAY_RUNS): run-test_eclplay-%: build/eclplay build/START_FULL.EXE
@@ -247,6 +256,7 @@ sanitize: build/START_FULL.EXE $(SANITIZE_RUNS) build/eclplay_sanitize build/dax
 	out="$$(./build/eclplay_sanitize --combat pass --test-party 6 --set 4be6=1 --start 835f --keys '\r\rE' COKAssets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(done in block 32)" && test "$$(printf '%s\n' "$$out" | head -n 1)" = "print: MONSTERS ATTACK!" && test "$$(printf '%s\n' "$$out" | grep -c '^round: ')" = 15
 	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --load SAVE/SAVGAMA.DAT --play --keys '\r\r\r\r\r\r\r' COKAssets | tail -n 1)" = "(out of keys in block 17 at 86ec)"; fi
 	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --play --set 4be6=1 --keys '\r\rEerhar\kn\eamm\e\e' COKAssets 32 | tail -n 1)" = "(out of keys in block 32 at 80c0)"
+	if [ -f $(DEATH)/START.EXE ]; then test "$$(./build/eclplay_sanitize --game death-knights --set 4be6=1 --shots build/sanitize_dkk --keys '\r\r\r\r' $(DEATH) 64 | tail -n 1)" = "(done in block 64)" && test "$$(./build/eclplay_sanitize --game death-knights --file 2 --start 88f7 --keys 'Y\r' $(DEATH) 48 | tail -n 1)" = "(done in block 17)"; fi
 	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --combat pass --party SAVE/SAVGAMA.DAT --play --set 4be6=1 --keys '\r\rE\v\v\v\vemm\^m\esd\e\eaos\v\e\e\e' COKAssets 32 | tail -n 1)" = "(out of keys in block 32 at 80c0)"; fi
 	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --combat pass --party SAVE/SAVGAMA.DAT --start 9891 --set 4be6=1 --keys '\r\rE' COKAssets 32 | tail -n 1)" = "(done in block 32)"; fi
 	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --play --set 4be6=1 --keys '\r\rEvi\v\vrhjtS\e\e' COKAssets 32 | tail -n 1)" = "(out of keys in block 32 at 8320)"
