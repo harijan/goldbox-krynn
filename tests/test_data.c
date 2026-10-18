@@ -102,6 +102,7 @@ static void test_shapes(void)
 {
     for (unsigned t = 0; t < COK_DATA_TABLES; ++t) {
         const cok_data_table *s = &D->table[t];
+        if (s->width == 0 && D != cok_rules_champions.data) continue; /* a table it has not */
         CHECK(s->width == 1 || s->width == 2 || s->width == 4 || t <= COK_DATA_ITEM_WORDS);
         CHECK(s->indices >= 1 && s->indices <= 3 && s->size > 0);
         uint8_t byte;
@@ -128,10 +129,12 @@ static void test_shapes(void)
             if (e == 0) CHECK(offset >= s->from);
         }
     }
-    /* The names lie within the name strings. */
+    /* The names lie within the name strings (but Death Knights' item
+     * words, which lie apart). */
     for (unsigned t = COK_DATA_CLASS_NAMES; t <= COK_DATA_ITEM_WORDS; ++t) {
         const cok_data_table *s = &D->table[t];
         CHECK(s->width == s->index[0].stride);
+        if (t == COK_DATA_ITEM_WORDS && D != cok_rules_champions.data) continue;
         CHECK(cok_data_holds(D, COK_DATA_NAMES, s->from));
         CHECK(cok_data_holds(D, COK_DATA_NAMES, s->from + s->size - 1));
     }
@@ -486,6 +489,12 @@ int main(void)
     test_reads();
     test_names();
     test_assertions();
+    /* Death Knights' tables: in order, agreeing where they overlap, each
+     * named one's elements within its own bytes. */
+    D = cok_rules_death_knights.data;
+    test_order();
+    test_shapes();
+    D = cok_rules_champions.data;
     puts("test_data: ok");
     return 0;
 }

@@ -142,17 +142,18 @@ static int race(cok_adventure *game, cok_character *character)
     uint8_t race = (uint8_t)(index - 1);
     cok_field_set8(L, c, COK_FIELD_RACE, race);
     cok_field_set8(L, c, COK_FIELD_ICON_SIZE, race == 3 || race == 4 || race == 5 ? 1 : 2);
+    const cok_rules *rules = cok_game_rules(game);
     if (race == 5) {
-        add_effect(character, 0x5c);
-        add_effect(character, 0x5e);
+        add_effect(character, cok_effect_id(rules, COK_EFFECT_FEARLESS));
+        add_effect(character, cok_effect_id(rules, COK_EFFECT_CONSTITUTION_SAVE));
     } else if (race == 3 || race == 4) {
-        add_effect(character, 0x5e);
-        add_effect(character, 0x1a);
-        add_effect(character, 0x2f);
+        add_effect(character, cok_effect_id(rules, COK_EFFECT_CONSTITUTION_SAVE));
+        add_effect(character, cok_effect_id(rules, COK_EFFECT_TARGET_BONUS));
+        add_effect(character, cok_effect_id(rules, COK_EFFECT_HARD_TO_HIT));
     } else if (race == 0 || race == 1) {
-        add_effect(character, 0x5f);
+        add_effect(character, cok_effect_id(rules, COK_EFFECT_RESIST_CHARM_90));
     } else if (race == 2) {
-        add_effect(character, 0x12);
+        add_effect(character, cok_effect_id(rules, COK_EFFECT_RESIST_CHARM_30));
     }
     return key;
 }
@@ -202,7 +203,8 @@ static int class_(cok_adventure *game, cok_character *character)
         memcpy(c + cok_field_offset(L, COK_FIELD_CLASS_LEVEL), kinds[class_id].levels, 8);
         cok_field_set32(L, c, COK_FIELD_EXPERIENCE, kinds[class_id].experience);
     }
-    if (class_id == 4 || class_id == 10) add_effect(character, 0x69);
+    if (class_id == 4 || class_id == 10)
+        add_effect(character, cok_game_effect(game, COK_EFFECT_RANGER));
     if (class_id == 7) cok_field_set8(L, c, COK_FIELD_KNIGHT_ORDER, 1);
     char error[300];
     /* 66c2:0b9f's uninitialized local holds the normal colour, 0x0a, that

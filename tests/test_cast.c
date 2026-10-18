@@ -521,6 +521,10 @@ static void test_durations(void)
     game.vm.seed = 5;
     unsigned d10 = peek(0, 10);
     CHECK(cok_cast_duration(&game, 0x3f, &minutes) && minutes == (d10 + 10) * 10);
+    unsigned d4 = peek(0, 4);
+    CHECK(cok_cast_duration(&game, 0x3b, &minutes) && minutes == d4 * 10 + 40);
+    unsigned d6 = peek(0, 6);
+    CHECK(cok_cast_duration(&game, 0x28, &minutes) && minutes == d6 * 10);
     /* Magic resistance: Bless on a member of resistance 1 at caster level
      * 12 (an item's power class 4 would be; here 0x69 by a cleric of 12)
      * wraps to 254, always resisted. */
@@ -539,6 +543,29 @@ static void test_durations(void)
     CHECK(strstr(s.log, "print: KAL;print: is Blessed;") != NULL && count_effects(kal, 1) == 1);
 }
 
+/* Another game's spells section: Death Knights' Bless (dkk 5dc5:1d77) is
+ * not carried out yet, its ids end at 0x72, and its durations are its
+ * own (0x1a still fixed). The run stops before the caster is read. */
+static void test_other_game(void)
+{
+    empty_party();
+    game.vm.mode = 4;
+    add("KAL", 9, 9, 0, 5);
+    game.rules = &cok_rules_death_knights;
+    bool done = false;
+    keys("");
+    cast(1, true, &done);
+    CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "dkk 5dc5:1d77") != NULL &&
+          strstr(game.error, "Bless") != NULL);
+    keys("");
+    cast(0x73, true, &done);
+    CHECK(game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "DS:6e3a") != NULL);
+    uint16_t minutes;
+    CHECK(cok_cast_duration(&game, 0x1a, &minutes) && minutes == 0xec4);
+    game.rules = &cok_rules_champions;
+    game.vm.status = COK_ECL_OK;
+}
+
 int main(void)
 {
     cok_keyboard k = {scripted, &s, NULL, NULL};
@@ -549,6 +576,7 @@ int main(void)
     test_cast_spell();
     test_handlers();
     test_durations();
+    test_other_game();
     cok_adventure_close(&game);
     puts("cast tests passed");
     return 0;

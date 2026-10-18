@@ -322,11 +322,13 @@ bool cok_camp_spell_message(cok_adventure *game, const uint8_t *c, const char *w
                             uint8_t spell)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
-    const char *name = cok_spell_name(spell);
+    const char *name = cok_spell_name(cok_game_rules(game), spell);
     if (name == NULL) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
                            "spell %u has no name; 5b04:57eb would print the data at DS:%04x",
-                           spell, 0x2077 + 41 * spell);
+                           spell,
+                           cok_game_rules(game)->spells.names_at +
+                               cok_game_rules(game)->spells.name_size * spell);
         return false;
     }
     clear_cells(game, 1, 0x12, 0x26, 0x16);
@@ -613,9 +615,13 @@ bool cok_camp_fix(cok_adventure *game)
         if (cok_field_u8(L, c, COK_FIELD_STATUS) != 0) continue;
         for (size_t s = 0; s < cok_field_count(L, COK_FIELD_MEMORIZED); ++s) {
             uint8_t spell = cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, s);
-            if (spell == 3) pool = (uint16_t)(pool + cure(game, 0));
-            else if (spell == 0x3a) pool = (uint16_t)(pool + cure(game, 1));
-            else if (spell == 0x47) pool = (uint16_t)(pool + cure(game, 2));
+            const cok_rules *rules = cok_game_rules(game);
+            if (cok_spell_is(rules, spell, COK_SPELL_CURE_LIGHT_WOUNDS))
+                pool = (uint16_t)(pool + cure(game, 0));
+            else if (cok_spell_is(rules, spell, COK_SPELL_CURE_SERIOUS_WOUNDS))
+                pool = (uint16_t)(pool + cure(game, 1));
+            else if (cok_spell_is(rules, spell, COK_SPELL_CURE_CRITICAL_WOUNDS))
+                pool = (uint16_t)(pool + cure(game, 2));
         }
     }
     if (missing(game) == 0) {

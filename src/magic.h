@@ -13,8 +13,6 @@
  * to three spells at +0x3c-+0x3e, bit 7 set while marked to be scribed.
  * Casting itself is in cast.h. */
 
-enum { COK_SPELLS = 0x6c }; /* Ids 1-0x6b have names. */
-
 /* The spell table (DS:31b3, 16 bytes an id): its class (0 cleric, 1 druid,
  * 2 granted by a deity, 3 magic-user, 4 none), its level, and the effect
  * it adds (byte 10). Ids up to 0x7f read the original's data past the
@@ -22,9 +20,10 @@ enum { COK_SPELLS = 0x6c }; /* Ids 1-0x6b have names. */
 uint8_t cok_spell_class(const cok_rules *rules, uint8_t id);
 uint8_t cok_spell_level(const cok_rules *rules, uint8_t id);
 uint8_t cok_spell_effect(const cok_rules *rules, uint8_t id);
-/* The name of spell id 1-0x6b (DS:2077 + 41 * id), or NULL for other ids,
- * whose names would be other data. */
-const char *cok_spell_name(uint8_t id);
+/* The name of spell id 1 to the game's count - 1 (Champions' 1-0x6b,
+ * DS:2077 + 41 * id: the descriptor's names), or NULL for other ids, whose
+ * names would be other data. */
+const char *cok_spell_name(const cok_rules *rules, uint8_t id);
 
 /* Whether an item is a scroll (5b04:5728): type 0x27 or 0x28. */
 bool cok_item_is_scroll(const uint8_t *item);

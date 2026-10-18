@@ -552,30 +552,30 @@ static int ask(cok_adventure *game, cok_character *c, bool ok, const char *text,
     return answer == 'Y' ? pay(game, c, cure, price) : answer;
 }
 
-/* The diseases (DS:01c6-01cb). */
-static const uint8_t diseases[6] = {0x1f, 0x22, 0x2b, 0x2c, 0x32, 0x39};
-
 /* 340d:027f, Cure Blindness, 500: effect 0x21 goes. */
 static int cure_blindness(cok_adventure *game, cok_character *c)
 {
-    int answer = ask(game, c, cok_character_find_effect(c, 0x21) != NULL, "is not blind.",
+    uint8_t blind = cok_game_effect(game, COK_EFFECT_BLIND);
+    int answer = ask(game, c, cok_character_find_effect(c, blind) != NULL, "is not blind.",
                      "Cure Blindness", 500);
     if (answer != 'Y') return answer;
-    return remove_effect(game, c, 0x21) ? 'Y' : -1;
+    return remove_effect(game, c, blind) ? 'Y' : -1;
 }
 
 /* 340d:0323, Cure Disease, 500: while curing (DS:6b38), each disease goes,
  * then strength is recomputed (60f4:1743). */
 static int cure_disease(cok_adventure *game, cok_character *c)
 {
+    const cok_data_segment *D = cok_game_rules(game)->data;
     bool diseased = false;
-    for (size_t i = 0; i < sizeof diseases; ++i)
-        if (cok_character_find_effect(c, diseases[i]) != NULL) diseased = true;
+    for (size_t i = 0; i < cok_data_count(D, COK_DATA_DISEASES, 0); ++i)
+        if (cok_character_find_effect(c, cok_data_u8_at(D, COK_DATA_DISEASES, i)) != NULL)
+            diseased = true;
     int answer = ask(game, c, diseased, "is not Diseased.", "Cure Disease", 500);
     if (answer != 'Y') return answer;
     game->effects.rolls.curing = 1;
-    for (size_t i = 0; i < sizeof diseases; ++i)
-        if (!remove_effect(game, c, diseases[i])) return -1;
+    for (size_t i = 0; i < cok_data_count(D, COK_DATA_DISEASES, 0); ++i)
+        if (!remove_effect(game, c, cok_data_u8_at(D, COK_DATA_DISEASES, i))) return -1;
     if (!ability(game, c, 0)) return -1;
     game->effects.rolls.curing = 0;
     return 'Y';
@@ -611,10 +611,11 @@ static int wounds(cok_adventure *game, cok_character *character, unsigned kind)
     }
     cok_character_heal(c, cok_game_rules(game), amount, false, game->vm.mode);
     if (kind != 4) return 'Y';
-    if (!remove_effect(game, character, 0x21)) return -1;
-    for (size_t i = 0; i < sizeof diseases; ++i)
-        if (!remove_effect(game, character, diseases[i])) return -1;
-    if (!remove_effect(game, character, 0x44)) return -1;
+    const cok_data_segment *D = cok_game_rules(game)->data;
+    if (!remove_effect(game, character, cok_game_effect(game, COK_EFFECT_BLIND))) return -1;
+    for (size_t i = 0; i < cok_data_count(D, COK_DATA_DISEASES, 0); ++i)
+        if (!remove_effect(game, character, cok_data_u8_at(D, COK_DATA_DISEASES, i))) return -1;
+    if (!remove_effect(game, character, cok_game_effect(game, COK_EFFECT_EXPLODES))) return -1;
     for (unsigned stat = 1; stat <= 2; ++stat)
         if (!ability(game, character, stat)) return -1;
     return 'Y';
@@ -639,7 +640,9 @@ static int raise_dead(cok_adventure *game, cok_character *character)
                      "Raise Dead", 2750);
     if (answer != 'Y' || !dead || elf) return answer;
     game->effects.rolls.curing = 1;
-    if (!remove_effect(game, character, 0x20) || !remove_effect(game, character, 0x37)) return -1;
+    if (!remove_effect(game, character, cok_game_effect(game, COK_EFFECT_MAD)) ||
+        !remove_effect(game, character, cok_game_effect(game, COK_EFFECT_POISONED)))
+        return -1;
     game->effects.rolls.curing = 0;
     cok_field_set8(L, c, COK_FIELD_HIT_POINTS, 1);
     cok_field_set8(L, c, COK_FIELD_STATUS, 0);
@@ -674,13 +677,16 @@ static int neutralize_poison(cok_adventure *game, cok_character *character)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
-    bool poisoned = cok_character_find_effect(character, 0x37) != NULL;
+    bool poisoned =
+        cok_character_find_effect(character, cok_game_effect(game, COK_EFFECT_POISONED)) != NULL;
     int answer = ask(game, character, poisoned, "is not poisoned.", "Neutralize Poison", 500);
     if (answer != 'Y' || !poisoned) return answer;
     if (cok_field_u8(L, c, COK_FIELD_HIT_POINTS) == 0)
         cok_field_set8(L, c, COK_FIELD_HIT_POINTS, 1);
     game->effects.rolls.curing = 1;
-    static const uint8_t poisons[3] = {0x37, 0x16, 0x0f};
+    const uint8_t poisons[3] = {cok_game_effect(game, COK_EFFECT_POISONED),
+                                cok_game_effect(game, COK_EFFECT_SLOW_POISON),
+                                cok_game_effect(game, COK_EFFECT_POISON)};
     for (size_t i = 0; i < sizeof poisons; ++i)
         if (!remove_effect(game, character, poisons[i])) return -1;
     game->effects.rolls.curing = 0;
@@ -694,7 +700,8 @@ static int neutralize_poison(cok_adventure *game, cok_character *character)
  * the item cursed. */
 static int remove_curse(cok_adventure *game, cok_character *character)
 {
-    bool cursed = cok_character_find_effect(character, 0x24) != NULL;
+    bool cursed =
+        cok_character_find_effect(character, cok_game_effect(game, COK_EFFECT_CURSED)) != NULL;
     for (size_t i = 0; i < character->item_count && !cursed; ++i)
         cursed = character->items[i][0x36] != 0;
     int answer = ask(game, character, cursed, "is not cursed.", "Remove Curse", 1750);

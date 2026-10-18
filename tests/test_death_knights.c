@@ -56,9 +56,11 @@ static void test_lookup(void)
             CHECK(cok_field_present(R->character, (cok_field)e->field) ||
                   e->field == COK_FIELD_MEMORIZED); /* the WIZ record's */
     }
+    /* Every table of the data segment but the two it has no counterpart
+     * of. */
     for (size_t t = 0; t < COK_DATA_TABLES; ++t)
         CHECK((R->data->table[t].width != 0) ==
-              (t == COK_DATA_SAME_COLOURS || t == COK_DATA_BLACK_COLOURS));
+              (t != COK_DATA_TREASURE_TEMPLATES && t != COK_DATA_DISEASES));
     /* The archives Death Knights has not. */
     const cok_rules_archives *a = &R->archives;
     CHECK(a->sky == NULL && a->head == NULL && a->body == NULL && a->random == NULL);
@@ -324,6 +326,61 @@ static void test_executable(void)
         uint8_t byte;
         if (cok_data_byte(D, (uint16_t)o, &byte)) CHECK(*ds(o) == byte);
     }
+    /* The class and level tables (DS:71f2-82d3) follow each other without a
+     * gap: each one's count and stride end where the next begins. */
+    const cok_data_table *T = D->table;
+    CHECK(T[COK_DATA_THAC0].from + T[COK_DATA_THAC0].size == T[COK_DATA_CLASS_BITS].from);
+    CHECK(T[COK_DATA_THIEF_LEVEL].from + T[COK_DATA_THIEF_LEVEL].size ==
+          T[COK_DATA_THIEF_RACE].from);
+    CHECK(T[COK_DATA_THIEF_DEXTERITY].from + T[COK_DATA_THIEF_DEXTERITY].size ==
+          T[COK_DATA_SCORE_LIMITS].from);
+    CHECK(T[COK_DATA_SCORE_LIMITS].from + T[COK_DATA_SCORE_LIMITS].size ==
+          T[COK_DATA_RACE_CLASSES].from);
+    CHECK(T[COK_DATA_SAVING_THROWS].from + T[COK_DATA_SAVING_THROWS].size ==
+          T[COK_DATA_SPELL_LISTS].from);
+    CHECK(T[COK_DATA_SPELL_LISTS].from + T[COK_DATA_SPELL_LISTS].size == 0x82d4);
+    CHECK(T[COK_DATA_SPELLS].from + T[COK_DATA_SPELLS].size == 0x71b0);
+    /* A row of experience and spells a day: 17 levels of 4 bytes, then 17
+     * of 8 (49cb:43b6, 69a8:0000). */
+    CHECK(T[COK_DATA_EXPERIENCE].index[0].stride == 17 * 4 + 17 * 8);
+    CHECK(T[COK_DATA_SPELLS_A_DAY].index[0].stride == T[COK_DATA_EXPERIENCE].index[0].stride);
+    CHECK(T[COK_DATA_SPELLS_A_DAY].base + 2 * 8 + 1 ==
+          T[COK_DATA_EXPERIENCE].base + 2 * 4 + 17 * 4);
+    /* Each table's base in the code that reads it, as an immediate word. */
+    static const struct {
+        cok_data table;
+        unsigned segment, offset, size;
+        uint16_t base;
+    } bases[] = {
+        {COK_DATA_THAC0, 0x69a8, 0x050b, 0x400, 0},
+        {COK_DATA_CLASS_BITS, 0x69a8, 0x050b, 0x400, 0},
+        {COK_DATA_THIEF_LEVEL, 0x69a8, 0x0b3d, 0x200, 0},
+        {COK_DATA_THIEF_RACE, 0x69a8, 0x0b3d, 0x200, 0},
+        {COK_DATA_THIEF_DEXTERITY, 0x69a8, 0x0b3d, 0x200, 0},
+        {COK_DATA_SAVING_THROWS, 0x69a8, 0x08ff, 0x200, 0},
+        {COK_DATA_SPELLS_A_DAY, 0x69a8, 0x0000, 0x500, 0},
+        {COK_DATA_SPELLS, 0x69a8, 0x0000, 0x500, 0},
+        {COK_DATA_EXPERIENCE, 0x49cb, 0x43b6, 0xa00, 0},
+        {COK_DATA_TURNING, 0x5340, 0x119b, 0x300, 0},
+        {COK_DATA_SPELL_LISTS, 0x5dc5, 0x0a4e, 0x500, 0},
+    };
+    for (size_t i = 0; i < sizeof bases / sizeof *bases; ++i) {
+        uint16_t base = T[bases[i].table].base;
+        const uint8_t *code = at(bases[i].segment, bases[i].offset);
+        bool found = false;
+        for (unsigned k = 0; k + 1 < bases[i].size && !found; ++k)
+            found = code[k] == (base & 0xff) && code[k + 1] == base >> 8;
+        CHECK(found);
+    }
+    /* Names: the classes' and the item words, which lie apart. */
+    char name[256];
+    CHECK(cok_data_string(D, (uint16_t)cok_data_offset(D, COK_DATA_CLASS_NAMES, 0), name) &&
+          strcmp(name, "Cleric") == 0);
+    CHECK(cok_data_string(D, (uint16_t)cok_data_offset(D, COK_DATA_ITEM_WORDS, 1), name) &&
+          strcmp(name, "Battle Axe") == 0);
+    CHECK(cok_data_string(D, (uint16_t)cok_data_offset(D, COK_DATA_ITEM_WORDS, 125), name) &&
+          strcmp(name, "Item") == 0);
+    CHECK(!cok_data_string(D, 0x4240, name));
     /* The tile sets' first values and bounds (DS:43fa, DS:4404, 70eb:01f5). */
     for (size_t s = 0; s < 5; ++s) {
         CHECK(R->view.tile_first[s] == (ds(0x43fa)[2 * s] | ds(0x43fa)[2 * s + 1] << 8));

@@ -256,8 +256,11 @@ static bool morale(cok_adventure *game, cok_character *c, bool *over, uint8_t *s
         return true;
     }
     cr->fleeing = 1;
-    if (!cok_effects_remove(&game->effects, c, NULL, 0x4a) ||
-        !cok_effects_remove(&game->effects, c, NULL, 0x4b))
+    const cok_rules *rules = cok_game_rules(game);
+    if (!cok_effects_remove(&game->effects, c, NULL,
+                            cok_effect_id(rules, COK_EFFECT_DISPELLING)) ||
+        !cok_effects_remove(&game->effects, c, NULL,
+                            cok_effect_id(rules, COK_EFFECT_GIANT_SLAYER)))
         return cok_adventure_effect_failed(game);
     return true;
 }
@@ -335,11 +338,12 @@ bool cok_ai_spell_fits(cok_adventure *game, cok_character *c, uint8_t spell, uin
     if (!spell_byte(game, spell, 13, &priority)) return false;
     if (priority < level) return true;
     if (!spell_byte(game, spell, 14, &hostile)) return false;
-    if (spell != 3 && hostile == 0) {
+    uint8_t cure_light = cok_game_spell(game, COK_SPELL_CURE_LIGHT_WOUNDS);
+    if (spell != cure_light && hostile == 0) {
         *fits = true;
         return true;
     }
-    if (spell == 3) {
+    if (spell == cure_light) {
         cok_character *ally;
         if (!cok_cast_wounded_ally(game, c, &ally)) return false;
         if (ally != NULL) {
@@ -382,7 +386,8 @@ bool cok_ai_use_item(cok_adventure *game, cok_character *c, bool *used)
             uint8_t spell = it[0x3d];
             if (cok_item_is_scroll(it) || it[0x3e] >= 0x80 || it[0x34] == 0 || spell == 0)
                 continue;
-            if (spell > 0x38) spell = (uint8_t)(spell - 0x17);
+            const cok_rules_spells *S = &cok_game_rules(game)->spells;
+            if (spell > S->item_last) spell = (uint8_t)(spell - S->item_shift);
             bool fits;
             if (!cok_ai_spell_fits(game, c, spell, level, &fits)) return false;
             if (fits) found = i + 1;
@@ -471,7 +476,7 @@ bool cok_ai_weapon_score(cok_adventure *game, cok_character *c, size_t item, uin
     if (type[1] <= 1) s = (uint8_t)(s + 3);
     if (cok_field_u8(L, r, COK_FIELD_HANDS) + type[1] > 3) s = 0;
     if (it[0x3e] == 0x84 && (it[0x3d] & 0x0f) != cok_field_u8(L, r, COK_FIELD_ALIGNMENT)) s = 0;
-    if (it[0x3d] == 0x53) s = 0;
+    if (cok_effect_is(cok_game_rules(game), it[0x3d], COK_EFFECT_COLD_BREATH)) s = 0;
     if (it[0x36] != 0) s = 0;
     *score = s;
     return true;
@@ -665,16 +670,20 @@ bool cok_ai_can_step(cok_adventure *game, cok_character *c, uint8_t try_, uint8_
     if (cost == 0xff) return true;
     cost = (uint8_t)(cost * ((d & 1) != 0 ? 3 : 2));
     if (occupant != 0 || cost >= cr->movement) return true;
-    if (cloud && cok_character_find_effect(c, 0x20) == NULL &&
-        cok_character_find_effect(c, 0x1e) == NULL && cok_character_find_effect(c, 0x63) == NULL &&
-        cok_character_find_effect(c, 0x3f) == NULL && cr->forced == 0) {
+    const cok_rules *rules = cok_game_rules(game);
+    if (cloud && cok_character_find_effect(c, cok_effect_id(rules, COK_EFFECT_MAD)) == NULL &&
+        cok_character_find_effect(c, cok_effect_id(rules, COK_EFFECT_NAUSEA)) == NULL &&
+        cok_character_find_effect(c, cok_effect_id(rules, COK_EFFECT_POISON_IMMUNE)) == NULL &&
+        cok_character_find_effect(c, cok_effect_id(rules, COK_EFFECT_MINOR_GLOBE)) == NULL &&
+        cr->forced == 0) {
         bool made;
         if (!cok_effects_save(&game->effects, c, 0, 0, &made))
             return cok_adventure_effect_failed(game);
         if (!made) cost = (uint8_t)(cr->movement + 1);
     }
     if (puddle && cok_field_s8(L, r, COK_FIELD_HIGHEST_LEVEL) < 7 &&
-        cok_character_find_effect(c, 0x63) == NULL && cr->forced == 0)
+        cok_character_find_effect(c, cok_effect_id(rules, COK_EFFECT_POISON_IMMUNE)) == NULL &&
+        cr->forced == 0)
         cost = (uint8_t)(cr->movement + 1);
     *ok = cr->movement >= cost;
     return true;

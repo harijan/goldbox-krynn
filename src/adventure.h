@@ -360,6 +360,18 @@ static inline const cok_rules *cok_game_rules(const cok_adventure *game)
     return game->rules;
 }
 
+/* A named effect's or spell's id in the game's rules (spells.h,
+ * cok_effect_id and cok_spell_id). */
+static inline uint8_t cok_game_effect(const cok_adventure *game, cok_named_effect name)
+{
+    return cok_effect_id(cok_game_rules(game), name);
+}
+
+static inline uint8_t cok_game_spell(const cok_adventure *game, cok_named_spell name)
+{
+    return cok_spell_id(cok_game_rules(game), name);
+}
+
 /* Load the font and item types from assets and set up the VM with this module's hooks,
  * for the game rules describes (never NULL: every caller names the game).
  * keys and hooks may be NULL. Returns false with game->error set. Free with
