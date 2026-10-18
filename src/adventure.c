@@ -2113,9 +2113,10 @@ static bool effect_clouds(cok_effects *fx, uint8_t id, cok_effect *effect, cok_c
                           void *context)
 {
     cok_adventure *game = context;
-    bool ok = id == 0x28   ? cok_cloud_clear(game, c, effect)
-              : id == 0x46 ? cok_cloud_acid(game, c)
-                           : cok_cloud_drain(game, c, effect);
+    const cok_rules *rules = cok_game_rules(game);
+    bool ok = cok_effect_is(rules, id, COK_EFFECT_CLOUD)        ? cok_cloud_clear(game, c, effect)
+              : cok_effect_is(rules, id, COK_EFFECT_ACID_DEATH) ? cok_cloud_acid(game, c)
+                                                                 : cok_cloud_drain(game, c, effect);
     return ok || effect_hook_failed(fx, game);
 }
 
@@ -2620,10 +2621,12 @@ cok_ecl_status cok_adventure_enter_block(cok_adventure *game, uint8_t block)
 /* The game clock. */
 
 /* Advance moon i's days in its phase (0x4cfc-0x4cfe), and once they reach
- * days, its phase (0x4cf9-0x4cfb), redrawing it on the frame (57e4:001e). */
-static void moon(cok_adventure *game, unsigned i, uint16_t days)
+ * its days (the game's moons), its phase (0x4cf9-0x4cfb), redrawing it on
+ * the frame (57e4:001e). */
+static void moon(cok_adventure *game, unsigned i)
 {
-    static const uint8_t column[3] = {8, 19, 30}, tile[3] = {10, 6, 14};
+    const cok_rules_moons *moons = &cok_game_rules(game)->moons;
+    uint16_t days = moons->days[i];
     cok_ecl *vm = &game->vm;
     uint16_t in_phase = cok_ecl_var_at(vm, COK_VAR_MOON_DAYS, i);
     if (in_phase < days) {
@@ -2632,9 +2635,10 @@ static void moon(cok_adventure *game, unsigned i, uint16_t days)
     }
     uint16_t phase = cok_ecl_var_at(vm, COK_VAR_MOONS, i);
     cok_ecl_set_var_at(vm, COK_VAR_MOONS, i, (uint16_t)(phase < 3 ? phase + 1 : 0));
+    uint16_t phase_now = cok_ecl_var_at(vm, COK_VAR_MOONS, i);
     cok_view_tile(&game->screen, &game->view,
-                  0x114u + ((cok_ecl_var_at(vm, COK_VAR_MOONS, i) + tile[i]) & 0xff), column[i],
-                  0, false);
+                  moons->tile_base + ((phase_now + moons->tile[i]) & 0xff), moons->column[i], 0,
+                  false);
     cok_ecl_set_var_at(vm, COK_VAR_MOON_DAYS, i, 0);
 }
 
@@ -2659,9 +2663,9 @@ static void carry(cok_adventure *game, uint16_t clock[7])
         ++clock[i + 1];
         clock[i] -= cok_clock_units[i];
         if (i == 3) {
-            moon(game, 0, 8);
-            moon(game, 1, 1);
-            moon(game, 2, 6);
+            moon(game, 0); /* 57e4:0143 */
+            moon(game, 1);
+            moon(game, 2);
         }
     }
 }
@@ -3158,7 +3162,7 @@ static uint8_t *memorized(cok_adventure *game, uint8_t spell)
  * it, and the party passes the door once; the door stays locked. */
 static bool knock(cok_adventure *game)
 {
-    uint8_t *spell = memorized(game, 0x1f);
+    uint8_t *spell = memorized(game, cok_game_spell(game, COK_SPELL_KNOCK));
     if (spell == NULL) return false;
     *spell = 0;
     return true;
@@ -3177,7 +3181,9 @@ static bool locked_door(cok_adventure *game, uint8_t passage)
     char items[41] = "";
     if (game->door_tries[0]) append(items, sizeof items, "Bash");
     if (game->door_tries[1] && has_class(game, 6)) append(items, sizeof items, " Pick");
-    if (game->door_tries[2] && memorized(game, 0x1f) != NULL) append(items, sizeof items, " Knock");
+    if (game->door_tries[2] &&
+        memorized(game, cok_game_spell(game, COK_SPELL_KNOCK)) != NULL)
+        append(items, sizeof items, " Knock");
     append(items, sizeof items, " Exit");
     if (strcmp(items, " Exit") == 0) return false;
     bool special;

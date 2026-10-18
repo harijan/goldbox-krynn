@@ -7,6 +7,7 @@
  * (data_champions.c), for its descriptor (rules.c), which alone includes
  * this; shared code and the tests read it through the descriptor (data.h). */
 
+extern const uint8_t cok_champions_diseases[6];
 extern const uint8_t cok_champions_ways[37];
 extern const uint8_t cok_champions_quadrants[4][4];
 extern const int8_t cok_champions_start_columns[2][4];

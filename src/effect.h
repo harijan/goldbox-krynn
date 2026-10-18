@@ -54,7 +54,6 @@ typedef struct {
 } cok_rolls;
 
 enum {
-    COK_EFFECT_IDS = 0x79,   /* Handler table, DS:6b94-6d77. */
     COK_EFFECT_TIMED = 0x48, /* DS:46b4. */
 };
 

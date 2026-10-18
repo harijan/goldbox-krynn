@@ -187,10 +187,13 @@ segment's tables, a section to a concern:
 | `saves` | saved games (`SAVGAM` letter `.DAT`) and their characters' names (`CHRDAT` letter number); a character's extensions: in a saved game, in the roster, its items, its effects; the debug mode's trace | `SAVGAM`, `DAT`, `CHRDAT`, `SAV`, `WHO`, `STF`, `SFX`, `DEBUG.TXT` |
 | `images` | the archives `daximages` and `daxcompose` read, by layout: XOR deltas, collections, single images; stems, `NULL`-ended; and the frames a header's count byte 0xff gives (`frames_ff`: 255 where the loader takes the byte, `127f:1c2f`; Death Knights' 256, its 256-tile sets) | `PIC1-3`; `SPRIT1-3`; the 20 others; 255 |
 | `character` | the character record's layout (`src/field.h`): its size, its file's size, and where each field lies | 409 bytes, the fields below |
-| `data` | the original's data segment (`src/data.h`): the tables the port copied from it, by DS offset, and where each table the code reads lies and its shape | 45 tables (`src/data_champions.c`), 57 named; see below |
+| `data` | the original's data segment (`src/data.h`): the tables the port copied from it, by DS offset, and where each table the code reads lies and its shape | 46 tables (`src/data_champions.c`), 58 named; see below |
 | `ecl` | the ECL's opcodes, by opcode byte (`cok_rules_opcode`): what each does (`meaning`, a `cok_ecl_opcode`), the operands its handler loads (or a list over a header of `header` operands, or none ever), the operands a failed `IF` skips with it, and the handler the port does not carry out yet (`unported`, cited); the routines `CALL` runs by address (`calls`); the bytes a variable address holds (`variable_bytes`); the variables code reads and writes by name (`vars`, a `cok_rules_var` each: address, width, elements, the value a flag is off at); what a block's start sets (`start`); the special addresses read and stored (`reads`, `stores`); the selected character's fields at `0x7c00`-`0x7fff` (`character`, a `cok_rules_character_var` each, and `class_bits` for a field of class bits); and three handlers' constants: `COMPARE AND` of strings, `DELAY`'s wait, `HORIZONTAL MENU`'s single item (see ECL scripts) | its 66 opcodes, each its own meaning (`2fd3:0050-36dc`, `3775:1e74`), none unported; `2e10` redraw, `b203` sound, `c01e` step, `c018` wall ahead, `6803` animate (`2fd3:329b`); 2; 53 names, each a word; the portrait 0xff, the rest's encounters 0, magic allowed (`3775:01e8`); 10 reads, 8 stores (`3775:0fca`, `0e06`); 36 entries (`3775:07d9`, `0c00`); values only, the speed's, yes |
 | `view` | the 3D view's tile sets (each one's first and last value, `6e22:01ab`), the wall slot that holds wall types 1-5 and that `LOAD PIECES`' two-set path loads first, whether a record's wall sets share one tile set and whether tile values are moved by the slot's set; the overhead map's tiles; `PICTURE`'s overland map | 1-0x2d, ..., 0x100-0x127 (`DS:1ec2`); slot 1; a tile set each, moved (`69ea:1025`, `1230`); 0x104 and 0x100; 0x79 |
 | `startup` | what startup loads past the font (`3e99:005b`): tile sets from `<tiles>1` and the missiles' icons from `COMSPR`, as (first id, first slot, count) | sets 4 and 0, records 202 and 203; 0-11 into 13-24, 25 into 25 |
+| `spells` | what is keyed by spell id (`magic.c`, `cast.c`): the ids' count; their names and the spell lists' headings, with their tables' DS offsets and sizes for the messages; each id's handler (`cok_rules_cast`: the port's, a `cok_cast_handler`, and the original's address, or `unported`); the durations not taken from the spell table (`cok_rules_duration`); the spell ids the code names (`ids`, by `cok_named_spell`); the spell lists' sizes; the granted powers' ids; an item power's spell; Display's search; byte 7's values for the caster, one picked and the party | ids 1-0x6b (`DS:2077` + 41 × id, `DS:0bfa` + 41 × level), the handlers `5b04:58ed` stores at `DS:6e3a`, 7 durations (`5b04:0f78`), 23 names; 58 and 49 (`DS:473a`, `4774`); 101-107; above 0x38, 0x17 less (`3afb:04b2`); spells 1-0x38 (`4888:17ae`); 1, 2, 4 (`5b04:127e`) |
+| `effects` | what is keyed by effect id (`effect.c`, `cast.c`, `magic.c`): the ids' count; each id's handler (`cok_rules_effect`, as the spells'); the ids each event runs; the ids the party shares and Prayer's reach; those magic resistance leaves pending; the effect ids the code names (by `cok_named_effect`); Display's ids and texts; the rules' routines a game does not have ported yet (the caster level, the saving throw, magic resistance) | 0x79 (`DS:6b94`, `5b04:58ed` and `3f44:38ea`), events 1-0x18 (`60f4:057c`), 0x15, 0x2d, 0x2e, 0x31 and 0x31 from 6 squares (`60f4:0332`, `0352`), 0x5b and 0x52 (`60f4:04f3`), 80 names, `4888:17ae`'s; none |
+| `moons` | the three moons (`57e4:001e`, `0143`): the days each stays in a phase, and on the frame each one's column and tile | 8, 1, 6 days; columns 8, 19, 30; tiles 0x114 + phase + 10, 6, 14 |
 | `unplayable` | why `cok` cannot play the game yet, or `NULL`: `cok`, and `eclplay`'s title and saved games, refuse it with that message | `NULL` |
 
 A `NULL` stem says the game has no such archive (Death Knights has no
@@ -205,6 +208,10 @@ Champions). Most record ids are still in the code that reads them (`SKY`'s
 drivers' 4 and 5); the startup's tile sets and icons are the `startup`
 section's; one that a game reads from another file goes in a
 `cok_rules_record` (Death Knights' cursor is `8X8D1` record 204).
+`archives.monster_spells` names a fourth kind of monster file, the
+monsters' spells, where a game keeps them apart from the record (Death
+Knights' `MON1WIZ`, as its characters' `.WIZ`; `NULL` in Champions,
+whose record holds them): its name only, which step 2 reads.
 
 To add to it: put the field in the section of its concern (a new
 section, a struct of its own, for a new concern: the character record's
@@ -259,18 +266,29 @@ It holds:
 - its startup: the frame's tile set alone, `COMSPR` 0-12 into 13-25
   (`4f9a:00e1` loads 0-21 into 13-34, past the port's 26 icon slots until
   combat is read);
-- two tables of its data segment, an icon's recolouring (`DS:42de`,
-  `42ee`);
+- its data segment's tables (`src/data_death_knights.c`): all but the
+  treasure templates and the temple's diseases, which it has no
+  counterpart of, each with the routine that reads it (see The data
+  segment's tables);
+- its spells and effects (see The spells and effects): names (`DS:5825`
+  + 41 × id, ids 1-0x72) and headings (`DS:3770` + 11 × level), the
+  handler tables (127 of its 235 ids run Champions' handler, the others
+  are unported), durations (`5dc5:0ef5`), byte 7's party value 3
+  (`5dc5:1182`), the event lists (`638c:055b`), and its cast
+  (`5dc5:1298`), caster level, saving throw and magic resistance not
+  ported yet; `MON1WIZ`; its moons'
+  tiles, 0x100 + phase + 0x15, 0x0d and 0x11 (`5b7d:0000`);
 - `unplayable`: `cok --game death-knights`, `eclplay`'s `--start-menu`,
   `--load` and `--party` refuse it, saying it is not playable yet.
 
 What step 1 does not reach is left out: the character record's layout
 holds only the 30 fields its ECL's character table names (at their
 offsets in its 216-byte `.GAM` record: `3c1e:073a`, `0a9a`, cross-checked
-with the import `46b2:10d7`), its size 0, and every other table of the
-data segment width 0, so that a read of another field or table stops at
-its accessor's assertion ("the game's records have no such field", "the
-game's data segment has no such table"), as does a variable it has not
+with the import `46b2:10d7`), its size 0, so that a read of another field
+stops at its accessor's assertion ("the game's records have no such
+field"), as does a table of the data segment it has not ("the game's data
+segment has no such table"), a spell or effect it does not name ("the
+game has no such spell", "effect") and a variable it has not
 (`cok_ecl_var`: "the game has no such variable"); a monster or NPC read
 (`cok_monster_read`, whose layout's size is 0) stops the run instead with
 `COK_ECL_UNPORTED` and "not yet ported: Death Knights of Krynn's monsters
@@ -279,7 +297,9 @@ carried out yet (see ECL scripts). The
 screens' frames are still Champions' (`screen.c`): Death Knights' are
 other tiles of its frame's set (`110f:0000`, `0162`), not read yet.
 `tests/test_death_knights.c` checks the descriptor against
-`build/death-START_FULL.EXE` (the two tables, the tile sets' bounds, the
+`build/death-START_FULL.EXE` (its tables byte for byte, the level tables
+following each other without a gap, each table's base in the code that
+reads it, the names, the tile sets' bounds, the
 wall sets' and `SPRIT4`'s files, startup's names, the version; the ECL
 table, by following the compares of the skips `3c1e:1b48` and the dispatch
 `3632:2a54` for each opcode and reading the operands its handler loads
@@ -533,9 +553,11 @@ cite the data segment but the port never held as its copy of it: the
 screen's frames
 and colours, CGA's and the mouse's tables, the keypad's and the view's
 keys, the 3D view's places and tile sets, the start menu's items, the
-spells' and levels' names (for the spells' part), the shop's diseases,
-the treasure's coin names and rates, the icon sizes' letters, the sound's
-effects. A later part moves those a game changes.
+treasure's coin names and rates, the icon sizes' letters, the sound's
+effects. A later part moves those a game changes. The spells' names and
+the spell lists' headings are the `spells` section's (see The spells and
+effects); the temple's diseases (`DS:01c6`) are a table here,
+`COK_DATA_DISEASES`.
 
 To add a table: its bytes in `src/data_champions.c` as the original
 holds them, with a comment citing its DS range and what it is, declared in
@@ -556,9 +578,88 @@ its messages, which print the DS offset as before.
 
 A game's shapes differ (Death Knights' levels go to 18: THAC0 rows of 19,
 saving throws 90 bytes a class, spells a day and experience rows of 204
-with a spell level's 8 bytes apart, turning undead's rows of 11, every
-base moved); its descriptor gives its own bases, strides, counts and
-bytes, and the code that reads through the names follows.
+with a spell level's 8 bytes apart, three spell lists of 8 levels,
+turning undead's rows of 11, every base moved); its descriptor gives its
+own bases, strides, counts and bytes, and the code that reads through the
+names follows. A game's name strings may lie in more than one run: Death
+Knights' item words lie apart from its other names, and
+`cok_data_string` reads a name within either (`COK_DATA_NAMES`, or
+`COK_DATA_ITEM_WORDS` where they are not within it).
+
+### The spells and effects
+
+What is keyed by spell id and effect id is the `spells` and `effects`
+sections' (`src/rules.h`), so that a game brings its own spells and its
+own handler of each id. Shared code never compares an id with a number:
+
+- Ids the code names are named (`src/spells.h`: `cok_named_spell`,
+  `cok_named_effect`, each with Champions' id and the routine it is
+  from), and a game's `spells.ids` and `effects.ids` give each its id, 0
+  for one it has not. `cok_spell_id(rules, COK_SPELL_KNOCK)` and
+  `cok_effect_id(rules, COK_EFFECT_INVISIBLE)` (in the game's code
+  `cok_game_spell(game, ...)`, `cok_game_effect(game, ...)`; in `cast.c`
+  and `effect.c` the macros `SPELL(KNOCK)` and `EFFECT(INVISIBLE)`) assert
+  that the game has it, as a field or a table a game has not; a test of
+  an id goes through `cok_spell_is` and `cok_effect_is` (`IS_SPELL`,
+  `IS_EFFECT`), false for a name the game has not, so that a handler
+  shared by several ids (the poisons' `h_poison`, the breaths' dispatch)
+  does not stop at a sibling the game lacks. The ids the messages cite
+  stay Champions', with the handlers' addresses. A test that a character
+  has a named effect goes through `cok_character_find_named` (`party.h`),
+  NULL for a name the game has not. A value of a record's or an item's
+  byte that both games test alike is not an id: it stays a constant, or a
+  descriptor value where it is the game's (`spells.weapon_unscored`,
+  0x53, the weapon score's test of an item's +0x3d, `3afb:14ca`).
+- Each id's handler is a table entry: `spells.cast[id]` (`cok_rules_cast`)
+  and `effects.handlers[id]` (`cok_rules_effect`) hold the port's handler,
+  a `cok_cast_handler` or `cok_effect_handler` (one each of `cast.c`'s and
+  `effect.c`'s handlers, by its function's name: `COK_CAST_PROTECTED` is
+  `protected`, `COK_FX_HELD` is `h_held`), and the original routine's
+  offset; `cast.c` and `effect.c` hold a function by kind and dispatch
+  through the game's table, as the original through `DS:6e3a` and
+  `DS:6b94`. An entry with `unported` set (the game's routine, "dkk
+  5dc5:1daa") stops the run where the port would run it: casting stops
+  with `COK_ECL_UNPORTED`, an effect's handler fails.
+- What else differs by id is data: the durations not taken from the
+  spell table, each a rule (`cok_duration_rule`) and its minutes; byte
+  7's values (caster, one picked, the party); the ids each event runs,
+  the ids the party shares, those magic resistance leaves pending;
+  Display's ids and texts; the spell lists' sizes, the granted powers'
+  ids, an item power's spell; the counts that bound the tables.
+- Where a game's rule routine differs and is not ported yet, its section
+  says so (`spells.cast_unported`, `effects.caster_level_unported`,
+  `save_unported`, `resistance_unported`): a cast, the caster level, the
+  saving throw and magic resistance then stop or fail rather than run
+  Champions' rule. Loops over spell levels and list entries are bounded
+  by the tables' shapes (`COK_DATA_SPELL_LISTS`: Champions' 4 levels,
+  Death Knights' 8), and each game's list sizes are at most
+  `COK_SPELL_LIST_MOST`, `magic.c`'s arrays.
+
+To add a spell or effect handler: its function in `cast.c` or `effect.c`,
+its kind in `src/spells.h` and the function in the file's table by kind,
+and the ids that run it in each game's table. To name an id: add it to
+the enum with Champions' id and routine in a comment, give it in each
+game's `ids` (0 where the game has not it), and read it through the
+lookups. `tests/test_magic_rules.c` checks each game's names and headings
+byte for byte, its handler tables against the stores of the routines
+that fill them at startup (through the thunks), its event lists against
+the dispatch's calls, the shared ids against the set the dispatch tests,
+byte 7's values against the target routine's compares, the weapon
+score's item byte, the learning list's levels and the moons against
+their routines, in both executables; that ids of
+one routine have one handler; and that every handler kind is one of
+Champions'.
+
+Death Knights' tables were made from its executable and Champions': its
+handler tables (`DS:c150` by `5dc5:5622`, `DS:be7e` by `5dc5:5622` and
+`504d:2948`) and each handler's code compared with Champions' instruction
+by instruction (string arguments by their text, calls through the
+routines they map to, thunks followed), an id taking Champions' handler
+where the routine is the same but for data segment addresses and the
+record's offsets (by the import's block moves, `46b2:10d7`), else
+unported. Its named ids are Champions' where its handler of the id is
+Champions' routine, or where a shared handler uses the id unchanged;
+others are 0.
 
 ## Playing
 
@@ -3164,16 +3265,18 @@ lacks it; below, its 0x3e goes. Removing an effect not in the list makes the ori
 `cok_effects_dispatch` runs the handlers for event 1-0x18 (`60f4:057c`),
 each a fixed list of effect ids, in order; for each id the target's first
 effect with it, or, for the ids the party shares (0x15, 0x2d, 0x2e and
-0x31, the set at `60f4:0332`), the first record's in the list, a
-monster's too, when the target has none (`60f4:0352`); in combat only a
-holder that has the target within 6 cells (Prayer, 0x31) or 1 (the others)
-on the map counts (see The rounds). Events 6 and 9 first check magic
+0x31, the set at `60f4:0332`; the game's `effects.shared`), the first
+record's in the list, a monster's too, when the target has none
+(`60f4:0352`); in combat only a holder that has the target within 6
+cells (Prayer, 0x31) or 1 (the others) on the map counts (see The
+rounds). Events 6 and 9 first check magic
 resistance (`60f4:04f3`) when the target has some (`+0x187`), an effect
 is pending (`6b2f`) and no damage is, or magic damage (`6b31` bit 8): a
 d100 up to the resistance plus 5 for each level the caster (the selected
 character, `cok_effects_caster_level`, see Casting) has of the spell
 (`6b33`) below 11, as a byte, clears the damage and the effect (but for
-0x5b and 0x52). Handlers come from the table at `DS:6b94` that
+0x5b and 0x52). Handlers come from the table at `DS:6b94` (the game's
+`effects.handlers`, see The spells and effects) that
 `5b04:58ed` fills at startup (`3e99:0835`), and `3f44:38ea` after it
 (`3e99:083a`), and get the flag (0 from the
 dispatch, 1 on removal), the effect (the holder's, for a shared one) and
@@ -3636,7 +3739,8 @@ The port keeps these quirks of the original:
   with `COK_ECL_UNDEFINED`, as it does where `4888:0700`, for a level or
   class past the spell table's, reads a far pointer, where a list would
   show a spell with no name (ids 0 and 0x6c-0x7f) or a level past 9, or
-  hold more than 58 spells or 49 scroll spells, and where scribing frees a
+  hold more than 58 spells or 49 scroll spells (the game's
+  `spells.list_spells` and `list_scrolls`), and where scribing frees a
   readied scroll.
 
 A differential test ran the original routines in an 8086 emulator
@@ -3658,7 +3762,8 @@ interactive rest and the menus were tested in the port only.
 
 `src/cast.h` ports casting outside combat from overlay `5b04`: the cast
 (`5b04:1415`), its targets (`5b04:127e`) and the handler of each spell
-from the table at `DS:6e3a`, which `5b04:58ed` fills at startup.
+from the table at `DS:6e3a`, which `5b04:58ed` fills at startup (the
+game's `spells.cast`, see The spells and effects).
 `cok_magic_cast` (`src/magic.h`) is Cast (`4888:0a0d`), from the camp's
 Magic menu and from the adventure's commands. It clears the spell target
 (`DS:710b`) and, unless the character is in no condition to
@@ -3685,7 +3790,8 @@ A cast (`5b04:1415`) is made by the selected character:
   name and "miscasts" on row 19, the spell's name on row 20), keeping the
   spell.
 - Otherwise, from memory, it "casts" the spell, said the same way.
-- The targets (`5b04:127e`), by byte 7: 1 the caster; 2 a member picked
+- The targets (`5b04:127e`), by byte 7 (the values the game's
+  `spells.target_*` give): 1 the caster; 2 a member picked
   with "Cast Spell on whom" and `Select Exit` (`6346:32c7`, from the last
   target or the caster, after redrawing the screen); 4 the whole party.
   With a target, the caster's invisibility (0x19) ends (`60f4:1408`), a
@@ -3707,7 +3813,8 @@ order) is in phase 0 and gains one in phase 2 above level 5. While an
 item is used the level is 6, but for class 4. Levels are signed bytes.
 A spell lasts (`5b04:0f78`) the caster level times byte 5 plus byte 4
 minutes, but 0x1a 3780, 0x28 1d6 × 10, 0x39 and 0x3d 5d4, 0x3b 1d4 × 10
-+ 40, 0x3f (1d10 + 10) × 10 (2d10 × 10 in combat) and 0x43 1440.
++ 40, 0x3f (1d10 + 10) × 10 (2d10 × 10 in combat) and 0x43 1440 (the
+game's `spells.durations`).
 
 Most handlers apply the spell (`5b04:1071`) to each target left in the
 list: a saving throw if byte 8 is set (of type byte 9), damage if any

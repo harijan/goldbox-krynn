@@ -77,7 +77,7 @@ tables), the spell table is reworked and turning undead changed.
 **Rules.** The same classes, races, deities and alignments. Levels go to 18.
 Nine reversed cleric spells are gone and about twenty spells are new (Harm,
 Heal, Restoration, Barkskin, Death Spell, Disintegrate, Power Word Stun, Mind
-Blank and others), and spell ids are reused for other spells. New: a
+Blank and others), and spell ids are reused for other spells (1-0x72; the spell lists go to level 8). The moons are drawn with other tiles (0x100 + 0x15, 0x0d, 0x11 + phase; Champions 0x114 + 10, 6, 14). New: a
 leadership ability at the start of combat, aging and the Elixir of Youth, the
 vault, and importing Champions characters (dkk `46b2:10d7` converts the
 409-byte record field by field). No copy protection; no mounted combat.
@@ -99,7 +99,7 @@ after.
 | R3 | The data-segment tables in the descriptor; named lookups for `ds_byte` arithmetic | Done |
 | R2d | The same as R2a: ecl, adventure, monster, eclplay | Done |
 | D1 | Read Death Knights headless (step 1 below), to try the descriptor on the real game before the rest; the ECL's opcode table and variable width moved into the descriptor | Done |
-| R5 | Spell names; the spell table (dkk DS:6a80, 16 bytes an id); spell and effect handler tables by each game's own ids; the spell count (the ECL's bound, 73 in Death Knights); MON1WIZ as a fourth monster file; levels to 18, moons and deities in the descriptor | |
+| R5 | Spell names; the spell table (dkk DS:6a80, 16 bytes an id); spell and effect handler tables by each game's own ids; the spell count (ids 1-0x72 in Death Knights; the memorized spells, the ECL's SPELL bound, are 73); MON1WIZ as a fourth monster file; levels to 18, moons and deities in the descriptor. Of Death Knights' 235 spell and effect ids, 127 share Champions' handlers; the rest, and its cast entry, wait for step 3 | Done |
 | R4 | The variables by name and width (the ~190 raw reads and writes of the variable memory outside `ecl.c`); the ECL's character fields (0x7c00-0x7fff, dkk `3c1e:073a`/`0a9a`) and special addresses per game; the handlers that kept their meaning but changed (HORIZONTAL MENU, DELAY, COMPARE AND, GETTABLE and SAVE TABLE's widths; PROGRAM, SPELL, ADD EP, COMBAT, DAMAGE, LOAD MONSTER stop until their parts); SETUP MONSTERS' fourth operand | Done |
 
 R2c and R3 ran side by side, as did R3 and R2d. After R2d, Death Knights is

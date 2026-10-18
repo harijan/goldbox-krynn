@@ -30,6 +30,14 @@ typedef struct {
     cok_character **targets;
 } cast;
 
+/* A named spell's or effect's id in the game (spells.h), for code that has
+ * the game. */
+#define SPELL(name) cok_spell_id(cok_game_rules(game), COK_SPELL_##name)
+#define EFFECT(name) cok_effect_id(cok_game_rules(game), COK_EFFECT_##name)
+#define IS_SPELL(id, name) cok_spell_is(cok_game_rules(game), id, COK_SPELL_##name)
+#define IS_EFFECT(id, name) cok_effect_is(cok_game_rules(game), id, COK_EFFECT_##name)
+#define FIND_EFFECT(c, name) cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_##name)
+
 /* Byte column of the spell table (DS:31b3, 16 bytes an id): 2 range, 4 and
  * 5 the duration, 7 how it is targeted outside combat, 8 and 9 the saving
  * throw, 10 the effect it adds. */
@@ -89,19 +97,25 @@ static bool level_of(cok_adventure *game, uint8_t spell, uint8_t *level)
 
 bool cok_cast_duration(cok_adventure *game, uint8_t spell, uint16_t *minutes)
 {
-    switch (spell) {
-    case 0x1a: *minutes = 0xec4; return true;
-    case 0x28: *minutes = (uint16_t)(roll(game, 1, 6) * 10); return true;
-    case 0x39: case 0x3d: *minutes = roll(game, 5, 4); return true;
-    case 0x3b: *minutes = (uint16_t)(roll(game, 1, 4) * 10 + 40); return true;
-    case 0x3f:
-        if (game->vm.mode == 5)
-            *minutes = (uint16_t)(roll(game, 2, 10) * 10);
-        else
-            *minutes = (uint16_t)((roll(game, 1, 10) + 10) * 10);
-        return true;
-    case 0x43: *minutes = 0x5a0; return true;
-    default: break;
+    const cok_rules_spells *S = &cok_game_rules(game)->spells;
+    for (unsigned i = 0; i < S->duration_count; ++i) {
+        const cok_rules_duration *d = &S->durations[i];
+        if (d->spell != spell) continue;
+        switch (d->rule) {
+        case COK_DURATION_FIXED: *minutes = d->minutes; return true;
+        case COK_DURATION_D6_TENS: *minutes = (uint16_t)(roll(game, 1, 6) * 10); return true;
+        case COK_DURATION_5D4: *minutes = roll(game, 5, 4); return true;
+        case COK_DURATION_D4_TENS_40:
+            *minutes = (uint16_t)(roll(game, 1, 4) * 10 + 40);
+            return true;
+        case COK_DURATION_INVISIBLE:
+            if (game->vm.mode == 5)
+                *minutes = (uint16_t)(roll(game, 2, 10) * 10);
+            else
+                *minutes = (uint16_t)((roll(game, 1, 10) + 10) * 10);
+            return true;
+        default: break;
+        }
     }
     uint8_t level;
     if (!level_of(game, spell, &level)) return false;
@@ -292,7 +306,8 @@ bool cok_cast_damage(cok_adventure *game, cok_character *c, uint8_t amount, uint
             if (!cok_arena_say(game, c, text, (uint8_t)(game->vm.cursor.y + 1), false) ||
                 !cok_combat_battle_only(game, c))
                 return false;
-            int stale = cok_character_find_effect(c, 0x4d) != NULL ? COK_ARENA_STALE_UNKNOWN : 0;
+            int stale =
+                FIND_EFFECT(c, BERSERK) != NULL ? COK_ARENA_STALE_UNKNOWN : 0;
             if (!dispatch(game, c, 0x0d)) return false;
             if (cok_field_u8(L, record, COK_FIELD_ACTIVE) == 0 &&
                 cok_field_u8(L, record, COK_FIELD_STATUS) != 10) {
@@ -432,7 +447,8 @@ static bool sided(cast *cx, uint8_t side, const char *text)
         if (cok_field_u8(L, t[i]->record, COK_FIELD_HOSTILE) == side) {
             /* In combat Bless leaves out an ally with an enemy beside it. */
             uint8_t spell = game->effects.rolls.spell;
-            if (!((spell == 1 || spell == 0x69) && game->vm.mode == 5)) continue;
+            if (!((IS_SPELL(spell, BLESS) || IS_SPELL(spell, BLESS_POWER)) && game->vm.mode == 5))
+                continue;
             uint8_t enemies;
             if (!cok_combat_enemies(game, t[i], 1, &enemies)) return false;
             if (enemies == 0) continue;
@@ -520,7 +536,7 @@ static bool enlarge(cast *cx)
     say(game, c, "is stronger");
     uint16_t minutes;
     return cok_cast_duration(game, game->effects.rolls.spell, &minutes) &&
-           add_raw(game, c, 0x0c, minutes, value, true) && ability(game, c, 0);
+           add_raw(game, c, EFFECT(ENLARGED), minutes, value, true) && ability(game, c, 0);
 }
 
 /* 230c, Reduce: unless the target saves (type 4), its first 0x0c goes. */
@@ -531,8 +547,8 @@ static bool reduce(cast *cx)
     if (c == NULL || game->spell_target_count == 0) return true;
     bool made;
     if (!save(game, c, 4, &made)) return false;
-    if (made || cok_character_find_effect(c, 0x0c) == NULL) return true;
-    if (!remove_effect(game, c, NULL, 0x0c) || !ability(game, c, 0)) return false;
+    if (made || FIND_EFFECT(c, ENLARGED) == NULL) return true;
+    if (!remove_effect(game, c, NULL, EFFECT(ENLARGED)) || !ability(game, c, 0)) return false;
     say(game, c, "has been reduced");
     return true;
 }
@@ -568,12 +584,13 @@ static bool slow_poison(cast *cx)
         cx->targets[1] = NULL;
         return true;
     }
-    if (cok_character_find_effect(c, 0x37) == NULL) return true;
+    if (FIND_EFFECT(c, POISONED) == NULL) return true;
     if (cok_field_u8(L, r, COK_FIELD_HIT_POINTS) == 0)
         cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 1);
     cok_field_set8(L, r, COK_FIELD_STATUS, 0);
     cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
-    return apply(cx, 0xff, true, 0, 0, "is affected") && add_raw(game, c, 0x0f, 10, 0xff, true);
+    return apply(cx, 0xff, true, 0, 0, "is affected") &&
+           add_raw(game, c, EFFECT(POISON), 10, 0xff, true);
 }
 
 /* 2877, Spiritual Hammer: effect 0x17, then its handler, which gives the
@@ -583,7 +600,8 @@ static bool hammer(cast *cx)
     cok_adventure *game = cx->game;
     if (!apply(cx, 0, true, 0, 0, "")) return false;
     cok_character *c = first(cx);
-    return c != NULL && (cok_effects_run(&game->effects, c, 0x17, NULL) || effect_failed(game));
+    return c != NULL &&
+           (cok_effects_run(&game->effects, c, EFFECT(HAMMER), NULL) || effect_failed(game));
 }
 
 static bool invisible(cast *cx)
@@ -640,7 +658,8 @@ static bool strength(cast *cx)
     if (!stronger(L, r, value, exceptional, &ignored)) return true;
     uint16_t minutes;
     return cok_cast_duration(game, game->effects.rolls.spell, &minutes) &&
-           add_raw(game, c, 0x26, minutes, (uint8_t)(bonus + 100), true) && ability(game, c, 0);
+           add_raw(game, c, EFFECT(STRENGTH), minutes, (uint8_t)(bonus + 100), true) &&
+           ability(game, c, 0);
 }
 
 /* 3000 (Animate Dead), 3d8c (Restoration), 42a7 (Cure Critical Wounds),
@@ -670,10 +689,11 @@ static bool cure_disease(cast *cx)
     cok_character *c = first(cx);
     if (c == NULL) return false;
     game->effects.rolls.curing = 1;
-    bool cured, ok = cure(game, c, 0x22, &cured) && cure(game, c, 0x2b, &cured);
+    bool cured, ok = cure(game, c, EFFECT(DISEASE), &cured) &&
+                     cure(game, c, EFFECT(STRENGTH_DRAIN), &cured);
     if (ok && cured)
-        ok = remove_effect(game, c, NULL, 0x2c) && remove_effect(game, c, NULL, 0x1f) &&
-             ability(game, c, 0);
+        ok = remove_effect(game, c, NULL, EFFECT(WASTING)) &&
+             remove_effect(game, c, NULL, EFFECT(HELPLESS)) && ability(game, c, 0);
     game->effects.rolls.curing = 0;
     return ok;
 }
@@ -758,7 +778,8 @@ static bool remove_curse(cast *cx)
 bool cok_cast_remove_curse(cok_adventure *game, cok_character *target)
 {
     game->spell_targets[1] = target; /* DS:6feb alone; the count stays. */
-    cast cx = {.game = game, .caster = target, .spell = 0x2b, .targets = game->spell_targets};
+    cast cx = {.game = game, .caster = target, .spell = SPELL(REMOVE_CURSE),
+               .targets = game->spell_targets};
     return remove_curse(&cx);
 }
 
@@ -832,7 +853,8 @@ static bool giant_strength(cast *cx)
                                "of the overlay's segment (5b04:3eb8)");
     }
     uint16_t minutes;
-    return cok_cast_duration(game, 0x3b, &minutes) && add_raw(game, c, 0x71, minutes, value, true) &&
+    return cok_cast_duration(game, SPELL(GIANT_STRENGTH), &minutes) &&
+           add_raw(game, c, EFFECT(GIANT_STRENGTH), minutes, value, true) &&
            ability(game, c, 0);
 }
 
@@ -862,15 +884,16 @@ static bool neutralize_poison(cast *cx)
         cx->targets[1] = NULL;
         return true;
     }
-    if (cok_character_find_effect(c, 0x37) == NULL) {
+    if (FIND_EFFECT(c, POISONED) == NULL) {
         say(game, c, "is unaffected");
         return true;
     }
     if (cok_field_u8(L, r, COK_FIELD_HIT_POINTS) == 0)
         cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 1);
     game->effects.rolls.curing = 1;
-    bool ok = remove_effect(game, c, NULL, 0x37) && remove_effect(game, c, NULL, 0x16) &&
-              remove_effect(game, c, NULL, 0x0f);
+    bool ok = remove_effect(game, c, NULL, EFFECT(POISONED)) &&
+              remove_effect(game, c, NULL, EFFECT(SLOW_POISON)) &&
+              remove_effect(game, c, NULL, EFFECT(POISON));
     game->effects.rolls.curing = 0;
     if (!ok) return false;
     say(game, c, "is unpoisoned");
@@ -899,11 +922,14 @@ static bool fire_shield(cast *cx)
         }
         if (key == 'H' || key == 'C') {
             uint16_t minutes;
-            if (!cok_cast_duration(game, 0x55, &minutes) ||
-                !cok_cast_add_effect(game, c, key == 'H' ? 0x32 : 0x36, minutes, 0, false, 0,
+            if (!cok_cast_duration(game, SPELL(FIRE_SHIELD), &minutes) ||
+                !cok_cast_add_effect(game, c,
+                                     key == 'H' ? EFFECT(HOT_FIRE_SHIELD)
+                                                : EFFECT(COLD_FIRE_SHIELD),
+                                     minutes, 0, false, 0,
                                      false, key == 'H' ? "is protected" : "") ||
-                !cok_cast_duration(game, 0x55, &minutes) ||
-                !cok_cast_add_effect(game, c, 0x70, minutes, 0, false, 0, false, ""))
+                !cok_cast_duration(game, SPELL(FIRE_SHIELD), &minutes) ||
+                !cok_cast_add_effect(game, c, EFFECT(FIRE_SHIELD), minutes, 0, false, 0, false, ""))
                 return false;
             return true;
         }
@@ -958,7 +984,8 @@ static bool missiles(cast *cx, uint8_t bonus, const char *text)
         }
         bool saved;
         uint8_t kind;
-        if ((spell == 0x4f || spell == 0x51) && i == game->spell_target_count) {
+        if ((IS_SPELL(spell, ENTANGLE) || IS_SPELL(spell, CHARM_MONSTERS)) &&
+            i == game->spell_target_count) {
             saved = true;
             kind = 1;
         } else {
@@ -966,7 +993,8 @@ static bool missiles(cast *cx, uint8_t bonus, const char *text)
                 return effect_failed(game);
             kind = spell_byte(game, spell, 8);
         }
-        if (cok_field_u8(L, p->record, COK_FIELD_RACE) == 7 && (spell == 0x17 || spell == 0x31))
+        if (cok_field_u8(L, p->record, COK_FIELD_RACE) == 7 &&
+            (IS_SPELL(spell, HOLD_PERSON) || IS_SPELL(spell, HOLD_PERSON_MAGE)))
             saved = true;
         uint16_t minutes;
         uint8_t level;
@@ -1008,8 +1036,9 @@ static bool charm_person(cast *cx)
     uint8_t value =
         (uint8_t)(level + (uint8_t)(cok_field_u8(L, cx->caster->record, COK_FIELD_HOSTILE) << 7));
     if (!apply(cx, value, true, 0, 0, "is charmed")) return false;
-    cok_effect *charm = cok_character_find_effect(t, 0x0b);
-    return charm == NULL || cok_effects_run(&game->effects, t, 0x0b, charm) || effect_failed(game);
+    cok_effect *charm = FIND_EFFECT(t, CHARMED);
+    return charm == NULL || cok_effects_run(&game->effects, t, EFFECT(CHARMED), charm) ||
+           effect_failed(game);
 }
 
 /* 23f3, Magic Missile: (level + 1) / 2 missiles of 1d4 + 1, magic. */
@@ -1054,7 +1083,7 @@ static bool sleep_spell(cast *cx)
         uint8_t weight = hd >= 0 && hd <= 1 ? 1 : hd == 2 ? 2 : hd == 3 ? 4 : hd == 4 ? 6
                          : hd == 5 && cok_field_u8(L, r, COK_FIELD_RACE) == 7 ? 10 : 20;
         if (cok_field_u8(L, r, COK_FIELD_STATUS) != 1 &&
-            cok_character_find_effect(t[i], 0x35) == NULL && left >= weight)
+            FIND_EFFECT(t[i], ASLEEP) == NULL && left >= weight)
             left = (uint8_t)(left - weight);
         else
             t[i] = NULL;
@@ -1070,7 +1099,7 @@ static bool hold(cast *cx)
 {
     cok_adventure *game = cx->game;
     uint8_t n = game->spell_target_count, bonus;
-    if (n == 1) bonus = game->effects.rolls.spell == 0x17 ? 0xfe : 0xfd;
+    if (n == 1) bonus = IS_SPELL(game->effects.rolls.spell, HOLD_PERSON) ? 0xfe : 0xfd;
     else if (n == 2) bonus = 0xff;
     else if (n <= 4) bonus = 0; /* with none never set, and never read */
     else
@@ -1098,7 +1127,7 @@ static bool snake_charm(cast *cx)
         const uint8_t *r = m->record;
         if ((cok_field_u8_at(L, r, COK_FIELD_CREATURE_FLAGS, 0) & 0x10) == 0 ||
             cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0 ||
-            cok_character_find_effect(m, 0x33) != NULL ||
+            FIND_EFFECT(m, HELD) != NULL ||
             left < cok_field_u8(L, r, COK_FIELD_HIT_POINTS))
             continue;
         left = (uint8_t)(left - cok_field_u8(L, r, COK_FIELD_HIT_POINTS));
@@ -1147,7 +1176,7 @@ static bool fireball(cast *cx)
     cok_adventure *game = cx->game;
     game->effects.rolls.images = 1;
     uint8_t dice;
-    if (game->effects.rolls.spell == 0x40) {
+    if (IS_SPELL(game->effects.rolls.spell, FIREBALL_ITEM)) {
         dice = (uint8_t)(roll(game, 1, 3) * 2 + 1);
     } else if (!level_of(game, game->effects.rolls.spell, &dice)) {
         return false;
@@ -1373,10 +1402,11 @@ static bool poison_spell(cast *cx)
     if (t == NULL)
         return undefined(game, "Poison's target is read through NULL or a record not in the "
                                "list (5b04:41c0)");
-    game->effects.rolls.pending = 0x40;
+    game->effects.rolls.pending = EFFECT(POISON_TOUCH);
     if (!dispatch(game, t, 9)) return false;
-    if (game->effects.rolls.pending != 0x40) return true;
-    return cok_effects_run(&game->effects, cx->caster, 0x40, NULL) || effect_failed(game);
+    if (!IS_EFFECT(game->effects.rolls.pending, POISON_TOUCH)) return true;
+    return cok_effects_run(&game->effects, cx->caster, EFFECT(POISON_TOUCH), NULL) ||
+           effect_failed(game);
 }
 
 /* 4214, Sticks to Snakes: on a first target of fewer than 6 hit dice
@@ -1396,8 +1426,9 @@ static bool sticks_to_snakes(cast *cx)
         !apply(cx, level, false, 0, 8, ""))
         return false;
     t = cx->targets[1];
-    cok_effect *snakes = t != NULL ? cok_character_find_effect(t, 3) : NULL;
-    return snakes == NULL || cok_effects_run(&game->effects, t, 3, snakes) || effect_failed(game);
+    cok_effect *snakes = t != NULL ? FIND_EFFECT(t, SNAKES) : NULL;
+    return snakes == NULL || cok_effects_run(&game->effects, t, EFFECT(SNAKES), snakes) ||
+           effect_failed(game);
 }
 
 /* 42f3, Charm Monsters: through 1cbd with no bonus, "is charmed"; then
@@ -1412,8 +1443,8 @@ static bool charm_monsters(cast *cx)
         if (t == NULL)
             return undefined(game, "a target taken off the list is read through NULL "
                                    "(5b04:4337)");
-        cok_effect *charm = cok_character_find_effect(t, 0x0b);
-        if (charm != NULL && !cok_effects_run(&game->effects, t, 0x0b, charm))
+        cok_effect *charm = FIND_EFFECT(t, CHARMED);
+        if (charm != NULL && !cok_effects_run(&game->effects, t, EFFECT(CHARMED), charm))
             return effect_failed(game);
     }
     return true;
@@ -1433,8 +1464,9 @@ static bool confusion(cast *cx)
         bool saved;
         uint16_t minutes;
         if (!cok_effects_save(&game->effects, t, 4, 0, &saved)) return effect_failed(game);
-        if (!cok_cast_duration(game, 0x52, &minutes) ||
-            !cok_cast_add_effect(game, t, 0x23, minutes, 0, false, 1, saved, "is confused"))
+        if (!cok_cast_duration(game, SPELL(CONFUSION), &minutes) ||
+            !cok_cast_add_effect(game, t, EFFECT(CONFUSED), minutes, 0, false, 1, saved,
+                                 "is confused"))
             return false;
     }
     return true;
@@ -1474,7 +1506,7 @@ static bool fumble(cast *cx)
     if (!cok_effects_save(&game->effects, t, 4, 0, &saved)) return effect_failed(game);
     uint8_t id = saved ? 0x2a : 0x1b;
     uint16_t minutes;
-    if (!cok_cast_duration(game, 0x56, &minutes) ||
+    if (!cok_cast_duration(game, SPELL(FUMBLE), &minutes) ||
         !cok_cast_add_effect(game, t, id, minutes, 0, false, 0, false,
                              saved ? "is slowed" : "is clumsy"))
         return false;
@@ -1754,8 +1786,9 @@ static bool fear(cast *cx)
             continue;
         }
         uint16_t minutes;
-        if (!cok_cast_duration(game, 0x54, &minutes) ||
-            !cok_cast_add_effect(game, t, 0x6f, minutes, 0, true, 1, false, "runs in terror"))
+        if (!cok_cast_duration(game, SPELL(FEAR), &minutes) ||
+            !cok_cast_add_effect(game, t, EFFECT(TERROR), minutes, 0, true, 1, false,
+                                 "runs in terror"))
             return false;
         if (t->combat == NULL)
             return undefined(game, "a record with no combat record is written through NULL "
@@ -1775,70 +1808,77 @@ static bool stinking_cloud(cast *cx)
     return cok_cloud_stinking(cx->game);
 }
 
-/* DS:6e3a + 4 * spell, as 5b04:58ed fills it. */
-static const struct {
-    uint16_t address;
-    handler_fn *fn;
-} handlers[COK_SPELLS] = {
-    [0x01] = {0x1efb, bless},             [0x02] = {0x1f2c, curse},
-    [0x03] = {0x1f57, cure_light},        [0x04] = {0x1fc2, cause_light},
-    [0x05] = {0x2004, affected},          [0x06] = {0x203e, protected},
-    [0x07] = {0x203e, protected},         [0x08] = {0x207d, cold_resistant},
-    [0x09] = {0x20ab, burning_hands},     [0x0a] = {0x20f8, charm_person},
-    [0x0b] = {0x2004, affected},          [0x0c] = {0x21d7, enlarge},
-    [0x0d] = {0x230c, reduce},            [0x0e] = {0x23ac, friends},
-    [0x0f] = {0x23f3, magic_missile},     [0x10] = {0x203e, protected},
-    [0x11] = {0x203e, protected},         [0x12] = {0x2004, affected},
-    [0x13] = {0x2456, shielded},          [0x14] = {0x2484, shocking_grasp},
-    [0x15] = {0x24d8, sleep_spell},       [0x16] = {0x2004, affected},
-    [0x17] = {0x2616, hold},              [0x18] = {0x2679, fire_resistant},
-    [0x19] = {0x26b2, silence},           [0x1a] = {0x26eb, slow_poison},
-    [0x1b] = {0x279a, snake_charm},       [0x1c] = {0x2877, hammer},
-    [0x1d] = {0x2004, affected},          [0x1e] = {0x28c7, invisible},
-    [0x1f] = {0x2900, knock},             [0x20] = {0x293b, mirror_image},
-    [0x21] = {0x2999, weakened},          [0x22] = {0x29de, stinking_cloud},
-    [0x23] = {0x2e4e, strength},          [0x24] = {0x3000, nothing},
-    [0x25] = {0x300d, cure_blindness},    [0x26] = {0x3053, blinded},
-    [0x27] = {0x3107, cure_disease},      [0x28] = {0x3124, diseased},
-    [0x29] = {0x320f, dispel_magic},      [0x2a] = {0x358a, prayer},
-    [0x2b] = {0x35f5, remove_curse},      [0x2c] = {0x3705, bestow_curse},
-    [0x2d] = {0x373e, blink},             [0x2e] = {0x320f, dispel_magic},
-    [0x2f] = {0x376c, fireball},          [0x30] = {0x3991, haste},
-    [0x31] = {0x2616, hold},              [0x32] = {0x28c7, invisible},
-    [0x33] = {0x3d04, lightning_bolt},    [0x34] = {0x203e, protected},
-    [0x35] = {0x203e, protected},         [0x36] = {0x203e, protected},
-    [0x37] = {0x3d5e, slow},              [0x38] = {0x3d8c, nothing},
-    [0x39] = {0x3d9b, speedy},            [0x3a] = {0x3ddc, cure_serious},
-    [0x3b] = {0x3e53, giant_strength},    [0x3c] = {0x3ed8, item_bolt},
-    [0x3d] = {0x3f2c, paralyzed},         [0x3e] = {0x3f63, potion},
-    [0x3f] = {0x3fbd, invisible},         [0x40] = {0x376c, fireball},
-    [0x41] = {0x3feb, item_damage},       [0x42] = {0x4026, cause_serious},
-    [0x43] = {0x4098, neutralize_poison}, [0x44] = {0x418e, poison_spell},
-    [0x45] = {0x203e, protected},         [0x46] = {0x4214, sticks_to_snakes},
-    [0x47] = {0x42a7, nothing},           [0x48] = {0x42b1, nothing},
-    [0x49] = {0x42b6, nothing},           [0x4a] = {0x42bb, nothing},
-    [0x4b] = {0x42c0, nothing},           [0x4c] = {0x42ca, nothing},
-    [0x4d] = {0x2004, affected},          [0x4e] = {0x42d4, nothing},
-    [0x4f] = {0x42de, nothing},           [0x50] = {0x42e3, nothing},
-    [0x51] = {0x42f3, charm_monsters},    [0x52] = {0x4382, confusion},
-    [0x53] = {0x4446, dimension_door},    [0x54] = {0x44ed, fear},
-    [0x55] = {0x464d, fire_shield},       [0x56] = {0x4801, fumble},
-    [0x57] = {0x4914, ice_storm},         [0x58] = {0x4957, protected},
-    [0x59] = {0x35f5, remove_curse},      [0x5a] = {0x3000, nothing},
-    [0x5b] = {0x4984, nothing},           [0x5c] = {0x498e, nothing},
-    [0x5d] = {0x4998, nothing},           [0x5e] = {0x2616, hold},
-    [0x5f] = {0x49a3, empty_text},        [0x60] = {0x49d1, empty_text},
-    [0x61] = {0x49ff, empty_text},        [0x62] = {0x4a2c, nothing},
-    [0x63] = {0x4a40, potion},            [0x64] = {0x3705, bestow_curse},
-    [0x65] = {0x203e, protected},         [0x66] = {0x26b2, silence},
-    [0x67] = {0x2004, affected},          [0x68] = {0x35f5, remove_curse},
-    [0x69] = {0x1efb, bless},             [0x6a] = {0x20f8, charm_person},
-    [0x6b] = {0x20ab, burning_hands},
+/* The port's handler of each kind (spells.h), which the game's table maps
+ * its spell ids to (its spells section; Champions' DS:6e3a + 4 * spell, as
+ * 5b04:58ed fills it). */
+static handler_fn *const handlers[COK_CAST_HANDLERS] = {
+    [COK_CAST_BLESS] = bless,
+    [COK_CAST_CURSE] = curse,
+    [COK_CAST_CURE_LIGHT] = cure_light,
+    [COK_CAST_CAUSE_LIGHT] = cause_light,
+    [COK_CAST_AFFECTED] = affected,
+    [COK_CAST_PROTECTED] = protected,
+    [COK_CAST_COLD_RESISTANT] = cold_resistant,
+    [COK_CAST_BURNING_HANDS] = burning_hands,
+    [COK_CAST_CHARM_PERSON] = charm_person,
+    [COK_CAST_ENLARGE] = enlarge,
+    [COK_CAST_REDUCE] = reduce,
+    [COK_CAST_FRIENDS] = friends,
+    [COK_CAST_MAGIC_MISSILE] = magic_missile,
+    [COK_CAST_SHIELDED] = shielded,
+    [COK_CAST_SHOCKING_GRASP] = shocking_grasp,
+    [COK_CAST_SLEEP] = sleep_spell,
+    [COK_CAST_HOLD] = hold,
+    [COK_CAST_FIRE_RESISTANT] = fire_resistant,
+    [COK_CAST_SILENCE] = silence,
+    [COK_CAST_SLOW_POISON] = slow_poison,
+    [COK_CAST_SNAKE_CHARM] = snake_charm,
+    [COK_CAST_HAMMER] = hammer,
+    [COK_CAST_INVISIBLE] = invisible,
+    [COK_CAST_KNOCK] = knock,
+    [COK_CAST_MIRROR_IMAGE] = mirror_image,
+    [COK_CAST_WEAKENED] = weakened,
+    [COK_CAST_STINKING_CLOUD] = stinking_cloud,
+    [COK_CAST_STRENGTH] = strength,
+    [COK_CAST_NOTHING] = nothing,
+    [COK_CAST_CURE_BLINDNESS] = cure_blindness,
+    [COK_CAST_BLINDED] = blinded,
+    [COK_CAST_CURE_DISEASE] = cure_disease,
+    [COK_CAST_DISEASED] = diseased,
+    [COK_CAST_DISPEL_MAGIC] = dispel_magic,
+    [COK_CAST_PRAYER] = prayer,
+    [COK_CAST_REMOVE_CURSE] = remove_curse,
+    [COK_CAST_BESTOW_CURSE] = bestow_curse,
+    [COK_CAST_BLINK] = blink,
+    [COK_CAST_FIREBALL] = fireball,
+    [COK_CAST_HASTE] = haste,
+    [COK_CAST_LIGHTNING_BOLT] = lightning_bolt,
+    [COK_CAST_SLOW] = slow,
+    [COK_CAST_SPEEDY] = speedy,
+    [COK_CAST_CURE_SERIOUS] = cure_serious,
+    [COK_CAST_GIANT_STRENGTH] = giant_strength,
+    [COK_CAST_ITEM_BOLT] = item_bolt,
+    [COK_CAST_PARALYZED] = paralyzed,
+    [COK_CAST_POTION] = potion,
+    [COK_CAST_ITEM_DAMAGE] = item_damage,
+    [COK_CAST_CAUSE_SERIOUS] = cause_serious,
+    [COK_CAST_NEUTRALIZE_POISON] = neutralize_poison,
+    [COK_CAST_POISON] = poison_spell,
+    [COK_CAST_STICKS_TO_SNAKES] = sticks_to_snakes,
+    [COK_CAST_CHARM_MONSTERS] = charm_monsters,
+    [COK_CAST_CONFUSION] = confusion,
+    [COK_CAST_DIMENSION_DOOR] = dimension_door,
+    [COK_CAST_FEAR] = fear,
+    [COK_CAST_FIRE_SHIELD] = fire_shield,
+    [COK_CAST_FUMBLE] = fumble,
+    [COK_CAST_ICE_STORM] = ice_storm,
+    [COK_CAST_EMPTY_TEXT] = empty_text,
 };
 
-/* 5b04:127e: the targets outside combat, by byte 7: 1 the caster; 2 one
- * picked ("Cast Spell on whom"), starting from the last target (DS:710b,
- * the caster if none); 4 the whole party. Returns whether there are any;
+/* 5b04:127e: the targets outside combat, by byte 7 (the game's values, its
+ * spells section's target_*): 1 the caster; 2 one picked ("Cast Spell on
+ * whom"), starting from the last target (DS:710b, the caster if none); 4
+ * the whole party. Returns whether there are any;
  * false with game->vm.abort set when input ended. */
 static bool target(cast *cx)
 {
@@ -1846,9 +1886,10 @@ static bool target(cast *cx)
     if (game->spell_target == NULL) game->spell_target = cx->caster->record;
     cx->targets[1] = cx->caster;
     game->spell_target_count = 1;
-    switch (spell_byte(game, cx->spell, 7)) {
-    case 1: return true;
-    case 2: {
+    const cok_rules_spells *S = &cok_game_rules(game)->spells;
+    uint8_t kind = spell_byte(game, cx->spell, 7);
+    if (kind == S->target_caster) return true;
+    if (kind == S->target_one) {
         cok_adventure_redraw(game);
         bool ended;
         uint8_t *picked = cok_adventure_pick(game, "Cast Spell on whom", game->spell_target, true,
@@ -1862,13 +1903,13 @@ static bool target(cast *cx)
         }
         return true;
     }
-    case 4:
+    if (kind == S->target_party) {
         /* The whole list from DS:609a, monsters loaded too. */
         for (size_t i = 0; i < game->party.count; ++i) cx->targets[i + 1] = game->party.members[i];
         game->spell_target_count = (uint8_t)game->party.count;
         return true;
-    default: return false;
     }
+    return false;
 }
 
 /* Combat: the targets (432f:2337 with 210b and 1eed) and the cast's
@@ -1971,7 +2012,8 @@ static bool pick(cast *cx, bool square, bool *found, cok_combat_aimed *res)
     uint8_t range;
     if (!cx->ai) {
         if (!cok_cast_range(game, cx->spell, &range) ||
-            !cok_combat_aim(game, c, range, 0, square, cx->spell != 0x53, found, res))
+            !cok_combat_aim(game, c, range, 0, square, !IS_SPELL(cx->spell, DIMENSION_DOOR), found,
+                            res))
             return false;
         if (game->vm.abort) return true;
         cok_combat_record *cr = c->combat;
@@ -1981,7 +2023,8 @@ static bool pick(cast *cx, bool square, bool *found, cok_combat_aimed *res)
         cr->target = res->target;
     } else if (spell_byte(game, cx->spell, 14) == 0) {
         cok_character *t = c;
-        if (cx->spell == 3 && !cok_cast_wounded_ally(game, c, &t)) return false;
+        if (IS_SPELL(cx->spell, CURE_LIGHT_WOUNDS) && !cok_cast_wounded_ally(game, c, &t))
+            return false;
         if (t != NULL) {
             res->target = t->record;
             if (!cell(game, t, &res->x, &res->y)) return false;
@@ -2073,7 +2116,7 @@ static bool combat_targets(cast *cx, bool *done)
     }
     if (kind == 5) {
         uint8_t total = 0, picks = 0, allowance;
-        if (cx->spell == 0x4f) {
+        if (IS_SPELL(cx->spell, ENTANGLE)) {
             if (!level_of(game, 0x4f, &allowance)) return false;
         } else {
             allowance = roll(game, 2, 4);
@@ -2094,7 +2137,7 @@ static bool combat_targets(cast *cx, bool *done)
                 if (p == NULL)
                     return undefined(game, "a pick of no creature is weighed through NULL "
                                            "(432f:2484)");
-                if (cx->spell != 0x4f) {
+                if (!IS_SPELL(cx->spell, ENTANGLE)) {
                     int8_t hd = cok_field_s8(L, p->record, COK_FIELD_HIGHEST_LEVEL);
                     total = (uint8_t)(total + (hd == 0 || hd == 1 ? 1
                                                : hd == 2             ? 2
@@ -2154,7 +2197,8 @@ static bool combat_targets(cast *cx, bool *done)
         if (!picked_member(cx, &res, &p)) return false;
         const uint8_t *self = cx->caster->record;
         bool again = listed_already(cx, picks, res.target) ||
-                     ((cx->spell == 0x17 || cx->spell == 0x31) && res.target == self);
+                     ((IS_SPELL(cx->spell, HOLD_PERSON) || IS_SPELL(cx->spell, HOLD_PERSON_MAGE)) &&
+                      res.target == self);
         if (!again) {
             t[++picks] = p;
             --left;
@@ -2201,7 +2245,9 @@ static bool fly(cast *cx)
     }
     combat->show_actions = true;
     if (!cok_arena_pose(game, c, dir, 1, false)) return false;
-    cok_arena_sound(game, cx->spell == 0x2f ? 0x0b : cx->spell == 0x33 ? 8 : 2);
+    cok_arena_sound(game, IS_SPELL(cx->spell, FIREBALL)         ? 0x0b
+                          : IS_SPELL(cx->spell, LIGHTNING_BOLT) ? 8
+                                                               : 2);
     if (!cok_arena_missile(game, x, y, game->spell_x, game->spell_y, 4, 0x1e)) return false;
     bool shown;
     if (!cok_combat_visible(combat, cok_game_rules(game), c->record, false, &shown))
@@ -2218,7 +2264,7 @@ static bool fly(cast *cx)
 static bool announce_spell(cok_adventure *game, cok_character *c, const char *verb, uint8_t spell)
 {
     if (game->vm.mode != 5) return cok_camp_spell_message(game, c->record, verb, spell);
-    const char *name = cok_spell_name(spell);
+    const char *name = cok_spell_name(cok_game_rules(game), spell);
     if (name == NULL)
         return undefined(game, "a spell with no name; 5b04:57eb would print the data after the "
                                "names");
@@ -2242,16 +2288,24 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, 
         undefined(game, "casting with no character selected reads through NULL (5b04:1415)");
         return;
     }
-    if (spell == 0 || spell >= COK_SPELLS) {
+    const cok_rules_spells *S = &cok_game_rules(game)->spells;
+    if (spell == 0 || spell >= S->count) {
         char text[96];
         snprintf(text, sizeof text, "spell %u is past the handler table (DS:6e3a)", spell);
         undefined(game, text);
         return;
     }
+    const cok_rules_cast *handler = &S->cast[spell];
+    if (handler->unported != NULL || S->cast_unported != NULL) {
+        cok_adventure_fail(game, COK_ECL_UNPORTED, "not yet ported: %s's spell %u, %s (%s)",
+                           cok_game_rules(game)->text.name, spell, S->names[spell - 1],
+                           handler->unported != NULL ? handler->unported : S->cast_unported);
+        return;
+    }
     bool combat = game->vm.mode == 5;
     uint8_t *c = cx.caster->record;
     if (combat) {
-        const char *name = cok_spell_name(spell);
+        const char *name = cok_spell_name(cok_game_rules(game), spell);
         char text[80];
         uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
         snprintf(text, sizeof text, "%.*s: %s", stored > 15 ? 15 : stored,
@@ -2263,7 +2317,7 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, 
     if (!combat && spell_byte(game, spell, 7) == 0) {
         bool lose;
         if (r->item == 0) {
-            const char *name = cok_spell_name(spell);
+            const char *name = cok_spell_name(cok_game_rules(game), spell);
             cok_adventure_log(game, "print", name);
             cok_text_string(&game->screen, &game->font, name, 1, 0x13, 10, 0);
             cok_adventure_log(game, "print", "can't be cast here...");
@@ -2285,7 +2339,7 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, 
         announce = false;
         go = false;
     }
-    if (cok_character_find_effect(cx.caster, 0x4a) != NULL && roll(game, 1, 2) == 1) {
+    if (FIND_EFFECT(cx.caster, DISPELLING) != NULL && roll(game, 1, 2) == 1) {
         if (!announce_spell(game, cx.caster, "miscasts", spell)) return;
         announce = false;
         go = false;
@@ -2306,18 +2360,18 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, 
             if (combat && !fly(&cx)) return;
             /* 60f4:1408: casting ends the caster's invisibility. */
             cok_effect *invisible;
-            while ((invisible = cok_character_find_effect(cx.caster, 0x19)) != NULL)
-                if (!remove_effect(game, cx.caster, invisible, 0x19)) return;
+            while ((invisible = FIND_EFFECT(cx.caster, INVISIBLE)) != NULL)
+                if (!remove_effect(game, cx.caster, invisible, EFFECT(INVISIBLE))) return;
             if (r->item == 0) forget(L, c, spell);
-            if (handlers[spell].fn == NULL) {
+            if (handler->handler == COK_CAST_NONE) {
                 char text[96];
                 snprintf(text, sizeof text, "spell %u (5b04:%04x) is cast only in combat", spell,
-                         handlers[spell].address);
+                         handler->address);
                 undefined(game, text);
                 return;
             }
             r->spell = spell;
-            handlers[spell].fn(&cx);
+            handlers[handler->handler](&cx);
             r->spell = 0;
             r->images = 0;
         } else if (!combat) {
@@ -2487,7 +2541,8 @@ static bool attack_4(cast *cx, cok_character *c, cok_effect *effect)
                 if (!cok_cast_damage(game, target, 10, 0, true)) return false;
             } else {
                 if (!cok_cast_damage(game, target, 20, 0, false) ||
-                    !cok_cast_add_effect(game, target, 0x21, 0, 0, false, 0, false, "is blinded"))
+                    !cok_cast_add_effect(game, target, EFFECT(BLIND), 0, 0, false, 0, false,
+                                         "is blinded"))
                     return false;
                 cok_combat_end_turn(c);
             }
@@ -2499,7 +2554,7 @@ static bool attack_4(cast *cx, cok_character *c, cok_effect *effect)
     uint8_t bolts = 0;
     do {
         bool done;
-        if (!breath_targets(cx, 0x3d, &done)) return false;
+        if (!breath_targets(cx, SPELL(PARALYZE), &done)) return false;
         cok_character *t = cx->targets[1];
         if (t == NULL || !done) {
             bolts = 2;
@@ -2535,9 +2590,9 @@ static bool attack_4e(cast *cx, cok_character *c)
     cok_combat *combat = &game->combat;
     game->effects.rolls.images = 1; /* 4dc8; the pick clears it (432f:2349), its area sets it */
     bool done;
-    if (!breath_targets(cx, 0x2f, &done)) return false;
+    if (!breath_targets(cx, SPELL(FIREBALL), &done)) return false;
     if (!done) return true;
-    game->effects.rolls.spell = 0x2f;
+    game->effects.rolls.spell = SPELL(FIREBALL);
     cok_character *t = cx->targets[1];
     int8_t x, y, x0 = cok_combat_x(combat, c->record), y0 = cok_combat_y(combat, c->record);
     if (!cok_arena_centre(game, x0, y0, 0, 8) || !say_waiting(game, c, "throws a fireball") ||
@@ -2545,7 +2600,7 @@ static bool attack_4e(cast *cx, cok_character *c)
         !cok_arena_missile(game, x0, y0, x, y, 1, 0x1e) ||
         !apply(cx, 0, false, damage_roll(game, 15, 6), 9, ""))
         return false;
-    return remove_effect(game, c, NULL, 0x4e);
+    return remove_effect(game, c, NULL, EFFECT(FIREBALLS));
 }
 
 /* 4eea, 0x54: with uses, a target as the computer's spell 0x24 picks it,
@@ -2563,7 +2618,7 @@ static bool attack_54(cast *cx, cok_character *c, cok_effect *effect)
     if (effect->value == 0) return true;
     int8_t x0 = cok_combat_x(combat, c->record), y0 = cok_combat_y(combat, c->record);
     bool done;
-    if (!breath_targets(cx, 0x24, &done)) return false;
+    if (!breath_targets(cx, SPELL(ANIMATE_DEAD), &done)) return false;
     if (!done) return true;
     uint16_t range = (uint16_t)((uint8_t)combat->sight_step << 8);
     if (!cone(cx, x0, y0, game->spell_x, game->spell_y, 0xff, 3, range, -1)) return false;
@@ -2587,7 +2642,7 @@ static bool attack_55(cast *cx, cok_character *c, cok_effect *effect)
     game->effects.rolls.damage_type = 0x24;
     int8_t x0 = cok_combat_x(combat, c->record), y0 = cok_combat_y(combat, c->record);
     bool done;
-    if (!breath_targets(cx, 0x33, &done)) return false;
+    if (!breath_targets(cx, SPELL(LIGHTNING_BOLT), &done)) return false;
     if (!done) return true;
     cok_character *t = cx->targets[1];
     uint8_t dir;
@@ -2624,7 +2679,7 @@ static bool attack_5a(cast *cx, cok_character *c, cok_effect *effect)
     int8_t x0 = cok_combat_x(combat, c->record), y0 = cok_combat_y(combat, c->record);
     unsigned mirrors = combat->mirrors, tiles = combat->tiles_drawn;
     bool done;
-    if (!breath_targets(cx, 0x3d, &done)) return false;
+    if (!breath_targets(cx, SPELL(PARALYZE), &done)) return false;
     uint16_t range;
     int side;
     drawn_bytes(combat, game->display, mirrors, tiles, game->battle_sp, &range, &side);
@@ -2645,13 +2700,14 @@ static bool attack_dragon(cast *cx, cok_character *c, cok_effect *effect)
     cok_adventure *game = cx->game;
     cok_combat *combat = &game->combat;
     uint8_t id = effect->id;
-    if (game->effects.rolls.round == 0 || effect->value > 3) effect->value = id == 6 ? 1 : 3;
+    if (game->effects.rolls.round == 0 || effect->value > 3)
+        effect->value = IS_EFFECT(id, FROST_BREATH) ? 1 : 3;
     if (effect->value == 0) return true;
     uint8_t len = 9;
     const char *what = "breathes Fire";
-    if (id == 6 || id == 0x53) {
+    if (IS_EFFECT(id, FROST_BREATH) || IS_EFFECT(id, COLD_BREATH)) {
         game->effects.rolls.damage_type = 0x22;
-        len = id == 6 ? 8 : 7;
+        len = IS_EFFECT(id, FROST_BREATH) ? 8 : 7;
         what = "breathes cold";
     } else {
         game->effects.rolls.damage_type = 0x21;
@@ -2659,7 +2715,7 @@ static bool attack_dragon(cast *cx, cok_character *c, cok_effect *effect)
     int8_t x0 = cok_combat_x(combat, c->record), y0 = cok_combat_y(combat, c->record);
     unsigned mirrors = combat->mirrors, tiles = combat->tiles_drawn;
     bool done;
-    if (!breath_targets(cx, 0x3d, &done)) return false;
+    if (!breath_targets(cx, SPELL(PARALYZE), &done)) return false;
     if (!done) return true;
     uint16_t range;
     int side;
@@ -2685,14 +2741,13 @@ bool cok_cast_breath(cok_adventure *game, cok_character *c, cok_effect *effect)
     if (cx.caster == NULL)
         return undefined(game, "a monster breathes with no character selected, read through NULL "
                                "(432f:2337)");
-    switch (effect->id) {
-    case 4: return attack_4(&cx, c, effect);
-    case 0x4e: return attack_4e(&cx, c);
-    case 0x54: return attack_54(&cx, c, effect);
-    case 0x55: return attack_55(&cx, c, effect);
-    case 0x5a: return attack_5a(&cx, c, effect);
-    case 6: case 0x53: case 0x68: return attack_dragon(&cx, c, effect);
-    default: break;
-    }
+    uint8_t id = effect->id;
+    if (IS_EFFECT(id, BOLTS)) return attack_4(&cx, c, effect);
+    if (IS_EFFECT(id, FIREBALLS)) return attack_4e(&cx, c);
+    if (IS_EFFECT(id, POISON_BREATH)) return attack_54(&cx, c, effect);
+    if (IS_EFFECT(id, LIGHTNING_BREATH)) return attack_55(&cx, c, effect);
+    if (IS_EFFECT(id, ACID_BREATH)) return attack_5a(&cx, c, effect);
+    if (IS_EFFECT(id, FROST_BREATH) || IS_EFFECT(id, COLD_BREATH) || IS_EFFECT(id, FIRE_BREATH))
+        return attack_dragon(&cx, c, effect);
     return undefined(game, "an effect with no breath runs a breath's handler");
 }

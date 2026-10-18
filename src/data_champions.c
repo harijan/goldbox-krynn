@@ -6,6 +6,10 @@
  * the executable. Shared code reads them through the descriptor (data.h),
  * never by these names. */
 
+/* DS:01c6: the effects the temple's Cure Disease removes (340d:0323), and
+ * its other cures after it. */
+const uint8_t cok_champions_diseases[6] = {0x1f, 0x22, 0x2b, 0x2c, 0x32, 0x39};
+
 /* DS:0396 + 5 * row + try: how far round from the direction wanted (mod 8)
  * try 1-5 of each way of moving, rows 1-6, steps: row 1 0, -1, -2, +1, +2;
  * 2 0, +1, +2, -1, -2; 3 -1, +1, 0, -2, +2; 4 +1, -1, 0, +2, -2; 5 0, -1,

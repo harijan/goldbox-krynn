@@ -91,6 +91,8 @@ typedef enum {
     COK_DATA_KNIGHT_SCORES,   /* By order and score, the least for the next order. */
     /* Treasure. */
     COK_DATA_TREASURE_TEMPLATES, /* Words: the generator's templates. */
+    /* The temple. */
+    COK_DATA_DISEASES,        /* The effect ids Cure Disease removes. */
     COK_DATA_TABLES
 } cok_data;
 
@@ -248,14 +250,19 @@ static inline uint16_t cok_data_get16_(const cok_data_segment *D, long offset)
 
 /* The name at DS:offset (a Pascal string) into out, NUL-ended: false
  * where the name would start or end outside the name strings
- * (COK_DATA_NAMES), or hold a NUL, which a string read from the middle of
- * the table may (the NULs between names, which the original draws as
- * characters). */
+ * (COK_DATA_NAMES; or the item words, COK_DATA_ITEM_WORDS, in a game whose
+ * item words lie apart from them, as Death Knights' do), or hold a NUL,
+ * which a string read from the middle of the table may (the NULs between
+ * names, which the original draws as characters). */
 static inline bool cok_data_string(const cok_data_segment *D, uint16_t offset, char out[256])
 {
-    if (!cok_data_holds(D, COK_DATA_NAMES, offset)) return false;
+    cok_data within = COK_DATA_NAMES;
+    if (!cok_data_holds(D, within, offset)) {
+        within = COK_DATA_ITEM_WORDS;
+        if (D->table[within].width == 0 || !cok_data_holds(D, within, offset)) return false;
+    }
     uint8_t length = cok_data_held(D, offset);
-    if (!cok_data_holds(D, COK_DATA_NAMES, (long)offset + length)) return false;
+    if (!cok_data_holds(D, within, (long)offset + length)) return false;
     char text[256];
     for (unsigned n = 1; n <= length; ++n) {
         uint8_t byte = cok_data_held(D, (long)offset + n);

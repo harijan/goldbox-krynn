@@ -425,8 +425,10 @@ static void test_fix(void)
 
 static void test_spells(void)
 {
-    CHECK(strcmp(cok_spell_name(1), "Bless") == 0 && strcmp(cok_spell_name(0x6b), "Burning Hands") == 0);
-    CHECK(cok_spell_name(0) == NULL && cok_spell_name(0x6c) == NULL);
+    CHECK(strcmp(cok_spell_name(&cok_rules_champions, 1), "Bless") == 0 &&
+          strcmp(cok_spell_name(&cok_rules_champions, 0x6b), "Burning Hands") == 0);
+    CHECK(cok_spell_name(&cok_rules_champions, 0) == NULL &&
+          cok_spell_name(&cok_rules_champions, 0x6c) == NULL);
     CHECK(cok_spell_level(&cok_rules_champions, 0x5c) == 5 &&
           cok_spell_class(&cok_rules_champions, 0x5c) == 3 &&
           cok_spell_class(&cok_rules_champions, 101) == 2);
@@ -454,6 +456,10 @@ static void test_spells(void)
     r[0x5d] = 4;
     r[0x1e] = 101;
     CHECK(cok_magic_slots(r, &cok_rules_champions, 0, 2, -1, &left, &count) && left == 2);
+    /* Powers 101-107 count; 100 is not one. */
+    r[0x1f] = 107;
+    r[0x20] = 100;
+    CHECK(cok_magic_slots(r, &cok_rules_champions, 0, 2, -1, &left, &count) && left == 1);
 }
 
 /* Game words, files and keys for the camp. */
@@ -742,6 +748,34 @@ static void test_magic(void)
     CHECK(!cok_camp(&game));
     CHECK(strstr(s.log, "Protection From Evil 10' Radius") == NULL);
     memset(knight->record + 0x1e, 0, 0x3a);
+    /* A list holds 58 spells (DS:473a): a grimoire of 58 known spells it
+     * may use shows; with a 59th that sorts after them all (the highest
+     * level, the highest id: Hold Monsters, 5), the port stops where the
+     * original writes on. */
+    knight->record[0x13] = 12;
+    unsigned known = 0;
+    uint8_t last = 0x5e;
+    for (uint8_t n = 1; n < last && known < 58; ++n) {
+        uint8_t kind = cok_spell_class(&cok_rules_champions, n);
+        if (kind == 1 || kind == 4 || cok_spell_level(&cok_rules_champions, n) > 5 ||
+            cok_spell_name(&cok_rules_champions, n)[0] == '\0')
+            continue;
+        knight->record[0x62 + n] = 1;
+        ++known;
+    }
+    CHECK(known == 58 && last != 0);
+    keys("mm\x1b\x1b");
+    CHECK(!cok_camp(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(strstr(s.log, "list: Spells in Grimoire;") != NULL);
+    knight->record[0x62 + last] = 1;
+    keys("mm\x1b\x1b");
+    cok_camp(&game);
+    CHECK(game.vm.status == COK_ECL_UNDEFINED &&
+          strstr(game.error, "a spell list of more than 58 spells") != NULL);
+    game.vm.status = COK_ECL_OK;
+    memset(knight->record + 0x63, 0, 0x6b);
+    knight->record[0x62 + 101] = 1;
+    knight->record[0x13] = 0;
     knight->record[0x11c] = 0;
 
     /* Scribe: a magic-user of order 1 with a scroll of Shield marks the

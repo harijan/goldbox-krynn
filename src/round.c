@@ -269,7 +269,7 @@ bool cok_combat_battle_only(cok_adventure *game, cok_character *c)
             continue;
         return cok_adventure_effect_failed(game);
     }
-    if (cok_character_find_effect(c, 0x4d) != NULL &&
+    if (cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_BERSERK) != NULL &&
         cok_field_u8(L, c->record, COK_FIELD_NPC) == 0xb3)
         cok_field_set8(L, c->record, COK_FIELD_HOSTILE, 0);
     return true;
@@ -661,7 +661,7 @@ bool cok_combat_enemies(cok_adventure *game, cok_character *c, uint8_t range, ui
         combat->listed_count = kept;
     }
     for (unsigned i = 1; i <= n; ++i) combat->enemies[i] = combat->listed[i].index;
-    if (cok_character_find_effect(c, 0x5b) != NULL) {
+    if (cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_YELLED_AT) != NULL) {
         bool swapped = false;
         for (unsigned i = 1; i <= n && !swapped; ++i) {
             uint8_t e = combat->enemies[i];

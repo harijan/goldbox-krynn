@@ -34,7 +34,8 @@ bool cok_item_name(cok_adventure *game, uint8_t *item, bool readied_column, char
     if (readied_column) join(s, item[0x34] != 0 ? " Yes  " : " No   ");
     bool detect = false;
     for (size_t i = 0; i < game->party.count && !detect; ++i)
-        detect = cok_character_find_effect(game->party.members[i], 5) != NULL;
+        detect = cok_character_find_named(game->party.members[i], cok_game_rules(game),
+                                          COK_EFFECT_DETECT_MAGIC) != NULL;
     if (detect && ((int8_t)item[0x32] > 0 || (int8_t)item[0x33] > 0 || item[0x36] != 0)) {
         join(s, "*");
         join(s, " ");
@@ -173,7 +174,9 @@ static bool power(cok_adventure *game, cok_character *c, const uint8_t *item, bo
     }
     if (p == 3 || p == 5) return cok_effects_ability(&game->effects, c, 0) || effect_failed(game);
     if (p == 9 && !readying)
-        return cok_effects_remove(&game->effects, c, NULL, 0x17) || effect_failed(game);
+        return cok_effects_remove(&game->effects, c, NULL,
+                                  cok_game_effect(game, COK_EFFECT_HAMMER)) ||
+               effect_failed(game);
     return true;
 }
 

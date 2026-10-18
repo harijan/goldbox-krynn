@@ -157,7 +157,9 @@ static bool missile_weapon(cok_adventure *game, const cok_character *c, bool *mi
 static bool battle_only(cok_adventure *game, cok_character *c, int *stale)
 {
     if (!cok_combat_battle_only(game, c)) return false;
-    *stale = cok_character_find_effect(c, 0x4d) != NULL ? COK_ARENA_STALE_UNKNOWN : 0;
+    *stale = cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_BERSERK) != NULL
+                 ? COK_ARENA_STALE_UNKNOWN
+                 : 0;
     return true;
 }
 
@@ -192,8 +194,9 @@ static void forget(const cok_character_layout *L, uint8_t *c, uint8_t spell)
 
 bool cok_combat_reveal(cok_adventure *game, cok_character *c)
 {
-    for (cok_effect *e; (e = cok_character_find_effect(c, 0x19)) != NULL;)
-        if (!cok_effects_remove(&game->effects, c, e, 0x19))
+    uint8_t invisible = cok_game_effect(game, COK_EFFECT_INVISIBLE);
+    for (cok_effect *e; (e = cok_character_find_effect(c, invisible)) != NULL;)
+        if (!cok_effects_remove(&game->effects, c, e, invisible))
             return cok_adventure_effect_failed(game);
     return true;
 }
@@ -588,7 +591,7 @@ static bool use_up(cok_adventure *game, cok_character *attacker, size_t item)
     bool thrown;
     if (!cok_combat_thrown(&game->item_types, attacker, &thrown))
         return undefined(game, "an item type past ITEMS reads past the table (DS:5886)");
-    if (thrown && it[0x3d] != 0x17) {
+    if (thrown && !cok_effect_is(cok_game_rules(game), it[0x3d], COK_EFFECT_HAMMER)) {
         cok_pool *pool = &game->pool;
         size_t at = 0;
         if (pool->item_count > 0) {
@@ -626,7 +629,7 @@ static bool use_up_freed(cok_adventure *game, cok_character *attacker, uint8_t *
     bool thrown;
     if (!cok_combat_thrown(&game->item_types, attacker, &thrown))
         return undefined(game, "an item type past ITEMS reads past the table (DS:5886)");
-    if (thrown && it[0x3d] != 0x17)
+    if (thrown && !cok_effect_is(cok_game_rules(game), it[0x3d], COK_EFFECT_HAMMER))
         return undefined(game, "a freed item's copy goes into the pool with the heap's free list "
                                "in its first bytes (432f:1c8e)");
     cok_adventure_alert(game, "Tried to Lose item & couldn't find it!", 14);
@@ -813,7 +816,7 @@ bool cok_combat_pick_target(cok_adventure *game, cok_character *c, uint8_t range
             --tries;
             uint8_t pick;
             const cok_character *first = combat->combatant[combat->enemies[1]].character;
-            if (cok_character_find_effect(c, 0x5b) != NULL &&
+            if (cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_YELLED_AT) != NULL &&
                 (first != NULL ? first->record : NULL) == combat->yelled && tries == 19)
                 pick = 1;
             else

@@ -249,8 +249,10 @@ bool cok_sheet_figures(cok_adventure *game, cok_character *character)
     pad(text, sizeof text, value, 2);
     draw(game, text, 0x10, 0x12, 10);
     uint8_t movement = cok_field_u8(L, c, COK_FIELD_MOVEMENT);
-    if (cok_character_find_effect(character, 0x27) != NULL) movement = (uint8_t)(movement * 2);
-    if (cok_character_find_effect(character, 0x2a) != NULL) movement = (uint8_t)(movement >> 1);
+    if (cok_character_find_named(character, cok_game_rules(game), COK_EFFECT_HASTED) != NULL)
+        movement = (uint8_t)(movement * 2);
+    if (cok_character_find_named(character, cok_game_rules(game), COK_EFFECT_SLOWED) != NULL)
+        movement = (uint8_t)(movement >> 1);
     draw(game, "Movement", 0x14, 0x12, 15);
     snprintf(value, sizeof value, "%u", movement);
     pad(text, sizeof text, value, 3);

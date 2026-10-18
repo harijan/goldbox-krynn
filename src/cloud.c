@@ -156,7 +156,8 @@ bool cok_cloud_stinking(cok_adventure *game)
     uint8_t count;
     cok_combat_cloud *p = append(game, &combat->clouds, caster, &count);
     if (p == NULL) return false;
-    if (cok_character_add_effect(who, 0x28, level, (uint8_t)((count << 4) + level), true) == NULL)
+    if (cok_character_add_effect(who, cok_game_effect(game, COK_EFFECT_CLOUD), level,
+                                 (uint8_t)((count << 4) + level), true) == NULL)
         return undefined(game, "out of memory adding a spell's effect");
     p->caster = caster;
     p->index = count;
@@ -225,14 +226,15 @@ bool cok_cloud_square(cok_adventure *game, cok_character *c, bool step)
     if (!cok_combat_probe(combat, cok_game_rules(game), r, 8, &occupant, &terrain, &cloud, &puddle))
         return undefined(game, "a size past the footprints is read after them (6beb:0c9d)");
     if (cloud && step && cok_field_u8(L, r, COK_FIELD_UNDEAD) == 0 &&
-        cok_character_find_effect(c, 0x1f) == NULL &&
-        cok_character_find_effect(c, 0x63) == NULL) {
+        cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_HELPLESS) == NULL &&
+        cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_POISON_IMMUNE) == NULL) {
         bool made;
         if (!cok_effects_save(&game->effects, c, 0, 0, &made)) return effect_failed(game);
         uint8_t *selected = game->vm.character;
         int8_t x = cok_combat_x(combat, r), y = cok_combat_y(combat, r);
         game->vm.character = cok_cloud_caster(game, x, y);
-        uint8_t id = made ? 0x1e : 0x1f;
+        uint8_t id = made ? cok_game_effect(game, COK_EFFECT_NAUSEA)
+                          : cok_game_effect(game, COK_EFFECT_HELPLESS);
         uint16_t minutes = (uint16_t)(cok_dice(&game->vm.seed, 1, 4) + 1);
         bool ok = cok_cast_add_effect(game, c, id, minutes, 0xff, false, 0, made,
                                       made ? "starts to cough" : "chokes and gags from nausea");
@@ -308,7 +310,8 @@ bool cok_cloud_acid(cok_adventure *game, cok_character *c)
     cok_combat_cloud *p = append(game, &combat->pools, r, &count);
     if (p == NULL) return false;
     uint8_t minutes = cok_dice(&game->vm.seed, 1, 6);
-    if (cok_character_add_effect(c, 0x50, minutes, count, true) == NULL)
+    if (cok_character_add_effect(c, cok_game_effect(game, COK_EFFECT_ACID_POOL), minutes, count,
+                                 true) == NULL)
         return undefined(game, "out of memory adding a spell's effect");
     p->caster = r;
     p->index = count;
@@ -400,9 +403,10 @@ bool cok_cloud_dispel(cok_adventure *game, uint8_t level)
                 if (caster == NULL)
                     return undefined(game, "a cloud's caster is not in the list (5b04:34ab)");
                 cok_effect *e = caster->effects;
-                while (e != NULL && !(e->id == 0x28 && (e->value >> 4) == p->index)) e = e->next;
+                uint8_t cloud = cok_game_effect(game, COK_EFFECT_CLOUD);
+                while (e != NULL && !(e->id == cloud && (e->value >> 4) == p->index)) e = e->next;
                 if (e == NULL) continue;
-                if (!cok_effects_remove(&game->effects, caster, e, 0x28))
+                if (!cok_effects_remove(&game->effects, caster, e, cloud))
                     return effect_failed(game);
                 /* The cell is no other of p's: the rest of its cells are
                  * read from the freed node to no effect. */

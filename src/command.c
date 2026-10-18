@@ -1141,7 +1141,9 @@ bool cok_combat_yell(cok_adventure *game, cok_character *c)
         if (!cok_effects_save(&game->effects, m, 4, 0, &made))
             return cok_adventure_effect_failed(game);
         if (made) continue;
-        if (!cok_cast_add_effect(game, m, 0x5b, 0, 0xff, false, 0, false, text)) return false;
+        if (!cok_cast_add_effect(game, m, cok_game_effect(game, COK_EFFECT_YELLED_AT), 0, 0xff,
+                                 false, 0, false, text))
+            return false;
     }
     return true;
 }

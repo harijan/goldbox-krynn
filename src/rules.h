@@ -3,7 +3,9 @@
 
 #include "data.h"
 #include "field.h"
+#include "spells.h"
 
+#include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -88,6 +90,10 @@ typedef struct {
     /* The monsters, MON<digit> and a kind: their records, effects and
      * items (4b6d:161b). */
     const char *monster, *monster_record, *monster_effects, *monster_items;
+    /* A fourth kind, the monsters' spells, where a game keeps them apart
+     * from the record (Death Knights' MON1WIZ, as its characters' .WIZ);
+     * NULL in Champions, whose record holds them. */
+    const char *monster_spells;
     /* The battlefield's tiles: in a 3D area, outdoors, and the random
      * ones of both (3cb2:1029). */
     const char *dungeon, *wilderness, *random;
@@ -310,6 +316,137 @@ typedef struct {
     int8_t cursor_transparent;
 } cok_rules_startup;
 
+/* One spell id's handler (cast.c): the port's, a cok_cast_handler
+ * (spells.h), and the original's routine, its offset in the handlers'
+ * segment (Champions' 5b04, as the messages cite it); or, where the port
+ * does not carry the game's routine out yet, unported, citing it ("dkk
+ * 5dc5:1daa"): casting it stops the run (COK_ECL_UNPORTED). */
+typedef struct {
+    uint16_t address;
+    uint8_t handler;
+    const char *unported;
+} cok_rules_cast;
+
+/* A spell whose duration is not the table's (cok_cast_duration): its
+ * rule, a cok_duration_rule (spells.h), and for a fixed one its
+ * minutes. */
+typedef struct {
+    uint8_t spell, rule;
+    uint16_t minutes;
+} cok_rules_duration;
+
+/* The spells (magic.c, cast.c): what is keyed by spell id. */
+typedef struct {
+    /* Spell ids 1 to count - 1 have names and handlers (Champions' 0x6c,
+     * the name table DS:2077 + 41 * id and the handlers DS:6e3a + 4 *
+     * id). */
+    unsigned count;
+    /* Their names, names[id - 1], as the name table holds them; and its
+     * offset for id 0 and the bytes an id (DS:2077, 41: string[40]),
+     * which the port's message cites for an id with none. */
+    const char *const *names;
+    uint16_t names_at;
+    uint8_t name_size;
+    /* The spell lists' headings by spell level, level_count of them, and
+     * their table's offset and the bytes a heading (DS:0bfa, 41: string[40]
+     * each; 546c:34ec). */
+    const char *const *levels;
+    unsigned level_count;
+    uint16_t levels_at;
+    uint8_t level_size;
+    /* By spell id, count of them: its handler. */
+    const cok_rules_cast *cast;
+    /* The spells whose duration is not the table's (5b04:0f78),
+     * duration_count of them. */
+    const cok_rules_duration *durations;
+    unsigned duration_count;
+    /* The spell ids the code names (spells.h's cok_named_spell): 0 for one
+     * the game has not. */
+    const uint8_t *ids;
+    /* The rows of a spell list (5b04:0b21): the spells it holds (DS:473a)
+     * and the scroll spells it counts (DS:4774), past which the original
+     * writes on. */
+    uint8_t list_spells, list_scrolls;
+    /* The granted powers' ids, first to last (4888:0700). */
+    uint8_t granted_first, granted_last;
+    /* An item's power above item_last is the spell item_shift below it
+     * (3afb's item use). */
+    uint8_t item_last, item_shift;
+    /* Display names an effect a spell adds by the first spell 1 to
+     * display_last that adds it (4888:17ae). */
+    uint8_t display_last;
+    /* The values of the spell table's byte 7 that target the caster, one
+     * the player picks and the whole party outside combat (5b04:127e). */
+    uint8_t target_caster, target_one, target_party;
+    /* An item's byte +0x3d that makes the computer score a weapon 0
+     * (3afb:14ca's test at 3afb:15e0): a value of the item's byte, not a
+     * spell or effect id the game names. */
+    uint8_t weapon_unscored;
+    /* The cast's own routine where the game's differs and the port does
+     * not carry it out yet, citing it, or NULL: casting any spell then
+     * stops the run (COK_ECL_UNPORTED) before its handler. */
+    const char *cast_unported;
+} cok_rules_spells;
+
+/* One effect id's handler (effect.c): the port's, a cok_effect_handler
+ * (spells.h), and the original's routine, its offset (Champions' 3f44 or
+ * 5b04); or, where the port does not carry the game's routine out yet,
+ * unported, citing it: running it fails. */
+typedef struct {
+    uint16_t address;
+    uint8_t handler;
+    const char *unported;
+} cok_rules_effect;
+
+/* A text Display shows for an effect id (4888:17ae). */
+typedef struct {
+    uint8_t id;
+    const char *text;
+} cok_rules_effect_text;
+
+/* The spell effects (effect.c, magic.c, cast.c): what is keyed by effect
+ * id. */
+typedef struct {
+    /* Effect ids 0 to count - 1 have an entry in the handler table
+     * (Champions' DS:6b94-6d77, 0x79 of them). */
+    unsigned count;
+    /* By effect id, count of them: its handler. */
+    const cok_rules_effect *handlers;
+    /* By event 1 to event_count - 1, the effect ids it runs, in order,
+     * 0-ended, or NULL for none (60f4:057c). */
+    const uint8_t *const *events;
+    unsigned event_count;
+    /* The ids the party shares, 0-ended (60f4:0332): a target without one
+     * takes the first holder's; and the one whose holder may be as far as
+     * shared_far squares in combat (Prayer's; the others 1). */
+    const uint8_t *shared;
+    uint8_t shared_far_id, shared_far;
+    /* The effects magic resistance leaves pending when it resists
+     * (60f4:04f3), 0-ended. */
+    const uint8_t *resisted_pending;
+    /* The effect ids the code names (spells.h's cok_named_effect): 0 for
+     * one the game has not. */
+    const uint8_t *ids;
+    /* Display (4888:17ae): the ids it names by the spell that adds them,
+     * 0-ended, and the texts of others; it shows no other. */
+    const uint8_t *display_spells;
+    const cok_rules_effect_text *display_texts;
+    unsigned display_text_count;
+    /* The rules' routines that differ in the game and the port does not
+     * carry out for it yet, citing the game's routine, or NULL: the caster
+     * level (6346:29fe), the saving throw (60f4:113a) and magic resistance
+     * (60f4:04f3). Reaching one fails. */
+    const char *caster_level_unported, *save_unported, *resistance_unported;
+} cok_rules_effects;
+
+/* The three moons (57e4:001e, 0143): the days each stays in a phase, and
+ * on the frame each one's column and its tile, tile_base + (phase +
+ * tile) & 0xff. */
+typedef struct {
+    uint8_t days[3], column[3], tile[3];
+    uint16_t tile_base;
+} cok_rules_moons;
+
 /* The game's own words that are names: its title. */
 typedef struct {
     /* The window's title. */
@@ -337,11 +474,46 @@ typedef struct cok_rules {
     cok_rules_ecl ecl;
     cok_rules_view view;
     cok_rules_startup startup;
+    cok_rules_spells spells;
+    cok_rules_effects effects;
+    cok_rules_moons moons;
     /* Why cok cannot play the game yet, or NULL. */
     const char *unplayable;
 } cok_rules;
 
 extern const cok_rules cok_rules_champions, cok_rules_death_knights;
+
+/* A named spell's or effect's id in the game (spells.h), which it must
+ * have. */
+static inline uint8_t cok_spell_id(const cok_rules *rules, cok_named_spell name)
+{
+    assert(rules != NULL && rules->spells.ids != NULL && (unsigned)name < COK_SPELL_NAMES);
+    uint8_t id = rules->spells.ids[name];
+    assert(id != 0 && "the game has no such spell");
+    return id;
+}
+
+static inline uint8_t cok_effect_id(const cok_rules *rules, cok_named_effect name)
+{
+    assert(rules != NULL && rules->effects.ids != NULL && (unsigned)name < COK_EFFECT_NAMES);
+    uint8_t id = rules->effects.ids[name];
+    assert(id != 0 && "the game has no such effect");
+    return id;
+}
+
+/* Whether id is the named spell or effect: never where the game has no
+ * such spell or effect. */
+static inline bool cok_spell_is(const cok_rules *rules, uint8_t id, cok_named_spell name)
+{
+    assert(rules != NULL && rules->spells.ids != NULL && (unsigned)name < COK_SPELL_NAMES);
+    return rules->spells.ids[name] != 0 && id == rules->spells.ids[name];
+}
+
+static inline bool cok_effect_is(const cok_rules *rules, uint8_t id, cok_named_effect name)
+{
+    assert(rules != NULL && rules->effects.ids != NULL && (unsigned)name < COK_EFFECT_NAMES);
+    return rules->effects.ids[name] != 0 && id == rules->effects.ids[name];
+}
 
 /* The descriptor named id (--game), or NULL. */
 const cok_rules *cok_rules_find(const char *id);

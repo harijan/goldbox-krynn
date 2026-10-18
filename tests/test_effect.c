@@ -505,6 +505,9 @@ static void test_dispatch(void)
     k->damage_type = 8;
     k->pending = 0x5b;
     CHECK(cok_effects_dispatch(&fx, c, 9) && k->pending == 0x5b && k->amount == 0);
+    k->pending = 0x52;
+    k->amount = 5;
+    CHECK(cok_effects_dispatch(&fx, c, 9) && k->pending == 0x52 && k->amount == 0);
     c->record[0xfe] = 0;
     c->record[0x187] = 0;
     k->spell = 0;
@@ -1300,6 +1303,31 @@ static void test_caster_level(void)
     vm.character = NULL;
 }
 
+/* Another game's effects section: Death Knights' effect 2 (dkk 504d:0124)
+ * is not carried out yet, 0x7a is past its table, 5 runs Champions' (none),
+ * and its caster level and saving throw are not ported yet. */
+static void test_other_game(void)
+{
+    reset();
+    cok_effects_free(&fx);
+    vm.rules = &cok_rules_death_knights;
+    cok_effects_init(&fx, &cok_rules_death_knights, &vm, &party, &types);
+    cok_character *c = calloc(1, sizeof *c);
+    CHECK(c != NULL);
+    CHECK(!cok_effects_run(&fx, c, 2, NULL) && strstr(fx.error, "not yet ported") != NULL &&
+          strstr(fx.error, "dkk 504d:0124") != NULL);
+    CHECK(!cok_effects_run(&fx, c, 0x7a, NULL) && strstr(fx.error, "past") != NULL);
+    CHECK(cok_effects_run(&fx, c, 5, NULL));
+    vm.character = c->record;
+    uint8_t level;
+    CHECK(!cok_effects_caster_level(&fx, 1, &level) && strstr(fx.error, "65cd:2c33") != NULL);
+    bool made;
+    CHECK(!cok_effects_save(&fx, c, 0, 0, &made) && strstr(fx.error, "638c:10f8") != NULL);
+    vm.character = NULL;
+    free(c);
+    reset();
+}
+
 int main(void)
 {
     char error[300];
@@ -1319,6 +1347,7 @@ int main(void)
     test_timer_handlers();
     test_rolls();
     test_saved();
+    test_other_game();
     reset();
     cok_party_free(&party);
     cok_effects_free(&fx);
