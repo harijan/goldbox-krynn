@@ -1937,6 +1937,46 @@ static void test_display(void)
     }
 }
 
+/* Whether any pixel of the 3D view's cells (3-13) is not black. */
+static bool view_drawn(const cok_picture *screen)
+{
+    for (int y = 3 * 8; y < 14 * 8; ++y)
+        for (int x = 3 * 4; x < 14 * 4; ++x)
+            if (screen->pixels[(size_t)y * screen->units * 4 + (size_t)x] != 0) return true;
+    return false;
+}
+
+/* A redraw in a 3D area (mode 4): Champions' leaves the view alone with
+ * 0x4c38 set (6346:2c17); Death Knights' draws it whatever 0x4cf7 holds
+ * (dkk 65cd:2db0), its off-map flag notwithstanding. */
+static void test_view_redraw(void)
+{
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .delay = delayed, .context = &s};
+    const cok_rules *games[] = {&cok_rules_champions, &cok_rules_death_knights};
+    for (size_t g = 0; g < 2; ++g) {
+        if (access(games[g]->assets, F_OK) != 0) {
+            printf("adventure: %s not found; its view redraw not checked\n", games[g]->assets);
+            continue;
+        }
+        CHECK(cok_adventure_open(&game, games[g], games[g]->assets, &keys, &hooks));
+        cok_ecl *vm = &game.vm;
+        vm->file = 1;
+        vm->mode = 4;
+        cok_ecl_set_var(vm, COK_VAR_3D, 1);
+        for (uint16_t set = 0; set < 2; ++set) {
+            if (g == 0) vm->mem4b00[0x138] = set; /* 0x4c38 */
+            vm->mem4b00[0x1f7] = 0;               /* 0x4cf7: Death Knights' off the map */
+            cok_picture_fill(&game.screen, 0, 0, 40, 200, 0);
+            cok_adventure_redraw(&game);
+            CHECK(view_drawn(&game.screen) == (g == 1 || set == 0));
+        }
+        cok_adventure_close(&game);
+    }
+}
+
 int main(void)
 {
     test_clock();
@@ -1952,6 +1992,7 @@ int main(void)
     test_opcodes();
     test_portrait();
     test_display();
+    test_view_redraw();
     puts("adventure tests passed");
     return 0;
 }

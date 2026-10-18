@@ -188,7 +188,7 @@ segment's tables, a section to a concern:
 | `images` | the archives `daximages` and `daxcompose` read, by layout: XOR deltas, collections, single images; stems, `NULL`-ended; and the frames a header's count byte 0xff gives (`frames_ff`: 255 where the loader takes the byte, `127f:1c2f`; Death Knights' 256, its 256-tile sets) | `PIC1-3`; `SPRIT1-3`; the 20 others; 255 |
 | `character` | the character record's layout (`src/field.h`): its size, its file's size, and where each field lies | 409 bytes, the fields below |
 | `data` | the original's data segment (`src/data.h`): the tables the port copied from it, by DS offset, and where each table the code reads lies and its shape | 45 tables (`src/data_champions.c`), 57 named; see below |
-| `ecl` | the ECL's opcodes, by opcode byte (`cok_rules_opcode`): what each does (`meaning`, a `cok_ecl_opcode`), the operands its handler loads (or a list over a header of `header` operands, or none ever), the operands a failed `IF` skips with it, and the handler the port does not carry out yet (`unported`, cited); the routines `CALL` runs by address (`calls`); the bytes a variable address holds (`variable_bytes`); the variables code reads and writes by name (`vars`, a `cok_rules_var` each: address, width, elements, the value a flag is off at); what a block's start sets (`start`); the special addresses read and stored (`reads`, `stores`); the selected character's fields at `0x7c00`-`0x7fff` (`character`, a `cok_rules_character_var` each, and `class_bits` for a field of class bits); and three handlers' constants: `COMPARE AND` of strings, `DELAY`'s wait, `HORIZONTAL MENU`'s single item (see ECL scripts) | its 66 opcodes, each its own meaning (`2fd3:0050-36dc`, `3775:1e74`), none unported; `2e10` redraw, `b203` sound, `c01e` step, `c018` wall ahead, `6803` animate (`2fd3:329b`); 2; 52 names, each a word; the portrait 0xff, the rest's encounters 0, magic allowed (`3775:01e8`); 10 reads, 8 stores (`3775:0fca`, `0e06`); 36 entries (`3775:07d9`, `0c00`); values only, the speed's, yes |
+| `ecl` | the ECL's opcodes, by opcode byte (`cok_rules_opcode`): what each does (`meaning`, a `cok_ecl_opcode`), the operands its handler loads (or a list over a header of `header` operands, or none ever), the operands a failed `IF` skips with it, and the handler the port does not carry out yet (`unported`, cited); the routines `CALL` runs by address (`calls`); the bytes a variable address holds (`variable_bytes`); the variables code reads and writes by name (`vars`, a `cok_rules_var` each: address, width, elements, the value a flag is off at); what a block's start sets (`start`); the special addresses read and stored (`reads`, `stores`); the selected character's fields at `0x7c00`-`0x7fff` (`character`, a `cok_rules_character_var` each, and `class_bits` for a field of class bits); and three handlers' constants: `COMPARE AND` of strings, `DELAY`'s wait, `HORIZONTAL MENU`'s single item (see ECL scripts) | its 66 opcodes, each its own meaning (`2fd3:0050-36dc`, `3775:1e74`), none unported; `2e10` redraw, `b203` sound, `c01e` step, `c018` wall ahead, `6803` animate (`2fd3:329b`); 2; 53 names, each a word; the portrait 0xff, the rest's encounters 0, magic allowed (`3775:01e8`); 10 reads, 8 stores (`3775:0fca`, `0e06`); 36 entries (`3775:07d9`, `0c00`); values only, the speed's, yes |
 | `view` | the 3D view's tile sets (each one's first and last value, `6e22:01ab`), the wall slot that holds wall types 1-5 and that `LOAD PIECES`' two-set path loads first, whether a record's wall sets share one tile set and whether tile values are moved by the slot's set; the overhead map's tiles; `PICTURE`'s overland map | 1-0x2d, ..., 0x100-0x127 (`DS:1ec2`); slot 1; a tile set each, moved (`69ea:1025`, `1230`); 0x104 and 0x100; 0x79 |
 | `startup` | what startup loads past the font (`3e99:005b`): tile sets from `<tiles>1` and the missiles' icons from `COMSPR`, as (first id, first slot, count) | sets 4 and 0, records 202 and 203; 0-11 into 13-24, 25 into 25 |
 | `unplayable` | why `cok` cannot play the game yet, or `NULL`: `cok`, and `eclplay`'s title and saved games, refuse it with that message | `NULL` |
@@ -1810,7 +1810,7 @@ and one to `0x4be6` switches the mode, in both games (`3775:0e06`, `dkk
 3c1e:0bc1`).
 
 Code outside the VM's operands reads and writes the variables by name
-(`cok_var` in `src/ecl.h`, 52 of them: `cok_ecl_var(vm, COK_VAR_DIFFICULTY)`,
+(`cok_var` in `src/ecl.h`, 53 of them: `cok_ecl_var(vm, COK_VAR_DIFFICULTY)`,
 `cok_ecl_var_at` for an element of a run the code indexes,
 `cok_ecl_set_var(_at)`, `cok_ecl_add_var`), never by `vm->mem4b00[...]`:
 where each lies, how wide and how many elements, is the descriptor's
@@ -1821,11 +1821,16 @@ code does outside 3775's routines; a game's byte keeps the value's low
 byte, and a variable of width 2 where each address holds a byte is a
 little-endian word over two addresses. A name the game has not (address
 0) stops at an assertion ("the game has no such variable"), but for the
-two Death Knights has no such thing at all, which the code asks
-`cok_ecl_has_var` about: the status line's turn (`0x4cff`) and the
-portrait (`0x7ee1`). A flag (`cok_ecl_flag`) is set when it is not the
-game's off value: Champions' "off the overland map" is `0x4c38` not 0,
-Death Knights' `0x4cf7` not 1. What a block's start sets is the
+three Death Knights has no such thing at all, which the code asks
+`cok_ecl_has_var` about: the status line's turn (`0x4cff`), the portrait
+(`0x7ee1`) and the view's own test (`COK_VAR_NO_VIEW`). A flag
+(`cok_ecl_flag`) is set when it is not the game's off value: Champions'
+"off the overland map" is `0x4c38` not 0, Death Knights' `0x4cf7` not 1,
+where Champions' code tests `0x4c38` with "outside 3D areas" or mode 3;
+where it tests `0x4c38` alone (after camp, `2fd3:3403`; in a mode-4
+redraw, `6346:2c17`) the flag is `COK_VAR_NO_VIEW`, also `0x4c38`, which
+Death Knights has not: its code draws the view there always (`3632:237e`,
+`65cd:2db0`). What a block's start sets is the
 descriptor's `start` (Champions: `0x7ee1` 0xff, `0x7ed2`, `0x7ed3`, `0x4be5`
 0); the block's variables it clears unless kept (`0x4c00`-`0x4c1f`,
 `0x7f79`-`0x7f82`) and `DIVIDE`'s remainder and `NEWECL`'s `0x4bf2` are
@@ -1934,8 +1939,9 @@ of the routines that use them read and write them there, the `0x7c00`
 ones through its table of offsets at `DS:836`-`864`), but for: the clock,
 seven bytes (`5b7d:0523`, not words over two addresses); the sky's colours,
 `0x4bfe` below `0x80` and `0x4bfd` from it (`6c84:00a6`); games saved,
-`0x4cf6` (`4381:3106`); "off the overland map", `0x4cf7` not 1 (the nine
-routines that test Champions' `0x4c38`); no status line turn (its `0x4cff`
+`0x4cf6` (`4381:3106`); "off the overland map", `0x4cf7` not 1 (where
+Champions' routines test `0x4c38` with "outside 3D areas" or mode 3; where
+they test it alone, its code has no test); no status line turn (its `0x4cff`
 is turning undead's, `5340:119b`) and no portrait; and the names only
 combat, treasure, monsters, shops and spells use, left out until they are
 ported. Its block start clears only the encounters while resting

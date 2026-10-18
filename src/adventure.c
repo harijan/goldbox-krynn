@@ -475,6 +475,14 @@ static void overhead_off(cok_adventure *game)
     game->overhead = false;
 }
 
+/* Whether the view is left alone after camp and in a mode-4 redraw:
+ * Champions' 0x4c38 set (2fd3:3403, 6346:2c17); a game without the
+ * variable always draws it (dkk 3632:237e, 65cd:2db0). */
+static bool no_view(const cok_ecl *vm)
+{
+    return cok_ecl_has_var(vm->rules, COK_VAR_NO_VIEW) && cok_ecl_flag(vm, COK_VAR_NO_VIEW);
+}
+
 void cok_adventure_view(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -3331,7 +3339,7 @@ static cok_ecl_status camp(cok_adventure *game, uint16_t sp)
         if (status != COK_ECL_OK || vm->abort) return status;
     }
     game->redraw = true;
-    if (!cok_ecl_flag(vm, COK_VAR_OFF_MAP)) cok_adventure_view(game);
+    if (!no_view(vm)) cok_adventure_view(game);
     game->effects.rolls.saved = 0; /* DS:5885 */
     if (cok_ecl_var(vm, COK_VAR_3D) == 0 && !cok_ecl_flag(vm, COK_VAR_OFF_MAP))
         cok_adventure_mark(game);
@@ -3388,7 +3396,7 @@ static void redraw_screen(cok_adventure *game)
         if (vm->mode == 2) cok_adventure_status(game);
     } else if (vm->mode == 4) {
         cok_adventure_frame(game);
-        if (!cok_ecl_flag(vm, COK_VAR_OFF_MAP)) cok_adventure_view(game);
+        if (!no_view(vm)) cok_adventure_view(game);
         cok_adventure_party(game);
         cok_adventure_status(game);
         game->frame_pending = false;

@@ -332,6 +332,7 @@ static const cok_rules_var champions_vars[COK_VARS] = {
     [COK_VAR_PICTURES] = VAR(0x4bff),
     [COK_VAR_LOCALS] = VARS(0x4c00, 0x20), /* 3775:01e8 */
     [COK_VAR_OFF_MAP] = VAR(0x4c38),
+    [COK_VAR_NO_VIEW] = VAR(0x4c38), /* 2fd3:3403, 6346:2c17's mode 4 */
     [COK_VAR_SAVES] = VAR(0x4c3c), /* 4888:2c31 */
     [COK_VAR_DIFFICULTY] = VAR(0x4cf4),
     [COK_VAR_BANK] = VAR(0x4cf5),

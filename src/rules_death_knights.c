@@ -231,7 +231,8 @@ static const cok_rules_opcode death_knights_opcodes[COK_ECL_OPCODES] = {
  * 6c84:00a6, the block's start 3c1e:01c1); the 0x7c00 ones' addresses are
  * also its table at DS:836-864. Left out (code that reaches them stops at
  * an assertion): the turn of the status line's names, which its status
- * line (65cd:2eea) has not; the portrait, which it has not; the moon of an
+ * line (65cd:2eea) has not; the portrait, which it has not; the view's
+ * own 0x4c38 test, which it has not; the moon of an
  * order and the area by a byte (the spells', R5); and those only combat,
  * treasure, monsters and shops read (step 2 and 3). */
 #define VAR(a) {.address = a, .width = 1, .count = 1}
@@ -258,6 +259,8 @@ static const cok_rules_var death_knights_vars[COK_VARS] = {
      * tests 0x4c38 (6c84:00a6, 3632:16ec, 237e, 23dd, 49cb:010b,
      * 65cd:07a5, 2db0). */
     [COK_VAR_OFF_MAP] = {.address = 0x4cf7, .width = 1, .count = 1, .off = 1},
+    /* None: where Champions tests 0x4c38 alone (after camp, a mode-4
+     * redraw), its code always draws the view (3632:237e, 65cd:2db0). */
     [COK_VAR_SAVES] = VAR(0x4cf6), /* 4381:3106 */
     [COK_VAR_DIFFICULTY] = VAR(0x4cf4),
     [COK_VAR_BANK] = VAR(0x4cf5),

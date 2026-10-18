@@ -98,6 +98,7 @@ typedef enum {
     COK_VAR_PICTURES,      /* 0x4bff: pictures * 2 + animate, as saved */
     COK_VAR_LOCALS,        /* 0x4c00-0x4c1f: cleared by a block's start */
     COK_VAR_OFF_MAP,       /* 0x4c38: a flag: outside 3D areas, off the overland map */
+    COK_VAR_NO_VIEW,       /* 0x4c38 alone: a flag: no view redrawn after camp or in mode 4 */
     COK_VAR_SAVES,         /* 0x4c3c: games saved, the rule book's question every tenth */
     COK_VAR_DIFFICULTY,    /* 0x4cf4 */
     COK_VAR_BANK,          /* 0x4cf5: the bank is paying out */
