@@ -608,7 +608,7 @@ bool cok_treasure_remove_record(cok_adventure *game, size_t index, bool keep, bo
         for (size_t pose = 0; pose < 2; ++pose) cok_picture_free(&game->icons[slot][pose]);
     cok_cast_forget(game, game->party.members[index]);
     cok_party_remove(&game->party, index);
-    if (!keep) --vm->mem7c00[0x33e];
+    if (!keep) cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, -1);
     vm->character = cok_party_record(&game->party, index > 0 ? index - 1 : 0);
     return true;
 }
@@ -686,7 +686,7 @@ static bool experience(cok_adventure *game, outcome *result)
         sum += cok_field_u16(L, r, COK_FIELD_MONSTER_EXPERIENCE) +
                extend((uint16_t)(cok_field_u8(L, r, COK_FIELD_BASE_HIT_POINTS) *
                                  cok_field_u8(L, r, COK_FIELD_MONSTER_HIT_POINT_EXPERIENCE)));
-        if (vm->mem7c00[0x2e3] == 1) continue;
+        if (cok_ecl_var(vm, COK_VAR_KEEP_ITEMS) == 1) continue;
         for (size_t k = 0; k < c->item_count; ++k) {
             char name[41];
             if (!cok_item_name(game, c->items[k], false, name)) return false;
@@ -704,7 +704,7 @@ static bool experience(cok_adventure *game, outcome *result)
         int8_t bonus = (int8_t)pool->items[i][0x32];
         if (bonus > 0) sum += extend((uint16_t)(bonus * 400));
     }
-    uint16_t divisor = (uint16_t)(vm->mem7c00[0x33e] - result->out);
+    uint16_t divisor = (uint16_t)(cok_ecl_var(vm, COK_VAR_PARTY_SIZE) - result->out);
     if (divisor == 0) {
         cok_adventure_fail(game, COK_ECL_DIVIDE_BY_ZERO,
                            "the experience is divided by the party less those out, 0 "
@@ -724,7 +724,7 @@ static bool experience(cok_adventure *game, outcome *result)
 static void award(cok_adventure *game)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
-    if (game->vm.mem4b00[0x1f5] != 0) return;
+    if (cok_ecl_var(&game->vm, COK_VAR_BANK) != 0) return;
     int32_t xp = game->experience;
     for (size_t i = 0; i < game->party.count; ++i) {
         uint8_t *r = game->party.members[i]->record;
@@ -770,7 +770,7 @@ static bool after_combat(cok_adventure *game, outcome *result)
     const cok_character_layout *L = cok_game_rules(game)->character;
     cok_ecl *vm = &game->vm;
     cok_party *party = &game->party;
-    bool gentle = vm->mem7c00[0x2e6] != 0;
+    bool gentle = cok_ecl_var(vm, COK_VAR_GENTLE) != 0;
     result->out = 0;
     result->destroyed = true;
     result->fled = false;
@@ -810,13 +810,13 @@ static bool after_combat(cok_adventure *game, outcome *result)
     if (result->destroyed) {
         while (party->count > 0 && !past_party(party->members[0]))
             if (!cok_treasure_remove_record(game, 0, false, true, true)) return false;
-        vm->mem7c00[0x33e] = 0;
+        cok_ecl_set_var(vm, COK_VAR_PARTY_SIZE, 0);
         return true;
     }
     for (size_t i = 0; i < party->count && !past_party(party->members[i]);) {
         uint8_t *r = party->members[i]->record, status = cok_field_u8(L, r, COK_FIELD_STATUS);
         if (result->fled) {
-            vm->mem7c00[0x2c7] = 0x81;
+            cok_ecl_set_var(vm, COK_VAR_OUTCOME, 0x81);
             if (status != 3) {
                 if (!cok_treasure_remove_record(game, i, false, true, false)) return false;
                 continue;
@@ -846,7 +846,7 @@ static bool remove_enemies(cok_adventure *game, outcome *result)
     const cok_character_layout *L = cok_game_rules(game)->character;
     cok_ecl *vm = &game->vm;
     bool first = true;
-    vm->mem7c00[0x2c8] = 0;
+    cok_ecl_set_var(vm, COK_VAR_DROPPED, 0);
     char text[200] = "", name[16] = "", last[16] = "";
     unsigned same = 0;
     for (size_t i = 0; i < game->party.count;) {
@@ -860,11 +860,11 @@ static bool remove_enemies(cok_adventure *game, outcome *result)
         }
         result->monsters = true;
         if (cok_field_u8(L, r, COK_FIELD_ACTIVE) != 1) {
-            ++vm->mem7c00[0x2c8];
-            if (first) vm->mem4b00[0x1f8] = 1;
+            cok_ecl_add_var(vm, COK_VAR_DROPPED, 1);
+            if (first) cok_ecl_set_var(vm, COK_VAR_TREASURE_FIRST, 1);
         }
-        if (cok_field_u8(L, r, COK_FIELD_STATUS) == 3 && vm->mem7c00[0x2c7] == 0)
-            vm->mem7c00[0x2c7] = 1;
+        if (cok_field_u8(L, r, COK_FIELD_STATUS) == 3 && cok_ecl_var(vm, COK_VAR_OUTCOME) == 0)
+            cok_ecl_set_var(vm, COK_VAR_OUTCOME, 1);
         first = false;
         name_of(L, r, name);
         if (same > 0 && strcmp(name, last) != 0) {
@@ -884,7 +884,8 @@ static bool remove_enemies(cok_adventure *game, outcome *result)
     vm->character = cok_party_record(&game->party, 0);
     if (text[0] != '\0') {
         char line[sizeof text + 32];
-        snprintf(line, sizeof line, "removed %s; %u dropped", text, vm->mem7c00[0x2c8]);
+        snprintf(line, sizeof line, "removed %s; %u dropped", text,
+                 cok_ecl_var(vm, COK_VAR_DROPPED));
         log_text(game, "combat", line);
     }
     return true;
@@ -902,7 +903,8 @@ static void draw(cok_adventure *game, const char *text, int x, int y, uint8_t fg
 static void clear_frame(cok_adventure *game, bool open)
 {
     cok_ecl *vm = &game->vm;
-    uint16_t phase[3] = {vm->mem4b00[0x1f9], vm->mem4b00[0x1fa], vm->mem4b00[0x1fb]};
+    uint16_t phase[3] = {cok_ecl_var_at(vm, COK_VAR_MOONS, 0), cok_ecl_var_at(vm, COK_VAR_MOONS, 1),
+                         cok_ecl_var_at(vm, COK_VAR_MOONS, 2)};
     cok_screen_frame(&game->screen, &game->view.tiles[4], phase, open);
 }
 
@@ -992,21 +994,21 @@ static bool results(cok_adventure *game, const outcome *result)
             shown = true;
             cok_pool_free_items(&game->pool);
             memset(game->pool.coins, 0, sizeof game->pool.coins);
-        } else if (!result->standing && vm->mem7c00[0x2e6] != 0) {
-            vm->mem7c00[0x2c7] = 0x80;
+        } else if (!result->standing && cok_ecl_var(vm, COK_VAR_GENTLE) != 0) {
+            cok_ecl_set_var(vm, COK_VAR_OUTCOME, 0x80);
             draw(game, "You have lost the fight.", 1, 3, 10);
             xp = 0;
             shown = true;
         } else {
             draw(game, "The party has won.", 1, 3, 10);
         }
-    } else if (vm->mem4b00[0x1f5] != 0) {
+    } else if (cok_ecl_var(vm, COK_VAR_BANK) != 0) {
         draw(game, "The party makes a withdrawl.  A small", 1, 5, 10);
         draw(game, "fee has been assessed by the bank.", 1, 7, 10);
     } else {
         draw(game, "The party has found Treasure!", 1, 3, 10);
     }
-    if (vm->mem4b00[0x1f5] == 0) {
+    if (cok_ecl_var(vm, COK_VAR_BANK) == 0) {
         if (!shown)
             return undefined(game, "the results show the experience of a combat before "
                                    "(DS:8840), and none was worked out");
@@ -1276,7 +1278,7 @@ void cok_treasure_end_of_combat(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     if (!weapons_back(game)) return;
-    vm->mem7c00[0x2c7] = 0;
+    cok_ecl_set_var(vm, COK_VAR_OUTCOME, 0);
     outcome result = {0};
     /* The demonstration (DS:4b4b) skips the party's part and everything
      * after the enemies go (351b:1982, 1996). */
@@ -1295,7 +1297,7 @@ void cok_treasure_end_of_combat(cok_adventure *game)
         if (!shares(game) || !results(game, &result) || !treasure_menu(game)) return;
         cok_pool_free_items(&game->pool);
     } else {
-        vm->mem7c00[0x2c7] = 0x80;
+        cok_ecl_set_var(vm, COK_VAR_OUTCOME, 0x80);
         clear_frame(game, true);
         /* 351b:1aab: in cells 2-0x25 by 5-0x16, cleared, which puts the
          * cursor at 2, 5. */
@@ -1310,7 +1312,10 @@ void cok_treasure_end_of_combat(cok_adventure *game)
         vm->abort = true;
     }
     game->text_delay = true; /* 351b:1b00 */
-    static const uint16_t cleared[] = {0x370, 0x371, 0x372, 0x2e3, 0x2e6};
-    for (size_t i = 0; i < sizeof cleared / sizeof *cleared; ++i) vm->mem7c00[cleared[i]] = 0;
-    vm->mem4b00[0x1f5] = 0;
+    cok_ecl_set_var_at(vm, COK_VAR_HIT_BONUS, 0, 0);
+    cok_ecl_set_var_at(vm, COK_VAR_HIT_BONUS, 1, 0);
+    cok_ecl_set_var(vm, COK_VAR_MOVE_BONUS, 0);
+    cok_ecl_set_var(vm, COK_VAR_KEEP_ITEMS, 0);
+    cok_ecl_set_var(vm, COK_VAR_GENTLE, 0);
+    cok_ecl_set_var(vm, COK_VAR_BANK, 0);
 }

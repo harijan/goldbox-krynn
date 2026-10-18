@@ -165,6 +165,12 @@ typedef struct {
     /* The operands a failed IF skips with it (3775:1e74), which may differ
      * from the handler's. */
     uint8_t skip;
+    /* The game's handler, where the port does not carry it out yet (it
+     * needs what is not ported: characters, monsters, combat, spells),
+     * as the message cites it ("dkk 3632:16ec"); NULL where it does. The
+     * run stops there with COK_ECL_UNPORTED (adventure.c). Only an
+     * opcode the VM hands to its hook can be one. */
+    const char *unported;
 } cok_rules_opcode;
 
 /* A routine of the original that CALL runs, by its address (2fd3:329b). */
@@ -173,6 +179,42 @@ typedef struct {
     /* What it does, a cok_ecl_call (ecl.h). */
     uint8_t routine;
 } cok_rules_call;
+
+/* A variable the code reads and writes by name (a cok_var, ecl.h), or a
+ * run of them it indexes. */
+typedef struct {
+    /* Its ECL address, of the first element; 0: the game has no such
+     * variable, and code that reaches it stops at an assertion. */
+    uint16_t address;
+    /* Its bytes: as many as a variable address holds (variable_bytes),
+     * or 2 where each holds a byte, a little-endian word over two
+     * addresses. */
+    uint8_t width;
+    /* Its elements, 1 for a single value; element i lies i * width /
+     * variable_bytes addresses on. */
+    uint16_t count;
+    /* The value a flag reads as not set at (cok_ecl_flag): 0 but where a
+     * game keeps the flag as one value of another variable. */
+    uint16_t off;
+} cok_rules_var;
+
+/* An address the VM reads or stores as the game's state, not as a
+ * variable (a cok_ecl_special, ecl.h). */
+typedef struct {
+    uint16_t address;
+    uint8_t what;
+} cok_rules_special;
+
+/* An ECL address in 0x7c00-0x7fff that reads or writes the selected
+ * character (ecl.c): offsets first to last from 0x7c00, element index +
+ * (offset - first) / step of field, read and written as kinds read and
+ * write (cok_ecl_character_kind, ecl.h; 0 none). */
+typedef struct {
+    uint16_t first, last;
+    uint8_t read, write;
+    uint8_t field; /* A cok_field (field.h). */
+    uint8_t index, step;
+} cok_rules_character_var;
 
 /* The ECL's instructions and variables (ecl.c). */
 typedef struct {
@@ -187,6 +229,43 @@ typedef struct {
      * type 2 and up reads and writes a little-endian word over two
      * (Death Knights, dkk 3c1e:0d85 and 3c1e:0bc1). */
     uint8_t variable_bytes;
+    /* The variables by name, COK_VARS of them (ecl.h's cok_var): where
+     * the game keeps each that code outside the VM's operands reads or
+     * writes. */
+    const cok_rules_var *vars;
+    /* What a block's start sets (3775:01e8), besides the VM's own state:
+     * each variable named to its value, count of them. */
+    const struct cok_rules_var_value {
+        uint8_t var;
+        uint16_t value;
+    } *start;
+    unsigned start_count;
+    /* The addresses that read the game's state (3775:0fca's), and those a
+     * store to sets it (3775:0e06's), count of each; another address
+     * outside the variables' blocks reads 0 and a store to it does
+     * nothing. */
+    const cok_rules_special *reads, *stores;
+    unsigned read_count, store_count;
+    /* The selected character's fields at 0x7c00-0x7fff (3775:07d9 reads,
+     * 3775:0c00 writes), count of them; another address there is a
+     * variable. */
+    const cok_rules_character_var *character;
+    unsigned character_count;
+    /* The classes whose levels above 0 make a character-field read of
+     * kind COK_ECL_FIELD_CLASSES, bit by bit from bit 0; 0xff none. */
+    uint8_t class_bits[8];
+    /* Whether COMPARE AND compares a pair as strings where its first is
+     * one (dkk 3632:0bed), rather than their values always (2fd3:0bbf). */
+    bool compare_and_strings;
+    /* DELAY's wait in milliseconds, fixed (dkk 3632:1c90: 600), or 0 for
+     * the game's speed's, speed * 100 (2fd3:2c33). */
+    uint16_t delay_ms;
+    /* Whether HORIZONTAL MENU shows a single item in white, Enter taking
+     * it, with "PRESS BUTTON OR RETURN TO CONTINUE." respelled, and
+     * animates the picture only where it replaced the view (DS:884b), as
+     * Champions' 2fd3:116d does; Death Knights' 3632:11fd has no such case
+     * and animates any picture shown. */
+    bool menu_single_item;
 } cok_rules_ecl;
 
 /* The 3D view's tile and wall sets (view.c, adventure.c). */

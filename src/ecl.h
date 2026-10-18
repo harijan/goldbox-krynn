@@ -75,6 +75,120 @@ typedef enum {
     COK_ECL_CALL_ANIMATE, /* the picture's next frame */
 } cok_ecl_call;
 
+/* The variables code outside the VM's operands reads and writes, by name:
+ * where each lies and how wide it is are the game's (rules->ecl.vars;
+ * Champions' and Death Knights' addresses in rules.c and
+ * rules_death_knights.c). Champions' address is given; an array is
+ * indexed from 0. */
+typedef enum {
+    COK_VAR_OVERLAND_X,    /* 0x4bc3: the party's square on the overland map */
+    COK_VAR_OVERLAND_Y,    /* 0x4bc4 */
+    COK_VAR_MAP,           /* 0x4bc5: the GEO record LOAD FILES loaded */
+    COK_VAR_CLOCK,         /* 0x4bc6-0x4bcc: the clock by unit (COK_CLOCK_) */
+    COK_VAR_NO_MAGIC,      /* 0x4be5: the area forbids casting */
+    COK_VAR_3D,            /* 0x4be6: a 3D area (stores switch the mode) */
+    COK_VAR_PIECES,        /* 0x4be7-0x4be8: LOAD PIECES loads all three unless both set */
+    COK_VAR_LAST_X,        /* 0x4bf0: the party's square before its step */
+    COK_VAR_LAST_Y,        /* 0x4bf1 */
+    COK_VAR_BLOCK,         /* 0x4bf2: the block entered last, 0 none */
+    COK_VAR_HIDDEN,        /* 0x4bfb: the area hides the party's square */
+    COK_VAR_SPEED,         /* 0x4bfc: the game's speed, as saved */
+    COK_VAR_SKY_LOW,       /* 0x4bfd: the sky's colour over squares below 0x80 */
+    COK_VAR_SKY_HIGH,      /* 0x4bfe: and over squares from 0x80 */
+    COK_VAR_PICTURES,      /* 0x4bff: pictures * 2 + animate, as saved */
+    COK_VAR_LOCALS,        /* 0x4c00-0x4c1f: cleared by a block's start */
+    COK_VAR_OFF_MAP,       /* 0x4c38: a flag: outside 3D areas, off the overland map */
+    COK_VAR_SAVES,         /* 0x4c3c: games saved, the rule book's question every tenth */
+    COK_VAR_DIFFICULTY,    /* 0x4cf4 */
+    COK_VAR_BANK,          /* 0x4cf5: the bank is paying out */
+    COK_VAR_OVERLAND,      /* 0x4cf7: the overland map's menu */
+    COK_VAR_TREASURE_FIRST, /* 0x4cf8: the first record dropped its items */
+    COK_VAR_MOONS,         /* 0x4cf9-0x4cfb: the moons' phases, 0-3 */
+    COK_VAR_MOON_DAYS,     /* 0x4cfc-0x4cfe: the days of each in its phase */
+    COK_VAR_TURN,          /* 0x4cff: turns the status line's facing names */
+    COK_VAR_ORDER_MOON,    /* 0x4cf8 + a byte: the moon of an order of magic, 1-3 */
+    COK_VAR_AREA,          /* 0x4b00-0x4bff: what a byte index reaches */
+    COK_VAR_HALL,          /* 0x7ea8: the classes a training hall trains, bits */
+    COK_VAR_DISTANCE_WANTED, /* 0x7ec0: the monsters' distance wanted */
+    COK_VAR_DISTANCE,      /* 0x7ec1: and now */
+    COK_VAR_MORALE,        /* 0x7ec6 */
+    COK_VAR_OUTCOME,       /* 0x7ec7: the fight's outcome */
+    COK_VAR_DROPPED,       /* 0x7ec8: records that dropped their items */
+    COK_VAR_STAY,          /* 0x7ec9: 0xff: the step not taken */
+    COK_VAR_SEARCH,        /* 0x7eca: bit 0 searching, bit 1 the step's events run */
+    COK_VAR_SURPRISE,      /* 0x7ecb */
+    COK_VAR_REST_EVERY,    /* 0x7ed2: encounters while resting: every */
+    COK_VAR_REST_CHANCE,   /* 0x7ed3: and the chance */
+    COK_VAR_EDGE,          /* 0x7ed5: the step left the map */
+    COK_VAR_PORTRAIT,      /* 0x7ee1: the portrait's head, 0xff none */
+    COK_VAR_TEMPLE,        /* 0x7ee2: open the temple */
+    COK_VAR_KEEP_ITEMS,    /* 0x7ee3: the monsters keep their items */
+    COK_VAR_GENTLE,        /* 0x7ee6: the party cannot kill */
+    COK_VAR_ECL_FILE,      /* 0x7f12: the ECL file, as saved */
+    COK_VAR_FLED,          /* 0x7f33: a member ran from the fight */
+    COK_VAR_PARTY_SIZE,    /* 0x7f3e */
+    COK_VAR_REMAINDER,     /* 0x7f3f: DIVIDE's remainder */
+    COK_VAR_SHOP,          /* 0x7f6c: open a shop */
+    COK_VAR_PRICES,        /* 0x7f6d: the shop's price factor */
+    COK_VAR_HIT_BONUS,     /* 0x7f70-0x7f71: to hit, the monsters' and the party's */
+    COK_VAR_MOVE_BONUS,    /* 0x7f72: the party's movement in combat */
+    COK_VAR_LOCALS_GAME,   /* 0x7f79-0x7f82: cleared by a block's start */
+    COK_VARS
+} cok_var;
+
+/* The clock's units (COK_VAR_CLOCK's elements; DS:3874's sizes). */
+enum {
+    COK_CLOCK_TICKS, COK_CLOCK_MINUTES, COK_CLOCK_TENS, COK_CLOCK_HOURS, COK_CLOCK_DAYS,
+    COK_CLOCK_MONTHS, COK_CLOCK_YEARS, COK_CLOCK_UNITS
+};
+
+/* What a special address reads or a store to it sets (rules->ecl.reads,
+ * .stores; 3775:0fca, 3775:0e06). */
+typedef enum {
+    COK_ECL_SPECIAL_NONE,
+    COK_ECL_SPECIAL_FACING,  /* the facing, 0-6 (DS:6d87): 0x4bea, 0x33d */
+    COK_ECL_SPECIAL_STEPS,   /* 0xc04d: the facing, halved in 3D areas; a store of n faces n % 4 */
+    COK_ECL_SPECIAL_X,       /* 0xc04b: the party's square (DS:6d85) */
+    COK_ECL_SPECIAL_Y,       /* 0xc04c */
+    COK_ECL_SPECIAL_AHEAD,   /* 0xc04e: the wall ahead (DS:6d88) */
+    COK_ECL_SPECIAL_SQUARE,  /* 0xc04f: the square's value (DS:6d89) */
+    COK_ECL_SPECIAL_ONE,     /* reads 1 (dkk 3c1e:0d85's 0x4cf8) */
+    COK_ECL_SPECIAL_B1,      /* vm->value_b1, _fb, _fc: values the host gives */
+    COK_ECL_SPECIAL_FB,
+    COK_ECL_SPECIAL_FC,
+    COK_ECL_SPECIAL_3DE,     /* vm->value_3de, _b8, _b9: values the host takes */
+    COK_ECL_SPECIAL_B8,
+    COK_ECL_SPECIAL_B9,
+    COK_ECL_SPECIAL_C059,    /* vm->c059, c05f: the backdrop's colours (DS:72d0, 72d1) */
+    COK_ECL_SPECIAL_C05F,
+} cok_ecl_special;
+
+/* How a character field reads or is written (cok_rules_character_var). */
+typedef enum {
+    COK_ECL_FIELD_NONE,
+    COK_ECL_FIELD_U8,       /* the field's element as a byte */
+    COK_ECL_FIELD_S8,       /* as a signed byte, widened */
+    COK_ECL_FIELD_U16,      /* as a word */
+    COK_ECL_FIELD_VARIABLE, /* reads the variable itself */
+    COK_ECL_FIELD_FILE,     /* reads the ECL file (DS:5782); a store picks the next
+                             * block's (169c:0a3e): (value & 0xff) + 1 halved */
+    COK_ECL_FIELD_HOST,     /* reads hooks.character_value */
+    COK_ECL_FIELD_STATUS,   /* reads Champions' code for the status: 1 okay, ... */
+    COK_ECL_FIELD_ACTIVE,   /* reads 1 if it can act, else 0x80 (dkk 3c1e:073a) */
+    COK_ECL_FIELD_SIDE,     /* 0x80 the computer's, 0x81 hostile, else 0; a store of one
+                             * of 0, 0x80, 0x81 sets both */
+    COK_ECL_FIELD_ZERO,     /* reads 0, where the original leaves its result unset */
+    COK_ECL_FIELD_CHARISMA, /* the reaction by charisma (3775:07d9's table) */
+    COK_ECL_FIELD_CLASSES,  /* bits by class levels above 0 (rules->ecl.class_bits) */
+    COK_ECL_FIELD_NAME_BYTES, /* the name's text from element index + offset: as many
+                               * bytes as the field (SIZE) gives, as dkk 3c1e:073a's
+                               * Move reads them */
+    COK_ECL_FIELD_CLEARED,  /* a store of 0 sets vm->name_cleared */
+    COK_ECL_FIELD_CLEARED_ANY, /* any store sets it */
+    COK_ECL_FIELD_NPC,      /* a store above 0xb2 stores 0x32 less */
+    COK_ECL_FIELD_REVIVE,   /* a store of 1 sets the status 0 and makes it able to act */
+} cok_ecl_character_kind;
+
 /* What CALL to address runs in the game rules describes. */
 cok_ecl_call cok_ecl_call_of(const cok_rules *rules, uint16_t address);
 
@@ -83,6 +197,9 @@ cok_ecl_call cok_ecl_call_of(const cok_rules *rules, uint16_t address);
 unsigned cok_ecl_meaning_of(const cok_rules *rules, unsigned opcode);
 /* What the VM's opcode (vm->opcode) does. */
 unsigned cok_ecl_meaning(const cok_ecl *vm);
+/* The game's handler of opcode the port does not carry out yet
+ * (cok_rules_opcode's unported), or NULL. */
+const char *cok_ecl_unported(const cok_rules *rules, unsigned opcode);
 
 /* The opcode's name: Champions' from the trace table at 6d7e:0055 (NULL
  * for 0x1f), the port's for a meaning past them; NULL past the game's
@@ -142,13 +259,15 @@ typedef struct {
      * after the VM moved the cursor; the original also clears DS:8849. */
     void (*opcode)(cok_ecl *vm, void *context);
     /* After every variable store, once the VM has updated its own state.
-     * The original also loads wall set 1, 2 or 3 (69ea:1025) numbered
-     * value & 0x7f when 0x7f22, 0x7f24 or 0x7f26 gets a value above 0x80.
+     * Champions' original also loads wall set 1, 2 or 3 (69ea:1025)
+     * numbered value & 0x7f when 0x7f22, 0x7f24 or 0x7f26 gets a value
+     * above 0x80 (3775:0c00; Death Knights' 3c1e:0a9a does not).
      * The VM itself sets file to (value + 1) / 2 for 0x7f12 (169c:0a3e). */
     void (*stored)(cok_ecl *vm, uint16_t address, uint16_t value, void *context);
-    /* Value of a character field the VM cannot compute: 0x7cc9, which needs
-     * 66c2:0efb, and 0x7eb1 and 0x7eb4, the selected character's position
-     * in the party from 0 (3775:0773). */
+    /* Value of a character field the VM cannot compute (kind
+     * COK_ECL_FIELD_HOST): Champions' 0x7cc9, which needs 66c2:0efb, and
+     * 0x7eb1 and 0x7eb4, the selected character's position in the party
+     * from 0 (3775:0773; dkk 3c1e:06d4). */
     uint16_t (*character_value)(cok_ecl *vm, uint16_t address, void *context);
     /* Before each instruction, with vm->ip at its opcode. */
     void (*trace)(cok_ecl *vm, void *context);
@@ -193,7 +312,9 @@ struct cok_ecl {
     size_t depth;
 
     /* Variables: 0x4b00-0x4eff in the block at DS:4b28, 0x7a00-0x7bff at
-     * DS:4b30, and 0x7c00-0x7fff at DS:4b2c, one word each. */
+     * DS:4b30, and 0x7c00-0x7fff at DS:4b2c, one word each (one byte each
+     * where the game's variable_bytes is 1, the cell's high byte 0). Code
+     * outside the VM reads and writes them by name (cok_ecl_var). */
     uint16_t mem4b00[0x400];
     uint16_t mem7a00[0x200];
     uint16_t mem7c00[0x400];
@@ -272,6 +393,30 @@ void cok_ecl_store(cok_ecl *vm, uint16_t address, uint16_t value);
  * 3c1e:0bc1); the same as cok_ecl_store where each holds a word. */
 void cok_ecl_store_to(cok_ecl *vm, size_t i, uint16_t value);
 void cok_ecl_store_as(cok_ecl *vm, const cok_ecl_operand *o, uint16_t value);
+/* A variable by name (rules->ecl.vars), element i of an array: the value
+ * its address holds, as wide as the game keeps it, as code outside the
+ * VM's operands reads and writes it: without the stores' side effects (the
+ * mode, the hooks, a character's field), the value's low byte where it is
+ * a byte. Each asserts that the game has the variable and that i is one of
+ * its elements. */
+uint16_t cok_ecl_var(const cok_ecl *vm, cok_var name);
+uint16_t cok_ecl_var_at(const cok_ecl *vm, cok_var name, size_t i);
+void cok_ecl_set_var(cok_ecl *vm, cok_var name, uint16_t value);
+void cok_ecl_set_var_at(cok_ecl *vm, cok_var name, size_t i, uint16_t value);
+/* cok_ecl_set_var of the variable plus delta, wrapping as wide as it is. */
+void cok_ecl_add_var(cok_ecl *vm, cok_var name, int delta);
+/* Whether the flag name is set: its value is not the game's off value. */
+bool cok_ecl_flag(const cok_ecl *vm, cok_var name);
+/* The ECL address of element i of the game's variable name. */
+uint16_t cok_ecl_var_address(const cok_rules *rules, cok_var name, size_t i);
+/* Whether the game has the variable. */
+bool cok_ecl_has_var(const cok_rules *rules, cok_var name);
+
+/* What special address reads or a store to it sets in the game rules
+ * describes, COK_ECL_SPECIAL_NONE for a variable or nothing. */
+cok_ecl_special cok_ecl_special_read(const cok_rules *rules, uint16_t address);
+cok_ecl_special cok_ecl_special_store(const cok_rules *rules, uint16_t address);
+
 void cok_ecl_load_string(const cok_ecl *vm, uint16_t address, char out[256]);
 void cok_ecl_store_string(cok_ecl *vm, uint16_t address, const char *text);
 

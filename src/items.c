@@ -620,7 +620,8 @@ void cok_items(cok_adventure *game, bool *done)
         /* 546c:187b: View first while the debug flag (DS:4b51) is set. */
         char items[41];
         snprintf(items, sizeof items, "%s", game->debug ? "View Ready" : "Ready");
-        if (cok_field_u8(L, c, COK_FIELD_ACTIVE) != 0 && game->vm.mem4b00[0xe5] == 0 &&
+        if (cok_field_u8(L, c, COK_FIELD_ACTIVE) != 0 &&
+            cok_ecl_var(&game->vm, COK_VAR_NO_MAGIC) == 0 &&
             (game->vm.mode == 2 || game->vm.mode == 3 || game->vm.mode == 4 ||
              (game->vm.mode == 5 && cok_character_combat(character)->may_use != 0)))
             join(items, " Use");
@@ -640,7 +641,7 @@ void cok_items(cok_adventure *game, bool *done)
         }
         if (header) {
             uint16_t moons[3];
-            for (size_t i = 0; i < 3; ++i) moons[i] = game->vm.mem4b00[0x1f9 + i];
+            for (size_t i = 0; i < 3; ++i) moons[i] = cok_ecl_var_at(&game->vm, COK_VAR_MOONS, i);
             cok_screen_list(&game->screen, &game->view.tiles[4], moons);
             cok_item_draw_name(game, c, 1, 1, true);
             cok_text_string(&game->screen, &game->font, "Items",

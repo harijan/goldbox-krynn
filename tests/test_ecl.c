@@ -802,6 +802,324 @@ static void test_character_fields(void)
     vm.character = NULL;
 }
 
+/* The variables by name: Champions' each a word at its address (as code
+ * read them before they had names); Death Knights' a byte, at the
+ * addresses its code has (dkk 3c1e:01c1, 4381:3106, 6c84:00a6, ...). */
+static void test_named_variables(void)
+{
+    static const struct {
+        cok_var name;
+        uint16_t champions, death_knights, count;
+    } names[] = {
+        {COK_VAR_OVERLAND_X, 0x4bc3, 0x4bc3, 1}, {COK_VAR_OVERLAND_Y, 0x4bc4, 0x4bc4, 1},
+        {COK_VAR_MAP, 0x4bc5, 0x4bc5, 1},        {COK_VAR_CLOCK, 0x4bc6, 0x4bc6, 7},
+        {COK_VAR_NO_MAGIC, 0x4be5, 0x4be5, 1},   {COK_VAR_3D, 0x4be6, 0x4be6, 1},
+        {COK_VAR_PIECES, 0x4be7, 0x4be7, 2},     {COK_VAR_LAST_X, 0x4bf0, 0x4bf0, 1},
+        {COK_VAR_LAST_Y, 0x4bf1, 0x4bf1, 1},     {COK_VAR_BLOCK, 0x4bf2, 0x4bf2, 1},
+        {COK_VAR_HIDDEN, 0x4bfb, 0x4bfb, 1},     {COK_VAR_SPEED, 0x4bfc, 0x4bfc, 1},
+        {COK_VAR_SKY_LOW, 0x4bfd, 0x4bfe, 1},    {COK_VAR_SKY_HIGH, 0x4bfe, 0x4bfd, 1},
+        {COK_VAR_PICTURES, 0x4bff, 0x4bff, 1},   {COK_VAR_LOCALS, 0x4c00, 0x4c00, 0x20},
+        {COK_VAR_OFF_MAP, 0x4c38, 0x4cf7, 1},    {COK_VAR_SAVES, 0x4c3c, 0x4cf6, 1},
+        {COK_VAR_DIFFICULTY, 0x4cf4, 0x4cf4, 1}, {COK_VAR_BANK, 0x4cf5, 0x4cf5, 1},
+        {COK_VAR_OVERLAND, 0x4cf7, 0x4cf7, 1},   {COK_VAR_TREASURE_FIRST, 0x4cf8, 0x4cf8, 1},
+        {COK_VAR_MOONS, 0x4cf9, 0x4cf9, 3},      {COK_VAR_MOON_DAYS, 0x4cfc, 0x4cfc, 3},
+        {COK_VAR_TURN, 0x4cff, 0, 1},            {COK_VAR_ORDER_MOON, 0x4cf8, 0, 0x100},
+        {COK_VAR_AREA, 0x4b00, 0, 0x100},        {COK_VAR_HALL, 0x7ea8, 0x7ea8, 1},
+        {COK_VAR_DISTANCE_WANTED, 0x7ec0, 0, 1}, {COK_VAR_DISTANCE, 0x7ec1, 0, 1},
+        {COK_VAR_MORALE, 0x7ec6, 0, 1},          {COK_VAR_OUTCOME, 0x7ec7, 0, 1},
+        {COK_VAR_DROPPED, 0x7ec8, 0, 1},         {COK_VAR_STAY, 0x7ec9, 0x7ec9, 1},
+        {COK_VAR_SEARCH, 0x7eca, 0x7eca, 1},     {COK_VAR_SURPRISE, 0x7ecb, 0, 1},
+        {COK_VAR_REST_EVERY, 0x7ed2, 0x7ed2, 1}, {COK_VAR_REST_CHANCE, 0x7ed3, 0x7ed3, 1},
+        {COK_VAR_EDGE, 0x7ed5, 0x7ed5, 1},       {COK_VAR_PORTRAIT, 0x7ee1, 0, 1},
+        {COK_VAR_TEMPLE, 0x7ee2, 0, 1},          {COK_VAR_KEEP_ITEMS, 0x7ee3, 0, 1},
+        {COK_VAR_GENTLE, 0x7ee6, 0, 1},          {COK_VAR_ECL_FILE, 0x7f12, 0x7f12, 1},
+        {COK_VAR_FLED, 0x7f33, 0, 1},            {COK_VAR_PARTY_SIZE, 0x7f3e, 0x7f3e, 1},
+        {COK_VAR_REMAINDER, 0x7f3f, 0x7f3f, 1},  {COK_VAR_SHOP, 0x7f6c, 0, 1},
+        {COK_VAR_PRICES, 0x7f6d, 0, 1},          {COK_VAR_HIT_BONUS, 0x7f70, 0, 2},
+        {COK_VAR_MOVE_BONUS, 0x7f72, 0, 1},      {COK_VAR_LOCALS_GAME, 0x7f79, 0x7f79, 10},
+    };
+    CHECK(sizeof names / sizeof *names == COK_VARS);
+    for (size_t i = 0; i < COK_VARS; ++i) {
+        CHECK(names[i].name == i);
+        const cok_rules_var *c = &C->ecl.vars[i], *d = &DK->ecl.vars[i];
+        CHECK(c->address == names[i].champions && c->width == 2 && c->count == names[i].count);
+        CHECK(c->off == 0 && cok_ecl_has_var(C, (cok_var)i));
+        CHECK(d->address == names[i].death_knights &&
+              cok_ecl_has_var(DK, (cok_var)i) == (d->address != 0));
+        if (d->address != 0)
+            CHECK(d->width == 1 && d->count == names[i].count && d->off == (i == COK_VAR_OFF_MAP));
+        for (size_t k = 0; k < names[i].count; ++k) {
+            CHECK(cok_ecl_var_address(C, (cok_var)i, k) == names[i].champions + k);
+            if (d->address != 0)
+                CHECK(cok_ecl_var_address(DK, (cok_var)i, k) == names[i].death_knights + k);
+        }
+    }
+
+    /* Champions': the word itself, whatever its value. */
+    cok_ecl_init(&vm, C, NULL);
+    cok_ecl_set_var(&vm, COK_VAR_DIFFICULTY, 0x1234);
+    CHECK(vm.mem4b00[0x1f4] == 0x1234 && cok_ecl_var(&vm, COK_VAR_DIFFICULTY) == 0x1234);
+    cok_ecl_set_var_at(&vm, COK_VAR_CLOCK, COK_CLOCK_HOURS, 300);
+    CHECK(vm.mem4b00[0xc9] == 300 && cok_ecl_var_at(&vm, COK_VAR_CLOCK, 3) == 300);
+    cok_ecl_add_var(&vm, COK_VAR_PARTY_SIZE, -1);
+    CHECK(vm.mem7c00[0x33e] == 0xffff);
+    vm.mem4b00[0x138] = 2;
+    CHECK(cok_ecl_flag(&vm, COK_VAR_OFF_MAP));
+    vm.mem4b00[0x138] = 0;
+    vm.mem4b00[0x1f7] = 1;
+    CHECK(!cok_ecl_flag(&vm, COK_VAR_OFF_MAP));
+    /* Without the stores' side effects: no mode, no hook. */
+    log_t log = {0};
+    vm.hooks = (cok_ecl_hooks){.stored = on_store, .context = &log};
+    vm.mode = 4;
+    cok_ecl_set_var(&vm, COK_VAR_3D, 0);
+    CHECK(vm.mode == 4 && log.stores == 0);
+
+    /* Death Knights': a byte; its off-map flag is 0x4cf7 not 1. */
+    cok_ecl_init(&vm, DK, NULL);
+    cok_ecl_set_var(&vm, COK_VAR_DIFFICULTY, 0x1234);
+    CHECK(vm.mem4b00[0x1f4] == 0x34 && cok_ecl_var(&vm, COK_VAR_DIFFICULTY) == 0x34);
+    cok_ecl_set_var_at(&vm, COK_VAR_CLOCK, COK_CLOCK_HOURS, 300);
+    CHECK(vm.mem4b00[0xc9] == 44 && vm.mem4b00[0xca] == 0);
+    cok_ecl_add_var(&vm, COK_VAR_PARTY_SIZE, -1);
+    CHECK(vm.mem7c00[0x33e] == 0xff);
+    vm.mem4b00[0x1f7] = 1;
+    CHECK(!cok_ecl_flag(&vm, COK_VAR_OFF_MAP) && cok_ecl_flag(&vm, COK_VAR_OVERLAND));
+    vm.mem4b00[0x1f7] = 0;
+    CHECK(cok_ecl_flag(&vm, COK_VAR_OFF_MAP) && !cok_ecl_flag(&vm, COK_VAR_OVERLAND));
+    /* A word over two addresses, where a game keeps one so. */
+    cok_rules wide = *DK;
+    cok_rules_var vars[COK_VARS];
+    memcpy(vars, DK->ecl.vars, sizeof vars);
+    vars[COK_VAR_CLOCK] = (cok_rules_var){.address = 0x4bc6, .width = 2, .count = 7};
+    wide.ecl.vars = vars;
+    cok_ecl_init(&vm, &wide, NULL);
+    CHECK(cok_ecl_var_address(&wide, COK_VAR_CLOCK, 1) == 0x4bc8);
+    cok_ecl_set_var_at(&vm, COK_VAR_CLOCK, 1, 0x1234);
+    CHECK(vm.mem4b00[0xc8] == 0x34 && vm.mem4b00[0xc9] == 0x12 && vm.mem4b00[0xca] == 0);
+    CHECK(cok_ecl_var_at(&vm, COK_VAR_CLOCK, 1) == 0x1234);
+
+    /* A block's start: Champions' sets the portrait 0xff and allows magic;
+     * Death Knights' leaves both. Both clear the encounters while resting
+     * and, unless kept, the block's variables. */
+    const cok_rules *games[] = {C, DK};
+    for (size_t g = 0; g < 2; ++g) {
+        cok_ecl_init(&vm, games[g], NULL);
+        vm.mem4b00[0xe5] = 7;
+        vm.mem7c00[0x2d2] = vm.mem7c00[0x2d3] = 9;
+        vm.mem4b00[0x100] = vm.mem4b00[0x11f] = vm.mem7c00[0x379] = vm.mem7c00[0x382] = 5;
+        vm.mem4b00[0x120] = vm.mem7c00[0x383] = 5;
+        at = 0;
+        for (int i = 0; i < 5; ++i) word(0x8000);
+        CHECK(cok_ecl_start(&vm, true) == COK_ECL_OK);
+        CHECK(vm.mem4b00[0xe5] == (g == 0 ? 0 : 7) && vm.mem7c00[0x2e1] == (g == 0 ? 0xff : 0));
+        CHECK(vm.mem7c00[0x2d2] == 0 && vm.mem7c00[0x2d3] == 0);
+        CHECK(vm.mem4b00[0x100] == 0 && vm.mem4b00[0x11f] == 0 && vm.mem4b00[0x120] == 5);
+        CHECK(vm.mem7c00[0x379] == 0 && vm.mem7c00[0x382] == 0 && vm.mem7c00[0x383] == 5);
+    }
+}
+
+/* The special addresses: Champions' (3775:0fca, 0e06) and Death Knights'
+ * (dkk 3c1e:0d85, 0bc1: no values of the host's, 0x4cf8 reading 1, stores
+ * only above 49000). */
+static void test_special_addresses(void)
+{
+    const cok_rules *games[] = {C, DK};
+    for (size_t g = 0; g < 2; ++g) {
+        bool dkk = g == 1;
+        cok_ecl_init(&vm, games[g], NULL);
+        vm.value_b1 = 11;
+        vm.value_fb = 12;
+        vm.value_fc = 13;
+        vm.mem4b00[0x1f8] = 5;
+        vm.direction = 4;
+        vm.ahead = 7;
+        vm.square = 0x90;
+        CHECK(cok_ecl_load_var(&vm, 0xb1) == (dkk ? 0 : 11));
+        CHECK(cok_ecl_load_var(&vm, 0xfb) == (dkk ? 0 : 12));
+        CHECK(cok_ecl_load_var(&vm, 0xfc) == (dkk ? 0 : 13));
+        CHECK(cok_ecl_load_var(&vm, 0x4cf8) == (dkk ? 1 : 5));
+        CHECK(cok_ecl_load_var(&vm, 0x4bea) == 4 && cok_ecl_load_var(&vm, 0x33d) == 4);
+        CHECK(cok_ecl_load_var(&vm, 0xc04e) == 7 && cok_ecl_load_var(&vm, 0xc04f) == 0x90);
+        CHECK(cok_ecl_load_var(&vm, 0xc04d) == 4 && cok_ecl_load_var(&vm, 0x1234) == 0);
+        /* A wide read of 0x4cf8 or 0x4bea is not widened. */
+        vm.mem4b00[0xeb] = vm.mem4b00[0x1f9] = 0x22;
+        at = 0;
+        op(COK_ECL_ADD); var3(0x4cf8); var3(0x4bea); var3(0x7a00);
+        op(COK_ECL_EXIT);
+        CHECK(cok_ecl_run(&vm, COK_ECL_BASE) == COK_ECL_OK);
+        CHECK(vm.mem7a00[0] == (dkk ? 5 : 9) && vm.mem7a00[1] == 0);
+        cok_ecl_store(&vm, 0x3de, 0x21);
+        cok_ecl_store(&vm, 0xb8, 0x22);
+        cok_ecl_store(&vm, 0xb9, 0x23);
+        CHECK(vm.value_3de == (dkk ? 0 : 0x21) && vm.value_b8 == (dkk ? 0 : 0x22));
+        CHECK(vm.value_b9 == (dkk ? 0 : 0x23));
+        cok_ecl_store(&vm, 0xc04c, 3);
+        cok_ecl_store(&vm, 0xc059, 0x0b);
+        cok_ecl_store(&vm, 0xc05f, 8);
+        cok_ecl_store(&vm, 0xc04d, 9);
+        CHECK(vm.map_y == 3 && vm.c059 == 0x0b && vm.c05f == 8 && vm.direction == 2);
+        CHECK(cok_ecl_special_read(games[g], 0x4cf8) ==
+              (dkk ? COK_ECL_SPECIAL_ONE : COK_ECL_SPECIAL_NONE));
+        CHECK(cok_ecl_special_store(games[g], 0x3de) ==
+              (dkk ? COK_ECL_SPECIAL_NONE : COK_ECL_SPECIAL_3DE));
+        CHECK(cok_ecl_special_store(games[g], 0x4bea) == COK_ECL_SPECIAL_NONE);
+    }
+}
+
+/* Death Knights' handlers where they differ from Champions' in the VM:
+ * SAVE TABLE as wide as its value's operand (3632:1018), GETTABLE's read as
+ * wide as its third (0fb2), DIVIDE's remainder a byte (014a), COMPARE AND of
+ * strings (0bed); and the handlers not carried out. */
+static void test_death_knights_handlers(void)
+{
+    cok_ecl_init(&vm, DK, NULL);
+    vm.mem4b00[0x20] = 0x34;
+    vm.mem4b00[0x21] = 0x12;
+    at = 0;
+    op(COK_ECL_SAVE_TABLE); word(0x0201); var(0x4b10); imm(2); /* a word over two */
+    op(COK_ECL_SAVE_TABLE); var(0x4b20); var3(0x4b30); imm(0); /* a byte */
+    op(COK_ECL_GETTABLE); word(0x4b1e); imm(2); var3(0x7a00);  /* a word read */
+    op(COK_ECL_DIVIDE); word(0x0123); imm(0x10); var(0x7a10);
+    op(COK_ECL_COMPARE_AND); text("DURFEY"); text("DURFEY"); imm(1); imm(1);
+    op(COK_ECL_EXIT);
+    CHECK(cok_ecl_run(&vm, COK_ECL_BASE) == COK_ECL_OK);
+    CHECK(vm.mem4b00[0x12] == 1 && vm.mem4b00[0x13] == 2);
+    CHECK(vm.mem4b00[0x30] == 0x34 && vm.mem4b00[0x31] == 0);
+    CHECK(vm.mem7a00[0] == 0x34 && vm.mem7a00[1] == 0x12);
+    CHECK(vm.mem7a00[0x10] == 0x12 && vm.mem7c00[0x33f] == 3);
+    CHECK(vm.flags[0] && !vm.flags[1]);
+    at = 0;
+    op(COK_ECL_COMPARE_AND); imm(1); imm(1); text("DURFEY"); text("STURM");
+    op(COK_ECL_EXIT);
+    CHECK(cok_ecl_run(&vm, COK_ECL_BASE) == COK_ECL_OK && !vm.flags[0] && vm.flags[1]);
+    at = 0;
+    op(COK_ECL_COMPARE_AND); text("A"); text("A"); text("B"); text("B");
+    op(COK_ECL_EXIT);
+    CHECK(cok_ecl_run(&vm, COK_ECL_BASE) == COK_ECL_OK && vm.flags[0]);
+    /* Champions' compares the values, strings or not: equal stale ones. */
+    cok_ecl_init(&vm, C, NULL);
+    at = 0;
+    op(COK_ECL_COMPARE_AND); text("A"); text("B"); imm(1); imm(1);
+    op(COK_ECL_DIVIDE); word(0x0123); imm(0x10); var(0x7a10);
+    op(COK_ECL_EXIT);
+    CHECK(cok_ecl_run(&vm, COK_ECL_BASE) == COK_ECL_OK && vm.flags[0]);
+    CHECK(vm.mem7c00[0x33f] == 3);
+
+    /* Not carried out: Death Knights' handlers that need what is not
+     * ported; Champions' all are. */
+    static const uint8_t unported[] = {0x0b, 0x0c, 0x24, 0x27, 0x2e, 0x38, 0x3c, 0x41};
+    for (unsigned o = 0; o < COK_ECL_OPCODES; ++o) {
+        bool listed = memchr(unported, (int)o, sizeof unported) != NULL;
+        CHECK((cok_ecl_unported(DK, o) != NULL) == listed);
+        CHECK(cok_ecl_unported(C, o) == NULL);
+        if (listed) CHECK(strncmp(cok_ecl_unported(DK, o), "dkk 3632:", 9) == 0);
+    }
+    CHECK(cok_ecl_unported(DK, 0x99) == NULL);
+    CHECK(DK->ecl.compare_and_strings && !C->ecl.compare_and_strings);
+    CHECK(DK->ecl.delay_ms == 600 && C->ecl.delay_ms == 0);
+    CHECK(!DK->ecl.menu_single_item && C->ecl.menu_single_item);
+}
+
+/* Death Knights' character fields (dkk 3c1e:073a, 0a9a), on a record of
+ * its own built by hand: each read and write at its offset. */
+static void test_death_knights_fields(void)
+{
+    cok_ecl_init(&vm, DK, NULL);
+    uint8_t record[COK_CHARACTER_MAX], expected[COK_CHARACTER_MAX];
+    for (size_t i = 0; i < sizeof record; ++i) record[i] = (uint8_t)(i * 37 + 11);
+    vm.character = record;
+    static const struct {
+        uint16_t address, offset;
+        uint8_t kind; /* 0 byte, 1 signed byte, 2 word */
+    } reads[] = {
+        {0x7c14, 0x11, 0}, {0x7c15, 0x13, 0}, {0x7c19, 0x1b, 0}, {0x7c1a, 0x1d, 0},
+        {0x7c65, 0x10, 0}, {0x7c6a, 0x1a, 0}, {0x7c6b, 0x1c, 0}, {0x7c71, 0x1f, 0},
+        {0x7c72, 0x20, 1}, {0x7c74, 0x26, 2}, {0x7c76, 0x28, 0}, {0x7c9a, 0x2a, 0},
+        {0x7c9e, 0x2e, 0}, {0x7c9f, 0xd7, 0}, {0x7ca5, 0x32, 0}, {0x7cac, 0x39, 0},
+        {0x7cb8, 0x3e, 0}, {0x7cbb, 0x24, 0}, {0x7cbc, 0x23, 1}, {0x7cbf, 0x22, 0},
+        {0x7cc3, 0x3f, 2}, {0x7cc4, 0x3f, 2}, {0x7cc5, 0x41, 2}, {0x7cc8, 0x43, 2},
+        {0x7cd3, 0xc1, 0}, {0x7cd6, 0x55, 1}, {0x7cd8, 0x56, 1}, {0x7d0e, 0xcb, 0},
+        {0x7d0f, 0xcc, 0}, {0x7d10, 0xcd, 0}, {0x7d19, 0xd6, 0}, {0x7d1a, 0xd7, 0},
+    };
+    for (size_t i = 0; i < sizeof reads / sizeof *reads; ++i) record[reads[i].offset] |= 0x80;
+    for (size_t i = 0; i < sizeof reads / sizeof *reads; ++i) {
+        const uint8_t *b = record + reads[i].offset;
+        uint16_t want = (uint16_t)(reads[i].kind == 0   ? b[0]
+                                   : reads[i].kind == 1 ? (uint16_t)(int16_t)(int8_t)b[0]
+                                                        : (uint16_t)(b[0] | b[1] << 8));
+        CHECK(cok_ecl_load_var(&vm, reads[i].address) == want);
+        vm.character = NULL;
+        CHECK(cok_ecl_load_var(&vm, reads[i].address) == 0);
+        vm.character = record;
+    }
+    /* Not fields here: Champions' 0x7c73, 0x7ca0, 0x7cbd, 0x7cc9, 0x7cf7,
+     * 0x7d0c, 0x7d1b, 0x7ecf and 0x7f12 read the variable. */
+    static const uint16_t variables[] = {0x7c73, 0x7ca0, 0x7cbd, 0x7cc9, 0x7cf7,
+                                         0x7d0c, 0x7d1b, 0x7ecf, 0x7f12};
+    for (size_t i = 0; i < sizeof variables / sizeof *variables; ++i) {
+        vm.mem7c00[variables[i] - 0x7c00] = 0x5a;
+        CHECK(cok_ecl_load_var(&vm, variables[i]) == 0x5a);
+    }
+    /* The name's text by the size byte (+0x29): one byte, or a word. */
+    memcpy(record, "\005DURFE", 6);
+    record[0x29] = 1;
+    CHECK(cok_ecl_load_var(&vm, 0x7c00) == 'D' && cok_ecl_load_var(&vm, 0x7c02) == 'R');
+    record[0x29] = 2;
+    CHECK(cok_ecl_load_var(&vm, 0x7c00) == ('D' | 'U' << 8));
+    record[0x29] = 0;
+    CHECK(cok_ecl_load_var(&vm, 0x7c01) == 0);
+    /* Active: 1, else 0x80; the classes by bit. */
+    record[0xc8] = 0;
+    CHECK(cok_ecl_load_var(&vm, 0x7d00) == 0x80);
+    record[0xc8] = 3;
+    CHECK(cok_ecl_load_var(&vm, 0x7d00) == 1);
+    memset(record + 0x45, 0, 8);
+    record[0x4a] = 1;            /* class 5: bit 0 */
+    record[0x47] = 2;            /* class 2: bit 3 */
+    record[0x49] = 0x81;         /* class 4, negative: no bit 7 */
+    record[0x46] = 9;            /* class 1: no bit */
+    CHECK(cok_ecl_load_var(&vm, 0x7ceb) == 0x09);
+    record[0x49] = 1;
+    CHECK(cok_ecl_load_var(&vm, 0x7ceb) == 0x89);
+
+    /* Stores: each changes its own bytes only. */
+    memcpy(expected, record, sizeof record);
+    cok_ecl_store(&vm, 0x7cb8, 0xb3); /* no 0x32 off */
+    expected[0x3e] = 0xb3;
+    vm.name_cleared = false;
+    cok_ecl_store(&vm, 0x7c00, 5); /* any store clears the name's flag */
+    CHECK(vm.name_cleared && memcmp(record, expected, sizeof record) == 0);
+    cok_ecl_store_as(&vm, &(cok_ecl_operand){COK_ECL_VAR_3, 0xc6, 0x7c}, 0xbeef);
+    expected[0x41] = 0xef;
+    expected[0x42] = 0xbe;
+    cok_ecl_store_as(&vm, &(cok_ecl_operand){COK_ECL_VAR_3, 0x19, 0x7d}, 0x2cd);
+    expected[0xd6] = 0xcd;
+    CHECK(memcmp(record, expected, sizeof record) == 0);
+    record[0xc7] = expected[0xc7] = 6;
+    record[0xc8] = expected[0xc8] = 0;
+    cok_ecl_store(&vm, 0x7d00, 1);
+    expected[0xc7] = 0;
+    expected[0xc8] = 1;
+    CHECK(memcmp(record, expected, sizeof record) == 0);
+    static const uint16_t side_stores[][3] = {{0x81, 1, 1}, {0x80, 0, 1}, {0x82, 0, 1}, {0, 0, 0}};
+    for (size_t i = 0; i < sizeof side_stores / sizeof *side_stores; ++i) {
+        cok_ecl_store(&vm, 0x7d0c, side_stores[i][0]);
+        expected[0xc9] = (uint8_t)side_stores[i][1];
+        expected[0xca] = (uint8_t)side_stores[i][2];
+        CHECK(memcmp(record, expected, sizeof record) == 0);
+    }
+    /* The ECL file is written, not read (0x7f12 reads the variable). */
+    vm.file = 1;
+    cok_ecl_store(&vm, 0x7f12, 6);
+    CHECK(vm.file == 3 && vm.previous_file == 1 && cok_ecl_load_var(&vm, 0x7f12) == 6);
+    /* Fields only read keep their bytes; the variable takes the value. */
+    cok_ecl_store(&vm, 0x7c71, 9);
+    cok_ecl_store(&vm, 0x7d1a, 9);
+    CHECK(memcmp(record, expected, sizeof record) == 0 && vm.mem7c00[0x71] == 9);
+    vm.character = NULL;
+}
+
 int main(void)
 {
     test_names_and_counts();
@@ -814,6 +1132,10 @@ int main(void)
     test_menus_and_hooks();
     test_variables();
     test_character_fields();
+    test_named_variables();
+    test_special_addresses();
+    test_death_knights_handlers();
+    test_death_knights_fields();
     test_random();
     test_newecl();
     test_errors();

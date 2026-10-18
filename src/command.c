@@ -221,7 +221,8 @@ void cok_combat_command_text(cok_adventure *game, cok_character *c, char out[41]
     bool memorized = false;
     for (size_t i = 0; i < cok_field_count(L, COK_FIELD_MEMORIZED); ++i)
         if (cok_field_u8_at(L, r, COK_FIELD_MEMORIZED, i) > 0) memorized = true;
-    if (memorized && cr->may_cast != 0 && game->vm.mem4b00[0xe5] == 0) append(out, "Cast ");
+    if (memorized && cr->may_cast != 0 && cok_ecl_var(&game->vm, COK_VAR_NO_MAGIC) == 0)
+        append(out, "Cast ");
     bool cleric = cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 0) > 0 ||
                   (cok_field_s8_at(L, r, COK_FIELD_FORMER_LEVEL, 0) > 0 &&
                    cok_character_former_class(r, cok_game_rules(game)));
@@ -533,7 +534,7 @@ bool cok_combat_ally(cok_adventure *game, cok_character *c, cok_character *targe
         *go = false;
         return true;
     }
-    game->vm.mem7c00[0x333] = 1; /* var 0x7f33; DS:714a, which nothing reads, too */
+    cok_ecl_set_var(&game->vm, COK_VAR_FLED, 1); /* var 0x7f33; DS:714a, which nothing reads, too */
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *m = game->party.members[i];
         uint8_t *r = m->record;

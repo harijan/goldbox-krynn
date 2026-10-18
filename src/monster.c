@@ -208,7 +208,7 @@ static void load_monster(cok_adventure *game)
     /* The difficulty, 1-5 (Novice to Champion), scales the hit points of a
      * monster against the party by (d + 1) / 4, as bytes; either at 0 makes
      * both 1. */
-    uint16_t difficulty = vm->mem4b00[0x1f4];
+    uint16_t difficulty = cok_ecl_var(vm, COK_VAR_DIFFICULTY);
     if (cok_field_u8(L, r, COK_FIELD_HOSTILE) == 1 && difficulty >= 1 && difficulty <= 5) {
         uint8_t now = cok_field_u8(L, r, COK_FIELD_HIT_POINTS),
                 most = cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS);
@@ -396,8 +396,8 @@ bool cok_real_trunc(cok_real value, int32_t *out)
 uint8_t cok_monster_open_squares(cok_adventure *game, int x, int y, uint8_t direction)
 {
     cok_ecl *vm = &game->vm;
-    if (vm->mem4b00[0xe6] == 0) {
-        vm->mem7c00[0x2c1] = 2;
+    if (cok_ecl_var(vm, COK_VAR_3D) == 0) {
+        cok_ecl_set_var(vm, COK_VAR_DISTANCE, 2);
         return 2;
     }
     /* The steps are bytes and do not wrap; the walls wrap the square. */
@@ -428,7 +428,7 @@ static void show_monster(cok_adventure *game, uint8_t distance)
     if (!game->closeup_shown) {
         if (!game->sprite_loaded) {
             cok_adventure_overhead_off(game); /* DS:6d84, in any area */
-            if (vm->mem4b00[0xe6] != 0) {
+            if (cok_ecl_var(vm, COK_VAR_3D) != 0) {
                 cok_adventure_load_sprite(game, game->sprite_id);
                 game->sprite_loaded = true;
                 game->sprite_shown = true;
@@ -451,7 +451,7 @@ static void show_monster(cok_adventure *game, uint8_t distance)
             log_text(game, "monster", text);
         }
     }
-    uint16_t head = vm->mem7c00[0x2e1];
+    uint16_t head = cok_ecl_var(vm, COK_VAR_PORTRAIT);
     if (game->closeup_shown && game->closeup_head == head) return;
     /* DS:4b50, which would show it in ENCOUNTER MENU too, is never set. */
     if (distance != 0 || vm->mode != 4 || game->in_encounter) return;
@@ -475,9 +475,11 @@ static void show_monster(cok_adventure *game, uint8_t distance)
 static void place_monster(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
-    vm->mem7c00[0x2c1] = cok_monster_open_squares(game, vm->map_x, vm->map_y, vm->direction);
-    if (vm->mem7c00[0x2c0] < vm->mem7c00[0x2c1]) vm->mem7c00[0x2c1] = vm->mem7c00[0x2c0];
-    show_monster(game, (uint8_t)vm->mem7c00[0x2c1]);
+    cok_ecl_set_var(vm, COK_VAR_DISTANCE,
+                    cok_monster_open_squares(game, vm->map_x, vm->map_y, vm->direction));
+    if (cok_ecl_var(vm, COK_VAR_DISTANCE_WANTED) < cok_ecl_var(vm, COK_VAR_DISTANCE))
+        cok_ecl_set_var(vm, COK_VAR_DISTANCE, cok_ecl_var(vm, COK_VAR_DISTANCE_WANTED));
+    show_monster(game, (uint8_t)cok_ecl_var(vm, COK_VAR_DISTANCE));
 }
 
 /* SETUP MONSTER (2fd3:03c9): sprite op1, distance op2, close-up op3. */
@@ -485,7 +487,7 @@ static void setup_monster(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     game->sprite_id = (uint8_t)cok_ecl_value(vm, 0);
-    vm->mem7c00[0x2c0] = cok_ecl_value(vm, 1);
+    cok_ecl_set_var(vm, COK_VAR_DISTANCE_WANTED, cok_ecl_value(vm, 1));
     game->closeup_id = (uint8_t)cok_ecl_value(vm, 2);
     place_monster(game);
 }
@@ -494,9 +496,9 @@ static void setup_monster(cok_adventure *game)
 static void approach(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
-    if (vm->mem7c00[0x2c1] == 0) return;
-    --vm->mem7c00[0x2c1];
-    show_monster(game, (uint8_t)vm->mem7c00[0x2c1]);
+    if (cok_ecl_var(vm, COK_VAR_DISTANCE) == 0) return;
+    cok_ecl_add_var(vm, COK_VAR_DISTANCE, -1);
+    show_monster(game, (uint8_t)cok_ecl_var(vm, COK_VAR_DISTANCE));
 }
 
 /* SPRITE OFF (2fd3:2fe1): erase a sprite drawn over the view. The sprite
@@ -566,7 +568,7 @@ static void encounter_menu(cok_adventure *game)
         return;
     }
     game->sprite_id = (uint8_t)cok_ecl_value(vm, 0);
-    vm->mem7c00[0x2c0] = cok_ecl_value(vm, 1);
+    cok_ecl_set_var(vm, COK_VAR_DISTANCE_WANTED, cok_ecl_value(vm, 1));
     game->closeup_id = (uint8_t)cok_ecl_value(vm, 2);
     uint16_t result = cok_ecl_address(vm, 3);
     uint8_t reaction[5];
@@ -578,8 +580,8 @@ static void encounter_menu(cok_adventure *game)
     bool again = true;
     while (again && !vm->abort) {
         again = false;
-        bool area = vm->mem4b00[0xe6] != 0;
-        uint8_t distance = (uint8_t)vm->mem7c00[0x2c1];
+        bool area = cok_ecl_var(vm, COK_VAR_3D) != 0;
+        uint8_t distance = (uint8_t)cok_ecl_var(vm, COK_VAR_DISTANCE);
         const char *text = "";
         for (size_t k = 0; k < 3 && text[0] == '\0'; ++k) text = texts[(distance + k) % 3];
         /* Outside 3D areas the window is not cleared, and the text
@@ -625,8 +627,8 @@ static void encounter_menu(cok_adventure *game)
         } else if (stored >= 0) {
             cok_ecl_store(vm, result, (uint16_t)stored);
         } else if (nearer) {
-            --vm->mem7c00[0x2c1];
-            show_monster(game, (uint8_t)vm->mem7c00[0x2c1]);
+            cok_ecl_add_var(vm, COK_VAR_DISTANCE, -1);
+            show_monster(game, (uint8_t)cok_ecl_var(vm, COK_VAR_DISTANCE));
             again = true;
         } else if (wait) {
             encounter_line(game, "Both sides wait.", true);
@@ -860,26 +862,26 @@ static void battle(cok_adventure *game)
 static void combat(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
-    bool area = vm->mem4b00[0xe6] != 0;
+    bool area = cok_ecl_var(vm, COK_VAR_3D) != 0;
     game->big_shown = false;
     bool moving = game->moving;
     game->moving = false;
     bool fought = true;
     if (game->monsters_loaded) {
         uint8_t open = cok_monster_open_squares(game, vm->map_x, vm->map_y, vm->direction);
-        if (open < vm->mem7c00[0x2c1]) vm->mem7c00[0x2c1] = open;
+        if (open < cok_ecl_var(vm, COK_VAR_DISTANCE)) cok_ecl_set_var(vm, COK_VAR_DISTANCE, open);
         cok_adventure_overlay(game); /* 3995, 3cb2, 3afb, 432f, 6b30, 69ea */
         battle(game);
         if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game); /* 475c or 6961 */
         if (!area && vm->status == COK_ECL_OK) cok_adventure_load_big(game, 0x79);
-    } else if (vm->mem7c00[0x36c] == 1) {
-        vm->mem7c00[0x36c] = 0;
+    } else if (cok_ecl_var(vm, COK_VAR_SHOP) == 1) {
+        cok_ecl_set_var(vm, COK_VAR_SHOP, 0);
         cok_adventure_overlay(game); /* 36d0 */
         cok_shop(game);
         if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game);
         fought = area;
-    } else if (vm->mem7c00[0x2e2] == 1) {
-        vm->mem7c00[0x2e2] = 0;
+    } else if (cok_ecl_var(vm, COK_VAR_TEMPLE) == 1) {
+        cok_ecl_set_var(vm, COK_VAR_TEMPLE, 0);
         cok_adventure_overlay(game); /* 340d */
         cok_temple(game);
         if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game);
@@ -894,12 +896,12 @@ static void combat(cok_adventure *game)
         return;
     }
     vm->mode = area ? 4 : 3;
-    vm->mem7c00[0x2ca] &= 1;
+    cok_ecl_set_var(vm, COK_VAR_SEARCH, cok_ecl_var(vm, COK_VAR_SEARCH) & 1);
     game->sprite_loaded = game->closeup_shown = false;
     game->picture_shown = false;
     if (fought) {
         cok_adventure_redraw(game);
-        if (!area && !vm->abort && vm->mem4b00[0x138] == 0)
+        if (!area && !vm->abort && !cok_ecl_flag(vm, COK_VAR_OFF_MAP))
             cok_adventure_mark(game);
     }
     game->moving = moving;

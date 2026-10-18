@@ -162,7 +162,8 @@ static bool caster_level(cok_effects *fx, uint8_t spell, uint8_t *level)
         int8_t b = (int8_t)(former * FORMER(4) + LEVEL(4) - 8);
         if (LEVEL(5) > 0 && cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER) != 0) {
             /* The moon of its order, word 0x4cf8 + order (2b96). */
-            uint16_t moon = fx->vm->mem4b00[0x1f8 + cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER)];
+            uint16_t moon = cok_ecl_var_at(fx->vm, COK_VAR_ORDER_MOON,
+                                           cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER));
             if (moon == 0) --a;
             else if (moon == 2 && LEVEL(5) > 5) ++a;
         }
@@ -2619,7 +2620,8 @@ static bool saving_throw(cok_effects *fx, cok_character *target, uint8_t type, u
         if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) > 0 &&
             cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER) != 0) {
             uint16_t moon =
-                fx->vm->mem4b00[(uint8_t)(cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER) + 0xf8)];
+                cok_ecl_var_at(fx->vm, COK_VAR_AREA,
+                               (uint8_t)(cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER) + 0xf8));
             if (moon == 0) --bonus;
             else if (moon == 2) ++bonus;
         }
@@ -2709,12 +2711,12 @@ bool cok_effects_pass_time(cok_effects *fx, unsigned unit, unsigned count)
         unsigned i = 1;
         do {
             if (i > COK_EFFECT_TIMED) {
-                fail(fx, "a party of %u reads past DS:46fb", vm->mem7c00[0x33e]);
+                fail(fx, "a party of %u reads past DS:46fb", cok_ecl_var(vm, COK_VAR_PARTY_SIZE));
                 return finish(fx);
             }
             if (fx->timed[i - 1] != 0) any = true;
             ++i;
-        } while (!any && i <= vm->mem7c00[0x33e]);
+        } while (!any && i <= cok_ecl_var(vm, COK_VAR_PARTY_SIZE));
         if (!any) return finish(fx);
     } else {
         memset(fx->timed, 1, sizeof fx->timed);

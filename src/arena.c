@@ -479,7 +479,7 @@ bool cok_arena_redraw(cok_adventure *game)
 {
     if (!map_there(game, "6346:300f")) return false;
     uint16_t moons[3];
-    for (size_t i = 0; i < 3; ++i) moons[i] = game->vm.mem4b00[0x1f9 + i];
+    for (size_t i = 0; i < 3; ++i) moons[i] = cok_ecl_var_at(&game->vm, COK_VAR_MOONS, i);
     cok_screen_combat(&game->screen, &game->view.tiles[4], moons); /* 1128:04c1 */
     cok_combat *c = &game->combat;
     return cok_arena_centre(game, s8(c->view_x + 3), s8(c->view_y + 3), 0xff, 8);

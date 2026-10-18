@@ -835,7 +835,7 @@ bool cok_combat_place_all(cok_adventure *game)
     uint8_t facing = vm->direction;
     p.quadrant[0] = facing >> 1;
     p.quadrant[1] = (uint8_t)((facing + 4) % 8) >> 1;
-    uint16_t distance = vm->mem7c00[0x2c1];
+    uint16_t distance = cok_ecl_var(vm, COK_VAR_DISTANCE);
     p.anchor_x[1] = s8((int)distance * cok_step_x[facing]);
     p.anchor_y[1] = s8((int)distance * cok_step_y[facing]);
     for (unsigned side = 0; side < 2; ++side) {
@@ -986,7 +986,7 @@ static bool build(cok_adventure *game)
 {
     cok_combat *combat = &game->combat;
     cok_ecl *vm = &game->vm;
-    bool area = vm->mem4b00[0xe6] != 0;
+    bool area = cok_ecl_var(vm, COK_VAR_3D) != 0;
     const cok_rules_archives *a = &cok_game_rules(game)->archives;
     if (!load_tiles(game, area ? a->dungeon : a->wilderness, 0, area ? 0x19 : 0x21) ||
         !load_tiles(game, a->random, 0x22, 6))
@@ -1017,13 +1017,14 @@ static bool build(cok_adventure *game)
         cok_combat_dungeon(combat, cok_game_rules(game), &game->view, vm->map_x, vm->map_y,
                            &vm->seed);
         snprintf(text, sizeof text, "the 3D map around %d,%d facing %s, the enemy %u squares ahead",
-                 vm->map_x, vm->map_y, facing[vm->direction & 7], vm->mem7c00[0x2c1]);
+                 vm->map_x, vm->map_y, facing[vm->direction & 7],
+                 cok_ecl_var(vm, COK_VAR_DISTANCE));
     } else {
         const cok_rules *rules = cok_game_rules(game);
         cok_combat_wilderness(combat, rules,
                               cok_data_u8_at(rules->data, COK_DATA_TERRAIN_FLAGS, 15), &vm->seed);
         snprintf(text, sizeof text, "open ground facing %s, the enemy %u squares ahead",
-                 facing[vm->direction & 7], vm->mem7c00[0x2c1]);
+                 facing[vm->direction & 7], cok_ecl_var(vm, COK_VAR_DISTANCE));
     }
     log_text(game, "combat", text);
     return true;
@@ -1065,14 +1066,14 @@ bool cok_combat_setup(cok_adventure *game)
     free(game->lost_weapons);
     game->lost_weapons = NULL;
     game->lost_weapon_count = 0;
-    vm->mem7c00[0x333] = 0;
+    cok_ecl_set_var(vm, COK_VAR_FLED, 0);
     bool listed = game->party.count > 0;
     if (!build(game)) return false;
     drop_key(game);
     char error[300];
     if (!cok_combat_records(&game->party, cok_game_rules(game), &game->item_types,
-                            vm->mem7c00[0x33e], vm->direction, vm->mem7c00[0x2c6], error,
-                            sizeof error)) {
+                            cok_ecl_var(vm, COK_VAR_PARTY_SIZE), vm->direction,
+                            cok_ecl_var(vm, COK_VAR_MORALE), error, sizeof error)) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
         return false;
     }

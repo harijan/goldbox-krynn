@@ -520,11 +520,10 @@ static bool roll(cok_adventure *game, cok_character *character)
     if (game->free_training || cok_field_u8(L, c, COK_FIELD_STATUS) != 0)
         return undefined(game, "creation trains until no class can rise, which free training "
                                "or a status not okay never lets happen (4def:22eb)");
-    uint16_t *hall = &game->vm.mem7c00[0x2a8];
-    uint8_t kept = (uint8_t)*hall;
-    *hall = 0xff;
+    uint8_t kept = (uint8_t)cok_ecl_var(&game->vm, COK_VAR_HALL);
+    cok_ecl_set_var(&game->vm, COK_VAR_HALL, 0xff);
     while (cok_train_silently(game, character)) {}
-    *hall = kept;
+    cok_ecl_set_var(&game->vm, COK_VAR_HALL, kept);
     if (game->vm.abort) return false;
     level_line(game, c);
     return cok_sheet_figures(game, character) && cok_sheet_money(game, c);

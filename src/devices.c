@@ -123,10 +123,9 @@ static int click(void *context, int col, int row, bool *special)
 {
     cok_adventure *game = context;
     cok_ecl *vm = &game->vm;
-    const uint16_t *mem = vm->mem4b00;
     /* The party list (065c-077a): the member on the row picked, as Up. */
-    if (game->mouse.party_clicks && !(vm->mode == 3 && mem[0x138] == 0) && !game->moving &&
-        vm->mode != 5 && col >= game->party_left && col <= game->party_right &&
+    if (game->mouse.party_clicks && !(vm->mode == 3 && !cok_ecl_flag(vm, COK_VAR_OFF_MAP)) &&
+        !game->moving && vm->mode != 5 && col >= game->party_left && col <= game->party_right &&
         row >= game->party_top && row <= game->party_bottom) {
         uint8_t *p = cok_party_record(&game->party, (uint8_t)(row - game->party_top));
         /* A row past the party: taken, nothing given (077a). */
@@ -159,11 +158,12 @@ static int click(void *context, int col, int row, bool *special)
     /* Move mode (0879-0917): the 3D view's cells 3-13, or the overland
      * map's, from the party's place on it. */
     if (game->moving && ((col >= 3 && col <= 13 && row >= 3 && row <= 13) ||
-                         (mem[0xe6] == 0 && vm->mode == 3 && col >= 1 && col <= 38 &&
-                          row >= 1 && row <= 15))) {
+                         (cok_ecl_var(vm, COK_VAR_3D) == 0 && vm->mode == 3 && col >= 1 &&
+                          col <= 38 && row >= 1 && row <= 15))) {
         *special = true;
-        if (mem[0xe6] == 0)
-            return cok_mouse_direction((int16_t)(mem[0xc3] + 1), (int16_t)(mem[0xc4] + 1),
+        if (cok_ecl_var(vm, COK_VAR_3D) == 0)
+            return cok_mouse_direction((int16_t)(cok_ecl_var(vm, COK_VAR_OVERLAND_X) + 1),
+                                       (int16_t)(cok_ecl_var(vm, COK_VAR_OVERLAND_Y) + 1),
                                        (int16_t)col, (int16_t)row);
         return view_keys[row - 3][col - 3];
     }

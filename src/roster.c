@@ -310,7 +310,7 @@ void cok_roster_add(cok_adventure *game)
         players = 0;
         bool accept, first = game->party.count == 0;
         if (first) {
-            vm->mem7c00[0x33e] = 0;
+            cok_ecl_set_var(vm, COK_VAR_PARTY_SIZE, 0);
             accept = true;
         } else {
             uint8_t rangers = 0;
@@ -330,8 +330,9 @@ void cok_roster_add(cok_adventure *game)
                 }
             }
             accept = !duplicate &&
-                     (cok_field_u8(L, r, COK_FIELD_NPC) < 0x80 ? players < 6
-                                                               : vm->mem7c00[0x33e] < 8) &&
+                     (cok_field_u8(L, r, COK_FIELD_NPC) < 0x80
+                          ? players < 6
+                          : cok_ecl_var(vm, COK_VAR_PARTY_SIZE) < 8) &&
                      (cok_field_u8_at(L, r, COK_FIELD_CLASS_LEVEL, 3) == 0 || !evil) &&
                      (cok_field_u8_at(L, r, COK_FIELD_CLASS_LEVEL, 4) == 0 || rangers < 3) &&
                      ((cok_field_s8(L, r, COK_FIELD_ALIGNMENT) + 1) % 3 != 0 || !paladin);
@@ -370,7 +371,7 @@ void cok_roster_add(cok_adventure *game)
                 undefined(game, error);
                 return;
             }
-            ++vm->mem7c00[0x33e];
+            cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, 1);
             vm->character = r;
             if (!cok_arena_party_icon(game, c, true)) return;
             /* The first to join is not counted (4def:38c3). */
@@ -380,7 +381,8 @@ void cok_roster_add(cok_adventure *game)
             snprintf(marked, sizeof marked, "%s joins", joined);
             cok_adventure_log(game, "party", marked);
         }
-    } while (key != 'E' && key != 0 && players <= 5 && vm->mem7c00[0x33e] <= 7 && !vm->abort);
+    } while (key != 'E' && key != 0 && players <= 5 && cok_ecl_var(vm, COK_VAR_PARTY_SIZE) <= 7 &&
+             !vm->abort);
 }
 
 bool cok_roster_load(cok_adventure *game)

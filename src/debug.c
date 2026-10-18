@@ -177,7 +177,7 @@ bool cok_debug_item(cok_adventure *game, const uint8_t *item)
     values[14] = row[12];                                          /* DS:5892 */
     values[15] = row[0];                                           /* DS:5886 */
     uint16_t moons[3];
-    for (size_t i = 0; i < 3; ++i) moons[i] = game->vm.mem4b00[0x1f9 + i];
+    for (size_t i = 0; i < 3; ++i) moons[i] = cok_ecl_var_at(&game->vm, COK_VAR_MOONS, i);
     cok_screen_frame(&game->screen, &game->view.tiles[4], moons, true); /* 1128:0000 */
     for (int i = 0; i < 16; ++i) {
         char value[8], line[40];
