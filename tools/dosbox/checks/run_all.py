@@ -129,14 +129,9 @@ CHECKS = [
     # The long ones first, so that they do not end the run alone.
 ]
 
-# Checks that catch a text shown for a few seconds in a burst of screenshots
-# (d_lib.burst): run alone after the rest, as with others running beside them
-# on a loaded host DOSBox-X wrote ten times fewer and missed some.
-ALONE = {"d_arrows", "d_aurak", "d_bolt", "d_bozak", "d_cast", "d_gate", "d_hold",
-         "d_turning"}
 # Minutes each took in a full run (the rest a few each), for the order.
 LONG = {"a_demo": 6, "c_wander": 6, "f_frames": 5, "f_display_modes": 5, "f_sound": 4,
-        "a_ctrl_s": 3, "e_bolt_bounce": 2, "f_mouse": 2, "e_manual": 2}
+        "a_ctrl_s": 3, "d_bozak": 3, "e_bolt_bounce": 2, "f_mouse": 2, "e_manual": 2}
 VERDICT = re.compile(r"^VERDICT: (AGREES|DIFFERS new.*|ERROR.*)$", re.M)
 
 
@@ -391,13 +386,12 @@ def main():
 
 def run_checks(todo, jobs, out, run, again=True):
     """Run TODO's scripts (CHECKS' rows) with RUN(name, out) -> (verdict,
-    code), JOBS at a time and ALONE's one at a time, then (with AGAIN) those
+    code), JOBS at a time, then (with AGAIN) those
     not as recorded once more, alone; print the table. Returns the exit
     status: 1 if any is not as recorded at the end."""
     results, lock = {}, threading.Lock()
     # The long ones first, so that they do not end the run alone.
-    queue = sorted((c for c in todo if c[0] not in ALONE), key=lambda c: -LONG.get(c[0], 0))
-    alone = [c for c in todo if c[0] in ALONE]
+    queue = sorted(todo, key=lambda c: -LONG.get(c[0], 0))
     t0 = time.monotonic()
 
     def worker():
@@ -416,7 +410,7 @@ def run_checks(todo, jobs, out, run, again=True):
                 results[name] = (verdict, code, took)
                 print(line(name, checks, want, verdict, code, took), flush=True)
 
-    print(f"{len(todo)} scripts, {jobs} at a time, then {len(alone)} alone; logs in {out}; "
+    print(f"{len(todo)} scripts, {jobs} at a time; logs in {out}; "
           f"load average {os.getloadavg()[0]:.0f}", flush=True)
     def work(count):
         # Joined with a timeout, so that the main thread takes a signal (stop).
@@ -428,8 +422,6 @@ def run_checks(todo, jobs, out, run, again=True):
                 t.join(0.5)
 
     work(jobs)
-    queue.extend(alone)
-    work(1)
     # A script not as recorded runs once more, alone (its first log and
     # folder kept as NAME.first.log, NAME.first): some judge the original's
     # screens or its waits as they come, and now and then one of them

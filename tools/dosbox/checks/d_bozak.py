@@ -11,13 +11,13 @@ DISCOVERED SOME HOSTILE CREATURES.", 3 giant spiders and 2 bozaks. Alt-Q at
 the first turn, the computer plays the battle to its end (the party is
 destroyed: "The monsters rejoice ..." and "Press any key to continue"). A
 bozak drops beside SIRRION and MOLLY: "explodes.", and SIRRION, two
-spiders and MOLLY take 1d6 each. The original runs at speed 15 (DS:4b38 poked, the
-port's too) while screenshots are taken to the battle's end: they are
-judged in order against the port's frames (d_lib.burst_step), the panel
-read for "EXPLODES." and the damages that follow (against eclplay's log),
-and the screen and memory (d_lib.compare_state: the party's hit points
-among it) at the first turn and at the end against the port's. The
-original types the defeat's text a letter at a time (the speed's delay
+spiders and MOLLY take 1d6 each. The original runs at speed 4 (DS:4b38
+poked, the port's too) while its screen is read every 50 ms (d_lib.burst)
+to the battle's end: the screens are judged in order against the port's
+frames (d_lib.burst_step), the panel read for "EXPLODES." and the damages
+that follow (against eclplay's log), and the screen and memory
+(d_lib.compare_state: the party's hit points among it) at the first turn
+and at the end against the port's. The original types the defeat's text a letter at a time (the speed's delay
 between letters): whether the port shows it so, from its frames.
 """
 import argparse
@@ -48,7 +48,7 @@ def main():
         d_lib.screen(v, "screen turn", shown, port, "turn", work)
         d_lib.compare_state(v, b, port, "turn")
         shots, _, _ = d_lib.burst_step(v, b, port, "turn", "end", 0x1000, work, "battle",
-                                       args.burst, speed=15)
+                                       args.burst, speed=4)
         d_lib.compare_state(v, b, port, "end")
     lines = [line for line in port.lines if not line.startswith("sound:")]
     k = lines.index("print: explodes.") if "print: explodes." in lines else None
