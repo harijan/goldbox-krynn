@@ -60,7 +60,8 @@ static void clear_cells(cok_adventure *game, int x1, int y1, int x2, int y2)
 static void clear_frame(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
-    uint16_t phase[3] = {vm->mem4b00[0x1f9], vm->mem4b00[0x1fa], vm->mem4b00[0x1fb]};
+    uint16_t phase[3] = {cok_ecl_var_at(vm, COK_VAR_MOONS, 0), cok_ecl_var_at(vm, COK_VAR_MOONS, 1),
+                         cok_ecl_var_at(vm, COK_VAR_MOONS, 2)};
     cok_screen_frame(&game->screen, &game->view.tiles[4], phase, true);
 }
 
@@ -129,7 +130,7 @@ static int leave(cok_adventure *game, const char *said, const char *question)
 static void price_lines(cok_adventure *game)
 {
     cok_pool *pool = &game->pool;
-    uint16_t factor = game->vm.mem7c00[0x36d];
+    uint16_t factor = cok_ecl_var(&game->vm, COK_VAR_PRICES);
     for (size_t i = 0; i < pool->item_count; ++i) {
         uint8_t *item = pool->items[i];
         char line[31];
@@ -214,7 +215,8 @@ static bool purchase(cok_adventure *game, size_t index)
     cok_pool *pool = &game->pool;
     uint8_t *item = pool->items[index];
     uint16_t price;
-    if (!cok_shop_price(word(item + 0x3a), game->vm.mem7c00[0x36d], &price)) price = 15;
+    if (!cok_shop_price(word(item + 0x3a), cok_ecl_var(&game->vm, COK_VAR_PRICES), &price))
+        price = 15;
     cok_character *character = selected(game);
     if (character == NULL)
         return undefined(game, "Buy with no character selected reads through NULL (546c:3424)");
@@ -401,7 +403,7 @@ void cok_shop(cok_adventure *game)
     memset(game->pool.coins, 0, sizeof game->pool.coins);
     if (!name_pool(game)) return;
     char text[32];
-    snprintf(text, sizeof text, "prices at %u", vm->mem7c00[0x36d]);
+    snprintf(text, sizeof text, "prices at %u", cok_ecl_var(vm, COK_VAR_PRICES));
     cok_adventure_log(game, "shop", text);
     /* What Trade's first Escape tests (see sheet.h): on entry what the run
      * left there. A View leaves it set (the length of a string 6346:2d75
@@ -738,7 +740,8 @@ static bool heal(cok_adventure *game)
     bool redraw = true;
     int index = 0;
     cok_ecl *vm = &game->vm;
-    uint16_t phase[3] = {vm->mem4b00[0x1f9], vm->mem4b00[0x1fa], vm->mem4b00[0x1fb]};
+    uint16_t phase[3] = {cok_ecl_var_at(vm, COK_VAR_MOONS, 0), cok_ecl_var_at(vm, COK_VAR_MOONS, 1),
+                         cok_ecl_var_at(vm, COK_VAR_MOONS, 2)};
     cok_screen_big(&game->screen, &game->view.tiles[4], phase); /* 1128:0344 */
     for (;;) {
         cok_character *character = selected(game);

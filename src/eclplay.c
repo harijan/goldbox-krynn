@@ -634,7 +634,7 @@ static bool test_party(cok_adventure *game, unsigned long count)
             free(c);
             return false;
         }
-        ++game->vm.mem7c00[0x33e];
+        cok_ecl_add_var(&game->vm, COK_VAR_PARTY_SIZE, 1);
     }
     if (!cok_arena_join(game, game->vm.file)) return false;
     game->vm.character = cok_party_record(&game->party, 0);
@@ -993,7 +993,8 @@ static int run(int argc, char **argv)
     }
     if (!has_block) {
         /* As 2fd3:3c28 resumes: the block saved in 0x4bf2, or 0x24. */
-        block = game.vm.mem4b00[0xf2] != 0 ? game.vm.mem4b00[0xf2] : 0x24;
+        block = cok_ecl_var(&game.vm, COK_VAR_BLOCK) != 0 ? cok_ecl_var(&game.vm, COK_VAR_BLOCK)
+                                                          : 0x24;
         if (file == 0) file = game.vm.file;
     }
     if (file == 0) {

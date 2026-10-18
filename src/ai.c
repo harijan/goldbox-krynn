@@ -242,7 +242,7 @@ static bool morale(cok_adventure *game, cok_character *c, bool *over, uint8_t *s
     if (rolls->morale >= lost && rolls->morale != 0) return true;
     rolls->morale = combat->enemy_health;
     if (!event(game, c, 0x11)) return false;
-    uint16_t need = (uint16_t)(100u - game->vm.mem7c00[0x2c6]); /* var 0x7ec6 */
+    uint16_t need = (uint16_t)(100u - cok_ecl_var(&game->vm, COK_VAR_MORALE)); /* var 0x7ec6 */
     if (rolls->morale >= need && rolls->morale != 0 && cok_field_u8(L, r, COK_FIELD_HOSTILE) != 0)
         return true;
     uint8_t fastest, mine;
@@ -373,7 +373,7 @@ bool cok_ai_use_item(cok_adventure *game, cok_character *c, bool *used)
     cok_combat_record *cr = record_of(game, c);
     if (cr == NULL) return false;
     if (cr->may_use == 0 || combat->sides[cok_combat_opposite(c, cok_game_rules(game))] == 0 ||
-        game->vm.mem4b00[0xe5] != 0) /* var 0x4be5 */
+        cok_ecl_var(&game->vm, COK_VAR_NO_MAGIC) != 0) /* var 0x4be5 */
         return true;
     size_t found = 0;
     for (unsigned pass = 1; pass <= passes; ++pass, --level) {

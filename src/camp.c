@@ -537,7 +537,8 @@ bool cok_camp_rest(cok_adventure *game, bool interactive)
         learn_tick(game);
         if (!vm->abort) hourly(game, &hours);
         if (vm->abort) break;
-        uint16_t every = vm->mem7c00[0x2d2], chance = vm->mem7c00[0x2d3];
+        uint16_t every = cok_ecl_var(vm, COK_VAR_REST_EVERY),
+                 chance = cok_ecl_var(vm, COK_VAR_REST_CHANCE);
         if (every == 0 || ++game->rest_ticks < every) continue;
         game->rest_ticks = 0;
         if (cok_dice(&vm->seed, 1, 100) > chance) continue; /* 57e4:0fbe */
@@ -748,7 +749,7 @@ static void remove_selected(cok_adventure *game)
     if (icon < COK_ICON_SLOTS) cok_arena_free_icon(game, icon); /* 6d21:0156 */
     cok_cast_forget(game, game->party.members[i]);
     cok_party_remove(&game->party, i);
-    --vm->mem7c00[0x33e];
+    cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, -1);
     vm->character = cok_party_record(&game->party, i > 0 ? i - 1 : 0);
 }
 
@@ -841,8 +842,7 @@ static void pictures(cok_adventure *game)
  * first. One key; any other keeps it. */
 static void level(cok_adventure *game)
 {
-    uint16_t *difficulty = &game->vm.mem4b00[0x1f4];
-    uint8_t value = (uint8_t)*difficulty;
+    uint8_t value = (uint8_t)cok_ecl_var(&game->vm, COK_VAR_DIFFICULTY);
     game->selected = value;
     bool special;
     int key = cok_camp_menu(game, "", "Novice Squire Veteran Adept Champion", true, true, &special);
@@ -854,7 +854,7 @@ static void level(cok_adventure *game)
         const char *found = key > 0 ? strchr(keys, key) : NULL;
         if (found != NULL) value = (uint8_t)(found - keys + 1);
     }
-    *difficulty = value;
+    cok_ecl_set_var(&game->vm, COK_VAR_DIFFICULTY, value);
 }
 
 /* Alter (4888:2539): "Order Drop Speed Icon Pics Level Exit" until Exit or
@@ -896,9 +896,9 @@ bool cok_camp_save_game(cok_adventure *game, char letter)
         snprintf(game->error, sizeof game->error, "no directory to save games in");
         return false;
     }
-    vm->mem4b00[0xfc] = game->speed;
-    vm->mem4b00[0xff] = (uint16_t)(game->pictures * 2 + game->animate);
-    vm->mem7c00[0x312] = vm->file;
+    cok_ecl_set_var(vm, COK_VAR_SPEED, game->speed);
+    cok_ecl_set_var(vm, COK_VAR_PICTURES, (uint16_t)(game->pictures * 2 + game->animate));
+    cok_ecl_set_var(vm, COK_VAR_ECL_FILE, vm->file);
     memset(&saved, 0, sizeof saved);
     saved.file = vm->file;
     memcpy(saved.mem4b00, vm->mem4b00, sizeof saved.mem4b00);
@@ -1019,12 +1019,13 @@ bool cok_camp(cok_adventure *game)
         stale = COK_SHEET_STALE_UNKNOWN;
         switch (key) {
         case 'S':
-            if (++vm->mem4b00[0x13c] >= 10) {
+            cok_ecl_add_var(vm, COK_VAR_SAVES, 1);
+            if (cok_ecl_var(vm, COK_VAR_SAVES) >= 10) {
                 /* Every tenth save asks a word from the rule book; the
                  * original quits to DOS on a wrong answer. */
                 cok_adventure_log(game, "unported", "copy protection (4888:0376)");
                 cok_adventure_redraw(game);
-                vm->mem4b00[0x13c] = 0;
+                cok_ecl_set_var(vm, COK_VAR_SAVES, 0);
             }
             cok_camp_save(game);
             if (!vm->abort && cok_camp_yes_no(game, "Quit TO DOS ", 14) == 'Y') cok_camp_quit(game);

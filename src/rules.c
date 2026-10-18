@@ -308,6 +308,149 @@ static const cok_rules_opcode champions_opcodes[COK_ECL_OPCODES] = {
     OP(COK_ECL_ADD_EP, 2, 2),
 };
 
+/* The variables by name (ecl.h's cok_var): each a word at its address
+ * (3775:0e06), read and written where the comments of ecl.h's names say;
+ * the moon of an order and the area's first 256 by a byte index
+ * (effect.c, magic.c). */
+#define VAR(a) {.address = a, .width = 2, .count = 1}
+#define VARS(a, n) {.address = a, .width = 2, .count = n}
+static const cok_rules_var champions_vars[COK_VARS] = {
+    [COK_VAR_OVERLAND_X] = VAR(0x4bc3),
+    [COK_VAR_OVERLAND_Y] = VAR(0x4bc4),
+    [COK_VAR_MAP] = VAR(0x4bc5),
+    [COK_VAR_CLOCK] = VARS(0x4bc6, COK_CLOCK_UNITS), /* 57e4:0549 */
+    [COK_VAR_NO_MAGIC] = VAR(0x4be5),
+    [COK_VAR_3D] = VAR(0x4be6),
+    [COK_VAR_PIECES] = VARS(0x4be7, 2),
+    [COK_VAR_LAST_X] = VAR(0x4bf0),
+    [COK_VAR_LAST_Y] = VAR(0x4bf1),
+    [COK_VAR_BLOCK] = VAR(0x4bf2),
+    [COK_VAR_HIDDEN] = VAR(0x4bfb),
+    [COK_VAR_SPEED] = VAR(0x4bfc),
+    [COK_VAR_SKY_LOW] = VAR(0x4bfd), /* 6945:00ba */
+    [COK_VAR_SKY_HIGH] = VAR(0x4bfe),
+    [COK_VAR_PICTURES] = VAR(0x4bff),
+    [COK_VAR_LOCALS] = VARS(0x4c00, 0x20), /* 3775:01e8 */
+    [COK_VAR_OFF_MAP] = VAR(0x4c38),
+    [COK_VAR_NO_VIEW] = VAR(0x4c38), /* 2fd3:3403, 6346:2c17's mode 4 */
+    [COK_VAR_SAVES] = VAR(0x4c3c), /* 4888:2c31 */
+    [COK_VAR_DIFFICULTY] = VAR(0x4cf4),
+    [COK_VAR_BANK] = VAR(0x4cf5),
+    [COK_VAR_OVERLAND] = VAR(0x4cf7), /* 475c:09ec */
+    [COK_VAR_TREASURE_FIRST] = VAR(0x4cf8),
+    [COK_VAR_MOONS] = VARS(0x4cf9, 3), /* 57e4:001e */
+    [COK_VAR_MOON_DAYS] = VARS(0x4cfc, 3),
+    [COK_VAR_TURN] = VAR(0x4cff), /* 6346:2d75 */
+    [COK_VAR_ORDER_MOON] = VARS(0x4cf8, 0x100),
+    [COK_VAR_AREA] = VARS(0x4b00, 0x100),
+    [COK_VAR_HALL] = VAR(0x7ea8),
+    [COK_VAR_DISTANCE_WANTED] = VAR(0x7ec0),
+    [COK_VAR_DISTANCE] = VAR(0x7ec1),
+    [COK_VAR_MORALE] = VAR(0x7ec6),
+    [COK_VAR_OUTCOME] = VAR(0x7ec7),
+    [COK_VAR_DROPPED] = VAR(0x7ec8),
+    [COK_VAR_STAY] = VAR(0x7ec9),
+    [COK_VAR_SEARCH] = VAR(0x7eca),
+    [COK_VAR_SURPRISE] = VAR(0x7ecb),
+    [COK_VAR_REST_EVERY] = VAR(0x7ed2),
+    [COK_VAR_REST_CHANCE] = VAR(0x7ed3),
+    [COK_VAR_EDGE] = VAR(0x7ed5),
+    [COK_VAR_PORTRAIT] = VAR(0x7ee1),
+    [COK_VAR_TEMPLE] = VAR(0x7ee2),
+    [COK_VAR_KEEP_ITEMS] = VAR(0x7ee3),
+    [COK_VAR_GENTLE] = VAR(0x7ee6),
+    [COK_VAR_ECL_FILE] = VAR(0x7f12),
+    [COK_VAR_FLED] = VAR(0x7f33),
+    [COK_VAR_PARTY_SIZE] = VAR(0x7f3e),
+    [COK_VAR_REMAINDER] = VAR(0x7f3f), /* 3f44:0a8a */
+    [COK_VAR_SHOP] = VAR(0x7f6c),
+    [COK_VAR_PRICES] = VAR(0x7f6d),
+    [COK_VAR_HIT_BONUS] = VARS(0x7f70, 2),
+    [COK_VAR_MOVE_BONUS] = VAR(0x7f72),
+    [COK_VAR_LOCALS_GAME] = VARS(0x7f79, 10), /* 3775:01e8 */
+};
+
+/* A block's start (3775:01e8): no portrait, no encounters while resting,
+ * magic allowed. */
+static const struct cok_rules_var_value champions_start[] = {
+    {COK_VAR_PORTRAIT, 0xff},
+    {COK_VAR_REST_EVERY, 0},
+    {COK_VAR_REST_CHANCE, 0},
+    {COK_VAR_NO_MAGIC, 0},
+};
+
+/* The special addresses (3775:0fca reads, 3775:0e06 stores; others outside
+ * the variables' stores read 0 and take nothing). */
+static const cok_rules_special champions_reads[] = {
+    {0x4bea, COK_ECL_SPECIAL_FACING}, {0x00b1, COK_ECL_SPECIAL_B1},
+    {0x00fb, COK_ECL_SPECIAL_FB},     {0x00fc, COK_ECL_SPECIAL_FC},
+    {0x033d, COK_ECL_SPECIAL_FACING}, {0xc04b, COK_ECL_SPECIAL_X},
+    {0xc04c, COK_ECL_SPECIAL_Y},      {0xc04d, COK_ECL_SPECIAL_STEPS},
+    {0xc04e, COK_ECL_SPECIAL_AHEAD},  {0xc04f, COK_ECL_SPECIAL_SQUARE},
+};
+static const cok_rules_special champions_stores[] = {
+    {0x03de, COK_ECL_SPECIAL_3DE},   {0x00b8, COK_ECL_SPECIAL_B8},
+    {0x00b9, COK_ECL_SPECIAL_B9},    {0xc04b, COK_ECL_SPECIAL_X},
+    {0xc04c, COK_ECL_SPECIAL_Y},     {0xc04d, COK_ECL_SPECIAL_STEPS},
+    {0xc059, COK_ECL_SPECIAL_C059},  {0xc05f, COK_ECL_SPECIAL_C05F},
+};
+
+/* The selected character's fields at 0x7c00-0x7fff (3775:07d9 reads,
+ * 3775:0c00 writes): in the record +0x13, +0x19, +0x1b, +0x5c, +0x5a,
+ * +0x5b, +0x62, +0xd1, +0xd6, +0xdb-+0xe2, +0xe7, +0xeb-+0xf3, +0xfb,
+ * +0x100, +0xfd, +0x109, +0x10a, +0x130, +0x132, +0x197 and +0x198; the
+ * spells memorized, written; the status, the side, the charisma's
+ * reaction and the ECL file worked out. */
+#define FIELD(o, r, w, f, i) {.first = o, .last = o, .read = r, .write = w, .field = f, .index = i}
+#define READ(o, k, f, i) FIELD(o, COK_ECL_FIELD_##k, COK_ECL_FIELD_NONE, f, i)
+#define BOTH(o, k, f, i) FIELD(o, COK_ECL_FIELD_##k, COK_ECL_FIELD_##k, f, i)
+#define SPECIAL(o, r, w) FIELD(o, COK_ECL_FIELD_##r, COK_ECL_FIELD_##w, 0, 0)
+static const cok_rules_character_var champions_character_vars[] = {
+    SPECIAL(0x000, NONE, CLEARED),
+    {.first = 0x020, .last = 0x059, .write = COK_ECL_FIELD_U8, .field = COK_FIELD_MEMORIZED,
+     .step = 1},
+    READ(0x015, U8, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE),
+    READ(0x018, U8, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION),
+    READ(0x019, U8, COK_FIELD_SCORE, COK_SCORE_CHARISMA),
+    READ(0x061, U8, COK_FIELD_KNIGHT_ORDER, 0),
+    READ(0x072, S8, COK_FIELD_RACE, 0),
+    READ(0x073, S8, COK_FIELD_CLASS, 0),
+    READ(0x076, U8, COK_FIELD_MAX_HIT_POINTS, 0),
+    READ(0x09b, U8, COK_FIELD_SAVING_THROW, 1),
+    READ(0x0a0, S8, COK_FIELD_HIGHEST_LEVEL, 0),
+    /* The thief skills 1-8. */
+    {.first = 0x0a5, .last = 0x0ac, .read = COK_ECL_FIELD_U8, .field = COK_FIELD_THIEF_SKILL,
+     .index = 1, .step = 1},
+    FIELD(0x0b8, COK_ECL_FIELD_U8, COK_ECL_FIELD_NPC, COK_FIELD_NPC, 0),
+    BOTH(0x0bb, U16, COK_FIELD_COINS, 0),
+    BOTH(0x0bd, U16, COK_FIELD_COINS, 1),
+    BOTH(0x0bf, U16, COK_FIELD_COINS, 2),
+    BOTH(0x0c1, U16, COK_FIELD_COINS, 3),
+    BOTH(0x0c3, U16, COK_FIELD_COINS, 4),
+    SPECIAL(0x0c9, HOST, NONE),
+    READ(0x0cc, S8, COK_FIELD_CLASS_LEVEL, 2),
+    READ(0x0cd, S8, COK_FIELD_CLASS_LEVEL, 7),
+    READ(0x0d0, S8, COK_FIELD_CLASS_LEVEL, 4),
+    READ(0x0d6, S8, COK_FIELD_GENDER, 0),
+    READ(0x0d8, S8, COK_FIELD_ALIGNMENT, 0),
+    BOTH(0x0f7, U16, COK_FIELD_MONSTER_EXPERIENCE, 0),
+    BOTH(0x0f9, U8, COK_FIELD_MONSTER_HIT_POINT_EXPERIENCE, 0),
+    SPECIAL(0x100, STATUS, REVIVE),
+    SPECIAL(0x10c, SIDE, SIDE),
+    SPECIAL(0x10d, ZERO, NONE),
+    BOTH(0x119, U8, COK_FIELD_HIT_POINTS, 0),
+    READ(0x11b, U8, COK_FIELD_MOVEMENT, 0),
+    SPECIAL(0x2b1, HOST, NONE),
+    SPECIAL(0x2b4, HOST, NONE),
+    SPECIAL(0x2cf, CHARISMA, NONE),
+    SPECIAL(0x312, FILE, FILE),
+    SPECIAL(0x33e, VARIABLE, NONE),
+};
+#undef FIELD
+#undef READ
+#undef BOTH
+#undef SPECIAL
+
 /* The data segment's tables (data.h): the base the original's arithmetic
  * adds to, each element's width, and each index's first, count and stride
  * (an innermost index's stride is the width). A table's own bytes are its
@@ -608,6 +751,19 @@ const cok_rules cok_rules_champions = {
                       {0xc018, COK_ECL_CALL_AHEAD},
                       {0x6803, COK_ECL_CALL_ANIMATE}},
             .variable_bytes = 2, /* 3775:0e06 */
+            .vars = champions_vars,
+            .start = champions_start,
+            .start_count = sizeof champions_start / sizeof *champions_start,
+            .reads = champions_reads,
+            .read_count = sizeof champions_reads / sizeof *champions_reads,
+            .stores = champions_stores,
+            .store_count = sizeof champions_stores / sizeof *champions_stores,
+            .character = champions_character_vars,
+            .character_count = sizeof champions_character_vars / sizeof *champions_character_vars,
+            .class_bits = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+            .compare_and_strings = false, /* 2fd3:0bbf */
+            .delay_ms = 0,                /* 2fd3:2c33: speed * 100 */
+            .menu_single_item = true,     /* 2fd3:116d */
         },
     .view =
         {

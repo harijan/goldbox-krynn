@@ -1152,7 +1152,7 @@ static bool fireball(cast *cx)
     } else if (!level_of(game, game->effects.rolls.spell, &dice)) {
         return false;
     }
-    if (game->vm.mem4b00[0xe6] == 0 && !area(cx, 2)) return false;
+    if (cok_ecl_var(&game->vm, COK_VAR_3D) == 0 && !area(cx, 2)) return false;
     return cok_arena_centre(game, game->spell_x, game->spell_y, 0, 8) &&
            apply(cx, 0, false, damage_roll(game, dice, 6), 9, "");
 }
@@ -1171,7 +1171,7 @@ static bool bolt_cell(cast *cx, int8_t x, int8_t y, uint8_t amount, uint8_t type
     if (terrain >= cok_data_count(cok_game_rules(game)->data, COK_DATA_TERRAIN, 0))
         return undefined(game, "terrain past the table is read (DS:1ee4, 5b04:39e9)");
     *bounce = terrain > 0 && cok_combat_terrain(cok_game_rules(game), terrain).cost == 0xff &&
-              game->vm.mem4b00[0xe6] == 1 && !*bounce;
+              cok_ecl_var(&game->vm, COK_VAR_3D) == 1 && !*bounce;
     if (occupant == 0 || occupant == previous) return true;
     cok_character *o = combat->combatant[occupant].character;
     if (o == NULL) return undefined(game, "a cell's combatant has no record (5b04:3a23)");

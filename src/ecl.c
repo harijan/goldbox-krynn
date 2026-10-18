@@ -44,6 +44,12 @@ cok_ecl_call cok_ecl_call_of(const cok_rules *rules, uint16_t address)
     return COK_ECL_CALL_NONE;
 }
 
+const char *cok_ecl_unported(const cok_rules *rules, unsigned opcode)
+{
+    const cok_rules_opcode *op = instruction(rules, opcode);
+    return op != NULL ? op->unported : NULL;
+}
+
 unsigned cok_ecl_meaning(const cok_ecl *vm)
 {
     return cok_ecl_meaning_of(vm->rules, vm->opcode);
@@ -163,189 +169,6 @@ static uint8_t *code_byte(const cok_ecl *vm, uint32_t address)
                : NULL;
 }
 
-/* The selected character's layout, the game's: a VM made without
- * cok_ecl_init's rules stops here, at its first character field, not
- * reading through NULL. */
-static const cok_character_layout *layout(const cok_ecl *vm)
-{
-    assert(vm->rules != NULL);
-    return vm->rules->character;
-}
-
-/* Character fields read through 0x7c00-0x7fff (3775:07d9); *found is false
- * for addresses that read the variable itself. */
-static uint16_t character_field(const cok_ecl *vm, uint16_t address, bool *found)
-{
-    const uint8_t *c = vm->character;
-    const cok_character_layout *L = c != NULL ? layout(vm) : NULL;
-    unsigned field = address - 0x7c00u;
-    *found = true;
-    switch (field) {
-    case 0x312: return vm->file;
-    case 0x33e: return vm->mem7c00[0x33e];
-    case 0x2b1: case 0x2b4: case 0xc9:
-        if (vm->hooks.character_value == NULL) return 0;
-        return vm->hooks.character_value((cok_ecl *)vm, address, vm->hooks.context);
-    case 0x100:
-        if (c == NULL || vm->missing_character) return 0;
-        switch (cok_field_u8(L, c, COK_FIELD_STATUS)) {
-        case 0: return 1;
-        case 3: return 6;
-        case 4: return 5;
-        case 5: return 4;
-        case 6: return 3;
-        case 7: return 7;
-        case 8: return 2;
-        default: return 0;
-        }
-    default: break;
-    }
-    /* The thief skills 1-8, which the range bounds. */
-    if (field >= 0xa5 && field <= 0xac)
-        return c == NULL ? 0 : cok_field_u8_at(L, c, COK_FIELD_THIEF_SKILL, field - 0xa4);
-    /* Each ECL field's field of the record and element (in Champions +0x13,
-     * +0x19, +0x1b, +0x5c, +0x5a, +0x5b, +0x62, +0xd1, +0xd6, +0xe7,
-     * +0xeb-+0xf3, +0xfb, +0x100, +0xfd, +0x109, +0x10a, +0x130, +0x132,
-     * +0x197 and +0x198). */
-    static const struct {
-        uint16_t field;
-        cok_field at;
-        uint8_t index;
-        uint8_t kind; /* 0 byte, 1 signed byte, 2 word */
-    } fields[] = {
-        {0x15, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE, 0},
-        {0x18, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION, 0},
-        {0x19, COK_FIELD_SCORE, COK_SCORE_CHARISMA, 0},
-        {0x61, COK_FIELD_KNIGHT_ORDER, 0, 0},
-        {0x72, COK_FIELD_RACE, 0, 1},
-        {0x73, COK_FIELD_CLASS, 0, 1},
-        {0x76, COK_FIELD_MAX_HIT_POINTS, 0, 0},
-        {0x9b, COK_FIELD_SAVING_THROW, 1, 0},
-        {0xa0, COK_FIELD_HIGHEST_LEVEL, 0, 1},
-        {0xb8, COK_FIELD_NPC, 0, 0},
-        {0xbb, COK_FIELD_COINS, 0, 2},
-        {0xbd, COK_FIELD_COINS, 1, 2},
-        {0xbf, COK_FIELD_COINS, 2, 2},
-        {0xc1, COK_FIELD_COINS, 3, 2},
-        {0xc3, COK_FIELD_COINS, 4, 2},
-        {0xcc, COK_FIELD_CLASS_LEVEL, 2, 1},
-        {0xcd, COK_FIELD_CLASS_LEVEL, 7, 1},
-        {0xd0, COK_FIELD_CLASS_LEVEL, 4, 1},
-        {0xd6, COK_FIELD_GENDER, 0, 1},
-        {0xd8, COK_FIELD_ALIGNMENT, 0, 1},
-        {0xf7, COK_FIELD_MONSTER_EXPERIENCE, 0, 2},
-        {0xf9, COK_FIELD_MONSTER_HIT_POINT_EXPERIENCE, 0, 0},
-        {0x119, COK_FIELD_HIT_POINTS, 0, 0},
-        {0x11b, COK_FIELD_MOVEMENT, 0, 0},
-    };
-    for (size_t i = 0; i < sizeof fields / sizeof *fields; ++i) {
-        if (fields[i].field != field) continue;
-        if (c == NULL) return 0;
-        cok_field f = fields[i].at;
-        uint8_t k = fields[i].index;
-        if (fields[i].kind == 0) return cok_field_u8_at(L, c, f, k);
-        if (fields[i].kind == 1) return (uint16_t)(int16_t)cok_field_s8_at(L, c, f, k);
-        return cok_field_u16_at(L, c, f, k);
-    }
-    if (field == 0x10c) {
-        if (c == NULL) return 0;
-        uint8_t hostile = cok_field_u8(L, c, COK_FIELD_HOSTILE);
-        if (hostile == 0 && cok_field_u8(L, c, COK_FIELD_COMPUTER) != 0) return 0x80;
-        return hostile == 1 ? 0x81 : 0;
-    }
-    /* The original leaves the result unset for 0x10d and for unlisted
-     * values of 0x2cf; both read as 0 here. */
-    if (field == 0x10d) return 0;
-    if (field == 0x2cf) {
-        static const uint8_t table[26] = {0,  0,  0,  0,  5,  10, 15, 20, 25, 25, 25, 25, 25,
-                                          30, 35, 40, 50, 55, 60, 60, 60, 60, 60, 60, 60, 60};
-        if (c == NULL) return 0;
-        uint8_t charisma = cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CHARISMA);
-        return charisma >= sizeof table ? 0 : table[charisma];
-    }
-    *found = false;
-    return 0;
-}
-
-uint16_t cok_ecl_load_var(const cok_ecl *vm, uint16_t address)
-{
-    switch (area_of(address)) {
-    case AREA:
-        return address == 0x4bea ? vm->direction : vm->mem4b00[address - 0x4b00];
-    case GAME: {
-        bool found;
-        uint16_t value = character_field(vm, address, &found);
-        return found ? value : vm->mem7c00[address - 0x7c00];
-    }
-    case SCRATCH: return vm->mem7a00[address - 0x7a00];
-    case CODE: return vm->code[address - COK_ECL_BASE];
-    default: break;
-    }
-    /* Unlisted special addresses leave the original's result unset; 0 here. */
-    switch (address) {
-    case 0xb1: return vm->value_b1;
-    case 0xfb: return vm->value_fb;
-    case 0xfc: return vm->value_fc;
-    case 0x33d: return vm->direction;
-    case 0xc04b: return (uint16_t)(int16_t)vm->map_x;
-    case 0xc04c: return (uint16_t)(int16_t)vm->map_y;
-    case 0xc04d: return vm->mem4b00[0xe6] == 0 ? vm->direction : vm->direction >> 1;
-    case 0xc04e: return vm->ahead;
-    case 0xc04f: return vm->square;
-    default: return 0;
-    }
-}
-
-/* Character fields written through 0x7c00-0x7fff (3775:0c00). */
-static void store_character(cok_ecl *vm, uint16_t address, uint16_t value)
-{
-    unsigned field = address - 0x7c00u;
-    if (field == 0) {
-        if (value == 0) vm->name_cleared = true;
-        return;
-    }
-    if (field == 0x312) {
-        /* 169c:0a3e: pick the ECL file holding the next block. */
-        vm->previous_file = vm->file;
-        vm->file = (uint8_t)(((value & 0xff) + 1) >> 1);
-        return;
-    }
-    uint8_t *c = vm->character;
-    if (c == NULL) return;
-    const cok_character_layout *L = layout(vm);
-    /* The spells memorized, 0-0x39, which the range bounds. */
-    if (field >= 0x20 && field <= 0x59) {
-        cok_field_set8_at(L, c, COK_FIELD_MEMORIZED, field - 0x20, (uint8_t)value);
-        return;
-    }
-    switch (field) {
-    case 0xb8:
-        cok_field_set8(L, c, COK_FIELD_NPC, (uint8_t)(value > 0xb2 ? value - 0x32 : value));
-        break;
-    case 0xbb: cok_field_set16_at(L, c, COK_FIELD_COINS, 0, value); break;
-    case 0xbd: cok_field_set16_at(L, c, COK_FIELD_COINS, 1, value); break;
-    case 0xbf: cok_field_set16_at(L, c, COK_FIELD_COINS, 2, value); break;
-    case 0xc1: cok_field_set16_at(L, c, COK_FIELD_COINS, 3, value); break;
-    case 0xc3: cok_field_set16_at(L, c, COK_FIELD_COINS, 4, value); break;
-    case 0xf7: cok_field_set16(L, c, COK_FIELD_MONSTER_EXPERIENCE, value); break;
-    case 0xf9: cok_field_set8(L, c, COK_FIELD_MONSTER_HIT_POINT_EXPERIENCE, (uint8_t)value); break;
-    case 0x119: cok_field_set8(L, c, COK_FIELD_HIT_POINTS, (uint8_t)value); break;
-    case 0x100:
-        if (value == 1) {
-            cok_field_set8(L, c, COK_FIELD_STATUS, 0);
-            cok_field_set8(L, c, COK_FIELD_ACTIVE, 1);
-        }
-        break;
-    case 0x10c:
-        if (value == 0 || value == 0x80 || value == 0x81) {
-            cok_field_set8(L, c, COK_FIELD_HOSTILE, value == 0x81);
-            cok_field_set8(L, c, COK_FIELD_COMPUTER, value != 0);
-        }
-        break;
-    default: break;
-    }
-}
-
 /* Whether each variable address holds a byte (rules->ecl.variable_bytes),
  * so that a wide access reads or writes a word over two addresses (dkk
  * 3c1e:0d85, 3c1e:0bc1); where each holds a word, as in Champions, the
@@ -354,14 +177,6 @@ static bool byte_variables(const cok_ecl *vm)
 {
     assert(vm->rules != NULL);
     return vm->rules->ecl.variable_bytes == 1;
-}
-
-/* An operand of type 2 and up is read and written as a word where each
- * address holds a byte (dkk 3c1e:0d85's and 0bc1's width, 1 for a type
- * below 2). */
-static bool wide_type(uint8_t type)
-{
-    return type >= COK_ECL_WORD;
 }
 
 /* The byte after address in its store, for a word over two addresses;
@@ -378,23 +193,6 @@ static uint8_t next_byte(const cok_ecl *vm, uint16_t address)
     return w != NULL ? (uint8_t)*w : 0;
 }
 
-/* A variable read as wide or not: where each address holds a byte, a wide
- * read of a store's variable (not a special address, the facing at
- * 0x4bea or a character field) takes the next byte as its high one. */
-static uint16_t load_sized(const cok_ecl *vm, uint16_t address, bool wide)
-{
-    uint16_t value = cok_ecl_load_var(vm, address);
-    if (!wide || !byte_variables(vm)) return value;
-    int area = area_of(address);
-    if (area == SPECIAL || address == 0x4bea) return value;
-    if (area == GAME) {
-        bool found;
-        character_field(vm, address, &found);
-        if (found) return value;
-    }
-    return (uint16_t)((value & 0xff) | next_byte(vm, address) << 8);
-}
-
 /* Put a word's high byte after address in its store. */
 static void store_high(cok_ecl *vm, uint16_t address, uint16_t value)
 {
@@ -408,6 +206,341 @@ static void store_high(cok_ecl *vm, uint16_t address, uint16_t value)
         *w = (uint8_t)(value >> 8);
 }
 
+/* Variables by name. */
+
+static const cok_rules_var *var_entry(const cok_rules *rules, cok_var name, size_t i)
+{
+    assert(rules != NULL && rules->ecl.vars != NULL && name < COK_VARS);
+    const cok_rules_var *v = &rules->ecl.vars[name];
+    assert(v->address != 0 && "the game has no such variable");
+    assert(i < v->count && "past the variable's elements");
+    assert(v->width >= rules->ecl.variable_bytes);
+    return v;
+}
+
+bool cok_ecl_has_var(const cok_rules *rules, cok_var name)
+{
+    assert(rules != NULL && rules->ecl.vars != NULL && name < COK_VARS);
+    return rules->ecl.vars[name].address != 0;
+}
+
+uint16_t cok_ecl_var_address(const cok_rules *rules, cok_var name, size_t i)
+{
+    const cok_rules_var *v = var_entry(rules, name, i);
+    return (uint16_t)(v->address + i * v->width / rules->ecl.variable_bytes);
+}
+
+/* The cell of element i of name, which lies in one of the variables'
+ * stores. */
+static uint16_t *var_word(const cok_ecl *vm, cok_var name, size_t i, uint16_t *address)
+{
+    *address = cok_ecl_var_address(vm->rules, name, i);
+    uint16_t *w = word(vm, area_of(*address), *address);
+    assert(w != NULL && "a variable outside the variables' stores");
+    return w;
+}
+
+uint16_t cok_ecl_var_at(const cok_ecl *vm, cok_var name, size_t i)
+{
+    uint16_t address;
+    const uint16_t *w = var_word(vm, name, i, &address);
+    if (!byte_variables(vm)) return *w;
+    uint16_t value = (uint8_t)*w;
+    if (vm->rules->ecl.vars[name].width == 2)
+        value = (uint16_t)(value | next_byte(vm, address) << 8);
+    return value;
+}
+
+uint16_t cok_ecl_var(const cok_ecl *vm, cok_var name)
+{
+    return cok_ecl_var_at(vm, name, 0);
+}
+
+void cok_ecl_set_var_at(cok_ecl *vm, cok_var name, size_t i, uint16_t value)
+{
+    uint16_t address;
+    uint16_t *w = var_word(vm, name, i, &address);
+    if (!byte_variables(vm)) {
+        *w = value;
+        return;
+    }
+    *w = (uint8_t)value;
+    if (vm->rules->ecl.vars[name].width == 2) store_high(vm, address, value);
+}
+
+void cok_ecl_set_var(cok_ecl *vm, cok_var name, uint16_t value)
+{
+    cok_ecl_set_var_at(vm, name, 0, value);
+}
+
+void cok_ecl_add_var(cok_ecl *vm, cok_var name, int delta)
+{
+    cok_ecl_set_var(vm, name, (uint16_t)(cok_ecl_var(vm, name) + delta));
+}
+
+bool cok_ecl_flag(const cok_ecl *vm, cok_var name)
+{
+    return cok_ecl_var(vm, name) != vm->rules->ecl.vars[name].off;
+}
+
+/* Special addresses. */
+
+static cok_ecl_special special_in(const cok_rules_special *list, unsigned count, uint16_t address)
+{
+    for (unsigned i = 0; i < count; ++i)
+        if (list[i].address == address) return (cok_ecl_special)list[i].what;
+    return COK_ECL_SPECIAL_NONE;
+}
+
+cok_ecl_special cok_ecl_special_read(const cok_rules *rules, uint16_t address)
+{
+    assert(rules != NULL);
+    return special_in(rules->ecl.reads, rules->ecl.read_count, address);
+}
+
+cok_ecl_special cok_ecl_special_store(const cok_rules *rules, uint16_t address)
+{
+    assert(rules != NULL);
+    return special_in(rules->ecl.stores, rules->ecl.store_count, address);
+}
+
+/* What a special address reads (3775:0fca's, dkk 3c1e:0d85's). */
+static uint16_t special_value(const cok_ecl *vm, cok_ecl_special what)
+{
+    switch (what) {
+    case COK_ECL_SPECIAL_FACING: return vm->direction;
+    case COK_ECL_SPECIAL_STEPS:
+        return cok_ecl_var(vm, COK_VAR_3D) == 0 ? vm->direction : vm->direction >> 1;
+    case COK_ECL_SPECIAL_X: return (uint16_t)(int16_t)vm->map_x;
+    case COK_ECL_SPECIAL_Y: return (uint16_t)(int16_t)vm->map_y;
+    case COK_ECL_SPECIAL_AHEAD: return vm->ahead;
+    case COK_ECL_SPECIAL_SQUARE: return vm->square;
+    case COK_ECL_SPECIAL_ONE: return 1;
+    case COK_ECL_SPECIAL_B1: return vm->value_b1;
+    case COK_ECL_SPECIAL_FB: return vm->value_fb;
+    case COK_ECL_SPECIAL_FC: return vm->value_fc;
+    default: return 0;
+    }
+}
+
+/* What a store to a special address sets (3775:0e06's, dkk 3c1e:0bc1's). */
+static void special_store(cok_ecl *vm, cok_ecl_special what, uint16_t value)
+{
+    switch (what) {
+    case COK_ECL_SPECIAL_3DE: vm->value_3de = value; break;
+    case COK_ECL_SPECIAL_B8: vm->value_b8 = value; break;
+    case COK_ECL_SPECIAL_B9: vm->value_b9 = value; break;
+    case COK_ECL_SPECIAL_X: vm->map_x = (int8_t)value; vm->view_changed = true; break;
+    case COK_ECL_SPECIAL_Y: vm->map_y = (int8_t)value; vm->view_changed = true; break;
+    case COK_ECL_SPECIAL_STEPS:
+        vm->direction = (uint8_t)(value % 4 * 2);
+        vm->view_changed = true;
+        break;
+    case COK_ECL_SPECIAL_C059: vm->c059 = (uint8_t)value; vm->c059_changed = true; break;
+    case COK_ECL_SPECIAL_C05F: vm->c05f = (uint8_t)value; vm->c059_changed = true; break;
+    default: break;
+    }
+}
+
+/* The selected character's fields. */
+
+/* The selected character's layout, the game's: a VM made without
+ * cok_ecl_init's rules stops here, at its first character field, not
+ * reading through NULL. */
+static const cok_character_layout *layout(const cok_ecl *vm)
+{
+    assert(vm->rules != NULL);
+    return vm->rules->character;
+}
+
+/* The game's entry for field (an offset from 0x7c00) read or written, or
+ * NULL: the variable itself. */
+static const cok_rules_character_var *character_var(const cok_ecl *vm, unsigned field, bool write)
+{
+    assert(vm->rules != NULL);
+    const cok_rules_ecl *E = &vm->rules->ecl;
+    for (unsigned i = 0; i < E->character_count; ++i) {
+        const cok_rules_character_var *e = &E->character[i];
+        if (field >= e->first && field <= e->last &&
+            (write ? e->write : e->read) != COK_ECL_FIELD_NONE)
+            return e;
+    }
+    return NULL;
+}
+
+/* The element of the entry's field that field reads or writes. */
+static long element(const cok_rules_character_var *e, unsigned field)
+{
+    return (long)e->index + (long)(field - e->first) / (e->step != 0 ? e->step : 1);
+}
+
+/* Character fields read through 0x7c00-0x7fff (3775:07d9, dkk 3c1e:073a);
+ * *found is false for addresses that read the variable itself. */
+static uint16_t character_field(const cok_ecl *vm, uint16_t address, bool *found)
+{
+    unsigned field = address - 0x7c00u;
+    const cok_rules_character_var *e = character_var(vm, field, false);
+    *found = e != NULL;
+    if (e == NULL) return 0;
+    switch (e->read) {
+    case COK_ECL_FIELD_VARIABLE: return vm->mem7c00[field];
+    case COK_ECL_FIELD_FILE: return vm->file;
+    case COK_ECL_FIELD_HOST:
+        if (vm->hooks.character_value == NULL) return 0;
+        return vm->hooks.character_value((cok_ecl *)vm, address, vm->hooks.context);
+    /* The original leaves the result unset (Champions' 0x10d); 0 here. */
+    case COK_ECL_FIELD_ZERO: return 0;
+    default: break;
+    }
+    const uint8_t *c = vm->character;
+    if (c == NULL) return 0;
+    const cok_character_layout *L = layout(vm);
+    cok_field f = (cok_field)e->field;
+    long k = element(e, field);
+    switch (e->read) {
+    case COK_ECL_FIELD_U8: return cok_field_u8_at(L, c, f, k);
+    case COK_ECL_FIELD_S8: return (uint16_t)(int16_t)cok_field_s8_at(L, c, f, k);
+    case COK_ECL_FIELD_U16: return cok_field_u16_at(L, c, f, k);
+    case COK_ECL_FIELD_STATUS:
+        if (vm->missing_character) return 0;
+        switch (cok_field_u8(L, c, COK_FIELD_STATUS)) {
+        case 0: return 1;
+        case 3: return 6;
+        case 4: return 5;
+        case 5: return 4;
+        case 6: return 3;
+        case 7: return 7;
+        case 8: return 2;
+        default: return 0;
+        }
+    case COK_ECL_FIELD_ACTIVE: return cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0 ? 0x80 : 1;
+    case COK_ECL_FIELD_SIDE: {
+        uint8_t hostile = cok_field_u8(L, c, COK_FIELD_HOSTILE);
+        if (hostile == 0 && cok_field_u8(L, c, COK_FIELD_COMPUTER) != 0) return 0x80;
+        return hostile == 1 ? 0x81 : 0;
+    }
+    case COK_ECL_FIELD_CHARISMA: {
+        /* The original leaves the result unset for unlisted values; 0
+         * here. */
+        static const uint8_t table[26] = {0,  0,  0,  0,  5,  10, 15, 20, 25, 25, 25, 25, 25,
+                                          30, 35, 40, 50, 55, 60, 60, 60, 60, 60, 60, 60, 60};
+        uint8_t charisma = cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CHARISMA);
+        return charisma >= sizeof table ? 0 : table[charisma];
+    }
+    case COK_ECL_FIELD_CLASSES: {
+        uint16_t bits = 0;
+        for (unsigned b = 0; b < 8; ++b) {
+            uint8_t class_ = vm->rules->ecl.class_bits[b];
+            if (class_ != 0xff && cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, class_) > 0)
+                bits = (uint16_t)(bits | 1u << b);
+        }
+        return bits;
+    }
+    case COK_ECL_FIELD_NAME_BYTES: {
+        /* Move(name + 1 + offset, result, size): a count of the SIZE
+         * byte, 1 for a man; 2 and up read a word (past 4 the original
+         * writes on past its result). */
+        size_t at = (size_t)cok_field_offset_unchecked(L, f, 0, k);
+        uint8_t count = cok_field_u8(L, c, COK_FIELD_SIZE);
+        if (count == 0) return 0;
+        if (count == 1) return c[at];
+        return (uint16_t)(c[at] | c[at + 1] << 8);
+    }
+    default: return 0;
+    }
+}
+
+uint16_t cok_ecl_load_var(const cok_ecl *vm, uint16_t address)
+{
+    cok_ecl_special what = cok_ecl_special_read(vm->rules, address);
+    if (what != COK_ECL_SPECIAL_NONE) return special_value(vm, what);
+    switch (area_of(address)) {
+    case AREA: return vm->mem4b00[address - 0x4b00];
+    case GAME: {
+        bool found;
+        uint16_t value = character_field(vm, address, &found);
+        return found ? value : vm->mem7c00[address - 0x7c00];
+    }
+    case SCRATCH: return vm->mem7a00[address - 0x7a00];
+    case CODE: return vm->code[address - COK_ECL_BASE];
+    /* Unlisted special addresses leave the original's result unset; 0
+     * here. */
+    default: return 0;
+    }
+}
+
+/* Character fields written through 0x7c00-0x7fff (3775:0c00, dkk
+ * 3c1e:0a9a). */
+static void store_character(cok_ecl *vm, uint16_t address, uint16_t value)
+{
+    unsigned field = address - 0x7c00u;
+    const cok_rules_character_var *e = character_var(vm, field, true);
+    if (e == NULL) return;
+    switch (e->write) {
+    case COK_ECL_FIELD_CLEARED:
+        if (value == 0) vm->name_cleared = true;
+        return;
+    case COK_ECL_FIELD_CLEARED_ANY: vm->name_cleared = true; return;
+    case COK_ECL_FIELD_FILE:
+        /* 169c:0a3e: pick the ECL file holding the next block. */
+        vm->previous_file = vm->file;
+        vm->file = (uint8_t)(((value & 0xff) + 1) >> 1);
+        return;
+    default: break;
+    }
+    uint8_t *c = vm->character;
+    if (c == NULL) return;
+    const cok_character_layout *L = layout(vm);
+    cok_field f = (cok_field)e->field;
+    long k = element(e, field);
+    switch (e->write) {
+    case COK_ECL_FIELD_U8: cok_field_set8_at(L, c, f, k, (uint8_t)value); break;
+    case COK_ECL_FIELD_U16: cok_field_set16_at(L, c, f, k, value); break;
+    case COK_ECL_FIELD_NPC:
+        cok_field_set8_at(L, c, f, k, (uint8_t)(value > 0xb2 ? value - 0x32 : value));
+        break;
+    case COK_ECL_FIELD_REVIVE:
+        if (value == 1) {
+            cok_field_set8(L, c, COK_FIELD_STATUS, 0);
+            cok_field_set8(L, c, COK_FIELD_ACTIVE, 1);
+        }
+        break;
+    case COK_ECL_FIELD_SIDE:
+        if (value == 0 || value == 0x80 || value == 0x81) {
+            cok_field_set8(L, c, COK_FIELD_HOSTILE, value == 0x81);
+            cok_field_set8(L, c, COK_FIELD_COMPUTER, value != 0);
+        }
+        break;
+    default: break;
+    }
+}
+
+/* An operand of type 2 and up is read and written as a word where each
+ * address holds a byte (dkk 3c1e:0d85's and 0bc1's width, 1 for a type
+ * below 2). */
+static bool wide_type(uint8_t type)
+{
+    return type >= COK_ECL_WORD;
+}
+
+/* A variable read as wide or not: where each address holds a byte, a wide
+ * read of a store's variable (not a special address, such as the facing
+ * at 0x4bea, or a character field) takes the next byte as its high one. */
+static uint16_t load_sized(const cok_ecl *vm, uint16_t address, bool wide)
+{
+    uint16_t value = cok_ecl_load_var(vm, address);
+    if (!wide || !byte_variables(vm)) return value;
+    int area = area_of(address);
+    if (area == SPECIAL || cok_ecl_special_read(vm->rules, address) != COK_ECL_SPECIAL_NONE)
+        return value;
+    if (area == GAME) {
+        bool found;
+        character_field(vm, address, &found);
+        if (found) return value;
+    }
+    return (uint16_t)((value & 0xff) | next_byte(vm, address) << 8);
+}
+
 /* A store, wide or not: where each address holds a byte, a store that is
  * not wide keeps the value's low byte, and a wide one into a store puts
  * its high byte in the next address too (dkk 3c1e:0bc1). */
@@ -418,6 +551,7 @@ static void store_sized(cok_ecl *vm, uint16_t address, uint16_t value, bool wide
     bool high = bytes && wide;
     switch (area_of(address)) {
     case AREA:
+        /* The same in both games (3775:0e06, dkk 3c1e:0bc1). */
         if (address == 0x4bfd || address == 0x4bfe) {
             vm->area_changed = true;
         } else if (address == 0x4be6 && vm->mem4b00[0xe6] != value) {
@@ -440,19 +574,7 @@ static void store_sized(cok_ecl *vm, uint16_t address, uint16_t value, bool wide
         vm->code[address - COK_ECL_BASE] = (uint8_t)value;
         if (high) store_high(vm, address, value);
         break;
-    default:
-        switch (address) {
-        case 0x3de: vm->value_3de = value; break;
-        case 0xb8: vm->value_b8 = value; break;
-        case 0xb9: vm->value_b9 = value; break;
-        case 0xc04b: vm->map_x = (int8_t)value; vm->view_changed = true; break;
-        case 0xc04c: vm->map_y = (int8_t)value; vm->view_changed = true; break;
-        case 0xc04d: vm->direction = (uint8_t)(value % 4 * 2); vm->view_changed = true; break;
-        case 0xc059: vm->c059 = (uint8_t)value; vm->c059_changed = true; break;
-        case 0xc05f: vm->c05f = (uint8_t)value; vm->c059_changed = true; break;
-        default: break;
-        }
-        break;
+    default: special_store(vm, cok_ecl_special_store(vm->rules, address), value); break;
     }
     if (vm->hooks.stored != NULL) vm->hooks.stored(vm, address, value, vm->hooks.context);
 }
@@ -626,6 +748,18 @@ static void compare_values(cok_ecl *vm, uint16_t a, uint16_t b)
     compare(vm, (a > b) - (a < b));
 }
 
+/* COMPARE AND's pair from operand i: their values equal, or where the
+ * game compares strings and the first is one, the two strings next in
+ * the slots (dkk 3632:0bed: the first pair's strings fill slots 1 and 2,
+ * then the second's). */
+static bool same_pair(const cok_ecl *vm, size_t i)
+{
+    if (!vm->rules->ecl.compare_and_strings || vm->operand[i].type < 0x80)
+        return cok_ecl_value(vm, i) == cok_ecl_value(vm, i + 1);
+    size_t slot = i == 2 && vm->operand[0].type >= 0x80 ? 2 : 0;
+    return strcmp(vm->string[slot], vm->string[slot + 1]) == 0;
+}
+
 static void push_call(cok_ecl *vm, uint16_t target)
 {
     if (vm->depth == COK_ECL_MAX_CALLS) {
@@ -718,7 +852,7 @@ static void run_opcode(cok_ecl *vm)
                 return;
             }
             result = a / b;
-            vm->mem7c00[0x33f] = a % b;
+            cok_ecl_set_var(vm, COK_VAR_REMAINDER, a % b);
         }
         cok_ecl_store_to(vm, 2, result);
         return;
@@ -748,8 +882,7 @@ static void run_opcode(cok_ecl *vm)
     case COK_ECL_COMPARE_AND:
         memset(vm->flags, 0, sizeof vm->flags);
         if (cok_ecl_operands(vm, 4) != COK_ECL_OK) return;
-        if (cok_ecl_value(vm, 0) == cok_ecl_value(vm, 1) &&
-            cok_ecl_value(vm, 2) == cok_ecl_value(vm, 3))
+        if (same_pair(vm, 0) && same_pair(vm, 2))
             vm->flags[0] = true;
         else
             vm->flags[1] = true;
@@ -761,7 +894,7 @@ static void run_opcode(cok_ecl *vm)
         return;
     case COK_ECL_NEWECL: {
         if (cok_ecl_operands(vm, 1) != COK_ECL_OK) return;
-        vm->mem4b00[0xf2] = vm->block;
+        cok_ecl_set_var(vm, COK_VAR_BLOCK, vm->block);
         vm->block = (uint8_t)cok_ecl_value(vm, 0);
         if (vm->hooks.load == NULL || !vm->hooks.load(vm, vm->block, vm->hooks.context)) {
             vm->status = COK_ECL_LOAD_FAILED;
@@ -785,13 +918,17 @@ static void run_opcode(cok_ecl *vm)
     case COK_ECL_GETTABLE: {
         if (cok_ecl_operands(vm, 3) != COK_ECL_OK) return;
         uint16_t from = (uint16_t)(cok_ecl_address(vm, 0) + (cok_ecl_value(vm, 1) & 0xff));
-        cok_ecl_store_to(vm, 2, cok_ecl_load_var(vm, from));
+        /* Read as wide as the third operand's type makes it (dkk
+         * 3632:0fb2), as the value stored. */
+        cok_ecl_store_to(vm, 2, load_sized(vm, from, wide_type(vm->operand[2].type)));
         return;
     }
     case COK_ECL_SAVE_TABLE:
         if (cok_ecl_operands(vm, 3) != COK_ECL_OK) return;
+        /* As wide as the value's operand's type makes it (dkk
+         * 3632:1018). */
         store_sized(vm, (uint16_t)(cok_ecl_address(vm, 1) + cok_ecl_value(vm, 2)),
-                    cok_ecl_value(vm, 0), wide_type(vm->operand[1].type));
+                    cok_ecl_value(vm, 0), wide_type(vm->operand[0].type));
         return;
     case COK_ECL_AND: case COK_ECL_OR: {
         if (cok_ecl_operands(vm, 3) != COK_ECL_OK) return;
@@ -854,18 +991,18 @@ cok_ecl_status cok_ecl_start(cok_ecl *vm, bool reset_vars)
     vm->ip = COK_ECL_BASE;
     vm->depth = 0;
     memset(vm->flags, 0, sizeof vm->flags);
-    vm->mem7c00[0x2e1] = 0xff;
-    vm->mem7c00[0x2d2] = 0;
-    vm->mem7c00[0x2d3] = 0;
-    vm->mem4b00[0xe5] = 0;
+    for (unsigned i = 0; i < vm->rules->ecl.start_count; ++i)
+        cok_ecl_set_var(vm, (cok_var)vm->rules->ecl.start[i].var, vm->rules->ecl.start[i].value);
     vm->status = COK_ECL_OK;
     for (size_t i = 0; i < 5; ++i) {
         if (cok_ecl_operands(vm, 1) != COK_ECL_OK) return vm->status;
         vm->vectors[i] = cok_ecl_address(vm, 0);
     }
     if (reset_vars) {
-        memset(vm->mem4b00 + 0x100, 0, 0x20 * sizeof *vm->mem4b00);
-        memset(vm->mem7c00 + 0x379, 0, 10 * sizeof *vm->mem7c00);
+        for (size_t i = 0; i < vm->rules->ecl.vars[COK_VAR_LOCALS].count; ++i)
+            cok_ecl_set_var_at(vm, COK_VAR_LOCALS, i, 0);
+        for (size_t i = 0; i < vm->rules->ecl.vars[COK_VAR_LOCALS_GAME].count; ++i)
+            cok_ecl_set_var_at(vm, COK_VAR_LOCALS_GAME, i, 0);
     }
     return COK_ECL_OK;
 }

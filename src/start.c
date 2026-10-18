@@ -33,7 +33,7 @@ static void clear_menu(cok_adventure *game)
 
 static void moons(const cok_adventure *game, uint16_t out[3])
 {
-    for (size_t i = 0; i < 3; ++i) out[i] = game->vm.mem4b00[0x1f9 + i];
+    for (size_t i = 0; i < 3; ++i) out[i] = cok_ecl_var_at(&game->vm, COK_VAR_MOONS, i);
 }
 
 bool cok_start_pick(cok_adventure *game)
@@ -67,9 +67,9 @@ static void fresh(cok_adventure *game, uint8_t facing)
     memset(vm->mem4b00, 0, sizeof vm->mem4b00);
     memset(vm->mem7c00, 0, sizeof vm->mem7c00);
     memset(vm->mem7a00, 0, sizeof vm->mem7a00);
-    vm->mem4b00[0x1f4] = 3;  /* difficulty */
-    vm->mem4b00[0xe6] = 1;   /* a 3D area */
-    for (size_t i = 0; i < 3; ++i) vm->mem4b00[0x1f9 + i] = 2;
+    cok_ecl_set_var(vm, COK_VAR_DIFFICULTY, 3); /* difficulty */
+    cok_ecl_set_var(vm, COK_VAR_3D, 1);         /* a 3D area */
+    for (size_t i = 0; i < 3; ++i) cok_ecl_set_var_at(vm, COK_VAR_MOONS, i, 2);
     vm->map_x = 7;
     vm->map_y = 13;
     vm->direction = facing;
@@ -340,18 +340,18 @@ static bool begin(cok_adventure *game, uint8_t mode)
     uint16_t phases[3];
     moons(game, phases);
     if (!vm->keep_vars || game->picture_id == 9) {
-        if (vm->mode == 3 && vm->mem4b00[0x138] == 0)
+        if (vm->mode == 3 && !cok_ecl_flag(vm, COK_VAR_OFF_MAP))
             cok_screen_big(&game->screen, &game->view.tiles[4], phases); /* 1128:0344 */
         else
             cok_screen_adventure(&game->screen, &game->view.tiles[4], phases); /* 1128:0242 */
         cok_adventure_party(game);
-    } else if (vm->mem4b00[0xf2] == 0 || vm->mem4b00[0x138] != 0) {
+    } else if (cok_ecl_var(vm, COK_VAR_BLOCK) == 0 || cok_ecl_flag(vm, COK_VAR_OFF_MAP)) {
         /* A game loaded here: the adventure frame whatever the mode. */
         cok_screen_adventure(&game->screen, &game->view.tiles[4], phases);
         cok_adventure_party(game);
     }
     clear_menu(game);
-    vm->mem7c00[0x2a8] = 0;
+    cok_ecl_set_var(vm, COK_VAR_HALL, 0);
     return true;
 }
 
@@ -377,7 +377,7 @@ static void leave(cok_adventure *game)
 static void flags(cok_adventure *game, bool on[13])
 {
     bool any = game->vm.character != NULL;
-    bool hall = any && (game->vm.mem7c00[0x2a8] != 0 || game->free_training);
+    bool hall = any && (cok_ecl_var(&game->vm, COK_VAR_HALL) != 0 || game->free_training);
     bool want[13] = {true, any, any, hall, hall, any, true, any, !any, any, any, !any, true};
     memcpy(on, want, sizeof want);
 }
@@ -478,11 +478,12 @@ static cok_ecl_status adventure(cok_adventure *game)
         game->files_loaded = game->pieces_loaded = game->map_loaded = false;
         game->frame_pending = false;
         vm->saved_character = vm->character;
-        vm->mode = vm->mem4b00[0xe6] == 0 ? 3 : 4;
+        vm->mode = cok_ecl_var(vm, COK_VAR_3D) == 0 ? 3 : 4;
         status = cok_adventure_load(game, 0x39);
         if (status == COK_ECL_OK) status = cok_ecl_run(vm, vm->vectors[4]);
     } else {
-        uint8_t block = vm->mem4b00[0xf2] != 0 ? (uint8_t)vm->mem4b00[0xf2] : 0x24;
+        uint8_t block =
+            cok_ecl_var(vm, COK_VAR_BLOCK) != 0 ? (uint8_t)cok_ecl_var(vm, COK_VAR_BLOCK) : 0x24;
         status = cok_adventure_enter(game, block);
         if (status == COK_ECL_OK && !vm->abort) status = cok_adventure_play(game);
     }
@@ -521,7 +522,7 @@ cok_ecl_status cok_start_game(cok_adventure *game, bool woof)
             /* 1000:024b: main draws the frame and party list again. */
             uint16_t phases[3];
             moons(game, phases);
-            if (vm->mode == 3 && vm->mem4b00[0x138] == 0)
+            if (vm->mode == 3 && !cok_ecl_flag(vm, COK_VAR_OFF_MAP))
                 cok_screen_big(&game->screen, &game->view.tiles[4], phases);
             else
                 cok_screen_adventure(&game->screen, &game->view.tiles[4], phases);

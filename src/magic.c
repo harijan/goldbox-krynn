@@ -503,7 +503,7 @@ static int choose(cok_adventure *game, cok_character *character, int kind, int m
     *nonempty = l.count > 0;
     if (!*nonempty) return 0;
     uint16_t moons[3];
-    for (size_t i = 0; i < 3; ++i) moons[i] = game->vm.mem4b00[0x1f9 + i];
+    for (size_t i = 0; i < 3; ++i) moons[i] = cok_ecl_var_at(&game->vm, COK_VAR_MOONS, i);
     const cok_character_layout *L = cok_game_rules(game)->character;
     const uint8_t *c = character->record;
     if (*index < 0 || mode == 1) {
@@ -647,7 +647,7 @@ static bool can(cok_adventure *game, const uint8_t *c, int kind)
     static const char *const what[4] = {"", "cast any spells", "memorize spells",
                                         "scribe any scrolls"};
     char text[80] = "";
-    if (kind == 1 && game->vm.mem4b00[0xe5] > 0)
+    if (kind == 1 && cok_ecl_var(&game->vm, COK_VAR_NO_MAGIC) > 0)
         snprintf(text, sizeof text, "cannot cast spells in this area");
     else if (cok_field_u8(cok_game_rules(game)->character, c, COK_FIELD_STATUS) == 1 ||
              cok_field_u8(cok_game_rules(game)->character, c, COK_FIELD_ACTIVE) == 0)
@@ -709,7 +709,8 @@ static int table(cok_adventure *game, cok_character *character)
     if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) > 0 &&
         cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER) > 0) {
         /* Word 0x4cf8 + order: the moons' phases, from 0x4cf9. */
-        uint16_t phase = game->vm.mem4b00[0x1f8 + cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER)];
+        uint16_t phase = cok_ecl_var_at(&game->vm, COK_VAR_ORDER_MOON,
+                                        cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER));
         game->bonus_spells = phase == 1 ? 1 : phase == 2 ? 2 : 0;
         for (unsigned level = 1; level <= 5 && game->bonus_spells > 0; ++level) {
             uint8_t per_day = cok_field_u8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 3, level), left,
@@ -987,7 +988,7 @@ static void display(cok_adventure *game)
     for (size_t i = 0; i < count; ++i)
         cok_adventure_log(game, rows[i].heading ? "heading" : "item", rows[i].text);
     uint16_t moons[3];
-    for (size_t i = 0; i < 3; ++i) moons[i] = game->vm.mem4b00[0x1f9 + i];
+    for (size_t i = 0; i < 3; ++i) moons[i] = cok_ecl_var_at(&game->vm, COK_VAR_MOONS, i);
     cok_screen_frame(&game->screen, &game->view.tiles[4], moons, true);
     cok_menu_style style = {"", "", 15, 10, 11, true};
     bool redraw = true;

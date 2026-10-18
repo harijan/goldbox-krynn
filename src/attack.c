@@ -213,7 +213,8 @@ bool cok_combat_hit(cok_adventure *game, cok_character *attacker, cok_character 
      * party's then meets a case on the constant 500 (60f4:10c8) that never
      * matches. */
     uint16_t var =
-        game->vm.mem7c00[cok_field_u8(L, attacker->record, COK_FIELD_HOSTILE) == 0 ? 0x371 : 0x370];
+        cok_ecl_var_at(&game->vm, COK_VAR_HIT_BONUS,
+                       cok_field_u8(L, attacker->record, COK_FIELD_HOSTILE) == 0 ? 1 : 0);
     int8_t bonus = s8(var);
     if ((int8_t)rolls->attack_roll < 0) return true;
     *hit = (int8_t)rolls->attack_roll + cok_field_u8(L, attacker->record, COK_FIELD_THAC0) +

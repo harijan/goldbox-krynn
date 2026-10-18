@@ -202,7 +202,7 @@ static bool train(cok_adventure *game, cok_character *character, bool creating, 
         cok_adventure_notice(game, "we only train conscious people", 14);
         return true;
     }
-    uint8_t present = 0, trainable = 0, hall = (uint8_t)game->vm.mem7c00[0x2a8];
+    uint8_t present = 0, trainable = 0, hall = (uint8_t)cok_ecl_var(&game->vm, COK_VAR_HALL);
     int32_t cap = 0;
     /* 6346:371e's uninitialized local: the previous class's row in the same
      * call, else 0x74, the 't' of "Pick Character " that Pick Character
@@ -438,7 +438,7 @@ void cok_train_knight(cok_adventure *game)
     }
     uint8_t *c = character->record;
     uint16_t moons[3];
-    for (size_t i = 0; i < 3; ++i) moons[i] = game->vm.mem4b00[0x1f9 + i];
+    for (size_t i = 0; i < 3; ++i) moons[i] = cok_ecl_var_at(&game->vm, COK_VAR_MOONS, i);
     cok_screen_frame(&game->screen, &game->view.tiles[4], moons, true); /* 1128:0000 */
     uint8_t order = cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER);
     if (cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) == 0 ||

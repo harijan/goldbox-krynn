@@ -139,7 +139,7 @@ bool cok_combat_movement(cok_adventure *game, cok_character *c, uint8_t *movemen
     const uint8_t *r = c->record;
     uint8_t m = cok_field_u8(L, r, COK_FIELD_MOVEMENT);
     if (cok_field_u8(L, r, COK_FIELD_HOSTILE) == 0)
-        m = (uint8_t)(m + game->vm.mem7c00[0x372]); /* var 0x7f72 */
+        m = (uint8_t)(m + cok_ecl_var(&game->vm, COK_VAR_MOVE_BONUS)); /* var 0x7f72 */
     if (m < 1 || m > 0x60) m = 1;
     game->effects.rolls.rate = (uint8_t)(m * 2);
     if (!event(game, c, 0x12)) return false;
@@ -759,7 +759,7 @@ bool cok_combat_round_start(cok_adventure *game, cok_character *c)
         /* (side + 1) & var 0x7ecb: bit 0 the party's side surprised, bit 1
          * the enemy's. */
         if (((uint8_t)(cok_field_u8(L, r, COK_FIELD_HOSTILE) + 1) &
-             (uint8_t)game->vm.mem7c00[0x2cb]) != 0)
+             (uint8_t)cok_ecl_var(&game->vm, COK_VAR_SURPRISE)) != 0)
             initiative = (uint8_t)(initiative - 6);
         if ((int8_t)initiative < 0 || (int8_t)initiative > 20) initiative = 0;
         cr->initiative = (int8_t)initiative;
@@ -965,7 +965,7 @@ static bool rounds(cok_adventure *game)
                                    "DS:6b2d (6346:268a)");
         for (size_t i = 0; i < game->party.count; ++i)
             if (!cok_combat_round_start(game, game->party.members[i])) return false;
-        vm->mem7c00[0x2cb] = 0; /* var 0x7ecb */
+        cok_ecl_set_var(vm, COK_VAR_SURPRISE, 0); /* var 0x7ecb */
         cok_combat_turn_order(game);
         log_order(game);
         cok_character *c = combat->turn[1];
