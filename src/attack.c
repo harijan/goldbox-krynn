@@ -157,7 +157,7 @@ static bool missile_weapon(cok_adventure *game, const cok_character *c, bool *mi
 static bool battle_only(cok_adventure *game, cok_character *c, int *stale)
 {
     if (!cok_combat_battle_only(game, c)) return false;
-    *stale = cok_character_find_effect(c, cok_game_effect(game, COK_EFFECT_BERSERK)) != NULL
+    *stale = cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_BERSERK) != NULL
                  ? COK_ARENA_STALE_UNKNOWN
                  : 0;
     return true;
@@ -816,7 +816,7 @@ bool cok_combat_pick_target(cok_adventure *game, cok_character *c, uint8_t range
             --tries;
             uint8_t pick;
             const cok_character *first = combat->combatant[combat->enemies[1]].character;
-            if (cok_character_find_effect(c, cok_game_effect(game, COK_EFFECT_YELLED_AT)) != NULL &&
+            if (cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_YELLED_AT) != NULL &&
                 (first != NULL ? first->record : NULL) == combat->yelled && tries == 19)
                 pick = 1;
             else

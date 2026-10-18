@@ -678,7 +678,7 @@ static int neutralize_poison(cok_adventure *game, cok_character *character)
     const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
     bool poisoned =
-        cok_character_find_effect(character, cok_game_effect(game, COK_EFFECT_POISONED)) != NULL;
+        cok_character_find_named(character, cok_game_rules(game), COK_EFFECT_POISONED) != NULL;
     int answer = ask(game, character, poisoned, "is not poisoned.", "Neutralize Poison", 500);
     if (answer != 'Y' || !poisoned) return answer;
     if (cok_field_u8(L, c, COK_FIELD_HIT_POINTS) == 0)
@@ -701,7 +701,7 @@ static int neutralize_poison(cok_adventure *game, cok_character *character)
 static int remove_curse(cok_adventure *game, cok_character *character)
 {
     bool cursed =
-        cok_character_find_effect(character, cok_game_effect(game, COK_EFFECT_CURSED)) != NULL;
+        cok_character_find_named(character, cok_game_rules(game), COK_EFFECT_CURSED) != NULL;
     for (size_t i = 0; i < character->item_count && !cursed; ++i)
         cursed = character->items[i][0x36] != 0;
     int answer = ask(game, character, cursed, "is not cursed.", "Remove Curse", 1750);

@@ -108,10 +108,12 @@ static bool granted(const cok_rules *rules, const uint8_t *c, uint8_t spell)
 
 /* The most spells and scroll spells a list holds in any game: the game's
  * own (its spells section's list_spells, DS:473a, the spells of a list in
- * order, and list_scrolls, DS:4774, the scroll of each) bound it. */
+ * order, and list_scrolls, DS:4774, the scroll of each) bound it, no more
+ * than COK_SPELL_LIST_MOST (asserted below; tests/test_magic_rules.c
+ * checks each game's). */
 enum {
-    LIST_SPELLS = 0x80,
-    LIST_SCROLLS = 0x80,
+    LIST_SPELLS = COK_SPELL_LIST_MOST,
+    LIST_SCROLLS = COK_SPELL_LIST_MOST,
     LIST_ROWS = 2 * LIST_SPELLS,
 };
 
@@ -276,8 +278,7 @@ static bool add_scroll(cok_adventure *game, spell_list *l, cok_character *charac
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record, *item = character->items[index];
-    if (cok_character_find_effect(character,
-                                  cok_game_effect(game, COK_EFFECT_READ_MAGIC)) !=
+    if (cok_character_find_named(character, cok_game_rules(game), COK_EFFECT_READ_MAGIC) !=
             NULL ||
         ((cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0) > 0 ||
           cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 0) >
@@ -317,6 +318,8 @@ static bool build_list(cok_adventure *game, spell_list *l, cok_character *charac
     const cok_data_segment *D = cok_game_rules(game)->data;
     const uint8_t *c = character->record;
     memset(l, 0, sizeof *l);
+    assert(cok_game_rules(game)->spells.list_spells <= LIST_SPELLS &&
+           cok_game_rules(game)->spells.list_scrolls <= LIST_SCROLLS);
     if (kind == 0 || kind == 5) {
         for (size_t i = 0; i < cok_field_count(L, COK_FIELD_MEMORIZED); ++i) {
             uint8_t b = cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i);
@@ -330,15 +333,18 @@ static bool build_list(cok_adventure *game, spell_list *l, cok_character *charac
                 !add_sorted(game, l, n))
                 return false;
     } else if (kind == 4) {
-        /* 5b04:0cb8: the magic-user spells of each level 1-4 with a spell a
-         * day (+0x12b on) that it does not know, from the table of its
-         * order (DS:4208 + 40 * table + 10 * level, to the first 0): 2 for
-         * order 1, else 3. Level 5 is never offered. */
+        /* 5b04:0cb8: the magic-user spells of each level of the lists
+         * (1-4; Death Knights' 5dc5:0a4e 1-8) with a spell a day (+0x12b
+         * on) that it does not know, from the table of its order (DS:4208
+         * + 40 * table + 10 * level, to the first 0): 2 for order 1, else
+         * 3 (in both games). Champions' level 5 is never offered. */
         int table = cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER) == 1 ? 2 : 3;
-        for (int level = 1; level <= 4; ++level) {
+        int levels = (int)cok_data_count(D, COK_DATA_SPELL_LISTS, 1),
+            spells = (int)cok_data_count(D, COK_DATA_SPELL_LISTS, 2);
+        for (int level = 1; level <= levels; ++level) {
             if (cok_field_u8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 3, level) == 0) continue;
             uint8_t spell = 0xff;
-            for (int k = 1; k <= 10 && spell != 0; ++k) {
+            for (int k = 1; k <= spells && spell != 0; ++k) {
                 long at = cok_data_offset3(D, COK_DATA_SPELL_LISTS, table, level, k);
                 cok_data_byte(D, (uint16_t)at, &spell);
                 if (spell != 0 && cok_field_u8_at(L, c, COK_FIELD_KNOWN_SPELL, spell) == 0 &&

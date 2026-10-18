@@ -1346,6 +1346,7 @@ const cok_rules cok_rules_champions = {
             .target_caster = 1,   /* 5b04:127e */
             .target_one = 2,
             .target_party = 4,
+            .weapon_unscored = 0x53, /* 3afb:15e0 */
         },
     .effects =
         {

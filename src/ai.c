@@ -476,7 +476,7 @@ bool cok_ai_weapon_score(cok_adventure *game, cok_character *c, size_t item, uin
     if (type[1] <= 1) s = (uint8_t)(s + 3);
     if (cok_field_u8(L, r, COK_FIELD_HANDS) + type[1] > 3) s = 0;
     if (it[0x3e] == 0x84 && (it[0x3d] & 0x0f) != cok_field_u8(L, r, COK_FIELD_ALIGNMENT)) s = 0;
-    if (cok_effect_is(cok_game_rules(game), it[0x3d], COK_EFFECT_COLD_BREATH)) s = 0;
+    if (it[0x3d] == cok_game_rules(game)->spells.weapon_unscored) s = 0;
     if (it[0x36] != 0) s = 0;
     *score = s;
     return true;
@@ -671,10 +671,10 @@ bool cok_ai_can_step(cok_adventure *game, cok_character *c, uint8_t try_, uint8_
     cost = (uint8_t)(cost * ((d & 1) != 0 ? 3 : 2));
     if (occupant != 0 || cost >= cr->movement) return true;
     const cok_rules *rules = cok_game_rules(game);
-    if (cloud && cok_character_find_effect(c, cok_effect_id(rules, COK_EFFECT_MAD)) == NULL &&
-        cok_character_find_effect(c, cok_effect_id(rules, COK_EFFECT_NAUSEA)) == NULL &&
-        cok_character_find_effect(c, cok_effect_id(rules, COK_EFFECT_POISON_IMMUNE)) == NULL &&
-        cok_character_find_effect(c, cok_effect_id(rules, COK_EFFECT_MINOR_GLOBE)) == NULL &&
+    if (cloud && cok_character_find_named(c, rules, COK_EFFECT_MAD) == NULL &&
+        cok_character_find_named(c, rules, COK_EFFECT_NAUSEA) == NULL &&
+        cok_character_find_named(c, rules, COK_EFFECT_POISON_IMMUNE) == NULL &&
+        cok_character_find_named(c, rules, COK_EFFECT_MINOR_GLOBE) == NULL &&
         cr->forced == 0) {
         bool made;
         if (!cok_effects_save(&game->effects, c, 0, 0, &made))
@@ -682,7 +682,7 @@ bool cok_ai_can_step(cok_adventure *game, cok_character *c, uint8_t try_, uint8_
         if (!made) cost = (uint8_t)(cr->movement + 1);
     }
     if (puddle && cok_field_s8(L, r, COK_FIELD_HIGHEST_LEVEL) < 7 &&
-        cok_character_find_effect(c, cok_effect_id(rules, COK_EFFECT_POISON_IMMUNE)) == NULL &&
+        cok_character_find_named(c, rules, COK_EFFECT_POISON_IMMUNE) == NULL &&
         cr->forced == 0)
         cost = (uint8_t)(cr->movement + 1);
     *ok = cr->movement >= cost;

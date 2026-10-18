@@ -36,6 +36,7 @@ typedef struct {
 #define EFFECT(name) cok_effect_id(cok_game_rules(game), COK_EFFECT_##name)
 #define IS_SPELL(id, name) cok_spell_is(cok_game_rules(game), id, COK_SPELL_##name)
 #define IS_EFFECT(id, name) cok_effect_is(cok_game_rules(game), id, COK_EFFECT_##name)
+#define FIND_EFFECT(c, name) cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_##name)
 
 /* Byte column of the spell table (DS:31b3, 16 bytes an id): 2 range, 4 and
  * 5 the duration, 7 how it is targeted outside combat, 8 and 9 the saving
@@ -306,7 +307,7 @@ bool cok_cast_damage(cok_adventure *game, cok_character *c, uint8_t amount, uint
                 !cok_combat_battle_only(game, c))
                 return false;
             int stale =
-                cok_character_find_effect(c, EFFECT(BERSERK)) != NULL ? COK_ARENA_STALE_UNKNOWN : 0;
+                FIND_EFFECT(c, BERSERK) != NULL ? COK_ARENA_STALE_UNKNOWN : 0;
             if (!dispatch(game, c, 0x0d)) return false;
             if (cok_field_u8(L, record, COK_FIELD_ACTIVE) == 0 &&
                 cok_field_u8(L, record, COK_FIELD_STATUS) != 10) {
@@ -546,7 +547,7 @@ static bool reduce(cast *cx)
     if (c == NULL || game->spell_target_count == 0) return true;
     bool made;
     if (!save(game, c, 4, &made)) return false;
-    if (made || cok_character_find_effect(c, EFFECT(ENLARGED)) == NULL) return true;
+    if (made || FIND_EFFECT(c, ENLARGED) == NULL) return true;
     if (!remove_effect(game, c, NULL, EFFECT(ENLARGED)) || !ability(game, c, 0)) return false;
     say(game, c, "has been reduced");
     return true;
@@ -583,7 +584,7 @@ static bool slow_poison(cast *cx)
         cx->targets[1] = NULL;
         return true;
     }
-    if (cok_character_find_effect(c, EFFECT(POISONED)) == NULL) return true;
+    if (FIND_EFFECT(c, POISONED) == NULL) return true;
     if (cok_field_u8(L, r, COK_FIELD_HIT_POINTS) == 0)
         cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 1);
     cok_field_set8(L, r, COK_FIELD_STATUS, 0);
@@ -883,7 +884,7 @@ static bool neutralize_poison(cast *cx)
         cx->targets[1] = NULL;
         return true;
     }
-    if (cok_character_find_effect(c, EFFECT(POISONED)) == NULL) {
+    if (FIND_EFFECT(c, POISONED) == NULL) {
         say(game, c, "is unaffected");
         return true;
     }
@@ -1035,7 +1036,7 @@ static bool charm_person(cast *cx)
     uint8_t value =
         (uint8_t)(level + (uint8_t)(cok_field_u8(L, cx->caster->record, COK_FIELD_HOSTILE) << 7));
     if (!apply(cx, value, true, 0, 0, "is charmed")) return false;
-    cok_effect *charm = cok_character_find_effect(t, EFFECT(CHARMED));
+    cok_effect *charm = FIND_EFFECT(t, CHARMED);
     return charm == NULL || cok_effects_run(&game->effects, t, EFFECT(CHARMED), charm) ||
            effect_failed(game);
 }
@@ -1082,7 +1083,7 @@ static bool sleep_spell(cast *cx)
         uint8_t weight = hd >= 0 && hd <= 1 ? 1 : hd == 2 ? 2 : hd == 3 ? 4 : hd == 4 ? 6
                          : hd == 5 && cok_field_u8(L, r, COK_FIELD_RACE) == 7 ? 10 : 20;
         if (cok_field_u8(L, r, COK_FIELD_STATUS) != 1 &&
-            cok_character_find_effect(t[i], EFFECT(ASLEEP)) == NULL && left >= weight)
+            FIND_EFFECT(t[i], ASLEEP) == NULL && left >= weight)
             left = (uint8_t)(left - weight);
         else
             t[i] = NULL;
@@ -1126,7 +1127,7 @@ static bool snake_charm(cast *cx)
         const uint8_t *r = m->record;
         if ((cok_field_u8_at(L, r, COK_FIELD_CREATURE_FLAGS, 0) & 0x10) == 0 ||
             cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0 ||
-            cok_character_find_effect(m, EFFECT(HELD)) != NULL ||
+            FIND_EFFECT(m, HELD) != NULL ||
             left < cok_field_u8(L, r, COK_FIELD_HIT_POINTS))
             continue;
         left = (uint8_t)(left - cok_field_u8(L, r, COK_FIELD_HIT_POINTS));
@@ -1425,7 +1426,7 @@ static bool sticks_to_snakes(cast *cx)
         !apply(cx, level, false, 0, 8, ""))
         return false;
     t = cx->targets[1];
-    cok_effect *snakes = t != NULL ? cok_character_find_effect(t, EFFECT(SNAKES)) : NULL;
+    cok_effect *snakes = t != NULL ? FIND_EFFECT(t, SNAKES) : NULL;
     return snakes == NULL || cok_effects_run(&game->effects, t, EFFECT(SNAKES), snakes) ||
            effect_failed(game);
 }
@@ -1442,7 +1443,7 @@ static bool charm_monsters(cast *cx)
         if (t == NULL)
             return undefined(game, "a target taken off the list is read through NULL "
                                    "(5b04:4337)");
-        cok_effect *charm = cok_character_find_effect(t, EFFECT(CHARMED));
+        cok_effect *charm = FIND_EFFECT(t, CHARMED);
         if (charm != NULL && !cok_effects_run(&game->effects, t, EFFECT(CHARMED), charm))
             return effect_failed(game);
     }
@@ -2295,10 +2296,10 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, 
         return;
     }
     const cok_rules_cast *handler = &S->cast[spell];
-    if (handler->unported != NULL) {
+    if (handler->unported != NULL || S->cast_unported != NULL) {
         cok_adventure_fail(game, COK_ECL_UNPORTED, "not yet ported: %s's spell %u, %s (%s)",
-                           cok_game_rules(game)->text.name, spell,
-                           S->names[spell - 1], handler->unported);
+                           cok_game_rules(game)->text.name, spell, S->names[spell - 1],
+                           handler->unported != NULL ? handler->unported : S->cast_unported);
         return;
     }
     bool combat = game->vm.mode == 5;
@@ -2338,7 +2339,7 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, 
         announce = false;
         go = false;
     }
-    if (cok_character_find_effect(cx.caster, EFFECT(DISPELLING)) != NULL && roll(game, 1, 2) == 1) {
+    if (FIND_EFFECT(cx.caster, DISPELLING) != NULL && roll(game, 1, 2) == 1) {
         if (!announce_spell(game, cx.caster, "miscasts", spell)) return;
         announce = false;
         go = false;
@@ -2359,7 +2360,7 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, 
             if (combat && !fly(&cx)) return;
             /* 60f4:1408: casting ends the caster's invisibility. */
             cok_effect *invisible;
-            while ((invisible = cok_character_find_effect(cx.caster, EFFECT(INVISIBLE))) != NULL)
+            while ((invisible = FIND_EFFECT(cx.caster, INVISIBLE)) != NULL)
                 if (!remove_effect(game, cx.caster, invisible, EFFECT(INVISIBLE))) return;
             if (r->item == 0) forget(L, c, spell);
             if (handler->handler == COK_CAST_NONE) {

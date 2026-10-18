@@ -5,6 +5,7 @@
 #include "rules.h"
 #include "text.h"
 
+#include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -186,6 +187,16 @@ cok_effect *cok_character_add_effect(cok_character *character, uint8_t id, uint1
                                      uint8_t value, bool on_remove);
 /* The first effect with id, or NULL (6346:2447). */
 cok_effect *cok_character_find_effect(const cok_character *character, uint8_t id);
+
+/* The first effect with the named id in the game (spells.h), or NULL,
+ * also where the game has no such effect: no character has it. */
+static inline cok_effect *cok_character_find_named(const cok_character *character,
+                                                   const cok_rules *rules, cok_named_effect name)
+{
+    assert(rules != NULL && rules->effects.ids != NULL && (unsigned)name < COK_EFFECT_NAMES);
+    uint8_t id = rules->effects.ids[name];
+    return id == 0 ? NULL : cok_character_find_effect(character, id);
+}
 
 /* Recompute the stats that come from the items and abilities (6346:0d20):
  * the readied slots, item count, hands, weight carried, attacks and

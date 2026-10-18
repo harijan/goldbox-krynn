@@ -9,6 +9,11 @@
  * code; a game's id runs the one whose routine it shares with Champions,
  * or stops where the port does not carry its routine out yet. */
 
+/* The most spells and scroll spells a spell list holds in any game
+ * (magic.c's arrays; each game's spells section's list_spells and
+ * list_scrolls are no more). */
+enum { COK_SPELL_LIST_MOST = 0x80 };
+
 /* The spell ids the code names, as Champions numbers them (its name at
  * DS:2077 + 41 * id): a game without such a spell gives 0, and code that
  * reaches it stops at cok_spell_id's assertion. */

@@ -226,8 +226,8 @@ bool cok_cloud_square(cok_adventure *game, cok_character *c, bool step)
     if (!cok_combat_probe(combat, cok_game_rules(game), r, 8, &occupant, &terrain, &cloud, &puddle))
         return undefined(game, "a size past the footprints is read after them (6beb:0c9d)");
     if (cloud && step && cok_field_u8(L, r, COK_FIELD_UNDEAD) == 0 &&
-        cok_character_find_effect(c, cok_game_effect(game, COK_EFFECT_HELPLESS)) == NULL &&
-        cok_character_find_effect(c, cok_game_effect(game, COK_EFFECT_POISON_IMMUNE)) == NULL) {
+        cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_HELPLESS) == NULL &&
+        cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_POISON_IMMUNE) == NULL) {
         bool made;
         if (!cok_effects_save(&game->effects, c, 0, 0, &made)) return effect_failed(game);
         uint8_t *selected = game->vm.character;

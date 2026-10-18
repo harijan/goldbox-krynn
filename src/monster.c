@@ -521,9 +521,9 @@ bool cok_monster_movement(const cok_party *party, const cok_rules *rules, uint8_
     for (size_t i = 0; i < party->count; ++i) {
         const cok_character *c = party->members[i];
         uint8_t m = cok_field_u8(L, c->record, COK_FIELD_MOVEMENT);
-        if (cok_character_find_effect(c, cok_effect_id(rules, COK_EFFECT_HASTED)) != NULL)
+        if (cok_character_find_named(c, rules, COK_EFFECT_HASTED) != NULL)
             m = (uint8_t)(m << 1);
-        else if (cok_character_find_effect(c, cok_effect_id(rules, COK_EFFECT_SLOWED)) != NULL)
+        else if (cok_character_find_named(c, rules, COK_EFFECT_SLOWED) != NULL)
             m >>= 1;
         if (m > *fastest) *fastest = m;
         if (m < *slowest) *slowest = m;

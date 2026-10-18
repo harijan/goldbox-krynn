@@ -1144,6 +1144,10 @@ const cok_rules cok_rules_death_knights = {
             .target_caster = 1, /* 5dc5:1182: 3, not 4, for the party */
             .target_one = 2,
             .target_party = 3,
+            .weapon_unscored = 0x53, /* 3f63:14f5: cmp byte [es:di+0x3d], 0x53 */
+            /* 5dc5:1298, Champions' 5b04:1415 but for, among others, no
+             * miscast under effect 0x4a: the cast stops until step 3. */
+            .cast_unported = "dkk 5dc5:1298",
         },
     .effects =
         {

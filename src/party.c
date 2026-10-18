@@ -640,14 +640,16 @@ bool cok_character_former_class(const uint8_t *c, const cok_rules *rules)
     return cok_field_s8(L, c, COK_FIELD_CHANGE_LEVEL) < level;
 }
 
-/* Mark the cleric spells of each spell level 1-4 with a spell a day as
- * known (from 66c2:000f): the spells of DS:4230 + level * 10, to the first
- * 0. The original counts in DS:742f, which other routines set before use. */
+/* Mark the cleric spells of each spell level of the lists (1-4) with a
+ * spell a day as known (from 66c2:000f): the spells of DS:4230 + level *
+ * 10, to the first 0. The original counts in DS:742f, which other routines set before use. */
 static void know_cleric_spells(lookup *l, const cok_character_layout *L, uint8_t *c)
 {
-    for (int level = 1; level <= 4; ++level) {
+    int levels = (int)cok_data_count(l->D, COK_DATA_SPELL_LISTS, 1),
+        spells = (int)cok_data_count(l->D, COK_DATA_SPELL_LISTS, 2);
+    for (int level = 1; level <= levels; ++level) {
         if (cok_field_u8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, level) == 0) continue;
-        for (int i = 1; i <= 10; ++i) {
+        for (int i = 1; i <= spells; ++i) {
             uint8_t spell = ds_byte(l, cok_data_offset3(l->D, COK_DATA_SPELL_LISTS, 1, level, i),
                                     "a cleric spell");
             if (spell == 0) break;

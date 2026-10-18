@@ -274,8 +274,9 @@ It holds:
   + 41 × id, ids 1-0x72) and headings (`DS:3770` + 11 × level), the
   handler tables (127 of its 235 ids run Champions' handler, the others
   are unported), durations (`5dc5:0ef5`), byte 7's party value 3
-  (`5dc5:1182`), the event lists (`638c:055b`), and the caster level,
-  saving throw and magic resistance not ported yet; `MON1WIZ`; its moons'
+  (`5dc5:1182`), the event lists (`638c:055b`), and its cast
+  (`5dc5:1298`), caster level, saving throw and magic resistance not
+  ported yet; `MON1WIZ`; its moons'
   tiles, 0x100 + phase + 0x15, 0x0d and 0x11 (`5b7d:0000`);
 - `unplayable`: `cok --game death-knights`, `eclplay`'s `--start-menu`,
   `--load` and `--party` refuse it, saying it is not playable yet.
@@ -603,7 +604,12 @@ own handler of each id. Shared code never compares an id with a number:
   `IS_EFFECT`), false for a name the game has not, so that a handler
   shared by several ids (the poisons' `h_poison`, the breaths' dispatch)
   does not stop at a sibling the game lacks. The ids the messages cite
-  stay Champions', with the handlers' addresses.
+  stay Champions', with the handlers' addresses. A test that a character
+  has a named effect goes through `cok_character_find_named` (`party.h`),
+  NULL for a name the game has not. A value of a record's or an item's
+  byte that both games test alike is not an id: it stays a constant, or a
+  descriptor value where it is the game's (`spells.weapon_unscored`,
+  0x53, the weapon score's test of an item's +0x3d, `3afb:14ca`).
 - Each id's handler is a table entry: `spells.cast[id]` (`cok_rules_cast`)
   and `effects.handlers[id]` (`cok_rules_effect`) hold the port's handler,
   a `cok_cast_handler` or `cok_effect_handler` (one each of `cast.c`'s and
@@ -621,9 +627,13 @@ own handler of each id. Shared code never compares an id with a number:
   Display's ids and texts; the spell lists' sizes, the granted powers'
   ids, an item power's spell; the counts that bound the tables.
 - Where a game's rule routine differs and is not ported yet, its section
-  says so (`effects.caster_level_unported`, `save_unported`,
-  `resistance_unported`): the caster level, the saving throw and magic
-  resistance then fail rather than run Champions' rule.
+  says so (`spells.cast_unported`, `effects.caster_level_unported`,
+  `save_unported`, `resistance_unported`): a cast, the caster level, the
+  saving throw and magic resistance then stop or fail rather than run
+  Champions' rule. Loops over spell levels and list entries are bounded
+  by the tables' shapes (`COK_DATA_SPELL_LISTS`: Champions' 4 levels,
+  Death Knights' 8), and each game's list sizes are at most
+  `COK_SPELL_LIST_MOST`, `magic.c`'s arrays.
 
 To add a spell or effect handler: its function in `cast.c` or `effect.c`,
 its kind in `src/spells.h` and the function in the file's table by kind,
@@ -634,8 +644,9 @@ lookups. `tests/test_magic_rules.c` checks each game's names and headings
 byte for byte, its handler tables against the stores of the routines
 that fill them at startup (through the thunks), its event lists against
 the dispatch's calls, the shared ids against the set the dispatch tests,
-byte 7's values against the target routine's compares and the moons
-against their routines, in both executables; that ids of
+byte 7's values against the target routine's compares, the weapon
+score's item byte, the learning list's levels and the moons against
+their routines, in both executables; that ids of
 one routine have one handler; and that every handler kind is one of
 Champions'.
 

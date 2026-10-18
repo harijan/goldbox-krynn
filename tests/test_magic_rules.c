@@ -212,6 +212,40 @@ static void targets(const image *m, const cok_rules *r, unsigned segment, unsign
     }
 }
 
+/* The weapon score's test of an item's byte +0x3d (Champions' 3afb:14ca,
+ * Death Knights' at 3f63:14f5): cmp byte [es:di+0x3d], value. */
+static void weapon(const image *m, const cok_rules *r, unsigned segment, unsigned offset)
+{
+    const uint8_t *b = at(m, segment, offset);
+    size_t k = 0;
+    while (!(b[k] == 0x26 && b[k + 1] == 0x80 && b[k + 2] == 0x7d && b[k + 3] == 0x3d))
+        CHECK(++k < 0x200);
+    CHECK(b[k + 4] == r->spells.weapon_unscored);
+}
+
+/* The list of magic-user spells to learn (Champions' 5b04:0b21's kind 4,
+ * Death Knights' 5dc5:0a4e): mov dx, the lists' stride, then the loop
+ * over levels to the lists' last (cmp byte [bp-0xd], levels), as
+ * magic.c's loop bounds it by COK_DATA_SPELL_LISTS's shape. */
+static void learn(const image *m, const cok_rules *r, unsigned segment, unsigned offset)
+{
+    const cok_data_segment *D = r->data;
+    const uint8_t *b = at(m, segment, offset);
+    unsigned stride = D->table[COK_DATA_SPELL_LISTS].index[0].stride;
+    size_t k = 0;
+    while (!(b[k] == 0xba && b[k + 1] == (stride & 0xff) && b[k + 2] == stride >> 8))
+        CHECK(++k < 0x400);
+    while (!(b[k] == 0x80 && b[k + 1] == 0x7e && b[k + 2] == 0xf3)) CHECK(++k < 0x400);
+    CHECK(b[k + 3] == cok_data_count(D, COK_DATA_SPELL_LISTS, 1));
+}
+
+/* A spell list's arrays (magic.c) hold the game's lists. */
+static void lists(const cok_rules *r)
+{
+    CHECK(r->spells.list_spells > 0 && r->spells.list_spells <= COK_SPELL_LIST_MOST);
+    CHECK(r->spells.list_scrolls > 0 && r->spells.list_scrolls <= COK_SPELL_LIST_MOST);
+}
+
 /* Ids with one routine have one handler, in each table. */
 static void consistent(const cok_rules *r)
 {
@@ -257,6 +291,8 @@ static void test_champions(void)
         CHECK(used);
     }
     consistent(r);
+    lists(r);
+    CHECK(r->spells.cast_unported == NULL && r->spells.weapon_unscored == 0x53);
     image m;
     CHECK(load(&m, "build/START_FULL.EXE", 0x1bc6));
     names(&m, r);
@@ -266,6 +302,8 @@ static void test_champions(void)
     shared(&m, r, 0x60f4, 0x0332);
     moons(&m, r, 0x57e4, 0x0143, 0x001e);
     targets(&m, r, 0x5b04, 0x127e);
+    weapon(&m, r, 0x3afb, 0x14ca);
+    learn(&m, r, 0x5b04, 0x0b21);
 }
 
 static void test_death_knights(void)
@@ -277,6 +315,8 @@ static void test_death_knights(void)
           !cok_spell_is(r, 0, COK_SPELL_ANIMATE_DEAD));
     CHECK(r->effects.ids[COK_EFFECT_BOLTS] == 0 && !cok_effect_is(r, 0, COK_EFFECT_BOLTS));
     consistent(r);
+    lists(r);
+    CHECK(r->spells.cast_unported != NULL && r->spells.weapon_unscored == 0x53);
     CHECK(cok_spell_id(r, COK_SPELL_KNOCK) == 0x1f);
     /* A named effect it has has a handler entry; the rules not ported yet
      * say so. */
@@ -303,6 +343,8 @@ static void test_death_knights(void)
     shared(&m, r, 0x638c, 0x0307);
     moons(&m, r, 0x5b7d, 0x0117, 0x0000);
     targets(&m, r, 0x5dc5, 0x1182);
+    weapon(&m, r, 0x3f63, 0x1400);
+    learn(&m, r, 0x5dc5, 0x0a4e);
 }
 
 int main(void)

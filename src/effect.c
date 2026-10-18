@@ -15,6 +15,7 @@ const uint16_t cok_clock_units[7] = {10, 10, 6, 24, 30, 12, 256};
 #define SPELL(name) cok_spell_id(fx->rules, COK_SPELL_##name)
 #define IS_EFFECT(id, name) cok_effect_is(fx->rules, id, COK_EFFECT_##name)
 #define IS_SPELL(id, name) cok_spell_is(fx->rules, id, COK_SPELL_##name)
+#define FIND_EFFECT(c, name) cok_character_find_named(c, fx->rules, COK_EFFECT_##name)
 
 static bool fail(cok_effects *fx, const char *format, ...)
 {
@@ -458,7 +459,7 @@ static bool h_invisible(cok_effects *fx, bool removing, cok_effect *effect, cok_
     if (removing) return true;
     cok_character *attacker = selected(fx, effect->id);
     if (attacker == NULL) return false;
-    if (cok_character_find_effect(attacker, EFFECT(SEES_INVISIBLE)) == NULL) {
+    if (FIND_EFFECT(attacker, SEES_INVISIBLE) == NULL) {
         fx->rolls.untargetable = 1;
         fx->rolls.attack_roll = (uint8_t)(fx->rolls.attack_roll - 4);
     }
@@ -564,7 +565,7 @@ static bool h_drain(cok_effects *fx, bool removing, cok_effect *effect, cok_char
         cok_field_add8_at(L, c->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH, -1);
         return true;
     }
-    if (cok_character_find_effect(c, EFFECT(HELPLESS)) == NULL)
+    if (FIND_EFFECT(c, HELPLESS) == NULL)
         return add(fx, c, EFFECT(HELPLESS), 0, 0xff, false);
     return true;
 }
@@ -591,7 +592,7 @@ static bool h_ticking(cok_effects *fx, bool removing, cok_effect *effect, cok_ch
         party_list(fx);
         return true;
     }
-    if (IS_EFFECT(id, WASTING) && cok_character_find_effect(c, EFFECT(HELPLESS)) == NULL)
+    if (IS_EFFECT(id, WASTING) && FIND_EFFECT(c, HELPLESS) == NULL)
         return add(fx, c, EFFECT(HELPLESS), 0, 0xff, false);
     return true;
 }
@@ -603,7 +604,7 @@ static bool h_ticking(cok_effects *fx, bool removing, cok_effect *effect, cok_ch
 static bool h_poisoned(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
     (void)removing, (void)effect;
-    if (cok_character_find_effect(c, EFFECT(POISONED)) != NULL) {
+    if (FIND_EFFECT(c, POISONED) != NULL) {
         if (fx->kill == NULL || !fx->kill(fx, c, 6, "dies from poison", fx->context))
             return fail(fx, "effect 0x16 (3f44:0725) could not kill (60f4:00eb)");
         if (!remove_effect(fx, c, NULL, EFFECT(POISONED))) return false;
@@ -1088,7 +1089,7 @@ static bool h_snakes(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
     if (effect->value > n)
         effect->value = (uint8_t)(effect->value - n);
     else if (removing && effect->on_remove &&
-             cok_character_find_effect(c, EFFECT(SNAKES)) == effect)
+             FIND_EFFECT(c, SNAKES) == effect)
         /* Being removed, it removes itself again, and so on: the original
          * has no stack check, and at about 84 bytes a level its 16K stack
          * wraps to SS:FFFE after some 150-190 and writes over memory. */
@@ -1281,14 +1282,14 @@ static bool h_terrible(cok_effects *fx, bool removing, cok_effect *effect, cok_c
         uint8_t *r = e->record;
         if (cok_field_u8(L, r, COK_FIELD_HOSTILE) ==
                 cok_field_u8(L, c->record, COK_FIELD_HOSTILE) ||
-            cok_character_find_effect(e, EFFECT(FEARLESS)) != NULL)
+            FIND_EFFECT(e, FEARLESS) != NULL)
             continue;
         bool made;
         if (!saving_throw(fx, e, 4, 0, &made)) return false;
         if (made) continue;
         if (!add_with_text(fx, e, EFFECT(TERROR), 0, 0, true, 1, false, 0x24f4, "is terrified"))
             return false;
-        if (cok_character_find_effect(e, EFFECT(TERROR)) == NULL) continue;
+        if (FIND_EFFECT(e, TERROR) == NULL) continue;
         cok_combat_record *cr = combat_of(fx, e, 0x48, 0x24f4);
         if (cr == NULL) return false;
         cok_field_set8(L, r, COK_FIELD_COMPUTER, 1);
@@ -1361,7 +1362,7 @@ static bool h_stench(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
             continue;
         bool made;
         if (!saving_throw(fx, e, 4, 0, &made)) return false;
-        if (made || cok_character_find_effect(e, EFFECT(SICKENED)) != NULL) continue;
+        if (made || FIND_EFFECT(e, SICKENED) != NULL) continue;
         if (!flash(fx, e, 0x4f, 0x2b5f, "is affected", false) ||
             !add(fx, c, EFFECT(SICKENED), 0, 0xff, false))
             return false;
@@ -1401,7 +1402,7 @@ static bool poison(cok_effects *fx, cok_character *c, uint8_t id, uint16_t handl
     fx->rolls.target = cr->target;
     cok_character *t = target_of(fx, cr->target, id, 0x1b55, 0x00e3);
     if (t == NULL) return false;
-    const cok_effect *resistance = cok_character_find_effect(t, EFFECT(POISON_RESISTANCE));
+    const cok_effect *resistance = FIND_EFFECT(t, POISON_RESISTANCE);
     if (resistance != NULL) bonus = (int8_t)bonus < 0 ? 0 : (uint8_t)(bonus + resistance->value);
     bool made;
     if (!saving_throw(fx, t, 0, bonus, &made)) return false;
@@ -1904,16 +1905,16 @@ static bool h_fear(cok_effects *fx, bool removing, cok_effect *effect, cok_chara
         uint8_t *r = other->record;
         if (cok_field_u8(L, r, COK_FIELD_HOSTILE) == cok_field_u8(L, c->record, COK_FIELD_HOSTILE))
             continue;
-        if (cok_character_find_effect(other, EFFECT(FEARLESS)) != NULL ||
-            cok_character_find_effect(other, EFFECT(TERROR)) != NULL ||
-            cok_character_find_effect(other, EFFECT(AFRAID)) != NULL)
+        if (FIND_EFFECT(other, FEARLESS) != NULL ||
+            FIND_EFFECT(other, TERROR) != NULL ||
+            FIND_EFFECT(other, AFRAID) != NULL)
             continue;
         int8_t level = cok_field_s8(L, r, COK_FIELD_HIGHEST_LEVEL);
         if (level >= 0 && level <= 3) {
             if (!add_with_text(fx, other, EFFECT(TERROR), 0, 0xff, true, 1, false, 0x303c,
                                "is terrified"))
                 return false;
-            if (cok_character_find_effect(other, EFFECT(TERROR)) == NULL) continue;
+            if (FIND_EFFECT(other, TERROR) == NULL) continue;
             if (other->combat == NULL)
                 return fail(fx, "effect 0x52 (3f44:303c) writes the combat record of a record "
                                 "with none, at 0000:000a");
@@ -2282,7 +2283,7 @@ static bool ability(cok_effects *fx, cok_character *ch, unsigned stat)
         return true;
     }
     if (stat == 5) {
-        const cok_effect *effect = cok_character_find_effect(ch, EFFECT(FRIENDLY));
+        const cok_effect *effect = FIND_EFFECT(ch, FRIENDLY);
         if (effect != NULL) score = (uint8_t)(score + effect->value);
         cok_field_set8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CHARISMA, score);
         return true;
@@ -2327,14 +2328,14 @@ static bool ability(cok_effects *fx, cok_character *ch, unsigned stat)
         }
         cok_field_set8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION, score);
         if (cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION) >= 20) {
-            if (cok_character_find_effect(ch, EFFECT(REGENERATING)) == NULL &&
+            if (FIND_EFFECT(ch, REGENERATING) == NULL &&
                 cok_character_add_effect(ch, EFFECT(REGENERATING), 0x3c, 0xff, true) == NULL)
                 return fail(fx, "out of memory adding effect 0x3e");
             return true;
         }
         return remove_effect(fx, ch, NULL, EFFECT(REGENERATING));
     }
-    const cok_effect *effect = cok_character_find_effect(ch, EFFECT(STRENGTH));
+    const cok_effect *effect = FIND_EFFECT(ch, STRENGTH);
     if (effect != NULL) {
         effect_strength(effect, &candidate, &candidate_exceptional);
         if (score < 19 && exceptional < 100) {

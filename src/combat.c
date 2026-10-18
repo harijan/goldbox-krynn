@@ -1141,7 +1141,7 @@ bool cok_combat_end(cok_adventure *game)
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];
         uint8_t *r = c->record;
-        if (cok_character_find_effect(c, cok_game_effect(game, COK_EFFECT_CHARMED)) != NULL &&
+        if (cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_CHARMED) != NULL &&
             cok_field_u8(L, r, COK_FIELD_STATUS) == 0)
             cok_field_set8(L, r, COK_FIELD_STATUS, game->combat.sides[1] > 1 ? 3 : 0);
         if (!cok_combat_battle_only(game, c)) return false;

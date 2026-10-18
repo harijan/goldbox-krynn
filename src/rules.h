@@ -378,6 +378,14 @@ typedef struct {
     /* The values of the spell table's byte 7 that target the caster, one
      * the player picks and the whole party outside combat (5b04:127e). */
     uint8_t target_caster, target_one, target_party;
+    /* An item's byte +0x3d that makes the computer score a weapon 0
+     * (3afb:14ca's test at 3afb:15e0): a value of the item's byte, not a
+     * spell or effect id the game names. */
+    uint8_t weapon_unscored;
+    /* The cast's own routine where the game's differs and the port does
+     * not carry it out yet, citing it, or NULL: casting any spell then
+     * stops the run (COK_ECL_UNPORTED) before its handler. */
+    const char *cast_unported;
 } cok_rules_spells;
 
 /* One effect id's handler (effect.c): the port's, a cok_effect_handler
