@@ -463,23 +463,56 @@ def _nonzero(x):
     return x & _ONES
 
 
+# candidates' first look: every SAMPLE-th pixel (a prime, so that the
+# samples move along the rows); only a pair of frames that passes it there
+# is compared whole.
+SAMPLE = 61
+_TEXT_SAMPLE = int.from_bytes(_TEXT.to_bytes(64000, "little")[::SAMPLE], "little")
+_ONES_SAMPLE = int.from_bytes(b"\1" * len(range(0, 64000, SAMPLE)), "little")
+
+
+class _Frames:
+    """FRAMES' pixels made ready for candidates: their indices by pixels, and
+    each one's as an integer, whole and sampled."""
+
+    def __init__(self, frames):
+        self.exact = {}
+        for j, (_, f) in enumerate(frames):
+            self.exact.setdefault(f.pixels, set()).add(j)
+        self.ints = [int.from_bytes(f.pixels, "little") for _, f in frames]
+        self.samples = [int.from_bytes(f.pixels[::SAMPLE], "little") for _, f in frames]
+
+
 def candidates(s, frames, ints=None):
     """Where screen S may lie among FRAMES, as (position, name): 2j for
     frame j equal to it, 2j + 1 for frames j and j + 1 in a row that it
     lies between, each of its pixels one of theirs or black in a text area
     (the original caught between a line's clear and its glyphs), neither of
-    them equal to it. INTS: the frames' pixels as integers (for speed)."""
-    exact = {j for j, (_, f) in enumerate(frames) if f.pixels == s.pixels}
+    them equal to it. INTS: FRAMES made ready (_Frames), for speed."""
+    if ints is None:
+        ints = _Frames(frames)
+    exact = ints.exact.get(s.pixels, set())
     out = [(2 * j, frames[j][0]) for j in sorted(exact)]
     if s.width != 320 or len(frames) < 2:
         return out
-    if ints is None:
-        ints = [int.from_bytes(f.pixels, "little") for _, f in frames]
-    si = int.from_bytes(s.pixels, "little")
-    black_ok = (_nonzero(si) ^ _ONES) & _TEXT
-    off = [_nonzero(si ^ f) & ~black_ok for f in ints]
-    out += [(2 * j + 1, f"{frames[j][0]}~{frames[j + 1][0]}") for j in range(len(frames) - 1)
-            if j not in exact and j + 1 not in exact and not off[j] & off[j + 1]]
+
+    def between(si, fs, ones, text):
+        black_ok = (_nonzero(si) ^ ones) & text
+        off = [_nonzero(si ^ f) & ~black_ok for f in fs]
+        return [j for j in range(len(fs) - 1)
+                if j not in exact and j + 1 not in exact and not off[j] & off[j + 1]]
+
+    # Between in the samples first: a pair that is not, is not.
+    maybe = between(int.from_bytes(s.pixels[::SAMPLE], "little"), ints.samples,
+                    _ONES_SAMPLE, _TEXT_SAMPLE)
+    if maybe:
+        si = int.from_bytes(s.pixels, "little")
+        black_ok = (_nonzero(si) ^ _ONES) & _TEXT
+        off = {}
+        for j in {k for j in maybe for k in (j, j + 1)}:
+            off[j] = _nonzero(si ^ ints.ints[j]) & ~black_ok
+        out += [(2 * j + 1, f"{frames[j][0]}~{frames[j + 1][0]}") for j in maybe
+                if not off[j] & off[j + 1]]
     return sorted(out)
 
 
@@ -492,7 +525,7 @@ def in_order(screens, frames):
     more, then the most others, with frames that never go back (a heaviest
     non-decreasing chain). Returns a list of the frames' names (N~M for
     between) or None for a screen left out."""
-    ints = [int.from_bytes(f.pixels, "little") for _, f in frames]
+    ints = _Frames(frames)
     size = 2 * len(frames) + 1
     tree = [(0, None)] * (size + 1)  # Fenwick tree: the best chain ending at or before
 
@@ -844,12 +877,47 @@ def _png_screen(data, where):
         path.unlink()
 
 
+# burst's reads of a Tandy's screen: every 50 ms, the cadence of DOSBox-X's
+# screenshots on an idle host (on a loaded one ten times fewer).
+READ_SECONDS = 0.05
+
+
 def burst(b, seconds, until=None, work=None, prefix="b"):
-    """DOSBox-X's screenshots (F12+P) as fast as it writes them for SECONDS
-    (or until UNTIL() is true): each PNG moved out of the capture directory
-    as soon as written (DOSBox-X stops numbering at start_999), decoded
-    afterwards; the distinct screens in order (saved as PREFIX-NN.png in
-    WORK), each with .count, the screenshots running that showed it."""
+    """The screens shown for SECONDS (or until UNTIL() is true): a Tandy's
+    read from its video memory (cokbox.Box.vram) every READ_SECONDS, which
+    the host's load does not slow, else DOSBox-X's screenshots (F12+P) as
+    fast as it writes them; the distinct screens in order (saved as
+    PREFIX-NN.png in WORK), each with .count, the reads or screenshots
+    running that showed it."""
+    if b.vram() is None:
+        return _burst_shots(b, seconds, until, work, prefix)
+    reads = []
+    start = time.monotonic()
+    while time.monotonic() < start + seconds and not (until and until()):
+        at = time.monotonic()
+        reads.append((at - start, b.vram()))
+        time.sleep(max(0.0, at + READ_SECONDS - time.monotonic()))
+    seen, times, last = [], [], None
+    for at, data in reads:
+        if data == last:
+            seen[-1].count += 1
+            continue
+        last = data
+        shot = cokbox.tandy_screen(data)
+        if work is not None:
+            shot.save_png(pathlib.Path(work) / f"{prefix}-{len(seen):02d}.png")
+        shot.count = 1
+        seen.append(shot)
+        times.append(round(at, 2))
+    print(f"  {len(reads)} reads of the video memory in the burst, {len(seen)} different, "
+          f"first read at {times} s")
+    return seen
+
+
+def _burst_shots(b, seconds, until, work, prefix):
+    """burst with DOSBox-X's screenshots: each PNG moved out of the capture
+    directory as soon as written (DOSBox-X stops numbering at start_999),
+    decoded afterwards."""
     raw = pathlib.Path(work or b.workdir) / f"{prefix}-raw"
     raw.mkdir(parents=True, exist_ok=True)
     pngs = []
@@ -1018,27 +1086,44 @@ def step(b, keys, name, work, settle=1.0):
 
 
 _RGB = {bytes((b, g, r)): i for i, (r, g, b) in enumerate(cokbox.PALETTE)}
+# load_bmp's tables: a channel's 0, 85, 170, 255 as 0-3, and (blue + 4 green
+# + 16 red) as the palette's index (255 for a mix not in it).
+_LEVEL = bytes({0: 0, 85: 1, 170: 2, 255: 3}.get(v, 0) for v in range(256))
+_MIX = bytearray(b"\xff" * 256)
+for _i, (_r, _g, _b) in enumerate(cokbox.PALETTE):
+    _MIX[_LEVEL[_b] + 4 * _LEVEL[_g] + 16 * _LEVEL[_r]] = _i
+_MIX = bytes(_MIX)
 
 
 def load_bmp(path):
-    """eclplay's 320x200 24-bit BMP as a Screen, faster than Screen.load
-    (exact palette colours; others go through cokbox.nearest)."""
+    """eclplay's 320x200 24-bit BMP as a Screen, faster than Screen.load:
+    its exact palette colours mapped a channel at a time with bytes.translate
+    (others, pixel by pixel, through cokbox.nearest)."""
     data = pathlib.Path(path).read_bytes()
     offset, = struct.unpack_from("<I", data, 10)
     width, height = struct.unpack_from("<ii", data, 18)
     if (width, abs(height)) != (320, 200):
         return cokbox.Screen.load(path)
-    stride = (width * 3 + 3) & ~3
+    rows = [data[offset + y * 960:offset + (y + 1) * 960] for y in range(200)]
+    if height > 0:
+        rows.reverse()
+    bgr = b"".join(rows)
+    if bgr.translate(None, b"\x00\x55\xaa\xff"):  # a colour not of the palette
+        return _load_bmp_slow(bgr)
+    mix = (int.from_bytes(bgr[0::3].translate(_LEVEL), "little") +
+           (int.from_bytes(bgr[1::3].translate(_LEVEL), "little") << 2) +
+           (int.from_bytes(bgr[2::3].translate(_LEVEL), "little") << 4))
+    out = mix.to_bytes(64000, "little").translate(_MIX)
+    if 255 in out:
+        return _load_bmp_slow(bgr)
+    return cokbox.Screen(320, 200, out)
+
+
+def _load_bmp_slow(bgr):
+    """load_bmp's pixels (BGR, top row first) one at a time."""
     out = bytearray(64000)
-    k = 0
-    for y in range(200):
-        src = offset + ((199 - y) if height > 0 else y) * stride
-        row = data[src:src + 960]
-        for x in range(0, 960, 3):
-            px = row[x:x + 3]
-            v = _RGB.get(px)
-            if v is None:
-                v = cokbox.nearest((px[2], px[1], px[0]))
-            out[k] = v
-            k += 1
+    for k in range(64000):
+        px = bgr[3 * k:3 * k + 3]
+        v = _RGB.get(px)
+        out[k] = cokbox.nearest((px[2], px[1], px[0])) if v is None else v
     return cokbox.Screen(320, 200, out)

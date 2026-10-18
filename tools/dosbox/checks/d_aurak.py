@@ -9,10 +9,10 @@ vector, d_firstblock.py): seed 101 (found with eclplay) rolls an aurak and 5
 sivaks (859c). Alt-Q at the first turn, the computer plays. eclplay: the
 AURAK "Breathes!" at GARIN beside it, who saves ("takes 10 points") and
 goes down, and the AURAK then "Attacks" in the same turn. The original runs
-at speed 15 (DS:4b38 poked, the port's too) with screenshots as fast as
-they come until the battle waits again; they are judged in order against
-the port's frames (d_lib.burst_step), the panel's texts read, and the
-screen and memory at Look and at the end against the port's.
+at speed 4 (DS:4b38 poked, the port's too) with its screen read every 50 ms
+(d_lib.burst) until the battle waits again; the screens are judged in order
+against the port's frames (d_lib.burst_step), the panel's texts read, and
+the screen and memory at Look and at the end against the port's.
 """
 import argparse
 import sys
@@ -41,7 +41,7 @@ def main():
         d_lib.screen(v, "screen turn", shown, port, "turn", work)
         d_lib.compare_state(v, b, port, "turn")
         shots, _, _ = d_lib.burst_step(v, b, port, "turn", "end", 0x1000, work, "battle",
-                                       args.burst, speed=15)
+                                       args.burst, speed=4)
         d_lib.compare_state(v, b, port, "end")
     panel = []
     for s in shots:

@@ -353,6 +353,21 @@ class Screen:
         pathlib.Path(path).write_bytes(png)
 
 
+_HIGH = bytes(b >> 4 for b in range(256))
+_LOW = bytes(b & 15 for b in range(256))
+
+
+def tandy_screen(data):
+    """Box.vram's 32K as a Screen: four banks of 8K, row y in bank y % 4 at
+    160 bytes a row, two pixels a byte, the left one in the high nibble."""
+    out = bytearray(64000)
+    for y in range(200):
+        row = data[(y & 3) * 0x2000 + (y >> 2) * 160:][:160]
+        out[y * 320:(y + 1) * 320:2] = row.translate(_HIGH)
+        out[y * 320 + 1:(y + 1) * 320:2] = row.translate(_LOW)
+    return Screen(320, 200, out)
+
+
 def _looks_textual(rows):
     """True for a 640-wide screen drawn at 640 (no doubled pixels: text mode)."""
     width = len(rows[0])
@@ -842,6 +857,20 @@ class Box:
         return [(raw[r * 80 * k:(r + 1) * 80 * k:k].decode("cp437"),
                  raw[r * 80 * k + 1:(r + 1) * 80 * k:k]) for r in range(25)]
 
+    def vram(self):
+        """The Tandy's 320x200 16-colour screen (BIOS mode 9, 0040:0049) as
+        its 32K of video memory, read from the guest's RAM, where DOSBox-X
+        keeps a Tandy's: 0x80000 and 16K a page, the CRT's page in the BIOS's
+        copy of the page register (0040:008a, bits 0-2; a 32K mode's two from
+        the even one), 0x98000 for the game's. Microseconds, where a
+        screenshot takes 50 ms or more (much more on a loaded host); the same
+        pixels (tandy_screen) as long as the palette registers are as the
+        BIOS set them, as the game leaves them. None in another machine or
+        mode, whose video memory DOSBox-X keeps outside the guest's RAM."""
+        if self.machine != "tandy" or self.byte(0x449) != 9:
+            return None
+        return self.read(0x80000 + (self.byte(0x48A) & 6) * 0x4000, 0x8000)
+
     def set_seed(self, seed):
         """Set Turbo Pascal's RandSeed (DS:43ae)."""
         self.ds_write(RANDSEED, struct.pack("<I", seed & 0xFFFFFFFF))
@@ -1217,11 +1246,21 @@ def selftest(args):
              verbose=args.verbose, timeout=args.timeout) as box:
         box.wait_input(settle=0.5)
         shown["ssi"] = box.screenshot(work / "dosbox-ssi.png")
+        vram = {"ssi": box.vram()}
         box.key(" ")
         box.wait_input(settle=1.0)
         shown["menu"] = box.screenshot(work / "dosbox-menu.png")
+        vram["menu"] = box.vram()
         print(f"DS {box.ds:04x}, PSP {box.psp:04x}; the menu waits at {box.where()}")
     status = 0
+    # The Tandy's screens read from its video memory (Box.vram, for
+    # d_lib.burst) as the screenshots show them.
+    for name, data in vram.items() if args.machine == "tandy" else ():
+        count, area = tandy_screen(data).diff(shown[name]) if data else (None, None)
+        if count != 0:
+            status = 1
+        print(f"{name}: video memory, {count} pixels differ from the screenshot" +
+              (f" in {area}" if area else ""))
     for name, path in expected.items():
         want = Screen.load(path)
         count, area = shown[name].diff(want)

@@ -7717,8 +7717,14 @@ that many run at once, a range such as 110-189 kept for
   text mode at the adapter's own), read back as a `Screen` of colour
   indices at 320×200 (640 wide for text), the nearest of the 16 colours, as
   `eclplay --shots` BMPs load; `diff` counts the pixels that differ and
-  their box, `save_png` marks them. About three a second. Each PNG is
-  deleted once read (DOSBox-X numbers them up to 999 only).
+  their box, `save_png` marks them. About 20 a second on an idle host,
+  ten times fewer on a loaded one. Each PNG is deleted once read (DOSBox-X
+  numbers them up to 999 only). In the Tandy's 320×200 mode `vram()` reads
+  the screen from the guest's RAM instead, in microseconds whatever the
+  load (DOSBox-X keeps a Tandy's video memory there, the game's page at
+  `0x98000`; `tandy_screen` decodes it), the same pixels as the
+  screenshot's (`make dosbox-selftest` compares them); the other machines'
+  video memory lies outside the guest's RAM.
 - Sound: `wav=FILE` records from the start to the end (F12+W, 48 kHz
   stereo), with `KRYNN.CFG`'s second line `T` or `P`.
 - Randomness: `seed=N` sets `RandSeed` (`DS:43ae`) as the game first
@@ -7791,11 +7797,7 @@ Each runs alone (`python3 tools/dosbox/checks/NAME.py [--workdir DIR]`).
 runs them all side by side, as many at a time as `COKBOX_DISPLAYS` has
 displays less two, else five eighths of the cores (10 of 16: 12 and 14
 are no faster, as the part side by side then lasts about as long as
-`a_demo`, its longest), then those that catch a short text in a burst of
-screenshots (`d_arrows`, `d_aurak`, `d_bolt`, `d_bozak`, `d_cast`,
-`d_gate`, `d_hold`, `d_turning`) one at a time (beside the others on a
-loaded host DOSBox-X wrote ten times fewer screenshots and they missed
-the text), and prints one line per script: the checks it covers, its
+`a_demo`, its longest), and prints one line per script: the checks it covers, its
 verdict, and whether that is the verdict recorded (agrees, or new for a
 port difference found and not yet fixed, of which none is left), an ERROR
 for anything else. A script not as recorded runs once more at the end,
@@ -7811,18 +7813,24 @@ it kills the running scripts' process groups and the Xvfb and DOSBox-X
 they started (their pids recorded in `COKBOX_PIDFILE`). `run_all.py
 --self-test` (in `make dosbox-selftest`) checks its reading of verdicts
 and statuses, and the run again (with made-up scripts), without
-DOSBox-X. A full run of the 82 scripts takes about 31 minutes on a
-16-core host with little else running: about 8 for the rest side by side
-(10 at a time; 13 at 6), then 23 for the eight alone (`d_bozak.py` 12 of
-them). The checks need the host otherwise idle, its disk as well as its
-CPU: the burst checks write a screenshot a frame under `build/`, and
-heavy I/O on the same filesystem (seen: a large delete) made `d_turning`
-miss its text and `d_bolt` take eight times as long. With main's fixes
-(the continue prompt's full stop, two-set wall records, a resumed game's
-first block) the last full run gave every recorded verdict: 80 agree, and
-two showed a port difference since fixed (#70's Heal list,
-`c_outpost.py`; the party destroyed's text, `d_bozak.py`), which agree
-with the fix.
+DOSBox-X. A full run of the 82 scripts takes about 9 minutes on a
+16-core host with little else running, 10 at a time (as long as `a_demo`,
+which plays the demonstration in real time; `f_frames`,
+`f_display_modes`, `c_wander` and `f_sound` 4 each), plus the run again
+of any script not as recorded. It took 31 before the burst checks read
+the Tandy's screen from memory (`d_lib.burst`, `READ_SECONDS`) and so
+could run beside the rest (with screenshots, DOSBox-X wrote ten times
+fewer on a loaded host and they missed their text), `d_bozak` and
+`d_aurak` played their battles at the game's speed 4 instead of 15
+(`d_bozak` 12 minutes then, under 3 now), and judging a burst stopped
+taking minutes (`d_lib.candidates` compares every 61st pixel before the
+whole screen; `load_bmp` decodes a frame with `bytes.translate`). The
+checks need the host otherwise idle, its disk as well as its CPU: heavy
+I/O on the same filesystem (seen: a large delete) once made `d_turning`
+miss its text and `d_bolt` take eight times as long. The last full run
+(15 minutes, 6 of them `a_demo` run again) gave 81 recorded verdicts;
+`a_demo` differed, alone as well, each time at a screen caught while the
+game drew (screens 192, then 137 and 231), and needs a look.
 
 ## Checks against the original
 
