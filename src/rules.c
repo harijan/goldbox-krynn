@@ -1,6 +1,7 @@
 #include "rules.h"
 
 #include "data_champions.h"
+#include "ecl.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -227,6 +228,85 @@ static const cok_character_layout champions_character = {
         },
 };
 _Static_assert(COK_CHARACTER_SIZE <= COK_CHARACTER_MAX, "Champions' record fits the buffer");
+
+/* The ECL's opcodes (ecl.h): what each does, the operands its handler
+ * loads (2fd3:0050-36dc, 3f44's for the arithmetic; none unless given) and
+ * the operands a failed IF skips with it (3775:1e74). VERTICAL MENU loads a
+ * header of 3 (its prompt, its result's address, the count), ON GOTO, ON
+ * GOSUB and HORIZONTAL MENU of 2, then the list over it (2fd3:0f9d,
+ * 2fd3:1c69, 2fd3:116d); 0x1f and PROTECTION never advance. A failed IF
+ * skips none for the lists and opcodes without handlers, and one for ECL
+ * CLOCK, ADD NPC and PROTECTION, whatever their handlers load. */
+#define OP(m, n, k) [m] = {.meaning = m, .operands = n, .skip = k}
+#define LISTED(m, h) [m] = {.meaning = m, .operands = COK_ECL_LIST, .header = h}
+static const cok_rules_opcode champions_opcodes[COK_ECL_OPCODES] = {
+    OP(COK_ECL_EXIT, 0, 0),
+    OP(COK_ECL_GOTO, 1, 1),
+    OP(COK_ECL_GOSUB, 1, 1),
+    OP(COK_ECL_COMPARE, 2, 2),
+    OP(COK_ECL_ADD, 3, 3),
+    OP(COK_ECL_SUBTRACT, 3, 3),
+    OP(COK_ECL_DIVIDE, 3, 3),
+    OP(COK_ECL_MULTIPLY, 3, 3),
+    OP(COK_ECL_RANDOM, 2, 2),
+    OP(COK_ECL_SAVE, 2, 2),
+    OP(COK_ECL_LOAD_CHARACTER, 1, 1),
+    OP(COK_ECL_LOAD_MONSTER, 3, 3),
+    OP(COK_ECL_SETUP_MONSTER, 3, 3),
+    OP(COK_ECL_APPROACH, 0, 0),
+    OP(COK_ECL_PICTURE, 1, 1),
+    OP(COK_ECL_INPUT_NUMBER, 2, 2),
+    OP(COK_ECL_INPUT_STRING, 2, 2),
+    OP(COK_ECL_PRINT, 1, 1),
+    OP(COK_ECL_PRINTCLEAR, 1, 1),
+    OP(COK_ECL_RETURN, 0, 0),
+    OP(COK_ECL_COMPARE_AND, 4, 4),
+    LISTED(COK_ECL_VERTICAL_MENU, 3),
+    OP(COK_ECL_IF_EQUAL, 0, 0),
+    OP(COK_ECL_IF_NOT_EQUAL, 0, 0),
+    OP(COK_ECL_IF_LESS, 0, 0),
+    OP(COK_ECL_IF_GREATER, 0, 0),
+    OP(COK_ECL_IF_LESS_EQUAL, 0, 0),
+    OP(COK_ECL_IF_GREATER_EQUAL, 0, 0),
+    OP(COK_ECL_CLEARMONSTERS, 0, 0),
+    OP(COK_ECL_PARTYSTRENGTH, 1, 1),
+    OP(COK_ECL_CHECKPARTY, 6, 6),
+    OP(COK_ECL_UNUSED_1F, COK_ECL_HANG, 2),
+    OP(COK_ECL_NEWECL, 1, 1),
+    OP(COK_ECL_LOAD_FILES, 3, 3),
+    OP(COK_ECL_PARTY_SURPRISE, 2, 2),
+    OP(COK_ECL_SURPRISE, 4, 4),
+    OP(COK_ECL_COMBAT, 0, 0),
+    LISTED(COK_ECL_ON_GOTO, 2),
+    LISTED(COK_ECL_ON_GOSUB, 2),
+    OP(COK_ECL_TREASURE, 8, 8),
+    OP(COK_ECL_ROB, 3, 3),
+    OP(COK_ECL_ENCOUNTER_MENU, 14, 14),
+    OP(COK_ECL_GETTABLE, 3, 3),
+    LISTED(COK_ECL_HORIZONTAL_MENU, 2),
+    OP(COK_ECL_PARLAY, 6, 6),
+    OP(COK_ECL_CALL, 1, 1),
+    OP(COK_ECL_DAMAGE, 5, 5),
+    OP(COK_ECL_AND, 3, 3),
+    OP(COK_ECL_OR, 3, 3),
+    OP(COK_ECL_SPRITE_OFF, 0, 0),
+    OP(COK_ECL_FIND_ITEM, 1, 1),
+    OP(COK_ECL_PRINT_RETURN, 0, 0),
+    OP(COK_ECL_ECL_CLOCK, 2, 1),
+    OP(COK_ECL_SAVE_TABLE, 3, 3),
+    OP(COK_ECL_ADD_NPC, 2, 1),
+    OP(COK_ECL_LOAD_PIECES, 3, 3),
+    OP(COK_ECL_PROGRAM, 1, 1),
+    OP(COK_ECL_WHO, 1, 1),
+    OP(COK_ECL_DELAY, 0, 0),
+    OP(COK_ECL_SPELL, 3, 3),
+    OP(COK_ECL_PROTECTION, COK_ECL_HANG, 1),
+    OP(COK_ECL_CLEAR_BOX, 0, 0),
+    OP(COK_ECL_DUMP, 0, 0),
+    OP(COK_ECL_FIND_SPECIAL, 1, 1),
+    OP(COK_ECL_DESTROY_ITEMS, 1, 1),
+    OP(COK_ECL_ADD_EP, 2, 2),
+};
 
 /* The data segment's tables (data.h): the base the original's arithmetic
  * adds to, each element's width, and each index's first, count and stride
@@ -471,6 +551,8 @@ const cok_rules cok_rules_champions = {
             .icon_head = "CHEAD",
             .icon_body = "CBODY",
             .sky = "SKY",
+            .ground = NULL,
+            .backdrop = NULL,
             .cursor = {"CURSOR", 0, 1}, /* 3e99:01fd */
             .title = "TITLE",
             .treasure = "ITEM",
@@ -484,6 +566,9 @@ const cok_rules cok_rules_champions = {
             .music_drivers = "MIDI",
             .music_score = "SOUND",
             .file_digit = champions_file_digit,
+            .pic_files = NULL,
+            .sprite_files = NULL,
+            .wall_files = NULL,
         },
     .files =
         {
@@ -508,12 +593,47 @@ const cok_rules cok_rules_champions = {
             .delta = champions_deltas,
             .collection = champions_collections,
             .single = champions_singles,
+            .frames_ff = 255, /* 127f:1c2f */
         },
     .character = &champions_character,
     .data = &champions_data,
+    .ecl =
+        {
+            .opcodes = champions_opcodes,
+            .count = COK_ECL_OPCODES,
+            /* 2fd3:329b */
+            .calls = {{0x2e10, COK_ECL_CALL_REDRAW},
+                      {0xb203, COK_ECL_CALL_SOUND},
+                      {0xc01e, COK_ECL_CALL_STEP},
+                      {0xc018, COK_ECL_CALL_AHEAD},
+                      {0x6803, COK_ECL_CALL_ANIMATE}},
+            .variable_bytes = 2, /* 3775:0e06 */
+        },
+    .view =
+        {
+            /* DS:1ec2, and 6e22:01ab's bounds; a value past 0x127 halts. */
+            .tile_first = {0x01, 0x2e, 0x74, 0xba, 0x100},
+            .tile_last = {0x2d, 0x73, 0xb9, 0xff, 0x127},
+            .first_slot = 1,      /* 2fd3:0cf4 */
+            .shared_tiles = false, /* 69ea:1025 */
+            .move_tiles = true,    /* 69ea:1230 */
+            .overhead_square = 0x104, /* 69ea:06a2 */
+            .overhead_party = 0x100,  /* 69ea:000f */
+            .overland_picture = 0x79, /* 2fd3:0914, 4877:0005 */
+        },
+    .startup =
+        {
+            /* 3e99:005b: the frame's tile set and tile set 0. */
+            .tiles = {{4, 202}, {0, 203}},
+            .tile_count = 2,
+            /* 3e99:06e0, 072a: COMSPR 0-11 in slots 13-24, 25 in 25. */
+            .icons = {{0, 13, 12}, {25, 25, 1}},
+            .icon_ranges = 2,
+            .cursor_transparent = 13, /* 3e99:01fd */
+        },
 };
 
-static const cok_rules *const games[] = {&cok_rules_champions};
+static const cok_rules *const games[] = {&cok_rules_champions, &cok_rules_death_knights};
 
 const cok_rules *cok_rules_find(const char *id)
 {

@@ -24,6 +24,7 @@ static cok_adventure *game_with_tiles(void)
     static cok_adventure game;
     memset(&game, 0, sizeof game);
     game.rules = game.vm.rules = &cok_rules_champions;
+    game.view.shape = &cok_rules_champions.view;
     cok_effects_init(&game.effects, &cok_rules_champions, &game.vm, &game.party, &game.item_types);
     CHECK(cok_picture_create(&game.screen, 40, 200, 1, 0) == COK_PICTURE_OK);
     cok_picture *tiles = &game.view.tiles[4];

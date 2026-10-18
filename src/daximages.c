@@ -133,8 +133,8 @@ int main(int argc, char **argv)
         cok_image_status image_status = layout == COK_LAYOUT_DELTA ?
             cok_images_undelta(data, record.decoded_size) : COK_IMAGE_OK;
         if (image_status == COK_IMAGE_OK)
-            image_status = cok_images_parse(data, record.decoded_size,
-                                            layout != COK_LAYOUT_SINGLE, &images);
+            image_status = cok_images_parse_as(rules, data, record.decoded_size,
+                                               layout != COK_LAYOUT_SINGLE, &images);
         if (image_status != COK_IMAGE_OK || (selected_frame && frame_index >= images.count)) {
             fprintf(stderr, "entry %zu ID %u: %s\n", i, (unsigned)record.id,
                     image_status != COK_IMAGE_OK ? cok_image_status_string(image_status) : "frame out of range");

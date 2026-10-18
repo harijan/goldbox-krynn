@@ -238,7 +238,7 @@ static bool load_single(cok_adventure *game, const char *name, uint8_t id, int t
     uint8_t *data = read_record(game, name, id, &size);
     if (data == NULL) return false;
     cok_images images = {0};
-    cok_image_status status = cok_images_parse(data, size, 0, &images);
+    cok_image_status status = cok_images_parse_as(cok_game_rules(game), data, size, 0, &images);
     bool ok = status == COK_IMAGE_OK;
     if (!ok) {
         fail(game, "%s.DAX record %u: %s", name, id, cok_image_status_string(status));
@@ -298,6 +298,15 @@ void cok_adventure_loading(cok_adventure *game)
     cok_text_string(&game->screen, &game->font, "Loading...Please Wait", 0, 24, 10, 0);
 }
 
+/* The file a record is read from by its id, where the game chooses it so
+ * (files, by id: dkk 6ca1:00a4, 6d21:0ec5), or the ECL file. (For a wall
+ * set's id its table does not name, dkk 6d21:0ec5 builds the name from a
+ * string it never set; the port takes the ECL file's.) */
+static unsigned file_by_id(const cok_adventure *game, const uint8_t *files, uint8_t id)
+{
+    return files != NULL && files[id] != 0 ? files[id] : game->vm.file;
+}
+
 /* Load record id of <name><file> into the small picture's slot unless it
  * holds it (6961:00e4), which goes by the name and the record (DS:6dee,
  * 6e00), not the file, and keeps both before it reads: a record that is
@@ -315,8 +324,10 @@ static uint8_t *picture_record(cok_adventure *game, const char *name, uint8_t id
     game->picture_id = id;
     game->picture_sprite = sprite;
     game->error[0] = '\0';
+    const cok_rules_archives *a = &cok_game_rules(game)->archives;
+    unsigned file = file_by_id(game, sprite ? a->sprite_files : a->pic_files, id);
     char label[32];
-    snprintf(label, sizeof label, "%s%u", name, game->vm.file);
+    snprintf(label, sizeof label, "%s%u", name, file);
     bool no_file;
     uint8_t *data = find_record(game, label, id, size, &no_file);
     if (data != NULL) {
@@ -355,7 +366,8 @@ static void load_picture(cok_adventure *game, uint8_t id)
     if (data == NULL) return;
     cok_images images = {0};
     cok_image_status status = cok_images_undelta(data, size);
-    if (status == COK_IMAGE_OK) status = cok_images_parse(data, size, 1, &images);
+    if (status == COK_IMAGE_OK)
+        status = cok_images_parse_as(cok_game_rules(game), data, size, 1, &images);
     if (status != COK_IMAGE_OK) {
         fail(game, "%s%u.DAX record %u: %s", name, game->vm.file, id,
              cok_image_status_string(status));
@@ -384,7 +396,7 @@ void cok_adventure_load_sprite(cok_adventure *game, uint8_t id)
     uint8_t *data = picture_record(game, name, id, true, &size);
     if (data == NULL) return;
     cok_images images = {0};
-    cok_image_status status = cok_images_parse(data, size, 1, &images);
+    cok_image_status status = cok_images_parse_as(cok_game_rules(game), data, size, 1, &images);
     if (status != COK_IMAGE_OK) {
         fail(game, "%s%u.DAX record %u: %s", name, game->vm.file, id,
              cok_image_status_string(status));
@@ -641,8 +653,9 @@ static void picture(cok_adventure *game)
     }
     cok_adventure_load_big(game, id);
     draw_big(game);
-    /* The overland map, 0x79, marks the party on it instead (4877:0005). */
-    if (id == 0x79)
+    /* The overland map, 0x79 in Champions, marks the party on it instead
+     * (4877:0005). */
+    if (id == cok_game_rules(game)->view.overland_picture)
         cok_adventure_mark(game);
     else
         game->big_shown = true;
@@ -653,7 +666,9 @@ static void picture(cok_adventure *game)
 
 /* Load tile set set from 8X8D<file> record id, colour 13 transparent
  * (6e22:0050), first writing "slotnum = SET" to DEBUG.TXT while the debug
- * flag is set. */
+ * flag is set. Tile set 0's file is chosen by the record's id where the
+ * game chooses the wall sets' so (dkk 70eb:002f); the frame's is 4 and
+ * Champions' wall sets load sets 1-3. */
 static bool load_tiles(cok_adventure *game, unsigned set, uint8_t id)
 {
     if (game->debug) {
@@ -661,8 +676,10 @@ static bool load_tiles(cok_adventure *game, unsigned set, uint8_t id)
         snprintf(line, sizeof line, "slotnum = %u", set);
         cok_debug_write(game, line);
     }
+    const cok_rules_archives *a = &cok_game_rules(game)->archives;
+    unsigned file = set == 0 ? file_by_id(game, a->wall_files, id) : game->vm.file;
     char name[16];
-    snprintf(name, sizeof name, "%s%u", cok_game_rules(game)->archives.tiles, game->vm.file);
+    snprintf(name, sizeof name, "%s%u", a->tiles, file);
     return load_single(game, name, id, 13, &game->view.tiles[set]);
 }
 
@@ -686,36 +703,52 @@ static bool load_map(cok_adventure *game, uint8_t id)
 }
 
 /* Load WALLDEF<file> record id into the wall sets from slot on, then the
- * tile sets they use (69ea:1025). Slots other than 1-3 are ignored. */
+ * tile sets they use (69ea:1025): one each, or one for the record where
+ * the game's sets share one (dkk 6d21:0ec5, with the backdrop the record's
+ * id names). The file is the ECL file's, or the wall set's by its id (dkk
+ * 6d21:0ec5). Slots other than the game's (1-3 in Champions, 0-3) are
+ * ignored. */
 static bool load_walls(cok_adventure *game, unsigned slot, uint8_t id)
 {
-    if (slot < 1 || slot > 3) return true;
-    cok_ecl *vm = &game->vm;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_rules_view *shape = &rules->view;
+    if (slot < shape->first_slot || slot > 3) return true;
     game->error[0] = '\0';
     size_t size;
-    const char *name = cok_game_rules(game)->archives.walldef;
-    uint8_t *data = cok_adventure_record(game, name, vm->file, id, &size);
+    const char *name = rules->archives.walldef;
+    unsigned file = file_by_id(game, rules->archives.wall_files, id);
+    uint8_t *data = cok_adventure_record(game, name, file, id, &size);
     if (data == NULL) return false;
     size_t sets = cok_view_set_walls(&game->view, slot, data, size);
     free(data);
     if (sets == 0) {
-        fail(game, "%s%u.DAX record %u does not fit from wall set %u", name, vm->file, id, slot);
+        fail(game, "%s%u.DAX record %u does not fit from wall set %u", name, file, id, slot);
         return false;
     }
+    unsigned at = slot - shape->first_slot;
     for (size_t i = 0; i < sets; ++i) {
-        game->wall_ids[slot - 1 + i] = game->wall_slots[slot - 1 + i] = -1;
+        game->wall_ids[at + i] = game->wall_slots[at + i] = -1;
+        if (shape->shared_tiles) continue;
         uint8_t tiles = sets < 2 ? id : (uint8_t)(id * 10 + i + 1);
         if (!load_tiles(game, slot + (unsigned)i, tiles)) return false;
     }
-    game->wall_ids[slot - 1] = id;
-    game->wall_slots[slot - 1] = (int16_t)slot;
+    if (shape->shared_tiles && !load_tiles(game, slot, id)) return false;
+    if (rules->archives.backdrop != NULL) {
+        /* BACK<file> record id, without a mask (DS:42d0's 0). */
+        char back[16];
+        snprintf(back, sizeof back, "%s%u", rules->archives.backdrop, file);
+        if (!load_single(game, back, id, -1, &game->view.back)) return false;
+    }
+    game->wall_ids[at] = id;
+    game->wall_slots[at] = (int16_t)slot;
     return true;
 }
 
 /* Mark wall set slot empty in DS:6d8a. */
 static void no_walls(cok_adventure *game, unsigned slot)
 {
-    game->wall_ids[slot - 1] = game->wall_slots[slot - 1] = -1;
+    unsigned at = slot - cok_game_rules(game)->view.first_slot;
+    game->wall_ids[at] = game->wall_slots[at] = -1;
 }
 
 /* LOAD FILES and LOAD PIECES (2fd3:0cf4). The original halts when a file
@@ -727,7 +760,7 @@ static void load_files(cok_adventure *game)
     for (size_t i = 1; i <= 3; ++i) id[i] = (uint8_t)cok_ecl_value(vm, i - 1);
     game->files_loaded = true;
     bool ok = true;
-    if (vm->opcode == COK_ECL_LOAD_FILES) {
+    if (cok_ecl_meaning(vm) == COK_ECL_LOAD_FILES) {
         game->map_loaded = true;
         if (id[1] != 0xff && id[1] != 0x7f && vm->mem4b00[0xe6] != 0) {
             ok = load_map(game, id[1]);
@@ -745,10 +778,12 @@ static void load_files(cok_adventure *game)
                     ok = load_walls(game, slot, id[slot]);
             }
         } else {
+            /* Slot 1 in Champions, 0 in Death Knights (dkk 3632:0daa). */
+            unsigned first = cok_game_rules(game)->view.first_slot;
             if (id[1] == 0xff)
-                no_walls(game, 1);
+                no_walls(game, first);
             else
-                ok = load_walls(game, 1, id[1]);
+                ok = load_walls(game, first, id[1]);
             if (id[3] == 0xff || id[3] == 0x7f)
                 no_walls(game, 3);
             else if (ok)
@@ -800,7 +835,7 @@ static void print(cok_adventure *game)
     cok_ecl *vm = &game->vm;
     if (vm->operand[0].type < 0x80)
         snprintf(vm->string[0], sizeof vm->string[0], "%u", cok_ecl_value(vm, 0));
-    bool clear = vm->opcode == COK_ECL_PRINTCLEAR;
+    bool clear = cok_ecl_meaning(vm) == COK_ECL_PRINTCLEAR;
     if (clear) vm->cursor = (cok_text_cursor){1, 0x11};
     log_text(game, "print", vm->string[0]);
     game->text_shown = true;
@@ -822,7 +857,6 @@ static void append(char *dst, size_t size, const char *text)
 static void horizontal_menu(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
-    uint16_t address = (uint16_t)(vm->header[0].high << 8 | vm->header[0].low);
     size_t count = vm->operands;
     game->selected = 1;
     bool single = count == 1;
@@ -845,7 +879,7 @@ static void horizontal_menu(cok_adventure *game)
     char text[16];
     snprintf(text, sizeof text, "%d", choice);
     log_text(game, "choice", text);
-    cok_ecl_store(vm, address, (uint16_t)choice);
+    cok_ecl_store_as(vm, &vm->header[0], (uint16_t)choice);
     cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0);
 }
 
@@ -864,7 +898,6 @@ int cok_adventure_horizontal(cok_adventure *game, const char *prompt, const char
 static void vertical_menu(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
-    uint16_t address = (uint16_t)(vm->header[0].high << 8 | vm->header[0].low);
     char items[COK_ECL_MAX_STRINGS][41];
     const char *pointers[COK_ECL_MAX_STRINGS];
     size_t count = vm->operands < COK_ECL_MAX_STRINGS ? vm->operands : COK_ECL_MAX_STRINGS;
@@ -889,7 +922,7 @@ static void vertical_menu(cok_adventure *game)
     char text[16];
     snprintf(text, sizeof text, "%d", index);
     log_text(game, "choice", text);
-    cok_ecl_store(vm, address, (uint16_t)index);
+    cok_ecl_store_as(vm, &vm->header[0], (uint16_t)index);
     cok_picture_fill(&game->screen, 1, 0x11 * 8, 0x26, 6 * 8, 0);
 }
 
@@ -899,14 +932,14 @@ static void input(cok_adventure *game)
     cok_ecl *vm = &game->vm;
     uint16_t address = cok_ecl_address(vm, 1);
     cok_keyboard keys = keyboard_raw(game);
-    if (vm->opcode == COK_ECL_INPUT_NUMBER) {
+    if (cok_ecl_meaning(vm) == COK_ECL_INPUT_NUMBER) {
         uint16_t number;
         if (!cok_text_number(&game->screen, &game->font, "", 10, 0, &keys, &number))
             return;
         char text[8];
         snprintf(text, sizeof text, "%u", number);
         log_text(game, "input", text);
-        cok_ecl_store(vm, address, number);
+        cok_ecl_store_to(vm, 1, number);
         return;
     }
     char line[41];
@@ -1421,29 +1454,35 @@ static void step_forward(cok_adventure *game)
  *   waits speed * 100 ms (1521:0b4b); with the slot freed and nothing
  *   loaded since, the original draws from low memory, and the run stops;
  * - any other address does nothing. */
+/* Show the view again if a picture or sprite covers it or the scripts
+ * changed what it shows, and the status line (CALL [2e10]; dkk 3c1e:1dd9). */
+static void redraw_changed(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    vm->square = cok_view_square(&game->view, vm->map_x, vm->map_y);
+    if (!game->picture_shown && !game->sprite_shown && !vm->c059_changed &&
+        !vm->view_changed && !vm->area_changed)
+        return;
+    game->sprite_loaded = game->closeup_shown = false;
+    game->redraw = true;
+    cok_adventure_view(game);
+    cok_adventure_status(game);
+    vm->area_changed = vm->c059_changed = vm->view_changed = false;
+    game->picture_shown = game->sprite_shown = false;
+    vm->ahead = cok_view_wall(&game->view, vm->direction, vm->map_x, vm->map_y);
+}
+
 static void call(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
-    switch (cok_ecl_address(vm, 0)) {
-    case 0x2e10:
-        vm->square = cok_view_square(&game->view, vm->map_x, vm->map_y);
-        if (!game->picture_shown && !game->sprite_shown && !vm->c059_changed &&
-            !vm->view_changed && !vm->area_changed)
-            return;
-        game->sprite_loaded = game->closeup_shown = false;
-        game->redraw = true;
-        cok_adventure_view(game);
-        cok_adventure_status(game);
-        vm->area_changed = vm->c059_changed = vm->view_changed = false;
-        game->picture_shown = game->sprite_shown = false;
-        vm->ahead = cok_view_wall(&game->view, vm->direction, vm->map_x, vm->map_y);
-        break;
-    case 0xb203:
+    switch (cok_ecl_call_of(vm->rules, cok_ecl_address(vm, 0))) {
+    case COK_ECL_CALL_REDRAW: redraw_changed(game); break;
+    case COK_ECL_CALL_SOUND:
         log_text(game, "sound", vm->value_3de == 10 ? "11" : "10"); /* 17e8:0020 */
         cok_adventure_sound(game, COK_SOUND_COMMAND, vm->value_3de == 10 ? 11 : 10);
         break;
-    case 0xc01e: step_forward(game); break;
-    case 0xc018:
+    case COK_ECL_CALL_STEP: step_forward(game); break;
+    case COK_ECL_CALL_AHEAD:
         if (vm->mem4b00[0xe6] != 0) break;
         if (!no_square(game) && !facing_known(vm->direction)) {
             cok_adventure_fail(game, COK_ECL_UNDEFINED,
@@ -1453,7 +1492,7 @@ static void call(cok_adventure *game)
         }
         vm->ahead = cok_view_wall(&game->view, vm->direction, vm->map_x, vm->map_y);
         break;
-    case 0x6803:
+    case COK_ECL_CALL_ANIMATE:
         /* With the slot freed (6961:0537) and no picture loaded since,
          * DS:6da3 is 0, and entry 0 is the far pointer DS:6da2:6da0: a
          * segment of 0 (the count and frame) and as offset the segment of
@@ -1744,10 +1783,90 @@ static void program(cok_adventure *game)
     game->moving = moving;
 }
 
+/* A later game's opcodes (ecl.h's meanings past Champions'), as Death
+ * Knights' handlers do them. */
+
+/* PRESS KEY (dkk 3632:1b5f): a menu of one item, which Enter takes. */
+static void press_key(cok_adventure *game)
+{
+    int choice = cok_adventure_horizontal(game, "", "~Press button or enter to continue", 10,
+                                          true);
+    if (choice >= 0) cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 6a69:145d */
+}
+
+/* JOURNAL n (dkk 3632:279f): the text window cleared for "This is recorded
+ * as journal entry n." (DS:2a79), then PRESS KEY. */
+static void journal(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    char text[64];
+    snprintf(text, sizeof text, "This is recorded as journal entry %u.",
+             (unsigned)(uint8_t)cok_ecl_value(vm, 0));
+    vm->cursor = (cok_text_cursor){1, 0x11};
+    log_text(game, "print", text);
+    game->text_shown = true;
+    cok_adventure_wrap(game, &vm->cursor, text, cok_adventure_text_window, 10, true, page);
+    if (!game->input_ended) press_key(game);
+}
+
+/* YES NO (dkk 3632:1b9e): a menu of Yes and No (6a69:2048, the items at
+ * DS:31cb, no prompt); = if Yes (DS:57c0's 0), else <>. */
+static void yes_no(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    memset(vm->flags, 0, sizeof vm->flags);
+    game->selected = 1;
+    int choice = cok_adventure_horizontal(game, "", "~Yes ~No", 10, false);
+    if (choice < 0) return;
+    char text[16];
+    snprintf(text, sizeof text, "%d", choice);
+    log_text(game, "choice", text);
+    vm->flags[choice == 0 ? 0 : 1] = true;
+    cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0);
+}
+
+/* CLEAR EXIT (dkk 3632:2859): the text window cleared (14e4:0b6b), what
+ * changed shown again (3c1e:1dd9), and EXIT. */
+static void clear_exit(cok_adventure *game)
+{
+    cok_picture_fill(&game->screen, 1, 0x11 * 8, 0x26, 6 * 8, 0);
+    redraw_changed(game);
+    cok_ecl_exit(&game->vm);
+    exited(game);
+}
+
+/* ASK MENU (dkk 3632:11fd with 1): "what do you do" (DS:2bed) in the text
+ * window where the text stands, then HORIZONTAL MENU. */
+static void ask_menu(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    static const char question[] = "what do you do";
+    log_text(game, "print", question);
+    game->text_shown = true;
+    cok_adventure_wrap(game, &vm->cursor, question, cok_adventure_text_window, 10, false, page);
+    if (!game->input_ended) horizontal_menu(game);
+}
+
+/* MUSIC n (dkk 3632:2878): a song, which the port does not play yet. */
+static void music(cok_adventure *game)
+{
+    char text[16];
+    snprintf(text, sizeof text, "%u", (unsigned)(uint8_t)cok_ecl_value(&game->vm, 0));
+    log_text(game, "music", text);
+}
+
+/* An opcode the port does not carry out yet: the run stops. */
+static void not_yet(cok_adventure *game, const char *routine)
+{
+    cok_adventure_fail(game, COK_ECL_UNPORTED, "not yet ported: %s's opcode 0x%02x, %s (%s)",
+                       cok_game_rules(game)->text.name, game->vm.opcode,
+                       cok_ecl_opcode_name(game->vm.rules, game->vm.opcode), routine);
+}
+
 static void opcode(cok_ecl *vm, void *context)
 {
     cok_adventure *game = context;
-    switch (vm->opcode) {
+    switch (cok_ecl_meaning(vm)) {
     case COK_ECL_EXIT: case COK_ECL_RETURN: exited(game); break;
     case COK_ECL_NEWECL: reset_pictures(game); break;
     case COK_ECL_PRINT: case COK_ECL_PRINTCLEAR: print(game); break;
@@ -1772,6 +1891,16 @@ static void opcode(cok_ecl *vm, void *context)
     case COK_ECL_ECL_CLOCK: ecl_clock(game); break;
     case COK_ECL_ADD_NPC: add_npc(game); break;
     case COK_ECL_DUMP: dump(game); break;
+    case COK_ECL_PRESS_KEY: press_key(game); break;
+    case COK_ECL_JOURNAL: journal(game); break;
+    case COK_ECL_YES_NO: yes_no(game); break;
+    case COK_ECL_CLEAR_EXIT: clear_exit(game); break;
+    case COK_ECL_ASK_MENU: ask_menu(game); break;
+    case COK_ECL_MUSIC: music(game); break;
+    case COK_ECL_NOTHING: break;
+    case COK_ECL_SETUP_MONSTERS: not_yet(game, "dkk 3632:038f"); break;
+    case COK_ECL_TREASURE_ITEMS: not_yet(game, "dkk 3632:1933"); break;
+    case COK_ECL_STOCK: not_yet(game, "dkk 3632:28d2"); break;
     default:
         if (cok_monster_opcode(game) || cok_treasure_opcode(game)) break;
         if (game->hooks.unported != NULL) game->hooks.unported(game, game->hooks.context);
@@ -1819,7 +1948,7 @@ static void executed(cok_ecl *vm, void *context)
     cok_adventure *game = context;
     if (!game->debug) return;
     char name[16];
-    cok_debug_opcode_name(vm->opcode, name);
+    cok_debug_opcode_name(vm->rules, vm->opcode, name);
     cok_debug_trace(game, name, 0, 0, 0);
 }
 
@@ -2171,9 +2300,10 @@ bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, con
     game->frame_unset = true;             /* DS:6da3 0 */
     game->speed = 4;
     game->text_delay = true; /* 3e99:0560 */
-    for (size_t i = 0; i < 3; ++i) game->wall_ids[i] = game->wall_slots[i] = -1;
+    for (size_t i = 0; i < COK_VIEW_WALL_SLOTS; ++i) game->wall_ids[i] = game->wall_slots[i] = -1;
     game->wall_ids[0] = 0; /* 3e99:005b */
     game->wall_slots[0] = 1;
+    game->view.shape = &rules->view;
     game->animate = true;
     game->pictures = 1;
     game->selected = 1;
@@ -2205,19 +2335,31 @@ bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, con
         return false;
     }
     /* The game loads these once at startup, while the ECL file is still 1
-     * (3e99:005b): the frame's tile set, tile set 0, and outside CGA mode
-     * the sky pictures. */
-    if (!load_tiles(game, 4, 202) || !load_tiles(game, 0, 203)) return false;
-    /* Then the icons of missiles, flashes and the cursor: COMSPR ids 0-11
-     * in slots 13-24, and 25 in 25 (3e99:06e0, 072a). */
-    for (uint8_t i = 0; i <= 11; ++i)
-        if (!cok_arena_load_icon(game, a->missiles, i, (uint8_t)(13 + i))) return false;
-    if (!cok_arena_load_icon(game, a->missiles, 25, 25)) return false;
-    for (uint8_t i = 0; i < COK_VIEW_SKY_PICTURES && display != COK_DISPLAY_CGA; ++i)
+     * (3e99:005b): the frame's tile set and tile set 0 (Champions'; the
+     * descriptor's startup), and outside CGA mode the sky pictures. */
+    const cok_rules_startup *at_start = &rules->startup;
+    for (size_t i = 0; i < at_start->tile_count; ++i)
+        if (!load_tiles(game, at_start->tiles[i].set, at_start->tiles[i].record)) return false;
+    /* Then the icons of missiles, flashes and the cursor: in Champions
+     * COMSPR ids 0-11 in slots 13-24, and 25 in 25 (3e99:06e0, 072a). */
+    for (size_t r = 0; r < at_start->icon_ranges; ++r)
+        for (uint8_t i = 0; i < at_start->icons[r].count; ++i)
+            if (!cok_arena_load_icon(game, a->missiles, (uint8_t)(at_start->icons[r].first + i),
+                                     (uint8_t)(at_start->icons[r].slot + i)))
+                return false;
+    for (uint8_t i = 0; a->sky != NULL && i < COK_VIEW_SKY_PICTURES && display != COK_DISPLAY_CGA;
+         ++i)
         if (!load_single(game, a->sky, (uint8_t)(250 + i), 13, &game->view.sky[i])) return false;
+    /* A game with no sky has the night sky, SKYGRND 1, and the ground by
+     * day, 2, loaded without a mask (dkk 4f9a:00e1, DS:42d0's 0). */
+    if (a->ground != NULL &&
+        (!load_single(game, a->ground, 1, -1, &game->view.ground[1]) ||
+         !load_single(game, a->ground, 2, -1, &game->view.ground[0])))
+        return false;
     /* The overland map's cursor and the cell it covers (3e99:01fd, 07b8). */
     record_file(&a->cursor, name, sizeof name);
-    if (!load_single(game, name, a->cursor.record, 13, &game->cursor)) return false;
+    if (!load_single(game, name, a->cursor.record, at_start->cursor_transparent, &game->cursor))
+        return false;
     if (cok_adventure_create_picture(game, &game->under, 1, 8, 1, 0) != COK_PICTURE_OK) {
         fail(game, "out of memory");
         return false;
@@ -2357,8 +2499,8 @@ bool cok_adventure_restore(cok_adventure *game, const char *path)
     /* The save holds the ECL file twice; the loader takes it from 0x7f12. */
     vm->file = (uint8_t)vm->mem7c00[0x312];
     /* The loader reads DS:6d8a as saved, then reloads what it names. */
-    memcpy(game->wall_ids, saved.wall_ids, sizeof game->wall_ids);
-    memcpy(game->wall_slots, saved.wall_slots, sizeof game->wall_slots);
+    memcpy(game->wall_ids, saved.wall_ids, sizeof saved.wall_ids);
+    memcpy(game->wall_slots, saved.wall_slots, sizeof saved.wall_slots);
     if (vm->mem4b00[0xe6] != 0) {
         /* The map reloads only if wall set 1's record is above 0. */
         if (saved.wall_ids[0] > 0 && !load_map(game, (uint8_t)vm->mem4b00[0xc5])) return false;
@@ -2369,7 +2511,7 @@ bool cok_adventure_restore(cok_adventure *game, const char *path)
         }
     } else {
         /* Outside 3D areas the overland map is loaded, not drawn. */
-        cok_adventure_load_big(game, 0x79);
+        cok_adventure_load_big(game, cok_game_rules(game)->view.overland_picture);
     }
     vm->last_mode = saved.mode;
     vm->mode = 0; /* the party menu */

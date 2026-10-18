@@ -16,9 +16,10 @@ names: EGA, the Tandy's or CGA's four colours (see Display modes), after
 the original's text-mode setup when there is no `KRYNN.CFG` (see Startup
 and the setup). The original DOS executable, decompiler output, and game
 data are reference inputs, kept in `COKAssets/`; saved games from the
-original, if any, go in `SAVE/`. The sequels' files, for disassembly only
-(see Disassembly image), go in `DKKAssets/` (Death Knights of Krynn) and
-`DQKAssets/` (The Dark Queen of Krynn); like `COKAssets/`, they are not in git.
+original, if any, go in `SAVE/`. The sequels' files go in `DKKAssets/`
+(Death Knights of Krynn, which the tools and `eclplay` read headless: see
+Games) and `DQKAssets/` (The Dark Queen of Krynn, for disassembly only: see
+Disassembly image); like `COKAssets/`, they are not in git.
 The plan for playing Death Knights of Krynn too, and what it shares with
 this game, is in [DEATH-KNIGHTS.md](DEATH-KNIGHTS.md).
 
@@ -52,6 +53,8 @@ mkdir -p build/roster
 rm -f build/krynn.cfg
 ./build/eclplay --start-menu --config build/krynn.cfg --keys '243d:\\krynn\r\t' COKAssets
 ./build/eclplay --start-menu --mouse --shots build/mouse --keys '\kx\m190,195,1.' COKAssets
+./build/ecldump --game death-knights --block 48 DKKAssets/ECL2.DAX
+./build/eclplay --game death-knights --set 4be6=1 --screen build/dkk48.bmp --keys '\r' DKKAssets 48
 make test
 make sanitize
 make cok
@@ -113,7 +116,11 @@ tests of the picture, text, menu, 3D view, overhead map, party and spell
 effect routines, the sound (`tests/test_sound.c`: the drivers' port writes
 against the original's, recorded in an emulator, and the synthesis),
 `KRYNN.CFG` (`tests/test_config.c`), the games' descriptors and `--game`
-(`tests/test_rules.c`, see Games), the character record's layout
+(`tests/test_rules.c`, see Games), Death Knights of Krynn's descriptor,
+tools and scripts where `DKKAssets/` holds its files
+(`tests/test_death_knights.c` against `build/death-START_FULL.EXE`, which
+`make test` then builds, and `tests/test_death_knights.py`; each says so
+in a line and skips without them), the character record's layout
 (`tests/test_layout.c`), startup's setup and text screen
 (`tests/test_setup.c`: against the original's, run in an emulator), the
 mouse's clicks and the joystick (`tests/test_input.c`: against the
@@ -152,10 +159,12 @@ runtime libraries, which were unavailable on the initial development system.
 The port is to play *Death Knights of Krynn* as well (see
 [DEATH-KNIGHTS.md](DEATH-KNIGHTS.md)). Everything that differs between the
 games goes in a descriptor, one a game: `cok_rules` in `src/rules.h`, with
-Champions' in `src/rules.c` (`cok_rules_champions`). A front end picks it
-once, before any file is read, from `--game` (`champions`, the only one so
-far and the default; `cok_rules_find`, an unknown name an error listing
-`cok_rules_names`), and hands it to `cok_adventure_open`, which keeps it in
+Champions' in `src/rules.c` (`cok_rules_champions`) and Death Knights' in
+`src/rules_death_knights.c` (`cok_rules_death_knights`, read headless so
+far: see Death Knights below). A front end picks it once, before any file
+is read, from `--game` (`champions`, the default, or `death-knights`;
+`cok_rules_find`, an unknown name an error listing `cok_rules_names`), and
+hands it to `cok_adventure_open`, which keeps it in
 `game->rules`, read through `cok_game_rules(game)`; the code that has no game (`cok_character_read` and
 `write`, `cok_sound_load`, `cok_config_find`, the setup, `daximages` and
 `daxcompose`'s `cok_archive_layout`) takes it as an argument. Shared code
@@ -176,17 +185,26 @@ segment's tables, a section to a concern:
 | `archives` | each DAX archive the game reads, by stem: with the ECL file's number (`GEO` makes `GEO1.DAX`), with `file_digit`'s digit (`MON`, with the kinds `CHA`, `SPC`, `ITM`; `ITEM`, `HEAD`, `BODY`, `CPIC`) or alone (`SKY`); the names `6d21:01d0` loads icons by as they are; records read from a file of their own, as a `cok_rules_record` (stem, file, 0 for none, record): the font and the overland map's cursor; and `file_digit`, the digit a file's number gives the names that hold one (Str into a string[1], `4b6d:161b`, `2fd3:1d21`, `6961:05b9`, `6d21:01d0`) | `ECL`, `GEO`, `WALLDEF`, `8X8D`, `PIC`, `SPRIT`, `BIGPIC`, `HEAD`, `BODY`, `CPIC`, `COMSPR`, `CHEAD`, `CBODY`, `SKY`, `TITLE`, `ITEM`, `MON`, `DUNGCOM`, `WILDCOM`, `RANDCOM`, `MIDI`, `SOUND`; font `8X8D1` record 201, cursor `CURSOR` record 1; the first decimal digit |
 | `files` | the devices' file (looked for in upper case, then lower); the item types; the directory the setup takes the game to run in and the save path's default under it | `KRYNN.CFG`, `ITEMS`, `C:\COK\`, `SAVE` |
 | `saves` | saved games (`SAVGAM` letter `.DAT`) and their characters' names (`CHRDAT` letter number); a character's extensions: in a saved game, in the roster, its items, its effects; the debug mode's trace | `SAVGAM`, `DAT`, `CHRDAT`, `SAV`, `WHO`, `STF`, `SFX`, `DEBUG.TXT` |
-| `images` | the archives `daximages` and `daxcompose` read, by layout: XOR deltas, collections, single images; stems, `NULL`-ended | `PIC1-3`; `SPRIT1-3`; the 20 others |
+| `images` | the archives `daximages` and `daxcompose` read, by layout: XOR deltas, collections, single images; stems, `NULL`-ended; and the frames a header's count byte 0xff gives (`frames_ff`: 255 where the loader takes the byte, `127f:1c2f`; Death Knights' 256, its 256-tile sets) | `PIC1-3`; `SPRIT1-3`; the 20 others; 255 |
 | `character` | the character record's layout (`src/field.h`): its size, its file's size, and where each field lies | 409 bytes, the fields below |
 | `data` | the original's data segment (`src/data.h`): the tables the port copied from it, by DS offset, and where each table the code reads lies and its shape | 45 tables (`src/data_champions.c`), 57 named; see below |
+| `ecl` | the ECL's opcodes, by opcode byte (`cok_rules_opcode`): what each does (`meaning`, a `cok_ecl_opcode`), the operands its handler loads (or a list over a header of `header` operands, or none ever), the operands a failed `IF` skips with it; the routines `CALL` runs by address (`calls`); the bytes a variable address holds (`variable_bytes`) | its 66 opcodes, each its own meaning (`2fd3:0050-36dc`, `3775:1e74`); `2e10` redraw, `b203` sound, `c01e` step, `c018` wall ahead, `6803` animate (`2fd3:329b`); 2 |
+| `view` | the 3D view's tile sets (each one's first and last value, `6e22:01ab`), the wall slot that holds wall types 1-5 and that `LOAD PIECES`' two-set path loads first, whether a record's wall sets share one tile set and whether tile values are moved by the slot's set; the overhead map's tiles; `PICTURE`'s overland map | 1-0x2d, ..., 0x100-0x127 (`DS:1ec2`); slot 1; a tile set each, moved (`69ea:1025`, `1230`); 0x104 and 0x100; 0x79 |
+| `startup` | what startup loads past the font (`3e99:005b`): tile sets from `<tiles>1` and the missiles' icons from `COMSPR`, as (first id, first slot, count) | sets 4 and 0, records 202 and 203; 0-11 into 13-24, 25 into 25 |
+| `unplayable` | why `cok` cannot play the game yet, or `NULL`: `cok`, and `eclplay`'s title and saved games, refuse it with that message | `NULL` |
 
 A `NULL` stem says the game has no such archive (Death Knights has no
 `SKY`, `CURSOR`, `RANDCOM`, `HEAD` or `BODY`): code that reads it must not
-be reached for that game. Most record ids are still in the code that
-reads them (the tile sets 202 and 203 and `SKY`'s 250-252 at startup,
-`COMSPR`'s, `RANDCOM`'s 1, the music drivers' 4 and 5); one that a game
-reads from another file goes in a `cok_rules_record` (Death Knights' cursor
-is `8X8D1` record 204).
+be reached for that game. `archives` also holds `ground` and `backdrop`
+(Death Knights' `SKYGRND` and `BACK`, `NULL` in Champions; the view draws
+what was loaded, see 3D view) and, for a game that picks a record's file by
+the record's id rather than by the ECL file, `pic_files`, `sprite_files`
+and `wall_files` (256 file numbers each, 0 for the ECL file's; `NULL` in
+Champions). Most record ids are still in the code that reads them (`SKY`'s
+250-252 and `SKYGRND`'s 1 and 2 at startup, `RANDCOM`'s 1, the music
+drivers' 4 and 5); the startup's tile sets and icons are the `startup`
+section's; one that a game reads from another file goes in a
+`cok_rules_record` (Death Knights' cursor is `8X8D1` record 204).
 
 To add to it: put the field in the section of its concern (a new
 section, a struct of its own, for a new concern: the character record's
@@ -204,7 +222,64 @@ without a saves directory), but for a few checked by review only:
 `RANDCOM`'s "record 1 is too short" (unreachable with a record that loads
 as its six tiles, which are longer than the map it would hold), and the
 font's, `PIC`'s and `ECL`'s load errors. To add a game: a descriptor of its own
-in `src/rules.c`, listed in `games`, which `--game` then finds.
+in a file of its own (`src/rules_death_knights.c`; every program that links
+`src/rules.c` links it, as `src/data_champions.c`), listed in `games`
+(`src/rules.c`), which `--game` then finds.
+
+### Death Knights
+
+`cok_rules_death_knights` (`src/rules_death_knights.c`, its addresses
+`dkk SEG:OFF` in `build/death-START_FULL.EXE`, `make death-merged`, its data
+segment at `DS` 0x1bce) is DEATH-KNIGHTS.md's step 1: the tools and
+`eclplay --game death-knights` read every one of its archives and run its
+scripts, their text, menus and choices, its 3D view and its overland map.
+It holds:
+
+- its files: Champions' stems but `SKY`, `CURSOR`, `RANDCOM`, `HEAD`,
+  `BODY` and the music's (`NULL`: MUSIC.DAX's songs are step 4), and
+  `SKYGRND` and `BACK`; the digit of `MON`'s and `CPIC`'s files always 1
+  (`46b2:198c`, `7090:016d`); `PIC4-7` and `SPRIT4` by picture id
+  (`6ca1:00a4`), `WALLDEF`, `8X8D` and `BACK` by wall set id (1 in file 1,
+  2 in 4, 3-4 in 2, 5-6 in 3, 7 in 5: `6d21:0ec5`); `DKK.CFG`, `C:\DKK\`;
+  the saved games' names (`SAVGAM?.PTY`, `CHRDAT`, `.GAM`, `.JNK`, `.EFF`,
+  for step 2); the image lists (`PIC1-7`, `SPRIT1-4`, `BACK1-5`,
+  `SKYGRND`, `8X8D1-5`, ...: 30 archives) and 0xff frames meaning 256
+  (`123c:1c58`);
+- its ECL table (`3632`'s handlers, the dispatch `3632:2a54`, the skips
+  `3c1e:1b48`): Champions' but for ten opcodes, which ecl.h names past
+  Champions' meanings (`COK_ECL_SETUP_MONSTERS` and on); `CALL`'s redraw at
+  `2dcb`; byte variables (see ECL scripts);
+- its view: tile values 1-0xff all from tile set 0 and 0x100-0x12c from
+  the frame's (`DS:43fa`, `4404`, `70eb:01f5`), wall slot 0 first, one tile
+  set of 256 tiles for a record's three wall sets, no tile moved
+  (`6d21:0ec5`), the overhead map's 0x119 and 0x129 (`6d21:0000`), the
+  overland map's `PICTURE 0x70`;
+- its startup: the frame's tile set alone, `COMSPR` 0-12 into 13-25
+  (`4f9a:00e1` loads 0-21 into 13-34, past the port's 26 icon slots until
+  combat is read);
+- two tables of its data segment, an icon's recolouring (`DS:42de`,
+  `42ee`);
+- `unplayable`: `cok --game death-knights`, `eclplay`'s `--start-menu`,
+  `--load` and `--party` refuse it, saying it is not playable yet.
+
+What step 1 does not reach is left out: the character record's layout is
+empty (every field width 0) and every other table of the data segment
+width 0, so that a read of either stops at its accessor's assertion ("the
+game's records have no such field", "the game's data segment has no such
+table"); a monster or NPC read (`cok_monster_read`, whose layout's size
+is 0) stops the run instead with `COK_ECL_UNPORTED` and "not yet ported:
+Death Knights of Krynn's monsters and NPCs (...) need its character
+record", as do the three opcodes not ported yet (see ECL scripts). The
+screens' frames are still Champions' (`screen.c`): Death Knights' are
+other tiles of its frame's set (`110f:0000`, `0162`), not read yet.
+`tests/test_death_knights.c` checks the descriptor against
+`build/death-START_FULL.EXE` (the two tables, the tile sets' bounds, the
+wall sets' and `SPRIT4`'s files, startup's names, the version) and
+`DKKAssets/` (each file and record it names, each picture and wall set in
+the file its id names and no other), and its view's wall sets and tiles;
+`tests/test_death_knights.py` the tools over `DKKAssets/` and `eclplay`'s
+runs of its blocks; `tools/dosbox/checks/dkk_views.py` the original (see
+Checks against the original).
 
 ### The character record's layout
 
@@ -489,7 +564,7 @@ timed menu runs out or the small picture's next frame is due.
 
 | Option | |
 | --- | --- |
-| `--game NAME` | the game to play (see Games): `champions`, the default and so far the only one; any other name is an error that lists the games (status 2) |
+| `--game NAME` | the game to play (see Games): `champions`, the default and so far the only one it plays; `death-knights` is refused (not playable yet, status 1); any other name is an error that lists the games (status 2) |
 | `--assets DIR` | the game's DAX files (default `COKAssets`, the game's: see Games) |
 | `--saves DIR` | the roster and saved games (default `saves`, created if missing; ignored by git); never `SAVE/` itself: to play the original's games, copy them into it (`mkdir -p saves && cp SAVE/* saves/`) and pick Load Saved Game; and the port's `KRYNN.CFG`, read before the assets' and written by the setup (see Startup and the setup) |
 | `--config FILE` | the `KRYNN.CFG` to read, or, if it is missing, for the setup to write |
@@ -1405,7 +1480,10 @@ directories for different archives or selections.
 Supported archive names (case-insensitive) are `TITLE`, `BIGPIC1–3`, `PIC1–3`,
 `SPRIT1–3`, `CPIC1–3`, `CBODY`, `CHEAD`, `BODY2–3`, `HEAD2–3`, `COMSPR`,
 `CURSOR`, `SKY`, `TILES`, and `8X8D1–3`, with the `.DAX` extension: the
-game's `images` lists (see Games). `--game NAME` (for `daxcompose`, before
+game's `images` lists (see Games); with `--game death-knights` Death
+Knights', `PIC1-7`, `SPRIT1-4`, `BACK1-5`, `SKYGRND` and `8X8D1-5` among
+them (2,374 images; its 8X8D sets of 256 tiles count 0xff in their
+headers). `--game NAME` (for `daxcompose`, before
 the output) names the game, `champions` by default. The
 `8X8D1.DAX` entry with ID 201 is the 8×8 font, not an image: it is reported
 as unsupported while the other entries continue exporting. Draw it with
@@ -1702,8 +1780,9 @@ codes below `0x20` meaning `@`-`_`. Strings fill numbered slots from
 `DS:7430`. The operand arrays persist between instructions, so a value can
 read a stale high byte, as the original's can.
 
-Variables are words: `0x4b00`-`0x4eff`, `0x7a00`-`0x7bff` and `0x7c00`-`0x7fff`
-live in three game data blocks, `0x8000`-`0x9dff` are bytes of the script
+Variables are words (in Champions; Death Knights' are bytes, below):
+`0x4b00`-`0x4eff`, `0x7a00`-`0x7bff` and `0x7c00`-`0x7fff` live in three
+game data blocks, `0x8000`-`0x9dff` are bytes of the script
 itself, and other addresses are special game state such as the map position
 (`0xc04b`, `0xc04c`) and facing (`0xc04d`). Many `0x7c00`-range addresses read
 and write fields of the selected character's 409-byte record (`3775:07d9`,
@@ -1757,6 +1836,49 @@ jumps, calls, `ON GOTO` tables and both arms of each `IF`. All 22 blocks
 decode, 13,547 instructions. The opcode names come from the game's own trace
 table (`6d7e:0055`), including its spelling `SUBTRAT`.
 
+What each opcode does, the operands it loads and those a failed `IF` skips
+with it are the game's (the descriptor's `ecl`, see Games): the VM and the
+hooks dispatch on an opcode's meaning (`cok_ecl_meaning`), a
+`cok_ecl_opcode`, not on its byte, which stays `vm->opcode` (the traces
+print it); Champions' every opcode means itself, so its table is the one
+the VM held before (`tests/test_ecl.c` checks it opcode by opcode against
+the old arrays). A list opcode loads a header of `header` operands whose
+last counts the list (up to 4: Death Knights' `0x27`). `CALL`'s addresses
+are the descriptor's too (`cok_ecl_call_of`).
+
+Death Knights of Krynn (`--game death-knights`; its handlers `dkk
+3632:0000`-`28d2`, dispatch `3632:2a54`, skips `3c1e:1b48`) keeps every
+opcode's meaning but ten:
+
+| Opcode | Champions' | Death Knights' (the port's name) | In D1 |
+| --- | --- | --- | --- |
+| `0x0c` | SETUP MONSTER, 3 operands | SETUP MONSTERS, 4 (`3632:038f`; a failed `IF` still skips 3) | stops: not yet ported |
+| `0x1d` | PARTYSTRENGTH | PRESS KEY: a menu of "Press button or enter to continue" (`DS:088a`, `3632:1b5f`) | ported |
+| `0x1f` | none (hangs) | JOURNAL N: "This is recorded as journal entry N." (`DS:2a79`), then PRESS KEY (`3632:279f`) | ported |
+| `0x22` | PARTY SURPRISE | YES NO: a menu of Yes and No (`DS:31cb`), `=` for Yes (`3632:1b9e`) | ported |
+| `0x23` | SURPRISE | CLEAR EXIT: the text window cleared, what changed shown again (`3c1e:1dd9`), `EXIT` (`3632:2859`) | ported |
+| `0x27` | TREASURE, 8 | TREASURE ITEMS: coins, then a list (a header of 4) of `ITEM0`'s items (`3632:1933`) | stops |
+| `0x29` | ENCOUNTER MENU, 14 | NOTHING (`3632:28c9`) | ported |
+| `0x2c` | PARLAY, 6 | MUSIC N (`3632:2878`) | logged (`music:`), not played |
+| `0x31` | SPRITE OFF | ASK MENU: "what do you do" (`DS:2bed`) where the text stands, then HORIZONTAL MENU (`3632:11fd` with 1) | ported |
+| `0x3c` | PROTECTION (hangs) | STOCK: a shop's items from `ITEM0`'s lists (`3632:28d2`) | stops |
+
+An opcode that stops ends the run with `COK_ECL_UNPORTED` and "not yet
+ported: Death Knights of Krynn's opcode 0xNN, NAME (dkk SEG:OFF)".
+`CALL`'s redraw is at `2dcb` (`3632:2294`), Champions' `2e10`. Its
+variables are bytes (`3c1e:0d85`, `3c1e:0bc1`; the descriptor's
+`variable_bytes` 1): an operand of type 0 or 1 reads and writes one byte,
+one of type 2 and up (3, `0x80`) a little-endian word over the address and
+the next (`cok_ecl_value`, `cok_ecl_store_to` and `cok_ecl_store_as` for an
+operand's address; `cok_ecl_store` stores a byte); a special address takes
+the value whatever the width, and a word at a store's last address has no
+byte past it (the original reads on into what follows). All 25 of its
+blocks decode, 14,781 instructions, 0 `IF`s skipping by another length:
+`ecldump --game death-knights` agrees instruction for instruction with the
+planning's patched listing but for `0x27`'s fourth header operand (which
+that listing printed from a three-operand copy, stale) and 12 instructions
+after a CLEAR EXIT, which ends the block's walk.
+
 Where the original would misbehave, the port stops with a status instead:
 opcode `0x1f` and opcodes past `ADD EP` have no handler in the dispatch
 (`2fd3:386d`), and `PROTECTION`'s (`2fd3:3516`) returns at once, so none of
@@ -1773,7 +1895,9 @@ original leaves unset return 0.
 screen without a display, as `2fd3:3b47` enters a block: the load vector,
 then the after-move and location vectors, starting over when `NEWECL`
 switches blocks; `--game NAME` names the game whose files ASSETS holds
-(see Games). It prints text as it is printed (`print:`), menus with
+(see Games): with `death-knights` it runs Death Knights' blocks (their
+songs logged as `music: N`, unplayed; an opcode or a read not ported yet
+ends the run, saying which), not its title, start menu or saved games. It prints text as it is printed (`print:`), menus with
 their `~` marks (`menu:`, `list:` and `item:`), the choices made
 (`choice:`) and input read (`input:`), and the name and operand values of
 each opcode that is not ported, in brackets. A spell effect the port cannot
@@ -2174,6 +2298,10 @@ each step or turn of the adventure loop;
 has no 3D view (`0x4be6` and `0x4c38` both 0), `6945:00ba` shows the big
 picture in its frame instead.
 
+The tile sets, the wall slots and the overhead map's tiles are the
+descriptor's `view` (see Games); the values below are Champions', and
+Death Knights' differ after them.
+
 `LOAD FILES` (opcode 0x21) loads a map: if its first operand is not 0xff or
 0x7f and the area is 3D (`0x4be6`), record N of `GEO<file>.DAX` (`69ea:130d`),
 which also sets `0x4bc5`. `LOAD PIECES` loads wall sets from
@@ -2209,6 +2337,24 @@ past set 1's, so Throtl's (`WALLDEF1.DAX` record 1, loaded into slot 1) is
 not moved at all. Each slot's tile set is record N of `8X8D<file>.DAX`, or
 N × 10 + 1 and N × 10 + 2 for a record of two sets. Tile sets 0 (`8X8D1.DAX`
 record 203) and 4 (the frame's) are loaded at startup.
+
+Death Knights (`--game death-knights`) chooses a wall set's files by its
+id, not by the ECL file (`dkk 6d21:0ec5`; the descriptor's `wall_files`):
+`WALLDEF<file>` record id, its record of three sets of 0x30c from slot 0
+(`LOAD PIECES`' two-set path loads slots 0 and 3, `3632:0daa`; slot n is
+wall set n, types 5n + 1 to 5n + 5), no tile value moved; `8X8D<file>`
+record id, 256 tiles (its header counts 0xff: `123c:1c58`), into the slot's
+tile set (`70eb:002f`, tile set 0's file by the id), from which the view
+draws every value 1-0xff (its sets' bounds `DS:4404`; 0x100-0x12c are the
+frame's); and `BACK<file>` record id, the backdrop it shows on squares of
+0x80 and up (`6d21:0e4e`). Its backdrop (`6d21:0177`) has Champions' fills
+(no CGA split) and no sky pictures: on squares below 0x80 the ground by
+day, `SKYGRND` record 2, and past hour 13 the night sky, record 1, over it;
+else the wall set's `BACK`; all three drawn opaque at the view's top-left
+(loaded without a mask, `DS:42d0`'s 0). Its overhead map's squares are
+0x119 + walls and its arrow 0x129 + facing / 2 (`6d21:0000`), and its view
+is drawn as Champions' (`6d21:0691` is `69ea:0820`, its places `DS:06c6`
+Champions' `DS:0df4`).
 
 `cok_view_draw` follows `69ea:0820`: it fills the backdrop, then draws
 front and side walls from two squares ahead back to the party's square,
@@ -7748,7 +7894,16 @@ that many run at once, a range such as 110-189 kept for
   `turbo` and `max`. A timed menu (the title's) may run out before a key
   is typed then.
 
-`cokbox.py run` runs it from the command line (`--machine`, `--display`,
+`Box(game="death-knights")` (`cokbox.GAMES`) runs Death Knights of Krynn
+instead: `DKKAssets/` copied into `C:\DKK`, a `DKK.CFG` written for it
+(`dkk_cfg`: `KRYNN.CFG`'s lines with `C:\DKK\SAVE\` and a fifth,
+`C:\COK\SAVE\`), its data segment found by its own first bytes (`DS`
+0x1bce in `build/death-START_FULL.EXE`, the PSP being `DS - 0x0bde`) and
+`locate` reading its merged image; Champions' runs are as before.
+`NOT_WAIT_CALLERS` and `to_ghidra` are Champions' addresses (a Death
+Knights run finds no such caller).
+
+`cokbox.py run` runs it from the command line (`--game`, `--machine`, `--display`,
 `--sound`, `--saves`, `--args`, `--cycles`, `--turbo`, `--seed`, `--keys`,
 `--shots DIR`, `--wav`, `--dump OFF,SIZE` of DS at the end), for example
 `python3 tools/dosbox/cokbox.py run --saves SAVE --keys '\kxP\v\v\rA\sloaded.' --shots shots`
@@ -8138,6 +8293,29 @@ original's behaviour is recorded, its section says what it does):
   `d_cast.py`.
 - #129 Magic Missile reflected: the caster takes the damage:
   `d_turning.py`.
+
+Death Knights of Krynn, read headless (see Games), is checked by
+`tools/dosbox/checks/dkk_views.py`, which `run_all.py` (Champions' set)
+does not run: `python3 tools/dosbox/checks/dkk_views.py` (about four
+minutes; DOSBox-X in EGA mode). It compares, with `daxcompose` and
+`eclplay --game death-knights`, the title's first two pictures (`TITLE`
+records 1 and 2, whole screens); the first text of the game where
+`DKKAssets/SAVE/SAVGAMA.PTY` resumes (ECL1 block 16 over the overland map:
+the big picture's region with the cursor, the text window and the menu's
+row); and the 3D view in four places of ECL1, the outpost's gate and a hall
+(block 36, wall set 1 from `WALLDEF1`, `8X8D1` and `BACK1`) and the city's
+street and a building (block 32, wall set 2 from the files of 4), out of
+doors (`SKYGRND`'s ground) and in (`BACK`), facing each way the party turns
+there (Move mode): nine views. The port cannot load Death Knights' saved
+games, so each place is a copy of `SAVGAMA.PTY` with the place written in
+(the script says where), which the original resumes; the port runs the
+block's load vector from `LOAD FILES` with its code patched (`--start`,
+`--set` on the code) to stand on the same square, facing the same way, and
+stop once the view is shown. All agree, 0 pixels in each region, after two
+fixes the check found: `SKYGRND` and `BACK` are drawn opaque (loaded
+without a mask, `DS:42d0`'s 0, not with colour 0 or the sky's
+transparent), and the overland cursor too (its colour 13 drawn). The
+screens' frames are not compared: the port draws Champions' (see Games).
 
 Still to check, with why:
 

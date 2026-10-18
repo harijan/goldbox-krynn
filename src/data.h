@@ -150,7 +150,8 @@ static inline const cok_data_table *cok_data_shape_(const cok_data_segment *D, c
 {
     assert(D != NULL && (unsigned)t < COK_DATA_TABLES);
     const cok_data_table *s = &D->table[t];
-    assert(s->width != 0 && s->indices == indices);
+    assert(s->width != 0 && "the game's data segment has no such table");
+    assert(s->indices == indices && "give the table's indices");
     return s;
 }
 

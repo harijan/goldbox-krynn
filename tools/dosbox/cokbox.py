@@ -387,10 +387,29 @@ def krynn_cfg(display, sound="S", input="N"):
     return "".join(line + "\r\n" for line in lines)
 
 
-def _game_ds_signature(assets):
+def dkk_cfg(display, sound="S", input="N"):
+    """A DKK.CFG (Death Knights of Krynn's): as KRYNN.CFG with its own save
+    path, C:\\DKK\\SAVE\\, and a fifth line, the path of Champions' saved
+    games (as DKKAssets/DKK.CFG)."""
+    lines = [display, sound, input, "C:\\DKK\\SAVE\\", "C:\\COK\\SAVE\\", "F"] + ["0"] * 14
+    return "".join(line + "\r\n" for line in lines)
+
+
+# The games the Box runs (--game): their files, the directory C: holds them
+# in, their devices' file, their data segment as START_FULL.EXE's (Ghidra's
+# segment, the PSP + 0x10 less 0x1000 in the guest) and their merged image.
+GAMES = {
+    "champions": dict(assets="COKAssets", dir="COK", cfg="KRYNN.CFG", cfg_text=krynn_cfg,
+                      ds=DS_GHIDRA, merged="build/START_FULL.EXE"),
+    "death-knights": dict(assets="DKKAssets", dir="DKK", cfg="DKK.CFG", cfg_text=dkk_cfg,
+                          ds=0x1BCE, merged="build/death-START_FULL.EXE"),
+}
+
+
+def _game_ds_signature(assets, ds=DS_GHIDRA):
     """The first 64 bytes of START.EXE's data segment, as loaded."""
     image = ovrmerge.unexepack((pathlib.Path(assets) / "START.EXE").read_bytes())[0]
-    start = (DS_GHIDRA - 0x1000) * 16
+    start = (ds - 0x1000) * 16
     return bytes(image[start:start + 64])
 
 
@@ -422,14 +441,22 @@ class Box:
     keep to their own; without it any free one Xvfb picks).
     workdir: where the C: drive, captures and logs go (default: a temporary
     directory, removed on close unless keep).
+    game: champions, or death-knights (GAMES): its assets by default, its
+    directory on C: (C:\\DKK), its devices' file (DKK.CFG, written by
+    dkk_cfg) and its data segment.
     """
 
     def __init__(self, workdir=None, assets=None, machine="tandy", display=None, sound="S",
                  input="N", cfg=None, saves=(), args="", cycles="fixed 20000", turbo=False,
                  hook_pad=0, memsize=None, wav=None, timeout=600, extra_conf=None,
                  exit_after=True, seed=None, want_psp=None, keep=False, verbose=False,
-                 pre_commands=(), files=None, mapper=None, display_number=None):
-        self.assets = pathlib.Path(assets or ROOT / "COKAssets")
+                 pre_commands=(), files=None, mapper=None, display_number=None,
+                 game="champions"):
+        if game not in GAMES:
+            raise BoxError(f"game {game}: one of {', '.join(GAMES)}")
+        self.profile = GAMES[game]
+        self.assets = pathlib.Path(assets or ROOT / self.profile["assets"])
+        self.ds_from_psp = self.profile["ds"] - 0x1000 + 0x10
         if machine not in MACHINES:
             raise BoxError(f"machine {machine}: one of {', '.join(MACHINES)}")
         self.machine = machine
@@ -454,7 +481,7 @@ class Box:
         self._ds = None
         self._deadline = None
         self._shots = 0
-        self._ds_sig = _game_ds_signature(self.assets)
+        self._ds_sig = _game_ds_signature(self.assets, self.profile["ds"])
         self._last_polls = 0
         self._streak = 0
 
@@ -465,8 +492,8 @@ class Box:
             print("cokbox:", *what, file=sys.stderr, flush=True)
 
     def krynn_cfg(self):
-        return self.cfg if self.cfg is not None else krynn_cfg(self.display, self.sound,
-                                                                 self.input)
+        return self.cfg if self.cfg is not None else self.profile["cfg_text"](
+            self.display, self.sound, self.input)
 
     def prepare(self):
         """Fill the C: drive and write dosbox.conf."""
@@ -474,7 +501,7 @@ class Box:
             self.workdir = pathlib.Path(tempfile.mkdtemp(prefix="cokbox-"))
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.cdrive = self.workdir / "c"
-        self.game = self.cdrive / "COK"
+        self.game = self.cdrive / self.profile["dir"]
         self.captures = self.workdir / "capture"
         if self.game.exists():
             shutil.rmtree(self.game)
@@ -483,11 +510,12 @@ class Box:
         for old in self.captures.glob("*.png"):  # DOSBox-X numbers them up to 999 only
             old.unlink()
         for f in self.assets.iterdir():
-            if f.is_file() and f.name.upper() != "KRYNN.CFG":
+            if f.is_file() and f.name.upper() != self.profile["cfg"]:
                 shutil.copyfile(f, self.game / f.name.upper())
         if self.cfg is not False:
             data = self.krynn_cfg()
-            (self.game / "KRYNN.CFG").write_bytes(data.encode("latin-1") if isinstance(data, str) else data)
+            (self.game / self.profile["cfg"]).write_bytes(
+                data.encode("latin-1") if isinstance(data, str) else data)
         for s in self.saves:
             s = pathlib.Path(s)
             for f in ([s] if s.is_file() else sorted(s.iterdir())):
@@ -517,7 +545,7 @@ class Box:
                        for s, props in conf.items())
         pad = f" {self.hook_pad:x}" if self.hook_pad else ""
         text += ("[autoexec]\n" + f"mount c \"{self.cdrive}\"\n" + "c:\n" +
-                 f"HOOK.COM{pad}\n" + "cd \\COK\n" +
+                 f"HOOK.COM{pad}\n" + f"cd \\{self.profile['dir']}\n" +
                  "".join(c + "\n" for c in self.pre_commands) +
                  f"START.EXE {self.args}".rstrip() + "\n" +
                  ("exit\n" if self.exit_after else ""))
@@ -780,7 +808,7 @@ class Box:
         for m in re.finditer(re.escape(self._ds_sig[:16]), data):
             if m.start() % 16 == 0 and data[m.start():m.start() + 64] == self._ds_sig:
                 seg = m.start() // 16
-                psp = seg - DS_FROM_PSP
+                psp = seg - self.ds_from_psp
                 if self.read(psp * 16, 2) == b"\xcd\x20":
                     return seg
         return None
@@ -789,12 +817,12 @@ class Box:
     def ds(self):
         if self._ds is None:
             self._ds = self._until(self.find_ds, 60, "the game's data segment")
-            self.log(f"DS {self._ds:04x}, PSP {self._ds - DS_FROM_PSP:04x}")
+            self.log(f"DS {self._ds:04x}, PSP {self._ds - self.ds_from_psp:04x}")
         return self._ds
 
     @property
     def psp(self):
-        return self.ds - DS_FROM_PSP
+        return self.ds - self.ds_from_psp
 
     def ds_read(self, off, size):
         return self.read(self.ds * 16 + off, size)
@@ -887,7 +915,7 @@ class Box:
         """Where real code SEG:OFF is in START_FULL.EXE (`make merged`), as a
         Ghidra (seg, off), found by the bytes from there on (an overlay's
         code moves with its buffer); None if not found or not unique."""
-        exe = pathlib.Path(exe or ROOT / "build/START_FULL.EXE")
+        exe = pathlib.Path(exe or ROOT / self.profile["merged"])
         if not hasattr(self, "_exe"):
             self._exe = exe.read_bytes()
         data = self._exe
@@ -1012,7 +1040,7 @@ class Box:
     def _exe_bytes(self, seg, off, size):
         """SIZE bytes of START_FULL.EXE (`make merged`) at Ghidra SEG:OFF."""
         if not hasattr(self, "_exe"):
-            self._exe = (ROOT / "build/START_FULL.EXE").read_bytes()
+            self._exe = (ROOT / self.profile["merged"]).read_bytes()
         hdr = struct.unpack_from("<H", self._exe, 8)[0] * 16
         start = hdr + (seg - 0x1000) * 16 + off
         return self._exe[start:start + size]
@@ -1287,7 +1315,7 @@ def run(args):
     box = Box(workdir=args.workdir, assets=args.assets, machine=args.machine,
               display=args.display, sound=args.sound, saves=args.saves or (), args=args.args,
               cycles=args.cycles, turbo=args.turbo, timeout=args.timeout, verbose=args.verbose,
-              wav=args.wav)
+              wav=args.wav, game=args.game)
     with box:
         if args.seed is not None:
             box.wait_input()
@@ -1313,6 +1341,8 @@ def main(argv=None):
         p.add_argument("--timeout", type=float, default=600)
         p.add_argument("--verbose", "-v", action="store_true")
         if name == "run":
+            p.add_argument("--game", default="champions", choices=sorted(GAMES),
+                           help="the game to run (default champions)")
             p.add_argument("--display", help="KRYNN.CFG's first line (default: the machine's)")
             p.add_argument("--sound", default="S")
             p.add_argument("--saves", action="append", help="saved games to copy into C:\\COK\\SAVE")

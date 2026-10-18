@@ -99,7 +99,7 @@ class PlayTests(unittest.TestCase):
         self.assertEqual(named.stdout.splitlines()[-1], "(out of keys in block 16 at 8613)")
         bad = self.play("--game", "dragonlance", ASSETS, 16)
         self.assertEqual(bad.returncode, 2)
-        self.assertEqual(bad.stderr, "--game: unknown game dragonlance (games: champions)\n")
+        self.assertEqual(bad.stderr, "--game: unknown game dragonlance (games: champions, death-knights)\n")
         self.assertEqual(bad.stdout, "")
 
     def test_vertical_menu_at_the_gates_of_gargath(self):

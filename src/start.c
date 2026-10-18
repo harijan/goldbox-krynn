@@ -74,10 +74,8 @@ static void fresh(cok_adventure *game, uint8_t facing)
     vm->map_y = 13;
     vm->direction = facing;
     vm->ahead = vm->square = 0;
-    for (size_t i = 0; i < 3; ++i) {
-        game->door_tries[i] = true;
-        game->wall_ids[i] = game->wall_slots[i] = -1;
-    }
+    for (size_t i = 0; i < 3; ++i) game->door_tries[i] = true;
+    for (size_t i = 0; i < COK_VIEW_WALL_SLOTS; ++i) game->wall_ids[i] = game->wall_slots[i] = -1;
     game->wall_ids[0] = 0;
     game->wall_slots[0] = 1;
     vm->keep_vars = false;

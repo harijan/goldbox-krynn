@@ -713,7 +713,7 @@ class FrontEndTests(unittest.TestCase):
         self.assertEqual((run.returncode, run.stdout), (0, "(quit to DOS)\n"), run.stderr)
         run, _, _ = self.cok(r"\kx", "--game", "krynn")
         self.assertEqual(run.returncode, 2)
-        self.assertEqual(run.stderr, "--game: unknown game krynn (games: champions)\n")
+        self.assertEqual(run.stderr, "--game: unknown game krynn (games: champions, death-knights)\n")
 
     def test_keys_no_keyboard_has(self):
         """NumLock's scan code is not a key the game can be given."""

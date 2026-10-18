@@ -110,18 +110,168 @@ static cok_ecl_status run(log_t *log)
     return cok_ecl_run(&vm, COK_ECL_BASE);
 }
 
+static const cok_rules *const C = &cok_rules_champions, *const DK = &cok_rules_death_knights;
+
 static void test_names_and_counts(void)
 {
-    CHECK(strcmp(cok_ecl_opcode_name(COK_ECL_EXIT), "EXIT") == 0);
-    CHECK(strcmp(cok_ecl_opcode_name(COK_ECL_NEWECL), "NEWECL") == 0);
-    CHECK(strcmp(cok_ecl_opcode_name(COK_ECL_ADD_EP), "ADD EP") == 0);
-    CHECK(cok_ecl_opcode_name(0x1f) == NULL && cok_ecl_opcode_name(0x42) == NULL);
-    CHECK(cok_ecl_operand_count(COK_ECL_ENCOUNTER_MENU) == 14);
-    CHECK(cok_ecl_operand_count(COK_ECL_ON_GOTO) == COK_ECL_LIST);
-    CHECK(cok_ecl_operand_count(COK_ECL_PROTECTION) == COK_ECL_HANG);
-    CHECK(cok_ecl_operand_count(0x99) == COK_ECL_HANG);
-    CHECK(cok_ecl_skip_count(COK_ECL_ECL_CLOCK) == 1 && cok_ecl_operand_count(COK_ECL_ECL_CLOCK) == 2);
-    CHECK(cok_ecl_skip_count(COK_ECL_VERTICAL_MENU) == 0);
+    CHECK(strcmp(cok_ecl_opcode_name(C, COK_ECL_EXIT), "EXIT") == 0);
+    CHECK(strcmp(cok_ecl_opcode_name(C, COK_ECL_NEWECL), "NEWECL") == 0);
+    CHECK(strcmp(cok_ecl_opcode_name(C, COK_ECL_ADD_EP), "ADD EP") == 0);
+    CHECK(cok_ecl_opcode_name(C, 0x1f) == NULL && cok_ecl_opcode_name(C, 0x42) == NULL);
+    CHECK(cok_ecl_operand_count(C, COK_ECL_ENCOUNTER_MENU) == 14);
+    CHECK(cok_ecl_operand_count(C, COK_ECL_ON_GOTO) == COK_ECL_LIST);
+    CHECK(cok_ecl_operand_count(C, COK_ECL_PROTECTION) == COK_ECL_HANG);
+    CHECK(cok_ecl_operand_count(C, 0x99) == COK_ECL_HANG);
+    CHECK(cok_ecl_skip_count(C, COK_ECL_ECL_CLOCK) == 1 &&
+          cok_ecl_operand_count(C, COK_ECL_ECL_CLOCK) == 2);
+    CHECK(cok_ecl_skip_count(C, COK_ECL_VERTICAL_MENU) == 0);
+    /* Champions' table, as the VM held it before the descriptor did: its
+     * handlers' operands (2fd3:0050-36dc; -1 a list, -2 never advances)
+     * and the failed IF's skips (3775:1e74), opcode by opcode. */
+    static const signed char operands[COK_ECL_OPCODES] = {
+        0, 1, 1, 2, 3, 3, 3, 3, 2, 2, 1, 3, 3, 0, 1, 2, 2, 1, 1, 0, 4, -1,
+        0, 0, 0, 0, 0, 0, 0, 1, 6, -2, 1, 3, 2, 4, 0, -1, -1, 8, 3, 14, 3, -1,
+        6, 1, 5, 3, 3, 0, 1, 0, 2, 3, 2, 3, 1, 1, 0, 3, -2, 0, 0, 1, 1, 2};
+    static const uint8_t skips[COK_ECL_OPCODES] = {
+        0, 1, 1, 2, 3, 3, 3, 3, 2, 2, 1, 3, 3, 0, 1, 2, 2, 1, 1, 0, 4, 0,
+        0, 0, 0, 0, 0, 0, 0, 1, 6, 2, 1, 3, 2, 4, 0, 0, 0, 8, 3, 14, 3, 0,
+        6, 1, 5, 3, 3, 0, 1, 0, 1, 3, 1, 3, 1, 1, 0, 3, 1, 0, 0, 1, 1, 2};
+    CHECK(C->ecl.count == COK_ECL_OPCODES && C->ecl.variable_bytes == 2);
+    for (unsigned o = 0; o < COK_ECL_OPCODES; ++o) {
+        CHECK(cok_ecl_meaning_of(C, o) == o);
+        CHECK(cok_ecl_operand_count(C, o) == operands[o]);
+        CHECK(cok_ecl_skip_count(C, o) == skips[o]);
+    }
+    CHECK(C->ecl.opcodes[COK_ECL_VERTICAL_MENU].header == 3);
+    CHECK(C->ecl.opcodes[COK_ECL_HORIZONTAL_MENU].header == 2);
+    CHECK(C->ecl.opcodes[COK_ECL_ON_GOTO].header == 2 && C->ecl.opcodes[COK_ECL_ON_GOSUB].header == 2);
+    CHECK(cok_ecl_meaning_of(C, 0x42) == COK_ECL_MEANINGS && cok_ecl_skip_count(C, 0x42) == 0);
+    /* CALL's routines by address (2fd3:329b). */
+    CHECK(cok_ecl_call_of(C, 0x2e10) == COK_ECL_CALL_REDRAW);
+    CHECK(cok_ecl_call_of(C, 0xb203) == COK_ECL_CALL_SOUND);
+    CHECK(cok_ecl_call_of(C, 0xc01e) == COK_ECL_CALL_STEP);
+    CHECK(cok_ecl_call_of(C, 0xc018) == COK_ECL_CALL_AHEAD);
+    CHECK(cok_ecl_call_of(C, 0x6803) == COK_ECL_CALL_ANIMATE);
+    CHECK(cok_ecl_call_of(C, 0x2dcb) == COK_ECL_CALL_NONE && cok_ecl_call_of(C, 0) == COK_ECL_CALL_NONE);
+}
+
+/* Death Knights' table (dkk 3632's handlers, 3c1e:1b48's skips): Champions'
+ * but for ten opcodes. */
+static void test_death_knights_table(void)
+{
+    CHECK(DK->ecl.count == COK_ECL_OPCODES && DK->ecl.variable_bytes == 1);
+    static const struct {
+        uint8_t opcode;
+        unsigned meaning;
+        int operands, header, skip;
+        const char *name;
+    } changed[] = {
+        {0x0c, COK_ECL_SETUP_MONSTERS, 4, 0, 3, "SETUP MONSTERS"},
+        {0x1d, COK_ECL_PRESS_KEY, 0, 0, 0, "PRESS KEY"},
+        {0x1f, COK_ECL_JOURNAL, 1, 0, 1, "JOURNAL"},
+        {0x22, COK_ECL_YES_NO, 0, 0, 0, "YES NO"},
+        {0x23, COK_ECL_CLEAR_EXIT, 0, 0, 0, "CLEAR EXIT"},
+        {0x27, COK_ECL_TREASURE_ITEMS, COK_ECL_LIST, 4, 0, "TREASURE ITEMS"},
+        {0x29, COK_ECL_NOTHING, 0, 0, 0, "NOTHING"},
+        {0x2c, COK_ECL_MUSIC, 1, 0, 1, "MUSIC"},
+        {0x31, COK_ECL_ASK_MENU, COK_ECL_LIST, 2, 0, "ASK MENU"},
+        {0x3c, COK_ECL_STOCK, 1, 0, 1, "STOCK"},
+    };
+    size_t n = sizeof changed / sizeof *changed;
+    for (unsigned o = 0; o < COK_ECL_OPCODES; ++o) {
+        size_t k = 0;
+        while (k < n && changed[k].opcode != o) ++k;
+        const cok_rules_opcode *d = &DK->ecl.opcodes[o];
+        if (k == n) {
+            const cok_rules_opcode *c = &C->ecl.opcodes[o];
+            CHECK(d->meaning == c->meaning && d->operands == c->operands &&
+                  d->header == c->header && d->skip == c->skip);
+            continue;
+        }
+        CHECK(d->meaning == changed[k].meaning && d->operands == changed[k].operands);
+        CHECK(d->header == changed[k].header && d->skip == changed[k].skip);
+        CHECK(strcmp(cok_ecl_opcode_name(DK, o), changed[k].name) == 0);
+    }
+    CHECK(cok_ecl_call_of(DK, 0x2dcb) == COK_ECL_CALL_REDRAW);
+    CHECK(cok_ecl_call_of(DK, 0x2e10) == COK_ECL_CALL_NONE);
+    CHECK(cok_ecl_call_of(DK, 0x6803) == COK_ECL_CALL_ANIMATE);
+
+    /* A list of a header of 4 (0x27's), and an IF's skips by the table. */
+    cok_ecl_init(&vm, DK, NULL);
+    at = 0;
+    byte(0x27); imm(1); imm(2); imm(3); imm(2); imm(7); imm(8);
+    CHECK(cok_ecl_decode(&vm, COK_ECL_BASE) == COK_ECL_OK);
+    CHECK(vm.header_operands == 4 && vm.operands == 2 && vm.ip == COK_ECL_BASE + 1 + 6 * 2);
+    CHECK(vm.header[3].low == 2 && vm.operand[0].low == 7 && vm.operand[1].low == 8);
+    log_t log = {0};
+    at = 0;
+    op(COK_ECL_COMPARE); imm(1); imm(2);
+    op(COK_ECL_IF_EQUAL);
+    byte(0x1d);                                             /* PRESS KEY: skips none */
+    op(COK_ECL_SAVE); imm(5); var(0x4b01);
+    op(COK_ECL_IF_EQUAL);
+    byte(0x2c); imm(9);                                     /* MUSIC: skips one */
+    op(COK_ECL_SAVE); imm(6); var(0x4b02);
+    op(COK_ECL_EXIT);
+    CHECK(run(&log) == COK_ECL_OK);
+    CHECK(vm.mem4b00[1] == 5 && vm.mem4b00[2] == 6 && log.opcodes[0x1d] == 0 && log.opcodes[0x2c] == 0);
+}
+
+/* Byte variables (dkk 3c1e:0d85, 0bc1): an operand of type 0 or 1 reads and
+ * writes a byte, 2 and up a word over two addresses; where each address
+ * holds a word (Champions) a variable is that word, whatever the type. */
+static void var3(unsigned address)
+{
+    byte(COK_ECL_VAR_3);
+    byte(address & 0xff);
+    byte(address >> 8);
+}
+
+static void test_byte_variables(void)
+{
+    const cok_rules *games[] = {C, DK};
+    for (size_t g = 0; g < 2; ++g) {
+        log_t log = {0};
+        cok_ecl_init(&vm, games[g], NULL);
+        at = 0;
+        op(COK_ECL_SAVE); word(0x1234); var(0x4b10);        /* a byte */
+        op(COK_ECL_SAVE); word(0x5678); var3(0x4b20);       /* a word over two */
+        op(COK_ECL_ADD); var3(0x4b20); imm(1); var3(0x7a00);
+        op(COK_ECL_ADD); var(0x4b20); imm(1); var(0x7a10);
+        op(COK_ECL_SAVE); word(0xabcd); var3(0x9000);       /* the code too */
+        op(COK_ECL_EXIT);
+        CHECK(run(&log) == COK_ECL_OK);
+        if (g == 0) {
+            CHECK(vm.mem4b00[0x10] == 0x1234 && vm.mem4b00[0x20] == 0x5678 && vm.mem4b00[0x21] == 0);
+            CHECK(vm.mem7a00[0] == 0x5679 && vm.mem7a00[0x10] == 0x5679);
+            CHECK(vm.code[0x1000] == 0xcd && vm.code[0x1001] == 0);
+        } else {
+            CHECK(vm.mem4b00[0x10] == 0x34 && vm.mem4b00[0x11] == 0);
+            CHECK(vm.mem4b00[0x20] == 0x78 && vm.mem4b00[0x21] == 0x56);
+            CHECK(vm.mem7a00[0] == 0x79 && vm.mem7a00[1] == 0x56);
+            CHECK(vm.mem7a00[0x10] == 0x79 && vm.mem7a00[0x11] == 0);
+            CHECK(vm.code[0x1000] == 0xcd && vm.code[0x1001] == 0xab);
+        }
+        /* The stores' hook sees the value stored. */
+        CHECK(log.last_address == 0x9000);
+        CHECK(log.last_value == 0xabcd);
+    }
+    /* An immediate word (type 2) as the address stored to is wide too. */
+    cok_ecl_init(&vm, DK, NULL);
+    cok_ecl_store_as(&vm, &(cok_ecl_operand){COK_ECL_WORD, 0x30, 0x4b}, 0x0201);
+    CHECK(vm.mem4b00[0x30] == 1 && vm.mem4b00[0x31] == 2);
+    cok_ecl_store_as(&vm, &(cok_ecl_operand){COK_ECL_VAR, 0x40, 0x4b}, 0x0201);
+    CHECK(vm.mem4b00[0x40] == 1 && vm.mem4b00[0x41] == 0);
+    /* A special address takes the value whatever the width. */
+    cok_ecl_init(&vm, DK, NULL);
+    cok_ecl_store_as(&vm, &(cok_ecl_operand){COK_ECL_VAR_3, 0x4b, 0xc0}, 0x0105);
+    CHECK(vm.map_x == 5 && cok_ecl_load_var(&vm, 0xc04b) == 5);
+    /* A word at a store's last address: no byte past it (0 here). */
+    at = 0;
+    op(COK_ECL_SAVE); var3(0x4eff); var(0x7a00);
+    CHECK(cok_ecl_decode(&vm, COK_ECL_BASE) == COK_ECL_OK);
+    vm.mem4b00[0x3ff] = 0x44;
+    CHECK(cok_ecl_value(&vm, 0) == 0x44);
 }
 
 static void test_operands_and_text(void)
@@ -655,6 +805,8 @@ static void test_character_fields(void)
 int main(void)
 {
     test_names_and_counts();
+    test_death_knights_table();
+    test_byte_variables();
     test_operands_and_text();
     test_arithmetic_and_flags();
     test_if_skips();

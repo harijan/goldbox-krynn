@@ -499,7 +499,7 @@ static void battlefield(cok_adventure *game, void *context)
 static void unported(cok_adventure *game, void *context)
 {
     (void)context;
-    const char *name = cok_ecl_opcode_name(game->vm.opcode);
+    const char *name = cok_ecl_opcode_name(game->vm.rules, game->vm.opcode);
     printf("[%s", name != NULL ? name : "?");
     for (size_t i = 0; i < game->vm.operands; ++i) printf(" %u", cok_ecl_value(&game->vm, i));
     printf("]\n");
@@ -511,7 +511,7 @@ static void trace(cok_adventure *game, void *context)
     if (!p->trace) return;
     const cok_ecl *vm = &game->vm;
     uint8_t opcode = vm->code[vm->ip - COK_ECL_BASE];
-    const char *name = cok_ecl_opcode_name(opcode);
+    const char *name = cok_ecl_opcode_name(vm->rules, opcode);
     printf("  %04x %s\n", vm->ip, name != NULL ? name : "?");
 }
 
@@ -807,6 +807,11 @@ static int run(int argc, char **argv)
         usage(argv[0]);
         return 2;
     }
+    /* The title, the start menu and saved games are a playable game's. */
+    if ((front || load != NULL || party != NULL) && rules->unplayable != NULL) {
+        fprintf(stderr, "%s\n", rules->unplayable);
+        return 2;
+    }
     if (!front && ((argc - i != 2 && !(load != NULL && argc - i == 1)) ||
         (has_block && !number(argv[i + 1], 0, 255, &block)) ||
         (play && (vector != 5 || start != 0)))) {
@@ -1034,7 +1039,7 @@ static int run(int argc, char **argv)
     if (screen != NULL) save(&p, screen);
     int result = 0;
     if (status == COK_ECL_LOAD_FAILED || status == COK_ECL_EFFECT_FAILED ||
-        status == COK_ECL_UNDEFINED) {
+        status == COK_ECL_UNDEFINED || status == COK_ECL_UNPORTED) {
         fprintf(stderr, "%s\n", game.error);
         result = 1;
     } else if (status != COK_ECL_OK) {

@@ -71,6 +71,15 @@ bool cok_monster_read(cok_adventure *game, uint8_t id, cok_character *m)
     memset(m, 0, sizeof *m);
     const cok_rules_archives *a = &cok_game_rules(game)->archives;
     const cok_character_layout *L = cok_game_rules(game)->character;
+    if (L->size == 0) {
+        /* A game whose character record the port does not read yet. */
+        cok_adventure_fail(game, COK_ECL_UNPORTED,
+                           "not yet ported: %s's monsters and NPCs (%s%c%s record %u) need its "
+                           "character record",
+                           cok_game_rules(game)->text.name, a->monster, file_digit(game),
+                           a->monster_record, id);
+        return false;
+    }
     uint8_t *data;
     size_t size;
     if (!monster_part(game, a->monster_record, id, &data, &size)) return false;
@@ -898,7 +907,7 @@ static void combat(cok_adventure *game)
 
 bool cok_monster_opcode(cok_adventure *game)
 {
-    switch (game->vm.opcode) {
+    switch (cok_ecl_meaning(&game->vm)) {
     case COK_ECL_LOAD_MONSTER: load_monster(game); return true;
     case COK_ECL_CLEARMONSTERS: clear_monsters(game); return true;
     case COK_ECL_SETUP_MONSTER: setup_monster(game); return true;

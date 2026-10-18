@@ -248,15 +248,15 @@ static void test_trace(void)
 static void test_names(void)
 {
     char name[16];
-    cok_debug_opcode_name(COK_ECL_IF_EQUAL, name);
+    cok_debug_opcode_name(&cok_rules_champions, COK_ECL_IF_EQUAL, name);
     CHECK(strcmp(name, "IF = ") == 0);
-    cok_debug_opcode_name(COK_ECL_IF_NOT_EQUAL, name);
+    cok_debug_opcode_name(&cok_rules_champions, COK_ECL_IF_NOT_EQUAL, name);
     CHECK(strcmp(name, "IF <>") == 0);
-    cok_debug_opcode_name(0x1f, name);
+    cok_debug_opcode_name(&cok_rules_champions, 0x1f, name);
     CHECK(strcmp(name, "BULLSHIT 31") == 0);
-    cok_debug_opcode_name(0xff, name);
+    cok_debug_opcode_name(&cok_rules_champions, 0xff, name);
     CHECK(strcmp(name, "BULLSHIT 255") == 0);
-    cok_debug_opcode_name(COK_ECL_ADD_EP, name);
+    cok_debug_opcode_name(&cok_rules_champions, COK_ECL_ADD_EP, name);
     CHECK(strcmp(name, "ADD EP") == 0);
 }
 

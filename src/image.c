@@ -32,8 +32,8 @@ void cok_images_free(cok_images *images)
     *images = (cok_images){0};
 }
 
-cok_image_status cok_images_parse(const uint8_t *data, size_t size,
-                                  int collection, cok_images *result)
+static cok_image_status parse(const uint8_t *data, size_t size, int collection,
+                              size_t frames_ff, cok_images *result)
 {
     *result = (cok_images){0};
     if (data == NULL || size == 0) return COK_IMAGE_INVALID;
@@ -50,7 +50,7 @@ cok_image_status cok_images_parse(const uint8_t *data, size_t size,
         const uint8_t *header = data + pos;
         size_t height = u16(header);
         size_t units = u16(header + 2);
-        size_t frames = header[8];
+        size_t frames = header[8] == 0xff ? frames_ff : header[8];
         if (height == 0 || units == 0 || frames == 0 || units > SIZE_MAX / 8)
             goto fail;
         size_t row = units * 4;
@@ -79,6 +79,18 @@ cok_image_status cok_images_parse(const uint8_t *data, size_t size,
 fail:
     cok_images_free(result);
     return status;
+}
+
+cok_image_status cok_images_parse(const uint8_t *data, size_t size,
+                                  int collection, cok_images *result)
+{
+    return parse(data, size, collection, 0xff, result);
+}
+
+cok_image_status cok_images_parse_as(const cok_rules *rules, const uint8_t *data, size_t size,
+                                     int collection, cok_images *result)
+{
+    return parse(data, size, collection, rules->images.frames_ff, result);
 }
 
 cok_image_status cok_images_undelta(uint8_t *data, size_t size)
