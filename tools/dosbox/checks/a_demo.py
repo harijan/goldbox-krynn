@@ -15,12 +15,13 @@ and at each line it logs (a_common.probe_eclplay(delays=True)).
 Run 1 (real time, seed 0, no key at all): the title's menu against the
 port's at its first key read, the menu's timeout (DS:6e11) against the
 port's, and the time from the menu to the first NPC joining, 30 to 35 s of
-the BIOS's clock (the port's \\t does not time it). Then DOSBox-X's
-screens as fast as they come (checklib.watch) until the title's menu shows
-again: each must be the port's in order (an exact frame, at or after the
-previous screen's), or caught while drawing (each pixel one of the port's
-frames between the frames of the screens before and after it); the party
-read in memory against the port's `party:` lines; the green dragon's
+the BIOS's clock (the port's \\t does not time it). Then the Tandy's
+screen read from memory every 50 ms (checklib.watch) until the title's menu
+shows again: each must be the port's in order (an exact frame, at or after
+the previous screen's), or caught while drawing (each pixel one of the
+port's frames between the frames of the screens before and after it, or
+in the area where they change, or black where they agree: judge_watch);
+the party read in memory against the port's `party:` lines; the green dragon's
 close-up, the 12 frames CALL [6803] shows for 900 ms each after `monster:
 picture 10`, each seen in order; the menu after it and its timeout against
 the port's second key read. Run 2 (turbo): the title skipped with a key, F10
@@ -154,31 +155,36 @@ def unexplained(shot, seq, lo, hi):
 
 
 def redrawn(seq, lo, hi, pixels):
-    """Whether PIXELS all lie in the area the port redraws between its
-    frames LO and HI (the box around the pixels that change among them):
-    a picture drawn over another may keep a pixel's colour, which the
-    original passes through another colour to reach."""
+    """Those of PIXELS in the area the port redraws between its frames LO
+    and HI (the box around the pixels that change among them): a picture
+    drawn over another may keep a pixel's colour, which the original
+    passes through another colour to reach."""
     frames = seq[lo:hi + 1]
     changed = set()
     for a, b in zip(frames, frames[1:]):
         changed.update(differing(a[1], b[1]))
     if not changed:
-        return False
+        return []
     xs, ys = [p % 320 for p in changed], [p // 320 for p in changed]
-    return all(min(xs) <= p % 320 <= max(xs) and min(ys) <= p // 320 <= max(ys) for p in pixels)
+    return [p for p in pixels
+            if min(xs) <= p % 320 <= max(xs) and min(ys) <= p // 320 <= max(ys)]
 
 
 def cleared(shot, seq, lo, hi, pixels):
-    """Whether PIXELS are all black (0) in SHOT, and the same in each of the
-    port's frames LO-HI: the original's screens before and after it, which
-    are frames LO and HI, show them as the port does, and between the two
-    the game clears the area and draws it again alike (cok_text_clear or a
+    """Those of PIXELS black (0) in SHOT and the same in each of the port's
+    frames LO-HI: the original's screens before and after it, which are
+    frames LO and HI, show them as the port does, and between the two the
+    game clears the area and draws it again alike (cok_text_clear or a
     fill before a panel's text, a combatant's turn redrawing its panel),
     with no frame of the port's in between. The "or black" kept to that:
-    black, and unchanged by the port around it."""
+    black, and unchanged by the port around it. The area cleared may
+    reach into the area the port redraws (see redrawn) and past it: the
+    whole screen before the battle's frame is drawn, its top border
+    unchanged; a combatant's whole panel before its hit points are written
+    again, its name unchanged. judge_watch takes each pixel by itself."""
     frames = [s.pixels for _, s in seq[lo:hi + 1]]
-    return all(shot.pixels[p] == 0 and all(f[p] == frames[0][p] for f in frames)
-               for p in pixels)
+    return [p for p in pixels
+            if shot.pixels[p] == 0 and all(f[p] == frames[0][p] for f in frames)]
 
 
 def realign(match, k, seen, seq):
@@ -210,7 +216,7 @@ def judge_watch(v, seen, seq, work):
     none of them, a pixel in the area the port redraws between LO and HI (the
     port presents no frame in the middle of a drawing: a picture coming in,
     the battle's map scrolling, an icon moving cell by cell, row 24 cleared
-    and written; DOSBox-X's screenshot comes at any moment of it), or a
+    and written; a read of the screen comes at any moment of it), or a
     black pixel where frames LO-HI all agree (cleared, see cleared). Any
     other pixel none of the frames has differs."""
     match = in_order(seen, seq)
@@ -235,15 +241,19 @@ def judge_watch(v, seen, seq, work):
         xs, ys = [p % 320 for p in left], [p // 320 for p in left]
         area = (min(xs), min(ys), max(xs), max(ys))
         shot.save_png(work / f"box-{k:03d}.png", highlight=seq[lo][1])
-        if redrawn(seq, lo, hi, left):
+        inside = redrawn(seq, lo, hi, left)
+        if len(inside) == len(left):
             drawing += 1
             print(f"  screen {k:03d}: caught while drawing, {len(left)} pixels in {area} none of "
                   f"{span}, all in the area the port redraws between them (box-{k:03d}.png)")
             continue
-        if cleared(shot, seq, lo, hi, left):
+        outside = set(left) - set(inside)
+        if len(cleared(shot, seq, lo, hi, outside)) == len(outside):
             drawing += 1
             print(f"  screen {k:03d}: caught between a clear and its redrawing, {len(left)} "
-                  f"pixels in {area} black, which {span} all show alike (box-{k:03d}.png)")
+                  f"pixels in {area} none of {span}: {len(outside)} black, which they all show "
+                  f"alike, {len(inside)} in the area the port redraws between them "
+                  f"(box-{k:03d}.png)")
             continue
         v.differ(f"screen {k:03d} of the demonstration",
                  f"{len(left)} pixels in {area} are none of {span}, and the port draws nothing "

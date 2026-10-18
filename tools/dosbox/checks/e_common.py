@@ -190,11 +190,11 @@ def in_order(verdict, what, shots, frames, loop_from=None, cleared=(), moving=Fa
     covered, then draws it at the next cell), inside the box where the two
     frames differ, what one of FRAMES shows there (the picture taken away
     and not yet drawn again: the ground under it). Nothing else. A screen
-    that matches no frame but was caught in one screenshot only (.seen 1,
-    checklib.watch's), between two others, is one the original drew
-    through in stages the port has no frame of: it is left out, said and
-    saved in WORK (once-WHAT-I.png); every screen held across two or more
-    screenshots must match."""
+    that matches no frame but was caught in one read only (.seen 1:
+    checklib.watch's, of the video memory or a screenshot), between two
+    others, is one the original drew through in stages the port has no
+    frame of: it is left out, said and saved in WORK (once-WHAT-I.png);
+    every screen held across two or more reads must match."""
     n = len(frames)
     k, matched, once = 0, [], []
 
@@ -241,7 +241,7 @@ def in_order(verdict, what, shots, frames, loop_from=None, cleared=(), moving=Fa
         matched.append(found if how == "equal" else f"{found}+{after(found)}")
         k = found
     verdict.ok(what, f"{len(shots)} screens, the port's frames {compress(matched)}"
-               + (f"; screens {once} seen in one screenshot only, matching no frame: left out"
+               + (f"; screens {once} seen in one read only, matching no frame: left out"
                   + (f" (saved in {work})" if work is not None else "") if once else ""))
     return True
 

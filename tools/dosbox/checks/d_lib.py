@@ -877,9 +877,8 @@ def _png_screen(data, where):
         path.unlink()
 
 
-# burst's reads of a Tandy's screen: every 50 ms, the cadence of DOSBox-X's
-# screenshots on an idle host (on a loaded one ten times fewer).
-READ_SECONDS = 0.05
+# burst's reads of a Tandy's screen: as often as checklib.watch's.
+READ_SECONDS = checklib.READ_SECONDS
 
 
 def burst(b, seconds, until=None, work=None, prefix="b"):
