@@ -27,7 +27,8 @@ enum {
                                  * tables hold 72. */
     COK_ITEM_SIZE = 63,
     COK_EFFECT_SIZE = 9,
-    COK_SAVED_GAME_SIZE = 5469,
+    COK_SAVED_GAME_SIZE = 5469, /* Champions', the most a layout makes (cok_saved_game_size) */
+    COK_SAVED_WALLS = 4,        /* The most entries of a saved wall table (rules' saves.walls). */
 };
 
 /* An item record (.STF): +0x2e its type, +0x32 its bonus (signed), +0x33
@@ -350,30 +351,69 @@ void cok_character_damage(uint8_t *record, const cok_rules *rules, uint8_t damag
 bool cok_character_heal(uint8_t *record, const cok_rules *rules, uint8_t amount, bool only_hurt,
                         uint8_t mode);
 
-/* A saved game, SAVGAM<letter>.DAT, as 4b6d:1b34 reads it. */
+/* A saved game, SAVGAM<letter>.DAT (Death Knights' .PTY), as 4b6d:1b34
+ * (dkk 46b2:1ef0) reads it, in the game's layout (rules' saves). */
 typedef struct {
     uint8_t file;                /* DS:5782, the ECL file. */
-    uint16_t mem4b00[0x400];     /* Variables 0x4b00-0x4eff. */
-    uint16_t mem7c00[0x400];     /* 0x7c00-0x7fff. */
-    uint16_t mem7a00[0x200];     /* 0x7a00-0x7bff. */
+    /* Variables 0x4b00-0x4eff, 0x7c00-0x7fff and 0x7a00-0x7bff, as the VM
+     * keeps them: an address's word, or its byte in a game whose
+     * addresses hold bytes. */
+    uint16_t mem4b00[0x400];
+    uint16_t mem7c00[0x400];
+    uint16_t mem7a00[0x200];
     int8_t map_x, map_y;         /* DS:6d85-6d89. */
     uint8_t direction, ahead, square;
     uint8_t last_mode, mode;     /* DS:4b4a, 4b49. */
-    int16_t wall_ids[3];         /* DS:6d8a, 6d8e, 6d92: WALLDEF record or -1. */
-    int16_t wall_slots[3];       /* DS:6d8c, 6d90, 6d94: the slot it loaded into. */
+    /* DS:6d8a, 6d8e, 6d92 (dkk DS:c078 + 4i): the WALLDEF record or -1,
+     * and the slot it loaded into; the layout's walls of them. */
+    int16_t wall_ids[COK_SAVED_WALLS];
+    int16_t wall_slots[COK_SAVED_WALLS];
     uint8_t count;               /* Characters. */
     char names[COK_PARTY_MAX][41]; /* Their files, e.g. CHRDATA1; extra entries are junk. */
 } cok_saved_game;
 
-/* Read a saved game. Returns false with error set if the file cannot be
- * read or is shorter than COK_SAVED_GAME_SIZE; the original does not check. */
-bool cok_saved_game_read(const char *path, cok_saved_game *game, char *error, size_t error_size);
-/* Write a saved game as 4b6d:22de does, the inverse of cok_saved_game_read.
- * The bytes after each name and the slots past count, which the original
- * fills with whatever its stack held, are 0. Returns false with error set
- * if the file cannot be written; the original does not check. */
-bool cok_saved_game_write(const char *path, const cok_saved_game *game, char *error,
-                          size_t error_size);
+/* The bytes of a saved game in the layout of rules (Champions' 5,469,
+ * Death Knights' 2,913). */
+size_t cok_saved_game_size(const cok_rules *rules);
+/* Where the party's size lies in a saved game of rules' layout (dkk
+ * 46b2:1ef0 seeks Champions' 0x1414), and an ECL variable address's cell
+ * there (Champions' 0x4c33 at 0x267). */
+size_t cok_saved_game_count_offset(const cok_rules *rules);
+size_t cok_saved_game_var_offset(const cok_rules *rules, uint16_t address);
+
+/* Read a saved game in the layout of rules. Returns false with error set
+ * if the file cannot be read or is shorter than the layout's size; the
+ * original does not check. */
+bool cok_saved_game_read(const char *path, const cok_rules *rules, cok_saved_game *game,
+                         char *error, size_t error_size);
+/* Write a saved game as 4b6d:22de (dkk 46b2:2808) does, the inverse of
+ * cok_saved_game_read. The bytes after each name and the slots past count,
+ * which the original fills with whatever its stack held, are 0. Returns
+ * false with error set if the file cannot be written; the original does
+ * not check. */
+bool cok_saved_game_write(const char *path, const cok_rules *rules, const cok_saved_game *game,
+                          char *error, size_t error_size);
+
+/* The bank vault (dkk VAULT<letter>.DAT, 46b2:2e1d and 302d): three
+ * 32-bit counts of coins, as the treasure pool's (DS:be58), then items,
+ * 63 bytes each. */
+typedef struct {
+    uint8_t coins[12];
+    uint8_t *items;
+    size_t item_count;
+} cok_vault;
+
+/* Read a vault (46b2:2e1d): 12 bytes of coins (what there is of them), then
+ * each whole 63-byte item, their next pointers (+0x2a) cleared; a short
+ * last one is left out. A file that is not there: no coins and no items,
+ * and false with *missing set. Returns false with error set if it cannot
+ * be read or memory runs out. Free with cok_vault_free. */
+bool cok_vault_read(const char *path, cok_vault *vault, bool *missing, char *error,
+                    size_t error_size);
+/* Write a vault (46b2:302d): the coins, then the items, their next
+ * pointers 0 (the original writes them as they are in memory). */
+bool cok_vault_write(const char *path, const cok_vault *vault, char *error, size_t error_size);
+void cok_vault_free(cok_vault *vault);
 
 /* Write character files base in dir as 4b6d:0bed does, the inverse of
  * cok_character_read: base.SAV, the record as it is (the layout's

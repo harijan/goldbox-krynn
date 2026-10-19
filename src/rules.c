@@ -331,6 +331,7 @@ static const cok_rules_var champions_vars[COK_VARS] = {
     [COK_VAR_SKY_HIGH] = VAR(0x4bfe),
     [COK_VAR_PICTURES] = VAR(0x4bff),
     [COK_VAR_LOCALS] = VARS(0x4c00, 0x20), /* 3775:01e8 */
+    [COK_VAR_SAVINGS] = VAR(0x4c33), /* ECL1's bank (89a2) */
     [COK_VAR_OFF_MAP] = VAR(0x4c38),
     [COK_VAR_NO_VIEW] = VAR(0x4c38), /* 2fd3:3403, 6346:2c17's mode 4 */
     [COK_VAR_SAVES] = VAR(0x4c3c), /* 4888:2c31 */
@@ -1311,6 +1312,25 @@ static const cok_rules_frame_line champions_credits[] = {
     ROW(23, 0, 39, 0),
 };
 
+/* The credits' lines (2f55:0267): purple (5), yellow (14) and light red
+ * (12). */
+static const cok_rules_text_line champions_credit_lines[] = {
+    {5, 1, 5, "based on an original story by:"}, {15, 2, 14, "Jim Ward"},
+    {4, 3, 14, "Victor Penman,"}, {19, 3, 5, "and"}, {24, 3, 14, "Dave Shelley"},
+    {2, 5, 5, "game created by:"}, {18, 5, 12, "SSI Special Projects"},
+    {2, 7, 12, "Project Director:"}, {20, 7, 12, "Programming"},
+    {2, 8, 14, "Victor Penman"}, {20, 8, 14, "Russ Brown"}, {20, 9, 14, "Scot Bayless"},
+    {2, 10, 12, "Graphic Arts:"}, {2, 11, 14, "Tom Wahl"},
+    {20, 11, 12, "Encounter Design"}, {2, 12, 14, "Fred Butts"},
+    {20, 12, 14, "Dave Shelley"}, {2, 13, 14, "Mark Johnson"},
+    {20, 13, 14, "Michael Mancuso"}, {2, 14, 14, "Cyrus Lum"},
+    {20, 14, 14, "Ken Humphries"}, {2, 15, 14, "Susan Manley"}, {2, 17, 12, "playtest:"},
+    {12, 17, 14, "Rick White,Don Mc Clure,"}, {2, 18, 14, "Mike Bench,Cliff Mann, Rick Wilson,"},
+    {2, 19, 14, "Erik Flom,James Young,Graeme Bayless"}, {2, 21, 5, "Musical Score:"},
+    {20, 21, 5, "Musical Driver:"}, {2, 22, 14, "John Halbleib"},
+    {20, 22, 14, "Electronic Arts"},
+};
+
 const cok_rules cok_rules_champions = {
     .id = "champions",
     .assets = "COKAssets",
@@ -1319,6 +1339,7 @@ const cok_rules cok_rules_champions = {
             .name = "Champions of Krynn",
             .version = "Champions of Krynn v1.2",       /* 1000:0134, at startup */
             .version_again = "Champions Of Krynn v1.2", /* 1000:0313's, after the demo */
+            .camp = "The party makes camp...",
         },
     .archives =
         {
@@ -1375,6 +1396,14 @@ const cok_rules cok_rules_champions = {
             .effects = "SFX",
             .spells = NULL, /* in the record */
             .debug = "DEBUG.TXT",
+            .walls = 3,          /* DS:6d8a: slots 1-3 */
+            .walls_restored = 3, /* 4b6d:1b34 */
+            .roster_flag = COK_FIELD_COINS, /* 4b6d:0453 */
+            .roster_flag_index = 6,
+            .keep_last_mode = false,
+            .vault = NULL,
+            .vault_extension = NULL,
+            .vault_temp = NULL,
         },
     .images =
         {
@@ -1510,6 +1539,61 @@ const cok_rules cok_rules_champions = {
                 },
             .menu_big = true,                  /* 1000:024b */
             .resumed = COK_RESUMED_BY_AREA, /* 4def:01b4 */
+        },
+    .start =
+        {
+            /* 2f55:063c: 1 at 0, 0 for 5 seconds; 2 at 0, 0 with 3 over it
+             * at 5, 1 for 10; 4 at 0, 1 for 10; then the credits for 10
+             * unless a key was pressed. */
+            .pictures = {{1, 0, 0, false, 5}, {2, 0, 0, false, 0}, {3, 5, 1, false, 10},
+                         {4, 0, 1, false, 10}},
+            .picture_count = 4,
+            .credits = champions_credit_lines,
+            .credit_count = sizeof champions_credit_lines / sizeof *champions_credit_lines,
+            .credits_wait = 1000, /* 2f55:0000 with 10 */
+            .credits_always = false,
+            .first_block = 0x24, /* 2fd3:3c28: Solace */
+            .demo_file = 2,      /* 1000:0134 */
+            .demo_block = 0x39,  /* 2fd3:3c28 */
+            .items = {"Create New Character", "Drop Character", "Modify Character",
+                      "Train Character", "Knight Change Classes", "View Character",
+                      "Add Character to Party", "Remove Character from Party", "Load Saved Game",
+                      "Save Current Game", "Begin Adventuring", "Initialize Mouse/Joystick",
+                      "Exit to DOS"},
+            .prompt = "Choose a FUNCTION ",
+            .select = "Select ",
+            .unported = {NULL},
+            .pick_prompt = "Pick Character ", /* 546c:36cc */
+            .pick_menu = "Select Exit",
+            /* 4def:2668 */
+            .drop = "Drop %s forever? ",
+            .drop_sure = "Are you sure? ",
+            .dumped = "You dump %s out back.",
+            .farewell = "%s bids you farewell.",
+            .relief = "%s breathes a sigh of relief.",
+            .quit = "Quit to DOS ", /* 4def:055a */
+            .unsaved = "Game NOT saved.  Quit anyway? ",
+            .ask_colour = 14,
+            .load_prompt = "Load Which Game: ", /* 4b6d:1b34 */
+            .save_prompt = "Save Which Game: ", /* 4b6d:22de */
+            .save_warning = "WARNING: Problem Saving Characters",
+            .load_from = NULL, /* it imports no other game's */
+            .add_from = NULL,
+            .from_items = NULL,
+            .overwrite = "Overwrite %s? ", /* 4b6d:0bed */
+            .new_name = "New file name: ",
+            .add_prompt = "Add a character: ", /* 4def:37a2 */
+            .add_select = "Add ",
+            .rangers = "too many rangers in party",
+            .paladins = true,
+            .add_space_leaves = true, /* 4def:3ae7 */
+            .add_loading = true,
+            .add_unmarks = true,
+            .reset_when_empty = false,
+            .quit_after_save = false,
+            .begin_last_mode = false,
+            .program_marks = false,
+            .reset_wall = 0, /* 3e99:0843 */
         },
 };
 

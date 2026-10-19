@@ -12,18 +12,9 @@
 #include <stdio.h>
 #include <string.h>
 
-/* The start menu's items (DS:0878, a string[40] and a flag each, 0x2a
- * bytes apart). */
-static const char *const items[13] = {
-    "Create New Character", "Drop Character", "Modify Character", "Train Character",
-    "Knight Change Classes", "View Character", "Add Character to Party",
-    "Remove Character from Party", "Load Saved Game", "Save Current Game", "Begin Adventuring",
-    "Initialize Mouse/Joystick", "Exit to DOS",
-};
-
-const char *cok_start_item(unsigned i)
+const char *cok_start_item(const cok_rules *rules, unsigned i)
 {
-    return i < 13 ? items[i] : NULL;
+    return i < 13 ? rules->start.items[i] : NULL;
 }
 
 static void clear_menu(cok_adventure *game)
@@ -39,7 +30,8 @@ bool cok_start_pick(cok_adventure *game)
     int key;
     for (;;) {
         bool special;
-        key = cok_camp_menu(game, "Pick Character ", "Select Exit", true, false, &special);
+        key = cok_camp_menu(game, cok_game_rules(game)->start.pick_prompt,
+                            cok_game_rules(game)->start.pick_menu, true, false, &special);
         if (key < 0) {
             game->mouse.party_clicks = party_clicks;
             return false;
@@ -55,8 +47,9 @@ bool cok_start_pick(cok_adventure *game)
     return key == 'S';
 }
 
-/* The state both 3e99:005b and 3e99:0843 leave. */
-static void fresh(cok_adventure *game, uint8_t facing)
+/* The state both 3e99:005b and 3e99:0843 leave (dkk 4f9a:00e1, 08ad): the
+ * wall table's entry wall (0, 1) and those after it none. */
+static void fresh(cok_adventure *game, uint8_t facing, uint8_t wall)
 {
     cok_ecl *vm = &game->vm;
     memset(vm->mem4b00, 0, sizeof vm->mem4b00);
@@ -70,9 +63,12 @@ static void fresh(cok_adventure *game, uint8_t facing)
     vm->direction = facing;
     vm->ahead = vm->square = 0;
     for (size_t i = 0; i < 3; ++i) game->door_tries[i] = true;
-    for (size_t i = 0; i < COK_VIEW_WALL_SLOTS; ++i) game->wall_ids[i] = game->wall_slots[i] = -1;
-    game->wall_ids[0] = 0;
-    game->wall_slots[0] = 1;
+    for (size_t i = wall; i < COK_VIEW_WALL_SLOTS; ++i)
+        game->wall_ids[i] = game->wall_slots[i] = -1;
+    game->wall_ids[wall] = 0;
+    game->wall_slots[wall] = 1;
+    game->vault_letter = 'Q'; /* dkk DS:fb79, fb78 */
+    game->vault_temp = false;
     vm->keep_vars = false;
     game->rest_ticks = 0;
     vm->character = NULL;
@@ -101,7 +97,7 @@ static void fresh(cok_adventure *game, uint8_t facing)
 void cok_start_startup(cok_adventure *game)
 {
     cok_adventure_mouse_startup(game); /* 3e99:0085 */
-    fresh(game, 0);
+    fresh(game, 0, 0);
     game->debug = false; /* 3e99:055b */
     game->demo = false;
     /* 3e99:06a4: "Loading...Please Wait" while the tiles, the sky, the
@@ -111,20 +107,20 @@ void cok_start_startup(cok_adventure *game)
 
 void cok_start_reset(cok_adventure *game)
 {
-    fresh(game, 2);
+    fresh(game, 2, cok_game_rules(game)->start.reset_wall);
     cok_debug_reset(game); /* 3e99:0977 */
     game->mouse.party_clicks = true; /* 3e99:0933 */
     clear_menu(game);
 }
 
-/* 2f55:0000: flush the keyboard, then wait seconds, polling each
+/* 2f55:0000: flush the keyboard, then wait hundredths, polling each
  * hundredth (GetTime's), unless a key is pressed, which is read; then flush
  * it again (1614:045c), so that the key and any others are thrown away.
  * Returns true for a key. */
-static bool title_wait(cok_adventure *game, unsigned seconds)
+static bool title_wait(cok_adventure *game, unsigned hundredths)
 {
     cok_adventure_flush(game);
-    for (unsigned hundredths = 0; hundredths < seconds * 100u; ++hundredths) {
+    for (unsigned waited = 0; waited < hundredths; ++waited) {
         if (cok_adventure_key_pending(game)) {
             cok_keyboard keys = cok_adventure_keyboard(game);
             keys.read(keys.context);
@@ -150,35 +146,22 @@ static bool title_picture(cok_adventure *game, uint8_t id, int x, int y)
     return true;
 }
 
-/* The credits (2f55:0267). */
+/* The credits (2f55:0267; dkk 35c6:026e): the frame's, then the game's
+ * lines. */
 static void credits(cok_adventure *game)
 {
-    static const struct { uint8_t x, y, fg; const char *text; } lines[30] = {
-        {5, 1, 5, "based on an original story by:"}, {15, 2, 14, "Jim Ward"},
-        {4, 3, 14, "Victor Penman,"}, {19, 3, 5, "and"}, {24, 3, 14, "Dave Shelley"},
-        {2, 5, 5, "game created by:"}, {18, 5, 12, "SSI Special Projects"},
-        {2, 7, 12, "Project Director:"}, {20, 7, 12, "Programming"},
-        {2, 8, 14, "Victor Penman"}, {20, 8, 14, "Russ Brown"}, {20, 9, 14, "Scot Bayless"},
-        {2, 10, 12, "Graphic Arts:"}, {2, 11, 14, "Tom Wahl"},
-        {20, 11, 12, "Encounter Design"}, {2, 12, 14, "Fred Butts"},
-        {20, 12, 14, "Dave Shelley"}, {2, 13, 14, "Mark Johnson"},
-        {20, 13, 14, "Michael Mancuso"}, {2, 14, 14, "Cyrus Lum"},
-        {20, 14, 14, "Ken Humphries"}, {2, 15, 14, "Susan Manley"}, {2, 17, 12, "playtest:"},
-        {12, 17, 14, "Rick White,Don Mc Clure,"}, {2, 18, 14, "Mike Bench,Cliff Mann, Rick Wilson,"},
-        {2, 19, 14, "Erik Flom,James Young,Graeme Bayless"}, {2, 21, 5, "Musical Score:"},
-        {20, 21, 5, "Musical Driver:"}, {2, 22, 14, "John Halbleib"},
-        {20, 22, 14, "Electronic Arts"},
-    };
+    const cok_rules_start *start = &cok_game_rules(game)->start;
     cok_adventure_screen(game, COK_SCREEN_CREDITS); /* 1128:0130 */
-    for (size_t i = 0; i < 30; ++i) {
-        cok_adventure_log(game, "print", lines[i].text);
-        cok_text_string(&game->screen, &game->font, lines[i].text, lines[i].x, lines[i].y,
-                        lines[i].fg, 0);
+    for (size_t i = 0; i < start->credit_count; ++i) {
+        const cok_rules_text_line *line = &start->credits[i];
+        cok_adventure_log(game, "print", line->text);
+        cok_text_string(&game->screen, &game->font, line->text, line->x, line->y, line->fg, 0);
     }
 }
 
 void cok_start_title(cok_adventure *game)
 {
+    const cok_rules_start *start = &cok_game_rules(game)->start;
     game->title = true;
     cok_adventure_free_picture(game); /* 6961:0537 */
     /* 2f55:063c: DS:5780 set and the music started (1661:000a, 02e6,
@@ -188,14 +171,17 @@ void cok_start_title(cok_adventure *game)
     /* 2f55:0651: the mouse's cursor hidden through the title, its waits
      * too, until 2f55:006d (0086). */
     cok_mouse_hide(&game->mouse);
-    bool key = !title_picture(game, 1, 0, 0) || title_wait(game, 5);
-    if (!key) key = !title_picture(game, 2, 0, 0) || !title_picture(game, 3, 5, 1) ||
-                    title_wait(game, 10);
-    if (!key) key = !title_picture(game, 4, 0, 1) || title_wait(game, 10);
-    if (!key) {
+    bool key = false;
+    for (size_t i = 0; i < start->picture_count && !key; ++i) {
+        const cok_rules_title_picture *p = &start->pictures[i];
+        if (p->clear) cok_picture_fill(&game->screen, 0, 0, 40, 200, 0); /* dkk 14e4:0a37 */
+        key = !title_picture(game, p->record, p->x, p->y) ||
+              (p->seconds > 0 && title_wait(game, p->seconds * 100u));
+    }
+    if (!key || start->credits_always) {
         cok_picture_fill(&game->screen, 0, 0, 40, 200, 0); /* 1521:0a34 */
         credits(game);
-        title_wait(game, 10);
+        title_wait(game, start->credits_wait);
     }
     /* 2f55:006d: the music stopped (1661:0353, 00da), DS:5780 cleared. */
     cok_picture_fill(&game->screen, 0, 0, 40, 200, 0);
@@ -334,7 +320,8 @@ static bool begin(cok_adventure *game, uint8_t mode)
 {
     cok_ecl *vm = &game->vm;
     if (game->party.count == 0 && !game->demo) return false;
-    vm->mode = mode;
+    /* dkk 49cb:010b: the last mode (DS:8c4f), as a load may have set it. */
+    vm->mode = cok_game_rules(game)->start.begin_last_mode ? vm->last_mode : mode;
     if (!vm->keep_vars || game->picture_id == 9) {
         if (vm->mode == 3 && !cok_ecl_flag(vm, COK_VAR_OFF_MAP))
             cok_adventure_screen(game, COK_SCREEN_BIG); /* 1128:0344 */
@@ -357,20 +344,51 @@ static bool begin(cok_adventure *game, uint8_t mode)
     return true;
 }
 
-/* Exit to DOS (4def:055a). */
+/* Exit to DOS (4def:055a; dkk 49cb:010b's, which quits once No has
+ * saved). */
 static void leave(cok_adventure *game)
 {
-    int answer = cok_camp_yes_no(game, "Quit to DOS ", 14);
+    const cok_rules_start *start = &cok_game_rules(game)->start;
+    int answer = cok_camp_yes_no(game, start->quit, start->ask_colour);
     if (answer != 'Y') return;
     if (game->party.count > 0 && game->effects.rolls.saved == 0) {
-        answer = cok_camp_yes_no(game, "Game NOT saved.  Quit anyway? ", 14);
+        answer = cok_camp_yes_no(game, start->unsaved, start->ask_colour);
         if (answer < 0) return;
         if (answer == 'N') {
             cok_camp_save(game);
-            return;
+            if (!start->quit_after_save || game->vm.abort) return;
         }
     }
     cok_camp_quit(game);
+}
+
+/* A command the port does not carry out yet for the game: the run stops
+ * there, citing the game's routine. */
+static bool unported(cok_adventure *game, unsigned item)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const char *routine = rules->start.unported[item];
+    if (routine == NULL) return false;
+    cok_adventure_fail(game, COK_ECL_UNPORTED, "not yet ported: %s's %s (%s)", rules->text.name,
+                       rules->start.items[item], routine);
+    return true;
+}
+
+/* A Drop or Remove that left no one ends the game there, where the game's
+ * does (dkk 49cb:010b: 4f9a:08ad, then DS:8c5b): the end of a game's
+ * state, the mode the menu returns to the party menu's, and the adventure
+ * starting over once the menu returns (cok_adventure_play). */
+static void emptied(cok_adventure *game, uint8_t *entry)
+{
+    if (!cok_game_rules(game)->start.reset_when_empty || game->party.count > 0) return;
+    cok_start_reset(game);
+    cok_ecl *vm = &game->vm;
+    vm->last_mode = vm->mode; /* 49cb:010b's start again */
+    vm->mode = 0;
+    *entry = vm->last_mode;
+    game->free_training = false; /* DS:c46a */
+    game->new_game = true;
+    vm->halt = true; /* DS:8c5b: the script that opened the menu stops too */
 }
 
 /* The items each pass offers (4def:01ef): by whether a character is
@@ -391,9 +409,19 @@ bool cok_start_command(cok_adventure *game, char letter)
 {
     bool on[13];
     flags(game, on);
+    /* The item the letter begins: the original takes the row's first
+     * letter (dkk the row's place, the same: the items' letters differ). */
+    unsigned item = 13;
+    for (unsigned i = 0; i < 13; ++i)
+        if (cok_game_rules(game)->start.items[i][0] == letter) item = i;
+    if (item < 13 && on[item] && unported(game, item)) return false;
     switch (letter) {
     case 'C': if (on[0]) cok_create(game); break;
-    case 'D': if (on[1]) cok_roster_drop(game); break;
+    case 'D':
+        if (!on[1]) break;
+        cok_roster_drop(game);
+        emptied(game, &entry_mode);
+        break;
     case 'M': if (on[2]) cok_modify(game); break;
     case 'T': if (on[3]) cok_train(game); break;
     case 'K': if (on[4]) cok_train_knight(game); break;
@@ -404,7 +432,11 @@ bool cok_start_command(cok_adventure *game, char letter)
         }
         break;
     case 'A': if (on[6]) cok_roster_add(game); break;
-    case 'R': if (on[7]) cok_roster_remove(game); break;
+    case 'R':
+        if (!on[7]) break;
+        cok_roster_remove(game);
+        emptied(game, &entry_mode);
+        break;
     case 'L': if (on[8]) cok_roster_load(game); break;
     case 'S': if (on[9] && game->party.count > 0) cok_camp_save(game); break;
     case 'B':
@@ -428,8 +460,11 @@ bool cok_start_command(cok_adventure *game, char letter)
 void cok_start_menu(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
+    const cok_rules_start *start = &cok_game_rules(game)->start;
     uint8_t outer = entry_mode;
     entry_mode = vm->mode;
+    /* dkk 49cb:010b keeps the mode in the last mode (DS:8c4f), Begin's. */
+    if (start->begin_last_mode) vm->last_mode = vm->mode;
     vm->mode = 0;
     game->free_training = false;
     game->mouse.party_clicks = false; /* 4def:01bb */
@@ -442,13 +477,13 @@ void cok_start_menu(cok_adventure *game)
         flags(game, on);
         cok_menu_row rows[13];
         size_t count = 0;
-        cok_adventure_log(game, "list", "Choose a FUNCTION ");
+        cok_adventure_log(game, "list", start->prompt);
         for (size_t i = 0; i < 13; ++i) {
             if (!on[i]) continue;
-            rows[count++] = (cok_menu_row){items[i], false};
-            cok_adventure_log(game, "item", items[i]);
+            rows[count++] = (cok_menu_row){start->items[i], false};
+            cok_adventure_log(game, "item", start->items[i]);
         }
-        cok_menu_style style = {"Choose a FUNCTION ", "Select ", 15, 10, 13, false};
+        cok_menu_style style = {start->prompt, start->select, 15, 10, 13, false};
         bool redraw = true;
         cok_keyboard keys = cok_adventure_keyboard(game);
         int key = cok_menu_rows(&game->screen, &game->font, rows, count,
@@ -460,7 +495,10 @@ void cok_start_menu(cok_adventure *game)
         char letter = key == 0 ? '\0' : rows[index].text[0];
         if (key != 0) cok_adventure_log(game, "choice", rows[index].text);
         if (letter != 'E' && letter != 'S') game->effects.rolls.saved = 0; /* DS:5885 */
+        bool ended = game->new_game;
         if (cok_start_command(game, letter)) break;
+        /* dkk 49cb:010b: the game ended, the list starts on its first row. */
+        if (game->new_game && !ended) index = 0;
     }
     entry_mode = outer;
 }
@@ -472,6 +510,7 @@ static cok_ecl_status adventure(cok_adventure *game)
     cok_ecl *vm = &game->vm;
     cok_ecl_status status;
     bool keep = game->demo;
+    const cok_rules_start *start = &cok_game_rules(game)->start;
     if (game->demo) {
         /* As 2fd3:3c28 starts, with no party list. */
         game->redraw = true;
@@ -479,13 +518,22 @@ static cok_ecl_status adventure(cok_adventure *game)
         game->frame_pending = false;
         vm->saved_character = vm->character;
         vm->mode = cok_ecl_var(vm, COK_VAR_3D) == 0 ? 3 : 4;
-        status = cok_adventure_load(game, 0x39);
+        status = cok_adventure_load(game, start->demo_block);
         if (status == COK_ECL_OK) status = cok_ecl_run(vm, vm->vectors[4]);
     } else {
-        uint8_t block =
-            cok_ecl_var(vm, COK_VAR_BLOCK) != 0 ? (uint8_t)cok_ecl_var(vm, COK_VAR_BLOCK) : 0x24;
-        status = cok_adventure_enter(game, block);
-        if (status == COK_ECL_OK && !vm->abort) status = cok_adventure_play(game);
+        /* A start menu that ended the game (dkk DS:8c5b) starts it again
+         * from a new game's block (3632:2e06's outer loop). */
+        do {
+            game->new_game = false;
+            vm->halt = false; /* 3632:2e0e */
+            uint8_t block = cok_ecl_var(vm, COK_VAR_BLOCK) != 0
+                                ? (uint8_t)cok_ecl_var(vm, COK_VAR_BLOCK)
+                                : start->first_block;
+            status = cok_adventure_enter(game, block);
+            if (status == COK_ECL_OK && !vm->abort && !game->new_game)
+                status = cok_adventure_play(game);
+        } while (status == COK_ECL_OK && !vm->abort && !game->input_ended && !game->quit &&
+                 game->new_game);
     }
     if (status != COK_ECL_OK || game->input_ended || game->quit) return status;
     vm->abort = false;
@@ -522,7 +570,7 @@ cok_ecl_status cok_start_game(cok_adventure *game, bool woof)
     if (key < 0) return vm->status;
     game->demo = key == 'D';
     for (;;) {
-        vm->file = game->demo ? 2 : 1;
+        vm->file = game->demo ? cok_game_rules(game)->start.demo_file : 1;
         cok_adventure_overlay(game); /* 1000:01d8, around 4def:0000 */
         if (game->demo) {
             game->speed = 9;

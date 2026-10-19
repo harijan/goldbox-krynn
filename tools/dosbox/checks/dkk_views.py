@@ -12,9 +12,10 @@ line (cells 17-38 of rows 1-15: the port has no party yet), the text
 window and the menu's row; and two of the places in CGA mode (6d21:0177's
 backdrop, without Champions' line row).
 
-Death Knights is read headless only (DEATH-KNIGHTS.md's step 1): the port
-cannot load its saved games, and the original's game must have a party.
-So each place is a copy of SAVGAMA.PTY with the block, the ECL file, the
+When this check was written Death Knights was read headless only
+(DEATH-KNIGHTS.md's step 1): the port could not load its saved games, and
+the original's game must have a party (dkk_start.py checks the loads). So
+each place is a copy of SAVGAMA.PTY with the block, the ECL file, the
 square and facing, the wall set and the area's variables written in (its
 byte 0 and 0x7f12 at 0x713 the ECL file, the area's 0x4b00-0x4eff from
 byte 1, the square and facing from 0xa01, the wall sets' table from 0xa08);

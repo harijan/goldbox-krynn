@@ -776,11 +776,11 @@ static void test_tables(void)
     size_t ds = (size_t)(exe[8] | exe[9] << 8) * 16 + 0xbc6 * 16;
     /* The start menu's items, string[40]s 0x2a bytes apart from DS:0878. */
     for (unsigned i = 0; i < 13; ++i) {
-        const char *item = cok_start_item(i);
+        const char *item = cok_start_item(&cok_rules_champions, i);
         const uint8_t *p = exe + ds + 0x878 + 0x2a * i;
         CHECK(p[0] == strlen(item) && memcmp(p + 1, item, p[0]) == 0);
     }
-    CHECK(cok_start_item(13) == NULL);
+    CHECK(cok_start_item(&cok_rules_champions, 13) == NULL);
     (void)size;
 }
 
@@ -1507,6 +1507,359 @@ static void test_vectors(void)
     empty_party();
 }
 
+/* Death Knights' saved games, vault and start menu (dkk 46b2:1ef0, 2808,
+ * 2e1d, 302d, 49cb:010b), on a game of its own. */
+static cok_adventure dkk;
+
+static void dkk_keys(const char *k)
+{
+    keys(k);
+    dkk.input_ended = dkk.quit = dkk.vm.abort = false;
+    dkk.vm.status = COK_ECL_OK;
+    dkk.error[0] = '\0';
+}
+
+static size_t slurp(const char *path, uint8_t *data, size_t size)
+{
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) return 0;
+    size_t n = fread(data, 1, size, f);
+    fclose(f);
+    return n;
+}
+
+/* A copy of DKKAssets/SAVE (or another directory's files) in a new
+ * directory under dir. */
+static void copy_saves(const char *from, const char *to)
+{
+    char command[600];
+    snprintf(command, sizeof command,
+             "mkdir -p %s && find %s/ -maxdepth 1 -type f -exec cp {} %s/ \\;", to, from, to);
+    CHECK(system(command) == 0);
+}
+
+/* Whether saved games a and b of Death Knights' layout are the same but
+ * for the bytes its stack leaves (after each name, and the slots past the
+ * count). */
+static bool same_saved(const char *a, const char *b)
+{
+    static uint8_t x[4096], y[4096];
+    size_t n = slurp(a, x, sizeof x), m = slurp(b, y, sizeof y);
+    if (n != 2913 || m != 2913) return false;
+    for (size_t i = 0; i < n; ++i) {
+        if (i >= 0xa19) {
+            size_t slot = (i - 0xa19) / 41, at = (i - 0xa19) % 41;
+            if (slot >= x[0xa18] || (at > 0 && at > x[0xa19 + 41 * slot])) continue;
+        }
+        if (x[i] != y[i]) {
+            fprintf(stderr, "%s +0x%03zx: %02x, %s %02x\n", a, i, x[i], b, y[i]);
+            return false;
+        }
+    }
+    return true;
+}
+
+/* FNV-1a over a character's .GAM, .WIZ, .JNK and .EFF in dir, each far
+ * pointer's byte as 0 (tests/test_party.c's import digests). */
+static uint32_t character_hash(const char *in, const char *base, size_t *size)
+{
+    const cok_character_layout *L = cok_rules_death_knights.character;
+    static const char *const extensions[] = {"GAM", "WIZ", "JNK", "EFF"};
+    uint32_t hash = 0x811c9dc5u;
+    *size = 0;
+    for (size_t e = 0; e < 4; ++e) {
+        char path[600];
+        static uint8_t data[4096];
+        snprintf(path, sizeof path, "%s/%s.%s", in, base, extensions[e]);
+        size_t n = slurp(path, data, sizeof data);
+        for (size_t k = 0; k < n; ++k) {
+            bool pointer = e == 0   ? cok_field_pointer_at(L, (long)k)
+                           : e == 2 ? k % COK_ITEM_SIZE >= 0x2a && k % COK_ITEM_SIZE < 0x2e
+                           : e == 3 ? k % COK_EFFECT_SIZE >= 5
+                                    : false;
+            hash = (hash ^ (pointer ? 0 : data[k])) * 0x01000193u;
+        }
+        *size += n;
+    }
+    return hash;
+}
+
+/* A short item after the file's whole ones. */
+static void f_append(const char *path)
+{
+    FILE *f = fopen(path, "ab");
+    CHECK(f != NULL && fwrite("partial item", 1, 12, f) == 12 && fclose(f) == 0);
+}
+
+static void dkk_empty(void)
+{
+    cok_party_free(&dkk.party);
+    dkk.vm.character = NULL;
+    cok_ecl_set_var(&dkk.vm, COK_VAR_PARTY_SIZE, 0);
+}
+
+/* Death Knights' start menu where it differs (dkk 49cb:010b). */
+static void test_death_knights_menu(void)
+{
+    char to[128], path[400];
+    snprintf(to, sizeof to, "%s/dkkmenu", dir);
+    copy_saves("DKKAssets/SAVE", to);
+    snprintf(dkk.save_dir, sizeof dkk.save_dir, "%s", to);
+    snprintf(path, sizeof path, "%s/SAVGAMB.PTY", to);
+    dkk_keys("");
+    CHECK(cok_adventure_restore(&dkk, path));
+    /* Begin takes the last mode, the saved game's here. */
+    dkk.vm.last_mode = 3;
+    CHECK(cok_start_command(&dkk, 'B') && dkk.vm.mode == 3);
+    /* Its words: Pick Character's "Select", Drop's. */
+    dkk_keys("SN");
+    cok_start_command(&dkk, 'D');
+    CHECK(logged("menu: Select;") && logged("menu: drop ") && logged(" forever ;") &&
+          logged("breathe a sigh of relief."));
+    CHECK(dkk.party.count == 6 && !dkk.new_game);
+    /* Its questions' prompts in light magenta (6a69:2048): Exit's, the
+     * keys run out. */
+    dkk_keys("");
+    cok_start_command(&dkk, 'E');
+    CHECK(logged("menu: Quit to DOS ;"));
+    bool magenta = false;
+    for (int row = 0; row < 8; ++row)
+        for (int b = 0; b < 4; ++b) {
+            uint8_t pair = dkk.screen.pixels[(size_t)(24 * 8 + row) * 160 + (size_t)b];
+            magenta |= pair >> 4 == 13 || (pair & 15) == 13;
+            CHECK(pair >> 4 != 14 && (pair & 15) != 14);
+        }
+    CHECK(magenta);
+    /* The commands it does not have ported stop the run, naming them. */
+    dkk_keys("");
+    CHECK(!cok_start_command(&dkk, 'C') && dkk.vm.status == COK_ECL_UNPORTED &&
+          strcmp(dkk.error, "not yet ported: Death Knights of Krynn's Create New Character "
+                            "(dkk 49cb:05c7)") == 0);
+    dkk_keys("");
+    CHECK(!cok_start_command(&dkk, 'M') && dkk.vm.status == COK_ECL_UNPORTED &&
+          strstr(dkk.error, "(dkk 49cb:25d4)") != NULL);
+    /* "from where": Exit adds and loads nothing. */
+    dkk_keys("E");
+    cok_start_command(&dkk, 'A');
+    CHECK(logged("menu: Death Champions Exit;") && dkk.party.count == 6 && !dkk.vm.abort);
+    /* Exit to DOS, the game not saved: No saves it, and then quits. */
+    dkk.effects.rolls.saved = 0;
+    dkk_keys("YND");
+    cok_start_command(&dkk, 'E');
+    CHECK(logged("menu: game not saved. quit anyway? ") && logged("menu: A B C D E F G H I J;") &&
+          dkk.quit);
+    snprintf(path, sizeof path, "%s/SAVGAMD.PTY", to);
+    uint8_t probe[1];
+    CHECK(slurp(path, probe, 1) == 1);
+    /* The roster's copy erased (46b2:09dc): .PC, .JNK, .EFF and .WIZ. */
+    const char *const exts[] = {"PC", "JNK", "EFF", "WIZ"};
+    char base[9], file[500];
+    {
+        const uint8_t *r = dkk.party.members[0]->record;
+        char name[16];
+        snprintf(name, sizeof name, "%.*s", r[0] > 15 ? 15 : r[0], (const char *)r + 1);
+        cok_party_file_name(name, base);
+    }
+    for (size_t e = 0; e < 4; ++e) {
+        snprintf(file, sizeof file, "%s/%s.%s", to, base, exts[e]);
+        FILE *w = fopen(file, "wb");
+        CHECK(w != NULL && fclose(w) == 0);
+    }
+    cok_roster_erase(&dkk, dkk.party.members[0]->record);
+    for (size_t e = 0; e < 4; ++e) {
+        snprintf(file, sizeof file, "%s/%s.%s", to, base, exts[e]);
+        CHECK(slurp(file, probe, 1) == 0 && access(file, F_OK) != 0);
+    }
+    /* Dropping the last character ends the game there: the end of a
+     * game's state, the wall table's second entry (0, 1) and its first
+     * kept (4f9a:08ad), and the adventure to start again. */
+    while (dkk.party.count > 1) {
+        dkk.vm.character = dkk.party.members[0]->record;
+        dkk_keys("SYY");
+        cok_start_command(&dkk, 'D');
+    }
+    dkk.wall_ids[0] = 5;
+    dkk.wall_slots[0] = 0;
+    dkk.vm.mem4b00[0x55] = 9;
+    dkk.vault_letter = 'B';
+    dkk.vm.character = dkk.party.members[0]->record;
+    dkk_keys("SYY");
+    cok_start_command(&dkk, 'D');
+    CHECK(dkk.party.count == 0 && dkk.new_game && dkk.vm.mem4b00[0x55] == 0);
+    CHECK(dkk.wall_ids[0] == 5 && dkk.wall_slots[0] == 0 && dkk.wall_ids[1] == 0 &&
+          dkk.wall_slots[1] == 1 && dkk.wall_ids[2] == -1 && dkk.wall_ids[3] == -1);
+    CHECK(dkk.vm.mode == 0 && dkk.vm.last_mode == 4 && dkk.vault_letter == 'Q');
+    CHECK(cok_ecl_var(&dkk.vm, COK_VAR_DIFFICULTY) == 3 && dkk.vm.direction == 2);
+    dkk.new_game = false;
+    /* From the menu: the list is on its first row again once the game has
+     * ended (Enter then picks Create, which stops). */
+    snprintf(path, sizeof path, "%s/SAVGAMA.PTY", to);
+    dkk_keys("");
+    CHECK(cok_adventure_restore(&dkk, path));
+    while (dkk.party.count > 1) {
+        dkk.vm.character = dkk.party.members[0]->record;
+        dkk_keys("SYY");
+        cok_start_command(&dkk, 'D');
+    }
+    dkk_keys("\x01P\rSYY\r");
+    cok_start_menu(&dkk);
+    CHECK(logged("choice: Drop Character;") && dkk.party.count == 0 &&
+          logged("choice: Create New Character;") && dkk.vm.status == COK_ECL_UNPORTED);
+    dkk.new_game = false;
+    /* Champions' end of a game sets the first entry. */
+    game.wall_ids[0] = 5;
+    cok_start_reset(&game);
+    CHECK(game.wall_ids[0] == 0 && game.wall_slots[0] == 1 && game.wall_ids[1] == -1);
+}
+
+static void test_death_knights_saves(void)
+{
+    const cok_rules *R = &cok_rules_death_knights, *C = &cok_rules_champions;
+    /* The layouts: Champions' words and three wall entries, 5,469 bytes;
+     * Death Knights' bytes and four, 2,913. */
+    CHECK(cok_saved_game_size(C) == 5469 && cok_saved_game_size(R) == 2913);
+    CHECK(cok_saved_game_count_offset(C) == 0x1414 && cok_saved_game_count_offset(R) == 0xa18);
+    CHECK(cok_saved_game_var_offset(C, 0x4c33) == 0x267 &&
+          cok_saved_game_var_offset(R, 0x4c33) == 0x134);
+    CHECK(cok_saved_game_var_offset(R, 0x7f12) == 0x713 &&
+          cok_saved_game_var_offset(R, 0x7bff) == 0xa00);
+    uint8_t probe[1];
+    if (slurp("DKKAssets/SAVE/SAVGAMA.PTY", probe, 1) == 0) {
+        puts("start: no Death Knights saved games in DKKAssets/SAVE; not checked");
+        return;
+    }
+    cok_keyboard k = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .key_pending = pending, .delay = delay,
+                                 .flush = flush, .context = &s};
+    CHECK(cok_adventure_open(&dkk, R, "DKKAssets", &k, &hooks));
+    CHECK(dkk.vault_letter == 'Q');
+    char to[128], path[400], other[300];
+    /* Each saved game read, then written as its letter: the same file but
+     * for the stack's bytes; its characters but for the far pointers; its
+     * vault kept. */
+    for (char letter = 'A'; letter <= 'B'; ++letter) {
+        snprintf(to, sizeof to, "%s/dkk%c", dir, letter);
+        copy_saves("DKKAssets/SAVE", to);
+        snprintf(dkk.save_dir, sizeof dkk.save_dir, "%s", to);
+        snprintf(path, sizeof path, "%s/SAVGAM%c.PTY", to, letter);
+        dkk_keys("");
+        CHECK(cok_adventure_restore(&dkk, path));
+        CHECK(dkk.vault_letter == letter && dkk.party.count == 6 && dkk.vm.keep_vars);
+        /* A byte an address. */
+        for (size_t i = 0; i < 0x400; ++i)
+            CHECK(dkk.vm.mem4b00[i] <= 0xff && dkk.vm.mem7c00[i] <= 0xff);
+        CHECK(dkk.vm.mode == 0 && dkk.vm.last_mode == 4 && dkk.vm.file == 1);
+        CHECK(dkk.wall_ids[0] == 0 && dkk.wall_slots[0] == 1 &&
+              dkk.wall_ids[1] == (letter == 'B' ? 0 : -1));
+        CHECK(cok_camp_save_game(&dkk, letter));
+        snprintf(other, sizeof other, "DKKAssets/SAVE/SAVGAM%c.PTY", letter);
+        CHECK(same_saved(other, path));
+        for (unsigned n = 1; n <= 6; ++n) {
+            char base[16];
+            snprintf(base, sizeof base, "CHRDAT%c%u", letter, n);
+            size_t a, b;
+            CHECK(character_hash("DKKAssets/SAVE", base, &a) == character_hash(to, base, &b) &&
+                  a == b);
+        }
+        /* Saved as another letter, the vault goes with it. */
+        CHECK(cok_camp_save_game(&dkk, 'C'));
+        uint8_t v[64], w[64];
+        snprintf(path, sizeof path, "%s/VAULT%c.DAT", to, letter);
+        snprintf(other, sizeof other, "%s/VAULTC.DAT", to);
+        CHECK(slurp(path, v, sizeof v) == 12 && slurp(other, w, sizeof w) == 12 &&
+              memcmp(v, w, 12) == 0 && dkk.vault_letter == 'C');
+        dkk_empty();
+    }
+    /* A Champions game loaded: its party imported, of its variables the
+     * bank's word at 0x267 (here 0x1234), which a new vault holds a
+     * hundred times over in steel. */
+    if (slurp("SAVE/SAVGAMA.DAT", probe, 1) == 1) {
+        snprintf(to, sizeof to, "%s/cok", dir);
+        copy_saves("SAVE", to);
+        static uint8_t save[5469];
+        snprintf(path, sizeof path, "%s/SAVGAMA.DAT", to);
+        CHECK(slurp(path, save, sizeof save) == sizeof save);
+        save[0x267] = 0x34;
+        save[0x268] = 0x12;
+        save[0x1] = 0x77; /* 0x4b00: not read */
+        FILE *f = fopen(path, "wb");
+        CHECK(f != NULL && fwrite(save, 1, sizeof save, f) == sizeof save && fclose(f) == 0);
+        snprintf(other, sizeof other, "%s/dkkC", dir);
+        CHECK(mkdir(other, 0755) == 0);
+        snprintf(dkk.save_dir, sizeof dkk.save_dir, "%s", other);
+        snprintf(dkk.import_dir, sizeof dkk.import_dir, "%s", to);
+        dkk.vault_letter = 'Q';
+        dkk_keys("");
+        CHECK(cok_adventure_import_game(&dkk, path));
+        CHECK(dkk.party.count == 6 && !dkk.vm.keep_vars && dkk.vm.mode == 0);
+        CHECK(cok_ecl_var(&dkk.vm, COK_VAR_SAVINGS) == 0x1234 && dkk.vm.mem4b00[0] == 0);
+        CHECK(cok_ecl_var(&dkk.vm, COK_VAR_PARTY_SIZE) == 6 && dkk.vault_letter == 'Q');
+        CHECK(cok_camp_save_game(&dkk, 'A'));
+        /* The characters as the original wrote them (tests/test_party.c's
+         * test_import_saved). */
+        static const uint32_t hashes[] = {0x0d7363e2u, 0xafc1a28au, 0x58714e96u,
+                                          0x50c65c97u, 0x30ea8301u, 0x1960b77cu};
+        static const size_t sizes[] = {625, 769, 760, 495, 697, 760};
+        for (unsigned n = 1; n <= 6; ++n) {
+            char base[16];
+            snprintf(base, sizeof base, "CHRDATA%u", n);
+            size_t size;
+            CHECK(character_hash(other, base, &size) == hashes[n - 1] && size == sizes[n - 1]);
+        }
+        uint8_t v[64];
+        snprintf(path, sizeof path, "%s/VAULTA.DAT", other);
+        CHECK(slurp(path, v, sizeof v) == 12 && get32(v) == 0x1234 * 100u && get32(v + 4) == 0 &&
+              get32(v + 8) == 0);
+        dkk_empty();
+        /* 46b2:1ef0 would leave out a Champions NPC (+0x3e after the
+         * import), but the import does not move Champions' NPC flag
+         * (+0xe7): it joins, as a player character. */
+        snprintf(path, sizeof path, "%s/CHRDATA6.SAV", to);
+        static uint8_t npc[409];
+        CHECK(slurp(path, npc, sizeof npc) == sizeof npc);
+        npc[0xe7] = 0xb2;
+        f = fopen(path, "wb");
+        CHECK(f != NULL && fwrite(npc, 1, sizeof npc, f) == sizeof npc && fclose(f) == 0);
+        snprintf(path, sizeof path, "%s/SAVGAMA.DAT", to);
+        dkk_keys("");
+        CHECK(cok_adventure_import_game(&dkk, path) && dkk.party.count == 6 &&
+              cok_ecl_var(&dkk.vm, COK_VAR_PARTY_SIZE) == 6);
+        CHECK(cok_field_u8(R->character, dkk.party.members[5]->record, COK_FIELD_NPC) == 0);
+        dkk_empty();
+    }
+    /* The vault's files: coins, then whole items, their next pointers
+     * cleared on reading and written as 0; a short last item left out. */
+    cok_vault vault = {0};
+    for (size_t i = 0; i < 12; ++i) vault.coins[i] = (uint8_t)(i + 1);
+    static uint8_t items[2 * COK_ITEM_SIZE];
+    for (size_t i = 0; i < sizeof items; ++i) items[i] = (uint8_t)(i * 7 + 1);
+    vault.items = items;
+    vault.item_count = 2;
+    char error[300];
+    snprintf(path, sizeof path, "%s/VAULTX.DAT", dir);
+    CHECK(cok_vault_write(path, &vault, error, sizeof error));
+    static uint8_t data[512];
+    CHECK(slurp(path, data, sizeof data) == 12 + 2 * COK_ITEM_SIZE);
+    CHECK(data[0] == 1 && data[11] == 12 && data[12] == 1 && get32(data + 12 + 0x2a) == 0 &&
+          get32(data + 12 + COK_ITEM_SIZE + 0x2a) == 0);
+    f_append(path);
+    /* A pointer the original wrote as it was in memory: cleared. */
+    FILE *patch = fopen(path, "r+b");
+    CHECK(patch != NULL && fseek(patch, 12 + COK_ITEM_SIZE + 0x2a, SEEK_SET) == 0 &&
+          fwrite("\x12\x34\x56\x78", 1, 4, patch) == 4 && fclose(patch) == 0);
+    cok_vault read;
+    bool missing;
+    CHECK(cok_vault_read(path, &read, &missing, error, sizeof error) && read.item_count == 2);
+    CHECK(memcmp(read.coins, vault.coins, 12) == 0 && read.items[0] == 1 &&
+          get32(read.items + 0x2a) == 0 && read.items[COK_ITEM_SIZE + 0x2b] == 0);
+    cok_vault_free(&read);
+    snprintf(path, sizeof path, "%s/VAULTY.DAT", dir);
+    CHECK(!cok_vault_read(path, &read, &missing, error, sizeof error) && missing &&
+          read.item_count == 0);
+    test_death_knights_menu();
+    cok_adventure_close(&dkk);
+}
+
 int main(void)
 {
     snprintf(dir, sizeof dir, "build/start_XXXXXX");
@@ -1531,6 +1884,7 @@ int main(void)
     test_roster_rules();
     test_demo();
     test_edges();
+    test_death_knights_saves();
     cok_adventure_close(&game);
     char command[128];
     snprintf(command, sizeof command, "rm -r %s", dir);

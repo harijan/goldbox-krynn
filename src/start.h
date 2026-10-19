@@ -11,9 +11,9 @@
  * (DS:4b4b). Characters are made in create.h, trained in train.h,
  * modified in modify.h and kept in the roster (roster.h). */
 
-/* The text of the start menu's item i, 0-12 (DS:0878 + 0x2a * i), or
- * NULL. */
-const char *cok_start_item(unsigned i);
+/* The text of the game's start menu's item i, 0-12 (DS:0878 + 0x2a * i;
+ * dkk DS:0cf8), or NULL. */
+const char *cok_start_item(const cok_rules *rules, unsigned i);
 
 /* Pick Character (546c:36cc): "Pick Character " and "Select Exit", with
  * the special keys picking the character (546c:3334) and the party list

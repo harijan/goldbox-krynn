@@ -15,6 +15,7 @@ included here.
 - [Playing](#playing)
 - [Controls](#controls)
 - [Saved games](#saved-games)
+- [Death Knights of Krynn](#death-knights-of-krynn)
 - [Options](#options)
 - [Troubleshooting](#troubleshooting)
 - [How faithful is it?](#how-faithful-is-it)
@@ -125,6 +126,27 @@ mkdir -p saves && cp SAVE/* saves/
 The port reads and writes the same file format as the original, so games
 also go back the other way.
 
+## Death Knights of Krynn
+
+The port also plays the sequel, *Death Knights of Krynn* (1991), so far
+up to its first fight. Copy your DOS *Death Knights* files into a folder
+named `DKKAssets` and run:
+
+```sh
+./build/cok --game death-knights
+```
+
+From the title you reach the start menu, where you can load a saved game
+(its `SAVGAM*.PTY` and `CHRDAT*` files, and the bank vault's `VAULT*.DAT`,
+copied into `saves/`), save one, view, add, remove and drop characters,
+and begin. As in the original, Add Character to Party and Load Saved
+Game can also bring over a party from *Champions of Krynn*: the port
+looks for Champions' roster and saved games in `saves/` too, or in the
+folder `--import DIR` names. The adventure then runs until the first
+fight. Creating, modifying and training characters, Initialize
+Mouse/Joystick, combat and the vault's menu aren't there yet: the game
+stops with a message saying what it reached.
+
 ## Options
 
 `./build/cok --help` lists them all. The useful ones:
@@ -140,7 +162,8 @@ also go back the other way.
 | `--input mouse`, `joystick` or `none` | mouse, joystick or keyboard only for this run |
 | `--saves DIR` | keep the roster and saved games in DIR instead of `saves/` |
 | `--assets DIR` | find the game's files in DIR instead of `COKAssets/` |
-| `--game champions` | the game to play; Champions of Krynn, the default, is the only one so far |
+| `--game champions` or `death-knights` | the game to play; Champions of Krynn is the default (see [Death Knights of Krynn](#death-knights-of-krynn)) |
+| `--import DIR` | Death Knights: where to find the Champions characters and saved games to bring over (default: the saves folder) |
 | `--screenshots DIR` | where F12 saves screenshots |
 
 ## Troubleshooting

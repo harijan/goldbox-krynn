@@ -1469,16 +1469,64 @@ void cok_character_damage(uint8_t *c, const cok_rules *rules, uint8_t damage)
     }
 }
 
-bool cok_saved_game_read(const char *path, cok_saved_game *game, char *error, size_t error_size)
+/* A saved game's parts in rules' layout: the ECL file, the three blocks
+ * of variables, an address's cell variable_bytes wide, then 7 bytes, the
+ * wall table, the count and the names. */
+static size_t variable_bytes(const cok_rules *rules)
+{
+    assert(rules != NULL && (rules->ecl.variable_bytes == 1 || rules->ecl.variable_bytes == 2));
+    assert(rules->saves.walls >= 1 && rules->saves.walls <= COK_SAVED_WALLS);
+    return rules->ecl.variable_bytes;
+}
+
+size_t cok_saved_game_count_offset(const cok_rules *rules)
+{
+    return 1 + 0xa00 * variable_bytes(rules) + 7 + 4u * rules->saves.walls;
+}
+
+size_t cok_saved_game_size(const cok_rules *rules)
+{
+    return cok_saved_game_count_offset(rules) + 1 + COK_PARTY_MAX * 41;
+}
+
+size_t cok_saved_game_var_offset(const cok_rules *rules, uint16_t address)
+{
+    size_t width = variable_bytes(rules);
+    if (address >= 0x4b00 && address < 0x4f00) return 1 + (address - 0x4b00u) * width;
+    if (address >= 0x7c00 && address < 0x8000) return 1 + (0x400 + address - 0x7c00u) * width;
+    assert(address >= 0x7a00 && address < 0x7c00);
+    return 1 + (0x800 + address - 0x7a00u) * width;
+}
+
+/* A block of cells, each width bytes, little-endian. */
+static const uint8_t *get_cells(const uint8_t *p, uint16_t *cells, size_t count, size_t width)
+{
+    for (size_t i = 0; i < count; ++i, p += width) cells[i] = width == 2 ? u16(p) : p[0];
+    return p;
+}
+
+static uint8_t *put_cells(uint8_t *p, const uint16_t *cells, size_t count, size_t width)
+{
+    for (size_t i = 0; i < count; ++i, p += width) {
+        if (width == 2)
+            put16(p, cells[i]);
+        else
+            p[0] = (uint8_t)cells[i];
+    }
+    return p;
+}
+
+bool cok_saved_game_read(const char *path, const cok_rules *rules, cok_saved_game *game,
+                         char *error, size_t error_size)
 {
     bool missing;
-    size_t size = 0;
+    size_t size = 0, need = cok_saved_game_size(rules), width = variable_bytes(rules);
     uint8_t *data = read_file(path, &size, &missing);
     if (data == NULL) {
         fail(error, error_size, "%s: %s", path, missing ? "not found" : "cannot read");
         return false;
     }
-    if (size < COK_SAVED_GAME_SIZE) {
+    if (size < need) {
         free(data);
         fail(error, error_size, "%s: %zu bytes, not a saved game", path, size);
         return false;
@@ -1486,9 +1534,9 @@ bool cok_saved_game_read(const char *path, cok_saved_game *game, char *error, si
     memset(game, 0, sizeof *game);
     const uint8_t *p = data;
     game->file = *p++;
-    for (size_t i = 0; i < 0x400; ++i, p += 2) game->mem4b00[i] = u16(p);
-    for (size_t i = 0; i < 0x400; ++i, p += 2) game->mem7c00[i] = u16(p);
-    for (size_t i = 0; i < 0x200; ++i, p += 2) game->mem7a00[i] = u16(p);
+    p = get_cells(p, game->mem4b00, 0x400, width);
+    p = get_cells(p, game->mem7c00, 0x400, width);
+    p = get_cells(p, game->mem7a00, 0x200, width);
     game->map_x = (int8_t)*p++;
     game->map_y = (int8_t)*p++;
     game->direction = *p++;
@@ -1496,7 +1544,8 @@ bool cok_saved_game_read(const char *path, cok_saved_game *game, char *error, si
     game->square = *p++;
     game->last_mode = *p++;
     game->mode = *p++;
-    for (size_t i = 0; i < 3; ++i, p += 4) {
+    for (size_t i = 0; i < COK_SAVED_WALLS; ++i) game->wall_ids[i] = game->wall_slots[i] = -1;
+    for (size_t i = 0; i < rules->saves.walls; ++i, p += 4) {
         game->wall_ids[i] = (int16_t)u16(p);
         game->wall_slots[i] = (int16_t)u16(p + 2);
     }
@@ -1525,16 +1574,18 @@ static bool write_file(const char *path, const uint8_t *data, size_t size, char 
     return ok;
 }
 
-bool cok_saved_game_write(const char *path, const cok_saved_game *game, char *error,
-                          size_t error_size)
+bool cok_saved_game_write(const char *path, const cok_rules *rules, const cok_saved_game *game,
+                          char *error, size_t error_size)
 {
     static uint8_t data[COK_SAVED_GAME_SIZE];
+    size_t size = cok_saved_game_size(rules), width = variable_bytes(rules);
+    assert(size <= sizeof data);
     memset(data, 0, sizeof data);
     uint8_t *p = data;
     *p++ = game->file;
-    for (size_t i = 0; i < 0x400; ++i, p += 2) put16(p, game->mem4b00[i]);
-    for (size_t i = 0; i < 0x400; ++i, p += 2) put16(p, game->mem7c00[i]);
-    for (size_t i = 0; i < 0x200; ++i, p += 2) put16(p, game->mem7a00[i]);
+    p = put_cells(p, game->mem4b00, 0x400, width);
+    p = put_cells(p, game->mem7c00, 0x400, width);
+    p = put_cells(p, game->mem7a00, 0x200, width);
     *p++ = (uint8_t)game->map_x;
     *p++ = (uint8_t)game->map_y;
     *p++ = game->direction;
@@ -1542,7 +1593,7 @@ bool cok_saved_game_write(const char *path, const cok_saved_game *game, char *er
     *p++ = game->square;
     *p++ = game->last_mode;
     *p++ = game->mode;
-    for (size_t i = 0; i < 3; ++i, p += 4) {
+    for (size_t i = 0; i < rules->saves.walls; ++i, p += 4) {
         put16(p, (uint16_t)game->wall_ids[i]);
         put16(p + 2, (uint16_t)game->wall_slots[i]);
     }
@@ -1555,7 +1606,60 @@ bool cok_saved_game_write(const char *path, const cok_saved_game *game, char *er
         p[0] = (uint8_t)length;
         memcpy(p + 1, game->names[i], length);
     }
-    return write_file(path, data, sizeof data, error, error_size);
+    return write_file(path, data, size, error, error_size);
+}
+
+void cok_vault_free(cok_vault *vault)
+{
+    free(vault->items);
+    vault->items = NULL;
+    vault->item_count = 0;
+}
+
+bool cok_vault_read(const char *path, cok_vault *vault, bool *missing, char *error,
+                    size_t error_size)
+{
+    memset(vault, 0, sizeof *vault);
+    size_t size = 0;
+    uint8_t *data = read_file(path, &size, missing);
+    if (data == NULL) {
+        fail(error, error_size, "%s: %s", path, *missing ? "not found" : "cannot read");
+        return false;
+    }
+    /* BlockRead of 12 into DS:be58, what there is of them; then 63 at a
+     * time while a whole item comes. */
+    memcpy(vault->coins, data, size < 12 ? size : 12);
+    size_t count = size > 12 ? (size - 12) / COK_ITEM_SIZE : 0;
+    if (count > 0) {
+        vault->items = malloc(count * COK_ITEM_SIZE);
+        if (vault->items == NULL) {
+            free(data);
+            fail(error, error_size, "%s: out of memory", path);
+            return false;
+        }
+        memcpy(vault->items, data + 12, count * COK_ITEM_SIZE);
+        for (size_t i = 0; i < count; ++i) memset(vault->items + i * COK_ITEM_SIZE + 0x2a, 0, 4);
+        vault->item_count = count;
+    }
+    free(data);
+    return true;
+}
+
+bool cok_vault_write(const char *path, const cok_vault *vault, char *error, size_t error_size)
+{
+    size_t size = 12 + vault->item_count * COK_ITEM_SIZE;
+    uint8_t *data = malloc(size);
+    if (data == NULL) {
+        fail(error, error_size, "%s: out of memory", path);
+        return false;
+    }
+    memcpy(data, vault->coins, 12);
+    if (vault->item_count > 0) memcpy(data + 12, vault->items, vault->item_count * COK_ITEM_SIZE);
+    for (size_t i = 0; i < vault->item_count; ++i)
+        memset(data + 12 + i * COK_ITEM_SIZE + 0x2a, 0, 4);
+    bool ok = write_file(path, data, size, error, error_size);
+    free(data);
+    return ok;
 }
 
 bool cok_character_write(const cok_character *character, const cok_rules *rules, const char *dir,

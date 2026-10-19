@@ -85,6 +85,8 @@ static void usage(const char *program)
             "                  (with BLOCK, the block is entered at once, all vectors)\n"
             "  --saves DIR     write saved games (camp's Save) to DIR; KRYNN.CFG there\n"
             "                  comes before the assets' and is where the setup writes\n"
+            "  --import DIR    where a game that imports another's characters finds\n"
+            "                  them (Death Knights' Champions party; default --saves)\n"
             "  --config FILE   KRYNN.CFG: read FILE, or with --start-menu write it there\n"
             "                  from the setup if it is missing\n"
             "  --combat HOW    without it, COMBAT's rounds have the computer play its\n"
@@ -668,6 +670,7 @@ static int run(int argc, char **argv)
     bool seeded = false;
     bool still = false, placed = false, play = false, helm = false, front = false, woof = false;
     const char *party = NULL, *load = NULL, *saves = NULL, *config_option = NULL;
+    const char *import = NULL;
     const char *characters[COK_PARTY_MAX];
     size_t character_count = 0;
     const cok_rules *rules = &cok_rules_champions;
@@ -729,6 +732,8 @@ static int run(int argc, char **argv)
             load = argv[++i];
         } else if (strcmp(option, "--saves") == 0 && has_value) {
             saves = argv[++i];
+        } else if (strcmp(option, "--import") == 0 && has_value) {
+            import = argv[++i];
         } else if (strcmp(option, "--config") == 0 && has_value) {
             config_option = argv[++i];
         } else if (strcmp(option, "--combat") == 0 && has_value) {
@@ -807,6 +812,12 @@ static int run(int argc, char **argv)
             return 2;
         }
     }
+    if (woof && rules->saves.debug == NULL) {
+        /* A game with no debug mode reads no Woof (dkk's main reads no
+         * argument). */
+        fprintf(stderr, "--woof: %s has no Woof (its debug mode)\n", rules->text.name);
+        return 2;
+    }
     if (keyed && !chosen) combat = COK_COMBAT_PLAYER;
     unsigned long block = 256; /* none given */
     bool has_block = argc - i == 2;
@@ -814,11 +825,6 @@ static int run(int argc, char **argv)
                   fixture != 0 || play ||
                   vector != 5 || start != 0)) {
         usage(argv[0]);
-        return 2;
-    }
-    /* The title, the start menu and saved games are a playable game's. */
-    if ((front || load != NULL || party != NULL) && rules->unplayable != NULL) {
-        fprintf(stderr, "%s\n", rules->unplayable);
         return 2;
     }
     if (!front && ((argc - i != 2 && !(load != NULL && argc - i == 1)) ||
@@ -927,12 +933,16 @@ static int run(int argc, char **argv)
         cok_adventure_close(&game);
         return 1;
     }
-    if (saves != NULL && strlen(saves) >= sizeof game.save_dir) {
-        fprintf(stderr, "%s: directory name too long\n", saves);
+    if (import == NULL) import = saves;
+    if ((saves != NULL && strlen(saves) >= sizeof game.save_dir) ||
+        (import != NULL && strlen(import) >= sizeof game.import_dir)) {
+        fprintf(stderr, "%s: directory name too long\n",
+                saves != NULL && strlen(saves) >= sizeof game.save_dir ? saves : import);
         cok_adventure_close(&game);
         return 1;
     }
     if (saves != NULL) snprintf(game.save_dir, sizeof game.save_dir, "%s", saves);
+    if (import != NULL) snprintf(game.import_dir, sizeof game.import_dir, "%s", import);
     if (found || (front && config_write[0] != '\0'))
         snprintf(game.config_path, sizeof game.config_path, "%s", config_path);
     snprintf(game.config_write, sizeof game.config_write, "%s", config_write);
@@ -1003,9 +1013,10 @@ static int run(int argc, char **argv)
         return result;
     }
     if (!has_block) {
-        /* As 2fd3:3c28 resumes: the block saved in 0x4bf2, or 0x24. */
+        /* As 2fd3:3c28 resumes: the block saved in 0x4bf2, or a new game's
+         * (0x24; dkk 0x10). */
         block = cok_ecl_var(&game.vm, COK_VAR_BLOCK) != 0 ? cok_ecl_var(&game.vm, COK_VAR_BLOCK)
-                                                          : 0x24;
+                                                          : rules->start.first_block;
         if (file == 0) file = game.vm.file;
     }
     if (file == 0) {

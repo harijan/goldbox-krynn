@@ -479,6 +479,9 @@ static void test_missing_files(void)
     cok_sound_init(&s, COK_SOUND_TANDY);
     CHECK(!cok_sound_load(&s, &cok_rules_champions, "no-such-directory"));
     CHECK(strstr(s.music_error, "MIDI.DAX") != NULL);
+    /* A game whose music is not read yet (Death Knights': NULL stems). */
+    CHECK(!cok_sound_load(&s, &cok_rules_death_knights, "DKKAssets"));
+    CHECK(strcmp(s.music_error, "Death Knights of Krynn's music is not ported") == 0);
     cok_sound_call_at(&s, COK_SOUND_MUSIC, 0);
     CHECK(s.music && s.isr == COK_SOUND_BIOS);
     cok_sound_call_at(&s, COK_SOUND_MUSIC_END, 0);

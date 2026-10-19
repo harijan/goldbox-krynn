@@ -183,10 +183,10 @@ segment's tables, a section to a concern:
 | Section | Holds | Champions |
 | --- | --- | --- |
 | `id`, `assets` | `--game`'s name; the assets' directory without `--assets` | `champions`, `COKAssets` |
-| `text` | the window's title; the title menu's heading at startup and after a demonstration (`1000:0134`, spelt differently) | `Champions of Krynn`, `Champions of Krynn v1.2`, `Champions Of Krynn v1.2` |
+| `text` | the window's title; the title menu's heading at startup and after a demonstration (`1000:0134`, spelt differently); camp's first line (`4888:2c31`) | `Champions of Krynn`, `Champions of Krynn v1.2`, `Champions Of Krynn v1.2`, `The party makes camp...` |
 | `archives` | each DAX archive the game reads, by stem: with the ECL file's number (`GEO` makes `GEO1.DAX`), with `file_digit`'s digit (`MON`, with the kinds `CHA`, `SPC`, `ITM`; `ITEM`, `HEAD`, `BODY`, `CPIC`) or alone (`SKY`); the names `6d21:01d0` loads icons by as they are; records read from a file of their own, as a `cok_rules_record` (stem, file, 0 for none, record): the font and the overland map's cursor; and `file_digit`, the digit a file's number gives the names that hold one (Str into a string[1], `4b6d:161b`, `2fd3:1d21`, `6961:05b9`, `6d21:01d0`) | `ECL`, `GEO`, `WALLDEF`, `8X8D`, `PIC`, `SPRIT`, `BIGPIC`, `HEAD`, `BODY`, `CPIC`, `COMSPR`, `CHEAD`, `CBODY`, `SKY`, `TITLE`, `ITEM`, `MON`, `DUNGCOM`, `WILDCOM`, `RANDCOM`, `MIDI`, `SOUND`; font `8X8D1` record 201, cursor `CURSOR` record 1; the first decimal digit |
 | `files` | the devices' file (looked for in upper case, then lower); the item types; the directory the setup takes the game to run in and the save path's default under it | `KRYNN.CFG`, `ITEMS`, `C:\COK\`, `SAVE` |
-| `saves` | saved games (`SAVGAM` letter `.DAT`) and their characters' names (`CHRDAT` letter number); a character's extensions: in a saved game, in the roster, its items, its effects, its spells' block (a game that keeps one); the debug mode's trace | `SAVGAM`, `DAT`, `CHRDAT`, `SAV`, `WHO`, `STF`, `SFX`, none, `DEBUG.TXT` |
+| `saves` | saved games (`SAVGAM` letter `.DAT`) and their characters' names (`CHRDAT` letter number); a character's extensions: in a saved game, in the roster, its items, its effects, its spells' block (a game that keeps one); the debug mode's trace; the saved game's layout past the variables' width (`ecl.variable_bytes`): its wall table's entries and those the loader loads again, and whether the loader keeps the saved last mode (see Party); the byte the roster's list leaves a record out by; the bank vault's files, or none | `SAVGAM`, `DAT`, `CHRDAT`, `SAV`, `WHO`, `STF`, `SFX`, none, `DEBUG.TXT`; 3 and 3 (`DS:6d8a`, `4b6d:1b34`), no (the saved mode becomes the last); `COINS` 6 (`4b6d:0453`); none |
 | `images` | the archives `daximages` and `daxcompose` read, by layout: XOR deltas, collections, single images; stems, `NULL`-ended; and the frames a header's count byte 0xff gives (`frames_ff`: 255 where the loader takes the byte, `127f:1c2f`; Death Knights' 256, its 256-tile sets) | `PIC1-3`; `SPRIT1-3`; the 20 others; 255 |
 | `character` | the character record's layout (`src/field.h`): its size, its file's size, where a spells' block of its own lies, and where each field lies | 409 bytes, none, the fields below |
 | `characters` | the routines that recompute a character where the games' differ (`party.c`, each selected by an enum: the stats from the items, `cok_stats_routine`; the classes and levels, `cok_levels_routine`), and the import of another game's characters (`cok_rules_import`, or `NULL`) | `6346:0d20`, `66c2:0433`; none |
@@ -195,10 +195,10 @@ segment's tables, a section to a concern:
 | `view` | the 3D view's tile sets (each one's first and last value, `6e22:01ab`, and the colour each is loaded with as transparent, `tile_transparent`), the wall slot that holds wall types 1-5 and that `LOAD PIECES`' two-set path loads first, whether a record's wall sets share one tile set and whether tile values are moved by the slot's set; the overhead map's tiles; `PICTURE`'s overland map; whether CGA mode has a backdrop of its own (`cga_backdrop`: a line row, no pictures) | 1-0x2d, ..., 0x100-0x127 (`DS:1ec2`), each loaded with 13 transparent (`6e22:0050`); slot 1; a tile set each, moved (`69ea:1025`, `1230`); 0x104 and 0x100; 0x79; yes (`69ea:0184`) |
 | `startup` | what startup loads past the font (`3e99:005b`): tile sets from `<tiles>1` and the missiles' icons from `COMSPR`, as (first id, first slot, count); the icon slots (`icon_slots`, at most `COK_ICON_SLOTS_MAX`, 35) and their table's DS offset, for messages | sets 4 and 0, records 202 and 203; 0-11 into 13-24, 25 into 25; 26 slots at `DS:6172` (`3e99:0466` clears 0xd0 bytes) |
 | `spells` | what is keyed by spell id (`magic.c`, `cast.c`): the ids' count; their names and the spell lists' headings, with their tables' DS offsets and sizes for the messages; each id's handler (`cok_rules_cast`: the port's, a `cok_cast_handler`, and the original's address, or `unported`); the durations not taken from the spell table (`cok_rules_duration`); the spell ids the code names (`ids`, by `cok_named_spell`); the spell lists' sizes; the granted powers' ids; an item power's spell; Display's search; byte 7's values for the caster, one picked and the party | ids 1-0x6b (`DS:2077` + 41 × id, `DS:0bfa` + 41 × level), the handlers `5b04:58ed` stores at `DS:6e3a`, 7 durations (`5b04:0f78`), 23 names; 58 and 49 (`DS:473a`, `4774`); 101-107; above 0x38, 0x17 less (`3afb:04b2`); spells 1-0x38 (`4888:17ae`); 1, 2, 4 (`5b04:127e`) |
-| `effects` | what is keyed by effect id (`effect.c`, `cast.c`, `magic.c`): the ids' count; each id's handler (`cok_rules_effect`, as the spells'); the ids each event runs; the ids the party shares and Prayer's reach; those magic resistance leaves pending; the effect ids the code names (by `cok_named_effect`); Display's ids and texts; the rules' routines a game does not have ported yet (the caster level, the saving throw, magic resistance) | 0x79 (`DS:6b94`, `5b04:58ed` and `3f44:38ea`), events 1-0x18 (`60f4:057c`), 0x15, 0x2d, 0x2e, 0x31 and 0x31 from 6 squares (`60f4:0332`, `0352`), 0x5b and 0x52 (`60f4:04f3`), 80 names, `4888:17ae`'s; none |
+| `effects` | what is keyed by effect id (`effect.c`, `cast.c`, `magic.c`): the ids' count; each id's handler (`cok_rules_effect`, as the spells'); the ids each event runs; the ids the party shares and Prayer's reach; those magic resistance leaves pending; the effect ids the code names (by `cok_named_effect`); Display's ids and texts; the rules' routines a game does not have ported yet (the caster level, the saving throw, magic resistance, Display) | 0x79 (`DS:6b94`, `5b04:58ed` and `3f44:38ea`), events 1-0x18 (`60f4:057c`), 0x15, 0x2d, 0x2e, 0x31 and 0x31 from 6 squares (`60f4:0332`, `0352`), 0x5b and 0x52 (`60f4:04f3`), 80 names, `4888:17ae`'s; none |
 | `moons` | the three moons (`57e4:001e`, `0143`): the days each stays in a phase, and on the frame each one's column and tile | 8, 1, 6 days; columns 8, 19, 30; tiles 0x114 + phase + 10, 6, 14 |
 | `frame` | the screens' frames (`screen.c`), by `cok_screen` (the frame, the open frame, the adventure screen, a big picture's, Memorize's, the spell lists', combat's, the sheet's, the credits'): each a `cok_rules_screen`, the screen drawn under it first, the box cleared (`1128:07e6`) and its lines, rows and columns of tiles (`cok_rules_frame_line`: a tile, or a table by the cell's column or row, and on row 0 the moons), each the frame's `base` + its value; which frame main draws after the start menu (`menu_big`) and Begin Adventuring for a loaded game (`resumed`, a `cok_resumed`) | `1128:0000`-`077c`'s layouts, tiles 0x114 + `DS:0e3a`, `0e62`, `0e7a`, `0ea3`, `0eb0`, `0e8b`, `0ebd`, `0f02`, `0f19` and the code's; the big frame in mode 3 on the map (`1000:024b`); in block 0 or off the map (`4def:01b4`) |
-| `unplayable` | why `cok` cannot play the game yet, or `NULL`: `cok`, and `eclplay`'s title and saved games, refuse it with that message | `NULL` |
+| `start` | the front end (`start.c`, `roster.c`, camp's Save): the title's pictures (record, cell, whether the screen is cleared first, the seconds waited) and credits (lines, their wait, whether they show after a key), a new game's block and the demonstration's file and block; the start menu's items, prompt and word, each item's routine where the port does not carry it out for the game (`unported`, cited: choosing it stops the run); the words of Pick Character, Drop, Exit, Load, Save, the roster's Overwrite, Add, and "from where" for a game that imports another's; the questions' colour; and what its commands do where the games differ (Add's paladin rules, its space, its message and marks; a Drop or Remove that empties the party ending the game; Exit's No saving then quitting; Begin's mode; PROGRAM 0 marking the party on the map; the wall table's entry the end of a game sets) | `2f55:063c`'s pictures, 1, 2, 3 at 5, 1 and 4 at 0, 1 for 5, 10 and 10 seconds, the credits (`2f55:0267`) for 10 unless a key; 0x24, file 2 block 0x39; `DS:0878`, `Choose a FUNCTION `, `Select `, none unported; yellow; paladins, the space, the message and marks; no, no, the entry mode, no; the first |
 
 A `NULL` stem says the game has no such archive (Death Knights has no
 `SKY`, `CURSOR`, `RANDCOM`, `HEAD` or `BODY`): code that reads it must not
@@ -242,11 +242,13 @@ in a file of its own (`src/rules_death_knights.c`; every program that links
 
 `cok_rules_death_knights` (`src/rules_death_knights.c`, its addresses
 `dkk SEG:OFF` in `build/death-START_FULL.EXE`, `make death-merged`, its data
-segment at `DS` 0x1bce) is DEATH-KNIGHTS.md's step 1 and step 2's
-characters (2a): the tools and `eclplay --game death-knights` read every
-one of its archives and run its scripts, their text, menus and choices,
-its 3D view and its overland map, and read, recompute and write its
-characters and monsters and import Champions' characters. It holds:
+segment at `DS` 0x1bce) is DEATH-KNIGHTS.md's step 1 and step 2 (its
+frames, characters, saved games and front end): the tools and `eclplay
+--game death-knights` read every one of its archives and run its scripts,
+their text, menus and choices, its 3D view and its overland map, read,
+recompute and write its characters and monsters and import Champions'
+characters, and `cok` and `eclplay --start-menu` play it from its title,
+through its start menu and saved games, to its first fight. It holds:
 
 - its files: Champions' stems but `SKY`, `CURSOR`, `RANDCOM`, `HEAD`,
   `BODY` and the music's (`NULL`: MUSIC.DAX's songs are step 4), and
@@ -254,7 +256,7 @@ characters and monsters and import Champions' characters. It holds:
   (`46b2:198c`, `7090:016d`); `PIC4-7` and `SPRIT4` by picture id
   (`6ca1:00a4`), `WALLDEF`, `8X8D` and `BACK` by wall set id (1 in file 1,
   2 in 4, 3-4 in 2, 5-6 in 3, 7 in 5: `6d21:0ec5`); `DKK.CFG`, `C:\DKK\`;
-  the saved games' names (`SAVGAM?.PTY`, `CHRDAT`, not read yet), the
+  the saved games' names (`SAVGAM?.PTY`, `CHRDAT`; see Party), the
   characters' extensions (`.GAM` in a saved game and `.PC` in the roster,
   `46b2:0abc`; `.WIZ`, `.JNK`, `.EFF` beside them, `DS:71c0`); the image
   lists (`PIC1-7`, `SPRIT1-4`, `BACK1-5`,
@@ -262,7 +264,7 @@ characters and monsters and import Champions' characters. It holds:
   (`123c:1c58`);
 - its ECL table (`3632`'s handlers, the dispatch `3632:2a54`, the skips
   `3c1e:1b48`): Champions' but for ten opcodes, which ecl.h names past
-  Champions' meanings (`COK_ECL_SETUP_MONSTERS` and on), and eight
+  Champions' meanings (`COK_ECL_SETUP_MONSTERS` and on), and seven
   handlers not carried out yet; `CALL`'s redraw at `2dcb`; byte variables,
   its named variables, special addresses and character fields (see ECL
   scripts);
@@ -312,9 +314,30 @@ characters and monsters and import Champions' characters. It holds:
   3 or 4 attacks, its own thief skills, no former classes), as
   `characters.stats` and `levels` select; and the import of Champions'
   characters (`characters.import`, `46b2:10d7`, below);
-- `unplayable`: `cok --game death-knights`, `eclplay`'s `--start-menu`,
-  `--load` and `--party` refuse it, saying it is not playable yet
-  (`--character` adds its characters).
+- its saved games (2913 bytes: byte variables, four wall entries, the
+  first alone loaded again, the last mode kept: see Party), the bank
+  vault's files (`VAULT?.DAT`, `TMPVAULT.DAT`), and the savings variable
+  (`0x4c33`, a word over two) a Champions game's load copies;
+- its front end (`start`, see The start menu): the title (`35c6:051c`)
+  and credits (`35c6:026e`), its start menu (`49cb:010b`, `DS:0cf8`) and
+  its words, Load and Add from Death Knights or Champions (`--import`),
+  a Drop or Remove that empties the party ending the game, Exit's No
+  saving then quitting, Begin's mode from the last mode; and the start
+  menu's commands it does not carry out yet, which stop the run citing
+  their routine: Create (`49cb:05c7`), Modify (`25d4`), Train (`43b6`),
+  Knight Change Order (`4ea4`) and Initialize Mouse/Joystick (`52cd`).
+
+`cok --game death-knights` and `eclplay --start-menu` play it from the
+title to its first fight: a saved game loaded (its own or Champions'), or
+a party added from the roster or from Champions', saves and resumes, and
+the adventure in its scripts, 3D view and overland map, camp, `PROGRAM`'s
+start menu, until a handler not ported yet (`SETUP MONSTERS`, `COMBAT`,
+`LOAD MONSTER`, `DAMAGE`, `TREASURE ITEMS`, `STOCK`, `ADD EP`), a spell or
+effect it does not name, or a start menu command above; there the run
+stops with the reason (`not yet ported: ...`), `cok` showing it on the
+screen and quitting, as it does at any stop: the original never returns
+to the start menu from the middle of a script, and the port's state there
+is half done. `--load` and `--party` read its saved games.
 
 Its characters' files: a record of 216 bytes, read whole into a zeroed
 record and written whole (`46b2:10d7`, `46b2:0abc`); the spells' block,
@@ -368,7 +391,7 @@ levels) stops at its accessor's assertion ("the game's records have no
 such field"), as does a table of the data segment it has not ("the game's
 data segment has no such table"), a spell or effect it does not name
 ("the game has no such spell", "effect") and a variable it has not
-(`cok_ecl_var`: "the game has no such variable"); the eight opcodes not
+(`cok_ecl_var`: "the game has no such variable"); the seven opcodes not
 carried out yet stop the run with `COK_ECL_UNPORTED` (see ECL scripts).
 The code that still reads a field it has not is Champions' rules (combat,
 spells, effects, training, the temple, doors' classes, the party's
@@ -400,7 +423,16 @@ CGA backdrop; `tests/test_start.c` Begin Adventuring's frame for a game
 loaded by mode and main's after the start menu, on a copy of Champions'
 descriptor with those fields of Death Knights';
 `tests/test_death_knights.py` the tools over `DKKAssets/` and `eclplay`'s
-runs of its blocks; `tools/dosbox/checks/dkk_views.py` the original (see
+runs of its blocks, and its front end (the title to the game, Load and
+Save of `DKKAssets/SAVE`'s games, Champions' party, the stops); its
+descriptor's front end against the original too (`test_start` in
+`tests/test_death_knights.c`: the start menu's items and words, the
+title's pictures, waits and credits, a new game's and the
+demonstration's blocks, the end of a game's wall entry, the saved games'
+and vault's names and layout, the loader's one wall entry and kept last
+mode, the roster's NPC flags and sizes); `tests/test_start.c` its saved
+games, vault and start menu (`test_death_knights_saves`, `_menu`);
+`tools/dosbox/checks/dkk_views.py` and `dkk_start.py` the original (see
 Checks against the original).
 
 ### The character record's layout
@@ -797,9 +829,10 @@ timed menu runs out or the small picture's next frame is due.
 
 | Option | |
 | --- | --- |
-| `--game NAME` | the game to play (see Games): `champions`, the default and so far the only one it plays; `death-knights` is refused (not playable yet, status 1); any other name is an error that lists the games (status 2) |
+| `--game NAME` | the game to play (see Games): `champions`, the default, or `death-knights`, which plays from its title through the start menu (its saved games, the vault's files, Champions' parties) into the game, up to what is not ported yet (its first fight, creating a character: see Games' Death Knights), where the run stops with the reason on the screen; any other name is an error that lists the games (status 2) |
 | `--assets DIR` | the game's DAX files (default `COKAssets`, the game's: see Games) |
 | `--saves DIR` | the roster and saved games (default `saves`, created if missing; ignored by git); never `SAVE/` itself: to play the original's games, copy them into it (`mkdir -p saves && cp SAVE/* saves/`) and pick Load Saved Game; and the port's `KRYNN.CFG`, read before the assets' and written by the setup (see Startup and the setup) |
+| `--import DIR` | where a game that imports another's characters finds them: Death Knights' Champions roster (`*.WHO`) and saved games for Add Character to Party and Load Saved Game, Champions (the original's `DKK.CFG` fifth line, a DOS path, `DS:99a4`); default `--saves`, so that one saves directory serves both games |
 | `--config FILE` | the `KRYNN.CFG` to read, or, if it is missing, for the setup to write |
 | `--scale N` | the window's size, N (1-16) times the screen (default 3: 960×720) |
 | `--aspect 4:3`, `--aspect 1:1` | 4:3, the default, shows the 200 lines as 240, as a 4:3 monitor showed the 320×200 mode: the game was drawn for it (the moons and the portraits are round so); 1:1 keeps the pixels square |
@@ -2218,9 +2251,9 @@ against `2fd3`'s; the VM's own as `ecl.c` has Champions'):
 | LOAD CHARACTER, CHECKPARTY, ROB, FIND ITEM, WHO, ADD NPC, FIND SPECIAL, DESTROY ITEMS | `02af`, `1452`, `1a76`, `1bdd`, `20a9`, `210f`, `24b6`, `250a` | the record's offsets only (the layout's) | as Champions' (no party: nothing) |
 | SPELL | `2177` | the memorized spells in the WIZ record, 74 (Champions' 58), of those who can act; no trace | as Champions' without a party; a character stops at `MEMORIZED` |
 | LOAD MONSTER | `0472` | the record's, the difficulty a byte, other monster files | stops |
-| COMBAT | `16ec` | a branch on `0x4d00` first (`3948:000e`), then the shop, the temple; other routines | stops |
+| COMBAT | `16ec` | a branch on `0x4d00` first (`3948:000e`, the bank vault's menu: see Party), then the shop, the temple; other routines | stops |
 | DAMAGE | `1ca2` | saving throws and the party list its own way | stops |
-| PROGRAM | `23dd` | its start menu (`49cb:010b`), the off-map flag, `DS:8c5b`, the party's mark; its camp (`237e`) | stops |
+| PROGRAM | `23dd` | its start menu (`49cb:010b`, see The start menu); after it the screen redrawn on the map unless the menu ended the game (`DS:8c5b`), and the party marked on the map (`6997:0000`); its camp (`237e`) | `start.program_marks`; the game ended, `new_game` |
 | ADD EP | `25f1` | only those who can act; experience at `+0x62`; a level flag (`65cd:38c7`) | stops |
 
 Where the original would misbehave, the port stops with a status instead:
@@ -2282,7 +2315,9 @@ group typed ahead at the start arrives, for the title's flush to drop.
 `eclplay` has no delays; it counts the calls to the delay hook as the
 window's front end does, and passes over `cok`'s `\pN.` (a pause in real
 time). `--saves DIR` is where Save writes and the roster is kept (see The
-start menu); without it, saving logs an error. `--effect
+start menu); without it, saving logs an error. `--import DIR` is where a
+game that imports another's characters finds them (Death Knights' Add and
+Load from Champions), `--saves` without it. `--effect
 M,ID,MINUTES,VALUE` (hex, repeatable) gives party member M (1 the first) an
 effect, its handler run when it is removed, as a saved game's `.SFX` would
 hold it, for tests of the timers and of effects in a battle. A spell list
@@ -3081,6 +3116,67 @@ outside 3D areas) and runs only that block's load vector before the first
 command (see Adventure loop); the last mode stays the loaded one until a
 `NEWECL` (`2fd3:3b47` copies the mode there at its end), so a game saved
 in camp, loaded and saved in camp again holds 2 at `0x1406`.
+
+The layout is the game's (the descriptor's `saves`, with
+`ecl.variable_bytes`; `cok_saved_game_read` and `write` in `src/party.c`):
+
+| Bytes | Champions (5,469) | Death Knights (2,913, `SAVGAM?.PTY`) |
+| --- | --- | --- |
+| the ECL file | 0 | 0 (`DS:98a2`) |
+| `0x4b00`-`0x4eff` | 1-0x800, a word an address | 1-0x400, a byte an address |
+| `0x7c00`-`0x7fff` | 0x801-0x1000 | 0x401-0x800 (`0x7f12` at 0x713, `0x7f3e` at 0x73f) |
+| `0x7a00`-`0x7bff` | 0x1001-0x1400 | 0x801-0xa00 |
+| square, facing, ahead, square byte | 0x1401-0x1405 (`DS:6d85`) | 0xa01-0xa05 (`DS:c073`) |
+| last mode, mode | 0x1406, 0x1407 (`DS:4b4a`, `4b49`) | 0xa06, 0xa07 (`DS:8c4f`, `8c4e`) |
+| wall table: record, slot (words) | 0x1408-0x1413, slots 1-3 (`DS:6d8a`) | 0xa08-0xa17, slots 0-3 (`DS:c078`) |
+| party's size, eight string[40]s | 0x1414, 0x1415- | 0xa18, 0xa19- |
+
+Death Knights' loader (`46b2:1ef0`) and save (`46b2:2808`) follow
+Champions' with these differences: the loader keeps the saved last mode
+(the mode 0), and loads again the wall table's first entry alone (its map
+and that record's three sets, `6d21:0ec5`; a second record that `LOAD
+PIECES` put in slot 3 is not reloaded), outside 3D areas picture 0x70;
+its characters are `.GAM` and their files (see Games' Death Knights); the
+roster's copies are erased by the loader itself (`46b2:09dc`: `.PC`,
+`.JNK`, `.EFF` and `.WIZ`); and the vault's letter becomes the saved
+game's. Bytes the original leaves as its stack held them: after each name,
+and the slots past the party (as Champions'); the port writes 0 there.
+Both saved games of `DKKAssets/SAVE`, loaded and saved again, give their
+files back but for those bytes and the characters' far pointers
+(`tests/test_start.c`, `tests/test_death_knights.py`), as do those the
+original wrote in DOSBox-X (`saves`' checks).
+
+Load Saved Game in Death Knights asks first `load from where? ` over
+`Death Champions Exit` (`DS:306c`, `3337`): Death its own saved games,
+Champions those of *Champions of Krynn* in the directory `DKK.CFG`'s
+fifth line names (`DS:99a4`; the port's `--import`, by default
+`--saves`), loaded as `46b2:1ef0` does with `DS:c468` 0
+(`cok_adventure_import_game`): of the file only the party's size and
+names (Champions' layout: `Seek(0x1414)`) and Champions' bank, the word of
+its variable `0x4c33` (`Seek(0x267)`), which goes to the bytes `0x4c33`
+and `0x4c34` (`COK_VAR_SAVINGS`); each `.SAV` imported
+(`cok_character_import`) and joined; then icons and the mode 0. The
+loader would leave out Champions' NPCs (the record's `+0x3e` 0x80 and up
+after the import), but the import does not move Champions' NPC flag
+(`+0xe7`), so an NPC of a Champions game joins as a player character. The other variables stay a new game's (the first block clears
+its own), and so the speed and pictures read from `0x4bfc` and `0x4bff`
+are 0 (a quirk: the original's next save holds 0 there too).
+
+The bank vault (`VAULT<letter>.DAT` beside the saved game): 12 bytes, the
+three 32-bit counts of coins of the treasure pool (`DS:be58`), then items
+of 63 bytes (`cok_vault_read`, `write`; their next pointers, `+0x2a`,
+written as in memory by the original, 0 by the port). The game keeps the
+letter of the vault it last loaded or saved (`DS:fb79`, `Q` for none at
+startup and after a game) and whether the vault's menu left it in
+`TMPVAULT.DAT` (`DS:fb78`). Saving as a letter (`46b2:2808`, after the
+characters) moves the temporary file to the letter's name (erasing the
+old), or else, for another letter than the vault's, reads the vault's
+file (`46b2:2e1d`; without one, no coins, or a hundred times the savings
+`0x4c33` in steel: a Champions party's bank) and writes it as the
+letter's (`46b2:302d`). The vault's menu (`3948:000e`, reached from
+`COMBAT` with `0x4d00` set: block 35) is the treasure's (View, Take,
+Pool, Share, Trade) over the vault loaded into the pool, and writes
+`TMPVAULT.DAT` when left: not ported (`COMBAT` stops, step 3).
 
 The party list (`6346:07ba`) shows `Name` and `AC  HP` on row 2 from column
 17, then a character a row from row 4: the selected one's name in white,
@@ -7710,6 +7806,74 @@ The port keeps these quirks:
 - Pick Character cannot be left with space.
 - The title's menu takes F10 as `D`.
 
+### Death Knights' front end
+
+Death Knights' (the descriptor's `start` section; main is `entry`, the
+title `35c6:051c`, the start menu `49cb:010b`) differs from Champions'
+here:
+
+- The title: `TITLE` 1 on a cleared screen for 5 seconds, 2 on a cleared
+  screen for 5, 3 at row 11 for 5, 4 there for 20; then the credits
+  whether a key ended the pictures or not (`35c6:026e`: the screen
+  cleared, the frame, twenty lines in yellow, white and light green), for
+  10000 seconds' hundredths multiplied into a word (`35c6:0000`'s `mul`
+  then `xor dx, dx`: 16960, 169.6 seconds) unless a key. No `Woof`: main
+  reads no argument, and the game has no debug mode (`saves.debug`
+  `NULL`): `cok` and `eclplay` refuse `--woof` for it (status 2). Its music
+  (`MUSIC.DAX`) is not read yet: `sound: no music: Death Knights of
+  Krynn's music is not ported`, the effects as they are. The title's menu `Death Knights Of Krynn 1.10 ` and
+  `Play Demo`; the demonstration would play ECL5 block 2 (`3632:2e06`),
+  which the game does not ship, and stops when it cannot load it.
+- A new game starts in block 0x10. After the start menu main draws the
+  adventure screen always (`1000:01d1`, see Games).
+- The start menu's items (`DS:0cf8`) are Champions' but `Knight Change
+  Order`, under no prompt and `Select`; the command is the row's place
+  (a compare of its text against the items'), which is the first letter's
+  item, all being different. The questions (Drop's, Exit's, Overwrite)
+  are in light magenta (`6a69:2048`), and their words are its own (`drop
+  NAME forever `, `NAME is dumped out back.`, `NAME breathe a sigh of
+  relief.`, `game not saved. quit anyway? `, `overwrite NAME? `, `new file
+  name : `); Pick Character has `Select` alone (`580d:3067`).
+- The mode the menu was entered with is kept in the last mode (`DS:8c4f`),
+  which Begin takes back; a load sets it to the saved game's last mode,
+  so a loaded game begins in the mode it was saved from.
+- A Drop or a Remove that leaves no party ends the game there
+  (`4f9a:08ad`, `DS:8c5b`): the end of a game's state (whose wall table
+  loop, Champions' for slots 1-3 on a table of slots 0-3, sets the second
+  entry and keeps the first), the vault's letter forgotten, the list on its
+  first row; the adventure, once the menu returns (from main, or from
+  `PROGRAM 0` in a script, which then does not redraw), starts over from
+  a new game's block (`3632:2e06`'s outer loop). Meanwhile no script runs
+  on: the ECL's run loop (`3632:2cd5`) stops on `DS:8c5b` as on its other
+  two flags, so the script that opened the menu ends at `PROGRAM` and every
+  vector after it returns at once, until the game starts over (the VM's
+  `halt`, which `cok_ecl_run` tests; Champions' loop, `2fd3:3add`, tests
+  only `DS:43b8` and `4b57`, and nothing sets `halt` there).
+- Exit to DOS: No to `game not saved. quit anyway? ` saves and then quits.
+- Add Character to Party asks `add from where? ` (`DS:1393`): Death its
+  roster (`*.PC` in the saves), Champions Champions' (`*.WHO` in
+  `--import`), each by its own NPC flag (`DS:57a`: Champions' `+0xe7`,
+  not its jewelry) and record size (`DS:57e`), imported
+  (`cok_character_import`); `add a character: ` and `Add`; the first joins
+  with no checks, then a duplicate (name and `+0x61`), a seventh player
+  or ninth record, a fourth ranger (`too many rangers in your party`) is
+  turned away and keeps its `* `; no paladin rule; no `Loading...Please
+  Wait`; a space is not special.
+- Create (`49cb:05c7`), Modify (`25d4`), Train (`43b6`), Knight Change
+  Order (`4ea4`) and Initialize Mouse/Joystick (`52cd`: its own words, and
+  it rewrites `krynn.cfg`, not `DKK.CFG`) are not ported: choosing one
+  stops the run (`not yet ported: Death Knights of Krynn's Create New
+  Character (dkk 49cb:05c7)`). So does camp's Magic, Display (`4381:15aa`,
+  4888:17ae's counterpart; the effects section's `display_unported`).
+
+`tools/dosbox/checks/dkk_start.py` (not in `run_all.py`, as
+`dkk_views.py`) compares the original in DOSBox-X: the four title
+pictures, the credits, the title's menu, the start menu with and without a
+party, Load from Death Knights and from Champions (their bank set), Save,
+Begin, the first texts and camp, Remove, Add, Drop and the game ended by
+the last Drop, each screen whole; and the games saved (the saved game but
+its stack's bytes, the vault, the characters but their pointers).
+
 ### The roster
 
 Characters wait between games in the save directory (`DS:5784`, `--saves`)
@@ -8673,8 +8837,8 @@ text window and the menu's row) in four places of ECL1, the outpost's gate and a
 street and a building (block 32, wall set 2 from the files of 4), out of
 doors (`SKYGRND`'s ground) and in (`BACK`), facing each way the party turns
 there (Move mode): nine views, and the gate's and the hall's first again
-in CGA mode. The port cannot load Death Knights' saved
-games, so each place is a copy of `SAVGAMA.PTY` with the place written in
+in CGA mode. The port could not load Death Knights' saved games when it
+was written, so each place is a copy of `SAVGAMA.PTY` with the place written in
 (the script says where), which the original resumes; the port runs the
 block's load vector from `LOAD FILES` with its code patched (`--start`,
 `--set` on the code) to stand on the same square, facing the same way, and
@@ -8689,6 +8853,19 @@ magenta), and the CGA backdrop has no line row and draws the pictures
 given (`--set` 0x4cf9-0x4cfb); in block 32, whose script does not draw the
 frame again after eclplay's first, they are the port's own at the start,
 0.
+
+Its front end, `tools/dosbox/checks/dkk_start.py` (about four minutes;
+see Death Knights' front end), plays the same keys in the original and in
+`eclplay --start-menu` through three flows: the title and Load, Save and
+Begin of `DKKAssets/SAVE`'s game A, its first texts and camp (with the
+party list); Load from Champions (the `SAVE/` games with their bank set);
+and Remove, Add, Drop until no one is left. Each screen agrees, 0 pixels,
+after four fixes it found: the camp's first line is Death Knights' own
+(`the party makes camp`, `text.camp`), the questions' prompts are light
+magenta (`6a69:2048`), the list goes back to its first row when the last
+Drop ends the game, and the roster's erase takes the `.WIZ` too
+(`46b2:09dc`). The saved games, vaults and characters agree but for the
+original's stack bytes and pointers.
 
 Still to check, with why:
 

@@ -97,6 +97,9 @@ typedef enum {
     COK_VAR_SKY_HIGH,      /* 0x4bfe: and over squares from 0x80 */
     COK_VAR_PICTURES,      /* 0x4bff: pictures * 2 + animate, as saved */
     COK_VAR_LOCALS,        /* 0x4c00-0x4c1f: cleared by a block's start */
+    COK_VAR_SAVINGS,       /* 0x4c33: the bank's balance, in hundreds of steel (dkk: a word over
+                            * two, Champions' as loading its game copies it, 46b2:1ef0, which
+                            * a new vault holds, 46b2:2e1d) */
     COK_VAR_OFF_MAP,       /* 0x4c38: a flag: outside 3D areas, off the overland map */
     COK_VAR_NO_VIEW,       /* 0x4c38 alone: a flag: no view redrawn after camp or in mode 4 */
     COK_VAR_SAVES,         /* 0x4c3c: games saved, the rule book's question every tenth */
@@ -294,6 +297,12 @@ struct cok_ecl {
     bool stop;                       /* DS:43b8, set by EXIT. */
     bool reload;                     /* DS:43b9, set by NEWECL. */
     bool abort;                      /* DS:4b57; set by the host to end a run. */
+    /* dkk DS:8c5b: the start menu ended the game (a Drop or Remove left no
+     * party): every run stops before its next instruction, and starts none,
+     * until the host starts the game over (dkk 3632:2cd5's test; 3632:2e06
+     * clears it). Champions' run loop (2fd3:3add) has no such test, and
+     * nothing sets it there. */
+    bool halt;
     /* Comparison results, DS:72e0-72e5: =, <>, <, >, <=, >= of the first
      * operand against the second. */
     bool flags[6];

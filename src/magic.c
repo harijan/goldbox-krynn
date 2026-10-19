@@ -853,7 +853,13 @@ static const char *effect_text(const cok_rules *rules, uint8_t id, char out[41])
  * Exit leaves. */
 static void display(cok_adventure *game)
 {
-    const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_rules *rules = cok_game_rules(game);
+    if (rules->effects.display_unported != NULL) {
+        cok_adventure_fail(game, COK_ECL_UNPORTED, "not yet ported: %s's Display (%s)",
+                           rules->text.name, rules->effects.display_unported);
+        return;
+    }
+    const cok_character_layout *L = rules->character;
     static char text[LIST_ROWS * 4][41];
     static cok_menu_row rows[LIST_ROWS * 4];
     size_t count = 0, most = 4u * 2u * cok_game_rules(game)->spells.list_spells;

@@ -63,28 +63,33 @@ static bool is_who(const char *file, const char *who, size_t *base_length)
     return true;
 }
 
-size_t cok_roster_list(cok_adventure *game, cok_roster_entry *entries, size_t max)
+/* The roster in dir of the game of rules (the game's own, or the one it
+ * imports from), by its roster extension and record size, leaving out a
+ * record whose byte flag (field, index) is 0x80 or more and one whose name
+ * a member of the party has. */
+static size_t list_roster(cok_adventure *game, const char *dir, const cok_rules *rules,
+                          cok_field flag, uint8_t flag_index, cok_roster_entry *entries,
+                          size_t max)
 {
-    if (game->save_dir[0] == '\0') return 0;
-    DIR *dir = opendir(game->save_dir);
-    if (dir == NULL) return 0;
+    if (dir[0] == '\0') return 0;
+    DIR *d = opendir(dir);
+    if (d == NULL) return 0;
     size_t count = 0;
     struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL && count < max) {
+    const cok_character_layout *L = rules->character, *party = cok_game_rules(game)->character;
+    while ((entry = readdir(d)) != NULL && count < max) {
         size_t base_length;
-        if (!is_who(entry->d_name, cok_game_rules(game)->saves.roster, &base_length) ||
+        if (!is_who(entry->d_name, rules->saves.roster, &base_length) ||
             base_length >= sizeof entries->base)
             continue;
         char path[sizeof game->save_dir + 300];
-        snprintf(path, sizeof path, "%s/%s", game->save_dir, entry->d_name);
+        snprintf(path, sizeof path, "%s/%s", dir, entry->d_name);
         FILE *f = fopen(path, "rb");
         if (f == NULL) continue;
-        const cok_character_layout *L = cok_game_rules(game)->character;
         uint8_t record[COK_CHARACTER_MAX + 1];
         size_t size = fread(record, 1, sizeof record, f);
         fclose(f);
-        /* The jewelry's low byte (COINS 6, +0xf7). */
-        if (size != L->file_size || record[cok_field_offset_at(L, COK_FIELD_COINS, 6)] > 0x7f)
+        if (size != L->file_size || record[cok_field_offset_at(L, flag, flag_index)] > 0x7f)
             continue;
         /* BlockRead of 16 bytes into a zeroed node: past 15 characters it
          * holds zeros. */
@@ -94,7 +99,7 @@ size_t cok_roster_list(cok_adventure *game, cok_roster_entry *entries, size_t ma
         bool joined = false;
         for (size_t i = 0; i < game->party.count && !joined; ++i) {
             char member[16], member_shown[16];
-            name_of(L, game->party.members[i]->record, member);
+            name_of(party, game->party.members[i]->record, member);
             padded(member, member_shown);
             joined = strcmp(member_shown, shown) == 0;
         }
@@ -104,9 +109,16 @@ size_t cok_roster_list(cok_adventure *game, cok_roster_entry *entries, size_t ma
         e->base[base_length] = '\0';
         snprintf(e->shown, sizeof e->shown, "%s", shown);
     }
-    closedir(dir);
+    closedir(d);
     qsort(entries, count, sizeof *entries, by_base);
     return count;
+}
+
+size_t cok_roster_list(cok_adventure *game, cok_roster_entry *entries, size_t max)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    return list_roster(game, game->save_dir, rules, (cok_field)rules->saves.roster_flag,
+                       rules->saves.roster_flag_index, entries, max);
 }
 
 void cok_roster_erase(cok_adventure *game, const uint8_t *record)
@@ -117,8 +129,9 @@ void cok_roster_erase(cok_adventure *game, const uint8_t *record)
     name_of(L, record, name);
     cok_party_file_name(name, base);
     const cok_rules_saves *s = &cok_game_rules(game)->saves;
-    const char *const extensions[3] = {s->roster, s->items, s->effects};
-    for (size_t i = 0; i < 3; ++i) {
+    /* dkk 46b2:09dc: its spells' block's file too (DS:57ac, 71c0-71ca). */
+    const char *const extensions[4] = {s->roster, s->items, s->effects, s->spells};
+    for (size_t i = 0; i < 4 && extensions[i] != NULL; ++i) {
         snprintf(path, sizeof path, "%s/%s.%s", game->save_dir, base, extensions[i]);
         remove(path); /* 169c:0154: only if it is there */
     }
@@ -142,16 +155,16 @@ bool cok_roster_save(cok_adventure *game, cok_character *character)
                  cok_game_rules(game)->saves.roster);
         if (!exists(path)) break;
         char prompt[64];
-        snprintf(prompt, sizeof prompt, "Overwrite %s? ", base);
-        int answer = cok_camp_yes_no(game, prompt, 14);
+        snprintf(prompt, sizeof prompt, cok_game_rules(game)->start.overwrite, base);
+        int answer = cok_camp_yes_no(game, prompt, cok_game_rules(game)->start.ask_colour);
         if (answer < 0) return false;
         if (answer == 'Y') break;
         cok_keyboard keys = cok_adventure_keyboard_raw(game);
         base[0] = '\0';
         while (base[0] == '\0') {
-            cok_adventure_log(game, "input", "New file name: ");
-            if (!cok_text_input(&game->screen, &game->font, "New file name: ", 10, 0, 8, &keys,
-                                base))
+            const char *ask = cok_game_rules(game)->start.new_name;
+            cok_adventure_log(game, "input", ask);
+            if (!cok_text_input(&game->screen, &game->font, ask, 10, 0, 8, &keys, base))
                 return false;
         }
         cok_adventure_log(game, "input", base);
@@ -195,23 +208,24 @@ void cok_roster_drop(cok_adventure *game)
         return;
     }
     uint8_t *c = game->vm.character;
+    const cok_rules_start *start = &cok_game_rules(game)->start;
     char name[16], text[80];
     name_of(L, c, name);
-    snprintf(text, sizeof text, "Drop %s forever? ", name);
-    int answer = cok_camp_yes_no(game, text, 14);
-    if (answer == 'Y') answer = cok_camp_yes_no(game, "Are you sure? ", 14);
+    snprintf(text, sizeof text, start->drop, name);
+    int answer = cok_camp_yes_no(game, text, start->ask_colour);
+    if (answer == 'Y') answer = cok_camp_yes_no(game, start->drop_sure, start->ask_colour);
     if (answer < 0) return;
     if (answer == 'Y') {
         if (cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0)
-            snprintf(text, sizeof text, "You dump %s out back.", name);
+            snprintf(text, sizeof text, start->dumped, name);
         else
-            snprintf(text, sizeof text, "%s bids you farewell.", name);
+            snprintf(text, sizeof text, start->farewell, name);
         cok_adventure_log(game, "print", text);
         cok_camp_notice(game, text);
         cok_roster_erase(game, c);
         if (!cok_treasure_remove_record(game, index, false, true, false)) return;
     } else {
-        snprintf(text, sizeof text, "%s breathes a sigh of relief.", name);
+        snprintf(text, sizeof text, start->relief, name);
         cok_adventure_log(game, "print", text);
         cok_camp_notice(game, text);
     }
@@ -248,24 +262,55 @@ static bool same(const cok_character_layout *L, const uint8_t *a, const uint8_t 
            cok_field_u8(L, a, COK_FIELD_MONSTER_ID) == cok_field_u8(L, b, COK_FIELD_MONSTER_ID);
 }
 
+/* "from where" (dkk 46b2:1ef0, 49cb:343c: 6a69:0f1b over DS:3337): the
+ * game's own (false in *other), the game it imports from (true), or
+ * nothing for Exit or Escape (false returned). A game that imports none
+ * asks nothing: its own. */
+static bool from_where(cok_adventure *game, const char *prompt, bool *other)
+{
+    const cok_rules_start *start = &cok_game_rules(game)->start;
+    *other = false;
+    if (cok_game_rules(game)->characters.import == NULL) return true;
+    /* 110f:0584 / 14e4:0b6b: the window cleared first. */
+    cok_picture_fill(&game->screen, 1, 8, 0x26, 0x16 * 8, 0);
+    bool special;
+    int key = cok_camp_menu(game, prompt, start->from_items, false, false, &special);
+    if (key <= 0) return false;
+    char letter[2] = {(char)key, '\0'};
+    cok_adventure_log(game, "choice", letter);
+    if (key != start->from_items[0] && key != strchr(start->from_items, ' ')[1]) return false;
+    *other = key != start->from_items[0];
+    return true;
+}
+
 void cok_roster_add(cok_adventure *game)
 {
-    const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_rules_start *start = &rules->start;
+    const cok_character_layout *L = rules->character;
     cok_ecl *vm = &game->vm;
+    bool other;
+    if (!from_where(game, start->add_from, &other)) return;
+    /* The roster read: the game's own, or the other game's (dkk
+     * 46b2:0342 with DS:c468 0: *.WHO in DS:99a4 by its own NPC flag),
+     * whose characters are imported. */
+    const cok_rules *source = other ? rules->characters.import->from : rules;
+    const char *dir = other ? game->import_dir : game->save_dir;
     static cok_roster_entry entries[256];
-    size_t count = cok_roster_list(game, entries, 256);
+    size_t count = other ? list_roster(game, dir, source, COK_FIELD_NPC, 0, entries, 256)
+                         : cok_roster_list(game, entries, 256);
     if (count == 0) return;
     char text[256][41];
     cok_menu_row rows[256];
-    cok_adventure_log(game, "list", "Add a character: ");
+    cok_adventure_log(game, "list", start->add_prompt);
     for (size_t i = 0; i < count; ++i) {
         snprintf(text[i], sizeof text[i], "%s", entries[i].shown);
         rows[i] = (cok_menu_row){text[i], false};
         cok_adventure_log(game, "item", text[i]);
     }
     /* Exit is offered by a local 4def:37a2 never sets: what FreeMem's
-     * return address left there, 0x2e. */
-    cok_menu_style style = {"Add a character: ", "Add ", 15, 10, 13, true};
+     * return address left there, 0x2e (dkk 49cb:343c passes 1). */
+    cok_menu_style style = {start->add_prompt, start->add_select, 15, 10, 13, true};
     bool redraw = true, evil = false, paladin = false, tried = false;
     char paladin_name[16] = "";
     int index = 0;
@@ -284,18 +329,26 @@ void cok_roster_add(cok_adventure *game)
          * tried leaves one of these, above 5, so the space leaves Add; a
          * later Add after one that leaked its file list may find 0 and
          * ignore it. */
-        if (key == ' ' && !tried) return;
+        if (key == ' ' && !tried && start->add_space_leaves) return;
         if ((key != 0x0d && key != 'A') || text[index][0] == '*') continue;
-        /* 67b5:0c7b, then 4b6d:11e5's message (4b6d:1283). */
-        cok_adventure_loading(game);
+        /* 67b5:0c7b, then 4b6d:11e5's message (4b6d:1283); dkk 6a69:145d
+         * clears row 24 alone. */
+        if (start->add_loading)
+            cok_adventure_loading(game);
+        else
+            cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0);
         cok_character *c = malloc(sizeof *c);
         if (c == NULL) {
             undefined(game, "out of memory");
             return;
         }
-        if (!cok_character_read_file(c, cok_game_rules(game), game->save_dir, entries[index].base,
-                                     cok_game_rules(game)->saves.roster,
-                                     &game->item_types, game->error, sizeof game->error)) {
+        bool read = other ? cok_character_import(c, rules, dir, entries[index].base,
+                                                 source->saves.roster, &game->item_types,
+                                                 game->error, sizeof game->error)
+                          : cok_character_read_file(c, rules, dir, entries[index].base,
+                                                    rules->saves.roster, &game->item_types,
+                                                    game->error, sizeof game->error);
+        if (!read) {
             cok_character_free(c);
             free(c);
             cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
@@ -323,6 +376,7 @@ void cok_roster_add(cok_adventure *game)
                 }
                 if (cok_field_u8(L, p, COK_FIELD_NPC) < 0x80) ++players;
                 if (cok_field_s8_at(L, p, COK_FIELD_CLASS_LEVEL, 4) > 0) ++rangers;
+                if (!start->paladins) continue;
                 if ((cok_field_s8(L, p, COK_FIELD_ALIGNMENT) + 1) % 3 == 0) evil = true;
                 if (cok_field_s8_at(L, p, COK_FIELD_CLASS_LEVEL, 3) > 0) {
                     paladin = true;
@@ -333,19 +387,22 @@ void cok_roster_add(cok_adventure *game)
                      (cok_field_u8(L, r, COK_FIELD_NPC) < 0x80
                           ? players < 6
                           : cok_ecl_var(vm, COK_VAR_PARTY_SIZE) < 8) &&
-                     (cok_field_u8_at(L, r, COK_FIELD_CLASS_LEVEL, 3) == 0 || !evil) &&
                      (cok_field_u8_at(L, r, COK_FIELD_CLASS_LEVEL, 4) == 0 || rangers < 3) &&
-                     ((cok_field_s8(L, r, COK_FIELD_ALIGNMENT) + 1) % 3 != 0 || !paladin);
+                     (!start->paladins ||
+                      ((cok_field_u8_at(L, r, COK_FIELD_CLASS_LEVEL, 3) == 0 || !evil) &&
+                       ((cok_field_s8(L, r, COK_FIELD_ALIGNMENT) + 1) % 3 != 0 || !paladin)));
             if (!accept) {
-                snprintf(text[index], sizeof text[index], "%s", marked + 2);
+                if (start->add_unmarks) snprintf(text[index], sizeof text[index], "%s", marked + 2);
                 char message[64] = "";
                 bool extra = false;
-                if (cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 3) > 0 && evil) {
+                if (start->paladins && cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 3) > 0 &&
+                    evil) {
                     snprintf(message, sizeof message, "paladins do not join with evil scum");
                     extra = true;
                 } else if (cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 4) > 0 && rangers > 2) {
-                    snprintf(message, sizeof message, "too many rangers in party");
-                } else if ((cok_field_s8(L, r, COK_FIELD_ALIGNMENT) + 1) % 3 == 0 && paladin) {
+                    snprintf(message, sizeof message, "%s", start->rangers);
+                } else if (start->paladins &&
+                           (cok_field_s8(L, r, COK_FIELD_ALIGNMENT) + 1) % 3 == 0 && paladin) {
                     snprintf(message, sizeof message, "%s will tolerate no evil!", paladin_name);
                 }
                 if (message[0] != '\0') {
@@ -358,7 +415,7 @@ void cok_roster_add(cok_adventure *game)
             }
         }
         if (accept) {
-            if (!cok_party_add(&game->party, cok_game_rules(game), c)) {
+            if (!cok_party_add(&game->party, rules, c)) {
                 cok_character_free(c);
                 free(c);
                 undefined(game, "a 73rd record in the list");
@@ -366,8 +423,7 @@ void cok_roster_add(cok_adventure *game)
             }
             char error[300];
             if (cok_field_u8(L, r, COK_FIELD_NPC) >= 0x80 &&
-                !cok_character_levels(c, cok_game_rules(game), &game->item_types, error,
-                                      sizeof error)) {
+                !cok_character_levels(c, rules, &game->item_types, error, sizeof error)) {
                 undefined(game, error);
                 return;
             }
@@ -388,11 +444,18 @@ void cok_roster_add(cok_adventure *game)
 bool cok_roster_load(cok_adventure *game)
 {
     if (game->save_dir[0] == '\0') return false;
-    const cok_rules_saves *s = &cok_game_rules(game)->saves;
+    const cok_rules *rules = cok_game_rules(game);
+    bool other;
+    if (!from_where(game, rules->start.load_from, &other)) return false;
+    /* The other game's saved games (dkk DS:c468 0: SAVGAM?.DAT in
+     * DS:99a4), whose party is imported. */
+    const cok_rules *source = other ? rules->characters.import->from : rules;
+    const char *dir = other ? game->import_dir : game->save_dir;
+    if (dir[0] == '\0') return false;
+    const cok_rules_saves *s = &source->saves;
     char items[24] = "", path[sizeof game->save_dir + 32];
     for (char letter = 'A'; letter <= 'J'; ++letter) {
-        snprintf(path, sizeof path, "%s/%s%c.%s", game->save_dir, s->game, letter,
-                 s->game_extension);
+        snprintf(path, sizeof path, "%s/%s%c.%s", dir, s->game, letter, s->game_extension);
         if (!exists(path)) continue;
         size_t length = strlen(items);
         if (length + 2 < sizeof items) snprintf(items + length, sizeof items - length, "%c ", letter);
@@ -404,17 +467,16 @@ bool cok_roster_load(cok_adventure *game)
         bool special;
         /* The special flag is not tested: scan codes 0x41-0x4a pick
          * letters too. */
-        key = cok_camp_menu(game, "Load Which Game: ", items, false, false, &special);
+        key = cok_camp_menu(game, rules->start.load_prompt, items, false, false, &special);
         if (key <= 0) return false;
         if (key < 'A' || key > 'J') continue;
-        snprintf(path, sizeof path, "%s/%s%c.%s", game->save_dir, s->game, key,
-                 s->game_extension);
+        snprintf(path, sizeof path, "%s/%s%c.%s", dir, s->game, key, s->game_extension);
         if (exists(path)) break;
     }
     char letter[2] = {(char)key, '\0'};
     cok_adventure_log(game, "choice", letter);
     cok_adventure_loading(game); /* 4b6d:1d06, 1d1e */
-    if (!cok_adventure_restore(game, path)) {
+    if (!(other ? cok_adventure_import_game(game, path) : cok_adventure_restore(game, path))) {
         cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
         return false;
     }

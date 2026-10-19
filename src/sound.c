@@ -1669,6 +1669,13 @@ bool cok_sound_load(cok_sound *s, const cok_rules *rules, const char *assets)
     cok_sound_free(s);
     s->music_error[0] = '\0';
     const char *drivers = rules->archives.music_drivers;
+    if (drivers == NULL || rules->archives.music_score == NULL) {
+        /* A game whose music the port does not read yet (Death Knights'
+         * MUSIC.DAX, DEATH-KNIGHTS.md's step 4). */
+        snprintf(s->music_error, sizeof s->music_error, "%s's music is not ported",
+                 rules->text.name);
+        return false;
+    }
     if (s->device < COK_SOUND_TANDY) {
         snprintf(s->music_error, sizeof s->music_error,
                  "the music driver for %s (%s.DAX record %u) is not ported",

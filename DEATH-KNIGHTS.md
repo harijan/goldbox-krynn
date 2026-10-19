@@ -114,7 +114,9 @@ the character fields moved (R6), which the real game's layout does better.
    `eclplay` shows its scripts and 3D view.
 2. Characters and saved games, and importing Champions characters; its
    screens' frames and 35 icon slots (done: `frame`); characters, their files,
-   monsters and the import (done: `chars`).
+   monsters and the import (done: `chars`); saved games, the vault and the
+   start menu, playing up to the first fight (done: `saves`). Left: creation
+   and Modify Character (dkk `49cb:05c7`, `25d4`, rewritten).
 3. The rules: level 18, the spells and effects, leadership, aging, the
    temple, doors, treasure and ITEM0, the vault.
 4. Music: the MUSIC.DAX driver and its songs. Until then Death Knights plays

@@ -141,6 +141,32 @@ typedef struct {
     const char *record, *roster, *items, *effects, *spells;
     /* The debug mode's trace (Woof's Ctrl-D, 1a46:04f7's Assign). */
     const char *debug;
+    /* A saved game's layout (party.c's cok_saved_game_read and write;
+     * 4b6d:1b34 and 22de, dkk 46b2:1ef0 and 2808): the ECL file; the
+     * variables 0x4b00-0x4eff, 0x7c00-0x7fff and 0x7a00-0x7bff, each
+     * address as many bytes as it holds (ecl.variable_bytes: words in
+     * Champions, bytes in Death Knights); the party's square, facing, wall
+     * ahead and square byte; the last mode and the mode; walls entries of
+     * the wall table, each its record and slot as words (Champions'
+     * DS:6d8a, slots 1-3: 3; dkk DS:c078, slots 0-3: 4); the party's size
+     * and eight names, string[40]s. walls_restored: the entries the loader
+     * loads again, from the first (4b6d:1b34 all three; dkk 46b2:1ef0 the
+     * first alone, 6d21:0ec5 with DS:c07a and c078). */
+    uint8_t walls, walls_restored;
+    /* The byte the roster's list leaves a record out by, at 0x80 and up,
+     * a cok_field and its element (4b6d:0453: the jewelry's low byte,
+     * COINS 6, where the NPC flag was surely meant; dkk 46b2:0342 the NPC
+     * flag, DS:57a). */
+    uint8_t roster_flag, roster_flag_index;
+    /* Whether the loader leaves the saved last mode the last mode (dkk
+     * 46b2:1ef0 reads it into DS:8c4f and keeps it), rather than making the
+     * saved mode the last (4b6d:1b34: DS:4b4a = 4b49). */
+    bool keep_last_mode;
+    /* The bank vault (dkk 46b2:2e1d reads it, 302d writes it):
+     * <vault><letter>.<vault_extension> beside the saved game of that
+     * letter, and the copy its menu leaves until the game is saved
+     * (vault_temp, a whole name); NULL: the game has none (Champions). */
+    const char *vault, *vault_extension, *vault_temp;
 } cok_rules_saves;
 
 /* The archives daximages and daxcompose export, by layout
@@ -446,6 +472,9 @@ typedef struct {
     const uint8_t *display_spells;
     const cok_rules_effect_text *display_texts;
     unsigned display_text_count;
+    /* Display's routine where the port does not carry the game's out yet,
+     * citing it, or NULL: choosing Display stops the run (COK_ECL_UNPORTED). */
+    const char *display_unported;
     /* The rules' routines that differ in the game and the port does not
      * carry out for it yet, citing the game's routine, or NULL: the caster
      * level (6346:29fe), the saving throw (60f4:113a) and magic resistance
@@ -508,6 +537,11 @@ typedef struct {
     /* The item types (+0x2e) not imported, as a Pascal set: bit t & 7 of
      * byte t >> 3. */
     uint8_t dropped_items[32];
+    /* The other game's roster and saved games are read from the directory
+     * the configuration's fifth line names (dkk DS:99a4; the port's
+     * --import): its roster by the NPC flag (dkk 46b2:0342 tests the
+     * source's own, DS:57a: Champions' +0xe7), its saved game's party and,
+     * of its variables, COK_VAR_SAVINGS alone (46b2:1ef0). */
 } cok_rules_import;
 
 /* The game's characters' routines that differ. */
@@ -583,6 +617,97 @@ typedef struct {
     uint8_t resumed;
 } cok_rules_frame;
 
+/* A line of text at a cell, in a colour on black (the credits). */
+typedef struct {
+    uint8_t x, y, fg;
+    const char *text;
+} cok_rules_text_line;
+
+/* One of the title's pictures: TITLE record drawn opaque at x units and y
+ * rows of cells (127f:10e7; dkk 123c:10fe), the screen cleared first where
+ * clear (dkk 14e4:0a37), then seconds waited (2f55:0000), 0 for none. */
+typedef struct {
+    uint8_t record, x, y;
+    bool clear;
+    uint8_t seconds;
+} cok_rules_title_picture;
+
+/* The game's front end (start.c, roster.c, camp.c's Save): the title, the
+ * start menu's words, and what its commands do where the games differ. */
+typedef struct {
+    /* The title (2f55:063c; dkk 35c6:051c): its pictures in turn, a key
+     * pressed while one waits ending them; then the credits (2f55:0267;
+     * dkk 35c6:026e: the cleared screen, the credits' frame and these
+     * lines) for credits_wait hundredths of a second, unless a key ended
+     * the pictures and credits_always is false. */
+    cok_rules_title_picture pictures[4];
+    unsigned picture_count;
+    const cok_rules_text_line *credits;
+    unsigned credit_count;
+    uint16_t credits_wait;
+    bool credits_always;
+    /* A new game's first block (2fd3:3c28: 0x24; dkk 3632:2e06: 0x10),
+     * and the demonstration's ECL file and block (1000:0134 and 2fd3:3c28:
+     * 2 and 0x39; dkk entry and 3632:2e06: 5 and 2, an ECL5 it does not
+     * ship). */
+    uint8_t first_block, demo_file, demo_block;
+    /* The start menu's items (DS:0878; dkk DS:0cf8: 13 string[40]s with a
+     * flag after each, 0x2a bytes apart), its list's prompt and its word
+     * (4def:01b4's; dkk DS:2fad and 31d6). */
+    const char *items[13];
+    const char *prompt, *select;
+    /* By item, the game's routine where the port does not carry it out
+     * yet, citing it ("dkk 49cb:05c7"), or NULL: choosing it stops the run
+     * (COK_ECL_UNPORTED). */
+    const char *unported[13];
+    /* Pick Character's prompt and menu (546c:36cc; dkk 580d:3067). */
+    const char *pick_prompt, *pick_menu;
+    /* Drop Character's words (4def:2668; dkk 49cb:2394), each %s the
+     * name: the two questions, the farewells of one who cannot act and of
+     * one who can, and No's. */
+    const char *drop, *drop_sure, *dumped, *farewell, *relief;
+    /* Exit to DOS's questions (4def:055a; dkk 49cb:010b's). */
+    const char *quit, *unsaved;
+    /* The colour of the questions' prompts, Drop's, Exit's and Overwrite's:
+     * Champions' callers give 67b5:177f yellow (14); dkk 6a69:2048 shows
+     * its prompt as every menu does, light magenta (13). */
+    uint8_t ask_colour;
+    /* Load's and Save's (4b6d:1b34, 22de; dkk 46b2:1ef0, 2808): the
+     * letter's prompt, the warning for a party of none, and where the
+     * game imports another's, "from where" over the games (DS:306c and
+     * 3337: the game's own, the other's, Exit; Add's DS:1393). */
+    const char *load_prompt, *save_prompt, *save_warning;
+    const char *load_from, *add_from, *from_items;
+    /* Saving to the roster (4b6d:0bed; dkk 46b2:0abc): %s the file's
+     * name. */
+    const char *overwrite, *new_name;
+    /* Add Character to Party (4def:37a2; dkk 49cb:343c): its list's prompt
+     * and word, the rangers' message, whether paladins turn away evil and
+     * the evil paladins (dkk has neither rule), whether a space before any
+     * choice leaves it (4def:3ae7's count never set; dkk has none), whether
+     * "Loading...Please Wait" shows as a character is read (4b6d:1283; dkk
+     * 49cb:343c clears row 24 alone) and whether one turned away loses its
+     * "* " (dkk keeps it). */
+    const char *add_prompt, *add_select, *rangers;
+    bool paladins, add_space_leaves, add_loading, add_unmarks;
+    /* Whether a Drop or Remove that empties the party ends the game there
+     * (dkk 49cb:010b: 4f9a:08ad and DS:8c5b, the adventure starting over
+     * once the menu returns); whether Exit's No saves and then quits (dkk)
+     * rather than staying in the menu (4def:055a); whether Begin's mode is
+     * the last mode, which the menu sets from the mode it was entered with
+     * and a load from the saved game's (dkk DS:8c4f), rather than the mode
+     * the menu was entered with (4def:01b4's [bp-0x10]). */
+    bool reset_when_empty, quit_after_save, begin_last_mode;
+    /* Whether PROGRAM 0's redraw on the overland map marks the party on
+     * it again (dkk 3632:23dd: 6997:0000; 2fd3:3473 does not). */
+    bool program_marks;
+    /* The wall table's entry the end of a game sets to (0, 1), the next
+     * ones -1 (3e99:0843: the first; dkk 4f9a:08ad, Champions' 1-based loop
+     * over its 0-based table: the second, the first kept). Startup sets
+     * the first (3e99:005b, dkk 4f9a:00e1). */
+    uint8_t reset_wall;
+} cok_rules_start;
+
 /* The game's own words that are names: its title. */
 typedef struct {
     /* The window's title. */
@@ -590,6 +715,8 @@ typedef struct {
     /* The title's menu's heading, at startup and after a demonstration
      * (1000:0134), which spell it differently. */
     const char *version, *version_again;
+    /* Camp's first line (4888:2c31; dkk 4381:3106, DS:16b7). */
+    const char *camp;
 } cok_rules_text;
 
 typedef struct cok_rules {
@@ -615,8 +742,7 @@ typedef struct cok_rules {
     cok_rules_effects effects;
     cok_rules_moons moons;
     cok_rules_frame frame;
-    /* Why cok cannot play the game yet, or NULL. */
-    const char *unplayable;
+    cok_rules_start start;
 } cok_rules;
 
 extern const cok_rules cok_rules_champions, cok_rules_death_knights;

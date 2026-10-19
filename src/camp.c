@@ -893,10 +893,66 @@ static void alter(cok_adventure *game)
 
 /* Saving. */
 
+/* <vault><letter>.<extension> in the save directory. */
+static void vault_path(cok_adventure *game, char letter, char *path, size_t size)
+{
+    const cok_rules_saves *s = &cok_game_rules(game)->saves;
+    snprintf(path, size, "%s/%s%c.%s", game->save_dir, s->vault, letter, s->vault_extension);
+}
+
+/* The vault goes with the saved game (dkk 46b2:2808): unless its menu left
+ * it in the temporary file, which then takes the letter's name (15fe:0195,
+ * 01e4), the vault of the game loaded last (DS:fb79) is read (46b2:2e1d;
+ * none: no coins, or steel a hundred times the savings, 0x4c33) and written
+ * as the letter's (46b2:302d), unless it is that letter's already. */
+static bool save_vault(cok_adventure *game, char letter)
+{
+    const cok_rules_saves *s = &cok_game_rules(game)->saves;
+    char path[sizeof game->save_dir + 64], error[sizeof game->error];
+    vault_path(game, letter, path, sizeof path);
+    bool ok = true;
+    if (game->vault_temp) {
+        char temp[sizeof game->save_dir + 64];
+        snprintf(temp, sizeof temp, "%s/%s", game->save_dir, s->vault_temp);
+        remove(path);
+        FILE *exists = fopen(temp, "rb");
+        if (exists != NULL) {
+            fclose(exists);
+            if (rename(temp, path) != 0) {
+                snprintf(error, sizeof error, "%.500s: cannot be renamed", temp);
+                ok = false;
+            }
+        }
+    } else if (game->vault_letter != letter) {
+        char from[sizeof game->save_dir + 64];
+        vault_path(game, game->vault_letter, from, sizeof from);
+        cok_vault vault;
+        bool missing;
+        if (!cok_vault_read(from, &vault, &missing, error, sizeof error)) {
+            if (!missing) ok = false;
+            uint16_t savings = cok_ecl_var(&game->vm, COK_VAR_SAVINGS);
+            if (savings > 0) {
+                uint32_t steel = savings * 100u; /* 46b2:2e1d: a long, 1a07:0a14 */
+                for (size_t i = 0; i < 4; ++i) vault.coins[i] = (uint8_t)(steel >> (8 * i));
+            }
+        }
+        if (ok && !cok_vault_write(path, &vault, error, sizeof error)) ok = false;
+        cok_vault_free(&vault);
+    }
+    if (!ok) {
+        snprintf(game->error, sizeof game->error, "%s", error);
+        cok_adventure_log(game, "error", error);
+    }
+    game->vault_letter = letter; /* DS:fb79 */
+    game->vault_temp = false;    /* DS:fb78 */
+    return ok;
+}
+
 bool cok_camp_save_game(cok_adventure *game, char letter)
 {
     static cok_saved_game saved;
     cok_ecl *vm = &game->vm;
+    const cok_rules *rules = cok_game_rules(game);
     game->error[0] = '\0';
     if (game->save_dir[0] == '\0') {
         snprintf(game->error, sizeof game->error, "no directory to save games in");
@@ -917,8 +973,10 @@ bool cok_camp_save_game(cok_adventure *game, char letter)
     saved.square = vm->square;
     saved.last_mode = vm->last_mode;
     saved.mode = vm->mode;
-    memcpy(saved.wall_ids, game->wall_ids, sizeof saved.wall_ids);
-    memcpy(saved.wall_slots, game->wall_slots, sizeof saved.wall_slots);
+    for (size_t i = 0; i < rules->saves.walls; ++i) {
+        saved.wall_ids[i] = game->wall_ids[i];
+        saved.wall_slots[i] = game->wall_slots[i];
+    }
     /* The count is that of the whole list (4b6d:22de), monsters loaded too;
      * a ninth name would be written over the routine's return address. */
     if (game->party.count > COK_PARTY_MAX) {
@@ -928,7 +986,7 @@ bool cok_camp_save_game(cok_adventure *game, char letter)
         return false;
     }
     saved.count = (uint8_t)game->party.count;
-    const cok_rules_saves *s = &cok_game_rules(game)->saves;
+    const cok_rules_saves *s = &rules->saves;
     for (size_t i = 0; i < game->party.count; ++i)
         snprintf(saved.names[i], sizeof saved.names[i], "%s%c%u", s->character, letter,
                  (unsigned)(i + 1));
@@ -938,14 +996,14 @@ bool cok_camp_save_game(cok_adventure *game, char letter)
      * (4b6d:2809) whatever happened. */
     bool ok = true;
     char error[sizeof game->error];
-    if (!cok_saved_game_write(path, &saved, error, sizeof error)) {
+    if (!cok_saved_game_write(path, rules, &saved, error, sizeof error)) {
         ok = false;
         snprintf(game->error, sizeof game->error, "%s", error);
         cok_adventure_log(game, "error", error);
     }
     for (size_t i = 0; i < game->party.count; ++i) {
-        if (!cok_character_write(game->party.members[i], cok_game_rules(game), game->save_dir,
-                                 saved.names[i], error, sizeof error)) {
+        if (!cok_character_write(game->party.members[i], rules, game->save_dir, saved.names[i],
+                                 error, sizeof error)) {
             ok = false;
             snprintf(game->error, sizeof game->error, "%s", error);
             cok_adventure_log(game, "error", error);
@@ -953,21 +1011,23 @@ bool cok_camp_save_game(cok_adventure *game, char letter)
         /* 4b6d:0a80: the roster's copy of the character goes. */
         cok_roster_erase(game, game->party.members[i]->record);
     }
+    if (s->vault != NULL && !save_vault(game, letter)) ok = false;
     game->effects.rolls.saved = 1; /* DS:5885 */
     return ok;
 }
 
-/* Save (4b6d:22de): ask which game, A-J, then save it. Escape cancels.
- * Special keys whose scan codes are letters A-J pick them too: F7-F10 A-D,
- * Home G, up H and PgUp I. The original's checks for the disk, its volume
- * label and free space are left out; it ignores write errors, which are
- * logged here. */
+/* Save (4b6d:22de; dkk 46b2:2808): ask which game, A-J, then save it.
+ * Escape cancels. Special keys whose scan codes are letters A-J pick them
+ * too: F7-F10 A-D, Home G, up H and PgUp I. The original's checks for the
+ * disk, its volume label and free space are left out; it ignores write
+ * errors, which are logged here. */
 void cok_camp_save(cok_adventure *game)
 {
+    const cok_rules_start *start = &cok_game_rules(game)->start;
     int key;
     do {
         bool special;
-        key = cok_camp_menu(game, "Save Which Game: ", "A B C D E F G H I J", false,
+        key = cok_camp_menu(game, start->save_prompt, "A B C D E F G H I J", false,
                             game->vm.mode == 2, &special);
         if (key <= 0) return;
     } while (key < 'A' || key > 'J');
@@ -979,7 +1039,7 @@ void cok_camp_save(cok_adventure *game)
         /* Before the count and the names (4b6d:267d): 1521:096c, row 24 in
          * yellow, then a key. */
         clear_menu(game);
-        draw(game, "WARNING: Problem Saving Characters", 0, 24, 14, true);
+        draw(game, start->save_warning, 0, 24, 14, true);
         cok_keyboard keys = cok_adventure_keyboard(game);
         if (keys.read(keys.context) < 0) return;
     }
@@ -1008,7 +1068,7 @@ bool cok_camp(cok_adventure *game)
     cok_sheet_stale stale = picture != 0x3b && game->picture_id == 0x3b ? COK_SHEET_STALE_ZERO
                                                                        : COK_SHEET_STALE_UNKNOWN;
     clear_cells(game, 1, 0x11, 0x26, 0x16);
-    draw(game, "The party makes camp...", 1, 0x12, 10, true);
+    draw(game, cok_game_rules(game)->text.camp, 1, 0x12, 10, true);
     forget_all(game);
     bool interrupted = false;
     int key = ' ';
