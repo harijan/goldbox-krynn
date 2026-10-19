@@ -1462,6 +1462,7 @@ const cok_rules cok_rules_death_knights = {
             .display_spells = NULL,
             .display_texts = NULL,
             .display_text_count = 0,
+            .display_unported = "dkk 4381:15aa", /* 4888:17ae's counterpart */
             .caster_level_unported = "dkk 65cd:2c33",
             .save_unported = "dkk 638c:10f8",
             .resistance_unported = "dkk 638c:04c9",

@@ -297,6 +297,12 @@ struct cok_ecl {
     bool stop;                       /* DS:43b8, set by EXIT. */
     bool reload;                     /* DS:43b9, set by NEWECL. */
     bool abort;                      /* DS:4b57; set by the host to end a run. */
+    /* dkk DS:8c5b: the start menu ended the game (a Drop or Remove left no
+     * party): every run stops before its next instruction, and starts none,
+     * until the host starts the game over (dkk 3632:2cd5's test; 3632:2e06
+     * clears it). Champions' run loop (2fd3:3add) has no such test, and
+     * nothing sets it there. */
+    bool halt;
     /* Comparison results, DS:72e0-72e5: =, <>, <, >, <=, >= of the first
      * operand against the second. */
     bool flags[6];

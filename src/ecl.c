@@ -1022,7 +1022,7 @@ cok_ecl_status cok_ecl_run(cok_ecl *vm, uint16_t address)
     vm->ip = address;
     vm->stop = false;
     vm->status = COK_ECL_OK;
-    while (!vm->stop && !vm->abort) {
+    while (!vm->stop && !vm->abort && !vm->halt) {
         if (vm->hooks.trace != NULL) vm->hooks.trace(vm, vm->hooks.context);
         uint8_t opcode;
         if (!fetch(vm, vm->ip, &opcode)) break;

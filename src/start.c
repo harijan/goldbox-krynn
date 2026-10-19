@@ -388,6 +388,7 @@ static void emptied(cok_adventure *game, uint8_t *entry)
     *entry = vm->last_mode;
     game->free_training = false; /* DS:c46a */
     game->new_game = true;
+    vm->halt = true; /* DS:8c5b: the script that opened the menu stops too */
 }
 
 /* The items each pass offers (4def:01ef): by whether a character is
@@ -524,6 +525,7 @@ static cok_ecl_status adventure(cok_adventure *game)
          * from a new game's block (3632:2e06's outer loop). */
         do {
             game->new_game = false;
+            vm->halt = false; /* 3632:2e0e */
             uint8_t block = cok_ecl_var(vm, COK_VAR_BLOCK) != 0
                                 ? (uint8_t)cok_ecl_var(vm, COK_VAR_BLOCK)
                                 : start->first_block;

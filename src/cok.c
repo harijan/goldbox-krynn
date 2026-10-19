@@ -1513,6 +1513,12 @@ int main(int argc, char **argv)
             return 2;
         }
     }
+    if (woof && f.rules->saves.debug == NULL) {
+        /* A game with no debug mode reads no Woof (dkk's main reads no
+         * argument). */
+        fprintf(stderr, "--woof: %s has no Woof (its debug mode)\n", f.rules->text.name);
+        return 2;
+    }
     if (assets == NULL) assets = f.rules->assets;
     if (import == NULL) import = saves;
     if (strlen(saves) >= sizeof game.save_dir || strlen(import) >= sizeof game.import_dir) {

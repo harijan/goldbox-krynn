@@ -195,7 +195,7 @@ segment's tables, a section to a concern:
 | `view` | the 3D view's tile sets (each one's first and last value, `6e22:01ab`, and the colour each is loaded with as transparent, `tile_transparent`), the wall slot that holds wall types 1-5 and that `LOAD PIECES`' two-set path loads first, whether a record's wall sets share one tile set and whether tile values are moved by the slot's set; the overhead map's tiles; `PICTURE`'s overland map; whether CGA mode has a backdrop of its own (`cga_backdrop`: a line row, no pictures) | 1-0x2d, ..., 0x100-0x127 (`DS:1ec2`), each loaded with 13 transparent (`6e22:0050`); slot 1; a tile set each, moved (`69ea:1025`, `1230`); 0x104 and 0x100; 0x79; yes (`69ea:0184`) |
 | `startup` | what startup loads past the font (`3e99:005b`): tile sets from `<tiles>1` and the missiles' icons from `COMSPR`, as (first id, first slot, count); the icon slots (`icon_slots`, at most `COK_ICON_SLOTS_MAX`, 35) and their table's DS offset, for messages | sets 4 and 0, records 202 and 203; 0-11 into 13-24, 25 into 25; 26 slots at `DS:6172` (`3e99:0466` clears 0xd0 bytes) |
 | `spells` | what is keyed by spell id (`magic.c`, `cast.c`): the ids' count; their names and the spell lists' headings, with their tables' DS offsets and sizes for the messages; each id's handler (`cok_rules_cast`: the port's, a `cok_cast_handler`, and the original's address, or `unported`); the durations not taken from the spell table (`cok_rules_duration`); the spell ids the code names (`ids`, by `cok_named_spell`); the spell lists' sizes; the granted powers' ids; an item power's spell; Display's search; byte 7's values for the caster, one picked and the party | ids 1-0x6b (`DS:2077` + 41 × id, `DS:0bfa` + 41 × level), the handlers `5b04:58ed` stores at `DS:6e3a`, 7 durations (`5b04:0f78`), 23 names; 58 and 49 (`DS:473a`, `4774`); 101-107; above 0x38, 0x17 less (`3afb:04b2`); spells 1-0x38 (`4888:17ae`); 1, 2, 4 (`5b04:127e`) |
-| `effects` | what is keyed by effect id (`effect.c`, `cast.c`, `magic.c`): the ids' count; each id's handler (`cok_rules_effect`, as the spells'); the ids each event runs; the ids the party shares and Prayer's reach; those magic resistance leaves pending; the effect ids the code names (by `cok_named_effect`); Display's ids and texts; the rules' routines a game does not have ported yet (the caster level, the saving throw, magic resistance) | 0x79 (`DS:6b94`, `5b04:58ed` and `3f44:38ea`), events 1-0x18 (`60f4:057c`), 0x15, 0x2d, 0x2e, 0x31 and 0x31 from 6 squares (`60f4:0332`, `0352`), 0x5b and 0x52 (`60f4:04f3`), 80 names, `4888:17ae`'s; none |
+| `effects` | what is keyed by effect id (`effect.c`, `cast.c`, `magic.c`): the ids' count; each id's handler (`cok_rules_effect`, as the spells'); the ids each event runs; the ids the party shares and Prayer's reach; those magic resistance leaves pending; the effect ids the code names (by `cok_named_effect`); Display's ids and texts; the rules' routines a game does not have ported yet (the caster level, the saving throw, magic resistance, Display) | 0x79 (`DS:6b94`, `5b04:58ed` and `3f44:38ea`), events 1-0x18 (`60f4:057c`), 0x15, 0x2d, 0x2e, 0x31 and 0x31 from 6 squares (`60f4:0332`, `0352`), 0x5b and 0x52 (`60f4:04f3`), 80 names, `4888:17ae`'s; none |
 | `moons` | the three moons (`57e4:001e`, `0143`): the days each stays in a phase, and on the frame each one's column and tile | 8, 1, 6 days; columns 8, 19, 30; tiles 0x114 + phase + 10, 6, 14 |
 | `frame` | the screens' frames (`screen.c`), by `cok_screen` (the frame, the open frame, the adventure screen, a big picture's, Memorize's, the spell lists', combat's, the sheet's, the credits'): each a `cok_rules_screen`, the screen drawn under it first, the box cleared (`1128:07e6`) and its lines, rows and columns of tiles (`cok_rules_frame_line`: a tile, or a table by the cell's column or row, and on row 0 the moons), each the frame's `base` + its value; which frame main draws after the start menu (`menu_big`) and Begin Adventuring for a loaded game (`resumed`, a `cok_resumed`) | `1128:0000`-`077c`'s layouts, tiles 0x114 + `DS:0e3a`, `0e62`, `0e7a`, `0ea3`, `0eb0`, `0e8b`, `0ebd`, `0f02`, `0f19` and the code's; the big frame in mode 3 on the map (`1000:024b`); in block 0 or off the map (`4def:01b4`) |
 | `start` | the front end (`start.c`, `roster.c`, camp's Save): the title's pictures (record, cell, whether the screen is cleared first, the seconds waited) and credits (lines, their wait, whether they show after a key), a new game's block and the demonstration's file and block; the start menu's items, prompt and word, each item's routine where the port does not carry it out for the game (`unported`, cited: choosing it stops the run); the words of Pick Character, Drop, Exit, Load, Save, the roster's Overwrite, Add, and "from where" for a game that imports another's; the questions' colour; and what its commands do where the games differ (Add's paladin rules, its space, its message and marks; a Drop or Remove that empties the party ending the game; Exit's No saving then quitting; Begin's mode; PROGRAM 0 marking the party on the map; the wall table's entry the end of a game sets) | `2f55:063c`'s pictures, 1, 2, 3 at 5, 1 and 4 at 0, 1 for 5, 10 and 10 seconds, the credits (`2f55:0267`) for 10 unless a key; 0x24, file 2 block 0x39; `DS:0878`, `Choose a FUNCTION `, `Select `, none unported; yellow; paladins, the space, the message and marks; no, no, the entry mode, no; the first |
@@ -7818,7 +7818,10 @@ here:
   cleared, the frame, twenty lines in yellow, white and light green), for
   10000 seconds' hundredths multiplied into a word (`35c6:0000`'s `mul`
   then `xor dx, dx`: 16960, 169.6 seconds) unless a key. No `Woof`: main
-  reads no argument. The title's menu `Death Knights Of Krynn 1.10 ` and
+  reads no argument, and the game has no debug mode (`saves.debug`
+  `NULL`): `cok` and `eclplay` refuse `--woof` for it (status 2). Its music
+  (`MUSIC.DAX`) is not read yet: `sound: no music: Death Knights of
+  Krynn's music is not ported`, the effects as they are. The title's menu `Death Knights Of Krynn 1.10 ` and
   `Play Demo`; the demonstration would play ECL5 block 2 (`3632:2e06`),
   which the game does not ship, and stops when it cannot load it.
 - A new game starts in block 0x10. After the start menu main draws the
@@ -7840,7 +7843,12 @@ here:
   entry and keeps the first), the vault's letter forgotten, the list on its
   first row; the adventure, once the menu returns (from main, or from
   `PROGRAM 0` in a script, which then does not redraw), starts over from
-  a new game's block (`3632:2e06`'s outer loop).
+  a new game's block (`3632:2e06`'s outer loop). Meanwhile no script runs
+  on: the ECL's run loop (`3632:2cd5`) stops on `DS:8c5b` as on its other
+  two flags, so the script that opened the menu ends at `PROGRAM` and every
+  vector after it returns at once, until the game starts over (the VM's
+  `halt`, which `cok_ecl_run` tests; Champions' loop, `2fd3:3add`, tests
+  only `DS:43b8` and `4b57`, and nothing sets `halt` there).
 - Exit to DOS: No to `game not saved. quit anyway? ` saves and then quits.
 - Add Character to Party asks `add from where? ` (`DS:1393`): Death its
   roster (`*.PC` in the saves), Champions Champions' (`*.WHO` in
@@ -7855,7 +7863,8 @@ here:
   Order (`4ea4`) and Initialize Mouse/Joystick (`52cd`: its own words, and
   it rewrites `krynn.cfg`, not `DKK.CFG`) are not ported: choosing one
   stops the run (`not yet ported: Death Knights of Krynn's Create New
-  Character (dkk 49cb:05c7)`).
+  Character (dkk 49cb:05c7)`). So does camp's Magic, Display (`4381:15aa`,
+  4888:17ae's counterpart; the effects section's `display_unported`).
 
 `tools/dosbox/checks/dkk_start.py` (not in `run_all.py`, as
 `dkk_views.py`) compares the original in DOSBox-X: the four title

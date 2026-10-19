@@ -260,6 +260,27 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertIn("list: add a character: \nitem: SIR STRONGSWORD\n", result.stdout)
         self.assertEqual(result.stdout.count(" joins\n"), 6)
 
+    def test_no_woof(self):
+        # Death Knights has no debug mode: --woof is refused.
+        result = self.play("--woof", "--start-menu", ASSETS)
+        self.assertEqual((result.returncode, result.stderr),
+                         (2, "--woof: Death Knights of Krynn has no Woof (its debug mode)\n"))
+
+    def test_program_ends_game(self):
+        # PROGRAM 0 (ECL1 block 17's trainers, 917b): Remove the only
+        # member empties the party, which ends the game (49cb:010b, DS:8c5b);
+        # the script stops there and runs no more (3632:2cd5): the trainers'
+        # parting words never print. Add it back and Begin.
+        saves = self.saves()
+        keys = r"\v\v\v\v\v\r\r\v\r\r\r\e\v\v\v\v\v\v\r"
+        result = self.play("--character", ASSETS / "SAVE/CHRDATA1.GAM", "--saves", saves,
+                           "--start", "917b", "--keys", keys, ASSETS, 17)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("roster: SIRDRYDE.PC\n", result.stdout)
+        self.assertIn("choice: Begin Adventuring\n", result.stdout)
+        self.assertNotIn("THEY COLLECT THEIR THINGS", result.stdout)
+        self.assertTrue(result.stdout.endswith("(done in block 17)\n"), result.stdout[-200:])
+
     def test_unported_stops(self):
         # What is not ported stops the run, naming the routine: creating a
         # character (49cb:05c7), and in block 16 the fight (SETUP MONSTERS).
@@ -267,6 +288,13 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stderr, "not yet ported: Death Knights of Krynn's Create New "
                          "Character (dkk 49cb:05c7)\n")
+        # Camp's Magic, Display (4381:15aa, not ported).
+        keys = self.TITLE + r"\v\v\r\rA" + r"\v" * 5 + r"\r\r\r\rMD\e\e"
+        result = self.play("--start-menu", "--saves", self.saves(ASSETS / "SAVE"), "--keys", keys,
+                           ASSETS)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr, "not yet ported: Death Knights of Krynn's Display "
+                         "(dkk 4381:15aa)\n")
         result = self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", "--keys", r"\r\r" + "N" +
                            r"\r" * 8, ASSETS)
         self.assertEqual(result.returncode, 1)

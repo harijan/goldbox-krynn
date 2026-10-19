@@ -82,6 +82,8 @@ static void test_lookup(void)
     CHECK(R->character->file_size == 0xd8 && R->character->spells_offset == 0xd8 &&
           R->character->spells_size == 0xdc && R->character->size == 0xd8 + 0xdc);
     CHECK(strcmp(R->saves.spells, "WIZ") == 0 && cok_rules_champions.saves.spells == NULL);
+    CHECK(strcmp(R->effects.display_unported, "dkk 4381:15aa") == 0 &&
+          cok_rules_champions.effects.display_unported == NULL);
     CHECK(R->characters.stats == COK_STATS_DEATH_KNIGHTS &&
           R->characters.levels == COK_LEVELS_DEATH_KNIGHTS && R->characters.import != NULL);
     CHECK(cok_rules_champions.characters.stats == COK_STATS_CHAMPIONS &&

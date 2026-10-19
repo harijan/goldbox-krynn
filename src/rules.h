@@ -472,6 +472,9 @@ typedef struct {
     const uint8_t *display_spells;
     const cok_rules_effect_text *display_texts;
     unsigned display_text_count;
+    /* Display's routine where the port does not carry the game's out yet,
+     * citing it, or NULL: choosing Display stops the run (COK_ECL_UNPORTED). */
+    const char *display_unported;
     /* The rules' routines that differ in the game and the port does not
      * carry out for it yet, citing the game's routine, or NULL: the caster
      * level (6346:29fe), the saving throw (60f4:113a) and magic resistance

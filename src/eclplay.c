@@ -812,6 +812,12 @@ static int run(int argc, char **argv)
             return 2;
         }
     }
+    if (woof && rules->saves.debug == NULL) {
+        /* A game with no debug mode reads no Woof (dkk's main reads no
+         * argument). */
+        fprintf(stderr, "--woof: %s has no Woof (its debug mode)\n", rules->text.name);
+        return 2;
+    }
     if (keyed && !chosen) combat = COK_COMBAT_PLAYER;
     unsigned long block = 256; /* none given */
     bool has_block = argc - i == 2;
