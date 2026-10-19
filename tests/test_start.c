@@ -1247,6 +1247,44 @@ static void test_menu(void)
     CHECK(logged("item: Train Character;item: Knight Change Classes;"));
     CHECK(logged("choice: Begin Adventuring;") && game.vm.mode == 3);
     CHECK(game.vm.mem7c00[0x2a8] == 0 && !game.free_training);
+    /* A game loaded here, in block 17 on the map: Champions draws no frame
+     * (4def:01b4); a game that draws it by the mode (dkk 49cb:010b) the big
+     * picture's in mode 3, the adventure screen's in 4, none in 2. */
+    cok_rules by_mode = cok_rules_champions;
+    by_mode.frame.resumed = COK_RESUMED_BY_MODE;
+    game.vm.keep_vars = true;
+    game.vm.mem4b00[0xf2] = 17;
+    game.picture_id = COK_ADVENTURE_NO_PICTURE;
+    const struct {
+        const cok_rules *rules;
+        uint8_t mode;
+        bool frame, divider;
+    } resumed[] = {{&cok_rules_champions, 3, false, false}, {&by_mode, 3, true, false},
+                   {&by_mode, 4, true, true}, {&by_mode, 2, false, false}};
+    for (size_t i = 0; i < sizeof resumed / sizeof *resumed; ++i) {
+        game.rules = resumed[i].rules;
+        game.vm.mode = resumed[i].mode;
+        game.vm.mem7c00[0x2a8] = 127;
+        cok_picture_fill(&game.screen, 0, 0, 40, 200, 0);
+        keys("\x01P\x01P\x01P\x01P\x01P\x01P\x01P\x01P\x01PS");
+        cok_start_menu(&game);
+        CHECK(game.vm.mode == resumed[i].mode);
+        CHECK(cell_black(38, 16) == !resumed[i].frame && cell_black(16, 8) == !resumed[i].divider);
+    }
+    /* After the start menu main draws the big picture's frame in mode 3 on
+     * the map (1000:024b), a game without menu_big the adventure screen
+     * (dkk 1000:01d1). */
+    by_mode.frame.menu_big = false;
+    game.vm.mode = 3;
+    for (size_t i = 0; i < 2; ++i) {
+        game.rules = i == 0 ? &cok_rules_champions : &by_mode;
+        cok_picture_fill(&game.screen, 0, 0, 40, 200, 0);
+        cok_start_redraw(&game);
+        CHECK(!cell_black(38, 16) && cell_black(16, 8) == (i == 0));
+    }
+    game.rules = &cok_rules_champions;
+    game.vm.keep_vars = false;
+    game.vm.mem4b00[0xf2] = 0;
     /* Exit to DOS: unsaved, No saves and stays; Yes and Yes quit. */
     game.vm.mode = 4;
     game.effects.rolls.saved = 0;

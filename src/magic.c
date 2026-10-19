@@ -414,15 +414,13 @@ static int choose(cok_adventure *game, cok_character *character, int kind, int m
     if (!build_list(game, &l, character, kind)) return -1;
     *nonempty = l.count > 0;
     if (!*nonempty) return 0;
-    uint16_t moons[3];
-    for (size_t i = 0; i < 3; ++i) moons[i] = cok_ecl_var_at(&game->vm, COK_VAR_MOONS, i);
     const cok_character_layout *L = cok_game_rules(game)->character;
     const uint8_t *c = character->record;
     if (*index < 0 || mode == 1) {
         if (mode == 2)
-            cok_screen_spells(&game->screen, &game->view.tiles[4], moons);
+            cok_adventure_screen(game, COK_SCREEN_SPELLS);
         else
-            cok_screen_list(&game->screen, &game->view.tiles[4], moons);
+            cok_adventure_screen(game, COK_SCREEN_LIST);
     }
     char name[20], text[64];
     uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
@@ -891,9 +889,7 @@ static void display(cok_adventure *game)
 #undef ROW
     for (size_t i = 0; i < count; ++i)
         cok_adventure_log(game, rows[i].heading ? "heading" : "item", rows[i].text);
-    uint16_t moons[3];
-    for (size_t i = 0; i < 3; ++i) moons[i] = cok_ecl_var_at(&game->vm, COK_VAR_MOONS, i);
-    cok_screen_frame(&game->screen, &game->view.tiles[4], moons, true);
+    cok_adventure_screen(game, COK_SCREEN_OPEN);
     cok_menu_style style = {"", "", 15, 10, 11, true};
     bool redraw = true;
     int index = 0;

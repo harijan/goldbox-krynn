@@ -604,7 +604,7 @@ bool cok_treasure_remove_record(cok_adventure *game, size_t index, bool keep, bo
     if (game->spell_target == gone) game->spell_target = NULL;
     if (game->trade_partner == gone) game->trade_partner = NULL;
     uint8_t slot = cok_field_u8(L, gone, COK_FIELD_ICON);
-    if (free_icon && slot < COK_ICON_SLOTS)
+    if (free_icon && slot < cok_icon_slots(game))
         for (size_t pose = 0; pose < 2; ++pose) cok_picture_free(&game->icons[slot][pose]);
     cok_cast_forget(game, game->party.members[index]);
     cok_party_remove(&game->party, index);
@@ -902,10 +902,7 @@ static void draw(cok_adventure *game, const char *text, int x, int y, uint8_t fg
 /* Clear the frame (1128:0000), open or with the row 16 divider. */
 static void clear_frame(cok_adventure *game, bool open)
 {
-    cok_ecl *vm = &game->vm;
-    uint16_t phase[3] = {cok_ecl_var_at(vm, COK_VAR_MOONS, 0), cok_ecl_var_at(vm, COK_VAR_MOONS, 1),
-                         cok_ecl_var_at(vm, COK_VAR_MOONS, 2)};
-    cok_screen_frame(&game->screen, &game->view.tiles[4], phase, open);
+    cok_adventure_screen(game, open ? COK_SCREEN_OPEN : COK_SCREEN_FRAME);
 }
 
 /* "press <enter>/<return> to continue" on row 24, the whole line its one

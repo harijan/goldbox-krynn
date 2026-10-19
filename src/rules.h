@@ -280,6 +280,9 @@ typedef struct {
      * the bounds in its code); a value is drawn from the first set whose
      * last is not below it. */
     uint16_t tile_first[5], tile_last[5];
+    /* The colour each tile set is loaded with as transparent, cleared to 0
+     * (6e22:0050: 13 for every set, 127f:0111). */
+    uint8_t tile_transparent[5];
     /* The wall slot whose sets are wall types 1-5, which LOAD PIECES'
      * two-set path loads first (2fd3:0cf4 loads slot 1 and 3, 69ea:1025
      * copies slot n to set n - 1). */
@@ -296,6 +299,10 @@ typedef struct {
     uint16_t overhead_square, overhead_party;
     /* PICTURE's id for the overland map (2fd3:0914). */
     uint8_t overland_picture;
+    /* Whether the backdrop in CGA mode is CGA's own, a row of line colour
+     * and no pictures (69ea:0184), rather than the other modes' (dkk
+     * 6d21:0177 has no CGA case). */
+    bool cga_backdrop;
 } cok_rules_view;
 
 /* What the game loads once at startup (3e99:005b), past the font. */
@@ -314,6 +321,11 @@ typedef struct {
     /* The overland map's cursor's transparent colour, -1 for none (it is
      * loaded without a mask). */
     int8_t cursor_transparent;
+    /* The icon slots (each two pictures, ready and attacking), at most
+     * COK_ICON_SLOTS_MAX (adventure.h), and the DS offset of the table
+     * that holds them, 8 bytes a slot, for the messages. */
+    uint8_t icon_slots;
+    uint16_t icon_table;
 } cok_rules_startup;
 
 /* One spell id's handler (cast.c): the port's, a cok_cast_handler
@@ -447,6 +459,71 @@ typedef struct {
     uint16_t tile_base;
 } cok_rules_moons;
 
+/* The screens the port draws a frame for (screen.c), each one routine of
+ * the original's (Champions' 1128, dkk 110f). */
+typedef enum {
+    COK_SCREEN_FRAME,     /* The frame alone (1128:0000 with 0; dkk 110f:0000 with 0). */
+    COK_SCREEN_OPEN,      /* The open frame (1128:0000 with 1; dkk has none: 110f:0000 with 0). */
+    COK_SCREEN_ADVENTURE, /* The adventure screen (1128:0242; dkk 110f:0162). */
+    COK_SCREEN_BIG,       /* A big picture's (1128:0344; dkk 110f:02ab). */
+    COK_SCREEN_SPELLS,    /* Memorize's lists (1128:0384; dkk 110f:02f8). */
+    COK_SCREEN_LIST,      /* The other spell lists (1128:077c; dkk 110f:0537). */
+    COK_SCREEN_COMBAT,    /* The combat screen (1128:04c1; dkk 110f:0345). */
+    COK_SCREEN_SHEET,     /* The character sheet (1128:05fc; dkk 110f:0392). */
+    COK_SCREEN_CREDITS,   /* The credits (1128:0130; dkk 35c6:026e's 110f:0000). */
+    COK_SCREENS
+} cok_screen;
+
+/* A line of frame tiles across a row (cells first to last of row at) or
+ * down a column (rows first to last of column at): each cell the frame's
+ * base + tiles[cell - first], or + tile where tiles is NULL; on a row with
+ * moons, the moons' columns their phases' tiles (the moons section's). */
+typedef struct {
+    bool column;
+    uint8_t at, first, last;
+    uint8_t tile;
+    const uint8_t *tiles;
+    bool moons;
+} cok_rules_frame_line;
+
+/* One screen's frame: the screen under it drawn first (as the routine
+ * calls it), or COK_SCREENS for none; then the cells left to right, top to
+ * bottom cleared to colour 0 (1128:07e6; dkk 110f:0584), unless right is
+ * 0; then its lines, in order, each tile drawn opaque over what is
+ * there. */
+typedef struct {
+    cok_screen under;
+    uint8_t left, top, right, bottom;
+    const cok_rules_frame_line *lines;
+    unsigned line_count;
+} cok_rules_screen;
+
+/* What begin() draws for a game the start menu loaded, where the first
+ * block keeps its variables (cok_rules_frame's resumed). */
+typedef enum {
+    /* In block 0 or off the map, the adventure screen and the party list
+     * (4def:01b4's second branch). */
+    COK_RESUMED_BY_AREA,
+    /* By the mode: 0 and 4 the adventure screen and the party list, 3 the
+     * big picture's frame alone, others nothing (dkk 49cb:010b). */
+    COK_RESUMED_BY_MODE,
+} cok_resumed;
+
+/* The screens' frames (screen.c), drawn with the frame's tile set (set 4,
+ * the view's tile_first[4] on): the value the lines' tiles are added to,
+ * and each screen's by cok_screen. And which screen the start menu's
+ * return draws. */
+typedef struct {
+    uint16_t base;
+    cok_rules_screen screens[COK_SCREENS];
+    /* Whether the frame main draws after the start menu is the big
+     * picture's in mode 3 on the map (1000:024b), rather than the
+     * adventure screen's always (dkk 1000:01d1). */
+    bool menu_big;
+    /* begin()'s for a loaded game, a cok_resumed. */
+    uint8_t resumed;
+} cok_rules_frame;
+
 /* The game's own words that are names: its title. */
 typedef struct {
     /* The window's title. */
@@ -477,6 +554,7 @@ typedef struct cok_rules {
     cok_rules_spells spells;
     cok_rules_effects effects;
     cok_rules_moons moons;
+    cok_rules_frame frame;
     /* Why cok cannot play the game yet, or NULL. */
     const char *unplayable;
 } cok_rules;

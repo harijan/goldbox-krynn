@@ -225,7 +225,7 @@ static void test_missing_monster(void)
     /* An icon slot past the table stops the port. */
     reset("");
     member("KAL", 12);
-    game.icon_slot = COK_ICON_SLOTS;
+    game.icon_slot = (uint8_t)cok_icon_slots(&game);
     CHECK(RUN(COK_ECL_LOAD_MONSTER, 0, 8, 0, 1, 0, 8) == COK_ECL_UNDEFINED);
 }
 

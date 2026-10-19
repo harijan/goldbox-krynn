@@ -59,10 +59,7 @@ static void clear_cells(cok_adventure *game, int x1, int y1, int x2, int y2)
 /* Clear the frame, open (1128:0000 with 1). */
 static void clear_frame(cok_adventure *game)
 {
-    cok_ecl *vm = &game->vm;
-    uint16_t phase[3] = {cok_ecl_var_at(vm, COK_VAR_MOONS, 0), cok_ecl_var_at(vm, COK_VAR_MOONS, 1),
-                         cok_ecl_var_at(vm, COK_VAR_MOONS, 2)};
-    cok_screen_frame(&game->screen, &game->view.tiles[4], phase, true);
+    cok_adventure_screen(game, COK_SCREEN_OPEN);
 }
 
 /* 6346:0d20 on c, ending the run where it fails. */
@@ -746,10 +743,7 @@ static bool heal(cok_adventure *game)
     cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 1521:0b60 */
     bool redraw = true;
     int index = 0;
-    cok_ecl *vm = &game->vm;
-    uint16_t phase[3] = {cok_ecl_var_at(vm, COK_VAR_MOONS, 0), cok_ecl_var_at(vm, COK_VAR_MOONS, 1),
-                         cok_ecl_var_at(vm, COK_VAR_MOONS, 2)};
-    cok_screen_big(&game->screen, &game->view.tiles[4], phase); /* 1128:0344 */
+    cok_adventure_screen(game, COK_SCREEN_BIG); /* 1128:0344 */
     for (;;) {
         cok_character *character = selected(game);
         if (character == NULL)

@@ -91,9 +91,7 @@ bool cok_icon_edit(cok_adventure *game)
         return fail(game, "the icon editor with no character selected reads through NULL "
                           "(4def:408b)");
     uint8_t *c = character->record;
-    uint16_t moons[3];
-    for (size_t i = 0; i < 3; ++i) moons[i] = cok_ecl_var_at(&game->vm, COK_VAR_MOONS, i);
-    cok_screen_frame(&game->screen, &game->view.tiles[4], moons, true); /* 1128:0000 */
+    cok_adventure_screen(game, COK_SCREEN_OPEN); /* 1128:0000 */
     static const char *const menus[6] = {
         "", "Parts 1st-color 2nd-color Size Exit", "Head Weapon Exit", "", " Keep Exit",
         "Next Prev Keep Exit",

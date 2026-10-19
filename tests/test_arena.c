@@ -222,7 +222,7 @@ static void test_frame(void)
     cok_picture *screen = &game.screen;
     cok_picture_fill(screen, 0, 0, 40, 200, 7);
     uint16_t moons[3] = {0, 1, 2};
-    cok_screen_combat(screen, &game.view.tiles[4], moons);
+    cok_screen_draw(screen, &game.view.tiles[4], &cok_rules_champions, COK_SCREEN_COMBAT, moons);
     static cok_picture expected;
     CHECK(cok_picture_create(&expected, 40, 200, 1, 0) == COK_PICTURE_OK);
     const cok_picture *t = &game.view.tiles[4];

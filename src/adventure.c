@@ -261,16 +261,16 @@ bool cok_adventure_load_image(cok_adventure *game, const char *name, uint8_t id,
     return load_single(game, name, id, transparent, picture);
 }
 
-static void moons(const cok_adventure *game, uint16_t out[3])
+void cok_adventure_screen(cok_adventure *game, cok_screen screen)
 {
-    for (size_t i = 0; i < 3; ++i) out[i] = cok_ecl_var_at(&game->vm, COK_VAR_MOONS, i);
+    uint16_t phase[3];
+    for (size_t i = 0; i < 3; ++i) phase[i] = cok_ecl_var_at(&game->vm, COK_VAR_MOONS, i);
+    cok_screen_draw(&game->screen, &game->view.tiles[4], cok_game_rules(game), screen, phase);
 }
 
 void cok_adventure_frame(cok_adventure *game)
 {
-    uint16_t phase[3];
-    moons(game, phase);
-    cok_screen_adventure(&game->screen, &game->view.tiles[4], phase);
+    cok_adventure_screen(game, COK_SCREEN_ADVENTURE);
 }
 
 /* Small pictures. */
@@ -437,9 +437,7 @@ static void draw_frame(cok_adventure *game, size_t frame)
 /* The big picture in its frame (6961:085b). */
 static void draw_big(cok_adventure *game)
 {
-    uint16_t phase[3];
-    moons(game, phase);
-    cok_screen_big(&game->screen, &game->view.tiles[4], phase);
+    cok_adventure_screen(game, COK_SCREEN_BIG);
     if (game->big.pixels != NULL) cok_picture_draw(&game->screen, &game->big, 0, 1, 1, 0, NULL);
 }
 
@@ -674,8 +672,9 @@ static void picture(cok_adventure *game)
 
 /* The 3D view's files. */
 
-/* Load tile set set from 8X8D<file> record id, colour 13 transparent
- * (6e22:0050), first writing "slotnum = SET" to DEBUG.TXT while the debug
+/* Load tile set set from 8X8D<file> record id, the set's colour of the
+ * game's transparent (6e22:0050: 13; dkk 70eb:002f 0 for set 4), first
+ * writing "slotnum = SET" to DEBUG.TXT while the debug
  * flag is set. Tile set 0's file is chosen by the record's id where the
  * game chooses the wall sets' so (dkk 70eb:002f); the frame's is 4 and
  * Champions' wall sets load sets 1-3. */
@@ -690,7 +689,8 @@ static bool load_tiles(cok_adventure *game, unsigned set, uint8_t id)
     unsigned file = set == 0 ? file_by_id(game, a->wall_files, id) : game->vm.file;
     char name[16];
     snprintf(name, sizeof name, "%s%u", a->tiles, file);
-    return load_single(game, name, id, 13, &game->view.tiles[set]);
+    return load_single(game, name, id, cok_game_rules(game)->view.tile_transparent[set],
+                       &game->view.tiles[set]);
 }
 
 /* Load GEO<file> record id as the map (69ea:130d). */
@@ -1381,9 +1381,7 @@ static void damage(cok_adventure *game)
      * died; here it also stays set when input has ended. */
     vm->abort = !alive || game->input_ended;
     if (!alive) {
-        uint16_t phase[3];
-        moons(game, phase);
-        cok_screen_frame(&game->screen, &game->view.tiles[4], phase, true); /* 1128:0000 */
+        cok_adventure_screen(game, COK_SCREEN_OPEN); /* 1128:0000 */
         vm->cursor = (cok_text_cursor){2, 2};
         const char *text = "The entire party is killed!";
         log_text(game, "print", text);
@@ -2364,7 +2362,8 @@ bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, con
     for (size_t i = 0; i < at_start->tile_count; ++i)
         if (!load_tiles(game, at_start->tiles[i].set, at_start->tiles[i].record)) return false;
     /* Then the icons of missiles, flashes and the cursor: in Champions
-     * COMSPR ids 0-11 in slots 13-24, and 25 in 25 (3e99:06e0, 072a). */
+     * COMSPR ids 0-11 in slots 13-24, and 25 in 25 (3e99:06e0, 072a); in
+     * Death Knights 0-21 in 13-34 (dkk 4f9a:00e1). */
     for (size_t r = 0; r < at_start->icon_ranges; ++r)
         for (uint8_t i = 0; i < at_start->icons[r].count; ++i)
             if (!cok_arena_load_icon(game, a->missiles, (uint8_t)(at_start->icons[r].first + i),
@@ -2405,7 +2404,7 @@ void cok_adventure_close(cok_adventure *game)
     cok_picture_free(&game->body);
     cok_picture_free(&game->cursor);
     cok_picture_free(&game->under);
-    for (size_t i = 0; i < COK_ICON_SLOTS; ++i)
+    for (size_t i = 0; i < COK_ICON_SLOTS_MAX; ++i)
         for (size_t pose = 0; pose < 2; ++pose) cok_picture_free(&game->icons[i][pose]);
     cok_pool_free(&game->pool);
     cok_cloud_free(&game->combat);
@@ -3382,9 +3381,7 @@ static void redraw_screen(cok_adventure *game)
     cok_ecl *vm = &game->vm;
     game->redraw = true;
     if (vm->mode == 0) {
-        uint16_t phase[3];
-        moons(game, phase);
-        cok_screen_frame(&game->screen, &game->view.tiles[4], phase, true);
+        cok_adventure_screen(game, COK_SCREEN_OPEN);
     } else if (vm->mode == 1) {
         if (game->shop_frame) cok_adventure_frame(game);
         if (cok_ecl_var(vm, COK_VAR_3D) == 0)

@@ -989,6 +989,105 @@ static const uint8_t death_knights_effect_ids[COK_EFFECT_NAMES] = {
     [COK_EFFECT_AFRAID] = 0,
 };
 
+/* The screens' frames (110f:0000-0584): tile values added to 0x100, from
+ * the data segment and the routines' code. */
+static const uint8_t death_knights_top_row[40] = { /* DS:070c */
+    0, 4, 4, 4, 4, 4, 4, 5, 4, 6, 4, 4, 4, 4, 4, 4, 4, 4, 5, 4,
+    6, 4, 4, 4, 4, 4, 4, 4, 4, 5, 4, 6, 4, 4, 4, 4, 4, 4, 4, 1,
+};
+static const uint8_t death_knights_bottom_row[40] = { /* DS:0734 */
+    2, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+    4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 3,
+};
+static const uint8_t death_knights_divider_row[40] = { /* DS:075c */
+    0x0a, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+    4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 0x0b,
+};
+static const uint8_t death_knights_divider[17] = { /* DS:0784, rows 0-16 */
+    8, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 9,
+};
+static const uint8_t death_knights_combat_side[23] = { /* DS:07ac, rows 0-22 */
+    8, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 9,
+};
+static const uint8_t death_knights_sheet_left[22] = { /* DS:07d9 + row, rows 1-22 */
+    7, 7, 7, 7, 7, 7, 7, 0x0a, 7, 7, 7, 7, 7, 7, 7, 0x0a, 7, 7, 7, 0x0a,
+    7, 7,
+};
+static const uint8_t death_knights_sheet_right[22] = { /* DS:07ef + row, rows 1-22 */
+    7, 7, 7, 7, 7, 7, 7, 0x0b, 7, 7, 7, 7, 7, 7, 7, 0x0b, 7, 7, 7, 0x0b,
+    7, 7,
+};
+static const uint8_t death_knights_sheet_middle[13] = { /* DS:07fe + row, rows 8-20 */
+    8, 7, 7, 7, 7, 7, 7, 7, 0x0c, 7, 7, 7, 9,
+};
+
+#define ROW(y, from, to, value) {false, y, from, to, value, NULL, false}
+#define ROW_OF(y, from, to, table) {false, y, from, to, 0, table, false}
+#define COLUMN(x, from, to, value) {true, x, from, to, value, NULL, false}
+#define COLUMN_OF(x, from, to, table) {true, x, from, to, 0, table, false}
+#define MOONS(table) {false, 0, 0, 39, 0, table, true}
+#define LINES(lines) lines, sizeof lines / sizeof *lines
+
+/* 110f:0000 with 0: row 0 with the moons, row 23, the sides between (tile
+ * 7). Every caller outside 110f passes 0: Champions' open frame has no
+ * counterpart. */
+static const cok_rules_frame_line death_knights_frame[] = {
+    MOONS(death_knights_top_row),
+    ROW_OF(23, 0, 39, death_knights_bottom_row),
+    COLUMN(0, 1, 22, 7),
+    COLUMN(39, 1, 22, 7),
+};
+/* 110f:0162: row 16, the column 16 divider above it, the 3D view's box:
+ * its corners 0-3, rows of 4 and columns of 7 between. */
+static const cok_rules_frame_line death_knights_adventure[] = {
+    ROW_OF(16, 0, 39, death_knights_divider_row),
+    COLUMN_OF(16, 0, 16, death_knights_divider),
+    ROW(2, 2, 2, 0),
+    ROW(2, 14, 14, 1),
+    ROW(14, 2, 2, 2),
+    ROW(14, 14, 14, 3),
+    ROW(2, 3, 13, 4),
+    ROW(14, 3, 13, 4),
+    COLUMN(2, 3, 13, 7),
+    COLUMN(14, 3, 13, 7),
+};
+static const cok_rules_frame_line death_knights_row_16[] = { /* 110f:02ab */
+    ROW_OF(16, 0, 39, death_knights_divider_row),
+};
+/* 110f:02f8: 110f:0000 with 2 (rows 1-16 cleared), then row 16. */
+static const cok_rules_frame_line death_knights_spells[] = {
+    MOONS(death_knights_top_row),
+    ROW_OF(23, 0, 39, death_knights_bottom_row),
+    COLUMN(0, 1, 22, 7),
+    COLUMN(39, 1, 22, 7),
+    ROW_OF(16, 0, 39, death_knights_divider_row),
+};
+static const cok_rules_frame_line death_knights_list[] = { /* 110f:0537 */
+    ROW_OF(2, 0, 39, death_knights_divider_row),
+};
+/* 110f:0345: 110f:0000 with 1 (all cleared, the bottom row 22), then
+ * column 22. */
+static const cok_rules_frame_line death_knights_combat[] = {
+    MOONS(death_knights_top_row),
+    ROW_OF(22, 0, 39, death_knights_bottom_row),
+    COLUMN(0, 1, 21, 7),
+    COLUMN(39, 1, 21, 7),
+    COLUMN_OF(22, 0, 22, death_knights_combat_side),
+};
+/* 110f:0392: row 0, row 23, rows 8, 16 and 20 between the sides, the
+ * sides, column 19 from row 8 to 20. */
+static const cok_rules_frame_line death_knights_sheet[] = {
+    MOONS(death_knights_top_row),
+    ROW_OF(23, 0, 39, death_knights_bottom_row),
+    ROW(8, 1, 38, 4),
+    ROW(16, 1, 38, 4),
+    ROW(20, 1, 38, 4),
+    COLUMN_OF(0, 1, 22, death_knights_sheet_left),
+    COLUMN_OF(39, 1, 22, death_knights_sheet_right),
+    COLUMN_OF(19, 8, 20, death_knights_sheet_middle),
+};
+
 const cok_rules cok_rules_death_knights = {
     .id = "death-knights",
     .assets = "DKKAssets",
@@ -1100,24 +1199,30 @@ const cok_rules cok_rules_death_knights = {
              * the frame's from 0x100; past 0x12c nothing is drawn. */
             .tile_first = {0x00, 0x2e, 0x74, 0xba, 0x100},
             .tile_last = {0xff, 0x73, 0xb9, 0xff, 0x12c},
+            /* 70eb:002f: 13 but for the frame's set, 0 (its colour 13
+             * drawn: the moons' and the frame's magenta). */
+            .tile_transparent = {13, 13, 13, 13, 0},
             .first_slot = 0,      /* 3632:0daa */
             .shared_tiles = true, /* 6d21:0ec5 */
             .move_tiles = false,  /* 6d21:0ec5 computes the offset but adds nothing */
             .overhead_square = 0x119, /* 6d21:0000 */
             .overhead_party = 0x129,
             .overland_picture = 0x70, /* 3632:096c */
+            .cga_backdrop = false,    /* 6d21:0177 */
         },
     .startup =
         {
             /* 4f9a:00e1: the frame's tile set only. */
             .tiles = {{4, 202}},
             .tile_count = 1,
-            /* 4f9a:00e1 loads COMSPR 0-21 into slots 13-34; the port's
-             * icon slots end at 25 until combat is read (step 3). */
-            .icons = {{0, 13, 13}},
+            /* 4f9a:00e1: COMSPR 0-21 into slots 13-34. */
+            .icons = {{0, 13, 22}},
             .icon_ranges = 1,
             /* Loaded without a mask (DS:42d0's 0), its colour 13 drawn. */
             .cursor_transparent = -1,
+            /* DS:b474, 35 slots (4f9a:0556 clears 0x118 bytes). */
+            .icon_slots = 35,
+            .icon_table = 0xb474,
         },
     .spells =
         {
@@ -1175,6 +1280,32 @@ const cok_rules cok_rules_death_knights = {
             .column = {8, 19, 30},
             .tile = {0x15, 0x0d, 0x11},
             .tile_base = 0x100,
+        },
+    .frame =
+        {
+            .base = 0x100, /* 110f's tiles: 0x100 + value */
+            .screens =
+                {
+                    [COK_SCREEN_FRAME] = {COK_SCREENS, 1, 1, 38, 22,
+                                          LINES(death_knights_frame)},
+                    [COK_SCREEN_OPEN] = {COK_SCREENS, 1, 1, 38, 22, LINES(death_knights_frame)},
+                    [COK_SCREEN_ADVENTURE] = {COK_SCREEN_FRAME, 0, 0, 0, 0,
+                                              LINES(death_knights_adventure)},
+                    [COK_SCREEN_BIG] = {COK_SCREEN_FRAME, 0, 0, 0, 0,
+                                        LINES(death_knights_row_16)},
+                    [COK_SCREEN_SPELLS] = {COK_SCREENS, 1, 1, 38, 16,
+                                           LINES(death_knights_spells)},
+                    [COK_SCREEN_LIST] = {COK_SCREEN_FRAME, 0, 0, 0, 0,
+                                         LINES(death_knights_list)},
+                    [COK_SCREEN_COMBAT] = {COK_SCREENS, 0, 0, 39, 23,
+                                           LINES(death_knights_combat)},
+                    [COK_SCREEN_SHEET] = {COK_SCREENS, 0, 0, 39, 23,
+                                          LINES(death_knights_sheet)},
+                    /* 35c6:026e: 110f:0000 with 0, then its own text. */
+                    [COK_SCREEN_CREDITS] = {COK_SCREEN_FRAME, 0, 0, 0, 0, NULL, 0},
+                },
+            .menu_big = false,                  /* 1000:01d1 */
+            .resumed = COK_RESUMED_BY_MODE, /* 49cb:010b */
         },
     .unplayable = "Death Knights of Krynn is not playable yet: eclplay --game death-knights "
                   "shows its scripts and 3D view (see DEATH-KNIGHTS.md)",
