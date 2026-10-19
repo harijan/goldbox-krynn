@@ -279,9 +279,7 @@ bool cok_sheet_draw(cok_adventure *game)
         return undefined(game, "the sheet with no character selected reads through NULL (546c:00a3)");
     const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
-    uint16_t moons[3];
-    for (size_t i = 0; i < 3; ++i) moons[i] = cok_ecl_var_at(&game->vm, COK_VAR_MOONS, i);
-    cok_screen_sheet(&game->screen, &game->view.tiles[4], moons);
+    cok_adventure_screen(game, COK_SCREEN_SHEET);
     char name[20], status[256], gender[256], alignment[256], race[256], line[256];
     uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
     size_t length = stored > 15 ? 15 : stored;

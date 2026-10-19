@@ -445,7 +445,8 @@ static void test_screen(void)
     cok_picture p = screen();
     memset(p.pixels, 0x77, p.frame_size);
     const uint16_t moons[3] = {1, 2, 3};
-    cok_screen_adventure(&p, &tiles, moons);
+    const cok_rules *R = &cok_rules_champions;
+    cok_screen_draw(&p, &tiles, R, COK_SCREEN_ADVENTURE, moons);
 #define TILE(x, y) cell_bg(&p, x, y)
     CHECK(TILE(0, 0) == 0x14 % 16 && TILE(7, 0) == 0x15 % 16 && TILE(9, 0) == 0x16 % 16);
     CHECK(TILE(8, 0) == (0x14 + 11) % 16 && TILE(19, 0) == (0x14 + 8) % 16 &&
@@ -456,10 +457,25 @@ static void test_screen(void)
     CHECK(TILE(2, 3) == 0x17 % 16 && TILE(14, 13) == 0x19 % 16 && TILE(8, 14) == 0x14 % 16);
     CHECK(TILE(3, 3) == 0 && TILE(38, 22) == 0 && TILE(20, 24) == 7);
     memset(p.pixels, 0x77, p.frame_size);
-    cok_screen_big(&p, &tiles, moons);
+    cok_screen_draw(&p, &tiles, R, COK_SCREEN_BIG, moons);
     CHECK(TILE(16, 1) == 0 && TILE(10, 16) == 0x14 % 16 && TILE(2, 3) == 0);
-    cok_screen_frame(&p, &tiles, moons, true);
+    cok_screen_draw(&p, &tiles, R, COK_SCREEN_OPEN, moons);
     CHECK(TILE(0, 15) == 0x18 % 16 && TILE(39, 17) == 0x18 % 16 && TILE(0, 18) == 0x18 % 16);
+    CHECK(TILE(0, 16) == 0x18 % 16 && TILE(39, 16) == 0x18 % 16 && TILE(0, 14) == 0x18 % 16);
+    /* Memorize's keeps rows 17-22; a moon's tile is its phase plus its
+     * offset, a byte (0x80 + 14 is past the set: nothing drawn). */
+    memset(p.pixels, 0x77, p.frame_size);
+    const uint16_t far[3] = {1, 2, 0x80};
+    cok_screen_draw(&p, &tiles, R, COK_SCREEN_SPELLS, far);
+    CHECK(TILE(5, 10) == 0 && TILE(5, 17) == 7 && TILE(5, 22) == 7 && TILE(5, 16) == 0x14 % 16);
+    CHECK(TILE(0, 20) == 0x18 % 16 && TILE(39, 22) == 0x19 % 16 && TILE(30, 0) == 7);
+    /* The credits: three boxes, no moons. */
+    memset(p.pixels, 0x77, p.frame_size);
+    cok_screen_draw(&p, &tiles, R, COK_SCREEN_CREDITS, NULL);
+    CHECK(TILE(0, 1) == 0x17 % 16 && TILE(39, 2) == 0x18 % 16 && TILE(0, 3) == 0x19 % 16);
+    CHECK(TILE(5, 4) == 0x14 % 16 && TILE(0, 5) == 0x17 % 16 && TILE(39, 19) == 0x19 % 16);
+    CHECK(TILE(8, 0) == 0x14 % 16 && TILE(0, 21) == 0x17 % 16 && TILE(39, 22) == 0x19 % 16);
+    CHECK(TILE(5, 10) == 0 && TILE(5, 24) == 7);
 #undef TILE
     cok_picture_free(&p);
     cok_picture_free(&tiles);

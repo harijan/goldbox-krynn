@@ -643,9 +643,7 @@ void cok_items(cok_adventure *game, bool *done)
             rows[i] = (cok_menu_row){text[i], character->items[i][0x29] != 0};
         }
         if (header) {
-            uint16_t moons[3];
-            for (size_t i = 0; i < 3; ++i) moons[i] = cok_ecl_var_at(&game->vm, COK_VAR_MOONS, i);
-            cok_screen_list(&game->screen, &game->view.tiles[4], moons);
+            cok_adventure_screen(game, COK_SCREEN_LIST);
             cok_item_draw_name(game, c, 1, 1, true);
             cok_text_string(&game->screen, &game->font, "Items",
                             cok_field_u8_at(L, c, COK_FIELD_NAME, 0) + 4, 1, 10, 0);

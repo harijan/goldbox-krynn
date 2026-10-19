@@ -752,7 +752,7 @@ static void remove_selected(cok_adventure *game)
     if (game->spell_target == gone) game->spell_target = NULL;
     if (game->trade_partner == gone) game->trade_partner = NULL;
     uint8_t icon = cok_field_u8(L, gone, COK_FIELD_ICON);
-    if (icon < COK_ICON_SLOTS) cok_arena_free_icon(game, icon); /* 6d21:0156 */
+    if (icon < cok_icon_slots(game)) cok_arena_free_icon(game, icon); /* 6d21:0156 */
     cok_cast_forget(game, game->party.members[i]);
     cok_party_remove(&game->party, i);
     cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, -1);

@@ -39,7 +39,10 @@ enum {
      * running PROGRAM (2fd3:3add's SP at the inner run, from 3403, against
      * the outer, through 386d and 3473), as the emulator measured it. */
     COK_PROGRAM_CAMP_DEPTH = 0x128,
-    COK_ICON_SLOTS = 26, /* DS:6172: 0-7 the party's, 8 on monsters', 13-25 missiles. */
+    /* The icon slots a game may have (its startup.icon_slots): Champions' 26
+     * (DS:6172: 0-7 the party's, 8 on monsters', 13-25 missiles), Death
+     * Knights' 35 (dkk DS:b474, missiles 13-34). */
+    COK_ICON_SLOTS_MAX = 35,
     COK_MONSTERS_MAX = 63, /* DS:43be: records LOAD MONSTER adds between CLEARMONSTERS. */
     COK_COINS = 7,
 };
@@ -259,8 +262,9 @@ struct cok_adventure {
     bool monsters_loaded;  /* DS:8851: COMBAT fights. */
     uint8_t undead;        /* DS:8859: LOAD MONSTERs of undead (+0xda), for Turn. */
     /* DS:6172: each slot's two combat icons, ready and attacking, from
-     * CPIC<file> records N and N + 0x80 (6d21:01d0); nothing draws them yet. */
-    cok_picture icons[COK_ICON_SLOTS][2];
+     * CPIC<file> records N and N + 0x80 (6d21:01d0), the game's
+     * startup.icon_slots of them; nothing draws them yet. */
+    cok_picture icons[COK_ICON_SLOTS_MAX][2];
     uint8_t sprite_id;     /* DS:72e9: the SPRIT<file> record of the encounter. */
     uint8_t closeup_id;    /* DS:72ea: the PIC<file> record shown at distance 0. */
     bool sprite_loaded;    /* DS:8830: the sprite is in the small picture slot. */
@@ -360,6 +364,12 @@ static inline const cok_rules *cok_game_rules(const cok_adventure *game)
     return game->rules;
 }
 
+/* The game's icon slots (cok_rules_startup's icon_slots). */
+static inline unsigned cok_icon_slots(const cok_adventure *game)
+{
+    return cok_game_rules(game)->startup.icon_slots;
+}
+
 /* A named effect's or spell's id in the game's rules (spells.h,
  * cok_effect_id and cok_spell_id). */
 static inline uint8_t cok_game_effect(const cok_adventure *game, cok_named_effect name)
@@ -432,6 +442,10 @@ bool cok_adventure_pass_time(cok_adventure *game, unsigned unit, unsigned count)
 
 /* Draw the adventure screen's frame (1128:0242). */
 void cok_adventure_frame(cok_adventure *game);
+
+/* Draw the game's frame of screen (screen.h) with the moons' phases
+ * (0x4cf9-0x4cfb). */
+void cok_adventure_screen(cok_adventure *game, cok_screen screen);
 
 /* Show the 3D view from the party's square, or the overhead map while
  * game->overhead is set, which an area hiding the square (0x4bfb) turns

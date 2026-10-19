@@ -437,9 +437,7 @@ void cok_train_knight(cok_adventure *game)
         return;
     }
     uint8_t *c = character->record;
-    uint16_t moons[3];
-    for (size_t i = 0; i < 3; ++i) moons[i] = cok_ecl_var_at(&game->vm, COK_VAR_MOONS, i);
-    cok_screen_frame(&game->screen, &game->view.tiles[4], moons, true); /* 1128:0000 */
+    cok_adventure_screen(game, COK_SCREEN_OPEN); /* 1128:0000 */
     uint8_t order = cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER);
     if (cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) == 0 ||
         (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > 0 && order == 3))

@@ -144,6 +144,27 @@ static void test_tables(void)
     size_t ds = (size_t)(exe[8] | exe[9] << 8) * 16 + 0xbc6 * 16;
     /* Type 15's flags are 4: no river. */
     CHECK(exe[ds + 0x441] == 4);
+    /* Startup clears the icon slots' table, 8 bytes a slot (3e99:0466: mov
+     * di, table; push ds; push di; mov ax, slots * 8). */
+    const cok_rules_startup *at_start = &cok_rules_champions.startup;
+    const uint8_t clear[] = {0xbf,
+                             (uint8_t)at_start->icon_table,
+                             (uint8_t)(at_start->icon_table >> 8),
+                             0x1e,
+                             0x57,
+                             0xb8,
+                             (uint8_t)(at_start->icon_slots * 8),
+                             (uint8_t)(at_start->icon_slots * 8 >> 8)};
+    bool found = false;
+    for (size_t i = 0; i + sizeof clear <= size && !found; ++i)
+        found = memcmp(exe + i, clear, sizeof clear) == 0;
+    CHECK(found && at_start->icon_slots <= COK_ICON_SLOTS_MAX);
+    /* 6e22:0050 loads every tile set with colour 13 transparent (6e22:00e7:
+     * push the record, 1 and 13 for 127f:0111, whatever the set). */
+    size_t code = (size_t)(exe[8] | exe[9] << 8) * 16 + (0x6e22 - 0x1000) * 16 + 0xe7;
+    CHECK(memcmp(exe + code, "\x8a\x46\x08\x50\xb0\x01\x50\xb0\x0d", 9) == 0);
+    for (size_t set = 0; set < 5; ++set)
+        CHECK(cok_rules_champions.view.tile_transparent[set] == 13);
 }
 
 static void test_footprints(void)
