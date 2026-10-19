@@ -148,20 +148,33 @@ void cok_party_file_name(const char *name, char out[9]);
 void cok_party_roster_name(const char *name, char out[9]);
 
 /* Read character file base (with no extension) from dir: base.SAV, a
- * record of the layout's file_size (409 bytes in Champions), then the
- * items in base.STF and the effects in base.SFX if those exist
- * (4b6d:11e5), with the rules' extensions (saves.record, items, effects).
- * The record's stale pointers are cleared. Then, as 4b6d:11e5 ends, its
- * stats are recomputed with cok_character_stats and cok_character_levels.
+ * record of the layout's file_size (409 bytes in Champions, Death Knights'
+ * .GAM 216), then, for a game that keeps the spells in a block of their
+ * own, the block in base.WIZ if it exists (dkk 46b2:10d7), then the items
+ * in base.STF and the effects in base.SFX if those exist (4b6d:11e5), with
+ * the rules' extensions (saves.record, spells, items, effects). The
+ * record's stale pointers are cleared. Then, as 4b6d:11e5 ends, its stats
+ * are recomputed with cok_character_stats and cok_character_levels.
  * Returns false with error set. Free with cok_character_free. */
 bool cok_character_read(cok_character *character, const cok_rules *rules, const char *dir,
                         const char *base, const cok_item_types *types, char *error,
                         size_t error_size);
 /* As cok_character_read, from base.extension (4b6d:11e5 takes the file's
- * whole name): "WHO" for the start menu's roster (4def:37a2). */
+ * whole name): "WHO" for the start menu's roster (4def:37a2), Death
+ * Knights' "PC". */
 bool cok_character_read_file(cok_character *character, const cok_rules *rules, const char *dir,
                              const char *base, const char *extension,
                              const cok_item_types *types, char *error, size_t error_size);
+/* Import another game's character into the game of rules, as its
+ * rules.characters.import says (Death Knights' of Champions' characters,
+ * dkk 46b2:10d7): base.extension from dir, with the other game's record
+ * size, and its items and effects by the other game's extensions; the
+ * record converted, the items of the types it drops left out; then
+ * recomputed as cok_character_read does. The game must import. Returns
+ * false with error set. */
+bool cok_character_import(cok_character *character, const cok_rules *rules, const char *dir,
+                          const char *base, const char *extension,
+                          const cok_item_types *types, char *error, size_t error_size);
 /* Free the items, effects and combat record. */
 void cok_character_free(cok_character *character);
 
@@ -198,6 +211,22 @@ static inline cok_effect *cok_character_find_named(const cok_character *characte
     return id == 0 ? NULL : cok_character_find_effect(character, id);
 }
 
+/* Whether the stats (cok_character_stats) count the effects that change
+ * the movement (dkk 65cd:1241), so that what reads the movement takes it
+ * as it is (dkk 580d:0751); Champions' (6346:0d20) leave them to its
+ * readers (the sheet's 546c:07bb, combat's 432f:014d). */
+static inline bool cok_stats_count_movement_effects(const cok_rules *rules)
+{
+    return rules->characters.stats == COK_STATS_DEATH_KNIGHTS;
+}
+
+/* Whether a character may have former classes, a human's who changed class
+ * (FORMER_LEVEL, 66c2:0433, 66c2:0eab): Death Knights' have none. */
+static inline bool cok_levels_former_classes(const cok_rules *rules)
+{
+    return rules->characters.levels == COK_LEVELS_CHAMPIONS;
+}
+
 /* Recompute the stats that come from the items and abilities (6346:0d20):
  * the readied slots, item count, hands, weight carried, attacks and
  * damage, THAC0, armour class and movement. Each table lookup follows the
@@ -205,7 +234,9 @@ static inline cok_effect *cok_character_find_named(const cok_character *characte
  * Where the original would read data the game sets as it runs (an item
  * type past 128) or leaves its result uninitialized (a strength past 25 or
  * past 18/00), it returns false with error set, and the record is left
- * part-way. */
+ * part-way. Death Knights' (dkk 65cd:0e46, rules.characters.stats) also
+ * counts the effects on the movement (65cd:1241) and sets no fighter
+ * level. */
 bool cok_character_stats(cok_character *character, const cok_rules *rules,
                          const cok_item_types *types, char *error, size_t error_size);
 
@@ -216,7 +247,9 @@ bool cok_character_stats(cok_character *character, const cok_rules *rules,
  * classes cannot use, unless their +0x36 is set. The stats of 6346:0d20
  * are not recomputed afterwards, as in the original. Returns false with
  * error set, as cok_character_stats does, where a saving throw for a level
- * of 90 or more reads past the initialized data. */
+ * of 90 or more reads past the initialized data. Death Knights' (dkk
+ * 69a8:050b, rules.characters.levels) has its own spells a day, in the
+ * spells' block, thief skills and attacks, and no former classes. */
 bool cok_character_levels(cok_character *character, const cok_rules *rules,
                           const cok_item_types *types, char *error, size_t error_size);
 
@@ -224,7 +257,9 @@ bool cok_character_levels(cok_character *character, const cok_rules *rules,
  * (4def:28fa) call alone: a cleric's spells a day with its wisdom bonus
  * (66c2:0722), the saving throws (66c2:08a6), and the thief skills
  * (66c2:0b9f) with extra, the byte its uninitialized local holds. Each
- * returns false with error set as cok_character_levels does. */
+ * returns false with error set as cok_character_levels does. Death
+ * Knights' (rules.characters.levels): 69a8:071e, 08ff and 0b3d, the thief
+ * skills without extra. */
 bool cok_character_cleric_spells(cok_character *character, const cok_rules *rules, char *error,
                                  size_t error_size);
 bool cok_character_saving_throws(cok_character *character, const cok_rules *rules, char *error,
@@ -341,13 +376,16 @@ bool cok_saved_game_write(const char *path, const cok_saved_game *game, char *er
                           size_t error_size);
 
 /* Write character files base in dir as 4b6d:0bed does, the inverse of
- * cok_character_read: base.SAV, the record as it is; base.STF, the items,
+ * cok_character_read: base.SAV, the record as it is (the layout's
+ * file_size); for a game that keeps a spells' block, base.WIZ, erased and
+ * written if the record holds one (dkk 46b2:0abc); base.STF, the items,
  * and base.SFX, the effects, each erased first and written only if there
  * are any, with the rules' extensions. The far pointers the original
  * writes as they are in memory (+0xe3, +0x143, +0x147-+0x17a, +0x17f,
- * +0x183, the items' +0x2a and the effects' +5) are 0 here, as the port
- * keeps them in the record. Returns false with error set if a file cannot
- * be written. */
+ * +0x183, the items' +0x2a and the effects' +5; Death Knights' +0x3a,
+ * +0x7d-+0xb4, +0xb9, +0xbd, +0xc2) are 0 here, as the port keeps them in
+ * the record (but the spells' block's, which it marks). Returns false with
+ * error set if a file cannot be written. */
 bool cok_character_write(const cok_character *character, const cok_rules *rules, const char *dir,
                          const char *base, char *error, size_t error_size);
 /* As cok_character_write, the record to base.extension: "WHO" for the

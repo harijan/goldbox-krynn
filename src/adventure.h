@@ -448,6 +448,15 @@ void cok_adventure_view(cok_adventure *game);
  * game or a character cannot be read, or the party is full. */
 bool cok_adventure_load_party(cok_adventure *game, const char *path);
 
+/* Add the characters in files paths[0..count) to the party as
+ * cok_adventure_load_party adds a saved game's: each a record file
+ * (DIR/BASE.EXT: a saved game's .SAV, the roster's .WHO, Death Knights'
+ * .GAM or .PC) with its other files beside it (cok_character_read_file),
+ * then their combat icons; the first becomes the selected character.
+ * Returns false with game->error set if one cannot be read or the party
+ * is full. */
+bool cok_adventure_add_characters(cok_adventure *game, const char *const *paths, size_t count);
+
 /* Load a saved game (4b6d:1b34): the variables, the party's square and
  * facing, the modes and wall sets, the speed (0x4bfc) and animation
  * (0x4bff), then the party as cok_adventure_load_party does, and the ECL

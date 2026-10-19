@@ -19,6 +19,57 @@
 
 static const cok_rules *const R = &cok_rules_death_knights;
 
+/* The import's moves (46b2:10d7) against the two layouts: every field of
+ * Champions' record whose bytes a move takes lies in Death Knights' where
+ * the move puts it (but the former levels, which Death Knights holds as
+ * the levels before a drain), and each field Death Knights has that
+ * Champions' import fills is so filled; the spells' moves likewise, into
+ * the block; the moves within both records. */
+static void test_import_layout(void)
+{
+    const cok_rules_import *I = R->characters.import;
+    const cok_character_layout *C = I->from->character, *D = R->character;
+    CHECK(I->from == &cok_rules_champions);
+    size_t moved = 0, block = 0;
+    for (int f = 0; f < COK_FIELD_COUNT; ++f) {
+        const cok_field_place *c = &C->field[f];
+        if (c->width == 0) continue;
+        size_t first = c->offset, last = first + cok_field_size(C, (cok_field)f) - 1;
+        for (size_t i = 0; i < I->move_count; ++i) {
+            const cok_rules_move *m = &I->moves[i];
+            if (first < m->from || last >= m->from + m->count) continue;
+            if (f == COK_FIELD_FORMER_LEVEL) {
+                CHECK(!cok_field_present(D, (cok_field)f));
+                CHECK(cok_field_offset(D, COK_FIELD_UNDRAINED_LEVEL) == m->to + first - m->from);
+                continue;
+            }
+            if (cok_field_offset(D, (cok_field)f) != m->to + first - m->from)
+                fprintf(stderr, "field %d: Champions' +0x%03zx moves to +0x%02zx, the layout's "
+                                "+0x%02zx\n", f, first, m->to + first - m->from,
+                        cok_field_offset(D, (cok_field)f));
+            CHECK(cok_field_offset(D, (cok_field)f) == m->to + first - m->from);
+            CHECK(D->field[f].width == c->width && D->field[f].stride == c->stride);
+            ++moved;
+        }
+        for (size_t i = 0; i < I->spell_move_count; ++i) {
+            const cok_rules_move *m = &I->spell_moves[i];
+            if (first < m->from || first >= m->from + m->count) continue;
+            CHECK(cok_field_in_spells(D, (cok_field)f));
+            if (m->from == first)
+                CHECK(cok_field_offset(D, (cok_field)f) == D->spells_offset + m->to);
+            ++block;
+        }
+    }
+    /* 64 fields moved, and into the block the memorized and known spells
+     * and the spells a day (its first row's move). */
+    CHECK(moved == 64 && block == 3);
+    for (size_t i = 0; i < I->move_count; ++i)
+        CHECK(I->moves[i].to + I->moves[i].count <= D->file_size &&
+              I->moves[i].from + I->moves[i].count <= C->file_size);
+    for (size_t i = 0; i < I->spell_move_count; ++i)
+        CHECK(I->spell_moves[i].to + I->spell_moves[i].count <= D->spells_size);
+}
+
 static void test_lookup(void)
 {
     CHECK(cok_rules_find("death-knights") == R);
@@ -26,36 +77,24 @@ static void test_lookup(void)
     CHECK(strcmp(R->assets, "DKKAssets") == 0);
     CHECK(strcmp(R->text.name, "Death Knights of Krynn") == 0);
     CHECK(R->unplayable != NULL && cok_rules_champions.unplayable == NULL);
-    /* Left out: the character record but the fields the ECL's character
-     * table names (its size 0: no record is read), and all but two of the
-     * data segment's tables, whose accessors then assert. */
-    CHECK(R->character->size == 0 && R->character->file_size == 0);
-    static const cok_field named[] = {
-        COK_FIELD_NAME, COK_FIELD_SCORE_BASE, COK_FIELD_SCORE, COK_FIELD_STRENGTH_EXCEPTIONAL,
-        COK_FIELD_STRENGTH_EXCEPTIONAL_BASE, COK_FIELD_BASE_THAC0, COK_FIELD_RACE,
-        COK_FIELD_KNIGHT_ORDER, COK_FIELD_DEITY, COK_FIELD_MAGIC_ORDER, COK_FIELD_AGE,
-        COK_FIELD_MAX_HIT_POINTS, COK_FIELD_SIZE, COK_FIELD_SAVING_THROW, COK_FIELD_THIEF_SKILL,
-        COK_FIELD_NPC, COK_FIELD_COINS, COK_FIELD_CLASS_LEVEL, COK_FIELD_GENDER,
-        COK_FIELD_ALIGNMENT, COK_FIELD_MAGIC_RESISTANCE, COK_FIELD_STATUS, COK_FIELD_ACTIVE,
-        COK_FIELD_HOSTILE, COK_FIELD_COMPUTER, COK_FIELD_THAC0, COK_FIELD_AC, COK_FIELD_AC_BEHIND,
-        COK_FIELD_HIT_POINTS, COK_FIELD_MOVEMENT};
-    size_t present = 0;
-    for (size_t f = 0; f < COK_FIELD_COUNT; ++f) present += R->character->field[f].width != 0;
-    CHECK(present == sizeof named / sizeof *named);
-    for (size_t i = 0; i < sizeof named / sizeof *named; ++i) {
-        CHECK(cok_field_present(R->character, named[i]));
-        /* Every one in the 216 bytes of its .GAM. */
-        CHECK(cok_field_offset(R->character, named[i]) + cok_field_size(R->character, named[i]) <=
-              0xd8);
-    }
+    /* The character record: 216 bytes in its files, the spells' block of
+     * 220 after it (tests/test_layout.c checks each field's place). */
+    CHECK(R->character->file_size == 0xd8 && R->character->spells_offset == 0xd8 &&
+          R->character->spells_size == 0xdc && R->character->size == 0xd8 + 0xdc);
+    CHECK(strcmp(R->saves.spells, "WIZ") == 0 && cok_rules_champions.saves.spells == NULL);
+    CHECK(R->characters.stats == COK_STATS_DEATH_KNIGHTS &&
+          R->characters.levels == COK_LEVELS_DEATH_KNIGHTS && R->characters.import != NULL);
+    CHECK(cok_rules_champions.characters.stats == COK_STATS_CHAMPIONS &&
+          cok_rules_champions.characters.levels == COK_LEVELS_CHAMPIONS &&
+          cok_rules_champions.characters.import == NULL);
     /* Each field the ECL's table names is the record's. */
     for (size_t i = 0; i < R->ecl.character_count; ++i) {
         const cok_rules_character_var *e = &R->ecl.character[i];
         if (e->read == COK_ECL_FIELD_U8 || e->read == COK_ECL_FIELD_S8 ||
             e->read == COK_ECL_FIELD_U16 || e->read == COK_ECL_FIELD_NAME_BYTES)
-            CHECK(cok_field_present(R->character, (cok_field)e->field) ||
-                  e->field == COK_FIELD_MEMORIZED); /* the WIZ record's */
+            CHECK(cok_field_present(R->character, (cok_field)e->field));
     }
+    test_import_layout();
     /* Every table of the data segment but the two it has no counterpart
      * of. */
     for (size_t t = 0; t < COK_DATA_TABLES; ++t)
@@ -304,6 +343,81 @@ static void test_variables(void)
     for (size_t i = 0; i < R->ecl.store_count; ++i) CHECK(R->ecl.stores[i].address > 49000);
 }
 
+/* The import (46b2:10d7) in the original's code: its ten Moves from the
+ * Champions record's block ([bp-0x3f0]) to the record ([bp+0xa]), each
+ * les di, the source (add di, from), les di, the record (add di, to),
+ * mov ax, count, call Move (1a07:1ab1); the spells' Moves into the block
+ * (+0xc2): the memorized and known spells and the loop of four spells a
+ * day, 5 of +0x11c + 5 * i to +0xbc + 8 * i; the classes without a block;
+ * the record and block sizes the native load and the save read and write
+ * (0xd8, 0xdc); the set of the item types it drops (46b2:10b7). */
+static void test_import(void)
+{
+    const cok_rules_import *I = R->characters.import;
+    const uint8_t *code = at(0x46b2, 0x10d7);
+    size_t found = 0;
+    for (size_t i = 0; i + 32 < 0x480; ++i) {
+        const uint8_t *p = code + i;
+        if (memcmp(p, "\xc4\xbe\x10\xfc", 4) != 0) continue; /* les di, [bp-0x3f0] */
+        p += 4;
+        unsigned from = 0, to = 0;
+        if (p[0] == 0x81 && p[1] == 0xc7) from = p[2] | p[3] << 8, p += 4;
+        if (memcmp(p, "\x06\x57\xc4\x7e\x0a", 5) != 0) continue; /* push es, di; les di, [bp+0xa] */
+        p += 5;
+        if (p[0] == 0x81 && p[1] == 0xc7) to = p[2] | p[3] << 8, p += 4;
+        if (memcmp(p, "\x06\x57\xb8", 3) != 0 || memcmp(p + 5, "\x50\x9a\xb1\x1a", 4) != 0)
+            continue;
+        unsigned count = p[3] | p[4] << 8;
+        CHECK(found < I->move_count);
+        CHECK(I->moves[found].from == from && I->moves[found].to == to &&
+              I->moves[found].count == count);
+        ++found;
+    }
+    CHECK(found == I->move_count);
+    /* The block's moves: add di, from; ...; add di, to; mov ax, count. */
+    static const uint8_t memorized[] = {0x81, 0xc7, 0x1e, 0x00, 0x06, 0x57, 0xc4, 0xbe},
+                         known[] = {0x81, 0xc7, 0x63, 0x00, 0x06, 0x57, 0xc4, 0xbe};
+    bool m = false, k = false;
+    for (size_t i = 0; i + 40 < 0x480; ++i) {
+        if (memcmp(code + i, memorized, sizeof memorized) == 0) m = true;
+        if (memcmp(code + i, known, sizeof known) == 0) k = true;
+    }
+    CHECK(m && k);
+    CHECK(I->spell_moves[0].from == 0x1e && I->spell_moves[0].to == 0 &&
+          I->spell_moves[0].count == 0x3a);
+    CHECK(I->spell_moves[1].from == 0x63 && I->spell_moves[1].to == 0x4a &&
+          I->spell_moves[1].count == 0x6b);
+    for (size_t g = 0; g < 4; ++g)
+        CHECK(I->spell_moves[2 + g].from == 0x11c + 5 * g &&
+              I->spell_moves[2 + g].to == 0xbc + 8 * g && I->spell_moves[2 + g].count == 5);
+    bool counts[3] = {false, false, false}, classes = false;
+    for (size_t i = 0; i + 8 < 0x480; ++i) {
+        if (memcmp(code + i, "\xb8\x3a\x00", 3) == 0) counts[0] = true; /* mov ax, 0x3a */
+        if (memcmp(code + i, "\xb8\x6b\x00", 3) == 0) counts[1] = true;
+        if (memcmp(code + i, "\x81\xc7\xbc\x00", 4) == 0) counts[2] = true;
+        /* cmp byte [es:di+0x21], 2 (then 6, 0x0e). */
+        if (memcmp(code + i, "\x26\x80\x7d\x21\x02", 5) == 0) classes = true;
+    }
+    CHECK(counts[0] && counts[1] && counts[2] && classes);
+    CHECK(I->no_spells[0] == 2 && I->no_spells[1] == 6 && I->no_spells[2] == 0x0e &&
+          I->no_spells[3] == 0xff);
+    /* The set of dropped item types, just before the routine. */
+    CHECK(memcmp(at(0x46b2, 0x10b7), I->dropped_items, 32) == 0);
+    /* The native load reads 0xd8 into the record and 0xdc into the block
+     * (mov ax, 0xd8 / 0xdc before BlockRead, 1a07:1927). */
+    bool record = false, spells = false;
+    for (size_t i = 0; i + 16 < 0x900; ++i) {
+        if (memcmp(code + i, "\xb8\xd8\x00\x50", 4) == 0) record = true;
+        if (memcmp(code + i, "\xb8\xdc\x00\x50", 4) == 0) spells = true;
+    }
+    CHECK(record && spells);
+    CHECK(R->character->file_size == 0xd8 && R->character->spells_size == 0xdc);
+    /* Its extensions (DS:71c0-71d4) and the roster's and saved game's
+     * (DS:57ac, 57b1). */
+    CHECK(memcmp(ds(0x71c0), "\x04.wiz\x04.jnk\x04.eff\x04.stf\x04.sfx", 25) == 0);
+    CHECK(memcmp(ds(0x57ac), "\x03.pc", 4) == 0 && memcmp(ds(0x57b1), "\x04.gam", 5) == 0);
+}
+
 static void test_executable(void)
 {
     FILE *f = fopen("build/death-START_FULL.EXE", "rb");
@@ -423,8 +537,10 @@ static void test_executable(void)
     CHECK(found);
     test_opcodes();
     test_variables();
-    printf("death knights: %zu tables, tile sets, wall and sprite files, opcodes and "
-           "variables checked against build/death-START_FULL.EXE\n", D->table_count);
+    test_import();
+    printf("death knights: %zu tables, tile sets, wall and sprite files, opcodes, "
+           "variables and the import checked against build/death-START_FULL.EXE\n",
+           D->table_count);
 }
 
 /* Wall sets by slot, with the shape's first slot and no tiles moved; tile

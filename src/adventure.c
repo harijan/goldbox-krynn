@@ -2442,6 +2442,42 @@ static void directory_of(const char *path, char *out, size_t size)
         snprintf(out, size, "%.*s", (int)(slash == path ? 1 : slash - path), path);
 }
 
+/* Add character file base.extension from dir to the party, as 4b6d:1b34
+ * adds a saved game's: read (4b6d:11e5), joined (4b6d:1989), its levels
+ * recomputed if it is an NPC, counted in 0x7f3e. */
+static bool add_character(cok_adventure *game, const char *dir, const char *base,
+                          const char *extension)
+{
+    cok_ecl *vm = &game->vm;
+    char file[4200];
+    snprintf(file, sizeof file, "%s/%s.%s", dir, base, extension);
+    cok_character *character = malloc(sizeof *character);
+    if (character == NULL) {
+        fail(game, "out of memory");
+        return false;
+    }
+    if (!cok_character_read_file(character, cok_game_rules(game), dir, base, extension,
+                                 &game->item_types, game->error, sizeof game->error)) {
+        cok_character_free(character);
+        free(character);
+        return false;
+    }
+    cok_adventure_flush(game); /* 4b6d:15ce, in 11e5 before the recompute */
+    if (!cok_party_add(&game->party, cok_game_rules(game), character)) {
+        cok_character_free(character);
+        free(character);
+        fail(game, "%s: the party is full", file);
+        return false;
+    }
+    /* 4b6d:1989 recomputes an NPC's levels once it has joined. */
+    if (cok_field_u8(cok_game_rules(game)->character, character->record, COK_FIELD_NPC) >= 0x80 &&
+        !cok_character_levels(character, cok_game_rules(game), &game->item_types, game->error,
+                              sizeof game->error))
+        return false;
+    cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, 1);
+    return true;
+}
+
 /* Add the characters a saved game names, from its directory. */
 static bool add_characters(cok_adventure *game, const cok_saved_game *saved, const char *path,
                            uint8_t ecl_file)
@@ -2457,36 +2493,34 @@ static bool add_characters(cok_adventure *game, const cok_saved_game *saved, con
         FILE *exists = fopen(file, "rb");
         if (exists == NULL) continue; /* the original skips missing characters */
         fclose(exists);
-        cok_character *character = malloc(sizeof *character);
-        if (character == NULL) {
-            fail(game, "out of memory");
-            return false;
-        }
-        if (!cok_character_read(character, cok_game_rules(game), dir, base, &game->item_types,
-                                game->error, sizeof game->error)) {
-            cok_character_free(character);
-            free(character);
-            return false;
-        }
-        cok_adventure_flush(game); /* 4b6d:15ce, in 11e5 before the recompute */
-        if (!cok_party_add(&game->party, cok_game_rules(game), character)) {
-            cok_character_free(character);
-            free(character);
-            fail(game, "%s: the party is full", file);
-            return false;
-        }
-        /* 4b6d:1989 recomputes an NPC's levels once it has joined. */
-        if (cok_field_u8(cok_game_rules(game)->character, character->record, COK_FIELD_NPC) >=
-                0x80 &&
-            !cok_character_levels(character, cok_game_rules(game), &game->item_types, game->error,
-                                  sizeof game->error))
-            return false;
-        cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, 1);
+        if (!add_character(game, dir, base, cok_game_rules(game)->saves.record)) return false;
     }
     /* Then every record's combat icons, an NPC's from CPIC of the saved
      * game's file (4b6d:1fff). */
     if (!cok_arena_join(game, ecl_file)) return false;
     /* Adding a character selects it; the loader then selects the first. */
+    vm->character = cok_party_record(&game->party, 0);
+    return true;
+}
+
+bool cok_adventure_add_characters(cok_adventure *game, const char *const *paths, size_t count)
+{
+    cok_ecl *vm = &game->vm;
+    game->error[0] = '\0';
+    for (size_t i = 0; i < count; ++i) {
+        char dir[4096], base[4096];
+        directory_of(paths[i], dir, sizeof dir);
+        const char *name = strrchr(paths[i], '/');
+        snprintf(base, sizeof base, "%s", name != NULL ? name + 1 : paths[i]);
+        char *dot = strrchr(base, '.');
+        if (dot == NULL || dot == base) {
+            fail(game, "%s: a character's file has an extension", paths[i]);
+            return false;
+        }
+        *dot = '\0';
+        if (!add_character(game, dir, base, dot + 1)) return false;
+    }
+    if (!cok_arena_join(game, vm->file)) return false;
     vm->character = cok_party_record(&game->party, 0);
     return true;
 }

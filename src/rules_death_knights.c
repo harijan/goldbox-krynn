@@ -5,15 +5,17 @@
 
 /* Death Knights of Krynn (its START.EXE and GAME.OVR; "dkk" addresses are
  * build/death-START_FULL.EXE's, its data segment DS 0x1bce). Read
- * headless so far (DEATH-KNIGHTS.md's step 1): its files, its ECL's
- * opcodes, byte variables, named variables, special addresses and
- * character fields, its pictures and wall sets by id and its 3D view. What
- * step 1 does not reach is left out: the character record's layout but
- * the fields the ECL names, the data segment's tables but two, and the
- * variables only combat, treasure, monsters, shops and spells use, so that
- * a read of one stops at its accessor's assertion ("the game's records
- * have no such field", "... no such table", "... no such variable"), and
- * an archive the game does not have is NULL. */
+ * headless so far (DEATH-KNIGHTS.md's steps 1 and 2a): its files, its
+ * ECL's opcodes, byte variables, named variables, special addresses and
+ * character fields, its pictures and wall sets by id and its 3D view; its
+ * characters' and monsters' records, their files, their recompute and the
+ * import of Champions' characters. What it has not or the port does not
+ * reach yet is left out: the record's fields it has not, the data
+ * segment's tables but two, and the variables only combat, treasure,
+ * monsters, shops and spells use, so that a read of one stops at its
+ * accessor's assertion ("the game's records have no such field", "... no
+ * such table", "... no such variable"), and an archive the game does not
+ * have is NULL. */
 
 /* The digit of the files whose names hold one: always 1, whatever the ECL
  * file (MON1, 46b2:198c; CPIC1, 7090:016d); the treasure's ITEM file
@@ -52,15 +54,25 @@ static const char *const death_knights_singles[] = {
     "BACK1", "BACK2", "BACK3", "BACK4", "BACK5", "SKYGRND", "8X8D1", "8X8D2", "8X8D3",
     "8X8D4", "8X8D5", NULL};
 
-/* The character record (216 bytes in its .GAM, step 2): only the fields
- * the ECL's table below names, at their offsets in the record (3c1e:073a,
- * 0a9a; the import 46b2:10d7 maps Champions' fields to them). The record's
- * size and its other fields are left out: size 0 keeps a monster's read
- * stopped (monster.c), and a field of width 0 stops at its accessor's
- * assertion. */
+/* The character record: 216 bytes, its .GAM (and roster .PC) file and its
+ * monsters' MON1CHA records (46b2:0abc writes, 46b2:10d7 and 46b2:19a2
+ * read 0xd8), with the spells in a 220-byte block of their own (.WIZ,
+ * MON1WIZ: 0xdc), which the far pointer +0xc2 points to and the port holds
+ * after the record, at 0xd8. Each field's place is where Champions' import
+ * (46b2:10d7) moves Champions' field to and where the routines matching
+ * Champions' read it (the offsets their code has where Champions' has the
+ * field's, cited where one stands for all); the derived fields as 65cd:0e46
+ * (Champions' 6346:0d20) and 69a8:050b (66c2:0433) set them. A field it has
+ * not is left out: no fighter level (+0xce: 65cd:0e46 sets none), class
+ * changed at (+0xd7), levels shared out (+0xd8, +0xd9), shares (+0xe8:
+ * the import drops it and no routine reads one) or former levels (+0x101:
+ * the import moves them to +0x4d, which holds the levels before a drain).
+ * No two fields share a byte; +0xc6 is the import's 0 and no routine's. */
 #define BYTE(at) {.offset = at, .width = 1, .count = 1, .stride = 1, .rows = 1}
 #define SBYTE(at) {.offset = at, .width = 1, .count = 1, .stride = 1, .rows = 1, .is_signed = true}
 #define WORD(at) {.offset = at, .width = 2, .count = 1, .stride = 2, .rows = 1}
+#define DWORD(at) {.offset = at, .width = 4, .count = 1, .stride = 4, .rows = 1}
+#define POINTER(at) {.offset = at, .width = 4, .count = 1, .stride = 4, .rows = 1, .pointer = true}
 #define BYTES(at, n, from)                                                                         \
     {.offset = at, .width = 1, .count = n, .first = from, .stride = 1, .rows = 1}
 #define SBYTES(at, n, from)                                                                        \
@@ -68,43 +80,177 @@ static const char *const death_knights_singles[] = {
 #define WORDS(at, n, from)                                                                         \
     {.offset = at, .width = 2, .count = n, .first = from, .stride = 2, .rows = 1}
 #define INTERLEAVED(at, n, step) {.offset = at, .width = 1, .count = n, .stride = step, .rows = 1}
+#define POINTERS(at, n)                                                                            \
+    {.offset = at, .width = 4, .count = n, .stride = 4, .rows = 1, .pointer = true}
+/* The spells' block: its fields at the block's offset in the record. */
+#define SPELLS_AT 0xd8
 static const cok_character_layout death_knights_character = {
+    .size = SPELLS_AT + 0xdc,
+    .file_size = SPELLS_AT, /* 46b2:0abc writes, 46b2:10d7 reads 0xd8 */
+    .spells_offset = SPELLS_AT,
+    .spells_size = 0xdc, /* 46b2:10d7 reads, 46b2:0abc writes 0xdc of +0xc2 */
     .field =
         {
+            /* A Pascal string[15], as Champions' (the import's first move,
+             * 0x1e bytes from +0x00, holds it and the scores). */
             [COK_FIELD_NAME] = BYTES(0x00, 16, 0),
-            /* The scores, base then current, as Champions'. */
+            /* The scores, base then current, as Champions' (65cd:1525,
+             * identical to 6346:137a). */
             [COK_FIELD_SCORE_BASE] = INTERLEAVED(0x10, 6, 2),
             [COK_FIELD_SCORE] = INTERLEAVED(0x11, 6, 2),
             [COK_FIELD_STRENGTH_EXCEPTIONAL] = BYTE(0x1c),
             [COK_FIELD_STRENGTH_EXCEPTIONAL_BASE] = BYTE(0x1d),
+            /* The spells memorized: 74 in the spells' block (4381:0e9b's
+             * +0xc2; the ECL's 0x7c1b-0x7c64, 3c1e:073a). */
+            [COK_FIELD_MEMORIZED] = BYTES(SPELLS_AT + 0x00, 0x4a, 0),
+            /* Champions' +0x58-+0x62 (0xb bytes) move to +0x1e (46b2:10d7):
+             * the hours (4381:0556), base THAC0 (69a8:050b), race, class,
+             * knight order, deity, order of magic, knight tier (504d:26f8),
+             * age (5b7d:042e) and maximum hit points. */
+            [COK_FIELD_STUDY_HOURS] = SBYTE(0x1e),
             [COK_FIELD_BASE_THAC0] = BYTE(0x1f),
             [COK_FIELD_RACE] = SBYTE(0x20),
+            [COK_FIELD_CLASS] = SBYTE(0x21),
             [COK_FIELD_KNIGHT_ORDER] = BYTE(0x22),
             [COK_FIELD_DEITY] = SBYTE(0x23),
             [COK_FIELD_MAGIC_ORDER] = BYTE(0x24),
+            [COK_FIELD_KNIGHT_TIER] = BYTE(0x25),
             [COK_FIELD_AGE] = WORD(0x26),
             [COK_FIELD_MAX_HIT_POINTS] = BYTE(0x28),
+            /* Known spells by id 1-0x72 in the block, +0x49 + id (69a8:0000);
+             * Champions' 107 move there. */
+            [COK_FIELD_KNOWN_SPELL] = BYTES(SPELLS_AT + 0x4a, 0x72, 1),
+            /* Champions' +0xcf-+0xd6 move to +0x29: the size (410b:1aa4),
+             * saving throws (69a8:08ff), base movement (65cd:0246) and
+             * highest level (69a8:050b). */
             [COK_FIELD_SIZE] = BYTE(0x29),
             [COK_FIELD_SAVING_THROW] = BYTES(0x2a, 5, 0),
+            [COK_FIELD_BASE_MOVEMENT] = BYTE(0x2f),
+            [COK_FIELD_HIGHEST_LEVEL] = SBYTE(0x30),
+            /* Champions' +0xda-+0xe5 move to +0x31: the undead's kind
+             * (5340:119b), the thief skills (69a8:0b3d), the effects'
+             * pointer (46b2:10d7 zeroes +0x3a-+0x3d). */
+            [COK_FIELD_UNDEAD] = SBYTE(0x31),
             [COK_FIELD_THIEF_SKILL] = BYTES(0x32, 8, 1),
+            [COK_FIELD_EFFECTS] = POINTER(0x3a),
+            /* ADD NPC's (3632:210f), 46b2:1d90's 0x80 and up; the import
+             * leaves it 0. */
             [COK_FIELD_NPC] = BYTE(0x3e),
-            /* Steel, gems and jewelry only: Champions' kinds 4-6. */
+            /* Steel, gems and jewelry only: Champions' kinds 4-6, +0x37 +
+             * 2 * kind (65cd:0e46); the import moves Champions' +0xf3-+0x119
+             * (0x27 bytes) to +0x3f: these, the class levels, the levels
+             * before a drain, gender to experience. */
             [COK_FIELD_COINS] = WORDS(0x3f, 3, 4),
             [COK_FIELD_CLASS_LEVEL] = SBYTES(0x45, 8, 0),
+            /* The levels a drain took (504d:14c7 keeps the highest; Restoration's
+             * test, 3999:045f, compares them with the levels now), and the
+             * experience and maximum hit points before it (+0x66, +0x6a). */
+            [COK_FIELD_UNDRAINED_LEVEL] = SBYTES(0x4d, 8, 0),
             [COK_FIELD_GENDER] = SBYTE(0x55),
             [COK_FIELD_ALIGNMENT] = SBYTE(0x56),
+            /* The two attacks' base (69a8:050b, 65cd:0e46). */
+            [COK_FIELD_BASE_ATTACKS] = BYTES(0x57, 2, 1),
+            [COK_FIELD_BASE_DICE] = BYTES(0x59, 2, 1),
+            [COK_FIELD_BASE_DICE_SIDES] = BYTES(0x5b, 2, 1),
+            [COK_FIELD_BASE_DAMAGE_BONUS] = SBYTES(0x5d, 2, 1),
+            [COK_FIELD_BASE_AC] = BYTE(0x5f),
+            [COK_FIELD_STRENGTH_BONUSES] = BYTE(0x60), /* 65cd:15bd */
+            [COK_FIELD_MONSTER_ID] = BYTE(0x61),       /* 46b2:1d02 */
+            [COK_FIELD_EXPERIENCE] = DWORD(0x62),
+            [COK_FIELD_UNDRAINED_EXPERIENCE] = DWORD(0x66),
+            [COK_FIELD_UNDRAINED_MAX_HIT_POINTS] = BYTE(0x6a),
+            /* Champions' +0x11a-+0x11b move to +0x6b (69a8:050b; 638c:16d8's
+             * base hit points). */
+            [COK_FIELD_USABLE_CLASSES] = BYTE(0x6b),
+            [COK_FIELD_BASE_HIT_POINTS] = BYTE(0x6c),
+            /* Spells a day in the block: 4 spell classes of 8 levels from 1,
+             * +0xbb + 8 * class + level (69a8:0000). */
+            [COK_FIELD_SPELLS_A_DAY] =
+                {.offset = SPELLS_AT + 0xbc, .width = 1, .count = 8, .first = 1, .stride = 1,
+                 .rows = 4, .row_stride = 8},
+            /* Champions' +0x130-+0x132 move to +0x6d (3a37:0000). */
+            [COK_FIELD_MONSTER_EXPERIENCE] = WORD(0x6d),
+            [COK_FIELD_MONSTER_HIT_POINT_EXPERIENCE] = BYTE(0x6f),
+            /* Champions' +0x135-+0x140 move to +0x70: the icon (46b2:078f,
+             * 49cb:3cac), its slot (46b2:1d90), the creature flags
+             * (504d:0900). */
+            [COK_FIELD_ICON_HEAD] = BYTE(0x70),
+            [COK_FIELD_ICON_BODY] = BYTE(0x71),
+            [COK_FIELD_ICON] = BYTE(0x72),
+            [COK_FIELD_ICON_SIZE] = BYTE(0x73),
+            [COK_FIELD_ICON_COLOURS] = BYTES(0x74, 6, 1),
+            [COK_FIELD_CREATURE_FLAGS] = BYTES(0x7a, 2, 0),
+            /* Champions' +0x142-+0x187 move to +0x7c: the items (65cd:0e46),
+             * the list's next (46b2:1d90) and combat record (410b:119e)
+             * pointers, magic resistance (638c:04c9). */
+            [COK_FIELD_ITEM_COUNT] = BYTE(0x7c),
+            [COK_FIELD_ITEMS] = POINTER(0x7d),
+            [COK_FIELD_ITEM_SLOTS] = POINTERS(0x81, 13),
+            [COK_FIELD_HANDS] = BYTE(0xb5),
+            [COK_FIELD_SAVE_BONUS] = SBYTE(0xb6),
+            [COK_FIELD_WEIGHT] = WORD(0xb7),
+            [COK_FIELD_NEXT] = POINTER(0xb9),
+            [COK_FIELD_COMBAT] = POINTER(0xbd),
             [COK_FIELD_MAGIC_RESISTANCE] = BYTE(0xc1),
-            [COK_FIELD_STATUS] = BYTE(0xc7),
+            /* The spells' block, nil for a fighter or thief (46b2:10d7). */
+            [COK_FIELD_SPELLS] = POINTER(0xc2),
+            /* Champions' +0x188-+0x198 move to +0xc7 (0x11 bytes). */
+            [COK_FIELD_STATUS] = SBYTE(0xc7),
             [COK_FIELD_ACTIVE] = BYTE(0xc8),
             [COK_FIELD_HOSTILE] = BYTE(0xc9),
             [COK_FIELD_COMPUTER] = BYTE(0xca),
             [COK_FIELD_THAC0] = BYTE(0xcb),
             [COK_FIELD_AC] = BYTE(0xcc),
             [COK_FIELD_AC_BEHIND] = BYTE(0xcd),
+            [COK_FIELD_ATTACKS_LEFT] = BYTES(0xce, 2, 1),
+            [COK_FIELD_DICE] = BYTES(0xd0, 2, 1),
+            [COK_FIELD_DICE_SIDES] = BYTES(0xd2, 2, 1),
+            [COK_FIELD_DAMAGE_BONUS] = SBYTES(0xd4, 2, 1),
             [COK_FIELD_HIT_POINTS] = BYTE(0xd6),
             [COK_FIELD_MOVEMENT] = BYTE(0xd7),
         },
 };
+#undef SPELLS_AT
+
+/* Champions' characters imported (46b2:10d7 with DS:c468 0, from the
+ * Champions saved games' path, DKK.CFG's fifth line): its 409-byte record
+ * read into a heap block zeroed, then ten Moves into the record zeroed
+ * (0xd8), Champions' +0xce-, +0xd7-+0xd9, +0xe6-+0xf2, +0x133-+0x134 and
+ * +0x141 dropped; for a class but fighter, thief and fighter/thief, a
+ * spells' block zeroed (0xdc) with the memorized spells, the known ones
+ * (ids 1-107) and four classes' spells a day, 5 levels of each into 8.
+ * Spell, item and effect ids are moved as they are. */
+static const cok_rules_move death_knights_import_moves[] = {
+    {0x00, 0x000, 0x1e}, {0x1e, 0x058, 0x0b}, {0x29, 0x0cf, 0x08}, {0x31, 0x0da, 0x0c},
+    {0x3f, 0x0f3, 0x27}, {0x6b, 0x11a, 0x02}, {0x6d, 0x130, 0x03}, {0x70, 0x135, 0x0c},
+    {0x7c, 0x142, 0x46}, {0xc7, 0x188, 0x11},
+};
+static const cok_rules_move death_knights_import_spell_moves[] = {
+    {0x00, 0x01e, 0x3a}, {0x4a, 0x063, 0x6b}, {0xbc, 0x11c, 5},
+    {0xc4, 0x121, 5},    {0xcc, 0x126, 5},    {0xd4, 0x12b, 5},
+};
+static const uint8_t death_knights_import_no_spells[] = {2, 6, 0x0e, 0xff};
+/* By race (+0x20): above 1200 for 0 and 1, 200 for 2, 300 for 3 and 4,
+ * 50 for 6, the age is set to that; above 199 for 5, to 70. */
+static const uint16_t death_knights_import_ages[][2] = {
+    {1200, 1200}, {1200, 1200}, {200, 200}, {300, 300}, {300, 300}, {199, 70}, {50, 50},
+};
+static const cok_rules_import death_knights_import = {
+    .from = &cok_rules_champions,
+    .moves = death_knights_import_moves,
+    .move_count = sizeof death_knights_import_moves / sizeof *death_knights_import_moves,
+    .spell_moves = death_knights_import_spell_moves,
+    .spell_move_count =
+        sizeof death_knights_import_spell_moves / sizeof *death_knights_import_spell_moves,
+    .no_spells = death_knights_import_no_spells,
+    .ages = death_knights_import_ages,
+    .race_count = sizeof death_knights_import_ages / sizeof *death_knights_import_ages,
+    /* The set at 46b2:10b7: types 42, 47, 58, 60, 63, 69 and 72. */
+    .dropped_items = {[5] = 0x84, [7] = 0x94, [8] = 0x20, [9] = 0x01},
+};
+#undef DWORD
+#undef POINTER
+#undef POINTERS
 #undef BYTE
 #undef SBYTE
 #undef WORD
@@ -410,8 +556,8 @@ static const cok_rules_special death_knights_stores[] = {
 
 /* The selected character's fields at 0x7c00-0x7fff (3c1e:073a reads,
  * 3c1e:0a9a writes), in its record. The spells memorized (0x7c1b-0x7c64)
- * lie in the WIZ record the GAM record points to (+0xc2), not ported: with
- * a character they stop at the layout's assertion. */
+ * lie in the spells' block the record points to (+0xc2): with none, they
+ * read 0 and take no write. */
 #define FIELD(o, l, r, w, f, i, s)                                                                 \
     {.first = o, .last = l, .read = r, .write = w, .field = f, .index = i, .step = s}
 #define READ(o, k, f, i) FIELD(o, o, COK_ECL_FIELD_##k, COK_ECL_FIELD_NONE, f, i, 1)
@@ -1026,7 +1172,7 @@ const cok_rules cok_rules_death_knights = {
             .monster_record = "CHA",
             .monster_effects = "SPC",
             .monster_items = "ITM",
-            .monster_spells = "WIZ", /* MON1WIZ: the monsters' spells (step 2) */
+            .monster_spells = "WIZ", /* MON1WIZ: the monsters' spells' blocks (46b2:19a2) */
             .dungeon = "DUNGCOM",
             .wilderness = "WILDCOM",
             .random = NULL,
@@ -1047,7 +1193,9 @@ const cok_rules cok_rules_death_knights = {
         },
     .saves =
         {
-            /* As its files are named (step 2 reads them). */
+            /* SAVGAM?.PTY (the saved games, not read yet); the characters' files,
+             * DS:57ac-57b5 and DS:71c0-71ca: .GAM in a saved game and .PC
+             * in the roster (46b2:0abc), .JNK, .EFF and .WIZ beside it. */
             .game = "SAVGAM",
             .game_extension = "PTY",
             .character = "CHRDAT",
@@ -1055,6 +1203,7 @@ const cok_rules cok_rules_death_knights = {
             .roster = "PC",
             .items = "JNK",
             .effects = "EFF",
+            .spells = "WIZ",
             .debug = NULL, /* no debug mode */
         },
     .images =
@@ -1065,6 +1214,12 @@ const cok_rules cok_rules_death_knights = {
             .frames_ff = 256, /* 123c:1c58 */
         },
     .character = &death_knights_character,
+    .characters =
+        {
+            .stats = COK_STATS_DEATH_KNIGHTS,   /* 65cd:0e46 */
+            .levels = COK_LEVELS_DEATH_KNIGHTS, /* 69a8:050b */
+            .import = &death_knights_import,
+        },
     .data = &death_knights_data,
     .ecl =
         {

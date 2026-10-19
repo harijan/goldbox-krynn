@@ -4,7 +4,10 @@
  * sharing a byte but the one the table documents; the record within its
  * buffer; and the accessors: each width and sign, arrays and the table of
  * spells a day, the original's unchecked arithmetic, the far pointers, and
- * the assertions that stop a wrong access. */
+ * the assertions that stop a wrong access. Death Knights' layout
+ * (src/rules_death_knights.c) likewise: every field, none sharing a byte,
+ * the record's fields in its file's 216 bytes and the spells' block's in
+ * the block after them, the block's mark. */
 #include "rules.h"
 
 #include <signal.h>
@@ -61,6 +64,9 @@ static const struct {
     {COK_FIELD_COINS, "COINS", 0x0eb, 2, 7, 0, false, false, 0, 0, 0},
     {COK_FIELD_CLASS_LEVEL, "CLASS_LEVEL", 0x0f9, 1, 8, 0, true, false, 0, 0, 0},
     {COK_FIELD_FORMER_LEVEL, "FORMER_LEVEL", 0x101, 1, 8, 0, true, false, 0, 0, 0},
+    {COK_FIELD_UNDRAINED_LEVEL, "UNDRAINED_LEVEL", 0, 0, 0, 0, false, false, 0, 0, 0},
+    {COK_FIELD_UNDRAINED_EXPERIENCE, "UNDRAINED_EXPERIENCE", 0, 0, 0, 0, false, false, 0, 0, 0},
+    {COK_FIELD_UNDRAINED_MAX_HIT_POINTS, "UNDRAINED_MAX_HIT_POINTS", 0, 0, 0, 0, false, false, 0, 0, 0},
     {COK_FIELD_GENDER, "GENDER", 0x109, 1, 1, 0, true, false, 0, 0, 0},
     {COK_FIELD_ALIGNMENT, "ALIGNMENT", 0x10a, 1, 1, 0, true, false, 0, 0, 0},
     {COK_FIELD_BASE_ATTACKS, "BASE_ATTACKS", 0x10b, 1, 2, 1, false, false, 0, 0, 0},
@@ -91,6 +97,7 @@ static const struct {
     {COK_FIELD_NEXT, "NEXT", 0x17f, 4, 1, 0, false, true, 0, 0, 0},
     {COK_FIELD_COMBAT, "COMBAT", 0x183, 4, 1, 0, false, true, 0, 0, 0},
     {COK_FIELD_MAGIC_RESISTANCE, "MAGIC_RESISTANCE", 0x187, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_SPELLS, "SPELLS", 0, 0, 0, 0, false, false, 0, 0, 0},
     {COK_FIELD_STATUS, "STATUS", 0x188, 1, 1, 0, true, false, 0, 0, 0},
     {COK_FIELD_ACTIVE, "ACTIVE", 0x189, 1, 1, 0, false, false, 0, 0, 0},
     {COK_FIELD_HOSTILE, "HOSTILE", 0x18a, 1, 1, 0, false, false, 0, 0, 0},
@@ -107,18 +114,116 @@ static const struct {
 };
 #define EXPECTED (sizeof expected / sizeof *expected)
 
+/* Death Knights', likewise (width 0: it has no such field); the spells'
+ * block's fields at the block's place in the record, 0xd8. */
+static const struct {
+    cok_field field;
+    unsigned offset, width, count, first;
+    bool is_signed, pointer;
+    unsigned stride, rows, row_stride;
+} dkk_expected[] = {
+    {COK_FIELD_NAME, 0x00, 1, 16, 0, false, false, 0, 0, 0},
+    {COK_FIELD_SCORE_BASE, 0x10, 1, 6, 0, false, false, 2, 0, 0},
+    {COK_FIELD_SCORE, 0x11, 1, 6, 0, false, false, 2, 0, 0},
+    {COK_FIELD_STRENGTH_EXCEPTIONAL, 0x1c, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_STRENGTH_EXCEPTIONAL_BASE, 0x1d, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_MEMORIZED, 0xd8 + 0x00, 1, 0x4a, 0, false, false, 0, 0, 0},
+    {COK_FIELD_STUDY_HOURS, 0x1e, 1, 1, 0, true, false, 0, 0, 0},
+    {COK_FIELD_BASE_THAC0, 0x1f, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_RACE, 0x20, 1, 1, 0, true, false, 0, 0, 0},
+    {COK_FIELD_CLASS, 0x21, 1, 1, 0, true, false, 0, 0, 0},
+    {COK_FIELD_KNIGHT_ORDER, 0x22, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_DEITY, 0x23, 1, 1, 0, true, false, 0, 0, 0},
+    {COK_FIELD_MAGIC_ORDER, 0x24, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_KNIGHT_TIER, 0x25, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_AGE, 0x26, 2, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_MAX_HIT_POINTS, 0x28, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_KNOWN_SPELL, 0xd8 + 0x4a, 1, 0x72, 1, false, false, 0, 0, 0},
+    {COK_FIELD_FIGHTER_LEVEL, 0, 0, 0, 0, false, false, 0, 0, 0},
+    {COK_FIELD_SIZE, 0x29, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_SAVING_THROW, 0x2a, 1, 5, 0, false, false, 0, 0, 0},
+    {COK_FIELD_BASE_MOVEMENT, 0x2f, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_HIGHEST_LEVEL, 0x30, 1, 1, 0, true, false, 0, 0, 0},
+    {COK_FIELD_CHANGE_LEVEL, 0, 0, 0, 0, false, false, 0, 0, 0},
+    {COK_FIELD_SPREAD_LEVELS, 0, 0, 0, 0, false, false, 0, 0, 0},
+    {COK_FIELD_SPREAD, 0, 0, 0, 0, false, false, 0, 0, 0},
+    {COK_FIELD_UNDEAD, 0x31, 1, 1, 0, true, false, 0, 0, 0},
+    {COK_FIELD_THIEF_SKILL, 0x32, 1, 8, 1, false, false, 0, 0, 0},
+    {COK_FIELD_EFFECTS, 0x3a, 4, 1, 0, false, true, 0, 0, 0},
+    {COK_FIELD_NPC, 0x3e, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_SHARES, 0, 0, 0, 0, false, false, 0, 0, 0},
+    {COK_FIELD_COINS, 0x3f, 2, 3, 4, false, false, 0, 0, 0},
+    {COK_FIELD_CLASS_LEVEL, 0x45, 1, 8, 0, true, false, 0, 0, 0},
+    {COK_FIELD_FORMER_LEVEL, 0, 0, 0, 0, false, false, 0, 0, 0},
+    {COK_FIELD_UNDRAINED_LEVEL, 0x4d, 1, 8, 0, true, false, 0, 0, 0},
+    {COK_FIELD_UNDRAINED_EXPERIENCE, 0x66, 4, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_UNDRAINED_MAX_HIT_POINTS, 0x6a, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_GENDER, 0x55, 1, 1, 0, true, false, 0, 0, 0},
+    {COK_FIELD_ALIGNMENT, 0x56, 1, 1, 0, true, false, 0, 0, 0},
+    {COK_FIELD_BASE_ATTACKS, 0x57, 1, 2, 1, false, false, 0, 0, 0},
+    {COK_FIELD_BASE_DICE, 0x59, 1, 2, 1, false, false, 0, 0, 0},
+    {COK_FIELD_BASE_DICE_SIDES, 0x5b, 1, 2, 1, false, false, 0, 0, 0},
+    {COK_FIELD_BASE_DAMAGE_BONUS, 0x5d, 1, 2, 1, true, false, 0, 0, 0},
+    {COK_FIELD_BASE_AC, 0x5f, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_STRENGTH_BONUSES, 0x60, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_MONSTER_ID, 0x61, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_EXPERIENCE, 0x62, 4, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_USABLE_CLASSES, 0x6b, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_BASE_HIT_POINTS, 0x6c, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_SPELLS_A_DAY, 0xd8 + 0xbc, 1, 8, 1, false, false, 0, 4, 8},
+    {COK_FIELD_MONSTER_EXPERIENCE, 0x6d, 2, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_MONSTER_HIT_POINT_EXPERIENCE, 0x6f, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_ICON_HEAD, 0x70, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_ICON_BODY, 0x71, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_ICON, 0x72, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_ICON_SIZE, 0x73, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_ICON_COLOURS, 0x74, 1, 6, 1, false, false, 0, 0, 0},
+    {COK_FIELD_CREATURE_FLAGS, 0x7a, 1, 2, 0, false, false, 0, 0, 0},
+    {COK_FIELD_ITEM_COUNT, 0x7c, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_ITEMS, 0x7d, 4, 1, 0, false, true, 0, 0, 0},
+    {COK_FIELD_ITEM_SLOTS, 0x81, 4, 13, 0, false, true, 0, 0, 0},
+    {COK_FIELD_HANDS, 0xb5, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_SAVE_BONUS, 0xb6, 1, 1, 0, true, false, 0, 0, 0},
+    {COK_FIELD_WEIGHT, 0xb7, 2, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_NEXT, 0xb9, 4, 1, 0, false, true, 0, 0, 0},
+    {COK_FIELD_COMBAT, 0xbd, 4, 1, 0, false, true, 0, 0, 0},
+    {COK_FIELD_MAGIC_RESISTANCE, 0xc1, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_SPELLS, 0xc2, 4, 1, 0, false, true, 0, 0, 0},
+    {COK_FIELD_STATUS, 0xc7, 1, 1, 0, true, false, 0, 0, 0},
+    {COK_FIELD_ACTIVE, 0xc8, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_HOSTILE, 0xc9, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_COMPUTER, 0xca, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_THAC0, 0xcb, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_AC, 0xcc, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_AC_BEHIND, 0xcd, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_ATTACKS_LEFT, 0xce, 1, 2, 1, false, false, 0, 0, 0},
+    {COK_FIELD_DICE, 0xd0, 1, 2, 1, false, false, 0, 0, 0},
+    {COK_FIELD_DICE_SIDES, 0xd2, 1, 2, 1, false, false, 0, 0, 0},
+    {COK_FIELD_DAMAGE_BONUS, 0xd4, 1, 2, 1, true, false, 0, 0, 0},
+    {COK_FIELD_HIT_POINTS, 0xd6, 1, 1, 0, false, false, 0, 0, 0},
+    {COK_FIELD_MOVEMENT, 0xd7, 1, 1, 0, false, false, 0, 0, 0},
+};
+#define DKK_EXPECTED (sizeof dkk_expected / sizeof *dkk_expected)
+
 static void test_table(void)
 {
     CHECK(L == cok_rules_champions.character);
     CHECK(L->size == 0x199 && L->size == COK_CHARACTER_SIZE);
     CHECK(L->file_size == 0x199);
     CHECK(L->size <= COK_CHARACTER_MAX);
+    CHECK(L->spells_offset == 0 && L->spells_size == 0);
     /* Every field listed once, in the enum's order. */
     CHECK(EXPECTED == (size_t)COK_FIELD_COUNT);
     for (size_t k = 0; k < EXPECTED; ++k) {
         const cok_field_place *d = &L->field[expected[k].field];
         unsigned stride = expected[k].stride != 0 ? expected[k].stride : expected[k].width;
         unsigned rows = expected[k].rows != 0 ? expected[k].rows : 1;
+        CHECK(expected[k].field == (cok_field)k);
+        /* Champions has every field but Death Knights' own. */
+        if (expected[k].width == 0) {
+            CHECK(!cok_field_present(L, expected[k].field));
+            continue;
+        }
         bool ok = expected[k].field == (cok_field)k && d->offset == expected[k].offset &&
                   d->width == expected[k].width && d->count == expected[k].count &&
                   d->first == expected[k].first && d->is_signed == expected[k].is_signed &&
@@ -134,12 +239,97 @@ static void test_table(void)
                     expected[k].count, expected[k].first);
             exit(1);
         }
-        /* Champions has every field, and each lies within the record. */
-        CHECK(cok_field_present(L, expected[k].field));
+        /* Each lies within the record. */
         CHECK(d->offset + cok_field_size(L, expected[k].field) <= L->size);
         CHECK(d->width == 1 || d->width == 2 || d->width == 4);
         CHECK(d->stride >= d->width);
     }
+}
+
+/* Death Knights' table: each field as dkk_expected has it; those of the
+ * record within its file's bytes (0xd8), those of the spells' block
+ * within the block, which follows them; no two sharing a byte. */
+static void test_death_knights(void)
+{
+    const cok_character_layout *D = cok_rules_death_knights.character;
+    CHECK(D->file_size == 0xd8 && D->spells_offset == 0xd8 && D->spells_size == 0xdc);
+    CHECK(D->size == 0xd8 + 0xdc && D->size <= COK_CHARACTER_MAX);
+    CHECK(COK_CHARACTER_MAX == 0x1b4);
+    CHECK(DKK_EXPECTED == (size_t)COK_FIELD_COUNT);
+    int owner[COK_CHARACTER_MAX];
+    for (size_t i = 0; i < COK_CHARACTER_MAX; ++i) owner[i] = -1;
+    size_t block = 0;
+    for (size_t k = 0; k < DKK_EXPECTED; ++k) {
+        const cok_field_place *d = &D->field[dkk_expected[k].field];
+        unsigned stride = dkk_expected[k].stride != 0 ? dkk_expected[k].stride
+                                                      : dkk_expected[k].width;
+        unsigned rows = dkk_expected[k].rows != 0 ? dkk_expected[k].rows : 1;
+        CHECK(dkk_expected[k].field == (cok_field)k);
+        if (dkk_expected[k].width == 0) {
+            if (cok_field_present(D, dkk_expected[k].field))
+                fprintf(stderr, "Death Knights has field %zu (COK_FIELD_%s)\n", k,
+                        expected[k].name);
+            CHECK(!cok_field_present(D, dkk_expected[k].field));
+            continue;
+        }
+        bool ok = d->offset == dkk_expected[k].offset && d->width == dkk_expected[k].width &&
+                  d->count == dkk_expected[k].count && d->first == dkk_expected[k].first &&
+                  d->is_signed == dkk_expected[k].is_signed &&
+                  d->pointer == dkk_expected[k].pointer && d->stride == stride &&
+                  d->rows == rows && d->row_stride == dkk_expected[k].row_stride;
+        if (!ok) {
+            fprintf(stderr, "Death Knights' field %zu (COK_FIELD_%s): +0x%03x width %u count %u "
+                            "first %u, expected +0x%03x\n",
+                    k, expected[k].name, d->offset, d->width, d->count, d->first,
+                    dkk_expected[k].offset);
+            exit(1);
+        }
+        size_t end = d->offset + cok_field_size(D, dkk_expected[k].field);
+        if (cok_field_in_spells(D, dkk_expected[k].field)) {
+            CHECK(d->offset >= D->spells_offset && end <= D->spells_offset + D->spells_size);
+            ++block;
+        } else {
+            CHECK(end <= D->file_size);
+        }
+        for (unsigned row = 0; row < d->rows; ++row)
+            for (unsigned i = 0; i < d->count; ++i)
+                for (unsigned b = 0; b < d->width; ++b) {
+                    size_t at = d->offset + row * d->row_stride + i * d->stride + b;
+                    if (owner[at] >= 0)
+                        fprintf(stderr, "+0x%03zx is both COK_FIELD_%s's and COK_FIELD_%s's\n", at,
+                                expected[owner[at]].name, expected[k].name);
+                    CHECK(owner[at] < 0);
+                    owner[at] = (int)k;
+                }
+    }
+    /* The block holds the memorized and known spells and the spells a
+     * day, and nothing else; the spells a day's rows of 8 end it. */
+    CHECK(block == 3);
+    CHECK(cok_field_offset_at2(D, COK_FIELD_SPELLS_A_DAY, 3, 8) + 1 ==
+          (size_t)(D->spells_offset + D->spells_size));
+    CHECK(cok_field_offset_at(D, COK_FIELD_KNOWN_SPELL, 0x72) + 1 ==
+          cok_field_offset(D, COK_FIELD_SPELLS_A_DAY));
+    /* +0x49 + id, +0xbb + 8 * class + level in the block (69a8:0000). */
+    CHECK(cok_field_offset_at(D, COK_FIELD_KNOWN_SPELL, 5) == 0xd8 + 0x49 + 5);
+    CHECK(cok_field_offset_at2(D, COK_FIELD_SPELLS_A_DAY, 1, 3) == 0xd8 + 0xbb + 8 + 3);
+    /* Coins 4-6 at +0x37 + 2 * kind (65cd:0e46). */
+    CHECK(cok_field_offset_at(D, COK_FIELD_COINS, 6) == 0x37 + 12);
+    /* Its bytes no field holds: +0xc6, the import's 0. */
+    for (size_t at = 0; at < D->size; ++at)
+        if (owner[at] < 0) CHECK(at == 0xc6);
+    /* The mark of the spells' block. */
+    uint8_t c[COK_CHARACTER_MAX];
+    memset(c, 0x55, sizeof c);
+    cok_field_set_spells(D, c, true);
+    CHECK(cok_field_has_spells(D, c) && c[0xc2] == 1 && c[0xc3] == 0 && c[0xc5] == 0);
+    CHECK(c[0xd8] == 0 && c[0x1b3] == 0 && c[0xd7] == 0x55 && c[0xc6] == 0x55);
+    cok_field_set_spells(D, c, false);
+    CHECK(!cok_field_has_spells(D, c));
+    CHECK(cok_field_pointer_at(D, 0xc2) && cok_field_pointer_at(D, 0xc5));
+    CHECK(!cok_field_pointer_at(D, 0xc6) && !cok_field_pointer_at(D, 0xc1));
+    /* Champions keeps the spells in the record: always held. */
+    CHECK(cok_field_has_spells(L, c) && !cok_field_in_spells(L, COK_FIELD_MEMORIZED));
+    CHECK(cok_field_in_spells(D, COK_FIELD_MEMORIZED) && !cok_field_in_spells(D, COK_FIELD_NAME));
 }
 
 /* No byte belongs to two fields, but the one the table documents: known
@@ -374,6 +564,7 @@ int main(void)
     test_table();
     test_overlaps();
     test_offsets();
+    test_death_knights();
     test_accessors();
     test_unchecked();
     test_assertions();

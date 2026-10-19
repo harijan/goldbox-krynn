@@ -110,7 +110,10 @@ static void usage(const char *program)
             "  --start ADDR    run only from code address ADDR (hex)\n"
             "  --at X,Y,DIR    party position and facing (0, 2, 4 or 6)\n",
             program, program, program);
-    fputs("  --set ADDR=VAL  set a variable before running, in hex (repeatable)\n"
+    fputs("  --character FILE  add the character in FILE (CHRDATA1.SAV, BOB.WHO; Death\n"
+          "                  Knights' CHRDATA1.GAM, BOB.PC) to the party, with its other\n"
+          "                  files beside it; up to 8, after --party's\n"
+          "  --set ADDR=VAL  set a variable before running, in hex (repeatable)\n"
           "  --effect M,ID,MINUTES,VALUE  give party member M (1 the first) effect ID\n"
           "                  for MINUTES (0 for good) with VALUE, its handler run when\n"
           "                  it is removed, in hex, as a saved game's .SFX holds it\n"
@@ -665,6 +668,8 @@ static int run(int argc, char **argv)
     bool seeded = false;
     bool still = false, placed = false, play = false, helm = false, front = false, woof = false;
     const char *party = NULL, *load = NULL, *saves = NULL, *config_option = NULL;
+    const char *characters[COK_PARTY_MAX];
+    size_t character_count = 0;
     const cok_rules *rules = &cok_rules_champions;
     /* With no --combat the computer plays its turns, and the player's read
      * the keys (COK_COMBAT_PLAYER) or, with no --keys, pass
@@ -717,6 +722,9 @@ static int run(int argc, char **argv)
             ++i;
         } else if (strcmp(option, "--party") == 0 && has_value) {
             party = argv[++i];
+        } else if (strcmp(option, "--character") == 0 && has_value &&
+                   character_count < COK_PARTY_MAX) {
+            characters[character_count++] = argv[++i];
         } else if (strcmp(option, "--load") == 0 && has_value) {
             load = argv[++i];
         } else if (strcmp(option, "--saves") == 0 && has_value) {
@@ -802,7 +810,8 @@ static int run(int argc, char **argv)
     if (keyed && !chosen) combat = COK_COMBAT_PLAYER;
     unsigned long block = 256; /* none given */
     bool has_block = argc - i == 2;
-    if (front && (argc - i != 1 || load != NULL || party != NULL || fixture != 0 || play ||
+    if (front && (argc - i != 1 || load != NULL || party != NULL || character_count != 0 ||
+                  fixture != 0 || play ||
                   vector != 5 || start != 0)) {
         usage(argv[0]);
         return 2;
@@ -945,6 +954,8 @@ static int run(int argc, char **argv)
     bool loaded = true;
     if (load != NULL) loaded = cok_adventure_restore(&game, load);
     if (loaded && party != NULL) loaded = cok_adventure_load_party(&game, party);
+    if (loaded && character_count > 0)
+        loaded = cok_adventure_add_characters(&game, characters, character_count);
     if (loaded && fixture > 0) loaded = test_party(&game, fixture);
     for (size_t k = 0; loaded && k < effect_count; ++k) {
         if (effects[k].member > game.party.count) {

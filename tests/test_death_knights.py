@@ -115,10 +115,37 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual(lines[1:4], ["menu: ~Press button or enter to continue",
                                       "print: This is recorded as journal entry 49.",
                                       "menu: ~Press button or enter to continue"])
-        # ADD NPC then needs the character record (step 2): the run stops.
+        # ADD NPC then reads MON1CHA record 74 (46b2:19a2), who joins.
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(lines[4:], ["party: DURFEY joins, icon 74 in slot 0",
+                                     "(done in block 48)"])
+
+    def test_npcs_join(self):
+        # The intro (ECL1 block 2) adds its three NPCs, then sets up a
+        # battle, which stops the run (step 3).
+        result = self.play("--keys", r"\r" * 20, ASSETS, 2)
         self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stderr, "not yet ported: Death Knights of Krynn's monsters and "
-                         "NPCs (MON1CHA record 74) need its character record\n")
+        self.assertEqual([line for line in result.stdout.splitlines()
+                          if line.startswith("party:")],
+                         ["party: SIR DRYDEN joins, icon 48 in slot 0",
+                          "party: TANAR joins, icon 49 in slot 1",
+                          "party: FLAVIUS joins, icon 50 in slot 2"])
+        self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
+                         "Krynn's opcode 0x0c, SETUP MONSTERS (dkk 3632:038f)")
+
+    def test_characters(self):
+        # The saved characters (--character), a sheet in camp: name, class,
+        # items (the screen's frame is still Champions').
+        party = [arg for n in range(1, 7)
+                 for arg in ("--character", ASSETS / f"SAVE/CHRDATA{n}.GAM")]
+        result = self.play(*party, "--play", "--keys", r"ev\r\e", ASSETS, 17)
+        lines = result.stdout.splitlines()
+        self.assertIn("menu: Save View Magic Rest Alter Fix Exit", lines)
+        at = lines.index("print: SIR DRYDEN")
+        self.assertEqual(lines[at:at + 7], [
+            "print: SIR DRYDEN", "print: Knight of the Crown", "menu: Items Trade Drop Exit",
+            "list: Items", "item:  Yes  Long Sword +1 ", "item:  Yes  Shield ",
+            "item:  Yes  Solamnic Plate Mail "])
 
     def test_yes_no_and_clear_exit(self):
         result = self.play("--file", 2, "--start", "88f7", "--keys", r"N\r", ASSETS, 48)

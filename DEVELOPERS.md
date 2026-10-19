@@ -55,6 +55,8 @@ rm -f build/krynn.cfg
 ./build/eclplay --start-menu --mouse --shots build/mouse --keys '\kx\m190,195,1.' COKAssets
 ./build/ecldump --game death-knights --block 48 DKKAssets/ECL2.DAX
 ./build/eclplay --game death-knights --set 4be6=1 --screen build/dkk48.bmp --keys '\r' DKKAssets 48
+./build/eclplay --game death-knights --character DKKAssets/SAVE/CHRDATA1.GAM \
+    --character DKKAssets/SAVE/CHRDATA2.GAM --play --keys 'ev\r\e' DKKAssets 17
 make test
 make sanitize
 make cok
@@ -184,9 +186,10 @@ segment's tables, a section to a concern:
 | `text` | the window's title; the title menu's heading at startup and after a demonstration (`1000:0134`, spelt differently) | `Champions of Krynn`, `Champions of Krynn v1.2`, `Champions Of Krynn v1.2` |
 | `archives` | each DAX archive the game reads, by stem: with the ECL file's number (`GEO` makes `GEO1.DAX`), with `file_digit`'s digit (`MON`, with the kinds `CHA`, `SPC`, `ITM`; `ITEM`, `HEAD`, `BODY`, `CPIC`) or alone (`SKY`); the names `6d21:01d0` loads icons by as they are; records read from a file of their own, as a `cok_rules_record` (stem, file, 0 for none, record): the font and the overland map's cursor; and `file_digit`, the digit a file's number gives the names that hold one (Str into a string[1], `4b6d:161b`, `2fd3:1d21`, `6961:05b9`, `6d21:01d0`) | `ECL`, `GEO`, `WALLDEF`, `8X8D`, `PIC`, `SPRIT`, `BIGPIC`, `HEAD`, `BODY`, `CPIC`, `COMSPR`, `CHEAD`, `CBODY`, `SKY`, `TITLE`, `ITEM`, `MON`, `DUNGCOM`, `WILDCOM`, `RANDCOM`, `MIDI`, `SOUND`; font `8X8D1` record 201, cursor `CURSOR` record 1; the first decimal digit |
 | `files` | the devices' file (looked for in upper case, then lower); the item types; the directory the setup takes the game to run in and the save path's default under it | `KRYNN.CFG`, `ITEMS`, `C:\COK\`, `SAVE` |
-| `saves` | saved games (`SAVGAM` letter `.DAT`) and their characters' names (`CHRDAT` letter number); a character's extensions: in a saved game, in the roster, its items, its effects; the debug mode's trace | `SAVGAM`, `DAT`, `CHRDAT`, `SAV`, `WHO`, `STF`, `SFX`, `DEBUG.TXT` |
+| `saves` | saved games (`SAVGAM` letter `.DAT`) and their characters' names (`CHRDAT` letter number); a character's extensions: in a saved game, in the roster, its items, its effects, its spells' block (a game that keeps one); the debug mode's trace | `SAVGAM`, `DAT`, `CHRDAT`, `SAV`, `WHO`, `STF`, `SFX`, none, `DEBUG.TXT` |
 | `images` | the archives `daximages` and `daxcompose` read, by layout: XOR deltas, collections, single images; stems, `NULL`-ended; and the frames a header's count byte 0xff gives (`frames_ff`: 255 where the loader takes the byte, `127f:1c2f`; Death Knights' 256, its 256-tile sets) | `PIC1-3`; `SPRIT1-3`; the 20 others; 255 |
-| `character` | the character record's layout (`src/field.h`): its size, its file's size, and where each field lies | 409 bytes, the fields below |
+| `character` | the character record's layout (`src/field.h`): its size, its file's size, where a spells' block of its own lies, and where each field lies | 409 bytes, none, the fields below |
+| `characters` | the routines that recompute a character where the games' differ (`party.c`, each selected by an enum: the stats from the items, `cok_stats_routine`; the classes and levels, `cok_levels_routine`), and the import of another game's characters (`cok_rules_import`, or `NULL`) | `6346:0d20`, `66c2:0433`; none |
 | `data` | the original's data segment (`src/data.h`): the tables the port copied from it, by DS offset, and where each table the code reads lies and its shape | 46 tables (`src/data_champions.c`), 58 named; see below |
 | `ecl` | the ECL's opcodes, by opcode byte (`cok_rules_opcode`): what each does (`meaning`, a `cok_ecl_opcode`), the operands its handler loads (or a list over a header of `header` operands, or none ever), the operands a failed `IF` skips with it, and the handler the port does not carry out yet (`unported`, cited); the routines `CALL` runs by address (`calls`); the bytes a variable address holds (`variable_bytes`); the variables code reads and writes by name (`vars`, a `cok_rules_var` each: address, width, elements, the value a flag is off at); what a block's start sets (`start`); the special addresses read and stored (`reads`, `stores`); the selected character's fields at `0x7c00`-`0x7fff` (`character`, a `cok_rules_character_var` each, and `class_bits` for a field of class bits); and three handlers' constants: `COMPARE AND` of strings, `DELAY`'s wait, `HORIZONTAL MENU`'s single item (see ECL scripts) | its 66 opcodes, each its own meaning (`2fd3:0050-36dc`, `3775:1e74`), none unported; `2e10` redraw, `b203` sound, `c01e` step, `c018` wall ahead, `6803` animate (`2fd3:329b`); 2; 53 names, each a word; the portrait 0xff, the rest's encounters 0, magic allowed (`3775:01e8`); 10 reads, 8 stores (`3775:0fca`, `0e06`); 36 entries (`3775:07d9`, `0c00`); values only, the speed's, yes |
 | `view` | the 3D view's tile sets (each one's first and last value, `6e22:01ab`), the wall slot that holds wall types 1-5 and that `LOAD PIECES`' two-set path loads first, whether a record's wall sets share one tile set and whether tile values are moved by the slot's set; the overhead map's tiles; `PICTURE`'s overland map | 1-0x2d, ..., 0x100-0x127 (`DS:1ec2`); slot 1; a tile set each, moved (`69ea:1025`, `1230`); 0x104 and 0x100; 0x79 |
@@ -211,7 +214,8 @@ section's; one that a game reads from another file goes in a
 `archives.monster_spells` names a fourth kind of monster file, the
 monsters' spells, where a game keeps them apart from the record (Death
 Knights' `MON1WIZ`, as its characters' `.WIZ`; `NULL` in Champions,
-whose record holds them): its name only, which step 2 reads.
+whose record holds them): `cok_monster_read` reads a monster's record
+of it, where there is one, into the record's spells' block.
 
 To add to it: put the field in the section of its concern (a new
 section, a struct of its own, for a new concern: the character record's
@@ -237,10 +241,11 @@ in a file of its own (`src/rules_death_knights.c`; every program that links
 
 `cok_rules_death_knights` (`src/rules_death_knights.c`, its addresses
 `dkk SEG:OFF` in `build/death-START_FULL.EXE`, `make death-merged`, its data
-segment at `DS` 0x1bce) is DEATH-KNIGHTS.md's step 1: the tools and
-`eclplay --game death-knights` read every one of its archives and run its
-scripts, their text, menus and choices, its 3D view and its overland map.
-It holds:
+segment at `DS` 0x1bce) is DEATH-KNIGHTS.md's step 1 and step 2's
+characters (2a): the tools and `eclplay --game death-knights` read every
+one of its archives and run its scripts, their text, menus and choices,
+its 3D view and its overland map, and read, recompute and write its
+characters and monsters and import Champions' characters. It holds:
 
 - its files: Champions' stems but `SKY`, `CURSOR`, `RANDCOM`, `HEAD`,
   `BODY` and the music's (`NULL`: MUSIC.DAX's songs are step 4), and
@@ -248,8 +253,10 @@ It holds:
   (`46b2:198c`, `7090:016d`); `PIC4-7` and `SPRIT4` by picture id
   (`6ca1:00a4`), `WALLDEF`, `8X8D` and `BACK` by wall set id (1 in file 1,
   2 in 4, 3-4 in 2, 5-6 in 3, 7 in 5: `6d21:0ec5`); `DKK.CFG`, `C:\DKK\`;
-  the saved games' names (`SAVGAM?.PTY`, `CHRDAT`, `.GAM`, `.JNK`, `.EFF`,
-  for step 2); the image lists (`PIC1-7`, `SPRIT1-4`, `BACK1-5`,
+  the saved games' names (`SAVGAM?.PTY`, `CHRDAT`, not read yet), the
+  characters' extensions (`.GAM` in a saved game and `.PC` in the roster,
+  `46b2:0abc`; `.WIZ`, `.JNK`, `.EFF` beside them, `DS:71c0`); the image
+  lists (`PIC1-7`, `SPRIT1-4`, `BACK1-5`,
   `SKYGRND`, `8X8D1-5`, ...: 30 archives) and 0xff frames meaning 256
   (`123c:1c58`);
 - its ECL table (`3632`'s handlers, the dispatch `3632:2a54`, the skips
@@ -278,22 +285,76 @@ It holds:
   (`5dc5:1298`), caster level, saving throw and magic resistance not
   ported yet; `MON1WIZ`; its moons'
   tiles, 0x100 + phase + 0x15, 0x0d and 0x11 (`5b7d:0000`);
+- its characters (see The character record's layout): the record's 216
+  bytes (`.GAM`, `.PC`, `MON1CHA`), every field the code reads at its
+  place there and the spells' block of 220 bytes (`.WIZ`, `MON1WIZ`) held
+  after it; its recompute, the stats `65cd:0e46` (the movement with the
+  effects that double and halve it, `65cd:1241`; no fighter level) and the
+  levels `69a8:050b` (spells a day in the block to 8 levels, paladins',
+  3 or 4 attacks, its own thief skills, no former classes), as
+  `characters.stats` and `levels` select; and the import of Champions'
+  characters (`characters.import`, `46b2:10d7`, below);
 - `unplayable`: `cok --game death-knights`, `eclplay`'s `--start-menu`,
-  `--load` and `--party` refuse it, saying it is not playable yet.
+  `--load` and `--party` refuse it, saying it is not playable yet
+  (`--character` adds its characters).
 
-What step 1 does not reach is left out: the character record's layout
-holds only the 30 fields its ECL's character table names (at their
-offsets in its 216-byte `.GAM` record: `3c1e:073a`, `0a9a`, cross-checked
-with the import `46b2:10d7`), its size 0, so that a read of another field
-stops at its accessor's assertion ("the game's records have no such
-field"), as does a table of the data segment it has not ("the game's data
-segment has no such table"), a spell or effect it does not name ("the
-game has no such spell", "effect") and a variable it has not
-(`cok_ecl_var`: "the game has no such variable"); a monster or NPC read
-(`cok_monster_read`, whose layout's size is 0) stops the run instead with
-`COK_ECL_UNPORTED` and "not yet ported: Death Knights of Krynn's monsters
-and NPCs (...) need its character record", as do the eight opcodes not
-carried out yet (see ECL scripts). The
+Its characters' files: a record of 216 bytes, read whole into a zeroed
+record and written whole (`46b2:10d7`, `46b2:0abc`); the spells' block,
+read from `.WIZ` if there is one (what there is of it; the original says
+"problem openning magic file" when it is short) and written if the record
+holds one, the file erased first; items (`.JNK`) and effects (`.EFF`) as
+Champions' `.STF` and `.SFX`: 63-byte records with the next pointer
+at +0x2a, 9-byte ones with it at +5. A roster file `NAME.PC` is a saved
+game's `.GAM` by another extension, its other files beside it (the name
+made as Champions' roster's, `15fe:0580` and `064f`, identical to
+`169c:050b` and `05da`: `cok_party_roster_name`). Its monsters (`46b2:19a2`):
+`MON1CHA`'s record (216 bytes), its spells' block from `MON1WIZ`'s record
+of the same id where there is one (14 of the 64), its effects (`SPC`) and
+items (`ITM`); ADD NPC then joins it (`46b2:1d90`, its levels recomputed,
+`69a8:050b`). Every one of `DKKAssets/SAVE`'s characters reads and writes
+back byte for byte, but the far pointers the original writes as they are
+in memory (`tests/test_party.c`), and its recompute gives each one's
+derived fields back from nothing.
+
+The import (`cok_character_import`, the start menu's Add Character to
+Party, Champions; `46b2:10d7` with `DS:c468` 0): a Champions roster file
+(`*.WHO` in the path of `DKK.CFG`'s fifth line), its 409 bytes read into a
+zeroed block, moved by ten runs into the record zeroed (the descriptor's
+`cok_rules_import`: Champions' `+0x00-0x1d` to `+0x00`, `+0x58` to `+0x1e`,
+`+0xcf` to `+0x29`, `+0xda` to `+0x31`, `+0xf3` to `+0x3f`, `+0x11a` to
+`+0x6b`, `+0x130` to `+0x6d`, `+0x135` to `+0x70`, `+0x142` to `+0x7c`,
+`+0x188` to `+0xc7`), the pointers cleared; for a class but fighter, thief
+and fighter/thief (2, 6, 0x0e) a spells' block with Champions' memorized
+spells, known spells 1-107 and four classes' spells a day, 5 levels into
+rows of 8; the age capped by race (1200, 1200, 200, 300, 300; a half-elf's
+above 199 set to 70; 50); its items but those of types 42, 47, 58, 60, 63,
+69 and 72 (the set at `46b2:10b7`) and its effects as they are; then
+recomputed as a load is. Spell, item and effect ids are not translated:
+Champions' ids stand for other spells in Death Knights, and Champions'
+former levels (`+0x101`) land in Death Knights' levels before a drain
+(`+0x4d`). The original's load also recomputes strength between the
+stats and the levels (`638c:16d8` with 0, the effects engine's): the port
+does not yet, which changes nothing a file holds unless an item or effect
+gives strength by a rule that differs. Its stats add var `0x7f72` (the
+party's movement bonus) to a party member's movement, which no Death
+Knights script sets: 0 in the port's stats, which have no ECL variables.
+Each of `SAVE/`'s Champions characters imported and written gives, but for
+the far pointers, the files the original wrote for it (Add Character to
+Party, Champions, then Save Current Game, in DOSBox-X: `tests/test_party.c`
+holds their digests).
+
+What it has not, or the port does not reach yet, is left out: a field of
+the character record it has not (the fighter level, the level a human
+changed class at, the levels shared out, an NPC's shares, the former
+levels) stops at its accessor's assertion ("the game's records have no
+such field"), as does a table of the data segment it has not ("the game's
+data segment has no such table"), a spell or effect it does not name
+("the game has no such spell", "effect") and a variable it has not
+(`cok_ecl_var`: "the game has no such variable"); the eight opcodes not
+carried out yet stop the run with `COK_ECL_UNPORTED` (see ECL scripts).
+The code that still reads a field it has not is Champions' rules (combat,
+spells, effects, training, the temple, doors' classes, the party's
+strength), step 3's. The
 screens' frames are still Champions' (`screen.c`): Death Knights' are
 other tiles of its frame's set (`110f:0000`, `0162`), not read yet.
 `tests/test_death_knights.c` checks the descriptor against
@@ -304,7 +365,11 @@ wall sets' and `SPRIT4`'s files, startup's names, the version; the ECL
 table, by following the compares of the skips `3c1e:1b48` and the dispatch
 `3632:2a54` for each opcode and reading the operands its handler loads
 first; its `0x7c00` variables' offsets, `DS:836`-`864`; the special
-addresses `3c1e:0d85` compares and `0bc1`'s bound of 49000) and
+addresses `3c1e:0d85` compares and `0bc1`'s bound of 49000; the import's
+moves in its code, the classes without a spells' block, the set of item
+types dropped, the record's and block's sizes, the files' extensions;
+and that each field Champions' import moves lies where the move puts it)
+and
 `DKKAssets/` (each file and record it names, each picture and wall set in
 the file its id names and no other), and its view's wall sets and tiles;
 `tests/test_death_knights.py` the tools over `DKKAssets/` and `eclplay`'s
@@ -333,6 +398,33 @@ what each field is and where the original reads it, is
 record's, at most `COK_CHARACTER_MAX`, the buffer every game's fits in,
 and `file_size` the bytes of its file (`.SAV`, `.WHO`), which
 `cok_character_read` and `write` read and write.
+
+Death Knights' (`death_knights_character` in `src/rules_death_knights.c`,
+each field with its evidence: where the import `46b2:10d7` moves
+Champions' field to, and the offsets the routines matching Champions'
+have where Champions' have the field's) is the record of its files, 216
+bytes (`file_size` 0xd8), and after it, in the same buffer, the spells'
+block that the record points to (`SPELLS`, a far pointer at +0xc2) and a
+file of its own holds (`.WIZ`, `MON1WIZ`): `spells_offset` 0xd8 and
+`spells_size` 0xdc, `size` 0x1b4, `COK_CHARACTER_MAX` (Champions' record
+409 bytes). The block holds the memorized spells (74), the known ones (by
+id 1-0x72) and the spells a day (4 spell classes, levels 1-8 in rows of
+8), so that the accessors reach them as any field
+(`cok_field_in_spells` says a field is the block's). A fighter or thief
+has no block (the original's pointer nil): the port marks one held with
+the pointer's first byte 1 (`cok_field_set_spells`,
+`cok_field_has_spells`; 0 in files, the block's bytes 0 without one),
+which the loaders set, the writer reads, the levels' recompute and the
+ECL's fields test as the original tests the pointer (`69a8:0000`,
+`3c1e:073a`). The original's arithmetic past a field (`size` bounds it)
+reaches the block, where the original's reaches the heap after its
+record. Death Knights has no fighter level, level a human changed class
+at, levels shared out, NPC's shares or former levels (width 0); its own
+fields are the levels, experience and maximum hit points before a drain
+(`UNDRAINED_LEVEL` at +0x4d, `_EXPERIENCE` +0x66, `_MAX_HIT_POINTS` +0x6a:
+`504d:14c7` keeps them, Restoration's `3999:045f` compares them), which
+Champions has not. No two of its fields share a byte, and one byte, the
+import's 0 at +0xc6, is none's.
 
 The accessors are `static inline` over the table, each check folding to
 a compare or two (a combat round calls them often: the stat routines
@@ -432,11 +524,14 @@ with a comment; give Champions' place in `champions_character`
 (`src/rules.c`) with the macro of its shape (`BYTE`, `SBYTE`, `WORD`,
 `DWORD`, `BYTES(offset, count, first)`, `SBYTES`, `WORDS`, `INTERLEAVED`,
 `POINTER`, `POINTERS`) and a comment saying what it is and where the
-original reads it; and add it to `expected` in `tests/test_layout.c`,
-which checks every field's place and that no two share a byte (a field
-that does, as known spell 108 and the highest fighter level do, is
-listed there as documented). A field Death Knights lacks will have width 0
-in its table.
+original reads it, and Death Knights' in `death_knights_character`
+(`src/rules_death_knights.c`; width 0, left out, where it has none, and a
+field only it has left out of Champions'); and add it to `expected` and
+`dkk_expected` in `tests/test_layout.c`, which check every field's place
+and that no two share a byte (a field that does, as known spell 108 and
+the highest fighter level do in Champions', is listed there as
+documented); `tests/test_death_knights.c` checks that a field the import
+moves lies where the move puts it.
 
 To convert a file: take each raw character offset (`c[0x...]`,
 `record[0x...]`, `c + 0x...`, a `u16`/`word` of one, a loop bound that is
@@ -2198,7 +2293,13 @@ computed as a loaded character's are; the seventh, GWEN, has Charm Monsters
 memorized too and a Wand of Magic Missiles readied with 5 charges; the
 eighth, HOLT, is a mage too, with Stinking Cloud memorized instead.
 `--party SAVE` adds the characters of a saved game to the party (see
-Party), and `--load SAVE` loads the whole saved game first; then `BLOCK`
+Party); `--character FILE`, up to 8 times, adds the character whose record
+is in `FILE` (a saved game's `CHRDATA1.SAV`, the roster's `BOB.WHO`,
+Death Knights' `CHRDATA1.GAM` or `BOB.PC`), with its other files beside
+it, after `--party`'s, as they are added (`cok_adventure_add_characters`:
+read, joined, counted, their icons loaded, the first selected); unlike
+`--party` and `--load` it works for a game not yet playable. `--load SAVE`
+loads the whole saved game first; then `BLOCK`
 may be left out to resume where it was saved, as `2fd3:3c28` starts the
 game, running only that block's load vector before the first command (see
 Adventure loop). A block named is entered at once, a test entry and not the

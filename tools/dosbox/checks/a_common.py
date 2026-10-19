@@ -31,7 +31,7 @@ def _probe_reads(name, text):
     for none), the
     game's DS:5885 (the game saved), the debug flag and DEBUG.TXT's state (open, BufPos), the menu's
     timeout (DS:6e11), the display (DS:4b76), the sound's DS:577a/577b (with
-    --wav), each record of the list (409 bytes) and its items (63 bytes
+    --wav), each record of the list (the layout's size, 409 bytes) and its items (63 bytes
     each), in hex; in the setup's text mode, the 80x25 cells and the cursor
     (`acrt:`)."""
     if KEY_READ not in text:
@@ -57,7 +57,8 @@ def _probe_reads(name, text):
             const cok_character *ch = g->party.members[m];
             if (ch == NULL) continue;
             printf("aprobe: member %zu ", m);
-            for (size_t b = 0; b < sizeof ch->record; ++b) printf("%02x", ch->record[b]);
+            for (size_t b = 0; b < cok_game_rules(g)->character->size; ++b)
+                printf("%02x", ch->record[b]);
             for (size_t k = 0; k < ch->item_count; ++k) {
                 printf(" ");
                 for (size_t b = 0; b < COK_ITEM_SIZE; ++b) printf("%02x", ch->items[k][b]);
