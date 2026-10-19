@@ -636,8 +636,8 @@ static bool strength(cast *cx)
     const uint8_t *r = c->record;
 #define HAS(k)                                                                                     \
     (cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, k) > 0 ||                                        \
-     cok_field_s8_at(L, r, COK_FIELD_FORMER_LEVEL, k) >                                            \
-         cok_field_s8(L, r, COK_FIELD_CHANGE_LEVEL))
+     cok_character_former_level(cok_game_rules(game), r, k) >                                      \
+         cok_character_change_level(cok_game_rules(game), r))
     int bonus = -1;
     if (HAS(5)) bonus = roll(game, 1, 4);
     if (HAS(0) || HAS(6)) bonus = roll(game, 1, 6);

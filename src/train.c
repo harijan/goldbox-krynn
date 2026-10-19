@@ -63,6 +63,10 @@ bool cok_train_row(const uint8_t *c, const cok_rules *rules, unsigned class_, ui
     case 4: *row = 6; return true;
     case 5: *row = cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER) == 1 ? 7 : 8; return true;
     case 6: *row = 9; return true;
+    case 3: /* dkk 65cd:382c; 6346:371e has none */
+        if (rules->characters.paladin_row == 0) return false;
+        *row = rules->characters.paladin_row;
+        return true;
     case 7: {
         uint8_t order = cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER);
         if (order < 1 || order > 3) return false;
@@ -318,7 +322,9 @@ static bool train(cok_adventure *game, cok_character *character, bool creating, 
         cok_field_add8_at(L, c, COK_FIELD_CLASS_LEVEL, i, 1);
         /* SPREAD_LEVELS and SPREAD (+0xd8, +0xd9), which nothing else
          * writes. */
-        uint8_t over = cok_field_u8(L, c, COK_FIELD_SPREAD_LEVELS);
+        uint8_t over = cok_field_present(L, COK_FIELD_SPREAD_LEVELS)
+                           ? cok_field_u8(L, c, COK_FIELD_SPREAD_LEVELS)
+                           : 0;
         if (over > 0) {
             uint8_t spread = cok_field_u8(L, c, COK_FIELD_SPREAD);
             cok_field_set8(L, c, COK_FIELD_SPREAD, (uint8_t)(spread - spread / over));
@@ -343,7 +349,8 @@ static bool train(cok_adventure *game, cok_character *character, bool creating, 
         default: break;
         }
     }
-    if (cok_field_s8(L, c, COK_FIELD_HIGHEST_LEVEL) > cok_field_s8(L, c, COK_FIELD_CHANGE_LEVEL) &&
+    if (cok_field_s8(L, c, COK_FIELD_HIGHEST_LEVEL) >
+            cok_character_change_level(cok_game_rules(game), c) &&
         !cok_train_hit_points(game, c, mask, count))
         return false;
     return true;

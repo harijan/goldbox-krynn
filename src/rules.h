@@ -426,6 +426,12 @@ typedef struct {
      * not carry it out yet, citing it, or NULL: casting any spell then
      * stops the run (COK_ECL_UNPORTED) before its handler. */
     const char *cast_unported;
+    /* Who may use a spell's class (5b04:0083; dkk 5dc5:0078): clerics'
+     * also a paladin of usable_paladin and up (dkk 9; 0 none), druids' a
+     * ranger of usable_ranger and up (7; dkk 8), and magic-users' only a
+     * magic-user or a ranger of 9 and up where usable_mage_class (dkk). */
+    uint8_t usable_paladin, usable_ranger;
+    bool usable_mage_class;
 } cok_rules_spells;
 
 /* One effect id's handler (effect.c): the port's, a cok_effect_handler
@@ -550,6 +556,14 @@ typedef struct {
     cok_levels_routine levels;
     /* The import of another game's characters, or NULL. */
     const cok_rules_import *import;
+    /* The experience table's row of a paladin's levels (dkk 65cd:382c:
+     * 10), or 0 where the row routine has none for a paladin (6346:371e). */
+    uint8_t paladin_row;
+    /* The classes whose levels count as a fighter's, as bits by class:
+     * exceptional strength above 18 (60f4:1743) and a fighter's hit points
+     * by constitution (60f4:1628): fighters, rangers and knights (bits 2,
+     * 4, 7); dkk 638c:16d8 and 15e0 paladins too (bit 3). */
+    uint8_t fighter_classes;
 } cok_rules_characters;
 
 /* The screens the port draws a frame for (screen.c), each one routine of
@@ -708,6 +722,110 @@ typedef struct {
     uint8_t reset_wall;
 } cok_rules_start;
 
+/* The wilderness battlefield's builder (combat.c), where the games' differ:
+ * each the port's routine of that game's original. */
+typedef enum {
+    /* 3cb2:0fc8: plain floor 0x17; a river by the terrain's flags 0x20 and
+     * 0x10 (3cb2:0a00), trees (0b0b), scatter (0e4a). */
+    COK_WILDERNESS_CHAMPIONS,
+    /* dkk 410b:107e: plain floor 0x45; a river where var COK_VAR_RIVER is
+     * set (410b:0a4c), trees (0beb) and scatter (0f00) of its own tiles. */
+    COK_WILDERNESS_DEATH_KNIGHTS,
+} cok_wilderness_routine;
+
+/* The encounter and the battle's frame where the games differ (monster.c,
+ * combat.c, round.c, treasure.c's end of combat): COMBAT's branches, the
+ * show at distance, the battle around its rounds, the battlefield's setup
+ * and placement, the end of combat, and the routines a game's battle has
+ * that the port does not carry out for it yet (cited: reaching one stops
+ * the run, COK_ECL_UNPORTED). */
+typedef struct {
+    /* COMBAT (2fd3:191c; dkk 3632:16ec) with no monsters loaded: whether
+     * the vault's menu (var COK_VAR_VAULT 1) comes first, before a shop
+     * and the temple; and the game's vault menu, shop and temple where the
+     * port does not carry them out for it yet (dkk 3948:000e, 3b89:06f3,
+     * 3999:07d3), or NULL. */
+    bool vault;
+    const char *vault_unported, *shop_unported, *temple_unported;
+    /* The show at distance (3775:0575; dkk 3c1e:0515): whether a sprite or
+     * close-up id of 0xff shows none, and a close-up shows at any distance
+     * when there is no sprite (dkk); Champions' has neither rule, and its
+     * close-up may be a portrait (var COK_VAR_PORTRAIT). */
+    bool show_none;
+    /* The battle (3995:0172; dkk 3e05:00ec): whether leadership (dkk
+     * 5340:4acf) comes before the setup, with its words (the first line,
+     * then name, leads, name and the end); whether after each turn the dead
+     * explode (60f4:2375; dkk has none); whether after each turn a side
+     * gone or the round limit ends the round there, once a battle (dkk
+     * 3e05:00ec's [bp-1]), rather than only at the end of the round; and
+     * the aging after the battle (dkk 3e05:0264, when an effect 0x27 set
+     * DS:c463), the player's turn (3995:0573; dkk 3e05:08af) and the
+     * computer's (3afb:004b; dkk 3f63:0000) where the port does not carry
+     * them out for the game yet, or NULL. */
+    bool leadership;
+    const char *leadership_text, *leads, *leads_end;
+    bool explode, ends_in_round;
+    const char *aging_unported, *player_unported, *computer_unported;
+    /* The setup (3cb2:1c58; dkk 410b:1e41): its line on row 24 (Champions'
+     * in 1521's code, CS:1c45; dkk DS:2a07); the tiles from the 3D area's
+     * and the wilderness's archives (3cb2:1029: 0x19 and 0x21; dkk
+     * 410b:10d7: 0x19 and 0x26) and from the random ones' (archives.random,
+     * 6 at 0x22; none where the stem is NULL), and whether a set already
+     * loaded is not loaded again (dkk DS:b58c, b58d); the wilderness's
+     * builder (a cok_wilderness_routine); the dungeon's map before it is
+     * built: the random tiles' record 1 as the heap left it (3cb2:1029's
+     * GetMem), or, where dungeon_fill is set, cleared and filled with
+     * dungeon_floor (dkk 410b:10d7 and 0892: 0x16); whether a door on the
+     * north-west corner's west edge, and beyond the north-east one's north,
+     * is drawn as a wall's corner is (dkk 410b:04d8, 06ae); whether the
+     * setup clears Magic On (DS:7198) and the dead that explode (DS:6b45,
+     * 6b95; dkk neither). */
+    const char *begins;
+    uint8_t dungeon_tiles, wilderness_tiles;
+    bool tiles_kept;
+    uint8_t wilderness;
+    bool dungeon_fill;
+    uint8_t dungeon_floor;
+    bool door_corners;
+    /* The placement (3cb2:17f7; dkk 410b:1aa4 and 18c2): the entries whose
+     * sizes it clears first, 1 to placement_clears (255, into the screen
+     * positions; dkk 72); whether SETUP MONSTERS' ambush directions
+     * (game->ambush, dkk DS:c4cc) split the enemy's side among them, each
+     * enemy facing from the next, and each record's combat facing is set
+     * here; the enemy's distance where it is 0 and the facing is not the
+     * party's (dkk 1), and in the demonstration (dkk 2; 0 none); whether a
+     * body's cell keeps the cell under it rather than the map's (dkk
+     * 6f03:152e: under a body already there, the body's); and whether a
+     * record of status 9 is taken off the map (3cb2:17f7; dkk none). */
+    uint8_t placement_clears;
+    bool ambush;
+    uint8_t ambush_distance, demo_distance;
+    bool body_under, status_9;
+    /* The end of combat (351b:1968; dkk 3a37:1318): whether the weapons
+     * lost in combat come back first (351b:185f) and the NPCs take their
+     * shares (351b:1618; dkk neither); the effects party records lose
+     * (351b:0574: DS:0390, 11 of them; dkk 3a37:0506: DS:455d, 19), 0-ended;
+     * whether the award also sets whether one may
+     * train (dkk 3a37:02fa with 65cd:38c7, COK_FIELD_MAY_TRAIN); the results' words
+     * (351b:0b23; dkk 3a37:09b7): fled, lost, won, found treasure, each
+     * receives, experience points, and where the game says it after the
+     * experience, found no treasure (dkk; NULL none), and the bank's two
+     * lines (NULL none); the key the results wait for, its word (67b5:03e2
+     * with 15, 15, 15; dkk 6a69:0f1b); whether the treasure menu comes only
+     * when the pool holds anything (dkk), and where the port does not
+     * carry the game's treasure menu out yet (dkk 3a37:0eed), or NULL;
+     * a destroyed party's words and its key's. */
+    bool weapons_back, shares;
+    const uint8_t *combat_effects;
+    bool may_train;
+    const char *fled, *lost, *won, *found, *receives, *points, *found_none;
+    const char *withdrawal, *fee;
+    const char *results_key;
+    bool treasure_if_any;
+    const char *treasure_unported;
+    const char *rejoice, *rejoice_key;
+} cok_rules_combat;
+
 /* The game's own words that are names: its title. */
 typedef struct {
     /* The window's title. */
@@ -743,6 +861,7 @@ typedef struct cok_rules {
     cok_rules_moons moons;
     cok_rules_frame frame;
     cok_rules_start start;
+    cok_rules_combat combat;
 } cok_rules;
 
 extern const cok_rules cok_rules_champions, cok_rules_death_knights;

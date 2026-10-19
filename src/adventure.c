@@ -1873,6 +1873,13 @@ static void music(cok_adventure *game)
     log_text(game, "music", text);
 }
 
+bool cok_adventure_not_yet(cok_adventure *game, const char *what, const char *routine)
+{
+    cok_adventure_fail(game, COK_ECL_UNPORTED, "not yet ported: %s's %s (%s)",
+                       cok_game_rules(game)->text.name, what, routine);
+    return false;
+}
+
 /* An opcode the port does not carry out yet: the run stops. */
 static void not_yet(cok_adventure *game, const char *routine)
 {
@@ -3247,7 +3254,7 @@ static bool has_class(cok_adventure *game, size_t class)
     for (size_t i = 0; i < game->party.count; ++i) {
         const uint8_t *c = game->party.members[i]->record;
         if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, class) >= 1) return true;
-        if (cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, class) > 0 &&
+        if (cok_character_former_level(cok_game_rules(game), c, class) > 0 &&
             cok_character_former_class(c, cok_game_rules(game)))
             return true;
     }

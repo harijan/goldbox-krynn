@@ -400,9 +400,10 @@ def dkk_cfg(display, sound="S", input="N"):
 # segment, the PSP + 0x10 less 0x1000 in the guest) and their merged image.
 GAMES = {
     "champions": dict(assets="COKAssets", dir="COK", cfg="KRYNN.CFG", cfg_text=krynn_cfg,
-                      ds=DS_GHIDRA, merged="build/START_FULL.EXE"),
+                      ds=DS_GHIDRA, merged="build/START_FULL.EXE", randseed=RANDSEED),
+    # Its RandSeed: DS:84ac, which System's Random reads (dkk 1a07:163b).
     "death-knights": dict(assets="DKKAssets", dir="DKK", cfg="DKK.CFG", cfg_text=dkk_cfg,
-                          ds=0x1BCE, merged="build/death-START_FULL.EXE"),
+                          ds=0x1BCE, merged="build/death-START_FULL.EXE", randseed=0x84AC),
 }
 
 
@@ -900,8 +901,8 @@ class Box:
         return self.read(0x80000 + (self.byte(0x48A) & 6) * 0x4000, 0x8000)
 
     def set_seed(self, seed):
-        """Set Turbo Pascal's RandSeed (DS:43ae)."""
-        self.ds_write(RANDSEED, struct.pack("<I", seed & 0xFFFFFFFF))
+        """Set Turbo Pascal's RandSeed (DS:43ae; the game's, GAMES)."""
+        self.ds_write(self.profile["randseed"], struct.pack("<I", seed & 0xFFFFFFFF))
 
     def to_ghidra(self, seg, off):
         """A real CS:IP in the game's root image as START_FULL.EXE's (load segment

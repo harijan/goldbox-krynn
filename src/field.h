@@ -96,6 +96,7 @@ typedef enum {
     COK_FIELD_COMBAT,                    /* A far pointer: the combat record. */
     COK_FIELD_MAGIC_RESISTANCE,
     COK_FIELD_SPELLS,                    /* A far pointer: the spells' block. */
+    COK_FIELD_MAY_TRAIN,                 /* Set when a class may train (dkk +0xc6). */
     COK_FIELD_STATUS,                    /* 0 okay, 4 unconscious, 5 dying, 6 dead. */
     COK_FIELD_ACTIVE,                    /* Set while it can act. */
     COK_FIELD_HOSTILE,                   /* 1 for one fighting against the party. */

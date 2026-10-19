@@ -137,6 +137,8 @@ typedef enum {
     COK_VAR_HIT_BONUS,     /* 0x7f70-0x7f71: to hit, the monsters' and the party's */
     COK_VAR_MOVE_BONUS,    /* 0x7f72: the party's movement in combat */
     COK_VAR_LOCALS_GAME,   /* 0x7f79-0x7f82: cleared by a block's start */
+    COK_VAR_VAULT,         /* dkk 0x4d00: COMBAT opens the vault's menu (3632:16ec); Champions none */
+    COK_VAR_RIVER,         /* dkk 0x4bf3: a river crosses the open ground (410b:0a4c); Champions none */
     COK_VARS
 } cok_var;
 

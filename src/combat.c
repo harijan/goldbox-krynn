@@ -360,10 +360,11 @@ static void north_west(dungeon *d)
 {
     bool open = edge(d, d->x, s8(d->y - 1), 6) == 0 && edge(d, s8(d->x - 1), d->y, 0) == 0;
     uint8_t top_left = 0, top_right = 0, bottom_left = 0, bottom_right = 0;
+    bool corners = d->rules->combat.door_corners; /* dkk 410b:04d8 */
     if (d->north == 0) {
         if (d->west == 0) top_left = 0x16;
-        else if (d->west == 3) top_left = 0x0d;
-        else if (d->west == 1) top_left = open ? 0 : 0x0d;
+        else if (d->west == 3 && !corners) top_left = 0x0d;
+        else if (d->west == 1 || d->west == 3) top_left = open ? 0 : 0x0d;
     } else if (d->north == 3 || d->north == 1) {
         if (d->west == 0) top_left = open ? 0x0f : 5;
         else top_left = open ? 0x12 : 2;
@@ -406,7 +407,10 @@ static void north_east(dungeon *d)
     else if (d->north == 1) top_left = 5;
     if (d->north == 0) {
         if (beyond == 0) top_right = 0x16;
-        else if (beyond == 3) top_right = d->east == 0 && next != 0 ? 0x18 : 1;
+        else if (beyond == 3)
+            top_right = d->east == 0 && next != 0                          ? 0x18
+                        : d->east == 0 && d->rules->combat.door_corners ? 7 /* dkk 410b:06ae */
+                                                                         : 1;
         else if (beyond == 1) top_right = d->east != 0 ? 3 : next != 0 ? 0x0b : 7;
     } else if (d->east != 0) {
         top_right = 9;
@@ -482,6 +486,12 @@ bool cok_combat_dungeon(cok_combat *combat, const cok_rules *rules, const cok_vi
                         int8_t y, uint32_t *seed)
 {
     dungeon d = {.combat = combat, .view = view, .rules = rules, .party_y = y};
+    /* dkk 410b:0892: the map filled with the floor first, every cell
+     * built. */
+    if (rules->combat.dungeon_fill) {
+        memset(combat->cells, rules->combat.dungeon_floor, sizeof combat->cells);
+        memset(d.built, true, sizeof d.built);
+    }
     for (d.sy = -2; d.sy <= 2; ++d.sy) {
         for (d.sx = -6; d.sx <= 6; ++d.sx) {
             d.x = s8(x + d.sx);
@@ -577,10 +587,105 @@ static void scatter_cell(cok_combat *combat, int x, int y, const uint8_t chance[
     }
 }
 
-/* 3cb2:0e4a: scatter on the plain floor, column by column, by a density
- * of 50, 10 more for flag 0x10, 30 for 0x20 and 20 for 0x40, 10 less for
- * 4, 20 for 2 and 50 for 0x80, which picks the chances. */
-static void scatter(cok_combat *combat, const cok_rules *rules, uint8_t flags, uint32_t *seed)
+/* Death Knights' (dkk 410b:107e): its own tiles, the plain floor 0x45,
+ * its tile 0x25. */
+enum { DKK_FLOOR = 0x45, DKK_FLOOR_TILE = 0x25 };
+
+/* dkk 410b:0987: a ford from column x of row y, and the count of rows since
+ * the last back to 1. */
+static void ford(cok_combat *combat, int y, int x, uint8_t *rows, uint32_t *seed)
+{
+    combat->cells[y][x] = 0x3a;
+    if (x < 0x31) {
+        combat->cells[y][x + 1] = (uint8_t)(0x3a + cok_dice(seed, 1, 2));
+        if (x + 1 < 0x31) combat->cells[y][x + 2] = (uint8_t)(0x3a + cok_dice(seed, 1, 2));
+        if (x + 2 < 0x31) combat->cells[y][x + 3] = 0x3d;
+    }
+    *rows = 1;
+}
+
+/* dkk 410b:0a4c: a river where var 0x4bf3 is set (no d100, no flags):
+ * from a column 34 less 5d4, moved left until two past it is a multiple
+ * of 7, each row its bank (0x34), then water (0x34 + d2, 0x37, 0x37, 0x37
+ * + d2) unless a d20 is at most the rows since the last ford, which makes
+ * one (410b:0987), and the far bank (0x34) four on; the column one right
+ * a row. */
+static void dkk_river(cok_combat *combat, bool river, uint32_t *seed)
+{
+    if (!river) return;
+    int8_t x = s8(0x22 - cok_dice(seed, 5, 4));
+    while ((x + 2) % 7 > 0) --x;
+    uint8_t rows = 1;
+    for (int y = 0; y <= 0x18; ++y) {
+        if (x > 0x31) continue;
+        combat->cells[y][x] = 0x34;
+        if (x < 0x31) {
+            if (cok_dice(seed, 1, 20) > rows) {
+                ++rows;
+                combat->cells[y][x + 1] = (uint8_t)(0x34 + cok_dice(seed, 1, 2));
+                if (x + 1 < 0x31) combat->cells[y][x + 2] = 0x37;
+                if (x + 2 < 0x31) combat->cells[y][x + 3] = 0x37;
+                if (x + 3 < 0x31) combat->cells[y][x + 4] = (uint8_t)(0x37 + cok_dice(seed, 1, 2));
+            } else {
+                ford(combat, y, x + 1, &rows, seed);
+            }
+        }
+        if (x + 4 < 0x31) combat->cells[y][x + 5] = 0x34;
+        ++x;
+    }
+}
+
+/* dkk 410b:0beb: trees, unless flag 0x80: the chance 5, 2 with flag 2, 3
+ * less for 4, 2 more for 0x40 and 5 for 8, at least 1 when negative; as
+ * Champions' (3cb2:0b0b) on its own floor, a bush 0x29 + d2, a tree 0x1f
+ * + d5 over 0x24 + d5. */
+static void dkk_trees(cok_combat *combat, const cok_rules *rules, uint8_t flags, uint32_t *seed)
+{
+    if (flags & 0x80) return;
+    int8_t chance = 5;
+    if (flags & 0x02) chance = 2;
+    if (flags & 0x04) chance = s8(chance - 3);
+    if (flags & 0x40) chance = s8(chance + 2);
+    if (flags & 0x08) chance = s8(chance + 5);
+    if (chance < 0) chance = 1;
+    for (int x = 0; x <= 0x31; ++x) {
+        for (int y = 1; y <= 0x18; ++y) {
+            if (tile_at(combat, rules, x, y) != DKK_FLOOR_TILE ||
+                tile_at(combat, rules, x, y - 1) != DKK_FLOOR_TILE)
+                continue;
+            if (chance < cok_dice(seed, 1, 100)) continue;
+            if (chance >= cok_dice(seed, 1, 100)) {
+                combat->cells[y][x] = (uint8_t)(0x29 + cok_dice(seed, 1, 2));
+            } else {
+                combat->cells[y - 1][x] = (uint8_t)(0x1f + cok_dice(seed, 1, 5));
+                combat->cells[y][x] = (uint8_t)(0x24 + cok_dice(seed, 1, 5));
+            }
+        }
+    }
+}
+
+/* dkk 410b:0d82: a d100 picks scatter for a cell by Champions' five
+ * chances, as their sums: up to the first 0x31 + d2, the second 0x2c, the
+ * first two and 1 (the third's chance is not added) 0x2c + d5, the four
+ * 0x44, all five 0x3d + d6. */
+static void dkk_scatter_cell(cok_combat *combat, int x, int y, const uint8_t chance[5],
+                             uint32_t *seed)
+{
+    unsigned roll = cok_dice(seed, 1, 100);
+    unsigned c0 = chance[0], c1 = c0 + chance[1], c3 = c1 + chance[2] + chance[3],
+             c4 = c3 + chance[4];
+    uint8_t *cell = &combat->cells[y][x];
+    if (roll <= c0) *cell = (uint8_t)(0x31 + cok_dice(seed, 1, 2));
+    else if (roll <= c1) *cell = 0x2c;
+    else if (roll <= c1 + 1) *cell = (uint8_t)(0x2c + cok_dice(seed, 1, 5));
+    else if (roll <= c3) *cell = 0x44;
+    else if (roll <= c4) *cell = (uint8_t)(0x3d + cok_dice(seed, 1, 6));
+}
+
+static void scatter_with(cok_combat *combat, const cok_rules *rules, uint8_t flags,
+                         uint8_t floor,
+                         void (*cell)(cok_combat *, int, int, const uint8_t[5], uint32_t *),
+                         uint32_t *seed)
 {
     int density = 50;
     if (flags & 0x10) density += 10;
@@ -595,17 +700,34 @@ static void scatter(cok_combat *combat, const cok_rules *rules, uint8_t flags, u
     };
     for (int x = 0; x <= 0x31; ++x) {
         for (int y = 0; y <= 0x18; ++y) {
-            if (tile_at(combat, rules, x, y) != 0x16) continue;
+            if (tile_at(combat, rules, x, y) != floor) continue;
             for (unsigned b = 0; b < 5; ++b)
                 if (density >= bands[b].low && density <= bands[b].high)
-                    scatter_cell(combat, x, y, bands[b].chance, seed);
+                    cell(combat, x, y, bands[b].chance, seed);
         }
     }
 }
 
-void cok_combat_wilderness(cok_combat *combat, const cok_rules *rules, uint8_t flags,
+/* 3cb2:0e4a: scatter on the plain floor, column by column, by a density
+ * of 50, 10 more for flag 0x10, 30 for 0x20 and 20 for 0x40, 10 less for
+ * 4, 20 for 2 and 50 for 0x80, which picks the chances (dkk 410b:0f00
+ * the same on its own floor, with its cells). */
+static void scatter(cok_combat *combat, const cok_rules *rules, uint8_t flags, uint32_t *seed)
+{
+    scatter_with(combat, rules, flags, 0x16, scatter_cell, seed);
+}
+
+void cok_combat_wilderness(cok_combat *combat, const cok_rules *rules, uint8_t flags, bool river_on,
                            uint32_t *seed)
 {
+    if (rules->combat.wilderness == COK_WILDERNESS_DEATH_KNIGHTS) {
+        /* dkk 410b:107e, its scatter 410b:0f00. */
+        memset(combat->cells, DKK_FLOOR, sizeof combat->cells);
+        dkk_river(combat, river_on, seed);
+        dkk_trees(combat, rules, flags, seed);
+        scatter_with(combat, rules, flags, DKK_FLOOR_TILE, dkk_scatter_cell, seed);
+        return;
+    }
     memset(combat->cells, COK_COMBAT_FLOOR, sizeof combat->cells);
     river(combat, flags, seed);
     trees(combat, rules, flags, seed);
@@ -659,7 +781,43 @@ typedef struct {
     uint8_t width[2], quadrant[2];
     uint8_t free[2][4][6][11];
     uint8_t side;
+    /* The facing the formations were laid out for (dkk 410b:1aa4's
+     * [bp-0xe], 0xff before the first). */
+    uint8_t laid;
 } placement;
+
+/* The formations for facing (3cb2:17f7's start; dkk 410b:18c2, again for
+ * each new facing an ambush gives): the party's side faces it, the enemy's
+ * the other way from distance squares ahead (var 0x7ec1: dkk 1 where it is
+ * 0 and the facing is not the party's, 2 in the demonstration), and each
+ * side's formation cells are all free again. */
+static void lay_out(placement *p, uint8_t facing)
+{
+    cok_adventure *game = p->game;
+    const cok_rules_combat *R = &cok_game_rules(game)->combat;
+    const cok_data_segment *D = cok_game_rules(game)->data;
+    cok_ecl *vm = &game->vm;
+    if (facing == p->laid) return;
+    p->laid = facing;
+    uint16_t distance = cok_ecl_var(vm, COK_VAR_DISTANCE);
+    if (distance == 0 && facing != vm->direction && R->ambush_distance != 0)
+        distance = R->ambush_distance;
+    if (game->demo && R->demo_distance != 0) distance = R->demo_distance;
+    p->quadrant[0] = facing >> 1;
+    p->quadrant[1] = (uint8_t)((facing + 4) % 8) >> 1;
+    p->anchor_x[1] = s8((int)distance * cok_step_x[facing]);
+    p->anchor_y[1] = s8((int)distance * cok_step_y[facing]);
+    for (unsigned side = 0; side < 2; ++side) {
+        for (unsigned k = 0; k < 4; ++k) {
+            unsigned f = k == 1 ? 4 : p->quadrant[side];
+            for (unsigned row = 0; row < 6; ++row)
+                for (unsigned column = 0; column < 11; ++column)
+                    p->free[side][k][row][column] =
+                        cok_data_s8_at3(D, COK_DATA_FORMATIONS, f, row, 0) <= (int)column &&
+                        cok_data_s8_at3(D, COK_DATA_FORMATIONS, f, row, 1) >= (int)column;
+        }
+    }
+}
 
 /* 3cb2:122c: try column, row of formation k, from square ax, ay: if the
  * formation's cell is free, the combatant stands at the cell it gives,
@@ -824,31 +982,26 @@ bool cok_combat_place_all(cok_adventure *game)
                            "(6346:268a)");
         return false;
     }
+    const cok_rules_combat *R = &cok_game_rules(game)->combat;
     /* The original clears the size of entries 1-255, past the 72 into the
-     * screen positions (every fourth from DS:6362 and 63aa) and the
-     * occupants, which it rebuilds. */
+     * screen positions (every fourth from DS:6362 and 63aa; dkk 410b:1aa4
+     * 1-72 alone) and the occupants, which it rebuilds. */
     for (unsigned n = 1; n <= COK_COMBATANTS; ++n) combat->combatant[n].size = 0;
-    for (unsigned n = 4; n <= 0x44; n += 4)
-        combat->combatant[n].screen_x = combat->combatant[n].screen_y = 0;
+    if (R->placement_clears > COK_COMBATANTS)
+        for (unsigned n = 4; n <= 0x44; n += 4)
+            combat->combatant[n].screen_x = combat->combatant[n].screen_y = 0;
     if (!cok_combat_occupy(combat, cok_game_rules(game))) return false;
-    placement p = {.game = game};
-    uint8_t facing = vm->direction;
-    p.quadrant[0] = facing >> 1;
-    p.quadrant[1] = (uint8_t)((facing + 4) % 8) >> 1;
-    uint16_t distance = cok_ecl_var(vm, COK_VAR_DISTANCE);
-    p.anchor_x[1] = s8((int)distance * cok_step_x[facing]);
-    p.anchor_y[1] = s8((int)distance * cok_step_y[facing]);
-    for (unsigned side = 0; side < 2; ++side) {
-        p.width[side] = (uint8_t)((combat->sides[side] + 1) >> 1);
-        for (unsigned k = 0; k < 4; ++k) {
-            unsigned f = k == 1 ? 4 : p.quadrant[side];
-            for (unsigned row = 0; row < 6; ++row)
-                for (unsigned column = 0; column < 11; ++column)
-                    p.free[side][k][row][column] =
-                        cok_data_s8_at3(D, COK_DATA_FORMATIONS, f, row, 0) <= (int)column &&
-                        cok_data_s8_at3(D, COK_DATA_FORMATIONS, f, row, 1) >= (int)column;
-        }
-    }
+    placement p = {.game = game, .laid = 0xff};
+    /* An ambush's directions (dkk DS:c4cc, bits 0-3) share the enemy's
+     * side: its first rank is a share's half (410b:1aa4). */
+    uint8_t ambush = R->ambush ? game->ambush : 0, ways = 0;
+    for (unsigned b = 0; b < 4; ++b) ways = (uint8_t)(ways + (ambush >> b & 1));
+    if (ways == 0) ways = 1;
+    ways = (uint8_t)(ways << 1);
+    p.width[0] = (uint8_t)((combat->sides[0] + 1) >> 1);
+    p.width[1] = (uint8_t)((combat->sides[1] + ways - 1) / ways);
+    lay_out(&p, vm->direction);
+    uint8_t way = 0;
     combat->count = 1;
     uint8_t d = 1;
     /* The original walks on from the last record kept, or with none yet
@@ -878,6 +1031,20 @@ bool cok_combat_place_all(cok_adventure *game)
         }
         p.side = cok_field_u8(L, r, COK_FIELD_HOSTILE);
         e->size = cok_field_u8(L, r, COK_FIELD_SIZE) & 7;
+        /* dkk 410b:1aa4: with an ambush the party's side faces the party's
+         * way and each enemy comes from the next of its directions; each
+         * record's combat facing is set here (as 3cb2:10d9 sets it). */
+        uint8_t facing = vm->direction;
+        if (ambush != 0 && p.side != 0) {
+            do way = (uint8_t)((way + 1) & 3);
+            while (((1u << way) & ambush) == 0);
+            facing = (uint8_t)(way << 1);
+        }
+        if (ambush != 0) lay_out(&p, facing);
+        if (R->ambush) {
+            uint8_t from = (uint8_t)(p.side == 1 ? (facing + 4) % 8 : facing);
+            c->combat->facing = cok_data_u8_at(D, COK_DATA_QUADRANT_DIRECTIONS, from >> 1);
+        }
         bool found;
         if (!find_place(&p, d, &found)) return false;
         char name[16], text[80];
@@ -919,16 +1086,25 @@ bool cok_combat_place_all(cok_adventure *game)
                                            "a body off the map is written outside it (3cb2:17f7)");
                         return false;
                     }
+                    uint8_t under = combat->cells[e->y][e->x];
+                    if (R->body_under && under == COK_COMBAT_BODY) {
+                        /* dkk 6f03:152e: the cell under a body there, the
+                         * last's that matches, the new entry, as it was,
+                         * included. */
+                        for (unsigned k = 0; k <= combat->bodies; ++k)
+                            if (combat->body[k].x == e->x && combat->body[k].y == e->y)
+                                under = combat->body[k].cell;
+                    }
                     cok_combat_body *b = &combat->body[combat->bodies++];
                     b->character = c;
                     b->x = e->x;
                     b->y = e->y;
-                    b->cell = combat->cells[e->y][e->x];
+                    b->cell = under;
                     combat->cells[e->y][e->x] = COK_COMBAT_BODY;
                     strncat(text, ", fallen", sizeof text - strlen(text) - 1);
                 }
             }
-            if (cok_field_u8(L, r, COK_FIELD_STATUS) == 9) {
+            if (R->status_9 && cok_field_u8(L, r, COK_FIELD_STATUS) == 9) {
                 cok_field_set8(L, r, COK_FIELD_ACTIVE, 0);
                 e->size = 0;
             }
@@ -981,16 +1157,23 @@ static bool load_tiles(cok_adventure *game, const char *name, uint8_t first, uin
 }
 
 /* 3cb2:1029: the tiles and the map, from the 3D map in a 3D area (var
- * 0x4be6), else the wilderness. */
+ * 0x4be6), else the wilderness. A game without random tiles (dkk
+ * 410b:10d7) loads none, and one that keeps its set loads the 3D area's
+ * only when the wilderness's were loaded since (DS:b58c), the
+ * wilderness's always. */
 static bool build(cok_adventure *game)
 {
     cok_combat *combat = &game->combat;
     cok_ecl *vm = &game->vm;
     bool area = cok_ecl_var(vm, COK_VAR_3D) != 0;
     const cok_rules_archives *a = &cok_game_rules(game)->archives;
-    if (!load_tiles(game, area ? a->dungeon : a->wilderness, 0, area ? 0x19 : 0x21) ||
-        !load_tiles(game, a->random, 0x22, 6))
+    const cok_rules_combat *R = &cok_game_rules(game)->combat;
+    if (!(area && R->tiles_kept && combat->dungeon_tiles) &&
+        !load_tiles(game, area ? a->dungeon : a->wilderness, 0,
+                    area ? R->dungeon_tiles : R->wilderness_tiles))
         return false;
+    combat->dungeon_tiles = area;
+    if (a->random != NULL && !load_tiles(game, a->random, 0x22, 6)) return false;
     combat->active = true;
     combat->cursor = 0;
     combat->cursor_size = 1;
@@ -1002,18 +1185,21 @@ static bool build(cok_adventure *game)
          * buffer of RANDCOM's record held, freed by 6d21:002c just before,
          * so its cells hold that record from its byte 7 (0, 0 may hold the
          * free list's size instead, which nothing reads); a room's tables
-         * read the cells not yet built. */
-        size_t size;
-        bool no_file;
-        uint8_t *rand = cok_adventure_find_record(game, a->random, 1, &size, &no_file);
-        if (rand == NULL || size < 7 + sizeof combat->cells) {
+         * read the cells not yet built. A game that fills the map first
+         * (dkk 410b:0892) reads none. */
+        if (!R->dungeon_fill) {
+            size_t size;
+            bool no_file;
+            uint8_t *rand = cok_adventure_find_record(game, a->random, 1, &size, &no_file);
+            if (rand == NULL || size < 7 + sizeof combat->cells) {
+                free(rand);
+                cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s.DAX record 1 is too short",
+                                   a->random);
+                return false;
+            }
+            memcpy(combat->cells, rand + 7, sizeof combat->cells);
             free(rand);
-            cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s.DAX record 1 is too short",
-                               a->random);
-            return false;
         }
-        memcpy(combat->cells, rand + 7, sizeof combat->cells);
-        free(rand);
         cok_combat_dungeon(combat, cok_game_rules(game), &game->view, vm->map_x, vm->map_y,
                            &vm->seed);
         snprintf(text, sizeof text, "the 3D map around %d,%d facing %s, the enemy %u squares ahead",
@@ -1021,8 +1207,10 @@ static bool build(cok_adventure *game)
                  cok_ecl_var(vm, COK_VAR_DISTANCE));
     } else {
         const cok_rules *rules = cok_game_rules(game);
+        bool river = cok_ecl_has_var(rules, COK_VAR_RIVER) && cok_ecl_var(vm, COK_VAR_RIVER) != 0;
         cok_combat_wilderness(combat, rules,
-                              cok_data_u8_at(rules->data, COK_DATA_TERRAIN_FLAGS, 15), &vm->seed);
+                              cok_data_u8_at(rules->data, COK_DATA_TERRAIN_FLAGS, 15), river,
+                              &vm->seed);
         snprintf(text, sizeof text, "open ground facing %s, the enemy %u squares ahead",
                  facing[vm->direction & 7], cok_ecl_var(vm, COK_VAR_DISTANCE));
     }
@@ -1049,7 +1237,7 @@ bool cok_combat_setup(cok_adventure *game)
     game->big_id = COK_ADVENTURE_NO_PICTURE;
     cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 67b5:0c7b */
     cok_adventure_wait(game, game->speed * 100u);              /* 1521:0b4b */
-    static const char begins[] = "A battle begins...";
+    const char *begins = cok_game_rules(game)->combat.begins;
     log_text(game, "print", begins);
     cok_text_string(&game->screen, &game->font, begins, 0, 24, 10, 0); /* 1521:0353 */
     combat->magic_on = false;

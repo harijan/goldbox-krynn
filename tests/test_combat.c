@@ -144,6 +144,36 @@ static void test_tables(void)
     size_t ds = (size_t)(exe[8] | exe[9] << 8) * 16 + 0xbc6 * 16;
     /* Type 15's flags are 4: no river. */
     CHECK(exe[ds + 0x441] == 4);
+    /* The combat section's (rules.c's combat) in the code: the effects a
+     * party record loses after combat (DS:0390, 351b:0574), the sizes the
+     * placement clears (3cb2:17f7's cmp byte [bp-0xb], 0xff), the tiles
+     * (3cb2:1029: mov al, 0x21; mov al, 0x19) and the setup's line
+     * (1521:1c45, a string in 3cb2's code at 1c45). */
+    const cok_rules_combat *C = &cok_rules_champions.combat;
+    for (size_t k = 0; C->combat_effects[k] != 0; ++k) CHECK(exe[ds + 0x390 + k] == C->combat_effects[k]);
+    CHECK(exe[ds + 0x390 + 11] != C->combat_effects[10] || C->combat_effects[11] == 0);
+    size_t base = (size_t)(exe[8] | exe[9] << 8) * 16;
+    const uint8_t *place = exe + base + (0x3cb2 - 0x1000) * 16 + 0x17f7;
+    CHECK(memcmp(place + 0x2c, "\x80\x7e\xf5", 3) == 0 && place[0x2f] == C->placement_clears);
+    const uint8_t *map = exe + base + (0x3cb2 - 0x1000) * 16 + 0x1029;
+    bool wild = false, dungeon = false;
+    for (size_t k = 0; k < 0x50; ++k) {
+        wild |= map[k] == 0xb0 && map[k + 1] == C->wilderness_tiles;
+        dungeon |= map[k] == 0xb0 && map[k + 1] == C->dungeon_tiles;
+    }
+    CHECK(wild && dungeon && !C->tiles_kept && !C->dungeon_fill);
+    /* Who may use spells (5b04:0083: cmp byte [es:di+0xfd], 6, a ranger
+     * above 6) and the fighters' classes (60f4:1628: cmp byte [bp+0xa], 4
+     * and no paladin's 3). */
+    const uint8_t *usable = exe + base + (0x5b04 - 0x1000) * 16 + 0x012b;
+    CHECK(memcmp(usable, "\x26\x80\xbd\xfd\x00", 5) == 0 &&
+          usable[5] == cok_rules_champions.spells.usable_ranger - 1 &&
+          cok_rules_champions.spells.usable_paladin == 0 &&
+          !cok_rules_champions.spells.usable_mage_class);
+    CHECK(cok_rules_champions.characters.fighter_classes == 0x94 &&
+          cok_rules_champions.characters.paladin_row == 0);
+    const uint8_t *begins = exe + base + (0x3cb2 - 0x1000) * 16 + 0x1c45;
+    CHECK(begins[0] == strlen(C->begins) && memcmp(begins + 1, C->begins, begins[0]) == 0);
     /* Startup clears the icon slots' table, 8 bytes a slot (3e99:0466: mov
      * di, table; push ds; push di; mov ax, slots * 8). */
     const cok_rules_startup *at_start = &cok_rules_champions.startup;
@@ -206,7 +236,7 @@ static void test_wilderness(void)
      * them though it draws none; trees column by column, a top above a
      * bottom. The original, in an emulator, gives the same map. */
     uint32_t seed = 12345;
-    cok_combat_wilderness(c, &cok_rules_champions, 4, &seed);
+    cok_combat_wilderness(c, &cok_rules_champions, 4, false, &seed);
     CHECK(seed == after(12345, 2689) && seed == 3846925982u);
     static const uint8_t row0[50] = {
         0x17, 0x17, 0x17, 0x17, 0x39, 0x37, 0x17, 0x17, 0x17, 0x17, 0x17, 0x17, 0x23,
@@ -231,22 +261,57 @@ static void test_wilderness(void)
     /* With flag 0x10 a d100 up to 0x4b draws a river, a column of water
      * and rapids moving right a row (3cb2:0a00); 0x80 has no trees. */
     seed = 1;
-    cok_combat_wilderness(c, &cok_rules_champions, 0x10, &seed);
+    cok_combat_wilderness(c, &cok_rules_champions, 0x10, false, &seed);
     CHECK(seed == 3028203821u);
     CHECK(c->cells[0][19] >= 0x3c && c->cells[0][19] <= 0x3d && c->cells[0][20] >= 0x3e);
     CHECK(c->cells[1][20] >= 0x3c && c->cells[1][20] <= 0x3d && c->cells[2][21] <= 0x3d);
     CHECK(hash(c) == 0x2911f855u);
     /* One reaching column 49 at row 23, whose rapids then lie off the map. */
     seed = 22;
-    cok_combat_wilderness(c, &cok_rules_champions, 0x10, &seed);
+    cok_combat_wilderness(c, &cok_rules_champions, 0x10, false, &seed);
     CHECK(seed == 1675800179u && hash(c) == 0xc0e04a27u);
     CHECK(c->cells[23][49] >= 0x3c && c->cells[23][49] <= 0x3d && c->cells[24][49] == 0x17);
     seed = 7;
-    cok_combat_wilderness(c, &cok_rules_champions, 0x80, &seed);
+    cok_combat_wilderness(c, &cok_rules_champions, 0x80, false, &seed);
     CHECK(seed == 4213331734u);
     for (int y = 0; y < COK_COMBAT_HEIGHT; ++y)
         for (int x = 0; x < COK_COMBAT_WIDTH; ++x)
             CHECK(c->cells[y][x] < 0x20 || c->cells[y][x] > 0x2a);
+}
+
+/* Death Knights' open ground (dkk 410b:107e): its floor 0x45, trees and
+ * scatter of its own tiles; a river only where the var says so. */
+static void test_death_knights_wilderness(void)
+{
+    cok_combat *c = &game.combat;
+    const cok_rules *D = &cok_rules_death_knights;
+    uint8_t flags = cok_data_u8_at(D->data, COK_DATA_TERRAIN_FLAGS, 15);
+    /* The first fight's (ECL1 block 16, saved game A, seed 1): the
+     * original, in DOSBox-X (tools/dosbox/checks/dkk_fight.py), builds this
+     * map from this seed. */
+    uint32_t seed = 1172187917u;
+    cok_combat_wilderness(c, D, flags, false, &seed);
+    static const uint8_t row0[50] = {
+        0x45, 0x45, 0x45, 0x45, 0x45, 0x44, 0x44, 0x44, 0x45, 0x45, 0x44, 0x45, 0x44,
+        0x44, 0x45, 0x2c, 0x45, 0x41, 0x45, 0x44, 0x45, 0x45, 0x45, 0x45, 0x44, 0x45,
+        0x45, 0x45, 0x45, 0x45, 0x2c, 0x45, 0x2c, 0x45, 0x2c, 0x45, 0x44, 0x45, 0x45,
+        0x45, 0x45, 0x45, 0x45, 0x45, 0x45, 0x42, 0x45, 0x2c, 0x45, 0x44};
+    CHECK(memcmp(c->cells[0], row0, 50) == 0);
+    CHECK(hash(c) == 0xd571463bu);
+    /* A river (var 0x4bf3) rolls no d100: from a column 34 less 5d4, moved
+     * left to a multiple of 7 less 2, its bank 0x34 and water 0x35-0x38 or a
+     * ford 0x3a-0x3d, the far bank 0x34 five on, a column right a row. */
+    seed = 1;
+    cok_combat_wilderness(c, D, flags, true, &seed);
+    int x = -1;
+    for (int k = 0; k < COK_COMBAT_WIDTH && x < 0; ++k)
+        if (c->cells[0][k] == 0x34) x = k;
+    CHECK(x >= 0 && (x + 2) % 7 == 0 && x >= 0x22 - 20 && x <= 0x22 - 5);
+    for (int y = 0; y < COK_COMBAT_HEIGHT && x + 5 + y < COK_COMBAT_WIDTH - 1; ++y) {
+        CHECK(c->cells[y][x + y] == 0x34 && c->cells[y][x + y + 5] == 0x34);
+        for (int k = 1; k <= 4; ++k)
+            CHECK(c->cells[y][x + y + k] >= 0x34 && c->cells[y][x + y + k] <= 0x3d);
+    }
 }
 
 static void load_geo(unsigned file, uint8_t id)
@@ -995,6 +1060,7 @@ int main(void)
     test_tables();
     test_footprints();
     test_wilderness();
+    test_death_knights_wilderness();
     test_dungeon();
     test_records();
     test_placement();

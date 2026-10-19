@@ -443,8 +443,8 @@ bool cok_ai_turn_undead(cok_adventure *game, cok_character *c, uint8_t limit, bo
     if (cr == NULL) return false;
     if (cr->turns >= game->undead) return true;
     if (!(cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 0) > 0 ||
-          cok_field_s8_at(L, r, COK_FIELD_FORMER_LEVEL, 0) >
-              cok_field_s8(L, r, COK_FIELD_CHANGE_LEVEL)))
+          cok_character_former_level(cok_game_rules(game), r, 0) >
+              cok_character_change_level(cok_game_rules(game), r)))
         return true;
     cok_character *undead;
     bool found;

@@ -35,6 +35,19 @@ typedef struct cok_adventure cok_adventure;
  * (351b:1968) is the caller's. */
 bool cok_combat_battle(cok_adventure *game);
 
+/* Leadership (dkk 5340:4acf), which a game that has it (rules'
+ * combat.leadership) runs before the setup: every record on the party's
+ * side but an NPC (+0x3e 0x80 and up) is the player's (+0xca 0), the others
+ * the computer's; then each party record that is no NPC, has a knight level
+ * (+0x4c above 0) and is okay may lead each NPC on its side the computer
+ * plays that is okay and of intelligence above 3, on a d100 below its
+ * order's 20, 40 or 80 and 5 for each point of charisma above 13
+ * (5340:4a25): the NPC is then the player's. The first one led clears the
+ * frame (110f:0000) for "  Using leadership ability " in light magenta on
+ * row 1 and "<leader> leads <npc>." in white on row 3; any led then waits
+ * on row 24 (14e4:096a). Returns false where it cannot be carried out. */
+bool cok_combat_leadership(cok_adventure *game);
+
 /* One round's pieces, for tests and the later parts. */
 
 /* 432f:0000 for c at the start of a round: no spell being cast, may cast

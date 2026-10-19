@@ -102,7 +102,10 @@ static void test_shapes(void)
 {
     for (unsigned t = 0; t < COK_DATA_TABLES; ++t) {
         const cok_data_table *s = &D->table[t];
-        if (s->width == 0 && D != cok_rules_champions.data) continue; /* a table it has not */
+        /* A table it has not: Champions has every one but Death Knights'
+         * own. */
+        if (s->width == 0 && (D != cok_rules_champions.data || t == COK_DATA_LEVEL_LIMITS))
+            continue;
         CHECK(s->width == 1 || s->width == 2 || s->width == 4 || t <= COK_DATA_ITEM_WORDS);
         CHECK(s->indices >= 1 && s->indices <= 3 && s->size > 0);
         uint8_t byte;

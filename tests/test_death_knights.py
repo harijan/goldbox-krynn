@@ -121,8 +121,8 @@ class DeathKnightsTests(unittest.TestCase):
                                      "(done in block 48)"])
 
     def test_npcs_join(self):
-        # The intro (ECL1 block 2) adds its three NPCs, then sets up a
-        # battle, which stops the run (step 3).
+        # The intro (ECL1 block 2) adds its three NPCs, then fights, which
+        # stops the run at the first turn, the computer's for an NPC (step 3).
         result = self.play("--keys", r"\r" * 20, ASSETS, 2)
         self.assertEqual(result.returncode, 1)
         self.assertEqual([line for line in result.stdout.splitlines()
@@ -131,7 +131,7 @@ class DeathKnightsTests(unittest.TestCase):
                           "party: TANAR joins, icon 49 in slot 1",
                           "party: FLAVIUS joins, icon 50 in slot 2"])
         self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
-                         "Krynn's opcode 0x0c, SETUP MONSTERS (dkk 3632:038f)")
+                         "Krynn's computer's turn (dkk 3f63:0000)")
 
     def test_characters(self):
         # The saved characters (--character), a sheet in camp: name, class,
@@ -166,16 +166,98 @@ class DeathKnightsTests(unittest.TestCase):
             "print: what do you do", "menu: ~ATTACK ~TAKE SWORD ~REASON ~LEAVE"])
 
     def test_not_yet(self):
-        # Combat's setup, the treasure's items and a shop's stock stop the
-        # run, naming the routine.
-        result = self.play("--keys", r"\r" * 20, ASSETS, 32)
+        # The treasure menu after a fight with treasure (block 2's), the
+        # treasure's items stop the run, naming the routine.
+        result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--combat", "won", "--keys",
+                           r"\r" * 20, ASSETS, 2)
         self.assertEqual(result.returncode, 1)
+        self.assertIn("print: the party has found treasure", result.stdout.splitlines())
         self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
-                         "Krynn's opcode 0x0c, SETUP MONSTERS (dkk 3632:038f)")
+                         "Krynn's treasure menu (dkk 3a37:0eed)")
         result = self.play("--file", 3, "--start", "9569", ASSETS, 80)
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
                          "Krynn's opcode 0x27, TREASURE ITEMS (dkk 3632:1933)")
+
+    # Saved game A to block 16's fight: its texts, No rest, the festival's.
+    TO_FIGHT = r"\r\rN" + r"\r" * 9
+
+    def test_first_fight(self):
+        # The first fight (ECL1 block 16): SETUP MONSTERS 255 0 1 0 shows no
+        # sprite (dkk 3c1e:0515); leadership (5340:4acf): SIR DRYDEN, a
+        # knight, leads the Solamnic knights; the battlefield on open ground
+        # (410b:107e) and every record placed (410b:1aa4), as the original
+        # in DOSBox-X places them (tools/dosbox/checks/dkk_fight.py); the
+        # rounds' order, then the first turn, the player's, not ported.
+        result = self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", "--seed", 1, "--keys",
+                           self.TO_FIGHT + r"\r", ASSETS)
+        self.assertEqual(result.returncode, 1)
+        lines = result.stdout.splitlines()
+        at = lines.index("print:   Using leadership ability ")
+        self.assertEqual(lines[at - 4:at + 7], [
+            "monster: cleared", "monster: 4 SKEL WARRIOR, icon 1 in slot 8",
+            "monster: 4 NIGHTMARE, icon 0 in slot 9", "monster: 4 SOLAMNIC KNIGHT, icon 64 in slot 10",
+            "print:   Using leadership ability ", "print: SIR DRYDEN leads SOLAMNIC KNIGHT.",
+            "print: Press button or enter to continue", "print: a battle begins...",
+            "combat: open ground facing N, the enemy 2 squares ahead",
+            "combat: 1 SIR DRYDEN at 27,13", "combat: 2 LILLITH at 26,13"])
+        self.assertIn("combat: 18 SOLAMNIC KNIGHT at 31,14", lines)
+        self.assertEqual(lines[-2], "turn: NEACAIL (initiative 8)")
+        self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
+                         "Krynn's player's turn (dkk 3e05:08af)")
+
+    def test_first_fight_out(self):
+        # Out of it with --combat: won, the experience (3a37:0000, 02fa)
+        # and no treasure (3a37:09b7), then NEWECL 36, the outpost; fled,
+        # none; lost, the party destroyed.
+        run = lambda how: self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", "--seed", 1,
+                                    "--combat", how, "--keys", self.TO_FIGHT + r"\r" * 5, ASSETS)
+        result = run("won")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        at = lines.index("combat: won")
+        self.assertEqual(lines[at + 5:at + 11], [
+            "combat: removed 4 SKEL WARRIOR, 4 NIGHTMARE, 4 SOLAMNIC KNIGHT; 8 dropped",
+            "print: the party has won.", "print: each character receives 3242",
+            "print: experience points.", "print: the party has found no treasure",
+            "menu: Press button or enter to continue"])
+        self.assertIn("print: YOU WALK UP TO THE MAIN GATE.", lines)
+        self.assertIn("block 36", lines[-1])
+        result = run("fled")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("print: the party has fled.", result.stdout.splitlines())
+        self.assertIn("print: each character receives 0", result.stdout.splitlines())
+        result = run("lost")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[-2:], [
+            "print: the monsters rejoice for the party has been destroyed",
+            "(the party was killed in block 16)"])
+
+    def test_fights_in_and_out(self):
+        # The blocks that stopped at SETUP MONSTERS: each fight entered and
+        # left with --combat, the script going on (block 2's treasure, its
+        # menu not ported yet, stops it).
+        expected = {2: "(done in block 2)", 51: "(done in block 51)", 67: "(done in block 67)",
+                    97: "(done in block 97)", 98: "(done in block 97)"}
+        # Those that flee from 51 and 67 are sent back to block 17 (var
+        # 0x7ec7 0x81, 3a37:0506).
+        fled = {51: "(done in block 17)", 67: "(done in block 17)"}
+        for block, last in expected.items():
+            for how in ("won", "fled", "lost"):
+                result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--set", "4be6=1",
+                                   "--set", "4be7=1", "--set", "4be8=1", "--combat", how,
+                                   "--keys", r"\r" * 80, ASSETS, block)
+                lines = result.stdout.splitlines()
+                with self.subTest(block=block, how=how):
+                    self.assertIn(f"combat: {how}", lines)
+                    if how == "lost":
+                        self.assertIn("(the party was killed in block", lines[-1])
+                    elif block == 2 and how == "won":
+                        self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: "
+                                         "Death Knights of Krynn's treasure menu (dkk 3a37:0eed)")
+                    else:
+                        self.assertEqual(lines[-1], fled.get(block, last) if how == "fled"
+                                         else last, result.stderr)
 
     def saves(self, *sources):
         """A saves folder holding copies of the files of sources."""
@@ -296,10 +378,10 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual(result.stderr, "not yet ported: Death Knights of Krynn's Display "
                          "(dkk 4381:15aa)\n")
         result = self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", "--keys", r"\r\r" + "N" +
-                           r"\r" * 8, ASSETS)
+                           r"\r" * 10, ASSETS)
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
-                         "Krynn's opcode 0x0c, SETUP MONSTERS (dkk 3632:038f)")
+                         "Krynn's player's turn (dkk 3e05:08af)")
         if (BUILD / "cok").exists():
             env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
             result = subprocess.run([str(BUILD / "cok"), *GAME, "--saves", self.saves(),

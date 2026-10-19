@@ -178,6 +178,10 @@ typedef struct {
      * loaded there. tiles_loaded has bit n set once frame n has been. */
     cok_picture tiles;
     uint64_t tiles_loaded;
+    /* dkk DS:b58c: the 3D area's tiles are the set's (410b:10d7), which a
+     * game that keeps its set (rules' combat.tiles_kept) does not load
+     * again; the wilderness's load clears it. */
+    bool dungeon_tiles;
     /* The screen's pictures (see arena.h): DS:4b78, the map's buffer, 21
      * units by 168 rows; DS:4b7c, what a masked draw that saves covered,
      * 24 by 24, laid out as the original saves (127f:27af), under_set
@@ -230,8 +234,11 @@ bool cok_combat_dungeon(cok_combat *combat, const cok_rules *rules, const cok_vi
 /* Build a map of open ground (3cb2:0fc8): floor, then a river, trees and
  * scatter by the flags of a terrain type (DS:0432), about 2,700 rolls from
  * seed, column by column. The game always takes type 15, whose flags, 4,
- * give no river, though its d100 is rolled. */
-void cok_combat_wilderness(cok_combat *combat, const cok_rules *rules, uint8_t flags,
+ * give no river, though its d100 is rolled. A game whose builder is
+ * another (rules' combat.wilderness) builds its own: Death Knights'
+ * (dkk 410b:107e) of its own tiles, with a river where river is set (var
+ * COK_VAR_RIVER, 410b:0a4c), the flags not asked for one. */
+void cok_combat_wilderness(cok_combat *combat, const cok_rules *rules, uint8_t flags, bool river,
                            uint32_t *seed);
 
 /* Give every record in party its stats (6346:0d20) and a combat record,

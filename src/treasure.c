@@ -6,6 +6,7 @@
 #include "items.h"
 #include "screen.h"
 #include "sheet.h"
+#include "train.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -680,8 +681,10 @@ static bool experience(cok_adventure *game, outcome *result)
         uint8_t status = cok_field_u8(L, r, COK_FIELD_STATUS);
         if (cok_field_u8(L, r, COK_FIELD_HOSTILE) != 1 || status == 0 || status == 3) continue;
         result->monsters = true;
+        /* The kinds of coin the record holds (dkk 3a37:0000: 4-6). */
+        size_t first = cok_field_first(L, COK_FIELD_COINS);
         if (past_party(c))
-            for (int k = 0; k < COK_COINS; ++k)
+            for (size_t k = first; k < first + cok_field_count(L, COK_FIELD_COINS); ++k)
                 pool->coins[k] += cok_field_u16_at(L, r, COK_FIELD_COINS, k);
         sum += cok_field_u16(L, r, COK_FIELD_MONSTER_EXPERIENCE) +
                extend((uint16_t)(cok_field_u8(L, r, COK_FIELD_BASE_HIT_POINTS) *
@@ -716,15 +719,39 @@ static bool experience(cok_adventure *game, outcome *result)
     return true;
 }
 
+/* dkk 65cd:38c7 (see treasure.h). */
+bool cok_treasure_may_train(const cok_rules *rules, const uint8_t *c, bool *may)
+{
+    const cok_character_layout *L = rules->character;
+    const cok_data_segment *D = rules->data;
+    int32_t xp = (int32_t)cok_field_u32(L, c, COK_FIELD_EXPERIENCE);
+    *may = false;
+    for (unsigned k = 0; k < 8 && !*may; ++k) {
+        int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, k);
+        if (level <= 0 || level >= 0x12) continue;
+        uint8_t row;
+        int32_t need;
+        uint8_t limit;
+        long at = cok_data_offset2(D, COK_DATA_LEVEL_LIMITS, cok_field_s8(L, c, COK_FIELD_RACE), k);
+        if (!cok_train_row(c, rules, k, &row) || !cok_train_experience(rules, row, level + 1, &need) ||
+            !cok_data_holds(D, COK_DATA_LEVEL_LIMITS, at) || !cok_data_byte(D, (uint16_t)at, &limit))
+            return false;
+        *may = xp >= need && need > 0 && limit > (uint8_t)level;
+    }
+    return true;
+}
+
 /* 351b:0379: unless the bank is paying out (0x4cf5), every record in the
  * list that can act and is not animated (status 1), monsters too, gets
  * the experience: 10% more for a cleric of wisdom above 14, or a fighter,
  * paladin, ranger, mage or thief whose prime requisites are above 15; half
- * for two classes, a third for three. */
-static void award(cok_adventure *game)
+ * for two classes, a third for three. A game that keeps whether one may
+ * train (dkk 3a37:02fa) sets it then (65cd:38c7). Returns false where it
+ * cannot be carried out. */
+static bool award(cok_adventure *game)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
-    if (cok_ecl_var(&game->vm, COK_VAR_BANK) != 0) return;
+    if (cok_ecl_var(&game->vm, COK_VAR_BANK) != 0) return true;
     int32_t xp = game->experience;
     for (size_t i = 0; i < game->party.count; ++i) {
         uint8_t *r = game->party.members[i]->record;
@@ -749,7 +776,21 @@ static void award(cok_adventure *game)
         uint32_t total = cok_field_u32(L, r, COK_FIELD_EXPERIENCE);
         total += (uint32_t)gain;
         cok_field_set32(L, r, COK_FIELD_EXPERIENCE, total);
+        if (!cok_game_rules(game)->combat.may_train) continue;
+        /* Where the original's may-train reads a byte the port does not
+         * hold, the record is an ally's or a monster's, removed after
+         * combat with its +0xc6 unread: the port leaves it. */
+        bool may;
+        if (cok_treasure_may_train(cok_game_rules(game), r, &may)) {
+            cok_field_set8(L, r, COK_FIELD_MAY_TRAIN, may);
+        } else if (!past_party(game->party.members[i]) &&
+                   cok_field_u8(L, r, COK_FIELD_HOSTILE) == 0) {
+            return undefined(game, "may-train (dkk 65cd:38c7) reads a byte the port does not "
+                                   "hold, the stack's or past DS:82d4's table, for a member of "
+                                   "the party");
+        }
     }
+    return true;
 }
 
 /* 351b:0574: the party after combat. It is destroyed unless a party
@@ -785,8 +826,7 @@ static bool after_combat(cok_adventure *game, outcome *result)
     }
     if (gentle && found) result->destroyed = false;
     result->standing = false;
-    static const uint8_t combat_only[11] = {0x03, 0x0b, 0x15, 0x17, 0x1b, 0x23,
-                                            0x28, 0x33, 0x34, 0x35, 0x1f}; /* DS:0390 */
+    const uint8_t *combat_only = cok_game_rules(game)->combat.combat_effects; /* DS:0390 */
     for (size_t i = 0; i < party->count && !past_party(party->members[i]); ++i) {
         cok_character *c = party->members[i];
         uint8_t *r = c->record, status = cok_field_u8(L, r, COK_FIELD_STATUS);
@@ -798,14 +838,13 @@ static bool after_combat(cok_adventure *game, outcome *result)
             result->fled = false;
         }
         if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0 || status == 1) ++result->out;
-        for (size_t k = 0; k < sizeof combat_only; ++k) {
+        for (size_t k = 0; combat_only[k] != 0; ++k) {
             if (cok_effects_remove(&game->effects, c, NULL, combat_only[k])) continue;
             return cok_adventure_effect_failed(game);
         }
     }
     if (result->standing) {
-        if (!experience(game, result)) return false;
-        award(game);
+        if (!experience(game, result) || !award(game)) return false;
     }
     if (result->destroyed) {
         while (party->count > 0 && !past_party(party->members[0]))
@@ -910,7 +949,7 @@ static void clear_frame(cok_adventure *game, bool open)
  * Escape and any special key end it. Returns false if input ended. */
 static bool press_enter(cok_adventure *game)
 {
-    static const char *const text = "press <enter>/<return> to continue";
+    const char *text = cok_game_rules(game)->combat.results_key;
     log_text(game, "menu", text);
     cok_keyboard keys = cok_adventure_keyboard(game);
     bool special;
@@ -981,38 +1020,45 @@ static bool shares(cok_adventure *game)
 static bool results(cok_adventure *game, const outcome *result)
 {
     cok_ecl *vm = &game->vm;
+    const cok_rules_combat *R = &cok_game_rules(game)->combat;
     int32_t xp = game->experience;
     bool shown = game->experience_known;
     clear_frame(game, true);
     if (result->monsters) {
         if (result->fled) {
-            draw(game, "The party has fled.", 1, 3, 10);
+            draw(game, R->fled, 1, 3, 10);
             xp = 0;
             shown = true;
             cok_pool_free_items(&game->pool);
             memset(game->pool.coins, 0, sizeof game->pool.coins);
         } else if (!result->standing && cok_ecl_var(vm, COK_VAR_GENTLE) != 0) {
             cok_ecl_set_var(vm, COK_VAR_OUTCOME, 0x80);
-            draw(game, "You have lost the fight.", 1, 3, 10);
+            draw(game, R->lost, 1, 3, 10);
             xp = 0;
             shown = true;
         } else {
-            draw(game, "The party has won.", 1, 3, 10);
+            draw(game, R->won, 1, 3, 10);
         }
-    } else if (cok_ecl_var(vm, COK_VAR_BANK) != 0) {
-        draw(game, "The party makes a withdrawl.  A small", 1, 5, 10);
-        draw(game, "fee has been assessed by the bank.", 1, 7, 10);
+    } else if (R->withdrawal != NULL && cok_ecl_var(vm, COK_VAR_BANK) != 0) {
+        draw(game, R->withdrawal, 1, 5, 10);
+        draw(game, R->fee, 1, 7, 10);
     } else {
-        draw(game, "The party has found Treasure!", 1, 3, 10);
+        draw(game, R->found, 1, 3, 10);
     }
     if (cok_ecl_var(vm, COK_VAR_BANK) == 0) {
         if (!shown)
             return undefined(game, "the results show the experience of a combat before "
                                    "(DS:8840), and none was worked out");
         char text[48];
-        snprintf(text, sizeof text, "Each character receives %ld", (long)xp);
+        snprintf(text, sizeof text, "%s%ld", R->receives, (long)xp);
         draw(game, text, 1, 5, 10);
-        draw(game, "experience points.", 1, 7, 10);
+        draw(game, R->points, 1, 7, 10);
+    }
+    /* dkk 3a37:09b7: then whether the pool holds anything (5c72:0d6e). */
+    if (R->found_none != NULL) {
+        bool money, items;
+        cok_pool_status(&game->pool, &money, &items);
+        draw(game, money || items ? R->found : R->found_none, 1, 10, 10);
     }
     return press_enter(game);
 }
@@ -1274,7 +1320,8 @@ static bool treasure_menu(cok_adventure *game)
 void cok_treasure_end_of_combat(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
-    if (!weapons_back(game)) return;
+    const cok_rules_combat *R = &cok_game_rules(game)->combat;
+    if (R->weapons_back && !weapons_back(game)) return;
     cok_ecl_set_var(vm, COK_VAR_OUTCOME, 0);
     outcome result = {0};
     /* The demonstration (DS:4b4b) skips the party's part and everything
@@ -1291,7 +1338,18 @@ void cok_treasure_end_of_combat(cok_adventure *game)
     }
     if (!result.destroyed) {
         if (result.fled) cok_pool_free_items(&game->pool);
-        if (!shares(game) || !results(game, &result) || !treasure_menu(game)) return;
+        if ((R->shares && !shares(game)) || !results(game, &result)) return;
+        /* dkk 3a37:1318: the treasure menu only for a pool that holds
+         * anything (5c72:0d6e). */
+        bool money, items;
+        cok_pool_status(&game->pool, &money, &items);
+        if (!R->treasure_if_any || money || items) {
+            if (R->treasure_unported != NULL) {
+                cok_adventure_not_yet(game, "treasure menu", R->treasure_unported);
+                return;
+            }
+            if (!treasure_menu(game)) return;
+        }
         cok_pool_free_items(&game->pool);
     } else {
         cok_ecl_set_var(vm, COK_VAR_OUTCOME, 0x80);
@@ -1299,10 +1357,9 @@ void cok_treasure_end_of_combat(cok_adventure *game)
         /* 351b:1aab: in cells 2-0x25 by 5-0x16, cleared, which puts the
          * cursor at 2, 5. */
         vm->cursor = (cok_text_cursor){2, 5};
-        cok_adventure_print(game, "The monsters rejoice for the party has been destroyed",
-                            (cok_text_window){2, 5, 0x25, 0x16}, 10, true);
+        cok_adventure_print(game, R->rejoice, (cok_text_window){2, 5, 0x25, 0x16}, 10, true);
         cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0);
-        cok_text_string(&game->screen, &game->font, "Press any key to continue", 0, 24, 13, 0);
+        cok_text_string(&game->screen, &game->font, R->rejoice_key, 0, 24, 13, 0);
         cok_keyboard keys = cok_adventure_keyboard(game);
         keys.read(keys.context);
         game->party_killed = true;

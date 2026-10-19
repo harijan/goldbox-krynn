@@ -18,5 +18,6 @@ extern const uint8_t cok_death_knights_terrain[350];
 extern const uint8_t cok_death_knights_cloud_cells[9];
 extern const uint8_t cok_death_knights_spells[1840];
 extern const uint8_t cok_death_knights_classes[4322];
+extern const uint8_t cok_death_knights_level_limits[56];
 
 #endif

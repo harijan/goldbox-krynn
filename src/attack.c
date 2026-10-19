@@ -246,7 +246,7 @@ bool cok_combat_backstab(cok_adventure *game, cok_character *attacker, cok_chara
     const uint8_t *a = attacker->record;
     *backstab = false;
     bool thief = cok_field_s8_at(L, a, COK_FIELD_CLASS_LEVEL, 6) > 0 ||
-                 (cok_field_s8_at(L, a, COK_FIELD_FORMER_LEVEL, 6) > 0 &&
+                 (cok_character_former_level(cok_game_rules(game), a, 6) > 0 &&
                   cok_character_former_class(a, cok_game_rules(game)));
     if (!thief) return true;
     size_t weapon = attacker->slots[0];
@@ -312,7 +312,7 @@ bool cok_combat_damage_roll(cok_adventure *game, cok_character *attacker, cok_ch
          * a human may use them (66c2:0efb); the product a byte. */
         uint16_t former = cok_character_former_class(a, cok_game_rules(game)) ? 1 : 0;
         uint16_t levels = (uint16_t)(
-            (uint16_t)(int16_t)cok_field_s8_at(L, a, COK_FIELD_FORMER_LEVEL, 6) * former +
+            (uint16_t)(int16_t)cok_character_former_level(cok_game_rules(game), a, 6) * former +
             (uint16_t)(int16_t)cok_field_s8_at(L, a, COK_FIELD_CLASS_LEVEL, 6));
         uint16_t times = (uint16_t)((uint16_t)(levels - 1) >> 2) + 2u;
         rolls->amount = (uint8_t)(rolls->amount * times);
@@ -1188,7 +1188,7 @@ bool cok_combat_turn_undead(cok_adventure *game, cok_character *c)
     uint8_t count = roll(game, 1, 12), d20 = roll(game, 1, 20);
     /* The words' product and sum, as a byte. */
     int former = cok_character_former_class(r, cok_game_rules(game)) ? 1 : 0;
-    uint8_t level = (uint8_t)(former * cok_field_s8_at(L, r, COK_FIELD_FORMER_LEVEL, 0) +
+    uint8_t level = (uint8_t)(former * cok_character_former_level(cok_game_rules(game), r, 0) +
                               cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 0));
     if (cok_field_u8(L, r, COK_FIELD_DEITY) == 2) level = (uint8_t)(level + 2);
     for (;;) {

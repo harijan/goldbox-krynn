@@ -56,38 +56,46 @@ static cok_character *selected(cok_adventure *game)
  * 5, now or before; druids' likewise for a ranger above level 6; and
  * magic-users' with intelligence above 8, unless in combat (mode 5) it is
  * a human in armour who is not a ranger above level 8, nor a former ranger
- * above level 8 that is or was a mage. */
+ * above level 8 that is or was a mage. A game's own thresholds (dkk
+ * 5dc5:0078, rules' spells.usable_*): a paladin of 9 and up uses clerics'
+ * spells, a ranger of 8 druids', and magic-users' need a magic-user or a
+ * ranger of 9 and up; it has no former classes. */
 static bool usable(const cok_adventure *game, const cok_character *character, uint8_t spell)
 {
     const cok_rules *rules = cok_game_rules(game);
     const cok_character_layout *L = rules->character;
     const uint8_t *c = character->record;
+    const cok_rules_spells *S = &rules->spells;
     switch (cok_spell_class(rules, spell & 0x7f)) {
     case 0: case 2:
         return cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_WISDOM) > 8 &&
                (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0) > 0 ||
                 (cok_character_former_class(c, rules) &&
-                 cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 0) > 0) ||
+                 cok_character_former_level(rules, c, 0) > 0) ||
                 cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > 5 ||
-                (cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 7) > 5 &&
-                 cok_character_former_class(c, rules)));
+                (cok_character_former_level(rules, c, 7) > 5 &&
+                 cok_character_former_class(c, rules)) ||
+                (S->usable_paladin != 0 &&
+                 cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 3) >= S->usable_paladin));
     case 1:
         return cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_WISDOM) > 8 &&
-               (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 4) > 6 ||
+               (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 4) >= S->usable_ranger ||
                 (cok_character_former_class(c, rules) &&
-                 cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 4) > 6));
+                 cok_character_former_level(rules, c, 4) >= S->usable_ranger));
     case 3:
         if (cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE) <= 8) return false;
+        /* dkk 5dc5:0078: a magic-user's or a ranger's of 9 and up only. */
+        if (S->usable_mage_class && cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 4) < 9 &&
+            cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) < 1)
+            return false;
         if (cok_field_u8(L, c, COK_FIELD_RACE) != 6 || character->slots[2] == 0 ||
             game->vm.mode != 5)
             return true;
         if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 4) > 8) return true;
-        if (!cok_character_former_class(c, rules) ||
-            cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 4) <= 8)
+        if (!cok_character_former_class(c, rules) || cok_character_former_level(rules, c, 4) <= 8)
             return false;
         if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) > 0) return true;
-        return cok_character_former_class(c, rules) &&
-               cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 5) > 0;
+        return cok_character_former_class(c, rules) && cok_character_former_level(rules, c, 5) > 0;
     default: return false;
     }
 }
@@ -281,8 +289,8 @@ static bool add_scroll(cok_adventure *game, spell_list *l, cok_character *charac
     if (cok_character_find_named(character, cok_game_rules(game), COK_EFFECT_READ_MAGIC) !=
             NULL ||
         ((cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0) > 0 ||
-          cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 0) >
-              cok_field_s8(L, c, COK_FIELD_CHANGE_LEVEL)) &&
+          cok_character_former_level(cok_game_rules(game), c, 0) >
+              cok_character_change_level(cok_game_rules(game), c)) &&
          game->item_types.type[item[0x2e] < COK_ITEM_TYPES ? item[0x2e] : 0][0] == 0x0c))
         item[0x35] &= 0xf8;
     if ((item[0x35] & 7) != 0) return true;

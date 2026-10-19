@@ -159,7 +159,7 @@ static bool caster_level(cok_effects *fx, uint8_t spell, uint8_t *level)
     /* 66c2:0efb, 0 or 1, multiplies the former levels as words. */
     int former = cok_character_former_class(c, fx->rules) ? 1 : 0;
 #define LEVEL(k) ((int)cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, k))
-#define FORMER(k) ((int)cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, k))
+#define FORMER(k) ((int)cok_character_former_level(fx->rules, c, k))
     if (LEVEL(0) == 0 && LEVEL(5) == 0 && LEVEL(7) < 9 && LEVEL(4) < 8) {
         *level = 6;
     } else if (class_ == 0 || class_ == 2) {
@@ -2186,19 +2186,17 @@ static void better(uint8_t *strength, uint8_t *exceptional, uint8_t candidate,
  * one unless it has a former level other than its own (+0xd7), and
  * fighters, rangers and knights get 1-7 a level by constitution 15-25,
  * others 1 for 15 and 2 above it. */
-static void class_hit_points(const cok_character_layout *L, const cok_data_segment *D,
-                             const uint8_t *c, unsigned klass, uint8_t level, uint8_t constitution,
-                             uint8_t *hp)
+static void class_hit_points(const cok_rules *rules, const cok_data_segment *D, const uint8_t *c,
+                             unsigned klass, uint8_t level, uint8_t constitution, uint8_t *hp)
 {
     uint8_t top = cok_data_u8_at(D, COK_DATA_TOP_LEVELS, klass);
     if (top <= level) level = (uint8_t)(top - 1);
     if (klass == 4 &&
-        (cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL) == 0 ||
-         cok_field_u8_at(L, c, COK_FIELD_FORMER_LEVEL, 4) ==
-             cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL)))
+        (cok_character_change_level(rules, c) == 0 ||
+         cok_character_former_level(rules, c, 4) == cok_character_change_level(rules, c)))
         ++level;
     unsigned per = 0;
-    if (klass == 2 || klass == 4 || klass == 7) {
+    if (klass < 8 && (rules->characters.fighter_classes >> klass & 1) != 0) {
         if (constitution >= 15 && constitution <= 19) per = constitution - 14u;
         else if (constitution == 20) per = 5;
         else if (constitution >= 21 && constitution <= 23) per = 6;
@@ -2297,17 +2295,15 @@ static bool ability(cok_effects *fx, cok_character *ch, unsigned stat)
         cok_field_set8(L, c, COK_FIELD_MAX_HIT_POINTS,
                        cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS));
         for (unsigned k = 0; k < 8; ++k) {
-            if (cok_field_u8_at(L, c, COK_FIELD_FORMER_LEVEL, k) > 0)
-                class_hit_points(L, D, c, k, cok_field_u8_at(L, c, COK_FIELD_FORMER_LEVEL, k),
-                                 score, &hp);
+            uint8_t former = (uint8_t)cok_character_former_level(fx->rules, c, k);
+            if (former > 0) class_hit_points(fx->rules, D, c, k, former, score, &hp);
             uint8_t level = cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, k);
             if (level > 0) ++classes;
             if (cok_data_u8_at(D, COK_DATA_TOP_LEVELS, k) < level)
                 level = cok_data_u8_at(D, COK_DATA_TOP_LEVELS, k);
-            if (level > cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL))
-                class_hit_points(L, D, c, k,
-                                 (uint8_t)(level - cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL)),
-                                 score, &hp);
+            uint8_t change = (uint8_t)cok_character_change_level(fx->rules, c);
+            if (level > change)
+                class_hit_points(fx->rules, D, c, k, (uint8_t)(level - change), score, &hp);
         }
         if (classes == 0)
             return fail(fx, "constitution's hit points (60f4:1743) divide by no classes, runtime "
@@ -2344,15 +2340,11 @@ static bool ability(cok_effects *fx, cok_character *ch, unsigned stat)
                 /* Fighters, rangers and knights, now or before, get the
                  * excess as exceptional strength, added to the current
                  * one each time. */
-                static const struct {
-                    cok_field levels;
-                    uint8_t class_;
-                } classes[] = {{COK_FIELD_CLASS_LEVEL, 2}, {COK_FIELD_FORMER_LEVEL, 2},
-                               {COK_FIELD_CLASS_LEVEL, 7}, {COK_FIELD_FORMER_LEVEL, 7},
-                               {COK_FIELD_CLASS_LEVEL, 4}, {COK_FIELD_FORMER_LEVEL, 4}};
                 bool fighter = false;
-                for (size_t k = 0; k < sizeof classes / sizeof *classes; ++k)
-                    if (cok_field_s8_at(L, c, classes[k].levels, classes[k].class_) > 0)
+                for (unsigned k = 0; k < 8; ++k)
+                    if ((fx->rules->characters.fighter_classes >> k & 1) != 0 &&
+                        (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, k) > 0 ||
+                         cok_character_former_level(fx->rules, c, k) > 0))
                         fighter = true;
                 if (fighter) {
                     candidate_exceptional =
