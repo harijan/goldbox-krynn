@@ -146,11 +146,14 @@ static void usage(const char *program)
     fprintf(stderr,
             "Usage: %s [options]\n"
             "Play Champions of Krynn in a window, from the title.\n"
-            "  --game NAME     the game to play: champions (the default)\n"
+            "  --game NAME     the game to play: champions (the default) or\n"
+            "                  death-knights (until its first fight)\n"
             "  --assets DIR    the game's DAX files (default COKAssets)\n"
             "  --saves DIR     the roster and saved games (default saves, created if\n"
             "                  missing); point it at a copy of SAVE/ to play the\n"
             "                  original's games\n"
+            "  --import DIR    where a game that imports another's characters finds\n"
+            "                  them (Death Knights' Champions party; default --saves)\n"
             "  --config FILE   KRYNN.CFG, read, or written by the setup if missing\n"
             "                  (default: DIR/KRYNN.CFG of --saves, else the assets')\n"
             "  --scale N       window size, N times 320x200 (default 3)\n"
@@ -1426,6 +1429,7 @@ int main(int argc, char **argv)
     f.screenshots = "screenshots";
     f.rules = &cok_rules_champions;
     const char *assets = NULL, *saves = "saves", *keys = NULL, *config_option = NULL;
+    const char *import = NULL;
     unsigned long scale = 3, seed = 0;
     bool seeded = false, woof = false, helm = false, fullscreen = false, sounding = true;
     cok_sound_device device = COK_SOUND_TANDY;
@@ -1450,6 +1454,8 @@ int main(int argc, char **argv)
             assets = argv[++i];
         } else if (strcmp(option, "--saves") == 0 && has_value) {
             saves = argv[++i];
+        } else if (strcmp(option, "--import") == 0 && has_value) {
+            import = argv[++i];
         } else if (strcmp(option, "--config") == 0 && has_value) {
             config_option = argv[++i];
         } else if (strcmp(option, "--scale") == 0 && has_value &&
@@ -1507,13 +1513,11 @@ int main(int argc, char **argv)
             return 2;
         }
     }
-    if (f.rules->unplayable != NULL) {
-        fprintf(stderr, "%s\n", f.rules->unplayable);
-        return 1;
-    }
     if (assets == NULL) assets = f.rules->assets;
-    if (strlen(saves) >= sizeof game.save_dir) {
-        fprintf(stderr, "%s: directory name too long\n", saves);
+    if (import == NULL) import = saves;
+    if (strlen(saves) >= sizeof game.save_dir || strlen(import) >= sizeof game.import_dir) {
+        fprintf(stderr, "%s: directory name too long\n",
+                strlen(saves) >= sizeof game.save_dir ? saves : import);
         return 1;
     }
     if (mkdir(saves, 0755) != 0 && errno != EEXIST) {
@@ -1628,6 +1632,7 @@ int main(int argc, char **argv)
         result = 1;
     } else {
         snprintf(game.save_dir, sizeof game.save_dir, "%s", saves);
+        snprintf(game.import_dir, sizeof game.import_dir, "%s", import);
         snprintf(game.config_path, sizeof game.config_path, "%s", config_path);
         snprintf(game.config_write, sizeof game.config_write, "%s", config_write);
         game.combat_stub = COK_COMBAT_PLAYER; /* The player's turns read the keys. */

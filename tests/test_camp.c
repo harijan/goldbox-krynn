@@ -535,7 +535,7 @@ static void test_camp(void)
     snprintf(path, sizeof path, "%s/SAVGAMA.DAT", dir);
     static cok_saved_game saved;
     char error[300];
-    CHECK(cok_saved_game_read(path, &saved, error, sizeof error));
+    CHECK(cok_saved_game_read(path, &cok_rules_champions, &saved, error, sizeof error));
     CHECK(saved.mode == 2 && saved.last_mode == 4 && saved.count == 3);
     CHECK(strcmp(saved.names[2], "CHRDATA3") == 0 && saved.mem4b00[0x13c] == 2);
     /* Wall set 1 is record 0 at slot 1 from startup; pictures and
@@ -844,7 +844,8 @@ static void test_save_errors(void)
     CHECK(!cok_camp(&game));
     static cok_saved_game saved;
     char error[300];
-    CHECK(cok_saved_game_read(path, &saved, error, sizeof error) && saved.count == 0);
+    CHECK(cok_saved_game_read(path, &cok_rules_champions, &saved, error, sizeof error) &&
+          saved.count == 0);
     remove(path);
     for (unsigned n = 2; n <= 3; ++n) {
         snprintf(path, sizeof path, "%s/CHRDATC%u.SAV", dir, n);

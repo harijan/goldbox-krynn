@@ -52,17 +52,20 @@ void cok_camp_normalize(cok_adventure *game);
  * zero. */
 bool cok_camp_fix(cok_adventure *game);
 
-/* Save the game as letter 'A'-'J' (4b6d:22de, without its prompt): set the
- * speed (0x4bfc), pictures and animation (0x4bff) and ECL file (0x7f12),
- * then write SAVGAM<letter>.DAT and each member's CHRDAT<letter><n> files
- * in game->save_dir, erasing each one's roster copy (4b6d:0a80, see
- * roster.h), and set DS:5885. As the original checks no write, a
+/* Save the game as letter 'A'-'J' (4b6d:22de, dkk 46b2:2808, without its
+ * prompt): set the speed (0x4bfc), pictures and animation (0x4bff) and ECL
+ * file (0x7f12), then write SAVGAM<letter>.DAT (the game's layout and
+ * extension) and each member's CHRDAT<letter><n> files in game->save_dir,
+ * erasing each one's roster copy (4b6d:0a80, see roster.h), then, for a
+ * game with a vault, the vault as the letter's (dkk 2e1d, 302d: see
+ * camp.c), and set DS:5885. As the original checks no write, a
  * file that cannot be written does not stop the others: each failure is
  * logged as "error", and the result is false with game->error the last.
  * With no directory, nothing is written and the result is false. */
 bool cok_camp_save_game(cok_adventure *game, char letter);
 
-/* Save (4b6d:22de with its prompt): "Save Which Game: " over A-J, then
+/* Save (4b6d:22de with its prompt): "Save Which Game: " (the game's) over
+ * A-J, then
  * cok_camp_save_game; Escape saves nothing. The camp and the start menu
  * call it. */
 void cok_camp_save(cok_adventure *game);

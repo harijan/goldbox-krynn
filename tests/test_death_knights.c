@@ -77,7 +77,6 @@ static void test_lookup(void)
     CHECK(strcmp(cok_rules_names(), "champions, death-knights") == 0);
     CHECK(strcmp(R->assets, "DKKAssets") == 0);
     CHECK(strcmp(R->text.name, "Death Knights of Krynn") == 0);
-    CHECK(R->unplayable != NULL && cok_rules_champions.unplayable == NULL);
     /* The character record: 216 bytes in its files, the spells' block of
      * 220 after it (tests/test_layout.c checks each field's place). */
     CHECK(R->character->file_size == 0xd8 && R->character->spells_offset == 0xd8 &&
@@ -476,6 +475,189 @@ static void test_frames(void)
     CHECK(memcmp(at(0x4f9a, 0x0556), clear, sizeof clear) == 0);
 }
 
+/* Whether the Pascal string at p is text (any case where folded: the
+ * original's file names, which DOS takes in any case). */
+static bool pascal_is(const uint8_t *p, const char *text, bool folded)
+{
+    size_t n = strlen(text);
+    if (p[0] != n) return false;
+    for (size_t i = 0; i < n; ++i) {
+        char a = (char)p[1 + i], b = text[i];
+        if (folded && a >= 'a' && a <= 'z') a = (char)(a - 'a' + 'A');
+        if (folded && b >= 'a' && b <= 'z') b = (char)(b - 'a' + 'A');
+        if (a != b) return false;
+    }
+    return true;
+}
+
+/* A text with one %s, as the strings around the name: before at DS:first,
+ * after at DS:second (0 for none). */
+static bool around(const char *format, unsigned first, unsigned second)
+{
+    const char *name = strstr(format, "%s");
+    if (name == NULL) return false;
+    char before[64] = "", after[64] = "";
+    snprintf(before, sizeof before, "%.*s", (int)(name - format), format);
+    snprintf(after, sizeof after, "%s", name + 2);
+    return (first == 0 ? before[0] == '\0' : pascal_is(ds(first), before, false)) &&
+           (second == 0 ? after[0] == '\0' : pascal_is(ds(second), after, false));
+}
+
+/* The front end's section (start.c, roster.c, camp.c's Save): the start
+ * menu's items and words, Drop's, Load's and Save's, Add's, the title's
+ * pictures and waits and the credits, a new game's block and the
+ * demonstration's, and the saved games' and vault's files and layout,
+ * against the original's data segment and code. */
+static void test_start(void)
+{
+    const cok_rules_start *S = &R->start;
+    for (unsigned i = 0; i < 13; ++i) CHECK(pascal_is(ds(0x0cf8 + 0x2a * i), S->items[i], false));
+    CHECK(pascal_is(ds(0x2fad), S->prompt, false) && pascal_is(ds(0x31d6), S->select, false));
+    CHECK(pascal_is(ds(0x3018), S->pick_prompt, false) &&
+          pascal_is(ds(0x31d6), S->pick_menu, false));
+    CHECK(around(S->drop, 0x130a, 0x1315) && pascal_is(ds(0x1320), S->drop_sure, false));
+    CHECK(around(S->dumped, 0, 0x1335) && around(S->farewell, 0, 0x134a) &&
+          around(S->relief, 0, 0x135f));
+    CHECK(pascal_is(ds(0x124c), S->quit, false) && pascal_is(ds(0x1261), S->unsaved, false));
+    CHECK(pascal_is(ds(0x3081), S->load_prompt, false) &&
+          pascal_is(ds(0x3096), S->save_prompt, false) &&
+          pascal_is(ds(0x2610), S->save_warning, false));
+    CHECK(pascal_is(ds(0x306c), S->load_from, false) && pascal_is(ds(0x1393), S->add_from, false) &&
+          pascal_is(ds(0x3337), S->from_items, false));
+    CHECK(around(S->overwrite, 0x164e, 0x1659) && pascal_is(ds(0x1664), S->new_name, false));
+    CHECK(pascal_is(ds(0x13a8), S->add_prompt, false) &&
+          pascal_is(ds(0x3356), S->add_select, false) &&
+          pascal_is(ds(0x1523), S->rangers, false));
+    CHECK(pascal_is(ds(0x16b7), R->text.camp, false));
+    CHECK(pascal_is(ds(0x2fb0), R->text.version, false) &&
+          pascal_is(ds(0x2fb0), R->text.version_again, false));
+    /* The title (35c6:051c): each TITLE record (mov al), the screen
+     * cleared before it (14e4:0a37), drawn at the two words pushed before
+     * 123c:10fe (x, then y), then waited on (mov ax; push; push cs; call
+     * 35c6:0000); the credits whatever was pressed (35c6:026e on both ways
+     * out of every wait). */
+    const uint8_t *b = at(0x35c6, 0x051c);
+    unsigned pictures = 0, ax = 0, pushed[8] = {0}, pushes = 0, credits = 0;
+    bool cleared = false, named = false;
+    uint8_t record = 0;
+    for (unsigned i = 0; i < 0x192; ++i) {
+        /* The record: the first mov al after TITLE's name (mov di, 0x516). */
+        if (b[i] == 0xbf && b[i + 1] == 0x16 && b[i + 2] == 0x05) named = true;
+        if (b[i] == 0xb0 && named) {
+            record = b[i + 1];
+            named = false;
+        }
+        if (b[i] == 0x31 && b[i + 1] == 0xc0) ax = 0;
+        if (b[i] == 0xb8) ax = (unsigned)(b[i + 1] | b[i + 2] << 8);
+        if (b[i] == 0x50) pushed[pushes++ % 8] = ax;
+        if (b[i] == 0x9a && b[i + 1] == 0x37 && b[i + 2] == 0x0a && b[i + 3] == 0xe4)
+            cleared = true;
+        if (b[i] == 0x9a && b[i + 1] == 0xfe && b[i + 2] == 0x10 && b[i + 3] == 0x3c) {
+            CHECK(pictures < S->picture_count);
+            const cok_rules_title_picture *p = &S->pictures[pictures];
+            CHECK(p->record == record && p->clear == cleared);
+            CHECK(p->x == pushed[(pushes - 2) % 8] && p->y == pushed[(pushes - 1) % 8]);
+            cleared = false;
+            ++pictures;
+        }
+        unsigned target = b[i] == 0x0e && b[i + 1] == 0xe8
+                              ? (0x051c + i + 4 + (unsigned)(b[i + 2] | b[i + 3] << 8)) % 0x10000
+                              : 1;
+        if (target == 0x0000)
+            CHECK(pictures > 0 && S->pictures[pictures - 1].seconds == pushed[(pushes - 1) % 8]);
+        if (target == 0x026e) ++credits;
+    }
+    CHECK(pictures == S->picture_count && pictures == 4 && credits == 5 && S->credits_always);
+    /* The credits' wait: 10000 seconds' hundredths as a word (35c6:0000's
+     * mul, then xor dx, dx). */
+    const uint8_t *wait = at(0x35c6, 0x0016);
+    CHECK(memcmp(wait, "\xb8\x64\x00\xf7\x66\x06\x31\xd2", 8) == 0);
+    const uint8_t *seconds = at(0x35c6, 0x0501); /* mov ax, 10000; push; call 0000 */
+    CHECK(seconds[0] == 0xb8 && memcmp(seconds + 3, "\x50\x0e\xe8", 3) == 0);
+    CHECK(S->credits_wait == (uint16_t)((unsigned)(seconds[1] | seconds[2] << 8) * 100u));
+    /* The credits (35c6:026e): x, y, colour and black pushed, then the
+     * string in its code segment. */
+    const uint8_t *c = at(0x35c6, 0x026e);
+    unsigned lines = 0, values[4] = {0}, count = 0;
+    for (unsigned i = 0; i < 0x2ae; ++i) {
+        if (c[i] == 0xb0) values[count++ % 4] = c[i + 1];
+        if (c[i] == 0xbf && c[i + 3] == 0x0e && count >= 4) {
+            unsigned off = (unsigned)(c[i + 1] | c[i + 2] << 8);
+            CHECK(lines < S->credit_count);
+            const cok_rules_text_line *l = &S->credits[lines];
+            CHECK(l->x == values[(count - 4) % 4] && l->y == values[(count - 3) % 4] &&
+                  l->fg == values[(count - 2) % 4] && values[(count - 1) % 4] == 0);
+            CHECK(pascal_is(at(0x35c6, off), l->text, false));
+            count = 0;
+            ++lines;
+        }
+    }
+    CHECK(lines == S->credit_count && lines == 20);
+    /* A new game's block and the demonstration's file and block
+     * (3632:2e06). */
+    CHECK(memcmp(at(0x3632, 0x2e75), "\xc6\x06\x6c\xdb", 4) == 0 &&
+          *at(0x3632, 0x2e79) == S->first_block);
+    CHECK(memcmp(at(0x3632, 0x2e64), "\xc6\x06\x6c\xdb", 4) == 0 &&
+          *at(0x3632, 0x2e68) == S->demo_block);
+    CHECK(memcmp(at(0x3632, 0x2e69), "\xc6\x06\xa2\x98", 4) == 0 &&
+          *at(0x3632, 0x2e6d) == S->demo_file);
+    /* The end of a game's wall table (4f9a:08ad): mov [c078 + 4 * entry],
+     * ax (0), the slot 1 after it. */
+    CHECK(memcmp(at(0x4f9a, 0x0997), "\xa3", 1) == 0 &&
+          (*at(0x4f9a, 0x0998) | *at(0x4f9a, 0x0999) << 8) == 0xc078 + 4 * S->reset_wall);
+    /* The saved games: savgam (DS:71d9) and .pty (46b2:1ebf, 27c2), the
+     * Champions' .dat (1ec4); the layout's wall entries, the save's loop to
+     * 3 from 0 (46b2:2b3b), the loader's first alone (c07a, c078 pushed
+     * for 6d21:0ec5); the vault's names. */
+    CHECK(pascal_is(ds(0x71d9), R->saves.game, true));
+    CHECK(pascal_is(at(0x46b2, 0x1ebf), ".PTY", true) &&
+          pascal_is(at(0x46b2, 0x27c2), ".PTY", true) &&
+          strcmp(R->saves.game_extension, "PTY") == 0);
+    CHECK(pascal_is(at(0x46b2, 0x1ec4), ".DAT", true) &&
+          strcmp(R->characters.import->from->saves.game_extension, "DAT") == 0);
+    CHECK(memcmp(at(0x46b2, 0x2b3b), "\x80\xbe\xb7\xfd", 4) == 0 &&
+          *at(0x46b2, 0x2b3f) + 1 == R->saves.walls);
+    /* The loader (46b2:1ef0-26e7) loads the wall table's first entry
+     * alone (6d21:0ec5 with DS:c078, c07a, 46b2:26bd), sets the mode to 0
+     * and leaves the last mode as read (no store to DS:8c4f); outside 3D
+     * areas the overland map, picture 0x70 (46b2:26cc). */
+    const uint8_t *load = at(0x46b2, 0x1ef0);
+    unsigned walls = 0, zeroed = 0, last = 0;
+    for (unsigned i = 0; i < 0x7f7; ++i) {
+        /* mov al, [c078]; push ax; mov al, [c07a]; push ax; call (the
+         * thunk of 6d21:0ec5) */
+        walls += memcmp(load + i, "\xa0\x78\xc0\x50\xa0\x7a\xc0\x50\x9a", 9) == 0;
+        zeroed += memcmp(load + i, "\xc6\x06\x4e\x8c\x00", 5) == 0;
+        last += memcmp(load + i, "\xa2\x4f\x8c", 3) == 0 ||
+                memcmp(load + i, "\xc6\x06\x4f\x8c", 4) == 0;
+    }
+    CHECK(walls == R->saves.walls_restored && zeroed == 1 && last == 0 && R->saves.keep_last_mode);
+    CHECK(memcmp(at(0x46b2, 0x26cc), "\xb0", 1) == 0 &&
+          *at(0x46b2, 0x26cd) == R->view.overland_picture);
+    /* A vault with no file: the word at 0x4c33 (add di, 0x133; Move 2) a
+     * hundred times (46b2:2fed). */
+    CHECK(memcmp(at(0x46b2, 0x2fed), "\x81\xc7\x33\x01", 4) == 0 &&
+          memcmp(at(0x46b2, 0x2ff9), "\xb8\x02\x00", 3) == 0 &&
+          memcmp(at(0x46b2, 0x300f), "\xb9\x64\x00", 3) == 0);
+    CHECK(R->ecl.vars[COK_VAR_SAVINGS].address == 0x4c33 &&
+          R->ecl.vars[COK_VAR_SAVINGS].width == 2);
+    char vault[16];
+    snprintf(vault, sizeof vault, ".%s", R->saves.vault_extension);
+    CHECK(pascal_is(at(0x46b2, 0x2e12), R->saves.vault, true) &&
+          pascal_is(at(0x46b2, 0x27f0), R->saves.vault, true) &&
+          pascal_is(at(0x46b2, 0x2e18), vault, true) && pascal_is(at(0x46b2, 0x27f6), vault, true));
+    CHECK(pascal_is(at(0x46b2, 0x2e05), R->saves.vault_temp, true) &&
+          pascal_is(at(0x46b2, 0x27fb), R->saves.vault_temp, true));
+    /* The roster's NPC flag by source, words by DS:c468 (DS:57a:
+     * Champions' +0xe7, its own +0x3e), and the record sizes (DS:57e). */
+    CHECK(*ds(0x57a) == 0xe7 && *ds(0x57c) == 0x3e);
+    CHECK(R->saves.roster_flag == COK_FIELD_NPC &&
+          cok_field_offset(R->character, COK_FIELD_NPC) == *ds(0x57c) &&
+          cok_field_offset(R->characters.import->from->character, COK_FIELD_NPC) == *ds(0x57a));
+    CHECK((ds(0x57e)[0] | ds(0x57e)[1] << 8) == R->characters.import->from->character->file_size &&
+          (ds(0x57e)[2] | ds(0x57e)[3] << 8) == R->character->file_size);
+}
+
 static void test_executable(void)
 {
     FILE *f = fopen("build/death-START_FULL.EXE", "rb");
@@ -597,6 +779,7 @@ static void test_executable(void)
     test_opcodes();
     test_variables();
     test_import();
+    test_start();
     printf("death knights: %zu tables, tile sets, wall and sprite files, frames, opcodes, "
            "variables and the import checked against build/death-START_FULL.EXE\n",
            D->table_count);

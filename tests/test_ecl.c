@@ -819,6 +819,7 @@ static void test_named_variables(void)
         {COK_VAR_HIDDEN, 0x4bfb, 0x4bfb, 1},     {COK_VAR_SPEED, 0x4bfc, 0x4bfc, 1},
         {COK_VAR_SKY_LOW, 0x4bfd, 0x4bfe, 1},    {COK_VAR_SKY_HIGH, 0x4bfe, 0x4bfd, 1},
         {COK_VAR_PICTURES, 0x4bff, 0x4bff, 1},   {COK_VAR_LOCALS, 0x4c00, 0x4c00, 0x20},
+        {COK_VAR_SAVINGS, 0x4c33, 0x4c33, 1},
         {COK_VAR_OFF_MAP, 0x4c38, 0x4cf7, 1},    {COK_VAR_NO_VIEW, 0x4c38, 0, 1},
         {COK_VAR_SAVES, 0x4c3c, 0x4cf6, 1},
         {COK_VAR_DIFFICULTY, 0x4cf4, 0x4cf4, 1}, {COK_VAR_BANK, 0x4cf5, 0x4cf5, 1},
@@ -848,7 +849,8 @@ static void test_named_variables(void)
         CHECK(d->address == names[i].death_knights &&
               cok_ecl_has_var(DK, (cok_var)i) == (d->address != 0));
         if (d->address != 0)
-            CHECK(d->width == 1 && d->count == names[i].count && d->off == (i == COK_VAR_OFF_MAP));
+            CHECK(d->width == (i == COK_VAR_SAVINGS ? 2 : 1) && d->count == names[i].count &&
+                  d->off == (i == COK_VAR_OFF_MAP));
         for (size_t k = 0; k < names[i].count; ++k) {
             CHECK(cok_ecl_var_address(C, (cok_var)i, k) == names[i].champions + k);
             if (d->address != 0)
@@ -1009,7 +1011,7 @@ static void test_death_knights_handlers(void)
 
     /* Not carried out: Death Knights' handlers that need what is not
      * ported; Champions' all are. */
-    static const uint8_t unported[] = {0x0b, 0x0c, 0x24, 0x27, 0x2e, 0x38, 0x3c, 0x41};
+    static const uint8_t unported[] = {0x0b, 0x0c, 0x24, 0x27, 0x2e, 0x3c, 0x41};
     for (unsigned o = 0; o < COK_ECL_OPCODES; ++o) {
         bool listed = memchr(unported, (int)o, sizeof unported) != NULL;
         CHECK((cok_ecl_unported(DK, o) != NULL) == listed);

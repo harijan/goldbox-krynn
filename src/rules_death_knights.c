@@ -463,7 +463,7 @@ static const cok_rules_opcode death_knights_opcodes[COK_ECL_OPCODES] = {
     SAME(COK_ECL_SAVE_TABLE, 3, 3),
     SAME(COK_ECL_ADD_NPC, 2, 1),
     SAME(COK_ECL_LOAD_PIECES, 3, 3),
-    UNPORTED(COK_ECL_PROGRAM, COK_ECL_PROGRAM, 1, 1, "3632:23dd"),
+    SAME(COK_ECL_PROGRAM, 1, 1), /* 3632:23dd: start menu 49cb:010b, camp 237e */
     SAME(COK_ECL_WHO, 1, 1),
     SAME(COK_ECL_DELAY, 0, 0),
     SAME(COK_ECL_SPELL, 3, 3), /* 3632:2177: per character, see below */
@@ -505,6 +505,9 @@ static const cok_rules_var death_knights_vars[COK_VARS] = {
     [COK_VAR_SKY_HIGH] = VAR(0x4bfd),
     [COK_VAR_PICTURES] = VAR(0x4bff),
     [COK_VAR_LOCALS] = VARS(0x4c00, 0x20),
+    /* A word over two (46b2:2e1d reads it with Move(2)): Champions' bank,
+     * as 46b2:1ef0 copies it from Champions' saved game. */
+    [COK_VAR_SAVINGS] = {.address = 0x4c33, .width = 2, .count = 1},
     /* Off the overland map unless 0x4cf7 is 1, where Champions' code
      * tests 0x4c38 (6c84:00a6, 3632:16ec, 237e, 23dd, 49cb:010b,
      * 65cd:07a5, 2db0). */
@@ -1234,16 +1237,41 @@ static const cok_rules_frame_line death_knights_sheet[] = {
     COLUMN_OF(19, 8, 20, death_knights_sheet_middle),
 };
 
+/* The credits' lines (35c6:026e, its code segment's strings from 35c6:008d):
+ * yellow (14), white (15) and light green (10). */
+static const cok_rules_text_line death_knights_credit_lines[] = {
+    {2, 1, 14, "CREATED BY:SSI SPECIAL PROJECTS TEAM"},
+    {11, 3, 15, "GAME DEVELOPMENT:"},
+    {4, 4, 10, "KEN HUMPHRIES     DAVE SHELLEY"},
+    {13, 5, 15, "PROGRAMMING:"},
+    {14, 6, 10, "RUSS BROWN"},
+    {1, 8, 15, "ENCOUNTER CODE:"},
+    {4, 9, 10, "RHONDA GILBERT    KEN EKLUND"},
+    {4, 10, 10, "CAROLYN BICKFORD  GARY SHOCKLEY"},
+    {4, 11, 10, "CYRUS HARRIS      ALAN MARENCO"},
+    {4, 12, 10, "TERREA THOMPSON"},
+    {1, 13, 15, "GRAPHIC ARTS:"},
+    {4, 14, 10, "MAURINE STARKEY   MIKE PROVENZA"},
+    {4, 15, 10, "LAURA BOWEN       CYRUS LUM"},
+    {4, 16, 10, "FRED BUTTS        DANIEL COLON,JR."},
+    {1, 17, 15, "PLAYTEST:"},
+    {4, 18, 10, "JOHN KIRK         JEFF SHOTWELL"},
+    {4, 19, 10, "MIKE GILMARTIN    GLEN CURETON"},
+    {4, 20, 10, "PHIL ALNE         ERIK FLOM"},
+    {1, 21, 15, "MUSIC:"},
+    {4, 22, 10, "\"THE FAT MAN\"     DAVE GOVETT"},
+};
+
 const cok_rules cok_rules_death_knights = {
     .id = "death-knights",
     .assets = "DKKAssets",
     .text =
         {
             .name = "Death Knights of Krynn",
-            /* The title's menu is not read yet (step 2); its version is
-             * GAME.OVR's string. */
+            /* The title's menu's (DS:2fb0, both times: entry). */
             .version = "Death Knights Of Krynn 1.10 ",
             .version_again = "Death Knights Of Krynn 1.10 ",
+            .camp = "the party makes camp", /* DS:16b7 */
         },
     .archives =
         {
@@ -1292,9 +1320,10 @@ const cok_rules cok_rules_death_knights = {
         },
     .saves =
         {
-            /* SAVGAM?.PTY (the saved games, not read yet); the characters' files,
-             * DS:57ac-57b5 and DS:71c0-71ca: .GAM in a saved game and .PC
-             * in the roster (46b2:0abc), .JNK, .EFF and .WIZ beside it. */
+            /* SAVGAM?.PTY (46b2:1ef0, 2808: DS:71d9, 46b2:1ebf); the
+             * characters' files, DS:57ac-57b5 and DS:71c0-71ca: .GAM in a
+             * saved game and .PC in the roster (46b2:0abc), .JNK, .EFF and
+             * .WIZ beside it. */
             .game = "SAVGAM",
             .game_extension = "PTY",
             .character = "CHRDAT",
@@ -1304,6 +1333,16 @@ const cok_rules cok_rules_death_knights = {
             .effects = "EFF",
             .spells = "WIZ",
             .debug = NULL, /* no debug mode */
+            .walls = 4,          /* DS:c078: slots 0-3 */
+            .walls_restored = 1, /* 46b2:1ef0: 6d21:0ec5 with DS:c07a, c078 */
+            .roster_flag = COK_FIELD_NPC, /* 46b2:0342, DS:57a */
+            .roster_flag_index = 0,
+            .keep_last_mode = true,
+            /* vault<letter>.dat (46b2:2e12, 2e18; 27f0, 27f6) and
+             * tmpVault.dat (2e05, 27fb). */
+            .vault = "VAULT",
+            .vault_extension = "DAT",
+            .vault_temp = "TMPVAULT.DAT",
         },
     .images =
         {
@@ -1462,6 +1501,68 @@ const cok_rules cok_rules_death_knights = {
             .menu_big = false,                  /* 1000:01d1 */
             .resumed = COK_RESUMED_BY_MODE, /* 49cb:010b */
         },
-    .unplayable = "Death Knights of Krynn is not playable yet: eclplay --game death-knights "
-                  "shows its scripts and 3D view (see DEATH-KNIGHTS.md)",
+    .start =
+        {
+            /* 35c6:051c: on a cleared screen 1 at 0, 0 for 5 seconds; 2 at 0, 0 on a cleared
+             * screen for 5; 3 at 0, 11 for 5; 4 there for 20; then the
+             * credits whatever was pressed, 35c6:0000 with 10000 seconds,
+             * whose hundredths it multiplies into a word: 16960. */
+            .pictures = {{1, 0, 0, true, 5}, {2, 0, 0, true, 5}, {3, 0, 11, false, 5},
+                         {4, 0, 11, false, 20}},
+            .picture_count = 4,
+            .credits = death_knights_credit_lines,
+            .credit_count =
+                sizeof death_knights_credit_lines / sizeof *death_knights_credit_lines,
+            .credits_wait = 16960,
+            .credits_always = true,
+            .first_block = 0x10, /* 3632:2e06 */
+            .demo_file = 5,      /* 3632:2e06: ECL5, which it does not ship */
+            .demo_block = 2,
+            /* DS:0cf8 */
+            .items = {"Create New Character", "Drop Character", "Modify Character",
+                      "Train Character", "Knight Change Order", "View Character",
+                      "Add Character to Party", "Remove Character from Party", "Load Saved Game",
+                      "Save Current Game", "Begin Adventuring", "Initialize Mouse/Joystick",
+                      "Exit to DOS"},
+            .prompt = "",       /* DS:2fad */
+            .select = "Select", /* DS:31d6 */
+            /* Creating and modifying a character, training and the
+             * knights' orders are rewritten in Death Knights (step 3 and a
+             * part of their own); Initialize Mouse/Joystick has its own
+             * words ("Init mouse/joystick: ", DS:3038; "mouse on", 3376...)
+             * and rewrites krynn.cfg (49cb:52bd), not DKK.CFG. */
+            .unported = {[0] = "dkk 49cb:05c7", [2] = "dkk 49cb:25d4", [3] = "dkk 49cb:43b6",
+                         [4] = "dkk 49cb:4ea4", [11] = "dkk 49cb:52cd"},
+            .pick_prompt = "Pick Character ", /* 580d:3067: DS:3018, 31d6 */
+            .pick_menu = "Select",
+            /* 49cb:2394: DS:130a-135f */
+            .drop = "drop %s forever ",
+            .drop_sure = "Are you sure? ",
+            .dumped = "%s is dumped out back.",
+            .farewell = "%s bids you farewell.",
+            .relief = "%s breathe a sigh of relief.",
+            .quit = "Quit to DOS ", /* DS:124c */
+            .unsaved = "game not saved. quit anyway? ", /* DS:1261 */
+            .ask_colour = 13, /* 6a69:2048 */
+            .load_prompt = "load which game: ", /* DS:3081 */
+            .save_prompt = "save which game: ", /* DS:3096 */
+            .save_warning = "warning: problem saving characters", /* DS:2610 */
+            .load_from = "load from where? ", /* DS:306c */
+            .add_from = "add from where? ",   /* DS:1393 */
+            .from_items = "Death Champions Exit", /* DS:3337 */
+            .overwrite = "overwrite %s? ", /* DS:164e, 1659 */
+            .new_name = "new file name : ", /* DS:1664 */
+            .add_prompt = "add a character: ", /* DS:13a8 */
+            .add_select = "Add",               /* DS:3356 */
+            .rangers = "too many rangers in your party", /* DS:1523 */
+            .paladins = false,
+            .add_space_leaves = false,
+            .add_loading = false,
+            .add_unmarks = false,
+            .reset_when_empty = true, /* 49cb:010b */
+            .quit_after_save = true,
+            .begin_last_mode = true,
+            .program_marks = true,
+            .reset_wall = 1, /* 4f9a:08ad */
+        },
 };

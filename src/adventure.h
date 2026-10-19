@@ -239,6 +239,9 @@ struct cok_adventure {
     uint8_t bonus_spells;  /* DS:7144: magic-user spells the moons allow beyond a day's. */
     uint16_t rest_ticks;   /* DS:4b53: five minutes rested toward an encounter roll. */
     char save_dir[512];    /* Where Save writes (DS:5784); empty for nowhere. */
+    /* Where the game imports another's roster and saved games from (dkk
+     * DS:99a4, DKK.CFG's fifth line: Champions'); empty for nowhere. */
+    char import_dir[512];
     /* KRYNN.CFG, which Initialize Mouse/Joystick reads (config_path) and
      * writes (config_write; see cok_config_find); empty for none. */
     char config_path[1024], config_write[1024];
@@ -255,6 +258,15 @@ struct cok_adventure {
     uint8_t *trade_partner; /* DS:46b0: whom View's trades start from. */
     uint8_t scroll_spells; /* DS:4838: the spells of scroll lists, since Scribe's last. */
     bool quit;             /* The player quit to DOS (1614:0000); the run was aborted. */
+    /* The vault (a game whose rules' saves.vault names one): the letter of
+     * the saved game its file is, 'Q' (none) at startup and after a game
+     * (dkk DS:fb79); and whether its menu left it in saves.vault_temp,
+     * which the next save moves (DS:fb78). */
+    char vault_letter;
+    bool vault_temp;
+    /* The start menu emptied the party and ended the game (dkk DS:8c5b):
+     * the adventure starts over from a new game's block once it returns. */
+    bool new_game;
 
     /* Monsters and encounters (see monster.h). */
     uint8_t monsters;      /* DS:43be: records LOAD MONSTER added since CLEARMONSTERS. */
@@ -471,16 +483,32 @@ bool cok_adventure_load_party(cok_adventure *game, const char *path);
  * is full. */
 bool cok_adventure_add_characters(cok_adventure *game, const char *const *paths, size_t count);
 
-/* Load a saved game (4b6d:1b34): the variables, the party's square and
- * facing, the modes and wall sets, the speed (0x4bfc) and animation
- * (0x4bff), then the party as cok_adventure_load_party does, and the ECL
- * file from 0x7f12. In a 3D area it reloads the map (if wall set 1's
- * record was above 0) and the wall sets; outside them it loads the
- * overland map, big picture 0x79, without drawing it. The next block
- * entered keeps the variables NEWECL would clear (DS:4b52), and the
+/* Load a saved game (4b6d:1b34; dkk 46b2:1ef0), in the game's layout: the
+ * variables, the party's square and facing, the modes and wall sets, the
+ * speed (0x4bfc) and animation (0x4bff), then the party as
+ * cok_adventure_load_party does, and the ECL file from 0x7f12. In a 3D
+ * area it reloads the map (if wall set 1's record was above 0) and the
+ * wall sets the layout restores; outside them it loads the overland map,
+ * big picture 0x79 (dkk 0x70), without drawing it. The last mode becomes
+ * the saved mode, or stays the saved last mode where the layout keeps it;
+ * a game with a vault takes the saved game's letter's (DS:fb79). The next
+ * block entered keeps the variables NEWECL would clear (DS:4b52), and the
  * adventure loop then redraws the screen. Play resumes from block 0x4bf2,
- * or 0x24 when that is 0 (2fd3:3c28). */
+ * or the game's first block when that is 0 (2fd3:3c28). */
 bool cok_adventure_restore(cok_adventure *game, const char *path);
+
+/* Load another game's saved game, as a game that imports its characters
+ * does (dkk 46b2:1ef0 with DS:c468 0, Champions' SAVGAM<letter>.DAT): of
+ * the file, the party's names, read as the other game's layout, and the
+ * savings variable (COK_VAR_SAVINGS: Champions' bank at 0x4c33); each
+ * character's record file (the other game's extension) imported
+ * (cok_character_import) and joined unless it is an NPC (which it never
+ * is: the import leaves the flag 0), counted in
+ * 0x7f3e; then their combat icons, the first selected, the mode 0. The
+ * other variables, the square, the modes and the walls stay as they are,
+ * and the first block clears its variables as a new game's does. Returns
+ * false with game->error set. */
+bool cok_adventure_import_game(cok_adventure *game, const char *path);
 
 /* Turn the overhead map off (DS:6d84) and, if it was on, show the view or
  * the big picture again (6945:00ba with DS:713a set), as the first sprite

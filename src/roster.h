@@ -34,9 +34,10 @@ size_t cok_roster_list(cok_adventure *game, cok_roster_entry *entries, size_t ma
  * is logged. */
 bool cok_roster_save(cok_adventure *game, cok_character *character);
 
-/* Erase the roster's copy of the character of record (4b6d:0a80):
- * NAME.WHO, .STF and .SFX by its name (cok_party_file_name), those that
- * are there. */
+/* Erase the roster's copy of the character of record (4b6d:0a80; dkk
+ * 46b2:09dc): NAME.WHO, .STF and .SFX by its name (cok_party_file_name),
+ * and its spells' block's file where the game keeps one (Death Knights'
+ * .PC, .JNK, .EFF and .WIZ), those that are there. */
 void cok_roster_erase(cok_adventure *game, const uint8_t *record);
 
 /* Add Character to Party (4def:37a2): pick roster characters to join,

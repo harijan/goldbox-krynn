@@ -197,7 +197,7 @@ static void test_files(void)
     snprintf(path, sizeof path, "%s/SAVGAMB.DAT", dir);
     write_file(path, save, sizeof save);
     static cok_saved_game game;
-    CHECK(cok_saved_game_read(path, &game, error, sizeof error));
+    CHECK(cok_saved_game_read(path, &cok_rules_champions, &game, error, sizeof error));
     CHECK(game.file == 2 && game.mem4b00[0xe6] == 1 && game.mem7c00[0x312] == 3);
     CHECK(game.mem7a00[0x1ff] == 0x1200);
     CHECK(game.map_x == -1 && game.map_y == 13 && game.direction == 2 && game.ahead == 4 &&
@@ -207,7 +207,7 @@ static void test_files(void)
     CHECK(game.count == 2 && strcmp(game.names[0], "CHRDATB1") == 0 &&
           strcmp(game.names[1], "OTHER") == 0);
     write_file(path, save, sizeof save - 1);
-    CHECK(!cok_saved_game_read(path, &game, error, sizeof error));
+    CHECK(!cok_saved_game_read(path, &cok_rules_champions, &game, error, sizeof error));
 
     /* A character with two items, part of a third, and an effect. */
     uint8_t record[COK_CHARACTER_SIZE] = {3, 'K', 'A', 'L'};

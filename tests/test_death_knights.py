@@ -177,19 +177,109 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
                          "Krynn's opcode 0x27, TREASURE ITEMS (dkk 3632:1933)")
 
-    def test_unplayable(self):
-        # Not playable yet: the title and start menu, saved games, and cok.
-        message = ("Death Knights of Krynn is not playable yet: eclplay --game death-knights "
-                   "shows its scripts and 3D view (see DEATH-KNIGHTS.md)\n")
-        result = self.play("--start-menu", ASSETS)
-        self.assertEqual((result.returncode, result.stderr), (2, message))
-        result = self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", ASSETS)
-        self.assertEqual((result.returncode, result.stderr), (2, message))
+    def saves(self, *sources):
+        """A saves folder holding copies of the files of sources."""
+        folder = self.folder / f"saves{len(list(self.folder.glob('saves*')))}"
+        folder.mkdir()
+        for source in sources:
+            for f in pathlib.Path(source).iterdir():
+                if f.is_file():
+                    (folder / f.name).write_bytes(f.read_bytes())
+        return folder
+
+    # Title keys: one for the pictures, one for the credits, then Play.
+    TITLE = r"\kx\kxP"
+
+    def test_start_menu(self):
+        # From the title (35c6:051c, its credits whatever was pressed, until
+        # a key), its menu, the start menu (49cb:010b) with no party: Load
+        # Saved Game, from Death Knights' games (DS:306c), A; then Begin
+        # Adventuring: the saved game's party in block 16 (its 0x4bf2 is 0,
+        # a new game's block, 3632:2e06).
+        saves = self.saves(ASSETS / "SAVE")
+        keys = self.TITLE + r"\v\v\rDA" + r"\v" * 5 + r"\r\r\r"
+        result = self.play("--start-menu", "--saves", saves, "--keys", keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = result.stdout
+        self.assertIn("print: CREATED BY:SSI SPECIAL PROJECTS TEAM\n", out)
+        self.assertIn('print: "THE FAT MAN"     DAVE GOVETT\nsound: install\nmenu: Play Demo\n',
+                      out)
+        self.assertIn("list: \nitem: Create New Character\nitem: Add Character to Party\n"
+                      "item: Load Saved Game\nitem: Initialize Mouse/Joystick\n"
+                      "item: Exit to DOS\n", out)
+        self.assertIn("menu: Death Champions Exit\nchoice: D\nmenu: A B\nchoice: A\n", out)
+        self.assertIn("item: Save Current Game\nitem: Begin Adventuring\n", out)
+        self.assertIn("choice: Begin Adventuring\nprint: A YEAR HAS PASSED", out)
+        self.assertTrue(out.endswith("menu: ~Yes ~No\n(out of keys in block 16 at 817b)\n"),
+                        out[-300:])
+
+    def test_saved_games(self):
+        # Each saved game loaded and saved again as its letter (46b2:1ef0,
+        # 2808): the same file but for the bytes its stack leaves after
+        # each name and in the slots past the party (tests/test_start.c
+        # compares the rest, and the characters).
+        for letter in "AB":
+            saves = self.saves(ASSETS / "SAVE")
+            keys = self.TITLE + r"\v\v\rD" + letter + r"\v" * 4 + r"\r" + letter
+            result = self.play("--start-menu", "--saves", saves, "--keys", keys, ASSETS)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("choice: Save Current Game\nmenu: A B C D E F G H I J\nchoice: "
+                          + letter + "\n", result.stdout)
+            old = (ASSETS / "SAVE" / f"SAVGAM{letter}.PTY").read_bytes()
+            new = (saves / f"SAVGAM{letter}.PTY").read_bytes()
+            self.assertEqual((len(old), len(new)), (2913, 2913))
+            self.assertEqual(old[:0xa19], new[:0xa19])
+            for slot in range(old[0xa18]):
+                name = old[0xa19 + 41 * slot:0xa19 + 41 * slot + 1 + old[0xa19 + 41 * slot]]
+                self.assertEqual(new[0xa19 + 41 * slot:0xa19 + 41 * slot + len(name)], name)
+            self.assertEqual((saves / f"VAULT{letter}.DAT").read_bytes(), bytes(12))
+
+    def test_champions(self):
+        # From Champions (DKK.CFG's fifth line; --import): its saved game A
+        # loaded, its party imported and Champions' NPCs left out, Begin; its
+        # roster added (*.WHO) until six have joined.
+        champions = ROOT / "SAVE"
+        if not (champions / "SAVGAMA.DAT").exists():
+            self.skipTest("no Champions saved games in SAVE")
+        saves = self.saves()
+        keys = self.TITLE + r"\v\v\rCA" + r"\v" * 5 + r"\r\r"
+        result = self.play("--start-menu", "--saves", saves, "--import", champions, "--keys",
+                           keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("menu: Death Champions Exit\nchoice: C\nmenu: A B\nchoice: A\n",
+                      result.stdout)
+        self.assertIn("choice: Begin Adventuring\nprint: A YEAR HAS PASSED", result.stdout)
+        roster = self.saves()
+        for f in champions.glob("CHRDATA*"):
+            name = f.name.replace(".SAV", ".WHO")
+            (roster / name).write_bytes(f.read_bytes())
+        keys = self.TITLE + r"\v\rC" + r"\r\v" * 6
+        result = self.play("--start-menu", "--saves", saves, "--import", roster, "--keys", keys,
+                           ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("list: add a character: \nitem: SIR STRONGSWORD\n", result.stdout)
+        self.assertEqual(result.stdout.count(" joins\n"), 6)
+
+    def test_unported_stops(self):
+        # What is not ported stops the run, naming the routine: creating a
+        # character (49cb:05c7), and in block 16 the fight (SETUP MONSTERS).
+        result = self.play("--start-menu", "--keys", self.TITLE + r"\r", ASSETS)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr, "not yet ported: Death Knights of Krynn's Create New "
+                         "Character (dkk 49cb:05c7)\n")
+        result = self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", "--keys", r"\r\r" + "N" +
+                           r"\r" * 8, ASSETS)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
+                         "Krynn's opcode 0x0c, SETUP MONSTERS (dkk 3632:038f)")
         if (BUILD / "cok").exists():
             env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
-            result = subprocess.run([str(BUILD / "cok"), *GAME], capture_output=True, text=True,
-                                    env=env, cwd=ROOT)
-            self.assertEqual((result.returncode, result.stderr), (1, message))
+            result = subprocess.run([str(BUILD / "cok"), *GAME, "--saves", self.saves(),
+                                     "--no-delay", "--keys", self.TITLE + r"\r"],
+                                    capture_output=True, text=True, env=env, cwd=ROOT)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("not yet ported: Death Knights of Krynn's Create New Character "
+                          "(dkk 49cb:05c7)", result.stderr)
 
     def test_view_by_wall_id(self):
         # Block 48 in a 3D area: LOAD PIECES 2 loads wall set 2 from

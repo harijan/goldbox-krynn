@@ -97,6 +97,9 @@ typedef enum {
     COK_VAR_SKY_HIGH,      /* 0x4bfe: and over squares from 0x80 */
     COK_VAR_PICTURES,      /* 0x4bff: pictures * 2 + animate, as saved */
     COK_VAR_LOCALS,        /* 0x4c00-0x4c1f: cleared by a block's start */
+    COK_VAR_SAVINGS,       /* 0x4c33: the bank's balance, in hundreds of steel (dkk: a word over
+                            * two, Champions' as loading its game copies it, 46b2:1ef0, which
+                            * a new vault holds, 46b2:2e1d) */
     COK_VAR_OFF_MAP,       /* 0x4c38: a flag: outside 3D areas, off the overland map */
     COK_VAR_NO_VIEW,       /* 0x4c38 alone: a flag: no view redrawn after camp or in mode 4 */
     COK_VAR_SAVES,         /* 0x4c3c: games saved, the rule book's question every tenth */

@@ -1753,7 +1753,7 @@ static void dump(cok_adventure *game)
 
 static cok_ecl_status camp(cok_adventure *game, uint16_t sp);
 
-/* PROGRAM (2fd3:3473): with Move mode off meanwhile (DS:8858), and the
+/* PROGRAM (2fd3:3473; dkk 3632:23dd): with Move mode off meanwhile (DS:8858), and the
  * selection LOAD CHARACTER changed restored first (DS:43ba), 9 camps as
  * Encamp does (2fd3:3403), in the middle of the script, which goes on from
  * the instruction after (DS:4b43 kept), and then ends as EXIT does unless
@@ -1777,9 +1777,13 @@ static void program(cok_adventure *game)
         uint16_t ip = vm->ip;
         cok_start_menu(game);
         vm->ip = ip;
-        if (!vm->abort && game->picture_id != 9 && cok_ecl_var(vm, COK_VAR_3D) == 0 &&
-            !cok_ecl_flag(vm, COK_VAR_OFF_MAP))
+        /* dkk 3632:23dd: not once the menu ended the game (DS:8c5b), and
+         * the party marked on the map again (6997:0000). */
+        if (!vm->abort && !game->new_game && game->picture_id != 9 &&
+            cok_ecl_var(vm, COK_VAR_3D) == 0 && !cok_ecl_flag(vm, COK_VAR_OFF_MAP)) {
             cok_adventure_redraw(game);
+            if (cok_game_rules(game)->start.program_marks) cok_adventure_mark(game);
+        }
     } else if (what == 9) {
         uint16_t ip = vm->ip;
         /* Its vectors run 0x128 bytes below the script's (2fd3:3473 ->
@@ -2330,6 +2334,7 @@ bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, con
     game->selected = 1;
     game->text_shown = true;
     game->icon_slot = 8;
+    game->vault_letter = 'Q'; /* dkk 4f9a:00e1 */
     cok_adventure_pointer_init(game);
     if (keys != NULL) game->keys = *keys;
     if (hooks != NULL) game->hooks = *hooks;
@@ -2528,16 +2533,42 @@ bool cok_adventure_load_party(cok_adventure *game, const char *path)
 {
     static cok_saved_game saved;
     game->error[0] = '\0';
-    if (!cok_saved_game_read(path, &saved, game->error, sizeof game->error)) return false;
+    if (!cok_saved_game_read(path, cok_game_rules(game), &saved, game->error, sizeof game->error))
+        return false;
     return add_characters(game, &saved, path, game->vm.file);
+}
+
+/* The saved game's letter: the last character of its file's name before
+ * the extension, upper-cased (the letter the loader was given). */
+static char saved_letter(const char *path)
+{
+    const char *name = strrchr(path, '/');
+    name = name != NULL ? name + 1 : path;
+    const char *dot = strrchr(name, '.');
+    size_t length = dot != NULL ? (size_t)(dot - name) : strlen(name);
+    char c = length > 0 ? name[length - 1] : '\0';
+    return c >= 'a' && c <= 'z' ? (char)(c - 'a' + 'A') : c;
+}
+
+/* What both loaders set from the variables once they are read (4b6d:1b34,
+ * dkk 46b2:1ef0): the animation, the pictures and the speed (DS:4b4f, 4b4d,
+ * 4b38), and no party yet in 0x7f3e. */
+static void loaded_vars(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    game->animate = (cok_ecl_var(vm, COK_VAR_PICTURES) & 1) != 0; /* DS:4b4f */
+    game->pictures = (uint8_t)(cok_ecl_var(vm, COK_VAR_PICTURES) >> 1); /* DS:4b4d */
+    game->speed = (uint8_t)cok_ecl_var(vm, COK_VAR_SPEED);
+    cok_ecl_set_var(vm, COK_VAR_PARTY_SIZE, 0);
 }
 
 bool cok_adventure_restore(cok_adventure *game, const char *path)
 {
     static cok_saved_game saved;
     cok_ecl *vm = &game->vm;
+    const cok_rules *rules = cok_game_rules(game);
     game->error[0] = '\0';
-    if (!cok_saved_game_read(path, &saved, game->error, sizeof game->error)) return false;
+    if (!cok_saved_game_read(path, rules, &saved, game->error, sizeof game->error)) return false;
     vm->keep_vars = true;
     memcpy(vm->mem4b00, saved.mem4b00, sizeof vm->mem4b00);
     memcpy(vm->mem7c00, saved.mem7c00, sizeof vm->mem7c00);
@@ -2547,32 +2578,96 @@ bool cok_adventure_restore(cok_adventure *game, const char *path)
     vm->direction = saved.direction;
     vm->ahead = saved.ahead;
     vm->square = saved.square;
-    game->animate = (cok_ecl_var(vm, COK_VAR_PICTURES) & 1) != 0; /* DS:4b4f */
-    game->pictures = (uint8_t)(cok_ecl_var(vm, COK_VAR_PICTURES) >> 1); /* DS:4b4d */
-    game->speed = (uint8_t)cok_ecl_var(vm, COK_VAR_SPEED);
-    cok_ecl_set_var(vm, COK_VAR_PARTY_SIZE, 0);
+    loaded_vars(game);
+    /* dkk 46b2:1ef0: the vault is the saved game's letter's (DS:fb79). */
+    if (rules->saves.vault != NULL) game->vault_letter = saved_letter(path);
     if (!add_characters(game, &saved, path, saved.file)) return false;
     /* The save holds the ECL file twice; the loader takes it from 0x7f12. */
     vm->file = (uint8_t)cok_ecl_var(vm, COK_VAR_ECL_FILE);
     /* The loader reads DS:6d8a as saved, then reloads what it names. */
-    memcpy(game->wall_ids, saved.wall_ids, sizeof saved.wall_ids);
-    memcpy(game->wall_slots, saved.wall_slots, sizeof saved.wall_slots);
+    for (size_t i = 0; i < rules->saves.walls; ++i) {
+        game->wall_ids[i] = saved.wall_ids[i];
+        game->wall_slots[i] = saved.wall_slots[i];
+    }
     if (cok_ecl_var(vm, COK_VAR_3D) != 0) {
         /* The map reloads only if wall set 1's record is above 0. */
         if (saved.wall_ids[0] > 0 && !load_map(game, (uint8_t)cok_ecl_var(vm, COK_VAR_MAP)))
             return false;
-        for (size_t i = 0; i < 3; ++i) {
+        for (size_t i = 0; i < rules->saves.walls_restored; ++i) {
             if (saved.wall_ids[i] <= 0) continue;
             if (!load_walls(game, (uint8_t)saved.wall_slots[i], (uint8_t)saved.wall_ids[i]))
                 return false;
         }
     } else {
         /* Outside 3D areas the overland map is loaded, not drawn. */
-        cok_adventure_load_big(game, cok_game_rules(game)->view.overland_picture);
+        cok_adventure_load_big(game, rules->view.overland_picture);
     }
-    vm->last_mode = saved.mode;
+    vm->last_mode = rules->saves.keep_last_mode ? saved.last_mode : saved.mode;
     vm->mode = 0; /* the party menu */
     cok_adventure_flush(game); /* 4b6d:20ef */
+    return true;
+}
+
+bool cok_adventure_import_game(cok_adventure *game, const char *path)
+{
+    static cok_saved_game saved;
+    cok_ecl *vm = &game->vm;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_rules_import *I = rules->characters.import;
+    assert(I != NULL && "the game imports no other game's saved games");
+    game->error[0] = '\0';
+    if (!cok_saved_game_read(path, I->from, &saved, game->error, sizeof game->error)) return false;
+    /* Of the variables, the other game's savings alone (46b2:1ef0 reads
+     * Champions' word at 0x267 into 0x4c33 and 0x4c34). */
+    const cok_rules_var *savings = &I->from->ecl.vars[COK_VAR_SAVINGS];
+    size_t cell = savings->address - 0x4b00u;
+    uint16_t value = saved.mem4b00[cell];
+    if (savings->width > I->from->ecl.variable_bytes)
+        value = (uint16_t)((value & 0xff) | (saved.mem4b00[cell + 1] & 0xff) << 8);
+    cok_ecl_set_var(vm, COK_VAR_SAVINGS, value);
+    vm->keep_vars = false; /* DS:8c57 */
+    loaded_vars(game);
+    char dir[4096];
+    directory_of(path, dir, sizeof dir);
+    const cok_character_layout *L = rules->character;
+    for (size_t i = 0; i < saved.count && i < COK_PARTY_MAX; ++i) {
+        char base[9], file[4200];
+        cok_party_roster_name(saved.names[i], base);
+        snprintf(file, sizeof file, "%s/%s.%s", dir, base, I->from->saves.record);
+        FILE *exists = fopen(file, "rb");
+        if (exists == NULL) continue; /* the original skips missing characters */
+        fclose(exists);
+        cok_character *character = malloc(sizeof *character);
+        if (character == NULL) {
+            fail(game, "out of memory");
+            return false;
+        }
+        if (!cok_character_import(character, rules, dir, base, I->from->saves.record,
+                                  &game->item_types, game->error, sizeof game->error)) {
+            cok_character_free(character);
+            free(character);
+            return false;
+        }
+        cok_adventure_flush(game);
+        /* 46b2:1ef0 frees an NPC of the other game; but the import does not
+         * move Champions' NPC flag (+0xe7), so none is one here. */
+        if (cok_field_u8(L, character->record, COK_FIELD_NPC) >= 0x80) {
+            cok_character_free(character);
+            free(character);
+            continue;
+        }
+        if (!cok_party_add(&game->party, rules, character)) {
+            cok_character_free(character);
+            free(character);
+            fail(game, "%s: the party is full", file);
+            return false;
+        }
+        cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, 1);
+    }
+    if (!cok_arena_join(game, vm->file)) return false;
+    vm->character = cok_party_record(&game->party, 0);
+    vm->mode = 0;
+    cok_adventure_flush(game); /* 46b2:26d4 */
     return true;
 }
 
@@ -2626,7 +2721,7 @@ static cok_ecl_status start_block(cok_adventure *game, uint8_t block)
     vm->saved_character = vm->character;
     vm->reload = false;
     vm->mode = 4;
-    if (cok_ecl_var(vm, COK_VAR_BLOCK) == 0) cok_adventure_party(game); /* starting block 0x24 */
+    if (cok_ecl_var(vm, COK_VAR_BLOCK) == 0) cok_adventure_party(game); /* a new game's block */
     if (cok_ecl_var(vm, COK_VAR_3D) == 0) vm->mode = 3;
     return cok_adventure_load(game, block);
 }
@@ -3469,7 +3564,9 @@ cok_ecl_status cok_adventure_play(cok_adventure *game)
     }
     vm->keep_vars = false;
     game->moving = false;
-    while (status == COK_ECL_OK && !vm->abort) {
+    /* A start menu that ended the game (dkk DS:8c5b) ends the loop, which
+     * its caller starts again (3632:2e06). */
+    while (status == COK_ECL_OK && !vm->abort && !game->new_game) {
         int key = next_command(game);
         if (key < 0) break;
         if (!vm->reload) cok_ecl_set_var(vm, COK_VAR_BLOCK, vm->block);
@@ -3482,7 +3579,7 @@ cok_ecl_status cok_adventure_play(cok_adventure *game)
         }
         if (status != COK_ECL_OK || vm->abort) break;
         status = cok_ecl_run(vm, vm->vectors[0]);
-        if (status != COK_ECL_OK || vm->abort) break;
+        if (status != COK_ECL_OK || vm->abort || game->new_game) break;
         if (vm->reload) {
             status = enter_block(game, false);
             continue;
