@@ -18,8 +18,10 @@ enum {
     /* Champions' record, 409 bytes, as in its files (.SAV, .WHO) and its
      * monsters' (MON<n>CHA); its layout's size. */
     COK_CHARACTER_SIZE = 0x199,
-    /* The largest record of any game's: the buffer a character holds. */
-    COK_CHARACTER_MAX = 0x199,
+    /* The largest record of any game's: the buffer a character holds.
+     * Death Knights' 216-byte record and its 220-byte spells' block
+     * (.WIZ) after it. */
+    COK_CHARACTER_MAX = 0xd8 + 0xdc,
 };
 
 /* The fields, named for what they are. An array's elements are counted
@@ -32,7 +34,7 @@ typedef enum {
     COK_FIELD_SCORE,                     /* The scores now. */
     COK_FIELD_STRENGTH_EXCEPTIONAL,      /* Exceptional strength now, 18/xx. */
     COK_FIELD_STRENGTH_EXCEPTIONAL_BASE, /* And before effects. */
-    COK_FIELD_MEMORIZED,                 /* The spells memorized, 0-0x39. */
+    COK_FIELD_MEMORIZED,                 /* The spells memorized, from 0. */
     COK_FIELD_STUDY_HOURS,               /* The hours memorizing and scribing need. */
     COK_FIELD_BASE_THAC0,                /* 60 - THAC0, by class and level. */
     COK_FIELD_RACE,
@@ -43,7 +45,7 @@ typedef enum {
     COK_FIELD_KNIGHT_TIER,               /* Set from the knight levels by effect 0x6e. */
     COK_FIELD_AGE,
     COK_FIELD_MAX_HIT_POINTS,
-    COK_FIELD_KNOWN_SPELL,               /* By spell id, 1-108. */
+    COK_FIELD_KNOWN_SPELL,               /* By spell id, from 1. */
     COK_FIELD_FIGHTER_LEVEL,             /* The highest fighter, ranger or knight level. */
     COK_FIELD_SIZE,                      /* Its size in combat: 1 a man's; larger above. */
     COK_FIELD_SAVING_THROW,              /* By type, 0-4. */
@@ -60,6 +62,9 @@ typedef enum {
     COK_FIELD_COINS,                     /* By kind, 0-6, words. */
     COK_FIELD_CLASS_LEVEL,               /* By class, 0-7. */
     COK_FIELD_FORMER_LEVEL,              /* By class, 0-7. */
+    COK_FIELD_UNDRAINED_LEVEL,           /* By class, 0-7: the levels before a drain. */
+    COK_FIELD_UNDRAINED_EXPERIENCE,      /* And the experience, */
+    COK_FIELD_UNDRAINED_MAX_HIT_POINTS,  /* and the maximum hit points. */
     COK_FIELD_GENDER,
     COK_FIELD_ALIGNMENT,
     COK_FIELD_BASE_ATTACKS,              /* By attack, 1-2: attacks a round, doubled. */
@@ -72,7 +77,7 @@ typedef enum {
     COK_FIELD_EXPERIENCE,
     COK_FIELD_USABLE_CLASSES,            /* The classes whose items it can use, as bits. */
     COK_FIELD_BASE_HIT_POINTS,           /* The hit points the maximum is built from. */
-    COK_FIELD_SPELLS_A_DAY,              /* By spell class (rows 0-3) and level, 1-5. */
+    COK_FIELD_SPELLS_A_DAY,              /* By spell class (rows 0-3) and level, from 1. */
     COK_FIELD_MONSTER_EXPERIENCE,        /* The experience a monster is worth, */
     COK_FIELD_MONSTER_HIT_POINT_EXPERIENCE, /* and more for each hit point. */
     COK_FIELD_ICON_HEAD,                 /* A player's combat icon's head (CHEAD). */
@@ -90,6 +95,7 @@ typedef enum {
     COK_FIELD_NEXT,                      /* A far pointer: the next record in the list. */
     COK_FIELD_COMBAT,                    /* A far pointer: the combat record. */
     COK_FIELD_MAGIC_RESISTANCE,
+    COK_FIELD_SPELLS,                    /* A far pointer: the spells' block. */
     COK_FIELD_STATUS,                    /* 0 okay, 4 unconscious, 5 dying, 6 dead. */
     COK_FIELD_ACTIVE,                    /* Set while it can act. */
     COK_FIELD_HOSTILE,                   /* 1 for one fighting against the party. */
@@ -137,6 +143,11 @@ typedef struct {
     /* The record's bytes in memory, at most COK_CHARACTER_MAX, and the bytes
      * of its file (.SAV, .WHO), from the record's start. */
     uint16_t size, file_size;
+    /* Where a game keeps the spells in a block of their own, which the
+     * record points to (SPELLS) and a file of its own holds (Death
+     * Knights' .WIZ, MON1WIZ): the block's bytes, held in the record past
+     * its file's bytes, at spells_offset; 0 where the record holds them. */
+    uint16_t spells_offset, spells_size;
     cok_field_place field[COK_FIELD_COUNT];
 } cok_character_layout;
 
@@ -222,6 +233,34 @@ static inline long cok_field_offset_unchecked(const cok_character_layout *L, cok
     const cok_field_place *d = &L->field[f];
     assert(d->width != 0 && "the game's records have no such field");
     return (long)d->offset + row * d->row_stride + (i - d->first) * d->stride;
+}
+
+/* Whether field f lies in the spells' block (spells_offset), which a
+ * record may not hold. */
+static inline bool cok_field_in_spells(const cok_character_layout *L, cok_field f)
+{
+    return L->spells_size != 0 && L->field[f].offset >= L->spells_offset;
+}
+
+/* Whether record c holds its spells' block: always where the record holds
+ * the spells itself; where they lie in a block of their own, while its
+ * far pointer (SPELLS) is not nil, which the port marks with the
+ * pointer's first byte 1 (cok_field_set_spells) and keeps 0 in files. */
+static inline bool cok_field_has_spells(const cok_character_layout *L, const uint8_t *c)
+{
+    if (L->spells_size == 0) return true;
+    assert(L->field[COK_FIELD_SPELLS].pointer && "the spells' block has no pointer");
+    return c[L->field[COK_FIELD_SPELLS].offset] != 0;
+}
+
+/* Give record c a spells' block (zeroed) or take it away, where the game
+ * keeps one. */
+static inline void cok_field_set_spells(const cok_character_layout *L, uint8_t *c, bool held)
+{
+    assert(L->spells_size != 0 && L->field[COK_FIELD_SPELLS].pointer);
+    for (size_t i = 0; i < L->spells_size; ++i) c[L->spells_offset + i] = 0;
+    for (size_t i = 0; i < 4; ++i) c[L->field[COK_FIELD_SPELLS].offset + i] = 0;
+    if (held) c[L->field[COK_FIELD_SPELLS].offset] = 1;
 }
 
 /* Whether the byte at offset belongs to a far pointer, which the port does

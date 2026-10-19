@@ -248,11 +248,15 @@ bool cok_sheet_figures(cok_adventure *game, cok_character *character)
     snprintf(value, sizeof value, "%u", (uint8_t)(60 - cok_field_u8(L, c, COK_FIELD_THAC0)));
     pad(text, sizeof text, value, 2);
     draw(game, text, 0x10, 0x12, 10);
+    /* As the stats left it where they count haste and slow (dkk
+     * 580d:0751). */
     uint8_t movement = cok_field_u8(L, c, COK_FIELD_MOVEMENT);
-    if (cok_character_find_named(character, cok_game_rules(game), COK_EFFECT_HASTED) != NULL)
-        movement = (uint8_t)(movement * 2);
-    if (cok_character_find_named(character, cok_game_rules(game), COK_EFFECT_SLOWED) != NULL)
-        movement = (uint8_t)(movement >> 1);
+    if (!cok_stats_count_movement_effects(cok_game_rules(game))) {
+        if (cok_character_find_named(character, cok_game_rules(game), COK_EFFECT_HASTED) != NULL)
+            movement = (uint8_t)(movement * 2);
+        if (cok_character_find_named(character, cok_game_rules(game), COK_EFFECT_SLOWED) != NULL)
+            movement = (uint8_t)(movement >> 1);
+    }
     draw(game, "Movement", 0x14, 0x12, 15);
     snprintf(value, sizeof value, "%u", movement);
     pad(text, sizeof text, value, 3);
@@ -308,19 +312,22 @@ bool cok_sheet_draw(cok_adventure *game)
     draw(game, line, 1, 5, 15);
     draw(game, "Level", 1, 7, 15);
     /* Each class with a level, or with a former level below the first
-     * class's (66c2:0eab), the sum of both as a byte. */
+     * class's (66c2:0eab), the sum of both as a byte; in a game without
+     * former classes (dkk 580d:006e) each with a level, "0" for none. */
     char levels[256] = "";
-    bool any = false;
+    bool any = false, former = cok_levels_former_classes(cok_game_rules(game));
     for (int i = 0; i < 8; ++i) {
         int8_t now = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i),
-               before_level = cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, i);
-        if (now <= 0 && !(before_level < first_level(L, c) && before_level > 0)) continue;
+               before_level = former ? cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, i) : 0;
+        if (now <= 0 && !(former && before_level < first_level(L, c) && before_level > 0))
+            continue;
         char value[8];
         snprintf(value, sizeof value, "%u", (uint8_t)(now + before_level));
         if (any) append(levels, "/");
         append(levels, value);
         any = true;
     }
+    if (!any && !former) append(levels, "0");
     draw(game, levels, 7, 7, 15);
     uint32_t bits = cok_field_u32(L, c, COK_FIELD_EXPERIENCE);
     int32_t experience = bits > INT32_MAX ? -(int32_t)(~bits) - 1 : (int32_t)bits;

@@ -397,6 +397,9 @@ static uint16_t character_field(const cok_ecl *vm, uint16_t address, bool *found
     const cok_character_layout *L = layout(vm);
     cok_field f = (cok_field)e->field;
     long k = element(e, field);
+    /* A field of the spells' block reads 0 from a record that holds none
+     * (dkk 3c1e:073a tests its pointer). */
+    if (cok_field_in_spells(L, f) && !cok_field_has_spells(L, c)) return 0;
     switch (e->read) {
     case COK_ECL_FIELD_U8: return cok_field_u8_at(L, c, f, k);
     case COK_ECL_FIELD_S8: return (uint16_t)(int16_t)cok_field_s8_at(L, c, f, k);
@@ -493,6 +496,8 @@ static void store_character(cok_ecl *vm, uint16_t address, uint16_t value)
     const cok_character_layout *L = layout(vm);
     cok_field f = (cok_field)e->field;
     long k = element(e, field);
+    /* And takes no write there (dkk 3c1e:0a9a). */
+    if (cok_field_in_spells(L, f) && !cok_field_has_spells(L, c)) return;
     switch (e->write) {
     case COK_ECL_FIELD_U8: cok_field_set8_at(L, c, f, k, (uint8_t)value); break;
     case COK_ECL_FIELD_U16: cok_field_set16_at(L, c, f, k, value); break;

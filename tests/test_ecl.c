@@ -1023,7 +1023,8 @@ static void test_death_knights_handlers(void)
 }
 
 /* Death Knights' character fields (dkk 3c1e:073a, 0a9a), on a record of
- * its own built by hand: each read and write at its offset. */
+ * its own built by hand: each read and write at its offset; the spells
+ * memorized in the spells' block. */
 static void test_death_knights_fields(void)
 {
     cok_ecl_init(&vm, DK, NULL);
@@ -1118,6 +1119,21 @@ static void test_death_knights_fields(void)
     cok_ecl_store(&vm, 0x7c71, 9);
     cok_ecl_store(&vm, 0x7d1a, 9);
     CHECK(memcmp(record, expected, sizeof record) == 0 && vm.mem7c00[0x71] == 9);
+    /* The spells memorized, 0x7c1b-0x7c64, in the spells' block after the
+     * record (+0xd8): read and written while the record holds one; 0 and
+     * no write without (3c1e:073a and 0a9a test the pointer +0xc2). */
+    const cok_character_layout *L = DK->character;
+    cok_field_set_spells(L, record, true);
+    record[0xd8] = 0x21;
+    record[0xd8 + 0x49] = 0x22;
+    CHECK(cok_ecl_load_var(&vm, 0x7c1b) == 0x21 && cok_ecl_load_var(&vm, 0x7c64) == 0x22);
+    cok_ecl_store(&vm, 0x7c1c, 0x33);
+    CHECK(record[0xd9] == 0x33);
+    cok_field_set_spells(L, record, false);
+    record[0xd8] = 0x21;
+    CHECK(cok_ecl_load_var(&vm, 0x7c1b) == 0 && cok_ecl_load_var(&vm, 0x7c1c) == 0);
+    cok_ecl_store(&vm, 0x7c1c, 0x44);
+    CHECK(record[0xd9] == 0);
     vm.character = NULL;
 }
 

@@ -124,6 +124,93 @@ bool cok_character_read(cok_character *character, const cok_rules *rules, const 
                                    error, error_size);
 }
 
+/* Read the spells' block of a game that keeps one from base's file of
+ * its own (dkk 46b2:10d7, with a saved character's record: .WIZ), if
+ * there is one: what there is of it, the rest 0 (the original reads it
+ * into a block it does not clear, saying "problem openning magic file"
+ * when it is short). The record then holds a block. */
+static bool read_spells(cok_character *character, const cok_rules *rules, const char *dir,
+                        const char *base, char *error, size_t error_size)
+{
+    const cok_character_layout *L = rules->character;
+    if (L->spells_size == 0) return true;
+    char path[4096];
+    snprintf(path, sizeof path, "%s/%s.%s", dir, base, rules->saves.spells);
+    bool missing;
+    size_t size = 0;
+    uint8_t *data = read_file(path, &size, &missing);
+    if (data == NULL) {
+        if (missing) return true;
+        fail(error, error_size, "%s: cannot read", path);
+        return false;
+    }
+    cok_field_set_spells(L, character->record, true);
+    memcpy(character->record + L->spells_offset, data,
+           size < L->spells_size ? size : L->spells_size);
+    free(data);
+    return true;
+}
+
+/* Read the items and effects of base (4b6d:11e5, dkk 46b2:10d7) with the
+ * rules' extensions, the items but those of a type in dropped (a set of
+ * 32 bytes, or NULL). */
+static bool read_items_effects(cok_character *character, const cok_rules *rules, const char *dir,
+                               const char *base, const uint8_t *dropped, char *error,
+                               size_t error_size)
+{
+    char path[4096];
+    uint8_t *items, *effects;
+    snprintf(path, sizeof path, "%s/%s.%s", dir, base, rules->saves.items);
+    if (!read_records(path, COK_ITEM_SIZE, &items, &character->item_count, error, error_size))
+        return false;
+    character->items = (uint8_t (*)[COK_ITEM_SIZE])(void *)items;
+    if (dropped != NULL) {
+        size_t kept = 0;
+        for (size_t i = 0; i < character->item_count; ++i) {
+            uint8_t type = character->items[i][0x2e];
+            if ((dropped[type >> 3] >> (type & 7) & 1) != 0) continue;
+            if (kept != i) memcpy(character->items[kept], character->items[i], COK_ITEM_SIZE);
+            ++kept;
+        }
+        character->item_count = kept;
+    }
+    snprintf(path, sizeof path, "%s/%s.%s", dir, base, rules->saves.effects);
+    size_t effect_count;
+    if (!read_records(path, COK_EFFECT_SIZE, &effects, &effect_count, error, error_size))
+        return false;
+    /* 4b6d:11e5 links each record read, keeping its first five bytes. */
+    for (size_t i = 0; i < effect_count; ++i) {
+        const uint8_t *e = effects + i * COK_EFFECT_SIZE;
+        if (cok_character_add_effect(character, e[0], u16(e + 1), e[3], e[4] != 0) == NULL) {
+            free(effects);
+            fail(error, error_size, "%s: out of memory", path);
+            return false;
+        }
+    }
+    free(effects);
+    return true;
+}
+
+/* The recompute a loaded character ends with (4b6d:11e5, dkk 46b2:10d7):
+ * its stats, then its levels. Death Knights' also recomputes its strength
+ * between them (638c:16d8 with 0), which the port does not yet (it holds
+ * no effects engine here): from the base score, the items and a STRENGTH
+ * effect, as the record already holds it but where Death Knights' rule
+ * differs from Champions' (the classes that may have exceptional
+ * strength). */
+static bool recompute(cok_character *character, const cok_rules *rules,
+                      const cok_item_types *types, const char *path, char *error,
+                      size_t error_size)
+{
+    char why[200];
+    if (!cok_character_stats(character, rules, types, why, sizeof why) ||
+        !cok_character_levels(character, rules, types, why, sizeof why)) {
+        fail(error, error_size, "%s: %s", path, why);
+        return false;
+    }
+    return true;
+}
+
 bool cok_character_read_file(cok_character *character, const cok_rules *rules, const char *dir,
                              const char *base, const char *extension,
                              const cok_item_types *types, char *error, size_t error_size)
@@ -142,40 +229,75 @@ bool cok_character_read_file(cok_character *character, const cok_rules *rules, c
     /* The original reads what there is into a zeroed record. */
     memcpy(character->record, data, size < L->file_size ? size : L->file_size);
     free(data);
-    /* Pointers left in the file: effects, items, the combat record, next. */
+    /* Pointers left in the file: effects, items, the combat record, next;
+     * and the spells' block's, set again if its file is there. */
     static const cok_field pointers[] = {COK_FIELD_EFFECTS, COK_FIELD_ITEMS, COK_FIELD_COMBAT,
                                          COK_FIELD_NEXT};
     for (size_t i = 0; i < sizeof pointers / sizeof *pointers; ++i)
         memset(character->record + cok_field_offset(L, pointers[i]), 0,
                cok_field_size(L, pointers[i]));
-    uint8_t *items, *effects;
-    snprintf(path, sizeof path, "%s/%s.%s", dir, base, rules->saves.items);
-    if (!read_records(path, COK_ITEM_SIZE, &items, &character->item_count, error, error_size))
+    if (L->spells_size != 0) cok_field_set_spells(L, character->record, false);
+    if (!read_spells(character, rules, dir, base, error, error_size) ||
+        !read_items_effects(character, rules, dir, base, NULL, error, error_size))
         return false;
-    character->items = (uint8_t (*)[COK_ITEM_SIZE])(void *)items;
-    snprintf(path, sizeof path, "%s/%s.%s", dir, base, rules->saves.effects);
-    size_t effect_count;
-    if (!read_records(path, COK_EFFECT_SIZE, &effects, &effect_count, error, error_size))
+    /* The original flushes the keyboard (1614:045c), then recomputes. */
+    snprintf(path, sizeof path, "%s/%s.%s", dir, base, extension);
+    return recompute(character, rules, types, path, error, error_size);
+}
+
+bool cok_character_import(cok_character *character, const cok_rules *rules, const char *dir,
+                          const char *base, const char *extension,
+                          const cok_item_types *types, char *error, size_t error_size)
+{
+    const cok_rules_import *I = rules->characters.import;
+    assert(I != NULL && "the game imports no other game's characters");
+    const cok_character_layout *L = rules->character, *from = I->from->character;
+    memset(character, 0, sizeof *character);
+    char path[4096];
+    snprintf(path, sizeof path, "%s/%s.%s", dir, base, extension);
+    bool missing;
+    size_t size = 0;
+    uint8_t *data = read_file(path, &size, &missing);
+    if (data == NULL) {
+        fail(error, error_size, "%s: %s", path, missing ? "not found" : "cannot read");
         return false;
-    /* 4b6d:11e5 links each record read, keeping its first five bytes. */
-    for (size_t i = 0; i < effect_count; ++i) {
-        const uint8_t *e = effects + i * COK_EFFECT_SIZE;
-        if (cok_character_add_effect(character, e[0], u16(e + 1), e[3], e[4] != 0) == NULL) {
-            free(effects);
-            fail(error, error_size, "%s: out of memory", path);
-            return false;
+    }
+    /* Read into a block of the other game's record zeroed, as much as
+     * there is. */
+    uint8_t other[COK_CHARACTER_MAX] = {0};
+    memcpy(other, data, size < from->file_size ? size : from->file_size);
+    free(data);
+    uint8_t *c = character->record;
+    for (size_t i = 0; i < I->move_count; ++i) {
+        const cok_rules_move *m = &I->moves[i];
+        assert(m->to + m->count <= L->file_size && m->from + m->count <= from->file_size);
+        memcpy(c + m->to, other + m->from, m->count);
+    }
+    /* The pointers moved with the rest: effects, items, next, combat and
+     * the spells' block. */
+    static const cok_field pointers[] = {COK_FIELD_ITEMS, COK_FIELD_EFFECTS, COK_FIELD_COMBAT,
+                                         COK_FIELD_NEXT};
+    for (size_t i = 0; i < sizeof pointers / sizeof *pointers; ++i)
+        memset(c + cok_field_offset(L, pointers[i]), 0, cok_field_size(L, pointers[i]));
+    cok_field_set_spells(L, c, false);
+    uint8_t class_ = cok_field_u8(L, c, COK_FIELD_CLASS);
+    bool spells = true;
+    for (const uint8_t *k = I->no_spells; *k != 0xff; ++k)
+        if (class_ == *k) spells = false;
+    if (spells) {
+        cok_field_set_spells(L, c, true);
+        for (size_t i = 0; i < I->spell_move_count; ++i) {
+            const cok_rules_move *m = &I->spell_moves[i];
+            assert(m->to + m->count <= L->spells_size && m->from + m->count <= from->file_size);
+            memcpy(c + L->spells_offset + m->to, other + m->from, m->count);
         }
     }
-    free(effects);
-    /* The original flushes the keyboard (1614:045c), then recomputes. */
-    char why[200];
-    if (!cok_character_stats(character, rules, types, why, sizeof why) ||
-        !cok_character_levels(character, rules, types, why, sizeof why)) {
-        snprintf(path, sizeof path, "%s/%s.%s", dir, base, extension);
-        fail(error, error_size, "%s: %s", path, why);
+    uint8_t race = cok_field_u8(L, c, COK_FIELD_RACE);
+    if (race < I->race_count && cok_field_u16(L, c, COK_FIELD_AGE) > I->ages[race][0])
+        cok_field_set16(L, c, COK_FIELD_AGE, I->ages[race][1]);
+    if (!read_items_effects(character, I->from, dir, base, I->dropped_items, error, error_size))
         return false;
-    }
-    return true;
+    return recompute(character, rules, types, path, error, error_size);
 }
 
 void cok_character_free(cok_character *character)
@@ -528,6 +650,36 @@ static void encumbrance(lookup *l, const cok_character_layout *L, uint8_t *c)
     if (limit < movement) cok_field_set8(L, c, COK_FIELD_MOVEMENT, limit);
 }
 
+/* dkk 65cd:1241, which Death Knights' stats run where Champions' run
+ * 6346:03e6: the movement again from the base movement, the readied
+ * armour and the load, doubled by effect 0x27, halved by 0x2a and doubled
+ * by 0x09 (as bytes); then, for one on the party's side, plus var 0x7f72
+ * (DS:8c31 + DS:862's 0x372), doubled as a byte for combat (DS:be6f), of
+ * which 65cd:0e46 keeps half: the movement & 0x7f. The port's stats have
+ * no ECL variables: var 0x7f72 counts as 0, which no Death Knights script
+ * changes and its saved games hold (step 3 gives it). */
+static void death_knights_movement(lookup *l, const cok_character_layout *L,
+                                   cok_character *character, const cok_item_types *types)
+{
+    uint8_t *c = character->record;
+    cok_field_set8(L, c, COK_FIELD_MOVEMENT, cok_field_u8(L, c, COK_FIELD_BASE_MOVEMENT));
+    for (size_t i = 0; i < character->item_count && !l->failed; ++i) {
+        const uint8_t *item = character->items[i];
+        if (item[0x34] == 0) continue;
+        const uint8_t *type = item_type(l, types, item);
+        if (type == NULL) return;
+        armour_movement(L, item, type, c);
+    }
+    encumbrance(l, L, c);
+    uint8_t m = cok_field_u8(L, c, COK_FIELD_MOVEMENT);
+    if (cok_character_find_effect(character, 0x27) != NULL) m = (uint8_t)(m << 1);
+    if (cok_character_find_effect(character, 0x2a) != NULL) m = (uint8_t)(m >> 1);
+    if (cok_character_find_effect(character, 0x09) != NULL) m = (uint8_t)(m << 1);
+    uint8_t bonus = 0; /* var 0x7f72, for one with HOSTILE 0 */
+    if (cok_field_u8(L, c, COK_FIELD_HOSTILE) == 0) m = (uint8_t)(m + bonus);
+    cok_field_set8(L, c, COK_FIELD_MOVEMENT, (uint8_t)((uint8_t)(m << 1) >> 1));
+}
+
 bool cok_character_stats(cok_character *character, const cok_rules *rules,
                          const cok_item_types *types, char *error, size_t error_size)
 {
@@ -600,12 +752,17 @@ bool cok_character_stats(cok_character *character, const cok_rules *rules,
     }
     /* Magic armour does not add to a ring's bonus. */
     if (magic) ac[3] = 0;
-    encumbrance(&l, L, c);
+    if (rules->characters.stats == COK_STATS_DEATH_KNIGHTS)
+        death_knights_movement(&l, L, character, types);
+    else
+        encumbrance(&l, L, c);
     if (ac[4] < cok_field_u8(L, c, COK_FIELD_AC)) ac[4] = cok_field_s8(L, c, COK_FIELD_AC);
     cok_field_set8(L, c, COK_FIELD_AC, 0);
     for (size_t i = 0; i < 5; ++i) cok_field_add8(L, c, COK_FIELD_AC, ac[i]);
     /* From behind: no dexterity or shield, and 2 worse. */
     cok_field_set8(L, c, COK_FIELD_AC_BEHIND, (uint8_t)(ac[4] + ac[2] + ac[3] - 2));
+    /* Death Knights' has no fighter level (dkk 65cd:0e46 ends here). */
+    if (rules->characters.stats == COK_STATS_DEATH_KNIGHTS) return !l.failed;
     if ((cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 2) > 0 ||
          (cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 2) > 0 &&
           cok_character_former_class(c, rules)) ||
@@ -756,8 +913,10 @@ static void spells(lookup *l, const cok_character_layout *L, cok_character *char
  * level (+0x108) also gets the throws at that level, which for level 0 are
  * the thief's at level 12. Saving throw 0 is then raised by a constitution
  * (+0x19) of 4-18 for races 3, 4 and 5 or with an item of power 6 readied,
- * and by one of 19-25 for everyone. */
-static void saving_throws(lookup *l, const cok_character_layout *L, cok_character *character)
+ * and by one of 19-25 for everyone. Death Knights' (dkk 69a8:08ff) is the
+ * same without the knight's former level (former_knight false). */
+static void saving_throws(lookup *l, const cok_character_layout *L, cok_character *character,
+                          bool former_knight)
 {
     uint8_t *c = character->record;
     bool ward = false;
@@ -776,8 +935,8 @@ static void saving_throws(lookup *l, const cok_character_layout *L, cok_characte
                         "a saving throw");
             if (*save > throw) *save = throw;
         }
-        int8_t former = cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 7);
-        if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > former) {
+        int8_t former = former_knight ? cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 7) : 0;
+        if (former_knight && cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > former) {
             uint8_t throw =
                 ds_byte(l, cok_data_offset3(l->D, COK_DATA_SAVING_THROWS, 7, former, type),
                         "a saving throw");
@@ -877,8 +1036,9 @@ static void thief_skills(lookup *l, const cok_rules *rules, cok_character *chara
     }
 }
 
-bool cok_character_levels(cok_character *character, const cok_rules *rules,
-                          const cok_item_types *types, char *error, size_t error_size)
+/* 66c2:0433. */
+static bool champions_levels(cok_character *character, const cok_rules *rules,
+                             const cok_item_types *types, char *error, size_t error_size)
 {
     lookup l = {error, error_size, false, rules->data};
     const cok_character_layout *L = rules->character;
@@ -898,7 +1058,7 @@ bool cok_character_levels(cok_character *character, const cok_rules *rules,
     if ((deity == 6 && (race == 3 || race == 4)) || deity == 3)
         cok_field_add8(L, c, COK_FIELD_BASE_THAC0, 1);
     spells(&l, L, character);
-    saving_throws(&l, L, character);
+    saving_throws(&l, L, character, true);
     /* 66c2:0b9f's uninitialized local lies where 66c2:08a6 left its class
      * counter, 7. An interrupt between the calls could change it; the
      * characters the original saved show 7. */
@@ -943,11 +1103,207 @@ bool cok_character_levels(cok_character *character, const cok_rules *rules,
     return !l.failed;
 }
 
+/* Death Knights' levels (dkk 69a8:050b and the routines it calls), where
+ * the spells a day lie in the spells' block, 8 levels a spell class. */
+
+/* Add, for each level from first to last, the bytes of DS:base + level *
+ * 8 + k, k from..to, to the spells a day of spell class row, levels
+ * from - shift..to - shift (69a8:0000's loops, DS:7673 + table * 0xcc). */
+static void dkk_add_spells(lookup *l, const cok_character_layout *L, uint8_t *c, long base,
+                           int first, int last, int row, int shift, int from, int to)
+{
+    for (int level = first; level <= last; ++level)
+        for (int k = from; k <= to; ++k)
+            cok_field_add8_at2(L, c, COK_FIELD_SPELLS_A_DAY, row, k - shift,
+                               ds_byte(l, base + level * 8 + k, "spells a day"));
+}
+
+/* The spells a day's table (DS:7673 + table * 0xcc). */
+static long dkk_spells_table(lookup *l, int table)
+{
+    return cok_data_offset3(l->D, COK_DATA_SPELLS_A_DAY, table, 0, 0);
+}
+
+/* Mark the cleric spells of the lists' levels 1 to last with a spell a
+ * day as known: DS:81d9 + level * 10 + k (DS:c755), to the first 0. */
+static void dkk_know_cleric_spells(lookup *l, const cok_character_layout *L, uint8_t *c, int last)
+{
+    for (int level = 1; level <= last; ++level) {
+        if (cok_field_u8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, level) == 0) continue;
+        for (int i = 1; i <= 10; ++i) {
+            uint8_t spell = ds_byte(l, cok_data_offset3(l->D, COK_DATA_SPELL_LISTS, 1, level, i),
+                                    "a cleric spell");
+            if (spell == 0) break;
+            cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, spell, 1);
+        }
+    }
+}
+
+/* 69a8:071e: a cleric's spells a day, levels 1-7, with the bonus spells
+ * for wisdom 13 and up, as Champions' 66c2:0722; nothing without a spells'
+ * block. */
+static void dkk_cleric_spells(lookup *l, const cok_character_layout *L, uint8_t *c)
+{
+    int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0);
+    if (!cok_field_has_spells(L, c) || level <= 0) return;
+    int table = cok_field_s8(L, c, COK_FIELD_DEITY) > 4;
+    for (int k = 2; k <= 7; ++k) cok_field_set8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, k, 0);
+    cok_field_set8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, 1, (uint8_t)(table + 1));
+    dkk_add_spells(l, L, c, dkk_spells_table(l, table), 2, level, 0, 0, 1, 7);
+    uint8_t wisdom = cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_WISDOM);
+    bonus_spell(L, c, wisdom > 12, 1);
+    bonus_spell(L, c, wisdom > 13, 1);
+    bonus_spell(L, c, wisdom > 14, 2);
+    bonus_spell(L, c, wisdom > 15, 2);
+    bonus_spell(L, c, wisdom > 16, 3);
+    bonus_spell(L, c, wisdom > 17, 4);
+}
+
+/* 69a8:0000: the spells a day and the spells known without learning,
+ * in the spells' block (nothing without one): a cleric's (table 0, or 1
+ * with a deity above 4), levels 1-7, with all cleric spells of those
+ * levels known; a paladin's (class 3) from level 9 (table 10, cleric
+ * spells 1-4); a knight's from level 6 unless of order 1 (table 4 for
+ * order 2, else 5), levels 1-7; a ranger's from level 8 (table 6: druid
+ * spells 1-4, mage spells 1-4), with the druid spells of the levels it has
+ * known (the spell table's class 1 and level, DS:6a80); a mage's (table 7
+ * for order 1, else 8), levels 1-8. No item doubles them. */
+static void dkk_spells(lookup *l, const cok_character_layout *L, uint8_t *c)
+{
+    if (!cok_field_has_spells(L, c)) return;
+    memset(c + cok_field_offset(L, COK_FIELD_SPELLS_A_DAY), 0,
+           cok_field_size(L, COK_FIELD_SPELLS_A_DAY));
+    for (int class = 0; class <= 7; ++class) {
+        int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, class);
+        if (level <= 0) continue;
+        if (class == 0) {
+            int table = cok_field_s8(L, c, COK_FIELD_DEITY) > 4;
+            cok_field_add8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 0, 1, 1);
+            dkk_add_spells(l, L, c, dkk_spells_table(l, table), 2, level, 0, 0, 1, 7);
+            dkk_cleric_spells(l, L, c);
+            dkk_know_cleric_spells(l, L, c, 7);
+        } else if (class == 3) {
+            if (level <= 8) continue;
+            dkk_add_spells(l, L, c, dkk_spells_table(l, 10), 9, level, 0, 0, 1, 4);
+            dkk_know_cleric_spells(l, L, c, 4);
+        } else if (class == 7) {
+            uint8_t order = cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER);
+            if (level <= 5 || order == 1) continue;
+            dkk_add_spells(l, L, c, dkk_spells_table(l, order == 2 ? 4 : 5), 6, level, 0, 0, 1,
+                           7);
+            dkk_know_cleric_spells(l, L, c, 7);
+        } else if (class == 4) {
+            if (level <= 7) continue;
+            /* Table 6's columns 1-4 are druid spells, 5-8 mage spells 1-4. */
+            dkk_add_spells(l, L, c, dkk_spells_table(l, 6), 8, level, 1, 0, 1, 4);
+            dkk_add_spells(l, L, c, dkk_spells_table(l, 6), 8, level, 3, 4, 5, 8);
+            const cok_data_segment *D = l->D;
+            for (size_t spell = 1; spell <= 0x72; ++spell) {
+                if (cok_data_u8_at2(D, COK_DATA_SPELLS, spell, 0) != 1) continue;
+                /* +0xc3 + the spell's level, signed: unbounded. */
+                long at = cok_field_offset_unchecked(
+                    L, COK_FIELD_SPELLS_A_DAY, 1,
+                    (int8_t)cok_data_u8_at2(D, COK_DATA_SPELLS, spell, 1));
+                if (at >= 0 && at < L->size && c[at] != 0)
+                    cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, spell, 1);
+            }
+        } else if (class == 5) {
+            int table = cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER) == 1 ? 7 : 8;
+            cok_field_add8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 3, 1, 1);
+            dkk_add_spells(l, L, c, dkk_spells_table(l, table), 2, level, 3, 0, 1, 8);
+        }
+    }
+}
+
+/* 69a8:0b3d: the thief skills for the thief level, from the tables by
+ * level (DS:72ab), race (DS:7343) and, for skills 1-5, dexterity
+ * (DS:734e), as bytes; no items count. */
+static void dkk_thief_skills(lookup *l, const cok_character_layout *L, uint8_t *c)
+{
+    int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 6);
+    int race = cok_field_s8(L, c, COK_FIELD_RACE);
+    uint8_t dex = cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_DEXTERITY);
+    for (int skill = 1; skill <= 8; ++skill) {
+        uint8_t value =
+            (uint8_t)(ds_byte(l, cok_data_offset2(l->D, COK_DATA_THIEF_LEVEL, level, skill),
+                              "a thief skill") +
+                      ds_byte(l, cok_data_offset2(l->D, COK_DATA_THIEF_RACE, race, skill),
+                              "a thief skill"));
+        if (skill < 6)
+            value = (uint8_t)(value + ds_byte(l, cok_data_offset2(l->D, COK_DATA_THIEF_DEXTERITY,
+                                                                  dex, skill),
+                                              "a thief skill"));
+        cok_field_set8_at(L, c, COK_FIELD_THIEF_SKILL, skill, value);
+    }
+}
+
+/* dkk 69a8:050b: as Champions' 66c2:0433 but that fighters, paladins
+ * (class 3) and knights above level 6 get 3 base attacks, 4 from level
+ * 13; the spells, saving throws and thief skills are its own; the usable
+ * classes are those with a level; there are no former classes; and the
+ * highest level is found again at the end. */
+static bool death_knights_levels(cok_character *character, const cok_rules *rules,
+                                 const cok_item_types *types, char *error, size_t error_size)
+{
+    lookup l = {error, error_size, false, rules->data};
+    const cok_character_layout *L = rules->character;
+    uint8_t *c = character->record;
+    cok_field_set8(L, c, COK_FIELD_BASE_THAC0, 0);
+    for (int class = 0; class <= 7; ++class) {
+        int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, class);
+        uint8_t thac0 = ds_byte(&l, cok_data_offset2(l.D, COK_DATA_THAC0, class, level), "THAC0");
+        if (thac0 > cok_field_u8(L, c, COK_FIELD_BASE_THAC0))
+            cok_field_set8(L, c, COK_FIELD_BASE_THAC0, thac0);
+        if (class == 2 || class == 7 || class == 3) {
+            if (level > 6) cok_field_set8_at(L, c, COK_FIELD_BASE_ATTACKS, 1, level < 13 ? 3 : 4);
+        } else if (class == 4 && level > 7) {
+            cok_field_set8_at(L, c, COK_FIELD_BASE_ATTACKS, 1, 3);
+        }
+    }
+    uint8_t deity = cok_field_u8(L, c, COK_FIELD_DEITY), race = cok_field_u8(L, c, COK_FIELD_RACE);
+    if ((deity == 6 && (race == 3 || race == 4)) || deity == 3)
+        cok_field_add8(L, c, COK_FIELD_BASE_THAC0, 1);
+    dkk_spells(&l, L, c);
+    saving_throws(&l, L, character, false);
+    if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 6) > 0) dkk_thief_skills(&l, L, c);
+    cok_field_set8(L, c, COK_FIELD_USABLE_CLASSES, 0);
+    for (int class = 0; class <= 7; ++class)
+        if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, class) > 0)
+            cok_field_add8(L, c, COK_FIELD_USABLE_CLASSES,
+                           cok_data_u8_at(l.D, COK_DATA_CLASS_BITS, class));
+    for (size_t i = 0; i < COK_ITEM_SLOTS && !l.failed; ++i) {
+        uint8_t *item = slot_item(character, i);
+        if (item == NULL) continue;
+        const uint8_t *type = item_type(&l, types, item);
+        if (type == NULL) break;
+        if ((type[13] & cok_field_u8(L, c, COK_FIELD_USABLE_CLASSES)) == 0 && item[0x36] == 0)
+            item[0x34] = 0;
+    }
+    cok_field_set8(L, c, COK_FIELD_HIGHEST_LEVEL, 0);
+    for (int class = 0; class <= 7; ++class)
+        if (cok_field_s8(L, c, COK_FIELD_HIGHEST_LEVEL) <
+            cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, class))
+            cok_field_set8(L, c, COK_FIELD_HIGHEST_LEVEL,
+                           cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, class));
+    return !l.failed;
+}
+
+bool cok_character_levels(cok_character *character, const cok_rules *rules,
+                          const cok_item_types *types, char *error, size_t error_size)
+{
+    if (rules->characters.levels == COK_LEVELS_DEATH_KNIGHTS)
+        return death_knights_levels(character, rules, types, error, error_size);
+    return champions_levels(character, rules, types, error, error_size);
+}
+
 bool cok_character_cleric_spells(cok_character *character, const cok_rules *rules, char *error,
                                  size_t error_size)
 {
     lookup l = {error, error_size, false, rules->data};
-    cleric_spells(&l, rules->character, character->record);
+    if (rules->characters.levels == COK_LEVELS_DEATH_KNIGHTS)
+        dkk_cleric_spells(&l, rules->character, character->record);
+    else
+        cleric_spells(&l, rules->character, character->record);
     return !l.failed;
 }
 
@@ -955,7 +1311,8 @@ bool cok_character_saving_throws(cok_character *character, const cok_rules *rule
                                  size_t error_size)
 {
     lookup l = {error, error_size, false, rules->data};
-    saving_throws(&l, rules->character, character);
+    saving_throws(&l, rules->character, character,
+                  rules->characters.levels == COK_LEVELS_CHAMPIONS);
     return !l.failed;
 }
 
@@ -963,7 +1320,10 @@ bool cok_character_thief_skills(cok_character *character, const cok_rules *rules
                                 char *error, size_t error_size)
 {
     lookup l = {error, error_size, false, rules->data};
-    thief_skills(&l, rules, character, &extra);
+    if (rules->characters.levels == COK_LEVELS_DEATH_KNIGHTS)
+        dkk_thief_skills(&l, rules->character, character->record);
+    else
+        thief_skills(&l, rules, character, &extra);
     return !l.failed;
 }
 
@@ -1209,12 +1569,28 @@ bool cok_character_write_file(const cok_character *character, const cok_rules *r
                               const char *dir, const char *base, const char *extension,
                               char *error, size_t error_size)
 {
+    const cok_character_layout *L = rules->character;
     char path[4096];
     snprintf(path, sizeof path, "%s/%s.%s", dir, base, extension);
     /* The record goes as it is; its far pointers, which the original
-     * writes as they are in memory and its loader clears, are 0 here. */
-    if (!write_file(path, character->record, rules->character->file_size, error, error_size))
-        return false;
+     * writes as they are in memory and its loader clears, are 0 here (the
+     * spells' block's, which the port marks, too). */
+    uint8_t record[COK_CHARACTER_MAX];
+    memcpy(record, character->record, L->file_size);
+    if (L->spells_size != 0)
+        memset(record + cok_field_offset(L, COK_FIELD_SPELLS), 0,
+               cok_field_size(L, COK_FIELD_SPELLS));
+    if (!write_file(path, record, L->file_size, error, error_size)) return false;
+    /* dkk 46b2:0abc erases the spells' file and writes the block again if
+     * the record has one. */
+    if (L->spells_size != 0) {
+        snprintf(path, sizeof path, "%s/%s.%s", dir, base, rules->saves.spells);
+        remove(path);
+        if (cok_field_has_spells(L, character->record) &&
+            !write_file(path, character->record + L->spells_offset, L->spells_size, error,
+                        error_size))
+            return false;
+    }
     /* 169c:0154 erases the items and effects, which are written again only
      * if there are any, each with its next pointer, 0 for the last. */
     snprintf(path, sizeof path, "%s/%s.%s", dir, base, rules->saves.items);

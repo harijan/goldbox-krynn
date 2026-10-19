@@ -1373,6 +1373,7 @@ const cok_rules cok_rules_champions = {
             .roster = "WHO",
             .items = "STF",
             .effects = "SFX",
+            .spells = NULL, /* in the record */
             .debug = "DEBUG.TXT",
         },
     .images =
@@ -1383,6 +1384,12 @@ const cok_rules cok_rules_champions = {
             .frames_ff = 255, /* 127f:1c2f */
         },
     .character = &champions_character,
+    .characters =
+        {
+            .stats = COK_STATS_CHAMPIONS,   /* 6346:0d20 */
+            .levels = COK_LEVELS_CHAMPIONS, /* 66c2:0433 */
+            .import = NULL,
+        },
     .data = &champions_data,
     .ecl =
         {

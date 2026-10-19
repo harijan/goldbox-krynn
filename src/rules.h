@@ -135,8 +135,10 @@ typedef struct {
     const char *game, *game_extension, *character;
     /* A character's files, by extension: its record in a saved game
      * (4b6d:11e5) and in the roster (4def:37a2), its items and its
-     * effects (169c:0154 erases them, 4b6d:11e5 reads them). */
-    const char *record, *roster, *items, *effects;
+     * effects (169c:0154 erases them, 4b6d:11e5 reads them); and its
+     * spells' block, for a game that keeps one (the layout's spells_size;
+     * NULL in Champions). */
+    const char *record, *roster, *items, *effects, *spells;
     /* The debug mode's trace (Woof's Ctrl-D, 1a46:04f7's Assign). */
     const char *debug;
 } cok_rules_saves;
@@ -459,6 +461,63 @@ typedef struct {
     uint16_t tile_base;
 } cok_rules_moons;
 
+/* The routines that recompute a character (party.c), where the games'
+ * differ: each the port's routine of that game's original. */
+typedef enum {
+    /* 6346:0d20: the movement from the armour and the load, then the
+     * highest fighter, ranger or knight level (+0xce). */
+    COK_STATS_CHAMPIONS,
+    /* dkk 65cd:0e46: the movement as 65cd:1241 gives it, with the effects
+     * that double or halve it; no fighter level. */
+    COK_STATS_DEATH_KNIGHTS,
+} cok_stats_routine;
+
+typedef enum {
+    /* 66c2:0433: spells a day to level 5 (66c2:000f), the former classes
+     * of a human who changed class. */
+    COK_LEVELS_CHAMPIONS,
+    /* dkk 69a8:050b: spells a day in the spells' block to level 8 and
+     * paladins' (69a8:0000), a fourth attack, no former classes. */
+    COK_LEVELS_DEATH_KNIGHTS,
+} cok_levels_routine;
+
+/* One run of bytes an import moves from the other game's record to the
+ * game's (or to its spells' block). */
+typedef struct {
+    uint16_t to, from, count;
+} cok_rules_move;
+
+/* How a game imports another's characters (party.c's
+ * cok_character_import), as Death Knights does Champions' (46b2:10d7 with
+ * DS:c468 0): the other game's record, read into a zeroed record of its
+ * size (from's layout) from the other game's saves (from's extensions),
+ * moved run by run into a zeroed record; the spells' block moved too, for
+ * a class not among no_spells; the age capped by race; the items read but
+ * those of the dropped types, and the effects, as they are; then
+ * recomputed as a load does. */
+typedef struct {
+    const struct cok_rules *from;
+    const cok_rules_move *moves, *spell_moves;
+    size_t move_count, spell_move_count;
+    /* Classes (CLASS) that get no spells' block, ended by 0xff. */
+    const uint8_t *no_spells;
+    /* By race, the age above which it is set, and what to: race_count
+     * races, those past them kept. */
+    const uint16_t (*ages)[2];
+    size_t race_count;
+    /* The item types (+0x2e) not imported, as a Pascal set: bit t & 7 of
+     * byte t >> 3. */
+    uint8_t dropped_items[32];
+} cok_rules_import;
+
+/* The game's characters' routines that differ. */
+typedef struct {
+    cok_stats_routine stats;
+    cok_levels_routine levels;
+    /* The import of another game's characters, or NULL. */
+    const cok_rules_import *import;
+} cok_rules_characters;
+
 /* The screens the port draws a frame for (screen.c), each one routine of
  * the original's (Champions' 1128, dkk 110f). */
 typedef enum {
@@ -545,6 +604,7 @@ typedef struct cok_rules {
     cok_rules_images images;
     /* Where each field of a character lies in its record (field.h). */
     const cok_character_layout *character;
+    cok_rules_characters characters;
     /* The tables of the original's data segment the port holds, and where
      * each the code reads lies and its shape (data.h). */
     const cok_data_segment *data;

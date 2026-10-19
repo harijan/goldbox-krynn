@@ -71,15 +71,6 @@ bool cok_monster_read(cok_adventure *game, uint8_t id, cok_character *m)
     memset(m, 0, sizeof *m);
     const cok_rules_archives *a = &cok_game_rules(game)->archives;
     const cok_character_layout *L = cok_game_rules(game)->character;
-    if (L->size == 0) {
-        /* A game whose character record the port does not read yet. */
-        cok_adventure_fail(game, COK_ECL_UNPORTED,
-                           "not yet ported: %s's monsters and NPCs (%s%c%s record %u) need its "
-                           "character record",
-                           cok_game_rules(game)->text.name, a->monster, file_digit(game),
-                           a->monster_record, id);
-        return false;
-    }
     uint8_t *data;
     size_t size;
     if (!monster_part(game, a->monster_record, id, &data, &size)) return false;
@@ -91,22 +82,36 @@ bool cok_monster_read(cok_adventure *game, uint8_t id, cok_character *m)
         cok_adventure_quit(game);
         return false;
     }
-    if (size < L->size) {
+    if (size < L->file_size) {
         free(data);
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
                            "%s%c%s record %u has %zu bytes; 4b6d:161b copies %u, past it",
                            a->monster, file_digit(game), a->monster_record, id, size,
-                           (unsigned)L->size);
+                           (unsigned)L->file_size);
         return false;
     }
-    memcpy(m->record, data, L->size);
+    memcpy(m->record, data, L->file_size);
     free(data);
     /* The far pointers the port does not keep: the items, the effects, the
-     * next record and the combat record (the readied items' are kept). */
+     * next record and the combat record (the readied items' are kept); and
+     * the spells' block's (dkk 46b2:19a2). */
     static const cok_field pointers[] = {COK_FIELD_ITEMS, COK_FIELD_EFFECTS, COK_FIELD_NEXT,
                                          COK_FIELD_COMBAT};
     for (size_t i = 0; i < sizeof pointers / sizeof *pointers; ++i)
         memset(m->record + cok_field_offset(L, pointers[i]), 0, cok_field_size(L, pointers[i]));
+    if (L->spells_size != 0) cok_field_set_spells(L, m->record, false);
+    /* A game that keeps the spells apart (dkk 46b2:19a2): the monster's
+     * spells' block, the record of its id in MON1WIZ if it has one, moved
+     * whole (0xdc bytes; the port takes what there is, the rest 0). */
+    if (a->monster_spells != NULL) {
+        if (!monster_part(game, a->monster_spells, id, &data, &size)) return false;
+        if (size > 0) {
+            cok_field_set_spells(L, m->record, true);
+            memcpy(m->record + L->spells_offset, data,
+                   size < L->spells_size ? size : L->spells_size);
+        }
+        free(data);
+    }
     if (!monster_part(game, a->monster_effects, id, &data, &size)) return false;
     if (size % COK_EFFECT_SIZE != 0) {
         free(data);

@@ -529,6 +529,402 @@ static void test_saved(void)
     }
 }
 
+/* A file's bytes, as many as fit; *size its length, 0 if missing. */
+static size_t read_whole(const char *path, uint8_t *out, size_t size)
+{
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) return 0;
+    size_t n = fread(out, 1, size, f);
+    fclose(f);
+    return n;
+}
+
+/* Whether file a and b hold the same bytes but the far pointers the port
+ * writes 0: those of the record (layout L) for a record, the next
+ * pointers of items (+0x2a) and effects (+5). */
+static bool same_file(const char *a, const char *b, const char *extension,
+                      const cok_character_layout *L)
+{
+    static uint8_t x[4096], y[4096];
+    size_t nx = read_whole(a, x, sizeof x), ny = read_whole(b, y, sizeof y);
+    if (nx != ny) {
+        fprintf(stderr, "%s: %zu bytes, %s %zu\n", a, nx, b, ny);
+        return false;
+    }
+    bool same = true;
+    for (size_t k = 0; k < nx; ++k) {
+        bool pointer = strcmp(extension, "GAM") == 0   ? cok_field_pointer_at(L, (long)k)
+                       : strcmp(extension, "JNK") == 0 ? k % COK_ITEM_SIZE >= 0x2a &&
+                                                             k % COK_ITEM_SIZE < 0x2e
+                       : strcmp(extension, "EFF") == 0 ? k % COK_EFFECT_SIZE >= 5
+                                                       : false;
+        if (pointer || x[k] == y[k]) continue;
+        fprintf(stderr, "%s +0x%03zx: %02x, %s %02x\n", a, k, x[k], b, y[k]);
+        same = false;
+    }
+    return same;
+}
+
+/* Death Knights' character files: the record (.GAM, 216 bytes) with its
+ * spells' block (.WIZ, 220) after it in the port's record, its mark set
+ * while held; the pointers cleared; a short block read as far as it
+ * goes; written back with the block's file only for a record that holds
+ * one, an old one erased. */
+static void test_death_knights_files(void)
+{
+    const cok_rules *R = &cok_rules_death_knights;
+    const cok_character_layout *L = R->character;
+    const cok_item_types *types = load_types();
+    char dir[512], path[600], error[256];
+    CHECK(test_temp_dir(dir, sizeof dir, "cok_party_dkk") != NULL);
+    uint8_t record[0xd8] = {3, 'K', 'A', 'L'}, block[0xdc] = {0};
+    record[0x20] = 6;                     /* human */
+    record[0x47] = 3;                     /* fighter level 3 */
+    record[0x2f] = 12;                    /* base movement */
+    memset(record + 0xc2, 0xbb, 4);       /* a stale pointer to the block */
+    memset(record + 0x3a, 0xcc, 4);       /* to the effects */
+    record[0xd6] = 20;
+    block[0] = 0x11;                      /* a memorized spell */
+    block[0x49 + 5] = 1;                  /* spell 5 known */
+    snprintf(path, sizeof path, "%s/KAL.GAM", dir);
+    write_file(path, record, sizeof record);
+    cok_character c;
+    /* No .WIZ: no block, the stale pointer cleared. */
+    CHECK(cok_character_read(&c, R, dir, "KAL", types, error, sizeof error));
+    CHECK(!cok_field_has_spells(L, c.record) && c.record[0xc2] == 0 && c.record[0xc5] == 0);
+    CHECK(c.record[0x3a] == 0 && c.record[0xd6] == 20);
+    CHECK(cok_field_u8_at(L, c.record, COK_FIELD_MEMORIZED, 0) == 0);
+    /* The stats' movement and the levels' (dkk 65cd:0e46, 69a8:050b). */
+    CHECK(cok_field_u8(L, c.record, COK_FIELD_MOVEMENT) == 12);
+    CHECK(cok_field_u8(L, c.record, COK_FIELD_HIGHEST_LEVEL) == 3);
+    CHECK(cok_field_u8(L, c.record, COK_FIELD_BASE_THAC0) == cok_data_u8_at2(R->data,
+                                                                         COK_DATA_THAC0, 2, 3));
+    cok_character_free(&c);
+    snprintf(path, sizeof path, "%s/KAL.WIZ", dir);
+    write_file(path, block, sizeof block);
+    CHECK(cok_character_read(&c, R, dir, "KAL", types, error, sizeof error));
+    CHECK(cok_field_has_spells(L, c.record) && c.record[0xc2] == 1);
+    CHECK(cok_field_u8_at(L, c.record, COK_FIELD_MEMORIZED, 0) == 0x11);
+    CHECK(cok_field_u8_at(L, c.record, COK_FIELD_KNOWN_SPELL, 5) == 1);
+    /* Written back: the record with its pointers 0, the block. */
+    char out[512];
+    CHECK(test_temp_dir(out, sizeof out, "cok_party_dkk_out") != NULL);
+    CHECK(cok_character_write(&c, R, out, "KAL", error, sizeof error));
+    uint8_t read_back[0x200];
+    snprintf(path, sizeof path, "%s/KAL.GAM", out);
+    CHECK(read_whole(path, read_back, sizeof read_back) == 0xd8);
+    CHECK(read_back[0xc2] == 0 && read_back[0xd6] == 20 && read_back[1] == 'K');
+    snprintf(path, sizeof path, "%s/KAL.WIZ", out);
+    CHECK(read_whole(path, read_back, sizeof read_back) == 0xdc);
+    CHECK(read_back[0] == 0x11 && read_back[0x49 + 5] == 1);
+    /* Without the block, its file is erased and not written again. */
+    cok_field_set_spells(L, c.record, false);
+    CHECK(cok_character_write(&c, R, out, "KAL", error, sizeof error));
+    CHECK(read_whole(path, read_back, sizeof read_back) == 0);
+    cok_character_free(&c);
+    /* A short block: what there is, the rest 0. */
+    snprintf(path, sizeof path, "%s/KAL.WIZ", dir);
+    write_file(path, block, 3);
+    CHECK(cok_character_read(&c, R, dir, "KAL", types, error, sizeof error));
+    CHECK(cok_field_has_spells(L, c.record) &&
+          cok_field_u8_at(L, c.record, COK_FIELD_MEMORIZED, 0) == 0x11 &&
+          cok_field_u8_at(L, c.record, COK_FIELD_KNOWN_SPELL, 5) == 0);
+    cok_character_free(&c);
+    static const char *const files[] = {"KAL.GAM", "KAL.WIZ"};
+    for (size_t i = 0; i < 2; ++i) {
+        snprintf(path, sizeof path, "%s/%s", dir, files[i]);
+        remove(path);
+        snprintf(path, sizeof path, "%s/%s", out, files[i]);
+        remove(path);
+    }
+    CHECK(rmdir(dir) == 0 && rmdir(out) == 0);
+}
+
+/* Death Knights' recompute by hand: the movement with effects 0x27 and
+ * 0x09 doubling it and 0x2a halving it (65cd:1241); a fighter's base
+ * attacks, 3 from level 7 and 4 from 13 (69a8:050b); a ranger's spells a
+ * day from level 8, table 6's druid and mage columns (69a8:0000). */
+static void test_death_knights_recompute(void)
+{
+    const cok_rules *R = &cok_rules_death_knights;
+    const cok_character_layout *L = R->character;
+    const cok_data_segment *D = R->data;
+    const cok_item_types *types = load_types();
+    char error[256];
+    cok_character c;
+    memset(&c, 0, sizeof c);
+    uint8_t *r = c.record;
+    cok_field_set8(L, r, COK_FIELD_RACE, 6);
+    cok_field_set8(L, r, COK_FIELD_BASE_MOVEMENT, 12);
+    CHECK(cok_character_stats(&c, R, types, error, sizeof error));
+    CHECK(cok_field_u8(L, r, COK_FIELD_MOVEMENT) == 12);
+    CHECK(cok_character_add_effect(&c, 0x2a, 0, 0, false) != NULL);
+    CHECK(cok_character_stats(&c, R, types, error, sizeof error));
+    CHECK(cok_field_u8(L, r, COK_FIELD_MOVEMENT) == 6);
+    CHECK(cok_character_add_effect(&c, 0x27, 0, 0, false) != NULL);
+    CHECK(cok_character_stats(&c, R, types, error, sizeof error));
+    CHECK(cok_field_u8(L, r, COK_FIELD_MOVEMENT) == 12);
+    CHECK(cok_character_add_effect(&c, 0x09, 0, 0, false) != NULL);
+    CHECK(cok_character_stats(&c, R, types, error, sizeof error));
+    CHECK(cok_field_u8(L, r, COK_FIELD_MOVEMENT) == 24);
+    cok_character_free(&c);
+    /* The fighter's attacks. */
+    static const struct { int8_t level; uint8_t attacks; } fighter[] = {
+        {6, 0}, {7, 3}, {12, 3}, {13, 4}, {18, 4}};
+    for (size_t i = 0; i < sizeof fighter / sizeof *fighter; ++i) {
+        memset(&c, 0, sizeof c);
+        cok_field_set8(L, r, COK_FIELD_RACE, 6);
+        cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 2, (uint8_t)fighter[i].level);
+        CHECK(cok_character_levels(&c, R, types, error, sizeof error));
+        CHECK(cok_field_u8_at(L, r, COK_FIELD_BASE_ATTACKS, 1) == fighter[i].attacks);
+        CHECK(cok_field_u8(L, r, COK_FIELD_HIGHEST_LEVEL) == (uint8_t)fighter[i].level);
+    }
+    /* The ranger of level 12, with a spells' block: druid spells 1-4
+     * (row 1) and mage spells 1-4 (row 3) of DS:7673 + 6 * 0xcc + level
+     * * 8 + k, levels 8-12. */
+    memset(&c, 0, sizeof c);
+    cok_field_set8(L, r, COK_FIELD_RACE, 6);
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 4, 12);
+    cok_field_set_spells(L, r, true);
+    CHECK(cok_character_levels(&c, R, types, error, sizeof error));
+    long base = cok_data_offset3(D, COK_DATA_SPELLS_A_DAY, 6, 0, 0);
+    for (int k = 1; k <= 8; ++k) {
+        unsigned sum = 0;
+        for (int level = 8; level <= 12; ++level) sum += cok_data_held(D, base + level * 8 + k);
+        CHECK(cok_field_u8_at2(L, r, COK_FIELD_SPELLS_A_DAY, k <= 4 ? 1 : 3, k <= 4 ? k : k - 4) ==
+              (uint8_t)sum);
+    }
+    /* Without a block, none. */
+    memset(&c, 0, sizeof c);
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 4, 12);
+    CHECK(cok_character_levels(&c, R, types, error, sizeof error));
+    CHECK(cok_field_u8_at2(L, r, COK_FIELD_SPELLS_A_DAY, 1, 1) == 0);
+}
+
+/* Champions' character imported into Death Knights' (dkk 46b2:10d7): the
+ * record's runs moved, the block made for a class but fighter, thief and
+ * fighter/thief with the memorized and known spells, the age capped by
+ * race, the items of the dropped types left out, the effects kept. */
+static void test_import(void)
+{
+    const cok_rules *R = &cok_rules_death_knights;
+    const cok_character_layout *L = R->character, *C = cok_rules_champions.character;
+    const cok_item_types *types = load_types();
+    char dir[512], path[600], error[256];
+    CHECK(test_temp_dir(dir, sizeof dir, "cok_party_import") != NULL);
+    uint8_t record[COK_CHARACTER_SIZE] = {4, 'C', 'E', 'R', 'A'};
+    cok_field_set8(C, record, COK_FIELD_RACE, 2);       /* elf */
+    cok_field_set8(C, record, COK_FIELD_CLASS, 5);      /* mage */
+    cok_field_set16(C, record, COK_FIELD_AGE, 250);     /* past an elf's 200 */
+    cok_field_set8_at(C, record, COK_FIELD_CLASS_LEVEL, 5, 4);
+    cok_field_set8_at(C, record, COK_FIELD_FORMER_LEVEL, 2, 3);
+    cok_field_set16_at(C, record, COK_FIELD_COINS, 0, 77); /* silver: dropped */
+    cok_field_set16_at(C, record, COK_FIELD_COINS, 5, 9);  /* gems */
+    cok_field_set32(C, record, COK_FIELD_EXPERIENCE, 12345);
+    cok_field_set8(C, record, COK_FIELD_NPC, 0x81);     /* dropped */
+    cok_field_set8(C, record, COK_FIELD_HIT_POINTS, 11);
+    cok_field_set8(C, record, COK_FIELD_MAX_HIT_POINTS, 13);
+    cok_field_set8_at(C, record, COK_FIELD_MEMORIZED, 0, 0x0f);
+    cok_field_set8_at(C, record, COK_FIELD_KNOWN_SPELL, 0x0f, 1);
+    cok_field_set8_at(C, record, COK_FIELD_KNOWN_SPELL, 107, 1);
+    memset(record + cok_field_offset(C, COK_FIELD_ITEMS), 0xaa, 4);
+    snprintf(path, sizeof path, "%s/CERA.WHO", dir);
+    write_file(path, record, sizeof record);
+    uint8_t items[3 * COK_ITEM_SIZE] = {0};
+    items[0x2e] = 0x10;
+    items[COK_ITEM_SIZE + 0x2e] = 42; /* dropped */
+    items[2 * COK_ITEM_SIZE + 0x2e] = 0x11;
+    snprintf(path, sizeof path, "%s/CERA.STF", dir);
+    write_file(path, items, sizeof items);
+    uint8_t effects[COK_EFFECT_SIZE] = {0x2f, 10, 0, 3, 1};
+    snprintf(path, sizeof path, "%s/CERA.SFX", dir);
+    write_file(path, effects, sizeof effects);
+    cok_character c;
+    CHECK(cok_character_import(&c, R, dir, "CERA", "WHO", types, error, sizeof error));
+    const uint8_t *r = c.record;
+    CHECK(r[0] == 4 && memcmp(r + 1, "CERA", 4) == 0);
+    CHECK(cok_field_u8(L, r, COK_FIELD_RACE) == 2 && cok_field_u8(L, r, COK_FIELD_CLASS) == 5);
+    CHECK(cok_field_u16(L, r, COK_FIELD_AGE) == 200);
+    CHECK(cok_field_u8_at(L, r, COK_FIELD_CLASS_LEVEL, 5) == 4);
+    CHECK(cok_field_u8_at(L, r, COK_FIELD_UNDRAINED_LEVEL, 2) == 3);
+    CHECK(cok_field_u16_at(L, r, COK_FIELD_COINS, 5) == 9);
+    CHECK(cok_field_u32(L, r, COK_FIELD_EXPERIENCE) == 12345);
+    CHECK(cok_field_u8(L, r, COK_FIELD_NPC) == 0);
+    CHECK(cok_field_u8(L, r, COK_FIELD_HIT_POINTS) == 11);
+    CHECK(cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS) == 13);
+    CHECK(cok_field_has_spells(L, r));
+    CHECK(cok_field_u8_at(L, r, COK_FIELD_MEMORIZED, 0) == 0x0f);
+    CHECK(cok_field_u8_at(L, r, COK_FIELD_KNOWN_SPELL, 0x0f) == 1);
+    CHECK(cok_field_u8_at(L, r, COK_FIELD_KNOWN_SPELL, 107) == 1);
+    CHECK(cok_field_u8_at(L, r, COK_FIELD_KNOWN_SPELL, 108) == 0);
+    /* A mage of level 4's spells a day, by Death Knights' table 8. */
+    CHECK(cok_field_u8_at2(L, r, COK_FIELD_SPELLS_A_DAY, 3, 1) != 0);
+    CHECK(c.item_count == 2 && c.items[0][0x2e] == 0x10 && c.items[1][0x2e] == 0x11);
+    CHECK(c.effects != NULL && c.effects->id == 0x2f && c.effects->duration == 10 &&
+          c.effects->value == 3 && c.effects->on_remove && c.effects->next == NULL);
+    cok_character_free(&c);
+    /* A fighter gets no block; a dwarf's age is capped at 300. */
+    cok_field_set8(C, record, COK_FIELD_CLASS, 2);
+    cok_field_set8(C, record, COK_FIELD_RACE, 3);
+    cok_field_set16(C, record, COK_FIELD_AGE, 301);
+    snprintf(path, sizeof path, "%s/CERA.WHO", dir);
+    write_file(path, record, sizeof record);
+    CHECK(cok_character_import(&c, R, dir, "CERA", "WHO", types, error, sizeof error));
+    CHECK(!cok_field_has_spells(L, c.record));
+    CHECK(cok_field_u16(L, c.record, COK_FIELD_AGE) == 300);
+    CHECK(cok_field_u8_at(L, c.record, COK_FIELD_MEMORIZED, 0) == 0);
+    cok_character_free(&c);
+    /* A half-elf (5) above 199 becomes 70; at 199 it stays. */
+    cok_field_set8(C, record, COK_FIELD_RACE, 5);
+    cok_field_set16(C, record, COK_FIELD_AGE, 200);
+    write_file(path, record, sizeof record);
+    CHECK(cok_character_import(&c, R, dir, "CERA", "WHO", types, error, sizeof error));
+    CHECK(cok_field_u16(L, c.record, COK_FIELD_AGE) == 70);
+    cok_character_free(&c);
+    cok_field_set16(C, record, COK_FIELD_AGE, 199);
+    write_file(path, record, sizeof record);
+    CHECK(cok_character_import(&c, R, dir, "CERA", "WHO", types, error, sizeof error));
+    CHECK(cok_field_u16(L, c.record, COK_FIELD_AGE) == 199);
+    cok_character_free(&c);
+    CHECK(!cok_character_import(&c, R, dir, "NOBODY", "WHO", types, error, sizeof error));
+    CHECK(strstr(error, "NOBODY.WHO") != NULL);
+    cok_character_free(&c);
+    static const char *const files[] = {"CERA.WHO", "CERA.STF", "CERA.SFX"};
+    for (size_t i = 0; i < 3; ++i) {
+        snprintf(path, sizeof path, "%s/%s", dir, files[i]);
+        remove(path);
+    }
+    CHECK(rmdir(dir) == 0);
+}
+
+/* Death Knights' saved characters (DKKAssets/SAVE): each read and written
+ * again byte for byte but the far pointers; and its recompute: their
+ * derived fields cleared and recomputed (twice, as stats and levels read
+ * each other's) give them back exactly. */
+static void test_death_knights_saved(void)
+{
+    static cok_item_types types;
+    char error[256];
+    if (!cok_item_types_read("DKKAssets/ITEMS", &types, error, sizeof error) ||
+        read_whole("DKKAssets/SAVE/CHRDATA1.GAM", (uint8_t[1]){0}, 1) == 0) {
+        puts("party: no Death Knights saved games in DKKAssets/SAVE; skipped");
+        return;
+    }
+    const cok_rules *R = &cok_rules_death_knights;
+    const cok_character_layout *L = R->character;
+    char out[512];
+    CHECK(test_temp_dir(out, sizeof out, "cok_party_dkk_saved") != NULL);
+    static const char *const names[] = {"CHRDATA1", "CHRDATA2", "CHRDATA3", "CHRDATA4",
+                                        "CHRDATA5", "CHRDATA6", "CHRDATB1", "CHRDATB2",
+                                        "CHRDATB3", "CHRDATB4", "CHRDATB5", "CHRDATB6"};
+    static const char *const extensions[] = {"GAM", "WIZ", "JNK", "EFF"};
+    static const cok_field derived[] = {
+        COK_FIELD_BASE_THAC0, COK_FIELD_SAVING_THROW, COK_FIELD_HIGHEST_LEVEL,
+        COK_FIELD_USABLE_CLASSES, COK_FIELD_SPELLS_A_DAY, COK_FIELD_ITEM_COUNT, COK_FIELD_HANDS,
+        COK_FIELD_SAVE_BONUS, COK_FIELD_WEIGHT, COK_FIELD_THAC0, COK_FIELD_AC,
+        COK_FIELD_AC_BEHIND, COK_FIELD_DICE, COK_FIELD_DICE_SIDES, COK_FIELD_DAMAGE_BONUS,
+        COK_FIELD_MOVEMENT};
+    size_t blocks = 0, thieves = 0;
+    for (size_t i = 0; i < sizeof names / sizeof *names; ++i) {
+        cok_character c;
+        CHECK(cok_character_read(&c, R, "DKKAssets/SAVE", names[i], &types, error,
+                                 sizeof error));
+        blocks += cok_field_has_spells(L, c.record);
+        CHECK(cok_character_write(&c, R, out, names[i], error, sizeof error));
+        for (size_t e = 0; e < 4; ++e) {
+            char a[600], b[600];
+            snprintf(a, sizeof a, "DKKAssets/SAVE/%s.%s", names[i], extensions[e]);
+            snprintf(b, sizeof b, "%s/%s.%s", out, names[i], extensions[e]);
+            CHECK(same_file(a, b, extensions[e], L));
+            remove(b);
+        }
+        uint8_t kept[COK_CHARACTER_MAX];
+        memcpy(kept, c.record, sizeof kept);
+        for (size_t f = 0; f < sizeof derived / sizeof *derived; ++f)
+            if (!cok_field_in_spells(L, derived[f]) || cok_field_has_spells(L, c.record))
+                memset(c.record + cok_field_offset(L, derived[f]), 0x5a,
+                       cok_field_size(L, derived[f]));
+        if (cok_field_s8_at(L, c.record, COK_FIELD_CLASS_LEVEL, 6) > 0) {
+            memset(c.record + cok_field_offset(L, COK_FIELD_THIEF_SKILL), 0x5a, 8);
+            ++thieves;
+        }
+        for (int k = 0; k < 2; ++k)
+            CHECK(cok_character_stats(&c, R, &types, error, sizeof error) &&
+                  cok_character_levels(&c, R, &types, error, sizeof error));
+        for (size_t k = 0; k < L->size; ++k) {
+            if (kept[k] != c.record[k])
+                fprintf(stderr, "%s +0x%03zx: saved %02x, recomputed %02x\n", names[i], k,
+                        kept[k], c.record[k]);
+            CHECK(kept[k] == c.record[k]);
+        }
+        cok_character_free(&c);
+    }
+    /* All but one fighter/thief hold a spells' block; three are thieves. */
+    CHECK(blocks == 11 && thieves == 3);
+    CHECK(rmdir(out) == 0);
+}
+
+/* Champions' saved characters (SAVE/, as roster files) imported into
+ * Death Knights and written as its saved game writes them: the files the
+ * original wrote (DOSBox-X, Add Character to Party, Champions, then Save
+ * Current Game A and B, 2026-10-19), but for the far pointers, hashed
+ * (FNV-1a over the .GAM, .WIZ, .JNK and .EFF, each pointer byte as 0). */
+static void test_import_saved(void)
+{
+    static cok_item_types types;
+    char error[256];
+    if (read_whole("SAVE/CHRDATA1.SAV", (uint8_t[1]){0}, 1) == 0 ||
+        !cok_item_types_read("DKKAssets/ITEMS", &types, error, sizeof error)) {
+        puts("party: no Champions saved games in SAVE or no DKKAssets; import not checked");
+        return;
+    }
+    static const struct {
+        const char *base;
+        uint32_t hash;
+        size_t size;
+    } original[] = {
+        {"CHRDATA1", 0x0d7363e2u, 625}, {"CHRDATA2", 0xafc1a28au, 769},
+        {"CHRDATA3", 0x58714e96u, 760}, {"CHRDATA4", 0x50c65c97u, 495},
+        {"CHRDATA5", 0x30ea8301u, 697}, {"CHRDATA6", 0x1960b77cu, 760},
+        {"CHRDATB1", 0xe2b78197u, 625}, {"CHRDATB2", 0x1abead51u, 445},
+        {"CHRDATB3", 0x2a8939d6u, 445}, {"CHRDATB4", 0x890c94c6u, 454},
+        {"CHRDATB5", 0x144bbbc8u, 243}, {"CHRDATB6", 0x2c214509u, 454},
+    };
+    const cok_rules *R = &cok_rules_death_knights;
+    const cok_character_layout *L = R->character;
+    char out[512];
+    CHECK(test_temp_dir(out, sizeof out, "cok_party_import_saved") != NULL);
+    for (size_t i = 0; i < sizeof original / sizeof *original; ++i) {
+        cok_character c;
+        CHECK(cok_character_import(&c, R, "SAVE", original[i].base, "SAV", &types, error,
+                                   sizeof error));
+        CHECK(cok_character_write(&c, R, out, original[i].base, error, sizeof error));
+        cok_character_free(&c);
+        static const char *const extensions[] = {"GAM", "WIZ", "JNK", "EFF"};
+        uint32_t hash = 0x811c9dc5u;
+        size_t size = 0;
+        for (size_t e = 0; e < 4; ++e) {
+            char path[600];
+            static uint8_t data[4096];
+            snprintf(path, sizeof path, "%s/%s.%s", out, original[i].base, extensions[e]);
+            size_t n = read_whole(path, data, sizeof data);
+            for (size_t k = 0; k < n; ++k) {
+                bool pointer = e == 0   ? cok_field_pointer_at(L, (long)k)
+                               : e == 2 ? k % COK_ITEM_SIZE >= 0x2a && k % COK_ITEM_SIZE < 0x2e
+                               : e == 3 ? k % COK_EFFECT_SIZE >= 5
+                                        : false;
+                hash = (hash ^ (pointer ? 0 : data[k])) * 0x01000193u;
+            }
+            size += n;
+            remove(path);
+        }
+        if (hash != original[i].hash || size != original[i].size)
+            fprintf(stderr, "%s: 0x%08x, %zu bytes\n", original[i].base, hash, size);
+        CHECK(hash == original[i].hash && size == original[i].size);
+    }
+    CHECK(rmdir(out) == 0);
+}
+
 int main(void)
 {
     test_names();
@@ -540,6 +936,11 @@ int main(void)
     test_stats();
     test_levels();
     test_saved();
+    test_death_knights_files();
+    test_death_knights_recompute();
+    test_import();
+    test_death_knights_saved();
+    test_import_saved();
     puts("party tests passed");
     return 0;
 }

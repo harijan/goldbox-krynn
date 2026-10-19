@@ -1052,6 +1052,58 @@ static void test_full_list(void)
     CHECK(drawn);
 }
 
+/* Death Knights' monsters (dkk 46b2:19a2): every record of MON1CHA, its
+ * 216 bytes but the far pointers; the spells' block from MON1WIZ's record
+ * of its id where there is one (none for the others); its effects (SPC)
+ * and items (ITM). Skipped without DKKAssets. */
+static void test_death_knights_monsters(void)
+{
+    static cok_adventure dkk;
+    script quiet = {"", 0, 0, ""};
+    cok_keyboard keys = {scripted, &quiet, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &quiet};
+    FILE *f = fopen("DKKAssets/MON1WIZ.DAX", "rb");
+    if (f == NULL) {
+        puts("monster: DKKAssets not found; Death Knights' monsters not read");
+        return;
+    }
+    fclose(f);
+    CHECK(cok_adventure_open(&dkk, &cok_rules_death_knights, "DKKAssets", &keys, &hooks));
+    const cok_character_layout *L = cok_rules_death_knights.character;
+    size_t read_count = 0, blocks = 0, items = 0, effects = 0;
+    for (unsigned id = 0; id < 256; ++id) {
+        size_t size = 0, wiz_size = 0, spc = 0, itm = 0;
+        bool no_file;
+        uint8_t *data = cok_adventure_find_record(&dkk, "MON1CHA", (uint8_t)id, &size, &no_file);
+        if (data == NULL) continue;
+        CHECK(size == 0xd8);
+        uint8_t *wiz = cok_adventure_find_record(&dkk, "MON1WIZ", (uint8_t)id, &wiz_size, &no_file);
+        free(cok_adventure_find_record(&dkk, "MON1SPC", (uint8_t)id, &spc, &no_file));
+        free(cok_adventure_find_record(&dkk, "MON1ITM", (uint8_t)id, &itm, &no_file));
+        cok_character m;
+        CHECK(cok_monster_read(&dkk, (uint8_t)id, &m));
+        for (size_t i = 0; i < 0xd8; ++i)
+            CHECK(m.record[i] == (cok_field_pointer_at(L, (long)i) ? (i == 0xc2 && wiz != NULL)
+                                                                   : data[i]));
+        CHECK(cok_field_has_spells(L, m.record) == (wiz != NULL));
+        for (size_t i = 0; i < 0xdc; ++i) CHECK(m.record[0xd8 + i] == (wiz != NULL ? wiz[i] : 0));
+        size_t n = 0;
+        for (const cok_effect *e = m.effects; e != NULL; e = e->next) ++n;
+        CHECK(n == spc / COK_EFFECT_SIZE && m.item_count == itm / COK_ITEM_SIZE);
+        ++read_count;
+        blocks += wiz != NULL;
+        items += m.item_count;
+        effects += n;
+        cok_character_free(&m);
+        free(data);
+        free(wiz);
+    }
+    /* MON1CHA's 64 records, 14 with a block of MON1WIZ's, 56 items and
+     * 198 effects. */
+    CHECK(read_count == 64 && blocks == 14 && items == 56 && effects == 198);
+    cok_adventure_close(&dkk);
+}
+
 int main(void)
 {
     open_game();
@@ -1072,6 +1124,7 @@ int main(void)
     test_rob();
     test_combat();
     test_full_list();
+    test_death_knights_monsters();
     cok_adventure_close(&game);
     puts("monster tests passed");
     return 0;
