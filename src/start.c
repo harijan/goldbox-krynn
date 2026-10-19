@@ -31,11 +31,6 @@ static void clear_menu(cok_adventure *game)
     cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 67b5:0c7b */
 }
 
-static void moons(const cok_adventure *game, uint16_t out[3])
-{
-    for (size_t i = 0; i < 3; ++i) out[i] = cok_ecl_var_at(&game->vm, COK_VAR_MOONS, i);
-}
-
 bool cok_start_pick(cok_adventure *game)
 {
     /* 546c:36d2: a click on the party list picks while this asks. */
@@ -174,7 +169,7 @@ static void credits(cok_adventure *game)
         {20, 21, 5, "Musical Driver:"}, {2, 22, 14, "John Halbleib"},
         {20, 22, 14, "Electronic Arts"},
     };
-    cok_screen_credits(&game->screen, &game->view.tiles[4]); /* 1128:0130 */
+    cok_adventure_screen(game, COK_SCREEN_CREDITS); /* 1128:0130 */
     for (size_t i = 0; i < 30; ++i) {
         cok_adventure_log(game, "print", lines[i].text);
         cok_text_string(&game->screen, &game->font, lines[i].text, lines[i].x, lines[i].y,
@@ -331,23 +326,30 @@ void cok_start_mouse(cok_adventure *game)
 
 /* Begin Adventuring (4def:04b2): with a party, the mode back as it was,
  * the frame and party list drawn unless a game was loaded here and the
- * first block will draw them, row 24 cleared and var 0x7ea8 cleared. */
+ * first block will draw them, row 24 cleared and var 0x7ea8 cleared. A
+ * game loaded here gets the game's frame (cok_rules_frame's resumed):
+ * Champions' the adventure frame whatever the mode, in block 0 or off the
+ * map (4def:01b4); Death Knights' by the mode (dkk 49cb:010b). */
 static bool begin(cok_adventure *game, uint8_t mode)
 {
     cok_ecl *vm = &game->vm;
     if (game->party.count == 0 && !game->demo) return false;
     vm->mode = mode;
-    uint16_t phases[3];
-    moons(game, phases);
     if (!vm->keep_vars || game->picture_id == 9) {
         if (vm->mode == 3 && !cok_ecl_flag(vm, COK_VAR_OFF_MAP))
-            cok_screen_big(&game->screen, &game->view.tiles[4], phases); /* 1128:0344 */
+            cok_adventure_screen(game, COK_SCREEN_BIG); /* 1128:0344 */
         else
-            cok_screen_adventure(&game->screen, &game->view.tiles[4], phases); /* 1128:0242 */
+            cok_adventure_screen(game, COK_SCREEN_ADVENTURE); /* 1128:0242 */
         cok_adventure_party(game);
+    } else if (cok_game_rules(game)->frame.resumed == COK_RESUMED_BY_MODE) {
+        if (vm->mode == 0 || vm->mode == 4) {
+            cok_adventure_screen(game, COK_SCREEN_ADVENTURE);
+            cok_adventure_party(game);
+        } else if (vm->mode == 3) {
+            cok_adventure_screen(game, COK_SCREEN_BIG);
+        }
     } else if (cok_ecl_var(vm, COK_VAR_BLOCK) == 0 || cok_ecl_flag(vm, COK_VAR_OFF_MAP)) {
-        /* A game loaded here: the adventure frame whatever the mode. */
-        cok_screen_adventure(&game->screen, &game->view.tiles[4], phases);
+        cok_adventure_screen(game, COK_SCREEN_ADVENTURE);
         cok_adventure_party(game);
     }
     clear_menu(game);
@@ -434,9 +436,7 @@ void cok_start_menu(cok_adventure *game)
     int index = 0;
     for (;;) {
         if (vm->abort) break;
-        uint16_t phases[3];
-        moons(game, phases);
-        cok_screen_frame(&game->screen, &game->view.tiles[4], phases, true); /* 1128:0000 */
+        cok_adventure_screen(game, COK_SCREEN_OPEN); /* 1128:0000 */
         if (vm->character != NULL) cok_adventure_party(game);
         bool on[13];
         flags(game, on);
@@ -497,6 +497,16 @@ static cok_ecl_status adventure(cok_adventure *game)
     return COK_ECL_OK;
 }
 
+void cok_start_redraw(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    if (cok_game_rules(game)->frame.menu_big && vm->mode == 3 && !cok_ecl_flag(vm, COK_VAR_OFF_MAP))
+        cok_adventure_screen(game, COK_SCREEN_BIG);
+    else
+        cok_adventure_screen(game, COK_SCREEN_ADVENTURE);
+    cok_adventure_party(game);
+}
+
 cok_ecl_status cok_start_game(cok_adventure *game, bool woof)
 {
     cok_ecl *vm = &game->vm;
@@ -519,14 +529,7 @@ cok_ecl_status cok_start_game(cok_adventure *game, bool woof)
         } else {
             cok_start_menu(game);
             if (vm->abort) break;
-            /* 1000:024b: main draws the frame and party list again. */
-            uint16_t phases[3];
-            moons(game, phases);
-            if (vm->mode == 3 && !cok_ecl_flag(vm, COK_VAR_OFF_MAP))
-                cok_screen_big(&game->screen, &game->view.tiles[4], phases);
-            else
-                cok_screen_adventure(&game->screen, &game->view.tiles[4], phases);
-            cok_adventure_party(game);
+            cok_start_redraw(game);
         }
         cok_adventure_overlay(game); /* 1000:0282, around 6961:0890 */
         cok_adventure_overlay(game); /* 1000:02b8, around 2fd3:0000 */

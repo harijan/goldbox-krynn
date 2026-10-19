@@ -189,11 +189,12 @@ segment's tables, a section to a concern:
 | `character` | the character record's layout (`src/field.h`): its size, its file's size, and where each field lies | 409 bytes, the fields below |
 | `data` | the original's data segment (`src/data.h`): the tables the port copied from it, by DS offset, and where each table the code reads lies and its shape | 46 tables (`src/data_champions.c`), 58 named; see below |
 | `ecl` | the ECL's opcodes, by opcode byte (`cok_rules_opcode`): what each does (`meaning`, a `cok_ecl_opcode`), the operands its handler loads (or a list over a header of `header` operands, or none ever), the operands a failed `IF` skips with it, and the handler the port does not carry out yet (`unported`, cited); the routines `CALL` runs by address (`calls`); the bytes a variable address holds (`variable_bytes`); the variables code reads and writes by name (`vars`, a `cok_rules_var` each: address, width, elements, the value a flag is off at); what a block's start sets (`start`); the special addresses read and stored (`reads`, `stores`); the selected character's fields at `0x7c00`-`0x7fff` (`character`, a `cok_rules_character_var` each, and `class_bits` for a field of class bits); and three handlers' constants: `COMPARE AND` of strings, `DELAY`'s wait, `HORIZONTAL MENU`'s single item (see ECL scripts) | its 66 opcodes, each its own meaning (`2fd3:0050-36dc`, `3775:1e74`), none unported; `2e10` redraw, `b203` sound, `c01e` step, `c018` wall ahead, `6803` animate (`2fd3:329b`); 2; 53 names, each a word; the portrait 0xff, the rest's encounters 0, magic allowed (`3775:01e8`); 10 reads, 8 stores (`3775:0fca`, `0e06`); 36 entries (`3775:07d9`, `0c00`); values only, the speed's, yes |
-| `view` | the 3D view's tile sets (each one's first and last value, `6e22:01ab`), the wall slot that holds wall types 1-5 and that `LOAD PIECES`' two-set path loads first, whether a record's wall sets share one tile set and whether tile values are moved by the slot's set; the overhead map's tiles; `PICTURE`'s overland map | 1-0x2d, ..., 0x100-0x127 (`DS:1ec2`); slot 1; a tile set each, moved (`69ea:1025`, `1230`); 0x104 and 0x100; 0x79 |
-| `startup` | what startup loads past the font (`3e99:005b`): tile sets from `<tiles>1` and the missiles' icons from `COMSPR`, as (first id, first slot, count) | sets 4 and 0, records 202 and 203; 0-11 into 13-24, 25 into 25 |
+| `view` | the 3D view's tile sets (each one's first and last value, `6e22:01ab`, and the colour each is loaded with as transparent, `tile_transparent`), the wall slot that holds wall types 1-5 and that `LOAD PIECES`' two-set path loads first, whether a record's wall sets share one tile set and whether tile values are moved by the slot's set; the overhead map's tiles; `PICTURE`'s overland map; whether CGA mode has a backdrop of its own (`cga_backdrop`: a line row, no pictures) | 1-0x2d, ..., 0x100-0x127 (`DS:1ec2`), each loaded with 13 transparent (`6e22:0050`); slot 1; a tile set each, moved (`69ea:1025`, `1230`); 0x104 and 0x100; 0x79; yes (`69ea:0184`) |
+| `startup` | what startup loads past the font (`3e99:005b`): tile sets from `<tiles>1` and the missiles' icons from `COMSPR`, as (first id, first slot, count); the icon slots (`icon_slots`, at most `COK_ICON_SLOTS_MAX`, 35) and their table's DS offset, for messages | sets 4 and 0, records 202 and 203; 0-11 into 13-24, 25 into 25; 26 slots at `DS:6172` (`3e99:0466` clears 0xd0 bytes) |
 | `spells` | what is keyed by spell id (`magic.c`, `cast.c`): the ids' count; their names and the spell lists' headings, with their tables' DS offsets and sizes for the messages; each id's handler (`cok_rules_cast`: the port's, a `cok_cast_handler`, and the original's address, or `unported`); the durations not taken from the spell table (`cok_rules_duration`); the spell ids the code names (`ids`, by `cok_named_spell`); the spell lists' sizes; the granted powers' ids; an item power's spell; Display's search; byte 7's values for the caster, one picked and the party | ids 1-0x6b (`DS:2077` + 41 × id, `DS:0bfa` + 41 × level), the handlers `5b04:58ed` stores at `DS:6e3a`, 7 durations (`5b04:0f78`), 23 names; 58 and 49 (`DS:473a`, `4774`); 101-107; above 0x38, 0x17 less (`3afb:04b2`); spells 1-0x38 (`4888:17ae`); 1, 2, 4 (`5b04:127e`) |
 | `effects` | what is keyed by effect id (`effect.c`, `cast.c`, `magic.c`): the ids' count; each id's handler (`cok_rules_effect`, as the spells'); the ids each event runs; the ids the party shares and Prayer's reach; those magic resistance leaves pending; the effect ids the code names (by `cok_named_effect`); Display's ids and texts; the rules' routines a game does not have ported yet (the caster level, the saving throw, magic resistance) | 0x79 (`DS:6b94`, `5b04:58ed` and `3f44:38ea`), events 1-0x18 (`60f4:057c`), 0x15, 0x2d, 0x2e, 0x31 and 0x31 from 6 squares (`60f4:0332`, `0352`), 0x5b and 0x52 (`60f4:04f3`), 80 names, `4888:17ae`'s; none |
 | `moons` | the three moons (`57e4:001e`, `0143`): the days each stays in a phase, and on the frame each one's column and tile | 8, 1, 6 days; columns 8, 19, 30; tiles 0x114 + phase + 10, 6, 14 |
+| `frame` | the screens' frames (`screen.c`), by `cok_screen` (the frame, the open frame, the adventure screen, a big picture's, Memorize's, the spell lists', combat's, the sheet's, the credits'): each a `cok_rules_screen`, the screen drawn under it first, the box cleared (`1128:07e6`) and its lines, rows and columns of tiles (`cok_rules_frame_line`: a tile, or a table by the cell's column or row, and on row 0 the moons), each the frame's `base` + its value; which frame main draws after the start menu (`menu_big`) and Begin Adventuring for a loaded game (`resumed`, a `cok_resumed`) | `1128:0000`-`077c`'s layouts, tiles 0x114 + `DS:0e3a`, `0e62`, `0e7a`, `0ea3`, `0eb0`, `0e8b`, `0ebd`, `0f02`, `0f19` and the code's; the big frame in mode 3 on the map (`1000:024b`); in block 0 or off the map (`4def:01b4`) |
 | `unplayable` | why `cok` cannot play the game yet, or `NULL`: `cok`, and `eclplay`'s title and saved games, refuse it with that message | `NULL` |
 
 A `NULL` stem says the game has no such archive (Death Knights has no
@@ -259,13 +260,30 @@ It holds:
   its named variables, special addresses and character fields (see ECL
   scripts);
 - its view: tile values 1-0xff all from tile set 0 and 0x100-0x12c from
-  the frame's (`DS:43fa`, `4404`, `70eb:01f5`), wall slot 0 first, one tile
+  the frame's (`DS:43fa`, `4404`, `70eb:01f5`), the frame's set loaded
+  with colour 0 transparent, so that its colour 13 shows (the moons'
+  magenta), the others with 13 (`70eb:002f`), wall slot 0 first, one tile
   set of 256 tiles for a record's three wall sets, no tile moved
   (`6d21:0ec5`), the overhead map's 0x119 and 0x129 (`6d21:0000`), the
   overland map's `PICTURE 0x70`;
-- its startup: the frame's tile set alone, `COMSPR` 0-12 into 13-25
-  (`4f9a:00e1` loads 0-21 into 13-34, past the port's 26 icon slots until
-  combat is read);
+- its startup: the frame's tile set alone, `COMSPR` 0-21 into 13-34
+  (`4f9a:00e1`), 35 icon slots (`DS:b474`, cleared at `4f9a:0556`);
+- its frames (`110f`): other tiles of its frame's set, from 0x100: one
+  frame (`110f:0000` with 0; every caller outside `110f` passes 0, so
+  Champions' open frame is the same frame), row 0 from `DS:070c` with the
+  moons, row 23 from `DS:0734`, the sides tile 7 between; the dividers
+  across with their own ends (`DS:075c`: row 16 of the adventure screen
+  `0162` and a big picture's `02ab`, row 2 of the spell lists' `0537`),
+  column 16 from `DS:0784`, the 3D view's box with corners 0-3, rows of 4
+  and columns of 7; Memorize's (`02f8`, `110f:0000` with 2: rows 1-16
+  cleared), combat's (`0345`, `110f:0000` with 1: all cleared, the bottom
+  row 22, column 22 from `DS:07ac`), the sheet's (`0392`: rows 8, 16 and
+  20 inside the sides `DS:07d9` and `07ef` + row, column 19 from `DS:07fe`
+  + row); the credits the frame (`35c6:026e`); after the start menu main
+  draws the adventure screen always (`1000:01d1`), and Begin Adventuring
+  a loaded game's frame by the mode (`49cb:010b`: 0 and 4 the adventure
+  screen and the party list, 3 the big picture's frame); its CGA backdrop
+  is the other modes' (`6d21:0177`: no line row, the pictures drawn);
 - its data segment's tables (`src/data_death_knights.c`): all but the
   treasure templates and the temple's diseases, which it has no
   counterpart of, each with the routine that reads it (see The data
@@ -293,20 +311,28 @@ game has no such spell", "effect") and a variable it has not
 (`cok_monster_read`, whose layout's size is 0) stops the run instead with
 `COK_ECL_UNPORTED` and "not yet ported: Death Knights of Krynn's monsters
 and NPCs (...) need its character record", as do the eight opcodes not
-carried out yet (see ECL scripts). The
-screens' frames are still Champions' (`screen.c`): Death Knights' are
-other tiles of its frame's set (`110f:0000`, `0162`), not read yet.
+carried out yet (see ECL scripts). The party list in its frame is
+Champions' (`6346:07ba`; dkk `65cd:07a5` colours AC and hit points by
+other ranges of its record), drawn with what the port reads of the party.
 `tests/test_death_knights.c` checks the descriptor against
 `build/death-START_FULL.EXE` (its tables byte for byte, the level tables
 following each other without a gap, each table's base in the code that
 reads it, the names, the tile sets' bounds, the
-wall sets' and `SPRIT4`'s files, startup's names, the version; the ECL
+wall sets' and `SPRIT4`'s files, startup's names, the version; the
+frames' tables (each line's tiles a table `110f` reads, by the cell's
+column or row), the moons' offsets in `110f:0000`, the frame's set's
+transparent colour (`70eb:002f`), startup's `COMSPR` loop (`4f9a:07a6`)
+and the icon slots' table it clears (`4f9a:0556`); the ECL
 table, by following the compares of the skips `3c1e:1b48` and the dispatch
 `3632:2a54` for each opcode and reading the operands its handler loads
 first; its `0x7c00` variables' offsets, `DS:836`-`864`; the special
 addresses `3c1e:0d85` compares and `0bc1`'s bound of 49000) and
 `DKKAssets/` (each file and record it names, each picture and wall set in
-the file its id names and no other), and its view's wall sets and tiles;
+the file its id names and no other, `COMSPR`'s icons), its view's wall
+sets and tiles, its frames drawn (every screen's tiles by cell) and its
+CGA backdrop; `tests/test_start.c` Begin Adventuring's frame for a game
+loaded by mode and main's after the start menu, on a copy of Champions'
+descriptor with those fields of Death Knights';
 `tests/test_death_knights.py` the tools over `DKKAssets/` and `eclplay`'s
 runs of its blocks; `tools/dosbox/checks/dkk_views.py` the original (see
 Checks against the original).
@@ -1479,7 +1505,7 @@ for `DS:4b76`, and the tables and variables that go with it):
 | `1521:01df` text (`0e1d`, `0dbd`, `0d1e`) | | write mode 2 | colours through `DS:1de9`: 0 0 0 1 2 2 2 3 0 1 1 1 2 2 3 3 |
 | `1521:0a34`, `0b60`, `1128:07e6` clears | four banks | pages 0 and 1 | two banks |
 | `3e99:0731` startup | `SKY.DAX` 250-252 loaded | the same | none |
-| `69ea:0184` backdrop | 44 rows of sky, 2 of `DS:6d82` (0), 42 of `6d83` (8); the sun, the strip, the horizon | the same | 43 rows of sky, 1 of `DS:6d81`, 2 of `6d82`, 42 of `6d83`, through `DS:1e1e`; no pictures |
+| `69ea:0184` backdrop | 44 rows of sky, 2 of `DS:6d82` (0), 42 of `6d83` (8); the sun, the strip, the horizon | the same | 43 rows of sky, 1 of `DS:6d81`, 2 of `6d82`, 42 of `6d83`, through `DS:1e1e`; no pictures (Death Knights' `6d21:0177`: as in the other modes, the view's `cga_backdrop`) |
 | `6945:012c` after a step | `DS:6d83` 8 | the same | where `DS:884f` is set (a block entered, 0xc059 or 0xc05f written): `6d81` 0 for 0xc05f 8 or 0x41, else 15; `6d82` 8 for 8, else 7; `6d83` 8 for 0xc059 0x0b, 1 for 6, else 6 (`6945:0014`, `0048`, `007c`) |
 | `6d21:0408`, `0478` icons; `4b6d:08e0`, `0938` characters' | colour 8 drawn black (`DS:1e26` to `1e36`) | the same | not |
 | `6961:0497` sprites | colour 13 drawn black (`DS:0dd4` to `0de4`) | the same | not |
@@ -1846,15 +1872,19 @@ with no headings.
 tile set 4, glyphs 0x100-0x127, which the game loads from `8X8D1.DAX` record
 202 at startup (`6e22:0050`). Like every tile set it is loaded with colour 13
 transparent (`127f:0111` with 13 and 1), which clears those pixels; the
-frame is drawn opaque, so they show black. The layouts use tiles 0x14 and
-up; the tables of tile values are at `DS:0e3a`, `0e62`, `0e7a`, `0ea1` and
-`0eae`.
-`cok_screen_frame` (`1128:0000`) clears the inside and draws the border, with
+frame is drawn opaque, so they show black. `cok_screen_draw` draws a
+screen (`cok_screen`) as the game's descriptor lays it out (its `frame`
+section, see Games): the screen under it, the box it clears, then its rows
+and columns of tiles. Champions' use tiles 0x114 and up; the tables of tile
+values are at `DS:0e3a`, `0e62`, `0e7a`, `0ea1` and `0eae`.
+The frame (`1128:0000`) clears the inside and draws the border, with
 the three moons of Krynn on the top row at columns 8, 19 and 30, their tiles
-offset by the phases in game words `0x4cf9`-`0x4cfb`. `cok_screen_adventure`
+offset by the phases in game words `0x4cf9`-`0x4cfb` (the `moons`
+section's). The adventure screen
 (`1128:0242`) adds the divider on row 16, the column 16 divider above it, and
-the box of the 3D view from cell 2 to 14; `cok_screen_big` (`1128:0344`)
-adds only the row 16 divider, for full-width pictures.
+the box of the 3D view from cell 2 to 14; a big picture's (`1128:0344`)
+adds only the row 16 divider, for full-width pictures. `cok_adventure_screen`
+draws one with the game's moons.
 
 `START.EXE` is compressed with EXEPACK. `START.EXE.c` was decompiled from the
 packed file, so its function addresses match the packed bytes, but far calls
@@ -4222,7 +4252,7 @@ digit (`Str` with a width of 1). A missing record says `Unable to load
 monster` on row 24, waits for a key and quits to DOS, as in the original.
 The port stops with `COK_ECL_UNDEFINED` for a record shorter than 409 bytes
 and effects or items that are not whole records (the original reads past
-them), an icon slot past the table's 26 (`DS:6172`), and a 73rd record. With
+them), an icon slot past the game's (26, `DS:6172`), and a 73rd record. With
 no party, where the original writes through `0000:017f`, the monsters start
 the list.
 
@@ -5077,7 +5107,7 @@ missiles and flashes of overlay `6346`. Setup draws the screen
 (`6346:300f`); the rounds and the later parts of combat call the rest at
 the original's points.
 
-The frame (`1128:04c1`, `cok_screen_combat`) clears cells 0-39 of rows
+The frame (`1128:04c1`, `cok_screen_draw`'s `COK_SCREEN_COMBAT`) clears cells 0-39 of rows
 0-23, draws the moons' row as the other frames do, columns 0, 22 and 39 to
 row 22 (`DS:0ebd`, `0ed4` and `0eeb`, which hold the same: tile 3 on row
 1, 4 down to row 20, 5 on row 21), then row 22 across over their ends. Row
@@ -5103,7 +5133,7 @@ drawn whole and clipped.
 
 | Function | Original |
 | --- | --- |
-| `cok_screen_combat` | `1128:04c1` |
+| `cok_screen_draw` (`COK_SCREEN_COMBAT`) | `1128:04c1` |
 | `cok_arena_redraw` | `6346:300f` |
 | `cok_arena_centre` | `6beb:096b`, `07a9`, `00fc`, `6d21:00f7` |
 | `cok_arena_redraw_cell`, `cok_arena_erase` | `6beb:02aa`, `0500` |
@@ -5207,10 +5237,13 @@ same bytes (`cok_combat.under`, `under_set` marking those a save wrote)
 and stops only where a byte no save wrote, which the original takes from
 the heap, would be shown.
 
-Icons are kept by slot (`DS:6172`, `game->icons`): 0-7 the party's, 8 on
+Icons are kept by slot (`DS:6172`, `game->icons`, the game's
+`startup.icon_slots` of them, `cok_icon_slots`: Champions' 26, Death
+Knights' 35): 0-7 the party's, 8 on
 the monsters' groups, 11 the head while a player's icon is built, and
 COMSPR's ids 0-11 in 13-24 and 25 in 25, which `cok_adventure_open` loads
-as the game does at startup (`3e99:06e0`, `072a`). A slot loads
+as the game does at startup (`3e99:06e0`, `072a`; Death Knights' 0-21 in
+13-34, `4f9a:00e1`). A slot loads
 (`6d21:01d0`) records id and id + 0x80 of its file, masked with colour 0
 transparent: for `CHEAD` and `CBODY` followed by a letter, the letter is
 dropped and a T adds 0x40 to the id; `COMSPR` as it is; any other name
@@ -7423,7 +7456,8 @@ keys do not restart the time; past midnight `GetTime` is lower than the
 start and the menu never times out. Then, game after game: the ECL file
 is 1 (`DS:5782`), or 2 with speed 9 for the demonstration; the start menu
 runs until Begin Adventuring, then main draws the frame (`1128:0242`, or
-`1128:0344` in mode 3 without `0x4c38`) and the party list again, and the
+`1128:0344` in mode 3 without `0x4c38`; Death Knights `110f:0162` always,
+the frame section's `menu_big`) and the party list again, and the
 adventure (`2fd3:3c28`) runs from var `0x4bf2`'s block, or 0x24 when it
 is 0 (a new game: Solace). Quitting to DOS in it (camp's `Quit TO DOS`,
 Ctrl-C) halts the program there (`1614:0000`). When it ends (`DS:4b57`:
@@ -7437,7 +7471,7 @@ after it (`33c7:0131`, `1000:0218`) is never reached: nothing jumps there.
 | Function | Original |
 | --- | --- |
 | `cok_start_game` | `1000:0134` |
-| `cok_start_title` | `2f55:063c`, `0000`, `006d`, `0267`; `1128:0130` (`cok_screen_credits`) |
+| `cok_start_title` | `2f55:063c`, `0000`, `006d`, `0267`; `1128:0130` (`COK_SCREEN_CREDITS`) |
 | `cok_start_startup`, `cok_start_reset` | `3e99:005b`, `3e99:0843` |
 | `cok_start_menu`, `cok_start_command` | `4def:01b4` |
 | `cok_start_pick` | `546c:36cc` |
@@ -7513,7 +7547,10 @@ Begin Adventuring needs a party (or the demonstration, which never comes
 here): the mode comes back as it was; the frame (`1128:0344` in mode 3
 without `0x4c38`, else `1128:0242`) and the party list are drawn, unless
 a game was loaded here (`DS:4b52`) and the small picture is not PIC 9 and
-it will draw them (var `0x4bf2` set and `0x4c38` clear); row 24 is
+it will draw them (var `0x4bf2` set and `0x4c38` clear; Death Knights
+draws by the mode instead, `49cb:010b`: 0 and 4 the adventure frame and
+the party list, 3 the big picture's frame, the frame section's
+`resumed`); row 24 is
 cleared and var `0x7ea8` cleared, which closes the hall. From `PROGRAM 0`
 the script goes on (see The overland map). A game loaded in the start
 menu opened by a script replaces the variables and the party, but the
@@ -8521,16 +8558,20 @@ original's behaviour is recorded, its section says what it does):
 Death Knights of Krynn, read headless (see Games), is checked by
 `tools/dosbox/checks/dkk_views.py`, which `run_all.py` (Champions' set)
 does not run: `python3 tools/dosbox/checks/dkk_views.py` (about four
-minutes; DOSBox-X in EGA mode). It compares, with `daxcompose` and
-`eclplay --game death-knights`, the title's first two pictures (`TITLE`
-records 1 and 2, whole screens); the first text of the game where
-`DKKAssets/SAVE/SAVGAMA.PTY` resumes (ECL1 block 16 over the overland map:
-the big picture's region with the cursor, the text window and the menu's
-row); and the 3D view in four places of ECL1, the outpost's gate and a hall
+minutes; DOSBox-X in EGA mode, and two views in CGA mode). It compares,
+with `daxcompose` and `eclplay --game death-knights`, the title's first two
+pictures (`TITLE` records 1 and 2, whole screens); the first text of the
+game where `DKKAssets/SAVE/SAVGAMA.PTY` resumes (ECL1 block 16 over the
+overland map: the whole screen, the big picture's frame with the moons,
+the map with the cursor, the text window and the menu's row); and the 3D
+view with the adventure screen's frame around it (all but the party list
+and the status line, cells 17-38 of rows 1-15, which need a party, the
+text window and the menu's row) in four places of ECL1, the outpost's gate and a hall
 (block 36, wall set 1 from `WALLDEF1`, `8X8D1` and `BACK1`) and the city's
 street and a building (block 32, wall set 2 from the files of 4), out of
 doors (`SKYGRND`'s ground) and in (`BACK`), facing each way the party turns
-there (Move mode): nine views. The port cannot load Death Knights' saved
+there (Move mode): nine views, and the gate's and the hall's first again
+in CGA mode. The port cannot load Death Knights' saved
 games, so each place is a copy of `SAVGAMA.PTY` with the place written in
 (the script says where), which the original resumes; the port runs the
 block's load vector from `LOAD FILES` with its code patched (`--start`,
@@ -8538,8 +8579,14 @@ block's load vector from `LOAD FILES` with its code patched (`--start`,
 stop once the view is shown. All agree, 0 pixels in each region, after two
 fixes the check found: `SKYGRND` and `BACK` are drawn opaque (loaded
 without a mask, `DS:42d0`'s 0, not with colour 0 or the sky's
-transparent), and the overland cursor too (its colour 13 drawn). The
-screens' frames are not compared: the port draws Champions' (see Games).
+transparent), and the overland cursor too (its colour 13 drawn). With the
+frames (see Death Knights), after two more: the frame's tile set keeps its
+colour 13 (loaded with 0 transparent, `70eb:002f`: the middle moon's
+magenta), and the CGA backdrop has no line row and draws the pictures
+(`6d21:0177`). The saved game copies carry the moons' phases the port is
+given (`--set` 0x4cf9-0x4cfb); in block 32, whose script does not draw the
+frame again after eclplay's first, they are the port's own at the start,
+0.
 
 Still to check, with why:
 

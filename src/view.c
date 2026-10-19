@@ -245,12 +245,12 @@ static void near_row(cok_picture *dst, const cok_view *view, unsigned dir, unsig
     }
 }
 
-/* The backdrop (69ea:0184). */
+/* The backdrop (69ea:0184; dkk 6d21:0177, which has no CGA case). */
 static void backdrop(cok_picture *dst, const cok_view *view, int x, int y, unsigned dir,
                      const cok_view_backdrop *b)
 {
     int left = 2 + BUFFER_X, top = BUFFER_Y * 8;
-    if (dst->cga) { /* DS:4b76 0 */
+    if (dst->cga && shape(view)->cga_backdrop) { /* DS:4b76 0 */
         cok_picture_fill(dst, left, top + 0x10, 11, 0x2b, b->sky);
         cok_picture_fill(dst, left, top + 0x3b, 11, 1, b->line);
         cok_picture_fill(dst, left, top + 0x3c, 11, 2, b->horizon);

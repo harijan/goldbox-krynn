@@ -3,9 +3,14 @@
 death-knights (DEVELOPERS.md, "Checks against the original": dkk_views):
 the title's first two pictures; the first text of the game, in the saved
 game DKKAssets/SAVE/SAVGAMA.PTY resumes (ECL1 block 16, over the overland
-map); and the 3D view in three places of ECL1 with two wall sets, out of
-doors (the ground by day, SKYGRND) and in (the wall set's BACK), facing
-each way the party turns there.
+map), the whole screen: the big picture's frame (110f:02ab), the map, the
+text and the menu; and the 3D view in three places of ECL1 with two wall
+sets, out of doors (the ground by day, SKYGRND) and in (the wall set's
+BACK), facing each way the party turns there, with the adventure screen's
+frame (110f:0162) around it: all of it but the party list and the status
+line (cells 17-38 of rows 1-15: the port has no party yet), the text
+window and the menu's row; and two of the places in CGA mode (6d21:0177's
+backdrop, without Champions' line row).
 
 Death Knights is read headless only (DEATH-KNIGHTS.md's step 1): the port
 cannot load its saved games, and the original's game must have a party.
@@ -40,12 +45,17 @@ GAME = ("--game", "death-knights")
 # 3c1e:0d85's 0xc04b-0xc04d), the ECL file (98a2, 15fe:0a9f), the far
 # pointer to the area's variables 0x4b00-0x4eff (8c2d, bytes).
 DS_X, DS_FILE, DS_AREA = 0xC073, 0x98A2, 0x8C2D
-# Regions compared: the view (cells 3-13 across and down, the original's
-# buffer at 1, 1); the big picture's (cells 1-38, rows 1-15), the text
-# window (rows 17-22) and the menu's row 24. The frame is not compared (the
-# port draws Champions').
-VIEW = (24, 24, 88, 88)
-BIG, TEXT, MENU = (8, 8, 304, 120), (8, 136, 304, 48), (0, 192, 320, 8)
+# Regions compared: the whole screen for the text; for the views the
+# adventure screen but the party list and status line (cells 17-38 of rows
+# 1-15), the text window (rows 17-22) and the menu's row 24: row 0 with the
+# moons, cells 0-16 of rows 1-15 (the view's box, the view, the divider),
+# column 39 there, row 16, the sides of rows 17-22, row 23.
+SCREEN = (0, 0, 320, 200)
+FRAME = [(0, 0, 320, 8), (0, 8, 136, 120), (312, 8, 8, 120), (0, 128, 320, 8),
+         (0, 136, 8, 48), (312, 136, 8, 48), (0, 184, 320, 8)]
+# The moons' phases (bytes 0x1f9-0x1fb of the area, 0x4cf9-0x4cfb), which
+# the port takes from the original's.
+MOONS = 0x1F9
 # The start menu (after the title): Load Saved Game, Death's, game A;
 # then Begin Adventuring.
 LOAD_A = ("\\p300.\\p300.\\r\\p300.\\r\\p300.\\r\\p300.\\v\\v\\r\\p300.\\r\\p300.\\r\\p800."
@@ -56,20 +66,23 @@ LOAD_A = ("\\p300.\\p300.\\r\\p300.\\r\\p300.\\r\\p300.\\v\\v\\r\\p300.\\r\\p300
 # bytes of its SAVE to 0xc04b, 0xc04c and 0xc04d; the square and the
 # facings (0-3) seen; the wall set (its id) and map (GEO1 record) the block
 # loads; the area's variables its vector sets (sky colours, the wall sets'
-# path).
+# path); the moons' phases written in the saved game. The port draws the
+# frame before its --set (eclplay: as the run starts), and block 36 draws it
+# again (CLEAR BOX) but block 32 does not: there the phases are the port's
+# own at the start, 0.
 PLACES = [
     dict(name="gate", block=36, start=0x805A, patch={0x8068: 0x2D, 0x8089: 0},
          at=(0x8074, 0x807A, 0x8080), square=(0, 8), facings=(1, 2), wall=1, geo=36,
-         area={0xE7: 1, 0xE8: 1, 0xE9: 1, 0xFD: 4, 0xFE: 12}),
+         area={0xE7: 1, 0xE8: 1, 0xE9: 1, 0xFD: 4, 0xFE: 12}, moons=(1, 3, 0)),
     dict(name="hall", block=36, start=0x805A, patch={0x8068: 0x2D, 0x8089: 0},
          at=(0x8074, 0x807A, 0x8080), square=(5, 4), facings=(0, 1), wall=1, geo=36,
-         area={0xE7: 1, 0xE8: 1, 0xE9: 1, 0xFD: 4, 0xFE: 12}),
+         area={0xE7: 1, 0xE8: 1, 0xE9: 1, 0xFD: 4, 0xFE: 12}, moons=(1, 3, 0)),
     dict(name="city", block=32, start=0x8040, patch={0x804E: 0x2D, 0x806E: 0},
          at=(0x805A, 0x8060, 0x8066), square=(6, 15), facings=(0, 1, 2), wall=2, geo=32,
-         area={0xE7: 1, 0xE8: 1, 0xE9: 1, 0xFB: 0, 0xFD: 4, 0xFE: 10}),
+         area={0xE7: 1, 0xE8: 1, 0xE9: 1, 0xFB: 0, 0xFD: 4, 0xFE: 10}, moons=(0, 0, 0)),
     dict(name="city-in", block=32, start=0x8040, patch={0x804E: 0x2D, 0x806E: 0},
          at=(0x805A, 0x8060, 0x8066), square=(14, 1), facings=(0, 1), wall=2, geo=32,
-         area={0xE7: 1, 0xE8: 1, 0xE9: 1, 0xFB: 0, 0xFD: 4, 0xFE: 10}),
+         area={0xE7: 1, 0xE8: 1, 0xE9: 1, 0xFB: 0, 0xFD: 4, 0xFE: 10}, moons=(0, 0, 0)),
 ]
 
 
@@ -102,18 +115,25 @@ def saved_game(work, place, facing):
     data[1 + 0xC5] = place["geo"]
     for k, v in place["area"].items():
         data[1 + k] = v
+    data[1 + MOONS:1 + MOONS + 3] = bytes(place["moons"])
     data[0xA01:0xA04] = bytes([*place["square"], facing * 2])
     data[0xA08:0xA0C] = bytes([place["wall"], 0, 0, 0])  # slot 0: the wall set
     path.write_bytes(data)
     return saves
 
 
-def port(work, name, place, facing):
+def moons(area):
+    """--set arguments giving the port the moons' phases of AREA."""
+    return [a for i in range(3) for a in ("--set", f"{0x4b00 + MOONS + i:x}={area[MOONS + i]:x}")]
+
+
+def port(work, name, place, facing, area, display="ega"):
     """eclplay's screen at PLACE facing FACING, as a Screen."""
     bmp = work / f"port-{name}.bmp"
     sets = {**place["patch"], place["at"][0]: place["square"][0],
             place["at"][1]: place["square"][1], place["at"][2]: facing}
-    args = ["--file", 1, "--start", f"{place['start']:x}", "--set", "4be6=1"]
+    args = ["--display", display, "--file", 1, "--start", f"{place['start']:x}", "--set",
+            "4be6=1", *moons(area)]
     for k, v in sets.items():
         args += ["--set", f"{k:x}={v:x}"]
     for k, v in place["area"].items():
@@ -146,8 +166,8 @@ def main():
         results.append((name, count))
         print(f"{name}: {count} pixels differ" + (f" in {where}" if where else ""), flush=True)
 
-    def box_for(saves):
-        return cokbox.Box(workdir=work / "box", game="death-knights", machine="ega",
+    def box_for(saves, machine="ega"):
+        return cokbox.Box(workdir=work / "box", game="death-knights", machine=machine,
                           saves=[saves], verbose=opts.verbose, timeout=900)
 
     # The title and the first text.
@@ -176,14 +196,17 @@ def main():
         s = state(box)
         print(f"text: block {s['area'][0xF2]}, file {s['file']}", flush=True)
         bmp = work / "port-text.bmp"
-        subprocess.run([str(cokbox.ECLPLAY), *GAME, "--screen", str(bmp), str(ASSETS), "16"],
+        subprocess.run([str(cokbox.ECLPLAY), *GAME, "--screen", str(bmp), *moons(s["area"]),
+                        str(ASSETS), "16"],
                        check=False, capture_output=True, cwd=ROOT, timeout=120)
         compare("text", box.screenshot(work / "dosbox-text.png"), cokbox.Screen.load(bmp),
-                [BIG, TEXT, MENU])
-    # The places, each facing each way.
-    for place in PLACES:
-        facings = place["facings"]
-        with box_for(saved_game(work, place, facings[0])) as box:
+                [SCREEN])
+    # The places, each facing each way; in CGA mode the first facing of the
+    # gate (out of doors) and the hall (in).
+    runs = [(place, place["facings"], "ega") for place in PLACES]
+    runs += [(place, place["facings"][:1], "cga") for place in PLACES[:2]]
+    for place, facings, display in runs:
+        with box_for(saved_game(work, place, facings[0]), display) as box:
             box.keys(LOAD_A)
             box.wait_input(settle=1.0)
             box.keys("M")  # Move: the arrows turn
@@ -192,7 +215,7 @@ def main():
                     box.keys("\\>")
                 box.wait_input(settle=0.8)
                 s = state(box)
-                name = f"{place['name']}-{facing}"
+                name = f"{place['name']}-{facing}" + ("-cga" if display == "cga" else "")
                 print(f"{name}: block {s['area'][0xF2]}, at {s['x']},{s['y']} facing "
                       f"{s['dir']}", flush=True)
                 if (s["area"][0xF2], s["x"], s["y"], s["dir"]) != \
@@ -200,7 +223,7 @@ def main():
                     results.append((name + " (not there)", 1))
                     continue
                 compare(name, box.screenshot(work / f"dosbox-{name}.png"),
-                        port(work, name, place, facing), [VIEW])
+                        port(work, name, place, facing, s["area"], display), FRAME)
     differ = [r for r in results if r[1]]
     if differ:
         print("VERDICT: DIFFERS new (" + ", ".join(f"{n} {c} pixels" for n, c in differ) + ")")

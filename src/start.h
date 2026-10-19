@@ -66,6 +66,12 @@ void cok_start_title(cok_adventure *game);
  * for what it found on. */
 void cok_start_mouse(cok_adventure *game);
 
+/* What main draws after the start menu (1000:024b): the frame, a big
+ * picture's in mode 3 on the map where the game's does (its frame
+ * section's menu_big; dkk 1000:01d1 the adventure screen's always), else
+ * the adventure screen's, and the party list. */
+void cok_start_redraw(cok_adventure *game);
+
 /* The game as main runs it (1000:0134), after cok_adventure_open: the
  * startup state, the title unless woof (ParamStr(1) 'Woof', which also
  * lets 1614:025b take the debug keys: game->woof), the title

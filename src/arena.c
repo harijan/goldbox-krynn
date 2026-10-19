@@ -304,8 +304,9 @@ bool cok_arena_show(cok_adventure *game)
 bool cok_arena_icon(cok_adventure *game, int8_t x, int8_t y, uint8_t facing, uint8_t image,
                     uint8_t slot)
 {
-    if (slot >= COK_ICON_SLOTS || image > 1)
-        return fail(game, "icon %u of slot %u is past the icons (DS:6172, 6d21:04b0)", image, slot);
+    if (slot >= cok_icon_slots(game) || image > 1)
+        return fail(game, "icon %u of slot %u is past the icons (DS:%04x, 6d21:04b0)", image, slot,
+                    cok_game_rules(game)->startup.icon_table);
     const cok_picture *icon = &game->icons[slot][image];
     if (icon->pixels == NULL) return true;
     if (icon->mask == NULL) return fail(game, "icon slot %u has no mask (6d21:04b0)", slot);
@@ -478,9 +479,7 @@ bool cok_arena_centre(cok_adventure *game, int8_t x, int8_t y, uint8_t margin, u
 bool cok_arena_redraw(cok_adventure *game)
 {
     if (!map_there(game, "6346:300f")) return false;
-    uint16_t moons[3];
-    for (size_t i = 0; i < 3; ++i) moons[i] = cok_ecl_var_at(&game->vm, COK_VAR_MOONS, i);
-    cok_screen_combat(&game->screen, &game->view.tiles[4], moons); /* 1128:04c1 */
+    cok_adventure_screen(game, COK_SCREEN_COMBAT); /* 1128:04c1 */
     cok_combat *c = &game->combat;
     return cok_arena_centre(game, s8(c->view_x + 3), s8(c->view_y + 3), 0xff, 8);
 }
@@ -666,8 +665,9 @@ bool cok_arena_kill(cok_adventure *game, cok_character *c, int stale,
 static bool load_icon(cok_adventure *game, const char *name, size_t length, uint8_t id,
                       uint8_t slot, uint8_t file)
 {
-    if (slot >= COK_ICON_SLOTS)
-        return fail(game, "icon slot %u is past the icon table (DS:6172 + 8 * slot)", slot);
+    if (slot >= cok_icon_slots(game))
+        return fail(game, "icon slot %u is past the icon table (DS:%04x + 8 * slot)", slot,
+                    cok_game_rules(game)->startup.icon_table);
     char path[32];
     bool cpic = false;
     /* The names 6d21:01d0 knows (the rules' icon_head, icon_body and
@@ -725,7 +725,7 @@ bool cok_arena_load_icon(cok_adventure *game, const char *name, uint8_t id, uint
 
 void cok_arena_free_icon(cok_adventure *game, uint8_t slot)
 {
-    if (slot >= COK_ICON_SLOTS) return;
+    if (slot >= cok_icon_slots(game)) return;
     for (size_t image = 0; image < 2; ++image) cok_picture_free(&game->icons[slot][image]);
 }
 
@@ -934,7 +934,7 @@ bool cok_arena_missile_frame(cok_adventure *game, uint8_t slot, uint8_t image, u
                              bool mirror)
 {
     if (!pictures(game)) return false;
-    if (slot >= COK_ICON_SLOTS || image > 1)
+    if (slot >= cok_icon_slots(game) || image > 1)
         return fail(game, "icon slot %u's picture %u is past the icon table (6346:1a26)", slot,
                     image);
     cok_picture *flash = &game->combat.flash;

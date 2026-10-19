@@ -109,10 +109,11 @@ void cok_view_tile(cok_picture *dst, const cok_view *view, unsigned value, int x
                    bool masked);
 
 /* Draw the backdrop and the walls seen from square x, y facing dir (69ea:0184,
- * then 69ea:0820). Into a CGA picture the backdrop is CGA mode's: 43 rows
- * of sky, a row of line, 2 of horizon and 42 of ground, without the
- * pictures. The pictures are the sky's where they were loaded (the sun,
- * the strip facing north, the horizon), else the ground's (dkk 6d21:0177:
+ * then 69ea:0820). Into a CGA picture the backdrop is CGA mode's where the
+ * game has one (its view's cga_backdrop): 43 rows of sky, a row of line, 2
+ * of horizon and 42 of ground, without the pictures. The pictures are the
+ * sky's where they were loaded (the sun, the strip facing north, the
+ * horizon), else the ground's (dkk 6d21:0177:
  * on squares below 0x80 the ground by day and, past hour 13, the night
  * sky over it; on the others the wall set's backdrop). */
 void cok_view_draw(cok_picture *dst, const cok_view *view, int x, int y, unsigned dir,

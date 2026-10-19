@@ -1202,6 +1202,115 @@ static const cok_rules_effect_text champions_display_texts[] = {
     {0x49, "protected from dragon breath"}, {0x4d, "berserk"}, {0x59, "Displaced"},
 };
 
+/* The screens' frames (1128:0000-07e6): tile values added to 0x114, from
+ * the data segment and the routines' code. */
+static const uint8_t champions_top_row[40] = { /* DS:0e3a */
+    0, 0, 0, 0, 0, 0, 0, 1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+    2, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0,
+};
+static const uint8_t champions_side[24] = { /* DS:0e62, and DS:0e8b the same */
+    0, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 0, 3, 4, 4, 4, 4, 5, 0,
+};
+/* 1128:0000 with 1: DS:0e62 but tile 4 on rows 15-17. */
+static const uint8_t champions_side_open[24] = {
+    0, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 0,
+};
+static const uint8_t champions_divider[17] = { /* DS:0e7a, rows 0-16 */
+    0, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 0,
+};
+static const uint8_t champions_box_side[13] = { /* DS:0ea3 and DS:0eb0, rows 2-14 */
+    0, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 0,
+};
+static const uint8_t champions_combat_side[23] = { /* DS:0ebd, 0ed4 and 0eeb, which hold the same */
+    0, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 0,
+};
+static const uint8_t champions_sheet_side[23] = { /* DS:0f02 */
+    0, 3, 4, 4, 4, 4, 4, 5, 0, 3, 4, 4, 4, 4, 4, 5, 0, 3, 4, 5, 0, 3, 5,
+};
+static const uint8_t champions_sheet_middle[11] = { /* DS:0f19-0f23, rows 9-19 */
+    3, 4, 4, 4, 4, 4, 5, 0, 3, 4, 5,
+};
+/* 1128:0130's sides, rows 1-22: 3 on rows 1, 5 and 21, 5 on 3, 19 and 22,
+ * the row across on 4 and 20 (drawn over), 4 on the others. */
+static const uint8_t champions_credits_side[22] = {
+    3, 4, 5, 0, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 0, 3, 5,
+};
+
+#define ROW(y, from, to, value) {false, y, from, to, value, NULL, false}
+#define COLUMN(x, from, to, value) {true, x, from, to, value, NULL, false}
+#define COLUMN_OF(x, from, to, table) {true, x, from, to, 0, table, false}
+#define MOONS(table) {false, 0, 0, 39, 0, table, true}
+#define LINES(lines) lines, sizeof lines / sizeof *lines
+
+/* 1128:0000: row 0 with the moons, the sides, row 23. */
+static const cok_rules_frame_line champions_frame[] = {
+    MOONS(champions_top_row),
+    COLUMN_OF(0, 0, 23, champions_side),
+    COLUMN_OF(39, 0, 23, champions_side),
+    ROW(23, 0, 39, 0),
+};
+static const cok_rules_frame_line champions_open[] = {
+    MOONS(champions_top_row),
+    COLUMN_OF(0, 0, 23, champions_side_open),
+    COLUMN_OF(39, 0, 23, champions_side_open),
+    ROW(23, 0, 39, 0),
+};
+/* 1128:0242: row 16, the column 16 divider above it, the 3D view's box. */
+static const cok_rules_frame_line champions_adventure[] = {
+    ROW(16, 0, 39, 0),
+    COLUMN_OF(16, 0, 16, champions_divider),
+    ROW(2, 2, 14, 0),
+    ROW(14, 2, 14, 0),
+    COLUMN_OF(2, 2, 14, champions_box_side),
+    COLUMN_OF(14, 2, 14, champions_box_side),
+};
+static const cok_rules_frame_line champions_row_16[] = { /* 1128:0344 */
+    ROW(16, 0, 39, 0),
+};
+/* 1128:0384: 1128:0000's lines, the right side from DS:0e8b, then row 16. */
+static const cok_rules_frame_line champions_spells[] = {
+    MOONS(champions_top_row),
+    COLUMN_OF(0, 0, 23, champions_side),
+    COLUMN_OF(39, 0, 23, champions_side),
+    ROW(23, 0, 39, 0),
+    ROW(16, 0, 39, 0),
+};
+/* 1128:077c: over the open frame, row 2 and tile 3 at each end of row 3. */
+static const cok_rules_frame_line champions_list[] = {
+    ROW(2, 0, 39, 0),
+    COLUMN(0, 3, 3, 3),
+    COLUMN(39, 3, 3, 3),
+};
+/* 1128:04c1: columns 0, 22 and 39 to row 22, then row 22 across. */
+static const cok_rules_frame_line champions_combat[] = {
+    MOONS(champions_top_row),
+    COLUMN_OF(0, 0, 22, champions_combat_side),
+    COLUMN_OF(22, 0, 22, champions_combat_side),
+    COLUMN_OF(39, 0, 22, champions_combat_side),
+    ROW(22, 0, 39, 0),
+};
+/* 1128:05fc: rows 8, 16, 20 and 23 across, the sides to row 22, column 19
+ * from row 9 to 19. */
+static const cok_rules_frame_line champions_sheet[] = {
+    MOONS(champions_top_row),
+    ROW(8, 0, 39, 0),
+    ROW(16, 0, 39, 0),
+    ROW(20, 0, 39, 0),
+    ROW(23, 0, 39, 0),
+    COLUMN_OF(0, 0, 22, champions_sheet_side),
+    COLUMN_OF(39, 0, 22, champions_sheet_side),
+    COLUMN_OF(19, 9, 19, champions_sheet_middle),
+};
+/* 1128:0130: no moons; the sides between rows 0, 4, 20 and 23 across. */
+static const cok_rules_frame_line champions_credits[] = {
+    COLUMN_OF(0, 1, 22, champions_credits_side),
+    COLUMN_OF(39, 1, 22, champions_credits_side),
+    ROW(0, 0, 39, 0),
+    ROW(4, 0, 39, 0),
+    ROW(20, 0, 39, 0),
+    ROW(23, 0, 39, 0),
+};
+
 const cok_rules cok_rules_champions = {
     .id = "champions",
     .assets = "COKAssets",
@@ -1305,12 +1414,14 @@ const cok_rules cok_rules_champions = {
             /* DS:1ec2, and 6e22:01ab's bounds; a value past 0x127 halts. */
             .tile_first = {0x01, 0x2e, 0x74, 0xba, 0x100},
             .tile_last = {0x2d, 0x73, 0xb9, 0xff, 0x127},
+            .tile_transparent = {13, 13, 13, 13, 13}, /* 6e22:0050 */
             .first_slot = 1,      /* 2fd3:0cf4 */
             .shared_tiles = false, /* 69ea:1025 */
             .move_tiles = true,    /* 69ea:1230 */
             .overhead_square = 0x104, /* 69ea:06a2 */
             .overhead_party = 0x100,  /* 69ea:000f */
             .overland_picture = 0x79, /* 2fd3:0914, 4877:0005 */
+            .cga_backdrop = true,     /* 69ea:0184 */
         },
     .startup =
         {
@@ -1321,6 +1432,9 @@ const cok_rules cok_rules_champions = {
             .icons = {{0, 13, 12}, {25, 25, 1}},
             .icon_ranges = 2,
             .cursor_transparent = 13, /* 3e99:01fd */
+            /* DS:6172: 0-7 the party's, 8 on monsters', 13-25 missiles. */
+            .icon_slots = 26,
+            .icon_table = 0x6172,
         },
     .spells =
         {
@@ -1370,6 +1484,25 @@ const cok_rules cok_rules_champions = {
             .column = {8, 19, 30},
             .tile = {10, 6, 14},
             .tile_base = 0x114,
+        },
+    .frame =
+        {
+            .base = 0x114, /* 1128's tiles: 0x114 + value */
+            .screens =
+                {
+                    [COK_SCREEN_FRAME] = {COK_SCREENS, 1, 1, 38, 22, LINES(champions_frame)},
+                    [COK_SCREEN_OPEN] = {COK_SCREENS, 1, 1, 38, 22, LINES(champions_open)},
+                    [COK_SCREEN_ADVENTURE] = {COK_SCREEN_FRAME, 0, 0, 0, 0,
+                                              LINES(champions_adventure)},
+                    [COK_SCREEN_BIG] = {COK_SCREEN_FRAME, 0, 0, 0, 0, LINES(champions_row_16)},
+                    [COK_SCREEN_SPELLS] = {COK_SCREENS, 1, 1, 38, 16, LINES(champions_spells)},
+                    [COK_SCREEN_LIST] = {COK_SCREEN_OPEN, 0, 0, 0, 0, LINES(champions_list)},
+                    [COK_SCREEN_COMBAT] = {COK_SCREENS, 0, 0, 39, 23, LINES(champions_combat)},
+                    [COK_SCREEN_SHEET] = {COK_SCREENS, 0, 0, 39, 23, LINES(champions_sheet)},
+                    [COK_SCREEN_CREDITS] = {COK_SCREENS, 1, 1, 38, 22, LINES(champions_credits)},
+                },
+            .menu_big = true,                  /* 1000:024b */
+            .resumed = COK_RESUMED_BY_AREA, /* 4def:01b4 */
         },
 };
 

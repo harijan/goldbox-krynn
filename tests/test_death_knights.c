@@ -7,6 +7,7 @@
 #include "dax.h"
 #include "ecl.h"
 #include "rules.h"
+#include "screen.h"
 #include "view.h"
 
 #include <stdbool.h>
@@ -125,6 +126,12 @@ static void test_assets(void)
     for (size_t i = 0; i < R->startup.tile_count; ++i)
         CHECK(holds("8X8D1.DAX", R->startup.tiles[i].record));
     CHECK(holds("SKYGRND.DAX", 1) && holds("SKYGRND.DAX", 2));
+    /* Startup's icons: each COMSPR record in a slot of the game's. */
+    for (size_t r = 0; r < R->startup.icon_ranges; ++r) {
+        CHECK(R->startup.icons[r].slot + R->startup.icons[r].count <= R->startup.icon_slots);
+        for (unsigned i = 0; i < R->startup.icons[r].count; ++i)
+            CHECK(holds("COMSPR.DAX", R->startup.icons[r].first + i));
+    }
     /* Each wall set by its id: WALLDEF, 8X8D and BACK of the file its id
      * names hold it, and no other file does. */
     for (unsigned id = 0; id < 256; ++id) {
@@ -304,6 +311,57 @@ static void test_variables(void)
     for (size_t i = 0; i < R->ecl.store_count; ++i) CHECK(R->ecl.stores[i].address > 49000);
 }
 
+/* The frames' tables: each line's tiles the bytes of a table 110f reads
+ * by the cell's column or row (DS:070c, 0734 and 075c by column; 0784,
+ * 07ac, 07d9, 07ef and 07fe by row), each table used; the icons startup
+ * loads and the slots' table. */
+static void test_frames(void)
+{
+    static const unsigned tables[] = {0x070c, 0x0734, 0x075c, 0x0784,
+                                      0x07ac, 0x07d9, 0x07ef, 0x07fe};
+    bool used[sizeof tables / sizeof *tables] = {false};
+    for (size_t s = 0; s < COK_SCREENS; ++s)
+        for (size_t i = 0; i < R->frame.screens[s].line_count; ++i) {
+            const cok_rules_frame_line *l = &R->frame.screens[s].lines[i];
+            if (l->tiles == NULL) continue;
+            bool found = false;
+            for (size_t t = 0; t < sizeof tables / sizeof *tables && !found; ++t)
+                if (memcmp(ds(tables[t] + l->first), l->tiles, l->last - l->first + 1u) == 0)
+                    found = used[t] = true;
+            CHECK(found);
+        }
+    for (size_t t = 0; t < sizeof tables / sizeof *tables; ++t) CHECK(used[t]);
+    /* 70eb:002f loads the frame's set 4 with colour 0 transparent, the
+     * others with 13 (cmp [bp+6], 4; jnz; mov [bp-6], 0; jmp; mov [bp-6], 13). */
+    CHECK(memcmp(at(0x70eb, 0x0049),
+                 "\x80\x7e\x06\x04\x75\x06\xc6\x46\xfa\x00\xeb\x04\xc6\x46\xfa\x0d",
+                 16) == 0);
+    for (size_t s = 0; s < 5; ++s) CHECK(R->view.tile_transparent[s] == (s == 4 ? 0 : 13));
+    /* 110f:0000's moons: + 0x15, 0x0d and 0x11 (add ax, imm16) on bytes
+     * 0x1f9-0x1fb. */
+    const uint8_t *frame = at(0x110f, 0);
+    for (size_t i = 0; i < 3; ++i) {
+        bool found = false;
+        for (size_t k = 0; k + 2 < 0x160 && !found; ++k)
+            found = frame[k] == 0x05 && frame[k + 1] == R->moons.tile[i] && frame[k + 2] == 0;
+        CHECK(found);
+    }
+    /* 4f9a:00e1's COMSPR loop (at 07a6): ids from 0, each into slot id +
+     * 0x0d (add ax, 0x0d before the call), to 0x15 (cmp byte [86f2], 0x15). */
+    CHECK(R->startup.icon_ranges == 1 && R->startup.icons[0].first == 0 &&
+          R->startup.icons[0].slot == 0x0d && R->startup.icons[0].count == 0x16);
+    const uint8_t *loop = at(0x4f9a, 0x07a6);
+    CHECK(memcmp(loop, "\x05\x0d\x00\x50\x9a", 5) == 0);
+    CHECK(memcmp(loop + 9, "\x80\x3e\xf2\x86\x15", 5) == 0);
+    /* 4f9a:0556 clears the slots' table, 8 bytes a slot: mov di, table;
+     * push ds; push di; mov ax, slots * 8. */
+    const cok_rules_startup *s = &R->startup;
+    const uint8_t clear[] = {0xbf, (uint8_t)s->icon_table, (uint8_t)(s->icon_table >> 8), 0x1e,
+                             0x57, 0xb8, (uint8_t)(s->icon_slots * 8),
+                             (uint8_t)(s->icon_slots * 8 >> 8)};
+    CHECK(memcmp(at(0x4f9a, 0x0556), clear, sizeof clear) == 0);
+}
+
 static void test_executable(void)
 {
     FILE *f = fopen("build/death-START_FULL.EXE", "rb");
@@ -421,9 +479,10 @@ static void test_executable(void)
     for (size_t i = 0; i + strlen(version) < exe_size && !found; ++i)
         found = exe[i] == strlen(version) && memcmp(exe + i + 1, version, strlen(version)) == 0;
     CHECK(found);
+    test_frames();
     test_opcodes();
     test_variables();
-    printf("death knights: %zu tables, tile sets, wall and sprite files, opcodes and "
+    printf("death knights: %zu tables, tile sets, wall and sprite files, frames, opcodes and "
            "variables checked against build/death-START_FULL.EXE\n", D->table_count);
 }
 
@@ -491,14 +550,88 @@ static void test_view(void)
         CHECK(screen.pixels[3 * 8 * 160 + 3 * 4] >> 4 == cases[i].top);
         CHECK(screen.pixels[(13 * 8 + 7) * 160 + 3 * 4] >> 4 == cases[i].bottom);
     }
+    /* In CGA mode the same (6d21:0177 has no CGA case): the pictures, and
+     * without them the fills of the other modes, 44 rows of sky and no line
+     * (Champions' 69ea:0184 has one at row 0x3b). */
+    screen.cga = true;
+    cok_view_backdrop cga = {.sky = 11, .line = 15, .horizon = 7, .ground = 6, .hour = 3};
+    cok_view_draw(&screen, &sky, 5, 5, 0, &cga);
+    CHECK(screen.pixels[3 * 8 * 160 + 3 * 4] >> 4 == 2);
+    cok_view bare = {.shape = &R->view};
+    cok_view_draw(&screen, &bare, 5, 5, 0, &cga);
+    const uint8_t *row = screen.pixels + (8 + 0x3b) * 160 + 3 * 4; /* the view from row 8 */
+    CHECK(row[0] >> 4 == 1 && row[160] >> 4 == 2 && row[3 * 160] >> 4 == 1);
+    cok_view_draw(&screen, &champions, 5, 5, 0, &cga);
+    CHECK(row[0] >> 4 == 3);
     cok_picture_free(&screen);
     cok_view_free(&sky);
+}
+
+/* The frames (110f): synthetic tiles, tile t's bytes 0x40 + t, so each
+ * cell shows the tile drawn there (0 where cleared). */
+static uint8_t frame_cell(const cok_picture *p, int x, int y)
+{
+    return p->pixels[(size_t)y * 8 * 160 + (size_t)x * 4];
+}
+
+static void test_frame(void)
+{
+    cok_picture screen = {0}, tiles = {0};
+    CHECK(cok_picture_create(&screen, 40, 200, 1, 0) == COK_PICTURE_OK);
+    CHECK(cok_picture_create(&tiles, 1, 8, 45, 0) == COK_PICTURE_OK);
+    for (size_t t = 0; t < 45; ++t) memset(tiles.pixels + t * 32, (int)(0x40 + t), 32);
+    const uint16_t moons[3] = {1, 2, 3};
+#define AT(x, y) frame_cell(&screen, x, y)
+    memset(screen.pixels, 0x11, screen.frame_size);
+    cok_screen_draw(&screen, &tiles, R, COK_SCREEN_ADVENTURE, moons);
+    /* Row 0: corners 0 and 1, the moons 0x15 + 1, 0x0d + 2 and 0x11 + 3 between
+     * tiles 5 and 6; row 23: 2, 4..., 3; the sides 7. */
+    CHECK(AT(0, 0) == 0x40 && AT(39, 0) == 0x41 && AT(1, 0) == 0x44);
+    CHECK(AT(7, 0) == 0x45 && AT(8, 0) == 0x40 + 0x16 && AT(9, 0) == 0x46);
+    CHECK(AT(19, 0) == 0x40 + 0x0f && AT(30, 0) == 0x40 + 0x14);
+    CHECK(AT(0, 23) == 0x42 && AT(20, 23) == 0x44 && AT(39, 23) == 0x43);
+    CHECK(AT(0, 1) == 0x47 && AT(39, 22) == 0x47 && AT(0, 16) == 0x4a && AT(39, 16) == 0x4b);
+    /* Row 16 a, 4..., b; column 16 8 at its top, 9 at its foot; the view's
+     * box: corners 0-3, rows of 4 and columns of 7. */
+    CHECK(AT(10, 16) == 0x44 && AT(16, 0) == 0x48 && AT(16, 8) == 0x47 && AT(16, 16) == 0x49);
+    CHECK(AT(2, 2) == 0x40 && AT(14, 2) == 0x41 && AT(2, 14) == 0x42 && AT(14, 14) == 0x43);
+    CHECK(AT(8, 2) == 0x44 && AT(8, 14) == 0x44 && AT(2, 8) == 0x47 && AT(14, 8) == 0x47);
+    CHECK(AT(8, 8) == 0 && AT(20, 20) == 0 && AT(20, 24) == 0x11);
+    /* The open frame is the frame; the spell list's row 2. */
+    memset(screen.pixels, 0x11, screen.frame_size);
+    cok_screen_draw(&screen, &tiles, R, COK_SCREEN_LIST, moons);
+    CHECK(AT(0, 2) == 0x4a && AT(5, 2) == 0x44 && AT(39, 2) == 0x4b && AT(0, 15) == 0x47);
+    CHECK(AT(0, 3) == 0x47 && AT(16, 16) == 0);
+    /* Memorize's: rows 1-16 cleared, 17-22 kept. */
+    memset(screen.pixels, 0x11, screen.frame_size);
+    cok_screen_draw(&screen, &tiles, R, COK_SCREEN_SPELLS, moons);
+    CHECK(AT(5, 10) == 0 && AT(5, 20) == 0x11 && AT(5, 16) == 0x44 && AT(0, 20) == 0x47);
+    /* Combat: all but row 24 cleared, row 22 the bottom, column 22. */
+    memset(screen.pixels, 0x11, screen.frame_size);
+    cok_screen_draw(&screen, &tiles, R, COK_SCREEN_COMBAT, moons);
+    CHECK(AT(0, 22) == 0x42 && AT(39, 22) == 0x43 && AT(5, 23) == 0 && AT(0, 23) == 0);
+    CHECK(AT(22, 0) == 0x48 && AT(22, 10) == 0x47 && AT(22, 22) == 0x49 && AT(0, 21) == 0x47);
+    /* The sheet: rows 8, 16 and 20 inside the sides, which join them;
+     * column 19 from row 8 to 20. */
+    memset(screen.pixels, 0x11, screen.frame_size);
+    cok_screen_draw(&screen, &tiles, R, COK_SCREEN_SHEET, moons);
+    CHECK(AT(0, 8) == 0x4a && AT(39, 8) == 0x4b && AT(5, 16) == 0x44 && AT(39, 20) == 0x4b);
+    CHECK(AT(0, 9) == 0x47 && AT(19, 8) == 0x48 && AT(19, 16) == 0x4c && AT(19, 20) == 0x49);
+    CHECK(AT(19, 12) == 0x47 && AT(19, 21) == 0 && AT(8, 0) == 0x56);
+    /* The credits: the frame. */
+    memset(screen.pixels, 0x11, screen.frame_size);
+    cok_screen_draw(&screen, &tiles, R, COK_SCREEN_CREDITS, moons);
+    CHECK(AT(0, 4) == 0x47 && AT(8, 0) == 0x56 && AT(5, 4) == 0);
+#undef AT
+    cok_picture_free(&screen);
+    cok_picture_free(&tiles);
 }
 
 int main(void)
 {
     test_lookup();
     test_view();
+    test_frame();
     struct stat st;
     if (stat("DKKAssets/START.EXE", &st) != 0) {
         puts("death knights: DKKAssets not found; its files' and executable's checks skipped");
