@@ -9459,7 +9459,9 @@ marked spells (Keep), Escape, the table of 8 levels and the grimoire,
 Display: 0 pixels apart but Display's Exit, masked and said (the
 original's menu leaves it unhighlighted; see Death Knights' camp). It
 found that Death Knights' Magic menu keeps its own selection and that
-Display's blank rows are headings.
+Display's blank rows are headings. Its flow `table` (saved game B begun,
+camp, Magic, BALTHIR NOMOON's Memorize) shows the table with no name said
+over it, 0 pixels apart.
 
 Still to check, with why:
 

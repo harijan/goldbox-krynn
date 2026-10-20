@@ -20,11 +20,14 @@ FLAVIUS picked, Memorize (4381:0f67): the marked spells asked with Keep
 (5dc5:016e's mode 5), Escape unmarks them; the memorize table of 8 levels
 (4381:09c7) and the grimoire; Escape; Display (4381:15aa); Escape.
 
+table: saved game B begun, its rest, camp, Magic, BALTHIR NOMOON picked,
+Memorize: the table (4381:09c7) clears its rows and says no name.
+
 Seeded (Box seed, eclplay --seed). Not part of run_all.py's set. About
 three minutes.
 
     python3 tools/dosbox/checks/dkk_levels.py [--workdir DIR] [--seed N]
-        [--flows train,memorize]
+        [--flows train,memorize,table]
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...)."""
 import argparse
@@ -160,12 +163,34 @@ def memorize(v, work, opts):
         run_steps(v, work, box, "memorize", MEMORIZE, K.LOAD_A_BEGIN, seed, saves, MASKS)
 
 
+# Saved game B, begun: the rest, camp, Magic, BALTHIR NOMOON (the fourth),
+# Memorize: the table clears its rows and says no name (4381:09c7), where a
+# name of 13 letters or more would show past the labels.
+LOAD_B_BEGIN = r"\r\v\v\r\rB\v\v\v\v\v\r"
+LOAD_B_STEPS = ["x", "x", r"\r", r"\v\v", r"\r", r"\r", "B", r"\v\v\v\v\v\r"]
+TABLE = MEMORIZE[:2] + [("balthir", r"\v\v\v"), ("table", "M")]
+
+
+def table(v, work, opts):
+    seed = opts.seed
+    saves = work / "saves-table"
+    if saves.exists():
+        shutil.rmtree(saves)
+    shutil.copytree(K.ASSETS / "SAVE", saves)
+    with cokbox.Box(workdir=work / "box-table", game="death-knights", machine="ega",
+                    seed=seed, saves=[saves], verbose=opts.verbose, timeout=900,
+                    keep=True) as box:
+        v.check(K.title(box), "the title's four pictures (table)")
+        K.type_steps(box, LOAD_B_STEPS, settle=2.0)
+        run_steps(v, work, box, "table", TABLE, LOAD_B_BEGIN, seed, saves)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir", default=str(K.ROOT / "build/dosbox-checks/dkk_levels"))
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--flows", default="train,memorize",
-                        help="which flows: train, memorize (comma-separated)")
+    parser.add_argument("--flows", default="train,memorize,table",
+                        help="which flows: train, memorize, table (comma-separated)")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     work = pathlib.Path(opts.workdir).resolve()
@@ -176,6 +201,8 @@ def main():
         train(v, work, opts)
     if "memorize" in flows:
         memorize(v, work, opts)
+    if "table" in flows:
+        table(v, work, opts)
     return v.finish()
 
 
