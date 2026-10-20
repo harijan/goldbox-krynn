@@ -285,9 +285,13 @@ static void test_champions(void)
         for (unsigned id = 1; id < r->spells.count; ++id) used |= r->spells.cast[id].handler == k;
         CHECK(used);
     }
+    /* ... and every effect handler one of Champions' or Death Knights'. */
+    const cok_rules *d = &cok_rules_death_knights;
     for (unsigned k = 1; k < COK_FX_HANDLERS; ++k) {
         bool used = false;
         for (unsigned id = 1; id < r->effects.count; ++id) used |= r->effects.handlers[id].handler == k;
+        for (unsigned id = 1; id < d->effects.count; ++id)
+            used |= d->effects.handlers[id].handler == k;
         CHECK(used);
     }
     consistent(r);
@@ -329,7 +333,7 @@ static void test_death_knights(void)
     }
     CHECK(r->effects.caster_level_unported != NULL && r->effects.save_unported != NULL &&
           r->effects.resistance_unported != NULL);
-    CHECK(r->effects.display_spells == NULL);
+    CHECK(r->effects.display_spells != NULL && r->spells.display_last == 0x3f);
     image m;
     if (!load(&m, "build/death-START_FULL.EXE", 0x1bce)) {
         puts("magic rules: build/death-START_FULL.EXE not built (make death-merged); Death "

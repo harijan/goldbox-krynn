@@ -1328,6 +1328,44 @@ static void test_other_game(void)
     reset();
 }
 
+/* Death Knights' effect 0x27 (dkk 504d:0d88): haste, and the first time
+ * the character ages a year (+0x26) and the battle asks for the aging after
+ * it (DS:c463); the movement (DS:be6f) doubles too; removed, it does
+ * nothing. Champions' haste asks for none. */
+static void test_haste_aging(void)
+{
+    reset();
+    cok_effects_free(&fx);
+    vm.rules = &cok_rules_death_knights;
+    cok_effects_init(&fx, &cok_rules_death_knights, &vm, &party, &types);
+    cok_character *c = calloc(1, sizeof *c);
+    CHECK(c != NULL);
+    cok_effect *haste = add(c, 0x27, 0, 0x0f, false);
+    c->record[0x26] = 0xff;
+    c->record[0x27] = 0;
+    fx.say = said;
+    said_text[0] = '\0';
+    fx.rolls.rate = 6;
+    fx.rolls.movement = 5;
+    CHECK(cok_effects_dispatch(&fx, c, 0x12) && fx.rolls.rate == 12 && fx.rolls.movement == 10 &&
+          haste->value == 0x1f && fx.aging);
+    CHECK(c->record[0x26] == 0 && c->record[0x27] == 1 && strcmp(said_text, "ages;") == 0);
+    fx.aging = false;
+    CHECK(cok_effects_dispatch(&fx, c, 0x12) && fx.rolls.rate == 24 && fx.rolls.movement == 20 &&
+          !fx.aging && c->record[0x26] == 0);
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x27) && fx.rolls.rate == 24 && c->effects == NULL);
+    fx.say = NULL;
+    cok_character_free(c);
+    free(c);
+    reset();
+    c = member();
+    haste = add(c, 0x27, 0, 0x0f, false);
+    fx.say = said;
+    CHECK(cok_effects_dispatch(&fx, c, 0x12) && haste->value == 0x1f && !fx.aging);
+    fx.say = NULL;
+    reset();
+}
+
 int main(void)
 {
     char error[300];
@@ -1348,6 +1386,7 @@ int main(void)
     test_rolls();
     test_saved();
     test_other_game();
+    test_haste_aging();
     reset();
     cok_party_free(&party);
     cok_effects_free(&fx);

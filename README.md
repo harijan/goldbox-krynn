@@ -146,10 +146,13 @@ folder `--import DIR` names. The adventure then runs into its fights:
 leadership, the battlefield and the combatants set up as in the original,
 until the first turn. Treasure found (the treasure menu: Take, Pool,
 Share) and the bank vault of Gargath (take coins and items out, pool and
-deposit coins) work. Creating, modifying and training characters,
-Initialize Mouse/Joystick, the turns of combat, shops, the temple,
-saving throws, and a character's sheet and items in the vault aren't
-there yet: the game stops with a message saying what it reached.
+deposit coins) work. Training halls train characters up to level 18
+(Train Character) and promote knights (Knight Change Order); in camp,
+Magic's Memorize, Scribe and Display work, with spell levels up to 8.
+Creating and modifying characters, Initialize Mouse/Joystick, the turns
+of combat, shops, the temple, saving throws, camp's Fix, and a
+character's sheet and items in the vault aren't there yet: the game
+stops with a message saying what it reached.
 
 ## Options
 

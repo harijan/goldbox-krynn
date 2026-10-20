@@ -235,6 +235,7 @@ typedef enum {
     COK_FX_MINUS_FOUR,
     COK_FX_BLINK,
     COK_FX_HASTE,
+    COK_FX_HASTE_AGING,
     COK_FX_CLOUD,
     COK_FX_AVOID,
     COK_FX_SLOW,

@@ -4,6 +4,7 @@
 #include "camp.h"
 #include "create.h"
 #include "icon.h"
+#include "magic.h"
 #include "modify.h"
 #include "roster.h"
 #include "start.h"
@@ -1712,6 +1713,130 @@ static void test_death_knights_menu(void)
     CHECK(game.wall_ids[0] == 0 && game.wall_slots[0] == 1 && game.wall_ids[1] == -1);
 }
 
+/* Death Knights' Train (dkk 49cb:43b6), Knight Change Order (4ea4, 4da1)
+ * and the aging after a battle (3e05:0264), on saved game A's party. */
+static void test_death_knights_levels(void)
+{
+    const cok_rules *R = &cok_rules_death_knights;
+    const cok_character_layout *L = R->character;
+    char to[128], path[400];
+    snprintf(to, sizeof to, "%s/dkklevels", dir);
+    copy_saves("DKKAssets/SAVE", to);
+    snprintf(dkk.save_dir, sizeof dkk.save_dir, "%s", to);
+    snprintf(path, sizeof path, "%s/SAVGAMA.PTY", to);
+    dkk_keys("");
+    CHECK(cok_adventure_restore(&dkk, path) && dkk.party.count == 6);
+    cok_ecl_set_var(&dkk.vm, COK_VAR_HALL, 127);
+    /* FLAVIUS, cleric 6, fighter 7, mage 6 (order 1), with 100,000: the
+     * cleric and the mage rise (90,000 and 100,000), the fighter not
+     * (125,001); Yes is first (Enter); the mage learns a spell; free
+     * training is never on (DS:c46a cleared); may-train recomputed. */
+    uint8_t *c = dkk.party.members[3]->record;
+    cok_field_set32(L, c, COK_FIELD_EXPERIENCE, 100000);
+    cok_field_set8(L, c, COK_FIELD_MAY_TRAIN, 1);
+    uint8_t base = cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS);
+    /* The magic-user spells it knows (the cleric's it knows by its levels,
+     * 69a8:050b). */
+    size_t known = 0, now = 0;
+    for (unsigned id = 1; id < R->spells.count; ++id)
+        known += cok_field_u8_at(L, c, COK_FIELD_KNOWN_SPELL, id) != 0 &&
+                 cok_spell_class(R, (uint8_t)id) == 3;
+    dkk.free_training = true;
+    dkk.vm.character = c;
+    dkk_keys("S\r\r");
+    cok_start_command(&dkk, 'T');
+    CHECK(!dkk.free_training && dkk.vm.status == COK_ECL_OK);
+    CHECK(logged("menu: do you wish to train? ;") && logged("print:     a level 7 Cleric;") &&
+          logged("print: and a level 7 Mage;") && logged("print: congratulations...;") &&
+          logged("list: Spells to Choose;"));
+    CHECK(cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0) == 7 &&
+          cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 2) == 7 &&
+          cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) == 7);
+    for (unsigned id = 1; id < R->spells.count; ++id)
+        now += cok_field_u8_at(L, c, COK_FIELD_KNOWN_SPELL, id) != 0 &&
+               cok_spell_class(R, (uint8_t)id) == 3;
+    CHECK(now == known + 1 && cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS) > base &&
+          cok_field_u8(L, c, COK_FIELD_MAY_TRAIN) == 0);
+    dkk_keys("S");
+    cok_start_command(&dkk, 'T');
+    CHECK(logged("print: not enough experienc;"));
+    /* NEACAIL (a race 5 cleric 7, thief 8): its cleric at the race's
+     * highest, 12 (DS:82d4), does not rise; the thief does, and the
+     * experience is cut below the level after (160,001). */
+    c = dkk.party.members[4]->record;
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 0, 12);
+    cok_field_set32(L, c, COK_FIELD_EXPERIENCE, 2000000);
+    dkk.vm.character = c;
+    dkk_keys("S\r");
+    cok_start_command(&dkk, 'T');
+    CHECK(cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0) == 12 &&
+          cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 6) == 9 &&
+          cok_field_u32(L, c, COK_FIELD_EXPERIENCE) == 160000);
+    /* LILLITH, a paladin at its top level (10, DS:72a4), with 1,100,000: 3 hit points
+     * (580d:3193), no dice. */
+    c = dkk.party.members[1]->record;
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 3, 10);
+    cok_field_set32(L, c, COK_FIELD_EXPERIENCE, 1100000);
+    uint8_t most = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS),
+            hp = cok_field_u8(L, c, COK_FIELD_HIT_POINTS);
+    base = cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS);
+    dkk.vm.character = c;
+    dkk_keys("S\r");
+    cok_start_command(&dkk, 'T');
+    CHECK(cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 3) == 11 &&
+          cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS) == base + 3 &&
+          cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS) == most + 3 &&
+          cok_field_u8(L, c, COK_FIELD_HIT_POINTS) == hp + 3);
+    /* Knight Change Order: SIR DRYDEN of the Crown, too inexperienced at
+     * level 2; Change is offered all the same and makes him a knight of
+     * the Sword (EXPERIENCE 4 at level 2 is below his). */
+    c = dkk.party.members[0]->record;
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 7, 2);
+    dkk.vm.character = c;
+    dkk_keys("SC");
+    cok_start_command(&dkk, 'K');
+    CHECK(logged("print: SIR DRYDEN;") && logged("print: is petitioning to become a;") &&
+          logged("print: knight of the sword;") &&
+          logged("print: SIR DRYDEN is too inexperience;") && logged("menu: Change Exit;"));
+    CHECK(cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER) == 2 &&
+          cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) == 2);
+    /* From level 10 a level lost costs 2 hit points and no constitution
+     * (49cb:4da1); a special key does nothing, Escape leaves. */
+    cok_field_set8(L, c, COK_FIELD_KNIGHT_ORDER, 1);
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 7, 12);
+    cok_field_set32(L, c, COK_FIELD_EXPERIENCE, 0);
+    base = cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS);
+    most = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS);
+    dkk_keys("SC");
+    cok_start_command(&dkk, 'K');
+    CHECK(cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER) == 2 &&
+          cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) == 11 &&
+          cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS) == base - 2 &&
+          cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS) == most - 2);
+    /* The aging after a battle that asked for it: past a race 6's 110
+     * "who is looking very old"; none asked, nothing; past 120 the panel
+     * tells of the death, "dies from age" (status 8), and the witnesses'
+     * count, an uninitialized local, stops the port ("he" and "breathes"
+     * run together, as DS:23da and 2389 are). Champions' none. */
+    c = dkk.party.members[0]->record;
+    cok_field_set16(L, c, COK_FIELD_AGE, 115);
+    dkk_keys("");
+    dkk.effects.aging = true;
+    CHECK(cok_train_aging(&dkk) && !dkk.effects.aging && logged("who is looking very old"));
+    dkk_keys("");
+    CHECK(cok_train_aging(&dkk) && !logged("very old"));
+    cok_field_set16(L, c, COK_FIELD_AGE, 121);
+    dkk_keys("");
+    dkk.effects.aging = true;
+    CHECK(!cok_train_aging(&dkk) && dkk.vm.status == COK_ECL_UNDEFINED &&
+          logged("the strain of the last battle has worn heavily on SIR DRYDEN.  ;") &&
+          logged("hebreathes deeply one last time and crumples to the ground.;") &&
+          logged("dies from age") && cok_field_u8(L, c, COK_FIELD_STATUS) == 8);
+    keys("");
+    game.effects.aging = true;
+    CHECK(cok_train_aging(&game) && !game.effects.aging && s.log[0] == '\0');
+}
+
 static void test_death_knights_saves(void)
 {
     const cok_rules *R = &cok_rules_death_knights, *C = &cok_rules_champions;
@@ -1857,6 +1982,7 @@ static void test_death_knights_saves(void)
     CHECK(!cok_vault_read(path, &read, &missing, error, sizeof error) && missing &&
           read.item_count == 0);
     test_death_knights_menu();
+    test_death_knights_levels();
     cok_adventure_close(&dkk);
 }
 

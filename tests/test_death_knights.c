@@ -83,8 +83,6 @@ static void test_lookup(void)
     CHECK(R->character->file_size == 0xd8 && R->character->spells_offset == 0xd8 &&
           R->character->spells_size == 0xdc && R->character->size == 0xd8 + 0xdc);
     CHECK(strcmp(R->saves.spells, "WIZ") == 0 && cok_rules_champions.saves.spells == NULL);
-    CHECK(strcmp(R->effects.display_unported, "dkk 4381:15aa") == 0 &&
-          cok_rules_champions.effects.display_unported == NULL);
     CHECK(R->characters.stats == COK_STATS_DEATH_KNIGHTS &&
           R->characters.levels == COK_LEVELS_DEATH_KNIGHTS && R->characters.import != NULL);
     CHECK(cok_rules_champions.characters.stats == COK_STATS_CHAMPIONS &&
@@ -1063,8 +1061,7 @@ static void test_combat(void)
      * (00ec's near call to 0264). */
     n = far_calls(0x3e05, 0x00ec, 0x60, calls, 24);
     CHECK(n >= 2 && calls[0] == 0x53404acf && calls[1] == 0x410b1e41);
-    CHECK(cites(C->player_unported, 0x3e0508af) && cites(C->computer_unported, 0x3f630000) &&
-          cites(C->aging_unported, 0x3e050264));
+    CHECK(cites(C->player_unported, 0x3e0508af) && cites(C->computer_unported, 0x3f630000));
     n = far_calls(0x3e05, 0x076c, 0x143, calls, 24);
     bool computer = false;
     for (size_t i = 0; i < n; ++i) computer |= calls[i] == 0x3f630000;
@@ -1240,6 +1237,143 @@ static void test_treasure(void)
     puts("death knights: the treasure section checked");
 }
 
+/* The levels section against the original's code: Train (49cb:43b6) and
+ * its hit points (580d:3193), may-train's (65cd:38c7) and Knight Change
+ * Order's (49cb:4ea4, 4da1) tables and words, the aging after a battle
+ * (3e05:0264), the memorize table (4381:09c7), the spell lists' prompts
+ * (5dc5:016e), Scribe's (4381:115d), the camp's forget (0626) and
+ * Display's texts and bound (15aa). */
+static void test_levels(void)
+{
+    const cok_rules_levels *V = &R->levels;
+    const cok_data_segment *D = R->data;
+    /* Train: mov byte [c46a], 0 first (no free training); the highest
+     * levels' table (mov al, [di-0x7d2c]) and the experience table's base
+     * (mov ax, [di+0x7638]) in it and in may-train; its words (mov di,
+     * DS:x); the question's Yes first (mov al, [57c0], DS:57c0 0); the
+     * routines it calls. */
+    CHECK(HOLDS(0x49cb, 0x43b6, 0x10, 0xc6, 0x06, 0x6a, 0xc4, 0x00) && !V->free_training);
+    CHECK(HOLDS(0x49cb, 0x43b6, 0x100, 0x8a, 0x85, 0xd4, 0x82) && V->race_limits &&
+          cok_data_offset2(D, COK_DATA_LEVEL_LIMITS, 0, 0) == 0x82d4);
+    CHECK(HOLDS(0x49cb, 0x43b6, 0x200, 0x8b, 0x85, 0x38, 0x76) &&
+          HOLDS(0x65cd, 0x38c7, 0xf0, 0x8b, 0x85, 0x38, 0x76) &&
+          cok_data_offset2(D, COK_DATA_EXPERIENCE, 0, 0) == 0x7638);
+    static const struct {
+        unsigned at;
+        const char *const *text;
+    } words[] = {
+        {0x1542, &R->levels.conscious},    {0x1561, &R->levels.wrong_hall},
+        {0x1412, &R->levels.no_experience}, {0x1427, &R->levels.will_become},
+        {0x143c, &R->levels.a_level},       {0x1451, &R->levels.and_level},
+        {0x1466, &R->levels.question},      {0x1485, &R->levels.congratulations},
+    };
+    for (size_t i = 0; i < sizeof words / sizeof *words; ++i)
+        CHECK(pascal_is(ds(words[i].at), *words[i].text, false) &&
+              HOLDS(0x49cb, 0x43b6, 0x830, 0xbf, (uint8_t)words[i].at,
+                    (uint8_t)(words[i].at >> 8)));
+    CHECK(HOLDS(0x49cb, 0x43b6, 0x830, 0xa0, 0xc0, 0x57) && *ds(0x57c0) == 0 && V->question_yes);
+    /* (The far calls up to 4ac0 and from 4ad4: a mov byte [es:di+0x9a]
+     * lies between.) */
+    unsigned long calls[64];
+    size_t n = far_calls(0x49cb, 0x43b6, 0x4ac0 - 0x43b6, calls, 32);
+    n += far_calls(0x49cb, 0x4ad4, 0x4be6 - 0x4ad4, calls + n, 32);
+    bool hp = false, may = false, learn = false;
+    for (size_t i = 0; i < n; ++i) {
+        hp |= calls[i] == 0x580d3193;
+        may |= calls[i] == 0x65cd38c7;
+        learn |= calls[i] == 0x580d2d2a;
+    }
+    CHECK(hp && may && learn && R->combat.may_train && V->stale_row == 0 && V->ranger_rises);
+    /* The hit points' fixed amounts (580d:3193 from 3287: cmp al, class
+     * ... mov byte [bp-3], amount), the floor (mov byte [es:di+0xd6], 0). */
+    uint8_t fixed[8] = {0}, pending[8];
+    size_t count = 0;
+    const uint8_t *b = at(0x580d, 0x3287);
+    for (size_t i = 0; i < 0x30; ++i) {
+        if (b[i] == 0x3c && count < 8) pending[count++] = b[i + 1];
+        if (b[i] == 0xc6 && b[i + 1] == 0x46 && b[i + 2] == 0xfd) {
+            for (size_t k = 0; k < count; ++k) fixed[pending[k]] = b[i + 3];
+            count = 0;
+        }
+    }
+    CHECK(memcmp(fixed, V->top_hit_points, 8) == 0 && V->hit_points_floor &&
+          HOLDS(0x580d, 0x3193, 0x2c1, 0x26, 0xc6, 0x85, 0xd6, 0x00, 0x00));
+    /* Knight Change Order: its words, the menu always "Change Exit"
+     * (DS:3361, the only menu), Escape apart (cmp byte [c0f8], 0); the
+     * experience it needs (EXPERIENCE 4 and 5 at levels 3 and 4: cmp dx,
+     * [7976], [7a46]) and the scores (DS:05a4, 05aa); 4da1's fixed loss
+     * from level 10 (cmp byte [bp-1], 9; mov byte [bp-3], 2). */
+    CHECK(pascal_is(ds(0x14cf), V->knight_of, false) && pascal_is(ds(0x14b9), V->granted[0], false) &&
+          pascal_is(ds(0x14c4), V->granted[1], false) &&
+          pascal_is(ds(0x14e4), V->inexperienced[0], false) &&
+          pascal_is(ds(0x14e4), V->inexperienced[1], false) && V->no_order == NULL);
+    CHECK(pascal_is(ds(0x3361), "Change Exit", false) && V->change_always && V->specials_apart &&
+          HOLDS(0x49cb, 0x4ea4, 0x429, 0xbf, 0x61, 0x33) &&
+          HOLDS(0x49cb, 0x4ea4, 0x429, 0x80, 0x3e, 0xf8, 0xc0, 0x00));
+    CHECK(cok_data_offset2(D, COK_DATA_EXPERIENCE, 4, 3) == 0x7974 &&
+          cok_data_offset2(D, COK_DATA_EXPERIENCE, 5, 4) == 0x7a44 &&
+          HOLDS(0x49cb, 0x4ea4, 0x429, 0x3b, 0x16, 0x76, 0x79) &&
+          HOLDS(0x49cb, 0x4ea4, 0x429, 0x3b, 0x16, 0x46, 0x7a) &&
+          cok_data_offset2(D, COK_DATA_KNIGHT_SCORES, 0, 0) == 0x05a4 &&
+          cok_data_offset2(D, COK_DATA_KNIGHT_SCORES, 1, 0) == 0x05aa);
+    CHECK(HOLDS(0x49cb, 0x4da1, 0x103, 0x80, 0x7e, 0xff, (uint8_t)(V->promote_fixed - 1)) &&
+          HOLDS(0x49cb, 0x4da1, 0x103, 0xc6, 0x46, 0xfd, 0x02) &&
+          far_calls(0x49cb, 0x4da1, 0x103, calls, 64) >= 3 && calls[2] == 0x65cd38c7);
+    /* The aging: each race's ages (cmp word [es:di+0x26], age, the byte
+     * form below 0x80), its words. */
+    CHECK(V->age_races == 7);
+    for (unsigned r = 0; r < V->age_races; ++r)
+        for (unsigned k = 0; k < 2; ++k) {
+            uint16_t a = k == 0 ? V->ages[r].old : V->ages[r].dies;
+            CHECK(a < 0x80 ? HOLDS(0x3e05, 0x0264, 0x140, 0x26, 0x83, 0x7d, 0x26, (uint8_t)a)
+                           : HOLDS(0x3e05, 0x0264, 0x140, 0x26, 0x81, 0x7d, 0x26, (uint8_t)a,
+                                   (uint8_t)(a >> 8)));
+        }
+    CHECK(pascal_is(ds(0x2319), V->very_old, false) && pascal_is(ds(0x2338), V->strain, false) &&
+          pascal_is(at(0x3e05, 0x0260), V->strain_end, false) &&
+          pascal_is(ds(0x23da), V->he, false) && pascal_is(ds(0x23e5), V->she, false) &&
+          pascal_is(ds(0x2389), V->last_breath, false) && pascal_is(ds(0x23f0), V->died, false));
+    /* The memorize table: labels (mov di, DS:x), 8 levels (cmp byte
+     * [bp-0x90], 8), the first column (mov byte [bp-0x91], 0xd, + 1), the
+     * bonus's (mov al, 0xe). */
+    static const unsigned labels[4] = {0x2e9f, 0x2eb4, 0x2ec9, 0x2ede};
+    for (unsigned k = 0; k < 4; ++k)
+        CHECK(pascal_is(ds(labels[k]), V->table_labels[k], false));
+    CHECK(pascal_is(ds(0x2ef3), V->bonus_label, false) &&
+          HOLDS(0x4381, 0x09c7, 0x427, 0x80, 0xbe, 0x70, 0xff,
+                (uint8_t)cok_field_count(R->character, COK_FIELD_SPELLS_A_DAY)) &&
+          HOLDS(0x4381, 0x09c7, 0x427, 0xc6, 0x86, 0x6f, 0xff, (uint8_t)(V->table_column - 1)) &&
+          HOLDS(0x4381, 0x09c7, 0x427, 0xb0, V->bonus_column));
+    /* The lists' prompt, the marked spells' Keep and its prompt, Scribe's
+     * question (Yes first) and words. */
+    CHECK(pascal_is(ds(0x2fd9), V->choose_prompt, false) && pascal_is(ds(0x31f7), V->keep, false) &&
+          pascal_is(ds(0x30ab), V->keep_prompt, false) &&
+          HOLDS(0x5dc5, 0x016e, 0x210, 0xbf, 0xab, 0x30));
+    CHECK(pascal_is(ds(0x30c0), V->scribe_question[0], false) &&
+          pascal_is(ds(0x30c0), V->scribe_question[1], false) && V->questions_yes &&
+          HOLDS(0x4381, 0x115d, 0x60, 0xa0, 0xc0, 0x57) &&
+          pascal_is(ds(0x2f46), V->known, false) && pascal_is(ds(0x2f65), V->scribing, false) &&
+          pascal_is(ds(0x2f8e), V->cannot_scribe, false));
+    /* The camp's forget, 4381:0626: 05b0 (the scrolls) alone, not 0556. */
+    CHECK(near_call(0x4381, 0x0626, 0x3e, 0x05b0) && !near_call(0x4381, 0x0626, 0x3e, 0x0556) &&
+          !V->camp_forgets_memorized);
+    /* Display: spells 1-0x3f (cmp byte [bp-0x12], 0x3f) by DS:6a8a's
+     * effect; its texts in its code (4381:148c on). */
+    CHECK(R->spells.display_last == 0x3f &&
+          HOLDS(0x4381, 0x15aa, 0x200, 0x80, 0x7e, 0xee, R->spells.display_last) &&
+          cok_data_offset2(D, COK_DATA_SPELLS, 0, 10) == 0x6a8a);
+    static const unsigned texts[] = {0x148c, 0x149f, 0x14ab, 0x14ba, 0x14c3, 0x14cc, 0x14d5,
+                                     0x14e3, 0x14f3, 0x1504, 0x150d, 0x1517, 0x1527, 0x1531,
+                                     0x1546, 0x1550, 0x155c, 0x1579, 0x1584, 0x158c};
+    CHECK(R->effects.display_text_count == sizeof texts / sizeof *texts);
+    for (size_t i = 0; i < sizeof texts / sizeof *texts; ++i)
+        CHECK(pascal_is(at(0x4381, texts[i]), R->effects.display_texts[i].text, false));
+    /* The lists' heading colour, DS:c149 (startup 4f9a:00e1: 13; read by 6a69:15d0). */
+    CHECK(V->display_heading == 13 && HOLDS(0x4f9a, 0x00e1, 0x800, 0xc6, 0x06, 0x49, 0xc1, 0x0d) &&
+          HOLDS(0x6a69, 0x15bd, 0x20, 0xa0, 0x49, 0xc1));
+    puts("death knights: the levels' routines checked");
+}
+
 int main(void)
 {
     test_lookup();
@@ -1253,6 +1387,7 @@ int main(void)
         test_executable();
         if (exe_size > 0) test_combat();
         if (exe_size > 0) test_treasure();
+        if (exe_size > 0) test_levels();
     }
     puts("death knights: ok");
     return 0;

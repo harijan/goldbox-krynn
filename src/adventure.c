@@ -2851,6 +2851,7 @@ static void carry(cok_adventure *game, uint16_t clock[7])
                 ++age;
                 cok_field_set16(L, c, COK_FIELD_AGE, age);
             }
+            game->effects.aging = false; /* dkk 5b7d:042e: DS:c463 */
             continue;
         }
         ++clock[i + 1];

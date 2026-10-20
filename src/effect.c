@@ -515,6 +515,26 @@ static bool h_haste(cok_effects *fx, bool removing, cok_effect *effect, cok_char
     return true;
 }
 
+/* dkk 504d:0d88, 0x27: haste as 3f44:0f78 when not removed, the aging
+ * asked for after the battle (DS:c463) the first time, and the movement
+ * (DS:be6f) doubled too. */
+static bool h_haste_aging(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    const cok_character_layout *L = fx->rules->character;
+    if (removing) return true;
+    if ((effect->value & 0x10) == 0) {
+        effect->value = (uint8_t)(effect->value + 0x10);
+        if (!say(fx, c, 0x27, 0x0d88, "ages")) return false;
+        uint16_t age = cok_field_u16(L, c->record, COK_FIELD_AGE);
+        ++age;
+        cok_field_set16(L, c->record, COK_FIELD_AGE, age);
+        fx->aging = true;
+    }
+    fx->rolls.rate = (uint8_t)(fx->rolls.rate << 1);
+    fx->rolls.movement = (uint8_t)(fx->rolls.movement << 1);
+    return true;
+}
+
 /* 3f44:144c, 0x2a: half the rate. */
 static bool h_slow(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
@@ -2079,6 +2099,7 @@ static handler_fn *const handlers[COK_FX_HANDLERS] = {
     [COK_FX_MINUS_FOUR] = h_minus_four,
     [COK_FX_BLINK] = h_blink,
     [COK_FX_HASTE] = h_haste,
+    [COK_FX_HASTE_AGING] = h_haste_aging,
     [COK_FX_CLOUD] = h_cloud,
     [COK_FX_AVOID] = h_avoid,
     [COK_FX_SLOW] = h_slow,

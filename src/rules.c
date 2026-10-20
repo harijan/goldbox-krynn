@@ -1682,6 +1682,58 @@ const cok_rules cok_rules_champions = {
             .party_gains = "Congratulations the party gains experience!",
             .gains_active_first = false,
         },
+    .levels =
+        {
+            /* 4def:4d9e */
+            .conscious = "we only train conscious people",
+            .wrong_hall = "We don't train that class here",
+            .no_experience = "Not Enough Experience",
+            .will_become = " will become:",
+            .a_level = "    a level ",
+            .and_level = "and a level ",
+            .question = "Do you wish to train? ",
+            .congratulations = "Congratulations...",
+            .question_yes = false, /* 67b5:177f */
+            .free_training = true,
+            .race_limits = false,
+            .stale_row = 0x74, /* see train.c */
+            .ranger_rises = false,
+            .top_hit_points = {2, 0, 3, 0, 2, 1, 2, 3}, /* 4def:4b3a */
+            .hit_points_floor = false,
+            /* 4def:5812, 567f */
+            .knight_of = "Knight Of The ",
+            .granted = {"Sword", "Rose"},
+            .inexperienced = {" is too inexperienced.", " is too inexperienced"},
+            .no_order = "", /* the start menu's rows freed (4def:0381) */
+            .change_always = false,
+            .specials_apart = false,
+            .promote_fixed = 0,
+            /* No aging after a battle. */
+            .ages = NULL,
+            .age_races = 0,
+            /* 5b04:027a, 4888:0b24 */
+            .choose_prompt = "Choose Spell: ",
+            .table_labels = {"    Cleric Spells:", "     Druid Spells:", "   Special Spells:",
+                             "Magic-User Spells:"},
+            .bonus_label = "     Bonus Spells",
+            .table_column = 20,
+            .bonus_column = 20,
+            /* 4888:1098, 132b, 06b8 */
+            .keep = NULL,
+            .keep_prompt = NULL,
+            .memorize_question = {"Memorize These Spells? ", "Memorize these spells? "},
+            .scribe_question = {"Scribe These Spells? ", "Scribe these spells? "},
+            .question_colour = 14,
+            .questions_yes = false,
+            .known = "You already know that spell",
+            .scribing = "You are already scibing that spell",
+            .cannot_scribe = "You can not scribe that spell.",
+            .camp_forgets_memorized = true,
+            .display_heading = 11, /* 4888:17ae */
+            .display_blank_headings = false,
+            .magic_selection = false, /* 4888:1c32 */
+            .fix_unported = NULL,
+        },
 };
 
 static const cok_rules *const games[] = {&cok_rules_champions, &cok_rules_death_knights};

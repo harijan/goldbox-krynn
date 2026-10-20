@@ -101,6 +101,9 @@ bool cok_camp_spell_message(cok_adventure *game, const uint8_t *c, const char *w
 /* Ask prompt, drawn in prompt_color, until Yes or No (67b5:177f); No is
  * selected first. Returns 'Y', 'N', or -1 if input ended. */
 int cok_camp_yes_no(cok_adventure *game, const char *prompt, uint8_t prompt_color);
+/* As cok_camp_yes_no, Yes selected first where yes (dkk 6a69:2048 with
+ * DS:57c0's 0). */
+int cok_camp_ask(cok_adventure *game, const char *prompt, uint8_t prompt_color, bool yes);
 /* One key from a menu of items on row 24 after prompt (67b5:03e2): prompt
  * in light magenta, hotkeys and the selection in white, other letters in
  * light green; keypad as cok_menu_ask. With show, the small picture's
