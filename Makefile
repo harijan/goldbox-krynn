@@ -2,6 +2,8 @@ CC = cc
 PYTHON = python3
 CPPFLAGS = -Isrc
 CFLAGS = -std=c17 -O2 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
+# cast.c's burst takes its cosines and sines from the C library.
+LDLIBS = -lm
 # make sanitize's builds: AddressSanitizer and UBSan; build/cok_tsan's:
 # ThreadSanitizer.
 ASAN_FLAGS = -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer

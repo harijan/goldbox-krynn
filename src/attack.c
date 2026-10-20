@@ -770,8 +770,17 @@ bool cok_combat_sweep(cok_adventure *game, cok_character *attacker, cok_characte
     return true;
 }
 
+static bool can_attack(cok_adventure *game, cok_character *attacker, const uint8_t *target,
+                       bool allies, bool *can);
+
 bool cok_combat_can_attack(cok_adventure *game, cok_character *attacker,
                            const uint8_t *target, bool *can)
+{
+    return can_attack(game, attacker, target, false, can);
+}
+
+static bool can_attack(cok_adventure *game, cok_character *attacker, const uint8_t *target,
+                       bool allies, bool *can)
 {
     cok_rolls *rolls = &game->effects.rolls;
     *can = false;
@@ -792,7 +801,7 @@ bool cok_combat_can_attack(cok_adventure *game, cok_character *attacker,
     if (sides) game->vm.character = selected;
     if (!shown) return false;
     const cok_character_layout *L = cok_game_rules(game)->character;
-    if (rolls->untargetable == 0 && sides &&
+    if (rolls->untargetable == 0 && sides && !allies &&
         cok_field_u8(L, target, COK_FIELD_HOSTILE) ==
             cok_field_u8(L, attacker->record, COK_FIELD_HOSTILE)) {
         rolls->untargetable = 1;
@@ -813,6 +822,12 @@ bool cok_combat_can_attack(cok_adventure *game, cok_character *attacker,
 bool cok_combat_pick_target(cok_adventure *game, cok_character *c, uint8_t range, bool flag,
                             bool force, bool *found)
 {
+    return cok_combat_pick_target_side(game, c, range, flag, force, false, found);
+}
+
+bool cok_combat_pick_target_side(cok_adventure *game, cok_character *c, uint8_t range, bool flag,
+                                 bool force, bool allies, bool *found)
+{
     const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     cok_combat_record *cr = record_of(game, c);
@@ -826,7 +841,7 @@ bool cok_combat_pick_target(cok_adventure *game, cok_character *c, uint8_t range
         if (cok_field_u8(L, t, COK_FIELD_HOSTILE) !=
                 cok_field_u8(L, c->record, COK_FIELD_HOSTILE) &&
             cok_field_u8(L, t, COK_FIELD_ACTIVE) != 0 &&
-            !cok_combat_can_attack(game, c, t, &keep))
+            !can_attack(game, c, t, allies, &keep))
             return false;
         if (!keep) cr->target = NULL;
     }
@@ -836,7 +851,7 @@ bool cok_combat_pick_target(cok_adventure *game, cok_character *c, uint8_t range
         last = pass;
         if (pass && !force) combat->see_all = 1;
         uint8_t tries = 20, n;
-        if (!cok_combat_enemies(game, c, range, &n)) return false;
+        if (!cok_combat_side_list(game, c, range, allies, &n)) return false;
         while (tries > 0 && !*found && n > 0) {
             --tries;
             uint8_t pick;
@@ -850,7 +865,7 @@ bool cok_combat_pick_target(cok_adventure *game, cok_character *c, uint8_t range
             cok_character *t = combatant(game, combat->enemies[pick], "432f:3f9f");
             if (t == NULL) return false;
             bool can = flag && combat->see_all != 0;
-            if (!can && !cok_combat_can_attack(game, c, t->record, &can)) return false;
+            if (!can && !can_attack(game, c, t->record, allies, &can)) return false;
             if (can) {
                 *found = true;
                 cr->target = t->record;

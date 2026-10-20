@@ -221,6 +221,10 @@ bool cok_combat_list(cok_combat *combat, const cok_rules *rules, int8_t x, int8_
  * those in combat->listed; with effect 0x5b, the one who yelled (DS:71a7)
  * goes first. Returns false where the list cannot be made. */
 bool cok_combat_enemies(cok_adventure *game, cok_character *c, uint8_t range, uint8_t *count);
+/* The same with dkk 65cd:2913's first parameter: allies lists c's own
+ * side instead (the computer's pick of a spell's target, dkk 5340:1da5). */
+bool cok_combat_side_list(cok_adventure *game, cok_character *c, uint8_t range, bool allies,
+                          uint8_t *count);
 
 /* 6346:2888: the distance from origin to target in squares (the listed
  * length / 2) with sight not blocked; the list it makes is put back but

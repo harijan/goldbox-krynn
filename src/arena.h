@@ -218,6 +218,11 @@ bool cok_arena_flash(cok_adventure *game, cok_character *c, uint8_t kind, const 
  * attacking. The slot's pictures must be 24 by 24, as COMSPR's are. */
 bool cok_arena_missile_frames(cok_adventure *game, uint8_t slot);
 
+/* Draw the missile's picture frame (cok_arena_missile_frame) masked at
+ * unit x, cell row y of the map's buffer, nothing saved (127f:09c3 with 1:
+ * dkk 65cd:39bd's burst), clipped; cok_arena_show shows it. */
+bool cok_arena_missile_draw(cok_adventure *game, uint8_t frame, int x, int y);
+
 /* Build picture frame (0-3) of a missile (DS:719e) from icon image (0
  * ready, 1 attacking) of slot, mirrored if mirror (6346:1a26), as an
  * arrow's flight builds its one picture by its direction (432f:2beb). */

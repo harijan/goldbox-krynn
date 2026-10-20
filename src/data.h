@@ -97,6 +97,8 @@ typedef enum {
     COK_DATA_STOCK_ITEMS,     /* By index, the item table's ids the shops stock (dkk). */
     /* The temple. */
     COK_DATA_DISEASES,        /* The effect ids Cure Disease removes. */
+    /* The computer's aim of an area spell (dkk 5340:44f8; Champions none). */
+    COK_DATA_AREA_ROWS,       /* By row -3 to 3 and radius 1-3, the area's half width (signed). */
     COK_DATA_TABLES
 } cok_data;
 

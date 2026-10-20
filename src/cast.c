@@ -1,5 +1,6 @@
 #include "cast.h"
 
+#include "ai.h"
 #include "arena.h"
 #include "attack.h"
 #include "camp.h"
@@ -9,6 +10,7 @@
 #include "round.h"
 #include "step.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -28,6 +30,9 @@ typedef struct {
     /* A monster breathes (cok_cast_breath) rather than casts. */
     bool breath;
     cok_character **targets;
+    /* The spell's entry in the game's handler table, for the constants
+     * its handler takes (NULL for a breath). */
+    const cok_rules_cast *entry;
 } cast;
 
 /* A named spell's or effect's id in the game (spells.h), for code that has
@@ -172,7 +177,7 @@ static bool cure(cok_adventure *game, cok_character *c, uint8_t id, bool *cured)
     cok_effect *effect = cok_character_find_effect(c, id);
     *cured = effect != NULL;
     if (effect == NULL) return true;
-    say(game, c, "is Cured");
+    say(game, c, cok_game_rules(game)->casting.cured);
     return remove_effect(game, c, effect, id);
 }
 
@@ -249,17 +254,16 @@ bool cok_cast_damage(cok_adventure *game, cok_character *c, uint8_t amount, uint
         return false;
     }
     if (r->amount == 0 || cok_field_u8(L, record, COK_FIELD_ACTIVE) == 0) return true;
+    const cok_rules_casting *K = &cok_game_rules(game)->casting;
     char text[256];
     if (r->amount == 1)
-        snprintf(text, sizeof text, "takes 1 point of damage ");
+        snprintf(text, sizeof text, "%s", K->point);
     else
-        snprintf(text, sizeof text, "takes %u points of damage ", r->amount);
-    static const struct { uint8_t type; const char *text; } from[] = {
-        {1, "from Fire"}, {2, "from Cold"}, {4, "from Electricity"}, {0x10, "from Acid"},
-    };
-    for (size_t i = 0; i < sizeof from / sizeof *from; ++i)
-        if ((r->damage_type & 0xf7) == from[i].type) strcat(text, from[i].text);
-    if ((r->damage_type & 8) == r->damage_type) strcat(text, "from Magic");
+        snprintf(text, sizeof text, "%s%u%s", K->takes, r->amount, K->points);
+    static const uint8_t from[] = {1, 2, 4, 0x10};
+    for (size_t i = 0; i < sizeof from; ++i)
+        if ((r->damage_type & 0xf7) == from[i]) strcat(text, K->from[i]);
+    if ((r->damage_type & 8) == r->damage_type) strcat(text, K->from[4]);
     if (!combat) {
         say(game, c, text);
         cok_character_damage(record, cok_game_rules(game), r->amount);
@@ -275,17 +279,21 @@ bool cok_cast_damage(cok_adventure *game, cok_character *c, uint8_t amount, uint
                                    "DS:6b2d (6346:24d7)");
         c->combat->may_cast = 0;
         if (c->combat->spell > 0) {
-            if (!cok_arena_say(game, c, "lost a spell", 12, true)) return false;
+            if (!cok_arena_say(game, c, K->lost_spell, 12, true)) return false;
             cok_combat_forget(cok_game_rules(game), record, c->combat->spell);
             cok_combat_end_turn(c);
         }
     }
     if (cok_field_u8(L, record, COK_FIELD_ACTIVE) == 0) {
-        snprintf(text, sizeof text, "Goes Down%s",
-                 cok_field_u8(L, record, COK_FIELD_STATUS) == 5 ? ", and is Dying" : "");
-        if (cok_field_u8(L, record, COK_FIELD_STATUS) >= 6 &&
+        /* dkk 638c:1c52: one whose creature flags hold the quiet bit only
+         * goes down. */
+        bool quiet = (cok_field_u8_at(L, record, COK_FIELD_CREATURE_FLAGS, 1) &
+                      cok_game_rules(game)->fight.quiet_flag) != 0;
+        snprintf(text, sizeof text, "%s%s", K->goes_down,
+                 !quiet && cok_field_u8(L, record, COK_FIELD_STATUS) == 5 ? K->dying : "");
+        if (!quiet && cok_field_u8(L, record, COK_FIELD_STATUS) >= 6 &&
             cok_field_u8(L, record, COK_FIELD_STATUS) <= 8)
-            snprintf(text, sizeof text, "is killed");
+            snprintf(text, sizeof text, "%s", K->killed);
         if (!combat) {
             say(game, c, text);
         } else {
@@ -434,9 +442,12 @@ static bool sided(cast *cx, uint8_t side, const char *text)
             return undefined(game, "a target taken off the list is read through NULL "
                                    "(5b04:1e72)");
         if (cok_field_u8(L, t[i]->record, COK_FIELD_HOSTILE) == side) {
-            /* In combat Bless leaves out an ally with an enemy beside it. */
+            /* In combat Bless (dkk 5dc5:1cc6: any) leaves out an ally with
+             * an enemy beside it. */
             uint8_t spell = game->effects.rolls.spell;
-            if (!((IS_SPELL(spell, BLESS) || IS_SPELL(spell, BLESS_POWER)) && game->vm.mode == 5))
+            if (!((cok_game_rules(game)->casting.sided_all || IS_SPELL(spell, BLESS) ||
+                   IS_SPELL(spell, BLESS_POWER)) &&
+                  game->vm.mode == 5))
                 continue;
             uint8_t enemies;
             if (!cok_combat_enemies(game, t[i], 1, &enemies)) return false;
@@ -505,7 +516,8 @@ static bool burning_hands(cast *cx)
 }
 
 /* 21d7, Enlarge: a strength by the caster level (DS:4839, 483a), if better
- * than the target's base one, as effect 0x0c. */
+ * than the target's base one, as effect 0x0c; 22 at levels 10 and 11, or
+ * with the entry's value 1 at every level but 1-9 (dkk 5dc5:2100). */
 static bool enlarge(cast *cx)
 {
     const cok_character_layout *L = cok_game_rules(cx->game)->character;
@@ -517,7 +529,7 @@ static bool enlarge(cast *cx)
     static const uint8_t by_level[7] = {0, 0, 1, 0x33, 0x4c, 0x5b, 0x64};
     if (level >= 1 && level <= 6) exceptional = by_level[level];
     else if (level >= 7 && level <= 9) strength = (uint8_t)(12 + level);
-    else if (level == 10 || level == 11) strength = 0x16;
+    else if (level == 10 || level == 11 || cx->entry->value == 1) strength = 0x16;
     if (!stronger(L, c->record, strength, exceptional, &value)) {
         say(game, c, "is unaffected");
         return true;
@@ -952,7 +964,8 @@ static bool say_waiting(cok_adventure *game, cok_character *c, const char *text)
  * with bonus, an elf (+0x5a 7) always saving against Hold Person, Faerie
  * Fire and Charm Monsters counting the last picked as saved against a
  * save of kind 1; then the spell's effect for its duration, valued at the
- * caster level, with text. */
+ * caster level (and for Charm Monsters in a game of casting's
+ * missiles_charm_side the caster's side in bit 7), with text. */
 static bool missiles(cast *cx, uint8_t bonus, const char *text)
 {
     const cok_character_layout *L = cok_game_rules(cx->game)->character;
@@ -987,8 +1000,13 @@ static bool missiles(cast *cx, uint8_t bonus, const char *text)
             saved = true;
         uint16_t minutes;
         uint8_t level;
-        if (!cok_cast_duration(game, spell, &minutes) || !level_of(game, spell, &level) ||
-            !cok_cast_add_effect(game, p, spell_byte(game, spell, 10), minutes, level, false, kind,
+        if (!cok_cast_duration(game, spell, &minutes) || !level_of(game, spell, &level))
+            return false;
+        /* dkk 5dc5:1b20: Charm Monsters' value holds the caster's side in
+         * bit 7, as Charm Person's. */
+        if (cok_game_rules(game)->casting.missiles_charm_side && IS_SPELL(spell, CHARM_MONSTERS))
+            level = (uint8_t)(level + (cok_field_u8(L, cx->caster->record, COK_FIELD_HOSTILE) << 7));
+        if (!cok_cast_add_effect(game, p, spell_byte(game, spell, 10), minutes, level, false, kind,
                                  saved, text))
             return false;
     }
@@ -1205,8 +1223,10 @@ static bool bolt_cell(cast *cx, int8_t x, int8_t y, uint8_t amount, uint8_t type
  * its last cell (bolt_cell), not the combatant the last segment hit. A wall
  * that bounces makes it the spell's cell, turns the bolt back along the
  * line from it to the caster, charging 8 more for the first bounce of
- * Lightning Bolt (surcharge) where that line is 8 or shorter, and lets
- * anyone be hit again. The length of the line before a bounce is still
+ * Lightning Bolt (surcharge) where that line is 8 or shorter (doubling
+ * the length walked in a game of casting's bolt_doubles), and lets anyone
+ * be hit again. In a game of casting's bolt_least each line is charged
+ * its length less the last's as a signed word, at least that much. The length of the line before a bounce is still
  * counted against the next line's first segment, as a byte: between two
  * walls as far apart as that line was long the bolt is charged nothing
  * and bounces for ever, as the original does; the run stops when a line
@@ -1214,6 +1234,7 @@ static bool bolt_cell(cast *cx, int8_t x, int8_t y, uint8_t amount, uint8_t type
 static bool bolt(cast *cx, uint8_t length, uint8_t amount, uint8_t type, bool surcharge)
 {
     const cok_character_layout *L = cok_game_rules(cx->game)->character;
+    const cok_rules_casting *K = &cok_game_rules(cx->game)->casting;
     cok_adventure *game = cx->game;
     cok_combat *combat = &game->combat;
     bool bounce = false;
@@ -1304,13 +1325,23 @@ static bool bolt(cast *cx, uint8_t length, uint8_t amount, uint8_t type, bool su
                 back.y1 = cy0;
                 cok_combat_line_start(&back);
                 while (cok_combat_line_step(&back, cok_game_rules(game))) {}
-                if (surcharge && back.length <= 8) line.length = (uint8_t)(line.length + 8);
+                if (surcharge && back.length <= 8)
+                    line.length = K->bolt_doubles ? (uint8_t)(line.length * 2)
+                                                  : (uint8_t)(line.length + 8);
                 sign = (int8_t)-sign;
                 surcharge = false;
                 previous = 0;
             }
             uint8_t progress = (uint8_t)(line.length - last);
-            remaining = progress < remaining ? (uint8_t)(remaining - progress) : 0;
+            if (K->bolt_least != 0) {
+                /* dkk 5dc5:354a: a signed word, at least bolt_least. */
+                int charged = (int)line.length - (int)last;
+                if (charged < K->bolt_least) charged = K->bolt_least;
+                progress = (uint8_t)charged;
+                remaining = remaining > charged ? (uint8_t)(remaining - charged) : 0;
+            } else {
+                remaining = progress < remaining ? (uint8_t)(remaining - progress) : 0;
+            }
             last = line.length;
             if (!bounce && remaining != 0 && !stepped && progress == 0)
                 return undefined(game, "a bolt ends its line short of its length on a cell it "
@@ -1329,7 +1360,9 @@ static bool lightning_bolt(cast *cx)
     cok_adventure *game = cx->game;
     uint8_t level;
     if (!level_of(game, game->effects.rolls.spell, &level)) return false;
-    uint8_t amount = roll(game, level, 6);
+    /* dkk 5dc5:37f8 (the entry's value 1) counts the dice (638c:1233). */
+    uint8_t amount =
+        cx->entry->value == 1 ? damage_roll(game, level, 6) : roll(game, level, 6);
     game->effects.rolls.damage_type = 0x0c;
     /* The original's flag is a local never set: 39bb reads it on a wall in
      * a 3D area, only to write it back to the same local, never read. */
@@ -1509,6 +1542,14 @@ static bool fumble(cast *cx)
 static bool ice_storm(cast *cx)
 {
     return apply(cx, 0, false, damage_roll(cx->game, 3, 10), 0x0a, "");
+}
+
+/* dkk 5dc5:4160 (Flame Strike), 48ef (Ice Storm): the entry's dice of its
+ * type, as 1fc2 and 4914. */
+static bool dice(cast *cx)
+{
+    const cok_rules_cast *e = cx->entry;
+    return apply(cx, 0, false, damage_roll(cx->game, e->count, e->sides), e->type, "");
 }
 
 /* 17eb: x and y kept on the map. */
@@ -1862,6 +1903,7 @@ static handler_fn *const handlers[COK_CAST_HANDLERS] = {
     [COK_CAST_FUMBLE] = fumble,
     [COK_CAST_ICE_STORM] = ice_storm,
     [COK_CAST_EMPTY_TEXT] = empty_text,
+    [COK_CAST_DICE] = dice,
 };
 
 /* 5b04:127e: the targets outside combat, by byte 7 (the game's values, its
@@ -1881,8 +1923,8 @@ static bool target(cast *cx)
     if (kind == S->target_one) {
         cok_adventure_redraw(game);
         bool ended;
-        uint8_t *picked = cok_adventure_pick(game, "Cast Spell on whom", game->spell_target, true,
-                                             &ended);
+        uint8_t *picked = cok_adventure_pick(game, cok_game_rules(game)->casting.on_whom,
+                                             game->spell_target, true, &ended);
         if (ended) return false;
         game->spell_target = picked;
         cx->targets[1] = member_of(game, picked);
@@ -1990,9 +2032,132 @@ bool cok_cast_reflect(cok_adventure *game, cok_character *c, cok_character **cas
  * spell not hostile (byte 14), or for Cure Light Wounds (3) the ally
  * cok_cast_wounded_ally finds; else a target within the range that
  * 432f:3f9f picks afresh, unless that one is helpless (6346:0cdb) and the
- * spell's effect (byte 10) is one of those that make it so (DS:200c).
- * With a pick, the target's cell becomes the spell's (DS:710f, 7110);
- * with none, *res is cleared. */
+ * spell's effect (byte 10) is one of those that make it so (DS:200c);
+ * in a game of COK_CAST_PICK_DEATH_KNIGHTS, pick_one or pick_area. With
+ * a pick, the target's cell becomes the spell's (DS:710f, 7110); with
+ * none, *res is cleared. */
+/* dkk 5340:1da5: one within the spell's range that 5340:3cac picks afresh
+ * among c's own side for a spell not hostile (column 14 0), else among the
+ * other, if the spell would do it some good (5340:3fd5). */
+static bool pick_one(cast *cx, bool *found, cok_combat_aimed *res)
+{
+    cok_adventure *game = cx->game;
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    cok_character *c = cx->caster;
+    bool allies = spell_byte(game, cx->spell, 14) == 0, picked;
+    uint8_t range;
+    if (!cok_cast_range(game, cx->spell, &range) ||
+        !cok_combat_pick_target_side(game, c, range, false, true, allies, &picked))
+        return false;
+    if (!picked) return true;
+    uint8_t *record = cok_character_combat(c)->target;
+    cok_character *t = record != NULL ? member_of(game, record) : NULL;
+    if (t == NULL)
+        return undefined(game, "the computer's target is not in the list (dkk 5340:1da5)");
+    uint8_t side = allies ? cok_field_u8(L, c->record, COK_FIELD_HOSTILE)
+                          : cok_combat_opposite(c, cok_game_rules(game));
+    int8_t good;
+    if (!cok_ai_worth(game, side, cx->spell, t, &good)) return false;
+    if (good <= 0) return true;
+    res->target = record;
+    *found = true;
+    return cell(game, t, &res->x, &res->y);
+}
+
+/* dkk 5340:44f8: for an area spell the computer aims at the cell whose
+ * area (radius column 6 - 8, one less for Fireball 0x2f and Delay Blast
+ * Fireball 0x6c where var COK_VAR_3D is 0) does the most good (5340:3fd5's
+ * sums over each combatant that can act in it, on the side the spell is
+ * for), among the cells around c within its range (at most 9 with the
+ * radius; past that around c's target) that can see c within it; a tie
+ * with some good is taken on a d100 below 25 (65cd:0000). None does any
+ * good: none. */
+static bool pick_area(cast *cx, bool *found, cok_combat_aimed *res)
+{
+    cok_adventure *game = cx->game;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    const cok_data_segment *D = rules->data;
+    cok_combat *combat = &game->combat;
+    cok_character *c = cx->caster;
+    uint8_t spell = cx->spell;
+    uint8_t side = spell_byte(game, spell, 14) == 0 ? cok_field_u8(L, c->record, COK_FIELD_HOSTILE)
+                                                    : cok_combat_opposite(c, rules);
+    uint8_t radius = (uint8_t)(spell_byte(game, spell, 6) - 8);
+    if ((spell == 0x2f || spell == 0x6c) && cok_ecl_var(&game->vm, COK_VAR_3D) == 0) --radius;
+    uint8_t range;
+    if (!cok_cast_range(game, spell, &range)) return false;
+    const uint8_t *centre = NULL;
+    uint8_t reach = (uint8_t)(radius + range);
+    if (reach > 9) {
+        reach = 9;
+        centre = cok_character_combat(c)->target;
+    }
+    uint8_t inner = (uint8_t)(reach - radius);
+    if (centre == NULL) centre = c->record;
+    int8_t x0 = cok_combat_x(combat, centre), y0 = cok_combat_y(combat, centre);
+    int8_t left = (int8_t)(x0 - reach), right = (int8_t)(x0 + reach);
+    int8_t top = (int8_t)(y0 - reach), bottom = (int8_t)(y0 + reach);
+    int8_t in_left = (int8_t)(x0 - inner), in_right = (int8_t)(x0 + inner);
+    int8_t in_top = (int8_t)(y0 - inner), in_bottom = (int8_t)(y0 + inner);
+    /* 19 by 19 sums, by x then y around the centre (GetMem(0x169)). */
+    uint8_t sums[0x169] = {0};
+    for (size_t n = 0; n < game->party.count; ++n) {
+        cok_character *e = game->party.members[n];
+        int8_t ex = cok_combat_x(combat, e->record), ey = cok_combat_y(combat, e->record);
+        if (cok_field_u8(L, e->record, COK_FIELD_ACTIVE) == 0 || ex < left || ex > right ||
+            ey < top || ey > bottom)
+            continue;
+        int8_t good;
+        if (!cok_ai_worth(game, side, spell, e, &good)) return false;
+        int8_t first = (int8_t)-radius, last = (int8_t)radius;
+        if (first + ey < in_top) first = (int8_t)(in_top - ey);
+        if (in_bottom < (int8_t)radius + ey) last = (int8_t)(in_bottom - ey);
+        for (int dy = first; dy <= last; ++dy) {
+            uint8_t half_byte;
+            if (!cok_data_byte(D,
+                               (uint16_t)cok_data_offset2(D, COK_DATA_AREA_ROWS, dy, radius),
+                               &half_byte))
+                return undefined(game, "an area's row past its table is read (dkk DS:0648, "
+                                       "5340:44f8)");
+            int8_t half = (int8_t)half_byte;
+            int8_t from = (int8_t)(ex - half), to = (int8_t)(ex + half);
+            if (from < in_left) from = in_left;
+            if (to > in_right) to = in_right;
+            for (int x = from; x <= to; ++x) {
+                int at = (x - x0) * 0x13 + (dy + ey - y0) + 0xb4;
+                sums[at] = (uint8_t)(sums[at] + (uint8_t)good);
+            }
+        }
+    }
+    int8_t px = cok_combat_x(combat, c->record), py = cok_combat_y(combat, c->record);
+    int8_t best = 0, bx = 0, by = 0;
+    for (int dx = -(int)inner; dx <= (int)inner; ++dx)
+        for (int dy = -(int)inner; dy <= (int)inner; ++dy) {
+            int8_t v = (int8_t)sums[dx * 0x13 + dy + 0xb4];
+            if (!(v > best || (v == best && v > 0 && cok_tp_random(&game->vm.seed, 100) < 0x19)))
+                continue;
+            int tx = x0 + dx, ty = y0 + dy;
+            if (tx < 0 || tx > 0x31 || ty < 0 || ty >= 0x18) continue;
+            int8_t sx = px, sy = py;
+            uint16_t sight = range;
+            bool seen;
+            if (!cok_combat_sight(combat, rules, (int8_t)tx, (int8_t)ty, &sx, &sy, &sight, &seen))
+                return undefined(game, "terrain past the table is read (dkk 6e48:03ec, "
+                                       "5340:44f8)");
+            if (!seen) continue;
+            bx = (int8_t)dx;
+            by = (int8_t)dy;
+            best = v;
+        }
+    res->target = NULL;
+    if (best <= 0) return true;
+    *found = true;
+    res->x = (int8_t)(x0 + bx);
+    res->y = (int8_t)(y0 + by);
+    return true;
+}
+
 static bool pick(cast *cx, bool square, bool *found, cok_combat_aimed *res)
 {
     cok_adventure *game = cx->game;
@@ -2010,6 +2175,14 @@ static bool pick(cast *cx, bool square, bool *found, cok_combat_aimed *res)
             return undefined(game, "a caster with no combat record is written through NULL "
                                    "(432f:2165)");
         cr->target = res->target;
+    } else if (cok_game_rules(game)->casting.computer_pick == COK_CAST_PICK_DEATH_KNIGHTS) {
+        /* dkk 5340:1eeb: one target, also for a line (column 6 of 8); else
+         * the best cell for the area. */
+        if (!square || spell_byte(game, cx->spell, 6) == 8) {
+            if (!pick_one(cx, found, res)) return false;
+        } else if (!pick_area(cx, found, res)) {
+            return false;
+        }
     } else if (spell_byte(game, cx->spell, 14) == 0) {
         cok_character *t = c;
         if (IS_SPELL(cx->spell, CURE_LIGHT_WOUNDS) && !cok_cast_wounded_ally(game, c, &t))
@@ -2080,10 +2253,11 @@ static bool redraw_pick(cast *cx, cok_character *t)
  * nibble k of byte 6 of the spell table: 0 the caster; 5 picks (Faerie
  * Fire, Charm Monsters) while their weight is within an allowance, the
  * caster level for Faerie Fire, else 2d4; 0x0f (Silence) one pick, its
- * target alone, or with none those at the cell (radius (k >> 4), 0); 8 to
- * 0x0e a cell and everyone within byte 6 & 7 of it, either side; else up
- * to (byte 6 & 3) + 1 separate picks, Hold Person refusing the caster.
- * *done is cleared where none was picked, but never for k 5. */
+ * target alone, or with none those at the cell (radius (k >> 4), 0; dkk
+ * byte 6 >> 4); 8 to 0x0e a cell and everyone within byte 6 & 7 of it,
+ * either side; else up to (byte 6 & 3) + 1 separate picks, Hold Person
+ * refusing the caster. *done is cleared where none was picked, but never
+ * for k 5. Death Knights' (5340:1ff7) clears the list first. */
 static bool combat_targets(cast *cx, bool *done)
 {
     const cok_character_layout *L = cok_game_rules(cx->game)->character;
@@ -2091,6 +2265,9 @@ static bool combat_targets(cast *cx, bool *done)
     cok_rolls *r = &game->effects.rolls;
     cok_character **t = cx->targets;
     *done = true;
+    /* dkk 5340:1ff7 clears the list first (1a07:1ad4). */
+    if (cok_game_rules(game)->casting.targets_cleared)
+        for (size_t i = 1; i <= COK_PARTY_RECORDS; ++i) t[i] = NULL;
     game->spell_target_count = 0;
     r->images = 0;
     if (!cell(game, cx->caster, &game->spell_x, &game->spell_y)) return false;
@@ -2164,7 +2341,11 @@ static bool combat_targets(cast *cx, bool *done)
             game->spell_target_count = 1;
             return true;
         }
-        return area(cx, (uint8_t)((spell_byte(game, cx->spell, 6) & 0x0f) >> 4));
+        /* Champions' radius is the low nibble shifted, 0; dkk's the high
+         * nibble. */
+        uint8_t byte6 = spell_byte(game, cx->spell, 6);
+        return area(cx, cok_game_rules(game)->casting.silence_radius ? (uint8_t)(byte6 >> 4)
+                                                                     : (uint8_t)((byte6 & 0x0f) >> 4));
     }
     if (kind >= 8 && kind <= 0x0e) {
         if (!pick(cx, true, &found, &res)) return false;
@@ -2213,10 +2394,71 @@ static bool combat_targets(cast *cx, bool *done)
     return cell(game, t[picks], &game->spell_x, &game->spell_y);
 }
 
+/* Turbo Pascal's Random as a real (1a07:1602): the seed advanced, over
+ * 2^32. */
+static double random_real(cok_adventure *game)
+{
+    cok_tp_random(&game->vm.seed, 0);
+    return (double)game->vm.seed / 4294967296.0;
+}
+
+/* dkk 65cd:39bd: the burst of a spell that has one (casting's bursts) on
+ * its cell after its flight: the screen centred there (6f03:0b0e), the
+ * burst's sound, its pictures from icon slot slot (65cd:1bd5: ready,
+ * ready mirrored, attacking, attacking mirrored); then for rings k = 1 to
+ * 3 * n + 1, 2k - 1 sparks each at an angle of Random * 2 * pi, Trunc of
+ * its cosine and sine times k units from the cell's (kept 3 units a cell
+ * past the view's centring at the map's edges), each within 9 units drawn
+ * (frame Random(4)), each ring shown; then the screen centred again. The
+ * reals are doubles here (the original's Real48 Cos and Sin): a spark
+ * would land elsewhere only within about 1e-10 of a unit's edge. */
+static bool burst(cast *cx)
+{
+    cok_adventure *game = cx->game;
+    const cok_rules_casting *K = &cok_game_rules(game)->casting;
+    const cok_rules_burst *b = NULL;
+    for (unsigned i = 0; i < K->burst_count; ++i)
+        if (K->bursts[i].spell == cx->spell) b = &K->bursts[i];
+    if (b == NULL) return true;
+    uint8_t n = cok_ecl_var(&game->vm, COK_VAR_3D) != 0 ? b->n_3d : b->n;
+    int8_t x = game->spell_x, y = game->spell_y;
+    if (!cok_arena_centre(game, x, y, 0xff, 8)) return false;
+    cok_arena_sound(game, K->burst_sound);
+    static const uint8_t images[4] = {0, 0, 1, 1}, mirrors[4] = {0, 1, 0, 1};
+    for (uint8_t frame = 0; frame < 4; ++frame)
+        if (!cok_arena_missile_frame(game, b->slot, images[frame], frame, mirrors[frame] != 0))
+            return false;
+    int8_t ox = x < 3 ? (int8_t)((x - 3) * 3) : x > 0x2e ? (int8_t)((x - 0x2e) * 3) : 0;
+    int8_t oy = y < 3 ? (int8_t)((y - 3) * 3) : y > 0x15 ? (int8_t)((y - 0x15) * 3) : 0;
+    const double pi = 3.14159265358979323846;
+    uint8_t rings = (uint8_t)(n * 3 + 1);
+    for (unsigned k = 1; k <= rings; ++k) {
+        for (unsigned j = 0; j < 2 * k - 1; ++j) {
+            double angle = random_real(game) * 2.0 * pi;
+            int8_t sx = (int8_t)((long)(cos(angle) * k) + ox);
+            int8_t sy = (int8_t)((long)(sin(angle) * k) + oy);
+            if (sx < -9 || sx > 9 || sy < -9 || sy > 9) continue;
+            uint8_t frame = (uint8_t)cok_tp_random(&game->vm.seed, 4);
+            if (!cok_arena_missile_draw(game, frame, sx + 9, sy + 9)) return false;
+        }
+        if (!cok_arena_show(game)) return false;
+    }
+    return cok_arena_centre(game, x, y, 0xff, 8);
+}
+
+/* A yes or no (67b5:177f from No, in colour; dkk 6a69:2048 from Yes, in
+ * 13). */
+static int ask(cok_adventure *game, const char *prompt, uint8_t colour)
+{
+    if (cok_game_rules(game)->casting.ask_yes) return cok_camp_ask(game, prompt, 13, true);
+    return cok_camp_yes_no(game, prompt, colour);
+}
+
 /* 5b04:1415's flight in combat: the spell's missile (icon slot 0x12), the
  * caster turned toward the spell's cell in its casting pose, sound 0x0b
  * for Fireball, 8 for Lightning Bolt, else 2 (DS:1e5e, 1e58, 1e4c), the
- * missile flown, and the caster, if shown, drawn back ready. */
+ * missile flown, the burst of one that has one (dkk), and the caster, if
+ * shown, drawn back ready. */
 static bool fly(cast *cx)
 {
     cok_adventure *game = cx->game;
@@ -2237,7 +2479,8 @@ static bool fly(cast *cx)
     cok_arena_sound(game, IS_SPELL(cx->spell, FIREBALL)         ? 0x0b
                           : IS_SPELL(cx->spell, LIGHTNING_BOLT) ? 8
                                                                : 2);
-    if (!cok_arena_missile(game, x, y, game->spell_x, game->spell_y, 4, 0x1e)) return false;
+    if (!cok_arena_missile(game, x, y, game->spell_x, game->spell_y, 4, 0x1e) || !burst(cx))
+        return false;
     bool shown;
     if (!cok_combat_visible(combat, cok_game_rules(game), c->record, false, &shown))
         return undefined(game, "a size past the footprints is read after them (6beb:06ef)");
@@ -2248,8 +2491,8 @@ static bool fly(cast *cx)
 }
 
 /* 5b04:57eb: c "casts" or "miscasts" spell; in combat it "Casts a Spell"
- * whatever the verb (row 10, a pause), and "Spell:" and the spell's name
- * go on row 23. */
+ * (casting's casts_a_spell) whatever the verb (row 10, a pause), and
+ * "Spell:" and the spell's name go on row 23. */
 static bool announce_spell(cok_adventure *game, cok_character *c, const char *verb, uint8_t spell)
 {
     if (game->vm.mode != 5) return cok_camp_spell_message(game, c->record, verb, spell);
@@ -2257,7 +2500,8 @@ static bool announce_spell(cok_adventure *game, cok_character *c, const char *ve
     if (name == NULL)
         return undefined(game, "a spell with no name; 5b04:57eb would print the data after the "
                                "names");
-    if (!cok_arena_say(game, c, "Casts a Spell", 10, true)) return false;
+    if (!cok_arena_say(game, c, cok_game_rules(game)->casting.casts_a_spell, 10, true))
+        return false;
     cok_picture_fill(&game->screen, 0, 0x17 * 8, 40, 8, 0); /* 1128:07e6 */
     char text[64];
     snprintf(text, sizeof text, "Spell:%s", name);
@@ -2285,10 +2529,12 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, 
         return;
     }
     const cok_rules_cast *handler = &S->cast[spell];
-    if (handler->unported != NULL || S->cast_unported != NULL) {
+    const cok_rules_casting *K = &cok_game_rules(game)->casting;
+    cx.entry = handler;
+    if (handler->unported != NULL) {
         cok_adventure_fail(game, COK_ECL_UNPORTED, "not yet ported: %s's spell %u, %s (%s)",
                            cok_game_rules(game)->text.name, spell, S->names[spell - 1],
-                           handler->unported != NULL ? handler->unported : S->cast_unported);
+                           handler->unported);
         return;
     }
     bool combat = game->vm.mode == 5;
@@ -2309,26 +2555,25 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, 
             const char *name = cok_spell_name(cok_game_rules(game), spell);
             cok_adventure_log(game, "print", name);
             cok_text_string(&game->screen, &game->font, name, 1, 0x13, 10, 0);
-            cok_adventure_log(game, "print", "can't be cast here...");
-            cok_text_string(&game->screen, &game->font, "can't be cast here...", 1, 0x14, 10, 0);
-            int answer = cok_camp_yes_no(game, "Lose it? ", 13);
+            cok_adventure_log(game, "print", K->cast_here);
+            cok_text_string(&game->screen, &game->font, K->cast_here, 1, 0x14, 10, 0);
+            int answer = ask(game, K->lose_it, 13);
             if (answer < 0) return;
             lose = answer == 'Y';
             if (lose) cok_combat_forget(cok_game_rules(game), c, spell);
         } else {
-            cok_adventure_log(game, "print", "That Item");
-            cok_text_string(&game->screen, &game->font, "That Item", 1, 0x13, 10, 0);
-            cok_adventure_log(game, "print", "is a combat-only item...");
-            cok_text_string(&game->screen, &game->font, "is a combat-only item...", 1, 0x14, 10,
-                            0);
-            int answer = cok_camp_yes_no(game, "Use it? ", 13);
+            cok_adventure_log(game, "print", K->that_item);
+            cok_text_string(&game->screen, &game->font, K->that_item, 1, 0x13, 10, 0);
+            cok_adventure_log(game, "print", K->combat_only);
+            cok_text_string(&game->screen, &game->font, K->combat_only, 1, 0x14, 10, 0);
+            int answer = ask(game, K->use_it, 13);
             if (answer < 0) return;
             if (answer == 'Y') *done = true;
         }
         announce = false;
         go = false;
     }
-    if (FIND_EFFECT(cx.caster, DISPELLING) != NULL && roll(game, 1, 2) == 1) {
+    if (K->miscast && FIND_EFFECT(cx.caster, DISPELLING) != NULL && roll(game, 1, 2) == 1) {
         if (!announce_spell(game, cx.caster, "miscasts", spell)) return;
         announce = false;
         go = false;
@@ -2367,11 +2612,11 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, 
             go = false;
         } else {
             if (!ai) {
-                int answer = cok_camp_yes_no(game, "Abort Spell? ", 14); /* 67b5:177f */
+                int answer = ask(game, K->abort, 14); /* 67b5:177f */
                 if (answer < 0) return;
                 if (answer != 'Y') continue;
             }
-            cok_camp_notice(game, "Spell Aborted"); /* 6346:1827 */
+            cok_camp_notice(game, K->aborted); /* 6346:1827 */
             if (r->item == 0) cok_combat_forget(cok_game_rules(game), c, spell);
             go = false;
         }

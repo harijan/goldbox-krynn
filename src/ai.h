@@ -97,6 +97,12 @@ bool cok_ai_use_item(cok_adventure *game, cok_character *c, bool *used);
  * sets, as the turn is over. */
 bool cok_ai_cast(cok_adventure *game, cok_character *c, bool *cast);
 
+/* dkk 5340:3fd5: how much good spell would do target t on side (Death
+ * Knights' spell ids: the routine of COK_COMPUTER_CAST_DEATH_KNIGHTS and
+ * COK_CAST_PICK_DEATH_KNIGHTS), into *good: above 0 some. */
+bool cok_ai_worth(cok_adventure *game, uint8_t side, uint8_t spell, cok_character *t,
+                  int8_t *good);
+
 /* 3afb:024b: a cleric (+0xf9 above 0, or +0x101 above +0xd7) that has
  * turned fewer times this battle (combat record +0x11) than there are
  * undead (DS:8859) turns undead (432f:12b7, *turned) if an enemy undead

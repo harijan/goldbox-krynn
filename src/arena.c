@@ -984,6 +984,15 @@ bool cok_arena_missile_frames(cok_adventure *game, uint8_t slot)
     return true;
 }
 
+bool cok_arena_missile_draw(cok_adventure *game, uint8_t frame, int x, int y)
+{
+    cok_combat *c = &game->combat;
+    if (!map_there(game, "dkk 65cd:39bd")) return false;
+    if (frame >= c->flash.frames)
+        return fail(game, "the missile's picture %u is past its four (dkk 65cd:39bd)", frame);
+    return buffer_draw(game, &c->flash, frame, x, y, "dkk 65cd:39bd");
+}
+
 /* Draw the missile's picture frame at unit x, cell row y of the buffer,
  * masked, saving what it covers (127f:09c3 with 5). */
 static bool draw_missile(cok_adventure *game, uint8_t frame, int x, int y)

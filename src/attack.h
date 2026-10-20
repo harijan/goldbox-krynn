@@ -131,6 +131,11 @@ bool cok_combat_can_attack(cok_adventure *game, cok_character *attacker,
  * not force), where flag takes the pick without the test. */
 bool cok_combat_pick_target(cok_adventure *game, cok_character *c, uint8_t range, bool flag,
                             bool force, bool *found);
+/* The same with dkk 5340:3cac's allies parameter: the picks among c's own
+ * side (cok_combat_side_list), which may then be attacked (dkk 5340:10ab
+ * refuses one's own side only without it). */
+bool cok_combat_pick_target_side(cok_adventure *game, cok_character *c, uint8_t range, bool flag,
+                                 bool force, bool allies, bool *found);
 
 /* 432f:077a: c steps in dir (0-7): its movement left (combat record +0x06)
  * less the cell's cost twice, or three times on a diagonal, as a byte, or

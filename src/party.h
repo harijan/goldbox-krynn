@@ -245,6 +245,13 @@ static inline int8_t cok_character_change_level(const cok_rules *rules, const ui
                                             : 0;
 }
 
+/* The strength from the base scores (+0x10, +0x1d for exceptional
+ * strength) changed by the readied items' powers (+0x3e 0x80 + power, +0x3d
+ * its kind) and the effects STRENGTH, GIANT_STRENGTH and ENLARGED, into
+ * the current one (60f4:1743 with 0; dkk 638c:16d8): an item of power 0x0d
+ * makes it 3. */
+void cok_character_strength(cok_character *character, const cok_rules *rules);
+
 /* Recompute the stats that come from the items and abilities (6346:0d20):
  * the readied slots, item count, hands, weight carried, attacks and
  * damage, THAC0, armour class and movement. Each table lookup follows the

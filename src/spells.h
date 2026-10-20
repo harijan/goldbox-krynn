@@ -197,6 +197,10 @@ typedef enum {
     COK_CAST_FUMBLE,
     COK_CAST_ICE_STORM,
     COK_CAST_EMPTY_TEXT,
+    /* Damage of the entry's dice through the spell's apply (dkk Flame
+     * Strike 5dc5:4160, Ice Storm 48ef: Champions' 5b04:1fc2 and 4914 with
+     * other dice and types). */
+    COK_CAST_DICE,
     COK_CAST_HANDLERS
 } cok_cast_handler;
 

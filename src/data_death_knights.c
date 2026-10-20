@@ -54,6 +54,13 @@ const uint8_t cok_death_knights_turning[155] = {
     0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x14, 0x13, 0x0d,
 };
 
+/* DS:0640: an area's half width by row and radius (5340:44f8 reads DS:0648
+ * + 3 * row + radius, rows -3 to 3, radii 1-3). */
+const uint8_t cok_death_knights_area[21] = {
+    0xfd, 0xfd, 0x01, 0xfd, 0x01, 0x02, 0x01, 0x02, 0x03, 0x01, 0x02,
+    0x03, 0x01, 0x02, 0x03, 0xfd, 0x01, 0x02, 0xfd, 0xfd, 0x01,
+};
+
 /* DS:0656: the hit dice at level 1 and their sides by class (0656, 065e;
  * 580d:3193), a cone's sides (0666; 5dc5:1690) and the bytes after them a
  * side past 7 reads, which hold the effects that last only through the
