@@ -182,6 +182,14 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual(lines[at + 1:at + 3], [
             "print: do you want to go back and claim your treasure?", "menu: ~Yes ~No"])
         self.assertEqual(lines[-1], "(done in block 2)")
+        # Detect, offered once the selection (Down, 65cd:0959) is FLAVIUS,
+        # who has Detect Magic memorized, casts it (5dc5:1298).
+        result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--combat", "won", "--keys",
+                           r"\r\r\#50\#50\#50D\r\r", ASSETS, 2)
+        lines = result.stdout.splitlines()
+        at = lines.index("menu: View Take Pool Detect Exit")
+        self.assertEqual(lines[at + 1:at + 4], ["print: FLAVIUS", "print: is affected",
+                                                "menu: View Take Pool Exit"])
         # TREASURE ITEMS (3632:1933): its coins added and its items from the
         # item table (ITEM0), the last first.
         result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--file", 3, "--start", "9569",
