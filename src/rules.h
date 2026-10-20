@@ -1030,6 +1030,11 @@ typedef struct {
      * menus in Death Knights start from their first themselves); whether
      * Escape leaves Move (dkk: a special key in its loop). */
     bool adventure_keeps_selection, escape_leaves_move;
+    /* Whether camp's menu keeps its own selection, from the first, put
+     * back into DS:c0f7 before each ask and taken after (dkk 4381:3106's
+     * [bp-4]), rather than going on from what the menus it ran left
+     * (Champions' 4888:2c31, DS:6e0f). */
+    bool camp_keeps_selection;
     /* Whether a special key that picks a character (546c:3334; dkk
      * 580d:2bb2) keeps the one selected for a key other than Up and Down
      * (dkk), rather than picking the first. */
@@ -1062,6 +1067,83 @@ typedef struct {
      * 65cd:1bd5: 0x1c, COMSPR 15). */
     uint8_t cursor_slot;
 } cok_rules_commands;
+
+/* View and the items menu (sheet.c, items.c): the routine of each, as
+ * the game's original has them. */
+typedef enum {
+    /* 546c:0d74 and 546c:17f9: menus by letters (67b5:03e2), the items
+     * listed by 67b5:1368. */
+    COK_ITEMS_CHAMPIONS,
+    /* dkk 580d:0c66 and 580d:0ffa: menus by index (6a69:0f1b), the items
+     * listed by 6a69:1b82 (cok_menu_indexed_rows), View's Deposit in mode 7
+     * and its Heal and Cure, the items menu's Deposit in mode 7. */
+    COK_ITEMS_DEATH_KNIGHTS,
+} cok_items_routine;
+
+/* View and the items menu where the games differ (sheet.c, items.c; see
+ * View): the routines, their words and rules. */
+typedef struct {
+    /* cok_items_routine. */
+    uint8_t routine;
+    /* COK_ITEMS_DEATH_KNIGHTS' menus, every item each may offer, by index
+     * (dkk View's DS:3276, the items menu's DS:32c7); NULL for Champions,
+     * whose menus join their words in the code. */
+    const char *view_menu, *items_menu;
+    /* The readied column of the items list (6346:0488's 0473, 047a; dkk
+     * 65cd:047f's DS:2c02, 2c0d, a space shorter), each item's name built
+     * after it. */
+    const char *readied_yes, *readied_no;
+    /* Ready (546c:1ea7; dkk 580d:1717): the thief level (+0xff's thief,
+     * dkk +0x4b) at and above which a thief readies a scroll (type 0x27)
+     * of either order of magic, and the word for a thief of a level below
+     * it but above 0 ("Thief Level Too Low", dkk 580d:1703; the others
+     * "Wrong Magical Order"); 0 and NULL for no such rule (Champions). */
+    uint8_t thief_scrolls;
+    const char *thief_too_low;
+    /* Use of an item not readied (546c:17c4; dkk DS:111f). */
+    const char *must_ready;
+    /* The questions of parting with a scroll marked to scribe (546c:10b3,
+     * "is it Okay to lose it? "; dkk 580d:0efb's DS:0f1a) and of Drop
+     * (546c:17ef, "Drop It? "; dkk 580d:0ffa's DS:0f1a), both from No. */
+    const char *lose_scroll, *drop_question;
+    /* Trade's pick of a partner for money (546c:2c31, "Trade to?"; dkk
+     * 580d:23a0's DS:1061), and the coin lists' first item of Trade and
+     * Drop (546c:2c52, 2fc0, " Select"; dkk 580d:23a0, 26d0's DS:31d6). */
+    const char *trade_to, *coin_select;
+    /* COK_ITEMS_DEATH_KNIGHTS' Deposit of an item in the vault (580d:0ffa
+     * in mode 7): the words before and after its name (580d:0fda, 0fe0). */
+    const char *deposit_before, *deposit_after;
+    /* Sell (546c:2822; dkk 580d:2077), in shops: the offer's words before
+     * the price and before the name, the question, "Sold!" and the money
+     * that would overload the character (Champions' 546c:27be, 27cd, 27e5,
+     * 27f4, 27fa; dkk DS:1134, 1149, 1168, 117d, 1188); what a price
+     * times a count above 1 is divided by (Champions' 20; dkk 1); and
+     * whether Sell's and Id's question starts on Yes (dkk 6a69:2048 with
+     * DS:57c0), rather than on No. */
+    const char *offer, *offer_for, *deal, *sold, *sold_pool;
+    uint8_t sell_divisor;
+    bool deal_yes;
+    /* Id (546c:2a59; dkk 580d:21d3), in shops: the offer's, the
+     * nothing-new's and the shown's words before the name, and too little
+     * money's (Champions' 546c:29ce, 2a17, 2a3d, 2a06; dkk DS:11b1,
+     * 11da, 1203, 1743); whether the 100 steel are paid from the
+     * character's steel and then the pool's (dkk), rather than from all its
+     * coins as steel (546c:3424, 58e7:0155) and then the pool's (58e7:00d3,
+     * 018f); and whether a name shown waits a second time (dkk). */
+    const char *identify, *nothing_new, *looks_like, *no_money;
+    bool id_steel, id_waits_twice;
+    /* COK_ITEMS_DEATH_KNIGHTS' View's Heal and Cure (580d:2e95, 2f47,
+     * 2ee0, 3018), offered outside combat to one of the class (+0x21) that
+     * is okay (+0xc7): Heal while it has no effect heal_effect, healing
+     * twice its level in that class (+0x45 + class) of one picked from the
+     * party's first and giving it the effect for heal_minutes; Cure while
+     * +0x25 is not 0, picking one and doing nothing more. The prompts, and
+     * the words after the name healed or not (580d:2f1e, 300c, 2f2a,
+     * 2f38). */
+    uint8_t heal_class, heal_effect;
+    uint16_t heal_minutes;
+    const char *heal_whom, *cure_whom, *feels_better, *unaffected;
+} cok_rules_items;
 
 /* Treasure where the games differ (treasure.c, adventure.c's DAMAGE and
  * ADD EP): the item table that TREASURE ITEMS and STOCK take their items
@@ -1109,13 +1191,10 @@ typedef struct {
      * section's vault): its items by index (dkk DS:35bd: View Take Pool
      * Money Items Exit), the line mode 7's redraw shows (dkk 65cd:2db0,
      * DS:2ccd, at 1, 15 in light green), the deposit's question's end
-     * (dkk 580d:26d0 in mode 7, DS:1237), and the routines its View and
-     * Items reach that the port does not carry out for the game yet (dkk
-     * 580d:0c66 and 580d:0ffa, the character's sheet and its items in
-     * mode 7), cited; vault_items NULL: the game has none (Champions). */
+     * (dkk 580d:26d0 in mode 7, DS:1237, also View's money in mode 7);
+     * vault_items NULL: the game has none (Champions). */
     const char *const *vault_items;
     const char *vault_line, *deposit;
-    const char *vault_view_unported, *vault_items_unported;
     /* DAMAGE (2fd3:2c80; dkk 3632:1ca2): the first operand's bits that are
      * a saving throw's bonus (Champions' 0x1f; dkk 0x0f); whether its bit
      * 0x10 halves the damage when the save is made (dkk), rather than
@@ -1281,13 +1360,10 @@ typedef struct {
     const char *cast_here, *lose_it, *that_item, *combat_only, *use_it;
     const char *abort, *aborted;
     bool ask_yes;
-    /* The pick outside combat (5b04:127e; dkk DS:3192), the line said in
-     * combat on casting (5b04:57eb; dkk DS:2304); whether the pick of a
-     * character that may pick none (6346:32c7, cok_adventure_pick) shows
-     * "Exit" after "Select" (dkk 65cd:33c9: "Select" alone, Escape for
-     * none). */
+    /* The pick outside combat (5b04:127e; dkk DS:3192, the pick by index
+     * 65cd:33c9 with "Select" alone, see the menus section), the line said
+     * in combat on casting (5b04:57eb; dkk DS:2304). */
     const char *on_whom, *casts_a_spell;
-    bool pick_exit_shown;
     /* Whether one holding COK_EFFECT_DISPELLING miscasts on a 1d2 of 1
      * (5b04:1415's 6346:2447 with 0x4a; dkk none). */
     bool miscast;
@@ -1381,6 +1457,7 @@ typedef struct cok_rules {
     cok_rules_fight fight;
     cok_rules_menus menus;
     cok_rules_commands commands;
+    cok_rules_items items;
     cok_rules_treasure treasure;
     cok_rules_levels levels;
     cok_rules_casting casting;

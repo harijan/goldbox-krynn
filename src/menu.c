@@ -318,6 +318,9 @@ typedef struct {
     const cok_menu_style *style;
     int *index, *top;
     cok_pointer *pointer; /* NULL without the mouse's state */
+    /* A heading unmarked in the normal colour (dkk 6a69:17ab), rather
+     * than in its own (67b5:0fd0). */
+    bool plain_unmark;
 } list;
 
 static bool heading(const list *l, int i)
@@ -369,7 +372,7 @@ static void mark(const list *l, bool on)
     int x = l->w.left + (int)first - 1, y = l->w.top + (*l->index - *l->top);
     if (on)
         cok_text_string(l->dst, l->font, text + first - 1, x, y, 0, l->style->highlight);
-    else if (l->items[*l->index].heading)
+    else if (l->items[*l->index].heading && !l->plain_unmark)
         cok_text_string(l->dst, l->font, text + first - 1, x, y, l->style->heading, 0);
     else
         cok_text_string(l->dst, l->font, text + first - 1, x, y, l->style->normal, 0);
@@ -433,7 +436,7 @@ int cok_menu_rows(cok_picture *dst, const cok_font *font, const cok_menu_row *it
         return list_end(pointer, 0);
     }
     list l = {dst, font, items, count > 255 ? 255 : (int)count, window.bottom - window.top + 1,
-              window, style, index, top, pointer};
+              window, style, index, top, pointer, false};
     if (pointer != NULL) {
         /* 67b5:13c5: the window's columns take clicks. */
         pointer->list_left = (int8_t)window.left;
@@ -720,4 +723,108 @@ int cok_menu_pick(cok_picture *dst, const cok_font *font, const char *prompt, co
     if (keys->pointer != NULL && keys->pointer->release != NULL)
         keys->pointer->release(keys->pointer->context);
     return result;
+}
+
+/* Death Knights' lists (dkk 6a69:1b82). */
+
+int cok_menu_indexed_rows(cok_picture *dst, const cok_font *font, const cok_menu_row *rows,
+                          size_t count, cok_text_window window, const cok_menu_style *style,
+                          const char *text, const cok_menu_items *items, uint8_t last,
+                          bool *redraw, int *index, int *top, uint8_t *selected,
+                          const cok_keyboard *keys, bool *special, bool *picked)
+{
+    *picked = false;
+    if (count == 0) {
+        *index = 0;
+        return 0;
+    }
+    /* The rows' clicks (DS:c118, c119, c0fe) are not taken, as the
+     * indexed loop takes none. */
+    list l = {dst, font, rows, count > 255 ? 255 : (int)count, window.bottom - window.top + 1,
+              window, style, index, top, NULL, true};
+    int leading = 0;
+    while (heading(&l, leading)) ++leading;
+    if (l.count <= l.rows) *top = 0;
+    if (*index < *top) {
+        *top = *index;
+        *redraw = true;
+    }
+    if (l.count < *top) {
+        *top = 0;
+        *redraw = true;
+    }
+    ++*index;
+    step(&l, false);
+    if (*redraw) draw_list(&l);
+    *redraw = false;
+    /* DS:c120 as the caller filled it, 0xff past its items (FillChar);
+     * the list's own items are written from last + 1 on, each its own
+     * index, and stay there from one round to the next. */
+    uint8_t entries[COK_MENU_MAX_ITEMS];
+    memset(entries, 0xff, sizeof entries);
+    for (size_t k = 0; k < items->count && k < COK_MENU_MAX_ITEMS; ++k)
+        entries[k] = items->index[k];
+    /* The indexes the list's Next, Prev and Exit took last (bytes of the
+     * stack until then, here none: every caller offers Exit). */
+    unsigned at_next = 0x100, at_prev = 0x100, at_exit = 0x100;
+    for (;;) {
+        mark(&l, true);
+        char bar[256];
+        snprintf(bar, sizeof bar, "%s", text);
+        unsigned at = (unsigned)last + 1;
+        bool more = *top < l.count - l.rows, less = *top > leading;
+        if (more) {
+            append_text(bar, sizeof bar, " Next"); /* DS:37de */
+            at_next = at;
+            if (at < COK_MENU_MAX_ITEMS) entries[at] = (uint8_t)at;
+            ++at;
+        }
+        if (less) {
+            append_text(bar, sizeof bar, " Prev"); /* DS:37e9 */
+            at_prev = at;
+            if (at < COK_MENU_MAX_ITEMS) entries[at] = (uint8_t)at;
+            ++at;
+        }
+        if (style->show_exit) {
+            append_text(bar, sizeof bar, " Exit"); /* DS:37f4 */
+            at_exit = at;
+            if (at < COK_MENU_MAX_ITEMS) entries[at] = (uint8_t)at;
+            ++at;
+        }
+        /* 6a69:0d1e shows the entries up to the first 0xff: past a gap
+         * after the caller's, none of the list's own. */
+        cok_menu_items shown = {0};
+        for (size_t k = 0; k < COK_MENU_MAX_ITEMS && entries[k] != 0xff; ++k)
+            cok_menu_items_add(&shown, entries[k]);
+        int key = cok_menu_pick(dst, font, style->prompt, bar, &shown, style->heading,
+                                style->highlight, style->normal, true, selected, keys, special);
+        if (key < 0) return -1;
+        /* An index past the caller's is the list's own, by the index each
+         * took, while it is offered (Exit's whatever was offered). */
+        if (!*special && key > (int)last) {
+            *special = true;
+            if ((unsigned)key == at_next && more) key = 0x51;
+            else if ((unsigned)key == at_prev && less) key = 0x49;
+            else if ((unsigned)key == at_exit) key = 0x1b;
+            else *special = false;
+        }
+        mark(&l, false);
+        if (!*special) {
+            *picked = true;
+            return key;
+        }
+        if (key == 0x48) {
+            step(&l, false);
+        } else if (key == 0x50) {
+            step(&l, true);
+        } else if (key == 0x49) {
+            if (less) page_list(&l, false);
+        } else if (key == 0x51) {
+            if (more) page_list(&l, true);
+        } else if (key == 0x4e) {
+            page_list(&l, true);
+        } else if (key == 0x1b || key == 0x45 || key == 0) {
+            return 0x1b;
+        }
+    }
 }

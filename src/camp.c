@@ -1101,10 +1101,14 @@ bool cok_camp(cok_adventure *game)
     draw(game, cok_game_rules(game)->text.camp, 1, 0x12, 10, true);
     forget_all(game);
     bool interrupted = false;
+    bool keeps = cok_game_rules(game)->menus.camp_keeps_selection;
+    uint8_t own = 1;
     int key = ' ';
     while (!interrupted && key != 0 && key != 'E' && !vm->abort) {
         bool special;
+        if (keeps) game->selected = own;
         key = cok_camp_menu(game, "", "Save View Magic Rest Alter Fix Exit", true, true, &special);
+        if (keeps) own = game->selected;
         if (key < 0) break;
         if (special) {
             cok_camp_pick(game, (uint8_t)key);
