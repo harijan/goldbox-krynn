@@ -29,11 +29,21 @@ and CELESTE 6 hit points down, begun: camp, Magic, NEACAIL picked, Cast
 CELESTE, healed; the records after (hit points, NEACAIL's spells: 65cd:17c4
 marks the one cast).
 
+fix: saved game A with SIR DRYDEN dead, LILLITH stoned, TANAR poisoned (0x37)
+and 0x3d, FLAVIUS cursed (0x24) and poisoned, CELESTE blind (0x21) and 20
+hit points down, NEACAIL's spells memorized Cure Light Wounds twice, Raise
+Dead, Stone to Flesh, Remove Curse, Heal and Neutralize Poison, and a
+cleric spell of level 5 a day, CELESTE one of level 6; begun: camp, Fix
+(4381:2fd4): its two rests, the cures said (2a73: each, and the selected
+SIR DRYDEN "regains sight" for the blind CELESTE, both times), the healing;
+the camp's menu after; Save Current Game C: saved game C (the clock, the
+rest's counts) and the characters' files, and RandSeed.
+
 Seeded (Box seed, eclplay --seed). Not part of run_all.py's set. About
-three minutes.
+four minutes.
 
     python3 tools/dosbox/checks/dkk_levels.py [--workdir DIR] [--seed N]
-        [--flows train,memorize,table,cast]
+        [--flows train,memorize,table,cast,fix]
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...)."""
 import argparse
@@ -128,18 +138,18 @@ def run_steps(v, work, box, flow, steps, prefix, seed, saves, masks=None):
     return port_saves
 
 
-def compare_files(v, original, port):
+def compare_files(v, original, port, flow="train"):
     a, b = (original / "SAVGAMC.PTY").read_bytes(), (port / "SAVGAMC.PTY").read_bytes()
-    v.check(dkk_start.same_saved(a, b), "train: saved game C (but the stack's bytes)")
+    v.check(dkk_start.same_saved(a, b), f"{flow}: saved game C (but the stack's bytes)")
     names = sorted(p.name for p in original.iterdir() if p.name.startswith("CHRDATC"))
-    v.value("train: the character files", names,
+    v.value(f"{flow}: the character files", names,
             sorted(p.name for p in port.iterdir() if p.name.startswith("CHRDATC")))
     for n in names:
         x = dkk_start.masked_character(n, (original / n).read_bytes())
         y = dkk_start.masked_character(n, (port / n).read_bytes())
         diff = [k for k in range(min(len(x), len(y))) if x[k] != y[k]][:8]
-        v.check(x == y, f"train: {n}" + ("" if x == y else f" differs at {[hex(k) for k in diff]}"
-                                         f" (sizes {len(x)}, {len(y)})"))
+        v.check(x == y, f"{flow}: {n}" + ("" if x == y else f" differs at {[hex(k) for k in diff]}"
+                                          f" (sizes {len(x)}, {len(y)})"))
 
 
 def train(v, work, opts):
@@ -242,6 +252,85 @@ def cast(v, work, opts):
         v.value("cast: RandSeed", box.ds_dword(K.DS_RANDSEED), state["seed"])
 
 
+# After Begin: the camp; Fix, its rests and cures, the camp's menu; Save
+# Current Game C (by index: the third).
+FIX = [
+    ("camp", r"\r\r\r"),
+    ("fixed", "F"),
+    ("which", "S"),
+    ("saved", r"\>\>\r"),
+]
+
+
+def effects_file(saves, name, ids):
+    """Effects IDS (id, value: permanent, none run when removed) put before
+    those of character file NAME's .EFF (9 bytes each, the next pointer 1
+    while one follows, as 46b2's read takes it)."""
+    path = saves / f"{name}.EFF"
+    old = path.read_bytes() if path.exists() else b""
+    data = b""
+    for n, (id_, value) in enumerate(ids):
+        last = n + 1 == len(ids) and not old
+        data += bytes([id_, 0, 0, value, 0]) + (bytes(4) if last else b"\1\0\1\0")
+    path.write_bytes(data + old)
+
+
+def fix_saves(work):
+    saves = work / "saves-fix"
+    if saves.exists():
+        shutil.rmtree(saves)
+    shutil.copytree(K.ASSETS / "SAVE", saves)
+
+    def edit(name, change):
+        data = bytearray((saves / name).read_bytes())
+        change(data)
+        (saves / name).write_bytes(bytes(data))
+
+    def dead(r):
+        r[K.STATUS], r[K.HP], r[K.ACTIVE] = 6, 0, 0
+
+    def stoned(r):
+        r[K.STATUS], r[K.ACTIVE] = 7, 0
+
+    def hurt(r):
+        r[K.HP] -= 20
+
+    def spells(w):
+        ids = [0x03, 0x03, 0x4B, 0x42, 0x2B, 0x35, 0x43]
+        w[:0x4A] = bytes(ids) + bytes(0x4A - len(ids))
+        w[0xBC + 4] = 1        # a cleric spell of level 5 a day
+
+    def sixth(w):
+        w[0xBC + 5] = 1        # and of level 6
+
+    edit("CHRDATA1.GAM", dead)
+    edit("CHRDATA2.GAM", stoned)
+    effects_file(saves, "CHRDATA3", [(0x37, 0), (0x3D, 0)])
+    effects_file(saves, "CHRDATA4", [(0x24, 0), (0x37, 0)])
+    effects_file(saves, "CHRDATA6", [(0x21, 0)])
+    edit("CHRDATA6.GAM", hurt)
+    edit("CHRDATA5.WIZ", spells)
+    edit("CHRDATA6.WIZ", sixth)
+    return saves
+
+
+def fix(v, work, opts):
+    seed = opts.seed
+    saves = fix_saves(work)
+    with cokbox.Box(workdir=work / "box-fix", game="death-knights", machine="ega",
+                    seed=seed, saves=[saves], verbose=opts.verbose, timeout=900,
+                    keep=True) as box:
+        v.check(K.title(box), "the title's four pictures (fix)")
+        K.type_steps(box, K.LOAD_A_STEPS, settle=2.0)
+        port_saves = run_steps(v, work, box, "fix", FIX, K.LOAD_A_BEGIN, seed, saves)
+        keys = K.LOAD_A_BEGIN + "".join(typed for _, typed in FIX)
+        _, _, _, state = K.port(work, "fix-end", keys, seed, saves=saves)
+        v.value("fix: RandSeed", box.ds_dword(K.DS_RANDSEED),
+                state["seed"] if state is not None else None)
+        original = work / "box-fix" / "c" / "DKK" / "SAVE"
+    compare_files(v, original, port_saves, "fix")
+
+
 def json_records(path):
     """The port's records whole (the spells' block after +0xd8) beside its
     final screen."""
@@ -255,8 +344,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir", default=str(K.ROOT / "build/dosbox-checks/dkk_levels"))
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--flows", default="train,memorize,table,cast",
-                        help="which flows: train, memorize, table, cast (comma-separated)")
+    parser.add_argument("--flows", default="train,memorize,table,cast,fix",
+                        help="which flows: train, memorize, table, cast, fix (comma-separated)")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     work = pathlib.Path(opts.workdir).resolve()
@@ -271,6 +360,8 @@ def main():
         table(v, work, opts)
     if "cast" in flows:
         cast(v, work, opts)
+    if "fix" in flows:
+        fix(v, work, opts)
     return v.finish()
 
 

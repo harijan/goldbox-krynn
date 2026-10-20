@@ -206,7 +206,7 @@ segment's tables, a section to a concern:
 | `items` | View and the items menu (`sheet.c`, `items.c`; see View and Death Knights' View): the routine (`cok_items_routine`: Champions' `546c:0d74` and `17f9` by letters, or Death Knights' `580d:0c66` and `0ffa` by index), Death Knights' menus' words; the items list's readied column; Ready's thief level for another order's scroll and its word; the words of Use of an item not readied, of the questions of parting with a scroll and of Drop, of Trade's pick for money and the coin lists' first item, of Death Knights' Deposit; Sell's and Id's words, Sell's divisor of a count's price, whether their question starts on Yes, whether Id waits twice; Death Knights' Heal and Cure (the class, the effect and its minutes, the words) | `COK_ITEMS_CHAMPIONS`; none; `" Yes  "`, `" No   "` (`6346:0473`); none; `Must be Readied`, `is it Okay to lose it? `, `Drop It? `, `Trade to?`, `" Select"`; none; `546c:2822`'s and `2a59`'s words, 20, no, no, no; none |
 | `shops` | the shop, its Buy and Appraise, the temple and its Heal (`shop.c`; see Shops and the temple and Death Knights' shops): the routine (`cok_shops_routine`: Champions' `36d0:07da`, `0484`, `58e7:1929`, `340d:0ea9`, `0be1` by letters, or Death Knights' `3b89:06f3`, `0453`, `5c72:0dc2`, `3999:07d3`, `04e2` by index); whether mode 1's redraw shows the portrait last shown in 3D areas; whether a price (Buy's, Id's) is paid from the steel and then the pool's steel, rather than from the money in steel of every coin; Death Knights' words (the menus, Buy's, the funds, a purchase's, leaving money, Appraise's, Heal's, the cures' questions and words) and the spells its cures name (`DS:030c`) | `COK_SHOPS_CHAMPIONS`; yes (`6346:2c17`); no (`546c:3424`, `58e7:0155`); none |
 | `treasure` | treasure where the games differ (`treasure.c`, `adventure.c`'s `DAMAGE` and `ADD EP`; see Death Knights' treasure): the item table `TREASURE ITEMS` and `STOCK` take items from (a `cok_rules_record` and how many entries it fills, or none); the treasure menus' ways (selections from each menu's first item, special keys told apart from letters, leaving's Yes/No from No) and words (leaving with treasure left, Take's, the items' and the coins' prompts, the coin questions'); taking an item's word when overloaded and whether a counted item joins its kind; the vault's menu items, its line and the deposit's question (View's money's too); `DAMAGE`'s saving throw bonus bits, whether a save made halves the damage, its key; `ADD EP`'s words and whether those who cannot act are passed over first | none (`TREASURE` reads `ITEM<file>`); no, no, no; `There is still treasure left.  ` ..., `Take: `, `Items: `, `Select type of coin `, `How Many `/`How much `; `OverLoaded`, no; none; 0x1f, no, `press <enter>/<return> to continue` (`2fd3:2c80`); `Congratulations ` ... `gains experience!`, no (`2fd3:36dc`) |
-| `levels` | training, the knights' orders, aging, Memorize and Scribe where the games differ (`train.c`, `magic.c`, `camp.c`; see Training and Camp): Train's words, whether its question starts on Yes, whether free training trains, the highest levels by race and class in place of the kender's limits, the row of a class without one, whether a ranger learns only when it rises; the fixed hit points at a class's top level and a floor of 0; Knight Change's words, whether Change is always offered and special keys do nothing, the level from which a lost level costs a fixed 2; the aging after a battle (by race the ages, and its words); the spell lists' prompt, the memorize table's labels and columns, how the spells marked are kept (a list with Keep, or a question) and Scribe's questions and words; whether the camp unmarks the spells to memorize; Display's headings; the Magic menu's own selection; Fix not ported yet (cited) | `4def:4d9e`'s words, from No, free training, the kender's limits, row 0x74, every time; 2, 0, 3, 0, 2, 1, 2, 3 and wrapping; `Knight Of The `, `Sword`, `Rose`, not always, F9 as C, none; no aging; `Choose Spell: `, `    Cleric Spells:` ... at 20, the questions `Memorize These Spells? `, `Scribe These Spells? ` in yellow from No; yes (`4888:06b8`); 11; the last menu's; none |
+| `levels` | training, the knights' orders, aging, Memorize and Scribe where the games differ (`train.c`, `magic.c`, `camp.c`; see Training and Camp): Train's words, whether its question starts on Yes, whether free training trains, the highest levels by race and class in place of the kender's limits, the row of a class without one, whether a ranger learns only when it rises; the fixed hit points at a class's top level and a floor of 0; Knight Change's words, whether Change is always offered and special keys do nothing, the level from which a lost level costs a fixed 2; the aging after a battle (by race the ages, and its words); the spell lists' prompt, the memorize table's labels and columns, how the spells marked are kept (a list with Keep, or a question) and Scribe's questions and words; whether the camp unmarks the spells to memorize; Display's headings; the Magic menu's own selection; the camp's Fix (`cok_fix_routine`: Champions' or Death Knights') and the rest's words (the day's healing, an encounter) | `4def:4d9e`'s words, from No, free training, the kender's limits, row 0x74, every time; 2, 0, 3, 0, 2, 1, 2, 3 and wrapping; `Knight Of The `, `Sword`, `Rose`, not always, F9 as C, none; no aging; `Choose Spell: `, `    Cleric Spells:` ... at 20, the questions `Memorize These Spells? `, `Scribe These Spells? ` in yellow from No; yes (`4888:06b8`); 11; the last menu's; none |
 
 A `NULL` stem says the game has no such archive (Death Knights has no
 `SKY`, `CURSOR`, `RANDCOM`, `HEAD` or `BODY`): code that reads it must not
@@ -400,13 +400,13 @@ going on. It holds:
   `504d:0d88`) asks for, Memorize, Scribe and the spells' table to 8
   levels (`4381:0f67`, `115d`, `09c7`), Display (`4381:15aa`), the camp
   unmarking only the scrolls (`4381:0626`), and the names of those who may
-  train in light magenta (`65cd:1b3b`); Fix (`4381:2fd4`) not yet.
+  train in light magenta (`65cd:1b3b`); and camp's Fix (`4381:2fd4`).
 
 `cok --game death-knights` and `eclplay --start-menu` play it from the
 title into its fights: a saved game loaded (its own or Champions'), or
 a party added from the roster or from Champions', saves and resumes, and
 the adventure in its scripts, 3D view and overland map, camp (Magic's
-Memorize, Scribe and Display), `PROGRAM`'s start menu (Train and Knight
+Memorize, Scribe and Display, Fix), `PROGRAM`'s start menu (Train and Knight
 Change Order too), the encounters and their battlefields, their fights on Auto
 (the player's turn by keys, `3e05:08af`: its menu, `3e05:0ccc`, Move,
 Aim, Cast up to the cast entry, Turn, Guard, Quick, Delay, Bandage, Yell,
@@ -417,7 +417,7 @@ melee, and `won`, `fled` and `lost` decide the battle without its
 rounds), their end
 of combat and treasure menu, the bank vault with its View and Items, camp's
 View and Items, the shops (`COMBAT`'s and `STOCK`'s) and the temple, until
-a routine not ported yet (camp's Fix),
+a routine not ported yet,
 a spell
 (Death Knights' casting lists those that cast) or an effect not ported
 yet (Death Knights' effects), a
@@ -4292,12 +4292,55 @@ only the scrolls (`4381:0626`, `05b0`): spells cast, marked to be learned
 again, stay marked. Display (`4381:15aa`) names the effects of spells
 1-0x3f by the spell (`spells.display_last`) and twenty others by texts of
 its own (`4381:148c` on), its blank rows headings too, in light magenta
-(`DS:c149`), so that the list starts on its last row. Fix (`4381:2fd4`,
-with its cures `2a73`: the stoned, poisoned, dead, cursed and blind, from
-the spells memorized, and two rests) is not ported yet
-(`levels.fix_unported`): choosing it stops the run.
+(`DS:c149`), so that the list starts on its last row. The rest says `The
+whole party is healed` (`DS:2560`) and `your repose is suddenly
+interrupted!` (`DS:25a9`); its interactive words (`Stop resting? `,
+`DS:10a1`, from Yes) and its menu (`5b7d:081d`, by index) are Champions'
+still.
 
-`tools/dosbox/checks/dkk_levels.py` (flow `memorize`) checks camp, Magic,
+Fix (`4381:2fd4`, `levels.fix` `COK_FIX_DEATH_KNIGHTS`) does nothing where
+the area forbids magic (var `0x4be5`) or no one lacks hit points. It adds
+up the spells memorized by members who are okay and have a spells' block
+(`22a9`), without using them (`22db`): Cure Light and Cure Serious Wounds
+2d8+1 each (Light as Serious), Critical 3d8+3, Heal 4d8+5, and counts Heal,
+Neutralize Poison, Raise Dead, Remove Curse (`0x2b`, `0x59`), Stone to
+Flesh and Cure Blindness. It rests (`2537`, as `4888:28f9`, with the
+estimate from the stack's 14) as long as those of wisdom above 3 take to
+memorize their spells a day of cleric level 1 and druid level 2 (15 and
+30 minutes, 4 hours before; 27 to the estimate each), cleric levels 4 and
+5 (60 and 75, 6 hours; 34, or 78 with level 5) and 6 (90, 8 hours; 90),
+the rests setting `DS:c46f`, which keeps them from learning or scribing
+anything (`5b7d:09b9`, `0aa3`), the hours of study counting down. Then
+those spells add 1d8, 2d8+1, 3d8+3 and 4d8+3 each (`23f3`), and each
+member in turn is cured while the spells last (`2a73`), each cure said on
+row 10 with a pause in its code's words: Heal for one of effect `0x3d`,
+which goes with its blindness (`is healed`); Stone to Flesh for the stoned
+(status 7: okay, 1 hit point, `is changed back to flesh`); Neutralize
+Poison for the poisoned (`0x37`: as the temple's, `is detoxified`), which
+comes first, so that a dead member poisoned is made okay, not raised;
+Raise Dead for the dead (status 6) of race 3 and above (`has been raised
+from the dead`; one of race 2 counts as needing it for the second rest's
+time all the same, `2ebc`; as Champions' temple's
+`340d:0688` on Death Knights' fields: a point of constitution, and from 14
+the hit points above the base divided by its classes 0-6, off the most
+unless at 17 or more with no level of class 2, 3 or 7); Remove Curse for
+one of Bestow Curse's `0x24` (the spell's `5dc5:311b`, which cures `0x2b`:
+`0x24` stays; `is relieved of a curse`); and Cure Blindness for one blind
+whom Heal did not cure, which cures the selected character (`DS:a2c2`),
+`regains sight`, and uses no spell. The party is healed from the total in
+order (`2947`) and redrawn, the rest time put back; then it rests again
+(`2ebc`, `2779`) for those still in need, as many as the spells left and
+the spells a day of each cure can treat (Heal cleric 6 and Stone to Flesh
+magic-user 6, 90 minutes each; Raise Dead cleric 5, 75; Neutralize Poison
+cleric 4, 60; Cure Blindness cleric 3 and Remove Curse cleric 3 and
+magic-user 4, 45), and cures again, healing no one. An encounter in either
+rest ends it, leaving the rest time it set.
+
+`tools/dosbox/checks/dkk_levels.py`'s flow `fix` plays Fix on saved game
+A with a member dead, one stoned, poisoned, cursed, blind and of `0x3d`,
+the cures memorized and spells of levels 5 and 6 a day: the screens 0
+pixels apart, saved game C (its clock) and every character file the same,
+and RandSeed. Flow `memorize` checks camp, Magic,
 Memorize's list of the spells marked, the table and grimoire, and Display
 against the original: 0 pixels apart but Display's Exit, which the
 original's menu (`6a69:0f1b`) leaves unhighlighted, keeping the Magic
@@ -9036,8 +9079,7 @@ here:
 - Create (`49cb:05c7`), Modify (`25d4`) and Initialize Mouse/Joystick
   (`52cd`: its own words, and it rewrites `krynn.cfg`, not `DKK.CFG`) are
   not ported: choosing one stops the run (`not yet ported: Death Knights
-  of Krynn's Create New Character (dkk 49cb:05c7)`). So does camp's Fix
-  (`4381:2fd4`, `levels.fix_unported`). Train (`43b6`) and Knight Change
+  of Krynn's Create New Character (dkk 49cb:05c7)`). Train (`43b6`) and Knight Change
   Order (`4ea4`) are Death Knights' training's.
 
 `tools/dosbox/checks/dkk_start.py` (not in `run_all.py`, as
