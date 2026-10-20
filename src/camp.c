@@ -1094,7 +1094,12 @@ bool cok_camp(cok_adventure *game)
                 cok_ecl_set_var(vm, COK_VAR_SAVES, 0);
             }
             cok_camp_save(game);
-            if (!vm->abort && cok_camp_yes_no(game, "Quit TO DOS ", 14) == 'Y') cok_camp_quit(game);
+            /* The questions' colour: Champions' yellow, dkk 6a69:2048's
+             * light magenta (4381's Save). */
+            if (!vm->abort &&
+                cok_camp_yes_no(game, "Quit TO DOS ", cok_game_rules(game)->start.ask_colour) ==
+                    'Y')
+                cok_camp_quit(game);
             break;
         case 'V': {
             game->selected = 1;

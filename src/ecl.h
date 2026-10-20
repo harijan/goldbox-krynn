@@ -392,6 +392,9 @@ cok_ecl_status cok_ecl_operands(cok_ecl *vm, size_t count);
 /* Operand i (0-based): its value (3775:0168) and its address. */
 uint16_t cok_ecl_value(const cok_ecl *vm, size_t i);
 uint16_t cok_ecl_address(const cok_ecl *vm, size_t i);
+/* A list opcode's header operand i (0-based, below header_operands): its
+ * value, as the handler read it before the list's (dkk 3632:1933). */
+uint16_t cok_ecl_header_value(const cok_ecl *vm, size_t i);
 
 /* Variable access (3775:0fca, 3775:0e06, 3775:14fc, 3775:1138). Strings
  * are stored one character per variable, NUL-terminated. A variable is a

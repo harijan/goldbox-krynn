@@ -682,7 +682,8 @@ typedef struct {
     const char *drop, *drop_sure, *dumped, *farewell, *relief;
     /* Exit to DOS's questions (4def:055a; dkk 49cb:010b's). */
     const char *quit, *unsaved;
-    /* The colour of the questions' prompts, Drop's, Exit's and Overwrite's:
+    /* The colour of the questions' prompts, Drop's, Exit's, Overwrite's and
+     * camp's after Save:
      * Champions' callers give 67b5:177f yellow (14); dkk 6a69:2048 shows
      * its prompt as every menu does, light magenta (13). */
     uint8_t ask_colour;
@@ -826,6 +827,78 @@ typedef struct {
     const char *rejoice, *rejoice_key;
 } cok_rules_combat;
 
+/* Treasure where the games differ (treasure.c, adventure.c's DAMAGE and
+ * ADD EP): the item table that TREASURE ITEMS and STOCK take their items
+ * from, the treasure menus' words and ways, the vault's menu, and DAMAGE's
+ * and ADD EP's rules. */
+typedef struct {
+    /* The item table (dkk 4f9a:0006, the end of startup): table's record
+     * (ITEM0 record 1) read 17 bytes an entry, an item's +0x2e-+0x3e, into
+     * entries 1 to at most table_count (0x7f) of DS:a2ca (entry id at
+     * DS:a2b9 + 17 * id), the rest of its 254 entries 0xff (an entry
+     * whose first byte is 0xff is none); a stem of NULL for none
+     * (Champions, whose TREASURE reads ITEM<file> records whole). */
+    cok_rules_record table;
+    uint8_t table_count;
+    /* The treasure menu (351b:118c; dkk 3a37:0eed), Take (351b:0ff7; dkk
+     * 3a37:0dfc), its items (351b:0ec5; dkk 3a37:0ce8) and money (58e7:0d01;
+     * dkk 5c72:0ac4): whether each menu's selection starts at its first
+     * item (dkk: DS:c0f7 set to 1, the treasure menu's kept apart from its
+     * submenus'), rather than going on from the menu before (Champions'
+     * DS:6e0f); whether the menus tell special keys from letters (dkk
+     * DS:c0f8: Escape leaves, up and down pick a character, the others do
+     * nothing; Champions' take a special key's scan code as a letter, so
+     * PgUp is Take's I); the words of leaving with treasure left and of
+     * going back (Champions' 351b:1133, 113c; dkk DS:194f, 1978), and
+     * whether the Yes/No after them starts on No (dkk 6a69:2048 with 1;
+     * Champions' keeps the menu's selection); Take's prompt, the items'
+     * and the coins' (Champions' "Take: ", "Items: ", "Select type of coin
+     * "; dkk DS:3168, 315d, 104c), and the coin questions' words: their
+     * first for gems and for the others (58e7:0b95; dkk DS:0fae, 0fce) and
+     * each coin's word (dkk 5c72:09e4, DS:0c62 + a space), by coin. */
+    bool menus_first, specials_apart;
+    const char *left, *claim;
+    bool claim_no;
+    const char *take_prompt, *items_prompt, *coin_prompt;
+    const char *how_many, *how_much;
+    const char *coin_words[7];
+    /* Taking an item (36d0:034c; dkk 3b89:033b): its word when overloaded
+     * (Champions' CS:0341 "OverLoaded"; dkk DS:2acc), and whether an item
+     * with a count joins those of its kind (dkk 580d:1be6, as View's Join)
+     * once taken, one it would join not counting against the 16 items
+     * (dkk 580d:2a0a). */
+    const char *overloaded;
+    bool take_joins;
+    /* The vault's menu (dkk 3948:000e, COMBAT's vault branch; the combat
+     * section's vault): its items by index (dkk DS:35bd: View Take Pool
+     * Money Items Exit), the line mode 7's redraw shows (dkk 65cd:2db0,
+     * DS:2ccd, at 1, 15 in light green), the deposit's question's end
+     * (dkk 580d:26d0 in mode 7, DS:1237), and the routines its View and
+     * Items reach that the port does not carry out for the game yet (dkk
+     * 580d:0c66 and 580d:0ffa, the character's sheet and its items in
+     * mode 7), cited; vault_items NULL: the game has none (Champions). */
+    const char *const *vault_items;
+    const char *vault_line, *deposit;
+    const char *vault_view_unported, *vault_items_unported;
+    /* DAMAGE (2fd3:2c80; dkk 3632:1ca2): the first operand's bits that are
+     * a saving throw's bonus (Champions' 0x1f; dkk 0x0f); whether its bit
+     * 0x10 halves the damage when the save is made (dkk), rather than
+     * dealing it whole; and the key after it (Champions' 2fd3:2c5d "press
+     * <enter>/<return> to continue"; dkk DS:0868). */
+    uint8_t damage_bonus;
+    bool damage_halves;
+    const char *damage_key;
+    /* ADD EP (2fd3:36dc; dkk 3632:25f1): the words for one character,
+     * before and after its name (Champions' 2fd3:36b8, 36c9; dkk DS:1485,
+     * 2a64), and for the party (DS:2a3b, a string[40]); whether a
+     * character that cannot act is passed over before its classes divide
+     * the points (dkk), rather than after; and whether it sets whether one
+     * may train, as the end of combat does (dkk 65cd:38c7, +0xc6; the
+     * combat section's may_train). */
+    const char *gains, *gains_end, *party_gains;
+    bool gains_active_first;
+} cok_rules_treasure;
+
 /* The game's own words that are names: its title. */
 typedef struct {
     /* The window's title. */
@@ -862,6 +935,7 @@ typedef struct cok_rules {
     cok_rules_frame frame;
     cok_rules_start start;
     cok_rules_combat combat;
+    cok_rules_treasure treasure;
 } cok_rules;
 
 extern const cok_rules cok_rules_champions, cok_rules_death_knights;

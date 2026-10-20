@@ -144,10 +144,12 @@ Game can also bring over a party from *Champions of Krynn*: the port
 looks for Champions' roster and saved games in `saves/` too, or in the
 folder `--import DIR` names. The adventure then runs into its fights:
 leadership, the battlefield and the combatants set up as in the original,
-until the first turn. Creating, modifying and training characters,
-Initialize Mouse/Joystick, the turns of combat, treasure, shops, the
-temple and the vault's menu aren't there yet: the game stops with a
-message saying what it reached.
+until the first turn. Treasure found (the treasure menu: Take, Pool,
+Share) and the bank vault of Gargath (take coins and items out, pool and
+deposit coins) work. Creating, modifying and training characters,
+Initialize Mouse/Joystick, the turns of combat, shops, the temple,
+saving throws, and a character's sheet and items in the vault aren't
+there yet: the game stops with a message saying what it reached.
 
 ## Options
 

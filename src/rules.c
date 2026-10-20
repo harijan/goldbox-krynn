@@ -1650,6 +1650,38 @@ const cok_rules cok_rules_champions = {
             .rejoice = "The monsters rejoice for the party has been destroyed",
             .rejoice_key = "Press any key to continue",
         },
+    .treasure =
+        {
+            /* None: TREASURE reads ITEM<file> records whole (2fd3:1d21). */
+            .table = {NULL, 0, 0},
+            .table_count = 0,
+            /* 351b:118c, 0ff7, 0ec5; 58e7:0d01, 0b95 */
+            .menus_first = false,
+            .specials_apart = false,
+            .left = "There is still treasure left.  ",                  /* 351b:1133 */
+            .claim = "Do you want to go back and claim your treasure?", /* 351b:113c */
+            .claim_no = false,
+            .take_prompt = "Take: ",
+            .items_prompt = "Items: ",
+            .coin_prompt = "Select type of coin ",
+            .how_many = "How Many ",
+            .how_much = "How much ",
+            .coin_words = {"silver ", "Copper ", "bronze ", "platinum ", "steel ", "Gems ",
+                           "Jewelry "},
+            /* 36d0:034c */
+            .overloaded = "OverLoaded",
+            .take_joins = false,
+            .vault_items = NULL,
+            /* 2fd3:2c80 */
+            .damage_bonus = 0x1f,
+            .damage_halves = false,
+            .damage_key = "press <enter>/<return> to continue",
+            /* 2fd3:36dc */
+            .gains = "Congratulations ",
+            .gains_end = " gains experience!",
+            .party_gains = "Congratulations the party gains experience!",
+            .gains_active_first = false,
+        },
 };
 
 static const cok_rules *const games[] = {&cok_rules_champions, &cok_rules_death_knights};

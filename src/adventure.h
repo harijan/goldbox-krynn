@@ -45,6 +45,10 @@ enum {
     COK_ICON_SLOTS_MAX = 35,
     COK_MONSTERS_MAX = 63, /* DS:43be: records LOAD MONSTER adds between CLEARMONSTERS. */
     COK_COINS = 7,
+    /* The item table (a game's treasure.table, dkk DS:a2ca): entries of an
+     * item's +0x2e-+0x3e, ids 1-254 (DS:a2b9 + 17 * id). */
+    COK_ITEM_ENTRY = 17,
+    COK_ITEM_ENTRIES = 255,
 };
 
 /* The treasure pool: the coins (DS:6b0c, seven longs: silver, copper,
@@ -164,6 +168,9 @@ struct cok_adventure {
      * (DS:6096), which must be a member's record or NULL. */
     cok_party party;
     cok_item_types item_types; /* DS:5886, from ITEMS. */
+    /* The item table (dkk DS:a2ca, 4f9a:0006), entry id at [id], ids 1-254;
+     * entry 0 unused. All 0xff where the game has none. */
+    uint8_t item_table[COK_ITEM_ENTRIES][COK_ITEM_ENTRY];
     /* The party's spell effects: the rolls they change and their timers. */
     cok_effects effects;
 
