@@ -543,10 +543,10 @@ static void test_durations(void)
     CHECK(strstr(s.log, "print: KAL;print: is Blessed;") != NULL && count_effects(kal, 1) == 1);
 }
 
-/* Another game's spells section: Death Knights' Harm (dkk 5dc5:2d8e) is
- * not carried out yet, which stops it cleanly before the caster is read
- * (its cast and shared spells: test_death_knights.py); its ids end at
- * 0x72, and its durations are its own (0x1a still fixed). */
+/* Another game's spells section: Death Knights' Stinking Cloud (dkk
+ * 5dc5:2934) is not carried out yet, which stops it cleanly before the
+ * caster is read (its cast and shared spells: test_death_knights.py); its
+ * ids end at 0x72, and its durations are its own (0x1a still fixed). */
 static void test_other_game(void)
 {
     empty_party();
@@ -555,9 +555,9 @@ static void test_other_game(void)
     game.rules = &cok_rules_death_knights;
     bool done = false;
     keys("");
-    cast(0x28, true, &done);
-    CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "dkk 5dc5:2d8e") != NULL &&
-          strstr(game.error, "Harm") != NULL);
+    cast(0x22, true, &done);
+    CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "dkk 5dc5:2934") != NULL &&
+          strstr(game.error, "Stinking Cloud") != NULL);
     keys("");
     cast(0x73, true, &done);
     CHECK(game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "DS:6e3a") != NULL);

@@ -471,7 +471,10 @@ static void test_charm_person(void)
             game.vm.seed = seed;
             computer_casts(w, 0x0a);
             CHECK(game.vm.status == COK_ECL_OK);
-            immune = strstr(log_text, "print: is unaffected;") != NULL;
+            /* A save made says the same (638c:1f86, DS:1d0f): only the
+             * elf without the flag is unaffected with no throw. */
+            immune = strstr(log_text, "print: is unaffected;") != NULL &&
+                     game.effects.rolls.save_roll == 0;
             charmed = cok_character_find_effect(t, 0x0b) != NULL;
         }
         CHECK(k == 0 ? immune && !charmed : charmed && !immune);
@@ -521,7 +524,7 @@ static void test_remove_curse(void)
 }
 
 /* Fear (5dc5:4566): one that fails its throw but whose effects cancel the
- * pending 0x6f (event 9: 0x5c, free action) is "Unaffected" and does not
+ * pending 0x6f (event 9: 0x5c, free action) is "unaffected" and does not
  * flee: the computer's flag (+0xca), +0x3e and its target stay (65cd:2687
  * finds no 0x6f); one that takes 0x6f "runs away" and flees. T is in the
  * cone toward P, the computer's pick. */
@@ -537,11 +540,14 @@ static void test_fear(void)
             cok_field_set8_at(L, w->record, COK_FIELD_CLASS_LEVEL, 5, 9);
             cok_field_set8(L, w->record, COK_FIELD_COMPUTER, 1);
             if (fearless) CHECK(cok_character_add_effect(t, 0x5c, 0, 0xff, false) != NULL);
+            /* Only a 20 saves: "is unaffected" is then 0x5c's (the save made
+             * says the same). */
+            cok_field_set8_at(L, t->record, COK_FIELD_SAVING_THROW, 4, 21);
             t->combat->target = w->record;
             game.vm.seed = seed;
             computer_casts(w, 0x54);
             CHECK(game.vm.status == COK_ECL_OK);
-            if (fearless && strstr(log_text, "print: T;print: is Unaffected;") != NULL) {
+            if (fearless && strstr(log_text, "print: T;print: is unaffected;") != NULL) {
                 seen = true;
                 CHECK(cok_field_u8(L, t->record, COK_FIELD_COMPUTER) == 0 &&
                       cok_field_u8(L, t->record, COK_FIELD_NPC) == 0 &&

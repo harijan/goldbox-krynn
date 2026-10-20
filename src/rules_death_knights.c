@@ -781,10 +781,10 @@ static const cok_rules_cast death_knights_cast[0x73] = {
     /* Barkskin: DS:4570 + 4caf */
     [0x02] = {0x1daa, COK_CAST_SAYING, .text = "is toughened from barkskin"},
     [0x03] = {0x1de3, COK_CAST_CURE_LIGHT}, /* Cure Light Wounds */
-    [0x04] = {0x1e4d, .unported = "dkk 5dc5:1e4d"}, /* Charm Person/Mammal */
+    [0x04] = {0x1e4d, COK_CAST_CHARM_MAMMAL}, /* Charm Person/Mammal */
     [0x05] = {0x1f34, COK_CAST_AFFECTED}, /* Detect Magic */
     [0x06] = {0x1f52, COK_CAST_PROTECTED}, /* Protection From Evil */
-    [0x07] = {0x1f70, .unported = "dkk 5dc5:1f70"}, /* Ressurection */
+    [0x07] = {0x1f70, COK_CAST_RESURRECTION}, /* Ressurection */
     [0x08] = {0x1ff1, COK_CAST_COLD_RESISTANT}, /* Resist Cold */
     [0x09] = {0x2010, COK_CAST_BURNING_HANDS}, /* Burning Hands */
     [0x0a] = {0x2044, COK_CAST_CHARM_PERSON, .value = 1}, /* Charm Person */
@@ -794,7 +794,7 @@ static const cok_rules_cast death_knights_cast[0x73] = {
     [0x0e] = {0x2292, COK_CAST_FRIENDS}, /* Friends */
     [0x0f] = {0x22cf, COK_CAST_MAGIC_MISSILE}, /* Magic Missile */
     [0x10] = {0x1f52, COK_CAST_PROTECTED}, /* Protection From Evil */
-    [0x11] = {0x2326, .unported = "dkk 5dc5:2326"}, /* Restoration */
+    [0x11] = {0x2326, COK_CAST_RESTORATION}, /* Restoration */
     [0x12] = {0x1f34, COK_CAST_AFFECTED}, /* Read Magic */
     [0x13] = {0x258b, COK_CAST_SHIELDED}, /* Shield */
     [0x14] = {0x25aa, COK_CAST_SHOCKING_GRASP}, /* Shocking Grasp */
@@ -818,7 +818,7 @@ static const cok_rules_cast death_knights_cast[0x73] = {
     [0x25] = {0x2d20, COK_CAST_CURE_BLINDNESS}, /* Cure Blindness */
     [0x26] = {0x2d4e, COK_CAST_BLINDED}, /* Cause Blindness */
     [0x27] = {0x2d7d, COK_CAST_CURE_DISEASE}, /* Cure Disease */
-    [0x28] = {0x2d8e, .unported = "dkk 5dc5:2d8e"}, /* Harm */
+    [0x28] = {0x2d8e, COK_CAST_HARM}, /* Harm */
     [0x29] = {0x2e5c, COK_CAST_DISPEL_MAGIC}, /* Dispel Magic */
     [0x2a] = {0x30e2, COK_CAST_PRAYER}, /* Prayer */
     /* Remove Curse: effect 0x2b, DS:20f4 */
@@ -832,32 +832,34 @@ static const cok_rules_cast death_knights_cast[0x73] = {
     [0x32] = {0x2882, COK_CAST_INVISIBLE}, /* Invisibility, 10' Radius */
     [0x33] = {0x37f8, COK_CAST_LIGHTNING_BOLT, .value = 1}, /* Lightning Bolt */
     [0x34] = {0x1f52, COK_CAST_PROTECTED}, /* Protection From Evil, 10' Radius */
-    [0x35] = {0x3848, .unported = "dkk 5dc5:3848"}, /* Heal */
+    [0x35] = {0x3848, COK_CAST_HEAL, .value = 0x3d}, /* Heal: cures 0x21 and 0x3d */
     [0x36] = {0x1f52, COK_CAST_PROTECTED}, /* Protection From Normal Missiles */
     [0x37] = {0x396e, COK_CAST_SLOW, .text = "is slowed"}, /* Slow: DS:217c */
-    [0x38] = {0x398d, .unported = "dkk 5dc5:398d"}, /* Death Spell */
+    [0x38] = {0x398d, COK_CAST_DEATH_SPELL}, /* Death Spell */
     [0x39] = {0x3aa1, COK_CAST_SPEEDY, .text = "is hasted"}, /* DS:2152 */
     [0x3a] = {0x3ad3, COK_CAST_CURE_SERIOUS}, /* Cure Serious Wounds */
     [0x3b] = {0x3b3e, COK_CAST_GIANT_STRENGTH},
-    [0x3c] = {0x3bb9, .unported = "dkk 5dc5:3bb9"}, /* Disentegrate */
+    /* Disentegrate: status 6, DS:21a6 */
+    [0x3c] = {0x3bb9, COK_CAST_DESTROY, .value = 6, .text = "disentegrates"},
     [0x3d] = {0x3c1b, COK_CAST_PARALYZED},
     [0x3e] = {0x3c39, COK_CAST_POTION, .text = "is healed"}, /* DS:1f30 */
     [0x3f] = {0x3c77, COK_CAST_PROTECTED}, /* Globe Of Invulnerability */
     [0x40] = {0x3241, COK_CAST_FIREBALL},
     [0x41] = {0x3c96, COK_CAST_ITEM_DAMAGE},
-    [0x42] = {0x3cd1, .unported = "dkk 5dc5:3cd1"}, /* Stone to Flesh */
+    [0x42] = {0x3cd1, COK_CAST_STONE_TO_FLESH}, /* Stone to Flesh */
     [0x43] = {0x3e59, COK_CAST_NEUTRALIZE_POISON}, /* Neutralize Poison */
     [0x44] = {0x3f3b, COK_CAST_POISON}, /* Poison */
     [0x45] = {0x1f52, COK_CAST_PROTECTED}, /* Protection Evil, 10' Radius */
     [0x46] = {0x3faf, COK_CAST_STICKS_TO_SNAKES}, /* Sticks to Snakes */
     [0x47] = {0x4037, COK_CAST_CURE_CRITICAL}, /* Cure Critical Wounds */
-    [0x48] = {0x40a6, .unported = "dkk 5dc5:40a6"}, /* Flesh to Stone */
-    [0x49] = {0x4109, .unported = "dkk 5dc5:4109"}, /* Dispel Evil */
+    /* Flesh to Stone: status 7, DS:2204 */
+    [0x48] = {0x40a6, COK_CAST_DESTROY, .value = 7, .text = "is turned to stone"},
+    [0x49] = {0x4109, COK_CAST_DISPEL_EVIL, .value = 0x04}, /* Dispel Evil: the caster's 0x04 */
     [0x4a] = {0x4160, COK_CAST_DICE, .count = 6, .sides = 8, .type = 9}, /* Flame Strike */
-    [0x4b] = {0x4196, .unported = "dkk 5dc5:4196"}, /* Raise Dead */
-    [0x4c] = {0x4248, .unported = "dkk 5dc5:4248"}, /* Slay Living */
+    [0x4b] = {0x4196, COK_CAST_RAISE_DEAD}, /* Raise Dead */
+    [0x4c] = {0x4248, COK_CAST_SLAY_LIVING}, /* Slay Living */
     [0x4d] = {0x1f34, COK_CAST_AFFECTED}, /* Detect Magic */
-    [0x4e] = {0x42f1, .unported = "dkk 5dc5:42f1"}, /* Entangle */
+    [0x4e] = {0x42f1, COK_CAST_ENTANGLE, .value = 0x06}, /* Entangle: held */
     [0x4f] = {0x4391, COK_CAST_MISSILES, .text = "is highlighted"}, /* Faerie Fire: DS:2244 */
     [0x50] = {0x43a2, COK_CAST_INVISIBLE}, /* Invisibility to Animals */
     [0x51] = {0x43c0, COK_CAST_CHARM_MONSTERS}, /* Charm Monsters */
@@ -873,11 +875,11 @@ static const cok_rules_cast death_knights_cast[0x73] = {
     [0x59] = {0x311b, COK_CAST_REMOVE_CURSE, .value = 0x2b, .text = "is uncursed"},
     [0x5a] = {0x4943, COK_CAST_PROTECTED}, /* Iron Skin */
     [0x5b] = {0x2934, .unported = "dkk 5dc5:2934"}, /* Cloud Kill */
-    [0x5c] = {0x4962, .unported = "dkk 5dc5:4962"}, /* Cone of Cold */
-    [0x5d] = {0x4a04, .unported = "dkk 5dc5:4a04"}, /* Feeblemind */
+    [0x5c] = {0x4962, COK_CAST_CONE_OF_COLD}, /* Cone of Cold */
+    [0x5d] = {0x4a04, COK_CAST_FEEBLEMIND, .value = 0x44}, /* Feeblemind: 0x44 run */
     [0x5e] = {0x271c, COK_CAST_HOLD}, /* Hold Monsters */
     [0x5f] = {0x4aaa, COK_CAST_EMPTY_TEXT},
-    [0x60] = {0x4ad7, .unported = "dkk 5dc5:4ad7"},
+    [0x60] = {0x4ad7, COK_CAST_YOUTH}, /* the Elixir of Youth's */
     [0x61] = {0x4b50, COK_CAST_EMPTY_TEXT},
     [0x62] = {0x4b7d, COK_CAST_SAYING, .text = "is covered in flame"}, /* Fire Touch: DS:2299 */
     [0x63] = {0x4b9b, COK_CAST_POTION, .text = "is healed"}, /* DS:1f30 */
@@ -892,11 +894,12 @@ static const cok_rules_cast death_knights_cast[0x73] = {
     [0x6b] = {0x2010, COK_CAST_BURNING_HANDS}, /* Burning Hands */
     [0x6c] = {0x3241, COK_CAST_FIREBALL, .value = 1}, /* Delay Blast Fireball */
     [0x6d] = {0x2882, COK_CAST_INVISIBLE}, /* Mass Invisibility */
-    [0x6e] = {0x4bd9, .unported = "dkk 5dc5:4bd9"}, /* Power Word Stun */
-    [0x6f] = {0x4c8a, .unported = "dkk 5dc5:4c8a"}, /* Mass Charm */
+    [0x6e] = {0x4bd9, COK_CAST_POWER_WORD_STUN}, /* Power Word Stun */
+    [0x6f] = {0x4c8a, COK_CAST_MASS_CHARM}, /* Mass Charm */
     [0x70] = {0x1f52, COK_CAST_PROTECTED}, /* Mind Blank */
-    [0x71] = {0x4dd8, .unported = "dkk 5dc5:4dd8"}, /* Otto's Irresitable Dance */
-    [0x72] = {0x4e81, .unported = "dkk 5dc5:4e81"}, /* Power Word Blind */
+    /* Otto's Irresitable Dance: held, and the AC 4 worse */
+    [0x71] = {0x4dd8, COK_CAST_DANCE, .value = 0x06, .count = 0x39},
+    [0x72] = {0x4e81, COK_CAST_POWER_WORD_BLIND}, /* Power Word Blind */
 };
 
 /* The bursts after a spell's flight in combat (5dc5:1298's calls of
@@ -949,9 +952,9 @@ static const uint8_t death_knights_spell_ids[COK_SPELL_NAMES] = {
  * 0x79 is the item routine, Champions' 0x78 (504d:28e6, 3f44:3888). */
 static const cok_rules_effect death_knights_effect_handlers[0x7a] = {
     [0x01] = {0x0114, COK_FX_BLESS},
-    [0x02] = {0x0124, .unported = "dkk 504d:0124"},
+    [0x02] = {0x0124, COK_FX_STUN_HIT, .value = 0x06}, /* held */
     [0x03] = {0x018e, COK_FX_SNAKES},
-    [0x04] = {0x0219, .unported = "dkk 504d:0219"},
+    [0x04] = {0x0219, COK_FX_EVIL_AVOID},
     [0x05] = {0x28df, COK_FX_NOTHING},
     [0x06] = {0x00e7, COK_FX_HELD},
     [0x07] = {0x0239, COK_FX_KENDER_BATTLE},
@@ -968,7 +971,7 @@ static const cok_rules_effect death_knights_effect_handlers[0x7a] = {
     [0x12] = {0x0576, COK_FX_RESIST_CHARM_30},
     [0x13] = {0x28df, COK_FX_NOTHING},
     [0x14] = {0x059a, COK_FX_RESIST_FIRE},
-    [0x15] = {0x05bf, .unported = "dkk 504d:05bf"},
+    [0x15] = {0x05bf, COK_FX_SILENCE_SPELL},
     [0x16] = {0x067c, COK_FX_POISON_COLLAPSE},
     [0x17] = {0x06dc, COK_FX_HAMMER, .text = "gains an item"}, /* DS:1dea */
     [0x18] = {0x28df, COK_FX_NOTHING},
@@ -981,7 +984,7 @@ static const cok_rules_effect death_knights_effect_handlers[0x7a] = {
     [0x1f] = {0x00c9, COK_FX_HELD},
     [0x20] = {0x0a7e, COK_FX_UNSEEN},
     [0x21] = {0x0ac5, COK_FX_BLIND},
-    [0x22] = {0x0aee, .unported = "dkk 504d:0aee"},
+    [0x22] = {0x0aee, COK_FX_DISPEL_EVIL},
     [0x23] = {0x0bab, COK_FX_CONFUSED, .battle = true},
     [0x24] = {0x0d4d, COK_FX_MINUS_FOUR},
     [0x25] = {0x0d5e, COK_FX_BLINK, .battle = true},
@@ -995,7 +998,7 @@ static const cok_rules_effect death_knights_effect_handlers[0x7a] = {
     [0x2d] = {0x0362, COK_FX_PROTECTION_EVIL},
     [0x2e] = {0x28df, COK_FX_NOTHING},
     [0x2f] = {0x0f30, COK_FX_AGAINST_FLAG4},
-    [0x30] = {0x0f4f, .unported = "dkk 504d:0f4f"},
+    [0x30] = {0x0f4f, COK_FX_BARKSKIN},
     [0x31] = {0x0f89, COK_FX_PRAYER},
     [0x32] = {0x0fd4, COK_FX_COLD_RESISTANT},
     [0x33] = {0x28df, COK_FX_NOTHING},
@@ -1005,7 +1008,7 @@ static const cok_rules_effect death_knights_effect_handlers[0x7a] = {
     [0x37] = {0x1036, COK_FX_NOTHING},
     [0x38] = {0x103d, COK_FX_NOTHING},
     [0x39] = {0x1044, COK_FX_ARMOUR, .value = 0xfc}, /* AC 4 worse */
-    [0x3a] = {0x1063, .unported = "dkk 504d:1063"},
+    [0x3a] = {0x1063, COK_FX_MIND_BLANK},
     [0x3b] = {0x108d, COK_FX_MINOR_GLOBE, .value = 5},
     [0x3c] = {0x10b4, COK_FX_ARMOUR, .value = 4},
     [0x3d] = {0x28df, COK_FX_NOTHING},

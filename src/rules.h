@@ -389,7 +389,13 @@ typedef struct {
      * COK_CAST_FIRE_SHIELD's value 1 for Death Knights' (dkk 5dc5:468f):
      * the flame by index from the menu (6a69:0f1b, casting.flame_type) or
      * for the computer by 1d2, either saying text, the abort question
-     * casting's. */
+     * casting's. Death Knights' band C kinds: COK_CAST_HEAL's value the
+     * effect cured after blindness (dkk 5dc5:3848: 0x3d); COK_CAST_DESTROY's
+     * the status it kills with (3bb9 6, 40a6 7, saying text);
+     * COK_CAST_DISPEL_EVIL's, COK_CAST_ENTANGLE's and COK_CAST_FEEBLEMIND's
+     * the effect added to the caster, added to each target, run after
+     * (4109 0x04, 42f1 6, 4a04 0x44); COK_CAST_DANCE's value and count the
+     * two effects it adds (4dd8: 6 and 0x39). */
     uint8_t value, count, sides, type;
     /* The words the handler says where they are not Champions' (the
      * handler's own, as 5b04's routines hold them), else NULL: dkk's
@@ -470,7 +476,8 @@ typedef struct {
     uint8_t handler;
     const char *unported;
     /* What the routine takes as a constant where one handler serves
-     * several ids (COK_FX_CANCEL's effect), or 0; and the words it says
+     * several ids (COK_FX_CANCEL's effect; dkk COK_FX_STUN_HIT's, the
+     * effect it adds, 504d:0124's 6), or 0; and the words it says
      * where the games word them differently (COK_FX_STENCH's of one
      * affected), or NULL. */
     uint8_t value;

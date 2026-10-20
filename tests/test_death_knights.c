@@ -2087,6 +2087,65 @@ static void test_effects(void)
     puts("death knights: the effects' routines checked");
 }
 
+/* The band C spells and effects (5dc5's and 504d's routines of their own)
+ * against the original's code: every spell but the clouds' and every
+ * effect ported; each entry's constants and words where the routine loads
+ * them (mov al, imm; push ax; mov di, DS offset), the strings the kinds
+ * say, Restoration's experience bound (DS:7a6c). */
+static void test_band_c(void)
+{
+    const cok_rules_cast *c = R->spells.cast;
+    const cok_rules_effect *h = R->effects.handlers;
+    for (unsigned id = 1; id < R->spells.count; ++id)
+        CHECK((c[id].unported != NULL) == (id == 0x22 || id == 0x5b));
+    for (unsigned id = 1; id < R->effects.count; ++id) CHECK(h[id].unported == NULL);
+    /* Disintegrate and Flesh to Stone: the status and the words of the kill
+     * (638c:00c8). */
+    CHECK(c[0x3c].handler == COK_CAST_DESTROY && c[0x3c].value == 6 &&
+          HOLDS(0x5dc5, 0x3bb9, 0x60, 0xb0, 0x06, 0x50, 0xbf, 0xa6, 0x21) &&
+          pascal_is(ds(0x21a6), c[0x3c].text, false));
+    CHECK(c[0x48].handler == COK_CAST_DESTROY && c[0x48].value == 7 &&
+          HOLDS(0x5dc5, 0x40a6, 0x60, 0xb0, 0x07, 0x50, 0xbf, 0x04, 0x22) &&
+          pascal_is(ds(0x2204), c[0x48].text, false));
+    /* Heal cures 0x21, then the entry's 0x3d (638c:1479). */
+    CHECK(c[0x35].value == 0x3d && HOLDS(0x5dc5, 0x3848, 0x40, 0xb0, 0x21, 0x50, 0x9a) &&
+          HOLDS(0x5dc5, 0x3848, 0x70, 0xb0, 0x3d, 0x50, 0x9a));
+    /* Dispel Evil's caster's effect, timed by 0x49 (5dc5:0ef5). */
+    CHECK(c[0x49].value == 0x04 && HOLDS(0x5dc5, 0x4109, 0x20, 0xb0, 0x04, 0x50, 0xb0, 0x49, 0x50));
+    /* Entangle's effect, timed by 0x4e. */
+    CHECK(c[0x4e].value == 0x06 && HOLDS(0x5dc5, 0x42f1, 0x80, 0xb0, 0x06, 0x50, 0xb0, 0x4e, 0x50));
+    /* Feeblemind's effect run (638c:0185). */
+    CHECK(c[0x5d].value == 0x44 && HOLDS(0x5dc5, 0x4a04, 0x90, 0xb0, 0x44, 0x50, 0x8d));
+    /* Otto's two effects, timed by 0x71. */
+    CHECK(c[0x71].value == 0x06 && c[0x71].count == 0x39 &&
+          HOLDS(0x5dc5, 0x4dd8, 0x60, 0xb0, 0x06, 0x50, 0xb0, 0x71, 0x50) &&
+          HOLDS(0x5dc5, 0x4dd8, 0x90, 0xb0, 0x39, 0x50, 0xb0, 0x71, 0x50));
+    /* Effect 0x02's: 6 for 3 minutes (mov al, 6; push ax; mov ax, 3). */
+    CHECK(h[0x02].value == 0x06 && HOLDS(0x504d, 0x0124, 0x60, 0xb0, 0x06, 0x50, 0xb8, 0x03, 0x00));
+    /* Restoration: the least experience starts at DS:7a6c's 3500000. */
+    const uint8_t *least = ds(0x7a6c);
+    CHECK(least[0] == 0xe0 && least[1] == 0x67 && least[2] == 0x35 && least[3] == 0 &&
+          HOLDS(0x5dc5, 0x2326, 0x20, 0xa1, 0x6c, 0x7a));
+    static const struct {
+        uint16_t at;
+        const char *text;
+    } said[] = {
+        {0x1f8f, "is ressurected"}, {0x2219, "is raised"},       {0x2224, "is slain"},
+        {0x2191, "drops dead"},     {0x20a0, "can see"},         {0x2167, "regains intellect"},
+        {0x21bb, "is no longer a status"},                      {0x222f, "is entangled"},
+        {0x226f, "is now 18 years old"},                        {0x2284, "becomes younger"},
+        {0x1d82, "is stunned"},     {0x1fb9, "is charmed"},      {0x22ae, "begins to dance wildly"},
+        {0x20b5, "is blind"},       {0x1e29, "is dispelled"},    {0x1e3e, "resists dispel evil"},
+        {0x1db6, "is silenced"},    {0x1c3a, "lost a spell"},    {0x1d0f, "is unaffected"},
+        {0x4731, "Charmed"},        {0x4574, "not "},
+    };
+    for (size_t i = 0; i < sizeof said / sizeof *said; ++i)
+        CHECK(pascal_is(ds(said[i].at), said[i].text, false));
+    CHECK(strcmp(R->effects.unaffected, "is unaffected") == 0 &&
+          strcmp(R->casting.lost_spell, "lost a spell") == 0);
+    puts("death knights: the band C spells and effects checked");
+}
+
 int main(void)
 {
     test_lookup();
@@ -2108,6 +2167,7 @@ int main(void)
         if (exe_size > 0) test_casting();
         if (exe_size > 0) test_spells();
         if (exe_size > 0) test_effects();
+        if (exe_size > 0) test_band_c();
     }
     puts("death knights: ok");
     return 0;

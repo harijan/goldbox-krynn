@@ -39,7 +39,12 @@ copy of saved game A whose casters memorize band B's spells (5dc5's
 handlers), cast by keys over the first two rounds (Shield, Dispel Magic on
 the shielded CELESTE, Fireball, Bless, Haste, Lightning Bolt), the screen,
 records and RandSeed where the keys end, then Auto with Magic Off, round
-by round. Seeded (Box seed,
+by round. And band C's: the monsters flow priests (patriarchs casting
+Slay Living, Harm and Silence, high wizards Feeblemind and Otto's
+Irresistible Dance; its seed 12 casts each), and the band flow, the cast
+flow's Auto with Magic On from a copy of saved game A whose casters
+memorize Harm, Heal, Death Spell, Disintegrate, Cone of Cold, Power Word
+Blind and Stun and Flesh to Stone. Seeded (Box seed,
 eclplay --seed): the same dice. Not part of run_all.py's set. About
 thirty minutes, and the spells flow fifteen more.
 
@@ -99,9 +104,9 @@ def main():
     parser.add_argument("--workdir", default=str(K.ROOT / "build/dosbox-checks/dkk_fight"))
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--flows", default="fight,river,ambush,auto,keys,keys2,cast,items,drain,"
-                                           "mage,dragon,spells",
+                                           "mage,dragon,spells,priests,band",
                         help="which flows: fight, river, ambush, auto, keys, keys2, cast, items, "
-                             "drain, mage, dragon, spells (comma-separated)")
+                             "drain, mage, dragon, spells, priests, band (comma-separated)")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     work = pathlib.Path(opts.workdir)
@@ -131,6 +136,8 @@ def main():
     if "spells" in flows:
         auto(v, work, opts, cast=True, tag="spells", spells=SPELLS, first=SPELLS_FIRST,
              magic=False)
+    if "band" in flows:
+        auto(v, work, opts, cast=True, tag="band", spells=BAND)
     return v.finish()
 
 
@@ -370,6 +377,14 @@ SPELLS_FIRST = (r"C\#50\#50\rC\#50\rGTGC\#50\rGC\#50\rNTT"  # round 1
                 r"GC\#50\#50\rGTGGGC\#50\rT")  # round 2
 
 
+# The band flow's (band C, 5dc5's handlers), cast as the computer chooses on
+# Auto with Magic On: TANAR Harm, Heal and Harm; FLAVIUS Death Spell,
+# Disintegrate, Cone of Cold, Power Word Blind; NEACAIL Heal, Harm; CELESTE
+# Disintegrate, Flesh to Stone, Power Word Stun.
+BAND = {"CHRDATA3": [0x28, 0x35, 0x28], "CHRDATA4": [0x38, 0x3C, 0x5C, 0x72],
+        "CHRDATA5": [0x35, 0x28], "CHRDATA6": [0x3C, 0x48, 0x6E]}
+
+
 def casters(work, spells=None, tag="cast"):
     """A copy of DKKAssets/SAVE with SPELLS' (by default CASTERS') spells
     memorized."""
@@ -390,13 +405,17 @@ def casters(work, spells=None, tag="cast"):
 # code and the port's (COK_DKK_POKE): each (monster, count, picture, as
 # the ECL loads it) for the two. drain: wights (0x43, a level drained) and spectres (0x44,
 # two); mage: kuo-toas (0x53) and black wizards, who cast; dragon: a blue
-# dragon (0x55, its breath) and ghouls. The party fights them from a copy
+# dragon (0x55, its breath) and ghouls; priests: patriarchs (Slay Living,
+# Harm, Silence's 0x15) and high wizards (Feeblemind, Mass Charm, Otto's
+# Irresistible Dance), band C's handlers (5dc5:4248, 2d8e, 4a04, 4c8a,
+# 4dd8). The party fights them from a copy
 # of saved game A where none turns undead (unturning), who would turn the
 # undead away before they strike.
 SWAPS = {
     "drain": ((0x11, 3, 0x11), (0x12, 3, 0x12)),
     "mage": ((0x27, 3, 0x27), (0x43, 2, 0x42)),
     "dragon": ((0x02, 1, 0x02), (0x16, 3, 0x16)),
+    "priests": ((0x46, 3, 0x46), (0x44, 2, 0x42)),
 }
 
 

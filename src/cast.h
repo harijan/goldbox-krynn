@@ -78,6 +78,12 @@ void cok_cast_forget(cok_adventure *game, const cok_character *gone);
  * targets' entries 1, 8, ..., 64 (DS:6feb + 28j). */
 cok_arena_reachable cok_cast_reachable(const cok_adventure *game);
 
+/* In combat, c, casting (its combat record's spell), "lost a spell"
+ * (casting's lost_spell, row 12, a pause), forgets it (6346:161b) and its
+ * turn ends (6346:2964), as damage while casting does. Returns false,
+ * ending the run, where it cannot be carried out. */
+bool cok_cast_lose_spell(cok_adventure *game, cok_character *c);
+
 /* 60f4:1db7: amount of damage to c, of the type in DS:6b31, after its
  * event 6 (magic resistance first), then halved or none for a save of
  * kind 2 or 1 made, or its event 0x14 if not saved. If any is left and c
@@ -95,10 +101,11 @@ bool cok_cast_damage(cok_adventure *game, cok_character *c, uint8_t amount, uint
 
 /* 60f4:20f7: add effect id to c for minutes with value, unless its effects
  * on event 9 cancel it (DS:6b2f) or c saved against a spell whose save is
- * of kind 1, when it "is Unaffected"; an effect of the id with time left
- * is removed first, permanent ones stay. Then text, if any, is said with
- * a flash on c (6346:228c, kind 1) and the text cleared. Returns false,
- * ending the run, where it cannot be carried out. */
+ * of kind 1, when it "is Unaffected" (the effects section's unaffected);
+ * an effect of the id with time left is removed first, permanent ones
+ * stay. Then text, if any, is said with a flash on c (6346:228c, kind 1)
+ * and the text cleared. Returns false, ending the run, where it cannot be
+ * carried out. */
 bool cok_cast_add_effect(cok_adventure *game, cok_character *c, uint8_t id, uint16_t minutes,
                          uint8_t value, bool on_remove, uint8_t save_kind, bool saved,
                          const char *text);
@@ -147,10 +154,12 @@ bool cok_cast_remove_curse(cok_adventure *game, cok_character *target);
 
 /* Spell's handler from the game's table, with no cast around it, on target
  * as the first target alone (DS:6feb; dkk DS:c31d) and its own caster, the
- * spell being cast (DS:6b33; dkk be70) set to it while it runs where
- * set_spell: as Death Knights' temple runs Raise Dead and Restoration
- * (dkk 3999:01fc, 045f: through the table) and Remove Curse (0368:
- * 5dc5:311b, the spell left as it was). A handler the port does not carry
+ * spell being cast (DS:6b33; dkk be70) set to it where set_spell, and left
+ * set after, where a cast clears it: as Death Knights' temple runs Raise
+ * Dead and Restoration (dkk 3999:01fc, 045f: through the table, be70 left
+ * 0x4b or 0x11, which effects that test the spell being cast, Barkskin's
+ * 0x30, the minor globes, then read until the next cast) and Remove Curse
+ * (0368: 5dc5:311b, the spell left as it was). A handler the port does not carry
  * out for the game yet stops the run (COK_ECL_UNPORTED, cited). Returns
  * false, ending the run, where it cannot be carried out. */
 bool cok_cast_on(cok_adventure *game, uint8_t spell, cok_character *target, bool set_spell);

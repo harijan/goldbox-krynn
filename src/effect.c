@@ -2428,6 +2428,116 @@ static bool h_poison_collapse(cok_effects *fx, bool removing, cok_effect *effect
     return ok;
 }
 
+/* dkk 504d:0124, 0x02 (olin's quarterstaff), on a hit (event 2), in a
+ * battle, with flag 0: unless the target of c's attack (combat record
+ * +0x0a, read with none too) makes a saving throw of type 1, it gets the
+ * entry's effect (6, held) for 3 minutes, "is stunned" (DS:1d82;
+ * 638c:1f86). */
+static bool h_stun_hit(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)effect;
+    if (fx->vm->mode != 5 || removing) return true;
+    cok_combat_record *cr = combat_of(fx, c, 0x02, 0x0124);
+    if (cr == NULL) return false;
+    cok_character *t = target_of(fx, cr->target, 0x02, 0x0124, 0x00b6);
+    if (t == NULL) return false;
+    bool made;
+    if (!saving_throw(fx, t, 1, 0, &made)) return false;
+    return made || add_with_text(fx, t, entry_value(fx), 3, 0, false, 0, false, 0x0124,
+                                 "is stunned");
+}
+
+/* dkk 504d:0219, 0x04 (Dispel Evil's, on its caster), being attacked
+ * (event 0x0b), with flag 0: an attack roll 7 lower when the selected
+ * character (the attacker) has creature flag 1 (+0x7a). */
+static bool h_evil_avoid(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    const cok_character_layout *L = fx->rules->character;
+    (void)effect, (void)c;
+    if (removing) return true;
+    cok_character *attacker = selected(fx, 0x04);
+    if (attacker == NULL) return false;
+    if ((cok_field_u8_at(L, attacker->record, COK_FIELD_CREATURE_FLAGS, 0) & 1) != 0)
+        fx->rolls.attack_roll = (uint8_t)(fx->rolls.attack_roll - 7);
+    return true;
+}
+
+/* dkk 504d:05bf, 0x15 (Silence's, shared within a square), at the start of
+ * a turn (event 0x0f), with either flag, in a battle: 3f44:06b2's silence
+ * ("is silenced" if it may use items; neither items nor spells), then one
+ * casting (its combat record's spell) loses it (fx->lose_spell). */
+static bool h_silence_spell(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect;
+    if (fx->vm->mode != 5) return true;
+    cok_combat_record *cr = combat_of(fx, c, 0x15, 0x05bf);
+    if (cr == NULL) return false;
+    if (cr->may_use != 0 && !say(fx, c, 0x15, 0x05bf, "is silenced")) return false;
+    cr->may_use = 0;
+    cr->may_cast = 0;
+    if (cr->spell == 0) return true;
+    if (fx->lose_spell != NULL && fx->lose_spell(fx, c, fx->context)) return true;
+    return fail(fx, "effect 0x15 (dkk 504d:05bf) could not lose the spell (65cd:17c4)");
+}
+
+/* dkk 504d:0aee, 0x22 (Dispel Evil's), at the damage (event 4), in a
+ * battle, with flag 0: the target of c's attack (combat record +0x0a, kept
+ * in DS:be7c, read with none too) of creature flag 1 that fails a saving
+ * throw of type 4 "is dispelled" (DS:1e29; 638c:00c8, status 8), and c
+ * loses its first 0x04 and 0x22 (638c:01c6); any other "resists dispel
+ * evil" (DS:1e3e, row 10), then a pause. */
+static bool h_dispel_evil(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    const cok_character_layout *L = fx->rules->character;
+    (void)effect;
+    if (removing || fx->vm->mode != 5) return true;
+    cok_combat_record *cr = combat_of(fx, c, 0x22, 0x0aee);
+    if (cr == NULL) return false;
+    fx->rolls.target = cr->target;
+    cok_character *t = target_of(fx, cr->target, 0x22, 0x0aee, 0x007a);
+    if (t == NULL) return false;
+    bool made = true;
+    if ((cok_field_u8_at(L, t->record, COK_FIELD_CREATURE_FLAGS, 0) & 1) != 0 &&
+        !saving_throw(fx, t, 4, 0, &made))
+        return false;
+    if (made) {
+        if (!say(fx, t, 0x22, 0x0aee, "resists dispel evil")) return false;
+        if (fx->pause != NULL) fx->pause(fx, fx->context);
+        return true;
+    }
+    if (fx->kill == NULL || !fx->kill(fx, t, 8, "is dispelled", fx->context))
+        return fail(fx, "effect 0x22 (dkk 504d:0aee) could not kill (638c:00c8)");
+    return remove_effect(fx, c, NULL, 0x04) && remove_effect(fx, c, NULL, 0x22);
+}
+
+/* dkk 504d:0f4f, 0x30 (Barkskin's), with either flag, being attacked and
+ * at a saving throw (events 0x0b, 0x0c): the armour class, front and back,
+ * 1 better in place, until the stats are next recomputed; and the saving
+ * throw 1 better, but against a spell being cast (DS:be70) whose saving
+ * throw is of type 4 (the spell table's column 9). */
+static bool h_barkskin(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    const cok_character_layout *L = fx->rules->character;
+    (void)removing, (void)effect;
+    uint8_t *r = c->record;
+    cok_field_set8(L, r, COK_FIELD_AC, (uint8_t)(cok_field_u8(L, r, COK_FIELD_AC) + 1));
+    cok_field_set8(L, r, COK_FIELD_AC_BEHIND, (uint8_t)(cok_field_u8(L, r, COK_FIELD_AC_BEHIND) + 1));
+    uint8_t spell = fx->rolls.spell;
+    if (spell == 0 || spell_byte(fx, spell, 9) != 4) ++fx->rolls.save_roll;
+    return true;
+}
+
+/* dkk 504d:1063, 0x3a (Mind Blank's): the damage and the effect a spell is
+ * adding cancelled (504d:006d) where that is 0x0b (charmed), 0x23
+ * (confused), 0x34 (paralysed), 0x3d or 0x6f (terror). No event runs it. */
+static bool h_mind_blank(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect, (void)c;
+    static const uint8_t ids[] = {0x0b, 0x23, 0x34, 0x3d, 0x6f};
+    for (size_t i = 0; i < sizeof ids; ++i) cancel(fx, ids[i]);
+    return true;
+}
+
 /* dkk 5dc5:51cc (0x5a, 0x64, 0x68), 4fd3 (0x51), 4f97 (0x4e) and 504d:186e
  * (0x46), with either flag (events 0x0e and 0x0f): a monster breathes,
  * gazes, casts or bursts into flames (fx->breathe, cok_cast_breath). */
@@ -2575,6 +2685,12 @@ static handler_fn *const handlers[COK_FX_HANDLERS] = {
     [COK_FX_GAZE] = h_monster,
     [COK_FX_CAST] = h_monster,
     [COK_FX_FLAMES] = h_monster,
+    [COK_FX_STUN_HIT] = h_stun_hit,
+    [COK_FX_EVIL_AVOID] = h_evil_avoid,
+    [COK_FX_SILENCE_SPELL] = h_silence_spell,
+    [COK_FX_DISPEL_EVIL] = h_dispel_evil,
+    [COK_FX_BARKSKIN] = h_barkskin,
+    [COK_FX_MIND_BLANK] = h_mind_blank,
 };
 
 /* Run the handler of id (60f4:01a8). While DS:713c is set the original

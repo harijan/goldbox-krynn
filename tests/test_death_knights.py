@@ -124,9 +124,10 @@ class DeathKnightsTests(unittest.TestCase):
         # The intro (ECL1 block 2) adds its three NPCs, then fights, whose
         # computer's turns cast spells of use (5340:43ea): FLAVIUS's Delay
         # Blast Fireball (5dc5:3241, its caster level added to the damage),
-        # until one whose handler is not ported yet stops the run.
+        # then Flesh to Stone (5dc5:40a6), aborted with no target in
+        # reach, to the end of the fight.
         result = self.play("--keys", r"\r" * 20, ASSETS, 2)
-        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([line for line in result.stdout.splitlines()
                           if line.startswith("party:")],
                          ["party: SIR DRYDEN joins, icon 48 in slot 0",
@@ -139,8 +140,10 @@ class DeathKnightsTests(unittest.TestCase):
                           "print: Spell:Delay Blast Fireball", "print: EVIL WARLORD",
                           "print: takes 44 points of damagefrom fire", "print: EVIL WARLORD",
                           "print: takes 44 points of damagefrom fire"])
-        self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
-                         "Krynn's spell 72, Flesh to Stone (dkk 5dc5:40a6)")
+        at = lines.index("cast: FLAVIUS: Flesh to Stone")
+        self.assertEqual(lines[at + 1:at + 5], ["print: FLAVIUS", "print: casts a spell",
+                                                "print: Spell:Flesh to Stone",
+                                                "print: Spell Aborted"])
 
     def test_characters(self):
         # The saved characters (--character), a sheet in camp: name, class,
@@ -870,7 +873,8 @@ class DeathKnightsTests(unittest.TestCase):
         # On Auto with Magic On: FLAVIUS's Fear (5dc5:4566, the cone 175d
         # with its range set): those failing "run away" and flee while they
         # hold 0x6f; CELESTE's Faerie Fire (4391, 1b20): its lone pick is
-        # "Unaffected", as Champions' Charm Monsters'.
+        # unaffected, as Champions' Charm Monsters' (in its words: "is
+        # unaffected", 638c:1f86's DS:1d0f).
         saves = self.saves(ASSETS / "SAVE")
         self.memorized(saves, {"CHRDATA3": [0x4F, 0x0A], "CHRDATA4": [0x54, 0x54],
                                "CHRDATA5": [0x47, 0x2C, 0x0A], "CHRDATA6": [0x4F, 0x4F]})
@@ -884,7 +888,7 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual(lines[at + 4:at + 8], ["print: NIGHTMARE", "print: runs away",
                                                 "print: SOLAMNIC KNIGHT", "print: runs away"])
         at = lines.index("cast: CELESTE: Faerie Fire")
-        self.assertEqual(lines[at + 4:at + 6], ["print: NIGHTMARE", "print: is Unaffected"])
+        self.assertEqual(lines[at + 4:at + 6], ["print: NIGHTMARE", "print: is unaffected"])
         self.assertIn("menu: continue battle? ", lines)
 
     def test_casters_on_auto(self):
