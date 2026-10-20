@@ -254,6 +254,7 @@ static void test_movement(void)
     /* Hasted since the stats ran: the same. */
     cok_field_set8(L, a->record, COK_FIELD_MOVEMENT, 12);
     CHECK(cok_combat_movement(&game, a, &move) && move == 48);
+    CHECK(cok_field_u8(L, a->record, COK_FIELD_MOVEMENT) == 24);
     /* Slowed, with no event: half. */
     CHECK(cok_character_add_effect(m, 0x2a, 0, 0, false) != NULL);
     CHECK(cok_combat_movement(&game, m, &move) && move == 12);
