@@ -234,6 +234,10 @@ struct cok_adventure {
     bool animate;          /* DS:4b4f: load every frame of a picture. */
     uint8_t pictures;      /* DS:4b4d, Alter's "Pics", 1 at startup; nothing else reads it. */
     uint8_t selected;      /* DS:6e0f, the menu item selected. */
+    /* dkk DS:c0f8: whether the last menu by index (6a69:0f1b, the lists,
+     * the Yes/No and the pick that read it) took a special key; the
+     * temple's View takes it for its flag (see shop.h). */
+    bool menu_special;
     int list_top;          /* DS:6e0d, the first item a list shows. */
     bool input_ended;      /* The keyboard ran out; the run was aborted. */
 
@@ -306,8 +310,8 @@ struct cok_adventure {
     int32_t experience;
     bool experience_known;
     cok_combat_stub combat_stub;
-    /* DS:883c: a shop or the temple redraws its frame (see shop.h); clear
-     * for its first redraw. */
+    /* DS:883c (dkk db62): a shop or the temple redraws its frame (see
+     * shop.h); clear for its first redraw. */
     bool shop_frame;
     /* The battle's map, combatants and tile set (see combat.h). */
     cok_combat combat;
@@ -599,9 +603,10 @@ void cok_adventure_carry(cok_adventure *game, uint16_t clock[7]);
  * for treasure (mode 6) PIC record 0x3c and no status line; in shops and
  * the temple (mode 1) the frame unless game->shop_frame is clear, the
  * small picture's first frame outside 3D areas (in them the portrait last
- * shown, cok_adventure_portrait), the party list and the status line; in
- * the party menu (mode 0) the cleared frame of 1128:0000; in combat (mode
- * 5) nothing. */
+ * shown, cok_adventure_portrait, where the shops section's portrait is
+ * set), the party list and the status line; in a game's vault (mode 7,
+ * dkk) the same and its line; in the party menu (mode 0) the cleared
+ * frame of 1128:0000; in combat (mode 5) nothing. */
 void cok_adventure_redraw(cok_adventure *game);
 /* Load PIC<file> record id as the small picture unless it is loaded
  * (6961:00e4), with "Loading...Please Wait" while animation is on; a

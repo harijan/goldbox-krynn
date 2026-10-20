@@ -190,9 +190,9 @@ void cok_menu_indexed(cok_menu_indexed_layout *out, const char *text, const cok_
  * the selected one. Returns the index of the item whose hotkey was typed,
  * or of the selected one for Enter (0xff for a key no item has), with
  * *special clear (DS:c0f8); or a scan code with *special set: an extended
- * key's (Left and Right first moving the selection, wrapping, and Up and
- * Down to the other row, when there are items to move among), Escape's
- * 0x1b, and with keypad the keypad's digits and \ as their scan codes
+ * key's (but Left and Right, which move the selection, wrapping, and Up
+ * and Down, to the other row, where there are items to move among: those
+ * read on), Escape's 0x1b, and with keypad the keypad's digits and \ as their scan codes
  * (DS:5791: '5' is 0x20). 4 and 6 move the selection and 2, 8, H and P
  * change rows where no item has them as hotkeys; other keys, Space among
  * them, are read past. Once it has its key it flushes the keyboard. The

@@ -906,23 +906,15 @@ static void combat(cok_adventure *game)
             cok_treasure_vault(game); /* dkk 3948:000e */
     } else if (cok_ecl_var(vm, COK_VAR_SHOP) == 1) {
         cok_ecl_set_var(vm, COK_VAR_SHOP, 0);
-        if (R->shop_unported != NULL) {
-            cok_adventure_not_yet(game, "shop", R->shop_unported);
-        } else {
-            cok_adventure_overlay(game); /* 36d0 */
-            cok_shop(game);
-            if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game);
-        }
+        cok_adventure_overlay(game); /* 36d0 */
+        cok_shop(game);
+        if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game);
         fought = area;
     } else if (cok_ecl_var(vm, COK_VAR_TEMPLE) == 1) {
         cok_ecl_set_var(vm, COK_VAR_TEMPLE, 0);
-        if (R->temple_unported != NULL) {
-            cok_adventure_not_yet(game, "temple", R->temple_unported);
-        } else {
-            cok_adventure_overlay(game); /* 340d */
-            cok_temple(game);
-            if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game);
-        }
+        cok_adventure_overlay(game); /* 340d */
+        cok_temple(game);
+        if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game);
         fought = area;
     } else {
         cok_adventure_overlay(game); /* 351b */

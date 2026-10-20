@@ -541,24 +541,25 @@ static void test_indexed(void)
           selected == 3);
     CHECK(pick_key(text, &items, " x\r", 3, true, &selected, &special, NULL) == 5 && !special);
     CHECK(pick_key(text, &items, "\x1b", 1, true, &selected, &special, NULL) == 0x1b && special);
-    /* Left and Right move the selection, wrapping, and come back. */
+    /* Left and Right move the selection, wrapping, and read on (6a69:0c26,
+     * 0c59 clear the loop's flag). */
     selected = 1;
-    CHECK(pick_key(text, &items, "\x01\x4b", 2, true, &selected, &special, NULL) == 0x4b &&
-          special && selected == 8);
-    CHECK(pick_key(text, &items, "\x01\x4d", 2, true, &selected, &special, NULL) == 0x4d &&
-          selected == 1);
+    CHECK(pick_key(text, &items, "\x01\x4b", 2, true, &selected, &special, NULL) == -1 &&
+          selected == 8);
+    CHECK(pick_key(text, &items, "\x01\x4d\r", 3, true, &selected, &special, NULL) == 1 &&
+          !special && selected == 1);
     /* Up and Down: to the other row, as many items over as the first row
      * holds (6a69:0c8c), kept within the items. */
     selected = 2;
-    CHECK(pick_key(text, &items, "\x01\x50", 2, true, &selected, &special, NULL) == 0x50 &&
+    CHECK(pick_key(text, &items, "\x01\x50", 2, true, &selected, &special, NULL) == -1 &&
           selected == 6);
-    CHECK(pick_key(text, &items, "\x01\x48", 2, true, &selected, &special, NULL) == 0x48 &&
+    CHECK(pick_key(text, &items, "\x01\x48", 2, true, &selected, &special, NULL) == -1 &&
           selected == 2);
     selected = 4;
-    CHECK(pick_key(text, &items, "\x01\x50", 2, true, &selected, &special, NULL) == 0x50 &&
+    CHECK(pick_key(text, &items, "\x01\x50", 2, true, &selected, &special, NULL) == -1 &&
           selected == 8);
     selected = 8;
-    CHECK(pick_key(text, &items, "\x01\x48", 2, true, &selected, &special, NULL) == 0x48 &&
+    CHECK(pick_key(text, &items, "\x01\x48", 2, true, &selected, &special, NULL) == -1 &&
           selected == 4);
     /* Without the keypad 2 and 8 change rows and 4 and 6 move, all read
      * past; with it each is its scan code, the keypad's 5 0x20. */
@@ -577,7 +578,7 @@ static void test_indexed(void)
     /* Two items: the arrows move between them. */
     cok_menu_items_upto(&items, 1);
     selected = 1;
-    CHECK(pick_key("Yes No", &items, "\x01\x4b", 2, false, &selected, &special, NULL) == 0x4b &&
+    CHECK(pick_key("Yes No", &items, "\x01\x4b", 2, false, &selected, &special, NULL) == -1 &&
           selected == 2);
     /* One item: the arrows come back and move nothing. */
     cok_menu_items_upto(&items, 0);

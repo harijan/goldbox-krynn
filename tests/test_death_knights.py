@@ -199,19 +199,67 @@ class DeathKnightsTests(unittest.TestCase):
             "treasure: 1000 Steel", "treasure: item Gauntlets ", "treasure: item Ring ",
             "treasure: item Chain Mail ", "treasure: item Mace "])
         # STOCK (3632:28d2): shop 1's items, the last first and shown, then
-        # its shop, which stops the run (3b89:06f3).
+        # its shop (3b89:06f3), which Escape leaves.
         result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--set", "4be6=1", "--start",
-                           "9109", ASSETS, 36)
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stdout.splitlines()[:2], [
-            "treasure: item Banded Mail ", "treasure: item Chain Mail "])
-        self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
-                         "Krynn's shop (dkk 3b89:06f3)")
+                           "9109", "--keys", r"\e", ASSETS, 36)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[:2], ["treasure: item Banded Mail ", "treasure: item Chain Mail "])
+        self.assertIn("menu: Buy View Pool Appraise Exit", lines)
         # ADD EP 0 (3632:25f1): its words, the selected's experience.
         result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--set", "4be6=1", "--start",
                            "9796", "--keys", r"\r" * 4, ASSETS, 36)
         self.assertEqual(result.stdout.splitlines()[0],
                          "print: congratulations...SIR DRYDEN gains experience!")
+
+    def test_shop(self):
+        # ECL1 block 36's weapons store (STOCK 1 at prices of 16, 3b89:06f3):
+        # Buy (0453) from SIR DRYDEN's steel, View's Items: Sell (580d:2077)
+        # and Id (21d3) in mode 1, Appraise with none (5c72:0dc2), Exit.
+        result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--set", "4be6=1", "--start",
+                           "9103", "--keys", r"B\r\eVI\v\v\vS\rI\r\e\eAE\r", ASSETS, 36)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        at = lines.index("shop: prices at 16")
+        self.assertEqual(lines[at + 1:at + 5], [
+            "menu: Buy View Pool Appraise Exit", "choice: B", "print: Personal funds:       500",
+            "print: Pooled Funds:           0"])
+        self.assertIn("item: Banded Mail                 40", lines)
+        at = lines.index("shop: SIR DRYDEN pays 40 steel")
+        self.assertEqual(lines[at + 1:at + 3], ["print: SIR DRYDEN buys a Banded Mail ",
+                                                "print: Personal funds:       460"])
+        self.assertIn("menu: Ready Trade Drop Halve Join Sell Id Exit", lines)
+        at = lines.index("print: I'll give you 750 steel pieces for your Mace +1 ")
+        self.assertEqual(lines[at + 1:at + 5], ["menu: is it a deal? ", "choice: Y", "print: sold!",
+                                                "shop: sold for 750 steel"])
+        at = lines.index("print: for 100 steel pieces i'll identify your Banded Mail ")
+        self.assertEqual(lines[at + 3:at + 5], [
+            "shop: identified for 100 steel",
+            "print: i cannot tell anything new about your Banded Mail "])
+        self.assertIn("print: no gems or jewelry", lines)
+        self.assertEqual(lines[-1], "(done in block 36)")
+
+    def test_temple(self):
+        # ECL1 block 36's temple (COMBAT with 0x7ee2, 3999:07d3): Heal
+        # (04e2) lists the spells' names; Cure Blindness for one not blind
+        # asks (3999:0000), No; Cure Light Wounds is free (00b0).
+        result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--set", "4be6=1", "--start",
+                           "867f", "--keys", r"YHH\r\v\vH\eE\r", ASSETS, 36)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        at = lines.index("menu: Heal View Pool Appraise Exit")
+        self.assertEqual(lines[at + 1:at + 6], [
+            "choice: H", "print: SIR DRYDEN", "print: 95", "print: /95",
+            "print: SIR DRYDEN, how can we help yo"])
+        self.assertEqual(lines[at + 6:at + 8], ["item: Cure Blindness", "item: Cure Disease"])
+        self.assertIn("item: Restoration", lines)
+        at = lines.index("choice: Cure Blindness")
+        self.assertEqual(lines[at + 1:at + 5], ["print: SIR DRYDEN", "print: is not blind.",
+                                                "menu: cast cure anyway? ", "choice: N"])
+        at = lines.index("choice: Cure Light Wounds")
+        self.assertEqual(lines[at + 6:at + 9], ["menu: Heal View Pool Appraise Exit", "choice: E",
+                                                "print: 'GODS SPEED YOU BACK.'"])
+        self.assertEqual(lines[-1], "(done in block 36)")
 
     def test_rob(self):
         # ROB 1 50 0 (ECL1 block 34, the copper dragon, 3632:1a76): half of
@@ -286,16 +334,17 @@ class DeathKnightsTests(unittest.TestCase):
     def test_adventure_menu(self):
         # The adventure's menu (dkk 4307:0257) with the menu loop by index
         # (6a69:0f1b): Move's "Exit" left by Escape, a special key there;
-        # Right moves the selection (to Area) and comes back, a special key
-        # that keeps the character selected (580d:2bb2: Down picked
-        # LILLITH), and the menu keeps its own selection: Enter is Area.
+        # Down, a special key that keeps the character selected (580d:2bb2:
+        # Down picked LILLITH); Right moves the selection (to Area) and reads
+        # on (6a69:0c59), and the menu keeps its own selection: Enter is
+        # Area.
         result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--set", "4be6=1", "--play",
                            "--keys", r"\rM\e\#50\#4d\r\#50V", ASSETS, 48)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = [line for line in result.stdout.splitlines() if not line.startswith("music")]
         menu = "menu: Move Area Cast View Encamp Search Look"
         at = lines.index(menu)
-        self.assertEqual(lines[at:at + 7], [menu, "menu: Exit", menu, menu, menu, "area: on", menu])
+        self.assertEqual(lines[at:at + 6], [menu, "menu: Exit", menu, menu, "area: on", menu])
         self.assertEqual(lines[-4:-1], ["print: TANAR", "print: Majere Cleric/Ranger",
                                         "menu: Items Spells Trade Drop Exit"])
         # Encamp: camp's menu from its first item (dkk 4381:3106's own),
@@ -328,7 +377,7 @@ class DeathKnightsTests(unittest.TestCase):
     def test_first_fight_by_keys(self):
         # The player's turn by keys (3e05:08af), as dkk_fight.py's keys flow
         # plays it in the original: the two-row menu by index (3e05:0ccc;
-        # Down, Right and Up between its rows), Move's step and Escape's
+        # Down, Right and Up between its rows, which read on), Move's step and Escape's
         # undo (3e05:10bb, 1001), Aim's targets, Next, Prev, the cursor
         # (5340:3888, 2f3d) and Center, Speed (3e05:14aa), Delay, Guard, End
         # and Quick; the original's dice after (RandSeed).
@@ -342,7 +391,7 @@ class DeathKnightsTests(unittest.TestCase):
         menu = "menu: Move Aim Use Cast Guard Quick@Delay Yell View Speed End"
         aim = "menu: Next Prev Manual Center Exit"
         self.assertEqual(lines, [
-            "turn: NEACAIL (initiative 8)", menu, menu, menu, menu, "menu: Done", "menu: Done",
+            "turn: NEACAIL (initiative 8)", menu, "menu: Done", "menu: Done",
             menu, aim, "menu: Next Prev Manual Target Center Exit", aim, "menu: Exit",
             "menu: Exit", aim, aim, menu, "menu: Faster Slower Exit",
             "menu: Faster Slower Exit", menu, "turn: CELESTE (initiative 8)",
