@@ -478,7 +478,8 @@ void cok_adventure_screen(cok_adventure *game, cok_screen screen);
  * game->overhead is set, which an area hiding the square (0x4bfb) turns
  * off first; or with no 3D view in the area (0x4be6 and 0x4c38 both 0) the
  * big picture if game->redraw is set (6945:00ba). Sets the party's square
- * (0xc04f) and clears game->redraw. */
+ * (0xc04f) and clears game->redraw. Once the party is destroyed
+ * (game->party_killed, DS:4b57) it does nothing. */
 void cok_adventure_view(cok_adventure *game);
 
 /* Add the characters of a saved game to the party, as 4b6d:1b34 does: for

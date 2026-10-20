@@ -468,7 +468,10 @@ class DeathKnightsTests(unittest.TestCase):
     def test_first_fight_out(self):
         # Out of it with --combat: won, the experience (3a37:0000, 02fa)
         # and no treasure (3a37:09b7), then NEWECL 36, the outpost; fled,
-        # none; lost, the party destroyed.
+        # none; lost, the party destroyed, and the adventure's menu read once
+        # more, the fight being in the load vector (3632:2e06 reads it,
+        # 4307:0257, before it tests DS:8c5a): "Move Encamp" in the open,
+        # Encamp ending the game.
         run = lambda how: self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", "--seed", 1,
                                     "--combat", how, "--keys", self.TO_FIGHT + r"\r" * 5, ASSETS)
         result = run("won")
@@ -486,11 +489,23 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("print: the party has fled.", result.stdout.splitlines())
         self.assertIn("print: each character receives 0", result.stdout.splitlines())
-        result = run("lost")
+        result = self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", "--seed", 1, "--combat",
+                           "lost", "--keys", self.TO_FIGHT + r"\r\rE", ASSETS)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.splitlines()[-2:], [
+        self.assertEqual(result.stdout.splitlines()[-3:], [
             "print: the monsters rejoice for the party has been destroyed",
-            "(the party was killed in block 16)"])
+            "menu: Move Encamp", "(the party was killed in block 16)"])
+        # At that menu the text window is not drawn over: the view draws
+        # nothing once the party is destroyed (6c84:00a6 tests DS:8c5a), as
+        # the original's screen shows (DOSBox-X, dkk_fight.py's lost flow).
+        shot = self.folder / "lost.bmp"
+        result = self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", "--seed", 1, "--combat",
+                           "lost", "--screen", shot, "--keys", self.TO_FIGHT + r"\r\r", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[-2], "menu: Move Encamp")
+        bmp = shot.read_bytes()
+        self.assertEqual({pixel(bmp, x, y) for x in range(8, 312, 4) for y in range(64, 136, 4)},
+                         {(0, 0, 0)})
 
     def test_ambush(self):
         # ECL1 block 17's knights surrounded by undead: SETUP MONSTERS 60 0
@@ -577,6 +592,23 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertIn("choice: Begin Adventuring\nprint: A YEAR HAS PASSED", out)
         self.assertTrue(out.endswith("menu: ~Yes ~No\n(out of keys in block 16 at 817b)\n"),
                         out[-300:])
+
+    def test_lost_to_start_menu(self):
+        # The first fight lost from the start menu's Begin: "the monsters
+        # rejoice", the adventure's menu once more (3632:2e06's 4307:0257
+        # before DS:8c5a), Encamp, then the start menu again with no party
+        # (DOSBox-X: dkk_fight.py's lost flow).
+        saves = self.saves(ASSETS / "SAVE")
+        keys = self.TITLE + r"\v\v\rDA" + r"\v" * 5 + r"\r" + self.TO_FIGHT + r"\r\rE"
+        result = self.play("--start-menu", "--saves", saves, "--seed", 1, "--combat", "lost",
+                           "--keys", keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = result.stdout
+        self.assertIn("print: the monsters rejoice for the party has been destroyed\n"
+                      "menu: Move Encamp\nlist: \nitem: Create New Character\n"
+                      "item: Add Character to Party\nitem: Load Saved Game\n"
+                      "item: Initialize Mouse/Joystick\nitem: Exit to DOS\n"
+                      "(out of keys in the start menu)\n", out)
 
     def test_saved_games(self):
         # Each saved game loaded and saved again as its letter (46b2:1ef0,
