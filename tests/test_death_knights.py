@@ -203,6 +203,13 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual(result.stdout.splitlines()[0],
                          "print: congratulations...SIR DRYDEN gains experience!")
 
+    def test_rob(self):
+        # ROB 1 50 0 (ECL1 block 34, the copper dragon, 3632:1a76): half of
+        # each record's steel, gems and jewelry, its three coins.
+        result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--start", "8755", ASSETS, 34)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("monster: CELESTE robbed, 0 items taken", result.stdout.splitlines())
+
     def test_vault(self):
         # ECL1 block 35: COMBAT's vault branch (var 0x4d00) opens the vault's
         # menu (3948:000e): mode 7's line, Pool puts the party's money in

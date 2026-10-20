@@ -1549,6 +1549,48 @@ static void test_dk_add_ep(void)
           cok_field_u8(L, a->record, COK_FIELD_MAY_TRAIN) == 0);
 }
 
+/* Pool, Share and ROB over Death Knights' three kinds of coin (dkk
+ * 5c72:03b9, 04dc; 3c1e:1a00). */
+static void test_dk_coins(void)
+{
+    const cok_character_layout *L = cok_rules_death_knights.character;
+    reset("");
+    cok_character *a = dk_member("A"), *b = dk_member("B"), *c = dk_member("C");
+    cok_field_set8(L, c->record, COK_FIELD_NPC, 0x80);
+    cok_field_set16_at(L, a->record, COK_FIELD_COINS, 4, 10);
+    cok_field_set16_at(L, a->record, COK_FIELD_COINS, 5, 3);
+    cok_field_set16_at(L, b->record, COK_FIELD_COINS, 6, 4);
+    cok_field_set16_at(L, c->record, COK_FIELD_COINS, 4, 9);
+    cok_field_set16(L, a->record, COK_FIELD_WEIGHT, 20);
+    cok_field_set16(L, b->record, COK_FIELD_WEIGHT, 4);
+    cok_field_set16(L, c->record, COK_FIELD_WEIGHT, 9);
+    /* Pool: A's and B's, not the NPC's; the weight lightened. */
+    cok_pool_gather(&game);
+    CHECK(game.pool.coins[4] == 10 && game.pool.coins[5] == 3 && game.pool.coins[6] == 4 &&
+          game.pool.coins[0] == 0 && cok_field_u16(L, a->record, COK_FIELD_WEIGHT) == 7);
+    CHECK(cok_field_u16_at(L, a->record, COK_FIELD_COINS, 4) == 0 &&
+          cok_field_u16_at(L, c->record, COK_FIELD_COINS, 4) == 9);
+    /* Share: two counted, jewelry first; the coin over to the first. */
+    CHECK(cok_pool_share(&game));
+    CHECK(cok_field_u16_at(L, a->record, COK_FIELD_COINS, 4) == 5 &&
+          cok_field_u16_at(L, b->record, COK_FIELD_COINS, 4) == 5 &&
+          cok_field_u16_at(L, a->record, COK_FIELD_COINS, 5) == 2 &&
+          cok_field_u16_at(L, b->record, COK_FIELD_COINS, 5) == 1 &&
+          cok_field_u16_at(L, a->record, COK_FIELD_COINS, 6) == 2 &&
+          cok_field_u16_at(L, b->record, COK_FIELD_COINS, 6) == 2);
+    CHECK(game.pool.coins[4] == 0 && game.pool.coins[5] == 0 && game.pool.coins[6] == 0 &&
+          cok_field_u16_at(L, c->record, COK_FIELD_COINS, 4) == 9);
+    /* ROB 0 50 0 (ECL1 block 34's dragon): half of the selected's coins,
+     * truncated. */
+    game.vm.character = a->record;
+    cok_field_set16_at(L, a->record, COK_FIELD_COINS, 5, 7);
+    CHECK(RUN(COK_ECL_ROB, 0, 0, 0, 50, 0, 0) == COK_ECL_OK);
+    CHECK(cok_field_u16_at(L, a->record, COK_FIELD_COINS, 4) == 2 &&
+          cok_field_u16_at(L, a->record, COK_FIELD_COINS, 5) == 3 &&
+          cok_field_u16_at(L, a->record, COK_FIELD_COINS, 6) == 1 &&
+          cok_field_u16_at(L, b->record, COK_FIELD_COINS, 4) == 5);
+}
+
 /* DAMAGE's rules on a copy of Champions' descriptor (Death Knights' saving
  * throw is not ported yet): bit 4 not in the bonus (0x0f), and a save made
  * halves the damage. */
@@ -1609,6 +1651,7 @@ static void test_death_knights(void)
                                  .delay = delayed, .context = &s};
     CHECK(cok_adventure_open(&game, &cok_rules_death_knights, "DKKAssets", &keys, &hooks));
     test_dk_table();
+    test_dk_coins();
     test_dk_treasure_items();
     test_dk_stock();
     test_dk_take();

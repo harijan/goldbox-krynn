@@ -7589,7 +7589,11 @@ coin, steel, gems and jewelry (`DS:be58`, `5c`, `60`: the pool's coins
 4-6, as the record's `COINS` are), its items at `DS:be64`; Pool, Share,
 Take and drop go over the kinds the game's records hold (the layout's
 `COINS`, `cok_field_first`: Champions' 0-6), `5c72`'s routines being
-`58e7`'s otherwise.
+`58e7`'s otherwise, and so does `ROB` (`3632:1a76`, `3c1e:1a00` and
+`1a7f`: Champions' over its three coins). The shops' payment
+(`cok_shop_money`, `cok_pool_pay`, `set_steel`: `58e7:00d3`, `0155`,
+`018f`, coins 0-4) has no counterpart in Death Knights' code and is only
+reached in a shop, not ported yet.
 
 The item table (`4f9a:0006`, the end of startup `4f9a:00e1`; its name
 `ITEM0` at `4f9a:0000`) is `ITEM0.DAX` record 1 read as 17-byte entries,
