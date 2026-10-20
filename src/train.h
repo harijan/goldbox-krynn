@@ -93,4 +93,18 @@ bool cok_train_aging(cok_adventure *game);
  * must stop. */
 bool cok_train_drain(cok_adventure *game, cok_character *character, uint8_t drained);
 
+/* Death Knights' Restoration (dkk 5dc5:2326, spell 0x11): of the classes
+ * below the levels a drain took (+0x45-+0x4c against +0x4d-+0x54), the one
+ * whose next level asks the least experience (65cd:382c's rows, below
+ * 3,500,000, DS:7a6c; the later of equals) rises one: below the most hit
+ * points not drained (+0x6a), the hit points, base hit points (+0x6c) and
+ * most gain the lack divided by the levels lost in all, the base less the
+ * hit die's constitution bonus (65cd:3c02) divided by the classes drained
+ * where the level stays below its top (DS:72a4); the levels are recomputed
+ * (69a8:050b), and the experience becomes that level's, or the experience
+ * before the drain where one level was lost and it was more. Then may-train
+ * (65cd:38c7). None lost: may-train alone. Returns false when the run must
+ * stop. */
+bool cok_train_restore(cok_adventure *game, cok_character *character);
+
 #endif

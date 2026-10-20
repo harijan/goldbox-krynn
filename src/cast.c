@@ -9,6 +9,7 @@
 #include "magic.h"
 #include "round.h"
 #include "step.h"
+#include "train.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -207,7 +208,7 @@ bool cok_cast_add_effect(cok_adventure *game, cok_character *c, uint8_t id, uint
     /* Event 9 can turn the effect on another (0x47). */
     if (!cok_effects_dispatch_at(&game->effects, &c, 9)) return effect_failed(game);
     if (r->pending == 0 || (saved && save_kind == 1)) {
-        say(game, c, "is Unaffected");
+        say(game, c, cok_game_rules(game)->effects.unaffected); /* dkk 638c:1f86: DS:1d0f */
         return true;
     }
     cok_effect *old = cok_character_find_effect(c, id);
@@ -235,6 +236,17 @@ cok_arena_reachable cok_cast_reachable(const cok_adventure *game)
     cok_arena_reachable also = {{k->exploding[1], k->exploding[8], k->exploding[15]}, {NULL}};
     for (unsigned j = 0; j < 10; ++j) also.targets[j] = game->spell_targets[1 + 7 * j];
     return also;
+}
+
+bool cok_cast_lose_spell(cok_adventure *game, cok_character *c)
+{
+    if (c->combat == NULL)
+        return undefined(game, "a record with no combat record loses its spell through NULL "
+                               "(6346:161b)");
+    if (!cok_arena_say(game, c, cok_game_rules(game)->casting.lost_spell, 12, true)) return false;
+    cok_combat_forget(cok_game_rules(game), c->record, c->combat->spell);
+    cok_combat_end_turn(c);
+    return true;
 }
 
 bool cok_cast_damage(cok_adventure *game, cok_character *c, uint8_t amount, uint8_t save_kind,
@@ -278,11 +290,7 @@ bool cok_cast_damage(cok_adventure *game, cok_character *c, uint8_t amount, uint
             return undefined(game, "a record on a side other than 0 or 1 (+0x18a) is counted past "
                                    "DS:6b2d (6346:24d7)");
         c->combat->may_cast = 0;
-        if (c->combat->spell > 0) {
-            if (!cok_arena_say(game, c, K->lost_spell, 12, true)) return false;
-            cok_combat_forget(cok_game_rules(game), record, c->combat->spell);
-            cok_combat_end_turn(c);
-        }
+        if (c->combat->spell > 0 && !cok_cast_lose_spell(game, c)) return false;
     }
     if (cok_field_u8(L, record, COK_FIELD_ACTIVE) == 0) {
         /* dkk 638c:1c52: one whose creature flags hold the quiet bit only
@@ -1959,6 +1967,500 @@ static bool stinking_cloud(cast *cx)
     return cok_cloud_stinking(cx->game, cx->entry != NULL && cx->entry->value == 1);
 }
 
+/* Death Knights' band C spells (dkk 5dc5), each its routine. */
+
+/* 1cbd's and 20f8's end: effect 0x0b (charmed) taken hold of, if t holds
+ * it (60f4:01a8, 3f44:03cd). */
+static bool charm_holds(cast *cx, cok_character *t)
+{
+    cok_adventure *game = cx->game;
+    cok_effect *charm = FIND_EFFECT(t, CHARMED);
+    return charm == NULL || cok_effects_run(&game->effects, t, EFFECT(CHARMED), charm) ||
+           effect_failed(game);
+}
+
+/* The caster level and the caster's side in bit 7, Charm's value. */
+static bool charm_value(cast *cx, uint8_t *value)
+{
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
+    uint8_t level;
+    if (!level_of(cx->game, cx->game->effects.rolls.spell, &level)) return false;
+    *value = (uint8_t)(level + (uint8_t)(cok_field_u8(L, cx->caster->record, COK_FIELD_HOSTILE) << 7));
+    return true;
+}
+
+/* Say text about c and go on (65cd:1a21 with no wait). */
+static bool say_now(cok_adventure *game, cok_character *c, const char *text)
+{
+    return cok_arena_say(game, c, text, 10, false);
+}
+
+/* dkk 1e4d, Charm Person/Mammal: the first target (none, nothing) of a
+ * race below 7 (+0x20, signed) or with the creature flag 0x10, as Charm
+ * Person but for any size: 0x0b valued as Charm's, run when removed, "is
+ * Charmed" (DS:4570 + 4731), then taking hold; any other "is not
+ * Charmed". */
+static bool charm_mammal(cast *cx)
+{
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
+    cok_adventure *game = cx->game;
+    cok_character *t = cx->targets[1];
+    if (t == NULL) return true;
+    if (cok_field_s8(L, t->record, COK_FIELD_RACE) >= 7 &&
+        (cok_field_u8_at(L, t->record, COK_FIELD_CREATURE_FLAGS, 0) & 0x10) == 0)
+        return say_waiting(game, t, "is not Charmed");
+    uint8_t value;
+    return charm_value(cx, &value) && apply(cx, value, true, 0, 0, "is Charmed") &&
+           charm_holds(cx, t);
+}
+
+/* dkk 1f70, Ressurection: the first target, dead (status 6), with a base
+ * constitution (+0x18) above 0 and of a race above 1 (+0x20, signed),
+ * loses its first poison (0x37), is okay and can act with its most hit
+ * points (+0x28): "is ressurected" (DS:1f8f). */
+static bool resurrection(cast *cx)
+{
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
+    cok_adventure *game = cx->game;
+    cok_character *t = first(cx);
+    if (t == NULL) return false;
+    uint8_t *r = t->record;
+    if (cok_field_u8(L, r, COK_FIELD_STATUS) != 6 ||
+        cok_field_u8_at(L, r, COK_FIELD_SCORE_BASE, COK_SCORE_CONSTITUTION) == 0 ||
+        cok_field_s8(L, r, COK_FIELD_RACE) <= 1)
+        return true;
+    if (!remove_effect(game, t, NULL, EFFECT(POISONED))) return false;
+    cok_field_set8(L, r, COK_FIELD_STATUS, 0);
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(L, r, COK_FIELD_HIT_POINTS, cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS));
+    return say_waiting(game, t, "is ressurected");
+}
+
+/* dkk 4196, Raise Dead: the first target, dead or animated (status 6 or
+ * 1), with a base constitution above 0 and of a race other than 0 and 1,
+ * loses its first poison (effects being cured, DS:be75), is okay and can
+ * act, a point of base constitution less (its constitution recomputed,
+ * 638c:16d8 with 4) and 1 hit point: "is raised" (DS:2219). */
+static bool raise_dead(cast *cx)
+{
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
+    cok_adventure *game = cx->game;
+    cok_character *t = first(cx);
+    if (t == NULL) return false;
+    uint8_t *r = t->record, status = cok_field_u8(L, r, COK_FIELD_STATUS);
+    uint8_t con = cok_field_u8_at(L, r, COK_FIELD_SCORE_BASE, COK_SCORE_CONSTITUTION);
+    uint8_t race = cok_field_u8(L, r, COK_FIELD_RACE);
+    if ((status != 6 && status != 1) || con == 0 || race == 0 || race == 1) return true;
+    game->effects.rolls.curing = 1;
+    bool ok = remove_effect(game, t, NULL, EFFECT(POISONED));
+    game->effects.rolls.curing = 0;
+    if (!ok) return false;
+    cok_field_set8(L, r, COK_FIELD_STATUS, 0);
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
+    cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, COK_SCORE_CONSTITUTION, (uint8_t)(con - 1));
+    if (!ability(game, t, COK_SCORE_CONSTITUTION)) return false;
+    cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 1);
+    return say_waiting(game, t, "is raised");
+}
+
+/* dkk 2326, Restoration: a drained level back (cok_train_restore) to the
+ * first target. */
+static bool restoration(cast *cx)
+{
+    cok_character *t = first(cx);
+    return t != NULL && cok_train_restore(cx->game, t);
+}
+
+/* dkk 2d8e, Harm: the first target takes its hit points less 1d4 (a
+ * byte), magic, with no saving throw (638c:1c52). */
+static bool harm(cast *cx)
+{
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
+    cok_adventure *game = cx->game;
+    cok_character *t = first(cx);
+    if (t == NULL) return false;
+    game->effects.rolls.damage_type = 8;
+    uint8_t d = roll(game, 1, 4);
+    return cok_cast_damage(game, t,
+                           (uint8_t)(cok_field_u8(L, t->record, COK_FIELD_HIT_POINTS) - d), 0,
+                           false);
+}
+
+/* dkk 3848, Heal: the first target (5dc5:2d6c, a cure that always fails:
+ * "is cured." never said) cured (638c:1479) of blindness, "can see", and of
+ * the entry's effect (0x3d), "regains intellect", its intelligence and
+ * wisdom recomputed; then healed (638c:206f) to its most hit points less
+ * 1d4, by none where that is not above what it has, "is healed" (the
+ * three with no wait). */
+static bool heal_spell(cast *cx)
+{
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
+    cok_adventure *game = cx->game;
+    cok_character *t = first(cx);
+    if (t == NULL) return false;
+    bool cured;
+    if (!cure(game, t, EFFECT(BLIND), &cured) || (cured && !say_now(game, t, "can see")))
+        return false;
+    if (!cure(game, t, entry_value(cx), &cured)) return false;
+    if (cured && (!say_now(game, t, "regains intellect") ||
+                  !ability(game, t, COK_SCORE_INTELLIGENCE) || !ability(game, t, COK_SCORE_WISDOM)))
+        return false;
+    uint8_t *r = t->record, d = roll(game, 1, 4);
+    unsigned hp = cok_field_u8(L, r, COK_FIELD_HIT_POINTS);
+    unsigned most = cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS);
+    uint8_t amount = hp + d > most ? 0 : (uint8_t)(most - hp - d);
+    if (!cok_character_heal(r, cok_game_rules(game), amount, false, game->vm.mode)) return true;
+    return say_now(game, t, "is healed");
+}
+
+/* dkk 398d, Death Spell: of 2 x 4d20 (a byte, DS:8953), each target in
+ * turn by its hit dice (+0x30, signed: 0 counts 1, 1 2, 2-3 8, 4-5 16, 6
+ * 16 up to 51 most hit points and 20 above, 7-8 20, any other 162,
+ * DS:8954) while they last "drops dead" (DS:2191; 638c:00c8, status 6),
+ * but those of creature flag 0x08 (+0x7b); those not slain are taken off
+ * the list. Magic of type 0x40, no saving throw, no mirror image. */
+static bool death_spell(cast *cx)
+{
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
+    cok_adventure *game = cx->game;
+    cok_character **t = cx->targets;
+    game->effects.rolls.images = 1;
+    game->effects.rolls.damage_type = 0x40;
+    uint8_t left = (uint8_t)(roll(game, 4, 20) * 2);
+    uint8_t n = game->spell_target_count;
+    for (uint8_t i = 1; i <= n && !game->vm.abort; ++i) {
+        if (t[i] == NULL)
+            return undefined(game, "a target taken off the list is read through NULL "
+                                   "(dkk 5dc5:39e0)");
+        const uint8_t *r = t[i]->record;
+        int8_t hd = cok_field_s8(L, r, COK_FIELD_HIGHEST_LEVEL);
+        uint8_t weight = hd == 0 ? 1 : hd == 1 ? 2 : hd >= 2 && hd <= 3 ? 8
+                         : hd >= 4 && hd <= 5 ? 0x10
+                         : hd == 6 ? (cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS) <= 0x33 ? 0x10 : 0x14)
+                         : hd >= 7 && hd <= 8 ? 0x14 : 0xa2;
+        if ((cok_field_u8_at(L, r, COK_FIELD_CREATURE_FLAGS, 1) & 8) == 0 && left >= weight) {
+            left = (uint8_t)(left - weight);
+            if (!cok_combat_kill(game, t[i], 6, "drops dead")) return false;
+        } else {
+            t[i] = NULL;
+        }
+    }
+    return true;
+}
+
+/* The first target's magic resistance and effects on event 9 against
+ * magic of type 0x40, with *amount (DS:be6c) as the sign: *t is the target
+ * after (0x47 can turn it), false, ending the run, where it cannot be
+ * carried out. */
+static bool resisted(cast *cx, uint8_t amount, cok_character **t, bool *through)
+{
+    cok_adventure *game = cx->game;
+    cok_rolls *r = &game->effects.rolls;
+    r->damage_type = 0x40;
+    if ((*t = first(cx)) == NULL) return false;
+    r->amount = amount;
+    if (!cok_effects_dispatch_at(&game->effects, t, 9)) return effect_failed(game);
+    *through = r->amount != 0;
+    return true;
+}
+
+/* dkk 3bb9, Disintegrate, and 40a6, Flesh to Stone: unless it resists
+ * (event 9) or makes a saving throw of type 4, the first target is killed
+ * (638c:00c8) with the entry's status (6, 7) and text ("disentegrates",
+ * DS:21a6; "is turned to stone", 2204). */
+static bool destroy(cast *cx)
+{
+    cok_adventure *game = cx->game;
+    cok_character *t;
+    bool through = false, made;
+    if (!resisted(cx, 0xff, &t, &through)) return false;
+    if (!through) return true;
+    if (!save(game, t, 4, &made)) return false;
+    return made || cok_combat_kill(game, t, entry_value(cx), words(cx, ""));
+}
+
+/* dkk 4248, Slay Living: unless it resists (event 9: "is unaffected"),
+ * the first target, unless it makes a saving throw of type 4 or has the
+ * creature flag 0x08 (+0x7b), "is slain" (DS:2224; status 6); else it takes
+ * 2d8 + 1, magic. */
+static bool slay_living(cast *cx)
+{
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
+    cok_adventure *game = cx->game;
+    cok_character *t;
+    bool through = false, made;
+    if (!resisted(cx, 0x43, &t, &through)) return false;
+    if (!through) return say_waiting(game, t, "is unaffected");
+    if (!save(game, t, 4, &made)) return false;
+    if (!made && (cok_field_u8_at(L, t->record, COK_FIELD_CREATURE_FLAGS, 1) & 8) == 0)
+        return cok_combat_kill(game, t, 6, "is slain");
+    game->effects.rolls.damage_type = 8;
+    return cok_cast_damage(game, t, (uint8_t)(damage_roll(game, 2, 8) + 1), 0, false);
+}
+
+/* dkk 3cd1, Stone to Flesh: the first target, if stoned (status 7), is okay
+ * and can act with 1 hit point, "is no longer a status" (DS:21bb, no
+ * wait); in combat its body is taken back: the first entry from 1 that
+ * holds it (the count not looked at) puts back the cell it covered, the
+ * entries after it to the count move down one and the count is one less;
+ * it is put back on the map (6f03:12a9, 6beb:10f3), and placed, the screen
+ * centred on the spell's cell. Then the spell applied. */
+static bool stone_to_flesh(cast *cx)
+{
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
+    cok_adventure *game = cx->game;
+    cok_combat *combat = &game->combat;
+    cok_character *t = first(cx);
+    if (t == NULL) return false;
+    uint8_t *r = t->record;
+    if (cok_field_u8(L, r, COK_FIELD_STATUS) == 7) {
+        cok_field_set8(L, r, COK_FIELD_STATUS, 0);
+        cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
+        cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 1);
+        if (!say_now(game, t, "is no longer a status")) return false;
+        if (game->vm.mode == 5) {
+            unsigned k = 0;
+            while (k < COK_COMBAT_BODIES && combat->body[k].character != t) ++k;
+            if (k == COK_COMBAT_BODIES)
+                return undefined(game, "a body searched for past the bodies' table is matched "
+                                       "against whatever follows it (dkk 5dc5:3d31)");
+            if (combat->bodies == 0)
+                return undefined(game, "a body taken back with none counted moves the 255 "
+                                       "entries after it (dkk 5dc5:3d99)");
+            cok_combat_body *b = &combat->body[k];
+            if (b->x < 0 || b->x >= COK_COMBAT_WIDTH || b->y < 0 || b->y >= COK_COMBAT_HEIGHT)
+                return undefined(game, "a body's cell is off the map (dkk 5dc5:3d95)");
+            combat->cells[b->y][b->x] = b->cell;
+            for (unsigned j = k; j + 1 < combat->bodies && j + 1 < COK_COMBAT_BODIES; ++j)
+                combat->body[j] = combat->body[j + 1];
+            --combat->bodies;
+            bool placed;
+            if (!cok_combat_place(combat, game->vm.mode, t, cok_game_rules(game),
+                                  (uint8_t)cok_combat_x(combat, r), (uint8_t)cok_combat_y(combat, r),
+                                  true, &placed))
+                return undefined(game, "a record is placed outside the map's tables (6beb:10f3)");
+            if (placed && !cok_arena_centre(game, game->spell_x, game->spell_y, 0, 8))
+                return false;
+        }
+    }
+    return apply(cx, 0, false, 0, 0, "");
+}
+
+/* dkk 4109, Dispel Evil: the caster gets the entry's effect (0x04) for the
+ * spell's duration (638c:1f86, nothing said), then the spell applied, "is
+ * affected" (its own, 0x22, on the caster). */
+static bool dispel_evil(cast *cx)
+{
+    cok_adventure *game = cx->game;
+    uint16_t minutes;
+    return cok_cast_duration(game, cx->spell, &minutes) &&
+           cok_cast_add_effect(game, cx->caster, entry_value(cx), minutes, 0, false, 0, false,
+                               "") &&
+           apply(cx, 0, false, 0, 0, "is affected");
+}
+
+/* dkk 42f1, Entangle: nothing in a 3D area (var 0x4be6); else each target
+ * left in the list throws (type 4) and, as a save of kind 1 allows, gets
+ * the entry's effect (6, held) for the spell's duration, "is entangled"
+ * (DS:222f). */
+static bool entangle(cast *cx)
+{
+    cok_adventure *game = cx->game;
+    if (cok_ecl_var(&game->vm, COK_VAR_3D) != 0) return true;
+    uint8_t n = game->spell_target_count;
+    for (uint8_t i = 1; i <= n && !game->vm.abort; ++i) {
+        cok_character *t = cx->targets[i];
+        if (t == NULL) continue;
+        bool made;
+        uint16_t minutes;
+        if (!save(game, t, 4, &made) || !cok_cast_duration(game, cx->spell, &minutes) ||
+            !cok_cast_add_effect(game, t, entry_value(cx), minutes, 0, false, 1, made,
+                                 "is entangled"))
+            return false;
+    }
+    return true;
+}
+
+/* dkk 4962, Cone of Cold: a cone (5dc5:175d) of width 2 and the caster
+ * level + 1 halved (at least 1) long toward the spell's cell, its side
+ * where no one is on the line not known (as Fear's); level d4 + the level,
+ * cold and magic, through the spell's apply. */
+static bool cone_of_cold(cast *cx)
+{
+    cok_adventure *game = cx->game;
+    cok_combat *combat = &game->combat;
+    const uint8_t *self = cx->caster->record;
+    uint8_t level, len;
+    if (!level_of(game, game->effects.rolls.spell, &level) ||
+        !level_of(game, game->effects.rolls.spell, &len))
+        return false;
+    len = (uint8_t)((len + 1u) >> 1);
+    if (len < 1) len = 1;
+    if (!cone(cx, cok_combat_x(combat, self), cok_combat_y(combat, self), game->spell_x,
+              game->spell_y, 2, len, 0, -1))
+        return false;
+    return apply(cx, 0, false, (uint8_t)(damage_roll(game, level, 4) + level), 0x0a, "");
+}
+
+/* dkk 4a04, Feeblemind: the first target's saving throw of type 4 (+0x2e)
+ * a cleric's (+0x21 0) 1 easier, a mage's (5) 4 and anyone else's 2 harder
+ * while the spell is applied (its effect, 0x44, nothing said); then if it
+ * holds the entry's effect (0x44) that handler runs (638c:0185, with no
+ * effect), and the saving throw is put back. */
+static bool feeblemind(cast *cx)
+{
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
+    cok_adventure *game = cx->game;
+    cok_character *t = first(cx);
+    if (t == NULL) return false;
+    uint8_t *r = t->record, was = cok_field_u8_at(L, r, COK_FIELD_SAVING_THROW, 4);
+    uint8_t klass = cok_field_u8(L, r, COK_FIELD_CLASS);
+    cok_field_set8_at(L, r, COK_FIELD_SAVING_THROW, 4,
+                      (uint8_t)(was + (klass == 0 ? 0xff : klass == 5 ? 4 : 2)));
+    bool ok = apply(cx, 0, false, 0, 0, "");
+    if (ok && cok_character_find_effect(t, entry_value(cx)) != NULL &&
+        !cok_effects_run(&game->effects, t, entry_value(cx), NULL))
+        ok = effect_failed(game);
+    cok_field_set8_at(L, r, COK_FIELD_SAVING_THROW, 4, was);
+    return ok;
+}
+
+/* dkk 4ad7, 0x60 (the Elixir of Youth's): the caster's age (+0x26, a word)
+ * 1d4 + 1 less; below 18 it is 18, "is now 18 years old" (DS:226f), else
+ * it "becomes younger" (2284). */
+static bool youth(cast *cx)
+{
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
+    cok_adventure *game = cx->game;
+    uint8_t *r = cx->caster->record;
+    uint16_t age = (uint16_t)(cok_field_u16(L, r, COK_FIELD_AGE) - (roll(game, 1, 4) + 1u));
+    if (age >= 18) {
+        cok_field_set16(L, r, COK_FIELD_AGE, age);
+        return say_waiting(game, cx->caster, "becomes younger");
+    }
+    cok_field_set16(L, r, COK_FIELD_AGE, 18);
+    return say_waiting(game, cx->caster, "is now 18 years old");
+}
+
+/* dkk 4bd9, Power Word Stun: the first target, by its hit points, 1-30
+ * for 4d4 minutes, 31-60 2d4, 61-90 1d4, else none, gets the spell's
+ * effect (column 10, 6) at the caster level, as its save kind (column 8)
+ * allows, with no throw: "is stunned" (DS:1d82). */
+static bool power_word_stun(cast *cx)
+{
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
+    cok_adventure *game = cx->game;
+    cok_character *t = first(cx);
+    if (t == NULL) return false;
+    uint8_t hp = cok_field_u8(L, t->record, COK_FIELD_HIT_POINTS), minutes = 0, level;
+    if (hp >= 1 && hp <= 30) minutes = roll(game, 4, 4);
+    else if (hp >= 31 && hp <= 60) minutes = roll(game, 2, 4);
+    else if (hp >= 61 && hp <= 90) minutes = roll(game, 1, 4);
+    uint8_t spell = game->effects.rolls.spell;
+    return level_of(game, spell, &level) &&
+           cok_cast_add_effect(game, t, spell_byte(game, spell, 10), minutes, level, false,
+                               spell_byte(game, spell, 8), false, "is stunned");
+}
+
+/* dkk 4c8a, Mass Charm: of twice the caster level in hit dice, the targets
+ * in turn: one without the creature flag 2 (+0x7a) or larger than a man
+ * (+0x29) "is unaffected"; one whose hit dice (+0x30) fit in what is left
+ * throws (type 4) and as a save of kind 1 allows gets 0x0b (charmed) for
+ * the spell's duration, valued as Charm's, run when removed, "is charmed",
+ * then taking hold; until they are used up exactly. */
+static bool mass_charm(cast *cx)
+{
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
+    cok_adventure *game = cx->game;
+    uint8_t level;
+    if (!level_of(game, game->effects.rolls.spell, &level)) return false;
+    uint8_t most = (uint8_t)(level * 2), used = 0;
+    bool done = false;
+    for (uint8_t i = 1; i <= game->spell_target_count && !done && !game->vm.abort; ++i) {
+        cok_character *t = cx->targets[i];
+        if (t == NULL) continue;
+        const uint8_t *r = t->record;
+        if ((cok_field_u8_at(L, r, COK_FIELD_CREATURE_FLAGS, 0) & 2) == 0 ||
+            cok_field_u8(L, r, COK_FIELD_SIZE) > 1) {
+            if (!say_waiting(game, t, "is unaffected")) return false;
+            continue;
+        }
+        uint8_t hd = cok_field_u8(L, r, COK_FIELD_HIGHEST_LEVEL);
+        if (used + hd > most) continue;
+        used = (uint8_t)(used + hd);
+        done = used == most;
+        uint16_t minutes;
+        uint8_t value;
+        bool made;
+        if (!cok_cast_duration(game, game->effects.rolls.spell, &minutes) ||
+            !charm_value(cx, &value) || !save(game, t, 4, &made) ||
+            !cok_cast_add_effect(game, t, EFFECT(CHARMED), minutes, value, true, 1, made,
+                                 "is charmed") ||
+            !charm_holds(cx, t))
+            return false;
+    }
+    return true;
+}
+
+/* dkk 4dd8, Otto's Irresitable Dance (by touch): the first target's stats
+ * recomputed and its event 0x0b, then the caster's attack roll (638c:1010)
+ * against its armour class; hit, it gets the entry's effects for the
+ * spell's duration at the caster level, held (value, 6) and the armour 4
+ * worse (count, 0x39), "begins to dance wildly" (DS:22ae). */
+static bool dance(cast *cx)
+{
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
+    cok_adventure *game = cx->game;
+    cok_character *t = first(cx);
+    if (t == NULL || !recompute(game, t)) return false;
+    if (!cok_effects_dispatch_at(&game->effects, &t, 0x0b)) return effect_failed(game);
+    bool hit;
+    if (!cok_combat_hit(game, cx->caster, t, cok_field_u8(L, t->record, COK_FIELD_AC), &hit))
+        return false;
+    if (!hit) return true;
+    const uint8_t ids[2] = {entry_value(cx), cx->entry != NULL ? cx->entry->count : 0};
+    const char *texts[2] = {"", "begins to dance wildly"};
+    for (int i = 0; i < 2; ++i) {
+        uint16_t minutes;
+        uint8_t level;
+        if (!cok_cast_duration(game, cx->spell, &minutes) || !level_of(game, cx->spell, &level) ||
+            !cok_cast_add_effect(game, t, ids[i], minutes, level, false, 0, false, texts[i]))
+            return false;
+    }
+    return true;
+}
+
+/* dkk 4e81, Power Word Blind: the targets in turn, while those counted have
+ * no more than 100 most hit points (+0x28) in all, each that fits is
+ * blinded (0x21) for the spell's duration, "is blind" (DS:20b5); a 1d4 + 1
+ * of minutes, ten times that below 51 counted, is rolled between the two
+ * counts and not used. */
+static bool power_word_blind(cast *cx)
+{
+    const cok_character_layout *L = cok_game_rules(cx->game)->character;
+    cok_adventure *game = cx->game;
+    for (int pass = 0; pass < 2; ++pass) {
+        uint8_t counted = 0;
+        for (uint8_t i = 1; i <= game->spell_target_count && counted <= 100 && !game->vm.abort;
+             ++i) {
+            cok_character *t = cx->targets[i];
+            if (t == NULL)
+                return undefined(game, "a target taken off the list is read through NULL "
+                                       "(dkk 5dc5:4eb7)");
+            uint8_t most = cok_field_u8(L, t->record, COK_FIELD_MAX_HIT_POINTS);
+            if (most > 100 || counted + most > 100) continue;
+            counted = (uint8_t)(counted + most);
+            uint16_t minutes;
+            if (pass == 1 && (!cok_cast_duration(game, game->effects.rolls.spell, &minutes) ||
+                              !cok_cast_add_effect(game, t, EFFECT(BLIND), minutes, 0, false, 0,
+                                                   false, "is blind")))
+                return false;
+        }
+        if (pass == 0) (void)roll(game, 1, 4); /* [bp-9], never read */
+    }
+    return true;
+}
+
 /* The port's handler of each kind (spells.h), which the game's table maps
  * its spell ids to (its spells section; Champions' DS:6e3a + 4 * spell, as
  * 5b04:58ed fills it). */
@@ -2028,6 +2530,25 @@ static handler_fn *const handlers[COK_CAST_HANDLERS] = {
     [COK_CAST_SAYING] = saying,
     [COK_CAST_MISSILES] = missiles_saying,
     [COK_CAST_CURE_CRITICAL] = cure_critical,
+    [COK_CAST_CHARM_MAMMAL] = charm_mammal,
+    [COK_CAST_RESURRECTION] = resurrection,
+    [COK_CAST_RESTORATION] = restoration,
+    [COK_CAST_HARM] = harm,
+    [COK_CAST_HEAL] = heal_spell,
+    [COK_CAST_DEATH_SPELL] = death_spell,
+    [COK_CAST_DESTROY] = destroy,
+    [COK_CAST_STONE_TO_FLESH] = stone_to_flesh,
+    [COK_CAST_DISPEL_EVIL] = dispel_evil,
+    [COK_CAST_RAISE_DEAD] = raise_dead,
+    [COK_CAST_SLAY_LIVING] = slay_living,
+    [COK_CAST_ENTANGLE] = entangle,
+    [COK_CAST_CONE_OF_COLD] = cone_of_cold,
+    [COK_CAST_FEEBLEMIND] = feeblemind,
+    [COK_CAST_YOUTH] = youth,
+    [COK_CAST_POWER_WORD_STUN] = power_word_stun,
+    [COK_CAST_MASS_CHARM] = mass_charm,
+    [COK_CAST_DANCE] = dance,
+    [COK_CAST_POWER_WORD_BLIND] = power_word_blind,
 };
 
 /* 5b04:127e: the targets outside combat, by byte 7 (the game's values, its
@@ -2659,11 +3180,10 @@ bool cok_cast_on(cok_adventure *game, uint8_t spell, cok_character *target, bool
     game->spell_targets[1] = target; /* the first target alone; the count stays */
     cast cx = {.game = game, .caster = target, .spell = spell, .entry = handler,
                .targets = game->spell_targets};
-    cok_rolls *r = &game->effects.rolls;
-    uint8_t outer = r->spell;
-    if (set_spell) r->spell = spell;
+    /* The temple sets the spell (dkk 3999:0293) and leaves it set after,
+     * where a cast clears it. */
+    if (set_spell) game->effects.rolls.spell = spell;
     bool ok = handlers[handler->handler](&cx);
-    r->spell = outer;
     return ok && !game->vm.abort;
 }
 

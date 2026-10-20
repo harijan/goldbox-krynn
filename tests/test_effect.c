@@ -1331,7 +1331,7 @@ static void test_save_moon(void)
 }
 
 /* Another game's effects section: Death Knights' effect 2 (dkk 504d:0124)
- * is not carried out yet, 0x7a is past its table, 5 runs Champions' (none),
+ * does nothing outside a battle, 0x7a is past its table, 5 runs Champions' (none),
  * its caster level (65cd:2c33) Champions' but for the knights' and rangers'
  * levels and Fireball's 15; its saving throw (638c:10f8) is
  * Champions' but that a holder of effect 0x39 rolls 1 and a mage's moon
@@ -1344,8 +1344,7 @@ static void test_other_game(void)
     cok_effects_init(&fx, &cok_rules_death_knights, &vm, &party, &types);
     cok_character *c = calloc(1, sizeof *c);
     CHECK(c != NULL);
-    CHECK(!cok_effects_run(&fx, c, 2, NULL) && strstr(fx.error, "not yet ported") != NULL &&
-          strstr(fx.error, "dkk 504d:0124") != NULL);
+    CHECK(cok_effects_run(&fx, c, 2, NULL));
     CHECK(!cok_effects_run(&fx, c, 0x7a, NULL) && strstr(fx.error, "past") != NULL);
     CHECK(cok_effects_run(&fx, c, 5, NULL));
     vm.character = c->record;

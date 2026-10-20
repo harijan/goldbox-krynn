@@ -830,3 +830,67 @@ bool cok_train_drain(cok_adventure *game, cok_character *character, uint8_t drai
         return cok_combat_kill(game, character, 4, "collapses from drainning"); /* DS:1ee7 */
     return true;
 }
+
+bool cok_train_restore(cok_adventure *game, cok_character *character)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    uint8_t *c = character->record;
+    uint8_t best = 0x11, lost = 0, drained = 0;
+    int32_t least = 3500000; /* DS:7a6c */
+    for (unsigned k = 0; k < 8; ++k)
+        if (cok_field_s8_at(L, c, COK_FIELD_UNDRAINED_LEVEL, k) > 0) ++drained;
+    for (unsigned k = 0; k < 8; ++k) {
+        int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, k);
+        int8_t was = cok_field_s8_at(L, c, COK_FIELD_UNDRAINED_LEVEL, k);
+        if (level >= was) continue;
+        lost = (uint8_t)(lost + (uint8_t)(was - level));
+        uint8_t row;
+        int32_t need;
+        if (!cok_train_row(c, rules, k, &row))
+            return undefined(game, "a class with no experience row reads 65cd:382c's "
+                                   "uninitialized local (dkk 5dc5:23d3)");
+        if (!need_for(game, row, level + 1, &need)) return false;
+        if (need <= least) {
+            least = need;
+            best = (uint8_t)k;
+        }
+    }
+    if (best != 0x11) {
+        int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, best);
+        uint8_t most = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS);
+        uint8_t was = cok_field_u8(L, c, COK_FIELD_UNDRAINED_MAX_HIT_POINTS);
+        if (most < was) {
+            /* The levels lost, a byte, can wrap to 0 (two classes 128
+             * below): the division overflows. */
+            if (lost == 0)
+                return undefined(game, "the most hit points lacking are divided by the levels "
+                                       "lost, a byte wrapped to 0: runtime error 200 (dkk "
+                                       "5dc5:248c)");
+            uint8_t gain = (uint8_t)((was - most) / lost), con = 0;
+            if ((uint8_t)level + 1 < top_level(game, best)) {
+                int8_t bonus;
+                if (!cok_train_hit_die(c, rules, best, &bonus))
+                    return undefined(game, "a constitution past 65cd:3c02's cases gives an "
+                                           "uninitialized bonus (dkk 5dc5:24c3)");
+                if (drained == 0)
+                    return undefined(game, "the hit die's bonus is divided by no drained class: "
+                                           "runtime error 200 (dkk 5dc5:24cb)");
+                con = (uint8_t)(bonus / drained);
+            }
+            cok_field_set8(L, c, COK_FIELD_HIT_POINTS,
+                           (uint8_t)(cok_field_u8(L, c, COK_FIELD_HIT_POINTS) + gain));
+            cok_field_set8(L, c, COK_FIELD_BASE_HIT_POINTS,
+                           (uint8_t)(cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS) + gain - con));
+            cok_field_set8(L, c, COK_FIELD_MAX_HIT_POINTS, (uint8_t)(most + gain));
+        }
+        cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, best, (uint8_t)(level + 1));
+        if (!levels(game, character)) return false;
+        uint32_t xp = cok_field_u32(L, c, COK_FIELD_EXPERIENCE);
+        uint32_t before = cok_field_u32(L, c, COK_FIELD_UNDRAINED_EXPERIENCE);
+        cok_field_set32(L, c, COK_FIELD_EXPERIENCE,
+                        lost == 1 && signed_long(xp) < signed_long(before) ? before
+                                                                           : (uint32_t)least);
+    }
+    return set_may_train(game, c);
+}

@@ -211,6 +211,26 @@ typedef enum {
     /* Cure Serious Wounds' heal of 3d8 + 3, the deity's d8 rolled before the
      * targets are counted (dkk Cure Critical Wounds 5dc5:4037). */
     COK_CAST_CURE_CRITICAL,
+    /* Death Knights' band C spells (dkk 5dc5), each its routine. */
+    COK_CAST_CHARM_MAMMAL,      /* 0x04 Charm Person/Mammal, 1e4d */
+    COK_CAST_RESURRECTION,      /* 0x07, 1f70 */
+    COK_CAST_RESTORATION,       /* 0x11, 2326 */
+    COK_CAST_HARM,              /* 0x28, 2d8e */
+    COK_CAST_HEAL,              /* 0x35, 3848 */
+    COK_CAST_DEATH_SPELL,       /* 0x38, 398d */
+    COK_CAST_DESTROY,           /* 0x3c Disintegrate, 3bb9; 0x48 Flesh to Stone, 40a6 */
+    COK_CAST_STONE_TO_FLESH,    /* 0x42, 3cd1 */
+    COK_CAST_DISPEL_EVIL,       /* 0x49, 4109 */
+    COK_CAST_RAISE_DEAD,        /* 0x4b, 4196 */
+    COK_CAST_SLAY_LIVING,       /* 0x4c, 4248 */
+    COK_CAST_ENTANGLE,          /* 0x4e, 42f1 */
+    COK_CAST_CONE_OF_COLD,      /* 0x5c, 4962 */
+    COK_CAST_FEEBLEMIND,        /* 0x5d, 4a04 */
+    COK_CAST_YOUTH,             /* 0x60 (the Elixir of Youth's), 4ad7 */
+    COK_CAST_POWER_WORD_STUN,   /* 0x6e, 4bd9 */
+    COK_CAST_MASS_CHARM,        /* 0x6f, 4c8a */
+    COK_CAST_DANCE,             /* 0x71 Otto's Irresistible Dance, 4dd8 */
+    COK_CAST_POWER_WORD_BLIND,  /* 0x72, 4e81 */
     COK_CAST_HANDLERS
 } cok_cast_handler;
 
@@ -336,6 +356,13 @@ typedef enum {
     COK_FX_GAZE,
     COK_FX_CAST,
     COK_FX_FLAMES,
+    /* Death Knights' band C effects (dkk 504d). */
+    COK_FX_STUN_HIT,        /* 0x02: the target of a hit stunned (the entry's effect) */
+    COK_FX_EVIL_AVOID,      /* 0x04: an attacker of creature flag 1 7 worse to hit */
+    COK_FX_SILENCE_SPELL,   /* 0x15: silence, in a battle, a spell being cast lost */
+    COK_FX_DISPEL_EVIL,     /* 0x22: a hit target of creature flag 1 dispelled */
+    COK_FX_BARKSKIN,        /* 0x30: the AC and saves 1 better */
+    COK_FX_MIND_BLANK,      /* 0x3a: charms, confusion, paralysis and fear cancelled */
     COK_FX_HANDLERS
 } cok_effect_handler;
 

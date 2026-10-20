@@ -3988,6 +3988,12 @@ the movement byte `be6f` (0x27, 0x2a) between the rate and the spell.
 | 0x6b | `25bb` | `COK_FX_TURN_BATTLE`: Champions', but applied outside a battle it does what its removal does |
 | 0x6e | `26f8` | `COK_FX_TIER`: when it ends, the tier is the value's class's level (3) / 5 + 1 |
 | 0x75 | `286b` | `COK_FX_DISRUPT_UNDEAD`: in a battle, applied: a target with creature flag 2 takes double, else one of a kind of undead "is disrupted" |
+| 0x02 | `0124` | `COK_FX_STUN_HIT` (olin's quarterstaff): in a battle, applied, on a hit (event 2): unless the target makes a saving throw of type 1, the entry's effect (6, held) for 3 minutes, "is stunned" |
+| 0x04 | `0219` | `COK_FX_EVIL_AVOID` (Dispel Evil's, on its caster), applied, being attacked (event 0x0b): an attacker of creature flag 1 (`+0x7a`) 7 worse to hit |
+| 0x15 | `05bf` | `COK_FX_SILENCE_SPELL` (Silence's, shared within a square): in a battle, Champions' silence, then one casting "lost a spell" (row 12), forgets it and its turn ends (the `lose_spell` hook, `cok_cast_lose_spell`) |
+| 0x22 | `0aee` | `COK_FX_DISPEL_EVIL`: in a battle, applied, at the damage (event 4): the target of creature flag 1 failing a save of type 4 "is dispelled" (status 8) and the holder loses its 0x04 and 0x22; any other "resists dispel evil" and a pause (the `pause` hook) |
+| 0x30 | `0f4f` | `COK_FX_BARKSKIN`: being attacked and at a save (events 0x0b, 0x0c), the armour class, front and back, 1 better in place, and the save 1 better but against a spell being cast (`DS:be70`) whose save is of type 4 |
+| 0x3a | `1063` | `COK_FX_MIND_BLANK` (Mind Blank's): a pending 0x0b, 0x23, 0x34, 0x3d or 0x6f cancelled; no event runs it |
 
 The dragons' breath (`5dc5:51cc`, `cok_rules_breath`): its uses become 3
 at the first round; acid (type 0x30, a cone 1 wide and 6 long), death
@@ -4024,13 +4030,15 @@ stops.
 Champions' `60f4:01e9` and `00eb`. The named ids now given: `BERSERK`
 0x4d, `FEARLESS` 0x5c, `LIGHTNING_BREATH` 0x55, and `MAD` 0x20 and
 `NAUSEA` 0x1e, which the computer's cloud test (`3f63:06ca`) reads by the
-same ids. Left (step 3's part 10): 0x02, 0x04, 0x15 (Sleep's), 0x22,
-0x30, 0x3a, which stop the run. Checked: `test_death_knights.c`'s
+same ids. Every effect id is ported. Checked: `test_death_knights.c`'s
 `test_effects` (each entry's constant, the breaths, the battle-only
 entries and the words against the routines), `test_effect.c`'s
 `test_dkk_handlers`, and in DOSBox-X the first fight with its monsters
 changed (`dkk_fight.py`'s drain, mage and dragon flows: wights and
-spectres draining, kuo-toas, black wizards casting, a blue dragon).
+spectres draining, kuo-toas, black wizards casting, a blue dragon); band C's
+in `tests/test_band.c` and `test_death_knights.c`'s `test_band_c`, and in
+DOSBox-X by the priests flow (Silence's 0x15 shared) and the band flow
+(see Death Knights' casting).
 
 ## Camp
 
@@ -4564,16 +4572,52 @@ their entries' constants and words, `cok_rules_cast`):
 | 0x54 Fear | `4566` | `44ed` with `value` 1: "runs away", and one flees only while it holds 0x6f after (`65cd:2687`); its cone (`175d`) sets the sight's range to the doubled length (`casting.cone_range_length`), while the side with no one on the line and the directions aimed at the caster's own cell are the stack's, not known (`cone_stack_unknown`: the side tried at all its values, the own cell stops the run) |
 | 0x55 Fire Shield | `468f` | `464d` with `value` 1: the flame by index from "Flame type: " (`casting.flame_type`) over "Hot Cold" (`6a69:0f1b`), for the computer 1d2; Hot and Cold both "is Protected"; another key asks the cast's "Abort Spell" from Yes |
 
-Barkskin's effect 0x30 and Fire Touch's 0x4a (step 3's part 10) and
-Slow's 0x2a (part 5) are not ported yet: the spell casts, and the effect
-stops the run where its handler would run. The rest stop where they would
-run (`spells.cast[id].unported`). Checked: the section against the
+The band C spells (5dc5's routines with no Champions counterpart), each a
+kind of its own (`spells.h`, after `COK_CAST_CURE_CRITICAL`), their
+constants in the entry where the routine loads them:
+
+| Spell | dkk | In the port |
+| --- | --- | --- |
+| 0x04 Charm Person/Mammal | `1e4d` | `COK_CAST_CHARM_MAMMAL`: a race below 7 or creature flag 0x10, any size, "is Charmed" (`DS:4570` + `4731`); else "is not Charmed" |
+| 0x07 Ressurection | `1f70` | `COK_CAST_RESURRECTION`: the dead (status 6) of a base constitution and a race above 1 lose their poison (0x37), the most hit points, "is ressurected" |
+| 0x11 Restoration | `2326` | `COK_CAST_RESTORATION`: `cok_train_restore` (`train.c`): the drained class whose next level asks the least experience (below `DS:7a6c`'s 3,500,000; the later of equals) rises, the hit points by the lack over the levels lost, the base less the hit die's bonus over the classes drained; the experience that level's, or the experience before the drain for the last level lost; may-train |
+| 0x28 Harm | `2d8e` | `COK_CAST_HARM`: the hit points less 1d4 (a byte: 255 and so on below it), magic, no save |
+| 0x35 Heal | `3848` | `COK_CAST_HEAL`: blindness and the entry's 0x3d cured ("can see", "regains intellect", intelligence and wisdom recomputed); healed to the most less 1d4 (none within 1d4 of it), "is healed"; `5dc5:2d6c`, a cure that always fails, says nothing |
+| 0x38 Death Spell | `398d` | `COK_CAST_DEATH_SPELL`: 2 x 4d20 of hit dice, by `+0x30`'s weights (0 1, 1 2, 2-3 8, 4-5 16, 6 16 or 20 above 51 most hit points, 7-8 20, else 162), the targets in turn "drop dead" (status 6) but those of creature flag `+0x7b` 0x08; the rest off the list |
+| 0x3c Disintegrate, 0x48 Flesh to Stone | `3bb9`, `40a6` | `COK_CAST_DESTROY`: unless event 9 cancels it or a save of type 4 is made, killed with the entry's status (6, 7) and words |
+| 0x42 Stone to Flesh | `3cd1` | `COK_CAST_STONE_TO_FLESH`: one stoned is okay with 1 hit point, "is no longer a status"; in combat its body taken back (the first entry holding it from 1, the count not looked at: the cell it covered back, the entries after moved down), placed again (`6f03:12a9`), the screen centred on the spell's cell; then the spell applied |
+| 0x49 Dispel Evil | `4109` | `COK_CAST_DISPEL_EVIL`: the caster gets the entry's 0x04, then the spell's 0x22, "is affected" |
+| 0x4b Raise Dead | `4196` | `COK_CAST_RAISE_DEAD`: dead or animated (6, 1), a base constitution, a race but 0 and 1: poison cured, a point of base constitution less (recomputed), 1 hit point, "is raised" |
+| 0x4c Slay Living | `4248` | `COK_CAST_SLAY_LIVING`: type 0x40, `DS:be6c` 0x43 through event 9 ("is unaffected" if cancelled); a failed save of type 4 "is slain" (status 6) but for creature flag `+0x7b` 0x08; else 2d8 + 1 of magic |
+| 0x4e Entangle | `42f1` | `COK_CAST_ENTANGLE`: nothing in a 3D area (var 0x4be6); each target's save of type 4 as kind 1 allows, the entry's 6 (held), "is entangled" |
+| 0x5c Cone of Cold | `4962` | `COK_CAST_CONE_OF_COLD`: the cone (`175d`) of width 2 and (level + 1) / 2 long, its side where no one is on the line not known (as Fear's); level d4 + level of cold and magic |
+| 0x5d Feeblemind | `4a04` | `COK_CAST_FEEBLEMIND`: the save of type 4 a cleric's 1 easier, a mage's 4 and others' 2 harder while the spell applies its 0x44; then the entry's 0x44's handler runs (the drain of 2 levels of the holder's target, `504d:1836`) and the save is put back |
+| 0x60 (the Elixir of Youth's) | `4ad7` | `COK_CAST_YOUTH`: the caster's age 1d4 + 1 less, at least 18 ("is now 18 years old"), else "becomes younger" |
+| 0x6e Power Word Stun | `4bd9` | `COK_CAST_POWER_WORD_STUN`: the spell's effect (6) for 4d4, 2d4 or 1d4 minutes by hit points 1-30, 31-60, 61-90, else none, "is stunned" |
+| 0x6f Mass Charm | `4c8a` | `COK_CAST_MASS_CHARM`: of twice the caster level of hit dice, those of creature flag 2 and no larger than a man ("is unaffected" else) whose hit dice fit, in turn until used up exactly: 0x0b as Charm's, as the save of kind 1 allows, "is charmed" |
+| 0x71 Otto's Irresitable Dance | `4dd8` | `COK_CAST_DANCE`: by touch (the stats, event 0x0b, the attack roll): the entry's 6 and 0x39 (`value`, `count`), "begins to dance wildly" |
+| 0x72 Power Word Blind | `4e81` | `COK_CAST_POWER_WORD_BLIND`: those whose most hit points fit in 100, in turn, blinded (0x21); a 1d4 rolled between the counts and not used |
+
+Raise Dead and Restoration run at the temple through `cok_cast_on`,
+which leaves the spell being cast set after (`DS:be70` 0x4b or 0x11, as
+`3999:0293` does), where a cast clears it: effects that read it (Barkskin's
+0x30, the minor globes) see it until the next cast. Adding an effect a
+target resists says the effects section's `unaffected` ("is unaffected",
+`638c:1f86`'s `DS:1d0f`; Champions' "is Unaffected"). Every spell id
+casts (the clouds: see Death Knights' clouds). Checked: the section against the
 original's code (`test_death_knights.c`'s `test_casting` and
 `test_spells`), and in DOSBox-X the first fight on Auto with casters and
 Magic On, round by round (`dkk_fight.py`'s cast flow; its spells flow:
 Shield, Dispel Magic on the shielded CELESTE, Fireball, Bless, Haste and
 Lightning Bolt cast by keys in the first two rounds, then on Auto with
-Magic Off), and camp's cure (`dkk_levels.py`'s cast flow). A bolt's bounce
+Magic Off), and camp's cure (`dkk_levels.py`'s cast flow); band C's by
+`tests/test_band.c` (each kind), `test_death_knights.c`'s `test_band_c`
+(the entries' constants and words against the routines), and in DOSBox-X
+`dkk_fight.py`'s priests flow (patriarchs and high wizards: Slay Living,
+Harm, Silence, Feeblemind, Otto's), its band flow (the party on Auto with
+Magic On casting Disintegrate, Power Word Stun, Harm, Flesh to Stone,
+Cone of Cold) and `dkk_shops.py`'s raise flow (the temple's Raise Dead and
+Restoration on a dead, drained knight). A bolt's bounce
 (`bolt_doubles`) is checked against the code only: no fight played by
 keys bounced one.
 

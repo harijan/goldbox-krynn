@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Death Knights of Krynn's shop and temple (3b89:06f3, 3999:07d3) in the
 original against eclplay --game death-knights --start-menu (DEVELOPERS.md,
-"Death Knights' shops"). Two flows, each from a copy of saved game A that
+"Death Knights' shops"). Three flows, each from a copy of saved game A that
 resumes in ECL1 block 36, the outpost of Gargath (the block, its map 36 and
 wall set 1 in slot 0 written in, as dkk_views.py does, and SIR DRYDEN given
 2 gems, 1 jewel and 40 hit points), the same keys typed to both, the
@@ -29,7 +29,14 @@ flag is DS:c0f8, which a special key sets); View and Right, which moves and
 reads on in View, and Up, a special key, back at the temple's menu; Exit;
 camp's Save C: the hit points in its files.
 
-Seeded (Box seed, eclplay --seed). Not part of run_all.py's set. About six
+raise: the temple again, SIR DRYDEN dead (status 6) and drained of a
+knight level (+0x4c 6 of +0x54 7, 150000 experience of 210003, 90 most
+hit points of 100): Raise Dead (3999:01fc, the spell's 5dc5:4196: "is
+raised", a point of constitution less, the hit points it gives worked out
+again), Restoration (045f, 5dc5:2326: the level, experience and hit points
+back); Save C: his record in its files.
+
+Seeded (Box seed, eclplay --seed). Not part of run_all.py's set. About nine
 minutes.
 
     python3 tools/dosbox/checks/dkk_shops.py [--workdir DIR] [--seed N]
@@ -104,9 +111,19 @@ TEMPLE = [
     ("view-up", r"\^"),        # Up, a special key that moves nothing: the temple's menu
     ("left", "E"),
 ] + SAVE_C
+RAISE = [
+    ("turned", r"M\>"),
+    ("temple-text", r"\^"),
+    ("temple", "Y"),
+    ("heal", "H"),             # the cures, SIR DRYDEN's 0/90
+    ("raised", r"\v" * 7 + "H"),  # Raise Dead: is raised
+    ("restored", r"\v\v\vH"),  # Restoration
+    ("heal-back", r"\e"),
+    ("left", "E"),
+] + SAVE_C
 # Where each flow starts in block 36's map (GEO1 record 36): its square,
 # facing, and the square's byte (its code in bits 0-5).
-STARTS = {"shop": (5, 7, 0, 0x17), "temple": (6, 9, 4, 0x83)}
+STARTS = {"shop": (5, 7, 0, 0x17), "temple": (6, 9, 4, 0x83), "raise": (6, 9, 4, 0x83)}
 
 
 def load(path):
@@ -134,6 +151,11 @@ def saved_game(work, flow):
     record = bytearray(first.read_bytes())
     struct.pack_into("<HH", record, 0x41, 2, 1)  # gems, jewelry
     record[0xD6] = 40                            # hit points
+    if flow == "raise":
+        record[0xC7], record[0xC8], record[0xD6] = 6, 0, 0  # dead
+        record[0x45 + 7], record[0x4D + 7] = 6, 7            # a knight level drained
+        struct.pack_into("<II", record, 0x62, 150000, 210003)  # experience, undrained
+        record[0x28], record[0x6A] = 90, 100                 # most hit points, undrained
     first.write_bytes(bytes(record))
     return saves
 
@@ -169,8 +191,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir", default=str(K.ROOT / "build/dosbox-checks/dkk_shops"))
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--flows", default="shop,temple",
-                        help="which flows: shop, temple (comma-separated)")
+    parser.add_argument("--flows", default="shop,temple,raise",
+                        help="which flows: shop, temple, raise (comma-separated)")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     work = pathlib.Path(opts.workdir).resolve()
@@ -181,6 +203,8 @@ def main():
         run_flow(v, work, opts, "shop", SHOP)
     if "temple" in flows:
         run_flow(v, work, opts, "temple", TEMPLE)
+    if "raise" in flows:
+        run_flow(v, work, opts, "raise", RAISE)
     return v.finish()
 
 

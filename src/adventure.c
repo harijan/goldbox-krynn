@@ -2381,6 +2381,19 @@ static bool effect_distance(cok_effects *fx, const uint8_t *origin, const uint8_
     return false;
 }
 
+static bool effect_lose_spell(cok_effects *fx, cok_character *c, void *context)
+{
+    cok_adventure *game = context;
+    return cok_cast_lose_spell(game, c) || effect_hook_failed(fx, game);
+}
+
+static void effect_pause(cok_effects *fx, void *context)
+{
+    (void)fx;
+    cok_adventure *game = context;
+    cok_adventure_wait(game, game->speed * 100u); /* dkk 14e4:0b56 */
+}
+
 static void effect_trace(cok_effects *fx, const char *text, uint8_t a, uint8_t b, uint8_t c,
                          void *context)
 {
@@ -2458,6 +2471,8 @@ bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, con
     game->effects.dispel = effect_dispel;
     game->effects.party_list = effect_party_list;
     game->effects.drain = effect_drain;
+    game->effects.lose_spell = effect_lose_spell;
+    game->effects.pause = effect_pause;
     game->effects.trace = effect_trace;
     game->effects.context = game;
     game->vm.file = 1;
