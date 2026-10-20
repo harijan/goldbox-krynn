@@ -1750,6 +1750,7 @@ const cok_rules cok_rules_death_knights = {
             /* 3a37:1318 */
             .rejoice = "the monsters rejoice for the party has been destroyed", /* DS:2b9c */
             .rejoice_key = "press any key to continue",                        /* DS:2681 */
+            .killed_command = true, /* 3632:2e06: 4307:0257 before DS:8c5a */
         },
     .fight =
         {

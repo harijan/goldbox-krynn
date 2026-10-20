@@ -890,6 +890,15 @@ typedef struct {
     bool treasure_if_any;
     const char *treasure_unported;
     const char *rejoice, *rejoice_key;
+    /* Whether a party destroyed while a block is entered (its load
+     * vector, and the blocks a NEWECL there enters) still gets the
+     * adventure's menu once, its choice not acted on, before the game
+     * ends: dkk 3632:2e06 runs the load vector (2cd5 with DS:8c46) and
+     * reads the menu (4307:0257) before it tests DS:8c5a, the party
+     * destroyed. Champions' 2fd3:3c28 has the same shape (3add with
+     * DS:4b41, then 475c:09ec before DS:4b57), not checked against the
+     * original: no, the port's game there ending at once. */
+    bool killed_command;
 } cok_rules_combat;
 
 /* The fight's words that differ (round.c, ai.c, attack.c, arena.c,

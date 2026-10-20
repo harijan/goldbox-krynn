@@ -1073,6 +1073,20 @@ static void test_combat(void)
           pascal_is(ds(0x191b), C->receives, false) && pascal_is(ds(0x193a), C->points, false) &&
           pascal_is(ds(0x18d3), C->found_none, false) && C->withdrawal == NULL);
     CHECK(pascal_is(ds(0x2b9c), C->rejoice, false) && pascal_is(ds(0x2681), C->rejoice_key, false));
+    /* The adventure's loop (3632:2e06): the load vector (push word
+     * [DS:8c46]; call 2cd5), then the menu (4307:0257) before the first
+     * test of DS:8c5a (cmp byte [8c5a], 0 at 2fa5): a party destroyed
+     * there still gets the menu once. */
+    {
+        unsigned long loop[16];
+        size_t k = far_calls(0x3632, 0x2eb4, 0x2fa5 - 0x2eb4, loop, 16);
+        bool menu = false;
+        for (size_t i = 0; i < k; ++i) menu |= loop[i] == 0x43070257;
+        CHECK(C->killed_command && menu && HOLDS(0x3632, 0x2eb4, 8, 0xff, 0x36, 0x46, 0x8c) &&
+              near_call(0x3632, 0x2eb4, 8, 0x2cd5) &&
+              !HOLDS(0x3632, 0x2e06, 0x2fa5 - 0x2e06, 0x80, 0x3e, 0x5a, 0x8c) &&
+              HOLDS(0x3632, 0x2fa5, 5, 0x80, 0x3e, 0x5a, 0x8c, 0x00));
+    }
     CHECK(C->treasure_if_any && C->treasure_unported == NULL &&
           near_call(0x3a37, 0x1318, 0x200, 0x0eed));
     CHECK(!C->weapons_back && !C->shares && C->may_train && R->characters.paladin_row == 10);
