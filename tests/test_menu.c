@@ -481,6 +481,139 @@ static void test_screen(void)
     cok_picture_free(&tiles);
 }
 
+
+/* dkk 6a69:0f1b: menus by index. */
+static int pick_key(const char *text, const cok_menu_items *items, const char *keys,
+                    size_t length, bool keypad, uint8_t *selected, bool *special,
+                    cok_picture *shown)
+{
+    cok_font font = numbered_font();
+    cok_picture p = screen();
+    script s = {keys, 0, length};
+    cok_keyboard k = {scripted, &s, flush_rest, NULL};
+    int key = cok_menu_pick(&p, &font, "", text, items, 13, 15, 10, keypad, selected, &k,
+                            special);
+    if (shown != NULL) *shown = p;
+    else cok_picture_free(&p);
+    cok_font_free(&font);
+    return key;
+}
+
+static void test_indexed(void)
+{
+    static const char text[] =
+        "Move Aim Use Cast Turn Guard Quick@Delay Bandage Yell View Speed End";
+    /* 6a69:0d1e: the items listed, in order, with their spaces; the last
+     * space deleted; '@' kept with its item. */
+    cok_menu_items items = {0};
+    static const uint8_t shown[] = {1, 2, 5, 6, 7, 10, 11, 12};
+    for (size_t i = 0; i < sizeof shown; ++i) cok_menu_items_add(&items, shown[i]);
+    cok_menu_indexed_layout m;
+    cok_menu_indexed(&m, text, &items);
+    CHECK(strcmp(m.text, "Aim Use Guard Quick@Delay View Speed End") == 0);
+    CHECK(m.hotkeys == 8 && m.index[2] == 5 && m.hotkey[2] == 'G' && m.index[7] == 12 &&
+          m.hotkey[7] == 'E');
+    /* 6a69:0135: Quick ends two before Delay ('@' between), four items on
+     * the first row. */
+    CHECK(m.two_rows && m.first_row == 4 && m.count == 8);
+    CHECK(m.first[4] == 15 && m.last[4] == 19 && m.first[5] == 21 && m.last[8] == 40);
+    cok_menu_items_upto(&items, 2);
+    cok_menu_indexed(&m, "Faster Slower Exit", &items);
+    CHECK(strcmp(m.text, "Faster Slower Exit") == 0 && !m.two_rows && m.count == 3);
+    items = (cok_menu_items){0};
+    cok_menu_items_add(&items, 1);
+    cok_menu_indexed(&m, "Target Exit", &items);
+    CHECK(strcmp(m.text, "Exit") == 0 && m.index[0] == 1);
+    /* 00cb fills 0 to n; 00ab stops at the list's 20. */
+    cok_menu_items_upto(&items, 30);
+    CHECK(items.count == COK_MENU_MAX_ITEMS && items.index[19] == 19);
+
+    items = (cok_menu_items){0};
+    for (size_t i = 0; i < sizeof shown; ++i) cok_menu_items_add(&items, shown[i]);
+    uint8_t selected = 1;
+    bool special = true;
+    /* A hotkey gives its index, Enter the selected one's; Escape is the
+     * special key 0x1b; Space and a key no item has are read past. */
+    CHECK(pick_key(text, &items, "g", 1, true, &selected, &special, NULL) == 5 && !special &&
+          selected == 3);
+    CHECK(pick_key(text, &items, " x\r", 3, true, &selected, &special, NULL) == 5 && !special);
+    CHECK(pick_key(text, &items, "\x1b", 1, true, &selected, &special, NULL) == 0x1b && special);
+    /* Left and Right move the selection, wrapping, and come back. */
+    selected = 1;
+    CHECK(pick_key(text, &items, "\x01\x4b", 2, true, &selected, &special, NULL) == 0x4b &&
+          special && selected == 8);
+    CHECK(pick_key(text, &items, "\x01\x4d", 2, true, &selected, &special, NULL) == 0x4d &&
+          selected == 1);
+    /* Up and Down: to the other row, as many items over as the first row
+     * holds (6a69:0c8c), kept within the items. */
+    selected = 2;
+    CHECK(pick_key(text, &items, "\x01\x50", 2, true, &selected, &special, NULL) == 0x50 &&
+          selected == 6);
+    CHECK(pick_key(text, &items, "\x01\x48", 2, true, &selected, &special, NULL) == 0x48 &&
+          selected == 2);
+    selected = 4;
+    CHECK(pick_key(text, &items, "\x01\x50", 2, true, &selected, &special, NULL) == 0x50 &&
+          selected == 8);
+    selected = 8;
+    CHECK(pick_key(text, &items, "\x01\x48", 2, true, &selected, &special, NULL) == 0x48 &&
+          selected == 4);
+    /* Without the keypad 2 and 8 change rows and 4 and 6 move, all read
+     * past; with it each is its scan code, the keypad's 5 0x20. */
+    selected = 1;
+    CHECK(pick_key(text, &items, "26\r", 3, false, &selected, &special, NULL) == 10 &&
+          !special && selected == 6);
+    CHECK(pick_key(text, &items, "5", 1, true, &selected, &special, NULL) == 0x20 && special);
+    CHECK(pick_key(text, &items, "4", 1, true, &selected, &special, NULL) == 0x4b && special &&
+          selected == 5);
+    /* H and P change rows where no item has them. */
+    selected = 1;
+    CHECK(pick_key(text, &items, "h\r", 2, false, &selected, &special, NULL) == 7 &&
+          selected == 5);
+    /* One item: the arrows come back and move nothing. */
+    cok_menu_items_upto(&items, 0);
+    selected = 1;
+    CHECK(pick_key("Done", &items, "\x01\x4b", 2, true, &selected, &special, NULL) == 0x4b &&
+          selected == 1);
+    CHECK(pick_key("Done", &items, "\r", 1, true, &selected, &special, NULL) == 0 && !special);
+    CHECK(pick_key("Done", &items, "", 0, true, &selected, &special, NULL) == -1);
+    /* A selection past the items, or 0, starts at the first. */
+    selected = 9;
+    CHECK(pick_key("Done", &items, "\r", 1, true, &selected, &special, NULL) == 0 &&
+          selected == 1);
+
+    /* Two rows: the first on row 23, the second from the same column on
+     * row 24, each row's rest cleared; letters in highlight, the rest in
+     * normal, the selected item in 0 on highlight. */
+    items = (cok_menu_items){0};
+    for (size_t i = 0; i < sizeof shown; ++i) cok_menu_items_add(&items, shown[i]);
+    cok_picture p;
+    selected = 5;
+    CHECK(pick_key(text, &items, "x", 1, true, &selected, &special, &p) == -1);
+    CHECK(cell_glyph(&p, 0, 23) == ('A' & 63) && cell_fg(&p, 0, 23) == 15);
+    CHECK(cell_glyph(&p, 1, 23) == ('I' & 63) && cell_fg(&p, 1, 23) == 10);
+    CHECK(cell_glyph(&p, 18, 23) == ('K' & 63) && cell_bg(&p, 19, 23) == 0);
+    CHECK(cell_glyph(&p, 0, 24) == ('D' & 63) && cell_fg(&p, 0, 24) == 0 &&
+          cell_bg(&p, 0, 24) == 15 && cell_bg(&p, 4, 24) == 15 && cell_bg(&p, 5, 24) == 0);
+    CHECK(cell_glyph(&p, 6, 24) == ('V' & 63) && cell_fg(&p, 6, 24) == 15);
+    cok_picture_free(&p);
+    /* The prompt on row 24 in its colour, the items after it. */
+    cok_font font = numbered_font();
+    p = screen();
+    script s = {"\x1b", 0, 1};
+    cok_keyboard k = {scripted, &s, NULL, NULL};
+    cok_menu_items_upto(&items, 0);
+    selected = 1;
+    CHECK(cok_menu_pick(&p, &font, "AB ", "Done", &items, 13, 15, 10, true, &selected, &k,
+                        &special) == 0x1b);
+    CHECK(cell_glyph(&p, 0, 24) == 1 && cell_fg(&p, 0, 24) == 13 && cell_bg(&p, 3, 24) == 15);
+    cok_picture_free(&p);
+    cok_font_free(&font);
+    /* It flushes the keyboard once it has its key. */
+    flushes = 0;
+    CHECK(pick_key("Done", &items, "\rxy", 3, true, &selected, &special, NULL) == 0 &&
+          flushes == 1);
+}
+
 int main(void)
 {
     test_parse();
@@ -493,6 +626,7 @@ int main(void)
     test_input();
     test_screen();
     test_flush();
+    test_indexed();
     puts("menu tests passed");
     return 0;
 }

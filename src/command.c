@@ -189,6 +189,12 @@ static int menu(cok_adventure *game, const char *prompt, const char *items, bool
                         &game->selected, &keys, special);
 }
 
+/* Death Knights' routines, at the end. */
+static bool dk_commands(cok_adventure *game, cok_character *c, uint8_t pressed);
+static bool dk_move(cok_adventure *game, cok_character *c, bool *done);
+static bool dk_aim(cok_adventure *game, cok_character *c, uint8_t range, uint8_t attack,
+                   uint8_t empty, uint8_t creatures, bool *done, cok_combat_aimed *res);
+
 /* Shared helpers. */
 
 void cok_combat_guard(cok_adventure *game, cok_character *c)
@@ -304,31 +310,14 @@ bool cok_combat_commands(cok_adventure *game, cok_character *c, uint8_t pressed)
         cok_combat_end_turn(c);
         return true;
     }
+    if (cok_game_rules(game)->commands.routine == COK_COMMANDS_DEATH_KNIGHTS)
+        return dk_commands(game, c, pressed); /* dkk 3e05:08af */
     const cok_rules_fight *F = &cok_game_rules(game)->fight;
     bool done = false;
     while (!done) {
         game->selected = 1;
         bool special;
-        int key;
-        if (F->menu_unported != NULL) {
-            /* A game whose menu the port does not show yet (dkk 3e05:0ccc):
-             * a key is read, the one pressed for the turn first, and only
-             * the hidden ones that put the party on Auto or call the gods
-             * are done; any other stops the run there. */
-            key = pressed;
-            pressed = 0;
-            if (key == 0) {
-                key = cok_adventure_wait_key(game);
-                if (key == 0 && !game->vm.abort) key = cok_adventure_wait_key(game);
-                else if (key != 0) key = -2;
-            }
-            if (game->vm.abort) return game->vm.status == COK_ECL_OK;
-            if (key != 0x10 && key != 0x1e && key != 0x2d)
-                return cok_adventure_not_yet(game, "player's menu", F->menu_unported);
-            special = true;
-        } else {
-            key = read_command(game, c, &pressed, &special);
-        }
+        int key = read_command(game, c, &pressed, &special);
         if (key < 0) return true;
         if (!special) {
             switch (key) {
@@ -424,7 +413,7 @@ bool cok_combat_charge(cok_adventure *game, cok_character *c, cok_character *tar
     if (!missile_weapon(game, c, &missile)) return false;
     if (missile && !thrown(game, c, &yes)) return false;
     if (missile && !yes) {
-        cok_camp_notice(game, "Not with that weapon"); /* 6346:1827 */
+        cok_camp_notice(game, cok_game_rules(game)->commands.not_with_weapon); /* 6346:1827 */
         return true;
     }
     bool go;
@@ -460,7 +449,7 @@ static bool move_step(cok_adventure *game, cok_character *c, uint8_t dir, bool *
         return target != NULL && cok_combat_charge(game, c, target, done);
     }
     if (terrain == 0) {
-        int answer = cok_camp_yes_no(game, "Flee:", 13); /* 67b5:177f */
+        int answer = cok_camp_yes_no(game, cok_game_rules(game)->commands.flee, 13); /* 67b5:177f */
         if (answer == 'Y') {
             if (!cok_combat_flee(game, c)) return false; /* 432f:0dc7, which returns 1 */
             *done = true;
@@ -474,7 +463,7 @@ static bool move_step(cok_adventure *game, cok_character *c, uint8_t dir, bool *
     uint8_t base = cok_combat_terrain(cok_game_rules(game), terrain).cost;
     uint8_t cost = base == 0xff ? 0xff : (uint8_t)(base * ((dir & 1) != 0 ? 3 : 2));
     if (cost > cr->movement) {
-        cok_camp_notice(game, "can't go there"); /* 6346:1827 */
+        cok_camp_notice(game, cok_game_rules(game)->commands.cant_go); /* 6346:1827 */
         return true;
     }
     if (!cok_combat_opportunity(game, c, dir)) return false;
@@ -502,8 +491,10 @@ static bool combat_move(cok_adventure *game, cok_character *c, bool *done);
  * 0da3, clear at 10f7). */
 bool cok_combat_move(cok_adventure *game, cok_character *c, bool *done)
 {
-    game->combat_moving = true;
-    bool ok = combat_move(game, c, done);
+    game->combat_moving = true; /* dkk DS:c4cd */
+    bool ok = cok_game_rules(game)->commands.routine == COK_COMMANDS_DEATH_KNIGHTS
+                  ? dk_move(game, c, done)
+                  : combat_move(game, c, done);
     game->combat_moving = false;
     return ok;
 }
@@ -550,12 +541,15 @@ bool cok_combat_ally(cok_adventure *game, cok_character *c, cok_character *targe
             cok_field_u8(L, c->record, COK_FIELD_HOSTILE) ||
         cok_field_u8(L, c->record, COK_FIELD_COMPUTER) != 0)
         return true;
-    int answer = cok_camp_yes_no(game, "Attack Ally: ", 13); /* 67b5:177f */
+    const cok_rules_commands *K = &cok_game_rules(game)->commands;
+    int answer = cok_camp_yes_no(game, K->attack_ally, 13); /* 67b5:177f */
     if (answer != 'Y') {
         *go = false;
         return true;
     }
     cok_ecl_set_var(&game->vm, COK_VAR_FLED, 1); /* var 0x7f33; DS:714a, which nothing reads, too */
+    /* dkk 5340:2b81 (DS:c470 and the variable) turns no one. */
+    if (!K->ally_turns_npcs) return true;
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *m = game->party.members[i];
         uint8_t *r = m->record;
@@ -884,8 +878,11 @@ static bool manual_cursor(cok_adventure *game, cok_character *c, uint8_t range, 
 bool cok_combat_aim(cok_adventure *game, cok_character *c, uint8_t range, uint8_t attack,
                     uint8_t empty, uint8_t creatures, bool *done, cok_combat_aimed *res)
 {
+    if (cok_game_rules(game)->commands.routine == COK_COMMANDS_DEATH_KNIGHTS)
+        return dk_aim(game, c, range, attack, empty, creatures, done, res); /* dkk 5340:3888 */
     cok_combat *combat = &game->combat;
-    if (!cok_arena_missile_frame(game, 0x19, 0, 0, false)) return false; /* 6346:1a26 */
+    if (!cok_arena_missile_frame(game, cok_game_rules(game)->commands.cursor_slot, 0, 0, false))
+        return false; /* 6346:1a26 */
     *res = (cok_combat_aimed){NULL, 0, 0};
     *done = false;
     if (range == 0xff) {
@@ -1166,5 +1163,637 @@ bool cok_combat_yell(cok_adventure *game, cok_character *c)
                                  false, 0, false, text))
             return false;
     }
+    return true;
+}
+
+/* Death Knights' commands (COK_COMMANDS_DEATH_KNIGHTS: dkk 3e05:08af and
+ * the routines it calls), with its menus by index (6a69:0f1b). */
+
+/* A menu by index on rows 23-24 (6a69:0f1b) after prompt, logged as it
+ * shows; *pressed as menu()'s. */
+static int pick(cok_adventure *game, const char *prompt, const char *text,
+                const cok_menu_items *items, bool keypad, uint8_t *pressed, bool *special)
+{
+    cok_menu_indexed_layout shown;
+    cok_menu_indexed(&shown, text, items);
+    cok_adventure_log(game, "menu", shown.text);
+    pressing p = {cok_adventure_keyboard(game), {0, 0}, 0, 0};
+    if (pressed != NULL && *pressed != 0) {
+        p.queue[0] = 0;
+        p.queue[1] = *pressed;
+        p.count = 2;
+        *pressed = 0;
+    }
+    cok_keyboard keys = {press_read, &p, press_flush, p.keys.pointer};
+    return cok_menu_pick(&game->screen, &game->font, prompt, text, items, 13, 15, 10, keypad,
+                         &game->selected, &keys, special);
+}
+
+/* The turn's menu's items (3e05:0ccc, DS:3453). */
+enum {
+    DK_MOVE, DK_AIM, DK_USE, DK_CAST, DK_TURN, DK_GUARD, DK_QUICK, DK_DELAY, DK_BANDAGE,
+    DK_YELL, DK_VIEW, DK_SPEED, DK_END
+};
+
+/* Whether c may turn undead (3e05:0ccc, 08af): a cleric (+0x45 above 0)
+ * or a paladin above the fight section's level (+0x48), that has tried
+ * fewer times this battle (+0x11) than undead were loaded (DS:db7d). */
+static bool may_turn(cok_adventure *game, const cok_character *c)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t paladins = cok_game_rules(game)->fight.paladin_turns;
+    return (cok_field_s8_at(L, c->record, COK_FIELD_CLASS_LEVEL, 0) > 0 ||
+            (paladins != 0 &&
+             cok_field_s8_at(L, c->record, COK_FIELD_CLASS_LEVEL, 3) > (int8_t)paladins)) &&
+           cok_character_combat(c)->turns < game->undead;
+}
+
+/* 3e05:0ccc: the items c may choose by index: Move while it has movement
+ * left (+0x06), Aim, Use while it has items (+0x7c), Cast with a spells'
+ * block holding a spell memorized (a byte of 0-0x49 whose low 7 bits are
+ * not 0) when it may cast this round (+0x01) and the area allows magic
+ * (var 0x4be5), Turn (may_turn), Guard unless a missile weapon not thrown,
+ * Quick, Delay, Bandage while a party member is dying (65cd:3326), Yell
+ * for a kender (+0x20 5) while no one has yelled this battle (DS:c4ce),
+ * View, Speed and End. Read until an index or one of the special keys
+ * the set at 3e05:0cac holds (Alt-Q, Alt-R, Alt-A, the keypad's 5 or
+ * Alt-D, Alt-X, Alt-M); rows 23 and 24 are cleared after. Returns the
+ * index, or the scan code with *special, or -1 if input ended. */
+static int dk_command(cok_adventure *game, cok_character *c, uint8_t *pressed, bool *special)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    const uint8_t *r = c->record;
+    const cok_combat_record *cr = cok_character_combat(c);
+    cok_menu_items items = {0};
+    if (cr->movement != 0) cok_menu_items_add(&items, DK_MOVE);
+    cok_menu_items_add(&items, DK_AIM);
+    if (cok_field_u8(L, r, COK_FIELD_ITEM_COUNT) != 0) cok_menu_items_add(&items, DK_USE);
+    bool memorized = false;
+    if (cok_field_has_spells(L, r))
+        for (size_t i = 0; i < cok_field_count(L, COK_FIELD_MEMORIZED); ++i)
+            if ((cok_field_u8_at(L, r, COK_FIELD_MEMORIZED, i) & 0x7f) != 0) memorized = true;
+    if (memorized && cr->may_cast != 0 && cok_ecl_var(&game->vm, COK_VAR_NO_MAGIC) == 0)
+        cok_menu_items_add(&items, DK_CAST);
+    if (may_turn(game, c)) cok_menu_items_add(&items, DK_TURN);
+    bool missile, yes = false;
+    if (!missile_weapon(game, c, &missile)) return -2;
+    if (missile && !thrown(game, c, &yes)) return -2;
+    if (!missile || yes) cok_menu_items_add(&items, DK_GUARD);
+    cok_menu_items_add(&items, DK_QUICK);
+    cok_menu_items_add(&items, DK_DELAY);
+    if (cok_combat_bandage(game, false)) cok_menu_items_add(&items, DK_BANDAGE);
+    if (cok_field_u8(L, r, COK_FIELD_RACE) == 5 && game->combat.yelled == NULL)
+        cok_menu_items_add(&items, DK_YELL);
+    for (uint8_t i = DK_VIEW; i <= DK_END; ++i) cok_menu_items_add(&items, i);
+    int key;
+    for (;;) {
+        key = pick(game, "", cok_game_rules(game)->commands.menu, &items, true, pressed, special);
+        if (key < 0) return -1;
+        bool hidden = key == 0x10 || key == 0x13 || key == 0x1e || key == 0x20 || key == 0x2d ||
+                      key == 0x32;
+        if (*special && !hidden) key = 0xff;
+        if (key < 0x0d || (*special && hidden)) break;
+    }
+    clear_cells(game, 0, 0x17, 0x27, 0x18); /* 110f:0584 */
+    return key;
+}
+
+static void dk_speed(cok_adventure *game);
+
+/* 3e05:08af's loop, from the menu on: each command by its index, then,
+ * while the turn goes on, c shown and its panel drawn. */
+static bool dk_commands(cok_adventure *game, cok_character *c, uint8_t pressed)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_rules_fight *F = &cok_game_rules(game)->fight;
+    cok_combat *combat = &game->combat;
+    bool done = false;
+    while (!done) {
+        game->selected = 1; /* DS:c0f7 */
+        bool special;
+        int key = dk_command(game, c, &pressed, &special);
+        if (key == -2) return false;
+        if (key < 0) return true;
+        if (!special) {
+            switch (key) {
+            case DK_MOVE:
+                if (!cok_combat_move(game, c, &done)) return false;
+                break;
+            case DK_AIM: {
+                cok_combat_aimed res;
+                if (!cok_combat_aim(game, c, 0xff, 1, 0, 1, &done, &res)) return false;
+                break;
+            }
+            case DK_USE:
+            case DK_VIEW:
+                if (!look(game, c, key == DK_USE, &done)) return false;
+                break;
+            case DK_CAST:
+                if (!cok_combat_cast(game, &done, false, 0)) return false; /* 5340:258e */
+                break;
+            case DK_TURN:
+                if (may_turn(game, c)) {
+                    if (!cok_combat_turn_undead(game, c)) return false; /* 5340:119b */
+                    cok_combat_end_turn(c);
+                    done = true;
+                }
+                break;
+            case DK_GUARD:
+                cok_combat_guard(game, c); /* 65cd:2bf2 */
+                done = true;
+                break;
+            case DK_QUICK:
+                /* 3e05:1582, 6a69:145d, 16ab:03b0, 1923:029c, 3f63:0000:
+                 * Champions' Auto. */
+                cok_combat_auto(c, cok_game_rules(game));
+                clear_row(game);
+                cok_adventure_flush(game);
+                cok_adventure_wait(game, 200);
+                done = true;
+                if (!cok_combat_computer(game, c)) return false;
+                break;
+            case DK_DELAY: delay(game, c); done = true; break;
+            case DK_BANDAGE:
+                (void)cok_combat_bandage(game, true); /* 65cd:3326 with 1 */
+                cok_combat_end_turn(c);
+                done = true;
+                break;
+            case DK_YELL:
+                if (!cok_combat_yell(game, c)) return false; /* 638c:0000 */
+                cok_combat_end_turn(c);
+                done = true;
+                break;
+            case DK_SPEED: dk_speed(game); break;
+            case DK_END:
+                cok_combat_end_turn(c);
+                done = true;
+                break;
+            default: break;
+            }
+        } else if (key == 0x20) {
+            /* The keypad's 5 (or Alt-D): every party member who is no NPC
+             * (+0x3e below 0x80) back to the player. */
+            for (size_t i = 0; i < game->party.count; ++i) {
+                uint8_t *m = game->party.members[i]->record;
+                if (cok_field_u8(L, m, COK_FIELD_NPC) < 0x80)
+                    cok_field_set8(L, m, COK_FIELD_COMPUTER, 0);
+            }
+        } else if (key == 0x32) {
+            combat->magic_on = !combat->magic_on;
+            cok_camp_notice(game, combat->magic_on ? F->words.magic_on : F->words.magic_off);
+        } else if (key == 0x10 || key == 0x1e) {
+            quick(game, c);
+            done = true;
+        } else if (key == 0x2d) {
+            /* 5340:3efb: the Helm's cheat, then c shown. */
+            if (game->helm) {
+                if (!cok_combat_gods(game) || !cok_arena_turn(game, c, 3, false)) return false;
+                done = true;
+            }
+        }
+        if (game->vm.abort) return game->vm.status == COK_ECL_OK;
+        if (!done) {
+            if (!cok_arena_turn(game, c, 2, true)) return false;
+            combat->panel = true;
+            if (!cok_arena_panel(game, c)) return false;
+        }
+    }
+    return true;
+}
+
+/* 3e05:10bb, Move, as Champions' 3995:0d9c but by index: "move/attack,
+ * move left = N" and Done, Escape (special) undoing the moves. */
+static bool dk_move(cok_adventure *game, cok_character *c, bool *done)
+{
+    const cok_rules_commands *K = &cok_game_rules(game)->commands;
+    cok_combat *combat = &game->combat;
+    cok_combat_record *cr = record_of(game, c);
+    if (cr == NULL) return false;
+    uint8_t movement = cr->movement, facing = cr->facing;
+    int8_t x0 = cok_combat_x(combat, c->record), y0 = cok_combat_y(combat, c->record);
+    *done = false;
+    int key = 0xff;
+    bool special = false;
+    while (!(key == 0 && !special) && !(key == 0x1b && special) && !*done) {
+        cok_menu_items items;
+        cok_menu_items_upto(&items, 0);
+        clear_cells(game, 0x18, 0x18, 0x27, 0x18);
+        if (key == 0xff) {
+            char prompt[48];
+            snprintf(prompt, sizeof prompt, "%s%u", K->move_prompt, cr->movement >> 1);
+            key = pick(game, prompt, K->move_menu, &items, true, NULL, &special);
+            if (key < 0) return true;
+        }
+        uint8_t dir = 8;
+        if (special) {
+            if (key == 0x1b) {
+                if (!undo(game, c, movement, facing, x0, y0, done)) return false;
+            } else {
+                dir = direction_of(key);
+            }
+        }
+        if (dir < 8 && !move_step(game, c, dir, done)) return false;
+        if (game->vm.abort) return game->vm.status == COK_ECL_OK;
+        if (!(key == 0x1b && special) && !(key == 0 && !special)) key = 0xff;
+    }
+    if (cr->movement < 2) cr->movement = 0;
+    return true;
+}
+
+/* 3e05:14aa, Speed: "game speed: (N) " with Faster while above 0, Slower
+ * below 9, and Exit, by index, until Exit; special keys are read past. */
+static void dk_speed(cok_adventure *game)
+{
+    const cok_rules_commands *K = &cok_game_rules(game)->commands;
+    int key = 0xff;
+    while (key != 2) {
+        char prompt[41];
+        snprintf(prompt, sizeof prompt, "%s(%u) ", K->speed_prompt, game->speed);
+        cok_menu_items items = {0};
+        if (game->speed != 0) cok_menu_items_add(&items, 0);
+        if (game->speed < 9) cok_menu_items_add(&items, 1);
+        cok_menu_items_add(&items, 2);
+        bool special;
+        key = pick(game, prompt, K->speed_menu, &items, false, NULL, &special);
+        if (key < 0) return;
+        if (key == 0) --game->speed;
+        else if (key == 1) ++game->speed;
+    }
+}
+
+/* Death Knights' aiming (5340:3888). */
+
+/* 5340:3888's frame: the targets listed (36f2), their count and the one
+ * shown, and the cells of the cursor's flight (34b3). */
+typedef struct {
+    cok_combat_listing list[COK_COMBATANTS + 1];
+    uint8_t count, current;
+    int8_t old_x, old_y, new_x, new_y;
+} dk_targets;
+
+/* 5340:34b3: step through the targets (wrapping), the cursor flying from
+ * the one shown to the next; an entry with no record, or off the map,
+ * keeps the one shown (an entry with none at first: c itself). With none
+ * listed the original quits to DOS (16ab:0000). */
+static bool dk_next(cok_adventure *game, cok_character *c, dk_targets *t, uint8_t step,
+                    cok_character **target)
+{
+    cok_combat *combat = &game->combat;
+    uint8_t n = t->list[t->current].index;
+    cok_character *was = n <= COK_COMBATANTS ? combat->combatant[n].character : NULL;
+    if (was == NULL) was = c;
+    if (t->count == 0)
+        return undefined(game, "no target is listed, and aiming quits to DOS (5340:34b3, "
+                               "16ab:0000)");
+    t->old_x = combat->combatant[n].x;
+    t->old_y = combat->combatant[n].y;
+    t->current = (uint8_t)(t->current + step);
+    if (t->current == 0) t->current = t->count;
+    if (t->current > t->count) t->current = 1;
+    n = t->list[t->current].index;
+    if (n > COK_COMBATANTS) return undefined(game, "combatant %u is past the table (5340:34b3)", n);
+    cok_character *next = combat->combatant[n].character;
+    t->new_x = combat->combatant[n].x;
+    t->new_y = combat->combatant[n].y;
+    if (next == NULL || t->new_x < 0 || t->new_y < 0) {
+        next = was;
+        t->new_x = t->old_x;
+        t->new_y = t->old_y;
+    } else {
+        if (!cok_arena_missile(game, t->old_x, t->old_y, t->new_x, t->new_y, 1, 0)) return false;
+        t->old_x = t->new_x;
+        t->old_y = t->new_y;
+    }
+    *target = next;
+    return true;
+}
+
+/* 5340:36f2: the combatants around c within 0xff (6e48:08d6, any
+ * direction: DS:4558) that it can attack (5340:10ab), nearest first, the
+ * one c last aimed at (combat record +0x0a) the first shown; then the
+ * first shown (34b3), and with one other than c, Target selected
+ * (DS:c0f7 4). */
+static bool dk_list(cok_adventure *game, cok_character *c, dk_targets *t, cok_character **target)
+{
+    cok_combat *combat = &game->combat;
+    const uint8_t *r = c->record;
+    t->current = 1;
+    if (!cok_combat_list(combat, cok_game_rules(game), cok_combat_x(combat, r),
+                         cok_combat_y(combat, r), 0xff, 0xff, cok_combat_size(combat, r)))
+        return undefined(game, "the list of combatants around one (6e48:08d6) reads past its "
+                               "tables");
+    t->count = 0;
+    uint8_t n = combat->listed_count;
+    for (unsigned i = 1; i <= n; ++i) {
+        cok_character *e = combatant(game, combat->listed[i].index, "5340:3720");
+        bool can;
+        if (e == NULL || !cok_combat_can_attack(game, c, e->record, &can)) return false;
+        if (!can) continue;
+        t->list[++t->count] = combat->listed[i];
+        if (cok_character_combat(c)->target == e->record) t->current = t->count;
+    }
+    if (!dk_next(game, c, t, 0, target)) return false;
+    if (*target != c) game->selected = 4; /* and DS:c11f 0xff, the mouse's */
+    return true;
+}
+
+/* 5340:2bee: show target at x, y and read a key: "range = N  " on row 23
+ * when attacking, its panel, and "Next Prev Manual Target Center Exit" by
+ * index, Target as Champions' (show_target). */
+static int dk_show(cok_adventure *game, cok_character *c, cok_character *target, uint8_t range,
+                   uint8_t attack, bool valid, int8_t x, int8_t y, bool *special)
+{
+    const cok_rules_commands *K = &cok_game_rules(game)->commands;
+    cok_combat *combat = &game->combat;
+    uint16_t distance = 0xff;
+    uint8_t see_all = combat->see_all;
+    combat->see_all = 1;
+    int8_t sx = x, sy = y;
+    bool seen;
+    bool ok = cok_combat_sight(combat, cok_game_rules(game), cok_combat_x(combat, c->record),
+                               cok_combat_y(combat, c->record), &sx, &sy, &distance, &seen);
+    combat->see_all = see_all;
+    if (!ok) {
+        undefined(game, "sight (6e48:03ec) reads a cell past the terrain table");
+        return -2;
+    }
+    distance = (uint16_t)(distance >> 1);
+    if (attack != 0) {
+        char text[32];
+        snprintf(text, sizeof text, "%s%u  ", K->range, distance);
+        cok_text_string(&game->screen, &game->font, text, 0, 0x17, 10, 0); /* 14e4:036a */
+    }
+    cok_menu_items items = {0};
+    for (uint8_t i = 0; i <= 5; ++i) {
+        if (i != 3) {
+            cok_menu_items_add(&items, i);
+            continue;
+        }
+        if (range < distance || !valid) continue;
+        bool offer = attack == 0;
+        if (attack != 0 && target != c) {
+            bool missile;
+            if (!missile_weapon(game, c, &missile)) return -2;
+            if (!missile) {
+                offer = true;
+            } else {
+                size_t item;
+                bool has;
+                if (!ammunition(game, c, &item, &has)) return -2;
+                if (has) {
+                    uint8_t n;
+                    bool yes = false;
+                    if (!cok_combat_enemies(game, c, 1, &n)) return -2;
+                    if (n != 0 && !thrown(game, c, &yes)) return -2;
+                    offer = n == 0 || yes;
+                }
+            }
+        }
+        if (offer) cok_menu_items_add(&items, 3);
+    }
+    if (target != NULL) {
+        if (!cok_arena_turn(game, target, 3, true)) return -2;
+        combat->panel = true;
+        if (!cok_arena_panel(game, target)) return -2;
+    }
+    return pick(game, K->aim_prompt, K->aim_menu, &items, true, NULL, special);
+}
+
+/* 5340:2f3d: the cursor, as Champions' manual_cursor but by index:
+ * "(use cursor keys) " with Target where the cell may be picked, else
+ * Exit; Escape (special) as Exit; the keypad's 5 (or Alt-D) centres. A
+ * creature under it may be picked where c can attack it with allies
+ * (5340:10ab with 1). */
+static bool dk_cursor(cok_adventure *game, cok_character *c, uint8_t range, uint8_t attack,
+                      uint8_t empty, uint8_t creatures, bool *valid, bool *picked,
+                      cok_combat_aimed *res, int8_t x, int8_t y)
+{
+    const cok_rules_commands *K = &cok_game_rules(game)->commands;
+    cok_combat *combat = &game->combat;
+    int8_t cx = x, cy = y; /* DS:c4c9, c4ca */
+    *res = (cok_combat_aimed){NULL, 0, 0};
+    combat->cursor = 1;
+    combat->cursor_size = 1;
+    int key = 0xff;
+    uint8_t dir = 8;
+    while (key > 1) {
+        if (!cok_arena_centre(game, cx, cy, 2, dir)) return false;
+        cx = s8(cx + cok_step_x[dir]);
+        cy = s8(cy + cok_step_y[dir]);
+        if (cx < 0) cx = 0;
+        if (cy < 0) cy = 0;
+        if (cx > 0x31) cx = 0x31;
+        if (cy > 0x18) cy = 0x18;
+        uint8_t occupant, terrain;
+        cok_combat_cell(combat, cx, cy, &occupant, &terrain); /* 6f03:06d0 */
+        cok_adventure_flush(game); /* 16ab:03b0 */
+        *valid = false;
+        uint16_t distance = 0xff;
+        int8_t sx = cx, sy = cy;
+        bool seen;
+        if (!cok_combat_sight(combat, cok_game_rules(game), cok_combat_x(combat, c->record),
+                              cok_combat_y(combat, c->record), &sx, &sy, &distance, &seen))
+            return undefined(game, "sight (6e48:03ec) reads a cell past the terrain table");
+        if (seen) {
+            *valid = true;
+            if (attack != 0) {
+                char text[32];
+                snprintf(text, sizeof text, "%s%u  ", K->range, distance >> 1);
+                cok_text_string(&game->screen, &game->font, text, 0, 0x17, 10, 0);
+            }
+        } else if (attack != 0) {
+            clear_cells(game, 0, 0x17, 0x27, 0x17);
+        }
+        distance = (uint16_t)(distance >> 1);
+        cok_character *target = NULL;
+        if (*valid) {
+            if (occupant > 0) {
+                target = combatant(game, occupant, "5340:3011");
+                if (target == NULL) return false;
+            } else if (terrain == COK_COMBAT_BODY) {
+                for (unsigned k = 0; k < combat->bodies && k < COK_COMBAT_BODIES; ++k)
+                    if (combat->body[k].x == cx && combat->body[k].y == cy)
+                        target = combat->body[k].character;
+            }
+        }
+        if (target != NULL) {
+            combat->panel = true;
+            if (!cok_arena_panel(game, target)) return false;
+        } else {
+            clear_cells(game, 0x17, 1, 0x26, 0x15);
+        }
+        if (terrain >= cok_data_count(cok_game_rules(game)->data, COK_DATA_TERRAIN, 0))
+            return undefined(game, "terrain 0x%02x is past the table (5340:30fe)", terrain);
+        if (range < distance || cok_combat_terrain(cok_game_rules(game), terrain).cost == 0xff)
+            *valid = false;
+        if (target != NULL) {
+            bool can;
+            if (!cok_combat_can_attack_allies(game, c, target->record, true, &can)) return false;
+            if (!can || creatures == 0) *valid = false;
+            if (attack == 1) {
+                if (target == c || (occupant == 0 && terrain == COK_COMBAT_BODY)) {
+                    *valid = false;
+                } else {
+                    bool missile;
+                    if (!missile_weapon(game, c, &missile)) return false;
+                    if (missile) {
+                        size_t item;
+                        bool has;
+                        if (!ammunition(game, c, &item, &has)) return false;
+                        if (has) {
+                            uint8_t n;
+                            bool yes = false;
+                            if (!cok_combat_enemies(game, c, 1, &n)) return false;
+                            if (n > 0 && !thrown(game, c, &yes)) return false;
+                            if (n > 0 && !yes) *valid = false;
+                        } else {
+                            *valid = false;
+                        }
+                    }
+                }
+            }
+        } else if (empty == 0) {
+            *valid = false;
+        }
+        cok_menu_items items = {0};
+        cok_menu_items_add(&items, *valid ? 0 : 1);
+        bool special;
+        game->aim_x = cx; /* where a click steps from (not taken yet) */
+        game->aim_y = cy;
+        key = pick(game, K->cursor_prompt, K->cursor_menu, &items, true, NULL, &special);
+        if (key < 0) return true;
+        dir = 8;
+        if (special && key == 0x1b) key = 1;
+        else if (special && direction_of(key) < 8) dir = direction_of(key);
+        else if (special && key == 0x20 && !cok_arena_centre(game, cx, cy, 0, 8)) return false;
+        else if (special) key = 0xff;
+        if (key == 0) {
+            *picked = true;
+            res->x = cx;
+            res->y = cy;
+            res->target = target != NULL ? target->record : NULL;
+            combat->cursor = 0;
+            if (!cok_arena_redraw_cell(game, cx, cy)) return false;
+        } else if (key == 1) {
+            *picked = false;
+            if (!cok_arena_redraw_cell(game, cx, cy)) return false;
+            *res = (cok_combat_aimed){NULL, x, y};
+            if (!cok_arena_centre(game, x, y, 0, 8)) return false;
+            combat->cursor = 0;
+            if (!cok_arena_redraw_cell(game, x, y)) return false;
+        }
+    }
+    return true;
+}
+
+/* 5340:2f3d while it runs: DS:c4cb, the clicks' (not taken yet). */
+static bool dk_manual(cok_adventure *game, cok_character *c, uint8_t range, uint8_t attack,
+                      uint8_t empty, uint8_t creatures, bool *valid, bool *picked,
+                      cok_combat_aimed *res, int8_t x, int8_t y)
+{
+    game->aiming = true;
+    bool ok = dk_cursor(game, c, range, attack, empty, creatures, valid, picked, res, x, y);
+    game->aiming = false;
+    return ok;
+}
+
+/* 5340:3888: as Champions' cok_combat_aim, but the cursor's icon slot
+ * 0x1c, the weapon's range whole, c's cell redrawn first, the targets
+ * listed by dk_list (the one aimed at last first), the menus by index;
+ * after Next, Prev and Target the cell is the target's only for one;
+ * Escape leaves with the screen centred on c. */
+static bool dk_aim(cok_adventure *game, cok_character *c, uint8_t range, uint8_t attack,
+                   uint8_t empty, uint8_t creatures, bool *done, cok_combat_aimed *res)
+{
+    cok_combat *combat = &game->combat;
+    if (!cok_arena_missile_frame(game, cok_game_rules(game)->commands.cursor_slot, 0, 0, false))
+        return false; /* 65cd:1bd5 */
+    *res = (cok_combat_aimed){NULL, 0, 0};
+    *done = false;
+    if (range == 0xff) {
+        range = 1;
+        size_t weapon = c->slots[0];
+        if (weapon != 0 && weapon <= c->item_count) {
+            uint8_t type = c->items[weapon - 1][0x2e];
+            if (type >= COK_ITEM_TYPES) return type_past(game);
+            range = game->item_types.type[type][12];
+        }
+    }
+    if (range == 0 || range == 0xff) range = 1;
+    int8_t ax = cok_combat_x(combat, c->record), ay = cok_combat_y(combat, c->record);
+    if (!cok_arena_redraw_cell(game, ax, ay)) return false; /* 6f03:04e8 */
+    dk_targets t = {0};
+    cok_character *target = NULL;
+    if (!dk_list(game, c, &t, &target)) return false;
+    int8_t x = cok_combat_x(combat, target->record), y = cok_combat_y(combat, target->record);
+    bool valid = true;
+    for (bool leave = false; !leave;) {
+        bool special;
+        int key = dk_show(game, c, target, range, attack, valid, x, y, &special);
+        if (key == -2) return false;
+        if (key < 0) return true;
+        if (!special) {
+            if (key == 0 || key == 1) {
+                valid = true;
+                if (!dk_next(game, c, &t, key == 0 ? 1 : 0xff, &target)) return false;
+            } else if (key == 2 || key == 3) {
+                bool picked = key == 3;
+                if (key == 2) {
+                    cok_combat_aimed cursor;
+                    if (!dk_manual(game, c, range, attack, empty, creatures, &valid, &picked,
+                                   &cursor, x, y))
+                        return false;
+                    if (game->vm.abort) return game->vm.status == COK_ECL_OK;
+                    *res = cursor;
+                    target = cursor.target != NULL ? member_of(game, cursor.target) : NULL;
+                    if (cursor.target != NULL && target == NULL)
+                        return undefined(game, "the cursor's pick is not in the list (5340:39f9)");
+                    x = cursor.x;
+                    y = cursor.y;
+                    if (valid && picked) {
+                        key = 3;
+                        game->selected = 4;
+                    } else {
+                        game->selected = 3;
+                    }
+                } else {
+                    res->x = x;
+                    res->y = y;
+                }
+                if (key == 3) {
+                    leave = true;
+                    res->target = target != NULL ? target->record : NULL;
+                    *done = true;
+                    if (attack == 1 && !strike(game, c, target, attack, done, res)) return false;
+                    if (game->vm.abort) return game->vm.status == COK_ECL_OK;
+                    if (!*done) {
+                        combat->cursor = 0;
+                        if (!cok_arena_centre(game, x, y, 0, 8)) return false;
+                    }
+                }
+            } else if (key == 4) {
+                combat->cursor = 1;
+                combat->cursor_size = 1;
+                if (!cok_arena_centre(game, x, y, 0, 8)) return false;
+                combat->cursor = 0;
+            } else if (key == 5) {
+                combat->cursor = 0;
+                if (!cok_arena_centre(game, x, y, 0, 8)) return false;
+                leave = true;
+            }
+        } else if (key == 0x1b) {
+            combat->cursor = 0;
+            if (!cok_arena_redraw_cell(game, x, y) || !cok_arena_centre(game, ax, ay, 0, 8))
+                return false;
+            key = 5;
+            leave = true;
+        }
+        /* The set at 5340:3868, whatever the key: the target's cell. */
+        if ((key == 0 || key == 1 || key == 3) && target != NULL) {
+            x = cok_combat_x(combat, target->record);
+            y = cok_combat_y(combat, target->record);
+        }
+    }
+    if (attack != 0) clear_cells(game, 0, 0x17, 0x27, 0x17);
     return true;
 }

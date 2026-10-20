@@ -129,7 +129,8 @@ also go back the other way.
 ## Death Knights of Krynn
 
 The port also plays the sequel, *Death Knights of Krynn* (1991), so far
-into its fights, which the computer fights for the party. Copy your DOS *Death Knights* files into a folder
+into its fights, which you fight from the combat menu or leave to the
+computer. Copy your DOS *Death Knights* files into a folder
 named `DKKAssets` and run:
 
 ```sh
@@ -144,16 +145,21 @@ Game can also bring over a party from *Champions of Krynn*: the port
 looks for Champions' roster and saved games in `saves/` too, or in the
 folder `--import DIR` names. The adventure then runs into its fights:
 leadership, the battlefield and the combatants set up as in the original.
-At the first character's turn press Alt-Q (or Alt-A) to put the party on
-Auto: the computer fights the battle to its end as the original's does,
-with its dice, and the results follow. Treasure found (the treasure
-menu: Take, Pool, Share) and the bank vault of Gargath (take coins and
-items out, pool and deposit coins) work. The combat menu itself (moving,
-aiming, casting by hand) isn't there yet: any other key there stops the
-game. Neither are spells cast in combat (yours or a monster's), creating,
-modifying and training characters, Initialize Mouse/Joystick, shops, the
-temple, and a character's sheet and items in the vault: the game stops
-with a message saying what it reached.
+Each character's turn shows the original's two-row combat menu (Move, Aim,
+Use, Cast, Turn, Guard, Quick, Delay, Bandage, Yell, View, Speed, End; the
+arrow keys move between the items and the rows): move with the arrow or
+keypad keys (Escape takes the moves back), aim and attack with Aim
+(Next, Prev, Manual's cursor, Target), guard, delay or end the turn, or
+press Quick, or Alt-Q (Alt-A) for the whole party, to let the computer
+fight: as in the original, with its dice, to the battle's end and the
+results. Treasure found (the treasure menu: Take, Pool, Share) and the
+bank vault of Gargath (take coins and items out, pool and deposit coins)
+work. Not there yet: casting spells in combat (choosing one stops the
+game; a monster's spell too), the original's own character sheet and
+items menu (View and Use show Champions' for now), creating, modifying
+and training characters, Initialize Mouse/Joystick, shops, the temple,
+the mouse in Death Knights' menus, and a character's sheet and items in
+the vault: the game stops with a message saying what it reached.
 
 ## Options
 

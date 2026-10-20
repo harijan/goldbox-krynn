@@ -1142,11 +1142,10 @@ static void test_fight(void)
         CHECK(pascal_is(words[i].seg != 0 ? at(words[i].seg, words[i].off) : ds(words[i].off),
                         words[i].word, false));
     CHECK(W->gods_refused == NULL);
-    /* The routines it says it does not carry out: the menu (3e05:08af's
-     * near call), the clouds at the round's end (3e05:0ed0's far call) and
-     * the cloud square (in the round's end too). */
+    /* The routines it says it does not carry out: the clouds at the
+     * round's end (3e05:0ed0's far call) and the cloud square (in the
+     * round's end too). */
     unsigned long calls[24];
-    CHECK(cites(F->menu_unported, 0x3e050ccc) && near_call(0x3e05, 0x08af, 0x90, 0x0ccc));
     size_t n = far_calls(0x3e05, 0x0ed0, 0x60, calls, 24);
     bool clouds = false, square = false;
     for (size_t i = 0; i < n; ++i) {
@@ -1352,6 +1351,90 @@ static void test_treasure(void)
     puts("death knights: the treasure section checked");
 }
 
+/* Whether the n bytes from segment:offset load DS:word (mov di, word). */
+static bool loads_word(unsigned segment, unsigned offset, size_t n, unsigned word)
+{
+    return HOLDS(segment, offset, n, 0xbf, (uint8_t)word, (uint8_t)(word >> 8));
+}
+
+/* The bits of a Pascal set of chars at segment:offset (32 bytes). */
+static bool set_is(unsigned segment, unsigned offset, const char *members)
+{
+    uint8_t set[32] = {0};
+    for (const char *c = members; *c != '\0'; ++c)
+        set[(uint8_t)*c >> 3] |= (uint8_t)(1u << ((uint8_t)*c & 7));
+    return memcmp(at(segment, offset), set, sizeof set) == 0;
+}
+
+/* The menus' and the commands' sections against the original's code: the
+ * menu loop's sets (6a69:0f1b: items start at 0-9 and A-Z, CS:0115, 023d,
+ * 0cfe; '@' CS:0ed9; rows by 2 8 H P, CS:0edb; the keypad's 1-9 and \,
+ * CS:0efb, through DS:5791, Champions' DS:1fdf), its colours (DS:c148,
+ * c149, c14a set once to 10, 13, 15), the Yes/No's items and the typed
+ * constants Yes and No (6a69:2048, DS:31cb, 57c0, 57c1); the turn's menu
+ * (3e05:0ccc: DS:3453, the hidden keys' set CS:0cac), Move's, aiming's,
+ * the cursor's and Speed's words where their routines load them (3e05:10bb,
+ * 13fb, 5340:2b81, 2bee, 2f3d, 3e05:14aa), the cursor's icon slot (6f03:036c
+ * and 5340:3888's 65cd:1bd5: 0x1c), aiming's range (5340:3888 reads the
+ * type's byte 12 whole) and its list's (5340:36f2: 0xff, DS:4558 0xff),
+ * and 580d:2bb2, which picks only for H and P. */
+static void test_commands(void)
+{
+    const cok_rules_menus *M = &R->menus;
+    const cok_rules_commands *K = &R->commands;
+    CHECK(M->routine == COK_MENUS_INDEXED && K->routine == COK_COMMANDS_DEATH_KNIGHTS);
+    static const char alnum[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    CHECK(set_is(0x6a69, 0x0115, alnum) && set_is(0x6a69, 0x023d, alnum) &&
+          set_is(0x6a69, 0x0cfe, alnum) && pascal_is(at(0x6a69, 0x0ed9), "@", false) &&
+          set_is(0x6a69, 0x0edb, "28HP") && set_is(0x6a69, 0x0efb, "123456789\\"));
+    static const uint8_t keypad[9] = {0x4f, 0x50, 0x51, 0x4b, 0x20, 0x4d, 0x47, 0x48, 0x49};
+    CHECK(memcmp(ds(0x5791 + (unsigned)'1'), keypad, sizeof keypad) == 0);
+    CHECK(HOLDS(0x4f9a, 0, 0x100, 0xc6, 0x06, 0x48, 0xc1, 10, 0xc6, 0x06, 0x49, 0xc1, 13, 0xc6,
+                0x06, 0x4a, 0xc1, 15));
+    CHECK(pascal_is(ds(0x31cb), M->yes_no, false) && loads_word(0x6a69, 0x2048, 0x40, 0x31cb) &&
+          ds(0x57c0)[0] == 0 && ds(0x57c1)[0] == 1);
+    CHECK(M->adventure_keeps_selection && M->escape_leaves_move && M->special_keeps);
+    /* 580d:2bb2: cmp al, 'H' and 'P', nothing for another key. */
+    CHECK(HOLDS(0x580d, 0x2bb2, 0x60, 0x3c, 0x48) && HOLDS(0x580d, 0x2bb2, 0xe0, 0x3c, 0x50));
+    const struct {
+        unsigned seg, off, n, word;
+        const char *text;
+    } words[] = {
+        {0x3e05, 0x0ccc, 0x200, 0x3453, K->menu},
+        {0x3e05, 0x10bb, 0x100, 0x313e, K->move_prompt},
+        {0x3e05, 0x10bb, 0x100, 0x34a4, K->move_menu},
+        {0x3e05, 0x10bb, 0x200, 0x170d, K->flee},
+        {0x3e05, 0x10bb, 0x280, 0x1718, K->cant_go},
+        {0x3e05, 0x13fb, 0x40, 0x2536, K->not_with_weapon},
+        {0x5340, 0x2b81, 0x40, 0x16d7, K->attack_ally},
+        {0x5340, 0x2bee, 0x200, 0x3109, K->aim_prompt},
+        {0x5340, 0x2bee, 0x200, 0x34af, K->aim_menu},
+        {0x5340, 0x2bee, 0x100, 0x16ec, K->range},
+        {0x5340, 0x2f3d, 0x400, 0x3114, K->cursor_prompt},
+        {0x5340, 0x2f3d, 0x400, 0x34d8, K->cursor_menu},
+        {0x3e05, 0x14aa, 0x40, 0x30f4, K->speed_prompt},
+        {0x3e05, 0x14aa, 0x100, 0x340a, K->speed_menu},
+    };
+    for (size_t i = 0; i < sizeof words / sizeof *words; ++i)
+        CHECK(pascal_is(ds(words[i].word), words[i].text, false) &&
+              loads_word(words[i].seg, words[i].off, words[i].n, words[i].word));
+    CHECK(!K->ally_turns_npcs);
+    /* The turn's hidden keys: Alt-Q, Alt-R, Alt-A, the keypad's 5, Alt-X,
+     * Alt-M. */
+    CHECK(set_is(0x3e05, 0x0cac, "\x10\x13\x1e \x2d\x32"));
+    /* The cursor's box: push 0x1c at 6f03:036c's 7090:0484, and 5340:3888's
+     * first call, 65cd:1bd5 with 0x1c. */
+    CHECK(K->cursor_slot == 0x1c && HOLDS(0x6f03, 0x036c, 0x100, 0xb0, K->cursor_slot, 0x50) &&
+          HOLDS(0x5340, 0x3888, 0x10, 0xb0, K->cursor_slot, 0x50));
+    unsigned long calls[24];
+    CHECK(far_calls(0x5340, 0x3888, 0x20, calls, 24) == 1 && calls[0] == 0x65cd1bd5);
+    /* Aiming's range: the type's byte 12 (DS:9aa6 + 12) not less 1; the
+     * list's range 0xff and direction DS:4558, 0xff. */
+    CHECK(HOLDS(0x5340, 0x3888, 0x80, 0x8a, 0x85, 0xb2, 0x9a, 0x88) && ds(0x4558)[0] == 0xff &&
+          HOLDS(0x5340, 0x36f2, 0x40, 0xb8, 0xff, 0x00, 0x50, 0xa0, 0x58, 0x45));
+    puts("death knights: the menus' and commands' sections checked");
+}
+
 int main(void)
 {
     test_lookup();
@@ -1366,6 +1449,7 @@ int main(void)
         if (exe_size > 0) test_combat();
         if (exe_size > 0) test_fight();
         if (exe_size > 0) test_treasure();
+        if (exe_size > 0) test_commands();
     }
     puts("death knights: ok");
     return 0;

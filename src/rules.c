@@ -1481,6 +1481,7 @@ const cok_rules cok_rules_champions = {
             /* DS:6172: 0-7 the party's, 8 on monsters', 13-25 missiles. */
             .icon_slots = 26,
             .icon_table = 0x6172,
+            .missiles_recoloured = false, /* 6d21:01d0: CPIC's only */
         },
     .spells =
         {
@@ -1720,6 +1721,24 @@ const cok_rules cok_rules_champions = {
             .missile_clamped = false,
             .burst_slot = 0x17, /* 6346:228c */
             .turning = COK_TURNING_CHAMPIONS, /* 432f:12b7 */
+        },
+    .menus =
+        {
+            .routine = COK_MENUS_LETTERS, /* 67b5:03e2 */
+            .yes_no = NULL,               /* 67b5:177f's "~Yes ~No" */
+            .adventure_keeps_selection = false, /* 475c:09ec */
+            .escape_leaves_move = false,
+            .special_keeps = false, /* 546c:3334 */
+        },
+    .commands =
+        {
+            .routine = COK_COMMANDS_CHAMPIONS, /* 3995:0573 */
+            .flee = "Flee:",                         /* 3995:0d87 */
+            .cant_go = "can't go there",             /* 3995:0d8d */
+            .not_with_weapon = "Not with that weapon", /* 3995:1102 */
+            .attack_ally = "Attack Ally: ",          /* 432f:2f04 */
+            .ally_turns_npcs = true,
+            .cursor_slot = 0x19, /* 6beb:00fc, 6346:1a26 */
         },
     .treasure =
         {

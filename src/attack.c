@@ -773,6 +773,12 @@ bool cok_combat_sweep(cok_adventure *game, cok_character *attacker, cok_characte
 bool cok_combat_can_attack(cok_adventure *game, cok_character *attacker,
                            const uint8_t *target, bool *can)
 {
+    return cok_combat_can_attack_allies(game, attacker, target, false, can);
+}
+
+bool cok_combat_can_attack_allies(cok_adventure *game, cok_character *attacker,
+                                  const uint8_t *target, bool allies, bool *can)
+{
     cok_rolls *rolls = &game->effects.rolls;
     *can = false;
     if (target == NULL) return true;
@@ -792,7 +798,7 @@ bool cok_combat_can_attack(cok_adventure *game, cok_character *attacker,
     if (sides) game->vm.character = selected;
     if (!shown) return false;
     const cok_character_layout *L = cok_game_rules(game)->character;
-    if (rolls->untargetable == 0 && sides &&
+    if (rolls->untargetable == 0 && sides && !allies &&
         cok_field_u8(L, target, COK_FIELD_HOSTILE) ==
             cok_field_u8(L, attacker->record, COK_FIELD_HOSTILE)) {
         rolls->untargetable = 1;
