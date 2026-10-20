@@ -1762,6 +1762,12 @@ const cok_rules cok_rules_champions = {
             .looks_like = "It looks like some sort of ",            /* 546c:2a3d */
             .no_money = "Not Enough Money",                         /* 546c:2a06 */
         },
+    .shops =
+        {
+            .routine = COK_SHOPS_CHAMPIONS, /* 36d0:07da, 340d:0ea9 */
+            .portrait = true,               /* 6346:2c17: 6961:05b9, 06bd */
+            .steel = false,                 /* 546c:3424, 58e7:0155, 00d3, 018f */
+        },
     .treasure =
         {
             /* None: TREASURE reads ITEM<file> records whole (2fd3:1d21). */

@@ -131,6 +131,7 @@ int cok_camp_ask(cok_adventure *game, const char *prompt, uint8_t prompt_color, 
             key = cok_menu_pick(&game->screen, &game->font, prompt, K->yes_no, &items, 13, 15, 10,
                                 false, &game->selected, &keys, &special);
             if (key < 0) return -1;
+            game->menu_special = special; /* DS:c0f8 */
         } while (key > 1);
         key = key == 0 ? 'Y' : 'N';
         char text[2] = {(char)key, '\0'};

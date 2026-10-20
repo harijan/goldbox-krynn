@@ -837,7 +837,7 @@ static void test_named_variables(void)
         {COK_VAR_GENTLE, 0x7ee6, 0x7ee6, 1},          {COK_VAR_ECL_FILE, 0x7f12, 0x7f12, 1},
         {COK_VAR_FLED, 0x7f33, 0x7f33, 1},            {COK_VAR_PARTY_SIZE, 0x7f3e, 0x7f3e, 1},
         {COK_VAR_REMAINDER, 0x7f3f, 0x7f3f, 1},  {COK_VAR_SHOP, 0x7f6c, 0x7f6c, 1},
-        {COK_VAR_PRICES, 0x7f6d, 0, 1},          {COK_VAR_HIT_BONUS, 0x7f70, 0x7f70, 2},
+        {COK_VAR_PRICES, 0x7f6d, 0x7f6d, 1},     {COK_VAR_HIT_BONUS, 0x7f70, 0x7f70, 2},
         {COK_VAR_MOVE_BONUS, 0x7f72, 0x7f72, 1}, {COK_VAR_LOCALS_GAME, 0x7f79, 0x7f79, 10},
         {COK_VAR_VAULT, 0, 0x4d00, 1},           {COK_VAR_RIVER, 0, 0x4bf3, 1},
         {COK_VAR_TURNING, 0, 0x4cff, 1},

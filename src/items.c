@@ -580,8 +580,9 @@ static int sell(cok_adventure *game, cok_character *character, size_t index)
  * identify your NAME" and the question, in the game's words; Yes pays 100
  * from the character's money in steel (546c:3424), all its coins then
  * steel (58e7:0155), or else from the pool's (58e7:00d3, 018f), or in a
- * game that pays in steel alone (dkk), from its steel, and what it lacks
- * from the pool's, or says there is not enough money. Paid, an item with
+ * game that pays in steel alone (dkk, the shops section's steel), from
+ * its steel, and what it lacks from the pool's (cok_pool_pay_steel), or
+ * says there is not enough money. Paid, an item with
  * hidden parts (+0x35 bits 0-2) shows them, "It looks like some sort of
  * NAME" (waiting twice in a game that does), and the list is redrawn;
  * one with none says "I can't tell anything new about your NAME" all the
@@ -597,20 +598,15 @@ static bool identify(cok_adventure *game, cok_character *character, size_t index
     int answer = cok_camp_ask(game, I->deal, 13, I->deal_yes);
     if (answer < 0) return false;
     bool paid = false;
-    if (answer == 'Y' && I->id_steel) {
+    if (answer == 'Y' && cok_game_rules(game)->shops.steel) {
         /* dkk 580d:21d3: the steel (+0x3f), and the pool's (DS:be58, a
          * long) for the rest. */
         const cok_character_layout *L = cok_game_rules(game)->character;
-        uint16_t steel = cok_field_u16_at(L, c, COK_FIELD_COINS, 4);
-        if (steel >= 100) {
+        bool own = cok_field_u16_at(L, c, COK_FIELD_COINS, 4) >= 100;
+        if (cok_pool_pay_steel(&game->pool, c, cok_game_rules(game), 100)) {
             paid = true;
-            cok_field_set16_at(L, c, COK_FIELD_COINS, 4, (uint16_t)(steel - 100));
-            cok_adventure_log(game, "shop", "identified for 100 steel");
-        } else if ((int32_t)game->pool.coins[4] + steel >= 100) {
-            paid = true;
-            cok_field_set16_at(L, c, COK_FIELD_COINS, 4, 0);
-            game->pool.coins[4] -= (uint32_t)(100 - steel);
-            cok_adventure_log(game, "shop", "identified for 100 steel from the pool");
+            cok_adventure_log(game, "shop", own ? "identified for 100 steel"
+                                                : "identified for 100 steel from the pool");
         } else {
             cok_camp_notice(game, I->no_money);
         }
@@ -745,6 +741,7 @@ static void dk_items(cok_adventure *game, bool *done)
                                     R->items.items_menu, &items, 8, &redraw, &index,
                                     &game->list_top, &game->selected, &keys, &special, &picked);
         if (key < 0) return;
+        game->menu_special = special; /* DS:c0f8 */
         own = game->selected;
         if (special && key == 0x1b) key = DK_EXIT;
         if (picked && index >= 0 && (size_t)index < n) {

@@ -403,7 +403,22 @@ void cok_pool_pay(uint8_t *c, const cok_rules *rules, uint16_t steel)
     cok_field_set16_at(L, c, COK_FIELD_COINS, 4, steel);
 }
 
-bool cok_pool_give_steel(cok_adventure *game, uint8_t *c, uint16_t steel)
+bool cok_pool_pay_steel(cok_pool *pool, uint8_t *c, const cok_rules *rules, uint16_t price)
+{
+    const cok_character_layout *L = rules->character;
+    uint16_t steel = cok_field_u16_at(L, c, COK_FIELD_COINS, 4);
+    if (steel >= price) {
+        cok_field_set16_at(L, c, COK_FIELD_COINS, 4, (uint16_t)(steel - price));
+        return true;
+    }
+    if ((int32_t)pool->coins[4] + steel < (int32_t)price) return false;
+    cok_field_set16_at(L, c, COK_FIELD_COINS, 4, 0);
+    pool->coins[4] -= (uint32_t)(price - steel);
+    return true;
+}
+
+bool cok_pool_give_steel(cok_adventure *game, uint8_t *c, uint16_t steel,
+                         const char *overloaded)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
     bool full;
@@ -413,7 +428,7 @@ bool cok_pool_give_steel(cok_adventure *game, uint8_t *c, uint16_t steel)
         give(L, c, 4, steel);
         return true;
     }
-    overloaded_notice(game, "Overloaded.  Money will be put in Pool.");
+    overloaded_notice(game, overloaded);
     give(L, c, 4, fits);
     game->pool.coins[4] = game->pool.coins[4] + steel - fits;
     return true;
@@ -662,11 +677,7 @@ static void stock(cok_adventure *game)
         ++added;
     }
     log_pool(game, added);
-    const char *unported = cok_game_rules(game)->combat.shop_unported;
-    if (unported != NULL)
-        cok_adventure_not_yet(game, "shop", unported);
-    else
-        cok_shop(game);
+    cok_shop(game);
 }
 
 bool cok_treasure_opcode(cok_adventure *game)
@@ -1646,7 +1657,8 @@ static void vault_loop(cok_adventure *game)
         return;
     }
     vm->mode = 7;
-    cok_adventure_redraw(game); /* 65cd:2db0, DS:db62 set */
+    game->shop_frame = true;    /* DS:db62 */
+    cok_adventure_redraw(game); /* 65cd:2db0 */
     cok_adventure_party(game);  /* 65cd:07a5 */
     cok_pool_free_items(&game->pool);
     if (!load_vault(game)) return;

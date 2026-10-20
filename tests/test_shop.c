@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #x); exit(1); } } while (0)
 
@@ -961,6 +962,234 @@ static void test_cells(void)
     CHECK(temple() == COK_ECL_OK && ink(0x26, 24) == 0);
 }
 
+/* Death Knights' shop, Appraise and temple (dkk 3b89:06f3, 5c72:0dc2,
+ * 3999:07d3), on a game of its own and records of its layout. */
+
+/* A fighter of Death Knights' layout with steel, level 3, scores 12, 9 hit
+ * points, okay, added to the party and recomputed. */
+static cok_character *dk_member(const char *name, uint16_t steel)
+{
+    const cok_rules *R = &cok_rules_death_knights;
+    const cok_character_layout *L = R->character;
+    cok_character *c = calloc(1, sizeof *c);
+    CHECK(c != NULL);
+    uint8_t *r = c->record;
+    r[0] = (uint8_t)strlen(name);
+    memcpy(r + 1, name, strlen(name));
+    for (int i = 0; i < 6; ++i) {
+        cok_field_set8_at(L, r, COK_FIELD_SCORE, i, 12);
+        cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, i, 12);
+    }
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(L, r, COK_FIELD_CLASS, 2);
+    cok_field_set8(L, r, COK_FIELD_RACE, 6);
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 2, 3);
+    cok_field_set8_at(L, r, COK_FIELD_UNDRAINED_LEVEL, 2, 3);
+    cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 9);
+    cok_field_set8(L, r, COK_FIELD_MAX_HIT_POINTS, 9);
+    cok_field_set8(L, r, COK_FIELD_USABLE_CLASSES, 0xff);
+    cok_field_set16_at(L, r, COK_FIELD_COINS, 4, steel);
+    CHECK(cok_party_add(&game.party, R, c));
+    cok_ecl_add_var(&game.vm, COK_VAR_PARTY_SIZE, 1);
+    if (game.vm.character == NULL) game.vm.character = r;
+    char error[300];
+    CHECK(cok_character_stats(c, R, &game.item_types, error, sizeof error));
+    return c;
+}
+
+static uint16_t dk_steel(const cok_character *c)
+{
+    return cok_field_u16_at(cok_rules_death_knights.character, c->record, COK_FIELD_COINS, 4);
+}
+
+/* The shop at prices of factor, opened in mode 4, as STOCK opens it. */
+static void dk_shop(uint8_t factor)
+{
+    cok_ecl_set_var(&game.vm, COK_VAR_PRICES, factor);
+    cok_shop(&game);
+}
+
+static void test_dk_shop(void)
+{
+    /* By index, from Buy: the funds under the list, steel first; the
+     * selected pays from its steel; the price by the factor, times a
+     * count; then the pool pays what its steel lacks. The mode is put
+     * back. */
+    reset("BB\033P" "B\001PB\033EN");
+    cok_character *a = dk_member("A", 20);
+    cok_character *b = dk_member("B", 100);
+    stock(0x12, 7, 0);
+    stock(0x1e, 2, 20);
+    dk_shop(0x10);
+    CHECK(game.vm.status == COK_ECL_OK && !game.input_ended && game.vm.mode == 4);
+    CHECK(LOGGED("shop: prices at 16;menu: Buy View Pool Appraise Exit;choice: B;"
+                 "print: Personal funds:        20;print: Pooled Funds:           0;"));
+    CHECK(LOGGED(line("Long Sword ", 7)) && LOGGED(line("20 Arrows ", 40)));
+    CHECK(LOGGED("shop: A pays 7 steel;print: A buys a Long Sword ;"));
+    CHECK(LOGGED("print: Pooled Funds:         113;"));
+    CHECK(LOGGED("shop: A and the pool pay 40 steel;print: A buys 20 Arrows ;"));
+    CHECK(dk_steel(a) == 0 && dk_steel(b) == 0 && game.pool.coins[4] == 73);
+    CHECK(a->item_count == 2 && game.pool.item_count == 2);
+    /* Leaving money: its words, the Yes/No from Yes; No leaves. */
+    CHECK(LOGGED("print: as you leave a man says, \"excuse me but you have left some money "
+                 "here.\" ;print: do you want to go back and get your money?;menu: ;choice: N;"));
+    /* Too little; Enter is the selection, from the first (Buy); Escape
+     * leaves the list and the shop. */
+    reset("\rB\033\033");
+    a = dk_member("A", 3);
+    stock(0x12, 7, 0);
+    dk_shop(0x10);
+    CHECK(LOGGED("print: not enough money.;") && dk_steel(a) == 3 && a->item_count == 0);
+    CHECK(s.at == s.length && !game.input_ended && game.vm.status == COK_ECL_OK);
+    /* A factor not in the table: Buy's first price is its stack's. */
+    reset("BB");
+    dk_member("A", 30);
+    stock(0x12, 7, 0);
+    dk_shop(3);
+    CHECK(game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "3b89:0453") != NULL);
+    /* Down (a special P) picks the next character; Take with money. */
+    reset("\001PP" "A\033");
+    a = dk_member("A", 0);
+    b = dk_member("B", 5);
+    dk_shop(0x10);
+    CHECK(LOGGED("menu: Buy View Take Pool Share Appraise Exit;choice: A;"
+                 "print: no gems or jewelry;"));
+    CHECK(game.vm.character == b->record);
+}
+
+static void test_dk_appraise(void)
+{
+    /* Two gems: the first sold, the second kept; the counts' rows; the
+     * menu by index, Escape as Exit. */
+    reset("AGSGK\033");
+    cok_character *a = dk_member("A", 0);
+    give(a, 4, 1);
+    cok_field_set16_at(cok_rules_death_knights.character, a->record, COK_FIELD_COINS, 5, 2);
+    uint32_t seed = seed_for(100, 30);
+    game.vm.seed = seed;
+    cok_dice(&seed, 1, 100);
+    uint8_t second = cok_dice(&seed, 1, 100);
+    uint16_t gem = second <= 25 ? 5 : second <= 50 ? 25 : second <= 70 ? 50 : second <= 90 ? 250
+                 : second <= 99 ? 500 : 2500;
+    dk_shop(0x10);
+    CHECK(LOGGED("print: You have a fine collection of:;print: gems : 2;print: jewelry : 0;"
+                 "menu: Gems Exit;choice: G;print: The gem is valued at 25 steel.;"
+                 "menu: Sell Keep;choice: S;shop: gem sold for 25 steel;"));
+    CHECK(LOGGED("print: gems : 1;"));
+    CHECK(dk_steel(a) == 25 && a->item_count == 2 && a->items[1][0x31] == 0x7a &&
+          word(a->items[1] + 0x3a) == gem);
+    CHECK(s.at == s.length && game.vm.status == COK_ECL_OK);
+    /* Escape is Appraise's Exit; with 16 items Keep is not offered, and K
+     * (any key but Keep) sells. */
+    reset("A\033E");
+    a = dk_member("A", 0);
+    cok_field_set16_at(cok_rules_death_knights.character, a->record, COK_FIELD_COINS, 6, 1);
+    dk_shop(0x10);
+    CHECK(LOGGED("menu: Jewelry Exit;menu: Buy View Pool Appraise Exit;choice: E;") &&
+          s.at == s.length);
+    reset("AJK\033");
+    a = dk_member("A", 0);
+    for (int i = 0; i < 16; ++i) give(a, 4, 1);
+    cok_field_set16_at(cok_rules_death_knights.character, a->record, COK_FIELD_COINS, 6, 1);
+    char error[300];
+    CHECK(cok_character_stats(a, &cok_rules_death_knights, &game.item_types, error, sizeof error));
+    dk_shop(0x10);
+    CHECK(LOGGED("menu: Sell;") && LOGGED("shop: jewel sold for ") && a->item_count == 16);
+}
+
+static void test_dk_temple(void)
+{
+    const cok_rules *R = &cok_rules_death_knights;
+    const cok_character_layout *L = R->character;
+    /* Heal: the spells' names, the name, hit points and words; Cure Light
+     * Wounds free; Escape leaves Heal, Exit the temple. */
+    reset("H\001P\001PH\033E");
+    cok_character *a = dk_member("A", 50);
+    cok_field_set8(L, a->record, COK_FIELD_HIT_POINTS, 1);
+    cok_temple(&game);
+    CHECK(game.vm.status == COK_ECL_OK && s.at == s.length && game.vm.mode == 1);
+    CHECK(LOGGED("menu: Heal View Pool Appraise Exit;choice: H;print: A;print: 1;print: /9;"
+                 "print: A, how can we help yo;item: Cure Blindness;item: Cure Disease;"));
+    CHECK(LOGGED("item: Stone to Flesh;item: Restoration;menu: Heal;choice: Cure Light Wounds;"));
+    CHECK(cok_field_u8(L, a->record, COK_FIELD_HIT_POINTS) > 1 && dk_steel(a) == 50);
+    /* One not blind is asked, from No. */
+    reset("HH\r\033E");
+    a = dk_member("A", 0);
+    cok_temple(&game);
+    CHECK(LOGGED("choice: Cure Blindness;print: A;print: is not blind.;menu: cast cure anyway? ;"
+                 "choice: N;"));
+    /* Stone to Flesh for one stoned (Up from the first is the last). */
+    reset("H\001H\001HH\033E");
+    a = dk_member("A", 0);
+    cok_field_set8(L, a->record, COK_FIELD_STATUS, 7);
+    cok_temple(&game);
+    CHECK(LOGGED("choice: Stone to Flesh;") && cok_field_u8(L, a->record, COK_FIELD_STATUS) == 0 &&
+          cok_field_u8(L, a->record, COK_FIELD_HIT_POINTS) == 1);
+    /* Raise Dead: the spell's handler, or the stop citing it while it is
+     * not carried out. */
+    reset("H\001H\001H\001H\001HH\033E");
+    a = dk_member("A", 0);
+    cok_field_set8(L, a->record, COK_FIELD_STATUS, 6);
+    cok_temple(&game);
+    CHECK(LOGGED("choice: Raise Dead;"));
+    const char *raise = R->spells.cast[R->shops.cures[7]].unported;
+    CHECK(raise == NULL ? game.vm.status == COK_ECL_OK
+                        : game.vm.status == COK_ECL_UNPORTED && strstr(game.error, raise) != NULL);
+    /* Restoration with no level lost: asked, from No. */
+    reset("H\001HH\r\033E");
+    dk_member("A", 0);
+    cok_temple(&game);
+    CHECK(LOGGED("choice: Restoration;print: A;print: has no lost levels.;"));
+    /* View's flag is DS:c0f8: Escape from its Items ends View too. */
+    reset("VI\033E");
+    a = dk_member("A", 0);
+    give(a, 0x12, 7);
+    cok_temple(&game);
+    CHECK(LOGGED("menu: Ready Trade Drop Halve Join Sell Id Exit;menu: Heal View Pool Appraise "
+                 "Exit;"));
+    CHECK(s.at == s.length && game.vm.status == COK_ECL_OK);
+    /* Up in View's menu, a special key that moves nothing, ends it too;
+     * Right moves and reads on. */
+    reset("V\001M\001HE");
+    a = dk_member("A", 0);
+    give(a, 0x12, 7);
+    cok_temple(&game);
+    CHECK(LOGGED("menu: Items Exit;menu: Heal View Pool Appraise Exit;choice: E;"));
+    CHECK(s.at == s.length && game.vm.status == COK_ECL_OK);
+    /* The shop's View goes back to its own menu. */
+    reset("VI\033\033E");
+    a = dk_member("A", 0);
+    give(a, 0x12, 7);
+    dk_shop(0x10);
+    CHECK(LOGGED("menu: Ready Trade Drop Halve Join Sell Id Exit;print: A;print: Fighter;"
+                 "menu: Items Exit;"));
+    CHECK(s.at == s.length && game.vm.status == COK_ECL_OK);
+    /* Leaving money: both texts light green, from No. */
+    reset("PE\r");
+    dk_member("A", 5);
+    cok_temple(&game);
+    CHECK(LOGGED("menu: ;choice: N;") && game.pool.coins[4] == 5 && s.at == s.length);
+}
+
+static void test_death_knights(void)
+{
+    struct stat st;
+    if (stat("DKKAssets/START.EXE", &st) != 0) {
+        puts("shop: DKKAssets not found; Death Knights' tests skipped");
+        return;
+    }
+    cok_adventure_close(&game);
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .unported = unported, .delay = delayed,
+                                 .context = &s};
+    CHECK(cok_adventure_open(&game, &cok_rules_death_knights, "DKKAssets", &keys, &hooks));
+    game.effects.say = say;
+    game.effects.context = &s;
+    test_dk_shop();
+    test_dk_appraise();
+    test_dk_temple();
+}
+
 int main(void)
 {
     open_game();
@@ -974,6 +1203,7 @@ int main(void)
     test_trade_byte();
     test_more();
     test_cells();
+    test_death_knights();
     cok_adventure_close(&game);
     puts("shop tests passed");
     return 0;

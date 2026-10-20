@@ -124,10 +124,18 @@ int32_t cok_pool_value(const uint32_t coins[COK_COINS]);
  * its weight unchanged), as shops pay. */
 void cok_pool_set_steel(cok_pool *pool, uint16_t steel);
 void cok_pool_pay(uint8_t *c, const cok_rules *rules, uint16_t steel);
-/* Give c steel (58e7:01f2): what would overload it goes to the pool, with
- * "Overloaded.  Money will be put in Pool.". Returns false, ending the
- * run, where c's allowance cannot be had. */
-bool cok_pool_give_steel(cok_adventure *game, uint8_t *c, uint16_t steel);
+/* Pay price from c's steel (coin 4, +0x3f in dkk's records) and what that
+ * lacks from the pool's steel, a LongInt, c's then 0 (dkk 3b89:0453,
+ * 580d:21d3, which do it in place; the shops section's steel), the weight
+ * left as it is. Returns false, paying nothing, where the two do not cover
+ * it. */
+bool cok_pool_pay_steel(cok_pool *pool, uint8_t *c, const cok_rules *rules, uint16_t price);
+/* Give c steel (58e7:01f2; dkk 5c72:00ba): what would overload it goes to
+ * the pool, with overloaded said (Champions' "Overloaded.  Money will be
+ * put in Pool."). Returns false, ending the run, where c's allowance
+ * cannot be had. */
+bool cok_pool_give_steel(cok_adventure *game, uint8_t *c, uint16_t steel,
+                         const char *overloaded);
 
 /* dkk 65cd:38c7, a game's that keeps whether one may train (rules'
  * combat.may_train): whether record c may train, from class 0 on, the

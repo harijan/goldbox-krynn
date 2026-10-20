@@ -3,6 +3,7 @@
 #include "camp.h"
 #include "cast.h"
 #include "items.h"
+#include "magic.h"
 #include "screen.h"
 #include "sheet.h"
 #include "treasure.h"
@@ -123,8 +124,9 @@ static int leave(cok_adventure *game, const char *said, const char *question)
 /* 36d0:004e's lines: each pool item's line, 30 wide, written into its
  * name: the price at the factor of 0x7f6d right-aligned (the value itself
  * for a factor not in the table), and over it the name; an item worth 0
- * is made worth 1 first, for good. */
-static void price_lines(cok_adventure *game)
+ * is made worth 1 first, for good. With counts (dkk 3b89:00b1) the price
+ * is times a count above 1, as a word, and at least 1. */
+static void price_lines(cok_adventure *game, bool counts)
 {
     cok_pool *pool = &game->pool;
     uint16_t factor = cok_ecl_var(&game->vm, COK_VAR_PRICES);
@@ -135,6 +137,8 @@ static void price_lines(cok_adventure *game)
         if (word(item + 0x3a) == 0) put_word(item + 0x3a, 1);
         uint16_t price;
         cok_shop_price(word(item + 0x3a), factor, &price);
+        if (counts && item[0x39] > 1) price = (uint16_t)(item[0x39] * price);
+        if (counts && price == 0) price = 1;
         char digits[8];
         int n = snprintf(digits, sizeof digits, "%u", price);
         memcpy(line + 30 - n, digits, (size_t)n);
@@ -154,7 +158,7 @@ static void price_lines(cok_adventure *game)
 static int buy_list(cok_adventure *game, bool *redraw, int *index)
 {
     cok_pool *pool = &game->pool;
-    price_lines(game);
+    price_lines(game, false);
     size_t count = pool->item_count;
     char (*text)[31] = calloc(count + 1, sizeof *text);
     cok_menu_row *rows = calloc(count + 1, sizeof *rows);
@@ -185,14 +189,15 @@ static int buy_list(cok_adventure *game, bool *redraw, int *index)
 }
 
 /* Say "NAME buys a ITEM", or "NAME buys ITEM" for an item with a count
- * (6346:1827). */
-static void bought(cok_adventure *game, const uint8_t *c, const uint8_t *item)
+ * (6346:1827), in the words given. */
+static void bought(cok_adventure *game, const uint8_t *c, const uint8_t *item, const char *buys_a,
+                   const char *buys)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
-    char name[16], text[80];
+    char name[16], text[96];
     name_of(L, c, name);
     size_t length = item[0] > 40 ? 40 : item[0];
-    snprintf(text, sizeof text, "%s buys %s%.*s", name, item[0x39] > 0 ? "" : "a ", (int)length,
+    snprintf(text, sizeof text, "%s%s%.*s", name, item[0x39] > 0 ? buys : buys_a, (int)length,
              (const char *)item + 1);
     cok_camp_notice(game, text);
 }
@@ -240,7 +245,7 @@ static bool purchase(cok_adventure *game, size_t index)
         snprintf(text, sizeof text, "the pool pays %u steel", price);
     }
     cok_adventure_log(game, "shop", text);
-    bought(game, c, item);
+    bought(game, c, item, " buys a ", " buys ");
     return true;
 }
 
@@ -292,6 +297,38 @@ static uint16_t jewel_value(uint32_t *seed)
     return (uint16_t)(cok_tp_random(seed, ranges[i].range) + ranges[i].base);
 }
 
+/* Keep the gem or jewel valued: a new item, type 0x2f, part +0x31 0x7a
+ * ("Gem") or 0x7b ("Jewelry"), worth the value, weighing 1, unnamed, after
+ * the character's items, or lost if it has none (58e7:1df5, 213c; dkk
+ * 5c72:0dc2); or sell it for the value in steel (58e7:01f2; dkk 5c72:00ba),
+ * what would overload it going to the pool with overloaded said. */
+static bool keep_or_sell(cok_adventure *game, cok_character *character, bool jewel, uint16_t value,
+                         bool keep, const char *overloaded)
+{
+    uint8_t *c = character->record;
+    char text[48];
+    if (keep) {
+        /* The new item is linked after the last; with none, the original
+         * keeps it in a local only (58e7:1df5, 213c), and it is lost. */
+        if (character->item_count == 0) {
+            cok_adventure_log(game, "shop", jewel ? "jewel kept and lost" : "gem kept and lost");
+            return true;
+        }
+        uint8_t item[COK_ITEM_SIZE] = {0};
+        item[0x31] = jewel ? 0x7b : 0x7a; /* "Jewelry", "Gem" */
+        item[0x2e] = 0x2f;
+        put_word(item + 0x3a, value);
+        put_word(item + 0x37, 1);
+        if (!cok_character_insert_item(character, character->item_count, item))
+            return undefined(game, "out of memory");
+        cok_adventure_log(game, "shop", jewel ? "jewel kept" : "gem kept");
+        return true;
+    }
+    snprintf(text, sizeof text, "%s sold for %u steel", jewel ? "jewel" : "gem", value);
+    cok_adventure_log(game, "shop", text);
+    return cok_pool_give_steel(game, c, value, overloaded);
+}
+
 /* Value one gem (part 0x7a) or jewel (0x7b) that c had and has just lost:
  * "The Gem is Valued at N steel." on row 12, then "You can : " with
  * "Sell Keep", or "Sell" alone if one more would overload c (58e7:006d,
@@ -314,29 +351,12 @@ static bool appraise_one(cok_adventure *game, cok_character *character, bool jew
     bool special;
     int key = cok_camp_menu(game, "You can : ", keep ? "Sell Keep" : "Sell", true, false, &special);
     if (key < 0) return false;
-    if (key == 'K' && keep) {
-        /* The new item is linked after the last; with none, the original
-         * keeps it in a local only (58e7:1df5, 213c), and it is lost. */
-        if (character->item_count == 0) {
-            cok_adventure_log(game, "shop", jewel ? "jewel kept and lost" : "gem kept and lost");
-            return true;
-        }
-        uint8_t item[COK_ITEM_SIZE] = {0};
-        item[0x31] = jewel ? 0x7b : 0x7a; /* "Jewelry", "Gem" */
-        item[0x2e] = 0x2f;
-        put_word(item + 0x3a, value);
-        put_word(item + 0x37, 1);
-        if (!cok_character_insert_item(character, character->item_count, item))
-            return undefined(game, "out of memory");
-        cok_adventure_log(game, "shop", jewel ? "jewel kept" : "gem kept");
-        return true;
-    }
-    snprintf(text, sizeof text, "%s sold for %u steel", jewel ? "jewel" : "gem", value);
-    cok_adventure_log(game, "shop", text);
-    return cok_pool_give_steel(game, c, value);
+    return keep_or_sell(game, character, jewel, value, key == 'K' && keep,
+                        "Overloaded.  Money will be put in Pool.");
 }
 
-bool cok_shop_appraise(cok_adventure *game, bool *shown)
+
+static bool appraise(cok_adventure *game, bool *shown)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
     *shown = true;
@@ -389,7 +409,7 @@ bool cok_shop_appraise(cok_adventure *game, bool *shown)
 
 /* The shop (36d0:07da). */
 
-void cok_shop(cok_adventure *game)
+static void shop(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     vm->mode = 1;
@@ -444,7 +464,7 @@ void cok_shop(cok_adventure *game)
             if (!cok_pool_share(game)) return;
             break;
         case 'A':
-            if (!cok_shop_appraise(game, &shown)) return;
+            if (!appraise(game, &shown)) return;
             if (shown) stale = COK_SHEET_STALE_SET;
             break;
         case 'E':
@@ -493,13 +513,13 @@ static bool ability(cok_adventure *game, cok_character *c, unsigned stat)
     return cok_effects_ability(&game->effects, c, stat) || effect_failed(game);
 }
 
-/* 340d:0045: say text about c in the text window, without a pause
- * (6346:1883), and ask "cast cure anyway: "; rows 18-22 are cleared after
- * (6346:196a). Returns 'Y', 'N' or -1 if input ended. */
-static int anyway(cok_adventure *game, const uint8_t *c, const char *text)
+/* 340d:0045 (dkk 3999:0000): say text about c in the text window, without
+ * a pause (6346:1883), and ask prompt ("cast cure anyway: "); rows 18-22
+ * are cleared after (6346:196a). Returns 'Y', 'N' or -1 if input ended. */
+static int anyway(cok_adventure *game, const uint8_t *c, const char *text, const char *prompt)
 {
     cok_camp_say(game, c, text, false);
-    int answer = cok_camp_yes_no(game, "cast cure anyway: ", 13);
+    int answer = cok_camp_yes_no(game, prompt, 13);
     if (answer >= 0) cok_camp_clear_text(game);
     return answer;
 }
@@ -545,7 +565,7 @@ static int pay(cok_adventure *game, cok_character *character, const char *cure, 
 static int ask(cok_adventure *game, cok_character *c, bool ok, const char *text, const char *cure,
                uint16_t price)
 {
-    int answer = ok ? 'Y' : anyway(game, c->record, text);
+    int answer = ok ? 'Y' : anyway(game, c->record, text, "cast cure anyway: ");
     return answer == 'Y' ? pay(game, c, cure, price) : answer;
 }
 
@@ -785,7 +805,7 @@ static bool heal(cok_adventure *game)
     return true;
 }
 
-void cok_temple(cok_adventure *game)
+static void temple(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     vm->mode = 1;
@@ -839,7 +859,7 @@ void cok_temple(cok_adventure *game)
             if (!cok_pool_share(game)) return;
             break;
         case 'A':
-            if (!cok_shop_appraise(game, &shown)) return;
+            if (!appraise(game, &shown)) return;
             if (shown) stale = COK_SHEET_STALE_SET;
             break;
         case 'E': {
@@ -875,4 +895,637 @@ void cok_temple(cok_adventure *game)
         cok_adventure_party(game);
         if (done) return;
     }
+}
+
+/* Death Knights' shop, Appraise and temple (COK_SHOPS_DEATH_KNIGHTS), by
+ * index. */
+
+/* The shop's and the temple's menu items by index (dkk DS:34f8, 3594). */
+enum { DK_BUY, DK_VIEW, DK_TAKE, DK_POOL, DK_SHARE, DK_APPRAISE, DK_EXIT };
+
+/* A menu by index on row 24 (dkk 6a69:0f1b) of text's items listed, with
+ * prompt, logged as it shows and its letter as chosen; the special flag
+ * kept (DS:c0f8). Returns the index, or a special key's scan code with
+ * *special set, or -1 if input ended. */
+static int dk_pick(cok_adventure *game, const char *prompt, const char *text,
+                   const cok_menu_items *items, bool keypad, bool *special)
+{
+    cok_menu_indexed_layout shown;
+    cok_menu_indexed(&shown, text, items);
+    cok_adventure_log(game, "menu", shown.text);
+    cok_keyboard keys = cok_adventure_keyboard(game);
+    int key = cok_menu_pick(&game->screen, &game->font, prompt, text, items, 13, 15, 10, keypad,
+                            &game->selected, &keys, special);
+    if (key < 0) return -1;
+    game->menu_special = *special;
+    for (size_t k = 0; k < shown.hotkeys && !*special; ++k)
+        if (shown.index[k] == key) {
+            char choice[2] = {(char)shown.hotkey[k], '\0'};
+            cok_adventure_log(game, "choice", choice);
+        }
+    return key;
+}
+
+/* The shop's and the temple's menu: Take and Share only with money in the
+ * pool (5c72:0d6e). */
+static int dk_menu(cok_adventure *game, const char *text, bool *special)
+{
+    bool money, items;
+    cok_pool_status(&game->pool, &money, &items);
+    cok_menu_items shown = {0};
+    for (uint8_t i = DK_BUY; i <= DK_EXIT; ++i)
+        if (money || (i != DK_TAKE && i != DK_SHARE)) cok_menu_items_add(&shown, i);
+    return dk_pick(game, "", text, &shown, true, special);
+}
+
+/* 3b89:0000: the selected character's steel and the pool's under Buy's
+ * list, each after its words right-aligned to 10, in white on rows 20 and
+ * 21. Returns false, ending the run, with no character selected. */
+static bool dk_funds(cok_adventure *game)
+{
+    const cok_rules *R = cok_game_rules(game);
+    cok_character *character = selected(game);
+    if (character == NULL)
+        return undefined(game, "Buy with no character selected reads through NULL (dkk 3b89:0000)");
+    char text[48];
+    snprintf(text, sizeof text, "%s%10u", R->shops.personal_funds,
+             cok_field_u16_at(R->character, character->record, COK_FIELD_COINS, 4));
+    draw(game, text, 1, 0x14, 15);
+    snprintf(text, sizeof text, "%s%10ld", R->shops.pooled_funds, (long)(int32_t)game->pool.coins[4]);
+    draw(game, text, 1, 0x15, 15);
+    return true;
+}
+
+/* Buy pool item at price (dkk 3b89:0453): the selected character pays
+ * from its steel and what that lacks from the pool's (cok_pool_pay_steel),
+ * or "not enough money."; a copy goes to it (3b89:033b, which joins an
+ * item with a count to its kind) unless it would be overloaded, and the
+ * shop keeps its own. Returns false, ending the run, where it cannot be
+ * carried out. */
+static bool dk_purchase(cok_adventure *game, uint8_t *item, uint16_t price)
+{
+    const cok_rules *R = cok_game_rules(game);
+    cok_character *character = selected(game);
+    if (character == NULL)
+        return undefined(game, "Buy with no character selected reads through NULL (dkk 3b89:0453)");
+    uint8_t *c = character->record;
+    uint16_t steel = cok_field_u16_at(R->character, c, COK_FIELD_COINS, 4);
+    bool own = steel >= price, failed;
+    if (!own && (int32_t)game->pool.coins[4] + steel < (int32_t)price) {
+        cok_camp_notice(game, R->items.no_money); /* DS:1743 */
+        return true;
+    }
+    if (!cok_treasure_take_item(game, item, &failed)) return false;
+    if (failed) return true;
+    cok_pool_pay_steel(&game->pool, c, R, price);
+    char name[16], text[64];
+    name_of(R->character, c, name);
+    if (own)
+        snprintf(text, sizeof text, "%s pays %u steel", name, price);
+    else
+        snprintf(text, sizeof text, "%s and the pool pay %u steel", name, price);
+    cok_adventure_log(game, "shop", text);
+    bought(game, c, item, R->shops.buys_a, R->shops.buys);
+    return true;
+}
+
+/* Buy (dkk 3b89:0453): on the frame (110f:0000 with 0), until Escape or
+ * Exit, the funds (3b89:0000), and the pool's items in lines as
+ * Champions' (3b89:00b1, a price times a count above 1 and at least 1), by
+ * the list 6a69:1b82 in cells 1-38 by 1-18 with "items : " and "Buy", the
+ * selection cleared first (DS:c0f7); the pool named again after it. The
+ * item picked is bought at its price, by the factor of var 0x7f6d, times a
+ * count above 1, as a word, and at least 1. A factor not in the table
+ * keeps the price set last, here the stack's at first ([bp-8]): the port
+ * stops there. Returns false, ending the run, where it cannot be carried
+ * out. */
+static bool dk_buy(cok_adventure *game)
+{
+    const cok_rules *R = cok_game_rules(game);
+    cok_pool *pool = &game->pool;
+    clear_frame(game);
+    bool redraw = true; /* DS:84c4 */
+    int index = 0;
+    uint16_t price = 0;
+    bool priced = false;
+    for (;;) {
+        if (!dk_funds(game)) return false;
+        price_lines(game, true);
+        size_t count = pool->item_count;
+        char (*text)[31] = calloc(count + 1, sizeof *text);
+        cok_menu_row *rows = calloc(count + 1, sizeof *rows);
+        if (text == NULL || rows == NULL) {
+            free(text);
+            free(rows);
+            return undefined(game, "out of memory");
+        }
+        for (size_t i = 0; i < count; ++i) {
+            memcpy(text[i], pool->items[i] + 1, 30);
+            rows[i] = (cok_menu_row){text[i], pool->items[i][0x29] != 0};
+            if (i < 255) cok_adventure_log(game, rows[i].heading ? "heading" : "item", text[i]);
+        }
+        cok_menu_items items;
+        cok_menu_items_upto(&items, 0);
+        cok_menu_indexed_layout shown;
+        cok_menu_indexed(&shown, R->shops.buy_menu, &items);
+        cok_adventure_log(game, "menu", shown.text);
+        cok_menu_style style = {R->treasure.items_prompt, "", 15, 10, 13, true};
+        cok_keyboard keys = cok_adventure_keyboard(game);
+        game->selected = 0; /* DS:c0f7 */
+        bool special = false, picked;
+        int key = cok_menu_indexed_rows(&game->screen, &game->font, rows, count,
+                                        (cok_text_window){1, 1, 0x26, 0x12}, &style,
+                                        R->shops.buy_menu, &items, 0, &redraw, &index,
+                                        &game->list_top, &game->selected, &keys, &special,
+                                        &picked);
+        if (key >= 0) game->menu_special = special; /* DS:c0f8 */
+        if (key >= 0 && picked && index >= 0 && (size_t)index < count)
+            cok_adventure_log(game, "choice", text[index]);
+        free(text);
+        free(rows);
+        if (key < 0 || !name_pool(game)) return false;
+        if (special && key == 0x1b) return true;
+        if (!picked || index < 0 || (size_t)index >= pool->item_count)
+            return undefined(game, "Buy picked no item and reads through NULL (dkk 3b89:0453)");
+        uint8_t *item = pool->items[index];
+        uint16_t at;
+        if (cok_shop_price(word(item + 0x3a), cok_ecl_var(&game->vm, COK_VAR_PRICES), &at))
+            price = at, priced = true;
+        else if (!priced)
+            return undefined(game, "Buy at a price factor not in its table charges what its "
+                                   "stack holds (dkk 3b89:0453)");
+        if (item[0x39] > 1) price = (uint16_t)(item[0x39] * price);
+        if (price == 0) price = 1;
+        if (!dk_purchase(game, item, price)) return false;
+    }
+}
+
+/* Value one gem or jewel that c had and has just lost (dkk 5c72:0dc2):
+ * "The gem is valued at N steel." on row 12, then "Sell Keep" by index
+ * with no prompt (DS:2fad), Keep only while one more would not overload c
+ * (5c72:0054, against its weight before the coin went) and it has fewer
+ * than 16 items; Keep (1) keeps it, any other key sells it (5c72:00ba). */
+static bool dk_appraise_one(cok_adventure *game, cok_character *character, bool jewel)
+{
+    const cok_rules *R = cok_game_rules(game);
+    const cok_rules_shops *S = &R->shops;
+    uint8_t *c = character->record;
+    uint16_t value = jewel ? jewel_value(&game->vm.seed) : gem_value(&game->vm.seed);
+    char text[48];
+    snprintf(text, sizeof text, "%s%u%s", jewel ? S->jewel_valued : S->gem_valued, value,
+             S->valued_end);
+    draw(game, text, 1, 0x0c, 15);
+    bool full;
+    uint16_t fits;
+    if (!cok_pool_overloaded(game, c, 1, &full, &fits)) return false;
+    bool keep = !full && cok_field_u8(R->character, c, COK_FIELD_ITEM_COUNT) < 16;
+    cok_menu_items items = {0};
+    cok_menu_items_add(&items, 0);
+    if (keep) cok_menu_items_add(&items, 1); /* DS:c122 */
+    bool special;
+    int key = dk_pick(game, "", S->sell_keep, &items, false, &special);
+    if (key < 0) return false;
+    return keep_or_sell(game, character, jewel, value, key == 1 && keep, R->items.sold_pool);
+}
+
+/* Appraise (dkk 5c72:0dc2): as Champions' (58e7:1929), in its own words:
+ * "no gems or jewelry", or on cells 1-38 by 1-22 the name, the collection's
+ * line and "gems : N" and "jewelry : N" on rows 9 and 10 whatever they
+ * are, white, and "Appraise : " with "Gems Jewelry Exit" by index, those
+ * it has (keypad on, Escape as Exit), until Exit or none is left; the
+ * stats recomputed (65cd:0e46) after each key. */
+static bool dk_appraise(cok_adventure *game, bool *shown)
+{
+    const cok_rules *R = cok_game_rules(game);
+    const cok_rules_shops *S = &R->shops;
+    const cok_character_layout *L = R->character;
+    *shown = true;
+    cok_character *character = selected(game);
+    if (character == NULL)
+        return undefined(game, "Appraise with no character selected reads through NULL "
+                               "(dkk 5c72:0dc2)");
+    uint8_t *c = character->record;
+    if (cok_field_u16_at(L, c, COK_FIELD_COINS, 5) == 0 &&
+        cok_field_u16_at(L, c, COK_FIELD_COINS, 6) == 0) {
+        cok_camp_notice(game, S->no_gems);
+        *shown = false;
+        return true;
+    }
+    for (;;) {
+        uint16_t gems = cok_field_u16_at(L, c, COK_FIELD_COINS, 5),
+                 jewels = cok_field_u16_at(L, c, COK_FIELD_COINS, 6);
+        if (gems == 0 && jewels == 0) return true;
+        char gem_text[24], jewel_text[24];
+        snprintf(gem_text, sizeof gem_text, "%s%u", S->gems, gems);
+        snprintf(jewel_text, sizeof jewel_text, "%s%u", S->jewelry, jewels);
+        clear_cells(game, 1, 1, 0x26, 0x16);
+        cok_item_draw_name(game, c, 1, 1, false); /* 65cd:1b3b */
+        draw(game, S->collection, 1, 7, 15);
+        draw(game, gem_text, 1, 9, 15);
+        draw(game, jewel_text, 1, 0x0a, 15);
+        cok_menu_items items = {0};
+        if (gems > 0) cok_menu_items_add(&items, 0);
+        if (jewels > 0) cok_menu_items_add(&items, 1);
+        cok_menu_items_add(&items, 2);
+        bool special;
+        int key = dk_pick(game, S->appraise_prompt, S->appraise_menu, &items, true, &special);
+        if (key < 0) return false;
+        if (special && key == 0x1b) key = 2;
+        if (key == 0 && gems > 0) {
+            cok_field_set16_at(L, c, COK_FIELD_COINS, 5, (uint16_t)(gems - 1));
+            if (!dk_appraise_one(game, character, false)) return false;
+        } else if (key == 1 && jewels > 0) {
+            cok_field_set16_at(L, c, COK_FIELD_COINS, 6, (uint16_t)(jewels - 1));
+            if (!dk_appraise_one(game, character, true)) return false;
+        }
+        if (!recompute(game, character)) return false;
+        if (key == 2) return true;
+    }
+}
+
+/* Leaving money in the pool (dkk 3b89:06f3, 3999:07d3): its words in rows
+ * 17-22, the first light green clearing them, the second white after it in
+ * the shop, light green clearing them in the temple; the Yes/No by index
+ * from Yes in the shop, from No in the temple (6a69:2048 with DS:57c0,
+ * 57c1). Returns 1 for No, 0 for Yes, having cleared rows 17-22, or -1 if
+ * input ended. */
+static int dk_leave(cok_adventure *game, bool temple)
+{
+    const cok_rules_shops *S = &cok_game_rules(game)->shops;
+    cok_adventure_print(game, S->left, cok_adventure_text_window, 10, true);
+    cok_adventure_print(game, S->go_back, cok_adventure_text_window, temple ? 10 : 15, temple);
+    int answer = cok_camp_ask(game, "", 13, !temple);
+    if (answer < 0) return -1;
+    if (answer == 'N') return 1;
+    clear_cells(game, 1, 0x11, 0x26, 0x16); /* 14e4:0b6b */
+    return 0;
+}
+
+/* The shop (dkk 3b89:06f3): as Champions', but by index with its own
+ * selection from the first (DS:c0f7 put back before each ask), Escape as
+ * Exit, up and down (H and P) picking a character (580d:2bb2), the index
+ * dispatched as it comes, a special key's scan code too; Buy, Take and
+ * Appraise redraw the screen, and so does Pool after an Appraise has set
+ * the flag it shares ([bp-8], before that what the stack held: the redraw
+ * draws the screen as it stands); the mode it was opened in put back at
+ * the end (DS:8c4f), as STOCK opens it too. */
+static void dk_shop(cok_adventure *game)
+{
+    const cok_rules *R = cok_game_rules(game);
+    cok_ecl *vm = &game->vm;
+    uint8_t mode = vm->mode; /* DS:8c4f */
+    vm->mode = 1;
+    game->shop_frame = false; /* DS:db62 */
+    cok_adventure_redraw(game);
+    game->shop_frame = true;
+    cok_adventure_party(game);
+    memset(game->pool.coins, 0, sizeof game->pool.coins);
+    if (!name_pool(game)) return;
+    char text[32];
+    snprintf(text, sizeof text, "prices at %u", cok_ecl_var(vm, COK_VAR_PRICES));
+    cok_adventure_log(game, "shop", text);
+    uint8_t own = 1;
+    bool appraised = false;
+    for (bool done = false; !done;) {
+        game->selected = own;
+        bool special;
+        int key = dk_menu(game, R->shops.menu, &special);
+        if (key < 0) return;
+        own = game->selected;
+        if (special && (key == 'H' || key == 'P')) {
+            vm->character = cok_adventure_special(game, (uint8_t)key);
+            key = 0xff;
+        } else if (special && key == 0x1b) {
+            key = DK_EXIT;
+        }
+        bool used;
+        switch (key) {
+        case DK_BUY:
+            if (!dk_buy(game)) return;
+            break;
+        case DK_VIEW: cok_sheet(game, COK_SHEET_STALE_UNKNOWN, &used); break;
+        case DK_TAKE:
+            if (!cok_pool_take_money(game)) return;
+            break;
+        case DK_POOL: cok_pool_gather(game); break;
+        case DK_SHARE:
+            if (!cok_pool_share(game)) return;
+            break;
+        case DK_APPRAISE:
+            if (!dk_appraise(game, &appraised)) return;
+            break;
+        case DK_EXIT: {
+            bool money, items;
+            cok_pool_status(&game->pool, &money, &items);
+            int answer = money ? dk_leave(game, false) : 1;
+            if (answer < 0) return;
+            done = answer == 1;
+            break;
+        }
+        default: break;
+        }
+        if (vm->abort || vm->status != COK_ECL_OK) return;
+        if (key == DK_BUY || key == DK_TAKE || key == DK_APPRAISE || (key == DK_POOL && appraised))
+            cok_adventure_redraw(game);
+        cok_adventure_party(game);
+    }
+    vm->mode = mode;
+}
+
+/* The cures of Heal (dkk 3999:04e2), free: each that its character does
+ * not need asks to cast it anyway (3999:0000). Returns false, ending the
+ * run, where it cannot be carried out. */
+
+static int dk_anyway(cok_adventure *game, cok_character *c, bool needed, const char *text)
+{
+    return needed ? 'Y' : anyway(game, c->record, text, cok_game_rules(game)->shops.anyway);
+}
+
+/* 3999:0053: Cure Blindness, effect 0x21 goes. */
+static bool dk_cure_blindness(cok_adventure *game, cok_character *c)
+{
+    uint8_t blind = cok_game_effect(game, COK_EFFECT_BLIND);
+    int answer = dk_anyway(game, c, cok_character_find_effect(c, blind) != NULL,
+                           cok_game_rules(game)->shops.not_blind);
+    return answer >= 0 && (answer != 'Y' || remove_effect(game, c, blind));
+}
+
+/* 3999:00b0: Cure Light (1d8), Serious (2d8 + 1) and Critical Wounds (3d8
+ * + 3, 638c:206f), or Heal: up to the maximum less 1d4, none if within
+ * it, then blindness goes and intelligence and wisdom are worked out
+ * (638c:16d8), which keeps nothing. */
+static bool dk_wounds(cok_adventure *game, cok_character *character, unsigned kind)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t *c = character->record;
+    uint32_t *seed = &game->vm.seed;
+    uint8_t amount;
+    switch (kind) {
+    case 1: amount = cok_dice(seed, 1, 8); break;
+    case 2: amount = (uint8_t)(cok_dice(seed, 2, 8) + 1); break;
+    case 3: amount = (uint8_t)(cok_dice(seed, 3, 8) + 3); break;
+    default: {
+        uint8_t d = cok_dice(seed, 1, 4);
+        uint8_t now = cok_field_u8(L, c, COK_FIELD_HIT_POINTS),
+                most = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS);
+        amount = now + d > most ? 0 : (uint8_t)(most - now - d);
+        break;
+    }
+    }
+    cok_character_heal(c, cok_game_rules(game), amount, false, game->vm.mode);
+    if (kind != 4) return true;
+    if (!remove_effect(game, character, cok_game_effect(game, COK_EFFECT_BLIND))) return false;
+    return ability(game, character, 1) && ability(game, character, 2);
+}
+
+/* 3999:02a0: Neutralize Poison, as Champions' (340d:0924) unpaid. */
+static bool dk_neutralize_poison(cok_adventure *game, cok_character *character)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t *c = character->record;
+    bool poisoned =
+        cok_character_find_named(character, cok_game_rules(game), COK_EFFECT_POISONED) != NULL;
+    int answer = dk_anyway(game, character, poisoned, cok_game_rules(game)->shops.not_poisoned);
+    if (answer < 0) return false;
+    if (answer != 'Y' || !poisoned) return true;
+    if (cok_field_u8(L, c, COK_FIELD_HIT_POINTS) == 0) cok_field_set8(L, c, COK_FIELD_HIT_POINTS, 1);
+    game->effects.rolls.curing = 1; /* DS:be75 */
+    const uint8_t poisons[3] = {cok_game_effect(game, COK_EFFECT_POISONED),
+                                cok_game_effect(game, COK_EFFECT_SLOW_POISON),
+                                cok_game_effect(game, COK_EFFECT_POISON)};
+    for (size_t i = 0; i < sizeof poisons; ++i)
+        if (!remove_effect(game, character, poisons[i])) return false;
+    game->effects.rolls.curing = 0;
+    cok_field_set8(L, c, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(L, c, COK_FIELD_STATUS, 0);
+    return true;
+}
+
+/* 3999:01fc: Raise Dead, for one dead or animated (status 6 or 1) and not
+ * an elf (race 0 or 1): Raise Dead's handler (spell 0x4b, the list's 8th
+ * cure) on it. */
+static bool dk_raise_dead(cok_adventure *game, cok_character *character)
+{
+    const cok_rules *R = cok_game_rules(game);
+    uint8_t *c = character->record;
+    uint8_t status = cok_field_u8(R->character, c, COK_FIELD_STATUS);
+    bool dead = status == 6 || status == 1, elf = cok_field_s8(R->character, c, COK_FIELD_RACE) < 2;
+    int answer = dk_anyway(game, character, dead && !elf,
+                           elf ? R->shops.cannot_raise : R->shops.not_dead);
+    if (answer < 0) return false;
+    return answer != 'Y' || !dead || elf || cok_cast_on(game, R->shops.cures[7], character, true);
+}
+
+/* 3999:0368: Remove Curse, for one with a cursed item (+0x36) or Bestow
+ * Curse (0x24): the spell's routine on it (5dc5:311b, the list's 9th
+ * cure's handler). */
+static bool dk_remove_curse(cok_adventure *game, cok_character *character)
+{
+    const cok_rules *R = cok_game_rules(game);
+    bool cursed = false;
+    for (size_t i = 0; i < character->item_count && !cursed; ++i)
+        cursed = character->items[i][0x36] != 0;
+    if (!cursed) cursed = cok_character_find_named(character, R, COK_EFFECT_CURSED) != NULL;
+    int answer = dk_anyway(game, character, cursed, R->shops.not_cursed);
+    if (answer < 0) return false;
+    return answer != 'Y' || cok_cast_on(game, R->shops.cures[8], character, false);
+}
+
+/* 3999:0404: Stone to Flesh, as Champions' (340d:0b32) unpaid. */
+static bool dk_stone_to_flesh(cok_adventure *game, cok_character *character)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t *c = character->record;
+    bool stoned = cok_field_u8(L, c, COK_FIELD_STATUS) == 7;
+    int answer = dk_anyway(game, character, stoned, cok_game_rules(game)->shops.not_stoned);
+    if (answer < 0) return false;
+    if (answer != 'Y' || !stoned) return true;
+    cok_field_set8(L, c, COK_FIELD_STATUS, 0);
+    cok_field_set8(L, c, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(L, c, COK_FIELD_HIT_POINTS, 1);
+    return true;
+}
+
+/* 3999:045f: Restoration, for one with a class level below the level it
+ * was drained from (+0x45-+0x4c against +0x4d-+0x54): Restoration's
+ * handler (spell 0x11, the list's 11th cure) on it. */
+static bool dk_restoration(cok_adventure *game, cok_character *character)
+{
+    const cok_rules *R = cok_game_rules(game);
+    const uint8_t *c = character->record;
+    bool lost = false;
+    for (size_t i = 0; i < 8; ++i)
+        if (cok_field_s8_at(R->character, c, COK_FIELD_CLASS_LEVEL, i) <
+            cok_field_s8_at(R->character, c, COK_FIELD_UNDRAINED_LEVEL, i))
+            lost = true;
+    int answer = dk_anyway(game, character, lost, R->shops.no_lost_levels);
+    if (answer < 0) return false;
+    return answer != 'Y' || cok_cast_on(game, R->shops.cures[10], character, true);
+}
+
+/* Heal (dkk 3999:04e2): row 24 cleared, the frame of a large picture
+ * (110f:02ab), then until Exit or Escape, for the selected character, its
+ * name (white), hit points (white at the maximum, else light magenta) and
+ * "/" and the maximum on row 19, the name and ", how can we help yo" on
+ * row 1, white, and the cures (the spells' names) in cells 2-38 by 3-15
+ * by the list 6a69:1b82 with "Heal", its rows drawn the first time only,
+ * from the first; then the screen is redrawn. */
+static bool dk_heal(cok_adventure *game)
+{
+    const cok_rules *R = cok_game_rules(game);
+    const cok_rules_shops *S = &R->shops;
+    const cok_character_layout *L = R->character;
+    enum { CURES_MOST = 16 };
+    cok_menu_row rows[CURES_MOST];
+    size_t count = S->cure_count < CURES_MOST ? S->cure_count : CURES_MOST;
+    for (size_t i = 0; i < count; ++i) {
+        const char *name = cok_spell_name(R, S->cures[i]);
+        if (name == NULL) return undefined(game, "a cure that is no spell (dkk 3999:04e2)");
+        rows[i] = (cok_menu_row){name, false};
+    }
+    cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 14e4:0b6b */
+    bool redraw = true;
+    int index = 0;
+    cok_adventure_screen(game, COK_SCREEN_BIG); /* 110f:02ab */
+    for (;;) {
+        cok_character *character = selected(game);
+        if (character == NULL)
+            return undefined(game, "Heal with no character selected reads through NULL "
+                                   "(dkk 3999:04e2)");
+        uint8_t *c = character->record;
+        char name[16], text[48], hp[8];
+        name_of(L, c, name);
+        clear_cells(game, 1, 0x13, 0x26, 0x13);
+        draw(game, name, 1, 0x13, 15);
+        uint8_t now = cok_field_u8(L, c, COK_FIELD_HIT_POINTS),
+                most = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS);
+        int n = snprintf(hp, sizeof hp, "%u", now);
+        draw(game, hp, 0x12, 0x13, now == most ? 15 : 13);
+        snprintf(text, sizeof text, "/%u", most);
+        draw(game, text, 0x12 + n, 0x13, 15);
+        snprintf(text, sizeof text, "%s%s", name, S->help);
+        text[40] = '\0';
+        draw(game, text, 1, 1, 15);
+        if (redraw)
+            for (size_t i = 0; i < count; ++i) cok_adventure_log(game, "item", rows[i].text);
+        cok_menu_items items;
+        cok_menu_items_upto(&items, 0);
+        cok_menu_indexed_layout shown;
+        cok_menu_indexed(&shown, S->heal_menu, &items);
+        cok_adventure_log(game, "menu", shown.text);
+        cok_menu_style style = {"", "", 15, 10, 13, true};
+        cok_keyboard keys = cok_adventure_keyboard(game);
+        bool special = false, picked;
+        int key = cok_menu_indexed_rows(&game->screen, &game->font, rows, count,
+                                        (cok_text_window){2, 3, 0x26, 0x0f}, &style, S->heal_menu,
+                                        &items, 0, &redraw, &index, &game->list_top,
+                                        &game->selected, &keys, &special, &picked);
+        if (key < 0) return false;
+        game->menu_special = special; /* DS:c0f8 */
+        if (special) {
+            if (key == 0x1b) break;
+            continue;
+        }
+        if (key == 1) break;
+        if (key != 0 || index < 0 || (size_t)index >= count) continue;
+        cok_adventure_log(game, "choice", rows[index].text);
+        bool ok = true;
+        switch (index) {
+        case 0: ok = dk_cure_blindness(game, character); break;
+        case 1: break; /* 3999:00ab: Cure Disease does nothing */
+        case 2: case 3: case 4: case 5: ok = dk_wounds(game, character, (unsigned)index - 1); break;
+        case 6: ok = dk_neutralize_poison(game, character); break;
+        case 7: ok = dk_raise_dead(game, character); break;
+        case 8: ok = dk_remove_curse(game, character); break;
+        case 9: ok = dk_stone_to_flesh(game, character); break;
+        case 10: ok = dk_restoration(game, character); break;
+        default: break;
+        }
+        if (!ok || game->vm.abort || game->vm.status != COK_ECL_OK) return false;
+    }
+    cok_adventure_redraw(game);
+    cok_adventure_party(game);
+    return true;
+}
+
+/* The temple (dkk 3999:07d3): as the shop, but with Heal for Buy, the
+ * selection as the menu before left it, the mode not put back, the pool's
+ * items not named, Take redrawing and Appraise when it showed any, and
+ * View given DS:c0f8 for its flag: every menu by index sets it, so View
+ * (and its Items) ends at the first that read a special key, as Up (not
+ * Left or Right, which move and read on) in its menu, Exit from Items or
+ * Escape from a pick. */
+static void dk_temple(cok_adventure *game)
+{
+    const cok_rules *R = cok_game_rules(game);
+    cok_ecl *vm = &game->vm;
+    vm->mode = 1;
+    game->shop_frame = false; /* DS:db62 */
+    cok_adventure_redraw(game);
+    game->shop_frame = true;
+    cok_adventure_party(game);
+    memset(game->pool.coins, 0, sizeof game->pool.coins);
+    for (bool done = false; !done;) {
+        bool special;
+        int key = dk_menu(game, R->shops.temple_menu, &special);
+        if (key < 0) return;
+        if (special && key == 0x1b) {
+            key = DK_EXIT;
+        } else if (special && (key == 'H' || key == 'P')) {
+            vm->character = cok_adventure_special(game, (uint8_t)key);
+            key = 0xff;
+        }
+        bool shown = false;
+        switch (key) {
+        case DK_BUY: /* Heal */
+            if (!dk_heal(game)) return;
+            break;
+        case DK_VIEW: cok_sheet(game, COK_SHEET_STALE_UNKNOWN, &game->menu_special); break;
+        case DK_TAKE:
+            if (!cok_pool_take_money(game)) return;
+            break;
+        case DK_POOL: cok_pool_gather(game); break;
+        case DK_SHARE:
+            if (!cok_pool_share(game)) return;
+            break;
+        case DK_APPRAISE:
+            if (!dk_appraise(game, &shown)) return;
+            break;
+        case DK_EXIT: {
+            bool money, items;
+            cok_pool_status(&game->pool, &money, &items);
+            int answer = money ? dk_leave(game, true) : 1;
+            if (answer < 0) return;
+            done = answer == 1;
+            break;
+        }
+        default: break;
+        }
+        if (vm->abort || vm->status != COK_ECL_OK) return;
+        if (key == DK_TAKE || (key == DK_APPRAISE && shown)) cok_adventure_redraw(game);
+        cok_adventure_party(game);
+    }
+}
+
+void cok_shop(cok_adventure *game)
+{
+    if (cok_game_rules(game)->shops.routine == COK_SHOPS_DEATH_KNIGHTS)
+        dk_shop(game);
+    else
+        shop(game);
+}
+
+void cok_temple(cok_adventure *game)
+{
+    if (cok_game_rules(game)->shops.routine == COK_SHOPS_DEATH_KNIGHTS)
+        dk_temple(game);
+    else
+        temple(game);
+}
+
+bool cok_shop_appraise(cok_adventure *game, bool *shown)
+{
+    if (cok_game_rules(game)->shops.routine == COK_SHOPS_DEATH_KNIGHTS)
+        return dk_appraise(game, shown);
+    return appraise(game, shown);
 }
