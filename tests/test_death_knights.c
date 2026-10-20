@@ -1537,8 +1537,8 @@ static void test_treasure(void)
     n = far_calls(0x3948, 0x000e, 0x260, calls, 24);
     bool view = false, list = false, take = false;
     for (size_t i = 0; i < n; ++i) {
-        view |= cites(T->vault_view_unported, calls[i]);
-        list |= cites(T->vault_items_unported, calls[i]);
+        view |= calls[i] == 0x580d0c66;
+        list |= calls[i] == 0x580d0ffa;
         take |= calls[i] == 0x3a370dfc;
     }
     CHECK(view && list && take);
@@ -1600,6 +1600,11 @@ static void test_commands(void)
     CHECK(pascal_is(ds(0x31cb), M->yes_no, false) && loads_word(0x6a69, 0x2048, 0x40, 0x31cb) &&
           ds(0x57c0)[0] == 0 && ds(0x57c1)[0] == 1);
     CHECK(M->adventure_keeps_selection && M->escape_leaves_move && M->special_keeps);
+    /* Camp's menu (4381:3106): its own selection [bp-4] into DS:c0f7 before
+     * the ask, and back after. */
+    CHECK(M->camp_keeps_selection &&
+          HOLDS(0x4381, 0x3106, 0x100, 0x8a, 0x46, 0xfc, 0xa2, 0xf7, 0xc0) &&
+          HOLDS(0x4381, 0x3106, 0x100, 0xa0, 0xf7, 0xc0, 0x88, 0x46, 0xfc));
     /* 580d:2bb2: cmp al, 'H' and 'P', nothing for another key. */
     CHECK(HOLDS(0x580d, 0x2bb2, 0x60, 0x3c, 0x48) && HOLDS(0x580d, 0x2bb2, 0xe0, 0x3c, 0x50));
     const struct {
@@ -1639,6 +1644,93 @@ static void test_commands(void)
     CHECK(HOLDS(0x5340, 0x3888, 0x80, 0x8a, 0x85, 0xb2, 0x9a, 0x88) && ds(0x4558)[0] == 0xff &&
           HOLDS(0x5340, 0x36f2, 0x40, 0xb8, 0xff, 0x00, 0x50, 0xa0, 0x58, 0x45));
     puts("death knights: the menus' and commands' sections checked");
+}
+
+/* The items section against the original's code: View's and the items
+ * menu's items (580d:0c66, DS:3276; 0ffa, DS:32c7, with the list 6a69:1b82
+ * and its last index 8, DS:2fad's empty prompt), the readied column
+ * (65cd:047f, DS:2c02, 2c0d), Ready's thief level and word (580d:1717,
+ * 1703), the words where their routines load them (Use's DS:111f, the
+ * scroll's and Drop's question DS:0f1a from No, Trade money's DS:1061,
+ * the coin lists' DS:31d6, Deposit's 580d:0fda, 0fe0, Sell's and Id's
+ * from Yes, Heal's and Cure's), Id's steel (+0x3f) and the pool's
+ * (DS:be58), and Heal's class, effect and minutes (580d:2e95, 2f47). */
+static void test_items(void)
+{
+    const cok_rules_items *I = &R->items;
+    CHECK(I->routine == COK_ITEMS_DEATH_KNIGHTS);
+    CHECK(pascal_is(ds(0x3276), I->view_menu, false) && loads_word(0x580d, 0x0c66, 0x200, 0x3276) &&
+          pascal_is(ds(0x32c7), I->items_menu, false) &&
+          loads_word(0x580d, 0x0ffa, 0x300, 0x32c7) && pascal_is(ds(0x2fad), "", false) &&
+          loads_word(0x580d, 0x0ffa, 0x300, 0x2fad) &&
+          HOLDS(0x580d, 0x0ffa, 0x2a0, 0xb0, 0x08, 0x50) && pascal_is(at(0x580d, 0x0c65), "", false));
+    unsigned long calls[32];
+    size_t n = far_calls(0x580d, 0x0ffa, 0x300, calls, 32);
+    bool list = false;
+    for (size_t i = 0; i < n; ++i) list |= calls[i] == 0x6a691b82;
+    CHECK(list);
+    CHECK(pascal_is(ds(0x2c02), I->readied_yes, false) && pascal_is(ds(0x2c0d), I->readied_no, false) &&
+          loads_word(0x65cd, 0x047f, 0x40, 0x2c02) && loads_word(0x65cd, 0x047f, 0x40, 0x2c0d));
+    CHECK(I->thief_scrolls == 10 &&
+          HOLDS(0x580d, 0x1717, 0x180, 0x26, 0x80, 0x7d, 0x4b, I->thief_scrolls) &&
+          pascal_is(at(0x580d, 0x1703), I->thief_too_low, false) &&
+          loads_word(0x580d, 0x1717, 0x300, 0x1703));
+    const struct {
+        unsigned seg, off, n, word;
+        bool code;
+        const char *text;
+    } words[] = {
+        {0x580d, 0x0ffa, 0x700, 0x111f, false, I->must_ready},
+        {0x580d, 0x0efb, 0xd0, 0x0f1a, false, I->lose_scroll},
+        {0x580d, 0x0ffa, 0x700, 0x0f1a, false, I->drop_question},
+        {0x580d, 0x23a0, 0x40, 0x1061, false, I->trade_to},
+        {0x580d, 0x23a0, 0x200, 0x31d6, false, I->coin_select},
+        {0x580d, 0x26d0, 0x200, 0x31d6, false, I->coin_select},
+        {0x580d, 0x0ffa, 0x700, 0x0fda, true, I->deposit_before},
+        {0x580d, 0x0ffa, 0x700, 0x0fe0, true, I->deposit_after},
+        {0x580d, 0x2077, 0x100, 0x1134, false, I->offer},
+        {0x580d, 0x2077, 0x100, 0x1149, false, I->offer_for},
+        {0x580d, 0x2077, 0x100, 0x1168, false, I->deal},
+        {0x580d, 0x2077, 0x100, 0x117d, false, I->sold},
+        {0x580d, 0x2077, 0x150, 0x1188, false, I->sold_pool},
+        {0x580d, 0x21d3, 0x80, 0x11b1, false, I->identify},
+        {0x580d, 0x21d3, 0x200, 0x1168, false, I->deal},
+        {0x580d, 0x21d3, 0x200, 0x11da, false, I->nothing_new},
+        {0x580d, 0x21d3, 0x200, 0x1203, false, I->looks_like},
+        {0x580d, 0x21d3, 0x200, 0x1743, false, I->no_money},
+        {0x580d, 0x2f47, 0x40, 0x2f1e, true, I->heal_whom},
+        {0x580d, 0x2f47, 0xc0, 0x2f2a, true, I->feels_better},
+        {0x580d, 0x2f47, 0xc0, 0x2f38, true, I->unaffected},
+        {0x580d, 0x3018, 0x40, 0x300c, true, I->cure_whom},
+    };
+    for (size_t i = 0; i < sizeof words / sizeof *words; ++i) {
+        bool is = pascal_is(words[i].code ? at(0x580d, words[i].word) : ds(words[i].word),
+                            words[i].text, false),
+             loaded = loads_word(words[i].seg, words[i].off, words[i].n, words[i].word);
+        if (!is || !loaded) fprintf(stderr, "word %zu: %d %d\n", i, is, loaded);
+        CHECK(is && loaded);
+    }
+    /* The Yes/No's first: No (DS:57c1) for the scroll and Drop, Yes
+     * (DS:57c0) for Sell and Id. */
+    CHECK(HOLDS(0x580d, 0x0efb, 0xd0, 0xa0, 0xc1, 0x57) && HOLDS(0x580d, 0x0ffa, 0x700, 0xa0, 0xc1, 0x57) &&
+          I->deal_yes && HOLDS(0x580d, 0x2077, 0x100, 0xa0, 0xc0, 0x57) &&
+          HOLDS(0x580d, 0x21d3, 0x80, 0xa0, 0xc0, 0x57));
+    /* Sell multiplies by the count, divides by nothing; Id pays from the
+     * steel (+0x3f) and the pool's (DS:be58), waiting twice when it shows. */
+    CHECK(I->sell_divisor == 1 && !HOLDS(0x580d, 0x2077, 0x80, 0xb9, 0x14, 0x00) &&
+          I->id_steel && HOLDS(0x580d, 0x21d3, 0x80, 0x26, 0x8b, 0x45, 0x3f) &&
+          HOLDS(0x580d, 0x21d3, 0x100, 0xa1, 0x58, 0xbe) && I->id_waits_twice);
+    /* Heal: class 3, not in combat, okay, effect 0x6d; healing twice +0x48;
+     * the effect for 0x5a0 minutes. Cure: +0x25. */
+    CHECK(I->heal_class == 3 && HOLDS(0x580d, 0x2e95, 0x10, 0x26, 0x80, 0x7d, 0x21, I->heal_class) &&
+          HOLDS(0x580d, 0x2e95, 0x30, 0xb0, I->heal_effect) &&
+          HOLDS(0x580d, 0x2f47, 0x60, 0x26, 0x8a, 0x45, 0x45 + I->heal_class, 0x98, 0xd1, 0xe0) &&
+          HOLDS(0x580d, 0x2f47, 0xc0, 0xb0, I->heal_effect, 0x50, 0xb8, (uint8_t)I->heal_minutes,
+                (uint8_t)(I->heal_minutes >> 8)) &&
+          HOLDS(0x580d, 0x2ee0, 0x30, 0x26, 0x80, 0x7d, 0x25, 0x00));
+    CHECK(cok_field_offset(R->character, COK_FIELD_KNIGHT_TIER) == 0x25 &&
+          cok_field_offset(R->character, COK_FIELD_CLASS) == 0x21);
+    puts("death knights: the items section checked");
 }
 
 /* The levels section against the original's code: Train (49cb:43b6) and
@@ -1805,6 +1897,7 @@ int main(void)
         if (exe_size > 0) test_treasure();
         if (exe_size > 0) test_commands();
         if (exe_size > 0) test_levels();
+        if (exe_size > 0) test_items();
         if (exe_size > 0) test_casting();
         if (exe_size > 0) test_spells();
     }

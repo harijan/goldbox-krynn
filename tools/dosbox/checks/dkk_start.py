@@ -182,6 +182,10 @@ def main():
             for _ in range(400):
                 box.keys("\\p25.")
                 shot = box.screenshot()
+                # DOS's text screen (640x350) with the copies' lines can
+                # still be up under load: the title has not begun.
+                if (shot.width, shot.height) != (320, 200):
+                    continue
                 if (shown is None and sum(1 for p in shot.pixels if p) > 10000) or \
                         (shown is not None and shot.diff(shown)[0] > 1000):
                     shot = stable(box, shot)

@@ -1501,17 +1501,19 @@ static void test_dk_vault(const char *dir)
                  "Steel will you deposit? ;input: 3;"));
     CHECK(game.pool.coins[4] == 103 && game.pool.coins[6] == 4 && game.pool.item_count == 1);
     CHECK(cok_field_u16_at(L, a->record, COK_FIELD_COINS, 4) == 2);
-    /* Without a vault: steel a hundred times the savings (0x4c33). */
-    reset("V");
+    /* Without a vault: steel a hundred times the savings (0x4c33). View
+     * (580d:0c66 in mode 7): Deposit for the money; Escape back. */
+    reset("V\033E");
     snprintf(game.save_dir, sizeof game.save_dir, "%s", dir);
     game.vault_temp = false;
     game.vault_letter = 'Z';
     a = dk_member("A");
     game.vm.character = a->record;
+    cok_field_set16_at(L, a->record, COK_FIELD_COINS, 4, 5);
     cok_ecl_set_var(&game.vm, COK_VAR_SAVINGS, 7);
     cok_ecl_set_var(&game.vm, COK_VAR_VAULT, 1);
-    CHECK(RUN(COK_ECL_COMBAT) == COK_ECL_UNPORTED);
-    CHECK(game.pool.coins[4] == 700 && strstr(game.error, "580d:0c66") != NULL);
+    CHECK(RUN(COK_ECL_COMBAT) == COK_ECL_OK);
+    CHECK(game.pool.coins[4] == 700 && LOGGED("menu: Trade Deposit Exit;"));
     game.save_dir[0] = '\0';
 }
 
