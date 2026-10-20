@@ -6925,9 +6925,11 @@ the box's dark gray edge is black.
 
 The adventure's menu (`4307:0257`) reads with the loop by index too
 (`command_read` in `adventure.c`): it keeps its own selection
-(`menus.adventure_keeps_selection`: put back before each ask, whatever
-Cast, View and Encamp left; their menus start from the first, as
-Champions' are set to), Escape leaves Move (`menus.escape_leaves_move`),
+(`menus.adventure_keeps_selection`: put back before each ask of its
+main menus, whatever Cast, View and Encamp left, their menus starting from
+the first as Champions' are set to; Move's `Exit` neither puts it back nor
+takes it), Escape leaves Move (`menus.escape_leaves_move`; on the overland
+map it also ends the command, a step as any special key),
 and Left and
 Right, which the loop gives back, are special keys that keep the character
 selected (`580d:2bb2`, `menus.special_keeps`; Champions' `546c:3334` picks

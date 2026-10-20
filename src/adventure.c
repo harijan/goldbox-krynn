@@ -3028,11 +3028,13 @@ static int menu_read(cok_adventure *game, const char *prompt, const char *items,
  * game's menu loop. A game whose menus go by index (dkk 6a69:0f1b) shows
  * them all, its index read back as the item's letter and Escape as the
  * special key 0x1b; with menus.adventure_keeps_selection, the selection
- * *own is put back before the ask and taken after (dkk [bp-0x12]). */
+ * *own, unless NULL, is put back before the ask and taken after (dkk
+ * [bp-0x12]: around the main menus only, not Move's "Exit"). */
 static int command_read(cok_adventure *game, const char *text, uint8_t *own, bool *special)
 {
     const cok_rules_menus *M = &cok_game_rules(game)->menus;
-    if (M->adventure_keeps_selection) game->selected = *own;
+    bool keeps = M->adventure_keeps_selection && own != NULL;
+    if (keeps) game->selected = *own;
     int key;
     if (M->routine == COK_MENUS_INDEXED) {
         log_text(game, "menu", text);
@@ -3048,7 +3050,7 @@ static int command_read(cok_adventure *game, const char *text, uint8_t *own, boo
     } else {
         key = menu_read(game, "", text, special);
     }
-    if (M->adventure_keeps_selection) *own = game->selected;
+    if (keeps) *own = game->selected;
     return key;
 }
 
@@ -3127,7 +3129,7 @@ static int overland_command(cok_adventure *game)
             }
             continue;
         }
-        key = command_read(game, "Exit", &own, &special);
+        key = command_read(game, "Exit", NULL, &special); /* dkk 4307:060a */
         if (key < 0) return -1;
         if (!special) {
             if (key == 'E') game->moving = false;
@@ -3135,6 +3137,9 @@ static int overland_command(cok_adventure *game)
         }
         for (uint8_t dir = 0; dir < 8; ++dir)
             if (key == ways[dir]) game->vm.direction = dir;
+        /* dkk 4307:0257: Escape (a special key in its loop) leaves Move
+         * too, and still ends the command. */
+        if (key == 0x1b && cok_game_rules(game)->menus.escape_leaves_move) game->moving = false;
         cok_adventure_status(game);
         return key;
     }
@@ -3218,7 +3223,7 @@ static int command(cok_adventure *game)
             if (vm->abort) return -1;
             continue;
         }
-        key = command_read(game, "Exit", &own, &special);
+        key = command_read(game, "Exit", NULL, &special); /* dkk 4307:0417 */
         if (key < 0) return -1;
         result = key;
         if (!special) {

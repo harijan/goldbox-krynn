@@ -285,6 +285,26 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual(result.stdout.splitlines()[-3:-1], [
             "menu: Save View Magic Rest Alter Fix Exit", "menu: A B C D E F G H I J"])
 
+    def test_overland_menu(self):
+        # The overland's menu (dkk 4307:0257 in mode 3, var 0x4cf7): Escape
+        # in Move ends the command (a step) and leaves Move: "Move Encamp"
+        # again. Move's "Exit" neither puts back nor takes the menu's own
+        # selection: camp (Ctrl-F8 in Move) left on View, Exit, and the
+        # menu shows from Encamp: Enter camps.
+        def menus(keys):
+            result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--set", "4cf7=1",
+                               "--play", "--keys", keys, ASSETS, 17)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return [line for line in result.stdout.splitlines()
+                    if line.startswith(("menu: ", "print: the party"))]
+        self.assertEqual(menus(r"M\eM\#48")[-5:], ["menu: Move Encamp", "menu: Exit",
+                                                    "menu: Move Encamp", "menu: Exit",
+                                                    "menu: Exit"])
+        self.assertEqual(menus(r"M\#65\#4d\e\r\r")[-7:], [
+            "menu: Exit", "print: the party makes camp",
+            "menu: Save View Magic Rest Alter Fix Exit", "menu: Exit", "menu: Move Encamp",
+            "print: the party makes camp", "menu: Save View Magic Rest Alter Fix Exit"])
+
     def test_first_fight_by_keys(self):
         # The player's turn by keys (3e05:08af), as dkk_fight.py's keys flow
         # plays it in the original: the two-row menu by index (3e05:0ccc;
