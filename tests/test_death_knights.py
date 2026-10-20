@@ -243,9 +243,8 @@ class DeathKnightsTests(unittest.TestCase):
         # knight, leads the Solamnic knights; the battlefield on open ground
         # (410b:107e) and every record placed (410b:1aa4), as the original
         # in DOSBox-X places them (tools/dosbox/checks/dkk_fight.py); the
-        # rounds' order, then the first turn, the player's, whose menu
-        # (3e05:0ccc) is not ported: it waits for a key there, and any but
-        # Alt-Q, Alt-A and Alt-X stops the run.
+        # rounds' order, then the first turn, the player's, at its menu
+        # (3e05:0ccc: two rows by index, NEACAIL a kender with spells).
         result = self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", "--seed", 1, "--keys",
                            self.TO_FIGHT + r"\r", ASSETS)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -261,12 +260,98 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertIn("combat: 18 SOLAMNIC KNIGHT at 31,14", lines)
         self.assertEqual([line for line in lines if line.startswith("turn: ")],
                          ["turn: NEACAIL (initiative 8)"])
+        self.assertIn("menu: Move Aim Use Cast Guard Quick@Delay Yell View Speed End", lines)
         self.assertEqual(lines[-1], "(out of keys in block 16 at 8637)")
+
+    def test_adventure_menu(self):
+        # The adventure's menu (dkk 4307:0257) with the menu loop by index
+        # (6a69:0f1b): Move's "Exit" left by Escape, a special key there;
+        # Right moves the selection (to Area) and comes back, a special key
+        # that keeps the character selected (580d:2bb2: Down picked
+        # LILLITH), and the menu keeps its own selection: Enter is Area.
+        result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--set", "4be6=1", "--play",
+                           "--keys", r"\rM\e\#50\#4d\r\#50V", ASSETS, 48)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = [line for line in result.stdout.splitlines() if not line.startswith("music")]
+        menu = "menu: Move Area Cast View Encamp Search Look"
+        at = lines.index(menu)
+        self.assertEqual(lines[at:at + 7], [menu, "menu: Exit", menu, menu, menu, "area: on", menu])
+        self.assertEqual(lines[-4:-1], ["print: TANAR", "print: Majere Cleric/Ranger",
+                                        "menu: Items Spells Trade Drop Exit"])
+        # Encamp: camp's menu from its first item (dkk 4381:3106's own),
+        # whatever the adventure's selection: Enter is Save.
+        result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--set", "4be6=1", "--play",
+                           "--keys", r"\rE\r", ASSETS, 48)
+        self.assertEqual(result.stdout.splitlines()[-3:-1], [
+            "menu: Save View Magic Rest Alter Fix Exit", "menu: A B C D E F G H I J"])
+
+    def test_overland_menu(self):
+        # The overland's menu (dkk 4307:0257 in mode 3, var 0x4cf7): Escape
+        # in Move ends the command (a step) and leaves Move: "Move Encamp"
+        # again. Move's "Exit" neither puts back nor takes the menu's own
+        # selection: camp (Ctrl-F8 in Move) left on View, Exit, and the
+        # menu shows from Encamp: Enter camps.
+        def menus(keys):
+            result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--set", "4cf7=1",
+                               "--play", "--keys", keys, ASSETS, 17)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return [line for line in result.stdout.splitlines()
+                    if line.startswith(("menu: ", "print: the party"))]
+        self.assertEqual(menus(r"M\eM\#48")[-5:], ["menu: Move Encamp", "menu: Exit",
+                                                    "menu: Move Encamp", "menu: Exit",
+                                                    "menu: Exit"])
+        self.assertEqual(menus(r"M\#65\#4d\e\r\r")[-7:], [
+            "menu: Exit", "print: the party makes camp",
+            "menu: Save View Magic Rest Alter Fix Exit", "menu: Exit", "menu: Move Encamp",
+            "print: the party makes camp", "menu: Save View Magic Rest Alter Fix Exit"])
+
+    def test_first_fight_by_keys(self):
+        # The player's turn by keys (3e05:08af), as dkk_fight.py's keys flow
+        # plays it in the original: the two-row menu by index (3e05:0ccc;
+        # Down, Right and Up between its rows), Move's step and Escape's
+        # undo (3e05:10bb, 1001), Aim's targets, Next, Prev, the cursor
+        # (5340:3888, 2f3d) and Center, Speed (3e05:14aa), Delay, Guard, End
+        # and Quick; the original's dice after (RandSeed).
+        keys = self.TO_FIGHT + r"\r\#50\#4d\#48M2\eANPM8\eCESFEDGEQ"
+        result = self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", "--seed", 1, "--keys", keys,
+                           ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        lines = [line for line in lines[lines.index("turn: NEACAIL (initiative 8)"):]
+                 if not line.startswith(("sound: ", "effect: "))]
+        menu = "menu: Move Aim Use Cast Guard Quick@Delay Yell View Speed End"
+        aim = "menu: Next Prev Manual Center Exit"
+        self.assertEqual(lines, [
+            "turn: NEACAIL (initiative 8)", menu, menu, menu, menu, "menu: Done", "menu: Done",
+            menu, aim, "menu: Next Prev Manual Target Center Exit", aim, "menu: Exit",
+            "menu: Exit", aim, aim, menu, "menu: Faster Slower Exit",
+            "menu: Faster Slower Exit", menu, "turn: CELESTE (initiative 8)",
+            "menu: Move Aim Use Cast Guard Quick@Delay View Speed End", "print: guarding",
+            "turn: SIR DRYDEN (initiative 7)",
+            "menu: Move Aim Use Guard Quick@Delay View Speed End",
+            "turn: SOLAMNIC KNIGHT (initiative 6)",
+            "menu: Move Aim Use Guard Quick@Delay View Speed End", "print: guarding",
+            "turn: TANAR (initiative 6)",
+            "menu: Move Aim Use Cast Guard Quick@Delay View Speed End",
+            "combat: seed 3410845111", "(out of keys in block 16 at 8637)"])
+        # The actor's cursor at the first menu: COMSPR 15's box in slot 0x1c,
+        # its dark gray edge recoloured black (6f03:036c, 7090:016f), as the
+        # original draws it.
+        shots = self.folder / "shots"
+        shots.mkdir()
+        result = self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", "--seed", 1, "--display",
+                           "ega", "--shots", shots, "--keys", self.TO_FIGHT + r"\r", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        bmp = max(shots.glob("*.bmp"), key=lambda p: int(p.stem)).read_bytes()
+        self.assertEqual([pixel(bmp, x, y) for x, y in ((104, 104), (106, 105), (126, 110),
+                                                        (105, 127))],
+                         [(255, 255, 255), (170, 170, 170), (0, 0, 0), (0, 0, 0)])
+        # Cast reaches the cast entry, not ported yet (5dc5:1298).
         result = self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", "--seed", 1, "--keys",
-                           self.TO_FIGHT + r"\r\r", ASSETS)
+                           self.TO_FIGHT + r"\rYC" + r"\v" * 6 + r"\r", ASSETS)
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
-                         "Krynn's player's menu (dkk 3e05:0ccc)")
+                         "Krynn's spell 15, Magic Missile (dkk 5dc5:1298)")
 
     def test_first_fight_on_auto(self):
         # Alt-Q at the first turn (3e05:08af) puts the party on Auto: the
@@ -335,7 +420,7 @@ class DeathKnightsTests(unittest.TestCase):
             result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--file", 1, "--start",
                                "893c", "--at", f"5,5,{direction}", "--seed", 1, "--keys",
                                r"\r\r\r", ASSETS, 17)
-            self.assertIn("player's menu (dkk 3e05:0ccc)", result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
             return [line for line in result.stdout.splitlines()
                     if line.startswith("combat: ") and "SOLAMNIC KNIGHT at" in line]
         east = knights(2)
@@ -591,16 +676,11 @@ class DeathKnightsTests(unittest.TestCase):
 
     def test_unported_stops(self):
         # What is not ported stops the run, naming the routine: creating a
-        # character (49cb:05c7), and in block 16 the fight (SETUP MONSTERS).
+        # character (49cb:05c7).
         result = self.play("--start-menu", "--keys", self.TITLE + r"\r", ASSETS)
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stderr, "not yet ported: Death Knights of Krynn's Create New "
                          "Character (dkk 49cb:05c7)\n")
-        result = self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", "--keys", r"\r\r" + "N" +
-                           r"\r" * 11, ASSETS)
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
-                         "Krynn's player's menu (dkk 3e05:0ccc)")
         if (BUILD / "cok").exists():
             env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
             result = subprocess.run([str(BUILD / "cok"), *GAME, "--saves", self.saves(),

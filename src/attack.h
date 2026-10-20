@@ -122,6 +122,12 @@ void cok_combat_forget(const cok_rules *rules, uint8_t *c, uint8_t spell);
  * target meanwhile. */
 bool cok_combat_can_attack(cok_adventure *game, cok_character *attacker,
                            const uint8_t *target, bool *can);
+/* The same with dkk 5340:10ab's first argument, allies: with it, where the
+ * fight section's attack_sides refuses a target of the attacker's own side,
+ * one is not refused for that (dkk 5340:2f3d's cursor passes 1; every other
+ * call 0, cok_combat_can_attack). */
+bool cok_combat_can_attack_allies(cok_adventure *game, cok_character *attacker,
+                                  const uint8_t *target, bool allies, bool *can);
 
 /* 432f:3f9f: c keeps its target (combat record +0x0a) unless force, or
  * the target is on its side, cannot act or cannot be attacked; else up to

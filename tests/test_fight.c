@@ -2,7 +2,8 @@
  * fight section): its cloud and pool tiles, the death that finds a body
  * already there, turning undead's levels and count, the nightmares' smoke
  * (effect 0x6a), half damage from weapons of kind 0 or 1 (0x5d), Alt-A at
- * the player's turn and the computer's spell choice; on records made by
+ * the player's turn, the computer's spell choice, aiming's range and first
+ * target, attacking an ally; on records made by
  * hand in its layout, the game opened on DKKAssets/ (skipped without). */
 #include "adventure.h"
 #include "ai.h"
@@ -292,6 +293,97 @@ static void test_cast_choice(void)
     CHECK(cok_ai_cast(&game, w, &cast) && cast && w->combat->spell == 0x17);
 }
 
+/* Keys for a test, from a string ('\x01' the 0 of an extended key). */
+static const char *script;
+
+static int scripted(void *context)
+{
+    (void)context;
+    if (script == NULL || *script == '\0') return -1;
+    char c = *script++;
+    return c == 1 ? 0 : (unsigned char)c;
+}
+
+/* 5340:3888's targets (36f2) and the first shown (2bee): within the
+ * weapon's range whole (a type of range 2, its own ammunition, the target
+ * two cells off: Target offered, as Champions' range less 1 would not);
+ * the one aimed at last shown first, Target then selected (DS:c0f7 4). */
+static void test_aim(void)
+{
+    reset();
+    cok_character *a = record('A', 0, 5, 5);
+    cok_character *m = record('M', 1, 7, 5);
+    uint8_t type = 0x40;
+    uint8_t saved[16];
+    memcpy(saved, game.item_types.type[type], sizeof saved);
+    game.item_types.type[type][12] = 2;
+    game.item_types.type[type][14] = 0x10;
+    static uint8_t items[1][COK_ITEM_SIZE];
+    items[0][0x2e] = type;
+    a->items = items;
+    a->item_count = 1;
+    a->slots[0] = 1;
+    game.keys.read = scripted;
+    script = "n\x1b";
+    game.selected = 1;
+    bool done;
+    cok_combat_aimed res;
+    CHECK(cok_combat_aim(&game, a, 0xff, 1, 0, 1, &done, &res) && game.vm.status == COK_ECL_OK);
+    CHECK(strstr(log_text, "menu: Next Prev Manual Center Exit;menu: Next Prev Manual Target "
+                           "Center Exit;") != NULL && !done);
+    a->combat->target = m->record;
+    script = "\x1b";
+    game.selected = 1;
+    log_text[0] = '\0';
+    CHECK(cok_combat_aim(&game, a, 0xff, 1, 0, 1, &done, &res) && game.selected == 4);
+    CHECK(strstr(log_text, "menu: Next Prev Manual Target Center Exit;") != NULL);
+    memcpy(game.item_types.type[type], saved, sizeof saved);
+    a->items = NULL;
+    a->item_count = 0;
+    a->slots[0] = 0;
+    game.keys.read = no_key;
+}
+
+/* 3e05:08af's hidden keys (the set at 3e05:0cac): the keypad's 5 (0x20)
+ * gives every party member who is no NPC back to the player; End ends the
+ * turn. */
+static void test_hidden(void)
+{
+    const cok_character_layout *L = R->character;
+    reset();
+    cok_character *a = record('A', 0, 5, 5);
+    cok_character *b = record('B', 0, 6, 5);
+    cok_field_set8(L, b->record, COK_FIELD_COMPUTER, 1);
+    a->combat->movement = 0;
+    game.keys.read = scripted;
+    script = "5e";
+    CHECK(cok_combat_commands(&game, a, 0) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(L, b->record, COK_FIELD_COMPUTER) == 0 && a->combat->initiative == 0);
+    CHECK(strstr(log_text, "menu: Aim Guard Quick@Delay View Speed End;") != NULL);
+    game.keys.read = no_key;
+}
+
+/* 5340:2b81: attacking one of its own side asks "attack ally? " (the
+ * Yes/No by index, 6a69:2048); Yes sets var 0x7f33 and turns no NPC
+ * against the party. */
+static void test_ally(void)
+{
+    const cok_character_layout *L = R->character;
+    reset();
+    cok_character *a = record('A', 0, 5, 5);
+    cok_character *b = record('B', 0, 6, 5);
+    cok_character *k = record('K', 0, 7, 5);
+    cok_field_set8(L, k->record, COK_FIELD_NPC, 0x80);
+    game.keys.read = scripted;
+    script = "y";
+    bool go = false;
+    CHECK(cok_combat_ally(&game, a, b, &go) && go);
+    CHECK(strstr(log_text, "menu: attack ally? ;choice: Y;") != NULL);
+    CHECK(cok_ecl_var(&game.vm, COK_VAR_FLED) == 1 &&
+          cok_field_u8(L, k->record, COK_FIELD_HOSTILE) == 0);
+    game.keys.read = no_key;
+}
+
 /* The battle's pictures and tiles loaded as a setup loads them. */
 static void load_screen(void)
 {
@@ -324,6 +416,9 @@ int main(void)
     test_half();
     test_alt_a();
     test_cast_choice();
+    test_aim();
+    test_hidden();
+    test_ally();
     cok_adventure_close(&game);
     puts("fight tests passed");
     return 0;

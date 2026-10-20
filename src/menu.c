@@ -518,3 +518,206 @@ int cok_menu_list(cok_picture *dst, const cok_font *font, const char *const *ite
     return cok_menu_rows(dst, font, rows, count, window, &style, &redraw, index, top, selected,
                          keys);
 }
+
+/* Menus by index (dkk 6a69:0f1b). */
+
+void cok_menu_items_upto(cok_menu_items *items, uint8_t last)
+{
+    *items = (cok_menu_items){0};
+    for (unsigned i = 0; i <= last && i < COK_MENU_MAX_ITEMS; ++i)
+        items->index[items->count++] = (uint8_t)i;
+}
+
+void cok_menu_items_add(cok_menu_items *items, uint8_t index)
+{
+    if (items->count < COK_MENU_MAX_ITEMS) items->index[items->count++] = index;
+}
+
+void cok_menu_indexed(cok_menu_indexed_layout *out, const char *text, const cok_menu_items *items)
+{
+    *out = (cok_menu_indexed_layout){0};
+    /* 6a69:0d1e: each item of text starts at a letter or digit and runs to
+     * the next; those the list names, in its order, are copied with the
+     * spaces after them, their first characters the hotkeys (DS:c121 +
+     * 2k); one trailing space is deleted. */
+    size_t length = strlen(text), at = 0, shown = 0;
+    if (length > 255) length = 255;
+    unsigned item = 0;
+    for (size_t i = 0; i < length;) {
+        if (!hotkey_char((unsigned char)text[i])) {
+            ++i;
+            continue;
+        }
+        if (shown < items->count && items->index[shown] == item) {
+            out->hotkey[shown] = (uint8_t)text[i];
+            out->index[shown++] = (uint8_t)item;
+            size_t start = i;
+            do ++i;
+            while (i < length && !hotkey_char((unsigned char)text[i]));
+            for (size_t k = start; k < i && at < 255; ++k) out->text[at++] = text[k];
+        } else {
+            ++i;
+        }
+        ++item;
+    }
+    if (at > 0 && out->text[at - 1] == ' ') --at;
+    out->text[at] = '\0';
+    out->length = at;
+    out->hotkeys = shown;
+    /* 6a69:0135: the items laid out by the text's letters and digits, each
+     * to two before the next, columns 1-based in the whole text ('@'
+     * counted); the items before '@' are its first row's. */
+    out->two_rows = strchr(out->text, '@') != NULL;
+    size_t count = 1;
+    for (size_t d = 1; d <= at; ++d) {
+        unsigned char c = (unsigned char)out->text[d - 1];
+        if (!hotkey_char(c)) {
+            if (c == '@') out->first_row = count;
+        } else if (out->first[count] == 0) {
+            out->first[count] = (uint8_t)d;
+        } else if (count < COK_MENU_MAX_ITEMS) {
+            out->last[count] = (uint8_t)(d - 2);
+            out->first[++count] = (uint8_t)d;
+        }
+    }
+    out->last[count] = (uint8_t)at;
+    out->count = count;
+}
+
+/* 6a69:025d: the items from column x of row 24, or of rows 23 and 24 with
+ * '@' between, the rest of each row cleared; the selected one in colour 0
+ * on highlight, letters and digits in highlight, the rest in normal. */
+static void indexed_draw(cok_picture *dst, const cok_font *font, const cok_menu_indexed_layout *m,
+                         int x, uint8_t selected, uint8_t highlight, uint8_t normal)
+{
+    int row = m->two_rows ? 23 : 24, column = x;
+    for (size_t k = 1; k <= m->length; ++k) {
+        unsigned char c = (unsigned char)m->text[k - 1];
+        if (c == '@') {
+            if (column <= 0x27)
+                cok_text_clear(dst, font, (size_t)(0x28 - column), column, row, 0); /* 110f:0584 */
+            ++row;
+            column = x;
+            continue;
+        }
+        bool chosen = selected <= m->count && k >= m->first[selected] && k <= m->last[selected] &&
+                      highlight != 0;
+        if (column <= 0x27) {
+            if (chosen)
+                cok_text_glyph(dst, font, cok_text_index((char)c), 1, column, row, 0, highlight);
+            else
+                cok_text_glyph(dst, font, cok_text_index((char)c), 1, column, row,
+                               hotkey_char(c) ? highlight : normal, 0);
+        }
+        ++column;
+    }
+    if (column < 0x28) cok_text_clear(dst, font, (size_t)(0x28 - column), column, row, 0);
+}
+
+/* Move the selection back (6a69:0c26) or on (0c59) one, wrapping, or for
+ * 0 to the other row (0c8c), as many items over as the first row holds,
+ * kept within the items. Returns true. */
+static bool indexed_move(const cok_menu_indexed_layout *m, uint8_t *selected, int by)
+{
+    size_t count = m->count, first = m->first_row;
+    if (by < 0) {
+        *selected = (uint8_t)(*selected == 1 ? count : *selected - 1u);
+    } else if (by > 0) {
+        *selected = (uint8_t)(*selected == count ? 1 : *selected + 1u);
+    } else if (first < *selected) {
+        *selected = (uint8_t)(*selected - first);
+        if (first < *selected) *selected = (uint8_t)first;
+    } else {
+        *selected = (uint8_t)(*selected + first);
+        if (count < *selected) *selected = (uint8_t)count;
+    }
+    return true;
+}
+
+/* 6a69:0e74: a hotkey's item index, or 0xff. */
+static int indexed_result(const cok_menu_indexed_layout *m, int key)
+{
+    for (size_t k = 0; k < m->hotkeys; ++k)
+        if (m->hotkey[k] == key) return m->index[k];
+    return 0xff;
+}
+
+int cok_menu_pick(cok_picture *dst, const cok_font *font, const char *prompt, const char *text,
+                  const cok_menu_items *items, uint8_t prompt_color, uint8_t highlight,
+                  uint8_t normal, bool keypad, uint8_t *selected, const cok_keyboard *keys,
+                  bool *special)
+{
+    char shown[41];
+    snprintf(shown, sizeof shown, "%s", prompt);
+    cok_menu_indexed_layout m;
+    cok_menu_indexed(&m, text, items);
+    *special = false; /* DS:c0f8 */
+    if (m.count < *selected || *selected == 0) *selected = 1;
+    int x = (int)strlen(shown);
+    if (x != 0) cok_text_string(dst, font, shown, 0, 24, prompt_color, 0);
+    indexed_draw(dst, font, &m, x, *selected, highlight, normal);
+    int result = -1;
+    for (bool done = false; !done;) {
+        int key = keys == NULL || keys->read == NULL ? -1 : keys->read(keys->context);
+        if (key == COK_KEY_TIMEOUT) continue;
+        if (key < 0) return -1;
+        bool moved = false;
+        if (key == 0) {
+            key = keys->read(keys->context);
+            if (key < 0) return -1;
+            *special = true;
+            done = true;
+            result = key;
+            /* A special key is returned, Left and Right moving the
+             * selection first, and Up and Down between two rows. */
+            if (m.count > 1) {
+                if (key == 0x4b) moved = indexed_move(&m, selected, -1);
+                else if (key == 0x4d) moved = indexed_move(&m, selected, 1);
+                else if ((key == 0x48 || key == 0x50) && m.two_rows) moved = indexed_move(&m, selected, 0);
+            }
+        } else {
+            *special = false;
+            if (key == 0x1b) {
+                *special = true;
+                done = true;
+                result = 0x1b;
+            } else if (key == 0x0d) {
+                /* 0442: the selected item's first character, 0x0d for none
+                 * (the length byte of an empty text). */
+                uint8_t first = m.first[*selected];
+                int value = first == 0 ? (int)m.length : (unsigned char)m.text[first - 1];
+                result = indexed_result(&m, value == 0 ? 0x0d : value);
+                done = true;
+            } else {
+                unsigned char c = upcase((unsigned char)key);
+                if (indexed_result(&m, c) != 0xff) {
+                    for (size_t j = 1; j <= m.length; ++j) {
+                        if ((unsigned char)m.text[j - 1] != c) continue;
+                        done = true;
+                        for (size_t item = 1; item <= m.count; ++item)
+                            if (m.first[item] == j) *selected = (uint8_t)item;
+                        indexed_draw(dst, font, &m, x, *selected, highlight, normal);
+                    }
+                }
+                if (!done && m.count > 1) {
+                    if (c == '4') moved = indexed_move(&m, selected, -1);
+                    else if (c == '6') moved = indexed_move(&m, selected, 1);
+                    else if ((c == '2' || c == '8' || c == 'H' || c == 'P') && m.two_rows)
+                        moved = indexed_move(&m, selected, 0); /* the set at 6a69:0edb */
+                }
+                result = indexed_result(&m, c);
+                if (keypad && ((c >= '1' && c <= '9') || c == '\\')) {
+                    /* DS:5791 + the key, as Champions' DS:1fdf. */
+                    *special = true;
+                    done = true;
+                    result = keypad_scan(c);
+                }
+            }
+        }
+        if (moved) indexed_draw(dst, font, &m, x, *selected, highlight, normal);
+    }
+    if (keys->flush != NULL) keys->flush(keys->context); /* 16ab:03b0 */
+    if (keys->pointer != NULL && keys->pointer->release != NULL)
+        keys->pointer->release(keys->pointer->context);
+    return result;
+}

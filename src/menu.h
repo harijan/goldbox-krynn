@@ -150,4 +150,57 @@ int cok_menu_list(cok_picture *dst, const cok_font *font, const char *const *ite
                   bool show_exit, int *index, int *top,
                   uint8_t *selected, const cok_keyboard *keys);
 
+/* Death Knights' menus (dkk 6a69:0f1b): a text of every item the menu may
+ * have and the list of those it shows, by index (DS:c120, 20 entries:
+ * 6a69:00cb fills it with 0 to n, 6a69:00ab adds one); the list must be in
+ * the text's order. */
+typedef struct {
+    uint8_t count;
+    uint8_t index[COK_MENU_MAX_ITEMS];
+} cok_menu_items;
+
+/* The items 0 to last (6a69:00cb). */
+void cok_menu_items_upto(cok_menu_items *items, uint8_t last);
+/* Add item index (6a69:00ab), up to the list's 20. */
+void cok_menu_items_add(cok_menu_items *items, uint8_t index);
+
+/* What a menu by index shows (6a69:0d1e, 0135): each item of the text
+ * starts at a letter or digit and runs to the next one, its spaces and an
+ * '@' with it; those listed are copied in order, less one trailing space.
+ * index and hotkey are the shown items' indexes and first characters
+ * (DS:c120, c121), from [0]; first and last, from [1], the columns each
+ * item covers in text, 1-based, as cok_menu's. An '@' puts the items after
+ * it on a second row (row 24, the first on row 23): first_row is the
+ * number of items before it. */
+typedef struct {
+    char text[256];
+    size_t length, hotkeys;
+    uint8_t index[COK_MENU_MAX_ITEMS], hotkey[COK_MENU_MAX_ITEMS];
+    bool two_rows;
+    size_t first_row, count;
+    uint8_t first[COK_MENU_MAX_ITEMS + 1], last[COK_MENU_MAX_ITEMS + 1];
+} cok_menu_indexed_layout;
+
+void cok_menu_indexed(cok_menu_indexed_layout *out, const char *text, const cok_menu_items *items);
+
+/* Read a menu by index (dkk 6a69:0f1b): prompt (cut to 40) at column 0 of
+ * row 24 in prompt_color, the items shown after it, from the same column
+ * on row 23 and then 24 for two rows, each row's rest cleared, drawn as
+ * cok_menu_draw draws; *selected (DS:c0f7, 1 when 0 or past the items)
+ * the selected one. Returns the index of the item whose hotkey was typed,
+ * or of the selected one for Enter (0xff for a key no item has), with
+ * *special clear (DS:c0f8); or a scan code with *special set: an extended
+ * key's (Left and Right first moving the selection, wrapping, and Up and
+ * Down to the other row, when there are items to move among), Escape's
+ * 0x1b, and with keypad the keypad's digits and \ as their scan codes
+ * (DS:5791: '5' is 0x20). 4 and 6 move the selection and 2, 8, H and P
+ * change rows where no item has them as hotkeys; other keys, Space among
+ * them, are read past. Once it has its key it flushes the keyboard. The
+ * mouse's regions (6a69:0490-0ba7) are not taken: a click is a key.
+ * Returns -1 if input ended. */
+int cok_menu_pick(cok_picture *dst, const cok_font *font, const char *prompt, const char *text,
+                  const cok_menu_items *items, uint8_t prompt_color, uint8_t highlight,
+                  uint8_t normal, bool keypad, uint8_t *selected, const cok_keyboard *keys,
+                  bool *special);
+
 #endif

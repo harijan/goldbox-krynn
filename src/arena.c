@@ -18,7 +18,6 @@ enum {
     LAST_SHOWN = 0x12, /* The last unit or cell row a 24 by 24 picture starts at whole. */
     SLOT_HEAD = 11,    /* 4b6d:0817 builds a head here. */
     SLOT_SKULL = 24,   /* COMSPR id 11: the death's skull. */
-    SLOT_CURSOR = 25,  /* COMSPR id 25: the cursor's box. */
 };
 
 /* A recolouring of the game's data segment, 16 colours: every colour as
@@ -397,7 +396,8 @@ static bool cursor(cok_adventure *game, int8_t x, int8_t y)
         if (!cok_combat_footprint(cok_game_rules(game), c->cursor_size, k, &dx, &dy)) continue;
         if (!cok_combat_on_view(s8(sx + dx), s8(sy + dy))) continue;
         if (!terrain(game, (sx + dx) * 3, (sy + dy) * 3, x + dx, y + dy, "6beb:00fc")) return false;
-        if (c->cursor != 0 && !cok_arena_icon(game, s8(sx + dx), s8(sy + dy), 0, 0, SLOT_CURSOR))
+        if (c->cursor != 0 && !cok_arena_icon(game, s8(sx + dx), s8(sy + dy), 0, 0,
+                                              cok_game_rules(game)->commands.cursor_slot))
             return false;
     }
     uint8_t occupant, value;
@@ -709,7 +709,9 @@ static bool load_icon(cok_adventure *game, const char *name, size_t length, uint
             uint8_t same[16], black[16];
             colour_table(cok_game_rules(game)->data, COK_DATA_SAME_COLOURS, same);
             colour_table(cok_game_rules(game)->data, COK_DATA_BLACK_COLOURS, black);
-            if (cpic && game->display != COK_DISPLAY_CGA && /* 6d21:0408, 0478 */
+            bool missile = !cpic && length == missiles && memcmp(name, a->missiles, missiles) == 0;
+            if ((cpic || (missile && cok_game_rules(game)->startup.missiles_recoloured)) &&
+                game->display != COK_DISPLAY_CGA && /* 6d21:0408, 0478; dkk 7090:016f */
                 cok_picture_recolor(icon, same, black, 0, NULL) != COK_PICTURE_OK) {
                 cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
                 return false;

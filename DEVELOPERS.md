@@ -193,14 +193,16 @@ segment's tables, a section to a concern:
 | `data` | the original's data segment (`src/data.h`): the tables the port copied from it, by DS offset, and where each table the code reads lies and its shape | 46 tables (`src/data_champions.c`), 58 named; see below |
 | `ecl` | the ECL's opcodes, by opcode byte (`cok_rules_opcode`): what each does (`meaning`, a `cok_ecl_opcode`), the operands its handler loads (or a list over a header of `header` operands, or none ever), the operands a failed `IF` skips with it, and the handler the port does not carry out yet (`unported`, cited); the routines `CALL` runs by address (`calls`); the bytes a variable address holds (`variable_bytes`); the variables code reads and writes by name (`vars`, a `cok_rules_var` each: address, width, elements, the value a flag is off at); what a block's start sets (`start`); the special addresses read and stored (`reads`, `stores`); the selected character's fields at `0x7c00`-`0x7fff` (`character`, a `cok_rules_character_var` each, and `class_bits` for a field of class bits); and three handlers' constants: `COMPARE AND` of strings, `DELAY`'s wait, `HORIZONTAL MENU`'s single item (see ECL scripts) | its 66 opcodes, each its own meaning (`2fd3:0050-36dc`, `3775:1e74`), none unported; `2e10` redraw, `b203` sound, `c01e` step, `c018` wall ahead, `6803` animate (`2fd3:329b`); 2; 53 names, each a word; the portrait 0xff, the rest's encounters 0, magic allowed (`3775:01e8`); 10 reads, 8 stores (`3775:0fca`, `0e06`); 36 entries (`3775:07d9`, `0c00`); values only, the speed's, yes |
 | `view` | the 3D view's tile sets (each one's first and last value, `6e22:01ab`, and the colour each is loaded with as transparent, `tile_transparent`), the wall slot that holds wall types 1-5 and that `LOAD PIECES`' two-set path loads first, whether a record's wall sets share one tile set and whether tile values are moved by the slot's set; the overhead map's tiles; `PICTURE`'s overland map; whether CGA mode has a backdrop of its own (`cga_backdrop`: a line row, no pictures) | 1-0x2d, ..., 0x100-0x127 (`DS:1ec2`), each loaded with 13 transparent (`6e22:0050`); slot 1; a tile set each, moved (`69ea:1025`, `1230`); 0x104 and 0x100; 0x79; yes (`69ea:0184`) |
-| `startup` | what startup loads past the font (`3e99:005b`): tile sets from `<tiles>1` and the missiles' icons from `COMSPR`, as (first id, first slot, count); the icon slots (`icon_slots`, at most `COK_ICON_SLOTS_MAX`, 35) and their table's DS offset, for messages | sets 4 and 0, records 202 and 203; 0-11 into 13-24, 25 into 25; 26 slots at `DS:6172` (`3e99:0466` clears 0xd0 bytes) |
+| `startup` | what startup loads past the font (`3e99:005b`): tile sets from `<tiles>1` and the missiles' icons from `COMSPR`, as (first id, first slot, count); the icon slots (`icon_slots`, at most `COK_ICON_SLOTS_MAX`, 35) and their table's DS offset, for messages; whether the missiles' icons are recoloured as a `CPIC`'s outside CGA (`missiles_recoloured`: 8 to 0) | sets 4 and 0, records 202 and 203; 0-11 into 13-24, 25 into 25; 26 slots at `DS:6172` (`3e99:0466` clears 0xd0 bytes); no (`6d21:01d0`: a `CPIC`'s only) |
 | `spells` | what is keyed by spell id (`magic.c`, `cast.c`): the ids' count; their names and the spell lists' headings, with their tables' DS offsets and sizes for the messages; each id's handler (`cok_rules_cast`: the port's, a `cok_cast_handler`, and the original's address, or `unported`); the durations not taken from the spell table (`cok_rules_duration`); the spell ids the code names (`ids`, by `cok_named_spell`); the spell lists' sizes; the granted powers' ids; an item power's spell; Display's search; byte 7's values for the caster, one picked and the party; who may use a class's spells (`usable_paladin`, `usable_ranger`, `usable_mage_class`) | ids 1-0x6b (`DS:2077` + 41 × id, `DS:0bfa` + 41 × level), the handlers `5b04:58ed` stores at `DS:6e3a`, 7 durations (`5b04:0f78`), 23 names; 58 and 49 (`DS:473a`, `4774`); 101-107; above 0x38, 0x17 less (`3afb:04b2`); spells 1-0x38 (`4888:17ae`); 1, 2, 4 (`5b04:127e`); no paladin, a ranger from 7, any magic-user (`5b04:0083`) |
 | `effects` | what is keyed by effect id (`effect.c`, `cast.c`, `magic.c`): the ids' count; each id's handler (`cok_rules_effect`, as the spells'); the ids each event runs; the ids the party shares and Prayer's reach; those magic resistance leaves pending; the effect ids the code names (by `cok_named_effect`); Display's ids and texts; the rules' routines a game does not have ported yet (the caster level, the saving throw, magic resistance, Display); the effect whose holder's saving throw rolls 1 and where that throw reads a mage's moon; what one an effect does not take "is" | 0x79 (`DS:6b94`, `5b04:58ed` and `3f44:38ea`), events 1-0x18 (`60f4:057c`), 0x15, 0x2d, 0x2e, 0x31 and 0x31 from 6 squares (`60f4:0332`, `0352`), 0x5b and 0x52 (`60f4:04f3`), 80 names, `4888:17ae`'s; none; none, the wrapped byte (`60f4:113a`); `is Unaffected` |
 | `moons` | the three moons (`57e4:001e`, `0143`): the days each stays in a phase, and on the frame each one's column and tile | 8, 1, 6 days; columns 8, 19, 30; tiles 0x114 + phase + 10, 6, 14 |
 | `frame` | the screens' frames (`screen.c`), by `cok_screen` (the frame, the open frame, the adventure screen, a big picture's, Memorize's, the spell lists', combat's, the sheet's, the credits'): each a `cok_rules_screen`, the screen drawn under it first, the box cleared (`1128:07e6`) and its lines, rows and columns of tiles (`cok_rules_frame_line`: a tile, or a table by the cell's column or row, and on row 0 the moons), each the frame's `base` + its value; which frame main draws after the start menu (`menu_big`) and Begin Adventuring for a loaded game (`resumed`, a `cok_resumed`) | `1128:0000`-`077c`'s layouts, tiles 0x114 + `DS:0e3a`, `0e62`, `0e7a`, `0ea3`, `0eb0`, `0e8b`, `0ebd`, `0f02`, `0f19` and the code's; the big frame in mode 3 on the map (`1000:024b`); in block 0 or off the map (`4def:01b4`) |
 | `start` | the front end (`start.c`, `roster.c`, camp's Save): the title's pictures (record, cell, whether the screen is cleared first, the seconds waited) and credits (lines, their wait, whether they show after a key), a new game's block and the demonstration's file and block; the start menu's items, prompt and word, each item's routine where the port does not carry it out for the game (`unported`, cited: choosing it stops the run); the words of Pick Character, Drop, Exit, Load, Save, the roster's Overwrite, Add, and "from where" for a game that imports another's; the questions' colour; and what its commands do where the games differ (Add's paladin rules, its space, its message and marks; a Drop or Remove that empties the party ending the game; Exit's No saving then quitting; Begin's mode; PROGRAM 0 marking the party on the map; the wall table's entry the end of a game sets) | `2f55:063c`'s pictures, 1, 2, 3 at 5, 1 and 4 at 0, 1 for 5, 10 and 10 seconds, the credits (`2f55:0267`) for 10 unless a key; 0x24, file 2 block 0x39; `DS:0878`, `Choose a FUNCTION `, `Select `, none unported; yellow; paladins, the space, the message and marks; no, no, the entry mode, no; the first |
 | `combat` | the encounter and the battle's frame where the games differ (`monster.c`, `combat.c`, `round.c`, `treasure.c`'s end of combat): `COMBAT`'s vault branch and the vault, shop and temple a game's port does not carry out yet; the show at distance's `0xff` for none; leadership before the setup and its words; the dead exploding after a turn and a blow, a side gone ending the round there; the setup's line, its tile counts, whether a set is kept, the open ground's builder (`cok_wilderness_routine`), the dungeon's fill and corners; the placement's clears, ambush, distances, the cell under a body, status 9; the end of combat's lost weapons, shares, effects lost, may-train, the results' words and key, the treasure menu's condition and stop, a destroyed party's words | the vault none; Champions' shop and temple; no; no; yes, no; none; `A battle begins...`, 0x19 and 0x21, no, `COK_WILDERNESS_CHAMPIONS` (`3cb2:0fc8`), no fill, Champions' corners; 255, no ambush, status 9 off the map; weapons back, shares, `DS:0390`'s 11, no may-train, `The party has won.` ..., `press <enter>/<return> to continue`, always (`351b:1968`) |
-| `fight` | the rounds, the computer's turns and the attacks where the games differ (`round.c`, `ai.c`, `attack.c`, `arena.c`, `command.c`, `cloud.c`): their words (`cok_rules_fight_words`: the attack's message, fleeing, turning undead, the computer's, the round's end, the panel, guarding, Alt-X without the Helm cheat); the player's menu, the clouds' round and a cloud's square where the port does not carry them out yet; the battlefield's cloud and pool tiles and whether they count as terrain; the death's search for a body, its cell kept for a pool, its spell cleared; the computer's turn: a target first, the items' spells, its spell choice (`cok_computer_cast_routine`), the undead it turns and the paladins who do, its reach, morale's compare and the fleeing's effects, the flight's way; the attack's sides, the free attacks' effect, the creature flag for no dying words, a lost spell's mark, the arrows, the missile's clamp, turning undead (`cok_turning_routine`) | Champions' words; none, none, none; 0x1e and 0x1d, no; by the stack's byte, the cloud's only, yes; no, yes, `3afb:03b9`, the stack's byte, none, range less 1, unsigned, `DISPELLING` and `GIANT_SLAYER`, 0; no, none, none, cleared, 5, 7, 0x0c, 0x1e, no, `432f:12b7` |
+| `fight` | the rounds, the computer's turns and the attacks where the games differ (`round.c`, `ai.c`, `attack.c`, `arena.c`, `command.c`, `cloud.c`): their words (`cok_rules_fight_words`: the attack's message, fleeing, turning undead, the computer's, the round's end, the panel, guarding, Alt-X without the Helm cheat); the clouds' round and a cloud's square where the port does not carry them out yet; the battlefield's cloud and pool tiles and whether they count as terrain; the death's search for a body, its cell kept for a pool, its spell cleared; the computer's turn: a target first, the items' spells, its spell choice (`cok_computer_cast_routine`), the undead it turns and the paladins who do, its reach, morale's compare and the fleeing's effects, the flight's way; the attack's sides, the free attacks' effect, the creature flag for no dying words, a lost spell's mark, the arrows, the missile's clamp, turning undead (`cok_turning_routine`) | Champions' words; none, none; 0x1e and 0x1d, no; by the stack's byte, the cloud's only, yes; no, yes, `3afb:03b9`, the stack's byte, none, range less 1, unsigned, `DISPELLING` and `GIANT_SLAYER`, 0; no, none, none, cleared, 5, 7, 0x0c, 0x1e, no, `432f:12b7` |
+| `menus` | the menu loop (`menu.c`, `cok_menus_routine`: by letters, or by index, `cok_menu_pick`), the Yes/No's items for the indexed loop (`camp.c`), and the adventure's menu where the games differ (`adventure.c`: whether it keeps its own selection, whether Escape leaves Move) and a special key's pick of a character (`devices.c`: whether a key but Up and Down keeps the one selected) | by letters (`67b5:03e2`, `177f`); none; no, no (`475c:09ec`); no, the first is picked (`546c:3334`) |
+| `commands` | the player's commands in a battle (`command.c`): the routine (`cok_commands_routine`: Champions' turn `3995:0573` or Death Knights' `3e05:08af`), the words of Move's steps and of attacking an ally and whether Yes turns the NPCs against the party, Death Knights' menus' words (its turn's two-row menu, Move's, aiming's, the cursor's, Speed's), the cursor's icon slot | `COK_COMMANDS_CHAMPIONS`; `Flee:`, `can't go there`, `Not with that weapon`, `Attack Ally: `, yes; none; 0x19 (`6beb:00fc`, `6346:1a26`) |
 | `treasure` | treasure where the games differ (`treasure.c`, `adventure.c`'s `DAMAGE` and `ADD EP`; see Death Knights' treasure): the item table `TREASURE ITEMS` and `STOCK` take items from (a `cok_rules_record` and how many entries it fills, or none); the treasure menus' ways (selections from each menu's first item, special keys told apart from letters, leaving's Yes/No from No) and words (leaving with treasure left, Take's, the items' and the coins' prompts, the coin questions'); taking an item's word when overloaded and whether a counted item joins its kind; the vault's menu items, its line and the deposit's question, and its View's and Items' routines not ported yet; `DAMAGE`'s saving throw bonus bits, whether a save made halves the damage, its key; `ADD EP`'s words and whether those who cannot act are passed over first | none (`TREASURE` reads `ITEM<file>`); no, no, no; `There is still treasure left.  ` ..., `Take: `, `Items: `, `Select type of coin `, `How Many `/`How much `; `OverLoaded`, no; none; 0x1f, no, `press <enter>/<return> to continue` (`2fd3:2c80`); `Congratulations ` ... `gains experience!`, no (`2fd3:36dc`) |
 | `levels` | training, the knights' orders, aging, Memorize and Scribe where the games differ (`train.c`, `magic.c`, `camp.c`; see Training and Camp): Train's words, whether its question starts on Yes, whether free training trains, the highest levels by race and class in place of the kender's limits, the row of a class without one, whether a ranger learns only when it rises; the fixed hit points at a class's top level and a floor of 0; Knight Change's words, whether Change is always offered and special keys do nothing, the level from which a lost level costs a fixed 2; the aging after a battle (by race the ages, and its words); the spell lists' prompt, the memorize table's labels and columns, how the spells marked are kept (a list with Keep, or a question) and Scribe's questions and words; whether the camp unmarks the spells to memorize; Display's headings; the Magic menu's own selection; Fix not ported yet (cited) | `4def:4d9e`'s words, from No, free training, the kender's limits, row 0x74, every time; 2, 0, 3, 0, 2, 1, 2, 3 and wrapping; `Knight Of The `, `Sword`, `Rose`, not always, F9 as C, none; no aging; `Choose Spell: `, `    Cleric Spells:` ... at 20, the questions `Memorize These Spells? `, `Scribe These Spells? ` in yellow from No; yes (`4888:06b8`); 11; the last menu's; none |
 
@@ -247,18 +249,20 @@ in a file of its own (`src/rules_death_knights.c`; every program that links
 `cok_rules_death_knights` (`src/rules_death_knights.c`, its addresses
 `dkk SEG:OFF` in `build/death-START_FULL.EXE`, `make death-merged`, its data
 segment at `DS` 0x1bce) is DEATH-KNIGHTS.md's step 1 and step 2 (its
-frames, characters, saved games and front end) and the first two parts of
-step 3 (the encounter, into and out of each fight; the fight, its rounds,
-the computer's turns and melee): the tools and `eclplay
+frames, characters, saved games and front end) and the first three parts
+of step 3 (the encounter, into and out of each fight; the fight, its
+rounds, the computer's turns and melee; the player's commands): the tools
+and `eclplay
 --game death-knights` read every one of its archives and run its scripts,
 their text, menus and choices, its 3D view and its overland map, read,
 recompute and write its characters and monsters and import Champions'
 characters, and `cok` and `eclplay --start-menu` play it from its title,
 through its start menu and saved games, into its fights: the battlefield
-set up and the combatants placed as the original's, the fight played to
-its end with the party on Auto (Alt-Q at the player's turn, `eclplay
---combat auto`) with the original's dice, or left with `eclplay --combat
-won`, `fled` or `lost`, and the script going on. It holds:
+set up and the combatants placed as the original's, the fight played by
+keys from the player's menu, or to its end with the party on Auto (Alt-Q
+at the player's turn, `eclplay --combat auto`) with the original's dice,
+or left with `eclplay --combat won`, `fled` or `lost`, and the script
+going on. It holds:
 
 - its files: Champions' stems but `SKY`, `CURSOR`, `RANDCOM`, `HEAD`,
   `BODY` and the music's (`NULL`: MUSIC.DAX's songs are step 4), and
@@ -351,14 +355,21 @@ won`, `fled` or `lost`, and the script going on. It holds:
   former levels read as 0: `cok_character_former_level`);
 - its fight (the `fight` section; see Death Knights' fight): the words of
   its rounds, turns and attacks, most in lower case; the player's turn
-  (`3e05:08af`), whose menu (`3e05:0ccc`) is not shown yet; the
-  computer's turns (`3f63:0000`) with its own spell choice (`05d7`), no
+  (`3e05:08af`, its menu and commands below); the computer's turns (`3f63:0000`) with its own spell choice (`05d7`), no
   items' spells, a paladin's turning; its attacks (`5340`), turning undead
   (`119b`), the free attacks, the death on the battlefield (`6f03:0fbd`),
   a lost spell marked; its cloud and pool tiles, the clouds' round and
   square not carried out yet; its saving throw (`638c:10f8`) and the
   effects its first fights carry (0x07, 0x4f, 0x50, 0x5c, 0x5d, 0x69,
   0x6a, 0x6c, 0x72, 0x73).
+- its menus and the player's commands (the `menus` and `commands`
+  sections; see Library's menus by index and Death Knights' commands): the
+  menu loop by index with two rows (`6a69:0f1b`), its Yes/No (`2048`), the
+  adventure's menu (`4307:0257`), a special key's pick (`580d:2bb2`); the
+  player's turn's menu (`3e05:0ccc`) and commands (`08af`), Move
+  (`10bb`), aiming (`5340:3888`), Speed (`3e05:14aa`), Attack Ally
+  (`5340:2b81`), the cursor's box (icon slot 0x1c) and the missiles' icons
+  recoloured as `CPIC`'s (`7090:016f`).
 - its treasure (the `treasure` section and `COK_DATA_STOCK_*`; see Death
   Knights' treasure): the item table `ITEM0`, `TREASURE ITEMS`, `STOCK`
   up to its shop, the treasure menu, Take, the bank vault's menu and its
@@ -378,10 +389,13 @@ a party added from the roster or from Champions', saves and resumes, and
 the adventure in its scripts, 3D view and overland map, camp (Magic's
 Memorize, Scribe and Display), `PROGRAM`'s start menu (Train and Knight
 Change Order too), the encounters and their battlefields, their fights on Auto
-(the player's turn, `3e05:08af`, takes Alt-Q, Alt-A and Alt-X; any other
-key stops at its menu, `3e05:0ccc`, not shown yet; `eclplay --combat
-auto` presses Alt-Q, `melee` plays every turn as the port's melee, and
-`won`, `fled` and `lost` decide the battle without its rounds), their end
+(the player's turn by keys, `3e05:08af`: its menu, `3e05:0ccc`, Move,
+Aim, Cast up to the cast entry, Turn, Guard, Quick, Delay, Bandage, Yell,
+Speed, End, Alt-Q and the hidden keys; View and Use show Champions'
+sheet and items menu, `580d:0c66` and `0ffa` not ported yet; `eclplay
+--combat auto` presses Alt-Q, `melee` plays every turn as the port's
+melee, and `won`, `fled` and `lost` decide the battle without its
+rounds), their end
 of combat and treasure menu, until a routine not ported yet (`COMBAT`'s
 and `STOCK`'s shop, the temple, the vault's View and Items, camp's Fix),
 a spell cast
@@ -455,8 +469,8 @@ Death Knights' routines compute where those are the same (the backstab
 classes (`638c:16d8`, `15e0`: paladins too) are the descriptor's; the
 others differ beyond that: turning undead (`5340:119b`, paladins, levels
 clamped, var `0x4cff`) is the fight section's own routine; the combat
-menu's Turn (`3e05:0ccc`: paladins above 2) is not reached yet (step 3's
-later parts). The party list in its frame
+menu's Turn (`3e05:0ccc`: clerics, and paladins above 2) is the commands'
+routine's. The party list in its frame
 is Champions' (`6346:07ba`; dkk `65cd:07a5` colours AC and hit points by
 other ranges of its record, `+0xcc` and `+0xd6`), drawn with what the port
 reads of the party.
@@ -2089,6 +2103,39 @@ its last row shown; the list drawn only when asked or when the first row
 shown moves to the pick; and `Prev` offered only while rows other than the
 leading headings are above the window. `cok_menu_list` is `cok_menu_rows`
 with no headings.
+
+Death Knights' menus go by index (`dkk 6a69:0f1b`, the descriptor's
+`menus.routine`, `COK_MENUS_INDEXED`): `cok_menu_pick` takes the text of
+every item the menu may have and the list of those it shows
+(`cok_menu_items`, `DS:c120`'s 20 entries, filled by `6a69:00cb`,
+`cok_menu_items_upto`, and `00ab`, `cok_menu_items_add`), and returns the
+index of the item chosen rather than its letter. `cok_menu_indexed` lays it
+out (`6a69:0d1e`, `0135`): each item of the text starts at a letter or digit
+and runs to the next, its spaces with it; those listed are copied in order
+and one trailing space deleted, their first characters the hotkeys
+(`DS:c121`); an `@` in an item puts the items after it on a second row, the
+first on row 23 and the second on row 24 from the same column, after the
+prompt, which is always on row 24 (`6a69:025d`). Colours are Champions'
+(`DS:c148` 10, `c14a` 15, `c149` 13 for the prompt, set once). Keys
+(`6a69:0f1b`): a hotkey returns its item's index and Enter the selected
+one's; Escape returns the special key 0x1b; an extended key returns its scan
+code, Left and Right moving the selection first, wrapping, and Up and Down
+changing rows by as many items as the first row holds (`0c8c`), where
+there are items to move among; 4 and 6 move the selection and 2, 8, H and P
+change rows where no item has them as hotkeys; with the keypad flag the
+digits and `\` are their scan codes (`DS:5791`, Champions' `DS:1fdf`: the 5
+is 0x20); Space and other keys are read past; the keyboard is flushed once
+it has its key. The mouse's regions (`6a69:0490`-`0ba7`, test and act
+routines in pairs) are not taken yet: a click is a key. Death Knights' Yes/No (`6a69:2048`) is `cok_camp_yes_no` through this
+loop: `Yes No` by index from No, special keys read past, the prompt always
+light magenta. Its lists (`6a69:1b82`, which add Next, Prev and Exit by
+index and map them to scan codes) are still Champions' `cok_menu_rows`.
+
+| Function | Original |
+| --- | --- |
+| `cok_menu_items_upto`, `cok_menu_items_add` | `dkk 6a69:00cb`, `00ab` |
+| `cok_menu_indexed` | `dkk 6a69:0d1e`, `0135` |
+| `cok_menu_pick` | `dkk 6a69:0f1b` with `025d`, `0442`, `0c26`, `0c59`, `0c8c`, `0e74` |
 
 `src/screen.h` draws the screen frames from the root segment `0x128` with
 tile set 4, glyphs 0x100-0x127, which the game loads from `8X8D1.DAX` record
@@ -5522,12 +5569,8 @@ instruction by instruction (the calls followed through their thunks):
   with a cloud on the battlefield, which no spell of its can make yet. Its
   cloud and pool tiles are 0x1d and 0x1c, marked wherever they are and
   counted as terrain too (`6f03:0e33`).
-- The player's turn (`3e05:08af`): its menu (`3e05:0ccc`, items by index,
-  two rows) is not shown yet (`fight.menu_unported`): the turn reads a
-  key, the one `--combat auto` presses first, and does Alt-Q and Alt-A
-  (the party on Auto, as Champions') and Alt-X (the gods); any other key
-  stops the run there. A spell being cast goes to its cast entry
-  (`5dc5:1298`, not ported).
+- The player's turn (`3e05:08af`): see Death Knights' commands. A spell
+  being cast goes to its cast entry (`5dc5:1298`, not ported).
 - The computer's turn (`3f63:0000`): one with no target picks one first
   (`5340:3cac` with 0, 1, 0xff; and before a spell being cast, afresh),
   `computer_target_first`; it rolls its items' 1d7 but uses none
@@ -5590,8 +5633,8 @@ instruction by instruction (the calls followed through their thunks):
   it gets unless it saves, type 3: `is blinded by smoke`) and 0x6c
   (`26e0`: damage and attack roll 2 worse).
 
-What it does not carry out yet stops the run, naming the routine: the
-menu, a spell cast (any, the computer's too, at the cast entry), an effect
+What it does not carry out yet stops the run, naming the routine: a
+spell cast (any, the computer's too, at the cast entry), an effect
 not ported (a blue dragon's breath, 0x55, `5dc5:508c`), a cloud.
 `eclplay --combat auto` plays each of ECL1's fights from its `SETUP
 MONSTERS` to its end or such a stop (32 won), `--combat melee` with the
@@ -6854,6 +6897,108 @@ differed, 124 stopped at a harness wand's spell 0x72 (past the handler
 table), 37 at Target with no target, 1 at sight off the map, the rest
 skipped handlers; with the screens, 270 of 300 agreed, none differing.
 It is not part of the repository.
+
+### Death Knights' commands
+
+The descriptor's `commands.routine` picks the player's turn
+(`COK_COMMANDS_DEATH_KNIGHTS`, `dkk 3e05:08af`, `dk_commands` in
+`command.c`); `cok_combat_move` and `cok_combat_aim` go to Death Knights'
+Move and aiming the same way, so that casting's aim (part of step 3's
+casting) will reach them too. Each was compared with Champions' instruction
+by instruction; what is the same is shared (`move_step`, the charge, the
+undo, `strike`, Delay, Bandage, Yell, Guard, Cast, Champions' Auto).
+
+The turn (`3e05:08af`): one that cannot act ends it, a spell begun earlier
+goes to the cast entry, as before; otherwise, until the turn is over, the
+selection set to the first (`DS:c0f7`) and the menu read (`3e05:0ccc`) with
+the menu loop by index, the text `Move Aim Use Cast Turn Guard Quick@Delay
+Bandage Yell View Speed End` (`DS:3453`; Quick ends the first row): Move
+while it has movement left (combat record `+0x06`), Aim, Use while it has
+items (`+0x7c`), Cast with a spells' block holding a memorized spell (a
+byte of 0-0x49 whose low seven bits are not 0) when it may cast this round
+(`+0x01`) and the area allows magic (var `0x4be5`), Turn for a cleric
+(`+0x45` above 0) or a paladin above level 2 (`+0x48`, the fight section's
+`paladin_turns`) that has tried fewer times than undead were loaded
+(`DS:db7d`), Guard unless it has a missile weapon not thrown, Quick and
+Delay, Bandage while a party member is dying (`65cd:3326`), Yell for a
+kender (`+0x20` 5) while no one has yelled (`DS:c4ce`), and View, Speed and
+End. It is read until it gives an index, or one of the special keys of the
+set at `3e05:0cac` (Alt-Q, Alt-R, Alt-A, 0x20: the keypad's 5 or Alt-D,
+Alt-X, Alt-M); rows 23 and 24 are cleared. Then: Move (below); Aim
+(`5340:3888` with the weapon's range); Use (the items menu with its second
+item selected) and View, each followed by the attacks recomputed
+(`5340:0d69`) and, unless an item ended the turn, the screen redrawn
+(`65cd:3158`); Cast (`5340:258e` = Champions' `432f:28bd`); Turn (its
+condition tested again, `5340:119b`), Guard, Bandage, Yell and End end the
+turn; Quick is Champions' Auto (the computer takes it and plays the rest of
+the turn); Delay is Champions'; Speed (`3e05:14aa`: `game speed: (N) ` with
+`Faster` above 0, `Slower` below 9 and `Exit`, by index, until Exit:
+Escape does not leave it). The special keys: 0x20 gives every party member
+who is no NPC (`+0x3e` below 0x80) back to the player; Alt-M Magic On or
+Off; Alt-Q and Alt-A the turn back and the party on Auto, as Champions';
+Alt-X the Helm's cheat, with no word without it; Alt-R nothing. View and
+Use are Champions' sheet and items menu still (`580d:0c66`, `0ffa` have
+their own menus by index, Ready's thief level and the vault's deposit: a
+later part).
+
+Move (`3e05:10bb`): `move/attack, move left = N` (half its movement) with
+`Done` by index, read again after each step; the keypad's directions are
+special keys, a step each, as Champions'; Escape (special) undoes the
+moves, Done (or Enter) leaves. The step's words: `flee ? ` (the Yes/No by
+index), `cant't go there` (sic, `DS:1718`), `not with that weapon`.
+
+Aiming (`5340:3888`): the cursor's flight's icon slot 0x1c (`65cd:1bd5`);
+the range the weapon's type byte 12 whole (Champions' less 1); the
+attacker's cell redrawn first (`6f03:04e8`); the targets (`36f2`) all those
+within 0xff it can attack, nearest first, the one it last aimed at
+(combat record `+0x0a`) shown first, and when that is not itself `Target`
+selected (`DS:c0f7` 4); the flight to the next or previous (`34b3`) kept
+to a listed entry with a record on the map (else the one shown stays), and
+with none listed the original quits to DOS (`16ab:0000`): the port stops.
+Each target is shown (`2bee`): `range = N  ` on row 23 when attacking, its
+panel, and `aim: ` with `Next Prev Manual Target Center Exit` by index,
+`Target` by Champions' rule. Escape (special) leaves, the target's cell
+redrawn and the screen centred on the attacker; after Next, Prev and
+Target the cell is the target's only for one (the set at `5340:3868`, by
+whatever key gave 0, 1 or 3). The cursor (`2f3d`): `(use cursor keys) `
+with `Target` where the cell may be picked, else `Exit`, by index; a
+creature under it may be picked where the attacker can attack it counting
+allies (`5340:10ab` with 1, `cok_combat_can_attack_allies`); Escape is
+Exit; the keypad's 5 (0x20) centres. Attacking an ally (`5340:2b81`):
+`attack ally? ` (the Yes/No by index), Yes setting var `0x7f33` and
+`DS:c470` only, no NPC turned against the party
+(`commands.ally_turns_npcs`).
+
+The battlefield's cursor box is `COMSPR` 15 in slot 0x1c
+(`commands.cursor_slot`; `6f03:036c`), and Death Knights recolours its
+missiles' icons as a `CPIC`'s (`startup.missiles_recoloured`, `7090:016f`):
+the box's dark gray edge is black.
+
+The adventure's menu (`4307:0257`) reads with the loop by index too
+(`command_read` in `adventure.c`): it keeps its own selection
+(`menus.adventure_keeps_selection`: put back before each ask of its
+main menus, whatever Cast, View and Encamp left, their menus starting from
+the first as Champions' are set to; Move's `Exit` neither puts it back nor
+takes it), Escape leaves Move (`menus.escape_leaves_move`; on the overland
+map it also ends the command, a step as any special key),
+and Left and
+Right, which the loop gives back, are special keys that keep the character
+selected (`580d:2bb2`, `menus.special_keeps`; Champions' `546c:3334` picks
+the first for any key but Up and Down).
+
+`tests/test_menu.c` checks the loop (`test_indexed`), `tests/test_death_knights.c`
+the sections against the original (`test_commands`: the loop's sets and
+colours, the words where their routines load them, the hidden keys' set,
+the cursor's slot, aiming's range and list), `tests/test_fight.c` aiming's
+range and first target, the keypad's 5 and attacking an ally on records
+made by hand, `tests/test_death_knights.py` the first fight by keys (with
+the cursor's box) and the adventure's menu, and
+`tools/dosbox/checks/dkk_fight.py`'s `keys` and `keys2` flows the original:
+the first fight from its first turn by keys (the menu's rows, Move with a
+step and its undo, Aim with Next, Prev, the cursor and Center, Speed,
+Delay, Guard, End, Quick; Yell, Cast's spells left, a round's turns ended,
+an attack by Aim and Target, View), its screens at each wait and its state
+after.
 
 ## Spells in combat
 
