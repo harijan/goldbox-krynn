@@ -124,7 +124,8 @@ the character fields moved (R6), which the real game's layout does better.
    classes or fighter levels (done); (2) `fight`, the rounds, the
    computer's turns, melee, turning undead (done, with the saving throw,
    caster level and the computer's spell choice); (3) `commands`, the player's
-   two-row menu, aiming, View, the items menu; (4) `casting`, the cast
+   two-row menu, Move, aiming (done); (3b) `items`, View and the items
+   menu (Ready, Use, Trade, Halve, Drop, Deposit, Sell, Id; rewritten); (4) `casting`, the cast
    entry, magic resistance; (5)
    `effects`, the changed effect handlers, level drain; (6) `treasure`,
    TREASURE ITEMS and ITEM0, the pool, the vault's menu, DAMAGE, ADD EP,
