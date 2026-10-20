@@ -290,7 +290,13 @@ static void test_champions(void)
     for (unsigned id = 1; id < r->spells.count; ++id)
         CHECK(r->spells.cast[id].value == 0 && r->spells.cast[id].count == 0 &&
               r->spells.cast[id].sides == 0 && r->spells.cast[id].type == 0 &&
-              r->spells.cast[id].handler != COK_CAST_DICE);
+              r->spells.cast[id].text == NULL && r->spells.cast[id].handler != COK_CAST_DICE &&
+              r->spells.cast[id].handler != COK_CAST_SAYING &&
+              r->spells.cast[id].handler != COK_CAST_MISSILES &&
+              r->spells.cast[id].handler != COK_CAST_CURE_CRITICAL);
+    CHECK(!r->casting.cone_range_length && !r->casting.cone_stack_unknown &&
+          r->casting.flame_type == NULL && r->casting.dispel_clouds_unported == NULL &&
+          r->casting.cone_side_unknown == NULL);
     for (unsigned k = 1; k < COK_FX_HANDLERS; ++k) {
         bool used = false;
         for (unsigned id = 1; id < r->effects.count; ++id) used |= r->effects.handlers[id].handler == k;
@@ -337,7 +343,22 @@ static void test_death_knights(void)
     for (unsigned id = 1; id < r->spells.count; ++id) {
         const cok_rules_cast *h = &r->spells.cast[id];
         CHECK((h->handler == COK_CAST_DICE) == (h->count != 0 && h->sides != 0));
+        /* The kinds that say only the entry's words have them. */
+        if (h->handler == COK_CAST_SAYING || h->handler == COK_CAST_MISSILES)
+            CHECK(h->text != NULL && h->text[0] != '\0');
     }
+    /* Band B: the ids of one routine share one entry (Fireball's 0x6c, Delay
+     * Blast, apart: its routine adds the level for 0x6c alone). */
+    static const uint8_t same[][3] = {{0x01, 0x69, 0}, {0x0a, 0x6a, 0}, {0x29, 0x2e, 0},
+                                      {0x2b, 0x59, 0x68}, {0x2c, 0x64, 0}, {0x2f, 0x40, 0},
+                                      {0x3e, 0x63, 0}};
+    for (size_t i = 0; i < sizeof same / sizeof *same; ++i)
+        for (size_t k = 1; k < 3 && same[i][k] != 0; ++k) {
+            const cok_rules_cast *a = &r->spells.cast[same[i][0]], *b = &r->spells.cast[same[i][k]];
+            CHECK(a->handler == b->handler && a->value == b->value &&
+                  (a->text == b->text || (a->text != NULL && b->text != NULL &&
+                                          strcmp(a->text, b->text) == 0)));
+        }
     /* A named effect it has has a handler entry; the rules not ported yet
      * say so. */
     for (unsigned n = 0; n < COK_EFFECT_NAMES; ++n) {

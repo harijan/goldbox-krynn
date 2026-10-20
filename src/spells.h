@@ -201,6 +201,16 @@ typedef enum {
      * Strike 5dc5:4160, Ice Storm 48ef: Champions' 5b04:1fc2 and 4914 with
      * other dice and types). */
     COK_CAST_DICE,
+    /* The spell applied, saying the entry's text (dkk Barkskin 5dc5:1daa,
+     * Fire Touch 4b7d: Champions' kinds of that shape, with words of their
+     * own). */
+    COK_CAST_SAYING,
+    /* 1cbd with no bonus, saying the entry's text (dkk Faerie Fire
+     * 5dc5:4391). */
+    COK_CAST_MISSILES,
+    /* Cure Serious Wounds' heal of 3d8 + 3, the deity's d8 rolled before the
+     * targets are counted (dkk Cure Critical Wounds 5dc5:4037). */
+    COK_CAST_CURE_CRITICAL,
     COK_CAST_HANDLERS
 } cok_cast_handler;
 
