@@ -499,6 +499,13 @@ typedef struct {
      * word: var COK_VAR_ORDER_MOON, the moon's phase). */
     uint8_t save_fail_id;
     bool save_moon_wraps;
+    /* The caster level (6346:29fe; dkk 65cd:2c33): the levels a knight's
+     * cleric spells and a ranger's mage spells are less than its knight
+     * and ranger levels (8 and 8; dkk 0 and 0); and a spell whose caster
+     * holding an effect casts it at a level of its own (dkk 0x2f, 0x4e,
+     * 15; 0 none). */
+    uint8_t caster_knight_less, caster_ranger_less;
+    uint8_t caster_spell, caster_effect, caster_spell_level;
     /* What one an effect does not take hold of "is" (60f4:20f7, CS:20e9;
      * dkk 638c:1f86, DS:1d0f). */
     const char *unaffected;
@@ -957,9 +964,11 @@ typedef struct {
     /* The free attacks on one stepping away (432f:0986; dkk 5340:0860):
      * an effect that denies them to one holding it, or 0 (dkk 6). */
     uint8_t free_attack_effect;
-    /* The attack's and the damage's message (5340:0230, 638c:1c52): the bit
-     * of the creature flags' byte 1 (dkk +0x7b) that leaves out one's
-     * dying and killed lines, or 0. */
+    /* The attack's message (dkk 5340:0230): the bit of the creature
+     * flags' byte 1 (dkk +0x7b) that leaves out one's dying and killed
+     * lines, or 0. (dkk 638c:1c52, the damage's message, tests it too and
+     * has words of its own; cast.c's cok_cast_damage is still Champions':
+     * casting's and the effects' parts.) */
     uint8_t quiet_flag;
     /* A spell lost (6346:161b clears the memorized byte: 0; dkk 65cd:17c4
      * marks it, | 0x80). */

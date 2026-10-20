@@ -250,32 +250,46 @@ static void test_alt_a(void)
         CHECK(cok_field_u8(L, game.party.members[i]->record, COK_FIELD_COMPUTER) == 1);
 }
 
-/* 3f63:05d7: no cast where a d100 is at most four times the levels. */
+/* 3f63:05d7 with 056c and 5340:43ea: Magic Missile (0x0f, of use against
+ * one of the other side within its range, 6 + 4 * the caster level, 6 for
+ * one of no levels) by an NPC: with none in range no candidate, no die;
+ * with one, no cast where a d100 is at most four times the levels. */
 static void test_cast_choice(void)
 {
     const cok_character_layout *L = R->character;
-    const cok_data_segment *D = R->data;
     reset();
-    cok_character *w = record('W', 1, 5, 5);
-    record('A', 0, 8, 5);
-    uint8_t spell = 0;
-    for (unsigned id = 1; id < R->spells.count && spell == 0; ++id) {
-        uint8_t may = 0;
-        CHECK(cok_data_byte(D, (uint16_t)cok_data_offset2(D, COK_DATA_SPELLS, id, 11), &may));
-        if (may != 0) spell = (uint8_t)id;
-    }
-    CHECK(spell != 0);
+    cok_character *w = record('W', 1, 2, 5);
+    cok_character *a = record('A', 0, 45, 5);
+    uint8_t spell = 0x0f;
     cok_field_set_spells(L, w->record, true);
     cok_field_set8_at(L, w->record, COK_FIELD_MEMORIZED, 1, spell);
     cok_field_set8(L, w->record, COK_FIELD_NPC, 0x80);
-    cok_field_set8_at(L, w->record, COK_FIELD_CLASS_LEVEL, 2, 10);
     w->combat->may_cast = 1;
+    game.vm.character = w->record;
+    game.vm.seed = 77;
+    bool cast = true;
+    CHECK(cok_ai_cast(&game, w, &cast) && !cast && game.vm.seed == 77);
+    /* In range: the d100 (40, four times 10 levels), and no more. */
+    game.combat.combatant[2].x = 8;
+    CHECK(cok_combat_occupy(&game.combat, R));
+    cok_field_set8_at(L, w->record, COK_FIELD_CLASS_LEVEL, 2, 10);
     const unsigned dice[] = {100, 40, 40};
     uint32_t seed = seed_seq(1, dice), copy = seed;
     cok_dice(&copy, 1, 100);
     game.vm.seed = seed;
-    bool cast = true;
+    cast = true;
     CHECK(cok_ai_cast(&game, w, &cast) && !cast && game.vm.seed == copy);
+    /* Slay Living (0x4c, first by priority) is of no use against one whose
+     * creature flags' byte 1 has bit 3 (5340:3fd5): the next, Hold Person
+     * (0x17), is cast. */
+    cok_field_set8_at(L, w->record, COK_FIELD_MEMORIZED, 1, 0x17);
+    cok_field_set8_at(L, w->record, COK_FIELD_MEMORIZED, 2, 0x4c);
+    cok_field_set8_at(L, w->record, COK_FIELD_CLASS_LEVEL, 2, 0);
+    cok_field_set8_at(L, a->record, COK_FIELD_CREATURE_FLAGS, 1, 8);
+    game.combat.combatant[2].x = 4;
+    CHECK(cok_combat_occupy(&game.combat, R));
+    /* (Its casting begins: the spell is the turn's, cast at its next.) */
+    CHECK(cok_ai_cast(&game, w, &cast) && cast && w->combat->spell == 0x17);
 }
 
 /* The battle's pictures and tiles loaded as a setup loads them. */

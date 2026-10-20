@@ -1511,9 +1511,15 @@ const cok_rules cok_rules_death_knights = {
             .display_texts = NULL,
             .display_text_count = 0,
             .display_unported = "dkk 4381:15aa", /* 4888:17ae's counterpart */
-            .caster_level_unported = "dkk 65cd:2c33",
             .save_fail_id = 0x39, /* 638c:10f8 */
             .save_moon_wraps = false,
+            /* 65cd:2c33: the knight's and the ranger's levels as they are;
+             * Fireball by one holding 0x4e at level 15. */
+            .caster_knight_less = 0,
+            .caster_ranger_less = 0,
+            .caster_spell = 0x2f,
+            .caster_effect = 0x4e,
+            .caster_spell_level = 15,
             .unaffected = "is unaffected", /* DS:1d0f */
             .resistance_unported = "dkk 638c:04c9",
         },
@@ -1731,7 +1737,7 @@ const cok_rules cok_rules_death_knights = {
             .ways_guarded = true,
             .attack_sides = true, /* 5340:10ab */
             .free_attack_effect = 6, /* 5340:0860 */
-            .quiet_flag = 8,    /* 5340:0230, 638c:1c52 */
+            .quiet_flag = 8,    /* 5340:0230 */
             .forget_mark = 0x80, /* 65cd:17c4 */
             .arrows = death_knights_arrows, /* 5340:28a0 */
             .missile_clamped = true,        /* 65cd:1da5 */

@@ -148,6 +148,7 @@ static uint8_t spell_byte(const cok_effects *fx, uint8_t spell, unsigned column)
 static bool caster_level(cok_effects *fx, uint8_t spell, uint8_t *level)
 {
     const cok_character_layout *L = fx->rules->character;
+    const cok_rules_effects *E = &fx->rules->effects;
     if (fx->rules->effects.caster_level_unported != NULL)
         return fail(fx, "not yet ported: %s's caster level (%s)", fx->rules->text.name,
                     fx->rules->effects.caster_level_unported);
@@ -164,14 +165,14 @@ static bool caster_level(cok_effects *fx, uint8_t spell, uint8_t *level)
         *level = 6;
     } else if (class_ == 0 || class_ == 2) {
         int8_t a = (int8_t)(former * FORMER(0) + LEVEL(0));
-        int8_t b = (int8_t)(former * FORMER(7) + LEVEL(7) - 8);
+        int8_t b = (int8_t)(former * FORMER(7) + LEVEL(7) - E->caster_knight_less);
         *level = (uint8_t)(a > b ? a : b);
     } else if (class_ == 1) {
         int8_t a = (int8_t)(former * FORMER(4) + LEVEL(4) - 7);
         *level = (uint8_t)(a > 0 ? a : 0);
     } else if (class_ == 3) {
         int8_t a = (int8_t)(former * FORMER(5) + LEVEL(5));
-        int8_t b = (int8_t)(former * FORMER(4) + LEVEL(4) - 8);
+        int8_t b = (int8_t)(former * FORMER(4) + LEVEL(4) - E->caster_ranger_less);
         if (LEVEL(5) > 0 && cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER) != 0) {
             /* The moon of its order, word 0x4cf8 + order (2b96). */
             uint16_t moon = cok_ecl_var_at(fx->vm, COK_VAR_ORDER_MOON,
@@ -188,6 +189,14 @@ static bool caster_level(cok_effects *fx, uint8_t spell, uint8_t *level)
     }
 #undef LEVEL
 #undef FORMER
+    /* dkk 65cd:2c33: its spell by one holding its effect. */
+    if (E->caster_spell != 0 && spell == E->caster_spell) {
+        const cok_character *holder = NULL;
+        for (size_t i = 0; i < fx->party->count && holder == NULL; ++i)
+            if (fx->party->members[i]->record == c) holder = fx->party->members[i];
+        if (holder != NULL && cok_character_find_effect(holder, E->caster_effect) != NULL)
+            *level = E->caster_spell_level;
+    }
     if (fx->rolls.item != 0 && class_ != 4) *level = 6;
     return true;
 }

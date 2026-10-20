@@ -331,9 +331,10 @@ static void test_death_knights(void)
             CHECK(r->effects.handlers[id].handler != COK_FX_MISSING ||
                   r->effects.handlers[id].unported != NULL);
     }
-    /* The saving throw is carried out (Champions' but for effect 0x39 and
-     * the moon's variable, test_death_knights' test_fight). */
-    CHECK(r->effects.caster_level_unported != NULL && r->effects.save_unported == NULL &&
+    /* The caster level and the saving throw are carried out (Champions'
+     * but for the knights' and rangers' levels, Fireball's 15, effect 0x39
+     * and the moon's variable: test_effect, test_death_knights). */
+    CHECK(r->effects.caster_level_unported == NULL && r->effects.save_unported == NULL &&
           r->effects.resistance_unported != NULL && r->effects.save_fail_id == 0x39 &&
           !r->effects.save_moon_wraps);
     CHECK(r->effects.display_spells == NULL);

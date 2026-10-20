@@ -122,8 +122,8 @@ class DeathKnightsTests(unittest.TestCase):
 
     def test_npcs_join(self):
         # The intro (ECL1 block 2) adds its three NPCs, then fights, whose
-        # computer's turns run until one casts a spell, which stops the run
-        # at the cast (5dc5:1298, not ported yet).
+        # computer's turns run until one casts a spell of use (5340:43ea),
+        # which stops the run at its handler (not ported yet).
         result = self.play("--keys", r"\r" * 20, ASSETS, 2)
         self.assertEqual(result.returncode, 1)
         self.assertEqual([line for line in result.stdout.splitlines()
@@ -132,7 +132,7 @@ class DeathKnightsTests(unittest.TestCase):
                           "party: TANAR joins, icon 49 in slot 1",
                           "party: FLAVIUS joins, icon 50 in slot 2"])
         self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
-                         "Krynn's spell 23, Hold Person (dkk 5dc5:1298)")
+                         "Krynn's spell 108, Delay Blast Fireball (dkk 5dc5:3241)")
 
     def test_characters(self):
         # The saved characters (--character), a sheet in camp: name, class,

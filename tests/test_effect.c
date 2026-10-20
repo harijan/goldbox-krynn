@@ -1332,7 +1332,8 @@ static void test_save_moon(void)
 
 /* Another game's effects section: Death Knights' effect 2 (dkk 504d:0124)
  * is not carried out yet, 0x7a is past its table, 5 runs Champions' (none),
- * and its caster level is not ported yet; its saving throw (638c:10f8) is
+ * its caster level (65cd:2c33) Champions' but for the knights' and rangers'
+ * levels and Fireball's 15; its saving throw (638c:10f8) is
  * Champions' but that a holder of effect 0x39 rolls 1 and a mage's moon
  * is var 0x4cf8 + its order of magic. */
 static void test_other_game(void)
@@ -1349,9 +1350,25 @@ static void test_other_game(void)
     CHECK(cok_effects_run(&fx, c, 5, NULL));
     vm.character = c->record;
     uint8_t level;
-    CHECK(!cok_effects_caster_level(&fx, 1, &level) && strstr(fx.error, "65cd:2c33") != NULL);
-    bool made;
     const cok_character_layout *L = cok_rules_death_knights.character;
+    /* Its caster level (65cd:2c33): 6 with no levels; a knight's cleric
+     * spells (Bless, 1) at its knight level whole (Champions' less 8); a
+     * mage's Fireball (0x2f) at 15 for one holding 0x4e. */
+    CHECK(cok_effects_caster_level(&fx, 1, &level) && level == 6);
+    cok_field_set8_at(L, c->record, COK_FIELD_CLASS_LEVEL, 7, 12);
+    CHECK(cok_effects_caster_level(&fx, 1, &level) && level == 12);
+    cok_field_set8_at(L, c->record, COK_FIELD_CLASS_LEVEL, 7, 0);
+    cok_field_set8_at(L, c->record, COK_FIELD_CLASS_LEVEL, 5, 5);
+    CHECK(cok_effects_caster_level(&fx, 0x2f, &level) && level == 5);
+    cok_field_set8_at(L, c->record, COK_FIELD_CLASS_LEVEL, 4, 9);
+    CHECK(cok_effects_caster_level(&fx, 0x2f, &level) && level == 9);
+    CHECK(cok_party_append(&party, c) && cok_character_add_effect(c, 0x4e, 0, 0, false) != NULL);
+    CHECK(cok_effects_caster_level(&fx, 0x2f, &level) && level == 15);
+    party.count = 0;
+    cok_character_free(c);
+    cok_field_set8_at(L, c->record, COK_FIELD_CLASS_LEVEL, 4, 0);
+    cok_field_set8_at(L, c->record, COK_FIELD_CLASS_LEVEL, 5, 0);
+    bool made;
     cok_field_set8_at(L, c->record, COK_FIELD_SAVING_THROW, 0, 2);
     for (unsigned k = 0; k < 40; ++k) {
         vm.seed = 1000 + k;

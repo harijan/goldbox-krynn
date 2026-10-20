@@ -311,8 +311,8 @@ won`, `fled` or `lost`, and the script going on. It holds:
   handler tables (127 of its 235 ids run Champions' handler, the others
   are unported), durations (`5dc5:0ef5`), byte 7's party value 3
   (`5dc5:1182`), the event lists (`638c:055b`), and its cast
-  (`5dc5:1298`), caster level, saving throw and magic resistance not
-  ported yet; `MON1WIZ`; its moons'
+  (`5dc5:1298`) and magic resistance not ported yet (its caster level and
+  saving throw: see Death Knights' fight); `MON1WIZ`; its moons'
   tiles, 0x100 + phase + 0x15, 0x0d and 0x11 (`5b7d:0000`);
 - its characters (see The character record's layout): the record's 216
   bytes (`.GAM`, `.PC`, `MON1CHA`), every field the code reads at its
@@ -5472,11 +5472,19 @@ instruction by instruction (the calls followed through their thunks):
   (`3f63:0251`, not the stack's byte), a paladin above level 2 too
   (`paladin_turns`); its spell (`3f63:05d7` with `056c`, `03ee`, `04f2`,
   `COK_COMPUTER_CAST_DEATH_KNIGHTS`): with magic allowed, a spells' block,
-  casting allowed this round and an NPC or Magic On, the memorized spell
-  of the highest priority (the spell table's column 13, of those whose
-  column 11 is set), cast unless a d100 is at most four times the sum of
-  its mage, paladin, ranger and knight levels (a byte) or a d5 is above
-  that priority; the cast then stops at the cast entry. Its reach is the
+  casting allowed this round and an NPC or Magic On, the memorized spells
+  whose column 11 is set, in order of priority (column 13), each tried
+  until one is of use (`5340:43ea`: on itself where column 6 is 0, else on
+  one within the spell's range of the side column 14 says, by `5340:3fd5`'s
+  test for the spell: Hold Person not on one holding 0x61 or 0x34, Slay
+  Living not on creature flags' bit 3 of byte 1, a cure on one hurt, an
+  effect not already held, nothing against a globe or magic resistance
+  above 50, ...); none, no die rolled; else cast unless a d100 is at most
+  four times the sum of its mage, paladin, ranger and knight levels (a
+  byte) or a d5 is above that priority; the cast then stops at the cast
+  entry. Its caster level (`65cd:2c33`, for the range) is Champions' but
+  that a knight's and a ranger's levels count whole and Fireball by one
+  holding 0x4e is cast at 15 (`effects.caster_*`). Its reach is the
   weapon's range, not one less (`3f63:0ccc`, `reach_less`); morale
   compares 100 less the byte var `0x7ec6` signed and takes no effects off
   one made to flee (`3f63:1260`); one fleeing turns one more
@@ -5488,8 +5496,9 @@ instruction by instruction (the calls followed through their thunks):
   call, is casting's); a combatant holding effect 6 makes no free attack
   on one stepping away (`0860`, `free_attack_effect`); no dead explode
   after a blow (`148f`, `combat.explode`); one whose creature flags' byte
-  1 holds bit 3 drops with no dying or killed line (`0230`, `638c:1c52`,
-  `quiet_flag`); type 0x42 flies as an arrow (`28a0`); the missile's ends
+  1 holds bit 3 drops with no dying or killed line (`0230`, `quiet_flag`;
+  the damage's message, `638c:1c52`, does the same with words of its own,
+  which `cok_cast_damage` does not have yet: no fight reaches it); type 0x42 flies as an arrow (`28a0`); the missile's ends
   are kept on the battlefield (`65cd:1d56`); a lost spell is marked
   (`| 0x80`) to memorize again, not cleared (`65cd:17c4`,
   `cok_combat_forget`, cast.c's too).

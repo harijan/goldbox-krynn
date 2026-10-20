@@ -1528,6 +1528,8 @@ const cok_rules cok_rules_champions = {
             .display_text_count = sizeof champions_display_texts / sizeof *champions_display_texts,
             .save_fail_id = 0,
             .save_moon_wraps = true, /* 60f4:113a */
+            .caster_knight_less = 8, /* 6346:29fe */
+            .caster_ranger_less = 8,
             .unaffected = "is Unaffected", /* 60f4:20e9 */
         },
     .moons =
