@@ -511,13 +511,18 @@ static bool trade_money(cok_adventure *game, cok_character *giver, cok_sheet_sta
             int coin = pick_coin(game, g, 14, false, &coin_word);
             if (coin < 0) return false;
             if (coin == 0x100) {
-                /* The flag that would end Trade ([bp-0x13c], 546c:2f9b) is
-                 * set only by an amount, to whether it took the last coin;
-                 * before any, it is the byte the stack held. */
+                /* The flag that would end Trade ([bp-0x13c], 546c:2f9b;
+                 * dkk 580d:26c0) is set only by an amount, to whether it
+                 * took the last coin; before any, it is the byte the stack
+                 * held. */
                 if (stale == COK_SHEET_STALE_SET) return true;
                 if (stale == COK_SHEET_STALE_UNKNOWN)
-                    return undefined(game, "Escape at the first coin list tests an "
-                                           "uninitialized byte (546c:2f9b; dkk 580d:26c0)");
+                    return undefined(game, cok_game_rules(game)->items.routine ==
+                                                   COK_ITEMS_DEATH_KNIGHTS
+                                               ? "Escape at the first coin list tests an "
+                                                 "uninitialized byte (dkk 580d:26c0)"
+                                               : "Escape at the first coin list tests an "
+                                                 "uninitialized byte (546c:2f9b)");
                 break;
             }
             char prompt[256];
