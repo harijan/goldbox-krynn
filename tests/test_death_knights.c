@@ -1754,6 +1754,12 @@ static void test_effects(void)
                     (uint8_t)(words[i] >> 8)) &&
               pascal_is(ds(words[i]), b->what, false));
     }
+    /* The cone (5dc5:175d) doubles its length in place (mov al, [bp+6]; xor
+     * ah, ah; shl ax, 1; mov [bp+6], al) before it copies it to the sight's
+     * range (mov al, [bp+6]; xor ah, ah; mov [bp-0x78], ax): the breath's
+     * range twice its length. */
+    CHECK(HOLDS(0x5dc5, 0x17b9, 0x0a, 0x8a, 0x46, 0x06, 0x30, 0xe4, 0xd1, 0xe0, 0x88, 0x46, 0x06) &&
+          HOLDS(0x5dc5, 0x1886, 0x08, 0x8a, 0x46, 0x06, 0x30, 0xe4, 0x89, 0x46, 0x88));
     /* Flames: the burst's n 1 and slot 0x18 with DS:4316's sound. */
     CHECK(h[0x46].handler == COK_FX_FLAMES &&
           HOLDS(0x504d, 0x186e, 0x40, 0xb0, 0x01, 0x50, 0xb0, 0x18, 0x50, 0xa0, 0x16, 0x43));

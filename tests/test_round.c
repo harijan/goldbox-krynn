@@ -604,6 +604,17 @@ static void test_sight(void)
     x1 = 10, y1 = 2, range = 0xff;
     CHECK(cok_combat_sight(c, &cok_rules_champions, 2, 2, &x1, &y1, &range, &seen) && seen);
     c->see_all = 0;
+    /* A target 8 cells off, past a dragon's cone of length 6 (dkk
+     * 5dc5:175d): seen with the range twice the length, not with the
+     * length. */
+    c->cells[2][6] = COK_COMBAT_FLOOR;
+    x1 = 10, y1 = 2, range = 6;
+    CHECK(cok_combat_sight(c, &cok_rules_champions, 2, 2, &x1, &y1, &range, &seen) && !seen &&
+          x1 == 9);
+    x1 = 10, y1 = 2, range = 12;
+    CHECK(cok_combat_sight(c, &cok_rules_champions, 2, 2, &x1, &y1, &range, &seen) && seen &&
+          x1 == 10);
+    c->cells[2][6] = 1;
     /* The range is cells: the length may reach 2 * range + 1. */
     x1 = 5, y1 = 2, range = 1;
     CHECK(cok_combat_sight(c, &cok_rules_champions, 2, 2, &x1, &y1, &range, &seen) && !seen &&

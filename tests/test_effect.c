@@ -1560,6 +1560,34 @@ static void test_dkk_handlers(void)
           strcmp(ids(c), "2a") == 0 && c->effects->duration == 3 &&
           strcmp(said_text, "is Slowed;") == 0);
     CHECK(cok_effects_remove(&fx, c, NULL, 0x2a));
+    /* Fire not magical neither heals the iron golem nor slows it, and takes
+     * no hold; magical fire or cold slows the flesh golem for 2d6 minutes;
+     * electricity not magical does nothing to it but cancel. */
+    cok_field_set8(L, c->record, COK_FIELD_HIT_POINTS, 2);
+    said_text[0] = '\0';
+    fx.rolls.damage_type = 1;
+    fx.rolls.amount = 4;
+    fx.rolls.pending = 0x21;
+    CHECK(cok_effects_run(&fx, c, 0x57, NULL) && fx.rolls.amount == 0 && fx.rolls.pending == 0 &&
+          cok_field_u8(L, c->record, COK_FIELD_HIT_POINTS) == 2 && c->effects == NULL &&
+          said_text[0] == '\0');
+    for (uint8_t type = 9; type <= 10; ++type) {
+        fx.rolls.damage_type = type;
+        fx.rolls.amount = 4;
+        vm.seed = 11;
+        uint32_t seed = vm.seed;
+        uint8_t minutes = cok_dice(&seed, 2, 6);
+        said_text[0] = '\0';
+        CHECK(cok_effects_run(&fx, c, 0x65, NULL) && fx.rolls.amount == 0 &&
+              strcmp(ids(c), "2a") == 0 && c->effects->duration == minutes &&
+              strcmp(said_text, "is Slowed;") == 0 &&
+              cok_field_u8(L, c->record, COK_FIELD_HIT_POINTS) == 2);
+        CHECK(cok_effects_remove(&fx, c, NULL, 0x2a));
+    }
+    fx.rolls.damage_type = 4;
+    fx.rolls.amount = 4;
+    CHECK(cok_effects_run(&fx, c, 0x65, NULL) && fx.rolls.amount == 0 && c->effects == NULL &&
+          cok_field_u8(L, c->record, COK_FIELD_HIT_POINTS) == 2);
     /* The globe 0x3b keeps out spells below level 5 (DS:6a81), 0x3f below
      * 4: the first spell of level 4. */
     uint8_t spell = 1, level = 0;

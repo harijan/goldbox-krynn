@@ -2974,9 +2974,10 @@ static bool attack_dragon(cast *cx, cok_character *c, cok_effect *effect)
 /* dkk 5dc5:51cc, 0x5a, 0x64 and 0x68 (cok_rules_breath): the uses become
  * 3 at the first round; with uses, the breath's damage type, a target as
  * the computer's cast of its spell picks it, then a cone from c of its
- * width and length, the sight's range its length (5dc5:175d sets it) and
- * the side, where no one is on the line, a byte of the stack (not known:
- * -1); unless a target is on c's side, "breathes " and what, and the
+ * width and length, the sight's range twice its length (5dc5:175d doubles
+ * the length in place at 17be and copies it to the range at 1886, a byte)
+ * and the side, where no one is on the line, a byte of the stack (not
+ * known: -1); unless a target is on c's side, "breathes " and what, and the
  * targets take c's most hit points (breath_damage). */
 static bool dragon_breath(cast *cx, cok_character *c, cok_effect *effect)
 {
@@ -2996,7 +2997,8 @@ static bool dragon_breath(cast *cx, cok_character *c, cok_effect *effect)
     bool done;
     if (!breath_targets(cx, b->spell, &done)) return false;
     if (!done) return true;
-    if (!cone(cx, x0, y0, game->spell_x, game->spell_y, b->width, b->length, b->length, -1) ||
+    if (!cone(cx, x0, y0, game->spell_x, game->spell_y, b->width, b->length,
+              (uint8_t)(b->length * 2), -1) ||
         !no_friend(cx, c, &done))
         return false;
     if (game->spell_target_count == 0 || !done) return true;

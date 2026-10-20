@@ -3951,7 +3951,8 @@ The dragons' breath (`5dc5:51cc`, `cok_rules_breath`): its uses become 3
 at the first round; acid (type 0x30, a cone 1 wide and 6 long), death
 (0x60, 1 by 8) and fire (0x21, 3 by 9) aimed as the computer's spell
 0x24 picks; the cone (`5dc5:175d`, Champions' `5b04:1903`) has its
-sight's range set to its length, but its side lines, where no one stands
+sight's range set to twice its length (the length doubled in place at
+`17be`, then copied at `1886`), but its side lines, where no one stands
 on the centre line, still come from a byte of the stack: the run stops if
 that changes the targets; then "breathes acid" (`DS:22d8` and the word),
 and each target saves (type 3) for half of the dragon's most hit points.
