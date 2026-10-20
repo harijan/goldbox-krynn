@@ -788,6 +788,8 @@ bool cok_character_stats(cok_character *character, const cok_rules *rules,
 bool cok_character_former_class(const uint8_t *c, const cok_rules *rules)
 {
     const cok_character_layout *L = rules->character;
+    /* A game without former classes (dkk 69a8:050b) has none to use. */
+    if (!cok_levels_former_classes(rules)) return false;
     int8_t level = 0;
     if (cok_field_u8(L, c, COK_FIELD_RACE) == 6) {
         size_t i = 0;
@@ -993,7 +995,7 @@ static void thief_skills(lookup *l, const cok_rules *rules, cok_character *chara
         power2 = (item[0x3e] & 0x7f) == 2;
     }
     int8_t base = (int8_t)(uint8_t)(cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 6) +
-                                    cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 6) *
+                                    cok_character_former_level(rules, c, 6) *
                                         (cok_character_former_class(c, rules) ? 1 : 0));
     if (base < 4 && power2) {
         base = 4;

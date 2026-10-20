@@ -444,7 +444,11 @@ bool cok_item_use(cok_adventure *game, cok_character *character, size_t index, b
     r->item = 1;
     bool cast = true;
     if (scroll) {
-        uint8_t before = first_class(L, c, COK_FIELD_FORMER_LEVEL),
+        /* A game without former classes has none before (dkk
+         * 580d:1dd7: a cleric or magic-user, else a thief's roll). */
+        uint8_t before = cok_levels_former_classes(cok_game_rules(game))
+                             ? first_class(L, c, COK_FIELD_FORMER_LEVEL)
+                             : 0x11,
                 now = first_class(L, c, COK_FIELD_CLASS_LEVEL);
         cast = before == 5 || now == 5 || before == 0 || now == 0 ||
                cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) > 0 ||

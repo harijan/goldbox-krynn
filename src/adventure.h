@@ -284,6 +284,13 @@ struct cok_adventure {
     bool sprite_shown;     /* DS:884d: a sprite is drawn over the view. */
     bool in_encounter;     /* DS:8853: ENCOUNTER MENU runs. */
     uint8_t closeup_head;  /* DS:8854: 0x7ee1 when the close-up was shown. */
+    /* dkk DS:c4cc: SETUP MONSTERS' fourth operand, the directions an
+     * ambush comes from (bits 0-3, a quadrant each); a game whose SETUP
+     * MONSTER has none never sets it. */
+    uint8_t ambush;
+    /* dkk DS:c463: the battle's effect 0x27 (504d:0d88) asks for aging
+     * after it (3e05:0264); nothing sets it yet. */
+    bool aging;
     cok_pool pool;
     /* DS:609e: the weapons lost in combat (effect 0x43, 3f44:1dc5), in list
      * order, given back at its end. Nothing fills it yet. */
@@ -658,6 +665,11 @@ uint8_t *cok_adventure_pick(cok_adventure *game, const char *prompt, uint8_t *wh
  * PRINT does (1521:04ac), typed while game->text_delay is set. */
 void cok_adventure_print(cok_adventure *game, const char *text, cok_text_window window,
                          uint8_t fg, bool clear);
+/* A routine of the game's the port does not carry out for it yet, what it
+ * does and the routine cited ("dkk 3e05:08af"): the run stops there with
+ * COK_ECL_UNPORTED, "not yet ported: <game>'s <what> (<routine>)". Returns
+ * false. */
+bool cok_adventure_not_yet(cok_adventure *game, const char *what, const char *routine);
 /* Set game->error, log it, set game->vm.status to status and end the run. */
 void cok_adventure_fail(cok_adventure *game, cok_ecl_status status, const char *format, ...);
 /* A spell effect could not be carried out: end the run with

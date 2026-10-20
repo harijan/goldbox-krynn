@@ -1103,6 +1103,10 @@ static const uint8_t champions_shared[] = {0x15, 0x2d, 0x2e, 0x31, 0};
 /* Magic resistance leaves 0x5b and 0x52 pending (60f4:04f3). */
 static const uint8_t champions_resisted_pending[] = {0x5b, 0x52, 0};
 
+/* The effects a party record loses after combat (351b:0574, DS:0390). */
+static const uint8_t champions_combat_effects[] = {0x03, 0x0b, 0x15, 0x17, 0x1b, 0x23,
+                                                   0x28, 0x33, 0x34, 0x35, 0x1f, 0};
+
 /* The effect ids the code names (spells.h). */
 static const uint8_t champions_effect_ids[COK_EFFECT_NAMES] = {
     [COK_EFFECT_SNAKES] = 0x03,
@@ -1418,6 +1422,8 @@ const cok_rules cok_rules_champions = {
             .stats = COK_STATS_CHAMPIONS,   /* 6346:0d20 */
             .levels = COK_LEVELS_CHAMPIONS, /* 66c2:0433 */
             .import = NULL,
+            .paladin_row = 0,         /* 6346:371e */
+            .fighter_classes = 0x94, /* 60f4:1743, 1628: 2, 4, 7 */
         },
     .data = &champions_data,
     .ecl =
@@ -1497,6 +1503,10 @@ const cok_rules cok_rules_champions = {
             .target_one = 2,
             .target_party = 4,
             .weapon_unscored = 0x53, /* 3afb:15e0 */
+            /* 5b04:0083 */
+            .usable_paladin = 0,
+            .usable_ranger = 7,
+            .usable_mage_class = false,
         },
     .effects =
         {
@@ -1594,6 +1604,51 @@ const cok_rules cok_rules_champions = {
             .begin_last_mode = false,
             .program_marks = false,
             .reset_wall = 0, /* 3e99:0843 */
+        },
+    .combat =
+        {
+            /* 2fd3:191c: a shop, the temple, else treasure. */
+            .vault = false,
+            .show_none = false, /* 3775:0575 */
+            /* 3995:0172 */
+            .leadership = false,
+            .explode = true, /* 60f4:2375 */
+            .ends_in_round = false,
+            /* 3cb2:1c58, 1029 */
+            .begins = "A battle begins...",
+            .dungeon_tiles = 0x19,
+            .wilderness_tiles = 0x21,
+            .tiles_kept = false,
+            .wilderness = COK_WILDERNESS_CHAMPIONS,
+            .dungeon_fill = false,
+            .door_corners = false,
+            /* 3cb2:17f7 */
+            .placement_clears = 255,
+            .ambush = false,
+            .ambush_distance = 0,
+            .demo_distance = 0,
+            .body_under = false,
+            .status_9 = true,
+            /* 351b:1968 */
+            .weapons_back = true, /* 351b:185f */
+            .shares = true,       /* 351b:1618 */
+            .combat_effects = champions_combat_effects,
+            .may_train = false, /* 351b:0379 */
+            /* 351b:0b23 */
+            .fled = "The party has fled.",
+            .lost = "You have lost the fight.",
+            .won = "The party has won.",
+            .found = "The party has found Treasure!",
+            .receives = "Each character receives ",
+            .points = "experience points.",
+            .found_none = NULL,
+            .withdrawal = "The party makes a withdrawl.  A small",
+            .fee = "fee has been assessed by the bank.",
+            .results_key = "press <enter>/<return> to continue", /* 67b5:03e2 */
+            .treasure_if_any = false,
+            /* 351b:1aab */
+            .rejoice = "The monsters rejoice for the party has been destroyed",
+            .rejoice_key = "Press any key to continue",
         },
 };
 

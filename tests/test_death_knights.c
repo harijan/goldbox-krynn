@@ -324,11 +324,12 @@ static void test_variables(void)
         bool listed = false;
         for (size_t i = 0; i < 24; ++i) listed |= offsets[i] == var->address - 0x7c00;
         /* Its ECL file is read at its offset in the code (0x312), the
-         * block's variables by a loop (3c1e:01c1). */
-        CHECK(listed || v == COK_VAR_ECL_FILE || v == COK_VAR_LOCALS_GAME);
+         * block's variables by a loop (3c1e:01c1), the shop's by COMBAT
+         * (3632:16ec's 0x36c). */
+        CHECK(listed || v == COK_VAR_ECL_FILE || v == COK_VAR_LOCALS_GAME || v == COK_VAR_SHOP);
         found += listed;
     }
-    CHECK(found == 8);
+    CHECK(found == 20);
     const uint8_t *get = at(0x3c1e, 0x0d85), *set = at(0x3c1e, 0x0bc1);
     size_t compared = 0;
     for (size_t i = 0; i < 0x190; ++i) {
@@ -928,6 +929,186 @@ static void test_frame(void)
     cok_picture_free(&tiles);
 }
 
+/* Whether the bytes of pattern occur in the n bytes from segment:offset. */
+static bool holds_bytes(unsigned segment, unsigned offset, size_t n, const uint8_t *pattern,
+                        size_t size)
+{
+    const uint8_t *b = at(segment, offset);
+    for (size_t i = 0; i + size <= n; ++i)
+        if (memcmp(b + i, pattern, size) == 0) return true;
+    return false;
+}
+#define HOLDS(seg, off, n, ...)                                                                    \
+    holds_bytes(seg, off, n, (const uint8_t[]){__VA_ARGS__}, sizeof((const uint8_t[]){__VA_ARGS__}))
+
+/* The routine a far call (9a off seg) at p reaches through the thunk it
+ * calls (ea off seg, the merged image's segments from 0x1000), as
+ * seg << 16 | off. */
+static unsigned long far_target(const uint8_t *p)
+{
+    unsigned off = (unsigned)(p[1] | p[2] << 8), seg = 0x1000u + (unsigned)(p[3] | p[4] << 8);
+    const uint8_t *t = at(seg, off);
+    if (t[0] != 0xea) return (unsigned long)seg << 16 | off;
+    return (unsigned long)(0x1000u + (unsigned)(t[3] | t[4] << 8)) << 16 |
+           (unsigned)(t[1] | t[2] << 8);
+}
+
+/* The far calls' routines in the n bytes from segment:offset, in order,
+ * at most max; returns how many. */
+static size_t far_calls(unsigned segment, unsigned offset, size_t n, unsigned long *out,
+                        size_t max)
+{
+    const uint8_t *b = at(segment, offset);
+    size_t found = 0;
+    for (size_t i = 0; i + 5 <= n && found < max; ++i)
+        if (b[i] == 0x9a) out[found++] = far_target(b + i);
+    return found;
+}
+
+/* Whether the n bytes from segment:offset make a near call (push cs; call
+ * rel16, a far routine's own) to segment:target. */
+static bool near_call(unsigned segment, unsigned offset, size_t n, unsigned target)
+{
+    const uint8_t *b = at(segment, offset);
+    for (size_t i = 0; i + 3 <= n; ++i)
+        if (b[i] == 0xe8 &&
+            ((offset + i + 3 + (size_t)(uint16_t)(b[i + 1] | b[i + 2] << 8)) & 0xffff) == target)
+            return true;
+    return false;
+}
+
+static bool cites(const char *cited, unsigned long routine)
+{
+    char text[32];
+    snprintf(text, sizeof text, "dkk %04lx:%04lx", routine >> 16, routine & 0xffff);
+    return cited != NULL && strcmp(cited, text) == 0;
+}
+
+/* The encounter's section (combat) against the original's code: COMBAT's
+ * branches in order (3632:16ec: the vault's var 0x4d00 first, the vault's
+ * menu, a shop, the temple, the end of combat; the battle, then the end of
+ * combat), SETUP MONSTERS' fourth operand into DS:c4cc (3632:038f), the
+ * placement's ambush (410b:1aa4, 18c2: bits 0-3 of c4cc, the turn of
+ * directions, the distance 1 and the demonstration's 2, the sizes it
+ * clears, each record's facing from DS:0356, the cell under a body,
+ * 6f03:152e, no status 9), the setup's line and the map's tiles
+ * (410b:1e41, 10d7), leadership's tests, chances and words (5340:4acf,
+ * 4a25), the battle's routines (3e05:00ec: leadership, setup, the turns'
+ * 3e05:08af and 3f63:0000 by 3e05:076c, aging 3e05:0264), and the end of
+ * combat's effects (3a37:0506, DS:455d), words (3a37:09b7) and treasure
+ * menu (3a37:0eed). */
+static void test_combat(void)
+{
+    const cok_rules_combat *C = &R->combat;
+    unsigned long calls[24];
+    size_t n = far_calls(0x3632, 0x16ec, 0x1b0, calls, 24);
+    CHECK(n >= 6 && C->vault && cites(C->vault_unported, calls[0]) &&
+          cites(C->shop_unported, calls[1]) && cites(C->temple_unported, calls[2]) &&
+          calls[3] == 0x3a371318);
+    CHECK(HOLDS(0x3632, 0x16ec, 0x48, 0x26, 0x80, 0xbd, 0x00, 0x02, 0x01)); /* var 0x4d00 */
+    CHECK(cok_ecl_var_address(R, COK_VAR_VAULT, 0) == 0x4d00);
+    size_t battle = 0;
+    while (battle < n && calls[battle] != 0x3e0500ec) ++battle;
+    CHECK(battle + 1 < n && calls[battle + 1] == 0x3a371318);
+    /* SETUP MONSTERS: mov [c4cc], al. */
+    CHECK(HOLDS(0x3632, 0x038f, 0x60, 0xa2, 0xcc, 0xc4));
+    /* The placement: mov al, [c4cc]; and al, 0xf; and ax, 3; cmp byte
+     * [bp-9], 0x48; mov al, [di+0x356]; mov [es:di+9], al. */
+    CHECK(HOLDS(0x410b, 0x1aa4, 0x80, 0xa0, 0xcc, 0xc4, 0x24, 0x0f));
+    CHECK(HOLDS(0x410b, 0x1aa4, 0x1a0, 0x25, 0x03, 0x00));
+    CHECK(C->ambush && HOLDS(0x410b, 0x1aa4, 0x40, 0x80, 0x7e, 0xf7, C->placement_clears));
+    CHECK(HOLDS(0x410b, 0x1aa4, 0x200, 0x8a, 0x85, 0x56, 0x03) &&
+          HOLDS(0x410b, 0x1aa4, 0x200, 0x26, 0x88, 0x45, 0x09));
+    CHECK(!HOLDS(0x410b, 0x1aa4, 0x390, 0x26, 0x80, 0xbd, 0xc7, 0x00, 0x09) && !C->status_9);
+    n = far_calls(0x410b, 0x1aa4, 0x390, calls, 24);
+    bool under = false;
+    for (size_t i = 0; i < n; ++i) under |= calls[i] == 0x6f03152e;
+    CHECK(under && C->body_under);
+    /* 18c2: mov byte [bp-4], 1 (no distance, another facing); cmp byte
+     * [8c50], 0 then mov byte [bp-4], 2 (the demonstration). */
+    CHECK(HOLDS(0x410b, 0x18c2, 0x30, 0xc6, 0x46, 0xfc, C->ambush_distance));
+    CHECK(HOLDS(0x410b, 0x18c2, 0x50, 0x80, 0x3e, 0x50, 0x8c, 0x00, 0x74, 0x04, 0xc6, 0x46, 0xfc,
+                C->demo_distance));
+    /* The setup's line (410b:1e41: DS:2a07), the map's tile counts (10d7:
+     * mov al, 0x26 for WILDCOM, 0x19 for DUNGCOM) and the dungeon's floor
+     * (0892: FillChar with 0x16). */
+    CHECK(pascal_is(ds(0x2a07), C->begins, false));
+    CHECK(HOLDS(0x410b, 0x10d7, 0x70, 0xb0, C->wilderness_tiles) &&
+          HOLDS(0x410b, 0x10d7, 0x70, 0xb0, C->dungeon_tiles));
+    CHECK(C->dungeon_fill && HOLDS(0x410b, 0x0892, 0x20, 0xb0, C->dungeon_floor));
+    CHECK(C->wilderness == COK_WILDERNESS_DEATH_KNIGHTS && C->tiles_kept && C->door_corners);
+    CHECK(R->archives.random == NULL);
+    /* The river's variable: 410b:0a4c's cmp byte [es:di+0xf3], 0 on the
+     * 0x4b00 block. */
+    CHECK(HOLDS(0x410b, 0x0a4c, 0x10, 0x26, 0x80, 0xbd, 0xf3, 0x00, 0x00) &&
+          cok_ecl_var_address(R, COK_VAR_RIVER, 0) == 0x4bf3);
+    /* Leadership: its words in its code, 5340:4aa9, 4ac5, 4acd; the side,
+     * the NPC flag, the knight's level (+0x4c), okay, the computer's and
+     * intelligence above 3; the chances 20, 40, 80 and charisma above 13. */
+    CHECK(C->leadership && pascal_is(at(0x5340, 0x4aa9), C->leadership_text, false) &&
+          pascal_is(at(0x5340, 0x4ac5), C->leads, false) &&
+          pascal_is(at(0x5340, 0x4acd), C->leads_end, false));
+    CHECK(HOLDS(0x5340, 0x4acf, 0x100, 0x26, 0x80, 0x7d, 0x4c, 0x00) &&
+          HOLDS(0x5340, 0x4acf, 0x120, 0x26, 0x80, 0x7d, 0x13, 0x03) &&
+          HOLDS(0x5340, 0x4acf, 0x60, 0x26, 0xc6, 0x85, 0xca, 0x00, 0x01) &&
+          HOLDS(0x5340, 0x4acf, 0x1f0, 0xbf, 0x68, 0x08)); /* DS:0868 */
+    CHECK(pascal_is(ds(0x0868), C->results_key, false));
+    CHECK(HOLDS(0x5340, 0x4a25, 0x30, 0xc6, 0x46, 0xfd, 0x14) &&
+          HOLDS(0x5340, 0x4a25, 0x30, 0xc6, 0x46, 0xfd, 0x28) &&
+          HOLDS(0x5340, 0x4a25, 0x30, 0xc6, 0x46, 0xfd, 0x50) &&
+          HOLDS(0x5340, 0x4a25, 0x40, 0x26, 0x80, 0x7d, 0x1b, 0x0d));
+    /* The battle: leadership, then the setup (3e05:00ec); the turn's
+     * routines (3e05:076c's near call to 08af, far to 3f63:0000), aging
+     * (00ec's near call to 0264). */
+    n = far_calls(0x3e05, 0x00ec, 0x60, calls, 24);
+    CHECK(n >= 2 && calls[0] == 0x53404acf && calls[1] == 0x410b1e41);
+    CHECK(cites(C->player_unported, 0x3e0508af) && cites(C->computer_unported, 0x3f630000) &&
+          cites(C->aging_unported, 0x3e050264));
+    n = far_calls(0x3e05, 0x076c, 0x143, calls, 24);
+    bool computer = false;
+    for (size_t i = 0; i < n; ++i) computer |= calls[i] == 0x3f630000;
+    CHECK(computer && near_call(0x3e05, 0x076c, 0x143, 0x08af));
+    CHECK(HOLDS(0x3e05, 0x0248, 0x0a, 0x80, 0x3e, 0x63, 0xc4, 0x00) &&
+          near_call(0x3e05, 0x0248, 0x0c, 0x0264)); /* cmp byte [c463], 0; call 0264 */
+    CHECK(!C->explode && C->ends_in_round);
+    /* The end of combat: the effects (DS:455d, 19), its words and the
+     * treasure menu it reaches only with anything in the pool. */
+    for (size_t i = 0; i < 19; ++i) CHECK(C->combat_effects[i] == *ds(0x455d + (unsigned)i));
+    CHECK(C->combat_effects[19] == 0);
+    /* mov al, [di+0x455c]; the loop's cmp byte [bp-6], 0x13. */
+    CHECK(HOLDS(0x3a37, 0x0506, 0x200, 0x8a, 0x85, 0x5c, 0x45) &&
+          HOLDS(0x3a37, 0x0506, 0x200, 0x80, 0x7e, 0xfa, 0x13));
+    CHECK(pascal_is(ds(0x17fa), C->fled, false) && pascal_is(ds(0x180f), C->lost, false) &&
+          pascal_is(ds(0x184d), C->won, false) && pascal_is(ds(0x18b4), C->found, false) &&
+          pascal_is(ds(0x191b), C->receives, false) && pascal_is(ds(0x193a), C->points, false) &&
+          pascal_is(ds(0x18d3), C->found_none, false) && C->withdrawal == NULL);
+    CHECK(pascal_is(ds(0x2b9c), C->rejoice, false) && pascal_is(ds(0x2681), C->rejoice_key, false));
+    CHECK(C->treasure_if_any && cites(C->treasure_unported, 0x3a370eed));
+    CHECK(!C->weapons_back && !C->shares && C->may_train && R->characters.paladin_row == 10);
+    /* The paladin's experience row 10 (65cd:382c: cmp al, 3 then mov byte
+     * [bp-2], 0x0a), the highest levels' table (65cd:38c7's [di-0x7d2c]:
+     * DS:82d4). */
+    CHECK(HOLDS(0x65cd, 0x382c, 0xa0, 0x3c, 0x03, 0x75, 0x04, 0xc6, 0x46, 0xfe,
+                R->characters.paladin_row));
+    CHECK(HOLDS(0x65cd, 0x38c7, 0xf0, 0x8a, 0x85, 0xd4, 0x82) &&
+          cok_data_offset2(R->data, COK_DATA_LEVEL_LIMITS, 0, 0) == 0x82d4 &&
+          cok_field_offset(R->character, COK_FIELD_MAY_TRAIN) == 0xc6 &&
+          HOLDS(0x3a37, 0x02fa, 0x200, 0x26, 0x88, 0x85, 0xc6, 0x00));
+    /* Who may use spells (5dc5:0078): cmp byte [es:di+0x48], 8 (paladins
+     * from 9), [+0x49], 7 (rangers from 8), [+0x4a], 0 (a magic-user). */
+    const cok_rules_spells *S = &R->spells;
+    CHECK(HOLDS(0x5dc5, 0x0078, 0x60, 0x26, 0x80, 0x7d, 0x48, (uint8_t)(S->usable_paladin - 1)) &&
+          HOLDS(0x5dc5, 0x0078, 0x90, 0x26, 0x80, 0x7d, 0x49, (uint8_t)(S->usable_ranger - 1)) &&
+          HOLDS(0x5dc5, 0x0078, 0xe0, 0x26, 0x80, 0x7d, 0x4a, 0x00) && S->usable_mage_class);
+    /* The fighters' classes: 638c:15e0's cmp byte [bp+0xa], 3 (a paladin's
+     * hit points), 638c:16d8's cmp byte [es:di+0x48], 0 (exceptional
+     * strength). */
+    CHECK(R->characters.fighter_classes == 0x9c &&
+          HOLDS(0x638c, 0x15e0, 0x40, 0x80, 0x7e, 0x0a, 0x03) &&
+          HOLDS(0x638c, 0x16d8, 0x300, 0x26, 0x80, 0x7d, 0x48, 0x00));
+    puts("death knights: the encounter's and the fight's routines checked");
+}
+
 int main(void)
 {
     test_lookup();
@@ -939,6 +1120,7 @@ int main(void)
     } else {
         test_assets();
         test_executable();
+        if (exe_size > 0) test_combat();
     }
     puts("death knights: ok");
     return 0;

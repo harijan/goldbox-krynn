@@ -701,6 +701,32 @@ static void test_death_knights_recompute(void)
     CHECK(cok_field_u8_at2(L, r, COK_FIELD_SPELLS_A_DAY, 1, 1) == 0);
 }
 
+/* Former classes: Champions' human whose first class's level passes the
+ * level it changed class at may use its former levels (66c2:0efb); Death
+ * Knights has none, its records neither field: the former levels and the
+ * level read as 0 (cok_character_former_level, _change_level). */
+static void test_former_classes(void)
+{
+    const cok_rules *C = &cok_rules_champions, *R = &cok_rules_death_knights;
+    uint8_t c[COK_CHARACTER_MAX] = {0};
+    const cok_character_layout *L = C->character;
+    cok_field_set8(L, c, COK_FIELD_RACE, 6);
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 2, 9);
+    cok_field_set8_at(L, c, COK_FIELD_FORMER_LEVEL, 5, 7);
+    cok_field_set8(L, c, COK_FIELD_CHANGE_LEVEL, 7);
+    CHECK(cok_character_former_class(c, C) && cok_character_former_level(C, c, 5) == 7 &&
+          cok_character_change_level(C, c) == 7 && cok_character_former_level(C, c, 2) == 0);
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 2, 7);
+    CHECK(!cok_character_former_class(c, C));
+    memset(c, 0, sizeof c);
+    L = R->character;
+    cok_field_set8(L, c, COK_FIELD_RACE, 6);
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 2, 9);
+    CHECK(!cok_levels_former_classes(R) && cok_levels_former_classes(C));
+    CHECK(!cok_character_former_class(c, R) && cok_character_change_level(R, c) == 0);
+    for (size_t k = 0; k < 8; ++k) CHECK(cok_character_former_level(R, c, k) == 0);
+}
+
 /* Champions' character imported into Death Knights' (dkk 46b2:10d7): the
  * record's runs moved, the block made for a class but fighter, thief and
  * fighter/thief with the memorized and known spells, the age capped by
@@ -927,6 +953,7 @@ static void test_import_saved(void)
 
 int main(void)
 {
+    test_former_classes();
     test_names();
     test_members();
     test_damage();

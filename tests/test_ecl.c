@@ -827,32 +827,37 @@ static void test_named_variables(void)
         {COK_VAR_MOONS, 0x4cf9, 0x4cf9, 3},      {COK_VAR_MOON_DAYS, 0x4cfc, 0x4cfc, 3},
         {COK_VAR_TURN, 0x4cff, 0, 1},            {COK_VAR_ORDER_MOON, 0x4cf8, 0, 0x100},
         {COK_VAR_AREA, 0x4b00, 0, 0x100},        {COK_VAR_HALL, 0x7ea8, 0x7ea8, 1},
-        {COK_VAR_DISTANCE_WANTED, 0x7ec0, 0, 1}, {COK_VAR_DISTANCE, 0x7ec1, 0, 1},
-        {COK_VAR_MORALE, 0x7ec6, 0, 1},          {COK_VAR_OUTCOME, 0x7ec7, 0, 1},
-        {COK_VAR_DROPPED, 0x7ec8, 0, 1},         {COK_VAR_STAY, 0x7ec9, 0x7ec9, 1},
-        {COK_VAR_SEARCH, 0x7eca, 0x7eca, 1},     {COK_VAR_SURPRISE, 0x7ecb, 0, 1},
+        {COK_VAR_DISTANCE_WANTED, 0x7ec0, 0x7ec0, 1}, {COK_VAR_DISTANCE, 0x7ec1, 0x7ec1, 1},
+        {COK_VAR_MORALE, 0x7ec6, 0x7ec6, 1},          {COK_VAR_OUTCOME, 0x7ec7, 0x7ec7, 1},
+        {COK_VAR_DROPPED, 0x7ec8, 0x7ec8, 1},         {COK_VAR_STAY, 0x7ec9, 0x7ec9, 1},
+        {COK_VAR_SEARCH, 0x7eca, 0x7eca, 1},     {COK_VAR_SURPRISE, 0x7ecb, 0x7ecb, 1},
         {COK_VAR_REST_EVERY, 0x7ed2, 0x7ed2, 1}, {COK_VAR_REST_CHANCE, 0x7ed3, 0x7ed3, 1},
         {COK_VAR_EDGE, 0x7ed5, 0x7ed5, 1},       {COK_VAR_PORTRAIT, 0x7ee1, 0, 1},
-        {COK_VAR_TEMPLE, 0x7ee2, 0, 1},          {COK_VAR_KEEP_ITEMS, 0x7ee3, 0, 1},
-        {COK_VAR_GENTLE, 0x7ee6, 0, 1},          {COK_VAR_ECL_FILE, 0x7f12, 0x7f12, 1},
-        {COK_VAR_FLED, 0x7f33, 0, 1},            {COK_VAR_PARTY_SIZE, 0x7f3e, 0x7f3e, 1},
-        {COK_VAR_REMAINDER, 0x7f3f, 0x7f3f, 1},  {COK_VAR_SHOP, 0x7f6c, 0, 1},
-        {COK_VAR_PRICES, 0x7f6d, 0, 1},          {COK_VAR_HIT_BONUS, 0x7f70, 0, 2},
-        {COK_VAR_MOVE_BONUS, 0x7f72, 0, 1},      {COK_VAR_LOCALS_GAME, 0x7f79, 0x7f79, 10},
+        {COK_VAR_TEMPLE, 0x7ee2, 0x7ee2, 1},          {COK_VAR_KEEP_ITEMS, 0x7ee3, 0x7ee3, 1},
+        {COK_VAR_GENTLE, 0x7ee6, 0x7ee6, 1},          {COK_VAR_ECL_FILE, 0x7f12, 0x7f12, 1},
+        {COK_VAR_FLED, 0x7f33, 0x7f33, 1},            {COK_VAR_PARTY_SIZE, 0x7f3e, 0x7f3e, 1},
+        {COK_VAR_REMAINDER, 0x7f3f, 0x7f3f, 1},  {COK_VAR_SHOP, 0x7f6c, 0x7f6c, 1},
+        {COK_VAR_PRICES, 0x7f6d, 0, 1},          {COK_VAR_HIT_BONUS, 0x7f70, 0x7f70, 2},
+        {COK_VAR_MOVE_BONUS, 0x7f72, 0x7f72, 1}, {COK_VAR_LOCALS_GAME, 0x7f79, 0x7f79, 10},
+        {COK_VAR_VAULT, 0, 0x4d00, 1},           {COK_VAR_RIVER, 0, 0x4bf3, 1},
     };
     CHECK(sizeof names / sizeof *names == COK_VARS);
     for (size_t i = 0; i < COK_VARS; ++i) {
         CHECK(names[i].name == i);
         const cok_rules_var *c = &C->ecl.vars[i], *d = &DK->ecl.vars[i];
-        CHECK(c->address == names[i].champions && c->width == 2 && c->count == names[i].count);
-        CHECK(c->off == 0 && cok_ecl_has_var(C, (cok_var)i));
+        /* Champions has every variable but Death Knights' own. */
+        CHECK(c->address == names[i].champions &&
+              cok_ecl_has_var(C, (cok_var)i) == (c->address != 0));
+        if (c->address != 0)
+            CHECK(c->width == 2 && c->count == names[i].count && c->off == 0);
         CHECK(d->address == names[i].death_knights &&
               cok_ecl_has_var(DK, (cok_var)i) == (d->address != 0));
         if (d->address != 0)
             CHECK(d->width == (i == COK_VAR_SAVINGS ? 2 : 1) && d->count == names[i].count &&
                   d->off == (i == COK_VAR_OFF_MAP));
         for (size_t k = 0; k < names[i].count; ++k) {
-            CHECK(cok_ecl_var_address(C, (cok_var)i, k) == names[i].champions + k);
+            if (c->address != 0)
+                CHECK(cok_ecl_var_address(C, (cok_var)i, k) == names[i].champions + k);
             if (d->address != 0)
                 CHECK(cok_ecl_var_address(DK, (cok_var)i, k) == names[i].death_knights + k);
         }
@@ -1011,7 +1016,7 @@ static void test_death_knights_handlers(void)
 
     /* Not carried out: Death Knights' handlers that need what is not
      * ported; Champions' all are. */
-    static const uint8_t unported[] = {0x0b, 0x0c, 0x24, 0x27, 0x2e, 0x3c, 0x41};
+    static const uint8_t unported[] = {0x27, 0x2e, 0x3c, 0x41};
     for (unsigned o = 0; o < COK_ECL_OPCODES; ++o) {
         bool listed = memchr(unported, (int)o, sizeof unported) != NULL;
         CHECK((cok_ecl_unported(DK, o) != NULL) == listed);

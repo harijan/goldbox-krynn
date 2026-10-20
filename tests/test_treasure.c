@@ -4,6 +4,7 @@
 #include "camp.h"
 #include "items.h"
 #include "monster.h"
+#include "train.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1206,8 +1207,61 @@ static void test_trade_byte(void)
     CHECK(combat(COK_COMBAT_WON) == COK_ECL_UNDEFINED && LOGGED("item: Steel "));
 }
 
+/* Death Knights' may-train (dkk 65cd:38c7): a class of level 1-17 with
+ * the experience its row needs for the next level, below its race's
+ * highest level (DS:82d4); the first class that may decides; a paladin's
+ * row 10 (65cd:382c); a knight of no order and a race past the table read
+ * what the port does not hold. */
+static void test_may_train(void)
+{
+    const cok_rules *R = &cok_rules_death_knights;
+    const cok_character_layout *L = R->character;
+    uint8_t c[COK_CHARACTER_MAX] = {0};
+    bool may = true;
+    int32_t need;
+    cok_field_set8(L, c, COK_FIELD_RACE, 6);
+    cok_field_set8(L, c, COK_FIELD_KNIGHT_ORDER, 1);
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 7, 5);
+    CHECK(cok_train_experience(R, 3, 6, &need) && need > 0);
+    cok_field_set32(L, c, COK_FIELD_EXPERIENCE, (uint32_t)need - 1);
+    CHECK(cok_treasure_may_train(R, c, &may) && !may);
+    cok_field_set32(L, c, COK_FIELD_EXPERIENCE, (uint32_t)need);
+    CHECK(cok_treasure_may_train(R, c, &may) && may);
+    /* Race 6's highest knight level is 14: a knight of 14 may not. */
+    CHECK(cok_data_u8_at2(R->data, COK_DATA_LEVEL_LIMITS, 6, 7) == 14);
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 7, 14);
+    cok_field_set32(L, c, COK_FIELD_EXPERIENCE, 0x7fffffff);
+    CHECK(cok_treasure_may_train(R, c, &may) && !may);
+    /* Race 0's highest knight level is 0. */
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 7, 5);
+    cok_field_set8(L, c, COK_FIELD_RACE, 0);
+    CHECK(cok_treasure_may_train(R, c, &may) && !may);
+    /* A paladin (class 3) by row 10. */
+    memset(c, 0, sizeof c);
+    cok_field_set8(L, c, COK_FIELD_RACE, 6);
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 3, 2);
+    CHECK(cok_train_experience(R, 10, 3, &need) && need > 0);
+    cok_field_set32(L, c, COK_FIELD_EXPERIENCE, (uint32_t)need);
+    CHECK(cok_treasure_may_train(R, c, &may) && may);
+    cok_field_set32(L, c, COK_FIELD_EXPERIENCE, (uint32_t)need - 1);
+    CHECK(cok_treasure_may_train(R, c, &may) && !may);
+    /* Level 18 and up never; a knight of no order, a monster's race 7: not
+     * held. */
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 3, 18);
+    cok_field_set32(L, c, COK_FIELD_EXPERIENCE, 0x7fffffff);
+    CHECK(cok_treasure_may_train(R, c, &may) && !may);
+    memset(c, 0, sizeof c);
+    cok_field_set8(L, c, COK_FIELD_RACE, 6);
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 7, 12);
+    CHECK(!cok_treasure_may_train(R, c, &may));
+    cok_field_set8(L, c, COK_FIELD_KNIGHT_ORDER, 2);
+    cok_field_set8(L, c, COK_FIELD_RACE, 7);
+    CHECK(!cok_treasure_may_train(R, c, &may));
+}
+
 int main(void)
 {
+    test_may_train();
     open_game();
     test_tables();
     test_generator();

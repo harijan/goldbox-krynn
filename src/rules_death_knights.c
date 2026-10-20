@@ -67,7 +67,8 @@ static const char *const death_knights_singles[] = {
  * changed at (+0xd7), levels shared out (+0xd8, +0xd9), shares (+0xe8:
  * the import drops it and no routine reads one) or former levels (+0x101:
  * the import moves them to +0x4d, which holds the levels before a drain).
- * No two fields share a byte; +0xc6 is the import's 0 and no routine's. */
+ * No two fields share a byte; +0xc6, whether one may train, is set by the
+ * award after combat (3a37:02fa with 65cd:38c7), the import's 0. */
 #define BYTE(at) {.offset = at, .width = 1, .count = 1, .stride = 1, .rows = 1}
 #define SBYTE(at) {.offset = at, .width = 1, .count = 1, .stride = 1, .rows = 1, .is_signed = true}
 #define WORD(at) {.offset = at, .width = 2, .count = 1, .stride = 2, .rows = 1}
@@ -195,6 +196,7 @@ static const cok_character_layout death_knights_character = {
             /* The spells' block, nil for a fighter or thief (46b2:10d7). */
             [COK_FIELD_SPELLS] = POINTER(0xc2),
             /* Champions' +0x188-+0x198 move to +0xc7 (0x11 bytes). */
+            [COK_FIELD_MAY_TRAIN] = BYTE(0xc6), /* 65cd:38c7, 3a37:02fa */
             [COK_FIELD_STATUS] = SBYTE(0xc7),
             [COK_FIELD_ACTIVE] = BYTE(0xc8),
             [COK_FIELD_HOSTILE] = BYTE(0xc9),
@@ -281,6 +283,7 @@ static const cok_ds_table death_knights_tables[] = {
     {0x5844, sizeof cok_death_knights_cloud_cells, 1, cok_death_knights_cloud_cells},
     {0x6a80, sizeof cok_death_knights_spells, 1, cok_death_knights_spells},
     {0x71f2, sizeof cok_death_knights_classes, 1, cok_death_knights_classes},
+    {0x82d4, sizeof cok_death_knights_level_limits, 1, cok_death_knights_level_limits},
 };
 #define LIST(b, w, f, n)                                                                           \
     {.base = b, .from = (b) + (f) * (w), .size = (n) * (w), .width = w, .indices = 1,              \
@@ -379,6 +382,8 @@ static const cok_data_segment death_knights_data = {
             [COK_DATA_LEVEL_DICE] = LIST(0x0656, 1, 0, 8),     /* 580d:3193 */
             [COK_DATA_DIE_SIDES] = LIST(0x065e, 1, 0, 8),
             [COK_DATA_KNIGHT_SCORES] = TABLE(0x05a4, 1, 0, 2, 6, 0, 6), /* 49cb:4ea4 */
+            /* DS:82d4 + 8 * race + class, races 0-6 (65cd:38c7). */
+            [COK_DATA_LEVEL_LIMITS] = TABLE(0x82d4, 1, 0, 7, 8, 0, 8),
         },
 };
 #undef LIST
@@ -392,10 +397,13 @@ static const cok_data_segment death_knights_data = {
  * do other things (ecl.h's meanings past Champions'), 0x27 loads its items
  * as a list. 0x1f and PROTECTION's 0x3c advance. A failed IF skips 3 with
  * 0x0c (its handler loads 4), none with 0x1d, 0x22, 0x23, 0x27 and 0x29,
- * one with 0x1f and 0x2c. The handlers that keep Champions' meaning but
- * differ from Champions' where they need characters, monsters, combat or
- * the camp (LOAD MONSTER, COMBAT, DAMAGE, PROGRAM, ADD EP), and three new
- * ones, are not carried out yet: their entries cite them. SPELL (3632:2177)
+ * one with 0x1f and 0x2c. SETUP MONSTERS (0x0c) is SETUP MONSTER with the
+ * ambush's directions; LOAD MONSTER (3632:0472) and COMBAT (3632:16ec) are
+ * Champions' with the game's records and the combat section (see
+ * DEVELOPERS.md's "Death Knights' encounter"). The handlers that keep
+ * Champions' meaning but differ where they need treasure or levels
+ * (DAMAGE, ADD EP), and two new ones (TREASURE ITEMS, STOCK), are not
+ * carried out yet: their entries cite them. SPELL (3632:2177)
  * differs only for each character it searches (the memorized spells in its
  * WIZ record, 74 of them, of those who can act): Champions' runs, and a
  * character stops it at the layout's MEMORIZED, which is left out.
@@ -417,8 +425,8 @@ static const cok_rules_opcode death_knights_opcodes[COK_ECL_OPCODES] = {
     SAME(COK_ECL_RANDOM, 2, 2),
     SAME(COK_ECL_SAVE, 2, 2),
     SAME(COK_ECL_LOAD_CHARACTER, 1, 1),
-    UNPORTED(COK_ECL_LOAD_MONSTER, COK_ECL_LOAD_MONSTER, 3, 3, "3632:0472"),
-    UNPORTED(0x0c, COK_ECL_SETUP_MONSTERS, 4, 3, "3632:038f"),
+    SAME(COK_ECL_LOAD_MONSTER, 3, 3), /* 3632:0472 */
+    OP(0x0c, COK_ECL_SETUP_MONSTERS, 4, 3), /* 3632:038f */
     SAME(COK_ECL_APPROACH, 0, 0),
     SAME(COK_ECL_PICTURE, 1, 1),
     SAME(COK_ECL_INPUT_NUMBER, 2, 2),
@@ -442,7 +450,7 @@ static const cok_rules_opcode death_knights_opcodes[COK_ECL_OPCODES] = {
     SAME(COK_ECL_LOAD_FILES, 3, 3),
     OP(0x22, COK_ECL_YES_NO, 0, 0),     /* 3632:1b9e */
     OP(0x23, COK_ECL_CLEAR_EXIT, 0, 0), /* 3632:2859 */
-    UNPORTED(COK_ECL_COMBAT, COK_ECL_COMBAT, 0, 0, "3632:16ec"),
+    SAME(COK_ECL_COMBAT, 0, 0), /* 3632:16ec: the game's descriptor's combat */
     LISTED(COK_ECL_ON_GOTO, COK_ECL_ON_GOTO, 2, 0),
     LISTED(COK_ECL_ON_GOSUB, COK_ECL_ON_GOSUB, 2, 0),
     [0x27] = {.meaning = COK_ECL_TREASURE_ITEMS, .operands = COK_ECL_LIST, .header = 4,
@@ -483,8 +491,10 @@ static const cok_rules_opcode death_knights_opcodes[COK_ECL_OPCODES] = {
  * an assertion): the turn of the status line's names, which its status
  * line (65cd:2eea) has not; the portrait, which it has not; the view's
  * own 0x4c38 test, which it has not; the moon of an
- * order and the area by a byte (the spells', R5); and those only combat,
- * treasure, monsters and shops read (step 2 and 3). */
+ * order and the area by a byte (the spells', R5); and those only the
+ * shops read (the prices, step 3). Combat's are at Champions' addresses
+ * (DS:838-862 hold them); the vault's (0x4d00) and the river's (0x4bf3)
+ * are its own. */
 #define VAR(a) {.address = a, .width = 1, .count = 1}
 #define VARS(a, n) {.address = a, .width = 1, .count = n}
 static const cok_rules_var death_knights_vars[COK_VARS] = {
@@ -531,6 +541,23 @@ static const cok_rules_var death_knights_vars[COK_VARS] = {
     [COK_VAR_PARTY_SIZE] = VAR(0x7f3e),
     [COK_VAR_REMAINDER] = VAR(0x7f3f), /* 3632:014a */
     [COK_VAR_LOCALS_GAME] = VARS(0x7f79, 10),
+    /* Combat's, at the addresses of its table DS:836-864 (3632:038f,
+     * 16ec, 410b:1e41, 3a37:1318). */
+    [COK_VAR_DISTANCE_WANTED] = VAR(0x7ec0),
+    [COK_VAR_DISTANCE] = VAR(0x7ec1),
+    [COK_VAR_MORALE] = VAR(0x7ec6),
+    [COK_VAR_OUTCOME] = VAR(0x7ec7),
+    [COK_VAR_DROPPED] = VAR(0x7ec8),
+    [COK_VAR_SURPRISE] = VAR(0x7ecb),
+    [COK_VAR_TEMPLE] = VAR(0x7ee2),
+    [COK_VAR_KEEP_ITEMS] = VAR(0x7ee3),
+    [COK_VAR_GENTLE] = VAR(0x7ee6),
+    [COK_VAR_FLED] = VAR(0x7f33),
+    [COK_VAR_SHOP] = VAR(0x7f6c),
+    [COK_VAR_HIT_BONUS] = VARS(0x7f70, 2),
+    [COK_VAR_MOVE_BONUS] = VAR(0x7f72),
+    [COK_VAR_VAULT] = VAR(0x4d00),  /* 3632:16ec */
+    [COK_VAR_RIVER] = VAR(0x4bf3),  /* 410b:0a4c */
 };
 #undef VAR
 #undef VARS
@@ -1051,6 +1078,12 @@ static const uint8_t *const death_knights_events[0x16] = {
 static const uint8_t death_knights_shared[] = {0x15, 0x2d, 0x2e, 0x31, 0};
 static const uint8_t death_knights_resisted_pending[] = {0x5b, 0x52, 0};
 
+/* The effects a party record loses after combat (3a37:0506, DS:455d +
+ * 0-18). */
+static const uint8_t death_knights_combat_effects[] = {
+    0x03, 0x06, 0x0b, 0x0d, 0x15, 0x17, 0x1b, 0x1e, 0x23, 0x28,
+    0x34, 0x35, 0x39, 0x1f, 0x4d, 0x6b, 0x6c, 0x6f, 0x76, 0};
+
 /* The effect ids the code names: Champions', where the game's handler of
  * the id is Champions' routine of it (or its counterpart in the routine
  * matching), or where a shared handler adds or tests it by the same id;
@@ -1357,6 +1390,8 @@ const cok_rules cok_rules_death_knights = {
             .stats = COK_STATS_DEATH_KNIGHTS,   /* 65cd:0e46 */
             .levels = COK_LEVELS_DEATH_KNIGHTS, /* 69a8:050b */
             .import = &death_knights_import,
+            .paladin_row = 10,       /* 65cd:382c */
+            .fighter_classes = 0x9c, /* 638c:16d8, 15e0: 2, 3, 4, 7 */
         },
     .data = &death_knights_data,
     .ecl =
@@ -1447,6 +1482,12 @@ const cok_rules cok_rules_death_knights = {
             /* 5dc5:1298, Champions' 5b04:1415 but for, among others, no
              * miscast under effect 0x4a: the cast stops until step 3. */
             .cast_unported = "dkk 5dc5:1298",
+            /* 5dc5:0078: paladins of 9 and up use clerics' spells, rangers of
+             * 8 druids', and magic-users' need a magic-user or a ranger of
+             * 9 and up. */
+            .usable_paladin = 9,
+            .usable_ranger = 8,
+            .usable_mage_class = true,
         },
     .effects =
         {
@@ -1565,5 +1606,64 @@ const cok_rules cok_rules_death_knights = {
             .begin_last_mode = true,
             .program_marks = true,
             .reset_wall = 1, /* 4f9a:08ad */
+        },
+    .combat =
+        {
+            /* 3632:16ec: the vault (var 0x4d00) first, then a shop
+             * (0x7f6c) and the temple (DS:850's 0x7ee2), else the end of
+             * combat; the vault's menu, the shop and the temple are
+             * steps 3's treasure and shops. */
+            .vault = true,
+            .vault_unported = "dkk 3948:000e",
+            .shop_unported = "dkk 3b89:06f3",
+            .temple_unported = "dkk 3999:07d3",
+            .show_none = true, /* 3c1e:0515 */
+            /* 3e05:00ec */
+            .leadership = true, /* 5340:4acf */
+            .leadership_text = "  Using leadership ability ", /* 5340:4aa9 */
+            .leads = " leads ",                                /* 5340:4ac5 */
+            .leads_end = ".",                                  /* 5340:4acd */
+            .explode = false,
+            .ends_in_round = true,
+            .aging_unported = "dkk 3e05:0264",
+            .player_unported = "dkk 3e05:08af",
+            .computer_unported = "dkk 3f63:0000",
+            /* 410b:1e41, 10d7 */
+            .begins = "a battle begins...", /* DS:2a07 */
+            .dungeon_tiles = 0x19,
+            .wilderness_tiles = 0x26,
+            .tiles_kept = true, /* DS:b58c, b58d */
+            .wilderness = COK_WILDERNESS_DEATH_KNIGHTS, /* 410b:107e */
+            .dungeon_fill = true, /* 410b:10d7, 0892 */
+            .dungeon_floor = 0x16,
+            .door_corners = true, /* 410b:04d8, 06ae */
+            /* 410b:1aa4, 18c2 */
+            .placement_clears = 0x48,
+            .ambush = true,
+            .ambush_distance = 1,
+            .demo_distance = 2,
+            .body_under = true, /* 6f03:152e */
+            .status_9 = false,
+            /* 3a37:1318 */
+            .weapons_back = false,
+            .shares = false,
+            .combat_effects = death_knights_combat_effects,
+            .may_train = true, /* 3a37:02fa, 65cd:38c7 */
+            /* 3a37:09b7 */
+            .fled = "the party has fled.",       /* DS:17fa */
+            .lost = "you have lost the fight.",  /* DS:180f */
+            .won = "the party has won.",         /* DS:184d */
+            .found = "the party has found treasure", /* DS:18b4 */
+            .receives = "each character receives ", /* DS:191b */
+            .points = "experience points.",      /* DS:193a */
+            .found_none = "the party has found no treasure", /* DS:18d3 */
+            .withdrawal = NULL,
+            .fee = NULL,
+            .results_key = "Press button or enter to continue", /* DS:0868, 6a69:0f1b */
+            .treasure_if_any = true,
+            .treasure_unported = "dkk 3a37:0eed",
+            /* 3a37:1318 */
+            .rejoice = "the monsters rejoice for the party has been destroyed", /* DS:2b9c */
+            .rejoice_key = "press any key to continue",                        /* DS:2681 */
         },
 };

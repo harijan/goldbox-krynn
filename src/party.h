@@ -228,6 +228,23 @@ static inline bool cok_levels_former_classes(const cok_rules *rules)
     return rules->characters.levels == COK_LEVELS_CHAMPIONS;
 }
 
+/* A character's former level in class k (+0x101 + k) and the level it
+ * changed class at (+0xd7), as signed bytes: 0 in a game without former
+ * classes, whose records have neither (Death Knights), where the
+ * Champions rules that read them read 0. */
+static inline int8_t cok_character_former_level(const cok_rules *rules, const uint8_t *c, size_t k)
+{
+    return cok_levels_former_classes(rules)
+               ? cok_field_s8_at(rules->character, c, COK_FIELD_FORMER_LEVEL, k)
+               : 0;
+}
+
+static inline int8_t cok_character_change_level(const cok_rules *rules, const uint8_t *c)
+{
+    return cok_levels_former_classes(rules) ? cok_field_s8(rules->character, c, COK_FIELD_CHANGE_LEVEL)
+                                            : 0;
+}
+
 /* Recompute the stats that come from the items and abilities (6346:0d20):
  * the readied slots, item count, hands, weight carried, attacks and
  * damage, THAC0, armour class and movement. Each table lookup follows the
@@ -275,7 +292,11 @@ bool cok_character_allowance(const uint8_t *c, const cok_rules *rules, int16_t *
                              char *error, size_t error_size);
 
 /* 66c2:0efb: whether a human's first class with a level is above its level
- * at +0xd7, so that it can use its former class (66c2:0eab). */
+ * at +0xd7, so that it can use its former class (66c2:0eab). Never in a
+ * game whose records have no such level (COK_FIELD_CHANGE_LEVEL): Death
+ * Knights has no former classes. Its readers that then read the former
+ * levels (COK_FIELD_FORMER_LEVEL), which such a game has not, read them
+ * only when it holds. */
 bool cok_character_former_class(const uint8_t *record, const cok_rules *rules);
 
 /* Add a character to the end of the list (4b6d:1989), after any monsters,

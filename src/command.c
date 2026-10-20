@@ -224,7 +224,7 @@ void cok_combat_command_text(cok_adventure *game, cok_character *c, char out[41]
     if (memorized && cr->may_cast != 0 && cok_ecl_var(&game->vm, COK_VAR_NO_MAGIC) == 0)
         append(out, "Cast ");
     bool cleric = cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 0) > 0 ||
-                  (cok_field_s8_at(L, r, COK_FIELD_FORMER_LEVEL, 0) > 0 &&
+                  (cok_character_former_level(cok_game_rules(game), r, 0) > 0 &&
                    cok_character_former_class(r, cok_game_rules(game)));
     if (cleric && cr->turns < game->undead) append(out, "Turn ");
     if (cok_field_u8(L, r, COK_FIELD_RACE) == 5 && game->combat.yelled == NULL)

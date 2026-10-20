@@ -661,7 +661,7 @@ static int raise_dead(cok_adventure *game, cok_character *character)
     }
     if (sum > 0) loss = (uint8_t)(loss / sum);
     int8_t fighter = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 2);
-    if (con < 17 || fighter > 0 || fighter > cok_field_s8(L, c, COK_FIELD_CHANGE_LEVEL))
+    if (con < 17 || fighter > 0 || fighter > cok_character_change_level(cok_game_rules(game), c))
         cok_field_set8(L, c, COK_FIELD_MAX_HIT_POINTS,
                        (uint8_t)(cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS) - loss));
     return 'Y';

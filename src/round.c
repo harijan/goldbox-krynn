@@ -751,7 +751,10 @@ bool cok_combat_round_start(cok_adventure *game, cok_character *c)
     if (!event(game, c, 0x12)) return false;
     cok_field_set8_at(L, r, COK_FIELD_ATTACKS_LEFT, 2,
                       cok_combat_half_attacks(rolls->round, rolls->rate));
-    cr->sweeps = cok_field_u8(L, r, COK_FIELD_FIGHTER_LEVEL);
+    /* A game whose records have no fighter level stores no sweeps (dkk
+     * 5340:0000): they stay the combat record's. */
+    if (cok_field_present(L, COK_FIELD_FIGHTER_LEVEL))
+        cr->sweeps = cok_field_u8(L, r, COK_FIELD_FIGHTER_LEVEL);
     if (cok_field_u8(L, r, COK_FIELD_ACTIVE) != 0) {
         int8_t bonus = cok_character_dexterity_missile(r, cok_game_rules(game));
         uint8_t initiative = (uint8_t)(cok_dice(&game->vm.seed, 1, 6) + bonus);
@@ -810,6 +813,13 @@ static bool act(cok_adventure *game, cok_character *c, bool computer)
     name_of(L, c->record, name);
     snprintf(text, sizeof text, "%s (initiative %d)", name, c->combat->initiative);
     log_text(game, "turn", text);
+    /* A game whose turns the port does not carry out yet stops at the
+     * first (dkk 3e05:076c's 3e05:08af and 3f63:0000). */
+    const cok_rules_combat *R = &cok_game_rules(game)->combat;
+    const char *unported = computer ? R->computer_unported : R->player_unported;
+    if (unported != NULL)
+        return cok_adventure_not_yet(game, computer ? "computer's turn" : "player's turn",
+                                     unported);
     cok_combat_stub stub = game->combat_stub;
     if (stub == COK_COMBAT_MELEE) return cok_combat_melee(game, c);
     if (stub == COK_COMBAT_PASS) {
@@ -941,10 +951,81 @@ static void stub(cok_adventure *game)
     }
 }
 
+/* dkk 5340:4a25: whether a leader leads one: a d100 below 20, 40 or 80 by
+ * its knights' order (1-3), plus 5 for each point of charisma above 13. */
+static bool leads(cok_adventure *game, const uint8_t *leader, bool *led)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t order = cok_field_u8(L, leader, COK_FIELD_KNIGHT_ORDER), chance;
+    if (order == 1) chance = 20;
+    else if (order == 2) chance = 40;
+    else if (order == 3) chance = 80;
+    else
+        return undefined(game, "leadership's chance for a knight of no order is the stack's "
+                               "byte (5340:4a25)");
+    uint8_t charisma = cok_field_u8_at(L, leader, COK_FIELD_SCORE, COK_SCORE_CHARISMA);
+    uint8_t bonus = charisma < 14 ? 0 : (uint8_t)((charisma - 13) * 5);
+    *led = cok_dice(&game->vm.seed, 1, 100) < (unsigned)chance + bonus;
+    return true;
+}
+
+bool cok_combat_leadership(cok_adventure *game)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    cok_party *party = &game->party;
+    for (size_t i = 0; i < party->count; ++i) {
+        uint8_t *r = party->members[i]->record;
+        bool npc = cok_field_u8(L, r, COK_FIELD_NPC) >= 0x80;
+        cok_field_set8(L, r, COK_FIELD_COMPUTER,
+                       cok_field_u8(L, r, COK_FIELD_HOSTILE) != 0 || npc);
+    }
+    bool shown = false;
+    for (size_t i = 0; i < party->count; ++i) {
+        const uint8_t *leader = party->members[i]->record;
+        if (cok_field_u8(L, leader, COK_FIELD_HOSTILE) != 0 ||
+            cok_field_u8(L, leader, COK_FIELD_NPC) >= 0x80 ||
+            cok_field_s8_at(L, leader, COK_FIELD_CLASS_LEVEL, 7) <= 0 ||
+            cok_field_u8(L, leader, COK_FIELD_STATUS) != 0)
+            continue;
+        for (size_t k = 0; k < party->count; ++k) {
+            uint8_t *ally = party->members[k]->record;
+            if (cok_field_u8(L, ally, COK_FIELD_HOSTILE) != 0 ||
+                cok_field_u8(L, ally, COK_FIELD_NPC) < 0x80 ||
+                cok_field_u8(L, ally, COK_FIELD_COMPUTER) == 0 ||
+                cok_field_u8(L, ally, COK_FIELD_STATUS) != 0 ||
+                cok_field_u8_at(L, ally, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE) <= 3)
+                continue;
+            bool led;
+            if (!leads(game, leader, &led)) return false;
+            if (!led) continue;
+            if (!shown) {
+                /* 110f:0000, then the lines (14e4:04ab) in the frame. */
+                shown = true;
+                cok_adventure_screen(game, COK_SCREEN_FRAME);
+                const cok_rules_combat *R = &rules->combat;
+                cok_adventure_print(game, R->leadership_text, (cok_text_window){1, 1, 0x26, 0x16},
+                                    0x0d, true);
+                char a[16], b[16], text[64];
+                name_of(L, leader, a);
+                name_of(L, ally, b);
+                snprintf(text, sizeof text, "%s%s%s%s", a, R->leads, b, R->leads_end);
+                cok_adventure_print(game, text, (cok_text_window){1, 3, 0x26, 0x16}, 0x0f, true);
+            }
+            cok_field_set8(L, ally, COK_FIELD_COMPUTER, 0);
+        }
+    }
+    /* 14e4:096a with DS:0868, the results' word too. */
+    if (shown) cok_adventure_alert(game, rules->combat.results_key, 13);
+    return game->vm.status == COK_ECL_OK;
+}
+
 static bool rounds(cok_adventure *game)
 {
     cok_combat *combat = &game->combat;
     cok_ecl *vm = &game->vm;
+    const cok_rules_combat *R = &cok_game_rules(game)->combat;
+    if (R->leadership && !cok_combat_leadership(game)) return false;
     if (!cok_combat_setup(game)) return false;
     if (game->hooks.battlefield != NULL) game->hooks.battlefield(game, game->hooks.context);
     bool done = combat->sides[0] == 0 || combat->sides[1] == 0;
@@ -959,6 +1040,8 @@ static bool rounds(cok_adventure *game)
                                    "DS:6b2d (6346:268a)");
         done = true;
     }
+    /* dkk 3e05:00ec's [bp-1]: the round ended early once this battle. */
+    bool ended_early = false;
     while (!done && !vm->abort) {
         if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game)))
             return undefined(game, "a record on a side other than 0 or 1 (+0x18a) counts past "
@@ -970,14 +1053,28 @@ static bool rounds(cok_adventure *game)
         log_order(game);
         cok_character *c = combat->turn[1];
         combat->turn_index = 1;
-        while (c != NULL && !vm->abort) {
-            if (!cok_combat_turn(game, c) || !cok_combat_explode(game)) return false;
+        while (c != NULL && !done && !vm->abort) {
+            if (!cok_combat_turn(game, c) || (R->explode && !cok_combat_explode(game)))
+                return false;
             ++combat->turn_index;
             c = combat->turn_index > COK_COMBATANTS ? NULL : combat->turn[combat->turn_index];
+            /* dkk 3e05:00ec: after each turn a side gone or the round
+             * limit ends the round, the first time in a battle. */
+            if (!R->ends_in_round) continue;
+            if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game)))
+                return undefined(game, "a record on a side other than 0 or 1 (+0xc9) counts past "
+                                       "DS:be69 (65cd:28bb)");
+            if ((combat->sides[0] == 0 || combat->sides[1] == 0 ||
+                 game->effects.rolls.round >= combat->round_limit) &&
+                !ended_early)
+                done = ended_early = true;
         }
         if (vm->abort || !cok_combat_end_round(game, &done)) break;
     }
     if (vm->status != COK_ECL_OK) return false;
+    /* dkk 3e05:0264, after an effect 0x27 asked (DS:c463). */
+    if (game->aging && R->aging_unported != NULL)
+        return cok_adventure_not_yet(game, "aging", R->aging_unported);
     if (game->combat_stub == COK_COMBAT_MELEE || game->combat_stub == COK_COMBAT_AUTO ||
         game->combat_stub == COK_COMBAT_PLAYER) {
         char text[32];

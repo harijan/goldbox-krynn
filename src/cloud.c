@@ -357,7 +357,7 @@ static bool dispelled(cok_adventure *game, const uint8_t *caster, uint8_t level)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
     int former = cok_character_former_class(game->vm.character, cok_game_rules(game)) ? 1 : 0;
-    uint8_t of = (uint8_t)(former * cok_field_s8_at(L, caster, COK_FIELD_FORMER_LEVEL, 5) +
+    uint8_t of = (uint8_t)(former * cok_character_former_level(cok_game_rules(game), caster, 5) +
                            cok_field_s8_at(L, caster, COK_FIELD_CLASS_LEVEL, 5));
     uint8_t chance = 50;
     if (level > of)

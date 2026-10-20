@@ -111,4 +111,15 @@ void cok_pool_pay(uint8_t *c, const cok_rules *rules, uint16_t steel);
  * run, where c's allowance cannot be had. */
 bool cok_pool_give_steel(cok_adventure *game, uint8_t *c, uint16_t steel);
 
+/* dkk 65cd:38c7, a game's that keeps whether one may train (rules'
+ * combat.may_train): whether record c may train, from class 0 on, the
+ * first class that may deciding: one of level 1-17 that has the experience
+ * its row (cok_train_row, a paladin's characters.paladin_row) needs for the
+ * next level, that experience above 0, and its race's highest level in the
+ * class (COK_DATA_LEVEL_LIMITS, DS:82d4) above its level. Returns false
+ * where the original reads what the port does not hold: the stack's byte
+ * for a row the routine has none for (a knight of no order), a byte past
+ * the table for a race past it (a monster's, 7). */
+bool cok_treasure_may_train(const cok_rules *rules, const uint8_t *c, bool *may);
+
 #endif

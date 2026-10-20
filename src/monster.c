@@ -430,7 +430,10 @@ static void show_monster(cok_adventure *game, uint8_t distance)
 {
     cok_ecl *vm = &game->vm;
     char text[64];
-    if (!game->closeup_shown) {
+    /* dkk 3c1e:0515: a sprite of 0xff is none, and a close-up of 0xff. */
+    bool none = cok_game_rules(game)->combat.show_none;
+    bool sprite = !none || game->sprite_id != 0xff;
+    if (!game->closeup_shown && sprite) {
         if (!game->sprite_loaded) {
             cok_adventure_overhead_off(game); /* DS:6d84, in any area */
             if (cok_ecl_var(vm, COK_VAR_3D) != 0) {
@@ -456,10 +459,15 @@ static void show_monster(cok_adventure *game, uint8_t distance)
             log_text(game, "monster", text);
         }
     }
-    uint16_t head = cok_ecl_var(vm, COK_VAR_PORTRAIT);
+    /* A game without portraits has no such variable (dkk 3c1e:0515): the
+     * close-up is the picture's. */
+    uint16_t head =
+        cok_ecl_has_var(vm->rules, COK_VAR_PORTRAIT) ? cok_ecl_var(vm, COK_VAR_PORTRAIT) : 0xff;
     if (game->closeup_shown && game->closeup_head == head) return;
-    /* DS:4b50, which would show it in ENCOUNTER MENU too, is never set. */
-    if (distance != 0 || vm->mode != 4 || game->in_encounter) return;
+    if (none && game->closeup_id == 0xff) return;
+    /* DS:4b50, which would show it in ENCOUNTER MENU too, is never set;
+     * with no sprite, dkk 3c1e:0515 shows it at any distance. */
+    if ((distance != 0 && sprite) || vm->mode != 4 || game->in_encounter) return;
     game->closeup_head = (uint8_t)head;
     game->picture_shown = true;
     game->closeup_shown = true;
@@ -487,13 +495,16 @@ static void place_monster(cok_adventure *game)
     show_monster(game, (uint8_t)cok_ecl_var(vm, COK_VAR_DISTANCE));
 }
 
-/* SETUP MONSTER (2fd3:03c9): sprite op1, distance op2, close-up op3. */
+/* SETUP MONSTER (2fd3:03c9): sprite op1, distance op2, close-up op3; and
+ * SETUP MONSTERS (dkk 3632:038f) with the ambush's directions op4
+ * (DS:c4cc). */
 static void setup_monster(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     game->sprite_id = (uint8_t)cok_ecl_value(vm, 0);
     cok_ecl_set_var(vm, COK_VAR_DISTANCE_WANTED, cok_ecl_value(vm, 1));
     game->closeup_id = (uint8_t)cok_ecl_value(vm, 2);
+    if (cok_ecl_meaning(vm) == COK_ECL_SETUP_MONSTERS) game->ambush = (uint8_t)cok_ecl_value(vm, 3);
     place_monster(game);
 }
 
@@ -724,9 +735,9 @@ static void party_strength(cok_adventure *game)
         const uint8_t *c = game->party.members[i]->record;
         int former = cok_character_former_class(c, cok_game_rules(game)) ? 1 : 0;
         uint8_t mage = (uint8_t)(cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) +
-                                 cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 5) * former);
+                                 cok_character_former_level(cok_game_rules(game), c, 5) * former);
         uint8_t cleric = (uint8_t)(cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0) +
-                                   cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 0) * former);
+                                   cok_character_former_level(cok_game_rules(game), c, 0) * former);
         uint8_t armour = cok_field_u8(L, c, COK_FIELD_AC), aim = cok_field_u8(L, c, COK_FIELD_THAC0);
         uint8_t ac = armour > 0x3c ? (uint8_t)(armour - 0x3c) : 0;
         uint8_t thac0 = aim > 0x27 ? (uint8_t)(aim - 0x27) : 0;
@@ -858,15 +869,19 @@ static void battle(cok_adventure *game)
 }
 
 /* COMBAT: fight the monsters loaded (DS:8851; a duel, DS:883e, is never
- * set in CoK), or open a shop (0x7f6c) or the temple (0x7ee2), or with
- * neither give out treasure; then the mode for the area, the Look bit of
+ * set in CoK), or, where the game has a vault (dkk 3632:16ec), open its
+ * menu (var 0x4d00), or open a shop (0x7f6c) or the temple (0x7ee2), or with
+ * none give out treasure; then the mode for the area, the Look bit of
  * 0x7eca cleared, the sprite forgotten and, unless a shop or temple
  * outside 3D areas, the screen redrawn. Around each overlay
  * it loads, the sound driver is unhooked and hooked again
- * (cok_adventure_overlay). */
+ * (cok_adventure_overlay). The vault's menu, a shop and the temple the
+ * port does not carry out for the game yet stop the run there. */
 static void combat(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_rules_combat *R = &rules->combat;
     bool area = cok_ecl_var(vm, COK_VAR_3D) != 0;
     game->big_shown = false;
     bool moving = game->moving;
@@ -878,18 +893,30 @@ static void combat(cok_adventure *game)
         cok_adventure_overlay(game); /* 3995, 3cb2, 3afb, 432f, 6b30, 69ea */
         battle(game);
         if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game); /* 475c or 6961 */
-        if (!area && vm->status == COK_ECL_OK) cok_adventure_load_big(game, 0x79);
+        if (!area && vm->status == COK_ECL_OK)
+            cok_adventure_load_big(game, rules->view.overland_picture); /* 6961:07ed */
+    } else if (R->vault && cok_ecl_var(vm, COK_VAR_VAULT) == 1) {
+        cok_ecl_set_var(vm, COK_VAR_VAULT, 0);
+        if (R->vault_unported != NULL) cok_adventure_not_yet(game, "vault", R->vault_unported);
     } else if (cok_ecl_var(vm, COK_VAR_SHOP) == 1) {
         cok_ecl_set_var(vm, COK_VAR_SHOP, 0);
-        cok_adventure_overlay(game); /* 36d0 */
-        cok_shop(game);
-        if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game);
+        if (R->shop_unported != NULL) {
+            cok_adventure_not_yet(game, "shop", R->shop_unported);
+        } else {
+            cok_adventure_overlay(game); /* 36d0 */
+            cok_shop(game);
+            if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game);
+        }
         fought = area;
     } else if (cok_ecl_var(vm, COK_VAR_TEMPLE) == 1) {
         cok_ecl_set_var(vm, COK_VAR_TEMPLE, 0);
-        cok_adventure_overlay(game); /* 340d */
-        cok_temple(game);
-        if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game);
+        if (R->temple_unported != NULL) {
+            cok_adventure_not_yet(game, "temple", R->temple_unported);
+        } else {
+            cok_adventure_overlay(game); /* 340d */
+            cok_temple(game);
+            if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game);
+        }
         fought = area;
     } else {
         cok_adventure_overlay(game); /* 351b */
@@ -917,7 +944,7 @@ bool cok_monster_opcode(cok_adventure *game)
     switch (cok_ecl_meaning(&game->vm)) {
     case COK_ECL_LOAD_MONSTER: load_monster(game); return true;
     case COK_ECL_CLEARMONSTERS: clear_monsters(game); return true;
-    case COK_ECL_SETUP_MONSTER: setup_monster(game); return true;
+    case COK_ECL_SETUP_MONSTER: case COK_ECL_SETUP_MONSTERS: setup_monster(game); return true;
     case COK_ECL_APPROACH: approach(game); return true;
     case COK_ECL_SPRITE_OFF: sprite_off(game); return true;
     case COK_ECL_ENCOUNTER_MENU: encounter_menu(game); return true;

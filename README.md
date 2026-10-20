@@ -129,7 +129,7 @@ also go back the other way.
 ## Death Knights of Krynn
 
 The port also plays the sequel, *Death Knights of Krynn* (1991), so far
-up to its first fight. Copy your DOS *Death Knights* files into a folder
+up to the first turn of its first fight. Copy your DOS *Death Knights* files into a folder
 named `DKKAssets` and run:
 
 ```sh
@@ -142,10 +142,12 @@ copied into `saves/`), save one, view, add, remove and drop characters,
 and begin. As in the original, Add Character to Party and Load Saved
 Game can also bring over a party from *Champions of Krynn*: the port
 looks for Champions' roster and saved games in `saves/` too, or in the
-folder `--import DIR` names. The adventure then runs until the first
-fight. Creating, modifying and training characters, Initialize
-Mouse/Joystick, combat and the vault's menu aren't there yet: the game
-stops with a message saying what it reached.
+folder `--import DIR` names. The adventure then runs into its fights:
+leadership, the battlefield and the combatants set up as in the original,
+until the first turn. Creating, modifying and training characters,
+Initialize Mouse/Joystick, the turns of combat, treasure, shops, the
+temple and the vault's menu aren't there yet: the game stops with a
+message saying what it reached.
 
 ## Options
 

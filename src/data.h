@@ -89,6 +89,7 @@ typedef enum {
     COK_DATA_LEVEL_DICE,      /* By class, the hit dice at level 1. */
     COK_DATA_DIE_SIDES,       /* By class, their sides. */
     COK_DATA_KNIGHT_SCORES,   /* By order and score, the least for the next order. */
+    COK_DATA_LEVEL_LIMITS,    /* By race and class, the highest level (dkk; Champions none). */
     /* Treasure. */
     COK_DATA_TREASURE_TEMPLATES, /* Words: the generator's templates. */
     /* The temple. */
