@@ -68,4 +68,16 @@ void cok_train_knight(cok_adventure *game);
  * in the new order's table, then recompute its levels (66c2:0433). */
 bool cok_train_promote(cok_adventure *game, cok_character *character);
 
+/* The aging after a battle in which an effect aged someone (dkk 3e05:0264,
+ * when game->effects.aging, DS:c463, which it clears), for a game that has one
+ * (the levels section's ages): each record of the party (not past its
+ * size, +0x13 of the combat record) that is not dead, stoned or gone
+ * (status below 6) and is past its race's ages (+0x20, +0x26) "who is
+ * looking very old", or, past the last, is told of in the panel, and
+ * "dies from age" (60f4:00eb's counterpart, status 8). The original then
+ * says who witnessed it by a count that starts from an uninitialized local
+ * ([bp-0x10]): the port stops there. Returns false when the run must
+ * stop. */
+bool cok_train_aging(cok_adventure *game);
+
 #endif

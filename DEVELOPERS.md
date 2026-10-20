@@ -199,11 +199,12 @@ segment's tables, a section to a concern:
 | `moons` | the three moons (`57e4:001e`, `0143`): the days each stays in a phase, and on the frame each one's column and tile | 8, 1, 6 days; columns 8, 19, 30; tiles 0x114 + phase + 10, 6, 14 |
 | `frame` | the screens' frames (`screen.c`), by `cok_screen` (the frame, the open frame, the adventure screen, a big picture's, Memorize's, the spell lists', combat's, the sheet's, the credits'): each a `cok_rules_screen`, the screen drawn under it first, the box cleared (`1128:07e6`) and its lines, rows and columns of tiles (`cok_rules_frame_line`: a tile, or a table by the cell's column or row, and on row 0 the moons), each the frame's `base` + its value; which frame main draws after the start menu (`menu_big`) and Begin Adventuring for a loaded game (`resumed`, a `cok_resumed`) | `1128:0000`-`077c`'s layouts, tiles 0x114 + `DS:0e3a`, `0e62`, `0e7a`, `0ea3`, `0eb0`, `0e8b`, `0ebd`, `0f02`, `0f19` and the code's; the big frame in mode 3 on the map (`1000:024b`); in block 0 or off the map (`4def:01b4`) |
 | `start` | the front end (`start.c`, `roster.c`, camp's Save): the title's pictures (record, cell, whether the screen is cleared first, the seconds waited) and credits (lines, their wait, whether they show after a key), a new game's block and the demonstration's file and block; the start menu's items, prompt and word, each item's routine where the port does not carry it out for the game (`unported`, cited: choosing it stops the run); the words of Pick Character, Drop, Exit, Load, Save, the roster's Overwrite, Add, and "from where" for a game that imports another's; the questions' colour; and what its commands do where the games differ (Add's paladin rules, its space, its message and marks; a Drop or Remove that empties the party ending the game; Exit's No saving then quitting; Begin's mode; PROGRAM 0 marking the party on the map; the wall table's entry the end of a game sets) | `2f55:063c`'s pictures, 1, 2, 3 at 5, 1 and 4 at 0, 1 for 5, 10 and 10 seconds, the credits (`2f55:0267`) for 10 unless a key; 0x24, file 2 block 0x39; `DS:0878`, `Choose a FUNCTION `, `Select `, none unported; yellow; paladins, the space, the message and marks; no, no, the entry mode, no; the first |
-| `combat` | the encounter and the battle's frame where the games differ (`monster.c`, `combat.c`, `round.c`, `treasure.c`'s end of combat): `COMBAT`'s vault branch and the vault, shop and temple a game's port does not carry out yet; the show at distance's `0xff` for none; leadership before the setup and its words; the dead exploding after a turn and a blow, a side gone ending the round there, aging not ported yet; the setup's line, its tile counts, whether a set is kept, the open ground's builder (`cok_wilderness_routine`), the dungeon's fill and corners; the placement's clears, ambush, distances, the cell under a body, status 9; the end of combat's lost weapons, shares, effects lost, may-train, the results' words and key, the treasure menu's condition and stop, a destroyed party's words | the vault none; Champions' shop and temple; no; no; yes, no; none; `A battle begins...`, 0x19 and 0x21, no, `COK_WILDERNESS_CHAMPIONS` (`3cb2:0fc8`), no fill, Champions' corners; 255, no ambush, status 9 off the map; weapons back, shares, `DS:0390`'s 11, no may-train, `The party has won.` ..., `press <enter>/<return> to continue`, always (`351b:1968`) |
+| `combat` | the encounter and the battle's frame where the games differ (`monster.c`, `combat.c`, `round.c`, `treasure.c`'s end of combat): `COMBAT`'s vault branch and the vault, shop and temple a game's port does not carry out yet; the show at distance's `0xff` for none; leadership before the setup and its words; the dead exploding after a turn and a blow, a side gone ending the round there; the setup's line, its tile counts, whether a set is kept, the open ground's builder (`cok_wilderness_routine`), the dungeon's fill and corners; the placement's clears, ambush, distances, the cell under a body, status 9; the end of combat's lost weapons, shares, effects lost, may-train, the results' words and key, the treasure menu's condition and stop, a destroyed party's words | the vault none; Champions' shop and temple; no; no; yes, no; none; `A battle begins...`, 0x19 and 0x21, no, `COK_WILDERNESS_CHAMPIONS` (`3cb2:0fc8`), no fill, Champions' corners; 255, no ambush, status 9 off the map; weapons back, shares, `DS:0390`'s 11, no may-train, `The party has won.` ..., `press <enter>/<return> to continue`, always (`351b:1968`) |
 | `fight` | the rounds, the computer's turns and the attacks where the games differ (`round.c`, `ai.c`, `attack.c`, `arena.c`, `command.c`, `cloud.c`): their words (`cok_rules_fight_words`: the attack's message, fleeing, turning undead, the computer's, the round's end, the panel, guarding, Alt-X without the Helm cheat); the clouds' round and a cloud's square where the port does not carry them out yet; the battlefield's cloud and pool tiles and whether they count as terrain; the death's search for a body, its cell kept for a pool, its spell cleared; the computer's turn: a target first, the items' spells, its spell choice (`cok_computer_cast_routine`), the undead it turns and the paladins who do, its reach, morale's compare and the fleeing's effects, the flight's way; the attack's sides, the free attacks' effect, the creature flag for no dying words, a lost spell's mark, the arrows, the missile's clamp, turning undead (`cok_turning_routine`) | Champions' words; none, none; 0x1e and 0x1d, no; by the stack's byte, the cloud's only, yes; no, yes, `3afb:03b9`, the stack's byte, none, range less 1, unsigned, `DISPELLING` and `GIANT_SLAYER`, 0; no, none, none, cleared, 5, 7, 0x0c, 0x1e, no, `432f:12b7` |
 | `menus` | the menu loop (`menu.c`, `cok_menus_routine`: by letters, or by index, `cok_menu_pick`), the Yes/No's items for the indexed loop (`camp.c`), and the adventure's menu where the games differ (`adventure.c`: whether it keeps its own selection, whether Escape leaves Move) and a special key's pick of a character (`devices.c`: whether a key but Up and Down keeps the one selected) | by letters (`67b5:03e2`, `177f`); none; no, no (`475c:09ec`); no, the first is picked (`546c:3334`) |
 | `commands` | the player's commands in a battle (`command.c`): the routine (`cok_commands_routine`: Champions' turn `3995:0573` or Death Knights' `3e05:08af`), the words of Move's steps and of attacking an ally and whether Yes turns the NPCs against the party, Death Knights' menus' words (its turn's two-row menu, Move's, aiming's, the cursor's, Speed's), the cursor's icon slot | `COK_COMMANDS_CHAMPIONS`; `Flee:`, `can't go there`, `Not with that weapon`, `Attack Ally: `, yes; none; 0x19 (`6beb:00fc`, `6346:1a26`) |
 | `treasure` | treasure where the games differ (`treasure.c`, `adventure.c`'s `DAMAGE` and `ADD EP`; see Death Knights' treasure): the item table `TREASURE ITEMS` and `STOCK` take items from (a `cok_rules_record` and how many entries it fills, or none); the treasure menus' ways (selections from each menu's first item, special keys told apart from letters, leaving's Yes/No from No) and words (leaving with treasure left, Take's, the items' and the coins' prompts, the coin questions'); taking an item's word when overloaded and whether a counted item joins its kind; the vault's menu items, its line and the deposit's question, and its View's and Items' routines not ported yet; `DAMAGE`'s saving throw bonus bits, whether a save made halves the damage, its key; `ADD EP`'s words and whether those who cannot act are passed over first | none (`TREASURE` reads `ITEM<file>`); no, no, no; `There is still treasure left.  ` ..., `Take: `, `Items: `, `Select type of coin `, `How Many `/`How much `; `OverLoaded`, no; none; 0x1f, no, `press <enter>/<return> to continue` (`2fd3:2c80`); `Congratulations ` ... `gains experience!`, no (`2fd3:36dc`) |
+| `levels` | training, the knights' orders, aging, Memorize and Scribe where the games differ (`train.c`, `magic.c`, `camp.c`; see Training and Camp): Train's words, whether its question starts on Yes, whether free training trains, the highest levels by race and class in place of the kender's limits, the row of a class without one, whether a ranger learns only when it rises; the fixed hit points at a class's top level and a floor of 0; Knight Change's words, whether Change is always offered and special keys do nothing, the level from which a lost level costs a fixed 2; the aging after a battle (by race the ages, and its words); the spell lists' prompt, the memorize table's labels and columns, how the spells marked are kept (a list with Keep, or a question) and Scribe's questions and words; whether the camp unmarks the spells to memorize; Display's headings; the Magic menu's own selection; Fix not ported yet (cited) | `4def:4d9e`'s words, from No, free training, the kender's limits, row 0x74, every time; 2, 0, 3, 0, 2, 1, 2, 3 and wrapping; `Knight Of The `, `Sword`, `Rose`, not always, F9 as C, none; no aging; `Choose Spell: `, `    Cleric Spells:` ... at 20, the questions `Memorize These Spells? `, `Scribe These Spells? ` in yellow from No; yes (`4888:06b8`); 11; the last menu's; none |
 
 A `NULL` stem says the game has no such archive (Death Knights has no
 `SKY`, `CURSOR`, `RANDCOM`, `HEAD` or `BODY`): code that reads it must not
@@ -339,23 +340,22 @@ going on. It holds:
   a Drop or Remove that empties the party ending the game, Exit's No
   saving then quitting, Begin's mode from the last mode; and the start
   menu's commands it does not carry out yet, which stop the run citing
-  their routine: Create (`49cb:05c7`), Modify (`25d4`), Train (`43b6`),
-  Knight Change Order (`4ea4`) and Initialize Mouse/Joystick (`52cd`);
+  their routine: Create (`49cb:05c7`), Modify (`25d4`) and Initialize
+  Mouse/Joystick (`52cd`);
 - its encounter and battle (the `combat` section; see Death Knights'
   encounter, battlefield, battle and end of combat): `COMBAT`'s vault
   first, the show at distance, leadership, its own open ground, the
   dungeon's fill and corners, the ambush's placement, a round ended by a
   side gone, no exploding dead, the end of combat's effects, may-train
-  and words; a shop, the temple and aging not carried out yet (cited,
-  stopping the run);
+  and words; a shop and the temple not carried out yet (cited, stopping
+  the run);
   its combat variables (`0x7ec0`-`0x7f72` at Champions' addresses, as its
   table `DS:836`-`864` has them; the vault's `0x4d00`, the river's
   `0x4bf3`); no former classes (`cok_character_former_class` false, the
   former levels read as 0: `cok_character_former_level`);
 - its fight (the `fight` section; see Death Knights' fight): the words of
   its rounds, turns and attacks, most in lower case; the player's turn
-  (`3e05:08af`), whose menu (`3e05:0ccc`) is not shown yet; the
-  computer's turns (`3f63:0000`) with its own spell choice (`05d7`), no
+  (`3e05:08af`, its menu and commands below); the computer's turns (`3f63:0000`) with its own spell choice (`05d7`), no
   items' spells, a paladin's turning; its attacks (`5340`), turning undead
   (`119b`), the free attacks, the death on the battlefield (`6f03:0fbd`),
   a lost spell marked; its cloud and pool tiles, the clouds' round and
@@ -373,13 +373,22 @@ going on. It holds:
 - its treasure (the `treasure` section and `COK_DATA_STOCK_*`; see Death
   Knights' treasure): the item table `ITEM0`, `TREASURE ITEMS`, `STOCK`
   up to its shop, the treasure menu, Take, the bank vault's menu and its
-  deposit, the vault's mode 7, `DAMAGE` and `ADD EP` with may-train.
+  deposit, the vault's mode 7, `DAMAGE` and `ADD EP` with may-train;
+- its levels (the `levels` section; see Death Knights' training and Death
+  Knights' camp): Train Character (`49cb:43b6`) to level 18 by the
+  highest levels of `DS:82d4`, Knight Change Order (`49cb:4ea4`, `4da1`),
+  the aging after a battle (`3e05:0264`) that its haste (effect 0x27,
+  `504d:0d88`) asks for, Memorize, Scribe and the spells' table to 8
+  levels (`4381:0f67`, `115d`, `09c7`), Display (`4381:15aa`), the camp
+  unmarking only the scrolls (`4381:0626`), and the names of those who may
+  train in light magenta (`65cd:1b3b`); Fix (`4381:2fd4`) not yet.
 
 `cok --game death-knights` and `eclplay --start-menu` play it from the
 title into its fights: a saved game loaded (its own or Champions'), or
 a party added from the roster or from Champions', saves and resumes, and
-the adventure in its scripts, 3D view and overland map, camp, `PROGRAM`'s
-start menu, the encounters and their battlefields, their fights on Auto
+the adventure in its scripts, 3D view and overland map, camp (Magic's
+Memorize, Scribe and Display), `PROGRAM`'s start menu (Train and Knight
+Change Order too), the encounters and their battlefields, their fights on Auto
 (the player's turn by keys, `3e05:08af`: its menu, `3e05:0ccc`, Move,
 Aim, Cast up to the cast entry, Turn, Guard, Quick, Delay, Bandage, Yell,
 Speed, End, Alt-Q and the hidden keys; View and Use show Champions'
@@ -388,7 +397,8 @@ sheet and items menu, `580d:0c66` and `0ffa` not ported yet; `eclplay
 melee, and `won`, `fled` and `lost` decide the battle without its
 rounds), their end
 of combat and treasure menu, until a routine not ported yet (`COMBAT`'s
-and `STOCK`'s shop, the temple, the vault's View and Items), a spell cast
+and `STOCK`'s shop, the temple, the vault's View and Items, camp's Fix),
+a spell cast
 (the cast entry, `5dc5:1298`) or an effect not ported yet, a cloud, a
 spell or effect it does not name, or a start menu command above; there the run
 stops with the reason (`not yet ported: ...`), `cok` showing it on the
@@ -496,7 +506,13 @@ levels, clamps, variable, table and dice, and the saving throw's effect
 and its call, `TREASURE ITEMS`' and `STOCK`'s tables and bounds, the
 treasure menu's, Take's and the coins' words, taking an item's join, the
 vault's items, line, deposit and the routines it calls, `DAMAGE`'s and
-`ADD EP`'s constants and words)
+`ADD EP`'s constants and words;
+the levels section against its code: Train's free training cleared, its
+tables' bases, words and question, the routines it calls, the hit points'
+fixed amounts and floor, Knight Change Order's words, menu, experience,
+scores and fixed loss, the aging's ages and words, the memorize table's
+labels, levels and columns, the lists' prompts, Scribe's question and
+words, the camp's forget, Display's bound, texts and heading colour)
 and
 `DKKAssets/` (each file and record it names, each picture and wall set in
 the file its id names and no other, `COMSPR`'s icons), its view's wall
@@ -514,8 +530,8 @@ demonstration's blocks, the end of a game's wall entry, the saved games'
 and vault's names and layout, the loader's one wall entry and kept last
 mode, the roster's NPC flags and sizes); `tests/test_start.c` its saved
 games, vault and start menu (`test_death_knights_saves`, `_menu`);
-`tools/dosbox/checks/dkk_views.py`, `dkk_start.py`, `dkk_fight.py` and
-`dkk_treasure.py` the original (see Checks against the original);
+`tools/dosbox/checks/dkk_views.py`, `dkk_start.py`, `dkk_fight.py`,
+`dkk_treasure.py` and `dkk_levels.py` the original (see Checks against the original);
 `tests/test_death_knights.py` its first fight on Auto, by Alt-Q and by
 `--combat auto`, 13 rounds as the original's; `tests/test_fight.c` its
 fight on records made by hand (the cloud and pool tiles, a death that
@@ -4110,6 +4126,40 @@ spells with no name (430) or levels past 9 (20), a far pointer (32), or
 random data makes common. It is not part of the repository. The
 interactive rest and the menus were tested in the port only.
 
+### Death Knights' camp
+
+Death Knights' spells lie in a block of their own (`.WIZ`); one without
+it (a fighter, a thief) `cannot memorize any spells` (`4381:0f67`) and
+has no table (`4381:09c7`) and no spells left (`4381:0664`). Its Magic
+menu (`4381:1a34`) keeps a selection of its own, from Cast each time it
+opens (`levels.magic_selection`). Memorize lists the spells marked with
+the prompt `spells OK? ` and `Keep` (`5dc5:016e`'s mode 5): picking keeps
+them, Escape unmarks them and opens the grimoire; no question is asked.
+The table shows levels 1-8 (as many as the record's spells a day) from
+column 14, labelled `    Cleric :` ... `Magic-User :` and `Bonus      :`
+(`DS:2e9f`-`2ef3`), after clearing rows 18-21 (`110f:0584`) with no name
+said (`levels.table_name`). A power granted to one without a cleric level
+counts its spells left from a local of `4381:0664`'s own, which the port
+does not know (`levels.granted_stale` 0): memorizing one stops the run. The lists' prompt is `Choose Spell:` (`DS:2fd9`).
+Scribe (`4381:115d`) asks `scribe these spells? ` (`DS:30c0`) before and
+after, from Yes in light magenta, with its words in lower case (`you are
+already scribing that spell`, `DS:2f65`). The camp's start and end unmark
+only the scrolls (`4381:0626`, `05b0`): spells cast, marked to be learned
+again, stay marked. Display (`4381:15aa`) names the effects of spells
+1-0x3f by the spell (`spells.display_last`) and twenty others by texts of
+its own (`4381:148c` on), its blank rows headings too, in light magenta
+(`DS:c149`), so that the list starts on its last row. Fix (`4381:2fd4`,
+with its cures `2a73`: the stoned, poisoned, dead, cursed and blind, from
+the spells memorized, and two rests) is not ported yet
+(`levels.fix_unported`): choosing it stops the run.
+
+`tools/dosbox/checks/dkk_levels.py` (flow `memorize`) checks camp, Magic,
+Memorize's list of the spells marked, the table and grimoire, and Display
+against the original: 0 pixels apart but Display's Exit, which the
+original's menu (`6a69:0f1b`) leaves unhighlighted, keeping the Magic
+menu's selection past its one item, where the port's (`67b5:03e2`'s)
+highlights it (Death Knights' menus are step 3's commands part).
+
 ## Casting
 
 `src/cast.h` ports casting outside combat from overlay `5b04`: the cast
@@ -5496,8 +5546,9 @@ Its rounds have no dead that explode after a turn (`combat.explode`) and
 end the round after any turn that leaves a side gone or reaches the round
 limit, once a battle (`combat.ends_in_round`). Its round start
 (`5340:0000`) stores no sweeps (the record has no fighter level). Its
-turns are the next section's. Aging after a battle (`3e05:0264`, asked
-for by effect 0x27, `game->aging`) stops the run; nothing sets it yet.
+turns are the next section's. After the rounds, where an effect 0x27
+(its haste, `504d:0d88`) aged someone (`DS:c463`, `game->effects.aging`),
+the aging (`3e05:0264`, `cok_train_aging`; see Death Knights' training).
 Its end of battle (`3e05:0000`) is Champions'.
 
 ### Death Knights' fight
@@ -8407,12 +8458,12 @@ here:
   or ninth record, a fourth ranger (`too many rangers in your party`) is
   turned away and keeps its `* `; no paladin rule; no `Loading...Please
   Wait`; a space is not special.
-- Create (`49cb:05c7`), Modify (`25d4`), Train (`43b6`), Knight Change
-  Order (`4ea4`) and Initialize Mouse/Joystick (`52cd`: its own words, and
-  it rewrites `krynn.cfg`, not `DKK.CFG`) are not ported: choosing one
-  stops the run (`not yet ported: Death Knights of Krynn's Create New
-  Character (dkk 49cb:05c7)`). So does camp's Magic, Display (`4381:15aa`,
-  4888:17ae's counterpart; the effects section's `display_unported`).
+- Create (`49cb:05c7`), Modify (`25d4`) and Initialize Mouse/Joystick
+  (`52cd`: its own words, and it rewrites `krynn.cfg`, not `DKK.CFG`) are
+  not ported: choosing one stops the run (`not yet ported: Death Knights
+  of Krynn's Create New Character (dkk 49cb:05c7)`). So does camp's Fix
+  (`4381:2fd4`, `levels.fix_unported`). Train (`43b6`) and Knight Change
+  Order (`4ea4`) are Death Knights' training's.
 
 `tools/dosbox/checks/dkk_start.py` (not in `run_all.py`, as
 `dkk_views.py`) compares the original in DOSBox-X: the four title
@@ -8849,6 +8900,59 @@ first space where the port leaves (see The roster). `169c:05da` with
 `050b` on 1,450 random strings agreed. The title (`2f55:063c`): its five
 screens agreed pixel for pixel. It is not part of the repository; `make
 test` checks cases of each that the emulator ran (`tests/test_start.c`).
+
+### Death Knights' training
+
+Death Knights' Train Character (`dkk 49cb:43b6`) is Champions' as the
+`levels` section words and bounds it. It clears free training first
+(`DS:c46a`: Death Knights has none). The experience row of a paladin is 10
+(`65cd:382c`, `characters.paladin_row`); a druid's or a knight's of no
+order is an uninitialized local there too, which the port does not know
+(`levels.stale_row` 0): such a class stops the run. A class at its race's
+highest level (`DS:82d4` + race × 8 + class, `COK_DATA_LEVEL_LIMITS`: 18
+at most) does not rise, where Champions stops kender fighters and rangers
+by strength. Its words are in lower case (`DS:1542`-`1485`; `not enough
+experienc`, a string[20]), and `do you wish to train? ` starts on Yes
+(`6a69:2048` with `DS:57c0`'s 0). A ranger above level 8 learns a spell
+only when the ranger level rises. The hit points (`580d:3193`) count
+paladins with the fighters for the constitution (`580d:310e`,
+`characters.fighter_classes`), give a paladin at its top level a fixed 3,
+and keep the hit points as far below the maximum as before, but not below
+0. After it, and after Knight Change Order, whether the character may
+train (`+0xc6`) is worked out again (`65cd:38c7`), which colours its name
+light magenta (`65cd:1b3b`, also in the party list's and the camp's
+names).
+
+Knight Change Order (`49cb:4ea4`) draws Champions' petition in lower case
+(`knight of the sword`, `DS:14cf`, `14b9`, `14c4`; ` is too
+inexperience`, a string[20], for both orders) and always offers `Change
+Exit` (`DS:3361`): Change promotes whatever the petition said; its menu's
+special keys do nothing (`DS:c0f8`), Escape leaves. A knight of no order
+petitions for a local never set (`levels.no_order` `NULL`): the port
+stops. A level lost (`49cb:4da1`) from knight level 10 up costs 2 base and
+maximum hit points and no constitution (`levels.promote_fixed`).
+
+The aging after a battle (`3e05:0264`, `cok_train_aging`) runs when an
+effect 0x27 aged someone in it (its haste, `504d:0d88`: Champions'
+`3f44:0f78` but only when not removed, the movement `DS:be6f` doubled too,
+and `DS:c463` set, `game->effects.aging`; the years' carry clears it,
+`5b7d:042e`). Each party record (not past the party's size) not dead,
+stoned or gone, of race 0-6, past its race's first age (1590, 1590, 315,
+515, 515, 189, 110) is `who is looking very old`; past the second (1600,
+1600, 325, 525, 525, 199, 120) the panel says `the strain of the last
+battle has worn heavily on NAME.  `, then `hebreathes deeply one last
+time and crumples to the ground.` (`DS:23da` and `2389` run together), and
+it `dies from age` (status 8, `638c:00c8`). The original then counts the
+party members who saw it from a local it never sets (`[bp-0x10]`): the
+port stops there (`COK_ECL_UNDEFINED`).
+
+`tests/test_start.c` (`test_death_knights_levels`) trains and promotes
+`DKKAssets/SAVE`'s characters and ages them; `tests/test_effect.c` effect
+0x27; `tests/test_death_knights.py` the start menu's Train and Knight
+Change Order, and a hasted knight of 115 aging in the first fight on Auto
+(`--effect 1,27,0,0`) and looking very old after it; `tools/dosbox/checks/dkk_levels.py` (flow `train`) the
+original: Knight Change Order, Train with the spell learned, and the saved
+game and characters written after, 0 pixels and 0 bytes apart.
 
 ## DOSBox-X harness
 
@@ -9486,6 +9590,23 @@ also the spells cast, so the two cures cast before the save stay marked
 camp). It found too that a menu's selection must not leak past the vault
 into the adventure's menu (each Death Knights menu keeps its own, around
 `DS:c0f7`), and the colour of camp's question after Save (`start.ask_colour`).
+
+Its levels, `tools/dosbox/checks/dkk_levels.py` (see Death Knights'
+training and Death Knights' camp; seeded; `--flows train,memorize`, about
+a minute and a half each): saved game A with the hall's variable `0x7ea8`
+at 127 and FLAVIUS's experience at 100,000, loaded: Knight Change Order
+for SIR DRYDEN and Change, Train Character for FLAVIUS (the levels he
+reaches, Yes, the spells to choose, the one learned), Save C: every screen
+0 pixels apart, saved game C and the characters' files but the stack's
+bytes and pointers; and saved game A with a spell of FLAVIUS's marked,
+loaded and begun: block 16's rest, camp, Magic, Memorize's list of the
+marked spells (Keep), Escape, the table of 8 levels and the grimoire,
+Display: 0 pixels apart but Display's Exit, masked and said (the
+original's menu leaves it unhighlighted; see Death Knights' camp). It
+found that Death Knights' Magic menu keeps its own selection and that
+Display's blank rows are headings. Its flow `table` (saved game B begun,
+camp, Magic, BALTHIR NOMOON's Memorize) shows the table with no name said
+over it, 0 pixels apart.
 
 Still to check, with why:
 

@@ -562,7 +562,8 @@ static const cok_rules_var death_knights_vars[COK_VARS] = {
     [COK_VAR_VAULT] = VAR(0x4d00),  /* 3632:16ec */
     [COK_VAR_RIVER] = VAR(0x4bf3),  /* 410b:0a4c */
     [COK_VAR_TURNING] = VAR(0x4cff), /* 5340:119b */
-    /* The moon of an order of magic, 1-3: the saving throw's (638c:10f8). */
+    /* The moon of an order of magic, 1-3: the saving throw's (638c:10f8)
+     * and the memorize table's bonus spells (4381:09c7). */
     [COK_VAR_ORDER_MOON] = VARS(0x4cf8, 0x100),
 };
 #undef VAR
@@ -965,7 +966,7 @@ static const cok_rules_effect death_knights_effect_handlers[0x7a] = {
     [0x24] = {0x0d4d, COK_FX_MINUS_FOUR},
     [0x25] = {0x0d5e, .unported = "dkk 504d:0d5e"},
     [0x26] = {0x28df, COK_FX_NOTHING},
-    [0x27] = {0x0d88, .unported = "dkk 504d:0d88"},
+    [0x27] = {0x0d88, COK_FX_HASTE_AGING}, /* haste, aging asked for (DS:c463) */
     [0x28] = {0x0df2, COK_FX_NOTHING},
     [0x29] = {0x0ed3, COK_FX_AVOID},
     [0x2a] = {0x0f0d, .unported = "dkk 504d:0f0d"},
@@ -1084,11 +1085,49 @@ static const uint8_t *const death_knights_events[0x16] = {
 static const uint8_t death_knights_shared[] = {0x15, 0x2d, 0x2e, 0x31, 0};
 static const uint8_t death_knights_resisted_pending[] = {0x5b, 0x52, 0};
 
-/* The effects a party record loses after combat (3a37:0506, DS:455d +
- * 0-18). */
 /* The item types the missile's flight draws as arrows (5340:28a0):
  * Champions' and 0x42. */
 static const uint8_t death_knights_arrows[] = {5, 7, 0x0c, 0x1e, 0x42, 0};
+
+/* Display (4381:15aa): the effects named by the first spell 1-0x3f that
+ * adds them, and the texts of others (4381:1484-158c). */
+static const uint8_t death_knights_display_spells[] = {
+    0x01, 0x05, 0x08, 0x0a, 0x0b, 0x0c, 0x0e, 0x10, 0x11, 0x13, 0x14, 0x15, 0x16, 0x17,
+    0x18, 0x19, 0x1c, 0x1d, 0x20, 0x21, 0x22, 0x24, 0x25, 0x26, 0x27, 0x29, 0x2a, 0x2d,
+    0x2e, 0x31, 0x33, 0x34, 0x35, 0x3b, 0x3f, 0,
+};
+static const cok_rules_effect_text death_knights_display_texts[] = {
+    {0x02, "olin's quaterstaff"},
+    {0x04, "Dispel Evil"},
+    {0x09, "Boots Of Speed"},
+    {0x1b, "Fumbling"},
+    {0x1f, "Helpless"},
+    {0x23, "Confused"},
+    {0x2c, "Cause Disease"},
+    {0x32, "Hot Fire Shield"},
+    {0x36, "Cold Fire Shield"},
+    {0x37, "Poisoned"},
+    {0x3c, "iron skin"},
+    {0x3d, "Fire Resistance"},
+    {0x44, "enfeebled"},
+    {0x45, "invisible to animals"},
+    {0x47, "Invisible"},
+    {0x48, "Camouflaged"},
+    {0x49, "protected from dragon breath"},
+    {0x4a, "fire touch"},
+    {0x4d, "berserk"},
+    {0x59, "Displaced"},
+};
+
+/* The ages past which a battle that aged one (3e05:0264) finds it very old,
+ * and past which it dies, by race 0-6. */
+static const cok_rules_age death_knights_ages[] = {
+    {0x636, 0x640}, {0x636, 0x640}, {0x13b, 0x145}, {0x203, 0x20d},
+    {0x203, 0x20d}, {0xbd, 0xc7},   {0x6e, 0x78},
+};
+
+/* The effects a party record loses after combat (3a37:0506, DS:455d +
+ * 0-18). */
 
 static const uint8_t death_knights_combat_effects[] = {
     0x03, 0x06, 0x0b, 0x0d, 0x15, 0x17, 0x1b, 0x1e, 0x23, 0x28,
@@ -1488,8 +1527,7 @@ const cok_rules cok_rules_death_knights = {
             .granted_last = 107,
             .item_last = 0x38, /* 3f63:02b8, as Champions' */
             .item_shift = 0x17,
-            /* Display (4381:15aa) differs: not ported (display_spells NULL). */
-            .display_last = 0,
+            .display_last = 0x3f, /* 4381:15aa: spells 1-0x3f */
             .target_caster = 1, /* 5dc5:1182: 3, not 4, for the party */
             .target_one = 2,
             .target_party = 3,
@@ -1515,10 +1553,10 @@ const cok_rules cok_rules_death_knights = {
             .shared_far = 6,
             .resisted_pending = death_knights_resisted_pending,
             .ids = death_knights_effect_ids,
-            .display_spells = NULL,
-            .display_texts = NULL,
-            .display_text_count = 0,
-            .display_unported = "dkk 4381:15aa", /* 4888:17ae's counterpart */
+            .display_spells = death_knights_display_spells,
+            .display_texts = death_knights_display_texts,
+            .display_text_count =
+                sizeof death_knights_display_texts / sizeof *death_knights_display_texts,
             .save_fail_id = 0x39, /* 638c:10f8 */
             .save_moon_wraps = false,
             /* 65cd:2c33: the knight's and the ranger's levels as they are;
@@ -1591,13 +1629,13 @@ const cok_rules cok_rules_death_knights = {
                       "Exit to DOS"},
             .prompt = "",       /* DS:2fad */
             .select = "Select", /* DS:31d6 */
-            /* Creating and modifying a character, training and the
-             * knights' orders are rewritten in Death Knights (step 3 and a
-             * part of their own); Initialize Mouse/Joystick has its own
-             * words ("Init mouse/joystick: ", DS:3038; "mouse on", 3376...)
-             * and rewrites krynn.cfg (49cb:52bd), not DKK.CFG. */
-            .unported = {[0] = "dkk 49cb:05c7", [2] = "dkk 49cb:25d4", [3] = "dkk 49cb:43b6",
-                         [4] = "dkk 49cb:4ea4", [11] = "dkk 49cb:52cd"},
+            /* Creating and modifying a character are rewritten in Death
+             * Knights (a part of their own); Initialize Mouse/Joystick has
+             * its own words ("Init mouse/joystick: ", DS:3038; "mouse on",
+             * 3376...) and rewrites krynn.cfg (49cb:52bd), not DKK.CFG.
+             * Train (49cb:43b6) and Knight Change Order (4ea4) are the
+             * levels section's. */
+            .unported = {[0] = "dkk 49cb:05c7", [2] = "dkk 49cb:25d4", [11] = "dkk 49cb:52cd"},
             .pick_prompt = "Pick Character ", /* 580d:3067: DS:3018, 31d6 */
             .pick_menu = "Select",
             /* 49cb:2394: DS:130a-135f */
@@ -1648,7 +1686,6 @@ const cok_rules cok_rules_death_knights = {
             .leads_end = ".",                                  /* 5340:4acd */
             .explode = false,
             .ends_in_round = true,
-            .aging_unported = "dkk 3e05:0264",
             /* 410b:1e41, 10d7 */
             .begins = "a battle begins...", /* DS:2a07 */
             .dungeon_tiles = 0x19,
@@ -1814,5 +1851,69 @@ const cok_rules cok_rules_death_knights = {
             .gains_end = " gains experience!",                     /* DS:2a64 */
             .party_gains = "Congratulations the party gains experien", /* DS:2a3b */
             .gains_active_first = true,
+        },
+    .levels =
+        {
+            /* 49cb:43b6: DS:1542, 1561, 1412 (a string[20]), 1427, 143c,
+             * 1451, 1466, 1485 */
+            .conscious = "we only train conscious people",
+            .wrong_hall = "we don't train that class here",
+            .no_experience = "not enough experienc",
+            .will_become = " will become:",
+            .a_level = "    a level ",
+            .and_level = "and a level ",
+            .question = "do you wish to train? ",
+            .congratulations = "congratulations...",
+            .question_yes = true,  /* 6a69:2048 with DS:57c0 */
+            .free_training = false, /* DS:c46a cleared first */
+            .race_limits = true,    /* DS:82d4 */
+            .stale_row = 0,         /* 65cd:382c's local: not known */
+            .ranger_rises = true,
+            .top_hit_points = {2, 0, 3, 3, 2, 1, 2, 3}, /* 580d:3193 */
+            .hit_points_floor = true,
+            /* 49cb:4ea4: DS:14cf, 14b9, 14c4, 14e4 (a string[20]), 3361;
+             * 4da1 */
+            .knight_of = "knight of the ",
+            .granted = {"sword", "rose"},
+            .inexperienced = {" is too inexperience", " is too inexperience"},
+            .no_order = NULL,
+            .change_always = true,
+            .specials_apart = true,
+            .promote_fixed = 10,
+            /* 3e05:0264 */
+            .ages = death_knights_ages,
+            .age_races = 7,
+            .very_old = "who is looking very old",                              /* DS:2319 */
+            .strain = "the strain of the last battle has worn heavily on ", /* DS:2338 */
+            .strain_end = ".  ",                                               /* 3e05:0260 */
+            .he = "he",                                                        /* DS:23da */
+            .she = "she",                                                      /* DS:23e5 */
+            .last_breath = "breathes deeply one last time and crumples to the ground.",
+            .died = "dies from age", /* DS:23f0 */
+            /* 5dc5:016e, 4381:09c7: DS:2fd9, 2e9f-2ef3 */
+            .choose_prompt = "Choose Spell:",
+            .table_labels = {"    Cleric :", "     Druid :", "   Special :", "Magic-User :"},
+            .bonus_label = "Bonus      :",
+            .table_column = 14,
+            .bonus_column = 14,
+            .table_name = false,  /* 110f:0584(1, 0x12, 0x26, 0x15) */
+            .granted_stale = 0,   /* 4381:0664's local: not known */
+            /* 4381:0f67, 115d, 0626: DS:31f7, 30ab, 30c0, 2f46, 2f65, 2f8e */
+            .keep = "Keep",
+            .keep_prompt = "spells OK? ",
+            .memorize_question = {NULL, NULL},
+            .scribe_question = {"scribe these spells? ", "scribe these spells? "},
+            .question_colour = 13, /* 6a69:2048 */
+            .questions_yes = true, /* DS:57c0 */
+            .known = "you already know that spell",
+            .scribing = "you are already scribing that spell",
+            .cannot_scribe = "you can not scribe that spell",
+            .camp_forgets_memorized = false,
+            .display_heading = 13, /* 6a69:1b82's DS:c149 (4f9a's 0xd) */
+            .display_blank_headings = true, /* 4381:15aa */
+            .magic_selection = true,        /* 4381:1a34 */
+            /* Fix's cures (stone, poison, the dead, curses, blindness)
+             * and its two rests: a rewrite of 4888:2b44. */
+            .fix_unported = "dkk 4381:2fd4",
         },
 };

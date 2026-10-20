@@ -9,6 +9,7 @@
 #include "cloud.h"
 #include "command.h"
 #include "step.h"
+#include "train.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -1072,8 +1073,7 @@ static bool rounds(cok_adventure *game)
     }
     if (vm->status != COK_ECL_OK) return false;
     /* dkk 3e05:0264, after an effect 0x27 asked (DS:c463). */
-    if (game->aging && R->aging_unported != NULL)
-        return cok_adventure_not_yet(game, "aging", R->aging_unported);
+    if (!cok_train_aging(game)) return false;
     if (game->combat_stub == COK_COMBAT_MELEE || game->combat_stub == COK_COMBAT_AUTO ||
         game->combat_stub == COK_COMBAT_PLAYER) {
         char text[32];

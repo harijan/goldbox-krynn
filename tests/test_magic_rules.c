@@ -337,7 +337,7 @@ static void test_death_knights(void)
     CHECK(r->effects.caster_level_unported == NULL && r->effects.save_unported == NULL &&
           r->effects.resistance_unported != NULL && r->effects.save_fail_id == 0x39 &&
           !r->effects.save_moon_wraps);
-    CHECK(r->effects.display_spells == NULL);
+    CHECK(r->effects.display_spells != NULL && r->spells.display_last == 0x3f);
     image m;
     if (!load(&m, "build/death-START_FULL.EXE", 0x1bce)) {
         puts("magic rules: build/death-START_FULL.EXE not built (make death-merged); Death "
