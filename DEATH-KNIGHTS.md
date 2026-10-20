@@ -122,9 +122,10 @@ the character fields moved (R6), which the real game's layout does better.
    leadership (a party knight leading NPC allies), its own battlefield
    builders and placement, the end of combat with may-train, no former
    classes or fighter levels (done); (2) `fight`, the rounds, the
-   computer's turns, melee, turning undead; (3) `commands`, the player's
+   computer's turns, melee, turning undead (done, with the saving throw,
+   caster level and the computer's spell choice); (3) `commands`, the player's
    two-row menu, aiming, View, the items menu; (4) `casting`, the cast
-   entry, saves, magic resistance, the computer's spell choice; (5)
+   entry, magic resistance; (5)
    `effects`, the changed effect handlers, level drain; (6) `treasure`,
    TREASURE ITEMS and ITEM0, the pool, the vault's menu, DAMAGE, ADD EP,
    STOCK, ROB (done; shop payment left for 7); (7) shops and the temple; (8) `spells`, the 27 changed spells;
