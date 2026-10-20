@@ -825,7 +825,7 @@ static void test_named_variables(void)
         {COK_VAR_DIFFICULTY, 0x4cf4, 0x4cf4, 1}, {COK_VAR_BANK, 0x4cf5, 0x4cf5, 1},
         {COK_VAR_OVERLAND, 0x4cf7, 0x4cf7, 1},   {COK_VAR_TREASURE_FIRST, 0x4cf8, 0x4cf8, 1},
         {COK_VAR_MOONS, 0x4cf9, 0x4cf9, 3},      {COK_VAR_MOON_DAYS, 0x4cfc, 0x4cfc, 3},
-        {COK_VAR_TURN, 0x4cff, 0, 1},            {COK_VAR_ORDER_MOON, 0x4cf8, 0, 0x100},
+        {COK_VAR_TURN, 0x4cff, 0, 1},            {COK_VAR_ORDER_MOON, 0x4cf8, 0x4cf8, 0x100},
         {COK_VAR_AREA, 0x4b00, 0, 0x100},        {COK_VAR_HALL, 0x7ea8, 0x7ea8, 1},
         {COK_VAR_DISTANCE_WANTED, 0x7ec0, 0x7ec0, 1}, {COK_VAR_DISTANCE, 0x7ec1, 0x7ec1, 1},
         {COK_VAR_MORALE, 0x7ec6, 0x7ec6, 1},          {COK_VAR_OUTCOME, 0x7ec7, 0x7ec7, 1},
