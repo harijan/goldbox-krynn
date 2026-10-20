@@ -675,10 +675,14 @@ static void test_dk_items(void)
           game.trade_partner == c->record);
     /* The pick by index (65cd:33c9): Select alone; Escape picks none and
      * ends it at once. */
+    first = c->items[0][0x2e];
+    second = c->items[1][0x2e];
+    game.trade_partner = sir->record;
     keys("\x01Pt\x1b\x1b");
     cok_items(&game, &done);
     CHECK(count(s.log, "menu: Select;") == 1 && c->item_count == 2 && s.at == s.length &&
-          !game.input_ended);
+          !game.input_ended && c->items[0][0x2e] == first && c->items[1][0x2e] == second &&
+          sir->item_count == 0);
     /* Up from the first is the last: the item to the end of its items. */
     game.trade_partner = c->record;
     keys("\x01Pt\x01HS\x1b");
