@@ -265,6 +265,18 @@ void cok_character_strength(cok_character *character, const cok_rules *rules);
 bool cok_character_stats(cok_character *character, const cok_rules *rules,
                          const cok_item_types *types, char *error, size_t error_size);
 
+/* dkk 65cd:1241, Death Knights' movement a round in combat (its round
+ * start 5340:0000, flight 5340:0cc0, fastest enemy 5340:2afe, morale
+ * 3f63:1260), where the stats count the movement's effects
+ * (cok_stats_count_movement_effects): the record's movement recomputed
+ * from its base, armour and load, with effects 0x27, 0x2a and 0x09; in
+ * *movement in half squares, for one on the party's side plus BONUS (var
+ * 0x7f72), doubled, as bytes. Returns false with error set where an item's
+ * type is past the table, as cok_character_stats does. */
+bool cok_character_round_movement(cok_character *character, const cok_rules *rules,
+                                  const cok_item_types *types, uint8_t bonus, uint8_t *movement,
+                                  char *error, size_t error_size);
+
 /* Recompute the stats that come from classes and levels (66c2:0433): base
  * THAC0, highest level, attacks, spells a day and known, saving throws,
  * thief skills and usable classes, then unready the items in the slots

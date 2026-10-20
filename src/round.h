@@ -116,7 +116,10 @@ uint8_t cok_combat_opposite(const cok_character *c, const cok_rules *rules);
 
 /* 432f:014d: c's movement this round in half squares: +0x198, plus var
  * 0x7f72 as a byte on the party's side, 1 for 0 or above 0x60, doubled
- * as a byte, then event 0x12 (haste and slow). */
+ * as a byte, then event 0x12 (haste and slow). Death Knights' (where the
+ * stats count the movement's effects) is 65cd:1241's, the movement
+ * recomputed with them (cok_character_round_movement), with no event and
+ * no bounds. */
 bool cok_combat_movement(cok_adventure *game, cok_character *c, uint8_t *movement);
 
 /* 432f:0f9e: half attacks as whole ones this round: (n + 1 on odd rounds)
