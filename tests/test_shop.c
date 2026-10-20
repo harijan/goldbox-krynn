@@ -1057,6 +1057,20 @@ static void test_dk_shop(void)
     CHECK(game.vm.character == b->record);
 }
 
+static void test_dk_take(void)
+{
+    /* Take (5c72:0ac4) once Pool has gathered the money: the coins by the
+     * list, steel picked, 5 taken by the selected; leaving the rest, No. */
+    reset("PT\r5\r\033EN");
+    cok_character *a = dk_member("A", 20);
+    dk_shop(0x10);
+    CHECK(LOGGED("menu: Buy View Take Pool Share Appraise Exit;choice: T;"));
+    CHECK(LOGGED("item: Steel 20;choice: S;menu: How much Steel  will you take? ;input: 5;"
+                 "item: Steel 15;"));
+    CHECK(dk_steel(a) == 5 && game.pool.coins[4] == 15 && s.at == s.length &&
+          game.vm.status == COK_ECL_OK);
+}
+
 static void test_dk_appraise(void)
 {
     /* Two gems: the first sold, the second kept; the counts' rows; the
@@ -1135,6 +1149,67 @@ static void test_dk_temple(void)
     const char *raise = R->spells.cast[R->shops.cures[7]].unported;
     CHECK(raise == NULL ? game.vm.status == COK_ECL_OK
                         : game.vm.status == COK_ECL_UNPORTED && strstr(game.error, raise) != NULL);
+    /* Cure Serious (2d8 + 1) and Critical Wounds (3d8 + 3), free, on one
+     * far below its maximum. */
+    static const struct { const char *keys; uint8_t count, add; } wounds[] = {
+        {"H\001P\001P\001PH\033E", 2, 1}, {"H\001P\001P\001P\001PH\033E", 3, 3}};
+    for (size_t i = 0; i < 2; ++i) {
+        reset(wounds[i].keys);
+        a = dk_member("A", 0);
+        cok_field_set8(L, a->record, COK_FIELD_MAX_HIT_POINTS, 60);
+        cok_field_set8(L, a->record, COK_FIELD_HIT_POINTS, 1);
+        uint32_t seed = game.vm.seed;
+        uint8_t amount = (uint8_t)(cok_dice(&seed, wounds[i].count, 8) + wounds[i].add);
+        cok_temple(&game);
+        CHECK(LOGGED(i == 0 ? "choice: Cure Serious Wounds;" : "choice: Cure Critical Wounds;"));
+        CHECK(cok_field_u8(L, a->record, COK_FIELD_HIT_POINTS) == 1 + amount && seed == game.vm.seed);
+    }
+    /* Cure Disease does nothing, asking nothing: the list again. */
+    reset("H\001PH\033E");
+    a = dk_member("A", 0);
+    cok_field_set8(L, a->record, COK_FIELD_HIT_POINTS, 4);
+    uint32_t before = game.vm.seed;
+    cok_temple(&game);
+    CHECK(LOGGED("choice: Cure Disease;print: A;print: 4;print: /9;") && before == game.vm.seed &&
+          cok_field_u8(L, a->record, COK_FIELD_HIT_POINTS) == 4 && s.at == s.length);
+    /* Neutralize Poison: 0x37, 0x16 and 0x0f go; at least a hit point, okay
+     * and able to act. */
+    reset("H\001H\001H\001H\001H\001HH\033E");
+    a = dk_member("A", 0);
+    static const uint8_t poisons[3] = {0x37, 0x16, 0x0f};
+    for (size_t i = 0; i < 3; ++i) CHECK(cok_character_add_effect(a, poisons[i], 0, 0, false));
+    CHECK(cok_character_add_effect(a, 0x21, 0, 0, false));
+    cok_field_set8(L, a->record, COK_FIELD_HIT_POINTS, 0);
+    cok_field_set8(L, a->record, COK_FIELD_STATUS, 2);
+    cok_field_set8(L, a->record, COK_FIELD_ACTIVE, 0);
+    cok_temple(&game);
+    CHECK(LOGGED("choice: Neutralize Poison;") && !LOGGED("is not poisoned."));
+    for (size_t i = 0; i < 3; ++i) CHECK(cok_character_find_effect(a, poisons[i]) == NULL);
+    CHECK(cok_character_find_effect(a, 0x21) != NULL);
+    CHECK(cok_field_u8(L, a->record, COK_FIELD_HIT_POINTS) == 1 &&
+          cok_field_u8(L, a->record, COK_FIELD_STATUS) == 0 &&
+          cok_field_u8(L, a->record, COK_FIELD_ACTIVE) == 1);
+    /* Remove Curse: a cursed item (+0x36) or Bestow Curse (0x24) reaches its
+     * spell's routine (or the stop citing it); neither asks. */
+    const char *curse = R->spells.cast[R->shops.cures[8]].unported;
+    for (int way = 0; way < 3; ++way) {
+        reset("H\001H\001H\001HH\r\033E");
+        a = dk_member("A", 0);
+        give(a, 0x12, 7);
+        if (way == 0) a->items[0][0x36] = 1;
+        if (way == 1) CHECK(cok_character_add_effect(a, 0x24, 0, 0, false));
+        cok_temple(&game);
+        CHECK(LOGGED("choice: Remove Curse;"));
+        if (way == 2) {
+            CHECK(LOGGED("print: is not cursed.;menu: cast cure anyway? ;choice: N;") &&
+                  game.vm.status == COK_ECL_OK);
+        } else {
+            CHECK(!LOGGED("is not cursed."));
+            CHECK(curse == NULL ? game.vm.status == COK_ECL_OK
+                                : game.vm.status == COK_ECL_UNPORTED &&
+                                      strstr(game.error, curse) != NULL);
+        }
+    }
     /* Restoration with no level lost: asked, from No. */
     reset("H\001HH\r\033E");
     dk_member("A", 0);
@@ -1186,6 +1261,7 @@ static void test_death_knights(void)
     game.effects.say = say;
     game.effects.context = &s;
     test_dk_shop();
+    test_dk_take();
     test_dk_appraise();
     test_dk_temple();
 }
