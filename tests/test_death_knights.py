@@ -121,8 +121,9 @@ class DeathKnightsTests(unittest.TestCase):
                                      "(done in block 48)"])
 
     def test_npcs_join(self):
-        # The intro (ECL1 block 2) adds its three NPCs, then fights, which
-        # stops the run at the first turn, the computer's for an NPC (step 3).
+        # The intro (ECL1 block 2) adds its three NPCs, then fights, whose
+        # computer's turns run until one casts a spell of use (5340:43ea),
+        # which stops the run at its handler (not ported yet).
         result = self.play("--keys", r"\r" * 20, ASSETS, 2)
         self.assertEqual(result.returncode, 1)
         self.assertEqual([line for line in result.stdout.splitlines()
@@ -131,7 +132,7 @@ class DeathKnightsTests(unittest.TestCase):
                           "party: TANAR joins, icon 49 in slot 1",
                           "party: FLAVIUS joins, icon 50 in slot 2"])
         self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
-                         "Krynn's computer's turn (dkk 3f63:0000)")
+                         "Krynn's spell 108, Delay Blast Fireball (dkk 5dc5:3241)")
 
     def test_characters(self):
         # The saved characters (--character), a sheet in camp: name, class,
@@ -242,10 +243,12 @@ class DeathKnightsTests(unittest.TestCase):
         # knight, leads the Solamnic knights; the battlefield on open ground
         # (410b:107e) and every record placed (410b:1aa4), as the original
         # in DOSBox-X places them (tools/dosbox/checks/dkk_fight.py); the
-        # rounds' order, then the first turn, the player's, not ported.
+        # rounds' order, then the first turn, the player's, whose menu
+        # (3e05:0ccc) is not ported: it waits for a key there, and any but
+        # Alt-Q, Alt-A and Alt-X stops the run.
         result = self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", "--seed", 1, "--keys",
                            self.TO_FIGHT + r"\r", ASSETS)
-        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
         at = lines.index("print:   Using leadership ability ")
         self.assertEqual(lines[at - 4:at + 7], [
@@ -256,9 +259,41 @@ class DeathKnightsTests(unittest.TestCase):
             "combat: open ground facing N, the enemy 2 squares ahead",
             "combat: 1 SIR DRYDEN at 27,13", "combat: 2 LILLITH at 26,13"])
         self.assertIn("combat: 18 SOLAMNIC KNIGHT at 31,14", lines)
-        self.assertEqual(lines[-2], "turn: NEACAIL (initiative 8)")
+        self.assertEqual([line for line in lines if line.startswith("turn: ")],
+                         ["turn: NEACAIL (initiative 8)"])
+        self.assertEqual(lines[-1], "(out of keys in block 16 at 8637)")
+        result = self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", "--seed", 1, "--keys",
+                           self.TO_FIGHT + r"\r\r", ASSETS)
+        self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
-                         "Krynn's player's turn (dkk 3e05:08af)")
+                         "Krynn's player's menu (dkk 3e05:0ccc)")
+
+    def test_first_fight_on_auto(self):
+        # Alt-Q at the first turn (3e05:08af) puts the party on Auto: the
+        # computer's turns (3f63:0000) play the fight to its end, in 13
+        # rounds, with the original's dice, its moves, attacks, the
+        # nightmares' smoke (effect 0x6a) and turning undead, as the
+        # original in DOSBox-X plays it (dkk_fight.py's auto flow, round by
+        # round); the enemy gone, "continue battle?" (No), and the results;
+        # --combat auto presses it.
+        expected = None
+        for keys, args in ((self.TO_FIGHT + r"\r\@q" + r"\r" * 5, ()),
+                           (self.TO_FIGHT + r"\r" * 6, ("--combat", "auto"))):
+            result = self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", "--seed", 1, *args,
+                               "--keys", keys, ASSETS)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            lines = result.stdout.splitlines()
+            rounds = [line for line in lines if line.startswith("round: ")]
+            self.assertEqual(len(rounds), 13)
+            self.assertIn("print: is blinded by smoke", lines)
+            self.assertIn("menu: continue battle? ", lines)
+            self.assertIn("print: each character receives 3242", lines)
+            fight = lines[lines.index(rounds[0]):lines.index("menu: continue battle? ")]
+            if expected is None:
+                expected = [line for line in fight if not line.startswith("menu: ")]
+            else:
+                self.assertEqual([line for line in fight if not line.startswith("menu: ")],
+                                 expected)
 
     def test_first_fight_out(self):
         # Out of it with --combat: won, the experience (3a37:0000, 02fa)
@@ -300,7 +335,7 @@ class DeathKnightsTests(unittest.TestCase):
             result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--file", 1, "--start",
                                "893c", "--at", f"5,5,{direction}", "--seed", 1, "--keys",
                                r"\r\r\r", ASSETS, 17)
-            self.assertIn("player's turn (dkk 3e05:08af)", result.stderr)
+            self.assertIn("player's menu (dkk 3e05:0ccc)", result.stderr)
             return [line for line in result.stdout.splitlines()
                     if line.startswith("combat: ") and "SOLAMNIC KNIGHT at" in line]
         east = knights(2)
@@ -456,10 +491,10 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual(result.stderr, "not yet ported: Death Knights of Krynn's Display "
                          "(dkk 4381:15aa)\n")
         result = self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", "--keys", r"\r\r" + "N" +
-                           r"\r" * 10, ASSETS)
+                           r"\r" * 11, ASSETS)
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
-                         "Krynn's player's turn (dkk 3e05:08af)")
+                         "Krynn's player's menu (dkk 3e05:0ccc)")
         if (BUILD / "cok").exists():
             env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
             result = subprocess.run([str(BUILD / "cok"), *GAME, "--saves", self.saves(),

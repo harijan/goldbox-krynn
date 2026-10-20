@@ -561,6 +561,9 @@ static const cok_rules_var death_knights_vars[COK_VARS] = {
     [COK_VAR_MOVE_BONUS] = VAR(0x7f72),
     [COK_VAR_VAULT] = VAR(0x4d00),  /* 3632:16ec */
     [COK_VAR_RIVER] = VAR(0x4bf3),  /* 410b:0a4c */
+    [COK_VAR_TURNING] = VAR(0x4cff), /* 5340:119b */
+    /* The moon of an order of magic, 1-3: the saving throw's (638c:10f8). */
+    [COK_VAR_ORDER_MOON] = VARS(0x4cf8, 0x100),
 };
 #undef VAR
 #undef VARS
@@ -930,7 +933,7 @@ static const cok_rules_effect death_knights_effect_handlers[0x7a] = {
     [0x04] = {0x0219, .unported = "dkk 504d:0219"},
     [0x05] = {0x28df, COK_FX_NOTHING},
     [0x06] = {0x00e7, COK_FX_HELD},
-    [0x07] = {0x0239, .unported = "dkk 504d:0239"},
+    [0x07] = {0x0239, COK_FX_KENDER_BATTLE},
     [0x08] = {0x0362, COK_FX_PROTECTION_EVIL},
     [0x09] = {0x0394, .unported = "dkk 504d:0394"},
     [0x0a] = {0x03a6, COK_FX_RESIST_COLD},
@@ -1002,8 +1005,8 @@ static const cok_rules_effect death_knights_effect_handlers[0x7a] = {
     [0x4c] = {0x1c7e, .unported = "dkk 504d:1c7e"},
     [0x4d] = {0x1cf2, .unported = "dkk 504d:1cf2"},
     [0x4e] = {0x4f97, .unported = "dkk 5dc5:4f97"},
-    [0x4f] = {0x1e47, .unported = "dkk 504d:1e47"},
-    [0x50] = {0x1f6b, .unported = "dkk 504d:1f6b"},
+    [0x4f] = {0x1e47, COK_FX_STENCH, .text = "Affected"}, /* DS:4580 */
+    [0x50] = {0x1f6b, COK_FX_CANCEL, .value = 0x23},
     [0x51] = {0x4fd3, .unported = "dkk 5dc5:4fd3"},
     [0x52] = {0x28df, COK_FX_NOTHING},
     [0x53] = {0x1f79, .unported = "dkk 504d:1f79"},
@@ -1015,8 +1018,8 @@ static const cok_rules_effect death_knights_effect_handlers[0x7a] = {
     [0x59] = {0x2112, COK_FX_DISPLACEMENT},
     [0x5a] = {0x51cc, .unported = "dkk 5dc5:51cc"},
     [0x5b] = {0x215b, COK_FX_NOTHING},
-    [0x5c] = {0x2162, .unported = "dkk 504d:2162"},
-    [0x5d] = {0x2170, .unported = "dkk 504d:2170"},
+    [0x5c] = {0x2162, COK_FX_CANCEL, .value = 0x6f},
+    [0x5d] = {0x2170, COK_FX_HALF_WEAPONS},
     [0x5e] = {0x21bd, COK_FX_CONSTITUTION_SAVE},
     [0x5f] = {0x223d, COK_FX_RESIST_CHARM_90},
     [0x60] = {0x2261, COK_FX_RESIST_CHARM},
@@ -1028,17 +1031,17 @@ static const cok_rules_effect death_knights_effect_handlers[0x7a] = {
     [0x66] = {0x28df, COK_FX_NOTHING},
     [0x67] = {0x23b9, COK_FX_MAGIC_WEAPONS},
     [0x68] = {0x51cc, .unported = "dkk 5dc5:51cc"},
-    [0x69] = {0x2404, .unported = "dkk 504d:2404"},
-    [0x6a] = {0x2448, .unported = "dkk 504d:2448"},
+    [0x69] = {0x2404, COK_FX_SLAYER_BATTLE},
+    [0x6a] = {0x2448, COK_FX_SMOKE},
     [0x6b] = {0x25bb, .unported = "dkk 504d:25bb"},
-    [0x6c] = {0x26e0, .unported = "dkk 504d:26e0"},
+    [0x6c] = {0x26e0, COK_FX_SMOKED},
     [0x6d] = {0x26f1, COK_FX_NOTHING},
     [0x6e] = {0x26f8, .unported = "dkk 504d:26f8"},
     [0x6f] = {0x2721, COK_FX_TERROR},
     [0x70] = {0x2762, COK_FX_FIRE_SHIELD},
     [0x71] = {0x27df, COK_FX_NOTHING},
-    [0x72] = {0x27e6, .unported = "dkk 504d:27e6"},
-    [0x73] = {0x282d, .unported = "dkk 504d:282d"},
+    [0x72] = {0x27e6, COK_FX_SLAYER_BATTLE},
+    [0x73] = {0x282d, COK_FX_SLAYER_BATTLE},
     [0x74] = {0x28df, COK_FX_NOTHING},
     [0x75] = {0x286b, .unported = "dkk 504d:286b"},
     [0x76] = {0x28d3, COK_FX_MINUS_TWO},
@@ -1083,6 +1086,10 @@ static const uint8_t death_knights_resisted_pending[] = {0x5b, 0x52, 0};
 
 /* The effects a party record loses after combat (3a37:0506, DS:455d +
  * 0-18). */
+/* The item types the missile's flight draws as arrows (5340:28a0):
+ * Champions' and 0x42. */
+static const uint8_t death_knights_arrows[] = {5, 7, 0x0c, 0x1e, 0x42, 0};
+
 static const uint8_t death_knights_combat_effects[] = {
     0x03, 0x06, 0x0b, 0x0d, 0x15, 0x17, 0x1b, 0x1e, 0x23, 0x28,
     0x34, 0x35, 0x39, 0x1f, 0x4d, 0x6b, 0x6c, 0x6f, 0x76, 0};
@@ -1511,8 +1518,16 @@ const cok_rules cok_rules_death_knights = {
             .display_texts = NULL,
             .display_text_count = 0,
             .display_unported = "dkk 4381:15aa", /* 4888:17ae's counterpart */
-            .caster_level_unported = "dkk 65cd:2c33",
-            .save_unported = "dkk 638c:10f8",
+            .save_fail_id = 0x39, /* 638c:10f8 */
+            .save_moon_wraps = false,
+            /* 65cd:2c33: the knight's and the ranger's levels as they are;
+             * Fireball by one holding 0x4e at level 15. */
+            .caster_knight_less = 0,
+            .caster_ranger_less = 0,
+            .caster_spell = 0x2f,
+            .caster_effect = 0x4e,
+            .caster_spell_level = 15,
+            .unaffected = "is unaffected", /* DS:1d0f */
             .resistance_unported = "dkk 638c:04c9",
         },
     .moons =
@@ -1633,8 +1648,6 @@ const cok_rules cok_rules_death_knights = {
             .explode = false,
             .ends_in_round = true,
             .aging_unported = "dkk 3e05:0264",
-            .player_unported = "dkk 3e05:08af",
-            .computer_unported = "dkk 3f63:0000",
             /* 410b:1e41, 10d7 */
             .begins = "a battle begins...", /* DS:2a07 */
             .dungeon_tiles = 0x19,
@@ -1672,6 +1685,71 @@ const cok_rules cok_rules_death_knights = {
             /* 3a37:1318 */
             .rejoice = "the monsters rejoice for the party has been destroyed", /* DS:2b9c */
             .rejoice_key = "press any key to continue",                        /* DS:2681 */
+        },
+    .fight =
+        {
+            .words =
+                {
+                    /* 5340:0230's (DS:2d0d-2d8d, CS:01ef, 0203) */
+                    .attacks = "attacks",
+                    .backstabs = "-backstabs-",
+                    .slays = "slays helpless",
+                    .behind = "(from behind)",
+                    .cruel = "with one cruel blow",
+                    .hitting = "Hitting for ",
+                    .point = " point ",
+                    .points = " points ",
+                    .damage = " of damage",
+                    .misses = "and misses",
+                    .lost_spell = "lost a spell", /* DS:1c3a */
+                    .goes_down = "goes down",     /* DS:1d04 */
+                    .dying = ", and is dying",    /* DS:1cef */
+                    .killed = "is killed",        /* DS:1ce4 */
+                    .got_away = "got away",            /* DS:2d98 */
+                    .blocked = "escape is blocked",    /* DS:2da3 */
+                    .destroyed = "is destroyed",       /* DS:2de3 */
+                    .nothing = "nothing happens",      /* DS:2df8 */
+                    .panic = " flees in panic",        /* DS:2b3e */
+                    .surrenders = "surrenders",        /* DS:2b68 */
+                    .magic_on = "magic on",            /* DS:16f7 */
+                    .magic_off = "magic off",          /* DS:1702 */
+                    .teammate_dying = "your teammate is dying", /* DS:2517 */
+                    .continue_battle = "continue battle? ",     /* DS:3129 */
+                    .bandaged = " is bandaged",        /* DS:2cf8 */
+                    .hit_points = "hitpoints",         /* DS:2c2e */
+                    .helpless = "(helpless)",          /* DS:2c44 */
+                    .casting = "(casting)",            /* DS:2c4f */
+                    .guarding = "guarding",            /* DS:2cc2 */
+                    .gods_refused = NULL,              /* 3e05:08af */
+                },
+            .menu_unported = "dkk 3e05:0ccc",
+            .clouds_unported = "dkk 638c:21ec",
+            .cloud_square_unported = "dkk 638c:0c65",
+            .cloud_tile = 0x1d, /* 6f03:0e33 */
+            .pool_tile = 0x1c,
+            .clouds_terrain = true,
+            .body_spares_pool = true, /* 6f03:0fbd */
+            .kill_finds_body = true,
+            .kill_clears_spell = false,
+            /* 3f63:0000 */
+            .computer_target_first = true,
+            .computer_items = false, /* 3f63:02b8 */
+            .computer_cast = COK_COMPUTER_CAST_DEATH_KNIGHTS, /* 3f63:05d7 */
+            .turn_limit = 0x0d, /* 3f63:0251 */
+            .paladin_turns = 2,
+            .reach_less = 0,    /* 3f63:0ccc */
+            .morale_signed = true, /* 3f63:1260 */
+            .flee_removes = false,
+            .flee_turn = 1,     /* 3f63:08c6 */
+            .ways_guarded = true,
+            .attack_sides = true, /* 5340:10ab */
+            .free_attack_effect = 6, /* 5340:0860 */
+            .quiet_flag = 8,    /* 5340:0230 */
+            .forget_mark = 0x80, /* 65cd:17c4 */
+            .arrows = death_knights_arrows, /* 5340:28a0 */
+            .missile_clamped = true,        /* 65cd:1da5 */
+            .burst_slot = 0x18, /* 65cd:24bc */
+            .turning = COK_TURNING_DEATH_KNIGHTS, /* 5340:119b */
         },
     .treasure =
         {

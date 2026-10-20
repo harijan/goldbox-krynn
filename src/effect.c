@@ -148,6 +148,7 @@ static uint8_t spell_byte(const cok_effects *fx, uint8_t spell, unsigned column)
 static bool caster_level(cok_effects *fx, uint8_t spell, uint8_t *level)
 {
     const cok_character_layout *L = fx->rules->character;
+    const cok_rules_effects *E = &fx->rules->effects;
     if (fx->rules->effects.caster_level_unported != NULL)
         return fail(fx, "not yet ported: %s's caster level (%s)", fx->rules->text.name,
                     fx->rules->effects.caster_level_unported);
@@ -164,14 +165,14 @@ static bool caster_level(cok_effects *fx, uint8_t spell, uint8_t *level)
         *level = 6;
     } else if (class_ == 0 || class_ == 2) {
         int8_t a = (int8_t)(former * FORMER(0) + LEVEL(0));
-        int8_t b = (int8_t)(former * FORMER(7) + LEVEL(7) - 8);
+        int8_t b = (int8_t)(former * FORMER(7) + LEVEL(7) - E->caster_knight_less);
         *level = (uint8_t)(a > b ? a : b);
     } else if (class_ == 1) {
         int8_t a = (int8_t)(former * FORMER(4) + LEVEL(4) - 7);
         *level = (uint8_t)(a > 0 ? a : 0);
     } else if (class_ == 3) {
         int8_t a = (int8_t)(former * FORMER(5) + LEVEL(5));
-        int8_t b = (int8_t)(former * FORMER(4) + LEVEL(4) - 8);
+        int8_t b = (int8_t)(former * FORMER(4) + LEVEL(4) - E->caster_ranger_less);
         if (LEVEL(5) > 0 && cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER) != 0) {
             /* The moon of its order, word 0x4cf8 + order (2b96). */
             uint16_t moon = cok_ecl_var_at(fx->vm, COK_VAR_ORDER_MOON,
@@ -188,6 +189,14 @@ static bool caster_level(cok_effects *fx, uint8_t spell, uint8_t *level)
     }
 #undef LEVEL
 #undef FORMER
+    /* dkk 65cd:2c33: its spell by one holding its effect. */
+    if (E->caster_spell != 0 && spell == E->caster_spell) {
+        const cok_character *holder = NULL;
+        for (size_t i = 0; i < fx->party->count && holder == NULL; ++i)
+            if (fx->party->members[i]->record == c) holder = fx->party->members[i];
+        if (holder != NULL && cok_character_find_effect(holder, E->caster_effect) != NULL)
+            *level = E->caster_spell_level;
+    }
     if (fx->rolls.item != 0 && class_ != 4) *level = 6;
     return true;
 }
@@ -226,7 +235,7 @@ static bool add_with_text(cok_effects *fx, cok_character *c, uint8_t id, uint16_
     r->pending = id;
     if (!dispatch_at(fx, &c, 9)) return false;
     if (r->pending == 0 || (saved && save_kind == 1))
-        return say(fx, c, id, handler, "is Unaffected");
+        return say(fx, c, id, handler, fx->rules->effects.unaffected);
     cok_effect *old = cok_character_find_effect(c, id);
     if (old != NULL && old->duration > 0 && !remove_effect(fx, c, old, id)) return false;
     if (!add(fx, c, id, minutes, value, on_remove)) return false;
@@ -926,6 +935,18 @@ static bool h_half_blunt(cok_effects *fx, bool removing, cok_effect *effect, cok
     return true;
 }
 
+/* dkk 504d:2170, 0x5d: half damage from items of kind 0 or 1 (byte 7 of
+ * the item type). */
+static bool h_half_weapons(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)c;
+    const uint8_t *item;
+    uint8_t kind = 0;
+    if (!striking_kind(fx, effect->id, &item, &kind)) return false;
+    if (item != NULL && kind < 2) fx->rolls.amount = (uint8_t)(fx->rolls.amount >> 1);
+    return true;
+}
+
 /* 3f44:33a7, 0x64: half damage from edged or piercing items. */
 static bool h_half_edged(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
@@ -1341,11 +1362,12 @@ static bool h_giant_slayer(cok_effects *fx, bool removing, cok_effect *effect, c
     return true;
 }
 
-/* 3f44:2b5f, 0x4f, an evil stench, with either flag: "emits an evil
- * stench"; each combatant listed within a cell (from the second) on the
- * other side that fails a saving throw of type 4 and lacks 0x76 "is
- * affected", and 0x76 (to hit 2 worse) for good is added, but to c, the
- * holder, not to it: so each one that fails adds another to c. */
+/* 3f44:2b5f, 0x4f, an evil stench, with either flag (dkk 504d:1e47 the
+ * same, its words its entry's): "emits an evil stench"; each combatant
+ * listed within a cell (from the second) on the other side that fails a
+ * saving throw of type 4 and lacks 0x76 "is affected", and 0x76 (to hit 2
+ * worse) for good is added, but to c, the holder, not to it: so each one
+ * that fails adds another to c. */
 static bool h_stench(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
     const cok_character_layout *L = fx->rules->character;
@@ -1363,7 +1385,7 @@ static bool h_stench(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
         bool made;
         if (!saving_throw(fx, e, 4, 0, &made)) return false;
         if (made || FIND_EFFECT(e, SICKENED) != NULL) continue;
-        if (!flash(fx, e, 0x4f, 0x2b5f, "is affected", false) ||
+        if (!flash(fx, e, 0x4f, 0x2b5f, fx->rules->effects.handlers[0x4f].text, false) ||
             !add(fx, c, EFFECT(SICKENED), 0, 0xff, false))
             return false;
     }
@@ -1473,11 +1495,26 @@ static bool h_paralysis(cok_effects *fx, bool removing, cok_effect *effect, cok_
  * starts with the debug trace ("bad news", 6d7e:093e, shown only with the
  * debug flag). With no weapon the bonus is a local never set, which the
  * port does not know. */
+static bool kender(cok_effects *fx, cok_character *c);
+
 static bool h_kender(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
-    const cok_character_layout *L = fx->rules->character;
     (void)removing, (void)effect;
     if (fx->trace != NULL) fx->trace(fx, "bad news", 0, 0, 0, fx->context); /* 3f44:0226 */
+    return kender(fx, c);
+}
+
+/* dkk 504d:0239, 0x07: the same, with no trace, and only in a battle
+ * (DS:8c4e 5). */
+static bool h_kender_battle(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect;
+    return !fx->in_battle || kender(fx, c);
+}
+
+static bool kender(cok_effects *fx, cok_character *c)
+{
+    const cok_character_layout *L = fx->rules->character;
     uint8_t *r = c->record;
     cok_rolls *rolls = &fx->rolls;
     size_t weapon = c->slots[0];
@@ -2030,6 +2067,70 @@ static bool h_minus_one(cok_effects *fx, bool removing, cok_effect *effect, cok_
     return true;
 }
 
+/* dkk 504d:2404, 0x69, 27e6, 0x72, and 282d, 0x73: 3f44:349c's, 376f's
+ * and 37b0's, only in a battle (DS:8c4e 5). */
+static bool h_slayer_battle(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    return !fx->in_battle || h_slayer(fx, removing, effect, c);
+}
+
+/* dkk 504d:26e0, 0x6c, blinded by smoke: the damage and the attack roll 2
+ * worse. */
+static bool h_smoked(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect, (void)c;
+    fx->rolls.amount = (uint8_t)(fx->rolls.amount - 2);
+    fx->rolls.attack_roll = (uint8_t)(fx->rolls.attack_roll - 2);
+    return true;
+}
+
+/* dkk 504d:2448, 0x6a, a nightmare's smoke: of the combatants listed
+ * within a cell of c (6e48:08d6; from the second, the first being c) on
+ * the other side and not yet blinded by smoke (0x6c), the one whose THAC0
+ * plus its first slot's attacks times six times its dice plus its bonus
+ * (words, compared signed) is the most, the first of equals, gets 0x6c for
+ * good unless it saves (type 3) or something cancels it: "is blinded by
+ * smoke". */
+static bool h_smoke(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    const cok_character_layout *L = fx->rules->character;
+    (void)removing, (void)effect;
+    cok_character *listed[COK_PARTY_RECORDS + 1], *best = NULL;
+    uint8_t n;
+    if (!around(fx, c, 1, listed, &n)) return false;
+    int16_t most = 0;
+    for (unsigned i = 2; i <= n; ++i) {
+        cok_character *e = listed[i];
+        const uint8_t *r = e->record;
+        uint8_t side = cok_field_u8(L, c->record, COK_FIELD_HOSTILE);
+        if (cok_field_u8(L, r, COK_FIELD_HOSTILE) == side ||
+            cok_character_find_effect(e, 0x6c) != NULL)
+            continue;
+        uint16_t blow = (uint16_t)(cok_field_u8_at(L, r, COK_FIELD_DICE, 1) * 6 +
+                                   cok_field_s8_at(L, r, COK_FIELD_DAMAGE_BONUS, 1));
+        uint16_t attacks = cok_field_u8_at(L, r, COK_FIELD_ATTACKS_LEFT, 1);
+        int16_t score = (int16_t)(uint16_t)(cok_field_u8(L, r, COK_FIELD_THAC0) + attacks * blow);
+        if (score > most) {
+            most = score;
+            best = e;
+        }
+    }
+    if (best == NULL) return true;
+    bool made;
+    if (!saving_throw(fx, best, 3, 0, &made)) return false;
+    return add_with_text(fx, best, 0x6c, 0, 0, true, 1, made, 0x2448, "is blinded by smoke");
+}
+
+/* dkk 504d:1f6b, 0x50, and 2162, 0x5c (504d:006d): cancel the damage and
+ * the effect being added, if that is the entry's value (0x23, 0x6f), as
+ * 0x61 cancels 0x34. */
+static bool h_cancel(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect, (void)c;
+    cancel(fx, fx->rules->effects.handlers[fx->running].value);
+    return true;
+}
+
 /* 3f44:3888, 0x78: the item routine (see call_handler), which takes the
  * effect it is given for an item and adds (flag 0) or removes (flag 1) the
  * effect of id +0x3d. Run as an effect's own handler, which no item,
@@ -2132,6 +2233,12 @@ static handler_fn *const handlers[COK_FX_HANDLERS] = {
     [COK_FX_MINUS_TWO] = h_minus_two,
     [COK_FX_MINUS_ONE] = h_minus_one,
     [COK_FX_ITEM] = h_item,
+    [COK_FX_KENDER_BATTLE] = h_kender_battle,
+    [COK_FX_HALF_WEAPONS] = h_half_weapons,
+    [COK_FX_CANCEL] = h_cancel,
+    [COK_FX_SMOKE] = h_smoke,
+    [COK_FX_SMOKED] = h_smoked,
+    [COK_FX_SLAYER_BATTLE] = h_slayer_battle,
 };
 
 /* Run the handler of id (60f4:01a8). While DS:713c is set the original
@@ -2585,16 +2692,22 @@ static bool saving_throw(cok_effects *fx, cok_character *target, uint8_t type, u
     const uint8_t *c = target->record;
     r->save_made = 1;
     r->save_roll = roll(fx, 1, 20);
+    /* dkk 638c:10f8: the holder of an effect rolls 1. */
+    uint8_t fails = fx->rules->effects.save_fail_id;
+    if (fails != 0 && cok_character_find_effect(target, fails) != NULL) r->save_roll = 1;
     if (r->save_roll == 1) {
         r->save_made = 0;
     } else if (r->save_roll != 20) {
         /* A mage of an order of magic (+0x5e) gets -1 or +1 from the word
-         * at 0x4bf8 + order (the byte sum wraps): 0 or 2. */
+         * at 0x4bf8 + order (the byte sum wraps), or (dkk 638c:10f8) the
+         * moon's at 0x4cf8 + order: 0 or 2. */
         if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) > 0 &&
             cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER) != 0) {
+            uint8_t order = cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER);
             uint16_t moon =
-                cok_ecl_var_at(fx->vm, COK_VAR_AREA,
-                               (uint8_t)(cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER) + 0xf8));
+                fx->rules->effects.save_moon_wraps
+                    ? cok_ecl_var_at(fx->vm, COK_VAR_AREA, (uint8_t)(order + 0xf8))
+                    : cok_ecl_var_at(fx->vm, COK_VAR_ORDER_MOON, order);
             if (moon == 0) --bonus;
             else if (moon == 2) ++bonus;
         }

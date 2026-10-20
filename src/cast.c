@@ -216,17 +216,6 @@ bool cok_cast_add_effect(cok_adventure *game, cok_character *c, uint8_t id, uint
     return true;
 }
 
-/* 6346:161b: forget the first memorized byte equal to spell; a spell
- * marked to be learned does not match. */
-static void forget(const cok_character_layout *L, uint8_t *c, uint8_t spell)
-{
-    for (size_t i = 0; i < cok_field_count(L, COK_FIELD_MEMORIZED); ++i)
-        if (cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) == spell) {
-            cok_field_set8_at(L, c, COK_FIELD_MEMORIZED, i, 0);
-            return;
-        }
-}
-
 void cok_cast_forget(cok_adventure *game, const cok_character *gone)
 {
     for (size_t i = 1; i <= COK_PARTY_RECORDS; ++i)
@@ -287,7 +276,7 @@ bool cok_cast_damage(cok_adventure *game, cok_character *c, uint8_t amount, uint
         c->combat->may_cast = 0;
         if (c->combat->spell > 0) {
             if (!cok_arena_say(game, c, "lost a spell", 12, true)) return false;
-            forget(L, record, c->combat->spell);
+            cok_combat_forget(cok_game_rules(game), record, c->combat->spell);
             cok_combat_end_turn(c);
         }
     }
@@ -2325,7 +2314,7 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, 
             int answer = cok_camp_yes_no(game, "Lose it? ", 13);
             if (answer < 0) return;
             lose = answer == 'Y';
-            if (lose) forget(L, c, spell);
+            if (lose) cok_combat_forget(cok_game_rules(game), c, spell);
         } else {
             cok_adventure_log(game, "print", "That Item");
             cok_text_string(&game->screen, &game->font, "That Item", 1, 0x13, 10, 0);
@@ -2362,7 +2351,7 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, 
             cok_effect *invisible;
             while ((invisible = FIND_EFFECT(cx.caster, INVISIBLE)) != NULL)
                 if (!remove_effect(game, cx.caster, invisible, EFFECT(INVISIBLE))) return;
-            if (r->item == 0) forget(L, c, spell);
+            if (r->item == 0) cok_combat_forget(cok_game_rules(game), c, spell);
             if (handler->handler == COK_CAST_NONE) {
                 char text[96];
                 snprintf(text, sizeof text, "spell %u (5b04:%04x) is cast only in combat", spell,
@@ -2383,7 +2372,7 @@ void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, 
                 if (answer != 'Y') continue;
             }
             cok_camp_notice(game, "Spell Aborted"); /* 6346:1827 */
-            if (r->item == 0) forget(L, c, spell);
+            if (r->item == 0) cok_combat_forget(cok_game_rules(game), c, spell);
             go = false;
         }
     }

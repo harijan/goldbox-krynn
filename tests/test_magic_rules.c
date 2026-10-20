@@ -285,9 +285,13 @@ static void test_champions(void)
         for (unsigned id = 1; id < r->spells.count; ++id) used |= r->spells.cast[id].handler == k;
         CHECK(used);
     }
+    /* ... and every effect handler one of Champions' or Death Knights'. */
+    const cok_rules *d = &cok_rules_death_knights;
     for (unsigned k = 1; k < COK_FX_HANDLERS; ++k) {
         bool used = false;
         for (unsigned id = 1; id < r->effects.count; ++id) used |= r->effects.handlers[id].handler == k;
+        for (unsigned id = 1; id < d->effects.count; ++id)
+            used |= d->effects.handlers[id].handler == k;
         CHECK(used);
     }
     consistent(r);
@@ -327,8 +331,12 @@ static void test_death_knights(void)
             CHECK(r->effects.handlers[id].handler != COK_FX_MISSING ||
                   r->effects.handlers[id].unported != NULL);
     }
-    CHECK(r->effects.caster_level_unported != NULL && r->effects.save_unported != NULL &&
-          r->effects.resistance_unported != NULL);
+    /* The caster level and the saving throw are carried out (Champions'
+     * but for the knights' and rangers' levels, Fireball's 15, effect 0x39
+     * and the moon's variable: test_effect, test_death_knights). */
+    CHECK(r->effects.caster_level_unported == NULL && r->effects.save_unported == NULL &&
+          r->effects.resistance_unported != NULL && r->effects.save_fail_id == 0x39 &&
+          !r->effects.save_moon_wraps);
     CHECK(r->effects.display_spells == NULL);
     image m;
     if (!load(&m, "build/death-START_FULL.EXE", 0x1bce)) {

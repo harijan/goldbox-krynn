@@ -111,7 +111,8 @@ bool cok_combat_bandage(cok_adventure *game, bool bandage)
         if (!bandage) continue;
         cok_field_set8(L, r, COK_FIELD_STATUS, 4);
         if (c->combat != NULL) c->combat->dying = 0;
-        (void)cok_arena_say(game, c, "is bandaged", 10, true); /* 6346:326c; row 10 never fails */
+        (void)cok_arena_say(game, c, cok_game_rules(game)->fight.words.bandaged, 10,
+                            true); /* 6346:326c; row 10 never fails */
         bandage = false;
     }
     return found;
@@ -813,13 +814,6 @@ static bool act(cok_adventure *game, cok_character *c, bool computer)
     name_of(L, c->record, name);
     snprintf(text, sizeof text, "%s (initiative %d)", name, c->combat->initiative);
     log_text(game, "turn", text);
-    /* A game whose turns the port does not carry out yet stops at the
-     * first (dkk 3e05:076c's 3e05:08af and 3f63:0000). */
-    const cok_rules_combat *R = &cok_game_rules(game)->combat;
-    const char *unported = computer ? R->computer_unported : R->player_unported;
-    if (unported != NULL)
-        return cok_adventure_not_yet(game, computer ? "computer's turn" : "player's turn",
-                                     unported);
     cok_combat_stub stub = game->combat_stub;
     if (stub == COK_COMBAT_MELEE) return cok_combat_melee(game, c);
     if (stub == COK_COMBAT_PASS) {
@@ -876,6 +870,11 @@ bool cok_combat_end_round(cok_adventure *game, bool *done)
     const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     if (!cok_adventure_pass_time(game, 1, 1)) return false; /* 57e4:0549 */
+    /* dkk 3e05:0ed0 ages its clouds here (638c:21ec), which the port does
+     * not carry out for it: only with one on the battlefield. */
+    const cok_rules_fight *F = &cok_game_rules(game)->fight;
+    if (F->clouds_unported != NULL && (combat->clouds != NULL || combat->pools != NULL))
+        return cok_adventure_not_yet(game, "clouds", F->clouds_unported);
     ++game->effects.rolls.round;
     cok_combat_enemy_health(combat, &game->party, cok_game_rules(game));
     for (size_t i = 0; i < game->party.count; ++i) {
@@ -886,7 +885,7 @@ bool cok_combat_end_round(cok_adventure *game, bool *done)
         if (cr == NULL) return false;
         if (++cr->dying > 9) cok_field_set8(L, c->record, COK_FIELD_STATUS, 6);
     }
-    if (cok_combat_bandage(game, false)) cok_camp_notice(game, "Your Teammate is Dying");
+    if (cok_combat_bandage(game, false)) cok_camp_notice(game, F->words.teammate_dying);
     if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game)))
         return undefined(game, "a record on a side other than 0 or 1 (+0x18a) counts past "
                                "DS:6b2d (6346:268a)");
@@ -897,7 +896,7 @@ bool cok_combat_end_round(cok_adventure *game, bool *done)
         *done = true;
     /* The demonstration (DS:4b4b) does not ask (3995:0c78). */
     if (!game->demo && combat->sides[0] > 0 && combat->sides[1] == 0) {
-        int answer = cok_camp_yes_no(game, "Continue Battle:", 13); /* 67b5:177f */
+        int answer = cok_camp_yes_no(game, F->words.continue_battle, 13); /* 67b5:177f */
         if (answer == 'Y') *done = false;
     }
     return true;

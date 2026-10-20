@@ -195,11 +195,12 @@ segment's tables, a section to a concern:
 | `view` | the 3D view's tile sets (each one's first and last value, `6e22:01ab`, and the colour each is loaded with as transparent, `tile_transparent`), the wall slot that holds wall types 1-5 and that `LOAD PIECES`' two-set path loads first, whether a record's wall sets share one tile set and whether tile values are moved by the slot's set; the overhead map's tiles; `PICTURE`'s overland map; whether CGA mode has a backdrop of its own (`cga_backdrop`: a line row, no pictures) | 1-0x2d, ..., 0x100-0x127 (`DS:1ec2`), each loaded with 13 transparent (`6e22:0050`); slot 1; a tile set each, moved (`69ea:1025`, `1230`); 0x104 and 0x100; 0x79; yes (`69ea:0184`) |
 | `startup` | what startup loads past the font (`3e99:005b`): tile sets from `<tiles>1` and the missiles' icons from `COMSPR`, as (first id, first slot, count); the icon slots (`icon_slots`, at most `COK_ICON_SLOTS_MAX`, 35) and their table's DS offset, for messages | sets 4 and 0, records 202 and 203; 0-11 into 13-24, 25 into 25; 26 slots at `DS:6172` (`3e99:0466` clears 0xd0 bytes) |
 | `spells` | what is keyed by spell id (`magic.c`, `cast.c`): the ids' count; their names and the spell lists' headings, with their tables' DS offsets and sizes for the messages; each id's handler (`cok_rules_cast`: the port's, a `cok_cast_handler`, and the original's address, or `unported`); the durations not taken from the spell table (`cok_rules_duration`); the spell ids the code names (`ids`, by `cok_named_spell`); the spell lists' sizes; the granted powers' ids; an item power's spell; Display's search; byte 7's values for the caster, one picked and the party; who may use a class's spells (`usable_paladin`, `usable_ranger`, `usable_mage_class`) | ids 1-0x6b (`DS:2077` + 41 × id, `DS:0bfa` + 41 × level), the handlers `5b04:58ed` stores at `DS:6e3a`, 7 durations (`5b04:0f78`), 23 names; 58 and 49 (`DS:473a`, `4774`); 101-107; above 0x38, 0x17 less (`3afb:04b2`); spells 1-0x38 (`4888:17ae`); 1, 2, 4 (`5b04:127e`); no paladin, a ranger from 7, any magic-user (`5b04:0083`) |
-| `effects` | what is keyed by effect id (`effect.c`, `cast.c`, `magic.c`): the ids' count; each id's handler (`cok_rules_effect`, as the spells'); the ids each event runs; the ids the party shares and Prayer's reach; those magic resistance leaves pending; the effect ids the code names (by `cok_named_effect`); Display's ids and texts; the rules' routines a game does not have ported yet (the caster level, the saving throw, magic resistance, Display) | 0x79 (`DS:6b94`, `5b04:58ed` and `3f44:38ea`), events 1-0x18 (`60f4:057c`), 0x15, 0x2d, 0x2e, 0x31 and 0x31 from 6 squares (`60f4:0332`, `0352`), 0x5b and 0x52 (`60f4:04f3`), 80 names, `4888:17ae`'s; none |
+| `effects` | what is keyed by effect id (`effect.c`, `cast.c`, `magic.c`): the ids' count; each id's handler (`cok_rules_effect`, as the spells'); the ids each event runs; the ids the party shares and Prayer's reach; those magic resistance leaves pending; the effect ids the code names (by `cok_named_effect`); Display's ids and texts; the rules' routines a game does not have ported yet (the caster level, the saving throw, magic resistance, Display); the effect whose holder's saving throw rolls 1 and where that throw reads a mage's moon; what one an effect does not take "is" | 0x79 (`DS:6b94`, `5b04:58ed` and `3f44:38ea`), events 1-0x18 (`60f4:057c`), 0x15, 0x2d, 0x2e, 0x31 and 0x31 from 6 squares (`60f4:0332`, `0352`), 0x5b and 0x52 (`60f4:04f3`), 80 names, `4888:17ae`'s; none; none, the wrapped byte (`60f4:113a`); `is Unaffected` |
 | `moons` | the three moons (`57e4:001e`, `0143`): the days each stays in a phase, and on the frame each one's column and tile | 8, 1, 6 days; columns 8, 19, 30; tiles 0x114 + phase + 10, 6, 14 |
 | `frame` | the screens' frames (`screen.c`), by `cok_screen` (the frame, the open frame, the adventure screen, a big picture's, Memorize's, the spell lists', combat's, the sheet's, the credits'): each a `cok_rules_screen`, the screen drawn under it first, the box cleared (`1128:07e6`) and its lines, rows and columns of tiles (`cok_rules_frame_line`: a tile, or a table by the cell's column or row, and on row 0 the moons), each the frame's `base` + its value; which frame main draws after the start menu (`menu_big`) and Begin Adventuring for a loaded game (`resumed`, a `cok_resumed`) | `1128:0000`-`077c`'s layouts, tiles 0x114 + `DS:0e3a`, `0e62`, `0e7a`, `0ea3`, `0eb0`, `0e8b`, `0ebd`, `0f02`, `0f19` and the code's; the big frame in mode 3 on the map (`1000:024b`); in block 0 or off the map (`4def:01b4`) |
 | `start` | the front end (`start.c`, `roster.c`, camp's Save): the title's pictures (record, cell, whether the screen is cleared first, the seconds waited) and credits (lines, their wait, whether they show after a key), a new game's block and the demonstration's file and block; the start menu's items, prompt and word, each item's routine where the port does not carry it out for the game (`unported`, cited: choosing it stops the run); the words of Pick Character, Drop, Exit, Load, Save, the roster's Overwrite, Add, and "from where" for a game that imports another's; the questions' colour; and what its commands do where the games differ (Add's paladin rules, its space, its message and marks; a Drop or Remove that empties the party ending the game; Exit's No saving then quitting; Begin's mode; PROGRAM 0 marking the party on the map; the wall table's entry the end of a game sets) | `2f55:063c`'s pictures, 1, 2, 3 at 5, 1 and 4 at 0, 1 for 5, 10 and 10 seconds, the credits (`2f55:0267`) for 10 unless a key; 0x24, file 2 block 0x39; `DS:0878`, `Choose a FUNCTION `, `Select `, none unported; yellow; paladins, the space, the message and marks; no, no, the entry mode, no; the first |
-| `combat` | the encounter and the battle's frame where the games differ (`monster.c`, `combat.c`, `round.c`, `treasure.c`'s end of combat): `COMBAT`'s vault branch and the vault, shop and temple a game's port does not carry out yet; the show at distance's `0xff` for none; leadership before the setup and its words; the dead exploding after a turn, a side gone ending the round there, the routines of the turns and of aging not ported yet; the setup's line, its tile counts, whether a set is kept, the open ground's builder (`cok_wilderness_routine`), the dungeon's fill and corners; the placement's clears, ambush, distances, the cell under a body, status 9; the end of combat's lost weapons, shares, effects lost, may-train, the results' words and key, the treasure menu's condition and stop, a destroyed party's words | the vault none; Champions' shop and temple; no; no; yes, no; none; `A battle begins...`, 0x19 and 0x21, no, `COK_WILDERNESS_CHAMPIONS` (`3cb2:0fc8`), no fill, Champions' corners; 255, no ambush, status 9 off the map; weapons back, shares, `DS:0390`'s 11, no may-train, `The party has won.` ..., `press <enter>/<return> to continue`, always (`351b:1968`) |
+| `combat` | the encounter and the battle's frame where the games differ (`monster.c`, `combat.c`, `round.c`, `treasure.c`'s end of combat): `COMBAT`'s vault branch and the vault, shop and temple a game's port does not carry out yet; the show at distance's `0xff` for none; leadership before the setup and its words; the dead exploding after a turn and a blow, a side gone ending the round there, aging not ported yet; the setup's line, its tile counts, whether a set is kept, the open ground's builder (`cok_wilderness_routine`), the dungeon's fill and corners; the placement's clears, ambush, distances, the cell under a body, status 9; the end of combat's lost weapons, shares, effects lost, may-train, the results' words and key, the treasure menu's condition and stop, a destroyed party's words | the vault none; Champions' shop and temple; no; no; yes, no; none; `A battle begins...`, 0x19 and 0x21, no, `COK_WILDERNESS_CHAMPIONS` (`3cb2:0fc8`), no fill, Champions' corners; 255, no ambush, status 9 off the map; weapons back, shares, `DS:0390`'s 11, no may-train, `The party has won.` ..., `press <enter>/<return> to continue`, always (`351b:1968`) |
+| `fight` | the rounds, the computer's turns and the attacks where the games differ (`round.c`, `ai.c`, `attack.c`, `arena.c`, `command.c`, `cloud.c`): their words (`cok_rules_fight_words`: the attack's message, fleeing, turning undead, the computer's, the round's end, the panel, guarding, Alt-X without the Helm cheat); the player's menu, the clouds' round and a cloud's square where the port does not carry them out yet; the battlefield's cloud and pool tiles and whether they count as terrain; the death's search for a body, its cell kept for a pool, its spell cleared; the computer's turn: a target first, the items' spells, its spell choice (`cok_computer_cast_routine`), the undead it turns and the paladins who do, its reach, morale's compare and the fleeing's effects, the flight's way; the attack's sides, the free attacks' effect, the creature flag for no dying words, a lost spell's mark, the arrows, the missile's clamp, turning undead (`cok_turning_routine`) | Champions' words; none, none, none; 0x1e and 0x1d, no; by the stack's byte, the cloud's only, yes; no, yes, `3afb:03b9`, the stack's byte, none, range less 1, unsigned, `DISPELLING` and `GIANT_SLAYER`, 0; no, none, none, cleared, 5, 7, 0x0c, 0x1e, no, `432f:12b7` |
 | `treasure` | treasure where the games differ (`treasure.c`, `adventure.c`'s `DAMAGE` and `ADD EP`; see Death Knights' treasure): the item table `TREASURE ITEMS` and `STOCK` take items from (a `cok_rules_record` and how many entries it fills, or none); the treasure menus' ways (selections from each menu's first item, special keys told apart from letters, leaving's Yes/No from No) and words (leaving with treasure left, Take's, the items' and the coins' prompts, the coin questions'); taking an item's word when overloaded and whether a counted item joins its kind; the vault's menu items, its line and the deposit's question, and its View's and Items' routines not ported yet; `DAMAGE`'s saving throw bonus bits, whether a save made halves the damage, its key; `ADD EP`'s words and whether those who cannot act are passed over first | none (`TREASURE` reads `ITEM<file>`); no, no, no; `There is still treasure left.  ` ..., `Take: `, `Items: `, `Select type of coin `, `How Many `/`How much `; `OverLoaded`, no; none; 0x1f, no, `press <enter>/<return> to continue` (`2fd3:2c80`); `Congratulations ` ... `gains experience!`, no (`2fd3:36dc`) |
 
 A `NULL` stem says the game has no such archive (Death Knights has no
@@ -245,16 +246,18 @@ in a file of its own (`src/rules_death_knights.c`; every program that links
 `cok_rules_death_knights` (`src/rules_death_knights.c`, its addresses
 `dkk SEG:OFF` in `build/death-START_FULL.EXE`, `make death-merged`, its data
 segment at `DS` 0x1bce) is DEATH-KNIGHTS.md's step 1 and step 2 (its
-frames, characters, saved games and front end) and the first part of step
-3 (the encounter, into and out of each fight): the tools and `eclplay
+frames, characters, saved games and front end) and the first two parts of
+step 3 (the encounter, into and out of each fight; the fight, its rounds,
+the computer's turns and melee): the tools and `eclplay
 --game death-knights` read every one of its archives and run its scripts,
 their text, menus and choices, its 3D view and its overland map, read,
 recompute and write its characters and monsters and import Champions'
 characters, and `cok` and `eclplay --start-menu` play it from its title,
 through its start menu and saved games, into its fights: the battlefield
-set up and the combatants placed as the original's, each fight left with
-`eclplay --combat won`, `fled` or `lost` and the script going on. It
-holds:
+set up and the combatants placed as the original's, the fight played to
+its end with the party on Auto (Alt-Q at the player's turn, `eclplay
+--combat auto`) with the original's dice, or left with `eclplay --combat
+won`, `fled` or `lost`, and the script going on. It holds:
 
 - its files: Champions' stems but `SKY`, `CURSOR`, `RANDCOM`, `HEAD`,
   `BODY` and the music's (`NULL`: MUSIC.DAX's songs are step 4), and
@@ -310,8 +313,8 @@ holds:
   handler tables (127 of its 235 ids run Champions' handler, the others
   are unported), durations (`5dc5:0ef5`), byte 7's party value 3
   (`5dc5:1182`), the event lists (`638c:055b`), and its cast
-  (`5dc5:1298`), caster level, saving throw and magic resistance not
-  ported yet; `MON1WIZ`; its moons'
+  (`5dc5:1298`) and magic resistance not ported yet (its caster level and
+  saving throw: see Death Knights' fight); `MON1WIZ`; its moons'
   tiles, 0x100 + phase + 0x15, 0x0d and 0x11 (`5b7d:0000`);
 - its characters (see The character record's layout): the record's 216
   bytes (`.GAM`, `.PC`, `MON1CHA`), every field the code reads at its
@@ -339,12 +342,22 @@ holds:
   first, the show at distance, leadership, its own open ground, the
   dungeon's fill and corners, the ambush's placement, a round ended by a
   side gone, no exploding dead, the end of combat's effects, may-train
-  and words; its turns, a shop, the temple and aging not carried out yet
-  (cited, stopping the run);
+  and words; a shop, the temple and aging not carried out yet (cited,
+  stopping the run);
   its combat variables (`0x7ec0`-`0x7f72` at Champions' addresses, as its
   table `DS:836`-`864` has them; the vault's `0x4d00`, the river's
   `0x4bf3`); no former classes (`cok_character_former_class` false, the
   former levels read as 0: `cok_character_former_level`);
+- its fight (the `fight` section; see Death Knights' fight): the words of
+  its rounds, turns and attacks, most in lower case; the player's turn
+  (`3e05:08af`), whose menu (`3e05:0ccc`) is not shown yet; the
+  computer's turns (`3f63:0000`) with its own spell choice (`05d7`), no
+  items' spells, a paladin's turning; its attacks (`5340`), turning undead
+  (`119b`), the free attacks, the death on the battlefield (`6f03:0fbd`),
+  a lost spell marked; its cloud and pool tiles, the clouds' round and
+  square not carried out yet; its saving throw (`638c:10f8`) and the
+  effects its first fights carry (0x07, 0x4f, 0x50, 0x5c, 0x5d, 0x69,
+  0x6a, 0x6c, 0x72, 0x73).
 - its treasure (the `treasure` section and `COK_DATA_STOCK_*`; see Death
   Knights' treasure): the item table `ITEM0`, `TREASURE ITEMS`, `STOCK`
   up to its shop, the treasure menu, Take, the bank vault's menu and its
@@ -354,12 +367,14 @@ holds:
 title into its fights: a saved game loaded (its own or Champions'), or
 a party added from the roster or from Champions', saves and resumes, and
 the adventure in its scripts, 3D view and overland map, camp, `PROGRAM`'s
-start menu, the encounters and their battlefields, until the first turn
-of a fight (the player's `3e05:08af` or the computer's `3f63:0000`, not
-ported yet; `eclplay --combat won`, `fled` and `lost` decide the battle
-without its rounds, and its end of combat and treasure menu follow), a
-routine not ported yet (`COMBAT`'s and `STOCK`'s shop, the temple, the
-vault's View and Items, a saving throw, as `DAMAGE` with a save makes), a
+start menu, the encounters and their battlefields, their fights on Auto
+(the player's turn, `3e05:08af`, takes Alt-Q, Alt-A and Alt-X; any other
+key stops at its menu, `3e05:0ccc`, not shown yet; `eclplay --combat
+auto` presses Alt-Q, `melee` plays every turn as the port's melee, and
+`won`, `fled` and `lost` decide the battle without its rounds), their end
+of combat and treasure menu, until a routine not ported yet (`COMBAT`'s
+and `STOCK`'s shop, the temple, the vault's View and Items), a spell cast
+(the cast entry, `5dc5:1298`) or an effect not ported yet, a cloud, a
 spell or effect it does not name, or a start menu command above; there the run
 stops with the reason (`not yet ported: ...`), `cok` showing it on the
 screen and quitting, as it does at any stop: the original never returns
@@ -427,9 +442,10 @@ Death Knights' routines compute where those are the same (the backstab
 `5340:27c1` and its damage `014f`, the scrolls `5dc5:08a5` and Use
 `580d:1dd7`); who may use a class's spells (`5dc5:0078`) and the fighters'
 classes (`638c:16d8`, `15e0`: paladins too) are the descriptor's; the
-others differ beyond that and are not reached yet (turning undead
-`5340:119b`: paladins, levels clamped, var `0x4cff`; the combat menu's
-Turn `3e05:0ccc`: paladins above 2), step 3's later parts. The party list in its frame
+others differ beyond that: turning undead (`5340:119b`, paladins, levels
+clamped, var `0x4cff`) is the fight section's own routine; the combat
+menu's Turn (`3e05:0ccc`: paladins above 2) is not reached yet (step 3's
+later parts). The party list in its frame
 is Champions' (`6346:07ba`; dkk `65cd:07a5` colours AC and hit points by
 other ranges of its record, `+0xcc` and `+0xd6`), drawn with what the port
 reads of the party.
@@ -454,11 +470,18 @@ the encounter's section against its code: `COMBAT`'s branches in order,
 facing and cell under a body, the setup's line and tiles, the river's
 variable, leadership's tests, chances and words, the battle's routines,
 the end of combat's effects, words and treasure menu, may-train's row and
-table, who may use spells and the fighters' classes; the treasure section
-against its code: the item table's loader and its call, `TREASURE ITEMS`'
-and `STOCK`'s tables and bounds, the treasure menu's, Take's and the
-coins' words, taking an item's join, the vault's items, line, deposit and
-the routines it calls, `DAMAGE`'s and `ADD EP`'s constants and words)
+table, who may use spells and the fighters' classes; the fight's section
+against its code: its words, each stop's routine and where it is
+called, the probe's tiles, the computer's turn's first target, its
+limit and paladins, its spell's columns and levels, reach, morale and
+flight, the attack's sides, the free attacks' effect, the quiet bit,
+the lost spell's mark, the arrows, the missile's clamp, turning undead's
+levels, clamps, variable, table and dice, and the saving throw's effect
+0x39; the treasure section against its code: the item table's loader
+and its call, `TREASURE ITEMS`' and `STOCK`'s tables and bounds, the
+treasure menu's, Take's and the coins' words, taking an item's join, the
+vault's items, line, deposit and the routines it calls, `DAMAGE`'s and
+`ADD EP`'s constants and words)
 and
 `DKKAssets/` (each file and record it names, each picture and wall set in
 the file its id names and no other, `COMSPR`'s icons), its view's wall
@@ -477,7 +500,14 @@ and vault's names and layout, the loader's one wall entry and kept last
 mode, the roster's NPC flags and sizes); `tests/test_start.c` its saved
 games, vault and start menu (`test_death_knights_saves`, `_menu`);
 `tools/dosbox/checks/dkk_views.py`, `dkk_start.py`, `dkk_fight.py` and
-`dkk_treasure.py` the original (see Checks against the original); `tests/test_combat.c` its open
+`dkk_treasure.py` the original (see Checks against the original);
+`tests/test_death_knights.py` its first fight on Auto, by Alt-Q and by
+`--combat auto`, 13 rounds as the original's; `tests/test_fight.c` its
+fight on records made by hand (the cloud and pool tiles, a death that
+finds its body, turning undead's levels and count, the nightmares' smoke,
+the half damage of 0x5d, Alt-A, the computer's spell choice);
+`tests/test_effect.c` its caster level and saving throw (and Champions'
+moon); `tests/test_combat.c` its open
 ground's builder on the first fight's seed against the map the original
 builds, and a river's shape.
 
@@ -830,7 +860,7 @@ own handler of each id. Shared code never compares an id with a number:
   says so (`spells.cast_unported`, `effects.caster_level_unported`,
   `save_unported`, `resistance_unported`): a cast, the caster level, the
   saving throw and magic resistance then stop or fail rather than run
-  Champions' rule. Loops over spell levels and list entries are bounded
+  Champions' rule (Death Knights' cast and magic resistance so far). Loops over spell levels and list entries are bounded
   by the tables' shapes (`COK_DATA_SPELL_LISTS`: Champions' 4 levels,
   Death Knights' 8), and each game's list sizes are at most
   `COK_SPELL_LIST_MOST`, `magic.c`'s arrays.
@@ -2298,7 +2328,7 @@ against `2fd3`'s; the VM's own as `ecl.c` has Champions'):
 | SPELL | `2177` | the memorized spells in the WIZ record, 74 (Champions' 58), of those who can act; no trace | as Champions' without a party; a character stops at `MEMORIZED` |
 | LOAD MONSTER | `0472` | the record's, the difficulty a byte, other monster files | ported (see Death Knights' encounter) |
 | COMBAT | `16ec` | a branch on `0x4d00` first (`3948:000e`, the bank vault's menu: see Party), then the shop, the temple; other routines | ported but the shop and the temple, which stop |
-| DAMAGE | `1ca2` | a save's bonus bits 0-3 (Champions' 0-4: bit 4 counted), half the damage for a save made with bit 4 (Champions' all of it), its key `DS:0868`; its saving throw (`638c:10f8`) | the treasure section's; a save stops, not ported yet (`effects.save_unported`) |
+| DAMAGE | `1ca2` | a save's bonus bits 0-3 (Champions' 0-4: bit 4 counted), half the damage for a save made with bit 4 (Champions' all of it), its key `DS:0868`; its saving throw (`638c:10f8`) | the treasure section's; the saving throw ported (see Death Knights' fight) |
 | PROGRAM | `23dd` | its start menu (`49cb:010b`, see The start menu); after it the screen redrawn on the map unless the menu ended the game (`DS:8c5b`), and the party marked on the map (`6997:0000`); its camp (`237e`) | `start.program_marks`; the game ended, `new_game` |
 | ADD EP | `25f1` | only those who can act, before the division; experience at `+0x62`; a level flag (`65cd:38c7`); its words (`DS:1485`, `2a64`, `2a3b`) | the treasure section's |
 
@@ -5417,14 +5447,103 @@ clears the frame for `  Using leadership ability ` (light magenta) and
 Its rounds have no dead that explode after a turn (`combat.explode`) and
 end the round after any turn that leaves a side gone or reaches the round
 limit, once a battle (`combat.ends_in_round`). Its round start
-(`5340:0000`) stores no sweeps (the record has no fighter level). The
-turns' own routines, the player's (`3e05:08af`) and the computer's
-(`3f63:0000`), are not ported yet (`combat.player_unported`,
-`computer_unported`): the first turn stops the run, whatever `--combat`
-plays the rounds with (`won`, `fled` and `lost` decide the battle without
-them). Aging after a battle (`3e05:0264`, asked for by effect 0x27,
-`game->aging`) stops too; nothing sets it yet. Its end of battle
-(`3e05:0000`) is Champions'.
+(`5340:0000`) stores no sweeps (the record has no fighter level). Its
+turns are the next section's. Aging after a battle (`3e05:0264`, asked
+for by effect 0x27, `game->aging`) stops the run; nothing sets it yet.
+Its end of battle (`3e05:0000`) is Champions'.
+
+### Death Knights' fight
+
+Its rounds, turns and attacks are Champions' routines but where the
+`fight` section (`cok_rules_fight`) says otherwise, each difference found
+by comparing every routine of the area with its Champions counterpart
+instruction by instruction (the calls followed through their thunks):
+
+- The words (`fight.words`): the attack's message in lower case,
+  `(from behind)` without its space and ` of damage` with one, `, and is
+  dying`; ` flees in panic` and ` is bandaged` with a space before; the
+  panel's `hitpoints`, `(helpless)`, `(casting)`; `continue battle? `;
+  and Alt-X without the Helm cheat says nothing (`3e05:08af`).
+- The end of a round (`3e05:0ed0`) ages its clouds first (`638c:21ec`, its
+  one list), and its cloud square (`638c:0c65`) is rewritten: both stop
+  the run (`fight.clouds_unported`, `cloud_square_unported`), reached only
+  with a cloud on the battlefield, which no spell of its can make yet. Its
+  cloud and pool tiles are 0x1d and 0x1c, marked wherever they are and
+  counted as terrain too (`6f03:0e33`).
+- The player's turn (`3e05:08af`): its menu (`3e05:0ccc`, items by index,
+  two rows) is not shown yet (`fight.menu_unported`): the turn reads a
+  key, the one `--combat auto` presses first, and does Alt-Q and Alt-A
+  (the party on Auto, as Champions') and Alt-X (the gods); any other key
+  stops the run there. A spell being cast goes to its cast entry
+  (`5dc5:1298`, not ported).
+- The computer's turn (`3f63:0000`): one with no target picks one first
+  (`5340:3cac` with 0, 1, 0xff; and before a spell being cast, afresh),
+  `computer_target_first`; it rolls its items' 1d7 but uses none
+  (`3f63:02b8`, `computer_items`); it turns undead of kinds up to 0x0d
+  (`3f63:0251`, not the stack's byte), a paladin above level 2 too
+  (`paladin_turns`); its spell (`3f63:05d7` with `056c`, `03ee`, `04f2`,
+  `COK_COMPUTER_CAST_DEATH_KNIGHTS`): with magic allowed, a spells' block,
+  casting allowed this round and an NPC or Magic On, the memorized spells
+  whose column 11 is set, in order of priority (column 13), each tried
+  until one is of use (`5340:43ea`: on itself where column 6 is 0, else on
+  one within the spell's range of the side column 14 says, by `5340:3fd5`'s
+  test for the spell: Hold Person not on one holding 0x61 or 0x34, Slay
+  Living not on creature flags' bit 3 of byte 1, a cure on one hurt, an
+  effect not already held, nothing against a globe or magic resistance
+  above 50, ...); none, no die rolled; else cast unless a d100 is at most
+  four times the sum of its mage, paladin, ranger and knight levels (a
+  byte) or a d5 is above that priority; the cast then stops at the cast
+  entry. Its caster level (`65cd:2c33`, for the range) is Champions' but
+  that a knight's and a ranger's levels count whole and Fireball by one
+  holding 0x4e is cast at 15 (`effects.caster_*`). Its reach is the
+  weapon's range, not one less (`3f63:0ccc`, `reach_less`); morale
+  compares 100 less the byte var `0x7ec6` signed and takes no effects off
+  one made to flee (`3f63:1260`); one fleeing turns one more
+  (`3f63:08c6`, `flee_turn`), which reads its way of moving only for a try
+  below 6 and a way below 7 (`ways_guarded`).
+- The attacks (`5340`): whether one may attack a target (`10ab`) runs the
+  target's event 1 with the attacker selected and refuses one of its own
+  side (`attack_sides`; its new "allies" argument, 0 in every fight's
+  call, is casting's); a combatant holding effect 6 makes no free attack
+  on one stepping away (`0860`, `free_attack_effect`); no dead explode
+  after a blow (`148f`, `combat.explode`); one whose creature flags' byte
+  1 holds bit 3 drops with no dying or killed line (`0230`, `quiet_flag`;
+  the damage's message, `638c:1c52`, does the same with words of its own,
+  which `cok_cast_damage` does not have yet: no fight reaches it); type 0x42 flies as an arrow (`28a0`); the missile's ends
+  are kept on the battlefield (`65cd:1d56`); a lost spell is marked
+  (`| 0x80`) to memorize again, not cleared (`65cd:17c4`,
+  `cok_combat_forget`, cast.c's too).
+- Turning undead (`5340:119b`, `COK_TURNING_DEATH_KNIGHTS`): the d20
+  first; the level the better of the cleric's and the paladin's less 2,
+  2 more for deity 2, above 8 made 9 (below 14) or 10, less var `0x4cff`
+  (`COK_VAR_TURNING`; 0 at least); the count of undead rolled at the first
+  one found, 1d6 + 6 where its row's value is negative (to destroy), else
+  1d12; the table as Champions' (rows of 11 at `DS:05a5`).
+- The death on the battlefield (`6f03:0fbd`): a record already among the
+  bodies 1-8 does nothing, found by a search, not a byte of the stack
+  (`kill_finds_body`); a body's cell keeps the one under it
+  (`6f03:152e`); a cloud's or a pool's tile is kept (`body_spares_pool`);
+  the spell being cast stays (`kill_clears_spell`).
+- Its saving throw (`638c:10f8`) is Champions' but that a holder of
+  effect 0x39 rolls 1 (`effects.save_fail_id`) and a mage's moon is read at
+  var `0x4cf8` + its order, the moon's phase (Champions' sum wraps to
+  `0x4bf8` + order: `save_moon_wraps`). The effects its first fights
+  carry: 0x07 (`504d:0239`, Champions' 0x07 without its trace, only in a
+  battle), 0x4f (`1e47`, Champions' with `Affected`), 0x50 and 0x5c
+  (`1f6b`, `2162`: cancel 0x23 and 0x6f, `COK_FX_CANCEL` by the entry's
+  value), 0x5d (`2170`: half damage from items of kind 0 or 1), 0x69,
+  0x72 and 0x73 (`2404`, `27e6`, `282d`: Champions' only in a battle),
+  0x6a (`2448`: the nightmare's smoke on the adjacent enemy of the most
+  THAC0 plus attacks times six times dice plus bonus, without 0x6c, which
+  it gets unless it saves, type 3: `is blinded by smoke`) and 0x6c
+  (`26e0`: damage and attack roll 2 worse).
+
+What it does not carry out yet stops the run, naming the routine: the
+menu, a spell cast (any, the computer's too, at the cast entry), an effect
+not ported (a blue dragon's breath, 0x55, `5dc5:508c`), a cloud.
+`eclplay --combat auto` plays each of ECL1's fights from its `SETUP
+MONSTERS` to its end or such a stop (32 won), `--combat melee` with the
+port's melee (48 won).
 
 ## The combat screen
 
@@ -9150,7 +9269,7 @@ Drop ends the game, and the roster's erase takes the `.WIZ` too
 (`46b2:09dc`). The saved games, vaults and characters agree but for the
 original's stack bytes and pointers.
 
-Its fights, `tools/dosbox/checks/dkk_fight.py` (about four minutes, seeded
+Its fights, `tools/dosbox/checks/dkk_fight.py` (about eighteen minutes, seeded
 with `--seed`, 1 by default: `cokbox.Box(seed=N)` sets its RandSeed,
 `DS:84ac`, as `eclplay --seed N`), with the Death Knights helpers of
 `tools/dosbox/checks/dkk_lib.py` (its data segment's combat offsets, each
@@ -9160,8 +9279,9 @@ battlefield read from the original's memory; the port's state through
 the run ends, beside `--screen`): saved game A loaded and begun, block 16's
 texts to the first fight, "THE BATTLE IS JOINED.", the leadership's
 screen, and the battlefield at the first turn, where the original waits in
-the player's menu and the port stops, its turn not ported: 0 pixels but
-the menu's rows and the actor's cursor, which the player's turn draws; the
+the player's menu and the port waits for a key, its menu not drawn: 0
+pixels but the menu's rows and the actor's cursor, which the player's turn
+draws; the
 combatants, their cells, sizes, hit points, statuses, sides, the
 computer's flags and effects, their combat records, the turn order, the
 round, the battlefield's cells, the records and RandSeed equal (the dice
@@ -9176,8 +9296,23 @@ poked with `0x0e` and `0x0b` once `SETUP MONSTERS` has run, the port's
 build taking `COK_DKK_AMBUSH`), whose last enemies face other than the
 party, so that the first knight after them is laid out again and placed by
 the enemy's side: the battlefields, the combatants' cells, their combat
-records and RandSeed agree. `--flows fight,river,ambush` picks the flows
-(each about three and a half minutes).
+records and RandSeed agree. And the first fight with the party put on
+Auto (Alt-Q at the first turn, `eclplay --combat auto`) to its end: the
+original is stopped at each round's end (`3e05:0ed0` made to spin,
+`dkk_lib.trap`, its code found in the overlay buffer, `DS:8478`-`847c`,
+by windows the loader's fixups leave alone; the round over when the turn
+entry holds none or a side is gone, the game then standing still) and
+read, against the port's state at the same place (`dkk_lib.round_mark`, a
+mark `round.c` logs that `eclplay`'s log writes the state at): the
+combatants, their records and combat records, the turn order, the round,
+RandSeed and the screen, each of the 13 rounds equal and 0 pixels; then
+"continue battle?" (No) and the results, 0 pixels, the records and the
+party's experience equal, and combatant entry 0's bytes (`DS:b58c`,
+`b58d`, the setup's tile-set flags) kept through the fight. The first runs
+found the saving throw's moon (var `0x4cf8` + order, not Champions'
+wrapped `0x4bf8`): the nightmares' smoke took hold of a mage the original
+saved. `--flows fight,river,ambush,auto` picks the flows (each about
+three and a half minutes, the auto flow four).
 
 Its treasure, `tools/dosbox/checks/dkk_treasure.py` (see Death Knights'
 treasure; seeded as `dkk_fight.py`; `--flows treasure,vault`, about two

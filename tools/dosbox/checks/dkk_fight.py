@@ -18,8 +18,12 @@ again on ground with a river (var 0x4bf3 set in a copy of the saved game,
 (DS:c4cc poked once SETUP MONSTERS has run, eclplay's build taking
 COK_DKK_AMBUSH) whose last enemy faces other than the party, so that the
 knights after the enemies are placed by the enemy's side (410b:18c2):
-placement and combatants. Seeded (Box seed, eclplay --seed): the same
-dice. Not part of run_all.py's set. About fourteen minutes.
+placement and combatants. And the first fight with the party put on Auto
+(Alt-Q at the first turn; eclplay --combat auto) to its end: the original
+stopped at each round's end (3e05:0ed0 made to spin) against the port's
+state there, then "continue battle?" and the results. Seeded (Box seed,
+eclplay --seed): the same dice. Not part of run_all.py's set. About
+eighteen minutes.
 
     python3 tools/dosbox/checks/dkk_fight.py [--workdir DIR] [--seed N]
 
@@ -41,11 +45,19 @@ TO_JOINED = K.LOAD_A_BEGIN + r"\r\rN" + r"\r" * 8
 TO_COMBAT = TO_JOINED + r"\r"
 # The rows the port's stop leaves as they were where the original's turn
 # draws its menu (rows 23-24).
-MENU_ROWS = (0, 184, 320, 16, "the player's menu (3e05:08af), not ported: the port stops first")
+MENU_ROWS = (0, 184, 320, 16, "the player's menu (3e05:0ccc), not ported: the port draws none")
 
 
 def load(path):
     return cokbox.Screen.load(path) if path is not None else None
+
+
+def waiting(run):
+    """K.port's result with the screen and state where the keys ran out
+    (the key read the port waits at, as the original does), not where the
+    run ends: (log, shot, None, its state)."""
+    log, shot, _, _ = run
+    return log, shot, None, K.read_state(shot) if shot is not None else None
 
 
 def views(cs):
@@ -69,8 +81,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir", default=str(K.ROOT / "build/dosbox-checks/dkk_fight"))
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--flows", default="fight,river,ambush",
-                        help="which flows: fight, river, ambush (comma-separated)")
+    parser.add_argument("--flows", default="fight,river,ambush,auto",
+                        help="which flows: fight, river, ambush, auto (comma-separated)")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     work = pathlib.Path(opts.workdir)
@@ -84,6 +96,8 @@ def main():
     if "ambush" in flows:
         for bits in AMBUSHES:
             ambush(v, work, opts, bits)
+    if "auto" in flows:
+        auto(v, work, opts)
     return v.finish()
 
 
@@ -97,7 +111,7 @@ def fight(v, work, opts):
     log, lead, _, _ = K.port(work, "lead", TO_COMBAT, opts.seed)
     led = "Using leadership ability" in log
     to_turn = TO_COMBAT + (r"\r" if led else "")
-    log, _, final, state = K.port(work, "turn", to_turn, opts.seed)
+    log, final, _, state = waiting(K.port(work, "turn", to_turn, opts.seed))
     print(f"port: leadership {'shown' if led else 'not shown'}; "
           f"{log.strip().splitlines()[-1]}", flush=True)
     won_log, won, _, won_state = K.port(work, "won", to_turn, opts.seed, args=["--combat", "won"])
@@ -194,8 +208,8 @@ def ambush(v, work, opts, bits):
     tag = f"ambush-{bits:x}"
     log, _, _, _ = K.port(work, f"{tag}-lead", TO_COMBAT, opts.seed, ambush=bits)
     led = "Using leadership ability" in log
-    log, _, final, state = K.port(work, f"{tag}-turn", TO_COMBAT + (r"\r" if led else ""),
-                                  opts.seed, ambush=bits)
+    to_turn = TO_COMBAT + (r"\r" if led else "")
+    log, final, _, state = waiting(K.port(work, f"{tag}-turn", to_turn, opts.seed, ambush=bits))
     print(f"port ({tag}): {log.strip().splitlines()[-1]}", flush=True)
     with cokbox.Box(workdir=work / f"box-{tag}", game="death-knights", machine="ega",
                     seed=opts.seed, saves=[K.ASSETS / "SAVE"], verbose=opts.verbose,
@@ -237,8 +251,8 @@ def river(v, work, opts):
     (saves / "SAVGAMA.PTY").write_bytes(bytes(game))
     log, lead, _, _ = K.port(work, "river-lead", TO_COMBAT, opts.seed, saves=saves)
     led = "Using leadership ability" in log
-    log, _, final, state = K.port(work, "river-turn", TO_COMBAT + (r"\r" if led else ""),
-                                  opts.seed, saves=saves)
+    to_turn = TO_COMBAT + (r"\r" if led else "")
+    log, final, _, state = waiting(K.port(work, "river-turn", to_turn, opts.seed, saves=saves))
     print(f"port (river): {log.strip().splitlines()[-1]}", flush=True)
     with cokbox.Box(workdir=work / "box-river", game="death-knights", machine="ega",
                     seed=opts.seed, saves=[saves], verbose=opts.verbose, timeout=900,
@@ -265,6 +279,98 @@ def river(v, work, opts):
         v.value("RandSeed (river)", box.ds_dword(K.DS_RANDSEED), state["seed"])
         v.value("the combatants (river)", [f[:5] for f in K.fighters(K.combatants(box))],
                 [f[:5] for f in K.fighters(K.port_combatants(state))])
+
+
+def round_over(box):
+    """Whether the original's round has no turn left: the entry whose turn
+    it is (DS:c5f5) holds none, or a side has none that can act
+    (DS:be68, be69), as 3e05:00ec ends a round."""
+    entry = box.ds_byte(K.DS_ENTRY)
+    left = box.far(box.ds * 16 + K.DS_ORDER + 4 * entry) if 0 < entry < 73 else None
+    return left is None or box.ds_byte(K.DS_SIDES) == 0 or box.ds_byte(K.DS_SIDES + 1) == 0
+
+
+def compare_round(v, box, tag, shot, state, work):
+    """The original, trapped at a round's end, against the port's state and
+    screen at its mark there."""
+    o, p = K.combatants(box), K.port_combatants(state)
+    v.value(f"the combatants ({tag}: n, name, cell, size, hp, status, side, computer, effects)",
+            [f[:10] for f in K.fighters(o)], [f[:10] for f in K.fighters(p)])
+    v.value(f"their combat records but +0x0a-0x0d ({tag})",
+            [masked(c["combat"].hex()) if c["combat"] else None for c in o],
+            [masked(c["combat"].hex()) if c["combat"] else None for c in p])
+    compare_records(v, f"the records ({tag})", K.party(box), state["records"])
+    names, entry = K.order(box)
+    v.value(f"the turn order ({tag})", names, [state["records"][i]["name"] for i in state["turn"]])
+    v.value(f"the round ({tag})", box.ds_byte(K.DS_ROUND), state["round"])
+    v.value(f"RandSeed ({tag})", box.ds_dword(K.DS_RANDSEED), state["seed"])
+    shown = box.screenshot(work / f"dosbox-{tag}.png")
+    v.screen(f"the screen ({tag})", shown, cokbox.Screen.load(shot), work=work)
+
+
+def auto(v, work, opts):
+    """The first fight with the party put on Auto (Alt-Q at the first
+    turn, the player's menu, dkk 3e05:08af), to its end: the original is
+    stopped at each round's end (3e05:0ed0 made to spin) and read, against
+    the port's state at the same place (dkk_lib.round_mark): the
+    combatants, their records and combat records, the turn order, the
+    round, RandSeed and the screen; then "continue battle?" once the enemy
+    is gone (No) and the results, screens and records."""
+    log, _, _, _ = K.port(work, "auto-lead", TO_COMBAT, opts.seed, args=["--combat", "auto"])
+    led = "Using leadership ability" in log
+    keys = TO_COMBAT + (r"\r" if led else "")  # the leadership's wait
+    log, asked, _, _ = K.port(work, "auto", keys, opts.seed, args=["--combat", "auto"])
+    rounds = K.port_rounds(work, "auto")
+    _, final, _, state = waiting(K.port(work, "auto-end", keys + r"\r", opts.seed,
+                                        args=["--combat", "auto"]))
+    print(f"port (auto): {len(rounds)} rounds; {log.strip().splitlines()[-1]}", flush=True)
+    with cokbox.Box(workdir=work / "box-auto", game="death-knights", machine="ega",
+                    seed=opts.seed, saves=[K.ASSETS / "SAVE"], verbose=opts.verbose,
+                    timeout=1800, keep=True) as box:
+        v.check(K.title(box), "the title's four pictures (auto)")
+        K.type_steps(box, K.LOAD_A_STEPS + [r"\r", r"\r", "N"] + [r"\r"] * 9, settle=1.5)
+        if led:
+            K.type_steps(box, [r"\r"], settle=2.0)
+        v.check(box.ds_byte(K.DS_MODE) == 5, "the original waits in the first turn (auto)")
+        # Combatant entry 0's y and index (DS:b58c, b58d), which the
+        # battlefield's setup reads as whether its tile sets are loaded
+        # (410b:10d7), as the port's combat.dungeon_tiles keeps it.
+        tiles = box.ds_read(0xB58C, 2)
+        box.push_key(0x1000)  # Alt-Q
+        n = 0
+        while True:
+            handle = K.trap(box, 0x3E05, 0x0ED0, lambda: round_over(box), seconds=600)
+            if not K.settled(box):
+                v.differ("the original stopped at a round's end", "it did not settle")
+                K.untrap(box, handle)
+                return
+            n += 1
+            last = box.ds_byte(K.DS_SIDES) == 0 or box.ds_byte(K.DS_SIDES + 1) == 0 or \
+                box.ds_byte(K.DS_ROUND) + 1 >= box.ds_byte(K.DS_LIMIT)
+            if n > len(rounds):
+                v.differ(f"round {n}'s end in the port", "the port's battle ended before")
+                K.untrap(box, handle)
+                break
+            compare_round(v, box, f"round {n}", *rounds[n - 1], work)
+            K.untrap(box, handle)
+            if last:
+                break
+        v.value("the rounds fought", n, len(rounds))
+        v.value("DS:b58c, b58d kept through the fight (auto)", tiles.hex(),
+                box.ds_read(0xB58C, 2).hex())
+        box.wait_input(seconds=120, settle=2.0)
+        shown = box.screenshot(work / "dosbox-auto-continue.png")
+        if asked is not None:
+            v.screen("continue battle? (auto)", shown, cokbox.Screen.load(asked), work=work)
+        K.type_steps(box, [r"\r"], settle=2.0)
+        shown = box.screenshot(work / "dosbox-auto-results.png")
+        v.screen("the results (auto)", shown, load(final), work=work)
+        if state is not None:
+            compare_records(v, "the records at the results (auto)", K.party(box),
+                            state["records"])
+            v.value("the party's experience after (auto)",
+                    [(r["name"], r["raw"][0x62:0x66].hex()) for r in K.party(box)],
+                    [(r["name"], r["raw"][0x62:0x66].hex()) for r in state["records"]])
 
 
 if __name__ == "__main__":
