@@ -97,6 +97,9 @@ uint8_t *cok_adventure_special(cok_adventure *game, uint8_t scan)
 {
     /* 546c:3334: a click on the party list has picked already. */
     if (game->mouse.on && game->pointer.clicked) return game->vm.character;
+    /* dkk 580d:2bb2: a key but Up and Down keeps the one selected. */
+    if (cok_game_rules(game)->menus.special_keeps && scan != 0x48 && scan != 0x50)
+        return game->vm.character;
     return cok_party_special(&game->party, game->vm.character, scan);
 }
 

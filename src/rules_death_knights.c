@@ -1517,6 +1517,7 @@ const cok_rules cok_rules_death_knights = {
             /* DS:b474, 35 slots (4f9a:0556 clears 0x118 bytes). */
             .icon_slots = 35,
             .icon_table = 0xb474,
+            .missiles_recoloured = true, /* 7090:016f, DS:42de, 42ee */
         },
     .spells =
         {
@@ -1767,7 +1768,6 @@ const cok_rules cok_rules_death_knights = {
                     .guarding = "guarding",            /* DS:2cc2 */
                     .gods_refused = NULL,              /* 3e05:08af */
                 },
-            .menu_unported = "dkk 3e05:0ccc",
             .clouds_unported = "dkk 638c:21ec",
             .cloud_square_unported = "dkk 638c:0c65",
             .cloud_tile = 0x1d, /* 6f03:0e33 */
@@ -1795,6 +1795,34 @@ const cok_rules cok_rules_death_knights = {
             .missile_clamped = true,        /* 65cd:1da5 */
             .burst_slot = 0x18, /* 65cd:24bc */
             .turning = COK_TURNING_DEATH_KNIGHTS, /* 5340:119b */
+        },
+    .menus =
+        {
+            .routine = COK_MENUS_INDEXED, /* 6a69:0f1b */
+            .yes_no = "Yes No",           /* 6a69:2048, DS:31cb */
+            .adventure_keeps_selection = true, /* 4307:0257 */
+            .escape_leaves_move = true,
+            .special_keeps = true, /* 580d:2bb2 */
+        },
+    .commands =
+        {
+            .routine = COK_COMMANDS_DEATH_KNIGHTS, /* 3e05:08af */
+            .flee = "flee ? ",                     /* 3e05:10bb, DS:170d */
+            .cant_go = "cant't go there",          /* DS:1718 */
+            .not_with_weapon = "not with that weapon", /* 3e05:13fb, DS:2536 */
+            .attack_ally = "attack ally? ",        /* 5340:2b81, DS:16d7 */
+            .ally_turns_npcs = false,
+            .menu = "Move Aim Use Cast Turn Guard Quick@Delay Bandage Yell View Speed End", /* DS:3453 */
+            .move_prompt = "move/attack, move left = ", /* DS:313e */
+            .move_menu = "Done",                   /* DS:34a4 */
+            .aim_prompt = "aim: ",                 /* 5340:2bee, DS:3109 */
+            .aim_menu = "Next Prev Manual Target Center Exit", /* DS:34af */
+            .range = "range = ",                   /* DS:16ec */
+            .cursor_prompt = "(use cursor keys) ", /* 5340:2f3d, DS:3114 */
+            .cursor_menu = "Target Exit",          /* DS:34d8 */
+            .speed_prompt = "game speed: ",        /* 3e05:14aa, DS:30f4 */
+            .speed_menu = "Faster Slower Exit",    /* DS:340a */
+            .cursor_slot = 0x1c, /* 6f03:036c, 65cd:1bd5 */
         },
     .treasure =
         {
@@ -1909,6 +1937,7 @@ const cok_rules cok_rules_death_knights = {
             .ask_yes = true,
             .on_whom = "cast spell on whom", /* 5dc5:1182, DS:3192 */
             .casts_a_spell = "casts a spell",  /* 5dc5:552a, DS:2304 */
+            .pick_exit_shown = false,          /* 65cd:33c9, DS:31d6 */
             .miscast = false,
             .bursts = death_knights_bursts,
             .burst_count = sizeof death_knights_bursts / sizeof *death_knights_bursts,
@@ -1935,6 +1964,7 @@ const cok_rules cok_rules_death_knights = {
             .no_area = "cannot cast spells in this are",
             .no_condition = "is in no condition t",
             .no_what = {"cast any spells", "memorize spells", "scribe any scolls"},
+            .body_icon = 0x0d, /* 6f03:010d: (tile + 0xd) * 8 - 0x4b8c */
             .load_strength = true, /* 46b2:10d7 */
         },
 };

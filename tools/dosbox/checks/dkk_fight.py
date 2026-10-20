@@ -5,8 +5,8 @@ from the start menu, Begin Adventuring, block 16's texts (No rest) to
 COMBAT; the leadership's screen where a party knight leads the Solamnic
 knights (5340:4acf); the battlefield (410b:1e41: open ground, 410b:107e)
 and its combatants at the first turn, where the original waits in the
-player's menu (3e05:08af) and the port stops (its turn is not ported):
-the screen, the records (hit points, status, side, the computer's,
+player's menu (3e05:08af) and the port too: the screen (its menu rows and
+the actor's cursor left to the keys flows), the records (hit points, status, side, the computer's,
 effects, combat records), the combatants' cells and sizes, the turn
 order, the battlefield's cells and RandSeed, which says every die was
 rolled alike. Then out of the fight with the statuses written as
@@ -21,7 +21,10 @@ knights after the enemies are placed by the enemy's side (410b:18c2):
 placement and combatants. And the first fight with the party put on Auto
 (Alt-Q at the first turn; eclplay --combat auto) to its end: the original
 stopped at each round's end (3e05:0ed0 made to spin) against the port's
-state there, then "continue battle?" and the results. And the same with
+state there, then "continue battle?" and the results. And the first fight
+by keys from its first turn (keys, keys2: the menu's rows, Move, Aim and
+its cursor, Speed, Delay, Guard, End, Quick, Yell, an attack by Aim and
+Target): the screen at each wait, the state after. And the Auto fight with
 casters (a copy of saved game A whose spells memorized are Magic Missile,
 Lightning Bolt and Ice Storm for FLAVIUS, Flame Strike and Cure Light
 Wounds for TANAR, Shocking Grasp and Enlarge for CELESTE, Cure Light
@@ -30,7 +33,7 @@ choice (3f63:056c, 5340:43ea), its targets (5340:1eeb), the cast
 (5dc5:1298, its burst 65cd:39bd), the spells and the damage's words,
 round by round. Seeded (Box seed,
 eclplay --seed): the same dice. Not part of run_all.py's set. About
-eighteen minutes.
+thirty minutes.
 
     python3 tools/dosbox/checks/dkk_fight.py [--workdir DIR] [--seed N]
 
@@ -50,9 +53,8 @@ cokbox = checklib.cokbox
 # BATTLE IS JOINED.", and past it.
 TO_JOINED = K.LOAD_A_BEGIN + r"\r\rN" + r"\r" * 8
 TO_COMBAT = TO_JOINED + r"\r"
-# The rows the port's stop leaves as they were where the original's turn
-# draws its menu (rows 23-24).
-MENU_ROWS = (0, 184, 320, 16, "the player's menu (3e05:0ccc), not ported: the port draws none")
+# The player's menu's rows (23-24), compared by the keys flows.
+MENU_ROWS = (0, 184, 320, 16, "the player's menu (3e05:0ccc), compared by the keys flows")
 
 
 def load(path):
@@ -88,8 +90,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir", default=str(K.ROOT / "build/dosbox-checks/dkk_fight"))
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--flows", default="fight,river,ambush,auto,cast",
-                        help="which flows: fight, river, ambush, auto, cast (comma-separated)")
+    parser.add_argument("--flows", default="fight,river,ambush,auto,keys,keys2,cast",
+                        help="which flows: fight, river, ambush, auto, keys, keys2, cast "
+                             "(comma-separated)")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     work = pathlib.Path(opts.workdir)
@@ -105,6 +108,10 @@ def main():
             ambush(v, work, opts, bits)
     if "auto" in flows:
         auto(v, work, opts)
+    if "keys" in flows:
+        by_keys(v, work, opts)
+    if "keys2" in flows:
+        by_keys(v, work, opts, KEYS2, "keys2")
     if "cast" in flows:
         auto(v, work, opts, cast=True)
     return v.finish()
@@ -147,7 +154,7 @@ def fight(v, work, opts):
         actor = next(c for c in K.port_combatants(state)
                      if c["name"] == state["records"][state["turn"][state["turn_index"] - 1]]["name"])
         cursor = (8 + 24 * (actor["x"] - view[0]), 8 + 24 * (actor["y"] - view[1]), 24, 24,
-                  "the actor's cursor, which the player's turn (3e05:08af) draws")
+                  "the actor's cursor (3e05:08af), compared by the keys flows")
         v.screen("the battlefield at the first turn", shown, cokbox.Screen.load(final),
                  masks=[MENU_ROWS, cursor], work=work)
         o = K.combatants(box)
@@ -235,7 +242,7 @@ def ambush(v, work, opts, bits):
         actor = next(c for c in K.port_combatants(state)
                      if c["name"] == state["records"][state["turn"][state["turn_index"] - 1]]["name"])
         cursor = (8 + 24 * (actor["x"] - view[0]), 8 + 24 * (actor["y"] - view[1]), 24, 24,
-                  "the actor's cursor, which the player's turn (3e05:08af) draws")
+                  "the actor's cursor (3e05:08af), compared by the keys flows")
         v.screen(f"the battlefield at the first turn ({tag})", shown, cokbox.Screen.load(final),
                  masks=[MENU_ROWS, cursor], work=work)
         o, p = K.combatants(box), K.port_combatants(state)
@@ -278,7 +285,7 @@ def river(v, work, opts):
         actor = next(c for c in K.port_combatants(state)
                      if c["name"] == state["records"][state["turn"][state["turn_index"] - 1]]["name"])
         cursor = (8 + 24 * (actor["x"] - view[0]), 8 + 24 * (actor["y"] - view[1]), 24, 24,
-                  "the actor's cursor, which the player's turn (3e05:08af) draws")
+                  "the actor's cursor (3e05:08af), compared by the keys flows")
         v.screen("the battlefield with a river at the first turn", shown,
                  cokbox.Screen.load(final), masks=[MENU_ROWS, cursor], work=work)
         cells = K.cells(box) or []
@@ -415,6 +422,120 @@ def auto(v, work, opts, cast=False):
             v.value(f"the party's experience after ({tag})",
                     [(r["name"], r["raw"][0x62:0x66].hex()) for r in K.party(box)],
                     [(r["name"], r["raw"][0x62:0x66].hex()) for r in state["records"]])
+
+
+# The first fight by keys from its first turn (NEACAIL's, a kender with
+# spells): each step's keys and the wait the original reaches after them.
+KEYS = [
+    ("menu", ""),             # the turn's menu (3e05:0ccc): two rows by index
+    ("down", r"\#50"),        # Down: the second row (6a69:0c8c)
+    ("right", r"\#4d"),       # Right: the next item
+    ("up", r"\#48"),          # Up: back to the first row
+    ("move", "M"),            # Move (3e05:10bb): "move/attack, move left = N", Done
+    ("step", "2"),            # the keypad's 2: a step south
+    ("undo", r"\e"),          # Escape: the steps undone (3e05:1001), the menu
+    ("aim", "A"),             # Aim (5340:3888): the first target (36f2, 34b3, 2bee)
+    ("next", "N"),
+    ("prev", "P"),
+    ("manual", "M"),          # the cursor (5340:2f3d)
+    ("cursor", "8"),          # up a cell
+    ("cursor-exit", r"\e"),   # Escape: the targets again, Manual selected
+    ("center", "C"),
+    ("aim-exit", "E"),        # Exit: the turn's menu
+    ("speed", "S"),           # Speed (3e05:14aa)
+    ("faster", "F"),
+    ("speed-exit", "E"),
+    ("delay", "D"),           # Delay: the next one's turn
+    ("guard", "G"),           # it guards: the next
+    ("end", "E"),             # End: the next
+    ("quick", "Q"),           # Quick: the computer plays it; the next
+]
+
+
+# A second turn's worth: NEACAIL yells; the turns to round 2's SIR DRYDEN
+# ended, who aims at the nightmare beside him and attacks it (5340:2dca);
+# then TANAR's menu. (Cast's list of spells differs on row 24, Champions'
+# "Choose Spell: " against Death Knights' DS:2fd9 with no space: the
+# casting part's; View and Use are Champions' still.) A
+# step of keys "across" the computer's turns types each once the game
+# waits for a key and stands still: the computer's turns poll the keyboard
+# (3f63:117c), which would take a key typed early.
+KEYS2 = [
+    ("yell", "Y"),            # Yell (638c:0000): CELESTE's turn
+    ("ended", "E" * 10, True),  # to round 2's SIR DRYDEN
+    ("aim-2", "A"),
+    ("next-2", "N"),          # the nightmare: Target
+    ("target", "T", True),    # the attack, then the turns to TANAR's
+]
+
+
+def menu_keys(box, keys):
+    """Type each of KEYS once the original waits for a key and its dice,
+    round, turn and records have stood still for three seconds (the
+    computer's turns between roll and move)."""
+    for item in cokbox.parse_keys(keys):
+        if item[0] != "key":
+            continue
+        for _ in range(60):
+            box.wait_input()
+            if K.settled(box, seconds=3.0, limit=4):
+                break
+        box.key(item[1])
+    for _ in range(60):
+        box.wait_input()
+        if K.settled(box, seconds=3.0, limit=4):
+            break
+    box.wait_input(settle=1.0)
+
+
+def by_keys(v, work, opts, keys=None, tag="keys"):
+    """The first fight by keys from the first turn (KEYS): at each step the
+    original's screen at its wait against the port's at the key read the
+    same keys leave it in, and after the last the combatants, their records
+    and combat records, the turn order, RandSeed, and DS:b58c-b58d (entry
+    0's bytes that the battlefield's setup reads as its tiles loaded)."""
+    steps = KEYS if keys is None else keys
+    log, _, _, _ = K.port(work, f"{tag}-lead", TO_COMBAT, opts.seed)
+    led = "Using leadership ability" in log
+    to_turn = TO_COMBAT + (r"\r" if led else "")
+    ports, typed = [], ""
+    for name, keys, *_ in steps:
+        typed += keys
+        ports.append(waiting(K.port(work, f"{tag}-{name}", to_turn + typed, opts.seed)))
+    print(f"port ({tag}): {ports[-1][0].strip().splitlines()[-1]}", flush=True)
+    with cokbox.Box(workdir=work / f"box-{tag}", game="death-knights", machine="ega",
+                    seed=opts.seed, saves=[K.ASSETS / "SAVE"], verbose=opts.verbose,
+                    timeout=900, keep=True) as box:
+        v.check(K.title(box), f"the title's four pictures ({tag})")
+        K.type_steps(box, K.LOAD_A_STEPS + [r"\r", r"\r", "N"] + [r"\r"] * 9, settle=1.5)
+        if led:
+            K.type_steps(box, [r"\r"], settle=2.0)
+        tiles = box.ds_read(0xB58C, 2)
+        for (name, keys, *across), (_, shot, _, _) in zip(steps, ports):
+            if across:
+                menu_keys(box, keys)
+            elif keys:
+                K.type_steps(box, [keys], settle=2.0)
+            shown = box.screenshot(work / f"dosbox-{tag}-{name}.png")
+            v.screen(f"the screen after {name} ({tag})", shown, load(shot), work=work)
+        state = ports[-1][3]
+        if state is None:
+            v.differ(f"the port's state after the keys ({tag})", "none written")
+            return
+        o, p = K.combatants(box), K.port_combatants(state)
+        v.value(f"the combatants after the keys ({tag}: n, name, cell, size, hp, status, "
+                "side, computer, effects)", [f[:10] for f in K.fighters(o)],
+                [f[:10] for f in K.fighters(p)])
+        v.value(f"their combat records but +0x0a-0x0d ({tag})",
+                [masked(c["combat"].hex()) if c["combat"] else None for c in o],
+                [masked(c["combat"].hex()) if c["combat"] else None for c in p])
+        compare_records(v, f"the records after the keys ({tag})", K.party(box), state["records"])
+        names, entry = K.order(box)
+        v.value(f"the turn order ({tag})", names,
+                [state["records"][i]["name"] for i in state["turn"]])
+        v.value(f"the entry whose turn it is ({tag})", entry, state["turn_index"])
+        v.value(f"RandSeed ({tag})", box.ds_dword(K.DS_RANDSEED), state["seed"])
+        v.value(f"DS:b58c, b58d through the keys ({tag})", tiles.hex(), box.ds_read(0xB58C, 2).hex())
 
 
 if __name__ == "__main__":

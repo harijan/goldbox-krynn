@@ -1198,7 +1198,10 @@ static uint8_t *pick_character(cok_adventure *game, const char *prompt, uint8_t 
     char menu_prompt[42];
     snprintf(menu_prompt, sizeof menu_prompt, "%.40s ", prompt);
     char items[16];
-    snprintf(items, sizeof items, "Select%s", exit_item ? " Exit" : "");
+    /* dkk 65cd:33c9 shows "Select" alone, Escape picking none where an
+     * Exit is allowed (6a69:00cb). */
+    snprintf(items, sizeof items, "Select%s",
+             exit_item && cok_game_rules(game)->casting.pick_exit_shown ? " Exit" : "");
     *ended = false;
     int key = ' ';
     while (key != 0x0d && key != 0x1b && key != 'E' && key != 'S') {
@@ -3025,6 +3028,36 @@ static int menu_read(cok_adventure *game, const char *prompt, const char *items,
                          &keys, special);
 }
 
+/* The adventure's menus (475c:09ec; dkk 4307:0257): text read with the
+ * game's menu loop. A game whose menus go by index (dkk 6a69:0f1b) shows
+ * them all, its index read back as the item's letter and Escape as the
+ * special key 0x1b; with menus.adventure_keeps_selection, the selection
+ * *own, unless NULL, is put back before the ask and taken after (dkk
+ * [bp-0x12]: around the main menus only, not Move's "Exit"). */
+static int command_read(cok_adventure *game, const char *text, uint8_t *own, bool *special)
+{
+    const cok_rules_menus *M = &cok_game_rules(game)->menus;
+    bool keeps = M->adventure_keeps_selection && own != NULL;
+    if (keeps) game->selected = *own;
+    int key;
+    if (M->routine == COK_MENUS_INDEXED) {
+        log_text(game, "menu", text);
+        cok_keyboard keys = keyboard(game);
+        cok_menu_items items;
+        cok_menu_items_upto(&items, COK_MENU_MAX_ITEMS - 1);
+        cok_menu_indexed_layout shown;
+        cok_menu_indexed(&shown, text, &items);
+        key = cok_menu_pick(&game->screen, &game->font, "", text, &items, 13, 15, 10, true,
+                            &game->selected, &keys, special);
+        if (key >= 0 && !*special)
+            key = (size_t)key < shown.hotkeys ? shown.hotkey[key] : 0xff;
+    } else {
+        key = menu_read(game, "", text, special);
+    }
+    if (keeps) *own = game->selected;
+    return key;
+}
+
 /* Area (475c:0a75): turn the overhead map on or off (DS:6d84) and redraw
  * the view (69ea:0820), the status line unchanged; or, where the area
  * hides the square (0x4bfb), say "Not Here" in yellow, unless the game was
@@ -3083,11 +3116,12 @@ static void check_step(cok_adventure *game)
 static int overland_command(cok_adventure *game)
 {
     static const char ways[8] = {'H', 'I', 'M', 'Q', 'P', 'O', 'K', 'G'};
+    uint8_t own = game->selected;
     for (;;) {
         bool special;
         int key;
         if (!game->moving) {
-            key = menu_read(game, "", "Move Encamp", &special);
+            key = command_read(game, "Move Encamp", &own, &special);
             if (key < 0) return -1;
             if (special) continue;
             if (key == 'M') {
@@ -3099,7 +3133,7 @@ static int overland_command(cok_adventure *game)
             }
             continue;
         }
-        key = menu_read(game, "", "Exit", &special);
+        key = command_read(game, "Exit", NULL, &special); /* dkk 4307:060a */
         if (key < 0) return -1;
         if (!special) {
             if (key == 'E') game->moving = false;
@@ -3107,6 +3141,9 @@ static int overland_command(cok_adventure *game)
         }
         for (uint8_t dir = 0; dir < 8; ++dir)
             if (key == ways[dir]) game->vm.direction = dir;
+        /* dkk 4307:0257: Escape (a special key in its loop) leaves Move
+         * too, and still ends the command. */
+        if (key == 0x1b && cok_game_rules(game)->menus.escape_leaves_move) game->moving = false;
         cok_adventure_status(game);
         return key;
     }
@@ -3134,11 +3171,12 @@ static int command(cok_adventure *game)
                            vm->mode == 3 ? " without the overland menu (0x4cf7)" : "");
         return -1;
     }
+    uint8_t own = game->selected; /* dkk 4307:0257's [bp-0x12] */
     for (bool done = vm->mode != 4; !done;) {
         bool special;
         int key;
         if (!game->moving) {
-            key = menu_read(game, "", "Move Area Cast View Encamp Search Look", &special);
+            key = command_read(game, "Move Area Cast View Encamp Search Look", &own, &special);
             if (key < 0) return -1;
             result = key;
             if (special) {
@@ -3160,18 +3198,18 @@ static int command(cok_adventure *game)
                 }
                 if (cok_field_u8(cok_game_rules(game)->character, vm->character,
                                  COK_FIELD_STATUS) == 0) {
-                    game->selected = 1;
+                    game->selected = 1; /* dkk 4381:091c sets it itself */
                     cok_magic_cast(game, COK_CAST_COMMANDS);
                 }
                 break;
             case 'V': {
-                game->selected = 1;
+                game->selected = 1; /* dkk 580d:0c66's own, from 1 */
                 bool used;
                 cok_sheet(game, COK_SHEET_STALE_UNKNOWN, &used);
                 break;
             }
             case 'E':
-                game->selected = 1;
+                game->selected = 1; /* dkk 4381:3106's own, from 1 */
                 done = true;
                 break;
             case 'S':
@@ -3189,7 +3227,7 @@ static int command(cok_adventure *game)
             if (vm->abort) return -1;
             continue;
         }
-        key = menu_read(game, "", "Exit", &special);
+        key = command_read(game, "Exit", NULL, &special); /* dkk 4307:0417 */
         if (key < 0) return -1;
         result = key;
         if (!special) {
@@ -3197,6 +3235,12 @@ static int command(cok_adventure *game)
             continue;
         }
         switch (key) {
+        case 0x1b:
+            /* dkk 4307:0257: Escape, a special key in its loop, leaves
+             * Move; Champions' Escape is no special key (Alt-] does
+             * nothing here). */
+            if (cok_game_rules(game)->menus.escape_leaves_move) game->moving = false;
+            break;
         case 0x48:
             check_step(game);
             cok_adventure_status(game);

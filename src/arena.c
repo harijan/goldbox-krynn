@@ -18,7 +18,6 @@ enum {
     LAST_SHOWN = 0x12, /* The last unit or cell row a 24 by 24 picture starts at whole. */
     SLOT_HEAD = 11,    /* 4b6d:0817 builds a head here. */
     SLOT_SKULL = 24,   /* COMSPR id 11: the death's skull. */
-    SLOT_CURSOR = 25,  /* COMSPR id 25: the cursor's box. */
 };
 
 /* A recolouring of the game's data segment, 16 colours: every colour as
@@ -120,6 +119,9 @@ static bool map_byte(cok_adventure *game, int x, int y, uint8_t *value, const ch
 
 /* Draw the terrain of map cell x, y at unit xu and cell row yc of the
  * buffer (6d21:00f7): the tile of its value (DS:1ee7), opaque. */
+static bool buffer_draw(cok_adventure *game, const cok_picture *src, size_t frame, int x, int y,
+                        const char *where);
+
 static bool terrain(cok_adventure *game, int xu, int yc, int x, int y, const char *where)
 {
     cok_combat *c = &game->combat;
@@ -128,6 +130,25 @@ static bool terrain(cok_adventure *game, int xu, int yc, int x, int y, const cha
     if (value >= cok_data_count(cok_game_rules(game)->data, COK_DATA_TERRAIN, 0))
         return fail(game, "terrain value 0x%02x is past the table (DS:1ee4, %s)", value, where);
     uint8_t tile = cok_combat_terrain(cok_game_rules(game), value).tile;
+    /* dkk 6f03:010d: a body's cell shows the cell under it (6f03:152e: the
+     * last body's there), then an icon over it, of the slot body_icon past
+     * the body's own tile (0x22). The game's clouds and pools, in the same
+     * set (0x1c-0x1e), are not carried out yet. */
+    uint8_t over = 0xff;
+    uint8_t body_icon = cok_game_rules(game)->casting.body_icon;
+    if (body_icon != 0 && value >= 0x1c && value <= 0x1f) {
+        if (value != COK_COMBAT_BODY)
+            return fail(game, "not yet ported: %s's cloud cell %02x (dkk 6f03:010d)",
+                        cok_game_rules(game)->text.name, value);
+        over = (uint8_t)(tile + body_icon);
+        uint8_t under = value;
+        for (unsigned k = 0; k < c->bodies && k < COK_COMBAT_BODIES; ++k)
+            if (c->body[k].x == x && c->body[k].y == y) under = c->body[k].cell;
+        if (under > 0x45 || under == 0) under = 0x15;
+        if (under >= cok_data_count(cok_game_rules(game)->data, COK_DATA_TERRAIN, 0))
+            return fail(game, "terrain value 0x%02x is past the table (dkk 6f03:010d)", under);
+        tile = cok_combat_terrain(cok_game_rules(game), under).tile;
+    }
     if (tile >= COK_COMBAT_TILES || !(c->tiles_loaded >> tile & 1))
         return fail(game, "tile 0x%02x of the combat tile set was never loaded (DS:616a, %s)", tile,
                     where);
@@ -138,7 +159,10 @@ static bool terrain(cok_adventure *game, int xu, int yc, int x, int y, const cha
         for (int b = xu * 4; b < xu * 4 + 12; ++b)
             if (row >= 0 && row < BUFFER_ROWS && b >= 0 && b < BUFFER_UNITS * 4)
                 c->unknown[row * BUFFER_UNITS * 4 + b] = 0;
-    return true;
+    if (over == 0xff) return true;
+    if (over >= cok_icon_slots(game) || game->icons[over][0].pixels == NULL)
+        return fail(game, "a body's icon slot %u is not loaded (dkk 6f03:010d)", over);
+    return buffer_draw(game, &game->icons[over][0], 0, xu, yc, where);
 }
 
 /* Where 127f:09c3 (127f:226c, 24fd or 27af by the mode, which share this
@@ -397,7 +421,8 @@ static bool cursor(cok_adventure *game, int8_t x, int8_t y)
         if (!cok_combat_footprint(cok_game_rules(game), c->cursor_size, k, &dx, &dy)) continue;
         if (!cok_combat_on_view(s8(sx + dx), s8(sy + dy))) continue;
         if (!terrain(game, (sx + dx) * 3, (sy + dy) * 3, x + dx, y + dy, "6beb:00fc")) return false;
-        if (c->cursor != 0 && !cok_arena_icon(game, s8(sx + dx), s8(sy + dy), 0, 0, SLOT_CURSOR))
+        if (c->cursor != 0 && !cok_arena_icon(game, s8(sx + dx), s8(sy + dy), 0, 0,
+                                              cok_game_rules(game)->commands.cursor_slot))
             return false;
     }
     uint8_t occupant, value;
@@ -709,7 +734,9 @@ static bool load_icon(cok_adventure *game, const char *name, size_t length, uint
             uint8_t same[16], black[16];
             colour_table(cok_game_rules(game)->data, COK_DATA_SAME_COLOURS, same);
             colour_table(cok_game_rules(game)->data, COK_DATA_BLACK_COLOURS, black);
-            if (cpic && game->display != COK_DISPLAY_CGA && /* 6d21:0408, 0478 */
+            bool missile = !cpic && length == missiles && memcmp(name, a->missiles, missiles) == 0;
+            if ((cpic || (missile && cok_game_rules(game)->startup.missiles_recoloured)) &&
+                game->display != COK_DISPLAY_CGA && /* 6d21:0408, 0478; dkk 7090:016f */
                 cok_picture_recolor(icon, same, black, 0, NULL) != COK_PICTURE_OK) {
                 cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
                 return false;

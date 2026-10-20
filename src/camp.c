@@ -105,7 +105,8 @@ int cok_camp_menu(cok_adventure *game, const char *prompt, const char *items, bo
 /* Ask prompt, in prompt_color, until Yes or No (67b5:177f); No is
  * selected first, once, so an item chosen with the arrows stays chosen
  * through Escape and other keys. Special keys are not told apart, so scan
- * codes 0x4e and 0x59 answer too. Returns 'Y', 'N', or -1 if input
+ * codes 0x4e and 0x59 answer too. A game whose menus go by index (dkk
+ * 6a69:2048) asks with its loop. Returns 'Y', 'N', or -1 if input
  * ended. */
 int cok_camp_yes_no(cok_adventure *game, const char *prompt, uint8_t prompt_color)
 {
@@ -118,6 +119,24 @@ int cok_camp_ask(cok_adventure *game, const char *prompt, uint8_t prompt_color, 
     cok_keyboard keys = cok_adventure_keyboard(game);
     int key;
     game->selected = yes ? 1 : 2;
+    const cok_rules_menus *K = &cok_game_rules(game)->menus;
+    if (K->routine == COK_MENUS_INDEXED) {
+        /* dkk 6a69:2048 with DS:57c1 (No) or 57c0 (Yes): the items by index
+         * until Yes (0) or No; special keys are read past. Its prompt is
+         * always light magenta (DS:c149, set once at startup). */
+        cok_menu_items items;
+        cok_menu_items_upto(&items, 1);
+        do {
+            bool special;
+            key = cok_menu_pick(&game->screen, &game->font, prompt, K->yes_no, &items, 13, 15, 10,
+                                false, &game->selected, &keys, &special);
+            if (key < 0) return -1;
+        } while (key > 1);
+        key = key == 0 ? 'Y' : 'N';
+        char text[2] = {(char)key, '\0'};
+        cok_adventure_log(game, "choice", text);
+        return key;
+    }
     do {
         bool special;
         key = cok_menu_ask(&game->screen, &game->font, prompt, "Yes No", prompt_color, 15, 10,

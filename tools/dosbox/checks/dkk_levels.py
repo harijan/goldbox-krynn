@@ -23,11 +23,17 @@ FLAVIUS picked, Memorize (4381:0f67): the marked spells asked with Keep
 table: saved game B begun, its rest, camp, Magic, BALTHIR NOMOON picked,
 Memorize: the table (4381:09c7) clears its rows and says no name.
 
+cast: saved game A with NEACAIL's spells memorized Cure Light Wounds alone
+and CELESTE 6 hit points down, begun: camp, Magic, NEACAIL picked, Cast
+(4381:091c): the spells in memory, the cure (5dc5:1298) on whom (5dc5:1182),
+CELESTE, healed; the records after (hit points, NEACAIL's spells: 65cd:17c4
+marks the one cast).
+
 Seeded (Box seed, eclplay --seed). Not part of run_all.py's set. About
 three minutes.
 
     python3 tools/dosbox/checks/dkk_levels.py [--workdir DIR] [--seed N]
-        [--flows train,memorize,table]
+        [--flows train,memorize,table,cast]
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...)."""
 import argparse
@@ -185,12 +191,72 @@ def table(v, work, opts):
         run_steps(v, work, box, "table", TABLE, LOAD_B_BEGIN, seed, saves)
 
 
+# After Begin: the camp; Magic, NEACAIL (the fifth: down four), Cast, the
+# cure, on whom: down to CELESTE, Select.
+CAST = [
+    ("camp", r"\r\r\r"),
+    ("magic", "M"),
+    ("neacail", r"\v\v\v\v"),
+    ("list", "C"),
+    ("on-whom", r"\r"),
+    ("celeste", r"\v"),
+    ("healed", r"\r"),
+]
+
+
+def cure_saves(work):
+    saves = work / "saves-cast"
+    if saves.exists():
+        shutil.rmtree(saves)
+    shutil.copytree(K.ASSETS / "SAVE", saves)
+    wiz = bytearray((saves / "CHRDATA5.WIZ").read_bytes())
+    wiz[:0x4A] = bytes([3]) + bytes(0x49)
+    (saves / "CHRDATA5.WIZ").write_bytes(bytes(wiz))
+    celeste = bytearray((saves / "CHRDATA6.GAM").read_bytes())
+    celeste[0xD6] -= 6
+    (saves / "CHRDATA6.GAM").write_bytes(bytes(celeste))
+    return saves
+
+
+def cast(v, work, opts):
+    seed = opts.seed
+    saves = cure_saves(work)
+    with cokbox.Box(workdir=work / "box-cast", game="death-knights", machine="ega",
+                    seed=seed, saves=[saves], verbose=opts.verbose, timeout=900,
+                    keep=True) as box:
+        v.check(K.title(box), "the title's four pictures (cast)")
+        K.type_steps(box, K.LOAD_A_STEPS, settle=2.0)
+        run_steps(v, work, box, "cast", CAST, K.LOAD_A_BEGIN, seed, saves)
+        keys = K.LOAD_A_BEGIN + "".join(typed for _, typed in CAST)
+        _, _, _, state = K.port(work, "cast-end", keys, seed, saves=saves)
+        if state is None:
+            v.differ("cast: the port's state at the end", "none written")
+            return
+        mine = [(r["name"], r["hp"], r["status"]) for r in state["records"]]
+        theirs = [(r["name"], r["hp"], r["status"]) for r in K.party(box)]
+        v.value("cast: the records' names, hit points and status", theirs, mine)
+        raw = json_records(work / "port-cast-end" / "final.json")
+        spells = box.read(box.far(K.party(box)[4]["rec"] + 0xC2), 0x4A)
+        v.value("cast: NEACAIL's spells memorized", spells.hex(),
+                raw[4][0xD8:0xD8 + 0x4A].hex() if raw else None)
+        v.value("cast: RandSeed", box.ds_dword(K.DS_RANDSEED), state["seed"])
+
+
+def json_records(path):
+    """The port's records whole (the spells' block after +0xd8) beside its
+    final screen."""
+    import json
+    if not path.exists():
+        return None
+    return [bytes.fromhex(r["record"]) for r in json.loads(path.read_text())["records"]]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir", default=str(K.ROOT / "build/dosbox-checks/dkk_levels"))
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--flows", default="train,memorize,table",
-                        help="which flows: train, memorize, table (comma-separated)")
+    parser.add_argument("--flows", default="train,memorize,table,cast",
+                        help="which flows: train, memorize, table, cast (comma-separated)")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     work = pathlib.Path(opts.workdir).resolve()
@@ -203,6 +269,8 @@ def main():
         memorize(v, work, opts)
     if "table" in flows:
         table(v, work, opts)
+    if "cast" in flows:
+        cast(v, work, opts)
     return v.finish()
 
 

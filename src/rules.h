@@ -354,6 +354,11 @@ typedef struct {
      * that holds them, 8 bytes a slot, for the messages. */
     uint8_t icon_slots;
     uint16_t icon_table;
+    /* Whether the missiles' icons (COMSPR) are recoloured as a CPIC's are
+     * outside CGA mode (DS:SAME_COLOURS to BLACK_COLOURS: 8 to 0) wherever
+     * they are loaded (dkk 7090:016f: every name but CHEAD, CBODY and
+     * ICON), rather than only the CPIC's (6d21:01d0). */
+    bool missiles_recoloured;
 } cok_rules_startup;
 
 /* One spell id's handler (cast.c): the port's, a cok_cast_handler
@@ -907,10 +912,6 @@ typedef enum {
  * run, COK_ECL_UNPORTED). */
 typedef struct {
     cok_rules_fight_words words;
-    /* The player's menu (3995:08d5; dkk 3e05:0ccc) where the port does not
-     * read it for the game yet: the player's turn stops there unless a key
-     * pressed for it (--combat auto, gods) does what it does. */
-    const char *menu_unported;
     /* The end of a round's clouds (dkk 3e05:0ed0's 638c:21ec, its one
      * list) and the cloud's effects on one in a cloud or a pool (60f4:0dc3;
      * dkk 638c:0c65) where the port does not carry them out for the game:
@@ -976,6 +977,75 @@ typedef struct {
     /* Turning undead (cok_turning_routine). */
     uint8_t turning;
 } cok_rules_fight;
+/* The player's commands in a battle (command.c), each the port's routine
+ * of that game's original. */
+typedef enum {
+    /* 3995:0573: the menu by letters (3995:08d5, "Move View Aim Use Cast
+     * Turn Yell Done"), Done's (3995:121c: Guard, Delay, Quit, Bandage,
+     * Auto, Speed), Move (3995:0d9c), aiming (432f:3b80), Speed (14cf). */
+    COK_COMMANDS_CHAMPIONS,
+    /* dkk 3e05:08af: the two-row menu by index (3e05:0ccc), its commands
+     * Guard, Quick (Champions' Auto), Delay, Bandage, Speed and End (Quit)
+     * on it, and no Done; Move (3e05:10bb), aiming (5340:3888 with 36f2,
+     * 34b3, 2bee, 2f3d, 2dca) and Speed (3e05:14aa) with menus by index. */
+    COK_COMMANDS_DEATH_KNIGHTS,
+} cok_commands_routine;
+
+/* The game's menu loop (menu.c): Champions' by the hotkeys' letters
+ * (67b5:03e2, its Yes/No 67b5:177f), or Death Knights' by index (dkk
+ * 6a69:0f1b: cok_menu_pick, its Yes/No 6a69:2048). */
+typedef enum {
+    COK_MENUS_LETTERS,
+    COK_MENUS_INDEXED,
+} cok_menus_routine;
+
+/* The game's menus where they differ (menu.c; camp.c's Yes/No, the
+ * adventure's menu, command.c). */
+typedef struct {
+    /* cok_menus_routine. */
+    uint8_t routine;
+    /* The Yes/No's items for the indexed loop (dkk 6a69:2048, DS:31cb). */
+    const char *yes_no;
+    /* The adventure's menu (475c:09ec; dkk 4307:0257): whether it keeps
+     * its own selection, put back into DS:c0f7 before each ask and taken
+     * after (dkk), rather than going on from what the menus before left
+     * (Champions; both set the first before Cast, View and Encamp, whose
+     * menus in Death Knights start from their first themselves); whether
+     * Escape leaves Move (dkk: a special key in its loop). */
+    bool adventure_keeps_selection, escape_leaves_move;
+    /* Whether a special key that picks a character (546c:3334; dkk
+     * 580d:2bb2) keeps the one selected for a key other than Up and Down
+     * (dkk), rather than picking the first. */
+    bool special_keeps;
+} cok_rules_menus;
+
+/* The player's commands in a battle where the games differ (command.c). */
+typedef struct {
+    /* cok_commands_routine. */
+    uint8_t routine;
+    /* The words of Move's steps and of attacking (3995:0d9c, 1117,
+     * 432f:2f12; dkk 3e05:10bb, 13fb, 5340:2b81): fleeing's question, a
+     * step too dear, a missile weapon in melee, an ally attacked
+     * (Champions' in its code, dkk DS:170d, 1718, 2536, 16d7); and whether
+     * Yes to attacking an ally turns the NPCs against the party (432f:2f12;
+     * dkk 5340:2b81 sets only the variables). */
+    const char *flee, *cant_go, *not_with_weapon, *attack_ally;
+    bool ally_turns_npcs;
+    /* COK_COMMANDS_DEATH_KNIGHTS' words, NULL for Champions': the turn's
+     * menu (3e05:0ccc, DS:3453; '@' starts its second row), Move's prompt
+     * and item (3e05:10bb, DS:313e, 34a4), aiming's prompt and items, the
+     * range's word, the cursor's prompt and items (5340:2bee, 2f3d: DS:3109,
+     * 34af, 16ec, 3114, 34d8), Speed's prompt and items (3e05:14aa, DS:30f4,
+     * 340a). */
+    const char *menu, *move_prompt, *move_menu;
+    const char *aim_prompt, *aim_menu, *range, *cursor_prompt, *cursor_menu;
+    const char *speed_prompt, *speed_menu;
+    /* The icon slot of the cursor's box on the battlefield and in aiming's
+     * flight (6beb:00fc, 6346:1a26: 0x19, COMSPR 25; dkk 6f03:036c,
+     * 65cd:1bd5: 0x1c, COMSPR 15). */
+    uint8_t cursor_slot;
+} cok_rules_commands;
+
 /* Treasure where the games differ (treasure.c, adventure.c's DAMAGE and
  * ADD EP): the item table that TREASURE ITEMS and STOCK take their items
  * from, the treasure menus' words and ways, the vault's menu, and DAMAGE's
@@ -1195,8 +1265,12 @@ typedef struct {
     const char *abort, *aborted;
     bool ask_yes;
     /* The pick outside combat (5b04:127e; dkk DS:3192), the line said in
-     * combat on casting (5b04:57eb; dkk DS:2304). */
+     * combat on casting (5b04:57eb; dkk DS:2304); whether the pick of a
+     * character that may pick none (6346:32c7, cok_adventure_pick) shows
+     * "Exit" after "Select" (dkk 65cd:33c9: "Select" alone, Escape for
+     * none). */
     const char *on_whom, *casts_a_spell;
+    bool pick_exit_shown;
     /* Whether one holding COK_EFFECT_DISPELLING miscasts on a 1d2 of 1
      * (5b04:1415's 6346:2447 with 0x4a; dkk none). */
     bool miscast;
@@ -1241,6 +1315,10 @@ typedef struct {
      * DS:2e0d-2e6b, cut to their strings' lengths): the area forbids it;
      * "is in no condition to " and what. */
     const char *no_area, *no_condition, *no_what[3];
+    /* A body's cell in combat (6beb:0500 draws its tile, RANDCOM's; dkk
+     * 6f03:010d the cell under it, then the icon of slot body_icon past the
+     * body's tile, masked), or 0 for none. */
+    uint8_t body_icon;
     /* Whether a character's load (4b6d:11e5; dkk 46b2:10d7)
      * recomputes its strength between its stats and its levels (dkk
      * 638c:16d8 with 0). */
@@ -1284,6 +1362,8 @@ typedef struct cok_rules {
     cok_rules_start start;
     cok_rules_combat combat;
     cok_rules_fight fight;
+    cok_rules_menus menus;
+    cok_rules_commands commands;
     cok_rules_treasure treasure;
     cok_rules_levels levels;
     cok_rules_casting casting;

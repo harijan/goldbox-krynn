@@ -770,17 +770,14 @@ bool cok_combat_sweep(cok_adventure *game, cok_character *attacker, cok_characte
     return true;
 }
 
-static bool can_attack(cok_adventure *game, cok_character *attacker, const uint8_t *target,
-                       bool allies, bool *can);
-
 bool cok_combat_can_attack(cok_adventure *game, cok_character *attacker,
                            const uint8_t *target, bool *can)
 {
-    return can_attack(game, attacker, target, false, can);
+    return cok_combat_can_attack_allies(game, attacker, target, false, can);
 }
 
-static bool can_attack(cok_adventure *game, cok_character *attacker, const uint8_t *target,
-                       bool allies, bool *can)
+bool cok_combat_can_attack_allies(cok_adventure *game, cok_character *attacker,
+                                  const uint8_t *target, bool allies, bool *can)
 {
     cok_rolls *rolls = &game->effects.rolls;
     *can = false;
@@ -841,7 +838,7 @@ bool cok_combat_pick_target_side(cok_adventure *game, cok_character *c, uint8_t 
         if (cok_field_u8(L, t, COK_FIELD_HOSTILE) !=
                 cok_field_u8(L, c->record, COK_FIELD_HOSTILE) &&
             cok_field_u8(L, t, COK_FIELD_ACTIVE) != 0 &&
-            !can_attack(game, c, t, allies, &keep))
+            !cok_combat_can_attack_allies(game, c, t, allies, &keep))
             return false;
         if (!keep) cr->target = NULL;
     }
@@ -865,7 +862,7 @@ bool cok_combat_pick_target_side(cok_adventure *game, cok_character *c, uint8_t 
             cok_character *t = combatant(game, combat->enemies[pick], "432f:3f9f");
             if (t == NULL) return false;
             bool can = flag && combat->see_all != 0;
-            if (!can && !can_attack(game, c, t->record, allies, &can)) return false;
+            if (!can && !cok_combat_can_attack_allies(game, c, t->record, allies, &can)) return false;
             if (can) {
                 *found = true;
                 cr->target = t->record;
