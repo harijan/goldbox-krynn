@@ -559,7 +559,8 @@ static void test_pool(void)
     s.log[0] = '\0';
     put_word(a->record + 0x17d, (uint16_t)(cap - 4));
     flushes = 0;
-    CHECK(cok_pool_give_steel(&game, a->record, 10) && flushes == 1); /* 58e7:0ab6 */
+    CHECK(cok_pool_give_steel(&game, a->record, 10, "Overloaded.  Money will be put in Pool.") &&
+          flushes == 1); /* 58e7:0ab6 */
     CHECK(word(a->record + 0xeb + 8) == 70 && game.pool.coins[4] == 77 + 6);
     CHECK(LOGGED("print: Overloaded.  Money will be put in Pool.;"));
 }
@@ -1340,11 +1341,12 @@ static void test_dk_stock(void)
 {
     /* STOCK 9: shop 1 (DS:0008's 1, DS:0010's 15): the pool's items gone,
      * then ids DS:0018-0026, the last first, shown (+0x35 & 0xf8); then the
-     * shop, not ported yet. */
-    reset("");
+     * shop (3b89:06f3), which Escape leaves, putting the mode back. */
+    reset("\x1b");
     uint8_t old[COK_ITEM_SIZE] = {0};
     CHECK(cok_pool_insert(&game.pool, 0, old));
-    CHECK(RUN(0x3c, 0, 9) == COK_ECL_UNPORTED);
+    CHECK(RUN(0x3c, 0, 9) == COK_ECL_OK && game.vm.mode == 4 && s.at == s.length);
+    CHECK(LOGGED("shop: prices at 0;menu: Buy View Pool Appraise Exit;"));
     CHECK(game.pool.item_count == 15);
     uint8_t expect[COK_ITEM_ENTRY];
     memcpy(expect, game.item_table[0x29], sizeof expect);
@@ -1352,10 +1354,9 @@ static void test_dk_stock(void)
     CHECK(memcmp(game.pool.items[0] + 0x2e, expect, sizeof expect) == 0);
     CHECK(memcmp(game.pool.items[14] + 0x2e, game.item_table[1], 7) == 0);
     for (size_t i = 0; i < game.pool.item_count; ++i) CHECK((game.pool.items[i][0x35] & 7) == 0);
-    CHECK(strstr(game.error, "shop (dkk 3b89:06f3)") != NULL);
     /* Shop 8: 30 items from DS:003f. */
-    reset("");
-    CHECK(RUN(0x3c, 0, 8) == COK_ECL_UNPORTED && game.pool.item_count == 30);
+    reset("\x1b");
+    CHECK(RUN(0x3c, 0, 8) == COK_ECL_OK && game.pool.item_count == 30);
     for (size_t i = 0; i < game.pool.item_count; ++i) CHECK((game.pool.items[i][0x35] & 7) == 0);
     CHECK(game.pool.items[29][0x2e] == game.item_table[3][0]);
 }

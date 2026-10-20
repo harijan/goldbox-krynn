@@ -1287,6 +1287,7 @@ static uint8_t *pick_indexed(cok_adventure *game, const char *prompt, uint8_t *w
             *ended = true;
             return who;
         }
+        game->menu_special = special; /* DS:c0f8 */
         size_t n = game->party.count, i = cok_party_index(&game->party, who);
         if (!special) {
             if (exit_item && key == 1) who = NULL;
@@ -3125,6 +3126,7 @@ static int command_read(cok_adventure *game, const char *text, uint8_t *own, boo
         cok_menu_indexed(&shown, text, &items);
         key = cok_menu_pick(&game->screen, &game->font, "", text, &items, 13, 15, 10, true,
                             &game->selected, &keys, special);
+        game->menu_special = *special; /* DS:c0f8 */
         if (key >= 0 && !*special)
             key = (size_t)key < shown.hotkeys ? shown.hotkey[key] : 0xff;
     } else {
@@ -3688,37 +3690,35 @@ static cok_ecl_status look(cok_adventure *game)
  * line; in shops and the temple (mode 1) the frame but for their first
  * redraw (DS:883c), the small picture's first frame at cell 3, 3 (the
  * slot's first entry, DS:6da8, 6961:000a), or in 3D areas the portrait
- * last shown (DS:4b55, 4b56: 6961:05b9, 06bd), then the party list and
- * the status line; in the party menu (mode 0) the frame of 1128:0000,
- * cleared; in a game's vault (mode 7, dkk) the same as a shop's with the
- * vault's line; in combat (mode 5) nothing. */
+ * last shown (DS:4b55, 4b56: 6961:05b9, 06bd) where the game's shops do
+ * (the shops section's portrait), then the party list and the status
+ * line; in the party menu (mode 0) the frame of 1128:0000, cleared; in a
+ * game's vault (mode 7, dkk) the same as a shop's with the vault's line;
+ * in combat (mode 5) nothing. */
 static void redraw_screen(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     game->redraw = true;
     if (vm->mode == 0) {
         cok_adventure_screen(game, COK_SCREEN_OPEN);
-    } else if (vm->mode == 1) {
+    } else if (vm->mode == 1 || vm->mode == 7) {
+        /* dkk 65cd:2db0 has one branch for both, the vault's menu (mode 7,
+         * 3948:000e) setting DS:db62 first: the small picture's first frame
+         * at cell 3, 3 (DS:c09a, 6ca1:0000) in 3D areas too, and in mode 7
+         * the vault's line in light green at 1, 15 (DS:2ccd). */
         if (game->shop_frame) cok_adventure_frame(game);
-        if (cok_ecl_var(vm, COK_VAR_3D) == 0)
+        if (cok_ecl_var(vm, COK_VAR_3D) == 0 || !cok_game_rules(game)->shops.portrait)
             draw_frame(game, 0);
         else
             show_portrait(game, game->portrait_head, game->portrait_body);
         if (vm->abort) return;
         cok_adventure_party(game);
         cok_adventure_status(game);
-    } else if (vm->mode == 7) {
-        /* dkk 65cd:2db0 in the vault's menu (3948:000e, which sets DS:db62):
-         * the frame, the small picture's first frame at cell 3, 3 (DS:c09a,
-         * 6ca1:0000) in 3D areas too, the party list, the status line and
-         * the vault's line in light green at 1, 15 (DS:2ccd). */
-        cok_adventure_frame(game);
-        draw_frame(game, 0);
-        cok_adventure_party(game);
-        cok_adventure_status(game);
-        const char *line = cok_game_rules(game)->treasure.vault_line;
-        log_text(game, "print", line);
-        cok_text_string(&game->screen, &game->font, line, 1, 15, 10, 0);
+        if (vm->mode == 7) {
+            const char *line = cok_game_rules(game)->treasure.vault_line;
+            log_text(game, "print", line);
+            cok_text_string(&game->screen, &game->font, line, 1, 15, 10, 0);
+        }
     } else if (vm->mode == 2 || vm->mode == 6) {
         uint8_t picture = vm->mode == 2 ? 0x3b : 0x3c;
         cok_adventure_frame(game);

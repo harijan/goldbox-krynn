@@ -678,6 +678,9 @@ int cok_menu_pick(cok_picture *dst, const cok_font *font, const char *prompt, co
                 else if (key == 0x4d) moved = indexed_move(&m, selected, 1);
                 else if ((key == 0x48 || key == 0x50) && m.two_rows) moved = indexed_move(&m, selected, 0);
             }
+            /* 0c26, 0c59 and 0c8c clear the loop's flag ([bp-0x13e]) the
+             * key set: a move reads on. */
+            if (moved) done = false;
         } else {
             *special = false;
             if (key == 0x1b) {

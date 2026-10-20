@@ -145,4 +145,14 @@ int8_t cok_cast_step_byte(const cok_data_segment *D, uint16_t at);
  * run, where it cannot be carried out. */
 bool cok_cast_remove_curse(cok_adventure *game, cok_character *target);
 
+/* Spell's handler from the game's table, with no cast around it, on target
+ * as the first target alone (DS:6feb; dkk DS:c31d) and its own caster, the
+ * spell being cast (DS:6b33; dkk be70) set to it while it runs where
+ * set_spell: as Death Knights' temple runs Raise Dead and Restoration
+ * (dkk 3999:01fc, 045f: through the table) and Remove Curse (0368:
+ * 5dc5:311b, the spell left as it was). A handler the port does not carry
+ * out for the game yet stops the run (COK_ECL_UNPORTED, cited). Returns
+ * false, ending the run, where it cannot be carried out. */
+bool cok_cast_on(cok_adventure *game, uint8_t spell, cok_character *target, bool set_spell);
+
 #endif
