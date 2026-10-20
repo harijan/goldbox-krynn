@@ -825,7 +825,7 @@ static void test_named_variables(void)
         {COK_VAR_DIFFICULTY, 0x4cf4, 0x4cf4, 1}, {COK_VAR_BANK, 0x4cf5, 0x4cf5, 1},
         {COK_VAR_OVERLAND, 0x4cf7, 0x4cf7, 1},   {COK_VAR_TREASURE_FIRST, 0x4cf8, 0x4cf8, 1},
         {COK_VAR_MOONS, 0x4cf9, 0x4cf9, 3},      {COK_VAR_MOON_DAYS, 0x4cfc, 0x4cfc, 3},
-        {COK_VAR_TURN, 0x4cff, 0, 1},            {COK_VAR_ORDER_MOON, 0x4cf8, 0, 0x100},
+        {COK_VAR_TURN, 0x4cff, 0, 1},            {COK_VAR_ORDER_MOON, 0x4cf8, 0x4cf8, 0x100},
         {COK_VAR_AREA, 0x4b00, 0, 0x100},        {COK_VAR_HALL, 0x7ea8, 0x7ea8, 1},
         {COK_VAR_DISTANCE_WANTED, 0x7ec0, 0x7ec0, 1}, {COK_VAR_DISTANCE, 0x7ec1, 0x7ec1, 1},
         {COK_VAR_MORALE, 0x7ec6, 0x7ec6, 1},          {COK_VAR_OUTCOME, 0x7ec7, 0x7ec7, 1},
@@ -840,6 +840,7 @@ static void test_named_variables(void)
         {COK_VAR_PRICES, 0x7f6d, 0, 1},          {COK_VAR_HIT_BONUS, 0x7f70, 0x7f70, 2},
         {COK_VAR_MOVE_BONUS, 0x7f72, 0x7f72, 1}, {COK_VAR_LOCALS_GAME, 0x7f79, 0x7f79, 10},
         {COK_VAR_VAULT, 0, 0x4d00, 1},           {COK_VAR_RIVER, 0, 0x4bf3, 1},
+        {COK_VAR_TURNING, 0, 0x4cff, 1},
     };
     CHECK(sizeof names / sizeof *names == COK_VARS);
     for (size_t i = 0; i < COK_VARS; ++i) {

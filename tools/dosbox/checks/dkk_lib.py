@@ -36,10 +36,12 @@ the hit points +0xd6.
 import json
 import os
 import pathlib
+import re
 import shutil
 import struct
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import checklib  # noqa: E402
@@ -202,11 +204,47 @@ def vars_dump(name, text):
     return text.replace(d_lib.STATE_AT, VARS_CODE + d_lib.STATE_AT, 1)
 
 
+LOG_AT = ("static void log_line(cok_adventure *game, const char *kind, const char *text, "
+          "void *context)\n{\n    (void)game;\n    (void)context;\n")
+LOG_CODE = r"""    /* tools/dosbox/checks/dkk_lib.py: at each round's end (round.c's
+     * mark), the screen and the state in rounds/NN beside the shots. */
+    if (strcmp(kind, "dkk") == 0) {
+        player *pp = context;
+        static unsigned rounds;
+        if (pp->shots == NULL || pp->game == NULL) return;
+        char path[4200];
+        snprintf(path, sizeof path, "%s/../rounds/%02u.bmp", pp->shots, ++rounds);
+        save(pp, path);
+        d_state(pp, path);
+        dkk_vars(pp, path);
+        return;
+    }
+"""
+
+
+def round_log(name, text):
+    """src/eclplay.c: the state at round.c's mark (round_mark)."""
+    if LOG_AT not in text:
+        raise cokbox.BoxError("src/eclplay.c's log_line changed: update dkk_lib.round_log")
+    return text.replace(LOG_AT, LOG_AT + LOG_CODE)
+
+
 def dump(name, text):
     """src/eclplay.c: d_lib's state at each key read, with the variables
-    0x7c00-0x7fff, and at the run's end (one transform: checklib.build
-    hashes each on the source as it is)."""
-    return final_state(name, vars_dump(name, d_lib.state_dump(name, text)))
+    0x7c00-0x7fff, and at the run's end, and at each round's end (one
+    transform: checklib.build hashes each on the source as it is)."""
+    return round_log(name, final_state(name, vars_dump(name, d_lib.state_dump(name, text))))
+
+
+ROUND_AT = "bool cok_combat_end_round(cok_adventure *game, bool *done)\n{\n"
+
+
+def round_mark(name, text):
+    """src/round.c: a mark logged as each round ends (dkk 3e05:0ed0's
+    start), where the original is trapped (trap)."""
+    if ROUND_AT not in text:
+        raise cokbox.BoxError("src/round.c's cok_combat_end_round changed: update dkk_lib")
+    return text.replace(ROUND_AT, ROUND_AT + '    cok_adventure_log(game, "dkk", "round");\n')
 
 
 AMBUSH_AT = ("    if (cok_ecl_meaning(vm) == COK_ECL_SETUP_MONSTERS) game->ambush = "
@@ -227,7 +265,8 @@ def player():
     """eclplay writing the state at each key read and at the run's end (and
     taking COK_DKK_AMBUSH)."""
     return checklib.build("eclplay", transforms=[("eclplay.c", dump),
-                                                  ("monster.c", ambush_poke)])
+                                                  ("monster.c", ambush_poke),
+                                                  ("round.c", round_mark)])
 
 
 def port_vars(bmp):
@@ -257,6 +296,7 @@ def port(work, name, keys, seed, saves=None, args=(), ambush=None):
         shutil.rmtree(out)
     shots, save_dir = out / "shots", out / "saves"
     shots.mkdir(parents=True)
+    (out / "rounds").mkdir()
     shutil.copytree(saves or ASSETS / "SAVE", save_dir)
     cfg = out / "DKK.CFG"
     cfg.write_bytes((ASSETS / "DKK.CFG").read_bytes())
@@ -309,3 +349,80 @@ def fighters(cs):
     return [(c["n"], c["name"], c["x"], c["y"], c["size"], c["hp"], c["status"],
              c["raw"][SIDE], c["raw"][COMPUTER], c["effects"],
              c["combat"].hex() if c["combat"] else None) for c in cs]
+
+
+def port_rounds(work, name):
+    """The port's states at each round's end (round_mark) of run NAME, in
+    order: (the screen's path, the state)."""
+    out = sorted((pathlib.Path(work) / f"port-{name}" / "rounds").glob("*.bmp"))
+    return [(b, read_state(b)) for b in out]
+
+
+# ------------------------------------------------------------ the traps
+
+# Turbo Pascal's OvrHeapOrg and OvrHeapEnd (dkk DS:8478, 847c; the
+# overlay manager's, as Champions' DS:437a, 437e).
+DS_OVR_ORG, DS_OVR_END = 0x8478, 0x847C
+
+
+def trap(b, seg, off, until, seconds=60):
+    """d_lib.trap for Death Knights: the routine at Ghidra SEG:OFF of
+    death-START_FULL.EXE made to spin where it starts (EB FE), in every
+    copy in the overlay buffer, until UNTIL() holds."""
+    patched = []
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        for addr in code_at(b, seg, off):
+            if b.read(addr, 2) == b"\xeb\xfe":
+                continue
+            patched.append((addr, b.read(addr, 2)))
+            b.write(addr, b"\xeb\xfe")
+        if patched and until():
+            return patched
+        time.sleep(0.002)
+    raise cokbox.BoxError(f"the trap at {seg:04x}:{off:04x} did not hold")
+
+
+def code_at(b, seg, off, span=0x60, size=12):
+    """Where the overlay buffer holds death-START_FULL.EXE's code at Ghidra
+    SEG:OFF now: found by windows of SIZE bytes from OFF on (the loader's
+    fixups change some, a far call's segment), each where it lies at OFF's
+    paragraph, the place most windows agree on."""
+    lo, hi = b.ds_word(DS_OVR_ORG) * 16, b.ds_word(DS_OVR_END) * 16
+    if not 0 < lo < hi <= 0xA0000:
+        return []
+    data = b.read(lo, hi - lo)
+    votes = {}
+    for k in range(0, span, size):
+        probe = b._exe_bytes(seg, off + k, size)
+        for m in re.finditer(re.escape(probe), data):
+            addr = lo + m.start() - k
+            if (addr - off) % 16 == 0:
+                votes[addr] = votes.get(addr, 0) + 1
+    if not votes:
+        return []
+    most = max(votes.values())
+    return [a for a, n in votes.items() if n == most and n >= 2]
+
+
+def untrap(b, handle):
+    """The code trap patched given back, the emulation paused (d_lib.untrap)."""
+    d_lib.untrap(b, handle)
+
+
+def settled(b, seconds=1.5, limit=120):
+    """Whether the game stands still: RandSeed, the round, the entry and
+    the records' bytes unchanged for SECONDS (a trap's spin)."""
+    def probe():
+        return (b.ds_dword(DS_RANDSEED), b.ds_byte(DS_ROUND), b.ds_byte(DS_ENTRY),
+                tuple(r["raw"] for r in party(b)))
+    end = time.monotonic() + limit
+    last, since = probe(), time.monotonic()
+    while time.monotonic() < end:
+        time.sleep(0.1)
+        now = probe()
+        if now != last:
+            last, since = now, time.monotonic()
+        elif time.monotonic() - since >= seconds:
+            return True
+    return False

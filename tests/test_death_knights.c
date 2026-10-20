@@ -1062,8 +1062,7 @@ static void test_combat(void)
      * (00ec's near call to 0264). */
     n = far_calls(0x3e05, 0x00ec, 0x60, calls, 24);
     CHECK(n >= 2 && calls[0] == 0x53404acf && calls[1] == 0x410b1e41);
-    CHECK(cites(C->player_unported, 0x3e0508af) && cites(C->computer_unported, 0x3f630000) &&
-          cites(C->aging_unported, 0x3e050264));
+    CHECK(cites(C->aging_unported, 0x3e050264));
     n = far_calls(0x3e05, 0x076c, 0x143, calls, 24);
     bool computer = false;
     for (size_t i = 0; i < n; ++i) computer |= calls[i] == 0x3f630000;
@@ -1109,6 +1108,119 @@ static void test_combat(void)
     puts("death knights: the encounter's and the fight's routines checked");
 }
 
+/* The fight's section against the original's code: its words where the
+ * routines read them, each stop's routine and where it is called, the
+ * probe's tiles, the computer's turn (the target first, the limit and the
+ * paladins, the items' die, the spell's columns, the reach, morale, the
+ * flight's turn and the ways' guard), the attack's sides, the free
+ * attacks' effect, the quiet bit, the forgotten spell's mark, the arrows,
+ * the missile's clamp, turning undead (5340:119b: the paladin's level less
+ * 2, deity 2, 8 to 9 below 14 else 10, var 0x4cff, rows of 11 from
+ * DS:05a5, 1d6 + 6 or 1d12) and the saving throw's effect 0x39. */
+static void test_fight(void)
+{
+    const cok_rules_fight *F = &R->fight;
+    const cok_rules_fight_words *W = &F->words;
+    const struct {
+        unsigned seg, off;
+        const char *word;
+    } words[] = {
+        {0, 0x2d37, W->attacks}, {0, 0x2d0d, W->backstabs}, {0, 0x2d22, W->slays},
+        {0, 0x2d42, W->behind}, {0x5340, 0x01ef, W->cruel}, {0x5340, 0x0203, W->hitting},
+        {0, 0x2d6c, W->point}, {0, 0x2d77, W->points}, {0, 0x2d82, W->damage},
+        {0, 0x2d8d, W->misses}, {0, 0x1c3a, W->lost_spell}, {0, 0x1d04, W->goes_down},
+        {0, 0x1cef, W->dying}, {0, 0x1ce4, W->killed}, {0, 0x2d98, W->got_away},
+        {0, 0x2da3, W->blocked}, {0, 0x2de3, W->destroyed}, {0, 0x2df8, W->nothing},
+        {0, 0x2b3e, W->panic}, {0, 0x2b68, W->surrenders}, {0, 0x16f7, W->magic_on},
+        {0, 0x1702, W->magic_off}, {0, 0x2517, W->teammate_dying}, {0, 0x3129, W->continue_battle},
+        {0, 0x2cf8, W->bandaged}, {0, 0x2c2e, W->hit_points}, {0, 0x2c44, W->helpless},
+        {0, 0x2c4f, W->casting}, {0, 0x2cc2, W->guarding}, {0, 0x1d0f, R->effects.unaffected},
+    };
+    for (size_t i = 0; i < sizeof words / sizeof *words; ++i)
+        CHECK(pascal_is(words[i].seg != 0 ? at(words[i].seg, words[i].off) : ds(words[i].off),
+                        words[i].word, false));
+    CHECK(W->gods_refused == NULL);
+    /* The routines it says it does not carry out: the menu (3e05:08af's
+     * near call), the clouds at the round's end (3e05:0ed0's far call) and
+     * the cloud square (in the round's end too). */
+    unsigned long calls[24];
+    CHECK(cites(F->menu_unported, 0x3e050ccc) && near_call(0x3e05, 0x08af, 0x90, 0x0ccc));
+    size_t n = far_calls(0x3e05, 0x0ed0, 0x60, calls, 24);
+    bool clouds = false, square = false;
+    for (size_t i = 0; i < n; ++i) {
+        clouds |= calls[i] == 0x638c21ec;
+        square |= calls[i] == 0x638c0c65;
+    }
+    CHECK(cites(F->clouds_unported, 0x638c21ec) && clouds);
+    CHECK(cites(F->cloud_square_unported, 0x638c0c65) && square);
+    /* The probe (6f03:0e33): cmp byte [bp-4], 0x1d and 0x1c before the
+     * terrain's cost; the death's set at 6f03:0f9d, 0x1c and 0x1d. */
+    CHECK(F->cloud_tile == 0x1d && F->pool_tile == 0x1c && F->clouds_terrain &&
+          HOLDS(0x6f03, 0x0e33, 0x120, 0x80, 0x7e, 0xfc, 0x1d) &&
+          HOLDS(0x6f03, 0x0e33, 0x120, 0x80, 0x7e, 0xfc, 0x1c));
+    CHECK(F->body_spares_pool && at(0x6f03, 0x0f9d)[3] == 0x30 && F->kill_finds_body &&
+          !F->kill_clears_spell);
+    /* The computer's turn: its first far call picks a target (5340:3cac);
+     * 0251's mov byte [bp-6], 0x0d and cmp byte [es:di+0x48], 2; the
+     * spell's columns (05d7: DS:6a8d, the table's + 13) and the levels
+     * (+0x47, +0x4c, +0x48, +0x49); 0ccc's range byte (type + 12) not less
+     * 1; morale's jl; the flight's inc ax (08c6). */
+    n = far_calls(0x3f63, 0x0000, 0x40, calls, 24);
+    CHECK(F->computer_target_first && n >= 1 && calls[0] == 0x53403cac);
+    CHECK(F->turn_limit == 0x0d && HOLDS(0x3f63, 0x0251, 0x10, 0xc6, 0x46, 0xfa, 0x0d));
+    CHECK(F->paladin_turns == 2 && HOLDS(0x3f63, 0x0251, 0x40, 0x26, 0x80, 0x7d, 0x48, 0x02));
+    CHECK(!F->computer_items && F->computer_cast == COK_COMPUTER_CAST_DEATH_KNIGHTS);
+    CHECK(cok_data_offset2(R->data, COK_DATA_SPELLS, 0, 13) == 0x6a8d &&
+          cok_data_offset2(R->data, COK_DATA_SPELLS, 0, 11) == 0x6a8b &&
+          HOLDS(0x3f63, 0x05d7, 0xe0, 0x8a, 0x85, 0x8d, 0x6a) &&
+          HOLDS(0x3f63, 0x03ee, 0x80, 0x80, 0xbd, 0x8b, 0x6a, 0x00) &&
+          HOLDS(0x3f63, 0x05d7, 0x90, 0x26, 0x8a, 0x45, 0x47) &&
+          HOLDS(0x3f63, 0x05d7, 0x90, 0x26, 0x8a, 0x45, 0x48) &&
+          HOLDS(0x3f63, 0x05d7, 0x90, 0x26, 0x8a, 0x45, 0x49) &&
+          HOLDS(0x3f63, 0x05d7, 0x90, 0x26, 0x8a, 0x45, 0x4c));
+    CHECK(F->reach_less == 0 &&
+          HOLDS(0x3f63, 0x0ccc, 0x180, 0x8a, 0x85, 0xb2, 0x9a, 0x88, 0x46, 0xfc));
+    CHECK(F->morale_signed && !F->flee_removes &&
+          HOLDS(0x3f63, 0x1260, 0x120, 0x3b, 0xc2, 0x7c));
+    CHECK(F->flee_turn == 1 && HOLDS(0x3f63, 0x0a19, 0x10, 0x2b, 0xc2, 0x40, 0x88, 0x46, 0xff));
+    CHECK(F->ways_guarded && HOLDS(0x3f63, 0x0ad7, 0x18, 0x26, 0x80, 0x7d, 0x15, 0x07));
+    /* The attack's sides (5340:10ab: the attacker into DS:a2c2, the sides
+     * compared); free attacks (5340:0860, effect 6); the quiet bit
+     * (5340:0230: test of +0x7b with 8); the mark (65cd:17c4: or al, 0x80);
+     * arrows (5340:28a0: cmp al, 0x42); the clamp (65cd:1d56: 0x31, 0x18). */
+    CHECK(F->attack_sides && HOLDS(0x5340, 0x10ab, 0x50, 0xa3, 0xc2, 0xa2) &&
+          HOLDS(0x5340, 0x10ab, 0x90, 0x26, 0x8a, 0x85, 0xc9, 0x00));
+    CHECK(F->free_attack_effect == 6 && HOLDS(0x5340, 0x0860, 0xd0, 0xb0, 0x06, 0x50));
+    CHECK(F->quiet_flag == 8 && HOLDS(0x5340, 0x0230, 0x2a0, 0x26, 0x8a, 0x45, 0x7b, 0x24, 0x08));
+    CHECK(F->forget_mark == 0x80 && HOLDS(0x65cd, 0x17c4, 0x50, 0x0c, 0x80));
+    bool found42 = false;
+    for (const uint8_t *a = F->arrows; *a != 0; ++a) found42 |= *a == 0x42;
+    CHECK(found42 && HOLDS(0x5340, 0x28a0, 0x60, 0x3c, 0x42));
+    CHECK(F->missile_clamped && HOLDS(0x65cd, 0x1d56, 0x50, 0x26, 0xc7, 0x05, 0x31, 0x00) &&
+          HOLDS(0x65cd, 0x1d56, 0x50, 0x26, 0xc7, 0x05, 0x18, 0x00));
+    /* Turning undead. */
+    CHECK(F->turning == COK_TURNING_DEATH_KNIGHTS);
+    CHECK(HOLDS(0x5340, 0x119b, 0x80, 0x26, 0x8a, 0x45, 0x48, 0x98, 0x48, 0x48) &&
+          HOLDS(0x5340, 0x119b, 0x90, 0x26, 0x80, 0x7d, 0x23, 0x02) &&
+          HOLDS(0x5340, 0x119b, 0xa0, 0x80, 0x7e, 0xf5, 0x08) &&
+          HOLDS(0x5340, 0x119b, 0xa0, 0x80, 0x7e, 0xf5, 0x0e) &&
+          HOLDS(0x5340, 0x119b, 0xa0, 0xc6, 0x46, 0xf5, 0x09) &&
+          HOLDS(0x5340, 0x119b, 0xa0, 0xc6, 0x46, 0xf5, 0x0a));
+    CHECK(HOLDS(0x5340, 0x119b, 0xc0, 0x26, 0x8a, 0x85, 0xff, 0x01) &&
+          cok_ecl_var_address(R, COK_VAR_TURNING, 0) == 0x4cff);
+    CHECK(HOLDS(0x5340, 0x119b, 0x120, 0xba, 0x0b, 0x00) &&
+          HOLDS(0x5340, 0x119b, 0x120, 0x8a, 0x85, 0xa5, 0x05) &&
+          cok_data_offset2(R->data, COK_DATA_TURNING, 0, 0) == 0x05a5 &&
+          cok_data_offset2(R->data, COK_DATA_TURNING, 1, 0) == 0x05a5 + 11);
+    CHECK(HOLDS(0x5340, 0x119b, 0x160, 0xb0, 0x06, 0x50, 0x9a) &&
+          HOLDS(0x5340, 0x119b, 0x160, 0x05, 0x06, 0x00) &&
+          HOLDS(0x5340, 0x119b, 0x160, 0xb0, 0x0c, 0x50, 0x9a));
+    /* The saving throw (638c:10f8: effect 0x39 makes the roll 1). */
+    CHECK(R->effects.save_fail_id == 0x39 && R->effects.save_unported == NULL &&
+          HOLDS(0x638c, 0x10f8, 0x40, 0xb0, 0x39, 0x50) &&
+          HOLDS(0x638c, 0x10f8, 0x40, 0xc6, 0x06, 0x6a, 0xbe, 0x01));
+}
+
 int main(void)
 {
     test_lookup();
@@ -1121,6 +1233,7 @@ int main(void)
         test_assets();
         test_executable();
         if (exe_size > 0) test_combat();
+        if (exe_size > 0) test_fight();
     }
     puts("death knights: ok");
     return 0;

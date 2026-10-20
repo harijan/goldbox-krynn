@@ -162,8 +162,9 @@ static bool poll_keys(cok_adventure *game, cok_character *c, bool *back)
         return true;
     }
     if (key == 0x32) {
+        const cok_rules_fight_words *W = &cok_game_rules(game)->fight.words;
         combat->magic_on = !combat->magic_on;
-        cok_camp_notice(game, combat->magic_on ? "Magic On" : "Magic Off"); /* 6346:1827 */
+        cok_camp_notice(game, combat->magic_on ? W->magic_on : W->magic_off); /* 6346:1827 */
     } else if (key == ' ') {
         for (size_t i = 0; i < game->party.count; ++i) {
             uint8_t *r = game->party.members[i]->record;
@@ -242,21 +243,25 @@ static bool morale(cok_adventure *game, cok_character *c, bool *over, uint8_t *s
     if (rolls->morale >= lost && rolls->morale != 0) return true;
     rolls->morale = combat->enemy_health;
     if (!event(game, c, 0x11)) return false;
+    const cok_rules_fight *F = &cok_game_rules(game)->fight;
+    /* As an unsigned word, or (dkk 3f63:1260) signed. */
     uint16_t need = (uint16_t)(100u - cok_ecl_var(&game->vm, COK_VAR_MORALE)); /* var 0x7ec6 */
-    if (rolls->morale >= need && rolls->morale != 0 && cok_field_u8(L, r, COK_FIELD_HOSTILE) != 0)
+    bool below = F->morale_signed ? rolls->morale < (int16_t)need : rolls->morale < need;
+    if (!below && rolls->morale != 0 && cok_field_u8(L, r, COK_FIELD_HOSTILE) != 0)
         return true;
     uint8_t fastest, mine;
     if (!cok_combat_fastest_enemy(game, c, &fastest) || !cok_combat_movement(game, c, &mine))
         return false;
     if (fastest > mine >> 1) {
         if (cok_field_u8_at(L, r, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE) <= 5) return true;
-        if (!cok_combat_leave(game, c, 4, "Surrenders")) return false;
+        if (!cok_combat_leave(game, c, 4, F->words.surrenders)) return false;
         cok_combat_end_turn(c);
         *over = true;
         return true;
     }
     cr->fleeing = 1;
     const cok_rules *rules = cok_game_rules(game);
+    if (!F->flee_removes) return true;
     if (!cok_effects_remove(&game->effects, c, NULL,
                             cok_effect_id(rules, COK_EFFECT_DISPELLING)) ||
         !cok_effects_remove(&game->effects, c, NULL,
@@ -376,6 +381,8 @@ bool cok_ai_use_item(cok_adventure *game, cok_character *c, bool *used)
     uint8_t passes = roll(game, 1, 7), level = 7;
     cok_combat_record *cr = record_of(game, c);
     if (cr == NULL) return false;
+    /* dkk 3f63:02b8 walks the items after the die but uses none. */
+    if (!cok_game_rules(game)->fight.computer_items) return true;
     if (cr->may_use == 0 || combat->sides[cok_combat_opposite(c, cok_game_rules(game))] == 0 ||
         cok_ecl_var(&game->vm, COK_VAR_NO_MAGIC) != 0) /* var 0x4be5 */
         return true;
@@ -400,12 +407,78 @@ bool cok_ai_use_item(cok_adventure *game, cok_character *c, bool *used)
     return true;
 }
 
+/* dkk 3f63:056c with 03ee and 04f2: the first in order of priority (the
+ * spell table's column 13, highest first, the earlier of equals first) of
+ * the spells memorized in slots 1-0x49 that the computer may cast (column
+ * 11), or 0. */
+static bool best_spell(cok_adventure *game, const uint8_t *r, uint8_t *best)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t list[0x4a] = {0};
+    *best = 0;
+    for (unsigned i = 1; i <= 0x49 && i < cok_field_count(L, COK_FIELD_MEMORIZED); ++i) {
+        uint8_t spell = cok_field_u8_at(L, r, COK_FIELD_MEMORIZED, i), may, mine;
+        if (spell == 0 || spell >= 0x80) continue;
+        if (!spell_byte(game, spell, 11, &may)) return false;
+        if (may == 0) continue;
+        if (!spell_byte(game, spell, 13, &mine)) return false;
+        /* Inserted before the first of lower priority, the rest moved up
+         * to the list's end. */
+        for (unsigned k = 0; k < 0x4a; ++k) {
+            uint8_t theirs;
+            if (list[k] == 0) {
+                list[k] = spell;
+                break;
+            }
+            if (!spell_byte(game, list[k], 13, &theirs)) return false;
+            if (mine < theirs) continue;
+            for (unsigned j = k; j < 0x4a && spell != 0; ++j) {
+                uint8_t moved = list[j];
+                list[j] = spell;
+                spell = moved;
+            }
+            break;
+        }
+    }
+    *best = list[0];
+    return true;
+}
+
+/* dkk 3f63:05d7: with magic allowed (var COK_VAR_NO_MAGIC 0), a spells'
+ * block, the turn's casting allowed and an NPC or Magic On, the best spell
+ * is cast unless a d100 is at most four times the sum of c's mage,
+ * paladin, ranger and knight levels (as a byte) or a d5 is above its
+ * priority. */
+static bool death_knights_cast(cok_adventure *game, cok_character *c, bool *cast)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    const uint8_t *r = c->record;
+    cok_combat_record *cr = record_of(game, c);
+    if (cr == NULL) return false;
+    if (cok_ecl_var(&game->vm, COK_VAR_NO_MAGIC) != 0 || !cok_field_has_spells(L, r) ||
+        cr->may_cast == 0 || (cok_field_u8(L, r, COK_FIELD_NPC) <= 0x7e && !game->combat.magic_on))
+        return true;
+    uint8_t spell, priority;
+    if (!best_spell(game, r, &spell)) return false;
+    if (spell == 0) return true;
+    uint8_t levels = (uint8_t)(cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 2) +
+                               cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 7) +
+                               cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 3) +
+                               cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 4));
+    if ((uint8_t)(levels << 2) >= roll(game, 1, 100)) return true;
+    if (!spell_byte(game, spell, 13, &priority)) return false;
+    if (roll(game, 1, 5) > priority) return true;
+    return cok_combat_cast(game, cast, true, spell); /* 5340:258e */
+}
+
 bool cok_ai_cast(cok_adventure *game, cok_character *c, bool *cast)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     const uint8_t *r = c->record;
     *cast = false;
+    if (cok_game_rules(game)->fight.computer_cast == COK_COMPUTER_CAST_DEATH_KNIGHTS)
+        return death_knights_cast(game, c, cast);
     cok_combat_record *cr = record_of(game, c);
     if (cr == NULL) return false;
     /* The memorized spells but the first, count - 1 of the layout's (57 in
@@ -442,10 +515,16 @@ bool cok_ai_turn_undead(cok_adventure *game, cok_character *c, uint8_t limit, bo
     cok_combat_record *cr = record_of(game, c);
     if (cr == NULL) return false;
     if (cr->turns >= game->undead) return true;
+    /* dkk 3f63:0251: a paladin above level 2 too, up to undead of kind
+     * 0x0d. */
+    const cok_rules_fight *F = &cok_game_rules(game)->fight;
     if (!(cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 0) > 0 ||
+          (F->paladin_turns != 0 &&
+           cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 3) > (int8_t)F->paladin_turns) ||
           cok_character_former_level(cok_game_rules(game), r, 0) >
               cok_character_change_level(cok_game_rules(game), r)))
         return true;
+    if (F->turn_limit != 0) limit = F->turn_limit;
     cok_character *undead;
     bool found;
     if (!cok_combat_undead(game, c, &undead, &limit, &found)) return false;
@@ -728,7 +807,7 @@ bool cok_ai_step(cok_adventure *game, cok_character *c)
         /* The party's facing turned back off the map: 7, 2, 3 or 6 for
          * the party's 0, 2, 4 or 6, and the other way for the party. */
         uint8_t f = game->vm.direction;
-        dir = (uint8_t)(f - ((f + 2) % 4) / 2);
+        dir = (uint8_t)(f - ((f + 2) % 4) / 2 + cok_game_rules(game)->fight.flee_turn);
         if (cok_field_u8(L, r, COK_FIELD_HOSTILE) == 0) dir = (uint8_t)(dir + 4);
         dir = (uint8_t)(dir % 8);
     }
@@ -750,9 +829,16 @@ bool cok_ai_step(cok_adventure *game, cok_character *c)
         cok_combat_end_turn(c);
         return true;
     }
-    uint8_t turn = 0, step;
-    if (!turned(game, cr, try_, &turn)) return false;
-    step = (uint8_t)((dir + turn) % 8);
+    uint8_t turn = 0, step = 0;
+    /* dkk 3f63:0ad7 reads the way only for a try below 6 and a way below
+     * 7; the step is not used past the last try. */
+    if (!(cok_game_rules(game)->fight.ways_guarded && (try_ >= 6 || cr->pattern >= 7))) {
+        if (!turned(game, cr, try_, &turn)) return false;
+        step = (uint8_t)((dir + turn) % 8);
+    } else if (try_ < 6) {
+        return undefined(game, "way of moving %u leaves the step a byte of the stack "
+                               "(dkk 3f63:0ad7)", cr->pattern);
+    }
     bool stop = false;
     /* No way, or the way back: stuck. */
     if (try_ == 6 || (step + 4) % 8 == combat->last_step) {
@@ -845,7 +931,7 @@ bool cok_ai_fight(cok_adventure *game, cok_character *c, bool *over)
         if (weapon != 0) {
             const uint8_t *type = NULL;
             if (!item_type(game, c->items[weapon - 1], &type)) return false;
-            reach = (uint8_t)(type[12] - 1);
+            reach = (uint8_t)(type[12] - cok_game_rules(game)->fight.reach_less);
         }
         if (reach == 0 || reach == 0xff) reach = 1;
         /* The kept target; one that is none reads 0000:0189, harmlessly. */
@@ -958,7 +1044,12 @@ bool cok_combat_computer(cok_adventure *game, cok_character *c)
     uint8_t *r = c->record;
     cok_combat_record *cr = record_of(game, c);
     if (cr == NULL) return false;
+    const cok_rules_fight *F = &cok_game_rules(game)->fight;
     bool over, done;
+    /* dkk 3f63:0000: one with no target picks one first (5340:3cac). */
+    if (F->computer_target_first && cr->target == NULL &&
+        !cok_combat_pick_target(game, c, 0xff, true, false, &done))
+        return false;
     if (!cok_ai_keys(game, c, &over)) return false;
     clear_row(game);
     cok_arena_clear_text(game);
@@ -970,7 +1061,7 @@ bool cok_combat_computer(cok_adventure *game, cok_character *c)
     if (!pattern(game, c, &stale)) return false;
     if (!over && !morale(game, c, &over, &stale)) return false;
     if (cr->fleeing != 0 && cr->forced == 0) {
-        if (!cok_arena_say(game, c, "flees in panic", 10, true)) return false;
+        if (!cok_arena_say(game, c, F->words.panic, 10, true)) return false;
         stale = 0x42;
     }
     if (over) return true;
@@ -982,7 +1073,11 @@ bool cok_combat_computer(cok_adventure *game, cok_character *c)
     if (cr->spell > 0) {
         /* Unlike the player's turn (3995:0573), the spell is not cleared
          * first: one hurt while casting it, by its own fireball, say,
-         * "lost a spell" and forgets it again. */
+         * "lost a spell" and forgets it again. dkk 3f63:0000 picks a target
+         * afresh first where it has none. */
+        if (F->computer_target_first && cr->target == NULL &&
+            !cok_combat_pick_target(game, c, 0xff, true, true, &done))
+            return false;
         cok_cast_spell(game, cr->spell, true, true, 0, &done); /* 5b04:1415 */
         if (game->vm.status != COK_ECL_OK) return false;
         cok_combat_end_turn(c);

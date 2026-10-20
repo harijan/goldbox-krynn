@@ -1026,7 +1026,7 @@ static const cok_rules_effect champions_effect_handlers[0x79] = {
     [0x4c] = {0x272a, COK_FX_GATE},
     [0x4d] = {0x29d5, COK_FX_BERSERK},
     [0x4e] = {0x4dc2, COK_FX_BREATH},
-    [0x4f] = {0x2b5f, COK_FX_STENCH},
+    [0x4f] = {0x2b5f, COK_FX_STENCH, .text = "is affected"}, /* CS:2b53 */
     [0x50] = {0x2cad, COK_FX_CLOUD},
     [0x51] = {0x3009, COK_FX_PARALYSIS},
     [0x52] = {0x303c, COK_FX_FEAR},
@@ -1104,6 +1104,10 @@ static const uint8_t champions_shared[] = {0x15, 0x2d, 0x2e, 0x31, 0};
 static const uint8_t champions_resisted_pending[] = {0x5b, 0x52, 0};
 
 /* The effects a party record loses after combat (351b:0574, DS:0390). */
+/* The item types the missile's flight draws as arrows (432f:2beb): darts,
+ * javelins, quarrels and arrows. */
+static const uint8_t champions_arrows[] = {5, 7, 0x0c, 0x1e, 0};
+
 static const uint8_t champions_combat_effects[] = {0x03, 0x0b, 0x15, 0x17, 0x1b, 0x23,
                                                    0x28, 0x33, 0x34, 0x35, 0x1f, 0};
 
@@ -1522,6 +1526,9 @@ const cok_rules cok_rules_champions = {
             .display_spells = champions_display_spells,
             .display_texts = champions_display_texts,
             .display_text_count = sizeof champions_display_texts / sizeof *champions_display_texts,
+            .save_fail_id = 0,
+            .save_moon_wraps = true, /* 60f4:113a */
+            .unaffected = "is Unaffected", /* 60f4:20e9 */
         },
     .moons =
         {
@@ -1649,6 +1656,68 @@ const cok_rules cok_rules_champions = {
             /* 351b:1aab */
             .rejoice = "The monsters rejoice for the party has been destroyed",
             .rejoice_key = "Press any key to continue",
+        },
+    .fight =
+        {
+            .words =
+                {
+                    /* 432f:033e's (CS:0277-0334) */
+                    .attacks = "Attacks",
+                    .backstabs = "-Backstabs-",
+                    .slays = "slays helpless",
+                    .behind = "(from behind) ",
+                    .cruel = "with one cruel blow",
+                    .hitting = "Hitting for ",
+                    .point = " point ",
+                    .points = " points ",
+                    .damage = "of damage",
+                    .misses = "and Misses",
+                    .lost_spell = "lost a spell",
+                    .goes_down = "goes down",
+                    .dying = "and is Dying",
+                    .killed = "is killed",
+                    .got_away = "Got Away",           /* 432f:0dac */
+                    .blocked = "Escape is blocked",   /* 432f:0db5 */
+                    .destroyed = "Is destroyed",      /* 432f:12b7 */
+                    .nothing = "Nothing Happens...",
+                    .panic = "flees in panic",        /* 3afb:003c */
+                    .surrenders = "Surrenders",       /* 3afb:130b */
+                    .magic_on = "Magic On",           /* 3afb:11ed */
+                    .magic_off = "Magic Off",
+                    .teammate_dying = "Your Teammate is Dying", /* 3995:0b45 */
+                    .continue_battle = "Continue Battle:",      /* 3995:0b5c */
+                    .bandaged = "is bandaged",        /* 6346:31dd */
+                    .hit_points = "Hitpoints",        /* 6346:0ad4 */
+                    .helpless = "(Helpless)",
+                    .casting = "(Casting)",
+                    .guarding = "Guarding",           /* 6346:29aa */
+                    .gods_refused = "That doesn't work", /* 3995:0561 */
+                },
+            .cloud_tile = 0x1e, /* 6beb:0c9d */
+            .pool_tile = 0x1d,
+            .clouds_terrain = false,
+            .body_spares_pool = false, /* 6beb:0e08 */
+            .kill_finds_body = false,
+            .kill_clears_spell = true,
+            /* 3afb:004b */
+            .computer_target_first = false,
+            .computer_items = true, /* 3afb:04b2 */
+            .computer_cast = COK_COMPUTER_CAST_CHAMPIONS, /* 3afb:03b9 */
+            .turn_limit = 0,     /* 3afb:024b's [bp-6] */
+            .paladin_turns = 0,
+            .reach_less = 1,     /* 3afb:0d49 */
+            .morale_signed = false, /* 3afb:1316 */
+            .flee_removes = true,
+            .flee_turn = 0,      /* 3afb:095a */
+            .ways_guarded = false,
+            .attack_sides = false, /* 432f:11d4 */
+            .free_attack_effect = 0, /* 432f:0986 */
+            .quiet_flag = 0,
+            .forget_mark = 0,    /* 6346:161b */
+            .arrows = champions_arrows, /* 432f:2beb */
+            .missile_clamped = false,
+            .burst_slot = 0x17, /* 6346:228c */
+            .turning = COK_TURNING_CHAMPIONS, /* 432f:12b7 */
         },
 };
 

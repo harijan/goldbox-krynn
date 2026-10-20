@@ -442,6 +442,12 @@ typedef struct {
     uint16_t address;
     uint8_t handler;
     const char *unported;
+    /* What the routine takes as a constant where one handler serves
+     * several ids (COK_FX_CANCEL's effect), or 0; and the words it says
+     * where the games word them differently (COK_FX_STENCH's of one
+     * affected), or NULL. */
+    uint8_t value;
+    const char *text;
 } cok_rules_effect;
 
 /* A text Display shows for an effect id (4888:17ae). */
@@ -486,6 +492,16 @@ typedef struct {
      * level (6346:29fe), the saving throw (60f4:113a) and magic resistance
      * (60f4:04f3). Reaching one fails. */
     const char *caster_level_unported, *save_unported, *resistance_unported;
+    /* The effect whose holder's saving throw rolls 1 (dkk 638c:10f8: 0x39),
+     * or 0; whether the saving throw's moon of a mage's order of magic is
+     * read at 0x4b00 + the byte order + 0xf8 (60f4:113a's sum wraps: var
+     * COK_VAR_AREA) rather than at 0x4cf8 + order (dkk 638c:10f8 sums a
+     * word: var COK_VAR_ORDER_MOON, the moon's phase). */
+    uint8_t save_fail_id;
+    bool save_moon_wraps;
+    /* What one an effect does not take hold of "is" (60f4:20f7, CS:20e9;
+     * dkk 638c:1f86, DS:1d0f). */
+    const char *unaffected;
 } cok_rules_effects;
 
 /* The three moons (57e4:001e, 0143): the days each stays in a phase, and
@@ -754,18 +770,17 @@ typedef struct {
     bool show_none;
     /* The battle (3995:0172; dkk 3e05:00ec): whether leadership (dkk
      * 5340:4acf) comes before the setup, with its words (the first line,
-     * then name, leads, name and the end); whether after each turn the dead
-     * explode (60f4:2375; dkk has none); whether after each turn a side
-     * gone or the round limit ends the round there, once a battle (dkk
-     * 3e05:00ec's [bp-1]), rather than only at the end of the round; and
-     * the aging after the battle (dkk 3e05:0264, when an effect 0x27 set
-     * DS:c463), the player's turn (3995:0573; dkk 3e05:08af) and the
-     * computer's (3afb:004b; dkk 3f63:0000) where the port does not carry
-     * them out for the game yet, or NULL. */
+     * then name, leads, name and the end); whether after each turn and
+     * each blow the dead explode (60f4:2375; dkk has none); whether after
+     * each turn a side gone or the round limit ends the round there, once
+     * a battle (dkk 3e05:00ec's [bp-1]), rather than only at the end of the
+     * round; and the aging after the battle (dkk 3e05:0264, when an effect
+     * 0x27 set DS:c463) where the port does not carry it out for the game
+     * yet, or NULL. */
     bool leadership;
     const char *leadership_text, *leads, *leads_end;
     bool explode, ends_in_round;
-    const char *aging_unported, *player_unported, *computer_unported;
+    const char *aging_unported;
     /* The setup (3cb2:1c58; dkk 410b:1e41): its line on row 24 (Champions'
      * in 1521's code, CS:1c45; dkk DS:2a07); the tiles from the 3D area's
      * and the wilderness's archives (3cb2:1029: 0x19 and 0x21; dkk
@@ -826,6 +841,141 @@ typedef struct {
     const char *rejoice, *rejoice_key;
 } cok_rules_combat;
 
+/* The fight's words that differ (round.c, ai.c, attack.c, arena.c,
+ * command.c): Champions' in its code segments, Death Knights' in its data
+ * segment, most in lower case. */
+typedef struct {
+    /* The attack's message (432f:033e; dkk 5340:0230, DS:2d0d-2d8d): its
+     * header (Attacks, mode 2's, mode 3's), "(from behind)", the hit's
+     * words (mode 3's, else hitting, the number, point or points and the
+     * damage), the miss's; one casting losing its spell, one dropping, one
+     * dying and one killed (DS:1c3a, 1d04, 1cef, 1ce4). */
+    const char *attacks, *backstabs, *slays, *behind, *cruel, *hitting, *point, *points, *damage;
+    const char *misses, *lost_spell, *goes_down, *dying, *killed;
+    /* Fleeing (432f:0dc7; dkk 5340:0cc0): away, or blocked. */
+    const char *got_away, *blocked;
+    /* Turning undead (432f:12b7; dkk 5340:119b): one destroyed, and none
+     * turned (DS:2de3, 2df8). */
+    const char *destroyed, *nothing;
+    /* The computer's turn (3afb:004b, 1316; dkk 3f63:0000, 1260): one in
+     * panic, and one that surrenders; Magic On's and Off's words, the
+     * player's too (3afb:1200, 3995:0573; dkk DS:16f7, 1702). */
+    const char *panic, *surrenders, *magic_on, *magic_off;
+    /* The end of a round (3995:0b6d; dkk 3e05:0ed0): a member dying, and
+     * the question once the enemy is gone; bandaging (6346:31e9; dkk
+     * 65cd:3326, DS:2cf8). */
+    const char *teammate_dying, *continue_battle, *bandaged;
+    /* The panel (6346:0af6; dkk 65cd:0c44, DS:2c2e-2c4f): the hit points'
+     * word, and one helpless or casting; guarding (6346:29b3; dkk DS:2cc2). */
+    const char *hit_points, *helpless, *casting, *guarding;
+    /* Alt-X without the Helm cheat (3995:0573), or NULL where it says
+     * nothing (dkk 3e05:08af). */
+    const char *gods_refused;
+} cok_rules_fight_words;
+
+/* The computer's choice of a spell to cast (ai.c), each the port's routine
+ * of that game's original. */
+typedef enum {
+    /* 3afb:03b9 in 004b: 1d7 passes of up to three draws among the
+     * memorized spells, the first that fits cast (cok_ai_cast). */
+    COK_COMPUTER_CAST_CHAMPIONS,
+    /* dkk 3f63:05d7: the memorized spell of the highest priority (DS:6a8d,
+     * 16 bytes an id) that the computer may cast (6a8b), unless a d100 is
+     * at most four times its mage, paladin, ranger and knight levels or a
+     * d5 above its priority. */
+    COK_COMPUTER_CAST_DEATH_KNIGHTS,
+} cok_computer_cast_routine;
+
+/* Turning undead (attack.c), each the port's routine of that game's
+ * original. */
+typedef enum {
+    /* 432f:12b7: the cleric's levels (the former counted), 2 more for
+     * deity 2; 1d12 undead, then the d20. */
+    COK_TURNING_CHAMPIONS,
+    /* dkk 5340:119b: the better of the cleric's level and the paladin's
+     * less 2, 2 more for deity 2, above 8 made 9 (below 14) or 10, less
+     * var COK_VAR_TURNING (0 at least); the d20 first, then at the first
+     * undead found 1d6 + 6 of them where its row's value is negative (to
+     * destroy), else 1d12. */
+    COK_TURNING_DEATH_KNIGHTS,
+} cok_turning_routine;
+
+/* The rounds, the computer's turns and the attacks where the games differ
+ * (round.c, ai.c, attack.c, arena.c, command.c, cloud.c), and what of them
+ * the port does not carry out for a game yet (cited: reaching it stops the
+ * run, COK_ECL_UNPORTED). */
+typedef struct {
+    cok_rules_fight_words words;
+    /* The player's menu (3995:08d5; dkk 3e05:0ccc) where the port does not
+     * read it for the game yet: the player's turn stops there unless a key
+     * pressed for it (--combat auto, gods) does what it does. */
+    const char *menu_unported;
+    /* The end of a round's clouds (dkk 3e05:0ed0's 638c:21ec, its one
+     * list) and the cloud's effects on one in a cloud or a pool (60f4:0dc3;
+     * dkk 638c:0c65) where the port does not carry them out for the game:
+     * reached only with a cloud on the battlefield. */
+    const char *clouds_unported, *cloud_square_unported;
+    /* The battlefield's cloud and pool tiles (6beb:0c9d: 0x1e, 0x1d; dkk
+     * 6f03:0e33: 0x1d, 0x1c) and whether they also count as terrain and are
+     * marked where a cell is off the map (dkk); whether a body is laid over
+     * a pool's tile (6beb:0e08: only a cloud's is kept; dkk 6f03:0fbd's set
+     * at CS:0f9d keeps both). */
+    uint8_t cloud_tile, pool_tile;
+    bool clouds_terrain, body_spares_pool;
+    /* The death on the battlefield (6beb:0e08; dkk 6f03:0fbd): whether it
+     * looks for the record among the bodies 1-8 to do nothing for one
+     * already a body (dkk), rather than by a byte of the stack (see
+     * arena.h); whether it clears the spell being cast (+0x00; dkk keeps
+     * it). */
+    bool kill_finds_body, kill_clears_spell;
+    /* The computer's turn (3afb:004b; dkk 3f63:0000): whether one with no
+     * target picks one first (dkk 5340:3cac with 0, 0, 1, 0xff, and before
+     * a spell being cast with 0, 1, 1, 0xff); whether it uses an item's
+     * spell (3afb:04b2; dkk 3f63:02b8 rolls its 1d7 and walks the items
+     * but uses none); its choice of a spell (cok_computer_cast_routine);
+     * the highest kind of undead it turns (3afb:024b reads a byte of the
+     * stack: 0; dkk 3f63:0251 0x0d); the levels above which a paladin
+     * turns undead too (0 none; dkk 2, and 5340:119b, 3e05:08af); its
+     * reach, the weapon's range less reach_less (3afb:0d49: 1; dkk 0). */
+    bool computer_target_first, computer_items;
+    uint8_t computer_cast, turn_limit, paladin_turns, reach_less;
+    /* Morale (3afb:1316; dkk 3f63:1260): whether 100 less var COK_VAR_MORALE
+     * is compared signed (dkk, a byte) rather than as an unsigned word, and
+     * whether one made to flee loses effects COK_EFFECT_DISPELLING and
+     * GIANT_SLAYER (Champions). */
+    bool morale_signed, flee_removes;
+    /* The computer's step (3afb:095a; dkk 3f63:08c6): the turn added to the
+     * way away from the party one fleeing takes (dkk 1), and whether the
+     * way of moving is read only for a try below 6 and a way below 7 (dkk
+     * 0ad7), rather than for every try. */
+    uint8_t flee_turn;
+    bool ways_guarded;
+    /* Whether one may attack a target (432f:11d4; dkk 5340:10ab) runs the
+     * target's event 1 with the attacker selected (DS:a2c2) and refuses a
+     * target of its own side (dkk). */
+    bool attack_sides;
+    /* The free attacks on one stepping away (432f:0986; dkk 5340:0860):
+     * an effect that denies them to one holding it, or 0 (dkk 6). */
+    uint8_t free_attack_effect;
+    /* The attack's and the damage's message (5340:0230, 638c:1c52): the bit
+     * of the creature flags' byte 1 (dkk +0x7b) that leaves out one's
+     * dying and killed lines, or 0. */
+    uint8_t quiet_flag;
+    /* A spell lost (6346:161b clears the memorized byte: 0; dkk 65cd:17c4
+     * marks it, | 0x80). */
+    uint8_t forget_mark;
+    /* The missile's flight (432f:2beb; dkk 5340:28a0): the item types drawn
+     * as arrows, 0-ended; whether its ends are first kept on the
+     * battlefield (dkk 65cd:1d56: x 0-0x31, y 0-0x18). */
+    const uint8_t *arrows;
+    bool missile_clamped;
+    /* The icon slot of the burst drawn on one hurt (6346:228c with kind 0:
+     * 0x17; dkk 65cd:24bc 0x18; kind 1's flash is 0x16 in both). */
+    uint8_t burst_slot;
+    /* Turning undead (cok_turning_routine). */
+    uint8_t turning;
+} cok_rules_fight;
+
 /* The game's own words that are names: its title. */
 typedef struct {
     /* The window's title. */
@@ -862,6 +1012,7 @@ typedef struct cok_rules {
     cok_rules_frame frame;
     cok_rules_start start;
     cok_rules_combat combat;
+    cok_rules_fight fight;
 } cok_rules;
 
 extern const cok_rules cok_rules_champions, cok_rules_death_knights;

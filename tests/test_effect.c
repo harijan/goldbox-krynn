@@ -1303,9 +1303,38 @@ static void test_caster_level(void)
     vm.character = NULL;
 }
 
+/* Champions' saving throw reads a mage's moon at 0x4bf8 + its order (the
+ * byte sum wraps, 60f4:113a), not the moon's phase at 0x4cf8 + order. */
+static void test_save_moon(void)
+{
+    reset();
+    const cok_character_layout *L = cok_rules_champions.character;
+    cok_character *c = calloc(1, sizeof *c);
+    CHECK(c != NULL);
+    cok_field_set8_at(L, c->record, COK_FIELD_SAVING_THROW, 0, 2);
+    cok_field_set8_at(L, c->record, COK_FIELD_CLASS_LEVEL, 5, 3);
+    cok_field_set8(L, c->record, COK_FIELD_MAGIC_ORDER, 1);
+    cok_ecl_set_var_at(&vm, COK_VAR_AREA, 0xf9, 0);
+    cok_ecl_set_var_at(&vm, COK_VAR_ORDER_MOON, 1, 2);
+    uint32_t seed = 1000, copy;
+    uint8_t d20;
+    do {
+        copy = ++seed;
+        d20 = cok_dice(&copy, 1, 20);
+    } while (d20 == 1 || d20 == 20);
+    vm.seed = seed;
+    bool made;
+    CHECK(cok_effects_save(&fx, c, 0, 0, &made) && fx.rolls.save_roll == d20 - 1);
+    cok_character_free(c);
+    free(c);
+    reset();
+}
+
 /* Another game's effects section: Death Knights' effect 2 (dkk 504d:0124)
  * is not carried out yet, 0x7a is past its table, 5 runs Champions' (none),
- * and its caster level and saving throw are not ported yet. */
+ * and its caster level is not ported yet; its saving throw (638c:10f8) is
+ * Champions' but that a holder of effect 0x39 rolls 1 and a mage's moon
+ * is var 0x4cf8 + its order of magic. */
 static void test_other_game(void)
 {
     reset();
@@ -1322,8 +1351,33 @@ static void test_other_game(void)
     uint8_t level;
     CHECK(!cok_effects_caster_level(&fx, 1, &level) && strstr(fx.error, "65cd:2c33") != NULL);
     bool made;
-    CHECK(!cok_effects_save(&fx, c, 0, 0, &made) && strstr(fx.error, "638c:10f8") != NULL);
+    const cok_character_layout *L = cok_rules_death_knights.character;
+    cok_field_set8_at(L, c->record, COK_FIELD_SAVING_THROW, 0, 2);
+    for (unsigned k = 0; k < 40; ++k) {
+        vm.seed = 1000 + k;
+        uint32_t copy = vm.seed;
+        uint8_t d20 = cok_dice(&copy, 1, 20);
+        CHECK(cok_effects_save(&fx, c, 0, 0, &made) && made == (d20 != 1) &&
+              fx.rolls.save_roll == d20);
+    }
+    /* A mage (+0x4a) of order 1 (+0x24) under moon 0 (var 0x4cf9) saves 1
+     * worse; holding 0x39 it rolls 1 and fails. */
+    cok_field_set8_at(L, c->record, COK_FIELD_CLASS_LEVEL, 5, 3);
+    cok_field_set8(L, c->record, COK_FIELD_MAGIC_ORDER, 1);
+    cok_ecl_set_var_at(&vm, COK_VAR_ORDER_MOON, 1, 0);
+    uint32_t seed = 1000, copy;
+    uint8_t d20;
+    do {
+        copy = ++seed;
+        d20 = cok_dice(&copy, 1, 20);
+    } while (d20 == 1 || d20 == 20);
+    vm.seed = seed;
+    CHECK(cok_effects_save(&fx, c, 0, 0, &made) && fx.rolls.save_roll == d20 - 1);
+    CHECK(cok_character_add_effect(c, 0x39, 0, 0, false) != NULL);
+    vm.seed = seed;
+    CHECK(cok_effects_save(&fx, c, 0, 0, &made) && !made && fx.rolls.save_roll == 1);
     vm.character = NULL;
+    cok_character_free(c);
     free(c);
     reset();
 }
@@ -1336,6 +1390,7 @@ int main(void)
         return 1;
     }
     test_list();
+    test_save_moon();
     test_abilities();
     test_more_abilities();
     test_caster_level();
