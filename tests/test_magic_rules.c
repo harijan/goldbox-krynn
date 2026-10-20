@@ -277,16 +277,20 @@ static void test_champions(void)
         CHECK(r->effects.handlers[r->effects.ids[n]].handler != COK_FX_MISSING);
     CHECK(r->spells.count == 0x6c && r->effects.count == 0x79);
     CHECK(r->spells.durations != NULL && r->spells.duration_count == 7);
-    CHECK(r->effects.caster_level_unported == NULL && r->effects.save_unported == NULL &&
-          r->effects.resistance_unported == NULL);
-    /* Every handler the port has is one of Champions' routines. */
+    /* Every handler the port has is one of Champions' routines or Death
+     * Knights', and so is every effect handler. */
+    const cok_rules *d = &cok_rules_death_knights;
     for (unsigned k = 1; k < COK_CAST_HANDLERS; ++k) {
         bool used = false;
         for (unsigned id = 1; id < r->spells.count; ++id) used |= r->spells.cast[id].handler == k;
+        for (unsigned id = 1; id < d->spells.count; ++id) used |= d->spells.cast[id].handler == k;
         CHECK(used);
     }
-    /* ... and every effect handler one of Champions' or Death Knights'. */
-    const cok_rules *d = &cok_rules_death_knights;
+    /* Champions' take no constants: their routines are their own. */
+    for (unsigned id = 1; id < r->spells.count; ++id)
+        CHECK(r->spells.cast[id].value == 0 && r->spells.cast[id].count == 0 &&
+              r->spells.cast[id].sides == 0 && r->spells.cast[id].type == 0 &&
+              r->spells.cast[id].handler != COK_CAST_DICE);
     for (unsigned k = 1; k < COK_FX_HANDLERS; ++k) {
         bool used = false;
         for (unsigned id = 1; id < r->effects.count; ++id) used |= r->effects.handlers[id].handler == k;
@@ -296,7 +300,7 @@ static void test_champions(void)
     }
     consistent(r);
     lists(r);
-    CHECK(r->spells.cast_unported == NULL && r->spells.weapon_unscored == 0x53);
+    CHECK(r->spells.weapon_unscored == 0x53);
     image m;
     CHECK(load(&m, "build/START_FULL.EXE", 0x1bc6));
     names(&m, r);
@@ -320,8 +324,20 @@ static void test_death_knights(void)
     CHECK(r->effects.ids[COK_EFFECT_BOLTS] == 0 && !cok_effect_is(r, 0, COK_EFFECT_BOLTS));
     consistent(r);
     lists(r);
-    CHECK(r->spells.cast_unported != NULL && r->spells.weapon_unscored == 0x53);
+    CHECK(r->spells.weapon_unscored == 0x53);
     CHECK(cok_spell_id(r, COK_SPELL_KNOCK) == 0x1f);
+    /* Band A: Champions' handlers with the entry's constants (Enlarge,
+     * Lightning Bolt, Flame Strike, Ice Storm) or as they are (Confusion);
+     * the dice handler only with dice. */
+    CHECK(r->spells.cast[0x0c].handler == COK_CAST_ENLARGE && r->spells.cast[0x0c].value == 1);
+    CHECK(r->spells.cast[0x33].handler == COK_CAST_LIGHTNING_BOLT &&
+          r->spells.cast[0x33].value == 1);
+    CHECK(r->spells.cast[0x52].handler == COK_CAST_CONFUSION &&
+          cok_effect_id(r, COK_EFFECT_CONFUSED) == 0x23);
+    for (unsigned id = 1; id < r->spells.count; ++id) {
+        const cok_rules_cast *h = &r->spells.cast[id];
+        CHECK((h->handler == COK_CAST_DICE) == (h->count != 0 && h->sides != 0));
+    }
     /* A named effect it has has a handler entry; the rules not ported yet
      * say so. */
     for (unsigned n = 0; n < COK_EFFECT_NAMES; ++n) {
@@ -331,12 +347,9 @@ static void test_death_knights(void)
             CHECK(r->effects.handlers[id].handler != COK_FX_MISSING ||
                   r->effects.handlers[id].unported != NULL);
     }
-    /* The caster level and the saving throw are carried out (Champions'
-     * but for the knights' and rangers' levels, Fireball's 15, effect 0x39
-     * and the moon's variable: test_effect, test_death_knights). */
-    CHECK(r->effects.caster_level_unported == NULL && r->effects.save_unported == NULL &&
-          r->effects.resistance_unported != NULL && r->effects.save_fail_id == 0x39 &&
-          !r->effects.save_moon_wraps);
+    /* The saving throw (Champions' but for effect 0x39 and the moon's
+     * variable: test_effect, test_death_knights). */
+    CHECK(r->effects.save_fail_id == 0x39 && !r->effects.save_moon_wraps);
     CHECK(r->effects.display_spells != NULL && r->spells.display_last == 0x3f);
     image m;
     if (!load(&m, "build/death-START_FULL.EXE", 0x1bce)) {

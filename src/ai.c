@@ -476,6 +476,12 @@ static bool worth(cok_adventure *game, uint8_t side, uint8_t spell, cok_characte
     return true;
 }
 
+bool cok_ai_worth(cok_adventure *game, uint8_t side, uint8_t spell, cok_character *t,
+                  int8_t *good)
+{
+    return worth(game, side, spell, t, good);
+}
+
 /* dkk 5340:43ea: whether spell would do any good: on c itself where the
  * spell table's column 6 is 0, else on the first of those within its
  * range (5dc5:0e48) around c (6e48:08d6) it does good to, of c's own side

@@ -156,9 +156,13 @@ results. Treasure found (the treasure menu: Take, Pool, Share) and the
 bank vault of Gargath (take coins and items out, pool and deposit coins)
 work. Training halls train characters up to level 18 (Train Character)
 and promote knights (Knight Change Order); in camp, Magic's Memorize,
-Scribe and Display work, with spell levels up to 8. Not there yet:
-casting spells in combat (choosing one stops the game; a monster's spell
-too), the original's own character sheet and items menu (View and Use
+Scribe and Display work, with spell levels up to 8, and Cast casts, in
+camp and in combat, by you or the computer (Alt-M turns Magic On for the
+party on Auto), with saving throws and magic resistance as in the
+original; about half of its spells are there (Magic Missile, Sleep, Hold
+Person, the cures, Lightning Bolt, Ice Storm, Flame Strike and others):
+the others, Fireball and Bless among them, stop the game when cast. Not
+there yet: the original's own character sheet and items menu (View and Use
 show Champions' for now), creating and modifying characters, Initialize
 Mouse/Joystick, shops, the temple, camp's Fix, the mouse in Death
 Knights' menus, and a character's sheet and items in the vault: the game

@@ -637,9 +637,17 @@ static const uint8_t *listed_record(const cok_combat *combat, unsigned i)
 
 bool cok_combat_enemies(cok_adventure *game, cok_character *c, uint8_t range, uint8_t *count)
 {
+    return cok_combat_side_list(game, c, range, false, count);
+}
+
+bool cok_combat_side_list(cok_adventure *game, cok_character *c, uint8_t range, bool allies,
+                          uint8_t *count)
+{
     const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     const uint8_t *r = c->record;
+    uint8_t side = allies ? cok_field_u8(L, r, COK_FIELD_HOSTILE)
+                          : cok_combat_opposite(c, cok_game_rules(game));
     *count = 0;
     if (!cok_combat_list(combat, cok_game_rules(game), cok_combat_x(combat, r),
                          cok_combat_y(combat, r), range, 0xff,
@@ -653,9 +661,7 @@ bool cok_combat_enemies(cok_adventure *game, cok_character *c, uint8_t range, ui
             const uint8_t *other = listed_record(combat, i);
             if (other == NULL)
                 return undefined(game, "a listed combatant has no record (6346:26e2)");
-            if (cok_field_u8(L, other, COK_FIELD_HOSTILE) !=
-                cok_combat_opposite(c, cok_game_rules(game)))
-                continue;
+            if (cok_field_u8(L, other, COK_FIELD_HOSTILE) != side) continue;
             ++kept;
             combat->listed[kept] = combat->listed[i];
         }

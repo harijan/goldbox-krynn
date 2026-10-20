@@ -370,6 +370,13 @@ typedef struct {
     uint16_t address;
     uint8_t handler;
     const char *unported;
+    /* What the port's handler takes as constants where the games' differ,
+     * else 0: COK_CAST_DICE's damage, count dice of sides, of type;
+     * COK_CAST_ENLARGE's value 1 for a strength of 22 at every caster
+     * level but 1-9 (dkk 5dc5:2100; Champions' 21d7 at 10 and 11 only);
+     * COK_CAST_LIGHTNING_BOLT's value 1 for its dice counted (dkk 5dc5:37f8
+     * rolls through 638c:1233, keeping the count in DS:be71). */
+    uint8_t value, count, sides, type;
 } cok_rules_cast;
 
 /* A spell whose duration is not the table's (cok_cast_duration): its
@@ -427,10 +434,6 @@ typedef struct {
      * (3afb:14ca's test at 3afb:15e0): a value of the item's byte, not a
      * spell or effect id the game names. */
     uint8_t weapon_unscored;
-    /* The cast's own routine where the game's differs and the port does
-     * not carry it out yet, citing it, or NULL: casting any spell then
-     * stops the run (COK_ECL_UNPORTED) before its handler. */
-    const char *cast_unported;
     /* Who may use a spell's class (5b04:0083; dkk 5dc5:0078): clerics'
      * also a paladin of usable_paladin and up (dkk 9; 0 none), druids' a
      * ranger of usable_ranger and up (7; dkk 8), and magic-users' only a
@@ -490,11 +493,6 @@ typedef struct {
     const uint8_t *display_spells;
     const cok_rules_effect_text *display_texts;
     unsigned display_text_count;
-    /* The rules' routines that differ in the game and the port does not
-     * carry out for it yet, citing the game's routine, or NULL: the caster
-     * level (6346:29fe), the saving throw (60f4:113a) and magic resistance
-     * (60f4:04f3). Reaching one fails. */
-    const char *caster_level_unported, *save_unported, *resistance_unported;
     /* The effect whose holder's saving throw rolls 1 (dkk 638c:10f8: 0x39),
      * or 0; whether the saving throw's moon of a mage's order of magic is
      * read at 0x4b00 + the byte order + 0xf8 (60f4:113a's sum wraps: var
@@ -961,11 +959,9 @@ typedef struct {
     /* The free attacks on one stepping away (432f:0986; dkk 5340:0860):
      * an effect that denies them to one holding it, or 0 (dkk 6). */
     uint8_t free_attack_effect;
-    /* The attack's message (dkk 5340:0230): the bit of the creature
-     * flags' byte 1 (dkk +0x7b) that leaves out one's dying and killed
-     * lines, or 0. (dkk 638c:1c52, the damage's message, tests it too and
-     * has words of its own; cast.c's cok_cast_damage is still Champions':
-     * casting's and the effects' parts.) */
+    /* The attack's message (dkk 5340:0230) and the damage's (dkk
+     * 638c:1c52, cok_cast_damage): the bit of the creature flags' byte 1
+     * (dkk +0x7b) that leaves out one's dying and killed lines, or 0. */
     uint8_t quiet_flag;
     /* A spell lost (6346:161b clears the memorized byte: 0; dkk 65cd:17c4
      * marks it, | 0x80). */
@@ -1233,6 +1229,102 @@ typedef struct {
     const char *fix_unported;
 } cok_rules_levels;
 
+/* A spell whose cast bursts on its cell after the flight in combat (dkk
+ * 5dc5:1298's calls of 65cd:39bd): the icon slot of its pictures, and its
+ * rings (3 * n + 1), n where var COK_VAR_3D is 0 and n_3d where not. */
+typedef struct {
+    uint8_t spell, slot, n, n_3d;
+} cok_rules_burst;
+
+/* The computer's pick of a spell's target (432f:210b; dkk 5340:1eeb). */
+typedef enum {
+    /* 432f:210b: itself for a spell not hostile (Cure Light Wounds the
+     * wounded ally beside it), else one within range 432f:3f9f picks,
+     * unless helpless and the spell's effect one of those that make it so. */
+    COK_CAST_PICK_CHAMPIONS,
+    /* dkk 5340:1eeb: one within range of the side the spell is for
+     * (5340:1da5: 5340:3cac with its allies flag, then 5340:3fd5's worth),
+     * or for an area spell but a line (column 6 of 9 and up) the cell
+     * whose area does the most good (5340:44f8). */
+    COK_CAST_PICK_DEATH_KNIGHTS,
+} cok_cast_pick_routine;
+
+/* Casting where the games differ (cast.c, effect.c's magic resistance,
+ * magic.c's Cast, party.c's load): the cast's words and ways (5b04:1415;
+ * dkk 5dc5:1298), its targets (5b04:127e, 432f:2337, 210b; dkk 5dc5:1182,
+ * 5340:1ff7, 1eeb), the damage's message (60f4:1db7; dkk 638c:1c52). */
+typedef struct {
+    /* Outside combat a spell cast only in combat: its name, then "can't be
+     * cast here..." and "Lose it? " (dkk DS:0f25, 0f1a); an item's "That
+     * Item", "is a combat-only item..." and "Use it? " (DS:0f44, 0f4f,
+     * 0f6e); in combat one picking no target, "Abort Spell? " and "Spell
+     * Aborted" (DS:0f84, 0f99); and whether these questions start on Yes
+     * (dkk 6a69:2048 with DS:57c0, colour 13), rather than on No in the
+     * colours 13 and 14 (67b5:177f). */
+    const char *cast_here, *lose_it, *that_item, *combat_only, *use_it;
+    const char *abort, *aborted;
+    bool ask_yes;
+    /* The pick outside combat (5b04:127e; dkk DS:3192), the line said in
+     * combat on casting (5b04:57eb; dkk DS:2304); whether the pick of a
+     * character that may pick none (6346:32c7, cok_adventure_pick) shows
+     * "Exit" after "Select" (dkk 65cd:33c9: "Select" alone, Escape for
+     * none). */
+    const char *on_whom, *casts_a_spell;
+    bool pick_exit_shown;
+    /* Whether one holding COK_EFFECT_DISPELLING miscasts on a 1d2 of 1
+     * (5b04:1415's 6346:2447 with 0x4a; dkk none). */
+    bool miscast;
+    /* The spells that burst after their flight (dkk 65cd:39bd), and the
+     * sound the burst plays (DS:4316, Fireball's). */
+    const cok_rules_burst *bursts;
+    unsigned burst_count;
+    uint8_t burst_sound;
+    /* The targets in combat (432f:2337; dkk 5340:1ff7): whether the list is
+     * cleared first (dkk 1a07:1ad4 of 0x120 bytes at DS:c31d, entries
+     * 1-72); whether Silence's (column 6's 0x0f) area around its cell has
+     * column 6's high nibble for its radius (dkk), rather than that of the
+     * low nibble shifted, 0 (Champions). */
+    bool targets_cleared, silence_radius;
+    /* The computer's pick of a target (cok_cast_pick_routine). */
+    uint8_t computer_pick;
+    /* 5b04:1e34 (dkk 5dc5:1cc6): whether every spell keeps out an ally
+     * with an enemy beside it in combat, not Bless's alone. */
+    bool sided_all;
+    /* 5b04:1cbd (dkk 5dc5:1b20): whether Charm Monsters' effect is valued
+     * at the caster level with the caster's side (+0xc9) in bit 7 (dkk),
+     * rather than at the caster level alone. */
+    bool missiles_charm_side;
+    /* 5b04:3a6f (dkk 5dc5:354a), a bolt: whether its first bounce doubles
+     * the length walked rather than adding 8, and the least it is charged
+     * a line (dkk 2, a signed word), 0 for Champions' byte arithmetic. */
+    bool bolt_doubles;
+    uint8_t bolt_least;
+    /* Magic resistance (60f4:04f3; dkk 638c:04c9): whether magic damage
+     * with no effect pending is resisted too (dkk). */
+    bool resist_damage;
+    /* The damage's message (60f4:1db7; dkk 638c:1c52, DS:1c32-1d04):
+     * "takes ", N, " points of damage " or "takes 1 point of damage ",
+     * then "from Fire", "from Cold", "from Electricity", "from Acid", "from
+     * Magic"; one hurt while casting "lost a spell"; one down "Goes Down",
+     * ", and is Dying" or "is killed", but one whose creature flags hold
+     * the fight section's quiet bit only goes down (dkk). */
+    const char *takes, *points, *point, *from[5], *lost_spell, *goes_down, *dying, *killed;
+    /* Cure's word (60f4:14b7; dkk DS:19f3). */
+    const char *cured;
+    /* Why one may not cast, memorize or scribe (4888:08d8; dkk 4381:07ff,
+     * DS:2e0d-2e6b, cut to their strings' lengths): the area forbids it;
+     * "is in no condition to " and what. */
+    const char *no_area, *no_condition, *no_what[3];
+    /* A body's cell in combat (6beb:0500 draws its tile, RANDCOM's; dkk
+     * 6f03:010d the cell under it, then the icon of slot body_icon past the
+     * body's tile, masked), or 0 for none. */
+    uint8_t body_icon;
+    /* Whether a character's load (4b6d:11e5; dkk 46b2:10d7)
+     * recomputes its strength between its stats and its levels (dkk
+     * 638c:16d8 with 0). */
+    bool load_strength;
+} cok_rules_casting;
+
 /* The game's own words that are names: its title. */
 typedef struct {
     /* The window's title. */
@@ -1274,6 +1366,7 @@ typedef struct cok_rules {
     cok_rules_commands commands;
     cok_rules_treasure treasure;
     cok_rules_levels levels;
+    cok_rules_casting casting;
 } cok_rules;
 
 extern const cok_rules cok_rules_champions, cok_rules_death_knights;

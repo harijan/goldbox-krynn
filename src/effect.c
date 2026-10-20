@@ -149,9 +149,6 @@ static bool caster_level(cok_effects *fx, uint8_t spell, uint8_t *level)
 {
     const cok_character_layout *L = fx->rules->character;
     const cok_rules_effects *E = &fx->rules->effects;
-    if (fx->rules->effects.caster_level_unported != NULL)
-        return fail(fx, "not yet ported: %s's caster level (%s)", fx->rules->text.name,
-                    fx->rules->effects.caster_level_unported);
     const uint8_t *c = fx->vm->character;
     if (c == NULL)
         return fail(fx, "the caster level of spell %u (6346:29fe) reads the selected character, "
@@ -2283,32 +2280,6 @@ static bool call_handler(cok_effects *fx, uint8_t id, bool removing, cok_effect 
     return handlers[h->handler](fx, removing, effect, c);
 }
 
-/* 60f4:1543: the strength an effect's value gives, 18 with an exceptional
- * strength of value - 1 up to 101 (so 0 gives 18/255), above that value -
- * 100. */
-static void effect_strength(const cok_effect *effect, uint8_t *strength, uint8_t *exceptional)
-{
-    *exceptional = 0;
-    *strength = effect->value & 0x7f;
-    if (*strength <= 0x65) {
-        *exceptional = (uint8_t)(*strength - 1);
-        *strength = 18;
-    } else {
-        *strength = (uint8_t)(*strength - 100);
-    }
-}
-
-/* 60f4:15db: keep the better of the strength so far and a candidate; an
- * 18 with a higher exceptional strength counts as better even than 19 up. */
-static void better(uint8_t *strength, uint8_t *exceptional, uint8_t candidate,
-                   uint8_t candidate_exceptional)
-{
-    if (candidate > *strength || (candidate == 18 && candidate_exceptional > *exceptional)) {
-        *strength = candidate;
-        *exceptional = candidate_exceptional;
-    }
-}
-
 /* 60f4:1628: add a class's hit points for level to *hp, as a byte: the
  * level is capped below the class's top (DS:3903), a ranger's raised by
  * one unless it has a former level other than its own (+0xd7), and
@@ -2337,45 +2308,25 @@ static void class_hit_points(const cok_rules *rules, const cok_data_segment *D, 
     *hp = (uint8_t)(*hp + level * per);
 }
 
-/* 60f4:1743: the base score (+0x10 + 2 * stat; +0x1d for exceptional
- * strength) changed by the readied items' powers (+0x3e 0x80 + power, +0x3d
- * its kind) and effects, into the current one. Intelligence (1) and wisdom
- * (2) are computed and not stored. */
+/* 60f4:1743: the base score (+0x10 + 2 * stat) changed by the readied
+ * items' powers (+0x3e 0x80 + power, +0x3d its kind) and effects, into the
+ * current one; strength (0) cok_character_strength's. Intelligence (1)
+ * and wisdom (2) are computed and not stored. */
 static bool ability(cok_effects *fx, cok_character *ch, unsigned stat)
 {
+    if (stat == 0) {
+        cok_character_strength(ch, fx->rules);
+        return true;
+    }
     const cok_character_layout *L = fx->rules->character;
     const cok_data_segment *D = fx->rules->data;
     uint8_t *c = ch->record;
-    uint8_t score = cok_field_u8_at(L, c, COK_FIELD_SCORE_BASE, stat),
-            exceptional = cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL_BASE);
-    uint8_t candidate = 0, candidate_exceptional = 0, fixed = 0xff;
+    uint8_t score = cok_field_u8_at(L, c, COK_FIELD_SCORE_BASE, stat);
     for (size_t i = 0; i < ch->item_count; ++i) {
         const uint8_t *item = ch->items[i];
         if (item[0x3e] <= 0x80 || item[0x34] == 0) continue;
         uint8_t power = item[0x3e] & 0x7f, kind = item[0x3d];
         switch (stat) {
-        case 0:
-            if (power == 3) {
-                candidate = 18;
-                candidate_exceptional = 100;
-            } else if (power == 5) {
-                if (kind == 0) {
-                    candidate = 18;
-                    candidate_exceptional = 100;
-                } else if (kind <= 6) {
-                    candidate = (uint8_t)(18 + kind);
-                }
-            } else if (power == 8) {
-                uint8_t strength = cok_field_u8_at(L, c, COK_FIELD_SCORE_BASE, COK_SCORE_STRENGTH);
-                if (strength < 18 && kind == 0) {
-                    candidate = (uint8_t)(strength + 1);
-                    candidate_exceptional = 0;
-                }
-            } else if (power == 0x0d) {
-                fixed = 3;
-            }
-            better(&score, &exceptional, candidate, candidate_exceptional);
-            break;
         case 1: /* 0x0c and 0x0d would set 7 and 3, but nothing is stored. */
         case 2:
             break;
@@ -2458,46 +2409,6 @@ static bool ability(cok_effects *fx, cok_character *ch, unsigned stat)
             return true;
         }
         return remove_effect(fx, ch, NULL, EFFECT(REGENERATING));
-    }
-    const cok_effect *effect = FIND_EFFECT(ch, STRENGTH);
-    if (effect != NULL) {
-        effect_strength(effect, &candidate, &candidate_exceptional);
-        if (score < 19 && exceptional < 100) {
-            candidate = (uint8_t)(candidate + score);
-            if (candidate > 18) {
-                /* Fighters, rangers and knights, now or before, get the
-                 * excess as exceptional strength, added to the current
-                 * one each time. */
-                bool fighter = false;
-                for (unsigned k = 0; k < 8; ++k)
-                    if ((fx->rules->characters.fighter_classes >> k & 1) != 0 &&
-                        (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, k) > 0 ||
-                         cok_character_former_level(fx->rules, c, k) > 0))
-                        fighter = true;
-                if (fighter) {
-                    candidate_exceptional =
-                        (uint8_t)((candidate - 18) * 10 +
-                                  cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL));
-                    if (candidate_exceptional > 100) candidate_exceptional = 100;
-                }
-                candidate = 18;
-            }
-        }
-        better(&score, &exceptional, candidate, candidate_exceptional);
-    }
-    const uint8_t others[] = {EFFECT(GIANT_STRENGTH), EFFECT(ENLARGED)};
-    for (size_t k = 0; k < sizeof others; ++k) {
-        effect = cok_character_find_effect(ch, others[k]);
-        if (effect == NULL) continue;
-        effect_strength(effect, &candidate, &candidate_exceptional);
-        better(&score, &exceptional, candidate, candidate_exceptional);
-    }
-    if (fixed != 0xff) {
-        cok_field_set8_at(L, c, COK_FIELD_SCORE, COK_SCORE_STRENGTH, fixed);
-        cok_field_set8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL, 0);
-    } else {
-        cok_field_set8_at(L, c, COK_FIELD_SCORE, COK_SCORE_STRENGTH, score);
-        cok_field_set8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL, exceptional);
     }
     return true;
 }
@@ -2639,15 +2550,17 @@ static bool dispatch_event(cok_effects *fx, cok_character **target, uint8_t even
     if (event >= E->event_count || E->events[event] == NULL) return true;
     if (event == 6 || event == 9) {
         /* 60f4:04f3, magic resistance (+0x187), when an effect is pending
-         * and no damage, or magic damage: a d100 up to the resistance plus
-         * 5 for each caster level of the spell (DS:6b33) below 11, as a
-         * byte, resists the damage and the effect (but for 0x5b and 0x52). */
+         * and no damage, or magic damage (dkk 638c:04c9, casting's
+         * resist_damage: magic damage with no effect pending too): a d100
+         * up to the resistance plus 5 for each caster level of the spell
+         * (DS:6b33) below 11, as a byte, resists the damage and the effect
+         * (but for 0x5b and 0x52). */
         cok_rolls *r = &fx->rolls;
         uint8_t resistance = cok_field_u8(L, (*target)->record, COK_FIELD_MAGIC_RESISTANCE), level;
-        if (resistance != 0 && E->resistance_unported != NULL)
-            return fail(fx, "not yet ported: %s's magic resistance (%s)", fx->rules->text.name,
-                        E->resistance_unported);
-        if (resistance != 0 && r->pending != 0 && (r->amount == 0 || (r->damage_type & 8) != 0)) {
+        bool magic = (r->damage_type & 8) != 0;
+        if (resistance != 0 &&
+            (r->pending != 0 || (fx->rules->casting.resist_damage && magic)) &&
+            (r->amount == 0 || magic)) {
             if (!caster_level(fx, r->spell, &level)) return false;
             uint8_t chance = (uint8_t)(resistance + 5 * (11 - level));
             if (roll(fx, 1, 100) <= chance) {
@@ -2706,9 +2619,6 @@ static bool saving_throw(cok_effects *fx, cok_character *target, uint8_t type, u
                          bool *made)
 {
     const cok_character_layout *L = fx->rules->character;
-    if (fx->rules->effects.save_unported != NULL)
-        return fail(fx, "not yet ported: %s's saving throw (%s)", fx->rules->text.name,
-                    fx->rules->effects.save_unported);
     cok_rolls *r = &fx->rolls;
     const uint8_t *c = target->record;
     r->save_made = 1;

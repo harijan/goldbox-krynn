@@ -1826,6 +1826,49 @@ const cok_rules cok_rules_champions = {
             .magic_selection = false, /* 4888:1c32 */
             .fix_unported = NULL,
         },
+    .casting =
+        {
+            /* 5b04:1415's own strings (CS:139e-1407), 67b5:177f from No. */
+            .cast_here = "can't be cast here...",
+            .lose_it = "Lose it? ",
+            .that_item = "That Item",
+            .combat_only = "is a combat-only item...",
+            .use_it = "Use it? ",
+            .abort = "Abort Spell? ",
+            .aborted = "Spell Aborted",
+            .ask_yes = false,
+            .on_whom = "Cast Spell on whom", /* 5b04:126b */
+            .casts_a_spell = "Casts a Spell",  /* 5b04:57d6 */
+            .pick_exit_shown = true,
+            .miscast = true,
+            .bursts = NULL,
+            .burst_count = 0,
+            .burst_sound = 0,
+            .targets_cleared = false,
+            .silence_radius = false,
+            .computer_pick = COK_CAST_PICK_CHAMPIONS,
+            .sided_all = false,
+            .missiles_charm_side = false,
+            .bolt_doubles = false,
+            .bolt_least = 0,
+            .resist_damage = false,
+            /* 60f4:1db7's (CS:1cfa-1dad). */
+            .takes = "takes ",
+            .points = " points of damage ",
+            .point = "takes 1 point of damage ",
+            .from = {"from Fire", "from Cold", "from Electricity", "from Acid", "from Magic"},
+            .lost_spell = "lost a spell",
+            .goes_down = "Goes Down",
+            .dying = ", and is Dying",
+            .killed = "is killed",
+            .cured = "is Cured", /* 60f4:14ae */
+            /* 4888:08d8 (CS:086e-08c5). */
+            .no_area = "cannot cast spells in this area",
+            .no_condition = "is in no condition to ",
+            .no_what = {"cast any spells", "memorize spells", "scribe any scrolls"},
+            .body_icon = 0,
+            .load_strength = false,
+        },
 };
 
 static const cok_rules *const games[] = {&cok_rules_champions, &cok_rules_death_knights};

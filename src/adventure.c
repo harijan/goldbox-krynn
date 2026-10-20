@@ -1198,7 +1198,10 @@ static uint8_t *pick_character(cok_adventure *game, const char *prompt, uint8_t 
     char menu_prompt[42];
     snprintf(menu_prompt, sizeof menu_prompt, "%.40s ", prompt);
     char items[16];
-    snprintf(items, sizeof items, "Select%s", exit_item ? " Exit" : "");
+    /* dkk 65cd:33c9 shows "Select" alone, Escape picking none where an
+     * Exit is allowed (6a69:00cb). */
+    snprintf(items, sizeof items, "Select%s",
+             exit_item && cok_game_rules(game)->casting.pick_exit_shown ? " Exit" : "");
     *ended = false;
     int key = ' ';
     while (key != 0x0d && key != 0x1b && key != 'E' && key != 'S') {

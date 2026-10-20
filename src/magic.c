@@ -574,19 +574,19 @@ void cok_magic_sort(uint8_t *c, const cok_rules *rules)
         }
 }
 
-/* Whether the selected character may do kind of magic (4888:08d8): 1 cast,
- * which an area with 0x4be5 set forbids, 2 memorize, 3 scribe; not while
- * its status is 1 or it cannot act. If not, it says why. */
+/* Whether the selected character may do kind of magic (4888:08d8; dkk
+ * 4381:07ff): 1 cast, which an area with 0x4be5 set forbids, 2 memorize, 3
+ * scribe; not while its status is 1 or it cannot act. If not, it says why
+ * (casting's words). */
 static bool can(cok_adventure *game, const uint8_t *c, int kind)
 {
-    static const char *const what[4] = {"", "cast any spells", "memorize spells",
-                                        "scribe any scrolls"};
+    const cok_rules_casting *K = &cok_game_rules(game)->casting;
     char text[80] = "";
     if (kind == 1 && cok_ecl_var(&game->vm, COK_VAR_NO_MAGIC) > 0)
-        snprintf(text, sizeof text, "cannot cast spells in this area");
+        snprintf(text, sizeof text, "%s", K->no_area);
     else if (cok_field_u8(cok_game_rules(game)->character, c, COK_FIELD_STATUS) == 1 ||
              cok_field_u8(cok_game_rules(game)->character, c, COK_FIELD_ACTIVE) == 0)
-        snprintf(text, sizeof text, "is in no condition to %s", what[kind]);
+        snprintf(text, sizeof text, "%s%s", K->no_condition, K->no_what[kind - 1]);
     if (text[0] == '\0') return true;
     cok_camp_say(game, c, text, true);
     return false;
