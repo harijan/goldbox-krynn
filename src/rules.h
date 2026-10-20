@@ -1017,9 +1017,10 @@ typedef struct {
     const char *yes_no;
     /* The adventure's menu (475c:09ec; dkk 4307:0257): whether it keeps
      * its own selection, put back into DS:c0f7 before each ask and taken
-     * after (dkk), rather than the selection set to the first before Cast,
-     * View and Encamp (Champions); whether Escape leaves Move (dkk: a
-     * special key in its loop). */
+     * after (dkk), rather than going on from what the menus before left
+     * (Champions; both set the first before Cast, View and Encamp, whose
+     * menus in Death Knights start from their first themselves); whether
+     * Escape leaves Move (dkk: a special key in its loop). */
     bool adventure_keeps_selection, escape_leaves_move;
     /* Whether a special key that picks a character (546c:3334; dkk
      * 580d:2bb2) keeps the one selected for a key other than Up and Down

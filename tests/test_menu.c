@@ -520,6 +520,9 @@ static void test_indexed(void)
     cok_menu_items_upto(&items, 2);
     cok_menu_indexed(&m, "Faster Slower Exit", &items);
     CHECK(strcmp(m.text, "Faster Slower Exit") == 0 && !m.two_rows && m.count == 3);
+    cok_menu_items_upto(&items, 1);
+    cok_menu_indexed(&m, "Faster Slower Exit", &items);
+    CHECK(strcmp(m.text, "Faster Slower") == 0 && m.last[2] == 13);
     items = (cok_menu_items){0};
     cok_menu_items_add(&items, 1);
     cok_menu_indexed(&m, "Target Exit", &items);
@@ -563,12 +566,19 @@ static void test_indexed(void)
     CHECK(pick_key(text, &items, "26\r", 3, false, &selected, &special, NULL) == 10 &&
           !special && selected == 6);
     CHECK(pick_key(text, &items, "5", 1, true, &selected, &special, NULL) == 0x20 && special);
+    CHECK(pick_key(text, &items, "1", 1, true, &selected, &special, NULL) == 0x4f && special);
+    CHECK(pick_key(text, &items, "\\", 1, true, &selected, &special, NULL) == 0x37 && special);
     CHECK(pick_key(text, &items, "4", 1, true, &selected, &special, NULL) == 0x4b && special &&
           selected == 5);
     /* H and P change rows where no item has them. */
     selected = 1;
     CHECK(pick_key(text, &items, "h\r", 2, false, &selected, &special, NULL) == 7 &&
           selected == 5);
+    /* Two items: the arrows move between them. */
+    cok_menu_items_upto(&items, 1);
+    selected = 1;
+    CHECK(pick_key("Yes No", &items, "\x01\x4b", 2, false, &selected, &special, NULL) == 0x4b &&
+          selected == 2);
     /* One item: the arrows come back and move nothing. */
     cok_menu_items_upto(&items, 0);
     selected = 1;

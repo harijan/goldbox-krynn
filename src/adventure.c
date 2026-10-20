@@ -3110,7 +3110,6 @@ static void check_step(cok_adventure *game)
 static int overland_command(cok_adventure *game)
 {
     static const char ways[8] = {'H', 'I', 'M', 'Q', 'P', 'O', 'K', 'G'};
-    bool keeps = cok_game_rules(game)->menus.adventure_keeps_selection;
     uint8_t own = game->selected;
     for (;;) {
         bool special;
@@ -3123,7 +3122,7 @@ static int overland_command(cok_adventure *game)
                 cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 67b5:0c7b */
                 game->moving = true;
             } else if (key == 'E') {
-                if (!keeps) game->selected = 1;
+                game->selected = 1;
                 return key;
             }
             continue;
@@ -3163,7 +3162,6 @@ static int command(cok_adventure *game)
                            vm->mode == 3 ? " without the overland menu (0x4cf7)" : "");
         return -1;
     }
-    bool keeps = cok_game_rules(game)->menus.adventure_keeps_selection;
     uint8_t own = game->selected; /* dkk 4307:0257's [bp-0x12] */
     for (bool done = vm->mode != 4; !done;) {
         bool special;
@@ -3191,18 +3189,18 @@ static int command(cok_adventure *game)
                 }
                 if (cok_field_u8(cok_game_rules(game)->character, vm->character,
                                  COK_FIELD_STATUS) == 0) {
-                    if (!keeps) game->selected = 1;
+                    game->selected = 1; /* dkk 4381:091c sets it itself */
                     cok_magic_cast(game, COK_CAST_COMMANDS);
                 }
                 break;
             case 'V': {
-                if (!keeps) game->selected = 1;
+                game->selected = 1; /* dkk 580d:0c66's own, from 1 */
                 bool used;
                 cok_sheet(game, COK_SHEET_STALE_UNKNOWN, &used);
                 break;
             }
             case 'E':
-                if (!keeps) game->selected = 1;
+                game->selected = 1; /* dkk 4381:3106's own, from 1 */
                 done = true;
                 break;
             case 'S':

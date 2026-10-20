@@ -344,6 +344,25 @@ static void test_aim(void)
     game.keys.read = no_key;
 }
 
+/* 3e05:08af's hidden keys (the set at 3e05:0cac): the keypad's 5 (0x20)
+ * gives every party member who is no NPC back to the player; End ends the
+ * turn. */
+static void test_hidden(void)
+{
+    const cok_character_layout *L = R->character;
+    reset();
+    cok_character *a = record('A', 0, 5, 5);
+    cok_character *b = record('B', 0, 6, 5);
+    cok_field_set8(L, b->record, COK_FIELD_COMPUTER, 1);
+    a->combat->movement = 0;
+    game.keys.read = scripted;
+    script = "5e";
+    CHECK(cok_combat_commands(&game, a, 0) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(L, b->record, COK_FIELD_COMPUTER) == 0 && a->combat->initiative == 0);
+    CHECK(strstr(log_text, "menu: Aim Guard Quick@Delay View Speed End;") != NULL);
+    game.keys.read = no_key;
+}
+
 /* 5340:2b81: attacking one of its own side asks "attack ally? " (the
  * Yes/No by index, 6a69:2048); Yes sets var 0x7f33 and turns no NPC
  * against the party. */
@@ -398,6 +417,7 @@ int main(void)
     test_alt_a();
     test_cast_choice();
     test_aim();
+    test_hidden();
     test_ally();
     cok_adventure_close(&game);
     puts("fight tests passed");

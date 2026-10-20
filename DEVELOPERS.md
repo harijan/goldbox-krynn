@@ -6925,8 +6925,10 @@ the box's dark gray edge is black.
 
 The adventure's menu (`4307:0257`) reads with the loop by index too
 (`command_read` in `adventure.c`): it keeps its own selection
-(`menus.adventure_keeps_selection`: no first item before Cast, View or
-Encamp), Escape leaves Move (`menus.escape_leaves_move`), and Left and
+(`menus.adventure_keeps_selection`: put back before each ask, whatever
+Cast, View and Encamp left; their menus start from the first, as
+Champions' are set to), Escape leaves Move (`menus.escape_leaves_move`),
+and Left and
 Right, which the loop gives back, are special keys that keep the character
 selected (`580d:2bb2`, `menus.special_keeps`; Champions' `546c:3334` picks
 the first for any key but Up and Down).
@@ -6934,8 +6936,10 @@ the first for any key but Up and Down).
 `tests/test_menu.c` checks the loop (`test_indexed`), `tests/test_death_knights.c`
 the sections against the original (`test_commands`: the loop's sets and
 colours, the words where their routines load them, the hidden keys' set,
-the cursor's slot, aiming's range and list), `tests/test_death_knights.py`
-the first fight by keys and the adventure's menu, and
+the cursor's slot, aiming's range and list), `tests/test_fight.c` aiming's
+range and first target, the keypad's 5 and attacking an ally on records
+made by hand, `tests/test_death_knights.py` the first fight by keys (with
+the cursor's box) and the adventure's menu, and
 `tools/dosbox/checks/dkk_fight.py`'s `keys` and `keys2` flows the original:
 the first fight from its first turn by keys (the menu's rows, Move with a
 step and its undo, Aim with Next, Prev, the cursor and Center, Speed,

@@ -278,6 +278,12 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual(lines[at:at + 7], [menu, "menu: Exit", menu, menu, menu, "area: on", menu])
         self.assertEqual(lines[-4:-1], ["print: TANAR", "print: Majere Cleric/Ranger",
                                         "menu: Items Spells Trade Drop Exit"])
+        # Encamp: camp's menu from its first item (dkk 4381:3106's own),
+        # whatever the adventure's selection: Enter is Save.
+        result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--set", "4be6=1", "--play",
+                           "--keys", r"\rE\r", ASSETS, 48)
+        self.assertEqual(result.stdout.splitlines()[-3:-1], [
+            "menu: Save View Magic Rest Alter Fix Exit", "menu: A B C D E F G H I J"])
 
     def test_first_fight_by_keys(self):
         # The player's turn by keys (3e05:08af), as dkk_fight.py's keys flow
