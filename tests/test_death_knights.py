@@ -183,6 +183,14 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual(lines[at + 1:at + 3], [
             "print: do you want to go back and claim your treasure?", "menu: ~Yes ~No"])
         self.assertEqual(lines[-1], "(done in block 2)")
+        # Detect, offered once the selection (Down, 65cd:0959) is FLAVIUS,
+        # who has Detect Magic memorized, casts it (5dc5:1298).
+        result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--combat", "won", "--keys",
+                           r"\r\r\#50\#50\#50D\r\r", ASSETS, 2)
+        lines = result.stdout.splitlines()
+        at = lines.index("menu: View Take Pool Detect Exit")
+        self.assertEqual(lines[at + 1:at + 4], ["print: FLAVIUS", "print: is affected",
+                                                "menu: View Take Pool Exit"])
         # TREASURE ITEMS (3632:1933): its coins added and its items from the
         # item table (ITEM0), the last first.
         result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--file", 3, "--start", "9569",
@@ -358,12 +366,20 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual([pixel(bmp, x, y) for x, y in ((104, 104), (106, 105), (126, 110),
                                                         (105, 127))],
                          [(255, 255, 255), (170, 170, 170), (0, 0, 0), (0, 0, 0)])
-        # Cast reaches the cast entry, not ported yet (5dc5:1298).
+        # Cast (5dc5:1298): CELESTE's Magic Missile, "casts a spell"
+        # (5dc5:552a), aimed (5340:1eeb) and Target: its damage in the
+        # game's words (638c:1c52: " points of damage" and "from magic"
+        # run together).
         result = self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", "--seed", 1, "--keys",
-                           self.TO_FIGHT + r"\rYC" + r"\v" * 6 + r"\r", ASSETS)
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
-                         "Krynn's spell 15, Magic Missile (dkk 5dc5:1298)")
+                           self.TO_FIGHT + r"\rYC" + r"\v" * 6 + r"\rT", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        at = lines.index("cast: CELESTE: Magic Missile")
+        self.assertEqual(lines[at + 1:at + 5], ["print: CELESTE", "print: casts a spell",
+                                                "print: Spell:Magic Missile",
+                                                "menu: Next Prev Manual Target Center Exit"])
+        self.assertTrue(any(line.startswith("print: takes ") and line.endswith(
+            " points of damagefrom magic") for line in lines[at:]), lines[at:])
 
     def test_first_fight_on_auto(self):
         # Alt-Q at the first turn (3e05:08af) puts the party on Auto: the
@@ -670,6 +686,63 @@ class DeathKnightsTests(unittest.TestCase):
             "menu: Items Trade Drop Exit\nmenu: Save View Magic Rest Alter Fix Exit\n"
             "print: SIR DRYDEN\nprint: Knight of the Crown\nmenu: Items Trade Drop Exit\n"
             "(out of keys in block 16 at 8189)\n"), result.stdout[-300:])
+
+    def memorized(self, saves, spells):
+        """Each character file's spells memorized set (its .WIZ's first 0x4a
+        bytes), by file name."""
+        for name, ids in spells.items():
+            wiz = bytearray((saves / f"{name}.WIZ").read_bytes())
+            wiz[:0x4A] = bytes(ids) + bytes(0x4A - len(ids))
+            (saves / f"{name}.WIZ").write_bytes(bytes(wiz))
+
+    def test_camp_cast(self):
+        # Camp's Magic, Cast (4381:091c) for NEACAIL, who has Cure Light
+        # Wounds alone: the spells in memory, the cure (5dc5:1298) "on whom"
+        # (5dc5:1182: the game's own pick, "Select" alone, 65cd:33c9),
+        # CELESTE, 6 down, healed; the spell marked to memorize again
+        # (65cd:17c4), so none left; as dkk_levels.py's cast flow plays it
+        # in the original.
+        saves = self.saves(ASSETS / "SAVE")
+        self.memorized(saves, {"CHRDATA5": [0x03]})
+        celeste = bytearray((saves / "CHRDATA6.GAM").read_bytes())
+        celeste[0xD6] -= 6
+        (saves / "CHRDATA6.GAM").write_bytes(bytes(celeste))
+        keys = self.TITLE + r"\v\v\r\rA" + r"\v" * 5 + r"\r\r\r\rM" + r"\v" * 4 + r"C\r\v\r"
+        result = self.play("--start-menu", "--saves", saves, "--seed", 1, "--keys", keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = result.stdout
+        self.assertIn("list: Spells in Memory\nheading: 1st Level\nitem:   Cure Light Wounds\n"
+                      "choice: 3\nprint: NEACAIL\nprint: casts\nprint: Cure Light Wounds\n"
+                      "menu: Select\nmenu: Select\nprint: CELESTE\nprint: is fully healed\n"
+                      "print: NEACAIL\nprint: has no spells memorized\n", out)
+
+    def test_casters_on_auto(self):
+        # The first fight on Auto with Magic On (Alt-M typed ahead, read in
+        # the first computer's turn, 3f63:117c) and casters: the computer's
+        # choice (3f63:056c with 5340:43ea), its picks (5340:1eeb: 1da5,
+        # 44f8), FLAVIUS's Ice Storm with its burst (65cd:39bd) and
+        # Lightning Bolt (aborted: none left in its reach), TANAR's cure, as
+        # dkk_fight.py's cast flow plays them round by round in the
+        # original; no one casts Shocking Grasp with none in its reach.
+        saves = self.saves(ASSETS / "SAVE")
+        self.memorized(saves, {"CHRDATA3": [0x4A, 0x03], "CHRDATA4": [0x0F, 0x33, 0x57],
+                               "CHRDATA5": [0x03, 0x03], "CHRDATA6": [0x14, 0x0C]})
+        result = self.play("--load", saves / "SAVGAMA.PTY", "--seed", 1, "--keys",
+                           self.TO_FIGHT + r"\r\@q\[\@m\]", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual([line for line in lines if line.startswith("cast: ")],
+                         ["cast: FLAVIUS: Ice Storm", "cast: FLAVIUS: Lightning Bolt",
+                          "cast: TANAR: Cure Light Wounds"])
+        at = lines.index("cast: FLAVIUS: Ice Storm")
+        self.assertEqual(lines[at + 1:at + 7], ["print: FLAVIUS", "print: casts a spell",
+                                                "print: Spell:Ice Storm", "sound: 2",
+                                                "sound: 11", "sound: 3"])
+        self.assertIn("print: takes 21 points of damagefrom magic", lines[at:at + 12])
+        at = lines.index("cast: FLAVIUS: Lightning Bolt")
+        self.assertEqual(lines[at + 4], "print: Spell Aborted")
+        self.assertEqual(len([line for line in lines if line.startswith("round: ")]), 14)
+        self.assertIn("menu: continue battle? ", lines)
 
     def test_aging(self):
         # SIR DRYDEN (race 6) at 115 and hasted (effect 0x27, 504d:0d88):

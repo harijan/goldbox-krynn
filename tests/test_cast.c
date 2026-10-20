@@ -544,10 +544,9 @@ static void test_durations(void)
 }
 
 /* Another game's spells section: Death Knights' Bless (dkk 5dc5:1d77) is
- * not carried out yet, nor its cast (5dc5:1298), which stops a spell whose
- * handler is shared (Cure Light Wounds) cleanly; its ids end at 0x72, and
- * its durations are its own (0x1a still fixed). The run stops before the
- * caster is read. */
+ * not carried out yet, which stops it cleanly before the caster is read
+ * (its cast and shared spells: test_death_knights.py); its ids end at
+ * 0x72, and its durations are its own (0x1a still fixed). */
 static void test_other_game(void)
 {
     empty_party();
@@ -559,10 +558,6 @@ static void test_other_game(void)
     cast(1, true, &done);
     CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "dkk 5dc5:1d77") != NULL &&
           strstr(game.error, "Bless") != NULL);
-    keys("");
-    cast(3, true, &done);
-    CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "dkk 5dc5:1298") != NULL &&
-          strstr(game.error, "Cure Light Wounds") != NULL);
     keys("");
     cast(0x73, true, &done);
     CHECK(game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "DS:6e3a") != NULL);

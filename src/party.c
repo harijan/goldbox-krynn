@@ -191,20 +191,118 @@ static bool read_items_effects(cok_character *character, const cok_rules *rules,
     return true;
 }
 
-/* The recompute a loaded character ends with (4b6d:11e5, dkk 46b2:10d7):
- * its stats, then its levels. Death Knights' also recomputes its strength
- * between them (638c:16d8 with 0), which the port does not yet (it holds
- * no effects engine here): from the base score, the items and a STRENGTH
- * effect, as the record already holds it but where Death Knights' rule
- * differs from Champions' (the classes that may have exceptional
- * strength). */
+/* 60f4:1543: the strength an effect's value gives, 18 with an exceptional
+ * strength of value - 1 up to 101 (so 0 gives 18/255), above that value -
+ * 100. */
+static void effect_strength(const cok_effect *effect, uint8_t *strength, uint8_t *exceptional)
+{
+    *exceptional = 0;
+    *strength = effect->value & 0x7f;
+    if (*strength <= 0x65) {
+        *exceptional = (uint8_t)(*strength - 1);
+        *strength = 18;
+    } else {
+        *strength = (uint8_t)(*strength - 100);
+    }
+}
+
+/* 60f4:15db: keep the better of the strength so far and a candidate; an
+ * 18 with a higher exceptional strength counts as better even than 19 up. */
+static void better(uint8_t *strength, uint8_t *exceptional, uint8_t candidate,
+                   uint8_t candidate_exceptional)
+{
+    if (candidate > *strength || (candidate == 18 && candidate_exceptional > *exceptional)) {
+        *strength = candidate;
+        *exceptional = candidate_exceptional;
+    }
+}
+
+void cok_character_strength(cok_character *ch, const cok_rules *rules)
+{
+    const cok_character_layout *L = rules->character;
+    uint8_t *c = ch->record;
+    uint8_t score = cok_field_u8_at(L, c, COK_FIELD_SCORE_BASE, COK_SCORE_STRENGTH),
+            exceptional = cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL_BASE);
+    uint8_t candidate = 0, candidate_exceptional = 0, fixed = 0xff;
+    for (size_t i = 0; i < ch->item_count; ++i) {
+        const uint8_t *item = ch->items[i];
+        if (item[0x3e] <= 0x80 || item[0x34] == 0) continue;
+        uint8_t power = item[0x3e] & 0x7f, kind = item[0x3d];
+        if (power == 3) {
+            candidate = 18;
+            candidate_exceptional = 100;
+        } else if (power == 5) {
+            if (kind == 0) {
+                candidate = 18;
+                candidate_exceptional = 100;
+            } else if (kind <= 6) {
+                candidate = (uint8_t)(18 + kind);
+            }
+        } else if (power == 8) {
+            uint8_t strength = cok_field_u8_at(L, c, COK_FIELD_SCORE_BASE, COK_SCORE_STRENGTH);
+            if (strength < 18 && kind == 0) {
+                candidate = (uint8_t)(strength + 1);
+                candidate_exceptional = 0;
+            }
+        } else if (power == 0x0d) {
+            fixed = 3;
+        }
+        better(&score, &exceptional, candidate, candidate_exceptional);
+    }
+    const cok_effect *effect = cok_character_find_named(ch, rules, COK_EFFECT_STRENGTH);
+    if (effect != NULL) {
+        effect_strength(effect, &candidate, &candidate_exceptional);
+        if (score < 19 && exceptional < 100) {
+            candidate = (uint8_t)(candidate + score);
+            if (candidate > 18) {
+                /* Fighters, rangers and knights, now or before, get the
+                 * excess as exceptional strength, added to the current
+                 * one each time. */
+                bool fighter = false;
+                for (unsigned k = 0; k < 8; ++k)
+                    if ((rules->characters.fighter_classes >> k & 1) != 0 &&
+                        (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, k) > 0 ||
+                         cok_character_former_level(rules, c, k) > 0))
+                        fighter = true;
+                if (fighter) {
+                    candidate_exceptional =
+                        (uint8_t)((candidate - 18) * 10 +
+                                  cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL));
+                    if (candidate_exceptional > 100) candidate_exceptional = 100;
+                }
+                candidate = 18;
+            }
+        }
+        better(&score, &exceptional, candidate, candidate_exceptional);
+    }
+    const uint8_t others[] = {cok_effect_id(rules, COK_EFFECT_GIANT_STRENGTH),
+                             cok_effect_id(rules, COK_EFFECT_ENLARGED)};
+    for (size_t k = 0; k < sizeof others; ++k) {
+        effect = cok_character_find_effect(ch, others[k]);
+        if (effect == NULL) continue;
+        effect_strength(effect, &candidate, &candidate_exceptional);
+        better(&score, &exceptional, candidate, candidate_exceptional);
+    }
+    if (fixed != 0xff) {
+        cok_field_set8_at(L, c, COK_FIELD_SCORE, COK_SCORE_STRENGTH, fixed);
+        cok_field_set8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL, 0);
+    } else {
+        cok_field_set8_at(L, c, COK_FIELD_SCORE, COK_SCORE_STRENGTH, score);
+        cok_field_set8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL, exceptional);
+    }
+}
+
+/* The recompute a loaded character ends with (4b6d:11e5; dkk 46b2:10d7):
+ * its stats, then its levels; Death Knights' (casting's load_strength)
+ * its strength between them (638c:16d8 with 0). */
 static bool recompute(cok_character *character, const cok_rules *rules,
                       const cok_item_types *types, const char *path, char *error,
                       size_t error_size)
 {
     char why[200];
-    if (!cok_character_stats(character, rules, types, why, sizeof why) ||
-        !cok_character_levels(character, rules, types, why, sizeof why)) {
+    bool stats = cok_character_stats(character, rules, types, why, sizeof why);
+    if (stats && rules->casting.load_strength) cok_character_strength(character, rules);
+    if (!stats || !cok_character_levels(character, rules, types, why, sizeof why)) {
         fail(error, error_size, "%s: %s", path, why);
         return false;
     }

@@ -1214,9 +1214,115 @@ static void test_fight(void)
           HOLDS(0x5340, 0x119b, 0x160, 0x05, 0x06, 0x00) &&
           HOLDS(0x5340, 0x119b, 0x160, 0xb0, 0x0c, 0x50, 0x9a));
     /* The saving throw (638c:10f8: effect 0x39 makes the roll 1). */
-    CHECK(R->effects.save_fail_id == 0x39 && R->effects.save_unported == NULL &&
+    CHECK(R->effects.save_fail_id == 0x39 &&
           HOLDS(0x638c, 0x10f8, 0x40, 0xb0, 0x39, 0x50) &&
           HOLDS(0x638c, 0x10f8, 0x40, 0xc6, 0x06, 0x6a, 0xbe, 0x01));
+}
+
+/* The casting section against the original's code: the cast entry's
+ * words and questions (5dc5:1298: mov di, DS:x; Yes first, mov al,
+ * [57c0]), no miscast (no call of 65cd:2687), its bursts (cmp al, spell
+ * ... mov al, n; push ax; mov al, slot; push ax; mov al, [4316]); the
+ * targets cleared (5340:1ff7: mov di, c31d ... mov ax, 0x120), Silence's
+ * radius (mov cx, 4; shr ax, cl), the computer's pick (5340:1eeb's near
+ * calls of 1da5 and 44f8; 44f8's rows at DS:0648, its tie's 65cd:0000 with
+ * 0x19); sided (5dc5:1cc6 tests no spell), Charm Monsters' side
+ * (5dc5:1b20: cmp byte [be70], 0x51; mov cl, 7; shl ax, cl), the bolt
+ * (5dc5:354a: the length doubled, at least 2 a line), magic resistance
+ * (638c:04c9: jnz after the pending test), the damage's words and quiet
+ * bit (638c:1c52), cure's (638c:1479), Cast's refusals (4381:07ff), band
+ * A's dice (5dc5:4160, 48ef) and Enlarge (2100 has no cmp al, 0x0a), and
+ * the load's strength (46b2:10d7: 65cd:0e46, 638c:16d8 with 0, 69a8:050b). */
+static void test_casting(void)
+{
+    const cok_rules_casting *K = &R->casting;
+    static const struct {
+        unsigned seg, off, n, at;
+        const char *const *text;
+    } words[] = {
+        {0x5dc5, 0x1298, 0x370, 0x0f25, &R->casting.cast_here},
+        {0x5dc5, 0x1298, 0x370, 0x0f1a, &R->casting.lose_it},
+        {0x5dc5, 0x1298, 0x370, 0x0f44, &R->casting.that_item},
+        {0x5dc5, 0x1298, 0x370, 0x0f4f, &R->casting.combat_only},
+        {0x5dc5, 0x1298, 0x370, 0x0f6e, &R->casting.use_it},
+        {0x5dc5, 0x1298, 0x370, 0x0f84, &R->casting.abort},
+        {0x5dc5, 0x1298, 0x370, 0x0f99, &R->casting.aborted},
+        {0x5dc5, 0x1182, 0x100, 0x3192, &R->casting.on_whom},
+        {0x5dc5, 0x552a, 0x100, 0x2304, &R->casting.casts_a_spell},
+        {0x638c, 0x1c52, 0x340, 0x1c4f, &R->casting.takes},
+        {0x638c, 0x1c52, 0x340, 0x1c5a, &R->casting.points},
+        {0x638c, 0x1c52, 0x340, 0x1c6f, &R->casting.point},
+        {0x638c, 0x1c52, 0x340, 0x1c8e, &R->casting.from[0]},
+        {0x638c, 0x1c52, 0x340, 0x1c99, &R->casting.from[1]},
+        {0x638c, 0x1c52, 0x340, 0x1ca4, &R->casting.from[2]},
+        {0x638c, 0x1c52, 0x340, 0x1cb9, &R->casting.from[3]},
+        {0x638c, 0x1c52, 0x340, 0x1cc4, &R->casting.from[4]},
+        {0x638c, 0x1c52, 0x340, 0x1c3a, &R->casting.lost_spell},
+        {0x638c, 0x1c52, 0x340, 0x1d04, &R->casting.goes_down},
+        {0x638c, 0x1c52, 0x340, 0x1cef, &R->casting.dying},
+        {0x638c, 0x1c52, 0x340, 0x1ce4, &R->casting.killed},
+        {0x638c, 0x1479, 0x40, 0x19f3, &R->casting.cured},
+        {0x4381, 0x07ff, 0x120, 0x2e0d, &R->casting.no_area},
+        {0x4381, 0x07ff, 0x120, 0x2e2c, &R->casting.no_condition},
+        {0x4381, 0x07ff, 0x120, 0x2e41, &R->casting.no_what[0]},
+        {0x4381, 0x07ff, 0x120, 0x2e56, &R->casting.no_what[1]},
+        {0x4381, 0x07ff, 0x120, 0x2e6b, &R->casting.no_what[2]},
+    };
+    for (size_t i = 0; i < sizeof words / sizeof *words; ++i)
+        CHECK(pascal_is(ds(words[i].at), *words[i].text, false) &&
+              HOLDS(words[i].seg, words[i].off, words[i].n, 0xbf, (uint8_t)words[i].at,
+                    (uint8_t)(words[i].at >> 8)));
+    CHECK(K->ask_yes && *ds(0x57c0) == 0 && HOLDS(0x5dc5, 0x1298, 0x370, 0xa0, 0xc0, 0x57));
+    unsigned long calls[64];
+    size_t n = far_calls(0x5dc5, 0x1298, 0x370, calls, 64);
+    bool miscast = false;
+    for (size_t i = 0; i < n; ++i) miscast |= calls[i] == 0x65cd2687;
+    CHECK(!K->miscast && !miscast);
+    CHECK(K->burst_count == 6 && K->burst_sound == *ds(0x4316) && K->burst_sound == 0x0b);
+    for (unsigned i = 0; i < K->burst_count; ++i) {
+        const cok_rules_burst *b = &K->bursts[i];
+        CHECK(HOLDS(0x5dc5, 0x1298, 0x370, 0x3c, b->spell));
+        CHECK(HOLDS(0x5dc5, 0x1298, 0x370, 0xb0, b->n, 0x50, 0xb0, b->slot, 0x50, 0xa0, 0x16,
+                    0x43) &&
+              HOLDS(0x5dc5, 0x1298, 0x370, 0xb0, b->n_3d, 0x50, 0xb0, b->slot, 0x50, 0xa0, 0x16,
+                    0x43));
+    }
+    CHECK(K->targets_cleared && HOLDS(0x5340, 0x1ff7, 0x20, 0xbf, 0x1d, 0xc3, 0x1e, 0x57, 0xb8,
+                                      0x20, 0x01));
+    CHECK(K->silence_radius && HOLDS(0x5340, 0x1ff7, 0x580, 0xb9, 0x04, 0x00, 0xd3, 0xe8));
+    CHECK(K->computer_pick == COK_CAST_PICK_DEATH_KNIGHTS && near_call(0x5340, 0x1eeb, 0x100, 0x1da5) &&
+          near_call(0x5340, 0x1eeb, 0x100, 0x44f8));
+    CHECK(HOLDS(0x5340, 0x44f8, 0x530, 0x8a, 0x85, 0x48, 0x06) &&
+          cok_data_offset2(R->data, COK_DATA_AREA_ROWS, 0, 0) == 0x0648 &&
+          HOLDS(0x5340, 0x44f8, 0x530, 0xb0, 0x19, 0x50, 0x9a));
+    CHECK(K->sided_all && !HOLDS(0x5dc5, 0x1cc6, 0xb0, 0x80, 0x3e, 0x70, 0xbe));
+    CHECK(K->missiles_charm_side && HOLDS(0x5dc5, 0x1b20, 0x1a8, 0x80, 0x3e, 0x70, 0xbe, 0x51) &&
+          HOLDS(0x5dc5, 0x1b20, 0x1a8, 0xb1, 0x07, 0xd3, 0xe0));
+    CHECK(K->bolt_doubles &&
+          HOLDS(0x5dc5, 0x354a, 0x2b0, 0x8a, 0x46, 0xfe, 0x30, 0xe4, 0xd1, 0xe0, 0x88, 0x46, 0xfe));
+    CHECK(K->bolt_least == 2 && HOLDS(0x5dc5, 0x354a, 0x2b0, 0x83, 0x7e, 0xc2, 0x02));
+    CHECK(K->resist_damage && HOLDS(0x638c, 0x04c9, 0x30, 0x80, 0x3e, 0x6b, 0xbe, 0x00, 0x75));
+    CHECK(R->fight.quiet_flag == 8 &&
+          HOLDS(0x638c, 0x1c52, 0x340, 0x26, 0x8a, 0x45, 0x7b, 0x24, 0x08, 0x08, 0xc0, 0x75));
+    /* Band A. */
+    const cok_rules_cast *flame = &R->spells.cast[0x4a], *ice = &R->spells.cast[0x57];
+    CHECK(flame->count == 6 && flame->sides == 8 && flame->type == 9 &&
+          HOLDS(0x5dc5, 0x4160, 0x30, 0xb0, 0x06, 0x50, 0xb0, 0x08, 0x50) &&
+          HOLDS(0x5dc5, 0x4160, 0x30, 0xb0, 0x09, 0x50));
+    CHECK(ice->count == 3 && ice->sides == 10 && ice->type == 8 &&
+          HOLDS(0x5dc5, 0x48ef, 0x30, 0xb0, 0x03, 0x50, 0xb0, 0x0a, 0x50) &&
+          HOLDS(0x5dc5, 0x48ef, 0x30, 0xb0, 0x08, 0x50));
+    CHECK(R->spells.cast[0x0c].value == 1 && HOLDS(0x5dc5, 0x2100, 0x90, 0x3c, 0x09) &&
+          !HOLDS(0x5dc5, 0x2100, 0x90, 0x3c, 0x0a));
+    n = far_calls(0x5dc5, 0x37f8, 0x50, calls, 64);
+    bool counted = false;
+    for (size_t i = 0; i < n; ++i) counted |= calls[i] == 0x638c1233;
+    CHECK(R->spells.cast[0x33].value == 1 && counted);
+    /* The load: stats, strength (with 0), levels. */
+    n = far_calls(0x46b2, 0x1960, 0x30, calls, 64);
+    CHECK(K->load_strength && n == 3 && calls[0] == 0x65cd0e46 && calls[1] == 0x638c16d8 &&
+          calls[2] == 0x69a8050b && HOLDS(0x46b2, 0x1970, 0x08, 0xb0, 0x00, 0x50, 0x9a));
+    puts("death knights: the casting section checked");
 }
 
 /* The treasure section against the original's code: the item table's
@@ -1689,6 +1795,7 @@ int main(void)
         if (exe_size > 0) test_commands();
         if (exe_size > 0) test_levels();
         if (exe_size > 0) test_items();
+        if (exe_size > 0) test_casting();
     }
     puts("death knights: ok");
     return 0;

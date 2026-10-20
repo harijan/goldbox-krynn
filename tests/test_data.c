@@ -106,7 +106,7 @@ static void test_shapes(void)
          * own. */
         if (s->width == 0 && (D != cok_rules_champions.data || t == COK_DATA_LEVEL_LIMITS ||
                               t == COK_DATA_STOCK_FIRST || t == COK_DATA_STOCK_COUNTS ||
-                              t == COK_DATA_STOCK_ITEMS))
+                              t == COK_DATA_STOCK_ITEMS || t == COK_DATA_AREA_ROWS))
             continue;
         CHECK(s->width == 1 || s->width == 2 || s->width == 4 || t <= COK_DATA_ITEM_WORDS);
         CHECK(s->indices >= 1 && s->indices <= 3 && s->size > 0);

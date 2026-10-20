@@ -24,7 +24,14 @@ stopped at each round's end (3e05:0ed0 made to spin) against the port's
 state there, then "continue battle?" and the results. And the first fight
 by keys from its first turn (keys, keys2: the menu's rows, Move, Aim and
 its cursor, Speed, Delay, Guard, End, Quick, Yell, an attack by Aim and
-Target; items: View and Use): the screen at each wait, the state after. Seeded (Box seed,
+Target; items: View and Use): the screen at each wait, the state after. And the Auto fight with
+casters (a copy of saved game A whose spells memorized are Magic Missile,
+Lightning Bolt and Ice Storm for FLAVIUS, Flame Strike and Cure Light
+Wounds for TANAR, Shocking Grasp and Enlarge for CELESTE, Cure Light
+Wounds for NEACAIL) and Magic On (Alt-M after Alt-Q): the computer's
+choice (3f63:056c, 5340:43ea), its targets (5340:1eeb), the cast
+(5dc5:1298, its burst 65cd:39bd), the spells and the damage's words,
+round by round. Seeded (Box seed,
 eclplay --seed): the same dice. Not part of run_all.py's set. About
 thirty minutes.
 
@@ -83,8 +90,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir", default=str(K.ROOT / "build/dosbox-checks/dkk_fight"))
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--flows", default="fight,river,ambush,auto,keys,keys2,items",
-                        help="which flows: fight, river, ambush, auto, keys, keys2, items "
+    parser.add_argument("--flows", default="fight,river,ambush,auto,keys,keys2,cast,items",
+                        help="which flows: fight, river, ambush, auto, keys, keys2, cast, items "
                              "(comma-separated)")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
@@ -105,6 +112,8 @@ def main():
         by_keys(v, work, opts)
     if "keys2" in flows:
         by_keys(v, work, opts, KEYS2, "keys2")
+    if "cast" in flows:
+        auto(v, work, opts, cast=True)
     if "items" in flows:
         by_keys(v, work, opts, ITEMS, "items")
     return v.finish()
@@ -317,35 +326,70 @@ def compare_round(v, box, tag, shot, state, work):
     v.screen(f"the screen ({tag})", shown, cokbox.Screen.load(shot), work=work)
 
 
-def auto(v, work, opts):
+# The casters' spells memorized for the cast flow (their .WIZ's first 0x4a
+# bytes): FLAVIUS Magic Missile, Lightning Bolt, Ice Storm; TANAR Flame
+# Strike, Cure Light Wounds; CELESTE Shocking Grasp (a touch: none in reach
+# at first), Enlarge; NEACAIL Cure Light Wounds twice.
+CASTERS = {"CHRDATA3": [0x4A, 0x03], "CHRDATA4": [0x0F, 0x33, 0x57],
+           "CHRDATA5": [0x03, 0x03], "CHRDATA6": [0x14, 0x0C]}
+
+
+def casters(work):
+    """A copy of DKKAssets/SAVE with CASTERS' spells memorized."""
+    saves = work / "saves-cast"
+    if saves.exists():
+        shutil.rmtree(saves)
+    shutil.copytree(K.ASSETS / "SAVE", saves)
+    for name, spells in CASTERS.items():
+        wiz = bytearray((saves / f"{name}.WIZ").read_bytes())
+        wiz[:0x4A] = bytes(spells) + bytes(0x4A - len(spells))
+        (saves / f"{name}.WIZ").write_bytes(bytes(wiz))
+    return saves
+
+
+def auto(v, work, opts, cast=False):
     """The first fight with the party put on Auto (Alt-Q at the first
     turn, the player's menu, dkk 3e05:08af), to its end: the original is
     stopped at each round's end (3e05:0ed0 made to spin) and read, against
     the port's state at the same place (dkk_lib.round_mark): the
     combatants, their records and combat records, the turn order, the
     round, RandSeed and the screen; then "continue battle?" once the enemy
-    is gone (No) and the results, screens and records."""
-    log, _, _, _ = K.port(work, "auto-lead", TO_COMBAT, opts.seed, args=["--combat", "auto"])
+    is gone (No) and the results, screens and records. With cast, the
+    casters' saved game and Magic On: Alt-M typed ahead after Alt-Q, which
+    the first computer's turn reads (3f63:117c)."""
+    tag = "cast" if cast else "auto"
+    saves = casters(work) if cast else K.ASSETS / "SAVE"
+    log, _, _, _ = K.port(work, f"{tag}-lead", TO_COMBAT, opts.seed, saves=saves,
+                          args=["--combat", "auto"])
     led = "Using leadership ability" in log
     keys = TO_COMBAT + (r"\r" if led else "")  # the leadership's wait
-    log, asked, _, _ = K.port(work, "auto", keys, opts.seed, args=["--combat", "auto"])
-    rounds = K.port_rounds(work, "auto")
-    _, final, _, state = waiting(K.port(work, "auto-end", keys + r"\r", opts.seed,
-                                        args=["--combat", "auto"]))
-    print(f"port (auto): {len(rounds)} rounds; {log.strip().splitlines()[-1]}", flush=True)
-    with cokbox.Box(workdir=work / "box-auto", game="death-knights", machine="ega",
-                    seed=opts.seed, saves=[K.ASSETS / "SAVE"], verbose=opts.verbose,
+    # Cast: Alt-Q pressed at the first turn, Alt-M typed ahead.
+    args = [] if cast else ["--combat", "auto"]
+    if cast:
+        keys += r"\@q\[\@m\]"
+    log, asked, _, _ = K.port(work, tag, keys, opts.seed, saves=saves, args=args)
+    rounds = K.port_rounds(work, tag)
+    _, final, _, state = waiting(K.port(work, f"{tag}-end", keys + r"\r", opts.seed,
+                                        saves=saves, args=args))
+    print(f"port ({tag}): {len(rounds)} rounds; {log.strip().splitlines()[-1]}", flush=True)
+    if cast:
+        print("port (cast): " + "; ".join(line for line in log.splitlines()
+                                          if line.startswith("cast: ")), flush=True)
+    with cokbox.Box(workdir=work / f"box-{tag}", game="death-knights", machine="ega",
+                    seed=opts.seed, saves=[saves], verbose=opts.verbose,
                     timeout=1800, keep=True) as box:
-        v.check(K.title(box), "the title's four pictures (auto)")
+        v.check(K.title(box), f"the title's four pictures ({tag})")
         K.type_steps(box, K.LOAD_A_STEPS + [r"\r", r"\r", "N"] + [r"\r"] * 9, settle=1.5)
         if led:
             K.type_steps(box, [r"\r"], settle=2.0)
-        v.check(box.ds_byte(K.DS_MODE) == 5, "the original waits in the first turn (auto)")
+        v.check(box.ds_byte(K.DS_MODE) == 5, f"the original waits in the first turn ({tag})")
         # Combatant entry 0's y and index (DS:b58c, b58d), which the
         # battlefield's setup reads as whether its tile sets are loaded
         # (410b:10d7), as the port's combat.dungeon_tiles keeps it.
         tiles = box.ds_read(0xB58C, 2)
         box.push_key(0x1000)  # Alt-Q
+        if cast:
+            box.push_key(0x3200)  # Alt-M
         n = 0
         while True:
             handle = K.trap(box, 0x3E05, 0x0ED0, lambda: round_over(box), seconds=600)
@@ -360,24 +404,24 @@ def auto(v, work, opts):
                 v.differ(f"round {n}'s end in the port", "the port's battle ended before")
                 K.untrap(box, handle)
                 break
-            compare_round(v, box, f"round {n}", *rounds[n - 1], work)
+            compare_round(v, box, f"{tag} round {n}" if cast else f"round {n}", *rounds[n - 1], work)
             K.untrap(box, handle)
             if last:
                 break
         v.value("the rounds fought", n, len(rounds))
-        v.value("DS:b58c, b58d kept through the fight (auto)", tiles.hex(),
+        v.value(f"DS:b58c, b58d kept through the fight ({tag})", tiles.hex(),
                 box.ds_read(0xB58C, 2).hex())
         box.wait_input(seconds=120, settle=2.0)
-        shown = box.screenshot(work / "dosbox-auto-continue.png")
+        shown = box.screenshot(work / f"dosbox-{tag}-continue.png")
         if asked is not None:
-            v.screen("continue battle? (auto)", shown, cokbox.Screen.load(asked), work=work)
+            v.screen(f"continue battle? ({tag})", shown, cokbox.Screen.load(asked), work=work)
         K.type_steps(box, [r"\r"], settle=2.0)
-        shown = box.screenshot(work / "dosbox-auto-results.png")
-        v.screen("the results (auto)", shown, load(final), work=work)
+        shown = box.screenshot(work / f"dosbox-{tag}-results.png")
+        v.screen(f"the results ({tag})", shown, load(final), work=work)
         if state is not None:
-            compare_records(v, "the records at the results (auto)", K.party(box),
+            compare_records(v, f"the records at the results ({tag})", K.party(box),
                             state["records"])
-            v.value("the party's experience after (auto)",
+            v.value(f"the party's experience after ({tag})",
                     [(r["name"], r["raw"][0x62:0x66].hex()) for r in K.party(box)],
                     [(r["name"], r["raw"][0x62:0x66].hex()) for r in state["records"]])
 

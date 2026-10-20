@@ -275,6 +275,7 @@ static const cok_ds_table death_knights_tables[] = {
     {0x0312, sizeof cok_death_knights_combat, 1, cok_death_knights_combat},
     {0x0584, sizeof cok_death_knights_alignment_codes, 1, cok_death_knights_alignment_codes},
     {0x05a4, sizeof cok_death_knights_turning, 1, cok_death_knights_turning},
+    {0x0640, sizeof cok_death_knights_area, 1, cok_death_knights_area},
     {0x0656, sizeof cok_death_knights_cone, 1, cok_death_knights_cone},
     {0x08ad, sizeof cok_death_knights_names, 1, cok_death_knights_names},
     {0x37ff, sizeof cok_death_knights_item_words, 1, cok_death_knights_item_words},
@@ -368,6 +369,8 @@ static const cok_data_segment death_knights_data = {
             /* DS:0666 + 8 * part + side (5dc5:1690), held to DS:077d. */
             [COK_DATA_CONE_SIDES] = TABLE_IN(0x0666, 1, 0, 4, 8, 0, 8, 0x0666, 0x118),
             [COK_DATA_BATTLE_ONLY] = LIST(0x0686, 1, 0, 16), /* 638c:140c */
+            /* DS:0648 + 3 * row + radius, rows -3 to 3 (5340:44f8). */
+            [COK_DATA_AREA_ROWS] = TABLE(0x0648, 1, -3, 7, 3, 1, 3),
             [COK_DATA_LINE_DIRECTIONS] = TABLE(0x4280, 1, 0, 3, 3, 0, 3), /* 6e48:0247 */
             [COK_DATA_SAME_COLOURS] = LIST(0x42de, 1, 0, 16),
             [COK_DATA_BLACK_COLOURS] = LIST(0x42ee, 1, 0, 16),
@@ -783,7 +786,7 @@ static const cok_rules_cast death_knights_cast[0x73] = {
     [0x09] = {0x2010, COK_CAST_BURNING_HANDS}, /* Burning Hands */
     [0x0a] = {0x2044, .unported = "dkk 5dc5:2044"}, /* Charm Person */
     [0x0b] = {0x1f34, COK_CAST_AFFECTED}, /* Detect Magic */
-    [0x0c] = {0x2100, .unported = "dkk 5dc5:2100"}, /* Enlarge */
+    [0x0c] = {0x2100, COK_CAST_ENLARGE, .value = 1}, /* Enlarge */
     [0x0d] = {0x2208, COK_CAST_REDUCE}, /* Reduce */
     [0x0e] = {0x2292, COK_CAST_FRIENDS}, /* Friends */
     [0x0f] = {0x22cf, COK_CAST_MAGIC_MISSILE}, /* Magic Missile */
@@ -822,7 +825,7 @@ static const cok_rules_cast death_knights_cast[0x73] = {
     [0x30] = {0x347b, .unported = "dkk 5dc5:347b"}, /* Haste */
     [0x31] = {0x271c, COK_CAST_HOLD}, /* Hold Person */
     [0x32] = {0x2882, COK_CAST_INVISIBLE}, /* Invisibility, 10' Radius */
-    [0x33] = {0x37f8, .unported = "dkk 5dc5:37f8"}, /* Lightning Bolt */
+    [0x33] = {0x37f8, COK_CAST_LIGHTNING_BOLT, .value = 1}, /* Lightning Bolt */
     [0x34] = {0x1f52, COK_CAST_PROTECTED}, /* Protection From Evil, 10' Radius */
     [0x35] = {0x3848, .unported = "dkk 5dc5:3848"}, /* Heal */
     [0x36] = {0x1f52, COK_CAST_PROTECTED}, /* Protection From Normal Missiles */
@@ -845,7 +848,7 @@ static const cok_rules_cast death_knights_cast[0x73] = {
     [0x47] = {0x4037, .unported = "dkk 5dc5:4037"}, /* Cure Critical Wounds */
     [0x48] = {0x40a6, .unported = "dkk 5dc5:40a6"}, /* Flesh to Stone */
     [0x49] = {0x4109, .unported = "dkk 5dc5:4109"}, /* Dispel Evil */
-    [0x4a] = {0x4160, .unported = "dkk 5dc5:4160"}, /* Flame Strike */
+    [0x4a] = {0x4160, COK_CAST_DICE, .count = 6, .sides = 8, .type = 9}, /* Flame Strike */
     [0x4b] = {0x4196, .unported = "dkk 5dc5:4196"}, /* Raise Dead */
     [0x4c] = {0x4248, .unported = "dkk 5dc5:4248"}, /* Slay Living */
     [0x4d] = {0x1f34, COK_CAST_AFFECTED}, /* Detect Magic */
@@ -853,12 +856,12 @@ static const cok_rules_cast death_knights_cast[0x73] = {
     [0x4f] = {0x4391, .unported = "dkk 5dc5:4391"}, /* Faerie Fire */
     [0x50] = {0x43a2, COK_CAST_INVISIBLE}, /* Invisibility to Animals */
     [0x51] = {0x43c0, COK_CAST_CHARM_MONSTERS}, /* Charm Monsters */
-    [0x52] = {0x4439, .unported = "dkk 5dc5:4439"}, /* Confusion */
+    [0x52] = {0x4439, COK_CAST_CONFUSION}, /* Confusion */
     [0x53] = {0x44e6, COK_CAST_DIMENSION_DOOR}, /* Dimension Door */
     [0x54] = {0x4566, .unported = "dkk 5dc5:4566"}, /* Fear */
     [0x55] = {0x468f, .unported = "dkk 5dc5:468f"}, /* Fire Shield */
     [0x56] = {0x47fa, COK_CAST_FUMBLE}, /* Fumble */
-    [0x57] = {0x48ef, .unported = "dkk 5dc5:48ef"}, /* Ice Storm */
+    [0x57] = {0x48ef, COK_CAST_DICE, .count = 3, .sides = 10, .type = 8}, /* Ice Storm */
     [0x58] = {0x4925, COK_CAST_PROTECTED}, /* Minor Globe Of Invulnerability */
     [0x59] = {0x311b, .unported = "dkk 5dc5:311b"}, /* Remove Curse */
     [0x5a] = {0x4943, COK_CAST_PROTECTED}, /* Iron Skin */
@@ -886,6 +889,15 @@ static const cok_rules_cast death_knights_cast[0x73] = {
     [0x70] = {0x1f52, COK_CAST_PROTECTED}, /* Mind Blank */
     [0x71] = {0x4dd8, .unported = "dkk 5dc5:4dd8"}, /* Otto's Irresitable Dance */
     [0x72] = {0x4e81, .unported = "dkk 5dc5:4e81"}, /* Power Word Blind */
+};
+
+/* The bursts after a spell's flight in combat (5dc5:1298's calls of
+ * 65cd:39bd): Stinking Cloud's and Cloud Kill's, the Fireballs' (0x40
+ * always of 2, the others of 3 where var COK_VAR_3D is set), Ice
+ * Storm's. */
+static const cok_rules_burst death_knights_bursts[] = {
+    {0x22, 0x1a, 1, 1}, {0x5b, 0x1b, 1, 1}, {0x40, 0x18, 2, 2},
+    {0x2f, 0x18, 2, 3}, {0x6c, 0x18, 2, 3}, {0x57, 0x19, 2, 2},
 };
 
 /* The durations 5dc5:0ef5 does not take from the table: as Champions'
@@ -1159,7 +1171,7 @@ static const uint8_t death_knights_effect_ids[COK_EFFECT_NAMES] = {
     [COK_EFFECT_MAD] = 0,
     [COK_EFFECT_BLIND] = 0x21,
     [COK_EFFECT_DISEASE] = 0x22, /* used by a shared handler */
-    [COK_EFFECT_CONFUSED] = 0,
+    [COK_EFFECT_CONFUSED] = 0x23, /* Confusion's (5dc5:4439, the spell table's column 10) */
     [COK_EFFECT_CURSED] = 0x24,
     [COK_EFFECT_STRENGTH] = 0x26,
     [COK_EFFECT_HASTED] = 0,
@@ -1532,9 +1544,6 @@ const cok_rules cok_rules_death_knights = {
             .target_one = 2,
             .target_party = 3,
             .weapon_unscored = 0x53, /* 3f63:14f5: cmp byte [es:di+0x3d], 0x53 */
-            /* 5dc5:1298, Champions' 5b04:1415 but for, among others, no
-             * miscast under effect 0x4a: the cast stops until step 3. */
-            .cast_unported = "dkk 5dc5:1298",
             /* 5dc5:0078: paladins of 9 and up use clerics' spells, rangers of
              * 8 druids', and magic-users' need a magic-user or a ranger of
              * 9 and up. */
@@ -1567,7 +1576,6 @@ const cok_rules cok_rules_death_knights = {
             .caster_effect = 0x4e,
             .caster_spell_level = 15,
             .unaffected = "is unaffected", /* DS:1d0f */
-            .resistance_unported = "dkk 638c:04c9",
         },
     .moons =
         {
@@ -1781,7 +1789,7 @@ const cok_rules cok_rules_death_knights = {
             .ways_guarded = true,
             .attack_sides = true, /* 5340:10ab */
             .free_attack_effect = 6, /* 5340:0860 */
-            .quiet_flag = 8,    /* 5340:0230 */
+            .quiet_flag = 8,    /* 5340:0230, 638c:1c52 */
             .forget_mark = 0x80, /* 65cd:17c4 */
             .arrows = death_knights_arrows, /* 5340:28a0 */
             .missile_clamped = true,        /* 65cd:1da5 */
@@ -1951,5 +1959,47 @@ const cok_rules cok_rules_death_knights = {
             /* Fix's cures (stone, poison, the dead, curses, blindness)
              * and its two rests: a rewrite of 4888:2b44. */
             .fix_unported = "dkk 4381:2fd4",
+        },
+    .casting =
+        {
+            /* 5dc5:1298 (DS:0f1a-0f99), 6a69:2048 from Yes (DS:57c0). */
+            .cast_here = "Can't be cast here...",
+            .lose_it = "Lose it? ",
+            .that_item = "That item",
+            .combat_only = "Is a combat-only item...",
+            .use_it = "Use it? ",
+            .abort = "Abort Spell",
+            .aborted = "Spell Aborted",
+            .ask_yes = true,
+            .on_whom = "cast spell on whom", /* 5dc5:1182, DS:3192 */
+            .casts_a_spell = "casts a spell",  /* 5dc5:552a, DS:2304 */
+            .miscast = false,
+            .bursts = death_knights_bursts,
+            .burst_count = sizeof death_knights_bursts / sizeof *death_knights_bursts,
+            .burst_sound = 0x0b, /* DS:4316 */
+            .targets_cleared = true, /* 5340:1ff7 */
+            .silence_radius = true,
+            .computer_pick = COK_CAST_PICK_DEATH_KNIGHTS,
+            .sided_all = true,           /* 5dc5:1cc6 */
+            .missiles_charm_side = true, /* 5dc5:1b20 */
+            .bolt_doubles = true,        /* 5dc5:354a */
+            .bolt_least = 2,
+            .resist_damage = true, /* 638c:04c9 */
+            /* 638c:1c52 (DS:1c3a-1d04). */
+            .takes = "takes ",
+            .points = " points of damage",
+            .point = "takes 1 point of damage ",
+            .from = {"from fire", "from cold", "from electricity", "from acid", "from magic"},
+            .lost_spell = "lost a spell",
+            .goes_down = "goes down",
+            .dying = ", and is dying",
+            .killed = "is killed",
+            .cured = "is cured.", /* 638c:1479, DS:19f3 */
+            /* 4381:07ff: DS:2e0d's string[30], 2e2c's string[20]. */
+            .no_area = "cannot cast spells in this are",
+            .no_condition = "is in no condition t",
+            .no_what = {"cast any spells", "memorize spells", "scribe any scolls"},
+            .body_icon = 0x0d, /* 6f03:010d: (tile + 0xd) * 8 - 0x4b8c */
+            .load_strength = true, /* 46b2:10d7 */
         },
 };

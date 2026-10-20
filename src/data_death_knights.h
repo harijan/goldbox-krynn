@@ -9,6 +9,7 @@
 extern const uint8_t cok_death_knights_combat[172];
 extern const uint8_t cok_death_knights_alignment_codes[6];
 extern const uint8_t cok_death_knights_turning[155];
+extern const uint8_t cok_death_knights_area[21];
 extern const uint8_t cok_death_knights_cone[296];
 extern const uint8_t cok_death_knights_names[1099];
 extern const uint8_t cok_death_knights_item_words[2625];

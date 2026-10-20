@@ -119,6 +119,9 @@ static bool map_byte(cok_adventure *game, int x, int y, uint8_t *value, const ch
 
 /* Draw the terrain of map cell x, y at unit xu and cell row yc of the
  * buffer (6d21:00f7): the tile of its value (DS:1ee7), opaque. */
+static bool buffer_draw(cok_adventure *game, const cok_picture *src, size_t frame, int x, int y,
+                        const char *where);
+
 static bool terrain(cok_adventure *game, int xu, int yc, int x, int y, const char *where)
 {
     cok_combat *c = &game->combat;
@@ -127,6 +130,25 @@ static bool terrain(cok_adventure *game, int xu, int yc, int x, int y, const cha
     if (value >= cok_data_count(cok_game_rules(game)->data, COK_DATA_TERRAIN, 0))
         return fail(game, "terrain value 0x%02x is past the table (DS:1ee4, %s)", value, where);
     uint8_t tile = cok_combat_terrain(cok_game_rules(game), value).tile;
+    /* dkk 6f03:010d: a body's cell shows the cell under it (6f03:152e: the
+     * last body's there), then an icon over it, of the slot body_icon past
+     * the body's own tile (0x22). The game's clouds and pools, in the same
+     * set (0x1c-0x1e), are not carried out yet. */
+    uint8_t over = 0xff;
+    uint8_t body_icon = cok_game_rules(game)->casting.body_icon;
+    if (body_icon != 0 && value >= 0x1c && value <= 0x1f) {
+        if (value != COK_COMBAT_BODY)
+            return fail(game, "not yet ported: %s's cloud cell %02x (dkk 6f03:010d)",
+                        cok_game_rules(game)->text.name, value);
+        over = (uint8_t)(tile + body_icon);
+        uint8_t under = value;
+        for (unsigned k = 0; k < c->bodies && k < COK_COMBAT_BODIES; ++k)
+            if (c->body[k].x == x && c->body[k].y == y) under = c->body[k].cell;
+        if (under > 0x45 || under == 0) under = 0x15;
+        if (under >= cok_data_count(cok_game_rules(game)->data, COK_DATA_TERRAIN, 0))
+            return fail(game, "terrain value 0x%02x is past the table (dkk 6f03:010d)", under);
+        tile = cok_combat_terrain(cok_game_rules(game), under).tile;
+    }
     if (tile >= COK_COMBAT_TILES || !(c->tiles_loaded >> tile & 1))
         return fail(game, "tile 0x%02x of the combat tile set was never loaded (DS:616a, %s)", tile,
                     where);
@@ -137,7 +159,10 @@ static bool terrain(cok_adventure *game, int xu, int yc, int x, int y, const cha
         for (int b = xu * 4; b < xu * 4 + 12; ++b)
             if (row >= 0 && row < BUFFER_ROWS && b >= 0 && b < BUFFER_UNITS * 4)
                 c->unknown[row * BUFFER_UNITS * 4 + b] = 0;
-    return true;
+    if (over == 0xff) return true;
+    if (over >= cok_icon_slots(game) || game->icons[over][0].pixels == NULL)
+        return fail(game, "a body's icon slot %u is not loaded (dkk 6f03:010d)", over);
+    return buffer_draw(game, &game->icons[over][0], 0, xu, yc, where);
 }
 
 /* Where 127f:09c3 (127f:226c, 24fd or 27af by the mode, which share this
@@ -984,6 +1009,15 @@ bool cok_arena_missile_frames(cok_adventure *game, uint8_t slot)
         if (!cok_arena_missile_frame(game, slot, images[frame], frame, mirrors[frame] != 0))
             return false;
     return true;
+}
+
+bool cok_arena_missile_draw(cok_adventure *game, uint8_t frame, int x, int y)
+{
+    cok_combat *c = &game->combat;
+    if (!map_there(game, "dkk 65cd:39bd")) return false;
+    if (frame >= c->flash.frames)
+        return fail(game, "the missile's picture %u is past its four (dkk 65cd:39bd)", frame);
+    return buffer_draw(game, &c->flash, frame, x, y, "dkk 65cd:39bd");
 }
 
 /* Draw the missile's picture frame at unit x, cell row y of the buffer,

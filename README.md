@@ -159,9 +159,13 @@ original's character sheet and menu (Items, Spells, Trade, Drop, and a
 paladin's Heal), and Items (or Use in combat) its items menu: Ready, Use,
 Trade, Drop, Halve, Join. Training halls train characters up to level 18
 (Train Character) and promote knights (Knight Change Order); in camp,
-Magic's Memorize, Scribe and Display work, with spell levels up to 8. Not
-there yet: casting spells in combat (choosing one stops the game; a
-monster's spell too), creating and modifying characters, Initialize
+Magic's Memorize, Scribe and Display work, with spell levels up to 8, and
+Cast casts, in camp and in combat, by you or the computer (Alt-M turns
+Magic On for the party on Auto), with saving throws and magic resistance
+as in the original; about half of its spells are there (Magic Missile,
+Sleep, Hold Person, the cures, Lightning Bolt, Ice Storm, Flame Strike and
+others): the others, Fireball and Bless among them, stop the game when
+cast. Not there yet: creating and modifying characters, Initialize
 Mouse/Joystick, shops, the temple, camp's Fix, and the mouse in Death
 Knights' menus: the game stops with a message saying what it reached.
 

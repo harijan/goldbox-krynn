@@ -319,9 +319,10 @@ going on. It holds:
   + 41 × id, ids 1-0x72) and headings (`DS:3770` + 11 × level), the
   handler tables (127 of its 235 ids run Champions' handler, the others
   are unported), durations (`5dc5:0ef5`), byte 7's party value 3
-  (`5dc5:1182`), the event lists (`638c:055b`), and its cast
-  (`5dc5:1298`) and magic resistance not ported yet (its caster level and
-  saving throw: see Death Knights' fight); `MON1WIZ`; its moons'
+  (`5dc5:1182`), the event lists (`638c:055b`), its cast (`5dc5:1298`)
+  and magic resistance (`638c:04c9`, see Death Knights' casting; its
+  caster level and saving throw: see Death Knights' fight); `MON1WIZ`;
+  its moons'
   tiles, 0x100 + phase + 0x15, 0x0d and 0x11 (`5b7d:0000`);
 - its characters (see The character record's layout): the record's 216
   bytes (`.GAM`, `.PC`, `MON1CHA`), every field the code reads at its
@@ -407,8 +408,9 @@ rounds), their end
 of combat and treasure menu, the bank vault with its View and Items, camp's
 View and Items, until a routine not ported yet (`COMBAT`'s
 and `STOCK`'s shop, the temple, camp's Fix),
-a spell cast
-(the cast entry, `5dc5:1298`) or an effect not ported yet, a cloud, a
+a spell
+(Death Knights' casting lists those that cast) or an effect not ported
+yet, a cloud, a
 spell or effect it does not name, or a start menu command above; there the run
 stops with the reason (`not yet ported: ...`), `cok` showing it on the
 screen and quitting, as it does at any stop: the original never returns
@@ -900,11 +902,12 @@ own handler of each id. Shared code never compares an id with a number:
   the ids the party shares, those magic resistance leaves pending;
   Display's ids and texts; the spell lists' sizes, the granted powers'
   ids, an item power's spell; the counts that bound the tables.
-- Where a game's rule routine differs and is not ported yet, its section
-  says so (`spells.cast_unported`, `effects.caster_level_unported`,
-  `save_unported`, `resistance_unported`): a cast, the caster level, the
-  saving throw and magic resistance then stop or fail rather than run
-  Champions' rule (Death Knights' cast and magic resistance so far). Loops over spell levels and list entries are bounded
+- A handler that both games share but for a constant takes it from its
+  entry (`cok_rules_cast`'s `value`, `count`, `sides`, `type`: Death
+  Knights' Enlarge, Lightning Bolt, and Flame Strike and Ice Storm by
+  `COK_CAST_DICE`); where the cast's own rules differ (its words, its
+  targets, the damage's message, magic resistance), the casting section
+  holds them (see Death Knights' casting). Loops over spell levels and list entries are bounded
   by the tables' shapes (`COK_DATA_SPELL_LISTS`: Champions' 4 levels,
   Death Knights' 8), and each game's list sizes are at most
   `COK_SPELL_LIST_MOST`, `magic.c`'s arrays.
@@ -4379,6 +4382,68 @@ spell target and the trade partner (`DS:710b`, `46b0`), which the
 original keeps as pointers into freed records when Alter's Drop removes
 a character, are forgotten in the port.
 
+### Death Knights' casting
+
+`cok_rules_death_knights.casting` (`cok_rules_casting`, `rules.h`) holds
+what Death Knights' cast (`5dc5:1298`, Champions' `5b04:1415`) and the
+rules under it do otherwise; `cast.c`, `effect.c`, `magic.c`, `party.c`
+and `arena.c` read it:
+
+- The cast's words are in the data segment (`DS:0f1a`-`0f99`: "Can't be
+  cast here...", "That item", "Is a combat-only item...", "Abort Spell"),
+  its questions start on Yes (`6a69:2048` with `DS:57c0`), and one holding
+  `COK_EFFECT_DISPELLING` never miscasts (`miscast` false). In combat it
+  "casts a spell" (`5dc5:552a`, `DS:2304`); outside, the pick is "cast
+  spell on whom" (`5dc5:1182`, `DS:3192`) by the pick by index
+  (`65cd:33c9`: "Select" alone, see Death Knights' View).
+- After the flight, Stinking Cloud, Cloud Kill, the Fireballs and Ice
+  Storm burst on the spell's cell (`65cd:39bd`, `bursts`): the screen
+  centred there, Fireball's sound, the pictures of an icon slot (0x18-
+  0x1b), then 3n + 1 rings of 2k - 1 sparks each at an angle of Turbo
+  Pascal's real `Random` times 2π, `Trunc` of its cosine and sine times k
+  units from the cell (`1a07:1265`, `1278`: the reals are C doubles here,
+  which would put a spark elsewhere only within about 1e-10 of a unit's
+  edge), each within 9 units drawn masked with the frame `Random(4)`.
+  The sparks' `Random`s are the dice's: the damage after rolls on.
+- The targets in combat (`5340:1ff7`) clear the list first
+  (`targets_cleared`); Silence's area has byte 6's high nibble for its
+  radius (`silence_radius`). The computer picks (`5340:1eeb`,
+  `COK_CAST_PICK_DEATH_KNIGHTS`) one target within range among the side
+  the spell is for (`5340:1da5`: `5340:3cac` with its allies flag,
+  `cok_combat_pick_target_side`, then `5340:3fd5`'s worth, `cok_ai_worth`),
+  or for an area spell (byte 6 of 9 and up) the cell whose area does the
+  most good (`5340:44f8`: the worths summed over a 19 by 19 grid around it
+  by the rows of `DS:0648`, `COK_DATA_AREA_ROWS`, a tie with some good
+  taken on a `Random(100)` below 25, seen from the cell within range).
+- Every spell, not Bless's alone, keeps out an ally with an enemy beside
+  it (`5dc5:1cc6`, `sided_all`); Charm Monsters' effect holds the caster's
+  side in bit 7 (`5dc5:1b20`, `missiles_charm_side`); a bolt's first
+  bounce doubles the length walked and each line is charged at least 2
+  (`5dc5:354a`, `bolt_doubles`, `bolt_least`).
+- Magic resistance (`638c:04c9`) resists magic damage with no effect
+  pending too (`resist_damage`).
+- The damage's message (`638c:1c52`): "takes N points of damage" with no
+  space before "from fire" (lower case, `DS:1c32`-`1d04`), "goes down",
+  ", and is dying"; one whose creature flags hold the fight section's
+  quiet bit only goes down. A cure says "is cured." (`638c:1479`).
+- Cast's refusals (`4381:07ff`) are cut to their strings' lengths:
+  "cannot cast spells in this are", "is in no condition tcast any
+  spells".
+- A character's load (`46b2:10d7`) recomputes its strength between its
+  stats and levels (`638c:16d8` with 0, `load_strength`,
+  `cok_character_strength`).
+- A body's cell in combat shows the cell under it and the icon of slot
+  0x22 over it (`6f03:010d`, `body_icon`); its clouds' and pools' cells
+  stop the run.
+
+Its spells that cast: the 60 ids that share Champions' handlers, and
+Enlarge, Lightning Bolt, Flame Strike, Confusion and Ice Storm; the rest
+stop where they would run (`spells.cast[id].unported`). Checked: the
+section against the original's code (`test_death_knights.c`'s
+`test_casting`), and in DOSBox-X the first fight on Auto with casters and
+Magic On, round by round (`dkk_fight.py`'s cast flow), and camp's cure
+(`dkk_levels.py`'s cast flow).
+
 ## View
 
 `src/sheet.h` and `src/items.h` port View (`546c:0d74`), from the
@@ -4612,8 +4677,15 @@ before each ask), Escape as Exit; their own items; and these:
   (`65cd:047f`, `DS:2c02` " Yes ", `2c0d` " No  "), kept in its name bytes
   as the files show.
 
-The pick of a character (`65cd:33c9`) is Champions' (`6346:32c7`): the
-original shows `Select` alone, by index. Camp's menu (`4381:3106`) keeps
+The pick of a character (`65cd:33c9`; Trade's, Heal's, WHO's, the cast's
+target outside combat) goes by index where the menus do
+(`menus.routine`): `Select` alone after the prompt and a space, by the
+loop with the keypad, the small picture shown in camp and mode 6, until
+Select or Escape, which picks none where Exit is allowed (and ends the
+pick at once, where Champions' Escape needs Exit after it); Down (2) the
+next, wrapping to the party's first, Up (8) the one before, the last before
+the first or for none; other keys read again; Down with none picked reads
+nil's next in the original, and the port stops. Camp's menu (`4381:3106`) keeps
 its own selection (`menus.camp_keeps_selection`). The vault's View and
 Items are these (see Death Knights' treasure).
 
@@ -5662,7 +5734,8 @@ instruction by instruction (the calls followed through their thunks):
   cloud and pool tiles are 0x1d and 0x1c, marked wherever they are and
   counted as terrain too (`6f03:0e33`).
 - The player's turn (`3e05:08af`): see Death Knights' commands. A spell
-  being cast goes to its cast entry (`5dc5:1298`, not ported).
+  being cast goes to its cast entry (`5dc5:1298`, see Death Knights'
+  casting).
 - The computer's turn (`3f63:0000`): one with no target picks one first
   (`5340:3cac` with 0, 1, 0xff; and before a spell being cast, afresh),
   `computer_target_first`; it rolls its items' 1d7 but uses none
@@ -8049,8 +8122,8 @@ treasure left. " and "do you want to go back and claim your treasure?"
 "items : " (`DS:315d`), its coins "select type of coin " (`DS:104c`), and
 the coin's question "How much Steel  will you take? ", "How many Gems
 will you take? " (`DS:0fae`, `0fce`, `0fb9`; `5c72:09e4`'s words
-`DS:0c62` + a space). Detect casts through its cast entry, which is not
-ported yet (`spells.cast_unported`); View is the port's View, as camp's.
+`DS:0c62` + a space). Detect casts through its cast entry (see Death
+Knights' casting); View is the port's View, as camp's.
 
 Taking an item (`3b89:033b`) is `36d0:034c` but that an item with a count
 (`+0x39`) joins its kind once taken (`580d:1be6`, View's Join,
