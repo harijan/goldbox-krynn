@@ -3,9 +3,13 @@
 #include "magic.h"
 #include "sheet.h"
 
+#include "monster.h"
+#include "treasure.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #x); exit(1); } } while (0)
 
@@ -558,6 +562,227 @@ static void test_view(void)
           strstr(s.log, "print: Overloaded;flush;flush;menu: Select Exit;") != NULL);
 }
 
+/* Death Knights' View and items menu (dkk 580d:0c66, 0ffa), on a game of
+ * its own and records of its layout. */
+
+/* A member of Death Knights' layout: class with level, active and okay,
+ * scores 12, 9 hit points, any class's items. */
+static cok_character *dk_add(const char *name, uint8_t class, uint8_t level)
+{
+    const cok_character_layout *L = cok_rules_death_knights.character;
+    cok_character *c = calloc(1, sizeof *c);
+    CHECK(c != NULL);
+    uint8_t *r = c->record;
+    r[0] = (uint8_t)strlen(name);
+    memcpy(r + 1, name, strlen(name));
+    for (int i = 0; i < 6; ++i) {
+        cok_field_set8_at(L, r, COK_FIELD_SCORE, i, 12);
+        cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, i, 12);
+    }
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(L, r, COK_FIELD_CLASS, class);
+    cok_field_set8(L, r, COK_FIELD_RACE, 6);
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, class, level);
+    cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 9);
+    cok_field_set8(L, r, COK_FIELD_MAX_HIT_POINTS, 9);
+    cok_field_set8(L, r, COK_FIELD_USABLE_CLASSES, 0xff);
+    CHECK(cok_party_add(&game.party, &cok_rules_death_knights, c));
+    cok_ecl_add_var(&game.vm, COK_VAR_PARTY_SIZE, 1);
+    if (game.vm.character == NULL) game.vm.character = c->record;
+    return c;
+}
+
+static bool dk_stats(cok_character *c)
+{
+    char error[300];
+    return cok_character_stats(c, &cok_rules_death_knights, &game.item_types, error, sizeof error);
+}
+
+static void dk_empty(void)
+{
+    cok_party_free(&game.party);
+    cok_pool_free(&game.pool);
+    game.vm.character = NULL;
+    game.trade_partner = NULL;
+    cok_ecl_set_var(&game.vm, COK_VAR_PARTY_SIZE, 0);
+    game.selected = 1;
+}
+
+static void test_dk_items(void)
+{
+    const cok_character_layout *L = cok_rules_death_knights.character;
+    dk_empty();
+    game.vm.mode = 2;
+    cok_character *c = dk_add("KAL", 2, 3);
+    cok_character *sir = dk_add("SIRRION", 2, 3);
+    give(c, 0x12, 0, 0x12, 0);
+    give(c, 0x12, 0x6f, 0x12, 0);
+    uint8_t *sword = c->items[0];
+    CHECK(dk_stats(c) && dk_stats(sir));
+    bool done = false;
+    /* By index: Ready's R, from the first; Escape is Exit. The readied
+     * column a space shorter than Champions' (DS:2c02). */
+    keys("r\x1b");
+    cok_items(&game, &done);
+    CHECK(strstr(s.log, "menu: Ready Use Trade Drop Halve Join Exit;choice: R;") != NULL);
+    CHECK(sword[0x34] == 1 && memcmp(sword, "\x10 Yes Long Sword ", 17) == 0);
+    CHECK(memcmp(c->items[1] + 1, " No  ", 5) == 0 && c->items[1][6] != ' ');
+    /* Enter is the selection the menu keeps: Ready, from the first. */
+    keys("\r\x1b");
+    cok_items(&game, &done);
+    CHECK(sword[0x34] == 0 && !game.input_ended && s.at == s.length);
+    /* Exit, past the menu's last 8 (its own index 9), leaves too. */
+    keys("e");
+    cok_items(&game, &done);
+    CHECK(!game.input_ended && s.at == s.length && game.vm.status == COK_ECL_OK);
+    /* A scroll of another order: a thief of level 1-9 is told so; of 10
+     * readies it (580d:1717); with no thief level, the order's word. */
+    give(c, 0x27, 0, 0, 0x27)[0x35] = 0x10;
+    uint8_t *scroll = c->items[2];
+    cok_field_set8(L, c->record, COK_FIELD_MAGIC_ORDER, 1);
+    CHECK(dk_stats(c));
+    keys("\x01P\x01Pr\x1b");
+    cok_items(&game, &done);
+    CHECK(strstr(s.log, "print: Wrong Magical Order;") != NULL && scroll[0x34] == 0);
+    cok_field_set8_at(L, c->record, COK_FIELD_CLASS_LEVEL, 6, 9);
+    keys("\x01P\x01Pr\x1b");
+    cok_items(&game, &done);
+    CHECK(strstr(s.log, "print: Thief Level Too Low;") != NULL && scroll[0x34] == 0);
+    cok_field_set8_at(L, c->record, COK_FIELD_CLASS_LEVEL, 6, 10);
+    keys("\x01P\x01Pr\x1b");
+    cok_items(&game, &done);
+    CHECK(scroll[0x34] == 1);
+    /* Use of one not readied: "Must be readied". */
+    keys("u\x1b");
+    cok_items(&game, &done);
+    CHECK(strstr(s.log, "print: Must be readied;") != NULL);
+    /* Drop: "Lose it? " from No: Enter keeps it, Y drops it. */
+    keys("\x01P" "d\r\x1b");
+    cok_items(&game, &done);
+    CHECK(strstr(s.log, "print: Your Long Sword +1 will be gone forever;menu: Lose it? ;choice: N;") !=
+          NULL && c->item_count == 3);
+    keys("\x01P" "dy\x1b");
+    cok_items(&game, &done);
+    CHECK(c->item_count == 2);
+    /* Trade: from the last partner, or with none the selected; the item to
+     * the end of the receiver's. */
+    game.trade_partner = NULL;
+    keys("t\x01PS\x1b");
+    cok_items(&game, &done);
+    CHECK(c->item_count == 1 && sir->item_count == 1 && game.trade_partner == sir->record);
+    /* The vault (mode 7): Deposit for Drop; the item to the end of the
+     * pool, said. */
+    game.vm.mode = 7;
+    uint8_t loot[COK_ITEM_SIZE] = {0};
+    loot[0x2e] = loot[0x31] = 0x11;
+    CHECK(cok_pool_insert(&game.pool, 0, loot));
+    sword = give(c, 0x12, 0, 0x12, 0);
+    sword[0x34] = 0;
+    CHECK(dk_stats(c));
+    keys("\x01Pd\x1b");
+    cok_items(&game, &done);
+    CHECK(strstr(s.log, "menu: Ready Trade Deposit Halve Join Exit;") != NULL);
+    CHECK(strstr(s.log, "print: Your Long Sword will be left in the vault;") != NULL);
+    CHECK(c->item_count == 1 && game.pool.item_count == 2 && game.pool.items[1][0x2e] == 0x12);
+    /* Shops (mode 1): Sell's price is half the value times any count (no
+     * 20th), the question from Yes; Id pays from the steel and the pool's. */
+    game.vm.mode = 1;
+    uint8_t *arrows = give(c, 0x1e, 0, 0, 0x1e);
+    arrows[0x39] = 3;
+    arrows[0x3a] = 10;
+    CHECK(dk_stats(c));
+    keys("\x01Ps\r\x1b");
+    cok_items(&game, &done);
+    CHECK(strstr(s.log, "menu: Ready Trade Drop Halve Join Sell Id Exit;") != NULL);
+    CHECK(strstr(s.log, "print: I'll give you 15 steel pieces for your 3 Arrows ;"
+                        "menu: is it a deal? ;choice: Y;print: sold!;") != NULL);
+    CHECK(cok_field_u16_at(L, c->record, COK_FIELD_COINS, 4) == 15 && c->item_count == 1);
+    c->items[0][0x35] = 1;
+    game.pool.coins[4] = 90;
+    keys("i\r\x1b");
+    cok_items(&game, &done);
+    CHECK(strstr(s.log, "print: for 100 steel pieces i'll identify your ") != NULL &&
+          strstr(s.log, "print: it looks like some sort of ") != NULL);
+    CHECK(cok_field_u16_at(L, c->record, COK_FIELD_COINS, 4) == 0 && game.pool.coins[4] == 5 &&
+          (c->items[0][0x35] & 7) == 0);
+    keys("i\r\x1b");
+    cok_items(&game, &done);
+    CHECK(strstr(s.log, "print: not enough money.;") != NULL);
+    game.pool.coins[4] = 0;
+}
+
+static void test_dk_view(void)
+{
+    const cok_rules *R = &cok_rules_death_knights;
+    const cok_character_layout *L = R->character;
+    dk_empty();
+    game.vm.mode = 2;
+    cok_character *c = dk_add("SIR", 3, 4); /* a paladin of level 4 */
+    cok_character *k = dk_add("KAL", 2, 3);
+    cok_field_set8(L, k->record, COK_FIELD_HIT_POINTS, 2);
+    cok_field_set16_at(L, c->record, COK_FIELD_COINS, 5, 7); /* gems */
+    give(c, 0x12, 0, 0x12, 0);
+    CHECK(dk_stats(c) && dk_stats(k));
+    bool done;
+    /* By index: Items Trade Drop Heal Exit; Escape is Exit. */
+    keys("\x1b");
+    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
+    CHECK(strstr(s.log, "menu: Items Trade Drop Heal Exit;") != NULL && !game.input_ended);
+    /* Heal: from the party's first, Down to KAL: healed by twice the
+     * level, said; the paladin gets effect 0x6d for a day, and Heal goes. */
+    keys("h\x01PS\x1b");
+    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
+    CHECK(strstr(s.log, "print: KAL feels better;") != NULL);
+    CHECK(cok_field_u8(L, k->record, COK_FIELD_HIT_POINTS) == 9);
+    cok_effect *e = cok_character_find_effect(c, 0x6d);
+    CHECK(e != NULL && e->duration == 0x5a0);
+    CHECK(strstr(s.log, "menu: Items Trade Drop Exit;") != NULL);
+    /* Cure with +0x25 set: a pick, nothing more. */
+    cok_field_set8(L, c->record, COK_FIELD_KNIGHT_TIER, 1);
+    keys("cS\x1b");
+    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
+    CHECK(strstr(s.log, "menu: Items Trade Drop Cure Exit;") != NULL &&
+          strstr(s.log, "menu: Cure whom?  ") == NULL && !game.input_ended && s.at == s.length);
+    /* Drop in the vault is Deposit: the gems into the pool, "will you
+     * deposit? ". */
+    game.vm.mode = 7;
+    keys("d\r3\r\x1b\x1b");
+    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
+    CHECK(strstr(s.log, "menu: Items Trade Deposit Cure Exit;") != NULL &&
+          strstr(s.log, "menu: How much Gems will you deposit? ;input: 3;") != NULL);
+    CHECK(game.pool.coins[5] == 3 && cok_field_u16_at(L, c->record, COK_FIELD_COINS, 5) == 4);
+    game.pool.coins[5] = 0;
+    /* Trade: Escape at the first coin list reads a byte the original leaves
+     * unset. */
+    game.vm.mode = 2;
+    game.trade_partner = NULL;
+    keys("t\x01PS\x1b");
+    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
+    CHECK(game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "580d:26c0") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.vm.abort = false;
+    /* After an amount: trade to?, the gems moved. */
+    keys("t\x01PS\r2\r\x1b\x1b");
+    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
+    CHECK(strstr(s.log, "menu: How much Gems will you trade? ;input: 2;") != NULL);
+    CHECK(cok_field_u16_at(L, k->record, COK_FIELD_COINS, 5) == 2);
+}
+
+static void test_death_knights(void)
+{
+    struct stat st;
+    if (stat("DKKAssets/START.EXE", &st) != 0) {
+        puts("items: DKKAssets not found; Death Knights' tests skipped");
+        return;
+    }
+    cok_adventure_close(&game);
+    cok_keyboard k = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .flush = flushed, .context = &s};
+    CHECK(cok_adventure_open(&game, &cok_rules_death_knights, "DKKAssets", &k, &hooks));
+    test_dk_items();
+    test_dk_view();
+}
+
 int main(void)
 {
     cok_keyboard k = {scripted, &s, NULL, NULL};
@@ -569,6 +794,7 @@ int main(void)
     test_use();
     test_sheet();
     test_view();
+    test_death_knights();
     cok_adventure_close(&game);
     puts("items tests passed");
     return 0;

@@ -153,16 +153,17 @@ keypad keys (Escape takes the moves back), aim and attack with Aim
 press Quick, or Alt-Q (Alt-A) for the whole party, to let the computer
 fight: as in the original, with its dice, to the battle's end and the
 results. Treasure found (the treasure menu: Take, Pool, Share) and the
-bank vault of Gargath (take coins and items out, pool and deposit coins)
-work. Training halls train characters up to level 18 (Train Character)
-and promote knights (Knight Change Order); in camp, Magic's Memorize,
-Scribe and Display work, with spell levels up to 8. Not there yet:
-casting spells in combat (choosing one stops the game; a monster's spell
-too), the original's own character sheet and items menu (View and Use
-show Champions' for now), creating and modifying characters, Initialize
-Mouse/Joystick, shops, the temple, camp's Fix, the mouse in Death
-Knights' menus, and a character's sheet and items in the vault: the game
-stops with a message saying what it reached.
+bank vault of Gargath (take coins and items out, pool and deposit coins,
+and deposit items from a character's items) work. View shows the
+original's character sheet and menu (Items, Spells, Trade, Drop, and a
+paladin's Heal), and Items (or Use in combat) its items menu: Ready, Use,
+Trade, Drop, Halve, Join. Training halls train characters up to level 18
+(Train Character) and promote knights (Knight Change Order); in camp,
+Magic's Memorize, Scribe and Display work, with spell levels up to 8. Not
+there yet: casting spells in combat (choosing one stops the game; a
+monster's spell too), creating and modifying characters, Initialize
+Mouse/Joystick, shops, the temple, camp's Fix, and the mouse in Death
+Knights' menus: the game stops with a message saying what it reached.
 
 ## Options
 

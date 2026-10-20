@@ -395,27 +395,21 @@ int cok_sheet_amount(cok_adventure *game, const char *prompt, uint16_t max)
     return (int)value;
 }
 
-/* The coin a row of the coin list names, by its first letter (58e7:0b95),
- * and the word the question uses. */
-static int coin_of(const char *row, const char **word_out)
+/* The coin a row of the coin list names, by its first letter (58e7:0b95;
+ * dkk 5c72:09e4 by the same letters); the question's word for it is the
+ * treasure section's (the same as 58e7:0b95's). */
+static int coin_of(const char *row)
 {
     while (*row == ' ') ++row;
-    static const struct { int coin; const char *word; } coins[] = {
-        {5, "Gems "}, {3, "platinum "}, {2, "bronze "}, {0, "silver "},
-        {4, "steel "}, {1, "Copper "}, {6, "Jewelry "},
-    };
-    int k;
     switch (row[0]) {
-    case 'G': k = 0; break;
-    case 'P': k = 1; break;
-    case 'B': k = 2; break;
-    case 'S': k = (row[1] == 'i' || row[1] == 'I') ? 3 : 4; break;
-    case 'C': k = 5; break;
-    case 'J': k = 6; break;
+    case 'G': return 5;
+    case 'P': return 3;
+    case 'B': return 2;
+    case 'S': return (row[1] == 'i' || row[1] == 'I') ? 0 : 4;
+    case 'C': return 1;
+    case 'J': return 6;
     default: return -1;
     }
-    *word_out = coins[k].word;
-    return coins[k].coin;
 }
 
 /* Pick a kind of coin the character has (546c:2c75, 2fe2): a list over the
@@ -447,20 +441,38 @@ static int pick_coin(cok_adventure *game, const uint8_t *c, int pad_to, bool cou
         ++count;
     }
     for (size_t i = 0; i < count; ++i) cok_adventure_log(game, "item", text[i]);
-    cok_menu_style style = {"Select type of coin ", " Select", 15, 10, 13, true};
+    cok_menu_style style = {cok_game_rules(game)->treasure.coin_prompt,
+                            cok_game_rules(game)->items.coin_select, 15, 10, 13, true};
     bool redraw = true;
     int index = 0;
     cok_keyboard keys = cok_adventure_keyboard(game);
-    int key = cok_menu_rows(&game->screen, &game->font, rows, count,
-                            (cok_text_window){0x14, 9, 0x26, 0x0f}, &style, &redraw, &index,
-                            &game->list_top, &game->selected, &keys);
-    if (key < 0) return -1;
-    if (key == 0 || count == 0) return 0x100;
-    int coin = coin_of(text[index], coin_word);
+    cok_text_window window = {0x14, 9, 0x26, 0x0f};
+    if (cok_game_rules(game)->items.routine == COK_ITEMS_DEATH_KNIGHTS) {
+        /* dkk 580d:23a0, 26d0: the list 6a69:1b82, the selection as the
+         * menu before left it, after Trade's "Select" alone (6a69:00cb with
+         * 0: its Exit the list's own) and Drop's "Select" and the item
+         * after (00cb with 1: the list's Exit). */
+        cok_menu_items items;
+        cok_menu_items_upto(&items, count_amount ? 1 : 0);
+        bool special = false, picked;
+        int key = cok_menu_indexed_rows(&game->screen, &game->font, rows, count, window, &style,
+                                        style.base, &items, count_amount ? 1 : 0, &redraw,
+                                        &index, &game->list_top, &game->selected, &keys,
+                                        &special, &picked);
+        if (key < 0) return -1;
+        if (!picked || key == 1 || count == 0) return 0x100;
+    } else {
+        int key = cok_menu_rows(&game->screen, &game->font, rows, count, window, &style, &redraw,
+                                &index, &game->list_top, &game->selected, &keys);
+        if (key < 0) return -1;
+        if (key == 0 || count == 0) return 0x100;
+    }
+    int coin = coin_of(text[index]);
     if (coin < 0) {
         undefined(game, "a coin's row starts with an unknown letter (58e7:0b95)");
         return -1;
     }
+    *coin_word = cok_game_rules(game)->treasure.coin_words[coin];
     char choice[2] = {text[index][0], '\0'};
     cok_adventure_log(game, "choice", choice);
     return coin;
@@ -473,7 +485,8 @@ static bool has_money(const cok_character_layout *L, const uint8_t *c)
     return false;
 }
 
-/* Trade money (546c:2c75): "Trade to?" from the last partner (DS:46b0),
+/* Trade money (546c:2c75; dkk 580d:23a0): "Trade to?", in the game's
+ * words, from the last partner (DS:46b0),
  * then the giver's sheet, and kinds of coin and amounts until it has none
  * left, or Escape in the coin list asks for another partner. */
 static bool trade_money(cok_adventure *game, cok_character *giver, cok_sheet_stale stale)
@@ -483,7 +496,8 @@ static bool trade_money(cok_adventure *game, cok_character *giver, cok_sheet_sta
     for (;;) {
         cok_adventure_redraw(game);
         bool ended;
-        uint8_t *who = cok_adventure_pick(game, "Trade to?", game->trade_partner, true, &ended);
+        uint8_t *who = cok_adventure_pick(game, cok_game_rules(game)->items.trade_to,
+                                          game->trade_partner, true, &ended);
         if (ended) return false;
         if (who == NULL) return true;
         size_t i = cok_party_index(&game->party, who);
@@ -503,11 +517,12 @@ static bool trade_money(cok_adventure *game, cok_character *giver, cok_sheet_sta
                 if (stale == COK_SHEET_STALE_SET) return true;
                 if (stale == COK_SHEET_STALE_UNKNOWN)
                     return undefined(game, "Escape at the first coin list tests an "
-                                           "uninitialized byte (546c:2f9b)");
+                                           "uninitialized byte (546c:2f9b; dkk 580d:26c0)");
                 break;
             }
             char prompt[256];
-            snprintf(prompt, sizeof prompt, "How much %swill you trade? ", coin_word);
+            snprintf(prompt, sizeof prompt, "%s%swill you trade? ",
+                     cok_game_rules(game)->treasure.how_much, coin_word);
             int amount =
                 cok_sheet_amount(game, prompt, cok_field_u16_at(L, g, COK_FIELD_COINS, coin));
             if (amount < 0) return false;
@@ -541,9 +556,10 @@ static bool trade_money(cok_adventure *game, cok_character *giver, cok_sheet_sta
     }
 }
 
-/* Drop money (546c:2fe2): kinds of coin and amounts until it has none, or
- * Escape; in shops and treasure (modes 1 and 6) the coins go to the pool,
- * elsewhere they are gone. */
+/* Drop money (546c:2fe2; dkk 580d:26d0 with 1): kinds of coin and amounts
+ * until it has none, or Escape; in shops and treasure (modes 1 and 6) and
+ * the vault (7) the coins go to the pool, elsewhere they are gone. The
+ * vault asks the deposit's question (the treasure section's). */
 static bool drop_money(cok_adventure *game, cok_character *character)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
@@ -555,7 +571,9 @@ static bool drop_money(cok_adventure *game, cok_character *character)
         if (coin < 0) return false;
         if (coin == 0x100) return true;
         char prompt[256];
-        snprintf(prompt, sizeof prompt, "How much %swill you drop? ", coin_word);
+        const cok_rules_treasure *T = &cok_game_rules(game)->treasure;
+        snprintf(prompt, sizeof prompt, "%s%s%s", T->how_much, coin_word,
+                 game->vm.mode == 7 && T->deposit != NULL ? T->deposit : "will you drop? ");
         int amount = cok_sheet_amount(game, prompt, cok_field_u16_at(L, c, COK_FIELD_COINS, coin));
         if (amount < 0) return false;
         cok_pool_drop(game, c, (uint16_t)amount, coin); /* 58e7:09fa */
@@ -563,10 +581,140 @@ static bool drop_money(cok_adventure *game, cok_character *character)
     }
 }
 
+/* Death Knights' View (COK_ITEMS_DEATH_KNIGHTS: dkk 580d:0c66). */
+
+/* View's items by index (DS:3276). */
+enum { DK_ITEMS, DK_SPELLS, DK_TRADE, DK_DEPOSIT, DK_DROP, DK_HEAL, DK_CURE, DK_EXIT };
+
+/* Whether c may heal (580d:2e95) or cure (2ee0): of the class, outside
+ * combat, okay, and for Heal without the effect it gives, for Cure with
+ * +0x25 (the layout's knight tier) not 0. */
+static bool may_heal(cok_adventure *game, cok_character *character, bool cure)
+{
+    const cok_rules_items *I = &cok_game_rules(game)->items;
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    const uint8_t *c = character->record;
+    if (I->heal_whom == NULL || cok_field_s8(L, c, COK_FIELD_CLASS) != (int8_t)I->heal_class ||
+        game->vm.mode == 5 || cok_field_s8(L, c, COK_FIELD_STATUS) != 0)
+        return false;
+    if (cure) return cok_field_u8(L, c, COK_FIELD_KNIGHT_TIER) != 0;
+    return cok_character_find_effect(character, I->heal_effect) == NULL; /* 65cd:2687 */
+}
+
+/* Heal (580d:2f47) or Cure (3018): the screen redrawn (65cd:2db0), one
+ * picked from the party's first (65cd:33c9, with Exit); for Heal, the one
+ * picked healed by twice the healer's level in the class (638c:206f, while
+ * below its maximum), "NAME feels better" or "NAME is unaffected", and the
+ * healer given the effect for its minutes (638c:1257); Cure does nothing
+ * more. The sheet again. Returns false where the run ended. */
+static bool heal(cok_adventure *game, cok_character *healer, bool cure)
+{
+    const cok_rules *R = cok_game_rules(game);
+    const cok_rules_items *I = &R->items;
+    const cok_character_layout *L = R->character;
+    cok_adventure_redraw(game);
+    bool ended;
+    uint8_t *first = game->party.count > 0 ? game->party.members[0]->record : NULL; /* DS:a2c6 */
+    uint8_t *who = cok_adventure_pick(game, cure ? I->cure_whom : I->heal_whom, first, true, &ended);
+    if (ended) return false;
+    if (cure) return cok_sheet_draw(game) && (who != NULL || cok_sheet_draw(game));
+    if (who == NULL) return cok_sheet_draw(game);
+    int8_t level = cok_field_s8_at(L, healer->record, COK_FIELD_CLASS_LEVEL, I->heal_class);
+    bool healed = cok_character_heal(who, R, (uint8_t)(level * 2), true, game->vm.mode);
+    char name[20], text[64];
+    uint8_t stored = cok_field_u8_at(L, who, COK_FIELD_NAME, 0);
+    size_t length = stored > 15 ? 15 : stored;
+    memcpy(name, who + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
+    name[length] = '\0';
+    snprintf(text, sizeof text, "%s%s", name, healed ? I->feels_better : I->unaffected);
+    cok_camp_notice(game, text); /* 65cd:19c5 */
+    if (cok_character_add_effect(healer, I->heal_effect, I->heal_minutes, 0, false) == NULL)
+        return undefined(game, "out of memory");
+    return cok_sheet_draw(game);
+}
+
+/* A menu by index on row 24 (6a69:0f1b), logged as it shows. */
+static int pick(cok_adventure *game, const char *text, const cok_menu_items *items,
+                bool *special)
+{
+    cok_menu_indexed_layout shown;
+    cok_menu_indexed(&shown, text, items);
+    cok_adventure_log(game, "menu", shown.text);
+    cok_keyboard keys = cok_adventure_keyboard(game);
+    return cok_menu_pick(&game->screen, &game->font, "", text, items, 13, 15, 10, false,
+                         &game->selected, &keys, special);
+}
+
+/* As Champions' View, but by index with its own selection, from the first
+ * (DS:c0f7 put back before each ask), Escape as Exit; Trade, Deposit (in
+ * the vault, mode 7) or Drop for steel, gems and jewelry; Heal and Cure;
+ * the sheet drawn again after Items, Spells and Trade. Trade's flag
+ * (580d:23a0's [bp-0x13c], tested at 26c0) holds what the stack held,
+ * which the port does not know: Escape at its first coin list stops the
+ * run. */
+static void dk_view(cok_adventure *game, bool *done)
+{
+    cok_character *character = selected(game);
+    *done = false;
+    game->trade_partner = game->vm.character; /* DS:a2be */
+    if (character == NULL) {
+        undefined(game, "View with no character selected reads through NULL (dkk 580d:0c66)");
+        return;
+    }
+    if (!cok_sheet_draw(game)) return; /* 580d:006e */
+    const cok_rules *R = cok_game_rules(game);
+    const cok_character_layout *L = R->character;
+    uint8_t *c = character->record, own = 1;
+    int key = 0xff;
+    while (key != DK_EXIT && !*done && !game->vm.abort) {
+        bool memorized = false;
+        if (cok_field_has_spells(L, c))
+            for (size_t i = 0; i < cok_field_count(L, COK_FIELD_MEMORIZED); ++i)
+                if ((cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) & 0x7f) != 0) memorized = true;
+        bool money = has_money(L, c);
+        bool may_trade = cok_field_u8(L, c, COK_FIELD_NPC) < 0x80 ||
+                         cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0 ||
+                         cok_field_u8(L, c, COK_FIELD_STATUS) == 1;
+        cok_menu_items items = {0};
+        if (character->item_count > 0) cok_menu_items_add(&items, DK_ITEMS);
+        if (memorized) cok_menu_items_add(&items, DK_SPELLS);
+        if (may_trade && money && game->vm.mode != 5) cok_menu_items_add(&items, DK_TRADE);
+        if (money) cok_menu_items_add(&items, game->vm.mode == 7 ? DK_DEPOSIT : DK_DROP);
+        if (may_heal(game, character, false)) cok_menu_items_add(&items, DK_HEAL);
+        if (may_heal(game, character, true)) cok_menu_items_add(&items, DK_CURE);
+        cok_menu_items_add(&items, DK_EXIT);
+        game->selected = own;
+        bool special;
+        key = pick(game, R->items.view_menu, &items, &special);
+        if (key < 0) return;
+        if (special && key == 0x1b) key = DK_EXIT;
+        own = game->selected;
+        /* The index the menu gave, a special key's scan code alike. */
+        bool ok = true;
+        switch (key) {
+        case DK_ITEMS: cok_items(game, done); ok = !game->vm.abort; break;
+        case DK_SPELLS: ok = cok_magic_memorized(game, character) >= 0; break; /* 580d:2d2a */
+        case DK_TRADE: ok = trade_money(game, character, COK_SHEET_STALE_UNKNOWN); break;
+        case DK_DEPOSIT:
+        case DK_DROP: ok = drop_money(game, character) && cok_sheet_money(game, c); break;
+        case DK_HEAL: ok = heal(game, character, false); break;
+        case DK_CURE: ok = heal(game, character, true); break;
+        default: break;
+        }
+        if (!ok || game->vm.abort) return;
+        if (!*done && key < DK_DEPOSIT && !cok_sheet_draw(game)) return;
+    }
+    cok_adventure_redraw(game); /* 65cd:2db0 */
+}
+
 /* View. */
 
 void cok_sheet(cok_adventure *game, cok_sheet_stale stale, bool *done)
 {
+    if (cok_game_rules(game)->items.routine == COK_ITEMS_DEATH_KNIGHTS) {
+        dk_view(game, done);
+        return;
+    }
     cok_character *character = selected(game);
     *done = false;
     game->trade_partner = game->vm.character;

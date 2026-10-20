@@ -136,7 +136,8 @@ class DeathKnightsTests(unittest.TestCase):
 
     def test_characters(self):
         # The saved characters (--character), a sheet in camp: name, class,
-        # items (the screen's frame is still Champions').
+        # items, the readied column a space shorter than Champions'
+        # (65cd:047f).
         party = [arg for n in range(1, 7)
                  for arg in ("--character", ASSETS / f"SAVE/CHRDATA{n}.GAM")]
         result = self.play(*party, "--play", "--keys", r"ev\r\e", ASSETS, 17)
@@ -145,8 +146,8 @@ class DeathKnightsTests(unittest.TestCase):
         at = lines.index("print: SIR DRYDEN")
         self.assertEqual(lines[at:at + 7], [
             "print: SIR DRYDEN", "print: Knight of the Crown", "menu: Items Trade Drop Exit",
-            "list: Items", "item:  Yes  Long Sword +1 ", "item:  Yes  Shield ",
-            "item:  Yes  Solamnic Plate Mail "])
+            "list: Items", "item:  Yes Long Sword +1 ", "item:  Yes Shield ",
+            "item:  Yes Solamnic Plate Mail "])
 
     def test_yes_no_and_clear_exit(self):
         result = self.play("--file", 2, "--start", "88f7", "--keys", r"N\r", ASSETS, 48)
@@ -228,11 +229,22 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual(lines[-1], "(done in block 36)")
         self.assertEqual((saves / "TMPVAULT.DAT").read_bytes(),
                          (3000).to_bytes(4, "little") + bytes(8))
-        # View and Items, the character's sheet and items in mode 7, stop.
+        # View and Items in mode 7 (580d:0c66, 0ffa): Deposit for Drop; the
+        # money and the mace deposited go to the pool, which Exit writes.
+        saves = self.saves(ASSETS / "SAVE")
         result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--saves", saves, "--set",
-                           "4be6=1", "--keys", "V", ASSETS, 35)
-        self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
-                         "Krynn's the vault's View (dkk 580d:0c66)")
+                           "4be6=1", "--keys", r"VD\r2\r\e\eI\v\v\vD\eE", ASSETS, 35)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertIn("menu: Items Trade Deposit Exit", lines)
+        self.assertIn("menu: How much Steel will you deposit? ", lines)
+        self.assertIn("menu: Ready Trade Deposit Halve Join Exit", lines)
+        self.assertIn("print: Your Mace +1 will be left in the vault", lines)
+        self.assertEqual(lines[-1], "(done in block 36)")
+        vault = (saves / "TMPVAULT.DAT").read_bytes()
+        self.assertEqual(vault[:12], (2).to_bytes(4, "little") + bytes(8))
+        self.assertEqual(len(vault), 12 + 63)
+        self.assertEqual(vault[12:12 + 9], b"\x08Mace +1 ")
 
     # Saved game A to block 16's fight: its texts, No rest, the festival's.
     TO_FIGHT = r"\r\rN" + r"\r" * 9
@@ -615,6 +627,38 @@ class DeathKnightsTests(unittest.TestCase):
                       out)
         self.assertEqual(result.stderr, "not yet ported: Death Knights of Krynn's Fix "
                          "(dkk 4381:2fd4)\n")
+
+    def test_view_and_items(self):
+        # Camp (block 16's rest): View (580d:0c66) by index for SIR DRYDEN,
+        # Items (580d:0ffa) with Death Knights' readied column (DS:2c02),
+        # Ready of the mace with the sword readied, the sword unreadied and
+        # traded, Drop of the mace (Lose it?, Yes), Escape back to View,
+        # Drop of 5 steel; Escape to camp, as dkk_items.py's camp flow.
+        saves = self.saves(ASSETS / "SAVE")
+        keys = (self.TITLE + r"\v\v\rDA" + r"\v" * 5 + r"\r\r\r\r" +
+                r"VI\v\v\vRH\^\^\^RT\v\r\v\vDY\eD\r5\r\e\e")
+        result = self.play("--start-menu", "--saves", saves, "--keys", keys, ASSETS)
+        out = result.stdout
+        self.assertIn("menu: Items Trade Drop Exit\nlist: Items\nitem:  Yes Long Sword +1 \n"
+                      "item:  Yes Shield \nitem:  Yes Solamnic Plate Mail \nitem:  No  Mace +1 \n"
+                      "menu: Ready Use Trade Drop Halve Join Exit\nchoice: R\n"
+                      "print: already using Long Sword +1 \n", out)
+        self.assertIn("choice: H\nprint: Can't halve that\n", out)
+        self.assertIn("print: Your Mace +1 will be gone forever\nmenu: Lose it? \nchoice: Y\n",
+                      out)
+        self.assertIn("item: Steel          500\nchoice: S\nmenu: How much Steel will you drop? "
+                      "\ninput: 5\nitem: Steel          495\n", out)
+        self.assertTrue(out.endswith("menu: Save View Magic Rest Alter Fix Exit\n"
+                                     "(out of keys in block 16 at 8189)\n"), out[-300:])
+        # Camp's menu keeps its own selection (4381:3106): View left with
+        # Drop selected, Enter is View again.
+        keys = self.TITLE + r"\v\v\rDA" + r"\v" * 5 + r"\r\r\r\r" + r"V\#4d\#4d\e\r"
+        result = self.play("--start-menu", "--saves", self.saves(ASSETS / "SAVE"), "--keys",
+                           keys, ASSETS)
+        self.assertTrue(result.stdout.endswith(
+            "menu: Items Trade Drop Exit\nmenu: Save View Magic Rest Alter Fix Exit\n"
+            "print: SIR DRYDEN\nprint: Knight of the Crown\nmenu: Items Trade Drop Exit\n"
+            "(out of keys in block 16 at 8189)\n"), result.stdout[-300:])
 
     def test_aging(self):
         # SIR DRYDEN (race 6) at 115 and hasted (effect 0x27, 504d:0d88):

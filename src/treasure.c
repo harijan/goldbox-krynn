@@ -1674,11 +1674,9 @@ static void vault_loop(cok_adventure *game)
             if (key == 'H' || key == 'P') cok_camp_pick(game, (uint8_t)key); /* 580d:2bb2 */
             continue;
         }
-        bool reached;
+        bool reached, used;
         switch (key) {
-        case 'V':
-            cok_adventure_not_yet(game, "the vault's View", T->vault_view_unported);
-            return;
+        case 'V': cok_sheet(game, COK_SHEET_STALE_UNKNOWN, &used); break; /* 580d:0c66 */
         case 'T':
             if (!take(game, &reached)) return;
             break;
@@ -1688,8 +1686,10 @@ static void vault_loop(cok_adventure *game)
             cok_picture_fill(&game->screen, 1, 0x11 * 8, 0x26, 6 * 8, 0); /* 14e4:0b6b */
             break;
         case 'I':
-            cok_adventure_not_yet(game, "the vault's Items", T->vault_items_unported);
-            return;
+            used = false;
+            cok_items(game, &used);  /* 580d:0ffa */
+            cok_adventure_redraw(game); /* 65cd:2db0 */
+            break;
         case 'E': case 0: done = true; break;
         default: break;
         }

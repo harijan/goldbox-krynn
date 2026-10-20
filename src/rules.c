@@ -1728,6 +1728,7 @@ const cok_rules cok_rules_champions = {
             .yes_no = NULL,               /* 67b5:177f's "~Yes ~No" */
             .adventure_keeps_selection = false, /* 475c:09ec */
             .escape_leaves_move = false,
+            .camp_keeps_selection = false,
             .special_keeps = false, /* 546c:3334 */
         },
     .commands =
@@ -1739,6 +1740,27 @@ const cok_rules cok_rules_champions = {
             .attack_ally = "Attack Ally: ",          /* 432f:2f04 */
             .ally_turns_npcs = true,
             .cursor_slot = 0x19, /* 6beb:00fc, 6346:1a26 */
+        },
+    .items =
+        {
+            .routine = COK_ITEMS_CHAMPIONS, /* 546c:0d74, 17f9 */
+            .readied_yes = " Yes  ", /* 6346:0473 */
+            .readied_no = " No   ",  /* 6346:047a */
+            .must_ready = "Must be Readied",            /* 546c:17c4 */
+            .lose_scroll = "is it Okay to lose it? ",   /* 546c:10b3 */
+            .drop_question = "Drop It? ",               /* 546c:17ef */
+            .trade_to = "Trade to?",                    /* 546c:2c31 */
+            .coin_select = " Select",                   /* 546c:2c52, 2fc0 */
+            .offer = "I'll give you ",                  /* 546c:27be */
+            .offer_for = " steel pieces for your ",     /* 546c:27cd */
+            .deal = "Is It a Deal? ",                   /* 546c:27e5, 29f7 */
+            .sold = "Sold!",                            /* 546c:27f4 */
+            .sold_pool = "Overloaded.  Money will be put in pool.", /* 546c:27fa */
+            .sell_divisor = 20,                         /* 546c:2851 */
+            .identify = "For 100 steel pieces I'll identify your ", /* 546c:29ce */
+            .nothing_new = "I can't tell anything new about your ", /* 546c:2a17 */
+            .looks_like = "It looks like some sort of ",            /* 546c:2a3d */
+            .no_money = "Not Enough Money",                         /* 546c:2a06 */
         },
     .treasure =
         {

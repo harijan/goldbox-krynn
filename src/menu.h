@@ -203,4 +203,27 @@ int cok_menu_pick(cok_picture *dst, const cok_font *font, const char *prompt, co
                   uint8_t normal, bool keypad, uint8_t *selected, const cok_keyboard *keys,
                   bool *special);
 
+/* Pick from rows as Death Knights' lists do (dkk 6a69:1b82): the rows as
+ * cok_menu_rows shows, marks and moves through them (6a69:1506, 170d,
+ * 1a73, 19db: 67b5's, but a heading unmarked in the normal colour), in
+ * style's colours, its prompt in the heading colour; the menu on row 24
+ * by index (cok_menu_pick with the keypad), text with " Next" while there
+ * are rows below, " Prev" while there are rows above but the leading
+ * headings and, with style->show_exit, " Exit" after it, each of these
+ * three at the index after the one before from last + 1, which the caller's
+ * items must reach without a gap for them to show. Up and Down (8 and 2)
+ * move, PgDn and PgUp (3 and 9) or Next and Prev page while there is more
+ * to see, the scan code 0x4e pages down; Exit, Escape and the scan codes
+ * 0x45 and 0 return 0x1b with *special set and *picked clear; other
+ * special keys are read past. Otherwise it returns the index the menu
+ * gave, with *special clear and *picked set: *index is the row picked.
+ * With no rows it returns 0 at once, *index 0 and *picked clear (*special
+ * as it was). *selected, *redraw and *top as cok_menu_rows'. Returns -1 if
+ * input ended. */
+int cok_menu_indexed_rows(cok_picture *dst, const cok_font *font, const cok_menu_row *rows,
+                          size_t count, cok_text_window window, const cok_menu_style *style,
+                          const char *text, const cok_menu_items *items, uint8_t last,
+                          bool *redraw, int *index, int *top, uint8_t *selected,
+                          const cok_keyboard *keys, bool *special, bool *picked);
+
 #endif

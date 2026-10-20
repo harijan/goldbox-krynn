@@ -24,7 +24,7 @@ stopped at each round's end (3e05:0ed0 made to spin) against the port's
 state there, then "continue battle?" and the results. And the first fight
 by keys from its first turn (keys, keys2: the menu's rows, Move, Aim and
 its cursor, Speed, Delay, Guard, End, Quick, Yell, an attack by Aim and
-Target): the screen at each wait, the state after. Seeded (Box seed,
+Target; items: View and Use): the screen at each wait, the state after. Seeded (Box seed,
 eclplay --seed): the same dice. Not part of run_all.py's set. About
 thirty minutes.
 
@@ -83,8 +83,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir", default=str(K.ROOT / "build/dosbox-checks/dkk_fight"))
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--flows", default="fight,river,ambush,auto,keys,keys2",
-                        help="which flows: fight, river, ambush, auto, keys, keys2 "
+    parser.add_argument("--flows", default="fight,river,ambush,auto,keys,keys2,items",
+                        help="which flows: fight, river, ambush, auto, keys, keys2, items "
                              "(comma-separated)")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
@@ -105,6 +105,8 @@ def main():
         by_keys(v, work, opts)
     if "keys2" in flows:
         by_keys(v, work, opts, KEYS2, "keys2")
+    if "items" in flows:
+        by_keys(v, work, opts, ITEMS, "items")
     return v.finish()
 
 
@@ -412,7 +414,7 @@ KEYS = [
 # ended, who aims at the nightmare beside him and attacks it (5340:2dca);
 # then TANAR's menu. (Cast's list of spells differs on row 24, Champions'
 # "Choose Spell: " against Death Knights' DS:2fd9 with no space: the
-# casting part's; View and Use are Champions' still.) A
+# casting part's.) A
 # step of keys "across" the computer's turns types each once the game
 # waits for a key and stands still: the computer's turns poll the keyboard
 # (3f63:117c), which would take a key typed early.
@@ -422,6 +424,19 @@ KEYS2 = [
     ("aim-2", "A"),
     ("next-2", "N"),          # the nightmare: Target
     ("target", "T", True),    # the attack, then the turns to TANAR's
+]
+
+
+# NEACAIL's View and Use at the first turn (580d:0c66, 0ffa in combat):
+# View's menu (no Trade in combat), its Items, Escape twice back to the
+# turn's menu; Use: the items menu from its first; Escape.
+ITEMS = [
+    ("view", "V"),
+    ("view-items", "I"),
+    ("view-items-exit", r"\e"),
+    ("view-exit", r"\e"),
+    ("use", "U"),
+    ("use-exit", r"\e"),
 ]
 
 

@@ -624,6 +624,84 @@ static void test_indexed(void)
           flushes == 1);
 }
 
+/* dkk 6a69:1b82: lists by index. */
+static void test_indexed_rows(void)
+{
+    cok_font font = numbered_font();
+    cok_picture p = screen();
+    cok_menu_row rows[] = {{"A", false}, {"B", false}, {"C", false}, {"D", false},
+                           {"E", false}, {"F", false}, {"G", false}};
+    cok_text_window w = {1, 5, 38, 7}; /* Three rows. */
+    cok_menu_style style = {"", "", 15, 10, 13, true};
+    script s;
+    int index = 0, top = 0;
+    uint8_t selected = 1;
+    bool redraw = true, special = false, picked;
+    cok_menu_items items;
+    /* Trade money's (580d:23a0): "Select" alone, its last index 0: the
+     * list's Next and Exit at 1 and 2. Enter picks the row, its index the
+     * menu's: 0. */
+    cok_menu_items_upto(&items, 0);
+    cok_keyboard k = keyboard(&s, "\r", 1);
+    CHECK(cok_menu_indexed_rows(&p, &font, rows, 7, w, &style, "Select", &items, 0, &redraw,
+                                &index, &top, &selected, &k, &special, &picked) == 0);
+    CHECK(picked && !special && index == 0 && !redraw);
+    /* The rows in the normal colour, the one picked unmarked once picked;
+     * the menu: Select Next Exit. */
+    CHECK(cell_fg(&p, 1, 5) == 10 && cell_bg(&p, 1, 5) == 0 && cell_fg(&p, 1, 6) == 10);
+    CHECK(cell_glyph(&p, 7, 24) == ('N' & 63) && cell_glyph(&p, 12, 24) == ('E' & 63));
+    /* Next (its index 1) pages; then Prev; Exit returns 0x1b, nothing
+     * picked. Down moves; 2 too, the keypad's. */
+    k = keyboard(&s, "N\x01\x50" "2\x1b", 5);
+    CHECK(cok_menu_indexed_rows(&p, &font, rows, 7, w, &style, "Select", &items, 0, &redraw,
+                                &index, &top, &selected, &k, &special, &picked) == 0x1b);
+    CHECK(!picked && special && top == 3 && index == 5);
+    CHECK(cell_glyph(&p, 7, 24) == ('N' & 63) && cell_glyph(&p, 12, 24) == ('P' & 63));
+    k = keyboard(&s, "P" "E", 2);
+    CHECK(cok_menu_indexed_rows(&p, &font, rows, 7, w, &style, "Select", &items, 0, &redraw,
+                                &index, &top, &selected, &k, &special, &picked) == 0x1b);
+    CHECK(top == 0 && index == 2 && special && !picked);
+    /* The items menu's (580d:0ffa): its last index 8, fewer items before
+     * it: the list's own are not shown, Next's key does nothing; its Exit,
+     * 9, is past 8 and taken as Next while there are rows below. */
+    cok_menu_items_upto(&items, 0);
+    cok_menu_items_add(&items, 9);
+    static const char menu[] = "Ready Use Trade Deposit Drop Halve Join Sell Id Exit";
+    index = 0;
+    top = 0;
+    k = keyboard(&s, "N" "E" "\x1b", 3);
+    CHECK(cok_menu_indexed_rows(&p, &font, rows, 7, w, &style, menu, &items, 8, &redraw, &index,
+                                &top, &selected, &k, &special, &picked) == 0x1b);
+    CHECK(top == 3 && !picked && special && s.at == 3);
+    CHECK(cell_glyph(&p, 6, 24) == ('E' & 63) && cell_glyph(&p, 11, 24) == 0);
+    /* With every row shown: Exit is the list's Exit; R picks the row. */
+    k = keyboard(&s, "E", 1);
+    CHECK(cok_menu_indexed_rows(&p, &font, rows, 3, w, &style, menu, &items, 8, &redraw, &index,
+                                &top, &selected, &k, &special, &picked) == 0x1b);
+    CHECK(top == 0 && special && !picked);
+    k = keyboard(&s, "R", 1);
+    CHECK(cok_menu_indexed_rows(&p, &font, rows, 3, w, &style, menu, &items, 8, &redraw, &index,
+                                &top, &selected, &k, &special, &picked) == 0);
+    CHECK(picked && !special);
+    /* No rows: 0 at once, nothing read. */
+    k = keyboard(&s, "R", 1);
+    CHECK(cok_menu_indexed_rows(&p, &font, rows, 0, w, &style, menu, &items, 8, &redraw, &index,
+                                &top, &selected, &k, &special, &picked) == 0);
+    CHECK(!picked && index == 0 && s.at == 0);
+    /* A heading marked (headings alone: the skip stops after a page) is
+     * unmarked in the normal colour, not its own. */
+    cok_menu_row headed[] = {{"H", true}, {"I", true}};
+    cok_menu_items_upto(&items, 0);
+    index = 0;
+    redraw = true;
+    k = keyboard(&s, "\x1b", 1);
+    CHECK(cok_menu_indexed_rows(&p, &font, headed, 2, w, &style, "Select", &items, 0, &redraw,
+                                &index, &top, &selected, &k, &special, &picked) == 0x1b);
+    CHECK(index == 1 && cell_fg(&p, 1, 5) == 13 && cell_fg(&p, 1, 6) == 10);
+    cok_picture_free(&p);
+    cok_font_free(&font);
+}
+
 int main(void)
 {
     test_parse();
@@ -637,6 +715,7 @@ int main(void)
     test_screen();
     test_flush();
     test_indexed();
+    test_indexed_rows();
     puts("menu tests passed");
     return 0;
 }
