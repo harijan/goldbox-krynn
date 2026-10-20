@@ -469,8 +469,11 @@ static uint8_t scribe(cok_adventure *game, cok_character *character, bool *flag)
 
 /* Each tick, count down each member's time to its next spell; at 0, once
  * its hours of preparation are over, scribe or learn one and time the next
- * at 15 minutes a level (57e4:0c9c). */
-static void learn_tick(cok_adventure *game)
+ * at 15 minutes a level (57e4:0c9c). Unless learn: Death Knights' Fix sets
+ * DS:c46f, which keeps 5b7d:0aa3 and 09b9 from scribing and learning (the
+ * timer then set from 0aa3's uninitialized byte, which nothing reads: each
+ * rest clears the timers first). */
+static void learn_tick(cok_adventure *game, bool learn)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
     for (size_t i = 0; i < game->party.count && !game->vm.abort; ++i) {
@@ -479,6 +482,7 @@ static void learn_tick(cok_adventure *game)
         if (game->learn_ticks[i] != 0 ||
             cok_field_u8(L, character->record, COK_FIELD_STUDY_HOURS) != 0)
             continue;
+        if (!learn) continue;
         bool flag = false;
         uint8_t level = scribe(game, character, &flag);
         if (level == 0 && !game->vm.abort) level = memorize(game, character, &flag);
@@ -487,8 +491,10 @@ static void learn_tick(cok_adventure *game)
 }
 
 /* Each hour (*ticks reaching 12), count down each member's hours of
- * preparation, and when they end, time its first spell (57e4:0d52). */
-static void hourly(cok_adventure *game, uint8_t *ticks)
+ * preparation, and when they end, time its first spell (57e4:0d52), unless
+ * learn is clear (DS:c46f, see learn_tick): the hours count down all the
+ * same. */
+static void hourly(cok_adventure *game, uint8_t *ticks, bool learn)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
     if (++*ticks < 12) return;
@@ -498,7 +504,7 @@ static void hourly(cok_adventure *game, uint8_t *ticks)
         uint8_t *c = character->record;
         if (cok_field_s8(L, c, COK_FIELD_STUDY_HOURS) <= 0) continue;
         cok_field_add8(L, c, COK_FIELD_STUDY_HOURS, -1);
-        if (cok_field_u8(L, c, COK_FIELD_STUDY_HOURS) != 0) continue;
+        if (cok_field_u8(L, c, COK_FIELD_STUDY_HOURS) != 0 || !learn) continue;
         bool flag = true;
         uint8_t level = scribe(game, character, &flag);
         if (level == 0) level = memorize(game, character, &flag);
@@ -517,14 +523,16 @@ static void heal_tick(cok_adventure *game, bool interactive)
                                game->vm.mode))
             healed = true;
     if (interactive) show_rest(game, 0);
-    draw(game, "The Whole Party Is Healed", 1, 0x13, 10, true);
+    draw(game, cok_game_rules(game)->levels.party_healed, 1, 0x13, 10, true);
     if (healed) cok_adventure_party(game);
     cok_adventure_wait(game, game->speed * 100u);
     clear_text(game);
     game->heal_ticks = 0;
 }
 
-bool cok_camp_rest(cok_adventure *game, bool interactive)
+/* cok_camp_rest; learn clear for Death Knights' Fix (DS:c46f set: no spell
+ * is learned or scribed). */
+static bool rest(cok_adventure *game, bool interactive, bool learn)
 {
     cok_ecl *vm = &game->vm;
     bool interrupted = false, stop = false;
@@ -567,8 +575,8 @@ bool cok_camp_rest(cok_adventure *game, bool interactive)
         }
         if (!cok_adventure_pass_time(game, 1, 5)) break;
         heal_tick(game, interactive);
-        learn_tick(game);
-        if (!vm->abort) hourly(game, &hours);
+        learn_tick(game, learn);
+        if (!vm->abort) hourly(game, &hours, learn);
         if (vm->abort) break;
         uint16_t every = cok_ecl_var(vm, COK_VAR_REST_EVERY),
                  chance = cok_ecl_var(vm, COK_VAR_REST_CHANCE);
@@ -577,13 +585,18 @@ bool cok_camp_rest(cok_adventure *game, bool interactive)
         if (cok_dice(&vm->seed, 1, 100) > chance) continue; /* 57e4:0fbe */
         clear_text(game);
         show_rest(game, 0);
-        draw(game, "Your repose is suddenly interrupted!", 1, 0x13, 15, true);
+        draw(game, cok_game_rules(game)->levels.interrupted, 1, 0x13, 15, true);
         stop = interrupted = true;
         cok_adventure_wait(game, game->speed * 100u);
     }
     clear_cells(game, 1, 0x11, 0x26, 0x16);
     game->resting = false;
     return interrupted;
+}
+
+bool cok_camp_rest(cok_adventure *game, bool interactive)
+{
+    return rest(game, interactive, true);
 }
 
 /* Rest (4888:0f05): rest as long as the member who needs longest needs to
@@ -633,7 +646,8 @@ static uint16_t cure(cok_adventure *game, unsigned kind)
     return (uint16_t)(roll(game, 3, 8) + 3);
 }
 
-bool cok_camp_fix(cok_adventure *game)
+/* Champions' (4888:2b44). */
+static bool fix(cok_adventure *game)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
     cok_ecl *vm = &game->vm;
@@ -728,6 +742,378 @@ bool cok_camp_fix(cok_adventure *game)
     cok_adventure_status(game);
     memcpy(game->rest, saved, sizeof saved);
     return false;
+}
+
+/* Death Knights' Fix (dkk 4381:2fd4): its nested routines share its frame,
+ * which dk_fix holds. Its constants are the routines' own. */
+
+/* The cures, each with the spells for it (memorized, then the spells a day
+ * as well, words of 2fd4's frame) and the members needing it (2ebc). */
+enum { DK_HEAL, DK_STONE, DK_POISON, DK_RAISE, DK_CURSE, DK_SIGHT, DK_CURES };
+
+typedef struct {
+    uint16_t pool;          /* bp-2: hit points to heal. */
+    uint16_t slots[4];      /* bp-4 to -0xa: spells a day of the cures, 1d8 to 4d8 + 3. */
+    uint16_t spells[DK_CURES]; /* bp-0x18, -0x20, -0x1c, -0xc, -0x10, -0x14 */
+    uint16_t needy[DK_CURES];  /* bp-0x1a, -0x22, -0x1e, -0xe, -0x12, -0x16 */
+} dk_fix_frame;
+
+/* 4381:22a9: a member who is okay and has a spells' block. */
+static bool dk_able(const cok_character_layout *L, const uint8_t *c)
+{
+    return cok_field_u8(L, c, COK_FIELD_STATUS) == 0 && cok_field_has_spells(L, c);
+}
+
+/* 4381:22db: the able members' spells memorized, not used up: Cure Light
+ * (0x03) and Serious Wounds (0x3a) 2d8 + 1, Cure Critical (0x47) 3d8 + 3,
+ * Heal (0x35) 4d8 + 5, into the pool; Heal and the cures counted. */
+static void dk_memorized(cok_adventure *game, dk_fix_frame *f)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint16_t pool = 0;
+    for (size_t i = 0; i < game->party.count; ++i) {
+        const uint8_t *c = game->party.members[i]->record;
+        if (!dk_able(L, c)) continue;
+        for (size_t k = 0; k < cok_field_count(L, COK_FIELD_MEMORIZED); ++k) {
+            switch (cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, k)) {
+            case 0x03:
+            case 0x3a: pool = (uint16_t)(pool + roll(game, 2, 8) + 1); break;
+            case 0x47: pool = (uint16_t)(pool + roll(game, 3, 8) + 3); break;
+            case 0x35:
+                pool = (uint16_t)(pool + roll(game, 4, 8) + 5);
+                ++f->spells[DK_HEAL];
+                break;
+            case 0x43: ++f->spells[DK_POISON]; break;     /* Neutralize Poison */
+            case 0x4b: ++f->spells[DK_RAISE]; break;      /* Raise Dead */
+            case 0x2b: case 0x59: ++f->spells[DK_CURSE]; break; /* Remove Curse */
+            case 0x42: ++f->spells[DK_STONE]; break;      /* Stone to Flesh */
+            case 0x25: ++f->spells[DK_SIGHT]; break;      /* Cure Blindness */
+            default: break;
+            }
+        }
+    }
+    f->pool = (uint16_t)(f->pool + pool);
+}
+
+/* 4381:2537, as 4888:28f9: the minutes the able members of wisdom above 3
+ * take to memorize their spells a day of the cures (cleric level 1 and
+ * druid level 2, 15 and 30 minutes each; cleric levels 4, 5 and 6, 60, 75
+ * and 90; and 4, 4, 6 or 8 hours before), counting them, shortened by the
+ * ratio of an estimate of the points healed to the points lacking. The
+ * estimate starts from an uninitialized local, which holds the Move's
+ * count before it, 14, as Champions'; a member not counted repeats the
+ * times of the one before. False where the ratio is 0 as a byte, a
+ * division by zero (4381:273b). */
+static bool dk_time(cok_adventure *game, dk_fix_frame *f, uint16_t *minutes)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint16_t estimate = 14, longest = 0, t[5] = {0, 0, 0, 0, 0};
+    memset(f->slots, 0, sizeof f->slots);
+    for (size_t i = 0; i < game->party.count; ++i) {
+        const uint8_t *c = game->party.members[i]->record;
+        uint16_t time = 0;
+        if (dk_able(L, c) && cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_WISDOM) > 3) {
+            static const struct {
+                uint8_t row, level, slot, minutes;
+            } day[5] = {{0, 1, 0, 15}, {1, 2, 0, 30}, {0, 4, 1, 60}, {0, 5, 2, 75}, {0, 6, 3, 90}};
+            for (size_t k = 0; k < 5; ++k) {
+                uint8_t n = cok_field_u8_at2(L, c, COK_FIELD_SPELLS_A_DAY, day[k].row, day[k].level);
+                f->slots[day[k].slot] = (uint16_t)(f->slots[day[k].slot] + n);
+                t[k] = (uint16_t)(n * day[k].minutes);
+            }
+        }
+        if (t[0] > 0) {
+            time = 240;
+            estimate = (uint16_t)(estimate + 27);
+        }
+        if (t[1] > 0) {
+            time = 240;
+            estimate = (uint16_t)(estimate + 27);
+        }
+        if ((uint16_t)(t[2] + t[3]) != 0) {
+            time = 360;
+            estimate = (uint16_t)(estimate + (t[3] > 0 ? 78 : 34));
+        }
+        if (t[4] > 0) {
+            time = 480;
+            estimate = (uint16_t)(estimate + 90);
+        }
+        time = (uint16_t)(time + t[0] + t[1] + t[2] + t[3] + t[4]);
+        if (time > longest) longest = time;
+    }
+    uint16_t lacking = missing(game);
+    if (lacking < estimate) {
+        uint8_t ratio = (uint8_t)(estimate / lacking);
+        if (ratio == 0) {
+            cok_adventure_fail(game, COK_ECL_DIVIDE_BY_ZERO,
+                               "Fix divides by %u / %u as a byte, 0 (dkk 4381:273b)", estimate,
+                               lacking);
+            return false;
+        }
+        longest = (uint16_t)(longest / ratio);
+    }
+    *minutes = longest;
+    return true;
+}
+
+/* 4381:23f3: the spells a day's cures, 1d8, 2d8 + 1, 3d8 + 3 and 4d8 + 3
+ * each, the counts as bytes. */
+static void dk_slots(cok_adventure *game, dk_fix_frame *f)
+{
+    static const uint8_t dice[4] = {1, 2, 3, 4}, plus[4] = {0, 1, 3, 3};
+    uint16_t pool = 0;
+    for (unsigned k = 0; k < 4; ++k)
+        for (unsigned n = 1; n <= (uint8_t)f->slots[k]; ++n)
+            pool = (uint16_t)(pool + roll(game, dice[k], 8) + plus[k]);
+    f->pool = (uint16_t)(f->pool + pool);
+}
+
+/* Remove c's first effect id (638c:01c6), ending the run where that fails. */
+static bool dk_remove(cok_adventure *game, cok_character *c, uint8_t id)
+{
+    return cok_effects_remove(&game->effects, c, NULL, id) || cok_adventure_effect_failed(game);
+}
+
+/* 4381:2a73's Raise Dead on c (status 6, not an elf): its poison (0x37) goes
+ * while curing (DS:be75); 1 hit point, okay, able to act, a point of
+ * constitution less (with no recompute); and from a constitution left of
+ * 14 or more, the maximum hit points above the base (+0x6c), divided by a
+ * byte sum over class levels 0-6 (each level, two for one above 15, those
+ * of classes 2-4 times the constitution less 14; none when the sum is 0),
+ * come off the maximum, unless the constitution is 17 or more with no
+ * level of class 2, 3 or 7: Champions' temple's (340d:0688). */
+static bool dk_raise(cok_adventure *game, cok_character *character)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t *c = character->record;
+    game->effects.rolls.curing = 1;
+    if (!dk_remove(game, character, cok_game_effect(game, COK_EFFECT_POISONED))) return false;
+    game->effects.rolls.curing = 0;
+    cok_field_set8(L, c, COK_FIELD_HIT_POINTS, 1);
+    cok_field_set8(L, c, COK_FIELD_STATUS, 0);
+    cok_field_set8(L, c, COK_FIELD_ACTIVE, 1);
+    if (cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION) > 0)
+        cok_field_add8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION, -1);
+    uint8_t most = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS),
+            base = cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS);
+    uint8_t loss = most > base ? (uint8_t)(most - base) : 0, sum = 0;
+    uint8_t con = cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION);
+    if (con < 14) return true;
+    for (int i = 0; i <= 6; ++i) {
+        int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i);
+        if (level <= 0) continue;
+        if (i >= 2 && i <= 4)
+            sum = (uint8_t)(sum + (uint16_t)level * (uint16_t)(con - 14));
+        else
+            sum = (uint8_t)(sum + (con > 15 ? 2 * level : level));
+    }
+    if (sum > 0) loss = (uint8_t)(loss / sum);
+    if (con < 17 || cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 2) > 0 ||
+        cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > 0 ||
+        cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 3) > 0)
+        cok_field_set8(L, c, COK_FIELD_MAX_HIT_POINTS, (uint8_t)(most - loss));
+    return true;
+}
+
+/* 4381:2a73: each member in turn has the cures it needs while their
+ * spells last, each said about it on row 10 with a pause (65cd:1a21; the
+ * words the code segment's, 4381:29ff-2a65): Heal, for one with 0x3d,
+ * which goes, and blindness (0x21) too, "is healed"; Stone to Flesh, for
+ * one stoned (status 7): okay, able to act, 1 hit point, "is changed back
+ * to flesh"; Neutralize Poison, for one poisoned (0x37): at least a hit
+ * point, 0x37, 0x16 and 0x0f go while curing, okay and able to act, "is
+ * detoxified"; Raise Dead, for one dead (status 6) and not an elf or a
+ * half-elf (race 0, 1 or 2), "has been raised from the dead"; Remove
+ * Curse, for one with Bestow Curse's 0x24: the spell's routine on it
+ * (5dc5:311b, DS:c31d), "is relieved of a curse"; and Cure Blindness, for
+ * one blind (0x21) whom Heal did not cure: the selected character's
+ * blindness goes and it "regains sight", using no spell. */
+static bool dk_cures(cok_adventure *game, dk_fix_frame *f)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    const uint8_t mind = 0x3d, blind = cok_game_effect(game, COK_EFFECT_BLIND);
+    for (size_t i = 0; i < game->party.count && !game->vm.abort; ++i) {
+        cok_character *m = game->party.members[i];
+        uint8_t *c = m->record;
+        bool healed = false;
+        if (f->spells[DK_HEAL] > 0 && cok_character_find_effect(m, mind) != NULL) {
+            if (!dk_remove(game, m, mind)) return false;
+            if (cok_character_find_effect(m, blind) != NULL && !dk_remove(game, m, blind))
+                return false;
+            healed = true;
+            if (!cok_arena_say(game, m, "is healed", 10, true)) return false;
+            --f->spells[DK_HEAL];
+        }
+        if (f->spells[DK_STONE] > 0 && cok_field_u8(L, c, COK_FIELD_STATUS) == 7) {
+            cok_field_set8(L, c, COK_FIELD_STATUS, 0);
+            cok_field_set8(L, c, COK_FIELD_ACTIVE, 1);
+            cok_field_set8(L, c, COK_FIELD_HIT_POINTS, 1);
+            if (!cok_arena_say(game, m, "is changed back to flesh", 10, true)) return false;
+            --f->spells[DK_STONE];
+        }
+        if (f->spells[DK_POISON] > 0 &&
+            cok_character_find_named(m, cok_game_rules(game), COK_EFFECT_POISONED) != NULL) {
+            if (cok_field_u8(L, c, COK_FIELD_HIT_POINTS) == 0)
+                cok_field_set8(L, c, COK_FIELD_HIT_POINTS, 1);
+            game->effects.rolls.curing = 1;
+            const uint8_t poisons[3] = {cok_game_effect(game, COK_EFFECT_POISONED),
+                                        cok_game_effect(game, COK_EFFECT_SLOW_POISON),
+                                        cok_game_effect(game, COK_EFFECT_POISON)};
+            for (size_t k = 0; k < sizeof poisons; ++k)
+                if (!dk_remove(game, m, poisons[k])) return false;
+            game->effects.rolls.curing = 0;
+            cok_field_set8(L, c, COK_FIELD_ACTIVE, 1);
+            cok_field_set8(L, c, COK_FIELD_STATUS, 0);
+            if (!cok_arena_say(game, m, "is detoxified", 10, true)) return false;
+            --f->spells[DK_POISON];
+        }
+        int8_t race = cok_field_s8(L, c, COK_FIELD_RACE);
+        if (f->spells[DK_RAISE] > 0 && cok_field_u8(L, c, COK_FIELD_STATUS) == 6 && race != 2 &&
+            race > 1) {
+            if (!dk_raise(game, m) ||
+                !cok_arena_say(game, m, "has been raised from the dead", 10, true))
+                return false;
+            --f->spells[DK_RAISE];
+        }
+        if (f->spells[DK_CURSE] > 0 &&
+            cok_character_find_named(m, cok_game_rules(game), COK_EFFECT_CURSED) != NULL) {
+            if (!cok_cast_on(game, cok_game_spell(game, COK_SPELL_REMOVE_CURSE), m, false) ||
+                !cok_arena_say(game, m, "is relieved of a curse", 10, true))
+                return false;
+            --f->spells[DK_CURSE];
+        }
+        if (!healed && f->spells[DK_SIGHT] > 0 && cok_character_find_effect(m, blind) != NULL) {
+            cok_character *selected = cok_adventure_selected(game);
+            if (selected == NULL) {
+                cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                                   "Fix's Cure Blindness cures the selected character, and none "
+                                   "is selected (dkk 4381:2e68)");
+                return false;
+            }
+            if (!dk_remove(game, selected, blind) ||
+                !cok_arena_say(game, selected, "regains sight", 10, true))
+                return false;
+        }
+    }
+    return !game->vm.abort;
+}
+
+/* 4381:2947, as 4888:2a8c: heal each member in turn from the pool. */
+static void dk_heal(cok_adventure *game, dk_fix_frame *f)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    for (size_t i = 0; i < game->party.count; ++i) {
+        uint8_t *c = game->party.members[i]->record;
+        uint8_t most = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS),
+                now = cok_field_u8(L, c, COK_FIELD_HIT_POINTS);
+        if (most <= now) continue;
+        uint16_t amount = (uint16_t)(most - now);
+        if (amount > f->pool) amount = f->pool;
+        if (amount == 0) continue;
+        if (cok_character_heal(c, cok_game_rules(game), (uint8_t)amount, false, game->vm.mode) &&
+            amount <= f->pool)
+            f->pool = (uint16_t)(f->pool - amount);
+    }
+}
+
+/* 4381:2ebc: the members needing each cure: the dead (status 6) of race
+ * above 1, the stoned, the cursed (0x24), the poisoned (0x37), those with
+ * 0x3d and the blind without it. */
+static void dk_needy(cok_adventure *game, dk_fix_frame *f)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_rules *R = cok_game_rules(game);
+    memset(f->needy, 0, sizeof f->needy);
+    for (size_t i = 0; i < game->party.count; ++i) {
+        cok_character *m = game->party.members[i];
+        const uint8_t *c = m->record;
+        if (cok_field_u8(L, c, COK_FIELD_STATUS) == 6 && cok_field_s8(L, c, COK_FIELD_RACE) > 1)
+            ++f->needy[DK_RAISE];
+        if (cok_field_u8(L, c, COK_FIELD_STATUS) == 7) ++f->needy[DK_STONE];
+        if (cok_character_find_named(m, R, COK_EFFECT_CURSED) != NULL) ++f->needy[DK_CURSE];
+        if (cok_character_find_named(m, R, COK_EFFECT_POISONED) != NULL) ++f->needy[DK_POISON];
+        if (cok_character_find_effect(m, 0x3d) != NULL)
+            ++f->needy[DK_HEAL];
+        else if (cok_character_find_named(m, R, COK_EFFECT_BLIND) != NULL)
+            ++f->needy[DK_SIGHT];
+    }
+}
+
+/* 4381:2779: the able members' spells a day of the cures join those left
+ * (Heal cleric level 6, Stone to Flesh magic-user 6, Raise Dead cleric 5,
+ * Neutralize Poison cleric 4, Remove Curse magic-user 4 and cleric 3,
+ * Cure Blindness cleric 3); the second rest takes, for as many members as
+ * need each and its spells can cure (4381:0000, the smaller), 90 minutes
+ * each for Heal and Stone to Flesh, 75 for Raise Dead, 60 for Neutralize
+ * Poison and 45 for Cure Blindness and Remove Curse. */
+static uint16_t dk_more(cok_adventure *game, dk_fix_frame *f)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    for (size_t i = 0; i < game->party.count; ++i) {
+        const uint8_t *c = game->party.members[i]->record;
+        if (!dk_able(L, c)) continue;
+#define DAY(row, level) cok_field_u8_at2(L, c, COK_FIELD_SPELLS_A_DAY, row, level)
+        f->spells[DK_HEAL] = (uint16_t)(f->spells[DK_HEAL] + DAY(0, 6));
+        f->spells[DK_STONE] = (uint16_t)(f->spells[DK_STONE] + DAY(3, 6));
+        f->spells[DK_RAISE] = (uint16_t)(f->spells[DK_RAISE] + DAY(0, 5));
+        f->spells[DK_POISON] = (uint16_t)(f->spells[DK_POISON] + DAY(0, 4));
+        f->spells[DK_CURSE] = (uint16_t)(f->spells[DK_CURSE] + DAY(3, 4) + DAY(0, 3));
+        f->spells[DK_SIGHT] = (uint16_t)(f->spells[DK_SIGHT] + DAY(0, 3));
+#undef DAY
+    }
+    static const uint8_t minutes[DK_CURES] = {
+        [DK_HEAL] = 90, [DK_STONE] = 90, [DK_RAISE] = 75, [DK_POISON] = 60,
+        [DK_SIGHT] = 45, [DK_CURSE] = 45,
+    };
+    uint16_t total = 0;
+    for (size_t k = 0; k < DK_CURES; ++k) {
+        uint16_t n = f->spells[k] < f->needy[k] ? f->spells[k] : f->needy[k];
+        total = (uint16_t)(total + n * minutes[k]);
+    }
+    return total;
+}
+
+/* 4381:2fd4: nothing where the area forbids magic (var 0x4be5) or no one
+ * lacks hit points; else the memorized spells' cures are counted, the
+ * party rests (DS:c46f set: learning nothing) as long as the spells a day
+ * of the cures take, and then is cured and healed from them all; then,
+ * the rest time restored, it rests again as long as the cures still
+ * needed take, and those spells left and the spells a day cure again,
+ * healing no one. An encounter ends it, leaving the rest time it set. */
+static bool dk_fix(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    if (cok_ecl_var(vm, COK_VAR_NO_MAGIC) != 0 || missing(game) == 0) return false;
+    dk_fix_frame f;
+    memset(&f, 0, sizeof f);
+    dk_memorized(game, &f);
+    uint16_t saved[7], minutes;
+    memcpy(saved, game->rest, sizeof saved);
+    if (!dk_time(game, &f, &minutes)) return false;
+    set_rest(game, minutes);
+    bool interrupted = rest(game, false, false);
+    if (interrupted || vm->abort) return interrupted;
+    dk_slots(game, &f);
+    if (!dk_cures(game, &f)) return false;
+    dk_heal(game, &f);
+    cok_adventure_party(game);
+    cok_adventure_status(game);
+    memcpy(game->rest, saved, sizeof saved);
+    dk_needy(game, &f);
+    set_rest(game, dk_more(game, &f));
+    interrupted = rest(game, false, false);
+    if (interrupted || vm->abort) return interrupted;
+    if (!dk_cures(game, &f)) return false;
+    cok_adventure_party(game);
+    cok_adventure_status(game);
+    memcpy(game->rest, saved, sizeof saved);
+    return false;
+}
+
+bool cok_camp_fix(cok_adventure *game)
+{
+    if (cok_game_rules(game)->levels.fix == COK_FIX_DEATH_KNIGHTS) return dk_fix(game);
+    return fix(game);
 }
 
 /* Alter. */
@@ -1152,10 +1538,6 @@ bool cok_camp(cok_adventure *game)
             interrupted = cok_camp_prepare(game);
             break;
         case 'F':
-            if (cok_game_rules(game)->levels.fix_unported != NULL) {
-                cok_adventure_not_yet(game, "Fix", cok_game_rules(game)->levels.fix_unported);
-                break;
-            }
             interrupted = cok_camp_fix(game);
             break;
         case 'A':

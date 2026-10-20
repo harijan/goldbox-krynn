@@ -167,9 +167,10 @@ Cast casts, in camp and in combat, by you or the computer (Alt-M turns
 Magic On for the party on Auto), with saving throws and magic resistance
 as in the original; every spell is there (the monsters' Slay Living,
 Feeblemind and Otto's Irresistible Dance, Heal, Harm, Death Spell, the
-clouds and the rest).
+clouds and the rest). Camp's Fix heals, and cures the stoned, poisoned,
+dead, cursed and blind with the spells your clerics have, as the original.
 Not there yet: creating and modifying characters, Initialize
-Mouse/Joystick, camp's Fix, and the mouse in Death
+Mouse/Joystick, and the mouse in Death
 Knights' menus: the game stops with a message saying what it reached.
 
 ## Options

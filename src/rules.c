@@ -1858,7 +1858,9 @@ const cok_rules cok_rules_champions = {
             .display_heading = 11, /* 4888:17ae */
             .display_blank_headings = false,
             .magic_selection = false, /* 4888:1c32 */
-            .fix_unported = NULL,
+            .fix = COK_FIX_CHAMPIONS,
+            .party_healed = "The Whole Party Is Healed",          /* 57e4:09f0 */
+            .interrupted = "Your repose is suddenly interrupted!", /* 57e4:0e3e */
         },
     .casting =
         {

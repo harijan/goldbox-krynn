@@ -686,14 +686,14 @@ class DeathKnightsTests(unittest.TestCase):
         # marked (Bless, 0x81): the list of those marked asks with Keep
         # (4381:0f67's mode 5, "spells OK? "), Escape unmarks it, then the
         # grimoire; Display (4381:15aa) names each member's effects; Fix
-        # is not ported yet (4381:2fd4) and stops.
+        # with no one hurt does nothing (4381:2fd4).
         saves = self.saves(ASSETS / "SAVE")
         wiz = bytearray((saves / "CHRDATA4.WIZ").read_bytes())
         wiz[wiz.index(0)] = 0x81
         (saves / "CHRDATA4.WIZ").write_bytes(bytes(wiz))
         keys = (self.TITLE + r"\v\v\r\rA" + r"\v" * 5 + r"\r\r\r\rM\v\v\vM\e\eD\e\eF")
         result = self.play("--start-menu", "--saves", saves, "--keys", keys, ASSETS)
-        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
         out = result.stdout
         self.assertIn("list: Spells to Memorize\nheading: 1st Level\nitem:  *Bless\n", out)
         self.assertIn("list: Spells in Grimoire\nheading: 1st Level\nitem:   Bless\n", out)
@@ -701,8 +701,81 @@ class DeathKnightsTests(unittest.TestCase):
         # Its blank rows are headings too (4381:13fb with 1).
         self.assertIn("heading:  \nheading: SIR DRYDEN\nitem:  <No Spell Effects>\nheading:  \n",
                       out)
-        self.assertEqual(result.stderr, "not yet ported: Death Knights of Krynn's Fix "
-                         "(dkk 4381:2fd4)\n")
+        self.assertTrue(out.endswith("menu: Save View Magic Rest Alter Fix Exit\n"
+                                     "menu: Save View Magic Rest Alter Fix Exit\n"
+                                     "(out of keys in block 16 at 8189)\n"), out[-200:])
+
+    def test_fix(self):
+        # Camp's Fix (4381:2fd4) as dkk_levels.py's fix flow plays it in the
+        # original: SIR DRYDEN dead, LILLITH stoned, TANAR poisoned and of
+        # effect 0x3d, FLAVIUS cursed (0x24) and poisoned, CELESTE blind and
+        # hurt; NEACAIL's spells the cures, a spell of level 5 a day, CELESTE
+        # one of level 6. The first rest's cures, in the party's order, and
+        # Cure Blindness's of the selected SIR DRYDEN; the second's for
+        # those left: FLAVIUS's poison (a spell a day), his curse again
+        # (Remove Curse cures 0x2b, not 0x24), the selected's sight again.
+        saves = self.saves(ASSETS / "SAVE")
+
+        def edit(name, change):
+            data = bytearray((saves / name).read_bytes())
+            change(data)
+            (saves / name).write_bytes(bytes(data))
+
+        def effects(name, ids):
+            old = (saves / name).read_bytes() if (saves / name).exists() else b""
+            data = b""
+            for n, id_ in enumerate(ids):
+                data += bytes([id_, 0, 0, 0, 0]) + (bytes(4) if n + 1 == len(ids) and not old
+                                                   else b"\1\0\1\0")
+            (saves / name).write_bytes(data + old)
+
+        def dead(r):
+            r[0xC7], r[0xD6], r[0xC8] = 6, 0, 0
+
+        def stoned(r):
+            r[0xC7], r[0xC8] = 7, 0
+
+        def hurt(r):
+            r[0xD6] -= 20
+
+        def spells(w):
+            ids = [0x03, 0x03, 0x4B, 0x42, 0x2B, 0x35, 0x43]
+            w[:0x4A] = bytes(ids) + bytes(0x4A - len(ids))
+            w[0xBC + 4] = 1
+
+        def sixth(w):
+            w[0xBC + 5] = 1
+
+        edit("CHRDATA1.GAM", dead)
+        edit("CHRDATA2.GAM", stoned)
+        effects("CHRDATA3.EFF", [0x37, 0x3D])
+        effects("CHRDATA4.EFF", [0x24, 0x37])
+        effects("CHRDATA6.EFF", [0x21])
+        edit("CHRDATA6.GAM", hurt)
+        edit("CHRDATA5.WIZ", spells)
+        edit("CHRDATA6.WIZ", sixth)
+        keys = self.TITLE + r"\v\v\r\rA" + r"\v" * 5 + r"\r\r\r\rF" + r"S\>\>\r"
+        result = self.play("--start-menu", "--saves", saves, "--seed", 1, "--keys", keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = result.stdout
+        said = "".join(f"print: {who}\nprint: {what}\n" for who, what in [
+            ("SIR DRYDEN", "has been raised from the dead"), ("LILLITH", "is changed back to flesh"),
+            ("TANAR", "is healed"), ("TANAR", "is detoxified"),
+            ("FLAVIUS", "is relieved of a curse"), ("SIR DRYDEN", "regains sight"),
+            ("FLAVIUS", "is detoxified"), ("FLAVIUS", "is relieved of a curse"),
+            ("SIR DRYDEN", "regains sight")])
+        self.assertIn("menu: Save View Magic Rest Alter Fix Exit\n" + said +
+                      "menu: Save View Magic Rest Alter Fix Exit\n", out)
+        # The records saved: all okay, SIR DRYDEN raised (constitution 16,
+        # his most 95 less 21, the knight level outside the classes summed),
+        # healed from the pool; CELESTE still blind; FLAVIUS still 0x24.
+        for n, (hp, most) in enumerate([(74, 74), (102, 102), (78, 78), (52, 52), (58, 58),
+                                        (53, 53)], 1):
+            r = (saves / f"CHRDATC{n}.GAM").read_bytes()
+            self.assertEqual((r[0xC7], r[0xD6], r[0x28]), (0, hp, most), n)
+        self.assertEqual((saves / "CHRDATC1.GAM").read_bytes()[0x19], 16)
+        self.assertEqual((saves / "CHRDATC6.EFF").read_bytes()[0], 0x21)
+        self.assertEqual((saves / "CHRDATC4.EFF").read_bytes()[0], 0x24)
 
     def test_view_and_items(self):
         # Camp (block 16's rest): View (580d:0c66) by index for SIR DRYDEN,

@@ -46,10 +46,11 @@ void cok_camp_normalize(cok_adventure *game);
 
 /* Fix (4888:2b44): heal the party with the cure spells its clerics have
  * memorized and those they could memorize in the time it takes, resting
- * that long first without the rest menu. Returns true if an encounter
- * interrupted the rest; then no one is healed. Stops with
- * game->vm.status COK_ECL_DIVIDE_BY_ZERO where the original divides by
- * zero. */
+ * that long first without the rest menu; or the game's own (levels.fix:
+ * dkk 4381:2fd4, which also cures and rests again, see DEVELOPERS.md's
+ * "Death Knights' camp"). Returns true if an encounter interrupted a rest;
+ * then no one is healed (by that rest). Stops with game->vm.status
+ * COK_ECL_DIVIDE_BY_ZERO where the original divides by zero. */
 bool cok_camp_fix(cok_adventure *game);
 
 /* Save the game as letter 'A'-'J' (4b6d:22de, dkk 46b2:2808, without its

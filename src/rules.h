@@ -1426,11 +1426,27 @@ typedef struct {
      * 4381:1a34 with DS:c0f7), rather than going on from the menu before
      * (4888:1c32). */
     bool magic_selection;
-    /* The camp's Fix where the port does not carry the game's out yet
-     * (dkk 4381:2fd4, with its cures 2a73), citing it, or NULL: choosing
-     * it stops the run (COK_ECL_UNPORTED). */
-    const char *fix_unported;
+    /* The camp's Fix (camp.c), cok_fix_routine: Champions' (4888:2b44) or
+     * Death Knights' (dkk 4381:2fd4, with its cures 2a73 and a second
+     * rest). */
+    uint8_t fix;
+    /* The rest's words (camp.c): the day's healing ("The Whole Party Is
+     * Healed", 57e4:09f0; dkk 5b7d:0912's DS:2560) and an encounter's
+     * ("Your repose is suddenly interrupted!", 57e4:0e3e; dkk 5b7d:0d51's
+     * DS:25a9). */
+    const char *party_healed, *interrupted;
 } cok_rules_levels;
+
+/* The camp's Fix (cok_rules_levels' fix; see Camp and Death Knights'
+ * camp): Champions' heals from the cure spells memorized and those the
+ * clerics memorize in one rest (4888:2b44); Death Knights' heals too, and
+ * cures the stoned, poisoned, dead, cursed and blind, from the spells
+ * memorized and, after a second rest, those memorized in it, its rests
+ * learning nothing (dkk 4381:2fd4, DS:c46f). */
+typedef enum {
+    COK_FIX_CHAMPIONS,
+    COK_FIX_DEATH_KNIGHTS,
+} cok_fix_routine;
 
 /* A spell whose cast bursts on its cell after the flight in combat (dkk
  * 5dc5:1298's calls of 65cd:39bd): the icon slot of its pictures, and its

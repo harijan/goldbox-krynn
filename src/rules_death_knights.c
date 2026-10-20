@@ -2020,9 +2020,9 @@ const cok_rules cok_rules_death_knights = {
             .display_heading = 13, /* 6a69:1b82's DS:c149 (4f9a's 0xd) */
             .display_blank_headings = true, /* 4381:15aa */
             .magic_selection = true,        /* 4381:1a34 */
-            /* Fix's cures (stone, poison, the dead, curses, blindness)
-             * and its two rests: a rewrite of 4888:2b44. */
-            .fix_unported = "dkk 4381:2fd4",
+            .fix = COK_FIX_DEATH_KNIGHTS,                          /* 4381:2fd4 */
+            .party_healed = "The whole party is healed",           /* DS:2560 */
+            .interrupted = "your repose is suddenly interrupted!", /* DS:25a9 */
         },
     .casting =
         {
