@@ -528,6 +528,26 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual(result.stderr, "not yet ported: Death Knights of Krynn's Fix "
                          "(dkk 4381:2fd4)\n")
 
+    def test_aging(self):
+        # SIR DRYDEN (race 6) at 115 and hasted (effect 0x27, 504d:0d88):
+        # the first round's event ages him a year and asks for the aging
+        # after the battle (DS:c463), on Auto to its end: past 110 he "is
+        # looking very old" (3e05:0264), before the continue question's
+        # answer leads to the results.
+        saves = self.saves(ASSETS / "SAVE")
+        dryden = bytearray((saves / "CHRDATA1.GAM").read_bytes())
+        struct.pack_into("<H", dryden, 0x26, 115)
+        (saves / "CHRDATA1.GAM").write_bytes(bytes(dryden))
+        result = self.play("--load", saves / "SAVGAMA.PTY", "--seed", 1, "--combat", "auto",
+                           "--effect", "1,27,0,0", "--keys", self.TO_FIGHT + r"\r" * 8, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertIn("print: ages", lines)
+        battle = lines.index("menu: continue battle? ")
+        old = lines.index("print: who is looking very old")
+        self.assertLess(battle, old)
+        self.assertEqual(lines.count("print: ages"), 1)
+
     def test_no_woof(self):
         # Death Knights has no debug mode: --woof is refused.
         result = self.play("--woof", "--start-menu", ASSETS)

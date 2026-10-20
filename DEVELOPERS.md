@@ -8801,7 +8801,8 @@ port stops there (`COK_ECL_UNDEFINED`).
 `tests/test_start.c` (`test_death_knights_levels`) trains and promotes
 `DKKAssets/SAVE`'s characters and ages them; `tests/test_effect.c` effect
 0x27; `tests/test_death_knights.py` the start menu's Train and Knight
-Change Order; `tools/dosbox/checks/dkk_levels.py` (flow `train`) the
+Change Order, and a hasted knight of 115 aging in the first fight on Auto
+(`--effect 1,27,0,0`) and looking very old after it; `tools/dosbox/checks/dkk_levels.py` (flow `train`) the
 original: Knight Change Order, Train with the spell learned, and the saved
 game and characters written after, 0 pixels and 0 bytes apart.
 
