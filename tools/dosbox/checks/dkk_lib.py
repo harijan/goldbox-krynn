@@ -436,6 +436,18 @@ def push_after_flush(b, first, then, seconds=30):
     return False
 
 
+def round_past(b, stopped, seconds=60):
+    """Whether the game, let go at a round's end (3e05:0ed0, trap), has gone
+    past it: the round (DS:c471) is no longer STOPPED (0ed0 counts it at
+    0ee9), within SECONDS."""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        if b.ds_byte(DS_ROUND) != stopped:
+            return True
+        time.sleep(0.005)
+    return False
+
+
 def untrap(b, handle):
     """The code trap patched given back, the emulation paused (d_lib.untrap)."""
     d_lib.untrap(b, handle)

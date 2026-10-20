@@ -415,10 +415,16 @@ def auto(v, work, opts, cast=False):
             if cast and n == 1:
                 # 3f63:117c's Alt-M (the first computer turn's).
                 v.value(f"Magic On (DS:c4be) at round 1's end ({tag})", box.ds_byte(0xC4BE), 1)
+            stopped = box.ds_byte(K.DS_ROUND)
             compare_round(v, box, f"{tag} round {n}" if cast else f"round {n}", *rounds[n - 1], work)
             K.untrap(box, handle)
             if last:
                 break
+            # Past this round's end before the next trap: trapped again at
+            # once, before the game ran on, it caught the same end twice
+            # (seen once in the spells flow) and every round after was
+            # compared with the port's next.
+            v.check(K.round_past(box, stopped), f"round {n}'s end passed ({tag})")
         v.value("the rounds fought", n, len(rounds))
         v.value(f"DS:b58c, b58d kept through the fight ({tag})", tiles.hex(),
                 box.ds_read(0xB58C, 2).hex())
