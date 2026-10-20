@@ -271,6 +271,7 @@ static const cok_rules_import death_knights_import = {
  * counterpart) and no temple's list of diseases (340d:0323's has none):
  * those have width 0. */
 static const cok_ds_table death_knights_tables[] = {
+    {0x0008, sizeof cok_death_knights_stock, 1, cok_death_knights_stock},
     {0x0312, sizeof cok_death_knights_combat, 1, cok_death_knights_combat},
     {0x0584, sizeof cok_death_knights_alignment_codes, 1, cok_death_knights_alignment_codes},
     {0x05a4, sizeof cok_death_knights_turning, 1, cok_death_knights_turning},
@@ -384,6 +385,11 @@ static const cok_data_segment death_knights_data = {
             [COK_DATA_KNIGHT_SCORES] = TABLE(0x05a4, 1, 0, 2, 6, 0, 6), /* 49cb:4ea4 */
             /* DS:82d4 + 8 * race + class, races 0-6 (65cd:38c7). */
             [COK_DATA_LEVEL_LIMITS] = TABLE(0x82d4, 1, 0, 7, 8, 0, 8),
+            /* STOCK (3632:28d2): DS:0007 + shop and DS:000f + shop, shops
+             * 1-8, and DS:0017 + index, indices 1-0x45 (to shop 8's last). */
+            [COK_DATA_STOCK_FIRST] = LIST(0x0007, 1, 1, 8),
+            [COK_DATA_STOCK_COUNTS] = LIST(0x000f, 1, 1, 8),
+            [COK_DATA_STOCK_ITEMS] = LIST(0x0017, 1, 1, 0x45),
         },
 };
 #undef LIST
@@ -400,18 +406,16 @@ static const cok_data_segment death_knights_data = {
  * one with 0x1f and 0x2c. SETUP MONSTERS (0x0c) is SETUP MONSTER with the
  * ambush's directions; LOAD MONSTER (3632:0472) and COMBAT (3632:16ec) are
  * Champions' with the game's records and the combat section (see
- * DEVELOPERS.md's "Death Knights' encounter"). The handlers that keep
- * Champions' meaning but differ where they need treasure or levels
- * (DAMAGE, ADD EP), and two new ones (TREASURE ITEMS, STOCK), are not
- * carried out yet: their entries cite them. SPELL (3632:2177)
+ * DEVELOPERS.md's "Death Knights' encounter"). DAMAGE (3632:1ca2) and ADD
+ * EP (3632:25f1) keep Champions' meaning, with the treasure section's
+ * rules; TREASURE ITEMS (3632:1933) and STOCK (3632:28d2) are its own
+ * (treasure.c, with the item table). SPELL (3632:2177)
  * differs only for each character it searches (the memorized spells in its
  * WIZ record, 74 of them, of those who can act): Champions' runs, and a
  * character stops it at the layout's MEMORIZED, which is left out.
  * DEVELOPERS.md's "Games" lists every handler's comparison. */
 #define OP(o, m, n, k) [o] = {.meaning = m, .operands = n, .skip = k}
 #define SAME(m, n, k) OP(m, m, n, k)
-/* An opcode whose handler is not carried out yet: the run stops there. */
-#define UNPORTED(o, m, n, k, r) [o] = {.meaning = m, .operands = n, .skip = k, .unported = "dkk " r}
 #define LISTED(o, m, h, k) [o] = {.meaning = m, .operands = COK_ECL_LIST, .header = h, .skip = k}
 static const cok_rules_opcode death_knights_opcodes[COK_ECL_OPCODES] = {
     SAME(COK_ECL_EXIT, 0, 0),
@@ -453,15 +457,14 @@ static const cok_rules_opcode death_knights_opcodes[COK_ECL_OPCODES] = {
     SAME(COK_ECL_COMBAT, 0, 0), /* 3632:16ec: the game's descriptor's combat */
     LISTED(COK_ECL_ON_GOTO, COK_ECL_ON_GOTO, 2, 0),
     LISTED(COK_ECL_ON_GOSUB, COK_ECL_ON_GOSUB, 2, 0),
-    [0x27] = {.meaning = COK_ECL_TREASURE_ITEMS, .operands = COK_ECL_LIST, .header = 4,
-              .unported = "dkk 3632:1933"},
+    LISTED(0x27, COK_ECL_TREASURE_ITEMS, 4, 0), /* 3632:1933 */
     SAME(COK_ECL_ROB, 3, 3),
     OP(0x29, COK_ECL_NOTHING, 0, 0), /* 3632:28c9 */
     SAME(COK_ECL_GETTABLE, 3, 3),
     LISTED(COK_ECL_HORIZONTAL_MENU, COK_ECL_HORIZONTAL_MENU, 2, 0),
     OP(0x2c, COK_ECL_MUSIC, 1, 1), /* 3632:2878 */
     SAME(COK_ECL_CALL, 1, 1),
-    UNPORTED(COK_ECL_DAMAGE, COK_ECL_DAMAGE, 5, 5, "3632:1ca2"),
+    SAME(COK_ECL_DAMAGE, 5, 5), /* 3632:1ca2: the treasure section's */
     SAME(COK_ECL_AND, 3, 3),
     SAME(COK_ECL_OR, 3, 3),
     LISTED(0x31, COK_ECL_ASK_MENU, 2, 0), /* 3632:11fd with 1 */
@@ -475,12 +478,12 @@ static const cok_rules_opcode death_knights_opcodes[COK_ECL_OPCODES] = {
     SAME(COK_ECL_WHO, 1, 1),
     SAME(COK_ECL_DELAY, 0, 0),
     SAME(COK_ECL_SPELL, 3, 3), /* 3632:2177: per character, see below */
-    UNPORTED(0x3c, COK_ECL_STOCK, 1, 1, "3632:28d2"),
+    OP(0x3c, COK_ECL_STOCK, 1, 1), /* 3632:28d2 */
     SAME(COK_ECL_CLEAR_BOX, 0, 0),
     SAME(COK_ECL_DUMP, 0, 0),
     SAME(COK_ECL_FIND_SPECIAL, 1, 1),
     SAME(COK_ECL_DESTROY_ITEMS, 1, 1),
-    UNPORTED(COK_ECL_ADD_EP, COK_ECL_ADD_EP, 2, 2, "3632:25f1"),
+    SAME(COK_ECL_ADD_EP, 2, 2), /* 3632:25f1: the treasure section's */
 };
 
 /* The variables by name (ecl.h's cok_var): each a byte, at Champions'
@@ -1302,6 +1305,10 @@ static const cok_rules_text_line death_knights_credit_lines[] = {
     {4, 22, 10, "\"THE FAT MAN\"     DAVE GOVETT"},
 };
 
+/* The vault's menu's items by index (3948:000e, DS:35bd). */
+static const char *const death_knights_vault_items[] = {"View", "Take", "Pool", "Money", "Items",
+                                                        "Exit"};
+
 const cok_rules cok_rules_death_knights = {
     .id = "death-knights",
     .assets = "DKKAssets",
@@ -1629,7 +1636,7 @@ const cok_rules cok_rules_death_knights = {
              * combat; the vault's menu, the shop and the temple are
              * steps 3's treasure and shops. */
             .vault = true,
-            .vault_unported = "dkk 3948:000e",
+            .vault_unported = NULL,
             .shop_unported = "dkk 3b89:06f3",
             .temple_unported = "dkk 3999:07d3",
             .show_none = true, /* 3c1e:0515 */
@@ -1674,7 +1681,7 @@ const cok_rules cok_rules_death_knights = {
             .fee = NULL,
             .results_key = "Press button or enter to continue", /* DS:0868, 6a69:0f1b */
             .treasure_if_any = true,
-            .treasure_unported = "dkk 3a37:0eed",
+            .treasure_unported = NULL,
             /* 3a37:1318 */
             .rejoice = "the monsters rejoice for the party has been destroyed", /* DS:2b9c */
             .rejoice_key = "press any key to continue",                        /* DS:2681 */
@@ -1743,5 +1750,41 @@ const cok_rules cok_rules_death_knights = {
             .missile_clamped = true,        /* 65cd:1da5 */
             .burst_slot = 0x18, /* 65cd:24bc */
             .turning = COK_TURNING_DEATH_KNIGHTS, /* 5340:119b */
+        },
+    .treasure =
+        {
+            /* 4f9a:0006: ITEM0 record 1 into DS:a2ca, ids 1-0x7f. */
+            .table = {"ITEM0", 0, 1},
+            .table_count = 0x7f,
+            /* 3a37:0eed, 0dfc, 0ce8; 5c72:0ac4, 09e4 */
+            .menus_first = true,
+            .specials_apart = true,
+            .left = "there is still treasure left. ",                    /* DS:194f */
+            .claim = "do you want to go back and claim your treasure?", /* DS:1978 */
+            .claim_no = true,                                            /* 6a69:2048 with 1 */
+            .take_prompt = "take: ",               /* DS:3168 */
+            .items_prompt = "items : ",            /* DS:315d */
+            .coin_prompt = "select type of coin ", /* DS:104c */
+            .how_many = "How many ",               /* DS:0fae */
+            .how_much = "How much ",               /* DS:0fce */
+            .coin_words = {NULL, NULL, NULL, NULL, "Steel ", "Gems ", "Jewelry "},
+            /* 3b89:033b */
+            .overloaded = "Overloaded", /* DS:2acc */
+            .take_joins = true,         /* 580d:2a0a, 1be6 */
+            /* 3948:000e */
+            .vault_items = death_knights_vault_items,
+            .vault_line = "bank of gargath",   /* 65cd:2db0, DS:2ccd */
+            .deposit = "will you deposit? ",    /* 580d:26d0, DS:1237 */
+            .vault_view_unported = "dkk 580d:0c66",
+            .vault_items_unported = "dkk 580d:0ffa",
+            /* 3632:1ca2 */
+            .damage_bonus = 0x0f,
+            .damage_halves = true,
+            .damage_key = "Press button or enter to continue", /* DS:0868 */
+            /* 3632:25f1 */
+            .gains = "congratulations...",                         /* DS:1485 */
+            .gains_end = " gains experience!",                     /* DS:2a64 */
+            .party_gains = "Congratulations the party gains experien", /* DS:2a3b */
+            .gains_active_first = true,
         },
 };

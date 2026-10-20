@@ -783,13 +783,16 @@ static void surprise(cok_adventure *game)
 
 /* ROB (2fd3:229e). */
 
-/* Take the robbed share of c's money and items (3775:1c7c, 1da9). Returns
- * false, ending the run, where the original would misbehave. */
+/* Take the robbed share of c's money and items (3775:1c7c, 1da9; dkk
+ * 3c1e:1a00, 1a7f: its three kinds of coin, steel, gems and jewelry), over
+ * the kinds the game's records hold (the layout's COINS). Returns false,
+ * ending the run, where the original would misbehave. */
 static bool rob_one(cok_adventure *game, cok_character *c, cok_real factor, uint8_t chance)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *r = c->record;
-    for (unsigned i = 0; i < COK_COINS; ++i) {
+    size_t first = cok_field_first(L, COK_FIELD_COINS);
+    for (size_t i = first; i < first + cok_field_count(L, COK_FIELD_COINS); ++i) {
         cok_real money;
         int32_t left;
         if (!cok_real_multiply(cok_real_from_long(cok_field_u16_at(L, r, COK_FIELD_COINS, i)),
@@ -897,7 +900,10 @@ static void combat(cok_adventure *game)
             cok_adventure_load_big(game, rules->view.overland_picture); /* 6961:07ed */
     } else if (R->vault && cok_ecl_var(vm, COK_VAR_VAULT) == 1) {
         cok_ecl_set_var(vm, COK_VAR_VAULT, 0);
-        if (R->vault_unported != NULL) cok_adventure_not_yet(game, "vault", R->vault_unported);
+        if (R->vault_unported != NULL)
+            cok_adventure_not_yet(game, "vault", R->vault_unported);
+        else
+            cok_treasure_vault(game); /* dkk 3948:000e */
     } else if (cok_ecl_var(vm, COK_VAR_SHOP) == 1) {
         cok_ecl_set_var(vm, COK_VAR_SHOP, 0);
         if (R->shop_unported != NULL) {

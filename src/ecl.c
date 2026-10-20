@@ -724,15 +724,28 @@ uint16_t cok_ecl_address(const cok_ecl *vm, size_t i)
     return (uint16_t)(vm->operand[i].high << 8 | vm->operand[i].low);
 }
 
-uint16_t cok_ecl_value(const cok_ecl *vm, size_t i)
+/* An operand's value (3775:0168). */
+static uint16_t operand_value(const cok_ecl *vm, const cok_ecl_operand *o)
 {
-    switch (vm->operand[i].type) {
-    case COK_ECL_BYTE: return vm->operand[i].low;
+    uint16_t address = (uint16_t)(o->high << 8 | o->low);
+    switch (o->type) {
+    case COK_ECL_BYTE: return o->low;
     case COK_ECL_VAR: case COK_ECL_VAR_3: case COK_ECL_STRING:
-        return load_sized(vm, cok_ecl_address(vm, i), wide_type(vm->operand[i].type));
-    case COK_ECL_WORD: case COK_ECL_STRVAR: return cok_ecl_address(vm, i);
+        return load_sized(vm, address, wide_type(o->type));
+    case COK_ECL_WORD: case COK_ECL_STRVAR: return address;
     default: return 0;
     }
+}
+
+uint16_t cok_ecl_value(const cok_ecl *vm, size_t i)
+{
+    return operand_value(vm, &vm->operand[i]);
+}
+
+uint16_t cok_ecl_header_value(const cok_ecl *vm, size_t i)
+{
+    assert(i < vm->header_operands);
+    return operand_value(vm, &vm->header[i]);
 }
 
 /* Handlers. */
