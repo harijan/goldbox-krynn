@@ -401,7 +401,8 @@ def auto(v, work, opts, cast=False, swap=None):
     combatants, their records and combat records, the turn order, the
     round, RandSeed and the screen; then "continue battle?" once the enemy
     is gone (No) and the results, screens and records. With cast, the
-    casters' saved game and Magic On: Alt-M typed ahead after Alt-Q, which
+    casters' saved game and Magic On: Alt-M typed ahead after Alt-Q, once
+    the menu's flush after Alt-Q is past (dkk_lib.push_after_flush), which
     the first computer's turn reads (3f63:117c)."""
     tag = "cast" if cast else swap if swap is not None else "auto"
     poke = swap_poke(SWAPS[swap]) if swap is not None else None
@@ -437,9 +438,16 @@ def auto(v, work, opts, cast=False, swap=None):
         # battlefield's setup reads as whether its tile sets are loaded
         # (410b:10d7), as the port's combat.dungeon_tiles keeps it.
         tiles = box.ds_read(0xB58C, 2)
-        box.push_key(0x1000)  # Alt-Q
         if cast:
-            box.push_key(0x3200)  # Alt-M
+            # Alt-Q, then Alt-M once the turn's menu (6a69:0f1b) has
+            # flushed the keyboard after Alt-Q (6a69:1409): pushed together,
+            # that flush read Alt-M, Magic On was never set, and the fight
+            # went otherwise than the port's, where \[\@m\] arrives at
+            # Quick's Delay (3e05:0c3e), after the flush.
+            v.check(K.push_after_flush(box, 0x1000, 0x3200),
+                    f"Alt-M typed after the menu's flush ({tag})")
+        else:
+            box.push_key(0x1000)  # Alt-Q
         n = 0
         while True:
             try:
@@ -459,11 +467,20 @@ def auto(v, work, opts, cast=False, swap=None):
                 v.differ(f"round {n}'s end in the port", "the port's battle ended before")
                 K.untrap(box, handle)
                 break
+            if cast and n == 1:
+                # 3f63:117c's Alt-M (the first computer turn's).
+                v.value(f"Magic On (DS:c4be) at round 1's end ({tag})", box.ds_byte(0xC4BE), 1)
+            stopped = box.ds_byte(K.DS_ROUND)
             name = f"{tag} round {n}" if tag != "auto" else f"round {n}"
             compare_round(v, box, name, *rounds[n - 1], work)
             K.untrap(box, handle)
             if last:
                 break
+            # Past this round's end before the next trap: trapped again at
+            # once, before the game ran on, it caught the same end twice
+            # (seen once in the spells flow) and every round after was
+            # compared with the port's next.
+            v.check(K.round_past(box, stopped), f"round {n}'s end passed ({tag})")
         v.value("the rounds fought", n, len(rounds))
         v.value(f"DS:b58c, b58d kept through the fight ({tag})", tiles.hex(),
                 box.ds_read(0xB58C, 2).hex())

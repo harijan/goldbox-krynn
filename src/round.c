@@ -139,6 +139,16 @@ bool cok_combat_movement(cok_adventure *game, cok_character *c, uint8_t *movemen
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
     const uint8_t *r = c->record;
+    if (cok_stats_count_movement_effects(cok_game_rules(game))) {
+        /* dkk 65cd:1241: haste and slow are in the movement, no event. */
+        char error[300];
+        if (cok_character_round_movement(c, cok_game_rules(game), &game->item_types,
+                                         (uint8_t)cok_ecl_var(&game->vm, COK_VAR_MOVE_BONUS),
+                                         movement, error, sizeof error))
+            return true;
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
+        return false;
+    }
     uint8_t m = cok_field_u8(L, r, COK_FIELD_MOVEMENT);
     if (cok_field_u8(L, r, COK_FIELD_HOSTILE) == 0)
         m = (uint8_t)(m + cok_ecl_var(&game->vm, COK_VAR_MOVE_BONUS)); /* var 0x7f72 */
