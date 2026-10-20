@@ -131,7 +131,7 @@ the character fields moved (R6), which the real game's layout does better.
    effects 02 04 15 22 30 3a left for 10); (6) `treasure`,
    TREASURE ITEMS and ITEM0, the pool, the vault's menu, DAMAGE, ADD EP,
    STOCK, ROB (done); (7) shops and the temple (done; Raise Dead,
-   Remove Curse and Restoration wait for their spells); (8) `spells`, the 27 changed spells;
+   Remove Curse and Restoration wait for their spells); (8) `spells`, the changed spells (done: band B, 19 routines);
    (9) `levels`, levels to 18, Train, Knight Change Order, aging (also after a
    battle), Memorize's 8 levels (done; camp Fix left, a rewrite); (10) the new spells and the rewritten
    clouds. Death Knights has no locked doors: nothing to port there.
