@@ -613,3 +613,220 @@ bool cok_train_aging(cok_adventure *game)
     }
     return game->vm.status == COK_ECL_OK;
 }
+
+/* Death Knights' level drain. */
+
+/* dkk 580d:3454: the most hit points c's levels give: for each class with a
+ * level, below its top (DS:72a4) its hit die's bonus (65cd:3c02) plus 8
+ * (fighters and paladins 10, a mage's 4, a thief's 6) times the level (a
+ * cleric of a deity below 5, a knight and a ranger one more), at or above
+ * it a fixed sum by the bonus and the levels past the top (a druid's 0x70),
+ * words, divided by the classes counted, as a byte. */
+static bool most_hit_points(cok_adventure *game, const uint8_t *c, uint8_t *most)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    uint16_t sum = 0;
+    uint8_t count = 0;
+    for (unsigned k = 0; k < 8; ++k) {
+        int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, k);
+        if (level <= 0) continue;
+        int8_t bonus;
+        if (!cok_train_hit_die(c, rules, k, &bonus))
+            return undefined(game, "a constitution past 65cd:3c02's cases gives an uninitialized "
+                                   "bonus (dkk 580d:3454)");
+        int b = bonus;
+        ++count;
+        if ((uint8_t)level < top_level(game, k)) {
+            int times = level;
+            int die = k == 2 || k == 3 || k == 7 ? 10 : k == 5 ? 4 : k == 6 ? 6 : 8;
+            if ((k == 0 && cok_field_s8(L, c, COK_FIELD_DEITY) < 5) || k == 7 || k == 4) ++times;
+            sum = (uint16_t)(sum + (uint16_t)((b + die) * times));
+        } else {
+            int extra = (uint8_t)(level - top_level(game, k) + 1);
+            switch (k) {
+            case 0: sum = (uint16_t)(sum + b * 9 + 0x48 + extra * 2); break;
+            case 1: sum = (uint16_t)(sum + 0x70); break;
+            case 4: sum = (uint16_t)(sum + b * 0xb + 0x58 + extra * 2); break;
+            case 5: sum = (uint16_t)(sum + b * 0xb + 0x2c + extra); break;
+            case 6: sum = (uint16_t)(sum + b * 10 + 0x3c + extra * 2); break;
+            default: sum = (uint16_t)(sum + b * 9 + 0x5a + extra * 3); break;
+            }
+        }
+    }
+    *most = (uint8_t)(count == 0 ? 0 : sum / count);
+    return true;
+}
+
+/* dkk 580d:3193 losing a level of the classes in mask, among count classes:
+ * the dice and constitution bonuses as gaining one rolls them (or the fixed
+ * sums at the top), the sum (at least 1) and the bonus divided by count;
+ * the sum off the base hit points (+0x6c, to 0), both off the most (no
+ * lower than what 580d:3454 gives for the levels now, nor 0), the hit points
+ * keeping their distance below it, to 0. None counted: all three 0. */
+static bool lose_hit_points(cok_adventure *game, uint8_t *c, uint8_t mask, uint8_t count)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    const cok_data_segment *D = rules->data;
+    uint8_t sum = 0, con = 0;
+    for (unsigned i = 0; i < 8; ++i) {
+        int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i);
+        if (level <= 0 || (class_bit(game, i) & mask) == 0) continue;
+        if ((uint8_t)level < top_level(game, i)) {
+            bool druid = i == 0 && cok_field_s8(L, c, COK_FIELD_DEITY) > 4;
+            uint8_t dice = level > 1 ? 1 : druid ? 1 : cok_data_u8_at(D, COK_DATA_LEVEL_DICE, i);
+            uint8_t a = cok_dice(&game->vm.seed, dice, cok_data_u8_at(D, COK_DATA_DIE_SIDES, i));
+            uint8_t b = cok_dice(&game->vm.seed, dice, cok_data_u8_at(D, COK_DATA_DIE_SIDES, i));
+            sum = (uint8_t)(sum + (a > b ? a : b));
+            con = (uint8_t)(con + dice * cok_train_constitution(c, rules, i));
+        } else if (rules->levels.top_hit_points[i] != 0) {
+            sum = rules->levels.top_hit_points[i];
+        }
+    }
+    if (count == 0) {
+        cok_field_set8(L, c, COK_FIELD_HIT_POINTS, 0);
+        cok_field_set8(L, c, COK_FIELD_BASE_HIT_POINTS, 0);
+        cok_field_set8(L, c, COK_FIELD_MAX_HIT_POINTS, 0);
+        return true;
+    }
+    sum = (uint8_t)(sum / count);
+    if (sum == 0) sum = 1;
+    con = (uint8_t)(con / count);
+    uint8_t max = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS);
+    uint8_t lacking = (uint8_t)(max - cok_field_u8(L, c, COK_FIELD_HIT_POINTS));
+    uint8_t base = cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS);
+    cok_field_set8(L, c, COK_FIELD_BASE_HIT_POINTS, base > sum ? (uint8_t)(base - sum) : 0);
+    uint8_t loss = (uint8_t)(sum + con), most;
+    if (!most_hit_points(game, c, &most)) return false;
+    if ((int)max - (int)loss > (int)most) loss = (uint8_t)(max - most);
+    max = max < loss ? 0 : (uint8_t)(max - loss);
+    cok_field_set8(L, c, COK_FIELD_MAX_HIT_POINTS, max);
+    cok_field_set8(L, c, COK_FIELD_HIT_POINTS, max < lacking ? 0 : (uint8_t)(max - lacking));
+    return true;
+}
+
+/* dkk 504d:1288: the memorized spells c's spells a day no longer hold are
+ * forgotten: those memorized first (below 0x80), counted by spell list and
+ * level (the spell table's columns 0 and 1) up to the spells a day, a mage
+ * keeping one or two more of the mage list by its order's moon (var
+ * 0x4cf8 + order 1 or 2), then those to memorize (0x80 and up). */
+static bool forget_over(cok_adventure *game, uint8_t *c)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    const cok_data_segment *D = rules->data;
+    if (!cok_field_has_spells(L, c)) return true;
+    uint8_t counts[33] = {0};
+    int extra = -1; /* local_23[0], never set for one without a mage level */
+    if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) > 0) {
+        uint16_t moon = cok_ecl_var_at(&game->vm, COK_VAR_ORDER_MOON,
+                                       cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER));
+        extra = moon == 1 ? 1 : moon == 2 ? 2 : 0;
+    }
+    size_t at = cok_field_offset(L, COK_FIELD_MEMORIZED), n = cok_field_size(L, COK_FIELD_MEMORIZED);
+    for (int pass = 0; pass < 2; ++pass)
+        for (size_t i = 0; i < n; ++i) {
+            uint8_t s = c[at + i];
+            if (pass == 0 ? s == 0 || s >= 0x80 : s < 0x80) continue;
+            uint8_t id = s & 0x7f, list = 0, level = 0;
+            cok_data_byte(D, (uint16_t)cok_data_offset2(D, COK_DATA_SPELLS, id, 0), &list);
+            cok_data_byte(D, (uint16_t)cok_data_offset2(D, COK_DATA_SPELLS, id, 1), &level);
+            /* Counted at list * 8 + level of the local's 33 bytes and the
+             * block's +0xbb (the spells a day from list 0's level 1 on):
+             * a level 0 spell's at the list before's level 8. */
+            int index = (int8_t)list * 8 + (int8_t)level;
+            if (index < 1 || index > 32) {
+                char text[120];
+                snprintf(text, sizeof text, "memorized spell %u's list %u and level %u count "
+                         "outside the local (dkk 504d:1288)", id, list, level);
+                return undefined(game, text);
+            }
+            uint8_t a_day = c[cok_field_offset(L, COK_FIELD_SPELLS_A_DAY) + (size_t)index - 1];
+            if (counts[index] < a_day) {
+                ++counts[index];
+            } else if (pass == 1 || a_day == 0) {
+                c[at + i] = 0;
+            } else if (extra < 0 && list == 3) {
+                return undefined(game, "a mage spell over the count without a mage level reads "
+                                       "an uninitialized local (dkk 504d:1288)");
+            } else if (extra == 0 || list != 3) {
+                c[at + i] = 0;
+            } else {
+                --extra;
+            }
+        }
+    return true;
+}
+
+bool cok_train_drain(cok_adventure *game, cok_character *character, uint8_t drained)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    uint8_t *c = character->record;
+    if (!cok_arena_say(game, character, "gets drained", 10, false)) return false; /* DS:1ebd */
+    cok_adventure_wait(game, game->speed * 100u);                                /* 14e4:0b56 */
+    int k = -1; /* kept from one level to the next, as the local is */
+    for (unsigned n = 1; n <= drained; ++n) {
+        uint8_t count = 0;
+        int8_t best = 0;
+        for (unsigned i = 0; i < 8; ++i) {
+            int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i);
+            if (level > 0 || cok_field_s8_at(L, c, COK_FIELD_UNDRAINED_LEVEL, i) > 0) ++count;
+            if (level > best) {
+                best = level;
+                k = (int)i;
+            } else if (level == best && best != 0) {
+                /* The class whose level asks the more experience. */
+                uint8_t row_k, row_i;
+                int32_t xp_k, xp_i;
+                if (!cok_train_row(c, rules, (unsigned)k, &row_k) ||
+                    !cok_train_row(c, rules, i, &row_i))
+                    return undefined(game, "a class with no experience row reads 65cd:382c's "
+                                           "uninitialized local (dkk 504d:156d)");
+                if (!need_for(game, row_k, best, &xp_k) || !need_for(game, row_i, level, &xp_i))
+                    return false;
+                if (xp_i > xp_k) k = (int)i;
+            }
+        }
+        if (k < 0)
+            return undefined(game, "a record with no level drains the class of a local never "
+                                   "set (dkk 504d:15f0)");
+        if (cok_field_s8_at(L, c, COK_FIELD_UNDRAINED_LEVEL, (size_t)k) <= best)
+            cok_field_set8_at(L, c, COK_FIELD_UNDRAINED_LEVEL, (size_t)k, (uint8_t)best);
+        uint32_t xp = cok_field_u32(L, c, COK_FIELD_EXPERIENCE);
+        if (signed_long(cok_field_u32(L, c, COK_FIELD_UNDRAINED_EXPERIENCE)) <= signed_long(xp))
+            cok_field_set32(L, c, COK_FIELD_UNDRAINED_EXPERIENCE, xp);
+        uint8_t row;
+        if (!cok_train_row(c, rules, (unsigned)k, &row))
+            return undefined(game, "a class with no experience row reads 65cd:382c's "
+                                   "uninitialized local (dkk 504d:1664)");
+        if (cok_field_u8(L, c, COK_FIELD_UNDRAINED_MAX_HIT_POINTS) <=
+            cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS))
+            cok_field_set8(L, c, COK_FIELD_UNDRAINED_MAX_HIT_POINTS,
+                           cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS));
+        /* The experience halfway into the level it falls to (a LongInt
+         * division by 2, 1a07:0a2f). */
+        int32_t low = 0, high = 0;
+        if (best == 2) {
+            if (!need_for(game, row, 2, &high)) return false;
+        } else if (best != 1) {
+            if (!need_for(game, row, best - 1, &low) || !need_for(game, row, best, &high))
+                return false;
+        }
+        cok_field_set32(L, c, COK_FIELD_EXPERIENCE,
+                        (uint32_t)(low + (int32_t)((uint32_t)high - (uint32_t)low) / 2));
+        cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, (size_t)k, (uint8_t)(best - 1));
+        if (!lose_hit_points(game, c, class_bit(game, (unsigned)k), count) ||
+            !levels(game, character) || !forget_over(game, c))
+            return false;
+    }
+    bool any = false;
+    for (unsigned i = 0; i < 8; ++i)
+        if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i) > 0) any = true;
+    if (!any || cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS) == 0)
+        return cok_combat_kill(game, character, 8, "dies from drainning"); /* DS:1ed2 */
+    if (cok_field_u8(L, c, COK_FIELD_HIT_POINTS) == 0)
+        return cok_combat_kill(game, character, 4, "collapses from drainning"); /* DS:1ee7 */
+    return true;
+}

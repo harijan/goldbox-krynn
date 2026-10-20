@@ -1977,6 +1977,116 @@ static void test_levels(void)
     puts("death knights: the levels' routines checked");
 }
 
+/* The effects part's handlers against the original's code: the constants
+ * each entry gives its kind (cok_rules_effect's value and words), the
+ * breaths' table (5dc5:51cc), the battle-only entries (a first cmp byte
+ * [8c4e], 5), and the words the routines say. */
+static void test_effects(void)
+{
+    const cok_rules_effects *E = &R->effects;
+    const cok_rules_effect *h = E->handlers;
+    /* The armour: sub/add byte [es:di+0xcc], n. */
+    CHECK(h[0x0d].handler == COK_FX_ARMOUR && h[0x0d].value == 0xfe &&
+          HOLDS(0x504d, 0x04a5, 0x20, 0x26, 0x80, 0xad, 0xcc, 0x00, 0x02));
+    CHECK(h[0x39].handler == COK_FX_ARMOUR && h[0x39].value == 0xfc &&
+          HOLDS(0x504d, 0x1044, 0x20, 0x26, 0x80, 0xad, 0xcc, 0x00, 0x04));
+    CHECK(h[0x3c].handler == COK_FX_ARMOUR && h[0x3c].value == 4 &&
+          HOLDS(0x504d, 0x10b4, 0x20, 0x26, 0x80, 0x85, 0xcc, 0x00, 0x04));
+    /* The globes: cmp byte [di+0x6a81] (the spell's level), n. */
+    CHECK(h[0x3b].handler == COK_FX_MINOR_GLOBE && h[0x3b].value == 5 &&
+          HOLDS(0x504d, 0x108d, 0x20, 0x80, 0xbd, 0x81, 0x6a, 0x05));
+    CHECK(h[0x3f].handler == COK_FX_MINOR_GLOBE && h[0x3f].value == 4 &&
+          HOLDS(0x504d, 0x111e, 0x20, 0x80, 0xbd, 0x81, 0x6a, 0x04) &&
+          cok_data_offset2(R->data, COK_DATA_SPELLS, 0, 1) == 0x6a81);
+    /* 0x42: cmp byte [es:di+0x32], 3. */
+    CHECK(h[0x42].handler == COK_FX_PLUS_WEAPONS && h[0x42].value == 3 &&
+          HOLDS(0x504d, 0x123d, 0x30, 0x26, 0x80, 0x7d, 0x32, 0x03));
+    /* The damage types: and al, mask of DS:be6d. */
+    CHECK(h[0x41].handler == COK_FX_TYPE_NONE && h[0x41].value == 4 &&
+          HOLDS(0x504d, 0x1228, 0x10, 0xa0, 0x6d, 0xbe, 0x24, 0x04));
+    CHECK(h[0x4b].handler == COK_FX_TYPE_DOUBLE && h[0x4b].value == 2 &&
+          HOLDS(0x504d, 0x1c64, 0x10, 0xa0, 0x6d, 0xbe, 0x24, 0x02));
+    CHECK(h[0x53].handler == COK_FX_TYPE_HALF && h[0x53].value == 6 &&
+          HOLDS(0x504d, 0x1f79, 0x10, 0x24, 0x04) && HOLDS(0x504d, 0x1f79, 0x18, 0x24, 0x02));
+    /* The drains: mov al, levels; push ax before the far call of 14c7. */
+    CHECK(h[0x43].handler == COK_FX_DRAIN_LEVELS && h[0x43].value == 1 &&
+          HOLDS(0x504d, 0x1815, 0x20, 0xb0, 0x01, 0x50));
+    CHECK(h[0x44].handler == COK_FX_DRAIN_LEVELS && h[0x44].value == 2 &&
+          HOLDS(0x504d, 0x1836, 0x20, 0xb0, 0x02, 0x50));
+    /* 0x54: add byte [es:di+0xd6], 3. 0x6e: mov al, [es:di+0x45 + class]. */
+    CHECK(h[0x54].handler == COK_FX_HEAL_ROUND && h[0x54].value == 3 &&
+          HOLDS(0x504d, 0x1f9c, 0x30, 0x26, 0x80, 0x85, 0xd6, 0x00, 0x03));
+    CHECK(h[0x6e].handler == COK_FX_TIER && h[0x6e].value == 3 &&
+          R->character->field[COK_FIELD_CLASS_LEVEL].offset + 3 == 0x48 &&
+          HOLDS(0x504d, 0x26f8, 0x20, 0x26, 0x8a, 0x45, 0x48));
+    /* 0x4e: mov al, 0x2f (Fireball), the cast entry; 0x51: mov al, 0x0a,
+     * "gazes!" at DS:22cd; 0x55's words at DS:22d8; the hammer's DS:1dea. */
+    CHECK(h[0x4e].handler == COK_FX_CAST && h[0x4e].value == 0x2f &&
+          HOLDS(0x5dc5, 0x4f97, 0x10, 0xb0, 0x2f, 0x50));
+    CHECK(h[0x51].handler == COK_FX_GAZE && h[0x51].value == 0x0a &&
+          HOLDS(0x5dc5, 0x4fd3, 0x10, 0xb0, 0x0a, 0x50) &&
+          HOLDS(0x5dc5, 0x4fd3, 0x40, 0xbf, 0xcd, 0x22) && pascal_is(ds(0x22cd), h[0x51].text, false));
+    CHECK(h[0x55].handler == COK_FX_BREATH && HOLDS(0x5dc5, 0x508c, 0x80, 0xbf, 0xd8, 0x22) &&
+          pascal_is(ds(0x22d8), h[0x55].text, false));
+    CHECK(h[0x17].handler == COK_FX_HAMMER && HOLDS(0x504d, 0x06dc, 0x200, 0xbf, 0xea, 0x1d) &&
+          pascal_is(ds(0x1dea), h[0x17].text, false));
+    /* The breaths: cmp al, id; mov byte [be6d], type; mov byte [bp-0x0a],
+     * width; mov byte [bp-0x0b], length; mov di, the word (DS:22d8's
+     * "breathes " and it); the pick's mov al, 0x24. */
+    CHECK(E->breath_count == 3 && pascal_is(ds(0x22d8), "breathes ", false) &&
+          HOLDS(0x5dc5, 0x51cc, 0xd0, 0xb0, 0x24, 0x50, 0xb0, 0x01));
+    for (unsigned i = 0; i < E->breath_count; ++i) {
+        const cok_rules_breath *b = &E->breaths[i];
+        static const uint16_t words[] = {0x22e3, 0x22ee, 0x22f9};
+        CHECK(h[b->id].handler == COK_FX_DRAGON_BREATH && h[b->id].address == 0x51cc &&
+              b->spell == 0x24 && HOLDS(0x5dc5, 0x51cc, 0x80, 0x3c, b->id) &&
+              HOLDS(0x5dc5, 0x51cc, 0xa0, 0xc6, 0x06, 0x6d, 0xbe, b->damage_type, 0xc6, 0x46,
+                    0xf6, b->width, 0xc6, 0x46, 0xf5, b->length, 0xbf, (uint8_t)words[i],
+                    (uint8_t)(words[i] >> 8)) &&
+              pascal_is(ds(words[i]), b->what, false));
+    }
+    /* The cone (5dc5:175d) doubles its length in place (mov al, [bp+6]; xor
+     * ah, ah; shl ax, 1; mov [bp+6], al) before it copies it to the sight's
+     * range (mov al, [bp+6]; xor ah, ah; mov [bp-0x78], ax): the breath's
+     * range twice its length. */
+    CHECK(HOLDS(0x5dc5, 0x17b9, 0x0a, 0x8a, 0x46, 0x06, 0x30, 0xe4, 0xd1, 0xe0, 0x88, 0x46, 0x06) &&
+          HOLDS(0x5dc5, 0x1886, 0x08, 0x8a, 0x46, 0x06, 0x30, 0xe4, 0x89, 0x46, 0x88));
+    /* Flames: the burst's n 1 and slot 0x18 with DS:4316's sound. */
+    CHECK(h[0x46].handler == COK_FX_FLAMES &&
+          HOLDS(0x504d, 0x186e, 0x40, 0xb0, 0x01, 0x50, 0xb0, 0x18, 0x50, 0xa0, 0x16, 0x43));
+    /* The battle-only entries of Champions' kinds test cmp byte [8c4e], 5
+     * in their first 12 bytes; the others of 504d do not. */
+    for (unsigned id = 1; id < E->count; ++id) {
+        if (h[id].unported != NULL || h[id].handler >= COK_FX_KENDER_BATTLE ||
+            h[id].handler == COK_FX_BREATH || h[id].handler == COK_FX_ITEM)
+            continue;
+        bool tests = HOLDS(0x504d, h[id].address, 0x0c, 0x80, 0x3e, 0x4e, 0x8c, 0x05);
+        if (tests != h[id].battle) printf("effect 0x%02x: battle %d, the routine %d\n", id,
+                                          h[id].battle, tests);
+        CHECK(tests == h[id].battle);
+    }
+    /* The words the routines say. */
+    static const struct {
+        uint16_t at;
+        const char *text;
+    } said[] = {
+        {0x1f30, "is healed"},    {0x1e14, "is coughing"},   {0x1dcb, "collapses from poison"},
+        {0x1f7a, "is disrupted"}, {0x4570, "is "},           {0x4bcb, "Slowed"},
+        {0x1ebd, "gets drained"}, {0x1ed2, "dies from drainning"},
+        {0x1ee7, "collapses from drainning"},
+    };
+    for (size_t i = 0; i < sizeof said / sizeof *said; ++i)
+        CHECK(pascal_is(ds(said[i].at), said[i].text, false));
+    /* The drain: 14c7's longint division by 2 (mov cx, 2; xor bx, bx),
+     * the hit points' call with 0 (lose) and the experience table's base
+     * at DS:7638 + 0xcc a row. */
+    CHECK(HOLDS(0x504d, 0x14c7, 0x280, 0xb9, 0x02, 0x00, 0x31, 0xdb) &&
+          HOLDS(0x504d, 0x14c7, 0x2c0, 0xb0, 0x00, 0x50, 0x9a) &&
+          HOLDS(0x504d, 0x14c7, 0x200, 0x8b, 0x85, 0x38, 0x76) &&
+          cok_data_offset2(R->data, COK_DATA_EXPERIENCE, 1, 2) == 0x7638 + 0xcc + 8);
+    puts("death knights: the effects' routines checked");
+}
+
 int main(void)
 {
     test_lookup();
@@ -1997,6 +2107,7 @@ int main(void)
         if (exe_size > 0) test_shops();
         if (exe_size > 0) test_casting();
         if (exe_size > 0) test_spells();
+        if (exe_size > 0) test_effects();
     }
     puts("death knights: ok");
     return 0;

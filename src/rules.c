@@ -970,7 +970,7 @@ static const cok_rules_effect champions_effect_handlers[0x79] = {
     [0x14] = {0x0681, COK_FX_RESIST_FIRE},
     [0x15] = {0x06b2, COK_FX_SILENCED},
     [0x16] = {0x0725, COK_FX_POISONED},
-    [0x17] = {0x07b5, COK_FX_HAMMER},
+    [0x17] = {0x07b5, COK_FX_HAMMER, .text = "Gains an item"}, /* CS:07a7 */
     [0x18] = {0x3881, COK_FX_NOTHING},
     [0x19] = {0x09b3, COK_FX_INVISIBLE},
     [0x1a] = {0x09e8, COK_FX_TARGET_BONUS},
@@ -1010,7 +1010,7 @@ static const cok_rules_effect champions_effect_handlers[0x79] = {
     [0x3c] = {0x18b9, COK_FX_BURST},
     [0x3d] = {0x1a72, COK_FX_FIRE_RESISTANCE},
     [0x3e] = {0x1acd, COK_FX_REGENERATE},
-    [0x3f] = {0x1b18, COK_FX_MINOR_GLOBE},
+    [0x3f] = {0x1b18, COK_FX_MINOR_GLOBE, .value = 4},
     [0x40] = {0x1c21, COK_FX_POISON},
     [0x41] = {0x1c34, COK_FX_POISON},
     [0x42] = {0x1c54, COK_FX_ZAP},
@@ -1032,7 +1032,7 @@ static const cok_rules_effect champions_effect_handlers[0x79] = {
     [0x52] = {0x303c, COK_FX_FEAR},
     [0x53] = {0x546e, COK_FX_BREATH},
     [0x54] = {0x4eea, COK_FX_BREATH},
-    [0x55] = {0x50cf, COK_FX_BREATH},
+    [0x55] = {0x50cf, COK_FX_BREATH, .text = "Breathes!"}, /* CS:50c5 */
     [0x56] = {0x31bc, COK_FX_POISON},
     [0x57] = {0x31cf, COK_FX_POISON},
     [0x58] = {0x31e2, COK_FX_PARALYSIS},

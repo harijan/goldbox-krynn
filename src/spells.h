@@ -309,7 +309,33 @@ typedef enum {
     COK_FX_CANCEL,
     COK_FX_SMOKE,
     COK_FX_SMOKED,
-    COK_FX_SLAYER_BATTLE,
+    COK_FX_ARMOUR,          /* 0x0d, 0x39, 0x3c: the AC by the entry's value */
+    COK_FX_SLOW_MOVEMENT,   /* 0x2a: the rate and the movement halved */
+    COK_FX_PLUS_WEAPONS,    /* 0x42: no damage but from items of the entry's bonus */
+    COK_FX_TYPE_HALF,       /* 0x53: half damage of the entry's types */
+    COK_FX_TYPE_DOUBLE,     /* 0x4b: double */
+    COK_FX_TYPE_NONE,       /* 0x41: none */
+    COK_FX_DRAIN_LEVELS,    /* 0x43, 0x44: the target loses the entry's levels */
+    COK_FX_HEAL_ROUND,      /* 0x54: the entry's hit points healed */
+    COK_FX_FIRE_HEALS,      /* 0x4c */
+    COK_FX_IRON_GOLEM,      /* 0x57 */
+    COK_FX_FLESH_GOLEM,     /* 0x65 */
+    COK_FX_FIRE_TOUCH,      /* 0x4a */
+    COK_FX_TIER,            /* 0x6e: the tier by the entry's class's level */
+    COK_FX_UNSEEN,          /* 0x20 */
+    COK_FX_DISRUPT_UNDEAD,  /* 0x75 */
+    COK_FX_TURN_BATTLE,     /* 0x6b */
+    COK_FX_NAUSEA,          /* 0x1e */
+    COK_FX_POISON_COLLAPSE, /* 0x16 */
+    /* A monster's attacks on event 0x0e and 0x0f, through the breathe hook
+     * (cok_cast_breath) as COK_FX_BREATH: dkk 5dc5:51cc (0x5a, 0x64, 0x68,
+     * the effects section's breaths), 4fd3 (0x51, a gaze casting the
+     * entry's spell), 4f97 (0x4e, casting the entry's spell), 504d:186e
+     * (0x46, flames around). */
+    COK_FX_DRAGON_BREATH,
+    COK_FX_GAZE,
+    COK_FX_CAST,
+    COK_FX_FLAMES,
     COK_FX_HANDLERS
 } cok_effect_handler;
 

@@ -1437,6 +1437,270 @@ static void test_haste_aging(void)
     reset();
 }
 
+/* Hooks for the Death Knights handlers' test: what was killed, drained and
+ * breathed. */
+static char hooked[256];
+
+static bool dkk_kill(cok_effects *effects, cok_character *c, uint8_t status, const char *text,
+                      void *context)
+{
+    (void)effects, (void)context;
+    snprintf(hooked + strlen(hooked), sizeof hooked - strlen(hooked), "kill %u %s;", status, text);
+    c->record[0xc7] = status;
+    return true;
+}
+
+static bool hook_drain(cok_effects *effects, cok_character *c, uint8_t levels, void *context)
+{
+    (void)effects, (void)context;
+    snprintf(hooked + strlen(hooked), sizeof hooked - strlen(hooked), "drain %s %u;",
+             c->record[0] == 1 ? "a" : "b", levels);
+    return true;
+}
+
+static bool hook_breathe(cok_effects *effects, cok_effect *effect, cok_character *c,
+                         void *context)
+{
+    (void)effects, (void)c, (void)context;
+    snprintf(hooked + strlen(hooked), sizeof hooked - strlen(hooked), "breathe %02x;",
+             effect->id);
+    return true;
+}
+
+static bool dkk_damage(cok_effects *effects, cok_character *c, uint8_t amount, uint8_t save_kind,
+                        bool saved, void *context)
+{
+    (void)effects, (void)c, (void)context;
+    snprintf(hooked + strlen(hooked), sizeof hooked - strlen(hooked), "damage %u %u %d;", amount,
+             save_kind, saved);
+    return true;
+}
+
+/* Death Knights' own handlers (dkk 504d, 5dc5; the effects part): each
+ * kind with its entry's constant, the battle-only entries, and the hooks
+ * the drain and the monsters' attacks go through. */
+static void test_dkk_handlers(void)
+{
+    reset();
+    cok_effects_free(&fx);
+    vm.rules = &cok_rules_death_knights;
+    cok_effects_init(&fx, &cok_rules_death_knights, &vm, &party, &types);
+    const cok_character_layout *L = cok_rules_death_knights.character;
+    cok_character *c = calloc(1, sizeof *c), *t = calloc(1, sizeof *t);
+    CHECK(c != NULL && t != NULL && cok_party_append(&party, c) && cok_party_append(&party, t));
+    c->record[0] = 1;
+    t->record[0] = 2;
+    static cok_combat_record cr;
+    memset(&cr, 0, sizeof cr);
+    fx.say = said;
+    fx.kill = dkk_kill;
+    fx.drain = hook_drain;
+    fx.breathe = hook_breathe;
+    fx.damage = dkk_damage;
+    /* The armour: 0x0d 2 worse, 0x39 4 worse, 0x3c 4 better, front and
+     * back. */
+    cok_field_set8(L, c->record, COK_FIELD_AC, 50);
+    cok_field_set8(L, c->record, COK_FIELD_AC_BEHIND, 40);
+    CHECK(cok_effects_run(&fx, c, 0x0d, NULL) && cok_field_u8(L, c->record, COK_FIELD_AC) == 48 &&
+          cok_field_u8(L, c->record, COK_FIELD_AC_BEHIND) == 38);
+    CHECK(cok_effects_run(&fx, c, 0x39, NULL) && cok_field_u8(L, c->record, COK_FIELD_AC) == 44);
+    CHECK(cok_effects_run(&fx, c, 0x3c, NULL) && cok_field_u8(L, c->record, COK_FIELD_AC) == 48 &&
+          cok_field_u8(L, c->record, COK_FIELD_AC_BEHIND) == 38);
+    /* The damage types: electricity (4) halved by 0x53, none by 0x41; cold
+     * (2) doubled by 0x4b; fire (1) by none of them. */
+    fx.rolls.damage_type = 4;
+    fx.rolls.amount = 10;
+    fx.rolls.pending = 0x21;
+    CHECK(cok_effects_run(&fx, c, 0x53, NULL) && fx.rolls.amount == 5);
+    CHECK(cok_effects_run(&fx, c, 0x4b, NULL) && fx.rolls.amount == 5);
+    CHECK(cok_effects_run(&fx, c, 0x41, NULL) && fx.rolls.amount == 0 && fx.rolls.pending == 0x21);
+    fx.rolls.damage_type = 2;
+    fx.rolls.amount = 10;
+    CHECK(cok_effects_run(&fx, c, 0x4b, NULL) && fx.rolls.amount == 20);
+    CHECK(cok_effects_run(&fx, c, 0x53, NULL) && fx.rolls.amount == 10);
+    fx.rolls.damage_type = 1;
+    CHECK(cok_effects_run(&fx, c, 0x53, NULL) && cok_effects_run(&fx, c, 0x41, NULL) &&
+          cok_effects_run(&fx, c, 0x4b, NULL) && fx.rolls.amount == 10);
+    /* Slow, with flag 0: the rate and the movement halved; removed,
+     * nothing. */
+    fx.rolls.rate = 8;
+    fx.rolls.movement = 6;
+    CHECK(cok_effects_run(&fx, c, 0x2a, NULL) && fx.rolls.rate == 4 && fx.rolls.movement == 3);
+    add(c, 0x2a, 5, 0, true);
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x2a) && fx.rolls.rate == 4 && c->effects == NULL);
+    /* Regeneration: 3 hit points up to the most. */
+    cok_field_set8(L, c->record, COK_FIELD_MAX_HIT_POINTS, 12);
+    cok_field_set8(L, c->record, COK_FIELD_HIT_POINTS, 5);
+    CHECK(cok_effects_run(&fx, c, 0x54, NULL) && cok_field_u8(L, c->record, COK_FIELD_HIT_POINTS) == 8);
+    CHECK(cok_effects_run(&fx, c, 0x54, NULL) && cok_effects_run(&fx, c, 0x54, NULL) &&
+          cok_field_u8(L, c->record, COK_FIELD_HIT_POINTS) == 12);
+    /* The golems and the fire minion: magical fire heals 0x57 and 0x4c by
+     * the damage, magical electricity 0x65 by the dice; electricity slows
+     * 0x57 for 3 minutes; and nothing takes hold. */
+    cok_field_set8(L, c->record, COK_FIELD_HIT_POINTS, 2);
+    said_text[0] = '\0';
+    fx.rolls.damage_type = 9;
+    fx.rolls.amount = 4;
+    fx.rolls.pending = 0x21;
+    CHECK(cok_effects_run(&fx, c, 0x57, NULL) && cok_field_u8(L, c->record, COK_FIELD_HIT_POINTS) == 6 &&
+          fx.rolls.amount == 0 && fx.rolls.pending == 0 && strcmp(said_text, "is healed;") == 0);
+    fx.rolls.amount = 4;
+    CHECK(cok_effects_run(&fx, c, 0x4c, NULL) && cok_field_u8(L, c->record, COK_FIELD_HIT_POINTS) == 10);
+    fx.rolls.damage_type = 1;
+    fx.rolls.amount = 4;
+    CHECK(cok_effects_run(&fx, c, 0x4c, NULL) && fx.rolls.amount == 0 &&
+          cok_field_u8(L, c->record, COK_FIELD_HIT_POINTS) == 10);
+    fx.rolls.damage_type = 0x0c;
+    fx.rolls.dice = 2;
+    CHECK(cok_effects_run(&fx, c, 0x65, NULL) && cok_field_u8(L, c->record, COK_FIELD_HIT_POINTS) == 12);
+    said_text[0] = '\0';
+    fx.rolls.damage_type = 4;
+    fx.rolls.amount = 7;
+    CHECK(cok_effects_run(&fx, c, 0x57, NULL) && fx.rolls.amount == 0 &&
+          strcmp(ids(c), "2a") == 0 && c->effects->duration == 3 &&
+          strcmp(said_text, "is Slowed;") == 0);
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x2a));
+    /* Fire not magical neither heals the iron golem nor slows it, and takes
+     * no hold; magical fire or cold slows the flesh golem for 2d6 minutes;
+     * electricity not magical does nothing to it but cancel. */
+    cok_field_set8(L, c->record, COK_FIELD_HIT_POINTS, 2);
+    said_text[0] = '\0';
+    fx.rolls.damage_type = 1;
+    fx.rolls.amount = 4;
+    fx.rolls.pending = 0x21;
+    CHECK(cok_effects_run(&fx, c, 0x57, NULL) && fx.rolls.amount == 0 && fx.rolls.pending == 0 &&
+          cok_field_u8(L, c->record, COK_FIELD_HIT_POINTS) == 2 && c->effects == NULL &&
+          said_text[0] == '\0');
+    for (uint8_t type = 9; type <= 10; ++type) {
+        fx.rolls.damage_type = type;
+        fx.rolls.amount = 4;
+        vm.seed = 11;
+        uint32_t seed = vm.seed;
+        uint8_t minutes = cok_dice(&seed, 2, 6);
+        said_text[0] = '\0';
+        CHECK(cok_effects_run(&fx, c, 0x65, NULL) && fx.rolls.amount == 0 &&
+              strcmp(ids(c), "2a") == 0 && c->effects->duration == minutes &&
+              strcmp(said_text, "is Slowed;") == 0 &&
+              cok_field_u8(L, c->record, COK_FIELD_HIT_POINTS) == 2);
+        CHECK(cok_effects_remove(&fx, c, NULL, 0x2a));
+    }
+    fx.rolls.damage_type = 4;
+    fx.rolls.amount = 4;
+    CHECK(cok_effects_run(&fx, c, 0x65, NULL) && fx.rolls.amount == 0 && c->effects == NULL &&
+          cok_field_u8(L, c->record, COK_FIELD_HIT_POINTS) == 2);
+    /* The globe 0x3b keeps out spells below level 5 (DS:6a81), 0x3f below
+     * 4: the first spell of level 4. */
+    uint8_t spell = 1, level = 0;
+    for (; spell < 0x73; ++spell) {
+        CHECK(cok_data_byte(cok_rules_death_knights.data,
+                            (uint16_t)cok_data_offset2(cok_rules_death_knights.data,
+                                                       COK_DATA_SPELLS, spell, 1),
+                            &level));
+        if (level == 4) break;
+    }
+    fx.rolls.spell = spell;
+    fx.rolls.amount = 5;
+    CHECK(cok_effects_run(&fx, c, 0x3f, NULL) && fx.rolls.amount == 5);
+    CHECK(cok_effects_run(&fx, c, 0x3b, NULL) && fx.rolls.amount == 0);
+    fx.rolls.spell = 0;
+    /* The tier when 0x6e ends: the paladin's level (class 3) / 5 + 1. */
+    cok_field_set8_at(L, c->record, COK_FIELD_CLASS_LEVEL, 3, 11);
+    add(c, 0x6e, 5, 0, true);
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x6e) &&
+          cok_field_u8(L, c->record, COK_FIELD_KNIGHT_TIER) == 3);
+    cok_field_set8_at(L, c->record, COK_FIELD_CLASS_LEVEL, 3, 0xff);
+    add(c, 0x6e, 5, 0, true);
+    CHECK(!cok_effects_remove(&fx, c, NULL, 0x6e) && strstr(fx.error, "runtime error 200") != NULL);
+    cok_field_set8_at(L, c->record, COK_FIELD_CLASS_LEVEL, 3, 0);
+    cok_character_free(c);
+    c->effects = NULL;
+    /* 0x20: one whose creature flags hold bit 6 cannot be targeted, unless
+     * it has 0x18 itself. */
+    fx.rolls.untargetable = 0;
+    fx.rolls.attack_roll = 10;
+    CHECK(cok_effects_run(&fx, c, 0x20, NULL) && fx.rolls.untargetable == 0);
+    cok_field_set8_at(L, c->record, COK_FIELD_CREATURE_FLAGS, 0, 0x40);
+    CHECK(cok_effects_run(&fx, c, 0x20, NULL) && fx.rolls.untargetable == 1 &&
+          fx.rolls.attack_roll == 6);
+    add(c, 0x18, 0, 0, false);
+    fx.rolls.untargetable = 0;
+    CHECK(cok_effects_run(&fx, c, 0x20, NULL) && fx.rolls.untargetable == 0);
+    cok_character_free(c);
+    c->effects = NULL;
+    /* Slow Poison's 0x16: a poisoned one collapses (status 4) keeping its
+     * 0x37; its 0x0f goes. */
+    hooked[0] = '\0';
+    add(c, 0x37, 0, 0xff, false);
+    add(c, 0x0f, 10, 0, true);
+    CHECK(cok_effects_run(&fx, c, 0x16, NULL) &&
+          strcmp(hooked, "kill 4 collapses from poison;") == 0 && strcmp(ids(c), "37") == 0 &&
+          fx.rolls.curing == 0);
+    cok_character_free(c);
+    c->effects = NULL;
+    /* 0x6b applied outside a battle does what its removal does: the side
+     * its value, a player character made an NPC given back. */
+    vm.mode = 4;
+    cok_effect *turned = add(c, 0x6b, 0, 1, true);
+    cok_field_set8(L, c->record, COK_FIELD_NPC, 0xb3);
+    CHECK(cok_effects_run(&fx, c, 0x6b, turned) && cok_field_u8(L, c->record, COK_FIELD_HOSTILE) == 1 &&
+          cok_field_u8(L, c->record, COK_FIELD_NPC) == 0);
+    cok_field_set8(L, c->record, COK_FIELD_HOSTILE, 0);
+    cok_character_free(c);
+    c->effects = NULL;
+    /* The battle-only entries (DS:8c4e 5): blink (0x25) outside a battle
+     * does nothing, even with no combat record; in one it reads it. */
+    vm.mode = 4;
+    fx.rolls.untargetable = 0;
+    CHECK(cok_effects_run(&fx, c, 0x25, NULL) && fx.rolls.untargetable == 0);
+    vm.mode = 5;
+    CHECK(!cok_effects_run(&fx, c, 0x25, NULL) && strstr(fx.error, "combat record") != NULL);
+    c->combat = &cr;
+    CHECK(cok_effects_run(&fx, c, 0x25, NULL) && fx.rolls.untargetable == 1 &&
+          fx.rolls.attack_roll == 0xff);
+    /* The drains: the target of c's attack loses 1 (0x43) or 2 (0x44);
+     * none, nothing. */
+    hooked[0] = '\0';
+    CHECK(cok_effects_run(&fx, c, 0x43, NULL) && hooked[0] == '\0');
+    cr.target = t->record;
+    CHECK(cok_effects_run(&fx, c, 0x43, NULL) && cok_effects_run(&fx, c, 0x44, NULL) &&
+          strcmp(hooked, "drain b 1;drain b 2;") == 0);
+    /* The fire touch: 2d6 of type 0 to the target, its save of type 4. */
+    hooked[0] = '\0';
+    vm.seed = 7;
+    uint32_t copy = vm.seed;
+    unsigned d = cok_dice(&copy, 2, 6);
+    CHECK(cok_effects_run(&fx, c, 0x4a, NULL) && fx.rolls.damage_type == 0 && fx.rolls.dice == 2);
+    char expect[40];
+    snprintf(expect, sizeof expect, "damage %u 2 ", d);
+    CHECK(strncmp(hooked, expect, strlen(expect)) == 0);
+    /* 0x75 against undead: doubled for the flagged, else disrupted. */
+    hooked[0] = '\0';
+    fx.rolls.amount = 6;
+    cok_field_set8(L, t->record, COK_FIELD_UNDEAD, 1);
+    CHECK(cok_effects_run(&fx, c, 0x75, NULL) && strcmp(hooked, "kill 8 is disrupted;") == 0);
+    cok_field_set8_at(L, t->record, COK_FIELD_CREATURE_FLAGS, 0, 2);
+    CHECK(cok_effects_run(&fx, c, 0x75, NULL) && fx.rolls.amount == 12);
+    /* The monsters' attacks go to the breathe hook in a battle only. */
+    hooked[0] = '\0';
+    cok_effect *breath = add(c, 0x68, 0, 3, false);
+    fx.in_battle = true;
+    CHECK(cok_effects_dispatch(&fx, c, 0x0e) && strcmp(hooked, "breathe 68;") == 0);
+    fx.in_battle = false;
+    CHECK(!cok_effects_run(&fx, c, 0x68, breath) && strstr(fx.error, "outside combat") != NULL);
+    c->combat = NULL;
+    fx.say = NULL;
+    fx.kill = NULL;
+    fx.drain = NULL;
+    fx.breathe = NULL;
+    fx.damage = NULL;
+    party.count = 0;
+    cok_character_free(c);
+    cok_character_free(t);
+    free(c);
+    free(t);
+    reset();
+}
+
 int main(void)
 {
     char error[300];
@@ -1459,6 +1723,7 @@ int main(void)
     test_saved();
     test_other_game();
     test_haste_aging();
+    test_dkk_handlers();
     reset();
     cok_party_free(&party);
     cok_effects_free(&fx);

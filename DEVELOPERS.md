@@ -366,6 +366,11 @@ going on. It holds:
   square not carried out yet; its saving throw (`638c:10f8`) and the
   effects its first fights carry (0x07, 0x4f, 0x50, 0x5c, 0x5d, 0x69,
   0x6a, 0x6c, 0x72, 0x73).
+- its effects (the effects section; see Death Knights' effects): the
+  handlers that changed, every effect its monsters carry and its level
+  drain (`504d:14c7`), the dragons' breaths, the vampires' gaze, a
+  monster's Fireball and the fire minions' flames; six new effects left
+  (0x02, 0x04, 0x15, 0x22, 0x30, 0x3a).
 - its menus and the player's commands (the `menus` and `commands`
   sections; see Library's menus by index and Death Knights' commands): the
   menu loop by index with two rows (`6a69:0f1b`), its Yes/No (`2048`), the
@@ -415,7 +420,7 @@ View and Items, the shops (`COMBAT`'s and `STOCK`'s) and the temple, until
 a routine not ported yet (camp's Fix),
 a spell
 (Death Knights' casting lists those that cast) or an effect not ported
-yet, a cloud, a
+yet (Death Knights' effects), a cloud, a
 spell or effect it does not name, or a start menu command above; there the run
 stops with the reason (`not yet ported: ...`), `cok` showing it on the
 screen and quitting, as it does at any stop: the original never returns
@@ -3938,6 +3943,92 @@ times. Every block's `eclplay` transcripts (17,843 runs with no
 the eight of Sir Lebaum's battle on auto, which roll 0x4a's d20 (none of
 them a 1) where they skipped it.
 
+### Death Knights' effects
+
+Death Knights' handlers (`DS:be7e`, overlay `504d` and a few in `5dc5`)
+were compared with Champions' instruction by instruction (calls followed
+through their thunks, strings by their text). Where one is Champions' but
+for a constant, its entry (`cok_rules_effect`) holds the constant
+(`value`), its words (`text`) or that it does nothing outside a battle
+(`battle`, a first `cmp byte [8c4e], 5`; `call_handler` returns before
+the handler when the mode is not 5); where it differs, it has a kind of
+its own (spells.h, after `COK_FX_KENDER_BATTLE`). Its working bytes are
+Champions' moved by 0x533c (`DS:be6a` the saving throw, `be6c` the
+damage, `be6d` its type, `be78` the attack roll, `be7b` morale), with
+the movement byte `be6f` (0x27, 0x2a) between the rate and the spell.
+
+| Ids | Routine | In the port |
+| --- | --- | --- |
+| 0x09 | `0394` | nothing |
+| 0x0d, 0x39, 0x3c | `04a5`, `1044`, `10b4` | `COK_FX_ARMOUR`: the armour class, front and back, by the value (-2, -4, +4) |
+| 0x0f | `04c4` | Champions' poison; its party row (`65cd:0959`, one member's) is drawn as the whole list, the same pixels |
+| 0x16 | `067c` | `COK_FX_POISON_COLLAPSE`: one poisoned (0x37) "collapses from poison" (status 4) and keeps it; 0x0f goes |
+| 0x17 | `06dc` | the hammer, "gains an item" |
+| 0x1a, 0x23, 0x25, 0x69, 0x72, 0x73 | `0900`, `0bab`, `0d5e`, `2404`, `27e6`, `282d` | Champions', in a battle only |
+| 0x1e | `09d5` | `COK_FX_NAUSEA`: in a battle, "is coughing", no items or spells, the stats recomputed, the armour class front and back 2 worse |
+| 0x20 | `0a7e` | `COK_FX_UNSEEN`: a holder with creature flag 0x40 and without 0x18 cannot be targeted, the attack roll 4 lower |
+| 0x2a | `0f0d` | `COK_FX_SLOW_MOVEMENT`: applied, the rate and the movement halved |
+| 0x3b, 0x3f | `108d`, `111e` | the minor globe: spells of a level below the value (5, 4) |
+| 0x41, 0x4b, 0x53 | `1228`, `1c64`, `1f79` | `COK_FX_TYPE_NONE`, `_DOUBLE`, `_HALF`: damage of the value's types none (electricity), doubled (cold), halved (electricity, cold) |
+| 0x42 | `123d` | `COK_FX_PLUS_WEAPONS`: 0x67's, an item helping only with a bonus of 3 or more |
+| 0x43, 0x44 | `1815`, `1836` | `COK_FX_DRAIN_LEVELS`: the target of the holder's attack loses 1 or 2 levels (the drain hook, below) |
+| 0x46 | `186e` | `COK_FX_FLAMES`: a burst on the holder (`65cd:39bd`, slot 0x18), 1d6 of fire to each listed within a cell, either side |
+| 0x48, 0x4d | `1a79`, `1cf2` | Champions' terrible presence (its fearless 0x5c) and berserk (`DS:4558` is a constant 0xff) |
+| 0x4a | `1bff` | `COK_FX_FIRE_TOUCH`: in a battle, the target takes 2d6, half on a save of type 4 |
+| 0x4c | `1c7e` | `COK_FX_FIRE_HEALS`: magical fire heals as much as it hurts; no fire takes hold |
+| 0x4e | `5dc5:4f97` | `COK_FX_CAST`: the holder casts the value's spell, Fireball, as the computer does (`5dc5:1298`), and loses 0x4e if it did |
+| 0x51 | `5dc5:4fd3` | `COK_FX_GAZE`: targets as the computer's spell 0x0a picks them, "gazes!", the missile, then that spell's handler |
+| 0x54 | `1f9c` | `COK_FX_HEAL_ROUND`: 3 hit points up to the most |
+| 0x55 | `5dc5:508c` | Champions' lightning breath, "breathes " |
+| 0x57, 0x65 | `2005`, `22bc` | `COK_FX_IRON_GOLEM`, `COK_FX_FLESH_GOLEM`: healed by magical fire (by the damage) or magical electricity (by its dice), slowed (0x2a) by electricity for 3 minutes or by magical fire or cold for 2d6; no spell takes hold |
+| 0x5a, 0x64, 0x68 | `5dc5:51cc` | `COK_FX_DRAGON_BREATH` and the effects section's `breaths` (below) |
+| 0x6b | `25bb` | `COK_FX_TURN_BATTLE`: Champions', but applied outside a battle it does what its removal does |
+| 0x6e | `26f8` | `COK_FX_TIER`: when it ends, the tier is the value's class's level (3) / 5 + 1 |
+| 0x75 | `286b` | `COK_FX_DISRUPT_UNDEAD`: in a battle, applied: a target with creature flag 2 takes double, else one of a kind of undead "is disrupted" |
+
+The dragons' breath (`5dc5:51cc`, `cok_rules_breath`): its uses become 3
+at the first round; acid (type 0x30, a cone 1 wide and 6 long), death
+(0x60, 1 by 8) and fire (0x21, 3 by 9) aimed as the computer's spell
+0x24 picks; the cone (`5dc5:175d`, Champions' `5b04:1903`) has its
+sight's range set to twice its length (the length doubled in place at
+`17be`, then copied at `1886`), but its side lines, where no one stands
+on the centre line, still come from a byte of the stack: the run stops if
+that changes the targets; then "breathes acid" (`DS:22d8` and the word),
+and each target saves (type 3) for half of the dragon's most hit points.
+The gaze, the cast and the flames go through the breathe hook as the
+breaths do (`cok_cast_breath` picks the routine by the entry's kind).
+
+The level drain (`504d:14c7`, `cok_train_drain`): the record "gets
+drained" (row 10, no wait, then a pause of the speed), and for each level
+the class of the highest level (of equal ones, the one whose level asks
+more experience, `65cd:382c`'s rows) loses one; the levels, experience and
+most hit points not drained (`+0x4d`, `+0x66`, `+0x6a`) keep the higher;
+the experience falls halfway (a LongInt division by 2) between the
+experience of the level it now has and the one above; the level's hit
+points go (`580d:3193` losing: the dice rolled as for gaining, the base
+hit points `+0x6c` and the most `+0x28` less them, the most no higher
+than `580d:3454`'s for the levels left, the hit points keeping their
+distance below it); the levels are recomputed (`69a8:050b`) and the
+spells the slots no longer hold forgotten (`504d:1288`: those memorized
+counted by list and level, a mage keeping one or two more of its list by
+its order's moon, then those to memorize). With no level left or no most
+hit points it "dies from drainning" (status 8), else with no hit points
+"collapses from drainning" (4). A class with no experience row (a knight
+of no order, a druid) reads `65cd:382c`'s uninitialized local: the port
+stops.
+
+`remove-an-effect` (`638c:01c6`) and the kill (`638c:00c8`) are
+Champions' `60f4:01e9` and `00eb`. The named ids now given: `BERSERK`
+0x4d, `FEARLESS` 0x5c, `LIGHTNING_BREATH` 0x55, and `MAD` 0x20 and
+`NAUSEA` 0x1e, which the computer's cloud test (`3f63:06ca`) reads by the
+same ids. Left (step 3's part 10): 0x02, 0x04, 0x15 (Sleep's), 0x22,
+0x30, 0x3a, which stop the run. Checked: `test_death_knights.c`'s
+`test_effects` (each entry's constant, the breaths, the battle-only
+entries and the words against the routines), `test_effect.c`'s
+`test_dkk_handlers`, and in DOSBox-X the first fight with its monsters
+changed (`dkk_fight.py`'s drain, mage and dragon flows: wights and
+spectres draining, kuo-toas, black wizards casting, a blue dragon).
+
 ## Camp
 
 `src/camp.h` ports the camp from overlay `4888` and the rest loop of
@@ -5837,7 +5928,7 @@ instruction by instruction (the calls followed through their thunks):
 
 What it does not carry out yet stops the run, naming the routine: a
 spell cast (any, the computer's too, at the cast entry), an effect
-not ported (a blue dragon's breath, 0x55, `5dc5:508c`), a cloud.
+not ported (see Death Knights' effects), a cloud.
 `eclplay --combat auto` plays each of ECL1's fights from its `SETUP
 MONSTERS` to its end or such a stop (32 won), `--combat melee` with the
 port's melee (48 won).
@@ -9853,7 +9944,19 @@ party's experience equal, and combatant entry 0's bytes (`DS:b58c`,
 found the saving throw's moon (var `0x4cf8` + order, not Champions'
 wrapped `0x4bf8`): the nightmares' smoke took hold of a mage the original
 saved. `--flows fight,river,ambush,auto` picks the flows (each about
-three and a half minutes, the auto flow four). The spells flow (band B's
+three and a half minutes, the auto flow four). The drain, mage and dragon flows play
+the Auto fight with other monsters: block 16's two enemy `LOAD MONSTER`s
+(`8621`, `8628`) poked once `SETUP MONSTERS` has run, in the original's
+ECL code (`DS:8c39`, a far pointer to address `0x8000`; `dkk_lib.code_poke`)
+and the port's (`COK_DKK_POKE`, a transform of `monster.c`): wights and
+spectres (the level drain, 0x43 and 0x44), kuo-toas (0x53) and black
+wizards (the computer's spells: Magic Missile, Hold Monsters, Hold
+Person, Mass Invisibility), a blue dragon (its breath, 0x55) and ghouls,
+fought by a copy of saved game A where no one turns undead (its cleric
+levels 0, the paladin's 2); each round as the auto flow, and the party's
+levels, experience and hit points after (`+0x28`, `+0x45`-`+0x6c`). A
+spell's overlay loaded in a round can move the code the round's trap made
+spin; the untrap gives back the moved copy too (`dkk_lib.untrap`). The spells flow (band B's
 handlers): a copy of the saved game whose casters memorize Fireball and
 Lightning Bolt (FLAVIUS), Shield and Haste (CELESTE), Dispel Magic and
 Bless (NEACAIL, TANAR); keys from the first turn, each typed once the

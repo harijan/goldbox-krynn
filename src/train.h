@@ -80,4 +80,17 @@ bool cok_train_promote(cok_adventure *game, cok_character *character);
  * stop. */
 bool cok_train_aging(cok_adventure *game);
 
+/* Death Knights' level drain (dkk 504d:14c7, effects 0x43 and 0x44):
+ * character "gets drained" (row 10, no wait, then a pause), then for each
+ * level: the class of the highest level (of equals, the one whose level
+ * asks more experience) loses one; the levels, experience and most hit
+ * points not drained (+0x4d, +0x66, +0x6a) keep the higher; the
+ * experience falls halfway into the level below; the hit points of a
+ * level go (580d:3193 losing one); the levels are recomputed (69a8:050b)
+ * and the spells no longer held forgotten (504d:1288). With no level left
+ * or no most hit points it "dies from drainning" (status 8), else with no
+ * hit points "collapses from drainning" (4). Returns false when the run
+ * must stop. */
+bool cok_train_drain(cok_adventure *game, cok_character *character, uint8_t drained);
+
 #endif
