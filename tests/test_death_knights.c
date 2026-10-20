@@ -1411,6 +1411,9 @@ static void test_spells(void)
                                                                           0x1b20));
     /* The cone sets its range from the doubled length (mov al, [bp+6];
      * xor ah, ah; mov [bp-0x78], ax). */
+    CHECK(R->casting.cone_side_unknown != NULL &&
+          strstr(R->casting.cone_side_unknown, "dkk 5dc5:175d's [bp-0x76]") != NULL &&
+          HOLDS(0x5dc5, 0x175d, 0x400, 0x88, 0x46, 0x8a));
     CHECK(R->casting.cone_range_length && R->casting.cone_stack_unknown &&
           HOLDS(0x5dc5, 0x175d, 0x80, 0x8a, 0x46, 0x06, 0x30, 0xe4, 0xd1, 0xe0, 0x88, 0x46, 0x06) &&
           HOLDS(0x5dc5, 0x175d, 0x140, 0x8a, 0x46, 0x06, 0x30, 0xe4, 0x89, 0x46, 0x88));

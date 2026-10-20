@@ -1975,6 +1975,9 @@ const cok_rules cok_rules_death_knights = {
             .load_strength = true, /* 46b2:10d7 */
             .cone_range_length = true, /* 5dc5:175d, [bp-0x78] */
             .cone_stack_unknown = true,
+            .cone_side_unknown = "a cone's side lines, no one on its line, come from a local "
+                                 "never set (dkk 5dc5:175d's [bp-0x76]), which changes its "
+                                 "targets",
             .flame_type = "Flame type: ", /* DS:2fee, 5dc5:468f */
             .dispel_clouds_unported = "dkk 5dc5:2dd7", /* 5dc5:2f93, 638c:21ec */
         },

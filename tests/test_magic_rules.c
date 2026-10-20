@@ -295,7 +295,8 @@ static void test_champions(void)
               r->spells.cast[id].handler != COK_CAST_MISSILES &&
               r->spells.cast[id].handler != COK_CAST_CURE_CRITICAL);
     CHECK(!r->casting.cone_range_length && !r->casting.cone_stack_unknown &&
-          r->casting.flame_type == NULL && r->casting.dispel_clouds_unported == NULL);
+          r->casting.flame_type == NULL && r->casting.dispel_clouds_unported == NULL &&
+          r->casting.cone_side_unknown == NULL);
     for (unsigned k = 1; k < COK_FX_HANDLERS; ++k) {
         bool used = false;
         for (unsigned id = 1; id < r->effects.count; ++id) used |= r->effects.handlers[id].handler == k;

@@ -1350,6 +1350,12 @@ typedef struct {
      * aimed at the caster's own cell) is not known to the port (dkk: the
      * side is tried at each of its values, the own cell stops the run). */
     bool cone_range_length, cone_stack_unknown;
+    /* Why a cone with no one on its line has side lines the port does not
+     * know, where its targets differ by them: the game's own reason (dkk
+     * 5dc5:175d's [bp-0x76], set only on a cell with an occupant), or NULL
+     * for Champions' (a breath's: the CGA mirror's mask, 127f:0b94,
+     * 5b04:1b2a). */
+    const char *cone_side_unknown;
     /* Fire Shield's question for a COK_CAST_FIRE_SHIELD entry of value 1
      * (dkk DS:2fee), or NULL. */
     const char *flame_type;

@@ -1870,6 +1870,7 @@ const cok_rules cok_rules_champions = {
             .load_strength = false,
             .cone_range_length = false, /* 5b04:1903: the flight's stack (cast.c) */
             .cone_stack_unknown = false,
+            .cone_side_unknown = NULL, /* cast.c's own, 5b04:1b2a */
             .flame_type = NULL,
             .dispel_clouds_unported = NULL,
         },

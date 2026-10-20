@@ -1853,12 +1853,16 @@ static bool cone(cast *cx, int8_t x0, int8_t y0, int8_t tx, int8_t ty, uint8_t w
                                 each))
                     return undefined(game, overrun);
                 if (d == 0) memcpy(first, each, sizeof first);
-                if (memcmp(first, each, sizeof first) != 0)
-                    return unported(game, "a cone's side lines come from the low byte of "
-                                          "the heap offset of the CGA mirror's mask, which its "
-                                          "last Move took (127f:0b94), not known to the port, "
-                                          "and which changes its "
-                                          "targets (5b04:1b2a)");
+                if (memcmp(first, each, sizeof first) != 0) {
+                    const char *why = cok_game_rules(game)->casting.cone_side_unknown;
+                    return unported(game, why != NULL
+                                              ? why
+                                              : "a cone's side lines come from the low byte of "
+                                                "the heap offset of the CGA mirror's mask, which "
+                                                "its last Move took (127f:0b94), not known to the "
+                                                "port, and which changes its targets "
+                                                "(5b04:1b2a)");
+                }
             }
             memcpy(list, first, sizeof first);
         }

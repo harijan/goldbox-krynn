@@ -9,6 +9,7 @@
 #include "ai.h"
 #include "arena.h"
 #include "attack.h"
+#include "cast.h"
 #include "combat.h"
 #include "command.h"
 #include "round.h"
@@ -22,6 +23,8 @@
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #x); exit(1); } } while (0)
 
 static const cok_rules *const R = &cok_rules_death_knights;
+/* tests/test_fight.c's Faerie Fire count (test_faerie_fire). */
+#define FAERIE_FIRE_HIGHLIGHTED 191u
 static cok_adventure game;
 static char log_text[1 << 16];
 
@@ -384,6 +387,168 @@ static void test_ally(void)
     game.keys.read = no_key;
 }
 
+/* Band B's spells (5dc5's handlers) on records made by hand: the
+ * computer casts in battle (its targets its own picks, 5340:1eeb), or in
+ * camp. */
+
+/* c, the computer's, casts spell (5dc5:1298 in battle, Magic On). */
+static void computer_casts(cok_character *c, uint8_t spell)
+{
+    game.vm.character = c->record;
+    game.combat_targets = true;
+    game.vm.mode = 5;
+    game.vm.status = COK_ECL_OK;
+    log_text[0] = '\0';
+    bool done = false;
+    cok_cast_spell(&game, spell, true, true, 0, &done);
+}
+
+/* The first seed from start whose first d-sided rolls (sides, lo, hi
+ * triples) hold, as seed_seq. */
+static uint32_t seed_from(uint32_t start, unsigned n, const unsigned *triples)
+{
+    for (;; ++start) {
+        uint32_t seed = start;
+        bool ok = true;
+        for (unsigned i = 0; i < n && ok; ++i) {
+            unsigned d = cok_dice(&seed, 1, (uint8_t)triples[3 * i]);
+            ok = d >= triples[3 * i + 1] && d <= triples[3 * i + 2];
+        }
+        if (ok) return start;
+    }
+}
+
+/* Charm Person (5dc5:2044): an elf (+0x20 7) whose creature flags lack 2
+ * is unaffected, said without a saving throw ("is unaffected"); the same
+ * elf with the flag, and one of another race with flags 2 (which
+ * Champions' test, flags above 1, would leave unaffected), are charmed
+ * (0x0b) where their save fails. */
+static void test_charm_person(void)
+{
+    const cok_character_layout *L = R->character;
+    for (int k = 0; k < 3; ++k) {
+        bool charmed = false, immune = false;
+        for (uint32_t seed = 1; seed < 400 && !charmed && !immune; ++seed) {
+            reset();
+            cok_character *w = record('W', 0, 5, 5), *t = record('T', 1, 7, 5);
+            cok_field_set8_at(L, w->record, COK_FIELD_CLASS_LEVEL, 5, 9);
+            cok_field_set8(L, w->record, COK_FIELD_COMPUTER, 1);
+            cok_field_set8(L, t->record, COK_FIELD_RACE, k == 2 ? 1 : 7);
+            cok_field_set8_at(L, t->record, COK_FIELD_CREATURE_FLAGS, 0, k == 0 ? 0 : 2);
+            game.vm.seed = seed;
+            computer_casts(w, 0x0a);
+            CHECK(game.vm.status == COK_ECL_OK);
+            immune = strstr(log_text, "print: is unaffected;") != NULL;
+            charmed = cok_character_find_effect(t, 0x0b) != NULL;
+        }
+        CHECK(k == 0 ? immune && !charmed : charmed && !immune);
+    }
+}
+
+/* Fire Shield (5dc5:468f) for the computer: 1d2, 1 the hot shield (0x32),
+ * 2 the cold (0x36), each with 0x70, "is Protected". */
+static void test_fire_shield(void)
+{
+    const cok_character_layout *L = R->character;
+    for (unsigned d = 1; d <= 2; ++d) {
+        reset();
+        cok_character *w = record('W', 0, 5, 5);
+        cok_field_set8_at(L, w->record, COK_FIELD_CLASS_LEVEL, 5, 9);
+        cok_field_set8(L, w->record, COK_FIELD_COMPUTER, 1);
+        const unsigned dice[] = {2, d, d};
+        game.vm.seed = seed_from(1, 1, dice);
+        game.vm.character = w->record;
+        game.combat_targets = false;
+        game.vm.mode = 4;
+        bool done = false;
+        cok_cast_spell(&game, 0x55, false, false, COK_CAST_CAMP, &done);
+        CHECK(game.vm.status == COK_ECL_OK && cok_character_find_effect(w, 0x70) != NULL);
+        CHECK((cok_character_find_effect(w, 0x32) != NULL) == (d == 1) &&
+              (cok_character_find_effect(w, 0x36) != NULL) == (d == 2));
+        CHECK(strstr(log_text, "print: is Protected;") != NULL);
+    }
+    game.vm.mode = 5;
+}
+
+/* Remove Curse outside a cast (cok_cast_remove_curse: the temple's, camp's
+ * Fix): Death Knights' cures 0x2b ("is uncursed"), not Bestow Curse's
+ * 0x24 (5dc5:311b). */
+static void test_remove_curse(void)
+{
+    reset();
+    cok_character *t = record('T', 0, 5, 5);
+    game.vm.mode = 4;
+    CHECK(cok_character_add_effect(t, 0x24, 0, 5, false) != NULL);
+    CHECK(cok_cast_remove_curse(&game, t) && cok_character_find_effect(t, 0x24) != NULL);
+    CHECK(strstr(log_text, "uncursed") == NULL);
+    CHECK(cok_character_add_effect(t, 0x2b, 0, 5, false) != NULL);
+    CHECK(cok_cast_remove_curse(&game, t) && cok_character_find_effect(t, 0x2b) == NULL);
+    CHECK(strstr(log_text, "print: is uncursed;") != NULL && cok_character_find_effect(t, 0x24));
+    game.vm.mode = 5;
+}
+
+/* Fear (5dc5:4566): one that fails its throw but whose effects cancel the
+ * pending 0x6f (event 9: 0x5c, free action) is "Unaffected" and does not
+ * flee: the computer's flag (+0xca), +0x3e and its target stay (65cd:2687
+ * finds no 0x6f); one that takes 0x6f "runs away" and flees. T is in the
+ * cone toward P, the computer's pick. */
+static void test_fear(void)
+{
+    const cok_character_layout *L = R->character;
+    for (int fearless = 1; fearless >= 0; --fearless) {
+        bool seen = false;
+        for (uint32_t seed = 1; seed < 400 && !seen; ++seed) {
+            reset();
+            cok_character *w = record('W', 0, 5, 5), *t = record('T', 1, 6, 5);
+            record('P', 1, 8, 5); /* the computer's pick (5340:3fd5: T is of no use) */
+            cok_field_set8_at(L, w->record, COK_FIELD_CLASS_LEVEL, 5, 9);
+            cok_field_set8(L, w->record, COK_FIELD_COMPUTER, 1);
+            if (fearless) CHECK(cok_character_add_effect(t, 0x5c, 0, 0xff, false) != NULL);
+            t->combat->target = w->record;
+            game.vm.seed = seed;
+            computer_casts(w, 0x54);
+            CHECK(game.vm.status == COK_ECL_OK);
+            if (fearless && strstr(log_text, "print: T;print: is Unaffected;") != NULL) {
+                seen = true;
+                CHECK(cok_field_u8(L, t->record, COK_FIELD_COMPUTER) == 0 &&
+                      cok_field_u8(L, t->record, COK_FIELD_NPC) == 0 &&
+                      t->combat->target == w->record && t->combat->forced == 0);
+            } else if (!fearless && strstr(log_text, "print: T;print: runs away;") != NULL) {
+                seen = true;
+                CHECK(cok_field_u8(L, t->record, COK_FIELD_COMPUTER) == 1 &&
+                      cok_field_u8(L, t->record, COK_FIELD_NPC) == 0xb3 &&
+                      t->combat->target == NULL && t->combat->forced == 1);
+            }
+        }
+        CHECK(seen);
+    }
+}
+
+/* Faerie Fire (5dc5:4391, 1b20 with no bonus): of those picked, the last
+ * counts as saved (kind 1, "Unaffected"); the others throw (no bonus,
+ * against 11) and are highlighted (0x07) when they fail: over 200 seeds
+ * FAERIE_FIRE_HIGHLIGHTED times (a bonus of 1 gives 169). */
+static void test_faerie_fire(void)
+{
+    const cok_character_layout *L = R->character;
+    unsigned highlighted = 0;
+    for (uint32_t seed = 1; seed <= 200; ++seed) {
+        reset();
+        cok_character *w = record('W', 0, 5, 5);
+        cok_character *t[3] = {record('A', 1, 6, 5), record('B', 1, 6, 6), record('C', 1, 6, 4)};
+        cok_field_set8_at(L, w->record, COK_FIELD_CLASS_LEVEL, 1, 9);
+        cok_field_set8(L, w->record, COK_FIELD_COMPUTER, 1);
+        for (int k = 0; k < 3; ++k)
+            for (size_t type = 0; type < 5; ++type)
+                cok_field_set8_at(L, t[k]->record, COK_FIELD_SAVING_THROW, type, 11);
+        game.vm.seed = seed;
+        computer_casts(w, 0x4f);
+        CHECK(game.vm.status == COK_ECL_OK);
+        for (int k = 0; k < 3; ++k) highlighted += cok_character_find_effect(t[k], 0x07) != NULL;
+    }
+    CHECK(highlighted == FAERIE_FIRE_HIGHLIGHTED);
+}
+
 /* The battle's pictures and tiles loaded as a setup loads them. */
 static void load_screen(void)
 {
@@ -419,6 +584,11 @@ int main(void)
     test_aim();
     test_hidden();
     test_ally();
+    test_charm_person();
+    test_fire_shield();
+    test_remove_curse();
+    test_fear();
+    test_faerie_fire();
     cok_adventure_close(&game);
     puts("fight tests passed");
     return 0;
