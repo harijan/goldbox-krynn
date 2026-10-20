@@ -525,6 +525,9 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertIn("list: Spells to Memorize\nheading: 1st Level\nitem:  *Bless\n", out)
         self.assertIn("list: Spells in Grimoire\nheading: 1st Level\nitem:   Bless\n", out)
         self.assertIn("heading: LILLITH\nitem:  Protection From Evil, 10' Radius\n", out)
+        # Its blank rows are headings too (4381:13fb with 1).
+        self.assertIn("heading:  \nheading: SIR DRYDEN\nitem:  <No Spell Effects>\nheading:  \n",
+                      out)
         self.assertEqual(result.stderr, "not yet ported: Death Knights of Krynn's Fix "
                          "(dkk 4381:2fd4)\n")
 

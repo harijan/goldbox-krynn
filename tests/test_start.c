@@ -4,6 +4,7 @@
 #include "camp.h"
 #include "create.h"
 #include "icon.h"
+#include "items.h"
 #include "magic.h"
 #include "modify.h"
 #include "roster.h"
@@ -1801,12 +1802,16 @@ static void test_death_knights_levels(void)
     CHECK(cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER) == 2 &&
           cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) == 2);
     /* From level 10 a level lost costs 2 hit points and no constitution
-     * (49cb:4da1); a special key does nothing, Escape leaves. */
+     * (49cb:4da1); a special key (F9, scan 0x43, Champions' C) does
+     * nothing. */
     cok_field_set8(L, c, COK_FIELD_KNIGHT_ORDER, 1);
     cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 7, 12);
     cok_field_set32(L, c, COK_FIELD_EXPERIENCE, 0);
     base = cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS);
     most = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS);
+    dkk_keys("S\x01\x43");
+    cok_start_command(&dkk, 'K');
+    CHECK(cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER) == 1);
     dkk_keys("SC");
     cok_start_command(&dkk, 'K');
     CHECK(cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER) == 2 &&
@@ -1819,6 +1824,40 @@ static void test_death_knights_levels(void)
      * count, an uninitialized local, stops the port ("he" and "breathes"
      * run together, as DS:23da and 2389 are). Champions' none. */
     c = dkk.party.members[0]->record;
+    /* The hit points, the maximum wrapping past 255: no lower than 0
+     * (580d:3193); a paladin's (3) fixed 3 at the top. */
+    {
+        uint8_t *p = dkk.party.members[1]->record;
+        cok_field_set8(L, p, COK_FIELD_MAX_HIT_POINTS, 254);
+        cok_field_set8(L, p, COK_FIELD_HIT_POINTS, 1);
+        CHECK(cok_train_hit_points(&dkk, p, 0x10, 1) &&
+              cok_field_u8(L, p, COK_FIELD_MAX_HIT_POINTS) == 1 &&
+              cok_field_u8(L, p, COK_FIELD_HIT_POINTS) == 0);
+    }
+    /* The name of one who may train in light magenta (65cd:1b3b). */
+    cok_field_set8(L, c, COK_FIELD_MAY_TRAIN, 1);
+    memset(dkk.screen.pixels, 0, dkk.screen.frame_size);
+    cok_item_draw_name(&dkk, c, 0, 0, false);
+    CHECK(nibbles(&dkk.screen, 13) > 0 && nibbles(&dkk.screen, 11) == 0);
+    cok_field_set8(L, c, COK_FIELD_MAY_TRAIN, 0);
+    memset(dkk.screen.pixels, 0, dkk.screen.frame_size);
+    cok_item_draw_name(&dkk, c, 0, 0, false);
+    CHECK(nibbles(&dkk.screen, 13) == 0 && nibbles(&dkk.screen, 11) > 0);
+    /* The Magic menu keeps its own selection (4381:1a34): Enter after
+     * Display, whose list leaves the selection at 1, is Display again. */
+    {
+        dkk.vm.character = c;
+        dkk_keys("D\x1b" "\r\x1b" "E");
+        bool interrupted = false;
+        cok_magic(&dkk, &interrupted);
+        const char *first = strstr(s.log, "heading: SIR DRYDEN;");
+        CHECK(first != NULL && strstr(first + 1, "heading: SIR DRYDEN;") != NULL);
+    }
+    /* At its race's second age (120) one is only very old. */
+    cok_field_set16(L, c, COK_FIELD_AGE, 120);
+    dkk_keys("");
+    dkk.effects.aging = true;
+    CHECK(cok_train_aging(&dkk) && logged("who is looking very old") && !logged("strain"));
     cok_field_set16(L, c, COK_FIELD_AGE, 115);
     dkk_keys("");
     dkk.effects.aging = true;
