@@ -644,12 +644,23 @@ class DeathKnightsTests(unittest.TestCase):
                       "menu: Ready Use Trade Drop Halve Join Exit\nchoice: R\n"
                       "print: already using Long Sword +1 \n", out)
         self.assertIn("choice: H\nprint: Can't halve that\n", out)
+        # The pick (65cd:33c9): Select alone by index, Down redrawing it.
+        self.assertIn("choice: T\nmenu: Select\nmenu: Select\nlist: Items\n", out)
         self.assertIn("print: Your Mace +1 will be gone forever\nmenu: Lose it? \nchoice: Y\n",
                       out)
         self.assertIn("item: Steel          500\nchoice: S\nmenu: How much Steel will you drop? "
                       "\ninput: 5\nitem: Steel          495\n", out)
         self.assertTrue(out.endswith("menu: Save View Magic Rest Alter Fix Exit\n"
                                      "(out of keys in block 16 at 8189)\n"), out[-300:])
+        # Escape in the pick picks none and ends it at once.
+        keys = self.TITLE + r"\v\v\rDA" + r"\v" * 5 + r"\r\r\r\r" + r"VI\^T\e"
+        result = self.play("--start-menu", "--saves", self.saves(ASSETS / "SAVE"), "--keys",
+                           keys, ASSETS)
+        self.assertTrue(result.stdout.endswith(
+            "choice: T\nmenu: Select\nlist: Items\nitem:  Yes Long Sword +1 \n"
+            "item:  Yes Shield \nitem:  Yes Solamnic Plate Mail \nitem:  No  Mace +1 \n"
+            "menu: Ready Use Trade Drop Halve Join Exit\n(out of keys in block 16 at 8189)\n"),
+            result.stdout[-400:])
         # Camp's menu keeps its own selection (4381:3106): View left with
         # Drop selected, Enter is View again.
         keys = self.TITLE + r"\v\v\rDA" + r"\v" * 5 + r"\r\r\r\r" + r"V\#4d\#4d\e\r"

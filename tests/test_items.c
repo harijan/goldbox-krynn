@@ -673,9 +673,15 @@ static void test_dk_items(void)
     cok_items(&game, &done);
     CHECK(c->item_count == 2 && c->items[1][0x2e] == first && c->items[0][0x2e] == second &&
           game.trade_partner == c->record);
-    /* To another: the item to the end of the receiver's. */
-    game.trade_partner = NULL;
-    keys("\x01Pt\x01PS\x1b");
+    /* The pick by index (65cd:33c9): Select alone; Escape picks none and
+     * ends it at once. */
+    keys("\x01Pt\x1b\x1b");
+    cok_items(&game, &done);
+    CHECK(count(s.log, "menu: Select;") == 1 && c->item_count == 2 && s.at == s.length &&
+          !game.input_ended);
+    /* Up from the first is the last: the item to the end of its items. */
+    game.trade_partner = c->record;
+    keys("\x01Pt\x01HS\x1b");
     cok_items(&game, &done);
     CHECK(c->item_count == 1 && sir->item_count == 1 && game.trade_partner == sir->record);
     /* The vault (mode 7): Deposit for Drop; the item to the end of the

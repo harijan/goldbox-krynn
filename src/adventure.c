@@ -1188,9 +1188,14 @@ static void add_experience(cok_adventure *game)
  * member: into the pick (DS:6e08 set, DS:6e09) with into, else into the
  * selection itself (DS:6096), as WHO's. Returns the character, or NULL;
  * *ended is set if input ended. */
+static uint8_t *pick_indexed(cok_adventure *game, const char *prompt, uint8_t *who,
+                             bool exit_item, bool *ended);
+
 static uint8_t *pick_character(cok_adventure *game, const char *prompt, uint8_t *who,
                                bool exit_item, bool into, bool *ended)
 {
+    if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED)
+        return pick_indexed(game, prompt, who, exit_item, ended);
     cok_ecl *vm = &game->vm;
     bool party_clicks = game->mouse.party_clicks;
     game->pick_into = into;
@@ -1237,6 +1242,72 @@ static uint8_t *pick_character(cok_adventure *game, const char *prompt, uint8_t 
         }
     }
     game->pick_into = false; /* 6346:34de */
+    return who;
+}
+
+/* The pick in a game whose menus go by index (dkk 65cd:33c9): "Select"
+ * alone (DS:31d6, 6a69:00cb with 1 where Exit is allowed, the text having
+ * no second item) after prompt and a space, by the loop with the keypad
+ * (the small picture shown in camp and mode 6), until Select (or the
+ * index 1, never shown) or Escape, which picks none where Exit is allowed
+ * and else keeps the pick; Down (2) the next, or the party's first after
+ * the last (with none picked the original reads nil's next: the port
+ * stops); Up (8) the one before, the last before the first or none; other
+ * keys read again. The party list shows the pick each time.
+ * The mouse's party clicks (dkk 65cd:33c9's DS:dbab path) are not taken,
+ * as the loop takes none. */
+static uint8_t *pick_indexed(cok_adventure *game, const char *prompt, uint8_t *who,
+                             bool exit_item, bool *ended)
+{
+    cok_ecl *vm = &game->vm;
+    char menu_prompt[42];
+    snprintf(menu_prompt, sizeof menu_prompt, "%.40s ", prompt);
+    *ended = false;
+    cok_menu_items items;
+    cok_menu_items_upto(&items, exit_item ? 1 : 0);
+    static const char select[] = "Select";
+    int key = 0xff;
+    while (key > 1 && key != 0x1b) {
+        uint8_t *shown = vm->character;
+        vm->character = who;
+        cok_adventure_party(game); /* 65cd:07a5 */
+        vm->character = shown;
+        game->menu_animates = vm->mode == 2 || vm->mode == 6;
+        if (game->menu_animates) draw_frame(game, game->frame);
+        cok_menu_indexed_layout layout;
+        cok_menu_indexed(&layout, select, &items);
+        log_text(game, "menu", layout.text);
+        cok_keyboard keys = keyboard(game);
+        bool special;
+        key = cok_menu_pick(&game->screen, &game->font, menu_prompt, select, &items, 13, 15, 10,
+                            true, &game->selected, &keys, &special);
+        game->menu_animates = false;
+        if (key < 0) {
+            *ended = true;
+            return who;
+        }
+        size_t n = game->party.count, i = cok_party_index(&game->party, who);
+        if (!special) {
+            if (exit_item && key == 1) who = NULL;
+        } else if (key == 0x1b) {
+            if (exit_item) who = NULL;
+        } else if (key == 0x50) {
+            /* +0xb9, or the list's head (DS:a2c6) after the last; one not
+             * in the party (none: the far pointer at 0000:00b9) has no
+             * next the port knows. */
+            if (i >= n) {
+                cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                                   "Down in the pick with none picked reads its next through "
+                                   "nil (dkk 65cd:33c9)");
+                return NULL;
+            }
+            who = cok_party_record(&game->party, i + 1 < n ? i + 1 : 0);
+        } else if (key == 0x48) {
+            /* The head's before is the last; another's, the one whose next
+             * it is: none's, the last. */
+            who = n == 0 ? NULL : cok_party_record(&game->party, i == 0 || i >= n ? n - 1 : i - 1);
+        }
+    }
     return who;
 }
 

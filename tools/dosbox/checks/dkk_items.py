@@ -8,7 +8,7 @@ the key read the same keys leave it in:
 camp: block 16's rest, camp, View for SIR DRYDEN (Items Trade Drop Exit by
 index), Items: the list with its readied column, Ready of the mace with
 the sword readied ("already using"), Halve of it, the sword unreadied,
-Trade of it to the second (65cd:33c9's pick), Drop of the mace (Lose it?,
+Trade of it (65cd:33c9's pick: Escape, then to the second), Drop of the mace (Lose it?,
 Yes), Escape back to View, Drop of 5 steel (580d:26d0); Escape twice,
 camp's Save Current Game C: saved game C and its characters' files (their
 items' names with Death Knights' readied column).
@@ -18,10 +18,6 @@ vault: saved game A with its block (var 0x4bf2) 35, the bank of Gargath
 Items in mode 7 (Deposit for the items), the mace deposited ("will be left
 in the vault"), Exit: TMPVAULT.DAT (46b2:302d) byte for byte; then camp,
 Save C: VAULTC.DAT, saved game C and its characters.
-
-The port's pick of a character (Champions' 6346:32c7) shows "Select Exit"
-where the original's (65cd:33c9) shows "Select" alone: its menu row is
-masked and said (part casting's).
 
 Seeded (Box seed, eclplay --seed). Not part of run_all.py's set. About four
 minutes.
@@ -51,7 +47,9 @@ CAMP = [
     ("already", r"\v\v\vR"),   # the mace: already using Long Sword +1
     ("halve", "H"),            # Can't halve that
     ("unready", r"\^\^\^R"),   # the sword unreadied
-    ("whom", "T"),             # Trade with Whom?
+    ("whom", "T"),             # Trade with Whom? (65cd:33c9: Select alone)
+    ("whom-none", r"\e"),      # Escape: none, the list at once
+    ("whom-again", "T"),
     ("traded", r"\v\r"),       # to TANAR: the list without it
     ("lose", r"\v\vD"),        # the mace: Your Mace +1 will be gone forever, Lose it?
     ("dropped", "Y"),
@@ -79,9 +77,7 @@ VAULT = [
     ("which", "S"),
     ("saved", r"\>\>\r"),
 ]
-PICK = (0, 192, 320, 8, "the pick's menu: the port's Select Exit, the original's Select alone "
-                        "(65cd:33c9; part casting's pick_exit_shown)")
-MASKS = {"camp": {"whom": [PICK]}, "vault": {}}
+MASKS = {"camp": {}, "vault": {}}
 
 
 def load(path):
