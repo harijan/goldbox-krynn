@@ -6,6 +6,7 @@
 #include "items.h"
 #include "screen.h"
 #include "sheet.h"
+#include "shop.h"
 #include "train.h"
 
 #include <stdio.h>
@@ -35,11 +36,9 @@ static void put_word(uint8_t *p, uint16_t value)
     p[1] = (uint8_t)(value >> 8);
 }
 
-/* The coins' names (DS:12e3) and the words of 58e7:0b95's questions. */
+/* The coins' names (DS:12e3; dkk DS:0c36, the same). */
 static const char *const coin_names[COK_COINS] = {"Silver", "Copper", "Bronze", "Platinum",
                                                   "Steel", "Gems", "Jewelry"};
-static const char *const coin_words[COK_COINS] = {"silver ", "Copper ", "bronze ", "platinum ",
-                                                  "steel ", "Gems ", "Jewelry "};
 
 /* The item generator (58e7:1039). */
 
@@ -187,6 +186,19 @@ void cok_treasure_item(const cok_rules *rules, uint32_t *seed, uint8_t type,
 
 /* The pool. */
 
+/* The kinds of coin the game's records hold, from first to before end (the
+ * layout's COINS: Champions' 0-6, dkk 4-6, steel, gems and jewelry, at
+ * DS:be58), which the pool's routines go over (dkk 5c72's from 4). */
+static int coin_first(const cok_character_layout *L)
+{
+    return (int)cok_field_first(L, COK_FIELD_COINS);
+}
+
+static int coin_end(const cok_character_layout *L)
+{
+    return (int)(cok_field_first(L, COK_FIELD_COINS) + cok_field_count(L, COK_FIELD_COINS));
+}
+
 bool cok_pool_insert(cok_pool *pool, size_t index, const uint8_t *item)
 {
     uint8_t (*items)[COK_ITEM_SIZE] = realloc(pool->items, (pool->item_count + 1) * sizeof *items);
@@ -278,7 +290,7 @@ void cok_pool_gather(cok_adventure *game)
         uint8_t *c = game->party.members[i]->record;
         uint8_t npc = cok_field_u8(L, c, COK_FIELD_NPC);
         if (npc != 0 && npc != 0xb3) continue;
-        for (int k = 0; k < COK_COINS; ++k) {
+        for (int k = coin_first(L); k < coin_end(L); ++k) {
             uint16_t coins = cok_field_u16_at(L, c, COK_FIELD_COINS, k);
             game->pool.coins[k] += coins;
             uint16_t weight = cok_field_u16(L, c, COK_FIELD_WEIGHT);
@@ -301,7 +313,7 @@ bool cok_pool_share(cok_adventure *game)
         if (kind == 0 || kind == 0xb3) ++shares;
     }
     uint16_t share[COK_COINS] = {0}, rest[COK_COINS] = {0};
-    for (int k = 0; k < COK_COINS; ++k) {
+    for (int k = coin_first(L); k < coin_end(L); ++k) {
         int32_t coins = (int32_t)pool->coins[k];
         if (coins <= 0) continue;
         if (shares == 0) {
@@ -318,7 +330,7 @@ bool cok_pool_share(cok_adventure *game)
     for (size_t i = 0; i < party->count; ++i) {
         uint8_t *c = party->members[i]->record;
         if (cok_field_u8(L, c, COK_FIELD_NPC) >= 0x80) continue;
-        for (int k = COK_COINS - 1; k >= 0; --k) {
+        for (int k = coin_end(L) - 1; k >= coin_first(L); --k) {
             bool full;
             uint16_t fits;
             if (!cok_pool_overloaded(game, c, share[k], &full, &fits)) return false;
@@ -337,7 +349,7 @@ bool cok_pool_share(cok_adventure *game)
     }
     /* What is left goes to every record in turn, as much as each has room
      * for, which wraps for one carrying more than it may. */
-    for (int k = COK_COINS - 1; k >= 0; --k) {
+    for (int k = coin_end(L) - 1; k >= coin_first(L); --k) {
         if (rest[k] == 0) continue;
         for (size_t i = 0; i < party->count; ++i) {
             uint8_t *c = party->members[i]->record;
@@ -350,7 +362,7 @@ bool cok_pool_share(cok_adventure *game)
             rest[k] = (uint16_t)(rest[k] - amount);
         }
     }
-    for (int k = 0; k < COK_COINS; ++k) pool->coins[k] = rest[k];
+    for (int k = coin_first(L); k < coin_end(L); ++k) pool->coins[k] = rest[k];
     return true;
 }
 
@@ -414,7 +426,9 @@ void cok_pool_drop(cok_adventure *game, uint8_t *c, uint16_t amount, int k)
                        (uint16_t)(cok_field_u16_at(L, c, COK_FIELD_COINS, k) - amount));
     cok_field_set16(L, c, COK_FIELD_WEIGHT,
                     (uint16_t)(cok_field_u16(L, c, COK_FIELD_WEIGHT) - amount));
-    if (game->vm.mode == 6 || game->vm.mode == 1) game->pool.coins[k] += amount;
+    /* dkk 5c72:0891 also in the vault's mode 7, which Champions has not. */
+    if (game->vm.mode == 6 || game->vm.mode == 1 || game->vm.mode == 7)
+        game->pool.coins[k] += amount;
 }
 
 /* TREASURE (2fd3:1d21). */
@@ -541,11 +555,128 @@ static void treasure(cok_adventure *game)
     }
 }
 
+/* The item of the item table's entry id (dkk 3632:1933, 28d2): bytes
+ * +0x2e-+0x3e the entry's, +0x29 and the link cleared; the name, the
+ * bytes before it, is whatever the original's stack held there, 0 here.
+ * Returns false where there is none (the entry's first byte 0xff). */
+static bool table_item(const cok_adventure *game, uint8_t id, uint8_t item[COK_ITEM_SIZE])
+{
+    const uint8_t *entry = game->item_table[id];
+    if (entry[0] == 0xff) return false;
+    memset(item, 0, COK_ITEM_SIZE);
+    memcpy(item + 0x2e, entry, COK_ITEM_ENTRY);
+    return true;
+}
+
+/* Whether the item table has an entry id, ending the run where the
+ * original reads past it: id 0 reads DS:a2b9, the 17 bytes before the
+ * table (the party list's pointer among them), and 255 past its end. */
+static bool table_id(cok_adventure *game, uint8_t id, const char *routine)
+{
+    if (id > 0 && id < COK_ITEM_ENTRIES) return true;
+    cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                       "item %u reads DS:%04x, past the item table (dkk %s)", id,
+                       (unsigned)(0xa2b9 + COK_ITEM_ENTRY * id), routine);
+    return false;
+}
+
+/* Log the coins in the pool and its first count items, named without
+ * naming them (the name the original's stack left them is not the port's
+ * to show). */
+static void log_pool(cok_adventure *game, size_t count)
+{
+    cok_pool *pool = &game->pool;
+    char text[160] = "";
+    for (int k = 0; k < COK_COINS; ++k) {
+        if (pool->coins[k] == 0) continue;
+        size_t used = strlen(text);
+        snprintf(text + used, sizeof text - used, "%s%lu %s", used > 0 ? ", " : "",
+                 (unsigned long)pool->coins[k], coin_names[k]);
+    }
+    if (text[0] != '\0') log_text(game, "treasure", text);
+    for (size_t i = 0; i < count && i < pool->item_count; ++i) {
+        uint8_t copy[COK_ITEM_SIZE];
+        char name[41];
+        memcpy(copy, pool->items[i], sizeof copy);
+        if (!cok_item_name(game, copy, false, name)) return;
+        snprintf(text, sizeof text, "item %s", name);
+        log_text(game, "treasure", text);
+    }
+}
+
+/* TREASURE ITEMS steel gems jewelry n : id... (dkk 3632:1933): the three
+ * header words added to the pool's steel, gems and jewelry (DS:be58, 5c,
+ * 60) as unsigned words, then each id's item of the item table put first
+ * in the pool, so in the reverse order; an id with no entry adds none. */
+static void treasure_items(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    cok_pool *pool = &game->pool;
+    for (size_t k = 0; k < 3; ++k) pool->coins[4 + k] += cok_ecl_header_value(vm, k);
+    size_t added = 0;
+    for (size_t i = 0; i < vm->operands; ++i) {
+        uint8_t id = (uint8_t)cok_ecl_value(vm, i), item[COK_ITEM_SIZE];
+        if (!table_id(game, id, "3632:1933")) return;
+        if (!table_item(game, id, item)) continue;
+        if (!cok_pool_insert(pool, 0, item)) {
+            cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
+            return;
+        }
+        ++added;
+    }
+    log_pool(game, added);
+}
+
+/* STOCK shop (dkk 3632:28d2): the pool's items freed, then shop's items
+ * (1-8; any other is 1): from its first index (DS:0007 + shop) for its
+ * count (DS:000f + shop), each index's item table id (DS:0017 + index),
+ * its item put first in the pool with its hidden parts shown (+0x35's low
+ * three bits clear); then the shop (dkk 3b89:06f3), which the port does
+ * not carry out for the game yet. */
+static void stock(cok_adventure *game)
+{
+    const cok_data_segment *D = cok_game_rules(game)->data;
+    cok_pool *pool = &game->pool;
+    cok_pool_free_items(pool);
+    uint8_t shop = (uint8_t)cok_ecl_value(&game->vm, 0);
+    if (shop > 8 || shop == 0) shop = 1;
+    uint8_t first = cok_data_u8_at(D, COK_DATA_STOCK_FIRST, shop);
+    uint8_t last = (uint8_t)(first + cok_data_u8_at(D, COK_DATA_STOCK_COUNTS, shop) - 1);
+    size_t added = 0;
+    for (unsigned k = first; k <= last; ++k) {
+        uint8_t id, item[COK_ITEM_SIZE];
+        long at = cok_data_offset(D, COK_DATA_STOCK_ITEMS, (long)k);
+        if (!cok_data_byte(D, (uint16_t)at, &id)) {
+            cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                               "STOCK reads DS:%04lx, which the port does not hold (dkk "
+                               "3632:28d2)", at);
+            return;
+        }
+        if (!table_id(game, id, "3632:28d2")) return;
+        if (!table_item(game, id, item)) continue;
+        item[0x35] &= 0xf8;
+        if (!cok_pool_insert(pool, 0, item)) {
+            cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
+            return;
+        }
+        ++added;
+    }
+    log_pool(game, added);
+    const char *unported = cok_game_rules(game)->combat.shop_unported;
+    if (unported != NULL)
+        cok_adventure_not_yet(game, "shop", unported);
+    else
+        cok_shop(game);
+}
+
 bool cok_treasure_opcode(cok_adventure *game)
 {
-    if (cok_ecl_meaning(&game->vm) != COK_ECL_TREASURE) return false;
-    treasure(game);
-    return true;
+    switch (cok_ecl_meaning(&game->vm)) {
+    case COK_ECL_TREASURE: treasure(game); return true;
+    case COK_ECL_TREASURE_ITEMS: treasure_items(game); return true;
+    case COK_ECL_STOCK: stock(game); return true;
+    default: return false;
+    }
 }
 
 /* The end of combat (overlay 351b). */
@@ -614,21 +745,71 @@ bool cok_treasure_remove_record(cok_adventure *game, size_t index, bool keep, bo
     return true;
 }
 
+/* Whether c already has an item that item would join (dkk 580d:2a0a's
+ * test, with its second operand 1): item has a count, and one of c's has
+ * its type, name parts, bonuses, curse and weight, and +0x3c (below 2),
+ * +0x3d and +0x3e. */
+static bool joins(const cok_character *c, const uint8_t *item)
+{
+    if (item[0x39] == 0) return false;
+    for (size_t i = 0; i < c->item_count; ++i) {
+        const uint8_t *o = c->items[i];
+        if (o[0x2f] == item[0x2f] && o[0x30] == item[0x30] && o[0x31] == item[0x31] &&
+            o[0x2e] == item[0x2e] && o[0x32] == item[0x32] && o[0x33] == item[0x33] &&
+            o[0x36] == item[0x36] && o[0x37] == item[0x37] && o[0x38] == item[0x38] &&
+            o[0x3c] == item[0x3c] && o[0x3c] < 2 && o[0x3d] == item[0x3d] &&
+            o[0x3e] == item[0x3e])
+            return true;
+    }
+    return false;
+}
+
+/* Whether c cannot take item: 546c:32b0 (cok_item_overloaded), or for a
+ * game whose taken items join (dkk 580d:2a0a), the same but that with 16
+ * items it may take one it would join, so that only the weight counts:
+ * its weight with the item's (+0x37, times +0x39 if not 0, as words) past
+ * its allowance + 1500. Returns 1, 0, or -1 ending the run. */
+static int take_overloaded(cok_adventure *game, cok_character *c, const uint8_t *item)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    int over = cok_item_overloaded(game, c, item); /* its stats recomputed first */
+    if (over != 1 || !rules->treasure.take_joins || !joins(c, item)) return over;
+    uint16_t weight = (uint16_t)(item[0x37] | item[0x38] << 8);
+    if (item[0x39] > 0) weight = (uint16_t)(weight * item[0x39]);
+    int16_t allowance;
+    char error[300];
+    if (!cok_character_allowance(c->record, rules, &allowance, error, sizeof error)) {
+        undefined(game, error);
+        return -1;
+    }
+    uint16_t carried = (uint16_t)(cok_field_u16(L, c->record, COK_FIELD_WEIGHT) + weight);
+    return (int32_t)carried > (int32_t)(int16_t)(allowance + 1500);
+}
+
 bool cok_treasure_take_item(cok_adventure *game, const uint8_t *item, bool *failed)
 {
+    const cok_rules_treasure *T = &cok_game_rules(game)->treasure;
     cok_character *c = selected(game);
     if (c == NULL)
         return undefined(game, "taking an item with no character selected reads through NULL "
                                "(36d0:034c)");
-    int over = cok_item_overloaded(game, c, item);
+    int over = take_overloaded(game, c, item);
     if (over < 0) return false;
     *failed = over != 0;
     if (*failed) {
-        cok_camp_notice(game, "OverLoaded");
+        cok_camp_notice(game, T->overloaded);
         return true;
     }
+    /* dkk 3b89:033b joins it with a pointer it set only when c had items
+     * before: with none, the stack's. */
+    bool join = T->take_joins && item[0x39] != 0;
+    if (join && c->item_count == 0)
+        return undefined(game, "taking an item with a count into no items joins it with a "
+                               "pointer the stack holds (dkk 3b89:033b)");
     if (!cok_character_insert_item(c, c->item_count, item))
         return undefined(game, "out of memory");
+    if (join) cok_item_join(c, c->item_count - 1); /* dkk 580d:1be6 */
     char error[300];
     if (!cok_character_stats(c, cok_game_rules(game), &game->item_types, error, sizeof error))
         return undefined(game, error);
@@ -1065,6 +1246,8 @@ static bool results(cok_adventure *game, const outcome *result)
 
 bool cok_pool_take_money(cok_adventure *game)
 {
+    const cok_rules_treasure *T = &cok_game_rules(game)->treasure;
+    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_pool *pool = &game->pool;
     clear_frame(game, false);
     int index = 0;
@@ -1073,7 +1256,7 @@ bool cok_pool_take_money(cok_adventure *game)
         cok_menu_row rows[COK_COINS];
         int kinds[COK_COINS];
         size_t count = 0;
-        for (int k = COK_COINS - 1; k >= 0; --k) {
+        for (int k = coin_end(L) - 1; k >= coin_first(L); --k) {
             if ((int32_t)pool->coins[k] <= 0) continue;
             snprintf(text[count], sizeof text[count], "%s %ld", coin_names[k],
                      (long)(int32_t)pool->coins[k]);
@@ -1081,7 +1264,7 @@ bool cok_pool_take_money(cok_adventure *game)
             kinds[count++] = k;
         }
         for (size_t i = 0; i < count; ++i) log_text(game, "item", text[i]);
-        cok_menu_style style = {"Select type of coin ", "Select", 15, 10, 13, true};
+        cok_menu_style style = {T->coin_prompt, "Select", 15, 10, 13, true};
         bool redraw = true;
         cok_keyboard keys = cok_adventure_keyboard(game);
         int key = cok_menu_rows(&game->screen, &game->font, rows, count,
@@ -1094,8 +1277,8 @@ bool cok_pool_take_money(cok_adventure *game)
         log_text(game, "choice", choice);
         char prompt[64];
         /* The words end in a space and the question starts with one. */
-        snprintf(prompt, sizeof prompt, "%s%s will you take? ", k == 5 ? "How Many " : "How much ",
-                 coin_words[k]);
+        snprintf(prompt, sizeof prompt, "%s%s will you take? ", k == 5 ? T->how_many : T->how_much,
+                 T->coin_words[k]);
         int amount = cok_sheet_amount(game, prompt, (uint16_t)pool->coins[k]);
         if (amount < 0) return false;
         cok_character *c = selected(game);
@@ -1117,7 +1300,9 @@ bool cok_pool_take_money(cok_adventure *game)
  * empty or none is picked; then the screen is redrawn. */
 static bool take_items(cok_adventure *game)
 {
+    const cok_rules_treasure *T = &cok_game_rules(game)->treasure;
     cok_pool *pool = &game->pool;
+    if (T->menus_first) game->selected = 1; /* dkk 3a37:0ce8, DS:c0f7 */
     int index = 0;
     char (*text)[41] = NULL;
     cok_menu_row *rows = NULL;
@@ -1140,7 +1325,7 @@ static bool take_items(cok_adventure *game)
             rows[i] = (cok_menu_row){text[i], pool->items[i][0x29] != 0};
             if (i < 255) log_text(game, rows[i].heading ? "heading" : "item", text[i]);
         }
-        cok_menu_style style = {"Items: ", "Take", 15, 10, 13, true};
+        cok_menu_style style = {T->items_prompt, "Take", 15, 10, 13, true};
         bool redraw = true;
         cok_keyboard keys = cok_adventure_keyboard(game);
         int key = cok_menu_rows(&game->screen, &game->font, rows, count,
@@ -1166,14 +1351,17 @@ static bool take_items(cok_adventure *game)
     return ok;
 }
 
-/* Take (351b:0ff7): items alone, money alone, or "Take: " with "Money
- * Items Exit" until either runs out or Exit or Escape. The menu takes
- * special keys by their scan codes' letters: up and down (H, P) pick a
- * character, PgUp (I) takes items and E (NumLock, which never reaches
- * the game) would leave. *reached is
+/* Take (351b:0ff7; dkk 3a37:0dfc): items alone, money alone, or "Take: "
+ * with "Money Items Exit" until either runs out or Exit or Escape. The
+ * menu takes special keys by their scan codes' letters: up and down (H, P)
+ * pick a character, PgUp (I) takes items and E (NumLock, which never
+ * reaches the game) would leave; where the game tells them apart (dkk),
+ * only up and down do anything, and the menu starts on Money. *reached is
  * set when it took coins or items, or offered them. */
 static bool take(cok_adventure *game, bool *reached)
 {
+    const cok_rules_treasure *T = &cok_game_rules(game)->treasure;
+    if (T->menus_first) game->selected = 1; /* dkk DS:c0f7 */
     bool money, items;
     cok_pool_status(&game->pool, &money, &items);
     *reached = true;
@@ -1186,10 +1374,13 @@ static bool take(cok_adventure *game, bool *reached)
     *reached = false;
     for (;;) {
         bool special;
-        int key = cok_camp_menu(game, "Take: ", "Money Items Exit", true, true, &special);
+        int key = cok_camp_menu(game, T->take_prompt, "Money Items Exit", true, true, &special);
         if (key < 0) return false;
         bool done = false;
-        if (key == 'M') {
+        if (special && T->specials_apart) {
+            if (key == 'H' || key == 'P')
+                game->vm.character = cok_adventure_special(game, (uint8_t)key); /* 580d:2bb2 */
+        } else if (key == 'M') {
             *reached = true;
             if (!cok_pool_take_money(game)) return false;
             cok_adventure_redraw(game);
@@ -1224,7 +1415,8 @@ static uint8_t detect_spell(cok_adventure *game)
     return 0;
 }
 
-/* The treasure menu (351b:118c), after the screen is redrawn for mode 6:
+/* The treasure menu (351b:118c; dkk 3a37:0eed, by the treasure section's
+ * ways and words), after the screen is redrawn for mode 6:
  * "View Take Pool Share" with money in the pool, "View Take Pool" with
  * only items, else "View Pool", then "Detect" if there are items and the
  * selected character has a Detect spell memorized and can act, and
@@ -1234,9 +1426,12 @@ static uint8_t detect_spell(cok_adventure *game)
  * leaves when the pool is empty; else "There is still treasure left." and
  * "Do you want to go back and claim your treasure?" with "~Yes ~No", No
  * leaving. Special keys pick a character. */
-static bool treasure_menu(cok_adventure *game)
+static bool menu_loop(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
+    const cok_rules_treasure *T = &cok_game_rules(game)->treasure;
+    /* dkk 3a37:0eed keeps its own selection, from the first item. */
+    uint8_t selection = 1;
     uint8_t picture = game->picture_id;
     cok_adventure_redraw(game);
     /* Loading the treasure's picture zero-fills the stack where View's
@@ -1260,10 +1455,12 @@ static bool treasure_menu(cok_adventure *game)
         else
             snprintf(menu, sizeof menu, "View Pool Exit");
         bool special;
+        if (T->menus_first) game->selected = selection; /* DS:c0f7 */
         int key = cok_camp_menu(game, "", menu, true, true, &special);
+        if (T->menus_first) selection = game->selected;
         if (key < 0) return false;
         if (special) {
-            cok_camp_pick(game, (uint8_t)key);
+            if (!T->specials_apart || key == 'H' || key == 'P') cok_camp_pick(game, (uint8_t)key);
             continue;
         }
         bool done = false;
@@ -1297,10 +1494,9 @@ static bool treasure_menu(cok_adventure *game)
                 break;
             }
             vm->cursor = (cok_text_cursor){1, 0x11};
-            cok_adventure_print(game, "There is still treasure left.  ",
-                                cok_adventure_text_window, 10, true);
-            cok_adventure_print(game, "Do you want to go back and claim your treasure?",
-                                cok_adventure_text_window, 15, false);
+            cok_adventure_print(game, T->left, cok_adventure_text_window, 10, true);
+            cok_adventure_print(game, T->claim, cok_adventure_text_window, 15, false);
+            if (T->claim_no) game->selected = 2; /* dkk 6a69:2048 with 1 */
             int answer = cok_adventure_horizontal(game, "", "~Yes ~No", 10, false);
             if (answer < 0) return false;
             if (answer == 1) {
@@ -1315,6 +1511,209 @@ static bool treasure_menu(cok_adventure *game)
         if (vm->abort || vm->status != COK_ECL_OK) return false;
         if (done) return true;
     }
+}
+
+/* The vault (dkk 3948:000e). */
+
+/* Deposit (dkk 580d:26d0 with 0, in mode 7): in the text window (1-0x26 by
+ * 0x11-0x16), a list of the selected character's coins, steel first, each
+ * its name, spaces to 18 less the name's and the amount's lengths (at most
+ * 15) and the amount; a coin picked asks "How much <coin> will you
+ * deposit? " for at most what it has, and drops that into the pool
+ * (5c72:0891, cok_pool_drop). Again until it has no coins or none is
+ * picked. Returns false, ending the run, where it cannot be carried out. */
+static bool deposit(cok_adventure *game)
+{
+    const cok_rules_treasure *T = &cok_game_rules(game)->treasure;
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    for (;;) {
+        cok_character *character = selected(game);
+        if (character == NULL)
+            return undefined(game, "Money with no character selected reads through NULL (dkk "
+                                   "580d:26d0)");
+        uint8_t *c = character->record;
+        static char text[COK_COINS][41];
+        cok_menu_row rows[COK_COINS];
+        int kinds[COK_COINS];
+        size_t count = 0;
+        for (int k = coin_first(L); k < coin_end(L); ++k) {
+            uint16_t amount = cok_field_u16_at(L, c, COK_FIELD_COINS, k);
+            if (amount == 0) continue;
+            char number[16], padding[16] = "";
+            snprintf(number, sizeof number, "%u", amount);
+            uint8_t spaces = (uint8_t)(18 - (int)strlen(coin_names[k]) - (int)strlen(number));
+            for (unsigned n = 0; n < spaces && n < 15; ++n) padding[n] = ' ', padding[n + 1] = '\0';
+            char row[64];
+            snprintf(row, sizeof row, "%s%s%s", coin_names[k], padding, number);
+            snprintf(text[count], sizeof text[count], "%.40s", row);
+            rows[count] = (cok_menu_row){text[count], false};
+            kinds[count++] = k;
+        }
+        for (size_t i = 0; i < count; ++i) log_text(game, "item", text[i]);
+        cok_menu_style style = {T->coin_prompt, "Select", 15, 10, 13, true};
+        bool redraw = true;
+        int index = 0, top = 0;
+        cok_keyboard keys = cok_adventure_keyboard(game);
+        int key = cok_menu_rows(&game->screen, &game->font, rows, count,
+                                (cok_text_window){1, 0x11, 0x26, 0x16}, &style, &redraw, &index,
+                                &top, &game->selected, &keys);
+        if (key < 0) return false;
+        if (key == 0 || count == 0) return true;
+        int k = kinds[index];
+        char choice[2] = {text[index][0], '\0'};
+        log_text(game, "choice", choice);
+        char prompt[96];
+        snprintf(prompt, sizeof prompt, "%s%s%s", T->how_much, T->coin_words[k], T->deposit);
+        int amount = cok_sheet_amount(game, prompt, cok_field_u16_at(L, c, COK_FIELD_COINS, k));
+        if (amount < 0) return false;
+        cok_pool_drop(game, c, (uint16_t)amount, k);
+        bool left = false;
+        for (int j = coin_first(L); j < coin_end(L); ++j)
+            if (cok_field_u16_at(L, c, COK_FIELD_COINS, j) != 0) left = true;
+        if (!left) return true;
+    }
+}
+
+/* 46b2:2e1d: the vault into the pool: the temporary one where the vault's
+ * menu left it (DS:fb78), else the vault of the game loaded last (DS:fb79),
+ * its coins as steel, gems and jewelry and its items after the pool's in
+ * the file's order; none: no coins, or steel a hundred times the savings
+ * (0x4c33). */
+static bool load_vault(cok_adventure *game)
+{
+    const cok_rules_saves *s = &cok_game_rules(game)->saves;
+    char path[sizeof game->save_dir + 64];
+    if (game->vault_temp)
+        snprintf(path, sizeof path, "%s/%s", game->save_dir, s->vault_temp);
+    else
+        snprintf(path, sizeof path, "%s/%s%c.%s", game->save_dir, s->vault, game->vault_letter,
+                 s->vault_extension);
+    cok_vault vault;
+    bool missing;
+    char error[sizeof game->error];
+    if (!cok_vault_read(path, &vault, &missing, error, sizeof error)) {
+        if (!missing) {
+            cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", error);
+            return false;
+        }
+        uint16_t savings = cok_ecl_var(&game->vm, COK_VAR_SAVINGS);
+        for (int k = 4; k < 7; ++k) game->pool.coins[k] = 0;
+        if (savings > 0) game->pool.coins[4] = savings * 100u; /* a long, 1a07:0a14 */
+        return true;
+    }
+    for (int k = 0; k < 3; ++k)
+        game->pool.coins[4 + k] =
+            (uint32_t)vault.coins[4 * k] | (uint32_t)vault.coins[4 * k + 1] << 8 |
+            (uint32_t)vault.coins[4 * k + 2] << 16 | (uint32_t)vault.coins[4 * k + 3] << 24;
+    for (size_t i = 0; i < vault.item_count; ++i) {
+        if (cok_pool_insert(&game->pool, game->pool.item_count, vault.items + i * COK_ITEM_SIZE))
+            continue;
+        cok_vault_free(&vault);
+        cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
+        return false;
+    }
+    cok_vault_free(&vault);
+    return true;
+}
+
+/* 46b2:302d: the pool into the temporary vault (DS:98a4's tmpvault.dat):
+ * its steel, gems and jewelry, then its items, in order; DS:fb78 set. The
+ * original's check of the disk's space is left out. */
+static bool write_vault(cok_adventure *game)
+{
+    const cok_rules_saves *s = &cok_game_rules(game)->saves;
+    char path[sizeof game->save_dir + 64], error[sizeof game->error];
+    snprintf(path, sizeof path, "%s/%s", game->save_dir, s->vault_temp);
+    cok_vault vault = {0};
+    for (int k = 0; k < 3; ++k)
+        for (int b = 0; b < 4; ++b)
+            vault.coins[4 * k + b] = (uint8_t)(game->pool.coins[4 + k] >> (8 * b));
+    vault.items = (uint8_t *)game->pool.items;
+    vault.item_count = game->pool.item_count;
+    bool ok = cok_vault_write(path, &vault, error, sizeof error);
+    game->vault_temp = true; /* DS:fb78 */
+    if (!ok) cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", error);
+    return ok;
+}
+
+static void vault_loop(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    const cok_rules_treasure *T = &cok_game_rules(game)->treasure;
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    if (game->save_dir[0] == '\0') {
+        cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "no directory for the vault's files");
+        return;
+    }
+    vm->mode = 7;
+    cok_adventure_redraw(game); /* 65cd:2db0, DS:db62 set */
+    cok_adventure_party(game);  /* 65cd:07a5 */
+    cok_pool_free_items(&game->pool);
+    if (!load_vault(game)) return;
+    uint8_t selection = 1;
+    for (bool done = false; !done;) {
+        bool money, items;
+        cok_pool_status(&game->pool, &money, &items);
+        cok_character *c = selected(game);
+        bool on[6] = {true, money || items, true, false, c != NULL && c->item_count > 0, true};
+        for (int k = coin_first(L); c != NULL && k < coin_end(L); ++k)
+            if (cok_field_u16_at(L, c->record, COK_FIELD_COINS, k) != 0) on[3] = true;
+        char menu[64] = "";
+        for (size_t i = 0; i < 6; ++i) {
+            if (!on[i]) continue;
+            size_t used = strlen(menu);
+            snprintf(menu + used, sizeof menu - used, "%s%s", used > 0 ? " " : "",
+                     T->vault_items[i]);
+        }
+        bool special;
+        game->selected = selection; /* DS:c0f7 */
+        int key = cok_camp_menu(game, "", menu, true, false, &special);
+        selection = game->selected;
+        if (key < 0) return;
+        if (special) {
+            if (key == 'H' || key == 'P') cok_camp_pick(game, (uint8_t)key); /* 580d:2bb2 */
+            continue;
+        }
+        bool reached;
+        switch (key) {
+        case 'V':
+            cok_adventure_not_yet(game, "the vault's View", T->vault_view_unported);
+            return;
+        case 'T':
+            if (!take(game, &reached)) return;
+            break;
+        case 'P': cok_pool_gather(game); break;
+        case 'M':
+            if (!deposit(game)) return;
+            cok_picture_fill(&game->screen, 1, 0x11 * 8, 0x26, 6 * 8, 0); /* 14e4:0b6b */
+            break;
+        case 'I':
+            cok_adventure_not_yet(game, "the vault's Items", T->vault_items_unported);
+            return;
+        case 'E': case 0: done = true; break;
+        default: break;
+        }
+        if (vm->abort || vm->status != COK_ECL_OK) return;
+    }
+    write_vault(game);
+}
+
+void cok_treasure_vault(cok_adventure *game)
+{
+    uint8_t outer = game->selected; /* as the treasure menu's */
+    vault_loop(game);
+    game->selected = outer;
+}
+
+/* The treasure menu; a game whose menus keep their own selections (dkk:
+ * each menu restores its own into DS:c0f7 around its ask) leaves the
+ * selection as the menu before had it. */
+static bool treasure_menu(cok_adventure *game)
+{
+    uint8_t outer = game->selected;
+    bool ok = menu_loop(game);
+    if (cok_game_rules(game)->treasure.menus_first) game->selected = outer;
+    return ok;
 }
 
 void cok_treasure_end_of_combat(cok_adventure *game)

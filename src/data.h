@@ -92,6 +92,9 @@ typedef enum {
     COK_DATA_LEVEL_LIMITS,    /* By race and class, the highest level (dkk; Champions none). */
     /* Treasure. */
     COK_DATA_TREASURE_TEMPLATES, /* Words: the generator's templates. */
+    COK_DATA_STOCK_FIRST,     /* By shop, 1-8, its first item's index (dkk; Champions none). */
+    COK_DATA_STOCK_COUNTS,    /* By shop, 1-8, how many items it stocks (dkk). */
+    COK_DATA_STOCK_ITEMS,     /* By index, the item table's ids the shops stock (dkk). */
     /* The temple. */
     COK_DATA_DISEASES,        /* The effect ids Cure Disease removes. */
     COK_DATA_TABLES

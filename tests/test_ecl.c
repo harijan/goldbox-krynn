@@ -1014,14 +1014,11 @@ static void test_death_knights_handlers(void)
     CHECK(cok_ecl_run(&vm, COK_ECL_BASE) == COK_ECL_OK && vm.flags[0]);
     CHECK(vm.mem7c00[0x33f] == 3);
 
-    /* Not carried out: Death Knights' handlers that need what is not
-     * ported; Champions' all are. */
-    static const uint8_t unported[] = {0x27, 0x2e, 0x3c, 0x41};
+    /* Every opcode of both games is carried out now (TREASURE ITEMS,
+     * DAMAGE, STOCK and ADD EP were the last of Death Knights'). */
     for (unsigned o = 0; o < COK_ECL_OPCODES; ++o) {
-        bool listed = memchr(unported, (int)o, sizeof unported) != NULL;
-        CHECK((cok_ecl_unported(DK, o) != NULL) == listed);
+        CHECK(cok_ecl_unported(DK, o) == NULL);
         CHECK(cok_ecl_unported(C, o) == NULL);
-        if (listed) CHECK(strncmp(cok_ecl_unported(DK, o), "dkk 3632:", 9) == 0);
     }
     CHECK(cok_ecl_unported(DK, 0x99) == NULL);
     CHECK(DK->ecl.compare_and_strings && !C->ecl.compare_and_strings);

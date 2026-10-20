@@ -49,6 +49,10 @@ bool cok_item_ready(cok_adventure *game, cok_character *character, size_t index)
  * the allowance cannot be had. */
 int cok_item_overloaded(cok_adventure *game, cok_character *who, const uint8_t *item);
 
+/* Join (546c:22e4; dkk 580d:1be6) c's item index with every other of its
+ * items of a count that matches it (see items.c), as View's Join does. */
+void cok_item_join(cok_character *c, size_t index);
+
 /* Draw c's name at x, y (6346:199d), with "'s" if possessive: light red if
  * it cannot act, yellow in combat on the other side, else light cyan. */
 void cok_item_draw_name(cok_adventure *game, const uint8_t *c, int x, int y, bool possessive);

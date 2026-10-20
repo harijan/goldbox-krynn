@@ -375,6 +375,11 @@ static void join_items(cok_character *c, size_t picked)
     c->items[into][0x39] = sum;
 }
 
+void cok_item_join(cok_character *c, size_t index)
+{
+    join_items(c, index);
+}
+
 /* Drop (in 546c:17f9): "Your NAME will be gone forever", then "Drop It? ".
  * Returns -1 when input ended, 1 when dropped. */
 static int drop(cok_adventure *game, cok_character *c, size_t index)

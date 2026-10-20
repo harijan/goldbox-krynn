@@ -11,7 +11,8 @@
  * with its results and treasure screens, and the money pool's routines
  * in 58e7. */
 
-/* Carry out vm.opcode if it is TREASURE, with its operands decoded.
+/* Carry out vm.opcode if it is TREASURE, or a later game's TREASURE ITEMS
+ * (dkk 3632:1933) or STOCK (dkk 3632:28d2), with its operands decoded.
  * Returns false for any other opcode. */
 bool cok_treasure_opcode(cok_adventure *game);
 
@@ -36,10 +37,26 @@ void cok_treasure_item(const cok_rules *rules, uint32_t *seed, uint8_t type,
  * out. */
 void cok_treasure_end_of_combat(cok_adventure *game);
 
-/* Give a copy of item to the selected character (36d0:034c), after its
- * items, and recompute its stats, unless it would be overloaded
- * (546c:32b0), which says "OverLoaded" and sets *failed. Returns false,
- * ending the run, where it cannot be carried out. */
+/* The vault's menu (dkk 3948:000e), which COMBAT opens where the game has a
+ * vault and var COK_VAR_VAULT is 1: mode 7 and its screen (65cd:2db0), the
+ * pool's items freed and the vault read into the pool (46b2:2e1d), then
+ * "View Take Pool Money Items Exit" as the pool and the selected character
+ * allow (Take with money or items in the pool, Money with coins, Items
+ * with items), the selection kept, Escape for Exit, up and down picking a
+ * character: Take is the treasure menu's, Pool pools the party's money,
+ * Money deposits the character's coins in the pool (580d:26d0); View and
+ * Items, which the port does not carry out for the game yet, stop the
+ * run. Exit writes the pool to the temporary vault (46b2:302d), which the
+ * next save makes the saved game's. */
+void cok_treasure_vault(cok_adventure *game);
+
+/* Give a copy of item to the selected character (36d0:034c; dkk
+ * 3b89:033b), after its items, and recompute its stats, unless it would be
+ * overloaded (546c:32b0), which says the game's word ("OverLoaded") and
+ * sets *failed. Where the game's taken items join (dkk), one with a count
+ * joins its kind (580d:1be6) and is not refused for 16 items when it
+ * would (580d:2a0a). Returns false, ending the run, where it cannot be
+ * carried out. */
 bool cok_treasure_take_item(cok_adventure *game, const uint8_t *item, bool *failed);
 
 /* Remove record index from the list as 4def:3b0a does, freeing its icon
@@ -67,9 +84,10 @@ void cok_pool_remove(cok_pool *pool, size_t index);
 void cok_pool_free_items(cok_pool *pool);
 /* Whether the pool holds money, any coin not 0, and items (58e7:0fb1). */
 void cok_pool_status(const cok_pool *pool, bool *money, bool *items);
-/* Pool (58e7:0511): every player character's money, turned ones too
- * (+0xe7 0 or 0xb3), into the pool, its weight lightened as words. NPCs
- * keep theirs. */
+/* Pool (58e7:0511; dkk 5c72:03b9): every player character's money, turned
+ * ones too (+0xe7 0 or 0xb3), into the pool, its weight lightened as words.
+ * NPCs keep theirs. This and Share go over the kinds of coin the game's
+ * records hold (the layout's COINS: dkk steel, gems and jewelry). */
 void cok_pool_gather(cok_adventure *game);
 /* Share (58e7:063a): divide each coin of the pool among the records
  * counted as Pool counts them, as words, each record below 0x80 taking a
@@ -96,8 +114,8 @@ bool cok_pool_overloaded(cok_adventure *game, const uint8_t *c, uint16_t amount,
  * (58e7:0a81). Again until the pool has no coins or none is picked.
  * Returns false, ending the run, where it cannot be carried out. */
 bool cok_pool_take_money(cok_adventure *game);
-/* Drop amount of c's coin k (58e7:09fa), into the pool in treasure and
- * shops (modes 6 and 1). */
+/* Drop amount of c's coin k (58e7:09fa; dkk 5c72:0891), into the pool in
+ * treasure, shops and the vault (modes 6, 1 and 7). */
 void cok_pool_drop(cok_adventure *game, uint8_t *c, uint16_t amount, int k);
 /* The worth in steel of coins 0-4 (58e7:00d3): 1, 5, 10, 25 and 50 times
  * each, as a LongInt that wraps, divided by 50. */

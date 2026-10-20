@@ -897,7 +897,10 @@ static void combat(cok_adventure *game)
             cok_adventure_load_big(game, rules->view.overland_picture); /* 6961:07ed */
     } else if (R->vault && cok_ecl_var(vm, COK_VAR_VAULT) == 1) {
         cok_ecl_set_var(vm, COK_VAR_VAULT, 0);
-        if (R->vault_unported != NULL) cok_adventure_not_yet(game, "vault", R->vault_unported);
+        if (R->vault_unported != NULL)
+            cok_adventure_not_yet(game, "vault", R->vault_unported);
+        else
+            cok_treasure_vault(game); /* dkk 3948:000e */
     } else if (cok_ecl_var(vm, COK_VAR_SHOP) == 1) {
         cok_ecl_set_var(vm, COK_VAR_SHOP, 0);
         if (R->shop_unported != NULL) {

@@ -1107,10 +1107,15 @@ static void load_character(cok_adventure *game)
     vm->missing_character = false;
 }
 
-/* Add experience to a character, divided among its classes (2fd3:36dc). */
+/* Add experience to a character, divided among its classes (2fd3:36dc;
+ * dkk 3632:25f1), then, where the game keeps it, whether it may train (dkk
+ * 65cd:38c7, +0xc6). */
 static void gain_experience(cok_adventure *game, uint8_t *c, uint16_t points)
 {
-    const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    /* Death Knights' passes over one that cannot act first. */
+    if (rules->treasure.gains_active_first && cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0) return;
     uint8_t classes = 0;
     for (size_t i = 0; i < 8; ++i)
         if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i) > 0) ++classes;
@@ -1123,25 +1128,44 @@ static void gain_experience(cok_adventure *game, uint8_t *c, uint16_t points)
     uint32_t total = cok_field_u32(L, c, COK_FIELD_EXPERIENCE);
     total += (uint16_t)(points / classes);
     cok_field_set32(L, c, COK_FIELD_EXPERIENCE, total);
+    if (!rules->combat.may_train) return;
+    bool may;
+    if (!cok_treasure_may_train(rules, c, &may)) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                           "may-train (dkk 65cd:38c7) reads a byte the port does not hold, the "
+                           "stack's or past DS:82d4's table");
+        return;
+    }
+    cok_field_set8(L, c, COK_FIELD_MAY_TRAIN, may);
 }
 
-/* ADD EP (2fd3:36dc): the selected character when the first operand is 0,
- * else each member, gains the second operand's experience, divided evenly
- * among its classes, if it can act. A character with no class level is a
- * division by zero, runtime error 200 in the original. */
+/* ADD EP (2fd3:36dc; dkk 3632:25f1): the selected character when the
+ * first operand is 0, else each member, gains the second operand's
+ * experience, divided evenly among its classes, if it can act. A
+ * character with no class level is a division by zero, runtime error 200
+ * in the original; Death Knights' tests whether it can act first (for the
+ * selected character, before its words too: the original's test reads a
+ * pointer from the stack before it sets it, which the port takes to be
+ * the selected character's), and sets whether it may train. */
 static void add_experience(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_rules_treasure *T = &rules->treasure;
     uint16_t points = cok_ecl_value(vm, 1);
     bool one = (uint8_t)cok_ecl_value(vm, 0) == 0;
+    if (one && T->gains_active_first &&
+        (vm->character == NULL || cok_field_u8(rules->character, vm->character,
+                                               COK_FIELD_ACTIVE) == 0))
+        return;
     vm->cursor = (cok_text_cursor){1, 0x11};
     char text[64];
     if (one) {
         char name[16] = "";
-        if (vm->character != NULL) name_of(cok_game_rules(game)->character, vm->character, name);
-        snprintf(text, sizeof text, "Congratulations %s gains experience!", name);
+        if (vm->character != NULL) name_of(rules->character, vm->character, name);
+        snprintf(text, sizeof text, "%s%s%s", T->gains, name, T->gains_end);
     } else {
-        snprintf(text, sizeof text, "Congratulations the party gains experience!");
+        snprintf(text, sizeof text, "%s", T->party_gains);
     }
     print_text(game, text, 10, true);
     wait_ms(game, game->speed * 100u); /* 521:0b4b */
@@ -1316,18 +1340,20 @@ static uint8_t *member_rolled(cok_adventure *game, uint8_t rolled)
     return cok_party_record(&game->party, rolled == 0 ? 0 : rolled - 1u);
 }
 
-/* DAMAGE (2fd3:2c80) deals the fourth operand plus the second operand's
- * rolls of 1 to the third. Without bit 7 of the first operand, that many
- * attacks each hit a random member if they beat its armour class with the
- * fifth operand as bonus, rolling new damage after each. With bit 7, the
- * low five bits are a saving throw bonus and the fifth operand's low three
- * bits the throw: with bit 6 every member takes the damage unless it saves
- * (or always, with bit 5), with fifth operand bit 7 the selected character
+/* DAMAGE (2fd3:2c80; dkk 3632:1ca2) deals the fourth operand plus the
+ * second operand's rolls of 1 to the third. Without bit 7 of the first
+ * operand, that many attacks each hit a random member if they beat its
+ * armour class with the fifth operand as bonus, rolling new damage after
+ * each. With bit 7, the low five bits (the game's damage_bonus: dkk four)
+ * are a saving throw bonus and the fifth operand's low three bits the
+ * throw: with bit 6 every member takes the damage unless it saves (or
+ * always, with bit 5), with fifth operand bit 7 the selected character
  * (throw type - 1, none for type 0), and otherwise a random member. Bit 4
- * deals it even when the save is made. If no member can act afterwards,
- * the party is killed and the run ends. Members are rolled from the size in
- * 0x7f3e. The members' spell effects change the attack and saving rolls;
- * one the port cannot carry out stops the run with COK_ECL_EFFECT_FAILED. */
+ * deals it even when the save is made, or half of it where the game's
+ * damage_halves (dkk). If no member can act afterwards, the party is
+ * killed and the run ends. Members are rolled from the size in 0x7f3e.
+ * The members' spell effects change the attack and saving rolls; one the
+ * port cannot carry out stops the run with COK_ECL_EFFECT_FAILED. */
 static void damage(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -1347,24 +1373,27 @@ static void damage(cok_adventure *game)
             amount = (uint16_t)(op[3] + roll(game, op[1], op[2]));
         }
     } else {
-        uint8_t bonus = op[0] & 0x1f, type = op[4] & 7;
+        const cok_rules_treasure *T = &cok_game_rules(game)->treasure;
+        uint8_t bonus = op[0] & T->damage_bonus, type = op[4] & 7;
         bool always = (op[0] & 0x10) != 0;
+        /* What a save made leaves: all with bit 4, or half (dkk). */
+        uint16_t kept = T->damage_halves ? (uint16_t)(amount >> 1) : amount;
         if ((op[0] & 0x40) != 0) {
             for (size_t i = 0; i < game->party.count && ok; ++i) {
                 uint8_t *c = game->party.members[i]->record;
                 made = false;
                 if ((op[0] & 0x20) == 0) ok = save_made(game, c, type, bonus, &made);
-                if (ok && (!made || always)) apply_damage(game, c, amount);
+                if (ok && (!made || always)) apply_damage(game, c, made ? kept : amount);
             }
         } else if ((op[4] & 0x80) != 0) {
             uint8_t *c = vm->character;
             made = false;
             if (c != NULL && type != 0) ok = save_made(game, c, (uint8_t)(type - 1), bonus, &made);
-            if (c != NULL && ok && (!made || always)) apply_damage(game, c, amount);
+            if (c != NULL && ok && (!made || always)) apply_damage(game, c, made ? kept : amount);
         } else {
             uint8_t *c = member_rolled(game, target);
             if (c != NULL && (ok = save_made(game, c, type, bonus, &made)) && (!made || always))
-                apply_damage(game, c, amount);
+                apply_damage(game, c, made ? kept : amount);
         }
     }
     if (!ok) {
@@ -1390,7 +1419,7 @@ static void damage(cok_adventure *game)
         wait_ms(game, 3000);
     }
     vm->character = saved;
-    prompt_key(game, "press <enter>/<return> to continue");
+    prompt_key(game, cok_game_rules(game)->treasure.damage_key);
 }
 
 /* Log the party's square and facing ("at"). */
@@ -2280,6 +2309,32 @@ static void effect_trace(cok_effects *fx, const char *text, uint8_t a, uint8_t b
     cok_debug_trace(context, text, a, b, c);
 }
 
+/* The item table, where the game has one (dkk 4f9a:0006, the end of
+ * startup): its record's 17-byte entries into ids 1 on, at most
+ * table_count of them, the rest 0xff. An empty or missing record says
+ * "unable to find item file" and halts in the original; here the open
+ * fails. A short last entry, which the original copies from past the
+ * record, fails it too. */
+static bool load_item_table(cok_adventure *game)
+{
+    const cok_rules_treasure *T = &cok_game_rules(game)->treasure;
+    if (T->table.stem == NULL) return true;
+    char name[32];
+    record_file(&T->table, name, sizeof name);
+    size_t size = 0;
+    uint8_t *data = read_record(game, name, T->table.record, &size);
+    if (data == NULL) return false;
+    bool ok = size > 0 && size % COK_ITEM_ENTRY == 0;
+    if (!ok)
+        fail(game, "%s.DAX record %u: %s", name, T->table.record,
+             size == 0 ? "unable to find item file" : "not whole 17-byte entries");
+    for (size_t at = 0, id = 1; ok && at < size && id <= T->table_count && id < COK_ITEM_ENTRIES;
+         at += COK_ITEM_ENTRY, ++id)
+        memcpy(game->item_table[id], data + at, COK_ITEM_ENTRY);
+    free(data);
+    return ok;
+}
+
 bool cok_adventure_open(cok_adventure *game, const cok_rules *rules, const char *assets,
                         const cok_keyboard *keys, const cok_adventure_hooks *hooks)
 {
@@ -2326,6 +2381,7 @@ bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, con
     game->effects.trace = effect_trace;
     game->effects.context = game;
     game->vm.file = 1;
+    memset(game->item_table, 0xff, sizeof game->item_table); /* dkk 4f9a:0006 */
     game->picture_id = COK_ADVENTURE_NO_PICTURE;
     game->big_id = COK_ADVENTURE_NO_PICTURE;
     game->head_id = game->body_id = 0xff; /* 3e99:0477 */
@@ -2401,7 +2457,9 @@ bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, con
     /* 3e99:005b also reads the item types. */
     char path[sizeof game->assets + 32];
     snprintf(path, sizeof path, "%s/%s", game->assets, rules->files.item_types);
-    return cok_item_types_read(path, &game->item_types, game->error, sizeof game->error);
+    if (!cok_item_types_read(path, &game->item_types, game->error, sizeof game->error))
+        return false;
+    return load_item_table(game);
 }
 
 void cok_adventure_close(cok_adventure *game)
@@ -3511,7 +3569,8 @@ static cok_ecl_status look(cok_adventure *game)
  * slot's first entry, DS:6da8, 6961:000a), or in 3D areas the portrait
  * last shown (DS:4b55, 4b56: 6961:05b9, 06bd), then the party list and
  * the status line; in the party menu (mode 0) the frame of 1128:0000,
- * cleared; in combat (mode 5) nothing. */
+ * cleared; in a game's vault (mode 7, dkk) the same as a shop's with the
+ * vault's line; in combat (mode 5) nothing. */
 static void redraw_screen(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -3527,6 +3586,18 @@ static void redraw_screen(cok_adventure *game)
         if (vm->abort) return;
         cok_adventure_party(game);
         cok_adventure_status(game);
+    } else if (vm->mode == 7) {
+        /* dkk 65cd:2db0 in the vault's menu (3948:000e, which sets DS:db62):
+         * the frame, the small picture's first frame at cell 3, 3 (DS:c09a,
+         * 6ca1:0000) in 3D areas too, the party list, the status line and
+         * the vault's line in light green at 1, 15 (DS:2ccd). */
+        cok_adventure_frame(game);
+        draw_frame(game, 0);
+        cok_adventure_party(game);
+        cok_adventure_status(game);
+        const char *line = cok_game_rules(game)->treasure.vault_line;
+        log_text(game, "print", line);
+        cok_text_string(&game->screen, &game->font, line, 1, 15, 10, 0);
     } else if (vm->mode == 2 || vm->mode == 6) {
         uint8_t picture = vm->mode == 2 ? 0x3b : 0x3c;
         cok_adventure_frame(game);

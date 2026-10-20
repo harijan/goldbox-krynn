@@ -165,19 +165,66 @@ class DeathKnightsTests(unittest.TestCase):
             "print: SIR GARREN GROWLS AT YOU, THE MYSTERIOUS SWORD POINTED IN YOUR DIRECTION. ",
             "print: what do you do", "menu: ~ATTACK ~TAKE SWORD ~REASON ~LEAVE"])
 
-    def test_not_yet(self):
-        # The treasure menu after a fight with treasure (block 2's), the
-        # treasure's items stop the run, naming the routine.
+    def test_treasure(self):
+        # Block 2's fight won: the results, then the treasure menu
+        # (3a37:0eed); Take with only items lists them (3a37:0ce8) and gives
+        # the first to the selected; Exit with treasure left asks, the
+        # Yes/No on No (6a69:2048 with 1), and Enter leaves.
         result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--combat", "won", "--keys",
-                           r"\r" * 20, ASSETS, 2)
+                           r"\r\rT\r\eE\r", ASSETS, 2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        at = lines.index("menu: View Take Pool Exit")
+        self.assertEqual(lines[at + 1:at + 3], ["item: Plate Mail ", "item: Shield "])
+        self.assertIn("choice: Plate Mail ", lines)
+        at = lines.index("print: there is still treasure left. ")
+        self.assertEqual(lines[at + 1:at + 3], [
+            "print: do you want to go back and claim your treasure?", "menu: ~Yes ~No"])
+        self.assertEqual(lines[-1], "(done in block 2)")
+        # TREASURE ITEMS (3632:1933): its coins added and its items from the
+        # item table (ITEM0), the last first.
+        result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--file", 3, "--start", "9569",
+                           "--keys", r"\r\r", ASSETS, 80)
+        self.assertEqual(result.stdout.splitlines()[:5], [
+            "treasure: 1000 Steel", "treasure: item Gauntlets ", "treasure: item Ring ",
+            "treasure: item Chain Mail ", "treasure: item Mace "])
+        # STOCK (3632:28d2): shop 1's items, the last first and shown, then
+        # its shop, which stops the run (3b89:06f3).
+        result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--set", "4be6=1", "--start",
+                           "9109", ASSETS, 36)
         self.assertEqual(result.returncode, 1)
-        self.assertIn("print: the party has found treasure", result.stdout.splitlines())
+        self.assertEqual(result.stdout.splitlines()[:2], [
+            "treasure: item Banded Mail ", "treasure: item Chain Mail "])
         self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
-                         "Krynn's treasure menu (dkk 3a37:0eed)")
-        result = self.play("--file", 3, "--start", "9569", ASSETS, 80)
-        self.assertEqual(result.returncode, 1)
+                         "Krynn's shop (dkk 3b89:06f3)")
+        # ADD EP 0 (3632:25f1): its words, the selected's experience.
+        result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--set", "4be6=1", "--start",
+                           "9796", "--keys", r"\r" * 4, ASSETS, 36)
+        self.assertEqual(result.stdout.splitlines()[0],
+                         "print: congratulations...SIR DRYDEN gains experience!")
+
+    def test_vault(self):
+        # ECL1 block 35: COMBAT's vault branch (var 0x4d00) opens the vault's
+        # menu (3948:000e): mode 7's line, Pool puts the party's money in
+        # it, Take lists it, Exit writes the temporary vault (46b2:302d):
+        # the pool's steel, gems and jewelry; then NEWECL 36.
+        saves = self.saves(ASSETS / "SAVE")
+        result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--saves", saves, "--set",
+                           "4be6=1", "--keys", r"PT\eE", ASSETS, 35)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[lines.index("print: bank of gargath") + 1],
+                         "menu: View Pool Money Items Exit")
+        self.assertIn("menu: View Take Pool Items Exit", lines)
+        self.assertIn("item: Steel 3000", lines)
+        self.assertEqual(lines[-1], "(done in block 36)")
+        self.assertEqual((saves / "TMPVAULT.DAT").read_bytes(),
+                         (3000).to_bytes(4, "little") + bytes(8))
+        # View and Items, the character's sheet and items in mode 7, stop.
+        result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--saves", saves, "--set",
+                           "4be6=1", "--keys", "V", ASSETS, 35)
         self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
-                         "Krynn's opcode 0x27, TREASURE ITEMS (dkk 3632:1933)")
+                         "Krynn's the vault's View (dkk 580d:0c66)")
 
     # Saved game A to block 16's fight: its texts, No rest, the festival's.
     TO_FIGHT = r"\r\rN" + r"\r" * 9
@@ -259,8 +306,8 @@ class DeathKnightsTests(unittest.TestCase):
 
     def test_fights_in_and_out(self):
         # The blocks that stopped at SETUP MONSTERS: each fight entered and
-        # left with --combat, the script going on (block 2's treasure, its
-        # menu not ported yet, stops it).
+        # left with --combat, the script going on (block 2's into its
+        # treasure menu).
         expected = {2: "(done in block 2)", 51: "(done in block 51)", 67: "(done in block 67)",
                     97: "(done in block 97)", 98: "(done in block 97)"}
         # Those that flee from 51 and 67 are sent back to block 17 (var
@@ -277,8 +324,8 @@ class DeathKnightsTests(unittest.TestCase):
                     if how == "lost":
                         self.assertIn("(the party was killed in block", lines[-1])
                     elif block == 2 and how == "won":
-                        self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: "
-                                         "Death Knights of Krynn's treasure menu (dkk 3a37:0eed)")
+                        # The treasure menu, where Enter opens View.
+                        self.assertIn("menu: View Take Pool Exit", lines)
                     else:
                         self.assertEqual(lines[-1], fled.get(block, last) if how == "fled"
                                          else last, result.stderr)

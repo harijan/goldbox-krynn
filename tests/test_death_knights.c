@@ -6,6 +6,7 @@
  * line saying so. */
 #include "dax.h"
 #include "ecl.h"
+#include "adventure.h"
 #include "rules.h"
 #include "screen.h"
 #include "view.h"
@@ -1002,7 +1003,7 @@ static void test_combat(void)
     const cok_rules_combat *C = &R->combat;
     unsigned long calls[24];
     size_t n = far_calls(0x3632, 0x16ec, 0x1b0, calls, 24);
-    CHECK(n >= 6 && C->vault && cites(C->vault_unported, calls[0]) &&
+    CHECK(n >= 6 && C->vault && C->vault_unported == NULL && calls[0] == 0x3948000e &&
           cites(C->shop_unported, calls[1]) && cites(C->temple_unported, calls[2]) &&
           calls[3] == 0x3a371318);
     CHECK(HOLDS(0x3632, 0x16ec, 0x48, 0x26, 0x80, 0xbd, 0x00, 0x02, 0x01)); /* var 0x4d00 */
@@ -1083,7 +1084,8 @@ static void test_combat(void)
           pascal_is(ds(0x191b), C->receives, false) && pascal_is(ds(0x193a), C->points, false) &&
           pascal_is(ds(0x18d3), C->found_none, false) && C->withdrawal == NULL);
     CHECK(pascal_is(ds(0x2b9c), C->rejoice, false) && pascal_is(ds(0x2681), C->rejoice_key, false));
-    CHECK(C->treasure_if_any && cites(C->treasure_unported, 0x3a370eed));
+    CHECK(C->treasure_if_any && C->treasure_unported == NULL &&
+          near_call(0x3a37, 0x1318, 0x200, 0x0eed));
     CHECK(!C->weapons_back && !C->shares && C->may_train && R->characters.paladin_row == 10);
     /* The paladin's experience row 10 (65cd:382c: cmp al, 3 then mov byte
      * [bp-2], 0x0a), the highest levels' table (65cd:38c7's [di-0x7d2c]:
@@ -1109,6 +1111,135 @@ static void test_combat(void)
     puts("death knights: the encounter's and the fight's routines checked");
 }
 
+/* The treasure section against the original's code: the item table's
+ * loader (4f9a:0006, called at the end of startup 4f9a:00e1), TREASURE
+ * ITEMS (3632:1933) and STOCK (3632:28d2) with their tables, the treasure
+ * menu (3a37:0eed), Take (0dfc) and its items (0c26) and money (5c72:0ac4,
+ * 09e4), taking an item (3b89:033b), the vault (3948:000e, 65cd:2db0,
+ * 580d:26d0), DAMAGE (3632:1ca2) and ADD EP (3632:25f1). */
+static void test_treasure(void)
+{
+    const cok_rules_treasure *T = &R->treasure;
+    const cok_data_segment *D = R->data;
+    /* 4f9a:0006: FillChar(DS:a2ca, 0x10de, 0xff), then ITEM0 (its name at
+     * 4f9a:0000) record 1, ids from 1 at DS:a2b9 + 17 * id while at most
+     * 0x7f. */
+    CHECK(pascal_is(at(0x4f9a, 0x0000), T->table.stem, false) && T->table.file == 0 &&
+          T->table.record == 1 && T->table_count == 0x7f);
+    CHECK(HOLDS(0x4f9a, 0x0006, 0x20, 0xbf, 0xca, 0xa2, 0x1e, 0x57, 0xb8, 0xde, 0x10, 0x50, 0xb0,
+                0xff) &&
+          0xa2ca + 0x10de == 0xa2b9 + COK_ITEM_ENTRY * COK_ITEM_ENTRIES);
+    CHECK(HOLDS(0x4f9a, 0x0006, 0x40, 0xbf, 0x22, 0x43, 0x1e, 0x57, 0xb0, T->table.record, 0x50) &&
+          HOLDS(0x4f9a, 0x0006, 0xc0, 0x81, 0xc7, 0xb9, 0xa2) &&
+          HOLDS(0x4f9a, 0x0006, 0xc0, 0x80, 0x7e, 0xfb, T->table_count) &&
+          HOLDS(0x4f9a, 0x0006, 0xc0, 0xba, COK_ITEM_ENTRY, 0x00));
+    CHECK(near_call(0x4f9a, 0x00e1, 0x800, 0x0006));
+    /* 3632:1933: the header's three words added to DS:be58, 5c and 60
+     * (steel, gems, jewelry: the pool's coins 4-6), each id's entry at
+     * [di-0x5d47], 17 bytes, none for 0xff. */
+    CHECK(HOLDS(0x3632, 0x1933, 0x50, 0x01, 0x06, 0x58, 0xbe) &&
+          HOLDS(0x3632, 0x1933, 0x50, 0x01, 0x06, 0x5c, 0xbe) &&
+          HOLDS(0x3632, 0x1933, 0x50, 0x01, 0x06, 0x60, 0xbe) &&
+          HOLDS(0x3632, 0x1933, 0x100, 0x80, 0xbd, 0xb9, 0xa2, 0xff) &&
+          cok_field_first(R->character, COK_FIELD_COINS) == 4);
+    /* 3632:28d2: shop 1-8 (cmp 8, else 1), [di+7], [di+0xf], [di+0x17],
+     * the item's +0x35 and 0xf8. */
+    CHECK(HOLDS(0x3632, 0x28d2, 0x80, 0x80, 0x7e, 0xff, 0x08) &&
+          HOLDS(0x3632, 0x28d2, 0x80, 0x8a, 0x85, 0x07, 0x00) &&
+          HOLDS(0x3632, 0x28d2, 0x90, 0x8a, 0x85, 0x0f, 0x00) &&
+          HOLDS(0x3632, 0x28d2, 0xc0, 0x8a, 0x85, 0x17, 0x00) &&
+          HOLDS(0x3632, 0x28d2, 0x100, 0x24, 0xf8) &&
+          cok_data_offset(D, COK_DATA_STOCK_FIRST, 0) == 0x0007 &&
+          cok_data_offset(D, COK_DATA_STOCK_COUNTS, 0) == 0x000f &&
+          cok_data_offset(D, COK_DATA_STOCK_ITEMS, 0) == 0x0017 &&
+          cok_data_count(D, COK_DATA_STOCK_FIRST, 0) == 8);
+    /* The tables reach no further than shop 8's last item. */
+    unsigned last = 0;
+    for (unsigned shop = 1; shop <= 8; ++shop) {
+        unsigned end = ds(0x0007)[shop] + ds(0x000f)[shop] - 1u;
+        if (end > last) last = end;
+        CHECK(cok_data_u8_at(D, COK_DATA_STOCK_FIRST, shop) == ds(0x0007)[shop] &&
+              cok_data_u8_at(D, COK_DATA_STOCK_COUNTS, shop) == ds(0x000f)[shop]);
+    }
+    CHECK(last == cok_data_count(D, COK_DATA_STOCK_ITEMS, 0));
+    /* The treasure menu: its items DS:3560 (as Champions'), the words
+     * of leaving (DS:194f, 1978), the Yes/No from No (6a69:2048 with
+     * DS:57c1, 1); Take's (DS:3168, 354b), the items' (DS:315d, 3540), the
+     * coins' (5c72:0ac4: DS:104c, 31d6; 0fae, 0fce, 0fb9; 09e4: DS:0c62,
+     * 0c6d, 0c78, each and a space). */
+    CHECK(pascal_is(ds(0x3560), "View Take Pool Share Detect Exit", false) &&
+          HOLDS(0x3a37, 0x0eed, 0x300, 0xbf, 0x60, 0x35) &&
+          pascal_is(ds(0x194f), T->left, false) && pascal_is(ds(0x1978), T->claim, false) &&
+          HOLDS(0x3a37, 0x0eed, 0x300, 0xbf, 0x4f, 0x19) &&
+          HOLDS(0x3a37, 0x0eed, 0x300, 0xbf, 0x78, 0x19) &&
+          HOLDS(0x3a37, 0x0eed, 0x300, 0xa0, 0xc1, 0x57) && ds(0x57c1)[0] == 1 && T->claim_no &&
+          T->menus_first && T->specials_apart);
+    CHECK(pascal_is(ds(0x3168), T->take_prompt, false) &&
+          pascal_is(ds(0x354b), "Money Items Exit", false) &&
+          HOLDS(0x3a37, 0x0dfc, 0x60, 0xbf, 0x68, 0x31) &&
+          pascal_is(ds(0x315d), T->items_prompt, false) && pascal_is(ds(0x3540), "Take", false) &&
+          HOLDS(0x3a37, 0x0c26, 0x80, 0xbf, 0x5d, 0x31) &&
+          pascal_is(ds(0x104c), T->coin_prompt, false) && pascal_is(ds(0x31d6), "Select", false) &&
+          HOLDS(0x5c72, 0x0ac4, 0x200, 0xbf, 0x4c, 0x10) &&
+          pascal_is(ds(0x0fae), T->how_many, false) && pascal_is(ds(0x0fce), T->how_much, false) &&
+          pascal_is(ds(0x0fb9), " will you take? ", false));
+    static const unsigned words[3] = {0x0c62, 0x0c6d, 0x0c78};
+    for (unsigned k = 0; k < 3; ++k) {
+        char word[16];
+        const uint8_t *p = ds(words[k]);
+        snprintf(word, sizeof word, "%.*s ", (int)p[0], (const char *)p + 1);
+        CHECK(T->coin_words[4 + k] != NULL && strcmp(T->coin_words[4 + k], word) == 0 &&
+              HOLDS(0x5c72, 0x09e4, 0xe0, 0xbf, (uint8_t)words[k], (uint8_t)(words[k] >> 8)));
+    }
+    /* 3b89:033b: 580d:2a0a with 1 (the join's rule), "Overloaded" (DS:2acc),
+     * 580d:1be6 (Join) for an item with a count (+0x39). */
+    CHECK(HOLDS(0x3b89, 0x033b, 0x20, 0xb0, 0x01, 0x50) &&
+          pascal_is(ds(0x2acc), T->overloaded, false) &&
+          HOLDS(0x3b89, 0x033b, 0x30, 0xbf, 0xcc, 0x2a) &&
+          HOLDS(0x3b89, 0x033b, 0x110, 0x26, 0x80, 0x7d, 0x39, 0x00) && T->take_joins);
+    unsigned long calls[24];
+    size_t n = far_calls(0x3b89, 0x033b, 0x120, calls, 24);
+    bool overload = false, join = false;
+    for (size_t i = 0; i < n; ++i) {
+        overload |= calls[i] == 0x580d2a0a;
+        join |= calls[i] == 0x580d1be6;
+    }
+    CHECK(overload && join);
+    /* The vault: its items (DS:35bd), mode 7's line (65cd:2db0, DS:2ccd),
+     * the deposit's question (580d:26d0, DS:0fce and DS:1237), and the
+     * routines its View and Items call. */
+    char items[64] = "";
+    for (size_t i = 0; i < 6; ++i)
+        snprintf(items + strlen(items), sizeof items - strlen(items), "%s%s", i > 0 ? " " : "",
+                 T->vault_items[i]);
+    CHECK(pascal_is(ds(0x35bd), items, false) && HOLDS(0x3948, 0x000e, 0x180, 0xbf, 0xbd, 0x35) &&
+          pascal_is(ds(0x2ccd), T->vault_line, false) &&
+          HOLDS(0x65cd, 0x2db0, 0x80, 0xbf, 0xcd, 0x2c) &&
+          pascal_is(ds(0x1237), T->deposit, false) &&
+          HOLDS(0x580d, 0x26d0, 0x300, 0xbf, 0x37, 0x12));
+    n = far_calls(0x3948, 0x000e, 0x260, calls, 24);
+    bool view = false, list = false, take = false;
+    for (size_t i = 0; i < n; ++i) {
+        view |= cites(T->vault_view_unported, calls[i]);
+        list |= cites(T->vault_items_unported, calls[i]);
+        take |= calls[i] == 0x3a370dfc;
+    }
+    CHECK(view && list && take);
+    /* DAMAGE: and al, 0x0f (the bonus), shr ax, 1 (half when saved), its
+     * key DS:0868. */
+    CHECK(T->damage_bonus == 0x0f && HOLDS(0x3632, 0x1ca2, 0x100, 0x24, T->damage_bonus) &&
+          T->damage_halves && HOLDS(0x3632, 0x1ca2, 0x140, 0x8b, 0x46, 0xf4, 0xd1, 0xe8) &&
+          pascal_is(ds(0x0868), T->damage_key, false) &&
+          HOLDS(0x3632, 0x1fd7, 0x20, 0xbf, 0x68, 0x08));
+    /* ADD EP: its words (DS:1485, 2a64; 2a3b), +0xc6 from 65cd:38c7. */
+    CHECK(pascal_is(ds(0x1485), T->gains, false) && pascal_is(ds(0x2a64), T->gains_end, false) &&
+          pascal_is(ds(0x2a3b), T->party_gains, false) &&
+          HOLDS(0x3632, 0x25f1, 0x140, 0xbf, 0x85, 0x14) &&
+          HOLDS(0x3632, 0x25f1, 0x60, 0xbf, 0x3b, 0x2a) &&
+          HOLDS(0x3632, 0x25f1, 0xe0, 0x26, 0x88, 0x85, 0xc6, 0x00) && T->gains_active_first);
+    puts("death knights: the treasure section checked");
+}
+
 int main(void)
 {
     test_lookup();
@@ -1121,6 +1252,7 @@ int main(void)
         test_assets();
         test_executable();
         if (exe_size > 0) test_combat();
+        if (exe_size > 0) test_treasure();
     }
     puts("death knights: ok");
     return 0;

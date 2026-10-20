@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L /* mkdtemp, rmdir */
+
 #include "treasure.h"
 #include "arena.h"
 
@@ -5,10 +7,13 @@
 #include "items.h"
 #include "monster.h"
 #include "train.h"
+#include "test_temp.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #x); exit(1); } } while (0)
 
@@ -1259,6 +1264,367 @@ static void test_may_train(void)
     CHECK(!cok_treasure_may_train(R, c, &may));
 }
 
+/* Death Knights' treasure (the treasure section; dkk 3632:1933, 28d2,
+ * 3a37:0eed, 3948:000e, 3b89:033b), on a game of its own. */
+
+/* A party member of Death Knights' layout: a fighter of level 1 that can
+ * act, strength 18, its race 6 (a human). */
+static cok_character *dk_member(const char *name)
+{
+    const cok_character_layout *L = cok_rules_death_knights.character;
+    cok_character *c = calloc(1, sizeof *c);
+    CHECK(c != NULL);
+    uint8_t *r = c->record;
+    r[0] = (uint8_t)strlen(name);
+    memcpy(r + 1, name, strlen(name));
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(L, r, COK_FIELD_CLASS, 2);
+    cok_field_set8(L, r, COK_FIELD_RACE, 6);
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 2, 1);
+    for (int i = 0; i < 6; ++i) cok_field_set8_at(L, r, COK_FIELD_SCORE, i, 10);
+    cok_field_set8_at(L, r, COK_FIELD_SCORE, COK_SCORE_STRENGTH, 18);
+    CHECK(cok_party_add(&game.party, &cok_rules_death_knights, c));
+    cok_ecl_add_var(&game.vm, COK_VAR_PARTY_SIZE, 1);
+    return c;
+}
+
+/* An item with a count: type, name part, count, weight. */
+static void counted_item(uint8_t it[COK_ITEM_SIZE], uint8_t type, uint8_t count, uint16_t weight)
+{
+    memset(it, 0, COK_ITEM_SIZE);
+    it[0x2e] = it[0x31] = type;
+    it[0x39] = count;
+    put_word(it + 0x37, weight);
+}
+
+static void test_dk_table(void)
+{
+    /* ITEM0 record 1 at startup: entry 76 (a Ring of Protection +1), 1-96
+     * from the record, the rest and 0 none. */
+    static const uint8_t ring[COK_ITEM_ENTRY] = {0x3b, 0x6f, 0x31, 0x2e, 0x01, 0x01, 0x00, 0x06, 0x00,
+                                                 0x01, 0x00, 0x00, 0x88, 0x13, 0x00, 0x00, 0x00};
+    CHECK(memcmp(game.item_table[76], ring, sizeof ring) == 0);
+    CHECK(game.item_table[1][0] == 0x05 && game.item_table[96][0] != 0xff);
+    for (size_t id = 97; id < COK_ITEM_ENTRIES; ++id) CHECK(game.item_table[id][0] == 0xff);
+    CHECK(game.item_table[0][0] == 0xff);
+}
+
+static void test_dk_treasure_items(void)
+{
+    /* TREASURE ITEMS 500 2 3 : 1 76 200: the coins added to the pool's
+     * steel, gems and jewelry; the items of 1 and 76 first, the last
+     * first; 200 (0xff) none. */
+    reset("");
+    game.pool.coins[4] = 10;
+    uint8_t old[COK_ITEM_SIZE] = {0};
+    CHECK(cok_pool_insert(&game.pool, 0, old));
+    CHECK(RUN(0x27, 2, 0xf4, 1, 0, 2, 0, 3, 0, 3, 0, 1, 0, 76, 0, 200) == COK_ECL_OK);
+    CHECK(game.pool.coins[4] == 510 && game.pool.coins[5] == 2 && game.pool.coins[6] == 3);
+    CHECK(game.pool.coins[0] == 0 && game.pool.item_count == 3);
+    CHECK(memcmp(game.pool.items[0] + 0x2e, game.item_table[76], COK_ITEM_ENTRY) == 0 &&
+          memcmp(game.pool.items[1] + 0x2e, game.item_table[1], COK_ITEM_ENTRY) == 0);
+    for (size_t i = 0; i < 0x2e; ++i) CHECK(game.pool.items[0][i] == 0);
+    CHECK(LOGGED("treasure: 510 Steel, 2 Gems, 3 Jewelry;treasure: item Ring ;"));
+    /* The variables' header: a word over two bytes. */
+    reset("");
+    game.vm.mem7c00[0x379] = 0x34;
+    game.vm.mem7c00[0x37a] = 0x12;
+    CHECK(RUN(0x27, 3, 0x79, 0x7f, 0, 0, 0, 0, 0, 0) == COK_ECL_OK);
+    CHECK(game.pool.coins[4] == 0x1234 && game.pool.item_count == 0);
+    /* Id 0 reads before the table. */
+    reset("");
+    CHECK(RUN(0x27, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0) == COK_ECL_UNDEFINED);
+}
+
+static void test_dk_stock(void)
+{
+    /* STOCK 9: shop 1 (DS:0008's 1, DS:0010's 15): the pool's items gone,
+     * then ids DS:0018-0026, the last first, shown (+0x35 & 0xf8); then the
+     * shop, not ported yet. */
+    reset("");
+    uint8_t old[COK_ITEM_SIZE] = {0};
+    CHECK(cok_pool_insert(&game.pool, 0, old));
+    CHECK(RUN(0x3c, 0, 9) == COK_ECL_UNPORTED);
+    CHECK(game.pool.item_count == 15);
+    uint8_t expect[COK_ITEM_ENTRY];
+    memcpy(expect, game.item_table[0x29], sizeof expect);
+    expect[0x35 - 0x2e] &= 0xf8;
+    CHECK(memcmp(game.pool.items[0] + 0x2e, expect, sizeof expect) == 0);
+    CHECK(memcmp(game.pool.items[14] + 0x2e, game.item_table[1], 7) == 0);
+    for (size_t i = 0; i < game.pool.item_count; ++i) CHECK((game.pool.items[i][0x35] & 7) == 0);
+    CHECK(strstr(game.error, "shop (dkk 3b89:06f3)") != NULL);
+    /* Shop 8: 30 items from DS:003f. */
+    reset("");
+    CHECK(RUN(0x3c, 0, 8) == COK_ECL_UNPORTED && game.pool.item_count == 30);
+    for (size_t i = 0; i < game.pool.item_count; ++i) CHECK((game.pool.items[i][0x35] & 7) == 0);
+    CHECK(game.pool.items[29][0x2e] == game.item_table[3][0]);
+}
+
+static void test_dk_take(void)
+{
+    /* An item with a count joins those of its kind once taken (580d:1be6),
+     * and with 16 items one that would join is taken (580d:2a0a). */
+    reset("");
+    cok_character *a = dk_member("A");
+    game.vm.character = a->record;
+    uint8_t arrows[COK_ITEM_SIZE], other[COK_ITEM_SIZE];
+    counted_item(arrows, 0x1e, 10, 1);
+    CHECK(cok_character_insert_item(a, 0, arrows));
+    for (int i = 0; i < 15; ++i) {
+        counted_item(other, 0x12, 0, 1);
+        other[0x32] = (uint8_t)i;
+        CHECK(cok_character_insert_item(a, a->item_count, other));
+    }
+    bool failed = true;
+    counted_item(arrows, 0x1e, 5, 1);
+    CHECK(cok_treasure_take_item(&game, arrows, &failed) && !failed);
+    /* The one taken, last, holds the others it joined. */
+    CHECK(a->item_count == 16 && a->items[15][0x2e] == 0x1e && a->items[15][0x39] == 15 &&
+          a->items[0][0x2e] == 0x12);
+    counted_item(other, 0x0c, 5, 1);
+    CHECK(cok_treasure_take_item(&game, other, &failed) && failed && a->item_count == 16);
+    CHECK(LOGGED("print: Overloaded;"));
+    /* Too heavy, joining or not. */
+    counted_item(arrows, 0x1e, 5, 0x7fff);
+    CHECK(cok_treasure_take_item(&game, arrows, &failed) && failed);
+    /* With no items, the join's pointer is the stack's. */
+    reset("");
+    cok_character *b = dk_member("B");
+    game.vm.character = b->record;
+    counted_item(arrows, 0x1e, 5, 1);
+    CHECK(!cok_treasure_take_item(&game, arrows, &failed) &&
+          game.vm.status == COK_ECL_UNDEFINED);
+    reset("");
+    b = dk_member("B");
+    game.vm.character = b->record;
+    counted_item(other, 0x12, 0, 1);
+    CHECK(cok_treasure_take_item(&game, other, &failed) && !failed && b->item_count == 1);
+}
+
+static void test_dk_menu(void)
+{
+    /* The treasure menu from its first item: Enter is View; its words, the
+     * Yes/No from No; PgUp in Take does nothing (Champions' takes items);
+     * Escape leaves Take. */
+    reset("\rT\x01I\033\033\r");
+    cok_character *a = dk_member("A");
+    game.vm.character = a->record;
+    game.selected = 3;
+    game.pool.coins[4] = 7;
+    uint8_t loot[COK_ITEM_SIZE];
+    counted_item(loot, 0x12, 0, 1);
+    CHECK(cok_pool_insert(&game.pool, 0, loot));
+    CHECK(combat(COK_COMBAT_UNPORTED) == COK_ECL_OK);
+    CHECK(LOGGED("menu: View Take Pool Share Exit;menu: Money Items Exit;menu: Money Items "
+                 "Exit;menu: View Take Pool Share Exit;print: there is still treasure left. ;"
+                 "print: do you want to go back and claim your treasure?;menu: ~Yes ~No;"));
+    /* Enter on the Yes/No's No left: the pool's items freed after. */
+    CHECK(a->item_count == 0 && !LOGGED("choice: Long Sword") && game.pool.item_count == 0 &&
+          !game.input_ended);
+    /* The treasure menu's own selection, Take, again after Take's menu
+     * (which starts at Money). */
+    reset("\r\x01M\r\033\r\033\033\r");
+    a = dk_member("A");
+    game.vm.character = a->record;
+    game.pool.coins[4] = 7;
+    CHECK(cok_pool_insert(&game.pool, 0, loot));
+    CHECK(combat(COK_COMBAT_UNPORTED) == COK_ECL_OK);
+    CHECK(LOGGED("menu: View Take Pool Share Exit;menu: Money Items Exit;menu: View Take Pool "
+                 "Share Exit;menu: Money Items Exit;menu: View Take Pool Share Exit;print: there "
+                 "is still"));
+    /* Take's menu from Money: Enter takes money. */
+    reset("\rT\r\r7\r\033\033");
+    a = dk_member("A");
+    game.vm.character = a->record;
+    game.selected = 3;
+    game.pool.coins[4] = 7;
+    CHECK(cok_pool_insert(&game.pool, 0, loot));
+    CHECK(combat(COK_COMBAT_UNPORTED) == COK_ECL_OK);
+    CHECK(LOGGED("menu: Money Items Exit;item: Steel 7;choice: S;menu: How much Steel  will "
+                 "you take? ;input: 7;"));
+    CHECK(cok_field_u16_at(cok_rules_death_knights.character, a->record, COK_FIELD_COINS, 4) == 7);
+}
+
+static void test_dk_vault(const char *dir)
+{
+    /* COMBAT with var 0x4d00 1: the vault of the game loaded last (VAULTQ)
+     * into the pool, its items after; Pool, then Exit writes the pool to
+     * TMPVAULT.DAT. */
+    const cok_character_layout *L = cok_rules_death_knights.character;
+    reset("PE");
+    snprintf(game.save_dir, sizeof game.save_dir, "%s", dir);
+    game.vault_letter = 'Q';
+    game.vault_temp = false;
+    char path[600];
+    snprintf(path, sizeof path, "%s/VAULTQ.DAT", dir);
+    FILE *f = fopen(path, "wb");
+    CHECK(f != NULL);
+    uint8_t file[12 + COK_ITEM_SIZE] = {100, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0};
+    file[12 + 0x2e] = file[12 + 0x31] = 0x12;
+    file[12 + 0x2a] = 0x55; /* a pointer, cleared */
+    CHECK(fwrite(file, 1, sizeof file, f) == sizeof file);
+    fclose(f);
+    cok_character *a = dk_member("A");
+    game.vm.character = a->record;
+    cok_field_set16_at(L, a->record, COK_FIELD_COINS, 6, 4);
+    uint8_t loot[COK_ITEM_SIZE];
+    counted_item(loot, 0x11, 0, 1);
+    CHECK(cok_pool_insert(&game.pool, 0, loot));
+    CHECK(cok_character_insert_item(a, 0, loot)); /* Items offered */
+    cok_ecl_set_var(&game.vm, COK_VAR_VAULT, 1);
+    game.selected = 2;
+    CHECK(RUN(COK_ECL_COMBAT) == COK_ECL_OK);
+    /* Its own selection, the one before kept. */
+    CHECK(cok_ecl_var(&game.vm, COK_VAR_VAULT) == 0 && game.vault_temp && game.selected == 2);
+    CHECK(LOGGED("print: bank of gargath;menu: View Take Pool Money Items Exit;menu: View Take "
+                 "Pool Items Exit;"));
+    snprintf(path, sizeof path, "%s/TMPVAULT.DAT", dir);
+    f = fopen(path, "rb");
+    CHECK(f != NULL);
+    uint8_t back[sizeof file + 1];
+    CHECK(fread(back, 1, sizeof back, f) == sizeof file);
+    fclose(f);
+    file[12 + 0x2a] = 0;
+    file[8] = 4; /* the jewelry pooled */
+    CHECK(memcmp(back, file, sizeof file) == 0);
+    /* The temporary vault next time; Money deposits the selected's coins,
+     * steel first, at most what it has; Take takes them back. */
+    reset("M\r3\r\033E");
+    snprintf(game.save_dir, sizeof game.save_dir, "%s", dir);
+    a = dk_member("A");
+    game.vm.character = a->record;
+    cok_field_set16_at(L, a->record, COK_FIELD_COINS, 4, 5);
+    cok_field_set16_at(L, a->record, COK_FIELD_COINS, 5, 1);
+    cok_ecl_set_var(&game.vm, COK_VAR_VAULT, 1);
+    CHECK(RUN(COK_ECL_COMBAT) == COK_ECL_OK);
+    CHECK(LOGGED("item: Steel            5;item: Gems             1;choice: S;menu: How much "
+                 "Steel will you deposit? ;input: 3;"));
+    CHECK(game.pool.coins[4] == 103 && game.pool.coins[6] == 4 && game.pool.item_count == 1);
+    CHECK(cok_field_u16_at(L, a->record, COK_FIELD_COINS, 4) == 2);
+    /* Without a vault: steel a hundred times the savings (0x4c33). */
+    reset("V");
+    snprintf(game.save_dir, sizeof game.save_dir, "%s", dir);
+    game.vault_temp = false;
+    game.vault_letter = 'Z';
+    a = dk_member("A");
+    game.vm.character = a->record;
+    cok_ecl_set_var(&game.vm, COK_VAR_SAVINGS, 7);
+    cok_ecl_set_var(&game.vm, COK_VAR_VAULT, 1);
+    CHECK(RUN(COK_ECL_COMBAT) == COK_ECL_UNPORTED);
+    CHECK(game.pool.coins[4] == 700 && strstr(game.error, "580d:0c66") != NULL);
+    game.save_dir[0] = '\0';
+}
+
+static void test_dk_add_ep(void)
+{
+    /* ADD EP 0 1000: "congratulations..." and the name; may-train set. */
+    const cok_rules *R = &cok_rules_death_knights;
+    const cok_character_layout *L = R->character;
+    reset("");
+    cok_character *a = dk_member("A");
+    game.vm.character = a->record;
+    int32_t need;
+    CHECK(cok_train_experience(R, 2, 2, &need) && need > 0 && need <= 0xffff);
+    CHECK(RUN(COK_ECL_ADD_EP, 0, 0, 2, (uint8_t)need, (uint8_t)(need >> 8)) == COK_ECL_OK);
+    CHECK(LOGGED("print: congratulations...A gains experience!;"));
+    CHECK(cok_field_u32(L, a->record, COK_FIELD_EXPERIENCE) == (uint32_t)need &&
+          cok_field_u8(L, a->record, COK_FIELD_MAY_TRAIN) == 1);
+    /* One who cannot act: no words, nothing. */
+    reset("");
+    a = dk_member("A");
+    game.vm.character = a->record;
+    cok_field_set8(L, a->record, COK_FIELD_ACTIVE, 0);
+    CHECK(RUN(COK_ECL_ADD_EP, 0, 0, 0, 100) == COK_ECL_OK && s.log[0] == '\0');
+    /* The party: its words cut to 40; one with no class that cannot act is
+     * passed over before the division (Champions' divides by zero). */
+    reset("");
+    a = dk_member("A");
+    cok_character *b = dk_member("B");
+    cok_field_set8(L, b->record, COK_FIELD_ACTIVE, 0);
+    cok_field_set8_at(L, b->record, COK_FIELD_CLASS_LEVEL, 2, 0);
+    CHECK(RUN(COK_ECL_ADD_EP, 0, 1, 0, 100) == COK_ECL_OK);
+    CHECK(LOGGED("print: Congratulations the party gains experien;"));
+    CHECK(cok_field_u32(L, a->record, COK_FIELD_EXPERIENCE) == 100 &&
+          cok_field_u32(L, b->record, COK_FIELD_EXPERIENCE) == 0 &&
+          cok_field_u8(L, a->record, COK_FIELD_MAY_TRAIN) == 0);
+}
+
+/* DAMAGE's rules on a copy of Champions' descriptor (Death Knights' saving
+ * throw is not ported yet): bit 4 not in the bonus (0x0f), and a save made
+ * halves the damage. */
+static cok_rules damage_rules;
+
+static unsigned damaged(uint8_t mask, bool halves, uint32_t seed, uint8_t *taken)
+{
+    damage_rules = cok_rules_champions;
+    damage_rules.treasure.damage_bonus = mask;
+    damage_rules.treasure.damage_halves = halves;
+    damage_rules.treasure.damage_key = "key";
+    game.rules = &damage_rules;
+    game.vm.rules = &damage_rules;
+    game.effects.rules = &damage_rules;
+    reset("\r\r");
+    cok_character *a = member("A");
+    a->record[0x197] = 100;
+    a->record[0x188] = 0;
+    a->record[0xd0] = 18; /* the first saving throw's number */
+    game.vm.character = a->record;
+    game.vm.seed = seed;
+    /* DAMAGE 0x90 0 0 20 0x81: the selected character, throw type 0, bit 4. */
+    cok_ecl_status status = RUN(COK_ECL_DAMAGE, 0, 0x90, 0, 0, 0, 0, 0, 20, 0, 0x81);
+    *taken = (uint8_t)(100 - a->record[0x197]);
+    game.rules = &cok_rules_champions;
+    game.vm.rules = &cok_rules_champions;
+    game.effects.rules = &cok_rules_champions;
+    return status;
+}
+
+static void test_dk_damage(void)
+{
+    unsigned full_dk = 0, half = 0, full_cok = 0;
+    for (uint32_t seed = 1; seed <= 200; ++seed) {
+        uint8_t taken;
+        CHECK(damaged(0x0f, true, seed, &taken) == COK_ECL_OK && (taken == 20 || taken == 10));
+        if (taken == 20) ++full_dk; else ++half;
+        CHECK(damaged(0x1f, false, seed, &taken) == COK_ECL_OK && taken == 20);
+        CHECK(damaged(0x1f, true, seed, &taken) == COK_ECL_OK && (taken == 20 || taken == 10));
+        if (taken == 20) ++full_cok;
+    }
+    /* Without bit 4's 16 in the bonus the save fails far more often. */
+    CHECK(half > 0 && full_dk > 2 * full_cok + 10);
+}
+
+static void test_death_knights(void)
+{
+    struct stat st;
+    if (stat("DKKAssets/ITEM0.DAX", &st) != 0) {
+        puts("treasure: DKKAssets not found; Death Knights' tests skipped");
+        return;
+    }
+    test_dk_damage();
+    cok_adventure_close(&game);
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .unported = unported,
+                                 .battlefield = battlefield, .flush = counted,
+                                 .delay = delayed, .context = &s};
+    CHECK(cok_adventure_open(&game, &cok_rules_death_knights, "DKKAssets", &keys, &hooks));
+    test_dk_table();
+    test_dk_treasure_items();
+    test_dk_stock();
+    test_dk_take();
+    test_dk_menu();
+    char dir[512];
+    CHECK(test_temp_dir(dir, sizeof dir, "treasure") != NULL);
+    test_dk_vault(dir);
+    char path[600];
+    snprintf(path, sizeof path, "%s/VAULTQ.DAT", dir);
+    remove(path);
+    snprintf(path, sizeof path, "%s/TMPVAULT.DAT", dir);
+    remove(path);
+    rmdir(dir);
+    test_dk_add_ep();
+}
+
 int main(void)
 {
     test_may_train();
@@ -1279,6 +1645,7 @@ int main(void)
     test_long_list();
     test_weapons_back();
     test_trade_byte();
+    test_death_knights();
     cok_adventure_close(&game);
     puts("treasure tests passed");
     return 0;
