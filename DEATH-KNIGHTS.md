@@ -126,7 +126,7 @@ the character fields moved (R6), which the real game's layout does better.
    caster level and the computer's spell choice); (3) `commands`, the player's
    two-row menu, Move, aiming (done); (3b) `items`, View and the items
    menu (Ready, Use, Trade, Halve, Drop, Deposit, Sell, Id; rewritten); (4) `casting`, the cast
-   entry, magic resistance; (5)
+   entry, magic resistance, band A (done: 65 spell ids cast); (5)
    `effects`, the changed effect handlers, level drain; (6) `treasure`,
    TREASURE ITEMS and ITEM0, the pool, the vault's menu, DAMAGE, ADD EP,
    STOCK, ROB (done; shop payment left for 7); (7) shops and the temple; (8) `spells`, the 27 changed spells;
