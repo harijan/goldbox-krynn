@@ -3,7 +3,7 @@
  * already there, turning undead's levels and count, the nightmares' smoke
  * (effect 0x6a), half damage from weapons of kind 0 or 1 (0x5d), Alt-A at
  * the player's turn, the computer's spell choice, aiming's range and first
- * target, attacking an ally; on records made by
+ * target, attacking an ally, the movement a round; on records made by
  * hand in its layout, the game opened on DKKAssets/ (skipped without). */
 #include "adventure.h"
 #include "ai.h"
@@ -235,6 +235,39 @@ static void test_half(void)
     CHECK(cok_character_add_effect(m, 0x5d, 0, 0, false) != NULL);
     game.effects.rolls.amount = 9;
     CHECK(cok_effects_dispatch(&game.effects, m, 5) && game.effects.rolls.amount == 4);
+}
+
+/* 65cd:1241 for the movement a round (5340:0000, 0cc0, 2afe, 3f63:1260):
+ * the movement recomputed from the base with haste (0x27), slow (0x2a) and
+ * 0x09 in it, var 0x7f72 added on the party's side, doubled; no event 0x12
+ * doubles it again, and no bounds (Champions' 432f:014d). */
+static void test_movement(void)
+{
+    const cok_character_layout *L = R->character;
+    reset();
+    cok_character *a = record('A', 0, 5, 5), *m = record('M', 1, 6, 5);
+    cok_field_set8(L, a->record, COK_FIELD_BASE_MOVEMENT, 12);
+    cok_field_set8(L, m->record, COK_FIELD_BASE_MOVEMENT, 12);
+    /* Hasted (value 0x17: aged already), the stats run since. */
+    CHECK(cok_character_add_effect(a, 0x27, 0, 0x17, false) != NULL);
+    cok_field_set8(L, a->record, COK_FIELD_MOVEMENT, 24);
+    uint8_t move;
+    CHECK(cok_combat_movement(&game, a, &move) && move == 48);
+    CHECK(cok_field_u8(L, a->record, COK_FIELD_MOVEMENT) == 24);
+    /* Hasted since the stats ran: the same. */
+    cok_field_set8(L, a->record, COK_FIELD_MOVEMENT, 12);
+    CHECK(cok_combat_movement(&game, a, &move) && move == 48);
+    CHECK(cok_field_u8(L, a->record, COK_FIELD_MOVEMENT) == 24);
+    /* Slowed, with no event: half. */
+    CHECK(cok_character_add_effect(m, 0x2a, 0, 0, false) != NULL);
+    CHECK(cok_combat_movement(&game, m, &move) && move == 12);
+    /* The party's bonus, for the party's side only; 0 stays 0. */
+    cok_ecl_set_var(&game.vm, COK_VAR_MOVE_BONUS, 2);
+    CHECK(cok_combat_movement(&game, a, &move) && move == 52);
+    CHECK(cok_combat_movement(&game, m, &move) && move == 12);
+    cok_field_set8(L, m->record, COK_FIELD_BASE_MOVEMENT, 0);
+    CHECK(cok_combat_movement(&game, m, &move) && move == 0);
+    CHECK(game.vm.status == COK_ECL_OK && log_text[0] == '\0');
 }
 
 /* 3e05:08af: Alt-A at the player's turn puts the party on Auto, as
@@ -579,6 +612,7 @@ int main(void)
     test_turning();
     test_smoke();
     test_half();
+    test_movement();
     test_alt_a();
     test_cast_choice();
     test_aim();

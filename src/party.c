@@ -749,15 +749,15 @@ static void encumbrance(lookup *l, const cok_character_layout *L, uint8_t *c)
 }
 
 /* dkk 65cd:1241, which Death Knights' stats run where Champions' run
- * 6346:03e6: the movement again from the base movement, the readied
- * armour and the load, doubled by effect 0x27, halved by 0x2a and doubled
- * by 0x09 (as bytes); then, for one on the party's side, plus var 0x7f72
- * (DS:8c31 + DS:862's 0x372), doubled as a byte for combat (DS:be6f), of
- * which 65cd:0e46 keeps half: the movement & 0x7f. The port's stats have
- * no ECL variables: var 0x7f72 counts as 0, which no Death Knights script
- * changes and its saved games hold (step 3 gives it). */
-static void death_knights_movement(lookup *l, const cok_character_layout *L,
-                                   cok_character *character, const cok_item_types *types)
+ * 6346:03e6, and its combat runs for the movement a round: the movement
+ * again from the base movement, the readied armour and the load, doubled
+ * by effect 0x27, halved by 0x2a and doubled by 0x09 (as bytes), left in
+ * the record; returned (DS:be6f) for one on the party's side plus bonus
+ * (var 0x7f72, DS:8c31 + DS:862's 0x372), doubled, as bytes. 65cd:0e46
+ * keeps half of that: the movement & 0x7f. */
+static uint8_t death_knights_movement(lookup *l, const cok_character_layout *L,
+                                      cok_character *character, const cok_item_types *types,
+                                      uint8_t bonus)
 {
     uint8_t *c = character->record;
     cok_field_set8(L, c, COK_FIELD_MOVEMENT, cok_field_u8(L, c, COK_FIELD_BASE_MOVEMENT));
@@ -765,7 +765,7 @@ static void death_knights_movement(lookup *l, const cok_character_layout *L,
         const uint8_t *item = character->items[i];
         if (item[0x34] == 0) continue;
         const uint8_t *type = item_type(l, types, item);
-        if (type == NULL) return;
+        if (type == NULL) return 0;
         armour_movement(L, item, type, c);
     }
     encumbrance(l, L, c);
@@ -773,9 +773,18 @@ static void death_knights_movement(lookup *l, const cok_character_layout *L,
     if (cok_character_find_effect(character, 0x27) != NULL) m = (uint8_t)(m << 1);
     if (cok_character_find_effect(character, 0x2a) != NULL) m = (uint8_t)(m >> 1);
     if (cok_character_find_effect(character, 0x09) != NULL) m = (uint8_t)(m << 1);
-    uint8_t bonus = 0; /* var 0x7f72, for one with HOSTILE 0 */
+    cok_field_set8(L, c, COK_FIELD_MOVEMENT, m);
     if (cok_field_u8(L, c, COK_FIELD_HOSTILE) == 0) m = (uint8_t)(m + bonus);
-    cok_field_set8(L, c, COK_FIELD_MOVEMENT, (uint8_t)((uint8_t)(m << 1) >> 1));
+    return (uint8_t)(m << 1);
+}
+
+bool cok_character_round_movement(cok_character *character, const cok_rules *rules,
+                                  const cok_item_types *types, uint8_t bonus, uint8_t *movement,
+                                  char *error, size_t error_size)
+{
+    lookup l = {error, error_size, false, rules->data};
+    *movement = death_knights_movement(&l, rules->character, character, types, bonus);
+    return !l.failed;
 }
 
 bool cok_character_stats(cok_character *character, const cok_rules *rules,
@@ -850,8 +859,12 @@ bool cok_character_stats(cok_character *character, const cok_rules *rules,
     }
     /* Magic armour does not add to a ring's bonus. */
     if (magic) ac[3] = 0;
+    /* The port's stats have no ECL variables: var 0x7f72 counts as 0,
+     * which no Death Knights script changes and its saved games hold (step
+     * 3 gives it). */
     if (rules->characters.stats == COK_STATS_DEATH_KNIGHTS)
-        death_knights_movement(&l, L, character, types);
+        cok_field_set8(L, c, COK_FIELD_MOVEMENT,
+                       (uint8_t)(death_knights_movement(&l, L, character, types, 0) >> 1));
     else
         encumbrance(&l, L, c);
     if (ac[4] < cok_field_u8(L, c, COK_FIELD_AC)) ac[4] = cok_field_s8(L, c, COK_FIELD_AC);

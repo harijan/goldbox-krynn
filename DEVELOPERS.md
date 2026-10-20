@@ -5889,6 +5889,16 @@ instruction by instruction (the calls followed through their thunks):
   one made to flee (`3f63:1260`); one fleeing turns one more
   (`3f63:08c6`, `flee_turn`), which reads its way of moving only for a try
   below 6 and a way below 7 (`ways_guarded`).
+- The movement a round (the round's start `5340:0000`, the flight
+  `5340:0cc0`, the fastest enemy `5340:2afe`, morale `3f63:1260`) is
+  `65cd:1241`'s, where the stats count the movement's effects
+  (`cok_stats_count_movement_effects`): the record's movement recomputed
+  from its base, armour and load, doubled by haste (0x27) and 0x09 and
+  halved by slow (0x2a), var `0x7f72` added on the party's side, doubled,
+  as bytes (`cok_character_round_movement`); no event 0x12 doubles or
+  halves it again, and no bounds (Champions' `432f:014d`). The event
+  still runs for the attacks at the round's start. Found by DOSBox-X: a
+  hasted Solamnic knight walked twice as far in the port.
 - The attacks (`5340`): whether one may attack a target (`10ab`) runs the
   target's event 1 with the attacker selected and refuses one of its own
   side (`attack_sides`; its new "allies" argument, 0 in every fight's

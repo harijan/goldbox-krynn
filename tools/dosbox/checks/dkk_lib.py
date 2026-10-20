@@ -439,6 +439,45 @@ def code_at(b, seg, off, span=0x60, size=12):
     return [a for a, n in votes.items() if n == most and n >= 2]
 
 
+# Death Knights' keyboard flush (16ab:03b0, Champions' 1614:045c), whose
+# KeyPressed returns at 16ab:03bb: the poll site the hook records when it
+# finds the buffer empty.
+FLUSH_POLL = (0x16AB, 0x03BB)
+
+
+def push_after_flush(b, first, then, seconds=30):
+    """Push the key word FIRST, then THEN once the game has read FIRST and
+    the flush after it (16ab:03b0: the menu by index, 6a69:1409, flushes
+    once it has its key) has found the buffer empty: a key typed ahead of
+    what follows the flush, as eclplay's \\[...\\] puts its keys in the
+    buffer at the game's next wait (a delay, a poll or a read). Pushed with
+    FIRST, THEN is read by that flush and lost, or not, by the host's
+    timing. False if the flush was not seen within SECONDS."""
+    reads, polls = b.hook("reads"), b.hook("polls")
+    site = b.from_ghidra(*FLUSH_POLL)
+    b.push_key(first)
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        if b.hook("reads") > reads and b.hook("polls") != polls and \
+                (b.hook("pollcs"), b.hook("pollip")) == site:
+            b.push_key(then)
+            return True
+        time.sleep(0.0002)
+    return False
+
+
+def round_past(b, stopped, seconds=60):
+    """Whether the game, let go at a round's end (3e05:0ed0, trap), has gone
+    past it: the round (DS:c471) is no longer STOPPED (0ed0 counts it at
+    0ee9), within SECONDS."""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        if b.ds_byte(DS_ROUND) != stopped:
+            return True
+        time.sleep(0.005)
+    return False
+
+
 def untrap(b, handle):
     """The code trap patched given back, the emulation paused (d_lib.untrap);
     and a spin the overlay manager copied elsewhere with the code while the
