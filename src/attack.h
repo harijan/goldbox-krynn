@@ -111,6 +111,11 @@ bool cok_combat_attack(cok_adventure *game, cok_character *attacker, cok_charact
 bool cok_combat_sweep(cok_adventure *game, cok_character *attacker, cok_character *target,
                       bool *swept);
 
+/* 6346:161b: forget the first memorized byte of c equal to spell: cleared,
+ * or (fight.forget_mark, dkk 65cd:17c4) marked to memorize again; a spell
+ * marked to be learned does not match. */
+void cok_combat_forget(const cok_rules *rules, uint8_t *c, uint8_t spell);
+
 /* 432f:11d4: whether attacker can attack target: none for no target, yes
  * for itself; else unless target's effects for event 1 make it so it
  * cannot (DS:6b37), then attacker's for event 0, its target set to

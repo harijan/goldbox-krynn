@@ -593,9 +593,14 @@ bool cok_arena_kill(cok_adventure *game, cok_character *c, int stale,
     }
     if (!map_there(game, "6beb:0e08")) return false;
     cok_combat *cb = &game->combat;
-    /* The search for a body of c by the stale byte (see arena.h). */
+    const cok_rules_fight *F = &cok_game_rules(game)->fight;
+    /* The search for a body of c by the stale byte (see arena.h), or (dkk
+     * 6f03:0fbd) among the bodies 1-8. */
     bool known;
-    if (stale == COK_ARENA_STALE_UNKNOWN) {
+    if (F->kill_finds_body) {
+        for (unsigned b = 0; b < COK_COMBAT_BODIES; ++b)
+            if (cb->body[b].character == c) return true;
+    } else if (stale == COK_ARENA_STALE_UNKNOWN) {
         for (unsigned b = 0; b < 256; ++b) {
             bool other;
             if (entry_is(cb, also, b, c, &known) || reached(also, b, &other) == &cok_arena_freed)
@@ -638,12 +643,19 @@ bool cok_arena_kill(cok_adventure *game, cok_character *c, int stale,
             return fail(game, "a ninth body overruns the table (DS:69ee, 6beb:0e08)");
         if (x < 0 || x >= COK_COMBAT_WIDTH || y < 0 || y >= COK_COMBAT_HEIGHT)
             return fail(game, "a body off the map is written outside it (6beb:0e08)");
+        uint8_t cell = cb->cells[y][x], under = cell;
+        if (F->kill_finds_body && under == COK_COMBAT_BODY) {
+            /* dkk 6f03:152e: under a body there, the last one's cell. */
+            for (unsigned k = 0; k < cb->bodies; ++k)
+                if (cb->body[k].x == x && cb->body[k].y == y) under = cb->body[k].cell;
+        }
         cok_combat_body *b = &cb->body[cb->bodies++];
         b->character = c;
         b->x = x;
         b->y = y;
-        b->cell = cb->cells[y][x];
-        if (b->cell != 0x1e) cb->cells[y][x] = COK_COMBAT_BODY;
+        b->cell = under;
+        if (cell != F->cloud_tile && !(F->body_spares_pool && cell == F->pool_tile))
+            cb->cells[y][x] = COK_COMBAT_BODY;
     }
     cok_adventure_wait(game, game->speed * 100u); /* 1521:0b4b */
     if (!cok_arena_erase(game, 0, 0, n)) return false;
@@ -653,7 +665,7 @@ bool cok_arena_kill(cok_adventure *game, cok_character *c, int stale,
     if (!cok_arena_centre(game, s8(cb->view_x + 3), s8(cb->view_y + 3), 3, 8)) return false;
     c->combat->initiative = 0;
     c->combat->movement = 0;
-    c->combat->spell = 0;
+    if (F->kill_clears_spell) c->combat->spell = 0;
     c->combat->guarding = 0;
     return true;
 }
@@ -886,6 +898,7 @@ void cok_arena_clear_text(cok_adventure *game)
 bool cok_arena_panel(cok_adventure *game, cok_character *c)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_rules_fight_words *W = &cok_game_rules(game)->fight.words;
     cok_combat *cb = &game->combat;
     if (!cb->panel) return true;
     cb->panel = false;
@@ -893,7 +906,7 @@ bool cok_arena_panel(cok_adventure *game, cok_character *c)
     clear_cells(game, 0x17, 1, 0x26, 0x15);
     say(game, c, " ", 1, false, false);
     char text[48];
-    text_at(game, "Hitpoints", 0x17, 3, 10);
+    text_at(game, W->hit_points, 0x17, 3, 10);
     snprintf(text, sizeof text, "%u", cok_field_u8(L, r, COK_FIELD_HIT_POINTS)); /* 6346:0a0d */
     text_at(game, text, 0x21, 3,
             cok_field_u8(L, r, COK_FIELD_HIT_POINTS) < cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS)
@@ -921,9 +934,9 @@ bool cok_arena_panel(cok_adventure *game, cok_character *c)
                         cok_field_u8(L, r, COK_FIELD_STATUS));
         text_at(game, status, 0x17, row, 15);
     } else if (cok_combat_helpless(c, cok_game_rules(game))) { /* 6346:0cdb */
-        text_at(game, "(Helpless)", 0x17, row, 15);
+        text_at(game, W->helpless, 0x17, row, 15);
     } else if (cok_character_combat(c)->spell > 0) {
-        text_at(game, "(Casting)", 0x17, row, 15);
+        text_at(game, W->casting, 0x17, row, 15);
     }
     return true;
 }
@@ -987,7 +1000,9 @@ bool cok_arena_flash(cok_adventure *game, cok_character *c, uint8_t kind, const 
         say(game, c, text, 10, true, true);
         return true;
     }
-    if (!map_there(game, "6346:228c") || !cok_arena_missile_frames(game, kind != 0 ? 0x16 : 0x17))
+    /* Kind 1's flash, kind 0's burst (the descriptor's slot). */
+    uint8_t slot = kind != 0 ? 0x16 : cok_game_rules(game)->fight.burst_slot;
+    if (!map_there(game, "6346:228c") || !cok_arena_missile_frames(game, slot))
         return false;
     cok_combat *cb = &game->combat;
     bool whole;
@@ -1023,6 +1038,15 @@ bool cok_arena_missile(cok_adventure *game, int x0, int y0, int x1, int y1, uint
 {
     if (!map_there(game, "6346:1ba6")) return false;
     cok_combat *c = &game->combat;
+    /* dkk 65cd:1da5 keeps its ends on the battlefield first (65cd:1d56). */
+    if (cok_game_rules(game)->fight.missile_clamped) {
+        int *ends[4] = {&x0, &y0, &x1, &y1};
+        for (unsigned k = 0; k < 4; ++k) {
+            int most = k % 2 == 0 ? COK_COMBAT_WIDTH - 1 : COK_COMBAT_HEIGHT - 1;
+            if (*ends[k] < 0) *ends[k] = 0;
+            else if (*ends[k] > most) *ends[k] = most;
+        }
+    }
     /* The step's directions along the line, 148 bytes of 8 (none). */
     uint8_t dirs[148];
     memset(dirs, 8, sizeof dirs);

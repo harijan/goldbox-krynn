@@ -840,6 +840,7 @@ static void test_named_variables(void)
         {COK_VAR_PRICES, 0x7f6d, 0, 1},          {COK_VAR_HIT_BONUS, 0x7f70, 0x7f70, 2},
         {COK_VAR_MOVE_BONUS, 0x7f72, 0x7f72, 1}, {COK_VAR_LOCALS_GAME, 0x7f79, 0x7f79, 10},
         {COK_VAR_VAULT, 0, 0x4d00, 1},           {COK_VAR_RIVER, 0, 0x4bf3, 1},
+        {COK_VAR_TURNING, 0, 0x4cff, 1},
     };
     CHECK(sizeof names / sizeof *names == COK_VARS);
     for (size_t i = 0; i < COK_VARS; ++i) {

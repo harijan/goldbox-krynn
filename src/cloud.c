@@ -225,6 +225,11 @@ bool cok_cloud_square(cok_adventure *game, cok_character *c, bool step)
     bool cloud, puddle;
     if (!cok_combat_probe(combat, cok_game_rules(game), r, 8, &occupant, &terrain, &cloud, &puddle))
         return undefined(game, "a size past the footprints is read after them (6beb:0c9d)");
+    /* A game whose cloud's effects the port does not carry out yet (dkk
+     * 638c:0c65) stops where one stands in a cloud or a pool. */
+    const char *unported = cok_game_rules(game)->fight.cloud_square_unported;
+    if (unported != NULL && (cloud || puddle))
+        return cok_adventure_not_yet(game, "cloud", unported);
     if (cloud && step && cok_field_u8(L, r, COK_FIELD_UNDEAD) == 0 &&
         cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_HELPLESS) == NULL &&
         cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_POISON_IMMUNE) == NULL) {

@@ -196,7 +196,7 @@ void cok_combat_guard(cok_adventure *game, cok_character *c)
     cok_combat_end_turn(c);
     if (c->combat != NULL && c->combat->forced == 0) {
         c->combat->guarding = 1;
-        cok_camp_notice(game, "Guarding"); /* 6346:1827 */
+        cok_camp_notice(game, cok_game_rules(game)->fight.words.guarding); /* 6346:1827 */
     }
 }
 
@@ -304,11 +304,31 @@ bool cok_combat_commands(cok_adventure *game, cok_character *c, uint8_t pressed)
         cok_combat_end_turn(c);
         return true;
     }
+    const cok_rules_fight *F = &cok_game_rules(game)->fight;
     bool done = false;
     while (!done) {
         game->selected = 1;
         bool special;
-        int key = read_command(game, c, &pressed, &special);
+        int key;
+        if (F->menu_unported != NULL) {
+            /* A game whose menu the port does not show yet (dkk 3e05:0ccc):
+             * a key is read, the one pressed for the turn first, and only
+             * the hidden ones that put the party on Auto or call the gods
+             * are done; any other stops the run there. */
+            key = pressed;
+            pressed = 0;
+            if (key == 0) {
+                key = cok_adventure_wait_key(game);
+                if (key == 0 && !game->vm.abort) key = cok_adventure_wait_key(game);
+                else if (key != 0) key = -2;
+            }
+            if (game->vm.abort) return game->vm.status == COK_ECL_OK;
+            if (key != 0x10 && key != 0x1e && key != 0x2d)
+                return cok_adventure_not_yet(game, "player's menu", F->menu_unported);
+            special = true;
+        } else {
+            key = read_command(game, c, &pressed, &special);
+        }
         if (key < 0) return true;
         if (!special) {
             switch (key) {
@@ -351,7 +371,8 @@ bool cok_combat_commands(cok_adventure *game, cok_character *c, uint8_t pressed)
             }
         } else if (key == 0x32) {
             combat->magic_on = !combat->magic_on;
-            cok_camp_notice(game, combat->magic_on ? "Magic On" : "Magic Off"); /* 6346:1827 */
+            cok_camp_notice(game, combat->magic_on ? F->words.magic_on
+                                                   : F->words.magic_off); /* 6346:1827 */
         } else if (key == 0x10 || key == 0x1e) {
             quick(game, c);
             done = true;
@@ -359,8 +380,8 @@ bool cok_combat_commands(cok_adventure *game, cok_character *c, uint8_t pressed)
             if (game->helm) {
                 if (!cok_combat_gods(game) || !cok_arena_turn(game, c, 3, false)) return false;
                 done = true;
-            } else {
-                cok_camp_notice(game, "That doesn't work"); /* 6346:1827 */
+            } else if (F->words.gods_refused != NULL) {
+                cok_camp_notice(game, F->words.gods_refused); /* 6346:1827 */
             }
         }
         if (game->vm.abort) return game->vm.status == COK_ECL_OK;

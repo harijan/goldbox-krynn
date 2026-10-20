@@ -289,6 +289,13 @@ typedef enum {
     COK_FX_MINUS_TWO,
     COK_FX_MINUS_ONE,
     COK_FX_ITEM,
+    /* Death Knights' own (dkk 504d). */
+    COK_FX_KENDER_BATTLE,
+    COK_FX_HALF_WEAPONS,
+    COK_FX_CANCEL,
+    COK_FX_SMOKE,
+    COK_FX_SMOKED,
+    COK_FX_SLAYER_BATTLE,
     COK_FX_HANDLERS
 } cok_effect_handler;
 

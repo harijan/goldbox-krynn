@@ -143,11 +143,17 @@ bool cok_combat_probe(const cok_combat *combat, const cok_rules *rules, const ui
         if (o == n) o = 0;
         if (o > 0) *occupant = o;
         if (t >= cok_data_count(D, COK_DATA_TERRAIN, 0)) return false;
+        /* dkk 6f03:0e33 marks a cloud or a pool wherever, and counts it as
+         * terrain too. */
+        const cok_rules_fight *F = &rules->fight;
+        bool marked = F->clouds_terrain && (t == F->cloud_tile || t == F->pool_tile);
+        if (marked && t == F->cloud_tile) *cloud = true;
+        if (marked && t == F->pool_tile) *puddle = true;
         if (t == 0 || *terrain == 0) {
             *terrain = 0;
-        } else if (t == 0x1e) {
+        } else if (!marked && t == F->cloud_tile) {
             *cloud = true;
-        } else if (t == 0x1d) {
+        } else if (!marked && t == F->pool_tile) {
             *puddle = true;
         } else if (cok_combat_terrain(rules, t).cost >= highest) {
             highest = cok_combat_terrain(rules, t).cost;

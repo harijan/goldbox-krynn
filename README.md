@@ -129,7 +129,7 @@ also go back the other way.
 ## Death Knights of Krynn
 
 The port also plays the sequel, *Death Knights of Krynn* (1991), so far
-up to the first turn of its first fight. Copy your DOS *Death Knights* files into a folder
+into its fights, which the computer fights for the party. Copy your DOS *Death Knights* files into a folder
 named `DKKAssets` and run:
 
 ```sh
@@ -143,16 +143,20 @@ and begin. As in the original, Add Character to Party and Load Saved
 Game can also bring over a party from *Champions of Krynn*: the port
 looks for Champions' roster and saved games in `saves/` too, or in the
 folder `--import DIR` names. The adventure then runs into its fights:
-leadership, the battlefield and the combatants set up as in the original,
-until the first turn. Treasure found (the treasure menu: Take, Pool,
-Share) and the bank vault of Gargath (take coins and items out, pool and
-deposit coins) work. Training halls train characters up to level 18
-(Train Character) and promote knights (Knight Change Order); in camp,
-Magic's Memorize, Scribe and Display work, with spell levels up to 8.
-Creating and modifying characters, Initialize Mouse/Joystick, the turns
-of combat, shops, the temple, saving throws, camp's Fix, and a
-character's sheet and items in the vault aren't there yet: the game
-stops with a message saying what it reached.
+leadership, the battlefield and the combatants set up as in the original.
+At the first character's turn press Alt-Q (or Alt-A) to put the party on
+Auto: the computer fights the battle to its end as the original's does,
+with its dice, and the results follow. Treasure found (the treasure
+menu: Take, Pool, Share) and the bank vault of Gargath (take coins and
+items out, pool and deposit coins) work. Training halls train characters
+up to level 18 (Train Character) and promote knights (Knight Change
+Order); in camp, Magic's Memorize, Scribe and Display work, with spell
+levels up to 8. The combat menu itself (moving, aiming, casting by hand)
+isn't there yet: any other key there stops the game. Neither are spells
+cast in combat (yours or a monster's), creating and modifying characters,
+Initialize Mouse/Joystick, shops, the temple, camp's Fix, and a
+character's sheet and items in the vault: the game stops with a message
+saying what it reached.
 
 ## Options
 
