@@ -790,14 +790,16 @@ typedef struct {
  * each new facing an ambush gives): the party's side faces it, the enemy's
  * the other way from distance squares ahead (var 0x7ec1: dkk 1 where it is
  * 0 and the facing is not the party's, 2 in the demonstration), and each
- * side's formation cells are all free again. */
-static void lay_out(placement *p, uint8_t facing)
+ * side's formation cells are all free again. Returns whether it laid them
+ * out again: 18c2's loop over the sides then leaves DS:86e8, the side the
+ * record is placed on (410b:1444, 12f7), 1. */
+static bool lay_out(placement *p, uint8_t facing)
 {
     cok_adventure *game = p->game;
     const cok_rules_combat *R = &cok_game_rules(game)->combat;
     const cok_data_segment *D = cok_game_rules(game)->data;
     cok_ecl *vm = &game->vm;
-    if (facing == p->laid) return;
+    if (facing == p->laid) return false;
     p->laid = facing;
     uint16_t distance = cok_ecl_var(vm, COK_VAR_DISTANCE);
     if (distance == 0 && facing != vm->direction && R->ambush_distance != 0)
@@ -817,6 +819,7 @@ static void lay_out(placement *p, uint8_t facing)
                         cok_data_s8_at3(D, COK_DATA_FORMATIONS, f, row, 1) >= (int)column;
         }
     }
+    return true;
 }
 
 /* 3cb2:122c: try column, row of formation k, from square ax, ay: if the
@@ -1040,11 +1043,15 @@ bool cok_combat_place_all(cok_adventure *game)
             while (((1u << way) & ambush) == 0);
             facing = (uint8_t)(way << 1);
         }
-        if (ambush != 0) lay_out(&p, facing);
+        bool laid = ambush != 0 && lay_out(&p, facing);
         if (R->ambush) {
             uint8_t from = (uint8_t)(p.side == 1 ? (facing + 4) % 8 : facing);
             c->combat->facing = cok_data_u8_at(D, COK_DATA_QUADRANT_DIRECTIONS, from >> 1);
         }
+        /* The formations laid out again for this record's facing leave it
+         * placed as the enemy's side, whatever its own (DS:86e8 1), its
+         * facing its own (+0xc9). */
+        if (laid) p.side = 1;
         bool found;
         if (!find_place(&p, d, &found)) return false;
         char name[16], text[80];

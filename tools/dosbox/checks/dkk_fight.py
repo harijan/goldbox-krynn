@@ -14,9 +14,12 @@ eclplay's --combat won writes them (every enemy dead): the original's
 turn ended (End) and the battle with it, against the port's --combat won,
 the results' screen and the records and variables after. And the fight
 again on ground with a river (var 0x4bf3 set in a copy of the saved game,
-410b:0a4c): its battlefield at the first turn. Seeded (Box seed, eclplay
---seed): the same dice. Not part of run_all.py's set. About seven
-minutes.
+410b:0a4c): its battlefield at the first turn; and with two ambushes
+(DS:c4cc poked once SETUP MONSTERS has run, eclplay's build taking
+COK_DKK_AMBUSH) whose last enemy faces other than the party, so that the
+knights after the enemies are placed by the enemy's side (410b:18c2):
+placement and combatants. Seeded (Box seed, eclplay --seed): the same
+dice. Not part of run_all.py's set. About fourteen minutes.
 
     python3 tools/dosbox/checks/dkk_fight.py [--workdir DIR] [--seed N]
 
@@ -66,11 +69,26 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir", default=str(K.ROOT / "build/dosbox-checks/dkk_fight"))
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--flows", default="fight,river,ambush",
+                        help="which flows: fight, river, ambush (comma-separated)")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     work = pathlib.Path(opts.workdir)
     work.mkdir(parents=True, exist_ok=True)
     v = checklib.Verdict()
+    flows = opts.flows.split(",")
+    if "fight" in flows:
+        fight(v, work, opts)
+    if "river" in flows:
+        river(v, work, opts)
+    if "ambush" in flows:
+        for bits in AMBUSHES:
+            ambush(v, work, opts, bits)
+    return v.finish()
+
+
+def fight(v, work, opts):
+    """The first fight: to the first turn, then out."""
 
     # The port: its screen where the keys run out ("THE BATTLE IS JOINED.",
     # the leadership's wait) and its stop at the first turn, with its
@@ -100,7 +118,7 @@ def main():
         v.check(box.ds_byte(K.DS_MODE) == 5, "the original waits in a battle (mode 5)")
         if state is None:
             v.differ("the port's state at its stop", "none written")
-            return v.finish()
+            return
         # The actor's cell: the player's turn draws its cursor there.
         view = box.read(box.far(box.ds * 16 + K.DS_MAP) + 2, 2)
         actor = next(c for c in K.port_combatants(state)
@@ -159,8 +177,51 @@ def main():
                                                        r["raw"][0xC6]) for r in records],
                     [(r["name"], r["raw"][0x62:0x66].hex(), r["raw"][0xC6])
                      for r in won_state["records"]])
-    river(v, work, opts)
-    return v.finish()
+
+
+
+# The ambushes (SETUP MONSTERS' fourth operand, DS:c4cc, poked once it has
+# run): ways 1-3 and 0, 1, 3. Each leaves the last enemy facing other than
+# the party (S, W), so that the Solamnic knights after the enemies are laid
+# out again and placed by the enemy's side (410b:18c2 leaves DS:86e8 1).
+AMBUSHES = (0x0E, 0x0B)
+
+
+def ambush(v, work, opts, bits):
+    """The first fight with an ambush from BITS' directions: the battlefield
+    at the first turn, the combatants' cells, their combat records and
+    RandSeed."""
+    tag = f"ambush-{bits:x}"
+    log, _, _, _ = K.port(work, f"{tag}-lead", TO_COMBAT, opts.seed, ambush=bits)
+    led = "Using leadership ability" in log
+    log, _, final, state = K.port(work, f"{tag}-turn", TO_COMBAT + (r"\r" if led else ""),
+                                  opts.seed, ambush=bits)
+    print(f"port ({tag}): {log.strip().splitlines()[-1]}", flush=True)
+    with cokbox.Box(workdir=work / f"box-{tag}", game="death-knights", machine="ega",
+                    seed=opts.seed, saves=[K.ASSETS / "SAVE"], verbose=opts.verbose,
+                    timeout=900, keep=True) as box:
+        v.check(K.title(box), f"the title's four pictures ({tag})")
+        K.type_steps(box, K.LOAD_A_STEPS + [r"\r", r"\r", "N"] + [r"\r"] * 8)
+        box.ds_write(0xC4CC, bytes([bits]))  # SETUP MONSTERS has run (8603)
+        K.type_steps(box, [r"\r"] * (2 if led else 1), settle=2.0)
+        shown = box.screenshot(work / f"dosbox-{tag}-turn.png")
+        if state is None:
+            v.differ(f"the port's state at its stop ({tag})", "none written")
+            return
+        view = box.read(box.far(box.ds * 16 + K.DS_MAP) + 2, 2)
+        actor = next(c for c in K.port_combatants(state)
+                     if c["name"] == state["records"][state["turn"][state["turn_index"] - 1]]["name"])
+        cursor = (8 + 24 * (actor["x"] - view[0]), 8 + 24 * (actor["y"] - view[1]), 24, 24,
+                  "the actor's cursor, which the player's turn (3e05:08af) draws")
+        v.screen(f"the battlefield at the first turn ({tag})", shown, cokbox.Screen.load(final),
+                 masks=[MENU_ROWS, cursor], work=work)
+        o, p = K.combatants(box), K.port_combatants(state)
+        v.value(f"the combatants' cells and sizes ({tag})", [f[:5] for f in K.fighters(o)],
+                [f[:5] for f in K.fighters(p)])
+        v.value(f"their combat records but +0x0a-0x0d ({tag})",
+                [masked(c["combat"].hex()) if c["combat"] else None for c in o],
+                [masked(c["combat"].hex()) if c["combat"] else None for c in p])
+        v.value(f"RandSeed ({tag})", box.ds_dword(K.DS_RANDSEED), state["seed"])
 
 
 def river(v, work, opts):

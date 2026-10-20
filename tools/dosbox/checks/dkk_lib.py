@@ -34,6 +34,7 @@ status at +0xc7, able to act +0xc8, the side +0xc9, the computer's +0xca,
 the hit points +0xd6.
 """
 import json
+import os
 import pathlib
 import shutil
 import struct
@@ -208,9 +209,25 @@ def dump(name, text):
     return final_state(name, vars_dump(name, d_lib.state_dump(name, text)))
 
 
+AMBUSH_AT = ("    if (cok_ecl_meaning(vm) == COK_ECL_SETUP_MONSTERS) game->ambush = "
+             "(uint8_t)cok_ecl_value(vm, 3);\n")
+
+
+def ambush_poke(name, text):
+    """src/monster.c: COK_DKK_AMBUSH (hex) as SETUP MONSTERS' fourth operand,
+    as a check pokes the original's DS:c4cc once SETUP MONSTERS has run."""
+    if AMBUSH_AT not in text:
+        raise cokbox.BoxError("src/monster.c's setup_monster changed: update dkk_lib.ambush_poke")
+    return text.replace(AMBUSH_AT, AMBUSH_AT + (
+        "    if (getenv(\"COK_DKK_AMBUSH\") != NULL)\n"
+        "        game->ambush = (uint8_t)strtoul(getenv(\"COK_DKK_AMBUSH\"), NULL, 16);\n"))
+
+
 def player():
-    """eclplay writing the state at each key read and at the run's end."""
-    return checklib.build("eclplay", transforms=[("eclplay.c", dump)])
+    """eclplay writing the state at each key read and at the run's end (and
+    taking COK_DKK_AMBUSH)."""
+    return checklib.build("eclplay", transforms=[("eclplay.c", dump),
+                                                  ("monster.c", ambush_poke)])
 
 
 def port_vars(bmp):
@@ -230,7 +247,7 @@ def box_vars(b):
     return b.read(b.far(b.ds * 16 + 0x8C2D), 0x400), b.read(b.far(b.ds * 16 + 0x8C31), 0x400)
 
 
-def port(work, name, keys, seed, saves=None, args=()):
+def port(work, name, keys, seed, saves=None, args=(), ambush=None):
     """eclplay on KEYS (marks dropped) from the start menu, seeded, with
     SAVES (default DKKAssets/SAVE) copied: (stdout + stderr, the shot of
     the key read where the keys ran out (d_lib.mark_read) or None, the
@@ -244,12 +261,15 @@ def port(work, name, keys, seed, saves=None, args=()):
     cfg = out / "DKK.CFG"
     cfg.write_bytes((ASSETS / "DKK.CFG").read_bytes())
     final = out / "final.bmp"
+    env = dict(os.environ)
+    if ambush is not None:
+        env["COK_DKK_AMBUSH"] = f"{ambush:x}"
     result = subprocess.run(
         [str(player()), "--game", "death-knights", "--start-menu", "--display", "ega",
          "--config", str(cfg), "--saves", str(save_dir), "--shots", str(shots), "--screen",
          str(final), "--seed", str(seed), *map(str, args), "--keys",
          PORT_TITLE + checklib.port_keys(keys), str(ASSETS)],
-        capture_output=True, text=True, cwd=ROOT, timeout=600)
+        capture_output=True, text=True, cwd=ROOT, timeout=600, env=env)
     log = result.stdout + result.stderr
     (out / "log.txt").write_text(log)
     found = sorted(shots.glob("*.bmp"), key=lambda p: int(p.stem))

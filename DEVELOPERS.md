@@ -5041,7 +5041,11 @@ directions has each enemy come from the next of them (`combat.ambush`):
 the enemy's first rank a share's half, the formations laid out again for
 each new facing (from the enemy's distance, 1 where it is 0 and the
 facing is not the party's, 2 in the demonstration), each record's combat
-facing set from it; a body keeps the cell under one already there
+facing set from it; a record whose facing lays the formations out again
+is placed by the enemy's side's formation whatever its own (`18c2`'s loop
+over the sides leaves `DS:86e8`, the side `410b:1444` places by, 1): a
+knight on the party's side after enemies from another way stands at the
+enemy's anchor; a body keeps the cell under one already there
 (`6f03:152e`, `combat.body_under`); a record of status 9 stays on the
 map (`combat.status_9` false). Placement, leadership and the setup agree
 with the original's in DOSBox-X, cell for cell (`dkk_fight.py`, see
@@ -9023,7 +9027,14 @@ original, as `--combat won` makes them, its turn ended (`E`) and the
 battle with it (`continue battle?` No): the results' screen agrees with
 `--combat won`'s, 0 pixels, and so do the party's experience and
 may-train flags and the variables but the clock's minute (`0x4bc7`), the
-round the original fought.
+round the original fought. The same battlefield with a river (var
+`0x4bf3` set in a copy of the saved game) and with two ambushes (`DS:c4cc`
+poked with `0x0e` and `0x0b` once `SETUP MONSTERS` has run, the port's
+build taking `COK_DKK_AMBUSH`), whose last enemies face other than the
+party, so that the first knight after them is laid out again and placed by
+the enemy's side: the battlefields, the combatants' cells, their combat
+records and RandSeed agree. `--flows fight,river,ambush` picks the flows
+(each about three and a half minutes).
 
 Still to check, with why:
 

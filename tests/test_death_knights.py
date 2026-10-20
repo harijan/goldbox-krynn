@@ -233,6 +233,30 @@ class DeathKnightsTests(unittest.TestCase):
             "print: the monsters rejoice for the party has been destroyed",
             "(the party was killed in block 16)"])
 
+    def test_ambush(self):
+        # ECL1 block 17's knights surrounded by undead: SETUP MONSTERS 60 0
+        # 255 15, an ambush from every side (DS:c4cc), the enemies from
+        # each in turn (410b:1aa4), then the six Solamnic knights on the
+        # party's side. Where the last enemy faced other than the party
+        # (the party facing E), the first knight's formations are laid out
+        # again (410b:18c2), which leaves it placed by the enemy's side
+        # (DS:86e8 1): out by the enemy's anchor, the rest beside the party,
+        # as the original places them (dkk_fight.py's ambushes).
+        def knights(direction):
+            result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--file", 1, "--start",
+                               "893c", "--at", f"5,5,{direction}", "--seed", 1, "--keys",
+                               r"\r\r\r", ASSETS, 17)
+            self.assertIn("player's turn (dkk 3e05:08af)", result.stderr)
+            return [line for line in result.stdout.splitlines()
+                    if line.startswith("combat: ") and "SOLAMNIC KNIGHT at" in line]
+        east = knights(2)
+        self.assertEqual(east[:3], ["combat: 31 SOLAMNIC KNIGHT at 39,11",
+                                    "combat: 32 SOLAMNIC KNIGHT at 25,13",
+                                    "combat: 33 SOLAMNIC KNIGHT at 23,11"])
+        # Facing N, the last enemy's way 0 is the party's: none laid out
+        # again, all six beside the party.
+        self.assertEqual(knights(0)[0], "combat: 31 SOLAMNIC KNIGHT at 29,14")
+
     def test_fights_in_and_out(self):
         # The blocks that stopped at SETUP MONSTERS: each fight entered and
         # left with --combat, the script going on (block 2's treasure, its
