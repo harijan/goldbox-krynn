@@ -486,6 +486,9 @@ void cok_adventure_view(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     if (game->picture_id == 9) game->redraw = false;
+    /* 6945:00ba (dkk 6c84:00a6) draws nothing once the party is destroyed
+     * (DS:4b57; dkk 8c5a), its redraw flag kept. */
+    if (game->party_killed) return;
     if (cok_ecl_var(vm, COK_VAR_3D) == 0 && !cok_ecl_flag(vm, COK_VAR_OFF_MAP)) {
         if (game->redraw) draw_big(game);
     } else {
@@ -2886,6 +2889,51 @@ static cok_ecl_status start_block(cok_adventure *game, uint8_t block)
     return cok_adventure_load(game, block);
 }
 
+static int next_command(cok_adventure *game);
+
+/* The end of the adventure's command (475c:09ec; dkk 4307:0257, DS:db73):
+ * text shown in the text window is cleared, rows 17-22. */
+static void clear_shown_text(cok_adventure *game)
+{
+    if (!game->text_shown) return;
+    cok_picture_fill(&game->screen, 1, 0x11 * 8, 0x26, 6 * 8, 0); /* 1128:07e6 */
+    game->text_shown = false;
+}
+
+/* After a block is entered with the party destroyed (DAMAGE's or the end
+ * of combat's: game->party_killed, the run ended), a game whose loop
+ * reads its menu first (combat.killed_command: dkk 3632:2e06 calls
+ * 4307:0257 after the load vector, and only then tests DS:8c5a) reads the
+ * adventure's command once, its selection from the first item (DS:c0f7),
+ * the game still ending after it whatever it was; in mode 3 without the
+ * overland menu that command reads nothing (see below). Where a loaded game's entry would first redraw its screen (mode not
+ * 3 and DS:8c57: 65cd:2db0, its view not drawn, 6c84:00a6 testing DS:8c5a)
+ * the port does not carry it out: the run stops. */
+static cok_ecl_status killed_command(cok_adventure *game, cok_ecl_status status)
+{
+    cok_ecl *vm = &game->vm;
+    if (status != COK_ECL_OK || !vm->abort || !game->party_killed || game->input_ended ||
+        game->quit || !cok_game_rules(game)->combat.killed_command)
+        return status;
+    if (vm->mode != 3 && vm->keep_vars) {
+        cok_adventure_not_yet(game, "a destroyed party's redraw", "dkk 65cd:2db0");
+        return vm->status;
+    }
+    game->selected = 1; /* 3632:2f4f: DS:c0f7 from 1 */
+    if (vm->mode == 3 && cok_ecl_var(vm, COK_VAR_OVERLAND) == 0) {
+        /* dkk 4307:0257 in mode 3 without the overland menu (0x4cf7)
+         * reads no key: it only clears the text window if text is shown
+         * (DS:db73, 110f:0584) and returns a byte of its stack never set,
+         * which 3632:2e06 does not use here. */
+        clear_shown_text(game);
+        return COK_ECL_OK;
+    }
+    vm->abort = false;
+    int key = next_command(game);
+    vm->abort = true;
+    return key < 0 && vm->status != COK_ECL_OK ? vm->status : COK_ECL_OK;
+}
+
 cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block)
 {
     cok_ecl *vm = &game->vm;
@@ -2894,8 +2942,8 @@ cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block)
     /* Only the load vector (3cc7); the after-move and location vectors
      * wait for the first command, and the last mode stays as it was. */
     status = cok_ecl_run(vm, vm->vectors[4]);
-    if (status != COK_ECL_OK || vm->abort) return status;
-    if (vm->reload) return enter_block(game, false);
+    if (status != COK_ECL_OK || vm->abort) return killed_command(game, status);
+    if (vm->reload) return killed_command(game, enter_block(game, false));
     cok_ecl_set_var(vm, COK_VAR_BLOCK, vm->block);
     return COK_ECL_OK;
 }
@@ -2903,7 +2951,7 @@ cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block)
 cok_ecl_status cok_adventure_enter_block(cok_adventure *game, uint8_t block)
 {
     cok_ecl_status status = start_block(game, block);
-    return status == COK_ECL_OK ? enter_block(game, true) : status;
+    return status == COK_ECL_OK ? killed_command(game, enter_block(game, true)) : status;
 }
 
 /* The game clock. */
@@ -3348,10 +3396,7 @@ static int command(cok_adventure *game)
         if (game->vm.abort) return -1;
     }
     if (result < 0) return result;
-    if (game->text_shown) {
-        cok_picture_fill(&game->screen, 1, 0x11 * 8, 0x26, 6 * 8, 0); /* 1128:07e6 */
-        game->text_shown = false;
-    }
+    clear_shown_text(game);
     return result;
 }
 

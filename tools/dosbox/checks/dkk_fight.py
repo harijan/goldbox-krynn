@@ -9,7 +9,10 @@ player's menu (3e05:08af) and the port too: the screen (its menu rows and
 the actor's cursor left to the keys flows), the records (hit points, status, side, the computer's,
 effects, combat records), the combatants' cells and sizes, the turn
 order, the battlefield's cells and RandSeed, which says every die was
-rolled alike. Then out of the fight with the statuses written as
+rolled alike. The fight lost (lost): the party's side written dead at the
+first turn, as eclplay's --combat lost writes them, then End: "the
+monsters rejoice", the adventure's menu once more (3632:2e06), Encamp and
+the start menu, screen by screen. Then out of the fight with the statuses written as
 eclplay's --combat won writes them (every enemy dead): the original's
 turn ended (End) and the battle with it, against the port's --combat won,
 the results' screen and the records and variables after. And the fight
@@ -110,10 +113,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir", default=str(K.ROOT / "build/dosbox-checks/dkk_fight"))
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--flows", default="fight,river,ambush,auto,keys,keys2,cast,items,drain,"
-                                           "mage,dragon,spells,priests,band,clouds",
-                        help="which flows: fight, river, ambush, auto, keys, keys2, cast, items, "
-                             "drain, mage, dragon, spells, priests, band, clouds (comma-separated)")
+    parser.add_argument("--flows", default="fight,lost,river,ambush,auto,keys,keys2,cast,items,"
+                                           "drain,mage,dragon,spells,priests,band,clouds",
+                        help="which flows: fight, lost, river, ambush, auto, keys, keys2, cast, "
+                             "items, drain, mage, dragon, spells, priests, band, clouds "
+                             "(comma-separated)")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     work = pathlib.Path(opts.workdir)
@@ -122,6 +126,8 @@ def main():
     flows = opts.flows.split(",")
     if "fight" in flows:
         fight(v, work, opts)
+    if "lost" in flows:
+        lost(v, work, opts)
     if "river" in flows:
         river(v, work, opts)
     if "ambush" in flows:
@@ -242,6 +248,48 @@ def fight(v, work, opts):
                     [(r["name"], r["raw"][0x62:0x66].hex(), r["raw"][0xC6])
                      for r in won_state["records"]])
 
+
+
+def lost(v, work, opts):
+    """The first fight lost: at the first turn every record of the party's
+    side written dead (status 6, unable to act, no hit points), as eclplay's
+    --combat lost writes them, and End: the battle over, "the monsters
+    rejoice for the party has been destroyed" (3a37:1318) and its key;
+    then the adventure's menu, read once more after its load vector with the
+    party gone (3632:2e06's 4307:0257, before it tests DS:8c5a: "Move
+    Encamp" in the open), Encamp; then the start menu (49cb:010b). The
+    screens at each wait against the port's at the same keys."""
+    log, _, _, _ = K.port(work, "lost-lead", TO_COMBAT, opts.seed)
+    led = "Using leadership ability" in log
+    to_turn = TO_COMBAT + (r"\r" if led else "")
+    steps = [("rejoice", ""), ("menu", r"\r"), ("start", "E")]
+    ports, typed = [], ""
+    for name, keys in steps:
+        typed += keys
+        ports.append(K.port(work, f"lost-{name}", to_turn + typed, opts.seed,
+                            args=["--combat", "lost"]))
+    print(f"port (lost): {ports[-1][0].strip().splitlines()[-1]}", flush=True)
+    with cokbox.Box(workdir=work / "box-lost", game="death-knights", machine="ega",
+                    seed=opts.seed, saves=[K.ASSETS / "SAVE"], verbose=opts.verbose, timeout=900,
+                    keep=True) as box:
+        v.check(K.title(box), "the title's four pictures (lost)")
+        K.type_steps(box, K.LOAD_A_STEPS + [r"\r", r"\r", "N"] + [r"\r"] * 9, settle=1.5)
+        if led:
+            K.type_steps(box, [r"\r"], settle=2.0)
+        v.check(box.ds_byte(K.DS_MODE) == 5, "the original waits in a battle (lost)")
+        for r in K.party(box):
+            if r["raw"][K.SIDE] == 0:
+                box.write(r["rec"] + K.STATUS, bytes([6, 0]))
+                box.write(r["rec"] + K.HP, bytes([0]))
+        K.type_steps(box, ["E"], settle=3.0)
+        box.wait_input(seconds=120, settle=3.0)
+        for (name, keys), (_, shot, _, _) in zip(steps, ports):
+            if keys:
+                K.type_steps(box, [keys], settle=3.0)
+            shown = box.screenshot(work / f"dosbox-lost-{name}.png")
+            v.screen(f"the screen after the loss: {name}", shown, load(shot), work=work)
+        v.value("the original's party after the loss (DS:a2c6)",
+                [r["name"] for r in K.party(box)], [])
 
 
 # The ambushes (SETUP MONSTERS' fourth operand, DS:c4cc, poked once it has
@@ -439,10 +487,8 @@ BAND = {"CHRDATA3": [0x28, 0x35, 0x28], "CHRDATA4": [0x38, 0x3C, 0x5C, 0x72],
 # air clears a little..."). Then Alt-Q, Magic Off: who steps into a cloud,
 # the Cloud Kills aged at each round's end and gone at rounds 7's and 8's,
 # the cells and bodies compared round by round to round 9's end
-# (CLOUDS_UNTIL). The fight goes on to round 16, the party destroyed:
-# after "the monsters rejoice" and a key the original goes on (its menu
-# Move Encamp), where the port returns to the start menu (not the
-# clouds').
+# (CLOUDS_UNTIL). The fight goes on to round 16, the party destroyed
+# (the lost flow checks what follows).
 CLOUDS = {"CHRDATA4": [0x22, 0x22], "CHRDATA5": [0x29, 0x01], "CHRDATA6": [0x5B, 0x5B]}
 CLOUDS_LEVELS = {"CHRDATA3": {0x45: 4, 0x49: 4, 0x30: 4}}
 CLOUDS_UNTIL = 9

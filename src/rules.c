@@ -1659,6 +1659,7 @@ const cok_rules cok_rules_champions = {
             /* 351b:1aab */
             .rejoice = "The monsters rejoice for the party has been destroyed",
             .rejoice_key = "Press any key to continue",
+            .killed_command = false,
         },
     .fight =
         {
