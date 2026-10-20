@@ -304,8 +304,20 @@ static void test_raise(void)
                            cok_field_u8_at(L, r, COK_FIELD_SCORE_BASE, COK_SCORE_CONSTITUTION) == 12
                      : cok_field_u8(L, r, COK_FIELD_HIT_POINTS) == 1 && LOGGED("print: is raised;") &&
                            cok_field_u8_at(L, r, COK_FIELD_SCORE_BASE, COK_SCORE_CONSTITUTION) == 11);
-        /* The temple's cast leaves the spell set (dkk 3999:0293). */
+        /* The temple's cast leaves the spell set (dkk 3999:0293): a
+         * Barkskin holder's next save, before any cast, is against Raise
+         * Dead's type 4 (no 1 better), not against none. */
         CHECK(game.effects.rolls.spell == (k == 2 ? 0x07 : 0x4b));
+        if (k == 0) {
+            cok_character *b = record('B', 0, 6, 5);
+            CHECK(cok_character_add_effect(b, 0x30, 0, 0, false) != NULL);
+            uint32_t seed = seed_d20(1, 2, 19), copy = seed;
+            unsigned d = cok_dice(&copy, 1, 20);
+            game.vm.seed = seed;
+            bool made;
+            CHECK(cok_effects_save(&game.effects, b, 0, 0, &made) &&
+                  game.effects.rolls.save_roll == d);
+        }
     }
 }
 
@@ -363,6 +375,27 @@ static void test_restoration(void)
           fighter == mage);
     CHECK(cast_at(t, 0x11, (cok_character *[]){t, NULL}) && level_of(t, 7) == 2 &&
           level_of(t, 5) == 1);
+}
+
+/* 5dc5:2326's division by the levels lost, a byte: two classes 128 below
+ * their undrained levels wrap it to 0, runtime error 200 (5dc5:248c), with
+ * the most hit points below those not drained. */
+static void test_restoration_wraps(void)
+{
+    const cok_character_layout *L = R->character;
+    reset();
+    cok_character *t = record('T', 0, 5, 5);
+    uint8_t *r = t->record;
+    game.vm.mode = 4;
+    cok_field_set8(L, r, COK_FIELD_MAGIC_ORDER, 2);
+    for (unsigned klass = 2; klass <= 5; klass += 3) {
+        cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, klass, (uint8_t)-100);
+        cok_field_set8_at(L, r, COK_FIELD_UNDRAINED_LEVEL, klass, 28);
+    }
+    cok_field_set8(L, r, COK_FIELD_MAX_HIT_POINTS, 20);
+    cok_field_set8(L, r, COK_FIELD_UNDRAINED_MAX_HIT_POINTS, 30);
+    CHECK(!cast_at(t, 0x11, (cok_character *[]){t, NULL}));
+    CHECK(game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "5dc5:248c") != NULL);
 }
 
 /* 5dc5:4a04, Feeblemind: the save of type 4 harder by class while the
@@ -730,6 +763,7 @@ int main(void)
     test_heal();
     test_raise();
     test_restoration();
+    test_restoration_wraps();
     test_feeblemind();
     test_dance();
     test_mass_charm();

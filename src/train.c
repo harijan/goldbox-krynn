@@ -861,6 +861,12 @@ bool cok_train_restore(cok_adventure *game, cok_character *character)
         uint8_t most = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS);
         uint8_t was = cok_field_u8(L, c, COK_FIELD_UNDRAINED_MAX_HIT_POINTS);
         if (most < was) {
+            /* The levels lost, a byte, can wrap to 0 (two classes 128
+             * below): the division overflows. */
+            if (lost == 0)
+                return undefined(game, "the most hit points lacking are divided by the levels "
+                                       "lost, a byte wrapped to 0: runtime error 200 (dkk "
+                                       "5dc5:248c)");
             uint8_t gain = (uint8_t)((was - most) / lost), con = 0;
             if ((uint8_t)level + 1 < top_level(game, best)) {
                 int8_t bonus;
