@@ -1716,6 +1716,8 @@ static void test_death_knights_menu(void)
 
 /* Death Knights' Train (dkk 49cb:43b6), Knight Change Order (4ea4, 4da1)
  * and the aging after a battle (3e05:0264), on saved game A's party. */
+static void test_death_knights_drain(void);
+
 static void test_death_knights_levels(void)
 {
     const cok_rules *R = &cok_rules_death_knights;
@@ -2036,7 +2038,144 @@ static void test_death_knights_saves(void)
           read.item_count == 0);
     test_death_knights_menu();
     test_death_knights_levels();
+    test_death_knights_drain();
     cok_adventure_close(&dkk);
+}
+
+/* The experience a level of class k asks of record c (65cd:382c's row,
+ * DS:7638), for the drain's test. */
+static int32_t need_of(const uint8_t *c, unsigned k, int level)
+{
+    uint8_t row;
+    int32_t need;
+    CHECK(cok_train_row(c, &cok_rules_death_knights, k, &row) &&
+          cok_train_experience(&cok_rules_death_knights, row, level, &need));
+    return need;
+}
+
+/* Death Knights' level drain (dkk 504d:14c7 with 1288, 580d:3193 losing,
+ * 3454), on saved game A's party. */
+static void test_death_knights_drain(void)
+{
+    const cok_rules *R = &cok_rules_death_knights;
+    const cok_character_layout *L = R->character;
+    char to[128], path[400];
+    snprintf(to, sizeof to, "%s/dkkdrain", dir);
+    copy_saves("DKKAssets/SAVE", to);
+    snprintf(dkk.save_dir, sizeof dkk.save_dir, "%s", to);
+    snprintf(path, sizeof path, "%s/SAVGAMA.PTY", to);
+    dkk_keys("");
+    cok_party_free(&dkk.party);
+    dkk.vm.character = NULL;
+    CHECK(cok_adventure_restore(&dkk, path) && dkk.party.count == 6);
+    /* FLAVIUS with cleric, fighter and mage all at 6: the class whose
+     * level 6 asks the most experience is drained (of equals, the first);
+     * the levels, experience and most hit points not drained keep the
+     * higher; the experience falls halfway into level 5. */
+    cok_character *flavius = dkk.party.members[3];
+    uint8_t *c = flavius->record;
+    for (unsigned k = 0; k < 8; ++k) {
+        cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, k, k == 0 || k == 2 || k == 5 ? 6 : 0);
+        cok_field_set8_at(L, c, COK_FIELD_UNDRAINED_LEVEL, k, 0);
+    }
+    cok_field_set32(L, c, COK_FIELD_EXPERIENCE, 100000);
+    cok_field_set32(L, c, COK_FIELD_UNDRAINED_EXPERIENCE, 0);
+    cok_field_set8(L, c, COK_FIELD_UNDRAINED_MAX_HIT_POINTS, 0);
+    unsigned most = 0;
+    for (unsigned k = 0; k < 8; ++k)
+        if ((k == 0 || k == 2 || k == 5) && need_of(c, k, 6) > need_of(c, most, 6)) most = k;
+    int32_t low = need_of(c, most, 5), high = need_of(c, most, 6);
+    uint8_t max = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS);
+    dkk.vm.seed = 5;
+    dkk_keys("");
+    CHECK(cok_train_drain(&dkk, flavius, 1) && logged("print: gets drained;"));
+    for (unsigned k = 0; k < 8; ++k)
+        CHECK(cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, k) ==
+              (k == most ? 5 : k == 0 || k == 2 || k == 5 ? 6 : 0));
+    CHECK(cok_field_s8_at(L, c, COK_FIELD_UNDRAINED_LEVEL, most) == 6 &&
+          cok_field_u32(L, c, COK_FIELD_UNDRAINED_EXPERIENCE) == 100000 &&
+          cok_field_u8(L, c, COK_FIELD_UNDRAINED_MAX_HIT_POINTS) == max &&
+          (int32_t)cok_field_u32(L, c, COK_FIELD_EXPERIENCE) == low + (high - low) / 2 &&
+          cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS) < max);
+    /* NEACAIL, a thief of level 1 alone, drained of two: level 0 with no
+     * experience, then the same class again (the class is kept from the
+     * first level) to -1; with no level left it dies (status 8). */
+    cok_character *neacail = dkk.party.members[4];
+    c = neacail->record;
+    for (unsigned k = 0; k < 8; ++k) {
+        cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, k, k == 6 ? 1 : 0);
+        cok_field_set8_at(L, c, COK_FIELD_UNDRAINED_LEVEL, k, 0);
+    }
+    dkk_keys("");
+    CHECK(cok_train_drain(&dkk, neacail, 2) && logged("print: dies from drainning;"));
+    CHECK(cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 6) == -1 &&
+          cok_field_s8_at(L, c, COK_FIELD_UNDRAINED_LEVEL, 6) == 1 &&
+          cok_field_u8(L, c, COK_FIELD_STATUS) == 8);
+    /* LILLITH, a paladin of 11, above its top (10, DS:72a4): the fixed 3 of
+     * the top (580d:3193) off its base hit points and its most, the most
+     * no higher than 580d:3454 gives for level 10 (its bonus * 9 + 0x5a +
+     * 3, the levels past the top 1), the hit points keeping their
+     * distance. */
+    cok_character *lillith = dkk.party.members[1];
+    c = lillith->record;
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 3, 11);
+    cok_field_set8(L, c, COK_FIELD_MAX_HIT_POINTS, 200); /* so that 3454's cap holds */
+    uint8_t base = cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS);
+    max = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS);
+    uint8_t lacking = (uint8_t)(max - 10);
+    cok_field_set8(L, c, COK_FIELD_HIT_POINTS, 10);
+    int8_t bonus;
+    CHECK(cok_train_hit_die(c, R, 3, &bonus));
+    unsigned cap = (unsigned)(uint8_t)(bonus * 9 + 0x5a + 3);
+    unsigned left = (unsigned)max - 3 > cap ? cap : (unsigned)max - 3;
+    dkk_keys("");
+    CHECK(cok_train_drain(&dkk, lillith, 1));
+    CHECK(cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 3) == 10 &&
+          cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS) == (base > 3 ? base - 3 : 0) &&
+          cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS) == left &&
+          cok_field_u8(L, c, COK_FIELD_HIT_POINTS) == (left < lacking ? 0 : left - lacking));
+    /* CELESTE a mage of 6 alone (order 1) under moon 1 (var 0x4cf8 + 1):
+     * Magic Missile memorized past the level 1 spells a day of a mage of 5
+     * keeps one more by the moon; those to memorize (0x80 on) past it are
+     * forgotten. */
+    cok_character *celeste = dkk.party.members[5];
+    c = celeste->record;
+    for (unsigned k = 0; k < 8; ++k)
+        cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, k, k == 5 ? 6 : 0);
+    cok_field_set8(L, c, COK_FIELD_MAGIC_ORDER, 1);
+    cok_ecl_set_var_at(&dkk.vm, COK_VAR_ORDER_MOON, 1, 1);
+    uint8_t *memorized = c + cok_field_offset(L, COK_FIELD_MEMORIZED);
+    memset(memorized, 0, cok_field_size(L, COK_FIELD_MEMORIZED));
+    for (unsigned i = 0; i < 8; ++i) memorized[i] = 0x0f;
+    memorized[8] = memorized[9] = 0x8f;
+    dkk_keys("");
+    CHECK(cok_train_drain(&dkk, celeste, 1) && cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) == 5);
+    uint8_t list = 0, level = 0;
+    cok_data_byte(R->data, (uint16_t)cok_data_offset2(R->data, COK_DATA_SPELLS, 0x0f, 0), &list);
+    cok_data_byte(R->data, (uint16_t)cok_data_offset2(R->data, COK_DATA_SPELLS, 0x0f, 1), &level);
+    uint8_t a_day = cok_field_u8_at2(L, c, COK_FIELD_SPELLS_A_DAY, list, level);
+    CHECK(list == 3 && level == 1 && a_day + 1 < 8);
+    unsigned kept = 0, marked = 0;
+    for (unsigned i = 0; i < 10; ++i) {
+        kept += memorized[i] == 0x0f;
+        marked += memorized[i] == 0x8f;
+    }
+    CHECK(kept == a_day + 1u && marked == 0 && memorized[a_day + 1] == 0);
+    CHECK(cok_field_u8(L, lillith->record, COK_FIELD_MAX_HIT_POINTS) == cap && cap < 197);
+    /* The spells a day held by those memorized, the moon's one more is not
+     * for those to memorize. */
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 5, 6);
+    memset(memorized, 0, cok_field_size(L, COK_FIELD_MEMORIZED));
+    for (unsigned i = 0; i < a_day; ++i) memorized[i] = 0x0f;
+    memorized[a_day] = memorized[a_day + 1] = 0x8f;
+    dkk_keys("");
+    CHECK(cok_train_drain(&dkk, celeste, 1) && cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) == 5);
+    kept = marked = 0;
+    for (unsigned i = 0; i < 10; ++i) {
+        kept += memorized[i] == 0x0f;
+        marked += memorized[i] == 0x8f;
+    }
+    CHECK(kept == a_day && marked == 0);
 }
 
 int main(void)

@@ -31,7 +31,10 @@ Wounds for TANAR, Shocking Grasp and Enlarge for CELESTE, Cure Light
 Wounds for NEACAIL) and Magic On (Alt-M after Alt-Q): the computer's
 choice (3f63:056c, 5340:43ea), its targets (5340:1eeb), the cast
 (5dc5:1298, its burst 65cd:39bd), the spells and the damage's words,
-round by round. Seeded (Box seed,
+round by round. And the Auto fight with other monsters (drain, mage,
+dragon: SWAPS, block 16's LOAD MONSTERs poked in both) fought by a party
+that turns no undead: the level drain, the kuo-toas, the black wizards'
+spells and a blue dragon's breath, round by round. Seeded (Box seed,
 eclplay --seed): the same dice. Not part of run_all.py's set. About
 thirty minutes.
 
@@ -90,9 +93,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir", default=str(K.ROOT / "build/dosbox-checks/dkk_fight"))
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--flows", default="fight,river,ambush,auto,keys,keys2,cast,items",
-                        help="which flows: fight, river, ambush, auto, keys, keys2, cast, items "
-                             "(comma-separated)")
+    parser.add_argument("--flows", default="fight,river,ambush,auto,keys,keys2,cast,items,drain,"
+                                           "mage,dragon",
+                        help="which flows: fight, river, ambush, auto, keys, keys2, cast, items, "
+                             "drain, mage, dragon (comma-separated)")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     work = pathlib.Path(opts.workdir)
@@ -116,6 +120,9 @@ def main():
         auto(v, work, opts, cast=True)
     if "items" in flows:
         by_keys(v, work, opts, ITEMS, "items")
+    for swap in SWAPS:
+        if swap in flows:
+            auto(v, work, opts, swap=swap)
     return v.finish()
 
 
@@ -347,7 +354,46 @@ def casters(work):
     return saves
 
 
-def auto(v, work, opts, cast=False):
+# The first fight with other monsters (the monsters flows): block 16's two
+# enemy LOAD MONSTERs (8621: 1 4 1, the skeletal warriors; 8628: 0 4 0,
+# the nightmares) poked once SETUP MONSTERS has run, in the original's ECL
+# code and the port's (COK_DKK_POKE): each (monster, count, picture, as
+# the ECL loads it) for the two. drain: wights (0x43, a level drained) and spectres (0x44,
+# two); mage: kuo-toas (0x53) and black wizards, who cast; dragon: a blue
+# dragon (0x55, its breath) and ghouls. The party fights them from a copy
+# of saved game A where none turns undead (unturning), who would turn the
+# undead away before they strike.
+SWAPS = {
+    "drain": ((0x11, 3, 0x11), (0x12, 3, 0x12)),
+    "mage": ((0x27, 3, 0x27), (0x43, 2, 0x42)),
+    "dragon": ((0x02, 1, 0x02), (0x16, 3, 0x16)),
+}
+
+
+def unturning(work):
+    """A copy of DKKAssets/SAVE where no one turns undead: the cleric
+    levels (+0x45) of TANAR, FLAVIUS, NEACAIL and CELESTE 0, LILLITH's
+    paladin level (+0x48) 2 (5340:119b turns for one above 2)."""
+    saves = work / "saves-unturning"
+    if saves.exists():
+        shutil.rmtree(saves)
+    shutil.copytree(K.ASSETS / "SAVE", saves)
+    for name, at, level in (("CHRDATA3", 0x45, 0), ("CHRDATA4", 0x45, 0), ("CHRDATA5", 0x45, 0),
+                            ("CHRDATA6", 0x45, 0), ("CHRDATA2", 0x48, 2)):
+        gam = bytearray((saves / f"{name}.GAM").read_bytes())
+        gam[at] = level
+        (saves / f"{name}.GAM").write_bytes(bytes(gam))
+    return saves
+
+
+def swap_poke(swaps):
+    poke = {}
+    for at, (monster, count, picture) in zip((0x8621, 0x8628), swaps):
+        poke.update({at + 2: monster, at + 4: count, at + 6: picture})
+    return poke
+
+
+def auto(v, work, opts, cast=False, swap=None):
     """The first fight with the party put on Auto (Alt-Q at the first
     turn, the player's menu, dkk 3e05:08af), to its end: the original is
     stopped at each round's end (3e05:0ed0 made to spin) and read, against
@@ -357,20 +403,21 @@ def auto(v, work, opts, cast=False):
     is gone (No) and the results, screens and records. With cast, the
     casters' saved game and Magic On: Alt-M typed ahead after Alt-Q, which
     the first computer's turn reads (3f63:117c)."""
-    tag = "cast" if cast else "auto"
-    saves = casters(work) if cast else K.ASSETS / "SAVE"
+    tag = "cast" if cast else swap if swap is not None else "auto"
+    poke = swap_poke(SWAPS[swap]) if swap is not None else None
+    saves = casters(work) if cast else unturning(work) if swap is not None else K.ASSETS / "SAVE"
     log, _, _, _ = K.port(work, f"{tag}-lead", TO_COMBAT, opts.seed, saves=saves,
-                          args=["--combat", "auto"])
+                          args=["--combat", "auto"], poke=poke)
     led = "Using leadership ability" in log
     keys = TO_COMBAT + (r"\r" if led else "")  # the leadership's wait
     # Cast: Alt-Q pressed at the first turn, Alt-M typed ahead.
     args = [] if cast else ["--combat", "auto"]
     if cast:
         keys += r"\@q\[\@m\]"
-    log, asked, _, _ = K.port(work, tag, keys, opts.seed, saves=saves, args=args)
+    log, asked, _, _ = K.port(work, tag, keys, opts.seed, saves=saves, args=args, poke=poke)
     rounds = K.port_rounds(work, tag)
     _, final, _, state = waiting(K.port(work, f"{tag}-end", keys + r"\r", opts.seed,
-                                        saves=saves, args=args))
+                                        saves=saves, args=args, poke=poke))
     print(f"port ({tag}): {len(rounds)} rounds; {log.strip().splitlines()[-1]}", flush=True)
     if cast:
         print("port (cast): " + "; ".join(line for line in log.splitlines()
@@ -379,7 +426,10 @@ def auto(v, work, opts, cast=False):
                     seed=opts.seed, saves=[saves], verbose=opts.verbose,
                     timeout=1800, keep=True) as box:
         v.check(K.title(box), f"the title's four pictures ({tag})")
-        K.type_steps(box, K.LOAD_A_STEPS + [r"\r", r"\r", "N"] + [r"\r"] * 9, settle=1.5)
+        K.type_steps(box, K.LOAD_A_STEPS + [r"\r", r"\r", "N"] + [r"\r"] * 8, settle=1.5)
+        if poke:
+            K.code_poke(box, poke)  # SETUP MONSTERS has run (8603)
+        K.type_steps(box, [r"\r"], settle=1.5)
         if led:
             K.type_steps(box, [r"\r"], settle=2.0)
         v.check(box.ds_byte(K.DS_MODE) == 5, f"the original waits in the first turn ({tag})")
@@ -392,7 +442,12 @@ def auto(v, work, opts, cast=False):
             box.push_key(0x3200)  # Alt-M
         n = 0
         while True:
-            handle = K.trap(box, 0x3E05, 0x0ED0, lambda: round_over(box), seconds=600)
+            try:
+                handle = K.trap(box, 0x3E05, 0x0ED0, lambda: round_over(box), seconds=600)
+            except cokbox.BoxError as e:
+                box.screenshot(work / f"dosbox-{tag}-stuck.png")
+                v.differ(f"round {n + 1}'s end in the original ({tag})", str(e))
+                break
             if not K.settled(box):
                 v.differ("the original stopped at a round's end", "it did not settle")
                 K.untrap(box, handle)
@@ -404,7 +459,8 @@ def auto(v, work, opts, cast=False):
                 v.differ(f"round {n}'s end in the port", "the port's battle ended before")
                 K.untrap(box, handle)
                 break
-            compare_round(v, box, f"{tag} round {n}" if cast else f"round {n}", *rounds[n - 1], work)
+            name = f"{tag} round {n}" if tag != "auto" else f"round {n}"
+            compare_round(v, box, name, *rounds[n - 1], work)
             K.untrap(box, handle)
             if last:
                 break
@@ -424,6 +480,13 @@ def auto(v, work, opts, cast=False):
             v.value(f"the party's experience after ({tag})",
                     [(r["name"], r["raw"][0x62:0x66].hex()) for r in K.party(box)],
                     [(r["name"], r["raw"][0x62:0x66].hex()) for r in state["records"]])
+            # The levels, those not drained, the experience not drained, the
+            # most hit points and those not drained, and the base hit points
+            # (+0x28, +0x45-+0x6c), as a drain (504d:14c7) leaves them.
+            v.value(f"the party's levels and hit points after ({tag})",
+                    [(r["name"], r["raw"][0x28], r["raw"][0x45:0x6d].hex()) for r in K.party(box)],
+                    [(r["name"], r["raw"][0x28], r["raw"][0x45:0x6d].hex())
+                     for r in state["records"]])
 
 
 # The first fight by keys from its first turn (NEACAIL's, a kender with

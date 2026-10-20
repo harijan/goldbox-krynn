@@ -793,6 +793,39 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual(len([line for line in lines if line.startswith("round: ")]), 14)
         self.assertIn("menu: continue battle? ", lines)
 
+    def test_monsters_effects(self):
+        # Fights of ECL1-3 from their SETUP MONSTERS on Auto (the effects
+        # part): the dragons' breaths (5dc5:51cc death and fire, a blue
+        # dragon's lightning 508c, "breathes "), the undead's level drain
+        # (504d:14c7) and a vampire's gaze (5dc5:4fd3), whose Charm Person
+        # (5dc5:2044) is not ported yet.
+        keys = r"\r" * 120
+        for file, block, start, at, said in (
+                (2, 50, "9564", "5,5,0", {"print: breathes death": 3}),
+                (2, 49, "8620", "5,5,0", {"print: breathes fire": 3}),
+                (1, 32, "899c", "5,5,0", {"print: breathes ": 7}),
+                (3, 80, "8d8b", "5,5,0", {"print: gets drained": 4}),
+                (2, 64, "85cf", "5,5,2", {"print: gazes!": 1})):
+            result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--file", file, "--start",
+                               start, "--at", at, "--seed", 1, "--combat", "auto", "--keys", keys,
+                               ASSETS, block)
+            lines = result.stdout.splitlines()
+            for line, n in said.items():
+                self.assertEqual(lines.count(line), n, (block, line))
+            if block == 50:
+                at_breath = lines.index("print: breathes death")
+                self.assertEqual(lines[at_breath + 1:at_breath + 4],
+                                 ["sound: 3", "print: LILLITH", "print: takes 120 points of damage"])
+        # Death's type is 0x60, not fire's: LILLITH resisting fire (0x14)
+        # takes it whole.
+        result = self.play("--party", ASSETS / "SAVE/SAVGAMA.PTY", "--file", 2, "--start", "9564",
+                           "--at", "5,5,0", "--seed", 1, "--combat", "auto", "--effect", "2,14,0,ff",
+                           "--keys", keys, ASSETS, 50)
+        lines = result.stdout.splitlines()
+        at_breath = lines.index("print: breathes death")
+        self.assertEqual(lines[at_breath + 2:at_breath + 4],
+                         ["print: LILLITH", "print: takes 120 points of damage"])
+
     def test_aging(self):
         # SIR DRYDEN (race 6) at 115 and hasted (effect 0x27, 504d:0d88):
         # the first round's event ages him a year and asks for the aging
