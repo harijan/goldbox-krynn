@@ -2384,6 +2384,19 @@ static bool effect_distance(cok_effects *fx, const uint8_t *origin, const uint8_
     return false;
 }
 
+static bool effect_lose_spell(cok_effects *fx, cok_character *c, void *context)
+{
+    cok_adventure *game = context;
+    return cok_cast_lose_spell(game, c) || effect_hook_failed(fx, game);
+}
+
+static void effect_pause(cok_effects *fx, void *context)
+{
+    (void)fx;
+    cok_adventure *game = context;
+    cok_adventure_wait(game, game->speed * 100u); /* dkk 14e4:0b56 */
+}
+
 static void effect_trace(cok_effects *fx, const char *text, uint8_t a, uint8_t b, uint8_t c,
                          void *context)
 {
@@ -2461,6 +2474,8 @@ bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, con
     game->effects.dispel = effect_dispel;
     game->effects.party_list = effect_party_list;
     game->effects.drain = effect_drain;
+    game->effects.lose_spell = effect_lose_spell;
+    game->effects.pause = effect_pause;
     game->effects.trace = effect_trace;
     game->effects.context = game;
     game->vm.file = 1;
@@ -2876,12 +2891,22 @@ static cok_ecl_status start_block(cok_adventure *game, uint8_t block)
 
 static int next_command(cok_adventure *game);
 
+/* The end of the adventure's command (475c:09ec; dkk 4307:0257, DS:db73):
+ * text shown in the text window is cleared, rows 17-22. */
+static void clear_shown_text(cok_adventure *game)
+{
+    if (!game->text_shown) return;
+    cok_picture_fill(&game->screen, 1, 0x11 * 8, 0x26, 6 * 8, 0); /* 1128:07e6 */
+    game->text_shown = false;
+}
+
 /* After a block is entered with the party destroyed (DAMAGE's or the end
  * of combat's: game->party_killed, the run ended), a game whose loop
  * reads its menu first (combat.killed_command: dkk 3632:2e06 calls
  * 4307:0257 after the load vector, and only then tests DS:8c5a) reads the
  * adventure's command once, its selection from the first item (DS:c0f7),
- * the game still ending after it whatever it was. Where a loaded game's entry would first redraw its screen (mode not
+ * the game still ending after it whatever it was; in mode 3 without the
+ * overland menu that command reads nothing (see below). Where a loaded game's entry would first redraw its screen (mode not
  * 3 and DS:8c57: 65cd:2db0, its view not drawn, 6c84:00a6 testing DS:8c5a)
  * the port does not carry it out: the run stops. */
 static cok_ecl_status killed_command(cok_adventure *game, cok_ecl_status status)
@@ -2895,6 +2920,14 @@ static cok_ecl_status killed_command(cok_adventure *game, cok_ecl_status status)
         return vm->status;
     }
     game->selected = 1; /* 3632:2f4f: DS:c0f7 from 1 */
+    if (vm->mode == 3 && cok_ecl_var(vm, COK_VAR_OVERLAND) == 0) {
+        /* dkk 4307:0257 in mode 3 without the overland menu (0x4cf7)
+         * reads no key: it only clears the text window if text is shown
+         * (DS:db73, 110f:0584) and returns a byte of its stack never set,
+         * which 3632:2e06 does not use here. */
+        clear_shown_text(game);
+        return COK_ECL_OK;
+    }
     vm->abort = false;
     int key = next_command(game);
     vm->abort = true;
@@ -3363,10 +3396,7 @@ static int command(cok_adventure *game)
         if (game->vm.abort) return -1;
     }
     if (result < 0) return result;
-    if (game->text_shown) {
-        cok_picture_fill(&game->screen, 1, 0x11 * 8, 0x26, 6 * 8, 0); /* 1128:07e6 */
-        game->text_shown = false;
-    }
+    clear_shown_text(game);
     return result;
 }
 

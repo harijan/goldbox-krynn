@@ -207,6 +207,13 @@ struct cok_effects {
     /* Death Knights' level drain (dkk 504d:14c7, cok_train_drain): c
      * loses levels. NULL fails. */
     bool (*drain)(cok_effects *fx, cok_character *c, uint8_t levels, void *context);
+    /* One casting in combat (its combat record's spell) "lost a spell"
+     * (row 12), forgets it and its turn ends (dkk 65cd:1a21, 17c4, 2bac,
+     * cok_cast_lose_spell), as Death Knights' silence (504d:05bf) does.
+     * NULL fails. */
+    bool (*lose_spell)(cok_effects *fx, cok_character *c, void *context);
+    /* A pause of the speed (dkk 14e4:0b56). NULL pauses not. */
+    void (*pause)(cok_effects *fx, void *context);
     /* The debug trace (6d7e:093e, cok_debug_trace), as effect 0x07's
      * handler calls it. NULL shows nothing. */
     void (*trace)(cok_effects *fx, const char *text, uint8_t a, uint8_t b, uint8_t c,

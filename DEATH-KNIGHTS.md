@@ -133,7 +133,7 @@ the character fields moved (R6), which the real game's layout does better.
    STOCK, ROB (done); (7) shops and the temple (done; Raise Dead,
    Remove Curse and Restoration wait for their spells); (8) `spells`, the changed spells (done: band B, 19 routines);
    (9) `levels`, levels to 18, Train, Knight Change Order, aging (also after a
-   battle), Memorize's 8 levels (done; camp Fix left, a rewrite); (10) the new spells and the rewritten
+   battle), Memorize's 8 levels (done; camp Fix left, a rewrite); (10) the new spells (done) and the rewritten
    clouds (clouds done). Death Knights has no locked doors: nothing to port there.
 4. Music: the MUSIC.DAX driver and its songs. Until then Death Knights plays
    silent.
