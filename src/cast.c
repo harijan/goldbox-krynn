@@ -2630,6 +2630,31 @@ static bool announce_spell(cok_adventure *game, cok_character *c, const char *ve
     return true;
 }
 
+bool cok_cast_on(cok_adventure *game, uint8_t spell, cok_character *target, bool set_spell)
+{
+    const cok_rules_spells *S = &cok_game_rules(game)->spells;
+    if (spell == 0 || spell >= S->count)
+        return undefined(game, "a spell past the handler table is run");
+    const cok_rules_cast *handler = &S->cast[spell];
+    if (handler->unported != NULL) {
+        cok_adventure_fail(game, COK_ECL_UNPORTED, "not yet ported: %s's spell %u, %s (%s)",
+                           cok_game_rules(game)->text.name, spell, S->names[spell - 1],
+                           handler->unported);
+        return false;
+    }
+    if (handler->handler == COK_CAST_NONE)
+        return undefined(game, "a spell cast only in combat is run outside it");
+    game->spell_targets[1] = target; /* the first target alone; the count stays */
+    cast cx = {.game = game, .caster = target, .spell = spell, .entry = handler,
+               .targets = game->spell_targets};
+    cok_rolls *r = &game->effects.rolls;
+    uint8_t outer = r->spell;
+    if (set_spell) r->spell = spell;
+    bool ok = handlers[handler->handler](&cx);
+    r->spell = outer;
+    return ok && !game->vm.abort;
+}
+
 void cok_cast_spell(cok_adventure *game, uint8_t spell, bool ai, bool announce, uint8_t frame,
                     bool *done)
 {

@@ -328,7 +328,7 @@ static void test_variables(void)
         CHECK(listed || v == COK_VAR_ECL_FILE || v == COK_VAR_LOCALS_GAME || v == COK_VAR_SHOP);
         found += listed;
     }
-    CHECK(found == 20);
+    CHECK(found == 21);
     const uint8_t *get = at(0x3c1e, 0x0d85), *set = at(0x3c1e, 0x0bc1);
     size_t compared = 0;
     for (size_t i = 0; i < 0x190; ++i) {
@@ -1002,8 +1002,8 @@ static void test_combat(void)
     unsigned long calls[24];
     size_t n = far_calls(0x3632, 0x16ec, 0x1b0, calls, 24);
     CHECK(n >= 6 && C->vault && C->vault_unported == NULL && calls[0] == 0x3948000e &&
-          cites(C->shop_unported, calls[1]) && cites(C->temple_unported, calls[2]) &&
-          calls[3] == 0x3a371318);
+          calls[1] == 0x3b8906f3 && calls[2] == 0x399907d3 && calls[3] == 0x3a371318 &&
+          R->shops.routine == COK_SHOPS_DEATH_KNIGHTS);
     CHECK(HOLDS(0x3632, 0x16ec, 0x48, 0x26, 0x80, 0xbd, 0x00, 0x02, 0x01)); /* var 0x4d00 */
     CHECK(cok_ecl_var_address(R, COK_VAR_VAULT, 0) == 0x4d00);
     size_t battle = 0;
@@ -1718,7 +1718,7 @@ static void test_items(void)
     /* Sell multiplies by the count, divides by nothing; Id pays from the
      * steel (+0x3f) and the pool's (DS:be58), waiting twice when it shows. */
     CHECK(I->sell_divisor == 1 && !HOLDS(0x580d, 0x2077, 0x80, 0xb9, 0x14, 0x00) &&
-          I->id_steel && HOLDS(0x580d, 0x21d3, 0x80, 0x26, 0x8b, 0x45, 0x3f) &&
+          R->shops.steel && HOLDS(0x580d, 0x21d3, 0x80, 0x26, 0x8b, 0x45, 0x3f) &&
           HOLDS(0x580d, 0x21d3, 0x100, 0xa1, 0x58, 0xbe) && I->id_waits_twice);
     /* Heal: class 3, not in combat, okay, effect 0x6d; healing twice +0x48;
      * the effect for 0x5a0 minutes. Cure: +0x25. */
@@ -1731,6 +1731,102 @@ static void test_items(void)
     CHECK(cok_field_offset(R->character, COK_FIELD_KNIGHT_TIER) == 0x25 &&
           cok_field_offset(R->character, COK_FIELD_CLASS) == 0x21);
     puts("death knights: the items section checked");
+}
+
+/* The shops section against the original's code: the shop's (3b89:06f3)
+ * and the temple's (3999:07d3) menus and words of leaving money, Buy's
+ * (0453) list (00b1), funds (0000) and words, the steel it pays from
+ * (+0x3f, DS:be58) and the mode the shop puts back (DS:8c4f), Appraise's
+ * (5c72:0dc2, 00ba) words, Heal's (3999:04e2) cures, the spells' names it
+ * lists and its words, the cures' words and the spells' handlers Raise
+ * Dead, Remove Curse and Restoration run (3999:01fc, 0368, 045f), and mode
+ * 1's redraw (65cd:2db0: its branch with mode 7's, the small picture). */
+static void test_shops(void)
+{
+    const cok_rules_shops *S = &R->shops;
+    CHECK(S->routine == COK_SHOPS_DEATH_KNIGHTS && S->steel && !S->portrait);
+    const struct {
+        unsigned seg, off, n, word;
+        const char *text;
+    } words[] = {
+        {0x3b89, 0x06f3, 0x100, 0x34f8, S->menu},
+        {0x3999, 0x07d3, 0x100, 0x3594, S->temple_menu},
+        {0x3b89, 0x06f3, 0x250, 0x1758, S->left},
+        {0x3b89, 0x06f3, 0x250, 0x17a9, S->go_back},
+        {0x3999, 0x07d3, 0x200, 0x1758, S->left},
+        {0x3999, 0x07d3, 0x200, 0x17a9, S->go_back},
+        {0x3b89, 0x00b1, 0x200, 0x34ed, S->buy_menu},
+        {0x3b89, 0x00b1, 0x200, 0x315d, R->treasure.items_prompt},
+        {0x3b89, 0x0000, 0xb1, 0x2aa2, S->personal_funds},
+        {0x3b89, 0x0000, 0xb1, 0x2ab7, S->pooled_funds},
+        {0x3b89, 0x0453, 0x2a0, 0x1738, S->buys_a},
+        {0x3b89, 0x0453, 0x2a0, 0x172d, S->buys},
+        {0x3b89, 0x0453, 0x2a0, 0x1743, R->items.no_money},
+        {0x5c72, 0x0dc2, 0x80, 0x1081, S->no_gems},
+        {0x5c72, 0x0dc2, 0x100, 0x0fd9, S->gems},
+        {0x5c72, 0x0dc2, 0x100, 0x0fe4, S->jewelry},
+        {0x5c72, 0x0dc2, 0x200, 0x0fef, S->collection},
+        {0x5c72, 0x0dc2, 0x300, 0x3223, S->appraise_menu},
+        {0x5c72, 0x0dc2, 0x300, 0x3003, S->appraise_prompt},
+        {0x5c72, 0x0dc2, 0x400, 0x100e, S->gem_valued},
+        {0x5c72, 0x0dc2, 0x700, 0x102d, S->jewel_valued},
+        {0x5c72, 0x0dc2, 0x400, 0x1096, S->valued_end},
+        {0x5c72, 0x0dc2, 0x500, 0x3238, S->sell_keep},
+        {0x5c72, 0x00ba, 0x60, 0x1188, R->items.sold_pool},
+        {0x3999, 0x04e2, 0x200, 0x3589, S->heal_menu},
+        {0x3999, 0x04e2, 0x200, 0x1aa6, S->help},
+        {0x3999, 0x0000, 0x53, 0x19c9, S->anyway},
+        {0x3999, 0x0053, 0x58, 0x19fe, S->not_blind},
+        {0x3999, 0x01fc, 0xa4, 0x1a28, S->cannot_raise},
+        {0x3999, 0x01fc, 0xa4, 0x1a3d, S->not_dead},
+        {0x3999, 0x02a0, 0xc8, 0x1a52, S->not_poisoned},
+        {0x3999, 0x0368, 0x9c, 0x1a67, S->not_cursed},
+        {0x3999, 0x0404, 0x5b, 0x1a7c, S->not_stoned},
+        {0x3999, 0x045f, 0x83, 0x1a91, S->no_lost_levels},
+    };
+    for (size_t i = 0; i < sizeof words / sizeof *words; ++i) {
+        bool is = pascal_is(ds(words[i].word), words[i].text, false),
+             loaded = loads_word(words[i].seg, words[i].off, words[i].n, words[i].word);
+        if (!is || !loaded) fprintf(stderr, "shops word %zu: %d %d\n", i, is, loaded);
+        CHECK(is && loaded);
+    }
+    /* The shop leaves from Yes (DS:57c0), the temple from No (57c1). */
+    CHECK(HOLDS(0x3b89, 0x06f3, 0x250, 0xa0, 0xc0, 0x57) &&
+          HOLDS(0x3999, 0x07d3, 0x200, 0xa0, 0xc1, 0x57));
+    /* The mode kept (mov al, [8c4e]; mov [8c4f], al) and put back. */
+    CHECK(HOLDS(0x3b89, 0x06f3, 0x10, 0xa0, 0x4e, 0x8c, 0xa2, 0x4f, 0x8c) &&
+          HOLDS(0x3b89, 0x06f3, 0x250, 0xa0, 0x4f, 0x8c, 0xa2, 0x4e, 0x8c) &&
+          !HOLDS(0x3999, 0x07d3, 0x200, 0xa2, 0x4f, 0x8c));
+    /* Buy pays from the steel (+0x3f) and the pool's (DS:be58). */
+    CHECK(HOLDS(0x3b89, 0x0453, 0x2a0, 0x26, 0x8b, 0x45, 0x3f) &&
+          HOLDS(0x3b89, 0x0453, 0x2a0, 0xa1, 0x58, 0xbe));
+    /* Heal's cures: DS:030c's ids (mov al, [di+0x30b], from 1), named
+     * from DS:5825 + 41 * id. */
+    CHECK(S->cure_count == 11 && memcmp(ds(0x030c), S->cures, S->cure_count) == 0 &&
+          HOLDS(0x3999, 0x04e2, 0x80, 0x8a, 0x85, 0x0b, 0x03) &&
+          HOLDS(0x3999, 0x04e2, 0x80, 0xba, 0x29, 0x00) &&
+          HOLDS(0x3999, 0x04e2, 0x80, 0x81, 0xc7, 0x25, 0x58));
+    for (size_t i = 0; i < S->cure_count; ++i)
+        CHECK(S->cures[i] > 0 && S->cures[i] < R->spells.count &&
+              pascal_is(ds(0x5825 + 41u * S->cures[i]), R->spells.names[S->cures[i] - 1], false));
+    /* Raise Dead and Restoration: the spell (mov byte [be70], id) and its
+     * handler from DS:c150 + 4 * id (call far [..]); Remove Curse calls
+     * 5dc5:311b, the handler of its id. */
+    CHECK(HOLDS(0x3999, 0x01fc, 0xa4, 0xc6, 0x06, 0x70, 0xbe, S->cures[7], 0xff, 0x1e,
+                (uint8_t)(0xc150 + 4 * S->cures[7]), (uint8_t)((0xc150 + 4 * S->cures[7]) >> 8)));
+    CHECK(HOLDS(0x3999, 0x045f, 0x83, 0xc6, 0x06, 0x70, 0xbe, S->cures[10], 0xff, 0x1e,
+                (uint8_t)(0xc150 + 4 * S->cures[10]), (uint8_t)((0xc150 + 4 * S->cures[10]) >> 8)));
+    unsigned long calls[8];
+    size_t n = far_calls(0x3999, 0x0368, 0x9c, calls, 8);
+    CHECK(n >= 1 && calls[n - 1] == 0x5dc5311b && R->spells.cast[S->cures[8]].address == 0x311b);
+    /* Mode 1's redraw: one branch with mode 7's (cmp al, 7; jz; cmp al, 1),
+     * the small picture always (6ca1:0000). */
+    CHECK(HOLDS(0x65cd, 0x2db0, 0x30, 0x3c, 0x07, 0x74, 0x04, 0x3c, 0x01));
+    n = far_calls(0x65cd, 0x2db0, 0x60, calls, 8);
+    bool picture = false;
+    for (size_t i = 0; i < n; ++i) picture |= calls[i] == 0x6ca10000;
+    CHECK(picture);
+    puts("death knights: the shops section checked");
 }
 
 /* The levels section against the original's code: Train (49cb:43b6) and
@@ -1898,6 +1994,7 @@ int main(void)
         if (exe_size > 0) test_commands();
         if (exe_size > 0) test_levels();
         if (exe_size > 0) test_items();
+        if (exe_size > 0) test_shops();
         if (exe_size > 0) test_casting();
         if (exe_size > 0) test_spells();
     }

@@ -497,8 +497,8 @@ static const cok_rules_opcode death_knights_opcodes[COK_ECL_OPCODES] = {
  * an assertion): the turn of the status line's names, which its status
  * line (65cd:2eea) has not; the portrait, which it has not; the view's
  * own 0x4c38 test, which it has not; the moon of an
- * order and the area by a byte (the spells', R5); and those only the
- * shops read (the prices, step 3). Combat's are at Champions' addresses
+ * order and the area by a byte (the spells', R5). Combat's and the shops'
+ * are at Champions' addresses
  * (DS:838-862 hold them); the vault's (0x4d00) and the river's (0x4bf3)
  * are its own. */
 #define VAR(a) {.address = a, .width = 1, .count = 1}
@@ -560,6 +560,7 @@ static const cok_rules_var death_knights_vars[COK_VARS] = {
     [COK_VAR_GENTLE] = VAR(0x7ee6),
     [COK_VAR_FLED] = VAR(0x7f33),
     [COK_VAR_SHOP] = VAR(0x7f6c),
+    [COK_VAR_PRICES] = VAR(0x7f6d), /* 3b89:00b1, 0453 (DS:85c) */
     [COK_VAR_HIT_BONUS] = VARS(0x7f70, 2),
     [COK_VAR_MOVE_BONUS] = VAR(0x7f72),
     [COK_VAR_VAULT] = VAR(0x4d00),  /* 3632:16ec */
@@ -1687,12 +1688,10 @@ const cok_rules cok_rules_death_knights = {
         {
             /* 3632:16ec: the vault (var 0x4d00) first, then a shop
              * (0x7f6c) and the temple (DS:850's 0x7ee2), else the end of
-             * combat; the vault's menu, the shop and the temple are
-             * steps 3's treasure and shops. */
+             * combat; the vault's menu is the treasure section's, the shop
+             * and the temple the shops section's. */
             .vault = true,
             .vault_unported = NULL,
-            .shop_unported = "dkk 3b89:06f3",
-            .temple_unported = "dkk 3999:07d3",
             .show_none = true, /* 3c1e:0515 */
             /* 3e05:00ec */
             .leadership = true, /* 5340:4acf */
@@ -1859,7 +1858,6 @@ const cok_rules cok_rules_death_knights = {
             .nothing_new = "i cannot tell anything new about your ", /* DS:11da */
             .looks_like = "it looks like some sort of ",             /* DS:1203 */
             .no_money = "not enough money.",                         /* DS:1743 */
-            .id_steel = true,
             .id_waits_twice = true,
             .heal_class = 3,        /* 580d:2e95: paladins */
             .heal_effect = 0x6d,    /* 2e95's 65cd:2687, 2f47's 638c:1257 */
@@ -1868,6 +1866,48 @@ const cok_rules cok_rules_death_knights = {
             .cure_whom = "Cure whom? ",       /* 580d:300c */
             .feels_better = " feels better",  /* 580d:2f2a */
             .unaffected = " is unaffected",   /* 580d:2f38 */
+        },
+    .shops =
+        {
+            .routine = COK_SHOPS_DEATH_KNIGHTS, /* 3b89:06f3, 3999:07d3 */
+            .portrait = false,                  /* 65cd:2db0 */
+            .steel = true,                      /* 3b89:0453, 580d:21d3 */
+            .menu = "Buy View Take Pool Share Appraise Exit",         /* DS:34f8 */
+            .temple_menu = "Heal View Take Pool Share Appraise Exit", /* DS:3594 */
+            .buy_menu = "Buy",                                         /* DS:34ed */
+            .personal_funds = "Personal funds:",                      /* DS:2aa2 */
+            .pooled_funds = "Pooled Funds:  ",                        /* DS:2ab7 */
+            .buys_a = " buys a ",                                      /* DS:1738 */
+            .buys = " buys ",                                          /* DS:172d */
+            .left = "as you leave a man says, \"excuse me but you have left some money "
+                    "here.\" ",                                        /* DS:1758 */
+            .go_back = "do you want to go back and get your money?",  /* DS:17a9 */
+            .no_gems = "no gems or jewelry",              /* 5c72:0dc2, DS:1081 */
+            .gems = "gems : ",                            /* DS:0fd9 */
+            .jewelry = "jewelry : ",                      /* DS:0fe4 */
+            .collection = "You have a fine collection of:", /* DS:0fef */
+            .appraise_menu = "Gems Jewelry Exit",         /* DS:3223 */
+            .appraise_prompt = "Appraise : ",             /* DS:3003 */
+            .gem_valued = "The gem is valued at ",        /* DS:100e */
+            .jewel_valued = "The jewel is valued at ",    /* DS:102d */
+            .valued_end = " steel.",                      /* DS:1096 */
+            .sell_keep = "Sell Keep",                     /* DS:3238 */
+            /* 3999:04e2: Cure Blindness, Cure Disease, Cure Light, Serious
+             * and Critical Wounds, Heal, Neutralize Poison, Raise Dead,
+             * Remove Curse, Stone to Flesh, Restoration. */
+            .cures = (const uint8_t[]){0x25, 0x27, 0x03, 0x3a, 0x47, 0x35, 0x43, 0x4b, 0x2b, 0x42,
+                                       0x11}, /* DS:030c */
+            .cure_count = 11,
+            .heal_menu = "Heal",                       /* DS:3589 */
+            .help = ", how can we help yo",            /* DS:1aa6 */
+            .anyway = "cast cure anyway? ",            /* 3999:0000, DS:19c9 */
+            .not_blind = "is not blind.",              /* 3999:0053, DS:19fe */
+            .cannot_raise = "cannot be raised.",       /* 3999:01fc, DS:1a28 */
+            .not_dead = "is not dead.",                /* DS:1a3d */
+            .not_poisoned = "is not poisoned.",        /* 3999:02a0, DS:1a52 */
+            .not_cursed = "is not cursed.",            /* 3999:0368, DS:1a67 */
+            .not_stoned = "is not stoned.",            /* 3999:0404, DS:1a7c */
+            .no_lost_levels = "has no lost levels.",   /* 3999:045f, DS:1a91 */
         },
     .treasure =
         {

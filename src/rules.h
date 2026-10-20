@@ -786,11 +786,11 @@ typedef enum {
 typedef struct {
     /* COMBAT (2fd3:191c; dkk 3632:16ec) with no monsters loaded: whether
      * the vault's menu (var COK_VAR_VAULT 1) comes first, before a shop
-     * and the temple; and the game's vault menu, shop and temple where the
-     * port does not carry them out for it yet (dkk 3948:000e, 3b89:06f3,
-     * 3999:07d3), or NULL. */
+     * and the temple (the shops section's); and the game's vault menu
+     * where the port does not carry it out for it yet (dkk 3948:000e), or
+     * NULL. */
     bool vault;
-    const char *vault_unported, *shop_unported, *temple_unported;
+    const char *vault_unported;
     /* The show at distance (3775:0575; dkk 3c1e:0515): whether a sprite or
      * close-up id of 0xff shows none, and a close-up shows at any distance
      * when there is no sprite (dkk); Champions' has neither rule, and its
@@ -1128,12 +1128,11 @@ typedef struct {
     /* Id (546c:2a59; dkk 580d:21d3), in shops: the offer's, the
      * nothing-new's and the shown's words before the name, and too little
      * money's (Champions' 546c:29ce, 2a17, 2a3d, 2a06; dkk DS:11b1,
-     * 11da, 1203, 1743); whether the 100 steel are paid from the
-     * character's steel and then the pool's (dkk), rather than from all its
-     * coins as steel (546c:3424, 58e7:0155) and then the pool's (58e7:00d3,
-     * 018f); and whether a name shown waits a second time (dkk). */
+     * 11da, 1203, 1743); and whether a name shown waits a second time
+     * (dkk). Its 100 steel are paid as the shops' prices are (the shops
+     * section's steel). */
     const char *identify, *nothing_new, *looks_like, *no_money;
-    bool id_steel, id_waits_twice;
+    bool id_waits_twice;
     /* COK_ITEMS_DEATH_KNIGHTS' View's Heal and Cure (580d:2e95, 2f47,
      * 2ee0, 3018), offered outside combat to one of the class (+0x21) that
      * is okay (+0xc7): Heal while it has no effect heal_effect, healing
@@ -1146,6 +1145,67 @@ typedef struct {
     uint16_t heal_minutes;
     const char *heal_whom, *cure_whom, *feels_better, *unaffected;
 } cok_rules_items;
+
+/* The shop, its Buy and Appraise, and the temple and its Heal, as each
+ * game has them (shop.c): Champions' (36d0:07da, 0484, 58e7:1929, 340d:0ea9,
+ * 0be1), by letters, prices paid in every coin and the cures for steel;
+ * or Death Knights' (dkk 3b89:06f3, 0453, 5c72:0dc2, 3999:07d3, 04e2), by
+ * index, prices paid in steel and the cures free, some by their spells'
+ * handlers. */
+typedef enum {
+    COK_SHOPS_CHAMPIONS,
+    COK_SHOPS_DEATH_KNIGHTS,
+} cok_shops_routine;
+
+/* Shops and the temple where the games differ (shop.c, items.c's Sell and
+ * Id; see Shops and the temple, and Death Knights' shops). */
+typedef struct {
+    /* cok_shops_routine. */
+    uint8_t routine;
+    /* Mode 1's redraw (6346:2c17; dkk 65cd:2db0, which mode 7 shares):
+     * whether in 3D areas it shows the portrait last shown in place of the
+     * small picture's first frame (Champions), rather than the picture
+     * always (dkk). */
+    bool portrait;
+    /* Whether a price (Buy's, Id's) is paid from the selected character's
+     * steel (+0x3f) and what that lacks from the pool's steel (DS:be58, a
+     * long: dkk 3b89:0453, 580d:21d3), rather than from its money in steel
+     * of every coin (546c:3424), its coins then all steel (58e7:0155), or
+     * else the pool's worth (58e7:00d3, 018f; Champions). */
+    bool steel;
+    /* COK_SHOPS_DEATH_KNIGHTS' words, NULL for Champions, whose shop.c
+     * holds its own: the shop's and the temple's menus, every item each
+     * may offer, by index (DS:34f8, 3594); Buy's list's menu (DS:34ed;
+     * its prompt the treasure section's items_prompt, DS:315d) and the
+     * funds shown under it (3b89:0000's DS:2aa2, 2ab7), the words of a
+     * purchase (DS:1738 for an item without a count, 172d with one; too
+     * little money is the items section's no_money, DS:1743); and the
+     * words of leaving money in the pool (DS:1758, 17a9, the temple's
+     * too). */
+    const char *menu, *temple_menu, *buy_menu, *personal_funds, *pooled_funds;
+    const char *buys_a, *buys, *left, *go_back;
+    /* COK_SHOPS_DEATH_KNIGHTS' Appraise (5c72:0dc2): none to value
+     * (DS:1081), the counts' words (0fd9, 0fe4), the collection's line
+     * (0fef), the menu (3223) and its prompt (3003), the value's words
+     * (100e, 102d; 1096 after the value) and the menu after it (3238);
+     * what would overload is the items section's sold_pool (5c72:00ba,
+     * DS:1188). */
+    const char *no_gems, *gems, *jewelry, *collection, *appraise_menu, *appraise_prompt;
+    const char *gem_valued, *jewel_valued, *valued_end, *sell_keep;
+    /* COK_SHOPS_DEATH_KNIGHTS' Heal (3999:04e2): its cures, the spells
+     * whose names its list shows (DS:030c, cure_count of them, each named
+     * from the spell names), its menu (DS:3589) and the words after the
+     * name (DS:1aa6, a string[20] that cuts them); the question of a cure
+     * not needed (3999:0000, DS:19c9) and the words of each (3999:0053
+     * "is not blind.", 01fc's two, 02a0, 0368, 0404, 045f: DS:19fe, 1a28,
+     * 1a3d, 1a52, 1a67, 1a7c, 1a91). Raise Dead, Remove Curse and
+     * Restoration run their spells' handlers (3999:01fc's 0x4b, 0368's
+     * 5dc5:311b, 045f's 0x11: cures 7, 8 and 10). */
+    const uint8_t *cures;
+    uint8_t cure_count;
+    const char *heal_menu, *help, *anyway, *not_blind, *cannot_raise, *not_dead;
+    const char *not_poisoned, *not_cursed, *not_stoned, *no_lost_levels;
+} cok_rules_shops;
 
 /* Treasure where the games differ (treasure.c, adventure.c's DAMAGE and
  * ADD EP): the item table that TREASURE ITEMS and STOCK take their items
@@ -1484,6 +1544,7 @@ typedef struct cok_rules {
     cok_rules_menus menus;
     cok_rules_commands commands;
     cok_rules_items items;
+    cok_rules_shops shops;
     cok_rules_treasure treasure;
     cok_rules_levels levels;
     cok_rules_casting casting;

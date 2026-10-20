@@ -42,6 +42,14 @@ static cok_adventure game;
 
 /* The keyboard's flushes (1614:045c), logged as "flush;" while asked. */
 static bool log_flushes;
+/* The pauses taken (1521:0b4b, dkk 14e4:0b56), not the text's delays. */
+static unsigned waits;
+
+static void delayed(cok_adventure *g, unsigned ms, void *context)
+{
+    (void)context;
+    if (ms == g->speed * 100u) ++waits;
+}
 
 static void flushed(cok_adventure *g, void *context)
 {
@@ -715,14 +723,43 @@ static void test_dk_items(void)
     CHECK(strstr(s.log, "print: I'll give you 15 steel pieces for your 3 Arrows ;"
                         "menu: is it a deal? ;choice: Y;print: sold!;") != NULL);
     CHECK(cok_field_u16_at(L, c->record, COK_FIELD_COINS, 4) == 15 && c->item_count == 1);
+    /* Sold with what would overload it: what fits to the steel, the rest
+     * to the pool's, said without a pause (5c72:0054, the item still
+     * weighed). */
+    arrows = give(c, 0x1e, 0, 0, 0x1e);
+    arrows[0x39] = 3;
+    arrows[0x3a] = 10;
+    CHECK(dk_stats(c));
+    int16_t allowance;
+    char error[300];
+    CHECK(cok_character_allowance(c->record, &cok_rules_death_knights, &allowance, error,
+                                  sizeof error));
+    cok_field_set16(L, c->record, COK_FIELD_WEIGHT, (uint16_t)(allowance + 1500 - 5));
+    keys("\x01Ps\r\x1b");
+    cok_items(&game, &done);
+    CHECK(strstr(s.log, "print: sold!;print: overloaded. money will be put in pool.;") != NULL);
+    CHECK(cok_field_u16_at(L, c->record, COK_FIELD_COINS, 4) == 20 && game.pool.coins[4] == 10 &&
+          c->item_count == 1);
+    CHECK(dk_stats(c));
+    cok_field_set16_at(L, c->record, COK_FIELD_COINS, 4, 15);
     c->items[0][0x35] = 1;
     game.pool.coins[4] = 90;
     keys("i\r\x1b");
+    waits = 0;
     cok_items(&game, &done);
+    unsigned shown = waits;
     CHECK(strstr(s.log, "print: for 100 steel pieces i'll identify your ") != NULL &&
           strstr(s.log, "print: it looks like some sort of ") != NULL);
     CHECK(cok_field_u16_at(L, c->record, COK_FIELD_COINS, 4) == 0 && game.pool.coins[4] == 5 &&
           (c->items[0][0x35] & 7) == 0);
+    /* A name shown waits twice (14e4:0b56, then 1521:0b4b's), nothing new
+     * once. */
+    cok_field_set16_at(L, c->record, COK_FIELD_COINS, 4, 100);
+    keys("i\r\x1b");
+    waits = 0;
+    cok_items(&game, &done);
+    CHECK(strstr(s.log, "print: i cannot tell anything new about your ") != NULL &&
+          cok_field_u16_at(L, c->record, COK_FIELD_COINS, 4) == 0 && shown == 2 && waits == 1);
     keys("i\r\x1b");
     cok_items(&game, &done);
     CHECK(strstr(s.log, "print: not enough money.;") != NULL);
@@ -795,7 +832,8 @@ static void test_death_knights(void)
     }
     cok_adventure_close(&game);
     cok_keyboard k = {scripted, &s, NULL, NULL};
-    cok_adventure_hooks hooks = {.log = log_line, .flush = flushed, .context = &s};
+    cok_adventure_hooks hooks = {.log = log_line, .flush = flushed, .delay = delayed,
+                                 .context = &s};
     CHECK(cok_adventure_open(&game, &cok_rules_death_knights, "DKKAssets", &k, &hooks));
     test_dk_items();
     test_dk_view();

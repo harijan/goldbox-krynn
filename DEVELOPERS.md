@@ -199,11 +199,12 @@ segment's tables, a section to a concern:
 | `moons` | the three moons (`57e4:001e`, `0143`): the days each stays in a phase, and on the frame each one's column and tile | 8, 1, 6 days; columns 8, 19, 30; tiles 0x114 + phase + 10, 6, 14 |
 | `frame` | the screens' frames (`screen.c`), by `cok_screen` (the frame, the open frame, the adventure screen, a big picture's, Memorize's, the spell lists', combat's, the sheet's, the credits'): each a `cok_rules_screen`, the screen drawn under it first, the box cleared (`1128:07e6`) and its lines, rows and columns of tiles (`cok_rules_frame_line`: a tile, or a table by the cell's column or row, and on row 0 the moons), each the frame's `base` + its value; which frame main draws after the start menu (`menu_big`) and Begin Adventuring for a loaded game (`resumed`, a `cok_resumed`) | `1128:0000`-`077c`'s layouts, tiles 0x114 + `DS:0e3a`, `0e62`, `0e7a`, `0ea3`, `0eb0`, `0e8b`, `0ebd`, `0f02`, `0f19` and the code's; the big frame in mode 3 on the map (`1000:024b`); in block 0 or off the map (`4def:01b4`) |
 | `start` | the front end (`start.c`, `roster.c`, camp's Save): the title's pictures (record, cell, whether the screen is cleared first, the seconds waited) and credits (lines, their wait, whether they show after a key), a new game's block and the demonstration's file and block; the start menu's items, prompt and word, each item's routine where the port does not carry it out for the game (`unported`, cited: choosing it stops the run); the words of Pick Character, Drop, Exit, Load, Save, the roster's Overwrite, Add, and "from where" for a game that imports another's; the questions' colour; and what its commands do where the games differ (Add's paladin rules, its space, its message and marks; a Drop or Remove that empties the party ending the game; Exit's No saving then quitting; Begin's mode; PROGRAM 0 marking the party on the map; the wall table's entry the end of a game sets) | `2f55:063c`'s pictures, 1, 2, 3 at 5, 1 and 4 at 0, 1 for 5, 10 and 10 seconds, the credits (`2f55:0267`) for 10 unless a key; 0x24, file 2 block 0x39; `DS:0878`, `Choose a FUNCTION `, `Select `, none unported; yellow; paladins, the space, the message and marks; no, no, the entry mode, no; the first |
-| `combat` | the encounter and the battle's frame where the games differ (`monster.c`, `combat.c`, `round.c`, `treasure.c`'s end of combat): `COMBAT`'s vault branch and the vault, shop and temple a game's port does not carry out yet; the show at distance's `0xff` for none; leadership before the setup and its words; the dead exploding after a turn and a blow, a side gone ending the round there; the setup's line, its tile counts, whether a set is kept, the open ground's builder (`cok_wilderness_routine`), the dungeon's fill and corners; the placement's clears, ambush, distances, the cell under a body, status 9; the end of combat's lost weapons, shares, effects lost, may-train, the results' words and key, the treasure menu's condition and stop, a destroyed party's words | the vault none; Champions' shop and temple; no; no; yes, no; none; `A battle begins...`, 0x19 and 0x21, no, `COK_WILDERNESS_CHAMPIONS` (`3cb2:0fc8`), no fill, Champions' corners; 255, no ambush, status 9 off the map; weapons back, shares, `DS:0390`'s 11, no may-train, `The party has won.` ..., `press <enter>/<return> to continue`, always (`351b:1968`) |
+| `combat` | the encounter and the battle's frame where the games differ (`monster.c`, `combat.c`, `round.c`, `treasure.c`'s end of combat): `COMBAT`'s vault branch and the vault a game's port does not carry out yet; the show at distance's `0xff` for none; leadership before the setup and its words; the dead exploding after a turn and a blow, a side gone ending the round there; the setup's line, its tile counts, whether a set is kept, the open ground's builder (`cok_wilderness_routine`), the dungeon's fill and corners; the placement's clears, ambush, distances, the cell under a body, status 9; the end of combat's lost weapons, shares, effects lost, may-train, the results' words and key, the treasure menu's condition and stop, a destroyed party's words | the vault none; no; no; yes, no; none; `A battle begins...`, 0x19 and 0x21, no, `COK_WILDERNESS_CHAMPIONS` (`3cb2:0fc8`), no fill, Champions' corners; 255, no ambush, status 9 off the map; weapons back, shares, `DS:0390`'s 11, no may-train, `The party has won.` ..., `press <enter>/<return> to continue`, always (`351b:1968`) |
 | `fight` | the rounds, the computer's turns and the attacks where the games differ (`round.c`, `ai.c`, `attack.c`, `arena.c`, `command.c`, `cloud.c`): their words (`cok_rules_fight_words`: the attack's message, fleeing, turning undead, the computer's, the round's end, the panel, guarding, Alt-X without the Helm cheat); the clouds' round and a cloud's square where the port does not carry them out yet; the battlefield's cloud and pool tiles and whether they count as terrain; the death's search for a body, its cell kept for a pool, its spell cleared; the computer's turn: a target first, the items' spells, its spell choice (`cok_computer_cast_routine`), the undead it turns and the paladins who do, its reach, morale's compare and the fleeing's effects, the flight's way; the attack's sides, the free attacks' effect, the creature flag for no dying words, a lost spell's mark, the arrows, the missile's clamp, turning undead (`cok_turning_routine`) | Champions' words; none, none; 0x1e and 0x1d, no; by the stack's byte, the cloud's only, yes; no, yes, `3afb:03b9`, the stack's byte, none, range less 1, unsigned, `DISPELLING` and `GIANT_SLAYER`, 0; no, none, none, cleared, 5, 7, 0x0c, 0x1e, no, `432f:12b7` |
 | `menus` | the menu loop (`menu.c`, `cok_menus_routine`: by letters, or by index, `cok_menu_pick`), the Yes/No's items for the indexed loop (`camp.c`), and the adventure's menu where the games differ (`adventure.c`: whether it keeps its own selection, whether Escape leaves Move), whether camp's menu keeps its own selection (`camp.c`) and a special key's pick of a character (`devices.c`: whether a key but Up and Down keeps the one selected) | by letters (`67b5:03e2`, `177f`); none; no, no (`475c:09ec`); no (`4888:2c31`); no, the first is picked (`546c:3334`) |
 | `commands` | the player's commands in a battle (`command.c`): the routine (`cok_commands_routine`: Champions' turn `3995:0573` or Death Knights' `3e05:08af`), the words of Move's steps and of attacking an ally and whether Yes turns the NPCs against the party, Death Knights' menus' words (its turn's two-row menu, Move's, aiming's, the cursor's, Speed's), the cursor's icon slot | `COK_COMMANDS_CHAMPIONS`; `Flee:`, `can't go there`, `Not with that weapon`, `Attack Ally: `, yes; none; 0x19 (`6beb:00fc`, `6346:1a26`) |
-| `items` | View and the items menu (`sheet.c`, `items.c`; see View and Death Knights' View): the routine (`cok_items_routine`: Champions' `546c:0d74` and `17f9` by letters, or Death Knights' `580d:0c66` and `0ffa` by index), Death Knights' menus' words; the items list's readied column; Ready's thief level for another order's scroll and its word; the words of Use of an item not readied, of the questions of parting with a scroll and of Drop, of Trade's pick for money and the coin lists' first item, of Death Knights' Deposit; Sell's and Id's words, Sell's divisor of a count's price, whether their question starts on Yes, whether Id pays in steel alone and waits twice; Death Knights' Heal and Cure (the class, the effect and its minutes, the words) | `COK_ITEMS_CHAMPIONS`; none; `" Yes  "`, `" No   "` (`6346:0473`); none; `Must be Readied`, `is it Okay to lose it? `, `Drop It? `, `Trade to?`, `" Select"`; none; `546c:2822`'s and `2a59`'s words, 20, no, no, no; none |
+| `items` | View and the items menu (`sheet.c`, `items.c`; see View and Death Knights' View): the routine (`cok_items_routine`: Champions' `546c:0d74` and `17f9` by letters, or Death Knights' `580d:0c66` and `0ffa` by index), Death Knights' menus' words; the items list's readied column; Ready's thief level for another order's scroll and its word; the words of Use of an item not readied, of the questions of parting with a scroll and of Drop, of Trade's pick for money and the coin lists' first item, of Death Knights' Deposit; Sell's and Id's words, Sell's divisor of a count's price, whether their question starts on Yes, whether Id waits twice; Death Knights' Heal and Cure (the class, the effect and its minutes, the words) | `COK_ITEMS_CHAMPIONS`; none; `" Yes  "`, `" No   "` (`6346:0473`); none; `Must be Readied`, `is it Okay to lose it? `, `Drop It? `, `Trade to?`, `" Select"`; none; `546c:2822`'s and `2a59`'s words, 20, no, no, no; none |
+| `shops` | the shop, its Buy and Appraise, the temple and its Heal (`shop.c`; see Shops and the temple and Death Knights' shops): the routine (`cok_shops_routine`: Champions' `36d0:07da`, `0484`, `58e7:1929`, `340d:0ea9`, `0be1` by letters, or Death Knights' `3b89:06f3`, `0453`, `5c72:0dc2`, `3999:07d3`, `04e2` by index); whether mode 1's redraw shows the portrait last shown in 3D areas; whether a price (Buy's, Id's) is paid from the steel and then the pool's steel, rather than from the money in steel of every coin; Death Knights' words (the menus, Buy's, the funds, a purchase's, leaving money, Appraise's, Heal's, the cures' questions and words) and the spells its cures name (`DS:030c`) | `COK_SHOPS_CHAMPIONS`; yes (`6346:2c17`); no (`546c:3424`, `58e7:0155`); none |
 | `treasure` | treasure where the games differ (`treasure.c`, `adventure.c`'s `DAMAGE` and `ADD EP`; see Death Knights' treasure): the item table `TREASURE ITEMS` and `STOCK` take items from (a `cok_rules_record` and how many entries it fills, or none); the treasure menus' ways (selections from each menu's first item, special keys told apart from letters, leaving's Yes/No from No) and words (leaving with treasure left, Take's, the items' and the coins' prompts, the coin questions'); taking an item's word when overloaded and whether a counted item joins its kind; the vault's menu items, its line and the deposit's question (View's money's too); `DAMAGE`'s saving throw bonus bits, whether a save made halves the damage, its key; `ADD EP`'s words and whether those who cannot act are passed over first | none (`TREASURE` reads `ITEM<file>`); no, no, no; `There is still treasure left.  ` ..., `Take: `, `Items: `, `Select type of coin `, `How Many `/`How much `; `OverLoaded`, no; none; 0x1f, no, `press <enter>/<return> to continue` (`2fd3:2c80`); `Congratulations ` ... `gains experience!`, no (`2fd3:36dc`) |
 | `levels` | training, the knights' orders, aging, Memorize and Scribe where the games differ (`train.c`, `magic.c`, `camp.c`; see Training and Camp): Train's words, whether its question starts on Yes, whether free training trains, the highest levels by race and class in place of the kender's limits, the row of a class without one, whether a ranger learns only when it rises; the fixed hit points at a class's top level and a floor of 0; Knight Change's words, whether Change is always offered and special keys do nothing, the level from which a lost level costs a fixed 2; the aging after a battle (by race the ages, and its words); the spell lists' prompt, the memorize table's labels and columns, how the spells marked are kept (a list with Keep, or a question) and Scribe's questions and words; whether the camp unmarks the spells to memorize; Display's headings; the Magic menu's own selection; Fix not ported yet (cited) | `4def:4d9e`'s words, from No, free training, the kender's limits, row 0x74, every time; 2, 0, 3, 0, 2, 1, 2, 3 and wrapping; `Knight Of The `, `Sword`, `Rose`, not always, F9 as C, none; no aging; `Choose Spell: `, `    Cleric Spells:` ... at 20, the questions `Memorize These Spells? `, `Scribe These Spells? ` in yellow from No; yes (`4888:06b8`); 11; the last menu's; none |
 
@@ -253,7 +254,8 @@ segment at `DS` 0x1bce) is DEATH-KNIGHTS.md's step 1 and step 2 (its
 frames, characters, saved games and front end) and the first three parts
 of step 3 (the encounter, into and out of each fight; the fight, its
 rounds, the computer's turns and melee; the player's commands; View and
-the items menu): the tools
+the items menu; and of the later parts, among them, the shops and the
+temple): the tools
 and `eclplay
 --game death-knights` read every one of its archives and run its scripts,
 their text, menus and choices, its 3D view and its overland map, read,
@@ -350,8 +352,7 @@ going on. It holds:
   first, the show at distance, leadership, its own open ground, the
   dungeon's fill and corners, the ambush's placement, a round ended by a
   side gone, no exploding dead, the end of combat's effects, may-train
-  and words; a shop and the temple not carried out yet (cited, stopping
-  the run);
+  and words;
   its combat variables (`0x7ec0`-`0x7f72` at Champions' addresses, as its
   table `DS:836`-`864` has them; the vault's `0x4d00`, the river's
   `0x4bf3`); no former classes (`cok_character_former_class` false, the
@@ -380,9 +381,13 @@ going on. It holds:
   coins and items, Heal and Cure, Sell and Id with its words and its
   steel, and camp's menu keeping its own selection (`4381:3106`);
 - its treasure (the `treasure` section and `COK_DATA_STOCK_*`; see Death
-  Knights' treasure): the item table `ITEM0`, `TREASURE ITEMS`, `STOCK`
-  up to its shop, the treasure menu, Take, the bank vault's menu and its
+  Knights' treasure): the item table `ITEM0`, `TREASURE ITEMS`, `STOCK`,
+  the treasure menu, Take, the bank vault's menu and its
   deposit, the vault's mode 7, `DAMAGE` and `ADD EP` with may-train;
+- its shops and temple (the `shops` section; see Death Knights' shops):
+  the shop (`3b89:06f3`), Buy (`0453`) paid in steel, Appraise
+  (`5c72:0dc2`), the temple (`3999:07d3`) and its free cures (`04e2`),
+  mode 1's redraw with the small picture always (`65cd:2db0`);
 - its levels (the `levels` section; see Death Knights' training and Death
   Knights' camp): Train Character (`49cb:43b6`) to level 18 by the
   highest levels of `DS:82d4`, Knight Change Order (`49cb:4ea4`, `4da1`),
@@ -406,8 +411,8 @@ sheet and items menu; `eclplay
 melee, and `won`, `fled` and `lost` decide the battle without its
 rounds), their end
 of combat and treasure menu, the bank vault with its View and Items, camp's
-View and Items, until a routine not ported yet (`COMBAT`'s
-and `STOCK`'s shop, the temple, camp's Fix),
+View and Items, the shops (`COMBAT`'s and `STOCK`'s) and the temple, until
+a routine not ported yet (camp's Fix),
 a spell
 (Death Knights' casting lists those that cast) or an effect not ported
 yet, a cloud, a
@@ -546,7 +551,7 @@ and vault's names and layout, the loader's one wall entry and kept last
 mode, the roster's NPC flags and sizes); `tests/test_start.c` its saved
 games, vault and start menu (`test_death_knights_saves`, `_menu`);
 `tools/dosbox/checks/dkk_views.py`, `dkk_start.py`, `dkk_fight.py`,
-`dkk_treasure.py`, `dkk_levels.py` and `dkk_items.py` the original (see Checks against the original);
+`dkk_treasure.py`, `dkk_levels.py`, `dkk_items.py` and `dkk_shops.py` the original (see Checks against the original);
 `tests/test_death_knights.py` its first fight on Auto, by Alt-Q and by
 `--combat auto`, 13 rounds as the original's; `tests/test_fight.c` its
 fight on records made by hand (the cloud and pool tiles, a death that
@@ -2139,9 +2144,10 @@ prompt, which is always on row 24 (`6a69:025d`). Colours are Champions'
 (`DS:c148` 10, `c14a` 15, `c149` 13 for the prompt, set once). Keys
 (`6a69:0f1b`): a hotkey returns its item's index and Enter the selected
 one's; Escape returns the special key 0x1b; an extended key returns its scan
-code, Left and Right moving the selection first, wrapping, and Up and Down
-changing rows by as many items as the first row holds (`0c8c`), where
-there are items to move among; 4 and 6 move the selection and 2, 8, H and P
+code, but Left and Right, which move the selection, wrapping, and Up and
+Down, which change rows by as many items as the first row holds (`0c8c`),
+where there are items to move among: those read on (`0c26`, `0c59` and
+`0c8c` clear the loop's flag, `[bp-0x13e]`); 4 and 6 move the selection and 2, 8, H and P
 change rows where no item has them as hotkeys; with the keypad flag the
 digits and `\` are their scan codes (`DS:5791`, Champions' `DS:1fdf`: the 5
 is 0x20); Space and other keys are read past; the keyboard is flushed once
@@ -2352,7 +2358,7 @@ opcode's meaning but ten:
 | `0x29` | ENCOUNTER MENU, 14 | NOTHING (`3632:28c9`) | ported |
 | `0x2c` | PARLAY, 6 | MUSIC N (`3632:2878`) | logged (`music:`), not played |
 | `0x31` | SPRITE OFF | ASK MENU: "what do you do" (`DS:2bed`) where the text stands, then HORIZONTAL MENU (`3632:11fd` with 1) | ported |
-| `0x3c` | PROTECTION (hangs) | STOCK: a shop's items from `ITEM0`'s lists (`3632:28d2`) | ported up to the shop, which stops |
+| `0x3c` | PROTECTION (hangs) | STOCK: a shop's items from `ITEM0`'s lists (`3632:28d2`), then the shop | ported (see Death Knights' shops) |
 
 An opcode that stops ends the run with `COK_ECL_UNPORTED` and "not yet
 ported: Death Knights of Krynn's opcode 0xNN, NAME (dkk SEG:OFF)".
@@ -2427,7 +2433,7 @@ against `2fd3`'s; the VM's own as `ecl.c` has Champions'):
 | LOAD CHARACTER, CHECKPARTY, ROB, FIND ITEM, WHO, ADD NPC, FIND SPECIAL, DESTROY ITEMS | `02af`, `1452`, `1a76`, `1bdd`, `20a9`, `210f`, `24b6`, `250a` | the record's offsets only (the layout's) | as Champions' (no party: nothing) |
 | SPELL | `2177` | the memorized spells in the WIZ record, 74 (Champions' 58), of those who can act; no trace | as Champions' without a party; a character stops at `MEMORIZED` |
 | LOAD MONSTER | `0472` | the record's, the difficulty a byte, other monster files | ported (see Death Knights' encounter) |
-| COMBAT | `16ec` | a branch on `0x4d00` first (`3948:000e`, the bank vault's menu: see Party), then the shop, the temple; other routines | ported but the shop and the temple, which stop |
+| COMBAT | `16ec` | a branch on `0x4d00` first (`3948:000e`, the bank vault's menu: see Party), then the shop, the temple; other routines | ported (the shop and the temple: see Death Knights' shops) |
 | DAMAGE | `1ca2` | a save's bonus bits 0-3 (Champions' 0-4: bit 4 counted), half the damage for a save made with bit 4 (Champions' all of it), its key `DS:0868`; its saving throw (`638c:10f8`) | the treasure section's; the saving throw ported (see Death Knights' fight) |
 | PROGRAM | `23dd` | its start menu (`49cb:010b`, see The start menu); after it the screen redrawn on the map unless the menu ended the game (`DS:8c5b`), and the party marked on the map (`6997:0000`); its camp (`237e`) | `start.program_marks`; the game ended, `new_game` |
 | ADD EP | `25f1` | only those who can act, before the division; experience at `+0x62`; a level flag (`65cd:38c7`); its words (`DS:1485`, `2a64`, `2a3b`) | the treasure section's |
@@ -4701,9 +4707,10 @@ before each ask), Escape as Exit; their own items; and these:
   pause, and the item goes to the end of the pool, which the vault writes.
   Sell (`2077`): half the value times any count, no twentieth; Sell and Id
   (`21d3`) ask "is it a deal? " from Yes, in lower case (`DS:1134`-`1743`),
-  and Id pays its 100 from the steel (`+0x3f`) and what that lacks from
-  the pool's (`DS:be58`), "not enough money." otherwise, waiting twice
-  when it shows a name. Shops are not reached yet (part 7's).
+  and Id pays its 100 as the shops' Buy does (the shops section's steel:
+  from the steel, `+0x3f`, and what that lacks from the pool's,
+  `DS:be58`), "not enough money." otherwise, waiting twice when it shows a
+  name (see Death Knights' shops).
 - An item's name in the list has the readied column a space shorter
   (`65cd:047f`, `DS:2c02` " Yes ", `2c0d` " No  "), kept in its name bytes
   as the files show.
@@ -5051,10 +5058,9 @@ distance where there is no sprite, and has no portrait (the game has no
 (see Games' Death Knights: `46b2:19a2`), the icons from `CPIC1`
 (`7090:016f`). `COMBAT` (`3632:16ec`) with no monsters loaded tries the
 vault's menu first (var `0x4d00` 1, cleared: `3948:000e`), then a shop
-(`0x7f6c`: `3b89:06f3`) and the temple (`0x7ee2`: `3999:07d3`); the
-shop and the temple stop the run not yet ported (`combat.shop_unported`,
-`temple_unported`: step 3's shops; the vault's `vault_unported` is none:
-see Death Knights' treasure), else the end of combat;
+(`0x7f6c`: `3b89:06f3`) and the temple (`0x7ee2`: `3999:07d3`; see Death
+Knights' shops; the vault's `vault_unported` is none: see Death Knights'
+treasure), else the end of combat;
 after a battle off the 3D map it shows `PICTURE`'s overland map
 (`view.overland_picture`, `0x70`; Champions' `0x79`).
 
@@ -8102,8 +8108,8 @@ Take and drop go over the kinds the game's records hold (the layout's
 `58e7`'s otherwise, and so does `ROB` (`3632:1a76`, `3c1e:1a00` and
 `1a7f`: Champions' over its three coins). The shops' payment
 (`cok_shop_money`, `cok_pool_pay`, `set_steel`: `58e7:00d3`, `0155`,
-`018f`, coins 0-4) has no counterpart in Death Knights' code and is only
-reached in a shop, not ported yet.
+`018f`, coins 0-4) has no counterpart in Death Knights' code, whose shops
+pay from the steel (see Death Knights' shops).
 
 The item table (`4f9a:0006`, the end of startup `4f9a:00e1`; its name
 `ITEM0` at `4f9a:0000`) is `ITEM0.DAX` record 1 read as 17-byte entries,
@@ -8130,8 +8136,8 @@ its name where the port's holds 0s). `STOCK n` (`3632:28d2`) frees the
 pool's items, then for shop n (1-8, any other 1) puts the ids from index
 `DS:0007` + n for `DS:000f` + n of them (`DS:0017` + index:
 `COK_DATA_STOCK_FIRST`, `COUNTS`, `ITEMS`) first in the pool, each shown
-(`+0x35` & 0xf8), and opens the shop (`3b89:06f3`), which the port does
-not carry out yet (`combat.shop_unported`: the run stops there). `eclplay`
+(`+0x35` & 0xf8), and opens the shop (`3b89:06f3`, see Death Knights'
+shops), which puts back the mode it found. `eclplay`
 logs the coins and items added as `treasure:`, the items named without
 naming them.
 
@@ -8421,6 +8427,97 @@ offers of Sell and Id too long for their two rows, which page and wait for
 a key in both, but which the emulator's text routine does not wrap. The
 test found the item that Appraise's Keep loses. It is not part of the
 repository. The screens were tested in the port only.
+
+### Death Knights' shops
+
+Death Knights' shop (`3b89:06f3`), Buy (`0453`), Appraise (`5c72:0dc2`)
+and temple (`3999:07d3`) are the descriptor's `shops` section's routine
+(`COK_SHOPS_DEATH_KNIGHTS`), in its own words (`DS:34f8` on); Champions'
+above are `COK_SHOPS_CHAMPIONS`. `COMBAT` opens them as Champions' does
+(var `0x7f6c`, `0x7ee2`), and `STOCK` opens the shop (see Death Knights'
+treasure); the prices' factor is var `0x7f6d` (`DS:85c`). ECL1 block 36,
+the outpost of Gargath, has the weapons store (its square 6, `90da`:
+`STOCK 1` at 16) and the temple (square 3, `865c`, reached facing a wall,
+var `0x4c06`).
+
+- The shop: as Champions', but its mode put back at the end (`DS:8c4f`;
+  `COMBAT` sets its own after, `STOCK` does not); its menu by index
+  (`6a69:0f1b`, keypad on) with its own selection from the first, Escape
+  as Exit, up and down (`H`, `P`) picking a character (`580d:2bb2`), the
+  index dispatched as it comes (a special key's scan code too); Buy, Take
+  and Appraise redraw the screen, and Pool once an Appraise has set the
+  flag it shares (`[bp-8]`; before one, what the stack held: the redraw
+  then draws the screen as it stands); leaving money asks "as you leave a
+  man says, ..." (light green, clearing) and "do you want to go back and
+  get your money?" (white) from Yes (`DS:1758`, `17a9`, `57c0`).
+- Buy: on the frame, the funds under the list ("Personal funds:" and
+  "Pooled Funds:  ", the selected character's steel and the pool's,
+  right-aligned to 10, white on rows 20 and 21, `3b89:0000`), the lines as
+  Champions' (`00b1`) but a price times a count above 1 and at least 1, by
+  the list `6a69:1b82` in cells 1-38 by 1-18 with "items : " and "Buy",
+  the selection cleared first, until Escape or Exit. The price is the
+  factor's (the same table, times the count, at least 1); a factor not in
+  the table keeps the price set last, the stack's word at first: the port
+  stops there (`COK_ECL_UNDEFINED`). It is paid from the selected
+  character's steel (`+0x3f`) and what that lacks from the pool's
+  (`DS:be58`, a LongInt; `shops.steel`, `cok_pool_pay_steel`), or "not
+  enough money." (`DS:1743`); the copy is taken as treasure's are
+  (`3b89:033b`, which joins a counted item to its kind), "NAME buys a
+  ITEM" or "NAME buys ITEM" (`DS:1738`, `172d`). Id pays the same way.
+- Appraise: as Champions' with its words ("no gems or jewelry", "gems :
+  N" and "jewelry : N" on rows 9 and 10 whatever they are, "The gem is
+  valued at N steel."), its menu "Gems Jewelry Exit" by index with the
+  keypad and Escape as Exit, "Sell Keep" by index without a prompt or the
+  keypad; what a sale would overload goes to the pool with the items
+  menu's word (`5c72:00ba`, `DS:1188`).
+- The temple: as the shop, but with `Heal` for `Buy` (`DS:3594`), the
+  selection as the menu before left it, the mode not put back, the pool's
+  items not named, Take redrawing and Appraise when it showed any, leaving
+  money's words the shop's, both light green and clearing, from No. Its
+  View is given `DS:c0f8` for its flag (`580d:0c66`'s parameter), which
+  every menu by index sets (`game->menu_special`): View, and the Items it
+  passes the flag to, end at the first menu read that took a special key
+  (in View's menu Escape or another that is not a move, as Up; Items'
+  Exit or Escape, a pick's Escape, a coin list's Exit, Spells' list,
+  `5dc5:016e`, which ends only so), so that Escape from Items leaves View
+  too; Left and Right move and read on (see Library's menus by index).
+- Heal (`3999:04e2`): row 24 cleared, a big picture's frame, then for the
+  selected character its name, hit points (white at the maximum, else
+  light magenta) and "/" and the maximum on row 19, the name and ", how
+  can we help yo" (`DS:1aa6`, a string[20] that cuts it) on row 1, and the
+  cures, the names of the spells `DS:030c` lists (`shops.cures`: Cure
+  Blindness, Cure Disease, the three Cure Wounds, Heal, Neutralize Poison,
+  Raise Dead, Remove Curse, Stone to Flesh, Restoration), by the list
+  `6a69:1b82` in cells 2-38 by 3-15 with "Heal", until Exit or Escape;
+  then the screen redrawn. The cures are free, without "is cured.": Cure
+  Blindness takes 0x21 (`0053`); Cure Disease does nothing (`00ab`); the
+  wounds and Heal heal as Champions' do (`00b0`), Heal then taking 0x21 and
+  working out intelligence and wisdom (no diseases, no 0x44); Neutralize
+  Poison and Stone to Flesh are Champions' (`02a0`, `0404`); Raise Dead
+  (status 6 or 1, not an elf) and Restoration (a class level below its
+  level before a drain, `+0x45` against `+0x4d`) run their spells'
+  handlers (`01fc`, `045f`: the spell set in `DS:be70` and its handler
+  from `DS:c150` + 4 × id), Remove Curse (a cursed item or 0x24) its
+  spell's routine (`0368`: `5dc5:311b`), each through `cok_cast_on`, which
+  stops the run citing a handler not ported yet. One that does not need a
+  cure is asked "cast cure anyway? " from No (`3999:0000`), in the words
+  `DS:19fe`-`1a91`.
+- Mode 1's redraw (`65cd:2db0`) is mode 7's: the frame unless `DS:db62`
+  is clear (the shops' first redraw), the small picture always, no
+  portrait (`shops.portrait`), the party list and the status line.
+
+The Champions temple's diseases, its prices and its Raise Dead's hit
+points (`shop.c`'s `CHANGE_LEVEL` read), and the effects it names that
+Death Knights has not (0x20, 0x44), are Champions' routine's alone.
+
+`tests/test_shop.c` checks these on a Death Knights game,
+`tests/test_items.c` its Sell when overloaded and Id's two waits,
+`tests/test_death_knights.c` the section against the original's code
+(the words where their routines load them, the Yes/Nos' first, the mode
+kept, the steel, the cures' ids and names, the handlers the cures run,
+mode 1's redraw), `tests/test_death_knights.py` block 36's store and
+temple, and `tools/dosbox/checks/dkk_shops.py` the original (see Checks
+against the original).
 
 ## The start menu
 
@@ -9809,6 +9906,24 @@ found that Death Knights' Magic menu keeps its own selection and that
 Display's blank rows are headings. Its flow `table` (saved game B begun,
 camp, Magic, BALTHIR NOMOON's Memorize) shows the table with no name said
 over it, 0 pixels apart.
+
+Its shops, `tools/dosbox/checks/dkk_shops.py` (see Death Knights' shops;
+seeded; `--flows shop,temple`, about six and four minutes): saved game A
+made to resume in ECL1 block 36 (the block, map 36 and wall set 1 in slot
+0 written in, as `dkk_views.py` does; SIR DRYDEN given 2 gems, a jewel and
+40 hit points), from the square south of the weapons store a step north,
+Yes, and its shop: Buy of the Banded Mail and its funds, View's Items in
+mode 1 with Sell of the Mace +1 and Id of the Banded Mail, Appraise (a gem
+sold, the jewel kept), Pool, Buy of the Chain Mail from the pooled steel,
+Exit with money left (Yes, from Yes), Share, Exit, camp and Save Current
+Game C; and from the temple's square, a turn west into its wall (var
+`0x4c06`, the wall ahead), Yes, and the temple: Heal's Cure Light Wounds,
+Cure Blindness for one not blind (No), Heal, View's Items with Escape, back
+at the temple's menu, and View with Right, which stays in View, and Up,
+which leaves it (View's flag `DS:c0f8`), Exit, camp and Save C. Every screen agrees, 0 pixels, saved game C and
+the characters' files byte for byte but the stack's bytes and pointers:
+the Banded Mail bought holds its price line past its name in both, and
+after the line what `STOCK`'s stack left in the original's.
 
 Still to check, with why:
 

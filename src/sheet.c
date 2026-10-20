@@ -460,6 +460,7 @@ static int pick_coin(cok_adventure *game, const uint8_t *c, int pad_to, bool cou
                                         &index, &game->list_top, &game->selected, &keys,
                                         &special, &picked);
         if (key < 0) return -1;
+        game->menu_special = special; /* DS:c0f8 */
         if (!picked || key == 1 || count == 0) return 0x100;
     } else {
         int key = cok_menu_rows(&game->screen, &game->font, rows, count, window, &style, &redraw,
@@ -646,8 +647,10 @@ static int pick(cok_adventure *game, const char *text, const cok_menu_items *ite
     cok_menu_indexed(&shown, text, items);
     cok_adventure_log(game, "menu", shown.text);
     cok_keyboard keys = cok_adventure_keyboard(game);
-    return cok_menu_pick(&game->screen, &game->font, "", text, items, 13, 15, 10, false,
-                         &game->selected, &keys, special);
+    int key = cok_menu_pick(&game->screen, &game->font, "", text, items, 13, 15, 10, false,
+                            &game->selected, &keys, special);
+    game->menu_special = *special; /* DS:c0f8 */
+    return key;
 }
 
 /* As Champions' View, but by index with its own selection, from the first
@@ -698,7 +701,12 @@ static void dk_view(cok_adventure *game, bool *done)
         bool ok = true;
         switch (key) {
         case DK_ITEMS: cok_items(game, done); ok = !game->vm.abort; break;
-        case DK_SPELLS: ok = cok_magic_memorized(game, character) >= 0; break; /* 580d:2d2a */
+        case DK_SPELLS:
+            /* 580d:2d2a: its list (5dc5:016e) ends only on its Exit, a
+             * special key (DS:c0f8). */
+            ok = cok_magic_memorized(game, character) >= 0;
+            game->menu_special = true;
+            break;
         case DK_TRADE: ok = trade_money(game, character, COK_SHEET_STALE_UNKNOWN); break;
         case DK_DEPOSIT:
         case DK_DROP: ok = drop_money(game, character) && cok_sheet_money(game, c); break;
