@@ -381,6 +381,8 @@ typedef struct {
      * 5dc5:2044; Champions' 20f8: creature flags above 1);
      * COK_CAST_STRENGTH's value 1 for 1d8 to every class of
      * characters.fighter_classes, not a fighter's alone (dkk 5dc5:2bc9);
+     * COK_CAST_STINKING_CLOUD's value 1 for Cloud Kill's cloud (dkk
+     * 5dc5:2934 for a spell but 0x22: nine cells, fight.pool_tile);
      * COK_CAST_FIREBALL's value 1 for the caster level added to the damage
      * (dkk 5dc5:3241, Delay Blast Fireball's 0x6c); COK_CAST_REMOVE_CURSE's
      * value the effect it cures, where not COK_EFFECT_CURSED (dkk 5dc5:311b:
@@ -948,13 +950,17 @@ typedef enum {
  * run, COK_ECL_UNPORTED). */
 typedef struct {
     cok_rules_fight_words words;
-    /* The end of a round's clouds (dkk 3e05:0ed0's 638c:21ec, its one
-     * list) and the cloud's effects on one in a cloud or a pool (60f4:0dc3;
-     * dkk 638c:0c65) where the port does not carry them out for the game:
-     * reached only with a cloud on the battlefield. */
-    const char *clouds_unported, *cloud_square_unported;
+    /* The clouds (cloud.c, cok_clouds_routine) and their words: one in a
+     * cloud that saves and one that does not (60f4:0dc3, CS:0d97 and
+     * 0da7; dkk 638c:0c65, DS:1c06 and 1c1b), a cloud gone (3f44:0ff7,
+     * CS:0fdc; dkk 638c:21ec, DS:1d4e), Stinking Cloud's (5b04:29de,
+     * CS:29c6; none in dkk) and one Cloud Kill poisons (dkk DS:1ccf; none
+     * in Champions). */
+    uint8_t clouds;
+    const char *cough, *choke, *clears, *noxious, *poisoned;
     /* The battlefield's cloud and pool tiles (6beb:0c9d: 0x1e, 0x1d; dkk
-     * 6f03:0e33: 0x1d, 0x1c) and whether they also count as terrain and are
+     * 6f03:0e33: 0x1d, 0x1c, Stinking Cloud's and Cloud Kill's) and
+     * whether they also count as terrain and are
      * marked where a cell is off the map (dkk); whether a body is laid over
      * a pool's tile (6beb:0e08: only a cloud's is kept; dkk 6f03:0fbd's set
      * at CS:0f9d keeps both). */
@@ -1013,6 +1019,21 @@ typedef struct {
     /* Turning undead (cok_turning_routine). */
     uint8_t turning;
 } cok_rules_fight;
+/* The clouds on the battlefield (cloud.c), each the port's routines of
+ * that game's original. */
+typedef enum {
+    /* Stinking Cloud's clouds of four cells (5b04:29de), each its caster's
+     * effect 0x28 while it lasts (3f44:0ff7); the acid pools (effect 0x46,
+     * 3f44:2037, and 0x50, 2cad); one in a cloud or a pool (60f4:0dc3);
+     * Dispel Magic's part (5b04:3352, 3151). */
+    COK_CLOUDS_CHAMPIONS,
+    /* dkk: Stinking Cloud's clouds of four cells and Cloud Kill's of nine
+     * (5dc5:2934) in one list (DS:c443), each lasting rounds by its
+     * caster level (638c:21ec, at the end of a round); one in a cloud
+     * (638c:0c65); Dispel Magic's part (5dc5:2e5c, 2dd7). */
+    COK_CLOUDS_DEATH_KNIGHTS,
+} cok_clouds_routine;
+
 /* The player's commands in a battle (command.c), each the port's routine
  * of that game's original. */
 typedef enum {
@@ -1512,13 +1533,6 @@ typedef struct {
     /* Fire Shield's question for a COK_CAST_FIRE_SHIELD entry of value 1
      * (dkk DS:2fee), or NULL. */
     const char *flame_type;
-    /* Dispel Magic's part for the clouds (5b04:3352; dkk 5dc5:2f93, with
-     * 2dd7 and 638c:21ec) where the port does not carry the game's out
-     * yet, citing it, or NULL: the walk around the spell's cell by the
-     * steps (COK_DATA_STEP_X, _Y) and its centring on each cloud's or
-     * pool's tile (fight.cloud_tile, pool_tile) are carried out; a cloud
-     * or pool in the battle stops the run (COK_ECL_UNPORTED). */
-    const char *dispel_clouds_unported;
 } cok_rules_casting;
 
 /* The game's own words that are names: its title. */

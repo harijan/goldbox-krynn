@@ -887,11 +887,9 @@ bool cok_combat_end_round(cok_adventure *game, bool *done)
     const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     if (!cok_adventure_pass_time(game, 1, 1)) return false; /* 57e4:0549 */
-    /* dkk 3e05:0ed0 ages its clouds here (638c:21ec), which the port does
-     * not carry out for it: only with one on the battlefield. */
+    /* dkk 3e05:0ed0 ages its clouds here (638c:21ec). */
     const cok_rules_fight *F = &cok_game_rules(game)->fight;
-    if (F->clouds_unported != NULL && (combat->clouds != NULL || combat->pools != NULL))
-        return cok_adventure_not_yet(game, "clouds", F->clouds_unported);
+    if (!cok_cloud_round(game)) return false;
     ++game->effects.rolls.round;
     cok_combat_enemy_health(combat, &game->party, cok_game_rules(game));
     for (size_t i = 0; i < game->party.count; ++i) {

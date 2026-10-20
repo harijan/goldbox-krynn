@@ -25,6 +25,17 @@
  * cloud leaves its body under it (6beb:0e08). Sight is not blocked: both
  * are as high as floor.
  *
+ * Death Knights' (fight.clouds, COK_CLOUDS_DEATH_KNIGHTS) are rewritten:
+ * Stinking Cloud's of four cells and Cloud Kill's of nine (dkk
+ * 5dc5:2934), tiles 0x1d and 0x1c (fight.cloud_tile, pool_tile), in one
+ * list (DS:c443, cok_combat.clouds), the latest laid first; each lasts
+ * rounds by its caster level, counted at the end of a round (638c:21ec),
+ * with no effect on its caster; and it has no acid pools. Its node keeps
+ * the cell under each of its cells (6f03:152e, cok_cloud_under), its
+ * rounds, level and tile (+0x1c-0x1e). The battlefield draws a cloud's
+ * cell as the cell under it with the cloud's icon over it (6f03:010d), and
+ * one who dies in one leaves the cloud's tile on the map (6f03:0fbd).
+ *
  * Each returns false, with game->vm.status set and the run ended, where it
  * cannot be carried out or the original would misbehave (see each). */
 
@@ -40,8 +51,10 @@
  * at the cell, also one taken back) for 0x1f; and it becomes 0x1e. Then
  * "Creates a noxious cloud" (row 10, no wait), the screen centred on the
  * cell (forced), a pause, the text cleared, and each combatant that stood
- * on a cell, once each, is in the cloud (cok_cloud_square with step). */
-bool cok_cloud_stinking(cok_adventure *game);
+ * on a cell, once each, is in the cloud (cok_cloud_square with step).
+ * Death Knights' (dkk 5dc5:2934): Stinking Cloud's, or with kill Cloud
+ * Kill's (see cloud.c's dk_lay). */
+bool cok_cloud_stinking(cok_adventure *game, bool kill);
 
 /* 60f4:0dc3 for c, who can act: with step (after a step or a cloud laid),
  * standing in a green cloud (6beb:0c9d), not undead (+0xda) and without
@@ -52,8 +65,24 @@ bool cok_cloud_stinking(cok_adventure *game);
  * then has the effect its handler runs (60f4:01a8), 0x1e's with no effect
  * (the pointer the search for 0x63 left). Standing in a puddle, with step
  * or not (the end of a round), it takes 1d6 (60f4:1261) of the damage
- * type DS:6b31 holds, no save (60f4:1db7). */
+ * type DS:6b31 holds, no save (60f4:1db7). Death Knights' (dkk
+ * 638c:0c65): in Stinking Cloud's, as above but for the caster's
+ * selection, with the screen centred on c first and the spell of one
+ * coughing lost; in Cloud Kill's, with step or not, death by the levels
+ * (see cloud.c's dk_square). */
 bool cok_cloud_square(cok_adventure *game, cok_character *c, bool step);
+
+/* The end of a round's clouds (dkk 3e05:0ed0's 638c:21ec): Death Knights'
+ * age, and those whose rounds are over go (see cloud.c's dk_age);
+ * Champions' last by their caster's effect 0x28 and nothing is done
+ * here. */
+bool cok_cloud_round(cok_adventure *game);
+
+/* dkk 6f03:152e: the cell under x, y, whose map byte is value: for a
+ * cloud's tile (fight.cloud_tile, pool_tile) the terrain the last cloud
+ * in the list covering it kept, for a body's (0x1f) the cell of the last
+ * body at x, y (one taken back too), else value. */
+uint8_t cok_cloud_under(const cok_adventure *game, int8_t x, int8_t y, uint8_t value);
 
 /* 60f4:0c95: the caster of the first cloud with a covered cell at x, y,
  * where cell k's covered flag is matched with the direction of cell k + 1
@@ -107,8 +136,13 @@ bool cok_cloud_drain(cok_adventure *game, cok_character *c, const cok_effect *ef
  * interrupt vectors, and through them the BIOS's bytes, which differ from
  * machine to machine: the run stops. Outside combat the map pointer is NULL
  * and the original reads the cells from the interrupt table: the port
- * takes none to be 0x1e (nothing then happens). */
-bool cok_cloud_dispel(cok_adventure *game, uint8_t level);
+ * takes none to be 0x1e (nothing then happens). Death Knights' (dkk
+ * 5dc5:2e5c, 2dd7) tries each cloud with a cell on a cloud's tile around
+ * the spell's cell, and against a cloud of a higher level reads the byte
+ * DS:8954 that the dispel's targets left, stale: the last effect level
+ * it tried, or -1 where it tried none (the run then stops there); see
+ * cloud.c's dk_dispel. */
+bool cok_cloud_dispel(cok_adventure *game, uint8_t level, int stale);
 
 /* Free the clouds and the pools (3995:004b, and setup's clearing). */
 void cok_cloud_free(cok_combat *combat);

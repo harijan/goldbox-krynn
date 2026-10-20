@@ -3,13 +3,14 @@
  * already there, turning undead's levels and count, the nightmares' smoke
  * (effect 0x6a), half damage from weapons of kind 0 or 1 (0x5d), Alt-A at
  * the player's turn, the computer's spell choice, aiming's range and first
- * target, attacking an ally, the movement a round; on records made by
- * hand in its layout, the game opened on DKKAssets/ (skipped without). */
+ * target, attacking an ally, the movement a round, the clouds; on records
+ * made by hand in its layout, the game opened on DKKAssets/ (skipped without). */
 #include "adventure.h"
 #include "ai.h"
 #include "arena.h"
 #include "attack.h"
 #include "cast.h"
+#include "cloud.h"
 #include "combat.h"
 #include "command.h"
 #include "round.h"
@@ -582,6 +583,300 @@ static void test_faerie_fire(void)
     CHECK(highlighted == FAERIE_FIRE_HIGHLIGHTED);
 }
 
+/* The clouds (dkk 5dc5:2934, 638c:0c65, 21ec, 5dc5:2e5c): a terrain value
+ * of the battlefield that costs 0xff (a wall). */
+static uint8_t wall(void)
+{
+    for (uint8_t v = 1; v < cok_data_count(R->data, COK_DATA_TERRAIN, 0); ++v)
+        if (cok_combat_terrain(R, v).cost == 0xff) return v;
+    CHECK(false);
+    return 0;
+}
+
+/* A terrain value from 0x20 (WILDCOM's) that may be walked on. */
+static uint8_t ground(void)
+{
+    for (uint8_t v = 0x20; v < cok_data_count(R->data, COK_DATA_TERRAIN, 0); ++v)
+        if (cok_combat_terrain(R, v).cost < 0xff) return v;
+    CHECK(false);
+    return 0;
+}
+
+/* W, a mage of level level, lays a cloud at x, y: Stinking Cloud's (0x22)
+ * or Cloud Kill's (0x5b, kill). */
+static bool lay(cok_character *w, int8_t x, int8_t y, bool kill)
+{
+    game.vm.character = w->record;
+    game.effects.rolls.spell = kill ? 0x5b : 0x22;
+    game.spell_x = x;
+    game.spell_y = y;
+    log_text[0] = '\0';
+    return cok_cloud_stinking(&game, kill);
+}
+
+static cok_character *mage(char name, uint8_t level, int8_t x, int8_t y)
+{
+    cok_character *w = record(name, 0, x, y);
+    cok_field_set8_at(R->character, w->record, COK_FIELD_CLASS_LEVEL, 5, level);
+    return w;
+}
+
+/* 5dc5:2934: Stinking Cloud covers the cell and east, south-east and
+ * south of it, Cloud Kill the nine around it; a wall and a cell off the
+ * map are not covered; the node goes first, its rounds and level the
+ * caster level, the cell under kept (a body's cell, an earlier cloud's
+ * terrain); no word is said; each one on a cell, once, is in it. */
+static void test_cloud_lay(void)
+{
+    const cok_character_layout *L = R->character;
+    reset();
+    cok_character *w = mage('W', 7, 2, 2);
+    cok_character *t = record('T', 1, 11, 11);
+    cok_field_set8(L, t->record, COK_FIELD_UNDEAD, 1); /* undead: no throw */
+    uint8_t v = wall(), g = ground();
+    game.combat.cells[10][11] = v;
+    game.combat.cells[11][10] = COK_COMBAT_BODY;
+    game.combat.body[0] = (cok_combat_body){NULL, 10, 11, g};
+    game.combat.bodies = 1;
+    uint32_t seed = game.vm.seed;
+    CHECK(lay(w, 10, 10, false));
+    const cok_combat_cloud *p = game.combat.clouds;
+    CHECK(p != NULL && p->next == NULL && p->x == 10 && p->y == 10 && p->caster == w->record);
+    CHECK(p->age == 7 && p->level == 7 && p->tile == 0x1d);
+    CHECK(p->covered[1] && !p->covered[2] && p->covered[3] && p->covered[4] && !p->covered[5]);
+    CHECK(p->saved[1] == COK_COMBAT_FLOOR && p->saved[2] == v && p->saved[4] == g);
+    CHECK(game.combat.cells[10][10] == 0x1d && game.combat.cells[10][11] == v &&
+          game.combat.cells[11][11] == 0x1d && game.combat.cells[11][10] == 0x1d &&
+          game.combat.cells[11][9] == COK_COMBAT_FLOOR);
+    CHECK(strstr(log_text, "noxious") == NULL && t->effects == NULL && game.vm.seed == seed);
+    /* Cloud Kill over it at 11, 11: its cells keep the terrain under the
+     * first cloud, its seventh (north-west) the body's cell; one off the
+     * map (x -1) is not covered. */
+    CHECK(lay(w, 11, 11, true));
+    const cok_combat_cloud *q = game.combat.clouds;
+    CHECK(q != p && q->next == p && q->tile == 0x1c);
+    for (unsigned k = 1; k <= 9; ++k) CHECK(q->covered[k] == (k != 8)); /* 8: north, the wall */
+    CHECK(q->saved[1] == COK_COMBAT_FLOOR && q->saved[6] == g &&
+          game.combat.cells[11][11] == 0x1c &&
+          game.combat.cells[10][10] == 0x1c && game.combat.cells[12][12] == 0x1c);
+    CHECK(lay(w, 0, 5, true));
+    CHECK(!game.combat.clouds->covered[5] && !game.combat.clouds->covered[6] &&
+          !game.combat.clouds->covered[7] && game.combat.clouds->covered[8]);
+    cok_cloud_free(&game.combat);
+}
+
+/* 638c:0c65 in Stinking Cloud's, with the step: saved, "starts to cough",
+ * 0x1e (its handler: "is coughing"), and one casting "lost a spell", the
+ * spell marked and its turn over; failed, "chokes and gags from nausea",
+ * 0x1f; the selected character kept; without the step nothing. */
+static void test_cloud_cough(void)
+{
+    const cok_character_layout *L = R->character;
+    for (int made = 1; made >= 0; --made) {
+        bool seen = false;
+        for (uint32_t s = 1; s < 200 && !seen; ++s) {
+            reset();
+            cok_character *w = mage('W', 7, 2, 2);
+            cok_character *t = record('T', 1, 10, 10);
+            for (size_t type = 0; type < 5; ++type)
+                cok_field_set8_at(L, t->record, COK_FIELD_SAVING_THROW, type, 11);
+            cok_field_set8_at(L, t->record, COK_FIELD_MEMORIZED, 0, 0x0f);
+            t->combat->spell = 0x0f;
+            t->combat->initiative = 5;
+            t->combat->may_use = 1;
+            game.vm.seed = s;
+            CHECK(lay(w, 10, 10, false) && game.vm.status == COK_ECL_OK);
+            CHECK(game.vm.character == w->record);
+            if (made && cok_character_find_effect(t, 0x1e) != NULL) {
+                seen = true;
+                CHECK(strstr(log_text, "print: T;print: starts to cough;") != NULL &&
+                      strstr(log_text, "is coughing;") != NULL &&
+                      strstr(log_text, "print: lost a spell;") != NULL);
+                CHECK(cok_field_u8_at(L, t->record, COK_FIELD_MEMORIZED, 0) == 0x8f &&
+                      t->combat->may_cast == 0 && t->combat->initiative == 0);
+            } else if (!made && cok_character_find_effect(t, 0x1f) != NULL) {
+                seen = true;
+                CHECK(strstr(log_text, "print: chokes and gags from nausea;") != NULL &&
+                      strstr(log_text, "lost a spell") == NULL);
+            }
+            /* Out of the step (the round's end), nothing more. */
+            log_text[0] = '\0';
+            uint32_t before = game.vm.seed;
+            CHECK(cok_cloud_square(&game, t, false) && game.vm.seed == before &&
+                  log_text[0] == '\0');
+            cok_cloud_free(&game.combat);
+        }
+        CHECK(seen);
+    }
+}
+
+/* 638c:0c65 in Cloud Kill's, with the step or not: levels 0-4 die ("is
+ * poisoned", 0x37, "is killed", status 6), 5 throw at -4, 6 throw, 7 and
+ * up are untouched. */
+static void test_cloud_kill(void)
+{
+    const cok_character_layout *L = R->character;
+    unsigned died[9] = {0};
+    for (uint32_t s = 1; s <= 40; ++s)
+        for (int8_t level = 0; level <= 8; ++level) {
+            reset();
+            cok_character *w = mage('W', 7, 2, 2);
+            cok_character *t = record('T', 1, 20, 20);
+            cok_field_set8(L, t->record, COK_FIELD_HIGHEST_LEVEL, (uint8_t)level);
+            for (size_t type = 0; type < 5; ++type)
+                cok_field_set8_at(L, t->record, COK_FIELD_SAVING_THROW, type, 11);
+            game.vm.seed = s;
+            CHECK(lay(w, 21, 21, true) && game.vm.status == COK_ECL_OK);
+            bool dead = cok_field_u8(L, t->record, COK_FIELD_STATUS) == 6;
+            CHECK(dead == (cok_character_find_effect(t, 0x37) != NULL));
+            CHECK(!dead || (strstr(log_text, "print: T;print: is poisoned;") != NULL &&
+                            strstr(log_text, "is killed") != NULL));
+            died[level] += dead;
+            if (dead) continue;
+            /* The round's end: the same throw again for 5 and 6. */
+            CHECK(cok_cloud_square(&game, t, false));
+            cok_cloud_free(&game.combat);
+        }
+    for (int level = 0; level <= 4; ++level) CHECK(died[level] == 40);
+    CHECK(died[5] > died[6] && died[6] > 0 && died[6] < 40);
+    CHECK(died[7] == 0 && died[8] == 0);
+}
+
+/* 638c:21ec at the round's end: a cloud of level 2 lasts one round, then
+ * its cells get back their terrain, a body's tile where a body lies, and
+ * "the air clears a little..."; where an earlier cloud overlaps, its tile
+ * is laid again (213c). */
+static void test_cloud_age(void)
+{
+    reset();
+    cok_character *w = mage('W', 9, 2, 2), *a = mage('A', 2, 3, 3);
+    CHECK(lay(w, 10, 10, false));
+    CHECK(lay(a, 11, 10, true));
+    game.combat.body[0] = (cok_combat_body){w, 12, 11, COK_COMBAT_FLOOR};
+    game.combat.bodies = 1;
+    CHECK(game.combat.cells[10][11] == 0x1c);
+    /* Under 11, 10, both clouds' cell: the last in the list's (the older)
+     * kept terrain (6f03:152e). */
+    cok_combat_cloud *older = game.combat.clouds->next;
+    game.combat.clouds->saved[1] = 0x20;
+    CHECK(cok_cloud_under(&game, 11, 10, 0x1c) == older->saved[2] && older->saved[2] != 0x20);
+    log_text[0] = '\0';
+    CHECK(cok_cloud_round(&game) && game.combat.clouds->age == 1 &&
+          game.combat.clouds->next->age == 8 && log_text[0] == '\0');
+    CHECK(cok_cloud_round(&game) && game.combat.clouds != NULL &&
+          game.combat.clouds->next == NULL && game.combat.clouds->tile == 0x1d);
+    CHECK(strstr(log_text, "print: the air clears a little...;") != NULL);
+    CHECK(game.combat.cells[10][11] == 0x1d && game.combat.cells[11][11] == 0x1d &&
+          game.combat.cells[10][12] == COK_COMBAT_FLOOR &&
+          game.combat.cells[11][12] == COK_COMBAT_BODY);
+    /* The cell under a cloud and a body (6f03:152e). */
+    CHECK(cok_cloud_under(&game, 11, 11, 0x1d) == COK_COMBAT_FLOOR &&
+          cok_cloud_under(&game, 12, 11, COK_COMBAT_BODY) == COK_COMBAT_FLOOR &&
+          cok_cloud_under(&game, 13, 13, 0x1d) == 0x1d);
+    cok_cloud_free(&game.combat);
+}
+
+/* 5dc5:2e5c's clouds: each cloud with a cell on a cloud's tile around the
+ * spell's cell is tried, a d100 up to 50 + 5 a level above it; taken, it
+ * goes after the walk; against a higher level the stale byte DS:8954
+ * (the last effect level tried), unknown stopping the run. */
+static void test_cloud_dispel(void)
+{
+    reset();
+    cok_character *w = mage('W', 4, 2, 2);
+    CHECK(lay(w, 10, 10, false));
+    game.vm.character = w->record;
+    game.spell_x = 10;
+    game.spell_y = 10;
+    /* Level 6 against 4: 60. The walk meets its four cells (1 and 2 of
+     * the walk: the cells north-east and east of 10, 10 are not; 10, 10
+     * is the walk's last). */
+    const unsigned taken[] = {100, 1, 60};
+    game.vm.seed = seed_seq(1, taken);
+    uint32_t expect = game.vm.seed;
+    for (int k = 0; k < 4; ++k) cok_dice(&expect, 1, 100);
+    log_text[0] = '\0';
+    CHECK(cok_cloud_dispel(&game, 6, -1) && game.combat.clouds == NULL);
+    CHECK(game.vm.seed == expect && game.combat.cells[10][10] == COK_COMBAT_FLOOR);
+    CHECK(strstr(log_text, "the air clears a little...") != NULL);
+    /* Level 2 against 4 reads DS:8954: unknown, the run stops; 3 gives 48
+     * (49 at each of its four cells keeps it). */
+    CHECK(lay(w, 10, 10, false));
+    game.vm.character = w->record;
+    CHECK(!cok_cloud_dispel(&game, 2, -1) && strstr(game.error, "DS:8954") != NULL);
+    game.vm.status = COK_ECL_OK;
+    const unsigned kept[] = {100, 49, 100, 100, 49, 100, 100, 49, 100, 100, 49, 100};
+    game.vm.seed = seed_seq(4, kept);
+    CHECK(cok_cloud_dispel(&game, 2, 3) && game.combat.clouds != NULL);
+    /* 47 or 48 takes it (the cloud's own level would give 46). */
+    const unsigned gone[] = {100, 47, 48, 100, 49, 100, 100, 49, 100, 100, 49, 100};
+    game.vm.seed = seed_seq(4, gone);
+    CHECK(cok_cloud_dispel(&game, 2, 3) && game.combat.clouds == NULL);
+    /* 59 or 60 takes a cloud of level 4 at 6 (5 a level). */
+    CHECK(lay(w, 10, 10, false));
+    game.vm.character = w->record;
+    const unsigned five[] = {100, 59, 60, 100, 61, 100, 100, 61, 100, 100, 61, 100};
+    game.vm.seed = seed_seq(4, five);
+    CHECK(cok_cloud_dispel(&game, 6, -1) && game.combat.clouds == NULL);
+    /* On Stinking Cloud's tile a Cloud Kill's four first cells are tried,
+     * not its nine: its north-west cell (9, 9) given that tile is no try,
+     * so eight d100s for the walk's eight others. */
+    CHECK(lay(w, 10, 10, true));
+    game.vm.character = w->record;
+    game.combat.cells[9][9] = 0x1d;
+    uint32_t start = 7, eight = start;
+    for (int k = 0; k < 8; ++k) cok_dice(&eight, 1, 100);
+    game.vm.seed = start;
+    CHECK(cok_cloud_dispel(&game, 20, -1) && game.vm.seed == eight);
+    cok_cloud_free(&game.combat);
+}
+
+/* The handlers (cast.c): Cloud Kill's entry (value 1) lays Cloud Kill's
+ * cloud; Dispel Magic passes the level of the last effect its first part
+ * tried as DS:8954 (3 here, so that a cloud of a higher level is tried,
+ * 48, without the run stopping). */
+static void test_cloud_handlers(void)
+{
+    reset();
+    cok_character *w = mage('W', 4, 2, 2), *t = record('T', 1, 20, 20);
+    game.vm.character = w->record;
+    game.spell_x = 10;
+    game.spell_y = 10;
+    CHECK(cok_cast_on(&game, 0x5b, w, true) && game.combat.clouds != NULL &&
+          game.combat.clouds->tile == 0x1c && game.combat.clouds->covered[9]);
+    cok_cloud_free(&game.combat);
+    CHECK(cok_cast_on(&game, 0x22, w, true) && game.combat.clouds != NULL &&
+          game.combat.clouds->tile == 0x1d && !game.combat.clouds->covered[5]);
+    /* NEACAIL-like cleric of level 2 against the cloud of 4. */
+    cok_character *n = record('N', 0, 3, 3);
+    cok_field_set8_at(R->character, n->record, COK_FIELD_CLASS_LEVEL, 0, 2);
+    CHECK(cok_character_add_effect(t, 0x2f, 5, 0x03, false) != NULL);
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    game.vm.character = n->record;
+    CHECK(cok_cast_on(&game, 0x29, t, true) && game.vm.status == COK_ECL_OK);
+    cok_cloud_free(&game.combat);
+}
+
+/* 6f03:0fbd: one dying in a cloud keeps the cloud's tile, its body the
+ * terrain under the cloud; the cloud gone (two rounds for level 2), the
+ * body's tile. */
+static void test_cloud_body(void)
+{
+    const cok_character_layout *L = R->character;
+    reset();
+    cok_character *w = mage('W', 2, 2, 2), *a = record('A', 0, 10, 10);
+    record('M', 1, 20, 20);
+    CHECK(lay(w, 10, 10, true));
+    cok_field_set8(L, a->record, COK_FIELD_ACTIVE, 0);
+    cok_field_set8(L, a->record, COK_FIELD_HIT_POINTS, 0);
+    CHECK(cok_arena_kill(&game, a, COK_ARENA_STALE_UNKNOWN, NULL));
+    CHECK(game.combat.bodies == 1 && game.combat.body[0].cell == COK_COMBAT_FLOOR &&
+          game.combat.cells[10][10] == 0x1c);
+    CHECK(cok_cloud_round(&game) && cok_cloud_round(&game) && game.combat.clouds == NULL &&
+          game.combat.cells[10][10] == COK_COMBAT_BODY);
+}
+
 /* The battle's pictures and tiles loaded as a setup loads them. */
 static void load_screen(void)
 {
@@ -623,6 +918,13 @@ int main(void)
     test_remove_curse();
     test_fear();
     test_faerie_fire();
+    test_cloud_lay();
+    test_cloud_cough();
+    test_cloud_kill();
+    test_cloud_age();
+    test_cloud_dispel();
+    test_cloud_body();
+    test_cloud_handlers();
     cok_adventure_close(&game);
     puts("fight tests passed");
     return 0;

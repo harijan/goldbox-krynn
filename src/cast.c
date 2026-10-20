@@ -743,13 +743,15 @@ static bool cure_disease(cast *cx)
  * up to 50, plus 5 a level the caster is above it or less 2 a level it is
  * below, as a byte (DS:4839, 483a). Each pass of its loop over the targets
  * works on the first. Its second part tries the clouds around the spell's
- * cell (cok_cloud_dispel). */
+ * cell (cok_cloud_dispel), given the last level tried (DS:483a; dkk
+ * DS:8954, which its clouds' part reads stale), or -1 for none. */
 static bool dispel_magic(cast *cx)
 {
     cok_adventure *game = cx->game;
     game->effects.rolls.images = 1;
     uint8_t level;
     if (!level_of(game, game->effects.rolls.spell, &level)) return false;
+    int tried = -1;
     for (uint8_t i = 1; i <= game->spell_target_count; ++i) {
         cok_character *c = first(cx);
         if (c == NULL) return false;
@@ -758,6 +760,7 @@ static bool dispel_magic(cast *cx)
             cok_effect *next = e->next;
             if (e->value != 0xff) {
                 uint8_t of = e->value & 0x0f, chance = 50;
+                tried = of;
                 if (level > of) chance = (uint8_t)(50 + 5 * (level - of));
                 else if (level < of) chance = (uint8_t)(50 - 2 * (of - level));
                 if (roll(game, 1, 100) <= chance) {
@@ -775,7 +778,7 @@ static bool dispel_magic(cast *cx)
         }
         if (dispelled && !flash(game, c, "is affected")) return false;
     }
-    return cok_cloud_dispel(game, level);
+    return cok_cloud_dispel(game, level, tried);
 }
 
 /* 358a, Prayer: the caster's side in the value's high nibble. */
@@ -1949,10 +1952,11 @@ static bool fear(cast *cx)
     return true;
 }
 
-/* 29de, Stinking Cloud: a cloud at the spell's cell (cok_cloud_stinking). */
+/* 29de, Stinking Cloud: a cloud at the spell's cell (cok_cloud_stinking);
+ * an entry of value 1 (dkk 5dc5:2934 for 0x5b) lays Cloud Kill's. */
 static bool stinking_cloud(cast *cx)
 {
-    return cok_cloud_stinking(cx->game);
+    return cok_cloud_stinking(cx->game, cx->entry != NULL && cx->entry->value == 1);
 }
 
 /* The port's handler of each kind (spells.h), which the game's table maps
