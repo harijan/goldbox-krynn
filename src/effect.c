@@ -426,7 +426,8 @@ static bool h_resist_charm(cok_effects *fx, bool removing, cok_effect *effect, c
  * (6346:1697). Applying it, with no hammer and fewer than 16 items as last
  * counted (+0x142), creates one at the end of the items: type 6, name parts
  * 6 and 0x79 (+0x30, +0x31), bonus 1, effect 0x17 and power 0 (+0x3d,
- * +0x3e), the rest 0, and says "Gains an item". It would ready it in an
+ * +0x3e), the rest 0, and says "Gains an item" (dkk 504d:06dc "gains an
+ * item": the entry's words). It would ready it in an
  * empty weapon slot, but its search for the new hammer steps past it, so
  * it never does. Either way the stats are then recomputed. */
 static bool h_hammer(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
@@ -448,7 +449,8 @@ static bool h_hammer(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
         hammer[0x3e] = 0x80;
         if (!cok_character_insert_item(c, c->item_count, hammer))
             return fail(fx, "out of memory adding the hammer");
-        if (!say(fx, c, 0x17, 0x07b5, "Gains an item")) return false;
+        if (!say(fx, c, 0x17, 0x07b5, fx->rules->effects.handlers[fx->running].text))
+            return false;
     }
     char why[200];
     if (!cok_character_stats(c, fx->rules, fx->types, why, sizeof why))
@@ -814,7 +816,8 @@ static bool h_fire_resistance(cok_effects *fx, bool removing, cok_effect *effect
 }
 
 /* 3f44:1b18, 0x3f, minor globe: no damage or effect from a spell of a
- * level (DS:31b4 + 16 * spell, signed) below 4. */
+ * level (DS:31b4 + 16 * spell, signed) below the entry's value, 4 (dkk
+ * 504d:108d, 0x3b, 5). */
 static bool h_minor_globe(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
     (void)removing, (void)effect, (void)c;
@@ -824,7 +827,7 @@ static bool h_minor_globe(cok_effects *fx, bool removing, cok_effect *effect, co
     uint16_t at = (uint16_t)cok_data_offset2(D, COK_DATA_SPELLS, fx->rolls.spell, 1);
     if (!cok_data_byte(D, at, &level))
         return fail(fx, "effect 0x3f reads DS:%04x, past the original's initialized data", at);
-    if ((int8_t)level < 4) cancel(fx, 0);
+    if ((int8_t)level < (int8_t)fx->rules->effects.handlers[fx->running].value) cancel(fx, 0);
     return true;
 }
 
@@ -2084,13 +2087,6 @@ static bool h_minus_one(cok_effects *fx, bool removing, cok_effect *effect, cok_
     return true;
 }
 
-/* dkk 504d:2404, 0x69, 27e6, 0x72, and 282d, 0x73: 3f44:349c's, 376f's
- * and 37b0's, only in a battle (DS:8c4e 5). */
-static bool h_slayer_battle(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
-{
-    return !fx->in_battle || h_slayer(fx, removing, effect, c);
-}
-
 /* dkk 504d:26e0, 0x6c, blinded by smoke: the damage and the attack roll 2
  * worse. */
 static bool h_smoked(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
@@ -2145,6 +2141,307 @@ static bool h_cancel(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
 {
     (void)removing, (void)effect, (void)c;
     cancel(fx, fx->rules->effects.handlers[fx->running].value);
+    return true;
+}
+
+/* Death Knights' own handlers (dkk 504d, 5dc5), each from its routine. */
+
+/* The entry's value, a constant of the routine (cok_rules_effect). */
+static uint8_t entry_value(const cok_effects *fx)
+{
+    return fx->rules->effects.handlers[fx->running].value;
+}
+
+/* dkk 504d:04a5 (0x0d), 1044 (0x39) and 10b4 (0x3c), with either flag: the
+ * armour class, front and back, changed in place by the entry's value
+ * (-2, -4, +4; 60 less the AC), until the stats are next recomputed. */
+static bool h_armour(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    const cok_character_layout *L = fx->rules->character;
+    (void)removing, (void)effect;
+    uint8_t by = entry_value(fx);
+    cok_field_set8(L, c->record, COK_FIELD_AC, (uint8_t)(cok_field_u8(L, c->record, COK_FIELD_AC) + by));
+    cok_field_set8(L, c->record, COK_FIELD_AC_BEHIND,
+                   (uint8_t)(cok_field_u8(L, c->record, COK_FIELD_AC_BEHIND) + by));
+    return true;
+}
+
+/* dkk 504d:0f0d, 0x2a, slow: with flag 0, the rate and the movement
+ * (DS:be6f) halved. */
+static bool h_slow_movement(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)effect, (void)c;
+    if (removing) return true;
+    fx->rolls.rate = (uint8_t)(fx->rolls.rate >> 1);
+    fx->rolls.movement = (uint8_t)(fx->rolls.movement >> 1);
+    return true;
+}
+
+/* dkk 504d:123d, 0x42: as 3f44:3450 (0x67), but an item helps only with a
+ * bonus (+0x32, signed) of the entry's value (3) or more. */
+static bool h_plus_weapons(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    const cok_character_layout *L = fx->rules->character;
+    (void)removing, (void)c;
+    cok_character *attacker = selected(fx, effect != NULL ? effect->id : fx->running);
+    if (attacker == NULL) return false;
+    const uint8_t *item = striking_item(fx, attacker);
+    if (fx->failed) return false;
+    if ((item == NULL || (int8_t)item[0x32] < (int8_t)entry_value(fx)) &&
+        (cok_field_s8(L, attacker->record, COK_FIELD_RACE) < 7 ||
+         cok_field_s8(L, attacker->record, COK_FIELD_HIGHEST_LEVEL) < 4))
+        fx->rolls.amount = 0;
+    return true;
+}
+
+/* dkk 504d:1f79 (0x53), 1c64 (0x4b) and 1228 (0x41): damage of a type in
+ * the entry's value halved (electricity or cold), doubled (cold) or none
+ * (electricity), the effect pending kept. */
+static bool h_type_half(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect, (void)c;
+    if ((fx->rolls.damage_type & entry_value(fx)) != 0)
+        fx->rolls.amount = (uint8_t)(fx->rolls.amount >> 1);
+    return true;
+}
+
+static bool h_type_double(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect, (void)c;
+    if ((fx->rolls.damage_type & entry_value(fx)) != 0)
+        fx->rolls.amount = (uint8_t)(fx->rolls.amount << 1);
+    return true;
+}
+
+static bool h_type_none(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect, (void)c;
+    if ((fx->rolls.damage_type & entry_value(fx)) != 0) fx->rolls.amount = 0;
+    return true;
+}
+
+/* dkk 504d:1815 (0x43) and 1836 (0x44), on a hit (events 2 and 3): the
+ * target of c's attack (combat record +0x0a) is drained of the entry's
+ * levels (504d:14c7, the drain hook); none, nothing. */
+static bool h_drain_levels(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect;
+    uint8_t id = fx->running;
+    cok_combat_record *cr = combat_of(fx, c, id, fx->rules->effects.handlers[id].address);
+    if (cr == NULL) return false;
+    if (cr->target == NULL) return true;
+    cok_character *t = target_of(fx, cr->target, id, fx->rules->effects.handlers[id].address, 0);
+    if (t == NULL) return false;
+    if (fx->drain != NULL && fx->drain(fx, t, entry_value(fx), fx->context)) return true;
+    return fail(fx, "effect 0x%02x (dkk 504d:14c7) could not drain levels", id);
+}
+
+/* dkk 504d:1f9c, 0x54, at the start of a turn (event 0x0f): one below its
+ * most hit points (+0x28) heals the entry's value, up to its most. */
+static bool h_heal_round(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    const cok_character_layout *L = fx->rules->character;
+    (void)removing, (void)effect;
+    uint8_t *r = c->record, most = cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS);
+    if (cok_field_u8(L, r, COK_FIELD_HIT_POINTS) >= most) return true;
+    uint8_t hp = (uint8_t)(cok_field_u8(L, r, COK_FIELD_HIT_POINTS) + entry_value(fx));
+    cok_field_set8(L, r, COK_FIELD_HIT_POINTS, hp > most ? most : hp);
+    return true;
+}
+
+/* Hit points healed by amount, as a byte, up to the most, after "is
+ * healed" (DS:1f30; 65cd:1a21, row 10, a pause). */
+static bool healed(cok_effects *fx, cok_character *c, uint8_t amount)
+{
+    const cok_character_layout *L = fx->rules->character;
+    uint8_t *r = c->record;
+    if (!say(fx, c, fx->running, fx->rules->effects.handlers[fx->running].address, "is healed"))
+        return false;
+    uint8_t hp = (uint8_t)(cok_field_u8(L, r, COK_FIELD_HIT_POINTS) + amount);
+    uint8_t most = cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS);
+    cok_field_set8(L, r, COK_FIELD_HIT_POINTS, most < hp ? most : hp);
+    return true;
+}
+
+/* dkk 504d:1c7e, 0x4c (a fire minion's), against fire: magical fire heals
+ * as much as it would hurt; any fire does no damage and no effect. */
+static bool h_fire_heals(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect;
+    if ((fx->rolls.damage_type & 1) == 0) return true;
+    if ((fx->rolls.damage_type & 8) != 0 && !healed(fx, c, fx->rolls.amount)) return false;
+    cancel(fx, 0);
+    return true;
+}
+
+/* 1257 and "is " "Slowed" (DS:4570, 4bcb; row 10, a pause): effect 0x2a,
+ * slow, for minutes with value 0xff. */
+static bool slowed(cok_effects *fx, cok_character *c, uint16_t minutes)
+{
+    return add(fx, c, EFFECT(SLOWED), minutes, 0xff, false) &&
+           say(fx, c, fx->running, fx->rules->effects.handlers[fx->running].address, "is Slowed");
+}
+
+/* dkk 504d:2005, 0x57 (an iron golem's), against a spell's damage (events
+ * 6 and 9): magical fire heals as much as it would hurt; else electricity
+ * slows it for 3 minutes; and no damage and no effect take hold. */
+static bool h_iron_golem(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect;
+    uint8_t type = fx->rolls.damage_type;
+    bool ok = true;
+    if ((type & 1) != 0 && (type & 8) != 0) ok = healed(fx, c, fx->rolls.amount);
+    else if ((type & 4) != 0) ok = slowed(fx, c, 3);
+    if (ok) cancel(fx, 0);
+    return ok;
+}
+
+/* dkk 504d:22bc, 0x65 (a flesh golem's): magical electricity heals as many
+ * hit points as the damage had dice (DS:be71); else magical fire or cold
+ * slows it for 2d6 minutes; and no damage and no effect take hold. */
+static bool h_flesh_golem(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect;
+    uint8_t type = fx->rolls.damage_type;
+    bool ok = true;
+    if ((type & 4) != 0 && (type & 8) != 0) ok = healed(fx, c, fx->rolls.dice);
+    else if ((type & 3) != 0 && (type & 8) != 0) ok = slowed(fx, c, roll(fx, 2, 6));
+    if (ok) cancel(fx, 0);
+    return ok;
+}
+
+/* dkk 504d:1bff, 0x4a (a fire minion's touch), on a hit (events 2 and 3),
+ * in a battle: the target of c's attack, if any, takes 2d6 (638c:1233) of
+ * type 0, half if it makes a saving throw of type 4 (638c:1c52). */
+static bool h_fire_touch(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect;
+    if (fx->vm->mode != 5) return true;
+    cok_combat_record *cr = combat_of(fx, c, 0x4a, 0x1bff);
+    if (cr == NULL) return false;
+    if (cr->target == NULL) return true;
+    cok_character *t = target_of(fx, cr->target, 0x4a, 0x1bff, 0);
+    if (t == NULL) return false;
+    fx->rolls.damage_type = 0;
+    uint8_t d = cok_dice_count(&fx->vm->seed, 2, 6, &fx->rolls.dice);
+    bool made;
+    if (!saving_throw(fx, t, 4, 0, &made)) return false;
+    if (fx->damage != NULL && fx->damage(fx, t, d, 2, made, fx->context)) return true;
+    return fail(fx, "effect 0x4a (dkk 504d:1bff) could not deal damage (638c:1c52)");
+}
+
+/* dkk 504d:26f8, 0x6e: when it ends, the knight tier (+0x25) becomes the
+ * level of the entry's class (3) / 5 + 1. Below 0 the division overflows:
+ * runtime error 200. */
+static bool h_tier(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    const cok_character_layout *L = fx->rules->character;
+    (void)effect;
+    if (!removing) return true;
+    int8_t level = cok_field_s8_at(L, c->record, COK_FIELD_CLASS_LEVEL, entry_value(fx));
+    if (level < 0)
+        return fail(fx, "effect 0x6e (dkk 504d:26f8) overflows a division (runtime error 200)");
+    cok_field_set8(L, c->record, COK_FIELD_KNIGHT_TIER, (uint8_t)(level / 5 + 1));
+    return true;
+}
+
+/* dkk 504d:0a7e, 0x20, on being targeted and attacked (events 1, 0x10):
+ * with flag 0, a holder whose creature flags (+0x7a) hold bit 6 and which
+ * lacks 0x18 itself cannot be targeted, and the attack roll is 4 lower. */
+static bool h_unseen(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    const cok_character_layout *L = fx->rules->character;
+    (void)effect;
+    if (removing || (cok_field_u8_at(L, c->record, COK_FIELD_CREATURE_FLAGS, 0) & 0x40) == 0 ||
+        FIND_EFFECT(c, SEES_INVISIBLE) != NULL)
+        return true;
+    fx->rolls.untargetable = 1;
+    fx->rolls.attack_roll = (uint8_t)(fx->rolls.attack_roll - 4);
+    return true;
+}
+
+/* dkk 504d:286b, 0x75, at the damage (event 4), in a battle, with flag 0:
+ * against a target (combat record +0x0a) whose creature flags hold bit 1
+ * the damage is doubled; one without that is of a kind of undead (+0x31)
+ * "is disrupted" (638c:00c8, gone). */
+static bool h_disrupt_undead(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    const cok_character_layout *L = fx->rules->character;
+    (void)effect;
+    if (fx->vm->mode != 5 || removing) return true;
+    cok_combat_record *cr = combat_of(fx, c, 0x75, 0x286b);
+    if (cr == NULL) return false;
+    cok_character *t = target_of(fx, cr->target, 0x75, 0x286b, 0x007a);
+    if (t == NULL) return false;
+    if ((cok_field_u8_at(L, t->record, COK_FIELD_CREATURE_FLAGS, 0) & 2) != 0) {
+        fx->rolls.amount = (uint8_t)(fx->rolls.amount << 1);
+        return true;
+    }
+    if (cok_field_u8(L, t->record, COK_FIELD_UNDEAD) == 0) return true;
+    if (fx->kill != NULL && fx->kill(fx, t, 8, "is disrupted", fx->context)) return true;
+    return fail(fx, "effect 0x75 (dkk 504d:286b) could not kill (638c:00c8)");
+}
+
+/* dkk 504d:25bb, 0x6b: 3f44:34f9's, but applied outside a battle it does
+ * what its removal does. */
+static bool h_turn_battle(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    return h_turn(fx, removing || fx->vm->mode != 5, effect, c);
+}
+
+/* dkk 504d:09d5, 0x1e, nausea, with either flag, in a battle: one that may
+ * use items "is coughing" (DS:1e14); it may neither use them nor cast; its
+ * stats are recomputed (65cd:0e46), then its armour class, front and back,
+ * 2 worse; then the side panel if it is selected (65cd:0c44). */
+static bool h_nausea(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    const cok_character_layout *L = fx->rules->character;
+    (void)removing, (void)effect;
+    if (fx->vm->mode != 5) return true;
+    cok_combat_record *cr = combat_of(fx, c, 0x1e, 0x09d5);
+    if (cr == NULL) return false;
+    if (cr->may_use != 0 && !say(fx, c, 0x1e, 0x09d5, "is coughing")) return false;
+    cr->may_use = 0;
+    cr->may_cast = 0;
+    char why[200];
+    if (!cok_character_stats(c, fx->rules, fx->types, why, sizeof why)) return fail(fx, "%s", why);
+    uint8_t *r = c->record;
+    cok_field_set8(L, r, COK_FIELD_AC, (uint8_t)(cok_field_u8(L, r, COK_FIELD_AC) - 2));
+    cok_field_set8(L, r, COK_FIELD_AC_BEHIND, (uint8_t)(cok_field_u8(L, r, COK_FIELD_AC_BEHIND) - 2));
+    if (fx->panel == NULL || fx->vm->character != r || fx->panel(fx, c, fx->context)) return true;
+    return fail(fx, "effect 0x1e (dkk 504d:09d5) could not draw the side panel (65cd:0c44)");
+}
+
+/* dkk 504d:067c, 0x16 (Slow Poison's), with either flag: a poisoned
+ * character (0x37) "collapses from poison" (DS:1dcb; 638c:00c8, status 4),
+ * keeping its 0x37; then, effects being cured (DS:be75 set, and cleared
+ * after), its first 0x0f goes (638c:01c6). */
+static bool h_poison_collapse(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing, (void)effect;
+    if (FIND_EFFECT(c, POISONED) != NULL &&
+        (fx->kill == NULL || !fx->kill(fx, c, 4, "collapses from poison", fx->context)))
+        return fail(fx, "effect 0x16 (dkk 504d:067c) could not kill (638c:00c8)");
+    fx->rolls.curing = 1;
+    bool ok = remove_effect(fx, c, NULL, EFFECT(POISON));
+    fx->rolls.curing = 0;
+    return ok;
+}
+
+/* dkk 5dc5:51cc (0x5a, 0x64, 0x68), 4fd3 (0x51), 4f97 (0x4e) and 504d:186e
+ * (0x46), with either flag (events 0x0e and 0x0f): a monster breathes,
+ * gazes, casts or bursts into flames (fx->breathe, cok_cast_breath). */
+static bool h_monster(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    (void)removing;
+    uint8_t id = fx->running;
+    uint16_t at = fx->rules->effects.handlers[id].address;
+    if (effect == NULL) return fail(fx, "effect 0x%02x (dkk %04x) is run with no effect", id, at);
+    if (!fx->in_battle || fx->breathe == NULL)
+        return fail(fx, "effect 0x%02x (dkk %04x) acts outside combat, through the combat "
+                        "targets and the map", id, at);
+    if (!fx->breathe(fx, effect, c, fx->context))
+        return fail(fx, "effect 0x%02x (dkk %04x) could not act", id, at);
     return true;
 }
 
@@ -2256,7 +2553,28 @@ static handler_fn *const handlers[COK_FX_HANDLERS] = {
     [COK_FX_CANCEL] = h_cancel,
     [COK_FX_SMOKE] = h_smoke,
     [COK_FX_SMOKED] = h_smoked,
-    [COK_FX_SLAYER_BATTLE] = h_slayer_battle,
+    [COK_FX_ARMOUR] = h_armour,
+    [COK_FX_SLOW_MOVEMENT] = h_slow_movement,
+    [COK_FX_PLUS_WEAPONS] = h_plus_weapons,
+    [COK_FX_TYPE_HALF] = h_type_half,
+    [COK_FX_TYPE_DOUBLE] = h_type_double,
+    [COK_FX_TYPE_NONE] = h_type_none,
+    [COK_FX_DRAIN_LEVELS] = h_drain_levels,
+    [COK_FX_HEAL_ROUND] = h_heal_round,
+    [COK_FX_FIRE_HEALS] = h_fire_heals,
+    [COK_FX_IRON_GOLEM] = h_iron_golem,
+    [COK_FX_FLESH_GOLEM] = h_flesh_golem,
+    [COK_FX_FIRE_TOUCH] = h_fire_touch,
+    [COK_FX_TIER] = h_tier,
+    [COK_FX_UNSEEN] = h_unseen,
+    [COK_FX_DISRUPT_UNDEAD] = h_disrupt_undead,
+    [COK_FX_TURN_BATTLE] = h_turn_battle,
+    [COK_FX_NAUSEA] = h_nausea,
+    [COK_FX_POISON_COLLAPSE] = h_poison_collapse,
+    [COK_FX_DRAGON_BREATH] = h_monster,
+    [COK_FX_GAZE] = h_monster,
+    [COK_FX_CAST] = h_monster,
+    [COK_FX_FLAMES] = h_monster,
 };
 
 /* Run the handler of id (60f4:01a8). While DS:713c is set the original
@@ -2277,6 +2595,7 @@ static bool call_handler(cok_effects *fx, uint8_t id, bool removing, cok_effect 
     if (h->handler == COK_FX_MISSING)
         return fail(fx, "effect 0x%02x has no handler; the original calls 0000:0000", id);
     fx->running = id;
+    if (h->battle && fx->vm->mode != 5) return true; /* dkk DS:8c4e */
     return handlers[h->handler](fx, removing, effect, c);
 }
 

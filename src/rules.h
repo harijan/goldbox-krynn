@@ -456,7 +456,20 @@ typedef struct {
      * affected), or NULL. */
     uint8_t value;
     const char *text;
+    /* Whether the game's routine does nothing outside a battle (dkk
+     * DS:8c4e 5: 0x1a, 0x23, 0x25, 0x69, 0x72, 0x73); Champions' run in any
+     * mode. */
+    bool battle;
 } cok_rules_effect;
+
+/* A breath that dkk 5dc5:51cc carries out (COK_FX_DRAGON_BREATH), by
+ * effect id: its damage type, the cone's width and length (5dc5:175d), the
+ * spell whose computer's pick aims it (column 0 of the handler table,
+ * DS:c150), and what "breathes ". */
+typedef struct {
+    uint8_t id, damage_type, width, length, spell;
+    const char *what;
+} cok_rules_breath;
 
 /* A text Display shows for an effect id (4888:17ae). */
 typedef struct {
@@ -510,6 +523,10 @@ typedef struct {
     /* What one an effect does not take hold of "is" (60f4:20f7, CS:20e9;
      * dkk 638c:1f86, DS:1d0f). */
     const char *unaffected;
+    /* The breaths of COK_FX_DRAGON_BREATH (dkk 5dc5:51cc); none in
+     * Champions. */
+    const cok_rules_breath *breaths;
+    unsigned breath_count;
 } cok_rules_effects;
 
 /* The three moons (57e4:001e, 0143): the days each stays in a phase, and

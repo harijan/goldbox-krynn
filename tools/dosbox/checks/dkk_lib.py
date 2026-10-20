@@ -258,12 +258,23 @@ def ambush_poke(name, text):
         raise cokbox.BoxError("src/monster.c's setup_monster changed: update dkk_lib.ambush_poke")
     return text.replace(AMBUSH_AT, AMBUSH_AT + (
         "    if (getenv(\"COK_DKK_AMBUSH\") != NULL)\n"
-        "        game->ambush = (uint8_t)strtoul(getenv(\"COK_DKK_AMBUSH\"), NULL, 16);\n"))
+        "        game->ambush = (uint8_t)strtoul(getenv(\"COK_DKK_AMBUSH\"), NULL, 16);\n"
+        # COK_DKK_POKE, "ADDR=BYTE,...": the ECL's code changed once SETUP
+        # MONSTERS has run, as a check pokes the original's (DS:8c39 + ADDR -
+        # 0x8000): the next LOAD MONSTERs' operands, say.
+        "    if (cok_ecl_meaning(vm) == COK_ECL_SETUP_MONSTERS && getenv(\"COK_DKK_POKE\") != NULL)\n"
+        "        for (const char *p = getenv(\"COK_DKK_POKE\"); *p != '\\0';) {\n"
+        "            char *end;\n"
+        "            unsigned long at = strtoul(p, &end, 16), byte = strtoul(end + 1, &end, 16);\n"
+        "            if (at >= 0x8000 && at < 0x8000 + COK_ECL_CODE_SIZE)\n"
+        "                vm->code[at - 0x8000] = (uint8_t)byte;\n"
+        "            p = *end == ',' ? end + 1 : end;\n"
+        "        }\n"))
 
 
 def player():
     """eclplay writing the state at each key read and at the run's end (and
-    taking COK_DKK_AMBUSH)."""
+    taking COK_DKK_AMBUSH and COK_DKK_POKE)."""
     return checklib.build("eclplay", transforms=[("eclplay.c", dump),
                                                   ("monster.c", ambush_poke),
                                                   ("round.c", round_mark)])
@@ -280,13 +291,22 @@ def port_vars(bmp):
     return low, high.read_bytes()
 
 
+def code_poke(box, poke):
+    """POKE (ECL address: byte) into the original's ECL code (DS:8c39, a
+    far pointer to address 0x8000; 3c1e's fetch reads DS:8c39 + ip -
+    0x8000)."""
+    base = box.far(box.ds * 16 + 0x8C39)
+    for at, byte in sorted(poke.items()):
+        box.write(base + at - 0x8000, bytes([byte]))
+
+
 def box_vars(b):
     """The original's variables: its blocks 0x4b00 and 0x7c00 (DS:8c2d, 8c31,
     far pointers; 3632's handlers)."""
     return b.read(b.far(b.ds * 16 + 0x8C2D), 0x400), b.read(b.far(b.ds * 16 + 0x8C31), 0x400)
 
 
-def port(work, name, keys, seed, saves=None, args=(), ambush=None):
+def port(work, name, keys, seed, saves=None, args=(), ambush=None, poke=None):
     """eclplay on KEYS (marks dropped) from the start menu, seeded, with
     SAVES (default DKKAssets/SAVE) copied: (stdout + stderr, the shot of
     the key read where the keys ran out (d_lib.mark_read) or None, the
@@ -304,6 +324,8 @@ def port(work, name, keys, seed, saves=None, args=(), ambush=None):
     env = dict(os.environ)
     if ambush is not None:
         env["COK_DKK_AMBUSH"] = f"{ambush:x}"
+    if poke:
+        env["COK_DKK_POKE"] = ",".join(f"{a:x}={b:x}" for a, b in sorted(poke.items()))
     result = subprocess.run(
         [str(player()), "--game", "death-knights", "--start-menu", "--display", "ega",
          "--config", str(cfg), "--saves", str(save_dir), "--shots", str(shots), "--screen",
@@ -378,9 +400,17 @@ def trap(b, seg, off, until, seconds=60):
             patched.append((addr, b.read(addr, 2)))
             b.write(addr, b"\xeb\xfe")
         if patched and until():
-            return patched
+            return Trap(patched, seg, off)
         time.sleep(0.002)
     raise cokbox.BoxError(f"the trap at {seg:04x}:{off:04x} did not hold")
+
+
+class Trap(list):
+    """A trap's patched (address, bytes), and the routine it is at."""
+
+    def __init__(self, patched, seg, off):
+        super().__init__(patched)
+        self.seg, self.off = seg, off
 
 
 def code_at(b, seg, off, span=0x60, size=12):
@@ -406,8 +436,17 @@ def code_at(b, seg, off, span=0x60, size=12):
 
 
 def untrap(b, handle):
-    """The code trap patched given back, the emulation paused (d_lib.untrap)."""
+    """The code trap patched given back, the emulation paused (d_lib.untrap);
+    and a spin the overlay manager copied elsewhere with the code while the
+    trap held (a spell's overlay loaded in the round: the mage flow's black
+    wizards), which the game would run into next, given back with the
+    executable's bytes."""
     d_lib.untrap(b, handle)
+    if isinstance(handle, Trap):
+        moved = [(addr, b._exe_bytes(handle.seg, handle.off, 2))
+                 for addr in code_at(b, handle.seg, handle.off) if b.read(addr, 2) == b"\xeb\xfe"]
+        if moved:
+            b.write_paused(moved)
 
 
 def settled(b, seconds=1.5, limit=120):

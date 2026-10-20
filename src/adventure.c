@@ -14,6 +14,7 @@
 #include "sheet.h"
 #include "screen.h"
 #include "start.h"
+#include "train.h"
 
 #include <assert.h>
 #include <stdarg.h>
@@ -2173,6 +2174,12 @@ static bool effect_dispel(cok_effects *fx, void *context)
     return cok_cast_dispel(game) || effect_hook_failed(fx, game);
 }
 
+static bool effect_drain(cok_effects *fx, cok_character *c, uint8_t levels, void *context)
+{
+    cok_adventure *game = context;
+    return cok_train_drain(game, c, levels) || effect_hook_failed(fx, game);
+}
+
 static void effect_party_list(cok_effects *fx, void *context)
 {
     (void)fx;
@@ -2381,6 +2388,7 @@ bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, con
     game->effects.breathe = effect_breathe;
     game->effects.dispel = effect_dispel;
     game->effects.party_list = effect_party_list;
+    game->effects.drain = effect_drain;
     game->effects.trace = effect_trace;
     game->effects.context = game;
     game->vm.file = 1;

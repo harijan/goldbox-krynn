@@ -2412,6 +2412,8 @@ static double random_real(cok_adventure *game)
  * (frame Random(4)), each ring shown; then the screen centred again. The
  * reals are doubles here (the original's Real48 Cos and Sin): a spark
  * would land elsewhere only within about 1e-10 of a unit's edge. */
+static bool burst_of(cok_adventure *game, uint8_t slot, uint8_t n);
+
 static bool burst(cast *cx)
 {
     cok_adventure *game = cx->game;
@@ -2420,13 +2422,19 @@ static bool burst(cast *cx)
     for (unsigned i = 0; i < K->burst_count; ++i)
         if (K->bursts[i].spell == cx->spell) b = &K->bursts[i];
     if (b == NULL) return true;
-    uint8_t n = cok_ecl_var(&game->vm, COK_VAR_3D) != 0 ? b->n_3d : b->n;
+    return burst_of(game, b->slot, cok_ecl_var(&game->vm, COK_VAR_3D) != 0 ? b->n_3d : b->n);
+}
+
+/* 65cd:39bd itself: n and the icon slot given. */
+static bool burst_of(cok_adventure *game, uint8_t slot, uint8_t n)
+{
+    const cok_rules_casting *K = &cok_game_rules(game)->casting;
     int8_t x = game->spell_x, y = game->spell_y;
     if (!cok_arena_centre(game, x, y, 0xff, 8)) return false;
     cok_arena_sound(game, K->burst_sound);
     static const uint8_t images[4] = {0, 0, 1, 1}, mirrors[4] = {0, 1, 0, 1};
     for (uint8_t frame = 0; frame < 4; ++frame)
-        if (!cok_arena_missile_frame(game, b->slot, images[frame], frame, mirrors[frame] != 0))
+        if (!cok_arena_missile_frame(game, slot, images[frame], frame, mirrors[frame] != 0))
             return false;
     int8_t ox = x < 3 ? (int8_t)((x - 3) * 3) : x > 0x2e ? (int8_t)((x - 0x2e) * 3) : 0;
     int8_t oy = y < 3 ? (int8_t)((y - 3) * 3) : y > 0x15 ? (int8_t)((y - 0x15) * 3) : 0;
@@ -2880,7 +2888,9 @@ static bool attack_55(cast *cx, cok_character *c, cok_effect *effect)
     if (!done) return true;
     cok_character *t = cx->targets[1];
     uint8_t dir;
-    if (!say_waiting(game, c, "Breathes!")) return false;
+    /* dkk 5dc5:508c "breathes " (DS:22d8): the entry's words. */
+    if (!say_waiting(game, c, cok_game_rules(game)->effects.handlers[effect->id].text))
+        return false;
     if (t == NULL || !cok_combat_direction(combat, c, t, &dir))
         return undefined(game, "no direction holds the breath's first target, and the original "
                                "looks for ever (6346:34e9)");
@@ -2961,6 +2971,117 @@ static bool attack_dragon(cast *cx, cok_character *c, cok_effect *effect)
     return breathe_at(cx, c, what) && breath_damage(cx, c, effect);
 }
 
+/* dkk 5dc5:51cc, 0x5a, 0x64 and 0x68 (cok_rules_breath): the uses become
+ * 3 at the first round; with uses, the breath's damage type, a target as
+ * the computer's cast of its spell picks it, then a cone from c of its
+ * width and length, the sight's range its length (5dc5:175d sets it) and
+ * the side, where no one is on the line, a byte of the stack (not known:
+ * -1); unless a target is on c's side, "breathes " and what, and the
+ * targets take c's most hit points (breath_damage). */
+static bool dragon_breath(cast *cx, cok_character *c, cok_effect *effect)
+{
+    cok_adventure *game = cx->game;
+    cok_combat *combat = &game->combat;
+    const cok_rules_effects *E = &cok_game_rules(game)->effects;
+    const cok_rules_breath *b = NULL;
+    for (unsigned i = 0; i < E->breath_count; ++i)
+        if (E->breaths[i].id == effect->id) b = &E->breaths[i];
+    if (b == NULL)
+        return undefined(game, "a breath of no kind reads its cone and words from locals never "
+                               "set (dkk 5dc5:51cc)");
+    if (game->effects.rolls.round == 0) effect->value = 3;
+    if (effect->value == 0) return true;
+    game->effects.rolls.damage_type = b->damage_type;
+    int8_t x0 = cok_combat_x(combat, c->record), y0 = cok_combat_y(combat, c->record);
+    bool done;
+    if (!breath_targets(cx, b->spell, &done)) return false;
+    if (!done) return true;
+    if (!cone(cx, x0, y0, game->spell_x, game->spell_y, b->width, b->length, b->length, -1) ||
+        !no_friend(cx, c, &done))
+        return false;
+    if (game->spell_target_count == 0 || !done) return true;
+    char what[40];
+    snprintf(what, sizeof what, "breathes %s", b->what); /* DS:22d8 */
+    return breathe_at(cx, c, what) && breath_damage(cx, c, effect);
+}
+
+/* dkk 5dc5:4fd3, 0x51 (a vampire's gaze): a target as the computer's cast
+ * of the entry's spell picks it; c "gazes!", is turned toward the first
+ * target and drawn attacking (no panel), the missile (icon slot 0x12, four
+ * pictures, 50 ms) flies to the spell's cell, and that spell's handler
+ * runs (DS:c150 + 4 * spell), the spell (DS:be70) left so. */
+static bool gaze(cast *cx, cok_character *c, cok_effect *effect)
+{
+    cok_adventure *game = cx->game;
+    cok_combat *combat = &game->combat;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_rules_effect *e = &rules->effects.handlers[effect->id];
+    bool done;
+    if (!breath_targets(cx, e->value, &done)) return false;
+    if (!done) return true;
+    cok_character *t = cx->targets[1];
+    uint8_t dir;
+    if (!say_waiting(game, c, e->text)) return false;
+    if (t == NULL || !cok_combat_direction(combat, c, t, &dir))
+        return undefined(game, "no direction holds the gaze's first target, and the original "
+                               "looks for ever (dkk 6f03:1687)");
+    int8_t x0 = cok_combat_x(combat, c->record), y0 = cok_combat_y(combat, c->record);
+    if (!cok_arena_pose(game, c, dir, 1, false) || !cok_arena_missile_frames(game, 0x12) ||
+        !cok_arena_missile(game, x0, y0, game->spell_x, game->spell_y, 4, 0x32))
+        return false;
+    const cok_rules_cast *h = &rules->spells.cast[e->value];
+    if (h->unported != NULL) {
+        cok_adventure_fail(game, COK_ECL_UNPORTED, "not yet ported: %s's spell %u, %s (%s)",
+                           rules->text.name, e->value, rules->spells.names[e->value - 1],
+                           h->unported);
+        return false;
+    }
+    if (h->handler == COK_CAST_NONE)
+        return undefined(game, "a gaze's spell has no handler (DS:c150)");
+    game->effects.rolls.spell = e->value;
+    cx->entry = h;
+    handlers[h->handler](cx);
+    return game->vm.status == COK_ECL_OK;
+}
+
+/* dkk 5dc5:4f97, 0x4e: c casts the entry's spell (Fireball) as the
+ * computer does (5dc5:1298 with 1, 1), and if it did, its first 0x4e
+ * goes. */
+static bool cast_effect(cast *cx, cok_character *c, cok_effect *effect)
+{
+    cok_adventure *game = cx->game;
+    uint8_t id = effect->id;
+    bool done = false;
+    cok_cast_spell(game, cok_game_rules(game)->effects.handlers[id].value, true, true, 0, &done);
+    if (game->vm.status != COK_ECL_OK) return false;
+    return !done || remove_effect(game, c, NULL, id);
+}
+
+/* dkk 504d:186e, 0x46 (a fire minion's), at the start of its turn (event
+ * 0x0f): the spell's cell becomes c's, a burst there (65cd:39bd, slot 0x18,
+ * n 1), and each combatant listed within a cell of c (6e48:08d6, the list
+ * read again for each), either side, from the second, takes 1d6
+ * (638c:1233) of fire (type 1, 638c:1c52). */
+static bool flames(cast *cx, cok_character *c)
+{
+    cok_adventure *game = cx->game;
+    cok_combat *combat = &game->combat;
+    uint8_t *r = c->record;
+    if (!cell(game, c, &game->spell_x, &game->spell_y) || !burst_of(game, 0x18, 1)) return false;
+    if (!cok_combat_list(combat, cok_game_rules(game), cok_combat_x(combat, r),
+                         cok_combat_y(combat, r), 1, 0xff, cok_combat_size(combat, r)))
+        return undefined(game, "the list of combatants around one (6e48:08d6) reads past its "
+                               "tables");
+    uint8_t n = combat->listed_count;
+    for (unsigned i = 2; i <= n && !game->vm.abort; ++i) {
+        cok_character *o = combat->combatant[combat->listed[i].index].character;
+        if (o == NULL) return undefined(game, "a listed combatant has no record (dkk 504d:18d8)");
+        game->effects.rolls.damage_type = 1;
+        if (!cok_cast_damage(game, o, damage_roll(game, 1, 6), 0, false)) return false;
+    }
+    return true;
+}
+
 bool cok_cast_dispel(cok_adventure *game)
 {
     cast cx = {.game = game, .caster = member_of(game, game->vm.character), .ai = true,
@@ -2976,6 +3097,13 @@ bool cok_cast_breath(cok_adventure *game, cok_character *c, cok_effect *effect)
         return undefined(game, "a monster breathes with no character selected, read through NULL "
                                "(432f:2337)");
     uint8_t id = effect->id;
+    switch (cok_game_rules(game)->effects.handlers[id].handler) {
+    case COK_FX_DRAGON_BREATH: return dragon_breath(&cx, c, effect);
+    case COK_FX_GAZE: return gaze(&cx, c, effect);
+    case COK_FX_CAST: return cast_effect(&cx, c, effect);
+    case COK_FX_FLAMES: return flames(&cx, c);
+    default: break;
+    }
     if (IS_EFFECT(id, BOLTS)) return attack_4(&cx, c, effect);
     if (IS_EFFECT(id, FIREBALLS)) return attack_4e(&cx, c);
     if (IS_EFFECT(id, POISON_BREATH)) return attack_54(&cx, c, effect);
