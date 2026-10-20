@@ -117,24 +117,25 @@ the character fields moved (R6), which the real game's layout does better.
    monsters and the import (done: `chars`); saved games, the vault and the
    start menu, playing up to the first fight (done: `saves`). Left: creation
    and Modify Character (dkk `49cb:05c7`, `25d4`, rewritten).
-3. Combat and the rules, in ten parts: (1) `encounter`, into and out of
-   every fight: SETUP MONSTERS with its ambush, LOAD MONSTER, COMBAT,
-   leadership (a party knight leading NPC allies), its own battlefield
-   builders and placement, the end of combat with may-train, no former
-   classes or fighter levels (done); (2) `fight`, the rounds, the
-   computer's turns, melee, turning undead (done, with the saving throw,
-   caster level and the computer's spell choice); (3) `commands`, the player's
-   two-row menu, Move, aiming (done); (3b) `items`, View and the items
-   menu (Ready, Use, Trade, Halve, Drop, Deposit, Sell, Id; rewritten; done); (4) `casting`, the cast
-   entry, magic resistance, band A (done: 65 spell ids cast); (5)
-   `effects`, the changed effect handlers, level drain (done; band C
-   effects 02 04 15 22 30 3a left for 10); (6) `treasure`,
-   TREASURE ITEMS and ITEM0, the pool, the vault's menu, DAMAGE, ADD EP,
-   STOCK, ROB (done); (7) shops and the temple (done; Raise Dead,
-   Remove Curse and Restoration wait for their spells); (8) `spells`, the changed spells (done: band B, 19 routines);
-   (9) `levels`, levels to 18, Train, Knight Change Order, aging (also after a
-   battle), Memorize's 8 levels (done; camp Fix left, a rewrite); (10) the new spells (done) and the rewritten
-   clouds (clouds done). Death Knights has no locked doors: nothing to port there.
+3. Combat and the rules (done, 2026-10-20). Every fight is entered and
+   left (`encounter`: SETUP MONSTERS with its ambush, LOAD MONSTER, COMBAT,
+   leadership of NPC allies, its own battlefield builders and placement,
+   the end of combat with may-train; a destroyed party's last menu,
+   `dkk-killed`) and fought to its end on Auto or by keys (`fight`,
+   `dkk-commands`, `dkk-diverge`: the rounds, the computer's turns and
+   spell choice, melee, turning undead, the saving throw, movement with
+   haste counted once; the two-row menu by index, Move, aiming); View and
+   the items menu (`items`); every spell and effect id casts (`casting`,
+   `dkk-effects`, `dkk-spells`, `dkk-newspells`, `dkk-clouds`: magic
+   resistance, level drain, the rewritten clouds); treasure, ITEM0, the
+   vault, DAMAGE, ADD EP, STOCK, ROB (`dkk-treasure`); shops and the temple
+   (`dkk-shops`); levels to 18, Train, Knight Change Order, aging,
+   Memorize's 8 levels, camp Fix (`levels`, `dkk-fix`). Death Knights has
+   no locked doors. Checked: `make dosbox-checks` 82/82 as recorded
+   (Champions unchanged) and every `dkk_*` DOSBox-X check agrees.
+   Left: creation and Modify (step 2), the interactive camp Rest's
+   question and menu (`5b7d:081d`), the mouse; and the stops where the
+   original reads an unset value.
 4. Music: the MUSIC.DAX driver and its songs. Until then Death Knights plays
    silent.
 5. Checks against the original: tests against `death-START_FULL.EXE` and a
