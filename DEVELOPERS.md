@@ -892,9 +892,13 @@ own handler of each id. Shared code never compares an id with a number:
 - A handler that both games share but for a constant takes it from its
   entry (`cok_rules_cast`'s `value`, `count`, `sides`, `type`: Death
   Knights' Enlarge, Lightning Bolt, and Flame Strike and Ice Storm by
-  `COK_CAST_DICE`); where the cast's own rules differ (its words, its
-  targets, the damage's message, magic resistance), the casting section
-  holds them (see Death Knights' casting). Loops over spell levels and list entries are bounded
+  `COK_CAST_DICE`; its band B spells, see Death Knights' casting), and
+  its words where they are not Champions' from the entry's `text` (Death
+  Knights' "is fire-resistant"; `COK_CAST_SAYING` and `COK_CAST_MISSILES`
+  say only that); where the cast's own rules differ (its words, its
+  targets, the damage's message, magic resistance, the cone's range,
+  Dispel Magic's clouds), the casting section holds them (see Death
+  Knights' casting). Loops over spell levels and list entries are bounded
   by the tables' shapes (`COK_DATA_SPELL_LISTS`: Champions' 4 levels,
   Death Knights' 8), and each game's list sizes are at most
   `COK_SPELL_LIST_MOST`, `magic.c`'s arrays.
@@ -4408,12 +4412,39 @@ and `arena.c` read it:
   stop the run.
 
 Its spells that cast: the 60 ids that share Champions' handlers, and
-Enlarge, Lightning Bolt, Flame Strike, Confusion and Ice Storm; the rest
-stop where they would run (`spells.cast[id].unported`). Checked: the
-section against the original's code (`test_death_knights.c`'s
-`test_casting`), and in DOSBox-X the first fight on Auto with casters and
-Magic On, round by round (`dkk_fight.py`'s cast flow), and camp's cure
-(`dkk_levels.py`'s cast flow).
+Enlarge, Lightning Bolt, Flame Strike, Confusion and Ice Storm, and the
+changed spells (band B, 5dc5's handlers against Champions' 5b04's, by
+their entries' constants and words, `cok_rules_cast`):
+
+| Spell | dkk | As |
+| --- | --- | --- |
+| 0x01, 0x69 Bless | `1d77` | Champions' (`1efb`): "is " and "Blessed" run together |
+| 0x02 Barkskin, 0x62 Fire Touch | `1daa`, `4b7d` | `COK_CAST_SAYING`: the spell applied, "is toughened from barkskin", "is covered in flame" |
+| 0x0a, 0x6a Charm Person | `2044` | `20f8` with `value` 1: an elf (`+0x20` 7) without the creature flag 2 is unaffected, not a monster of some kind |
+| 0x18 Resist Fire, 0x2c, 0x64 Bestow Curse | `2763`, `3204` | `2679`, `3705`: "is fire-resistant", "is cursed" |
+| 0x23 Strength | `2bc9` | `2e4e` with `value` 1: 1d8 for each of the fighters' classes (`characters.fighter_classes`: paladins, rangers and knights too); one of none of its classes stops the run (the roll is a local never set) |
+| 0x29, 0x2e Dispel Magic | `2e5c` | `320f`, its part for the clouds by `casting.dispel_clouds_unported`: the cells around the spell's by the steps (`DS:4412`, `441b`), the screen centred for each cloud's or pool's tile (0x1d, 0x1c), and a cloud or pool of a cast in the battle stops the run (`5dc5:2dd7`, `638c:21ec`: the clouds, step 3's part 10) |
+| 0x2b, 0x59, 0x68 Remove Curse | `311b` | `35f5` with `value` 0x2b: it cures effect 0x2b (Bestow Curse adds 0x24, as the original), "is uncursed" |
+| 0x2f, 0x40, 0x6c Fireball | `3241` | `376c`; 0x6c (Delay Blast) with `value` 1: the caster level added to the damage |
+| 0x30 Haste, 0x37 Slow, 0x39 | `347b`, `396e`, `3aa1` | `3991`, `3d5e`, `3d9b` (`3359` is `3865`): "is hasted", "is slowed", "is hasted" |
+| 0x3e, 0x63 | `3c39`, `4b9b` | `3f63`, `4a40`: "is healed" |
+| 0x47 Cure Critical Wounds | `4037` | `COK_CAST_CURE_CRITICAL`: Cure Serious' heal of 3d8 + 3, the deity's d8 rolled before the targets are counted |
+| 0x4f Faerie Fire | `4391` | `COK_CAST_MISSILES`: `5dc5:1b20` with no bonus, "is highlighted" |
+| 0x54 Fear | `4566` | `44ed` with `value` 1: "runs away", and one flees only while it holds 0x6f after (`65cd:2687`); its cone (`175d`) sets the sight's range to the doubled length (`casting.cone_range_length`), while the side with no one on the line and the directions aimed at the caster's own cell are the stack's, not known (`cone_stack_unknown`: the side tried at all its values, the own cell stops the run) |
+| 0x55 Fire Shield | `468f` | `464d` with `value` 1: the flame by index from "Flame type: " (`casting.flame_type`) over "Hot Cold" (`6a69:0f1b`), for the computer 1d2; Hot and Cold both "is Protected"; another key asks the cast's "Abort Spell" from Yes |
+
+Barkskin's effect 0x30 and Fire Touch's 0x4a (step 3's part 10) and
+Slow's 0x2a (part 5) are not ported yet: the spell casts, and the effect
+stops the run where its handler would run. The rest stop where they would
+run (`spells.cast[id].unported`). Checked: the section against the
+original's code (`test_death_knights.c`'s `test_casting` and
+`test_spells`), and in DOSBox-X the first fight on Auto with casters and
+Magic On, round by round (`dkk_fight.py`'s cast flow; its spells flow:
+Shield, Dispel Magic on the shielded CELESTE, Fireball, Bless, Haste and
+Lightning Bolt cast by keys in the first two rounds, then on Auto with
+Magic Off), and camp's cure (`dkk_levels.py`'s cast flow). A bolt's bounce
+(`bolt_doubles`) is checked against the code only: no fight played by
+keys bounced one.
 
 ## View
 
@@ -9628,7 +9659,15 @@ party's experience equal, and combatant entry 0's bytes (`DS:b58c`,
 found the saving throw's moon (var `0x4cf8` + order, not Champions'
 wrapped `0x4bf8`): the nightmares' smoke took hold of a mage the original
 saved. `--flows fight,river,ambush,auto` picks the flows (each about
-three and a half minutes, the auto flow four).
+three and a half minutes, the auto flow four). The spells flow (band B's
+handlers): a copy of the saved game whose casters memorize Fireball and
+Lightning Bolt (FLAVIUS), Shield and Haste (CELESTE), Dispel Magic and
+Bless (NEACAIL, TANAR); keys from the first turn, each typed once the
+original waits and stands still, cast them over the first two rounds (the
+others guard), and the screen, the records and RandSeed are compared
+where those keys end; then Alt-Q (Magic Off: the computer's own spell
+choice is the cast flow's) and the rounds after, as the auto flow's
+(about fifteen minutes).
 
 Its treasure, `tools/dosbox/checks/dkk_treasure.py` (see Death Knights'
 treasure; seeded as `dkk_fight.py`; `--flows treasure,vault`, about two

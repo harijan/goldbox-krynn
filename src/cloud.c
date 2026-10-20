@@ -380,10 +380,34 @@ static bool listed(const cok_combat *combat, const cok_combat_cloud *p)
     return false;
 }
 
+/* dkk 5dc5:2f93: the cells around the spell's cell by the steps (0-8, its
+ * own last); on a cloud's tile or a pool's, the game's clouds (2dd7, then
+ * 638c:21ec with 1), not carried out yet: with none in the battle nothing
+ * is tried and the screen is centred on the spell's cell (margin 3). */
+static bool dispel_unported(cok_adventure *game, const char *unported)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_data_segment *D = rules->data;
+    cok_combat *combat = &game->combat;
+    for (unsigned k = 0; k <= 8; ++k) {
+        int8_t x = (int8_t)(game->spell_x + (int8_t)cok_data_u8_at(D, COK_DATA_STEP_X, k)),
+               y = (int8_t)(game->spell_y + (int8_t)cok_data_u8_at(D, COK_DATA_STEP_Y, k));
+        uint8_t occupant, terrain;
+        cok_combat_cell(combat, x, y, &occupant, &terrain);
+        if (terrain != rules->fight.cloud_tile && terrain != rules->fight.pool_tile) continue;
+        if (combat->clouds != NULL || combat->pools != NULL)
+            return cok_adventure_not_yet(game, "Dispel Magic's clouds", unported);
+        if (!cok_arena_centre(game, game->spell_x, game->spell_y, 3, 8)) return false;
+    }
+    return true;
+}
+
 bool cok_cloud_dispel(cok_adventure *game, uint8_t level)
 {
     cok_combat *combat = &game->combat;
     if (!combat->active) return true;
+    const char *unported = cok_game_rules(game)->casting.dispel_clouds_unported;
+    if (unported != NULL) return dispel_unported(game, unported);
     if (game->vm.character == NULL)
         return undefined(game, "Dispel Magic tries a cloud with no character selected, reading "
                                "through NULL (5b04:315f)");

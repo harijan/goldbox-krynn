@@ -375,8 +375,27 @@ typedef struct {
      * COK_CAST_ENLARGE's value 1 for a strength of 22 at every caster
      * level but 1-9 (dkk 5dc5:2100; Champions' 21d7 at 10 and 11 only);
      * COK_CAST_LIGHTNING_BOLT's value 1 for its dice counted (dkk 5dc5:37f8
-     * rolls through 638c:1233, keeping the count in DS:be71). */
+     * rolls through 638c:1233, keeping the count in DS:be71);
+     * COK_CAST_CHARM_PERSON's value 1 for an elf (+0x20 7) without the
+     * creature flag 2 unaffected, rather than a monster of some kind (dkk
+     * 5dc5:2044; Champions' 20f8: creature flags above 1);
+     * COK_CAST_STRENGTH's value 1 for 1d8 to every class of
+     * characters.fighter_classes, not a fighter's alone (dkk 5dc5:2bc9);
+     * COK_CAST_FIREBALL's value 1 for the caster level added to the damage
+     * (dkk 5dc5:3241, Delay Blast Fireball's 0x6c); COK_CAST_REMOVE_CURSE's
+     * value the effect it cures, where not COK_EFFECT_CURSED (dkk 5dc5:311b:
+     * 0x2b); COK_CAST_FEAR's value 1 for one in the cone frightened only
+     * while it holds COK_EFFECT_TERROR after (dkk 5dc5:4566, 65cd:2687);
+     * COK_CAST_FIRE_SHIELD's value 1 for Death Knights' (dkk 5dc5:468f):
+     * the flame by index from the menu (6a69:0f1b, casting.flame_type) or
+     * for the computer by 1d2, either saying text, the abort question
+     * casting's. */
     uint8_t value, count, sides, type;
+    /* The words the handler says where they are not Champions' (the
+     * handler's own, as 5b04's routines hold them), else NULL: dkk's
+     * strings in its data segment ("is fire-resistant", DS:204c); for
+     * COK_CAST_SAYING and COK_CAST_MISSILES, all they say. */
+    const char *text;
 } cok_rules_cast;
 
 /* A spell whose duration is not the table's (cok_cast_duration): its
@@ -1323,6 +1342,24 @@ typedef struct {
      * recomputes its strength between its stats and its levels (dkk
      * 638c:16d8 with 0). */
     bool load_strength;
+    /* A cone (5b04:1903; dkk 5dc5:175d): whether the sight's range is the
+     * cone's length (dkk sets its local [bp-0x78] from the argument),
+     * rather than what the caster's flight left on the stack (Champions':
+     * no limit, see cast.c's fear); and whether the rest of what that
+     * flight left (the side where no one is on the line, the directions
+     * aimed at the caster's own cell) is not known to the port (dkk: the
+     * side is tried at each of its values, the own cell stops the run). */
+    bool cone_range_length, cone_stack_unknown;
+    /* Fire Shield's question for a COK_CAST_FIRE_SHIELD entry of value 1
+     * (dkk DS:2fee), or NULL. */
+    const char *flame_type;
+    /* Dispel Magic's part for the clouds (5b04:3352; dkk 5dc5:2f93, with
+     * 2dd7 and 638c:21ec) where the port does not carry the game's out
+     * yet, citing it, or NULL: the walk around the spell's cell by the
+     * steps (COK_DATA_STEP_X, _Y) and its centring on each cloud's or
+     * pool's tile (fight.cloud_tile, pool_tile) are carried out; a cloud
+     * or pool in the battle stops the run (COK_ECL_UNPORTED). */
+    const char *dispel_clouds_unported;
 } cok_rules_casting;
 
 /* The game's own words that are names: its title. */

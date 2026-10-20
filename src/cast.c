@@ -429,6 +429,20 @@ static bool stronger(const cok_character_layout *L, const uint8_t *c, uint8_t st
 
 typedef bool handler_fn(cast *cx);
 
+/* What the handler says: the entry's text where the game's words are not
+ * Champions' (cok_rules_cast), else own. */
+static const char *words(const cast *cx, const char *own)
+{
+    return cx->entry != NULL && cx->entry->text != NULL ? cx->entry->text : own;
+}
+
+/* The entry's value, the constant a handler takes where the games differ
+ * (cok_rules_cast), 0 with none. */
+static uint8_t entry_value(const cast *cx)
+{
+    return cx->entry != NULL ? cx->entry->value : 0;
+}
+
 /* 1e34: keep the targets on side, then apply with text. */
 static bool sided(cast *cx, uint8_t side, const char *text)
 {
@@ -466,20 +480,27 @@ static bool bless(cast *cx)
 }
 
 /* 1f57, 3ddc: heal the target count d8 + bonus, and a d8 more for a
- * caster of deity 4, rolled first. */
-static bool heal(cast *cx, uint8_t count, uint8_t bonus)
+ * caster of deity 4, rolled first; with early (dkk 5dc5:4037) that d8 is
+ * rolled before the targets are counted, with none too. */
+static bool heal_by(cast *cx, uint8_t count, uint8_t bonus, bool early)
 {
     const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
+    bool deity = cok_field_u8(L, cx->caster->record, COK_FIELD_DEITY) == 4;
+    uint8_t extra = early && deity ? roll(game, 1, 8) : 0;
     if (game->spell_target_count == 0) return true;
-    uint8_t extra =
-        cok_field_u8(L, cx->caster->record, COK_FIELD_DEITY) == 4 ? roll(game, 1, 8) : 0;
+    if (!early && deity) extra = roll(game, 1, 8);
     uint8_t amount = (uint8_t)(roll(game, count, 8) + bonus + extra);
     cok_character *c = first(cx);
     if (c == NULL) return false;
     if (cok_character_heal(c->record, cok_game_rules(game), amount, false, game->vm.mode))
         healed(game, c);
     return true;
+}
+
+static bool heal(cast *cx, uint8_t count, uint8_t bonus)
+{
+    return heal_by(cx, count, bonus, false);
 }
 
 static bool cure_light(cast *cx)
@@ -490,6 +511,12 @@ static bool cure_light(cast *cx)
 static bool cure_serious(cast *cx)
 {
     return heal(cx, 2, 1);
+}
+
+/* dkk 4037, Cure Critical Wounds: 3d8 + 3, the deity's d8 first. */
+static bool cure_critical(cast *cx)
+{
+    return heal_by(cx, 3, 3, true);
 }
 
 static bool affected(cast *cx)
@@ -568,7 +595,7 @@ static bool shielded(cast *cx)
 
 static bool fire_resistant(cast *cx)
 {
-    return apply(cx, 0, false, 0, 0, "is fire resistant");
+    return apply(cx, 0, false, 0, 0, words(cx, "is fire resistant"));
 }
 
 /* 26eb, Slow Poison: a poisoned (0x37) target with status 1 is dropped
@@ -619,10 +646,12 @@ static bool mirror_image(cast *cx)
 }
 
 /* 2e4e, Strength: the target's current strength plus 1d4 for a mage, 1d6
- * for a cleric or thief, 1d8 for a fighter (each that applies is rolled,
- * the last kept; former classes count above +0xd7), past 18 into
- * exceptional strength for a fighter, knight or ranger, as effect 0x26 if
- * better than the base. With none of those classes the roll is the local
+ * for a cleric or thief, 1d8 for a fighter (with the entry's value 1, dkk
+ * 5dc5:2bc9, for one of any of the fighters' classes), each that applies
+ * rolled, the last kept (former classes count above +0xd7), past 18 into
+ * exceptional strength for one of the fighters' classes (a fighter,
+ * knight or ranger; dkk a paladin too), as effect 0x26 if better than the
+ * base. With none of those classes the roll is the local
  * [bp-6] it never set, [BP-0x36] of 5b04:1415: from memory, the BP that
  * 6346:161b saved there (called at 5b04:16fc), whose low byte the caller's
  * depth fixes; while an item is used (DS:711d), 161b is not called and
@@ -639,15 +668,25 @@ static bool strength(cast *cx)
     (cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, k) > 0 ||                                        \
      cok_character_former_level(cok_game_rules(game), r, k) >                                      \
          cok_character_change_level(cok_game_rules(game), r))
+    /* The fighters' classes (fighters, knights and rangers; dkk 5dc5:2bc9
+     * paladins too): their exceptional strength, and with the entry's
+     * value 1 their 1d8. */
+    uint8_t fighters = cok_game_rules(game)->characters.fighter_classes;
+    bool fighter = false;
+    for (unsigned k = 0; k < 8; ++k)
+        if ((fighters >> k & 1) != 0 && HAS(k)) fighter = true;
     int bonus = -1;
     if (HAS(5)) bonus = roll(game, 1, 4);
     if (HAS(0) || HAS(6)) bonus = roll(game, 1, 6);
-    if (HAS(2)) bonus = roll(game, 1, 8);
+    if (entry_value(cx) == 1 ? fighter : HAS(2)) bonus = roll(game, 1, 8);
+    if (bonus < 0 && entry_value(cx) == 1)
+        return undefined(game, "Strength on one of no class it rolls for adds a local never "
+                               "set (dkk 5dc5:2bc9's [bp-6]), which the port does not know");
     if (bonus < 0) bonus = game->effects.rolls.item != 0 ? 0 : cx->frame;
     uint8_t value = (uint8_t)(cok_field_u8_at(L, r, COK_FIELD_SCORE, COK_SCORE_STRENGTH) + bonus);
     uint8_t exceptional = 0;
     if (value > 18) {
-        if (HAS(2) || HAS(7) || HAS(4)) {
+        if (fighter) {
             exceptional = (uint8_t)((value - 18) * 10 +
                                     cok_field_u8(L, r, COK_FIELD_STRENGTH_EXCEPTIONAL));
             if (exceptional > 100) exceptional = 100;
@@ -749,8 +788,9 @@ static bool prayer(cast *cx)
     return apply(cx, value, false, 0, 0, "is praying");
 }
 
-/* 35f5, Remove Curse: Bestow Curse's 0x24 goes and the target "is
- * un-cursed"; or else its first cursed item (+0x36) is unreadied, though
+/* 35f5, Remove Curse: Bestow Curse's 0x24 (the entry's value where it is
+ * another: dkk 5dc5:311b's 0x2b) goes and the target "is un-cursed"; or
+ * else its first cursed item (+0x36) is unreadied, though
  * still cursed and counted in the stats until they are next recomputed; an
  * item with a power loses the effect it gave (3f44:3888, the first of id
  * +0x3d) and the abilities are recomputed. */
@@ -760,8 +800,9 @@ static bool remove_curse(cast *cx)
     cok_character *c = first(cx);
     if (c == NULL) return false;
     bool cured;
-    if (!cure(game, c, 0x24, &cured)) return false;
-    if (cured) return flash(game, c, "is un-cursed");
+    uint8_t id = entry_value(cx) != 0 ? entry_value(cx) : EFFECT(CURSED);
+    if (!cure(game, c, id, &cured)) return false;
+    if (cured) return flash(game, c, words(cx, "is un-cursed"));
     for (size_t i = 0; i < c->item_count; ++i) {
         uint8_t *item = c->items[i];
         if (item[0x36] == 0) continue;
@@ -779,8 +820,10 @@ static bool remove_curse(cast *cx)
 bool cok_cast_remove_curse(cok_adventure *game, cok_character *target)
 {
     game->spell_targets[1] = target; /* DS:6feb alone; the count stays. */
-    cast cx = {.game = game, .caster = target, .spell = SPELL(REMOVE_CURSE),
-               .targets = game->spell_targets};
+    const cok_rules *rules = cok_game_rules(game);
+    uint8_t spell = SPELL(REMOVE_CURSE);
+    cast cx = {.game = game, .caster = target, .spell = spell, .targets = game->spell_targets,
+               .entry = &rules->spells.cast[spell]};
     return remove_curse(&cx);
 }
 
@@ -820,7 +863,8 @@ static bool hasten(cast *cx, uint8_t id, uint8_t side, const char *text)
 static bool haste(cast *cx)
 {
     const cok_character_layout *L = cok_game_rules(cx->game)->character;
-    return hasten(cx, 0x2a, cok_field_u8(L, cx->caster->record, COK_FIELD_HOSTILE), "is Hasted");
+    return hasten(cx, 0x2a, cok_field_u8(L, cx->caster->record, COK_FIELD_HOSTILE),
+                  words(cx, "is Hasted"));
 }
 
 /* 3d9b, 0x39: cure Slow, or else haste. */
@@ -829,7 +873,7 @@ static bool speedy(cast *cx)
     bool cured;
     cok_character *c = first(cx);
     if (c == NULL || !cure(cx->game, c, 0x2a, &cured)) return false;
-    return cured || apply(cx, 0, false, 0, 0, "is Speedy");
+    return cured || apply(cx, 0, false, 0, 0, words(cx, "is Speedy"));
 }
 
 /* 3e53, 0x3b: effect 0x71 for strength 21, saying "is stronger" if that
@@ -867,7 +911,7 @@ static bool potion(cast *cx)
     if (c == NULL) return false;
     if (cok_character_heal(c->record, cok_game_rules(game), (uint8_t)(roll(game, 2, 4) + 2), false,
                            game->vm.mode))
-        return flash(game, c, "is Healed");
+        return flash(game, c, words(cx, "is Healed"));
     return true;
 }
 
@@ -903,38 +947,72 @@ static bool neutralize_poison(cast *cx)
     return true;
 }
 
+static int ask(cok_adventure *game, const char *prompt, uint8_t colour);
+
+/* dkk 5dc5:468f's menu: casting's flame_type over "Hot Cold" by index
+ * (6a69:00cb with 1, 6a69:0f1b), the selection as it was; the item's
+ * index, a special key's scan code, or -1 if input ended. */
+static int flame_menu(cok_adventure *game)
+{
+    static const char items_text[] = "Hot Cold"; /* DS:3218 */
+    cok_adventure_log(game, "menu", items_text);
+    cok_keyboard keys = cok_adventure_keyboard(game);
+    cok_menu_items items;
+    cok_menu_items_upto(&items, 1);
+    bool special;
+    return cok_menu_pick(&game->screen, &game->font, cok_game_rules(game)->casting.flame_type,
+                         items_text, &items, 13, 15, 10, false, &game->selected, &keys, &special);
+}
+
 /* 464d, Fire Shield: "flame type: " Hot or Cold, chosen at random for a
  * character the computer controls; any other key asks "Abort spell? ",
  * and Yes ends it. The menus' special keys count by their scan codes. Hot
- * adds 0x32 and says so; Cold adds 0x36 silently; each also 0x70. */
+ * adds 0x32 and says so; Cold adds 0x36 silently; each also 0x70. With the
+ * entry's value 1 (dkk 5dc5:468f) the flame is the menu's index (0 Hot, 1
+ * Cold; flame_menu) or for the computer 1d2 less 1, each says the entry's
+ * text, and the question is casting's abort, from Yes. */
 static bool fire_shield(cast *cx)
 {
     const cok_character_layout *L = cok_game_rules(cx->game)->character;
     cok_adventure *game = cx->game;
     cok_character *c = cx->caster;
+    bool indexed = entry_value(cx) == 1;
     for (;;) {
         int key;
         bool special;
         if (cok_field_u8(L, c->record, COK_FIELD_COMPUTER) != 0) {
-            key = roll(game, 1, 10) > 5 ? 'H' : 'C';
+            if (indexed)
+                key = roll(game, 1, 2) == 1 ? 'H' : 'C';
+            else
+                key = roll(game, 1, 10) > 5 ? 'H' : 'C';
+        } else if (indexed) {
+            int index = flame_menu(game);
+            if (index < 0) return false;
+            key = index == 0 ? 'H' : index == 1 ? 'C' : 0;
         } else {
             key = cok_camp_menu(game, "flame type: ", "Hot Cold", false, false, &special);
             if (key < 0) return false;
         }
         if (key == 'H' || key == 'C') {
+            const char *said = key == 'H' ? words(cx, "is protected")
+                               : indexed  ? words(cx, "")
+                                          : "";
             uint16_t minutes;
             if (!cok_cast_duration(game, SPELL(FIRE_SHIELD), &minutes) ||
                 !cok_cast_add_effect(game, c,
                                      key == 'H' ? EFFECT(HOT_FIRE_SHIELD)
                                                 : EFFECT(COLD_FIRE_SHIELD),
-                                     minutes, 0, false, 0,
-                                     false, key == 'H' ? "is protected" : "") ||
+                                     minutes, 0, false, 0, false, said) ||
                 !cok_cast_duration(game, SPELL(FIRE_SHIELD), &minutes) ||
                 !cok_cast_add_effect(game, c, EFFECT(FIRE_SHIELD), minutes, 0, false, 0, false, ""))
                 return false;
             return true;
         }
-        key = cok_camp_menu(game, "Abort spell? ", "Yes No", false, false, &special);
+        if (indexed) {
+            key = ask(game, cok_game_rules(game)->casting.abort, 14);
+        } else {
+            key = cok_camp_menu(game, "Abort spell? ", "Yes No", false, false, &special);
+        }
         if (key < 0) return false;
         if (key == 'Y') return true;
     }
@@ -943,6 +1021,13 @@ static bool fire_shield(cast *cx)
 static bool empty_text(cast *cx)
 {
     return apply(cx, 0, false, 0, 0, "");
+}
+
+/* dkk 5dc5:1daa (Barkskin), 4b7d (Fire Touch): the spell applied, saying
+ * the entry's text. */
+static bool saying(cast *cx)
+{
+    return apply(cx, 0, false, 0, 0, words(cx, ""));
 }
 
 /* The handlers of the spells cast only in combat. */
@@ -1013,6 +1098,13 @@ static bool missiles(cast *cx, uint8_t bonus, const char *text)
     return true;
 }
 
+/* dkk 5dc5:4391, Faerie Fire: 1cbd with no bonus, saying the entry's
+ * text. */
+static bool missiles_saying(cast *cx)
+{
+    return missiles(cx, 0, words(cx, ""));
+}
+
 /* 1f2c, Curse: those on the side against the caster. */
 static bool curse(cast *cx)
 {
@@ -1026,7 +1118,9 @@ static bool cause_light(cast *cx)
 }
 
 /* 20f8, Charm Person: unless the first target is a monster of some kind
- * (+0x13f above 1) or larger than a man (+0xcf), effect 0x0b valued at the
+ * (+0x13f above 1; with the entry's value 1, dkk 5dc5:2044, an elf, +0x20
+ * 7, without the creature flag 2) or larger than a man (+0xcf), effect
+ * 0x0b valued at the
  * caster level and the caster's side in bit 7, run when removed, "is
  * charmed"; then 0x0b's handler takes hold (3f44:03cd). */
 static bool charm_person(cast *cx)
@@ -1035,8 +1129,11 @@ static bool charm_person(cast *cx)
     cok_adventure *game = cx->game;
     cok_character *t = cx->targets[1];
     if (t == NULL) return true;
-    if (cok_field_u8_at(L, t->record, COK_FIELD_CREATURE_FLAGS, 0) > 1 ||
-        cok_field_u8(L, t->record, COK_FIELD_SIZE) > 1)
+    uint8_t flags = cok_field_u8_at(L, t->record, COK_FIELD_CREATURE_FLAGS, 0);
+    bool immune = entry_value(cx) == 1
+                      ? cok_field_u8(L, t->record, COK_FIELD_RACE) == 7 && (flags & 2) == 0
+                      : flags > 1;
+    if (immune || cok_field_u8(L, t->record, COK_FIELD_SIZE) > 1)
         return say_waiting(game, t, "is unaffected");
     uint8_t level;
     if (!level_of(game, game->effects.rolls.spell, &level)) return false;
@@ -1166,7 +1263,7 @@ static bool diseased(cast *cx)
 
 static bool bestow_curse(cast *cx)
 {
-    return apply(cx, 0, false, 0, 0, "has been cursed!");
+    return apply(cx, 0, false, 0, 0, words(cx, "has been cursed!"));
 }
 
 static bool blink(cast *cx)
@@ -1177,7 +1274,9 @@ static bool blink(cast *cx)
 /* 376c, Fireball and 0x40: dice of the caster level, or 2 x 1d3 + 1 for
  * 0x40; outside a 3D area (var 0x4be6 0) the targets are those within 2 of
  * the spell's cell, not 3; the screen centred there (6beb:096b); Nd6 fire
- * and magic, the spell's save of kind 2 halving it. */
+ * and magic, plus the caster level with the entry's value 1 (dkk 5dc5:3241,
+ * Delay Blast Fireball), as a byte, the spell's save of kind 2 halving
+ * it. */
 static bool fireball(cast *cx)
 {
     cok_adventure *game = cx->game;
@@ -1188,9 +1287,10 @@ static bool fireball(cast *cx)
     } else if (!level_of(game, game->effects.rolls.spell, &dice)) {
         return false;
     }
+    uint8_t extra = entry_value(cx) == 1 ? dice : 0; /* dkk [bp-2] */
     if (cok_ecl_var(&game->vm, COK_VAR_3D) == 0 && !area(cx, 2)) return false;
     return cok_arena_centre(game, game->spell_x, game->spell_y, 0, 8) &&
-           apply(cx, 0, false, damage_roll(game, dice, 6), 9, "");
+           apply(cx, 0, false, (uint8_t)(damage_roll(game, dice, 6) + extra), 9, "");
 }
 
 /* 39bb, a cell of a bolt: a wall (cost 0xff) in a 3D area (var 0x4be6 1)
@@ -1387,7 +1487,8 @@ static bool item_bolt(cast *cx)
  * (0x27) in those that have it, the others slowed: "is Slowed". */
 static bool slow(cast *cx)
 {
-    return hasten(cx, 0x27, cok_combat_opposite(cx->caster, cok_game_rules(cx->game)), "is Slowed");
+    return hasten(cx, 0x27, cok_combat_opposite(cx->caster, cok_game_rules(cx->game)),
+                  words(cx, "is Slowed"));
 }
 
 static bool paralyzed(cast *cx)
@@ -1633,6 +1734,10 @@ int8_t cok_cast_step_byte(const cok_data_segment *D, uint16_t at)
 static bool drawing_locals(cast *cx, int8_t x0, int8_t y0, uint8_t dirs[50])
 {
     cok_combat *combat = &cx->game->combat;
+    if (cok_game_rules(cx->game)->casting.cone_stack_unknown)
+        return undefined(cx->game, "a cone aimed at its caster's own cell reads directions its "
+                                   "caster's flight left on the stack, which the port does not "
+                                   "know for this game (dkk 5dc5:175d)");
     if (cx->breath)
         return undefined(cx->game, "a monster's breath aimed at its own cell reads directions "
                                    "432f:2337 left (5b04:19a5)");
@@ -1702,6 +1807,9 @@ static bool cone(cast *cx, int8_t x0, int8_t y0, int8_t tx, int8_t ty, uint8_t w
         k = k == last ? 0 : (uint8_t)(k + 1);
     }
     clamp(&tx, &ty);
+    /* dkk 5dc5:175d sets the sight's range to the length it walks to, the
+     * doubled len as a byte ([bp+6], [bp-0x78]). */
+    if (cok_game_rules(game)->casting.cone_range_length) range = (uint8_t)(len * 2);
     bool seen;
     if (!cok_combat_sight(combat, cok_game_rules(game), x0, y0, &tx, &ty, &range, &seen))
         return undefined(game, "terrain past the table is read (DS:1ee4, 6b30:03f1)");
@@ -1780,9 +1888,10 @@ static bool cone(cast *cx, int8_t x0, int8_t y0, int8_t tx, int8_t ty, uint8_t w
 /* 44ed, Fear: a cone of width 3 and length 6 toward the spell's cell; each
  * in it, either side, throws (type 4); failing, effect 0x6f for the spell's
  * duration, run when removed, "runs in terror", and whatever became of the
- * effect it flees (+0x10), the computer controls it (+0x18b), a player's
- * character turned (+0xe7 0xb3), and it forgets its target; else it "is
- * unaffected". */
+ * effect it flees (+0x10) (with the entry's value 1, dkk 5dc5:4566, only
+ * while it holds 0x6f after: 65cd:2687), the computer controls it
+ * (+0x18b), a player's character turned (+0xe7 0xb3), and it forgets its
+ * target; else it "is unaffected". */
 static bool fear(cast *cx)
 {
     const cok_character_layout *L = cok_game_rules(cx->game)->character;
@@ -1799,12 +1908,15 @@ static bool fear(cast *cx)
      * neighbours are the screen frame's bytes: the right 4 cells east of
      * the end, the left the end. (A probe of 88 Fear casts with no one on
      * the line found the same targets for all 256 bytes.) A caster not
-     * shown after its flight leaves other bytes: the run stops. */
-    if (!cx->shown)
+     * shown after its flight leaves other bytes: the run stops. Where the
+     * game's flight's bytes are not known (dkk, whose cone sets its range),
+     * the side is tried at each of its values. */
+    bool unknown = cok_game_rules(game)->casting.cone_stack_unknown;
+    if (!cx->shown && !unknown)
         return undefined(game, "a cone's range and side come from the stack its caster's flight "
                                "left, the caster not shown (5b04:1a2c)");
     if (!cone(cx, cok_combat_x(combat, self), cok_combat_y(combat, self), game->spell_x,
-              game->spell_y, 3, 6, 0x2705, 0xc6))
+              game->spell_y, 3, 6, 0x2705, unknown ? -1 : 0xc6))
         return false;
     uint8_t n = game->spell_target_count;
     for (uint8_t i = 1; i <= n && !game->vm.abort; ++i) {
@@ -1818,8 +1930,9 @@ static bool fear(cast *cx)
         uint16_t minutes;
         if (!cok_cast_duration(game, SPELL(FEAR), &minutes) ||
             !cok_cast_add_effect(game, t, EFFECT(TERROR), minutes, 0, true, 1, false,
-                                 "runs in terror"))
+                                 words(cx, "runs in terror")))
             return false;
+        if (entry_value(cx) == 1 && FIND_EFFECT(t, TERROR) == NULL) continue;
         if (t->combat == NULL)
             return undefined(game, "a record with no combat record is written through NULL "
                                    "(5b04:45a7)");
@@ -1904,6 +2017,9 @@ static handler_fn *const handlers[COK_CAST_HANDLERS] = {
     [COK_CAST_ICE_STORM] = ice_storm,
     [COK_CAST_EMPTY_TEXT] = empty_text,
     [COK_CAST_DICE] = dice,
+    [COK_CAST_SAYING] = saying,
+    [COK_CAST_MISSILES] = missiles_saying,
+    [COK_CAST_CURE_CRITICAL] = cure_critical,
 };
 
 /* 5b04:127e: the targets outside combat, by byte 7 (the game's values, its

@@ -31,9 +31,13 @@ Wounds for TANAR, Shocking Grasp and Enlarge for CELESTE, Cure Light
 Wounds for NEACAIL) and Magic On (Alt-M after Alt-Q): the computer's
 choice (3f63:056c, 5340:43ea), its targets (5340:1eeb), the cast
 (5dc5:1298, its burst 65cd:39bd), the spells and the damage's words,
-round by round. Seeded (Box seed,
+round by round. And the spells flow: a copy of saved game A whose
+casters memorize band B's spells (5dc5's handlers), cast by keys over the
+first two rounds (Shield, Dispel Magic on the shielded CELESTE, Fireball,
+Bless, Haste, Lightning Bolt), the screen, records and RandSeed where the
+keys end, then Auto with Magic Off, round by round. Seeded (Box seed,
 eclplay --seed): the same dice. Not part of run_all.py's set. About
-thirty minutes.
+thirty minutes, and the spells flow fifteen more.
 
     python3 tools/dosbox/checks/dkk_fight.py [--workdir DIR] [--seed N]
 
@@ -90,9 +94,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir", default=str(K.ROOT / "build/dosbox-checks/dkk_fight"))
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--flows", default="fight,river,ambush,auto,keys,keys2,cast",
-                        help="which flows: fight, river, ambush, auto, keys, keys2, cast "
-                             "(comma-separated)")
+    parser.add_argument("--flows", default="fight,river,ambush,auto,keys,keys2,cast,spells",
+                        help="which flows: fight, river, ambush, auto, keys, keys2, cast, "
+                             "spells (comma-separated)")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     work = pathlib.Path(opts.workdir)
@@ -114,6 +118,9 @@ def main():
         by_keys(v, work, opts, KEYS2, "keys2")
     if "cast" in flows:
         auto(v, work, opts, cast=True)
+    if "spells" in flows:
+        auto(v, work, opts, cast=True, tag="spells", spells=SPELLS, first=SPELLS_FIRST,
+             magic=False)
     return v.finish()
 
 
@@ -332,20 +339,42 @@ CASTERS = {"CHRDATA3": [0x4A, 0x03], "CHRDATA4": [0x0F, 0x33, 0x57],
            "CHRDATA5": [0x03, 0x03], "CHRDATA6": [0x14, 0x0C]}
 
 
-def casters(work):
-    """A copy of DKKAssets/SAVE with CASTERS' spells memorized."""
-    saves = work / "saves-cast"
+# The spells flow's (band B, 5dc5's handlers), each cast by keys: FLAVIUS
+# Fireball and Lightning Bolt twice, CELESTE Shield and Haste twice, NEACAIL
+# Dispel Magic and Bless, TANAR Bless twice; its keys from the first turn
+# (SPELLS_FIRST, each once the original waits and stands still), round 1:
+# NEACAIL begins Dispel Magic, the second of her list (C, Down twice,
+# Enter); CELESTE casts Shield (C, Down, Enter); SIR DRYDEN guards;
+# NEACAIL's Dispel goes off on the first target, the cell where CELESTE
+# stands shielded (T); the Solamnic knight guards; TANAR begins Bless;
+# LILLITH guards; FLAVIUS begins Fireball, which goes off on the second
+# target, two nightmares (N, T); TANAR's Bless on the first (T). Round 2:
+# NEACAIL guards; CELESTE begins Haste; LILLITH guards; the Haste on the
+# first target (T); three guard; FLAVIUS begins Lightning Bolt, which goes
+# off on the first target, a nightmare (T). Then Alt-Q, Magic Off: the
+# computer's turns cast nothing (its spell choice, 3f63:056c, is the cast
+# flow's).
+SPELLS = {"CHRDATA3": [0x01, 0x01], "CHRDATA4": [0x2F, 0x33, 0x33],
+          "CHRDATA5": [0x29, 0x01], "CHRDATA6": [0x13, 0x30, 0x30]}
+SPELLS_FIRST = (r"C\#50\#50\rC\#50\rGTGC\#50\rGC\#50\rNTT"  # round 1
+                r"GC\#50\#50\rGTGGGC\#50\rT")  # round 2
+
+
+def casters(work, spells=None, tag="cast"):
+    """A copy of DKKAssets/SAVE with SPELLS' (by default CASTERS') spells
+    memorized."""
+    saves = work / f"saves-{tag}"
     if saves.exists():
         shutil.rmtree(saves)
     shutil.copytree(K.ASSETS / "SAVE", saves)
-    for name, spells in CASTERS.items():
+    for name, spells in (CASTERS if spells is None else spells).items():
         wiz = bytearray((saves / f"{name}.WIZ").read_bytes())
         wiz[:0x4A] = bytes(spells) + bytes(0x4A - len(spells))
         (saves / f"{name}.WIZ").write_bytes(bytes(wiz))
     return saves
 
 
-def auto(v, work, opts, cast=False):
+def auto(v, work, opts, cast=False, tag=None, spells=None, first="", magic=True):
     """The first fight with the party put on Auto (Alt-Q at the first
     turn, the player's menu, dkk 3e05:08af), to its end: the original is
     stopped at each round's end (3e05:0ed0 made to spin) and read, against
@@ -353,18 +382,21 @@ def auto(v, work, opts, cast=False):
     combatants, their records and combat records, the turn order, the
     round, RandSeed and the screen; then "continue battle?" once the enemy
     is gone (No) and the results, screens and records. With cast, the
-    casters' saved game and Magic On: Alt-M typed ahead after Alt-Q, which
-    the first computer's turn reads (3f63:117c)."""
-    tag = "cast" if cast else "auto"
-    saves = casters(work) if cast else K.ASSETS / "SAVE"
+    casters' saved game (SPELLS', or CASTERS') and Magic On: Alt-M typed
+    ahead after Alt-Q, which the first computer's turn reads (3f63:117c).
+    FIRST: keys typed from the first turn before Alt-Q, each once the
+    original waits and stands still (menu_keys); without MAGIC, no Alt-M."""
+    tag = tag or ("cast" if cast else "auto")
+    saves = casters(work, spells, tag) if cast else K.ASSETS / "SAVE"
     log, _, _, _ = K.port(work, f"{tag}-lead", TO_COMBAT, opts.seed, saves=saves,
                           args=["--combat", "auto"])
     led = "Using leadership ability" in log
     keys = TO_COMBAT + (r"\r" if led else "")  # the leadership's wait
-    # Cast: Alt-Q pressed at the first turn, Alt-M typed ahead.
+    # Cast: Alt-Q pressed at the first turn (after FIRST), Alt-M typed
+    # ahead.
     args = [] if cast else ["--combat", "auto"]
     if cast:
-        keys += r"\@q\[\@m\]"
+        keys += first + (r"\@q\[\@m\]" if magic else r"\@q")
     log, asked, _, _ = K.port(work, tag, keys, opts.seed, saves=saves, args=args)
     rounds = K.port_rounds(work, tag)
     _, final, _, state = waiting(K.port(work, f"{tag}-end", keys + r"\r", opts.seed,
@@ -385,10 +417,25 @@ def auto(v, work, opts, cast=False):
         # battlefield's setup reads as whether its tile sets are loaded
         # (410b:10d7), as the port's combat.dungeon_tiles keeps it.
         tiles = box.ds_read(0xB58C, 2)
+        if first:
+            menu_keys(box, first)
+            # The first keys' end against the port's wait there.
+            _, at_first, _, mine = waiting(K.port(work, f"{tag}-first", keys[:len(keys) - len(
+                r"\@q")] if not magic else keys[:len(keys) - len(r"\@q\[\@m\]")], opts.seed,
+                saves=saves, args=args))
+            v.screen(f"the screen after the first keys ({tag})", box.screenshot(
+                work / f"dosbox-{tag}-first.png"), load(at_first), work=work)
+            if mine is not None:
+                compare_records(v, f"the records after the first keys ({tag})", K.party(box),
+                                mine["records"])
+                v.value(f"RandSeed after the first keys ({tag})", box.ds_dword(K.DS_RANDSEED),
+                        mine["seed"])
         box.push_key(0x1000)  # Alt-Q
-        if cast:
+        if cast and magic:
             box.push_key(0x3200)  # Alt-M
-        n = 0
+        # The rounds the first keys played end untrapped: the port's from the
+        # first the original stops at.
+        n = box.ds_byte(K.DS_ROUND) if first else 0
         while True:
             handle = K.trap(box, 0x3E05, 0x0ED0, lambda: round_over(box), seconds=600)
             if not K.settled(box):

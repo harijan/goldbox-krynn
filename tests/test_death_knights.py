@@ -122,8 +122,9 @@ class DeathKnightsTests(unittest.TestCase):
 
     def test_npcs_join(self):
         # The intro (ECL1 block 2) adds its three NPCs, then fights, whose
-        # computer's turns run until one casts a spell of use (5340:43ea),
-        # which stops the run at its handler (not ported yet).
+        # computer's turns cast spells of use (5340:43ea): FLAVIUS's Delay
+        # Blast Fireball (5dc5:3241, its caster level added to the damage),
+        # until one whose handler is not ported yet stops the run.
         result = self.play("--keys", r"\r" * 20, ASSETS, 2)
         self.assertEqual(result.returncode, 1)
         self.assertEqual([line for line in result.stdout.splitlines()
@@ -131,8 +132,15 @@ class DeathKnightsTests(unittest.TestCase):
                          ["party: SIR DRYDEN joins, icon 48 in slot 0",
                           "party: TANAR joins, icon 49 in slot 1",
                           "party: FLAVIUS joins, icon 50 in slot 2"])
+        lines = result.stdout.splitlines()
+        at = lines.index("cast: FLAVIUS: Delay Blast Fireball")
+        self.assertEqual([line for line in lines[at + 1:] if not line.startswith("sound")][:7],
+                         ["print: FLAVIUS", "print: casts a spell",
+                          "print: Spell:Delay Blast Fireball", "print: EVIL WARLORD",
+                          "print: takes 44 points of damagefrom fire", "print: EVIL WARLORD",
+                          "print: takes 44 points of damagefrom fire"])
         self.assertEqual(result.stderr.splitlines()[-1], "not yet ported: Death Knights of "
-                         "Krynn's spell 108, Delay Blast Fireball (dkk 5dc5:3241)")
+                         "Krynn's spell 72, Flesh to Stone (dkk 5dc5:40a6)")
 
     def test_characters(self):
         # The saved characters (--character), a sheet in camp: name, class,
@@ -660,6 +668,120 @@ class DeathKnightsTests(unittest.TestCase):
                       "choice: 3\nprint: NEACAIL\nprint: casts\nprint: Cure Light Wounds\n"
                       "menu: Select\nmenu: Select\nprint: CELESTE\nprint: is fully healed\n"
                       "print: NEACAIL\nprint: has no spells memorized\n", out)
+
+    def camp_cast(self, who, spell, keys, effects=None):
+        """Camp's Magic, Cast for party member WHO (1 the first) with SPELL
+        alone memorized, the cast's KEYS after Cast; EFFECTS (id, value) the
+        sixth member's (CELESTE's) permanent effects: the run's stdout from
+        the spells in memory on."""
+        saves = self.saves(ASSETS / "SAVE")
+        self.memorized(saves, {f"CHRDATA{who}": [spell]})
+        if effects is not None:
+            data = b""
+            for n, (id_, value) in enumerate(effects):
+                data += bytes([id_, 0, 0, value, 0]) + (b"\1\0\1\0" if n + 1 < len(effects)
+                                                        else bytes(4))
+            (saves / "CHRDATA6.EFF").write_bytes(data)
+        keys = (self.TITLE + r"\v\v\r\rA" + r"\v" * 5 + r"\r\r\r\rM" + r"\v" * (who - 1) + "C" +
+                keys)
+        result = self.play("--start-menu", "--saves", saves, "--seed", 1, "--keys", keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout[result.stdout.index("list: Spells in Memory"):]
+
+    def test_camp_spells(self):
+        # Band B's handlers (5dc5) cast in camp: each in the original's
+        # words, on CELESTE (the pick's second from NEACAIL), or the caster.
+        # Resist Fire (2763, DS:204c).
+        out = self.camp_cast(5, 0x18, r"\r\v\r")
+        self.assertIn("print: Resist Fire\nmenu: Select\nmenu: Select\nprint: CELESTE\n"
+                      "print: is fire-resistant\n", out)
+        # Remove Curse (311b) cures 0x2b ("is cured.", 638c:1479), "is
+        # uncursed".
+        out = self.camp_cast(5, 0x2B, r"\r\v\r", [(0x2B, 5), (0x5F, 0xFF)])
+        self.assertIn("print: CELESTE\nprint: is cured.\nprint: CELESTE\nprint: is uncursed\n",
+                      out)
+        # Dispel Magic (2e5c): a d100 against each effect not 0xff; Remove
+        # Curse's 0x2b of level 5 goes.
+        out = self.camp_cast(5, 0x29, r"\r\v\r", [(0x2B, 5), (0x11, 3), (0x5F, 0xFF)])
+        self.assertIn("print: Dispel Magic\nmenu: Select\nmenu: Select\nprint: CELESTE\n"
+                      "print: is affected\n", out)
+        # Cure Critical Wounds (4037): 3d8 + 3.
+        out = self.camp_cast(5, 0x47, r"\r\v\r")
+        self.assertIn("print: CELESTE\nprint: is fully healed\n", out)
+        # CELESTE's: Fire Touch (4b7d) on SIR DRYDEN; Strength (2bc9) on him,
+        # silent; Fire Shield (468f) on herself, by index ("Hot Cold"): Hot
+        # "is Protected"; Escape asks "Abort Spell", Yes first.
+        out = self.camp_cast(6, 0x62, r"\r\v\r")
+        self.assertIn("print: SIR DRYDEN\nprint: is covered in flame\n", out)
+        out = self.camp_cast(6, 0x23, r"\r\v\r")
+        self.assertIn("print: Strength\nmenu: Select\nmenu: Select\nprint: CELESTE\n"
+                      "print: has no spells memorized\n", out)
+        out = self.camp_cast(6, 0x55, r"\r\r")
+        self.assertIn("print: Fire Shield\nmenu: Hot Cold\nprint: CELESTE\nprint: is Protected\n",
+                      out)
+        out = self.camp_cast(6, 0x55, r"\r\rD")
+        self.assertIn("heading: CELESTE\nitem:  Hot Fire Shield\n", out)
+        # Cold by its letter, index 1: "is Protected" too, and Display names
+        # the cold shield (0x36).
+        out = self.camp_cast(6, 0x55, r"\rCD")
+        self.assertIn("menu: Hot Cold\nprint: CELESTE\nprint: is Protected\n", out)
+        self.assertIn("heading: CELESTE\nitem:  Cold Fire Shield\n", out)
+        out = self.camp_cast(6, 0x55, r"\r\e\r")
+        self.assertIn("print: Fire Shield\nmenu: Hot Cold\nmenu: Abort Spell\nchoice: Y\n"
+                      "print: CELESTE\nprint: has no spells memorized\n", out)
+
+    def test_band_b_in_a_fight(self):
+        # The first fight with band B's spells cast by keys (dkk_fight.py's
+        # spells flow, which plays it round by round in the original):
+        # NEACAIL's Dispel Magic on CELESTE's cell after her Shield, FLAVIUS's
+        # Fireball on two nightmares, TANAR's Bless, CELESTE's Haste (and
+        # its aging), FLAVIUS's Lightning Bolt; then on Auto, Magic Off.
+        saves = self.saves(ASSETS / "SAVE")
+        self.memorized(saves, {"CHRDATA3": [0x01, 0x01], "CHRDATA4": [0x2F, 0x33, 0x33],
+                               "CHRDATA5": [0x29, 0x01], "CHRDATA6": [0x13, 0x30, 0x30]})
+        keys = (self.TO_FIGHT + r"\rC\#50\#50\rC\#50\rGTGC\#50\rGC\#50\rNTT"
+                r"GC\#50\#50\rGTGGGC\#50\rT\@q")
+        result = self.play("--load", saves / "SAVGAMA.PTY", "--seed", 1, "--keys", keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = [line for line in result.stdout.splitlines()
+                 if not line.startswith(("sound: ", "menu: Next"))]
+        self.assertEqual([line[6:] for line in lines if line.startswith("cast: ")],
+                         ["CELESTE: Shield", "NEACAIL: Dispel Magic", "FLAVIUS: Fireball",
+                          "TANAR: Bless", "CELESTE: Haste", "FLAVIUS: Lightning Bolt"])
+        at = lines.index("cast: FLAVIUS: Fireball")
+        self.assertEqual(lines[at + 4:at + 8], ["print: NIGHTMARE",
+                                                "print: takes 9 points of damagefrom fire",
+                                                "print: NIGHTMARE",
+                                                "print: takes 19 points of damagefrom fire"])
+        at = lines.index("cast: TANAR: Bless")
+        self.assertEqual(lines[at + 4:at + 6], ["print: TANAR", "print: is Blessed"])
+        at = lines.index("cast: CELESTE: Haste")
+        self.assertEqual(lines[at + 4:at + 6], ["print: CELESTE", "print: is hasted"])
+        at = lines.index("cast: FLAVIUS: Lightning Bolt")
+        self.assertEqual(lines[at + 4:at + 6], ["print: NIGHTMARE",
+                                                "print: takes 26 points of damagefrom electricity"])
+        self.assertIn("menu: continue battle? ", lines)
+
+    def test_fear_and_faerie_fire(self):
+        # On Auto with Magic On: FLAVIUS's Fear (5dc5:4566, the cone 175d
+        # with its range set): those failing "run away" and flee while they
+        # hold 0x6f; CELESTE's Faerie Fire (4391, 1b20): its lone pick is
+        # "Unaffected", as Champions' Charm Monsters'.
+        saves = self.saves(ASSETS / "SAVE")
+        self.memorized(saves, {"CHRDATA3": [0x4F, 0x0A], "CHRDATA4": [0x54, 0x54],
+                               "CHRDATA5": [0x47, 0x2C, 0x0A], "CHRDATA6": [0x4F, 0x4F]})
+        result = self.play("--load", saves / "SAVGAMA.PTY", "--seed", 1, "--keys",
+                           self.TO_FIGHT + r"\r\@q\[\@m\]", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = [line for line in result.stdout.splitlines() if not line.startswith("sound: ")]
+        self.assertEqual([line[6:] for line in lines if line.startswith("cast: ")],
+                         ["FLAVIUS: Fear", "CELESTE: Faerie Fire", "FLAVIUS: Fear"])
+        at = lines.index("cast: FLAVIUS: Fear")
+        self.assertEqual(lines[at + 4:at + 8], ["print: NIGHTMARE", "print: runs away",
+                                                "print: SOLAMNIC KNIGHT", "print: runs away"])
+        at = lines.index("cast: CELESTE: Faerie Fire")
+        self.assertEqual(lines[at + 4:at + 6], ["print: NIGHTMARE", "print: is Unaffected"])
+        self.assertIn("menu: continue battle? ", lines)
 
     def test_casters_on_auto(self):
         # The first fight on Auto with Magic On (Alt-M typed ahead, read in

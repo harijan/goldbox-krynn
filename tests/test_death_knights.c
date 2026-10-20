@@ -1325,6 +1325,106 @@ static void test_casting(void)
     puts("death knights: the casting section checked");
 }
 
+/* The band B spells (5dc5's handlers) against the original's code: each
+ * entry's words, the strings its routine loads (mov di, DS offset), one or
+ * two run together; and the constants their kinds take (cok_rules_cast,
+ * casting's cone, Fire Shield and Dispel Magic). */
+static void test_spells(void)
+{
+    static const struct {
+        uint8_t id;
+        unsigned at, second, n;
+    } words[] = {
+        {0x02, 0x4570, 0x4caf, 0x40}, {0x18, 0x204c, 0, 0x20}, {0x2b, 0x20f4, 0, 0x40},
+        {0x59, 0x20f4, 0, 0x40},      {0x68, 0x20f4, 0, 0x40}, {0x2c, 0x2128, 0, 0x20},
+        {0x64, 0x2128, 0, 0x20},      {0x30, 0x2152, 0, 0x20}, {0x37, 0x217c, 0, 0x20},
+        {0x39, 0x2152, 0, 0x30},      {0x3e, 0x1f30, 0, 0x40}, {0x63, 0x1f30, 0, 0x40},
+        {0x4f, 0x2244, 0, 0x10},      {0x54, 0x1e5d, 0, 0x130}, {0x55, 0x4570, 0x4594, 0x170},
+        {0x62, 0x2299, 0, 0x20},
+    };
+    for (size_t i = 0; i < sizeof words / sizeof *words; ++i) {
+        const cok_rules_cast *h = &R->spells.cast[words[i].id];
+        const uint8_t *first = ds(words[i].at);
+        char text[128];
+        snprintf(text, sizeof text, "%.*s", first[0], (const char *)first + 1);
+        if (words[i].second != 0) {
+            const uint8_t *second = ds(words[i].second);
+            snprintf(text + strlen(text), sizeof text - strlen(text), "%.*s", second[0],
+                     (const char *)second + 1);
+        }
+        CHECK(h->unported == NULL && h->text != NULL && strcmp(h->text, text) == 0);
+        CHECK(HOLDS(0x5dc5, h->address, words[i].n, 0xbf, (uint8_t)words[i].at,
+                    (uint8_t)(words[i].at >> 8)));
+        if (words[i].second != 0)
+            CHECK(HOLDS(0x5dc5, h->address, words[i].n, 0xbf, (uint8_t)words[i].second,
+                        (uint8_t)(words[i].second >> 8)));
+    }
+    /* Bless's "is " and "Blessed" are Champions' text. */
+    CHECK(R->spells.cast[0x01].handler == COK_CAST_BLESS && R->spells.cast[0x01].text == NULL &&
+          pascal_is(ds(0x4570), "is ", false) && pascal_is(ds(0x45b5), "Blessed", false) &&
+          HOLDS(0x5dc5, 0x1d77, 0x30, 0xbf, 0x70, 0x45) && HOLDS(0x5dc5, 0x1d77, 0x30, 0xbf, 0xb5,
+                                                                 0x45));
+    /* Charm Person: cmp byte [es:di+0x20], 7; and al, 2 (the elf's flag). */
+    CHECK(R->spells.cast[0x0a].value == 1 && R->spells.cast[0x6a].value == 1 &&
+          HOLDS(0x5dc5, 0x2044, 0x40, 0x26, 0x80, 0x7d, 0x20, 0x07) &&
+          HOLDS(0x5dc5, 0x2044, 0x40, 0x24, 0x02));
+    /* Strength: the paladin's level (+0x48) among those rolling 1d8, the
+     * fighters' classes of the characters section. */
+    CHECK(R->spells.cast[0x23].value == 1 && R->characters.fighter_classes == 0x9c &&
+          HOLDS(0x5dc5, 0x2bc9, 0x80, 0x26, 0x80, 0x7d, 0x48, 0x00) &&
+          HOLDS(0x5dc5, 0x2bc9, 0x80, 0xb0, 0x01, 0x50, 0xb0, 0x08, 0x50));
+    /* Remove Curse cures 0x2b (mov al, 0x2b; 638c:1479). */
+    CHECK(R->spells.cast[0x2b].value == 0x2b && HOLDS(0x5dc5, 0x311b, 0x20, 0xb0, 0x2b, 0x50));
+    /* Delay Blast Fireball: cmp byte [DS:be70], 0x6c, the level kept. */
+    CHECK(R->spells.cast[0x6c].value == 1 && R->spells.cast[0x2f].value == 0 &&
+          R->spells.cast[0x40].value == 0 &&
+          HOLDS(0x5dc5, 0x3241, 0x120, 0x80, 0x3e, 0x70, 0xbe, 0x6c));
+    /* Fear: 65cd:2687 for 0x6f after it is added. */
+    unsigned long calls[64];
+    size_t n = far_calls(0x5dc5, 0x4566, 0x128, calls, 64);
+    bool found = false;
+    for (size_t i = 0; i < n; ++i) found |= calls[i] == 0x65cd2687;
+    CHECK(R->spells.cast[0x54].value == 1 && found);
+    /* Fire Shield: 1d2, the menu by index and the abort question. */
+    n = far_calls(0x5dc5, 0x468f, 0x16b, calls, 64);
+    bool menu = false, ask = false;
+    for (size_t i = 0; i < n; ++i) {
+        menu |= calls[i] == 0x6a690f1b;
+        ask |= calls[i] == 0x6a692048;
+    }
+    CHECK(R->spells.cast[0x55].value == 1 && menu && ask &&
+          HOLDS(0x5dc5, 0x468f, 0x30, 0xb0, 0x01, 0x50, 0xb0, 0x02, 0x50) &&
+          pascal_is(ds(0x2fee), R->casting.flame_type, false) &&
+          HOLDS(0x5dc5, 0x468f, 0x40, 0xbf, 0xee, 0x2f) &&
+          pascal_is(ds(0x3218), "Hot Cold", false) &&
+          HOLDS(0x5dc5, 0x468f, 0x160, 0xbf, 0x84, 0x0f));
+    /* Cure Critical Wounds: the deity (+0x23 4) tested before the count
+     * (DS:c31c), 3d8 + 3. */
+    const uint8_t *cc = at(0x5dc5, 0x4037);
+    CHECK(R->spells.cast[0x47].handler == COK_CAST_CURE_CRITICAL && cc[10] == 0x26 &&
+          cc[11] == 0x80 && cc[13] == 0x23 && cc[14] == 0x04 &&
+          !HOLDS(0x5dc5, 0x4037, 0x10, 0x80, 0x3e, 0x1c, 0xc3, 0x00) &&
+          HOLDS(0x5dc5, 0x4037, 0x40, 0x80, 0x3e, 0x1c, 0xc3, 0x00) &&
+          HOLDS(0x5dc5, 0x4037, 0x50, 0xb0, 0x03, 0x50, 0xb0, 0x08, 0x50));
+    /* Faerie Fire: 1b20 with no bonus. */
+    CHECK(R->spells.cast[0x4f].handler == COK_CAST_MISSILES && near_call(0x5dc5, 0x4391, 0x10,
+                                                                          0x1b20));
+    /* The cone sets its range from the doubled length (mov al, [bp+6];
+     * xor ah, ah; mov [bp-0x78], ax). */
+    CHECK(R->casting.cone_range_length && R->casting.cone_stack_unknown &&
+          HOLDS(0x5dc5, 0x175d, 0x80, 0x8a, 0x46, 0x06, 0x30, 0xe4, 0xd1, 0xe0, 0x88, 0x46, 0x06) &&
+          HOLDS(0x5dc5, 0x175d, 0x140, 0x8a, 0x46, 0x06, 0x30, 0xe4, 0x89, 0x46, 0x88));
+    /* Dispel Magic's clouds: the steps' tables, the cloud's and the
+     * pool's tiles, 2dd7. */
+    CHECK(cites(R->casting.dispel_clouds_unported, 0x5dc52dd7) &&
+          cok_data_offset(R->data, COK_DATA_STEP_X, 0) == 0x4412 &&
+          HOLDS(0x5dc5, 0x2e5c, 0x200, 0x8a, 0x85, 0x12, 0x44) &&
+          HOLDS(0x5dc5, 0x2e5c, 0x200, 0x80, 0x7e, 0xed, R->fight.cloud_tile) &&
+          HOLDS(0x5dc5, 0x2e5c, 0x200, 0x80, 0x7e, 0xed, R->fight.pool_tile) &&
+          near_call(0x5dc5, 0x2e5c, 0x280, 0x2dd7));
+    puts("death knights: the band B spells checked");
+}
+
 /* The treasure section against the original's code: the item table's
  * loader (4f9a:0006, called at the end of startup 4f9a:00e1), TREASURE
  * ITEMS (3632:1933) and STOCK (3632:28d2) with their tables, the treasure
@@ -1703,6 +1803,7 @@ int main(void)
         if (exe_size > 0) test_commands();
         if (exe_size > 0) test_levels();
         if (exe_size > 0) test_casting();
+        if (exe_size > 0) test_spells();
     }
     puts("death knights: ok");
     return 0;

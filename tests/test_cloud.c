@@ -708,6 +708,39 @@ static void test_dispel(void)
     CHECK(cok_cloud_dispel(&game, 1) && game.vm.seed == start);
 }
 
+/* Death Knights' Dispel Magic (dkk 5dc5:2f93): the cells about the
+ * spell's cell by the steps, a cloud's (0x1d) or a pool's (0x1c) tile
+ * centring the screen, whose cloud cells are not drawn yet (6f03:010d);
+ * with a cloud of a cast in the battle, its clouds, not ported yet, stop
+ * the run (5dc5:2dd7). Champions' cloud tile is nothing there. */
+static void test_dispel_other_game(void)
+{
+    reset();
+    cok_character *c = record('C', 0, 30, 20);
+    game.vm.character = c->record;
+    game.rules = &cok_rules_death_knights;
+    game.spell_x = 10;
+    game.spell_y = 10;
+    CELL(11, 11) = 0x1e;
+    uint32_t start = game.vm.seed;
+    CHECK(cok_cloud_dispel(&game, 5) && game.vm.status == COK_ECL_OK && game.vm.seed == start);
+    CELL(9, 11) = 0x1c;
+    CHECK(!cok_cloud_dispel(&game, 5) && strstr(game.error, "dkk 6f03:010d") != NULL);
+    cok_combat_cloud *p = calloc(1, sizeof *p);
+    CHECK(p != NULL);
+    game.combat.pools = p;
+    CELL(9, 11) = 0x1d;
+    game.vm.status = COK_ECL_OK;
+    CHECK(!cok_cloud_dispel(&game, 5) && game.vm.status == COK_ECL_UNPORTED &&
+          strstr(game.error, "dkk 5dc5:2dd7") != NULL);
+    CELL(9, 11) = COK_COMBAT_FLOOR;
+    game.vm.status = COK_ECL_OK;
+    CHECK(cok_cloud_dispel(&game, 5) && game.vm.status == COK_ECL_OK);
+    game.combat.pools = NULL;
+    free(p);
+    game.rules = &cok_rules_champions;
+}
+
 /* More of the ends: a body taken back lies nowhere, though its entry's
  * cell is 0, 0; a pool drains to a body's tile where one fell on it since;
  * the pool ended is the one of the effect's value (a third pool of K's has
@@ -1520,6 +1553,7 @@ int main(void)
     test_acid();
     test_acid_body();
     test_dispel();
+    test_dispel_other_game();
     test_ends_more();
     test_dispel_more();
     test_under_last();
