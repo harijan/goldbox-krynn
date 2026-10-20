@@ -1456,6 +1456,17 @@ static void test_levels(void)
                 (uint8_t)cok_field_count(R->character, COK_FIELD_SPELLS_A_DAY)) &&
           HOLDS(0x4381, 0x09c7, 0x427, 0xc6, 0x86, 0x6f, 0xff, (uint8_t)(V->table_column - 1)) &&
           HOLDS(0x4381, 0x09c7, 0x427, 0xb0, V->bonus_column));
+    /* The table clears its rows (110f:0584) and says no name (no
+     * 65cd:1a21); 4381:0664's granted powers' local is not known. */
+    {
+        size_t m = far_calls(0x4381, 0x09c7, 0x427, calls, 64);
+        bool clears = false, says = false;
+        for (size_t i = 0; i < m; ++i) {
+            clears |= calls[i] == 0x110f0584;
+            says |= calls[i] == 0x65cd1a21;
+        }
+        CHECK(clears && !says && !V->table_name && V->granted_stale == 0);
+    }
     /* The lists' prompt, the marked spells' Keep and its prompt, Scribe's
      * question (Yes first) and words. */
     CHECK(pascal_is(ds(0x2fd9), V->choose_prompt, false) && pascal_is(ds(0x31f7), V->keep, false) &&

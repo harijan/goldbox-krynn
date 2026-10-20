@@ -1122,6 +1122,14 @@ typedef struct {
     const char *choose_prompt;
     const char *table_labels[4], *bonus_label;
     uint8_t table_column, bonus_column;
+    /* Whether the table first says the character's name in the text
+     * window (4888:0b24's 6346:1883 with "", clearing rows 17-22), rather
+     * than clearing rows 18-21 alone (dkk 4381:09c7's 110f:0584). */
+    bool table_name;
+    /* The spells left of a power granted to one without a cleric level
+     * (4888:0700's uninitialized local, which Memorize's stack leaves
+     * 0x71, see Camp; dkk 4381:0664's own, not known: 0, a stop). */
+    uint8_t granted_stale;
     /* Memorize's and Scribe's spells already marked (4888:1098, 132b; dkk
      * 4381:0f67, 115d): Memorize's list asks to keep them with a word of
      * its own (dkk mode 5: DS:30ab "spells OK? " and Keep, Escape

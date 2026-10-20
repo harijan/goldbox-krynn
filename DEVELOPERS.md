@@ -4090,7 +4090,10 @@ the prompt `spells OK? ` and `Keep` (`5dc5:016e`'s mode 5): picking keeps
 them, Escape unmarks them and opens the grimoire; no question is asked.
 The table shows levels 1-8 (as many as the record's spells a day) from
 column 14, labelled `    Cleric :` ... `Magic-User :` and `Bonus      :`
-(`DS:2e9f`-`2ef3`). The lists' prompt is `Choose Spell:` (`DS:2fd9`).
+(`DS:2e9f`-`2ef3`), after clearing rows 18-21 (`110f:0584`) with no name
+said (`levels.table_name`). A power granted to one without a cleric level
+counts its spells left from a local of `4381:0664`'s own, which the port
+does not know (`levels.granted_stale` 0): memorizing one stops the run. The lists' prompt is `Choose Spell:` (`DS:2fd9`).
 Scribe (`4381:115d`) asks `scribe these spells? ` (`DS:30c0`) before and
 after, from Yes in light magenta, with its words in lower case (`you are
 already scribing that spell`, `DS:2f65`). The camp's start and end unmark

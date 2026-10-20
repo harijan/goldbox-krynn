@@ -1868,6 +1868,8 @@ const cok_rules cok_rules_death_knights = {
             .bonus_label = "Bonus      :",
             .table_column = 14,
             .bonus_column = 14,
+            .table_name = false,  /* 110f:0584(1, 0x12, 0x26, 0x15) */
+            .granted_stale = 0,   /* 4381:0664's local: not known */
             /* 4381:0f67, 115d, 0626: DS:31f7, 30ab, 30c0, 2f46, 2f65, 2f8e */
             .keep = "Keep",
             .keep_prompt = "spells OK? ",

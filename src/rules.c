@@ -1789,6 +1789,8 @@ const cok_rules cok_rules_champions = {
             .bonus_label = "     Bonus Spells",
             .table_column = 20,
             .bonus_column = 20,
+            .table_name = true,
+            .granted_stale = 0x71, /* 1098:116c */
             /* 4888:1098, 132b, 06b8 */
             .keep = NULL,
             .keep_prompt = NULL,

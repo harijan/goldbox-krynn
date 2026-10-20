@@ -1853,6 +1853,20 @@ static void test_death_knights_levels(void)
         const char *first = strstr(s.log, "heading: SIR DRYDEN;");
         CHECK(first != NULL && strstr(first + 1, "heading: SIR DRYDEN;") != NULL);
     }
+    /* A power granted (101) memorized by one without a cleric level (a
+     * knight of 7): 4381:0664 counts it from a local of its own, which the
+     * port does not know (levels.granted_stale 0): a stop. */
+    {
+        CHECK(cok_spell_class(R, 101) == 2 && cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0) <= 0);
+        for (unsigned id = 1; id < R->spells.count; ++id)
+            cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, id, id == 101);
+        dkk.vm.character = c;
+        dkk_keys("MM");
+        bool interrupted = false;
+        cok_magic(&dkk, &interrupted);
+        CHECK(logged("list: Spells in Grimoire;") && dkk.vm.status == COK_ECL_UNDEFINED &&
+              strstr(dkk.error, "4381:0664") != NULL);
+    }
     /* At its race's second age (120) one is only very old. */
     cok_field_set16(L, c, COK_FIELD_AGE, 120);
     dkk_keys("");

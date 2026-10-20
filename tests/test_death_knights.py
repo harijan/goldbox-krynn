@@ -551,6 +551,23 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertLess(battle, old)
         self.assertEqual(lines.count("print: ages"), 1)
 
+    def test_memorize_table(self):
+        # The memorize table (4381:09c7) clears rows 18-21 and says no
+        # name, where Champions' says it on row 18 (4888:0b24): BALTHIR
+        # NOMOON's (party B) would show past the 12-letter labels.
+        saves = self.saves(ASSETS / "SAVE")
+        screen = self.folder / "table.bmp"
+        keys = self.TITLE + r"\v\v\r\rB" + r"\v" * 5 + r"\r\r\r\rM\v\v\vM"
+        result = self.play("--start-menu", "--saves", saves, "--screen", screen, "--keys", keys,
+                           ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("menu: Cast Memorize Scribe Display Rest Exit\nlist: Spells in Grimoire\n",
+                      result.stdout)
+        self.assertNotIn("print: BALTHIR NOMOON", result.stdout)
+        bmp = screen.read_bytes()
+        self.assertTrue(all(pixel(bmp, x, y) == (0, 0, 0)
+                            for y in range(18 * 8, 19 * 8) for x in range(13 * 8, 14 * 8)))
+
     def test_no_woof(self):
         # Death Knights has no debug mode: --woof is refused.
         result = self.play("--woof", "--start-menu", ASSETS)

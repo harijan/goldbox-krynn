@@ -667,7 +667,10 @@ static int table(cok_adventure *game, cok_character *character)
         if (game->bonus_spells > 0) any = true;
     }
     if (!any) return 0;
-    cok_camp_say(game, c, "", false);
+    if (V->table_name)
+        cok_camp_say(game, c, "", false);
+    else
+        cok_picture_fill(&game->screen, 1, 0x12 * 8, 0x26, 4 * 8, 0); /* dkk 110f:0584 */
     int row = 0x12;
     for (unsigned k = 0; k < 4; ++k) {
         if (!flag[k]) continue;
@@ -784,11 +787,20 @@ static void memorize(cok_adventure *game)
                 class_ = cok_spell_class(cok_game_rules(game), (uint8_t)spell);
         /* For a power granted to one without a cleric level, 4888:0700
          * starts from an uninitialized local, which holds the low byte of
-         * the return offset of the 34ec call before it (1098:116c), 0x71. */
+         * the return offset of the 34ec call before it (1098:116c), 0x71;
+         * the game's (levels.granted_stale), 0 where the port does not know
+         * it. */
         uint8_t left;
-        if (!cok_magic_slots(c, rules, level, class_, 0x71, &left, NULL)) {
-            cok_adventure_fail(game, COK_ECL_UNDEFINED,
-                               "4888:0700 reads a far pointer for spell %d", spell);
+        int stale = rules->levels.granted_stale != 0 ? rules->levels.granted_stale : -1;
+        if (!cok_magic_slots(c, rules, level, class_, stale, &left, NULL)) {
+            if (class_ == 2 && stale < 0)
+                cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                                   "the spells left of granted power %d, for one without a "
+                                   "cleric level, start from an uninitialized local (dkk "
+                                   "4381:0664)", spell);
+            else
+                cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                                   "4888:0700 reads a far pointer for spell %d", spell);
             return;
         }
         if (left == 0 && !(class_ == 3 && game->bonus_spells > 0)) continue;
