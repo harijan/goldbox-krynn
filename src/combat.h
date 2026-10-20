@@ -75,15 +75,21 @@ typedef struct {
 /* A cloud of Stinking Cloud's or an acid pool on the map (a 30-byte node
  * from the heap, 1a46:023f, see cloud.h). A cloud covers four cells from
  * its cell x, y, k 1-4 in the directions DS:2091[k] (8, 2, 3, 4: the cell,
- * east, south-east and south); a pool covers its cell alone, k 1. */
+ * east, south-east and south); a pool covers its cell alone, k 1. Death
+ * Knights' (dkk 5dc5:2934, a 31-byte node) covers four (Stinking Cloud's)
+ * or nine (Cloud Kill's), k 1-9 by DS:5843[k]. */
 typedef struct cok_combat_cloud {
     uint8_t *caster;               /* +0: the record that laid it. */
     struct cok_combat_cloud *next; /* +4. */
-    uint8_t saved[5];              /* +7 + k: the terrain under cell k. */
-    uint8_t covered[5];            /* +0x10 + k: cell k is on the map and no wall. */
+    uint8_t saved[10];             /* +7 + k: the terrain under cell k. */
+    uint8_t covered[10];           /* +0x10 + k: cell k is on the map and no wall. */
     int8_t x, y;                   /* +0x1a, +0x1b. */
     uint8_t index;                 /* +0x1c: its caster's clouds or pools before it. */
     uint8_t resisted;              /* +0x1d: a Dispel Magic failed against it. */
+    /* dkk +0x1c, +0x1d, +0x1e: the rounds left (the caster level, 0xff once
+     * dispelled), its caster level and its tile (fight.cloud_tile or
+     * pool_tile). */
+    uint8_t age, level, tile;
     /* A pool's saved terrain is the stale byte 3f44:2037 read (see
      * cloud.h): the run stops if the pool puts it back. */
     bool unknown;

@@ -976,13 +976,6 @@ static bool near_call(unsigned segment, unsigned offset, size_t n, unsigned targ
     return false;
 }
 
-static bool cites(const char *cited, unsigned long routine)
-{
-    char text[32];
-    snprintf(text, sizeof text, "dkk %04lx:%04lx", routine >> 16, routine & 0xffff);
-    return cited != NULL && strcmp(cited, text) == 0;
-}
-
 /* The encounter's section (combat) against the original's code: COMBAT's
  * branches in order (3632:16ec: the vault's var 0x4d00 first, the vault's
  * menu, a shop, the temple, the end of combat; the battle, then the end of
@@ -1139,18 +1132,52 @@ static void test_fight(void)
         CHECK(pascal_is(words[i].seg != 0 ? at(words[i].seg, words[i].off) : ds(words[i].off),
                         words[i].word, false));
     CHECK(W->gods_refused == NULL);
-    /* The routines it says it does not carry out: the clouds at the
-     * round's end (3e05:0ed0's far call) and the cloud square (in the
-     * round's end too). */
+    /* The clouds: aged at the round's end (3e05:0ed0's far calls, 21ec
+     * before the cloud square), their words where 0c65 and 21ec load them
+     * (mov di, offset), the levels Cloud Kill kills at (cmp al, 4, 5, 6;
+     * the throw's -4), its effect 0x37 and status 6; the selection of
+     * actions shown (DS:c4d4) and the undead's byte; the rounds (cmp
+     * [es:di+0x1c], 1 and 0xff, dec), the body's tile, the cover (213c);
+     * Dispel's stale byte DS:8954 (2dd7). */
     unsigned long calls[24];
     size_t n = far_calls(0x3e05, 0x0ed0, 0x60, calls, 24);
-    bool clouds = false, square = false;
+    size_t aged = n, square = n;
     for (size_t i = 0; i < n; ++i) {
-        clouds |= calls[i] == 0x638c21ec;
-        square |= calls[i] == 0x638c0c65;
+        if (calls[i] == 0x638c21ec && aged == n) aged = i;
+        if (calls[i] == 0x638c0c65 && square == n) square = i;
     }
-    CHECK(cites(F->clouds_unported, 0x638c21ec) && clouds);
-    CHECK(cites(F->cloud_square_unported, 0x638c0c65) && square);
+    CHECK(F->clouds == COK_CLOUDS_DEATH_KNIGHTS && aged < square && square < n);
+    CHECK(pascal_is(ds(0x1c06), F->cough, false) && pascal_is(ds(0x1c1b), F->choke, false) &&
+          pascal_is(ds(0x1d4e), F->clears, false) && pascal_is(ds(0x1ccf), F->poisoned, false) &&
+          F->noxious == NULL && HOLDS(0x638c, 0x0c65, 0x120, 0xbf, 0x06, 0x1c) &&
+          HOLDS(0x638c, 0x0c65, 0x200, 0xbf, 0x1b, 0x1c) &&
+          HOLDS(0x638c, 0x0c65, 0x340, 0xbf, 0xcf, 0x1c) &&
+          HOLDS(0x638c, 0x0c65, 0x340, 0xbf, 0xe4, 0x1c) &&
+          HOLDS(0x638c, 0x0c65, 0x200, 0xbf, 0x3a, 0x1c) &&
+          HOLDS(0x638c, 0x21ec, 0x210, 0xbf, 0x4e, 0x1d));
+    CHECK(HOLDS(0x638c, 0x0c65, 0x340, 0x26, 0x8a, 0x45, 0x30, 0x3c, 0x00, 0x7c) &&
+          HOLDS(0x638c, 0x0c65, 0x340, 0x3c, 0x04, 0x7f) &&
+          HOLDS(0x638c, 0x0c65, 0x340, 0x3c, 0x05, 0x75) &&
+          HOLDS(0x638c, 0x0c65, 0x340, 0x3c, 0x06, 0x75) &&
+          HOLDS(0x638c, 0x0c65, 0x340, 0xb0, 0x00, 0x50, 0xb0, 0xfc, 0x50) &&
+          HOLDS(0x638c, 0x0c65, 0x340, 0xb0, 0x37, 0x50) &&
+          HOLDS(0x638c, 0x0c65, 0x340, 0xb0, 0x06, 0x50, 0xbf, 0xe4, 0x1c) &&
+          cok_effect_id(R, COK_EFFECT_POISONED) == 0x37);
+    CHECK(HOLDS(0x638c, 0x0c65, 0x80, 0x80, 0x3e, 0xd4, 0xc4, 0x00) &&
+          HOLDS(0x638c, 0x0c65, 0x100, 0x26, 0x80, 0x7d, 0x31, 0x00) &&
+          HOLDS(0x638c, 0x0c65, 0x100, 0xb0, 0x1f, 0x50) &&
+          HOLDS(0x638c, 0x0c65, 0x100, 0xb0, 0x63, 0x50) &&
+          cok_effect_id(R, COK_EFFECT_HELPLESS) == 0x1f &&
+          cok_effect_id(R, COK_EFFECT_POISON_IMMUNE) == 0x63 &&
+          cok_effect_id(R, COK_EFFECT_NAUSEA) == 0x1e);
+    CHECK(HOLDS(0x638c, 0x21ec, 0x60, 0x26, 0x80, 0x7d, 0x1c, 0xff) &&
+          HOLDS(0x638c, 0x21ec, 0x60, 0x26, 0x80, 0x7d, 0x1c, 0x01, 0xb0, 0x00, 0x7f) &&
+          HOLDS(0x638c, 0x21ec, 0x210, 0x26, 0xfe, 0x4d, 0x1c) &&
+          HOLDS(0x638c, 0x21ec, 0x210, 0x26, 0xc6, 0x45, 0x07, 0x1f) &&
+          near_call(0x638c, 0x21ec, 0x210, 0x213c) &&
+          HOLDS(0x638c, 0x213c, 0x40, 0x26, 0x8a, 0x5d, 0x1e) &&
+          HOLDS(0x638c, 0x213c, 0x60, 0x8a, 0x85, 0x43, 0x58) &&
+          cok_data_offset(R->data, COK_DATA_CLOUD_CELLS, 1) == 0x5844);
     /* The probe (6f03:0e33): cmp byte [bp-4], 0x1d and 0x1c before the
      * terrain's cost; the death's set at 6f03:0f9d, 0x1c and 0x1d. */
     CHECK(F->cloud_tile == 0x1d && F->pool_tile == 0x1c && F->clouds_terrain &&
@@ -1379,9 +1406,28 @@ static void test_spells(void)
     CHECK(R->spells.cast[0x6c].value == 1 && R->spells.cast[0x2f].value == 0 &&
           R->spells.cast[0x40].value == 0 &&
           HOLDS(0x5dc5, 0x3241, 0x120, 0x80, 0x3e, 0x70, 0xbe, 0x6c));
-    /* Fear: 65cd:2687 for 0x6f after it is added. */
+    /* Stinking Cloud and Cloud Kill (5dc5:2934): cmp byte [DS:be70],
+     * 0x22, the tiles 0x1d and 0x1c (+0x1e) and their cells' counts 4 and
+     * 9, the cells by DS:5843, on the map (x 0-0x31, y 0-0x18), the cell
+     * under (6f03:152e), the centring, then the cloud square (638c:0c65). */
+    CHECK(R->spells.cast[0x22].handler == COK_CAST_STINKING_CLOUD &&
+          R->spells.cast[0x22].address == 0x2934 && R->spells.cast[0x22].value == 0 &&
+          R->spells.cast[0x5b].handler == COK_CAST_STINKING_CLOUD &&
+          R->spells.cast[0x5b].address == 0x2934 && R->spells.cast[0x5b].value == 1 &&
+          HOLDS(0x5dc5, 0x2934, 0x100, 0x80, 0x3e, 0x70, 0xbe, 0x22) &&
+          HOLDS(0x5dc5, 0x2934, 0x100, 0xc6, 0x46, 0xf6, 0x04, 0xc4, 0x7e, 0xe5, 0x26, 0xc6, 0x45,
+                0x1e, R->fight.cloud_tile) &&
+          HOLDS(0x5dc5, 0x2934, 0x100, 0xc6, 0x46, 0xf6, 0x09, 0xc4, 0x7e, 0xe5, 0x26, 0xc6, 0x45,
+                0x1e, R->fight.pool_tile) &&
+          HOLDS(0x5dc5, 0x2934, 0x100, 0x8a, 0x85, 0x43, 0x58) &&
+          HOLDS(0x5dc5, 0x2934, 0x140, 0x83, 0x7e, 0xfe, 0x31) &&
+          HOLDS(0x5dc5, 0x2934, 0x140, 0x83, 0x7e, 0xfc, 0x18));
     unsigned long calls[64];
-    size_t n = far_calls(0x5dc5, 0x4566, 0x128, calls, 64);
+    size_t n = far_calls(0x5dc5, 0x2934, 0x295, calls, 64);
+    CHECK(n == 8 && calls[3] == 0x65cd2c33 && calls[4] == 0x6f0306d0 && calls[5] == 0x6f03152e &&
+          calls[6] == 0x6f030b0e && calls[7] == 0x638c0c65);
+    /* Fear: 65cd:2687 for 0x6f after it is added. */
+    n = far_calls(0x5dc5, 0x4566, 0x128, calls, 64);
     bool found = false;
     for (size_t i = 0; i < n; ++i) found |= calls[i] == 0x65cd2687;
     CHECK(R->spells.cast[0x54].value == 1 && found);
@@ -1418,9 +1464,17 @@ static void test_spells(void)
           HOLDS(0x5dc5, 0x175d, 0x80, 0x8a, 0x46, 0x06, 0x30, 0xe4, 0xd1, 0xe0, 0x88, 0x46, 0x06) &&
           HOLDS(0x5dc5, 0x175d, 0x140, 0x8a, 0x46, 0x06, 0x30, 0xe4, 0x89, 0x46, 0x88));
     /* Dispel Magic's clouds: the steps' tables, the cloud's and the
-     * pool's tiles, 2dd7. */
-    CHECK(cites(R->casting.dispel_clouds_unported, 0x5dc52dd7) &&
-          cok_data_offset(R->data, COK_DATA_STEP_X, 0) == 0x4412 &&
+     * pool's tiles, their cells counted (4 and 9), 2dd7 with the cloud's
+     * level (+0x1d), its mark (+0x1c 0xff), the stale byte DS:8954, and
+     * the clouds marked going (638c:21ec). */
+    CHECK(HOLDS(0x5dc5, 0x2f93, 0x80, 0xc6, 0x46, 0xec, 0x04) &&
+          HOLDS(0x5dc5, 0x2f93, 0x80, 0xc6, 0x46, 0xec, 0x09) &&
+          HOLDS(0x5dc5, 0x2f93, 0x110, 0x26, 0x8a, 0x45, 0x1d) &&
+          HOLDS(0x5dc5, 0x2f93, 0x110, 0x26, 0xc6, 0x45, 0x1c, 0xff) &&
+          HOLDS(0x5dc5, 0x2dd7, 0x60, 0xa0, 0x54, 0x89));
+    n = far_calls(0x5dc5, 0x30d0, 0x10, calls, 64);
+    CHECK(n == 1 && calls[0] == 0x638c21ec);
+    CHECK(cok_data_offset(R->data, COK_DATA_STEP_X, 0) == 0x4412 &&
           HOLDS(0x5dc5, 0x2e5c, 0x200, 0x8a, 0x85, 0x12, 0x44) &&
           HOLDS(0x5dc5, 0x2e5c, 0x200, 0x80, 0x7e, 0xed, R->fight.cloud_tile) &&
           HOLDS(0x5dc5, 0x2e5c, 0x200, 0x80, 0x7e, 0xed, R->fight.pool_tile) &&

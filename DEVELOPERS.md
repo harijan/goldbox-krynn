@@ -200,7 +200,7 @@ segment's tables, a section to a concern:
 | `frame` | the screens' frames (`screen.c`), by `cok_screen` (the frame, the open frame, the adventure screen, a big picture's, Memorize's, the spell lists', combat's, the sheet's, the credits'): each a `cok_rules_screen`, the screen drawn under it first, the box cleared (`1128:07e6`) and its lines, rows and columns of tiles (`cok_rules_frame_line`: a tile, or a table by the cell's column or row, and on row 0 the moons), each the frame's `base` + its value; which frame main draws after the start menu (`menu_big`) and Begin Adventuring for a loaded game (`resumed`, a `cok_resumed`) | `1128:0000`-`077c`'s layouts, tiles 0x114 + `DS:0e3a`, `0e62`, `0e7a`, `0ea3`, `0eb0`, `0e8b`, `0ebd`, `0f02`, `0f19` and the code's; the big frame in mode 3 on the map (`1000:024b`); in block 0 or off the map (`4def:01b4`) |
 | `start` | the front end (`start.c`, `roster.c`, camp's Save): the title's pictures (record, cell, whether the screen is cleared first, the seconds waited) and credits (lines, their wait, whether they show after a key), a new game's block and the demonstration's file and block; the start menu's items, prompt and word, each item's routine where the port does not carry it out for the game (`unported`, cited: choosing it stops the run); the words of Pick Character, Drop, Exit, Load, Save, the roster's Overwrite, Add, and "from where" for a game that imports another's; the questions' colour; and what its commands do where the games differ (Add's paladin rules, its space, its message and marks; a Drop or Remove that empties the party ending the game; Exit's No saving then quitting; Begin's mode; PROGRAM 0 marking the party on the map; the wall table's entry the end of a game sets) | `2f55:063c`'s pictures, 1, 2, 3 at 5, 1 and 4 at 0, 1 for 5, 10 and 10 seconds, the credits (`2f55:0267`) for 10 unless a key; 0x24, file 2 block 0x39; `DS:0878`, `Choose a FUNCTION `, `Select `, none unported; yellow; paladins, the space, the message and marks; no, no, the entry mode, no; the first |
 | `combat` | the encounter and the battle's frame where the games differ (`monster.c`, `combat.c`, `round.c`, `treasure.c`'s end of combat): `COMBAT`'s vault branch and the vault a game's port does not carry out yet; the show at distance's `0xff` for none; leadership before the setup and its words; the dead exploding after a turn and a blow, a side gone ending the round there; the setup's line, its tile counts, whether a set is kept, the open ground's builder (`cok_wilderness_routine`), the dungeon's fill and corners; the placement's clears, ambush, distances, the cell under a body, status 9; the end of combat's lost weapons, shares, effects lost, may-train, the results' words and key, the treasure menu's condition and stop, a destroyed party's words | the vault none; no; no; yes, no; none; `A battle begins...`, 0x19 and 0x21, no, `COK_WILDERNESS_CHAMPIONS` (`3cb2:0fc8`), no fill, Champions' corners; 255, no ambush, status 9 off the map; weapons back, shares, `DS:0390`'s 11, no may-train, `The party has won.` ..., `press <enter>/<return> to continue`, always (`351b:1968`) |
-| `fight` | the rounds, the computer's turns and the attacks where the games differ (`round.c`, `ai.c`, `attack.c`, `arena.c`, `command.c`, `cloud.c`): their words (`cok_rules_fight_words`: the attack's message, fleeing, turning undead, the computer's, the round's end, the panel, guarding, Alt-X without the Helm cheat); the clouds' round and a cloud's square where the port does not carry them out yet; the battlefield's cloud and pool tiles and whether they count as terrain; the death's search for a body, its cell kept for a pool, its spell cleared; the computer's turn: a target first, the items' spells, its spell choice (`cok_computer_cast_routine`), the undead it turns and the paladins who do, its reach, morale's compare and the fleeing's effects, the flight's way; the attack's sides, the free attacks' effect, the creature flag for no dying words, a lost spell's mark, the arrows, the missile's clamp, turning undead (`cok_turning_routine`) | Champions' words; none, none; 0x1e and 0x1d, no; by the stack's byte, the cloud's only, yes; no, yes, `3afb:03b9`, the stack's byte, none, range less 1, unsigned, `DISPELLING` and `GIANT_SLAYER`, 0; no, none, none, cleared, 5, 7, 0x0c, 0x1e, no, `432f:12b7` |
+| `fight` | the rounds, the computer's turns and the attacks where the games differ (`round.c`, `ai.c`, `attack.c`, `arena.c`, `command.c`, `cloud.c`): their words (`cok_rules_fight_words`: the attack's message, fleeing, turning undead, the computer's, the round's end, the panel, guarding, Alt-X without the Helm cheat); the clouds (`cok_clouds_routine`: Champions' or Death Knights' Stinking Cloud, Cloud Kill, cloud square, the round's clouds and Dispel Magic's part) and their words (one coughing, one choking, a cloud gone, Stinking Cloud's, Cloud Kill's poison); the battlefield's cloud and pool tiles and whether they count as terrain; the death's search for a body, its cell kept for a pool, its spell cleared; the computer's turn: a target first, the items' spells, its spell choice (`cok_computer_cast_routine`), the undead it turns and the paladins who do, its reach, morale's compare and the fleeing's effects, the flight's way; the attack's sides, the free attacks' effect, the creature flag for no dying words, a lost spell's mark, the arrows, the missile's clamp, turning undead (`cok_turning_routine`) | Champions' words; `COK_CLOUDS_CHAMPIONS`, `starts to cough`, `chokes and gags from nausea`, `The air clears a little...`, `Creates a noxious cloud`, none; 0x1e and 0x1d, no; by the stack's byte, the cloud's only, yes; no, yes, `3afb:03b9`, the stack's byte, none, range less 1, unsigned, `DISPELLING` and `GIANT_SLAYER`, 0; no, none, none, cleared, 5, 7, 0x0c, 0x1e, no, `432f:12b7` |
 | `menus` | the menu loop (`menu.c`, `cok_menus_routine`: by letters, or by index, `cok_menu_pick`), the Yes/No's items for the indexed loop (`camp.c`), and the adventure's menu where the games differ (`adventure.c`: whether it keeps its own selection, whether Escape leaves Move), whether camp's menu keeps its own selection (`camp.c`) and a special key's pick of a character (`devices.c`: whether a key but Up and Down keeps the one selected) | by letters (`67b5:03e2`, `177f`); none; no, no (`475c:09ec`); no (`4888:2c31`); no, the first is picked (`546c:3334`) |
 | `commands` | the player's commands in a battle (`command.c`): the routine (`cok_commands_routine`: Champions' turn `3995:0573` or Death Knights' `3e05:08af`), the words of Move's steps and of attacking an ally and whether Yes turns the NPCs against the party, Death Knights' menus' words (its turn's two-row menu, Move's, aiming's, the cursor's, Speed's), the cursor's icon slot | `COK_COMMANDS_CHAMPIONS`; `Flee:`, `can't go there`, `Not with that weapon`, `Attack Ally: `, yes; none; 0x19 (`6beb:00fc`, `6346:1a26`) |
 | `items` | View and the items menu (`sheet.c`, `items.c`; see View and Death Knights' View): the routine (`cok_items_routine`: Champions' `546c:0d74` and `17f9` by letters, or Death Knights' `580d:0c66` and `0ffa` by index), Death Knights' menus' words; the items list's readied column; Ready's thief level for another order's scroll and its word; the words of Use of an item not readied, of the questions of parting with a scroll and of Drop, of Trade's pick for money and the coin lists' first item, of Death Knights' Deposit; Sell's and Id's words, Sell's divisor of a count's price, whether their question starts on Yes, whether Id waits twice; Death Knights' Heal and Cure (the class, the effect and its minutes, the words) | `COK_ITEMS_CHAMPIONS`; none; `" Yes  "`, `" No   "` (`6346:0473`); none; `Must be Readied`, `is it Okay to lose it? `, `Drop It? `, `Trade to?`, `" Select"`; none; `546c:2822`'s and `2a59`'s words, 20, no, no, no; none |
@@ -362,8 +362,8 @@ going on. It holds:
   (`3e05:08af`, its menu and commands below); the computer's turns (`3f63:0000`) with its own spell choice (`05d7`), no
   items' spells, a paladin's turning; its attacks (`5340`), turning undead
   (`119b`), the free attacks, the death on the battlefield (`6f03:0fbd`),
-  a lost spell marked; its cloud and pool tiles, the clouds' round and
-  square not carried out yet; its saving throw (`638c:10f8`) and the
+  a lost spell marked; its clouds (Stinking Cloud's and Cloud Kill's,
+  `5dc5:2934`, see Death Knights' clouds); its saving throw (`638c:10f8`) and the
   effects its first fights carry (0x07, 0x4f, 0x50, 0x5c, 0x5d, 0x69,
   0x6a, 0x6c, 0x72, 0x73).
 - its effects (the effects section; see Death Knights' effects): the
@@ -420,7 +420,7 @@ View and Items, the shops (`COMBAT`'s and `STOCK`'s) and the temple, until
 a routine not ported yet (camp's Fix),
 a spell
 (Death Knights' casting lists those that cast) or an effect not ported
-yet (Death Knights' effects), a cloud, a
+yet (Death Knights' effects), a
 spell or effect it does not name, or a start menu command above; there the run
 stops with the reason (`not yet ported: ...`), `cok` showing it on the
 screen and quitting, as it does at any stop: the original never returns
@@ -517,8 +517,9 @@ facing and cell under a body, the setup's line and tiles, the river's
 variable, leadership's tests, chances and words, the battle's routines,
 the end of combat's effects, words and treasure menu, may-train's row and
 table, who may use spells and the fighters' classes; the fight's section
-against its code: its words, each stop's routine and where it is
-called, the probe's tiles, the computer's turn's first target, its
+against its code: its words, the clouds' routines (where the round's
+end calls them, their words, Cloud Kill's levels, the rounds' compares,
+the cover), the probe's tiles, the computer's turn's first target, its
 limit and paladins, its spell's columns and levels, reach, morale and
 flight, the attack's sides, the free attacks' effect, the quiet bit,
 the lost spell's mark, the arrows, the missile's clamp, turning undead's
@@ -561,7 +562,9 @@ games, vault and start menu (`test_death_knights_saves`, `_menu`);
 `--combat auto`, 13 rounds as the original's; `tests/test_fight.c` its
 fight on records made by hand (the cloud and pool tiles, a death that
 finds its body, turning undead's levels and count, the nightmares' smoke,
-the half damage of 0x5d, Alt-A, the computer's spell choice);
+the half damage of 0x5d, Alt-A, the computer's spell choice, the clouds:
+laid, coughing and choking, Cloud Kill's deaths, aged, dispelled, a body
+under one);
 `tests/test_effect.c` its caster level and saving throw (and Champions'
 moon); `tests/test_combat.c` its open
 ground's builder on the first fight's seed against the map the original
@@ -4534,11 +4537,13 @@ and `arena.c` read it:
   stats and levels (`638c:16d8` with 0, `load_strength`,
   `cok_character_strength`).
 - A body's cell in combat shows the cell under it and the icon of slot
-  0x22 over it (`6f03:010d`, `body_icon`); its clouds' and pools' cells
-  stop the run.
+  0x22 over it (`6f03:010d`, `body_icon`); a cloud's cell alike, the
+  terrain the cloud kept with its icon over it (see Death Knights'
+  clouds).
 
 Its spells that cast: the 60 ids that share Champions' handlers, and
-Enlarge, Lightning Bolt, Flame Strike, Confusion and Ice Storm, and the
+Enlarge, Lightning Bolt, Flame Strike, Confusion and Ice Storm, Stinking
+Cloud and Cloud Kill (`5dc5:2934`, see Death Knights' clouds), and the
 changed spells (band B, 5dc5's handlers against Champions' 5b04's, by
 their entries' constants and words, `cok_rules_cast`):
 
@@ -4549,7 +4554,7 @@ their entries' constants and words, `cok_rules_cast`):
 | 0x0a, 0x6a Charm Person | `2044` | `20f8` with `value` 1: an elf (`+0x20` 7) without the creature flag 2 is unaffected, not a monster of some kind |
 | 0x18 Resist Fire, 0x2c, 0x64 Bestow Curse | `2763`, `3204` | `2679`, `3705`: "is fire-resistant", "is cursed" |
 | 0x23 Strength | `2bc9` | `2e4e` with `value` 1: 1d8 for each of the fighters' classes (`characters.fighter_classes`: paladins, rangers and knights too); one of none of its classes stops the run (the roll is a local never set) |
-| 0x29, 0x2e Dispel Magic | `2e5c` | `320f`, its part for the clouds by `casting.dispel_clouds_unported`: the cells around the spell's by the steps (`DS:4412`, `441b`), the screen centred for each cloud's or pool's tile (0x1d, 0x1c), and a cloud or pool of a cast in the battle stops the run (`5dc5:2dd7`, `638c:21ec`: the clouds, step 3's part 10) |
+| 0x29, 0x2e Dispel Magic | `2e5c` | `320f`, its part for the clouds Death Knights' (see Death Knights' clouds: `2f93`, `2dd7`, `638c:21ec`) |
 | 0x2b, 0x59, 0x68 Remove Curse | `311b` | `35f5` with `value` 0x2b: it cures effect 0x2b (Bestow Curse adds 0x24, as the original), "is uncursed" |
 | 0x2f, 0x40, 0x6c Fireball | `3241` | `376c`; 0x6c (Delay Blast) with `value` 1: the caster level added to the damage |
 | 0x30 Haste, 0x37 Slow, 0x39 | `347b`, `396e`, `3aa1` | `3991`, `3d5e`, `3d9b` (`3359` is `3865`): "is hasted", "is slowed", "is hasted" |
@@ -5856,11 +5861,10 @@ instruction by instruction (the calls followed through their thunks):
   panel's `hitpoints`, `(helpless)`, `(casting)`; `continue battle? `;
   and Alt-X without the Helm cheat says nothing (`3e05:08af`).
 - The end of a round (`3e05:0ed0`) ages its clouds first (`638c:21ec`, its
-  one list), and its cloud square (`638c:0c65`) is rewritten: both stop
-  the run (`fight.clouds_unported`, `cloud_square_unported`), reached only
-  with a cloud on the battlefield, which no spell of its can make yet. Its
-  cloud and pool tiles are 0x1d and 0x1c, marked wherever they are and
-  counted as terrain too (`6f03:0e33`).
+  one list), and its cloud square (`638c:0c65`) is rewritten (see Death
+  Knights' clouds). Its cloud and pool tiles, Stinking Cloud's and Cloud
+  Kill's, are 0x1d and 0x1c, marked wherever they are and counted as
+  terrain too (`6f03:0e33`).
 - The player's turn (`3e05:08af`): see Death Knights' commands. A spell
   being cast goes to its cast entry (`5dc5:1298`, see Death Knights'
   casting).
@@ -5920,7 +5924,8 @@ instruction by instruction (the calls followed through their thunks):
 - The death on the battlefield (`6f03:0fbd`): a record already among the
   bodies 1-8 does nothing, found by a search, not a byte of the stack
   (`kill_finds_body`); a body's cell keeps the one under it
-  (`6f03:152e`); a cloud's or a pool's tile is kept (`body_spares_pool`);
+  (`6f03:152e`: under a cloud the terrain it kept); a cloud's tile is kept
+  (`body_spares_pool`);
   the spell being cast stays (`kill_clears_spell`).
 - Its saving throw (`638c:10f8`) is Champions' but that a holder of
   effect 0x39 rolls 1 (`effects.save_fail_id`) and a mage's moon is read at
@@ -5938,7 +5943,7 @@ instruction by instruction (the calls followed through their thunks):
 
 What it does not carry out yet stops the run, naming the routine: a
 spell cast (any, the computer's too, at the cast entry), an effect
-not ported (see Death Knights' effects), a cloud.
+not ported (see Death Knights' effects).
 `eclplay --combat auto` plays each of ECL1's fights from its `SETUP
 MONSTERS` to its end or such a stop (32 won), `--combat melee` with the
 port's melee (48 won).
@@ -7876,6 +7881,115 @@ those then stop: 13 at a dragon's cone's side byte, 6 at a body found by a
 stale byte (`6beb:0e08`) and 3 at Molly's 0x07 outside combat, earlier
 parts' stops reached on another path. With the side byte worked out, the
 13 run to their end.
+
+### Death Knights' clouds
+
+Death Knights rewrote the clouds (`fight.clouds`,
+`COK_CLOUDS_DEATH_KNIGHTS`; `cloud.c`'s `dk_` routines, which the public
+ones call for it). It has no acid pools (its effect 0x46 is the fire
+minions' flames) and no cloud effect on the caster: a cloud keeps its own
+rounds. Its clouds are in one list (`DS:c443`, `cok_combat.clouds`), the
+latest laid first, each a 31-byte node: the caster (`+0`), the next
+(`+4`), the cell under each cell k 1-9 (`+7` + k), whether cell k is
+covered (`+0x10` + k), the cell (`+0x1a`, `+0x1b`), its rounds left
+(`+0x1c`), its level (`+0x1d`) and its tile (`+0x1e`). A cloud's cells
+are the directions `DS:5843` + k (8, 2, 3, 4, 5, 6, 7, 0, 1): Stinking
+Cloud's the first four (the cell, east, south-east and south, as
+Champions'), Cloud Kill's all nine around the cell. Stinking Cloud's tile
+is 0x1d and Cloud Kill's 0x1c (`fight.cloud_tile`, `pool_tile`); the
+battlefield draws either (and 0x1e, which nothing lays, and a body's
+0x1f, `6f03:010d`) as the cell under it with the icon of slot 0x0d past
+its tile over it, masked (0x1a, 0x1b, 0x21, 0x22): the cell under
+(`6f03:152e`, `cok_cloud_under`) is, for a cloud's tile, the terrain the
+last cloud in the list covering the cell kept, for a body's the last
+body's cell there, and the drawing takes the cell under that again
+where it is one of those.
+
+Stinking Cloud and Cloud Kill (`5dc5:2934`, `COK_CAST_STINKING_CLOUD`,
+Cloud Kill's entry of value 1 where the original tests the spell for
+0x22): after the burst of the cast entry, a node for the caster at the
+spell's cell (`DS:c441`, `c442`), its rounds and level the caster level
+(`65cd:2c33`); each cell on the battlefield keeps the cell under it and
+is covered unless that is 0 or a wall (its cost, `DS:4420`), its tile
+laid where covered; its combatant is noted unless an earlier cell's. The
+node goes first in the list, the screen is centred on the cell (forced)
+and each combatant noted is in the cloud (`638c:0c65` with the step). No
+word is said, and the caster gets no effect.
+
+One in a cloud (`638c:0c65`, `cok_cloud_square`), able to act, is called
+by the same steps as Champions' (the player's Move `3e05:137c`, the
+computer's step `3f63:0cb2`, a cloud laid, all with the step; the round's
+end without, `3e05:0f21`). In Stinking Cloud's, with the step, the screen
+is centred on it (forced) unless all of it is shown and the actions are
+(`DS:c4d4`); then, unless it is undead (`+0x31`) or holds 0x1f or 0x63,
+it throws (type 0): saved, it "starts to cough" (`DS:1c06`), 0x1e, whose
+handler runs (with no effect, as Champions'), and one casting then "lost
+a spell" (row 12, a pause), the spell marked to memorize again
+(`65cd:17c4`) and its turn over (`65cd:2bac`); failed, it "chokes and
+gags from nausea" (`1c1b`), 0x1f, whose handler runs; either for 1d4 + 1
+minutes, valued 0xff (`638c:1f86`). The selected character is kept (not
+the cloud's caster). In Cloud Kill's, with the step or not: one of
+level (`+0x30`, signed) 0-4, of 5 who fails a throw at -4, or of 6 who
+fails one "is poisoned" (`DS:1ccf`, row 10), a pause, effect 0x37 for no
+time valued 0xff, and is killed (`638c:00c8`, status 6, "is killed").
+
+The end of a round (`3e05:0ed0`, after the time passed; `638c:21ec` with
+0, `cok_cloud_round`): each cloud whose rounds are 1 or fewer (signed)
+goes, the others' one fewer; a cloud of level n lasts to the end of the
+n-th round. One going puts each covered cell back to the terrain it
+kept, or a body's tile where a body (not taken back) lies, and is freed;
+after the list, if any went, every cloud's covered cells get its tile
+again, in the list's order (`638c:213c`: where two overlap, the earlier
+one's tile is left), and "the air clears a little..." (`65cd:19c5`, row
+24). The screen is not redrawn. One who dies in a cloud
+(`6f03:0fbd`) leaves the cloud's tile on the map, its body keeping the
+terrain under the cloud.
+
+Dispel Magic (`5dc5:2e5c`, after its targets, `2f93`): for the cells
+around the spell's cell by the steps (`DS:4412`, `441b`, its own last),
+on Stinking Cloud's tile each cloud with one of its first four cells
+there, on Cloud Kill's each with one of its nine, covered or not, is
+tried (`2dd7`), and taken is marked (`+0x1c` 0xff); after each such cell
+the screen is centred on the spell's cell (margin 3); then the clouds
+marked go (`638c:21ec` with 1). The try is a d100 up to 50, 5 more a
+level the dispeller's caster level is above the cloud's; below it, 2
+less a level that the byte `DS:8954` is above the dispeller's (the
+cloud's level is never stored there, as Champions' `3151` stores it in
+`DS:483a`): what the dispel's first part left there, the level of the
+last effect it tried (`cast.c` passes it), or what an earlier Enlarge,
+Sleep, Death Spell or Dispel Magic left. Where the first part tried no
+effect the port does not know that byte and the run stops
+(`COK_ECL_UNDEFINED`).
+
+The port keeps these quirks: a Cloud Kill or Stinking Cloud over another
+cloud keeps the terrain the other kept, and where they overlap the older
+cloud's tile is the one laid again whenever any cloud goes; Dispel
+Magic counts a cloud's cells by the tile it finds (four on Stinking
+Cloud's, nine on Cloud Kill's), so that a Cloud Kill's cells past its
+fourth are not tried from Stinking Cloud's tile, tries a cloud once at
+each cell of the walk it has a cell at, covered or not, and one already
+taken again (each a d100); the computer's step into a cloud
+(`3f63:06ca`) is Champions' test, by the same tiles.
+
+| Function | Original |
+| --- | --- |
+| `cok_cloud_stinking` | `5dc5:2934` |
+| `cok_cloud_square` | `638c:0c65` |
+| `cok_cloud_round` | `638c:21ec` with 0, `213c` |
+| `cok_cloud_under` | `6f03:152e` |
+| `cok_cloud_dispel` | `5dc5:2e5c`'s second part, `2dd7`, `638c:21ec` with 1 |
+
+Checked: the routines' constants against the code (`test_death_knights.c`:
+the spell compare and tiles of `2934`, its cells' table, bounds and calls;
+`0c65`'s words, levels, throw, effect and status; `21ec`'s compares, body
+tile and cover; Dispel's counts, mark, stale byte and call), unit tests
+on records made by hand (`test_fight.c`), `eclplay --combat auto` over
+ECL1-3's fights (the Vampire Mage's and Igorf's Stinking Clouds cast in
+10 of 600 runs, none stopping at a cloud), and DOSBox-X: `dkk_fight.py`'s
+clouds flow (two Cloud Kills and a Stinking Cloud cast by keys, TANAR
+killed in one, a Dispel Magic taking the Stinking Cloud, then Auto, round
+by round to the 9th with the battlefield's cells and bodies, the Cloud
+Kills gone at the 7th's and 8th's ends).
 
 ## Treasure and the end of combat
 
