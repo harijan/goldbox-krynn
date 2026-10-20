@@ -674,6 +674,19 @@ static void test_indexed_rows(void)
                                 &top, &selected, &k, &special, &picked) == 0x1b);
     CHECK(top == 3 && !picked && special && s.at == 3);
     CHECK(cell_glyph(&p, 6, 24) == ('E' & 63) && cell_glyph(&p, 11, 24) == 0);
+    /* At the last page, the index Next took before is Prev's now: Exit
+     * pages back up. The scan code 0x4e pages down. */
+    index = 0;
+    top = 0;
+    k = keyboard(&s, "E" "E" "\x1b", 3);
+    CHECK(cok_menu_indexed_rows(&p, &font, rows, 5, w, &style, menu, &items, 8, &redraw, &index,
+                                &top, &selected, &k, &special, &picked) == 0x1b);
+    CHECK(top == 0 && s.at == 3);
+    k = keyboard(&s, "\x01\x4e\x1b", 3);
+    CHECK(cok_menu_indexed_rows(&p, &font, rows, 5, w, &style, menu, &items, 8, &redraw, &index,
+                                &top, &selected, &k, &special, &picked) == 0x1b);
+    CHECK(top == 2);
+    top = 0;
     /* With every row shown: Exit is the list's Exit; R picks the row. */
     k = keyboard(&s, "E", 1);
     CHECK(cok_menu_indexed_rows(&p, &font, rows, 3, w, &style, menu, &items, 8, &redraw, &index,

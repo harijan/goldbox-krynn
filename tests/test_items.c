@@ -664,10 +664,18 @@ static void test_dk_items(void)
     keys("\x01P" "dy\x1b");
     cok_items(&game, &done);
     CHECK(c->item_count == 2);
-    /* Trade: from the last partner, or with none the selected; the item to
-     * the end of the receiver's. */
+    /* Trade: from the last partner, or with none the selected (Select at
+     * once trades it to itself: to the end of its items). */
     game.trade_partner = NULL;
-    keys("t\x01PS\x1b");
+    uint8_t first = c->items[0][0x2e], second = c->items[1][0x2e];
+    CHECK(c->item_count == 2 && first != second);
+    keys("tS\x1b");
+    cok_items(&game, &done);
+    CHECK(c->item_count == 2 && c->items[1][0x2e] == first && c->items[0][0x2e] == second &&
+          game.trade_partner == c->record);
+    /* To another: the item to the end of the receiver's. */
+    game.trade_partner = NULL;
+    keys("\x01Pt\x01PS\x1b");
     cok_items(&game, &done);
     CHECK(c->item_count == 1 && sir->item_count == 1 && game.trade_partner == sir->record);
     /* The vault (mode 7): Deposit for Drop; the item to the end of the
