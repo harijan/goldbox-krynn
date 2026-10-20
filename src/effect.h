@@ -43,6 +43,8 @@ typedef struct {
     uint8_t saved;        /* DS:5885: set when the game is saved in camp (4b6d:22de)
                            * until the camp menu returns. */
     uint8_t round;        /* DS:714b: the combat round, 0 outside combat. */
+    uint8_t movement;     /* dkk DS:be6f: the movement a round, which 0x27 doubles (65cd:1241
+                           * sets it again after the events). */
     uint8_t item;         /* DS:711d: set while an item's spell is used (546c:24d7), which
                            * casts it at level 6 (6346:29fe); cleared at startup and by
                            * the next use. */
@@ -67,6 +69,11 @@ struct cok_effects {
     cok_party *party; /* DS:609a. */
     const cok_item_types *types;
     cok_rolls rolls;
+    /* dkk DS:c463: an effect aged someone in this battle (504d:0d88),
+     * which the aging after it (3e05:0264) asks for and clears, as the
+     * years' carry does (5b7d:042e); nothing sets it in a game whose
+     * haste does not (cok_train_aging). */
+    bool aging;
     /* DS:46b4: by party position, whether a member had an effect with time
      * left when they were last counted down. */
     uint8_t timed[COK_EFFECT_TIMED];

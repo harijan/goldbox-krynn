@@ -48,13 +48,16 @@ static void name_of(const cok_character_layout *L, const uint8_t *c, char out[16
 }
 
 /* Draw c's name at x, y: light red if it cannot act, else light cyan
- * (6346:199d outside combat). */
+ * (6346:199d outside combat), or light magenta if it may train (dkk
+ * 65cd:1b3b, +0xc6). */
 static void draw_name(cok_adventure *game, const uint8_t *c, int x, int y)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
     char name[16];
     name_of(L, c, name);
-    draw(game, name, x, y, cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0 ? 12 : 11, true);
+    bool may = cok_game_rules(game)->combat.may_train &&
+               cok_field_u8(L, c, COK_FIELD_MAY_TRAIN) != 0;
+    draw(game, name, x, y, cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0 ? 12 : may ? 13 : 11, true);
 }
 
 /* Say text about c in the text window (6346:1883 outside combat): its name
@@ -106,10 +109,15 @@ int cok_camp_menu(cok_adventure *game, const char *prompt, const char *items, bo
  * ended. */
 int cok_camp_yes_no(cok_adventure *game, const char *prompt, uint8_t prompt_color)
 {
+    return cok_camp_ask(game, prompt, prompt_color, false);
+}
+
+int cok_camp_ask(cok_adventure *game, const char *prompt, uint8_t prompt_color, bool yes)
+{
     cok_adventure_log(game, "menu", prompt);
     cok_keyboard keys = cok_adventure_keyboard(game);
     int key;
-    game->selected = 2;
+    game->selected = yes ? 1 : 2;
     do {
         bool special;
         key = cok_menu_ask(&game->screen, &game->font, prompt, "Yes No", prompt_color, 15, 10,
@@ -172,10 +180,13 @@ void cok_camp_forget(cok_character *character, const cok_rules *rules)
 {
     const cok_character_layout *L = rules->character;
     uint8_t *c = character->record;
-    for (size_t i = 0; i < cok_field_count(L, COK_FIELD_MEMORIZED); ++i)
-        if (cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) > 0x7f)
-            cok_field_set8_at(L, c, COK_FIELD_MEMORIZED, i, 0);
-    cok_field_set8(L, c, COK_FIELD_STUDY_HOURS, 0);
+    /* dkk 4381:0626: the scrolls' marks alone (05b0). */
+    if (rules->levels.camp_forgets_memorized) {
+        for (size_t i = 0; i < cok_field_count(L, COK_FIELD_MEMORIZED); ++i)
+            if (cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) > 0x7f)
+                cok_field_set8_at(L, c, COK_FIELD_MEMORIZED, i, 0);
+        cok_field_set8(L, c, COK_FIELD_STUDY_HOURS, 0);
+    }
     for (size_t i = 0; i < character->item_count; ++i) {
         uint8_t *item = character->items[i];
         if (!cok_item_is_scroll(item)) continue;
@@ -1116,7 +1127,13 @@ bool cok_camp(cok_adventure *game)
             game->selected = 1;
             interrupted = cok_camp_prepare(game);
             break;
-        case 'F': interrupted = cok_camp_fix(game); break;
+        case 'F':
+            if (cok_game_rules(game)->levels.fix_unported != NULL) {
+                cok_adventure_not_yet(game, "Fix", cok_game_rules(game)->levels.fix_unported);
+                break;
+            }
+            interrupted = cok_camp_fix(game);
+            break;
         case 'A':
             game->selected = 1;
             alter(game);

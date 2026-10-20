@@ -126,8 +126,12 @@ void cok_item_draw_name(cok_adventure *game, const uint8_t *c, int x, int y, boo
     size_t length = stored > 15 ? 15 : stored;
     memcpy(name, c + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
     snprintf(name + length, sizeof name - length, "%s", possessive ? "'s" : "");
+    /* dkk 65cd:1b3b: light magenta for one that may train (+0xc6). */
+    bool may = cok_game_rules(game)->combat.may_train &&
+               cok_field_u8(L, c, COK_FIELD_MAY_TRAIN) != 0;
     uint8_t color = cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0                         ? 12
                     : game->vm.mode == 5 && cok_field_u8(L, c, COK_FIELD_HOSTILE) == 1 ? 14
+                    : may                                                              ? 13
                                                                                        : 11;
     cok_text_string(&game->screen, &game->font, name, x, y, color, 0);
 }

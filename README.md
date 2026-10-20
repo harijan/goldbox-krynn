@@ -148,12 +148,15 @@ At the first character's turn press Alt-Q (or Alt-A) to put the party on
 Auto: the computer fights the battle to its end as the original's does,
 with its dice, and the results follow. Treasure found (the treasure
 menu: Take, Pool, Share) and the bank vault of Gargath (take coins and
-items out, pool and deposit coins) work. The combat menu itself (moving,
-aiming, casting by hand) isn't there yet: any other key there stops the
-game. Neither are spells cast in combat (yours or a monster's), creating,
-modifying and training characters, Initialize Mouse/Joystick, shops, the
-temple, and a character's sheet and items in the vault: the game stops
-with a message saying what it reached.
+items out, pool and deposit coins) work. Training halls train characters
+up to level 18 (Train Character) and promote knights (Knight Change
+Order); in camp, Magic's Memorize, Scribe and Display work, with spell
+levels up to 8. The combat menu itself (moving, aiming, casting by hand)
+isn't there yet: any other key there stops the game. Neither are spells
+cast in combat (yours or a monster's), creating and modifying characters,
+Initialize Mouse/Joystick, shops, the temple, camp's Fix, and a
+character's sheet and items in the vault: the game stops with a message
+saying what it reached.
 
 ## Options
 

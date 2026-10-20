@@ -479,14 +479,12 @@ typedef struct {
     /* The effect ids the code names (spells.h's cok_named_effect): 0 for
      * one the game has not. */
     const uint8_t *ids;
-    /* Display (4888:17ae): the ids it names by the spell that adds them,
-     * 0-ended, and the texts of others; it shows no other. */
+    /* Display (4888:17ae; dkk 4381:15aa): the ids it names by the spell
+     * that adds them, 0-ended, and the texts of others; it shows no other.
+     * Its headings' colour is the levels section's. */
     const uint8_t *display_spells;
     const cok_rules_effect_text *display_texts;
     unsigned display_text_count;
-    /* Display's routine where the port does not carry the game's out yet,
-     * citing it, or NULL: choosing Display stops the run (COK_ECL_UNPORTED). */
-    const char *display_unported;
     /* The rules' routines that differ in the game and the port does not
      * carry out for it yet, citing the game's routine, or NULL: the caster
      * level (6346:29fe), the saving throw (60f4:113a) and magic resistance
@@ -782,13 +780,10 @@ typedef struct {
      * each blow the dead explode (60f4:2375; dkk has none); whether after
      * each turn a side gone or the round limit ends the round there, once
      * a battle (dkk 3e05:00ec's [bp-1]), rather than only at the end of the
-     * round; and the aging after the battle (dkk 3e05:0264, when an effect
-     * 0x27 set DS:c463) where the port does not carry it out for the game
-     * yet, or NULL. */
+     * round. The aging after it is the levels section's. */
     bool leadership;
     const char *leadership_text, *leads, *leads_end;
     bool explode, ends_in_round;
-    const char *aging_unported;
     /* The setup (3cb2:1c58; dkk 410b:1e41): its line on row 24 (Champions'
      * in 1521's code, CS:1c45; dkk DS:2a07); the tiles from the 3D area's
      * and the wilderness's archives (3cb2:1029: 0x19 and 0x21; dkk
@@ -1057,6 +1052,117 @@ typedef struct {
     bool gains_active_first;
 } cok_rules_treasure;
 
+/* A race's age past which a battle that aged a character says it is very
+ * old, and past which it dies (dkk 3e05:0264), as words. */
+typedef struct {
+    uint16_t old, dies;
+} cok_rules_age;
+
+/* Training, the knights' orders, aging, Memorize and Scribe where the
+ * games differ (train.c, magic.c, camp.c; see Training and Camp). */
+typedef struct {
+    /* Train Character (4def:4d9e; dkk 49cb:43b6): its words (one who
+     * cannot act, a hall that trains none of the classes, too little
+     * experience; " will become:", the first and the other lines' starts,
+     * the question and the answer to Yes: Champions' 4def code, dkk
+     * DS:1542, 1561, 1412, 1427, 143c, 1451, 1466, 1485); whether the
+     * question's Yes/No starts on Yes (dkk 6a69:2048 with DS:57c0's 0)
+     * rather than on No (67b5:177f); whether free training (DS:7140) trains
+     * (dkk 49cb:43b6 clears DS:c46a first: never); whether the highest
+     * levels by race and class (COK_DATA_LEVEL_LIMITS, dkk DS:82d4) stop
+     * a class, rather than the kender's fighter and ranger limits by
+     * strength; the experience row the original's uninitialized local
+     * gives the first class without one (Champions' 0x74, see train.c),
+     * 0 where the port does not know it (a stop); whether a ranger above
+     * level 8 learns a spell only when it rises (dkk), rather than every
+     * time it trains. */
+    const char *conscious, *wrong_hall, *no_experience, *will_become, *a_level, *and_level;
+    const char *question, *congratulations;
+    bool question_yes, free_training, race_limits;
+    uint8_t stale_row;
+    bool ranger_rises;
+    /* The hit points a level brings (4def:4b3a; dkk 580d:3193): by class,
+     * the fixed amount a class at or above its top level (DS:3903) gives
+     * in place of the sum so far, 0 none (Champions' fighters and knights
+     * 3, clerics, rangers and thieves 2, mages 1; dkk paladins 3 too); and
+     * whether the hit points stay as far below the new maximum as they
+     * were only down to 0 (dkk), rather than wrapping as a byte. */
+    uint8_t top_hit_points[8];
+    bool hit_points_floor;
+    /* Knight Change (4def:5812; dkk 49cb:4ea4): "Knight Of The " before the
+     * order (dkk DS:14cf), the orders granted on row 11 (Champions'
+     * "Sword", "Rose"; dkk the petition's lower-case DS:14b9, 14c4),
+     * "NAME is too inexperienced" by order (dkk DS:14e4 for both), and
+     * what a knight of no order petitions for, a local never set
+     * (Champions' empty, see train.c; NULL where the port does not know:
+     * a stop); whether
+     * Change is offered whatever the petition's outcome (dkk: DS:3361
+     * always) and the menu's special keys do nothing but Escape (dkk
+     * DS:c0f8; Champions' take F9's scan code as C); the knight level from
+     * which a lost level costs 2 hit points and no constitution
+     * (dkk 49cb:4da1: 10), 0 for none. */
+    const char *knight_of, *granted[2], *inexperienced[2], *no_order;
+    bool change_always, specials_apart;
+    uint8_t promote_fixed;
+    /* The aging after a battle that aged someone (dkk 3e05:0264, effect
+     * 0x27 setting DS:c463, game->effects.aging), or none (ages NULL):
+     * by race (+0x20), ages (+0x26), age_races of them; the words "NAME
+     * who is looking very old", "the strain of the last battle has worn
+     * heavily on NAME.  " (DS:2319, 2338, 3e05:0260), "he"/"she" and
+     * "breathes deeply ..." (DS:23da, 23e5, 2389), dying's "dies from age"
+     * (DS:23f0). */
+    const cok_rules_age *ages;
+    uint8_t age_races;
+    const char *very_old, *strain, *strain_end, *he, *she, *last_breath, *died;
+    /* The spell lists (5b04:027a; dkk 5dc5:016e): the prompt of a list to
+     * pick from ("Choose Spell: "; dkk DS:2fd9); the memorize table
+     * (4888:0b24; dkk 4381:09c7, as many levels as the record's spells a
+     * day): its labels at column 1, its first level's column (each next 3
+     * on), the bonus spells' label and column. */
+    const char *choose_prompt;
+    const char *table_labels[4], *bonus_label;
+    uint8_t table_column, bonus_column;
+    /* Whether the table first says the character's name in the text
+     * window (4888:0b24's 6346:1883 with "", clearing rows 17-22), rather
+     * than clearing rows 18-21 alone (dkk 4381:09c7's 110f:0584). */
+    bool table_name;
+    /* The spells left of a power granted to one without a cleric level
+     * (4888:0700's uninitialized local, which Memorize's stack leaves
+     * 0x71, see Camp; dkk 4381:0664's own, not known: 0, a stop). */
+    uint8_t granted_stale;
+    /* Memorize's and Scribe's spells already marked (4888:1098, 132b; dkk
+     * 4381:0f67, 115d): Memorize's list asks to keep them with a word of
+     * its own (dkk mode 5: DS:30ab "spells OK? " and Keep, Escape
+     * unmarking), or where keep is NULL with the question, before and
+     * after; Scribe's question, before and after; the questions' colour
+     * and whether they start on Yes (dkk 6a69:2048 with DS:57c0); the
+     * words of Scribe (a spell known, one being scribed, one that cannot
+     * be: dkk DS:2f46, 2f65, 2f8e); and whether the camp's start and end
+     * unmark the spells to memorize as well as the scrolls (4888:06b8;
+     * dkk 4381:0626 the scrolls only). */
+    const char *keep, *keep_prompt;
+    const char *memorize_question[2], *scribe_question[2];
+    uint8_t question_colour;
+    bool questions_yes;
+    const char *known, *scribing, *cannot_scribe;
+    bool camp_forgets_memorized;
+    /* The colour of Display's names (4888:17ae passes 11; dkk 4381:15aa's
+     * list draws its headings in DS:c149's 13), and whether its first
+     * blank row and the blank after each member are headings too (dkk
+     * 4381:13fb with 1), so that the list starts on its last row. */
+    uint8_t display_heading;
+    bool display_blank_headings;
+    /* Whether the Magic menu keeps a selection of its own, from its first
+     * item each time it opens, across what its commands show (dkk
+     * 4381:1a34 with DS:c0f7), rather than going on from the menu before
+     * (4888:1c32). */
+    bool magic_selection;
+    /* The camp's Fix where the port does not carry the game's out yet
+     * (dkk 4381:2fd4, with its cures 2a73), citing it, or NULL: choosing
+     * it stops the run (COK_ECL_UNPORTED). */
+    const char *fix_unported;
+} cok_rules_levels;
+
 /* The game's own words that are names: its title. */
 typedef struct {
     /* The window's title. */
@@ -1095,6 +1201,7 @@ typedef struct cok_rules {
     cok_rules_combat combat;
     cok_rules_fight fight;
     cok_rules_treasure treasure;
+    cok_rules_levels levels;
 } cok_rules;
 
 extern const cok_rules cok_rules_champions, cok_rules_death_knights;

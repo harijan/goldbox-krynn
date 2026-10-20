@@ -455,6 +455,119 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertIn("list: add a character: \nitem: SIR STRONGSWORD\n", result.stdout)
         self.assertEqual(result.stdout.count(" joins\n"), 6)
 
+    def hall_saves(self):
+        """SAVE's games with game A's hall variable 0x7ea8 at 127 (every
+        class: Train and Knight Change Order show), and FLAVIUS (cleric 6,
+        fighter 7, mage 6) with 100,000 experience."""
+        saves = self.saves(ASSETS / "SAVE")
+        game = bytearray((saves / "SAVGAMA.PTY").read_bytes())
+        game[1 + 0x400 + 0x2A8] = 127  # var 0x7ea8: the 0x7c00 block's bytes
+        (saves / "SAVGAMA.PTY").write_bytes(bytes(game))
+        flavius = bytearray((saves / "CHRDATA4.GAM").read_bytes())
+        struct.pack_into("<I", flavius, 0x62, 100000)
+        (saves / "CHRDATA4.GAM").write_bytes(bytes(flavius))
+        return saves
+
+    def test_training(self):
+        # Knight Change Order (49cb:4ea4): SIR DRYDEN, a knight 7 of the
+        # Crown, may become a knight of the Sword: Change. Train Character
+        # (49cb:43b6): FLAVIUS's cleric and mage rise to 7 (his fighter
+        # needs 125,001), Yes first, the mage learns the spell the list
+        # starts on, the last shown (Bestow Curse, 100: it starts with a
+        # heading);
+        # then Save Current Game C, and Train again: too little experience.
+        saves = self.hall_saves()
+        keys = (self.TITLE + r"\v\v\rDA" + r"\v\v\r\rC" + r"\^\r\v\v\v\r\r\r" +
+                r"\v" * 5 + r"\rC" + r"\^" * 5 + r"\r\v\v\v\r")
+        result = self.play("--start-menu", "--saves", saves, "--keys", keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = result.stdout
+        self.assertIn("item: Train Character\nitem: Knight Change Order\n", out)
+        self.assertIn("choice: Knight Change Order\nmenu: Select\nprint: SIR DRYDEN\n"
+                      "print: is petitioning to become a\nprint: knight of the sword\n"
+                      "print: SIR DRYDEN may become a\nprint: knight of the sword\n"
+                      "menu: Change Exit\n", out)
+        self.assertIn("print:  will become:\nprint:     a level 7 Cleric\n"
+                      "print: and a level 7 Mage\nmenu: do you wish to train? \nchoice: Y\n"
+                      "print: congratulations...\nlist: Spells to Choose\nheading: 1st Level\n"
+                      "item:   Friends\n", out)
+        self.assertIn("choice: 100\n", out)
+        self.assertTrue(out.endswith("print: not enough experienc\nlist: \n" + "".join(
+            f"item: {i}\n" for i in self.MENU) + "(out of keys in the start menu)\n"),
+            out[-500:])
+        dryden = (saves / "CHRDATC1.GAM").read_bytes()
+        self.assertEqual((dryden[0x22], dryden[0x4C]), (2, 7))  # the Sword, still 7
+        flavius = (saves / "CHRDATC4.GAM").read_bytes()
+        self.assertEqual(list(flavius[0x45:0x4D]), [7, 0, 7, 0, 0, 7, 0, 0])
+        self.assertEqual(flavius[0xC6], 0)  # may not train
+        wiz = (saves / "CHRDATC4.WIZ").read_bytes()
+        self.assertEqual(wiz[0x49 + 100], 1)  # Bestow Curse known
+
+    MENU = ["Create New Character", "Drop Character", "Modify Character", "Train Character",
+            "Knight Change Order", "View Character", "Add Character to Party",
+            "Remove Character from Party", "Save Current Game", "Begin Adventuring",
+            "Exit to DOS"]
+
+    def test_magic(self):
+        # Camp (block 16's rest): Magic's Memorize for FLAVIUS with a spell
+        # marked (Bless, 0x81): the list of those marked asks with Keep
+        # (4381:0f67's mode 5, "spells OK? "), Escape unmarks it, then the
+        # grimoire; Display (4381:15aa) names each member's effects; Fix
+        # is not ported yet (4381:2fd4) and stops.
+        saves = self.saves(ASSETS / "SAVE")
+        wiz = bytearray((saves / "CHRDATA4.WIZ").read_bytes())
+        wiz[wiz.index(0)] = 0x81
+        (saves / "CHRDATA4.WIZ").write_bytes(bytes(wiz))
+        keys = (self.TITLE + r"\v\v\r\rA" + r"\v" * 5 + r"\r\r\r\rM\v\v\vM\e\eD\e\eF")
+        result = self.play("--start-menu", "--saves", saves, "--keys", keys, ASSETS)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        out = result.stdout
+        self.assertIn("list: Spells to Memorize\nheading: 1st Level\nitem:  *Bless\n", out)
+        self.assertIn("list: Spells in Grimoire\nheading: 1st Level\nitem:   Bless\n", out)
+        self.assertIn("heading: LILLITH\nitem:  Protection From Evil, 10' Radius\n", out)
+        # Its blank rows are headings too (4381:13fb with 1).
+        self.assertIn("heading:  \nheading: SIR DRYDEN\nitem:  <No Spell Effects>\nheading:  \n",
+                      out)
+        self.assertEqual(result.stderr, "not yet ported: Death Knights of Krynn's Fix "
+                         "(dkk 4381:2fd4)\n")
+
+    def test_aging(self):
+        # SIR DRYDEN (race 6) at 115 and hasted (effect 0x27, 504d:0d88):
+        # the first round's event ages him a year and asks for the aging
+        # after the battle (DS:c463), on Auto to its end: past 110 he "is
+        # looking very old" (3e05:0264), before the continue question's
+        # answer leads to the results.
+        saves = self.saves(ASSETS / "SAVE")
+        dryden = bytearray((saves / "CHRDATA1.GAM").read_bytes())
+        struct.pack_into("<H", dryden, 0x26, 115)
+        (saves / "CHRDATA1.GAM").write_bytes(bytes(dryden))
+        result = self.play("--load", saves / "SAVGAMA.PTY", "--seed", 1, "--combat", "auto",
+                           "--effect", "1,27,0,0", "--keys", self.TO_FIGHT + r"\r" * 8, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertIn("print: ages", lines)
+        battle = lines.index("menu: continue battle? ")
+        old = lines.index("print: who is looking very old")
+        self.assertLess(battle, old)
+        self.assertEqual(lines.count("print: ages"), 1)
+
+    def test_memorize_table(self):
+        # The memorize table (4381:09c7) clears rows 18-21 and says no
+        # name, where Champions' says it on row 18 (4888:0b24): BALTHIR
+        # NOMOON's (party B) would show past the 12-letter labels.
+        saves = self.saves(ASSETS / "SAVE")
+        screen = self.folder / "table.bmp"
+        keys = self.TITLE + r"\v\v\r\rB" + r"\v" * 5 + r"\r\r\r\rM\v\v\vM"
+        result = self.play("--start-menu", "--saves", saves, "--screen", screen, "--keys", keys,
+                           ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("menu: Cast Memorize Scribe Display Rest Exit\nlist: Spells in Grimoire\n",
+                      result.stdout)
+        self.assertNotIn("print: BALTHIR NOMOON", result.stdout)
+        bmp = screen.read_bytes()
+        self.assertTrue(all(pixel(bmp, x, y) == (0, 0, 0)
+                            for y in range(18 * 8, 19 * 8) for x in range(13 * 8, 14 * 8)))
+
     def test_no_woof(self):
         # Death Knights has no debug mode: --woof is refused.
         result = self.play("--woof", "--start-menu", ASSETS)
@@ -483,13 +596,6 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stderr, "not yet ported: Death Knights of Krynn's Create New "
                          "Character (dkk 49cb:05c7)\n")
-        # Camp's Magic, Display (4381:15aa, not ported).
-        keys = self.TITLE + r"\v\v\r\rA" + r"\v" * 5 + r"\r\r\r\rMD\e\e"
-        result = self.play("--start-menu", "--saves", self.saves(ASSETS / "SAVE"), "--keys", keys,
-                           ASSETS)
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stderr, "not yet ported: Death Knights of Krynn's Display "
-                         "(dkk 4381:15aa)\n")
         result = self.play("--load", ASSETS / "SAVE/SAVGAMA.PTY", "--keys", r"\r\r" + "N" +
                            r"\r" * 11, ASSETS)
         self.assertEqual(result.returncode, 1)
