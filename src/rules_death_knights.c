@@ -812,7 +812,7 @@ static const cok_rules_cast death_knights_cast[0x73] = {
     [0x1f] = {0x28a1, COK_CAST_EMPTY_TEXT}, /* Knock */
     [0x20] = {0x28ce, COK_CAST_MIRROR_IMAGE}, /* Mirror Image */
     [0x21] = {0x2916, COK_CAST_WEAKENED}, /* Ray of Enfeeblement */
-    [0x22] = {0x2934, .unported = "dkk 5dc5:2934"}, /* Stinking Cloud */
+    [0x22] = {0x2934, COK_CAST_STINKING_CLOUD}, /* Stinking Cloud */
     [0x23] = {0x2bc9, COK_CAST_STRENGTH, .value = 1}, /* Strength */
     [0x24] = {0x2d1b, COK_CAST_NOTHING},
     [0x25] = {0x2d20, COK_CAST_CURE_BLINDNESS}, /* Cure Blindness */
@@ -874,7 +874,7 @@ static const cok_rules_cast death_knights_cast[0x73] = {
     /* Remove Curse */
     [0x59] = {0x311b, COK_CAST_REMOVE_CURSE, .value = 0x2b, .text = "is uncursed"},
     [0x5a] = {0x4943, COK_CAST_PROTECTED}, /* Iron Skin */
-    [0x5b] = {0x2934, .unported = "dkk 5dc5:2934"}, /* Cloud Kill */
+    [0x5b] = {0x2934, COK_CAST_STINKING_CLOUD, .value = 1}, /* Cloud Kill */
     [0x5c] = {0x4962, COK_CAST_CONE_OF_COLD}, /* Cone of Cold */
     [0x5d] = {0x4a04, COK_CAST_FEEBLEMIND, .value = 0x44}, /* Feeblemind: 0x44 run */
     [0x5e] = {0x271c, COK_CAST_HOLD}, /* Hold Monsters */
@@ -1787,8 +1787,12 @@ const cok_rules cok_rules_death_knights = {
                     .guarding = "guarding",            /* DS:2cc2 */
                     .gods_refused = NULL,              /* 3e05:08af */
                 },
-            .clouds_unported = "dkk 638c:21ec",
-            .cloud_square_unported = "dkk 638c:0c65",
+            .clouds = COK_CLOUDS_DEATH_KNIGHTS, /* 5dc5:2934, 638c:0c65, 21ec */
+            .cough = "starts to cough",              /* DS:1c06 */
+            .choke = "chokes and gags from nausea",  /* DS:1c1b */
+            .clears = "the air clears a little...",  /* DS:1d4e */
+            .noxious = NULL,
+            .poisoned = "is poisoned",               /* DS:1ccf */
             .cloud_tile = 0x1d, /* 6f03:0e33 */
             .pool_tile = 0x1c,
             .clouds_terrain = true,
@@ -2067,6 +2071,5 @@ const cok_rules cok_rules_death_knights = {
                                  "never set (dkk 5dc5:175d's [bp-0x76]), which changes its "
                                  "targets",
             .flame_type = "Flame type: ", /* DS:2fee, 5dc5:468f */
-            .dispel_clouds_unported = "dkk 5dc5:2dd7", /* 5dc5:2f93, 638c:21ec */
         },
 };

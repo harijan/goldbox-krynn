@@ -1,6 +1,7 @@
 #include "arena.h"
 
 #include "camp.h"
+#include "cloud.h"
 #include "items.h"
 #include "round.h"
 #include "screen.h"
@@ -130,20 +131,18 @@ static bool terrain(cok_adventure *game, int xu, int yc, int x, int y, const cha
     if (value >= cok_data_count(cok_game_rules(game)->data, COK_DATA_TERRAIN, 0))
         return fail(game, "terrain value 0x%02x is past the table (DS:1ee4, %s)", value, where);
     uint8_t tile = cok_combat_terrain(cok_game_rules(game), value).tile;
-    /* dkk 6f03:010d: a body's cell shows the cell under it (6f03:152e: the
-     * last body's there), then an icon over it, of the slot body_icon past
-     * the body's own tile (0x22). The game's clouds and pools, in the same
-     * set (0x1c-0x1e), are not carried out yet. */
+    /* dkk 6f03:010d: a cell of the set at CS:00ed (0x1c-0x1f: Cloud Kill's,
+     * Stinking Cloud's, 0x1e and a body's) shows the cell under it
+     * (6f03:152e: the terrain the last cloud covering it kept, or the last
+     * body's cell there), and under that again where it is one too, then
+     * an icon over it, of the slot body_icon past the cell's own tile
+     * (0x1b, 0x1a, 0x21, 0x22). */
     uint8_t over = 0xff;
     uint8_t body_icon = cok_game_rules(game)->casting.body_icon;
     if (body_icon != 0 && value >= 0x1c && value <= 0x1f) {
-        if (value != COK_COMBAT_BODY)
-            return fail(game, "not yet ported: %s's cloud cell %02x (dkk 6f03:010d)",
-                        cok_game_rules(game)->text.name, value);
         over = (uint8_t)(tile + body_icon);
-        uint8_t under = value;
-        for (unsigned k = 0; k < c->bodies && k < COK_COMBAT_BODIES; ++k)
-            if (c->body[k].x == x && c->body[k].y == y) under = c->body[k].cell;
+        int8_t cx = s8(x), cy = s8(y);
+        uint8_t under = cok_cloud_under(game, cx, cy, cok_cloud_under(game, cx, cy, value));
         if (under > 0x45 || under == 0) under = 0x15;
         if (under >= cok_data_count(cok_game_rules(game)->data, COK_DATA_TERRAIN, 0))
             return fail(game, "terrain value 0x%02x is past the table (dkk 6f03:010d)", under);
@@ -669,11 +668,9 @@ bool cok_arena_kill(cok_adventure *game, cok_character *c, int stale,
         if (x < 0 || x >= COK_COMBAT_WIDTH || y < 0 || y >= COK_COMBAT_HEIGHT)
             return fail(game, "a body off the map is written outside it (6beb:0e08)");
         uint8_t cell = cb->cells[y][x], under = cell;
-        if (F->kill_finds_body && under == COK_COMBAT_BODY) {
-            /* dkk 6f03:152e: under a body there, the last one's cell. */
-            for (unsigned k = 0; k < cb->bodies; ++k)
-                if (cb->body[k].x == x && cb->body[k].y == y) under = cb->body[k].cell;
-        }
+        /* dkk 6f03:152e: under a cloud there, the terrain it kept; under a
+         * body, the last one's cell. */
+        if (F->kill_finds_body) under = cok_cloud_under(game, x, y, cell);
         cok_combat_body *b = &cb->body[cb->bodies++];
         b->character = c;
         b->x = x;

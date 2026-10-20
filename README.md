@@ -160,14 +160,14 @@ paladin's Heal), and Items (or Use in combat) its items menu: Ready, Use,
 Trade, Drop, Halve, Join, and in shops Sell and Id. Shops work: buy
 (from the character's steel, then the pooled steel), sell, identify and
 have gems and jewelry appraised; and so does the temple, whose priests heal
-and cure for free (Raise Dead and Restoration too). Training halls train characters up to level 18
-(Train Character) and promote knights (Knight Change Order); in camp,
+and cure for free (Raise Dead and Restoration too). Training halls train
+characters up to level 18 (Train Character) and promote knights (Knight Change Order); in camp,
 Magic's Memorize, Scribe and Display work, with spell levels up to 8, and
 Cast casts, in camp and in combat, by you or the computer (Alt-M turns
 Magic On for the party on Auto), with saving throws and magic resistance
 as in the original; every spell is there (the monsters' Slay Living,
-Feeblemind and Otto's Irresistible Dance, Heal, Harm, Death Spell and the
-rest) but Stinking Cloud and Cloud Kill, which stop the game when cast.
+Feeblemind and Otto's Irresistible Dance, Heal, Harm, Death Spell, the
+clouds and the rest).
 Not there yet: creating and modifying characters, Initialize
 Mouse/Joystick, camp's Fix, and the mouse in Death
 Knights' menus: the game stops with a message saying what it reached.

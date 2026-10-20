@@ -268,7 +268,7 @@ static bool lay(cok_character *c, int8_t x, int8_t y)
     game.spell_x = x;
     game.spell_y = y;
     game.effects.rolls.spell = 0x22;
-    bool ok = cok_cloud_stinking(&game);
+    bool ok = cok_cloud_stinking(&game, false);
     game.effects.rolls.spell = 0;
     game.effects.rolls.images = 0;
     return ok && game.vm.status == COK_ECL_OK;
@@ -673,10 +673,10 @@ static void test_dispel(void)
     game.spell_y = 10;
     SEED(1, 100, 56, 56);
     uint32_t start = game.vm.seed;
-    CHECK(cok_cloud_dispel(&game, 5) && game.combat.clouds->resisted == 1);
+    CHECK(cok_cloud_dispel(&game, 5, -1) && game.combat.clouds->resisted == 1);
     cok_tp_random(&start, 100);
     CHECK(game.vm.seed == start && CELL(10, 10) == 0x1e);
-    CHECK(cok_cloud_dispel(&game, 20) && game.vm.seed == start);
+    CHECK(cok_cloud_dispel(&game, 20, -1) && game.vm.seed == start);
     /* A fresh cloud: level 3 against 4 is 48; 48 takes it away (the text,
      * the cells), then the freed cloud's next is read: a stop. */
     CHECK(cok_effects_remove(&game.effects, m, NULL, 0x28) && game.combat.clouds == NULL);
@@ -684,7 +684,7 @@ static void test_dispel(void)
     game.vm.character = c->record;
     s.log[0] = '\0';
     SEED(1, 100, 48, 48);
-    CHECK(!cok_cloud_dispel(&game, 3) && strstr(game.error, "5b04:354a") != NULL);
+    CHECK(!cok_cloud_dispel(&game, 3, -1) && strstr(game.error, "5b04:354a") != NULL);
     CHECK(LOGGED("The air clears a little") && CELL(10, 10) == COK_COMBAT_FLOOR);
     /* The cloud's level adds the former magic-user level when the
      * dispeller (not the caster) may use its former class: C may (a human
@@ -701,44 +701,11 @@ static void test_dispel(void)
     CHECK(lay(m, 10, 10));
     game.vm.character = c->record;
     SEED(1, 100, 60, 60);
-    CHECK(cok_cloud_dispel(&game, 7) && game.combat.clouds->resisted == 1);
+    CHECK(cok_cloud_dispel(&game, 7, -1) && game.combat.clouds->resisted == 1);
     /* Outside combat no map: nothing. */
     game.combat.active = false;
     start = game.vm.seed;
-    CHECK(cok_cloud_dispel(&game, 1) && game.vm.seed == start);
-}
-
-/* Death Knights' Dispel Magic (dkk 5dc5:2f93): the cells about the
- * spell's cell by the steps, a cloud's (0x1d) or a pool's (0x1c) tile
- * centring the screen, whose cloud cells are not drawn yet (6f03:010d);
- * with a cloud of a cast in the battle, its clouds, not ported yet, stop
- * the run (5dc5:2dd7). Champions' cloud tile is nothing there. */
-static void test_dispel_other_game(void)
-{
-    reset();
-    cok_character *c = record('C', 0, 30, 20);
-    game.vm.character = c->record;
-    game.rules = &cok_rules_death_knights;
-    game.spell_x = 10;
-    game.spell_y = 10;
-    CELL(11, 11) = 0x1e;
-    uint32_t start = game.vm.seed;
-    CHECK(cok_cloud_dispel(&game, 5) && game.vm.status == COK_ECL_OK && game.vm.seed == start);
-    CELL(9, 11) = 0x1c;
-    CHECK(!cok_cloud_dispel(&game, 5) && strstr(game.error, "dkk 6f03:010d") != NULL);
-    cok_combat_cloud *p = calloc(1, sizeof *p);
-    CHECK(p != NULL);
-    game.combat.pools = p;
-    CELL(9, 11) = 0x1d;
-    game.vm.status = COK_ECL_OK;
-    CHECK(!cok_cloud_dispel(&game, 5) && game.vm.status == COK_ECL_UNPORTED &&
-          strstr(game.error, "dkk 5dc5:2dd7") != NULL);
-    CELL(9, 11) = COK_COMBAT_FLOOR;
-    game.vm.status = COK_ECL_OK;
-    CHECK(cok_cloud_dispel(&game, 5) && game.vm.status == COK_ECL_OK);
-    game.combat.pools = NULL;
-    free(p);
-    game.rules = &cok_rules_champions;
+    CHECK(cok_cloud_dispel(&game, 1, -1) && game.vm.seed == start);
 }
 
 /* More of the ends: a body taken back lies nowhere, though its entry's
@@ -801,7 +768,7 @@ static void test_dispel_more(void)
     game.vm.character = c->record;
     game.spell_x = game.spell_y = 10;
     SEED(1, 100, 55, 55);
-    CHECK(!cok_cloud_dispel(&game, 5) && strstr(game.error, "5b04:354a") != NULL);
+    CHECK(!cok_cloud_dispel(&game, 5, -1) && strstr(game.error, "5b04:354a") != NULL);
     reset();
     c = record('C', 0, 30, 20);
     m = record('M', 1, 31, 20);
@@ -812,7 +779,7 @@ static void test_dispel_more(void)
     game.combat.view_x = game.combat.view_y = 5;
     SEED(1, 100, 100, 100);
     uint32_t start = game.vm.seed;
-    CHECK(cok_cloud_dispel(&game, 1) && game.combat.clouds->resisted == 1);
+    CHECK(cok_cloud_dispel(&game, 1, -1) && game.combat.clouds->resisted == 1);
     CHECK(game.vm.seed != start && game.combat.view_x == 5 && game.combat.view_y == 5);
     reset();
     c = record('C', 0, 30, 20);
@@ -822,7 +789,7 @@ static void test_dispel_more(void)
     CELL(10, 10) = 0x1d;
     game.vm.character = c->record;
     start = game.vm.seed;
-    CHECK(cok_cloud_dispel(&game, 1) && game.vm.seed == start && !game.combat.clouds->resisted);
+    CHECK(cok_cloud_dispel(&game, 1, -1) && game.vm.seed == start && !game.combat.clouds->resisted);
 }
 
 static bool breathe(cok_character *c);
@@ -909,7 +876,7 @@ static void test_dispel_orphan(void)
     game.spell_x = game.spell_y = 10;
     SEED(1, 100, 1, 1);
     uint32_t start = game.vm.seed;
-    CHECK(cok_cloud_dispel(&game, 9) && game.vm.seed != start);
+    CHECK(cok_cloud_dispel(&game, 9, -1) && game.vm.seed != start);
     CHECK(game.combat.clouds != NULL && game.combat.clouds->resisted == 0);
     CHECK(CELL(10, 10) == 0x1e);
 }
@@ -1553,7 +1520,6 @@ int main(void)
     test_acid();
     test_acid_body();
     test_dispel();
-    test_dispel_other_game();
     test_ends_more();
     test_dispel_more();
     test_under_last();

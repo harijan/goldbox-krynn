@@ -44,9 +44,16 @@ Slay Living, Harm and Silence, high wizards Feeblemind and Otto's
 Irresistible Dance; its seed 12 casts each), and the band flow, the cast
 flow's Auto with Magic On from a copy of saved game A whose casters
 memorize Harm, Heal, Death Spell, Disintegrate, Cone of Cold, Power Word
-Blind and Stun and Flesh to Stone. Seeded (Box seed,
+Blind and Stun and Flesh to Stone. And the clouds flow: a copy of saved game A whose casters
+memorize Cloud Kill (CELESTE), Stinking Cloud (FLAVIUS) and Dispel Magic
+(NEACAIL), TANAR made of level 4: two Cloud Kills and a Stinking Cloud
+cast by keys over the first two rounds (TANAR killed in the first), a
+Dispel Magic over the Stinking Cloud, then Auto with Magic Off, round by round to the
+9th with the battlefield's cells and bodies (5dc5:2934, 638c:0c65, 21ec,
+5dc5:2e5c).
+Seeded (Box seed,
 eclplay --seed): the same dice. Not part of run_all.py's set. About
-thirty minutes, and the spells flow fifteen more.
+thirty minutes, and the spells and clouds flows fifteen more each.
 
     python3 tools/dosbox/checks/dkk_fight.py [--workdir DIR] [--seed N]
 
@@ -104,9 +111,9 @@ def main():
     parser.add_argument("--workdir", default=str(K.ROOT / "build/dosbox-checks/dkk_fight"))
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--flows", default="fight,river,ambush,auto,keys,keys2,cast,items,drain,"
-                                           "mage,dragon,spells,priests,band",
+                                           "mage,dragon,spells,priests,band,clouds",
                         help="which flows: fight, river, ambush, auto, keys, keys2, cast, items, "
-                             "drain, mage, dragon, spells, priests, band (comma-separated)")
+                             "drain, mage, dragon, spells, priests, band, clouds (comma-separated)")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     work = pathlib.Path(opts.workdir)
@@ -138,6 +145,9 @@ def main():
              magic=False)
     if "band" in flows:
         auto(v, work, opts, cast=True, tag="band", spells=BAND)
+    if "clouds" in flows:
+        auto(v, work, opts, cast=True, tag="clouds", spells=CLOUDS, first=CLOUDS_FIRST,
+             magic=False, levels=CLOUDS_LEVELS, cells=True, until=CLOUDS_UNTIL)
     return v.finish()
 
 
@@ -330,9 +340,36 @@ def round_over(box):
     return left is None or box.ds_byte(K.DS_SIDES) == 0 or box.ds_byte(K.DS_SIDES + 1) == 0
 
 
-def compare_round(v, box, tag, shot, state, work):
+def bodies(box):
+    """The original's bodies (DS:bd79, from DS:bd3a + 7: x, y, the cell
+    under), as the port's state lists them."""
+    return [tuple(box.ds_read(K.DS_BODY + 7 * k + 4, 3)) for k in range(1, box.ds_byte(K.DS_BODIES)
+                                                                         + 1)]
+
+
+def clouds(box):
+    """The original's clouds (DS:c443, 5dc5:2934's 31-byte nodes along +4):
+    x, y, rounds, level, tile and each cell's covered flag and kept terrain,
+    for the log."""
+    out, node = [], box.far(box.ds * 16 + 0xC443)
+    while node is not None and len(out) < 40:
+        raw = box.read(node, 0x1F)
+        out.append((raw[0x1A], raw[0x1B], raw[0x1C], raw[0x1D], raw[0x1E],
+                    raw[0x11:0x1A].hex(), raw[0x08:0x11].hex()))
+        node = box.far(node + 4)
+    return out
+
+
+def compare_round(v, box, tag, shot, state, work, cells=False):
     """The original, trapped at a round's end, against the port's state and
-    screen at its mark there."""
+    screen at its mark there; with CELLS, the battlefield's cells and the
+    bodies too (the clouds flow)."""
+    if cells:
+        print(f"the original's clouds ({tag}): {clouds(box)}", flush=True)
+        v.value(f"the battlefield's cells ({tag})", [r.hex() for r in K.cells(box)],
+                [r.hex() for r in state["cells"]])
+        v.value(f"the bodies: x, y, the cell under ({tag})", bodies(box),
+                [(x & 0xFF, y & 0xFF, cell) for _, x, y, cell in state["bodies"]])
     o, p = K.combatants(box), K.port_combatants(state)
     v.value(f"the combatants ({tag}: n, name, cell, size, hp, status, side, computer, effects)",
             [f[:10] for f in K.fighters(o)], [f[:10] for f in K.fighters(p)])
@@ -385,9 +422,37 @@ BAND = {"CHRDATA3": [0x28, 0x35, 0x28], "CHRDATA4": [0x38, 0x3C, 0x5C, 0x72],
         "CHRDATA5": [0x35, 0x28], "CHRDATA6": [0x3C, 0x48, 0x6E]}
 
 
-def casters(work, spells=None, tag="cast"):
+# The clouds flow's (dkk 5dc5:2934, 638c:0c65, 21ec, Dispel Magic's
+# 5dc5:2e5c): CELESTE memorizes Cloud Kill twice, FLAVIUS Stinking Cloud
+# twice, NEACAIL Dispel Magic and Bless, and TANAR is made of level 4
+# (cleric and ranger levels +0x45, +0x49 and the highest, +0x30), whom
+# Cloud Kill kills (levels 0-4). Its keys from the first turn, round 1:
+# NEACAIL guards; CELESTE begins Cloud Kill (C, Down, Enter); SIR DRYDEN
+# guards; the Cloud Kill goes off on the first target (T), by the party:
+# TANAR "is poisoned", "is killed", his body under it; the Solamnic knight
+# and LILLITH guard; FLAVIUS casts Stinking Cloud on the first target (T),
+# his own cell: FLAVIUS and LILLITH cough or choke. Round 2: CELESTE's
+# second Cloud Kill (C, Down, Enter, T) over the first; NEACAIL begins
+# Dispel Magic (C, Down twice, Enter), which goes off two cells west of
+# her (Manual, 4 twice, T): the Stinking Cloud's cells in its walk, not
+# the Cloud Kills', her level 7 against FLAVIUS's 7, and it goes ("the
+# air clears a little..."). Then Alt-Q, Magic Off: who steps into a cloud,
+# the Cloud Kills aged at each round's end and gone at rounds 7's and 8's,
+# the cells and bodies compared round by round to round 9's end
+# (CLOUDS_UNTIL). The fight goes on to round 16, the party destroyed:
+# after "the monsters rejoice" and a key the original goes on (its menu
+# Move Encamp), where the port returns to the start menu (not the
+# clouds').
+CLOUDS = {"CHRDATA4": [0x22, 0x22], "CHRDATA5": [0x29, 0x01], "CHRDATA6": [0x5B, 0x5B]}
+CLOUDS_LEVELS = {"CHRDATA3": {0x45: 4, 0x49: 4, 0x30: 4}}
+CLOUDS_UNTIL = 9
+CLOUDS_FIRST = (r"GC\#50\rGTGGC\#50\rT"  # round 1
+                r"C\#50\rTC\#50\#50\rM44T")  # round 2
+
+
+def casters(work, spells=None, tag="cast", levels=None):
     """A copy of DKKAssets/SAVE with SPELLS' (by default CASTERS') spells
-    memorized."""
+    memorized, and LEVELS' bytes (name: {offset: byte}) in the records."""
     saves = work / f"saves-{tag}"
     if saves.exists():
         shutil.rmtree(saves)
@@ -396,6 +461,11 @@ def casters(work, spells=None, tag="cast"):
         wiz = bytearray((saves / f"{name}.WIZ").read_bytes())
         wiz[:0x4A] = bytes(spells) + bytes(0x4A - len(spells))
         (saves / f"{name}.WIZ").write_bytes(bytes(wiz))
+    for name, bytes_ in (levels or {}).items():
+        gam = bytearray((saves / f"{name}.GAM").read_bytes())
+        for at, byte in bytes_.items():
+            gam[at] = byte
+        (saves / f"{name}.GAM").write_bytes(bytes(gam))
     return saves
 
 
@@ -442,7 +512,8 @@ def swap_poke(swaps):
     return poke
 
 
-def auto(v, work, opts, cast=False, tag=None, spells=None, first="", magic=True, swap=None):
+def auto(v, work, opts, cast=False, tag=None, spells=None, first="", magic=True, swap=None,
+         levels=None, cells=False, until=None):
     """The first fight with the party put on Auto (Alt-Q at the first
     turn, the player's menu, dkk 3e05:08af), to its end: the original is
     stopped at each round's end (3e05:0ed0 made to spin) and read, against
@@ -455,10 +526,13 @@ def auto(v, work, opts, cast=False, tag=None, spells=None, first="", magic=True,
     (dkk_lib.push_after_flush), which the first computer's turn reads
     (3f63:117c). FIRST: keys typed from the first turn before Alt-Q, each
     once the original waits and stands still (menu_keys); without MAGIC, no
-    Alt-M. With SWAP, the monsters flow's (SWAPS) poked in both."""
+    Alt-M. With SWAP, the monsters flow's (SWAPS) poked in both. LEVELS:
+    bytes of the records changed in the casters' copy (casters); CELLS: the
+    battlefield's cells and bodies compared too; UNTIL: the rounds compared
+    end with that one, and the fight's end is not."""
     tag = tag or ("cast" if cast else swap if swap is not None else "auto")
     poke = swap_poke(SWAPS[swap]) if swap is not None else None
-    saves = (casters(work, spells, tag) if cast else unturning(work) if swap is not None
+    saves = (casters(work, spells, tag, levels) if cast else unturning(work) if swap is not None
              else K.ASSETS / "SAVE")
     log, _, _, _ = K.port(work, f"{tag}-lead", TO_COMBAT, opts.seed, saves=saves,
                           args=["--combat", "auto"], poke=poke)
@@ -505,6 +579,11 @@ def auto(v, work, opts, cast=False, tag=None, spells=None, first="", magic=True,
                                 mine["records"])
                 v.value(f"RandSeed after the first keys ({tag})", box.ds_dword(K.DS_RANDSEED),
                         mine["seed"])
+                if cells:
+                    print(f"the original's clouds after the first keys ({tag}): {clouds(box)}",
+                          flush=True)
+                    v.value(f"the battlefield's cells after the first keys ({tag})",
+                            [r.hex() for r in K.cells(box)], [r.hex() for r in mine["cells"]])
         if cast and magic:
             # Alt-Q, then Alt-M once the turn's menu (6a69:0f1b) has
             # flushed the keyboard after Alt-Q (6a69:1409): pushed together,
@@ -541,8 +620,10 @@ def auto(v, work, opts, cast=False, tag=None, spells=None, first="", magic=True,
                 v.value(f"Magic On (DS:c4be) at round 1's end ({tag})", box.ds_byte(0xC4BE), 1)
             stopped = box.ds_byte(K.DS_ROUND)
             name = f"{tag} round {n}" if tag != "auto" else f"round {n}"
-            compare_round(v, box, name, *rounds[n - 1], work)
+            compare_round(v, box, name, *rounds[n - 1], work, cells=cells)
             K.untrap(box, handle)
+            if until is not None and n >= until:
+                return
             if last:
                 break
             # Past this round's end before the next trap: trapped again at

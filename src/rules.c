@@ -1696,6 +1696,12 @@ const cok_rules cok_rules_champions = {
                     .guarding = "Guarding",           /* 6346:29aa */
                     .gods_refused = "That doesn't work", /* 3995:0561 */
                 },
+            .clouds = COK_CLOUDS_CHAMPIONS,
+            .cough = "starts to cough",               /* 60f4:0d97 */
+            .choke = "chokes and gags from nausea",   /* 60f4:0da7 */
+            .clears = "The air clears a little...",   /* 3f44:0fdc */
+            .noxious = "Creates a noxious cloud",     /* 5b04:29c6 */
+            .poisoned = NULL,
             .cloud_tile = 0x1e, /* 6beb:0c9d */
             .pool_tile = 0x1d,
             .clouds_terrain = false,
@@ -1899,7 +1905,6 @@ const cok_rules cok_rules_champions = {
             .cone_stack_unknown = false,
             .cone_side_unknown = NULL, /* cast.c's own, 5b04:1b2a */
             .flame_type = NULL,
-            .dispel_clouds_unported = NULL,
         },
 };
 
