@@ -455,9 +455,8 @@ bool cok_train_promote(cok_adventure *game, cok_character *character)
                                "hit points divided by a knight level of 0 (4def:567f)");
             return false;
         }
-        uint8_t share = by_level
-                            ? (uint8_t)(cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS) / (level + 1))
-                            : 2;
+        uint8_t share = 2;
+        if (by_level) share = (uint8_t)(cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS) / (level + 1));
         cok_field_set8(L, c, COK_FIELD_BASE_HIT_POINTS,
                        (uint8_t)(cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS) - share));
         int8_t bonus = 0;
