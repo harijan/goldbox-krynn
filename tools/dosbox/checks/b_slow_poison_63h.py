@@ -9,7 +9,7 @@ As slow_poison.py, but with 0x16's full 3780 minutes: the port writes game
 C (SAVE/'s A, SIR STRONGSWORD given poison 0x37, 0x16 for 3780 minutes and
 0x0f for 10, in that order, as Slow Poison leaves them, in the outpost
 inn's camp). The original loads C, camps at the inn, and rests 64 hours
-(two days and sixteen hours) with turbo; 0x0f ends and puts itself back
+(two days and sixteen hours); 0x0f ends and puts itself back
 every ten minutes (a point of damage while above a hit point) and 0x16
 ends at the 3780th minute. Recorded: the screens through the rest, the
 party's records and effects in memory, Turbo Pascal's heap, the interrupt
@@ -63,7 +63,10 @@ def main():
             "the port stops where 0x0f is read after it was freed, after \"dies from poison\" "
             "(it is not compared beyond)")
 
-    with L.box(work, [saves], verbose=args.verbose, turbo=True, timeout=1800) as box:
+    # Not turbo: the rest's screenshots then come too seldom to see the
+    # death at hour 15 (the first at 16). Its turbo used to end at the
+    # rest menu's screenshot (DOSBox-X's "stop turbo on key", now off).
+    with L.box(work, [saves], verbose=args.verbose, timeout=1800) as box:
         box.keys(L.load_keys("C") + L.INN)
         box.wait_input(settle=0.3)
         addr, _ = L.member(box, "SIR STRONGSWORD")

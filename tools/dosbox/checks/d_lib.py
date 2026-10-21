@@ -814,22 +814,44 @@ def font():
     return _FONT
 
 
+def _glyphs():
+    """The font's glyphs by their eight rows' bytes: the first glyph of each."""
+    global _GLYPHS
+    if _GLYPHS is None:
+        f = font()
+        _GLYPHS = {}
+        for g in range(64):
+            _GLYPHS.setdefault(bytes(f[g * 8:g * 8 + 8]), g)
+    return _GLYPHS
+
+
+_GLYPHS = None
+
+
 def read_cell(shown, col, row):
     """The character drawn in text cell COL, ROW of a 320x200 Screen, and its
-    colours (fg, bg): ('?', None) when no glyph fits."""
+    colours (fg, bg): ('?', None) when no glyph fits. A glyph fits when its
+    set bits are exactly the pixels of one colour and the rest the other's:
+    with two colours, the cell's pattern of either is looked up (the first
+    glyph in the font's order, as one by one)."""
     pix = [shown.at(col * 8 + i, row * 8 + j) for j in range(8) for i in range(8)]
-    f = font()
-    for g in range(64):
-        on, off = set(), set()
-        for j in range(8):
-            bits = f[g * 8 + j]
-            for i in range(8):
-                (on if bits >> (7 - i) & 1 else off).add(pix[j * 8 + i])
-        if on and off and len(on) == 1 and len(off) == 1 and on != off:
-            return chr(g + 64 if g < 32 else g), (on.pop(), off.pop())
-    if len(set(pix)) == 1:
+    colours = set(pix)
+    if len(colours) == 1:
         return " ", (None, pix[0])
-    return "?", None
+    if len(colours) != 2:
+        return "?", None
+    found = []
+    for fg in colours:
+        rows = bytes(sum(1 << (7 - i) for i in range(8) if pix[j * 8 + i] == fg)
+                     for j in range(8))
+        g = _glyphs().get(rows)
+        if g is not None:
+            found.append((g, fg))
+    if not found:
+        return "?", None
+    g, fg = min(found)
+    bg = (colours - {fg}).pop()
+    return chr(g + 64 if g < 32 else g), (fg, bg)
 
 
 def read_text(shown, row, col0=0, col1=40):

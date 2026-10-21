@@ -4,6 +4,7 @@ per script: DEVELOPERS.md's checks it covers, its verdict, and whether that is
 the verdict recorded (DEVELOPERS.md, "Checks against the original").
 
     python3 tools/dosbox/checks/run_all.py [--jobs N] [--only NAME ...] [--out DIR]
+    python3 tools/dosbox/checks/run_all.py --report [--out DIR]
 
 Each script runs with --workdir OUT/NAME (default OUT build/dosbox-checks),
 its output in OUT/NAME.log, and ends with a line `VERDICT: AGREES` or
@@ -16,9 +17,17 @@ recorded runs once more, alone, at the end (unless --no-again): the
 verdict alone is the one that counts, its first shown beside it.
 Needs `make build/eclplay build/cok build/START_FULL.EXE` (make dosbox-checks
 does it; `make dosbox-checks ARGS="--only b_amount"` passes options). Exit 0
-when every script gave its recorded verdict."""
+when every script gave its recorded verdict.
+
+Telemetry, for speeding the checks up: each script's trace in
+OUT/NAME.trace.jsonl (tools/dosbox/telemetry.py: its boxes, waits,
+screenshots, port runs and builds, and the lines its time went to), the
+machine's load every two seconds in OUT/load.jsonl, when each script ran
+in OUT/schedule.json; read together into OUT/telemetry.txt at the end
+(--report writes it again from them)."""
 
 import argparse
+import json
 import os
 import pathlib
 import re
@@ -28,6 +37,8 @@ import subprocess
 import sys
 import threading
 import time
+
+import telemetry_report
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
@@ -129,9 +140,11 @@ CHECKS = [
     # The long ones first, so that they do not end the run alone.
 ]
 
-# Minutes each took in a full run (the rest a few each), for the order.
-LONG = {"a_demo": 6, "c_wander": 6, "f_frames": 5, "f_display_modes": 5, "f_sound": 4,
-        "a_ctrl_s": 3, "d_bozak": 3, "e_bolt_bounce": 2, "f_mouse": 2, "e_manual": 2}
+# Minutes each took in a full run (the rest one or less; OUT/telemetry.txt
+# has them all), for the order.
+LONG = {"a_demo": 5, "f_frames": 4, "f_display_modes": 4, "f_sound": 3, "c_wander": 3,
+        "e_bolt_bounce": 2, "e_manual": 2, "f_mouse": 2, "d_bozak": 2, "d_fear": 2,
+        "a_debug_battle": 2, "e_trade": 2, "d_cast": 2, "a_debug": 1, "c_catacombs": 1}
 VERDICT = re.compile(r"^VERDICT: (AGREES|DIFFERS new.*|ERROR.*)$", re.M)
 
 
@@ -300,7 +313,9 @@ def run_one(name, out, timeout):
     """Run one script: (verdict text, status) with verdict None on an error."""
     pidfile = out / f"{name}.pids"
     pidfile.unlink(missing_ok=True)
-    env = dict(os.environ, COKBOX_PIDFILE=str(pidfile))
+    trace = out / f"{name}.trace.jsonl"
+    trace.unlink(missing_ok=True)
+    env = dict(os.environ, COKBOX_PIDFILE=str(pidfile), COKBOX_TRACE=str(trace))
     with open(out / f"{name}.log", "wb") as log:
         with RUNNING_LOCK:
             if STOPPING.is_set():
@@ -361,9 +376,14 @@ def main():
                         help="keep each script's first verdict (no run again alone)")
     parser.add_argument("--self-test", action="store_true",
                         help="check the verdict and status parsing only (no DOSBox-X)")
+    parser.add_argument("--report", action="store_true",
+                        help="write OUT/telemetry.txt again from the last run's files")
     opts = parser.parse_args()
     if opts.self_test:
         return self_test()
+    if opts.report:
+        print(telemetry_report.write(pathlib.Path(opts.out).resolve(), [c[0] for c in CHECKS]))
+        return 0
     n = displays()
     jobs = opts.jobs or (max(1, n - 2) if n else default_jobs())
     todo = [c for c in CHECKS if not opts.only or c[0] in opts.only]
@@ -380,8 +400,15 @@ def main():
     # After importing checklib: cokbox sets its own SIGTERM handler.
     for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         signal.signal(signum, stop)
-    return run_checks(todo, jobs, out, lambda name, out: run_one(name, out, opts.timeout),
-                      again=not opts.no_again)
+    sampler = telemetry_report.LoadSampler(out / "load.jsonl", lambda: sorted(RUNNING))
+    sampler.start()
+    try:
+        code = run_checks(todo, jobs, out, lambda name, out: run_one(name, out, opts.timeout),
+                          again=not opts.no_again)
+    finally:
+        sampler.stop()
+    print("\n" + telemetry_report.write(out, [c[0] for c in todo], jobs))
+    return code
 
 
 def run_checks(todo, jobs, out, run, again=True):
@@ -390,6 +417,8 @@ def run_checks(todo, jobs, out, run, again=True):
     not as recorded once more, alone; print the table. Returns the exit
     status: 1 if any is not as recorded at the end."""
     results, lock = {}, threading.Lock()
+    schedule = []   # (name, start, took, alone) for the telemetry's report
+    first = {}      # the first (verdict, code, took) of those run again alone
     # The long ones first, so that they do not end the run alone.
     queue = sorted(todo, key=lambda c: -LONG.get(c[0], 0))
     t0 = time.monotonic()
@@ -408,6 +437,8 @@ def run_checks(todo, jobs, out, run, again=True):
             took = time.monotonic() - start
             with lock:
                 results[name] = (verdict, code, took)
+                schedule.append({"name": name, "start": round(start - t0, 1),
+                                 "took": round(took, 1), "alone": bool(first)})
                 print(line(name, checks, want, verdict, code, took), flush=True)
 
     print(f"{len(todo)} scripts, {jobs} at a time; logs in {out}; "
@@ -430,7 +461,6 @@ def run_checks(todo, jobs, out, run, again=True):
     # again. The verdict alone counts; the line and the summary show the
     # first too, so that a script that keeps needing it stands out. A
     # script that timed out gets the whole timeout again.
-    first = {}
     again = [] if not again or STOPPING.is_set() else [
         c for c in todo if c[0] in results and not as_recorded(c[2], results[c[0]])]
     if again:
@@ -438,6 +468,7 @@ def run_checks(todo, jobs, out, run, again=True):
         for name, _, _ in again:
             first[name] = results.pop(name)
             for old, new in ((out / f"{name}.log", out / f"{name}.first.log"),
+                             (out / f"{name}.trace.jsonl", out / f"{name}.first.trace.jsonl"),
                              (out / name, out / f"{name}.first")):
                 if new.is_dir():
                     shutil.rmtree(new)
@@ -445,6 +476,8 @@ def run_checks(todo, jobs, out, run, again=True):
                     os.replace(old, new)
         queue.extend(again)
         work(1)
+    (out / "schedule.json").write_text(json.dumps(
+        {"jobs": jobs, "wall": round(time.monotonic() - t0, 1), "runs": schedule}, indent=1))
     print(f"\nall done in {(time.monotonic() - t0) / 60:.0f} min (load average "
           f"{os.getloadavg()[0]:.0f}); in the table's order:")
     changed = 0

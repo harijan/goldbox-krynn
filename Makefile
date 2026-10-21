@@ -192,7 +192,8 @@ $(SRC_SANITIZE:%=build/%_sanitize): build/%_sanitize: $$(call asan,$$($$*_SRC)) 
 # (COK_TEST_SHARD_LIST) that together they ran each of its tests once.
 # tests/test_cok.py plays in real time: it runs last, alone, once the
 # others are done (make -j would otherwise run it beside them, and a loaded
-# machine makes the game late).
+# machine makes the game late), its own tests side by side, each in a
+# process of its own (COK_TEST_JOBS of them at once, 1 for one at a time).
 TEST_PROGRAMS = test_dax test_rules test_death_knights test_layout test_data test_magic_rules test_image test_picture test_text test_display test_ecl test_menu test_view test_party test_effect test_adventure test_camp test_cast test_items test_monster test_combat test_round test_arena test_attack test_fight test_band test_ai test_command test_spell test_cloud test_treasure test_shop test_start test_hooks test_debug test_sound test_config test_setup test_input
 SHARDS = 1 2 3 4
 ECLPLAY_RUNS = $(SHARDS:%=run-test_eclplay-%)

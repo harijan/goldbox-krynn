@@ -472,10 +472,15 @@ class Compare:
     def cok_frames(self, step, pause=300):
         """Every frame cok presents for the keys up to STEP and PAUSE
         hundredths of a second more at the wait after it (a picture
-        animating there)."""
-        prefix = self.keys[:self.keys.index(rf"\s{step}.")]
-        return cok_frames(self.work / f"cok-{step}", checklib.port_keys(prefix) + rf"\p{pause}.",
-                          saves=self.saves, seed=self.seed, helm=self.helm, machine=self.machine)
+        animating there). Played once for each (STEP, PAUSE): cok plays in
+        real time, and judge_watch wants them twice (drawn_frames too)."""
+        cache = self.__dict__.setdefault("_cok_frames", {})
+        if (step, pause) not in cache:
+            prefix = self.keys[:self.keys.index(rf"\s{step}.")]
+            cache[(step, pause)] = cok_frames(
+                self.work / f"cok-{step}", checklib.port_keys(prefix) + rf"\p{pause}.",
+                saves=self.saves, seed=self.seed, helm=self.helm, machine=self.machine)
+        return cache[(step, pause)]
 
     def drawn_frames(self, step, pause=300):
         """The port's screens from the title to the key read after STEP as

@@ -48,6 +48,8 @@ COK = pathlib.Path(os.environ.get("COKBOX_COK") or ROOT / "build/cok")
 PORT_SRC = pathlib.Path(os.environ.get("COKBOX_SRC") or ROOT / "src")
 sys.path.insert(0, str(HERE.parent))
 import ovrmerge  # noqa: E402  (tools/ovrmerge.py: EXEPACK unpacking)
+import telemetry  # noqa: E402  (COKBOX_TRACE: where a check's time goes)
+from telemetry import span  # noqa: E402
 
 # HOOK.COM, assembled from hook.asm with `nasm -f bin`.
 HOOK_COM = bytes.fromhex(
@@ -532,8 +534,11 @@ class Box:
                        "quit warning": "false", "fastbioslogo": "true",
                        "startbanner": "false"},
             "render": {"frameskip": "0"},
+            # DOSBox-X ends turbo at a key by default, and the F12 hotkeys
+            # (screenshot(), write_paused(), record_sound()) are keys: turbo
+            # then lasted until a check's first screenshot.
             "cpu": {"core": "normal", "cputype": "auto", "cycles": self.cycles,
-                    "turbo": "true" if self.turbo else "false"},
+                    "turbo": "true" if self.turbo else "false", "stop turbo on key": "false"},
             "mixer": {"nosound": "false" if self.wav else "true"},
             "dos": {"ems": "false", "xms": "false", "umb": "false"},
         }
@@ -596,9 +601,12 @@ class Box:
         return self
 
     def _start_once(self):
-        self.prepare()
+        with span("boot", "prepare"):
+            self.prepare()
+        self._born = time.monotonic()
         self._deadline = time.monotonic() + self.timeout
-        self.display_name = self._start_xvfb()
+        with span("boot", "Xvfb"):
+            self.display_name = self._start_xvfb()
         env = dict(os.environ, DISPLAY=self.display_name, SDL_AUDIODRIVER="dummy")
         env.pop("WAYLAND_DISPLAY", None)
         self._log_file = open(self.workdir / "dosbox.log", "wb")
@@ -610,10 +618,12 @@ class Box:
             stderr=subprocess.STDOUT, start_new_session=True)
         _RUNNING.append(self)
         _record_pids(self.dosbox)
-        self.window = self._until(self._find_window, 90, "DOSBox-X's window")
-        self._xdo("windowfocus", "--sync", self.window)
-        self.base = self._until(self._find_ram, 90, "the guest's memory")
-        self.hook_addr = self._until(self._find_hook, 90, "HOOK.COM")
+        telemetry.box_started(self.dosbox.pid)
+        with span("boot", "DOSBox-X to HOOK.COM"):
+            self.window = self._until(self._find_window, 90, "DOSBox-X's window")
+            self._xdo("windowfocus", "--sync", self.window)
+            self.base = self._until(self._find_ram, 90, "the guest's memory")
+            self.hook_addr = self._until(self._find_hook, 90, "HOOK.COM")
         self.log(f"display {self.display_name}, ram at {self.base:#x}, hook at {self.hook_addr:#x}")
         if self.want_psp is not None:
             self.ds  # noqa: B018 (finds it)
@@ -682,6 +692,14 @@ class Box:
 
     def close(self):
         """Stop DOSBox-X and Xvfb (the WAV recording is ended first)."""
+        with span("box", "close"):
+            self._close()
+
+    def _close(self):
+        if self.dosbox and getattr(self, "_born", None) is not None:
+            telemetry.box_closed(self.dosbox.pid, f"{self.machine} {self.cycles}"
+                                 + (" turbo" if self.turbo else ""), time.monotonic() - self._born)
+            self._born = None
         if self.wav and self.dosbox and self.dosbox.poll() is None:
             try:
                 self.record_sound()
@@ -719,6 +737,10 @@ class Box:
         return self.dosbox is not None and self.dosbox.poll() is None
 
     def _until(self, probe, seconds, what, interval=0.05):
+        with span("wait", what):
+            return self._until_span(probe, seconds, what, interval)
+
+    def _until_span(self, probe, seconds, what, interval):
         end = min(time.monotonic() + seconds, self._deadline or float("inf"))
         while True:
             if self.dosbox is not None and self.dosbox.poll() is not None:
@@ -1053,7 +1075,8 @@ class Box:
         self._streak = 0
         self._until(lambda: self.waiting(reads_only), seconds, "the game to wait for a key", 0.03)
         if settle:
-            time.sleep(settle)
+            with span("sleep", "settle"):
+                time.sleep(settle)
 
     def key(self, word, reads_only=False, seconds=120):
         """Type one key (a BIOS word or a character) as the game next waits
@@ -1095,7 +1118,8 @@ class Box:
                 for w in item[1]:
                     self.push_key(w)
             elif kind == "pause":
-                time.sleep(item[1] / 100)
+                with span("sleep", "\\p pause"):
+                    time.sleep(item[1] / 100)
             elif kind == "timeout":
                 raise BoxError("\\t: let a timed menu run out with a pause, \\pN.")
             elif kind == "shot":
@@ -1105,8 +1129,9 @@ class Box:
     def press(self, *keys):
         """Press keys through X (xdotool key names, e.g. 'ctrl+Pause'), for
         what only the BIOS's keyboard handler sees."""
-        self._xdo("windowfocus", "--sync", self.window)
-        self._xdo("key", "--delay", "80", *keys)
+        with span("x", "press"):
+            self._xdo("windowfocus", "--sync", self.window)
+            self._xdo("key", "--delay", "80", *keys)
 
     # -------------------------------------------------- screen and sound
 
@@ -1121,6 +1146,10 @@ class Box:
         change only so: written while it runs, an instruction of two bytes
         may be fetched half old, half new (the old EB FE spin's EB with the
         routine's second byte, a jump into another routine)."""
+        with span("pause", "write paused"):
+            self._write_paused(writes)
+
+    def _write_paused(self, writes):
         def title():
             return str(self._xdo("getwindowname", self.window))
 
@@ -1136,6 +1165,10 @@ class Box:
     def screenshot(self, path=None, size=None):
         """Take DOSBox-X's screenshot and return it as a Screen; with PATH, keep
         the PNG there too."""
+        with span("screenshot"):
+            return self._screenshot(path, size)
+
+    def _screenshot(self, path, size):
         before = set(self.captures.glob("*.png"))
         self._hotkey("p")
         new = self._until(lambda: (set(self.captures.glob("*.png")) - before) or None, 10,
@@ -1157,8 +1190,9 @@ class Box:
     def wait_exit(self, seconds=60):
         """Wait for DOSBox-X to end (the game quit to DOS and `exit` ran)."""
         end = time.monotonic() + seconds
-        while self.running and time.monotonic() < end:
-            time.sleep(0.1)
+        with span("wait", "DOSBox-X to end"):
+            while self.running and time.monotonic() < end:
+                time.sleep(0.1)
         return not self.running
 
 
@@ -1243,12 +1277,13 @@ def eclplay(keys, out, assets=None, machine="tandy", saves=(), args=(), shots=Tr
     assets = pathlib.Path(assets or ROOT / "COKAssets")
     cfg = out / "krynn.cfg"
     cfg.write_bytes(krynn_cfg(MACHINES[machine][1]).encode())
-    result = subprocess.run(
-        [*BELOW_BOXES, str(binary or ECLPLAY), *(["--start-menu"] if start_menu else []),
-         "--config", str(cfg), "--saves",
-         str(save_dir), *(["--shots", str(shot_dir)] if shots else []), *map(str, args),
-         "--keys", keys, str(assets), *([str(block)] if block is not None else [])],
-        check=False, capture_output=True, text=True, timeout=600)
+    with span("port", "eclplay"):
+        result = subprocess.run(
+            [*BELOW_BOXES, str(binary or ECLPLAY), *(["--start-menu"] if start_menu else []),
+             "--config", str(cfg), "--saves",
+             str(save_dir), *(["--shots", str(shot_dir)] if shots else []), *map(str, args),
+             "--keys", keys, str(assets), *([str(block)] if block is not None else [])],
+            check=False, capture_output=True, text=True, timeout=600)
     # By number: eclplay names them %03u, so 1000.bmp follows 999.bmp.
     return result.stdout, save_dir, sorted(shot_dir.glob("*.bmp"), key=lambda p: int(p.stem))
 

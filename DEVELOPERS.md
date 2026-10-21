@@ -78,10 +78,12 @@ is a target of its own (`run-NAME`; `tests/test_eclplay.py` in four parts,
 -j` runs them side by side; plain `make test` runs them one after another.
 `run-test_eclplay` then checks, from the ids each part lists, that the
 parts ran each of its tests once. `tests/test_cok.py` plays in real time
-and runs last, alone, once the others are done: a clean `make -j16 test`
-takes about two minutes on a 16-core host, 105 s of them
-`tests/test_cok.py`'s (plain `make test` two and a half; `make -j16
-sanitize` 20 s). Beside others a failing run's lines are mixed with
+and runs last, alone, once the others are done, its own tests side by
+side, each in a process of its own (`COK_TEST_JOBS` at once, by default
+half the cores up to 8; `COK_TEST_JOBS=1` one after another, and a test
+named runs alone): they are mostly asleep, a hundred seconds one after
+another, 22 s at 8. A clean `make -j16 test` takes about 30 s on a
+16-core host (`make -j16 sanitize` 20 s). Beside others a failing run's lines are mixed with
 theirs, and its `Error` line is not the last: `make -j16 -Otarget test`
 shows each run's output whole once it ends (and `tests/test_cok.py`'s
 progress only at its end, so it is not the default). The tests'
@@ -9688,7 +9690,12 @@ that many run at once, a range such as 110-189 kept for
   emulated time as fast as the host can, delays included: the title's
   waits to its menu take 40 seconds normally, 7 with `turbo`, 1 with
   `turbo` and `max`. A timed menu (the title's) may run out before a key
-  is typed then.
+  is typed then. DOSBox-X ends turbo at a key by default (`stop turbo on
+  key`), and the F12 hotkeys (screenshots, the pause, the recording) are
+  keys: until 2026-10-21 a box's turbo lasted only to its first
+  screenshot. cokbox now turns that off; `b_slow_poison_63h`, whose
+  screenshots then came too seldom to see the death at hour 15, rests
+  without turbo, as it in effect always had.
 
 `Box(game="death-knights")` (`cokbox.GAMES`) runs Death Knights of Krynn
 instead: `DKKAssets/` copied into `C:\DKK`, a `DKK.CFG` written for it
@@ -9770,11 +9777,27 @@ it kills the running scripts' process groups and the Xvfb and DOSBox-X
 they started (their pids recorded in `COKBOX_PIDFILE`). `run_all.py
 --self-test` (in `make dosbox-selftest`) checks its reading of verdicts
 and statuses, and the run again (with made-up scripts), without
-DOSBox-X. A full run of the 82 scripts takes about 9 minutes on a
-16-core host with little else running, 10 at a time (as long as `a_demo`,
-which plays the demonstration in real time; `f_frames`,
-`f_display_modes`, `c_wander` and `f_sound` 4 each), plus the run again
-of any script not as recorded. It took 31 before the burst checks read
+DOSBox-X. Each run records where the time went, for speeding the checks
+up: with `COKBOX_TRACE` (run_all sets `OUT/NAME.trace.jsonl` for each
+script) `tools/dosbox/telemetry.py` times cokbox's and checklib's steps
+(a box's boot, the waits for the game to want a key or take one,
+screenshots, settles and pauses, the port's runs and builds), samples the
+check's line ten times a second, and records each box's DOSBox-X CPU
+against its lifetime; run_all adds the machine's load every two seconds
+(`load.jsonl`) and when each script ran (`schedule.json`), and
+`tools/dosbox/checks/telemetry_report.py` reads them into
+`OUT/telemetry.txt` (the run's bound at its job count, each script's time
+by kind, the spans and lines across all scripts, the longest scripts'
+timelines), its first lines printed at the end; `run_all.py --report`
+writes it again. A full run of the 82 scripts takes about 8 minutes on a
+16-core host with little else running, 10 at a time: the scripts' time
+summed (72 minutes) over the ten, the longest `a_demo` (under 5),
+`f_frames` and `f_display_modes` (4 each), plus the run again of any
+script not as recorded. It was 9 before the telemetry found the turbo
+lost at the first screenshot (above; `a_demo` 7 minutes then, `a_ctrl_s`
+3), `c_places`' `judge_watch` playing cok twice for the same frames
+(`c_wander` 4) and `d_lib.read_cell` matching each of the font's glyphs
+pixel by pixel (`d_bozak` 3). It took 31 before the burst checks read
 the Tandy's screen from memory (`d_lib.burst`, `READ_SECONDS`) and so
 could run beside the rest (with screenshots, DOSBox-X wrote ten times
 fewer on a loaded host and they missed their text), `d_bozak` and

@@ -8,6 +8,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -1128,5 +1129,41 @@ class SoundTests(unittest.TestCase):
         self.assertIn("SOUND.DAX", run.stderr)
 
 
+def tests(suite):
+    for test in suite:
+        yield from tests(test) if isinstance(test, unittest.TestSuite) else [test]
+
+
+def run_side_by_side(jobs):
+    """Each test in a process of its own, jobs of them at once: they wait in
+    real time, mostly asleep (a hundred seconds one after another, twenty
+    side by side). 0 if all passed, else 1, with the output of those that
+    did not."""
+    import concurrent.futures
+    names = [test.id().split(".", 1)[1]
+             for test in tests(unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__]))]
+    env = dict(os.environ, COK_TEST_JOBS="1")
+
+    def run(name):
+        return name, subprocess.run([sys.executable, __file__, name], env=env,
+                                    capture_output=True, text=True)
+    start, failed = time.monotonic(), []
+    with concurrent.futures.ThreadPoolExecutor(jobs) as pool:
+        for name, run in pool.map(run, names):
+            sys.stderr.write("." if run.returncode == 0 else "F")
+            sys.stderr.flush()
+            if run.returncode:
+                failed.append(name)
+                print(f"\n{name}:\n{run.stdout}{run.stderr}", file=sys.stderr)
+    print(f"\nRan {len(names)} tests in {time.monotonic() - start:.1f}s, {jobs} at once: "
+          + (f"FAILED {' '.join(failed)}" if failed else "OK"), file=sys.stderr)
+    return 1 if failed else 0
+
+
 if __name__ == "__main__":
+    # With no tests named, side by side (COK_TEST_JOBS of them, 1 for one
+    # after another in this process).
+    jobs = int(os.environ.get("COK_TEST_JOBS", max(1, min(8, (os.cpu_count() or 2) // 2))))
+    if len(sys.argv) == 1 and jobs > 1:
+        sys.exit(run_side_by_side(jobs))
     unittest.main()

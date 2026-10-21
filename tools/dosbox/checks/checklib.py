@@ -220,9 +220,11 @@ def build(kind="eclplay", transforms=()):
     import fcntl
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(str(out) + ".lock", "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)   # checks side by side build it once
+        with cokbox.span("port", f"wait for another's build {kind}"):
+            fcntl.flock(lock, fcntl.LOCK_EX)   # checks side by side build it once
         if not exe.exists():
-            _build(out, exe, kind, src, transforms)
+            with cokbox.span("port", f"build {kind}"):
+                _build(out, exe, kind, src, transforms)
     return _recorded(exe)
 
 
@@ -355,6 +357,11 @@ def watch(box, seconds, out=None, prefix="watch", until=None):
     cleared a panel and wrote it again showed its rows above a line as
     before, then cleared, and those below written again: a_demo,
     DEVELOPERS.md), and load makes them ten times fewer."""
+    with cokbox.span("watch"):
+        return _watch(box, seconds, out, prefix, until)
+
+
+def _watch(box, seconds, out, prefix, until):
     import time
     seen, last = [], None
     end = time.monotonic() + seconds
