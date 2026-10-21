@@ -839,6 +839,17 @@ class DeathKnightsTests(unittest.TestCase):
                                    start + keys, ASSETS)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("print: the party makes camp\n" + camp + then, result.stdout)
+        # From Magic (4381:1a34) Rest starts the menu on Magic's selection,
+        # Rest's place there, the fifth: Add, which Enter takes (0:05); then
+        # Rest. Saved game C's clock (0x4bc7, the minutes) has the 5.
+        with self.subTest(keys="MR"):
+            saves = self.saves(ASSETS / "SAVE")
+            magic = "menu: Cast Memorize Scribe Display Rest Exit\n"
+            result = self.play("--start-menu", "--saves", saves, "--seed", 1, "--keys",
+                               start + r"MR\rr\eS\>\>\r", ASSETS)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(camp + magic + rest * 2 + magic + camp, result.stdout)
+            self.assertEqual((saves / "SAVGAMC.PTY").read_bytes()[1 + 0xC7], 5)
 
     def test_view_and_items(self):
         # Camp (block 16's rest): View (580d:0c66) by index for SIR DRYDEN,
