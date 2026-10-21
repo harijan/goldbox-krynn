@@ -38,6 +38,11 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import a_common as A  # noqa: E402
 import checklib  # noqa: E402
 
+# It judges what the original shows as it comes: its boxes at their cycles
+# (when it runs, not when another check imports it).
+if __name__ == "__main__":
+    checklib.cokbox.REAL_TIME = True
+
 cokbox = A.cokbox
 PATH = "C:\\" + "A" * 33          # 36 characters: the prompt's 45 columns and one more row
 KEYS = r"\cC3\cC43" + PATH.replace("\\", "\\\\") + r"\b\b\bB\r"

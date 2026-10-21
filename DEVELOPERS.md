@@ -9695,7 +9695,25 @@ that many run at once, a range such as 110-189 kept for
   keys: until 2026-10-21 a box's turbo lasted only to its first
   screenshot. cokbox now turns that off; `b_slow_poison_63h`, whose
   screenshots then came too seldom to see the death at hour 15, rests
-  without turbo, as it in effect always had.
+  without turbo, as it in effect always had. Champions' boxes are turbo
+  unless they say not (`GAMES`' `turbo`; Death Knights' not yet tried):
+  the screens and memory at the key reads are the same, and a full run
+  with every box turbo agreed but in `d_space` (its Space typed into the
+  computer's turn, over before it came) and `c_wander` (its watched
+  screens). A check that judges what the original shows as it comes (a
+  burst or a watch of its screens, a recording, a key into a running
+  turn) sets `cokbox.REAL_TIME` when it runs, and its boxes keep their
+  cycles: with turbo a burst caught a third to a fifth of its screens
+  (`d_bozak` 277 of 656, agreeing still, but on less). `COKBOX_TURBO=1` or
+  `0` makes every box that does not say turbo or not, for comparing.
+- Settling: `wait_input(settle=S)` waits `S` seconds of the game's time
+  (the BIOS's clock, 0040:006c), twice that by the host's at most: at a
+  box's cycles about the sleep of `S` it was until 2026-10-21, with turbo
+  a fraction. Waiting instead until the screen was still for half a
+  second of the game's time was tried: in a battle the game shows a text
+  for its delay, polling the keyboard and drawing nothing for longer, and
+  `d_altq` read its records before the hit in two full runs out of two.
+  `COKBOX_SETTLE=fixed` sleeps `S` by the host's clock, for comparing.
 
 `Box(game="death-knights")` (`cokbox.GAMES`) runs Death Knights of Krynn
 instead: `DKKAssets/` copied into `C:\DKK`, a `DKK.CFG` written for it
@@ -9789,15 +9807,17 @@ against its lifetime; run_all adds the machine's load every two seconds
 `OUT/telemetry.txt` (the run's bound at its job count, each script's time
 by kind, the spans and lines across all scripts, the longest scripts'
 timelines), its first lines printed at the end; `run_all.py --report`
-writes it again. A full run of the 82 scripts takes about 8 minutes on a
+writes it again. A full run of the 82 scripts takes about 6 minutes on a
 16-core host with little else running, 10 at a time: the scripts' time
-summed (72 minutes) over the ten, the longest `a_demo` (under 5),
-`f_frames` and `f_display_modes` (4 each), plus the run again of any
-script not as recorded. It was 9 before the telemetry found the turbo
-lost at the first screenshot (above; `a_demo` 7 minutes then, `a_ctrl_s`
-3), `c_places`' `judge_watch` playing cok twice for the same frames
-(`c_wander` 4) and `d_lib.read_cell` matching each of the font's glyphs
-pixel by pixel (`d_bozak` 3). It took 31 before the burst checks read
+summed (48 minutes) over the ten, about as long as the longest, `a_demo`
+(under 5: its demonstration watched at the game's speed), plus the run
+again of any script not as recorded. It was 9 before the telemetry: the
+turbo lost at the first screenshot (above; `a_demo` 7 minutes then,
+`a_ctrl_s` 3), `c_places`' `judge_watch` playing cok twice for the same
+frames (`c_wander` 4), `d_lib.read_cell` matching each of the font's
+glyphs pixel by pixel (`d_bozak` 3), and the boxes at their cycles where
+turbo shows the same (see Speed and Settling above; 80 minutes summed
+then). It took 31 before the burst checks read
 the Tandy's screen from memory (`d_lib.burst`, `READ_SECONDS`) and so
 could run beside the rest (with screenshots, DOSBox-X wrote ten times
 fewer on a loaded host and they missed their text), `d_bozak` and

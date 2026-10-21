@@ -20,6 +20,11 @@ import sys
 import checklib
 import d_lib
 
+# It judges what the original shows as it comes: its boxes at their cycles
+# (when it runs, not when another check imports it).
+if __name__ == "__main__":
+    checklib.cokbox.REAL_TIME = True
+
 STEPS = [("turn", d_lib.load("J") + "L"), ("end", r"\@q")]
 
 

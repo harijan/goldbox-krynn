@@ -39,6 +39,11 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import checklib  # noqa: E402
 import f_lib  # noqa: E402
 
+# It judges what the original shows as it comes: its boxes at their cycles
+# (when it runs, not when another check imports it).
+if __name__ == "__main__":
+    checklib.cokbox.REAL_TIME = True
+
 cokbox = checklib.cokbox
 
 HEAP_PTR, HEAP_END, FREE_LIST = 0x438A, 0x438E, 0x4392

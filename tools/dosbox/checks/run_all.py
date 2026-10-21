@@ -142,9 +142,9 @@ CHECKS = [
 
 # Minutes each took in a full run (the rest one or less; OUT/telemetry.txt
 # has them all), for the order.
-LONG = {"a_demo": 5, "f_frames": 4, "f_display_modes": 4, "f_sound": 3, "c_wander": 3,
-        "e_bolt_bounce": 2, "e_manual": 2, "f_mouse": 2, "d_bozak": 2, "d_fear": 2,
-        "a_debug_battle": 2, "e_trade": 2, "d_cast": 2, "a_debug": 1, "c_catacombs": 1}
+LONG = {"a_demo": 5, "f_frames": 4, "f_sound": 3, "c_wander": 2, "e_bolt_bounce": 2,
+        "d_bozak": 2, "d_cast": 2, "c_catacombs": 1, "f_loading": 1, "e_cloud_dispel": 1,
+        "f_display_modes": 1, "b_item_spell0": 1, "d_bolt": 1, "d_aurak": 1, "d_gate": 1}
 VERDICT = re.compile(r"^VERDICT: (AGREES|DIFFERS new.*|ERROR.*)$", re.M)
 
 

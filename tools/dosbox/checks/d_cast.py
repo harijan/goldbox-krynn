@@ -33,6 +33,11 @@ import sys
 import checklib
 import d_lib
 
+# It judges what the original shows as it comes: its boxes at their cycles
+# (when it runs, not when another check imports it).
+if __name__ == "__main__":
+    checklib.cokbox.REAL_TIME = True
+
 ROUTE = d_lib.LOAD_A + d_lib.TO_CARAVAN
 BLESS = r"C\^\^\^\^\r"
 # The order batch D saw at GARIN's menu after KAL began Bless (seed 7).

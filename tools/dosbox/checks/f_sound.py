@@ -54,6 +54,11 @@ import checklib  # noqa: E402
 import f_lib  # noqa: E402
 import f_wav  # noqa: E402
 
+# It judges what the original shows as it comes: its boxes at their cycles
+# (when it runs, not when another check imports it).
+if __name__ == "__main__":
+    checklib.cokbox.REAL_TIME = True
+
 cokbox = checklib.cokbox
 
 DS_DEVICE, DS_MUSIC = 0x577A, 0x5780

@@ -29,6 +29,11 @@ import a_common as A  # noqa: E402
 import checklib  # noqa: E402
 from a_create import create_keys  # noqa: E402
 
+# It judges what the original shows as it comes: its boxes at their cycles
+# (when it runs, not when another check imports it).
+if __name__ == "__main__":
+    checklib.cokbox.REAL_TIME = True
+
 cokbox = A.cokbox
 ROSTER = [("BOB", 1), ("JEWEL", 1), ("CARL", 1), ("RANGA", 4), ("RANGB", 4), ("RANGC", 4),
           ("RANGD", 4)]   # human (row 6) fighters (class row 1) and rangers (4)

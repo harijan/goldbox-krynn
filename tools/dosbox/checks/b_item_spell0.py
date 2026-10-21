@@ -31,6 +31,11 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import b_lib as L  # noqa: E402
 import checklib  # noqa: E402
 
+# It judges what the original shows as it comes: its boxes at their cycles
+# (when it runs, not when another check imports it).
+if __name__ == "__main__":
+    checklib.cokbox.REAL_TIME = True
+
 USE = r"\v\v\v\vVIU\eE"
 CAST = r"MC\^\^\^\^"
 LEAVE = "EE"

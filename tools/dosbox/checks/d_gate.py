@@ -24,6 +24,11 @@ import sys
 import checklib
 import d_lib
 
+# It judges what the original shows as it comes: its boxes at their cycles
+# (when it runs, not when another check imports it).
+if __name__ == "__main__":
+    checklib.cokbox.REAL_TIME = True
+
 ROUTE = d_lib.LOAD_A + d_lib.TO_CARAVAN + d_lib.CARAVAN_WON + "Lnm98y"
 STEPS = [("gate", ROUTE), ("molly", "A"), ("istan", "DQ"), ("move", "M"), ("sirrion", "8")]
 # The gate's ATTACK/LEAVE menu: the guards' picture in the view animates

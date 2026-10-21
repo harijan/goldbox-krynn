@@ -66,7 +66,7 @@ def main():
     # Not turbo: the rest's screenshots then come too seldom to see the
     # death at hour 15 (the first at 16). Its turbo used to end at the
     # rest menu's screenshot (DOSBox-X's "stop turbo on key", now off).
-    with L.box(work, [saves], verbose=args.verbose, timeout=1800) as box:
+    with L.box(work, [saves], verbose=args.verbose, turbo=False, timeout=1800) as box:
         box.keys(L.load_keys("C") + L.INN)
         box.wait_input(settle=0.3)
         addr, _ = L.member(box, "SIR STRONGSWORD")

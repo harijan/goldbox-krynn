@@ -41,6 +41,11 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import checklib  # noqa: E402
 import e_boltmodel  # noqa: E402
 import e_common as E  # noqa: E402
+
+# It judges what the original shows as it comes: its boxes at their cycles
+# (when it runs, not when another check imports it).
+if __name__ == "__main__":
+    checklib.cokbox.REAL_TIME = True
 cokbox = E.cokbox
 
 SEED = 7

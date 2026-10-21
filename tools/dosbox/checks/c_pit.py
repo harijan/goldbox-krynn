@@ -30,6 +30,11 @@ import sys
 import c_places as cp
 import checklib
 
+# It judges what the original shows as it comes: its boxes at their cycles
+# (when it runs, not when another check imports it).
+if __name__ == "__main__":
+    checklib.cokbox.REAL_TIME = True
+
 STEP = r"m\^"
 
 

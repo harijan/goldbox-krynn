@@ -399,14 +399,26 @@ def dkk_cfg(display, sound="S", input="N"):
 
 # The games the Box runs (--game): their files, the directory C: holds them
 # in, their devices' file, their data segment as START_FULL.EXE's (Ghidra's
-# segment, the PSP + 0x10 less 0x1000 in the guest) and their merged image.
+# segment, the PSP + 0x10 less 0x1000 in the guest) and their merged image;
+# turbo: its boxes' default (see REAL_TIME): Champions' checks were run
+# with every box turbo (2026-10-21), Death Knights' not yet.
 GAMES = {
     "champions": dict(assets="COKAssets", dir="COK", cfg="KRYNN.CFG", cfg_text=krynn_cfg,
-                      ds=DS_GHIDRA, merged="build/START_FULL.EXE", randseed=RANDSEED),
+                      ds=DS_GHIDRA, merged="build/START_FULL.EXE", randseed=RANDSEED,
+                      turbo=True),
     # Its RandSeed: DS:84ac, which System's Random reads (dkk 1a07:163b).
     "death-knights": dict(assets="DKKAssets", dir="DKK", cfg="DKK.CFG", cfg_text=dkk_cfg,
-                          ds=0x1BCE, merged="build/death-START_FULL.EXE", randseed=0x84AC),
+                          ds=0x1BCE, merged="build/death-START_FULL.EXE", randseed=0x84AC,
+                          turbo=False),
 }
+
+# A check that judges what the original shows as it comes (screens read in
+# a burst or watched, a sound recorded, a key typed into a turn as it
+# runs) sets this: its boxes then run at their cycles unless one asks for
+# turbo. Turbo boxes are the rest's default (GAMES' turbo): their games'
+# delays pass at the host's speed, and the screens at the key reads are
+# the same; a burst caught a third to a fifth of its screens with turbo.
+REAL_TIME = False
 
 
 def _game_ds_signature(assets, ds=DS_GHIDRA):
@@ -427,7 +439,8 @@ class Box:
     into C:\\COK\\SAVE. args: START.EXE's arguments (e.g. "Woof").
     cycles: DOSBox-X's (a fixed count by default: with `max` Turbo Pascal's
     Delay calibration may overflow). turbo: run as fast as the host can
-    (emulated time keeps pace with the CPU, so delays shrink too).
+    (emulated time keeps pace with the CPU, so delays shrink too); None:
+    COKBOX_TURBO's 1 or 0, else the game's default unless REAL_TIME.
     hook_pad: paragraphs HOOK.COM keeps besides its own, to move the game's
     PSP; want_psp: the game's PSP wanted (at or above where it loads with no
     pad), found by starting again once with the pad it needs. seed: Turbo
@@ -450,7 +463,7 @@ class Box:
     """
 
     def __init__(self, workdir=None, assets=None, machine="tandy", display=None, sound="S",
-                 input="N", cfg=None, saves=(), args="", cycles="fixed 20000", turbo=False,
+                 input="N", cfg=None, saves=(), args="", cycles="fixed 20000", turbo=None,
                  hook_pad=0, memsize=None, wav=None, timeout=600, extra_conf=None,
                  exit_after=True, seed=None, want_psp=None, keep=False, verbose=False,
                  pre_commands=(), files=None, mapper=None, display_number=None,
@@ -465,6 +478,10 @@ class Box:
         self.machine = machine
         self.display = display or MACHINES[machine][1]
         self.sound, self.input, self.cfg = sound, input, cfg
+        if turbo is None:  # COKBOX_TURBO=1 or 0: every box that does not say
+            forced = os.environ.get("COKBOX_TURBO")
+            turbo = forced == "1" if forced in ("0", "1") else \
+                self.profile["turbo"] and not REAL_TIME
         self.saves, self.args, self.cycles, self.turbo = list(saves), args, cycles, turbo
         self.hook_pad, self.memsize, self.wav = hook_pad, memsize, wav
         self.timeout, self.extra_conf, self.exit_after = timeout, extra_conf or {}, exit_after
@@ -1069,14 +1086,44 @@ class Box:
         return self._exe[start:start + size]
 
     def wait_input(self, reads_only=False, seconds=120, settle=0.0):
-        """Wait until the game waits for a key (see waiting); then SETTLE
-        seconds more, for the screen to be drawn."""
+        """Wait until the game waits for a key (see waiting); then up to
+        SETTLE seconds more, for the screen to be drawn (see settle)."""
         self._last_polls = self.hook("polls")
         self._streak = 0
         self._until(lambda: self.waiting(reads_only), seconds, "the game to wait for a key", 0.03)
         if settle:
+            self.settle(settle)
+
+    def ticks(self):
+        """The BIOS's clock (0040:006c), 18.2 a second of the game's time."""
+        return self.dword(0x46C)
+
+    def settle(self, seconds):
+        """Wait SECONDS of the game's time (by the BIOS's clock), for the
+        screen to be drawn: at a box's cycles about as long by the host's,
+        longer when a loaded host makes it late (twice at most), with turbo
+        a fraction. The checks' settles were sleeps of SECONDS until
+        2026-10-21, the game's time then the host's at the cycles: the same
+        wait, now short in turbo. Not "until the screen is still": in a
+        battle the game shows a text for its delay, polling the keyboard
+        and drawing nothing for more than half a second (d_altq read its
+        records before the hit with that). COKBOX_SETTLE=fixed sleeps
+        SECONDS by the host's clock, as before, for comparing."""
+        if os.environ.get("COKBOX_SETTLE") == "fixed":
             with span("sleep", "settle"):
-                time.sleep(settle)
+                time.sleep(seconds)
+            return
+        need = seconds * 18.2065
+        end = time.monotonic() + 2 * seconds
+        with span("sleep", "settle (game time)"):
+            since = self.ticks()
+            while time.monotonic() < end:
+                now = self.ticks()
+                if now < since:  # midnight's wrap
+                    since = now
+                if now - since >= need:
+                    return
+                time.sleep(0.01)
 
     def key(self, word, reads_only=False, seconds=120):
         """Type one key (a BIOS word or a character) as the game next waits

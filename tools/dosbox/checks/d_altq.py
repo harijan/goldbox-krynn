@@ -25,6 +25,11 @@ import time
 import checklib
 import d_lib
 
+# It judges what the original shows as it comes: its boxes at their cycles
+# (when it runs, not when another check imports it).
+if __name__ == "__main__":
+    checklib.cokbox.REAL_TIME = True
+
 
 def port_hp(lines):
     """SIR STRONGSWORD's and KAL's hit points after ISTAN's immolation before

@@ -27,6 +27,11 @@ import sys
 import checklib
 import d_lib
 
+# It judges what the original shows as it comes: its boxes at their cycles
+# (when it runs, not when another check imports it).
+if __name__ == "__main__":
+    checklib.cokbox.REAL_TIME = True
+
 ROUTE = (d_lib.LOAD_A + d_lib.TO_CARAVAN + d_lib.CARAVAN_WON + "Lnm" +
          "6666666666666N6666666666" + r"\r")
 
@@ -64,8 +69,9 @@ def main():
     panel = []
     for s in shots:
         t = tuple(d_lib.read_text(s, r, 23, 39)[0].strip(" ?") for r in (10, 11))
-        if d_lib.part_of_damage(t[1]):
-            continue  # caught being redrawn
+        if d_lib.part_of_damage(t[1]) or not t[1]:
+            continue  # caught being redrawn (a name, its text not yet: d_bozak once
+            # had GIANT SPIDER's empty row end the list after SIRRION's)
         if t[0] and (not panel or panel[-1] != t):
             panel.append(t)
     i = next((n for n, t in enumerate(panel) if "EXPLODES." in t), None)

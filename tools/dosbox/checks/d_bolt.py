@@ -20,6 +20,11 @@ import sys
 import checklib
 import d_lib
 
+# It judges what the original shows as it comes: its boxes at their cycles
+# (when it runs, not when another check imports it).
+if __name__ == "__main__":
+    checklib.cokbox.REAL_TIME = True
+
 TURNS = "DQ" * 9 + r"C\^\r"
 AIM = "M8884"
 

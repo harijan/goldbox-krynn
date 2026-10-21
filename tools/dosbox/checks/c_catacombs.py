@@ -27,6 +27,11 @@ import c_geo
 import c_places as cp
 import checklib
 
+# It judges what the original shows as it comes: its boxes at their cycles
+# (when it runs, not when another check imports it).
+if __name__ == "__main__":
+    checklib.cokbox.REAL_TIME = True
+
 ARGS = ["--load", cp.SAVE_A, "--play", "--file", "1", "--set", "4be6=1", "--set", "4c61=ff",
         "--set", "4c09=ff"]
 TO_STAIRS = [("area", "a"), ("move", "m"), ("stairs", r"\^"), ("turn", r"\r\<"),
