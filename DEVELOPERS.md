@@ -208,7 +208,7 @@ segment's tables, a section to a concern:
 | `items` | View and the items menu (`sheet.c`, `items.c`; see View and Death Knights' View): the routine (`cok_items_routine`: Champions' `546c:0d74` and `17f9` by letters, or Death Knights' `580d:0c66` and `0ffa` by index), Death Knights' menus' words; the items list's readied column; Ready's thief level for another order's scroll and its word; the words of Use of an item not readied, of the questions of parting with a scroll and of Drop, of Trade's pick for money and the coin lists' first item, of Death Knights' Deposit; Sell's and Id's words, Sell's divisor of a count's price, whether their question starts on Yes, whether Id waits twice; Death Knights' Heal and Cure (the class, the effect and its minutes, the words) | `COK_ITEMS_CHAMPIONS`; none; `" Yes  "`, `" No   "` (`6346:0473`); none; `Must be Readied`, `is it Okay to lose it? `, `Drop It? `, `Trade to?`, `" Select"`; none; `546c:2822`'s and `2a59`'s words, 20, no, no, no; none |
 | `shops` | the shop, its Buy and Appraise, the temple and its Heal (`shop.c`; see Shops and the temple and Death Knights' shops): the routine (`cok_shops_routine`: Champions' `36d0:07da`, `0484`, `58e7:1929`, `340d:0ea9`, `0be1` by letters, or Death Knights' `3b89:06f3`, `0453`, `5c72:0dc2`, `3999:07d3`, `04e2` by index); whether mode 1's redraw shows the portrait last shown in 3D areas; whether a price (Buy's, Id's) is paid from the steel and then the pool's steel, rather than from the money in steel of every coin; Death Knights' words (the menus, Buy's, the funds, a purchase's, leaving money, Appraise's, Heal's, the cures' questions and words) and the spells its cures name (`DS:030c`) | `COK_SHOPS_CHAMPIONS`; yes (`6346:2c17`); no (`546c:3424`, `58e7:0155`); none |
 | `treasure` | treasure where the games differ (`treasure.c`, `adventure.c`'s `DAMAGE` and `ADD EP`; see Death Knights' treasure): the item table `TREASURE ITEMS` and `STOCK` take items from (a `cok_rules_record` and how many entries it fills, or none); the treasure menus' ways (selections from each menu's first item, special keys told apart from letters, leaving's Yes/No from No) and words (leaving with treasure left, Take's, the items' and the coins' prompts, the coin questions'); taking an item's word when overloaded and whether a counted item joins its kind; the vault's menu items, its line and the deposit's question (View's money's too); `DAMAGE`'s saving throw bonus bits, whether a save made halves the damage, its key; `ADD EP`'s words and whether those who cannot act are passed over first | none (`TREASURE` reads `ITEM<file>`); no, no, no; `There is still treasure left.  ` ..., `Take: `, `Items: `, `Select type of coin `, `How Many `/`How much `; `OverLoaded`, no; none; 0x1f, no, `press <enter>/<return> to continue` (`2fd3:2c80`); `Congratulations ` ... `gains experience!`, no (`2fd3:36dc`) |
-| `levels` | training, the knights' orders, aging, Memorize and Scribe where the games differ (`train.c`, `magic.c`, `camp.c`; see Training and Camp): Train's words, whether its question starts on Yes, whether free training trains, the highest levels by race and class in place of the kender's limits, the row of a class without one, whether a ranger learns only when it rises; the fixed hit points at a class's top level and a floor of 0; Knight Change's words, whether Change is always offered and special keys do nothing, the level from which a lost level costs a fixed 2; the aging after a battle (by race the ages, and its words); the spell lists' prompt, the memorize table's labels and columns, how the spells marked are kept (a list with Keep, or a question) and Scribe's questions and words; whether the camp unmarks the spells to memorize; Display's headings; the Magic menu's own selection; the camp's Fix (`cok_fix_routine`: Champions' or Death Knights') and the rest's words (the day's healing, an encounter) | `4def:4d9e`'s words, from No, free training, the kender's limits, row 0x74, every time; 2, 0, 3, 0, 2, 1, 2, 3 and wrapping; `Knight Of The `, `Sword`, `Rose`, not always, F9 as C, none; no aging; `Choose Spell: `, `    Cleric Spells:` ... at 20, the questions `Memorize These Spells? `, `Scribe These Spells? ` in yellow from No; yes (`4888:06b8`); 11; the last menu's; none |
+| `levels` | training, the knights' orders, aging, Memorize and Scribe where the games differ (`train.c`, `magic.c`, `camp.c`; see Training and Camp): Train's words, whether its question starts on Yes, whether free training trains, the highest levels by race and class in place of the kender's limits, the row of a class without one, whether a ranger learns only when it rises; the fixed hit points at a class's top level and a floor of 0; Knight Change's words, whether Change is always offered and special keys do nothing, the level from which a lost level costs a fixed 2; the aging after a battle (by race the ages, and its words); the spell lists' prompt, the memorize table's labels and columns, how the spells marked are kept (a list with Keep, or a question) and Scribe's questions and words; whether the camp unmarks the spells to memorize; Display's headings; the Magic menu's own selection; the camp's Fix (`cok_fix_routine`: Champions' or Death Knights') and the rest's words (the day's healing, an encounter); the rest menu's items, `Stop Resting? ` and whether it starts on Yes, whether the camp's Rest starts the menu from its first item; the camp Save's quit question | `4def:4d9e`'s words, from No, free training, the kender's limits, row 0x74, every time; 2, 0, 3, 0, 2, 1, 2, 3 and wrapping; `Knight Of The `, `Sword`, `Rose`, not always, F9 as C, none; no aging; `Choose Spell: `, `    Cleric Spells:` ... at 20, the questions `Memorize These Spells? `, `Scribe These Spells? ` in yellow from No; yes (`4888:06b8`); 11; the last menu's; none; `Rest Days Hours Mins Add Subtract Exit`, `Stop Resting? ` from No, the first; `Quit TO DOS ` |
 
 A `NULL` stem says the game has no such archive (Death Knights has no
 `SKY`, `CURSOR`, `RANDCOM`, `HEAD` or `BODY`): code that reads it must not
@@ -4296,9 +4296,23 @@ again, stay marked. Display (`4381:15aa`) names the effects of spells
 its own (`4381:148c` on), its blank rows headings too, in light magenta
 (`DS:c149`), so that the list starts on its last row. The rest says `The
 whole party is healed` (`DS:2560`) and `your repose is suddenly
-interrupted!` (`DS:25a9`); its interactive words (`Stop resting? `,
-`DS:10a1`, from Yes) and its menu (`5b7d:081d`, by index) are Champions'
-still.
+interrupted!` (`DS:25a9`). Rest (`4381:0dee`, as `4888:0f05`) rests as
+`57e4:0e3e` does (`5b7d:0d51`), but for its menu and question. The menu
+(`5b7d:081d`) is read by index (`6a69:0f1b`, all seven items, the keypad,
+no picture), from whatever item the menu before left selected: the camp's
+menu (`4381:3106`) does not set the first, as Champions' does, so it
+starts on Rest's place, `Mins`, and from Magic on `Add`; Enter takes the
+item selected, which is not always Rest. Up and Down (8 and 2) add and
+subtract; Left and Right (4 and 6) move the selection only, never the unit
+(Champions' cycle it); any other special key, Escape among them, exits.
+With a key waiting it asks `Stop resting? ` (`DS:10a1`, `6a69:2048` from
+Yes, `DS:57c0`): the waiting key is the answer's first, and Enter stops.
+After Save the camp asks its start menu's `Quit to DOS ` (`DS:124c`), from
+No. Still Champions' in the port: the camp's, Magic's and Alter's menus
+read by letters (the original reads them by index, Escape as Exit), and
+Alter offers Champions' `Pics`, which Death Knights' (`4381:21df`, `Order
+Drop Speed Icon Level Exit`, no keypad, from its first item each time)
+has not.
 
 Fix (`4381:2fd4`, `levels.fix` `COK_FIX_DEATH_KNIGHTS`) does nothing where
 the area forbids magic (var `0x4be5`) or no one lacks hit points. It adds
@@ -4347,7 +4361,16 @@ Memorize's list of the spells marked, the table and grimoire, and Display
 against the original: 0 pixels apart but Display's Exit, which the
 original's menu (`6a69:0f1b`) leaves unhighlighted, keeping the Magic
 menu's selection past its one item, where the port's (`67b5:03e2`'s)
-highlights it (Death Knights' menus are step 3's commands part).
+highlights it (Death Knights' menus are step 3's commands part). Flows
+`rest`, `stop` and `interrupted` play Rest in block 16: the menu from
+`Mins`, Enter, Add, Left, Up, the keypad's 8 and 4, Down, a rest of 15
+minutes and Save (saved game C, its clock); a key waiting at the rest's first
+poll (the box traps `5b7d:0e20` to put it there; eclplay's `\[...\]`), `Stop resting? `, Enter,
+and again with No, resting out; a day's rest that the block's camp vector
+(`0x7ed2` 255, `0x7ed3` 100) interrupts at its 255th tick, and the rest
+vector's text; each screen, RandSeed and the clock (`0x4bc6`-`0x4bcc`):
+0 pixels apart but the eulogy's portrait's eyes, whose blink a screenshot
+catches by the host's timing (36 pixels once).
 
 ## Casting
 

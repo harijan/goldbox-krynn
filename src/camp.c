@@ -300,18 +300,40 @@ static void set_rest(cok_adventure *game, uint16_t minutes)
 
 /* The rest menu (57e4:08a0): pick days, hours or minutes, add to them or
  * subtract from them, then Rest or Exit. Returns 1 to rest, 0 not to, -1
- * if input ended. */
+ * if input ended. A game whose menus go by index (dkk 5b7d:081d) reads it
+ * with its loop (6a69:0f1b, every item, the keypad, no picture), each
+ * item's index taken as its letter: Up and Down (8 and 2) still add and
+ * subtract, Left and Right (4 and 6) do nothing, the loop itself moving
+ * the selection, and any other special key, Escape among them, exits. */
 static int rest_menu(cok_adventure *game)
 {
+    const cok_rules *R = cok_game_rules(game);
+    const char *text = R->levels.rest_menu;
+    bool indexed = R->menus.routine == COK_MENUS_INDEXED;
     int result = 0;
     unsigned selected = 2;
     int key;
     do {
         show_rest(game, selected);
         bool special;
-        key = cok_camp_menu(game, "", "Rest Days Hours Mins Add Subtract Exit", true, false, &special);
-        if (key < 0) return -1;
-        if (special) {
+        if (indexed) {
+            cok_adventure_log(game, "menu", text);
+            cok_keyboard keys = cok_adventure_keyboard(game);
+            cok_menu_items items;
+            cok_menu_items_upto(&items, 6);
+            key = cok_menu_pick(&game->screen, &game->font, "", text, &items, 13, 15, 10, true,
+                                &game->selected, &keys, &special);
+            if (key < 0) return -1;
+            game->menu_special = special; /* DS:c0f8 */
+            if (special)
+                key = key == 0x48 ? 'A' : key == 0x50 ? 'S' : key == 0x4b || key == 0x4d ? 'X' : 'E';
+            else
+                key = key <= 6 ? "RDHMASE"[key] : 'X';
+        } else {
+            key = cok_camp_menu(game, "", text, true, false, &special);
+            if (key < 0) return -1;
+        }
+        if (special && !indexed) {
             if (key == 0x48) {
                 key = 'A';
             } else if (key == 0x50) {
@@ -560,7 +582,8 @@ static bool rest(cok_adventure *game, bool interactive, bool learn)
     while (!stop && !vm->abort && resting_left(game)) {
         if (interactive && cok_adventure_key_pending(game)) {
             show_rest(game, 0);
-            int answer = cok_camp_yes_no(game, "Stop Resting? ", 13);
+            const cok_rules_levels *V = &cok_game_rules(game)->levels;
+            int answer = cok_camp_ask(game, V->stop_resting, 13, V->stop_resting_yes);
             if (answer < 0) break;
             if (answer == 'Y') {
                 stop = true;
@@ -1518,7 +1541,8 @@ bool cok_camp(cok_adventure *game)
             /* The questions' colour: Champions' yellow, dkk 6a69:2048's
              * light magenta (4381's Save). */
             if (!vm->abort &&
-                cok_camp_yes_no(game, "Quit TO DOS ", cok_game_rules(game)->start.ask_colour) ==
+                cok_camp_yes_no(game, cok_game_rules(game)->levels.camp_quit,
+                                cok_game_rules(game)->start.ask_colour) ==
                     'Y')
                 cok_camp_quit(game);
             break;
@@ -1534,7 +1558,7 @@ bool cok_camp(cok_adventure *game)
             cok_magic(game, &interrupted);
             break;
         case 'R':
-            game->selected = 1;
+            if (cok_game_rules(game)->levels.rest_from_first) game->selected = 1;
             interrupted = cok_camp_prepare(game);
             break;
         case 'F':

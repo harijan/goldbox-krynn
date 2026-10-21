@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Death Knights of Krynn's training, Knight Change Order and Memorize in
+"""Death Knights of Krynn's training, Knight Change Order, Memorize, Fix and Rest in
 the original against eclplay --game death-knights --start-menu (DEVELOPERS.md,
 "Training" and "Camp"). Two flows, the same keys typed to both, the
 original's screen at each wait against the port's at the key read the same
@@ -39,11 +39,24 @@ SIR DRYDEN "regains sight" for the blind CELESTE, both times), the healing;
 the camp's menu after; Save Current Game C: saved game C (the clock, the
 rest's counts) and the characters' files, and RandSeed.
 
+rest: saved game A begun, camp, Rest (4381:0dee, 5b7d:0d51): the menu by
+index (081d) from the camp menu's selection (Mins), Enter, Add, Enter, Left,
+Up, Hours, the keypad's 8, Down, the keypad's 4, Rest: 15 minutes; Save C
+(Quit to DOS, DS:124c): saved game C (the clock) and the characters' files.
+
+stop: camp, Rest, an hour, Rest with a key waiting at its first poll (a trap):
+"Stop resting? " from Yes, Enter; again with No, resting out; Save C.
+
+interrupted: camp, Rest, a day: block 16's camp vector's 0x7ed2 255 and
+0x7ed3 100 interrupt it at the 255th tick; the rest vector's text.
+
+The rest flows compare RandSeed and the clock (0x4bc6-0x4bcc) too.
+
 Seeded (Box seed, eclplay --seed). Not part of run_all.py's set. About
-four minutes.
+four minutes, and as much for the rest flows.
 
     python3 tools/dosbox/checks/dkk_levels.py [--workdir DIR] [--seed N]
-        [--flows train,memorize,table,cast,fix]
+        [--flows train,memorize,table,cast,fix,rest,stop,interrupted]
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...)."""
 import argparse
@@ -51,6 +64,7 @@ import pathlib
 import shutil
 import struct
 import sys
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import checklib  # noqa: E402
@@ -331,6 +345,118 @@ def fix(v, work, opts):
     compare_files(v, original, port_saves, "fix")
 
 
+# Camp's Rest (4381:0dee, the rest 5b7d:0d51, its menu 081d by index) in
+# block 16, whose camp vector sets 0x7ed2 255 and 0x7ed3 100: each step
+# (the screen reached, the keys, how): typed as the original waits; "rest"
+# typed and waited past the rest (DS:c462 clear) before the next wait, the
+# rest's own polls of KeyPressed not being one; "ahead" its first key with
+# the rest's first poll of KeyPressed (5b7d:0e20) trapped, its second once
+# the game spins there, then let go: the poll sees it, as eclplay's \[...\]
+# after the first key puts it in the buffer at the next wait.
+# (K.push_after_flush misses the menu's flush: the rest polls at once.)
+DS_RESTING = 0xC462
+REST_POLL = (0x5B7D, 0x0E20)
+REST = [
+    ("camp", r"\r\r\r", None),
+    ("rest", "R", None),          # the menu from the camp's selection: Mins
+    ("mins", r"\r", None),        # Enter takes Mins
+    ("add", "a", None),           # 0:05, Add selected
+    ("add-enter", r"\r", None),   # Enter on Add: 0:10
+    ("left", r"\<", None),        # the selection moved, nothing more
+    ("up", r"\^", None),          # Up adds: 0:15
+    ("hours", "h", None),
+    ("eight", "8", None),         # the keypad's 8 adds: 1:15
+    ("down", r"\v", None),        # Down subtracts: 0:15
+    ("four", "4", None),          # the selection moved, nothing more
+    ("rested", "r", "rest"),      # 15 minutes: the camp
+    ("which", "S", None),
+    ("saved", r"\>\>\r", None),   # Quit to DOS (DS:124c)
+]
+# A key waiting at the first tick: "Stop resting? " from Yes, Enter stops
+# (the time left kept, then cleared by 0dee); again, No rests on.
+STOP = [
+    ("camp", r"\r\r\r", None),
+    ("rest", "R", None),
+    ("hours", "h", None),
+    ("add", "a", None),
+    ("stop", "rx", "ahead"),
+    ("stopped", r"\r", None),
+    ("again", "R", None),
+    ("hours-again", "h", None),
+    ("add-again", "a", None),
+    ("stop-again", "rx", "ahead"),
+    ("rested", "n", "rest"),
+    ("which", "S", None),
+    ("saved", r"\>\>\r", None),
+]
+# A day's rest: the encounter at the 255th tick, the rest vector's text.
+INTERRUPTED = [
+    ("camp", r"\r\r\r", None),
+    ("rest", "R", None),
+    ("days", "d", None),
+    ("day", "a", None),
+    ("interrupted", "r", "rest"),
+    ("eulogy", r"\r", None),
+]
+# The eulogy's portrait (PIC 96) blinks: which frame a screenshot catches
+# depends on the host's timing, not on the rest (36 pixels, its eyes, on
+# the first run).
+REST_MASKS = {"eulogy": [(56, 60, 36, 14, "the portrait's eyes: its animation's frame")]}
+
+
+def spinning(box, seconds=0.3):
+    """No poll of KeyPressed for SECONDS: the game spins in a trap."""
+    polls = box.hook("polls")
+    time.sleep(seconds)
+    return box.hook("polls") == polls
+
+
+def rest_steps(v, work, box, flow, steps, seed, saves):
+    keys = K.LOAD_A_BEGIN
+    port_saves, shot = None, None
+    for name, typed, how in steps:
+        if how == "ahead":
+            handle = K.trap(box, *REST_POLL, lambda: True)
+            box.push_key(cokbox.key_word(typed[0]))
+            box._until(lambda: not box.buffer(), 60, "the menu to take the key", 0.01)
+            box._until(lambda: spinning(box), 60, "the rest to reach its poll", 0.05)
+            box.push_key(cokbox.key_word(typed[1]))
+            K.untrap(box, handle)
+            box.wait_input(settle=2.0)
+            keys += typed[0] + r"\[" + typed[1] + r"\]"
+        else:
+            box.keys(typed)
+            if how == "rest":
+                box._until(lambda: box.ds_byte(DS_RESTING) == 0, 300, "the rest to end", 0.05)
+            box.wait_input(settle=2.0)
+            keys += typed
+        shown = box.screenshot(work / f"dosbox-{flow}-{name}.png")
+        _, shot, _, _ = K.port(work, f"{flow}-{name}", keys, seed, saves=saves)
+        port_saves = work / f"port-{flow}-{name}" / "saves"
+        v.screen(f"{flow}: {name}", shown, load(shot), masks=REST_MASKS.get(name, ()), work=work)
+    return keys, port_saves, shot
+
+
+def rest(v, work, opts, flow, steps):
+    seed = opts.seed
+    with cokbox.Box(workdir=work / f"box-{flow}", game="death-knights", machine="ega",
+                    seed=seed, saves=[K.ASSETS / "SAVE"], verbose=opts.verbose, timeout=900,
+                    keep=True) as box:
+        v.check(K.title(box), f"the title's four pictures ({flow})")
+        K.type_steps(box, K.LOAD_A_STEPS, settle=2.0)
+        keys, port_saves, shot = rest_steps(v, work, box, flow, steps, seed, None)
+        _, _, _, state = K.port(work, f"{flow}-end", keys, seed)
+        v.value(f"{flow}: RandSeed", box.ds_dword(K.DS_RANDSEED),
+                state["seed"] if state is not None else None)
+        low, _ = K.box_vars(box)
+        ported = K.port_vars(shot) if shot is not None else None
+        v.value(f"{flow}: the clock (0x4bc6-0x4bcc)", list(low[0xC6:0xCD]),
+                list(ported[0][0xC6:0xCD]) if ported is not None else None)
+        original = work / f"box-{flow}" / "c" / "DKK" / "SAVE"
+    if steps[-1][0] == "saved":
+        compare_files(v, original, port_saves, flow)
+
+
 def json_records(path):
     """The port's records whole (the spells' block after +0xd8) beside its
     final screen."""
@@ -344,8 +470,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir", default=str(K.ROOT / "build/dosbox-checks/dkk_levels"))
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--flows", default="train,memorize,table,cast,fix",
-                        help="which flows: train, memorize, table, cast, fix (comma-separated)")
+    parser.add_argument("--flows", default="train,memorize,table,cast,fix,rest,stop,interrupted",
+                        help="which flows: train, memorize, table, cast, fix, rest, stop, "
+                        "interrupted (comma-separated)")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     work = pathlib.Path(opts.workdir).resolve()
@@ -362,6 +489,9 @@ def main():
         cast(v, work, opts)
     if "fix" in flows:
         fix(v, work, opts)
+    for flow, steps in (("rest", REST), ("stop", STOP), ("interrupted", INTERRUPTED)):
+        if flow in flows:
+            rest(v, work, opts, flow, steps)
     return v.finish()
 
 
