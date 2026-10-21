@@ -1632,14 +1632,6 @@ static void test_death_knights_menu(void)
             CHECK(pair >> 4 != 14 && (pair & 15) != 14);
         }
     CHECK(magenta);
-    /* The commands it does not have ported stop the run, naming them. */
-    dkk_keys("");
-    CHECK(!cok_start_command(&dkk, 'C') && dkk.vm.status == COK_ECL_UNPORTED &&
-          strcmp(dkk.error, "not yet ported: Death Knights of Krynn's Create New Character "
-                            "(dkk 49cb:05c7)") == 0);
-    dkk_keys("");
-    CHECK(!cok_start_command(&dkk, 'M') && dkk.vm.status == COK_ECL_UNPORTED &&
-          strstr(dkk.error, "(dkk 49cb:25d4)") != NULL);
     /* "from where": Exit adds and loads nothing. */
     dkk_keys("E");
     cok_start_command(&dkk, 'A');
@@ -1692,9 +1684,14 @@ static void test_death_knights_menu(void)
           dkk.wall_slots[1] == 1 && dkk.wall_ids[2] == -1 && dkk.wall_ids[3] == -1);
     CHECK(dkk.vm.mode == 0 && dkk.vm.last_mode == 4 && dkk.vault_letter == 'Q');
     CHECK(cok_ecl_var(&dkk.vm, COK_VAR_DIFFICULTY) == 3 && dkk.vm.direction == 2);
+    /* The command it does not have ported stops the run, naming it. */
+    dkk_keys("");
+    CHECK(!cok_start_command(&dkk, 'I') && dkk.vm.status == COK_ECL_UNPORTED &&
+          strcmp(dkk.error, "not yet ported: Death Knights of Krynn's Initialize "
+                            "Mouse/Joystick (dkk 49cb:52cd)") == 0);
     dkk.new_game = false;
     /* From the menu: the list is on its first row again once the game has
-     * ended (Enter then picks Create, which stops). */
+     * ended (Enter then picks Create, whose first list the keys end in). */
     snprintf(path, sizeof path, "%s/SAVGAMA.PTY", to);
     dkk_keys("");
     CHECK(cok_adventure_restore(&dkk, path));
@@ -1706,7 +1703,7 @@ static void test_death_knights_menu(void)
     dkk_keys("\x01P\rSYY\r");
     cok_start_menu(&dkk);
     CHECK(logged("choice: Drop Character;") && dkk.party.count == 0 &&
-          logged("choice: Create New Character;") && dkk.vm.status == COK_ECL_UNPORTED);
+          logged("choice: Create New Character;") && logged("list: Pick Race;"));
     dkk.new_game = false;
     /* Champions' end of a game sets the first entry. */
     game.wall_ids[0] = 5;
@@ -1892,6 +1889,168 @@ static void test_death_knights_levels(void)
     CHECK(cok_train_aging(&game) && !game.effects.aging && s.log[0] == '\0');
 }
 
+/* Death Knights' Create New Character (dkk 49cb:05c7), its icon editor
+ * (49cb:3cac) and Modify (49cb:25d4), its lists and menus by index; the
+ * records against those the original wrote in DOSBox-X for the same keys
+ * and seed (tools/dosbox/checks/dkk_create.py's CLERIC and WHITE). */
+static void test_death_knights_create(void)
+{
+    const cok_rules *R = &cok_rules_death_knights;
+    const cok_character_layout *L = R->character;
+    char to[128];
+    snprintf(to, sizeof to, "%s/dkkcreate", dir);
+    CHECK(mkdir(to, 0700) == 0);
+    snprintf(dkk.save_dir, sizeof dkk.save_dir, "%s", to);
+    cok_party_free(&dkk.party);
+    dkk.vm.character = NULL;
+    /* Escape at the first list, and Exit: nothing made. */
+    dkk_keys("\x1b");
+    cok_create(&dkk);
+    CHECK(logged("list: Pick Race;") && !logged("roster:") && dkk.vm.character == NULL);
+    /* A human cleric of Paladine, lawful good, rerolled once, its icon
+     * as it is (Parts' Exit), saved. */
+    dkk.vm.seed = 3;
+    dkk.selected = 1;
+    dkk_keys("\x01P\x01P\x01P\x01P\x01P\x01P\r\r\r\r\rYNCLERIC\rEYY");
+    cok_create(&dkk);
+    CHECK(logged("list: Pick Diety;") && logged("menu: reroll stats? ;") &&
+          logged("input: character name: ;") && logged("menu: is this icon ok? ;") &&
+          logged("menu: save character? ;") && logged("roster: CLERIC.PC;"));
+    cok_character *c = calloc(1, sizeof *c);
+    CHECK(c != NULL && cok_character_read_file(c, R, to, "CLERIC", "PC", &dkk.item_types,
+                                               dkk.error, sizeof dkk.error));
+    const uint8_t *r = c->record;
+    /* 210003 experience, trained to cleric 8 (DS:7638's row), 500 steel,
+     * the cleric's kit (DS:058f: 2c 30 54, each put first: types 08, 25,
+     * 24, readied), the item count 3; the spells' block held. */
+    CHECK(cok_field_u32(L, r, COK_FIELD_EXPERIENCE) == 210003 &&
+          cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 0) == 8 &&
+          cok_field_u16_at(L, r, COK_FIELD_COINS, 4) == 500 &&
+          cok_field_u8(L, r, COK_FIELD_ITEM_COUNT) == 3 && cok_field_has_spells(L, r));
+    CHECK(c->item_count == 3 && c->items[0][0x2e] == 0x08 && c->items[1][0x2e] == 0x25 &&
+          c->items[2][0x2e] == 0x24 && c->items[0][0x34] == 1 && c->items[2][0x34] == 1);
+    /* The rest as the original wrote it (dkk_create.py's CLERIC, but its
+     * icon's head and colour, edited there): the record and the block. */
+    CHECK(fnv(0x811c9dc5u, r, 0x70) == 0xeaa37469u &&
+          fnv(0x811c9dc5u, r + 0x74, 0xd8 - 0x74) == 0xc9f415fdu &&
+          fnv(0x811c9dc5u, r + 0xd8, 0xdc) == 0x88e7b5d0u);
+    cok_character_free(c);
+    free(c);
+    /* A Silvanesti elf mage of the White Robes: the mage's spells (10, 11,
+     * 12, 15, 16, 18, 19) and those creation's training gives at 3 and 5
+     * (and 7) by its order; no cleric's. */
+    dkk.vm.seed = 11;
+    dkk_keys("\r\x01P\r\x01P\x01P\r\rNWHITE\rEYY");
+    cok_create(&dkk);
+    CHECK(logged("roster: WHITE.PC;"));
+    c = calloc(1, sizeof *c);
+    CHECK(c != NULL && cok_character_read_file(c, R, to, "WHITE", "PC", &dkk.item_types,
+                                               dkk.error, sizeof dkk.error));
+    r = c->record;
+    char path[300];
+    int8_t mage = cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 5);
+    static const uint8_t known[] = {10, 11, 12, 15, 16, 18, 19, 29, 33, 34, 46, 47, 51};
+    CHECK(mage >= 5 && cok_field_u8(L, r, COK_FIELD_MAGIC_ORDER) == 1);
+    for (size_t i = 0; i < sizeof known; ++i) CHECK(cok_field_u8_at(L, r, COK_FIELD_KNOWN_SPELL, known[i]) == 1);
+    CHECK(cok_field_u8_at(L, r, COK_FIELD_KNOWN_SPELL, 30) == 0 &&
+          cok_field_u8_at(L, r, COK_FIELD_KNOWN_SPELL, 81) == (mage >= 7));
+    /* The mage's kit (DS:05a3: 52 57), and the count 3 all the same. */
+    uint8_t file[0xd8];
+    snprintf(path, sizeof path, "%s/WHITE.PC", to);
+    CHECK(c->item_count == 2 && slurp(path, file, sizeof file) == sizeof file && file[0x7c] == 3);
+    CHECK(fnv(0x811c9dc5u, r, 0xd8 + 0xdc) == 0x0971ba89u);
+    cok_character_free(c);
+    free(c);
+    /* A fighter (class 2) has no spells' block, and no .WIZ. */
+    dkk.vm.seed = 5;
+    dkk_keys("\x01P\x01P\x01P\x01P\x01P\x01P\r\r\x01P\r\rNFIGHTER\rEYY");
+    cok_create(&dkk);
+    c = calloc(1, sizeof *c);
+    CHECK(c != NULL && cok_character_read_file(c, R, to, "FIGHTER", "PC", &dkk.item_types,
+                                               dkk.error, sizeof dkk.error));
+    snprintf(path, sizeof path, "%s/FIGHTER.WIZ", to);
+    CHECK(!cok_field_has_spells(L, c->record) && access(path, F_OK) != 0 &&
+          cok_field_u8(L, c->record, COK_FIELD_CLASS) == 2 && c->item_count == 3);
+    /* A thief without a cleric level gets the thief's kit as it is
+     * (DS:059b: 55 56 5b 1c, the first last in the list), 0x5b not
+     * readied. */
+    dkk.vm.seed = 9;
+    dkk_keys("\x01P\x01P\x01P\x01P\x01P\x01P\r\r\x01P\x01P\x01P\r\rNTHIEF\rEYY");
+    cok_create(&dkk);
+    cok_character *t = calloc(1, sizeof *t);
+    CHECK(t != NULL && cok_character_read_file(t, R, to, "THIEF", "PC", &dkk.item_types,
+                                               dkk.error, sizeof dkk.error));
+    CHECK(cok_field_u8(L, t->record, COK_FIELD_CLASS) == 6 && t->item_count == 4 &&
+          t->items[3][0x2e] == dkk.item_table[0x55][0] && t->items[3][0x2f] == dkk.item_table[0x55][1] &&
+          t->items[1][0x34] == 0 && t->items[0][0x34] == 1);
+    cok_character_free(t);
+    free(t);
+    /* Modify: it may (210003 experience); the menu by index, "Modify : ";
+     * in the name A, S, K and E are typed (over FIGH), Enter does nothing;
+     * Keep makes the scores the base. */
+    CHECK(cok_party_add(&dkk.party, R, c));
+    dkk.vm.character = c->record;
+    uint8_t *f = c->record;
+    dkk_keys("S\x01H\x01HASKE\r\x01H\x01P\x01PK");
+    cok_modify(&dkk);
+    CHECK(logged("menu: Add Subtract Keep Exit;") && f[0] == 7 && memcmp(f + 1, "ASKETER", 7) == 0);
+    /* Escape in the menu puts the scores, the hit points and the name back. */
+    uint8_t before[0xd8];
+    memcpy(before, f, sizeof before);
+    dkk_keys("SA\x01PA\x01P\x01PA\x01H\x01HAB\x01P\x01P\x01P\x01P\x1b");
+    cok_modify(&dkk);
+    CHECK(memcmp(f, before, 0x1e) == 0 && f[0x28] == before[0x28] && f[0xd6] == before[0x28]);
+    /* An experience other than a new character's: can't be modified. */
+    cok_field_set32(L, f, COK_FIELD_EXPERIENCE, 210004);
+    dkk_keys("S");
+    cok_modify(&dkk);
+    CHECK(logged("ASKETER can't be modified.") && !logged("menu: Add Subtract"));
+    cok_field_set32(L, f, COK_FIELD_EXPERIENCE, 210003);
+    /* A hill dwarf paladin's charisma is held at 17 (race 3, class 3);
+     * Keep sets no SHARES (a field the game has not) and the base hit
+     * points to the maximum less the bonus. */
+    cok_field_set8(L, f, COK_FIELD_RACE, 3);
+    cok_field_set8(L, f, COK_FIELD_CLASS, 3);
+    cok_field_set8_at(L, f, COK_FIELD_SCORE, COK_SCORE_CHARISMA, 12);
+    dkk_keys("S\x01H\x01H\x01HSK");
+    cok_modify(&dkk);
+    CHECK(cok_field_u8_at(L, f, COK_FIELD_SCORE, COK_SCORE_CHARISMA) == 17 &&
+          cok_field_u8_at(L, f, COK_FIELD_SCORE_BASE, COK_SCORE_CHARISMA) == 17);
+    dkk_keys("S\x01H\x01H\x01HAAK");
+    cok_modify(&dkk);
+    CHECK(cok_field_u8_at(L, f, COK_FIELD_SCORE, COK_SCORE_CHARISMA) == 17);
+    /* The hit points (Up from strength) go no higher than the level
+     * drain's most (580d:3454), here a fighter past its top level of
+     * constitution 17, whose sum adds the bonus as 4def:48e9's does not. */
+    cok_field_set8_at(L, f, COK_FIELD_CLASS_LEVEL, 2, 12);
+    cok_field_set8_at(L, f, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION, 17);
+    cok_field_set8_at(L, f, COK_FIELD_SCORE_BASE, COK_SCORE_CONSTITUTION, 17);
+    uint8_t most;
+    CHECK(cok_train_most_hit_points(&dkk, f, &most));
+    char raised[300] = "S\x01H";
+    for (size_t i = 0; i < 250; ++i) strcat(raised, "A");
+    strcat(raised, "K");
+    dkk_keys(raised);
+    cok_modify(&dkk);
+    CHECK(cok_field_u8(L, f, COK_FIELD_MAX_HIT_POINTS) == most &&
+          cok_field_u8(L, f, COK_FIELD_HIT_POINTS) == most);
+    uint8_t champions_most;
+    CHECK(!cok_modify_most(f, R, f, &champions_most) || champions_most != most);
+    /* The icon editor by index: special keys, Escape among them, do
+     * nothing; 1st-color in CGA says "sorry not in CGA"; Exit, Yes. */
+    dkk_keys("\x1b\x01P1EY");
+    cok_display display = dkk.display;
+    dkk.display = COK_DISPLAY_CGA;
+    CHECK(cok_icon_edit(&dkk));
+    dkk.display = display;
+    CHECK(logged("print: sorry not in CGA;") && logged("choice: Y;"));
+    /* 2nd-color's parts leave Hair out (Face in): H is no item's key. */
+    dkk_keys("2HEEY");
+    CHECK(cok_icon_edit(&dkk) && logged("menu: is this icon ok? ;"));
+    cok_party_free(&dkk.party);
+    dkk.vm.character = NULL;
+}
+
 static void test_death_knights_saves(void)
 {
     const cok_rules *R = &cok_rules_death_knights, *C = &cok_rules_champions;
@@ -2038,6 +2197,7 @@ static void test_death_knights_saves(void)
           read.item_count == 0);
     test_death_knights_menu();
     test_death_knights_levels();
+    test_death_knights_create();
     test_death_knights_drain();
     cok_adventure_close(&dkk);
 }

@@ -381,16 +381,17 @@ static bool train(cok_adventure *game, cok_character *character, bool creating, 
                       (ranger_now > 8 && (!V->ranger_rises || ranger_now > ranger)))) {
         if (cok_magic_learn(game, character) < 0) return false;
     } else if (creating) {
-        /* The spells a mage of each level knows when it is made. */
-        switch (cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, 5)) {
-        case 2: cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 15, 1); break;
-        case 3:
-            cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 10, 1);
-            cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 34, 1);
+        /* The spells a mage of each level knows when it is made (the
+         * creation section's: by level, and in dkk 49cb:43b6 by order). */
+        const cok_rules_creation *C = &cok_game_rules(game)->creation;
+        uint8_t mage_level = cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, 5),
+                order = cok_field_u8(L, c, COK_FIELD_MAGIC_ORDER);
+        for (size_t k = 0; k < C->created_count; ++k) {
+            const cok_rules_created_spells *e = &C->created[k];
+            if (e->level != mage_level || (e->order != 0 && e->order != order)) continue;
+            for (size_t n = 0; n < 4 && e->spells[n] != 0; ++n)
+                cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, e->spells[n], 1);
             break;
-        case 4: cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 31, 1); break;
-        case 5: cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 47, 1); break;
-        default: break;
         }
     }
     if (cok_field_s8(L, c, COK_FIELD_HIGHEST_LEVEL) >
@@ -622,7 +623,7 @@ bool cok_train_aging(cok_adventure *game)
  * cleric of a deity below 5, a knight and a ranger one more), at or above
  * it a fixed sum by the bonus and the levels past the top (a druid's 0x70),
  * words, divided by the classes counted, as a byte. */
-static bool most_hit_points(cok_adventure *game, const uint8_t *c, uint8_t *most)
+bool cok_train_most_hit_points(cok_adventure *game, const uint8_t *c, uint8_t *most)
 {
     const cok_rules *rules = cok_game_rules(game);
     const cok_character_layout *L = rules->character;
@@ -698,7 +699,7 @@ static bool lose_hit_points(cok_adventure *game, uint8_t *c, uint8_t mask, uint8
     uint8_t base = cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS);
     cok_field_set8(L, c, COK_FIELD_BASE_HIT_POINTS, base > sum ? (uint8_t)(base - sum) : 0);
     uint8_t loss = (uint8_t)(sum + con), most;
-    if (!most_hit_points(game, c, &most)) return false;
+    if (!cok_train_most_hit_points(game, c, &most)) return false;
     if ((int)max - (int)loss > (int)most) loss = (uint8_t)(max - most);
     max = max < loss ? 0 : (uint8_t)(max - loss);
     cok_field_set8(L, c, COK_FIELD_MAX_HIT_POINTS, max);

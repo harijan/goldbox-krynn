@@ -208,6 +208,7 @@ segment's tables, a section to a concern:
 | `items` | View and the items menu (`sheet.c`, `items.c`; see View and Death Knights' View): the routine (`cok_items_routine`: Champions' `546c:0d74` and `17f9` by letters, or Death Knights' `580d:0c66` and `0ffa` by index), Death Knights' menus' words; the items list's readied column; Ready's thief level for another order's scroll and its word; the words of Use of an item not readied, of the questions of parting with a scroll and of Drop, of Trade's pick for money and the coin lists' first item, of Death Knights' Deposit; Sell's and Id's words, Sell's divisor of a count's price, whether their question starts on Yes, whether Id waits twice; Death Knights' Heal and Cure (the class, the effect and its minutes, the words) | `COK_ITEMS_CHAMPIONS`; none; `" Yes  "`, `" No   "` (`6346:0473`); none; `Must be Readied`, `is it Okay to lose it? `, `Drop It? `, `Trade to?`, `" Select"`; none; `546c:2822`'s and `2a59`'s words, 20, no, no, no; none |
 | `shops` | the shop, its Buy and Appraise, the temple and its Heal (`shop.c`; see Shops and the temple and Death Knights' shops): the routine (`cok_shops_routine`: Champions' `36d0:07da`, `0484`, `58e7:1929`, `340d:0ea9`, `0be1` by letters, or Death Knights' `3b89:06f3`, `0453`, `5c72:0dc2`, `3999:07d3`, `04e2` by index); whether mode 1's redraw shows the portrait last shown in 3D areas; whether a price (Buy's, Id's) is paid from the steel and then the pool's steel, rather than from the money in steel of every coin; Death Knights' words (the menus, Buy's, the funds, a purchase's, leaving money, Appraise's, Heal's, the cures' questions and words) and the spells its cures name (`DS:030c`) | `COK_SHOPS_CHAMPIONS`; yes (`6346:2c17`); no (`546c:3424`, `58e7:0155`); none |
 | `treasure` | treasure where the games differ (`treasure.c`, `adventure.c`'s `DAMAGE` and `ADD EP`; see Death Knights' treasure): the item table `TREASURE ITEMS` and `STOCK` take items from (a `cok_rules_record` and how many entries it fills, or none); the treasure menus' ways (selections from each menu's first item, special keys told apart from letters, leaving's Yes/No from No) and words (leaving with treasure left, Take's, the items' and the coins' prompts, the coin questions'); taking an item's word when overloaded and whether a counted item joins its kind; the vault's menu items, its line and the deposit's question (View's money's too); `DAMAGE`'s saving throw bonus bits, whether a save made halves the damage, its key; `ADD EP`'s words and whether those who cannot act are passed over first | none (`TREASURE` reads `ITEM<file>`); no, no, no; `There is still treasure left.  ` ..., `Take: `, `Items: `, `Select type of coin `, `How Many `/`How much `; `OverLoaded`, no; none; 0x1f, no, `press <enter>/<return> to continue` (`2fd3:2c80`); `Congratulations ` ... `gains experience!`, no (`2fd3:36dc`) |
+| `creation` | Create New Character, Modify Character and the icon editor where the games differ (`create.c`, `modify.c`, `icon.c`; their lists and menus by letters or by index as the `menus` section's routine): the lists' headings; by class id the levels and experience it starts with, a paladin's effect, the classes with no spells' block; the money (the classes' dice, or so much steel); a mage's spells and those creation's training gives by mage level and order (`cok_rules_created_spells`); the reroll's, name's and save's words and whether the save names the character and starts on Yes; the items every class starts with (`cok_rules_kit` by kind, or a knight's alone); Modify's experiences of a new character, its prompt, the race and class whose charisma is held at 17, whether Keep sets `SHARES`, its most hit points (`cok_most_routine`); the icon editor's words, frame slot and most head and body | `Pick Race` ... `Pick God`, `Pick Alignment`; `4def:0ae0`'s levels and experience, no paladin effect, none; the dice; 11, 18, 12, 15, 21 and levels 2-5 any order; `Reroll stats? `, `Character name: `, `Save NAME? ` from No; a knight's (`4def:5534`); 1500, 1251, 2000, 2001, 2251, 2500, 5000 and the level changed at 0, `Modify: `, none, yes, `4def:48e9`; `Is this icon ok? ` from No, `Sorry, not in CGA`, slot 25, 13 and 31 |
 | `levels` | training, the knights' orders, aging, Memorize and Scribe where the games differ (`train.c`, `magic.c`, `camp.c`; see Training and Camp): Train's words, whether its question starts on Yes, whether free training trains, the highest levels by race and class in place of the kender's limits, the row of a class without one, whether a ranger learns only when it rises; the fixed hit points at a class's top level and a floor of 0; Knight Change's words, whether Change is always offered and special keys do nothing, the level from which a lost level costs a fixed 2; the aging after a battle (by race the ages, and its words); the spell lists' prompt, the memorize table's labels and columns, how the spells marked are kept (a list with Keep, or a question) and Scribe's questions and words; whether the camp unmarks the spells to memorize; Display's headings; the Magic menu's own selection; the camp's Fix (`cok_fix_routine`: Champions' or Death Knights') and the rest's words (the day's healing, an encounter) | `4def:4d9e`'s words, from No, free training, the kender's limits, row 0x74, every time; 2, 0, 3, 0, 2, 1, 2, 3 and wrapping; `Knight Of The `, `Sword`, `Rose`, not always, F9 as C, none; no aging; `Choose Spell: `, `    Cleric Spells:` ... at 20, the questions `Memorize These Spells? `, `Scribe These Spells? ` in yellow from No; yes (`4888:06b8`); 11; the last menu's; none |
 
 A `NULL` stem says the game has no such archive (Death Knights has no
@@ -346,9 +347,11 @@ going on. It holds:
   its words, Load and Add from Death Knights or Champions (`--import`),
   a Drop or Remove that empties the party ending the game, Exit's No
   saving then quitting, Begin's mode from the last mode; and the start
-  menu's commands it does not carry out yet, which stop the run citing
-  their routine: Create (`49cb:05c7`), Modify (`25d4`) and Initialize
-  Mouse/Joystick (`52cd`);
+  menu's command it does not carry out yet, which stops the run citing
+  its routine: Initialize Mouse/Joystick (`52cd`);
+- its creation (the `creation` section; see Death Knights' creation):
+  Create New Character (`49cb:05c7`), its icon editor (`3cac`), its
+  items (`4bea`) and Modify Character (`25d4`);
 - its encounter and battle (the `combat` section; see Death Knights'
   encounter, battlefield, battle and end of combat): `COMBAT`'s vault
   first, the show at distance, leadership, its own open ground, the
@@ -9078,11 +9081,12 @@ here:
   or ninth record, a fourth ranger (`too many rangers in your party`) is
   turned away and keeps its `* `; no paladin rule; no `Loading...Please
   Wait`; a space is not special.
-- Create (`49cb:05c7`), Modify (`25d4`) and Initialize Mouse/Joystick
-  (`52cd`: its own words, and it rewrites `krynn.cfg`, not `DKK.CFG`) are
-  not ported: choosing one stops the run (`not yet ported: Death Knights
-  of Krynn's Create New Character (dkk 49cb:05c7)`). Train (`43b6`) and Knight Change
-  Order (`4ea4`) are Death Knights' training's.
+- Initialize Mouse/Joystick (`52cd`: its own words, and it rewrites
+  `krynn.cfg`, not `DKK.CFG`) is not ported: choosing it stops the run
+  (`not yet ported: Death Knights of Krynn's Initialize Mouse/Joystick
+  (dkk 49cb:52cd)`). Create (`05c7`) and Modify (`25d4`) are Death
+  Knights' creation's (see Creating characters); Train (`43b6`) and Knight
+  Change Order (`4ea4`) are Death Knights' training's.
 
 `tools/dosbox/checks/dkk_start.py` (not in `run_all.py`, as
 `dkk_views.py`) compares the original in DOSBox-X: the four title
@@ -9372,6 +9376,61 @@ to 4; the name is redrawn in light green after a constitution change; the
 `*` beside a changed score is never erased. Modify does not recompute THAC0,
 saving throws or thief skills. Where `4def:257c` returns its
 uninitialized local (a constitution outside 3-19), the port stops.
+
+### Death Knights' creation
+
+Death Knights' (dkk `49cb:05c7`, `3cac`, `4bea`, `25d4`; the `creation`
+section, and the `menus` section's lists and menus by index) differs from
+Champions' here, the rest being as above with its own tables (`DS:7423`,
+`748c`, `756c`, `73b3`, `75b2`, `7618`, `0584`):
+
+- The lists are 6a69:1b82's (`cok_menu_indexed_rows`), the heading a row
+  of the list, `Select` and the list's own Exit; any key it returns but
+  Select leaves. `Pick Diety`, `reroll stats? ` (from No), `character
+  name: `, `save character? ` (from Yes, without the name).
+- Pick Class gives a spells' block (220 bytes, `.WIZ`) to every class but
+  fighter, thief and fighter/thief (2, 6, 0x0e), the levels 1 (a ranger
+  2) and the experience 210003 for one class, 105002 for two, 70001 for
+  three; a paladin (class 3, which dwarves may be) gets effect 0x2d
+  (protection from evil). The cleric's 2000 and 1500 never apply (no
+  class starts at 0).
+- No money is rolled: 500 steel. A mage knows 10, 11, 12, 15, 16, 18 and
+  19, and creation's training (`49cb:43b6` with `DS:8c5c`) gives it at
+  levels 3, 5 and 7 those of its order (White: 29, 33, 34; 46, 47, 51;
+  81, 82, 85, 87; else 30, 31, 32, 34; 45, 47, 48, 50; 83, 84, 85, 87);
+  every class trains to its levels by the experience (the hit points
+  each time). Exceptional strength and the default icon's body 0x18 count
+  paladins as fighters.
+- Saved, each class gets its items (`4bea`), from the item table (ITEM0):
+  by kind (a knight; a fighter, ranger or paladin; a thief; a cleric; a
+  mage) up to four of `DS:058f + 4 * kind`, a thief with a cleric level
+  `DS:059c`'s first, each put at the list's head, readied but 0x5b; then
+  the stats are recomputed and the item count set to 3, whatever it is.
+- The icon editor (`3cac`) is Champions' with menus by index (`DS:35b8 +
+  0x2e * level`: Size's `Small Large Keep Exit` without the size it has,
+  the colours' parts without Face or Hair), every special key, Escape
+  among them, doing nothing; `sorry not in CGA`, `is this icon ok? ` from
+  Yes; the frame behind each icon from slot 0x1c. A colour's part read
+  before one was picked (an index no item gives) stops the run, as the
+  original reads its local unset.
+- Modify (`25d4`) takes a character of 210003, 105002 or 70001
+  experience; `Modify : ` by index (keypad on): Add, Subtract, Keep, Exit,
+  Escape as Exit. What a key in the name does is the menu's last index,
+  which only a special key set: in the name every letter is typed (A, S,
+  K, E too), Enter and Escape do nothing. A hill dwarf paladin's charisma
+  stays at 17; the most hit points are the level drain's (`580d:3454`);
+  Keep sets no `SHARES`.
+
+`tools/dosbox/checks/dkk_create.py` (not in `run_all.py`) compares the
+original in DOSBox-X, seeded: seven characters of every family (cleric,
+paladin, fighter/mage/thief, White mage, kender cleric/thief, knight,
+cleric/ranger), every list, roll and reroll, name, the icon editor's
+menus and edits, the questions, whole screens; their roster files byte
+for byte but the far pointers; and for two of them Add, Modify (scores,
+the name, the hit points, Keep or Exit) and Remove, and the files again.
+`tests/test_start.c` (`test_death_knights_create`) creates and modifies on
+its records, `tests/test_death_knights.c` (`test_creation`) checks the
+section against the original's code.
 
 ## Training
 

@@ -1339,6 +1339,14 @@ static const cok_rules_text_line champions_credit_lines[] = {
     {20, 22, 14, "Electronic Arts"},
 };
 
+/* Creation's training (4def:4d9e with DS:4b58): the spells a mage knows as
+ * it reaches levels 2-5, whatever its order. */
+static const cok_rules_created_spells champions_created_spells[] = {
+    {2, 0, {15}}, {3, 0, {10, 34}}, {4, 0, {31}}, {5, 0, {47}},
+};
+/* Modify Character's new characters' experiences (4def:28fa). */
+static const uint32_t champions_fresh[] = {1500, 1251, 2000, 2001, 2251, 2500, 5000};
+
 const cok_rules cok_rules_champions = {
     .id = "champions",
     .assets = "COKAssets",
@@ -1908,6 +1916,51 @@ const cok_rules cok_rules_champions = {
             .cone_stack_unknown = false,
             .cone_side_unknown = NULL, /* cast.c's own, 5b04:1b2a */
             .flame_type = NULL,
+        },
+    .creation =
+        {
+            .headings = {"Pick Race", "Pick Gender", "Pick Class", "Pick God", "Pick Alignment"},
+            /* 4def:0ae0: by class id, the levels (+0xf9 cleric ... +0x100
+             * knight) and experience; 1 and 3 none. */
+            .classes =
+                {
+                    {{1, 0, 0, 0, 0, 0, 0, 0}, 0},    {{0}, 0},
+                    {{0, 0, 2, 0, 0, 0, 0, 0}, 2001}, {{0}, 0},
+                    {{0, 0, 0, 0, 2, 0, 0, 0}, 2251}, {{0, 0, 0, 0, 0, 2, 0, 0}, 5000},
+                    {{0, 0, 0, 0, 0, 0, 2, 0}, 1251}, {{0, 0, 0, 0, 0, 0, 0, 1}, 2500},
+                    {{1, 0, 1, 0, 0, 0, 0, 0}, 2001}, {{1, 0, 1, 0, 0, 1, 0, 0}, 5000},
+                    {{1, 0, 0, 0, 1, 0, 0, 0}, 2251}, {{1, 0, 0, 0, 0, 1, 0, 0}, 5000},
+                    {{1, 0, 0, 0, 0, 0, 1, 0}, 0},    {{0, 0, 1, 0, 0, 1, 0, 0}, 5000},
+                    {{0, 0, 1, 0, 0, 0, 1, 0}, 2001}, {{0, 0, 1, 0, 0, 1, 1, 0}, 5000},
+                    {{0, 0, 0, 0, 0, 1, 1, 0}, 5000},
+                },
+            .paladin_effect = 0,
+            .no_spells = NULL,
+            .steel = 0,
+            .mage_spells = {11, 18, 12, 15, 21},
+            .created = champions_created_spells,
+            .created_count = 4,
+            .reroll = "Reroll stats? ",
+            .name_prompt = "Character name: ",
+            .save = "Save %s? ",
+            .save_names = true,
+            .save_yes = false,
+            .kits = NULL,
+            .cleric_thief_item = 0,
+            .unready_item = 0,
+            .fresh = champions_fresh,
+            .fresh_count = 7,
+            .modify_prompt = "Modify: ",
+            .charisma_race = 0xff,
+            .charisma_class = 0xff,
+            .keep_shares = true,
+            .most = COK_MOST_CHAMPIONS,
+            .icon_ok = "Is this icon ok? ",
+            .no_cga = "Sorry, not in CGA", /* 4def:4276 */
+            .icon_ok_yes = false,
+            .icon_frame = 25,
+            .heads = 13,
+            .bodies = 31,
         },
 };
 

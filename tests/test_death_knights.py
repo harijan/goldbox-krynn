@@ -1123,21 +1123,80 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertNotIn("THEY COLLECT THEIR THINGS", result.stdout)
         self.assertTrue(result.stdout.endswith("(done in block 17)\n"), result.stdout[-200:])
 
+    # Create New Character (49cb:05c7) and Modify (25d4) from the title,
+    # seeded, the keys tools/dosbox/checks/dkk_create.py typed to the
+    # original: its roster files (far pointers masked) are those the
+    # original wrote, digest for digest. (name, seed, keys after the title's
+    # two, the files, their digest.)
+    CREATED = [
+        ("CLERIC", 3, r"\r\r\v\v\v\v\v\v\r\r\r\r\rYNCLERIC\rPHNNKES\rK1BNKE2WPEEEYY\v\r\r\r\e"
+         r"\v\r\rAAS\vS\v\v\v\vA\vASKE\b\b\vASK\v\v\v\r\r", ["ASKC", "CLERIC"], "JNK PC WIZ",
+         "2cd46d04e66f67e56d11eab8d2f28392"),
+        ("PALADIN", 5, r"\r\r\v\v\v\r\v\r\v\v\v\r\rNPALADIN\rEYY\v\r\r\r\e\v\r\r\^\^\^SAAE"
+         r"\v\v\v\r\rY", ["PALADIN"], "EFF JNK PC WIZ", "c1e0082857e7c2261b41173d3a9f5e99"),
+        ("TRIPLE", 7, r"\r\r\v\r\r" + r"\v" * 11 + r"\r\rYNTRIPLE\rEYY", ["TRIPLE"],
+         "EFF JNK PC WIZ", "6e6d79ba8b3c80b13704d45bf270c0ec"),
+        ("WHITE", 11, r"\r\r\r\v\r\v\v\r\rNWHITE\rEYY", ["WHITE"], "EFF JNK PC WIZ",
+         "9fe88e1cd80bf8106a6e55e057e2692f"),
+        ("KENDER", 13, r"\r\r\v\v\v\v\v\r\r\v\v\v\v\v\v\r\v\v\v\v\r\v\v\rNKENDER\rEYY",
+         ["KENDER"], "EFF JNK PC WIZ", "5d1b4b436a7244ada666706817595528"),
+        ("KNIGHT", 17, r"\r\r\v\v\v\v\v\v\r\r\v\v\v\v\v\r\rNKNIGHT\rEYY", ["KNIGHT"],
+         "JNK PC WIZ", "e43a31ba0f33a4ce14e15bef40a83e47"),
+        ("RANGER", 19, r"\r\r\v\v\r\v\r\v\v\v\v\v\v\v\r\v\r\v\rNRANGER\rEYY", ["RANGER"],
+         "EFF JNK PC WIZ", "bfb010b52f59b47de6e3b2e45a17cab6"),
+    ]
+
+    @staticmethod
+    def masked(name, data):
+        """dkk_start.masked_character: a character's file, its far pointers 0."""
+        data = bytearray(data)
+        ext = name.rsplit(".", 1)[-1]
+        if ext == "PC":
+            for at, n in ((0x3A, 4), (0x7D, 0xB9 - 0x7D), (0xB9, 4), (0xBD, 4), (0xC2, 4)):
+                data[at:at + n] = bytes(n)
+        elif ext == "JNK":
+            for k in range(0, len(data) - 62, 63):
+                data[k + 0x2A:k + 0x2E] = bytes(4)
+        elif ext == "EFF":
+            for k in range(0, len(data) - 8, 9):
+                data[k + 5:k + 9] = bytes(4)
+        return bytes(data)
+
+    def test_create(self):
+        for name, seed, keys, bases, exts, digest in self.CREATED:
+            with self.subTest(name):
+                saves = self.saves(ASSETS / "SAVE")
+                result = self.play("--start-menu", "--saves", saves, "--seed", seed, "--keys",
+                                   r"\kx\kx" + keys, ASSETS)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f"roster: {name}.PC", result.stdout)
+                files = {f.name: f.read_bytes() for f in saves.iterdir()
+                         if f.suffix in (".PC", ".WIZ", ".JNK", ".EFF")
+                         and not f.name.startswith("CHRDAT")}
+                self.assertEqual(sorted(files), sorted(f"{b}.{e}" for b in bases
+                                                       for e in exts.split()))
+                h = hashlib.md5()
+                for n in sorted(files):
+                    h.update(n.encode())
+                    h.update(self.masked(n, files[n]))
+                self.assertEqual(h.hexdigest(), digest)
+
     def test_unported_stops(self):
-        # What is not ported stops the run, naming the routine: creating a
-        # character (49cb:05c7).
-        result = self.play("--start-menu", "--keys", self.TITLE + r"\r", ASSETS)
+        # What is not ported stops the run, naming the routine: Initialize
+        # Mouse/Joystick (49cb:52cd), the fourth row without a party.
+        keys = self.TITLE + r"\v\v\v\r"
+        result = self.play("--start-menu", "--keys", keys, ASSETS)
         self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stderr, "not yet ported: Death Knights of Krynn's Create New "
-                         "Character (dkk 49cb:05c7)\n")
+        self.assertEqual(result.stderr, "not yet ported: Death Knights of Krynn's Initialize "
+                         "Mouse/Joystick (dkk 49cb:52cd)\n")
         if (BUILD / "cok").exists():
             env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
             result = subprocess.run([str(BUILD / "cok"), *GAME, "--saves", self.saves(),
-                                     "--no-delay", "--keys", self.TITLE + r"\r"],
+                                     "--no-delay", "--keys", keys],
                                     capture_output=True, text=True, env=env, cwd=ROOT)
             self.assertEqual(result.returncode, 1)
-            self.assertIn("not yet ported: Death Knights of Krynn's Create New Character "
-                          "(dkk 49cb:05c7)", result.stderr)
+            self.assertIn("not yet ported: Death Knights of Krynn's Initialize Mouse/Joystick "
+                          "(dkk 49cb:52cd)", result.stderr)
 
     def test_view_by_wall_id(self):
         # Block 48 in a 3D area: LOAD PIECES 2 loads wall set 2 from

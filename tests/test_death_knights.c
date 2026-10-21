@@ -2265,6 +2265,126 @@ static void test_band_c(void)
     puts("death knights: the band C spells and effects checked");
 }
 
+/* The creation section against the original's code: Create New Character
+ * (49cb:05c7: its headings, words and questions' first items, the class
+ * switch from 0ba3, its levels, experience and effects, the classes with
+ * no spells' block, the mage's spells, the steel), creation's training
+ * (49cb:43b6 from 4a57: a mage's spells by order and level), the items by
+ * kind (49cb:4bea), Modify (49cb:25d4: the experiences it allows, its
+ * prompt, the charisma held at 17), the icon editor (49cb:3cac, 39d6: its
+ * words, the frame's slot, the most head and body). */
+static void test_creation(void)
+{
+    const cok_rules_creation *C = &R->creation;
+    static const unsigned headings[5] = {0x1280, 0x128b, 0x12a0, 0x12ab, 0x12b6};
+    for (size_t i = 0; i < 5; ++i)
+        CHECK(pascal_is(ds(headings[i]), C->headings[i], false) &&
+              HOLDS(0x49cb, 0x05c7, 0x1400, 0xbf, (uint8_t)headings[i],
+                    (uint8_t)(headings[i] >> 8)));
+    CHECK(pascal_is(ds(0x12cb), C->reroll, false) && pascal_is(ds(0x12e0), C->name_prompt, false) &&
+          pascal_is(ds(0x12f5), C->save, false) && !C->save_names);
+    /* reroll stats? from No (DS:57c1 1), save character? from Yes (57c0 0). */
+    CHECK(*ds(0x57c0) == 0 && *ds(0x57c1) == 1);
+    CHECK(HOLDS(0x49cb, 0x22a0, 0x10, 0xa0, 0xc1, 0x57) && HOLDS(0x49cb, 0x232f, 0x10, 0xa0, 0xc0, 0x57) &&
+          C->save_yes);
+    /* The class switch: cmp al, class; mov byte [es:di+0x45 + k], level;
+     * mov word [es:di+0x62], low and [es:di+0x64], high; an effect's
+     * mov al, id before 638c:1257's call. */
+    uint8_t levels[17][8] = {{0}}, effect[17] = {0};
+    uint32_t experience[17] = {0};
+    bool seen[17] = {false};
+    int class_ = -1;
+    const uint8_t *b = at(0x49cb, 0x0ba3);
+    for (size_t i = 0; i < 0x0e22 - 0x0ba3; ++i) {
+        if (b[i] == 0x3c && b[i + 1] < 17 && b[i + 2] == 0x75) {
+            class_ = b[i + 1];
+            seen[class_] = true;
+        } else if (class_ >= 0 && b[i] == 0x26 && b[i + 1] == 0xc6 && b[i + 2] == 0x45 &&
+                   b[i + 3] >= 0x45 && b[i + 3] < 0x4d) {
+            levels[class_][b[i + 3] - 0x45] = b[i + 4];
+        } else if (class_ >= 0 && b[i] == 0x26 && b[i + 1] == 0xc7 && b[i + 2] == 0x45 &&
+                   (b[i + 3] == 0x62 || b[i + 3] == 0x64)) {
+            experience[class_] |= (uint32_t)(b[i + 4] | b[i + 5] << 8) << (b[i + 3] == 0x64 ? 16 : 0);
+        } else if (class_ >= 0 && b[i] == 0xb0 && b[i + 2] == 0x50 && b[i + 3] == 0x31) {
+            effect[class_] = b[i + 1];
+        }
+    }
+    for (unsigned k = 0; k < 17; ++k) {
+        if (!seen[k]) {
+            CHECK(k == 1 && C->classes[k].experience == 0);
+            continue;
+        }
+        CHECK(memcmp(levels[k], C->classes[k].levels, 8) == 0);
+        CHECK(experience[k] == C->classes[k].experience);
+        uint8_t want = k == 4 || k == 10 ? cok_effect_id(R, COK_EFFECT_RANGER)
+                       : k == 3          ? C->paladin_effect
+                                         : 0;
+        CHECK(effect[k] == want);
+    }
+    /* The classes with no spells' block: cmp byte [es:di+0x21], class. */
+    CHECK(HOLDS(0x49cb, 0x0b44, 0x20, 0x26, 0x80, 0x7d, 0x21, C->no_spells[0]) &&
+          HOLDS(0x49cb, 0x0b44, 0x20, 0x26, 0x80, 0x7d, 0x21, C->no_spells[1]) &&
+          HOLDS(0x49cb, 0x0b44, 0x20, 0x26, 0x80, 0x7d, 0x21, C->no_spells[2]) &&
+          C->no_spells[3] == 0xff);
+    /* A mage's spells: mov byte [es:di+0x49 + id], 1 in the block, from
+     * 20ea; the steel, mov word [es:di+0x3f], 500. */
+    uint8_t mage[8] = {0};
+    size_t n = 0;
+    b = at(0x49cb, 0x20ea);
+    for (size_t i = 0; i < 0x2145 - 0x20ea && n < 8; ++i)
+        if (b[i] == 0x26 && b[i + 1] == 0xc6 && b[i + 2] == 0x45 && b[i + 4] == 0x01)
+            mage[n++] = (uint8_t)(b[i + 3] - 0x49);
+    CHECK(memcmp(mage, C->mage_spells, 8) == 0);
+    CHECK(HOLDS(0x49cb, 0x2151, 0x10, 0x26, 0xc7, 0x45, 0x3f, (uint8_t)C->steel,
+                (uint8_t)(C->steel >> 8)));
+    /* Creation's training: from 4a57, the White Robes' (cmp byte
+     * [es:di+0x24], 1) to 4b01, then the others'; cmp al, level; each
+     * mov byte [es:di+disp], 1 with disp = 0x49 + id. */
+    cok_rules_created_spells found[8];
+    size_t count = 0;
+    b = at(0x49cb, 0x4a57);
+    CHECK(b[0] == 0x26 && b[1] == 0x80 && b[2] == 0x7d && b[3] == 0x24 && b[4] == 1);
+    for (size_t i = 5, k = 0; i < 0x4bb8 - 0x4a57 && count <= 8; ++i) {
+        if (b[i] == 0x3c && i + 2 < 0x4bb8 - 0x4a57 && b[i + 2] == 0x75 && count < 8) {
+            found[count] = (cok_rules_created_spells){b[i + 1], 0x4a57 + i < 0x4b01 ? 1 : 0, {0}};
+            ++count;
+            k = 0;
+        } else if (count > 0 && b[i] == 0x26 && b[i + 1] == 0xc6 && k < 4) {
+            unsigned disp = b[i + 2] == 0x45 ? b[i + 3] : b[i + 2] == 0x85 ? (unsigned)(b[i + 3] | b[i + 4] << 8) : 0;
+            if (disp != 0) found[count - 1].spells[k++] = (uint8_t)(disp - 0x49);
+        }
+    }
+    CHECK(count == C->created_count);
+    for (size_t i = 0; i < count; ++i)
+        CHECK(found[i].level == C->created[i].level && found[i].order == C->created[i].order &&
+              memcmp(found[i].spells, C->created[i].spells, 4) == 0);
+    /* The kits: DS:058b + 4 * kind + item, the thief's with a cleric level
+     * DS:059c first (mov al, [0x59c]; mov al, [di+0x58b]), and the item
+     * not readied (cmp byte [bp-0xa], 0x5b). */
+    for (unsigned kind = 1; kind <= 5; ++kind)
+        for (unsigned k = 0; k < 4; ++k) CHECK(*ds(0x058b + 4 * kind + k + 1) == C->kits[kind].items[k]);
+    CHECK(*ds(0x059c) == C->cleric_thief_item && HOLDS(0x49cb, 0x4bea, 0x1b0, 0xa0, 0x9c, 0x05) &&
+          HOLDS(0x49cb, 0x4bea, 0x1b0, 0x8a, 0x85, 0x8b, 0x05) &&
+          HOLDS(0x49cb, 0x4bea, 0x1b0, 0x80, 0x7e, 0xf6, C->unready_item));
+    /* Modify: cmp word [es:di+0x64], high; cmp word [es:di+0x62], low. */
+    CHECK(C->fresh_count == 3);
+    for (size_t i = 0; i < C->fresh_count; ++i)
+        CHECK(HOLDS(0x49cb, 0x25e7, 0x40, 0x26, 0x83, 0x7d, 0x64, (uint8_t)(C->fresh[i] >> 16)) &&
+              HOLDS(0x49cb, 0x25e7, 0x40, 0x26, 0x81, 0x7d, 0x62, (uint8_t)C->fresh[i],
+                    (uint8_t)(C->fresh[i] >> 8)));
+    CHECK(pascal_is(ds(0x302d), C->modify_prompt, false) && pascal_is(ds(0x3318), "Add Subtract Keep Exit", false));
+    CHECK(HOLDS(0x49cb, 0x2d89, 0x40, 0x26, 0x80, 0x7d, 0x20, C->charisma_race) &&
+          HOLDS(0x49cb, 0x2d89, 0x40, 0x26, 0x80, 0x7d, 0x21, C->charisma_class) &&
+          HOLDS(0x49cb, 0x2d89, 0x40, 0x26, 0x80, 0x7d, 0x11, 0x11) && !C->keep_shares &&
+          C->most == COK_MOST_DEATH_KNIGHTS);
+    /* The icon editor: its words, mov al, 0x1c before 7090:0484 (39d6),
+     * the head's and body's most (DS:72ac, 72ad). */
+    CHECK(pascal_is(ds(0x13fd), C->icon_ok, false) && pascal_is(ds(0x13bd), C->no_cga, false) &&
+          C->icon_ok_yes && HOLDS(0x49cb, 0x39d6, 0xdf, 0xb0, C->icon_frame) &&
+          *ds(0x72ac) == C->heads && *ds(0x72ad) == C->bodies);
+    puts("death knights: the creation section checked");
+}
+
 int main(void)
 {
     test_lookup();
@@ -2287,6 +2407,7 @@ int main(void)
         if (exe_size > 0) test_spells();
         if (exe_size > 0) test_effects();
         if (exe_size > 0) test_band_c();
+        if (exe_size > 0) test_creation();
     }
     puts("death knights: ok");
     return 0;

@@ -37,6 +37,18 @@ static bool undefined(cok_adventure *game, const char *what)
     return false;
 }
 
+/* Whether c has a level of a class that counts as a fighter's
+ * (characters.fighter_classes: Champions' fighters, rangers and knights;
+ * dkk paladins too). */
+static bool fighter(const cok_rules *rules, const uint8_t *c)
+{
+    for (unsigned i = 0; i < 8; ++i)
+        if ((rules->characters.fighter_classes >> i & 1) != 0 &&
+            cok_field_s8_at(rules->character, c, COK_FIELD_CLASS_LEVEL, i) > 0)
+            return true;
+    return false;
+}
+
 void cok_create_icon(uint8_t *c, const cok_rules *rules)
 {
     const cok_character_layout *L = rules->character;
@@ -52,8 +64,7 @@ void cok_create_icon(uint8_t *c, const cok_rules *rules)
         cok_field_set8(L, c, COK_FIELD_ICON_BODY, 0x17);
     else if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 4) > 0)
         cok_field_set8(L, c, COK_FIELD_ICON_BODY, 1);
-    else if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > 0 ||
-             cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 2) > 0)
+    else if (fighter(rules, c))
         cok_field_set8(L, c, COK_FIELD_ICON_BODY, 0x18);
     else if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 5) > 0)
         cok_field_set8(L, c, COK_FIELD_ICON_BODY, 0x1d);
@@ -84,7 +95,10 @@ bool cok_create_knight_items(cok_character *character, const cok_rules *rules)
 /* A list of creation (67b5:1368): heading, then each name after two
  * spaces, in cells 1-38 by 2-22, "Select" and "Exit". Returns 'S' with
  * *index the row picked (the first under the heading at first), 0 for
- * Escape or Exit, or -1 when input ended. Other keys pick again. */
+ * Escape or Exit, or -1 when input ended. Other keys pick again. A game
+ * whose menus go by index (dkk 49cb:05c7) lists with 6a69:1b82 (its
+ * items 0, "Select", and its own Exit): Select picks, anything else it
+ * returns (Exit, Escape) leaves. */
 static int pick(cok_adventure *game, const char *heading, char names[][41], size_t count,
                 int *index)
 {
@@ -101,6 +115,23 @@ static int pick(cok_adventure *game, const char *heading, char names[][41], size
     bool redraw = true;
     *index = 1;
     cok_keyboard keys = cok_adventure_keyboard(game);
+    if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
+        /* 6a69:00cb(0), then 1b82 with Exit and the list's own after item
+         * 0; a key it returns but Select (0) leaves: Exit and Escape as
+         * 0x1b with DS:c0f8 set, any other index with it clear. */
+        cok_menu_items items;
+        cok_menu_items_upto(&items, 0);
+        bool special = false, picked;
+        int key = cok_menu_indexed_rows(&game->screen, &game->font, rows, count + 1,
+                                        (cok_text_window){1, 2, 0x26, 0x16}, &style, style.base,
+                                        &items, 0, &redraw, index, &game->list_top,
+                                        &game->selected, &keys, &special, &picked);
+        if (key < 0) return key;
+        game->menu_special = special; /* DS:c0f8 */
+        if (special || key != 0 || *index < 1 || (size_t)*index > count) return 0;
+        cok_adventure_log(game, "choice", names[*index - 1]);
+        return 'S';
+    }
     for (;;) {
         int key = cok_menu_rows(&game->screen, &game->font, rows, count + 1,
                                 (cok_text_window){1, 2, 0x26, 0x16}, &style, &redraw, index,
@@ -136,7 +167,7 @@ static int race(cok_adventure *game, cok_character *character)
     const cok_character_layout *L = cok_game_rules(game)->character;
     char names[7][41];
     for (unsigned i = 0; i < 7; ++i) table_name(game, COK_DATA_RACE_NAMES, i, names[i]);
-    int index, key = pick(game, "Pick Race", names, 7, &index);
+    int index, key = pick(game, cok_game_rules(game)->creation.headings[0], names, 7, &index);
     if (key != 'S') return key;
     uint8_t *c = character->record;
     uint8_t race = (uint8_t)(index - 1);
@@ -163,14 +194,17 @@ static int gender(cok_adventure *game, cok_character *character)
     const cok_character_layout *L = cok_game_rules(game)->character;
     char names[2][41];
     for (unsigned i = 0; i < 2; ++i) table_name(game, COK_DATA_GENDER_NAMES, i, names[i]);
-    int index, key = pick(game, "Pick Gender", names, 2, &index);
+    int index, key = pick(game, cok_game_rules(game)->creation.headings[1], names, 2, &index);
     if (key == 'S') cok_field_set8(L, character->record, COK_FIELD_GENDER, (uint8_t)(index - 1));
     return key;
 }
 
-/* Pick Class (4def:0ae0): the classes of the race (DS:3a50, 15 bytes a
- * race: the count, then the classes), its levels and experience, and the
- * class-time THAC0, class bits, thief skills and saving throws. */
+/* Pick Class (4def:0ae0; dkk 49cb:05c7): the classes of the race
+ * (DS:3a50, 15 bytes a race: the count, then the classes), a spells'
+ * block where the game keeps one and the class gets one, its levels and
+ * experience (the creation section's), a ranger's and a paladin's
+ * effects, and the class-time THAC0, class bits, thief skills and saving
+ * throws. */
 static int class_(cok_adventure *game, cok_character *character)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
@@ -182,29 +216,27 @@ static int class_(cok_adventure *game, cok_character *character)
     char names[16][41];
     for (unsigned i = 1; i <= count && i <= 16; ++i)
         table_name(game, COK_DATA_CLASS_NAMES, ds(D, (uint16_t)(base + i)), names[i - 1]);
-    int index, key = pick(game, "Pick Class", names, count, &index);
+    int index, key = pick(game, cok_game_rules(game)->creation.headings[2], names, count, &index);
     if (key != 'S') return key;
     cok_field_set32(L, c, COK_FIELD_EXPERIENCE, 0);
     uint8_t class_id = ds(D, (uint16_t)(base + index));
     cok_field_set8(L, c, COK_FIELD_CLASS, class_id);
-    /* Levels by class (+0xf9 cleric ... +0x100 knight) and experience. */
-    static const struct { uint8_t levels[8]; uint16_t experience; } kinds[17] = {
-        {{1, 0, 0, 0, 0, 0, 0, 0}, 0},    {{0}, 0},
-        {{0, 0, 2, 0, 0, 0, 0, 0}, 2001}, {{0}, 0},
-        {{0, 0, 0, 0, 2, 0, 0, 0}, 2251}, {{0, 0, 0, 0, 0, 2, 0, 0}, 5000},
-        {{0, 0, 0, 0, 0, 0, 2, 0}, 1251}, {{0, 0, 0, 0, 0, 0, 0, 1}, 2500},
-        {{1, 0, 1, 0, 0, 0, 0, 0}, 2001}, {{1, 0, 1, 0, 0, 1, 0, 0}, 5000},
-        {{1, 0, 0, 0, 1, 0, 0, 0}, 2251}, {{1, 0, 0, 0, 0, 1, 0, 0}, 5000},
-        {{1, 0, 0, 0, 0, 0, 1, 0}, 0},    {{0, 0, 1, 0, 0, 1, 0, 0}, 5000},
-        {{0, 0, 1, 0, 0, 0, 1, 0}, 2001}, {{0, 0, 1, 0, 0, 1, 1, 0}, 5000},
-        {{0, 0, 0, 0, 0, 1, 1, 0}, 5000},
-    };
+    const cok_rules_creation *C = &cok_game_rules(game)->creation;
+    if (C->no_spells != NULL) {
+        /* dkk 49cb:05c7: every class but these gets a block of 0xdc, zeroed. */
+        bool none = false;
+        for (const uint8_t *k = C->no_spells; *k != 0xff; ++k) none |= *k == class_id;
+        cok_field_set_spells(L, c, !none);
+    }
+    /* Levels by class (+0xf9 cleric ... +0x100 knight; dkk +0x45 ...
+     * +0x4c) and experience. */
     if (class_id < 17) {
-        memcpy(c + cok_field_offset(L, COK_FIELD_CLASS_LEVEL), kinds[class_id].levels, 8);
-        cok_field_set32(L, c, COK_FIELD_EXPERIENCE, kinds[class_id].experience);
+        memcpy(c + cok_field_offset(L, COK_FIELD_CLASS_LEVEL), C->classes[class_id].levels, 8);
+        cok_field_set32(L, c, COK_FIELD_EXPERIENCE, C->classes[class_id].experience);
     }
     if (class_id == 4 || class_id == 10)
         add_effect(character, cok_game_effect(game, COK_EFFECT_RANGER));
+    if (class_id == 3 && C->paladin_effect != 0) add_effect(character, C->paladin_effect);
     if (class_id == 7) cok_field_set8(L, c, COK_FIELD_KNIGHT_ORDER, 1);
     char error[300];
     /* 66c2:0b9f's uninitialized local holds the normal colour, 0x0a, that
@@ -245,7 +277,7 @@ static int deity(cok_adventure *game, cok_character *character, uint8_t *mask)
     size_t count = dwarf ? 1 : 7;
     for (unsigned i = 0; i < count; ++i)
         table_name(game, COK_DATA_DEITY_NAMES, dwarf ? 6 : i + 1, names[i]);
-    int index, key = pick(game, "Pick God", names, count, &index);
+    int index, key = pick(game, cok_game_rules(game)->creation.headings[3], names, count, &index);
     if (key != 'S') return key;
     uint8_t god = dwarf ? 6 : (uint8_t)index;
     cok_field_set8(L, c, COK_FIELD_DEITY, god);
@@ -288,7 +320,7 @@ static int alignment(cok_adventure *game, cok_character *character, uint8_t mask
         table_name(game, COK_DATA_ALIGNMENT_NAMES, cok_data_u8_at(D, COK_DATA_ALIGNMENT_CODES, j),
                    names[count++]);
     }
-    int index, key = pick(game, "Pick Alignment", names, count, &index);
+    int index, key = pick(game, cok_game_rules(game)->creation.headings[4], names, count, &index);
     if (key != 'S') return key;
     uint8_t code = codes[index - 1];
     cok_field_set8(L, c, COK_FIELD_ALIGNMENT, code);
@@ -335,7 +367,7 @@ static void age(cok_adventure *game, uint8_t *c)
  * race's limits (DS:39e0 + race * 16; strength's by gender) and above the
  * class's minimum (DS:3bdf + class * 6), wisdom 13 for a cleric of more
  * than one class, and exceptional strength d100 at 18 for a fighter,
- * ranger or knight, at most the race's. The original's racial
+ * ranger or knight (dkk a paladin too), at most the race's. The original's racial
  * adjustments test the race list's loop counter, always 6, the human,
  * which has none: no score is adjusted by race. */
 static void abilities(cok_adventure *game, uint8_t *c)
@@ -400,10 +432,7 @@ static void abilities(cok_adventure *game, uint8_t *c)
         if (a == 2 && s < 13 && cok_field_u8(L, c, COK_FIELD_CLASS) >= 8 &&
             cok_field_u8(L, c, COK_FIELD_CLASS) <= 12)
             s = 13;
-        if (a == 0 && s == 18 &&
-            (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 2) > 0 ||
-             cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 4) > 0 ||
-             cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > 0)) {
+        if (a == 0 && s == 18 && fighter(cok_game_rules(game), c)) {
             cok_field_set8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL,
                            (uint8_t)(cok_tp_random(&game->vm.seed, 100) + 1));
             uint8_t most = ds(D, (uint16_t)(limits + 4 + sex));
@@ -419,7 +448,8 @@ static void abilities(cok_adventure *game, uint8_t *c)
     }
 }
 
-/* The base combat fields, money and spells (4def:20e3). */
+/* The base combat fields, money and spells (4def:20e3; dkk 49cb:05c7's,
+ * with no dice for the money: the creation section's steel). */
 static bool equip(cok_adventure *game, cok_character *character, uint8_t *classes)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
@@ -442,12 +472,16 @@ static bool equip(cok_adventure *game, cok_character *character, uint8_t *classe
                                cok_field_s8(L, c, COK_FIELD_DEITY) <= 4 ? 1 : 2);
         if (i == 5) cok_field_set8_at2(L, c, COK_FIELD_SPELLS_A_DAY, 3, 1, 1);
         uint32_t *seed = &game->vm.seed;
-        if (i == 7) {
+        const cok_rules_creation *C = &cok_game_rules(game)->creation;
+        if (C->steel != 0) {
+            /* No dice. */
+        } else if (i == 7) {
             money = cok_dice(seed, 1, 4);
         } else if (i == 2 || i == 4) {
             money = (uint8_t)(money + cok_dice(seed, 5, 4));
-        } else if (i == 0) {
-            money = (uint8_t)(money + cok_dice(seed, 3, 6));
+        }
+        if (i == 0) {
+            if (C->steel == 0) money = (uint8_t)(money + cok_dice(seed, 3, 6));
             char error[300];
             if (!cok_character_cleric_spells(character, cok_game_rules(game), error, sizeof error))
                 return undefined(game, error);
@@ -457,13 +491,10 @@ static bool equip(cok_adventure *game, cok_character *character, uint8_t *classe
                 if (spell != 0) cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, spell, 1);
             }
         } else if (i == 5) {
-            money = (uint8_t)(money + cok_dice(seed, 2, 4));
-            cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 11, 1);
-            cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 18, 1);
-            cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 12, 1);
-            cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 15, 1);
-            cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, 21, 1);
-        } else if (i == 6) {
+            if (C->steel == 0) money = (uint8_t)(money + cok_dice(seed, 2, 4));
+            for (const uint8_t *k = C->mage_spells; k < C->mage_spells + 8 && *k != 0; ++k)
+                cok_field_set8_at(L, c, COK_FIELD_KNOWN_SPELL, *k, 1);
+        } else if (i == 6 && C->steel == 0) {
             money = (uint8_t)(money + cok_dice(seed, 2, 6));
         }
         ++*classes;
@@ -471,12 +502,13 @@ static bool equip(cok_adventure *game, cok_character *character, uint8_t *classe
     /* The division of a multi-class's money tests the loop's counter, 7
      * after the loop, and never happens. */
     money = (uint8_t)(money + money * 20 / 100);
-    cok_field_set16_at(L, c, COK_FIELD_COINS, 4, money);
+    uint16_t steel = cok_game_rules(game)->creation.steel;
+    cok_field_set16_at(L, c, COK_FIELD_COINS, 4, steel != 0 ? steel : money);
     return true;
 }
 
-/* The levels on the sheet's row 7 (4def:232a), written over the sheet's
- * without clearing. */
+/* The levels on the sheet's row 7 (4def:232a; dkk 49cb:05c7's, without
+ * former classes), written over the sheet's without clearing. */
 static void level_line(cok_adventure *game, const uint8_t *c)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
@@ -490,7 +522,7 @@ static void level_line(cok_adventure *game, const uint8_t *c)
     bool any = false;
     for (unsigned i = 0; i < 8; ++i) {
         int8_t now = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i),
-               before = cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, i);
+               before = cok_character_former_level(cok_game_rules(game), c, i);
         if (now <= 0 && !(before < first && before > 0)) continue;
         size_t length = strlen(line);
         snprintf(line + length, sizeof line - length, "%s%d", any ? "/" : "", now + before);
@@ -531,15 +563,17 @@ static bool roll(cok_adventure *game, cok_character *character)
     return cok_sheet_figures(game, character) && cok_sheet_money(game, c);
 }
 
-/* Name the character (4def:245e): until a name is typed. */
+/* Name the character (4def:245e; dkk 49cb:05c7's 14e4:072d): until a
+ * name is typed. */
 static bool name(cok_adventure *game, uint8_t *c)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
+    const char *prompt = cok_game_rules(game)->creation.name_prompt;
     cok_keyboard keys = cok_adventure_keyboard_raw(game);
     char line[41] = "";
     while (line[0] == '\0') {
-        cok_adventure_log(game, "input", "Character name: ");
-        if (!cok_text_input(&game->screen, &game->font, "Character name: ", 13, 0, 15, &keys, line))
+        cok_adventure_log(game, "input", prompt);
+        if (!cok_text_input(&game->screen, &game->font, prompt, 13, 0, 15, &keys, line))
             return false;
     }
     cok_adventure_log(game, "input", line);
@@ -548,6 +582,43 @@ static bool name(cok_adventure *game, uint8_t *c)
     memset(c + cok_field_offset(L, COK_FIELD_NAME), 0, cok_field_size(L, COK_FIELD_NAME));
     cok_field_set8_at(L, c, COK_FIELD_NAME, 0, (uint8_t)length);
     memcpy(c + cok_field_offset_at(L, COK_FIELD_NAME, 1), line, length);
+    return true;
+}
+
+/* dkk 49cb:4bea: a new character's items, by its kind (a knight; a
+ * fighter, ranger or paladin; a thief; a cleric; else a mage), the
+ * creation section's kit, the first a thief's with a cleric level its own:
+ * each the item table's entry (17 bytes at +0x2e, the rest 0), unless 0 or
+ * one the table has not (0xff), its +0x35 low three bits cleared, readied
+ * (+0x34) but unready_item, put at the list's head; then the stats
+ * recomputed (65cd:0e46), and the item count (+0x7c) 3 whatever it is. */
+static bool kit(cok_adventure *game, cok_character *character)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_rules_creation *C = &rules->creation;
+    const cok_character_layout *L = rules->character;
+    const uint8_t *c = character->record;
+    int8_t knight = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7),
+           thief = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 6),
+           cleric = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0);
+    bool fights = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 2) > 0 ||
+                  cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 4) > 0 ||
+                  cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 3) > 0;
+    unsigned kind = knight > 0 ? 1 : fights ? 2 : thief > 0 ? 3 : cleric > 0 ? 4 : 5;
+    for (unsigned k = 0; k < 4; ++k) {
+        uint8_t id = kind == 3 && k == 0 && cleric > 0 ? C->cleric_thief_item
+                                                       : C->kits[kind].items[k];
+        if (id == 0 || id >= COK_ITEM_ENTRIES || game->item_table[id][0] == 0xff) continue;
+        uint8_t item[COK_ITEM_SIZE] = {0};
+        memcpy(item + 0x2e, game->item_table[id], COK_ITEM_ENTRY);
+        item[0x35] &= 0xf8;
+        if (id != C->unready_item) item[0x34] = 1;
+        if (!cok_character_insert_item(character, 0, item)) return undefined(game, "out of memory");
+    }
+    char error[300];
+    if (!cok_character_stats(character, rules, &game->item_types, error, sizeof error))
+        return undefined(game, error);
+    cok_field_set8(L, character->record, COK_FIELD_ITEM_COUNT, 3);
     return true;
 }
 
@@ -580,7 +651,7 @@ static bool build(cok_adventure *game, cok_character *character)
     int answer;
     do {
         if (!roll(game, character)) return false;
-        answer = cok_camp_yes_no(game, "Reroll stats? ", 13);
+        answer = cok_camp_yes_no(game, cok_game_rules(game)->creation.reroll, 13);
         if (answer < 0) return false;
     } while (answer != 'N');
     if (!cok_sheet_draw(game) || !name(game, c)) return false;
@@ -590,15 +661,24 @@ static bool build(cok_adventure *game, cok_character *character)
         cok_field_set8_at(L, c, COK_FIELD_SCORE_BASE, a, cok_field_u8_at(L, c, COK_FIELD_SCORE, a));
     cok_field_set8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL_BASE,
                    cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL));
+    const cok_rules_creation *C = &cok_game_rules(game)->creation;
     char prompt[48];
     uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
-    snprintf(prompt, sizeof prompt, "Save %.*s? ", stored > 15 ? 15 : stored,
-             (const char *)c + cok_field_offset_at(L, COK_FIELD_NAME, 1));
-    answer = cok_camp_yes_no(game, prompt, 13);
+    if (C->save_names) {
+        char who[16];
+        snprintf(who, sizeof who, "%.*s", stored > 15 ? 15 : stored,
+                 (const char *)c + cok_field_offset_at(L, COK_FIELD_NAME, 1));
+        snprintf(prompt, sizeof prompt, C->save, who);
+    } else
+        snprintf(prompt, sizeof prompt, "%s", C->save);
+    answer = cok_camp_ask(game, prompt, 13, C->save_yes);
     if (answer != 'Y') return false;
-    if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > 0 &&
-        !cok_create_knight_items(character, cok_game_rules(game)))
+    if (C->kits != NULL) {
+        if (!kit(game, character)) return false;
+    } else if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > 0 &&
+               !cok_create_knight_items(character, cok_game_rules(game))) {
         return undefined(game, "out of memory");
+    }
     cok_roster_save(game, character);
     return true;
 }
