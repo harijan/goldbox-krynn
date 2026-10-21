@@ -8,7 +8,7 @@ sheet at each roll and reroll, the name, the icon editor's menus and edits,
 the questions; the original's screen at each wait against the port's at
 the key read the same keys leave it in, whole screens. The roster files it
 is saved to (NAME.PC, .WIZ, .JNK, .EFF) are compared byte for byte, the far
-pointers masked (dkk_start's masks). Cases with a modify step then add it
+pointers masked (masked). Cases with a modify step then add it
 to the party (Add, Death), Modify it (scores, the name, the hit points,
 Keep or Exit) and Remove it to the roster, whose files are compared again.
 
@@ -25,7 +25,6 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import checklib  # noqa: E402
 import dkk_lib as K  # noqa: E402
-import dkk_start  # noqa: E402
 
 cokbox = checklib.cokbox
 
@@ -122,13 +121,33 @@ def files_of(folder):
     return out
 
 
+def masked(name, data):
+    """A character's file with its far pointers 0 (the original writes them
+    as they are in memory, the port 0): .PC's effects (+0x3a), items and
+    slots (+0x7d-+0xb4; dkk_start's mask runs on over +0xb5-+0xb8, the
+    hands, save bonus and weight, compared here), next, combat record and
+    spells' block (+0xb9, +0xbd, +0xc2); .JNK's +0x2a and .EFF's +5."""
+    data = bytearray(data)
+    ext = name.rsplit(".", 1)[-1].upper()
+    if ext == "PC":
+        for at, n in ((0x3A, 4), (0x7D, 0xB5 - 0x7D), (0xB9, 4), (0xBD, 4), (0xC2, 4)):
+            data[at:at + n] = bytes(n)
+    elif ext == "JNK":
+        for k in range(0, len(data) - 62, 63):
+            data[k + 0x2A:k + 0x2E] = bytes(4)
+    elif ext == "EFF":
+        for k in range(0, len(data) - 8, 9):
+            data[k + 5:k + 9] = bytes(4)
+    return bytes(data)
+
+
 def compare_files(v, what, original, port):
     v.value(f"{what}: the files", sorted(original), sorted(port))
     for n in sorted(original):
         if n not in port:
             continue
-        x = dkk_start.masked_character(n, original[n])
-        y = dkk_start.masked_character(n, port[n])
+        x = masked(n, original[n])
+        y = masked(n, port[n])
         diff = [k for k in range(min(len(x), len(y))) if x[k] != y[k]][:8]
         v.check(x == y, f"{what}: {n}" + ("" if x == y else
                                           f" differs at {[hex(k) for k in diff]} "

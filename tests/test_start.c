@@ -1954,6 +1954,27 @@ static void test_death_knights_create(void)
     for (size_t i = 0; i < sizeof known; ++i) CHECK(cok_field_u8_at(L, r, COK_FIELD_KNOWN_SPELL, known[i]) == 1);
     CHECK(cok_field_u8_at(L, r, COK_FIELD_KNOWN_SPELL, 30) == 0 &&
           cok_field_u8_at(L, r, COK_FIELD_KNOWN_SPELL, 81) == (mage >= 7));
+    /* A Silvanesti mage of the Red Robes (lawful neutral): the others'
+     * spells at 3, 5 and 7 (49cb:43b6 from 4b01), none of the White's. */
+    {
+        dkk.vm.seed = 11;
+        dkk_keys("\r\x01P\r\x01P\x01P\r\x01P\rNRED\rEYY");
+        cok_create(&dkk);
+        cok_character *m = calloc(1, sizeof *m);
+        CHECK(m != NULL && cok_character_read_file(m, R, to, "RED", "PC", &dkk.item_types,
+                                                   dkk.error, sizeof dkk.error));
+        const uint8_t *q = m->record;
+        static const uint8_t red[] = {10, 11, 12, 15, 16, 18, 19, 30, 31, 32, 34,
+                                      45, 47, 48, 50, 83, 84, 85, 87};
+        CHECK(cok_field_s8_at(L, q, COK_FIELD_CLASS_LEVEL, 5) >= 7 &&
+              cok_field_u8(L, q, COK_FIELD_MAGIC_ORDER) == 2);
+        for (size_t i = 0; i < sizeof red; ++i)
+            CHECK(cok_field_u8_at(L, q, COK_FIELD_KNOWN_SPELL, red[i]) == 1);
+        CHECK(cok_field_u8_at(L, q, COK_FIELD_KNOWN_SPELL, 29) == 0 &&
+              cok_field_u8_at(L, q, COK_FIELD_KNOWN_SPELL, 81) == 0);
+        cok_character_free(m);
+        free(m);
+    }
     /* The mage's kit (DS:05a3: 52 57), and the count 3 all the same. */
     uint8_t file[0xd8];
     snprintf(path, sizeof path, "%s/WHITE.PC", to);

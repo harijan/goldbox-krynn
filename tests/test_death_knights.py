@@ -1125,34 +1125,38 @@ class DeathKnightsTests(unittest.TestCase):
 
     # Create New Character (49cb:05c7) and Modify (25d4) from the title,
     # seeded, the keys tools/dosbox/checks/dkk_create.py typed to the
-    # original: its roster files (far pointers masked) are those the
+    # original: its roster files (far pointers masked, the hands, save
+    # bonus and weight compared) are those the
     # original wrote, digest for digest. (name, seed, keys after the title's
     # two, the files, their digest.)
     CREATED = [
         ("CLERIC", 3, r"\r\r\v\v\v\v\v\v\r\r\r\r\rYNCLERIC\rPHNNKES\rK1BNKE2WPEEEYY\v\r\r\r\e"
          r"\v\r\rAAS\vS\v\v\v\vA\vASKE\b\b\vASK\v\v\v\r\r", ["ASKC", "CLERIC"], "JNK PC WIZ",
-         "2cd46d04e66f67e56d11eab8d2f28392"),
+         "e2c6c41411ec5fd7af69fbe1c8b26a53"),
         ("PALADIN", 5, r"\r\r\v\v\v\r\v\r\v\v\v\r\rNPALADIN\rEYY\v\r\r\r\e\v\r\r\^\^\^SAAE"
-         r"\v\v\v\r\rY", ["PALADIN"], "EFF JNK PC WIZ", "c1e0082857e7c2261b41173d3a9f5e99"),
+         r"\v\v\v\r\rY", ["PALADIN"], "EFF JNK PC WIZ", "ce6e8ed3e773f25dc4fabd9ddc67223b"),
         ("TRIPLE", 7, r"\r\r\v\r\r" + r"\v" * 11 + r"\r\rYNTRIPLE\rEYY", ["TRIPLE"],
-         "EFF JNK PC WIZ", "6e6d79ba8b3c80b13704d45bf270c0ec"),
+         "EFF JNK PC WIZ", "a2eab35c303d581886df2d27a0350ec1"),
         ("WHITE", 11, r"\r\r\r\v\r\v\v\r\rNWHITE\rEYY", ["WHITE"], "EFF JNK PC WIZ",
-         "9fe88e1cd80bf8106a6e55e057e2692f"),
+         "81594272cc8dcd08f3af114678a70a13"),
         ("KENDER", 13, r"\r\r\v\v\v\v\v\r\r\v\v\v\v\v\v\r\v\v\v\v\r\v\v\rNKENDER\rEYY",
-         ["KENDER"], "EFF JNK PC WIZ", "5d1b4b436a7244ada666706817595528"),
+         ["KENDER"], "EFF JNK PC WIZ", "adbaa60b4d190be648343f82ef8624ef"),
         ("KNIGHT", 17, r"\r\r\v\v\v\v\v\v\r\r\v\v\v\v\v\r\rNKNIGHT\rEYY", ["KNIGHT"],
-         "JNK PC WIZ", "e43a31ba0f33a4ce14e15bef40a83e47"),
+         "JNK PC WIZ", "d368b06f712aca14ad2a4ecb0277b47f"),
         ("RANGER", 19, r"\r\r\v\v\r\v\r\v\v\v\v\v\v\v\r\v\r\v\rNRANGER\rEYY", ["RANGER"],
-         "EFF JNK PC WIZ", "bfb010b52f59b47de6e3b2e45a17cab6"),
+         "EFF JNK PC WIZ", "7d7bf0ce6fecc61f1746bc928ed1b9e7"),
     ]
 
     @staticmethod
     def masked(name, data):
-        """dkk_start.masked_character: a character's file, its far pointers 0."""
+        """A character's file, its far pointers 0: the record's effects
+        (+0x3a), items and slots (+0x7d-+0xb4), next, combat record and
+        spells' block (+0xb9, +0xbd, +0xc2); the hands, save bonus and
+        weight between (+0xb5-+0xb8) compared."""
         data = bytearray(data)
         ext = name.rsplit(".", 1)[-1]
         if ext == "PC":
-            for at, n in ((0x3A, 4), (0x7D, 0xB9 - 0x7D), (0xB9, 4), (0xBD, 4), (0xC2, 4)):
+            for at, n in ((0x3A, 4), (0x7D, 0xB5 - 0x7D), (0xB9, 4), (0xBD, 4), (0xC2, 4)):
                 data[at:at + n] = bytes(n)
         elif ext == "JNK":
             for k in range(0, len(data) - 62, 63):
