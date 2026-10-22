@@ -2094,6 +2094,23 @@ static void test_levels(void)
           HOLDS(0x5b7d, 0x0912, 0x90, 0xbf, 0x60, 0x25) &&
           pascal_is(ds(0x25a9), V->interrupted, false) &&
           HOLDS(0x5b7d, 0x0d51, 0x200, 0xbf, 0xa9, 0x25));
+    /* The interactive rest: its menu (mov di, 324d in 081d, its items 0-6
+     * by 6a69:00cb's push 6), "Stop resting? " (mov di, 10a1) from Yes
+     * (mov al, [57c0], which holds 0, Yes's index), and the camp's Rest
+     * (4381:3281) calling 0dee with DS:c0f7 left as it is. */
+    CHECK(pascal_is(ds(0x324d), V->rest_menu, false) &&
+          HOLDS(0x5b7d, 0x081d, 0x30, 0xb0, 0x06, 0x50, 0x9a) &&
+          HOLDS(0x5b7d, 0x081d, 0x30, 0xbf, 0x4d, 0x32));
+    CHECK(pascal_is(ds(0x10a1), V->stop_resting, false) &&
+          HOLDS(0x5b7d, 0x0e30, 0x08, 0xbf, 0xa1, 0x10, 0x1e, 0x57, 0xa0, 0xc0, 0x57) &&
+          *ds(0x57c0) == 0 && V->stop_resting_yes);
+    CHECK(HOLDS(0x4381, 0x327d, 0x0e, 0x3c, 0x03, 0x75, 0x0b, 0xc4, 0x7e, 0x06, 0x06, 0x57, 0x0e,
+                0xe8) &&
+          !V->rest_from_first);
+    /* The camp's Save asks its start menu's "Quit to DOS " (mov di, 124c)
+     * from No (mov al, [57c1]). */
+    CHECK(pascal_is(ds(0x124c), V->camp_quit, false) &&
+          HOLDS(0x4381, 0x3243, 0x08, 0xbf, 0x4c, 0x12, 0x1e, 0x57, 0xa0, 0xc1, 0x57));
     puts("death knights: the levels' routines checked");
 }
 

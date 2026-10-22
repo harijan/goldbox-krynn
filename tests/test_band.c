@@ -2,7 +2,8 @@
  * routines that have no Champions counterpart; DEVELOPERS.md's "Death
  * Knights' casting" and "Death Knights' effects"): each handler on records
  * made by hand in its layout, the game opened on DKKAssets/ (skipped
- * without); and the camp's Fix (4381:2fd4), which cures with them. */
+ * without); the camp's Fix (4381:2fd4), which cures with them; and the
+ * interactive rest (5b7d:0d51, its menu 081d). */
 #include "adventure.h"
 #include "camp.h"
 #include "cast.h"
@@ -21,10 +22,26 @@ static const cok_rules *const R = &cok_rules_death_knights;
 static cok_adventure game;
 static char log_text[1 << 16];
 
-static int no_key(void *context)
+/* Keys from a string, none by default: \x01 stands for the 0 that starts
+ * an extended key, and \x02 makes the next key wait while the party rests
+ * (KeyPressed). */
+static const char *script = "";
+
+static int scripted(void *context)
 {
     (void)context;
-    return -1;
+    while (*script == 2) ++script;
+    if (*script == '\0') return -1;
+    char c = *script++;
+    return c == 1 ? 0 : (unsigned char)c;
+}
+
+static bool pending(cok_adventure *g, void *context)
+{
+    (void)g, (void)context;
+    if (*script != 2) return false;
+    ++script;
+    return true;
 }
 
 static void log_line(cok_adventure *g, const char *kind, const char *text, void *context)
@@ -1074,6 +1091,67 @@ static void test_fix_no_learning(void)
     CHECK(LOGGED("print: The whole party is healed;") && !LOGGED("has memorized"));
 }
 
+/* The interactive rest (5b7d:0d51): its menu by index (081d), from the
+ * selection the menu before left; "Stop resting? " from Yes. */
+static uint8_t every; /* encounters at every tick: 0x7ed2 */
+
+static unsigned rest_with(const char *keys, uint8_t selected, bool *interrupted)
+{
+    camp_reset();
+    game.vm.mem7c00[0x2d2] = every;
+    game.vm.mem7c00[0x2d3] = 100;
+    camper('A', 10, 10);
+    memset(&game.vm.mem4b00[0xc6], 0, 7 * sizeof(uint16_t));
+    script = keys;
+    game.input_ended = false;
+    game.selected = selected;
+    *interrupted = cok_camp_rest(&game, true);
+    CHECK(game.vm.status == COK_ECL_OK && *script == '\0');
+    return minutes_passed();
+}
+
+static void test_rest(void)
+{
+    bool hit;
+    /* Hours, Add twice, Subtract, Rest: an hour, in the game's words. */
+    CHECK(rest_with("haasr", 1, &hit) == 60 && !hit);
+    CHECK(LOGGED("menu: Rest Days Hours Mins Add Subtract Exit;"));
+    CHECK(game.rest[1] == 0 && game.rest[2] == 0 && game.rest[3] == 0);
+    /* Enter picks the selected item, not Rest: from the camp's Rest (its
+     * fourth item), Mins; then Add, and Enter on Add again. */
+    CHECK(rest_with("\ra\rr", 4, &hit) == 10);
+    /* Left and Right move the selection only, wrapping: Left three times
+     * from Rest is Add, on minutes. */
+    CHECK(rest_with("\x01K\x01K\x01K\rr", 1, &hit) == 5);
+    /* Up and Down (8 and 2) add and subtract; 4 and 6 move the selection
+     * and do nothing more. */
+    CHECK(rest_with("8\x01H2\x01H4r", 1, &hit) == 10);
+    CHECK(game.selected == 1);
+    /* Any other special key exits, as Escape and Exit do. */
+    CHECK(rest_with("ha\x01\x3b", 1, &hit) == 0 && game.rest[3] == 1);
+    {
+        /* F1 ended the menu, which was not shown a fourth time. */
+        size_t shown = 0;
+        for (const char *at = log_text; (at = strstr(at, "menu: Rest Days")) != NULL; ++at)
+            ++shown;
+        CHECK(shown == 3);
+    }
+    CHECK(rest_with("ha\x1b", 1, &hit) == 0);
+    CHECK(rest_with("hae", 1, &hit) == 0);
+    /* A key waiting asks "Stop resting? " from Yes, before the tick: Enter
+     * stops with the time left; keys that are not its items are read
+     * past; No rests on. */
+    CHECK(rest_with("haar\x02\r", 1, &hit) == 0 && game.rest[3] == 2);
+    CHECK(LOGGED("menu: Stop resting? ;choice: Y;"));
+    CHECK(rest_with("har\x02x \x01Py", 1, &hit) == 0);
+    CHECK(rest_with("har\x02n", 1, &hit) == 60 && LOGGED("choice: N;"));
+    /* An encounter: every tick, a roll up to 100. */
+    every = 1;
+    CHECK(rest_with("har", 1, &hit) == 5 && hit);
+    every = 0;
+    CHECK(LOGGED("print: your repose is suddenly interrupted!;") && game.rest[2] == 5);
+}
+
 int main(void)
 {
     struct stat st;
@@ -1081,8 +1159,8 @@ int main(void)
         puts("band: no DKKAssets/START.EXE; Death Knights' band C not checked");
         return 0;
     }
-    cok_keyboard keys = {no_key, NULL, NULL, NULL};
-    cok_adventure_hooks hooks = {.log = log_line};
+    cok_keyboard keys = {scripted, NULL, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .key_pending = pending};
     CHECK(cok_adventure_open(&game, R, "DKKAssets", &keys, &hooks));
     load_screen();
     test_slay_living();
@@ -1111,6 +1189,7 @@ int main(void)
     test_fix_pool();
     test_fix_second();
     test_fix_no_learning();
+    test_rest();
     cok_adventure_close(&game);
     puts("band tests passed");
     return 0;
