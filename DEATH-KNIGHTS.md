@@ -117,8 +117,9 @@ the character fields moved (R6), which the real game's layout does better.
    monsters and the import (done: `chars`); saved games, the vault and the
    start menu, playing up to the first fight (done: `saves`); Create New
    Character, its icon editor and class kits, and Modify Character (dkk
-   `49cb:05c7`, `3cac`, `4bea`, `25d4`: done, `dkk-create`). Left: Initialize
-   Mouse/Joystick (`49cb:52cd`), which still stops.
+   `49cb:05c7`, `3cac`, `4bea`, `25d4`: done, `dkk-create`); Initialize
+   Mouse/Joystick (`49cb:52cd`, done: `dkk-mouse`). Left: Death Knights'
+   own setup screens (without a `DKK.CFG`), which still show Champions'.
 3. Combat and the rules (done, 2026-10-20). Every fight is entered and
    left (`encounter`: SETUP MONSTERS with its ambush, LOAD MONSTER, COMBAT,
    leadership of NPC allies, its own battlefield builders and placement,
@@ -139,9 +140,14 @@ the character fields moved (R6), which the real game's layout does better.
    `dkk-rest`). The camp, Magic and Alter menus by index, Alter without
    `Pics`, and Alter's Order, Drop, Speed and Level (`4381:3106`, `1a34`,
    `21df`, done: `dkk-menus`; camp Save's copy protection `4381:0337` is
-   cited, not ported). Left: the mouse; Save's game menu (A-J) and
-   Display's Exit, not yet compared; and the stops where the original
-   reads an unset value.
+   cited, not ported). The mouse and the joystick: clicks in the menus by
+   index (`6a69:0f1b`, `1b82`), the pick, `DKK.CFG`'s two paths (done:
+   `dkk-mouse`). Save's, Load's, from-where and Pick Character's menus by
+   index and Display's Exit (`46b2:2808`, `207a`, `1ef0`, `49cb:343c`,
+   `580d:3067`, `4381:19df`, done: `dkk-savemenu`). Left: menus still read
+   by Champions' code (the start menu's list and Add's, the title's Play
+   Demo, Knight Change Order, the prompts in shops, treasure and Cast); and
+   the stops where the original reads an unset value.
 4. Music: the MUSIC.DAX driver and its songs. Until then Death Knights plays
    silent.
 5. Checks against the original: tests against `death-START_FULL.EXE` and a
