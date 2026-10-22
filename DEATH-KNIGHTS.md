@@ -112,11 +112,13 @@ the character fields moved (R6), which the real game's layout does better.
 1. Read Death Knights headless (D1, moved before R4 and R5): its descriptor, the ECL operand table,
    images by name, wall sets by wall id, 256-tile sets and backdrops, so
    `eclplay` shows its scripts and 3D view.
-2. Characters and saved games, and importing Champions characters; its
-   screens' frames and 35 icon slots (done: `frame`); characters, their files,
+2. Characters and saved games, and importing Champions characters (done,
+   2026-10-22); its screens' frames and 35 icon slots (done: `frame`); characters, their files,
    monsters and the import (done: `chars`); saved games, the vault and the
-   start menu, playing up to the first fight (done: `saves`). Left: creation
-   and Modify Character (dkk `49cb:05c7`, `25d4`, rewritten).
+   start menu, playing up to the first fight (done: `saves`); Create New
+   Character, its icon editor and class kits, and Modify Character (dkk
+   `49cb:05c7`, `3cac`, `4bea`, `25d4`: done, `dkk-create`). Left: Initialize
+   Mouse/Joystick (`49cb:52cd`), which still stops.
 3. Combat and the rules (done, 2026-10-20). Every fight is entered and
    left (`encounter`: SETUP MONSTERS with its ambush, LOAD MONSTER, COMBAT,
    leadership of NPC allies, its own battlefield builders and placement,
@@ -133,9 +135,10 @@ the character fields moved (R6), which the real game's layout does better.
    Memorize's 8 levels, camp Fix (`levels`, `dkk-fix`). Death Knights has
    no locked doors. Checked: `make dosbox-checks` 82/82 as recorded
    (Champions unchanged) and every `dkk_*` DOSBox-X check agrees.
-   Left: creation and Modify (step 2), the interactive camp Rest's
-   question and menu (`5b7d:081d`), the mouse; and the stops where the
-   original reads an unset value.
+   The interactive camp Rest's question and menu (`5b7d:081d`, done:
+   `dkk-rest`). Left: the camp, Magic and Alter menus by index (they are
+   read by letters, as Champions'; Alter shows Champions' `Pics`), the
+   mouse; and the stops where the original reads an unset value.
 4. Music: the MUSIC.DAX driver and its songs. Until then Death Knights plays
    silent.
 5. Checks against the original: tests against `death-START_FULL.EXE` and a
