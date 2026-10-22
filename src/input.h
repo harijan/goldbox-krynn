@@ -154,9 +154,17 @@ void cok_stick_poll(const cok_stick *stick, const cok_game_port *port, uint8_t *
 char cok_stick_key(uint8_t direction);
 
 /* The calibrations' screens: the stick pushed to the upper left
- * (COK_STICK_UPPER_LEFT) or lower right, and the failure, after which the
- * caller waits two seconds. */
-typedef enum { COK_STICK_UPPER_LEFT, COK_STICK_LOWER_RIGHT, COK_STICK_FAILED } cok_stick_prompt;
+ * (COK_STICK_UPPER_LEFT) or lower right, and the failures, after which the
+ * caller waits two seconds: the button not pressed (COK_STICK_FAILED), or
+ * a read lost while it is held at the upper left or the lower right
+ * (dkk 49cb:58ec words them apart; Champions' are one line). */
+typedef enum {
+    COK_STICK_UPPER_LEFT,
+    COK_STICK_LOWER_RIGHT,
+    COK_STICK_FAILED,
+    COK_STICK_LOST_UPPER_LEFT,
+    COK_STICK_LOST_LOWER_RIGHT,
+} cok_stick_prompt;
 
 /* The calibration (177c:029d in the setup, 4def:638d in Initialize
  * Mouse/Joystick; the same but for their screens, shown by prompt): 177c:0000;

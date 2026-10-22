@@ -1397,6 +1397,7 @@ const cok_rules cok_rules_champions = {
     .files =
         {
             .config = "KRYNN.CFG",
+            .config_paths = 1,
             .item_types = "ITEMS",
             .install_dir = "C:\\COK\\",
             .save_dir = "SAVE",
@@ -1591,6 +1592,22 @@ const cok_rules cok_rules_champions = {
             .prompt = "Choose a FUNCTION ",
             .select = "Select ",
             .unported = {NULL},
+            /* 4def:5cc7, 638d: CS 5c61-5cba, 62e2-6369 */
+            .mouse = {.file = "krynn.cfg",
+                      .prompt = "Init Mouse/Joystick: ",
+                      .select = "Select",
+                      .mouse_on = "mouse ON",
+                      .mouse_off = "mouse OFF",
+                      .stick_on = "joystick ON",
+                      .stick_off = "joystick OFF",
+                      .both = "disable both",
+                      .corners = {{"Push JOYSTICK #1 to the extreme upper",
+                                   "left position and press button #1."},
+                                  {"Push JOYSTICK #1 to the extreme lower",
+                                   "right position and press button #1."}},
+                      .no_button = "Unable to read joystick",
+                      .lost_upper_left = "Unable to read joystick",
+                      .lost_lower_right = "Unable to read joystick"},
             .pick_prompt = "Pick Character ", /* 546c:36cc */
             .pick_menu = "Select Exit",
             /* 4def:2668 */

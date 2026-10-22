@@ -2486,6 +2486,60 @@ static void test_creation(void)
     puts("death knights: the creation section checked");
 }
 
+/* The mouse and the joystick (DEVELOPERS.md, Death Knights' front end and
+ * The mouse and the joystick): Initialize Mouse/Joystick's words and file
+ * (49cb:52cd, 58ec), DKK.CFG's two paths (1187:011b) and the code 6a69:0f1b's
+ * clicks and 1b82's take their differences from. */
+static void test_mouse(void)
+{
+    const cok_rules_mouse_menu *M = &R->start.mouse;
+    CHECK(pascal_is(ds(0x3038), M->prompt, false) && pascal_is(ds(0x31d6), M->select, false) &&
+          pascal_is(ds(0x3376), M->mouse_on, false) && pascal_is(ds(0x3381), M->mouse_off, false) &&
+          pascal_is(ds(0x338c), M->stick_on, false) && pascal_is(ds(0x33a1), M->stick_off, false) &&
+          pascal_is(ds(0x33b6), M->both, false));
+    CHECK(pascal_is(at(0x49cb, 0x52bd), M->file, false) &&
+          HOLDS(0x49cb, 0x52cd, 0x620, 0xbf, 0xbd, 0x52) &&
+          HOLDS(0x49cb, 0x52cd, 0x620, 0xbf, 0x38, 0x30));
+    /* The list by index: 6a69:00cb(0) (mov al, 0; push ax; call) before
+     * 1b82, Exit shown (push 1 after the list), last 0. */
+    CHECK(HOLDS(0x49cb, 0x542b, 0x10, 0xb0, 0x00, 0x50, 0x9a) &&
+          HOLDS(0x49cb, 0x544c, 0x10, 0xb0, 0x01, 0x50, 0xb0, 0x00, 0x50));
+    CHECK(pascal_is(ds(0x1b2e), M->corners[0][0], false) &&
+          pascal_is(ds(0x1b57), M->corners[0][1], false) &&
+          pascal_is(ds(0x1b9f), M->corners[1][0], false) &&
+          pascal_is(ds(0x1bc8), M->corners[1][1], false) &&
+          pascal_is(ds(0x1b80), M->no_button, false) &&
+          pascal_is(ds(0x1b80), M->lost_lower_right, false) &&
+          pascal_is(at(0x49cb, 0x58d4), M->lost_upper_left, false));
+    /* 58ec: the no-button failures and the lower right's lost read from
+     * DS:1b80 (mov di, 0x1b80; push ds), the upper left's from CS 58d4. */
+    CHECK(HOLDS(0x49cb, 0x59f6, 4, 0xbf, 0x80, 0x1b) &&
+          HOLDS(0x49cb, 0x5bc3, 4, 0xbf, 0x80, 0x1b) &&
+          HOLDS(0x49cb, 0x5c4f, 4, 0xbf, 0x80, 0x1b) && HOLDS(0x49cb, 0x5a80, 0x10, 0xd4, 0x58));
+    /* DKK.CFG: its save path and Champions' (mov di, 0x98a4; 0x99a4). */
+    CHECK(R->files.config_paths == 2 && HOLDS(0x1187, 0x0aa8, 3, 0xbf, 0xa4, 0x98) &&
+          HOLDS(0x1187, 0x0ac0, 3, 0xbf, 0xa4, 0x99));
+    /* 6a69:0f1b's clicks: the party list kept from Move only in mode 4
+     * (04b0: cmp byte [0xdb7c], 0; jz; cmp byte [0x8c4e], 4), the view's
+     * likewise (080c), the battlefield's T and aiming's M (1286, 12a3,
+     * aiming's prompt DS:3109 at 1297); 1b82 takes a row only after a
+     * click that set DS:c0f9 (1f5f, 1f69). */
+    CHECK(HOLDS(0x6a69, 0x04b0, 0x0e, 0x80, 0x3e, 0x7c, 0xdb, 0x00, 0x74, 0x07, 0x80, 0x3e, 0x4e,
+                0x8c, 0x04) &&
+          HOLDS(0x6a69, 0x080c, 5, 0x80, 0x3e, 0x4e, 0x8c, 0x04));
+    CHECK(HOLDS(0x6a69, 0x1286, 5, 0xc6, 0x86, 0xc9, 0xfe, 'T') &&
+          HOLDS(0x6a69, 0x12a3, 5, 0xc6, 0x86, 0xc9, 0xfe, 'M') &&
+          HOLDS(0x6a69, 0x1297, 3, 0xbf, 0x09, 0x31) &&
+          pascal_is(ds(0x3109), R->commands.aim_prompt, false));
+    CHECK(HOLDS(0x6a69, 0x1f5f, 5, 0x80, 0x3e, 0xab, 0xdb, 0x00) &&
+          HOLDS(0x6a69, 0x1f69, 5, 0x80, 0x3e, 0xf9, 0xc0, 0x00));
+    /* 1882's cursors (DS:83ee, 83ae) are Champions' (42b4, 42f4): the
+     * port's one arrow serves both. */
+    static const uint8_t arrow[4] = {0xff, 0x3f, 0xff, 0x1f};
+    CHECK(memcmp(ds(0x83ae), arrow, 4) == 0);
+    puts("death knights: the mouse checked");
+}
+
 int main(void)
 {
     test_lookup();
@@ -2509,6 +2563,7 @@ int main(void)
         if (exe_size > 0) test_effects();
         if (exe_size > 0) test_band_c();
         if (exe_size > 0) test_creation();
+        if (exe_size > 0) test_mouse();
     }
     puts("death knights: ok");
     return 0;

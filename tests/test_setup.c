@@ -593,6 +593,41 @@ static void test_startup(void)
     rmdir(dir);
 }
 
+/* Death Knights' DKK.CFG written by the setup: its layout (the rules'
+ * files.config_paths, the second path's line left empty), read back by the
+ * game's own parse the same, and as the next start reads the file. */
+static void test_death_knights_file(void)
+{
+    char dir[512];
+    CHECK(test_temp_dir(dir, sizeof dir, "cok-setup-dkk") != NULL);
+    char path[600];
+    snprintf(path, sizeof path, "%s/DKK.CFG", dir);
+    static cok_crt crt;
+    cok_crt_init(&crt);
+    cok_keyboard keys = {type, NULL, NULL, NULL};
+    cok_config config = {0}, again = {0};
+    char error[300];
+    typed = "232d:\\x\r";
+    CHECK(cok_setup_startup(&crt, &keys, NULL, &cok_rules_death_knights, path, false, &config,
+                            error, sizeof error) == COK_SETUP_OK);
+    CHECK(config.display == COK_DISPLAY_EGA && config.sound == COK_SOUND_ADLIB && config.mouse);
+    CHECK(strcmp(config.save_path, "D:\\X\\") == 0 && config.other_path[0] == '\0' &&
+          config.f_line);
+    FILE *f = fopen(path, "rb");
+    CHECK(f != NULL);
+    char bytes[100] = {0};
+    size_t n = fread(bytes, 1, sizeof bytes - 1, f);
+    fclose(f);
+    CHECK(n == 9 + 7 + 2 + 3 + 14 * 3 &&
+          memcmp(bytes, "E\r\nA\r\nM\r\nD:\\X\\\r\n\r\nF\r\n0\r\n", 24) == 0);
+    CHECK(cok_setup_startup(&crt, &keys, NULL, &cok_rules_death_knights, path, true, &again,
+                            error, sizeof error) == COK_SETUP_OK);
+    CHECK(again.mouse && again.f_line && strcmp(again.save_path, config.save_path) == 0 &&
+          again.other_path[0] == '\0');
+    remove(path);
+    rmdir(dir);
+}
+
 int main(void)
 {
     test_cases();
@@ -603,6 +638,7 @@ int main(void)
     test_lines();
     test_timeouts_and_limits();
     test_startup();
+    test_death_knights_file();
     puts("setup: ok");
     return 0;
 }

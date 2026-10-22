@@ -95,8 +95,24 @@ void cok_adventure_device_wait(cok_adventure *game, unsigned ms)
 
 uint8_t *cok_adventure_special(cok_adventure *game, uint8_t scan)
 {
-    /* 546c:3334: a click on the party list has picked already. */
-    if (game->mouse.on && game->pointer.clicked) return game->vm.character;
+    if (game->mouse.on && game->pointer.clicked) {
+        /* dkk 580d:2bb2: the member a click on the party list kept
+         * (6a69:0513, DS:a2b6) selected, once. */
+        if (game->click_pick != NULL) {
+            uint8_t *p = game->click_pick;
+            game->click_pick = NULL;
+            if (cok_party_index(&game->party, p) >= game->party.count) {
+                cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                                   "a special key selects a click's member the party does not "
+                                   "have (dkk 580d:2bb2, DS:a2b6)");
+                return game->vm.character;
+            }
+            return p;
+        }
+        /* 546c:3334: a click on the party list has picked already (dkk:
+         * without one kept, a key as any other). */
+        if (!cok_game_rules(game)->menus.special_keeps) return game->vm.character;
+    }
     /* dkk 580d:2bb2: a key but Up and Down keeps the one selected. */
     if (cok_game_rules(game)->menus.special_keeps && scan != 0x48 && scan != 0x50)
         return game->vm.character;
@@ -120,6 +136,49 @@ static const uint8_t view_keys[11][11] = {
     {0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50, 0x50},
 };
 
+/* The combat map's region (077d; dkk 0680): in Move or with Manual's
+ * cursor, cells 1-21 of the battlefield. */
+static bool combat_click(const cok_adventure *game, int col, int row)
+{
+    return (game->combat_moving || game->aiming) && game->vm.mode == 5 && col >= 1 &&
+           col <= 21 && row >= 1 && row <= 21;
+}
+
+/* Its key (0794-0876; dkk 06d9): a step from the cursor (Manual's) or the
+ * mover toward the cell clicked, in 24-pixel cells from cell 1. */
+static int combat_step(const cok_adventure *game, int col, int row)
+{
+    const cok_combat *combat = &game->combat;
+    int fx, fy;
+    if (game->aiming) {
+        fx = game->aim_x - combat->view_x + 1;
+        fy = game->aim_y - combat->view_y + 1;
+    } else {
+        const cok_combatant *c = &combat->combatant[cok_combat_index(combat, game->vm.character)];
+        fx = c->x - combat->view_x + 1;
+        fy = c->y - combat->view_y + 1;
+    }
+    return cok_mouse_direction((int16_t)fx, (int16_t)fy, (int16_t)(col / 3 + 1),
+                               (int16_t)(row / 3 + 1));
+}
+
+/* Modify's sheet (09c1-0a35; dkk 0ac5): Home, the field clicked kept in
+ * 6e35 (dkk c11e); other rows give nothing. */
+static int sheet_click(cok_adventure *game, int col, int row, bool *special)
+{
+    if (row == 1) {
+        if (col >= 1 && col <= 16) game->modify_field = 6;
+    } else if (row == 3) {
+        if (col >= 31 && col <= 33) game->modify_field = 7;
+    } else if (row >= 9 && row <= 14) {
+        if (col >= 5 && col <= 9) game->modify_field = (uint8_t)(row - 9);
+    } else {
+        return COK_CLICK_KEEP;
+    }
+    *special = true;
+    return 0x47;
+}
+
 /* 67b5:03e2's click (065c-0a35), the regions before row 24 and Modify's
  * after it. */
 static int click(void *context, int col, int row, bool *special)
@@ -140,23 +199,10 @@ static int click(void *context, int col, int row, bool *special)
         *special = true;
         return 0x48;
     }
-    /* The combat map (077d-0876): a step from the cursor (Manual's) or
-     * the mover toward the cell clicked, in 24-pixel cells from cell 1. */
-    if ((game->combat_moving || game->aiming) && vm->mode == 5 && col >= 1 && col <= 21 &&
-        row >= 1 && row <= 21) {
-        const cok_combat *combat = &game->combat;
-        int fx, fy;
-        if (game->aiming) {
-            fx = game->aim_x - combat->view_x + 1;
-            fy = game->aim_y - combat->view_y + 1;
-        } else {
-            const cok_combatant *c = &combat->combatant[cok_combat_index(combat, vm->character)];
-            fx = c->x - combat->view_x + 1;
-            fy = c->y - combat->view_y + 1;
-        }
+    /* The combat map (077d-0876). */
+    if (combat_click(game, col, row)) {
         *special = true;
-        return cok_mouse_direction((int16_t)fx, (int16_t)fy, (int16_t)(col / 3 + 1),
-                                   (int16_t)(row / 3 + 1));
+        return combat_step(game, col, row);
     }
     /* Move mode (0879-0917): the 3D view's cells 3-13, or the overland
      * map's, from the party's place on it. */
@@ -172,20 +218,75 @@ static int click(void *context, int col, int row, bool *special)
     }
     /* Row 24 is the menu's (091a). */
     if (row == 24) return COK_CLICK_ON;
-    /* Modify's sheet (09c1-0a35): Home, the field clicked kept in 6e35;
-     * other rows give nothing. */
-    if (game->modifying) {
-        if (row == 1) {
-            if (col >= 1 && col <= 16) game->modify_field = 6;
-        } else if (row == 3) {
-            if (col >= 31 && col <= 33) game->modify_field = 7;
-        } else if (row >= 9 && row <= 14) {
-            if (col >= 5 && col <= 9) game->modify_field = (uint8_t)(row - 9);
-        } else {
+    /* Modify's sheet (09c1-0a35). */
+    if (game->modifying) return sheet_click(game, col, row, special);
+    return COK_CLICK_ON;
+}
+
+/* dkk 6a69:0f1b's regions by stage (0490-08bb, 0a9b, 1271-12c2): as
+ * 67b5:03e2's but the party list's member is the special key's to select
+ * (DS:a2b6, 580d:2bb2), or the pick's (DS:c0f0, c0f1: the pick into),
+ * and a click on the one selected or picked is Enter on the item selected;
+ * Move mode keeps the party list's clicks but in a 3D area's mode (4), and
+ * its view takes them only there; a click on none of them, on the
+ * battlefield (mode 5, rows 0-22) is T on a menu of two rows and M on
+ * aiming's (its prompt, DS:3109), elsewhere Enter on a menu of one item,
+ * which has no such hotkey. */
+static int click_indexed(void *context, int stage, int col, int row, const cok_click_menu *menu,
+                         bool *special)
+{
+    cok_adventure *game = context;
+    cok_ecl *vm = &game->vm;
+    if (stage == COK_CLICK_SHEET) {
+        if (game->modifying) return sheet_click(game, col, row, special); /* 0a9b */
+        return COK_CLICK_ON;
+    }
+    if (stage == COK_CLICK_ELSEWHERE) {
+        if (vm->mode == 5 && row <= 0x16) {
+            const char *aim = cok_game_rules(game)->commands.aim_prompt;
+            *special = false;
+            if (menu->two_rows) return 'T';
+            if (aim != NULL && strcmp(menu->prompt, aim) == 0) return 'M';
             return COK_CLICK_KEEP;
         }
+        /* 12af: Escape set but not taken, read on; or Enter, done. */
+        if (menu->count > 1) return COK_CLICK_KEEP;
+        *special = false;
+        return 0x0d;
+    }
+    /* The party list (0490, 0513). */
+    if (game->mouse.party_clicks && !(vm->mode == 3 && !cok_ecl_flag(vm, COK_VAR_OFF_MAP)) &&
+        !(game->moving && vm->mode == 4) && vm->mode != 5 && col >= game->party_left &&
+        col <= game->party_right && row >= game->party_top && row <= game->party_bottom) {
+        uint8_t *p = cok_party_record(&game->party, (uint8_t)(row - game->party_top));
+        if (p == NULL) return COK_CLICK_KEEP;
+        if (game->pick_into) {
+            if (p == game->pick) return COK_CLICK_ENTER;
+            game->pick = p;
+        } else {
+            if (p == vm->character) return COK_CLICK_ENTER;
+            game->click_pick = p;
+        }
         *special = true;
-        return 0x47;
+        return 0x48;
+    }
+    /* The combat map (0680, 06d9). */
+    if (combat_click(game, col, row)) {
+        *special = true;
+        return combat_step(game, col, row);
+    }
+    /* The 3D view in Move mode (07d3, 0825: DS:57a7, 1ff5's). */
+    if (game->moving && col >= 3 && col <= 13 && row >= 3 && row <= 13 && vm->mode == 4) {
+        *special = true;
+        return view_keys[row - 3][col - 3];
+    }
+    /* The overland map in Move mode (085d, 08bb). */
+    if (game->moving && cok_ecl_var(vm, COK_VAR_3D) == 0 && vm->mode == 3 && col >= 1 &&
+        col <= 38 && row >= 1 && row <= 15) {
+        *special = true;
+        return cok_mouse_direction((int16_t)(cok_ecl_var(vm, COK_VAR_OVERLAND_X) + 1),
+                                   (int16_t)(cok_ecl_var(vm, COK_VAR_OVERLAND_Y) + 1),
+                                   (int16_t)col, (int16_t)row);
     }
     return COK_CLICK_ON;
 }
@@ -223,6 +324,7 @@ static void hide(void *context)
 void cok_adventure_pointer_init(cok_adventure *game)
 {
     game->pointer.click = click;
+    game->pointer.click_indexed = click_indexed;
     game->pointer.release = release;
     game->pointer.hide = hide;
     game->pointer.context = game;

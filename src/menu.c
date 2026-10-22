@@ -645,6 +645,66 @@ static int indexed_result(const cok_menu_indexed_layout *m, int key)
     return 0xff;
 }
 
+/* 6a69:0442: Enter's key, the selected item's first character, 0x0d for
+ * none (the length byte of an empty text). */
+static int indexed_enter(const cok_menu_indexed_layout *m, uint8_t selected)
+{
+    uint8_t first = m->first[selected];
+    int value = first == 0 ? (int)m->length : (unsigned char)m->text[first - 1];
+    return value == 0 ? 0x0d : value;
+}
+
+/* 6a69:0f1b's click (Enter with DS:dbab, 11e3-12c7), in cell (x / 8,
+ * y / 8): the game's regions (pointer->click_indexed's stages) and, between
+ * them, the menu's own: on its rows (the first 23 with two, else 24) the
+ * item clicked, from the column past the prompt, on row 24 of two counted
+ * on past the '@' and on row 23 only before it (0940: its hotkey, it
+ * selected, DS:c0f9 set if it was not); then the columns of a list shown
+ * (DS:c118, c119), where a row at or below one of its rows (DS:c0ff on)
+ * is Enter (0ba7, DS:c0f9 set). Returns the key as the loop holds it
+ * ([bp-0x137]), *special as DS:c0f8; COK_CLICK_KEEP to read on,
+ * COK_CLICK_ENTER for Enter. */
+static int indexed_click(cok_picture *dst, const cok_font *font, const cok_menu_indexed_layout *m,
+                         int x, const char *prompt, uint8_t *selected, uint8_t highlight,
+                         uint8_t normal, cok_pointer *p, bool *special)
+{
+    int col = p->x / 8, row = p->y / 8;
+    cok_click_menu menu = {m->two_rows, m->count, prompt};
+    int key = p->click_indexed(p->context, COK_CLICK_REGIONS, col, row, &menu, special);
+    if (key != COK_CLICK_ON) return key;
+    if (row >= (m->two_rows ? 23 : 24)) {
+        *special = false;
+        int at = col + 1;
+        if (x >= at) return COK_CLICK_KEEP;
+        at -= x;
+        if (m->two_rows) {
+            const char *mark = strchr(m->text, '@');
+            int pos = mark != NULL ? (int)(mark - m->text) + 1 : 0; /* Pos('@', text) */
+            if (row > 23) at += pos;
+            else if (pos <= at) return COK_CLICK_KEEP;
+        }
+        key = COK_CLICK_KEEP;
+        for (size_t item = 1; item <= m->count; ++item) {
+            if (m->first[item] > at || at > m->last[item]) continue;
+            key = (unsigned char)m->text[m->first[item] - 1];
+            p->reselected = item != *selected;
+            *selected = (uint8_t)item;
+            indexed_draw(dst, font, m, x, *selected, highlight, normal);
+        }
+        return key;
+    }
+    key = p->click_indexed(p->context, COK_CLICK_SHEET, col, row, &menu, special);
+    if (key != COK_CLICK_ON) return key;
+    if (p->list_left <= col && col <= p->list_right) {
+        p->reselected = true;
+        for (size_t i = 0; i < 25 && p->list_rows[i] != 0xff; ++i)
+            if (p->list_rows[i] <= row) return COK_CLICK_ENTER;
+        return COK_CLICK_KEEP;
+    }
+    key = p->click_indexed(p->context, COK_CLICK_ELSEWHERE, col, row, &menu, special);
+    return key == COK_CLICK_ON ? COK_CLICK_KEEP : key;
+}
+
 int cok_menu_pick(cok_picture *dst, const cok_font *font, const char *prompt, const char *text,
                   const cok_menu_items *items, uint8_t prompt_color, uint8_t highlight,
                   uint8_t normal, bool keypad, uint8_t *selected, const cok_keyboard *keys,
@@ -687,12 +747,24 @@ int cok_menu_pick(cok_picture *dst, const cok_font *font, const char *prompt, co
                 *special = true;
                 done = true;
                 result = 0x1b;
+            } else if (key == 0x0d && keys->pointer != NULL && keys->pointer->clicked &&
+                       keys->pointer->click_indexed != NULL) {
+                int got = indexed_click(dst, font, &m, x, shown, selected, highlight, normal,
+                                        keys->pointer, special);
+                if (got == COK_CLICK_ENTER) {
+                    *special = false;
+                    result = indexed_result(&m, indexed_enter(&m, *selected));
+                    done = true;
+                } else if (got >= 0) {
+                    /* 1401: DS:c0f8 set gives the key itself, else its
+                     * hotkey's index (6a69:0e74). */
+                    result = *special ? got : indexed_result(&m, got);
+                    done = true;
+                }
             } else if (key == 0x0d) {
                 /* 0442: the selected item's first character, 0x0d for none
                  * (the length byte of an empty text). */
-                uint8_t first = m.first[*selected];
-                int value = first == 0 ? (int)m.length : (unsigned char)m.text[first - 1];
-                result = indexed_result(&m, value == 0 ? 0x0d : value);
+                result = indexed_result(&m, indexed_enter(&m, *selected));
                 done = true;
             } else {
                 unsigned char c = upcase((unsigned char)key);
@@ -737,14 +809,19 @@ int cok_menu_indexed_rows(cok_picture *dst, const cok_font *font, const cok_menu
                           const cok_keyboard *keys, bool *special, bool *picked)
 {
     *picked = false;
+    cok_pointer *pointer = keys != NULL ? keys->pointer : NULL;
     if (count == 0) {
         *index = 0;
-        return 0;
+        return list_end(pointer, 0);
     }
-    /* The rows' clicks (DS:c118, c119, c0fe) are not taken, as the
-     * indexed loop takes none. */
+    /* The window's columns take clicks (DS:c118, c119), its rows shown
+     * (DS:c0ff on, 6a69:1506) too. */
+    if (pointer != NULL) {
+        pointer->list_left = (int8_t)window.left;
+        pointer->list_right = (int8_t)window.right;
+    }
     list l = {dst, font, rows, count > 255 ? 255 : (int)count, window.bottom - window.top + 1,
-              window, style, index, top, NULL, true};
+              window, style, index, top, pointer, true};
     int leading = 0;
     while (heading(&l, leading)) ++leading;
     if (l.count <= l.rows) *top = 0;
@@ -768,7 +845,8 @@ int cok_menu_indexed_rows(cok_picture *dst, const cok_font *font, const cok_menu
     for (size_t k = 0; k < items->count && k < COK_MENU_MAX_ITEMS; ++k)
         entries[k] = items->index[k];
     /* The indexes the list's Next, Prev and Exit took last (bytes of the
-     * stack until then, here none: every caller offers Exit). last is a
+     * stack until then: Next and Prev are compared only while offered,
+     * Exit's always, COK_MENU_UNSET_EXIT before it is offered). last is a
      * signed byte (1d29: cbw; inc ax): 0xff puts them from 0. */
     int first = (int8_t)last + 1;
     int at_next = 0x100, at_prev = 0x100, at_exit = 0x100;
@@ -801,23 +879,44 @@ int cok_menu_indexed_rows(cok_picture *dst, const cok_font *font, const cok_menu
         cok_menu_items shown = {0};
         for (size_t k = 0; k < COK_MENU_MAX_ITEMS && entries[k] != 0xff; ++k)
             cok_menu_items_add(&shown, entries[k]);
+        if (pointer != NULL) pointer->reselected = false; /* DS:c0f9 */
         int key = cok_menu_pick(dst, font, style->prompt, bar, &shown, style->heading,
                                 style->highlight, style->normal, true, selected, keys, special);
-        if (key < 0) return -1;
+        if (key < 0) return list_end(pointer, -1);
         /* An index past the caller's (1e5d: cbw; jng, signed) is the
          * list's own, by the index each took, while it is offered (Exit's
-         * whatever was offered). */
+         * whatever was offered; none yet: unset, 1ea6). */
         if (!*special && key > (int8_t)last) {
             *special = true;
             if (key == at_next && more) key = 0x51;
             else if (key == at_prev && less) key = 0x49;
+            else if (at_exit == 0x100) return list_end(pointer, COK_MENU_UNSET_EXIT);
             else if (key == at_exit) key = 0x1b;
             else *special = false;
         }
         mark(&l, false);
         if (!*special) {
-            *picked = true;
-            return key;
+            /* 6a69:1e9e: a click that changed the selection (DS:c0f9) picks
+             * only a row clicked that was picked already; another row
+             * clicked is picked out, and the menu asks again. */
+            if (pointer == NULL || !pointer->clicked || !pointer->reselected) {
+                *picked = true;
+                return list_end(pointer, key);
+            }
+            int row = pointer->y / 8, col = pointer->x / 8;
+            if (pointer->list_left <= col && col <= pointer->list_right) {
+                for (size_t i = 0; i < 25 && pointer->list_rows[i] != 0xff; ++i) {
+                    if (pointer->list_rows[i] != row) continue;
+                    if ((int)i + *top == *index) {
+                        *picked = true;
+                        return list_end(pointer, key);
+                    }
+                    mark(&l, false);
+                    *index = (int)i + *top;
+                    mark(&l, true);
+                }
+            }
+            continue;
         }
         if (key == 0x48) {
             step(&l, false);
@@ -830,7 +929,7 @@ int cok_menu_indexed_rows(cok_picture *dst, const cok_font *font, const cok_menu
         } else if (key == 0x4e) {
             page_list(&l, true);
         } else if (key == 0x1b || key == 0x45 || key == 0) {
-            return 0x1b;
+            return list_end(pointer, 0x1b);
         }
     }
 }

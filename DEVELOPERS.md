@@ -187,7 +187,7 @@ segment's tables, a section to a concern:
 | `id`, `assets` | `--game`'s name; the assets' directory without `--assets` | `champions`, `COKAssets` |
 | `text` | the window's title; the title menu's heading at startup and after a demonstration (`1000:0134`, spelt differently); camp's first line (`4888:2c31`) | `Champions of Krynn`, `Champions of Krynn v1.2`, `Champions Of Krynn v1.2`, `The party makes camp...` |
 | `archives` | each DAX archive the game reads, by stem: with the ECL file's number (`GEO` makes `GEO1.DAX`), with `file_digit`'s digit (`MON`, with the kinds `CHA`, `SPC`, `ITM`; `ITEM`, `HEAD`, `BODY`, `CPIC`) or alone (`SKY`); the names `6d21:01d0` loads icons by as they are; records read from a file of their own, as a `cok_rules_record` (stem, file, 0 for none, record): the font and the overland map's cursor; and `file_digit`, the digit a file's number gives the names that hold one (Str into a string[1], `4b6d:161b`, `2fd3:1d21`, `6961:05b9`, `6d21:01d0`) | `ECL`, `GEO`, `WALLDEF`, `8X8D`, `PIC`, `SPRIT`, `BIGPIC`, `HEAD`, `BODY`, `CPIC`, `COMSPR`, `CHEAD`, `CBODY`, `SKY`, `TITLE`, `ITEM`, `MON`, `DUNGCOM`, `WILDCOM`, `RANDCOM`, `MIDI`, `SOUND`; font `8X8D1` record 201, cursor `CURSOR` record 1; the first decimal digit |
-| `files` | the devices' file (looked for in upper case, then lower); the item types; the directory the setup takes the game to run in and the save path's default under it | `KRYNN.CFG`, `ITEMS`, `C:\COK\`, `SAVE` |
+| `files` | the devices' file (looked for in upper case, then lower) and the paths its lines hold after the third (`config_paths`); the item types; the directory the setup takes the game to run in and the save path's default under it | `KRYNN.CFG`, 1, `ITEMS`, `C:\COK\`, `SAVE` |
 | `saves` | saved games (`SAVGAM` letter `.DAT`) and their characters' names (`CHRDAT` letter number); a character's extensions: in a saved game, in the roster, its items, its effects, its spells' block (a game that keeps one); the debug mode's trace; the saved game's layout past the variables' width (`ecl.variable_bytes`): its wall table's entries and those the loader loads again, and whether the loader keeps the saved last mode (see Party); the byte the roster's list leaves a record out by; the bank vault's files, or none | `SAVGAM`, `DAT`, `CHRDAT`, `SAV`, `WHO`, `STF`, `SFX`, none, `DEBUG.TXT`; 3 and 3 (`DS:6d8a`, `4b6d:1b34`), no (the saved mode becomes the last); `COINS` 6 (`4b6d:0453`); none |
 | `images` | the archives `daximages` and `daxcompose` read, by layout: XOR deltas, collections, single images; stems, `NULL`-ended; and the frames a header's count byte 0xff gives (`frames_ff`: 255 where the loader takes the byte, `127f:1c2f`; Death Knights' 256, its 256-tile sets) | `PIC1-3`; `SPRIT1-3`; the 20 others; 255 |
 | `character` | the character record's layout (`src/field.h`): its size, its file's size, where a spells' block of its own lies, and where each field lies | 409 bytes, none, the fields below |
@@ -200,7 +200,7 @@ segment's tables, a section to a concern:
 | `effects` | what is keyed by effect id (`effect.c`, `cast.c`, `magic.c`): the ids' count; each id's handler (`cok_rules_effect`, as the spells'); the ids each event runs; the ids the party shares and Prayer's reach; those magic resistance leaves pending; the effect ids the code names (by `cok_named_effect`); Display's ids and texts; the rules' routines a game does not have ported yet (the caster level, the saving throw, magic resistance, Display); the effect whose holder's saving throw rolls 1 and where that throw reads a mage's moon; what one an effect does not take "is" | 0x79 (`DS:6b94`, `5b04:58ed` and `3f44:38ea`), events 1-0x18 (`60f4:057c`), 0x15, 0x2d, 0x2e, 0x31 and 0x31 from 6 squares (`60f4:0332`, `0352`), 0x5b and 0x52 (`60f4:04f3`), 80 names, `4888:17ae`'s; none; none, the wrapped byte (`60f4:113a`); `is Unaffected` |
 | `moons` | the three moons (`57e4:001e`, `0143`): the days each stays in a phase, and on the frame each one's column and tile | 8, 1, 6 days; columns 8, 19, 30; tiles 0x114 + phase + 10, 6, 14 |
 | `frame` | the screens' frames (`screen.c`), by `cok_screen` (the frame, the open frame, the adventure screen, a big picture's, Memorize's, the spell lists', combat's, the sheet's, the credits'): each a `cok_rules_screen`, the screen drawn under it first, the box cleared (`1128:07e6`) and its lines, rows and columns of tiles (`cok_rules_frame_line`: a tile, or a table by the cell's column or row, and on row 0 the moons), each the frame's `base` + its value; which frame main draws after the start menu (`menu_big`) and Begin Adventuring for a loaded game (`resumed`, a `cok_resumed`) | `1128:0000`-`077c`'s layouts, tiles 0x114 + `DS:0e3a`, `0e62`, `0e7a`, `0ea3`, `0eb0`, `0e8b`, `0ebd`, `0f02`, `0f19` and the code's; the big frame in mode 3 on the map (`1000:024b`); in block 0 or off the map (`4def:01b4`) |
-| `start` | the front end (`start.c`, `roster.c`, camp's Save): the title's pictures (record, cell, whether the screen is cleared first, the seconds waited) and credits (lines, their wait, whether they show after a key), a new game's block and the demonstration's file and block; the start menu's items, prompt and word, each item's routine where the port does not carry it out for the game (`unported`, cited: choosing it stops the run); the words of Pick Character, Drop, Exit, Load, Save, the roster's Overwrite, Add, and "from where" for a game that imports another's; the questions' colour; and what its commands do where the games differ (Add's paladin rules, its space, its message and marks; a Drop or Remove that empties the party ending the game; Exit's No saving then quitting; Begin's mode; PROGRAM 0 marking the party on the map; the wall table's entry the end of a game sets) | `2f55:063c`'s pictures, 1, 2, 3 at 5, 1 and 4 at 0, 1 for 5, 10 and 10 seconds, the credits (`2f55:0267`) for 10 unless a key; 0x24, file 2 block 0x39; `DS:0878`, `Choose a FUNCTION `, `Select `, none unported; yellow; paladins, the space, the message and marks; no, no, the entry mode, no; the first |
+| `start` | the front end (`start.c`, `roster.c`, camp's Save): the title's pictures (record, cell, whether the screen is cleared first, the seconds waited) and credits (lines, their wait, whether they show after a key), a new game's block and the demonstration's file and block; the start menu's items, prompt and word, each item's routine where the port does not carry it out for the game (`unported`, cited: choosing it stops the run); Initialize Mouse/Joystick's file and words (`mouse`, a `cok_rules_mouse_menu`: the file it reads and writes, its list's prompt, word and rows, the calibration's screens and failures); the words of Pick Character, Drop, Exit, Load, Save, the roster's Overwrite, Add, and "from where" for a game that imports another's; the questions' colour; and what its commands do where the games differ (Add's paladin rules, its space, its message and marks; a Drop or Remove that empties the party ending the game; Exit's No saving then quitting; Begin's mode; PROGRAM 0 marking the party on the map; the wall table's entry the end of a game sets) | `2f55:063c`'s pictures, 1, 2, 3 at 5, 1 and 4 at 0, 1 for 5, 10 and 10 seconds, the credits (`2f55:0267`) for 10 unless a key; 0x24, file 2 block 0x39; `DS:0878`, `Choose a FUNCTION `, `Select `, none unported; `krynn.cfg` and `4def:5cc7`'s and `638d`'s words; yellow; paladins, the space, the message and marks; no, no, the entry mode, no; the first |
 | `combat` | the encounter and the battle's frame where the games differ (`monster.c`, `combat.c`, `round.c`, `treasure.c`'s end of combat): `COMBAT`'s vault branch and the vault a game's port does not carry out yet; the show at distance's `0xff` for none; leadership before the setup and its words; the dead exploding after a turn and a blow, a side gone ending the round there; the setup's line, its tile counts, whether a set is kept, the open ground's builder (`cok_wilderness_routine`), the dungeon's fill and corners; the placement's clears, ambush, distances, the cell under a body, status 9; the end of combat's lost weapons, shares, effects lost, may-train, the results' words and key, the treasure menu's condition and stop, a destroyed party's words and whether a party destroyed while a block is entered still reads the adventure's menu once (`killed_command`) | the vault none; no; no; yes, no; none; `A battle begins...`, 0x19 and 0x21, no, `COK_WILDERNESS_CHAMPIONS` (`3cb2:0fc8`), no fill, Champions' corners; 255, no ambush, status 9 off the map; weapons back, shares, `DS:0390`'s 11, no may-train, `The party has won.` ..., `press <enter>/<return> to continue`, always (`351b:1968`), no |
 | `fight` | the rounds, the computer's turns and the attacks where the games differ (`round.c`, `ai.c`, `attack.c`, `arena.c`, `command.c`, `cloud.c`): their words (`cok_rules_fight_words`: the attack's message, fleeing, turning undead, the computer's, the round's end, the panel, guarding, Alt-X without the Helm cheat); the clouds (`cok_clouds_routine`: Champions' or Death Knights' Stinking Cloud, Cloud Kill, cloud square, the round's clouds and Dispel Magic's part) and their words (one coughing, one choking, a cloud gone, Stinking Cloud's, Cloud Kill's poison); the battlefield's cloud and pool tiles and whether they count as terrain; the death's search for a body, its cell kept for a pool, its spell cleared; the computer's turn: a target first, the items' spells, its spell choice (`cok_computer_cast_routine`), the undead it turns and the paladins who do, its reach, morale's compare and the fleeing's effects, the flight's way; the attack's sides, the free attacks' effect, the creature flag for no dying words, a lost spell's mark, the arrows, the missile's clamp, turning undead (`cok_turning_routine`) | Champions' words; `COK_CLOUDS_CHAMPIONS`, `starts to cough`, `chokes and gags from nausea`, `The air clears a little...`, `Creates a noxious cloud`, none; 0x1e and 0x1d, no; by the stack's byte, the cloud's only, yes; no, yes, `3afb:03b9`, the stack's byte, none, range less 1, unsigned, `DISPELLING` and `GIANT_SLAYER`, 0; no, none, none, cleared, 5, 7, 0x0c, 0x1e, no, `432f:12b7` |
 | `menus` | the menu loop (`menu.c`, `cok_menus_routine`: by letters, or by index, `cok_menu_pick`), the Yes/No's items for the indexed loop (`camp.c`), and the adventure's menu where the games differ (`adventure.c`: whether it keeps its own selection, whether Escape leaves Move), whether camp's menu keeps its own selection (`camp.c`) and a special key's pick of a character (`devices.c`: whether a key but Up and Down keeps the one selected) | by letters (`67b5:03e2`, `177f`); none; no, no (`475c:09ec`); no (`4888:2c31`); no, the first is picked (`546c:3334`) |
@@ -346,9 +346,10 @@ going on. It holds:
   and credits (`35c6:026e`), its start menu (`49cb:010b`, `DS:0cf8`) and
   its words, Load and Add from Death Knights or Champions (`--import`),
   a Drop or Remove that empties the party ending the game, Exit's No
-  saving then quitting, Begin's mode from the last mode; and the start
-  menu's command it does not carry out yet, which stops the run citing
-  its routine: Initialize Mouse/Joystick (`52cd`);
+  saving then quitting, Begin's mode from the last mode; Initialize
+  Mouse/Joystick's words and file (`52cd`, `58ec`; see Death Knights'
+  mouse); and a start menu command it does not carry out yet, which
+  stops the run citing its routine (none now);
 - its creation (the `creation` section; see Death Knights' creation):
   Create New Character (`49cb:05c7`), its icon editor (`3cac`), its
   items (`4bea`) and Modify Character (`25d4`);
@@ -1481,6 +1482,73 @@ do the same, frame for frame, the party list, the title's hidden cursor, the
 mouse off and on, the joystick's keys and both calibrations; and
 `tests/test_cok.py` the clicks and the joystick through SDL's events frame
 for frame as `eclplay` draws them, at two scales.
+
+### Death Knights' mouse
+
+Death Knights' units are Champions' (`1882` is `1743` with the INT 33h
+function numbers read from a table of the same values, `DS:838c`; its
+cursors `DS:83ee`, `83ae` are Champions' bytes; `18bc` is `177c`; the
+device part of `16ab:01d4` is `1614:025b`'s), startup's part is
+`3e99:005b`'s (`4f9a:00e1`, which also clears the party click's member,
+`DS:a2b6`), and the cursor is hidden and shown at the same places. What
+differs:
+
+- `DKK.CFG` (`1187:011b`) has two paths after the third line, its save
+  path (`DS:98a4`) and Champions' saved games' (`DS:99a4`), then `F` and
+  the stick's thresholds: the `files` section's `config_paths`
+  (`cok_config_parse_game`; Champions' 1). The setup Death Knights runs
+  without the file differs too (a Tandy display makes `[2] MOUSE` write
+  `N`, `DS:8b8f`, and it asks for Champions' path) and is not ported: the
+  port's is Champions' but for the file's layout: it writes the
+  `config_paths` paths, the others' lines empty, and reads them back so.
+- The start menu clears the party list's clicks again after a Drop or
+  Remove that ends the game (`49cb:010b`, after `4f9a:08ad` set them).
+- Its menus by index (`6a69:0f1b`) take a click as 67b5:03e2 does, region
+  by region (`11fd-12c7`, `cok_menu_pick` with `cok_pointer.click_indexed`,
+  `devices.c`), but: the party list (`0490`, `0513`) is off in Move mode
+  only in a 3D area's mode (4), and a click on a member keeps it
+  (`DS:a2b6`) for the special key's routine to select (`580d:2bb2`, once)
+  or, while a pick picks into its own (`DS:c0f0`, `c0f1`), picks it there;
+  a click on the one selected (or picked) is Enter on the menu's selected
+  item. The view in Move mode (`07d3`) takes clicks only in mode 4 (the
+  overland map's, `085d`, as Champions'). The menu's own items are on its
+  rows, 23 and 24 for two (`0940`: row 24's counted on past the `@`,
+  row 23's only before it). A click on none of them: on the battlefield
+  (mode 5, rows 0-22) the hotkey `T` on a menu of two rows and `M` on
+  aiming's (`aim: `), else read on; elsewhere read on, but in a menu of
+  one item done with Enter's 0x0d, which no item has: index 0xff
+  (`12af`). A click on an item not selected, or on a list's columns, sets
+  `DS:c0f9`.
+- Its lists (`6a69:1b82`) take a click as a pick only where it set no
+  `DS:c0f9`: a click on a row picks it out and asks again, a click on the
+  row picked picks it; a click on row 24's item not selected only selects
+  it. A click off the list and the menu reads on in Initialize
+  Mouse/Joystick (`Select Exit`); in the start menu, whose list has
+  `Select` alone and no Exit, it is 0xff, past Select, which `1ea6`
+  compares with Exit's index, a stack byte (`[bp-0x242]`) only written
+  when Exit is shown: the port stops there (`COK_MENU_UNSET_EXIT`).
+- The pick (`65cd:33c9`, WHO's and Trade's) has Move off while it asks
+  (`DS:db7c`), the party list's clicks on in mode 0, and takes Up after a
+  click as the click's member: the pick's own, or `DS:a2b6`, which it also
+  selects (not clearing it). A member a click kept that the party no
+  longer has stops the run (the original selects the freed record).
+
+Death Knights' menus still read by Champions' loop (`cok_camp_menu`,
+`cok_menu_read`: "from where", the Load's and Save's letters, as the
+other parts have left them) take clicks as Champions'.
+`tests/test_input.c` checks Death Knights' clicks (row 24's and two rows'
+items, the prompt, nowhere, the battlefield, the party list and the pick
+into, Move mode, Modify's sheet, Pick Character, a list's rows and row
+24), `tests/test_start.c` Initialize Mouse/Joystick's file,
+`tests/test_config.c` `DKK.CFG`'s thresholds, `tests/test_death_knights.c`
+the words and the code's constants against the executable, and
+`tests/test_death_knights.py` Initialize Mouse/Joystick and Pick Character
+by clicks. `tools/dosbox/checks/dkk_mouse.py` (not in `run_all.py`)
+clicks the same in the original with DOSBox-X's own driver, as
+`f_mouse.py` does: the start menu's rows (picked out, then picked),
+Initialize Mouse/Joystick's mouse row and Exit, Pick Character's party
+list, camp's and Alter's items on row 24, each screen whole with the
+arrow, and the files it leaves.
 
 ## Sound
 
@@ -9159,10 +9227,27 @@ here:
   or ninth record, a fourth ranger (`too many rangers in your party`) is
   turned away and keeps its `* `; no paladin rule; no `Loading...Please
   Wait`; a space is not special.
-- Initialize Mouse/Joystick (`52cd`: its own words, and it rewrites
-  `krynn.cfg`, not `DKK.CFG`) is not ported: choosing it stops the run
-  (`not yet ported: Death Knights of Krynn's Initialize Mouse/Joystick
-  (dkk 49cb:52cd)`). Create (`05c7`) and Modify (`25d4`) are Death
+- The start menu's list and Pick Character (`580d:3067`: `Select`
+  alone, 6a69:00cb(1), with the keypad, until an index of 1 or less;
+  Escape is 1, another special key picks between redraws) go by index
+  (6a69:1b82, 0f1b): a space picks no row, and a click goes as Death
+  Knights' (see The mouse and the joystick).
+- Initialize Mouse/Joystick (`52cd`, `58ec`) is Champions' routine with
+  its own words (the `start` section's `mouse`: `Init mouse/joystick: `,
+  `mouse on` ..., `Push joystick #1 ...`, `unable to read joystick` but
+  for a read lost at the upper left, `Unable ...`) and its list by index
+  (6a69:1b82 with Exit, so `Select Exit`); the file it reads and writes is
+  `krynn.cfg` (CS `52bd`), as Champions' is, not `DKK.CFG`, which the game
+  reads at startup: so what it sets lasts until the game is left. The port
+  reads and writes a `krynn.cfg` beside where it writes `DKK.CFG` (the
+  saves), read from the assets' when there is none there; with neither it
+  is written empty, as the original's `Reset` fails (logged `config:
+  krynn.cfg line 3 N`). The error stays set (nothing calls `IOResult` in
+  between), so the original's next pass does no I/O at all and its file
+  stays empty; the port, which does not model the error past its pass (as
+  Champions'), reads the empty file and writes five empty lines but the
+  third and the zeros (`dkk_mouse.py` saw the original's empty).
+  Create (`05c7`) and Modify (`25d4`) are Death
   Knights' creation's (see Creating characters); Train (`43b6`) and Knight
   Change Order (`4ea4`) are Death Knights' training's.
 

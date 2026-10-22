@@ -102,7 +102,20 @@ cok_config cok_config_parse(const uint8_t *text, size_t size)
     return cok_config_parse_stick(text, size, false);
 }
 
+static cok_config parse(const uint8_t *text, size_t size, bool stick, unsigned paths);
+
 cok_config cok_config_parse_stick(const uint8_t *text, size_t size, bool stick)
+{
+    return parse(text, size, stick, 1);
+}
+
+cok_config cok_config_parse_game(const cok_rules *rules, const uint8_t *text, size_t size,
+                                 bool stick)
+{
+    return parse(text, size, stick, rules->files.config_paths);
+}
+
+static cok_config parse(const uint8_t *text, size_t size, bool stick, unsigned paths)
 {
     cok_config config = {0};
     size_t at = 0;
@@ -130,6 +143,11 @@ cok_config cok_config_parse_stick(const uint8_t *text, size_t size, bool stick)
     read_line(text, size, &at);
     read_string(text, size, &at, config.save_path, sizeof config.save_path - 1);
     read_line(text, size, &at);
+    /* dkk 1187:011b: Champions' saved games' path (DS:99a4) after its own. */
+    for (unsigned i = 1; i < paths; ++i) {
+        read_string(text, size, &at, config.other_path, sizeof config.other_path - 1);
+        read_line(text, size, &at);
+    }
     config.f_line = read_char(text, size, &at) == 'F';
     read_line(text, size, &at);
     /* 177c:0000 (11c7:0b16): the stick's thresholds cleared and, with the
@@ -152,7 +170,20 @@ bool cok_config_read_file(const char *path, cok_config *config)
     return cok_config_read_file_stick(path, config, false);
 }
 
+static bool read_file(const char *path, cok_config *config, bool stick, unsigned paths);
+
 bool cok_config_read_file_stick(const char *path, cok_config *config, bool stick)
+{
+    return read_file(path, config, stick, 1);
+}
+
+bool cok_config_read_file_game(const cok_rules *rules, const char *path, cok_config *config,
+                               bool stick)
+{
+    return read_file(path, config, stick, rules->files.config_paths);
+}
+
+static bool read_file(const char *path, cok_config *config, bool stick, unsigned paths)
 {
     FILE *f = fopen(path, "rb");
     if (f == NULL) return false;
@@ -161,7 +192,7 @@ bool cok_config_read_file_stick(const char *path, cok_config *config, bool stick
     size_t size = text != NULL ? fread(text, 1, MOST, f) : 0;
     bool failed = text == NULL || ferror(f) != 0;
     fclose(f);
-    if (!failed) *config = cok_config_parse_stick(text, size, stick);
+    if (!failed) *config = parse(text, size, stick, paths);
     free(text);
     return !failed;
 }
@@ -176,19 +207,26 @@ static bool exists(const char *path)
     return stat(path, &st) == 0 && S_ISREG(st.st_mode);
 }
 
-/* DIR/KRYNN.CFG or DIR/krynn.cfg (the rules' name, then in lower case),
- * whichever exists, into path. */
-static bool find_in(const cok_rules *rules, const char *dir, char *path, size_t size)
+bool cok_config_find_named(const char *name, const char *dir, char *path, size_t size)
 {
-    char lower[64];
-    snprintf(lower, sizeof lower, "%s", rules->files.config);
+    char upper[64], lower[64];
+    snprintf(upper, sizeof upper, "%s", name);
+    snprintf(lower, sizeof lower, "%s", name);
+    for (char *c = upper; *c != '\0'; ++c) *c = (char)toupper((unsigned char)*c);
     for (char *c = lower; *c != '\0'; ++c) *c = (char)tolower((unsigned char)*c);
-    const char *const names[] = {rules->files.config, lower};
+    const char *const names[] = {upper, lower};
     for (size_t i = 0; i < 2; ++i) {
         snprintf(path, size, "%s/%s", dir, names[i]);
         if (exists(path)) return true;
     }
     return false;
+}
+
+/* DIR/KRYNN.CFG or DIR/krynn.cfg (the rules' name, then in lower case),
+ * whichever exists, into path. */
+static bool find_in(const cok_rules *rules, const char *dir, char *path, size_t size)
+{
+    return cok_config_find_named(rules->files.config, dir, path, size);
 }
 
 /* Whether a and b name the same directory. */
@@ -263,7 +301,8 @@ bool cok_config_rewrite(const char *from, const char *to, char input, const uint
 bool cok_config_read(const cok_rules *rules, const char *assets, cok_config *config)
 {
     char path[1100];
-    return find_in(rules, assets, path, sizeof path) && cok_config_read_file(path, config);
+    return find_in(rules, assets, path, sizeof path) &&
+           cok_config_read_file_game(rules, path, config, false);
 }
 
 bool cok_config_display_option(const char *name, cok_display *out)

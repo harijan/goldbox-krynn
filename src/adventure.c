@@ -1193,13 +1193,15 @@ static void add_experience(cok_adventure *game)
  * selection itself (DS:6096), as WHO's. Returns the character, or NULL;
  * *ended is set if input ended. */
 static uint8_t *pick_indexed(cok_adventure *game, const char *prompt, uint8_t *who,
-                             bool exit_item, bool *ended);
+                             bool exit_item, bool into, bool *ended);
+static uint8_t *pick_indexed_loop(cok_adventure *game, const char *prompt, uint8_t *who,
+                                  bool exit_item, bool *ended);
 
 static uint8_t *pick_character(cok_adventure *game, const char *prompt, uint8_t *who,
                                bool exit_item, bool into, bool *ended)
 {
     if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED)
-        return pick_indexed(game, prompt, who, exit_item, ended);
+        return pick_indexed(game, prompt, who, exit_item, into, ended);
     cok_ecl *vm = &game->vm;
     bool party_clicks = game->mouse.party_clicks;
     game->pick_into = into;
@@ -1258,12 +1260,29 @@ static uint8_t *pick_character(cok_adventure *game, const char *prompt, uint8_t 
  * the last (with none picked the original reads nil's next: the port
  * stops); Up (8) the one before, the last before the first or none; other
  * keys read again. The party list shows the pick each time.
- * The mouse's party clicks (dkk 65cd:33c9's DS:dbab path) are not taken,
- * as the loop takes none. */
+ * A click on the party list (taking clicks in the start menu's mode 0,
+ * DS:dba9, but not Move's, DS:db7c off while it asks) is Up with its
+ * member: into the pick (DS:c0f0 set, c0f1, from the one selected) with
+ * into, else the one the click kept (DS:a2b6), which it also selects; on
+ * the one picked (or selected), Select. */
 static uint8_t *pick_indexed(cok_adventure *game, const char *prompt, uint8_t *who,
-                             bool exit_item, bool *ended)
+                             bool exit_item, bool into, bool *ended)
+{
+    bool moving = game->moving;
+    game->pick_into = into;
+    game->pick = game->vm.character;
+    game->moving = false;
+    uint8_t *picked = pick_indexed_loop(game, prompt, who, exit_item, ended);
+    game->moving = moving;
+    game->pick_into = false; /* 65cd:35f0 */
+    return picked;
+}
+
+static uint8_t *pick_indexed_loop(cok_adventure *game, const char *prompt, uint8_t *who,
+                                  bool exit_item, bool *ended)
 {
     cok_ecl *vm = &game->vm;
+    bool party_clicks = game->mouse.party_clicks;
     char menu_prompt[42];
     snprintf(menu_prompt, sizeof menu_prompt, "%.40s ", prompt);
     *ended = false;
@@ -1283,8 +1302,10 @@ static uint8_t *pick_indexed(cok_adventure *game, const char *prompt, uint8_t *w
         log_text(game, "menu", layout.text);
         cok_keyboard keys = keyboard(game);
         bool special;
+        if (vm->mode == 0) game->mouse.party_clicks = true; /* 65cd:3453 */
         key = cok_menu_pick(&game->screen, &game->font, menu_prompt, select, &items, 13, 15, 10,
                             true, &game->selected, &keys, &special);
+        game->mouse.party_clicks = party_clicks;
         game->menu_animates = false;
         if (key < 0) {
             *ended = true;
@@ -1307,6 +1328,21 @@ static uint8_t *pick_indexed(cok_adventure *game, const char *prompt, uint8_t *w
                 return NULL;
             }
             who = cok_party_record(&game->party, i + 1 < n ? i + 1 : 0);
+        } else if (key == 0x48 && game->pointer.clicked) {
+            /* 65cd:3542: the member the click picked: the pick's, or the
+             * one it kept (DS:a2b6, not cleared), selected too. */
+            if (game->pick_into) {
+                who = game->pick;
+            } else {
+                if (cok_party_index(&game->party, game->click_pick) >= n) {
+                    cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                                       "the pick takes a click's member the party does not "
+                                       "have (dkk 65cd:33c9, DS:a2b6)");
+                    return NULL;
+                }
+                who = game->click_pick;
+                vm->character = who;
+            }
         } else if (key == 0x48) {
             /* The head's before is the last; another's, the one whose next
              * it is: none's, the last. */

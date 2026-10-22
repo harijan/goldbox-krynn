@@ -212,8 +212,8 @@ int cok_menu_pick(cok_picture *dst, const cok_font *font, const char *prompt, co
  * headings and, with style->show_exit, " Exit" after it, each of these
  * three at the index after the one before from last + 1 (last a signed
  * byte: 0xff puts them from 0, and every index the menu gives is past it),
- * which the caller's items must reach without a gap for them to show. Up and Down (8 and 2)
- * move, PgDn and PgUp (3 and 9) or Next and Prev page while there is more
+ * which the caller's items must reach without a gap for them to show.
+ * Up and Down (8 and 2) move, PgDn and PgUp (3 and 9) or Next and Prev page while there is more
  * to see, the scan code 0x4e pages down; Exit, Escape and the scan codes
  * 0x45 and 0 return 0x1b with *special set and *picked clear; other
  * special keys are read past. Otherwise it returns the index the menu
@@ -221,6 +221,12 @@ int cok_menu_pick(cok_picture *dst, const cok_font *font, const char *prompt, co
  * With no rows it returns 0 at once, *index 0 and *picked clear (*special
  * as it was). *selected, *redraw and *top as cok_menu_rows'. Returns -1 if
  * input ended. */
+/* What cok_menu_indexed_rows returns for an index past the caller's
+ * that is neither Next nor Prev when Exit was never offered: 6a69:1ea6
+ * compares it with Exit's index, a stack byte ([bp-0x242]) only written
+ * when Exit is shown. */
+enum { COK_MENU_UNSET_EXIT = -4 };
+
 int cok_menu_indexed_rows(cok_picture *dst, const cok_font *font, const cok_menu_row *rows,
                           size_t count, cok_text_window window, const cok_menu_style *style,
                           const char *text, const cok_menu_items *items, uint8_t last,

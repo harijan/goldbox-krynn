@@ -102,13 +102,35 @@ typedef struct {
  * the menu reading on. release waits, once a menu has its key, for the
  * mouse's buttons to come up after a click, or the joystick's after any
  * key (67b5:0c2d). Any may be NULL. */
-enum { COK_CLICK_ON = -1, COK_CLICK_KEEP = -2 };
+enum { COK_CLICK_ON = -1, COK_CLICK_KEEP = -2, COK_CLICK_ENTER = -3 };
+/* The stages of a menu by index's click (dkk 6a69:0f1b, 11fd-12c7): the
+ * game's regions before the menu's rows (COK_CLICK_REGIONS: 0490-08bb, the
+ * party list, the combat map, the view and map in Move mode), its sheet
+ * after them (COK_CLICK_SHEET: 0a9b, Modify's), and a click on none of
+ * them nor a list's rows (COK_CLICK_ELSEWHERE: 1271-12c2), with what the
+ * menu shows. */
+enum { COK_CLICK_REGIONS, COK_CLICK_SHEET, COK_CLICK_ELSEWHERE };
+typedef struct {
+    bool two_rows;
+    size_t count;
+    const char *prompt;
+} cok_click_menu;
 struct cok_pointer {
     bool clicked;
     int16_t x, y;
     int8_t list_left, list_right;
     uint8_t list_rows[25];
     int (*click)(void *context, int col, int row, bool *special);
+    /* A menu by index's (cok_menu_pick) click at a stage: its key, with
+     * *special for a scan code (DS:c0f8); COK_CLICK_ON for the next stage,
+     * COK_CLICK_KEEP to read on, COK_CLICK_ENTER for Enter on the item
+     * selected (6a69:0442). NULL: a click is the key Enter. */
+    int (*click_indexed)(void *context, int stage, int col, int row, const cok_click_menu *menu,
+                         bool *special);
+    /* DS:c0f9: a click on a menu by index's item not selected before
+     * (6a69:0940) or on a list's columns (0ba7), which the list (6a69:1b82)
+     * clears before each ask and takes as a click on its rows. */
+    bool reselected;
     void (*release)(void *context);
     /* Text input (cok_text_input) drew a character or erased one past
      * column 39, where the original's text unit hides the cursor and
