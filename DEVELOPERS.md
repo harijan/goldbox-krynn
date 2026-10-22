@@ -4311,11 +4311,35 @@ subtract; Left and Right (4 and 6) move the selection only, never the unit
 With a key waiting it asks `Stop resting? ` (`DS:10a1`, `6a69:2048` from
 Yes, `DS:57c0`): the waiting key is the answer's first, and Enter stops.
 After Save the camp asks its start menu's `Quit to DOS ` (`DS:124c`), from
-No. Still Champions' in the port: the camp's, Magic's and Alter's menus
-read by letters (the original reads them by index, Escape as Exit), and
-Alter offers Champions' `Pics`, which Death Knights' (`4381:21df`, `Order
-Drop Speed Icon Level Exit`, no keypad, from its first item each time)
-has not.
+No; every tenth save (counted in `0x4cf6`) the original asks a word from
+the rule book (`4381:0337`, three tries), which the port logs as unported
+and passes, as Champions'.
+
+The camp's menu (`4381:3106`), Magic's (`4381:1a34`) and Alter's
+(`4381:21df`) are read by index (`6a69:0f1b`, `cok_camp_pick_menu`), the
+small picture shown and animated: an item's first letter picks it, as in
+Champions, but a special key's scan code is no letter (NumLock's `E` left
+Champions' camp). The camp keeps its own selection, from `Save`, and
+Escape is its Exit; other special keys pick a character (`580d:2bb2`,
+which keeps the one selected for any key but Up and Down, between
+`65cd:0959`'s redraws of the two rows). Magic starts from `Cast` each time
+it opens; a special key picks, Escape too, and Escape then leaves.
+Alter, `Order Drop Speed Icon Level Exit` (`DS:371e`: no `Pics`), starts
+from `Order` each time, without the keypad, Escape its Exit. `Order`
+(`1d98`) asks `party order ` (`DS:30df`) over `Select` or `Place`, and
+`Exit` (`DS:33f5`), with a selection of its own: while moving, any special
+key redraws the party list after Up or Down has moved the character, and
+Escape leaves then too. `Drop` (`1f14`) says `will be gone forever`
+(`DS:110a`), and with the party's last asks `Quit to DOS ` (`DS:124c`).
+`Speed` (`20d3`) shows `Game Speed (0=fastest 9=slowest) = N` (`DS:168e`)
+and asks `game speed: ` (`DS:30f4`) over those of `Faster Slower Exit`
+(`DS:340a`) it offers, from its own selection; special keys but Up, Down
+and Escape do nothing. `Level` (`2045`) starts from the difficulty, without
+the keypad; a special key, Escape too, picks a character and keeps it.
+`Icon` redraws the screen after the editor (`65cd:2db0`). The words are
+`levels.alter_menu`, `order_prompt`, `order_menu`, `drop_gone`,
+`drop_quit` and `speed_before`, `speed_after`, `speed_prompt`,
+`speed_menu`.
 
 Fix (`4381:2fd4`, `levels.fix` `COK_FIX_DEATH_KNIGHTS`) does nothing where
 the area forbids magic (var `0x4be5`) or no one lacks hit points. It adds
@@ -4373,7 +4397,11 @@ and again with No, resting out; a day's rest that the block's camp vector
 (`0x7ed2` 255, `0x7ed3` 100) interrupts at its 255th tick, and the rest
 vector's text; each screen, RandSeed and the clock (`0x4bc6`-`0x4bcc`):
 0 pixels apart but the eulogy's portrait's eyes, whose blink a screenshot
-catches by the host's timing (36 pixels once).
+catches by the host's timing (36 pixels once). Flow `menus` walks the
+camp, Magic, Escape and Enter (Magic again), Alter's Order (Select, Down,
+Place, Escape), Drop (No), Speed (Faster, Up, Escape), Icon, Level (Left,
+Enter) and Escape, then Save: each screen, RandSeed, the clock, saved game
+C and the character files.
 
 ## Casting
 

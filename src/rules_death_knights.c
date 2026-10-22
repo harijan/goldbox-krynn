@@ -2048,6 +2048,16 @@ const cok_rules cok_rules_death_knights = {
             .stop_resting_yes = true,                               /* DS:57c0 */
             .rest_from_first = false,                               /* 4381:3106 */
             .camp_quit = "Quit to DOS ",                            /* DS:124c */
+            .copy_protection = "4381:0337",
+            .alter_menu = "Order Drop Speed Icon Level Exit", /* 4381:21df, DS:371e */
+            .order_prompt = "party order ",                    /* 4381:1d98, DS:30df */
+            .order_menu = "Select Place Exit",                 /* DS:33f5 */
+            .drop_gone = "will be gone forever",               /* 4381:1f14, DS:110a */
+            .drop_quit = "Quit to DOS ",                       /* DS:124c */
+            .speed_before = "Game Speed (0=fastest 9=slowest) = ", /* 4381:20d3, DS:168e */
+            .speed_after = "",
+            .speed_prompt = "game speed: ",       /* DS:30f4 */
+            .speed_menu = "Faster Slower Exit", /* DS:340a */
         },
     .casting =
         {

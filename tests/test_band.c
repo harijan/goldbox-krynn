@@ -1152,6 +1152,110 @@ static void test_rest(void)
     CHECK(LOGGED("print: your repose is suddenly interrupted!;") && game.rest[2] == 5);
 }
 
+/* The camp's menus by index (dkk 4381:3106, 1a34, 21df and Alter's
+ * commands, 6a69:0f1b): run the camp on keys, the party of names, and
+ * count a menu's showings. */
+static bool camp_run(const char *keys)
+{
+    game.vm.character = cok_party_record(&game.party, 0);
+    script = keys;
+    game.input_ended = false;
+    game.selected = 1;
+    bool interrupted = cok_camp(&game);
+    CHECK(game.vm.status == COK_ECL_OK && *script == '\0');
+    return interrupted;
+}
+
+static bool camp_with(const char *keys, const char *names)
+{
+    camp_reset();
+    for (const char *n = names; *n != '\0'; ++n) camper(*n, 10, 10);
+    return camp_run(keys);
+}
+
+static size_t shown(const char *menu)
+{
+    size_t count = 0;
+    for (const char *at = log_text; (at = strstr(at, menu)) != NULL; ++at) ++count;
+    return count;
+}
+
+#define CAMP "menu: Save View Magic Rest Alter Fix Exit;"
+#define MAGIC "menu: Cast Memorize Scribe Display Rest Exit;"
+#define ALTER "menu: Order Drop Speed Icon Level Exit;"
+
+static void test_camp_menus(void)
+{
+    const cok_character_layout *L = R->character;
+    /* Escape is Exit; a special key's scan code is no letter (0x45, 'E',
+     * picks a character and stays). */
+    CHECK(!camp_with("\x1b", "A") && shown(CAMP) == 1);
+    CHECK(!camp_with("\x01\x45\x01P" "e", "AB") && shown(CAMP) == 3);
+    /* The camp keeps its own selection: Alter's, which Enter opens again
+     * after Alter's Escape; Alter starts from Order each time, Escape is
+     * its Exit, and it has no Pics (P is read past). */
+    CHECK(!camp_with("a\x1b\rp\x1b\x1b", "A") && shown(CAMP) == 3 && shown(ALTER) == 2);
+    CHECK(LOGGED(CAMP ALTER CAMP ALTER CAMP));
+    CHECK(!camp_with("a\x01M\x01M\re\x1b\x1b", "A") && shown(ALTER) == 2 &&
+          LOGGED(ALTER "print: Game Speed (0=fastest 9=slowest) = 0;menu: Slower Exit;" ALTER));
+    /* Magic: its own selection from Cast; Escape picks (keeping the one
+     * selected) and leaves; Exit. */
+    CHECK(!camp_with("m\x1b\x1b", "AB") && shown(MAGIC) == 1 && shown(CAMP) == 2 &&
+          game.vm.character == game.party.members[0]->record);
+    CHECK(!camp_with("m\x01Pe\x1b", "AB") && shown(MAGIC) == 2 &&
+          game.vm.character == game.party.members[1]->record);
+    /* Speed: its own selection, from the first of those offered: from 0
+     * Enter is Slower (1), then Faster (0); Up adds; F1 does nothing;
+     * Escape leaves. */
+    game.speed = 0;
+    CHECK(!camp_with("as\r\r\x01H\x01\x3b\x1b\x1b\x1b", "A") && game.speed == 1);
+    CHECK(LOGGED("print: Game Speed (0=fastest 9=slowest) = 0;menu: Slower Exit;"
+                 "print: Game Speed (0=fastest 9=slowest) = 1;menu: Faster Slower Exit;"));
+    CHECK(shown("menu: Faster Slower Exit;") == 3);
+    /* Its selection stays where it was moved: Right to Slower, Enter
+     * twice, from 4. */
+    camp_reset();
+    camper('A', 10, 10);
+    game.speed = 4;
+    CHECK(!camp_run("as\x01M\r\r\x1b\x1b\x1b") && game.speed == 6);
+    /* At 9 no Slower (4381:213c): Right is Exit, and the speed stays. */
+    camp_reset();
+    camper('A', 10, 10);
+    game.speed = 9;
+    CHECK(!camp_run("as\x01M\r\x1b\x1b") && game.speed == 9);
+    CHECK(LOGGED("print: Game Speed (0=fastest 9=slowest) = 9;menu: Faster Exit;" ALTER));
+    /* Level: from the difficulty's item, no keypad (4 moves left, no
+     * special key): 4 then Enter is Squire. Alter then starts from Order
+     * again, not from Level's selection. */
+    camp_reset();
+    camper('A', 10, 10);
+    cok_ecl_set_var(&game.vm, COK_VAR_DIFFICULTY, 3);
+    CHECK(!camp_run("al4\r\r\x1b\x1b\x1b"));
+    CHECK(cok_ecl_var(&game.vm, COK_VAR_DIFFICULTY) == 2);
+    CHECK(LOGGED("menu: Novice Squire Veteran Adept Champion;" ALTER "menu: Select Exit;"));
+    /* Order: "party order " over Select or Place, its own selection:
+     * Enter selects, Down moves A after B, Enter (Place) puts it down;
+     * Escape leaves. */
+    CHECK(!camp_with("ao\r\x01P\r\x1b\x1b\x1b", "AB"));
+    CHECK(cok_field_u8_at(L, game.party.members[0]->record, COK_FIELD_NAME, 1) == 'B');
+    CHECK(LOGGED("menu: Select Exit;print: A;print: has been selected;menu: Place Exit;"
+                 "menu: Place Exit;menu: Select Exit;"));
+    /* Drop: "will be gone forever", then from No; with the last member
+     * the start menu's "Quit to DOS ". */
+    CHECK(!camp_with("ad\r\x1b\x1b", "AB") && game.party.count == 2);
+    CHECK(LOGGED("print: will be gone forever;menu: Drop from party? ;choice: N;print: A;"
+                 "print: Breathes A sigh of relief;"));
+    CHECK(!camp_with("ad\r\x1b\x1b", "A") && LOGGED("menu: Quit to DOS ;choice: N;"));
+    /* The tenth save cites 4381:0337 and starts the count again (0x4cf6);
+     * Escape cancels the save, "Quit to DOS " from No. */
+    camp_reset();
+    camper('A', 10, 10);
+    cok_ecl_set_var(&game.vm, COK_VAR_SAVES, 9);
+    CHECK(!camp_run("s\x1b\r\x1b"));
+    CHECK(LOGGED("unported: copy protection (4381:0337);") &&
+          cok_ecl_var(&game.vm, COK_VAR_SAVES) == 0);
+}
+
 int main(void)
 {
     struct stat st;
@@ -1190,6 +1294,7 @@ int main(void)
     test_fix_second();
     test_fix_no_learning();
     test_rest();
+    test_camp_menus();
     cok_adventure_close(&game);
     puts("band tests passed");
     return 0;

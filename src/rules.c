@@ -1875,6 +1875,16 @@ const cok_rules cok_rules_champions = {
             .stop_resting_yes = false,
             .rest_from_first = true, /* 4888:2c31 */
             .camp_quit = "Quit TO DOS ", /* CS:2c20 */
+            .copy_protection = "4888:0376",
+            .alter_menu = "Order Drop Speed Icon Pics Level Exit", /* 4888:2539 */
+            .order_prompt = "Party Order: ",                         /* 4888:1fc1 */
+            .order_menu = NULL,
+            .drop_gone = "will be gone",  /* 4888:2126 */
+            .drop_quit = "quit TO DOS: ",
+            .speed_before = "Game Speed = ", /* 4888:2384 */
+            .speed_after = " (0=fastest 9=slowest)",
+            .speed_prompt = "Game Speed:",
+            .speed_menu = NULL,
         },
     .casting =
         {

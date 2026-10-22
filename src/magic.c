@@ -1014,21 +1014,34 @@ void cok_magic_cast(cok_adventure *game, uint8_t frame)
 
 /* The menu. */
 
+/* dkk 4381:1a34 reads it by index (6a69:0f1b, the keypad, the picture),
+ * each index taken as its letter; a special key picks a character, Escape
+ * too (580d:2bb2 keeps the one selected), and Escape then leaves. */
 void cok_magic(cok_adventure *game, bool *interrupted)
 {
+    static const char *const text = "Cast Memorize Scribe Display Rest Exit"; /* dkk DS:36f5 */
     int key = ' ';
     /* dkk 4381:1a34: its own selection, from Cast. */
     bool own = cok_game_rules(game)->levels.magic_selection;
+    bool indexed = cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED;
     uint8_t selection = 1;
     while (!*interrupted && key != 0 && key != 'E' && !game->vm.abort) {
         bool special;
         if (own) game->selected = selection;
-        key = cok_camp_menu(game, "", "Cast Memorize Scribe Display Rest Exit", true, true,
-                            &special);
+        if (indexed) {
+            cok_menu_items items;
+            cok_menu_items_upto(&items, 5);
+            key = cok_camp_pick_menu(game, "", text, &items, true, true, &special);
+            if (key >= 0 && !special) key = key <= 5 ? "CMSDRE"[key] : ' ';
+        } else {
+            key = cok_camp_menu(game, "", text, true, true, &special);
+        }
         if (own) selection = game->selected;
         if (key < 0) return;
         if (special) {
             cok_camp_pick(game, (uint8_t)key);
+            /* by index Escape leaves after its pick, no other scan code */
+            if (indexed) key = key == 0x1b ? 'E' : ' ';
             continue;
         }
         switch (key) {

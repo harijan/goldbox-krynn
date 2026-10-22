@@ -1457,6 +1457,23 @@ typedef struct {
     /* The question the camp's Save asks after saving ("Quit TO DOS ",
      * 4888:2c31's CS:2c20; dkk 4381:3106's DS:124c, its start menu's). */
     const char *camp_quit;
+    /* The routine the camp's Save cites for the rule book's question every
+     * tenth save, which the port logs as unported (4888:0376; dkk
+     * 4381:0337, its counter 0x4cf6). */
+    const char *copy_protection;
+    /* Alter's (camp.c): its menu (4888:2539's; dkk 4381:21df's DS:371e,
+     * no Pics); Order's prompt (4888:1fc1's "Party Order: ", over "Select
+     * Exit" or "Place Exit"; dkk 4381:1d98's DS:30df) and, by index, its
+     * items (dkk DS:33f5: Select or Place, and Exit; NULL in Champions);
+     * what Drop says first ("will be gone", 4888:2126; dkk 4381:1f14's
+     * DS:110a) and asks with the party's last ("quit TO DOS: "; dkk
+     * DS:124c); Speed's line, the speed between its two parts (4888:2384's
+     * "Game Speed = " and " (0=fastest 9=slowest)"; dkk 4381:20d3's
+     * DS:168e and none), its prompt ("Game Speed:"; dkk DS:30f4) and, by
+     * index, its items (dkk DS:340a; NULL in Champions, which lists those
+     * offered). */
+    const char *alter_menu, *order_prompt, *order_menu, *drop_gone, *drop_quit;
+    const char *speed_before, *speed_after, *speed_prompt, *speed_menu;
 } cok_rules_levels;
 
 /* The camp's Fix (cok_rules_levels' fix; see Camp and Death Knights'
