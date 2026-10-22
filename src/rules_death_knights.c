@@ -2043,6 +2043,11 @@ const cok_rules cok_rules_death_knights = {
             .fix = COK_FIX_DEATH_KNIGHTS,                          /* 4381:2fd4 */
             .party_healed = "The whole party is healed",           /* DS:2560 */
             .interrupted = "your repose is suddenly interrupted!", /* DS:25a9 */
+            .rest_menu = "Rest Days Hours Mins Add Subtract Exit", /* DS:324d */
+            .stop_resting = "Stop resting? ",                       /* DS:10a1 */
+            .stop_resting_yes = true,                               /* DS:57c0 */
+            .rest_from_first = false,                               /* 4381:3106 */
+            .camp_quit = "Quit to DOS ",                            /* DS:124c */
         },
     .casting =
         {

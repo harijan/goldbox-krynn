@@ -1870,6 +1870,11 @@ const cok_rules cok_rules_champions = {
             .fix = COK_FIX_CHAMPIONS,
             .party_healed = "The Whole Party Is Healed",          /* 57e4:09f0 */
             .interrupted = "Your repose is suddenly interrupted!", /* 57e4:0e3e */
+            .rest_menu = "Rest Days Hours Mins Add Subtract Exit", /* CS:0859 */
+            .stop_resting = "Stop Resting? ",                       /* CS:0e0a */
+            .stop_resting_yes = false,
+            .rest_from_first = true, /* 4888:2c31 */
+            .camp_quit = "Quit TO DOS ", /* CS:2c20 */
         },
     .casting =
         {

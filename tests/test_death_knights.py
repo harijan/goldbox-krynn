@@ -817,6 +817,40 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual((saves / "CHRDATC6.EFF").read_bytes()[0], 0x21)
         self.assertEqual((saves / "CHRDATC4.EFF").read_bytes()[0], 0x24)
 
+    def test_rest(self):
+        # Camp's Rest (5b7d:0d51) in block 16, as dkk_levels.py's rest flows
+        # play it: its menu by index (081d), from the camp menu's selection
+        # (Rest's, so Enter is Mins); "Stop resting? " from Yes, which Enter
+        # takes; No rests on; a day's rest, interrupted at the 255th tick by
+        # the block's camp vector's 0x7ed2 and 0x7ed3 (255, 100), runs the
+        # rest vector. Save asks the start menu's "Quit to DOS " (DS:124c).
+        start = self.TITLE + r"\v\v\r\rA" + r"\v" * 5 + r"\r\r\r\r"
+        rest = "menu: Rest Days Hours Mins Add Subtract Exit\n"
+        camp = "menu: Save View Magic Rest Alter Fix Exit\n"
+        for keys, then in [
+                (r"Rhaar\k\r", rest * 4 + "menu: Stop resting? \nchoice: Y\n" + camp),
+                (r"R\ra\rr\knS\>\>\r", rest * 4 + "menu: Stop resting? \nchoice: N\n" + camp +
+                 "menu: A B C D E F G H I J\nchoice: C\nmenu: Quit to DOS \n"),
+                (r"Rdar\r", rest * 3 + "print: your repose is suddenly interrupted!\n"
+                 "print: YOU ARE AWOKEN IN TIME FOR THE CELEBRATION.\n")]:
+            with self.subTest(keys=keys):
+                saves = self.saves(ASSETS / "SAVE")
+                result = self.play("--start-menu", "--saves", saves, "--seed", 1, "--keys",
+                                   start + keys, ASSETS)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("print: the party makes camp\n" + camp + then, result.stdout)
+        # From Magic (4381:1a34) Rest starts the menu on Magic's selection,
+        # Rest's place there, the fifth: Add, which Enter takes (0:05); then
+        # Rest. Saved game C's clock (0x4bc7, the minutes) has the 5.
+        with self.subTest(keys="MR"):
+            saves = self.saves(ASSETS / "SAVE")
+            magic = "menu: Cast Memorize Scribe Display Rest Exit\n"
+            result = self.play("--start-menu", "--saves", saves, "--seed", 1, "--keys",
+                               start + r"MR\rr\eS\>\>\r", ASSETS)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(camp + magic + rest * 2 + magic + camp, result.stdout)
+            self.assertEqual((saves / "SAVGAMC.PTY").read_bytes()[1 + 0xC7], 5)
+
     def test_view_and_items(self):
         # Camp (block 16's rest): View (580d:0c66) by index for SIR DRYDEN,
         # Items (580d:0ffa) with Death Knights' readied column (DS:2c02),

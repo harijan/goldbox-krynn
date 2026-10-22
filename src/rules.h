@@ -1444,6 +1444,19 @@ typedef struct {
      * ("Your repose is suddenly interrupted!", 57e4:0e3e; dkk 5b7d:0d51's
      * DS:25a9). */
     const char *party_healed, *interrupted;
+    /* The interactive rest's (camp.c): its menu's items (57e4:08a0's
+     * CS:0859; dkk 5b7d:081d's DS:324d, by index, the special keys but Up,
+     * Down, Left and Right picking Exit); the question asked when a key
+     * is waiting ("Stop Resting? ", 57e4:0e3e's CS:0e0a from No; dkk
+     * 5b7d:0d51's DS:10a1, 6a69:2048 from Yes, DS:57c0); and whether the
+     * camp's Rest starts the menu from its first item (4888:2c31 sets
+     * DS:6e0f to 1) rather than from the camp menu's own selection (dkk
+     * 4381:3106 leaves DS:c0f7: Rest's fourth, Mins). */
+    const char *rest_menu, *stop_resting;
+    bool stop_resting_yes, rest_from_first;
+    /* The question the camp's Save asks after saving ("Quit TO DOS ",
+     * 4888:2c31's CS:2c20; dkk 4381:3106's DS:124c, its start menu's). */
+    const char *camp_quit;
 } cok_rules_levels;
 
 /* The camp's Fix (cok_rules_levels' fix; see Camp and Death Knights'
