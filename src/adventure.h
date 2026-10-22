@@ -253,6 +253,12 @@ struct cok_adventure {
     /* Where the game imports another's roster and saved games from (dkk
      * DS:99a4, DKK.CFG's fifth line: Champions'); empty for nowhere. */
     char import_dir[512];
+    /* Whose files the last Save, Load, Add or roster write meant (dkk
+     * DS:c468: own_files 1, the imported game's 0), set in a game that
+     * imports; own_files_set clear until then: DS:c468 lies past the
+     * image EXEPACK unpacks (0x141a paragraphs, DS from 0xbce: its data
+     * ends at DS:84c0) and System's startup (1a07:0000) clears none. */
+    bool own_files, own_files_set;
     /* KRYNN.CFG, which Initialize Mouse/Joystick reads (config_path) and
      * writes (config_write; see cok_config_find); empty for none. */
     char config_path[1024], config_write[1024];

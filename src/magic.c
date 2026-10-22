@@ -955,10 +955,23 @@ static void display(cok_adventure *game)
     bool redraw = true;
     int index = 0;
     cok_keyboard keys = cok_adventure_keyboard(game);
-    if (cok_menu_rows(&game->screen, &game->font, rows, count,
-                      (cok_text_window){1, 4, 0x26, 0x16}, &style, &redraw, &index,
-                      &game->list_top, &game->selected, &keys) < 0)
+    cok_text_window window = {1, 4, 0x26, 0x16};
+    if (rules->menus.routine == COK_MENUS_INDEXED) {
+        /* dkk 4381:19df: the list 6a69:1b82 with no text (DS:31bd), item 0
+         * (6a69:00cb with 0) and last 0xff, a signed -1: its own Next,
+         * Prev and Exit from index 0, every pick leaving. */
+        cok_menu_items items;
+        cok_menu_items_upto(&items, 0);
+        bool special = false, picked;
+        int key = cok_menu_indexed_rows(&game->screen, &game->font, rows, count, window, &style,
+                                        "", &items, 0xff, &redraw, &index, &game->list_top,
+                                        &game->selected, &keys, &special, &picked);
+        if (key < 0) return;
+        game->menu_special = special; /* DS:c0f8 */
+    } else if (cok_menu_rows(&game->screen, &game->font, rows, count, window, &style, &redraw,
+                             &index, &game->list_top, &game->selected, &keys) < 0) {
         return;
+    }
     cok_adventure_redraw(game);
 }
 

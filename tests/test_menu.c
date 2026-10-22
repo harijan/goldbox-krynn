@@ -702,6 +702,26 @@ static void test_indexed_rows(void)
     CHECK(cok_menu_indexed_rows(&p, &font, rows, 0, w, &style, menu, &items, 8, &redraw, &index,
                                 &top, &selected, &k, &special, &picked) == 0);
     CHECK(!picked && index == 0 && s.at == 0);
+    /* Display's (4381:19df): no text, item 0 and last 0xff, a signed -1
+     * (1d29: cbw): the list's own from index 0, Next 0 and Exit 1, both
+     * shown from column 0; every index is past last (1e5d), so neither
+     * picks a row. N pages; E leaves; with every row shown Exit is 0. */
+    cok_menu_items_upto(&items, 0);
+    index = 0;
+    top = 0;
+    k = keyboard(&s, "N" "E", 2);
+    CHECK(cok_menu_indexed_rows(&p, &font, rows, 7, w, &style, "", &items, 0xff, &redraw, &index,
+                                &top, &selected, &k, &special, &picked) == 0x1b);
+    CHECK(top == 3 && special && !picked && s.at == 2);
+    CHECK(cell_glyph(&p, 0, 24) == ('N' & 63) && cell_glyph(&p, 5, 24) == ('P' & 63) &&
+          cell_glyph(&p, 10, 24) == ('E' & 63));
+    top = 0;
+    selected = 4;
+    k = keyboard(&s, "\r", 1);
+    CHECK(cok_menu_indexed_rows(&p, &font, rows, 3, w, &style, "", &items, 0xff, &redraw, &index,
+                                &top, &selected, &k, &special, &picked) == 0x1b);
+    CHECK(special && !picked && selected == 1 && cell_glyph(&p, 0, 24) == ('E' & 63) &&
+          cell_bg(&p, 0, 24) == 15 && cell_bg(&p, 4, 24) == 0);
     /* A heading marked (headings alone: the skip stops after a page) is
      * unmarked in the normal colour, not its own. */
     cok_menu_row headed[] = {{"H", true}, {"I", true}};
