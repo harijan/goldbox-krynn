@@ -1590,19 +1590,40 @@ bool cok_camp_save_game(cok_adventure *game, char letter)
 
 /* Save (4b6d:22de; dkk 46b2:2808): ask which game, A-J, then save it.
  * Escape cancels. Special keys whose scan codes are letters A-J pick them
- * too: F7-F10 A-D, Home G, up H and PgUp I. The original's checks for the
- * disk, its volume label and free space are left out; it ignores write
- * errors, which are logged here. */
+ * too: F7-F10 A-D, Home G, up H and PgUp I. A game whose menus go by index
+ * (dkk 46b2:2808) asks for the ten (6a69:00cb with 9) until an index of
+ * one or Escape: other special keys are read past. The original's checks
+ * for the disk, its volume label and free space are left out; it ignores
+ * write errors, which are logged here. */
 void cok_camp_save(cok_adventure *game)
 {
     const cok_rules_start *start = &cok_game_rules(game)->start;
+    static const char *const letters = "A B C D E F G H I J"; /* dkk DS:33e0 */
     int key;
-    do {
+    if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
+        cok_menu_items items;
+        cok_menu_items_upto(&items, 9);
         bool special;
-        key = cok_camp_menu(game, start->save_prompt, "A B C D E F G H I J", false,
-                            game->vm.mode == 2, &special);
-        if (key <= 0) return;
-    } while (key < 'A' || key > 'J');
+        do {
+            key = cok_camp_pick_menu(game, start->save_prompt, letters, &items, false,
+                                     game->vm.mode == 2, &special);
+            if (key < 0) return;
+        } while (key > 9 && !(special && key == 0x1b));
+        if (key > 9) return;
+        key += 'A';
+        /* 2864: the game's own files from now on (DS:c468). */
+        if (cok_game_rules(game)->characters.import != NULL) {
+            game->own_files = true;
+            game->own_files_set = true;
+        }
+    } else {
+        do {
+            bool special;
+            key = cok_camp_menu(game, start->save_prompt, letters, false, game->vm.mode == 2,
+                                &special);
+            if (key <= 0) return;
+        } while (key < 'A' || key > 'J');
+    }
     char letter[2] = {(char)key, '\0'};
     cok_adventure_log(game, "choice", letter);
     clear_menu(game);

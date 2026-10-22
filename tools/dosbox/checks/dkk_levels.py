@@ -57,13 +57,21 @@ Speed (Faster, Up, Escape), Icon (Exit, the icon OK), Level (from the
 difficulty, Left, Enter), Escape; Save C: saved game C (the party's order,
 the speed and the difficulty) and the characters' files.
 
-The rest flows and menus compare RandSeed and the clock (0x4bc6-0x4bcc) too.
+saves: camp, Save (46b2:2808, by index): Escape (Quit to DOS, No), Save
+again, F7 read past (scan code 0x41: Champions' A), Right twice, C: saved
+game C and the characters' files.
+
+load: from the title with no party, Load Saved Game (46b2:1ef0): load from
+where? (Death), load which game: A B by index, F7 read past, Right, B;
+View Character's Pick Character (580d:3067): E no key, Escape its Exit.
+
+The rest flows, menus and saves compare RandSeed and the clock (0x4bc6-0x4bcc) too.
 
 Seeded (Box seed, eclplay --seed). Not part of run_all.py's set. About
 four minutes, and as much for the rest flows.
 
     python3 tools/dosbox/checks/dkk_levels.py [--workdir DIR] [--seed N]
-        [--flows train,memorize,table,cast,fix,rest,stop,interrupted,menus]
+        [--flows train,memorize,table,cast,fix,rest,stop,interrupted,menus,saves,load]
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...)."""
 import argparse
@@ -108,12 +116,6 @@ MEMORIZE = [
     ("display", "D"),
     ("displayed", r"\e"),
 ]
-# Display's Exit: the original's menu (6a69:0f1b) keeps the selection the
-# Magic menu left (Display, its fourth item), past the one item it offers,
-# and highlights none; the port's (67b5:03e2's) takes the first instead.
-# Death Knights' menus as a whole are part 3's (commands).
-MASKS = {"display": [(0, 192, 40, 8, "Exit highlighted: 6a69:0f1b keeps a selection past "
-                                   "its items (part 3, the menus)")]}
 
 
 def load(path):
@@ -197,7 +199,7 @@ def memorize(v, work, opts):
                     keep=True) as box:
         v.check(K.title(box), "the title's four pictures (memorize)")
         K.type_steps(box, K.LOAD_A_STEPS, settle=2.0)
-        run_steps(v, work, box, "memorize", MEMORIZE, K.LOAD_A_BEGIN, seed, saves, MASKS)
+        run_steps(v, work, box, "memorize", MEMORIZE, K.LOAD_A_BEGIN, seed, saves)
 
 
 # Saved game B, begun: the rest, camp, Magic, BALTHIR NOMOON (the fourth),
@@ -433,6 +435,33 @@ MENUS = [
     ("which", "S", None),
     ("saved", r"\>\>\r", None),     # Quit to DOS (DS:124c)
 ]
+# Save's menu by index (46b2:2808): Escape saves none, Quit to DOS, No; F7
+# (scan code 0x41, Champions' A) is read past; Right twice: C.
+SAVES = [
+    ("camp", r"\r\r\r", None),
+    ("which", "S", None),           # save which game: from A (the camp's Save)
+    ("which-escape", r"\e", None),  # Quit to DOS (DS:124c), from No
+    ("not-saved", r"\r", None),     # the camp, its selection Save
+    ("which-again", "S", None),
+    ("which-f7", r"\#41", None),    # read past
+    ("which-c", r"\>\>", None),
+    ("saved", r"\r", None),         # Quit to DOS
+]
+# Load's menus by index (46b2:1ef0) from the start menu with no party:
+# load from where? (Death Champions Exit); load which game: A B, from A,
+# F7 read past, Right: B; then View Character's Pick Character (580d:3067):
+# Select alone, E no key, Escape its Exit.
+LOAD = [
+    ("start", r"\r"),             # Play: the start menu
+    ("from", r"\v\v\r"),         # Load Saved Game: load from where?
+    ("which", r"\r"),             # Death: load which game: A B
+    ("which-f7", r"\#41"),
+    ("which-b", r"\>"),
+    ("loaded", r"\r"),            # B: the start menu with its party
+    ("pick", r"\v\r"),            # View Character: Pick Character
+    ("pick-e", "E"),
+    ("pick-exit", r"\e"),          # the start menu
+]
 # The eulogy's portrait (PIC 96) blinks: which frame a screenshot catches
 # depends on the host's timing, not on the rest (36 pixels, its eyes, on
 # the first run).
@@ -492,6 +521,16 @@ def rest(v, work, opts, flow, steps):
         compare_files(v, original, port_saves, flow)
 
 
+def load_flow(v, work, opts):
+    seed = opts.seed
+    with cokbox.Box(workdir=work / "box-load", game="death-knights", machine="ega",
+                    seed=seed, saves=[K.ASSETS / "SAVE"], verbose=opts.verbose, timeout=900,
+                    keep=True) as box:
+        v.check(K.title(box), "the title's four pictures (load)")
+        K.type_steps(box, ["x", "x"], settle=2.0)
+        run_steps(v, work, box, "load", LOAD, "", seed, None)
+
+
 def json_records(path):
     """The port's records whole (the spells' block after +0xd8) beside its
     final screen."""
@@ -506,9 +545,10 @@ def main():
     parser.add_argument("--workdir", default=str(K.ROOT / "build/dosbox-checks/dkk_levels"))
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--flows",
-                        default="train,memorize,table,cast,fix,rest,stop,interrupted,menus",
+                        default="train,memorize,table,cast,fix,rest,stop,interrupted,menus,"
+                        "saves,load",
                         help="which flows: train, memorize, table, cast, fix, rest, stop, "
-                        "interrupted, menus (comma-separated)")
+                        "interrupted, menus, saves, load (comma-separated)")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     work = pathlib.Path(opts.workdir).resolve()
@@ -526,9 +566,11 @@ def main():
     if "fix" in flows:
         fix(v, work, opts)
     for flow, steps in (("rest", REST), ("stop", STOP), ("interrupted", INTERRUPTED),
-                        ("menus", MENUS)):
+                        ("menus", MENUS), ("saves", SAVES)):
         if flow in flows:
             rest(v, work, opts, flow, steps)
+    if "load" in flows:
+        load_flow(v, work, opts)
     return v.finish()
 
 

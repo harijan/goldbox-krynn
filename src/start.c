@@ -28,10 +28,26 @@ bool cok_start_pick(cok_adventure *game)
     bool party_clicks = game->mouse.party_clicks;
     game->mouse.party_clicks = true;
     int key;
+    /* dkk 580d:3067 reads it by index (6a69:00cb with 1: Select, and 1
+     * for Escape, which the text does not show), the keypad, no picture. */
+    bool indexed = cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED;
     for (;;) {
         bool special;
-        key = cok_camp_menu(game, cok_game_rules(game)->start.pick_prompt,
-                            cok_game_rules(game)->start.pick_menu, true, false, &special);
+        if (indexed) {
+            cok_menu_items items;
+            cok_menu_items_upto(&items, 1);
+            key = cok_camp_pick_menu(game, cok_game_rules(game)->start.pick_prompt,
+                                     cok_game_rules(game)->start.pick_menu, &items, true, false,
+                                     &special);
+            if (key >= 0 && special && key == 0x1b) {
+                special = game->menu_special = false; /* DS:c0f8 */
+                key = 1;
+            }
+            if (key >= 0 && !special) key = key == 0 ? 'S' : key == 1 ? 'E' : ' ';
+        } else {
+            key = cok_camp_menu(game, cok_game_rules(game)->start.pick_prompt,
+                                cok_game_rules(game)->start.pick_menu, true, false, &special);
+        }
         if (key < 0) {
             game->mouse.party_clicks = party_clicks;
             return false;

@@ -144,6 +144,11 @@ bool cok_roster_save(cok_adventure *game, cok_character *character)
         cok_adventure_log(game, "error", "no directory to save characters in");
         return false;
     }
+    /* dkk 46b2:0ad6: the game's own files from now on (DS:c468). */
+    if (cok_game_rules(game)->characters.import != NULL) {
+        game->own_files = true;
+        game->own_files_set = true;
+    }
     uint8_t *c = character->record;
     char name[16], base[41], path[sizeof game->save_dir + 64];
     name_of(L, c, name);
@@ -265,8 +270,12 @@ static bool same(const cok_character_layout *L, const uint8_t *a, const uint8_t 
 /* "from where" (dkk 46b2:1ef0, 49cb:343c: 6a69:0f1b over DS:3337): the
  * game's own (false in *other), the game it imports from (true), or
  * nothing for Exit or Escape (false returned). A game that imports none
- * asks nothing: its own. */
-static bool from_where(cok_adventure *game, const char *prompt, bool *other)
+ * asks nothing: its own. A game whose menus go by index reads the three
+ * by index (6a69:00cb with 2, no keypad); another special key goes on
+ * with what the original leaves unset, which stops the run citing unset,
+ * or for NULL (Add) with the last choice of whose files (DS:c468), which
+ * stops only if none was made yet. */
+static bool from_where(cok_adventure *game, const char *prompt, const char *unset, bool *other)
 {
     const cok_rules_start *start = &cok_game_rules(game)->start;
     *other = false;
@@ -274,6 +283,33 @@ static bool from_where(cok_adventure *game, const char *prompt, bool *other)
     /* 110f:0584 / 14e4:0b6b: the window cleared first. */
     cok_picture_fill(&game->screen, 1, 8, 0x26, 0x16 * 8, 0);
     bool special;
+    if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
+        cok_menu_items items;
+        cok_menu_items_upto(&items, 2);
+        int key = cok_camp_pick_menu(game, prompt, start->from_items, &items, false, false,
+                                     &special);
+        if (key < 0) return false;
+        if (key == 0 || key == 1) {
+            char word[2] = {key == 0 ? start->from_items[0] : strchr(start->from_items, ' ')[1],
+                            '\0'};
+            cok_adventure_log(game, "choice", word);
+            *other = key == 1;
+            game->own_files = !*other; /* DS:c468 (46b2:1f31, 1f78; 49cb:3490, 349b) */
+            game->own_files_set = true;
+            return true;
+        }
+        if (key == 2 || (special && key == 0x1b)) return false;
+        if (unset == NULL && game->own_files_set) {
+            /* Add (49cb:34a9) goes on with DS:c468 as it stood. */
+            *other = !game->own_files;
+            return true;
+        }
+        undefined(game, unset != NULL ? unset
+                                      : "Add from where with a special key reads DS:c468, never "
+                                        "set since startup (49cb:34a9; past the image EXEPACK "
+                                        "unpacks, cleared by no startup code)");
+        return false;
+    }
     int key = cok_camp_menu(game, prompt, start->from_items, false, false, &special);
     if (key <= 0) return false;
     char letter[2] = {(char)key, '\0'};
@@ -290,7 +326,7 @@ void cok_roster_add(cok_adventure *game)
     const cok_character_layout *L = rules->character;
     cok_ecl *vm = &game->vm;
     bool other;
-    if (!from_where(game, start->add_from, &other)) return;
+    if (!from_where(game, start->add_from, NULL, &other)) return;
     /* The roster read: the game's own, or the other game's (dkk
      * 46b2:0342 with DS:c468 0: *.WHO in DS:99a4 by its own NPC flag),
      * whose characters are imported. */
@@ -446,7 +482,11 @@ bool cok_roster_load(cok_adventure *game)
     if (game->save_dir[0] == '\0') return false;
     const cok_rules *rules = cok_game_rules(game);
     bool other;
-    if (!from_where(game, rules->start.load_from, &other)) return false;
+    if (!from_where(game, rules->start.load_from,
+                    "Load from where with a special key reads a path never set "
+                    "(46b2:1ef0's [bp-0x326])",
+                    &other))
+        return false;
     /* The other game's saved games (dkk DS:c468 0: SAVGAM?.DAT in
      * DS:99a4), whose party is imported. */
     const cok_rules *source = other ? rules->characters.import->from : rules;
@@ -454,21 +494,34 @@ bool cok_roster_load(cok_adventure *game)
     if (dir[0] == '\0') return false;
     const cok_rules_saves *s = &source->saves;
     char items[24] = "", path[sizeof game->save_dir + 32];
+    cok_menu_items indexes = {0}; /* dkk DS:c120 */
     for (char letter = 'A'; letter <= 'J'; ++letter) {
         snprintf(path, sizeof path, "%s/%s%c.%s", dir, s->game, letter, s->game_extension);
         if (!exists(path)) continue;
         size_t length = strlen(items);
         if (length + 2 < sizeof items) snprintf(items + length, sizeof items - length, "%c ", letter);
+        cok_menu_items_add(&indexes, (uint8_t)(letter - 'A'));
     }
     if (items[0] == '\0') return false;
     items[strlen(items) - 1] = '\0';
+    bool indexed = rules->menus.routine == COK_MENUS_INDEXED;
     int key;
     for (;;) {
         bool special;
-        /* The special flag is not tested: scan codes 0x41-0x4a pick
-         * letters too. */
-        key = cok_camp_menu(game, rules->start.load_prompt, items, false, false, &special);
-        if (key <= 0) return false;
+        if (indexed) {
+            /* dkk 46b2:207a: those that exist of the ten by index (DS:33e0),
+             * no keypad; Escape leaves, an index is its letter (a special
+             * key's scan code alike), asked again unless A-J and there. */
+            key = cok_camp_pick_menu(game, rules->start.load_prompt, "A B C D E F G H I J",
+                                     &indexes, false, false, &special);
+            if (key < 0 || (special && key == 0x1b)) return false;
+            key = (uint8_t)(key + 'A');
+        } else {
+            /* The special flag is not tested: scan codes 0x41-0x4a pick
+             * letters too. */
+            key = cok_camp_menu(game, rules->start.load_prompt, items, false, false, &special);
+            if (key <= 0) return false;
+        }
         if (key < 'A' || key > 'J') continue;
         snprintf(path, sizeof path, "%s/%s%c.%s", dir, s->game, key, s->game_extension);
         if (exists(path)) break;

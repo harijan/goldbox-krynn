@@ -768,13 +768,15 @@ int cok_menu_indexed_rows(cok_picture *dst, const cok_font *font, const cok_menu
     for (size_t k = 0; k < items->count && k < COK_MENU_MAX_ITEMS; ++k)
         entries[k] = items->index[k];
     /* The indexes the list's Next, Prev and Exit took last (bytes of the
-     * stack until then, here none: every caller offers Exit). */
-    unsigned at_next = 0x100, at_prev = 0x100, at_exit = 0x100;
+     * stack until then, here none: every caller offers Exit). last is a
+     * signed byte (1d29: cbw; inc ax): 0xff puts them from 0. */
+    int first = (int8_t)last + 1;
+    int at_next = 0x100, at_prev = 0x100, at_exit = 0x100;
     for (;;) {
         mark(&l, true);
         char bar[256];
         snprintf(bar, sizeof bar, "%s", text);
-        unsigned at = (unsigned)last + 1;
+        int at = first;
         bool more = *top < l.count - l.rows, less = *top > leading;
         if (more) {
             append_text(bar, sizeof bar, " Next"); /* DS:37de */
@@ -802,13 +804,14 @@ int cok_menu_indexed_rows(cok_picture *dst, const cok_font *font, const cok_menu
         int key = cok_menu_pick(dst, font, style->prompt, bar, &shown, style->heading,
                                 style->highlight, style->normal, true, selected, keys, special);
         if (key < 0) return -1;
-        /* An index past the caller's is the list's own, by the index each
-         * took, while it is offered (Exit's whatever was offered). */
-        if (!*special && key > (int)last) {
+        /* An index past the caller's (1e5d: cbw; jng, signed) is the
+         * list's own, by the index each took, while it is offered (Exit's
+         * whatever was offered). */
+        if (!*special && key > (int8_t)last) {
             *special = true;
-            if ((unsigned)key == at_next && more) key = 0x51;
-            else if ((unsigned)key == at_prev && less) key = 0x49;
-            else if ((unsigned)key == at_exit) key = 0x1b;
+            if (key == at_next && more) key = 0x51;
+            else if (key == at_prev && less) key = 0x49;
+            else if (key == at_exit) key = 0x1b;
             else *special = false;
         }
         mark(&l, false);
