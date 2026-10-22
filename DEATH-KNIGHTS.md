@@ -136,9 +136,12 @@ the character fields moved (R6), which the real game's layout does better.
    no locked doors. Checked: `make dosbox-checks` 82/82 as recorded
    (Champions unchanged) and every `dkk_*` DOSBox-X check agrees.
    The interactive camp Rest's question and menu (`5b7d:081d`, done:
-   `dkk-rest`). Left: the camp, Magic and Alter menus by index (they are
-   read by letters, as Champions'; Alter shows Champions' `Pics`), the
-   mouse; and the stops where the original reads an unset value.
+   `dkk-rest`). The camp, Magic and Alter menus by index, Alter without
+   `Pics`, and Alter's Order, Drop, Speed and Level (`4381:3106`, `1a34`,
+   `21df`, done: `dkk-menus`; camp Save's copy protection `4381:0337` is
+   cited, not ported). Left: the mouse; Save's game menu (A-J) and
+   Display's Exit, not yet compared; and the stops where the original
+   reads an unset value.
 4. Music: the MUSIC.DAX driver and its songs. Until then Death Knights plays
    silent.
 5. Checks against the original: tests against `death-START_FULL.EXE` and a
