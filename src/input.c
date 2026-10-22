@@ -306,7 +306,8 @@ bool cok_stick_calibrate(cok_stick *stick, const cok_game_port *port,
         sx = sy = corner == 0 ? 0xffff : 0;
         for (unsigned n = 1; n <= 20; ++n) {
             if (!cok_stick_read(port, 1, &x, &y, &buttons)) {
-                prompt(COK_STICK_FAILED, context);
+                prompt(corner == 0 ? COK_STICK_LOST_UPPER_LEFT : COK_STICK_LOST_LOWER_RIGHT,
+                       context);
                 return false;
             }
             if ((buttons & 1) == 0) continue;

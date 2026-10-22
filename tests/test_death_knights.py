@@ -1251,22 +1251,53 @@ class DeathKnightsTests(unittest.TestCase):
                     h.update(self.masked(n, files[n]))
                 self.assertEqual(h.hexdigest(), digest)
 
-    def test_unported_stops(self):
-        # What is not ported stops the run, naming the routine: Initialize
-        # Mouse/Joystick (49cb:52cd), the fourth row without a party.
-        keys = self.TITLE + r"\v\v\v\r"
-        result = self.play("--start-menu", "--keys", keys, ASSETS)
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stderr, "not yet ported: Death Knights of Krynn's Initialize "
-                         "Mouse/Joystick (dkk 49cb:52cd)\n")
+    def test_mouse(self):
+        # Initialize Mouse/Joystick (49cb:52cd) by clicks: the start menu's
+        # fourth row clicked twice (a click picks out a row, a click on the
+        # row picked picks it: 6a69:1b82 with DS:c0f9), then its list's
+        # first row, the mouse's, already picked: the mouse off (N), into
+        # krynn.cfg, not DKK.CFG; Escape; again by keys, the mouse on (M);
+        # Exit clicked on row 24 ("Init mouse/joystick: Select Exit").
+        keys = (self.TITLE + r"\m80,122,1.\m80,122,1.\m80,98,1.\e\r\r\m234,194,1.")
+        saves = self.saves()
+        result = self.play("--start-menu", "--mouse", "--saves", saves, "--keys", keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines.count("choice: Initialize Mouse/Joystick"), 2)
+        self.assertEqual([line for line in lines if line.startswith("config:")],
+                         ["config: krynn.cfg line 3 N", "config: krynn.cfg line 3 M"])
+        at = lines.index("list: Init mouse/joystick: ")
+        self.assertEqual(lines[at + 1:at + 4], ["item: mouse on", "item: joystick off",
+                                                "item: disable both"])
+        self.assertEqual(lines[-1], "(out of keys in the start menu)")
+        self.assertFalse((saves / "DKK.CFG").exists())
+        # No krynn.cfg to read: the first left empty, the second read so.
+        self.assertEqual((saves / "krynn.cfg").read_bytes(),
+                         b"\r\n\r\nM\r\n\r\n\r\n" + b"0\r\n" * 14)
+        # The party list's clicks in Pick Character (580d:3067): saved game
+        # A loaded, View clicked twice, the second member clicked (kept by
+        # 6a69:0513, selected by 580d:2bb2), then again (Select): its sheet.
+        keys = (self.TITLE + r"\m80,114,1.\m80,114,1.DA\m80,122,1.\m80,122,1."
+                r"\m140,42,1.\m140,42,1.")
+        saves = self.saves(ASSETS / "SAVE")
+        result = self.play("--start-menu", "--mouse", "--saves", saves, "--keys", keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        at = lines.index("choice: View Character")
+        self.assertEqual(lines[at + 1:at + 5], ["menu: Select", "menu: Select", "print: LILLITH",
+                                                "print: Paladin"])
+        result = self.play("--start-menu", "--mouse", "--saves", saves, "--keys",
+                           keys[:-len(r"\m140,42,1.\m140,42,1.")] + r"\r", ASSETS)
+        self.assertIn("print: SIR DRYDEN", result.stdout.splitlines())
         if (BUILD / "cok").exists():
             env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
-            result = subprocess.run([str(BUILD / "cok"), *GAME, "--saves", self.saves(),
+            saves = self.saves()
+            keys = self.TITLE + r"\m80,122,1.\m80,122,1.\m80,98,1.\e"
+            result = subprocess.run([str(BUILD / "cok"), *GAME, "--saves", saves,
                                      "--no-delay", "--keys", keys],
                                     capture_output=True, text=True, env=env, cwd=ROOT)
-            self.assertEqual(result.returncode, 1)
-            self.assertIn("not yet ported: Death Knights of Krynn's Initialize Mouse/Joystick "
-                          "(dkk 49cb:52cd)", result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((saves / "krynn.cfg").exists())
 
     def test_view_by_wall_id(self):
         # Block 48 in a 3D area: LOAD PIECES 2 loads wall set 2 from

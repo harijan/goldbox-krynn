@@ -884,7 +884,7 @@ static int run(int argc, char **argv)
                     rules->files.config);
         config_read = true;
     } else {
-        config_read = found && cok_config_read_file_stick(config_path, &config, p.stick);
+        config_read = found && cok_config_read_file_game(rules, config_path, &config, p.stick);
         if (input != NULL && strcmp(input, "joystick") == 0 && !config.joystick) {
             /* --input joystick without the file's thresholds: calibrated
              * here, as at startup (cok_setup_calibrate). */

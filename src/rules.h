@@ -116,6 +116,10 @@ typedef struct {
     /* The devices' file (11c7:031a), in the assets or the saves; the port
      * looks for its name in upper case, then in lower case. */
     const char *config;
+    /* The paths after its third line (11c7:031a: 1, the save path DS:5784;
+     * dkk 1187:011b: 2, its save path DS:98a4 and Champions' saved games'
+     * DS:99a4), before the F line and the stick's thresholds. */
+    uint8_t config_paths;
     /* The item types (3e99:005b), a file of its own, not an archive. */
     const char *item_types;
     /* The directory the original runs in (FExpand('*.exe') split,
@@ -715,6 +719,23 @@ typedef struct {
     uint8_t seconds;
 } cok_rules_title_picture;
 
+/* Initialize Mouse/Joystick's file and words (4def:5cc7, 638d; dkk
+ * 49cb:52cd, 58ec), the routine itself shared: the file it reads and
+ * writes again (both krynn.cfg, CS 5c61 and dkk 52bd: Champions' own
+ * devices' file, but not Death Knights', whose DKK.CFG it never touches);
+ * its list's prompt and word, its rows (the mouse on and off, the stick on
+ * and off, both off), and the calibration's screens: the corners' two
+ * lines each, and the failures: the button never pressed, and a read lost
+ * while it is held at the upper left and at the lower right (Champions'
+ * one line for all three, CS 632b; dkk DS:1b80, CS 58d4, DS:1b80). */
+typedef struct {
+    const char *file;
+    const char *prompt, *select;
+    const char *mouse_on, *mouse_off, *stick_on, *stick_off, *both;
+    const char *corners[2][2];
+    const char *no_button, *lost_upper_left, *lost_lower_right;
+} cok_rules_mouse_menu;
+
 /* The game's front end (start.c, roster.c, camp.c's Save): the title, the
  * start menu's words, and what its commands do where the games differ. */
 typedef struct {
@@ -743,6 +764,8 @@ typedef struct {
      * yet, citing it ("dkk 49cb:05c7"), or NULL: choosing it stops the run
      * (COK_ECL_UNPORTED). */
     const char *unported[13];
+    /* Initialize Mouse/Joystick's (cok_start_mouse). */
+    cok_rules_mouse_menu mouse;
     /* Pick Character's prompt and menu (546c:36cc; dkk 580d:3067). */
     const char *pick_prompt, *pick_menu;
     /* Drop Character's words (4def:2668; dkk 49cb:2394), each %s the

@@ -1684,11 +1684,31 @@ static void test_death_knights_menu(void)
           dkk.wall_slots[1] == 1 && dkk.wall_ids[2] == -1 && dkk.wall_ids[3] == -1);
     CHECK(dkk.vm.mode == 0 && dkk.vm.last_mode == 4 && dkk.vault_letter == 'Q');
     CHECK(cok_ecl_var(&dkk.vm, COK_VAR_DIFFICULTY) == 3 && dkk.vm.direction == 2);
-    /* The command it does not have ported stops the run, naming it. */
-    dkk_keys("");
-    CHECK(!cok_start_command(&dkk, 'I') && dkk.vm.status == COK_ECL_UNPORTED &&
-          strcmp(dkk.error, "not yet ported: Death Knights of Krynn's Initialize "
-                            "Mouse/Joystick (dkk 49cb:52cd)") == 0);
+    /* Initialize Mouse/Joystick (dkk 49cb:52cd), by index: its words;
+     * Select on the mouse's row turns it on, and with no driver off: N,
+     * written into krynn.cfg beside DKK.CFG, which stays as it was; with
+     * no krynn.cfg to read, the file is left empty (Reset's error), and
+     * then read back empty; Escape leaves. */
+    char cfg[400], krynn[400];
+    snprintf(cfg, sizeof cfg, "%s/DKK.CFG", to);
+    snprintf(krynn, sizeof krynn, "%s/krynn.cfg", to);
+    snprintf(dkk.config_path, sizeof dkk.config_path, "%s", "DKKAssets/DKK.CFG");
+    snprintf(dkk.config_write, sizeof dkk.config_write, "%s", cfg);
+    remove(krynn);
+    dkk.mouse.on = false;
+    dkk_keys("\r\x1b");
+    CHECK(!cok_start_command(&dkk, 'I') && dkk.vm.status == COK_ECL_OK && !dkk.mouse.on);
+    CHECK(logged("list: Init mouse/joystick: ;item: mouse off;item: joystick off;item: disable "
+                 "both;config: krynn.cfg line 3 N;"));
+    uint8_t text[200];
+    CHECK(slurp(krynn, text, sizeof text) == 0 && access(krynn, F_OK) == 0 &&
+          access(cfg, F_OK) != 0 && strcmp(dkk.config_path, "DKKAssets/DKK.CFG") == 0);
+    /* disable both (the third row) reads it: five empty lines, N, zeros. */
+    dkk_keys("\x01P\x01P\r\x1b");
+    CHECK(!cok_start_command(&dkk, 'I'));
+    size_t n = slurp(krynn, text, sizeof text);
+    CHECK(n == 4 * 2 + 3 + 14 * 3 && memcmp(text, "\r\n\r\nN\r\n\r\n\r\n0\r\n", 14) == 0);
+    remove(krynn);
     dkk.new_game = false;
     /* From the menu: the list is on its first row again once the game has
      * ended (Enter then picks Create, whose first list the keys end in). */

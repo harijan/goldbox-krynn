@@ -1450,6 +1450,7 @@ const cok_rules cok_rules_death_knights = {
     .files =
         {
             .config = "DKK.CFG",
+            .config_paths = 2, /* 1187:011b: DS:98a4, 99a4 */
             .item_types = "ITEMS",
             .install_dir = "C:\\DKK\\",
             .save_dir = "SAVE",
@@ -1677,13 +1678,28 @@ const cok_rules cok_rules_death_knights = {
                       "Exit to DOS"},
             .prompt = "",       /* DS:2fad */
             .select = "Select", /* DS:31d6 */
-            /* Creating and modifying a character are rewritten in Death
-             * Knights (a part of their own); Initialize Mouse/Joystick has
-             * its own words ("Init mouse/joystick: ", DS:3038; "mouse on",
-             * 3376...) and rewrites krynn.cfg (49cb:52bd), not DKK.CFG.
-             * Train (49cb:43b6) and Knight Change Order (4ea4) are the
-             * levels section's. */
-            .unported = {[11] = "dkk 49cb:52cd"},
+            /* Creating and modifying a character are the creation
+             * section's; Train (49cb:43b6) and Knight Change Order (4ea4)
+             * the levels section's. */
+            .unported = {NULL},
+            /* 49cb:52cd (DS:3038, 31d6, 3376-33b6) and 58ec (DS:1b2e-1bc8,
+             * CS 58d4): it rewrites krynn.cfg (CS 52bd), which the game
+             * never reads, not DKK.CFG. */
+            .mouse = {.file = "krynn.cfg",
+                      .prompt = "Init mouse/joystick: ",
+                      .select = "Select",
+                      .mouse_on = "mouse on",
+                      .mouse_off = "mouse off",
+                      .stick_on = "joystick on",
+                      .stick_off = "joystick off",
+                      .both = "disable both",
+                      .corners = {{"Push joystick #1 to the extreme upper",
+                                   "left position and press button #1."},
+                                  {"Push joystick #1 to the extreme lower",
+                                   "right position and press button #1."}},
+                      .no_button = "unable to read joystick",
+                      .lost_upper_left = "Unable to read joystick",
+                      .lost_lower_right = "unable to read joystick"},
             .pick_prompt = "Pick Character ", /* 580d:3067: DS:3018, 31d6 */
             .pick_menu = "Select",
             /* 49cb:2394: DS:130a-135f */

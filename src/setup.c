@@ -79,9 +79,10 @@ static void calibration_prompt(cok_stick_prompt which, void *context)
         "Couldn't read the joystick.  Aborting calibration.",
     };
     const calibration *c = context;
+    bool failed = which >= COK_STICK_FAILED; /* each failure the one line */
     cok_crt_clear(c->crt);
-    cok_crt_write_line(c->crt, lines[which]);
-    if (which == COK_STICK_FAILED && c->hooks != NULL && c->hooks->delay != NULL)
+    cok_crt_write_line(c->crt, lines[failed ? COK_STICK_FAILED : which]);
+    if (failed && c->hooks != NULL && c->hooks->delay != NULL)
         c->hooks->delay(2000, c->hooks->context);
 }
 
@@ -212,7 +213,7 @@ cok_setup_status cok_setup_startup(cok_crt *crt, const cok_keyboard *keys,
     uint8_t buttons;
     bool stick = cok_stick_read(hooks != NULL ? hooks->port : NULL, 1, &x, &y, &buttons);
     if (found) {
-        if (!cok_config_read_file_stick(path, config, stick)) {
+        if (!cok_config_read_file_game(rules, path, config, stick)) {
             /* A file the original would read (or, unreadable, take as empty:
              * Reset's error unchecked); the port stops rather than guess. */
             snprintf(error, error_size, "%s: %s", path, strerror(errno));

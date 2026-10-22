@@ -102,11 +102,41 @@ static void test_files(void)
     rmdir(dir);
 }
 
+/* Death Knights' DKK.CFG (dkk 1187:011b): its save path, then
+ * Champions' saved games' (DS:99a4), F, and the stick's thresholds after
+ * them; read as Champions' file, the thresholds would start at F and read
+ * nothing. */
+static void test_death_knights(void)
+{
+    static const char text[] = "E\r\nT\r\nJ\r\nC:\\DKK\\SAVE\\\r\nC:\\COK\\SAVE\\\r\nF\r\n"
+                               "1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n8\r\n9\r\n10\r\n11\r\n12\r\n"
+                               "13\r\n14\r\n";
+    const uint8_t *t = (const uint8_t *)text;
+    cok_config c = cok_config_parse_game(&cok_rules_death_knights, t, strlen(text), true);
+    CHECK(c.joystick && c.display == COK_DISPLAY_EGA && c.sound == COK_SOUND_TANDY);
+    CHECK(strcmp(c.save_path, "C:\\DKK\\SAVE\\") == 0 &&
+          strcmp(c.other_path, "C:\\COK\\SAVE\\") == 0 && c.f_line);
+    CHECK(c.joystick_x[0] == 1 && c.joystick_y[0] == 2 && c.joystick_x[6] == 13 &&
+          c.joystick_y[6] == 14);
+    c = cok_config_parse_game(&cok_rules_champions, t, strlen(text), true);
+    CHECK(!c.f_line && c.other_path[0] == '\0' && c.joystick_x[0] == 0 && c.joystick_y[6] == 0);
+    c = cok_config_parse_stick(t, strlen(text), true); /* Champions' */
+    CHECK(!c.f_line && c.joystick_x[0] == 0);
+    /* DKKAssets' own: M, the paths, F, zeros. */
+    struct stat st;
+    if (stat("DKKAssets/DKK.CFG", &st) == 0) {
+        c = (cok_config){0};
+        CHECK(cok_config_read(&cok_rules_death_knights, "DKKAssets", &c));
+        CHECK(c.mouse && !c.joystick && c.f_line && strcmp(c.other_path, "C:\\COK\\SAVE\\") == 0);
+    }
+}
+
 int main(void)
 {
     test_display();
     test_sound();
     test_files();
+    test_death_knights();
     puts("config: ok");
     return 0;
 }

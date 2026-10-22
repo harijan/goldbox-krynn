@@ -38,6 +38,9 @@ typedef struct {
     cok_sound_device sound;
     bool joystick, mouse;
     char save_path[256];
+    /* dkk: the line after it, Champions' saved games' path (DS:99a4),
+     * which the port takes from --import; empty in Champions'. */
+    char other_path[256];
     bool f_line;
     uint16_t joystick_x[7], joystick_y[7];
 } cok_config;
@@ -49,11 +52,17 @@ cok_config cok_config_parse(const uint8_t *text, size_t size);
 /* As startup reads it on a machine with a joystick (stick) or without one,
  * as the port's: cok_config_parse is the latter. */
 cok_config cok_config_parse_stick(const uint8_t *text, size_t size, bool stick);
+/* As the game's startup reads its file: the rules' files.config_paths
+ * paths after the third line (cok_config_parse_stick reads Champions' 1). */
+cok_config cok_config_parse_game(const cok_rules *rules, const uint8_t *text, size_t size,
+                                 bool stick);
 /* Read the file at path into *config. Returns false, config unchanged,
  * when it cannot be opened or read. With _stick, as cok_config_parse_stick
  * reads it. */
 bool cok_config_read_file(const char *path, cok_config *config);
 bool cok_config_read_file_stick(const char *path, cok_config *config, bool stick);
+bool cok_config_read_file_game(const cok_rules *rules, const char *path, cok_config *config,
+                               bool stick);
 /* Read ASSETS/KRYNN.CFG (or krynn.cfg; the rules' files.config) into
  * *config. Returns false, config unchanged, when there is none or it
  * cannot be read. */
@@ -69,6 +78,9 @@ bool cok_config_read(const cok_rules *rules, const char *assets, cok_config *con
  * into the assets directory. */
 bool cok_config_find(const cok_rules *rules, const char *option, const char *saves,
                      const char *assets, char *path, char *write_path, size_t size);
+/* DIR/NAME in upper case, else in lower case, whichever exists as a
+ * regular file, into path. */
+bool cok_config_find_named(const char *name, const char *dir, char *path, size_t size);
 /* Initialize Mouse/Joystick's rewrite (4def:5cc7): lines 1, 2, 4 and 5 of
  * from as ReadLn reads them into string[255]s (empty if it cannot be
  * read), input ('M', 'J' or 'N') as line 3, then the joystick's fourteen

@@ -376,6 +376,10 @@ struct cok_adventure {
      * the selection (6346:32c7). */
     bool pick_into;
     uint8_t *pick;
+    /* dkk DS:a2b6: the member a click on the party list gave a menu by
+     * index (6a69:0513), which the special key's routine selects
+     * (580d:2bb2) or the pick takes (65cd:33c9); NULL for none. */
+    uint8_t *click_pick;
 
     cok_keyboard keys;
     cok_adventure_hooks hooks;

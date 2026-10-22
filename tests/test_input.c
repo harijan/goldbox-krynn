@@ -180,7 +180,7 @@ static void note_prompt(cok_stick_prompt which, void *context)
         p->shown[p->count++] = which == COK_STICK_UPPER_LEFT    ? 'U'
                                : which == COK_STICK_LOWER_RIGHT ? 'L'
                                                                 : 'F';
-    if (which == COK_STICK_FAILED) ++p->failed; /* the callers' Delay(2000) */
+    if (which >= COK_STICK_FAILED) ++p->failed; /* the callers' Delay(2000) */
 }
 
 static void stick_case(const char *line, char *out, size_t size)
@@ -931,6 +931,192 @@ static void stick_edges(void)
     CHECK(strcmp(p.shown, "UL") == 0 && stick.on);
 }
 
+/* Death Knights' menus by index (dkk 6a69:0f1b, 1b82, 65cd:33c9,
+ * 580d:2bb2, 3067): opened on DKKAssets/ with the mouse, the steps read. */
+static void open_dkk(const input_step *s, size_t n)
+{
+    static cok_keyboard k = {read_steps, NULL, NULL, NULL};
+    cok_adventure_hooks hooks = {.key_pending = typed_pending, .device_wait = wait_devices};
+    CHECK(cok_adventure_open(&game, &cok_rules_death_knights, "DKKAssets", &k, &hooks));
+    game.mouse.driver.installed = true;
+    uint16_t zero[7] = {0};
+    cok_adventure_devices(&game, true, false, zero, zero);
+    cok_adventure_mouse_startup(&game);
+    steps = s;
+    step_count = n;
+    step_at = 0;
+}
+
+static void restep(const input_step *s, size_t n)
+{
+    steps = s;
+    step_count = n;
+    step_at = 0;
+}
+
+/* A menu by index read through the game's keyboard. */
+static int pick_menu(const char *prompt, const char *text, uint8_t last, bool *special)
+{
+    cok_menu_items items;
+    cok_menu_items_upto(&items, last);
+    cok_keyboard keys = cok_adventure_keyboard(&game);
+    return cok_menu_pick(&game.screen, &game.font, prompt, text, &items, 13, 15, 10, true,
+                         &game.selected, &keys, special);
+}
+
+#define CLICK(col, row) {COK_KEY_DEVICE, (col) * 8 + 2, (row) * 8 + 3, 1}
+
+static void dkk_clicks(void)
+{
+    static cok_character people[3];
+    for (size_t i = 0; i < 3; ++i) {
+        memset(&people[i], 0, sizeof people[i]);
+        people[i].record[0] = 1;
+        people[i].record[1] = (uint8_t)('A' + i);
+    }
+    static const char alter[] = "Order Drop Speed Icon Level Exit";
+    /* Row 24's item (0940): its index, selected; DS:c0f9 whether it was
+     * not selected before. Speed is at columns 11-15 (Pos 12-16). */
+    static const input_step speed[] = {CLICK(12, 24), CLICK(11, 24)};
+    open_dkk(speed, 2);
+    bool special;
+    game.selected = 1;
+    CHECK(pick_menu("", alter, 5, &special) == 2 && !special && game.selected == 3 &&
+          game.pointer.reselected);
+    CHECK(pick_menu("", alter, 5, &special) == 2 && !game.pointer.reselected);
+    CHECK(device_waits == 2); /* the release wait after each */
+    /* Past the prompt only: on it, read on; then E. */
+    static const input_step on_prompt[] = {CLICK(3, 24), {'e', 0, 0, 0}};
+    restep(on_prompt, 2);
+    CHECK(pick_menu("speed: ", alter, 5, &special) == 5);
+    /* Nowhere (12af): a menu of items reads on, one of one item is done
+     * with Enter's 0x0d, no hotkey: 0xff. */
+    static const input_step nowhere[] = {CLICK(30, 5), {'d', 0, 0, 0}, CLICK(30, 5)};
+    restep(nowhere, 3);
+    game.vm.mode = 0;
+    CHECK(pick_menu("", alter, 5, &special) == 1 && step_at == 2);
+    CHECK(pick_menu("", "Select", 0, &special) == 0xff && !special);
+    /* Two rows: row 23's items before the '@', row 24's counted on past
+     * it (Pos('@') 14: Cast at 19-22 from column 4); row 23 past the '@'
+     * reads on. */
+    static const char two[] = "Move Turn Aim@Use Cast";
+    static const input_step rows[] = {CLICK(6, 23), CLICK(4, 24), CLICK(15, 23), {'u', 0, 0, 0}};
+    restep(rows, 4);
+    CHECK(pick_menu("", two, 4, &special) == 1 && game.selected == 2);
+    CHECK(pick_menu("", two, 4, &special) == 4 && game.selected == 5);
+    CHECK(pick_menu("", two, 4, &special) == 3 && step_at == 4);
+    /* The battlefield (mode 5, rows 0-22): T on two rows (Turn), M on
+     * aiming's prompt; else read on. */
+    game.vm.mode = 5;
+    static const input_step field[] = {CLICK(30, 10), CLICK(30, 10), CLICK(30, 22),
+                                       {'e', 0, 0, 0}};
+    restep(field, 4);
+    CHECK(pick_menu("", two, 4, &special) == 1 && !special);
+    CHECK(pick_menu("aim: ", "Next Prev Manual Target Center Exit", 5, &special) == 2);
+    CHECK(pick_menu("range: ", alter, 5, &special) == 5 && step_at == 4);
+    /* The party list (0490, 0513): a member not selected is kept for the
+     * special key (DS:a2b6), Up given; the one selected is Enter on the
+     * item selected; a row past the party reads on. */
+    game.vm.mode = 0;
+    for (size_t i = 0; i < 3; ++i) game.party.members[game.party.count++] = &people[i];
+    game.vm.character = people[0].record;
+    game.mouse.party_clicks = true;
+    game.party_left = 1;
+    game.party_right = 0x26;
+    game.party_top = 4;
+    game.party_bottom = 10;
+    static const input_step party[] = {CLICK(5, 5), CLICK(5, 4), CLICK(5, 8), {'s', 0, 0, 0}};
+    restep(party, 4);
+    game.selected = 3;
+    CHECK(pick_menu("", alter, 5, &special) == 0x48 && special &&
+          game.click_pick == people[1].record);
+    CHECK(cok_adventure_special(&game, 0x48) == people[1].record && game.click_pick == NULL);
+    CHECK(pick_menu("", alter, 5, &special) == 2 && !special); /* Enter: Speed */
+    CHECK(pick_menu("", alter, 5, &special) == 2 && step_at == 4);
+    /* Into the pick (DS:c0f0, c0f1): the pick's member, then Enter on it. */
+    game.pick_into = true;
+    game.pick = people[0].record;
+    static const input_step into[] = {CLICK(5, 6), CLICK(5, 6)};
+    restep(into, 2);
+    CHECK(pick_menu("", alter, 5, &special) == 0x48 && game.pick == people[2].record &&
+          game.click_pick == NULL);
+    CHECK(pick_menu("", alter, 5, &special) == 2);
+    game.pick_into = false;
+    /* Move mode: off the party list in mode 4 only (Champions' in any);
+     * the view's cells in mode 4 only. */
+    game.moving = true;
+    static const input_step moving[] = {CLICK(5, 5), CLICK(8, 4), CLICK(8, 3), {'e', 0, 0, 0}};
+    restep(moving, 4);
+    CHECK(pick_menu("", alter, 5, &special) == 0x48 && game.click_pick == people[1].record);
+    game.click_pick = NULL;
+    game.vm.mode = 4;
+    game.party_left = 0x11;
+    CHECK(pick_menu("", alter, 5, &special) == 0x48 && special && game.click_pick == NULL);
+    game.vm.mode = 0;
+    game.party_left = 1;
+    CHECK(pick_menu("", alter, 5, &special) == 5 && step_at == 4); /* (8, 3): nowhere */
+    game.moving = false;
+    /* Modify's sheet (0a9b): Home, the field kept. */
+    game.modifying = true;
+    game.modify_field = 0xff;
+    static const input_step sheet[] = {CLICK(6, 9 + 3)};
+    restep(sheet, 1);
+    CHECK(pick_menu("", "Add Subtract Keep Exit", 3, &special) == 0x47 && special &&
+          game.modify_field == 3);
+    game.modifying = false;
+    /* The pick into (65cd:33c9 as Trade calls it): a click on a member
+     * picks it, the selection kept; on the one picked, Select. */
+    static const input_step who[] = {CLICK(5, 6), CLICK(5, 6)};
+    restep(who, 2);
+    bool ended;
+    game.vm.character = people[0].record;
+    CHECK(cok_adventure_pick(&game, "Trade with Whom?", people[0].record, true, &ended) ==
+              people[2].record &&
+          !ended && game.vm.character == people[0].record && !game.pick_into);
+    /* Pick Character (580d:3067): the party list's clicks on while it
+     * asks; a click on a member selects it (580d:2bb2 with DS:a2b6), a
+     * click on it again is Select. */
+    static const input_step start_pick[] = {CLICK(5, 5), CLICK(5, 5)};
+    restep(start_pick, 2);
+    game.mouse.party_clicks = false;
+    CHECK(cok_start_pick(&game) && game.vm.character == people[1].record &&
+          !game.mouse.party_clicks && game.click_pick == NULL && step_at == 2);
+    /* A list by index (1b82): a row clicked not picked is picked out and
+     * the menu asks again; clicked again, picked (Select's 0); Select on
+     * row 24 while Exit is selected only selects it; Exit leaves. */
+    cok_menu_row list[4] = {{"Alpha", false}, {"Beta", false}, {"Gamma", false}, {"Delta", false}};
+    cok_menu_style style = {"", "Select", 15, 10, 13, true};
+    cok_menu_items items;
+    cok_menu_items_upto(&items, 0);
+    static const input_step pickrows[] = {CLICK(12, 14), CLICK(12, 14), {0, 0, 0, 0},
+                                          {0x4d, 0, 0, 0}, CLICK(1, 24), CLICK(1, 24),
+                                          CLICK(8, 24)};
+    restep(pickrows, 7);
+    int index = 0, top = 0;
+    bool redraw = true, picked;
+    cok_keyboard keys = cok_adventure_keyboard(&game);
+    game.selected = 1;
+    CHECK(cok_menu_indexed_rows(&game.screen, &game.font, list, 4,
+                                (cok_text_window){9, 12, 0x26, 0x16}, &style, "Select", &items, 0,
+                                &redraw, &index, &top, &game.selected, &keys, &special,
+                                &picked) == 0 &&
+          picked && index == 2 && step_at == 2);
+    CHECK(game.pointer.list_left == 0x7f && game.pointer.list_right == -0x80 &&
+          game.pointer.list_rows[0] == 12 && game.pointer.list_rows[4] == 0xff);
+    CHECK(cok_menu_indexed_rows(&game.screen, &game.font, list, 4,
+                                (cok_text_window){9, 12, 0x26, 0x16}, &style, "Select", &items, 0,
+                                &redraw, &index, &top, &game.selected, &keys, &special,
+                                &picked) == 0 &&
+          picked && index == 2 && step_at == 6);
+    CHECK(cok_menu_indexed_rows(&game.screen, &game.font, list, 4,
+                                (cok_text_window){9, 12, 0x26, 0x16}, &style, "Select", &items, 0,
+                                &redraw, &index, &top, &game.selected, &keys, &special,
+                                &picked) == 0x1b &&
+          special && !picked);
+    game.party.count = 0;
+    cok_adventure_close(&game);
+}
+
 int main(void)
 {
     against_the_original();
@@ -945,6 +1131,8 @@ int main(void)
     list_clicks();
     rewrite();
     setup_calibration();
+    if (access("DKKAssets/START.EXE", F_OK) == 0) dkk_clicks();
+    else puts("input: no DKKAssets/START.EXE; Death Knights' clicks not checked");
     puts("input tests passed");
     return 0;
 }

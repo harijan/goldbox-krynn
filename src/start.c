@@ -11,6 +11,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 const char *cok_start_item(const cok_rules *rules, unsigned i)
 {
@@ -28,6 +29,34 @@ bool cok_start_pick(cok_adventure *game)
     bool party_clicks = game->mouse.party_clicks;
     game->mouse.party_clicks = true;
     int key;
+    if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
+        /* dkk 580d:3067: 6a69:00cb(1) over "Select" alone, with the
+         * keypad, until an index of 1 or less and no special key; Escape
+         * is 1; another special key picks (580d:2bb2) between the party
+         * list's redraws. True for 0, Select. */
+        cok_menu_items items;
+        cok_menu_items_upto(&items, 1);
+        bool special;
+        do {
+            key = cok_camp_pick_menu(game, cok_game_rules(game)->start.pick_prompt,
+                                     cok_game_rules(game)->start.pick_menu, &items, true, false,
+                                     &special);
+            if (key < 0) {
+                game->mouse.party_clicks = party_clicks;
+                return false;
+            }
+            if (special && key == 0x1b) {
+                key = 1;
+                special = false;
+                game->menu_special = false;
+            } else if (special) {
+                cok_camp_pick(game, (uint8_t)key);
+            }
+        } while (special || key > 1);
+        cok_adventure_party(game);
+        game->mouse.party_clicks = party_clicks;
+        return key == 0;
+    }
     for (;;) {
         bool special;
         key = cok_camp_menu(game, cok_game_rules(game)->start.pick_prompt,
@@ -91,6 +120,7 @@ static void fresh(cok_adventure *game, uint8_t facing, uint8_t wall)
     game->combat_moving = game->aiming = false;
     game->pointer.clicked = false;
     game->pick_into = false;
+    game->click_pick = NULL; /* dkk 4f9a:00e1, 08ad: DS:a2b6 */
     game->modifying = false;
 }
 
@@ -210,60 +240,119 @@ static int title_menu(cok_adventure *game, const char *prompt, uint16_t timeout)
     return key;
 }
 
-/* KRYNN.CFG written again by Initialize Mouse/Joystick, its third line
+/* The file Initialize Mouse/Joystick reads and writes (the rules'
+ * start.mouse.file): the devices' file itself where it is the game's own
+ * (Champions' KRYNN.CFG: config_path, config_write); else one of its name
+ * beside where the devices' file is written (dkk krynn.cfg, which Death
+ * Knights never reads), read from there or the assets', written there, and
+ * the devices' file left alone. */
+static bool mouse_file(cok_adventure *game, char *from, char *to, size_t size)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const char *name = rules->start.mouse.file;
+    if (strcasecmp(name, rules->files.config) == 0) {
+        snprintf(from, size, "%s", game->config_path);
+        snprintf(to, size, "%s", game->config_write);
+        return true;
+    }
+    from[0] = to[0] = '\0';
+    if (game->config_write[0] == '\0') return false;
+    char dir[1024];
+    snprintf(dir, sizeof dir, "%s", game->config_write);
+    char *slash = strrchr(dir, '/');
+    if (slash != NULL) *slash = '\0';
+    else snprintf(dir, sizeof dir, ".");
+    if (cok_config_find_named(name, dir, from, size)) {
+        snprintf(to, size, "%s", from);
+    } else {
+        int n = snprintf(to, size, "%s/%s", dir, name);
+        if (n < 0 || (size_t)n >= size) to[0] = '\0'; /* too long: nowhere */
+        if (!cok_config_find_named(name, game->assets, from, size)) from[0] = '\0';
+    }
+    return false;
+}
+
+/* The file written again by Initialize Mouse/Joystick, its third line
  * input and the stick's thresholds (or zeros), in the port's own place,
  * never the assets'. */
 static void rewrite(cok_adventure *game, char input, const cok_stick *stick)
 {
-    char text[1100];
-    if (game->config_write[0] == '\0') {
-        snprintf(text, sizeof text, "line 3 %c, written nowhere", input);
-    } else if (cok_config_rewrite(game->config_path, game->config_write, input,
-                                  stick != NULL ? stick->x : NULL,
+    char text[1100], from[1024], to[1024];
+    bool own = mouse_file(game, from, to, sizeof from);
+    char line[64];
+    if (own) snprintf(line, sizeof line, "line 3 %c", input);
+    else snprintf(line, sizeof line, "%s line 3 %c", cok_game_rules(game)->start.mouse.file, input);
+    if (to[0] == '\0') {
+        snprintf(text, sizeof text, "%s, written nowhere", line);
+    } else if (cok_config_rewrite(from, to, input, stick != NULL ? stick->x : NULL,
                                   stick != NULL ? stick->y : NULL)) {
-        snprintf(game->config_path, sizeof game->config_path, "%s", game->config_write);
-        snprintf(text, sizeof text, "line 3 %c", input);
+        if (own) snprintf(game->config_path, sizeof game->config_path, "%s", to);
+        snprintf(text, sizeof text, "%s", line);
     } else {
-        snprintf(text, sizeof text, "%s cannot be written", game->config_write);
+        snprintf(text, sizeof text, "%s cannot be written", to);
     }
     cok_adventure_log(game, "config", text);
 }
 
-/* 4def:638d's screens: the window cleared (1128:07e6) and its lines in
- * light magenta at column 1 (1521:0353); the failure's for 2 seconds. */
+/* 4def:638d's screens (dkk 49cb:58ec, its words): the window cleared
+ * (1128:07e6; dkk 110f:0584) and its lines in light magenta at column 1
+ * (1521:0353); the failure's for 2 seconds. */
 static void calibration_prompt(cok_stick_prompt which, void *context)
 {
-    static const char *const lines[3][2] = {
-        {"Push JOYSTICK #1 to the extreme upper", "left position and press button #1."},
-        {"Push JOYSTICK #1 to the extreme lower", "right position and press button #1."},
-        {"Unable to read joystick", NULL},
-    };
     cok_adventure *game = context;
-    cok_picture_fill(&game->screen, 1, 8, 0x26, 0x16 * 8, 0);
-    for (size_t i = 0; i < 2 && lines[which][i] != NULL; ++i) {
-        cok_adventure_log(game, "print", lines[which][i]);
-        cok_text_string(&game->screen, &game->font, lines[which][i], 1, 3 + 2 * (int)i, 13, 0);
+    const cok_rules_mouse_menu *M = &cok_game_rules(game)->start.mouse;
+    const char *lines[2] = {NULL, NULL};
+    if (which == COK_STICK_UPPER_LEFT || which == COK_STICK_LOWER_RIGHT) {
+        lines[0] = M->corners[which][0];
+        lines[1] = M->corners[which][1];
+    } else {
+        lines[0] = which == COK_STICK_LOST_UPPER_LEFT    ? M->lost_upper_left
+                   : which == COK_STICK_LOST_LOWER_RIGHT ? M->lost_lower_right
+                                                         : M->no_button;
     }
-    if (which == COK_STICK_FAILED) cok_adventure_wait(game, 2000);
+    cok_picture_fill(&game->screen, 1, 8, 0x26, 0x16 * 8, 0);
+    for (size_t i = 0; i < 2 && lines[i] != NULL; ++i) {
+        cok_adventure_log(game, "print", lines[i]);
+        cok_text_string(&game->screen, &game->font, lines[i], 1, 3 + 2 * (int)i, 13, 0);
+    }
+    if (which >= COK_STICK_FAILED) cok_adventure_wait(game, 2000);
 }
 
 void cok_start_mouse(cok_adventure *game)
 {
-    cok_menu_style style = {"Init Mouse/Joystick: ", "Select", 15, 10, 13, true};
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_rules_mouse_menu *M = &rules->start.mouse;
+    cok_menu_style style = {M->prompt, M->select, 15, 10, 13, true};
     int index = 0;
     cok_keyboard keys = cok_adventure_keyboard(game);
     for (;;) {
         /* 4def:5d53: the rows say what is on now. */
-        cok_menu_row rows[3] = {{game->mouse.on ? "mouse ON" : "mouse OFF", false},
-                                {game->stick.on ? "joystick ON" : "joystick OFF", false},
-                                {"disable both", false}};
+        cok_menu_row rows[3] = {{game->mouse.on ? M->mouse_on : M->mouse_off, false},
+                                {game->stick.on ? M->stick_on : M->stick_off, false},
+                                {M->both, false}};
         bool redraw = true;
-        cok_adventure_log(game, "list", "Init Mouse/Joystick: ");
+        cok_adventure_log(game, "list", M->prompt);
         for (size_t i = 0; i < 3; ++i) cok_adventure_log(game, "item", rows[i].text);
-        int key = cok_menu_rows(&game->screen, &game->font, rows, 3,
-                                (cok_text_window){9, 12, 0x26, 0x16}, &style, &redraw, &index,
-                                &game->list_top, &game->selected, &keys);
-        if (key != 'S') return;
+        if (rules->menus.routine == COK_MENUS_INDEXED) {
+            /* dkk 49cb:542b: 6a69:00cb(0), then 1b82 with Exit after
+             * Select; any key back but Select's 0 leaves. */
+            cok_menu_items items;
+            cok_menu_items_upto(&items, 0);
+            bool special = false, picked;
+            int key = cok_menu_indexed_rows(&game->screen, &game->font, rows, 3,
+                                            (cok_text_window){9, 12, 0x26, 0x16}, &style,
+                                            M->select, &items, 0, &redraw, &index,
+                                            &game->list_top, &game->selected, &keys, &special,
+                                            &picked);
+            if (key < 0) return;
+            game->menu_special = special; /* DS:c0f8 */
+            if (special || key != 0) return;
+        } else {
+            int key = cok_menu_rows(&game->screen, &game->font, rows, 3,
+                                    (cok_text_window){9, 12, 0x26, 0x16}, &style, &redraw,
+                                    &index, &game->list_top, &game->selected, &keys);
+            if (key != 'S') return;
+        }
         if (index == 0) {
             /* 4def:5e8e: the mouse turned over; on, its driver found
              * (cok_mouse_start), the joystick off and M; else N, the
@@ -387,6 +476,7 @@ static void emptied(cok_adventure *game, uint8_t *entry)
     vm->mode = 0;
     *entry = vm->last_mode;
     game->free_training = false; /* DS:c46a */
+    game->mouse.party_clicks = false; /* 49cb:010b's start again (dba9) */
     game->new_game = true;
     vm->halt = true; /* DS:8c5b: the script that opened the menu stops too */
 }
@@ -486,14 +576,34 @@ void cok_start_menu(cok_adventure *game)
         cok_menu_style style = {start->prompt, start->select, 15, 10, 13, false};
         bool redraw = true;
         cok_keyboard keys = cok_adventure_keyboard(game);
-        int key = cok_menu_rows(&game->screen, &game->font, rows, count,
-                                (cok_text_window){9, 12, 0x26, 0x16}, &style, &redraw, &index,
-                                &game->list_top, &game->selected, &keys);
-        if (key < 0) break;
+        bool chosen;
+        if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
+            /* dkk 49cb:010b: 6a69:00cb(0), then 1b82 with no Exit; a row
+             * back (Select's 0, or the 0xff of a click off the list and
+             * the menu, 6a69:12c2) is its command, Escape (0x1b) none. */
+            cok_menu_items items;
+            cok_menu_items_upto(&items, 0);
+            bool special = false, picked;
+            int key = cok_menu_indexed_rows(&game->screen, &game->font, rows, count,
+                                            (cok_text_window){9, 12, 0x26, 0x16}, &style,
+                                            start->select, &items, 0, &redraw, &index,
+                                            &game->list_top, &game->selected, &keys, &special,
+                                            &picked);
+            if (key < 0) break;
+            game->menu_special = special; /* DS:c0f8 */
+            chosen = picked && index >= 0 && (size_t)index < count;
+        } else {
+            int key = cok_menu_rows(&game->screen, &game->font, rows, count,
+                                    (cok_text_window){9, 12, 0x26, 0x16}, &style, &redraw,
+                                    &index, &game->list_top, &game->selected, &keys);
+            if (key < 0) break;
+            chosen = key != 0;
+        }
         /* The command is the picked row's first letter; Escape leaves no
-         * row, and the original reads 0000:0001, which holds 0. */
-        char letter = key == 0 ? '\0' : rows[index].text[0];
-        if (key != 0) cok_adventure_log(game, "choice", rows[index].text);
+         * row, and the original reads 0000:0001, which holds 0 (dkk: the
+         * row's text matches no item). */
+        char letter = !chosen ? '\0' : rows[index].text[0];
+        if (chosen) cok_adventure_log(game, "choice", rows[index].text);
         if (letter != 'E' && letter != 'S') game->effects.rolls.saved = 0; /* DS:5885 */
         bool ended = game->new_game;
         if (cok_start_command(game, letter)) break;

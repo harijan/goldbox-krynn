@@ -171,9 +171,10 @@ clouds and the rest). Camp's Fix heals, and cures the stoned, poisoned,
 dead, cursed and blind with the spells your clerics have, as the original.
 Create New Character and Modify Character work as the original's: the
 lists, the rolls, the icon editor, every class starting with its own
-equipment and experience. Not there yet: Initialize Mouse/Joystick, and
-the mouse in Death Knights' menus: the game stops with a message saying
-what it reached.
+equipment and experience. The mouse and the joystick work as in the
+original's menus, and Initialize Mouse/Joystick turns them on and off;
+as in the original, it writes what it set into `krynn.cfg`, not
+`DKK.CFG`, so the next start goes by `DKK.CFG` again.
 
 ## Options
 
