@@ -1540,7 +1540,12 @@ into, Move mode, Modify's sheet, Pick Character, a list's rows and row
 `tests/test_config.c` `DKK.CFG`'s thresholds, `tests/test_death_knights.c`
 the words and the code's constants against the executable, and
 `tests/test_death_knights.py` Initialize Mouse/Joystick and Pick Character
-by clicks.
+by clicks. `tools/dosbox/checks/dkk_mouse.py` (not in `run_all.py`)
+clicks the same in the original with DOSBox-X's own driver, as
+`f_mouse.py` does: the start menu's rows (picked out, then picked),
+Initialize Mouse/Joystick's mouse row and Exit, Pick Character's party
+list, camp's and Alter's items on row 24, each screen whole with the
+arrow, and the files it leaves.
 
 ## Sound
 
@@ -9207,7 +9212,11 @@ here:
   reads and writes a `krynn.cfg` beside where it writes `DKK.CFG` (the
   saves), read from the assets' when there is none there; with neither it
   is written empty, as the original's `Reset` fails (logged `config:
-  krynn.cfg line 3 N`), and read back as five empty lines next time.
+  krynn.cfg line 3 N`). The error stays set (nothing calls `IOResult` in
+  between), so the original's next pass does no I/O at all and its file
+  stays empty; the port, which does not model the error past its pass (as
+  Champions'), reads the empty file and writes five empty lines but the
+  third and the zeros (`dkk_mouse.py` saw the original's empty).
   Create (`05c7`) and Modify (`25d4`) are Death
   Knights' creation's (see Creating characters); Train (`43b6`) and Knight
   Change Order (`4ea4`) are Death Knights' training's.

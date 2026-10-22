@@ -933,10 +933,20 @@ static void stick_edges(void)
 
 /* Death Knights' menus by index (dkk 6a69:0f1b, 1b82, 65cd:33c9,
  * 580d:2bb2, 3067): opened on DKKAssets/ with the mouse, the steps read. */
+static char dkk_log[4096];
+
+static void log_dkk(cok_adventure *g, const char *kind, const char *text, void *context)
+{
+    (void)g, (void)context;
+    size_t used = strlen(dkk_log);
+    snprintf(dkk_log + used, sizeof dkk_log - used, "%s: %s;", kind, text);
+}
+
 static void open_dkk(const input_step *s, size_t n)
 {
     static cok_keyboard k = {read_steps, NULL, NULL, NULL};
-    cok_adventure_hooks hooks = {.key_pending = typed_pending, .device_wait = wait_devices};
+    cok_adventure_hooks hooks = {.key_pending = typed_pending, .device_wait = wait_devices,
+                                 .log = log_dkk};
     CHECK(cok_adventure_open(&game, &cok_rules_death_knights, "DKKAssets", &k, &hooks));
     game.mouse.driver.installed = true;
     uint16_t zero[7] = {0};
@@ -1070,9 +1080,11 @@ static void dkk_clicks(void)
     restep(who, 2);
     bool ended;
     game.vm.character = people[0].record;
+    game.mouse.party_clicks = false; /* on for the pick in mode 0 (65cd:3453) */
     CHECK(cok_adventure_pick(&game, "Trade with Whom?", people[0].record, true, &ended) ==
               people[2].record &&
-          !ended && game.vm.character == people[0].record && !game.pick_into);
+          !ended && game.vm.character == people[0].record && !game.pick_into &&
+          !game.mouse.party_clicks);
     /* Pick Character (580d:3067): the party list's clicks on while it
      * asks; a click on a member selects it (580d:2bb2 with DS:a2b6), a
      * click on it again is Select. */
@@ -1081,6 +1093,10 @@ static void dkk_clicks(void)
     game.mouse.party_clicks = false;
     CHECK(cok_start_pick(&game) && game.vm.character == people[1].record &&
           !game.mouse.party_clicks && game.click_pick == NULL && step_at == 2);
+    /* Escape is index 1: no pick. */
+    static const input_step escape[] = {{27, 0, 0, 0}};
+    restep(escape, 1);
+    CHECK(!cok_start_pick(&game) && step_at == 1);
     /* A list by index (1b82): a row clicked not picked is picked out and
      * the menu asks again; clicked again, picked (Select's 0); Select on
      * row 24 while Exit is selected only selects it; Exit leaves. */
@@ -1113,6 +1129,41 @@ static void dkk_clicks(void)
                                 &redraw, &index, &top, &game.selected, &keys, &special,
                                 &picked) == 0x1b &&
           special && !picked);
+    /* DS:c0f9 cleared before each ask: a row clicked (picked out), then
+     * the party list's selected member (Enter, which leaves c0f9 alone):
+     * picked. */
+    static const input_step party_enter[] = {CLICK(12, 13), CLICK(5, 4)};
+    restep(party_enter, 2);
+    game.selected = 1;
+    game.vm.character = people[0].record;
+    game.mouse.party_clicks = true;
+    CHECK(cok_menu_indexed_rows(&game.screen, &game.font, list, 4,
+                                (cok_text_window){9, 12, 0x26, 0x16}, &style, "Select", &items, 0,
+                                &redraw, &index, &top, &game.selected, &keys, &special,
+                                &picked) == 0 &&
+          picked && index == 1 && step_at == 2);
+    /* Initialize Mouse/Joystick's calibration (49cb:58ec): a read lost
+     * with the button held at the upper left is "Unable to read joystick"
+     * (CS 58d4); the stick found, calibrated or not, is on: J (written
+     * nowhere without a saves directory). */
+    scripted_port *sp = &stick_port;
+    *sp = (scripted_port){.count = 0, .rest = {0, 0, 0, 0}};
+    long centre[4] = {1, 129, 129, 0}, ul[4] = {1, 10, 12, 1}, lost[4] = {0, 0, 0, 0};
+    for (int i = 0; i < 21; ++i) memcpy(sp->reads[sp->count++], centre, sizeof centre);
+    memcpy(sp->reads[sp->count++], ul, sizeof ul);
+    memcpy(sp->reads[sp->count++], lost, sizeof lost);
+    game.port = (cok_game_port){port_read, NULL, sp};
+    static const input_step stick[] = {{0, 0, 0, 0}, {0x50, 0, 0, 0}, {13, 0, 0, 0},
+                                       {27, 0, 0, 0}};
+    restep(stick, 4);
+    dkk_log[0] = '\0';
+    game.stick.on = false;
+    game.selected = 1;
+    cok_start_mouse(&game);
+    CHECK(game.stick.on && strstr(dkk_log, "print: Push joystick #1 to the extreme upper;print: "
+                                           "left position and press button #1.;print: Unable "
+                                           "to read joystick;config: krynn.cfg line 3 J, "
+                                           "written nowhere;") != NULL);
     game.party.count = 0;
     cok_adventure_close(&game);
 }

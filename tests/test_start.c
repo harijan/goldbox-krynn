@@ -1680,6 +1680,7 @@ static void test_death_knights_menu(void)
     dkk_keys("SYY");
     cok_start_command(&dkk, 'D');
     CHECK(dkk.party.count == 0 && dkk.new_game && dkk.vm.mem4b00[0x55] == 0);
+    CHECK(!dkk.mouse.party_clicks); /* 49cb:010b: off again after 4f9a:08ad */
     CHECK(dkk.wall_ids[0] == 5 && dkk.wall_slots[0] == 0 && dkk.wall_ids[1] == 0 &&
           dkk.wall_slots[1] == 1 && dkk.wall_ids[2] == -1 && dkk.wall_ids[3] == -1);
     CHECK(dkk.vm.mode == 0 && dkk.vm.last_mode == 4 && dkk.vault_letter == 'Q');
