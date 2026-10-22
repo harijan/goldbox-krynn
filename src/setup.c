@@ -157,6 +157,11 @@ bool cok_setup_ask(cok_crt *crt, const cok_keyboard *keys, const cok_setup_hooks
     for (size_t i = 0; i < n; ++i) path[i] = upcase(path[i]);
     if (n > 0 && path[n - 1] != '\\') append(path, 80, "\\");
     line(file, size, path);
+    /* The file's other paths (the rules' files.config_paths: dkk
+     * 1187:011b's Champions' saved games, DS:99a4, which Death Knights'
+     * setup asks for; that question is not ported): empty lines, so that
+     * the file reads back as the game reads it. */
+    for (unsigned i = 1; i < rules->files.config_paths; ++i) line(file, size, "");
     line(file, size, "F");
     /* 177c:029d (11c7:0845), then DS:8996[i] and 89a4[i] for i 0-6, as
      * longints: J kept whatever it found. */
@@ -256,7 +261,7 @@ cok_setup_status cok_setup_startup(cok_crt *crt, const cok_keyboard *keys,
                 return stop(crt, COK_SETUP_UNWRITABLE, error);
             }
         }
-        *config = cok_config_parse_stick(file, size, stick);
+        *config = cok_config_parse_game(rules, file, size, stick);
     }
     if (hooks != NULL && hooks->calibrate && !config->joystick &&
         !cok_setup_calibrate(crt, hooks, config)) {

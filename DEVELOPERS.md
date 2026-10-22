@@ -1499,7 +1499,8 @@ differs:
   (`cok_config_parse_game`; Champions' 1). The setup Death Knights runs
   without the file differs too (a Tandy display makes `[2] MOUSE` write
   `N`, `DS:8b8f`, and it asks for Champions' path) and is not ported: the
-  port's is Champions' (its file then read with Death Knights' layout).
+  port's is Champions' but for the file's layout: it writes the
+  `config_paths` paths, the others' lines empty, and reads them back so.
 - The start menu clears the party list's clicks again after a Drop or
   Remove that ends the game (`49cb:010b`, after `4f9a:08ad` set them).
 - Its menus by index (`6a69:0f1b`) take a click as 67b5:03e2 does, region
@@ -1521,9 +1522,11 @@ differs:
 - Its lists (`6a69:1b82`) take a click as a pick only where it set no
   `DS:c0f9`: a click on a row picks it out and asks again, a click on the
   row picked picks it; a click on row 24's item not selected only selects
-  it. So the start menu (whose list has `Select` alone) picks its row for a
-  click off the list and the menu (0xff), and Initialize Mouse/Joystick
-  (`Select Exit`) reads on.
+  it. A click off the list and the menu reads on in Initialize
+  Mouse/Joystick (`Select Exit`); in the start menu, whose list has
+  `Select` alone and no Exit, it is 0xff, past Select, which `1ea6`
+  compares with Exit's index, a stack byte (`[bp-0x242]`) only written
+  when Exit is shown: the port stops there (`COK_MENU_UNSET_EXIT`).
 - The pick (`65cd:33c9`, WHO's and Trade's) has Move off while it asks
   (`DS:db7c`), the party list's clicks on in mode 0, and takes Up after a
   click as the click's member: the pick's own, or `DS:a2b6`, which it also

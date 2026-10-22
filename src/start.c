@@ -579,8 +579,9 @@ void cok_start_menu(cok_adventure *game)
         bool chosen;
         if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
             /* dkk 49cb:010b: 6a69:00cb(0), then 1b82 with no Exit; a row
-             * back (Select's 0, or the 0xff of a click off the list and
-             * the menu, 6a69:12c2) is its command, Escape (0x1b) none. */
+             * back (Select's 0) is its command, Escape (0x1b) none; the
+             * 0xff of a click off the list and the menu (6a69:12c2) reads
+             * an unset byte: the run stops. */
             cok_menu_items items;
             cok_menu_items_upto(&items, 0);
             bool special = false, picked;
@@ -589,6 +590,14 @@ void cok_start_menu(cok_adventure *game)
                                             start->select, &items, 0, &redraw, &index,
                                             &game->list_top, &game->selected, &keys, &special,
                                             &picked);
+            if (key == COK_MENU_UNSET_EXIT) {
+                /* A click off the list and the menu: 0xff, past Select. */
+                cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                                   "the start menu's list compares a click's index with Exit's, "
+                                   "a stack byte its menu with no Exit never set (dkk 6a69:1ea6, "
+                                   "[bp-0x242])");
+                break;
+            }
             if (key < 0) break;
             game->menu_special = special; /* DS:c0f8 */
             chosen = picked && index >= 0 && (size_t)index < count;

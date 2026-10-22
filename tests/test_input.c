@@ -1065,7 +1065,53 @@ static void dkk_clicks(void)
     game.vm.mode = 0;
     game.party_left = 1;
     CHECK(pick_menu("", alter, 5, &special) == 5 && step_at == 4); /* (8, 3): nowhere */
+    /* In mode 4 the party list is off in Move mode where it lies (the
+     * view's cell 5, 5 then: Up). */
+    static const input_step mode4[] = {CLICK(5, 5)};
+    restep(mode4, 1);
+    game.vm.mode = 4;
+    CHECK(pick_menu("", alter, 5, &special) == 0x48 && special && game.click_pick == NULL);
+    game.vm.mode = 0;
     game.moving = false;
+    /* Mode 3 on the overland map (var 0x4cf7 1): no party list; off it
+     * (0), the party list. */
+    static const input_step mode3[] = {CLICK(5, 5), {'e', 0, 0, 0}, CLICK(5, 5)};
+    restep(mode3, 3);
+    game.vm.mode = 3;
+    cok_ecl_set_var(&game.vm, COK_VAR_OFF_MAP, 1);
+    CHECK(pick_menu("", alter, 5, &special) == 5 && step_at == 2);
+    cok_ecl_set_var(&game.vm, COK_VAR_OFF_MAP, 0);
+    CHECK(pick_menu("", alter, 5, &special) == 0x48 && game.click_pick == people[1].record);
+    game.click_pick = NULL;
+    game.vm.mode = 0;
+    /* The battlefield with aiming's cursor (0680, 06d9): a step from the
+     * cursor's cell (6, 6 shown) toward the 24-pixel cell clicked (7, 7). */
+    static const input_step aim[] = {CLICK(19, 19)};
+    restep(aim, 1);
+    game.vm.mode = 5;
+    game.aiming = true;
+    game.aim_x = 5;
+    game.aim_y = 5;
+    game.combat.view_x = game.combat.view_y = 0;
+    CHECK(pick_menu("aim: ", "Next Prev Manual Target Center Exit", 5, &special) ==
+              cok_mouse_direction(6, 6, 7, 7) &&
+          special);
+    game.aiming = false;
+    game.vm.mode = 0;
+    /* A list's columns (0b68, 0ba7): a row at or below one of its rows
+     * shown is Enter; above them, read on. */
+    game.pointer.list_left = 9;
+    game.pointer.list_right = 0x26;
+    memset(game.pointer.list_rows, 0xff, sizeof game.pointer.list_rows);
+    game.pointer.list_rows[0] = 12;
+    game.pointer.list_rows[1] = 13;
+    static const input_step below[] = {CLICK(20, 20), CLICK(20, 11), {'e', 0, 0, 0}};
+    restep(below, 3);
+    game.selected = 2;
+    CHECK(pick_menu("", alter, 5, &special) == 1 && !special && game.pointer.reselected);
+    CHECK(pick_menu("", alter, 5, &special) == 5 && step_at == 3);
+    game.pointer.list_left = 0x7f;
+    game.pointer.list_right = -0x80;
     /* Modify's sheet (0a9b): Home, the field kept. */
     game.modifying = true;
     game.modify_field = 0xff;
@@ -1085,6 +1131,20 @@ static void dkk_clicks(void)
               people[2].record &&
           !ended && game.vm.character == people[0].record && !game.pick_into &&
           !game.mouse.party_clicks);
+    /* The pick has Move off while it asks (65cd:3407): in mode 4 the
+     * party list takes the click, Move back on after. */
+    static const input_step moving_pick[] = {CLICK(20, 6), CLICK(20, 6)};
+    restep(moving_pick, 2);
+    game.vm.mode = 4;
+    game.moving = true;
+    game.party_left = 0x11;
+    game.mouse.party_clicks = true;
+    CHECK(cok_adventure_pick(&game, "Trade with Whom?", people[0].record, true, &ended) ==
+              people[2].record &&
+          game.moving);
+    game.moving = false;
+    game.vm.mode = 0;
+    game.party_left = 1;
     /* Pick Character (580d:3067): the party list's clicks on while it
      * asks; a click on a member selects it (580d:2bb2 with DS:a2b6), a
      * click on it again is Select. */
@@ -1164,7 +1224,23 @@ static void dkk_clicks(void)
                                            "left position and press button #1.;print: Unable "
                                            "to read joystick;config: krynn.cfg line 3 J, "
                                            "written nowhere;") != NULL);
+    /* A list with no Exit (the start menu's): a click on none of the
+     * regions is 0xff, past Select, which 6a69:1ea6 compares with an unset
+     * stack byte: COK_MENU_UNSET_EXIT. */
+    cok_menu_style no_exit = {"", "Select", 15, 10, 13, false};
+    static const input_step off[] = {CLICK(2, 5)};
+    restep(off, 1);
     game.party.count = 0;
+    game.mouse.party_clicks = false;
+    game.vm.mode = 0;
+    game.stick.on = false; /* the mouse on again after the calibration */
+    game.mouse.on = true;
+    redraw = true;
+    CHECK(cok_menu_indexed_rows(&game.screen, &game.font, list, 4,
+                                (cok_text_window){9, 12, 0x26, 0x16}, &no_exit, "Select", &items,
+                                0, &redraw, &index, &top, &game.selected, &keys, &special,
+                                &picked) == COK_MENU_UNSET_EXIT &&
+          !picked && game.pointer.list_left == 0x7f);
     cok_adventure_close(&game);
 }
 

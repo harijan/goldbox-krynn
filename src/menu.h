@@ -220,6 +220,12 @@ int cok_menu_pick(cok_picture *dst, const cok_font *font, const char *prompt, co
  * With no rows it returns 0 at once, *index 0 and *picked clear (*special
  * as it was). *selected, *redraw and *top as cok_menu_rows'. Returns -1 if
  * input ended. */
+/* What cok_menu_indexed_rows returns for an index past the caller's
+ * that is neither Next nor Prev when Exit was never offered: 6a69:1ea6
+ * compares it with Exit's index, a stack byte ([bp-0x242]) only written
+ * when Exit is shown. */
+enum { COK_MENU_UNSET_EXIT = -4 };
+
 int cok_menu_indexed_rows(cok_picture *dst, const cok_font *font, const cok_menu_row *rows,
                           size_t count, cok_text_window window, const cok_menu_style *style,
                           const char *text, const cok_menu_items *items, uint8_t last,

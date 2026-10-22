@@ -845,7 +845,8 @@ int cok_menu_indexed_rows(cok_picture *dst, const cok_font *font, const cok_menu
     for (size_t k = 0; k < items->count && k < COK_MENU_MAX_ITEMS; ++k)
         entries[k] = items->index[k];
     /* The indexes the list's Next, Prev and Exit took last (bytes of the
-     * stack until then, here none: every caller offers Exit). */
+     * stack until then: Next and Prev are compared only while offered,
+     * Exit's always, COK_MENU_UNSET_EXIT before it is offered). */
     unsigned at_next = 0x100, at_prev = 0x100, at_exit = 0x100;
     for (;;) {
         mark(&l, true);
@@ -886,6 +887,7 @@ int cok_menu_indexed_rows(cok_picture *dst, const cok_font *font, const cok_menu
             *special = true;
             if ((unsigned)key == at_next && more) key = 0x51;
             else if ((unsigned)key == at_prev && less) key = 0x49;
+            else if (at_exit == 0x100) return list_end(pointer, COK_MENU_UNSET_EXIT);
             else if ((unsigned)key == at_exit) key = 0x1b;
             else *special = false;
         }

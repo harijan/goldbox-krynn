@@ -1289,6 +1289,12 @@ class DeathKnightsTests(unittest.TestCase):
         result = self.play("--start-menu", "--mouse", "--saves", saves, "--keys",
                            keys[:-len(r"\m140,42,1.\m140,42,1.")] + r"\r", ASSETS)
         self.assertIn("print: SIR DRYDEN", result.stdout.splitlines())
+        # A click off the list and the menu (row 5, column 2): 0xff, which
+        # 6a69:1ea6 compares with an Exit index the start menu never set.
+        result = self.play("--start-menu", "--mouse", "--keys", self.TITLE + r"\m18,42,1.",
+                           ASSETS)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("(dkk 6a69:1ea6, [bp-0x242])", result.stderr)
         if (BUILD / "cok").exists():
             env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
             saves = self.saves()
