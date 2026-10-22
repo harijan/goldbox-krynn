@@ -1379,6 +1379,25 @@ static const cok_rules_text_line death_knights_credit_lines[] = {
 static const char *const death_knights_vault_items[] = {"View", "Take", "Pool", "Money", "Items",
                                                         "Exit"};
 
+/* Creation (49cb:05c7): the experience of a character of one class, two
+ * and three. */
+enum { ONE_CLASS = 210003, TWO_CLASSES = 105002, THREE_CLASSES = 70001 };
+/* Creation's training (49cb:43b6 with DS:8c5c): a mage's known spells at
+ * levels 3, 5 and 7, of the White Robes (+0x24 1) or not (the block's
+ * +0x49 + id). */
+static const cok_rules_created_spells death_knights_created_spells[] = {
+    {3, 1, {29, 33, 34}},     {5, 1, {46, 47, 51}},     {7, 1, {81, 82, 85, 87}},
+    {3, 0, {30, 31, 32, 34}}, {5, 0, {45, 47, 48, 50}}, {7, 0, {83, 85, 84, 87}},
+};
+/* 49cb:4bea: by kind, 1-5 (DS:058b + 4 * kind + item, items 1-4). */
+static const cok_rules_kit death_knights_kits[6] = {
+    {{0}}, {{0x53, 0x30, 0x0a, 0}}, {{0x2c, 0x30, 0x0a, 0}}, {{0x55, 0x56, 0x5b, 0x1c}},
+    {{0x2c, 0x30, 0x54, 0}}, {{0x52, 0x57, 0, 0}},
+};
+/* Modify Character (49cb:25d4): the experiences of one, two and three
+ * classes as creation leaves them. */
+static const uint32_t death_knights_fresh[] = {ONE_CLASS, TWO_CLASSES, THREE_CLASSES};
+
 const cok_rules cok_rules_death_knights = {
     .id = "death-knights",
     .assets = "DKKAssets",
@@ -1664,7 +1683,7 @@ const cok_rules cok_rules_death_knights = {
              * 3376...) and rewrites krynn.cfg (49cb:52bd), not DKK.CFG.
              * Train (49cb:43b6) and Knight Change Order (4ea4) are the
              * levels section's. */
-            .unported = {[0] = "dkk 49cb:05c7", [2] = "dkk 49cb:25d4", [11] = "dkk 49cb:52cd"},
+            .unported = {[11] = "dkk 49cb:52cd"},
             .pick_prompt = "Pick Character ", /* 580d:3067: DS:3018, 31d6 */
             .pick_menu = "Select",
             /* 49cb:2394: DS:130a-135f */
@@ -2077,5 +2096,51 @@ const cok_rules cok_rules_death_knights = {
                                  "never set (dkk 5dc5:175d's [bp-0x76]), which changes its "
                                  "targets",
             .flame_type = "Flame type: ", /* DS:2fee, 5dc5:468f */
+        },
+    .creation =
+        {
+            /* DS:1280, 128b, 12a0, 12ab, 12b6. */
+            .headings = {"Pick Race", "Pick Gender", "Pick Class", "Pick Diety", "Pick Alignment"},
+            /* 49cb:05c7: the levels (+0x45 cleric ... +0x4c knight); a
+             * ranger starts at 2, set back to 1 by the rolls. */
+            .classes =
+                {
+                    {{1, 0, 0, 0, 0, 0, 0, 0}, ONE_CLASS},   {{0}, 0},
+                    {{0, 0, 1, 0, 0, 0, 0, 0}, ONE_CLASS},   {{0, 0, 0, 1, 0, 0, 0, 0}, ONE_CLASS},
+                    {{0, 0, 0, 0, 2, 0, 0, 0}, ONE_CLASS},   {{0, 0, 0, 0, 0, 1, 0, 0}, ONE_CLASS},
+                    {{0, 0, 0, 0, 0, 0, 1, 0}, ONE_CLASS},   {{0, 0, 0, 0, 0, 0, 0, 1}, ONE_CLASS},
+                    {{1, 0, 1, 0, 0, 0, 0, 0}, TWO_CLASSES}, {{1, 0, 1, 0, 0, 1, 0, 0}, THREE_CLASSES},
+                    {{1, 0, 0, 0, 1, 0, 0, 0}, TWO_CLASSES}, {{1, 0, 0, 0, 0, 1, 0, 0}, TWO_CLASSES},
+                    {{1, 0, 0, 0, 0, 0, 1, 0}, TWO_CLASSES}, {{0, 0, 1, 0, 0, 1, 0, 0}, TWO_CLASSES},
+                    {{0, 0, 1, 0, 0, 0, 1, 0}, TWO_CLASSES}, {{0, 0, 1, 0, 0, 1, 1, 0}, THREE_CLASSES},
+                    {{0, 0, 0, 0, 0, 1, 1, 0}, TWO_CLASSES},
+                },
+            .paladin_effect = 0x2d,
+            .no_spells = death_knights_import_no_spells,
+            .steel = 500,
+            .mage_spells = {10, 11, 12, 15, 16, 18, 19},
+            .created = death_knights_created_spells,
+            .created_count = sizeof death_knights_created_spells / sizeof *death_knights_created_spells,
+            .reroll = "reroll stats? ",
+            .name_prompt = "character name: ",
+            .save = "save character? ",
+            .save_names = false,
+            .save_yes = true,
+            .kits = death_knights_kits,
+            .cleric_thief_item = 0x2c, /* DS:059c */
+            .unready_item = 0x5b,
+            .fresh = death_knights_fresh,
+            .fresh_count = 3,
+            .modify_prompt = "Modify : ", /* DS:302d */
+            .charisma_race = 3,
+            .charisma_class = 3,
+            .keep_shares = false,
+            .most = COK_MOST_DEATH_KNIGHTS,
+            .icon_ok = "is this icon ok? ", /* DS:13fd */
+            .no_cga = "sorry not in CGA",   /* DS:13bd */
+            .icon_ok_yes = true,
+            .icon_frame = 0x1c,
+            .heads = 13,
+            .bodies = 31,
         },
 };

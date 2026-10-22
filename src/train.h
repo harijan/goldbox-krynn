@@ -93,6 +93,11 @@ bool cok_train_aging(cok_adventure *game);
  * must stop. */
 bool cok_train_drain(cok_adventure *game, cok_character *character, uint8_t drained);
 
+/* dkk 580d:3454: the most hit points c's levels give (see train.c),
+ * into *most; false, the run stopped, where 65cd:3c02's bonus is
+ * uninitialized (a constitution past its cases). */
+bool cok_train_most_hit_points(cok_adventure *game, const uint8_t *c, uint8_t *most);
+
 /* Death Knights' Restoration (dkk 5dc5:2326, spell 0x11): of the classes
  * below the levels a drain took (+0x45-+0x4c against +0x4d-+0x54), the one
  * whose next level asks the least experience (65cd:382c's rows, below

@@ -169,9 +169,11 @@ as in the original; every spell is there (the monsters' Slay Living,
 Feeblemind and Otto's Irresistible Dance, Heal, Harm, Death Spell, the
 clouds and the rest). Camp's Fix heals, and cures the stoned, poisoned,
 dead, cursed and blind with the spells your clerics have, as the original.
-Not there yet: creating and modifying characters, Initialize
-Mouse/Joystick, and the mouse in Death
-Knights' menus: the game stops with a message saying what it reached.
+Create New Character and Modify Character work as the original's: the
+lists, the rolls, the icon editor, every class starting with its own
+equipment and experience. Not there yet: Initialize Mouse/Joystick, and
+the mouse in Death Knights' menus: the game stops with a message saying
+what it reached.
 
 ## Options
 

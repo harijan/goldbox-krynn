@@ -1470,6 +1470,100 @@ typedef enum {
     COK_FIX_DEATH_KNIGHTS,
 } cok_fix_routine;
 
+/* Modify's most maximum hit points (cok_rules_creation's most). */
+typedef enum {
+    COK_MOST_CHAMPIONS,
+    COK_MOST_DEATH_KNIGHTS,
+} cok_most_routine;
+
+/* A class id's start in Pick Class (4def:0ae0; dkk 49cb:05c7): its levels
+ * by class (CLASS_LEVEL 0-7) and its experience. */
+typedef struct {
+    uint8_t levels[8];
+    uint32_t experience;
+} cok_rules_new_class;
+
+/* The spells a mage of a level knows once creation's training reaches it
+ * (4def:4d9e with DS:4b58; dkk 49cb:43b6 with DS:8c5c): for the mage
+ * level, and the order of magic (+0x5e) or 0 for any order not listed
+ * before, up to four spell ids, 0-ended. */
+typedef struct {
+    uint8_t level, order, spells[4];
+} cok_rules_created_spells;
+
+/* Starting items by kind (dkk 49cb:4bea): the item table's ids (ITEM0's,
+ * the treasure section's table), 0 for none. */
+typedef struct {
+    uint8_t items[4];
+} cok_rules_kit;
+
+/* Creating a character, Modify Character and the icon editor where the
+ * games differ (create.c, modify.c, icon.c; see Creating characters).
+ * Their lists and menus go by letters or by index as the menus section's
+ * routine does (dkk 6a69:1b82, 0f1b, 2048). */
+typedef struct {
+    /* The lists' headings: race, gender, class, deity, alignment
+     * (4def:07a0, 0a1d, 0ae0, 0f8e, 1222; dkk DS:1280, 128b, 12a0, 12ab,
+     * 12b6). */
+    const char *headings[5];
+    /* By class id, 0-16, its levels and experience (Champions' 4def:0ae0;
+     * dkk 49cb:05c7: 210003 for one class, 105002 for two, 70001 for
+     * three, a ranger at level 2), and the effect a paladin (class 3) gets,
+     * 0 for none (dkk 0x2d, protection from evil). */
+    cok_rules_new_class classes[17];
+    uint8_t paladin_effect;
+    /* The class ids that get no spells' block, ended by 0xff (dkk
+     * 49cb:05c7: fighter, thief, fighter/thief), NULL where the record
+     * holds its spells. */
+    const uint8_t *no_spells;
+    /* The money (4def:20e3; dkk 49cb:05c7): steel by the classes' dice and
+     * a fifth more (0 here), or this many steel (dkk 500). */
+    uint16_t steel;
+    /* The spells a new mage knows (4def:20e3: 11, 18, 12, 15, 21; dkk
+     * 10, 11, 12, 15, 16, 18, 19), 0-ended; and those training gives it as
+     * it is made, by level (Champions' 2-5 whatever its order; dkk 3, 5
+     * and 7, White's or the others'), created_count of them. */
+    uint8_t mage_spells[8];
+    const cok_rules_created_spells *created;
+    uint8_t created_count;
+    /* "Reroll stats? " (light magenta, from No), "Character name: " and
+     * the question of saving (Champions' "Save %s? " with the name, from
+     * No; dkk DS:12cb, 12e0, 12f5 "save character? " from Yes). */
+    const char *reroll, *name_prompt, *save;
+    bool save_names, save_yes;
+    /* What a new character's items are where the game gives every class
+     * its own (dkk 49cb:4bea): by kind (1 knight, 2 fighter, ranger or
+     * paladin, 3 thief, 4 cleric, 5 mage) the kit, its first item the
+     * cleric_thief_item for a thief with a cleric level, each readied but
+     * unready_item; NULL where only a knight gets items (4def:5534's). */
+    const cok_rules_kit *kits;
+    uint8_t cleric_thief_item, unready_item;
+    /* Modify Character (4def:28fa; dkk 49cb:25d4): the experiences of a
+     * character that may be modified, fresh_count of them, and whether
+     * the level it changed class at must be 0 too (the field, where the
+     * game has it); its menu's prompt (dkk DS:302d); where its by-index
+     * menu leaves strength held at 17 for a race and class (dkk: a hill
+     * dwarf paladin, 3 and 3), race 0xff for none; and whether Keep sets
+     * SHARES (+0xe8). */
+    const uint32_t *fresh;
+    uint8_t fresh_count;
+    const char *modify_prompt;
+    uint8_t charisma_race, charisma_class;
+    bool keep_shares;
+    /* The most maximum hit points Modify allows (cok_most_routine:
+     * Champions' 4def:48e9, cok_modify_most; or dkk 580d:3454, the level
+     * drain's, cok_train_most_hit_points). */
+    uint8_t most;
+    /* The icon editor (4def:408b; dkk 49cb:3cac): "Is this icon ok? " and
+     * its Yes first or not (dkk DS:13fd from Yes), "Sorry, not in CGA"
+     * (dkk DS:13bd), the icon slot of the frame behind each icon (COMSPR
+     * 25's slot 25; dkk 0x1c, 49cb:39d6), the most head and body
+     * (4def:408b's 13 and 31; dkk DS:72ac, 72ad). */
+    const char *icon_ok, *no_cga;
+    bool icon_ok_yes;
+    uint8_t icon_frame, heads, bodies;
+} cok_rules_creation;
+
 /* A spell whose cast bursts on its cell after the flight in combat (dkk
  * 5dc5:1298's calls of 65cd:39bd): the icon slot of its pictures, and its
  * rings (3 * n + 1), n where var COK_VAR_3D is 0 and n_3d where not. */
@@ -1624,6 +1718,7 @@ typedef struct cok_rules {
     cok_rules_treasure treasure;
     cok_rules_levels levels;
     cok_rules_casting casting;
+    cok_rules_creation creation;
 } cok_rules;
 
 extern const cok_rules cok_rules_champions, cok_rules_death_knights;

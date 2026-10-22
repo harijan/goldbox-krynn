@@ -84,6 +84,8 @@ bool cok_modify_most(const uint8_t *c, const cok_rules *rules, const uint8_t *se
 
 static bool most(cok_adventure *game, const uint8_t *c, uint8_t *value)
 {
+    if (cok_game_rules(game)->creation.most == COK_MOST_DEATH_KNIGHTS)
+        return cok_train_most_hit_points(game, c, value); /* dkk 580d:3454 */
     if (cok_modify_most(c, cok_game_rules(game), game->vm.character, value)) return true;
     return undefined(game, "4def:257c's constitution bonus is uninitialized for a constitution "
                            "outside 3-19 (4def:48e9)");
@@ -135,6 +137,27 @@ static uint8_t limit(const cok_character_layout *L, const cok_data_segment *D, c
                                             cok_field_s8(L, c, COK_FIELD_RACE), offset));
 }
 
+/* Whether c has a level of a class that counts as a fighter's
+ * (characters.fighter_classes: fighters, rangers and knights; dkk
+ * 49cb:25d4 paladins too). */
+static bool fighter(const cok_rules *rules, const uint8_t *c)
+{
+    for (unsigned i = 0; i < 8; ++i)
+        if ((rules->characters.fighter_classes >> i & 1) != 0 &&
+            cok_field_s8_at(rules->character, c, COK_FIELD_CLASS_LEVEL, i) > 0)
+            return true;
+    return false;
+}
+
+/* Whether c's charisma is held at 17 (dkk 49cb:25d4: a hill dwarf
+ * paladin, race 3 and class 3), in place of its race's least and most. */
+static bool held_charisma(const cok_rules *rules, const uint8_t *c)
+{
+    const cok_character_layout *L = rules->character;
+    return cok_field_u8(L, c, COK_FIELD_RACE) == rules->creation.charisma_race &&
+           cok_field_u8(L, c, COK_FIELD_CLASS) == rules->creation.charisma_class;
+}
+
 static bool constitution_redraw(modify *m)
 {
     m->field = 6;
@@ -159,6 +182,8 @@ static bool subtract(modify *m)
             } else if (*score < limit(L, D, c, cok_field_u8(L, c, COK_FIELD_GENDER))) {
                 *score = limit(L, D, c, cok_field_u8(L, c, COK_FIELD_GENDER));
             }
+        } else if (a == 5 && held_charisma(cok_game_rules(m->game), c)) {
+            if (*score < 17) *score = 17;
         } else if (*score < limit(L, D, c, 4 + 2 * a)) {
             *score = limit(L, D, c, 4 + 2 * a);
         }
@@ -201,15 +226,14 @@ static bool add(modify *m)
         if (a == 0) {
             uint8_t high = limit(L, D, c, 2u + cok_field_u8(L, c, COK_FIELD_GENDER));
             if (*score > high) {
-                if (*score > 18 &&
-                    (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 2) > 0 ||
-                     cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) > 0 ||
-                     cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 4) > 0) &&
+                if (*score > 18 && fighter(cok_game_rules(m->game), c) &&
                     limit(L, D, c, 4u + cok_field_u8(L, c, COK_FIELD_GENDER)) >
                     cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL))
                     cok_field_add8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL, 1);
                 *score = high;
             }
+        } else if (a == 5 && held_charisma(cok_game_rules(m->game), c)) {
+            if (*score > 17) *score = 17;
         } else if (*score > limit(L, D, c, 5 + 2 * a)) {
             *score = limit(L, D, c, 5 + 2 * a);
         }
@@ -237,9 +261,10 @@ static bool add(modify *m)
     return true;
 }
 
-/* Keep (4def:35ea): the spells a day for the wisdom, SHARES (+0xe8) set,
- * the hit points at full less the constitution's average bonus, and the
- * scores made the base. The bonus's sum is a byte divided unsigned. */
+/* Keep (4def:35ea; dkk 49cb:25d4's): the spells a day for the wisdom,
+ * SHARES (+0xe8) set where the creation section says, the hit points at
+ * full less the constitution's average bonus, and the scores made the
+ * base. The bonus's sum is a byte divided unsigned. */
 static bool keep(modify *m)
 {
     const cok_character_layout *L = cok_game_rules(m->game)->character;
@@ -249,7 +274,7 @@ static bool keep(modify *m)
     char error[300];
     if (!cok_character_cleric_spells(m->character, cok_game_rules(game), error, sizeof error))
         return undefined(game, error);
-    cok_field_set8(L, c, COK_FIELD_SHARES, 1);
+    if (cok_game_rules(game)->creation.keep_shares) cok_field_set8(L, c, COK_FIELD_SHARES, 1);
     uint8_t sum = 0, classes = 0;
     for (unsigned i = 0; i < 8; ++i) {
         int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i);
@@ -279,6 +304,174 @@ static bool keep(modify *m)
     return true;
 }
 
+/* A special key (4def:2b1d; dkk 49cb:25d4's): Del in the name deletes at
+ * the cursor; Down and Up move between the fields, wrapping; Home after a
+ * click picks the field clicked. */
+static void special_key(modify *m, int key)
+{
+    cok_adventure *game = m->game;
+    uint8_t *s = m->character->record + cok_field_offset(cok_game_rules(game)->character,
+                                                        COK_FIELD_NAME);
+    if (key == 0x53 && m->field == 6 && s[0] > 1) {
+        if (m->cursor == s[0]) {
+            --s[0];
+            m->cursor = s[0];
+        } else {
+            for (uint8_t i = m->cursor; i < s[0]; ++i) s[i] = s[i + 1];
+            --s[0];
+        }
+    } else if (key == 0x50) {
+        game->modify_field = 0xff;
+        m->field = (uint8_t)(m->field == 7 ? 0 : m->field + 1);
+    } else if (key == 0x48) {
+        game->modify_field = 0xff;
+        m->field = (uint8_t)(m->field == 0 ? 7 : m->field - 1);
+    } else if (key == 0x47 && game->pointer.clicked && game->modify_field != 0xff) {
+        /* 4def:2bc5: Home from a click picks the field it clicked
+         * (the last one, for a click beside the fields). */
+        m->field = game->modify_field;
+    }
+}
+
+/* Backspace in the name: the characters from the cursor on move back one,
+ * the length one less, the cursor no further than it; the cursor itself
+ * does not move back. */
+static void backspace(modify *m)
+{
+    uint8_t *s = m->character->record + cok_field_offset(cok_game_rules(m->game)->character,
+                                                        COK_FIELD_NAME);
+    if (m->cursor <= 1) return;
+    uint8_t length = s[0];
+    if (m->cursor <= length)
+        for (uint8_t i = m->cursor; ; ++i) {
+            s[i - 1] = s[i];
+            if (i == length) break;
+        }
+    --s[0];
+    if (m->cursor > s[0]) m->cursor = s[0];
+}
+
+/* A character typed in the name at the cursor, which moves on (not past
+ * 15); typed at the end, the name grows by a space. */
+static void type(modify *m, int key)
+{
+    uint8_t *s = m->character->record + cok_field_offset(cok_game_rules(m->game)->character,
+                                                        COK_FIELD_NAME);
+    if (m->cursor > 15) return;
+    s[m->cursor] = (uint8_t)key;
+    if (++m->cursor > 15) m->cursor = 15;
+    if (m->cursor > s[0]) {
+        ++s[0];
+        s[m->cursor] = ' ';
+    }
+}
+
+/* Exit: the scores, exceptional strength, maximum hit points and name
+ * come back; the hit points become the maximum; +0x11c stays as a wisdom
+ * changed it; the stats are recomputed. */
+static void restore(modify *m, const uint8_t scores[6], uint8_t exceptional, uint8_t hit_points,
+                    const uint8_t name[16])
+{
+    cok_adventure *game = m->game;
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t *c = m->character->record, *s = c + cok_field_offset(L, COK_FIELD_NAME);
+    for (size_t a = 0; a < 6; ++a) cok_field_set8_at(L, c, COK_FIELD_SCORE, a, scores[a]);
+    cok_field_set8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL, exceptional);
+    cok_field_set8(L, c, COK_FIELD_MAX_HIT_POINTS, hit_points);
+    cok_field_set8(L, c, COK_FIELD_HIT_POINTS, cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS));
+    /* As strings: the bytes past the old name keep what was typed. */
+    memcpy(s, name, (size_t)(name[0] > 15 ? 15 : name[0]) + 1);
+    char error[300];
+    if (!cok_character_stats(m->character, cok_game_rules(game), &game->item_types, error,
+                             sizeof error))
+        undefined(game, error);
+}
+
+/* The name's raw key (1614:025b; dkk 16ab:01d4): the keypad's digits and
+ * \ as their scan codes (DS:2010; dkk DS:57c2), an extended key's scan
+ * code, both special; Escape as 0. Returns -1 when input ended. */
+static int name_key(const cok_keyboard *keys, bool *special)
+{
+    *special = false;
+    int key = keys->read(keys->context);
+    if (key < 0) return -1;
+    if ((key >= '1' && key <= '9') || key == '\\') {
+        key = key == '\\' ? 0x37 : keypad_scans[key - '1'];
+        *special = true;
+    } else if (key == 0) {
+        key = keys->read(keys->context);
+        if (key < 0) return -1;
+        *special = true;
+    }
+    if (key == 0x1b) key = 0;
+    return key;
+}
+
+/* Death Knights' loop (dkk 49cb:25d4), its menu by index (6a69:0f1b with
+ * the keypad, "Modify : " and items 0-3: Add, Subtract, Keep, Exit). What
+ * it does is the menu's last index ([bp-0x35]), which the name's keys do
+ * not change: in the name, letters are typed (A, S, K and E too), Enter
+ * and Escape do nothing, and the index left by the special key that moved
+ * there, never 0-3, does nothing. Escape in the menu exits as Exit does. */
+static void indexed(modify *m, const cok_keyboard *keys, const uint8_t scores[6],
+                    uint8_t exceptional, uint8_t hit_points, const uint8_t name[16])
+{
+    cok_adventure *game = m->game;
+    const cok_rules *rules = cok_game_rules(game);
+    static const char items_text[] = "Add Subtract Keep Exit"; /* DS:3318 */
+    int last = -1; /* never read before the first menu: field 0 first */
+    for (;;) {
+        bool special = false;
+        int key;
+        if (m->field == 6) {
+            key = name_key(keys, &special);
+            if (key < 0) return;
+        } else {
+            cok_menu_items items;
+            cok_menu_items_upto(&items, 3); /* 6a69:00cb(3) */
+            cok_adventure_log(game, "menu", items_text);
+            key = cok_menu_pick(&game->screen, &game->font, rules->creation.modify_prompt,
+                                items_text, &items, 13, 15, 10, true, &game->selected, keys,
+                                &special);
+            if (key < 0) return;
+            game->menu_special = special; /* DS:c0f8 */
+            last = key;
+        }
+        draw_field(m, false);
+        if (special) {
+            if (key == 0x1b) {
+                restore(m, scores, exceptional, hit_points, name);
+                return;
+            }
+            special_key(m, key);
+        } else {
+            if (m->field == 6) {
+                if (key == 0x08) backspace(m);
+                else if (key >= 0x20 && key <= 0x7a) type(m, key);
+            }
+            if (last == 1) {
+                if (!subtract(m)) return;
+            } else if (last == 0) {
+                if (!add(m)) return;
+            } else if (last == 3) {
+                restore(m, scores, exceptional, hit_points, name);
+                return;
+            }
+        }
+        char error[300];
+        if (!cok_character_stats(m->character, rules, &game->item_types, error, sizeof error)) {
+            undefined(game, error);
+            return;
+        }
+        if (!cok_sheet_figures(game, m->character)) return;
+        draw_field(m, true);
+        if (!special && last == 2) {
+            keep(m);
+            return;
+        }
+    }
+}
+
 static void modify_sheet(cok_adventure *game, cok_character *character);
 
 void cok_modify(cok_adventure *game)
@@ -291,12 +484,15 @@ void cok_modify(cok_adventure *game)
         return;
     }
     uint8_t *c = character->record;
+    /* The experience of a new character (the creation section's: dkk
+     * 210003, 105002 or 70001), and the level it changed class at 0
+     * where its records have one (dkk's have none). */
+    const cok_rules_creation *C = &cok_game_rules(game)->creation;
     uint32_t experience = cok_field_u32(L, c, COK_FIELD_EXPERIENCE);
-    uint16_t low = (uint16_t)experience;
-    static const uint16_t fresh[7] = {1500, 1251, 2000, 2001, 2251, 2500, 5000};
     bool allowed = false;
-    for (size_t i = 0; i < 7; ++i) allowed = allowed || low == fresh[i];
-    if (!allowed || experience >> 16 != 0 || cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL) != 0) {
+    for (size_t i = 0; i < C->fresh_count; ++i) allowed = allowed || experience == C->fresh[i];
+    if (!allowed || (cok_field_present(L, COK_FIELD_CHANGE_LEVEL) &&
+                     cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL) != 0)) {
         char text[48];
         uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
         snprintf(text, sizeof text, "%.*s can't be modified.", stored > 15 ? 15 : stored,
@@ -330,49 +526,27 @@ static void modify_sheet(cok_adventure *game, cok_character *character)
     m.field = 0;
     draw_field(&m, true);
     cok_keyboard keys = cok_adventure_keyboard(game);
+    if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
+        indexed(&m, &keys, scores, exceptional, hit_points, name);
+        return;
+    }
     for (;;) {
         bool special = false;
         int key;
         if (m.field == 6) {
             /* The name reads keys raw (1614:025b), the keypad digits as
              * directions. */
-            key = keys.read(keys.context);
+            key = name_key(&keys, &special);
             if (key < 0) return;
-            if ((key >= '1' && key <= '9') || key == '\\') {
-                key = key == '\\' ? 0x37 : keypad_scans[key - '1'];
-                special = true;
-            } else if (key == 0) {
-                key = keys.read(keys.context);
-                if (key < 0) return;
-                special = true;
-            }
-            if (key == 0x1b) key = 0;
         } else {
-            key = cok_camp_menu(game, "Modify: ", "Add Subtract Keep Exit", true, false, &special);
+            key = cok_camp_menu(game, cok_game_rules(game)->creation.modify_prompt,
+                                "Add Subtract Keep Exit", true, false, &special);
             if (key < 0) return;
         }
         draw_field(&m, false);
         bool done = false;
         if (special) {
-            if (key == 0x53 && m.field == 6 && s[0] > 1) {
-                if (m.cursor == s[0]) {
-                    --s[0];
-                    m.cursor = s[0];
-                } else {
-                    for (uint8_t i = m.cursor; i < s[0]; ++i) s[i] = s[i + 1];
-                    --s[0];
-                }
-            } else if (key == 0x50) {
-                game->modify_field = 0xff;
-                m.field = (uint8_t)(m.field == 7 ? 0 : m.field + 1);
-            } else if (key == 0x48) {
-                game->modify_field = 0xff;
-                m.field = (uint8_t)(m.field == 0 ? 7 : m.field - 1);
-            } else if (key == 0x47 && game->pointer.clicked && game->modify_field != 0xff) {
-                /* 4def:2bc5: Home from a click picks the field it clicked
-                 * (the last one, for a click beside the fields). */
-                m.field = game->modify_field;
-            }
+            special_key(&m, key);
         } else if (key == 'S') {
             if (!subtract(&m)) return;
         } else if (key == 'A') {
@@ -380,26 +554,10 @@ static void modify_sheet(cok_adventure *game, cok_character *character)
         } else if (key == 0x0d) {
             m.field = (uint8_t)(m.field == 7 ? 0 : m.field + 1);
         } else if (key == 0x08) {
-            if (m.cursor > 1 && m.field == 6) {
-                uint8_t length = s[0];
-                if (m.cursor <= length)
-                    for (uint8_t i = m.cursor; ; ++i) {
-                        s[i - 1] = s[i];
-                        if (i == length) break;
-                    }
-                --s[0];
-                if (m.cursor > s[0]) m.cursor = s[0];
-            }
+            if (m.field == 6) backspace(&m);
         } else if (key >= 0x20 && key <= 0x7a) {
             if (m.field == 6) {
-                if (m.cursor <= 15) {
-                    s[m.cursor] = (uint8_t)key;
-                    if (++m.cursor > 15) m.cursor = 15;
-                    if (m.cursor > s[0]) {
-                        ++s[0];
-                        s[m.cursor] = ' ';
-                    }
-                }
+                type(&m, key);
             } else if (key == 'E') {
                 done = true;
             }
@@ -407,20 +565,7 @@ static void modify_sheet(cok_adventure *game, cok_character *character)
             done = true;
         }
         if (done) {
-            /* Exit: the scores, exceptional strength, maximum hit points and
-             * name come back; the hit points become the maximum; +0x11c
-             * stays as a wisdom changed it. */
-            for (size_t a = 0; a < 6; ++a) cok_field_set8_at(L, c, COK_FIELD_SCORE, a, scores[a]);
-            cok_field_set8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL, exceptional);
-            cok_field_set8(L, c, COK_FIELD_MAX_HIT_POINTS, hit_points);
-            cok_field_set8(L, c, COK_FIELD_HIT_POINTS,
-                           cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS));
-            /* As strings: the bytes past the old name keep what was typed. */
-            memcpy(s, name, (size_t)(name[0] > 15 ? 15 : name[0]) + 1);
-            char error[300];
-            if (!cok_character_stats(character, cok_game_rules(game), &game->item_types, error,
-                                     sizeof error))
-                undefined(game, error);
+            restore(&m, scores, exceptional, hit_points, name);
             return;
         }
         char error[300];
