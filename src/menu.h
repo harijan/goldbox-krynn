@@ -210,9 +210,10 @@ int cok_menu_pick(cok_picture *dst, const cok_font *font, const char *prompt, co
  * by index (cok_menu_pick with the keypad), text with " Next" while there
  * are rows below, " Prev" while there are rows above but the leading
  * headings and, with style->show_exit, " Exit" after it, each of these
- * three at the index after the one before from last + 1, which the caller's
- * items must reach without a gap for them to show. Up and Down (8 and 2)
- * move, PgDn and PgUp (3 and 9) or Next and Prev page while there is more
+ * three at the index after the one before from last + 1 (last a signed
+ * byte: 0xff puts them from 0, and every index the menu gives is past it),
+ * which the caller's items must reach without a gap for them to show.
+ * Up and Down (8 and 2) move, PgDn and PgUp (3 and 9) or Next and Prev page while there is more
  * to see, the scan code 0x4e pages down; Exit, Escape and the scan codes
  * 0x45 and 0 return 0x1b with *special set and *picked clear; other
  * special keys are read past. Otherwise it returns the index the menu

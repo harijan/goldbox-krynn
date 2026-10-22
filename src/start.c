@@ -29,38 +29,26 @@ bool cok_start_pick(cok_adventure *game)
     bool party_clicks = game->mouse.party_clicks;
     game->mouse.party_clicks = true;
     int key;
-    if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
-        /* dkk 580d:3067: 6a69:00cb(1) over "Select" alone, with the
-         * keypad, until an index of 1 or less and no special key; Escape
-         * is 1; another special key picks (580d:2bb2) between the party
-         * list's redraws. True for 0, Select. */
-        cok_menu_items items;
-        cok_menu_items_upto(&items, 1);
+    /* dkk 580d:3067 reads it by index (6a69:00cb with 1: Select, and 1
+     * for Escape, which the text does not show), the keypad, no picture. */
+    bool indexed = cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED;
+    for (;;) {
         bool special;
-        do {
+        if (indexed) {
+            cok_menu_items items;
+            cok_menu_items_upto(&items, 1);
             key = cok_camp_pick_menu(game, cok_game_rules(game)->start.pick_prompt,
                                      cok_game_rules(game)->start.pick_menu, &items, true, false,
                                      &special);
-            if (key < 0) {
-                game->mouse.party_clicks = party_clicks;
-                return false;
-            }
-            if (special && key == 0x1b) {
+            if (key >= 0 && special && key == 0x1b) {
+                special = game->menu_special = false; /* DS:c0f8 */
                 key = 1;
-                special = false;
-                game->menu_special = false;
-            } else if (special) {
-                cok_camp_pick(game, (uint8_t)key);
             }
-        } while (special || key > 1);
-        cok_adventure_party(game);
-        game->mouse.party_clicks = party_clicks;
-        return key == 0;
-    }
-    for (;;) {
-        bool special;
-        key = cok_camp_menu(game, cok_game_rules(game)->start.pick_prompt,
-                            cok_game_rules(game)->start.pick_menu, true, false, &special);
+            if (key >= 0 && !special) key = key == 0 ? 'S' : key == 1 ? 'E' : ' ';
+        } else {
+            key = cok_camp_menu(game, cok_game_rules(game)->start.pick_prompt,
+                                cok_game_rules(game)->start.pick_menu, true, false, &special);
+        }
         if (key < 0) {
             game->mouse.party_clicks = party_clicks;
             return false;

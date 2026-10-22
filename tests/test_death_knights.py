@@ -642,6 +642,123 @@ class DeathKnightsTests(unittest.TestCase):
                 self.assertEqual(new[0xa19 + 41 * slot:0xa19 + 41 * slot + len(name)], name)
             self.assertEqual((saves / f"VAULT{letter}.DAT").read_bytes(), bytes(12))
 
+    def test_save_and_load_menus(self):
+        # The front end's menus by index (6a69:0f1b), as dkk_levels.py's
+        # saves and load flows play them. Camp's Save (46b2:2808): Escape
+        # saves none (then Quit to DOS, No); F7 (scan code 0x41, Champions'
+        # A) is read past, Right twice from A: C; Left from A wraps to J.
+        camp = self.TITLE + r"\v\v\r\rA" + r"\v" * 5 + r"\r\r\r\r"
+        which = "menu: A B C D E F G H I J\n"
+        saves = self.saves(ASSETS / "SAVE")
+        result = self.play("--start-menu", "--saves", saves, "--seed", 1, "--keys",
+                           camp + r"S\e\rS\#41\>\>\r\rS\<\r", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(which + "menu: Quit to DOS \nchoice: N\n", result.stdout)
+        self.assertIn(which + which + "choice: C\n", result.stdout)
+        self.assertIn(which + "choice: J\n", result.stdout)
+        for letter in "CJ":
+            self.assertTrue((saves / f"SAVGAM{letter}.PTY").exists(), letter)
+        self.assertEqual((saves / "SAVGAMA.PTY").read_bytes(),
+                         (ASSETS / "SAVE" / "SAVGAMA.PTY").read_bytes())
+        # Load (46b2:1ef0): those there by index, F7 read past, Right: B;
+        # Escape leaves, the start menu again. Then View's Pick Character
+        # (580d:3067): Select alone, E no key, Escape its Exit.
+        start = self.TITLE + r"\v\v\r\r"
+        result = self.play("--start-menu", "--saves", self.saves(ASSETS / "SAVE"), "--keys",
+                           start + r"\#41\>\r\v\rE\e", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = result.stdout
+        self.assertIn("menu: A B\nmenu: A B\nchoice: B\n", out)
+        self.assertIn("choice: View Character\nmenu: Select\nlist: \n", out)
+        self.assertTrue(out.endswith("item: Exit to DOS\n(out of keys in the start menu)\n"),
+                        out[-200:])
+        result = self.play("--start-menu", "--saves", self.saves(ASSETS / "SAVE"), "--keys",
+                           start + r"\e\r\r\r", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("menu: A B\nlist: \nitem: Create New Character\n", result.stdout)
+        self.assertIn("menu: A B\nchoice: A\n", result.stdout)
+        # A special key but Escape in "load from where? " goes on with a path
+        # never set (46b2:1ef0's [bp-0x326]): the run stops.
+        result = self.play("--start-menu", "--saves", self.saves(ASSETS / "SAVE"), "--keys",
+                           self.TITLE + r"\v\v\r\#48", ASSETS)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("46b2:1ef0's [bp-0x326]", result.stderr)
+
+    def test_load_with_a_gap(self):
+        # Load's list holds the letters' indexes (46b2:204f, DS:c120), not
+        # their places: with saved games A and C alone it shows A C, and
+        # Right, Enter loads C (B's party, saved as C first), saved again
+        # as D the same.
+        saves = self.saves(ASSETS / "SAVE")
+        result = self.play("--start-menu", "--saves", saves, "--keys",
+                           self.TITLE + r"\v\v\rDB" + r"\v" * 4 + r"\rC", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for f in saves.glob("*B*"):
+            f.unlink()
+        result = self.play("--start-menu", "--saves", saves, "--keys",
+                           self.TITLE + r"\v\v\r\r\>\r" + r"\v" * 4 + r"\rD", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("menu: A C\nchoice: C\n", result.stdout)
+        old = (saves / "SAVGAMC.PTY").read_bytes()
+        new = (saves / "SAVGAMD.PTY").read_bytes()
+        self.assertEqual(old[:0xa19], new[:0xa19])
+        self.assertNotEqual(old[:0xa19], (saves / "SAVGAMA.PTY").read_bytes()[:0xa19])
+
+    def test_add_from_where_special(self):
+        # Add from where (49cb:343c) with a special key but Escape (Up,
+        # 0x48) goes on with DS:c468 as the last Save, Load or Add left it:
+        # Death's roster after Death, Champions' after Champions; before
+        # any, DS:c468 was never set (past the image EXEPACK unpacks, and no
+        # startup code clears it): the run stops.
+        saves = self.saves()
+        (saves / "DRYDEN.PC").write_bytes((ASSETS / "SAVE" / "CHRDATA1.GAM").read_bytes())
+        result = self.play("--start-menu", "--saves", saves, "--keys",
+                           self.TITLE + r"\v\r\#48", ASSETS)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("DS:c468, never set since startup", result.stderr)
+        add = "choice: Add Character to Party\nmenu: Death Champions Exit\n"
+        result = self.play("--start-menu", "--saves", saves, "--keys",
+                           self.TITLE + r"\v\r\r\e\r\#48\e", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count("list: add a character: \nitem: SIR DRYDEN"), 2)
+        self.assertIn(add + "list: add a character: \nitem: SIR DRYDEN", result.stdout)
+        champions = ROOT / "SAVE"
+        if not (champions / "CHRDATA1.SAV").exists():
+            self.skipTest("no Champions characters in SAVE")
+        roster = self.saves()
+        for f in champions.glob("CHRDATA*.SAV"):
+            (roster / f.name.replace(".SAV", ".WHO")).write_bytes(f.read_bytes())
+        result = self.play("--start-menu", "--saves", saves, "--import", roster, "--keys",
+                           self.TITLE + r"\v\r\>\r\e\r\#48\e", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(add + "choice: C\nlist: add a character: \nitem: SIR STRONGSWORD",
+                      result.stdout)
+        self.assertIn(add + "list: add a character: \nitem: SIR STRONGSWORD", result.stdout)
+
+    def test_display_exit(self):
+        # Display (4381:15aa) by 6a69:1b82: its Exit, index 0, highlighted
+        # from column 0 of row 24 (Champions' list draws " Exit" from 1).
+        screen = self.folder / "display.bmp"
+        keys = self.TITLE + r"\v\v\r\rA" + r"\v" * 5 + r"\r\r\r\rMD"
+        result = self.play("--start-menu", "--saves", self.saves(ASSETS / "SAVE"), "--screen",
+                           screen, "--keys", keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        bmp = screen.read_bytes()
+        self.assertNotEqual(pixel(bmp, 0, 199), (0, 0, 0))
+        self.assertNotEqual(pixel(bmp, 31, 199), (0, 0, 0))
+        self.assertEqual(pixel(bmp, 32, 199), (0, 0, 0))
+        # LILLITH's effect three times: 21 rows, one more than the window's
+        # 19, so Next (index 0) shows and pages; then Exit (1) leaves to
+        # Magic's menu.
+        saves = self.saves(ASSETS / "SAVE")
+        (saves / "CHRDATA2.EFF").write_bytes((saves / "CHRDATA2.EFF").read_bytes() * 3)
+        result = self.play("--start-menu", "--saves", saves, "--keys", keys + "NE", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count("item:  Protection From Evil, 10' Radius\n"), 3)
+        self.assertTrue(result.stdout.endswith(
+            "menu: Cast Memorize Scribe Display Rest Exit\n(out of keys in block 16 at 8189)\n"),
+            result.stdout[-300:])
+
     def test_champions(self):
         # From Champions (DKK.CFG's fifth line; --import): its saved game A
         # loaded, its party imported and Champions' NPCs left out, Begin; its
@@ -1289,6 +1406,14 @@ class DeathKnightsTests(unittest.TestCase):
         result = self.play("--start-menu", "--mouse", "--saves", saves, "--keys",
                            keys[:-len(r"\m140,42,1.\m140,42,1.")] + r"\r", ASSETS)
         self.assertIn("print: SIR DRYDEN", result.stdout.splitlines())
+        # "from where" and Load's letters by index (46b2:1ef0's 6a69:0f1b)
+        # take row 24's clicks: Death, then A.
+        keys = self.TITLE + r"\m80,114,1.\m80,114,1.\m138,194,1.\m138,194,1."
+        result = self.play("--start-menu", "--mouse", "--saves", saves, "--keys", keys, ASSETS)
+        lines = result.stdout.splitlines()
+        at = lines.index("choice: Load Saved Game")
+        self.assertEqual(lines[at + 1:at + 5], ["menu: Death Champions Exit", "choice: D",
+                                                "menu: A B", "choice: A"])
         # A click off the list and the menu (row 5, column 2): 0xff, which
         # 6a69:1ea6 compares with an Exit index the start menu never set.
         result = self.play("--start-menu", "--mouse", "--keys", self.TITLE + r"\m18,42,1.",

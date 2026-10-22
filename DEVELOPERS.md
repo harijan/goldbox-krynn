@@ -4453,10 +4453,13 @@ the cures memorized and spells of levels 5 and 6 a day: the screens 0
 pixels apart, saved game C (its clock) and every character file the same,
 and RandSeed. Flow `memorize` checks camp, Magic,
 Memorize's list of the spells marked, the table and grimoire, and Display
-against the original: 0 pixels apart but Display's Exit, which the
-original's menu (`6a69:0f1b`) leaves unhighlighted, keeping the Magic
-menu's selection past its one item, where the port's (`67b5:03e2`'s)
-highlights it (Death Knights' menus are step 3's commands part). Flows
+against the original, 0 pixels apart. Display's list is Death Knights'
+(`6a69:1b82`, from `4381:19df`) with no text, item 0 and last `0xff`,
+which `1b82` takes as a signed byte (`1d29`: `cbw`; `1e5d`: `cbw`,
+`jng`): its own Next, Prev and Exit from index 0, every pick leaving;
+its Exit is drawn from column 0 (Champions' list draws ` Exit` from 1),
+highlighted, the selection past its items starting on the first
+(`0fab`). Flows
 `rest`, `stop` and `interrupted` play Rest in block 16: the menu from
 `Mins`, Enter, Add, Left, Up, the keypad's 8 and 4, Down, a rest of 15
 minutes and Save (saved game C, its clock); a key waiting at the rest's first
@@ -4469,7 +4472,11 @@ catches by the host's timing (36 pixels once). Flow `menus` walks the
 camp, Magic, Escape and Enter (Magic again), Alter's Order (Select, Down,
 Place, Escape), Drop (No), Speed (Faster, Up, Escape), Icon, Level (Left,
 Enter) and Escape, then Save: each screen, RandSeed, the clock, saved game
-C and the character files.
+C and the character files. Flow `saves` plays Save's menu by index
+(`46b2:2808`): Escape (Quit to DOS, No), F7 read past, Right twice, C;
+flow `load` the start menu's Load (`46b2:1ef0`: Death, F7 read past,
+Right, B) and View Character's Pick Character (`580d:3067`: `E`, then
+Escape).
 
 ## Casting
 
@@ -9175,6 +9182,26 @@ here:
   NAME forever `, `NAME is dumped out back.`, `NAME breathe a sigh of
   relief.`, `game not saved. quit anyway? `, `overwrite NAME? `, `new file
   name : `); Pick Character has `Select` alone (`580d:3067`).
+- Its menus are read by index (`6a69:0f1b`, `cok_camp_pick_menu`), so a
+  special key's scan code is no letter: Pick Character (`580d:3067`:
+  items 0 and 1 of `Select`, the keypad, no picture) takes `S` or Enter,
+  Escape is its Exit (index 1, not shown), `E` does nothing and other
+  special keys pick a character. `load from where? ` and `add from where? `
+  (`46b2:1ef0`, `49cb:343c`: the three of `DS:3337`, no keypad) take an
+  index or Escape. Any other special key: Load goes on with a path it
+  never set (`[bp-0x326]`), which stops the run here, citing it; Add
+  (`49cb:34a9`) goes on with whose files `DS:c468` names
+  (`game->own_files`), as the last Save (`46b2:2864`), Load (`1f31`,
+  `1f78`), Add (`3490`, `349b`) or roster write (`0ad6`) left it. Before
+  any of these it was never set: it lies past the image EXEPACK unpacks
+  (`0x141a` paragraphs, DS's data ending at `DS:84c0`) and System's
+  startup (`1a07:0000`) clears nothing, so that stops the run too. `load
+  which game: ` (`46b2:207a`) offers by index those of `A`-`J` that are
+  there (`DS:c120`, from the menu before's selection); Escape leaves, an
+  index is its letter. Save's `save which game: ` (`46b2:2808`, from the
+  start menu or camp: the ten of `DS:33e0`, no keypad, the picture in
+  camp) reads special keys past but Escape, which saves none (F7 is no
+  longer A).
 - The mode the menu was entered with is kept in the last mode (`DS:8c4f`),
   which Begin takes back; a load sets it to the saved game's last mode,
   so a loaded game begins in the mode it was saved from.
@@ -10476,8 +10503,7 @@ reaches, Yes, the spells to choose, the one learned), Save C: every screen
 bytes and pointers; and saved game A with a spell of FLAVIUS's marked,
 loaded and begun: block 16's rest, camp, Magic, Memorize's list of the
 marked spells (Keep), Escape, the table of 8 levels and the grimoire,
-Display: 0 pixels apart but Display's Exit, masked and said (the
-original's menu leaves it unhighlighted; see Death Knights' camp). It
+Display, 0 pixels apart (its Exit by `6a69:1b82`, from column 0). It
 found that Death Knights' Magic menu keeps its own selection and that
 Display's blank rows are headings. Its flow `table` (saved game B begun,
 camp, Magic, BALTHIR NOMOON's Memorize) shows the table with no name said
