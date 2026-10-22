@@ -102,6 +102,31 @@ int cok_camp_menu(cok_adventure *game, const char *prompt, const char *items, bo
     return key;
 }
 
+int cok_camp_pick_menu(cok_adventure *game, const char *prompt, const char *text,
+                       const cok_menu_items *items, bool keypad, bool show, bool *special)
+{
+    /* 6a69:0f1b with its picture argument: the frame (6ca1:0000), then
+     * animated while it waits. */
+    if (show) cok_adventure_show_picture(game);
+    cok_menu_indexed_layout shown;
+    cok_menu_indexed(&shown, text, items);
+    cok_adventure_log(game, "menu", shown.text);
+    cok_keyboard keys = cok_adventure_keyboard(game);
+    game->menu_animates = show;
+    int key = cok_menu_pick(&game->screen, &game->font, prompt, text, items, 13, 15, 10, keypad,
+                            &game->selected, &keys, special);
+    game->menu_animates = false;
+    if (key >= 0) game->menu_special = *special; /* DS:c0f8 */
+    return key;
+}
+
+/* An index read back as its item's letter in letters, ' ' for none
+ * (0xff). */
+static int letter_of(const char *letters, int index)
+{
+    return index >= 0 && (size_t)index < strlen(letters) ? letters[index] : ' ';
+}
+
 /* Ask prompt, in prompt_color, until Yes or No (67b5:177f); No is
  * selected first, once, so an item chosen with the arrows stays chosen
  * through Escape and other keys. Special keys are not told apart, so scan
@@ -1141,31 +1166,81 @@ bool cok_camp_fix(cok_adventure *game)
 
 /* Alter. */
 
+/* Move the selected character up or down the party (4888:1cea; dkk
+ * 4381:1b21, 1c79) and redraw the list. */
+static void move_selected(cok_adventure *game, int key)
+{
+    size_t i = cok_party_index(&game->party, game->vm.character);
+    if (i == game->party.count) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                           "moving a character not in the party (4888:1cea)");
+        return;
+    }
+    if (key == 0x48) cok_party_move(&game->party, i, false);
+    else if (key == 0x50) cok_party_move(&game->party, i, true);
+    cok_adventure_party(game);
+}
+
+/* dkk 4381:1d98: by index with its own selection, from the first, "party
+ * order " over Select or Place, and Exit (DS:33f5), with the keypad.
+ * Select or Place toggles; a special key picks a character, or while
+ * moving moves it (Up and Down; any other only redraws the list); Exit
+ * and Escape, after what its special key does, leave. DS:c0f0, cleared
+ * at the end, is 6a69's party-list click flag; the port's menus by index
+ * take no clicks. */
+static void order_indexed(cok_adventure *game)
+{
+    const cok_rules_levels *V = &cok_game_rules(game)->levels;
+    bool moving = false;
+    uint8_t own = 1;
+    while (!game->vm.abort) {
+        cok_menu_items items = {0};
+        cok_menu_items_add(&items, moving ? 1 : 0);
+        cok_menu_items_add(&items, 2);
+        game->selected = own;
+        bool special;
+        int key = cok_camp_pick_menu(game, V->order_prompt, V->order_menu, &items, true, true,
+                                     &special);
+        if (key < 0) return;
+        own = game->selected;
+        if (special) {
+            if (!moving) cok_camp_pick(game, (uint8_t)key);
+            else move_selected(game, key);
+            if (key == 0x1b) return;
+            continue;
+        }
+        if (key == 2) return;
+        if (key > 1) continue;
+        moving = !moving;
+        if (moving && game->vm.character != NULL)
+            cok_camp_say(game, game->vm.character, "has been selected", false);
+        else if (!moving)
+            clear_text(game);
+    }
+}
+
 /* Party Order (4888:1fc1): Select a character, then up and down (8 and 2)
  * move it, and Place puts it down. */
 static void order(cok_adventure *game)
 {
+    if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
+        order_indexed(game);
+        return;
+    }
     bool moving = false;
     int key = ' ';
     while (key != 0 && key != 'E' && !game->vm.abort) {
         bool special;
-        key = cok_camp_menu(game, "Party Order: ", moving ? "Place Exit" : "Select Exit", true, true,
-                   &special);
+        key = cok_camp_menu(game, cok_game_rules(game)->levels.order_prompt,
+                            moving ? "Place Exit" : "Select Exit", true, true, &special);
         if (key < 0) return;
         if (special) {
             if (!moving) {
                 cok_camp_pick(game, (uint8_t)key);
                 continue;
             }
-            size_t i = cok_party_index(&game->party, game->vm.character);
-            if (i == game->party.count) {
-                cok_adventure_fail(game, COK_ECL_UNDEFINED,
-                                   "moving a character not in the party (4888:1cea)");
-                return;
-            }
-            if (key == 0x48) cok_party_move(&game->party, i, false);
-            else if (key == 0x50) cok_party_move(&game->party, i, true);
-            cok_adventure_party(game);
+            move_selected(game, key);
+            if (game->vm.abort) return;
             continue;
         }
         if (key != 0x0d && key != 'P' && key != 'S') continue;
@@ -1199,8 +1274,8 @@ static void remove_selected(cok_adventure *game)
     vm->character = cok_party_record(&game->party, i > 0 ? i - 1 : 0);
 }
 
-/* Drop (4888:2126): drop the selected character after asking, or with the
- * party's last, quit. */
+/* Drop (4888:2126; dkk 4381:1f14, its words): drop the selected character
+ * after asking, or with the party's last, quit. */
 static void drop(cok_adventure *game)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
@@ -1212,12 +1287,12 @@ static void drop(cok_adventure *game)
         return;
     }
     if (game->party.count == 1) {
-        if (cok_camp_yes_no(game, "quit TO DOS: ", 14) != 'Y') return;
+        if (cok_camp_yes_no(game, cok_game_rules(game)->levels.drop_quit, 14) != 'Y') return;
         remove_selected(game);
         cok_camp_quit(game);
         return;
     }
-    cok_camp_say(game, c, "will be gone", false);
+    cok_camp_say(game, c, cok_game_rules(game)->levels.drop_gone, false);
     int answer = cok_camp_yes_no(game, "Drop from party? ", 14);
     if (answer < 0) return;
     if (answer != 'Y') {
@@ -1235,21 +1310,45 @@ static void drop(cok_adventure *game)
 }
 
 /* Game Speed (4888:2384): Faster and Slower, or down and up (2 and 8),
- * from 0 to 9. */
+ * from 0 to 9. A game whose menus go by index (dkk 4381:20d3) offers them
+ * with its own selection, from the first, each index taken as its letter
+ * and Escape as Exit; other special keys do nothing. */
 static void speed(cok_adventure *game)
 {
+    const cok_rules *R = cok_game_rules(game);
+    const cok_rules_levels *V = &R->levels;
+    bool indexed = R->menus.routine == COK_MENUS_INDEXED;
+    uint8_t own = 1;
     int key;
     do {
-        char text[48];
-        snprintf(text, sizeof text, "Game Speed = %u (0=fastest 9=slowest)", game->speed);
+        char text[64];
+        snprintf(text, sizeof text, "%s%u%s", V->speed_before, game->speed, V->speed_after);
         draw(game, text, 1, 0x12, 10, true);
-        char items[41] = "";
-        if (game->speed > 0) strcat(items, " Faster");
-        if (game->speed < 9) strcat(items, " Slower");
-        strcat(items, " Exit");
         bool special;
-        key = cok_camp_menu(game, "Game Speed:", items, true, true, &special);
-        if (key < 0) return;
+        if (indexed) {
+            cok_menu_items items = {0};
+            if (game->speed > 0) cok_menu_items_add(&items, 0);
+            if (game->speed < 9) cok_menu_items_add(&items, 1);
+            cok_menu_items_add(&items, 2);
+            game->selected = own;
+            key = cok_camp_pick_menu(game, V->speed_prompt, V->speed_menu, &items, true, true,
+                                     &special);
+            if (key < 0) return;
+            own = game->selected;
+            if (special && key == 0x1b) {
+                special = false;
+                key = 2;
+            }
+            if (!special) key = letter_of("FSE", key);
+            else if (key != 0x48 && key != 0x50) key = ' '; /* nothing, and no leaving */
+        } else {
+            char items[41] = "";
+            if (game->speed > 0) strcat(items, " Faster");
+            if (game->speed < 9) strcat(items, " Slower");
+            strcat(items, " Exit");
+            key = cok_camp_menu(game, V->speed_prompt, items, true, true, &special);
+            if (key < 0) return;
+        }
         if (special) {
             if (key == 0x50 && game->speed > 0) --game->speed;
             else if (key == 0x48 && game->speed < 9) ++game->speed;
@@ -1285,13 +1384,25 @@ static void pictures(cok_adventure *game)
 }
 
 /* Level (4888:2272): the difficulty, 1-5 in 0x4cf4, its item selected
- * first. One key; any other keeps it. */
+ * first. One key; any other keeps it. A game whose menus go by index (dkk
+ * 4381:2045) reads it without the keypad, each index taken as its letter;
+ * Escape picks a character as other special keys do (DS:c11f, set to 0xff
+ * first, is read nowhere). */
 static void level(cok_adventure *game)
 {
+    static const char *const text = "Novice Squire Veteran Adept Champion"; /* dkk DS:3747 */
     uint8_t value = (uint8_t)cok_ecl_var(&game->vm, COK_VAR_DIFFICULTY);
     game->selected = value;
     bool special;
-    int key = cok_camp_menu(game, "", "Novice Squire Veteran Adept Champion", true, true, &special);
+    int key;
+    if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
+        cok_menu_items items;
+        cok_menu_items_upto(&items, 4);
+        key = cok_camp_pick_menu(game, "", text, &items, false, true, &special);
+        if (key >= 0 && !special) key = letter_of("NSVAC", key);
+    } else {
+        key = cok_camp_menu(game, "", text, true, true, &special);
+    }
     if (key < 0) return;
     if (special) {
         cok_camp_pick(game, (uint8_t)key);
@@ -1304,16 +1415,37 @@ static void level(cok_adventure *game)
 }
 
 /* Alter (4888:2539): "Order Drop Speed Icon Pics Level Exit" until Exit or
- * Escape. Icon is the combat icon editor (4def:408b, see icon.h). */
+ * Escape. Icon is the combat icon editor (4def:408b, see icon.h). A game
+ * whose menus go by index (dkk 4381:21df: "Order Drop Speed Icon Level
+ * Exit") reads it from its first item each time (DS:c0f7 1), without the
+ * keypad, each index taken as its letter and Escape as Exit; its Icon
+ * redraws the screen after the editor (65cd:2db0) as Champions' does. */
 static void alter(cok_adventure *game)
 {
+    const cok_rules *R = cok_game_rules(game);
+    bool indexed = R->menus.routine == COK_MENUS_INDEXED;
     int key = ' ';
     while (key != 0 && key != 'E' && !game->vm.abort) {
         bool special;
-        key = cok_camp_menu(game, "", "Order Drop Speed Icon Pics Level Exit", true, true, &special);
-        if (key < 0) return;
+        if (indexed) {
+            game->selected = 1;
+            cok_menu_items items;
+            cok_menu_items_upto(&items, 5);
+            key = cok_camp_pick_menu(game, "", R->levels.alter_menu, &items, false, true,
+                                     &special);
+            if (key < 0) return;
+            if (special && key == 0x1b) {
+                special = false;
+                key = 5;
+            }
+            if (!special) key = letter_of("ODSILE", key);
+        } else {
+            key = cok_camp_menu(game, "", R->levels.alter_menu, true, true, &special);
+            if (key < 0) return;
+        }
         if (special) {
             cok_camp_pick(game, (uint8_t)key);
+            if (indexed) key = ' '; /* by index no scan code leaves (NumLock's 'E') */
             continue;
         }
         switch (key) {
@@ -1512,17 +1644,34 @@ bool cok_camp(cok_adventure *game)
     forget_all(game);
     bool interrupted = false;
     bool keeps = cok_game_rules(game)->menus.camp_keeps_selection;
+    /* dkk 4381:3106 reads it by index, each index taken as its letter and
+     * Escape as Exit; other special keys pick a character (580d:2bb2
+     * between 65cd:0959's redraws of the old and the new one's row). */
+    bool indexed = cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED;
+    static const char *const text = "Save View Magic Rest Alter Fix Exit"; /* dkk DS:36cc */
     uint8_t own = 1;
     int key = ' ';
     while (!interrupted && key != 0 && key != 'E' && !vm->abort) {
         bool special;
         if (keeps) game->selected = own;
-        key = cok_camp_menu(game, "", "Save View Magic Rest Alter Fix Exit", true, true, &special);
+        if (indexed) {
+            cok_menu_items items;
+            cok_menu_items_upto(&items, 6);
+            key = cok_camp_pick_menu(game, "", text, &items, true, true, &special);
+            if (key >= 0 && special && key == 0x1b) {
+                special = false;
+                key = 6;
+            }
+            if (key >= 0 && !special) key = letter_of("SVMRAFE", key);
+        } else {
+            key = cok_camp_menu(game, "", text, true, true, &special);
+        }
         if (keeps) own = game->selected;
         if (key < 0) break;
         if (special) {
             cok_camp_pick(game, (uint8_t)key);
             stale = COK_SHEET_STALE_UNKNOWN;
+            if (indexed) key = ' '; /* by index no scan code leaves (NumLock's 'E') */
             continue;
         }
         cok_sheet_stale before = stale;
@@ -1533,7 +1682,10 @@ bool cok_camp(cok_adventure *game)
             if (cok_ecl_var(vm, COK_VAR_SAVES) >= 10) {
                 /* Every tenth save asks a word from the rule book; the
                  * original quits to DOS on a wrong answer. */
-                cok_adventure_log(game, "unported", "copy protection (4888:0376)");
+                char cited[48];
+                snprintf(cited, sizeof cited, "copy protection (%s)",
+                         cok_game_rules(game)->levels.copy_protection);
+                cok_adventure_log(game, "unported", cited);
                 cok_adventure_redraw(game);
                 cok_ecl_set_var(vm, COK_VAR_SAVES, 0);
             }

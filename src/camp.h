@@ -111,6 +111,13 @@ int cok_camp_ask(cok_adventure *game, const char *prompt, uint8_t prompt_color, 
  * current frame is drawn first. Returns as cok_menu_read. */
 int cok_camp_menu(cok_adventure *game, const char *prompt, const char *items, bool keypad,
                   bool show, bool *special);
+/* A menu by index on row 24 (dkk 6a69:0f1b, cok_menu_pick): text's items
+ * listed, after prompt, keypad as cok_menu_pick's, the picture drawn and
+ * animated where show is set, as cok_camp_menu; the special flag kept
+ * (DS:c0f8). Returns the index, or a special key's scan code with *special
+ * set, or -1 if input ended. */
+int cok_camp_pick_menu(cok_adventure *game, const char *prompt, const char *text,
+                       const cok_menu_items *items, bool keypad, bool show, bool *special);
 /* A special key picks a character (546c:3334); redraw the party list. */
 void cok_camp_pick(cok_adventure *game, uint8_t scan);
 

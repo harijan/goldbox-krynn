@@ -851,6 +851,38 @@ class DeathKnightsTests(unittest.TestCase):
             self.assertIn(camp + magic + rest * 2 + magic + camp, result.stdout)
             self.assertEqual((saves / "SAVGAMC.PTY").read_bytes()[1 + 0xC7], 5)
 
+    def test_camp_menus(self):
+        # The camp's, Magic's and Alter's menus by index (4381:3106, 1a34,
+        # 21df; 6a69:0f1b), as dkk_levels.py's menus flow plays them: Escape
+        # leaves Magic; the camp keeps its own selection (Enter is Magic
+        # again), Magic's starts from Cast; Alter (no Pics) from Order each
+        # time: Right twice, Speed in Death Knights' words, Escape; Enter is
+        # Order ("party order "), Select, Escape while moving leaves; Escape
+        # leaves Alter and the camp, and block 16 goes on.
+        start = self.TITLE + r"\v\v\r\rA" + r"\v" * 5 + r"\r\r\r\r"
+        camp = "menu: Save View Magic Rest Alter Fix Exit\n"
+        magic = "menu: Cast Memorize Scribe Display Rest Exit\n"
+        alter = "menu: Order Drop Speed Icon Level Exit\n"
+        saves = self.saves(ASSETS / "SAVE")
+        result = self.play("--start-menu", "--saves", saves, "--seed", 1, "--keys",
+                           start + r"M\e\r\eA\>\>\r\e\r\r\e\e\e", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "print: the party makes camp\n" + camp + magic + camp + magic + camp + alter +
+            "print: Game Speed (0=fastest 9=slowest) = 4\nmenu: Faster Slower Exit\n" + alter +
+            "menu: Select Exit\nprint: SIR DRYDEN\nprint: has been selected\nmenu: Place Exit\n" +
+            alter + camp + "print: THE BEAUTIFUL LADY MAYA", result.stdout)
+        self.assertNotIn("Pics", result.stdout)
+        # Order's prompt, "party order " (DS:30df): its Select highlighted
+        # from column 12 of row 24.
+        screen = self.folder / "order.bmp"
+        result = self.play("--start-menu", "--saves", self.saves(ASSETS / "SAVE"), "--seed", 1,
+                           "--screen", screen, "--keys", start + r"A\r", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        bmp = screen.read_bytes()
+        self.assertEqual(pixel(bmp, 95, 199), (0, 0, 0))
+        self.assertNotEqual(pixel(bmp, 96, 199), (0, 0, 0))
+
     def test_view_and_items(self):
         # Camp (block 16's rest): View (580d:0c66) by index for SIR DRYDEN,
         # Items (580d:0ffa) with Death Knights' readied column (DS:2c02),

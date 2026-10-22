@@ -50,13 +50,20 @@ stop: camp, Rest, an hour, Rest with a key waiting at its first poll (a trap):
 interrupted: camp, Rest, a day: block 16's camp vector's 0x7ed2 255 and
 0x7ed3 100 interrupt it at the 255th tick; the rest vector's text.
 
-The rest flows compare RandSeed and the clock (0x4bc6-0x4bcc) too.
+menus: camp, Magic (4381:1a34, from Cast), Escape, Enter (the camp's own
+selection: Magic again), Exit; Alter (4381:21df, from Order each time, no
+Pics): Order ("party order ", Select, Down, Place, Escape), Drop (No),
+Speed (Faster, Up, Escape), Icon (Exit, the icon OK), Level (from the
+difficulty, Left, Enter), Escape; Save C: saved game C (the party's order,
+the speed and the difficulty) and the characters' files.
+
+The rest flows and menus compare RandSeed and the clock (0x4bc6-0x4bcc) too.
 
 Seeded (Box seed, eclplay --seed). Not part of run_all.py's set. About
 four minutes, and as much for the rest flows.
 
     python3 tools/dosbox/checks/dkk_levels.py [--workdir DIR] [--seed N]
-        [--flows train,memorize,table,cast,fix,rest,stop,interrupted]
+        [--flows train,memorize,table,cast,fix,rest,stop,interrupted,menus]
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...)."""
 import argparse
@@ -398,6 +405,34 @@ INTERRUPTED = [
     ("interrupted", "r", "rest"),
     ("eulogy", r"\r", None),
 ]
+# The camp's, Magic's and Alter's menus by index (6a69:0f1b).
+MENUS = [
+    ("camp", r"\r\r\r", None),
+    ("magic", "M", None),           # from Cast
+    ("magic-escape", r"\e", None),  # the camp, its selection Magic
+    ("magic-again", r"\r", None),   # Enter: Magic again
+    ("magic-exit", "e", None),
+    ("alter", "A", None),           # from Order, no Pics
+    ("order", r"\r", None),         # party order: Select Exit
+    ("selected", r"\r", None),      # has been selected: Place Exit
+    ("moved", r"\v", None),         # SIR DRYDEN down one
+    ("placed", r"\r", None),        # Select Exit
+    ("order-escape", r"\e", None),  # Alter, from Order
+    ("drop", r"\>\r", None),        # will be gone forever, Drop from party? from No
+    ("kept", r"\r", None),          # Breathes A sigh of relief: Alter
+    ("speed", r"\>\>\r", None),     # Game Speed (...) = 4: Faster Slower Exit
+    ("faster", r"\r", None),        # 3
+    ("speed-up", r"\^", None),      # 4
+    ("speed-exit", r"\e", None),
+    ("icon", "I", None),
+    ("icon-ok", "e", None),         # is this icon ok? from Yes
+    ("icon-done", r"\r", None),     # the screen redrawn: Alter
+    ("level", "L", None),           # from the difficulty
+    ("level-set", r"\<\r", None),   # one less: Alter
+    ("alter-exit", r"\e", None),    # the camp, its selection Alter
+    ("which", "S", None),
+    ("saved", r"\>\>\r", None),     # Quit to DOS (DS:124c)
+]
 # The eulogy's portrait (PIC 96) blinks: which frame a screenshot catches
 # depends on the host's timing, not on the rest (36 pixels, its eyes, on
 # the first run).
@@ -470,9 +505,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir", default=str(K.ROOT / "build/dosbox-checks/dkk_levels"))
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--flows", default="train,memorize,table,cast,fix,rest,stop,interrupted",
+    parser.add_argument("--flows",
+                        default="train,memorize,table,cast,fix,rest,stop,interrupted,menus",
                         help="which flows: train, memorize, table, cast, fix, rest, stop, "
-                        "interrupted (comma-separated)")
+                        "interrupted, menus (comma-separated)")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     work = pathlib.Path(opts.workdir).resolve()
@@ -489,7 +525,8 @@ def main():
         cast(v, work, opts)
     if "fix" in flows:
         fix(v, work, opts)
-    for flow, steps in (("rest", REST), ("stop", STOP), ("interrupted", INTERRUPTED)):
+    for flow, steps in (("rest", REST), ("stop", STOP), ("interrupted", INTERRUPTED),
+                        ("menus", MENUS)):
         if flow in flows:
             rest(v, work, opts, flow, steps)
     return v.finish()
