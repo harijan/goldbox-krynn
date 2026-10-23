@@ -12,7 +12,8 @@ pointers masked (masked). Cases with a modify step then add it
 to the party (Add, Death), Modify it (scores, the name, the hit points,
 Keep or Exit) and Remove it to the roster, whose files are compared again.
 
-Seeded; not part of run_all.py's set. A few minutes a case.
+Seeded; in run_all.py's Death Knights set (make dkk-checks).
+About three minutes (turbo).
 
     python3 tools/dosbox/checks/dkk_create.py [--workdir DIR] [--case NAME ...]
 

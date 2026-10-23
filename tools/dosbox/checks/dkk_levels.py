@@ -67,8 +67,8 @@ View Character's Pick Character (580d:3067): E no key, Escape its Exit.
 
 The rest flows, menus and saves compare RandSeed and the clock (0x4bc6-0x4bcc) too.
 
-Seeded (Box seed, eclplay --seed). Not part of run_all.py's set. About
-four minutes, and as much for the rest flows.
+Seeded (Box seed, eclplay --seed). In run_all.py's Death Knights set (make dkk-checks). About
+four minutes, each flow side by side there (half a minute each).
 
     python3 tools/dosbox/checks/dkk_levels.py [--workdir DIR] [--seed N]
         [--flows train,memorize,table,cast,fix,rest,stop,interrupted,menus,saves,load]

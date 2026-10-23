@@ -494,17 +494,26 @@ def untrap(b, handle):
 
 def settled(b, seconds=1.5, limit=120):
     """Whether the game stands still: RandSeed, the round, the entry and
-    the records' bytes unchanged for SECONDS (a trap's spin)."""
+    the records' bytes unchanged for SECONDS of the game's time (by the
+    BIOS's clock, as Box.settle; with turbo a fraction of the host's) and
+    three reads at least (a trap's spin). LIMIT: the host's seconds.
+    COKBOX_SETTLE=fixed counts the host's seconds, as before."""
     def probe():
         return (b.ds_dword(DS_RANDSEED), b.ds_byte(DS_ROUND), b.ds_byte(DS_ENTRY),
                 tuple(r["raw"] for r in party(b)))
+    fixed = os.environ.get("COKBOX_SETTLE") == "fixed"
+    clock, need = (time.monotonic, seconds) if fixed else (b.ticks, seconds * 18.2065)
     end = time.monotonic() + limit
-    last, since = probe(), time.monotonic()
+    last, since, reads = probe(), clock(), 0
     while time.monotonic() < end:
         time.sleep(0.1)
         now = probe()
         if now != last:
-            last, since = now, time.monotonic()
-        elif time.monotonic() - since >= seconds:
+            last, since, reads = now, clock(), 0
+            continue
+        reads += 1
+        if clock() < since:  # midnight's wrap
+            since = clock()
+        if reads >= 3 and clock() - since >= need:
             return True
     return False

@@ -15,8 +15,7 @@ saved game but the bytes the original's stack leaves (after each name, the
 slots past the party), the vault (VAULTC.DAT) byte for byte, the
 characters but their far pointers. Champions' saved games A and B have
 their bank (Champions' 0x4c33) set to 0x1234, which the new vault holds a
-hundred times over in steel. Not part of run_all.py's set (Champions'
-checks). About four minutes.
+hundred times over in steel. In run_all.py's Death Knights set (make dkk-checks). About a minute.
 
     python3 tools/dosbox/checks/dkk_start.py [--workdir DIR]
 

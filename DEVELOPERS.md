@@ -1543,7 +1543,7 @@ into, Move mode, Modify's sheet, Pick Character, a list's rows and row
 `tests/test_config.c` `DKK.CFG`'s thresholds, `tests/test_death_knights.c`
 the words and the code's constants against the executable, and
 `tests/test_death_knights.py` Initialize Mouse/Joystick and Pick Character
-by clicks. `tools/dosbox/checks/dkk_mouse.py` (not in `run_all.py`)
+by clicks. `tools/dosbox/checks/dkk_mouse.py` (`make dkk-checks`)
 clicks the same in the original with DOSBox-X's own driver, as
 `f_mouse.py` does: the start menu's rows (picked out, then picked),
 Initialize Mouse/Joystick's mouse row and Exit, Pick Character's party
@@ -9251,7 +9251,7 @@ here:
   Knights' creation's (see Creating characters); Train (`43b6`) and Knight
   Change Order (`4ea4`) are Death Knights' training's.
 
-`tools/dosbox/checks/dkk_start.py` (not in `run_all.py`, as
+`tools/dosbox/checks/dkk_start.py` (`make dkk-checks`, as
 `dkk_views.py`) compares the original in DOSBox-X: the four title
 pictures, the credits, the title's menu, the start menu with and without a
 party, Load from Death Knights and from Champions (their bank set), Save,
@@ -9584,7 +9584,7 @@ Champions' here, the rest being as above with its own tables (`DS:7423`,
   stays at 17; the most hit points are the level drain's (`580d:3454`);
   Keep sets no `SHARES`.
 
-`tools/dosbox/checks/dkk_create.py` (not in `run_all.py`) compares the
+`tools/dosbox/checks/dkk_create.py` (`make dkk-checks`) compares the
 original in DOSBox-X, seeded: seven characters of every family (cleric,
 paladin, fighter/mage/thief, White mage, kender cleric/thief, knight,
 cleric/ranger), every list, roll and reroll, name, the icon editor's
@@ -9918,7 +9918,7 @@ that many run at once, a range such as 110-189 kept for
   screenshot. cokbox now turns that off; `b_slow_poison_63h`, whose
   screenshots then came too seldom to see the death at hour 15, rests
   without turbo, as it in effect always had. Champions' boxes are turbo
-  unless they say not (`GAMES`' `turbo`; Death Knights' not yet tried):
+  unless they say not (`GAMES`' `turbo`; Death Knights' too since 2026-10-23):
   the screens and memory at the key reads are the same, and a full run
   with every box turbo agreed but in `d_space` (its Space typed into the
   computer's turn, over before it came) and `c_wander` (its watched
@@ -10046,7 +10046,21 @@ fewer on a loaded host and they missed their text), `d_bozak` and
 `d_aurak` played their battles at the game's speed 4 instead of 15
 (`d_bozak` 12 minutes then, under 3 now), and judging a burst stopped
 taking minutes (`d_lib.candidates` compares every 61st pixel before the
-whole screen; `load_bmp` decodes a frame with `bytes.translate`). The
+whole screen; `load_bmp` decodes a frame with `bytes.translate`).
+`make dkk-checks` (`run_all.py --set dkk`, its out `build/dkk-checks`;
+`--set all` runs both games' scripts) runs Death Knights' `dkk_*`
+scripts the same way, `dkk_fight.py`, `dkk_levels.py` and
+`dkk_treasure.py` split by their `--flows` into one script per flow
+(`dkk_fight-spells`: its own box, workdir and log): 35 scripts in about 3
+minutes, 10 at a time, all as recorded twice running (2026-10-23). They
+took 80 minutes one after another at their cycles (`dkk_fight.py` 40),
+10 side by side, and 3 with Death Knights' boxes turbo too (`GAMES`), its
+`dkk_views.py` typing the start menu's keys as the game waits
+(`K.title`, `K.LOAD_A_STEPS`) where `\p` pauses had taken four of its
+five minutes, `dkk_lib.settled` counting the game's time as `Box.settle`
+does, and `dkk_treasure.py` taking each screen once two shots agree
+(`still_shot`: with turbo a text's delay, which polls the keys, could
+let the settle pass in the block's load after it). The
 checks need the host otherwise idle, its disk as well as its CPU: heavy
 I/O on the same filesystem (seen: a large delete) once made `d_turning`
 miss its text and `d_bolt` take eight times as long. In the run before
@@ -10356,9 +10370,9 @@ original's behaviour is recorded, its section says what it does):
   `d_turning.py`.
 
 Death Knights of Krynn, read headless (see Games), is checked by
-`tools/dosbox/checks/dkk_views.py`, which `run_all.py` (Champions' set)
-does not run: `python3 tools/dosbox/checks/dkk_views.py` (about four
-minutes; DOSBox-X in EGA mode, and two views in CGA mode). It compares,
+`tools/dosbox/checks/dkk_views.py`, which `make dkk-checks` runs
+(`run_all.py --set dkk`) or `python3 tools/dosbox/checks/dkk_views.py` (about a
+minute; DOSBox-X in EGA mode, and two views in CGA mode). It compares,
 with `daxcompose` and `eclplay --game death-knights`, the title's first two
 pictures (`TITLE` records 1 and 2, whole screens); the first text of the
 game where `DKKAssets/SAVE/SAVGAMA.PTY` resumes (ECL1 block 16 over the

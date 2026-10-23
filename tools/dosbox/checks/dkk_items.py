@@ -19,8 +19,7 @@ Items in mode 7 (Deposit for the items), the mace deposited ("will be left
 in the vault"), Exit: TMPVAULT.DAT (46b2:302d) byte for byte; then camp,
 Save C: VAULTC.DAT, saved game C and its characters.
 
-Seeded (Box seed, eclplay --seed). Not part of run_all.py's set. About four
-minutes.
+Seeded (Box seed, eclplay --seed). In run_all.py's Death Knights set (make dkk-checks). About a minute.
 
     python3 tools/dosbox/checks/dkk_items.py [--workdir DIR] [--seed N]
         [--flows camp,vault]

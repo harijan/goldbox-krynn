@@ -3,8 +3,11 @@
 per script: DEVELOPERS.md's checks it covers, its verdict, and whether that is
 the verdict recorded (DEVELOPERS.md, "Checks against the original").
 
-    python3 tools/dosbox/checks/run_all.py [--jobs N] [--only NAME ...] [--out DIR]
-    python3 tools/dosbox/checks/run_all.py --report [--out DIR]
+    python3 tools/dosbox/checks/run_all.py [--set SET] [--jobs N] [--only NAME ...] [--out DIR]
+    python3 tools/dosbox/checks/run_all.py --report [--set SET] [--out DIR]
+
+SET: champions (CHECKS, the default), dkk (DKK_CHECKS: Death Knights'
+scripts, the long ones one per flow; make dkk-checks) or all.
 
 Each script runs with --workdir OUT/NAME (default OUT build/dosbox-checks),
 its output in OUT/NAME.log, and ends with a line `VERDICT: AGREES` or
@@ -140,11 +143,38 @@ CHECKS = [
     # The long ones first, so that they do not end the run alone.
 ]
 
+# Death Knights of Krynn's (--set dkk; DEVELOPERS.md, "Death Knights"): the
+# long scripts split by their --flows, each flow a script of its own here
+# (NAME-FLOW: its own box, workdir and log), so that they run side by side.
+DKK_SPLIT = {
+    "dkk_fight": ["fight", "lost", "river", "ambush", "auto", "keys", "keys2", "cast", "items",
+                  "drain", "mage", "dragon", "spells", "priests", "band", "clouds"],
+    "dkk_levels": ["train", "memorize", "table", "cast", "fix", "rest", "stop", "interrupted",
+                   "menus", "saves", "load"],
+    "dkk_treasure": ["treasure", "vault"],
+}
+DKK_SCRIPTS = ["dkk_views", "dkk_start", "dkk_create", "dkk_treasure", "dkk_items", "dkk_shops",
+               "dkk_levels", "dkk_mouse", "dkk_fight"]
+DKK_CHECKS = [(f"{script}-{flow}" if flow else script, "DKK", "") for script in DKK_SCRIPTS
+              for flow in DKK_SPLIT.get(script, [""])]
+SETS = {"champions": CHECKS, "dkk": DKK_CHECKS, "all": CHECKS + DKK_CHECKS}
+
+
+def command(name):
+    """A row's script and its arguments: NAME.py, or a split one's
+    SCRIPT.py --flows FLOW."""
+    script, _, flow = name.partition("-")
+    return [str(HERE / f"{script}.py")] + (["--flows", flow] if flow else [])
+
+
 # Minutes each took in a full run (the rest one or less; OUT/telemetry.txt
 # has them all), for the order.
 LONG = {"a_demo": 5, "f_frames": 4, "f_sound": 3, "c_wander": 2, "e_bolt_bounce": 2,
         "d_bozak": 2, "d_cast": 2, "c_catacombs": 1, "f_loading": 1, "e_cloud_dispel": 1,
-        "f_display_modes": 1, "b_item_spell0": 1, "d_bolt": 1, "d_aurak": 1, "d_gate": 1}
+        "f_display_modes": 1, "b_item_spell0": 1, "d_bolt": 1, "d_aurak": 1, "d_gate": 1,
+        "dkk_create": 8, "dkk_views": 5, "dkk_fight-spells": 5, "dkk_shops": 5,
+        "dkk_fight-clouds": 4, "dkk_fight-cast": 3, "dkk_fight-band": 3, "dkk_fight-auto": 3,
+        "dkk_fight-mage": 3, "dkk_start": 3, "dkk_mouse": 3, "dkk_items": 3}
 VERDICT = re.compile(r"^VERDICT: (AGREES|DIFFERS new.*|ERROR.*)$", re.M)
 
 
@@ -321,7 +351,7 @@ def run_one(name, out, timeout):
             if STOPPING.is_set():
                 return None, "stopped"
             proc = subprocess.Popen(
-                [sys.executable, str(HERE / f"{name}.py"), "--workdir", str(out / name)],
+                [sys.executable, *command(name), "--workdir", str(out / name)],
                 cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, env=env,
                 start_new_session=True)
             RUNNING[name] = (proc, pidfile)
@@ -368,6 +398,8 @@ def as_recorded(want, result):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--jobs", type=int)
+    parser.add_argument("--set", choices=sorted(SETS), default="champions",
+                        help="Champions' scripts (the default), Death Knights' (dkk) or both")
     parser.add_argument("--only", nargs="*", help="these scripts (names without .py)")
     parser.add_argument("--out", default=str(ROOT / "build" / "dosbox-checks"))
     parser.add_argument("--timeout", type=float, default=3 * 3600,
@@ -382,12 +414,14 @@ def main():
     if opts.self_test:
         return self_test()
     if opts.report:
-        print(telemetry_report.write(pathlib.Path(opts.out).resolve(), [c[0] for c in CHECKS]))
+        print(telemetry_report.write(pathlib.Path(opts.out).resolve(),
+                                     [c[0] for c in SETS[opts.set]]))
         return 0
     n = displays()
     jobs = opts.jobs or (max(1, n - 2) if n else default_jobs())
-    todo = [c for c in CHECKS if not opts.only or c[0] in opts.only]
-    unknown = set(opts.only or ()) - {c[0] for c in CHECKS}
+    rows = SETS[opts.set]
+    todo = [c for c in rows if not opts.only or c[0] in opts.only]
+    unknown = set(opts.only or ()) - {c[0] for c in rows}
     if unknown:
         parser.error(f"no such check script: {', '.join(sorted(unknown))}")
     out = pathlib.Path(opts.out).resolve()

@@ -401,7 +401,7 @@ def dkk_cfg(display, sound="S", input="N"):
 # in, their devices' file, their data segment as START_FULL.EXE's (Ghidra's
 # segment, the PSP + 0x10 less 0x1000 in the guest) and their merged image;
 # turbo: its boxes' default (see REAL_TIME): Champions' checks were run
-# with every box turbo (2026-10-21), Death Knights' not yet.
+# with every box turbo (2026-10-21), Death Knights' too (2026-10-23).
 GAMES = {
     "champions": dict(assets="COKAssets", dir="COK", cfg="KRYNN.CFG", cfg_text=krynn_cfg,
                       ds=DS_GHIDRA, merged="build/START_FULL.EXE", randseed=RANDSEED,
@@ -409,7 +409,7 @@ GAMES = {
     # Its RandSeed: DS:84ac, which System's Random reads (dkk 1a07:163b).
     "death-knights": dict(assets="DKKAssets", dir="DKK", cfg="DKK.CFG", cfg_text=dkk_cfg,
                           ds=0x1BCE, merged="build/death-START_FULL.EXE", randseed=0x84AC,
-                          turbo=False),
+                          turbo=True),
 }
 
 # A check that judges what the original shows as it comes (screens read in

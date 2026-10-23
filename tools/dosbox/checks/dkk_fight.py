@@ -55,8 +55,9 @@ Dispel Magic over the Stinking Cloud, then Auto with Magic Off, round by round t
 9th with the battlefield's cells and bodies (5dc5:2934, 638c:0c65, 21ec,
 5dc5:2e5c).
 Seeded (Box seed,
-eclplay --seed): the same dice. Not part of run_all.py's set. About
-thirty minutes, and the spells and clouds flows fifteen more each.
+eclplay --seed): the same dice. In run_all.py's Death Knights set (make dkk-checks).
+About fifteen minutes alone; there each flow runs side by side, the
+longest (spells) about a minute and a half.
 
     python3 tools/dosbox/checks/dkk_fight.py [--workdir DIR] [--seed N]
 

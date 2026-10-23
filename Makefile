@@ -85,6 +85,11 @@ dosbox-selftest: build/eclplay build/START_FULL.EXE
 dosbox-checks: build/eclplay build/cok build/START_FULL.EXE
 	$(PYTHON) tools/dosbox/checks/run_all.py $(ARGS)
 
+# Death Knights' checks (the dkk_* scripts, the long ones split by flow).
+.PHONY: dkk-checks
+dkk-checks: build/eclplay build/cok build/death-START_FULL.EXE
+	$(PYTHON) tools/dosbox/checks/run_all.py --set dkk --out build/dkk-checks $(ARGS)
+
 # The SDL2 front end (build/cok) and its tests, only where pkg-config finds
 # SDL2; its headers as system headers, so that their warnings do not fail
 # the build.

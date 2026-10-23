@@ -24,7 +24,8 @@ the saved map and wall set load), and the party turns in Move mode. The
 port runs the block's load vector from its LOAD FILES, the code patched
 (--set on the code) to skip the GOSUB after LOAD PIECES, put the party on
 the same square and facing, and EXIT after the view is shown (CALL
-[2dcb]). Not part of run_all.py's set (Champions' checks).
+[2dcb]). In run_all.py's Death Knights set (make dkk-checks). About a
+minute.
 
     python3 tools/dosbox/checks/dkk_views.py [--workdir DIR]
 
@@ -38,6 +39,8 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import cokbox  # noqa: E402
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import dkk_lib as K  # noqa: E402
 
 ROOT = cokbox.ROOT
 ASSETS = ROOT / "DKKAssets"
@@ -57,10 +60,6 @@ FRAME = [(0, 0, 320, 8), (0, 8, 136, 120), (312, 8, 8, 120), (0, 128, 320, 8),
 # The moons' phases (bytes 0x1f9-0x1fb of the area, 0x4cf9-0x4cfb), which
 # the port takes from the original's.
 MOONS = 0x1F9
-# The start menu (after the title): Load Saved Game, Death's, game A;
-# then Begin Adventuring.
-LOAD_A = ("\\p300.\\p300.\\r\\p300.\\r\\p300.\\r\\p300.\\v\\v\\r\\p300.\\r\\p300.\\r\\p800."
-          "\\v\\v\\v\\v\\v\\r\\p800.")
 # The places: ECL1's block, its load vector from LOAD FILES (start) and the
 # code bytes patched there (the GOSUB after LOAD PIECES made a CALL that
 # does nothing, the instruction after CALL [2dcb] an EXIT), the immediate
@@ -174,10 +173,11 @@ def main():
     # The title and the first text.
     with box_for(ASSETS / "SAVE") as box:
         shown = None
-        for k in (1, 2):
+        for k in (1, 2, 3, 4):
             # Each of the title's pictures stays some seconds: the first
             # screen not mostly black (after "Loading"), then the next one
-            # that differs from it.
+            # that differs from it. The first two compared; the fourth
+            # waited for, as K.title does (keys typed sooner can be lost).
             last = shown
             for _ in range(60):
                 box.keys("\\p50.")
@@ -186,14 +186,16 @@ def main():
                         (last is not None and shown.diff(last)[0] > 1000):
                     break
             box.keys("\\p50.")
+            if k > 2:
+                shown = box.screenshot()
+                continue
             bmp = work / f"port-title-{k}.bmp"
             subprocess.run([str(ROOT / "build/daxcompose"), *GAME, str(bmp), "draw",
                             str(ASSETS / "TITLE.DAX"), str(k - 1), "0", "0", "0"],
                            check=True, cwd=ROOT, timeout=60)
             shown = box.screenshot(work / f"dosbox-title-{k}.png")
             compare(f"title-{k}", shown, cokbox.Screen.load(bmp), [(0, 0, 320, 200)])
-        box.keys(LOAD_A)
-        box.wait_input(settle=1.0)
+        K.type_steps(box, K.LOAD_A_STEPS, settle=1.0)
         s = state(box)
         print(f"text: block {s['area'][0xF2]}, file {s['file']}", flush=True)
         bmp = work / "port-text.bmp"
@@ -208,8 +210,10 @@ def main():
     runs += [(place, place["facings"][:1], "cga") for place in PLACES[:2]]
     for place, facings, display in runs:
         with box_for(saved_game(work, place, facings[0]), display) as box:
-            box.keys(LOAD_A)
-            box.wait_input(settle=1.0)
+            if not K.title(box):
+                results.append((f"{place['name']} (no title)", 1))
+                continue
+            K.type_steps(box, K.LOAD_A_STEPS, settle=1.0)
             box.keys("M")  # Move: the arrows turn
             for i, facing in enumerate(facings):
                 if i:

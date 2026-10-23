@@ -36,8 +36,8 @@ raised", a point of constitution less, the hit points it gives worked out
 again), Restoration (045f, 5dc5:2326: the level, experience and hit points
 back); Save C: his record in its files.
 
-Seeded (Box seed, eclplay --seed). Not part of run_all.py's set. About nine
-minutes.
+Seeded (Box seed, eclplay --seed). In run_all.py's Death Knights set (make dkk-checks). About a minute
+and a half (turbo).
 
     python3 tools/dosbox/checks/dkk_shops.py [--workdir DIR] [--seed N]
         [--flows shop,temple]

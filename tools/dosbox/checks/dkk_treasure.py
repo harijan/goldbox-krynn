@@ -28,8 +28,8 @@ What the first fight's end leaves different (the original fought its
 first turn and round, --combat won none) is masked and said (MASKS), and
 so is camp's forget of the spells cast (4381:05b0 keeps them).
 
-Seeded (Box seed, eclplay --seed). Not part of run_all.py's set. About four
-minutes.
+Seeded (Box seed, eclplay --seed). In run_all.py's Death Knights set (make dkk-checks). About a
+minute, the two flows side by side there.
 
     python3 tools/dosbox/checks/dkk_treasure.py [--workdir DIR] [--seed N]
         [--flows treasure,vault]
@@ -161,6 +161,21 @@ def compare_files(v, what, original, port, explained_items=False, fought=False):
                                    f"(sizes {len(x)}, {len(y)})"))
 
 
+def still_shot(box, path, tries=5):
+    """The screen once the original waits with it drawn: the shot again
+    after another wait until two agree. A text's delay polls the keys as a
+    menu does (Box.waiting), and with turbo the settle's game time can pass
+    in the block's load that follows ("LOADING...PLEASE WAIT")."""
+    shown = box.screenshot()
+    for _ in range(tries):
+        box.wait_input(settle=1.0)
+        again = box.screenshot()
+        if again.diff(shown)[0] == 0:
+            break
+        shown = again
+    return box.screenshot(path)
+
+
 def run_steps(v, work, box, flow, steps, prefix, seed, saves, args=()):
     """Each step's keys to the box, then its screen against the port's on the
     keys so far (PREFIX the port's before them). Returns the last step's
@@ -170,7 +185,7 @@ def run_steps(v, work, box, flow, steps, prefix, seed, saves, args=()):
     for name, typed in steps:
         keys += typed
         K.type_steps(box, [typed], settle=2.0)
-        shown = box.screenshot(work / f"dosbox-{flow}-{name}.png")
+        shown = still_shot(box, work / f"dosbox-{flow}-{name}.png")
         log, shot, _, _ = K.port(work, f"{flow}-{name}", keys, seed, saves=saves, args=args)
         port_saves = work / f"port-{flow}-{name}" / "saves"
         v.screen(f"{flow}: {name}", shown, load(shot), masks=MASKS.get(name, ()) if flow ==
@@ -230,7 +245,7 @@ def vault(v, work, opts):
         for name, typed in VAULT:
             keys += typed
             K.type_steps(box, [typed], settle=2.0)
-            shown = box.screenshot(work / f"dosbox-vault-{name}.png")
+            shown = still_shot(box, work / f"dosbox-vault-{name}.png")
             _, shot, _, _ = K.port(work, f"vault-{name}", keys, seed, saves=saves)
             port_saves = work / f"port-vault-{name}" / "saves"
             v.screen(f"vault: {name}", shown, load(shot), work=work)

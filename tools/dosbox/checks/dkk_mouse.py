@@ -20,7 +20,7 @@ Flows (the title's two keys, Play, then):
 
 Each step's screen, once the original waits, against the port's at the key
 read the same input leaves it in, whole screens (the arrow too). Seeded;
-not part of run_all.py's set. About three minutes.
+in run_all.py's Death Knights set (make dkk-checks). About a minute.
 
     python3 tools/dosbox/checks/dkk_mouse.py [--workdir DIR] [--flow NAME ...]
 
