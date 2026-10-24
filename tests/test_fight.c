@@ -564,6 +564,25 @@ static void test_leadership_unset(void)
                   cok_field_u8(L, n->record, COK_FIELD_COMPUTER) == 0);
         }
     }
+    /* After a lead is shown, 4a25's [bp-3] holds SS's high byte (push ss
+     * at 4c42): the order-2 knight A fails for M, then leads N (shown);
+     * the next call, the knight of no order B's for M, stops. */
+    reset();
+    cok_character *a = record('A', 0, 1, 1), *b = record('B', 0, 2, 1);
+    cok_character *m = record('M', 0, 3, 1), *n = record('N', 0, 4, 1);
+    cok_field_set8_at(L, a->record, COK_FIELD_CLASS_LEVEL, 7, 5);
+    cok_field_set8(L, a->record, COK_FIELD_KNIGHT_ORDER, 2);
+    cok_field_set8_at(L, b->record, COK_FIELD_CLASS_LEVEL, 7, 5);
+    cok_field_set8(L, b->record, COK_FIELD_KNIGHT_ORDER, 0);
+    cok_character *allies[2] = {m, n};
+    for (int i = 0; i < 2; ++i) {
+        cok_field_set8(L, allies[i]->record, COK_FIELD_NPC, 0x80);
+        cok_field_set8_at(L, allies[i]->record, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE, 10);
+    }
+    const unsigned dice[] = {100, 40, 100, 100, 1, 39, 100, 1, 100};
+    game.vm.seed = seed_from(1, 3, dice);
+    CHECK(!cok_combat_leadership(&game) && game.vm.status == COK_ECL_UNDEFINED &&
+          strstr(game.error, "5340:4a25") != NULL && strstr(log_text, "A leads") != NULL);
     game.vm.status = COK_ECL_OK;
 }
 

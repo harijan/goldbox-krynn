@@ -646,6 +646,20 @@ static void test_death_knights_screens(void)
     static const char want[] = "T\r\nP\r\nN\r\nC:\\DKK\\SAVE\\\r\nC:\\KRYNN\\SAVE\\\r\nF\r\n0\r\n";
     CHECK(size == sizeof want - 1 - 3 + 14 * 3 && memcmp(file, want, sizeof want - 1) == 0);
     CHECK(memcmp(crt.chars[2], "USING DEFAULT PATH: C:\\KRYNN\\SAVE ", 34) == 0);
+    /* The second default's drive is the default's base (DS:8bd5,
+     * 1187:0630-0682), not the path typed: installed on C, a first path on
+     * D still offers C:\KRYNN\SAVE; on a floppy, a path on C still offers
+     * the other drive's B:\SAVE. */
+    cok_crt_init(&crt);
+    k = (screens){&crt, "222d:\\x\r\r", 0, {{{0}}}};
+    CHECK(cok_setup_ask(&crt, &keys, NULL, R, R->files.install_dir, file, &size));
+    CHECK(strcmp(k.rows[k.reads - 1][1], "(DEFAULT - C:\\KRYNN\\SAVE):") == 0);
+    CHECK(STARTS(file, "E\r\nA\r\nM\r\nD:\\X\\\r\nC:\\KRYNN\\SAVE\\\r\nF\r\n"));
+    cok_crt_init(&crt);
+    k = (screens){&crt, "222c:\\x\r\r", 0, {{{0}}}};
+    CHECK(cok_setup_ask(&crt, &keys, NULL, R, "A:\\", file, &size));
+    CHECK(strcmp(k.rows[k.reads - 1][1], "(DEFAULT - B:\\SAVE):") == 0);
+    CHECK(STARTS(file, "E\r\nA\r\nM\r\nC:\\X\\\r\nB:\\SAVE\\\r\nF\r\n"));
     /* The sound's five lines; EGA's mouse is M; 6 writes no line; a floppy's
      * second default (DS:28c0 under the other drive's root). */
     cok_crt_init(&crt);
