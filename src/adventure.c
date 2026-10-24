@@ -1642,7 +1642,8 @@ static void call(cok_adventure *game)
         if (!no_square(game) && !facing_known(vm->direction)) {
             cok_adventure_fail(game, COK_ECL_UNDEFINED,
                                "CALL [c018] facing %u: 69ea:06a2 returns a byte of the stack "
-                               "the opcodes before left (2fd3:329b)", vm->direction);
+                               "the opcodes before left (2fd3:329b; dkk 6d21:0513's [bp-1], read at "
+                               "060d)", vm->direction);
             break;
         }
         vm->ahead = cok_view_wall(&game->view, vm->direction, vm->map_x, vm->map_y);
@@ -3344,7 +3345,7 @@ static int command(cok_adventure *game)
     } else if (vm->mode != 4) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
                            "the adventure's command in mode %u%s is a byte left on the stack "
-                           "(475c:09ec)", vm->mode,
+                           "(475c:09ec; dkk 4307:0257's [bp-4], read at 06df)", vm->mode,
                            vm->mode == 3 ? " without the overland menu (0x4cf7)" : "");
         return -1;
     }

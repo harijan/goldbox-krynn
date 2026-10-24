@@ -687,9 +687,14 @@ static bool strength(cast *cx)
     if (HAS(5)) bonus = roll(game, 1, 4);
     if (HAS(0) || HAS(6)) bonus = roll(game, 1, 6);
     if (entry_value(cx) == 1 ? fighter : HAS(2)) bonus = roll(game, 1, 8);
-    if (bonus < 0 && entry_value(cx) == 1)
+    /* dkk: with an item (DS:c447), 5dc5:1298's last call before the
+     * handler is 638c:13d4 (at 1557), whose [bp-2], the effect pointer's
+     * segment 65cd:2687 leaves NULL when it finds no more 0x19, is the
+     * handler's [bp-6]: 0, as Champions'. Without one it is 1298's BP. */
+    if (bonus < 0 && entry_value(cx) == 1 && game->effects.rolls.item == 0)
         return undefined(game, "Strength on one of no class it rolls for adds a local never "
-                               "set (dkk 5dc5:2bc9's [bp-6]), which the port does not know");
+                               "set (dkk 5dc5:2bc9's [bp-6], read at 2c50: 5dc5:1298's saved BP, "
+                               "called without an item), which the port does not know");
     if (bonus < 0) bonus = game->effects.rolls.item != 0 ? 0 : cx->frame;
     uint8_t value = (uint8_t)(cok_field_u8_at(L, r, COK_FIELD_SCORE, COK_SCORE_STRENGTH) + bonus);
     uint8_t exceptional = 0;

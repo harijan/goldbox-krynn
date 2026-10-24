@@ -1053,7 +1053,7 @@ static bool dk_buy(cok_adventure *game)
             price = at, priced = true;
         else if (!priced)
             return undefined(game, "Buy at a price factor not in its table charges what its "
-                                   "stack holds (dkk 3b89:0453)");
+                                   "stack holds (dkk 3b89:0453: [bp-8], read at 0570)");
         if (item[0x39] > 1) price = (uint16_t)(item[0x39] * price);
         if (price == 0) price = 1;
         if (!dk_purchase(game, item, price)) return false;

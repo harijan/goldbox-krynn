@@ -111,7 +111,7 @@ static bool class_line(cok_adventure *game, const uint8_t *c, const char *const 
             ++at;
             if (!known[at] || (buffer[at] == 'M' && !known[at + 2 < 256 ? at + 2 : 255]))
                 return undefined(game, "the class line's search for \"Mage\" reads bytes the "
-                                       "original leaves unset (546c:028f)");
+                                       "original leaves unset (546c:028f; dkk 580d:0256)");
             if (buffer[at] == 'M' && buffer[at + 2] == 'g') break;
             if (at > length) break;
         }

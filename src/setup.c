@@ -64,32 +64,30 @@ static char upcase(char c)
     return in_range(c, 'a', 'z') ? (char)(c - 0x20) : c;
 }
 
-/* 177c:029d's screens: ClrScr and its line; the failure's for 2 seconds
- * (Delay). */
+/* 177c:029d's screens (dkk 18bc:01e1): ClrScr and its line, the rules'
+ * setup.calibration; the failure's for 2 seconds (Delay). */
 typedef struct {
     cok_crt *crt;
     const cok_setup_hooks *hooks;
+    const cok_rules *rules;
 } calibration;
 
 static void calibration_prompt(cok_stick_prompt which, void *context)
 {
-    static const char *const lines[3] = {
-        "Push JOYSTICK #1 to the extreme upper left position and press BUTTON #1.",
-        "Push JOYSTICK #1 to the extreme lower right position and press BUTTON #1.",
-        "Couldn't read the joystick.  Aborting calibration.",
-    };
     const calibration *c = context;
     bool failed = which >= COK_STICK_FAILED; /* each failure the one line */
     cok_crt_clear(c->crt);
-    cok_crt_write_line(c->crt, lines[failed ? COK_STICK_FAILED : which]);
+    cok_crt_write_line(c->crt, failed ? c->rules->setup.calibration_failed
+                                      : c->rules->setup.calibration[which]);
     if (failed && c->hooks != NULL && c->hooks->delay != NULL)
         c->hooks->delay(2000, c->hooks->context);
 }
 
-bool cok_setup_calibrate(cok_crt *crt, const cok_setup_hooks *hooks, cok_config *config)
+bool cok_setup_calibrate(cok_crt *crt, const cok_setup_hooks *hooks, const cok_rules *rules,
+                         cok_config *config)
 {
     cok_stick stick = {.on = true};
-    calibration c = {crt, hooks};
+    calibration c = {crt, hooks, rules};
     cok_stick_calibrate(&stick, hooks != NULL ? hooks->port : NULL, calibration_prompt, &c,
                         hooks != NULL ? hooks->ended : NULL);
     if (hooks != NULL && hooks->ended != NULL && *hooks->ended) return false;
@@ -101,50 +99,23 @@ bool cok_setup_calibrate(cok_crt *crt, const cok_setup_hooks *hooks, cok_config 
     return true;
 }
 
-bool cok_setup_ask(cok_crt *crt, const cok_keyboard *keys, const cok_setup_hooks *hooks,
-                   const cok_rules *rules, const char *game_dir, uint8_t *file, size_t *size)
+/* The path to save data (11c7:0638; dkk 1187:049c, 0687): prompt, Write
+ * without a line end, then ReadLn into a string[80] (DS:49c6; dkk
+ * DS:8ae0), taken if it is at least "X:" and two more, X (upper-cased) a
+ * drive from A to P that is not the floppy the game runs on (11c7:0728's
+ * sets, 11c7:0242 and 0262; dkk 1187:00b8, 00d8), else fallback with
+ * 'USING DEFAULT PATH: ' and 2 seconds; then upper-cased and ended with
+ * '\'. Its line goes to the file. False if input ended. */
+static bool ask_path(cok_crt *crt, const cok_keyboard *keys, const cok_setup_hooks *hooks,
+                     const char *game_dir, const char *prompt, const char *fallback,
+                     uint8_t *file, size_t *size)
 {
-    *size = 0;
-    cok_crt_clear(crt);
-    cok_crt_write_string(crt, "GRAPHICS ADAPTER TYPE:  [1] CGA  [2] EGA  [3] Tandy  ");
-    int answer = read_digit(crt, keys, 1, 3);
-    if (answer < 0) return false;
-    line(file, size, answer == 1 ? "C" : answer == 2 ? "E" : "T");
-
-    cok_crt_clear(crt);
-    cok_crt_write_line(crt, "SOUND TYPE:  [1] C/MS");
-    cok_crt_write_line(crt, "             [2] Roland LAPC");
-    cok_crt_write_line(crt, "             [3] AdLib");
-    cok_crt_write_line(crt, "             [4] Tandy 1000");
-    cok_crt_write_line(crt, "             [5] PC");
-    cok_crt_write_line(crt, "             [6] Silent");
-    answer = read_digit(crt, keys, 1, 6);
-    if (answer < 0) return false;
-    static const char *const sounds[6] = {"C", "R", "A", "T", "P", "S"};
-    line(file, size, sounds[answer - 1]);
-
-    /* DS:89ce, the joystick, cleared, and set for [1]. */
-    cok_crt_clear(crt);
-    cok_crt_write_string(crt, "ALTERNATE INPUT TYPE:  [1] JOYSTICK  [2] MOUSE  [3] NEITHER  ");
-    answer = read_digit(crt, keys, 1, 3);
-    if (answer < 0) return false;
-    line(file, size, answer == 1 ? "J" : answer == 2 ? "M" : "N");
-    bool joystick = answer == 1;
-
-    cok_crt_clear(crt);
-    char fallback[80];
-    cok_setup_default_path(rules, game_dir, fallback, sizeof fallback);
-    char prompt[256] = "PATH TO SAVE DATA (DEFAULT - ";
-    append(prompt, 255, fallback);
-    append(prompt, 255, "):  ");
     cok_crt_write_string(crt, prompt);
-    char path[82]; /* DS:49c6, a string[80], and room for '\' */
+    char path[82]; /* a string[80], and room for '\' */
     if (!cok_crt_read_line(crt, keys, path, 80)) return false;
     size_t n = strlen(path);
     path[0] = upcase(path[0]);
     char drive = path[0];
-    /* 11c7:0728: at least "X:" and two more, X a drive from A to P, not
-     * the floppy the game runs on (sets at 11c7:0242 and 0262). */
     if (n < 4 || path[1] != ':' || (in_range(drive, 'A', 'B') && drive == game_dir[0]) ||
         !in_range(drive, 'A', 'P')) {
         snprintf(path, sizeof path, "%s", fallback);
@@ -157,16 +128,71 @@ bool cok_setup_ask(cok_crt *crt, const cok_keyboard *keys, const cok_setup_hooks
     for (size_t i = 0; i < n; ++i) path[i] = upcase(path[i]);
     if (n > 0 && path[n - 1] != '\\') append(path, 80, "\\");
     line(file, size, path);
+    return true;
+}
+
+bool cok_setup_ask(cok_crt *crt, const cok_keyboard *keys, const cok_setup_hooks *hooks,
+                   const cok_rules *rules, const char *game_dir, uint8_t *file, size_t *size)
+{
+    const cok_rules_setup *S = &rules->setup;
+    *size = 0;
+    cok_crt_clear(crt);
+    cok_crt_write_string(crt, S->display);
+    int answer = read_digit(crt, keys, 1, 3);
+    if (answer < 0) return false;
+    line(file, size, answer == 1 ? "C" : answer == 2 ? "E" : "T");
+    bool tandy = answer == 3; /* dkk DS:8b8f */
+
+    cok_crt_clear(crt);
+    for (const char *const *text = S->sound; *text != NULL; ++text) cok_crt_write_line(crt, *text);
+    answer = read_digit(crt, keys, 1, S->sound_answers);
+    if (answer < 0) return false;
+    if ((size_t)answer <= strlen(S->sound_letters)) {
+        char letter[2] = {S->sound_letters[answer - 1], '\0'};
+        line(file, size, letter);
+    }
+
+    /* DS:89ce (dkk DS:dbf2), the joystick, cleared, and set for [1]. */
+    cok_crt_clear(crt);
+    cok_crt_write_string(crt, S->input);
+    answer = read_digit(crt, keys, 1, 3);
+    if (answer < 0) return false;
+    line(file, size, answer == 1 ? "J" : answer == 2 && !(tandy && S->tandy_no_mouse) ? "M" : "N");
+    bool joystick = answer == 1;
+
+    cok_crt_clear(crt);
+    char fallback[80];
+    cok_setup_default_path(rules, game_dir, fallback, sizeof fallback);
+    char prompt[256] = "PATH TO SAVE DATA (DEFAULT - ";
+    append(prompt, 255, fallback);
+    append(prompt, 255, "):  ");
+    if (!ask_path(crt, keys, hooks, game_dir, prompt, fallback, file, size)) return false;
     /* The file's other paths (the rules' files.config_paths: dkk
-     * 1187:011b's Champions' saved games, DS:99a4, which Death Knights'
-     * setup asks for; that question is not ported): empty lines, so that
-     * the file reads back as the game reads it. */
-    for (unsigned i = 1; i < rules->files.config_paths; ++i) line(file, size, "");
+     * 1187:0626-07fb's, Champions' saved games, DS:99a4), each on a
+     * screen of its own: its line and its prompt, its default the save
+     * path's drive letter (DS:8bd5) and the rules' other_floppy below C,
+     * else other_drive. */
+    for (unsigned i = 1; i < rules->files.config_paths; ++i) {
+        if (S->other_title == NULL) {
+            line(file, size, "");
+            continue;
+        }
+        cok_crt_clear(crt);
+        char other[80] = {fallback[0], '\0'};
+        append(other, 79, (unsigned char)fallback[0] < 'C' ? S->other_floppy : S->other_drive);
+        cok_crt_write_line(crt, S->other_title);
+        char text[256] = "";
+        append(text, 255, S->other_prompt);
+        append(text, 255, other);
+        append(text, 255, "):  ");
+        if (!ask_path(crt, keys, hooks, game_dir, text, other, file, size)) return false;
+    }
     line(file, size, "F");
-    /* 177c:029d (11c7:0845), then DS:8996[i] and 89a4[i] for i 0-6, as
-     * longints: J kept whatever it found. */
+    /* 177c:029d (11c7:0845; dkk 18bc:01e1 at 1187:0815), then DS:8996[i]
+     * and 89a4[i] (dkk DS:dbba, dbc8) for i 0-6, as longints: J kept
+     * whatever it found. */
     cok_stick stick = {.on = joystick};
-    calibration c = {crt, hooks};
+    calibration c = {crt, hooks, rules};
     cok_stick_calibrate(&stick, hooks != NULL ? hooks->port : NULL, calibration_prompt, &c,
                         hooks != NULL ? hooks->ended : NULL);
     if (hooks != NULL && hooks->ended != NULL && *hooks->ended) return false;
@@ -188,10 +214,10 @@ void cok_setup_write_protected(cok_crt *crt)
     cok_crt_write_line(crt, "If these are your masters, use DISKCOPY to make duplicates.");
 }
 
-void cok_setup_numlock(cok_crt *crt, const cok_setup_hooks *hooks)
+void cok_setup_numlock(cok_crt *crt, const cok_setup_hooks *hooks, const cok_rules *rules)
 {
     cok_crt_clear(crt);
-    cok_crt_write_line(crt, "TANDY 1000 USERS - Make sure NUMLOCK is on.");
+    cok_crt_write_line(crt, rules->setup.numlock);
     if (hooks != NULL && hooks->delay != NULL) hooks->delay(2000, hooks->context);
 }
 
@@ -264,11 +290,24 @@ cok_setup_status cok_setup_startup(cok_crt *crt, const cok_keyboard *keys,
         *config = cok_config_parse_game(rules, file, size, stick);
     }
     if (hooks != NULL && hooks->calibrate && !config->joystick &&
-        !cok_setup_calibrate(crt, hooks, config)) {
+        !cok_setup_calibrate(crt, hooks, rules, config)) {
         cok_crt_log_rows(crt);
         return COK_SETUP_ENDED;
     }
-    cok_setup_numlock(crt, hooks);
+    cok_setup_numlock(crt, hooks, rules);
+    if (rules->setup.input_unset && config->input != 'J' && config->input != 'M' &&
+        config->input != 'N') {
+        /* dkk 1187:0a72: another letter leaves the mouse (DS:dbaa) as it
+         * was, past the image and never set (and, with the file, the
+         * joystick DS:dbf2, which 18bc:0017 reads); the game's start reads
+         * the mouse's at 4f9a:0123. */
+        snprintf(error, error_size,
+                 "%s's third line begins with 0x%02x, none of J, M and N, which leaves the "
+                 "mouse's flag never set (dkk DS:dbaa, past the image; 1187:0a72), and the "
+                 "game's start reads it (dkk 4f9a:0123)",
+                 rules->files.config, (unsigned)(uint8_t)config->input);
+        return stop(crt, COK_SETUP_UNSET, error);
+    }
     cok_crt_log_rows(crt);
     return COK_SETUP_OK;
 }

@@ -1398,6 +1398,13 @@ static const cok_rules_kit death_knights_kits[6] = {
  * classes as creation leaves them. */
 static const uint32_t death_knights_fresh[] = {ONE_CLASS, TWO_CLASSES, THREE_CLASSES};
 
+/* The setup's sound screen (1187:02e7: DS:2795-2811); its digits go to
+ * 6, which writes no line. */
+static const char *const death_knights_setup_sound[] = {
+    "SOUND TYPE:  [1] C/MS",  "             [2] AdLib", "             [3] Tandy 1000",
+    "             [4] PC",    "             [5] Silent", NULL,
+};
+
 const cok_rules cok_rules_death_knights = {
     .id = "death-knights",
     .assets = "DKKAssets",
@@ -1454,6 +1461,26 @@ const cok_rules cok_rules_death_knights = {
             .item_types = "ITEMS",
             .install_dir = "C:\\DKK\\",
             .save_dir = "SAVE",
+        },
+    .setup =
+        {
+            .display = "GRAPHICS ADAPTER TYPE: [1] CGA  [2] EGA  [3] Tandy  ",
+            .tandy_no_mouse = true,
+            .sound = death_knights_setup_sound,
+            .sound_answers = 6,
+            .sound_letters = "CATPS",
+            .sound_devices = {'C', 0, 'A', 'T', 'P'},
+            .input = "ALTERNATE INPUT TYPE: [1] Joystick  [2] Mouse  [3] Neither  ",
+            .input_unset = true,
+            .other_title = "PATH TO SAVE DATA FOR CHAMPIONS OF KRYNN",
+            .other_prompt = "(DEFAULT - ",
+            .other_floppy = ":\\SAVE",
+            .other_drive = ":\\KRYNN\\SAVE",
+            .calibration = {"Push joystick #1 to the extreme upper left position and press button #1.",
+                            "Push joystick #1 to the extreme lower right position and press button "
+                            "#1."},
+            .calibration_failed = "unable to read joystick",
+            .numlock = "Tandy 1000 users make sure num lock is on.",
         },
     .saves =
         {
@@ -2041,7 +2068,10 @@ const cok_rules cok_rules_death_knights = {
             .table_column = 14,
             .bonus_column = 14,
             .table_name = false,  /* 110f:0584(1, 0x12, 0x26, 0x15) */
-            .granted_stale = 0,   /* 4381:0664's local: not known */
+            /* 4381:0664's [bp-2] (read at 06f2): the low byte of the
+             * return offset 102e of the choose call at 4381:1029, at its
+             * depth, nothing called between (1068). */
+            .granted_stale = 0x2e,
             /* 4381:0f67, 115d, 0626: DS:31f7, 30ab, 30c0, 2f46, 2f65, 2f8e */
             .keep = "Keep",
             .keep_prompt = "spells OK? ",

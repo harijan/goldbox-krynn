@@ -966,20 +966,26 @@ static void stub(cok_adventure *game)
 }
 
 /* dkk 5340:4a25: whether a leader leads one: a d100 below 20, 40 or 80 by
- * its knights' order (1-3), plus 5 for each point of charisma above 13. */
-static bool leads(cok_adventure *game, const uint8_t *leader, bool *led)
+ * its knights' order (1-3), plus 5 for each point of charisma above 13.
+ * The chance is its [bp-3], which a knight of no order leaves as it was:
+ * 5340:4acf's loops call nothing else between two calls (4be1), so it is
+ * the previous call's *chance; before any call, the stack 4acf's caller
+ * left, and after the announcement (4bf8-4c6c) the high byte of SS that
+ * its push ss (4c42) left: -1, and the run stops. */
+static bool leads(cok_adventure *game, const uint8_t *leader, int *chance, bool *led)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
-    uint8_t order = cok_field_u8(L, leader, COK_FIELD_KNIGHT_ORDER), chance;
-    if (order == 1) chance = 20;
-    else if (order == 2) chance = 40;
-    else if (order == 3) chance = 80;
-    else
+    uint8_t order = cok_field_u8(L, leader, COK_FIELD_KNIGHT_ORDER);
+    if (order == 1) *chance = 20;
+    else if (order == 2) *chance = 40;
+    else if (order == 3) *chance = 80;
+    else if (*chance < 0)
         return undefined(game, "leadership's chance for a knight of no order is the stack's "
-                               "byte (5340:4a25)");
+                               "byte (5340:4a25's [bp-3], read at 4a8b: 4acf's caller's before "
+                               "the first call, SS's high byte after the announcement)");
     uint8_t charisma = cok_field_u8_at(L, leader, COK_FIELD_SCORE, COK_SCORE_CHARISMA);
     uint8_t bonus = charisma < 14 ? 0 : (uint8_t)((charisma - 13) * 5);
-    *led = cok_dice(&game->vm.seed, 1, 100) < (unsigned)chance + bonus;
+    *led = cok_dice(&game->vm.seed, 1, 100) < (unsigned)*chance + bonus;
     return true;
 }
 
@@ -995,6 +1001,7 @@ bool cok_combat_leadership(cok_adventure *game)
                        cok_field_u8(L, r, COK_FIELD_HOSTILE) != 0 || npc);
     }
     bool shown = false;
+    int chance = -1; /* 5340:4a25's [bp-3], none yet */
     for (size_t i = 0; i < party->count; ++i) {
         const uint8_t *leader = party->members[i]->record;
         if (cok_field_u8(L, leader, COK_FIELD_HOSTILE) != 0 ||
@@ -1011,11 +1018,12 @@ bool cok_combat_leadership(cok_adventure *game)
                 cok_field_u8_at(L, ally, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE) <= 3)
                 continue;
             bool led;
-            if (!leads(game, leader, &led)) return false;
+            if (!leads(game, leader, &chance, &led)) return false;
             if (!led) continue;
             if (!shown) {
                 /* 110f:0000, then the lines (14e4:04ab) in the frame. */
                 shown = true;
+                chance = -1; /* SS's high byte from here (4c42) */
                 cok_adventure_screen(game, COK_SCREEN_FRAME);
                 const cok_rules_combat *R = &rules->combat;
                 cok_adventure_print(game, R->leadership_text, (cok_text_window){1, 1, 0x26, 0x16},

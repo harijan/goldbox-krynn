@@ -1414,6 +1414,16 @@ static void test_spells(void)
     CHECK(R->spells.cast[0x23].value == 1 && R->characters.fighter_classes == 0x9c &&
           HOLDS(0x5dc5, 0x2bc9, 0x80, 0x26, 0x80, 0x7d, 0x48, 0x00) &&
           HOLDS(0x5dc5, 0x2bc9, 0x80, 0xb0, 0x01, 0x50, 0xb0, 0x08, 0x50));
+    /* Its [bp-6], read at 2c50 (mov al, [bp-6]), set only by a roll: from
+     * an item, 5dc5:1298's last call before the handler (call far [di -
+     * 0x3eb0] at 1583, nothing pushed) is 638c:13d4 through 00c5:0061 at
+     * 1557, two words pushed, whose [bp-2] lies there; without an item,
+     * 00cf:0075 at 156d (cast.c's strength). */
+    CHECK(HOLDS(0x5dc5, 0x2c50, 3, 0x8a, 0x46, 0xfa) &&
+          HOLDS(0x5dc5, 0x1551, 0x40, 0xff, 0x76, 0xf8, 0xff, 0x76, 0xf6, 0x9a, 0x61, 0x00, 0xc5,
+                0x00, 0x80, 0x3e, 0x47, 0xc4, 0x00, 0x75, 0x0f) &&
+          HOLDS(0x5dc5, 0x1572, 0x15, 0xd1, 0xe7, 0xd1, 0xe7, 0xff, 0x9d, 0x50, 0xc1) &&
+          HOLDS(0x638c, 0x13d4, 0x20, 0x8d, 0x7e, 0xfc, 0x16, 0x57));
     /* Remove Curse cures 0x2b (mov al, 0x2b; 638c:1479). */
     CHECK(R->spells.cast[0x2b].value == 0x2b && HOLDS(0x5dc5, 0x311b, 0x20, 0xb0, 0x2b, 0x50));
     /* Delay Blast Fireball: cmp byte [DS:be70], 0x6c, the level kept. */
@@ -2013,7 +2023,18 @@ static void test_levels(void)
             clears |= calls[i] == 0x110f0584;
             says |= calls[i] == 0x65cd1a21;
         }
-        CHECK(clears && !says && !V->table_name && V->granted_stale == 0);
+        CHECK(clears && !says && !V->table_name);
+        /* Its [bp-2], read at 06f2 and set by nothing before for one
+         * without a cleric level: memorize's choose (4381:1029: six words
+         * pushed, a far call, returning to 102e) then 0664 at 1068 (four
+         * words, push cs, a near call): its return offset's low byte. */
+        CHECK(V->granted_stale == 0x2e &&
+              HOLDS(0x4381, 0x1019, 0x16, 0xb0, 0x01, 0x50, 0xb0, 0x02, 0x50, 0x8d, 0x7e, 0xf9,
+                    0x16, 0x57, 0x8d, 0x7e, 0xfe, 0x16, 0x57, 0x9a, 0x57, 0x00, 0x92, 0x00) &&
+              HOLDS(0x4381, 0x1062, 0x09, 0x8d, 0x7e, 0xf8, 0x16, 0x57, 0x0e, 0xe8, 0xf9, 0xf5) &&
+              HOLDS(0x4381, 0x06f2, 3, 0x8a, 0x46, 0xfe));
+        /* Nothing is called from 102e to 1068. */
+        CHECK(far_calls(0x4381, 0x102e, 0x3a, calls, 64) == 0);
     }
     /* The lists' prompt, the marked spells' Keep and its prompt, Scribe's
      * question (Yes first) and words. */

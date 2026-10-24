@@ -817,7 +817,7 @@ bool cok_treasure_take_item(cok_adventure *game, const uint8_t *item, bool *fail
     bool join = T->take_joins && item[0x39] != 0;
     if (join && c->item_count == 0)
         return undefined(game, "taking an item with a count into no items joins it with a "
-                               "pointer the stack holds (dkk 3b89:033b)");
+                               "pointer the stack holds (dkk 3b89:033b's [bp-8], pushed at 0435)");
     if (!cok_character_insert_item(c, c->item_count, item))
         return undefined(game, "out of memory");
     if (join) cok_item_join(c, c->item_count - 1); /* dkk 580d:1be6 */
@@ -918,6 +918,10 @@ bool cok_treasure_may_train(const cok_rules *rules, const uint8_t *c, bool *may)
     const cok_data_segment *D = rules->data;
     int32_t xp = (int32_t)cok_field_u32(L, c, COK_FIELD_EXPERIENCE);
     *may = false;
+    /* 65cd:382c's row ([bp-2], read at 38b8), which a class without one
+     * leaves as it was: 38c7's loop calls nothing else (3933), so the
+     * previous class's in this call; before any, the stack: false. */
+    int last = -1;
     for (unsigned k = 0; k < 8 && !*may; ++k) {
         int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, k);
         if (level <= 0 || level >= 0x12) continue;
@@ -925,7 +929,10 @@ bool cok_treasure_may_train(const cok_rules *rules, const uint8_t *c, bool *may)
         int32_t need;
         uint8_t limit;
         long at = cok_data_offset2(D, COK_DATA_LEVEL_LIMITS, cok_field_s8(L, c, COK_FIELD_RACE), k);
-        if (!cok_train_row(c, rules, k, &row) || !cok_train_experience(rules, row, level + 1, &need) ||
+        if (cok_train_row(c, rules, k, &row)) last = row;
+        else if (last >= 0) row = (uint8_t)last;
+        else return false;
+        if (!cok_train_experience(rules, row, level + 1, &need) ||
             !cok_data_holds(D, COK_DATA_LEVEL_LIMITS, at) || !cok_data_byte(D, (uint16_t)at, &limit))
             return false;
         *may = xp >= need && need > 0 && limit > (uint8_t)level;

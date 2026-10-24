@@ -810,6 +810,23 @@ static int read_setup(void *context)
     return setup_at < sizeof setup_keys / sizeof *setup_keys ? setup_keys[setup_at++] : -1;
 }
 
+/* The calibration's rows as logged, and its delays. */
+static char calibration_row[4][90];
+static unsigned calibration_rows, calibration_delays;
+
+static void calibration_log(const char *row, void *context)
+{
+    (void)context;
+    if (calibration_rows < 4) snprintf(calibration_row[calibration_rows], 90, "%s", row);
+    ++calibration_rows;
+}
+
+static void calibration_delay(unsigned ms, void *context)
+{
+    (void)context;
+    calibration_delays += ms;
+}
+
 static void setup_calibration(void)
 {
     static cok_crt crt;
@@ -869,7 +886,7 @@ static void setup_calibration(void)
     }
     cok_config config = {0};
     cok_crt_init(&crt);
-    CHECK(cok_setup_calibrate(&crt, &hooks, &config) && config.joystick);
+    CHECK(cok_setup_calibrate(&crt, &hooks, &cok_rules_champions, &config) && config.joystick);
     static const uint16_t cx[7] = {10, 40, 70, 100, 130, 160, 190};
     static const uint16_t cy[7] = {20, 43, 66, 90, 116, 143, 170};
     CHECK(memcmp(config.joystick_x, cx, sizeof cx) == 0);
@@ -882,6 +899,31 @@ static void setup_calibration(void)
                         cok_rules_champions.files.install_dir, file, &size));
     file[size] = '\0';
     CHECK(strstr((const char *)file, "F\r\n0\r\n0\r\n0\r\n") != NULL);
+    /* Death Knights' words (dkk 18bc:01e1): the upper left's line (DS:1b2e,
+     * ' ', DS:1b57), then with no button DS:1b80's line for 2 seconds;
+     * Champions' own failure line. */
+    for (int which = 0; which < 2; ++which) {
+        const cok_rules *rules = which == 0 ? &cok_rules_champions : &cok_rules_death_knights;
+        *s = (scripted_port){.rest = {1, 100, 100, 0}};
+        cok_crt_init(&crt);
+        crt.log = calibration_log;
+        calibration_rows = 0;
+        cok_config none = {0};
+        calibration_delays = 0;
+        cok_setup_hooks timed = {calibration_delay, NULL, &port, NULL, false};
+        CHECK(cok_setup_calibrate(&crt, &timed, rules, &none));
+        cok_crt_log_rows(&crt);
+        CHECK(calibration_rows == 2 && calibration_delays == 2000);
+        CHECK(strcmp(calibration_row[0],
+                     which == 0 ? "Push JOYSTICK #1 to the extreme upper left position and press "
+                                 "BUTTON #1."
+                               : "Push joystick #1 to the extreme upper left position and press "
+                                 "button #1.") == 0);
+        CHECK(strcmp(calibration_row[1], which == 0
+                                             ? "Couldn't read the joystick.  Aborting calibration."
+                                             : "unable to read joystick") == 0);
+        crt.log = NULL;
+    }
 }
 
 /* The stick's bands at their edges, every cell of DS:4334, and the

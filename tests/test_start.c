@@ -1874,8 +1874,8 @@ static void test_death_knights_levels(void)
         CHECK(first != NULL && strstr(first + 1, "heading: SIR DRYDEN;") != NULL);
     }
     /* A power granted (101) memorized by one without a cleric level (a
-     * knight of 7): 4381:0664 counts it from a local of its own, which the
-     * port does not know (levels.granted_stale 0): a stop. */
+     * knight of 7): 4381:0664 counts it from a local of its own, 0x2e
+     * (levels.granted_stale): one is left, and it goes ahead. */
     {
         CHECK(cok_spell_class(R, 101) == 2 && cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0) <= 0);
         for (unsigned id = 1; id < R->spells.count; ++id)
@@ -1884,8 +1884,7 @@ static void test_death_knights_levels(void)
         dkk_keys("MM");
         bool interrupted = false;
         cok_magic(&dkk, &interrupted);
-        CHECK(logged("list: Spells in Grimoire;") && dkk.vm.status == COK_ECL_UNDEFINED &&
-              strstr(dkk.error, "4381:0664") != NULL);
+        CHECK(logged("list: Spells in Grimoire;") && dkk.vm.status == COK_ECL_OK);
     }
     /* At its race's second age (120) one is only very old. */
     cok_field_set16(L, c, COK_FIELD_AGE, 120);
@@ -2378,6 +2377,38 @@ static void test_death_knights_drain(void)
         marked += memorized[i] == 0x8f;
     }
     CHECK(kept == a_day && marked == 0);
+    /* A cleric of 5 tied with a druid of 5 (no row): 382c's [bp-2] keeps
+     * the cleric's (504d:1577, then 1589; row 1, a deity above 4, which
+     * asks more than row 0), so the cleric is drained. */
+    cok_field_set8(L, c, COK_FIELD_DEITY, 5);
+    int32_t row0, row1;
+    CHECK(cok_train_experience(R, 0, 5, &row0) && cok_train_experience(R, 1, 5, &row1) &&
+          row1 > row0);
+    for (unsigned k = 0; k < 8; ++k) {
+        cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, k, k <= 1 ? 5 : 0);
+        cok_field_set8_at(L, c, COK_FIELD_UNDRAINED_LEVEL, k, 0);
+    }
+    dkk_keys("");
+    CHECK(cok_train_drain(&dkk, celeste, 1) && dkk.vm.status == COK_ECL_OK &&
+          cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 0) == 4 &&
+          cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 1) == 5);
+    /* Restoration (5dc5:2326) of a fighter and a knight of no order, both
+     * drained: the knight reads the fighter's row (2); one of no order
+     * alone stops. */
+    for (unsigned k = 0; k < 8; ++k) {
+        cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, k, k == 2 || k == 7 ? 3 : 0);
+        cok_field_set8_at(L, c, COK_FIELD_UNDRAINED_LEVEL, k, k == 2 || k == 7 ? 4 : 0);
+    }
+    cok_field_set8(L, c, COK_FIELD_KNIGHT_ORDER, 0);
+    dkk_keys("");
+    CHECK(cok_train_restore(&dkk, celeste) && dkk.vm.status == COK_ECL_OK);
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 2, 0);
+    cok_field_set8_at(L, c, COK_FIELD_UNDRAINED_LEVEL, 2, 0);
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 7, 3);
+    dkk_keys("");
+    CHECK(!cok_train_restore(&dkk, celeste) && dkk.vm.status == COK_ECL_UNDEFINED &&
+          strstr(dkk.error, "5dc5:23d3") != NULL);
+    dkk.vm.status = COK_ECL_OK;
 }
 
 int main(void)

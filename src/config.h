@@ -11,9 +11,10 @@
  * the first line, the display (DS:4b76): 'E' EGA, 'T' Tandy, any other
  * character CGA (the setup's [1] CGA writes 'C'); then Read(f, c) for the
  * second, the sound device (DS:577a): 'C', 'R', 'A', 'T' or 'P' give 0-4,
- * any other character 5, none. Upper case only, nothing skipped before
- * them. Turbo Pascal's text reads end a line at a CR, a LF after it
- * skipped, and stop at the end or a Ctrl-Z, where Read gives Ctrl-Z: so an
+ * any other character 5, none (the letters are the rules'
+ * setup.sound_devices: Death Knights' have no 'R'). Upper case only,
+ * nothing skipped before them. Turbo Pascal's text reads end a line at a
+ * CR, a LF after it skipped, and stop at the end or a Ctrl-Z, where Read gives Ctrl-Z: so an
  * empty file is CGA, and an empty second line, a single line or LF-only
  * line ends (the whole file one line) give no sound. */
 /* The display mode, DS:4b76, as startup sets it from KRYNN.CFG's first line
@@ -37,6 +38,9 @@ typedef struct {
     cok_display display;
     cok_sound_device sound;
     bool joystick, mouse;
+    /* The third line's first character as read (Ctrl-Z at the end): the
+     * rules' setup.input_unset says what another than J, M or N means. */
+    char input;
     char save_path[256];
     /* dkk: the line after it, Champions' saved games' path (DS:99a4),
      * which the port takes from --import; empty in Champions'. */

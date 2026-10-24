@@ -306,8 +306,8 @@ static bool from_where(cok_adventure *game, const char *prompt, const char *unse
         }
         undefined(game, unset != NULL ? unset
                                       : "Add from where with a special key reads DS:c468, never "
-                                        "set since startup (49cb:34a9; past the image EXEPACK "
-                                        "unpacks, cleared by no startup code)");
+                                        "set since startup (49cb:34a9, read at 46b2:044e; past the "
+                                        "image EXEPACK unpacks, cleared by no startup code)");
         return false;
     }
     int key = cok_camp_menu(game, prompt, start->from_items, false, false, &special);

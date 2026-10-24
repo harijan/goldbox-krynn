@@ -752,7 +752,8 @@ bool cok_combat_sweep(cok_adventure *game, cok_character *attacker, cok_characte
     if (combat->combatant[combat->enemies[1]].character != target) {
         if (at == 0)
             return undefined(game, "the swept target is not among those listed, whose place is "
-                                   "a byte never set (432f:110b)");
+                                   "a byte never set (432f:110b; dkk 5340:0eaf's [bp-5], read at "
+                                   "0fe3)");
         combat->enemies[at] = combat->enemies[1];
         combat->enemies[1] = cok_combat_index(combat, target->record);
     }
