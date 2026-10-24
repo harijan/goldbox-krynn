@@ -96,7 +96,11 @@ LOAD_STEPS = ["x", "x", r"\r", r"\v\v", r"\r", r"\r", r"\r"]
 TRAIN = [
     ("knight", r"\v\v\r"),     # Knight Change Order: Pick Character
     ("petition", r"\r"),       # SIR DRYDEN is petitioning ...: Change Exit
-    ("changed", "C"),          # Change: the start menu
+    ("escaped", r"\e"),        # Escape (49cb:52a9): the start menu
+    ("knight-again", r"\r"),   # Pick Character
+    ("petition-again", r"\r"),
+    ("on-exit", r"\>"),        # Exit selected (6a69:0f1b reads on)
+    ("changed", r"\<\r"),      # Change by Enter: the start menu
     ("train", r"\^\r"),        # Train Character: Pick Character
     ("will-become", r"\v\v\v\r"),  # FLAVIUS will become: do you wish to train?
     ("choose", r"\r"),         # Yes: congratulations..., the spells to choose

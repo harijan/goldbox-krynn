@@ -53,6 +53,13 @@ FLOWS = {
         ("drop-pick", "\\^\\^\\^\\r"), ("drop-ask", "\\r"), ("drop-sure", "Y"),
         ("dropped", "Y")] + [(f"dropped-{n}", "\\r\\rYY") for n in range(2, 7)] +
         [("empty-load", "\\v\\r")],
+    # The title's F10 (its scan code 0x44 Champions' D) plays (1000:014a:
+    # only index 1 is Demo); Add's list by index (49cb:34db) starts on the
+    # item "from where" left selected: Right to Champions, Up (a special
+    # key: Death's, as Load left DS:c468), so Exit, which Enter picks.
+    "keys": [("credits", "x"), ("menu", "x"), ("start-f10", "\\#44"),
+             ("loaded", "\\v\\v\\r\\r\\r"), ("remove-pick", "\\v\\v\\v\\r"), ("removed", "\\r"),
+             ("add-on-exit", "\\>\\^"), ("add-exit", "\\r")],
 }
 # Champions' bank, the word at 0x267 of its saved games (variable 0x4c33).
 BANK = 0x1234

@@ -706,6 +706,27 @@ static bool undefined(cok_adventure *game, const char *what)
     return false;
 }
 
+/* A menu of the treasure by index (dkk 6a69:0f1b), where the game's menus
+ * go by index: items of text listed, each read back as its letter in
+ * letters (' ' for an index with none), Escape (a special 0x1b) as Exit's
+ * 'E'; other special keys returned as scan codes with *special set. Else
+ * cok_camp_menu over text. */
+static int menu_letter(cok_adventure *game, const char *prompt, const char *text,
+                       const cok_menu_items *items, const char *letters, bool keypad, bool show,
+                       bool *special)
+{
+    if (cok_game_rules(game)->menus.routine != COK_MENUS_INDEXED)
+        return cok_camp_menu(game, prompt, text, keypad, show, special);
+    int key = cok_camp_pick_menu(game, prompt, text, items, keypad, show, special);
+    if (key < 0) return key;
+    if (*special) {
+        if (key != 0x1b) return key;
+        *special = false;
+        return 'E';
+    }
+    return (size_t)key < strlen(letters) ? letters[key] : ' ';
+}
+
 static cok_character *selected(cok_adventure *game)
 {
     size_t i = cok_party_index(&game->party, game->vm.character);
@@ -1255,6 +1276,30 @@ static bool results(cok_adventure *game, const outcome *result)
     return press_enter(game);
 }
 
+/* A list of the treasure's by index (dkk 6a69:1b82, where the game's menus
+ * go by index): style's first item and Exit, the items 0 to last
+ * (6a69:00cb). Exit, Escape (the row NULL: 1b82's 1f3f) and an empty list
+ * pick no row; with last 1 (5c72:0ac4, 580d:26d0) any other index but
+ * Exit's, 1, takes the row, with last 0 (3a37:0ce8) only 0. Returns 1 for a
+ * row picked (*index), 0 for none, -1 if input ended. */
+static int indexed_list(cok_adventure *game, const cok_menu_row *rows, size_t count,
+                        cok_text_window window, const cok_menu_style *style, uint8_t last,
+                        int *index, int *top)
+{
+    bool redraw = true;
+    cok_keyboard keys = cok_adventure_keyboard(game);
+    cok_menu_items items;
+    cok_menu_items_upto(&items, last);
+    bool special = false, picked;
+    int key = cok_menu_indexed_rows(&game->screen, &game->font, rows, count, window, style,
+                                    style->base, &items, last, &redraw, index, top,
+                                    &game->selected, &keys, &special, &picked);
+    if (key < 0) return -1;
+    game->menu_special = special; /* DS:c0f8 */
+    if (!picked || count == 0) return 0;
+    return last == 0 ? key == 0 : key != 1;
+}
+
 bool cok_pool_take_money(cok_adventure *game)
 {
     const cok_rules_treasure *T = &cok_game_rules(game)->treasure;
@@ -1276,13 +1321,22 @@ bool cok_pool_take_money(cok_adventure *game)
         }
         for (size_t i = 0; i < count; ++i) log_text(game, "item", text[i]);
         cok_menu_style style = {T->coin_prompt, "Select", 15, 10, 13, true};
-        bool redraw = true;
-        cok_keyboard keys = cok_adventure_keyboard(game);
-        int key = cok_menu_rows(&game->screen, &game->font, rows, count,
-                                (cok_text_window){2, 2, 0x0f, 8}, &style, &redraw, &index,
-                                &game->list_top, &game->selected, &keys);
-        if (key < 0) return false;
-        if (key == 0 || count == 0) return true;
+        if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
+            /* dkk 5c72:0bfa-0c31: 6a69:00cb(1), 1b82 with "Select" (DS:31d6),
+             * Exit, the last 1. */
+            int got = indexed_list(game, rows, count, (cok_text_window){2, 2, 0x0f, 8}, &style,
+                                   1, &index, &game->list_top);
+            if (got < 0) return false;
+            if (got == 0) return true;
+        } else {
+            bool redraw = true;
+            cok_keyboard keys = cok_adventure_keyboard(game);
+            int key = cok_menu_rows(&game->screen, &game->font, rows, count,
+                                    (cok_text_window){2, 2, 0x0f, 8}, &style, &redraw, &index,
+                                    &game->list_top, &game->selected, &keys);
+            if (key < 0) return false;
+            if (key == 0 || count == 0) return true;
+        }
         int k = kinds[index];
         char choice[2] = {text[index][0], '\0'};
         log_text(game, "choice", choice);
@@ -1337,16 +1391,28 @@ static bool take_items(cok_adventure *game)
             if (i < 255) log_text(game, rows[i].heading ? "heading" : "item", text[i]);
         }
         cok_menu_style style = {T->items_prompt, "Take", 15, 10, 13, true};
-        bool redraw = true;
-        cok_keyboard keys = cok_adventure_keyboard(game);
-        int key = cok_menu_rows(&game->screen, &game->font, rows, count,
-                                (cok_text_window){1, 1, 0x26, 0x16}, &style, &redraw, &index,
-                                &game->list_top, &game->selected, &keys);
-        if (key < 0) {
-            ok = false;
-            break;
+        if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
+            /* dkk 3a37:0c8d-0cc3: 6a69:00cb(0), 1b82 with "Take" (DS:3540),
+             * Exit, the last 0. */
+            int got = indexed_list(game, rows, count, (cok_text_window){1, 1, 0x26, 0x16}, &style,
+                                   0, &index, &game->list_top);
+            if (got < 0) {
+                ok = false;
+                break;
+            }
+            if (got == 0) break;
+        } else {
+            bool redraw = true;
+            cok_keyboard keys = cok_adventure_keyboard(game);
+            int key = cok_menu_rows(&game->screen, &game->font, rows, count,
+                                    (cok_text_window){1, 1, 0x26, 0x16}, &style, &redraw, &index,
+                                    &game->list_top, &game->selected, &keys);
+            if (key < 0) {
+                ok = false;
+                break;
+            }
+            if (key != 'T' && key != 0x0d) break;
         }
-        if (key != 'T' && key != 0x0d) break;
         if (index < 0 || (size_t)index >= pool->item_count) {
             ok = undefined(game, "Take picked no item (351b:0ec5)");
             break;
@@ -1385,7 +1451,12 @@ static bool take(cok_adventure *game, bool *reached)
     *reached = false;
     for (;;) {
         bool special;
-        int key = cok_camp_menu(game, T->take_prompt, "Money Items Exit", true, true, &special);
+        /* dkk 3a37:0e26-0e3b: 6a69:00cb(2), 0f1b over DS:354b, the keypad and
+         * the picture. */
+        cok_menu_items shown;
+        cok_menu_items_upto(&shown, 2);
+        int key = menu_letter(game, T->take_prompt, "Money Items Exit", &shown, "MIE", true, true,
+                              &special);
         if (key < 0) return false;
         bool done = false;
         if (special && T->specials_apart) {
@@ -1466,8 +1537,18 @@ static bool menu_loop(cok_adventure *game)
         else
             snprintf(menu, sizeof menu, "View Pool Exit");
         bool special;
+        /* dkk 3a37:0f0c-1069: the items by index over DS:3560 (View, Take
+         * with money or items, Pool, Share with money, Detect, Exit:
+         * 6a69:00ab), the keypad and the picture. */
+        cok_menu_items shown = {0};
+        for (uint8_t i = 0; i < 6; ++i)
+            if ((i != 1 || money || items) && (i != 3 || money) && (i != 4 || spell != 0))
+                cok_menu_items_add(&shown, i);
         if (T->menus_first) game->selected = selection; /* DS:c0f7 */
-        int key = cok_camp_menu(game, "", menu, true, true, &special);
+        int key = menu_letter(game, "", cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED
+                                            ? "View Take Pool Share Detect Exit"
+                                            : menu,
+                              &shown, "VTPSDE", true, true, &special);
         if (T->menus_first) selection = game->selected;
         if (key < 0) return false;
         if (special) {
@@ -1507,8 +1588,16 @@ static bool menu_loop(cok_adventure *game)
             vm->cursor = (cok_text_cursor){1, 0x11};
             cok_adventure_print(game, T->left, cok_adventure_text_window, 10, true);
             cok_adventure_print(game, T->claim, cok_adventure_text_window, 15, false);
-            if (T->claim_no) game->selected = 2; /* dkk 6a69:2048 with 1 */
-            int answer = cok_adventure_horizontal(game, "", "~Yes ~No", 10, false);
+            int answer;
+            if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
+                /* dkk 3a37:1183: 6a69:2048 with DS:57c1, its No, no prompt. */
+                answer = cok_camp_ask(game, "", 13, !T->claim_no);
+                if (answer < 0) return false;
+                answer = answer == 'N';
+            } else {
+                if (T->claim_no) game->selected = 2; /* dkk 6a69:2048 with 1 */
+                answer = cok_adventure_horizontal(game, "", "~Yes ~No", 10, false);
+            }
             if (answer < 0) return false;
             if (answer == 1) {
                 done = true;
@@ -1562,14 +1651,24 @@ static bool deposit(cok_adventure *game)
         }
         for (size_t i = 0; i < count; ++i) log_text(game, "item", text[i]);
         cok_menu_style style = {T->coin_prompt, "Select", 15, 10, 13, true};
-        bool redraw = true;
         int index = 0, top = 0;
-        cok_keyboard keys = cok_adventure_keyboard(game);
-        int key = cok_menu_rows(&game->screen, &game->font, rows, count,
-                                (cok_text_window){1, 0x11, 0x26, 0x16}, &style, &redraw, &index,
-                                &top, &game->selected, &keys);
-        if (key < 0) return false;
-        if (key == 0 || count == 0) return true;
+        if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
+            /* dkk 580d:2872-28e0: 6a69:00cb(1), 1b82 with "Select" (DS:31d6), Exit,
+             * the last 1; Escape picks none (the row NULL), its index
+             * unread. */
+            int got = indexed_list(game, rows, count, (cok_text_window){1, 0x11, 0x26, 0x16},
+                                   &style, 1, &index, &top);
+            if (got < 0) return false;
+            if (got == 0) return true;
+        } else {
+            bool redraw = true;
+            cok_keyboard keys = cok_adventure_keyboard(game);
+            int key = cok_menu_rows(&game->screen, &game->font, rows, count,
+                                    (cok_text_window){1, 0x11, 0x26, 0x16}, &style, &redraw,
+                                    &index, &top, &game->selected, &keys);
+            if (key < 0) return false;
+            if (key == 0 || count == 0) return true;
+        }
         int k = kinds[index];
         char choice[2] = {text[index][0], '\0'};
         log_text(game, "choice", choice);
@@ -1678,9 +1777,28 @@ static void vault_loop(cok_adventure *game)
                      T->vault_items[i]);
         }
         bool special;
+        /* dkk 3948:00bd-016d: the items by index over DS:35bd (6a69:00ab),
+         * the keypad, no picture. */
+        cok_menu_items shown = {0};
+        char text[64] = "";
+        for (uint8_t i = 0; i < 6; ++i) {
+            size_t used = strlen(text);
+            snprintf(text + used, sizeof text - used, "%s%s", used > 0 ? " " : "",
+                     T->vault_items[i]);
+            if (on[i]) cok_menu_items_add(&shown, i);
+        }
+        char letters[7];
+        for (size_t i = 0; i < 6; ++i) letters[i] = T->vault_items[i][0];
+        letters[6] = '\0';
         game->selected = selection; /* DS:c0f7 */
-        int key = cok_camp_menu(game, "", menu, true, false, &special);
+        int key = menu_letter(game, "",
+                              cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED ? text
+                                                                                         : menu,
+                              &shown, letters, true, false, &special);
         selection = game->selected;
+        /* 3948:0182: Escape is Exit with DS:c0f8 cleared. */
+        if (key >= 0 && !special && cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED)
+            game->menu_special = false;
         if (key < 0) return;
         if (special) {
             if (key == 'H' || key == 'P') cok_camp_pick(game, (uint8_t)key); /* 580d:2bb2 */

@@ -210,15 +210,36 @@ void cok_start_title(cok_adventure *game)
 
 /* The title's menu (1000:0165, 0335): Play or Demo, which the time running
  * out with no key picks (30 seconds, after a demonstration 10: DS:6e11);
- * so does F10, whose scan code is 0x44, D. */
+ * so does F10, whose scan code is 0x44, D. A game whose menus go by index
+ * (dkk 1000:0118-0156, 021c-0264) reads them by index (6a69:00cb with 1,
+ * 0f1b over DS:31c0, no keypad, no picture), the time running out giving
+ * DS:c0fe's 1, Demo; any other result plays, F10 and Escape too (their
+ * scan codes, with DS:c0f8 set, are not 1). Returns 'D' for Demo. */
 static int title_menu(cok_adventure *game, const char *prompt, uint16_t timeout)
 {
-    cok_adventure_log(game, "menu", "Play Demo");
-    cok_keyboard keys = cok_adventure_keyboard(game);
     game->timed = game->title = true;
-    game->timeout = timeout;
-    int key = cok_menu_timed(&game->screen, &game->font, prompt, "Play Demo", 13, 15, 10,
+    game->timeout = timeout; /* DS:c0fa */
+    int key;
+    if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
+        cok_menu_items items;
+        cok_menu_items_upto(&items, 1);
+        cok_menu_indexed_layout shown;
+        cok_menu_indexed(&shown, "Play Demo", &items);
+        cok_adventure_log(game, "menu", shown.text);
+        cok_keyboard keys = cok_adventure_keyboard(game);
+        bool special;
+        key = cok_menu_pick_timed(&game->screen, &game->font, prompt, "Play Demo", &items, 13, 15,
+                                  10, false, &game->selected, &keys, &special, 1);
+        if (key >= 0) {
+            game->menu_special = special; /* DS:c0f8 */
+            key = key == 1 ? 'D' : key == 0 && !special ? 'P' : 0; /* DS:84b2 == 1 */
+        }
+    } else {
+        cok_adventure_log(game, "menu", "Play Demo");
+        cok_keyboard keys = cok_adventure_keyboard(game);
+        key = cok_menu_timed(&game->screen, &game->font, prompt, "Play Demo", 13, 15, 10,
                              &game->selected, &keys, 'D');
+    }
     game->timed = false;
     if (key >= 0) {
         game->title = false;

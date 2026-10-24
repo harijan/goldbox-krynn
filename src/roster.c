@@ -353,10 +353,32 @@ void cok_roster_add(cok_adventure *game)
     uint8_t players = 0;
     cok_keyboard keys = cok_adventure_keyboard(game);
     int key;
+    bool indexed = rules->menus.routine == COK_MENUS_INDEXED;
     do {
-        key = cok_menu_rows(&game->screen, &game->font, rows, count,
-                            (cok_text_window){1, 2, 0x26, 0x16}, &style, &redraw, &index,
-                            &game->list_top, &game->selected, &keys);
+        if (indexed) {
+            /* dkk 49cb:34db-3526: 6a69:00cb(0), then 1b82 over the roster with
+             * Add (DS:3356) and Exit, the last 0; Exit and Escape (0x1b)
+             * leave (1), a row picked (0) is tried. 0f1b gives this menu
+             * nothing else, so the loop's count of players ([bp-0x1e],
+             * set only once a row is tried) is never read unset. */
+            cok_menu_items items;
+            cok_menu_items_upto(&items, 0);
+            bool special = false, picked;
+            key = cok_menu_indexed_rows(&game->screen, &game->font, rows, count,
+                                        (cok_text_window){1, 2, 0x26, 0x16}, &style,
+                                        start->add_select, &items, 0, &redraw, &index,
+                                        &game->list_top, &game->selected, &keys, &special,
+                                        &picked);
+            if (key < 0) return;
+            game->menu_special = special; /* DS:c0f8 */
+            if (special && key == 0x1b) key = 'E';
+            else if (!special && key == 0 && picked) key = 'A';
+            else key = ' ';
+        } else {
+            key = cok_menu_rows(&game->screen, &game->font, rows, count,
+                                (cok_text_window){1, 2, 0x26, 0x16}, &style, &redraw, &index,
+                                &game->list_top, &game->selected, &keys);
+        }
         if (key < 0) return;
         /* A space first reaches the loop's test of a count not yet set
          * (4def:3ae7): FreeMem's leftover from freeing the start menu's last

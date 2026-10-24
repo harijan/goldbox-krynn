@@ -1832,6 +1832,29 @@ static void test_death_knights_levels(void)
     dkk_keys("S\x01\x43");
     cok_start_command(&dkk, 'K');
     CHECK(cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER) == 1);
+    /* By index (49cb:5261): Escape leaves, as does Exit by Right and Enter;
+     * Up (a special key) asks again; Enter on the first, Change, changes. */
+    dkk.menu_special = false;
+    dkk_keys("S\033C");
+    cok_start_command(&dkk, 'K');
+    CHECK(cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER) == 1 && s.at == s.length - 1 &&
+          dkk.menu_special);
+    dkk_keys("S\x01\x4d\r");
+    cok_start_command(&dkk, 'K');
+    CHECK(cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER) == 1 && s.at == s.length);
+    dkk_keys("S\x01\x48" "E");
+    cok_start_command(&dkk, 'K');
+    CHECK(cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER) == 1 && s.at == s.length);
+    dkk.selected = 1;
+    dkk_keys("S\x01\x48\r");
+    cok_start_command(&dkk, 'K');
+    CHECK(cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER) == 2 &&
+          cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 7) == 11);
+    cok_field_set8(L, c, COK_FIELD_KNIGHT_ORDER, 1);
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 7, 12);
+    cok_field_set32(L, c, COK_FIELD_EXPERIENCE, 0);
+    cok_field_set8(L, c, COK_FIELD_BASE_HIT_POINTS, base);
+    cok_field_set8(L, c, COK_FIELD_MAX_HIT_POINTS, most);
     dkk_keys("SC");
     cok_start_command(&dkk, 'K');
     CHECK(cok_field_u8(L, c, COK_FIELD_KNIGHT_ORDER) == 2 &&
