@@ -10,6 +10,11 @@ original did, down to its quirks.
 You need your own copy of the original DOS game. Its files are not
 included here.
 
+> **Disclaimer:** This project was made almost entirely by AI. Nearly all
+> of its code, tests and documentation, this README included, were
+> written by an AI coding assistant, with a person directing the work
+> and checking the results.
+
 - [What you need](#what-you-need)
 - [Building](#building)
 - [Playing](#playing)
