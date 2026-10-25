@@ -200,7 +200,7 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertIn("choice: Plate Mail ", lines)
         at = lines.index("print: there is still treasure left. ")
         self.assertEqual(lines[at + 1:at + 3], [
-            "print: do you want to go back and claim your treasure?", "menu: ~Yes ~No"])
+            "print: do you want to go back and claim your treasure?", "menu: "])
         self.assertEqual(lines[-1], "(done in block 2)")
         # Detect, offered once the selection (Down, 65cd:0959) is FLAVIUS,
         # who has Detect Magic memorized, casts it (5dc5:1298).
@@ -604,6 +604,25 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertTrue(out.endswith("menu: ~Yes ~No\n(out of keys in block 16 at 817b)\n"),
                         out[-300:])
 
+    def test_title_menu(self):
+        # The title's menu by index (1000:0118, 6a69:0f1b with DS:c0fa): the
+        # time running out gives DS:c0fe's 1, Demo, as do D and Enter on
+        # Demo; any other result plays, F10 (Champions' Demo, its scan code
+        # 0x44 its D) and Escape too. The demonstration reads ECL5, which
+        # the game does not ship (3632:2e06).
+        saves = self.saves(ASSETS / "SAVE")
+        for keys, demo in ((r"\t", True), (r"D", True), (r"\>\r", True), (r"\>\t", True),
+                           (r"\#44", False), (r"\e", False), (r"P", False), (r"\r", False)):
+            result = self.play("--start-menu", "--saves", saves, "--keys", r"\kx\kx" + keys,
+                               ASSETS)
+            if demo:
+                self.assertIn("ECL5.DAX: file read failed", result.stderr)
+            else:
+                self.assertEqual(result.returncode, 0, result.stderr)
+            out = result.stdout
+            self.assertIn("menu: Play Demo\nchoice: " + ("Demo\n" if demo else ""), out)
+            self.assertEqual("item: Create New Character\n" in out, not demo, keys)
+
     def test_lost_to_start_menu(self):
         # The first fight lost from the start menu's Begin: "the monsters
         # rejoice", the adventure's menu once more (3632:2e06's 4307:0257
@@ -778,12 +797,30 @@ class DeathKnightsTests(unittest.TestCase):
         for f in champions.glob("CHRDATA*"):
             name = f.name.replace(".SAV", ".WHO")
             (roster / name).write_bytes(f.read_bytes())
-        keys = self.TITLE + r"\v\rC" + r"\r\v" * 6
+        keys = self.TITLE + r"\v\rC" + r"A\v" * 6
         result = self.play("--start-menu", "--saves", saves, "--import", roster, "--keys", keys,
                            ASSETS)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("list: add a character: \nitem: SIR STRONGSWORD\n", result.stdout)
         self.assertEqual(result.stdout.count(" joins\n"), 6)
+        # The list by index (49cb:34db, 6a69:1b82) starts on the item "from
+        # where" left selected (DS:c0f7): Champions, the second, is Exit
+        # here, which Enter picks: no one joins and the start menu is back.
+        result = self.play("--start-menu", "--saves", saves, "--import", roster, "--keys",
+                           self.TITLE + r"\v\rC\r", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(" joins\n", result.stdout)
+        at = result.stdout.index("list: add a character: ")
+        self.assertIn("item: SIRRION        \nlist: \nitem: Create New Character\n",
+                      result.stdout[at:])
+        # Escape leaves too (the special 0x1b as 1).
+        result = self.play("--start-menu", "--saves", saves, "--import", roster, "--keys",
+                           self.TITLE + r"\v\rCA\e", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count(" joins\n"), 1)
+        self.assertTrue(
+            result.stdout.endswith("item: Exit to DOS\n(out of keys in the start menu)\n"),
+            result.stdout[-200:])
 
     def hall_saves(self):
         """SAVE's games with game A's hall variable 0x7ea8 at 127 (every

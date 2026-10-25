@@ -1418,7 +1418,7 @@ static void test_dk_menu(void)
     CHECK(combat(COK_COMBAT_UNPORTED) == COK_ECL_OK);
     CHECK(LOGGED("menu: View Take Pool Share Exit;menu: Money Items Exit;menu: Money Items "
                  "Exit;menu: View Take Pool Share Exit;print: there is still treasure left. ;"
-                 "print: do you want to go back and claim your treasure?;menu: ~Yes ~No;"));
+                 "print: do you want to go back and claim your treasure?;menu: ;choice: N;"));
     /* Enter on the Yes/No's No left: the pool's items freed after. */
     CHECK(a->item_count == 0 && !LOGGED("choice: Long Sword") && game.pool.item_count == 0 &&
           !game.input_ended);
@@ -1444,6 +1444,47 @@ static void test_dk_menu(void)
     CHECK(LOGGED("menu: Money Items Exit;item: Steel 7;choice: S;menu: How much Steel  will "
                  "you take? ;input: 7;"));
     CHECK(cok_field_u16_at(cok_rules_death_knights.character, a->record, COK_FIELD_COINS, 4) == 7);
+}
+
+/* The treasure's menus and lists by index (dkk 6a69:0f1b, 1b82). */
+static void test_dk_indexed(void)
+{
+    /* Take's items (3a37:0c26): a space is read past (Champions' list
+     * leaves on it), Enter takes the row. */
+    reset("\rT \r");
+    cok_character *a = dk_member("A");
+    game.vm.character = a->record;
+    uint8_t loot[COK_ITEM_SIZE];
+    counted_item(loot, 0x12, 0, 1);
+    CHECK(cok_pool_insert(&game.pool, 0, loot));
+    CHECK(combat(COK_COMBAT_UNPORTED) == COK_ECL_OK);
+    CHECK(a->item_count == 1 && game.pool.item_count == 0 && LOGGED("choice: Long Sword"));
+    /* Its money (5c72:0ac4): a space is read past (Champions' takes it as
+     * Select), Escape picks none and leaves the list, DS:c0f8 set. */
+    reset("\rT \033");
+    a = dk_member("A");
+    game.vm.character = a->record;
+    game.pool.coins[4] = 7;
+    CHECK(combat(COK_COMBAT_UNPORTED) == COK_ECL_OK);
+    CHECK(LOGGED("item: Steel 7;") && !LOGGED("How much") && game.pool.coins[4] == 7 &&
+          game.menu_special);
+    /* Exit, the second item (index 1, the list's own past last 1), picks
+     * none: Right and Enter. */
+    reset("\rT\x01\x4d\r");
+    a = dk_member("A");
+    game.vm.character = a->record;
+    game.pool.coins[4] = 7;
+    CHECK(combat(COK_COMBAT_UNPORTED) == COK_ECL_OK);
+    CHECK(LOGGED("item: Steel 7;") && !LOGGED("How much") && !game.menu_special);
+    /* The treasure menu: a space is read past (Champions' returns it), so
+     * the Enter after it is View on the first item; Take's Escape and the
+     * menu's leave as Exit. */
+    reset(" \033\033\r");
+    a = dk_member("A");
+    game.vm.character = a->record;
+    game.pool.coins[4] = 7;
+    CHECK(combat(COK_COMBAT_UNPORTED) == COK_ECL_OK);
+    CHECK(LOGGED("print: there is still treasure left. ;"));
 }
 
 static void test_dk_vault(const char *dir)
@@ -1515,6 +1556,18 @@ static void test_dk_vault(const char *dir)
     cok_ecl_set_var(&game.vm, COK_VAR_VAULT, 1);
     CHECK(RUN(COK_ECL_COMBAT) == COK_ECL_OK);
     CHECK(game.pool.coins[4] == 700 && LOGGED("menu: Trade Deposit Exit;"));
+    /* Escape is Exit, DS:c0f8 cleared (3948:0182); Money's list
+     * (580d:26d0): Escape deposits nothing. */
+    reset("M\033\033");
+    snprintf(game.save_dir, sizeof game.save_dir, "%s", dir);
+    a = dk_member("A");
+    game.vm.character = a->record;
+    cok_field_set16_at(L, a->record, COK_FIELD_COINS, 4, 5);
+    cok_ecl_set_var(&game.vm, COK_VAR_VAULT, 1);
+    game.menu_special = true;
+    CHECK(RUN(COK_ECL_COMBAT) == COK_ECL_OK);
+    CHECK(!game.menu_special && game.vault_temp && !LOGGED("How much") &&
+          cok_field_u16_at(L, a->record, COK_FIELD_COINS, 4) == 5 && s.at == s.length);
     game.save_dir[0] = '\0';
 }
 
@@ -1659,6 +1712,7 @@ static void test_death_knights(void)
     test_dk_stock();
     test_dk_take();
     test_dk_menu();
+    test_dk_indexed();
     char dir[512];
     CHECK(test_temp_dir(dir, sizeof dir, "treasure") != NULL);
     test_dk_vault(dir);

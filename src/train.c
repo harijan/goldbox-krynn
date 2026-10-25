@@ -551,7 +551,22 @@ void cok_train_knight(cok_adventure *game)
     }
     for (;;) {
         bool special;
-        int key = cok_camp_menu(game, "", menu, false, false, &special);
+        int key;
+        if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
+            /* dkk 49cb:5261-52b5: by index (6a69:00cb with 1, 0f1b over
+             * DS:3361 with no prompt, keypad or picture) until Change (0),
+             * Exit (1) or Escape; other special keys and indexes ask
+             * again. */
+            cok_menu_items items;
+            cok_menu_items_upto(&items, 1);
+            key = cok_camp_pick_menu(game, "", menu, &items, false, false, &special);
+            if (key < 0) return;
+            if (special && key == 0x1b) return;
+            if (special || key > 1) continue;
+            key = key == 0 ? 'C' : 'E';
+        } else {
+            key = cok_camp_menu(game, "", menu, false, false, &special);
+        }
         if (key < 0) return;
         /* The special flag is not tested: F9, scan code 0x43, is C (dkk
          * DS:c0f8: special keys do nothing). */

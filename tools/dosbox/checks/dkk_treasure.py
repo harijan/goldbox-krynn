@@ -66,7 +66,7 @@ TREASURE = [
     ("found", r"\r"),        # TREASURE ITEMS, COMBAT: the results
     ("menu", r"\r"),         # the treasure menu: View Take Pool Exit
     ("take", r"\>\r"),       # Take: the pool's items, Ring
-    ("taken", r"\r"),        # taken by the first: View Pool Exit
+    ("taken", r" \r"),       # a space read past (6a69:1b82); taken by the first: View Pool Exit
     ("left", r"\>\r"),       # Exit; ADD EP; AFTER YOU REST ...: the adventure's menu
     ("camp", "E"),
     ("which", "S"),
@@ -92,7 +92,7 @@ for _name in ("agony", "cure-1", "cast-1", "cure-2", "cast-2", "healed-2", "comm
 VAULT = [
     ("pooled", r"\>\r"),     # Pool: View Take Pool Items Exit
     ("coins", r"\r"),        # Take: the coins
-    ("how-much", r"\r"),     # How much Steel  will you take?
+    ("how-much", r" \r"),    # a space read past (6a69:1b82); How much Steel  will you take?
     ("took", r"5\r"),
     ("back", r"\e"),
     ("deposit", r"\>\>\r"),  # Money: the character's coins

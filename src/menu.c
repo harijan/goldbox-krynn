@@ -705,10 +705,12 @@ static int indexed_click(cok_picture *dst, const cok_font *font, const cok_menu_
     return key == COK_CLICK_ON ? COK_CLICK_KEEP : key;
 }
 
-int cok_menu_pick(cok_picture *dst, const cok_font *font, const char *prompt, const char *text,
-                  const cok_menu_items *items, uint8_t prompt_color, uint8_t highlight,
-                  uint8_t normal, bool keypad, uint8_t *selected, const cok_keyboard *keys,
-                  bool *special)
+/* 6a69:0f1b, with timeout the result of the time running out (DS:c0fe,
+ * while DS:c0fa is set), or -1 for a menu that waits. */
+static int pick(cok_picture *dst, const cok_font *font, const char *prompt, const char *text,
+                const cok_menu_items *items, uint8_t prompt_color, uint8_t highlight,
+                uint8_t normal, bool keypad, uint8_t *selected, const cok_keyboard *keys,
+                bool *special, int timeout)
 {
     char shown[41];
     snprintf(shown, sizeof shown, "%s", prompt);
@@ -722,7 +724,13 @@ int cok_menu_pick(cok_picture *dst, const cok_font *font, const char *prompt, co
     int result = -1;
     for (bool done = false; !done;) {
         int key = keys == NULL || keys->read == NULL ? -1 : keys->read(keys->context);
-        if (key == COK_KEY_TIMEOUT) continue;
+        if (key == COK_KEY_TIMEOUT) {
+            /* 1115: the time since the menu began (14e4:09bd) past DS:c0fa
+             * gives DS:c0fe, the selection and DS:c0f8 as they were. */
+            if (timeout < 0) continue;
+            result = timeout;
+            break;
+        }
         if (key < 0) return -1;
         bool moved = false;
         if (key == 0) {
@@ -798,6 +806,24 @@ int cok_menu_pick(cok_picture *dst, const cok_font *font, const char *prompt, co
     if (keys->pointer != NULL && keys->pointer->release != NULL)
         keys->pointer->release(keys->pointer->context);
     return result;
+}
+
+int cok_menu_pick(cok_picture *dst, const cok_font *font, const char *prompt, const char *text,
+                  const cok_menu_items *items, uint8_t prompt_color, uint8_t highlight,
+                  uint8_t normal, bool keypad, uint8_t *selected, const cok_keyboard *keys,
+                  bool *special)
+{
+    return pick(dst, font, prompt, text, items, prompt_color, highlight, normal, keypad, selected,
+                keys, special, -1);
+}
+
+int cok_menu_pick_timed(cok_picture *dst, const cok_font *font, const char *prompt,
+                        const char *text, const cok_menu_items *items, uint8_t prompt_color,
+                        uint8_t highlight, uint8_t normal, bool keypad, uint8_t *selected,
+                        const cok_keyboard *keys, bool *special, uint8_t timeout)
+{
+    return pick(dst, font, prompt, text, items, prompt_color, highlight, normal, keypad, selected,
+                keys, special, timeout);
 }
 
 /* Death Knights' lists (dkk 6a69:1b82). */

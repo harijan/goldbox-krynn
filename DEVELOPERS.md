@@ -8618,7 +8618,17 @@ treasure left. " and "do you want to go back and claim your treasure?"
 the coin's question "How much Steel  will you take? ", "How many Gems
 will you take? " (`DS:0fae`, `0fce`, `0fb9`; `5c72:09e4`'s words
 `DS:0c62` + a space). Detect casts through its cast entry (see Death
-Knights' casting); View is the port's View, as camp's.
+Knights' casting); View is the port's View, as camp's. The port reads
+these menus by index (`menus.routine`, `cok_camp_pick_menu`; the
+keypad and the picture), each index read back as Champions' letter for
+the commands, so a space is read past and a click goes as Death Knights'
+(see The mouse and the joystick); the Yes/No is `6a69:2048`'s
+(`cok_camp_ask`: `menu: ` with no prompt, special keys read past). Take's
+items and money are lists by index (`6a69:1b82`: `3a37:0c26` with `Take`
+and Exit, the last 0, only index 0 taking; `5c72:0ac4` with `Select`,
+`6a69:00cb` with 1, so Exit is index 1, and any index but 1 takes the
+marked row), a space read past (Champions' list takes it as `Select`, or
+in its items leaves) and Escape, Exit or no row taking none.
 
 Taking an item (`3b89:033b`) is `36d0:034c` but that an item with a count
 (`+0x39`) joins its kind once taken (`580d:1be6`, View's Join,
@@ -8644,12 +8654,15 @@ no coins, or steel a hundred times the savings `0x4c33`). Its menu
 (`DS:35bd`, `treasure.vault_items`; no picture animated, `6a69:0f1b` with
 0) offers View, Take with money or items in the pool, Pool, Money when the
 selected character has coins, Items when it has items, and Exit, its
-selection kept from the first, Escape for Exit, up and down picking a
-character. Take is the treasure menu's Take; Pool pools the party's
+selection kept from the first, Escape for Exit (`DS:c0f8` cleared,
+`0182`), up and down picking a character, read by index as the treasure
+menu's. Take is the treasure menu's Take; Pool pools the party's
 money; Money deposits the selected character's coins (`580d:26d0` with 0:
 in the text window, steel first, each row its name, spaces to 18 less the
 name's and the amount's lengths, the amount; "select type of coin ", and
 "How much Steel will you deposit? " for at most what it has, `DS:1237`;
+its list by index as Take's money, at `580d:2872`: Escape and Exit
+deposit none;
 the coins go into the pool, as a drop does in modes 1, 6 and 7,
 `5c72:0891`), the text window cleared after. Exit writes the pool to
 `TMPVAULT.DAT` (`46b2:302d`: coins, then the items in order; the disk's
@@ -9170,8 +9183,14 @@ here:
   `NULL`): `cok` and `eclplay` refuse `--woof` for it (status 2). Its music
   (`MUSIC.DAX`) is not read yet: `sound: no music: Death Knights of
   Krynn's music is not ported`, the effects as they are. The title's menu `Death Knights Of Krynn 1.10 ` and
-  `Play Demo`; the demonstration would play ECL5 block 2 (`3632:2e06`),
-  which the game does not ship, and stops when it cannot load it.
+  `Play Demo`, by index (`1000:0118`, `021c`: `6a69:00cb` with 1, no
+  keypad or picture; `cok_menu_pick_timed`): the time running out (30
+  seconds, after a demonstration 10, `DS:c0fa` from the menu's start, keys
+  typed meanwhile not starting it again) gives `DS:c0fe`'s 1, Demo, as `D`
+  and Enter on Demo do; any other result plays, F10 (Champions' Demo, its
+  scan code 0x44 its `D`) and Escape too. The demonstration would play
+  ECL5 block 2 (`3632:2e06`), which the game does not ship, and stops when
+  it cannot load it.
 - A new game starts in block 0x10. After the start menu main draws the
   adventure screen always (`1000:01d1`, see Games).
 - The start menu's items (`DS:0cf8`) are Champions' but `Knight Change
@@ -9226,7 +9245,13 @@ here:
   with no checks, then a duplicate (name and `+0x61`), a seventh player
   or ninth record, a fourth ranger (`too many rangers in your party`) is
   turned away and keeps its `* `; no paladin rule; no `Loading...Please
-  Wait`; a space is not special.
+  Wait`; a space is not special. The list is by index (`49cb:34db`:
+  `6a69:00cb` with 0, `1b82` with `Add` and Exit, the last 0): Exit and
+  Escape leave, a row picked is tried, and the menu starts on the item
+  "from where" left selected (`DS:c0f7`), so after `Champions` (its
+  second) Enter is Exit. Nothing else comes back from it, so the loop's
+  count of players (`[bp-0x1e]`, set once a row is tried) is never read
+  unset.
 - The start menu's list and Pick Character (`580d:3067`: `Select`
   alone, 6a69:00cb(1), with the keypad, until an index of 1 or less;
   Escape is 1, another special key picks between redraws) go by index
@@ -9767,8 +9792,10 @@ names).
 Knight Change Order (`49cb:4ea4`) draws Champions' petition in lower case
 (`knight of the sword`, `DS:14cf`, `14b9`, `14c4`; ` is too
 inexperience`, a string[20], for both orders) and always offers `Change
-Exit` (`DS:3361`): Change promotes whatever the petition said; its menu's
-special keys do nothing (`DS:c0f8`), Escape leaves. A knight of no order
+Exit` (`DS:3361`): Change promotes whatever the petition said; its menu,
+by index (`49cb:5261`: `6a69:00cb` with 1, no prompt, keypad or
+picture), takes Change (0) or Exit (1); its special keys do nothing
+(`DS:c0f8`) but Escape, which leaves. A knight of no order
 petitions for a local never set (`levels.no_order` `NULL`): the port
 stops. A level lost (`49cb:4da1`) from knight level 10 up costs 2 base and
 maximum hit points and no constitution (`levels.promote_fixed`).

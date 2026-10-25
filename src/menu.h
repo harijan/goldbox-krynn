@@ -203,6 +203,16 @@ int cok_menu_pick(cok_picture *dst, const cok_font *font, const char *prompt, co
                   uint8_t normal, bool keypad, uint8_t *selected, const cok_keyboard *keys,
                   bool *special);
 
+/* cok_menu_pick with a timeout (dkk 6a69:0f1b with DS:c0fa set, as the
+ * title's menu calls it, 1000:0125, 0235): when the keyboard gives
+ * COK_KEY_TIMEOUT, the time passed since the menu began (keys typed
+ * meanwhile do not start it again), it returns timeout (DS:c0fe), *special
+ * and *selected as the keys before left them. */
+int cok_menu_pick_timed(cok_picture *dst, const cok_font *font, const char *prompt,
+                        const char *text, const cok_menu_items *items, uint8_t prompt_color,
+                        uint8_t highlight, uint8_t normal, bool keypad, uint8_t *selected,
+                        const cok_keyboard *keys, bool *special, uint8_t timeout);
+
 /* Pick from rows as Death Knights' lists do (dkk 6a69:1b82): the rows as
  * cok_menu_rows shows, marks and moves through them (6a69:1506, 170d,
  * 1a73, 19db: 67b5's, but a heading unmarked in the normal colour), in

@@ -12,7 +12,8 @@ Flows (the title's two keys, Play, then):
   (picked already: the mouse off), Escape; by keys again, the mouse on;
   Exit clicked on row 24. Then the krynn.cfg the original wrote in C:\\DKK
   (empty: see run_flow) against the port's, and DKK.CFG left as it was.
-- pick: saved game A loaded ("from where" and its letter clicked), View clicked twice, Pick Character's
+- pick: the title's Play clicked (1000:0135's 0f1b, after its 28-character
+  prompt), saved game A loaded ("from where" and its letter clicked), View clicked twice, Pick Character's
   party list: the second member clicked (selected, 6a69:0513 and
   580d:2bb2), then again (Select): its sheet.
 - camp: game A begun, the first texts, camp by keys; then row 24's items
@@ -69,7 +70,7 @@ FLOWS = {
              ("mouse-on", r"\r"), ("exit-clicked", click(234, 194))],
     # "from where" and the letters by index (46b2:1ef0's 0f1b), clicked:
     # Death and A, each the first item after a 17-character prompt.
-    "pick": [("start", r"\r"), ("start-load", r"\v\v"), ("from", r"\r"),
+    "pick": [("start", click(232, 194)), ("start-load", r"\v\v"), ("from", r"\r"),
              ("which", click(138, 194)), ("loaded", click(138, 194)), ("view-marked", click(80, 122)), ("view", click(80, 122)),
              ("member", click(140, 42)), ("sheet", click(140, 42))],
     # Row 24's items clicked (6a69:0940): camp's Alter (Pos 22), Alter's
