@@ -414,7 +414,9 @@ static const char *const kind_names[7] = {
  * otherwise the open frame (1128:077c). The list shows "NAME's Spells
  * ..." on row 1 and rows 5-15 (Memorize) or 5-22. Returns the spell
  * picked, 0 for none or an empty list (*nonempty clear), or -1 when input
- * ended or the list cannot be built. */
+ * ended or the list cannot be built. Where the game's menus go by index
+ * (dkk 5dc5:016e) the list is 6a69:1b82's, its menu the first item, Next,
+ * Prev and Exit by index. */
 static int choose(cok_adventure *game, cok_character *character, int kind, int mode, int *index,
                   bool *nonempty)
 {
@@ -467,15 +469,45 @@ static int choose(cok_adventure *game, cok_character *character, int kind, int m
     cok_menu_row rows[LIST_ROWS];
     for (size_t i = 0; i < l.count; ++i) rows[i] = (cok_menu_row){l.text[i], l.heading[i]};
     cok_keyboard keys = cok_adventure_keyboard(game);
+    cok_text_window window = {1, 5, 0x26, bottom};
     int key;
-    do {
-        key = cok_menu_rows(&game->screen, &game->font, rows, l.count,
-                            (cok_text_window){1, 5, 0x26, bottom}, &style, &redraw, index,
-                            &game->list_top, &game->selected, &keys);
-        if (key < 0) return -1;
-    } while (key != 0 && key != 0x0d && key != 'C' && key != 'E' && key != 'L' && key != 'M' &&
-             key != 'S' && !(mode == 5 && key == 'K'));
-    if (key == 0 || key == 'E') return 0;
+    if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
+        /* dkk 5dc5:016e: DS:c0f7 1, the list 6a69:1b82 with the first item
+         * alone (6a69:00cb with 0), last 0 (0xff to look: no item, its
+         * own Next, Prev and Exit from 0), until a pick of item 0 or
+         * Escape's 0x1b (Exit, Escape, the scan codes 0x45 and 0). */
+        game->selected = 1;
+        cok_menu_items items;
+        cok_menu_items_upto(&items, 0);
+        uint8_t last = mode == 0 ? 0xff : 0;
+        bool special = false, picked;
+        do {
+            key = cok_menu_indexed_rows(&game->screen, &game->font, rows, l.count, window, &style,
+                                        style.base, &items, last, &redraw, index,
+                                        &game->list_top, &game->selected, &keys, &special,
+                                        &picked);
+            if (key == COK_MENU_UNSET_EXIT) {
+                /* Learn has no Exit: a click off its list and a menu of
+                 * its one item gives 0xff, past it. */
+                cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                                   "the spell list compares a click's index with Exit's, a "
+                                   "stack byte its menu with no Exit never set (dkk 6a69:1ea6, "
+                                   "[bp-0x242])");
+                return -1;
+            }
+            if (key < 0) return -1;
+            game->menu_special = special; /* DS:c0f8 */
+        } while (!(picked && key == 0) && !(special && key == 0x1b));
+        if (!picked) return 0;
+    } else {
+        do {
+            key = cok_menu_rows(&game->screen, &game->font, rows, l.count, window, &style,
+                                &redraw, index, &game->list_top, &game->selected, &keys);
+            if (key < 0) return -1;
+        } while (key != 0 && key != 0x0d && key != 'C' && key != 'E' && key != 'L' &&
+                 key != 'M' && key != 'S' && !(mode == 5 && key == 'K'));
+        if (key == 0 || key == 'E') return 0;
+    }
     size_t k = 0;
     for (int i = 0; i < *index && i < (int)l.count; ++i)
         if (!l.heading[i]) ++k;

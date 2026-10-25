@@ -1505,6 +1505,77 @@ static void test_dk_indexed(void)
     CHECK(LOGGED("print: there is still treasure left. ;"));
 }
 
+/* The ECL's menus where the menus go by index (dkk 3632:1068, 11fd, 1b5f,
+ * 1b9e), on the game opened here: the result stored in 0x4b01. */
+#define DK_VERTICAL(...)                                                                           \
+    RUN(COK_ECL_VERTICAL_MENU, COK_ECL_VAR, 0x01, 0x4b, COK_ECL_STRING, 1, 0x40, COK_ECL_BYTE, 6,  \
+        COK_ECL_STRING, 1, 0x04, COK_ECL_STRING, 1, 0x08, COK_ECL_STRING, 1, 0x0c,                 \
+        COK_ECL_STRING, 1, 0x10, COK_ECL_STRING, 1, 0x14, COK_ECL_STRING, 1, 0x18)
+#define DK_HORIZONTAL()                                                                            \
+    RUN(COK_ECL_HORIZONTAL_MENU, COK_ECL_VAR, 0x01, 0x4b, COK_ECL_BYTE, 2, COK_ECL_STRING, 1,      \
+        0x04, COK_ECL_STRING, 1, 0x08)
+
+static void test_dk_ecl_menus(void)
+{
+    uint16_t *result = &game.vm.mem4b00[0x01];
+    /* VERTICAL MENU: 6 rows, 5 shown from row 0x12: "Select Next", Down
+     * moves, Enter or S picks; Escape picks none, and the row it was on is
+     * stored all the same; Next is index 1 (00cb(1), last 1), which picks
+     * as Select does, while PgDn pages. */
+    static const struct {
+        const char *keys;
+        uint8_t stored;
+    } vertical[] = {
+        {"\r", 0}, {"\x01\x50s", 1}, {"\x1b", 0}, {"\x01\x50\x1b", 1}, {"N", 0},
+        {"\x01\x51\r", 1}, {"\x01\x50\x01\x51\r", 2}, {" \x01\x45", 0},
+    };
+    for (size_t i = 0; i < sizeof vertical / sizeof vertical[0]; ++i) {
+        reset(vertical[i].keys);
+        *result = 0xee;
+        CHECK(DK_VERTICAL() == COK_ECL_OK && s.at == s.length && !game.input_ended);
+        CHECK((*result & 0xff) == vertical[i].stored && LOGGED("list: P;item: A;"));
+    }
+    /* HORIZONTAL MENU: Escape reads on; a special key picks a character
+     * only off mode 3 with 0x4cf7 at 1 (Down: the next member), and reads
+     * on; Space is read past; B by its letter. */
+    reset("\x1b \x01\x50\r");
+    cok_character *a = dk_member("A"), *b = dk_member("B");
+    game.vm.character = a->record;
+    *result = 0xee;
+    cok_ecl_set_var(&game.vm, COK_VAR_OVERLAND, 1);
+    CHECK(DK_HORIZONTAL() == COK_ECL_OK && s.at == s.length && (*result & 0xff) == 0);
+    CHECK(game.vm.character == b->record && LOGGED("menu: ~A ~B;choice: 0;"));
+    for (int mode = 3; mode <= 4; ++mode) {
+        reset("\x01\x50" "b");
+        a = dk_member("A");
+        dk_member("B");
+        game.vm.character = a->record;
+        game.vm.mode = (uint8_t)mode;
+        cok_ecl_set_var(&game.vm, COK_VAR_OVERLAND, mode == 3 ? 1 : 0);
+        CHECK(DK_HORIZONTAL() == COK_ECL_OK && s.at == s.length && (*result & 0xff) == 1);
+        CHECK(game.vm.character == a->record);
+    }
+    /* PRESS KEY: Escape takes it, but where a special key picks, which
+     * reads on. */
+    reset("\x1b");
+    CHECK(RUN(0x1d) == COK_ECL_OK && s.at == 1 && !game.input_ended);
+    reset("\x1b");
+    cok_ecl_set_var(&game.vm, COK_VAR_OVERLAND, 1);
+    RUN(0x1d);
+    CHECK(game.input_ended);
+    /* YES NO: no keypad: 6 moves to No (4 back), 2 and special keys are read
+     * past; = for Yes. */
+    static const struct {
+        const char *keys;
+        bool yes;
+    } yes_no[] = {{"6\r", false}, {"64\r", true}, {"2\x01\x50\x1b\r", true}, {"n", false}};
+    for (size_t i = 0; i < sizeof yes_no / sizeof yes_no[0]; ++i) {
+        reset(yes_no[i].keys);
+        CHECK(RUN(0x22) == COK_ECL_OK && s.at == s.length && !game.input_ended);
+        CHECK(game.vm.flags[0] == yes_no[i].yes && game.vm.flags[1] == !yes_no[i].yes);
+    }
+}
+
 static void test_dk_vault(const char *dir)
 {
     /* COMBAT with var 0x4d00 1: the vault of the game loaded last (VAULTQ)
@@ -1731,6 +1802,7 @@ static void test_death_knights(void)
     test_dk_take();
     test_dk_menu();
     test_dk_indexed();
+    test_dk_ecl_menus();
     char dir[512];
     CHECK(test_temp_dir(dir, sizeof dir, "treasure") != NULL);
     test_dk_vault(dir);

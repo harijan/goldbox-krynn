@@ -868,8 +868,41 @@ static void append(char *dst, size_t size, const char *text)
     dst[length] = '\0';
 }
 
+/* The ECL's menus where the game's menus go by index (dkk 3c1e:1631):
+ * items marked as cok_menu_mark does (3c1e:152d), the items 0 to the
+ * number of ~ less one (6a69:00cb), read with the keypad and the picture
+ * argument (game->menu_animates) until the index of one of them, or with
+ * escape Escape's 0x1b, which gives 0. A special key off the overland
+ * map's mode (DS:8c4e not 3) with 0x4cf7 at 1 picks a character (65cd:0959,
+ * 580d:2bb2) and reads on; other special keys read on. Logs the items as
+ * "menu". Returns the index, or -1 if input ended. */
+static int horizontal_indexed(cok_adventure *game, const char *items, bool escape)
+{
+    cok_ecl *vm = &game->vm;
+    log_text(game, "menu", items);
+    char text[256];
+    size_t count = cok_menu_mark(text, NULL, items);
+    cok_menu_items shown;
+    cok_menu_items_upto(&shown, (uint8_t)(count - 1));
+    cok_keyboard keys = keyboard(game);
+    int key;
+    do {
+        bool special;
+        key = cok_menu_pick(&game->screen, &game->font, "", text, &shown, 13, 15, 10, true,
+                            &game->selected, &keys, &special);
+        if (key < 0) return -1;
+        game->menu_special = special; /* DS:c0f8 */
+        if (special && vm->mode != 3 && cok_ecl_var(vm, COK_VAR_OVERLAND) == 1) {
+            menu_special((uint8_t)key, game);
+            key = 0xff;
+        }
+    } while ((size_t)key >= count && !(key == 0x1b && escape));
+    return key == 0x1b ? 0 : key;
+}
+
 /* HORIZONTAL MENU (2fd3:116d; dkk 3632:11fd without its single item's case,
- * rules->ecl.menu_single_item). */
+ * rules->ecl.menu_single_item, its items by index: horizontal_indexed
+ * without Escape). */
 static void horizontal_menu(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -890,7 +923,9 @@ static void horizontal_menu(cok_adventure *game)
     }
     game->menu_animates = game->picture_shown && (game->view_replaced || !single_item);
     if (game->menu_animates) draw_frame(game, game->frame);
-    int choice = cok_adventure_horizontal(game, "", items, single ? 15 : 10, single);
+    int choice = cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED
+                     ? horizontal_indexed(game, items, false)
+                     : cok_adventure_horizontal(game, "", items, single ? 15 : 10, single);
     game->menu_animates = false;
     if (choice < 0) return;
     char text[16];
@@ -910,8 +945,9 @@ int cok_adventure_horizontal(cok_adventure *game, const char *prompt, const char
                                enter_returns, &game->selected, &keys, &hooks);
 }
 
-/* VERTICAL MENU (2fd3:0f9d): print the prompt, then list the items below
- * it. The index is stored even when the list is cancelled. */
+/* VERTICAL MENU (2fd3:0f9d; dkk 3632:1068): print the prompt, then list
+ * the items below it. The index is stored even when the list is
+ * cancelled. */
 static void vertical_menu(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -933,8 +969,35 @@ static void vertical_menu(cok_adventure *game)
     cok_text_window window = {1, vm->cursor.y + 1, 0x26, 0x16};
     int index = 0;
     cok_keyboard keys = keyboard(game);
-    int key = cok_menu_list(&game->screen, &game->font, pointers, count, window, 15, 10, false,
+    int key;
+    if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
+        /* dkk 3632:1068: DS:c0f7 1; 3c1e:171a: the list 6a69:1b82 with
+         * "Select" (DS:31d6), the items 0 and 1 (6a69:00cb with 1), last 1:
+         * its Next and Prev from index 2, so that the one shown second,
+         * at index 1, picks as Select does; no Exit, no prompt. */
+        cok_menu_row rows[COK_ECL_MAX_STRINGS];
+        for (size_t i = 0; i < count; ++i) rows[i] = (cok_menu_row){pointers[i], false};
+        cok_menu_style style = {"", "Select", 15, 10, 13, false};
+        cok_menu_items shown;
+        cok_menu_items_upto(&shown, 1);
+        game->selected = 1;
+        bool redraw = true, special = false, picked;
+        key = cok_menu_indexed_rows(&game->screen, &game->font, rows, count, window, &style,
+                                    style.base, &shown, 1, &redraw, &index, &game->list_top,
+                                    &game->selected, &keys, &special, &picked);
+        if (key == COK_MENU_UNSET_EXIT) {
+            /* A click off the list and a menu of Select alone: 0xff. */
+            cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                               "VERTICAL MENU's list compares a click's index with Exit's, a "
+                               "stack byte its menu with no Exit never set (dkk 6a69:1ea6, "
+                               "[bp-0x242])");
+            return;
+        }
+        if (key >= 0) game->menu_special = special; /* DS:c0f8 */
+    } else {
+        key = cok_menu_list(&game->screen, &game->font, pointers, count, window, 15, 10, false,
                             &index, &game->list_top, &game->selected, &keys);
+    }
     if (key < 0) return;
     char text[16];
     snprintf(text, sizeof text, "%d", index);
@@ -1946,11 +2009,21 @@ static void program(cok_adventure *game)
 /* A later game's opcodes (ecl.h's meanings past Champions'), as Death
  * Knights' handlers do them. */
 
-/* PRESS KEY (dkk 3632:1b5f): a menu of one item, which Enter takes. */
+/* PRESS KEY (dkk 3632:1b5f): a menu of one item (DS:088a), which Enter
+ * takes; where the game's menus go by index, 3c1e:1631 with Escape and
+ * the picture argument (DS:db70: animated while a picture is shown). */
 static void press_key(cok_adventure *game)
 {
-    int choice = cok_adventure_horizontal(game, "", "~Press button or enter to continue", 10,
-                                          true);
+    static const char text[] = "~Press button or enter to continue";
+    int choice;
+    if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
+        game->menu_animates = game->picture_shown;
+        if (game->menu_animates) draw_frame(game, game->frame);
+        choice = horizontal_indexed(game, text, true);
+        game->menu_animates = false;
+    } else {
+        choice = cok_adventure_horizontal(game, "", text, 10, true);
+    }
     if (choice >= 0) cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 6a69:145d */
 }
 
@@ -1970,11 +2043,20 @@ static void journal(cok_adventure *game)
 }
 
 /* YES NO (dkk 3632:1b9e): a menu of Yes and No (6a69:2048, the items at
- * DS:31cb, no prompt); = if Yes (DS:57c0's 0), else <>. */
+ * DS:31cb, no prompt, Yes first: DS:57c0 + 1); = if Yes (DS:57c0's 0),
+ * else <>. Where the game's menus go by index it is cok_camp_ask's
+ * (6a69:2048 itself: no keypad, special keys read past), and row 24 is
+ * left as it is. */
 static void yes_no(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     memset(vm->flags, 0, sizeof vm->flags);
+    if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
+        int answer = cok_camp_ask(game, "", 13, true);
+        if (answer < 0) return;
+        vm->flags[answer == 'Y' ? 0 : 1] = true;
+        return;
+    }
     game->selected = 1;
     int choice = cok_adventure_horizontal(game, "", "~Yes ~No", 10, false);
     if (choice < 0) return;

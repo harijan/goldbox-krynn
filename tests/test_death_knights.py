@@ -172,12 +172,20 @@ class DeathKnightsTests(unittest.TestCase):
         result = self.play("--file", 2, "--start", "88f7", "--keys", r"N\r", ASSETS, 48)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(), [
-            "menu: ~Yes ~No", "choice: 1", "print: AREAS IN THIS DIRECTION ARE OFF LIMITS.",
+            "menu: ", "choice: N", "print: AREAS IN THIS DIRECTION ARE OFF LIMITS.",
             "menu: ~Press button or enter to continue", "(done in block 48)"])
         # Yes: = holds, and the run goes to block 17.
         result = self.play("--file", 2, "--start", "88f7", "--keys", r"Y\r", ASSETS, 48)
-        self.assertIn("choice: 0", result.stdout.splitlines())
+        self.assertIn("choice: Y", result.stdout.splitlines())
         self.assertEqual(result.stdout.splitlines()[-1], "(done in block 17)")
+
+    def test_menus_by_index(self):
+        # PRESS KEY (3c1e:1631 with Escape): Escape takes it, off the map's
+        # mode with 0x4cf7 0. YES NO (6a69:2048, no keypad): 6 moves to No.
+        result = self.play("--keys", r"\e", ASSETS, 48)
+        self.assertEqual(result.stdout.splitlines()[-1], "(done in block 48)")
+        result = self.play("--file", 2, "--start", "88f7", "--keys", r"6\r", ASSETS, 48)
+        self.assertEqual(result.stdout.splitlines()[:2], ["menu: ", "choice: N"])
 
     def test_ask_menu(self):
         result = self.play("--file", 2, "--start", "8983", "--keys", r"\r", ASSETS, 49)
@@ -601,8 +609,9 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertIn("menu: Death Champions Exit\nchoice: D\nmenu: A B\nchoice: A\n", out)
         self.assertIn("item: Save Current Game\nitem: Begin Adventuring\n", out)
         self.assertIn("choice: Begin Adventuring\nprint: A YEAR HAS PASSED", out)
-        self.assertTrue(out.endswith("menu: ~Yes ~No\n(out of keys in block 16 at 817b)\n"),
-                        out[-300:])
+        # YES NO (6a69:2048) logs its prompt, none.
+        self.assertTrue(out.endswith("DO YOU WISH TO REST?\nmenu: \n"
+                                     "(out of keys in block 16 at 817b)\n"), out[-300:])
 
     def test_title_menu(self):
         # The title's menu by index (1000:0118, 6a69:0f1b with DS:c0fa): the
@@ -1108,6 +1117,43 @@ class DeathKnightsTests(unittest.TestCase):
                       "choice: 3\nprint: NEACAIL\nprint: casts\nprint: Cure Light Wounds\n"
                       "menu: Select\nmenu: Select\nprint: CELESTE\nprint: is fully healed\n"
                       "print: NEACAIL\nprint: has no spells memorized\n", out)
+
+    def test_spell_lists(self):
+        # The spell lists by index (5dc5:016e, 6a69:1b82): the scan code
+        # 0x45 leaves Cast's list (its Exit, as Escape), C then is Magic's
+        # Cast again; Space and N (no Next) are read past, Enter casts.
+        saves = self.saves(ASSETS / "SAVE")
+        self.memorized(saves, {"CHRDATA5": [0x03]})
+        celeste = bytearray((saves / "CHRDATA6.GAM").read_bytes())
+        celeste[0xD6] -= 6
+        (saves / "CHRDATA6.GAM").write_bytes(bytes(celeste))
+        camp = self.TITLE + r"\v\v\r\rA" + r"\v" * 5 + r"\r\r\r\r"
+        listed = "list: Spells in Memory\nheading: 1st Level\nitem:   Cure Light Wounds\n"
+        magic = "menu: Cast Memorize Scribe Display Rest Exit\n"
+        keys = camp + "M" + r"\v" * 4 + r"C\#45C N\r\v\r"
+        result = self.play("--start-menu", "--saves", saves, "--seed", 1, "--keys", keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(listed + magic + listed + "choice: 3\nprint: NEACAIL\nprint: casts\n",
+                      result.stdout)
+        # Clicks: the heading's row picks it out, the spell's row too, and
+        # a click on the row picked casts.
+        clicks = r"\m20,44,1.\m20,52,1."
+        keys = camp + "M" + r"\v" * 4 + "C" + clicks
+        result = self.play("--start-menu", "--mouse", "--saves", saves, "--seed", 1, "--keys",
+                           keys, ASSETS)
+        self.assertTrue(result.stdout.endswith(listed + "(out of keys in block 16 at 8189)\n"))
+        result = self.play("--start-menu", "--mouse", "--saves", saves, "--seed", 1, "--keys",
+                           keys + r"\m20,52,1.\v\r", ASSETS)
+        self.assertIn(listed + "choice: 3\n", result.stdout)
+        # View's list only to look (last 0xff: its Exit at index 0): 0x45
+        # leaves it too, back to the sheet's menu.
+        keys = camp + r"\v" * 4 + r"VS\#45"
+        result = self.play("--start-menu", "--saves", saves, "--keys", keys, ASSETS)
+        sheet = "menu: Items Spells Trade Drop Exit\n"
+        self.assertTrue(result.stdout.endswith(sheet + listed + "print: NEACAIL\n"
+                                               "print: Mishakal Cleric/Thief\n" + sheet +
+                                               "(out of keys in block 16 at 8189)\n"),
+                        result.stdout[-400:])
 
     def camp_cast(self, who, spell, keys, effects=None):
         """Camp's Magic, Cast for party member WHO (1 the first) with SPELL

@@ -15,9 +15,8 @@ static unsigned char upcase(unsigned char c)
     return c >= 'a' && c <= 'z' ? (unsigned char)(c - ('a' - 'A')) : c;
 }
 
-void cok_menu_parse(cok_menu *menu, const char *text)
+size_t cok_menu_mark(char out[256], char keys[41], const char *text)
 {
-    *menu = (cok_menu){0};
     /* A Pascal string: Delete leaves the byte past the new end in place,
      * and the loop runs to the original length. */
     unsigned char s[257] = {0};
@@ -25,7 +24,7 @@ void cok_menu_parse(cok_menu *menu, const char *text)
     if (length > 255) length = 255;
     memcpy(s + 1, text, length);
     s[0] = (unsigned char)length;
-    size_t keys = 0;
+    size_t marks = 0;
     for (size_t i = 1; i <= length; ++i) {
         if (hotkey_char(s[i])) s[i] = (unsigned char)(s[i] + 0x20);
         if (s[i] != '~') continue;
@@ -34,10 +33,20 @@ void cok_menu_parse(cok_menu *menu, const char *text)
             --s[0];
         }
         s[i] = upcase(s[i]);
-        if (keys < 40) menu->keys[keys++] = (char)s[i];
+        if (keys != NULL && marks < 40) keys[marks] = (char)s[i];
+        ++marks;
     }
     s[s[0] + 1u] = '\0';
-    cok_menu_layout(menu, (const char *)s + 1);
+    memcpy(out, s + 1, s[0] + 1u);
+    return marks;
+}
+
+void cok_menu_parse(cok_menu *menu, const char *text)
+{
+    *menu = (cok_menu){0};
+    char s[256];
+    cok_menu_mark(s, menu->keys, text);
+    cok_menu_layout(menu, s);
 }
 
 void cok_menu_layout(cok_menu *menu, const char *text)

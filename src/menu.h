@@ -33,6 +33,11 @@ typedef struct {
 
 /* Mark hotkeys and lay out items from up to 255 characters of text. */
 void cok_menu_parse(cok_menu *menu, const char *text);
+/* The marking alone (3775:176e; dkk 3c1e:152d): up to 255 characters of
+ * text with letters and digits moved up by 0x20, each ~ deleted and the
+ * character after it upper-cased, into out; the first 40 of those, the
+ * hotkeys, into keys unless it is NULL. Returns the number of ~. */
+size_t cok_menu_mark(char out[256], char keys[41], const char *text);
 /* Lay out text as it is, without hotkey marks; keys is left unchanged. */
 void cok_menu_layout(cok_menu *menu, const char *text);
 
