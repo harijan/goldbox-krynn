@@ -33,6 +33,11 @@ typedef struct {
 
 /* Mark hotkeys and lay out items from up to 255 characters of text. */
 void cok_menu_parse(cok_menu *menu, const char *text);
+/* The marking alone (3775:176e; dkk 3c1e:152d): up to 255 characters of
+ * text with letters and digits moved up by 0x20, each ~ deleted and the
+ * character after it upper-cased, into out; the first 40 of those, the
+ * hotkeys, into keys unless it is NULL. Returns the number of ~. */
+size_t cok_menu_mark(char out[256], char keys[41], const char *text);
 /* Lay out text as it is, without hotkey marks; keys is left unchanged. */
 void cok_menu_layout(cok_menu *menu, const char *text);
 
@@ -202,6 +207,11 @@ int cok_menu_pick(cok_picture *dst, const cok_font *font, const char *prompt, co
                   const cok_menu_items *items, uint8_t prompt_color, uint8_t highlight,
                   uint8_t normal, bool keypad, uint8_t *selected, const cok_keyboard *keys,
                   bool *special);
+
+/* The items DS:c120 holds (pointer's record of the last cok_menu_pick, the
+ * image's 20 zeros before any or without a pointer), for a menu read
+ * without filling it (dkk 3a37:09b7). */
+void cok_menu_items_last(cok_menu_items *items, const cok_pointer *pointer);
 
 /* cok_menu_pick with a timeout (dkk 6a69:0f1b with DS:c0fa set, as the
  * title's menu calls it, 1000:0125, 0235): when the keyboard gives

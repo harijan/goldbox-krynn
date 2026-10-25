@@ -564,7 +564,7 @@ and vault's names and layout, the loader's one wall entry and kept last
 mode, the roster's NPC flags and sizes); `tests/test_start.c` its saved
 games, vault and start menu (`test_death_knights_saves`, `_menu`);
 `tools/dosbox/checks/dkk_views.py`, `dkk_start.py`, `dkk_fight.py`,
-`dkk_treasure.py`, `dkk_levels.py`, `dkk_items.py` and `dkk_shops.py` the original (see Checks against the original);
+`dkk_treasure.py`, `dkk_levels.py`, `dkk_items.py`, `dkk_shops.py` and `dkk_menus.py` the original (see Checks against the original);
 `tests/test_death_knights.py` its first fight on Auto, by Alt-Q and by
 `--combat auto`, 13 rounds as the original's; `tests/test_fight.c` its
 fight on records made by hand (the cloud and pool tiles, a death that
@@ -1562,9 +1562,10 @@ differs:
   selects (not clearing it). A member a click kept that the party no
   longer has stops the run (the original selects the freed record).
 
-Death Knights' menus still read by Champions' loop (`cok_camp_menu`,
-`cok_menu_read`: "from where", the Load's and Save's letters, as the
-other parts have left them) take clicks as Champions'.
+The menus Death Knights was found to read by Champions' loop are read
+by index now (the last, the spell lists and the ECL's VERTICAL MENU,
+HORIZONTAL MENU, PRESS KEY, YES NO and the results' key: `dkk-menus3`),
+and take Death Knights' clicks.
 `tests/test_input.c` checks Death Knights' clicks (row 24's and two rows'
 items, the prompt, nowhere, the battlefield, the party list and the pick
 into, Move mode, Modify's sheet, Pick Character, a list's rows and row
@@ -2195,7 +2196,7 @@ original's "not a hotkey" result. Item text is cut to 40 characters.
 
 | Function | Original |
 | --- | --- |
-| `cok_menu_parse` | `3775:176e`, then `cok_menu_layout` (`67b5:00da`) |
+| `cok_menu_parse` | `3775:176e` (`cok_menu_mark`; dkk `3c1e:152d`), then `cok_menu_layout` (`67b5:00da`) |
 | `cok_menu_draw` | `67b5:01e9` |
 | `cok_menu_horizontal` | `3775:1885` with the key loop `67b5:03e2` |
 | `cok_menu_read` | `67b5:03e2` as overlay `475c` calls it |
@@ -2460,9 +2461,9 @@ opcode's meaning but ten:
 | Opcode | Champions' | Death Knights' (the port's name) | Port |
 | --- | --- | --- | --- |
 | `0x0c` | SETUP MONSTER, 3 operands | SETUP MONSTERS, 4 (`3632:038f`; a failed `IF` still skips 3): the fourth the ambush's directions | ported (see Death Knights' encounter) |
-| `0x1d` | PARTYSTRENGTH | PRESS KEY: a menu of "Press button or enter to continue" (`DS:088a`, `3632:1b5f`) | ported |
+| `0x1d` | PARTYSTRENGTH | PRESS KEY: a menu of "Press button or enter to continue" (`DS:088a`, `3632:1b5f`: `3c1e:1631` with Escape) | ported |
 | `0x1f` | none (hangs) | JOURNAL N: "This is recorded as journal entry N." (`DS:2a79`), then PRESS KEY (`3632:279f`) | ported |
-| `0x22` | PARTY SURPRISE | YES NO: a menu of Yes and No (`DS:31cb`), `=` for Yes (`3632:1b9e`) | ported |
+| `0x22` | PARTY SURPRISE | YES NO: a menu of Yes and No (`DS:31cb`, `6a69:2048` from Yes), `=` for Yes (`3632:1b9e`); row 24 left as it is | ported |
 | `0x23` | SURPRISE | CLEAR EXIT: the text window cleared, what changed shown again (`3c1e:1dd9`), `EXIT` (`3632:2859`) | ported |
 | `0x27` | TREASURE, 8 | TREASURE ITEMS: coins, then a list (a header of 4) of `ITEM0`'s items (`3632:1933`) | ported (see Death Knights' treasure) |
 | `0x29` | ENCOUNTER MENU, 14 | NOTHING (`3632:28c9`) | ported |
@@ -2472,6 +2473,37 @@ opcode's meaning but ten:
 
 An opcode that stops ends the run with `COK_ECL_UNPORTED` and "not yet
 ported: Death Knights of Krynn's opcode 0xNN, NAME (dkk SEG:OFF)".
+
+Its menus are read by index (`menus.routine`, `COK_MENUS_INDEXED`).
+HORIZONTAL MENU, ASK MENU, PRESS KEY and JOURNAL's go through `3c1e:1631`
+(adventure.c's `horizontal_indexed`): the items marked as Champions' are
+(`3c1e:152d`, `cok_menu_mark`, 3775:176e's marking), the items 0 to the
+number of `~` less one, read by `6a69:0f1b` (`cok_menu_pick`) with the
+keypad and the picture argument (`DS:db70`, a picture shown: PRESS KEY now
+animates it too) until the index of an item; Escape gives 0 where the
+caller says (PRESS KEY, JOURNAL), and reads on in HORIZONTAL MENU and ASK
+MENU; a special key picks a character (`65cd:0959`, `580d:2bb2`) only off
+mode 3 with `0x4cf7` at 1, and reads on (Champions' always pick). YES NO is
+`6a69:2048` itself (`cok_camp_ask` from Yes: no keypad, so 4 and 6 move,
+special keys are read past, logged as `menu: ` and `choice: Y` or `N`),
+and leaves row 24 as it is (no `14e4:0b6b`). VERTICAL MENU (`3632:1068`,
+`3c1e:171a`) lists its items with `6a69:1b82` (`cok_menu_indexed_rows`)
+over `Select` with the items 0 and 1 and last 1, no Exit: its Next and
+Prev take indexes from 2, so the one shown second has index 1, which is
+not past last, and picks as Select does (`Select Next`: Next picks; with
+`Select Next Prev`, Prev, at Next's index, pages down; PgDn and PgUp
+page); Escape, and the scan codes 0x45 and 0, leave; the row is stored
+whatever the key. A click off its list with `Select` alone gives 0xff,
+which `6a69:1ea6` compares with an Exit index never set: the run stops
+(`COK_ECL_UNDEFINED`). No Death Knights script has a VERTICAL MENU. The end of combat's results wait for
+`Press button or enter to continue` (`DS:0868`, `3a37:09b7`'s end,
+`treasure.c`'s `press_enter`) is one `6a69:0f1b` with the keypad and no
+picture, its result unused, over the items the menu before left in
+`DS:c120` (the routine does not call `6a69:00cb`; `cok_pointer.items`
+keeps the last `cok_menu_pick`'s, `cok_menu_items_last` reads them, the
+image's zeros before any): the line shows only where they start with 0;
+its `P`, Enter, Escape and any special key end it, Space and other letters
+are read past (Champions' loop ends on any of them).
 `CALL`'s redraw is at `2dcb` (`3632:2294`), Champions' `2e10`. Its
 variables are bytes (`3c1e:0d85`, `3c1e:0bc1`; the descriptor's
 `variable_bytes` 1): an operand of type 0 or 1 reads and writes one byte,
@@ -2535,8 +2567,8 @@ against `2fd3`'s; the VM's own as `ecl.c` has Champions'):
 | GETTABLE | `0fb2` | read as wide as the third operand's type | ported |
 | SAVE TABLE | `1018` | stored as wide as the value's (first) operand's type | ported (D1 took the second's) |
 | COMPARE AND | `0bed` | a pair compared as strings where its first is one | `compare_and_strings` |
-| VERTICAL MENU | `1068` | the same, but the store's width | as Champions' |
-| HORIZONTAL MENU | `11fd` (0) | no single item's case (white, Enter, respelled), colour 10, the picture animated whenever shown | `menu_single_item` |
+| VERTICAL MENU | `1068` | the store's width; the list by index (`3c1e:171a`: `6a69:1b82` over `Select`, `DS:31d6`, the items 0 and 1, last 1, no Exit) | the list by index (see below) |
+| HORIZONTAL MENU | `11fd` (0) | no single item's case (white, Enter, respelled), colour 10, the picture animated whenever shown; the items by index (`3c1e:1631`) | `menu_single_item`; the items by index (see below) |
 | PICTURE | `096c` | no portrait (`0x7ee1`), no `DS:884b`; overland map 0x70 | has the variable not; `view.overland_picture` |
 | DELAY | `1c90` | 600 milliseconds, not the speed's | `delay_ms` |
 | NEWECL, APPROACH, CLEARMONSTERS, LOAD FILES, LOAD PIECES, CALL | `0d52`, `0916`, `1376`, `0daa`, `2294` | variables bytes; CLEARMONSTERS clears 12 bytes of its table (`DS:be58`), not 28; the wall slots, `CALL`'s redraw (D1); `CALL`'s sound reads `DS:db5a`, which no ECL address stores | as Champions' |
@@ -4437,6 +4469,20 @@ the keypad; a special key, Escape too, picks a character and keeps it.
 `levels.alter_menu`, `order_prompt`, `order_menu`, `drop_gone`,
 `drop_quit` and `speed_before`, `speed_after`, `speed_prompt`,
 `speed_menu`.
+
+The spell lists (`5dc5:016e`: Cast, Memorize, Scribe, Learn, Keep, and
+View's to look) are `6a69:1b82`'s (`cok_menu_indexed_rows`), from the
+first item each time (`DS:c0f7` 1): `Choose Spell:` over `Cast`,
+`Memorize`, `Scribe` or `Learn` (`DS:31e1`-`320d`), `spells OK? ` over
+`Keep`, or nothing to look (last 0xff: its Exit at index 0, from column
+0), each the item 0 (last 0), with Next, Prev and, but for Learn, Exit by
+index after it; the list leaves on a pick of the first item or on Escape's
+0x1b (Exit, Escape, the scan codes 0x45 and 0). Up and Down (8 and 2)
+move, PgUp and PgDn (9 and 3), Next and Prev and 0x4e page; a hotkey
+selects its item, so Enter after N is Next again; Space is read past.
+Clicks are 1b82's: a click on a row picks it out, a click on the row
+picked picks it; a click off Learn's list with `Learn` alone stops the
+run, as VERTICAL MENU's (`6a69:1ea6`).
 
 Fix (`4381:2fd4`, `levels.fix` `COK_FIX_DEATH_KNIGHTS`) does nothing where
 the area forbids magic (var `0x4be5`) or no one lacks hit points. It adds
@@ -10578,6 +10624,23 @@ found that Death Knights' Magic menu keeps its own selection and that
 Display's blank rows are headings. Its flow `table` (saved game B begun,
 camp, Magic, BALTHIR NOMOON's Memorize) shows the table with no name said
 over it, 0 pixels apart.
+
+Its last menus by index, `tools/dosbox/checks/dkk_menus.py` (see Death
+Knights' camp and the ECL's opcodes; seeded; `--flows
+lists,ecl,post,clicks,taskclicks`, half a minute each): the spell lists
+(Cast's: Space read past, the scan code 0x45 leaving, Exit by Right and
+Enter; Memorize's grimoire: Next, PgUp, 0x4e, Down, M, Escape and the
+marked spells' Keep; View's to look, `Exit` alone from column 0) and
+NEACAIL's memorized spells after; block 16's PRESS KEY by Escape, Space, F1
+and the keypad's 5 read past, and its YES NO (6 to No, F1 and Escape read
+past, 4 to Yes, No); saved game A made to resume in block 36 at 3,7 (as
+`dkk_shops.py` does, with `0x4c1a` 3 and `0x4c2d` 1), a step north to the
+soldiers and their HORIZONTAL MENU `CEMETERY PATROL GUARD` (Escape, Down,
+5, Space read past, Right, C) and `0x4cec` after; with the mouse, Cast's
+list clicked off it and its menu, on the heading's row, the spell's row
+twice (cast), and the HORIZONTAL MENU clicked off it and on PATROL, then
+PRESS KEY's item. Every screen 0 pixels apart (the eulogy's portrait's
+eyes masked: PRESS KEY animates it, as the original's).
 
 Its shops, `tools/dosbox/checks/dkk_shops.py` (see Death Knights' shops;
 seeded; `--flows shop,temple`, about six and four minutes): saved game A

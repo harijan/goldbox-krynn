@@ -131,6 +131,12 @@ struct cok_pointer {
      * (6a69:0940) or on a list's columns (0ba7), which the list (6a69:1b82)
      * clears before each ask and takes as a click on its rows. */
     bool reselected;
+    /* DS:c120: the items of the last menu by index read (6a69:00cb and
+     * 00ab fill it, cok_menu_pick records them: item_count of items), which
+     * a menu read without filling it shows (dkk 3a37:09b7's end); before
+     * any (items_known clear), the image's zeros. */
+    bool items_known;
+    uint8_t item_count, items[20];
     void (*release)(void *context);
     /* Text input (cok_text_input) drew a character or erased one past
      * column 39, where the original's text unit hides the cursor and

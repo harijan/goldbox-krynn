@@ -64,6 +64,8 @@ TREASURE = [
     ("commander", r"\r"),    # THE OUTPOST COMMANDER WALKS UP.
     ("willed", r"\r"),       # 'WE THANK YOU. AS HE DIED, A KNIGHT WILLED THIS TO YOU.'
     ("found", r"\r"),        # TREASURE ITEMS, COMBAT: the results
+    ("found-space", " "),    # read past (3a37:09b7's 6a69:0f1b), b too
+    ("found-b", "b"),
     ("menu", r"\r"),         # the treasure menu: View Take Pool Exit
     ("take", r"\>\r"),       # Take: the pool's items, Ring
     ("taken", r" \r"),       # a space read past (6a69:1b82); taken by the first: View Pool Exit
