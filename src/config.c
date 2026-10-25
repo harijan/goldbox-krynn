@@ -319,6 +319,7 @@ bool cok_config_display_option(const char *name, cok_display *out)
 bool cok_config_sound_option(const char *name, cok_sound_device *out)
 {
     if (strcmp(name, "tandy") == 0) *out = COK_SOUND_TANDY;
+    else if (strcmp(name, "adlib") == 0) *out = COK_SOUND_ADLIB;
     else if (strcmp(name, "speaker") == 0) *out = COK_SOUND_SPEAKER;
     else if (strcmp(name, "off") == 0) *out = COK_SOUND_NONE;
     else return false;

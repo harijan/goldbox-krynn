@@ -989,10 +989,11 @@ class SoundTests(unittest.TestCase):
         pauses: the disk writer gets eclplay's samples for the same keys,
         seed and device (the title's music, a pause at its menu, the
         demonstration's sounds and the title again), after the silence
-        the device starts with; the Tandy's unlike the speaker's."""
+        the device starts with; the Tandy's, the speaker's and the
+        AdLib's each unlike the others."""
         keys = r"\p150.\t"
         renders = []
-        for device in ("tandy", "speaker"):
+        for device in ("tandy", "speaker", "adlib"):
             wav = self.folder / f"eclplay-{device}.wav"
             saves = self.folder / f"eclplay-saves-{device}"
             saves.mkdir()
@@ -1011,7 +1012,7 @@ class SoundTests(unittest.TestCase):
             self.assertFalse(any(raw[:at]))
             self.assertFalse(any(raw[at + len(expected):]))
             renders.append(expected)
-        self.assertNotEqual(renders[0], renders[1])
+        self.assertEqual(len(set(renders)), 3)
 
     def test_krynn_cfg(self):
         """The device is KRYNN.CFG's (11c7:031a): a copy of the assets

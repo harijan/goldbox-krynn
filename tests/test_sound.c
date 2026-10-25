@@ -1,9 +1,11 @@
 /* The sound (src/sound.c): the effects driver's commands, the music
  * drivers and Ctrl-S against the port writes of the original's code
- * recorded in an 8086 emulator (tests/test_sound_data.h), the driver's
- * data against build/START_FULL.EXE, and the synthesis on known inputs:
- * the chip's square waves and noise, its volumes, the speaker's square
- * wave, and rendering split anyhow giving the same samples. */
+ * recorded in an 8086 emulator (tests/test_sound_data.h, and
+ * tests/test_sound_adlib.h for the AdLib's driver), the driver's data
+ * against build/START_FULL.EXE, and the synthesis on known inputs: the
+ * chip's square waves and noise, its volumes, the speaker's square wave,
+ * the AdLib's title, and rendering split anyhow giving the same samples
+ * (the AdLib's chip itself: tests/test_opl2.c). */
 
 #include "sound.h"
 
@@ -32,6 +34,7 @@ typedef struct {
 } sound_scenario;
 
 #include "test_sound_data.h"
+#include "test_sound_adlib.h"
 
 static cok_sound s;
 
@@ -66,9 +69,10 @@ static const char *assets = "COKAssets";
 static void setup(cok_sound_device device, trace *t)
 {
     cok_sound_free(&s);
-    cok_sound_init(&s, device == COK_SOUND_SPEAKER ? COK_SOUND_SPEAKER : COK_SOUND_TANDY);
-    s.device = (uint8_t)device; /* 0-2 too: effects on the speaker */
-    CHECK(cok_sound_load(&s, &cok_rules_champions, assets) || device < COK_SOUND_TANDY);
+    cok_sound_init(&s, device == COK_SOUND_SPEAKER || device == COK_SOUND_ADLIB ? device
+                                                                                : COK_SOUND_TANDY);
+    s.device = (uint8_t)device; /* 0 and 1 too: effects on the speaker */
+    CHECK(cok_sound_load(&s, &cok_rules_champions, assets) || device < COK_SOUND_ADLIB);
     s.score_segment = 0xc000; /* where the emulator put the score */
     *t = (trace){0x811c9dc5u, 0, {0}, 0};
     s.trace = traced;
@@ -105,11 +109,10 @@ static bool run_step(const sound_step *step, trace *t)
 }
 
 /* Every scenario's writes, as the original made them. */
-static void test_scenarios(void)
+static void run_scenarios(const sound_scenario *list, size_t n)
 {
-    size_t n = sizeof scenarios / sizeof *scenarios;
     for (size_t i = 0; i < n; ++i) {
-        const sound_scenario *sc = &scenarios[i];
+        const sound_scenario *sc = &list[i];
         trace t;
         setup((cok_sound_device)sc->device, &t);
         if (sc->score != NULL) {
@@ -127,6 +130,12 @@ static void test_scenarios(void)
         }
         CHECK(s.divide_error == (sc->end == END_DIVIDE) && s.bomb == (sc->end == END_BOMB));
     }
+}
+
+static void test_scenarios(void)
+{
+    run_scenarios(scenarios, sizeof scenarios / sizeof *scenarios);
+    run_scenarios(adlib_scenarios, sizeof adlib_scenarios / sizeof *adlib_scenarios);
 }
 
 static void check_ticks(cok_sound_device device, const sound_step *steps, size_t count,
@@ -150,7 +159,7 @@ static void check_ticks(cok_sound_device device, const sound_step *steps, size_t
 
 /* The first ticks written out: sound 10 on the Tandy (its noise voice at
  * tone 2's rate, every voice written each tick), sound 6 on the speaker,
- * the title's music on both. */
+ * the title's music on the three (the AdLib's ports as their low byte). */
 static void test_first_ticks(void)
 {
     const sound_step tandy[] = {{'i', 0, 0}, {'c', 11, 0}}, speaker[] = {{'i', 0, 0}, {'c', 7, 0}};
@@ -159,6 +168,7 @@ static void test_first_ticks(void)
     check_ticks(COK_SOUND_SPEAKER, speaker, 2, sound_6_speaker, sizeof sound_6_speaker);
     check_ticks(COK_SOUND_TANDY, music, 1, music_tandy, sizeof music_tandy);
     check_ticks(COK_SOUND_SPEAKER, music, 1, music_speaker, sizeof music_speaker);
+    check_ticks(COK_SOUND_ADLIB, music, 1, music_adlib, sizeof music_adlib);
 }
 
 /* The driver's data as START.EXE has it, the commands' set and Ctrl-S's. */
@@ -436,9 +446,10 @@ static void test_split(void)
 {
     enum { N = 3 * COK_SOUND_RATE };
     static int16_t whole[N], pieces[N];
-    for (int pass = 0; pass < 2; ++pass) {
+    static const cok_sound_device devices[] = {COK_SOUND_TANDY, COK_SOUND_SPEAKER, COK_SOUND_ADLIB};
+    for (int pass = 0; pass < 3; ++pass) {
         trace t;
-        setup(pass == 0 ? COK_SOUND_TANDY : COK_SOUND_SPEAKER, &t);
+        setup(devices[pass], &t);
         cok_sound_call_at(&s, COK_SOUND_MUSIC, 0);
         cok_sound_render(&s, whole, N / 2);
         cok_sound_call_at(&s, COK_SOUND_MUSIC_END, 0);
@@ -449,7 +460,7 @@ static void test_split(void)
         for (size_t i = 0; i < N; ++i) sounding |= whole[i] != 0;
         CHECK(sounding);
 
-        setup(pass == 0 ? COK_SOUND_TANDY : COK_SOUND_SPEAKER, &t);
+        setup(devices[pass], &t);
         cok_sound_call_at(&s, COK_SOUND_MUSIC, 0);
         size_t at = 0, size = 1;
         while (at < N / 2) {
@@ -469,6 +480,28 @@ static void test_split(void)
         }
         CHECK(memcmp(whole, pieces, sizeof whole) == 0);
     }
+}
+
+/* The title on the AdLib: about as loud as on the Tandy (the RMS of its
+ * first 10 seconds within a quarter), never clipped. */
+static void test_adlib_level(void)
+{
+    enum { N = 10 * COK_SOUND_RATE };
+    static int16_t samples[N];
+    double rms[2];
+    for (int pass = 0; pass < 2; ++pass) {
+        trace t;
+        setup(pass == 0 ? COK_SOUND_TANDY : COK_SOUND_ADLIB, &t);
+        cok_sound_call_at(&s, COK_SOUND_MUSIC, 0);
+        cok_sound_render(&s, samples, N);
+        double sum = 0;
+        for (size_t i = 0; i < N; ++i) {
+            sum += (double)samples[i] * samples[i];
+            CHECK(samples[i] > -32768 && samples[i] < 32767);
+        }
+        rms[pass] = sqrt(sum / N);
+    }
+    CHECK(rms[1] > 500 && rms[1] / rms[0] > 0.75 && rms[1] / rms[0] < 1.33);
 }
 
 /* Without MIDI.DAX or SOUND.DAX: no music, the effects all the same. */
@@ -496,11 +529,12 @@ static void test_missing_files(void)
 }
 
 /* The devices KRYNN.CFG names that are not ported (tests/test_config.c
- * reads the file): CMS, MT-32 and AdLib. */
+ * reads the file): CMS and MT-32; the AdLib's music, but not Death
+ * Knights'. */
 static void test_devices(void)
 {
-    /* CMS, MT-32 and AdLib: the effects on the speaker, no music. */
-    for (int d = COK_SOUND_CMS; d <= COK_SOUND_ADLIB; ++d) {
+    /* CMS and MT-32: the effects on the speaker, no music. */
+    for (int d = COK_SOUND_CMS; d <= COK_SOUND_ROLAND; ++d) {
         cok_sound_free(&s);
         cok_sound_init(&s, (cok_sound_device)d);
         CHECK(s.hardware == COK_SOUND_SPEAKER && s.device == d);
@@ -527,6 +561,25 @@ static void test_devices(void)
     cok_sound_call_at(&s, COK_SOUND_MUSIC, 0);
     char text[100];
     CHECK(!cok_sound_music_unported(&s, &cok_rules_champions, text, sizeof text));
+    /* The AdLib: record 3, its music ported; the effects on the speaker. */
+    cok_sound_free(&s);
+    cok_sound_init(&s, COK_SOUND_ADLIB);
+    CHECK(s.hardware == COK_SOUND_ADLIB && s.device == COK_SOUND_ADLIB);
+    CHECK(cok_sound_load(&s, &cok_rules_champions, assets) && s.driver_size == 2151);
+    cok_sound_call_at(&s, COK_SOUND_MUSIC, 0);
+    CHECK(!cok_sound_music_unported(&s, &cok_rules_champions, text, sizeof text));
+    CHECK(s.isr == COK_SOUND_TITLE);
+    cok_sound_call_at(&s, COK_SOUND_MUSIC_END, 0);
+    cok_sound_call_at(&s, COK_SOUND_INSTALL, 0);
+    cok_sound_call_at(&s, COK_SOUND_COMMAND, 7);
+    CHECK(s.isr == COK_SOUND_FX && s.fx[0x156] == 1);
+    /* Death Knights on the AdLib: its music not read, said as before. */
+    cok_sound_free(&s);
+    cok_sound_init(&s, COK_SOUND_ADLIB);
+    CHECK(!cok_sound_load(&s, &cok_rules_death_knights, "DKKAssets"));
+    cok_sound_call_at(&s, COK_SOUND_MUSIC, 0);
+    CHECK(cok_sound_music_unported(&s, &cok_rules_death_knights, text, sizeof text));
+    CHECK(s.isr == COK_SOUND_BIOS);
     cok_sound_free(&s);
     cok_sound_init(&s, COK_SOUND_NONE);
     CHECK(s.hardware == COK_SOUND_TANDY);
@@ -546,6 +599,7 @@ int main(void)
     test_volumes();
     test_render();
     test_split();
+    test_adlib_level();
     test_missing_files();
     cok_sound_free(&s);
     puts("sound: ok");

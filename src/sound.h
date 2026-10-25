@@ -5,8 +5,8 @@
  * the title's music (1661, which loads its driver from MIDI.DAX and the
  * score from SOUND.DAX), the timer interrupt that runs them, and the
  * hardware they write to: the Tandy's three-voice sound chip with its noise
- * (an NCR 8496, port 0xC0) and the PC speaker (PIT channel 2, ports 0x42,
- * 0x43 and 0x61). No SDL here: a front end feeds the game's calls in
+ * (an NCR 8496, port 0xC0), the AdLib's YM3812 (opl2.h, ports 0x388 and
+ * 0x389) and the PC speaker (PIT channel 2, ports 0x42, 0x43 and 0x61). No SDL here: a front end feeds the game's calls in
  * (cok_sound_call) and takes samples out (cok_sound_render).
  *
  * Two layers, kept apart: the drivers compute what the original computes,
@@ -16,6 +16,7 @@
  * have sounded. Deterministic: the same calls at the same sample positions
  * give the same samples, however the rendering is split. */
 
+#include "opl2.h"
 #include "rules.h"
 
 #include <stdbool.h>
@@ -45,8 +46,8 @@ typedef enum {
 } cok_sound_call;
 
 /* KRYNN.CFG's sound device, DS:577a: 0 CMS, 1 an MT-32 (Roland LAPC), 2
- * AdLib, 3 Tandy, 4 the PC speaker, 5 none. The music of 0-2 is not
- * ported (their effects are the speaker's, as in the original). */
+ * AdLib, 3 Tandy, 4 the PC speaker, 5 none. The music of 0 and 1 is not
+ * ported; the effects of 0-2 are the speaker's, as in the original. */
 typedef enum {
     COK_SOUND_CMS = 0,
     COK_SOUND_ROLAND = 1,
@@ -75,7 +76,9 @@ typedef struct {
 } cok_sound_chip;
 
 typedef struct cok_sound {
-    cok_sound_device hardware; /* What the machine has: the Tandy's chip, or a speaker only. */
+    /* What the machine has: the Tandy's chip, a speaker only, or a speaker
+     * and an AdLib. */
+    cok_sound_device hardware;
     /* DS:577a, 577b, 577c, 5780: the device (5 when Ctrl-S turned it
      * off), the device saved, the effects driver installed, the title's
      * music playing (commands ignored). */
@@ -121,6 +124,10 @@ typedef struct cok_sound {
 
     cok_sound_chip chip;
     uint64_t chip_next;  /* The chip's next step, in crystal clocks. */
+    /* The AdLib's chip, clocked by its own 3,579,545 Hz crystal, taken as
+     * the PC's crystal / 4: a sample every 288 of its clocks. */
+    cok_opl2 opl;
+    uint64_t opl_next;   /* The chip's next sample, in crystal clocks. */
     int64_t dc_in, dc_out; /* The output's coupling capacitor (a high-pass). */
     unsigned volume;     /* 0-256, 256 full. */
 
@@ -135,7 +142,8 @@ typedef struct cok_sound {
 } cok_sound;
 
 /* After COK_SOUND_MUSIC: whether the title's music would play on a
- * device whose driver is not ported (0-2), with text saying so. */
+ * device whose driver is not ported (0 and 1, and 2 for a game whose music
+ * is not read), with text saying so. */
 bool cok_sound_music_unported(const cok_sound *s, const cok_rules *rules, char *text,
                               size_t size);
 /* The device's name, as the original's setup lists it. */

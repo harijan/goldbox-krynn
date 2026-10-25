@@ -10,8 +10,8 @@ menus, pictures, 3D view and party on the adventure screen, and plays the
 game from its title and start menu; and `cok`, which plays the game in a
 window with SDL2, from the title, with the keyboard, the mouse or a joystick
 (see The mouse and the joystick) and with its sound: the
-Tandy's three voices and noise, or the PC speaker, the effects and the
-title's music (see Playing and Sound), in the display mode `KRYNN.CFG`
+Tandy's three voices and noise, the AdLib's YM3812 or the PC speaker, the
+effects and the title's music (see Playing and Sound), in the display mode `KRYNN.CFG`
 names: EGA, the Tandy's or CGA's four colours (see Display modes), after
 the original's text-mode setup when there is no `KRYNN.CFG` (see Startup
 and the setup). The original DOS executable, decompiler output, and game
@@ -118,7 +118,8 @@ record; directory entry numbers are zero-based. Duplicate IDs are retained.
 export checks for all 26 supported graphics archives (2,363 images), and
 tests of the picture, text, menu, 3D view, overhead map, party and spell
 effect routines, the sound (`tests/test_sound.c`: the drivers' port writes
-against the original's, recorded in an emulator, and the synthesis),
+against the original's, recorded in an emulator, and the synthesis; the
+AdLib's chip in `tests/test_opl2.c`),
 `KRYNN.CFG` (`tests/test_config.c`), the games' descriptors and `--game`
 (`tests/test_rules.c`, see Games), Death Knights of Krynn's descriptor,
 tools and scripts where `DKKAssets/` holds its files
@@ -992,7 +993,7 @@ timed menu runs out or the small picture's next frame is due.
 | `--keys KEYS` | type KEYS first, in `eclplay`'s escapes (see Playing scripts), each turned into the key that gives it and sent through SDL's key events as the game asks for a key (`\k` as it polls, `\t` the timed menu running out, `\[KEYS\]` typed ahead and `\wN.` as in Playing scripts; besides, `\pN.` pauses N hundredths of a second before the next key is typed as the game reads it, and `\#85` and `\#86`, codes the game never gets, press F11 and F12; `\mX,Y,B.` and `\jX,Y,B.` click the mouse and move the stick through SDL's events, see The mouse and the joystick; a key repeated in a group typed ahead is held, its repeats sent as a held key's are; each a real keystroke, so that a flush after its 0 is read loses its scan code, which `eclplay` keeps for keys not typed ahead); the run then ends as `eclplay`'s does, printing `(out of keys ...)`, unless `--continue` hands over to the keyboard |
 | `--no-delay` | do not wait where the game waits (for tests); a rest keeps the front end's pace (see below); the sound then goes by the game's clock (see Sound) |
 | `--display ega`, `--display tandy`, `--display cga` | the display mode in place of the one `KRYNN.CFG` names (its first line: `E`, `T`, anything else CGA, see Display modes): EGA and the Tandy's look the same; CGA shows four colours |
-| `--sound tandy`, `--sound speaker`, `--sound off` | the sound device in place of the one `KRYNN.CFG` names (its second line: `T`, `P`, `S`; `C`, `R` and `A` play the effects on the speaker and no music, see Sound): the Tandy's three voices and noise, the PC speaker, or none |
+| `--sound tandy`, `--sound adlib`, `--sound speaker`, `--sound off` | the sound device in place of the one `KRYNN.CFG` names (its second line: `T`, `A`, `P`, `S`; `C` and `R` play the effects on the speaker and no music, see Sound): the Tandy's three voices and noise, the AdLib's music with the effects on the PC speaker, the PC speaker, or none |
 | `--no-sound` | open no audio device |
 | `--volume N` | 0-100 (default 100) |
 | `--sound-clock real`, `--sound-clock game` | what times the sound drivers: the audio device as it plays (the default; with `--no-delay`, `game`), or the game's delays and `\pN.` pauses, as `eclplay --wav` renders them |
@@ -1131,7 +1132,7 @@ in white (in CGA mode magenta and white), waits for a key or the window's
 close, and exits with status 1 (2 for bad options or a `--keys` code no key
 gives). Without the font, a message box says it.
 
-Not done: the music of CMS, the MT-32 and AdLib (see Sound).
+Not done: the music of CMS and the MT-32 (see Sound).
 `tests/test_cok.py` plays, with `--input none` (the keyboard alone, as
 `eclplay` without `--mouse` has it), the title and the demonstration, and a
 new game from the title (creating a character, the overland map, two fights
@@ -1585,7 +1586,8 @@ arrow, and the files it leaves.
 `src/sound.c` is the sound, without SDL: the original's effects driver
 (`17e8`, assembler linked into `START.EXE`), its title music (`1661`,
 which loads its driver from `MIDI.DAX` and the score from `SOUND.DAX`),
-the timer interrupt that runs them, and the hardware they write to. The
+the timer interrupt that runs them, and the hardware they write to (the
+AdLib's chip in `src/opl2.c`). The
 game calls it through `hooks.sound` (`cok_sound_call`) as the original
 calls the drivers; `cok` plays it through SDL's audio device and
 `eclplay --wav FILE` renders it to a WAV file (16-bit mono, 44,100 Hz).
@@ -1620,12 +1622,16 @@ The port reads `KRYNN.CFG` the same way (`cok_config_parse`,
 Startup and the setup); without one, the setup asks and writes it.
 `eclplay` without `--start-menu` runs no setup: without a file it says so
 on standard error and takes the Tandy, for the display as well. `--sound
-tandy`, `--sound speaker` or `--sound off`, in `cok` and `eclplay`,
-override it. With `C`, `R` or `A` the effects play on the speaker and the
-title is silent: their music drivers (`MIDI.DAX` records 1-3) are not
-ported, which is logged as `unported: the title's music on C/MS (MIDI.DAX
-record 1)` (or `Roland LAPC`, 2; `AdLib`, 3) when the title starts, and
-said on standard error at startup.
+tandy`, `--sound adlib`, `--sound speaker` or `--sound off`, in `cok`
+and `eclplay`, override it. With `A` the title's music plays on the
+AdLib (`MIDI.DAX` record 3, see The title's music) and the effects on the
+speaker, the machine having both. With `C` or `R` the effects play on
+the speaker and the title is silent: their music drivers (`MIDI.DAX`
+records 1 and 2) are not ported, which is logged as `unported: the
+title's music on C/MS (MIDI.DAX record 1)` (or `Roland LAPC`, 2) when
+the title starts, and said on standard error at startup. Death Knights'
+music is not read at all (`MUSIC.DAX`): with `A` its title logs `AdLib`
+as unported as before.
 
 ### The effects driver
 
@@ -1738,7 +1744,54 @@ voice. The speaker's (record 5) plays one voice, the channel at byte
 sweeps (one pseudo-random). A pitch bend or vibrato that would overflow
 the driver's divides ends the original with runtime error 200; the port
 stops the music there and says so (`sound.divide_error`); the shipped
-score never does. Without `MIDI.DAX` or `SOUND.DAX` the title is silent
+score never does, and the AdLib's driver divides nothing.
+
+The AdLib's driver (record 3, 2,151 bytes; its entry `035b` takes AH's
+routine from `0355`: 0 `03ee`, 1 `0376`, 2 `03e3`) plays nine voices,
+one for each of the YM3812's channels, two operators each (it never sets
+rhythm mode, `0xBD` is only ever cleared): the MIDI channels at score
+bytes 0x22-0x2a (1, 2, 2, 3, 3, 4, 4, 5 and 9). It writes the chip's
+address to port 0x388 and its data to 0x389, a delay loop after each
+(`082e`, 12 rounds after an address, `0810`, 32 after data); it reads
+nothing back, neither the status port nor a timer, so it does not detect
+the card. Play clears the chip (`0836`: 102 registers at `00d6`, read
+from the last, to 0, then the 18 at `013c`, 0x80-0x95, to 0x3f: sustain
+level 3, release 15), copies the channel map and gives channel 9's
+voices their drums' programs (`030a`); stop clears it again. Each tick
+first counts the age of every voice sounding, then runs the score's
+events due:
+
+- a program (`0734`) loads an instrument into each of the channel's
+  voices (not channel 9's): ten bytes from `01af` on, the modulator's
+  and the carrier's 0x20, 0x40, 0x60 and 0x80 bytes, 0xC0's and a
+  transpose, through an index at `0150` (programs 0-0x13 their own,
+  0x15-0x36 instrument 0's) and 20 pointers at `0187` (14 instruments);
+  program 0x14's pointer is the first instrument's bytes (0x1cb1, past
+  the driver), and programs past 0x36 take indexes from the pointers'
+  bytes (the shipped score's are 0-5);
+- a note on takes the channel's first voice not sounding, or keys off
+  (pitch 0) the one sounding longest and takes it (none if every one's
+  age is 0); it writes the carrier's 0x40 byte less a quarter of the
+  velocity (a borrow reaching KSL's bits), then 0xA0 and 0xB0 with
+  key-on from the pitch table at `0014` (96 notes: F-numbers 0x158-0x289
+  in blocks 0-7) at the note plus the instrument's transpose; channel 9's
+  note goes to the first of its voices whose drum note (`02f8`: 0x36,
+  0x2a, 0x24 and 0x26 for voices 5-8) it is, at that voice's own pitch
+  (`0301`), without the transpose;
+- a note off (or a note on of velocity 0) writes 0xA0 and 0xB0 again
+  without key-on to the channel's first voice on that note, sounding or
+  not, a drum's at its pitch plus the transpose its note on left out;
+- a pitch bend multiplies each sounding voice's F-number by the bend /
+  0x2000 (an F-number past 0x3ff carries into the block's bits), from the
+  bytes its note wrote, so bends do not add up;
+- `FC 80` loops, any other `FC` ends: the voices sounding go on until
+  AH 2.
+
+The title's score uses channels 1-5 (no drums: voice 8 takes program
+0x11 and never sounds), programs 0-5 (instruments with tremolo, vibrato,
+KSR, KSL, both EG types, feedback up to 7 and one additive voice; the
+waveforms are never enabled, register 1 is 0), no bends, and ends with
+`FC 81`. Without `MIDI.DAX` or `SOUND.DAX` the title is silent
 and `cok` and `eclplay --wav` say why on standard error.
 
 ### Time
@@ -1746,9 +1799,17 @@ and `cok` and `eclplay --wav` say why on standard error.
 The original's drivers run from the timer interrupt between any two of
 the game's instructions; the game never waits for them. `cok_sound`
 counts time in clocks of the PC's 14,318,181.8 Hz crystal (157.5 MHz /
-11; the PIT counts every 12th, the Tandy's chip steps every 64th), runs each interrupt when
-its time comes, and renders samples at 44,100 Hz; a call lands at the
-next sample. Rendering in one piece or in any number gives the same
+11; the PIT counts every 12th, the Tandy's chip steps every 64th, the
+AdLib's makes a sample every 288th), runs each interrupt when its time
+comes, and renders samples at 44,100 Hz; a call lands at the next
+sample. The AdLib has a crystal of its own, 3,579,545 Hz, which the
+model takes as the PC's / 4 (the two are nominally the same frequency;
+a real card's drifts against the PC's, which nothing here depends on):
+the chip's samples, 72 of its clocks each (49,716 a second), are
+averaged over each output sample as the Tandy's chip's steps are. The
+drivers' delay loops between the chip's writes take no time here (on a
+4.77 MHz PC about 60 us after each data byte); their writes land
+together at the interrupt's moment. Rendering in one piece or in any number gives the same
 samples. A count written to PIT channel 0 after a control word restarts
 its interrupts; one written alone (`17e8:12c5`, `12fa`) takes over at
 the next interrupt.
@@ -1794,6 +1855,87 @@ scaled by `--volume` and clipped to 16 bits. Averaging over each sample
 is the only filter, so the square waves' harmonics above 22 kHz alias
 somewhat; the game's tones are low enough that this is faint.
 
+The AdLib's YM3812 (OPL2) is `src/opl2.c`, written for this port from
+the chip's documented behaviour, no emulator's code copied or
+translated: Yamaha's YM3812 Application Manual (the 1994 scan at the
+Internet Archive, "Yamaha YM3812 Application Manual": the registers,
+Table 3-1's multiples, 3-2's key scaling of rates, 3-4's KSL, 3-6's
+attack and decay times, the timers' 80 and 320 us, the vibrato's 7 and 14
+cents and the tremolo's 1 and 4.8 dB), and Matthew Gambrell and Olli
+Niemitalo's "OPLx decapsulated" (2008), which read the chip's two ROMs
+off its die and gave the formulas that regenerate them: a quarter sine's
+logarithm, `round(-log2(sin((x + 0.5) * pi / 512)) * 256)`, and an
+exponent, `round((2^(x / 256) - 1) * 1024)`, x = 0-255 (in the code as
+tables, `tests/test_opl2.c` regenerates them). It runs at the chip's
+rate, 3,579,545 / 72 = 49,716 samples a second, in integers:
+
+- the phase: a 19-bit accumulator a sample up by (F-number << block) times
+  twice the multiple (MULT 0 a half, 11 as 10, 13 as 12, 15 as 15) / 4,
+  its top 10 bits the place in the wave: F-number * 49,716 * 2^(block -
+  20) Hz; key-on restarts it. Vibrato adds 0, a half, all, a half, 0 and
+  the same below of the F-number's top three bits (14 cents) or half
+  that (7 cents), a step every 1,024 samples (6.1 Hz; the manual says
+  6.4 Hz at 3.6 MHz);
+- the output: the log-sine ROM (its quarter mirrored and negated) plus
+  the attenuation times 8, through the exponent ROM, its integer part a
+  shift: up to 4,084 either way (12 bits and a sign, negated as two's
+  complement). The waveforms (half sine, |sine|, the rising quarters)
+  only while register 1's bit 5 is set; the register keeps what is
+  written to it either way;
+- the attenuation, 9 bits of 0.1875 dB: the envelope plus the total
+  level (0.75 dB steps), KSL (Table 3-4's every entry: 3 dB an octave at
+  KSL 1, 1.5 at 2, 6 at 3) and tremolo (a triangle of 210 places, one
+  every 64 samples, 3.7 Hz, to 26 steps, 4.875 dB, or a quarter of that,
+  1.125 dB);
+- the envelope: rates 4 * R + the key scaling (the block and the
+  F-number's top or second bit, NTS, all of it with KSR, a quarter
+  without; R 0 none). Up to 51 a step of 1 on 4, 5, 6 or 7 of every 8
+  periods of 2^(12 - rate / 4) samples; 52-59 every sample, 1 (or 2 from
+  56), doubled on 0, 2, 4 or 6 of 8 (the steps spread so, Table 3-6's
+  attack times are met there too); 60-63 4 a sample, the attack at once.
+  The attack goes an eighth of the way each step (`env += ~env * step >>
+  3`), linear in dB the rest: decay to the sustain level (3 dB steps, 15
+  as 93 dB), held there with EG-TYP or going on at the release rate
+  without, release from key-off. Every attack time of Table 3-6 (0 to 96
+  dB) is the model's to a sample; its decay times are the model's (511
+  steps, 0 to 96 dB) times 479.5 / 512 at every rate (the table counts
+  2.40 ms, 120 samples at 3.6 MHz, for the fastest: 480 steps of 4);
+- the channel: the modulator with its feedback (its last two outputs'
+  sum shifted right by 9 - FB: pi / 16 to 4 pi), then the carrier with
+  the modulator's output added to its phase (CNT 0), or both added (1);
+- the timers (80 us, 320 us: 4 and 16 samples a count) and the status
+  register (bit 7 IRQ, 6 and 5 their flags, the low bits 0x06 as the
+  YM3812 gives them), masks and IRQ reset; CSM's key-on and off of every
+  operator at timer 1's overflow; writes to addresses the chip lacks
+  ignored;
+- the DAC (YM3014B): the channels' sum clipped to 16 bits and kept to its
+  floating point's 10-bit mantissa.
+
+What is not exact, or not known: rhythm mode is simplified (the bass
+drum is channel 6's voice and the tom-tom operator 14's sine, but the
+hi-hat, snare and cymbal are their operators' envelopes on full-level
+square waves made from operators 13's and 17's phases and a 23-bit
+noise register, not the chip's own phase bits); where in its 8-sample
+pattern a rate's steps fall against key-on, and in its count a timer is,
+against a write (one sample either way); the rounding of the phase
+increment for odd F-numbers at block 0; the tremolo's and vibrato's
+exact shape and phase at reset; the order of the chip's per-sample
+pipeline (here every operator's output, then the phases and envelopes);
+and what one's complement or the DAC's analog stages would add. The
+shipped driver uses none of rhythm mode, CSM, the timers, the
+waveforms or the deep tremolo and vibrato; it uses the phase, KSR, KSL,
+total level, the envelopes of both types, shallow tremolo and vibrato,
+feedback and both connections.
+
+The chip's samples are averaged over each 44,100 Hz sample, added to the
+speaker's (the effects') and go through the same high-pass and volume.
+Their level, 1 (`OPL_GAIN`), was chosen by rendering the title on both:
+the first 34 seconds' RMS is 1,417 on the AdLib and 1,456 on the Tandy
+(the loudest sample 7,494 and 7,993), so the AdLib's title sounds about
+as loud as the Tandy's with the chip's sum as it is (nine voices at full
+level could reach 36,756, clipped at the DAC; the title never comes
+near).
+
 ### Checks
 
 The drivers were run against the original's code in an 8086 emulator
@@ -1824,6 +1966,34 @@ calls in whole games, `--wav` and the audio device (see Playing).
 `make sanitize` also builds `cok` with ThreadSanitizer (`build/cok_tsan`)
 and plays sound through it in real time, the game's calls crossing the
 audio thread's rendering, so that a call made without the lock fails.
+
+The AdLib's driver was compared the same way: `1661:02e6`, `02b3`,
+`0353`, `0321` and the interrupt `035a` with `MIDI.DAX` record 3
+loaded, every port write (0x40, 0x43, 0x388, 0x389) compared. 3,048
+scenarios agreed, 0 differed (7.3 million writes): the title's score
+whole (8,000 ticks, once, twice, and started again after 1,911 ticks),
+cut short after 400 and 3 ticks and stopped at once, 24 times; 3,024
+scores made up to take every path (programs 0-0xff, notes on every
+channel with velocities 0-0xff, drums matching each drum voice and
+none, voices stolen, running status after every status, bends of any
+two bytes, other statuses, `FC 80` loops and ends), some with the
+driver's drum notes, pitches and transposes poked, stopped and played
+again. Every instruction of record 3 ran but the `nop`s that pad its
+short jumps (`049c`, `04b3`, `04bb`, `04d2`, `04e5`, `061f`), its unused
+pseudo-random routine (`0818`-`082d`) and the jumps at `0003`-`000f`
+that nothing calls; it read no port. `tests/test_sound.c` checks 30 of
+these (`tests/test_sound_adlib.h`: the title's six, and 24 made-up
+scores that together run every instruction the whole set does) and the
+title's first four ticks byte for byte, the AdLib's title not silent,
+never clipped and within a quarter of the Tandy's RMS, and rendering in
+pieces. `tests/test_opl2.c` checks the chip: the ROMs against the
+formulas, the frequencies of the multiples and blocks (A at 440 Hz from
+0x244 at block 4), the waveforms and their enable bit, total level and
+every KSL setting against Table 3-4, the attack times of rates 1.0-14.3
+and decay times against Table 3-6, KSR and NTS, EG-TYP, release,
+feedback against its formula at FB 0-7, both connections, tremolo's and
+vibrato's depths and rates, the timers, status, IRQ reset, masks and
+CSM, and writes to addresses the chip lacks.
 
 What the comparison does not show: the time between interrupts (it
 compares one operation or interrupt at a time; the PIT's rates and the
@@ -2722,7 +2892,7 @@ work (see Debug mode). Characters, the roster and saved games go in
 `--saves DIR`. The run ends `(out of keys in the setup)`, `(out of keys at
 the title)`, `(out of keys in the start menu)` or as other runs do. `--wav
 FILE` renders the sound to FILE as the game's time passes (see Sound), on
-the device `KRYNN.CFG` names, or `--sound tandy`, `speaker` or `off` (which
+the device `KRYNN.CFG` names, or `--sound tandy`, `adlib`, `speaker` or `off` (which
 need `--wav`); a run that does not start from the title installs the
 effects driver first, as main has by then (`1000:0160`); `--sound-calls`
 prints the game's calls to the sound driver as `call:` lines among the

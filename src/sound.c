@@ -318,15 +318,18 @@ enum { CTRL_S_DEVICES = 0x18 };
 
 /* Time is counted in clocks of the 14,318,181.8 Hz crystal (157,500,000 / 11
  * Hz): the PIT counts every 12th, the Tandy's chip steps every 64th
- * (3,579,545 Hz / 16). A sample at 44,100 Hz is 324 + 327,600 / 485,100
- * of them. */
+ * (3,579,545 Hz / 16), the AdLib's makes a sample every 288th (its own
+ * 3,579,545 Hz crystal, a quarter of the PC's, / 72: 49,716 Hz). A sample
+ * at 44,100 Hz is 324 + 327,600 / 485,100 of them. */
 enum {
     PIT_CLOCKS = 12,
     CHIP_CLOCKS = 64,
+    OPL_CLOCKS = 4 * COK_OPL2_CLOCKS,
     SAMPLE_CLOCKS = 324,
     SAMPLE_FRAC = 327600,
     SAMPLE_DEN = 485100,
     SPEAKER_LEVEL = 8191,
+    OPL_GAIN = 1,        /* the AdLib's sum to the mix: see DEVELOPERS.md, The hardware */
     STEPS_MAX = 100000, /* A script or envelope looping forever (the original hangs). */
 };
 
@@ -507,6 +510,12 @@ void cok_sound_out(cok_sound *s, uint16_t port, uint8_t value)
     }
     case 0xc0:
         if (s->hardware == COK_SOUND_TANDY) cok_sound_chip_write(&s->chip, value);
+        break;
+    case 0x388:
+        if (s->hardware == COK_SOUND_ADLIB) cok_opl2_write_address(&s->opl, value);
+        break;
+    case 0x389:
+        if (s->hardware == COK_SOUND_ADLIB) cok_opl2_write_data(&s->opl, value);
         break;
     default:
         break;
@@ -893,7 +902,7 @@ static void fx_install(cok_sound *s)
     fx_tandy_start(s, 0);
 }
 
-/* The music drivers: MIDI.DAX record 4 (Tandy) and 5 (speaker), each
+/* The music drivers: MIDI.DAX record 3 (AdLib), 4 (Tandy) and 5 (speaker), each
  * called with AH = 0 (a tick), 1 (play the score) or 2 (stop) through the
  * table its entry reads; their data in their own segment (s->music_seg),
  * the score in s->score_seg. */
@@ -906,12 +915,278 @@ typedef struct {
     uint16_t tick, play, stop;
 } music_entry;
 
+static const music_entry adlib_entry = {0x355, 0x3ee, 0x376, 0x3e3};
 static const music_entry tandy_entry = {0x1fd, 0x2aa, 0x21e, 0x292};
 static const music_entry speaker_entry = {0x11a, 0x1b0, 0x13b, 0x19d};
 
 static const music_entry *music_driver(const cok_sound *s)
 {
-    return s->hardware == COK_SOUND_TANDY ? &tandy_entry : &speaker_entry;
+    return s->hardware == COK_SOUND_TANDY  ? &tandy_entry
+           : s->hardware == COK_SOUND_ADLIB ? &adlib_entry
+                                            : &speaker_entry;
+}
+
+/* MIDI.DAX record 3, the AdLib's: as many voices as the chip has channels
+ * (nine, melodic: it never sets rhythm mode), each at a MIDI channel of
+ * the score's bytes 0x22-0x2a. Per voice at 02d4 channel, 02dd on, 02e6
+ * note, 02ef transpose (its instrument's), 02f8 the drum's note, 0301 the
+ * drum's pitch, 030a the drum's program, 0313 the carrier's 0x40 byte
+ * (KSL and level), 031c / 0325 the 0xA0 / 0xB0 bytes written, 032e age.
+ * The instruments (01af, ten bytes each) are the modulator's 0x20, 0x40,
+ * 0x60 and 0x80 bytes, the carrier's, 0xC0's and a transpose. 0012 is the
+ * score's segment, 0014 the pitches (0xA0 | 0xB0 << 8, 96 notes of 12
+ * F-numbers in blocks 0-7). Each port write is followed by a delay loop
+ * (082e: 12 rounds after the address, 0810: 32 after the data), which
+ * reads nothing back; their time is not modelled. */
+
+static void opl(cok_sound *s, uint8_t reg, uint8_t value)
+{
+    out(s, 0x388, reg);
+    out(s, 0x389, value);
+}
+
+/* 0836: the 102 registers at 00d6 (read from the last) to 0, then the 18
+ * at 013c (0x80-0x95) to 0x3f. */
+static void adlib_reset(cok_sound *s)
+{
+    for (int si = 0x65; si >= 0; --si) opl(s, MD[0xd6 + si], 0);
+    for (int si = 0x11; si >= 0; --si) opl(s, MD[0x13c + si], 0x3f);
+}
+
+/* 0684: voice v to pitch bx (0xA0's byte, then 0xB0's with 034a, the
+ * key-on bit, or'ed in), the carrier's level first with key-on: its 0x40
+ * byte less a quarter of the velocity (a borrow reaching KSL's bits). */
+static void adlib_note(cok_sound *s, unsigned v, uint16_t bx, uint8_t velocity)
+{
+    if (MD[0x34a] != 0)
+        opl(s, (uint8_t)(MD[0x2cb + v] + 0x40), (uint8_t)(MD[0x313 + v] - (velocity >> 2)));
+    MD[0x31c + v] = (uint8_t)bx;
+    opl(s, (uint8_t)(0xa0 + v), (uint8_t)bx);
+    uint8_t b0 = (uint8_t)(bx >> 8 | MD[0x34a]);
+    MD[0x325 + v] = b0;
+    opl(s, (uint8_t)(0xb0 + v), b0);
+}
+
+/* 06dc: voice v's F-number (from the bytes last written) times the bend
+ * (034d, 0x2000 the middle) / 0x2000, the block and key-on kept; an
+ * F-number past 0x3ff carries into the block's bits. Nothing divides, so
+ * no bend ends the music on the AdLib. */
+static void adlib_bend(cok_sound *s, unsigned v)
+{
+    uint8_t ah = MD[0x325 + v];
+    MD[0x34f] = ah & 0xfc;
+    uint32_t product = (uint32_t)((ah & 3u) << 8 | MD[0x31c + v]) * rw(MD, 0x34d);
+    uint16_t bx = (uint16_t)(product >> 13);
+    opl(s, (uint8_t)(0xa0 + v), (uint8_t)bx);
+    opl(s, (uint8_t)(0xb0 + v), (uint8_t)(bx >> 8 | MD[0x34f]));
+}
+
+/* 0734: voice v takes program bl's instrument: the index at 0150, the
+ * pointer at 0187 (both a byte's reach: a program past 0x36 reads beyond
+ * them), its ten bytes to the voice's operators. */
+static void adlib_instrument(cok_sound *s, unsigned v, uint8_t bl)
+{
+    uint8_t index = MD[(uint16_t)(0x150 + bl)];
+    uint16_t di = rw(MD, (uint16_t)(0x187 + (uint8_t)(index << 1)));
+    uint8_t mod = MD[0x2c2 + v], car = MD[0x2cb + v];
+    opl(s, (uint8_t)(mod + 0x20), MD[di]);
+    opl(s, (uint8_t)(mod + 0x40), MD[(uint16_t)(di + 1)]);
+    opl(s, (uint8_t)(mod + 0x60), MD[(uint16_t)(di + 2)]);
+    opl(s, (uint8_t)(mod + 0x80), MD[(uint16_t)(di + 3)]);
+    opl(s, (uint8_t)(car + 0x20), MD[(uint16_t)(di + 4)]);
+    MD[0x313 + v] = MD[(uint16_t)(di + 5)];
+    opl(s, (uint8_t)(car + 0x40), MD[(uint16_t)(di + 5)]);
+    opl(s, (uint8_t)(car + 0x60), MD[(uint16_t)(di + 6)]);
+    opl(s, (uint8_t)(car + 0x80), MD[(uint16_t)(di + 7)]);
+    opl(s, (uint8_t)(0xc0 + v), MD[(uint16_t)(di + 8)]);
+    MD[0x2ef + v] = MD[(uint16_t)(di + 9)];
+}
+
+/* The pitch of note n (0014 + 2n, a byte's reach). */
+static uint16_t adlib_pitch(cok_sound *s, uint8_t n)
+{
+    return rw(MD, (uint16_t)(0x14 + (uint8_t)(n << 1)));
+}
+
+/* 0376. */
+static void adlib_play(cok_sound *s)
+{
+    ww(MD, 0x12, s->score_segment);
+    uint16_t start = rw(SC, 0);
+    ww(MD, 0x340, start);
+    ww(MD, 0x342, start);
+    for (unsigned di = 0; di < 9; ++di) MD[0x2d4 + di] = SC[0x22 + di];
+    adlib_reset(s);
+    for (unsigned di = 0; di < 9; ++di) {
+        MD[0x2dd + di] = 0;
+        MD[0x2e6 + di] = 0;
+        ww(MD, (uint16_t)(0x32e + di * 2), 0);
+    }
+    /* The drums' voices (channel 9) take their programs now. */
+    for (unsigned di = 0; di < 9; ++di)
+        if (MD[0x2d4 + di] == 9) adlib_instrument(s, di, MD[0x30a + di]);
+    MD[0x346] = 0;
+    MD[0x350] = 0;
+    MD[0x349] = 1;
+}
+
+/* 03e3. */
+static void adlib_stop(cok_sound *s)
+{
+    MD[0x349] = 0;
+    adlib_reset(s);
+}
+
+/* 0533: a note on (bl, velocity ah) on channel MD[0345]. */
+static void adlib_note_on(cok_sound *s, uint8_t bl, uint8_t ah)
+{
+    uint8_t al = MD[0x345];
+    if (al == 9) {
+        /* 064d: the first of channel 9's voices whose drum it is. */
+        for (unsigned di = 0; di < 9; ++di) {
+            if (al != MD[0x2d4 + di] || bl != MD[0x2f8 + di]) continue;
+            MD[0x34a] = 0x20;
+            MD[0x2dd + di] = 1;
+            MD[0x2e6 + di] = bl;
+            adlib_note(s, di, adlib_pitch(s, MD[0x301 + di]), ah);
+            return;
+        }
+        return;
+    }
+    for (unsigned di = 0; di < 9; ++di) {
+        if (al != MD[0x2d4 + di] || MD[0x2dd + di] == 1) continue;
+        MD[0x34a] = 0x20;
+        MD[0x2dd + di] = 1;
+        MD[0x2e6 + di] = bl;
+        adlib_note(s, di, adlib_pitch(s, (uint8_t)(bl + MD[0x2ef + di])), ah);
+        return;
+    }
+    /* 0580: every voice of the channel busy: the one sounding longest,
+     * keyed off (pitch 0), takes the note; none older than 0, none. */
+    uint16_t dx = 0;
+    ww(MD, 0x34b, 0xffff);
+    for (unsigned di = 0; di < 9; ++di) {
+        if (al != MD[0x2d4 + di]) continue;
+        uint16_t age = rw(MD, (uint16_t)(0x32e + di * 2));
+        if (dx < age) {
+            dx = age;
+            ww(MD, 0x34b, di);
+        }
+    }
+    if (rw(MD, 0x34b) == 0xffff) return;
+    unsigned di = rw(MD, 0x34b);
+    MD[0x34a] = 0;
+    adlib_note(s, di, 0, ah);
+    ww(MD, (uint16_t)(0x32e + di * 2), 0);
+    MD[0x34a] = 0x20;
+    MD[0x2dd + di] = 1;
+    MD[0x2e6 + di] = bl;
+    adlib_note(s, di, adlib_pitch(s, (uint8_t)(bl + MD[0x2ef + di])), ah);
+}
+
+/* 05f0: a note off, the channel's first voice on that note (on or not),
+ * its pitch written again without key-on: a drum's at its pitch plus the
+ * transpose its note on left out. */
+static void adlib_note_off(cok_sound *s, uint8_t bl)
+{
+    uint8_t al = MD[0x345];
+    for (unsigned di = 0; di < 9; ++di) {
+        if (al != MD[0x2d4 + di] || MD[0x2e6 + di] != bl) continue;
+        MD[0x34a] = 0;
+        MD[0x2dd + di] = 0;
+        uint8_t note = al == 9 ? MD[0x301 + di] : MD[0x2e6 + di];
+        MD[0x2e6 + di] = 0;
+        uint16_t bx = adlib_pitch(s, (uint8_t)(note + MD[0x2ef + di]));
+        ww(MD, (uint16_t)(0x32e + di * 2), 0);
+        adlib_note(s, di, bx, 0);
+        return;
+    }
+}
+
+/* 03ee: a tick: the ages of the voices on, then the score's events due. */
+static void adlib_tick(cok_sound *s)
+{
+    if (MD[0x349] != 1) return;
+    uint16_t si = rw(MD, 0x340);
+    uint8_t al, ah = 0;
+    for (unsigned di = 0; di < 9; ++di) {
+        uint16_t age = (uint16_t)(0x32e + di * 2);
+        if (MD[0x2dd + di] == 1) ww(MD, age, rw(MD, age) + 1u);
+    }
+    if (MD[0x346] != 0) {
+        --MD[0x346];
+        goto done;
+    }
+    for (int steps = 0; steps < STEPS_MAX; ++steps) {
+        al = SC[si++];
+        if (al < 0x80) {
+            /* Running status. */
+            ah = MD[0x344];
+            --si;
+            if (MD[0x347] != 0) {
+                ++si;
+                if (MD[0x348] != 0) ++si;
+                goto delta;
+            }
+        } else if (al == 0xfc) {
+            al = SC[si++];
+            if (al == 0x80) {
+                si = rw(MD, 0x342);
+                continue;
+            }
+            /* The end: the voices sounding go on (until AH 2). */
+            MD[0x349] = 0;
+            return;
+        } else {
+            MD[0x345] = al & 0x0f;
+            ah = al & 0xf0;
+            MD[0x344] = ah;
+        }
+        if (ah == 0xe0) {
+            MD[0x348] = 1;
+            uint8_t dl = SC[si++];
+            uint8_t dh = SC[si++];
+            if (dh & 1) dl |= 0x80;
+            dh >>= 1;
+            ww(MD, 0x34d, (unsigned)dh << 8 | dl);
+            for (unsigned di = 0; di < 9; ++di)
+                if (MD[0x345] == MD[0x2d4 + di] && MD[0x2dd + di] == 1) adlib_bend(s, di);
+            goto delta;
+        }
+        MD[0x347] = 0;
+        MD[0x348] = 1;
+        if (ah == 0xc0) {
+            /* 04eb: the channel's voices (not channel 9's) take the program. */
+            MD[0x348] = 0;
+            uint8_t bl = SC[si++];
+            for (unsigned di = 0; di < 9; ++di)
+                if (MD[0x345] != 9 && MD[0x345] == MD[0x2d4 + di]) adlib_instrument(s, di, bl);
+            goto delta;
+        }
+        if (ah == 0x90 && SC[(uint16_t)(si + 1)] != 0) {
+            uint8_t bl = SC[si], velocity = SC[(uint16_t)(si + 1)];
+            si = (uint16_t)(si + 2);
+            adlib_note_on(s, bl, velocity);
+            goto delta;
+        }
+        if (ah == 0x90 || ah == 0x80) {
+            uint8_t bl = SC[si];
+            si = (uint16_t)(si + 2);
+            adlib_note_off(s, bl);
+            goto delta;
+        }
+        /* Any other status: two bytes skipped, and after it too. */
+        si = (uint16_t)(si + 2);
+        MD[0x348] = 1;
+        MD[0x347] = 1;
+    delta:
+        al = SC[si++];
+        if (al == 0) continue;
+        MD[0x346] = (uint8_t)(al - 1);
+        break;
+    }
+done:
+    ww(MD, 0x340, si);
 }
 
 /* Tandy (record 4). Voices 0-3 (3 the noise): per voice at 018a channel,
@@ -1428,6 +1703,10 @@ static void music_call(cok_sound *s, unsigned ah)
         if (routine == e->tick) tandy_tick(s);
         else if (routine == e->play) tandy_play(s);
         else if (routine == e->stop) tandy_stop(s);
+    } else if (s->hardware == COK_SOUND_ADLIB) {
+        if (routine == e->tick) adlib_tick(s);
+        else if (routine == e->play) adlib_play(s);
+        else if (routine == e->stop) adlib_stop(s);
     } else {
         if (routine == e->tick) speaker_tick(s);
         else if (routine == e->play) speaker_play(s);
@@ -1603,6 +1882,15 @@ void cok_sound_render(cok_sound *s, int16_t *samples, size_t frames)
             s->pit2_next += PIT_CLOCKS;
         }
         if (n > 0) level += sum / n;
+        if (s->hardware == COK_SOUND_ADLIB) {
+            sum = n = 0;
+            while (s->opl_next < end) {
+                sum += cok_opl2_sample(&s->opl);
+                ++n;
+                s->opl_next += OPL_CLOCKS;
+            }
+            if (n > 0) level += sum * OPL_GAIN / n;
+        }
         /* The output's coupling capacitor: a high-pass at about 14 Hz. */
         int64_t y = level - s->dc_in + s->dc_out * 65404 / 65536;
         s->dc_in = level;
@@ -1618,9 +1906,10 @@ void cok_sound_init(cok_sound *s, cok_sound_device hardware)
 {
     memset(s, 0, sizeof *s);
     /* The Tandy's chip for the Tandy (and none); a PC's speaker for the
-     * others, whose effects play there. */
+     * others, whose effects play there, and the AdLib's chip beside it. */
     s->hardware = hardware == COK_SOUND_TANDY || hardware == COK_SOUND_NONE ? COK_SOUND_TANDY
-                                                                            : COK_SOUND_SPEAKER;
+                  : hardware == COK_SOUND_ADLIB                              ? COK_SOUND_ADLIB
+                                                                             : COK_SOUND_SPEAKER;
     s->device = (uint8_t)hardware; /* DS:577b is 0 until 00da copies it. */
     memcpy(s->fx, fx_image, sizeof fx_image);
     ww(s->fx, 0x124, 0); /* 17e8:0105 */
@@ -1630,6 +1919,7 @@ void cok_sound_init(cok_sound *s, cok_sound_device hardware)
     s->pit2_out = true;
     s->pit2_left = 1;
     cok_sound_chip_init(&s->chip);
+    cok_opl2_init(&s->opl);
     s->volume = 256;
 }
 
@@ -1676,13 +1966,13 @@ bool cok_sound_load(cok_sound *s, const cok_rules *rules, const char *assets)
                  rules->text.name);
         return false;
     }
-    if (s->device < COK_SOUND_TANDY) {
+    if (s->device < COK_SOUND_ADLIB) {
         snprintf(s->music_error, sizeof s->music_error,
                  "the music driver for %s (%s.DAX record %u) is not ported",
                  cok_sound_device_name((cok_sound_device)s->device), drivers, s->device + 1u);
         return false;
     }
-    uint8_t id = s->hardware == COK_SOUND_TANDY ? 4 : 5;
+    uint8_t id = s->hardware == COK_SOUND_TANDY ? 4 : s->hardware == COK_SOUND_ADLIB ? 3 : 5;
     size_t driver_size = 0, score_size = 0;
     uint8_t *driver = load_record(assets, drivers, id, &driver_size, s->music_error,
                                   sizeof s->music_error);
@@ -1730,6 +2020,8 @@ bool cok_sound_music_unported(const cok_sound *s, const cok_rules *rules, char *
                               size_t size)
 {
     if (!s->music || s->device >= COK_SOUND_TANDY) return false;
+    /* The AdLib's is ported, but not a game's whose music is not read. */
+    if (s->device == COK_SOUND_ADLIB && rules->archives.music_drivers != NULL) return false;
     snprintf(text, size, "the title's music on %s (%s.DAX record %u)",
              cok_sound_device_name((cok_sound_device)s->device),
              rules->archives.music_drivers, s->device + 1u);
