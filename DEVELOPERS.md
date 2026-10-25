@@ -1938,14 +1938,18 @@ longer, as on the chip. It runs at the chip's rate, 3,579,545 / 72 =
   0, pi / 16, pi / 8, pi / 4, pi / 2, pi, 2 pi, 4 pi for FB 0-7): with a
   full-level output (2,042, about 2^11) as F = 1 and 1,024 phase steps a
   cycle, B F is F's output shifted right by 7 - FB (FB 7 the output
-  whole). Ours: (3) is implicit
-  in F, and a sampled loop must take F from outputs already made; we use
-  a running average, each sample half the old average and half the new
-  output. With the last output alone the loop would ring at half the
-  sample rate wherever B times the sine's slope passes 1 (FB 5 and up);
-  so averaged it holds to 3, at a delay of about a sample. FB 6 and 7
-  are noisy either way, as Table 5-1 says the feedback's top end is
-  ("Normal tone -> (Noise)").
+  whole). (3) is implicit in F, and a sampled loop must take F from
+  outputs already made. Ours, measured (DOSBox-X's OPL2 as a black box,
+  its audio alone, as for the connections below): at FB 5 with the
+  modulator at full level its note rings at about 16.6 kHz, a third of
+  the sample rate, and a trace of that shows at FB 3. The loop whose
+  input is the mean of the last two outputs is the one that turns over
+  at exactly a third of the rate (z^-1 + z^-2 = -1 there) and not at
+  half, so F is that mean; its notes at FB 3, 5 and 7, and the title's FB
+  6 and 7 instruments, then agree with the measurement band for band
+  (the running average used before rang nowhere, was darker from FB 5
+  up and left FB 7's fundamental 37 dB short). FB 6 and 7 are noisy, as
+  Table 5-1 says the feedback's top end is ("Normal tone -> (Noise)").
 - **The connections** (3-1-9): CNT 0 the modulator's output added to the
   carrier's phase, 1 both outputs added. The manual gives no modulation
   index for the carrier; ours, measured: DOSBox-X's OPL2 taken as a black
@@ -1990,11 +1994,10 @@ longer, as on the chip. It runs at the chip's rate, 3,579,545 / 72 =
 
 What is not exact, or not known: the chip's own envelope staircase
 (the model's rates are smooth, fitted to Table 3-6), the attack's exact
-curve, the LFOs' shapes and phase at reset, the feedback's sampling,
-the binary point between an operator's output and another's phase (here
-Table 3-8's for feedback, twice it for the carrier, as measured), the
-feedback's top end (FB 5-7 measured brighter above the 16th harmonic
-than ours), rhythm mode, its noise and CSM as above, the status's low
+curve, the LFOs' shapes and phase at reset, the feedback's sampling
+(here the mean of two outputs, as measured), the binary point between
+an operator's output and another's phase (here Table 3-8's for
+feedback, twice it for the carrier, as measured), rhythm mode, its noise and CSM as above, the status's low
 bits, where in its count a timer is against a write
 (one sample either way), the rounding of the phase increment for odd
 F-numbers at block 0, the order of the chip's per-sample pipeline (here
