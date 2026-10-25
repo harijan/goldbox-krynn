@@ -2733,6 +2733,16 @@ static void test_menus3(void)
           HOLDS(0x3632, 0x1bc7, 0x05, 0x3a, 0x06, 0xc0, 0x57, 0x75));
     n = far_calls(0x3632, 0x1b9e, 0x3f, calls, 24);
     CHECK(n == 2 && calls[1] == (0x6a69ul << 16 | 0x2048));
+    /* The results' key (3a37:09b7's end): one 0f1b over DS:0868, no prompt
+     * (DS:2fad), the keypad, no picture, its result unused (0c1c then the
+     * epilogue); no 6a69:00cb in the routine (DS:c120 as left). */
+    CHECK(pascal_is(ds(0x0868), R->combat.results_key, false) &&
+          HOLDS(0x3a37, 0x0c07, 0x15, 0xbf, 0xad, 0x2f, 0x1e, 0x57, 0xbf, 0x68, 0x08, 0x1e, 0x57,
+                0xb0, 0x01, 0x50, 0xb0, 0x00, 0x50, 0x9a) &&
+          HOLDS(0x3a37, 0x0c1c, 0x08, 0x88, 0x86, 0xf4, 0xfe, 0x89, 0xec, 0x5d, 0xca));
+    n = far_calls(0x3a37, 0x09b7, 0x265, calls, 24);
+    CHECK(n >= 1 && calls[n - 1] == (0x6a69ul << 16 | 0x0f1b));
+    for (size_t i = 0; i < n; ++i) CHECK(calls[i] != (0x6a69ul << 16 | 0x00cb));
     puts("death knights: the spell lists and the ECL's menus checked");
 }
 

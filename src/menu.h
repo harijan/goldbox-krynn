@@ -208,6 +208,11 @@ int cok_menu_pick(cok_picture *dst, const cok_font *font, const char *prompt, co
                   uint8_t normal, bool keypad, uint8_t *selected, const cok_keyboard *keys,
                   bool *special);
 
+/* The items DS:c120 holds (pointer's record of the last cok_menu_pick, the
+ * image's 20 zeros before any or without a pointer), for a menu read
+ * without filling it (dkk 3a37:09b7). */
+void cok_menu_items_last(cok_menu_items *items, const cok_pointer *pointer);
+
 /* cok_menu_pick with a timeout (dkk 6a69:0f1b with DS:c0fa set, as the
  * title's menu calls it, 1000:0125, 0235): when the keyboard gives
  * COK_KEY_TIMEOUT, the time passed since the menu began (keys typed

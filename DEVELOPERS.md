@@ -1564,9 +1564,8 @@ differs:
 
 The menus Death Knights was found to read by Champions' loop are read
 by index now (the last, the spell lists and the ECL's VERTICAL MENU,
-HORIZONTAL MENU, PRESS KEY and YES NO: `dkk-menus3`), and take Death
-Knights' clicks; the end of combat's `press <enter>/<return> to continue`
-(`treasure.c`'s `press_enter`) still reads Champions' loop, unchecked.
+HORIZONTAL MENU, PRESS KEY, YES NO and the results' key: `dkk-menus3`),
+and take Death Knights' clicks.
 `tests/test_input.c` checks Death Knights' clicks (row 24's and two rows'
 items, the prompt, nowhere, the battlefield, the party list and the pick
 into, Move mode, Modify's sheet, Pick Character, a list's rows and row
@@ -2496,7 +2495,15 @@ not past last, and picks as Select does (`Select Next`: Next picks; with
 page); Escape, and the scan codes 0x45 and 0, leave; the row is stored
 whatever the key. A click off its list with `Select` alone gives 0xff,
 which `6a69:1ea6` compares with an Exit index never set: the run stops
-(`COK_ECL_UNDEFINED`). No Death Knights script has a VERTICAL MENU.
+(`COK_ECL_UNDEFINED`). No Death Knights script has a VERTICAL MENU. The end of combat's results wait for
+`Press button or enter to continue` (`DS:0868`, `3a37:09b7`'s end,
+`treasure.c`'s `press_enter`) is one `6a69:0f1b` with the keypad and no
+picture, its result unused, over the items the menu before left in
+`DS:c120` (the routine does not call `6a69:00cb`; `cok_pointer.items`
+keeps the last `cok_menu_pick`'s, `cok_menu_items_last` reads them, the
+image's zeros before any): the line shows only where they start with 0;
+its `P`, Enter, Escape and any special key end it, Space and other letters
+are read past (Champions' loop ends on any of them).
 `CALL`'s redraw is at `2dcb` (`3632:2294`), Champions' `2e10`. Its
 variables are bytes (`3c1e:0d85`, `3c1e:0bc1`; the descriptor's
 `variable_bytes` 1): an operand of type 0 or 1 reads and writes one byte,

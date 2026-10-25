@@ -540,6 +540,17 @@ void cok_menu_items_upto(cok_menu_items *items, uint8_t last)
         items->index[items->count++] = (uint8_t)i;
 }
 
+void cok_menu_items_last(cok_menu_items *items, const cok_pointer *pointer)
+{
+    *items = (cok_menu_items){0};
+    if (pointer == NULL || !pointer->items_known) {
+        items->count = COK_MENU_MAX_ITEMS;
+        return;
+    }
+    items->count = pointer->item_count;
+    memcpy(items->index, pointer->items, pointer->item_count);
+}
+
 void cok_menu_items_add(cok_menu_items *items, uint8_t index)
 {
     if (items->count < COK_MENU_MAX_ITEMS) items->index[items->count++] = index;
@@ -726,6 +737,13 @@ static int pick(cok_picture *dst, const cok_font *font, const char *prompt, cons
     cok_menu_indexed_layout m;
     cok_menu_indexed(&m, text, items);
     *special = false; /* DS:c0f8 */
+    if (keys != NULL && keys->pointer != NULL) {
+        /* DS:c120, as the next menu not filling it reads it. */
+        cok_pointer *p = keys->pointer;
+        p->items_known = true;
+        p->item_count = items->count;
+        memcpy(p->items, items->index, items->count);
+    }
     if (m.count < *selected || *selected == 0) *selected = 1;
     int x = (int)strlen(shown);
     if (x != 0) cok_text_string(dst, font, shown, 0, 24, prompt_color, 0);

@@ -151,7 +151,8 @@ the character fields moved (R6), which the real game's layout does better.
    the read (done: `dkk-setup`). Magic's spell lists (`5dc5:016e`), the
    ECL's VERTICAL MENU (`3632:1068`, `3c1e:171a`), HORIZONTAL MENU, ASK
    MENU, PRESS KEY and JOURNAL (`3c1e:1631`) and YES NO (`3632:1b9e`,
-   `6a69:2048`) by index (done: `dkk-menus3`).
+   `6a69:2048`) and the end of combat's results key (`3a37:09b7`) by index
+   (done: `dkk-menus3`).
 4. Music: the MUSIC.DAX driver and its songs. Until then Death Knights plays
    silent.
 5. Checks against the original: tests against `death-START_FULL.EXE` and a

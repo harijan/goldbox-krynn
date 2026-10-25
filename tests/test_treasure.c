@@ -1465,6 +1465,45 @@ static void test_dk_menu(void)
 }
 
 /* The treasure's menus and lists by index (dkk 6a69:0f1b, 1b82). */
+/* Whether row 24 shows anything. */
+static bool row24_drawn(void)
+{
+    const cok_picture *p = &game.screen;
+    size_t row = (size_t)p->units * 4;
+    for (size_t i = 192 * row; i < 200 * row; ++i)
+        if (p->pixels[i] != 0) return true;
+    return false;
+}
+
+static void test_dk_results_key(void)
+{
+    /* The results' key (3a37:09b7's end: one 6a69:0f1b over DS:c120 as the
+     * menu before left it): Space and letters but its P are read past,
+     * Enter ends it; before any menu (the image's zeros) the line shows. */
+    reset(" b\r");
+    cok_character *a = dk_member("A");
+    game.vm.character = a->record;
+    game.pointer.items_known = false;
+    CHECK(combat(COK_COMBAT_UNPORTED) == COK_ECL_OK && s.at == s.length && !game.input_ended);
+    CHECK(LOGGED("menu: Press button or enter to continue;") && row24_drawn());
+    /* After a menu whose items start past 0 (a combat menu with no Move)
+     * it shows nothing; Enter (0x0d, no item's) still ends it. */
+    reset("\r");
+    a = dk_member("A");
+    game.vm.character = a->record;
+    game.pointer.items_known = true;
+    game.pointer.item_count = 2;
+    game.pointer.items[0] = 1;
+    game.pointer.items[1] = 2;
+    CHECK(combat(COK_COMBAT_UNPORTED) == COK_ECL_OK && s.at == s.length && !game.input_ended);
+    CHECK(!row24_drawn());
+    /* A menu by index records its items there. */
+    reset("\r");
+    game.pointer.items_known = false;
+    CHECK(cok_camp_ask(&game, "", 13, true) == 'Y' && game.pointer.items_known &&
+          game.pointer.item_count == 2 && game.pointer.items[0] == 0 && game.pointer.items[1] == 1);
+}
+
 static void test_dk_indexed(void)
 {
     /* Take's items (3a37:0c26): a space is read past (Champions' list
@@ -1804,6 +1843,7 @@ static void test_death_knights(void)
     test_dk_take();
     test_dk_menu();
     test_dk_indexed();
+    test_dk_results_key();
     test_dk_ecl_menus();
     char dir[512];
     CHECK(test_temp_dir(dir, sizeof dir, "treasure") != NULL);

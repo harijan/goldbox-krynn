@@ -1161,6 +1161,26 @@ class DeathKnightsTests(unittest.TestCase):
                                                "(out of keys in block 16 at 8189)\n"),
                         result.stdout[-400:])
 
+    def test_view_list_pages(self):
+        # View's list only to look (5dc5:016e, last 0xff: Next, Prev and
+        # Exit from index 0) longer than its 18 rows: NEACAIL with 74
+        # spells memorized (7 levels' headings, 35 rows). N pages, staying
+        # in the list; E then leaves it, back to View's menu.
+        saves = self.saves(ASSETS / "SAVE")
+        self.memorized(saves, {"CHRDATA5": list(range(1, 0x4B))})
+        camp = self.TITLE + r"\v\v\r\rA" + r"\v" * 5 + r"\r\r\r\r" + r"\v" * 4
+        listed = "item:   Ressurection\nitem:   Restoration\n"
+        result = self.play("--start-menu", "--saves", saves, "--keys", camp + "VSN", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(result.stdout.endswith(listed + "(out of keys in block 16 at 8189)\n"),
+                        result.stdout[-300:])
+        result = self.play("--start-menu", "--saves", saves, "--keys", camp + "VSNE", ASSETS)
+        out = result.stdout
+        self.assertEqual(out.count("list: Spells in Memory"), 1)
+        self.assertTrue(out.endswith(listed + "print: NEACAIL\nprint: Mishakal Cleric/Thief\n"
+                                     "menu: Items Spells Trade Drop Exit\n"
+                                     "(out of keys in block 16 at 8189)\n"), out[-300:])
+
     def camp_cast(self, who, spell, keys, effects=None):
         """Camp's Magic, Cast for party member WHO (1 the first) with SPELL
         alone memorized, the cast's KEYS after Cast; EFFECTS (id, value) the

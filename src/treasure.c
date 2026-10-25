@@ -1166,13 +1166,27 @@ static void clear_frame(cok_adventure *game, bool open)
 
 /* "press <enter>/<return> to continue" on row 24, the whole line its one
  * item, white (67b5:03e2 with colours 15, 15 and 15): Enter, space,
- * Escape and any special key end it. Returns false if input ended. */
+ * Escape and any special key end it. Where the game's menus go by index
+ * (dkk 3a37:09b7's end) it is one 6a69:0f1b over the items the menu
+ * before left in DS:c120 (6a69:00cb is not called: the line shows only
+ * where they start with 0), no prompt (DS:2fad), the keypad, no picture,
+ * its result unused: its hotkey, Enter, Escape and any special key (the
+ * keypad's digits too) end it; Space and other letters are read past.
+ * Returns false if input ended. */
 static bool press_enter(cok_adventure *game)
 {
     const char *text = cok_game_rules(game)->combat.results_key;
     log_text(game, "menu", text);
     cok_keyboard keys = cok_adventure_keyboard(game);
     bool special;
+    if (cok_game_rules(game)->menus.routine == COK_MENUS_INDEXED) {
+        cok_menu_items items;
+        cok_menu_items_last(&items, keys.pointer);
+        int key = cok_menu_pick(&game->screen, &game->font, "", text, &items, 13, 15, 10, true,
+                                &game->selected, &keys, &special);
+        if (key >= 0) game->menu_special = special; /* DS:c0f8 */
+        return key >= 0;
+    }
     return cok_menu_ask(&game->screen, &game->font, "", text, 15, 15, 15, true, &game->selected,
                         &keys, &special) >= 0;
 }
