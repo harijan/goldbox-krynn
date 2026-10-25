@@ -511,7 +511,7 @@ static void test_adlib_render(void)
         digest = (digest ^ (uint8_t)((uint16_t)samples[i] >> 8)) * 0x01000193u;
         if (samples[i] > peak) peak = samples[i];
     }
-    CHECK(peak > 1000 && digest == 0xf48476d3u);
+    CHECK(peak > 1000 && digest == 0x3d7dea72u);
 }
 
 /* The title on the AdLib: about as loud as on the Tandy (the RMS of its

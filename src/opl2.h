@@ -29,7 +29,7 @@ typedef struct {
     uint32_t eg;          /* the envelope's attenuation, 0.1875 dB steps with 22 bits of fraction */
     uint16_t env;         /* its whole steps, 0-511 */
     cok_opl2_state state;
-    uint8_t key;          /* bit 0 the channel's key-on, 1 rhythm's, 2 CSM's */
+    bool down;            /* its key: the channel's KEY-ON, or its drum's bit in rhythm mode */
     int32_t average;      /* the outputs' running average (feedback) */
 } cok_opl2_operator;
 
@@ -45,13 +45,13 @@ typedef struct {
     uint8_t timer[2], count[2];
     bool running[2], masked[2], flag[2];
     bool csm, nts;        /* 0x08 */
-    bool csm_key;         /* CSM's key-on, let go the next sample */
+    bool csm_burst;       /* CSM's attacks started this sample: released at the next */
     bool am_deep, vib_deep, rhythm; /* 0xBD bits 7-5 */
     uint8_t drums;        /* 0xBD bits 4-0: BD SD TOM TC HH */
     cok_opl2_operator op[COK_OPL2_OPERATORS];
     cok_opl2_channel ch[COK_OPL2_CHANNELS];
     uint32_t samples;     /* samples made: the LFOs' time, the timers */
-    uint32_t noise;       /* the rhythm's 23-bit noise register */
+    uint32_t noise;       /* the rhythm's noise (xorshift, 32 bits) */
 } cok_opl2;
 
 void cok_opl2_init(cok_opl2 *chip);
@@ -61,7 +61,7 @@ void cok_opl2_write_data(cok_opl2 *chip, uint8_t value);
 /* Both at once; writes to addresses the chip lacks do nothing. */
 void cok_opl2_write(cok_opl2 *chip, uint8_t reg, uint8_t value);
 /* The status port (a read of 0x388): bit 7 IRQ, 6 timer 1's flag, 5 timer 2's,
- * the low bits 0x06 as the YM3812 gives them. */
+ * the low bits 0 (3-5). */
 uint8_t cok_opl2_status(const cok_opl2 *chip);
 /* The next sample, the nine channels' sum as the DAC (YM3014B) takes it. */
 int32_t cok_opl2_sample(cok_opl2 *chip);
@@ -73,7 +73,7 @@ int32_t cok_opl2_dac(int32_t sum);
 /* The phase increment a sample, of 2^19 a cycle (vibrato aside). */
 uint32_t cok_opl2_increment(unsigned fnum, unsigned block, unsigned mult);
 /* An operator's output for a 10-bit phase, waveform and attenuation
- * (0-511, 0.1875 dB steps): -4084 to 4084. */
+ * (0-511, 0.1875 dB steps): -2042 to 2042. */
 int32_t cok_opl2_wave(unsigned phase, unsigned wave, unsigned attenuation);
 /* KSL's attenuation (0.1875 dB steps) for an F-number, block and KSL. */
 unsigned cok_opl2_ksl(unsigned fnum, unsigned block, unsigned ksl);

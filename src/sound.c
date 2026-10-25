@@ -329,7 +329,8 @@ enum {
     SAMPLE_FRAC = 327600,
     SAMPLE_DEN = 485100,
     SPEAKER_LEVEL = 8191,
-    OPL_GAIN = 1,        /* the AdLib's sum to the mix: see DEVELOPERS.md, The hardware */
+    OPL_GAIN = 7,        /* the AdLib's sum to the mix, times 7 / 4: see DEVELOPERS.md, The hardware */
+    OPL_GAIN_DIV = 4,
     STEPS_MAX = 100000, /* A script or envelope looping forever (the original hangs). */
 };
 
@@ -1889,7 +1890,7 @@ void cok_sound_render(cok_sound *s, int16_t *samples, size_t frames)
                 ++n;
                 s->opl_next += OPL_CLOCKS;
             }
-            if (n > 0) level += sum * OPL_GAIN / n;
+            if (n > 0) level += sum * OPL_GAIN / (OPL_GAIN_DIV * n);
         }
         /* The output's coupling capacitor: a high-pass at about 14 Hz. */
         int64_t y = level - s->dc_in + s->dc_out * 65404 / 65536;

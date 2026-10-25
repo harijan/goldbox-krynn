@@ -1856,8 +1856,9 @@ is the only filter, so the square waves' harmonics above 22 kHz alias
 somewhat; the game's tones are low enough that this is faint.
 
 The AdLib's YM3812 (OPL2) is `src/opl2.c`, written for this port from
-two documents only; no emulator's code, tables or design are used:
-Yamaha's YM3812 Application Manual (the 1994 scan at the Internet
+two documents only, with our own choices where they leave something
+open (each said so below); no emulator's code or tables are used, and no
+choice is made because an emulator makes it: Yamaha's YM3812 Application Manual (the 1994 scan at the Internet
 Archive, "Yamaha YM3812 Application Manual"; "the manual" below, by its
 section, table and printed page), and Matthew Gambrell and Olli
 Niemitalo's "OPLx decapsulated" (2008), which read the chip's two ROMs
@@ -1873,7 +1874,8 @@ longer, as on the chip. It runs at the chip's rate, 3,579,545 / 72 =
   `round((2^(x / 256) - 1) * 1024)`, x = 0-255, and the decap's
   `exp(logsin(phase) + gain)` for an operator: the log-sine (its quarter
   mirrored and negated) plus the attenuation, through the exponent ROM,
-  its integer part a shift, up to 4,084 either way (in the code as
+  its integer part a shift: the decap's significand, the ROM's value and
+  the hidden 1,024, at most 2,042 either way (in the code as
   tables, `tests/test_opl2.c` regenerates them). The waveforms (Table
   3-10's half sine, |sine|, rising quarters) only while register 1's bit 5
   is set (3-1-11).
@@ -1881,10 +1883,13 @@ longer, as on the chip. It runs at the chip's rate, 3,579,545 / 72 =
   1)`, Table 3-1): a 19-bit accumulator a sample up by (F-number <<
   block) times twice the multiple (MULT 0 a half, 11 as 10, 13 as 12, 15
   as 15) / 4, its top 10 bits the place in the wave: F-number * 49,716 *
-  2^(block - 20) Hz; key-on restarts it.
+  2^(block - 20) Hz. A key-on restarts the phase at 0 (ours: the manual
+  does not say; a note then starts the same way each time).
 - **The envelope's rates** (3-1-4 to 3-1-7, Tables 3-2 and 3-6): 4 * R
-  + the key scaling (the block and the F-number's top or second bit by
-  NTS, all of it with KSR, a quarter without), R 0 no change. Table 3-6's
+  + the key scaling (the keyboard split number, 3-1-3 on p. 11: the
+  block and one F-number bit, with NOTE SEL 0 the second from the top,
+  bit 8, with 1 the top, bit 9; all of it with KSR, a quarter without), R
+  0 no change. Table 3-6's
   times are in the code, 0-96 dB for the decay (and release) and for the
   attack. Ours: the attenuation is kept to 2^-22 of a 0.1875 dB step, and
   a linear rate adds the same amount every sample, 512 steps over its
@@ -1931,8 +1936,9 @@ longer, as on the chip. It runs at the chip's rate, 3,579,545 / 72 =
   65,536, at the manual's 6.4 Hz.
 - **Feedback** (1-3's formula (3), `F = A sin(wt + B F)`, and Table 3-8's B:
   0, pi / 16, pi / 8, pi / 4, pi / 2, pi, 2 pi, 4 pi for FB 0-7): with a
-  full-level output (4,084, about 2^12) as F = 1 and 1,024 phase steps a
-  cycle, B F is F's output shifted right by 8 - FB. Ours: (3) is implicit
+  full-level output (2,042, about 2^11) as F = 1 and 1,024 phase steps a
+  cycle, B F is F's output shifted right by 7 - FB (FB 7 the output
+  whole). Ours: (3) is implicit
   in F, and a sampled loop must take F from outputs already made; we use
   a running average, each sample half the old average and half the new
   output. With the last output alone the loop would ring at half the
@@ -1941,20 +1947,38 @@ longer, as on the chip. It runs at the chip's rate, 3,579,545 / 72 =
   are noisy either way, as Table 5-1 says the feedback's top end is
   ("Normal tone -> (Noise)").
 - **The connections** (3-1-9): CNT 0 the modulator's output added to the
-  carrier's phase, 1 both outputs added.
+  carrier's phase, 1 both outputs added. Ours: with CNT 0 the carrier's
+  phase input takes the modulator's output at the scale Table 3-8 fixes
+  for feedback, whole as at FB 7: a modulation index of up to 4 pi (the
+  manual gives none for the carrier).
 - **The timers and status** (3-1-2, 3-5: 80 us and 320 us a count, 4
   and 16 samples): the flags in the status register (bit 7 IRQ, 6 and 5
-  the flags, the low bits 0x06 as the YM3812 gives them), masks and IRQ
-  reset; writes to addresses the chip lacks ignored.
-- **CSM** (2-1 c, 3-1-3): timer 1's overflow keys every operator on.
-  Ours: the key is let go a sample later (the manual does not say how
-  long), so each operator gets one step of its attack and then releases;
-  with a fast attack that is a burst at each overflow.
-- **Rhythm mode** (2-1 b, 3-1-10, Table 3-9), ours and simplified: the
-  bass drum is channel 6's voice and the tom-tom operator 14's sine; the
-  hi-hat, snare and cymbal are their operators' envelopes on full-level
-  square waves made from operators 13's and 17's phases and a 23-bit
-  noise register (taps 22 and 17), each doubled.
+  the flags; the low bits D4-D0, which 3-5's figure on p. 23 leaves
+  empty, read 0), masks and IRQ reset; writes to addresses the chip
+  lacks ignored. The shipped driver never reads the status.
+- **Keys** (3-1-8's KEY-ON, 3-1-10 and Table 3-9): an operator's key is
+  down while its channel's KEY-ON is set or, in rhythm mode, its
+  instrument's bit of 0xBD (BD slots 13 and 16, SD 17, TOM 15, TOP-CY
+  18, HH 14); down it attacks, up it releases.
+- **CSM** (2-1 c, 3-1-3: speech synthesis, every channel keyed off while
+  it is used): ours, a burst. Timer 1's overflow starts every operator's
+  attack (and phase); a sample later every operator whose key is up
+  releases from where that left it. The manual does not say how the chip
+  does it.
+- **Rhythm mode** (2-1 b, 3-1-10, Table 3-9, 5-4 on p. 28): ours, not the
+  chip's, and the shipped driver never sets it. The manual: the bass
+  drum is FM on channel 7's two slots, the tom-tom a sine, and the
+  hi-hat, top cymbal and snare channels 8's and 9's frequencies combined
+  with white noise, each on its own slot's envelope. Ours: the bass drum
+  is channel 7's voice (6 in the code) and the tom-tom slot 15's sine;
+  "combined" is the product of the square waves of slots 14's and 18's
+  phases (their waves' signs). The top cymbal is that square wave at
+  slot 18's level; the hi-hat half it and half the noise as a square
+  wave, at slot 14's; the snare half slot 17's own sine and half the
+  noise, at its level. Each is added once, as a melodic voice is.
+- **The noise**, ours (the manual says only "white noise"): Marsaglia's
+  xorshift on 32 bits (shifts 13, 17, 5) from 1, a step a sample, its low
+  bit taken.
 - **The DAC** (3-4, Fig. 3-3: a 10-bit mantissa with the sign and a 3-bit
   exponent, the YM3014B): the channels' sum clipped to 16 bits, then the
   low bits the mantissa cannot hold dropped (rounding down; ours), the
@@ -1963,7 +1987,9 @@ longer, as on the chip. It runs at the chip's rate, 3,579,545 / 72 =
 What is not exact, or not known: the chip's own envelope staircase
 (the model's rates are smooth, fitted to Table 3-6), the attack's exact
 curve, the LFOs' shapes and phase at reset, the feedback's sampling,
-rhythm mode as above, where in its count a timer is against a write
+the binary point between an operator's output and another's phase (here
+Table 3-8's), rhythm mode, its noise and CSM as above, the status's low
+bits, where in its count a timer is against a write
 (one sample either way), the rounding of the phase increment for odd
 F-numbers at block 0, the order of the chip's per-sample pipeline (here
 every operator's output, then the phases and envelopes), and what one's
@@ -1975,12 +2001,12 @@ both connections.
 
 The chip's samples are averaged over each 44,100 Hz sample, added to the
 speaker's (the effects') and go through the same high-pass and volume.
-Their level, 1 (`OPL_GAIN`), was chosen by rendering the title on both:
-the first 34 seconds' RMS is 1,427 on the AdLib and 1,456 on the Tandy
-(the loudest sample 7,838 and 7,993), so the AdLib's title sounds about
-as loud as the Tandy's with the chip's sum as it is (nine voices at full
-level could reach 36,756, clipped at the DAC; the title never comes
-near).
+Their level, 7 / 4 (`OPL_GAIN` / `OPL_GAIN_DIV`), was chosen by
+rendering the title on both: the first 34 seconds' RMS is 1,447 on the
+AdLib and 1,456 on the Tandy (the loudest sample 6,943 and 7,993), so
+the AdLib's title sounds about as loud as the Tandy's (nine voices at
+full level could reach 18,378 at the DAC, 32,161 in the mix, still short
+of clipping; the title never comes near).
 
 ### Checks
 
@@ -2039,12 +2065,14 @@ the chip: the ROMs against the formulas, the frequencies of the
 multiples and blocks, the waveforms and their enable bit, total level
 and every KSL setting against Tables 3-4 and 3-5, the attack's factors
 from Table 3-6's times, the attack times (0-96 dB and 10-90%) of rates
-1.0-14.3 and the decay times against it, KSR and NTS, EG-TYP, release,
-feedback against Table 3-8 at FB 0-7, both connections, tremolo's and
-vibrato's depths and rates, and both played on a voice (AM's 4.8 and 1
-dB, VIB's 14 and 7 cents by 0xBD's bits, none without the operator's
-bit), the DAC against values worked out by hand, the timers, status, IRQ
-reset, masks and CSM's burst, and writes to addresses the chip lacks.
+1.0-14.3 and the decay times against it, KSR and NOTE SEL (p. 11's
+split bit both ways), EG-TYP, release, feedback against Table 3-8 at FB
+0-7, both connections, tremolo's and vibrato's depths and rates, and
+both played on a voice (AM's 4.8 and 1 dB, VIB's 14 and 7 cents by
+0xBD's bits, none without the operator's bit), the DAC against values
+worked out by hand, the timers, status, IRQ reset, masks and CSM's
+burst, rhythm mode's cymbal and hi-hat and the noise, and writes to
+addresses the chip lacks.
 
 What the comparison does not show: the time between interrupts (it
 compares one operation or interrupt at a time; the PIT's rates and the

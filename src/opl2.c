@@ -200,8 +200,9 @@ static int32_t wave_at(unsigned phase, unsigned wave, unsigned level8)
     unsigned exponent = level >> 8;
     if (exponent >= 13) return 0;
     /* The exponent ROM read backwards gives 2^(-fraction), the hidden bit
-     * 0x400 above it; the integer part shifts it down. */
-    int32_t v = (int32_t)(((exp_rom[(level & 0xff) ^ 0xff] | 0x400u) << 1) >> exponent);
+     * 0x400 above it (the decap's significand, at most 1,018 + 1,024 =
+     * 2,042); the integer part shifts it down. */
+    int32_t v = (int32_t)((exp_rom[(level & 0xff) ^ 0xff] | 0x400u) >> exponent);
     return negative ? -v : v;
 }
 
@@ -251,31 +252,40 @@ int32_t cok_opl2_vibrato(uint32_t samples, bool deep)
     return t * (deep ? VIBRATO_DEEP : VIBRATO_SHALLOW) / 0x4000;
 }
 
-/* Key-on from a source (bit): from off, the phase restarts and the
- * envelope attacks from where it is; to off, it releases. */
-static void key(cok_opl2_operator *op, uint8_t bit, bool on)
+/* Whether an operator's key is down: its channel's KEY-ON (0xB0-0xB8),
+ * or in rhythm mode its instrument's bit of 0xBD (3-1-10, Table 3-9: BD
+ * slots 13 and 16, SD 17, TOM 15, TOP-CY 18, HH 14; operators 12, 15, 16,
+ * 14, 17 and 13 here). */
+static bool key_down(const cok_opl2 *chip, unsigned slot)
 {
-    uint8_t was = op->key;
-    op->key = on ? (uint8_t)(op->key | bit) : (uint8_t)(op->key & ~bit);
-    if (was == 0 && op->key != 0) {
-        op->phase = 0;
-        op->state = COK_OPL2_ATTACK;
-    } else if (was != 0 && op->key == 0) {
-        op->state = COK_OPL2_RELEASE;
+    if (chip->rhythm) {
+        static const uint8_t drum[COK_OPL2_OPERATORS] = {[12] = 0x10, [15] = 0x10, [16] = 0x08,
+                                                         [14] = 0x04, [17] = 0x02, [13] = 0x01};
+        if (chip->drums & drum[slot]) return true;
     }
+    return chip->ch[channel_of(slot)].key;
 }
 
-static void rhythm_keys(cok_opl2 *chip)
+/* An attack from the envelope's level now, the phase from 0. That a key-on
+ * restarts the phase the manual does not say: ours, so that a note starts
+ * the same way each time. */
+static void attack(cok_opl2_operator *op)
 {
-    /* 0xBD's bits: 4 BD (channel 6, both operators), 3 SD (operator 16), 2
-     * TOM (14), 1 TC (17), 0 HH (13). */
-    bool on = chip->rhythm;
-    key(&chip->op[12], 2, on && (chip->drums & 0x10));
-    key(&chip->op[15], 2, on && (chip->drums & 0x10));
-    key(&chip->op[16], 2, on && (chip->drums & 0x08));
-    key(&chip->op[14], 2, on && (chip->drums & 0x04));
-    key(&chip->op[17], 2, on && (chip->drums & 0x02));
-    key(&chip->op[13], 2, on && (chip->drums & 0x01));
+    op->phase = 0;
+    op->state = COK_OPL2_ATTACK;
+}
+
+/* Every operator's key against what the registers now say: down, it
+ * attacks; up, it releases. */
+static void keys(cok_opl2 *chip)
+{
+    for (unsigned i = 0; i < COK_OPL2_OPERATORS; ++i) {
+        cok_opl2_operator *op = &chip->op[i];
+        bool down = key_down(chip, i);
+        if (down && !op->down) attack(op);
+        else if (!down && op->down) op->state = COK_OPL2_RELEASE;
+        op->down = down;
+    }
 }
 
 void cok_opl2_write_address(cok_opl2 *chip, uint8_t value)
@@ -327,9 +337,7 @@ void cok_opl2_write(cok_opl2 *chip, uint8_t reg, uint8_t value)
             ch->fnum = (uint16_t)((ch->fnum & 0xff) | (value & 3) << 8);
             ch->block = (value >> 2) & 7;
             ch->key = (value & 0x20) != 0;
-            unsigned m = modulator_of(c);
-            key(&chip->op[m], 1, ch->key);
-            key(&chip->op[m + 3], 1, ch->key);
+            keys(chip);
         } else if (reg < 0xb0 && c < 9) {
             chip->ch[c].fnum = (uint16_t)((chip->ch[c].fnum & 0x300) | value);
         } else if (reg == 0xbd) {
@@ -337,7 +345,7 @@ void cok_opl2_write(cok_opl2 *chip, uint8_t reg, uint8_t value)
             chip->vib_deep = (value & 0x40) != 0;
             chip->rhythm = (value & 0x20) != 0;
             chip->drums = value & 0x1f;
-            rhythm_keys(chip);
+            keys(chip);
         }
         return;
     case 0xc0:
@@ -381,7 +389,7 @@ void cok_opl2_write(cok_opl2 *chip, uint8_t reg, uint8_t value)
 
 uint8_t cok_opl2_status(const cok_opl2 *chip)
 {
-    uint8_t status = 0x06;
+    uint8_t status = 0; /* D4-D0 nothing (3-5, p. 23) */
     if (chip->flag[0]) status |= 0x40;
     if (chip->flag[1]) status |= 0x20;
     if (status & 0x60) status |= 0x80;
@@ -390,15 +398,16 @@ uint8_t cok_opl2_status(const cok_opl2 *chip)
 
 /* Timer 1 counts every 4 samples (80 us at 3.6 MHz), timer 2 every 16
  * (320 us); at 256 the flag is set (unless masked) and the preset loaded
- * again. In CSM mode timer 1's overflow keys every operator on; the key
- * is let go a sample later (how long the chip holds it the manual does
- * not say: one sample is ours), so each operator gets one step of its
- * attack, then releases from where that left it. */
+ * again. CSM (3-1-3; the manual: every channel keyed off while it is
+ * used): timer 1's overflow starts every operator's attack. Ours: a burst,
+ * one sample of attack, after which every operator whose key is up
+ * releases from where that left it. */
 static void timers(cok_opl2 *chip)
 {
-    if (chip->csm_key) {
-        for (int i = 0; i < COK_OPL2_OPERATORS; ++i) key(&chip->op[i], 4, false);
-        chip->csm_key = false;
+    if (chip->csm_burst) {
+        for (unsigned i = 0; i < COK_OPL2_OPERATORS; ++i)
+            if (!chip->op[i].down) chip->op[i].state = COK_OPL2_RELEASE;
+        chip->csm_burst = false;
     }
     for (int t = 0; t < 2; ++t) {
         if (!chip->running[t] || (chip->samples & (t == 0 ? 3u : 15u)) != 0) continue;
@@ -406,8 +415,8 @@ static void timers(cok_opl2 *chip)
         chip->count[t] = chip->timer[t];
         if (!chip->masked[t]) chip->flag[t] = true;
         if (t == 0 && chip->csm) {
-            for (int i = 0; i < COK_OPL2_OPERATORS; ++i) key(&chip->op[i], 4, true);
-            chip->csm_key = true;
+            for (unsigned i = 0; i < COK_OPL2_OPERATORS; ++i) attack(&chip->op[i]);
+            chip->csm_burst = true;
         }
     }
 }
@@ -416,10 +425,11 @@ static unsigned rate_of(const cok_opl2 *chip, const cok_opl2_operator *op,
                         const cok_opl2_channel *ch, unsigned r)
 {
     if (r == 0) return 0;
-    /* Key scaling of the rate (Table 3-2): the block and the F-number's
-     * top bit (NTS 0: its second bit), all of it with KSR, a quarter
-     * without. */
-    unsigned split = chip->nts ? (ch->fnum >> 8) & 1 : (ch->fnum >> 9) & 1;
+    /* Key scaling of the rate (Table 3-2): the keyboard split number, the
+     * block and one F-number bit (3-1-3, p. 11: NOTE SEL 0 its second bit
+     * from the top, bit 8; 1 its top bit, bit 9), all of it with KSR, a
+     * quarter without. */
+    unsigned split = chip->nts ? (ch->fnum >> 9) & 1 : (ch->fnum >> 8) & 1;
     unsigned scale = (ch->block << 1 | split) >> (op->ksr ? 0 : 2);
     unsigned rate = r * 4 + scale;
     return rate > 63 ? 63 : rate;
@@ -486,8 +496,11 @@ static int32_t output(const cok_opl2 *chip, cok_opl2_operator *op, const cok_opl
  *
  * Feedback, from the manual's formula (3), F = A sin(wt + B F), and Table
  * 3-8's factor B: 0, pi / 16, pi / 8 ... 4 pi for FB 0-7. With a full-level
- * output (4,084, about 2^12) as F = 1 and 1,024 phase steps to a cycle, B
- * F is F's output times 2^(FB + 4) / 2^12: shifted right by 8 - FB. F is
+ * output (2,042, about 2^11) as F = 1 and 1,024 phase steps to a cycle, B
+ * F is F's output times 2^(FB + 4) / 2^11: shifted right by 7 - FB, FB 7
+ * the output whole. The carrier's phase input (CNT 0) is taken at that
+ * same scale, the modulator's output added whole: a modulation index of
+ * up to 4 pi, Table 3-8's largest (ours: the manual gives no index). F is
  * implicit in (3); a sampled loop has to take it from outputs already
  * made. Ours: a running average, each sample half the last average and
  * half the new output. The last output alone would make the loop ring at
@@ -497,30 +510,41 @@ static int32_t voice(cok_opl2 *chip, unsigned c)
 {
     cok_opl2_channel *ch = &chip->ch[c];
     cok_opl2_operator *mod = &chip->op[modulator_of(c)], *car = mod + 3;
-    int32_t feedback = ch->feedback != 0 ? shift_down(mod->average, 8u - ch->feedback) : 0;
+    int32_t feedback = ch->feedback != 0 ? shift_down(mod->average, 7u - ch->feedback) : 0;
     int32_t m = output(chip, mod, ch, feedback);
     mod->average = shift_down(mod->average + m, 1);
     int32_t k = output(chip, car, ch, ch->additive ? 0 : m);
     return ch->additive ? m + k : k;
 }
 
-/* Rhythm mode, simplified (the shipped driver never sets it): the bass
- * drum is channel 6's voice, the tom-tom operator 14's sine, and the
- * hi-hat, snare and cymbal operator 13's, 16's and 17's envelopes on
- * full-level square waves made from operators 13's and 17's phases and the
- * noise; each doubled, as the chip doubles the rhythm voices. */
+/* A full-level square wave's sample, up or down, at a level. */
+static int32_t square(bool down, unsigned level8)
+{
+    return wave_at(down ? 0x300 : 0x100, 0, level8);
+}
+
+/* Rhythm mode (2-1 b, 3-1-10, 5-4), ours and not the chip's (the shipped
+ * driver never sets it). The manual: the bass drum is FM on channel 7's
+ * two slots (channel 6 here), the tom-tom a sine, and the hi-hat, top
+ * cymbal and snare are channels 8's and 9's frequencies combined with
+ * white noise, each on its slot's envelope. Ours: the two frequencies
+ * combined as the product of the square waves of slots 14's and 18's
+ * phases (operators 13 and 17, each wave's sign); the top cymbal is that;
+ * the hi-hat half that and half the noise as a square wave; the snare
+ * half its own slot's sine and half the noise; the tom-tom slot 15's
+ * sine. Each added once, as a melodic voice is. */
 static int32_t rhythm(cok_opl2 *chip)
 {
     cok_opl2_channel *c7 = &chip->ch[7], *c8 = &chip->ch[8];
     int32_t sum = voice(chip, 6);
     sum += output(chip, &chip->op[14], c8, 0);
-    unsigned p13 = chip->op[13].phase >> 9, p17 = chip->op[17].phase >> 9;
-    unsigned noise = chip->noise & 1;
-    unsigned ring = ((p13 >> 3) ^ (p17 >> 5)) & 1;
-    sum += wave_at((ring ^ noise) ? 0x300 : 0x100, 0, attenuation(chip, &chip->op[13], c7));
-    sum += wave_at(((p13 >> 8) ^ noise) & 1 ? 0x300 : 0x100, 0, attenuation(chip, &chip->op[16], c7));
-    sum += wave_at(ring ? 0x300 : 0x100, 0, attenuation(chip, &chip->op[17], c8));
-    return 2 * sum;
+    bool ring = ((chip->op[13].phase ^ chip->op[17].phase) & 0x40000) != 0;
+    bool noise = (chip->noise & 1) != 0;
+    unsigned hh = attenuation(chip, &chip->op[13], c7), sd = attenuation(chip, &chip->op[16], c7);
+    sum += shift_down(square(ring, hh) + square(noise, hh), 1);
+    sum += shift_down(wave_at(chip->op[16].phase >> 9, 0, sd) + square(noise, sd), 1);
+    sum += square(ring, attenuation(chip, &chip->op[17], c8));
+    return sum;
 }
 
 int32_t cok_opl2_sample(cok_opl2 *chip)
@@ -540,8 +564,11 @@ int32_t cok_opl2_sample(cok_opl2 *chip)
         op->phase = (op->phase + (uint32_t)step) & 0x7ffff;
         envelope(chip, op, ch);
     }
-    unsigned bit = ((chip->noise >> 22) ^ (chip->noise >> 17)) & 1;
-    chip->noise = ((chip->noise << 1) | bit) & 0x7fffff;
+    /* The noise, ours: Marsaglia's xorshift (13, 17, 5) on 32 bits, its
+     * low bit taken each sample (the manual says only "white noise"). */
+    chip->noise ^= chip->noise << 13;
+    chip->noise ^= chip->noise >> 17;
+    chip->noise ^= chip->noise << 5;
     timers(chip);
     ++chip->samples;
     return cok_opl2_dac(sum);

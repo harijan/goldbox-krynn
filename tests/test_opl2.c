@@ -28,7 +28,7 @@ static int expected_wave(unsigned phase, unsigned attenuation)
     unsigned level = (unsigned)logsin + (attenuation << 3);
     unsigned f = (level & 0xff) ^ 0xff;
     long e = lround((pow(2.0, f / 256.0) - 1) * 1024);
-    int v = (int)(((unsigned)e + 1024) << 1 >> (level >> 8));
+    int v = (int)(((unsigned)e + 1024) >> (level >> 8));
     if ((level >> 8) >= 13) v = 0;
     return phase & 0x200 ? -v : v;
 }
@@ -37,15 +37,15 @@ static void test_roms(void)
 {
     for (unsigned att = 0; att < 512; att += 37)
         for (unsigned p = 0; p < 1024; ++p) CHECK(cok_opl2_wave(p, 0, att) == expected_wave(p, att));
-    /* Full level: a sine of amplitude 4084 (12 bits and the sign). */
+    /* Full level: a sine of amplitude 2042 (the decap's 1,018 + 1,024). */
     int peak = 0;
     for (unsigned p = 0; p < 1024; ++p) {
         int v = cok_opl2_wave(p, 0, 0);
-        double s = 4084 * sin(2 * PI * (p + 0.5) / 1024);
-        CHECK(fabs(v - s) <= 4084 * 0.01 + 2);
+        double s = 2042 * sin(2 * PI * (p + 0.5) / 1024);
+        CHECK(fabs(v - s) <= 2042 * 0.01 + 1);
         if (v > peak) peak = v;
     }
-    CHECK(peak == 4084);
+    CHECK(peak == 2042);
     CHECK(cok_opl2_wave(0x100, 0, 511) == 0);
 }
 
@@ -104,7 +104,7 @@ static void test_phase(void)
     one_voice(&chip, 0x244, 4, 15);
     n = crossings(&chip, RATE);
     CHECK(n >= 6599 && n <= 6601);
-    /* Key-on restarts the phase. */
+    /* Key-on restarts the phase (our choice). */
     one_voice(&chip, 0x244, 4, 1);
     for (int i = 0; i < 100; ++i) cok_opl2_sample(&chip);
     CHECK(chip.op[3].phase != 0);
@@ -151,12 +151,13 @@ static void test_levels(void)
     cok_opl2 chip;
     one_voice(&chip, 0x244, 4, 1);
     int32_t full = peak_of(&chip, 2000);
-    CHECK(full >= 4000);
+    CHECK(full >= 2000);
     for (unsigned tl = 4; tl < 64; tl += 12) {
         one_voice(&chip, 0x244, 4, 1);
         cok_opl2_write(&chip, 0x43, (uint8_t)tl);
-        double db = 20 * log10((double)full / peak_of(&chip, 2000));
-        CHECK(fabs(db - 0.75 * tl) < 0.3);
+        int32_t peak = peak_of(&chip, 2000);
+        double db = 20 * log10((double)full / peak);
+        CHECK(fabs(db - 0.75 * tl) < 0.3 + 20 * log10(1 + 1.0 / peak)); /* and a unit's rounding */
     }
     /* Table 3-5 (dB at 3 dB an octave), block by row, the F-number's top
      * four bits by column. */
@@ -177,19 +178,20 @@ static void test_levels(void)
     full = peak_of(&chip, 2000);
     one_voice(&chip, 0x3c0, 7, 1);
     cok_opl2_write(&chip, 0x43, 0xc0);
-    double db = 20 * log10((double)full / peak_of(&chip, 2000));
-    CHECK(fabs(db - 42) < 0.5);
+    int32_t low = peak_of(&chip, 2000);
+    double db = 20 * log10((double)full / low);
+    CHECK(fabs(db - 42) < 0.3 + 20 * log10(1 + 1.0 / low));
 }
 
 /* An operator keyed on at an effective rate 4 * r + low: KSR on, low the
- * key scaling (block 0 or 1, the F-number's top bit). */
+ * key scaling (block 0 or 1, and the F-number's bit 8, NOTE SEL 0's). */
 static void keyed(cok_opl2 *chip, uint8_t reg20, uint8_t reg60, uint8_t reg80, unsigned low)
 {
     cok_opl2_init(chip);
     cok_opl2_write(chip, 0x23, reg20);
     cok_opl2_write(chip, 0x63, reg60);
     cok_opl2_write(chip, 0x83, reg80);
-    cok_opl2_write(chip, 0xb0, (uint8_t)(0x20 | (low >> 1) << 2 | (low & 1) << 1));
+    cok_opl2_write(chip, 0xb0, (uint8_t)(0x20 | (low >> 1) << 2 | (low & 1)));
 }
 
 /* Samples from key-on to full level. */
@@ -277,24 +279,25 @@ static void test_envelope(void)
     for (unsigned rate = 4; rate < 60; ++rate)
         CHECK(cok_opl2_eg_decay(rate + 1) >= cok_opl2_eg_decay(rate)
               && cok_opl2_eg_attack(rate + 1) < cok_opl2_eg_attack(rate));
-    /* KSR: block 7 with its F-number's top bit adds 15 to the rate with
-     * KSR, 3 without (15 / 4 and 3 / 4 of an octave of time); NTS (0x08 bit
-     * 6) takes the F-number's top bit, else its second. */
+    /* KSR: block 7 with the split bit set adds 15 to the rate with KSR, 3
+     * without (15 / 4 and 3 / 4 of an octave of time); the split bit is
+     * the F-number's second from the top (bit 8) with NOTE SEL (0x08 bit 6)
+     * 0, its top (bit 9) with 1 (3-1-3, p. 11). */
     cok_opl2 chip;
-    for (int k = 0; k < 4; ++k) {
-        bool ksr = k & 1, nts = k & 2;
+    for (int k = 0; k < 8; ++k) {
+        bool ksr = k & 1, nts = k & 2, top = k & 4;
         cok_opl2_init(&chip);
         if (nts) cok_opl2_write(&chip, 0x08, 0x40);
         cok_opl2_write(&chip, 0x23, ksr ? 0x10 : 0x00);
         cok_opl2_write(&chip, 0x63, 0x40);
         cok_opl2_write(&chip, 0xa0, 0x00);
-        cok_opl2_write(&chip, 0xb0, 0x3d); /* block 7, the F-number's top bit only */
+        cok_opl2_write(&chip, 0xb0, top ? 0x3e : 0x3d); /* block 7, F-number bit 9 or 8 alone */
         unsigned n = 0;
         while (chip.op[3].eg > 0) {
             cok_opl2_sample(&chip);
             ++n;
         }
-        unsigned rate = 16 + ((7u << 1 | (nts ? 1 : 0)) >> (ksr ? 0 : 2));
+        unsigned rate = 16 + ((7u << 1 | (nts == top ? 1 : 0)) >> (ksr ? 0 : 2));
         double table = attack[rate & 3] * 50 / (1 << ((rate >> 2) - 1));
         CHECK(fabs(n - table) <= 1.5 || fabs(n / table - 1) < 0.005);
     }
@@ -347,7 +350,7 @@ static void test_feedback(void)
         for (int i = 0; i < 4000; ++i) {
             unsigned phase = chip.op[0].phase >> 9;
             double steps = round(factor[fb] / (2 * PI) * 1024); /* 0, 32, 64 ... 2,048 */
-            int32_t shift = (int32_t)floor(average * steps / 4096);
+            int32_t shift = (int32_t)floor(average * steps / 2048);
             int32_t expect = cok_opl2_wave((unsigned)((int32_t)phase + shift) & 0x3ff, 0, 0);
             int32_t v = cok_opl2_sample(&chip);
             CHECK(v == cok_opl2_dac(expect));
@@ -372,7 +375,7 @@ static void test_feedback(void)
     cok_opl2_write(&chip, 0xb0, 0x32);
     CHECK(peak_of(&chip, 2000) == 0);
     cok_opl2_write(&chip, 0xc0, 0x01);
-    CHECK(peak_of(&chip, 2000) >= 4000);
+    CHECK(peak_of(&chip, 2000) >= 2000);
     cok_opl2_write(&chip, 0x63, 0xf0);
     cok_opl2_write(&chip, 0x40, 0x3f);
     cok_opl2_write(&chip, 0x60, 0x0f);  /* the modulator decays to silence */
@@ -493,12 +496,12 @@ static void test_dac(void)
 }
 
 /* The timers: 80 us (4 samples) and 320 us (16) a count, the flags in the
- * status register (0x06 below them), masks, IRQ reset; CSM. */
+ * status register (0 below them, 3-5), masks, IRQ reset; CSM. */
 static void test_timers(void)
 {
     cok_opl2 chip;
     cok_opl2_init(&chip);
-    CHECK(cok_opl2_status(&chip) == 0x06);
+    CHECK(cok_opl2_status(&chip) == 0x00);
     cok_opl2_write(&chip, 0x02, 0xf0);   /* 16 counts: 64 samples */
     cok_opl2_write(&chip, 0x04, 0x01);
     unsigned n = 0;
@@ -506,18 +509,18 @@ static void test_timers(void)
         cok_opl2_sample(&chip);
         ++n;
     }
-    CHECK(n > 60 && n <= 64 && cok_opl2_status(&chip) == 0xc6); /* within a count */
+    CHECK(n > 60 && n <= 64 && cok_opl2_status(&chip) == 0xc0); /* within a count */
     cok_opl2_write(&chip, 0x04, 0x80);
-    CHECK(cok_opl2_status(&chip) == 0x06);
+    CHECK(cok_opl2_status(&chip) == 0x00);
     cok_opl2_write(&chip, 0x04, 0x00);
     cok_opl2_write(&chip, 0x03, 0xff);   /* timer 2: 1 count, 16 samples */
     cok_opl2_write(&chip, 0x04, 0x02);
     for (n = 0; !(cok_opl2_status(&chip) & 0x20); ++n) cok_opl2_sample(&chip);
-    CHECK(n <= 16 && cok_opl2_status(&chip) == 0xa6);
+    CHECK(n <= 16 && cok_opl2_status(&chip) == 0xa0);
     cok_opl2_write(&chip, 0x04, 0x80);
     cok_opl2_write(&chip, 0x04, 0x22);   /* masked: the flag stays 0 */
     for (int i = 0; i < 1000; ++i) cok_opl2_sample(&chip);
-    CHECK(cok_opl2_status(&chip) == 0x06);
+    CHECK(cok_opl2_status(&chip) == 0x00);
     /* The usual AdLib detection: timer 1 at 0xff, started with timer 2
      * masked, overflows within 80 us. */
     cok_opl2_init(&chip);
@@ -541,11 +544,59 @@ static void test_timers(void)
     cok_opl2_write(&chip, 0x02, 0xff);
     cok_opl2_write(&chip, 0x04, 0x01);
     cok_opl2_sample(&chip);              /* timer 1 at 0xff: over at once */
-    CHECK(chip.op[7].state == COK_OPL2_ATTACK && chip.op[7].key == 4 && chip.op[3].key == 4);
+    CHECK(chip.op[7].state == COK_OPL2_ATTACK && chip.op[3].state == COK_OPL2_ATTACK && chip.csm_burst);
     cok_opl2_sample(&chip);
-    CHECK(chip.op[3].state == COK_OPL2_RELEASE && chip.op[3].key == 0 && chip.op[3].env == 0);
+    CHECK(chip.op[3].state == COK_OPL2_RELEASE && !chip.op[3].down && chip.op[3].env == 0);
     cok_opl2_write(&chip, 0x08, 0x00);
-    CHECK(peak_of(&chip, 2000) >= 4000);
+    CHECK(peak_of(&chip, 2000) >= 2000);
+}
+
+/* Rhythm mode, ours (DEVELOPERS.md): the top cymbal a full-level square
+ * wave, down where operators 13's and 17's waves have opposite signs; the
+ * hi-hat half that and half the noise; the noise a 32-bit xorshift. */
+static void test_rhythm(void)
+{
+    cok_opl2 chip;
+    cok_opl2_init(&chip);
+    cok_opl2_write(&chip, 0xa7, 0x00);
+    cok_opl2_write(&chip, 0xb7, 0x12);   /* channel 7: 0x200, block 4, no key */
+    cok_opl2_write(&chip, 0xa8, 0x55);
+    cok_opl2_write(&chip, 0xb8, 0x11);   /* channel 8: 0x155 */
+    cok_opl2_write(&chip, 0x55, 0x00);   /* operator 17 (slot 18): loud, at once */
+    cok_opl2_write(&chip, 0x75, 0xf0);
+    cok_opl2_write(&chip, 0xbd, 0x22);   /* rhythm, TOP-CY */
+    cok_opl2_sample(&chip);
+    unsigned downs = 0;
+    for (int i = 0; i < 2000; ++i) {
+        bool ring = ((chip.op[13].phase >> 18) ^ (chip.op[17].phase >> 18)) & 1;
+        int32_t v = cok_opl2_sample(&chip);
+        CHECK(v == cok_opl2_dac(ring ? -2042 : 2042));
+        downs += ring;
+    }
+    CHECK(downs > 200 && downs < 1800);
+    /* The hi-hat alone: -2042, 0 or 2042 (as the DAC keeps them), all three. */
+    cok_opl2_write(&chip, 0x95, 0x0f);   /* the cymbal's release, fast */
+    cok_opl2_write(&chip, 0x51, 0x00);
+    cok_opl2_write(&chip, 0x71, 0xf0);
+    cok_opl2_write(&chip, 0xbd, 0x21);
+    for (int i = 0; i < 300; ++i) cok_opl2_sample(&chip); /* the cymbal released */
+    unsigned seen[3] = {0, 0, 0};
+    for (int i = 0; i < 2000; ++i) {
+        int32_t v = cok_opl2_sample(&chip);
+        CHECK(v == cok_opl2_dac(-2042) || v == 0 || v == cok_opl2_dac(2042));
+        ++seen[v < 0 ? 0 : v == 0 ? 1 : 2];
+    }
+    CHECK(seen[0] > 100 && seen[1] > 100 && seen[2] > 100);
+    /* The noise: xorshift (13, 17, 5) from 1, a step a sample. */
+    cok_opl2_init(&chip);
+    uint32_t x = 1;
+    for (int i = 0; i < 1000; ++i) {
+        cok_opl2_sample(&chip);
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        CHECK(chip.noise == x);
+    }
 }
 
 /* Writes to addresses the chip lacks change nothing. */
@@ -567,7 +618,7 @@ static void test_unused(void)
     CHECK(chip.ch[3].fnum == 0x5a);
     /* The rhythm's keys: the bass drum keys both of channel 6's operators. */
     cok_opl2_write(&chip, 0xbd, 0x30);
-    CHECK(chip.op[12].key == 2 && chip.op[15].key == 2 && chip.op[13].key == 0);
+    CHECK(chip.op[12].down && chip.op[15].down && !chip.op[13].down && !chip.op[0].down);
     cok_opl2_write(&chip, 0xbd, 0x00);
     CHECK(chip.op[12].state == COK_OPL2_RELEASE);
 }
@@ -583,6 +634,7 @@ int main(void)
     test_lfo();
     test_dac();
     test_timers();
+    test_rhythm();
     test_unused();
     puts("opl2: ok");
     return 0;
