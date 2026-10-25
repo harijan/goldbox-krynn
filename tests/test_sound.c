@@ -4,8 +4,8 @@
  * tests/test_sound_adlib.h for the AdLib's driver), the driver's data
  * against build/START_FULL.EXE, and the synthesis on known inputs: the
  * chip's square waves and noise, its volumes, the speaker's square wave,
- * the AdLib's title, and rendering split anyhow giving the same samples
- * (the AdLib's chip itself: tests/test_opl2.c). */
+ * the AdLib's tone and title, and rendering split anyhow giving the same
+ * samples (the AdLib's chip itself: tests/test_opl2.c). */
 
 #include "sound.h"
 
@@ -482,6 +482,38 @@ static void test_split(void)
     }
 }
 
+/* The AdLib's chip through the render: a carrier at A (0x244, block 4:
+ * 580 * 49,716 / 2^16 = 440.0 Hz, the chip's sample clock a quarter of the
+ * crystal over 72) rising through zero 396 times in 0.9 s; and the title's
+ * first 2 seconds, sample for sample (an FNV-1a digest). */
+static void test_adlib_render(void)
+{
+    static int16_t samples[2 * COK_SOUND_RATE];
+    static const uint8_t voice[][2] = {{0x20, 0x20}, {0x40, 0x3f}, {0x23, 0x21}, {0x43, 0x00},
+                                       {0x63, 0xf0}, {0x83, 0x00}, {0xc0, 0x01}, {0xa0, 0x44},
+                                       {0xb0, 0x32}};
+    trace t;
+    setup(COK_SOUND_ADLIB, &t);
+    for (size_t i = 0; i < sizeof voice / sizeof *voice; ++i) {
+        cok_sound_out(&s, 0x388, voice[i][0]);
+        cok_sound_out(&s, 0x389, voice[i][1]);
+    }
+    cok_sound_render(&s, samples, COK_SOUND_RATE);
+    unsigned n = crossings(samples + 4410, COK_SOUND_RATE - 4410);
+    CHECK(n >= 395 && n <= 397);
+    setup(COK_SOUND_ADLIB, &t);
+    cok_sound_call_at(&s, COK_SOUND_MUSIC, 0);
+    cok_sound_render(&s, samples, 2 * COK_SOUND_RATE);
+    uint32_t digest = 0x811c9dc5u;
+    int16_t peak = 0;
+    for (size_t i = 0; i < 2 * COK_SOUND_RATE; ++i) {
+        digest = (digest ^ (uint8_t)samples[i]) * 0x01000193u;
+        digest = (digest ^ (uint8_t)((uint16_t)samples[i] >> 8)) * 0x01000193u;
+        if (samples[i] > peak) peak = samples[i];
+    }
+    CHECK(peak > 1000 && digest == 0xf48476d3u);
+}
+
 /* The title on the AdLib: about as loud as on the Tandy (the RMS of its
  * first 10 seconds within a quarter), never clipped. */
 static void test_adlib_level(void)
@@ -599,6 +631,7 @@ int main(void)
     test_volumes();
     test_render();
     test_split();
+    test_adlib_render();
     test_adlib_level();
     test_missing_files();
     cok_sound_free(&s);

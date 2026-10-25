@@ -26,10 +26,11 @@ typedef struct {
     bool am, vib, sustained, ksr;
     uint8_t mult, ksl, tl, ar, dr, sl, rr, wave;
     uint32_t phase;       /* 19 bits, the top 10 the place in the wave */
-    uint16_t env;         /* attenuation, 0-511 in steps of 0.1875 dB */
+    uint32_t eg;          /* the envelope's attenuation, 0.1875 dB steps with 22 bits of fraction */
+    uint16_t env;         /* its whole steps, 0-511 */
     cok_opl2_state state;
     uint8_t key;          /* bit 0 the channel's key-on, 1 rhythm's, 2 CSM's */
-    int16_t out[2];       /* the last two outputs (feedback) */
+    int32_t average;      /* the outputs' running average (feedback) */
 } cok_opl2_operator;
 
 typedef struct {
@@ -44,11 +45,12 @@ typedef struct {
     uint8_t timer[2], count[2];
     bool running[2], masked[2], flag[2];
     bool csm, nts;        /* 0x08 */
+    bool csm_key;         /* CSM's key-on, let go the next sample */
     bool am_deep, vib_deep, rhythm; /* 0xBD bits 7-5 */
     uint8_t drums;        /* 0xBD bits 4-0: BD SD TOM TC HH */
     cok_opl2_operator op[COK_OPL2_OPERATORS];
     cok_opl2_channel ch[COK_OPL2_CHANNELS];
-    uint32_t samples;     /* samples made: the envelope's counter, the LFOs, the timers */
+    uint32_t samples;     /* samples made: the LFOs' time, the timers */
     uint32_t noise;       /* the rhythm's 23-bit noise register */
 } cok_opl2;
 
@@ -75,11 +77,15 @@ uint32_t cok_opl2_increment(unsigned fnum, unsigned block, unsigned mult);
 int32_t cok_opl2_wave(unsigned phase, unsigned wave, unsigned attenuation);
 /* KSL's attenuation (0.1875 dB steps) for an F-number, block and KSL. */
 unsigned cok_opl2_ksl(unsigned fnum, unsigned block, unsigned ksl);
-/* The envelope's step this sample at an effective rate 0-63 (0: none). */
-unsigned cok_opl2_eg_step(unsigned rate, uint32_t counter);
-/* Tremolo's attenuation (0.1875 dB steps) and vibrato's F-number offset at
- * a sample count. */
+/* The envelope at an effective rate 0-63: the decay's (and release's)
+ * increment a sample, in 2^-22 steps of 0.1875 dB (0: none); the attack's
+ * factor a sample on the attenuation plus 6.5 steps, of 2^32 (0: at once;
+ * rate 0 0xffffffff, none). */
+uint32_t cok_opl2_eg_decay(unsigned rate);
+uint32_t cok_opl2_eg_attack(unsigned rate);
+/* Tremolo's attenuation (eighths of 0.1875 dB) and vibrato's factor on the
+ * phase's increment (of 65,536) at a sample count. */
 unsigned cok_opl2_tremolo(uint32_t samples, bool deep);
-int cok_opl2_vibrato(uint32_t samples, unsigned fnum, bool deep);
+int32_t cok_opl2_vibrato(uint32_t samples, bool deep);
 
 #endif

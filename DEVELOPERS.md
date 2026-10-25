@@ -1856,82 +1856,128 @@ is the only filter, so the square waves' harmonics above 22 kHz alias
 somewhat; the game's tones are low enough that this is faint.
 
 The AdLib's YM3812 (OPL2) is `src/opl2.c`, written for this port from
-the chip's documented behaviour, no emulator's code copied or
-translated: Yamaha's YM3812 Application Manual (the 1994 scan at the
-Internet Archive, "Yamaha YM3812 Application Manual": the registers,
-Table 3-1's multiples, 3-2's key scaling of rates, 3-4's KSL, 3-6's
-attack and decay times, the timers' 80 and 320 us, the vibrato's 7 and 14
-cents and the tremolo's 1 and 4.8 dB), and Matthew Gambrell and Olli
+two documents only; no emulator's code, tables or design are used:
+Yamaha's YM3812 Application Manual (the 1994 scan at the Internet
+Archive, "Yamaha YM3812 Application Manual"; "the manual" below, by its
+section, table and printed page), and Matthew Gambrell and Olli
 Niemitalo's "OPLx decapsulated" (2008), which read the chip's two ROMs
-off its die and gave the formulas that regenerate them: a quarter sine's
-logarithm, `round(-log2(sin((x + 0.5) * pi / 512)) * 256)`, and an
-exponent, `round((2^(x / 256) - 1) * 1024)`, x = 0-255 (in the code as
-tables, `tests/test_opl2.c` regenerates them). It runs at the chip's
-rate, 3,579,545 / 72 = 49,716 samples a second, in integers:
+off its die and gave the formulas that regenerate them. Where the manual
+leaves something open, the choice is ours and said so. The manual gives
+its times at a 3.6 MHz clock, 50,000 samples a second; the model takes
+them in samples, so on the AdLib's 3,579,545 Hz they come out 0.6%
+longer, as on the chip. It runs at the chip's rate, 3,579,545 / 72 =
+49,716 samples a second, in integers. Feature by feature:
 
-- the phase: a 19-bit accumulator a sample up by (F-number << block) times
-  twice the multiple (MULT 0 a half, 11 as 10, 13 as 12, 15 as 15) / 4,
-  its top 10 bits the place in the wave: F-number * 49,716 * 2^(block -
-  20) Hz; key-on restarts it. Vibrato adds 0, a half, all, a half, 0 and
-  the same below of the F-number's top three bits (14 cents) or half
-  that (7 cents), a step every 1,024 samples (6.1 Hz; the manual says
-  6.4 Hz at 3.6 MHz);
-- the output: the log-sine ROM (its quarter mirrored and negated) plus
-  the attenuation times 8, through the exponent ROM, its integer part a
-  shift: up to 4,084 either way (12 bits and a sign, negated as two's
-  complement). The waveforms (half sine, |sine|, the rising quarters)
-  only while register 1's bit 5 is set; the register keeps what is
-  written to it either way;
-- the attenuation, 9 bits of 0.1875 dB: the envelope plus the total
-  level (0.75 dB steps), KSL (Table 3-4's every entry: 3 dB an octave at
-  KSL 1, 1.5 at 2, 6 at 3) and tremolo (a triangle of 210 places, one
-  every 64 samples, 3.7 Hz, to 26 steps, 4.875 dB, or a quarter of that,
-  1.125 dB);
-- the envelope: rates 4 * R + the key scaling (the block and the
-  F-number's top or second bit, NTS, all of it with KSR, a quarter
-  without; R 0 none). Up to 51 a step of 1 on 4, 5, 6 or 7 of every 8
-  periods of 2^(12 - rate / 4) samples; 52-59 every sample, 1 (or 2 from
-  56), doubled on 0, 2, 4 or 6 of 8 (the steps spread so, Table 3-6's
-  attack times are met there too); 60-63 4 a sample, the attack at once.
-  The attack goes an eighth of the way each step (`env += ~env * step >>
-  3`), linear in dB the rest: decay to the sustain level (3 dB steps, 15
-  as 93 dB), held there with EG-TYP or going on at the release rate
-  without, release from key-off. Every attack time of Table 3-6 (0 to 96
-  dB) is the model's to a sample; its decay times are the model's (511
-  steps, 0 to 96 dB) times 479.5 / 512 at every rate (the table counts
-  2.40 ms, 120 samples at 3.6 MHz, for the fastest: 480 steps of 4);
-- the channel: the modulator with its feedback (its last two outputs'
-  sum shifted right by 9 - FB: pi / 16 to 4 pi), then the carrier with
-  the modulator's output added to its phase (CNT 0), or both added (1);
-- the timers (80 us, 320 us: 4 and 16 samples a count) and the status
-  register (bit 7 IRQ, 6 and 5 their flags, the low bits 0x06 as the
-  YM3812 gives them), masks and IRQ reset; CSM's key-on and off of every
-  operator at timer 1's overflow; writes to addresses the chip lacks
-  ignored;
-- the DAC (YM3014B): the channels' sum clipped to 16 bits and kept to its
-  floating point's 10-bit mantissa.
+- **The ROMs** (decap): a quarter sine's logarithm,
+  `round(-log2(sin((x + 0.5) * pi / 512)) * 256)`, and an exponent,
+  `round((2^(x / 256) - 1) * 1024)`, x = 0-255, and the decap's
+  `exp(logsin(phase) + gain)` for an operator: the log-sine (its quarter
+  mirrored and negated) plus the attenuation, through the exponent ROM,
+  its integer part a shift, up to 4,084 either way (in the code as
+  tables, `tests/test_opl2.c` regenerates them). The waveforms (Table
+  3-10's half sine, |sine|, rising quarters) only while register 1's bit 5
+  is set (3-1-11).
+- **The phase** (3-2, 3-1-8's formula `F = fmus * 2^19 / fsam / 2^(b -
+  1)`, Table 3-1): a 19-bit accumulator a sample up by (F-number <<
+  block) times twice the multiple (MULT 0 a half, 11 as 10, 13 as 12, 15
+  as 15) / 4, its top 10 bits the place in the wave: F-number * 49,716 *
+  2^(block - 20) Hz; key-on restarts it.
+- **The envelope's rates** (3-1-4 to 3-1-7, Tables 3-2 and 3-6): 4 * R
+  + the key scaling (the block and the F-number's top or second bit by
+  NTS, all of it with KSR, a quarter without), R 0 no change. Table 3-6's
+  times are in the code, 0-96 dB for the decay (and release) and for the
+  attack. Ours: the attenuation is kept to 2^-22 of a 0.1875 dB step, and
+  a linear rate adds the same amount every sample, 512 steps over its
+  table time (2^32 / the time in hundredths of a ms), so every decay
+  time is the table's to the sample (rates 60-63 2.40 ms, the attack at
+  once). The manual places no individual steps in time; the chip's
+  staircase is not modelled.
+- **The attack's shape** (3-3 and Fig. 3-2: exponential, from 96 dB to 0
+  dB, where the decay takes over). Ours: the attenuation plus 6.5 steps
+  shrinks by the same factor every sample, from 518.5 to 6.5 in Table
+  3-6's 0-96 dB time: a factor `exp(-ln(518.5 / 6.5) / samples)` (in the
+  code as fractions of 2^32, the test computes them from the times). The
+  6.5 is what fits the table's other column, 10% to 90% of the amplitude
+  (20 dB to 0.92 dB): over the whole time the table gives 0.526 on
+  average (0.46-0.57 by rate), the curve ln((106.7 + c) / (4.9 + c)) /
+  ln((512 + c) / c), at most 0.5245 at c = 6.5. Every 0-96 dB attack time
+  is the model's to a sample (18 samples in 141,312 at the slowest), the
+  10-90% times within 4% for each rate and 1% on average.
+- **Sustain and EG-TYP** (3-1-4's Fig. 3-1, 3-1-7): the decay stops at
+  the sustain level (3 dB steps, 15 as 93 dB) and holds there with
+  EG-TYP 1 while the key is down, goes on at the release rate with 0;
+  key-off releases.
+- **KSL** (3-1-5, Tables 3-4 and 3-5): Table 3-5's 128 entries (dB at 3
+  dB an octave, by block and the F-number's top four bits) are in the
+  code in thousandths of a dB; KSL 1 is them, 2 half (1.5 dB an octave),
+  3 twice (6 dB), each an exact number of 0.1875 dB steps.
+- **The attenuation sum** (3-3: "the effects of total level, level key
+  scaling, and amplitude modulation are added to the envelope
+  generator", 96 dB at 0.1875 dB): envelope + total level (0.75 dB
+  steps, Table 3-3) + KSL, in 0.1875 dB steps, then in eighths of a step
+  (the log-sine ROM's units, as the decap's formula adds them) with the
+  tremolo, at 96 dB silent. Ours: the eighths, which let the tremolo's
+  4.8 and 1 dB through without rounding to whole steps.
+- **Tremolo** (3-1-4 and 3-1-10: 3.7 Hz at 3.6 MHz, 4.8 dB with 0xBD's
+  bit 7, 1 dB without). Ours: its shape, a triangle linear in dB from 0
+  down to the depth and back, on a 32-bit phase (3.7 / 50,000 of a cycle
+  a sample), the depth 205 or 43 eighths of a step (4.80 and 1.01 dB),
+  the phase counted from the chip's reset.
+- **Vibrato** (3-1-4 and 3-1-10: 6.4 Hz at 3.6 MHz, 14 cents with 0xBD's
+  bit 6, 7 without; 3-2: it combines with the frequency in the phase
+  generator). Ours: a triangle in cents from 0 up to the depth, down to
+  minus it and back (the depth read as either way), multiplying the
+  phase's increment by up to 1 + 532 / 65,536 (14.0 cents) or 266 /
+  65,536, at the manual's 6.4 Hz.
+- **Feedback** (1-3's formula (3), `F = A sin(wt + B F)`, and Table 3-8's B:
+  0, pi / 16, pi / 8, pi / 4, pi / 2, pi, 2 pi, 4 pi for FB 0-7): with a
+  full-level output (4,084, about 2^12) as F = 1 and 1,024 phase steps a
+  cycle, B F is F's output shifted right by 8 - FB. Ours: (3) is implicit
+  in F, and a sampled loop must take F from outputs already made; we use
+  a running average, each sample half the old average and half the new
+  output. With the last output alone the loop would ring at half the
+  sample rate wherever B times the sine's slope passes 1 (FB 5 and up);
+  so averaged it holds to 3, at a delay of about a sample. FB 6 and 7
+  are noisy either way, as Table 5-1 says the feedback's top end is
+  ("Normal tone -> (Noise)").
+- **The connections** (3-1-9): CNT 0 the modulator's output added to the
+  carrier's phase, 1 both outputs added.
+- **The timers and status** (3-1-2, 3-5: 80 us and 320 us a count, 4
+  and 16 samples): the flags in the status register (bit 7 IRQ, 6 and 5
+  the flags, the low bits 0x06 as the YM3812 gives them), masks and IRQ
+  reset; writes to addresses the chip lacks ignored.
+- **CSM** (2-1 c, 3-1-3): timer 1's overflow keys every operator on.
+  Ours: the key is let go a sample later (the manual does not say how
+  long), so each operator gets one step of its attack and then releases;
+  with a fast attack that is a burst at each overflow.
+- **Rhythm mode** (2-1 b, 3-1-10, Table 3-9), ours and simplified: the
+  bass drum is channel 6's voice and the tom-tom operator 14's sine; the
+  hi-hat, snare and cymbal are their operators' envelopes on full-level
+  square waves made from operators 13's and 17's phases and a 23-bit
+  noise register (taps 22 and 17), each doubled.
+- **The DAC** (3-4, Fig. 3-3: a 10-bit mantissa with the sign and a 3-bit
+  exponent, the YM3014B): the channels' sum clipped to 16 bits, then the
+  low bits the mantissa cannot hold dropped (rounding down; ours), the
+  exponent at most 6.
 
-What is not exact, or not known: rhythm mode is simplified (the bass
-drum is channel 6's voice and the tom-tom operator 14's sine, but the
-hi-hat, snare and cymbal are their operators' envelopes on full-level
-square waves made from operators 13's and 17's phases and a 23-bit
-noise register, not the chip's own phase bits); where in its 8-sample
-pattern a rate's steps fall against key-on, and in its count a timer is,
-against a write (one sample either way); the rounding of the phase
-increment for odd F-numbers at block 0; the tremolo's and vibrato's
-exact shape and phase at reset; the order of the chip's per-sample
-pipeline (here every operator's output, then the phases and envelopes);
-and what one's complement or the DAC's analog stages would add. The
-shipped driver uses none of rhythm mode, CSM, the timers, the
-waveforms or the deep tremolo and vibrato; it uses the phase, KSR, KSL,
-total level, the envelopes of both types, shallow tremolo and vibrato,
-feedback and both connections.
+What is not exact, or not known: the chip's own envelope staircase
+(the model's rates are smooth, fitted to Table 3-6), the attack's exact
+curve, the LFOs' shapes and phase at reset, the feedback's sampling,
+rhythm mode as above, where in its count a timer is against a write
+(one sample either way), the rounding of the phase increment for odd
+F-numbers at block 0, the order of the chip's per-sample pipeline (here
+every operator's output, then the phases and envelopes), and what one's
+complement or the DAC's analog stages would add. The shipped driver uses
+none of rhythm mode, CSM, the timers, the waveforms or the deep tremolo
+and vibrato; it uses the phase, KSR, KSL, total level, the envelopes of
+both types, shallow tremolo and vibrato, feedback (FB 0, 6 and 7) and
+both connections.
 
 The chip's samples are averaged over each 44,100 Hz sample, added to the
 speaker's (the effects') and go through the same high-pass and volume.
 Their level, 1 (`OPL_GAIN`), was chosen by rendering the title on both:
-the first 34 seconds' RMS is 1,417 on the AdLib and 1,456 on the Tandy
-(the loudest sample 7,494 and 7,993), so the AdLib's title sounds about
+the first 34 seconds' RMS is 1,427 on the AdLib and 1,456 on the Tandy
+(the loudest sample 7,838 and 7,993), so the AdLib's title sounds about
 as loud as the Tandy's with the chip's sum as it is (nine voices at full
 level could reach 36,756, clipped at the DAC; the title never comes
 near).
@@ -1984,16 +2030,21 @@ pseudo-random routine (`0818`-`082d`) and the jumps at `0003`-`000f`
 that nothing calls; it read no port. `tests/test_sound.c` checks 30 of
 these (`tests/test_sound_adlib.h`: the title's six, and 24 made-up
 scores that together run every instruction the whole set does) and the
-title's first four ticks byte for byte, the AdLib's title not silent,
-never clipped and within a quarter of the Tandy's RMS, and rendering in
-pieces. `tests/test_opl2.c` checks the chip: the ROMs against the
-formulas, the frequencies of the multiples and blocks (A at 440 Hz from
-0x244 at block 4), the waveforms and their enable bit, total level and
-every KSL setting against Table 3-4, the attack times of rates 1.0-14.3
-and decay times against Table 3-6, KSR and NTS, EG-TYP, release,
-feedback against its formula at FB 0-7, both connections, tremolo's and
-vibrato's depths and rates, the timers, status, IRQ reset, masks and
-CSM, and writes to addresses the chip lacks.
+title's first four ticks byte for byte, an A written to the ports
+(0x244 at block 4) at 440 Hz after the render (the chip's sample clock),
+the title's first 2 seconds as rendered, by digest (the model and the
+mixing's average), the AdLib's title never clipped and within a quarter
+of the Tandy's RMS, and rendering in pieces. `tests/test_opl2.c` checks
+the chip: the ROMs against the formulas, the frequencies of the
+multiples and blocks, the waveforms and their enable bit, total level
+and every KSL setting against Tables 3-4 and 3-5, the attack's factors
+from Table 3-6's times, the attack times (0-96 dB and 10-90%) of rates
+1.0-14.3 and the decay times against it, KSR and NTS, EG-TYP, release,
+feedback against Table 3-8 at FB 0-7, both connections, tremolo's and
+vibrato's depths and rates, and both played on a voice (AM's 4.8 and 1
+dB, VIB's 14 and 7 cents by 0xBD's bits, none without the operator's
+bit), the DAC against values worked out by hand, the timers, status, IRQ
+reset, masks and CSM's burst, and writes to addresses the chip lacks.
 
 What the comparison does not show: the time between interrupts (it
 compares one operation or interrupt at a time; the PIT's rates and the
