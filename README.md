@@ -136,51 +136,87 @@ also go back the other way.
 
 The port also plays the sequel, *Death Knights of Krynn* (1991), so far
 into its fights, which you fight from the combat menu or leave to the
-computer. Copy your DOS *Death Knights* files into a folder
-named `DKKAssets` and run:
+computer. Copy your DOS *Death Knights* files into a folder named
+`DKKAssets` and run:
 
 ```sh
 ./build/cok --game death-knights
 ```
 
-From the title you reach the start menu, where you can load a saved game
-(its `SAVGAM*.PTY` and `CHRDAT*` files, and the bank vault's `VAULT*.DAT`,
-copied into `saves/`), save one, view, add, remove and drop characters,
-and begin. As in the original, Add Character to Party and Load Saved
-Game can also bring over a party from *Champions of Krynn*: the port
-looks for Champions' roster and saved games in `saves/` too, or in the
-folder `--import DIR` names. The adventure then runs into its fights:
-leadership, the battlefield and the combatants set up as in the original.
-Each character's turn shows the original's two-row combat menu (Move, Aim,
-Use, Cast, Turn, Guard, Quick, Delay, Bandage, Yell, View, Speed, End; the
-arrow keys move between the items and the rows): move with the arrow or
-keypad keys (Escape takes the moves back), aim and attack with Aim
-(Next, Prev, Manual's cursor, Target), guard, delay or end the turn, or
-press Quick, or Alt-Q (Alt-A) for the whole party, to let the computer
-fight: as in the original, with its dice, to the battle's end and the
-results. Treasure found (the treasure menu: Take, Pool, Share) and the
-bank vault of Gargath (take coins and items out, pool and deposit coins,
-and deposit items from a character's items) work. View shows the
-original's character sheet and menu (Items, Spells, Trade, Drop, and a
-paladin's Heal), and Items (or Use in combat) its items menu: Ready, Use,
-Trade, Drop, Halve, Join, and in shops Sell and Id. Shops work: buy
-(from the character's steel, then the pooled steel), sell, identify and
-have gems and jewelry appraised; and so does the temple, whose priests heal
-and cure for free (Raise Dead and Restoration too). Training halls train
-characters up to level 18 (Train Character) and promote knights (Knight Change Order); in camp,
-Magic's Memorize, Scribe and Display work, with spell levels up to 8, and
-Cast casts, in camp and in combat, by you or the computer (Alt-M turns
-Magic On for the party on Auto), with saving throws and magic resistance
-as in the original; every spell is there (the monsters' Slay Living,
-Feeblemind and Otto's Irresistible Dance, Heal, Harm, Death Spell, the
-clouds and the rest). Camp's Fix heals, and cures the stoned, poisoned,
-dead, cursed and blind with the spells your clerics have, as the original.
-Create New Character and Modify Character work as the original's: the
-lists, the rolls, the icon editor, every class starting with its own
-equipment and experience. The mouse and the joystick work as in the
-original's menus, and Initialize Mouse/Joystick turns them on and off;
-as in the original, it writes what it set into `krynn.cfg`, not
-`DKK.CFG`, so the next start goes by `DKK.CFG` again.
+### Starting out
+
+From the title you reach the start menu, where you can:
+
+- **Load a saved game:** copy its `SAVGAM*.PTY` and `CHRDAT*` files, and
+  the bank vault's `VAULT*.DAT`, into `saves/`.
+- **Save** a game.
+- **View, add, remove and drop** characters.
+- **Begin** the adventure.
+
+**Bringing over a Champions party:** as in the original, Add Character
+to Party and Load Saved Game can bring over a party from *Champions of
+Krynn*. The port looks for Champions' roster and saved games in `saves/`
+too, or in the folder that `--import DIR` names.
+
+**Creating characters:** Create New Character and Modify Character work
+as the original's do: the lists, the rolls, the icon editor, and every
+class starting with its own equipment and experience.
+
+### Combat
+
+The adventure runs into its fights. Leadership, the battlefield and the
+combatants are set up as in the original.
+
+- Each character's turn shows the original's two-row combat menu: Move,
+  Aim, Use, Cast, Turn, Guard, Quick, Delay, Bandage, Yell, View, Speed,
+  End. The arrow keys move between the items and the rows.
+- **Move** with the arrow or keypad keys. Escape takes the moves back.
+- **Aim** to aim and attack: Next, Prev, Manual's cursor, Target.
+- **Guard**, **Delay** or **End** the turn.
+- **Quick** lets the computer fight for that character, and Alt-Q
+  (Alt-A) does it for the whole party. As in the original, it fights with
+  its own dice to the battle's end and the results.
+
+### Treasure and the bank
+
+- **Treasure found** uses the treasure menu: Take, Pool, Share.
+- **The bank vault of Gargath:** take coins and items out, pool and
+  deposit coins, and deposit items from a character's items.
+
+### Characters and items
+
+- **View** shows the original's character sheet and its menu: Items,
+  Spells, Trade, Drop, and a paladin's Heal.
+- **Items** (or Use in combat) opens the items menu: Ready, Use, Trade,
+  Drop, Halve, Join, and in shops Sell and Id.
+
+### Town
+
+- **Shops:** buy (from the character's steel, then the pooled steel),
+  sell, identify, and have gems and jewelry appraised.
+- **Temples:** the priests heal and cure for free, Raise Dead and
+  Restoration included.
+- **Training halls:** train characters up to level 18 (Train Character)
+  and promote knights (Knight Change Order).
+
+### Camp and magic
+
+- **Magic:** Memorize, Scribe and Display work, with spell levels up to 8.
+- **Cast** works in camp and in combat, by you or by the computer.
+  Alt-M turns Magic On for the party on Auto.
+- Saving throws and magic resistance work as in the original.
+- Every spell is there, including the monsters' Slay Living, Feeblemind
+  and Otto's Irresistible Dance, plus Heal, Harm, Death Spell, the clouds
+  and the rest.
+- **Fix** heals, and cures the stoned, poisoned, dead, cursed and blind
+  with the spells your clerics have, as in the original.
+
+### Mouse and joystick
+
+- The mouse and the joystick work in the menus as in the original.
+- Initialize Mouse/Joystick turns them on and off. As in the original, it
+  writes what it set into `krynn.cfg`, not `DKK.CFG`, so the next start
+  goes by `DKK.CFG` again.
 
 ## Options
 
