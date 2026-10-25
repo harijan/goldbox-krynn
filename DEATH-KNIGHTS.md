@@ -118,8 +118,8 @@ the character fields moved (R6), which the real game's layout does better.
    start menu, playing up to the first fight (done: `saves`); Create New
    Character, its icon editor and class kits, and Modify Character (dkk
    `49cb:05c7`, `3cac`, `4bea`, `25d4`: done, `dkk-create`); Initialize
-   Mouse/Joystick (`49cb:52cd`, done: `dkk-mouse`). Left: Death Knights'
-   own setup screens (without a `DKK.CFG`), which still show Champions'.
+   Mouse/Joystick (`49cb:52cd`, done: `dkk-mouse`); its own setup screens
+   without a `DKK.CFG` (`1187:011b`, done: `dkk-setup`).
 3. Combat and the rules (done, 2026-10-20). Every fight is entered and
    left (`encounter`: SETUP MONSTERS with its ambush, LOAD MONSTER, COMBAT,
    leadership of NPC allies, its own battlefield builders and placement,
@@ -144,10 +144,13 @@ the character fields moved (R6), which the real game's layout does better.
    index (`6a69:0f1b`, `1b82`), the pick, `DKK.CFG`'s two paths (done:
    `dkk-mouse`). Save's, Load's, from-where and Pick Character's menus by
    index and Display's Exit (`46b2:2808`, `207a`, `1ef0`, `49cb:343c`,
-   `580d:3067`, `4381:19df`, done: `dkk-savemenu`). Left: menus still read
-   by Champions' code (the start menu's list and Add's, the title's Play
-   Demo, Knight Change Order, the prompts in shops, treasure and Cast); and
-   the stops where the original reads an unset value.
+   `580d:3067`, `4381:19df`, done: `dkk-savemenu`). The title's Play Demo,
+   Add's list, Knight Change Order and the treasure's menus by index (done:
+   `dkk-menus2`). The stops where the original reads an unset value were
+   gone over: six take the value the call depth fixes, the rest stop citing
+   the read (done: `dkk-setup`). Left: menus still read by Champions' code
+   (Magic's spell lists `5dc5:016e`, the ECL's VERTICAL and HORIZONTAL MENU
+   `3c1e:1631`, PRESS KEY `3632:1b5f` and YES NO `1b9e`).
 4. Music: the MUSIC.DAX driver and its songs. Until then Death Knights plays
    silent.
 5. Checks against the original: tests against `death-START_FULL.EXE` and a
