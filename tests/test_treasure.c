@@ -1531,13 +1531,15 @@ static void test_dk_ecl_menus(void)
     };
     for (size_t i = 0; i < sizeof vertical / sizeof vertical[0]; ++i) {
         reset(vertical[i].keys);
+        game.selected = 2; /* DS:c0f7 1 first */
         *result = 0xee;
         CHECK(DK_VERTICAL() == COK_ECL_OK && s.at == s.length && !game.input_ended);
         CHECK((*result & 0xff) == vertical[i].stored && LOGGED("list: P;item: A;"));
     }
-    /* HORIZONTAL MENU: Escape reads on; a special key picks a character
-     * only off mode 3 with 0x4cf7 at 1 (Down: the next member), and reads
-     * on; Space is read past; B by its letter. */
+    /* HORIZONTAL MENU: Escape reads on (where it picks no one too); a
+     * special key picks a character only off mode 3 with 0x4cf7 at 1
+     * (Down: the next member), and reads on; Space is read past; B by its
+     * letter. */
     reset("\x1b \x01\x50\r");
     cok_character *a = dk_member("A"), *b = dk_member("B");
     game.vm.character = a->record;
@@ -1546,7 +1548,7 @@ static void test_dk_ecl_menus(void)
     CHECK(DK_HORIZONTAL() == COK_ECL_OK && s.at == s.length && (*result & 0xff) == 0);
     CHECK(game.vm.character == b->record && LOGGED("menu: ~A ~B;choice: 0;"));
     for (int mode = 3; mode <= 4; ++mode) {
-        reset("\x01\x50" "b");
+        reset("\x1b\x01\x50" "b");
         a = dk_member("A");
         dk_member("B");
         game.vm.character = a->record;

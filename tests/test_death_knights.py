@@ -1135,6 +1135,12 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(listed + magic + listed + "choice: 3\nprint: NEACAIL\nprint: casts\n",
                       result.stdout)
+        # The list starts on its first item (DS:c0f7 1), not on Magic's
+        # Memorize: Enter memorizes the spell the grimoire starts on.
+        keys = camp + "M" + r"\v" * 4 + r"M\r"
+        result = self.play("--start-menu", "--saves", saves, "--seed", 1, "--keys", keys, ASSETS)
+        out = result.stdout
+        self.assertIn("choice: ", out[out.index("list: Spells in Grimoire"):])
         # Clicks: the heading's row picks it out, the spell's row too, and
         # a click on the row picked casts.
         clicks = r"\m20,44,1.\m20,52,1."

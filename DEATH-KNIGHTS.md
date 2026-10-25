@@ -148,9 +148,10 @@ the character fields moved (R6), which the real game's layout does better.
    Add's list, Knight Change Order and the treasure's menus by index (done:
    `dkk-menus2`). The stops where the original reads an unset value were
    gone over: six take the value the call depth fixes, the rest stop citing
-   the read (done: `dkk-setup`). Left: menus still read by Champions' code
-   (Magic's spell lists `5dc5:016e`, the ECL's VERTICAL and HORIZONTAL MENU
-   `3c1e:1631`, PRESS KEY `3632:1b5f` and YES NO `1b9e`).
+   the read (done: `dkk-setup`). Magic's spell lists (`5dc5:016e`), the
+   ECL's VERTICAL MENU (`3632:1068`, `3c1e:171a`), HORIZONTAL MENU, ASK
+   MENU, PRESS KEY and JOURNAL (`3c1e:1631`) and YES NO (`3632:1b9e`,
+   `6a69:2048`) by index (done: `dkk-menus3`).
 4. Music: the MUSIC.DAX driver and its songs. Until then Death Knights plays
    silent.
 5. Checks against the original: tests against `death-START_FULL.EXE` and a

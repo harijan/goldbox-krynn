@@ -152,9 +152,10 @@ DKK_SPLIT = {
     "dkk_levels": ["train", "memorize", "table", "cast", "fix", "rest", "stop", "interrupted",
                    "menus", "saves", "load"],
     "dkk_treasure": ["treasure", "vault"],
+    "dkk_menus": ["lists", "ecl", "post", "clicks", "taskclicks"],
 }
 DKK_SCRIPTS = ["dkk_views", "dkk_start", "dkk_create", "dkk_treasure", "dkk_items", "dkk_shops",
-               "dkk_levels", "dkk_mouse", "dkk_setup", "dkk_fight"]
+               "dkk_levels", "dkk_mouse", "dkk_setup", "dkk_fight", "dkk_menus"]
 DKK_CHECKS = [(f"{script}-{flow}" if flow else script, "DKK", "") for script in DKK_SCRIPTS
               for flow in DKK_SPLIT.get(script, [""])]
 SETS = {"champions": CHECKS, "dkk": DKK_CHECKS, "all": CHECKS + DKK_CHECKS}
