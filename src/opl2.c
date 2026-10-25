@@ -498,9 +498,12 @@ static int32_t output(const cok_opl2 *chip, cok_opl2_operator *op, const cok_opl
  * 3-8's factor B: 0, pi / 16, pi / 8 ... 4 pi for FB 0-7. With a full-level
  * output (2,042, about 2^11) as F = 1 and 1,024 phase steps to a cycle, B
  * F is F's output times 2^(FB + 4) / 2^11: shifted right by 7 - FB, FB 7
- * the output whole. The carrier's phase input (CNT 0) is taken at that
- * same scale, the modulator's output added whole: a modulation index of
- * up to 4 pi, Table 3-8's largest (ours: the manual gives no index). F is
+ * the output whole. The carrier's phase input (CNT 0): the manual gives
+ * no index for it. Measured (DOSBox-X's OPL2 as a black box, its audio
+ * alone, 2026-10-25): a modulator at total level t gave the spectrum our
+ * Table 3-8 scale gave at t - 8, 6 dB louder, at TL 0, 8 and 16 alike; so
+ * ours, the modulator's output doubled into the carrier's phase, twice
+ * FB 7's: a modulation index of up to 8 pi. F is
  * implicit in (3); a sampled loop has to take it from outputs already
  * made. Ours: a running average, each sample half the last average and
  * half the new output. The last output alone would make the loop ring at
@@ -513,7 +516,7 @@ static int32_t voice(cok_opl2 *chip, unsigned c)
     int32_t feedback = ch->feedback != 0 ? shift_down(mod->average, 7u - ch->feedback) : 0;
     int32_t m = output(chip, mod, ch, feedback);
     mod->average = shift_down(mod->average + m, 1);
-    int32_t k = output(chip, car, ch, ch->additive ? 0 : m);
+    int32_t k = output(chip, car, ch, ch->additive ? 0 : m * 2);
     return ch->additive ? m + k : k;
 }
 

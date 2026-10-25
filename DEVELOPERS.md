@@ -1947,10 +1947,14 @@ longer, as on the chip. It runs at the chip's rate, 3,579,545 / 72 =
   are noisy either way, as Table 5-1 says the feedback's top end is
   ("Normal tone -> (Noise)").
 - **The connections** (3-1-9): CNT 0 the modulator's output added to the
-  carrier's phase, 1 both outputs added. Ours: with CNT 0 the carrier's
-  phase input takes the modulator's output at the scale Table 3-8 fixes
-  for feedback, whole as at FB 7: a modulation index of up to 4 pi (the
-  manual gives none for the carrier).
+  carrier's phase, 1 both outputs added. The manual gives no modulation
+  index for the carrier; ours, measured: DOSBox-X's OPL2 taken as a black
+  box (its audio alone: one held note per setting, written to 0x388 by a
+  small .COM), a modulator at total level t gave the spectrum Table 3-8's
+  scale gave here at t - 8, 6 dB louder, at TL 0, 8 and 16 alike, and the
+  title's CNT 0 instruments' first 16 harmonics then agreed within about
+  1 dB. So the carrier's phase input takes the modulator's output
+  doubled, twice FB 7's scale: a modulation index of up to 8 pi.
 - **The timers and status** (3-1-2, 3-5: 80 us and 320 us a count, 4
   and 16 samples): the flags in the status register (bit 7 IRQ, 6 and 5
   the flags; the low bits D4-D0, which 3-5's figure on p. 23 leaves
@@ -1988,7 +1992,9 @@ What is not exact, or not known: the chip's own envelope staircase
 (the model's rates are smooth, fitted to Table 3-6), the attack's exact
 curve, the LFOs' shapes and phase at reset, the feedback's sampling,
 the binary point between an operator's output and another's phase (here
-Table 3-8's), rhythm mode, its noise and CSM as above, the status's low
+Table 3-8's for feedback, twice it for the carrier, as measured), the
+feedback's top end (FB 5-7 measured brighter above the 16th harmonic
+than ours), rhythm mode, its noise and CSM as above, the status's low
 bits, where in its count a timer is against a write
 (one sample either way), the rounding of the phase increment for odd
 F-numbers at block 0, the order of the chip's per-sample pipeline (here
@@ -2001,12 +2007,12 @@ both connections.
 
 The chip's samples are averaged over each 44,100 Hz sample, added to the
 speaker's (the effects') and go through the same high-pass and volume.
-Their level, 7 / 4 (`OPL_GAIN` / `OPL_GAIN_DIV`), was chosen by
-rendering the title on both: the first 34 seconds' RMS is 1,447 on the
-AdLib and 1,456 on the Tandy (the loudest sample 6,943 and 7,993), so
+Their level, 2 (`OPL_GAIN` / `OPL_GAIN_DIV`), was chosen by
+rendering the title on both: the first 34 seconds' RMS is 1,427 on the
+AdLib and 1,456 on the Tandy (the loudest sample 7,847 and 7,993), so
 the AdLib's title sounds about as loud as the Tandy's (nine voices at
-full level could reach 18,378 at the DAC, 32,161 in the mix, still short
-of clipping; the title never comes near).
+full level could reach 18,378 at the DAC, 36,756 in the mix, which the
+mix would clip at 32,767; the title never comes near).
 
 ### Checks
 

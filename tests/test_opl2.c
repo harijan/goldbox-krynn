@@ -399,7 +399,8 @@ static void test_feedback(void)
     for (int i = 0; i < 4000; ++i) {
         unsigned phase = chip.op[3].phase >> 9, mphase = chip.op[0].phase >> 9;
         int32_t m = cok_opl2_wave(mphase, 0, 0);
-        CHECK(cok_opl2_sample(&chip) == cok_opl2_dac(cok_opl2_wave((phase + (unsigned)m) & 0x3ff, 0, 0)));
+        /* The modulator's output doubled: an index of up to 8 pi. */
+        CHECK(cok_opl2_sample(&chip) == cok_opl2_dac(cok_opl2_wave((phase + (unsigned)(2 * m)) & 0x3ff, 0, 0)));
     }
 }
 

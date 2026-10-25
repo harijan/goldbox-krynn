@@ -329,8 +329,8 @@ enum {
     SAMPLE_FRAC = 327600,
     SAMPLE_DEN = 485100,
     SPEAKER_LEVEL = 8191,
-    OPL_GAIN = 7,        /* the AdLib's sum to the mix, times 7 / 4: see DEVELOPERS.md, The hardware */
-    OPL_GAIN_DIV = 4,
+    OPL_GAIN = 2,        /* the AdLib's sum to the mix, times 2: see DEVELOPERS.md, The hardware */
+    OPL_GAIN_DIV = 1,
     STEPS_MAX = 100000, /* A script or envelope looping forever (the original hangs). */
 };
 
