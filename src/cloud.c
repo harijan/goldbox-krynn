@@ -704,7 +704,7 @@ static bool dk_dispel(cok_adventure *game, uint8_t level, int stale)
         for (cok_combat_cloud *p = combat->clouds; p != NULL; p = p->next)
             for (unsigned i = 1; i <= cells; ++i) {
                 if (x != cloud_x(game, p, i) || y != cloud_y(game, p, i)) continue;
-                bool taken;
+                bool taken = false;
                 if (!dk_dispelled(game, level, p->level, stale, &taken)) return false;
                 if (taken) p->age = 0xff;
             }
