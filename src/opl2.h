@@ -30,7 +30,7 @@ typedef struct {
     uint16_t env;         /* its whole steps, 0-511 */
     cok_opl2_state state;
     bool down;            /* its key: the channel's KEY-ON, or its drum's bit in rhythm mode */
-    int32_t average;      /* the outputs' running average (feedback) */
+    int32_t last, before; /* its last two outputs (feedback) */
 } cok_opl2_operator;
 
 typedef struct {

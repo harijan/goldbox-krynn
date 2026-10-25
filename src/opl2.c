@@ -505,17 +505,23 @@ static int32_t output(const cok_opl2 *chip, cok_opl2_operator *op, const cok_opl
  * ours, the modulator's output doubled into the carrier's phase, twice
  * FB 7's: a modulation index of up to 8 pi. F is
  * implicit in (3); a sampled loop has to take it from outputs already
- * made. Ours: a running average, each sample half the last average and
- * half the new output. The last output alone would make the loop ring at
- * half the sample rate wherever B times the sine's slope passes 1 (FB 5
- * and up); averaged so, it holds up to 3, at a delay of about a sample. */
+ * made. Ours, measured the same way: at FB 5 (modulator TL 0) DOSBox-X's
+ * note rings at about 16.6 kHz, a third of the sample rate, and at FB 3
+ * a trace of it shows. A loop whose input is the mean of the last two
+ * outputs is the one that turns at exactly a third of the rate (z^-1 +
+ * z^-2 = -1 there) and not at half; so F is that mean. Its notes at FB 3,
+ * 5 and 7 and the title's FB 6 and 7 instruments then agree band for
+ * band (our earlier running average rang nowhere, darker at FB 5 and up,
+ * FB 7's fundamental 37 dB short). */
 static int32_t voice(cok_opl2 *chip, unsigned c)
 {
     cok_opl2_channel *ch = &chip->ch[c];
     cok_opl2_operator *mod = &chip->op[modulator_of(c)], *car = mod + 3;
-    int32_t feedback = ch->feedback != 0 ? shift_down(mod->average, 7u - ch->feedback) : 0;
+    int32_t feedback =
+        ch->feedback != 0 ? shift_down(mod->last + mod->before, 8u - ch->feedback) : 0;
     int32_t m = output(chip, mod, ch, feedback);
-    mod->average = shift_down(mod->average + m, 1);
+    mod->before = mod->last;
+    mod->last = m;
     int32_t k = output(chip, car, ch, ch->additive ? 0 : m * 2);
     return ch->additive ? m + k : k;
 }

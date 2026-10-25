@@ -340,21 +340,21 @@ static void test_feedback(void)
         cok_opl2_write(&chip, 0xa0, 0x44);
         cok_opl2_write(&chip, 0xb0, 0x32);
         for (int i = 0; i < 10; ++i) cok_opl2_sample(&chip);
-        /* The modulator's phase moved by Table 3-8's factor times its
-         * outputs' running average over 4,096 (FB 1: pi / 16 of 1,024
-         * steps, 32, at full level; 7: 4 pi, 2,048), the average each
-         * sample half the old one and half the new output. */
+        /* The modulator's phase moved by Table 3-8's factor times the
+         * mean of its last two outputs over 2,048 (FB 1: pi / 16 of 1,024
+         * steps, 32, at full level; 7: 4 pi, 2,048). */
         static const double factor[8] = {0, PI / 16, PI / 8, PI / 4, PI / 2, PI, 2 * PI, 4 * PI};
         double distortion = 0;
-        int32_t average = chip.op[0].average;
+        int32_t out1 = chip.op[0].last, out2 = chip.op[0].before;
         for (int i = 0; i < 4000; ++i) {
             unsigned phase = chip.op[0].phase >> 9;
             double steps = round(factor[fb] / (2 * PI) * 1024); /* 0, 32, 64 ... 2,048 */
-            int32_t shift = (int32_t)floor(average * steps / 2048);
+            int32_t shift = (int32_t)floor((out1 + out2) / 2.0 * steps / 2048);
             int32_t expect = cok_opl2_wave((unsigned)((int32_t)phase + shift) & 0x3ff, 0, 0);
             int32_t v = cok_opl2_sample(&chip);
             CHECK(v == cok_opl2_dac(expect));
-            average = (int32_t)floor((average + expect) / 2.0);
+            out2 = out1;
+            out1 = expect;
             double d = v - cok_opl2_dac(cok_opl2_wave(phase, 0, 0));
             distortion += d * d;
         }
