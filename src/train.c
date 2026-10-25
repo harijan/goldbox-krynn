@@ -267,7 +267,7 @@ static bool train(cok_adventure *game, cok_character *character, bool creating, 
         if (cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i) <= 0) continue;
         present = (uint8_t)(present + class_bit(game, i));
         level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, i);
-        bool limited;
+        bool limited = false;
         if (!at_limit(game, c, i, level, &limited)) return false;
         if (cok_train_row(c, cok_game_rules(game), i, &row)) {
             stale = false;

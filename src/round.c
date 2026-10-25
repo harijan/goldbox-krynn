@@ -1017,7 +1017,7 @@ bool cok_combat_leadership(cok_adventure *game)
                 cok_field_u8(L, ally, COK_FIELD_STATUS) != 0 ||
                 cok_field_u8_at(L, ally, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE) <= 3)
                 continue;
-            bool led;
+            bool led = false;
             if (!leads(game, leader, &chance, &led)) return false;
             if (!led) continue;
             if (!shown) {

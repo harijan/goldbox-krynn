@@ -126,7 +126,7 @@ static bool buffer_draw(cok_adventure *game, const cok_picture *src, size_t fram
 static bool terrain(cok_adventure *game, int xu, int yc, int x, int y, const char *where)
 {
     cok_combat *c = &game->combat;
-    uint8_t value;
+    uint8_t value = 0;
     if (!map_byte(game, x, y, &value, where)) return false;
     if (value >= cok_data_count(cok_game_rules(game)->data, COK_DATA_TERRAIN, 0))
         return fail(game, "terrain value 0x%02x is past the table (DS:1ee4, %s)", value, where);
