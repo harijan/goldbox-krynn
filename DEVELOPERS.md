@@ -188,6 +188,7 @@ segment's tables, a section to a concern:
 | `text` | the window's title; the title menu's heading at startup and after a demonstration (`1000:0134`, spelt differently); camp's first line (`4888:2c31`) | `Champions of Krynn`, `Champions of Krynn v1.2`, `Champions Of Krynn v1.2`, `The party makes camp...` |
 | `archives` | each DAX archive the game reads, by stem: with the ECL file's number (`GEO` makes `GEO1.DAX`), with `file_digit`'s digit (`MON`, with the kinds `CHA`, `SPC`, `ITM`; `ITEM`, `HEAD`, `BODY`, `CPIC`) or alone (`SKY`); the names `6d21:01d0` loads icons by as they are; records read from a file of their own, as a `cok_rules_record` (stem, file, 0 for none, record): the font and the overland map's cursor; and `file_digit`, the digit a file's number gives the names that hold one (Str into a string[1], `4b6d:161b`, `2fd3:1d21`, `6961:05b9`, `6d21:01d0`) | `ECL`, `GEO`, `WALLDEF`, `8X8D`, `PIC`, `SPRIT`, `BIGPIC`, `HEAD`, `BODY`, `CPIC`, `COMSPR`, `CHEAD`, `CBODY`, `SKY`, `TITLE`, `ITEM`, `MON`, `DUNGCOM`, `WILDCOM`, `RANDCOM`, `MIDI`, `SOUND`; font `8X8D1` record 201, cursor `CURSOR` record 1; the first decimal digit |
 | `files` | the devices' file (looked for in upper case, then lower) and the paths its lines hold after the third (`config_paths`); the item types; the directory the setup takes the game to run in and the save path's default under it | `KRYNN.CFG`, 1, `ITEMS`, `C:\COK\`, `SAVE` |
+| `setup` | the setup's words and answers when there is no devices' file (`src/setup.c`): the display's screen, whether its Tandy makes the mouse `N` (`tandy_no_mouse`), the sound screen's lines, its highest digit and each answer's letter (an answer past the letters writes no line), the letters the file's second line reads as the devices 0-4 (`sound_devices`, `config.c`), the input's screen, whether a third line of another letter leaves flags never set that the game reads (`input_unset`: the run stops after the note), the other paths' line, prompt and defaults (`other_*`, for `files.config_paths` past 1), the calibration's lines and its failure's, and the note at every start | `GRAPHICS ADAPTER TYPE:  [1] CGA ...` (`11c7:0114`), no; `SOUND TYPE:  [1] C/MS` and five more, 6, `CRATPS`; `CRATP` (`11c7:0a5a`); `ALTERNATE INPUT TYPE:  [1] JOYSTICK ...`; no; none; `Push JOYSTICK #1 ...` (`177c:029d`), `Couldn't read the joystick.  Aborting calibration.`; `TANDY 1000 USERS - Make sure NUMLOCK is on.` |
 | `saves` | saved games (`SAVGAM` letter `.DAT`) and their characters' names (`CHRDAT` letter number); a character's extensions: in a saved game, in the roster, its items, its effects, its spells' block (a game that keeps one); the debug mode's trace; the saved game's layout past the variables' width (`ecl.variable_bytes`): its wall table's entries and those the loader loads again, and whether the loader keeps the saved last mode (see Party); the byte the roster's list leaves a record out by; the bank vault's files, or none | `SAVGAM`, `DAT`, `CHRDAT`, `SAV`, `WHO`, `STF`, `SFX`, none, `DEBUG.TXT`; 3 and 3 (`DS:6d8a`, `4b6d:1b34`), no (the saved mode becomes the last); `COINS` 6 (`4b6d:0453`); none |
 | `images` | the archives `daximages` and `daxcompose` read, by layout: XOR deltas, collections, single images; stems, `NULL`-ended; and the frames a header's count byte 0xff gives (`frames_ff`: 255 where the loader takes the byte, `127f:1c2f`; Death Knights' 256, its 256-tile sets) | `PIC1-3`; `SPRIT1-3`; the 20 others; 255 |
 | `character` | the character record's layout (`src/field.h`): its size, its file's size, where a spells' block of its own lies, and where each field lies | 409 bytes, none, the fields below |
@@ -1338,6 +1339,34 @@ read or write, a blank row and `The port stops here: ` with the reason,
 also on standard error; the run ends with status 1 (`cok` waits for a key
 or the window's close first). A run whose keys end in the setup ends `(out
 of keys in the setup)`.
+
+Death Knights' setup (dkk `1187:011b`, without `DKK.CFG`; the rules'
+`setup`) is Champions' with its own words and five screens: `GRAPHICS
+ADAPTER TYPE: [1] CGA  [2] EGA  [3] Tandy  ` (one space after the colon,
+`DS:2744`), whose `[3]` sets `DS:8b8f`; five sound lines (`[1] C/MS`,
+`[2] AdLib`, `[3] Tandy 1000`, `[4] PC`, `[5] Silent`, `DS:2795`-`2811`)
+over digits 1-6, writing `C`, `A`, `T`, `P`, `S`, and for `6` no line at
+all (`1187:03db`'s cases end at 5), so that the file's later lines move up
+one; `ALTERNATE INPUT TYPE: [1] Joystick  [2] Mouse  [3] Neither  `
+(`DS:2830`), where `[2]` writes `N` after a Tandy (`1187:0449`); the save
+path as Champions' (its default `C:\DKK\SAVE`); then, after `ClrScr`, `PATH
+TO SAVE DATA FOR CHAMPIONS OF KRYNN` (`DS:28e0`) and `(DEFAULT - ` with the
+save path's drive letter and `:\SAVE` below C or `:\KRYNN\SAVE`
+(`DS:28c0`, `28cb`), read and checked as the first, the fifth line. The
+calibration (`18bc:01e1`) is Champions' with Initialize Mouse/Joystick's
+words (`DS:1b2e` and `1b57` joined by a space, `1b9f` and `1bc8`), every
+failure `unable to read joystick` (`DS:1b80`); the note is `Tandy 1000 users
+make sure num lock is on.` (`DS:2931`). Startup's read (`1187:08a1`) takes
+no `R` for the sound (`1187:0a2c`: none). Its input flags, the joystick
+`DS:dbf2` and the mouse `DS:dbaa`, lie past the image and are set only by
+a third line of `J`, `M` or `N` (the setup sets the joystick's too); with
+another letter (a hand-made file, or the sound's `6`, which leaves the save
+path's drive on the third line) the mouse's is never set and the game's
+start reads it (`4f9a:0123`): the port stops after the note, saying so
+(`COK_SETUP_UNSET`; a drive `J:`, `M:` or `N:` is read as that input, as
+the original reads it). `tools/dosbox/checks/dkk_setup.py` compares every
+key read's text screen, the note and `DKK.CFG` with the original's, on a
+Tandy and with the sound's `6` on an EGA.
 
 `tests/test_setup.c` replays 96 setups (the digits with noise around them,
 extended keys, paths typed with every editing key, long lines, floppies,

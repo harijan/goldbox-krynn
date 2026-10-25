@@ -102,20 +102,20 @@ cok_config cok_config_parse(const uint8_t *text, size_t size)
     return cok_config_parse_stick(text, size, false);
 }
 
-static cok_config parse(const uint8_t *text, size_t size, bool stick, unsigned paths);
+static cok_config parse(const uint8_t *text, size_t size, bool stick, const cok_rules *rules);
 
 cok_config cok_config_parse_stick(const uint8_t *text, size_t size, bool stick)
 {
-    return parse(text, size, stick, 1);
+    return parse(text, size, stick, &cok_rules_champions);
 }
 
 cok_config cok_config_parse_game(const cok_rules *rules, const uint8_t *text, size_t size,
                                  bool stick)
 {
-    return parse(text, size, stick, rules->files.config_paths);
+    return parse(text, size, stick, rules);
 }
 
-static cok_config parse(const uint8_t *text, size_t size, bool stick, unsigned paths)
+static cok_config parse(const uint8_t *text, size_t size, bool stick, const cok_rules *rules)
 {
     cok_config config = {0};
     size_t at = 0;
@@ -125,16 +125,16 @@ static cok_config parse(const uint8_t *text, size_t size, bool stick, unsigned p
     default: config.display = COK_DISPLAY_CGA; break;
     }
     read_line(text, size, &at);
-    switch (read_char(text, size, &at)) {
-    case 'C': config.sound = COK_SOUND_CMS; break;
-    case 'R': config.sound = COK_SOUND_ROLAND; break;
-    case 'A': config.sound = COK_SOUND_ADLIB; break;
-    case 'T': config.sound = COK_SOUND_TANDY; break;
-    case 'P': config.sound = COK_SOUND_SPEAKER; break;
-    default: config.sound = COK_SOUND_NONE; break;
-    }
+    /* The rules' setup.sound_devices: CMS, Roland, AdLib, Tandy and the
+     * speaker by letter (11c7:0a5a); any other no sound. */
+    uint8_t letter = read_char(text, size, &at);
+    config.sound = COK_SOUND_NONE;
+    for (unsigned i = 0; i < 5; ++i)
+        if (rules->setup.sound_devices[i] != 0 && letter == (uint8_t)rules->setup.sound_devices[i])
+            config.sound = (cok_sound_device)i;
     read_line(text, size, &at);
-    switch (read_char(text, size, &at)) {
+    config.input = (char)read_char(text, size, &at);
+    switch ((uint8_t)config.input) {
     case 'J': config.joystick = true; config.mouse = false; break;
     case 'M': config.mouse = true; config.joystick = false; break;
     case 'N': config.mouse = config.joystick = false; break;
@@ -144,7 +144,7 @@ static cok_config parse(const uint8_t *text, size_t size, bool stick, unsigned p
     read_string(text, size, &at, config.save_path, sizeof config.save_path - 1);
     read_line(text, size, &at);
     /* dkk 1187:011b: Champions' saved games' path (DS:99a4) after its own. */
-    for (unsigned i = 1; i < paths; ++i) {
+    for (unsigned i = 1; i < rules->files.config_paths; ++i) {
         read_string(text, size, &at, config.other_path, sizeof config.other_path - 1);
         read_line(text, size, &at);
     }
@@ -170,20 +170,20 @@ bool cok_config_read_file(const char *path, cok_config *config)
     return cok_config_read_file_stick(path, config, false);
 }
 
-static bool read_file(const char *path, cok_config *config, bool stick, unsigned paths);
+static bool read_file(const char *path, cok_config *config, bool stick, const cok_rules *rules);
 
 bool cok_config_read_file_stick(const char *path, cok_config *config, bool stick)
 {
-    return read_file(path, config, stick, 1);
+    return read_file(path, config, stick, &cok_rules_champions);
 }
 
 bool cok_config_read_file_game(const cok_rules *rules, const char *path, cok_config *config,
                                bool stick)
 {
-    return read_file(path, config, stick, rules->files.config_paths);
+    return read_file(path, config, stick, rules);
 }
 
-static bool read_file(const char *path, cok_config *config, bool stick, unsigned paths)
+static bool read_file(const char *path, cok_config *config, bool stick, const cok_rules *rules)
 {
     FILE *f = fopen(path, "rb");
     if (f == NULL) return false;
@@ -192,7 +192,7 @@ static bool read_file(const char *path, cok_config *config, bool stick, unsigned
     size_t size = text != NULL ? fread(text, 1, MOST, f) : 0;
     bool failed = text == NULL || ferror(f) != 0;
     fclose(f);
-    if (!failed) *config = parse(text, size, stick, paths);
+    if (!failed) *config = parse(text, size, stick, rules);
     free(text);
     return !failed;
 }

@@ -607,7 +607,8 @@ static bool next_target(cok_adventure *game, targets *t, bool show, uint8_t step
     cok_combat *combat = &game->combat;
     if (t->count == 0)
         return undefined(game, "no target is listed, so aiming reads one of its frame never "
-                               "written (432f:39ad)");
+                               "written (432f:39ad; dkk 5340:34b3 instead quits to DOS there, "
+                               "5340:350d calling 16ab:0000)");
     if (show) {
         const cok_combatant *e = &combat->combatant[t->list[t->current].index];
         t->old_x = e->x;

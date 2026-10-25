@@ -1347,6 +1347,13 @@ static const cok_rules_created_spells champions_created_spells[] = {
 /* Modify Character's new characters' experiences (4def:28fa). */
 static const uint32_t champions_fresh[] = {1500, 1251, 2000, 2001, 2251, 2500, 5000};
 
+/* The setup's sound screen (11c7:014a-01c4). */
+static const char *const champions_setup_sound[] = {
+    "SOUND TYPE:  [1] C/MS",       "             [2] Roland LAPC", "             [3] AdLib",
+    "             [4] Tandy 1000", "             [5] PC",          "             [6] Silent",
+    NULL,
+};
+
 const cok_rules cok_rules_champions = {
     .id = "champions",
     .assets = "COKAssets",
@@ -1401,6 +1408,26 @@ const cok_rules cok_rules_champions = {
             .item_types = "ITEMS",
             .install_dir = "C:\\COK\\",
             .save_dir = "SAVE",
+        },
+    .setup =
+        {
+            .display = "GRAPHICS ADAPTER TYPE:  [1] CGA  [2] EGA  [3] Tandy  ",
+            .tandy_no_mouse = false,
+            .sound = champions_setup_sound,
+            .sound_answers = 6,
+            .sound_letters = "CRATPS",
+            .sound_devices = {'C', 'R', 'A', 'T', 'P'},
+            .input = "ALTERNATE INPUT TYPE:  [1] JOYSTICK  [2] MOUSE  [3] NEITHER  ",
+            .input_unset = false,
+            .other_title = NULL,
+            .other_prompt = NULL,
+            .other_floppy = NULL,
+            .other_drive = NULL,
+            .calibration =
+                {"Push JOYSTICK #1 to the extreme upper left position and press BUTTON #1.",
+                 "Push JOYSTICK #1 to the extreme lower right position and press BUTTON #1."},
+            .calibration_failed = "Couldn't read the joystick.  Aborting calibration.",
+            .numlock = "TANDY 1000 USERS - Make sure NUMLOCK is on.",
         },
     .saves =
         {

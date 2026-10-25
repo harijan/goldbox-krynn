@@ -290,6 +290,10 @@ static bool edit_indexed(cok_adventure *game, cok_character *character)
         "Next Prev Keep Exit",
     };
     cok_keyboard keys = cok_adventure_keyboard(game);
+    /* The colour byte's part ([bp-0xf], -1 while never set): 49cb:3cac
+     * sets it only at 3ece-3f0e, so a No to "is this icon ok? " keeps it
+     * for the next pass. */
+    int part = -1;
     for (;;) {
         if (!build(game, character)) return false;
         int level = 1;
@@ -313,9 +317,9 @@ static bool edit_indexed(cok_adventure *game, cok_character *character)
         text(game, "new", 8, 12);
         text(game, "ready   action", 3, 16);
         /* The level the last item was taken at ([bp-0x13]: 1, 2 or 3), the
-         * part edited (Head 0, Weapon 1: [bp-0x14]), the colour byte's part
-         * ([bp-0xf], -1 while never set) and which nibble ([bp-0x10]). */
-        int from = 0, edited = 0, part = -1;
+         * part edited (Head 0, Weapon 1: [bp-0x14]) and which nibble
+         * ([bp-0x10]). */
+        int from = 0, edited = 0;
         bool done = false;
         while (!done) {
             pair(game, 1, 4);
@@ -393,7 +397,7 @@ static bool edit_indexed(cok_adventure *game, cok_character *character)
                  * as it was: never set at first. */
                 if (part < 0 && (key == 0 || key == 1))
                     return fail(game, "a colour's part is a local the icon editor never set "
-                                      "(dkk 49cb:3cac's [bp-0xf])");
+                                      "(dkk 49cb:3cac's [bp-0xf], read at 410a)");
                 if (part < 0) part = 1;
                 uint8_t *byte = c + cok_field_offset_at(L, COK_FIELD_ICON_COLOURS, part);
                 uint8_t low = *byte & 15, high = *byte >> 4;

@@ -787,9 +787,9 @@ static void memorize(cok_adventure *game)
                 class_ = cok_spell_class(cok_game_rules(game), (uint8_t)spell);
         /* For a power granted to one without a cleric level, 4888:0700
          * starts from an uninitialized local, which holds the low byte of
-         * the return offset of the 34ec call before it (1098:116c), 0x71;
-         * the game's (levels.granted_stale), 0 where the port does not know
-         * it. */
+         * the return offset of the 34ec call before it (1098:116c), 0x71
+         * (dkk 4381:0664's, that of 4381:1029's call, 0x2e); the game's
+         * (levels.granted_stale), 0 where the port does not know it. */
         uint8_t left;
         int stale = rules->levels.granted_stale != 0 ? rules->levels.granted_stale : -1;
         if (!cok_magic_slots(c, rules, level, class_, stale, &left, NULL)) {

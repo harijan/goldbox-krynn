@@ -121,7 +121,7 @@ static void test_cases(void)
                          cok_setup_ask(&r.crt, &keys, &hooks, &cok_rules_champions, r.c->game_dir,
                                        file, &size);
             if (asked)
-                cok_setup_numlock(&r.crt, &hooks);
+                cok_setup_numlock(&r.crt, &hooks, &cok_rules_champions);
             else
                 end = 1;
         }
@@ -593,9 +593,99 @@ static void test_startup(void)
     rmdir(dir);
 }
 
+#define STARTS(bytes, literal) (memcmp(bytes, literal, sizeof literal - 1) == 0)
+
+/* Keys typed with the screen's first rows kept at each read. */
+typedef struct {
+    cok_crt *crt;
+    const char *keys;
+    unsigned reads;
+    char rows[24][3][81];
+} screens;
+
+static int screens_read(void *context)
+{
+    screens *k = context;
+    if (k->reads < 24)
+        for (int row = 0; row < 3; ++row) {
+            char *to = k->rows[k->reads][row];
+            memcpy(to, k->crt->chars[row], 80);
+            size_t n = 80;
+            while (n > 0 && to[n - 1] == ' ') --n;
+            to[n] = '\0';
+        }
+    ++k->reads;
+    return *k->keys == '\0' ? -1 : (unsigned char)*k->keys++;
+}
+
+/* Death Knights' setup (dkk 1187:011b): its words (DS:2744-2931), a Tandy's
+ * mouse written N (DS:8b8f), the sound's 6 that writes no line, and the
+ * second path (1187:0626-07fb) with its default. */
+static void test_death_knights_screens(void)
+{
+    static cok_crt crt;
+    cok_crt_init(&crt);
+    static screens k;
+    k = (screens){&crt, "342q\r\r", 0, {{{0}}}};
+    cok_keyboard keys = {screens_read, &k, NULL, NULL};
+    uint8_t file[COK_SETUP_FILE_MAX];
+    size_t size;
+    const cok_rules *R = &cok_rules_death_knights;
+    CHECK(cok_setup_ask(&crt, &keys, NULL, R, R->files.install_dir, file, &size));
+    CHECK(k.reads == 6);
+    CHECK(strcmp(k.rows[0][0], "GRAPHICS ADAPTER TYPE: [1] CGA  [2] EGA  [3] Tandy") == 0);
+    CHECK(strcmp(k.rows[1][0], "SOUND TYPE:  [1] C/MS") == 0 &&
+          strcmp(k.rows[1][1], "             [2] AdLib") == 0 &&
+          strcmp(k.rows[1][2], "             [3] Tandy 1000") == 0);
+    CHECK(strcmp(k.rows[2][0], "ALTERNATE INPUT TYPE: [1] Joystick  [2] Mouse  [3] Neither") == 0);
+    CHECK(strcmp(k.rows[3][0], "PATH TO SAVE DATA (DEFAULT - C:\\DKK\\SAVE):") == 0);
+    CHECK(strcmp(k.rows[5][0], "PATH TO SAVE DATA FOR CHAMPIONS OF KRYNN") == 0 &&
+          strcmp(k.rows[5][1], "(DEFAULT - C:\\KRYNN\\SAVE):") == 0);
+    /* A path refused (too short: "Q"; empty) takes the default with the
+     * words for 2 seconds. */
+    static const char want[] = "T\r\nP\r\nN\r\nC:\\DKK\\SAVE\\\r\nC:\\KRYNN\\SAVE\\\r\nF\r\n0\r\n";
+    CHECK(size == sizeof want - 1 - 3 + 14 * 3 && memcmp(file, want, sizeof want - 1) == 0);
+    CHECK(memcmp(crt.chars[2], "USING DEFAULT PATH: C:\\KRYNN\\SAVE ", 34) == 0);
+    /* The second default's drive is the default's base (DS:8bd5,
+     * 1187:0630-0682), not the path typed: installed on C, a first path on
+     * D still offers C:\KRYNN\SAVE; on a floppy, a path on C still offers
+     * the other drive's B:\SAVE. */
+    cok_crt_init(&crt);
+    k = (screens){&crt, "222d:\\x\r\r", 0, {{{0}}}};
+    CHECK(cok_setup_ask(&crt, &keys, NULL, R, R->files.install_dir, file, &size));
+    CHECK(strcmp(k.rows[k.reads - 1][1], "(DEFAULT - C:\\KRYNN\\SAVE):") == 0);
+    CHECK(STARTS(file, "E\r\nA\r\nM\r\nD:\\X\\\r\nC:\\KRYNN\\SAVE\\\r\nF\r\n"));
+    cok_crt_init(&crt);
+    k = (screens){&crt, "222c:\\x\r\r", 0, {{{0}}}};
+    CHECK(cok_setup_ask(&crt, &keys, NULL, R, "A:\\", file, &size));
+    CHECK(strcmp(k.rows[k.reads - 1][1], "(DEFAULT - B:\\SAVE):") == 0);
+    CHECK(STARTS(file, "E\r\nA\r\nM\r\nC:\\X\\\r\nB:\\SAVE\\\r\nF\r\n"));
+    /* The sound's five lines; EGA's mouse is M; 6 writes no line; a floppy's
+     * second default (DS:28c0 under the other drive's root). */
+    cok_crt_init(&crt);
+    k = (screens){&crt, "262c:\\a\rd:\\b\r", 0, {{{0}}}};
+    CHECK(cok_setup_ask(&crt, &keys, NULL, R, R->files.install_dir, file, &size));
+    CHECK(STARTS(file, "E\r\nM\r\nC:\\A\\\r\nD:\\B\\\r\nF\r\n"));
+    cok_crt_init(&crt);
+    k = (screens){&crt, "151\r\r", 0, {{{0}}}};
+    CHECK(cok_setup_ask(&crt, &keys, NULL, R, "A:\\", file, &size));
+    CHECK(strcmp(k.rows[4][0], "PATH TO SAVE DATA FOR CHAMPIONS OF KRYNN") == 0 &&
+          strcmp(k.rows[4][1], "(DEFAULT - B:\\SAVE):") == 0);
+    CHECK(STARTS(file, "C\r\nS\r\nJ\r\nB:\\SAVE\\\r\nB:\\SAVE\\\r\nF\r\n"));
+    /* Champions' screens are its own: two spaces after the colon, Roland,
+     * the mouse kept with a Tandy, one path. */
+    cok_crt_init(&crt);
+    k = (screens){&crt, "322q\r", 0, {{{0}}}};
+    CHECK(cok_setup_ask(&crt, &keys, NULL, &cok_rules_champions,
+                        cok_rules_champions.files.install_dir, file, &size));
+    CHECK(k.reads == 5 && strcmp(k.rows[1][1], "             [2] Roland LAPC") == 0);
+    CHECK(STARTS(file, "T\r\nR\r\nM\r\nC:\\COK\\SAVE\\\r\nF\r\n"));
+}
+
 /* Death Knights' DKK.CFG written by the setup: its layout (the rules'
- * files.config_paths, the second path's line left empty), read back by the
- * game's own parse the same, and as the next start reads the file. */
+ * files.config_paths), read back by the game's own parse the same, and as
+ * the next start reads the file; its sound letters (no Roland); and the
+ * stop where the third line leaves the mouse's flag never set. */
 static void test_death_knights_file(void)
 {
     char dir[512];
@@ -607,23 +697,55 @@ static void test_death_knights_file(void)
     cok_keyboard keys = {type, NULL, NULL, NULL};
     cok_config config = {0}, again = {0};
     char error[300];
-    typed = "232d:\\x\r";
+    typed = "222d:\\x\re:\\y\r";
     CHECK(cok_setup_startup(&crt, &keys, NULL, &cok_rules_death_knights, path, false, &config,
                             error, sizeof error) == COK_SETUP_OK);
     CHECK(config.display == COK_DISPLAY_EGA && config.sound == COK_SOUND_ADLIB && config.mouse);
-    CHECK(strcmp(config.save_path, "D:\\X\\") == 0 && config.other_path[0] == '\0' &&
+    CHECK(strcmp(config.save_path, "D:\\X\\") == 0 && strcmp(config.other_path, "E:\\Y\\") == 0 &&
           config.f_line);
+    CHECK(memcmp(crt.chars[0], "Tandy 1000 users make sure num lock is on. ", 43) == 0);
     FILE *f = fopen(path, "rb");
     CHECK(f != NULL);
     char bytes[100] = {0};
     size_t n = fread(bytes, 1, sizeof bytes - 1, f);
     fclose(f);
-    CHECK(n == 9 + 7 + 2 + 3 + 14 * 3 &&
-          memcmp(bytes, "E\r\nA\r\nM\r\nD:\\X\\\r\n\r\nF\r\n0\r\n", 24) == 0);
+    CHECK(n == 9 + 7 + 7 + 3 + 14 * 3 &&
+          memcmp(bytes, "E\r\nA\r\nM\r\nD:\\X\\\r\nE:\\Y\\\r\nF\r\n0\r\n", 29) == 0);
     CHECK(cok_setup_startup(&crt, &keys, NULL, &cok_rules_death_knights, path, true, &again,
                             error, sizeof error) == COK_SETUP_OK);
     CHECK(again.mouse && again.f_line && strcmp(again.save_path, config.save_path) == 0 &&
-          again.other_path[0] == '\0');
+          strcmp(again.other_path, config.other_path) == 0);
+    /* dkk 1187:0a2c reads no R; Champions' 11c7:0a5a does. */
+    static const uint8_t roland[] = "E\r\nR\r\nM\r\n";
+    CHECK(cok_config_parse_game(&cok_rules_death_knights, roland, sizeof roland - 1, false).sound ==
+          COK_SOUND_NONE);
+    CHECK(cok_config_parse_game(&cok_rules_champions, roland, sizeof roland - 1, false).sound ==
+          COK_SOUND_ROLAND);
+    remove(path);
+    /* The sound's 6 writes no line, so the input's letter is read as the
+     * sound and the path's drive as the input: M (a drive M:) is the
+     * mouse; C leaves the mouse's DS:dbaa never set, and the run stops
+     * after the note, citing the read. */
+    typed = "362m:\\x\rd:\\y\r";
+    config = (cok_config){0};
+    CHECK(cok_setup_startup(&crt, &keys, NULL, &cok_rules_death_knights, path, false, &config,
+                            error, sizeof error) == COK_SETUP_OK);
+    CHECK(config.display == COK_DISPLAY_TANDY && config.sound == COK_SOUND_NONE && config.mouse &&
+          strcmp(config.save_path, "D:\\Y\\") == 0 && strcmp(config.other_path, "F") == 0 &&
+          !config.f_line);
+    remove(path);
+    typed = "162c:\\x\r\r";
+    CHECK(cok_setup_startup(&crt, &keys, NULL, &cok_rules_death_knights, path, false, &config,
+                            error, sizeof error) == COK_SETUP_UNSET);
+    CHECK(strstr(error, "dkk 4f9a:0123") != NULL && strstr(error, "DS:dbaa") != NULL);
+    CHECK(memcmp(crt.chars[0], "Tandy 1000 users", 16) == 0 &&
+          memcmp(crt.chars[2], "The port stops here: DKK.CFG's third line", 41) == 0);
+    /* The same file found stops the same; Champions' leaves both off. */
+    CHECK(cok_setup_startup(&crt, &keys, NULL, &cok_rules_death_knights, path, true, &again,
+                            error, sizeof error) == COK_SETUP_UNSET);
+    CHECK(cok_setup_startup(&crt, &keys, NULL, &cok_rules_champions, path, true, &again, error,
+                            sizeof error) == COK_SETUP_OK &&
+          !again.mouse && !again.joystick);
     remove(path);
     rmdir(dir);
 }
@@ -638,6 +760,7 @@ int main(void)
     test_lines();
     test_timeouts_and_limits();
     test_startup();
+    test_death_knights_screens();
     test_death_knights_file();
     puts("setup: ok");
     return 0;

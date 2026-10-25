@@ -957,7 +957,7 @@ bool cok_ai_step(cok_adventure *game, cok_character *c)
         step = (uint8_t)((dir + turn) % 8);
     } else if (try_ < 6) {
         return undefined(game, "way of moving %u leaves the step a byte of the stack "
-                               "(dkk 3f63:0ad7)", cr->pattern);
+                               "(dkk 3f63:08c6's [bp-2], read at 0b2c)", cr->pattern);
     }
     bool stop = false;
     /* No way, or the way back: stuck. */

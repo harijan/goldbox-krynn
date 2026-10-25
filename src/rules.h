@@ -131,6 +131,57 @@ typedef struct {
     const char *install_dir, *save_dir;
 } cok_rules_files;
 
+/* The setup that writes the devices' file when there is none (11c7:031a;
+ * dkk 1187:011b), on the text screen before the graphics mode: its words,
+ * its answers and the letters it writes, and what startup then reads of
+ * the file (setup.c, config.c). */
+typedef struct {
+    /* The first screen, Write without a line end, a digit 1-3 for C, E or
+     * T (11c7:0114; dkk DS:2744). */
+    const char *display;
+    /* Whether the display's [3] Tandy makes the input's [2] mouse write N
+     * (dkk DS:8b8f, set at 1187:02e2, read at 0449); false in Champions. */
+    bool tandy_no_mouse;
+    /* The sound screen's lines, each WriteLn, NULL-ended (11c7:014a-01c4;
+     * dkk DS:2795-2811, five), the highest digit it takes (6 in both),
+     * and the letter each answer from 1 writes as the second line: an
+     * answer past the letters writes none (dkk's 6, which none of its
+     * lines offers: 1187:03db's cases end at 5). */
+    const char *const *sound;
+    uint8_t sound_answers;
+    const char *sound_letters;
+    /* The letters the file's second line reads as the devices 0-4 (CMS,
+     * Roland, AdLib, Tandy, the speaker), 0 where no letter does; any
+     * other is no sound (11c7:0a5a's CRATP; dkk 1187:0a2c's C, A, T, P:
+     * no Roland). */
+    char sound_devices[5];
+    /* The input screen, Write without a line end, a digit 1-3 for J, M or
+     * N (11c7:01dc; dkk DS:2830). */
+    const char *input;
+    /* Whether the input's flags (dkk DS:dbf2, the joystick, and dbaa, the
+     * mouse) lie past the image and are never set when the file's third
+     * line is none of J, M and N, which the game's start then reads (dkk
+     * 4f9a:0123): the run stops there. False in Champions, whose flags
+     * (DS:89ce, 8986) startup leaves off. */
+    bool input_unset;
+    /* The paths after the first (files.config_paths), each asked as dkk
+     * 1187:0687 asks Champions' saved games' path (DS:99a4): a line
+     * (WriteLn; DS:28e0), then the prompt's start (1187:00fa) before its
+     * default and "):  "; the default is the save path's drive letter
+     * (11c7:0388's base) and, below C, floppy (DS:28c0), else drive
+     * (DS:28cb). NULL in Champions, which has none. */
+    const char *other_title, *other_prompt, *other_floppy, *other_drive;
+    /* The joystick's calibration on the text screen (177c:029d; dkk
+     * 18bc:01e1), each after ClrScr and WriteLn: the upper left and lower
+     * right corners (77c:01d7, 0253; dkk DS:1b2e, 18bc:01df's ' ' and
+     * DS:1b57, and DS:1b9f, 1bc8), then for every failure its line and
+     * Delay(2000) (77c:0220; dkk DS:1b80). */
+    const char *calibration[2], *calibration_failed;
+    /* The note shown at every start, after the setup or the file, and
+     * Delay(2000) (11c7:0299; dkk DS:2931). */
+    const char *numlock;
+} cok_rules_setup;
+
 /* The names of what the game writes in the save path. */
 typedef struct {
     /* The saved games, <game><letter>.<game_extension> (4b6d:1b34 reads,
@@ -1733,6 +1784,7 @@ typedef struct cok_rules {
     cok_rules_text text;
     cok_rules_archives archives;
     cok_rules_files files;
+    cok_rules_setup setup;
     cok_rules_saves saves;
     cok_rules_images images;
     /* Where each field of a character lies in its record (field.h). */

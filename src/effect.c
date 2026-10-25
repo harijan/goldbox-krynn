@@ -182,7 +182,8 @@ static bool caster_level(cok_effects *fx, uint8_t spell, uint8_t *level)
         *level = 12;
     } else {
         return fail(fx, "spell %u is of class %u; its caster level (6346:29fe) is an "
-                        "uninitialized byte", spell, class_);
+                        "uninitialized byte (dkk 65cd:2c33's [bp-1], read at 2da3)", spell,
+                    class_);
     }
 #undef LEVEL
 #undef FORMER
@@ -1035,7 +1036,7 @@ static bool h_constitution_save(cok_effects *fx, bool removing, cok_effect *effe
         bonus = 5;
     else
         return fail(fx, "effect 0x5e (3f44:32a8) adds an uninitialized local for constitution "
-                        "%u", con);
+                        "%u (dkk 504d:21bd's [bp-1], read at 2226)", con);
     fx->rolls.save_roll = (uint8_t)(fx->rolls.save_roll + bonus);
     return true;
 }
@@ -1135,7 +1136,7 @@ static bool h_snakes(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
          * has no stack check, and at about 84 bytes a level its 16K stack
          * wraps to SS:FFFE after some 150-190 and writes over memory. */
         return fail(fx, "effect 0x03 (3f44:016a) removes itself on its removal without end; "
-                        "the original recurses until its stack wraps");
+                        "the original recurses until its stack wraps (dkk 504d:018e)");
     else if (!remove_effect(fx, c, NULL, EFFECT(SNAKES)))
         return false;
     if (!flash(fx, c, 0x03, 0x016a, "is fighting with snakes", true)) return false;
@@ -1540,7 +1541,7 @@ static bool kender(cok_effects *fx, cok_character *c)
     size_t weapon = c->slots[0];
     if (weapon == 0 || weapon > c->item_count)
         return fail(fx, "effect 0x07 (3f44:0208) adds a local never set for a holder with no "
-                        "weapon (3f44:02c0)");
+                        "weapon (3f44:02c0; dkk 504d:0239's [bp-6], read at 02de and 0326)");
     uint8_t bonus = c->items[weapon - 1][0x32];
     cok_combat_record *cr = combat_of(fx, c, 0x07, 0x0208);
     if (cr == NULL) return false;
@@ -2565,7 +2566,7 @@ static bool h_item(cok_effects *fx, bool removing, cok_effect *effect, cok_chara
 {
     (void)removing, (void)effect, (void)c;
     return fail(fx, "effect 0x78 (3f44:3888) run for its own effect reads an id at +0x3d, past "
-                    "the 9-byte record, from whatever the heap holds there");
+                    "the 9-byte record, from whatever the heap holds there (dkk 0x79, 504d:28e6)");
 }
 
 /* The handler table the original fills at DS:6b94 (3f44:38ea), by effect

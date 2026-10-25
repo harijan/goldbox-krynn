@@ -507,6 +507,85 @@ static void test_fire_shield(void)
     game.vm.mode = 5;
 }
 
+/* Strength (5dc5:2bc9) on one of none of the classes it rolls for: from
+ * an item (DS:c447) the handler's [bp-6] is the NULL segment 638c:13d4
+ * left there (called at 5dc5:1557, at the handler's depth), so 0: Strength's
+ * effect with a bonus of 0; without an item it is 1298's saved BP, and the run
+ * stops. */
+static void test_strength_unset(void)
+{
+    const cok_character_layout *L = R->character;
+    for (int item = 0; item < 2; ++item) {
+        reset();
+        cok_character *w = record('W', 0, 5, 5);
+        cok_field_set8(L, w->record, COK_FIELD_COMPUTER, 1);
+        cok_field_set8_at(L, w->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH, 12);
+        game.effects.rolls.item = (uint8_t)item;
+        computer_casts(w, 0x23);
+        if (item == 0) {
+            CHECK(game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "5dc5:2bc9") != NULL);
+        } else {
+            CHECK(game.vm.status == COK_ECL_OK);
+            /* Better than the base (0): Strength's effect, its bonus 0. */
+            const cok_effect *e =
+                cok_character_find_effect(w, cok_game_effect(&game, COK_EFFECT_STRENGTH));
+            CHECK(e != NULL && e->value == 100);
+        }
+    }
+    game.effects.rolls.item = 0;
+    game.vm.status = COK_ECL_OK;
+}
+
+/* Leadership (5340:4acf): a knight of no order rolls against the chance
+ * the previous call left in 4a25's [bp-3] (nothing else is called between
+ * two), here an order-2 knight's 40 that did not lead; as the first
+ * caller, it stops. */
+static void test_leadership_unset(void)
+{
+    const cok_character_layout *L = R->character;
+    for (int first = 0; first < 2; ++first) {
+        reset();
+        cok_character *a = record('A', 0, 1, 1), *b = record('B', 0, 2, 1);
+        cok_character *n = record('N', 0, 3, 1);
+        cok_field_set8_at(L, a->record, COK_FIELD_CLASS_LEVEL, 7, 5);
+        cok_field_set8(L, a->record, COK_FIELD_KNIGHT_ORDER, first ? 0 : 2);
+        cok_field_set8_at(L, b->record, COK_FIELD_CLASS_LEVEL, 7, 5);
+        cok_field_set8(L, b->record, COK_FIELD_KNIGHT_ORDER, 0);
+        cok_field_set8(L, n->record, COK_FIELD_NPC, 0x80);
+        cok_field_set8_at(L, n->record, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE, 10);
+        const unsigned dice[] = {100, 40, 100, 100, 1, 39};
+        game.vm.seed = seed_from(1, 2, dice);
+        bool ok = cok_combat_leadership(&game);
+        if (first) {
+            CHECK(!ok && game.vm.status == COK_ECL_UNDEFINED &&
+                  strstr(game.error, "5340:4a25") != NULL);
+        } else {
+            CHECK(ok && strstr(log_text, "B leads") != NULL &&
+                  cok_field_u8(L, n->record, COK_FIELD_COMPUTER) == 0);
+        }
+    }
+    /* After a lead is shown, 4a25's [bp-3] holds SS's high byte (push ss
+     * at 4c42): the order-2 knight A fails for M, then leads N (shown);
+     * the next call, the knight of no order B's for M, stops. */
+    reset();
+    cok_character *a = record('A', 0, 1, 1), *b = record('B', 0, 2, 1);
+    cok_character *m = record('M', 0, 3, 1), *n = record('N', 0, 4, 1);
+    cok_field_set8_at(L, a->record, COK_FIELD_CLASS_LEVEL, 7, 5);
+    cok_field_set8(L, a->record, COK_FIELD_KNIGHT_ORDER, 2);
+    cok_field_set8_at(L, b->record, COK_FIELD_CLASS_LEVEL, 7, 5);
+    cok_field_set8(L, b->record, COK_FIELD_KNIGHT_ORDER, 0);
+    cok_character *allies[2] = {m, n};
+    for (int i = 0; i < 2; ++i) {
+        cok_field_set8(L, allies[i]->record, COK_FIELD_NPC, 0x80);
+        cok_field_set8_at(L, allies[i]->record, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE, 10);
+    }
+    const unsigned dice[] = {100, 40, 100, 100, 1, 39, 100, 1, 100};
+    game.vm.seed = seed_from(1, 3, dice);
+    CHECK(!cok_combat_leadership(&game) && game.vm.status == COK_ECL_UNDEFINED &&
+          strstr(game.error, "5340:4a25") != NULL && strstr(log_text, "A leads") != NULL);
+    game.vm.status = COK_ECL_OK;
+}
+
 /* Remove Curse outside a cast (cok_cast_remove_curse: the temple's, camp's
  * Fix): Death Knights' cures 0x2b ("is uncursed"), not Bestow Curse's
  * 0x24 (5dc5:311b). */
@@ -931,6 +1010,8 @@ int main(void)
     test_cloud_dispel();
     test_cloud_body();
     test_cloud_handlers();
+    test_strength_unset();
+    test_leadership_unset();
     cok_adventure_close(&game);
     puts("fight tests passed");
     return 0;

@@ -893,7 +893,7 @@ static int run(int argc, char **argv)
             crt.context = &p;
             cok_crt_init(&crt);
             cok_setup_hooks crt_hooks = {crt_delay, &p, &p.port, &p.ended, true};
-            if (!cok_setup_calibrate(&crt, &crt_hooks, &config)) {
+            if (!cok_setup_calibrate(&crt, &crt_hooks, rules, &config)) {
                 printf("(out of keys in the calibration)\n");
                 return 0;
             }

@@ -275,8 +275,8 @@ static bool train(cok_adventure *game, cok_character *character, bool creating, 
             if (creating || V->stale_row == 0)
                 return undefined(game, "the experience table of a druid, a paladin or a knight "
                                        "of no order is 6346:371e's uninitialized local (dkk "
-                                       "65cd:382c's), which creation leaves or the port does "
-                                       "not know");
+                                       "65cd:382c's, read at 38b8, called at 49cb:449f), which "
+                                       "creation leaves or the port does not know");
             row = V->stale_row;
             stale = true;
         }
@@ -514,7 +514,7 @@ void cok_train_knight(cok_adventure *game)
      * start menu's freeing of its rows (4def:0381) leaves empty. */
     if (order != 1 && order != 2 && V->no_order == NULL) {
         undefined(game, "a knight of no order petitions for an uninitialized local's order "
-                        "(dkk 49cb:4ea4)");
+                        "(dkk 49cb:4ea4's [bp-6], read at 4f93)");
         return;
     }
     snprintf(text, sizeof text, "%s%s", V->knight_of,
@@ -625,7 +625,7 @@ bool cok_train_aging(cok_adventure *game)
         panel_text(game, text);
         if (!cok_combat_kill(game, character, 8, V->died)) return false;
         return undefined(game, "the aging's count of those who witness a death starts from an "
-                               "uninitialized local, [bp-0x10] (dkk 3e05:0264)");
+                               "uninitialized local, [bp-0x10] (dkk 3e05:0264, read at 04fb)");
     }
     return game->vm.status == COK_ECL_OK;
 }
@@ -650,7 +650,7 @@ bool cok_train_most_hit_points(cok_adventure *game, const uint8_t *c, uint8_t *m
         int8_t bonus;
         if (!cok_train_hit_die(c, rules, k, &bonus))
             return undefined(game, "a constitution past 65cd:3c02's cases gives an uninitialized "
-                                   "bonus (dkk 580d:3454)");
+                                   "bonus (dkk 580d:3454, at 3492; 65cd:3c02 reads it at 3c7e)");
         int b = bonus;
         ++count;
         if ((uint8_t)level < top_level(game, k)) {
@@ -765,7 +765,7 @@ static bool forget_over(cok_adventure *game, uint8_t *c)
                 c[at + i] = 0;
             } else if (extra < 0 && list == 3) {
                 return undefined(game, "a mage spell over the count without a mage level reads "
-                                       "an uninitialized local (dkk 504d:1288)");
+                                       "an uninitialized local (dkk 504d:1288, read at 13bd)");
             } else if (extra == 0 || list != 3) {
                 c[at + i] = 0;
             } else {
@@ -796,10 +796,13 @@ bool cok_train_drain(cok_adventure *game, cok_character *character, uint8_t drai
                 /* The class whose level asks the more experience. */
                 uint8_t row_k, row_i;
                 int32_t xp_k, xp_i;
-                if (!cok_train_row(c, rules, (unsigned)k, &row_k) ||
-                    !cok_train_row(c, rules, i, &row_i))
+                if (!cok_train_row(c, rules, (unsigned)k, &row_k))
                     return undefined(game, "a class with no experience row reads 65cd:382c's "
-                                           "uninitialized local (dkk 504d:156d)");
+                                           "uninitialized local (dkk 504d:1577, read at "
+                                           "65cd:38b8)");
+                /* Without one, 382c's [bp-2] is what its call for k just
+                 * left (504d:1577, then 1589): row_k, so k stays. */
+                if (!cok_train_row(c, rules, i, &row_i)) row_i = row_k;
                 if (!need_for(game, row_k, best, &xp_k) || !need_for(game, row_i, level, &xp_i))
                     return false;
                 if (xp_i > xp_k) k = (int)i;
@@ -856,6 +859,10 @@ bool cok_train_restore(cok_adventure *game, cok_character *character)
     int32_t least = 3500000; /* DS:7a6c */
     for (unsigned k = 0; k < 8; ++k)
         if (cok_field_s8_at(L, c, COK_FIELD_UNDRAINED_LEVEL, k) > 0) ++drained;
+    /* 65cd:382c's row ([bp-2], read at 38b8), which a class without one
+     * leaves as it was: 5dc5:2326's loop calls nothing else, so the
+     * previous drained class's; before any, the stack: a stop. */
+    int last = -1;
     for (unsigned k = 0; k < 8; ++k) {
         int8_t level = cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, k);
         int8_t was = cok_field_s8_at(L, c, COK_FIELD_UNDRAINED_LEVEL, k);
@@ -863,9 +870,13 @@ bool cok_train_restore(cok_adventure *game, cok_character *character)
         lost = (uint8_t)(lost + (uint8_t)(was - level));
         uint8_t row;
         int32_t need;
-        if (!cok_train_row(c, rules, k, &row))
+        if (cok_train_row(c, rules, k, &row))
+            last = row;
+        else if (last >= 0)
+            row = (uint8_t)last;
+        else
             return undefined(game, "a class with no experience row reads 65cd:382c's "
-                                   "uninitialized local (dkk 5dc5:23d3)");
+                                   "uninitialized local (dkk 5dc5:23d3, read at 65cd:38b8)");
         if (!need_for(game, row, level + 1, &need)) return false;
         if (need <= least) {
             least = need;

@@ -1263,6 +1263,24 @@ static void test_may_train(void)
     cok_field_set8(L, c, COK_FIELD_KNIGHT_ORDER, 2);
     cok_field_set8(L, c, COK_FIELD_RACE, 7);
     CHECK(!cok_treasure_may_train(R, c, &may));
+    /* A knight of no order after a class with a row: 382c's [bp-2] keeps
+     * the cleric's row (0, deity 0), as nothing else is called in 38c7's
+     * loop; a druid alone (class 1) has none before it: not held. */
+    memset(c, 0, sizeof c);
+    cok_field_set8(L, c, COK_FIELD_RACE, 6);
+    uint8_t top = cok_data_u8_at2(R->data, COK_DATA_LEVEL_LIMITS, 6, 0);
+    CHECK(top > 0 && top < 0x12);
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 0, top); /* at its limit: may not */
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 7, 5);
+    CHECK(cok_train_experience(R, 0, 6, &need) && need > 0);
+    cok_field_set32(L, c, COK_FIELD_EXPERIENCE, (uint32_t)need);
+    CHECK(cok_treasure_may_train(R, c, &may) && may);
+    cok_field_set32(L, c, COK_FIELD_EXPERIENCE, (uint32_t)need - 1);
+    CHECK(cok_treasure_may_train(R, c, &may) && !may);
+    memset(c, 0, sizeof c);
+    cok_field_set8(L, c, COK_FIELD_RACE, 6);
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 1, 5);
+    CHECK(!cok_treasure_may_train(R, c, &may));
 }
 
 /* Death Knights' treasure (the treasure section; dkk 3632:1933, 28d2,
