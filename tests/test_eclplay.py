@@ -2074,9 +2074,19 @@ class SoundTests(unittest.TestCase):
         self.assertEqual(data, tandy)
         self.assertIn("crt:              [4] Tandy 1000", result.stdout.splitlines())
         (self.folder / "KRYNN.CFG").unlink()  # the setup's, in --saves
-        # CMS, the MT-32, AdLib: the title silent, its music logged as not
-        # ported, the effects on the speaker.
-        for letter, name, record in ((b"C", "C/MS", 1), (b"R", "Roland LAPC", 2), (b"A", "AdLib", 3)):
+        # The AdLib: the title's music (MIDI.DAX record 3), the effects on
+        # the speaker, as --sound adlib renders them.
+        result, data = render(self.assets_with(b"E\r\nA\r\nM\r\n"))
+        self.assertNotIn("unported", result.stdout)
+        self.assertNotIn("not ported", result.stderr)
+        self.assertEqual(render(ASSETS, "--sound", "adlib")[1], data)
+        samples = struct.unpack("<%dh" % (len(data) // 2), data)
+        self.assertTrue(any(samples[:35 * 44100]))
+        self.assertNotEqual(data, tandy)
+        self.assertNotEqual(data, speaker)
+        # CMS, the MT-32: the title silent, its music logged as not ported,
+        # the effects on the speaker.
+        for letter, name, record in ((b"C", "C/MS", 1), (b"R", "Roland LAPC", 2)):
             result, data = render(self.assets_with(b"E\r\n" + letter + b"\r\nM\r\n"))
             line = "unported: the title's music on %s (MIDI.DAX record %d)" % (name, record)
             self.assertIn(line, result.stdout.splitlines())

@@ -92,7 +92,7 @@ bool cok_config_find_named(const char *name, const char *dir, char *path, size_t
  * CR LF after each, into to. Returns false if it cannot be written. */
 bool cok_config_rewrite(const char *from, const char *to, char input, const uint16_t x[7],
                         const uint16_t y[7]);
-/* The front ends' --display ega|tandy|cga and --sound tandy|speaker|off:
+/* The front ends' --display ega|tandy|cga and --sound tandy|adlib|speaker|off:
  * false, *out unchanged, for another name. */
 bool cok_config_display_option(const char *name, cok_display *out);
 bool cok_config_sound_option(const char *name, cok_sound_device *out);

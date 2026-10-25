@@ -65,7 +65,7 @@ dqk-merged: build/DQK_FULL.EXE
 build/DQK_FULL.EXE: tools/dqkmerge.py tools/ovrmerge.py $(DQK)/DQK.EXE | build
 	$(PYTHON) tools/dqkmerge.py $(DQK)/DQK.EXE $@ --map build/DQK_FULL.map
 
-ADVENTURE_SRC = src/adventure.c src/debug.c src/devices.c src/input.c src/ai.c src/cloud.c src/command.c src/start.c src/roster.c src/create.c src/train.c src/modify.c src/icon.c src/arena.c src/attack.c src/combat.c src/round.c src/monster.c src/treasure.c src/shop.c src/camp.c src/magic.c src/cast.c src/items.c src/sheet.c src/effect.c src/party.c src/ecl.c src/menu.c src/screen.c src/text.c src/view.c src/picture.c src/image.c src/sound.c src/config.c src/crt.c src/setup.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c src/step.c
+ADVENTURE_SRC = src/adventure.c src/debug.c src/devices.c src/input.c src/ai.c src/cloud.c src/command.c src/start.c src/roster.c src/create.c src/train.c src/modify.c src/icon.c src/arena.c src/attack.c src/combat.c src/round.c src/monster.c src/treasure.c src/shop.c src/camp.c src/magic.c src/cast.c src/items.c src/sheet.c src/effect.c src/party.c src/ecl.c src/menu.c src/screen.c src/text.c src/view.c src/picture.c src/image.c src/sound.c src/opl2.c src/config.c src/crt.c src/setup.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c src/step.c
 
 # The original in DOSBox-X (tools/dosbox, see DEVELOPERS.md's "DOSBox-X
 # harness"): boot it to the title's menu and compare its screens with
@@ -151,7 +151,7 @@ $(ADVENTURE_TESTS:%=build/%_sanitize): build/%_sanitize: build/obj-asan/tests/%.
 
 # The other tests and tools, each with the sources it needs: build/NAME from
 # NAME_SRC, build/NAME_sanitize too for those make sanitize runs.
-test_sound_SRC = tests/test_sound.c src/sound.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
+test_sound_SRC = tests/test_sound.c src/sound.c src/opl2.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
 test_config_SRC = tests/test_config.c src/config.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
 test_setup_SRC = tests/test_setup.c src/setup.c src/input.c src/crt.c src/config.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
 test_ecl_SRC = tests/test_ecl.c src/ecl.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
@@ -176,11 +176,13 @@ test_image_SRC = tests/test_image.c src/image.c src/dax.c
 daxcheck_SRC = src/daxcheck.c src/dax.c
 ecldump_SRC = src/ecldump.c src/ecl.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
 test_sound_LIBS = -lm
+test_opl2_SRC = tests/test_opl2.c src/opl2.c
+test_opl2_LIBS = -lm
 
 # Their rules (.SECONDEXPANSION: each one's NAME_SRC read for its stem), with
 # NAME_LIBS after the libraries.
-SRC_PROGRAMS = daxcheck ecldump test_sound test_config test_setup test_ecl test_menu test_view test_party test_effect test_dax test_rules test_death_knights test_layout test_data test_magic_rules daximages daxcompose test_picture test_text test_display test_image
-SRC_SANITIZE = test_sound test_config test_setup test_ecl test_menu test_view test_party test_effect test_dax test_rules test_death_knights test_layout test_data test_magic_rules test_picture test_text test_display test_image daxcheck
+SRC_PROGRAMS = daxcheck ecldump test_sound test_opl2 test_config test_setup test_ecl test_menu test_view test_party test_effect test_dax test_rules test_death_knights test_layout test_data test_magic_rules daximages daxcompose test_picture test_text test_display test_image
+SRC_SANITIZE = test_sound test_opl2 test_config test_setup test_ecl test_menu test_view test_party test_effect test_dax test_rules test_death_knights test_layout test_data test_magic_rules test_picture test_text test_display test_image daxcheck
 .SECONDEXPANSION:
 $(SRC_PROGRAMS:%=build/%): build/%: $$(call obj,$$($$*_SRC)) | build
 	$(LINK) $($*_LIBS) -o $@
@@ -199,7 +201,7 @@ $(SRC_SANITIZE:%=build/%_sanitize): build/%_sanitize: $$(call asan,$$($$*_SRC)) 
 # others are done (make -j would otherwise run it beside them, and a loaded
 # machine makes the game late), its own tests side by side, each in a
 # process of its own (COK_TEST_JOBS of them at once, 1 for one at a time).
-TEST_PROGRAMS = test_dax test_rules test_death_knights test_layout test_data test_magic_rules test_image test_picture test_text test_display test_ecl test_menu test_view test_party test_effect test_adventure test_camp test_cast test_items test_monster test_combat test_round test_arena test_attack test_fight test_band test_ai test_command test_spell test_cloud test_treasure test_shop test_start test_hooks test_debug test_sound test_config test_setup test_input
+TEST_PROGRAMS = test_dax test_rules test_death_knights test_layout test_data test_magic_rules test_image test_picture test_text test_display test_ecl test_menu test_view test_party test_effect test_adventure test_camp test_cast test_items test_monster test_combat test_round test_arena test_attack test_fight test_band test_ai test_command test_spell test_cloud test_treasure test_shop test_start test_hooks test_debug test_sound test_opl2 test_config test_setup test_input
 SHARDS = 1 2 3 4
 ECLPLAY_RUNS = $(SHARDS:%=run-test_eclplay-%)
 TEST_RUNS = $(TEST_PROGRAMS:%=run-%) run-ecldump run-test_images_cli run-test_death_knights_py $(ECLPLAY_RUNS) run-test_eclplay $(if $(HAVE_SDL),run-test_keymap) run-test_ovrmerge run-daxcheck
@@ -323,3 +325,4 @@ sanitize: build/START_FULL.EXE $(SANITIZE_RUNS) build/eclplay_sanitize build/dax
 	rm -rf build/sanitize_mouse && mkdir -p build/sanitize_mouse && test "$$(./build/eclplay_sanitize --start-menu --mouse --seed 5 --saves build/sanitize_mouse --shots build/sanitize_mouse --keys '$(COK_CLICKS)' COKAssets | tail -n 1)" = "(out of keys in the start menu)" && test -f build/sanitize_mouse/BOB.WHO
 	$(if $(HAVE_SDL),rm -rf build/sanitize_stick && mkdir -p build/sanitize_stick && printf '$(COK_STICK_CFG)' > build/sanitize_stick/KRYNN.CFG && test "$$(SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy ./build/cok_sanitize --saves build/sanitize_stick --no-delay --keys '$(COK_STICK)')" = "(out of keys in the start menu)" && test "$$(sed -n 3p build/sanitize_stick/KRYNN.CFG)" = "$$(printf 'J\r')")
 	$(if $(HAVE_SDL),rm -rf build/sanitize_cok && test "$$(TSAN_OPTIONS='halt_on_error=1 exitcode=66' SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy ./build/cok_tsan --saves build/sanitize_cok --no-delay --sound-clock real --seed 7 --helm --keys '\p50.$(COK_GAME)')" = "(out of keys in the start menu)")
+	$(if $(HAVE_SDL),rm -rf build/sanitize_adlib && test "$$(TSAN_OPTIONS='halt_on_error=1 exitcode=66' SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy ./build/cok_tsan --saves build/sanitize_adlib --no-delay --sound-clock real --sound adlib --seed 7 --keys '\p200.P')" = "(out of keys in the start menu)")

@@ -63,10 +63,11 @@ answered with a number key:
 
 1. **Graphics:** `2` EGA (16 colours) is the usual choice. `3` Tandy looks
    the same, and `1` CGA has four colours.
-2. **Sound:** `4` Tandy (three voices, with the title music) or `5` PC
-   speaker. The CMS, Roland and AdLib choices give PC-speaker effects
-   with no music (see [How faithful is it?](#how-faithful-is-it)).
-   `6` is silent.
+2. **Sound:** `4` Tandy (three voices, with the title music), `3` AdLib
+   (the title music on the AdLib's FM chip, the effects on the PC
+   speaker, as the original plays them) or `5` PC speaker. The CMS and
+   Roland choices give PC-speaker effects with no music (see [How
+   faithful is it?](#how-faithful-is-it)). `6` is silent.
 3. **Input:** `2` mouse, `1` joystick or `3` keyboard only.
 4. **Path to save data:** just press Enter. The port always saves in
    `saves/`.
@@ -186,7 +187,7 @@ as in the original, it writes what it set into `krynn.cfg`, not
 | `--fullscreen` | start in full screen |
 | `--aspect 1:1` | square pixels. The default `4:3` stretches the picture as a 1990 monitor did, so the moons and portraits come out round. |
 | `--display ega`, `tandy` or `cga` | graphics mode for this run |
-| `--sound tandy`, `speaker` or `off` | sound device for this run |
+| `--sound tandy`, `adlib`, `speaker` or `off` | sound device for this run |
 | `--volume N` | 0 to 100 |
 | `--input mouse`, `joystick` or `none` | mouse, joystick or keyboard only for this run |
 | `--saves DIR` | keep the roster and saved games in DIR instead of `saves/` |
@@ -222,9 +223,10 @@ game's memory) matches the original.
 
 What's different:
 
-- **No music on CMS, Roland MT-32 or AdLib.** Those choices play the
-  sound effects on the PC speaker, without the title music. The Tandy and
-  PC-speaker sound is complete.
+- **No music on CMS or Roland MT-32.** Those choices play the sound
+  effects on the PC speaker, without the title music. The Tandy, AdLib and
+  PC-speaker sound is complete (the AdLib's chip is emulated by the port's
+  own model of the YM3812).
 - **No copy-protection questions.** The original asks for a word from the
   rule book on every tenth save. The port skips it.
 - A few checks need real 1990 hardware, real MS-DOS or a person to judge,
