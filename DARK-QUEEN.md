@@ -137,7 +137,7 @@ The order follows the agreed lessons: get the real game's data on screen early,
 keep the gates light, and check against the original in DOSBox-X from the
 start.
 
-0. **Tools** (`dqk-box`): a Dark Queen profile in the DOSBox-X harness
+0. **Tools** (done, 2026-10-26: `dqk-box`): a Dark Queen profile in the DOSBox-X harness
    (`DQK.EXE`, its data segment from `DQK_FULL.EXE`, screenshots compared in
    RGB rather than 16 fixed colours, the copy protection answered or patched in
    the box only); the routine matcher and the HLIB reader moved from the
