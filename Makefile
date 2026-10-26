@@ -90,6 +90,11 @@ dosbox-checks: build/eclplay build/krynn build/START_FULL.EXE
 dkk-checks: build/eclplay build/krynn build/death-START_FULL.EXE
 	$(PYTHON) tools/dosbox/checks/run_all.py --set dkk --out build/dkk-checks $(ARGS)
 
+# The Dark Queen of Krynn's checks (the dqk_* scripts; the original only, so far).
+.PHONY: dqk-checks
+dqk-checks: build/DQK_FULL.EXE
+	$(PYTHON) tools/dosbox/checks/run_all.py --set dqk --out build/dqk-checks $(ARGS)
+
 # The SDL2 front end (build/krynn) and its tests, only where pkg-config finds
 # SDL2; its headers as system headers, so that their warnings do not fail
 # the build.
@@ -206,7 +211,7 @@ $(SRC_SANITIZE:%=build/%_sanitize): build/%_sanitize: $$(call asan,$$($$*_SRC)) 
 TEST_PROGRAMS = test_dax test_rules test_death_knights test_layout test_data test_magic_rules test_image test_picture test_text test_display test_ecl test_menu test_view test_party test_effect test_adventure test_camp test_cast test_items test_monster test_combat test_round test_arena test_attack test_fight test_band test_ai test_command test_spell test_cloud test_treasure test_shop test_start test_hooks test_debug test_sound test_songs test_opl2 test_config test_setup test_input
 SHARDS = 1 2 3 4
 ECLPLAY_RUNS = $(SHARDS:%=run-test_eclplay-%)
-TEST_RUNS = $(TEST_PROGRAMS:%=run-%) run-ecldump run-test_images_cli run-test_death_knights_py $(ECLPLAY_RUNS) run-test_eclplay $(if $(HAVE_SDL),run-test_keymap) run-test_ovrmerge run-daxcheck
+TEST_RUNS = $(TEST_PROGRAMS:%=run-%) run-ecldump run-test_images_cli run-test_death_knights_py $(ECLPLAY_RUNS) run-test_eclplay $(if $(HAVE_SDL),run-test_keymap) run-test_ovrmerge run-test_hlib run-daxcheck
 SANITIZE_RUNS = $(TEST_PROGRAMS:%=run-%_sanitize)
 .PHONY: $(TEST_RUNS) $(SANITIZE_RUNS) run-test_krynn run-test_death_knights_py
 
@@ -252,6 +257,11 @@ run-test_eclplay: $(ECLPLAY_RUNS)
 
 run-test_ovrmerge:
 	$(TEST_ENV) $(PYTHON) tests/test_ovrmerge.py
+
+# tools/hlib.py (Dark Queen's libraries): its Dark Queen tests skip, saying
+# so, where DQKAssets/ does not hold the game.
+run-test_hlib:
+	$(TEST_ENV) $(PYTHON) tests/test_hlib.py
 
 run-daxcheck: build/daxcheck
 	$(TEST_ENV) ./build/daxcheck COKAssets/*.DAX

@@ -21,6 +21,10 @@ Xvfb server. The host then:
 - finds the game's data segment by the first bytes of START.EXE's (DS is
   the PSP + 0x0bd6, START_FULL.EXE's 1bc6).
 
+Death Knights of Krynn and The Dark Queen of Krynn run too (Box's game;
+GAMES): Dark Queen's screens are RGBScreens (256 colours), its keys typed
+once its screen has settled (it polls the keyboard all the time).
+
 Use it as a library (see `Box`) or from the command line (`cokbox.py run`,
 `cokbox.py selftest`); docs/dosbox.md's "DOSBox-X harness" says how.
 """
@@ -213,7 +217,10 @@ def read_png(path):
         filt = raw[p]
         line = bytearray(raw[p + 1:p + 1 + stride])
         p += 1 + stride
-        for x in range(stride):
+        if filt == 2 and not any(line):  # a row the same as the one above
+            line = bytearray(prev)
+            filt = 0
+        for x in range(stride if filt else 0):
             a = line[x - bpp] if x >= bpp else 0
             b = prev[x]
             c = prev[x - bpp] if x >= bpp else 0
@@ -355,6 +362,84 @@ class Screen:
         pathlib.Path(path).write_bytes(png)
 
 
+class RGBScreen(Screen):
+    """A screen as colours, for a 256-colour game whose palette changes
+    (The Dark Queen of Krynn's): pixels are three bytes, R, G and B; at()
+    gives a pixel's (r, g, b), diff and region compare colours as
+    Screen's compare indices, and save_png writes the colours (with
+    HIGHLIGHT, the other's on a darkened copy where they differ)."""
+
+    @classmethod
+    def from_rows(cls, width, height, rows, size=None):
+        """From RGB rows, scaled down by whole factors to SIZE (320x200)."""
+        size = size or (320, 200)
+        fx, fy = width // size[0], height // size[1]
+        if fx < 1 or fy < 1 or width % size[0] or height % size[1]:
+            size = (width, height)
+            fx = fy = 1
+        pixels = bytearray()
+        for y in range(size[1]):
+            row = rows[y * fy]
+            for x in range(size[0]):
+                pixels += bytes(row[x * fx])
+        return cls(size[0], size[1], pixels)
+
+    def at(self, x, y):
+        i = 3 * (y * self.width + x)
+        return tuple(self.pixels[i:i + 3])
+
+    def region(self, x, y, w, h):
+        return b"".join(self.pixels[3 * ((y + j) * self.width + x):
+                                    3 * ((y + j) * self.width + x + w)] for j in range(h))
+
+    def colours(self):
+        """The distinct colours shown."""
+        return {self.pixels[i:i + 3] for i in range(0, len(self.pixels), 3)}
+
+    def diff(self, other):
+        if (self.width, self.height) != (other.width, other.height):
+            raise BoxError(f"sizes differ: {self.width}x{self.height} and {other.width}x{other.height}")
+        if self.pixels == other.pixels:
+            return 0, None
+        count = 0
+        box = None
+        a, b = self.pixels, other.pixels
+        for i in range(0, len(a), 3):
+            if a[i:i + 3] != b[i:i + 3]:
+                count += 1
+                x, y = (i // 3) % self.width, (i // 3) // self.width
+                box = (x, y, x, y) if box is None else (min(box[0], x), min(box[1], y),
+                                                       max(box[2], x), max(box[3], y))
+        return count, box
+
+    def save_bmp(self, path, highlight=None):
+        raise BoxError("RGBScreen: save_png only")
+
+    def save_png(self, path, highlight=None):
+        """Write a 24-bit PNG; HIGHLIGHT (another RGBScreen) as Screen's."""
+        raw = bytearray()
+        for y in range(self.height):
+            raw.append(0)
+            for x in range(self.width):
+                v = self.at(x, y)
+                if highlight is not None:
+                    w = highlight.at(x, y)
+                    v = w if w != v else tuple(c // 3 for c in v)
+                raw += bytes(v)
+        _write_png(path, self.width, self.height, 2, bytes(raw))
+
+
+def _write_png(path, width, height, ctype, raw, palette=None):
+    def chunk(kind, body):
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(
+            ">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
+    png = (b"\x89PNG\r\n\x1a\n" +
+           chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, ctype, 0, 0, 0)) +
+           (chunk(b"PLTE", palette) if palette else b"") +
+           chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+    pathlib.Path(path).write_bytes(png)
+
+
 _HIGH = bytes(b >> 4 for b in range(256))
 _LOW = bytes(b & 15 for b in range(256))
 
@@ -410,6 +495,27 @@ GAMES = {
     "death-knights": dict(assets="DKKAssets", dir="DKK", cfg="DKK.CFG", cfg_text=dkk_cfg,
                           ds=0x1BCE, merged="build/death-START_FULL.EXE", randseed=0x84AC,
                           turbo=True),
+    # The Dark Queen of Krynn's (Borland C++, its overlays inside DQK.EXE):
+    # run as START.BAT runs it, `DQK SB220 SI7 RB330`, from a copy of
+    # DQKAssets/ with DISK1-3\ and SAVE\ (the shipped DISK1\DQK.CFG: VGA,
+    # the Sound Blaster), on an svga_s3 with a Sound Blaster 16 at 220h IRQ
+    # 7 and no MPU-401. Its data segment is overlay 12, loaded at start at
+    # the load segment + 0x322e (DQK_FULL.EXE's 422e; tools/dqkmerge.py),
+    # found by bytes of it no relocation touches (its first are zeros and
+    # segment numbers). Borland's rand() seed, a long at DS:ca0e (dqk
+    # 2102:0234, set from the clock at 2102:0226). Screens are compared in
+    # RGB (256 colours, each picture's palette). Its keys go through dqk
+    # 10d7:005c, a far routine with a frame (INT 16h, 0 or 1), so the
+    # hook's frames start at its BP (c_frames). It polls the keyboard all
+    # the time (polls_always): a key goes in once the screen has settled.
+    "dark-queen": dict(assets="DQKAssets", dir="DQK", cfg="DISK1/DQK.CFG", cfg_text=None,
+                       program="DQK.EXE", program_args="SB220 SI7 RB330", tree=True,
+                       skip=(".c", ".h"), ds=0x422E, ds_signature="dqk",
+                       merged="build/DQK_FULL.EXE", randseed=0xCA0E, turbo=True, rgb=True,
+                       machine="vga", root_paras=0x1F4E, not_waits=(), not_wait_callers=(),
+                       c_frames=True, polls_always=True,
+                       conf={"sblaster.sbtype": "sb16", "sblaster.sbbase": "220",
+                             "sblaster.irq": "7", "midi.mpu401": "none"}),
 }
 
 # A check that judges what the original shows as it comes (screens read in
@@ -421,11 +527,28 @@ GAMES = {
 REAL_TIME = False
 
 
-def _game_ds_signature(assets, ds=DS_GHIDRA):
-    """The first 64 bytes of START.EXE's data segment, as loaded."""
-    image = ovrmerge.unexepack((pathlib.Path(assets) / "START.EXE").read_bytes())[0]
-    start = (ds - 0x1000) * 16
-    return bytes(image[start:start + 64])
+def _game_ds_signature(assets, ds=DS_GHIDRA, kind=None):
+    """(offset, 64 bytes) of the game's data segment as loaded: START.EXE's
+    first 64 bytes; or (kind "dqk") the first 64 at a paragraph of DQK.EXE's
+    resident overlay at DS that no relocation touches and that hold 24
+    different values or more."""
+    if kind != "dqk":
+        image = ovrmerge.unexepack((pathlib.Path(assets) / "START.EXE").read_bytes())[0]
+        start = (ds - 0x1000) * 16
+        return 0, bytes(image[start:start + 64])
+    import dqkmerge  # tools/dqkmerge.py
+    exe = (pathlib.Path(assets) / "DQK.EXE").read_bytes()
+    image, (cs, _, _, _), _, _ = ovrmerge.load(exe)
+    table, count = dqkmerge.find_table(image, cs)
+    for entry in dqkmerge.read_entries(image, cs, table, count, exe):
+        if entry["flags"] & 1 and entry["load"] == ds - 0x1000:
+            code = entry["code"]
+            touched = {off + k for off, _ in entry["relocs"] for k in (0, 1)}
+            for start in range(0, len(code) - 64, 16):
+                window = code[start:start + 64]
+                if len(set(window)) >= 24 and not touched & set(range(start, start + 64)):
+                    return start, bytes(window)
+    raise BoxError(f"no resident overlay at {ds:04x} in DQK.EXE")
 
 
 class Box:
@@ -459,10 +582,13 @@ class Box:
     directory, removed on close unless keep).
     game: champions, or death-knights (GAMES): its assets by default, its
     directory on C: (C:\\DKK), its devices' file (DKK.CFG, written by
-    dkk_cfg) and its data segment.
+    dkk_cfg) and its data segment; or dark-queen: DQKAssets/ with its
+    folders as C:\\DQK, DQK.EXE run with START.BAT's arguments (args, if
+    given, instead), its DISK1\\DQK.CFG as shipped (cfg: bytes to write
+    there instead), machine vga by default, and RGBScreen screenshots.
     """
 
-    def __init__(self, workdir=None, assets=None, machine="tandy", display=None, sound="S",
+    def __init__(self, workdir=None, assets=None, machine=None, display=None, sound="S",
                  input="N", cfg=None, saves=(), args="", cycles="fixed 20000", turbo=None,
                  hook_pad=0, memsize=None, wav=None, timeout=600, extra_conf=None,
                  exit_after=True, seed=None, want_psp=None, keep=False, verbose=False,
@@ -473,6 +599,7 @@ class Box:
         self.profile = GAMES[game]
         self.assets = pathlib.Path(assets or ROOT / self.profile["assets"])
         self.ds_from_psp = self.profile["ds"] - 0x1000 + 0x10
+        machine = machine or self.profile.get("machine", "tandy")
         if machine not in MACHINES:
             raise BoxError(f"machine {machine}: one of {', '.join(MACHINES)}")
         self.machine = machine
@@ -501,9 +628,11 @@ class Box:
         self._ds = None
         self._deadline = None
         self._shots = 0
-        self._ds_sig = _game_ds_signature(self.assets, self.profile["ds"])
+        self._ds_sig_at, self._ds_sig = _game_ds_signature(
+            self.assets, self.profile["ds"], self.profile.get("ds_signature"))
         self._last_polls = 0
         self._streak = 0
+        self._quiet = None  # (the hook's reads, when) at the last settled()
 
     # -------------------------------------------------- setup
 
@@ -530,9 +659,13 @@ class Box:
         for old in self.captures.glob("*.png"):  # DOSBox-X numbers them up to 999 only
             old.unlink()
         for f in self.assets.iterdir():
+            if f.suffix.lower() in self.profile.get("skip", ()):
+                continue  # Ghidra's output beside Dark Queen's files
             if f.is_file() and f.name.upper() != self.profile["cfg"]:
                 shutil.copyfile(f, self.game / f.name.upper())
-        if self.cfg is not False:
+            elif f.is_dir() and self.profile.get("tree"):
+                shutil.copytree(f, self.game / f.name.upper(), dirs_exist_ok=True)
+        if self.cfg is not False and (self.cfg is not None or self.profile["cfg_text"]):
             data = self.krynn_cfg()
             (self.game / self.profile["cfg"]).write_bytes(
                 data.encode("latin-1") if isinstance(data, str) else data)
@@ -559,6 +692,9 @@ class Box:
             "mixer": {"nosound": "false" if self.wav else "true"},
             "dos": {"ems": "false", "xms": "false", "umb": "false"},
         }
+        for key, value in self.profile.get("conf", {}).items():
+            section, prop = key.split(".", 1)
+            conf.setdefault(section, {})[prop] = value
         if self.memsize:
             conf["dosbox"]["memsize"] = str(self.memsize)
         for key, value in self.extra_conf.items():
@@ -570,7 +706,8 @@ class Box:
         text += ("[autoexec]\n" + f"mount c \"{self.cdrive}\"\n" + "c:\n" +
                  f"HOOK.COM{pad}\n" + f"cd \\{self.profile['dir']}\n" +
                  "".join(c + "\n" for c in self.pre_commands) +
-                 f"START.EXE {self.args}".rstrip() + "\n" +
+                 f"{self.profile.get('program', 'START.EXE')} "
+                 f"{self.args or self.profile.get('program_args', '')}".rstrip() + "\n" +
                  ("exit\n" if self.exit_after else ""))
         (self.workdir / "dosbox.conf").write_text(text)
         if self.mapper is not None:
@@ -846,8 +983,9 @@ class Box:
         """The game's data segment, by the signature of its first bytes."""
         data = self.read(0, 0xA0000)
         for m in re.finditer(re.escape(self._ds_sig[:16]), data):
-            if m.start() % 16 == 0 and data[m.start():m.start() + 64] == self._ds_sig:
-                seg = m.start() // 16
+            start = m.start() - self._ds_sig_at
+            if start % 16 == 0 and data[m.start():m.start() + 64] == self._ds_sig:
+                seg = start // 16
                 psp = seg - self.ds_from_psp
                 if self.read(psp * 16, 2) == b"\xcd\x20":
                     return seg
@@ -947,7 +1085,8 @@ class Box:
         """A real CS:IP in the game's root image as START_FULL.EXE's (load segment
         0x1000), or None when it lies outside (an overlay's buffer, DOS, the BIOS)."""
         load = self.psp + 0x10
-        if load <= seg < load + 0x0F48:  # the root image below the overlays (ovrmerge)
+        # The root image below the overlays (ovrmerge; dqkmerge's map).
+        if load <= seg < load + self.profile.get("root_paras", 0x0F48):
             return seg - load + 0x1000, off
         return None
 
@@ -978,6 +1117,8 @@ class Box:
         read as the game runs: a hint, now and then from another call."""
         if self.hook("waiting"):
             sites = self.caller_chain()[1:]
+        elif self.profile.get("c_frames"):
+            sites = self.frames(self.hook("pollss"), self.hook("pollbp"), 4)
         else:
             sites = [(self.hook("pollcs"), self.hook("pollip"))] + self.frames(
                 self.hook("pollss"), self.hook("pollbp"), 3)
@@ -1007,6 +1148,8 @@ class Box:
         its caller's, then the BP frames', as real (seg, off) pairs."""
         st = self.hook_state()
         sp = st["ss"] * 16 + st["sp"]
+        if self.profile.get("c_frames"):  # the key routine's own frame
+            return [(st["retcs"], st["retip"])] + self.frames(st["ss"], st["bp"], depth)
         return ([(st["retcs"], st["retip"])] +
                 [struct.unpack("<HH", self.read(sp + 6, 4))[::-1]] +
                 self.frames(st["ss"], st["bp"], depth))
@@ -1059,7 +1202,7 @@ class Box:
             return False
         polls = self.hook("polls")
         site = (self.hook("pollcs"), self.hook("pollip"))
-        flushes = [self.from_ghidra(*a) for a in self.NOT_WAITS]
+        flushes = [self.from_ghidra(*a) for a in self.profile.get("not_waits", self.NOT_WAITS)]
         advancing = polls != self._last_polls and site not in flushes and \
             not self._polled_by_non_waiter()
         self._last_polls = polls
@@ -1072,7 +1215,7 @@ class Box:
         if not frames:
             return False
         cs, ip = frames[0]
-        for seg, off in self.NOT_WAIT_CALLERS:
+        for seg, off in self.profile.get("not_wait_callers", self.NOT_WAIT_CALLERS):
             if ip == off and self.read(cs * 16 + ip, 8) == self._exe_bytes(seg, off, 8):
                 return True
         return False
@@ -1087,12 +1230,38 @@ class Box:
 
     def wait_input(self, reads_only=False, seconds=120, settle=0.0):
         """Wait until the game waits for a key (see waiting); then up to
-        SETTLE seconds more, for the screen to be drawn (see settle)."""
+        SETTLE seconds more, for the screen to be drawn (see settle). A game
+        that polls the keyboard all the time (GAMES' polls_always, Dark
+        Queen's: its logo, title and menus loop on INT 16h function 1 as
+        they animate) waits once its screen has settled (settled)."""
+        if self.profile.get("polls_always"):
+            # Settled less than a second ago, with no key read since: still.
+            if self._quiet is None or self._quiet[0] != self.hook("reads") or \
+                    time.monotonic() - self._quiet[1] > 1.0:
+                self.settled(seconds=seconds)
+            return
         self._last_polls = self.hook("polls")
         self._streak = 0
         self._until(lambda: self.waiting(reads_only), seconds, "the game to wait for a key", 0.03)
         if settle:
             self.settle(settle)
+
+    def settled(self, quiet=0.5, tolerance=0, seconds=120):
+        """The screen once it has settled: two screenshots QUIET seconds of
+        the game's time apart (settle) differing in TOLERANCE pixels or
+        fewer. Returns the last screenshot; BoxError after SECONDS."""
+        end = time.monotonic() + seconds
+        last = self.screenshot()
+        while True:
+            self.settle(quiet)
+            shot = self.screenshot()
+            if (shot.width, shot.height) == (last.width, last.height) and \
+                    shot.diff(last)[0] <= tolerance:
+                self._quiet = (self.hook("reads"), time.monotonic())
+                return shot
+            if time.monotonic() > end:
+                raise BoxError(f"the screen did not settle in {seconds} s")
+            last = shot
 
     def ticks(self):
         """The BIOS's clock (0040:006c), 18.2 a second of the game's time."""
@@ -1226,7 +1395,7 @@ class Box:
         if path:
             pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(png, path)
-        screen = Screen.load(png, size)
+        screen = (RGBScreen if self.profile.get("rgb") else Screen).load(png, size)
         png.unlink()  # DOSBox-X stops at start_999.png: keep the directory empty
         return screen
 
@@ -1420,7 +1589,8 @@ def main(argv=None):
         p = sub.add_parser(name)
         p.add_argument("--assets")
         p.add_argument("--workdir")
-        p.add_argument("--machine", default="tandy", choices=sorted(MACHINES))
+        p.add_argument("--machine", default="tandy" if name == "selftest" else None,
+                       choices=sorted(MACHINES), help="default: tandy (the game's: vga for dark-queen)")
         p.add_argument("--timeout", type=float, default=600)
         p.add_argument("--verbose", "-v", action="store_true")
         if name == "run":
