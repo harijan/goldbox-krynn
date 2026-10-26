@@ -7,6 +7,7 @@
 #include "roster.h"
 #include "screen.h"
 #include "sheet.h"
+#include "treasure.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -1257,21 +1258,9 @@ static void order(cok_adventure *game)
  * it, or the first. */
 static void remove_selected(cok_adventure *game)
 {
-    const cok_character_layout *L = cok_game_rules(game)->character;
-    cok_ecl *vm = &game->vm;
-    size_t i = cok_party_index(&game->party, vm->character);
+    size_t i = cok_party_index(&game->party, game->vm.character);
     if (i == game->party.count) return;
-    /* The original keeps pointers to the record it frees in the spell
-     * target and the trade partner (DS:710b, 46b0); the port forgets them. */
-    uint8_t *gone = game->party.members[i]->record;
-    if (game->spell_target == gone) game->spell_target = NULL;
-    if (game->trade_partner == gone) game->trade_partner = NULL;
-    uint8_t icon = cok_field_u8(L, gone, COK_FIELD_ICON);
-    if (icon < cok_icon_slots(game)) cok_arena_free_icon(game, icon); /* 6d21:0156 */
-    cok_cast_forget(game, game->party.members[i]);
-    cok_party_remove(&game->party, i);
-    cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, -1);
-    vm->character = cok_party_record(&game->party, i > 0 ? i - 1 : 0);
+    cok_treasure_remove_record(game, i, false, true, false);
 }
 
 /* Drop (4888:2126; dkk 4381:1f14, its words): drop the selected character

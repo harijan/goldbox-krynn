@@ -14,8 +14,8 @@ record is never restored (flow leave). NEXT, VAULT, a Deposit (whose
 LOAD CHARACTERs set DS:43ba), Exit, PREV and INN reach PROGRAM 9, which
 restores it: the camp then shows nobody selected (6346:07ba only compares
 the pointer) and Up selects nil (546c:3334 finds no member before it), as
-the port's "freed selection" does (src/ecl.h); what reads its bytes (View,
-Down) stops the port (flow inn).
+the port's "freed selection" does (src/ecl.h); what reads its bytes (Down)
+stops the port, View does nothing there (flow inn).
 
 Game A loaded in the original and in eclplay --start-menu, seeded the same:
 the hall, Remove of the first, Begin, LEAVE; at each the screen against the

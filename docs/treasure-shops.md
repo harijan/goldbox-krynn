@@ -123,8 +123,10 @@ The end of combat (`351b:1968`), as `cok_treasure_end_of_combat`:
    highlights nobody (`6346:07ba` only compares the pointer), Up selects
    nil (`546c:3334` finds no member before it), the start menu counts it
    as selected. The port keeps that state (`src/ecl.h`) and stops with
-   `COK_ECL_UNDEFINED` only where its bytes are read: View, Magic, a
-   script's read of `0x7c00`-`0x7fff`, Down (its next field). In
+   `COK_ECL_UNDEFINED` only where its bytes are read: Magic, a script's
+   read of `0x7c00`-`0x7fff`, Down (its next field). View, there or with
+   nil selected (after Up), does nothing instead, a deliberate difference
+   (see [View](camp.md#view)). In
    `e_freed_selection.py` the hall's removal is never restored after
    LEAVE, and is after a Deposit in the vault and the INN (PROGRAM 9): the
    camp's screen as the port's, Up nil in both. The same happens where a
