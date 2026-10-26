@@ -956,6 +956,18 @@ static void sound(cok_adventure *game, cok_sound_call call, unsigned value, void
     if (unported) cok_adventure_log(game, "unported", text);
 }
 
+static unsigned clock_speed(cok_adventure *game, void *context)
+{
+    (void)game;
+    frontend *f = context;
+    audio *a = &f->audio;
+    if (a->device == 0) return 1;
+    SDL_LockMutex(a->lock);
+    unsigned speed = cok_sound_clock_speed(a->sound);
+    SDL_UnlockMutex(a->lock);
+    return speed;
+}
+
 /* Open the audio device (or play silently, saying why). */
 static void audio_open(frontend *f, const char *assets, cok_sound_device device, unsigned volume)
 {
@@ -1112,8 +1124,9 @@ static int read_key(void *context)
             STICK_REPEAT_MS - (now - f->stick_from) < wait && now - f->stick_from < STICK_REPEAT_MS)
             wait = STICK_REPEAT_MS - (now - f->stick_from);
         if (game->timed && f->timing) {
-            /* 67b5:0579: DS:6e11 hundredths since the menu began. */
-            Uint64 limit = (Uint64)game->timeout * 10u;
+            /* 67b5:0579: DS:6e11 hundredths since the menu began (dkk
+             * 6a69:0e74: by GetTime, the DOS clock's). */
+            Uint64 limit = (Uint64)game->timeout * 10u / cok_adventure_clock_speed(game);
             if (now - f->timed_from >= limit) {
                 f->timing = false;
                 return COK_KEY_TIMEOUT;
@@ -1632,7 +1645,8 @@ int main(int argc, char **argv)
     cok_adventure_hooks hooks = {.unported = unported, .log = log_line, .delay = delay,
                                  .key_pending = key_pending, .flush = flush_keys,
                                  .battlefield = battlefield, .device_wait = device_wait,
-                                 .sound = sounding ? sound : NULL, .context = &f};
+                                 .sound = sounding ? sound : NULL,
+                                 .clock_speed = sounding ? clock_speed : NULL, .context = &f};
     int result = 0;
     if (!cok_adventure_open_display(&game, f.rules, assets, display, &keyboard, &hooks)) {
         fprintf(stderr, "%s\n", game.error);

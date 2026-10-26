@@ -224,9 +224,10 @@ static void sound(cok_adventure *game, cok_sound_call call, unsigned value, void
     player *p = context;
     if (p->calls) {
         static const char *const names[] = {"command", "install", "overlay", "overlay end",
-                                            "record", "ctrl-s", "music", "music end", "quit"};
-        if (call == COK_SOUND_COMMAND)
-            printf("call: command %u\n", value);
+                                            "record", "ctrl-s", "music", "music end", "quit",
+                                            "ctrl-u"};
+        if (call == COK_SOUND_COMMAND || (call == COK_SOUND_MUSIC && value != 0))
+            printf("call: %s %u\n", names[call], value);
         else
             printf("call: %s\n", names[call]);
     }
@@ -236,6 +237,13 @@ static void sound(cok_adventure *game, cok_sound_call call, unsigned value, void
     if (call == COK_SOUND_MUSIC &&
         cok_sound_music_unported(p->sound, cok_game_rules(game), text, sizeof text))
         cok_adventure_log(game, "unported", text);
+}
+
+static unsigned clock_speed(cok_adventure *game, void *context)
+{
+    (void)game;
+    player *p = context;
+    return p->sound != NULL ? cok_sound_clock_speed(p->sound) : 1;
 }
 
 /* The run is over: the tail rendered, the header written. */
@@ -927,7 +935,7 @@ static int run(int argc, char **argv)
                                  .key_pending = key_pending, .battlefield = battlefield,
                                  .delay = delay, .flush = flush, .device_wait = device_wait,
                                  .sound = p.wav_path != NULL || p.calls ? sound : NULL,
-                                 .context = &p};
+                                 .clock_speed = clock_speed, .context = &p};
     if (!cok_adventure_open_display(&game, rules, argv[i], display, &keys, &hooks)) {
         fprintf(stderr, "%s\n", game.error);
         cok_adventure_close(&game);

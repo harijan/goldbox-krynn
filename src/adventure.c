@@ -89,6 +89,7 @@ static int read_key(void *context)
     game->pointer.clicked = false;
     int key = cok_adventure_devices_on(game) ? read_device(game) : read_raw(game);
     if (key == 0x13) cok_adventure_sound(context, COK_SOUND_CTRL_S, 0x13);
+    if (key == 0x15) cok_adventure_sound(context, COK_SOUND_CTRL_U, 0x15); /* dkk 16ab:01d4 */
     if (key >= 0) key = cok_debug_key(context, key);
     return key;
 }
@@ -2089,12 +2090,18 @@ static void ask_menu(cok_adventure *game)
     if (!game->input_ended) horizontal_menu(game);
 }
 
-/* MUSIC n (dkk 3632:2878): a song, which the port does not play yet. */
+/* MUSIC n (dkk 3632:2878): past 0x7f song n & 0x7f (15dc:003d), 1-6 a
+ * sound (15dc:0000 with DS:n+1), others nothing. */
 static void music(cok_adventure *game)
 {
+    uint8_t n = (uint8_t)cok_ecl_value(&game->vm, 0);
     char text[16];
-    snprintf(text, sizeof text, "%u", (unsigned)(uint8_t)cok_ecl_value(&game->vm, 0));
+    snprintf(text, sizeof text, "%u", (unsigned)n);
     log_text(game, "music", text);
+    if (n >= 0x80)
+        cok_adventure_sound(game, COK_SOUND_MUSIC, n & 0x7fu);
+    else if (n >= 1 && n <= 6)
+        cok_adventure_sound(game, COK_SOUND_COMMAND, cok_game_rules(game)->ecl.music_sounds[n]);
 }
 
 bool cok_adventure_not_yet(cok_adventure *game, const char *what, const char *routine)
@@ -3200,6 +3207,14 @@ cok_keyboard cok_adventure_keyboard(cok_adventure *game)
 void cok_adventure_wait(cok_adventure *game, unsigned ms)
 {
     wait_ms(game, ms);
+}
+
+unsigned cok_adventure_clock_speed(cok_adventure *game)
+{
+    unsigned speed = game->hooks.clock_speed != NULL
+                         ? game->hooks.clock_speed(game, game->hooks.context)
+                         : 1;
+    return speed > 0 ? speed : 1;
 }
 
 bool cok_adventure_key_pending(cok_adventure *game)

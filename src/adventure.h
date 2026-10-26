@@ -139,6 +139,10 @@ typedef struct {
      * calibration): let up to ms pass, or less if they change. NULL lets
      * nothing pass. */
     void (*device_wait)(cok_adventure *game, unsigned ms, void *context);
+    /* How many times as fast as real time the DOS clock runs, which the
+     * sound's drivers set (cok_sound_clock_speed: 4 under Death Knights'
+     * songs). NULL: 1. */
+    unsigned (*clock_speed)(cok_adventure *game, void *context);
     void *context;
 } cok_adventure_hooks;
 
@@ -581,6 +585,8 @@ void cok_adventure_log(cok_adventure *game, const char *kind, const char *text);
 cok_keyboard cok_adventure_keyboard(cok_adventure *game);
 /* Wait ms milliseconds through hooks.delay. */
 void cok_adventure_wait(cok_adventure *game, unsigned ms);
+/* The DOS clock's speed (hooks.clock_speed), at least 1. */
+unsigned cok_adventure_clock_speed(cok_adventure *game);
 /* Whether a key is waiting (hooks.key_pending, 1614:03c2). */
 bool cok_adventure_key_pending(cok_adventure *game);
 /* Discard the keys waiting (hooks.flush, 1614:045c). */

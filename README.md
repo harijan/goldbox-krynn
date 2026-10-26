@@ -211,6 +211,14 @@ combatants are set up as in the original.
 - **Fix** heals, and cures the stoned, poisoned, dead, cursed and blind
   with the spells your clerics have, as in the original.
 
+### Music
+
+- The title's song and the songs the adventure plays, from the game's
+  `MUSIC.DAX`, on the Tandy, the AdLib and the PC speaker, as the
+  original plays them. As in the original, a sound effect stops the song,
+  Ctrl-U turns the song off, and the title runs four times as fast while
+  its song plays. Not on a CMS (Game Blaster).
+
 ### Mouse and joystick
 
 - The mouse and the joystick work in the menus as in the original.

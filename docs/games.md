@@ -115,7 +115,8 @@ or left with `eclplay --combat won`, `fled` or `lost`, and the script
 going on. It holds:
 
 - its files: Champions' stems but `SKY`, `CURSOR`, `RANDCOM`, `HEAD`,
-  `BODY` and the music's (`NULL`: MUSIC.DAX's songs are step 4), and
+  `BODY` and the music's (`MUSIC` for its songs in place of `MIDI` and
+  `SOUND`: see [Death Knights' songs](sound.md#death-knights-songs)), and
   `SKYGRND` and `BACK`; the digit of `MON`'s and `CPIC`'s files always 1
   (`46b2:198c`, `7090:016d`); `PIC4-7` and `SPRIT4` by picture id
   (`6ca1:00a4`), `WALLDEF`, `8X8D` and `BACK` by wall set id (1 in file 1,

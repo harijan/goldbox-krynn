@@ -72,7 +72,7 @@ tables), the spell table is reworked and turning undead changed.
 | Monsters | MON1 and CPIC1 only, 216-byte records, with their spells in `MON1WIZ.DAX`. |
 | ITEMS | Same; ITEM0.DAX is a new table of 17-byte entries, not yet decoded. |
 | DKK.CFG | A fifth line, the path of Champions' saved games. |
-| MUSIC.DAX | One driver for every device and songs in a new format ("GLBR"); music plays during the game through ECL 0x2c. SOUND.DAX is not read. |
+| MUSIC.DAX | One driver for every device and songs in a new format ("GLBR"); music plays during the game through ECL 0x2c. SOUND.DAX is not read (see [Death Knights' songs](docs/sound.md#death-knights-songs)). |
 
 **Rules.** The same classes, races, deities and alignments. Levels go to 18.
 Nine reversed cleric spells are gone and about twenty spells are new (Harm,
@@ -153,7 +153,17 @@ the character fields moved (R6), which the real game's layout does better.
    MENU, PRESS KEY and JOURNAL (`3c1e:1631`) and YES NO (`3632:1b9e`,
    `6a69:2048`) and the end of combat's results key (`3a37:09b7`) by index
    (done: `dkk-menus3`).
-4. Music: the MUSIC.DAX driver and its songs. Until then Death Knights plays
-   silent.
+4. Music: the MUSIC.DAX driver and its songs (done, 2026-10-26:
+   `dkk-music`). Record 0 is one driver for every device (Turbo C, loaded
+   once at startup, `15dc:00d3`), finding the AdLib, a CMS, an
+   Innovation, a Covox, the Tandy or the speaker itself; records 1-7 are
+   the songs ("GLBR" parts files: the devices' instruments, then the
+   songs' tracks). The title plays song 1, ECL 0x2c songs 2-7 (and sounds
+   1-6); a sound stops the song, a song unhooks the effects; Ctrl-U
+   stops it; the driver's timer makes DOS's clock, and the title's waits,
+   four times as fast. Ported on the AdLib, the Tandy and the speaker
+   (`src/songs.c`), its port writes agreeing with the original's, run in
+   an emulator, on every song and on made-up ones; the CMS's part is
+   not (see [Death Knights' songs](docs/sound.md#death-knights-songs)).
 5. Checks against the original: tests against `death-START_FULL.EXE` and a
    DOSBox-X harness for Death Knights.

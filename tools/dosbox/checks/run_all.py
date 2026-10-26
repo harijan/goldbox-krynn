@@ -155,7 +155,7 @@ DKK_SPLIT = {
     "dkk_menus": ["lists", "ecl", "post", "clicks", "taskclicks"],
 }
 DKK_SCRIPTS = ["dkk_views", "dkk_start", "dkk_create", "dkk_treasure", "dkk_items", "dkk_shops",
-               "dkk_levels", "dkk_mouse", "dkk_setup", "dkk_fight", "dkk_menus"]
+               "dkk_levels", "dkk_mouse", "dkk_setup", "dkk_fight", "dkk_menus", "dkk_sound"]
 DKK_CHECKS = [(f"{script}-{flow}" if flow else script, "DKK", "") for script in DKK_SCRIPTS
               for flow in DKK_SPLIT.get(script, [""])]
 SETS = {"champions": CHECKS, "dkk": DKK_CHECKS, "all": CHECKS + DKK_CHECKS}
@@ -175,7 +175,7 @@ LONG = {"a_demo": 5, "f_frames": 4, "f_sound": 3, "c_wander": 2, "e_bolt_bounce"
         "f_display_modes": 1, "b_item_spell0": 1, "d_bolt": 1, "d_aurak": 1, "d_gate": 1,
         "dkk_create": 8, "dkk_views": 5, "dkk_fight-spells": 5, "dkk_shops": 5,
         "dkk_fight-clouds": 4, "dkk_fight-cast": 3, "dkk_fight-band": 3, "dkk_fight-auto": 3,
-        "dkk_fight-mage": 3, "dkk_start": 3, "dkk_mouse": 3, "dkk_items": 3}
+        "dkk_fight-mage": 3, "dkk_start": 3, "dkk_mouse": 3, "dkk_items": 3, "dkk_sound": 5}
 VERDICT = re.compile(r"^VERDICT: (AGREES|DIFFERS new.*|ERROR.*)$", re.M)
 
 

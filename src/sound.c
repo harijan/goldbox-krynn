@@ -523,6 +523,13 @@ void cok_sound_out(cok_sound *s, uint16_t port, uint8_t value)
     }
 }
 
+uint8_t cok_sound_in(const cok_sound *s, uint16_t port)
+{
+    if (port == 0x61) return s->port61;
+    if (port == 0x388 && s->hardware == COK_SOUND_ADLIB) return cok_opl2_status(&s->opl);
+    return 0xff;
+}
+
 static void out(cok_sound *s, uint16_t port, uint8_t value)
 {
     cok_sound_out(s, port, value);
@@ -1761,19 +1768,93 @@ static void title_interrupt(cok_sound *s)
 }
 
 /* A handler's jump to the one it replaced: the BIOS's tick does nothing
- * here; a driver hooked twice runs again (never in the game). */
+ * here but call INT 1Ch, which the songs' driver hooks; a driver hooked
+ * twice runs again (never in the game). */
 static void chain(cok_sound *s, cok_sound_isr to)
 {
     if (to == COK_SOUND_FX)
         fx_interrupt(s);
     else if (to == COK_SOUND_TITLE)
         title_interrupt(s);
+    else
+        cok_songs_interrupt(s);
 }
 
 /* The game's calls. */
 
+/* dkk 170d:00a9 as 15dc:0000 and 0027 call it: the device saved, the
+ * effects driver hooked unless the sound is off. */
+static void songs_fx_install(cok_sound *s)
+{
+    s->saved = s->device;
+    if (s->device != COK_SOUND_NONE) fx_install(s);
+}
+
+/* A game with songs (dkk 15dc, 15fe, 16ab): the effects driver and the
+ * songs' take turns, a sound stopping the song and a song unhooking the
+ * effects. */
+static void songs_call(cok_sound *s, cok_sound_call call, unsigned value)
+{
+    switch (call) {
+    case COK_SOUND_COMMAND:
+        /* 15dc:0000. */
+        cok_songs_stop(s);
+        if (!s->installed) songs_fx_install(s);
+        cok_sound_command(s, value);
+        break;
+    case COK_SOUND_INSTALL:
+        /* 15dc:0027. */
+        cok_songs_stop(s);
+        songs_fx_install(s);
+        break;
+    case COK_SOUND_OVERLAY:
+    case COK_SOUND_OVERLAY_END:
+    case COK_SOUND_RECORD:
+        /* 15fe:0000 and 0020 (a record read, 15fe:0903, does both): the
+         * effects driver unhooked before and hooked again after if it was;
+         * a song plays on. */
+        if (call != COK_SOUND_OVERLAY_END) {
+            s->fx_was = s->installed;
+            if (s->installed) cok_sound_command(s, 0xff);
+        }
+        if (call != COK_SOUND_OVERLAY && s->fx_was) songs_fx_install(s);
+        break;
+    case COK_SOUND_CTRL_S:
+        /* 16ab:01d4: as 1614:025b, but a song plays on. */
+        if (s->device != COK_SOUND_NONE) {
+            s->saved = s->device;
+            if (s->installed) cok_sound_command(s, 0);
+            s->device = COK_SOUND_NONE;
+        } else if (s->saved < 8 && (CTRL_S_DEVICES & (1u << s->saved)) != 0) {
+            s->device = s->saved;
+            if (s->installed) cok_sound_command(s, 1);
+        }
+        break;
+    case COK_SOUND_CTRL_U:
+        /* 16ab:01d4: DS:9880 toggled; off, the song stops. */
+        s->songs.on = !s->songs.on;
+        if (!s->songs.on) cok_songs_stop(s);
+        break;
+    case COK_SOUND_MUSIC:
+        cok_songs_play(s, value);
+        break;
+    case COK_SOUND_MUSIC_END:
+        cok_songs_stop(s);
+        break;
+    case COK_SOUND_QUIT:
+        /* 16ab:0000. */
+        cok_songs_stop(s);
+        if (s->installed) cok_sound_command(s, 0xff);
+        break;
+    }
+}
+
 void cok_sound_call_at(cok_sound *s, cok_sound_call call, unsigned value)
 {
+    if (s->songs_game) {
+        songs_call(s, call, value);
+        return;
+    }
     switch (call) {
     case COK_SOUND_COMMAND:
         cok_sound_command(s, value);
@@ -1819,6 +1900,8 @@ void cok_sound_call_at(cok_sound *s, cok_sound_call call, unsigned value)
         else if (s->device != COK_SOUND_NONE)
             title_stop(s);
         break;
+    case COK_SOUND_CTRL_U:
+        break;
     }
 }
 
@@ -1836,6 +1919,16 @@ static void interrupt(cok_sound *s)
         fx_interrupt(s);
     else if (s->isr == COK_SOUND_TITLE)
         title_interrupt(s);
+    else
+        cok_songs_interrupt(s);
+}
+
+unsigned cok_sound_clock_speed(const cok_sound *s)
+{
+    uint64_t period = (uint64_t)(s->pit0 != 0 ? s->pit0 : 65536) *
+                      (s->isr == COK_SOUND_FX ? 13u : s->isr == COK_SOUND_TITLE ? 3u : 1u);
+    uint64_t speed = (65536 + period / 2) / period;
+    return speed > 0 ? (unsigned)speed : 1;
 }
 
 void cok_sound_tick(cok_sound *s)
@@ -1922,6 +2015,9 @@ void cok_sound_init(cok_sound *s, cok_sound_device hardware)
     cok_sound_chip_init(&s->chip);
     cok_opl2_init(&s->opl);
     s->volume = 256;
+    s->songs.current = 0xff; /* dkk 4f9a:00e1: DS:98a0, 9880 */
+    s->songs.on = true;
+    s->songs_cms = hardware == COK_SOUND_CMS;
 }
 
 static uint8_t *load_record(const char *assets, const char *name, uint8_t id, size_t *size,
@@ -1955,16 +2051,71 @@ static uint8_t *load_record(const char *assets, const char *name, uint8_t id, si
     return data;
 }
 
+/* The songs' driver as this port knows it (MUSIC.DAX record 0, 12,528
+ * bytes): its entry (record offset 0: push bp, mov bp, sp, push ds, push
+ * es, mov ax, cs, add ax, 0x2d1) and its first message at DS:0003. */
+static bool songs_driver_known(const uint8_t *d, size_t size)
+{
+    static const uint8_t entry[] = {0x55, 0x8b, 0xec, 0x1e, 0x06, 0x8c, 0xc8, 0x05, 0xd1, 0x02};
+    static const char message[] = "Invalid Parts File";
+    return size == 12528 && memcmp(d, entry, sizeof entry) == 0 &&
+           memcmp(d + COK_SONGS_CODE + 3, message, sizeof message) == 0;
+}
+
+/* dkk 15dc:00d3: the driver (record 0), and the songs, each read when
+ * played (15dc:019a), all read here. */
+static bool songs_load(cok_sound *s, const cok_rules *rules, const char *assets)
+{
+    const char *name = rules->archives.music_songs;
+    char path[1024];
+    snprintf(path, sizeof path, "%.1000s/%s.DAX", assets, name);
+    size_t size = 0;
+    uint8_t *driver = load_record(assets, name, 0, &size, s->music_error, sizeof s->music_error);
+    if (driver == NULL) return false;
+    if (!songs_driver_known(driver, size)) {
+        snprintf(s->music_error, sizeof s->music_error,
+                 "%s record 0 is not the driver this port knows", path);
+        free(driver);
+        return false;
+    }
+    dax_archive archive = {0};
+    if (dax_open(path, &archive) == DAX_OK) {
+        for (size_t i = 0; i < archive.count; ++i) {
+            dax_record record;
+            if (dax_record_at(&archive, i, &record) != DAX_OK || record.id == 0 ||
+                record.id >= COK_SONGS_IDS || s->songs.song[record.id] != NULL)
+                continue;
+            uint8_t *data = malloc(record.decoded_size == 0 ? 1 : record.decoded_size);
+            if (data == NULL) continue;
+            if (dax_decode(record.packed, record.packed_size, data, record.decoded_size) !=
+                DAX_OK) {
+                free(data);
+                continue;
+            }
+            s->songs.song[record.id] = data;
+            s->songs.song_size[record.id] = record.decoded_size;
+        }
+        dax_close(&archive);
+    }
+    s->songs.driver = driver;
+    s->songs.driver_size = size;
+    memset(s->songs.ds, 0, sizeof s->songs.ds);
+    memcpy(s->songs.ds, driver + COK_SONGS_CODE, size - COK_SONGS_CODE);
+    if (s->songs_cms)
+        snprintf(s->music_error, sizeof s->music_error,
+                 "the songs on C/MS (%s.DAX record 0's CMS part) are not ported", name);
+    return !s->songs_cms;
+}
+
 bool cok_sound_load(cok_sound *s, const cok_rules *rules, const char *assets)
 {
     cok_sound_free(s);
     s->music_error[0] = '\0';
+    s->songs_game = rules->archives.music_songs != NULL;
+    if (s->songs_game) return songs_load(s, rules, assets);
     const char *drivers = rules->archives.music_drivers;
     if (drivers == NULL || rules->archives.music_score == NULL) {
-        /* A game whose music the port does not read yet (Death Knights'
-         * MUSIC.DAX, DEATH-KNIGHTS.md's step 4). */
-        snprintf(s->music_error, sizeof s->music_error, "%s's music is not ported",
-                 rules->text.name);
+        snprintf(s->music_error, sizeof s->music_error, "%s has no music", rules->text.name);
         return false;
     }
     if (s->device < COK_SOUND_ADLIB) {
@@ -2006,6 +2157,12 @@ void cok_sound_free(cok_sound *s)
     free(s->score);
     s->driver = s->score = NULL;
     s->driver_size = s->score_size = 0;
+    free(s->songs.driver);
+    s->songs.driver = NULL;
+    for (size_t i = 0; i < COK_SONGS_IDS; ++i) {
+        free(s->songs.song[i]);
+        s->songs.song[i] = NULL;
+    }
 }
 
 /* The devices KRYNN.CFG names (config.h). */
@@ -2020,6 +2177,13 @@ const char *cok_sound_device_name(cok_sound_device device)
 bool cok_sound_music_unported(const cok_sound *s, const cok_rules *rules, char *text,
                               size_t size)
 {
+    if (rules->archives.music_songs != NULL) {
+        /* The songs' driver finds the CMS. */
+        if (!s->songs_cms || !s->songs.playing) return false;
+        snprintf(text, size, "the songs on C/MS (%s.DAX record 0's CMS part)",
+                 rules->archives.music_songs);
+        return true;
+    }
     if (!s->music || s->device >= COK_SOUND_TANDY) return false;
     /* The AdLib's is ported, but not a game's whose music is not read. */
     if (s->device == COK_SOUND_ADLIB && rules->archives.music_drivers != NULL) return false;

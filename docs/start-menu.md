@@ -193,9 +193,15 @@ here:
   10000 seconds' hundredths multiplied into a word (`35c6:0000`'s `mul`
   then `xor dx, dx`: 16960, 169.6 seconds) unless a key. No `Woof`: main
   reads no argument, and the game has no debug mode (`saves.debug`
-  `NULL`): `cok` and `eclplay` refuse `--woof` for it (status 2). Its music
-  (`MUSIC.DAX`) is not read yet: `sound: no music: Death Knights of
-  Krynn's music is not ported`, the effects as they are. The title's menu `Death Knights Of Krynn 1.10 ` and
+  `NULL`): `cok` and `eclplay` refuse `--woof` for it (status 2). The
+  title starts song 1 (`MUSIC.DAX`, see [Death Knights'
+  songs](sound.md#death-knights-songs)), which plays on through the
+  title's menu until main's loop stops it (`1000:015b`); main hooks no
+  effects driver after the title. The title's waits and its menu's
+  timeout go by `GetTime`, which the songs' driver makes four times as
+  fast: with a sound device, the seconds below pass in a quarter of the
+  time (the credits 42.4 seconds, the menu 7.5), with the sound off in
+  full. The title's menu `Death Knights Of Krynn 1.10 ` and
   `Play Demo`, by index (`1000:0118`, `021c`: `6a69:00cb` with 1, no
   keypad or picture; `cok_menu_pick_timed`): the time running out (30
   seconds, after a demonstration 10, `DS:c0fa` from the menu's start, keys
