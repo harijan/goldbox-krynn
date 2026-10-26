@@ -9,7 +9,7 @@ Death Knights' songs (`src/songs.c`: `MUSIC.DAX`'s driver, see [Death
 Knights' songs](#death-knights-songs)), the timer interrupt that runs
 them, and the hardware they write to (the AdLib's chip in `src/opl2.c`). The
 game calls it through `hooks.sound` (`cok_sound_call`) as the original
-calls the drivers; `cok` plays it through SDL's audio device and
+calls the drivers; `krynn` plays it through SDL's audio device and
 `eclplay --wav FILE` renders it to a WAV file (16-bit mono, 44,100 Hz).
 The drivers (what the original computes) are kept apart from the
 synthesis (what the hardware did): each port write they make goes to
@@ -42,7 +42,7 @@ The port reads `KRYNN.CFG` the same way (`cok_config_parse`,
 [Startup and the setup](front-end.md#startup-and-the-setup)); without one, the setup asks and writes it.
 `eclplay` without `--start-menu` runs no setup: without a file it says so
 on standard error and takes the Tandy, for the display as well. `--sound
-tandy`, `--sound adlib`, `--sound speaker` or `--sound off`, in `cok`
+tandy`, `--sound adlib`, `--sound speaker` or `--sound off`, in `krynn`
 and `eclplay`, override it. With `A` the title's music plays on the
 AdLib (`MIDI.DAX` record 3, see The title's music) and the effects on the
 speaker, the machine having both. With `C` or `R` the effects play on
@@ -212,7 +212,7 @@ The title's score uses channels 1-5 (no drums: voice 8 takes program
 KSR, KSL, both EG types, feedback up to 7 and one additive voice; the
 waveforms are never enabled, register 1 is 0), no bends, and ends with
 `FC 81`. Without `MIDI.DAX` or `SOUND.DAX` the title is silent
-and `cok` and `eclplay --wav` say why on standard error.
+and `krynn` and `eclplay --wav` say why on standard error.
 
 ### Death Knights' songs
 
@@ -251,9 +251,9 @@ pictures' 5, 5, 5 and 20 seconds pass in a quarter of that, the credits'
 169.6 in 42.4) and the title's menu's timeout (`6a69:0e74`: 30 seconds in
 7.5). The port's are as fast (`cok_sound_clock_speed`, 4 while the
 driver's PIT count is in place, through `hooks.clock_speed`: `title_wait`
-and `cok`'s timed menu; `eclplay`'s `\t` times out at once anyway); with
+and `krynn`'s timed menu; `eclplay`'s `\t` times out at once anyway); with
 the sound off (no song) they take their whole time, as the original's do.
-The drivers take the game's calls whether or not anything is heard: `cok`
+The drivers take the game's calls whether or not anything is heard: `krynn`
 without an audio device or with `--no-sound`, and `eclplay` without
 `--wav`, keep a `cok_sound` that renders nothing, so the title is as fast
 there as with sound (the device `KRYNN.CFG` or `--sound` names deciding). `0124`'s delay loop, the argument parser (`03f4`'s, given no
@@ -390,7 +390,7 @@ samples. A count written to PIT channel 0 after a control word restarts
 its interrupts; one written alone (`17e8:12c5`, `12fa`) takes over at
 the next interrupt.
 
-`cok` by default lets the audio device time the drivers: its callback
+`krynn` by default lets the audio device time the drivers: its callback
 renders as the device plays, so the music and the sounds go on through
 the game's delays and while it waits for a key, as the interrupt-driven
 original's did, and the game's calls land as they come, a buffer (23 ms)
@@ -398,7 +398,7 @@ ahead of the speaker. With `--no-delay` (or `--sound-clock game`) the
 game's own clock times them instead: its delays (`Crt.Delay`: the text's
 characters, `DELAY`, the title's waits, the missiles' steps) and the
 `\pN.` pauses of `--keys`; a key read takes no time. That is how `eclplay
---wav` renders, with a second more at the end, and `cok` then gives SDL's
+--wav` renders, with a second more at the end, and `krynn` then gives SDL's
 disk writer (`SDL_AUDIODRIVER=disk`) the same samples, played out to the
 end of that second before it closes. The game runs on as it renders; at most 12
 seconds of samples wait for a device that plays slower (a real one with
@@ -618,9 +618,9 @@ these scenarios and the first ticks byte for byte, the driver's data
 against `START_FULL.EXE`, Ctrl-S, the timer's rates, the chip's tones,
 noise and volumes, the speaker's tone and gate, and rendering in pieces;
 `tests/test_hooks.c` and `tests/test_adventure.c` where the game calls
-the driver, and `tests/test_eclplay.py` and `tests/test_cok.py` the
+the driver, and `tests/test_eclplay.py` and `tests/test_krynn.py` the
 calls in whole games, `--wav` and the audio device (see [Playing](front-end.md#playing)).
-`make sanitize` also builds `cok` with ThreadSanitizer (`build/cok_tsan`)
+`make sanitize` also builds `krynn` with ThreadSanitizer (`build/krynn_tsan`)
 and plays sound through it in real time, the game's calls crossing the
 audio thread's rendering, so that a call made without the lock fails.
 

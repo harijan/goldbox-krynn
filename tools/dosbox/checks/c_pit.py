@@ -19,7 +19,7 @@ against throw 0 or takes 1d8) and SPELL 22 finds ISTAN with F. With seed
 14 the port without 0x5e's bonus hits MOLLY too: the throws tell the bonus.
 
 The original's screens during the fall are compared, in order, with the
-port's for the same keys as drawn or as cok presents them
+port's for the same keys as drawn or as krynn presents them
 (c_places.judge_watch; eclplay's shots are only at key reads); the screen at the wait after it, and each character's hit points
 and status there (memory), with the port's at that read. For #105, the
 party's spell bytes at the trap's menu and after CAST SPELL.

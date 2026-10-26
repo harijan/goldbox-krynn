@@ -189,7 +189,7 @@ do instead, and says the port is not compared there. A harness artifact
 `VERDICT: AGREES` (exit 0) or `VERDICT: DIFFERS new (...)` (exit 1), each
 difference on a `DIFFERENCE:` line before it, and anything else (an
 exception, a signal, a harness failure) is an error, exit 3. `COKBOX_ECLPLAY`,
-`COKBOX_COK` and `COKBOX_SRC` point the checks at another build of the
+`COKBOX_KRYNN` and `COKBOX_SRC` point the checks at another build of the
 port, e.g. a mutant's; `COKBOX_RECORD` names a program that each of
 checklib's patched builds runs through (given the executable and its
 arguments), such as a recorder of the port's runs that, keeping each
@@ -240,7 +240,7 @@ summed (48 minutes) over the ten, about as long as the longest, `a_demo`
 (under 5: its demonstration watched at the game's speed), plus the run
 again of any script not as recorded. It was 9 before the telemetry: the
 turbo lost at the first screenshot (above; `a_demo` 7 minutes then,
-`a_ctrl_s` 3), `c_places`' `judge_watch` playing cok twice for the same
+`a_ctrl_s` 3), `c_places`' `judge_watch` playing krynn twice for the same
 frames (`c_wander` 4), `d_lib.read_cell` matching each of the font's
 glyphs pixel by pixel (`d_bozak` 3), and the boxes at their cycles where
 turbo shows the same (see Speed and Settling above; 80 minutes summed

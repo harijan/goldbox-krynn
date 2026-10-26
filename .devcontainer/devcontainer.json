@@ -9,7 +9,7 @@
   // build-essential: cc and make (gcc ships the ASan/UBSan runtimes, so `make sanitize` links).
   // python3: tests and tools/ovrmerge.py (standard library only).
   // binutils: objdump -m i8086 for checking the decompile. gdb: debugging.
-  // libsdl2-dev (with pkg-config): build/cok, the SDL2 front end; its tests use SDL's dummy
+  // libsdl2-dev (with pkg-config): build/krynn, the SDL2 front end; its tests use SDL's dummy
   // video driver and its dummy and disk audio drivers, so no display or sound device is needed.
   // dosbox-x, xvfb, xdotool: tools/dosbox runs the original game unattended (make
   // dosbox-selftest); dosbox-x ships with the cap_net_raw file capability (for its NE2000

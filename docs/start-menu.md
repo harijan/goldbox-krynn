@@ -193,7 +193,7 @@ here:
   10000 seconds' hundredths multiplied into a word (`35c6:0000`'s `mul`
   then `xor dx, dx`: 16960, 169.6 seconds) unless a key. No `Woof`: main
   reads no argument, and the game has no debug mode (`saves.debug`
-  `NULL`): `cok` and `eclplay` refuse `--woof` for it (status 2). The
+  `NULL`): `krynn` and `eclplay` refuse `--woof` for it (status 2). The
   title starts song 1 (`MUSIC.DAX`, see [Death Knights'
   songs](sound.md#death-knights-songs)), which plays on through the
   title's menu until main's loop stops it (`1000:015b`); main hooks no

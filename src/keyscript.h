@@ -5,7 +5,7 @@
 
 #include <stdbool.h>
 
-/* Key scripts, as eclplay's --keys and cok's --keys give them: each
+/* Key scripts, as eclplay's --keys and krynn's --keys give them: each
  * character is its ASCII code, and backslash escapes give the rest:
  * \r Enter (13), \e Escape (27), \b Backspace (8), \< \> \^ \v the arrows
  * (0, then scan code 0x4b, 0x4d, 0x48 or 0x50), \@X Alt and letter X (0,
@@ -21,7 +21,7 @@
  * keypad's key C (0-9 or .), its digit with NumLock on, else the cursor
  * key's code (0 and its scan code; nothing for 5); \aN. Alt held while N
  * (decimal digits) is typed on the keypad, then let go: the character
- * code N makes as a byte, nothing for 0. cok presses those keys through
+ * code N makes as a byte, nothing for 0. krynn presses those keys through
  * SDL's events (cok_key_script_physical); eclplay reads the codes. In a
  * group typed ahead they are typed as their codes.
  *
@@ -35,7 +35,7 @@
  * while the game is busy (a key pressed in the middle of the title's wait
  * or of a rest); a key read ends the wait at once. \pN. pauses N
  * hundredths of a second, in real time, before the next key is typed as
- * the game reads it, where there is a clock (cok; eclplay passes over it).
+ * the game reads it, where there is a clock (krynn; eclplay passes over it).
  *
  * The mouse and the joystick: \mX,Y,B. puts the mouse's pointer at pixel
  * X, Y of the 320x200 screen with buttons B down (bit 0 the left, 1 the
@@ -105,7 +105,7 @@ size_t cok_key_script_ahead(cok_key_script *script, bool now, cok_keystroke *str
                             size_t max);
 
 /* At \pN.: N, a pause before the next key is typed, in hundredths of a
- * second, which only a front end with a clock (cok) keeps; reads skip it.
+ * second, which only a front end with a clock (krynn) keeps; reads skip it.
  * Returns false where the script goes on otherwise. */
 bool cok_key_script_pause(cok_key_script *script, unsigned long *hundredths);
 
