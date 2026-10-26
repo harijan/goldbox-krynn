@@ -570,7 +570,9 @@ the last battle's tables and freed map; and spell ids 0x6c-0x7f, which
 only items name, are past the handler table. The
 spell target and the trade partner (`DS:710b`, `46b0`), which the
 original keeps as pointers into freed records when Alter's Drop removes
-a character, are forgotten in the port.
+a character, are forgotten in the port; the selection kept in `DS:43bf`
+names the freed record, as the other removals' (`4def:3b0a`, see
+[Treasure and the end of combat](treasure-shops.md#treasure-and-the-end-of-combat)).
 
 ### Death Knights' casting
 
@@ -714,7 +716,12 @@ no special keys apart: PgUp (scan 0x49) is `I`, Del `S`, shift-F1 `T`
 the game (see [Party](party.md#party)). Items, Spells and Trade
 redraw the sheet; Escape or Exit leaves, and the screen is redrawn for
 the mode. View keeps the character in `DS:46ac` and starts trades from it
-(`DS:46b0`).
+(`DS:46b0`). With nobody selected (nil, or a record since freed: see
+[Treasure and the end of combat](treasure-shops.md#treasure-and-the-end-of-combat))
+the original draws a sheet of whatever the pointer names, nil's being
+the interrupt table (in DOSBox-X: no name, level 208/123/2/192, 0 hit
+points, an items list "NO"), and its menu writes there; the port's View
+does nothing then, a deliberate difference, in both games.
 
 The sheet (`546c:00a3`) recomputes the stats (`546c:07bb`, `6346:0d20`)
 and draws, in the frame of `1128:05fc` (rows 8, 16, 20 and 23 across,

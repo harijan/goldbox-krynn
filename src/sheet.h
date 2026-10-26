@@ -29,7 +29,8 @@ typedef enum {
 
 /* View the selected character (546c:0d74) until Exit or Escape, or until
  * an item used (*done, which View clears first) ends it, which only combat
- * keeps; then the screen is redrawn for the mode (6346:2c17). */
+ * keeps; then the screen is redrawn for the mode (6346:2c17). With nobody
+ * selected it does nothing (the original reads through the pointer). */
 void cok_sheet(cok_adventure *game, cok_sheet_stale stale, bool *done);
 
 /* Draw the selected character's sheet (546c:00a3), recomputing its stats

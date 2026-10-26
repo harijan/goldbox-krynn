@@ -500,6 +500,18 @@ static void test_view(void)
     give(c, 0x12, 0, 0x12, 0);
     CHECK(stats(c) && stats(sir));
     bool done;
+    /* With nobody selected, nil or a record freed, View does nothing (the
+     * original draws whatever the pointer names). */
+    uint8_t *selected = game.vm.character;
+    for (int freed = 0; freed < 2; ++freed) {
+        game.vm.character = NULL;
+        game.vm.selection_freed = freed;
+        keys("\x1b");
+        cok_sheet(&game, COK_SHEET_STALE_ZERO, &done);
+        CHECK(game.vm.status == COK_ECL_OK && !game.vm.abort && s.at == 0 && s.log[0] == '\0');
+    }
+    game.vm.selection_freed = false;
+    game.vm.character = selected;
     /* The menu: Items, Trade and Drop; PgUp (scan 0x49, 'I') is Items. */
     keys("\x01I\x1b\x1b");
     cok_sheet(&game, COK_SHEET_STALE_ZERO, &done);
@@ -776,6 +788,13 @@ static void test_dk_view(void)
     give(c, 0x12, 0, 0x12, 0);
     CHECK(dk_stats(c) && dk_stats(k));
     bool done;
+    /* With nobody selected View does nothing, as Champions'. */
+    uint8_t *selected = game.vm.character;
+    game.vm.character = NULL;
+    keys("\x1b");
+    cok_sheet(&game, COK_SHEET_STALE_ZERO, &done);
+    CHECK(game.vm.status == COK_ECL_OK && !game.vm.abort && s.at == 0 && s.log[0] == '\0');
+    game.vm.character = selected;
     /* By index: Items Trade Drop Heal Exit; Escape is Exit. */
     keys("\x1b");
     cok_sheet(&game, COK_SHEET_STALE_ZERO, &done);

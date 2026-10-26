@@ -600,8 +600,12 @@ static void test_camp(void)
     CHECK(strstr(s.log, "print: Breathes A sigh of relief;") != NULL);
     game.vm.mem7c00[0x33e] = 3;
     game.spell_targets[1] = game.party.members[1]; /* marked when it goes */
+    /* Kept in DS:43bf, the record dropped is freed there (4def:3b0a). */
+    game.vm.saved_character = game.party.members[1]->record;
     keys("ad\x01K\x1b\r\x1b\x1b");
     CHECK(!cok_camp(&game) && game.party.count == 2 && game.vm.mem7c00[0x33e] == 2);
+    CHECK(game.vm.saved_character == NULL && game.vm.saved_freed);
+    game.vm.saved_freed = false;
     CHECK(game.spell_targets[1] == &cok_arena_freed);
     game.spell_targets[1] = NULL;
     CHECK(game.vm.character == game.party.members[0]->record);

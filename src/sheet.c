@@ -663,10 +663,7 @@ static void dk_view(cok_adventure *game, bool *done)
     cok_character *character = selected(game);
     *done = false;
     game->trade_partner = game->vm.character; /* DS:a2be */
-    if (character == NULL) {
-        undefined(game, "View with no character selected reads through NULL (dkk 580d:0c66)");
-        return;
-    }
+    if (character == NULL) return; /* see cok_sheet */
     if (!cok_sheet_draw(game)) return; /* 580d:006e */
     const cok_rules *R = cok_game_rules(game);
     const cok_character_layout *L = R->character;
@@ -729,10 +726,11 @@ void cok_sheet(cok_adventure *game, cok_sheet_stale stale, bool *done)
     cok_character *character = selected(game);
     *done = false;
     game->trade_partner = game->vm.character;
-    if (character == NULL) {
-        undefined(game, "View with no character selected reads through NULL (546c:0d74)");
-        return;
-    }
+    /* With nobody selected (nil, or a record freed: see ecl.h) the
+     * original draws a sheet of whatever the pointer names, nil's the
+     * interrupt table, and its menu writes there; the port leaves View at
+     * once, a deliberate difference. */
+    if (character == NULL) return;
     if (!cok_sheet_draw(game)) return;
     const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *c = character->record;
