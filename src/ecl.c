@@ -793,6 +793,7 @@ static void exit_script(cok_ecl *vm)
     if (vm->restore_character) {
         vm->character = vm->saved_character;
         vm->restore_character = false;
+        vm->freed_selected = vm->saved_freed;
     }
     vm->stop = true;
     ++vm->ip;

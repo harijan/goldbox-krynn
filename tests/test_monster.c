@@ -953,8 +953,9 @@ static void test_combat(void)
               COK_ECL_COMBAT) == COK_ECL_OK && game.party_killed);
     game.party_killed = false;
     /* Fled, with the selection that EXIT restores after LOAD CHARACTER
-     * left behind, the original would select a record it freed. */
-    reset("\r\r");
+     * left behind, the original selects a record it freed: the port stops
+     * there, at EXIT, not before. */
+    reset("\rE");
     cok_character *left = member("A", 12);
     left->record[0x189] = 0;
     left->record[0x188] = 5;
@@ -963,6 +964,21 @@ static void test_combat(void)
     game.combat_stub = COK_COMBAT_FLED;
     CHECK(RUN(COK_ECL_LOAD_CHARACTER, 0, 0, COK_ECL_LOAD_MONSTER, 0, 9, 0, 1, 0, 9,
               COK_ECL_COMBAT) == COK_ECL_UNDEFINED);
+    CHECK(s.at == s.length && strstr(game.error, "restored by EXIT") != NULL);
+    game.vm.saved_freed = game.vm.freed_selected = false;
+    /* Kept again before an EXIT, by a command or a block's entry, it is
+     * never restored: the run goes on. */
+    reset("\rE");
+    left = member("A", 12);
+    left->record[0x189] = 0;
+    left->record[0x188] = 5;
+    member("B", 12);
+    game.vm.character = game.vm.saved_character = left->record;
+    game.combat_stub = COK_COMBAT_FLED;
+    CHECK(RUN(COK_ECL_LOAD_MONSTER, 0, 9, 0, 1, 0, 9, COK_ECL_COMBAT) == COK_ECL_OK);
+    CHECK(game.vm.saved_freed && game.vm.saved_character == NULL);
+    cok_ecl_keep_selection(&game.vm);
+    CHECK(!game.vm.saved_freed && game.vm.saved_character == game.vm.character);
     /* A party member against the party (charmed), here dead, does not stop
      * the walk of those who fled, which ends at the first record past the
      * party's size; it goes with the enemies, counted out of 0x7f3e as A,

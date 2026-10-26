@@ -1538,6 +1538,20 @@ static bool kender(cok_effects *fx, cok_character *c)
     const cok_character_layout *L = fx->rules->character;
     uint8_t *r = c->record;
     cok_rolls *rolls = &fx->rolls;
+    if (c->combat == NULL && !fx->in_battle) {
+        /* Outside combat (the item unreadied, which runs the handler as
+         * the effect goes: 3f44:3888) the target is read through +0x183,
+         * nil before any battle (0000:000a, the interrupt table) or the
+         * record the last battle's end freed, and the distance to it
+         * (6346:2888) picks the die: a d6 or a d4, one Random (DS:43ae)
+         * either way. The THAC0 (+0x18c) and the amount (DS:6b30) it
+         * sets, with the weapon's bonus (a local never set with none),
+         * are not read before they are set again: the items menu
+         * recomputes the stats (6346:0d20) after the item, and an attack
+         * sets both. Only the roll is kept. */
+        (void)cok_dice_count(&fx->vm->seed, 1, 6, &rolls->dice);
+        return true;
+    }
     size_t weapon = c->slots[0];
     if (weapon == 0 || weapon > c->item_count)
         return fail(fx, "effect 0x07 (3f44:0208) adds a local never set for a holder with no "
@@ -1600,6 +1614,12 @@ static bool h_slayer(cok_effects *fx, bool removing, cok_effect *effect, cok_cha
     (void)removing;
     uint8_t id = effect != NULL ? effect->id : 0;
     uint16_t handler = id == 0x69 ? 0x349c : id == 0x72 ? 0x376f : 0x37b0;
+    /* Outside combat (an item with one unreadied: 3f44:3888 runs the
+     * handler as the effect goes) the target is read through +0x183, nil
+     * or freed (see kender), and it changes only the target and amount
+     * of an attack (DS:6b3f, 6b30), which the next attack sets before it
+     * reads them: nothing. */
+    if (c->combat == NULL && !fx->in_battle) return true;
     cok_combat_record *cr = combat_of(fx, c, id, handler);
     if (cr == NULL) return false;
     if (IS_EFFECT(id, RANGER)) fx->rolls.target = cr->target;

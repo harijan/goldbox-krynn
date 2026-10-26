@@ -283,7 +283,7 @@ static bool look(cok_adventure *game, cok_character *c, bool use, bool *done)
     } else {
         /* Trade, whose first Escape reads the stale byte, is not offered
          * in combat. */
-        cok_sheet(game, COK_SHEET_STALE_UNKNOWN, done);
+        cok_sheet(game, COK_SHEET_STALE_ZERO, done);
     }
     if (game->vm.abort) return game->vm.status == COK_ECL_OK;
     if (!cok_combat_weapon_attacks(game, c)) return false;

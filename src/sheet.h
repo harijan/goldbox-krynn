@@ -13,14 +13,18 @@
 
 /* What the byte Trade's first Escape tests holds when View starts: the
  * flag at [bp-0x13c] of Trade (546c:2c75) is set only by an amount, and
- * before one is a byte of the stack that earlier calls left. Loading the
- * camp's or the treasure's picture zero-fills it, and any choice made in
- * View, or a View before in the same camp or treasure menu, leaves it
- * nonzero; elsewhere what it holds depends on the history of the run. */
+ * before one is a byte of the stack that earlier calls left, 0x142 below
+ * View's frame, whatever View is called from. Each caller says what its
+ * path leaves there, as the original was seen to in DOSBox-X: 0 from a
+ * camp's start (the picture's load zero-fills it), a shop's, a treasure
+ * menu's and the adventure's commands (where an interrupt's frame left
+ * the byte, which varies from run to run: see docs/camp.md); set after a
+ * View, a camp's Alter, Take in the treasure menu, in a temple and from
+ * the start menu. Death Knights' Trade (dkk 580d:23a0) finds the byte its
+ * View's menu left (see sheet.c), and ignores this. */
 typedef enum {
-    COK_SHEET_STALE_UNKNOWN, /* Escape there stops the port. */
-    COK_SHEET_STALE_ZERO,    /* Escape asks for another partner. */
-    COK_SHEET_STALE_SET,     /* Escape leaves Trade. */
+    COK_SHEET_STALE_ZERO, /* Escape asks for another partner. */
+    COK_SHEET_STALE_SET,  /* Escape leaves Trade. */
 } cok_sheet_stale;
 
 /* View the selected character (546c:0d74) until Exit or Escape, or until

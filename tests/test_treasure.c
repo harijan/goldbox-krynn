@@ -1158,7 +1158,7 @@ static void test_weapons_back(void)
 
 /* View's Trade from the treasure menu: Escape at the first coin list tests
  * a byte of the stack (see sheet.h), which loading the treasure's picture
- * zero-fills; a View or Yes leaves it set, Take unknown. */
+ * zero-fills; a View, Yes or Take leaves it set. */
 static void test_trade_byte(void)
 {
     static const struct {
@@ -1172,8 +1172,9 @@ static void test_trade_byte(void)
         {"\rVTS\033EEEN", true, true, 2},
         /* Without one, the picture loaded: zero too. */
         {"\rVTS\033EEEN", false, false, 2},
-        /* With the treasure's picture already loaded: unknown. */
-        {"\rVTS\033", false, true, 0},
+        /* With the treasure's picture already loaded: zero, as DOSBox-X
+         * showed a camp's kept picture. */
+        {"\rVTS\033EEEN", false, true, 2},
         /* A View before: set, Escape leaves Trade. */
         {"\rVEVTS\033EEN", true, false, 1},
         /* Pool, Share and a pick leave it as it was. */
@@ -1202,15 +1203,17 @@ static void test_trade_byte(void)
         CHECK(status == COK_ECL_OK && s.at == s.length && game.pool.item_count == 0);
         CHECK(logged_times("menu: Select Exit;") == cases[i].picks);
     }
-    /* Take, after the items: unknown. */
-    reset("\rTTVTS\033");
+    /* Take, after the items: set (the low byte of the data segment), so
+     * Escape leaves Trade. */
+    reset("\rTTVTS\033EE");
     cok_character *a = member("A");
     put_word(a->record + 0xeb + 8, 5);
     game.vm.character = a->record;
     monster("GOBLIN", 0, 0, 0);
     uint8_t loot[COK_ITEM_SIZE] = {0};
     CHECK(cok_pool_insert(&game.pool, 0, loot));
-    CHECK(combat(COK_COMBAT_WON) == COK_ECL_UNDEFINED && LOGGED("item: Steel "));
+    CHECK(combat(COK_COMBAT_WON) == COK_ECL_OK && LOGGED("item: Steel "));
+    CHECK(s.at == s.length && logged_times("menu: Select Exit;") == 1);
 }
 
 /* Death Knights' may-train (dkk 65cd:38c7): a class of level 1-17 with

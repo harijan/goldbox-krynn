@@ -1655,11 +1655,13 @@ bool cok_camp(cok_adventure *game)
     uint8_t picture = game->picture_id; /* DS:6df7, 6e01 */
     bool sprite = game->picture_sprite;
     cok_adventure_redraw(game);
-    /* Loading the camp picture zero-fills the stack where View's Trade
-     * later finds its flag (see sheet.h); kept from before, the byte is
-     * whatever was there. Each command after leaves it its own way. */
-    cok_sheet_stale stale = picture != 0x3b && game->picture_id == 0x3b ? COK_SHEET_STALE_ZERO
-                                                                       : COK_SHEET_STALE_UNKNOWN;
+    /* Where View's Trade later finds its flag (see sheet.h) the camp's
+     * start leaves 0: the picture's load zero-fills it, and a camp whose
+     * picture was kept (Encamp twice) held 0 there too in DOSBox-X.
+     * Save, Magic, Rest, Fix and picking a character leave it as it was;
+     * View and Alter set it (Alter: the low byte of the stack's segment,
+     * pushed by a call of its menu). */
+    cok_sheet_stale stale = COK_SHEET_STALE_ZERO;
     clear_cells(game, 1, 0x11, 0x26, 0x16);
     draw(game, cok_game_rules(game)->text.camp, 1, 0x12, 10, true);
     forget_all(game);
@@ -1691,12 +1693,9 @@ bool cok_camp(cok_adventure *game)
         if (key < 0) break;
         if (special) {
             cok_camp_pick(game, (uint8_t)key);
-            stale = COK_SHEET_STALE_UNKNOWN;
             if (indexed) key = ' '; /* by index no scan code leaves (NumLock's 'E') */
             continue;
         }
-        cok_sheet_stale before = stale;
-        stale = COK_SHEET_STALE_UNKNOWN;
         switch (key) {
         case 'S':
             cok_ecl_add_var(vm, COK_VAR_SAVES, 1);
@@ -1722,7 +1721,7 @@ bool cok_camp(cok_adventure *game)
         case 'V': {
             game->selected = 1;
             bool done;
-            cok_sheet(game, before, &done);
+            cok_sheet(game, stale, &done);
             stale = COK_SHEET_STALE_SET;
             break;
         }
@@ -1740,6 +1739,7 @@ bool cok_camp(cok_adventure *game)
         case 'A':
             game->selected = 1;
             alter(game);
+            stale = COK_SHEET_STALE_SET;
             break;
         default: break;
         }

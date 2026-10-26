@@ -1746,8 +1746,25 @@ static void reset_pictures(cok_adventure *game)
 
 /* A script ended (2fd3:0050). The original clears DS:8830, 884a, 884c and
  * 8848 here. */
+/* Where the selection restored from DS:43bf is a record removed since,
+ * the original goes on with the freed record (its first 8 bytes TP's
+ * free list's, the rest as the heap reuses it): the port stops. */
+static bool freed_selection(cok_adventure *game, const char *where)
+{
+    cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                       "the selection kept in DS:43bf, restored by %s, is a record removed and "
+                       "freed since (4def:3b0a)",
+                       where);
+    return false;
+}
+
 static void exited(cok_adventure *game)
 {
+    if (game->vm.freed_selected) {
+        game->vm.freed_selected = false;
+        freed_selection(game, "EXIT (2fd3:0050)");
+        return;
+    }
     game->picture_shown = false;
     game->sprite_loaded = game->closeup_shown = false;
 }
@@ -1953,7 +1970,7 @@ static void dump(cok_adventure *game)
     } else if (game->party.count > 0) {
         vm->character = game->party.members[0]->record;
     }
-    vm->saved_character = vm->character;
+    cok_ecl_keep_selection(vm);
     cok_adventure_party(game);
 }
 
@@ -1973,6 +1990,10 @@ static void program(cok_adventure *game)
     bool moving = game->moving;
     game->moving = false;
     if (vm->restore_character) {
+        if (vm->saved_freed) {
+            freed_selection(game, "PROGRAM (2fd3:3473)");
+            return;
+        }
         vm->character = vm->saved_character;
         vm->restore_character = false;
     }
@@ -2980,7 +3001,7 @@ static cok_ecl_status enter_block(cok_adventure *game, bool first)
         vm->reload = false;
         vm->square = cok_view_square(&game->view, vm->map_x, vm->map_y);
         cok_ecl_set_var(vm, COK_VAR_EDGE, 0);
-        vm->saved_character = vm->character; /* DS:43bf */
+        cok_ecl_keep_selection(vm); /* DS:43bf */
         status = cok_ecl_run(vm, vm->vectors[4]);
         if (status != COK_ECL_OK || vm->abort || vm->reload) continue;
         cok_ecl_set_var(vm, COK_VAR_BLOCK, vm->block);
@@ -2991,6 +3012,11 @@ static cok_ecl_status enter_block(cok_adventure *game, bool first)
         if (status != COK_ECL_OK || vm->abort || vm->reload) continue;
         status = cok_ecl_run(vm, vm->vectors[1]);
         if (status != COK_ECL_OK || vm->abort || vm->reload) continue;
+        if (vm->saved_freed) {
+            freed_selection(game, "the block's entry (2fd3:3b47)");
+            status = vm->status;
+            continue;
+        }
         vm->character = vm->saved_character;
         cok_adventure_party(game);
     } while (status == COK_ECL_OK && !vm->abort && vm->reload);
@@ -3007,7 +3033,7 @@ static cok_ecl_status start_block(cok_adventure *game, uint8_t block)
     game->redraw = true;
     game->files_loaded = game->pieces_loaded = game->map_loaded = false;
     game->frame_pending = cok_ecl_var(vm, COK_VAR_BLOCK) != 0;
-    vm->saved_character = vm->character;
+    cok_ecl_keep_selection(vm);
     vm->reload = false;
     vm->mode = 4;
     if (cok_ecl_var(vm, COK_VAR_BLOCK) == 0) cok_adventure_party(game); /* a new game's block */
@@ -3480,7 +3506,10 @@ static int command(cok_adventure *game)
             case 'V': {
                 game->selected = 1; /* dkk 580d:0c66's own, from 1 */
                 bool used;
-                cok_sheet(game, COK_SHEET_STALE_UNKNOWN, &used);
+                /* Trade's flag (see sheet.h): what an interrupt's frame
+                 * left below the commands' menu, 0 in each of 11 runs in
+                 * DOSBox-X with turbo, in 4 of 13 at its cycles. */
+                cok_sheet(game, COK_SHEET_STALE_ZERO, &used);
                 break;
             }
             case 'E':
@@ -3940,7 +3969,7 @@ void cok_adventure_redraw(cok_adventure *game)
 static int next_command(cok_adventure *game)
 {
     int key = command(game);
-    game->vm.saved_character = game->vm.character;
+    cok_ecl_keep_selection(&game->vm);
     return key;
 }
 

@@ -623,8 +623,9 @@ static void test_camp(void)
 
     /* Trade's first Escape at the coin list tests a byte of the stack
      * (546c:2f9b): loading the camp picture leaves it 0, so View first
-     * asks for a partner again; a second View leaves Trade; with the
-     * picture kept, or another command first, the port stops. */
+     * asks for a partner again; a second View leaves Trade. With the
+     * picture kept it is 0 too; after Alter it is set, after Magic still
+     * 0. */
     kal[0xf1] = 30;
     game.picture_id = COK_ADVENTURE_NO_PICTURE;
     game.selected = 1;
@@ -633,13 +634,18 @@ static void test_camp(void)
     CHECK(count(s.log, "menu: Select Exit;") == 5);
     CHECK(game.picture_id == 0x3b);
     game.selected = 1;
-    keys("vt\x01PS\x1b");
-    CHECK(!cok_camp(&game) && game.vm.status == COK_ECL_UNDEFINED);
-    CHECK(strstr(game.error, "546c:2f9b") != NULL);
+    keys("vt\x01PS\x1b" "E\x1b" "\x1b");
+    CHECK(!cok_camp(&game) && game.vm.status == COK_ECL_OK && s.at == s.length);
+    CHECK(count(s.log, "menu: Select Exit;") == 3);
     game.picture_id = COK_ADVENTURE_NO_PICTURE;
     game.selected = 1;
-    keys("a\x1b" "vt\x01PS\x1b");
-    CHECK(!cok_camp(&game) && game.vm.status == COK_ECL_UNDEFINED);
+    keys("a\x1b" "vt\x01PS\x1b\x1b" "\x1b");
+    CHECK(!cok_camp(&game) && game.vm.status == COK_ECL_OK && s.at == s.length);
+    CHECK(count(s.log, "menu: Select Exit;") == 2);
+    game.selected = 1;
+    keys("m\x1b" "vt\x01PS\x1b" "E\x1b" "\x1b");
+    CHECK(!cok_camp(&game) && game.vm.status == COK_ECL_OK && s.at == s.length);
+    CHECK(count(s.log, "menu: Select Exit;") == 3);
     kal[0xf1] = 0;
     remove(path);
     snprintf(path, sizeof path, "%s/SAVGAMA.DAT", dir);

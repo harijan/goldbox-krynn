@@ -757,14 +757,12 @@ bool cok_treasure_remove_record(cok_adventure *game, size_t index, bool keep, bo
     const cok_character_layout *L = cok_game_rules(game)->character;
     cok_ecl *vm = &game->vm;
     uint8_t *gone = game->party.members[index]->record;
-    if (vm->saved_character == gone && !destroyed &&
-        (vm->restore_character || game->restoring)) {
-        cok_adventure_fail(game, COK_ECL_UNDEFINED,
-                           "the selection kept in DS:43bf would be a record the end of combat "
-                           "freed");
-        return false;
+    /* The selection kept in DS:43bf is left naming the record freed: the
+     * run stops only where the original restores it (see ecl.h). */
+    if (vm->saved_character == gone) {
+        vm->saved_character = NULL;
+        vm->saved_freed = !destroyed;
     }
-    if (vm->saved_character == gone) vm->saved_character = NULL;
     if (game->spell_target == gone) game->spell_target = NULL;
     if (game->trade_partner == gone) game->trade_partner = NULL;
     uint8_t slot = cok_field_u8(L, gone, COK_FIELD_ICON);
@@ -1535,16 +1533,14 @@ static bool menu_loop(cok_adventure *game)
     const cok_rules_treasure *T = &cok_game_rules(game)->treasure;
     /* dkk 3a37:0eed keeps its own selection, from the first item. */
     uint8_t selection = 1;
-    uint8_t picture = game->picture_id;
     cok_adventure_redraw(game);
-    /* Loading the treasure's picture zero-fills the stack where View's
-     * Trade later finds its flag (see sheet.h), as the camp's does; kept
-     * from before, the byte is whatever was there. A View, or Yes to go
-     * back, leaves it set; Take, through the coins or the items, leaves
-     * the low byte of a segment there; Pool, Share, Detect and picking a
-     * character leave it as it was. */
-    cok_sheet_stale stale = picture != 0x3c && game->picture_id == 0x3c ? COK_SHEET_STALE_ZERO
-                                                                       : COK_SHEET_STALE_UNKNOWN;
+    /* Where View's Trade later finds its flag (see sheet.h) the menu's
+     * start leaves 0, as the camp's: loading the treasure's picture
+     * zero-fills it. A View, or Yes to go back, leaves it set; Take,
+     * through the coins or the items, leaves the low byte of the data
+     * segment there (set); Pool, Share, Detect and picking a character
+     * leave it as it was. */
+    cok_sheet_stale stale = COK_SHEET_STALE_ZERO;
     for (;;) {
         bool money, items;
         cok_pool_status(&game->pool, &money, &items);
@@ -1587,7 +1583,7 @@ static bool menu_loop(cok_adventure *game)
         case 'T': {
             bool reached;
             if (!take(game, &reached)) return false;
-            if (reached) stale = COK_SHEET_STALE_UNKNOWN;
+            if (reached) stale = COK_SHEET_STALE_SET;
             break;
         }
         case 'P': cok_pool_gather(game); break;
@@ -1827,7 +1823,7 @@ static void vault_loop(cok_adventure *game)
         }
         bool reached, used;
         switch (key) {
-        case 'V': cok_sheet(game, COK_SHEET_STALE_UNKNOWN, &used); break; /* 580d:0c66 */
+        case 'V': cok_sheet(game, COK_SHEET_STALE_SET, &used); break; /* 580d:0c66 */
         case 'T':
             if (!take(game, &reached)) return;
             break;

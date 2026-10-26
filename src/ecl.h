@@ -353,6 +353,11 @@ struct cok_ecl {
     bool missing_character;    /* DS:8855: 0x7d00 then reads 0. */
     uint8_t *saved_character;  /* DS:43bf, restored by EXIT if restore is set. */
     bool restore_character;    /* DS:43ba. */
+    /* DS:43bf named a record since removed and freed (4def:3b0a), which
+     * the original goes on with if it restores it; the next selection
+     * kept clears it. */
+    bool saved_freed;
+    bool freed_selected;       /* EXIT restored that freed record. */
 
     cok_text_cursor cursor;    /* DS:6134/6135. */
     uint32_t seed;             /* Turbo Pascal RandSeed, DS:43ae. */
@@ -446,6 +451,13 @@ uint8_t cok_dice(uint32_t *seed, uint8_t count, uint8_t sides);
 /* 60f4:1261: cok_dice, after storing count in *dice (DS:6b34, the dice of
  * the damage being dealt). */
 uint8_t cok_dice_count(uint32_t *seed, uint8_t count, uint8_t sides, uint8_t *dice);
+
+/* Keep the selection (DS:6096) in DS:43bf. */
+static inline void cok_ecl_keep_selection(cok_ecl *vm)
+{
+    vm->saved_character = vm->character;
+    vm->saved_freed = false;
+}
 
 /* The operand count of opcode's handler in the game rules describes,
  * COK_ECL_LIST for a header and list (see cok_ecl.header), or

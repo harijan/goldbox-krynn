@@ -515,15 +515,8 @@ static bool trade_money(cok_adventure *game, cok_character *giver, cok_sheet_sta
                 /* The flag that would end Trade ([bp-0x13c], 546c:2f9b;
                  * dkk 580d:26c0) is set only by an amount, to whether it
                  * took the last coin; before any, it is the byte the stack
-                 * held. */
+                 * held (see sheet.h). */
                 if (stale == COK_SHEET_STALE_SET) return true;
-                if (stale == COK_SHEET_STALE_UNKNOWN)
-                    return undefined(game, cok_game_rules(game)->items.routine ==
-                                                   COK_ITEMS_DEATH_KNIGHTS
-                                               ? "Escape at the first coin list tests an "
-                                                 "uninitialized byte (dkk 580d:26c0)"
-                                               : "Escape at the first coin list tests an "
-                                                 "uninitialized byte (546c:2f9b)");
                 break;
             }
             char prompt[256];
@@ -657,9 +650,14 @@ static int pick(cok_adventure *game, const char *text, const cok_menu_items *ite
  * (DS:c0f7 put back before each ask), Escape as Exit; Trade, Deposit (in
  * the vault, mode 7) or Drop for steel, gems and jewelry; Heal and Cure;
  * the sheet drawn again after Items, Spells and Trade. Trade's flag
- * (580d:23a0's [bp-0x13c], tested at 26c0) holds what the stack held,
- * which the port does not know: Escape at its first coin list stops the
- * run. */
+ * (580d:23a0's [bp-0x13c], tested at 26c0) holds what the stack held: the
+ * byte View's menu (6a69:0f1b, 0x0c below View's call) left at its
+ * [bp-0x130], 6a69:0fee's high word of the time it began, in hundredths of
+ * a second since midnight by the DOS clock (14e4:09bd, GetTime) plus 30.
+ * Its low byte is 0, so that Escape at the first coin list asks for
+ * another partner, only in the 655 seconds after midnight (to 00:10:55);
+ * the port has no clock of the day and takes any other time: Trade is
+ * left. */
 static void dk_view(cok_adventure *game, bool *done)
 {
     cok_character *character = selected(game);
@@ -707,7 +705,7 @@ static void dk_view(cok_adventure *game, bool *done)
             ok = cok_magic_memorized(game, character) >= 0;
             game->menu_special = true;
             break;
-        case DK_TRADE: ok = trade_money(game, character, COK_SHEET_STALE_UNKNOWN); break;
+        case DK_TRADE: ok = trade_money(game, character, COK_SHEET_STALE_SET); break;
         case DK_DEPOSIT:
         case DK_DROP: ok = drop_money(game, character) && cok_sheet_money(game, c); break;
         case DK_HEAL: ok = heal(game, character, false); break;
@@ -767,8 +765,7 @@ void cok_sheet(cok_adventure *game, cok_sheet_stale stale, bool *done)
         }
         if (!ok || game->vm.abort) return;
         /* A choice's calls leave the byte nonzero (checked for each). */
-        stale = key == 'I' || key == 'S' || key == 'T' || key == 'D' ? COK_SHEET_STALE_SET
-                                                                     : COK_SHEET_STALE_UNKNOWN;
+        if (key == 'I' || key == 'S' || key == 'T' || key == 'D') stale = COK_SHEET_STALE_SET;
         if (!*done && (key == 'I' || key == 'S' || key == 'T') && !cok_sheet_draw(game)) return;
     }
     cok_adventure_redraw(game);

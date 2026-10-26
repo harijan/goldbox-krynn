@@ -531,7 +531,9 @@ bool cok_start_command(cok_adventure *game, char letter)
     case 'V':
         if (on[5] && cok_start_pick(game)) {
             bool done;
-            cok_sheet(game, COK_SHEET_STALE_UNKNOWN, &done);
+            /* Trade's flag (see sheet.h): the low byte of a stack offset
+             * (0x3bec) the start menu's calls left. */
+            cok_sheet(game, COK_SHEET_STALE_SET, &done);
         }
         break;
     case 'A': if (on[6]) cok_roster_add(game); break;
@@ -648,7 +650,7 @@ static cok_ecl_status adventure(cok_adventure *game)
         game->redraw = true;
         game->files_loaded = game->pieces_loaded = game->map_loaded = false;
         game->frame_pending = false;
-        vm->saved_character = vm->character;
+        cok_ecl_keep_selection(vm);
         vm->mode = cok_ecl_var(vm, COK_VAR_3D) == 0 ? 3 : 4;
         status = cok_adventure_load(game, start->demo_block);
         if (status == COK_ECL_OK) status = cok_ecl_run(vm, vm->vectors[4]);
