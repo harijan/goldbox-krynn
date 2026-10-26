@@ -946,14 +946,17 @@ static void sound(cok_adventure *game, cok_sound_call call, unsigned value, void
 {
     frontend *f = context;
     audio *a = &f->audio;
-    if (a->device == 0) return;
+    /* Without an audio device the drivers still take the calls (their
+     * state, such as the DOS clock's speed, is the game's), rendering
+     * nothing. */
+    if (a->sound == NULL) return;
     char text[100];
     SDL_LockMutex(a->lock);
     cok_sound_call_at(a->sound, call, value);
     bool unported = call == COK_SOUND_MUSIC &&
                     cok_sound_music_unported(a->sound, f->rules, text, sizeof text);
     SDL_UnlockMutex(a->lock);
-    if (unported) cok_adventure_log(game, "unported", text);
+    if (unported && a->device != 0) cok_adventure_log(game, "unported", text);
 }
 
 static unsigned clock_speed(cok_adventure *game, void *context)
@@ -961,15 +964,17 @@ static unsigned clock_speed(cok_adventure *game, void *context)
     (void)game;
     frontend *f = context;
     audio *a = &f->audio;
-    if (a->device == 0) return 1;
+    if (a->sound == NULL) return 1;
     SDL_LockMutex(a->lock);
     unsigned speed = cok_sound_clock_speed(a->sound);
     SDL_UnlockMutex(a->lock);
     return speed;
 }
 
-/* Open the audio device (or play silently, saying why). */
-static void audio_open(frontend *f, const char *assets, cok_sound_device device, unsigned volume)
+/* Set up the sound and open the audio device (or play silently, saying
+ * why; with open_device false, --no-sound, silently at once). */
+static void audio_open(frontend *f, const char *assets, cok_sound_device device, unsigned volume,
+                       bool open_device)
 {
     audio *a = &f->audio;
     a->sound = malloc(sizeof *a->sound);
@@ -981,8 +986,9 @@ static void audio_open(frontend *f, const char *assets, cok_sound_device device,
     }
     cok_sound_init(a->sound, device);
     a->sound->volume = volume * 256 / 100;
-    if (!cok_sound_load(a->sound, f->rules, assets))
+    if (!cok_sound_load(a->sound, f->rules, assets) && open_device)
         fprintf(stderr, "sound: no music: %s\n", a->sound->music_error);
+    if (!open_device) return;
     if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
         fprintf(stderr, "sound: %s; playing silently\n", SDL_GetError());
         return;
@@ -1641,12 +1647,11 @@ int main(int argc, char **argv)
     cok_image_rgb(&colours, &f.palette[0][0]);
 
     f.audio.game_clock = clock < 0 ? f.no_delay : clock == 1;
-    if (sounding) audio_open(&f, assets, device, (unsigned)volume);
+    audio_open(&f, assets, device, (unsigned)volume, sounding);
     cok_adventure_hooks hooks = {.unported = unported, .log = log_line, .delay = delay,
                                  .key_pending = key_pending, .flush = flush_keys,
                                  .battlefield = battlefield, .device_wait = device_wait,
-                                 .sound = sounding ? sound : NULL,
-                                 .clock_speed = sounding ? clock_speed : NULL, .context = &f};
+                                 .sound = sound, .clock_speed = clock_speed, .context = &f};
     int result = 0;
     if (!cok_adventure_open_display(&game, f.rules, assets, display, &keyboard, &hooks)) {
         fprintf(stderr, "%s\n", game.error);

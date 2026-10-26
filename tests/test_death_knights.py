@@ -131,6 +131,32 @@ class DeathKnightsTests(unittest.TestCase):
             samples = struct.unpack(f"<{len(data) // 2}h", data)
             self.assertGreater(max(abs(v) for v in samples), 1000, device)
 
+    def test_title_sound_calls(self):
+        # The title starts song 1 (35c6:051c) and leaves it playing through
+        # its menu; main's loop stops it (1000:015b: 15dc:00a4) and hooks
+        # no effects driver after the title; Ctrl-U reaches the sound
+        # (16ab:01d4).
+        keys = r"\kx\kx\cuP"
+        result = self.play("--start-menu", "--saves", self.folder, "--sound-calls", "--keys",
+                           keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = [line for line in result.stdout.splitlines()
+                 if line.startswith(("call: ", "menu: Play", "choice: P"))
+                 and line != "call: record"]
+        self.assertEqual(lines[:6], ["call: music 1", "menu: Play Demo", "call: ctrl-u",
+                                     "choice: P", "call: music end", "call: overlay"])
+        # Under the song the DOS clock runs four times as fast (PIT 0x4000,
+        # every interrupt to the BIOS): the title's waits by GetTime
+        # (35c6:0000), 35 s of pictures and 169.6 s of credits, pass in
+        # about 51 s; the WAV ends at the title's menu, a second after.
+        wav = self.folder / "title.wav"
+        result = self.play("--start-menu", "--saves", self.folder, "--wav", wav, "--keys", "",
+                           ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        seconds = (wav.stat().st_size - 44) / 2 / 44100
+        self.assertGreater(seconds, 50)
+        self.assertLess(seconds, 56)
+
     def test_journal(self):
         result = self.play("--file", 2, "--start", "83c7", "--keys", r"\r\r", ASSETS, 48)
         lines = result.stdout.splitlines()

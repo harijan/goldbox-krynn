@@ -252,7 +252,11 @@ pictures' 5, 5, 5 and 20 seconds pass in a quarter of that, the credits'
 7.5). The port's are as fast (`cok_sound_clock_speed`, 4 while the
 driver's PIT count is in place, through `hooks.clock_speed`: `title_wait`
 and `cok`'s timed menu; `eclplay`'s `\t` times out at once anyway); with
-the sound off (no song) they take their whole time, as the original's do. `0124`'s delay loop, the argument parser (`03f4`'s, given no
+the sound off (no song) they take their whole time, as the original's do.
+The drivers take the game's calls whether or not anything is heard: `cok`
+without an audio device or with `--no-sound`, and `eclplay` without
+`--wav`, keep a `cok_sound` that renders nothing, so the title is as fast
+there as with sound (the device `KRYNN.CFG` or `--sound` names deciding). `0124`'s delay loop, the argument parser (`03f4`'s, given no
 arguments), `073c` (play a song looping, which `09bd` would start again
 at its end), `0600` and `0622` are never called.
 
@@ -687,10 +691,13 @@ or only a port read (the AdLib's probe's count of reads).
 title's song in DOSBox-X on the Tandy and on the AdLib (machine `tandy`
 without a Sound Blaster; `ega` with an OPL2) and compares it with
 `eclplay --wav`: the driver's device as expected, the pitches (93 % and
-91 % of the frames) and the tempo within 0.25 s over the 51 s to the
-title's menu (0.11-0.155 s in four runs: DOSBox-X's WAV wanders by 0.2-0.3 % over
-stretches, though its 4,451 interrupts took 61.125 s of WAV, 61.118 s
-at 72.826 a second); the levels on the Tandy agree within 5 %.
+91 % of the frames) and the tempo within 0.05 s over the 51 s to the
+title's menu (0-0.035 s in four runs; a divisor off by one would drift
+0.23 s). `f_wav.envelope`'s steps were a whole number of samples,
+220 at 44.1 kHz against 240 at 48 kHz, which stretched `eclplay`'s time
+by 0.227 % against DOSBox-X's; they now start at each hop's exact time
+(DOSBox-X's 4,451 interrupts of the title's song took 61.125 s of WAV,
+61.118 s at 72.826 a second); the levels on the Tandy agree within 5 %.
 
 What the comparison does not show: the time between interrupts (it
 compares one operation or interrupt at a time; the PIT's rates and the

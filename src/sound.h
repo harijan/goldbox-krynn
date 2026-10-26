@@ -143,10 +143,9 @@ typedef struct cok_sound {
      * songs (cok_sound_load sets it from the rules), whose calls go as dkk
      * 15dc's, songs.driver NULL if MUSIC.DAX could not be read. songs_cms: the
      * machine has the CMS KRYNN.CFG names, which the songs' driver finds
-     * (its music there not ported); fx_was: the effects driver hooked
-     * before a record read or an overlay (dkk DS:9895). */
+     * (its music there not ported). */
     cok_songs songs;
-    bool songs_game, songs_cms, fx_was;
+    bool songs_game, songs_cms;
     /* Each port write the drivers make (not 0x20, the interrupt
      * controller's), for tests and differential checks. */
     void (*trace)(void *context, uint16_t port, uint8_t value);

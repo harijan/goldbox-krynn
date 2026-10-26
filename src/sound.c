@@ -1809,15 +1809,16 @@ static void songs_call(cok_sound *s, cok_sound_call call, unsigned value)
         break;
     case COK_SOUND_OVERLAY:
     case COK_SOUND_OVERLAY_END:
+        /* No sound call brackets an overlay's load or the end of combat
+         * (15fe:0000 and 0020 come from the record reader alone). */
+        break;
     case COK_SOUND_RECORD:
-        /* 15fe:0000 and 0020 (a record read, 15fe:0903, does both): the
-         * effects driver unhooked before and hooked again after if it was;
-         * a song plays on. */
-        if (call != COK_SOUND_OVERLAY_END) {
-            s->fx_was = s->installed;
-            if (s->installed) cok_sound_command(s, 0xff);
+        /* 15fe:0903: 15fe:0000 and 0020, the effects driver unhooked before
+         * the read and hooked again after if it was; a song plays on. */
+        if (s->installed) {
+            cok_sound_command(s, 0xff);
+            songs_fx_install(s);
         }
-        if (call != COK_SOUND_OVERLAY && s->fx_was) songs_fx_install(s);
         break;
     case COK_SOUND_CTRL_S:
         /* 16ab:01d4: as 1614:025b, but a song plays on. */
