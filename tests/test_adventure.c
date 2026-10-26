@@ -155,6 +155,14 @@ static void play(cok_adventure *game, script *s, const uint8_t *map, int x, int 
  * (PROGRAM 9's camp), bit 4 others. */
 static unsigned battle_sps;
 
+/* As a removal in a block's vectors leaves it (the end of combat, the
+ * start menu's Remove): DS:43bf names a record freed. */
+static void mark_freed(cok_adventure *game, void *context)
+{
+    (void)context;
+    game->vm.saved_freed = true;
+}
+
 static void trace_sp(cok_adventure *game, void *context)
 {
     (void)context;
@@ -1224,6 +1232,15 @@ static void test_overland(void)
     game.vm.restore_character = true;
     CHECK(cok_ecl_run(&game.vm, 0x8030) == COK_ECL_OK && unported_count == 0 && mem[0x103] == 1);
     CHECK(game.vm.character == a->record && mem[0x104] == 0);
+    /* Where DS:43bf names a record removed since, PROGRAM's restore would
+     * select it freed: the run stops. */
+    game.vm.character = b->record;
+    game.vm.saved_character = NULL;
+    game.vm.saved_freed = true;
+    game.vm.restore_character = true;
+    CHECK(cok_ecl_run(&game.vm, 0x8030) == COK_ECL_UNDEFINED);
+    CHECK(strstr(game.error, "restored by PROGRAM") != NULL && game.vm.character == b->record);
+    game.vm.saved_freed = false;
     cok_adventure_close(&game);
 
     /* DESTROY ITEMS 63, which block 16's location vector runs on entering
@@ -1419,6 +1436,23 @@ static void test_resume(void)
         CHECK((strstr(s.log, "print: YOU ARE NEAR ;") != NULL) == (block == 1));
         cok_adventure_close(&game);
     }
+    /* Where the selection kept as the vectors began names a record removed
+     * in them, their end would restore it freed (2fd3:3b47): the run stops
+     * there. */
+    save_var(save, 0x4bc4, 2);
+    write_file(path, save, sizeof save);
+    CHECK(cok_adventure_open(&game, &cok_rules_champions, "COKAssets", &keys, &hooks));
+    CHECK(cok_adventure_restore(&game, path));
+    game.vm.seed = 10;
+    s.keys = "nnnn";
+    s.at = 0;
+    s.length = 4;
+    s.log[0] = '\0';
+    game.hooks.trace = mark_freed;
+    CHECK(cok_adventure_enter_block(&game, 16) == COK_ECL_UNDEFINED);
+    CHECK(strstr(game.error, "restored by the block's entry") != NULL);
+    game.hooks.trace = NULL;
+    cok_adventure_close(&game);
     CHECK(remove(path) == 0 && rmdir(dir) == 0);
 
     /* A new game: Solace's block (0x24) runs at 3c28's depth, its NEWECL
