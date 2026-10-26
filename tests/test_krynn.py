@@ -1,4 +1,4 @@
-"""Play the SDL front end (build/cok) under SDL's dummy video driver
+"""Play the SDL front end (build/krynn) under SDL's dummy video driver
 and check that its window shows exactly what eclplay draws for the same
 keys, typed through SDL's key events; that it sleeps while it waits, ends
 at once when closed, and shows where the port stops (stdlib only)."""
@@ -15,11 +15,11 @@ import time
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-COK = ROOT / "build/cok"
+KRYNN = ROOT / "build/krynn"
 ECLPLAY = ROOT / "build/eclplay"
 ASSETS = ROOT / "COKAssets"
 
-# Where SDL's dummy driver saves the frames cok presents
+# Where SDL's dummy driver saves the frames krynn presents
 # (SDL_VIDEO_DUMMY_SAVE_FRAMES): it writes each in the present itself, so
 # that a disk slow to write (a FUSE overlay's, which a busy machine starves
 # of CPU, taking seconds) makes the game late; a tmpfs where there is one
@@ -46,7 +46,7 @@ def frame(path):
 
 ENV = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_RENDER_DRIVER="software",
            SDL_AUDIODRIVER="dummy")
-# The assets' KRYNN.CFG says M, the mouse, which cok always finds (SDL's)
+# The assets' KRYNN.CFG says M, the mouse, which krynn always finds (SDL's)
 # and eclplay only with --mouse: the tests of the keyboard leave it off.
 KEYBOARD = ("--input", "none")
 
@@ -93,7 +93,7 @@ def after(lines, text):
 
 
 def at(lines, text):
-    """When cok logged text first."""
+    """When krynn logged text first."""
     return next(t for t, line in lines if line == text)
 
 
@@ -104,10 +104,10 @@ def cpu_seconds(pid):
 
 class FrontEndTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="test_cok-")
+        self.temp = tempfile.TemporaryDirectory(prefix="test_krynn-")
         self.addCleanup(self.temp.cleanup)
         self.folder = pathlib.Path(self.temp.name)
-        fast = tempfile.TemporaryDirectory(prefix="test_cok-", dir=fast_folder())
+        fast = tempfile.TemporaryDirectory(prefix="test_krynn-", dir=fast_folder())
         self.addCleanup(fast.cleanup)
         self.fast = pathlib.Path(fast.name)
 
@@ -120,9 +120,9 @@ class FrontEndTests(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr)
         return run, saves, shots
 
-    def cok(self, keys, *args, name="cok", device=KEYBOARD):
+    def krynn(self, keys, *args, name="krynn", device=KEYBOARD):
         saves, shots = self.folder / f"{name}-saves", self.folder / f"{name}-shots"
-        run = subprocess.run([str(COK), "--assets", str(ASSETS), "--saves", str(saves),
+        run = subprocess.run([str(KRYNN), "--assets", str(ASSETS), "--saves", str(saves),
                               "--shots", str(shots), "--no-delay", "--keys", keys, *device,
                               *args],
                              capture_output=True, text=True, env=ENV, timeout=300)
@@ -145,7 +145,7 @@ class FrontEndTests(unittest.TestCase):
         and the demonstration's walks and fight, frame for frame."""
         keys = r"\kx\t"
         expected, _, eshots = self.eclplay(keys, "--seed", "3")
-        run, _, shots = self.cok(keys, "--seed", "3", "--aspect", "1:1", "--scale", "2")
+        run, _, shots = self.krynn(keys, "--seed", "3", "--aspect", "1:1", "--scale", "2")
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(run.stdout.splitlines()[-1], "(out of keys at the title)")
         self.assertEqual(run.stdout.splitlines()[-1], expected.stdout.splitlines()[-1])
@@ -159,7 +159,7 @@ class FrontEndTests(unittest.TestCase):
         expected, esaves, eshots = self.eclplay(NEW_GAME, "--seed", "7", "--helm")
         self.assertGreater(len(list(eshots.glob("*.bmp"))), 90)
         for aspect, scale in (("1:1", 2), ("4:3", 3)):
-            run, saves, shots = self.cok(NEW_GAME, "--seed", "7", "--helm", "--aspect", aspect,
+            run, saves, shots = self.krynn(NEW_GAME, "--seed", "7", "--helm", "--aspect", aspect,
                                          "--scale", str(scale), "--log", name=aspect + "x")
             self.assertEqual(run.returncode, 0, run.stderr)
             self.assertEqual(run.stdout, expected.stdout.splitlines()[-1] + "\n")
@@ -199,8 +199,8 @@ class FrontEndTests(unittest.TestCase):
         lines = expected.stdout.splitlines()
         at = lines.index("choice: Begin Adventuring")
         self.assertEqual(lines[at + 1], "menu: Move Encamp")
-        shutil.copytree(made, self.folder / "cok-saves")
-        run, _, cshots = self.cok(load, "--aspect", "1:1", "--scale", "2", "--log")
+        shutil.copytree(made, self.folder / "krynn-saves")
+        run, _, cshots = self.krynn(load, "--aspect", "1:1", "--scale", "2", "--log")
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn("choice: Begin Adventuring\nmenu: Move Encamp\n", run.stderr)
         self.assertNotIn("YOU ARE NEAR", run.stderr)
@@ -213,7 +213,7 @@ class FrontEndTests(unittest.TestCase):
         colours read back from the window; the assets' E is EGA."""
         keys = r"\kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\r\e"
         expected, _, eshots = self.eclplay(keys, "--seed", "3", "--display", "cga")
-        run, _, shots = self.cok(keys, "--seed", "3", "--aspect", "1:1", "--scale", "2",
+        run, _, shots = self.krynn(keys, "--seed", "3", "--aspect", "1:1", "--scale", "2",
                                  "--display", "cga", "--log")
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn("display: CGA", run.stderr)
@@ -226,12 +226,12 @@ class FrontEndTests(unittest.TestCase):
             if path.name.upper() != "KRYNN.CFG":
                 (assets / path.name).symlink_to(path)
         (assets / "KRYNN.CFG").write_bytes(b"C\r\nT\r\n")
-        run = subprocess.run([str(COK), "--assets", str(assets), "--saves", str(self.folder / "s2"),
+        run = subprocess.run([str(KRYNN), "--assets", str(assets), "--saves", str(self.folder / "s2"),
                               "--no-delay", "--log", "--keys", r"\kx\t"],
                              capture_output=True, text=True, env=ENV, timeout=300)
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn("display: CGA", run.stderr)
-        run, _, _ = self.cok(r"\kx\t", "--log", name="ega")
+        run, _, _ = self.krynn(r"\kx\t", "--log", name="ega")
         self.assertIn("display: EGA", run.stderr)
 
     def test_debug_mode(self):
@@ -242,7 +242,7 @@ class FrontEndTests(unittest.TestCase):
         keys = NEW_GAME[:NEW_GAME.index(r"\@x")] + r"\cD\cZ\@xN\r\eNxxxx\cC"
         expected, esaves, eshots = self.eclplay(keys, "--seed", "7", "--helm", "--woof")
         self.assertIn("debug: 0 , 0 , 0 | GOSUB", expected.stdout)
-        run, saves, shots = self.cok(keys, "--seed", "7", "--helm", "--woof", "--aspect", "1:1",
+        run, saves, shots = self.krynn(keys, "--seed", "7", "--helm", "--woof", "--aspect", "1:1",
                                      "--scale", "2")
         self.assertEqual((run.returncode, run.stdout), (0, "(quit to DOS)\n"), run.stderr)
         self.assertEqual(expected.stdout.splitlines()[-1], "(quit to DOS)")
@@ -251,7 +251,7 @@ class FrontEndTests(unittest.TestCase):
         self.assertEqual((saves / "DEBUG.TXT").read_bytes(), b"who: BAAZ  sp#: 67\r\n" * 4)
     def test_keypad_keys(self):
         """NumLock, the keypad and Alt's keypad numbers pressed as keys
-        (\\n, \\dC, \\aN.), which cok turns into codes as the BIOS does
+        (\\n, \\dC, \\aN.), which krynn turns into codes as the BIOS does
         (cok_keymap_event), give what eclplay reads for the same script:
         the menus moved by the keypad's arrows with NumLock off, and the
         name typed with Alt's numbers (322 as a byte, 0 typing nothing),
@@ -261,7 +261,7 @@ class FrontEndTests(unittest.TestCase):
                 r"\[\a66.\n\d8\n\]\r")
         expected, _, eshots = self.eclplay(keys, "--seed", "7")
         self.assertIn("input: BO5BB", expected.stdout)
-        run, _, shots = self.cok(keys, "--seed", "7", "--log")
+        run, _, shots = self.krynn(keys, "--seed", "7", "--log")
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn("input: BO5BB", run.stderr)
         self.assertEqual(run.stdout.splitlines()[-1], expected.stdout.splitlines()[-1])
@@ -287,7 +287,7 @@ class FrontEndTests(unittest.TestCase):
                                    keys, str(assets)], capture_output=True, text=True)
         self.assertEqual(expected.returncode, 0, expected.stderr)
         saves, shots = self.folder / "s", self.folder / "shots"
-        run = subprocess.run([str(COK), "--assets", str(assets), "--saves", str(saves),
+        run = subprocess.run([str(KRYNN), "--assets", str(assets), "--saves", str(saves),
                               "--shots", str(shots), "--no-delay", "--seed", "3", "--aspect",
                               "1:1", "--scale", "2", "--log", "--keys", keys],
                              capture_output=True, text=True, env=ENV, timeout=300)
@@ -302,13 +302,13 @@ class FrontEndTests(unittest.TestCase):
         self.assertIn("crt: ALTERNATE INPUT TYPE:  [1] JOYSTICK  [2] MOUSE  [3] NEITHER  2", run.stderr)
         self.assertIn("config: line 3 N", run.stderr)
         # Read on the next start: no setup.
-        run = subprocess.run([str(COK), "--assets", str(assets), "--saves", str(saves),
+        run = subprocess.run([str(KRYNN), "--assets", str(assets), "--saves", str(saves),
                               "--no-delay", "--log", "--keys", r"\kx"],
                              capture_output=True, text=True, env=ENV, timeout=300)
         self.assertNotIn("crt: SOUND TYPE:  [1] C/MS", run.stderr)
         self.assertIn("crt: TANDY 1000 USERS - Make sure NUMLOCK is on.", run.stderr)
         # Keys that end in the setup end the run there.
-        run = subprocess.run([str(COK), "--assets", str(assets), "--saves",
+        run = subprocess.run([str(KRYNN), "--assets", str(assets), "--saves",
                               str(self.folder / "s2"), "--no-delay", "--keys", "12"],
                              capture_output=True, text=True, env=ENV, timeout=300)
         self.assertEqual((run.returncode, run.stdout), (0, "(out of keys in the setup)\n"))
@@ -319,7 +319,7 @@ class FrontEndTests(unittest.TestCase):
         letterboxed, scaled by 3.2, still shows eclplay's frames."""
         keys = r"\kx\t"
         _, _, eshots = self.eclplay(keys, "--seed", "3")
-        run, _, shots = self.cok(keys, "--seed", "3", "--aspect", "1:1", "--fullscreen", "--log")
+        run, _, shots = self.krynn(keys, "--seed", "3", "--aspect", "1:1", "--fullscreen", "--log")
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn("shown: 1024x640 at 0,64 of 1024x768", run.stderr)
         self.assertSameShots(eshots, shots)
@@ -377,7 +377,7 @@ class FrontEndTests(unittest.TestCase):
         expected, _, eshots = self.eclplay(keys)
         self.assertIn("flush: 1 keys typed ahead dropped", expected.stdout)
         self.assertIn("choice: Create New Character", expected.stdout)
-        run, _, shots = self.cok(keys, "--aspect", "1:1", "--log")
+        run, _, shots = self.krynn(keys, "--aspect", "1:1", "--log")
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn("flush: 1 keys typed ahead dropped", run.stderr)
         self.assertIn("choice: Create New Character", run.stderr)
@@ -392,7 +392,7 @@ class FrontEndTests(unittest.TestCase):
         self.assertNotEqual(keys, NEW_GAME)
         expected, esaves, eshots = self.eclplay(keys, "--seed", "7", "--helm")
         self.assertNotIn("flush:", expected.stdout)
-        run, saves, shots = self.cok(keys, "--seed", "7", "--helm", "--aspect", "1:1")
+        run, saves, shots = self.krynn(keys, "--seed", "7", "--helm", "--aspect", "1:1")
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertSameShots(eshots, shots)
         self.assertSameDirs(esaves, saves)
@@ -407,7 +407,7 @@ class FrontEndTests(unittest.TestCase):
         expected, _, eshots = self.eclplay(keys)
         self.assertNotIn("Electronic Arts", expected.stdout)
         self.assertEqual(expected.stdout.splitlines()[-1], "(quit to DOS)")
-        run, _, shots = self.cok(keys, "--aspect", "1:1", "--log")
+        run, _, shots = self.krynn(keys, "--aspect", "1:1", "--log")
         self.assertEqual((run.returncode, run.stdout), (0, "(quit to DOS)\n"), run.stderr)
         self.assertNotIn("Electronic Arts", run.stderr)
         self.assertSameShots(eshots, shots)
@@ -419,7 +419,7 @@ class FrontEndTests(unittest.TestCase):
         keys = r"\w600.\[\#44\]P\v\v\v\v\rY"
         expected, _, eshots = self.eclplay(keys)
         self.assertIn("flush: 1 keys typed ahead dropped", expected.stdout)
-        run, _, shots = self.cok(keys, "--aspect", "1:1", "--log")
+        run, _, shots = self.krynn(keys, "--aspect", "1:1", "--log")
         self.assertEqual((run.returncode, run.stdout), (0, "(quit to DOS)\n"), run.stderr)
         self.assertIn("flush: 1 keys typed ahead dropped", run.stderr)
         self.assertSameShots(eshots, shots)
@@ -432,7 +432,7 @@ class FrontEndTests(unittest.TestCase):
             keys = TO_REST + r"\w%d.\[x\]YE" % wait
             expected, _, eshots = self.eclplay(keys, "--seed", "7", "--helm")
             self.assertIn("menu: Stop Resting? ", expected.stdout)
-            run, _, cshots = self.cok(keys, "--seed", "7", "--helm", "--aspect", "1:1",
+            run, _, cshots = self.krynn(keys, "--seed", "7", "--helm", "--aspect", "1:1",
                                       name="rest%d" % wait)
             self.assertEqual(run.returncode, 0, run.stderr)
             self.assertSameShots(eshots, cshots)
@@ -444,8 +444,8 @@ class FrontEndTests(unittest.TestCase):
         self.assertNotEqual(shots[0], shots[1])
 
     def start(self, *args, frames=None, **popen):
-        """cok running in the background, its standard error read line by
-        line as it comes, each --log line with the time cok logged it at
+        """krynn running in the background, its standard error read line by
+        line as it comes, each --log line with the time krynn logged it at
         (--log-times: SDL's clock, the one its delays go by, in ms;
         None for other lines), so that a busy machine's lateness in reading
         them does not count; with frames, each frame presented saved there
@@ -454,7 +454,7 @@ class FrontEndTests(unittest.TestCase):
         if frames is not None:
             frames.mkdir()
             env["SDL_VIDEO_DUMMY_SAVE_FRAMES"] = "1"
-        process = subprocess.Popen([str(COK), "--assets", str(ASSETS), "--saves",
+        process = subprocess.Popen([str(KRYNN), "--assets", str(ASSETS), "--saves",
                                     str(self.folder / "bg"), *KEYBOARD, "--log-times", *args],
                                    cwd=frames, env=env, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, text=True, **popen)
@@ -487,7 +487,7 @@ class FrontEndTests(unittest.TestCase):
         return process, lines, stop
 
     def wait_for(self, lines, text, timeout):
-        """When cok logged text, waiting up to timeout seconds of the wall
+        """When krynn logged text, waiting up to timeout seconds of the wall
         clock for it: a bound on a failure only, generous (a busy machine
         took 3 s for SDL_Init alone)."""
         end = time.monotonic() + timeout
@@ -562,7 +562,7 @@ class FrontEndTests(unittest.TestCase):
         boxes = [region(frame(p), 24, 24, 88, 88) for _, p in late]
         self.assertEqual(len(set(boxes[:4])), 4)
         self.assertEqual(boxes[:-4], boxes[4:])
-        # By SDL's clock, as cok draws the frames (--log-times' frame:):
+        # By SDL's clock, as krynn draws the frames (--log-times' frame:):
         # each stays its own delay from the menu's start, the menu's frame,
         # the first, 400 ms, the others 200. Never less; more by the
         # machine's lateness in waking, which a busy machine makes tens of
@@ -597,7 +597,7 @@ class FrontEndTests(unittest.TestCase):
         stop()
         self.assertEqual([line for _, line in lines if line.startswith("stale")], [])
         # And at most about 60 frames a second, however fast the text types,
-        # by SDL's clock as cok presents them.
+        # by SDL's clock as krynn presents them.
         times = presents(lines)
         self.assertGreater(len(times), 100)
         busiest = max(sum(1 for t in times[i:] if t < start + 1000)
@@ -653,7 +653,7 @@ class FrontEndTests(unittest.TestCase):
 
     def test_close_during_delays(self):
         """Closed while the demonstration types its text, delay after
-        delay, cok ends at once."""
+        delay, krynn ends at once."""
         process, lines, stop = self.start("--log", "--keys", r"\kx\t")
         self.wait_for(lines, "choice: Demo", 60)
         time.sleep(2.5)
@@ -682,7 +682,7 @@ class FrontEndTests(unittest.TestCase):
         stop()
         last = frame(sorted(frames.glob("SDL_window*.bmp"))[full() - 1])
         self.assertEqual(int.from_bytes(last[18:22], "little"), 1024)
-        self.assertEqual((frames / "screenshots/cok000.bmp").read_bytes(),
+        self.assertEqual((frames / "screenshots/krynn000.bmp").read_bytes(),
                          (eshots / "000.bmp").read_bytes())
 
     def test_sigint_in_the_background(self):
@@ -696,29 +696,29 @@ class FrontEndTests(unittest.TestCase):
         self.assertEqual(process.returncode, 0)
 
     def test_shots_need_two_rows(self):
-        run, _, _ = self.cok(r"\kx", "--scale", "1")
+        run, _, _ = self.krynn(r"\kx", "--scale", "1")
         self.assertEqual(run.returncode, 2)
         self.assertIn("--scale 2", run.stderr)
 
     def test_quit_to_dos(self):
-        run, _, _ = self.cok(r"\kxP\v\v\v\v\rY", "--aspect", "1:1")
+        run, _, _ = self.krynn(r"\kxP\v\v\v\v\rY", "--aspect", "1:1")
         self.assertEqual((run.returncode, run.stdout), (0, "(quit to DOS)\n"), run.stderr)
 
     def test_game(self):
         """--game names the game (src/rules.c), champions by default, whose
         assets are COKAssets unless --assets says; an unknown name is an
         error that lists the games."""
-        run = subprocess.run([str(COK), "--game", "champions", "--saves", str(self.folder),
+        run = subprocess.run([str(KRYNN), "--game", "champions", "--saves", str(self.folder),
                               "--no-delay", "--keys", r"\kxP\v\v\v\v\rY", *KEYBOARD],
                              capture_output=True, text=True, env=ENV, timeout=300, cwd=ROOT)
         self.assertEqual((run.returncode, run.stdout), (0, "(quit to DOS)\n"), run.stderr)
-        run, _, _ = self.cok(r"\kx", "--game", "krynn")
+        run, _, _ = self.krynn(r"\kx", "--game", "krynn")
         self.assertEqual(run.returncode, 2)
         self.assertEqual(run.stderr, "--game: unknown game krynn (games: champions, death-knights)\n")
 
     def test_keys_no_keyboard_has(self):
         """NumLock's scan code is not a key the game can be given."""
-        run, _, _ = self.cok(r"\kxP\#45")
+        run, _, _ = self.krynn(r"\kxP\#45")
         self.assertEqual(run.returncode, 2)
         self.assertIn("no key gives scan code 45", run.stderr)
 
@@ -730,7 +730,7 @@ class FrontEndTests(unittest.TestCase):
         for p in ASSETS.iterdir():
             if p.name != "TITLE.DAX":
                 (assets / p.name).symlink_to(p)
-        run = subprocess.run([str(COK), "--assets", str(assets), "--saves",
+        run = subprocess.run([str(KRYNN), "--assets", str(assets), "--saves",
                               str(self.folder / "s"), "--shots", str(self.folder / "shots"),
                               "--aspect", "1:1", "--keys", "x"],
                              capture_output=True, text=True, env=ENV, timeout=60)
@@ -744,13 +744,13 @@ class FrontEndTests(unittest.TestCase):
         self.assertTrue(any(bytes((85, 85, 255)) in row for row in rows))
 
     def idle(self, text, *args):
-        """Start cok waiting without keys; once it logs text, return its
+        """Start krynn waiting without keys; once it logs text, return its
         CPU seconds over two seconds of wall time, then close it (SIGTERM
         is SDL_QUIT, as the window's close is) and check it ends at once,
         writing nothing."""
         process, lines, _ = self.start("--log", *args)
         self.wait_for(lines, text, 60)
-        self.assertIsNone(process.poll(), "cok ended early")
+        self.assertIsNone(process.poll(), "krynn ended early")
         before = cpu_seconds(process.pid)
         time.sleep(2)
         used = cpu_seconds(process.pid) - before
@@ -795,18 +795,18 @@ STICK = (r"\kx" + PRESS + DOWN * 3 + PRESS + DOWN + PRESS +
 
 
 class DeviceTests(unittest.TestCase):
-    """The mouse (SDL's, which cok always has: the assets' KRYNN.CFG says M)
+    """The mouse (SDL's, which krynn always has: the assets' KRYNN.CFG says M)
     and the joystick, frame for frame as eclplay --mouse and --joystick
     play the same keys."""
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="test_cok-")
+        self.temp = tempfile.TemporaryDirectory(prefix="test_krynn-")
         self.addCleanup(self.temp.cleanup)
         self.folder = pathlib.Path(self.temp.name)
 
     def run_both(self, keys, eclplay_args, cok_args, name, saves_cfg=None):
         out = {}
-        for tool in ("eclplay", "cok"):
+        for tool in ("eclplay", "krynn"):
             saves, shots = self.folder / f"{name}-{tool}-saves", self.folder / f"{name}-{tool}-shots"
             saves.mkdir()
             if saves_cfg is not None:
@@ -816,13 +816,13 @@ class DeviceTests(unittest.TestCase):
                                       str(saves), "--shots", str(shots), *eclplay_args, "--keys",
                                       keys, str(ASSETS)], capture_output=True, text=True)
             else:
-                run = subprocess.run([str(COK), "--assets", str(ASSETS), "--saves", str(saves),
+                run = subprocess.run([str(KRYNN), "--assets", str(ASSETS), "--saves", str(saves),
                                       "--shots", str(shots), "--no-delay", "--seed", "5", "--log",
                                       *cok_args, "--keys", keys],
                                      capture_output=True, text=True, env=ENV, timeout=300)
             self.assertEqual(run.returncode, 0, run.stderr)
             out[tool] = (run, saves, shots)
-        (erun, esaves, eshots), (crun, csaves, cshots) = out["eclplay"], out["cok"]
+        (erun, esaves, eshots), (crun, csaves, cshots) = out["eclplay"], out["krynn"]
         self.assertEqual(crun.stdout.splitlines()[-1], erun.stdout.splitlines()[-1])
         names = sorted(p.name for p in eshots.glob("*.bmp"))
         self.assertTrue(names)
@@ -869,11 +869,11 @@ class DeviceTests(unittest.TestCase):
         shots = self.folder / "eshots"
         subprocess.run([str(ECLPLAY), "--start-menu", "--mouse", "--shots", str(shots), "--keys",
                         r"\kx", str(ASSETS)], capture_output=True, text=True)
-        run = subprocess.run([str(COK), "--assets", str(ASSETS), "--saves", str(self.folder / "s"),
+        run = subprocess.run([str(KRYNN), "--assets", str(ASSETS), "--saves", str(self.folder / "s"),
                               "--no-delay", "--screenshots", str(self.folder / "f12"), "--keys",
                               r"\kx\#86"], capture_output=True, text=True, env=ENV, timeout=300)
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertEqual((self.folder / "f12" / "cok000.bmp").read_bytes(),
+        self.assertEqual((self.folder / "f12" / "krynn000.bmp").read_bytes(),
                          (shots / "001.bmp").read_bytes())
 
     def test_input_joystick_calibrates(self):
@@ -894,7 +894,7 @@ class DeviceTests(unittest.TestCase):
         expected = subprocess.run([str(ECLPLAY), "--start-menu", "--mouse", "--seed", "5",
                                    "--saves", str(self.folder / "e"), "--keys", CLICKS,
                                    str(ASSETS)], capture_output=True, text=True)
-        run = subprocess.run([str(COK), "--assets", str(ASSETS), "--saves", str(self.folder / "c"),
+        run = subprocess.run([str(KRYNN), "--assets", str(ASSETS), "--saves", str(self.folder / "c"),
                               "--no-delay", "--seed", "5", "--log", "--aspect", "4:3", "--scale",
                               "1", "--keys", CLICKS], capture_output=True, text=True, env=ENV,
                              timeout=300)
@@ -911,12 +911,12 @@ class DeviceTests(unittest.TestCase):
         for name, expected in (("none", "input: keyboard"),
                                ("joystick", "input: joystick not found"),
                                ("mouse", "input: mouse")):
-            run = subprocess.run([str(COK), "--assets", str(ASSETS), "--saves",
+            run = subprocess.run([str(KRYNN), "--assets", str(ASSETS), "--saves",
                                   str(self.folder / name), "--no-delay", "--log", "--input", name,
                                   "--keys", r"\kx"], capture_output=True, text=True, env=ENV,
                                  timeout=300)
             self.assertIn(expected, run.stderr)
-        run = subprocess.run([str(COK), "--input", "trackball"], capture_output=True, text=True,
+        run = subprocess.run([str(KRYNN), "--input", "trackball"], capture_output=True, text=True,
                              env=ENV, timeout=300)
         self.assertEqual(run.returncode, 2)
 
@@ -943,19 +943,19 @@ class SoundTests(unittest.TestCase):
     the music and the sounds going on while the game waits."""
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="test_cok-")
+        self.temp = tempfile.TemporaryDirectory(prefix="test_krynn-")
         self.addCleanup(self.temp.cleanup)
         self.folder = pathlib.Path(self.temp.name)
 
     def disk(self, *args, delay=None, timeout=300, until=None, assets=ASSETS):
-        """cok's sound written by SDL's disk writer: until until(samples
+        """krynn's sound written by SDL's disk writer: until until(samples
         written, lines of standard error so far) is true, else till the run
         ends."""
         out = self.folder / "disk.raw"
         env = dict(ENV, SDL_AUDIODRIVER="disk", SDL_DISKAUDIOFILE=str(out))
         if delay is not None:
             env["SDL_DISKAUDIODELAY"] = str(delay)
-        process = subprocess.Popen([str(COK), "--assets", str(assets), "--saves",
+        process = subprocess.Popen([str(KRYNN), "--assets", str(assets), "--saves",
                                     str(self.folder / "saves"), *args], env=env,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         lines = []
@@ -1104,13 +1104,13 @@ class SoundTests(unittest.TestCase):
         """--no-sound opens no device; with no device to be had, or no
         MIDI.DAX, the game plays on silently, saying why."""
         keys = r"\kx\t"
-        run = subprocess.run([str(COK), "--assets", str(ASSETS), "--saves", str(self.folder / "a"),
+        run = subprocess.run([str(KRYNN), "--assets", str(ASSETS), "--saves", str(self.folder / "a"),
                               "--no-delay", "--no-sound", "--keys", keys, "--log"],
                              capture_output=True, text=True, env=ENV, timeout=300)
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertNotIn("sound: dummy", run.stderr)
         self.assertEqual(run.stdout, "(out of keys at the title)\n")
-        run = subprocess.run([str(COK), "--assets", str(ASSETS), "--saves", str(self.folder / "b"),
+        run = subprocess.run([str(KRYNN), "--assets", str(ASSETS), "--saves", str(self.folder / "b"),
                               "--no-delay", "--keys", keys],
                              capture_output=True, text=True,
                              env=dict(ENV, SDL_AUDIODRIVER="no-such-driver"), timeout=300)
@@ -1122,7 +1122,7 @@ class SoundTests(unittest.TestCase):
         for path in ASSETS.iterdir():
             if path.name != "SOUND.DAX":
                 (assets / path.name).symlink_to(path)
-        run = subprocess.run([str(COK), "--assets", str(assets), "--saves", str(self.folder / "c"),
+        run = subprocess.run([str(KRYNN), "--assets", str(assets), "--saves", str(self.folder / "c"),
                               "--no-delay", "--keys", keys],
                              capture_output=True, text=True, env=ENV, timeout=300)
         self.assertEqual(run.returncode, 0, run.stderr)

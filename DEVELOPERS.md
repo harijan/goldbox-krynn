@@ -7,7 +7,7 @@ The native tools are a C17 DAX archive reader, decompressor, image
 exporter, picture and text compositor, ECL script interpreter and
 disassembler, and a headless script player that shows the scripts' text,
 menus, pictures, 3D view and party on the adventure screen, and plays the
-game from its title and start menu; and `cok`, which plays the game in a
+game from its title and start menu; and `krynn`, which plays the game in a
 window with SDL2, from the title, with the keyboard, the mouse or a joystick
 (see [The mouse and the joystick](docs/front-end.md#the-mouse-and-the-joystick)) and with its sound: the
 Tandy's three voices and noise, the AdLib's YM3812 or the PC speaker, the
@@ -59,8 +59,8 @@ rm -f build/krynn.cfg
     --character DKKAssets/SAVE/CHRDATA2.GAM --play --keys 'ev\r\e' DKKAssets 17
 make test
 make sanitize
-make cok
-./build/cok
+make krynn
+./build/krynn
 make dosbox-selftest
 ```
 
@@ -68,16 +68,16 @@ Run `make -j16 test` (`-j` the machine's cores, `nproc`), and `make -j16
 sanitize`. Make compiles each source once for each set of flags, into
 `build/obj/` (`CFLAGS`), `build/obj-asan/` (`ASAN_FLAGS`: `make
 sanitize`'s AddressSanitizer and UBSan) and `build/obj-tsan/`
-(`TSAN_FLAGS`: `build/cok_tsan`), each with its headers in a `.d` file
+(`TSAN_FLAGS`: `build/krynn_tsan`), each with its headers in a `.d` file
 (`-MMD -MP`), and links every program from those objects, so that a
 change recompiles only the objects that include it; SDL2's flags go to the
-three files that include `SDL.h` (`src/cok.c`, `src/keymap.c`,
+three files that include `SDL.h` (`src/krynn.c`, `src/keymap.c`,
 `tests/test_keymap.c`). Each test program's run, and each test script's,
 is a target of its own (`run-NAME`; `tests/test_eclplay.py` in four parts,
 `COK_TEST_SHARD=K/N` running every Nth test from the Kth), so that `make
 -j` runs them side by side; plain `make test` runs them one after another.
 `run-test_eclplay` then checks, from the ids each part lists, that the
-parts ran each of its tests once. `tests/test_cok.py` plays in real time
+parts ran each of its tests once. `tests/test_krynn.py` plays in real time
 and runs last, alone, once the others are done, its own tests side by
 side, each in a process of its own (`COK_TEST_JOBS` at once, by default
 half the cores up to 8; `COK_TEST_JOBS=1` one after another, and a test
@@ -85,28 +85,28 @@ named runs alone): they are mostly asleep, a hundred seconds one after
 another, 22 s at 8. A clean `make -j16 test` takes about 30 s on a
 16-core host (`make -j16 sanitize` 20 s). Beside others a failing run's lines are mixed with
 theirs, and its `Error` line is not the last: `make -j16 -Otarget test`
-shows each run's output whole once it ends (and `tests/test_cok.py`'s
+shows each run's output whole once it ends (and `tests/test_krynn.py`'s
 progress only at its end, so it is not the default). The tests'
 temporary files go to `build/tmp` (`TEST_TMPDIR`, as `TMPDIR`; the C
 tests' folders through `tests/test_temp.h`): the dev container's `/tmp`
 is a FUSE overlay, several times slower to write their many small files.
 
-`make cok` builds `build/cok`, the playable front end (see [Playing](docs/front-end.md#playing)), which
+`make krynn` builds `build/krynn`, the playable front end (see [Playing](docs/front-end.md#playing)), which
 needs SDL2 2.0.18 or later and finds it with `pkg-config sdl2` (Debian and
 Ubuntu: `libsdl2-dev`; Fedora: `SDL2-devel`; macOS: Homebrew's `sdl2` and
 `pkg-config`). Nothing else needs SDL2: `make`, `make test` and `make
-sanitize` work without it, and then skip `build/cok` and its tests, saying
+sanitize` work without it, and then skip `build/krynn` and its tests, saying
 so. With it, `make test` also builds the front end and checks it under
-SDL's dummy video driver (`tests/test_keymap.c`, `tests/test_cok.py`).
+SDL's dummy video driver (`tests/test_keymap.c`, `tests/test_krynn.py`).
 The dev container installs `libsdl2-dev` but has no display: build and run
-`cok` on the host (`make cok && ./build/cok` from the project directory,
+`krynn` on the host (`make krynn && ./build/krynn` from the project directory,
 with the game's files in `COKAssets/`), or give the container the host's X
 server (on a Linux host, run it with `-v /tmp/.X11-unix:/tmp/.X11-unix -e
 DISPLAY=$DISPLAY` and allow it with `xhost +local:`; or `ssh -X` into a
 machine with the build). SDL picks Wayland, X11 or the console's driver
 itself; `SDL_VIDEODRIVER` overrides it; likewise PulseAudio, PipeWire or
 ALSA for the sound, `SDL_AUDIODRIVER` overriding it (the container has no
-sound device: `cok` says so and plays silently; `SDL_AUDIODRIVER=disk`
+sound device: `krynn` says so and plays silently; `SDL_AUDIODRIVER=disk`
 writes the samples to `sdlaudio.raw` or `SDL_DISKAUDIOFILE`, 16-bit mono
 at 44,100 Hz).
 
@@ -164,7 +164,7 @@ runtime libraries, which were unavailable on the initial development system.
 The rest of the notes are in `docs/`, one file per part of the port:
 
 - [Games](docs/games.md): The games' descriptors, Death Knights of Krynn's differences, the character record's layout, the data segment's tables and the spells.
-- [The front end](docs/front-end.md): `cok`: playing in a window, startup and the setup, the mouse and the joystick, the display modes.
+- [The front end](docs/front-end.md): `krynn`: playing in a window, startup and the setup, the mouse and the joystick, the display modes.
 - [Sound](docs/sound.md): The devices, the effects driver, the title's music, timing and the hardware's emulation.
 - [Images and the library](docs/library.md): Image export, picture composition and the shared library.
 - [Scripts](docs/scripts.md): ECL scripts, how `eclplay` plays them, and the debug mode.

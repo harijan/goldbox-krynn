@@ -193,7 +193,7 @@ here:
   10000 seconds' hundredths multiplied into a word (`35c6:0000`'s `mul`
   then `xor dx, dx`: 16960, 169.6 seconds) unless a key. No `Woof`: main
   reads no argument, and the game has no debug mode (`saves.debug`
-  `NULL`): `cok` and `eclplay` refuse `--woof` for it (status 2). Its music
+  `NULL`): `krynn` and `eclplay` refuse `--woof` for it (status 2). Its music
   (`MUSIC.DAX`) is not read yet: `sound: no music: Death Knights of
   Krynn's music is not ported`, the effects as they are. The title's menu `Death Knights Of Krynn 1.10 ` and
   `Play Demo`, by index (`1000:0118`, `021c`: `6a69:00cb` with 1, no

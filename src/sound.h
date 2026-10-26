@@ -28,7 +28,7 @@ enum {
     COK_SOUND_FX_IMAGE = 0x12c5, /* 17e8:0000-12c4, the driver's data. */
     COK_SOUND_SEGMENT = 0x10000,
     /* What a front end rendering by the game's own clock (eclplay --wav,
-     * cok --no-delay) renders after the run, so that the last sound ends. */
+     * krynn --no-delay) renders after the run, so that the last sound ends. */
     COK_SOUND_TAIL_MS = 1000,
 };
 

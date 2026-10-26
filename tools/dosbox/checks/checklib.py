@@ -195,18 +195,18 @@ def _sources(kind):
     adventure = re.search(r"^ADVENTURE_SRC = (.*)$", make, re.M).group(1).split()
     if kind == "eclplay":
         return ["src/eclplay.c", "src/keyscript.c", *adventure]
-    return ["src/cok.c", "src/keymap.c", "src/keyscript.c", *adventure]
+    return ["src/krynn.c", "src/keymap.c", "src/keyscript.c", *adventure]
 
 
 def build(kind="eclplay", transforms=()):
-    """KIND (eclplay or cok) built from a copy of the port's source
+    """KIND (eclplay or krynn) built from a copy of the port's source
     (cokbox.PORT_SRC) with TRANSFORMS: (file name, function of its text
     returning the new text), each of which must change something; the
     port's own build without any. Cached under build/checks/ by the
     sources' hash. Returns the executable's path."""
     src = pathlib.Path(cokbox.PORT_SRC)
     if not transforms:
-        return cokbox.COK if kind == "cok" else cokbox.ECLPLAY
+        return cokbox.KRYNN if kind == "krynn" else cokbox.ECLPLAY
     digest = hashlib.sha256()
     for f in sorted(src.glob("*.[ch]")):
         digest.update(f.name.encode() + f.read_bytes())
@@ -231,7 +231,7 @@ def build(kind="eclplay", transforms=()):
 def _recorded(exe):
     """EXE, or with COKBOX_RECORD (a program: a recorder of the port's runs,
     as the golden harness's portrec.py) a script beside it that runs
-    COKBOX_RECORD with EXE and the arguments. COKBOX_ECLPLAY and COKBOX_COK
+    COKBOX_RECORD with EXE and the arguments. COKBOX_ECLPLAY and COKBOX_KRYNN
     can name such stand-ins for the port's own builds."""
     record = os.environ.get("COKBOX_RECORD")
     if not record:
@@ -259,7 +259,7 @@ def _build(out, exe, kind, src, transforms):
         path.write_text(new)
     files = [out / f for f in _sources(kind)]
     cflags, libs = [], []
-    if kind == "cok":
+    if kind == "krynn":
         def sdl(what):
             return subprocess.run(["pkg-config", what, "sdl2"], capture_output=True, text=True,
                                   check=True).stdout.split()

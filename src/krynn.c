@@ -160,7 +160,7 @@ static void usage(const char *program)
             "  --aspect A      4:3 (default) shows the 200 lines as 240, as a 4:3\n"
             "                  monitor did; 1:1 keeps the pixels square\n"
             "  --fullscreen    start full screen (F11 or Alt-Enter toggles it)\n"
-            "  --screenshots DIR  where F12 saves the screen as cokNNN.bmp (default\n"
+            "  --screenshots DIR  where F12 saves the screen as krynnNNN.bmp (default\n"
             "                  screenshots, created if missing)\n"
             "  --seed N        start Turbo Pascal's Random from N, not the clock\n"
             "  --woof          start as START Woof does: without the title, with the\n"
@@ -476,7 +476,7 @@ static void screenshot(frontend *f)
         return;
     }
     do {
-        snprintf(path, sizeof path, "%s/cok%03u.bmp", f->screenshots, f->screenshot++);
+        snprintf(path, sizeof path, "%s/krynn%03u.bmp", f->screenshots, f->screenshot++);
     } while (stat(path, &st) == 0 && f->screenshot < 1000);
     cok_image image = cok_picture_frame(&f->game->screen, 0);
     if (screen_shown(f) != NULL) image.pixels = f->composed; /* the cursor too, as shown */

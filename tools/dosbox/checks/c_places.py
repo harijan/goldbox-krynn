@@ -15,11 +15,11 @@ of a State giving {what: value}: both games' values are compared.
 Screens between key reads (judge_watch): the original's, as fast as
 DOSBox-X takes them, each in order a screen of the port's, as drawn
 (drawn_eclplay: a shot at each key read, delay, `Loading...Please Wait`,
-end of a picture's load, sprite and text clear) or as cok presents them,
-then the frames cok presents at the wait after (an animating picture),
+end of a picture's load, sprite and text clear) or as krynn presents them,
+then the frames krynn presents at the wait after (an animating picture),
 or between two in a row (caught drawing). A wait whose picture animates
 ("animates"): the original's screen there may be a frame of that
-animation as cok presents it.
+animation as krynn presents it.
 
 Resuming a saved game: the original makes no roll of Random between the
 title and the first key read after Begin Adventuring (2fd3:3c28 runs only
@@ -235,7 +235,7 @@ def port_at(keys, out, names=None, **kw):
         return dict(pool.map(one, marks))
 
 
-# The port's screens between key reads as drawn, not as cok presents them
+# The port's screens between key reads as drawn, not as krynn presents them
 # (at most every few ms, and only at its waits): an eclplay that saves a
 # shot at each key read, each delay (checklib.shot_at_delays), as
 # `Loading...Please Wait` is drawn (cok_adventure_loading), as a picture's
@@ -430,7 +430,7 @@ class Compare:
     def _animation(self, name, port, pause=1000):
         """For a step whose wait shows an animating picture ("animates"):
         when the original's screen is not the port's frame at that read,
-        whether it is one of the frames cok presents during PAUSE
+        whether it is one of the frames krynn presents during PAUSE
         hundredths of a second at that wait (from the first equal to the
         port's frame at the read on: the picture's animation there), judged
         in the verdict. False (not judged: compared with the read's frame)
@@ -438,7 +438,7 @@ class Compare:
         shown, what = self.shown[name], f"{self.work.name} {name}"
         if port is None or shown.pixels == port.pixels:
             return False
-        frames, _ = self.cok_frames(name, pause=pause)
+        frames, _ = self.krynn_frames(name, pause=pause)
         start = next((j for j, f in enumerate(frames) if f.pixels == port.pixels), None)
         if start is None:
             return False
@@ -446,7 +446,7 @@ class Compare:
                    None)
         if hit is None:
             return False
-        self.v.ok(what, f"a frame of the picture's animation at this wait (cok's {hit - start} "
+        self.v.ok(what, f"a frame of the picture's animation at this wait (krynn's {hit - start} "
                   "from the one at the read), not the read's own")
         return True
 
@@ -469,22 +469,22 @@ class Compare:
 
     # ---- screens between key reads
 
-    def cok_frames(self, step, pause=300):
-        """Every frame cok presents for the keys up to STEP and PAUSE
+    def krynn_frames(self, step, pause=300):
+        """Every frame krynn presents for the keys up to STEP and PAUSE
         hundredths of a second more at the wait after it (a picture
-        animating there). Played once for each (STEP, PAUSE): cok plays in
+        animating there). Played once for each (STEP, PAUSE): krynn plays in
         real time, and judge_watch wants them twice (drawn_frames too)."""
         cache = self.__dict__.setdefault("_cok_frames", {})
         if (step, pause) not in cache:
             prefix = self.keys[:self.keys.index(rf"\s{step}.")]
-            cache[(step, pause)] = cok_frames(
-                self.work / f"cok-{step}", checklib.port_keys(prefix) + rf"\p{pause}.",
+            cache[(step, pause)] = krynn_frames(
+                self.work / f"krynn-{step}", checklib.port_keys(prefix) + rf"\p{pause}.",
                 saves=self.saves, seed=self.seed, helm=self.helm, machine=self.machine)
         return cache[(step, pause)]
 
     def drawn_frames(self, step, pause=300):
         """The port's screens from the title to the key read after STEP as
-        drawn (drawn_eclplay), then the frames cok presents for PAUSE
+        drawn (drawn_eclplay), then the frames krynn presents for PAUSE
         hundredths of a second at that read (a picture animating there),
         consecutive repeats dropped."""
         prefix = self.keys[:self.keys.index(rf"\s{step}.")]
@@ -500,7 +500,7 @@ class Compare:
                 screen = cokbox.Screen.load(p)
                 if not frames or screen.pixels != frames[-1].pixels:
                     frames.append(screen)
-        animation, _ = self.cok_frames(step, pause=pause)
+        animation, _ = self.krynn_frames(step, pause=pause)
         start = next((j for j, f in enumerate(animation) if f.pixels == frames[-1].pixels), None)
         for f in animation[start + 1:] if start is not None else ():
             if f.pixels != frames[-1].pixels:
@@ -510,14 +510,14 @@ class Compare:
     def judge_watch(self, step, pause=300):
         """The original's screens watched during STEP and its screen at the
         wait after it against the port's: each, in order, a screen of the
-        port's as drawn (drawn_frames) or as cok presents them (cok_frames:
+        port's as drawn (drawn_frames) or as krynn presents them (krynn_frames:
         it presents some states the drawn shots miss, e.g. row 24 cleared
         before a menu is drawn); match_in_order: from where the previous one
         matched on."""
         shots = self.watched[step] + [self.shown[step]]
         what = f"{self.work.name} {step}: the screens while its keys are taken, in order"
         port = {"drawn": self.drawn_frames(step, pause=pause),
-                "presented by cok": self.cok_frames(step, pause=pause)[0]}
+                "presented by krynn": self.krynn_frames(step, pause=pause)[0]}
 
         def first_match():
             for how, frames in port.items():
@@ -674,8 +674,8 @@ def throtl_save(out, letter, var=None, at=None, extra=()):
     return saves, text
 
 
-def cok_frames(out, keys, saves=None, seed=None, helm=False, machine="tandy", timeout=300):
-    """Every frame cok (cokbox.COK) presents for KEYS from the title (SDL's dummy driver saving each,
+def krynn_frames(out, keys, saves=None, seed=None, helm=False, machine="tandy", timeout=300):
+    """Every frame krynn (cokbox.KRYNN) presents for KEYS from the title (SDL's dummy driver saving each,
     320x200 at --scale 1 --aspect 1:1, real delays), as Screens,
     consecutive repeats dropped. For screens the original shows between key
     reads (delays, running text), which eclplay's shots miss."""
@@ -689,7 +689,7 @@ def cok_frames(out, keys, saves=None, seed=None, helm=False, machine="tandy", ti
             shutil.copyfile(f, out / "saves" / f.name)
     cfg = out / "krynn.cfg"
     cfg.write_bytes(cokbox.krynn_cfg(cokbox.MACHINES[machine][1]).encode())
-    args = [str(cokbox.COK), "--assets", str(cokbox.ROOT / "COKAssets"),
+    args = [str(cokbox.KRYNN), "--assets", str(cokbox.ROOT / "COKAssets"),
             "--saves", str(out / "saves"), "--config", str(cfg), "--aspect", "1:1",
             "--scale", "1", "--input", "none", "--no-sound", "--keys", keys]
     if seed is not None:

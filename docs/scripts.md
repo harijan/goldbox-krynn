@@ -303,7 +303,7 @@ and `\#10` are Alt-Q; and the keypad's keys as the BIOS takes them,
 and typing nothing, `\dC` the keypad's key `C` (`0`-`9`, `.`), its digit
 with NumLock on and else the cursor key's code (nothing for 5), `\aN.` Alt
 held over the keypad's digits `N`, typing their character code as a byte on
-Alt's release, nothing for 0; `cok` presses those keys through SDL's
+Alt's release, nothing for 0; `krynn` presses those keys through SDL's
 events, outside a group typed ahead, where they are typed as their codes);
 when they run out the run stops. `\k` presses the next key while the party
 rests, which the rest loop sees (`1614:03c2`), or as a battle is set up,
@@ -322,7 +322,7 @@ picture), and a rest polls once a step. From startup the first wait is the
 note to Tandy users' `Delay(2000)` (see [Startup and the setup](front-end.md#startup-and-the-setup)), where a
 group typed ahead at the start arrives, for the title's flush to drop.
 `eclplay` has no delays; it counts the calls to the delay hook as the
-window's front end does, and passes over `cok`'s `\pN.` (a pause in real
+window's front end does, and passes over `krynn`'s `\pN.` (a pause in real
 time). `--saves DIR` is where Save writes and the roster is kept (see [The
 start menu](start-menu.md#the-start-menu)); without it, saving logs an error. `--import DIR` is where a
 game that imports another's characters finds them (Death Knights' Add and
@@ -598,7 +598,7 @@ key reader (`1614:025b`, which every key the game reads goes through but
 text input's and the flushes', see [Playing](front-end.md#playing)) takes, with Ctrl-Z and
 Ctrl-C, only when the first argument is `Woof` (`ParamStr(1)` against
 `1614:024c`, exact case): `START Woof`, or `START Woof Helm` with the
-Gods' cheat too; `cok --woof` and `eclplay --woof`. No other argument or
+Gods' cheat too; `krynn --woof` and `eclplay --woof`. No other argument or
 build is involved; the readers of the flag are in every run, but nothing
 else sets it. The key is passed on as read in every case, so a menu reads
 it too; a scan code of 3 (Ctrl-2's) is Ctrl-C as well.
@@ -627,7 +627,7 @@ saves directory (`--saves`), or nowhere without one (`eclplay` without
 `debug.txt:`; Ctrl-D logs `debug: on` and `debug: off`, Ctrl-C `quit: to
 DOS`. In `--keys`, `\cD`, `\cZ` and `\cC` type Ctrl-D, Ctrl-Z and
 Ctrl-C (`\cX` is Ctrl and any letter, 1-26; the raw bytes 4, 0x1a and 3
-do as well), which `cok` sends as Ctrl and the letter. Besides Ctrl-Z's lines, loading a tile set
+do as well), which `krynn` sends as Ctrl and the letter. Besides Ctrl-Z's lines, loading a tile set
 (`6e22:0050`; the wall sets' from `LOAD FILES` and `LOAD PIECES`, slots
 1-3) writes `slotnum = N`. At the end of a run the port closes the file
 if the flag is set, as quitting would.

@@ -1,11 +1,11 @@
 # The front end
 
-`cok`: playing in a window, startup and the setup, the mouse and the joystick, the display modes. Part of the
+`krynn`: playing in a window, startup and the setup, the mouse and the joystick, the display modes. Part of the
 [developer notes](../DEVELOPERS.md).
 
 ## Playing
 
-`build/cok [options]` plays the game in a window, as `eclplay
+`build/krynn [options]` plays the game in a window, as `eclplay
 --start-menu` plays it without one: main's loop (`1000:0134`, see [The
 start menu](start-menu.md#the-start-menu)), the title, its menu and the demonstration, the start menu,
 then the adventure, camp, shops and combat, game after game, the
@@ -29,7 +29,7 @@ timed menu runs out or the small picture's next frame is due.
 | `--seed N` | start Turbo Pascal's `Random` from N; by default the clock seeds it, as startup's `Randomize` (`1a46:1200` from `3e99:005b`) does |
 | `--woof`, `--helm` | start as `START Woof` (no title, and the debug keys Ctrl-D, Ctrl-Z and Ctrl-C: see [Debug mode](scripts.md#debug-mode)) or with `Helm` (`Area` anywhere, the Gods' cheat Alt-X, free training) |
 | `--log` | print the game's text, menus, choices, sounds and what is not ported to standard error, as `eclplay` prints them; the window's size and where the screen is shown in it; keys typed ahead that a flush drops (`flush:`); startup's text screen, a row at a time (`crt:`); the display mode (`display:`); the alternate input found (`input:`); the audio driver and the sound device (`sound:`); and a check that the window keeps up: `stale:` if, through the game's delays, the window kept an older screen than the game's for more than 160 ms |
-| `--log-times` | with `--log`, start each line with SDL's clock (`SDL_GetTicks64`, the milliseconds the delays and waits go by), and log each frame the window presents (`present: N`, numbered as SDL's dummy driver numbers the frames it saves with `SDL_VIDEO_DUMMY_SAVE_FRAMES`) and each frame of the small picture's animation as it is drawn (`frame: N`, 0-based): what `tests/test_cok.py` measures the pacing by in real time |
+| `--log-times` | with `--log`, start each line with SDL's clock (`SDL_GetTicks64`, the milliseconds the delays and waits go by), and log each frame the window presents (`present: N`, numbered as SDL's dummy driver numbers the frames it saves with `SDL_VIDEO_DUMMY_SAVE_FRAMES`) and each frame of the small picture's animation as it is drawn (`frame: N`, 0-based): what `tests/test_krynn.py` measures the pacing by in real time |
 | `--keys KEYS` | type KEYS first, in `eclplay`'s escapes (see [Playing scripts](scripts.md#playing-scripts)), each turned into the key that gives it and sent through SDL's key events as the game asks for a key (`\k` as it polls, `\t` the timed menu running out, `\[KEYS\]` typed ahead and `\wN.` as in Playing scripts; besides, `\pN.` pauses N hundredths of a second before the next key is typed as the game reads it, and `\#85` and `\#86`, codes the game never gets, press F11 and F12; `\mX,Y,B.` and `\jX,Y,B.` click the mouse and move the stick through SDL's events, see The mouse and the joystick; a key repeated in a group typed ahead is held, its repeats sent as a held key's are; each a real keystroke, so that a flush after its 0 is read loses its scan code, which `eclplay` keeps for keys not typed ahead); the run then ends as `eclplay`'s does, printing `(out of keys ...)`, unless `--continue` hands over to the keyboard |
 | `--no-delay` | do not wait where the game waits (for tests); a rest keeps the front end's pace (see below); the sound then goes by the game's clock (see [Sound](sound.md#sound)) |
 | `--display ega`, `--display tandy`, `--display cga` | the display mode in place of the one `KRYNN.CFG` names (its first line: `E`, `T`, anything else CGA, see Display modes): EGA and the Tandy's look the same; CGA shows four colours |
@@ -37,7 +37,7 @@ timed menu runs out or the small picture's next frame is due.
 | `--no-sound` | open no audio device |
 | `--volume N` | 0-100 (default 100) |
 | `--sound-clock real`, `--sound-clock game` | what times the sound drivers: the audio device as it plays (the default; with `--no-delay`, `game`), or the game's delays and `\pN.` pauses, as `eclplay --wav` renders them |
-| `--input mouse`, `--input joystick`, `--input none` | the alternate input in place of the one `KRYNN.CFG` names (its third line: `M`, `J`, `N`; see The mouse and the joystick): `cok` always has SDL's mouse, and has a joystick when SDL finds one; `--input joystick` over a file whose third line is not `J` (which gives no thresholds) calibrates the stick at startup, as the setup's `[1]` does (`177c:029d`, on the text screen before the note to Tandy users), for the run only: the file is not written |
+| `--input mouse`, `--input joystick`, `--input none` | the alternate input in place of the one `KRYNN.CFG` names (its third line: `M`, `J`, `N`; see The mouse and the joystick): `krynn` always has SDL's mouse, and has a joystick when SDL finds one; `--input joystick` over a file whose third line is not `J` (which gives no thresholds) calibrates the stick at startup, as the setup's `[1]` does (`177c:029d`, on the text screen before the note to Tandy users), for the run only: the file is not written |
 | `--shots DIR` | save `DIR/NNN.bmp` each time the game waits for a key and when a battle is set up, as `eclplay --shots` does, but read back from the window: each pixel of the screen where its area's middle is shown must be one of the screen's colours (16, or CGA's 4), and at a whole multiple of 320×200 its whole block; in 4:3 it needs `--scale 2` or more, as at 320×240 the smoothing blends every row |
 
 The window can be resized; the screen keeps its aspect, letterboxed. It is
@@ -75,7 +75,7 @@ keypad numbers as the BIOS keeps them, `cok_keymap_event`):
 | Alt and a digit, `-` or `=` | 0, then 0x78-0x83 | nothing |
 | Ctrl and a letter | 1-26; Ctrl `[ \ ] 6 -` 27-31; Ctrl-2 0, 0x03 | Ctrl-S the sound off and on again (`1614:025b`, see [Sound](sound.md#sound)); with `--woof`, Ctrl-D the debug mode on and off, Ctrl-Z the party's effects to `DEBUG.TXT`, Ctrl-C (and Ctrl-2, whose scan code is 3) quit to DOS (see [Debug mode](scripts.md#debug-mode)); in the setup's path line, Crt's editor's: Ctrl-S erases a character, Ctrl-A the line, Ctrl-D and Ctrl-F recall (`1962:0394`, see Startup and the setup), and the debug keys and Ctrl-S's sound do nothing there |
 | F11 or Alt-Enter | nothing (function 0 drops them) | full screen on and off |
-| F12 | nothing | save the screen as shown (the mouse's cursor too), 320×200 (startup's text screen 640×200), as `cokNNN.bmp` in `screenshots/` or `--screenshots DIR` |
+| F12 | nothing | save the screen as shown (the mouse's cursor too), 320×200 (startup's text screen 640×200), as `krynnNNN.bmp` in `screenshots/` or `--screenshots DIR` |
 
 With the mouse on (`KRYNN.CFG`'s `M`, or `--input mouse`), its left button
 is Enter and its right Escape where the game reads a key, and a click goes
@@ -139,7 +139,7 @@ original's at `67b5:03e2`'s start and after each frame), so arrow keys
 delay the next frame a little. Nothing else animates while the game waits.
 The screen is shown when it has changed, at most 60 times a second while
 the game runs and at once when it waits for a key, which it does asleep in
-`SDL_WaitEventTimeout`: `tests/test_cok.py` measures the CPU time over two
+`SDL_WaitEventTimeout`: `tests/test_krynn.py` measures the CPU time over two
 seconds at the title's menu and in the title's waits, which must be under
 a tenth of a core (it is under 1% here). A present the rate holds back is
 owed, and every wait wakes for it, so the window never keeps an old screen
@@ -160,12 +160,12 @@ in the background with `SIGINT` ignored) ends the run at once: the key
 read returns the end of input, or the delay sets the abort flag the end of
 input sets, and the game returns as `eclplay`'s does when its keys run out,
 writing nothing more; a save under way finishes first, as saving reads no
-key. `cok` then exits with status 0. Quitting to DOS (the start menu's
+key. `krynn` then exits with status 0. Quitting to DOS (the start menu's
 Exit to DOS, Yes to `Quit TO DOS` after camp's Save, or Ctrl-C with
 `--woof`) ends it too, printing `(quit to DOS)`.
 
 Where the port stops (`COK_ECL_UNDEFINED`, `COK_ECL_EFFECT_FAILED`, an
-unported routine, a file missing or unreadable), `cok` prints `stopped in
+unported routine, a file missing or unreadable), `krynn` prints `stopped in
 block N at ADDR: ` and the reason to standard error, writes the reason in
 light red on the screen's last rows over black, with `Press a key to quit.`
 in white (in CGA mode magenta and white), waits for a key or the window's
@@ -173,7 +173,7 @@ close, and exits with status 1 (2 for bad options or a `--keys` code no key
 gives). Without the font, a message box says it.
 
 Not done: the music of CMS and the MT-32 (see [Sound](sound.md#sound)).
-`tests/test_cok.py` plays, with `--input none` (the keyboard alone, as
+`tests/test_krynn.py` plays, with `--input none` (the keyboard alone, as
 `eclplay` without `--mouse` has it), the title and the demonstration, and a
 new game from the title (creating a character, the overland map, two fights
 with the player's keys, camps in an inn and in 3D, walking in Throtl,
@@ -213,7 +213,7 @@ mouse's clicks and the joystick (see The mouse and the joystick).
 
 The checks in real time hold on a busy machine (the tests run while
 other builds and tests load every core) and still fail on a change to the
-pacing they check. They time the game by SDL's clock as `cok --log
+pacing they check. They time the game by SDL's clock as `krynn --log
 --log-times` logs it (its lines, the frames it presents and the picture's
 frames as it draws them), not by the test's clock, which is late by however
 long the test takes to read the lines, nor by when the frames' files were
@@ -234,7 +234,7 @@ folder): on a disk slow to write (here a FUSE overlay, starved of CPU on a
 busy machine) a frame took seconds, and the game was late by that. The
 driver leaves a frame short without a word when its disk is full, which
 the tests report as such (its size against its header's). Their temp
-folders are named `test_cok-*`. The sound's checks count the device's
+folders are named `test_krynn-*`. The sound's checks count the device's
 samples, which SDL's disk writer produces at its own thread's pace, slower
 on a busy machine (0.8 seconds of them in 3 once): the music is checked
 over 2.5 seconds of them, and the steps' sounds, each after a pause, once
@@ -318,7 +318,7 @@ Initialize Mouse/Joystick (`4def:5cc7`) rewrites the file (see [The start
 menu](start-menu.md#the-start-menu)).
 
 The port does the same (`src/setup.c`, on the text screen of `src/crt.c`),
-in `cok` and in `eclplay --start-menu`, before the game opens; `--display`
+in `krynn` and in `eclplay --start-menu`, before the game opens; `--display`
 and `--sound` then override what the file says. What the original showed
 depends on the machine's adapter, not on `KRYNN.CFG`, as no mode is set
 yet: on a CGA or a Tandy 1000, 80×25 at 640×200 in the ROM's 8×8
@@ -339,8 +339,8 @@ arrows, ⌂). Four that unscii lacks are drawn by the port in its style:
 0x20 and 0xff are blank. Lower case shows as typed, as do the symbols,
 accented letters, box drawing and blocks. The table is in `src/crt.c`
 (`cok_crt_glyph`); `tools/pcfont.py unscii-8.hex` prints it. The game's
-own font (`8X8D1.DAX`) draws everything after the setup. `cok` shows it
-in the window (F12 saves it, 640×200), `cok --log` and `eclplay` log each
+own font (`8X8D1.DAX`) draws everything after the setup. `krynn` shows it
+in the window (F12 saves it, 640×200), `krynn --log` and `eclplay` log each
 row as the cursor leaves it (`crt: `), and `eclplay --shots` saves it at
 each key read. The game's directory is taken as `C:\COK\`, where the
 assets' own `KRYNN.CFG` says the game was installed (its save path
@@ -377,7 +377,7 @@ cannot, but removes it again if the run ends in the setup (only a file it
 made: what was there before is left). A file it cannot make shows the
 original's message on the text screen; then, there as for a file it cannot
 read or write, a blank row and `The port stops here: ` with the reason,
-also on standard error; the run ends with status 1 (`cok` waits for a key
+also on standard error; the run ends with status 1 (`krynn` waits for a key
 or the window's close first). A run whose keys end in the setup ends `(out
 of keys in the setup)`.
 
@@ -427,7 +427,7 @@ rewrite, the timeout key (`\t`) waiting on, the text screen's cells as it
 scrolls, its rows logged as the setup writes them, its drawing, and its
 font (the table's digest, glyphs of its own for every character but the
 blanks, lower case apart from capitals, box drawing to the cell's edges);
-`tests/test_eclplay.py` and `tests/test_cok.py` play the setup from the
+`tests/test_eclplay.py` and `tests/test_krynn.py` play the setup from the
 title's start.
 
 ## The mouse and the joystick
@@ -504,19 +504,19 @@ fixed by the code's layout (`0a46:084a`, the WriteLn at `11c7:0840`, for
 `029d`; `0a46:056c`, the Rewrite at `4def:60aa`, for `638d`), not computed
 here; the port adds 0.
 
-The machine: `cok` always has a mouse driver (SDL's pointer) and has the
+The machine: `krynn` always has a mouse driver (SDL's pointer) and has the
 first joystick SDL finds; `eclplay` has neither unless `--mouse` and
 `--joystick` give them, so its transcripts with the assets' `M` are those
 of a machine without a mouse. Both take `--input mouse`, `joystick` or
 `none` in place of the file's third line (`none` is `N`; `M` without a
 driver ends the same); `--input joystick` over a file without `J` calibrates
-the stick at startup (see the options). In `cok` the pointer follows the
+the stick at startup (see the options). In `krynn` the pointer follows the
 window's: its place over the screen as shown, letterboxed and at any scale,
 each window pixel taken at its centre, as the driver's x (0-639) and y; the game's moves of the pointer (startup's) move the
 window's where it is over it; the window's own cursor is hidden while the
 game's mouse is on. The stick's axes give counts 1-256 (the original's
 depend on the machine's speed, which is why it calibrates), its first two
-buttons buttons 1 and 2; a read of it is instant, so `cok` gives the
+buttons buttons 1 and 2; a read of it is instant, so `krynn` gives the
 calibration's polls 20 ms each (20000 of them: about 400 seconds) and a
 pushed stick a key every 60 ms, about the original's pace on a 286. Keys
 for scripts (`--keys`, both): `\mX,Y,B.` puts the pointer on pixel X, Y and
@@ -526,7 +526,7 @@ has read the click and waits or reads again; `\jX,Y,B.` puts the stick at
 counts X, Y with buttons B (1 button 1, 2 button 2) until the next `\j`;
 where the game polls them in a loop (the menus' wait for the buttons, the
 calibration) the next `\j` or move comes, else the stick's buttons come up,
-and with nothing to change the keys' end ends the run. `cok` presses them
+and with nothing to change the keys' end ends the run. `krynn` presses them
 through SDL's mouse events and a virtual joystick (attached at the start
 when the keys have `\j`), so the same keys give the same frames.
 
@@ -550,7 +550,7 @@ Initialize Mouse/Joystick writes and the setup's calibration;
 overland map and a battle's Move and aiming by clicks against the keys that
 do the same, frame for frame, the party list, the title's hidden cursor, the
 mouse off and on, the joystick's keys and both calibrations; and
-`tests/test_cok.py` the clicks and the joystick through SDL's events frame
+`tests/test_krynn.py` the clicks and the joystick through SDL's events frame
 for frame as `eclplay` draws them, at two scales.
 
 ### Death Knights' mouse
@@ -632,7 +632,7 @@ heap's end by 16 KB for its video memory (`DS:438e`, the old end kept in
 colours. The setup the original shows without the file offers `[1] CGA
 [2] EGA [3] Tandy` (see Startup and the setup). The port reads it with the
 sound device (`cok_config_parse`): the assets' `E` plays EGA; `--display
-ega`, `tandy` or `cga` in `cok` and `eclplay` override it, and `cok --log`
+ega`, `tandy` or `cga` in `krynn` and `eclplay` override it, and `krynn --log`
 prints `display: EGA`.
 `cok_adventure_open_display` opens the game in a mode (`game->display`,
 `DS:4b76`; `cok_adventure_open` in the Tandy's).
@@ -693,10 +693,10 @@ colour into what lies under them, as the original does). A map value
 above 3 ORs bytes of the tables after `DS:1e0e` into its byte's four
 pixels, as `127f:02a5` and `15fd` do; no record has one. A CGA picture
 shows in `cok_cga_palette` (`cok_image.palette`), in `eclplay`'s
-`--shots` and `--screen` and in `cok`'s window and screenshots. A value
+`--shots` and `--screen` and in `krynn`'s window and screenshots. A value
 above 3 on CGA mode's screen can only come from a picture drawn on it
 without CGA's colours, a bug the palette would hide: `eclplay` stops there
-when it saves the screen, and `cok --shots` fails
+when it saves the screen, and `krynn --shots` fails
 (`cok_picture_cga_valid`).
 
 Two stack leftovers depend on the blit routine (see [Spells in combat](combat-spells.md#spells-in-combat)):
@@ -740,7 +740,7 @@ and each mode's branch of `02a5`, `0b94`, `0edb`, `10e7`, `12e8`, `15fd`
 and `1d71`. `tests/test_eclplay.py` plays the new game in each mode: EGA's
 and the assets' are the Tandy's frame for frame, CGA's the same lines in
 four colours, its menus' text through `DS:1de9`, its 3D view, its icon
-editor; `tests/test_cok.py` that `cok --display cga` shows `eclplay`'s
+editor; `tests/test_krynn.py` that `krynn --display cga` shows `eclplay`'s
 frames. `tests/test_picture.c`, `test_text.c` and `test_view.c` check the
 CGA mappings and backdrop; `test_adventure.c` and `test_arena.c` the game's
 CGA paths (no sky, sprites' and icons' colours, the backdrop's colours by

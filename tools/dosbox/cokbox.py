@@ -40,11 +40,11 @@ import zlib
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
-# The port the checks compare with: build/eclplay and build/cok, built from
-# src/ (COKBOX_ECLPLAY, COKBOX_COK and COKBOX_SRC point elsewhere, e.g. at a
+# The port the checks compare with: build/eclplay and build/krynn, built from
+# src/ (COKBOX_ECLPLAY, COKBOX_KRYNN and COKBOX_SRC point elsewhere, e.g. at a
 # mutant's build, for a mutation check of the checks).
 ECLPLAY = pathlib.Path(os.environ.get("COKBOX_ECLPLAY") or ROOT / "build/eclplay")
-COK = pathlib.Path(os.environ.get("COKBOX_COK") or ROOT / "build/cok")
+KRYNN = pathlib.Path(os.environ.get("COKBOX_KRYNN") or ROOT / "build/krynn")
 PORT_SRC = pathlib.Path(os.environ.get("COKBOX_SRC") or ROOT / "src")
 sys.path.insert(0, str(HERE.parent))
 import ovrmerge  # noqa: E402  (tools/ovrmerge.py: EXEPACK unpacking)
