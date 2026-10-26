@@ -36,10 +36,12 @@ ROOT = cokbox.ROOT
 DS_STATE, DS_DRIVER = 0x9896, 0x9889
 SONG_SECONDS = 80  # MUSIC.DAX's song 1: 5,376 interrupts at 72.8 a second, 74 s
 # The tempo's drift allowed over the 51 s compared: DOSBox-X's WAV wanders
-# by 0.2 % against its emulated time over stretches of seconds (with the
-# Tandy its 4,451 interrupts of the title's song took 61.125 s of WAV,
-# 61.118 s at 72.826 a second, while the offsets drifted 0.11 s within).
-MAX_DRIFT = 0.15
+# by 0.2-0.3 % against its emulated time over stretches of seconds (with
+# the Tandy its 4,451 interrupts of the title's song took 61.125 s of WAV,
+# 61.118 s at 72.826 a second, while the offsets drifted 0.11 s within;
+# four runs drifted 0.11-0.155 s). A wrong rate (a tick each interrupt, a
+# PIT count off by one step of the driver's) would be percents.
+MAX_DRIFT = 0.25
 
 DEVICES = {
     "T": dict(machine="tandy", conf={"sblaster.sbtype": "none", "sblaster.oplmode": "none"}),

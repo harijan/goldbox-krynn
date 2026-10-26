@@ -687,8 +687,8 @@ or only a port read (the AdLib's probe's count of reads).
 title's song in DOSBox-X on the Tandy and on the AdLib (machine `tandy`
 without a Sound Blaster; `ega` with an OPL2) and compares it with
 `eclplay --wav`: the driver's device as expected, the pitches (93 % and
-91 % of the frames) and the tempo within 0.15 s over the 51 s to the
-title's menu (both 0.11 s: DOSBox-X's WAV wanders by 0.2 % over
+91 % of the frames) and the tempo within 0.25 s over the 51 s to the
+title's menu (0.11-0.155 s in four runs: DOSBox-X's WAV wanders by 0.2-0.3 % over
 stretches, though its 4,451 interrupts took 61.125 s of WAV, 61.118 s
 at 72.826 a second); the levels on the Tandy agree within 5 %.
 
