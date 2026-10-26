@@ -35,7 +35,12 @@ The format (DARK-QUEEN.md, "Files"):
                  0 ends the row, 0x80 and up skips 256 - c (transparent),
                  below copies c pixels;
             0x19 drawn from the same library's records: 6-byte entries,
-                 u8 record, u8 the entries' count, u16 y, u16 x.
+                 u8 record, u8 the entries' count (not used here), u16 y,
+                 u16 x. Read from the files, not yet from the EXE's drawing
+                 code: PICC.TLB's 160/6, 7, 9 and 11 are 176x88 with one
+                 entry (record 2 at 0, 0), so their right half renders
+                 transparent, and one of FRAME.TLB 21's entries has x 3
+                 where the others have 0.
   palette   a picture header's format byte 0x18: u16 type (5 partial, 7
             full), u16 first, u16 count, u8, u8 24, then count 8-bit RGB
             triples and count / 2 bytes of EGA colours (two a byte).

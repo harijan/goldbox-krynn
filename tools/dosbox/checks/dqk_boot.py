@@ -52,7 +52,7 @@ MASKS = {
     "protection": [(64, 189, 8, 8, "the input's blinking cursor")],
 }
 # Set once the party is loaded, so that the protection's question (two
-# draws of rand()) is the same each run.
+# draws, 2102:0234) is the same each run.
 SEED = 12345
 
 
@@ -63,7 +63,8 @@ def port(work, name):
 
 
 def pictures(box, out, verdict):
-    """The logos and the title, each once it has settled."""
+    """The logos and the title, each once it has settled; returns the last
+    shown."""
     shown, found = None, []
     end = time.monotonic() + 120
     while len(found) < len(PICTURES) and time.monotonic() < end:
@@ -81,6 +82,7 @@ def pictures(box, out, verdict):
         box.settle(0.2)
     verdict.check(len(found) == len(PICTURES), "the start's pictures seen",
                   f"{len(found)} of {len(PICTURES)}")
+    return shown
 
 
 def main():
@@ -101,10 +103,9 @@ def main():
     # time, which it missed (2026-10-26); the steps after agreed in both.
     with cokbox.Box(workdir=work / "box", game="dark-queen", verbose=opts.verbose,
                     timeout=600, turbo=False) as box:
-        pictures(box, out, verdict)
+        last = pictures(box, out, verdict)
         memory["title"] = dict(adapter=box.ds_word(dqk_lib.DS_ADAPTER))
         verdict.value("the display adapter (DS:ca41)", memory["title"]["adapter"], 0x0F)
-        last = None
         for i, (name, keys) in enumerate(STEPS, start=len(PICTURES)):
             if keys is ANSWER:
                 entry, word, answer = dqk_lib.protection(box)
@@ -113,13 +114,14 @@ def main():
                               f"entry {entry}, word {word} of DS:6dd2's table: {answer!r}")
                 keys = answer + "\\r"
             box.keys(keys)
-            shot = box.settled()
+            # The protection's input blinks its cursor (MASKS).
+            shot = box.settled(tolerance=64)
             shot.save_png(out / f"{i:02d}-{name}.png")
             memory[name] = dict(ecl=dqk_lib.ecl_state(box),
                                 party=dqk_lib.far(box, dqk_lib.DS_PARTY) is not None)
             if name == "loaded":
                 box.set_seed(SEED)
-            verdict.check(last is None or shot.diff(last)[0] > 0, f"{name}: a new screen")
+            verdict.check(last is not None and shot.diff(last)[0] > 0, f"{name}: a new screen")
             mine = port(work, name)
             if mine is not None:
                 verdict.screen(name, shot, mine, masks=MASKS.get(name, ()), work=work)
@@ -128,9 +130,17 @@ def main():
         typed = dqk_lib.cstr(box.ds_read(dqk_lib.DS_TYPED, 42))
         verdict.check(typed.upper() == memory["question"]["answer"].upper(),
                       "the word typed (DS:c723)", repr(typed))
-        verdict.check(memory["answered"]["ecl"]["buffer"] is not None and
-                      memory["answered"]["ecl"]["pc"] >= 0x8000, "the ECL running",
-                      json.dumps(memory["answered"]["ecl"]))
+        asked = box.ds_byte(dqk_lib.DS_ASKED)
+        memory["question"]["asked"] = asked
+        verdict.value("the protection asked once (DS:c722)", asked, 1)
+        # Until Begin Adventuring the ECL's address stays at its buffer's
+        # start (0x8000, opcode 0: the title's menu on); its first block
+        # then runs.
+        before, after = memory["protection"]["ecl"], memory["answered"]["ecl"]
+        verdict.check(after["buffer"] is not None and after["pc"] > 0x8000 and
+                      after["pc"] != before["pc"] and after["opcode"] != 0,
+                      "the ECL running after Begin Adventuring",
+                      f"{json.dumps(before)} then {json.dumps(after)}")
     (out / "memory.json").write_text(json.dumps(memory, indent=1) + "\n")
     print(f"the recorded original in {out}", flush=True)
     return verdict.finish()

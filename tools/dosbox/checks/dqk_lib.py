@@ -22,10 +22,11 @@ build/DQK_FULL.EXE):
   DS:b7f9  the ECL's address (5f07:0f46 sets it), DS:b1c7 the opcode
   DS:c6e5  the party's list, a far pointer (64b2:0131 clears it)
   DS:ca41  the display adapter (65fa:00a1; 0x0f VGA's 320x200x256)
-  DS:ca0e  Borland's rand() seed, a long (2102:0234; cokbox's GAMES)
+  DS:ca0e  the random numbers' seed, a long (2102:0234: seed * 0x6d25 + 1;
+           cokbox's GAMES)
   DS:c74c  the copy protection's journal entry and DS:c74d its word, drawn
            at random (65cc:008b); DS:c6f9 the answer, decoded (65cc:0003),
-           DS:c723 the word typed
+           DS:c723 the word typed, DS:c722 the questions asked
 """
 import pathlib
 import struct
@@ -44,6 +45,7 @@ DS_PARTY = 0xC6E5
 DS_ADAPTER = 0xCA41
 DS_SEED = 0xCA0E
 DS_ENTRY, DS_WORD, DS_ANSWER, DS_TYPED = 0xC74C, 0xC74D, 0xC6F9, 0xC723
+DS_ASKED = 0xC722
 
 
 def need_assets():

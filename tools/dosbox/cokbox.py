@@ -307,6 +307,8 @@ class Screen:
 
     def diff(self, other):
         """Pixels that differ: (count, (x0, y0, x1, y1) bounding box or None)."""
+        if isinstance(other, RGBScreen):
+            raise BoxError("an RGBScreen compares with another RGBScreen only")
         if (self.width, self.height) != (other.width, other.height):
             raise BoxError(f"sizes differ: {self.width}x{self.height} and {other.width}x{other.height}")
         count = 0
@@ -399,6 +401,8 @@ class RGBScreen(Screen):
     def diff(self, other):
         if (self.width, self.height) != (other.width, other.height):
             raise BoxError(f"sizes differ: {self.width}x{self.height} and {other.width}x{other.height}")
+        if not isinstance(other, RGBScreen):
+            raise BoxError("an RGBScreen compares with another RGBScreen only")
         if self.pixels == other.pixels:
             return 0, None
         count = 0
@@ -502,18 +506,21 @@ GAMES = {
     # 7 and no MPU-401. Its data segment is overlay 12, loaded at start at
     # the load segment + 0x322e (DQK_FULL.EXE's 422e; tools/dqkmerge.py),
     # found by bytes of it no relocation touches (its first are zeros and
-    # segment numbers). Borland's rand() seed, a long at DS:ca0e (dqk
-    # 2102:0234, set from the clock at 2102:0226). Screens are compared in
+    # segment numbers). Its random numbers' seed, a long at DS:ca0e (dqk
+    # 2102:0234: seed * 0x6d25 + 1, the draw (seed & 0x3fffffff) mod n;
+    # set from the clock at 2102:0226). Screens are compared in
     # RGB (256 colours, each picture's palette). Its keys go through dqk
     # 10d7:005c, a far routine with a frame (INT 16h, 0 or 1), so the
     # hook's frames start at its BP (c_frames). It polls the keyboard all
-    # the time (polls_always): a key goes in once the screen has settled.
+    # the time (polls_always): a key goes in once the screen has settled,
+    # 64 pixels allowed to change (settle_tolerance: an input's blinking
+    # 8x8 cursor, the protection's).
     "dark-queen": dict(assets="DQKAssets", dir="DQK", cfg="DISK1/DQK.CFG", cfg_text=None,
                        program="DQK.EXE", program_args="SB220 SI7 RB330", tree=True,
                        skip=(".c", ".h"), ds=0x422E, ds_signature="dqk",
                        merged="build/DQK_FULL.EXE", randseed=0xCA0E, turbo=True, rgb=True,
                        machine="vga", root_paras=0x1F4E, not_waits=(), not_wait_callers=(),
-                       c_frames=True, polls_always=True,
+                       c_frames=True, polls_always=True, settle_tolerance=64,
                        conf={"sblaster.sbtype": "sb16", "sblaster.sbbase": "220",
                              "sblaster.irq": "7", "midi.mpu401": "none"}),
 }
@@ -1238,7 +1245,8 @@ class Box:
             # Settled less than a second ago, with no key read since: still.
             if self._quiet is None or self._quiet[0] != self.hook("reads") or \
                     time.monotonic() - self._quiet[1] > 1.0:
-                self.settled(seconds=seconds)
+                self.settled(tolerance=self.profile.get("settle_tolerance", 0),
+                             seconds=seconds)
             return
         self._last_polls = self.hook("polls")
         self._streak = 0

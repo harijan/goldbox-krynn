@@ -161,9 +161,10 @@ SB220 SI7 RB330` run as `START.BAT` runs it. Its data segment is overlay
 12, loaded at start at the load segment + `0x322e` (`422e` in
 `build/DQK_FULL.EXE`, the PSP being `DS - 0x323e`), found by 64 bytes of
 it that no relocation touches (its first are zeros and segment numbers;
-`tools/dqkmerge.py` reads them from `DQK.EXE`); `seed=N` sets Borland's
-`rand()` seed, the long at `DS:ca0e` (`dqk 2102:0234`, set from the clock
-at `2102:0226`). Its screenshots are `RGBScreen`s, the pixels' colours
+`tools/dqkmerge.py` reads them from `DQK.EXE`); `seed=N` sets its random
+numbers' seed, the long at `DS:ca0e` (`dqk 2102:0234`: the seed becomes
+seed × 0x6d25 + 1 and the draw is (seed & 0x3fffffff) mod n; set from the
+clock at `2102:0226`). Its screenshots are `RGBScreen`s, the pixels' colours
 (three bytes each) rather than the nearest of 16 colours: 256 colours,
 each picture with its palette; `diff`, `region`, `save_png` and
 `checklib.masked_diff` work on them alike, and the 16-colour games' are
@@ -173,7 +174,8 @@ of its own, so `where` and `caller_chain` walk the BP chain from there
 logo, the title's scenes and every menu loop on INT 16h function 1
 (`251e:00dc`) as they animate, so polls advancing say nothing; instead
 `wait_input` waits until the screen has settled (`settled`: two
-screenshots half a second of the game's time apart the same, skipped when
+screenshots half a second of the game's time apart the same but for 64
+pixels at most, `settle_tolerance`, an input's blinking cursor; skipped when
 it settled less than a second ago and no key was read since), and a key
 is taken once the game has read it (`251e:00e7`'s function 0, the hook's
 reads). Turbo is its default: the start's menus, the load and Begin
