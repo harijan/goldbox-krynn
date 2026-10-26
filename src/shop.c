@@ -820,7 +820,9 @@ static void temple(cok_adventure *game)
      * and the shop's commands leave it as there; Heal, which ends
      * redrawing the screen, sets it too. On entry it holds a letter of a
      * text the place's script left on the stack (the outpost's menu's,
-     * 'a' in DOSBox-X): set. */
+     * 'a' in DOSBox-X): set. Only the outpost's temple was measured;
+     * another place's menu could leave another letter there, or 0 past a
+     * shorter text. */
     cok_sheet_stale stale = COK_SHEET_STALE_SET;
     for (;;) {
         bool money, items;

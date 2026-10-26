@@ -518,7 +518,11 @@ THAC0, which the items menu's recompute (`6346:0d20`) sets again, and an
 attack's amount and target, which the next attack sets before reading:
 the port rolls 0x07's die (a d6 or a d4 by the distance to whatever the
 pointer reads, one Random either way) and keeps nothing else
-(`e_kender.py`: the Hoopak unreadied, RandSeed one step on in both). 0x6f
+(`e_kender.py`: the Hoopak unreadied, RandSeed one step on in both).
+That holds where the caller recomputes the stats after (the items menu,
+`DESTROY ITEMS`); ROB (`3775:1da9`) and Remove Curse do not, and View
+would then show a THAC0 of the base plus strength's or dexterity's bonus
+by that unknown distance: the port stops there. 0x6f
 (terror), which writes `+0x10` of it, lasts only through the battle
 (`60f4:1440` takes it off while the records are there), so its stop
 outside one needs a second 0x6f on a record. Monsters carry effects that run every turn, and the timers run at

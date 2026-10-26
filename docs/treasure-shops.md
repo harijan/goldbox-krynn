@@ -115,13 +115,21 @@ The end of combat (`351b:1968`), as `cok_treasure_end_of_combat`:
    menus and a block's vectors when they end (`2fd3:3b47`), is a record
    removed here or in step 2 (or by the start menu's Remove and Drop, or
    `DUMP`), it names the freed record until the selection is kept again
-   (after a command, as a block is entered, `2fd3:3c28`); only where the
-   original restores it before that would it go on with the freed record,
+   (after a command, as a block is entered, `2fd3:3c28`). Where the
+   original restores it before that, the selection is the freed record,
    whose bytes the heap's free list and later allocations take over (the
    training hall's start menu wrote "Train Character" into it, then
-   Begin's free list), and only there the port stops with
-   `COK_ECL_UNDEFINED` (`e_freed_selection.py` saw the hall's removal
-   never restored).
+   Begin's free list; View then shows a sheet of garbage): the party list
+   highlights nobody (`6346:07ba` only compares the pointer), Up selects
+   nil (`546c:3334` finds no member before it), the start menu counts it
+   as selected. The port keeps that state (`src/ecl.h`) and stops with
+   `COK_ECL_UNDEFINED` only where its bytes are read: View, Magic, a
+   script's read of `0x7c00`-`0x7fff`, Down (its next field). In
+   `e_freed_selection.py` the hall's removal is never restored after
+   LEAVE, and is after a Deposit in the vault and the INN (PROGRAM 9): the
+   camp's screen as the port's, Up nil in both. The same happens where a
+   party flees a battle in a block's entry vectors with the kept member
+   down.
 4. Unless the party was destroyed: if it fled, the pool's items go; the
    NPCs take their shares, the results show and the treasure menu runs
    (below); then the pool's items go. Its coins stay until the next

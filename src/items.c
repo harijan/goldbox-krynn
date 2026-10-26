@@ -889,7 +889,12 @@ void cok_items(cok_adventure *game, bool *done)
                 ok = cok_debug_item(game, item); /* 546c:12be */
                 redraw = header = true;
                 break;
-            case 'R': ok = cok_item_ready(game, character, picked); break;
+            case 'R':
+                /* The stats recomputed below (6346:0d20). */
+                game->effects.stats_follow = true;
+                ok = cok_item_ready(game, character, picked);
+                game->effects.stats_follow = false;
+                break;
             case 'U':
                 if (item[0x34] == 0) {
                     cok_camp_notice(game, "Must be Readied");

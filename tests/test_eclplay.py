@@ -1640,16 +1640,17 @@ class PartyTests(unittest.TestCase):
 
     def test_trade_escape_at_the_coins(self):
         # Escape at Trade's first coin list tests a byte of the stack the
-        # caller left (src/sheet.h): from the adventure's commands 0, so
-        # Trade to? again (Exit there); from the start menu's View set, so
-        # Trade is left for View's menu.
+        # caller left (src/sheet.h): from the adventure's commands and the
+        # start menu's View set, so Trade is left for View's menu.
         result = self.play("--combat", "pass",
                            "--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
-                           "--keys", r"\r\rEvt\vS\eE\e", ASSETS, 32)
+                           "--keys", r"\r\rEvt\vS\e\e", ASSETS, 32)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
         coins = lines.index("item: Steel         2")
-        self.assertEqual(lines[coins + 1], "menu: Select Exit")
+        self.assertEqual(lines[coins + 1:coins + 4], ["print: SIR STRONGSWORD",
+                                                      "print: Knight of the Crown",
+                                                      "menu: Items Trade Drop Exit"])
         self.assertEqual(lines[-2:], ["menu: Move Area Cast View Encamp Search Look",
                                       "(out of keys in block 32 at 8320)"])
         saves = self.folder / "saves"

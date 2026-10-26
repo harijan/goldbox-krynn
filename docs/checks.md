@@ -131,7 +131,7 @@ original's behaviour is recorded, its section says what it does):
   `e_strength.py`.
 - #47 Trade's byte in six camp cases (Magic and Alter first among them)
   and from the start menu's `View`; from the commands' `View` the
-  original asks again or leaves by the run, the port asks again, not
+  original asks again or leaves by the run, the port leaves, not
   compared (see [View](camp.md#view)): `e_trade.py`.
 - #48 After an item with `+0x3d` 0x80, a cast neither says "casts" nor
   forgets the spell: `b_item_spell0.py`.
@@ -282,11 +282,13 @@ original's behaviour is recorded, its section says what it does):
   `d_turning.py`.
 - #130 Molly's Hoopak unreadied outside combat (effect 0x07's handler,
   through no combat record): RandSeed one step on, as for no other item,
-  and the items list as the port's (see [The rounds](combat.md#the-rounds)):
+  and the items list as the port's; ROB of it stops the port (the THAC0
+  left unknown) (see [The rounds](combat.md#the-rounds)):
   `e_kender.py`.
 - #131 The training hall's Remove of the selection kept in `DS:43bf`:
-  the freed record is never restored once LEAVE enters the next block,
-  and the port goes on (see [Treasure and the end of combat](treasure-shops.md#treasure-and-the-end-of-combat)):
+  the freed record is never restored once LEAVE enters the next block;
+  after the vault's Deposit and the INN it is (PROGRAM 9), the camp
+  highlights nobody and Up selects nil, as the port (see [Treasure and the end of combat](treasure-shops.md#treasure-and-the-end-of-combat)):
   `e_freed_selection.py`.
 
 Death Knights' title song (see [Death Knights' songs](sound.md#death-knights-songs))

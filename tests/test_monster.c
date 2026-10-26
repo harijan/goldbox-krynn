@@ -849,8 +849,24 @@ static void test_rob(void)
     item(c, 300, true, false);
     CHECK(RUN(COK_ECL_ROB, 0, 0, 0, 0, 0, 255) == COK_ECL_OK && c->item_count == 0);
     CHECK(strstr(s.log, "print: It's Cursed;") != NULL);
+    /* Molly's readied Hoopak (power 0, effect 0x07) robbed outside combat:
+     * its handler sets the THAC0 by a distance read through no combat
+     * record, and no recompute (6346:0d20) follows: the run stops. */
+    item(c, 25, true, false);
+    c->items[0][0x3d] = 0x07;
+    c->items[0][0x3e] = 0x80;
+    c->slots[0] = 1;
+    CHECK(cok_character_add_effect(c, 0x07, 0, 0xff, true) != NULL);
+    CHECK(RUN(COK_ECL_ROB, 0, 0, 0, 0, 0, 255) != COK_ECL_OK);
+    CHECK(strstr(game.effects.error, "3775:1da9") != NULL);
+    game.effects.failed = false;
+    game.vm.status = COK_ECL_OK;
+    game.vm.abort = false;
     /* With none selected the original reads through NULL. */
+    reset("");
+    c = member("C", 12);
     game.vm.character = NULL;
+    item(c, 25, false, false);
     CHECK(RUN(COK_ECL_ROB, 0, 0, 0, 0, 0, 255) == COK_ECL_UNDEFINED);
 }
 
@@ -953,8 +969,9 @@ static void test_combat(void)
               COK_ECL_COMBAT) == COK_ECL_OK && game.party_killed);
     game.party_killed = false;
     /* Fled, with the selection that EXIT restores after LOAD CHARACTER
-     * left behind, the original selects a record it freed: the port stops
-     * there, at EXIT, not before. */
+     * left behind, the original selects a record it freed: nobody is then
+     * selected for the party list and the pick keys, and what reads its
+     * bytes stops the run. */
     reset("\rE");
     cok_character *left = member("A", 12);
     left->record[0x189] = 0;
@@ -963,9 +980,26 @@ static void test_combat(void)
     game.vm.character = game.vm.saved_character = left->record;
     game.combat_stub = COK_COMBAT_FLED;
     CHECK(RUN(COK_ECL_LOAD_CHARACTER, 0, 0, COK_ECL_LOAD_MONSTER, 0, 9, 0, 1, 0, 9,
-              COK_ECL_COMBAT) == COK_ECL_UNDEFINED);
-    CHECK(s.at == s.length && strstr(game.error, "restored by EXIT") != NULL);
-    game.vm.saved_freed = game.vm.freed_selected = false;
+              COK_ECL_COMBAT) == COK_ECL_OK);
+    CHECK(s.at == s.length && cok_ecl_selection_freed(&game.vm));
+    /* Kept again, it stays the freed record's. */
+    cok_ecl_keep_selection(&game.vm);
+    CHECK(game.vm.saved_freed && game.vm.saved_character == NULL);
+    /* A script's read of its fields stops. */
+    (void)cok_ecl_load_var(&game.vm, 0x7c72); /* the race */
+    CHECK(game.vm.status == COK_ECL_UNDEFINED && strstr(game.vm.why, "4def:3b0a") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.vm.abort = false;
+    game.vm.why = NULL;
+    /* Down reads its next field: stops; Up finds none before it: nil. */
+    CHECK(cok_adventure_special(&game, 0x50) == NULL && game.vm.status == COK_ECL_UNDEFINED);
+    CHECK(strstr(game.error, "546c:3334") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.vm.abort = false;
+    game.error[0] = '\0';
+    CHECK(cok_adventure_special(&game, 0x48) == NULL && !game.vm.selection_freed);
+    CHECK(game.vm.status == COK_ECL_OK);
+    game.vm.saved_freed = false;
     /* Kept again before an EXIT, by a command or a block's entry, it is
      * never restored: the run goes on. */
     reset("\rE");

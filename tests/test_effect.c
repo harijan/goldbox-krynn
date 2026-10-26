@@ -1163,7 +1163,14 @@ static void test_saved(void)
      * Random) and keeps nothing else, the THAC0 recomputed after. */
     uint32_t seed = vm.seed;
     uint8_t thac0 = molly->record[0x18c], amount = fx.rolls.amount;
+    /* With no recompute after (ROB), the THAC0 it leaves is unknown. */
+    CHECK(!cok_effects_remove(&fx, molly, NULL, 0x07) && strstr(fx.error, "3775:1da9") != NULL);
+    CHECK(vm.seed == seed);
+    CHECK(strcmp(ids(molly), "5c5e07") == 0);
+    fx.failed = false;
+    fx.stats_follow = true;
     CHECK(cok_effects_remove(&fx, molly, NULL, 0x07) && strcmp(ids(molly), "5c5e") == 0);
+    fx.stats_follow = false;
     CHECK(vm.seed == seed * 0x08088405u + 1 && molly->record[0x18c] == thac0 &&
           fx.rolls.amount == amount);
 }

@@ -353,11 +353,16 @@ struct cok_ecl {
     bool missing_character;    /* DS:8855: 0x7d00 then reads 0. */
     uint8_t *saved_character;  /* DS:43bf, restored by EXIT if restore is set. */
     bool restore_character;    /* DS:43ba. */
-    /* DS:43bf named a record since removed and freed (4def:3b0a), which
-     * the original goes on with if it restores it; the next selection
-     * kept clears it. */
+    /* DS:43bf names a record since removed and freed (4def:3b0a); the
+     * next selection kept clears it. Restored (EXIT, PROGRAM, a block's
+     * vectors' end), the selection is that freed record: character is
+     * then NULL with selection_freed set, which the party list highlights
+     * nowhere and the pick keys compare (546c:3334), as the original's
+     * pointer; whatever reads its bytes stops the run, as they are the
+     * heap's free list's and later allocations'. */
     bool saved_freed;
-    bool freed_selected;       /* EXIT restored that freed record. */
+    bool selection_freed;
+    const char *why;           /* Why the interpreter stopped, if it says. */
 
     cok_text_cursor cursor;    /* DS:6134/6135. */
     uint32_t seed;             /* Turbo Pascal RandSeed, DS:43ae. */
@@ -456,7 +461,20 @@ uint8_t cok_dice_count(uint32_t *seed, uint8_t count, uint8_t sides, uint8_t *di
 static inline void cok_ecl_keep_selection(cok_ecl *vm)
 {
     vm->saved_character = vm->character;
-    vm->saved_freed = false;
+    vm->saved_freed = vm->character == NULL && vm->selection_freed;
+}
+
+/* Whether the selection is a freed record (see selection_freed). */
+static inline bool cok_ecl_selection_freed(const cok_ecl *vm)
+{
+    return vm->character == NULL && vm->selection_freed;
+}
+
+/* Restore the selection kept in DS:43bf, freed or not. */
+static inline void cok_ecl_restore_selection(cok_ecl *vm)
+{
+    vm->character = vm->saved_character;
+    vm->selection_freed = vm->saved_freed;
 }
 
 /* The operand count of opcode's handler in the game rules describes,

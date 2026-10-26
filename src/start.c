@@ -89,6 +89,7 @@ static void fresh(cok_adventure *game, uint8_t facing, uint8_t wall)
     vm->keep_vars = false;
     game->rest_ticks = 0;
     vm->character = NULL;
+    vm->selection_freed = vm->saved_freed = false;
     vm->file = 1;
     game->speed = 4;
     game->text_delay = true; /* 3e99:0560, 099d */
@@ -499,7 +500,8 @@ static void emptied(cok_adventure *game, uint8_t *entry)
  * or free training. */
 static void flags(cok_adventure *game, bool on[13])
 {
-    bool any = game->vm.character != NULL;
+    /* DS:6096 not nil: a freed record restored from DS:43bf counts. */
+    bool any = game->vm.character != NULL || cok_ecl_selection_freed(&game->vm);
     bool hall = any && (cok_ecl_var(&game->vm, COK_VAR_HALL) != 0 || game->free_training);
     bool want[13] = {true, any, any, hall, hall, any, true, any, !any, any, any, !any, true};
     memcpy(on, want, sizeof want);
@@ -676,6 +678,7 @@ static cok_ecl_status adventure(cok_adventure *game)
         if (!cok_treasure_remove_record(game, 0, keep, true, true)) return vm->status;
     }
     vm->character = NULL;
+    vm->selection_freed = false;
     return COK_ECL_OK;
 }
 

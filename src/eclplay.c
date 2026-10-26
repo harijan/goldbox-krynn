@@ -1012,8 +1012,7 @@ static int run(int argc, char **argv)
         if (screen != NULL) save(&p, screen);
         int result = 0;
         if (status != COK_ECL_OK) {
-            fprintf(stderr, "%s\n", game.error[0] != '\0' ? game.error
-                                                           : cok_ecl_status_string(status));
+            fprintf(stderr, "%s\n", cok_adventure_why(&game, status));
             result = 1;
         } else if (game.quit) {
             printf("(quit to DOS)\n");
@@ -1078,7 +1077,7 @@ static int run(int argc, char **argv)
     int result = 0;
     if (status == COK_ECL_LOAD_FAILED || status == COK_ECL_EFFECT_FAILED ||
         status == COK_ECL_UNDEFINED || status == COK_ECL_UNPORTED) {
-        fprintf(stderr, "%s\n", game.error);
+        fprintf(stderr, "%s\n", cok_adventure_why(&game, status));
         result = 1;
     } else if (status != COK_ECL_OK) {
         fprintf(stderr, "block %u at %04x: %s\n", game.vm.block, game.vm.ip,

@@ -15,7 +15,8 @@ DRYDEN, Trade, the next character, and reads the byte in the original's
 memory while the coin list waits (Trade's frame found by its callee's
 return address), then Escape:
 
-day: the byte is the high word's low byte of the DOS clock's hundredths
+day: the BIOS's clock set to noon as camp's menu waits: the byte is the
+high word's low byte of the DOS clock's hundredths
 (+ 30) when View's menu began, and Trade is left: the coin list and View's
 menu after Escape against the port's at the same key reads.
 
@@ -103,8 +104,9 @@ def flow(v, work, opts, name):
         v.check(K.title(box), f"{name}: the title's four pictures")
         K.type_steps(box, K.LOAD_A_STEPS, settle=1.0)
         K.type_steps(box, CAMP, settle=1.0)
-        if name == "midnight":
-            box.write_paused([(BIOS_CLOCK, struct.pack("<I", 18))])
+        # Noon by day (the host's clock could be just past midnight).
+        noon = int(12 * 3600 * 18.206481)
+        box.write_paused([(BIOS_CLOCK, struct.pack("<I", 18 if name == "midnight" else noon))])
         before = box.dword(BIOS_CLOCK)
         K.type_steps(box, TO_COINS, settle=1.0)
         after = box.dword(BIOS_CLOCK)

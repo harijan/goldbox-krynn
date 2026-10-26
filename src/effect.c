@@ -1544,11 +1544,17 @@ static bool kender(cok_effects *fx, cok_character *c)
          * nil before any battle (0000:000a, the interrupt table) or the
          * record the last battle's end freed, and the distance to it
          * (6346:2888) picks the die: a d6 or a d4, one Random (DS:43ae)
-         * either way. The THAC0 (+0x18c) and the amount (DS:6b30) it
-         * sets, with the weapon's bonus (a local never set with none),
-         * are not read before they are set again: the items menu
-         * recomputes the stats (6346:0d20) after the item, and an attack
-         * sets both. Only the roll is kept. */
+         * either way, and the THAC0 (+0x18c): the base's plus strength's
+         * (6346:1412) or dexterity's (12f8) bonus. Where the caller
+         * recomputes the stats (6346:0d20) after the item, the THAC0 and
+         * the amount (DS:6b30), with the weapon's bonus (a local never
+         * set with none), are not read before they are set again (an
+         * attack sets the amount): only the roll is kept. Elsewhere (ROB,
+         * 3775:1da9) View would show that THAC0: the run stops. */
+        if (!fx->stats_follow)
+            return fail(fx, "effect 0x07 (3f44:0208) outside combat sets the THAC0 by the "
+                            "distance to a target read through no combat record (+0x183), "
+                            "and nothing recomputes it (3775:1da9)");
         (void)cok_dice_count(&fx->vm->seed, 1, 6, &rolls->dice);
         return true;
     }

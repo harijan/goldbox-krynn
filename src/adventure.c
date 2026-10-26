@@ -1746,25 +1746,8 @@ static void reset_pictures(cok_adventure *game)
 
 /* A script ended (2fd3:0050). The original clears DS:8830, 884a, 884c and
  * 8848 here. */
-/* Where the selection restored from DS:43bf is a record removed since,
- * the original goes on with the freed record (its first 8 bytes TP's
- * free list's, the rest as the heap reuses it): the port stops. */
-static bool freed_selection(cok_adventure *game, const char *where)
-{
-    cok_adventure_fail(game, COK_ECL_UNDEFINED,
-                       "the selection kept in DS:43bf, restored by %s, is a record removed and "
-                       "freed since (4def:3b0a)",
-                       where);
-    return false;
-}
-
 static void exited(cok_adventure *game)
 {
-    if (game->vm.freed_selected) {
-        game->vm.freed_selected = false;
-        freed_selection(game, "EXIT (2fd3:0050)");
-        return;
-    }
     game->picture_shown = false;
     game->sprite_loaded = game->closeup_shown = false;
 }
@@ -1792,7 +1775,11 @@ static void destroy_items(cok_adventure *game)
             vm->character = c->record;
             size_t count = c->item_count;
             c->held = i + 1;
-            if (c->items[i][0x34] != 0 && !cok_item_unready(game, c->items[i])) return;
+            /* Each record's stats recomputed after (6346:0d20). */
+            game->effects.stats_follow = true;
+            bool unreadied = c->items[i][0x34] == 0 || cok_item_unready(game, c->items[i]);
+            game->effects.stats_follow = false;
+            if (!unreadied) return;
             size_t held = c->held;
             c->held = 0;
             if (held != i + 1 || c->item_count != count) {
@@ -1990,11 +1977,7 @@ static void program(cok_adventure *game)
     bool moving = game->moving;
     game->moving = false;
     if (vm->restore_character) {
-        if (vm->saved_freed) {
-            freed_selection(game, "PROGRAM (2fd3:3473)");
-            return;
-        }
-        vm->character = vm->saved_character;
+        cok_ecl_restore_selection(vm);
         vm->restore_character = false;
     }
     uint8_t what = (uint8_t)cok_ecl_value(vm, 0);
@@ -2713,6 +2696,7 @@ void cok_adventure_close(cok_adventure *game)
     cok_party_free(&game->party);
     cok_effects_free(&game->effects);
     game->vm.character = NULL;
+    game->vm.selection_freed = game->vm.saved_freed = false;
     free_frames(game);
     cok_picture_free(&game->big);
     cok_picture_free(&game->head);
@@ -3012,12 +2996,7 @@ static cok_ecl_status enter_block(cok_adventure *game, bool first)
         if (status != COK_ECL_OK || vm->abort || vm->reload) continue;
         status = cok_ecl_run(vm, vm->vectors[1]);
         if (status != COK_ECL_OK || vm->abort || vm->reload) continue;
-        if (vm->saved_freed) {
-            freed_selection(game, "the block's entry (2fd3:3b47)");
-            status = vm->status;
-            continue;
-        }
-        vm->character = vm->saved_character;
+        cok_ecl_restore_selection(vm);
         cok_adventure_party(game);
     } while (status == COK_ECL_OK && !vm->abort && vm->reload);
     game->restoring = restoring;
@@ -3178,6 +3157,13 @@ bool cok_adventure_pass_time(cok_adventure *game, unsigned unit, unsigned count)
 
 /* The adventure loop. */
 
+const char *cok_adventure_why(const cok_adventure *game, cok_ecl_status status)
+{
+    if (game->error[0] != '\0') return game->error;
+    if (status == game->vm.status && game->vm.why != NULL) return game->vm.why;
+    return cok_ecl_status_string(status);
+}
+
 void cok_adventure_fail(cok_adventure *game, cok_ecl_status status, const char *format, ...)
 {
     /* Callers pass game->error itself as an argument: format apart. */
@@ -3186,6 +3172,12 @@ void cok_adventure_fail(cok_adventure *game, cok_ecl_status status, const char *
     va_start(args, format);
     vsnprintf(text, sizeof text, format, args);
     va_end(args);
+    /* Where the selection is a record freed (DS:6096 restored from DS:43bf,
+     * see ecl.h), a stop that reads it reads those bytes. */
+    if (cok_ecl_selection_freed(&game->vm) && strstr(text, "selected") != NULL)
+        snprintf(text + strlen(text), sizeof text - strlen(text),
+                 " (the selection is a record removed and freed since, 4def:3b0a, "
+                 "restored from DS:43bf)");
     memcpy(game->error, text, sizeof text);
     log_text(game, "error", game->error);
     game->vm.status = status;
@@ -3508,9 +3500,10 @@ static int command(cok_adventure *game)
                 bool used;
                 /* Trade's flag (see sheet.h): what an interrupt's frame
                  * left below the commands' menu, which varies from run to
-                 * run: 0 in 11 of 12 runs in DOSBox-X with turbo, in 4 of
-                 * 13 at its cycles; the port takes 0. */
-                cok_sheet(game, COK_SHEET_STALE_ZERO, &used);
+                 * run: nonzero in 9 of 13 runs in DOSBox-X at the game's
+                 * speed (fixed cycles), though 0 in 11 of 12 with turbo,
+                 * a harness speed; the port takes the game's: set. */
+                cok_sheet(game, COK_SHEET_STALE_SET, &used);
                 break;
             }
             case 'E':

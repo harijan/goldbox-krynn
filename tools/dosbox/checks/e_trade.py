@@ -11,9 +11,9 @@ asks again as View's first command, after Magic too, and leaves after
 Items, Spells, Trade or Drop, a View before or Alter; a shop's View first
 asks again, after a View leaves; a temple's View first leaves, and so does
 the start menu's View. From the adventure's commands the byte is what an
-interrupt's frame left there, which varies from run to run (0 in 11 of
-12 runs with turbo, in 4 of 13 at the box's cycles): the port asks again,
-and the original is not compared there. Each case runs in the original
+interrupt's frame left there, which varies from run to run (0 in 4 of 13
+runs at fixed cycles, the game's speed, in 11 of 12 with turbo): the port
+leaves, and the original is not compared there. Each case runs in the original
 from a fresh start and in eclplay --start-menu: the coin list's screen
 against the port's; the byte (and [bp-0x13d], tested just before) read
 from Trade's frame while the coin list waits; then Escape and what the
@@ -22,13 +22,16 @@ against the port's screen. Always: asks again exactly when the byte is 0
 (546c:2f9b's test).
 
 Places: game A's start leads to the outpost; its inn camps there (camp
-cases), its armoury is a shop (#73), its temple (NEXT, TEMPLE) one too. The
+cases), its armoury is a shop (#73), its temple (NEXT, TEMPLE) one too;
+ECL1 block 32's chest (game G, c_chest.py's) is the treasure menu: View
+first asks again (the picture's load), after Take it leaves. The
 adventure commands' View (#47's last case) is Throtl's street after the
 gate fight, saved there by the port as game C. The start menu's View
 loads game A only.
 """
 import argparse
 import pathlib
+import shutil
 import struct
 import sys
 
@@ -40,7 +43,10 @@ cokbox = E.cokbox
 OUTPOST = r"\r\r\r\r\r\r\r"
 INN_CAMP = OUTPOST + r"I\r"
 ARMOURY = OUTPOST + "A"
-PICK = r"T\vS"           # Trade, the next character as partner, Select
+PICK = r"T\vS"
+# ECL1 block 32's chest (c_chest.py's game G, north of it): the room, the
+# results, the treasure menu (View Take Pool Share Exit).
+TO_CHEST = r"m\^\r\r"           # Trade, the next character as partner, Select
 # name: (check, saved game, keys to the place, keys to the coin list, the
 # port's outcome: asks again, leaves or stops)
 # name: (check, saved game (None: loaded, not begun), keys to the place,
@@ -52,11 +58,13 @@ CASES = {
     "camp-view-twice": (47, "A", INN_CAMP, "VEV" + PICK, "leaves"),
     "camp-magic-first": (47, "A", INN_CAMP, r"M\eV" + PICK, "asks again"),
     "camp-alter-first": (47, "A", INN_CAMP, r"A\eV" + PICK, "leaves"),
-    "commands-view": (47, "C", "", "V" + PICK, "asks again"),
+    "commands-view": (47, "C", "", "V" + PICK, "leaves"),
     "start-view": (47, None, "", r"\v\r\r" + PICK, "leaves"),
     "shop-view-first": (73, "A", ARMOURY, "V" + PICK, "asks again"),
     "shop-view-twice": (73, "A", ARMOURY, "VEV" + PICK, "leaves"),
     "temple-view-first": (73, "A", OUTPOST + "NT", "V" + PICK, "leaves"),
+    "treasure-view-first": (47, "G", TO_CHEST, "V" + PICK, "asks again"),
+    "treasure-take-first": (47, "G", TO_CHEST, r"T\r1\r\eV" + PICK, "leaves"),
 }
 # Where the original's byte varies from run to run: not compared.
 VARIES = {"commands-view"}
@@ -151,6 +159,12 @@ def main():
     checklib.need_saves()
     v = checklib.Verdict()
     saves = E.make_c(work)     # SAVE/'s games and C (Throtl, after the gate fight)
+    if any(name.startswith("treasure") for name in (args.case or CASES)):
+        import c_places as cp
+        g, _ = cp.throtl_save(work / "save-g", "G", at=(12, 4, 4), var={0x4C4A: 4})
+        shutil.copyfile(g / "SAVGAMG.DAT", saves / "SAVGAMG.DAT")
+        for f in g.glob("CHRDATG*"):
+            shutil.copyfile(f, saves / f.name)
     for name in args.case or CASES:
         run_case(v, name, saves, work, args)
     print(f"files in {work}")

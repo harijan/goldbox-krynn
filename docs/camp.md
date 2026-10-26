@@ -851,9 +851,11 @@ The port keeps these quirks:
   start menu's View it holds the low byte of a stack offset (0xec): it
   leaves. From the commands' View it is what an interrupt's frame left
   at that depth (the BIOS's INT 8 calling INT 1Ch, `F000:FEAF` beside
-  it), which varies from run to run even with the same seed: 0 in 11 of
-  12 runs with turbo and 4 of 13 at the boxes' cycles (Trade asks
-  again), else 0x86, 0xac or another (it leaves). The port takes 0 there.
+  it), which varies from run to run even with the same seed: 0 (Trade
+  asks again) in 4 of 13 runs at the boxes' fixed cycles, the game's
+  speed, else 0x86, 0xac or another (it leaves); with turbo, a harness
+  speed, 0 in 11 of 12. The port takes the game's speed's outcome: it
+  leaves.
   An emulator run of the whole camp agreed on each case before. The
   treasure menu's View works the same way, and so do the shops' and the
   temple's (see [Treasure and the end of combat](treasure-shops.md#treasure-and-the-end-of-combat) and [Shops and the temple](treasure-shops.md#shops-and-the-temple)).
