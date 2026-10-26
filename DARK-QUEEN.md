@@ -142,7 +142,8 @@ start.
    RGB rather than 16 fixed colours, the copy protection answered or patched in
    the box only); the routine matcher and the HLIB reader moved from the
    scratchpad into `tools/`; `make dqk-checks`.
-1. **Read Dark Queen headless** (`dqk-read`): `--game dark-queen`; the HLIB
+1. **Read Dark Queen headless** (done, 2026-10-26: `dqk-read`; MONCHA's
+   records moved to step 2): `--game dark-queen`; the HLIB
    reader; the pictures, palettes and font; ECL.GLB with the larger buffer,
    its opcode table and variable space; maps of any size; its 3D view from
    pre-drawn pieces. `eclplay` shows its scripts, text and views, agreeing with

@@ -1731,18 +1731,23 @@ static uint8_t wall_after_step(cok_adventure *game)
 
 /* A step forward (3775:1bed): the party's square moves one the way it
  * faces, wrapping within 0-15 (a coordinate already past 15 going on to
- * 0, one below 0 going back to 15, as signed bytes), not at all for
+ * 0, one below 0 going back to 15, as signed bytes; on a map of its own
+ * size within its width and height, dqk 6c70:1186), not at all for
  * another facing; then the square byte and the wall ahead are worked out
  * again and the view is marked as changed (DS:8850), so that the next
  * CALL [2e10] draws it. Logged as "at", as the loop's steps are. */
 static void step_forward(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
+    /* A map of its own size wraps at its own edges (dqk 6c70:1186: the
+     * width and height of DS:ca08's header). */
+    int last_x = game->view.geo != NULL ? game->view.width - 1 : COK_VIEW_SIZE - 1;
+    int last_y = game->view.geo != NULL ? game->view.height - 1 : COK_VIEW_SIZE - 1;
     switch (vm->direction) {
-    case 0: vm->map_y = (int8_t)(vm->map_y > 0 ? vm->map_y - 1 : 15); break;
-    case 2: vm->map_x = (int8_t)(vm->map_x < 15 ? vm->map_x + 1 : 0); break;
-    case 4: vm->map_y = (int8_t)(vm->map_y < 15 ? vm->map_y + 1 : 0); break;
-    case 6: vm->map_x = (int8_t)(vm->map_x > 0 ? vm->map_x - 1 : 15); break;
+    case 0: vm->map_y = (int8_t)(vm->map_y > 0 ? vm->map_y - 1 : last_y); break;
+    case 2: vm->map_x = (int8_t)(vm->map_x < last_x ? vm->map_x + 1 : 0); break;
+    case 4: vm->map_y = (int8_t)(vm->map_y < last_y ? vm->map_y + 1 : 0); break;
+    case 6: vm->map_x = (int8_t)(vm->map_x > 0 ? vm->map_x - 1 : last_x); break;
     default: break;
     }
     vm->square = cok_view_square(&game->view, vm->map_x, vm->map_y);

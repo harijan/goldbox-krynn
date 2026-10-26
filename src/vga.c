@@ -59,35 +59,30 @@ static size_t unpack(const uint8_t *src, size_t size, uint8_t *out, size_t need)
 static cok_vga_status decode(const uint8_t *record, size_t size, const hlib_library *library,
                              cok_vga_image *image, unsigned depth);
 
-static cok_vga_status composed(const uint8_t *body, size_t size, const hlib_library *library,
+/* Where pictures are placed: the screen's pixels, or a picture's being
+ * composed, with where it is still transparent (mask non-zero). */
+typedef struct {
+    uint8_t *pixels, *mask;
+    int width, height;
+} surface;
+
+static bool draw_bytes(const surface *to, const hlib_library *library, const uint8_t *record,
+                       size_t size, int row, int col, const cok_vga_clip *clip,
+                       const uint8_t *remap, unsigned depth);
+
+/* Format 0x19 as a picture of its own: drawn as on the screen (draw_bytes)
+ * with the record at the picture's corner (its hotspot the place given);
+ * what no entry draws stays transparent. */
+static cok_vga_status composed(const uint8_t *record, size_t size, const hlib_library *library,
                                cok_vga_image *image, unsigned depth)
 {
-    if (library == NULL || depth > 4) return COK_VGA_INVALID;
-    size_t n = (size_t)image->width * image->height;
-    memset(image->mask, 1, n);
-    for (size_t k = 0; k + 6 <= size; k += 6) {
-        const uint8_t *record;
-        size_t record_size;
-        if (hlib_record(library, body[k], &record, &record_size) != HLIB_OK)
-            return COK_VGA_INVALID;
-        cok_vga_image part = {0};
-        cok_vga_status status = decode(record, record_size, library, &part, depth + 1);
-        if (status != COK_VGA_OK) return status;
-        int py = (int16_t)u16(body + k + 2), px = (int16_t)u16(body + k + 4);
-        for (int j = 0; j < part.height; ++j)
-            for (int c = 0; c < part.width; ++c) {
-                size_t from = (size_t)j * part.width + (size_t)c;
-                int x = px + c, y = py + j;
-                if ((part.mask != NULL && part.mask[from]) || x < 0 || y < 0 ||
-                    x >= image->width || y >= image->height)
-                    continue;
-                size_t to = (size_t)y * image->width + (size_t)x;
-                image->pixels[to] = part.pixels[from];
-                image->mask[to] = 0;
-            }
-        cok_vga_free(&part);
-    }
-    return COK_VGA_OK;
+    if (library == NULL) return COK_VGA_INVALID;
+    memset(image->mask, 1, (size_t)image->width * image->height);
+    const surface canvas = {image->pixels, image->mask, image->width, image->height};
+    return draw_bytes(&canvas, library, record, size, (int16_t)u16(record + 2),
+                      (int16_t)u16(record + 4), NULL, NULL, depth)
+               ? COK_VGA_OK
+               : COK_VGA_INVALID;
 }
 
 static cok_vga_status decode(const uint8_t *record, size_t size, const hlib_library *library,
@@ -188,7 +183,7 @@ static cok_vga_status decode(const uint8_t *record, size_t size, const hlib_libr
         break;
     }
     case COK_VGA_COMPOSED:
-        status = composed(body, body_size, library, image, depth);
+        status = composed(record, size, library, image, depth);
         break;
     }
     if (status != COK_VGA_OK) cok_vga_free(image);
@@ -242,14 +237,19 @@ void cok_vga_library_palette(cok_vga_palette *palette, const hlib_library *libra
 
 const cok_vga_clip cok_vga_screen = {0, 0, COK_VGA_HEIGHT, COK_VGA_WIDTH};
 
-void cok_vga_draw(cok_picture *screen, const cok_vga_image *image, int x, int y,
+static surface screen_of(cok_picture *screen)
+{
+    return (surface){screen->pixels, NULL, screen->units * 8, screen->height};
+}
+
+static void place(const surface *to, const cok_vga_image *image, int x, int y,
                   const cok_vga_clip *clip, const uint8_t *remap)
 {
-    if (!screen->vga) return;
-    int sw = screen->units * 8, sh = screen->height;
     cok_vga_clip c0 = clip != NULL ? *clip : cok_vga_screen;
-    if (c0.bottom > sh) c0.bottom = sh;
-    if (c0.right > sw) c0.right = sw;
+    if (c0.bottom > to->height) c0.bottom = to->height;
+    if (c0.right > to->width) c0.right = to->width;
+    if (c0.top < 0) c0.top = 0;
+    if (c0.left < 0) c0.left = 0;
     for (int j = 0; j < image->height; ++j) {
         int dy = y + j;
         if (dy < c0.top || dy >= c0.bottom) continue;
@@ -259,13 +259,24 @@ void cok_vga_draw(cok_picture *screen, const cok_vga_image *image, int x, int y,
             if (dx < c0.left || dx >= c0.right) continue;
             uint8_t v = image->pixels[from];
             if (remap != NULL) v = remap[v];
-            uint8_t *d = &screen->pixels[(size_t)dy * (size_t)sw + (size_t)dx];
-            if (image->and_xor)
-                *d = (uint8_t)((*d & image->mask[from]) ^ v);
-            else if (image->mask == NULL || !image->mask[from])
-                *d = v;
+            size_t at = (size_t)dy * (size_t)to->width + (size_t)dx;
+            if (image->and_xor) {
+                to->pixels[at] = (uint8_t)((to->pixels[at] & image->mask[from]) ^ v);
+                if (to->mask != NULL && image->mask[from] != 0xff) to->mask[at] = 0;
+            } else if (image->mask == NULL || !image->mask[from]) {
+                to->pixels[at] = v;
+                if (to->mask != NULL) to->mask[at] = 0;
+            }
         }
     }
+}
+
+void cok_vga_draw(cok_picture *screen, const cok_vga_image *image, int x, int y,
+                  const cok_vga_clip *clip, const uint8_t *remap)
+{
+    if (!screen->vga) return;
+    const surface to = screen_of(screen);
+    place(&to, image, x, y, clip, remap);
 }
 
 /* A floor division by 4, times 4: VGA's unchained byte column. */
@@ -274,32 +285,31 @@ static int snap(int x)
     return x >= 0 ? x & ~3 : -((-x + 3) & ~3);
 }
 
-static bool draw_record(cok_picture *screen, const hlib_library *library, unsigned id,
-                        int row, int col, const cok_vga_clip *clip, const uint8_t *remap,
-                        unsigned depth)
+static bool draw_bytes(const surface *to, const hlib_library *library, const uint8_t *record,
+                       size_t size, int row, int col, const cok_vga_clip *clip,
+                       const uint8_t *remap, unsigned depth)
 {
-    const uint8_t *record;
-    size_t size;
-    if (depth > 4 || hlib_record(library, id, &record, &size) != HLIB_OK ||
-        !cok_vga_is_picture(record, size))
-        return false;
+    if (depth > 4 || !cok_vga_is_picture(record, size)) return false;
     row -= (int16_t)u16(record + 2);
     col -= (int16_t)u16(record + 4);
     if (record[7] == COK_VGA_COMPOSED) {
-        /* 269b:0aec: each entry where it says from the record's place, the
-         * count re-read from each. */
+        /* 269b:0aec: each entry a record of the library where it says from
+         * this one's place, the count re-read from each. */
         size_t n = 1;
         for (size_t i = 0, k = COK_VGA_HEADER; i < n && k + 6 <= size; ++i, k += 6) {
+            const uint8_t *part;
+            size_t part_size;
             n = record[k + 1];
-            if (!draw_record(screen, library, record[k], row + (int16_t)u16(record + k + 2),
-                             col + (int16_t)u16(record + k + 4), clip, remap, depth + 1))
+            if (hlib_record(library, record[k], &part, &part_size) != HLIB_OK ||
+                !draw_bytes(to, library, part, part_size, row + (int16_t)u16(record + k + 2),
+                            col + (int16_t)u16(record + k + 4), clip, remap, depth + 1))
                 return false;
         }
         return true;
     }
     cok_vga_image image;
-    if (cok_vga_decode(record, size, library, &image) != COK_VGA_OK) return false;
-    cok_vga_draw(screen, &image, snap(col), row, clip, remap);
+    if (decode(record, size, library, &image, depth + 1) != COK_VGA_OK) return false;
+    place(to, &image, snap(col), row, clip, remap);
     cok_vga_free(&image);
     return true;
 }
@@ -307,7 +317,11 @@ static bool draw_record(cok_picture *screen, const hlib_library *library, unsign
 bool cok_vga_draw_record(cok_picture *screen, const hlib_library *library, unsigned id,
                          int row, int col, const cok_vga_clip *clip, const uint8_t *remap)
 {
-    return draw_record(screen, library, id, row, col, clip, remap, 0);
+    const uint8_t *record;
+    size_t size;
+    if (!screen->vga || hlib_record(library, id, &record, &size) != HLIB_OK) return false;
+    const surface to = screen_of(screen);
+    return draw_bytes(&to, library, record, size, row, col, clip, remap, 0);
 }
 
 void cok_vga_glyph(cok_picture *screen, const uint8_t *font, int row, int col, char ch,

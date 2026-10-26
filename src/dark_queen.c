@@ -673,7 +673,11 @@ static void picture(cok_adventure *game)
         return;
     }
     q->picture_loaded = true;
-    q->first_frame = q->frame = 0;
+    /* Its frames are records 1 on (DS:b20d the last's index); the loop
+     * goes back to frame 0, or 5 for pictures 0x0e and 0x87, 1 for 0x46,
+     * 3 for 0xa1 (63ae:0262-028f: DS:b20c). */
+    q->frame = 0;
+    q->first_frame = n == 0x0e || n == 0x87 ? 5 : n == 0x46 ? 1 : n == 0xa1 ? 3 : 0;
     q->last_frame = (uint8_t)(q->picture.count >= 2 ? q->picture.count - 2 : 0);
     for (unsigned i = 0x20; i < 0x100; ++i) cok_vga_set(&q->palette, i, 0, 0, 0);
     draw(game, &q->picture, 1, VIEW_AT, VIEW_AT, NULL, NULL);
@@ -681,13 +685,21 @@ static void picture(cok_adventure *game)
     game->picture_shown = true;
 }
 
-/* CALL 3 (5f07:0aba): the small picture's next frame (63ae:000c). */
+/* CALL 3 (5f07:0aba): the small picture's frame DS:b20e drawn at cell
+ * 3, 3 (63ae:000c: record 1, then for a frame past 0 its record over it,
+ * the overlays being smaller), its palette set; then the next frame, past
+ * the last the loop's first; then the speed's delay, 100 ms times
+ * variable 0x12 (1a62:0949). The frame's redraw it asks for where the
+ * loop's first is not 0 (20b2:022c with 1: DS:58ca) is not drawn here. */
 static void animate(cok_adventure *game)
 {
     queen *q = own(game);
     if (!q->picture_loaded) return;
+    draw(game, &q->picture, 1, VIEW_AT, VIEW_AT, NULL, NULL);
+    if (q->frame != 0) draw(game, &q->picture, q->frame + 1u, VIEW_AT, VIEW_AT, NULL, NULL);
+    set_palette(game, &q->picture, 0, 0);
     q->frame = q->frame >= q->last_frame ? q->first_frame : (uint8_t)(q->frame + 1);
-    draw(game, &q->picture, q->frame + 1u, VIEW_AT, VIEW_AT, NULL, NULL);
+    cok_adventure_wait(game, 100u * cok_ecl_load_var(&game->vm, 0x12));
 }
 
 static void horizontal(cok_adventure *game, bool ask)

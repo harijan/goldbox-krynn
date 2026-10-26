@@ -491,7 +491,10 @@ that need them stop the run, citing their handlers (`unported`). It holds:
   and east walls, the south and west, the square's byte, the sides' ways
   through and the backdrop's choice; read through the view's
   `cok_view_wall`, `square`, `passage` (`8a8b:0628`, `075b`, `04a4`: off
-  the map the far edge's square, its byte 0 unless the view wraps).
+  the map the far edge's square, its byte 0 unless the view wraps); a
+  step (`CALL` 2) wraps at the map's own edges (`6c70:1186`); eclplay's
+  `--at` stores the square at the game's own special addresses and its
+  `--start` takes an address in the game's buffer.
 
 #### The Dark Queen's screen
 

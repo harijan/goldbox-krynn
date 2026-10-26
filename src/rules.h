@@ -348,8 +348,9 @@ typedef struct {
     /* Whether a store to a special address writes the variable there too
      * (dqk 6c70:0817 after 6c70:0728's), rather than only the state. */
     bool special_stores_kept;
-    /* Whether COMPARE AND finds a pair of strings unequal always (dqk
-     * 5f07:05be compares the slots' addresses, not their strings). */
+    /* Whether COMPARE AND finds a pair whose first is a string unequal
+     * always (dqk 5f07:05be compares the slots' addresses, not their
+     * strings, testing the first's type alone). */
     bool compare_and_unequal_strings;
     /* The bytes a variable address holds: 2 where each holds a word
      * (Champions, 3775:0e06), 1 where each holds a byte and an operand of

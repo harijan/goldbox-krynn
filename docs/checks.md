@@ -299,7 +299,9 @@ minutes, in real time).
 The Dark Queen of Krynn, read headless (see [The Dark Queen](games.md#the-dark-queen)), is
 checked by `tools/dosbox/checks/dqk_views.py` and `dqk_boot.py`, which `make
 dqk-checks` runs (`run_all.py --set dqk`; about a minute each), in RGB
-(the original in VGA, `RGBScreen`). `dqk_boot.py` compares the first
+(the original in VGA, `RGBScreen`; the title's scenes taken as the
+original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
+so that a loaded host does not change them). `dqk_boot.py` compares the first
 screen of the game after Begin Adventuring (block 4's text over Palanthas'
 picture) with `eclplay --game dark-queen`'s; `dqk_views.py` the title's
 eight scenes (each passed by Space) and its menu, whole; the developers'
@@ -309,7 +311,9 @@ and menu, and block 14's arrival in the Dargonesti's sea (D), whole but
 the party's list and status (no party yet) and the mouse's pointer; and
 the 3D view, cells 3-13, at each place of the adventure loop: block 14
 (wall sets 13, 14 and 11) after a step east, its text read and three
-turns, and block 18's corridor (Hizden's house at night: wall set 1, the
+turns, then on two squares whose views draw the third set (slot 2, types
+11-15: the party's square and facing written, `DS:c9f0`-`c9f2` and
+`c9f4`, and turned), and block 18's corridor (Hizden's house at night: wall set 1, the
 night's backdrop) facing each way, the port running each block's load
 vector from its `LOAD FILES` at the original's square and facing (read
 from `DS:c9f0`). Not compared: the colours the title's scenes cycle

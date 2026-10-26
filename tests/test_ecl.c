@@ -1142,8 +1142,68 @@ static void test_death_knights_fields(void)
     vm.character = NULL;
 }
 
+/* The Dark Queen's layout (dqk 6c70:0377, 0897, 06d2): variables
+ * 0x0001-0x0400, nothing at 0 or at the character's 0x0401-0x0800 (not
+ * ported), special stores kept in the variable (6c70:0817), its block
+ * with no header in a buffer of 0x2ee3, a block's start clearing 0x2b and
+ * 0x2c, a failed IF skipping a list whole (6c70:1385), COMPARE AND of a
+ * string never equal (5f07:05be). */
+static void test_dark_queen(void)
+{
+    const cok_rules *Q = &cok_rules_dark_queen;
+    log_t log = {0};
+    cok_ecl_init(&vm, Q, NULL);
+    at = 0;
+    op(COK_ECL_SAVE); imm(7); var(0x0001);
+    op(COK_ECL_SAVE); imm(8); var(0x0000);
+    op(COK_ECL_SAVE); imm(9); var(0x0401);
+    op(COK_ECL_SAVE); imm(10); var(0x0400);
+    op(COK_ECL_SAVE); imm(3); var(0x11);  /* the facing: 6, the variable 3 */
+    op(COK_ECL_SAVE); imm(5); var(0x34);  /* the square's x */
+    op(COK_ECL_SAVE); imm(1); var(0x22);  /* a 3D area: mode 4 */
+    op(COK_ECL_SAVE); var(0x11); var(0x0005); /* read in steps: 6 >> 1 */
+    op(COK_ECL_SAVE); var(0x23); var(0x0006); /* the facing itself */
+    op(COK_ECL_COMPARE); imm(1); imm(2);
+    op(COK_ECL_IF_EQUAL);                   /* false: the menu's whole list skipped */
+    op(COK_ECL_HORIZONTAL_MENU); var(0x0007); imm(2); text("YES"); text("NO");
+    op(COK_ECL_SAVE); imm(4); var(0x0008);
+    op(COK_ECL_COMPARE_AND); text("AB"); text("AB"); imm(1); imm(1);
+    op(COK_ECL_EXIT);
+    vm.hooks = (cok_ecl_hooks){.opcode = on_opcode, .stored = on_store, .context = &log};
+    CHECK(cok_ecl_run(&vm, COK_ECL_BASE) == COK_ECL_OK);
+    CHECK(vm.mem4b00[0] == 7 && vm.mem4b00[0x3ff] == 10);
+    CHECK(cok_ecl_load_var(&vm, 0) == 0 && cok_ecl_load_var(&vm, 0x401) == 0);
+    CHECK(vm.direction == 6 && vm.mem4b00[0x10] == 3);
+    CHECK(vm.map_x == 5 && vm.mem4b00[0x33] == 5 && vm.mode == 4);
+    CHECK(vm.mem4b00[4] == 3 && vm.mem4b00[5] == 6);
+    CHECK(log.opcodes[COK_ECL_HORIZONTAL_MENU] == 0 && vm.mem4b00[7] == 4);
+    CHECK(vm.flags[1] && !vm.flags[0]);
+
+    /* A block's record with no header, up to 0x2ee3 bytes; its start. */
+    static uint8_t record[0x2ee4];
+    memset(record, 0, sizeof record);
+    for (unsigned i = 0; i < 5; ++i) {
+        record[4 * i] = COK_ECL_GOTO;
+        record[4 * i + 1] = COK_ECL_WORD;
+        record[4 * i + 2] = (uint8_t)(0x14 + i);
+        record[4 * i + 3] = 0x80;
+    }
+    CHECK(cok_ecl_load(&vm, record, sizeof record) == COK_ECL_BAD_BLOCK);
+    CHECK(cok_ecl_load(&vm, record, sizeof record - 1) == COK_ECL_OK);
+    CHECK(vm.code[0] == COK_ECL_GOTO && vm.size == 0x2ee3);
+    vm.mem4b00[0x2a] = vm.mem4b00[0x2b] = vm.mem4b00[0x96] = 9;
+    CHECK(cok_ecl_start(&vm, true) == COK_ECL_OK);
+    CHECK(vm.vectors[0] == 0x8014 && vm.vectors[4] == 0x8018);
+    CHECK(vm.mem4b00[0x2a] == 0 && vm.mem4b00[0x2b] == 0 && vm.mem4b00[0x96] == 0);
+    cok_ecl_store(&vm, 0xaee2, 0x55);
+    cok_ecl_store(&vm, 0xaee3, 0x66);
+    CHECK(vm.code[0x2ee2] == 0x55 && cok_ecl_load_var(&vm, 0xaee3) == 0);
+    CHECK(cok_ecl_load_var(&vm, 0xaee2) == 0x55);
+}
+
 int main(void)
 {
+    test_dark_queen();
     test_names_and_counts();
     test_death_knights_table();
     test_byte_variables();

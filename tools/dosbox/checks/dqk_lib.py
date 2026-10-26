@@ -76,3 +76,26 @@ def ecl_state(box):
     buf = far(box, DS_ECL)
     return dict(buffer="%04x:%04x" % buf if buf else None, pc=box.ds_word(DS_PC),
                 opcode=box.ds_byte(DS_OPCODE))
+
+
+# The title's loop (dqk 6523:0345) waits for each scene in 6523:000c, called
+# from 6523:03a2; the scene's number is the loop's word at [bp-4].
+TITLE_RETURN = 0x03A5
+TITLE_RETURN_BYTES = bytes.fromhex("598846ff3c1b")  # pop cx; mov [bp-1], al; cmp al, 1b
+
+
+def title_scene(box):
+    """The title's scene the original waits in (6523:0345's [bp-4], found
+    up the frames of its last poll of the keyboard), or None where it is
+    not waiting in the title's loop."""
+    ss, bp = box.hook("pollss"), box.hook("pollbp")
+    for _ in range(8):
+        if bp == 0:
+            return None
+        up, ip, cs = struct.unpack("<HHH", box.read(ss * 16 + bp, 6))
+        if ip == TITLE_RETURN and box.read(cs * 16 + ip, 6) == TITLE_RETURN_BYTES:
+            return struct.unpack("<H", box.read(ss * 16 + up - 4, 2))[0]
+        if up <= bp:
+            return None
+        bp = up
+    return None

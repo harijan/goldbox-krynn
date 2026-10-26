@@ -835,9 +835,9 @@ static void compare_values(cok_ecl *vm, uint16_t a, uint16_t b)
  * then the second's). */
 static bool same_pair(const cok_ecl *vm, size_t i)
 {
-    if (vm->rules->ecl.compare_and_unequal_strings &&
-        (vm->operand[i].type >= 0x80 || vm->operand[i + 1].type >= 0x80))
-        return false;
+    /* dqk 5f07:05be: a pair whose first is a string compares the string
+     * slots' addresses, never equal; otherwise the values. */
+    if (vm->rules->ecl.compare_and_unequal_strings && vm->operand[i].type >= 0x80) return false;
     if (!vm->rules->ecl.compare_and_strings || vm->operand[i].type < 0x80)
         return cok_ecl_value(vm, i) == cok_ecl_value(vm, i + 1);
     size_t slot = i == 2 && vm->operand[0].type >= 0x80 ? 2 : 0;

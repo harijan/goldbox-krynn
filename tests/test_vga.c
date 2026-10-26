@@ -192,6 +192,12 @@ static void test_composed(void)
     }
     cok_vga_free(&image);
     CHECK(cok_vga_decode(whole, sizes[1], NULL, &image) == COK_VGA_INVALID);
+    /* Decoded as drawn: an entry at column 3 lands at 0 (FRAME.TLB 21's). */
+    whole[m + 4] = 3;
+    CHECK(cok_vga_decode(whole, sizes[1], &lib, &image) == COK_VGA_OK);
+    CHECK(memcmp(image.pixels + 8, "\1\2\3\4", 4) == 0 && !image.mask[8] && image.mask[12]);
+    cok_vga_free(&image);
+    whole[m + 4] = 4;
     /* Drawn, the parts at their places from the record's, the column taken
      * down to a multiple of 4 (unchained VGA's bytes): at row 10, column
      * 7, record 0 lands at 11, 4 + 4. */

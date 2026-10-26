@@ -143,6 +143,24 @@ class DarkQueenTests(unittest.TestCase):
         self.assertEqual(result.stderr, "not yet ported: The Dark Queen of Krynn's start menu "
                          "(dqk 5ebd:00ef)\n")
 
+    def test_animation(self):
+        # CALL [0003] (5f07:0aba): the frame drawn, record 1 and over it the
+        # frame's record past frame 0, then the next; past the last, the
+        # loop's first: 0 for picture 0x17 (records 1-3), 1 for 0x46
+        # (63ae:0262). Block 4's code from 8014 written: PICTURE, CALLs, EXIT.
+        def screen(picture, calls):
+            code = [0x0E, 0, picture] + [0x2D, 1, 3, 0] * calls + [0]
+            sets = [a for i, b in enumerate(code) for a in ("--set", f"{0x8014 + i:x}={b:x}")]
+            bmp = self.folder / f"anim-{picture}-{calls}.bmp"
+            result = self.play("--start", "8014", *sets, "--screen", bmp, ASSETS, 4)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return digest(bmp)
+        for picture, back in ((0x17, 1), (0x46, 2)):
+            shots = [screen(picture, n) for n in range(5)]
+            self.assertEqual(shots[1], shots[0])  # frame 0: record 1 alone
+            self.assertEqual(len({shots[1], shots[2], shots[3]}), 3)
+            self.assertEqual(shots[4], shots[back])
+
     def test_screens_and_views(self):
         # The first screen (block 4: Palanthas' picture and text), block 1's
         # jumper and block 14's arrival in the sea (wall sets 13, 14, 11),

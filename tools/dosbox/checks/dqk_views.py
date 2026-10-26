@@ -13,7 +13,11 @@ the party in Palanthas (GEO 2) at 3,3 facing north with its question and
 menu; D (DARG) then enters block 14 (NEWECL 14), whose load vector puts it
 in the Dargonesti's sea (GEO 14, wall sets 13, 14 and 11) at 11,17 facing
 east with a text; Return ends it, and the party turns and steps in the
-adventure loop, its square and facing read from DS:c9f0-c9f2 at each.
+adventure loop, its square and facing read from DS:c9f0-c9f2 at each, and
+is then put on two squares whose views show the map's third wall set
+(slot 2, types 11-15), its square and facing written there and turned
+left. The title's scenes are taken as the original waits in each (its
+loop's scene number, dqk_lib.title_scene), not by time.
 
 The port runs the same blocks headless: block 1 to its menu, then D and
 block 14 to its text,
@@ -42,6 +46,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import checklib  # noqa: E402
 import dqk_lib  # noqa: E402
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+import hlib  # noqa: E402  (tools/hlib.py)
+
 cokbox = checklib.cokbox
 ROOT = cokbox.ROOT
 GAME = ("--game", "dark-queen")
@@ -55,7 +62,7 @@ VIEW = (24, 24, 88, 88)
 # The colours the title's scenes cycle and twinkle (261b:05be runs them;
 # the port draws the first step), each where the scene shows them.
 CYCLES = {
-    1: [(35, 70, 252, 28, "the logo's cycled colours")],
+    1: [(32, 70, 256, 28, "the logo's cycled colours")],
     2: [(20, 101, 280, 13, "the logo's spark")],
     5: [(8, 16, 304, 168, "the letters' cycled fire")],
     4: [(187, 89, 13, 4, "the title's twinkle")],
@@ -78,7 +85,10 @@ AREAS = [
     dict(key="d", block=14, start=0x806F, at=lambda x, y, f: {0x8082: x, 0x8088: y,
                                                              0x808E: f // 2, 0x80BE: 0},
          moves=[("ahead", "\\^"), ("read", "\\r"), ("left", "\\<"), ("left-2", "\\<"),
-                ("left-3", "\\<"), ("right", "\\>")]),
+                ("left-3", "\\<"), ("right", "\\>")],
+         # Squares whose views draw slot 2's wall set (types 11-15: set 11,
+         # which 8a8b:0346 draws from its copy, DS:cd98).
+         visits=[("glass", 2, 30, 0), ("doors", 1, 28, 0)]),
     dict(key="h", block=18, start=0x8065, at=lambda x, y, f: {0x34: x, 0x35: y, 0x11: f // 2},
          moves=[("left", "\\<"), ("left-2", "\\<"), ("left-3", "\\<")]),
 ]
@@ -131,9 +141,25 @@ def begin(box, out, verdict):
     return variables, box.settled(tolerance=64), lamps
 
 
+def square_byte(geo, x, y):
+    """GEO.GLB record GEO's square byte at X, Y (its third plane)."""
+    record = hlib.load(dqk_lib.ASSETS / "DISK3" / "GEO.GLB").record(geo)
+    height, width = record[0], record[1]
+    return record[8 + 2 * width * height + y * width + x]
+
+
 def loop(box, work, out, verdict, memory, area, prefix):
-    """The adventure loop's places in AREA: its first, then each move's."""
-    for name, keys in [("loop", None)] + area["moves"]:
+    """The adventure loop's places in AREA: its first, then each move's,
+    then each square visited: the party put there (DS:c9f0-c9f2, and the
+    square's byte, c9f4) facing right of the facing wanted, then turned
+    left."""
+    visits = [(name, ("visit", x, y, f)) for name, x, y, f in area.get("visits", ())]
+    for name, keys in [("loop", None)] + area["moves"] + visits:
+        if isinstance(keys, tuple):
+            _, x, y, f = keys
+            box.write(box.ds * 16 + DS_SQUARE, bytes([x, y, (f + 2) % 8]))
+            box.write(box.ds * 16 + DS_SQUARE + 4, bytes([square_byte(area["block"], x, y)]))
+            keys = "\\<"
         if keys is not None:
             box.keys(keys)
         name = f"{prefix}-{name}"
@@ -169,23 +195,24 @@ def main():
 
     with cokbox.Box(workdir=work / "box", game="dark-queen", verbose=opts.verbose,
                     timeout=600, turbo=False) as box:
-        # The title: each scene once it is new and still, then Space.
-        last = None
+        # The title: each scene once the original waits in it (its loop's
+        # scene number, dqk_lib.title_scene: drawn and shown), then Space.
         for n in range(1, 9):
-            for _ in range(600):
-                shot = box.screenshot()
-                if (shot.width, shot.height) == (320, 200) and len(shot.colours()) >= 8 and \
-                        (last is None or shot.diff(last)[0] > 2000):
+            for _ in range(1200):
+                if dqk_lib.title_scene(box) == n:
                     break
-                box.settle(0.1)
-            # Still for a second: scene 6 first shows the page under it in
-            # its own colours while it draws (6523:00bf).
-            shot = box.settled(quiet=1.0, tolerance=2000)
+                box.settle(0.05)
+            else:
+                raise cokbox.BoxError(f"the title's scene {n} never waited for a key")
+            box.settle(0.3)
+            shot = box.screenshot()
             shot.save_png(out / f"title-{n}.png")
             verdict.screen(f"title scene {n}", shot, title[n - 1] if len(title) >= n else None,
                            masks=CYCLES.get(n, ()), work=work)
-            last = shot
-            box.keys(" ")
+            # Space as it waits (Box.keys would wait for a still screen,
+            # which the scenes' cycles and sparks may not give before the
+            # wait runs out, 6523:000c's 7.9 s).
+            box.push_key(cokbox.key_word(" "))
         menu = box.settled(tolerance=64)
         menu.save_png(out / "menu.png")
         verdict.screen("the title's menu", menu, title[8] if len(title) > 8 else None,

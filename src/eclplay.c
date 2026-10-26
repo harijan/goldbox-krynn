@@ -664,6 +664,14 @@ static bool number(const char *text, int base, unsigned long max, unsigned long 
 
 static player p;
 
+/* The address a store to sets what, where the game has one; else 0. */
+static uint16_t special_store(const cok_rules *rules, cok_ecl_special what)
+{
+    for (unsigned k = 0; k < rules->ecl.store_count; ++k)
+        if (rules->ecl.stores[k].what == what) return rules->ecl.stores[k].address;
+    return 0;
+}
+
 static int run(int argc, char **argv)
 {
     p = (player){.keys = cok_key_script_start(NULL), .owed = -1};
@@ -789,7 +797,7 @@ static int run(int argc, char **argv)
                    number(argv[i + 1], 10, 4, &vector)) {
             ++i;
         } else if (strcmp(option, "--start") == 0 && has_value &&
-                   number(argv[i + 1], 16, 0x9dff, &start) && start >= COK_ECL_BASE) {
+                   number(argv[i + 1], 16, 0xffff, &start) && start >= COK_ECL_BASE) {
             ++i;
         } else if (strcmp(option, "--at") == 0 && has_value &&
                    sscanf(argv[i + 1], "%ld,%ld,%ld", &x, &y, &dir) == 3) {
@@ -826,6 +834,20 @@ static int run(int argc, char **argv)
     if ((load != NULL || party != NULL || character_count > 0 || fixture > 0 || play) &&
         rules->unplayable != NULL) {
         fprintf(stderr, "%s\n", rules->unplayable);
+        return 2;
+    }
+    /* --start inside the game's ECL buffer (0x8000-0x9dff in Champions,
+     * to 0xaee2 in Dark Queen). */
+    if (start >= COK_ECL_BASE + (unsigned long)rules->ecl.code_size) {
+        usage(argv[0]);
+        return 2;
+    }
+    /* --at stores the square where the game's special addresses take it
+     * (0xc04b and 0xc04c; Dark Queen's 0x34 and 0x35). */
+    uint16_t at_x = special_store(rules, COK_ECL_SPECIAL_X),
+             at_y = special_store(rules, COK_ECL_SPECIAL_Y);
+    if (placed && (at_x == 0 || at_y == 0)) {
+        fprintf(stderr, "--at: %s has no address the square is stored at\n", rules->text.name);
         return 2;
     }
     if (woof && rules->saves.debug == NULL) {
@@ -1063,8 +1085,8 @@ static int run(int argc, char **argv)
     }
     game.vm.file = (uint8_t)file;
     if (placed) {
-        cok_ecl_store(&game.vm, 0xc04b, (uint16_t)x);
-        cok_ecl_store(&game.vm, 0xc04c, (uint16_t)y);
+        cok_ecl_store(&game.vm, at_x, (uint16_t)x);
+        cok_ecl_store(&game.vm, at_y, (uint16_t)y);
         game.vm.direction = (uint8_t)(dir & 6);
         /* The square's byte (DS:6d89) for a load vector run before any
          * step; a block entered recomputes it anyway. */

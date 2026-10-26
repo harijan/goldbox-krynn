@@ -73,7 +73,9 @@ bool cok_vga_is_picture(const uint8_t *record, size_t size);
 bool cok_vga_is_palette(const uint8_t *record, size_t size);
 
 /* Decode a picture record. library: the library holding it, which format
- * 0x19 draws from (NULL fails it). */
+ * 0x19 draws from (NULL fails it): its entries drawn as cok_vga_draw_record
+ * draws them, the record placed at the picture's corner, transparent where
+ * none draws. */
 cok_vga_status cok_vga_decode(const uint8_t *record, size_t size, const hlib_library *library,
                               cok_vga_image *image);
 void cok_vga_free(cok_vga_image *image);
