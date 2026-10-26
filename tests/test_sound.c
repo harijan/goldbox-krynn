@@ -544,14 +544,17 @@ static void test_missing_files(void)
     cok_sound_init(&s, COK_SOUND_TANDY);
     CHECK(!cok_sound_load(&s, &cok_rules_champions, "no-such-directory"));
     CHECK(strstr(s.music_error, "MIDI.DAX") != NULL);
-    /* A game whose music is not read yet (Death Knights': NULL stems). */
-    CHECK(!cok_sound_load(&s, &cok_rules_death_knights, "DKKAssets"));
-    CHECK(strcmp(s.music_error, "Death Knights of Krynn's music is not ported") == 0);
-    cok_sound_call_at(&s, COK_SOUND_MUSIC, 0);
-    CHECK(s.music && s.isr == COK_SOUND_BIOS);
+    CHECK(!s.songs_game);
+    /* A game with songs, without MUSIC.DAX: no song, its effects. */
+    cok_sound_free(&s);
+    cok_sound_init(&s, COK_SOUND_TANDY);
+    CHECK(!cok_sound_load(&s, &cok_rules_death_knights, "no-such-directory"));
+    CHECK(s.songs_game && strstr(s.music_error, "MUSIC.DAX") != NULL);
+    cok_sound_call_at(&s, COK_SOUND_MUSIC, 1);
+    CHECK(!s.songs.playing && s.isr == COK_SOUND_BIOS);
     cok_sound_call_at(&s, COK_SOUND_MUSIC_END, 0);
-    cok_sound_call_at(&s, COK_SOUND_INSTALL, 0);
     cok_sound_call_at(&s, COK_SOUND_COMMAND, 6);
+    CHECK(s.installed && s.isr == COK_SOUND_FX);
     static int16_t samples[COK_SOUND_RATE / 2];
     cok_sound_render(&s, samples, COK_SOUND_RATE / 2);
     bool sounding = false;
@@ -605,13 +608,11 @@ static void test_devices(void)
     cok_sound_call_at(&s, COK_SOUND_INSTALL, 0);
     cok_sound_call_at(&s, COK_SOUND_COMMAND, 7);
     CHECK(s.isr == COK_SOUND_FX && s.fx[0x156] == 1);
-    /* Death Knights on the AdLib: its music not read, said as before. */
-    cok_sound_free(&s);
-    cok_sound_init(&s, COK_SOUND_ADLIB);
-    CHECK(!cok_sound_load(&s, &cok_rules_death_knights, "DKKAssets"));
+    /* The DOS clock: as fast as real time with Champions' drivers. */
+    CHECK(cok_sound_clock_speed(&s) == 1);
     cok_sound_call_at(&s, COK_SOUND_MUSIC, 0);
-    CHECK(cok_sound_music_unported(&s, &cok_rules_death_knights, text, sizeof text));
-    CHECK(s.isr == COK_SOUND_BIOS);
+    CHECK(s.isr == COK_SOUND_TITLE && cok_sound_clock_speed(&s) == 1);
+    /* Death Knights' songs: tests/test_songs.c. */
     cok_sound_free(&s);
     cok_sound_init(&s, COK_SOUND_NONE);
     CHECK(s.hardware == COK_SOUND_TANDY);

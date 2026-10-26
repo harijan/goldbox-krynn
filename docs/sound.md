@@ -5,8 +5,9 @@ Part of the [developer notes](../DEVELOPERS.md).
 `src/sound.c` is the sound, without SDL: the original's effects driver
 (`17e8`, assembler linked into `START.EXE`), its title music (`1661`,
 which loads its driver from `MIDI.DAX` and the score from `SOUND.DAX`),
-the timer interrupt that runs them, and the hardware they write to (the
-AdLib's chip in `src/opl2.c`). The
+Death Knights' songs (`src/songs.c`: `MUSIC.DAX`'s driver, see [Death
+Knights' songs](#death-knights-songs)), the timer interrupt that runs
+them, and the hardware they write to (the AdLib's chip in `src/opl2.c`). The
 game calls it through `hooks.sound` (`cok_sound_call`) as the original
 calls the drivers; `krynn` plays it through SDL's audio device and
 `eclplay --wav FILE` renders it to a WAV file (16-bit mono, 44,100 Hz).
@@ -49,8 +50,8 @@ the speaker and the title is silent: their music drivers (`MIDI.DAX`
 records 1 and 2) are not ported, which is logged as `unported: the
 title's music on C/MS (MIDI.DAX record 1)` (or `Roland LAPC`, 2) when
 the title starts, and said on standard error at startup. Death Knights'
-music is not read at all (`MUSIC.DAX`): with `A` its title logs `AdLib`
-as unported as before.
+songs play on the device its driver finds, which is the machine's: see
+[Death Knights' songs](#death-knights-songs).
 
 ### The effects driver
 
@@ -212,6 +213,162 @@ KSR, KSL, both EG types, feedback up to 7 and one additive voice; the
 waveforms are never enabled, register 1 is 0), no bends, and ends with
 `FC 81`. Without `MIDI.DAX` or `SOUND.DAX` the title is silent
 and `krynn` and `eclplay --wav` say why on standard error.
+
+### Death Knights' songs
+
+Death Knights has no `MIDI.DAX`, and its `SOUND.DAX` is never read; its
+music is `MUSIC.DAX`: record 0 a driver for every device, records 1-7 its
+songs (the descriptor's `archives.music_songs`). The effects driver is
+Champions' again (`170d`, its routines and calls as `17e8`'s), and the two
+take turns: a song unhooks the effects driver, and a sound stops the song.
+`src/songs.c` is the driver and the game's calls; `sound.c` sends a game
+with songs its calls (`songs_call`).
+
+**The driver.** Startup (`15dc:00d3`, once, after `4f9a:00e1`) reads
+record 0, 12,528 bytes, into a 13,000-byte block of the heap from its
+first paragraph, and calls it far at that paragraph - 0x10, offset 0x100,
+as a `.COM` is laid out (`16fc:001f`). It is Turbo C's small model: code
+at record offsets 0-0x2c0f (`CS:0100-2d0f`, the addresses below), data
+from 0x2c10 (its entry sets `DS` to `CS` + 0x2d1), its variables and
+tables there as the record has them (the port keeps that data segment,
+`cok_songs.ds`, as `sound.c` keeps the effects driver's). Its entry
+(`0100` to `0258`) takes a function and a far pointer (`16fc:0000`):
+
+| Function | Does |
+| --- | --- |
+| 0 (`0371`) | start on the song file at the pointer: find the device (`03f4` with no arguments: `2abc`, `2a61`), start it (`2131`), voices 0-4 ended; INT 1Ah's time read, PIT channel 0 to 0x4000 in mode 3 (0x36: 72.8 interrupts a second) and INT 1Ch hooked (`02f0`, `2b57`: the count of interrupts from 0); the AdLib's instruments from the file's parts (`225c`); the songs' header (`0726`) and the tick routine (`09bd`) |
+| 1 (`03b0`) | play song 0 of the file (`0979`): the voices ended and the device silenced (`05a4`), then each voice set at the count of interrupts, which play waits for to leave 0 (`076b:07c3`: the first interrupt after the hook). Its argument picks the AdLib's echoes (`2295` with `DS:0000`'s byte), which the game's 0 leaves off |
+| 2 (`03cf`) | whether a voice of 0-4 plays (the game never asks) |
+| 3 (`03df`) | stop: PIT channel 0 to 0 (18.2 a second), INT 1Ch back (`031d`), the voices ended and the device silenced and stopped (`0599`) |
+
+Each INT 1Ch (`2ba9`), which the BIOS's INT 8 calls, counts; every second
+(an even count) calls the tick, 36.4 a second, then the handler it
+replaced; the odd ones return. Every interrupt reaches the BIOS, so the
+BIOS's count (`0040:006c`) and DOS's time, which `GetTime` reads, run four
+times as fast from function 0 to function 3, and with them the two waits
+the game times by `GetTime` (`14e4:09bd`): the title's (`35c6:0000`: its
+pictures' 5, 5, 5 and 20 seconds pass in a quarter of that, the credits'
+169.6 in 42.4) and the title's menu's timeout (`6a69:0e74`: 30 seconds in
+7.5). The port's are as fast (`cok_sound_clock_speed`, 4 while the
+driver's PIT count is in place, through `hooks.clock_speed`: `title_wait`
+and `krynn`'s timed menu; `eclplay`'s `\t` times out at once anyway); with
+the sound off (no song) they take their whole time, as the original's do.
+The drivers take the game's calls whether or not anything is heard: `krynn`
+without an audio device or with `--no-sound`, and `eclplay` without
+`--wav`, keep a `cok_sound` that renders nothing, so the title is as fast
+there as with sound (the device `KRYNN.CFG` or `--sound` names deciding). `0124`'s delay loop, the argument parser (`03f4`'s, given no
+arguments), `073c` (play a song looping, which `09bd` would start again
+at its end), `0600` and `0622` are never called.
+
+**The devices.** The driver looks for its device itself (`2a61`): an
+AdLib (200 reads of port 0x388, each 0, 2, 4 or 6: `2738`), a CMS (four
+bytes written to base + 6 and read back at base + 0xa, bases 0x220-0x260:
+`27ba`), an Innovation SSI-2001's SID (bases 0x280-0x2e0, `288f`), a Covox
+Sound Master (0x220, 0x240, 0x280, 0x2c0: `298b`), the Tandy (0x21 at
+`F000:C000`, the Tandy 1000's BIOS: `02d1`), else the PC speaker; each
+probe's port writes are made on every machine that lacks the devices
+before it. `DKK.CFG`'s sound line chooses nothing here: with `S` (or
+anything not `C`, `A`, `T`, `P`) no song starts (`DS:987e` 5), otherwise
+the driver plays where it finds hardware, the effects where `DKK.CFG`
+says. The port's machine is the one `DKK.CFG` (or `--sound`) names: `A`
+an AdLib beside the speaker, `T` the Tandy, `P` a speaker alone, and `C`
+a CMS, whose part of the driver is not ported (`sound: no music: the
+songs on C/MS ... are not ported` at startup, and `unported:` at each
+song); the Innovation's and the Covox's never come. The Innovation's
+probe counts 3,000 reads twice (`284c`) and stores the counts through
+near pointers to its caller's locals, which `DS` reaches, not the stack
+(the driver takes `SS` for `DS`): the counts land in the driver's data
+segment at the stack's offsets and the caller reads its own locals,
+never set; the port takes them as 0 (no SID), as the emulator below had
+them. Ours, since what the original reads there is whatever the stack
+held.
+
+**The songs.** Each record is a "parts file": `GLBR`, a zero word, the
+word 0x01bc, 0xffff and the count of parts (0x20; words big-endian, as
+all the file's), then each part's size, then the parts (`0136`): 0-7 the
+AdLib's instruments (12 bytes: byte 1 a drum's channel, 0 a melodic
+instrument; 2-3 the modulator's and the carrier's 0x20 registers, 4-5
+their 0x40, 6-7 0x60, 8-9 0x80, 10 0xC0), 8-15 the CMS's (18 bytes),
+16-23 the Innovation's and 24-31 the Covox's (8). At 0x1bc (fixed in
+`0371`, the parts' sizes giving the same) the songs' header (10 bytes,
+`SLBR`, byte 8 the last song's number), the songs' offsets, and the
+songs: a tempo (the divisor, tempo / 84: `0649`), a volume, the number of
+tracks and their offsets from the song + 0x0e. Track 0 is the speaker's
+own arrangement, its only voice; on the others voice k - 1 plays track k
+(the shipped songs have four: the speaker's and three). A track's events
+are two bytes, a note (0-0x7f, MIDI's numbers: 60 middle C) or a command and a
+length: 0x80 a rest, 0x81 a new instrument (voice v's own instrument v,
+past 3 instrument 1, `15f2`), 0x84 the volume 0x7f, other bytes past 0x80
+nothing, 0xff the end. A length is 0x6900 (a whole note) shifted right by
+its bits 0-2, bit 3 dotted, bits 4-5 two, four or six of three, five or
+seven (`0662`), divided by the divisor in interrupts with the remainder
+carried (`09bd`); bit 6 ties the note to the next (not struck again). A
+note followed by the same note ends a tick early, so the next is struck
+again. Each tick (`09bd`, skipped inside another) runs each voice's
+events once its time has come; when a voice reaches its end and none of
+voices 0-4 plays, the device is silenced (no song loops).
+
+| Song | Plays | Length (interrupts, s) | Tempo, divisor |
+| --- | --- | --- | --- |
+| 1 | the title (`35c6:051c`) | 5,376, 73.8 | 18,944, 225 |
+| 2-7 | ECL's `MUSIC` 130-135 (`3632:2878`) in ECL1-3 | 814-3,462, 11.2-47.5 | 9,856-16,640 |
+
+- **The AdLib** (`0fa0`-`162d`, port 0x388): started with rhythm mode on
+  (0xBD 0x20, `127d`), NOTE-SEL (0x08 0x40), every operator's waveform 0
+  and the waveforms off (register 1 0); an instrument goes to the first
+  free channel of 0-6 (`0ff1`, a drum's to its own), both operators'
+  registers written, 0xBD and 0x08 again before each (`10fe`); a note
+  keys the channel off (A0 0x4a, B0 0x0e), sets the carrier's level to 63
+  - (63 - its level) * volume / 128, then the F-number (`DS:0114`, by the
+  note in its octave, plus `DS:012c`'s step times an echo's detune) and
+  block (the octave - 1, 0-7) with key-on (`1365`). A drum's channel past
+  6 would be keyed by its bit of 0xBD, on channel 7's or 8's pitch; the
+  shipped instruments are all melodic, so no drum sounds, and the chip's
+  rhythm mode (ours, see The hardware) only keeps channels 6-8 quiet,
+  which the songs' three voices never reach. Voices 3-5 (none in the
+  songs) play at 100/128 of the volume.
+- **The Tandy** (`264d`, `24bb`): voices 0-2 on its tone voices (`DS:0248`'s
+  divisors for octave 5, shifted left (at most 4) or right by the octave,
+  halved below 0x400), attenuation 15 - volume / 8; port 0x61's bits 5-6
+  set at the start and put back at the stop (not modelled). Voice 3
+  would be the noise's, voices past it the speaker's.
+- **The speaker** (`25d3`, `24bb`): voice 0, track 0, PIT channel 2 at
+  `DS:0230`'s counts, port 0x61's bits 0-1 on, a note's end off.
+
+**The game's calls.** `DS:9896` is 2 while a song is started (`16fc`), 1
+while the effects driver is hooked (`170d:00a9`), else 0:
+
+- the title (`35c6:051c`) starts song 1 (`15dc:003d`), and it plays on
+  through the title's menu, main stopping it at each round of its loop
+  (`1000:015b`, `15dc:00a4`); after a demonstration the title's song is
+  stopped again before the menu (`15dc:0027`), but the demonstration's
+  ECL5 is not shipped;
+- `15dc:003d` with the sound on (`DS:987e` not 5): the effects driver
+  unhooked (`170d:0000` with 0xff) if hooked, the song playing stopped if
+  another (function 3), the record read (`15dc:019a`) and function 0 if
+  none plays, then function 1: the same song again plays from its start;
+- ECL's `MUSIC n` (`3632:2878`): past 0x7f song n & 0x7f, 1-6 a sound
+  (`15dc:0000` with `DS:0002`-`0007`'s 12, 9, 4, 7, 10 or 11; the scripts
+  use 2, 4 and 5), others nothing;
+- every sound (`15dc:0000`) stops the song (`16fc:00e2`: function 3) and
+  hooks the effects driver if neither was (`170d:00a9`), as `15dc:0027`
+  does; a record read (`15fe:0903`) and `15fe:0000`/`0020` unhook and
+  hook the effects driver again if it was, a song playing on;
+- Ctrl-S (`16ab:01d4`) turns the effects off or back on as Champions'
+  does, the song playing on (no new one while off); Ctrl-U (0x15, and
+  Alt-Y's scan code) toggles `DS:9880` (1 at startup), its off stopping
+  the song;
+- quitting (`16ab:0000`) stops it, and the effects driver if hooked.
+
+The port's calls are Champions' (`cok_sound_call`): `COK_SOUND_MUSIC`
+with the song (the descriptor's `start.title_song` for the title),
+`COK_SOUND_MUSIC_END` main's stop (`start.music_past_title`: the title
+sends none and main hooks no effects driver after it), and
+`COK_SOUND_CTRL_U`. `eclplay --sound-calls` prints `call: music N`. A
+song the archive lacks starts on an empty buffer and plays nothing (the
+original reads a record of 0 bytes); a tempo below 84 (a divisor of 0)
+would end the original at its next tick with a divide error, the port
+stopping the song (`songs.divide_error`); the shipped songs have neither.
 
 ### Time
 
@@ -501,6 +658,46 @@ both played on a voice (AM's 4.8 and 1 dB, VIB's 14 and 7 cents by
 worked out by hand, the timers, status, IRQ reset, masks and CSM's
 burst, rhythm mode's cymbal and hi-hat and the noise, and writes to
 addresses the chip lacks.
+
+Death Knights' songs' driver was compared the same way: `MUSIC.DAX`
+record 0 loaded at a paragraph and called through its entry as `16fc`
+calls it (functions 0-3, play's wait given the next interrupt), and INT
+1Ch, on machines where it finds the AdLib, the Tandy or the speaker
+(the stack zeroed before each call, the Innovation's probe then reading
+0); every port write of each call and interrupt compared. 741 scenarios
+agreed, 0 differed (1,135,519 writes): every song whole on each device
+(21: 49,746 writes); 320 random runs of starts, plays from the start
+again, polls, stops and songs in turn on one driver (666,322 writes);
+400 made-up songs, each on a device, with stops and plays between
+(drums, ties, dots, triplets, rests, every command, one to seven
+tracks, notes in every octave, no songs, 419,451 writes). The shipped
+songs ran 2,349 of the driver's 5,123 instructions; of the 3,209 in the
+routines the port carries out, 2,349 with them and 2,601 with the
+made-up songs: the rest are the other devices' branches, the
+argument parser, the echo set-ups (function 1's argument past 0),
+looping (`073c`), the tick's re-entry guard, times past 2^31 and the
+error messages' empty calls. `tests/test_songs.c` checks 28 of these
+(`tests/test_songs_data.h`: every song on each device, three made-up
+songs that run every instruction the 400 did and one at another
+volume, a run of songs on each device) and each device's first 200
+writes one by one, the parts and header as read, the game's calls, the
+timer's rate and the DOS clock's, and the AdLib's and the Tandy's title
+rendered; `tests/test_death_knights.py` ECL's `MUSIC` and song 2
+rendered on each device. Of a dozen mutations of `src/songs.c`, the
+tests catch eight; the four left change what no song reaches (a seventh
+AdLib channel taken, a pitch of exactly 0x400, voice 3 on the speaker)
+or only a port read (the AdLib's probe's count of reads).
+`tools/dosbox/checks/dkk_sound.py` (in `make dkk-checks`) records the
+title's song in DOSBox-X on the Tandy and on the AdLib (machine `tandy`
+without a Sound Blaster; `ega` with an OPL2) and compares it with
+`eclplay --wav`: the driver's device as expected, the pitches (93 % and
+91 % of the frames) and the tempo within 0.05 s over the 51 s to the
+title's menu (0-0.035 s in four runs; a divisor off by one would drift
+0.23 s). `f_wav.envelope`'s steps were a whole number of samples,
+220 at 44.1 kHz against 240 at 48 kHz, which stretched `eclplay`'s time
+by 0.227 % against DOSBox-X's; they now start at each hop's exact time
+(DOSBox-X's 4,451 interrupts of the title's song took 61.125 s of WAV,
+61.118 s at 72.826 a second); the levels on the Tandy agree within 5 %.
 
 What the comparison does not show: the time between interrupts (it
 compares one operation or interrupt at a time; the PIT's rates and the

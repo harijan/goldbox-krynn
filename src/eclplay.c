@@ -184,7 +184,7 @@ static void save_crt(player *p, const char *path)
 /* The sound's time moves on by ms, the samples due written. */
 static void advance(player *p, uint64_t ms)
 {
-    if (p->sound == NULL) return;
+    if (p->sound == NULL || p->wav_path == NULL) return;
     p->ms += ms;
     uint64_t due = p->ms * COK_SOUND_RATE / 1000;
     int16_t buffer[4096];
@@ -224,18 +224,26 @@ static void sound(cok_adventure *game, cok_sound_call call, unsigned value, void
     player *p = context;
     if (p->calls) {
         static const char *const names[] = {"command", "install", "overlay", "overlay end",
-                                            "record", "ctrl-s", "music", "music end", "quit"};
-        if (call == COK_SOUND_COMMAND)
-            printf("call: command %u\n", value);
+                                            "record", "ctrl-s", "music", "music end", "quit",
+                                            "ctrl-u"};
+        if (call == COK_SOUND_COMMAND || (call == COK_SOUND_MUSIC && value != 0))
+            printf("call: %s %u\n", names[call], value);
         else
             printf("call: %s\n", names[call]);
     }
     if (p->sound == NULL) return;
     cok_sound_call_at(p->sound, call, value);
     char text[100];
-    if (call == COK_SOUND_MUSIC &&
+    if (call == COK_SOUND_MUSIC && (p->wav_path != NULL || p->calls) &&
         cok_sound_music_unported(p->sound, cok_game_rules(game), text, sizeof text))
         cok_adventure_log(game, "unported", text);
+}
+
+static unsigned clock_speed(cok_adventure *game, void *context)
+{
+    (void)game;
+    player *p = context;
+    return p->sound != NULL ? cok_sound_clock_speed(p->sound) : 1;
 }
 
 /* The run is over: the tail rendered, the header written. */
@@ -903,10 +911,20 @@ static int run(int argc, char **argv)
     if (!display_given) display = config.display;
     if (!display_given && !config_read)
         cok_config_missing(rules, "display", config_option, saves, argv[i]);
+    /* The drivers take the game's calls whether or not they render (their
+     * state, such as the DOS clock's speed, is the game's); only --wav
+     * renders. */
+    p.sound = malloc(sizeof *p.sound);
+    if (p.sound == NULL) {
+        perror("eclplay");
+        return 1;
+    }
+    if (!sound_given && config_read) device = config.sound;
+    cok_sound_init(p.sound, device);
+    bool music = cok_sound_load(p.sound, rules, argv[i]);
     if (p.wav_path != NULL) {
         p.wav = fopen(p.wav_path, "wb");
-        p.sound = malloc(sizeof *p.sound);
-        if (p.wav == NULL || p.sound == NULL) {
+        if (p.wav == NULL) {
             perror(p.wav_path);
             return 1;
         }
@@ -915,10 +933,7 @@ static int run(int argc, char **argv)
         fwrite(header, 1, sizeof header, p.wav);
         if (!sound_given && !config_read)
             cok_config_missing(rules, "sound", config_option, saves, argv[i]);
-        if (!sound_given && config_read) device = config.sound;
-        cok_sound_init(p.sound, device);
-        if (!cok_sound_load(p.sound, rules, argv[i]))
-            fprintf(stderr, "sound: no music: %s\n", p.sound->music_error);
+        if (!music) fprintf(stderr, "sound: no music: %s\n", p.sound->music_error);
     }
     static cok_adventure game;
     p.game = &game;
@@ -926,8 +941,8 @@ static int run(int argc, char **argv)
     cok_adventure_hooks hooks = {.unported = unported, .log = log_line, .trace = trace,
                                  .key_pending = key_pending, .battlefield = battlefield,
                                  .delay = delay, .flush = flush, .device_wait = device_wait,
-                                 .sound = p.wav_path != NULL || p.calls ? sound : NULL,
-                                 .context = &p};
+                                 .sound = sound,
+                                 .clock_speed = clock_speed, .context = &p};
     if (!cok_adventure_open_display(&game, rules, argv[i], display, &keys, &hooks)) {
         fprintf(stderr, "%s\n", game.error);
         cok_adventure_close(&game);

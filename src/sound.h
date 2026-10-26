@@ -18,6 +18,7 @@
 
 #include "opl2.h"
 #include "rules.h"
+#include "songs.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -40,9 +41,12 @@ typedef enum {
     COK_SOUND_OVERLAY_END, /* After it: 17e8:00da unless DS:577c. */
     COK_SOUND_RECORD,      /* A DAX record read (169c:088e): commands 0, then 1. */
     COK_SOUND_CTRL_S,      /* 1614:025b read Ctrl-S (0x13): sound off, or back on. */
-    COK_SOUND_MUSIC,       /* The title starts its music (2f55:063c). */
-    COK_SOUND_MUSIC_END,   /* The title ends it (2f55:006d). */
+    COK_SOUND_MUSIC,       /* The title starts its music (2f55:063c); a song (value) of
+                            * a game with songs (dkk 15dc:003d). */
+    COK_SOUND_MUSIC_END,   /* The title ends it (2f55:006d); the song stopped (dkk
+                            * 15dc:00a4). */
     COK_SOUND_QUIT,        /* Quitting to DOS (1614:0000). */
+    COK_SOUND_CTRL_U,      /* A key read Ctrl-U (dkk 16ab:01d4): the songs off, or on. */
 } cok_sound_call;
 
 /* KRYNN.CFG's sound device, DS:577a: 0 CMS, 1 an MT-32 (Roland LAPC), 2
@@ -135,6 +139,13 @@ typedef struct cok_sound {
     /* The music driver divided by too little: the original stops with
      * runtime error 200; here the music stops. */
     bool divide_error;
+    /* A game's songs (MUSIC.DAX, songs.h): songs_game for a game with
+     * songs (cok_sound_load sets it from the rules), whose calls go as dkk
+     * 15dc's, songs.driver NULL if MUSIC.DAX could not be read. songs_cms: the
+     * machine has the CMS KRYNN.CFG names, which the songs' driver finds
+     * (its music there not ported). */
+    cok_songs songs;
+    bool songs_game, songs_cms;
     /* Each port write the drivers make (not 0x20, the interrupt
      * controller's), for tests and differential checks. */
     void (*trace)(void *context, uint16_t port, uint8_t value);
@@ -171,6 +182,14 @@ void cok_sound_call_at(cok_sound *s, cok_sound_call call, unsigned value);
  * original fakes a runtime error and quits; nothing sends it). */
 void cok_sound_command(cok_sound *s, unsigned n);
 
+/* How many times as fast as real time the DOS clock runs (rounded): the
+ * BIOS's INT 8 counts 0040:006c at each interrupt that reaches it, which
+ * GetTime reads. 4 while the songs' driver is hooked (PIT channel 0 at
+ * 0x4000, each interrupt passed on: dkk 35c6:0000's and 6a69:0e74's
+ * waits pass four times as fast), else 1 (the effects driver passes on
+ * every 13th of 0x13b1, the title's music every 3rd of 0x5555). */
+unsigned cok_sound_clock_speed(const cok_sound *s);
+
 /* Run the timer's next interrupt (for tests): time moves to it. */
 void cok_sound_tick(cok_sound *s);
 
@@ -179,6 +198,9 @@ void cok_sound_render(cok_sound *s, int16_t *out, size_t frames);
 
 /* A port write as the hardware takes it (the drivers' writes go here). */
 void cok_sound_out(cok_sound *s, uint16_t port, uint8_t value);
+/* A port read: port 0x61 as last written, the AdLib's status at 0x388
+ * on a machine with one, 0xff where the machine has nothing. */
+uint8_t cok_sound_in(const cok_sound *s, uint16_t port);
 
 /* The chip on its own (for tests): a byte written to port 0xC0, one step
  * of its clock (3,579,545 / 16 Hz), and its output, the sum of the

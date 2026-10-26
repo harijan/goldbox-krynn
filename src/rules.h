@@ -98,8 +98,10 @@ typedef struct {
      * ones of both (3cb2:1029). */
     const char *dungeon, *wilderness, *random;
     /* The title's music: the drivers (1661's, record device + 1) and the
-     * score (record 1). */
-    const char *music_drivers, *music_score;
+     * score (record 1); or, for a game with songs, their file (dkk
+     * MUSIC.DAX: record 0 the driver, 15dc:00d3, record n song n,
+     * 15dc:019a; see songs.h), the others NULL. */
+    const char *music_drivers, *music_score, *music_songs;
     /* The digit of the files chosen by the ECL file (DS:5782) whose names
      * hold one digit, e.g. MON1CHA: the number as Str into a string[1]
      * makes it (4b6d:161b, 2fd3:1d21, 6961:05b9, 6d21:01d0). */
@@ -355,6 +357,9 @@ typedef struct {
      * Champions' 2fd3:116d does; Death Knights' 3632:11fd has no such case
      * and animates any picture shown. */
     bool menu_single_item;
+    /* MUSIC n's sound for n 1-6 (dkk 3632:2878: 15dc:0000 with DS:n+1,
+     * DS:0002-0007; n past 0x7f is song n & 0x7f, others nothing). */
+    uint8_t music_sounds[7];
 } cok_rules_ecl;
 
 /* The 3D view's tile and wall sets (view.c, adventure.c). */
@@ -801,6 +806,14 @@ typedef struct {
     unsigned credit_count;
     uint16_t credits_wait;
     bool credits_always;
+    /* The title's song for a game with songs (dkk 35c6:051c: 15dc:003d
+     * with 1), and whether it plays on through the title's menu, main
+     * stopping it at each round of its loop (dkk 1000:015b: 15dc:00a4)
+     * and hooking the effects driver for its first sound only (15dc:0000),
+     * where Champions' title stops its music (2f55:006d) and main hooks
+     * the effects driver after it (1000:0160). */
+    uint8_t title_song;
+    bool music_past_title;
     /* A new game's first block (2fd3:3c28: 0x24; dkk 3632:2e06: 0x10),
      * and the demonstration's ECL file and block (1000:0134 and 2fd3:3c28:
      * 2 and 0x39; dkk entry and 3632:2e06: 5 and 2, an ECL5 it does not

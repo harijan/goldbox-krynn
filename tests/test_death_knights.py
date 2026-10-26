@@ -109,6 +109,54 @@ class DeathKnightsTests(unittest.TestCase):
             "menu: ~Press button or enter to continue",
             "music: 5", "music: 5", "(done in block 48)"])
 
+    def test_music(self):
+        # MUSIC n (3632:2878): past 0x7f song n & 0x7f (15dc:003d), 1-6 a
+        # sound (15dc:0000 with DS:n+1: 5's is 10).
+        result = self.play("--sound-calls", "--file", 2, "--start", "82c4", "--keys", r"\r",
+                           ASSETS, 48)
+        lines = [line for line in result.stdout.splitlines() if line != "call: record"]
+        self.assertEqual(lines[:3], ["call: install", "music: 130", "call: music 2"])
+        result = self.play("--sound-calls", "--keys", r"\r\r\r", ASSETS, 48)
+        lines = [line for line in result.stdout.splitlines() if line != "call: record"]
+        self.assertEqual(lines[-5:], ["music: 5", "call: command 10", "music: 5",
+                                      "call: command 10", "(done in block 48)"])
+        # Song 2 rendered (MUSIC.DAX's driver, src/songs.c) on each device:
+        # its first two seconds sound.
+        for device in ("tandy", "adlib", "speaker"):
+            wav = self.folder / f"{device}.wav"
+            result = self.play("--sound", device, "--wav", wav, "--file", 2, "--start", "82c4",
+                               "--keys", r"\p200.\r", ASSETS, 48)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            data = wav.read_bytes()[44:44 + 2 * 88200]
+            samples = struct.unpack(f"<{len(data) // 2}h", data)
+            self.assertGreater(max(abs(v) for v in samples), 1000, device)
+
+    def test_title_sound_calls(self):
+        # The title starts song 1 (35c6:051c) and leaves it playing through
+        # its menu; main's loop stops it (1000:015b: 15dc:00a4) and hooks
+        # no effects driver after the title; Ctrl-U reaches the sound
+        # (16ab:01d4).
+        keys = r"\kx\kx\cuP"
+        result = self.play("--start-menu", "--saves", self.folder, "--sound-calls", "--keys",
+                           keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = [line for line in result.stdout.splitlines()
+                 if line.startswith(("call: ", "menu: Play", "choice: P"))
+                 and line != "call: record"]
+        self.assertEqual(lines[:6], ["call: music 1", "menu: Play Demo", "call: ctrl-u",
+                                     "choice: P", "call: music end", "call: overlay"])
+        # Under the song the DOS clock runs four times as fast (PIT 0x4000,
+        # every interrupt to the BIOS): the title's waits by GetTime
+        # (35c6:0000), 35 s of pictures and 169.6 s of credits, pass in
+        # about 51 s; the WAV ends at the title's menu, a second after.
+        wav = self.folder / "title.wav"
+        result = self.play("--start-menu", "--saves", self.folder, "--wav", wav, "--keys", "",
+                           ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        seconds = (wav.stat().st_size - 44) / 2 / 44100
+        self.assertGreater(seconds, 50)
+        self.assertLess(seconds, 56)
+
     def test_journal(self):
         result = self.play("--file", 2, "--start", "83c7", "--keys", r"\r\r", ASSETS, 48)
         lines = result.stdout.splitlines()
@@ -601,8 +649,9 @@ class DeathKnightsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         out = result.stdout
         self.assertIn("print: CREATED BY:SSI SPECIAL PROJECTS TEAM\n", out)
-        self.assertIn('print: "THE FAT MAN"     DAVE GOVETT\nsound: install\nmenu: Play Demo\n',
-                      out)
+        # No effects driver hooked after the title (main hooks it for a
+        # sound only: 15dc:0000); the title's song plays on.
+        self.assertIn('print: "THE FAT MAN"     DAVE GOVETT\nmenu: Play Demo\n', out)
         self.assertIn("list: \nitem: Create New Character\nitem: Add Character to Party\n"
                       "item: Load Saved Game\nitem: Initialize Mouse/Joystick\n"
                       "item: Exit to DOS\n", out)

@@ -27,13 +27,21 @@ def read(path):
 
 
 def envelope(rate, samples, hop=0.005):
-    """RMS per HOP seconds."""
-    step = max(1, int(rate * hop))
+    """RMS per HOP seconds, each step's bounds rounded from k * rate * HOP
+    so that step k starts at k * HOP seconds whatever the rate (a whole
+    number of samples a step, int(rate * HOP), stretched 44.1 kHz's time
+    by 220.5 / 220 against 48 kHz's: a 0.227 % drift)."""
     out = []
-    for i in range(0, len(samples) - step + 1, step):
-        chunk = samples[i:i + step]
-        mean = sum(chunk) / step
-        out.append(math.sqrt(sum((v - mean) ** 2 for v in chunk) / step))
+    k = 0
+    while True:
+        a, b = round(k * rate * hop), round((k + 1) * rate * hop)
+        if b > len(samples) or b <= a:
+            break
+        chunk = samples[a:b]
+        n = len(chunk)
+        mean = sum(chunk) / n
+        out.append(math.sqrt(sum((v - mean) ** 2 for v in chunk) / n))
+        k += 1
     return out
 
 

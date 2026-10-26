@@ -11,7 +11,7 @@ game from its title and start menu; and `krynn`, which plays the game in a
 window with SDL2, from the title, with the keyboard, the mouse or a joystick
 (see [The mouse and the joystick](docs/front-end.md#the-mouse-and-the-joystick)) and with its sound: the
 Tandy's three voices and noise, the AdLib's YM3812 or the PC speaker, the
-effects and the title's music (see [Playing](docs/front-end.md#playing) and [Sound](docs/sound.md#sound)), in the display mode `KRYNN.CFG`
+effects and the title's music (Death Knights' songs too) (see [Playing](docs/front-end.md#playing) and [Sound](docs/sound.md#sound)), in the display mode `KRYNN.CFG`
 names: EGA, the Tandy's or CGA's four colours (see [Display modes](docs/front-end.md#display-modes)), after
 the original's text-mode setup when there is no `KRYNN.CFG` (see [Startup
 and the setup](docs/front-end.md#startup-and-the-setup)). The original DOS executable, decompiler output, and game
@@ -119,7 +119,8 @@ export checks for all 26 supported graphics archives (2,363 images), and
 tests of the picture, text, menu, 3D view, overhead map, party and spell
 effect routines, the sound (`tests/test_sound.c`: the drivers' port writes
 against the original's, recorded in an emulator, and the synthesis; the
-AdLib's chip in `tests/test_opl2.c`),
+AdLib's chip in `tests/test_opl2.c`; Death Knights' songs' driver in
+`tests/test_songs.c`, against its original's, skipped without `DKKAssets/`),
 `KRYNN.CFG` (`tests/test_config.c`), the games' descriptors and `--game`
 (`tests/test_rules.c`, see [Games](docs/games.md#games)), Death Knights of Krynn's descriptor,
 tools and scripts where `DKKAssets/` holds its files
@@ -165,7 +166,7 @@ The rest of the notes are in `docs/`, one file per part of the port:
 
 - [Games](docs/games.md): The games' descriptors, Death Knights of Krynn's differences, the character record's layout, the data segment's tables and the spells.
 - [The front end](docs/front-end.md): `krynn`: playing in a window, startup and the setup, the mouse and the joystick, the display modes.
-- [Sound](docs/sound.md): The devices, the effects driver, the title's music, timing and the hardware's emulation.
+- [Sound](docs/sound.md): The devices, the effects driver, the title's music, Death Knights' songs, timing and the hardware's emulation.
 - [Images and the library](docs/library.md): Image export, picture composition and the shared library.
 - [Scripts](docs/scripts.md): ECL scripts, how `eclplay` plays them, and the debug mode.
 - [Adventure](docs/adventure.md): The 3D view, the overhead map, the adventure loop, the overland map, monsters and encounters.

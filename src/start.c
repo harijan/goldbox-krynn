@@ -138,7 +138,10 @@ void cok_start_reset(cok_adventure *game)
 static bool title_wait(cok_adventure *game, unsigned hundredths)
 {
     cok_adventure_flush(game);
-    for (unsigned waited = 0; waited < hundredths; ++waited) {
+    /* dkk 35c6:0000 times it by GetTime: the DOS clock, four times as
+     * fast under the songs' driver. */
+    unsigned speed = cok_adventure_clock_speed(game);
+    for (unsigned waited = 0; waited < hundredths; waited += speed) {
         if (cok_adventure_key_pending(game)) {
             cok_keyboard keys = cok_adventure_keyboard(game);
             keys.read(keys.context);
@@ -185,7 +188,7 @@ void cok_start_title(cok_adventure *game)
     /* 2f55:063c: DS:5780 set and the music started (1661:000a, 02e6,
      * 014d, 02b3) unless the sound is off. */
     cok_adventure_log(game, "sound", "music");
-    cok_adventure_sound(game, COK_SOUND_MUSIC, 0);
+    cok_adventure_sound(game, COK_SOUND_MUSIC, start->title_song); /* dkk 35c6:051c */
     /* 2f55:0651: the mouse's cursor hidden through the title, its waits
      * too, until 2f55:006d (0086). */
     cok_mouse_hide(&game->mouse);
@@ -201,9 +204,10 @@ void cok_start_title(cok_adventure *game)
         credits(game);
         title_wait(game, start->credits_wait);
     }
-    /* 2f55:006d: the music stopped (1661:0353, 00da), DS:5780 cleared. */
+    /* 2f55:006d: the music stopped (1661:0353, 00da), DS:5780 cleared;
+     * dkk 35c6:051c leaves its song playing. */
     cok_picture_fill(&game->screen, 0, 0, 40, 200, 0);
-    cok_adventure_sound(game, COK_SOUND_MUSIC_END, 0);
+    if (!start->music_past_title) cok_adventure_sound(game, COK_SOUND_MUSIC_END, 0);
     cok_mouse_show(&game->mouse);
     game->title = false;
 }
@@ -691,13 +695,18 @@ cok_ecl_status cok_start_game(cok_adventure *game, bool woof)
     if (!woof) cok_start_title(game);
     if (vm->abort) return vm->status;
     /* 1000:0160: the effects driver hooked (17e8:00da), logged where the
-     * port logged it unported. */
-    cok_adventure_log(game, "sound", "install");
-    cok_adventure_sound(game, COK_SOUND_INSTALL, 0);
+     * port logged it unported; dkk main hooks it for a sound only. */
+    const cok_rules_start *start = &cok_game_rules(game)->start;
+    if (!start->music_past_title) {
+        cok_adventure_log(game, "sound", "install");
+        cok_adventure_sound(game, COK_SOUND_INSTALL, 0);
+    }
     int key = title_menu(game, cok_game_rules(game)->text.version, 3000);
     if (key < 0) return vm->status;
     game->demo = key == 'D';
     for (;;) {
+        /* dkk 1000:015b: the title's song stopped (15dc:00a4). */
+        if (start->music_past_title) cok_adventure_sound(game, COK_SOUND_MUSIC_END, 0);
         vm->file = game->demo ? cok_game_rules(game)->start.demo_file : 1;
         cok_adventure_overlay(game); /* 1000:01d8, around 4def:0000 */
         if (game->demo) {

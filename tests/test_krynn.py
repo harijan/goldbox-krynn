@@ -443,7 +443,7 @@ class FrontEndTests(unittest.TestCase):
         self.assertEqual(len(shots[0]), len(shots[1]))
         self.assertNotEqual(shots[0], shots[1])
 
-    def start(self, *args, frames=None, **popen):
+    def start(self, *args, frames=None, assets=ASSETS, **popen):
         """krynn running in the background, its standard error read line by
         line as it comes, each --log line with the time krynn logged it at
         (--log-times: SDL's clock, the one its delays go by, in ms;
@@ -454,7 +454,7 @@ class FrontEndTests(unittest.TestCase):
         if frames is not None:
             frames.mkdir()
             env["SDL_VIDEO_DUMMY_SAVE_FRAMES"] = "1"
-        process = subprocess.Popen([str(KRYNN), "--assets", str(ASSETS), "--saves",
+        process = subprocess.Popen([str(KRYNN), "--assets", str(assets), "--saves",
                                     str(self.folder / "bg"), *KEYBOARD, "--log-times", *args],
                                    cwd=frames, env=env, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, text=True, **popen)
@@ -541,6 +541,22 @@ class FrontEndTests(unittest.TestCase):
         frames = sorted(frames.glob("SDL_window*.bmp"))
         self.assertEqual(len(frames), len(shown))
         self.assertNotEqual(frame(frames[moved[0]]), frame(frames[moved[0] - 1]))
+
+    @unittest.skipUnless((ROOT / "DKKAssets" / "MUSIC.DAX").exists(), "no DKKAssets")
+    def test_timed_menu_under_song(self):
+        """Death Knights' title menu times out after 30 seconds by GetTime
+        (dkk 6a69:0e74), which its song's driver makes four times as fast
+        (PIT channel 0 at 0x4000): 7.5 seconds by SDL's clock, the song
+        playing on through the menu (DKK.CFG's T), audio device or not."""
+        for args in ((), ("--no-sound",)):
+            _, lines, stop = self.start("--game", "death-knights", "--no-delay", "--scale", "1",
+                                        "--log", "--keys", r"\kx\kx", "--continue", *args,
+                                        assets=ROOT / "DKKAssets")
+            demo = self.wait_for(lines, "choice: Demo", 60)
+            menu = [t for t, line in lines if line == "menu: Play Demo"][0]
+            stop()
+            self.assertGreaterEqual(demo - menu, 7500, args)
+            self.assertLess(demo - menu, 8000, args)
 
     def test_animation(self):
         """The hobgoblin's menu (HORIZONTAL MENU over PIC1 record 12, which

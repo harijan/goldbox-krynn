@@ -152,7 +152,7 @@ opcode's meaning but ten:
 | `0x23` | SURPRISE | CLEAR EXIT: the text window cleared, what changed shown again (`3c1e:1dd9`), `EXIT` (`3632:2859`) | ported |
 | `0x27` | TREASURE, 8 | TREASURE ITEMS: coins, then a list (a header of 4) of `ITEM0`'s items (`3632:1933`) | ported (see [Death Knights' treasure](treasure-shops.md#death-knights-treasure)) |
 | `0x29` | ENCOUNTER MENU, 14 | NOTHING (`3632:28c9`) | ported |
-| `0x2c` | PARLAY, 6 | MUSIC N (`3632:2878`) | logged (`music:`), not played |
+| `0x2c` | PARLAY, 6 | MUSIC N (`3632:2878`): past 0x7f song N & 0x7f (`15dc:003d`), 1-6 a sound (`15dc:0000` with `DS:N+1`) | ported (logged `music: N`; see [Death Knights' songs](sound.md#death-knights-songs)) |
 | `0x31` | SPRITE OFF | ASK MENU: "what do you do" (`DS:2bed`) where the text stands, then HORIZONTAL MENU (`3632:11fd` with 1) | ported |
 | `0x3c` | PROTECTION (hangs) | STOCK: a shop's items from `ITEM0`'s lists (`3632:28d2`), then the shop | ported (see [Death Knights' shops](treasure-shops.md#death-knights-shops)) |
 
@@ -282,7 +282,7 @@ screen without a display, as `2fd3:3b47` enters a block: the load vector,
 then the after-move and location vectors, starting over when `NEWECL`
 switches blocks; `--game NAME` names the game whose files ASSETS holds
 (see [Games](games.md#games)): with `death-knights` it runs Death Knights' blocks (their
-songs logged as `music: N`, unplayed; an opcode or a read not ported yet
+songs logged as `music: N`, and played with `--wav`; an opcode or a read not ported yet
 ends the run, saying which), not its title, start menu or saved games. It prints text as it is printed (`print:`), menus with
 their `~` marks (`menu:`, `list:` and `item:`), the choices made
 (`choice:`) and input read (`input:`), and the name and operand values of

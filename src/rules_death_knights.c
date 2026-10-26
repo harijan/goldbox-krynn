@@ -1446,9 +1446,10 @@ const cok_rules cok_rules_death_knights = {
             .dungeon = "DUNGCOM",
             .wilderness = "WILDCOM",
             .random = NULL,
-            /* MUSIC.DAX's driver and songs (step 4): silent until then. */
+            /* MUSIC.DAX's driver and songs (songs.h). */
             .music_drivers = NULL,
             .music_score = NULL,
+            .music_songs = "MUSIC",
             .file_digit = death_knights_file_digit,
             .pic_files = death_knights_pic_files,
             .sprite_files = death_knights_sprite_files,
@@ -1552,6 +1553,7 @@ const cok_rules cok_rules_death_knights = {
             .compare_and_strings = true, /* 3632:0bed */
             .delay_ms = 600,             /* 3632:1c90 */
             .menu_single_item = false,   /* 3632:11fd */
+            .music_sounds = {0, 0x0c, 0x09, 0x04, 0x07, 0x0a, 0x0b}, /* DS:0002-0007 */
         },
     .view =
         {
@@ -1694,6 +1696,8 @@ const cok_rules cok_rules_death_knights = {
                 sizeof death_knights_credit_lines / sizeof *death_knights_credit_lines,
             .credits_wait = 16960,
             .credits_always = true,
+            .title_song = 1, /* 35c6:051c */
+            .music_past_title = true,
             .first_block = 0x10, /* 3632:2e06 */
             .demo_file = 5,      /* 3632:2e06: ECL5, which it does not ship */
             .demo_block = 2,

@@ -73,7 +73,7 @@ keypad numbers as the BIOS keeps them, `cok_keymap_event`):
 | F1-F10 | 0, then 0x3b-0x44; with Shift 0x54-0x5d, Ctrl 0x5e-0x67, Alt 0x68-0x71 | F10 picks Demo on the title's menu; Ctrl-F8 camps on the overland map; menus that do not tell scan codes from letters take F7-F10 (0x41-0x44) as A-D, Home, Up and PgUp as G, H and I, and so on (saved games A-J, Yes and No) |
 | Alt and a letter | 0, then the letter's scan code | in combat Alt-Q and Alt-A Auto, Alt-M Magic on and off, Alt-X the Gods (with `--helm`), Alt-R nothing |
 | Alt and a digit, `-` or `=` | 0, then 0x78-0x83 | nothing |
-| Ctrl and a letter | 1-26; Ctrl `[ \ ] 6 -` 27-31; Ctrl-2 0, 0x03 | Ctrl-S the sound off and on again (`1614:025b`, see [Sound](sound.md#sound)); with `--woof`, Ctrl-D the debug mode on and off, Ctrl-Z the party's effects to `DEBUG.TXT`, Ctrl-C (and Ctrl-2, whose scan code is 3) quit to DOS (see [Debug mode](scripts.md#debug-mode)); in the setup's path line, Crt's editor's: Ctrl-S erases a character, Ctrl-A the line, Ctrl-D and Ctrl-F recall (`1962:0394`, see Startup and the setup), and the debug keys and Ctrl-S's sound do nothing there |
+| Ctrl and a letter | 1-26; Ctrl `[ \ ] 6 -` 27-31; Ctrl-2 0, 0x03 | Ctrl-S the sound off and on again (`1614:025b`, see [Sound](sound.md#sound)); in Death Knights Ctrl-U its song off (`16ab:01d4`, see [Death Knights' songs](sound.md#death-knights-songs)); with `--woof`, Ctrl-D the debug mode on and off, Ctrl-Z the party's effects to `DEBUG.TXT`, Ctrl-C (and Ctrl-2, whose scan code is 3) quit to DOS (see [Debug mode](scripts.md#debug-mode)); in the setup's path line, Crt's editor's: Ctrl-S erases a character, Ctrl-A the line, Ctrl-D and Ctrl-F recall (`1962:0394`, see Startup and the setup), and the debug keys and Ctrl-S's sound do nothing there |
 | F11 or Alt-Enter | nothing (function 0 drops them) | full screen on and off |
 | F12 | nothing | save the screen as shown (the mouse's cursor too), 320×200 (startup's text screen 640×200), as `krynnNNN.bmp` in `screenshots/` or `--screenshots DIR` |
 
@@ -172,7 +172,7 @@ in white (in CGA mode magenta and white), waits for a key or the window's
 close, and exits with status 1 (2 for bad options or a `--keys` code no key
 gives). Without the font, a message box says it.
 
-Not done: the music of CMS and the MT-32 (see [Sound](sound.md#sound)).
+Not done: the music of CMS and the MT-32, and Death Knights' songs on a CMS (see [Sound](sound.md#sound)).
 `tests/test_krynn.py` plays, with `--input none` (the keyboard alone, as
 `eclplay` without `--mouse` has it), the title and the demonstration, and a
 new game from the title (creating a character, the overland map, two fights

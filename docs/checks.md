@@ -278,6 +278,11 @@ original's behaviour is recorded, its section says what it does):
 - #129 Magic Missile reflected: the caster takes the damage:
   `d_turning.py`.
 
+Death Knights' title song (see [Death Knights' songs](sound.md#death-knights-songs))
+on the Tandy and the AdLib, its pitches and tempo against `eclplay --wav`:
+`tools/dosbox/checks/dkk_sound.py`, in `make dkk-checks` (about four
+minutes, in real time).
+
 Death Knights of Krynn, read headless (see [Games](games.md#games)), is checked by
 `tools/dosbox/checks/dkk_views.py`, which `make dkk-checks` runs
 (`run_all.py --set dkk`) or `python3 tools/dosbox/checks/dkk_views.py` (about a

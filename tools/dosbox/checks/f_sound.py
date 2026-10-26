@@ -69,8 +69,8 @@ MERGE = 0.1            # s: commands landing this close cut each other at once
 MAX_DRIFT = 0.1        # s: the tempo's drift allowed over the title's music
 ONE_TICK = 0.02        # s: one driver interrupt (1/54.6 s) at the envelope's steps
 
-SOUND_LOG = ('        if (call == COK_SOUND_COMMAND)\n'
-             '            printf("call: command %u\\n", value);\n'
+SOUND_LOG = ('        if (call == COK_SOUND_COMMAND || (call == COK_SOUND_MUSIC && value != 0))\n'
+             '            printf("call: %s %u\\n", names[call], value);\n'
              '        else\n'
              '            printf("call: %s\\n", names[call]);\n')
 
@@ -135,7 +135,7 @@ def title(v, device, work, verbose):
     compare_music(v, f"title-{device}", ewav, bwav)
 
 
-def compare_music(v, name, ewav, bwav):
+def compare_music(v, name, ewav, bwav, max_drift=MAX_DRIFT):
     re_, e = f_wav.read(ewav)
     rb, b = f_wav.read(bwav)
     env_e, env_b = f_wav.envelope(re_, e, HOP), f_wav.envelope(rb, b, HOP)
@@ -159,8 +159,8 @@ def compare_music(v, name, ewav, bwav):
     lags = [w[1] for w in windows if w[2] > 0.5]
     print(f"  {name}: offsets of 4-second windows {[(w[0], w[1]) for w in windows]}")
     drift = (max(lags) - min(lags)) if lags else None
-    v.check(len(lags) >= 5 and drift <= MAX_DRIFT,
-            f"{name}: the tempo (the offsets of 4-second windows within {MAX_DRIFT} s: "
+    v.check(len(lags) >= 5 and drift <= max_drift,
+            f"{name}: the tempo (the offsets of 4-second windows within {max_drift} s: "
             "DOSBox-X's WAV error)", f"{drift if drift is None else round(drift, 3)} s over "
             f"{len(lags)} windows")
     times = [on_e * HOP + 0.1 + 0.25 * i for i in range(int((end_e - on_e * HOP) / 0.25) - 1)]
