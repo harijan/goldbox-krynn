@@ -49,16 +49,16 @@ included here.
 From the project directory:
 
 ```sh
-make cok
+make krynn
 ```
 
-That builds the game as `build/cok`. Plain `make` builds the command-line
+That builds the game as `build/krynn`. Plain `make` builds the command-line
 tools as well, and `make test` runs the test suite.
 
 ## Playing
 
 ```sh
-./build/cok
+./build/krynn
 ```
 
 Run it from the project directory, so it finds `COKAssets`.
@@ -106,7 +106,7 @@ shows its choices along the bottom of the screen.
 | Alt-M | in combat, let Auto cast spells or not ("Magic On/Off") |
 | Ctrl-S | sound off and on |
 | F11 or Alt-Enter | full screen |
-| F12 | save a screenshot as `screenshots/cokNNN.bmp` |
+| F12 | save a screenshot as `screenshots/krynnNNN.bmp` |
 
 **Mouse:** if you chose the mouse, the left button is Enter and the right
 is Escape. Clicking a menu item, a character in the party list or a place
@@ -140,7 +140,7 @@ computer. Copy your DOS *Death Knights* files into a folder named
 `DKKAssets` and run:
 
 ```sh
-./build/cok --game death-knights
+./build/krynn --game death-knights
 ```
 
 ### Starting out
@@ -220,7 +220,7 @@ combatants are set up as in the original.
 
 ## Options
 
-`./build/cok --help` lists them all. The useful ones:
+`./build/krynn --help` lists them all. The useful ones:
 
 | Option | |
 | --- | --- |
@@ -239,11 +239,11 @@ combatants are set up as in the original.
 
 ## Troubleshooting
 
-- **No sound:** if there is no sound device, `cok` says so and plays on
+- **No sound:** if there is no sound device, `krynn` says so and plays on
   silently. SDL picks PulseAudio, PipeWire or ALSA by itself; set
   `SDL_AUDIODRIVER` to choose one. Also check that `KRYNN.CFG` doesn't say
   Silent: try `--sound tandy`.
-- **No window in a container or over SSH:** `cok` needs a display. Run it
+- **No window in a container or over SSH:** `krynn` needs a display. Run it
   on the host, use `ssh -X`, or share the host's X server with the
   container.
 - **"stopped in block N at …":** the game reached something the port

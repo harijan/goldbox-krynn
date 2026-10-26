@@ -231,7 +231,7 @@ static void test_find(void)
     CHECK(cok_keymap_find(0, 0x10, &key) && key.sym == 'q' && key.mod == KMOD_LALT);
 }
 
-/* eclplay's key escapes, which cok's --keys shares. */
+/* eclplay's key escapes, which krynn's --keys shares. */
 static void test_script(void)
 {
     cok_key_script s = cok_key_script_start("a\\r\\e\\b\\<\\>\\^\\v\\@q\\@x\\#44\\t\\\\\\kZ\\@1\\#4");
@@ -257,7 +257,7 @@ static void test_script(void)
     CHECK(cok_key_script_read(&s) == 4 && cok_key_script_read(&s) == 0x1a);
     CHECK(cok_key_script_read(&s) == 3 && cok_key_script_read(&s) == 'c');
     CHECK(cok_key_script_read(&s) == '1' && cok_key_script_done(&s));
-    /* cok types them as Ctrl and the letter. */
+    /* krynn types them as Ctrl and the letter. */
     SDL_Keysym ctrl;
     CHECK(cok_keymap_find(4, -1, &ctrl) && ctrl.sym == 'd' && (ctrl.mod & KMOD_CTRL) != 0);
     CHECK(cok_keymap_find(0x1a, -1, &ctrl) && ctrl.sym == 'z' && (ctrl.mod & KMOD_CTRL) != 0);

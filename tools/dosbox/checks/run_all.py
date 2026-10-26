@@ -18,7 +18,7 @@ displays to a range; --jobs defaults to the range's size less two, else to
 five eighths of the cores (10 of 16; see default_jobs). A script not as
 recorded runs once more, alone, at the end (unless --no-again): the
 verdict alone is the one that counts, its first shown beside it.
-Needs `make build/eclplay build/cok build/START_FULL.EXE` (make dosbox-checks
+Needs `make build/eclplay build/krynn build/START_FULL.EXE` (make dosbox-checks
 does it; `make dosbox-checks ARGS="--only b_amount"` passes options). Exit 0
 when every script gave its recorded verdict.
 

@@ -4,7 +4,7 @@ CPPFLAGS = -Isrc
 CFLAGS = -std=c17 -O2 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
 # cast.c's burst takes its cosines and sines from the C library.
 LDLIBS = -lm
-# make sanitize's builds: AddressSanitizer and UBSan; build/cok_tsan's:
+# make sanitize's builds: AddressSanitizer and UBSan; build/krynn_tsan's:
 # ThreadSanitizer.
 ASAN_FLAGS = -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
 TSAN_FLAGS = -g -fsanitize=thread
@@ -18,10 +18,10 @@ build:
 # Each source is compiled once for each set of flags, and the programs are
 # linked from the objects: build/obj/ (CFLAGS), build/obj-asan/ (with
 # ASAN_FLAGS: make sanitize's builds), build/obj-tsan/ (with TSAN_FLAGS:
-# build/cok_tsan's); SDL2's flags only for SDL_SRC, which include SDL.h.
+# build/krynn_tsan's); SDL2's flags only for SDL_SRC, which include SDL.h.
 # Each object's headers are in its .d file (-MMD -MP), which make reads, so
 # that a header's change rebuilds the objects that include it.
-SDL_SRC = src/cok.c src/keymap.c tests/test_keymap.c
+SDL_SRC = src/krynn.c src/keymap.c tests/test_keymap.c
 obj = $(patsubst %.c,build/obj/%.o,$(1))
 asan = $(patsubst %.c,build/obj-asan/%.o,$(1))
 tsan = $(patsubst %.c,build/obj-tsan/%.o,$(1))
@@ -79,48 +79,48 @@ dosbox-selftest: build/eclplay build/START_FULL.EXE
 
 # Every check of docs/checks.md's "Checks against the original" run in the
 # original (tools/dosbox/checks/), side by side: one verdict a script.
-# ARGS go to run_all.py (e.g. ARGS="--only b_amount --jobs 2"). build/cok
-# for the checks that compare the frames cok presents (c_places.cok_frames).
+# ARGS go to run_all.py (e.g. ARGS="--only b_amount --jobs 2"). build/krynn
+# for the checks that compare the frames krynn presents (c_places.krynn_frames).
 .PHONY: dosbox-checks
-dosbox-checks: build/eclplay build/cok build/START_FULL.EXE
+dosbox-checks: build/eclplay build/krynn build/START_FULL.EXE
 	$(PYTHON) tools/dosbox/checks/run_all.py $(ARGS)
 
 # Death Knights' checks (the dkk_* scripts, the long ones split by flow).
 .PHONY: dkk-checks
-dkk-checks: build/eclplay build/cok build/death-START_FULL.EXE
+dkk-checks: build/eclplay build/krynn build/death-START_FULL.EXE
 	$(PYTHON) tools/dosbox/checks/run_all.py --set dkk --out build/dkk-checks $(ARGS)
 
-# The SDL2 front end (build/cok) and its tests, only where pkg-config finds
+# The SDL2 front end (build/krynn) and its tests, only where pkg-config finds
 # SDL2; its headers as system headers, so that their warnings do not fail
 # the build.
 HAVE_SDL := $(shell pkg-config --exists sdl2 2>/dev/null && echo yes)
 SDL_CFLAGS := $(patsubst -I%,-isystem %,$(shell pkg-config --cflags sdl2 2>/dev/null))
 SDL_LIBS := $(shell pkg-config --libs sdl2 2>/dev/null)
-COK_SRC = src/cok.c src/keymap.c src/keyscript.c $(ADVENTURE_SRC)
+KRYNN_SRC = src/krynn.c src/keymap.c src/keyscript.c $(ADVENTURE_SRC)
 
-.PHONY: cok
-cok: build/cok
+.PHONY: krynn
+krynn: build/krynn
 
-# tests/test_cok.py's new game, for make sanitize.
+# tests/test_krynn.py's new game, for make sanitize.
 COK_GAME = P\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\eYY\vS\rE\v\v\v\v\vSA\vS\r\r\r\r\r\r\rH\v\v\vSS\v\v\v\v\v\vSLNM\>\r\@xN\r\eN\r\r\r\r\r\rELN98yA\@xN\r\eN\^\^\>\^L\vEERESANE
 
 # Clicks and the joystick for make sanitize: creating BOB and modifying
-# him by clicks; the stick's keys and its calibration (tests/test_cok.py's).
+# him by clicks; the stick's keys and its calibration (tests/test_krynn.py's).
 COK_CLICKS = \kxP\r\v\v\v\v\v\v\r\r\v\r\rNBOB\r\eYY\v\rAE\m100,116,1.\m148,196,1.\m124,196,1.\m52,84,1.\m68,196,1.\m172,196,1.\e
 COK_STICK = \kx\j129,129,1.\j129,129.\j129,250.\j129,129.\j129,250.\j129,129.\j129,250.\j129,129.\j129,129,1.\j129,129.\j129,250.\j129,129.\j129,129,1.\j129,129.\r\j10,12,1.\j129,129.\j250,240,1.\j129,129.\e\e
 COK_STICK_CFG = E\r\nT\r\nJ\r\nC:\\COK\\SAVE\\\r\nF\r\n1\r\n1\r\n40\r\n40\r\n80\r\n80\r\n120\r\n120\r\n160\r\n160\r\n200\r\n200\r\n250\r\n250\r\n
 
 
-build/cok: $(call obj,$(COK_SRC)) | build
-	@$(if $(HAVE_SDL),true,echo "build/cok needs SDL2, found with pkg-config sdl2 (libsdl2-dev)" >&2; exit 1)
+build/krynn: $(call obj,$(KRYNN_SRC)) | build
+	@$(if $(HAVE_SDL),true,echo "build/krynn needs SDL2, found with pkg-config sdl2 (libsdl2-dev)" >&2; exit 1)
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(SDL_LIBS) $(LDLIBS) -o $@
 
-build/cok_sanitize: $(call asan,$(COK_SRC)) | build
+build/krynn_sanitize: $(call asan,$(KRYNN_SRC)) | build
 	$(CC) $(CFLAGS) $(ASAN_FLAGS) $^ $(LDFLAGS) $(SDL_LIBS) $(LDLIBS) -o $@
 
-# cok with ThreadSanitizer: the game's calls into the sound against the
+# krynn with ThreadSanitizer: the game's calls into the sound against the
 # audio thread's rendering.
-build/cok_tsan: $(call tsan,$(COK_SRC)) | build
+build/krynn_tsan: $(call tsan,$(KRYNN_SRC)) | build
 	$(CC) $(CFLAGS) $(TSAN_FLAGS) $^ $(LDFLAGS) $(SDL_LIBS) $(LDLIBS) -o $@
 
 KEYMAP_SRC = tests/test_keymap.c src/keymap.c src/keyscript.c
@@ -197,7 +197,7 @@ $(SRC_SANITIZE:%=build/%_sanitize): build/%_sanitize: $$(call asan,$$($$*_SRC)) 
 # in parts, one for each of SHARDS (COK_TEST_SHARD=K/N: every Nth test from
 # the Kth), and run-test_eclplay then checks from the ids they list
 # (COK_TEST_SHARD_LIST) that together they ran each of its tests once.
-# tests/test_cok.py plays in real time: it runs last, alone, once the
+# tests/test_krynn.py plays in real time: it runs last, alone, once the
 # others are done (make -j would otherwise run it beside them, and a loaded
 # machine makes the game late), its own tests side by side, each in a
 # process of its own (COK_TEST_JOBS of them at once, 1 for one at a time).
@@ -206,21 +206,21 @@ SHARDS = 1 2 3 4
 ECLPLAY_RUNS = $(SHARDS:%=run-test_eclplay-%)
 TEST_RUNS = $(TEST_PROGRAMS:%=run-%) run-ecldump run-test_images_cli run-test_death_knights_py $(ECLPLAY_RUNS) run-test_eclplay $(if $(HAVE_SDL),run-test_keymap) run-test_ovrmerge run-daxcheck
 SANITIZE_RUNS = $(TEST_PROGRAMS:%=run-%_sanitize)
-.PHONY: $(TEST_RUNS) $(SANITIZE_RUNS) run-test_cok run-test_death_knights_py
+.PHONY: $(TEST_RUNS) $(SANITIZE_RUNS) run-test_krynn run-test_death_knights_py
 
 # The tests' temporary files (TMPDIR) in TEST_TMPDIR: the dev container's
 # /tmp, a FUSE overlay holding many entries, is slow for their many small
-# files (the tests but test_cok.py, at -j16: 40 s with /tmp, 14 s with
+# files (the tests but test_krynn.py, at -j16: 40 s with /tmp, 14 s with
 # build/tmp on the same overlay). The C tests make their folders there too
 # (tests/test_temp.h).
 TEST_TMPDIR = build/tmp
 TEST_ENV = TMPDIR=$(abspath $(TEST_TMPDIR))
-$(TEST_RUNS) $(SANITIZE_RUNS) run-test_cok: | $(TEST_TMPDIR)
+$(TEST_RUNS) $(SANITIZE_RUNS) run-test_krynn: | $(TEST_TMPDIR)
 $(TEST_TMPDIR):
 	mkdir -p $@
 
-test: $(TEST_RUNS) $(if $(HAVE_SDL),run-test_cok)
-	$(if $(HAVE_SDL),,@echo "SDL2 not found (pkg-config sdl2): skipped building and testing build/cok")
+test: $(TEST_RUNS) $(if $(HAVE_SDL),run-test_krynn)
+	$(if $(HAVE_SDL),,@echo "SDL2 not found (pkg-config sdl2): skipped building and testing build/krynn")
 
 $(TEST_PROGRAMS:%=run-%) $(SANITIZE_RUNS) run-test_keymap: run-%: build/% build/START_FULL.EXE
 	$(TEST_ENV) ./build/$*
@@ -237,7 +237,7 @@ run-ecldump: build/ecldump
 run-test_images_cli: build/daximages build/daxcompose
 	$(TEST_ENV) $(PYTHON) tests/test_images_cli.py
 
-run-test_death_knights_py: build/eclplay build/ecldump build/daxcheck build/daximages build/daxcompose $(if $(HAVE_SDL),build/cok)
+run-test_death_knights_py: build/eclplay build/ecldump build/daxcheck build/daximages build/daxcompose $(if $(HAVE_SDL),build/krynn)
 	$(TEST_ENV) $(PYTHON) tests/test_death_knights.py
 
 SHARD_LIST = $(abspath $(TEST_TMPDIR))/eclplay-shard-$(1).txt
@@ -254,13 +254,13 @@ run-test_ovrmerge:
 run-daxcheck: build/daxcheck
 	$(TEST_ENV) ./build/daxcheck COKAssets/*.DAX
 
-run-test_cok: build/cok build/eclplay $(TEST_RUNS)
-	$(TEST_ENV) $(PYTHON) tests/test_cok.py
+run-test_krynn: build/krynn build/eclplay $(TEST_RUNS)
+	$(TEST_ENV) $(PYTHON) tests/test_krynn.py
 
 # make sanitize: its test programs' runs (SANITIZE_RUNS) side by side, then
-# eclplay's and cok's runs below one after another (some use the files of
+# eclplay's and krynn's runs below one after another (some use the files of
 # those before them).
-sanitize: build/START_FULL.EXE $(SANITIZE_RUNS) build/eclplay_sanitize build/daxcheck_sanitize $(if $(HAVE_SDL),build/cok_sanitize build/cok_tsan build/test_keymap_sanitize)
+sanitize: build/START_FULL.EXE $(SANITIZE_RUNS) build/eclplay_sanitize build/daxcheck_sanitize $(if $(HAVE_SDL),build/krynn_sanitize build/krynn_tsan build/test_keymap_sanitize)
 	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --keys '\r\rE\r\r\r\r\r\r\r' COKAssets 16 | tail -n 1)" = "(out of keys in block 17 at 9d9b)"
 	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --start 899b --keys '\r22\r\rE\r\r\r\r' COKAssets 48 | tail -n 1)" = "(done in block 48)"
 	test "$$(./build/eclplay_sanitize --woof --test-party 4 --effect 2,22,10,0 --keys '\cD\rxxxxxxxxxxxxxx\cZ\cC' COKAssets 16 | tail -n 1)" = "(quit to DOS in block 16)"
@@ -318,11 +318,11 @@ sanitize: build/START_FULL.EXE $(SANITIZE_RUNS) build/eclplay_sanitize build/dax
 	out="$$(./build/eclplay_sanitize --test-party 6 --combat auto --seed 1 --play --set 4be6=1 --effect 1,37,0,ff --effect 1,16,3,0 --effect 2,3e,2,ff --effect 3,3e,3,ff --effect 4,3e,2,ff --effect 3,22,1,7 --keys '\r\r' COKAssets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(the party was killed in block 32)" && printf '%s\n' "$$out" | grep -q '^print: dies from poison$$' && printf '%s\n' "$$out" | grep -q '^print: is weakened$$' && test "$$(printf '%s\n' "$$out" | grep -c '^print: is partially healed$$')" = 3
 	./build/daxcheck_sanitize COKAssets/*.DAX
 	rm -rf build/sanitize_wav && mkdir -p build/sanitize_wav && test "$$(./build/eclplay_sanitize --start-menu --saves build/sanitize_wav --seed 3 --wav build/sanitize_wav/a.wav --keys '\p50.\t' COKAssets | tail -n 1)" = "(out of keys at the title)" && test "$$(./build/eclplay_sanitize --start-menu --saves build/sanitize_wav --seed 3 --sound speaker --wav build/sanitize_wav/b.wav --keys '\t' COKAssets | tail -n 1)" = "(out of keys at the title)"
-	rm -rf build/sanitize_setup && mkdir -p build/sanitize_setup/assets build/sanitize_setup/saves build/sanitize_setup/cok && for f in COKAssets/*; do [ "$${f##*/}" = KRYNN.CFG ] || ln -s "$$PWD/$$f" build/sanitize_setup/assets/; done && out="$$(./build/eclplay_sanitize --start-menu --saves build/sanitize_setup/saves --shots build/sanitize_setup --keys '91\#32x3xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\eq:\\x\b\r\kxP\e' build/sanitize_setup/assets)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in the start menu)" && printf '%s\n' "$$out" | grep -q '^crt: USING DEFAULT PATH: C:\\COK\\SAVE$$' && test "$$(head -n 4 build/sanitize_setup/saves/KRYNN.CFG | od -An -c | tr -d ' \n')" = 'C\r\nR\r\nN\r\nC:\COK\SAVE\\r\n'
-	$(if $(HAVE_SDL),./build/test_keymap_sanitize,@echo "SDL2 not found (pkg-config sdl2): skipped build/cok_sanitize")
-	$(if $(HAVE_SDL),test "$$(SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy ./build/cok_sanitize --assets build/sanitize_setup/assets --saves build/sanitize_setup/cok --no-delay --keys '91\#32x3xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\eq:\\x\b\r\kxP\e')" = "(out of keys in the start menu)" && cmp build/sanitize_setup/saves/KRYNN.CFG build/sanitize_setup/cok/KRYNN.CFG)
-	$(if $(HAVE_SDL),rm -rf build/sanitize_cok && test "$$(SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy ./build/cok_sanitize --saves build/sanitize_cok --no-delay --seed 7 --helm --log --log-times --keys '$(COK_GAME)' 2>build/sanitize_cok.log)" = "(out of keys in the start menu)" && ! grep -E 'Sanitizer|runtime error' build/sanitize_cok.log && grep -q '^[0-9]* present: ' build/sanitize_cok.log)
+	rm -rf build/sanitize_setup && mkdir -p build/sanitize_setup/assets build/sanitize_setup/saves build/sanitize_setup/krynn && for f in COKAssets/*; do [ "$${f##*/}" = KRYNN.CFG ] || ln -s "$$PWD/$$f" build/sanitize_setup/assets/; done && out="$$(./build/eclplay_sanitize --start-menu --saves build/sanitize_setup/saves --shots build/sanitize_setup --keys '91\#32x3xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\eq:\\x\b\r\kxP\e' build/sanitize_setup/assets)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in the start menu)" && printf '%s\n' "$$out" | grep -q '^crt: USING DEFAULT PATH: C:\\COK\\SAVE$$' && test "$$(head -n 4 build/sanitize_setup/saves/KRYNN.CFG | od -An -c | tr -d ' \n')" = 'C\r\nR\r\nN\r\nC:\COK\SAVE\\r\n'
+	$(if $(HAVE_SDL),./build/test_keymap_sanitize,@echo "SDL2 not found (pkg-config sdl2): skipped build/krynn_sanitize")
+	$(if $(HAVE_SDL),test "$$(SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy ./build/krynn_sanitize --assets build/sanitize_setup/assets --saves build/sanitize_setup/krynn --no-delay --keys '91\#32x3xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\eq:\\x\b\r\kxP\e')" = "(out of keys in the start menu)" && cmp build/sanitize_setup/saves/KRYNN.CFG build/sanitize_setup/krynn/KRYNN.CFG)
+	$(if $(HAVE_SDL),rm -rf build/sanitize_krynn && test "$$(SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy ./build/krynn_sanitize --saves build/sanitize_krynn --no-delay --seed 7 --helm --log --log-times --keys '$(COK_GAME)' 2>build/sanitize_krynn.log)" = "(out of keys in the start menu)" && ! grep -E 'Sanitizer|runtime error' build/sanitize_krynn.log && grep -q '^[0-9]* present: ' build/sanitize_krynn.log)
 	rm -rf build/sanitize_mouse && mkdir -p build/sanitize_mouse && test "$$(./build/eclplay_sanitize --start-menu --mouse --seed 5 --saves build/sanitize_mouse --shots build/sanitize_mouse --keys '$(COK_CLICKS)' COKAssets | tail -n 1)" = "(out of keys in the start menu)" && test -f build/sanitize_mouse/BOB.WHO
-	$(if $(HAVE_SDL),rm -rf build/sanitize_stick && mkdir -p build/sanitize_stick && printf '$(COK_STICK_CFG)' > build/sanitize_stick/KRYNN.CFG && test "$$(SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy ./build/cok_sanitize --saves build/sanitize_stick --no-delay --keys '$(COK_STICK)')" = "(out of keys in the start menu)" && test "$$(sed -n 3p build/sanitize_stick/KRYNN.CFG)" = "$$(printf 'J\r')")
-	$(if $(HAVE_SDL),rm -rf build/sanitize_cok && test "$$(TSAN_OPTIONS='halt_on_error=1 exitcode=66' SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy ./build/cok_tsan --saves build/sanitize_cok --no-delay --sound-clock real --seed 7 --helm --keys '\p50.$(COK_GAME)')" = "(out of keys in the start menu)")
-	$(if $(HAVE_SDL),rm -rf build/sanitize_adlib && test "$$(TSAN_OPTIONS='halt_on_error=1 exitcode=66' SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy ./build/cok_tsan --saves build/sanitize_adlib --no-delay --sound-clock real --sound adlib --seed 7 --keys '\p200.P')" = "(out of keys in the start menu)")
+	$(if $(HAVE_SDL),rm -rf build/sanitize_stick && mkdir -p build/sanitize_stick && printf '$(COK_STICK_CFG)' > build/sanitize_stick/KRYNN.CFG && test "$$(SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy ./build/krynn_sanitize --saves build/sanitize_stick --no-delay --keys '$(COK_STICK)')" = "(out of keys in the start menu)" && test "$$(sed -n 3p build/sanitize_stick/KRYNN.CFG)" = "$$(printf 'J\r')")
+	$(if $(HAVE_SDL),rm -rf build/sanitize_krynn && test "$$(TSAN_OPTIONS='halt_on_error=1 exitcode=66' SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy ./build/krynn_tsan --saves build/sanitize_krynn --no-delay --sound-clock real --seed 7 --helm --keys '\p50.$(COK_GAME)')" = "(out of keys in the start menu)")
+	$(if $(HAVE_SDL),rm -rf build/sanitize_adlib && test "$$(TSAN_OPTIONS='halt_on_error=1 exitcode=66' SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy ./build/krynn_tsan --saves build/sanitize_adlib --no-delay --sound-clock real --sound adlib --seed 7 --keys '\p200.P')" = "(out of keys in the start menu)")

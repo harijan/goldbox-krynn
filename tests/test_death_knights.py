@@ -1529,11 +1529,11 @@ class DeathKnightsTests(unittest.TestCase):
                            ASSETS)
         self.assertEqual(result.returncode, 1)
         self.assertIn("(dkk 6a69:1ea6, [bp-0x242])", result.stderr)
-        if (BUILD / "cok").exists():
+        if (BUILD / "krynn").exists():
             env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
             saves = self.saves()
             keys = self.TITLE + r"\m80,122,1.\m80,122,1.\m80,98,1.\e"
-            result = subprocess.run([str(BUILD / "cok"), *GAME, "--saves", saves,
+            result = subprocess.run([str(BUILD / "krynn"), *GAME, "--saves", saves,
                                      "--no-delay", "--keys", keys],
                                     capture_output=True, text=True, env=env, cwd=ROOT)
             self.assertEqual(result.returncode, 0, result.stderr)

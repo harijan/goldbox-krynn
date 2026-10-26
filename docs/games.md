@@ -106,7 +106,7 @@ and `eclplay
 --game death-knights` read every one of its archives and run its scripts,
 their text, menus and choices, its 3D view and its overland map, read,
 recompute and write its characters and monsters and import Champions'
-characters, and `cok` and `eclplay --start-menu` play it from its title,
+characters, and `krynn` and `eclplay --start-menu` play it from its title,
 through its start menu and saved games, into its fights: the battlefield
 set up and the combatants placed as the original's, the fight played by
 keys from the player's menu, or to its end with the party on Auto (Alt-Q
@@ -251,7 +251,7 @@ going on. It holds:
   unmarking only the scrolls (`4381:0626`), and the names of those who may
   train in light magenta (`65cd:1b3b`); and camp's Fix (`4381:2fd4`).
 
-`cok --game death-knights` and `eclplay --start-menu` play it from the
+`krynn --game death-knights` and `eclplay --start-menu` play it from the
 title into its fights: a saved game loaded (its own or Champions'), or
 a party added from the roster or from Champions', saves and resumes, and
 the adventure in its scripts, 3D view and overland map, camp (Magic's
@@ -271,7 +271,7 @@ a spell
 (Death Knights' casting lists those that cast) or an effect not ported
 yet (Death Knights' effects), a
 spell or effect it does not name, or a start menu command above; there the run
-stops with the reason (`not yet ported: ...`), `cok` showing it on the
+stops with the reason (`not yet ported: ...`), `krynn` showing it on the
 screen and quitting, as it does at any stop: the original never returns
 to the start menu from the middle of a script, and the port's state there
 is half done. `--load` and `--party` read its saved games.
@@ -499,7 +499,7 @@ Each asserts that the game has the field (a game without one gives it
 width 0: `cok_field_present`), that the index is one of its elements, that
 the access is as wide as the field, and that a single value's form is not
 given an array. The assertions are compiled into the builds that play
-(no `-DNDEBUG`): one that fails stops `cok` and `eclplay`. Where the
+(no `-DNDEBUG`): one that fails stops `krynn` and `eclplay`. Where the
 original computes an offset it does not bound (`cok_magic_slots`' class
 and level past the table, reaching other fields or the far pointers),
 `cok_field_offset_unchecked` does its arithmetic from the layout and
