@@ -165,5 +165,9 @@ the character fields moved (R6), which the real game's layout does better.
    (`src/songs.c`), its port writes agreeing with the original's, run in
    an emulator, on every song and on made-up ones; the CMS's part is
    not (see [Death Knights' songs](docs/sound.md#death-knights-songs)).
-5. Checks against the original: tests against `death-START_FULL.EXE` and a
-   DOSBox-X harness for Death Knights.
+5. Checks against the original (done, 2026-10-26): tests against
+   `death-START_FULL.EXE` and a DOSBox-X harness for Death Knights
+   (`make dkk-checks`, built part by part with steps 2-4). The final gate
+   on main `7edf0d0`: `make test` passes, `make dosbox-checks` 82/82 as
+   recorded (Champions unchanged) and `make dkk-checks` 42/42 as recorded,
+   every Death Knights flow agreeing with the original.
