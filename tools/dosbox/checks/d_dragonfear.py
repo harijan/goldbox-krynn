@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #78 (DEVELOPERS.md, Checks against the original): "Fight the red dragons
+"""Check #78 (docs/checks.md, Checks against the original): "Fight the red dragons
 of ECL3 block 97 with a party of low levels: each character of level 3 or
 less should flash and be "terrified" as the battle begins, and those of
 higher levels "afraid" unless they save."

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks #82 and #81 (DEVELOPERS.md, Checks against the original): "Start the game
+"""Checks #82 and #81 (docs/checks.md, Checks against the original): "Start the game
 with a second argument of Helm (START x Helm) and press Alt-X at a
 character's turn in combat: "The Gods intervene!", every monster dead, the
 round ending." and "Win a battle that the party can still fight: "Continue
@@ -42,7 +42,7 @@ def main():
             text[name] = d_lib.screen_text(shown, [24])
             d_lib.screen(v, f"screen {name}", shown, port, name, work)
             seen[name] = d_lib.compare_state(v, b, port, name)
-    # DEVELOPERS.md's points, as the original showed them (batch D).
+    # docs/checks.md's points, as the original showed them (batch D).
     monsters = [f for f in seen["gods"]["fighters"] if f[0] > 6]
     print("original after Alt-X: the baaz (n, status, size)",
           [(f[0], f[6], f[4]) for f in monsters])

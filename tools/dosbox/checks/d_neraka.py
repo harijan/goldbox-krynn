@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #77 (DEVELOPERS.md, Checks against the original): "Fight in the rooms of
+"""Check #77 (docs/checks.md, Checks against the original): "Fight in the rooms of
 Neraka (ECL2 block 64, squares at x 11-15 of y 8-9 and x 8-10 of y 12-13):
 tables and chairs should stand only in the room's own block, never in the
 block to its east or below it."

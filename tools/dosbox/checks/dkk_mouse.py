@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Death Knights of Krynn's mouse in the original against eclplay --game
-death-knights --start-menu --mouse (DEVELOPERS.md, "Death Knights' mouse"):
+death-knights --start-menu --mouse (docs/front-end.md, "Death Knights' mouse"):
 DKK.CFG's M, DOSBox-X's own INT 33h driver, its pointer following X's (sdl
 mouse_emulation=integration: the window's pixel 2x, 2y is the game's x, y),
 moved and clicked with xdotool, as f_mouse.py does; the port takes the same
@@ -115,7 +115,7 @@ def run_flow(v, work, opts, flow):
         # (both empty after mouse-off); nothing calls IOResult before the
         # second pass, whose I/O the error skips too, so the original's
         # file stays empty, where the port, which does not model the error
-        # past its pass (DEVELOPERS.md, Death Knights' front end), reads the
+        # past its pass (docs/start-menu.md, Death Knights' front end), reads the
         # empty file and writes five lines and the zeros.
         original = box_dir / "c" / "DKK"
         theirs = [p for p in original.iterdir() if p.name.lower() == "krynn.cfg"]

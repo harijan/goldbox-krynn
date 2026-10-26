@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #5: Ctrl-S and Alt-R (DEVELOPERS.md, Checks against the original: "Ctrl-S:
+"""Check #5: Ctrl-S and Alt-R (docs/checks.md, Checks against the original: "Ctrl-S:
 turn the sound off, let the title's menu run out into the demonstration and
 come back; Ctrl-S should no longer turn it on (the install after the title
 copies the device, off, to `DS:577b`). And Alt-R ... should turn the sound

@@ -128,7 +128,7 @@ typedef struct {
      * each wait. NULL keeps them. */
     void (*flush)(cok_adventure *game, void *context);
     /* The sound driver's calls, as the original makes them (see sound.h
-     * and DEVELOPERS.md's Sound): its commands (17e8:0020, those logged as
+     * and docs/sound.md's Sound): its commands (17e8:0020, those logged as
      * "sound" and the ones that are not: a step, a turn, a DAX record
      * read), its install and the uninstall around each overlay's load, the
      * title's music, Ctrl-S read by 1614:025b, quitting. A front end

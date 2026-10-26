@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Death Knights of Krynn's first fight in the original against eclplay
---game death-knights (DEVELOPERS.md, "Death Knights"): saved game A loaded
+--game death-knights (docs/games.md, "Death Knights"): saved game A loaded
 from the start menu, Begin Adventuring, block 16's texts (No rest) to
 COMBAT; the leadership's screen where a party knight leads the Solamnic
 knights (5340:4acf); the battlefield (410b:1e41: open ground, 410b:107e)

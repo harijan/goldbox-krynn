@@ -356,7 +356,7 @@ def watch(box, seconds, out=None, prefix="watch", until=None):
     beam passes them, each at its own moment (one taken while the game
     cleared a panel and wrote it again showed its rows above a line as
     before, then cleared, and those below written again: a_demo,
-    DEVELOPERS.md), and load makes them ten times fewer."""
+    docs/dosbox.md), and load makes them ten times fewer."""
     with cokbox.span("watch"):
         return _watch(box, seconds, out, prefix, until)
 

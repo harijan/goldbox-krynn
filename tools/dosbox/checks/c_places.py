@@ -94,7 +94,7 @@ def name_of(raw):
 
 
 def money(raw):
-    """A record's coins: seven words from +0xeb (DEVELOPERS.md, ROB): silver, copper,
+    """A record's coins: seven words from +0xeb (docs/adventure.md, ROB): silver, copper,
     bronze, platinum, steel, gems (+0xf5) and jewelry (+0xf7)."""
     return struct.unpack_from("<7H", raw, 0xEB)
 

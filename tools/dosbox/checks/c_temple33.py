@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The cleric round the corner in Throtl's temple (DEVELOPERS.md, Checks against
+"""The cleric round the corner in Throtl's temple (docs/checks.md, Checks against
 the original): #55 "In Throtl's temple (ECL1 block 33, the cleric round the
 corner), `Wait` should bring him nearer, and the menu should start on the
 item chosen in the menu before; parlaying `Sly` should lead to the stack of

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #120 (DEVELOPERS.md, Checks against the original): "Cast Hold Person at
+"""Check #120 (docs/checks.md, Checks against the original): "Cast Hold Person at
 three targets: a missile should fly from the caster to the first two, none
 to the last picked; pick the caster: "Cannot target yourself"."
 

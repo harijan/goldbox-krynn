@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The catacombs of Throtl (ECL1 block 34; DEVELOPERS.md, Checks against the
+"""The catacombs of Throtl (ECL1 block 34; docs/checks.md, Checks against the
 original): #96 "In the catacombs of Throtl, `Area` should show `Not Here` in
 yellow on row 24 for a moment, and the status line should have no square.
 Start the game with `Helm` as its second argument (`START x Helm`): `Area`

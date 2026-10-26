@@ -552,7 +552,7 @@ static void test_timers(void)
     CHECK(peak_of(&chip, 2000) >= 2000);
 }
 
-/* Rhythm mode, ours (DEVELOPERS.md): the top cymbal a full-level square
+/* Rhythm mode, ours (docs/sound.md): the top cymbal a full-level square
  * wave, down where operators 13's and 17's waves have opposite signs; the
  * hi-hat half that and half the noise; the noise a 32-bit xorshift. */
 static void test_rhythm(void)

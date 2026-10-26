@@ -2507,7 +2507,7 @@ static void test_creation(void)
     puts("death knights: the creation section checked");
 }
 
-/* The mouse and the joystick (DEVELOPERS.md, Death Knights' front end and
+/* The mouse and the joystick (docs/start-menu.md, Death Knights' front end and
  * The mouse and the joystick): Initialize Mouse/Joystick's words and file
  * (49cb:52cd, 58ec), DKK.CFG's two paths (1187:011b) and the code 6a69:0f1b's
  * clicks and 1b82's take their differences from. */

@@ -8,7 +8,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-/* The original's debug mode (see Debug mode in DEVELOPERS.md). Its flag,
+/* The original's debug mode (see Debug mode in docs/scripts.md). Its flag,
  * DS:4b51, is toggled by Ctrl-D, which the key reader (1614:025b) takes,
  * with Ctrl-Z and Ctrl-C, only in a game started with Woof (ParamStr(1),
  * 1614:024c). While it is set, DEBUG.TXT is open (the Text file at

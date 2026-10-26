@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #38: resuming a game saved in camp (DEVELOPERS.md, Checks against the
+"""Check #38: resuming a game saved in camp (docs/checks.md, Checks against the
 original: "Save in camp, then load that game: it holds mode 2 (0x1407).
 Compare how the original resumes it with how it resumes a game saved from
 the party menu").

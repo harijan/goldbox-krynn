@@ -8,7 +8,7 @@
 
 /* The character record's layout: where each field of a character lies in
  * its record, as a game's descriptor gives it (cok_rules' character; see
- * DEVELOPERS.md's "Games"). The record stays raw bytes, as the files and
+ * docs/games.md's "Games"). The record stays raw bytes, as the files and
  * the original hold it, and code reads and writes a field by its name
  * through the accessors below, which find its offset in the layout.
  * Champions' table, with what each field is and where the original reads

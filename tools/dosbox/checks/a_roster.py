@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks #113, #114 and #115: the roster (DEVELOPERS.md, Checks against the
+"""Checks #113, #114 and #115: the roster (docs/checks.md, Checks against the
 original: "Add a roster character with 128 or more jewels: it should not be
 listed. Make the first key of Add a space: Add should end. Add a character,
 leave, and open Add again with a space: it may stay."; "Add a ranger to a

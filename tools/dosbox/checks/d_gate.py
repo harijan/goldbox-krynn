@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks #74, #83, #84 and #88 (DEVELOPERS.md, Checks against the original): the
+"""Checks #74, #83, #84 and #88 (docs/checks.md, Checks against the original): the
 fight with the guards at Throtl's gate (7, 15 facing north, ATTACK) with
 saved game A's six: the battlefield and its placement (#74), the combat
 screen as the battle is set up (#83), the characters' icons (#84), and the

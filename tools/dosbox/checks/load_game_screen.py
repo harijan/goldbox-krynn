@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check: load saved game A and compare the screen (DEVELOPERS.md, Checks against
+"""Check: load saved game A and compare the screen (docs/checks.md, Checks against
 the original: "Load saved game A and compare the party list and status line
 beside the view"; and, in CGA mode, "compare ... with eclplay --display cga
 --shots, colour for colour").

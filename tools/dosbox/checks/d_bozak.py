@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #90 (DEVELOPERS.md, Checks against the original): "Kill a bozak beside two
+"""Check #90 (docs/checks.md, Checks against the original): "Kill a bozak beside two
 characters: "explodes." and each beside it "takes N points of damage"
 (1-6)."
 

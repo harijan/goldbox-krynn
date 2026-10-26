@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Check #46: Strength on a knight with no other class and a strength of 3
-(DEVELOPERS.md, Checks against the original: "Cast Strength on a knight or ranger
+(docs/checks.md, Checks against the original: "Cast Strength on a knight or ranger
 with no other class and a strength of 3").
 
 With no mage, cleric, thief or fighter level the roll is an uninitialized
 local (5b04:2e4e's [bp-6], [bp-0x36] of 5b04:1415): the low byte of the
 frame pointer 6346:161b pushed there, 0x74 from the commands' Cast and
-0x9a from camp's Magic, says DEVELOPERS.md. The effect 0x26 it adds is valued
+0x9a from camp's Magic, says docs/camp.md. The effect 0x26 it adds is valued
 the roll + 100, so its value byte shows the roll: 0xd8 for 0x74, 0xfe for
 0x9a.
 
@@ -37,7 +37,7 @@ ON_KNIGHT = r"\^\^\^\^S"                          # up to SIR STRONGSWORD, Selec
 PATHS = {"commands": SELECT_KAL + "C" + STRENGTH + ON_KNIGHT,
          "camp": "EM" + SELECT_KAL + "C" + STRENGTH + ON_KNIGHT}
 SAVE_AFTER = {"commands": r"\eESD", "camp": r"\e\eSD"}
-# The roll each path leaves (DEVELOPERS.md): the effect's value is it + 100.
+# The roll each path leaves (docs/camp.md): the effect's value is it + 100.
 ROLL = {"commands": 0x74, "camp": 0x9A}
 
 
@@ -89,7 +89,7 @@ def main():
         v.value(f"{path}: the knight's exceptional strength", x, p_exc)
         v.value(f"{path}: the knight's effects (id, minutes, value)", o_eff, p_eff)
         v.check([e for e in o_eff if e[0] == 0x26 and e[2] == ROLL[path] + 100],
-                f"{path}: effect 0x26 valued {ROLL[path]:#04x} + 100 (DEVELOPERS.md's roll)",
+                f"{path}: effect 0x26 valued {ROLL[path]:#04x} + 100 (docs/camp.md's roll)",
                 str(o_eff))
     print(f"files in {work}")
     return v.finish()

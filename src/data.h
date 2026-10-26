@@ -8,7 +8,7 @@
 #include <string.h>
 
 /* The original's data segment: the tables the port copied from it, as a
- * game's descriptor gives them (cok_rules' data; see DEVELOPERS.md's
+ * game's descriptor gives them (cok_rules' data; see docs/games.md's
  * "Games"). Code reads a table by its name through the lookups below,
  * which find it in the game's segment: the original's arithmetic on DS
  * offsets (base + index * stride), then the byte at that offset from

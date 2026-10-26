@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Death Knights of Krynn's front end in the original against eclplay
---game death-knights --start-menu (DEVELOPERS.md, "Death Knights' front
+--game death-knights --start-menu (docs/start-menu.md, "Death Knights' front
 end"): the title's four pictures (35c6:051c), the credits (35c6:026e) and
 the title's menu; the start menu (49cb:010b) with and without a party;
 Load Saved Game from Death Knights' games and from Champions' (DKK.CFG's

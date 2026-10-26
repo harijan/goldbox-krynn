@@ -271,7 +271,7 @@ What's different:
 - **No copy-protection questions.** The original asks for a word from the
   rule book on every tenth save. The port skips it.
 - A few checks need real 1990 hardware, real MS-DOS or a person to judge,
-  so they haven't been run. DEVELOPERS.md lists them.
+  so they haven't been run. [docs/checks.md](docs/checks.md) lists them.
 
 ## For developers
 

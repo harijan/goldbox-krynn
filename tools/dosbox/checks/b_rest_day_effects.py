@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #33: game B rested a day keeps its effects (DEVELOPERS.md, Checks against
+"""Check #33: game B rested a day keeps its effects (docs/checks.md, Checks against
 the original: "Load saved game B and rest a day: the effects in the .SFX
 files of its characters, all permanent, should be unchanged when it is
 saved again").

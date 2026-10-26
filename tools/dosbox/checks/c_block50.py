@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The shops of ECL2 block 50 (DEVELOPERS.md, Checks against the original): #67
+"""The shops of ECL2 block 50 (docs/checks.md, Checks against the original): #67
 "In a new game, before visiting any other shop, the weapon smith of ECL2
 block 50 should list each weapon at its value and charge 15 steel for any of
 them (var `0x7f6d` 0, `36d0:0484`)"; #72 "Buy `10 Arrows +1` (worth 120 at
@@ -18,7 +18,7 @@ of the weapon smith (special 4 at 4,14), as E; and to 5,12 facing east, west
 of the magic shop (special 2 at 6,12), as F; SIR STRONGSWORD given 1000
 steel. SIR STRONGSWORD's coins are read in the original's memory after
 each purchase or sale and compared with the port's at the same key read;
-the original's must be those DEVELOPERS.md's checks give (15 for any weapon;
+the original's must be those docs/checks.md's checks give (15 for any weapon;
 480 for the arrows, 6 for the stack of 2 and 60 for the single one).
 """
 import argparse

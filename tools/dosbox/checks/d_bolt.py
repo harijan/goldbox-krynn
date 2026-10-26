@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #127 (DEVELOPERS.md, Checks against the original): "In a 3D area, cast
+"""Check #127 (docs/checks.md, Checks against the original): "In a 3D area, cast
 Lightning Bolt at an enemy beside a wall: the bolt should come back once,
 hitting the enemy again but not the caster."
 

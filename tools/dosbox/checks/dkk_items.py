@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Death Knights of Krynn's View and items menu (580d:0c66, 0ffa) in the
-original against eclplay --game death-knights --start-menu (DEVELOPERS.md,
+original against eclplay --game death-knights --start-menu (docs/camp.md,
 "View"). Two flows, each from saved game A loaded and begun, the same keys
 typed to both, the original's screen at each wait against the port's at
 the key read the same keys leave it in:

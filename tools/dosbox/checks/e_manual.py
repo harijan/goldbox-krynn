@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Checks #15 and #18: Aim's Manual left with Escape, then Down or Target
-(DEVELOPERS.md, Checks against the original: "The player's commands in a battle
+(docs/checks.md, Checks against the original: "The player's commands in a battle
 ... in Aim, Manual, then Escape, then Down" and "`Target` after Manual's
 Exit (no target, the cursor's last cell valid)").
 
@@ -35,7 +35,7 @@ ALLY: YES NO" (432f:2f5c's menu) over the screen the port showed at the
 read before (compared but row 24). No: back to ISTAN HORBIN's combat menu,
 the screen as the port's at that menu (the turn's first read), low memory
 and the heap unchanged. Yes: the attack "hits" a record at 0000:0000,
-writing over the interrupt table exactly as recorded (DEVELOPERS.md), the turn
+writing over the interrupt table exactly as recorded (docs/combat-turns.md), the turn
 ends: MOLLY's menu, as the port's after ISTAN HORBIN's Done, Quit but for
 two red @ the attack leaves at column 39 (rows 12 and 14); the heap
 unchanged. Both: RandSeed as the port's at
@@ -64,7 +64,7 @@ STALE_POKE = "game->combat.entry_held[game->combat.count] = true;"
 STALE_STOP = "the cell of no target: the entry after the last combatant holds"
 NULL_STOP = "an attack aimed at no one reads its record through NULL (432f:2f12, 0000:018a)"
 # Yes's writes over the interrupt table (words, as low_changes gives them),
-# the same in the five runs of batch E (DEVELOPERS.md, #18).
+# the same in the five runs of batch E (docs/checks.md, #18).
 YES_WRITES = (["0008: 0e00 -> 0e07", "000e: 7000 -> 7001", "0012: 7000 -> 0300",
                "00ce: ffbf -> 01bf", "0142: 00f0 -> 01f0"]
               + [f"{a:04x}: {'00f0' if a % 4 == 2 else '60ca'} -> 0000"
@@ -170,7 +170,7 @@ def run_case(v, name, work, verbose):
 
 
 def stale_case(v, name, pair, shots, wheres, stop):
-    print("  the port is not compared after Down: it stops there, as DEVELOPERS.md says; the "
+    print("  the port is not compared after Down: it stops there, as docs/checks.md says; the "
           "original's recorded behaviour is asserted")
     v.check(STALE_STOP in (E.port_error(stop) or ""),
             f"{name}: the port stops at the stale entry", E.port_error(stop) or "no stop")
@@ -188,7 +188,7 @@ def stale_case(v, name, pair, shots, wheres, stop):
 
 
 def target_case(v, name, pair, shots, wheres, seeds):
-    print("  the port is not compared after Target: it stops there, as DEVELOPERS.md says; the "
+    print("  the port is not compared after Target: it stops there, as docs/checks.md says; the "
           "original's recorded behaviour is asserted")
     text = pair.text("target")
     v.check(E.port_error(text) == NULL_STOP, f"{name}: the port stops at Target",

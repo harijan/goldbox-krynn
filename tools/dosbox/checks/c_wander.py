@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A wandering monster in Throtl (DEVELOPERS.md, Checks against the original):
+"""A wandering monster in Throtl (docs/checks.md, Checks against the original):
 #54 "Meet a wandering monster in an open corridor: compare the sprite at
 distances 2 and 1, masked over the view at its header's place + 3 cells,
 with colour 13 black, and the close-up at 0, with the original"; #95 "With

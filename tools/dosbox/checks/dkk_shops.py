@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Death Knights of Krynn's shop and temple (3b89:06f3, 3999:07d3) in the
-original against eclplay --game death-knights --start-menu (DEVELOPERS.md,
+original against eclplay --game death-knights --start-menu (docs/treasure-shops.md,
 "Death Knights' shops"). Three flows, each from a copy of saved game A that
 resumes in ECL1 block 36, the outpost of Gargath (the block, its map 36 and
 wall set 1 in slot 0 written in, as dkk_views.py does, and SIR DRYDEN given

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #89 (DEVELOPERS.md, Checks against the original), its first half: "Shoot
+"""Check #89 (docs/checks.md, Checks against the original), its first half: "Shoot
 at a monster with a long bow and arrows: the arrow's picture should point
 the way it flies, one picture for the whole flight, and the arrows' count
 drop by the shots made." (Game A has no long bow: SIRRION's Short Bow with

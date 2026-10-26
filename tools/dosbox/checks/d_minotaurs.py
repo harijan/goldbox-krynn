@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #57 (DEVELOPERS.md, Checks against the original): "Try to flee the
+"""Check #57 (docs/checks.md, Checks against the original): "Try to flee the
 minotaurs of ECL3 block 80: it should always fail (CHECKPARTY [7d1b]
 stores nothing)."
 

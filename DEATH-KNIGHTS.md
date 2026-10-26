@@ -7,7 +7,7 @@ port itself works is in [DEVELOPERS.md](DEVELOPERS.md).
 
 Death Knights' files and Ghidra output go in `DKKAssets/` (not in git);
 `make death-merged` builds its merged image, `build/death-START_FULL.EXE`
-(see Disassembly image in DEVELOPERS.md). Addresses below without a game
+(see [Disassembly image](docs/disassembly.md)). Addresses below without a game
 named are Champions' (`START_FULL.EXE`); `dkk 46b2:10d7` is Death Knights'.
 
 ## The design

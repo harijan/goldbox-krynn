@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run every DOSBox-X check script (tools/dosbox/checks/) and print one line
-per script: DEVELOPERS.md's checks it covers, its verdict, and whether that is
-the verdict recorded (DEVELOPERS.md, "Checks against the original").
+per script: docs/checks.md's checks it covers, its verdict, and whether that is
+the verdict recorded (docs/checks.md, "Checks against the original").
 
     python3 tools/dosbox/checks/run_all.py [--set SET] [--jobs N] [--only NAME ...] [--out DIR]
     python3 tools/dosbox/checks/run_all.py --report [--set SET] [--out DIR]
@@ -47,7 +47,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 
 # (script, the checks it covers, the verdict recorded: "" agrees, or "new"
-# for a port difference found and recorded in DEVELOPERS.md but not yet fixed;
+# for a port difference found and recorded in docs/checks.md but not yet fixed;
 # a fix of the port then makes it "").
 CHECKS = [
     # A: startup, title, setup, the start menu
@@ -143,7 +143,7 @@ CHECKS = [
     # The long ones first, so that they do not end the run alone.
 ]
 
-# Death Knights of Krynn's (--set dkk; DEVELOPERS.md, "Death Knights"): the
+# Death Knights of Krynn's (--set dkk; docs/games.md, "Death Knights"): the
 # long scripts split by their --flows, each flow a script of its own here
 # (NAME-FLOW: its own box, workdir and log), so that they run side by side.
 DKK_SPLIT = {
@@ -491,7 +491,7 @@ def run_checks(todo, jobs, out, run, again=True):
     # A script not as recorded runs once more, alone (its first log and
     # folder kept as NAME.first.log, NAME.first): some judge the original's
     # screens or its waits as they come, and now and then one of them
-    # differed beside others, a different one each run (DEVELOPERS.md,
+    # differed beside others, a different one each run (docs/checks.md,
     # Checks against the original); a difference of the port's differs
     # again. The verdict alone counts; the line and the summary show the
     # first too, so that a script that keeps needing it stands out. A

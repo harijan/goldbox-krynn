@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check: the sound against DOSBox-X's machine=tandy (DEVELOPERS.md, Checks against
+"""Check: the sound against DOSBox-X's machine=tandy (docs/checks.md, Checks against
 the original: "The sound (see Sound) against a Tandy 1000, or DOSBox with
 machine=tandy and KRYNN.CFG's second line T (then P for the PC speaker; and
 a file with LF line ends, which should give no sound): record the title's
@@ -32,7 +32,7 @@ compares them in seconds (f_wav.py). Judged, and only that:
   between the same matched neighbours, each of the port's sounds there
   holds two commands or more landing within 100 ms of each other (by the
   game's clock, which gives the drawing no time, each cuts the one before:
-  DEVELOPERS.md Sound > Time), the original has sounds there too, and they last no
+  docs/sound.md Sound > Time), the original has sounds there too, and they last no
   less in all than the port's (the same commands spread over its drawing
   time play longer before the next cuts them). Anything else fails. #4:
   in the battle's first 10 s, a command followed at once by a record read
@@ -331,7 +331,7 @@ def unmatched(v, name, port, orig, pairs, calls):
         good = bool(ps) and bool(os_) and merged and total_o >= total_p - SAME_LENGTH
         v.check(good, what, f"the port's {sum(len(g) for g in groups)} commands there land "
                 f"within {MERGE * 1000:.0f} ms in each of its sounds ({[len(g) for g in groups]}"
-                f" commands), cutting each other by the game's clock (DEVELOPERS.md Sound > Time); "
+                f" commands), cutting each other by the game's clock (docs/sound.md Sound > Time); "
                 f"the original's {len(os_)} sounds last {total_o:.3f} s, the port's "
                 f"{total_p:.3f} s" if good else
                 f"not explained: the port's commands in its sounds {groups}; lengths in all "

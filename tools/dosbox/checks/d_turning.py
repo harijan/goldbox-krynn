@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #129 (DEVELOPERS.md, Checks against the original): "Cast Magic Missile at
+"""Check #129 (docs/checks.md, Checks against the original): "Cast Magic Missile at
 a creature turning spells (effect 0x47) until it "reflects the spell": the
 caster should take the damage."
 

@@ -21,7 +21,7 @@ typedef struct {
 #define KEY(s) SDLK_##s, SDL_SCANCODE_##s
 #define KP(s) SDLK_KP_##s, SDL_SCANCODE_KP_##s
 
-/* Every key the port compares a read against (DEVELOPERS.md, Playing), and the
+/* Every key the port compares a read against (docs/front-end.md, Playing), and the
  * ones INT 16h function 0 gives besides or drops. */
 static const expect table[] = {
     /* Menus, hotkeys and typing: letters (case-insensitive hotkeys, typed

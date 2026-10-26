@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks at Throtl's gate (DEVELOPERS.md, Checks against the original):
+"""Checks at Throtl's gate (docs/checks.md, Checks against the original):
 #53 "Enter Throtl from the south (7, 15 facing north): the guards' close-up
 should show at once"; #27 "Wall tiles and sky pictures are masked with
 colour 13 in the 3D view ... Throtl's street from 7, 15 facing north";

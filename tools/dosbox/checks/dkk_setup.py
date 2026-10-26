@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Death Knights of Krynn's setup (dkk 1187:011b, DEVELOPERS.md "Startup and
+"""Death Knights of Krynn's setup (dkk 1187:011b, docs/front-end.md "Startup and
 the setup"): START.EXE without DKK.CFG in DOSBox-X against eclplay --game
 death-knights --start-menu without one, on the same keys.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #39: the time Fix rests (DEVELOPERS.md, Checks against the original: "Hurt
+"""Check #39: the time Fix rests (docs/checks.md, Checks against the original: "Hurt
 a character a few points with a cleric of two first-level spells a day in
 the party and Fix: the clock should pass the time of 4888:28f9, 270 minutes
 divided by 41 over the points lacking, which depends on the 14 it reads

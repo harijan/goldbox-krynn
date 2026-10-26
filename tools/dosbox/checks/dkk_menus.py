@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Death Knights of Krynn's last menus by index in the original against
-eclplay --game death-knights --start-menu (DEVELOPERS.md, "Death Knights'
+eclplay --game death-knights --start-menu (docs/games.md, "Death Knights'
 spell lists and the ECL's menus"): Magic's spell lists (5dc5:016e, its list
 6a69:1b82), PRESS KEY and HORIZONTAL MENU (3c1e:1631) and YES NO
 (6a69:2048). The same keys (and clicks) typed to both, the original's
