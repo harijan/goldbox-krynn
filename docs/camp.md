@@ -838,21 +838,25 @@ The port keeps these quirks:
   digit taken stays on the screen.
 - In Trade, Escape at the first coin list, before any amount, tests a
   byte the original never set (`[bp-0x13c]`, `546c:2f9b`), which decides
-  whether to ask for another partner (0) or leave Trade. Loading the
-  camp's picture zero-fills that part of the stack, so in View, the first
-  command of a camp whose picture was not already loaded, Trade asks
-  again; after anything chosen before in the same View (Items, Spells,
-  Trade or Drop) or a View before in the same camp, it leaves. Elsewhere
-  (View from the commands, a camp whose picture was kept, or another camp
-  command before) the byte depends on the run's history, and the port
-  stops with `COK_ECL_UNDEFINED`. An emulator run of the whole camp
-  agreed on each case the port carries out, and so did the original in
-  DOSBox-X (`e_trade.py`). From the commands' View the byte (at
-  `ss:3b29`) varied there from run to run even with the same seed: 0 in 2
-  runs of 9 (Trade asks again), 0xac, 0x82 or 0x86 otherwise (it leaves),
-  what ran last at that depth (an interrupt's frame, likely) left it. The
-  treasure menu's View
-  works the same way (see [Treasure and the end of combat](treasure-shops.md#treasure-and-the-end-of-combat)).
+  whether to ask for another partner (0) or leave Trade. It lies 0x142
+  below View's frame, below anything View's menu reaches, so it holds
+  what ran there before View, which each caller tells the port (as
+  DOSBox-X showed, `e_trade.py`; `src/sheet.h`). Loading the camp's
+  picture zero-fills it, so in View, the first command of a camp, Trade
+  asks again, and so it did in a camp whose picture was kept (Encamp
+  twice); Save, Magic, Rest, Fix and picking a character leave it as it
+  was; after anything chosen before in the same View (Items, Spells,
+  Trade or Drop), a View before in the same camp or Alter (the low byte
+  of the stack's segment its calls pushed, 0x1c), it leaves. From the
+  start menu's View it holds the low byte of a stack offset (0xec): it
+  leaves. From the commands' View it is what an interrupt's frame left
+  at that depth (the BIOS's INT 8 calling INT 1Ch, `F000:FEAF` beside
+  it), which varies from run to run even with the same seed: 0 in 11 of
+  12 runs with turbo and 4 of 13 at the boxes' cycles (Trade asks
+  again), else 0x86, 0xac or another (it leaves). The port takes 0 there.
+  An emulator run of the whole camp agreed on each case before. The
+  treasure menu's View works the same way, and so do the shops' and the
+  temple's (see [Treasure and the end of combat](treasure-shops.md#treasure-and-the-end-of-combat) and [Shops and the temple](treasure-shops.md#shops-and-the-temple)).
 - An item used to cast a spell is followed by its position, as a spell
   such as Dispel Magic can remove an effect whose handler removes another
   item, Spiritual Hammer's; if the item itself goes, the original goes
@@ -902,8 +906,16 @@ before each ask), Escape as Exit; their own items; and these:
   Drop's with the item after it, Exit at its index 1), from the selection
   the menu before left; Drop asks "will you deposit? " in the vault
   (`treasure.deposit`) and the coins go to the pool there. Trade's flag
-  (`[bp-0x13c]`, tested at `580d:26c0`) holds what the stack held, which
-  the port does not know: Escape at Trade's first coin list stops the run.
+  (`[bp-0x13c]`, tested at `580d:26c0`) holds what the stack held: what
+  View's menu (`6a69:0f1b`, called 0x0c below Trade) left at its
+  `[bp-0x130]`, whatever View was called from: `6a69:0fee`'s high word of
+  the time the menu began, in hundredths of a second since midnight by
+  the DOS clock (`14e4:09bd`, GetTime) plus 30, for its timeout. Its low
+  byte is 0 only in the 655 seconds after midnight (to 00:10:55), when
+  Escape at the first coin list asks for another partner; at any other
+  time Trade is left, and the port, which has no clock of the day, always
+  leaves (`dkk_trade.py`: the byte against the clock, and with the BIOS's
+  clock set past midnight, 0 and Trade asking again).
 - Heal (`2e95`, `2f47`): offered outside combat to a paladin (class 3,
   `+0x21`) that is okay and has no effect 0x6d; picks one from the
   party's first ("Heal whom? "), heals it twice the paladin's level

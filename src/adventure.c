@@ -3507,8 +3507,9 @@ static int command(cok_adventure *game)
                 game->selected = 1; /* dkk 580d:0c66's own, from 1 */
                 bool used;
                 /* Trade's flag (see sheet.h): what an interrupt's frame
-                 * left below the commands' menu, 0 in each of 11 runs in
-                 * DOSBox-X with turbo, in 4 of 13 at its cycles. */
+                 * left below the commands' menu, which varies from run to
+                 * run: 0 in 11 of 12 runs in DOSBox-X with turbo, in 4 of
+                 * 13 at its cycles; the port takes 0. */
                 cok_sheet(game, COK_SHEET_STALE_ZERO, &used);
                 break;
             }

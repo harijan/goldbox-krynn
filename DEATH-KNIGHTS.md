@@ -148,7 +148,11 @@ the character fields moved (R6), which the real game's layout does better.
    Add's list, Knight Change Order and the treasure's menus by index (done:
    `dkk-menus2`). The stops where the original reads an unset value were
    gone over: six take the value the call depth fixes, the rest stop citing
-   the read (done: `dkk-setup`). Magic's spell lists (`5dc5:016e`), the
+   the read (done: `dkk-setup`); those a headless sweep of both games
+   reached from a loaded game were then worked out: Trade's first Escape
+   tests the time of day's byte View's menu left, set but just after
+   midnight, and a selection kept in `DS:43bf` that a removal freed stops
+   only where it is restored (done: `dkk-stops`, `dkk_trade.py`). Magic's spell lists (`5dc5:016e`), the
    ECL's VERTICAL MENU (`3632:1068`, `3c1e:171a`), HORIZONTAL MENU, ASK
    MENU, PRESS KEY and JOURNAL (`3c1e:1631`) and YES NO (`3632:1b9e`,
    `6a69:2048`) and the end of combat's results key (`3a37:09b7`) by index

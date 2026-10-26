@@ -5,25 +5,27 @@ partner, and press Escape at the first coin list" and "In a shop, `View`
 first, `Trade`, pick a partner and press Escape at the first coin list").
 
 Trade (546c:2c75) tests a byte it never set, [bp-0x13c], at 546c:2f9b: 0
-asks for a partner again, else Trade is left. The port follows it where
-docs/camp.md says what the stack holds (a camp's View: asks again as View's
-first command, leaves after Items, Spells, Trade or Drop, or a View before)
-and stops with COK_ECL_UNDEFINED elsewhere (View from the adventure
-commands, a shop's View). Each case runs in the original from a fresh
-start and in eclplay --start-menu: the coin list's screen against the
-port's; the byte (and [bp-0x13d], tested just before) read from Trade's
-frame while the coin list waits; then Escape and what the game does next
-(the partner's menu again, inside Trade, or View's menu). Where the port
-goes on, that outcome and the screen against the port's; where it stops
-(it must, with its reason), the original's recorded behaviour instead: a
-shop's View first 0x00, asking again ("TRADE TO?"); the commands' View
-either, the byte varying from run to run. Always: asks again exactly when
-the byte is 0 (546c:2f9b's test).
+asks for a partner again, else Trade is left. The port follows what each
+path leaves on the stack there (src/sheet.h, docs/camp.md): a camp's View
+asks again as View's first command, after Magic too, and leaves after
+Items, Spells, Trade or Drop, a View before or Alter; a shop's View first
+asks again, after a View leaves; a temple's View first leaves, and so does
+the start menu's View. From the adventure's commands the byte is what an
+interrupt's frame left there, which varies from run to run (0 in 11 of
+12 runs with turbo, in 4 of 13 at the box's cycles): the port asks again,
+and the original is not compared there. Each case runs in the original
+from a fresh start and in eclplay --start-menu: the coin list's screen
+against the port's; the byte (and [bp-0x13d], tested just before) read
+from Trade's frame while the coin list waits; then Escape and what the
+game does next (the partner's menu again, inside Trade, or View's menu)
+against the port's screen. Always: asks again exactly when the byte is 0
+(546c:2f9b's test).
 
 Places: game A's start leads to the outpost; its inn camps there (camp
-cases), its armoury is a shop (#73). The adventure commands' View (#47's
-last case) is Throtl's street after the gate fight, saved there by the
-port as game C.
+cases), its armoury is a shop (#73), its temple (NEXT, TEMPLE) one too. The
+adventure commands' View (#47's last case) is Throtl's street after the
+gate fight, saved there by the port as game C. The start menu's View
+loads game A only.
 """
 import argparse
 import pathlib
@@ -41,18 +43,23 @@ ARMOURY = OUTPOST + "A"
 PICK = r"T\vS"           # Trade, the next character as partner, Select
 # name: (check, saved game, keys to the place, keys to the coin list, the
 # port's outcome: asks again, leaves or stops)
+# name: (check, saved game (None: loaded, not begun), keys to the place,
+# keys to the coin list, the port's outcome: asks again or leaves)
 CASES = {
     "camp-view-first": (47, "A", INN_CAMP, "V" + PICK, "asks again"),
     "camp-drop-first": (47, "A", INN_CAMP, r"VD\e" + PICK, "leaves"),
     "camp-spells-first": (47, "A", INN_CAMP, r"\v\v\v\vVS\e" + PICK, "leaves"),
     "camp-view-twice": (47, "A", INN_CAMP, "VEV" + PICK, "leaves"),
-    "commands-view": (47, "C", "", "V" + PICK, "stops"),
-    "shop-view-first": (73, "A", ARMOURY, "V" + PICK, "stops"),
+    "camp-magic-first": (47, "A", INN_CAMP, r"M\eV" + PICK, "asks again"),
+    "camp-alter-first": (47, "A", INN_CAMP, r"A\eV" + PICK, "leaves"),
+    "commands-view": (47, "C", "", "V" + PICK, "asks again"),
+    "start-view": (47, None, "", r"\v\r\r" + PICK, "leaves"),
+    "shop-view-first": (73, "A", ARMOURY, "V" + PICK, "asks again"),
     "shop-view-twice": (73, "A", ARMOURY, "VEV" + PICK, "leaves"),
+    "temple-view-first": (73, "A", OUTPOST + "NT", "V" + PICK, "leaves"),
 }
-# Where the port stops, the original's recorded byte (None: it varies).
-RECORDED = {"shop-view-first": 0x00, "commands-view": None}
-STOP = "Escape at the first coin list tests an uninitialized byte (546c:2f9b)"
+# Where the original's byte varies from run to run: not compared.
+VARIES = {"commands-view"}
 TRADE = (0x546C, 0x2C75, 0x2FA9)
 
 
@@ -89,19 +96,13 @@ def outcome(shot):
 
 def run_case(v, name, saves, work, args):
     check, game, place, to_coins, port_says = CASES[name]
-    keys = E.LOAD.format(game) + place + to_coins
+    load = E.LOAD.format(game) if game else r"\kxP\v\v\rA"
+    keys = load + place + to_coins
     pair = E.Pair(keys + r"\scoins." + r"\e\safter.", work / name, saves=[saves])
-    text = pair.text("after")
-    if port_says == "stops":
-        v.check(E.port_error(text) == STOP, f"{name}: the port stops at Escape",
-                E.port_error(text) or "no stop")
-        print(f"#{check} {name}: the port stops at Escape, as docs/camp.md says: the original's "
-              "recorded behaviour is asserted, not compared")
-    else:
-        port_does = outcome(pair.frame("after"))
-        v.check(port_does == port_says and E.port_error(text) is None,
-                f"{name}: the port {port_says} (its rule for this case)",
-                f"{port_does}, {E.port_error(text)}")
+    port_does = outcome(pair.frame("after"))
+    v.check(port_does == port_says and E.port_error(pair.text("after")) is None,
+            f"{name}: the port {port_says} (its rule for this case)",
+            f"{port_does}, {E.port_error(pair.text('after'))}")
     for run in range(args.repeat):
         tag = f"{name}" + (f" (run {run + 1})" if args.repeat > 1 else "")
         with cokbox.Box(workdir=work / f"box-{name}", saves=[saves], verbose=args.verbose,
@@ -129,10 +130,9 @@ def run_case(v, name, saves, work, args):
         v.check(does == ("asks again" if b13c == 0 else "leaves"),
                 f"{tag}: asks again exactly when [bp-0x13c] is 0 (546c:2f9b)",
                 f"{does} with {b13c:#04x}")
-        if port_says == "stops":
-            want = RECORDED[name]
-            if want is not None:
-                v.check(b13c == want, f"{tag}: [bp-0x13c] {want:#04x} (recorded)", f"{b13c:#04x}")
+        if name in VARIES:
+            print(f"  {tag}: the original's byte varies from run to run; the port "
+                  f"{port_says}, not compared")
         else:
             v.value(f"{tag}: what Escape does", does, port_says)
             pair.judge(v, "after", shown, f"{tag}: after Escape")

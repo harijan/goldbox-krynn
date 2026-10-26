@@ -111,11 +111,17 @@ The end of combat (`351b:1968`), as `cok_treasure_end_of_combat`:
    that fled while it is 0. The others' combat records are freed, the first
    record is selected, and every record's stats are recomputed
    (`6346:0d20`). Where the selection the original keeps in `DS:43bf`, which
-   `EXIT` restores after `LOAD CHARACTER` and a block's vectors restore when
-   they end (`2fd3:3b47`), is a record removed here or in step 2, the
-   original would go on with it freed, and the port stops with
-   `COK_ECL_UNDEFINED`, unless the party was destroyed and the run ends
-   first.
+   `EXIT` restores after `LOAD CHARACTER`, `PROGRAM` before it opens its
+   menus and a block's vectors when they end (`2fd3:3b47`), is a record
+   removed here or in step 2 (or by the start menu's Remove and Drop, or
+   `DUMP`), it names the freed record until the selection is kept again
+   (after a command, as a block is entered, `2fd3:3c28`); only where the
+   original restores it before that would it go on with the freed record,
+   whose bytes the heap's free list and later allocations take over (the
+   training hall's start menu wrote "Train Character" into it, then
+   Begin's free list), and only there the port stops with
+   `COK_ECL_UNDEFINED` (`e_freed_selection.py` saw the hall's removal
+   never restored).
 4. Unless the party was destroyed: if it fled, the pool's items go; the
    NPCs take their shares, the results show and the treasure menu runs
    (below); then the pool's items go. Its coins stay until the next
@@ -279,10 +285,10 @@ battle, whose setup frees the picture (`3cb2:1c58`, `6961:0537`), and for
 treasure alone unless the picture was already there. After a View in the
 same menu, or Yes to go back for the treasure, the byte is set, and Trade
 is left; after Take, through the coins or the items, it holds the low
-byte of a segment, and with it unknown, as when the picture was already
-there, the port stops with `COK_ECL_UNDEFINED`. Pool, Share, Detect and
-picking a character leave it as it was. An emulator run of the paths
-agreed.
+byte of the data segment (0x51 in DOSBox-X, in 4 runs of 4), so Trade is
+left. With the picture already there the port takes 0, as a camp's kept
+picture held in DOSBox-X. Pool, Share, Detect and picking a character
+leave it as it was. An emulator run of the paths agreed.
 
 A differential test ran the original routines in an 8086 emulator against
 the port. The item generator (`58e7:1039`), on 40,000 random types and
@@ -664,16 +670,16 @@ The port keeps these quirks:
 - A stack of 2 sells for about a tenth of one; Id charges for telling
   nothing new.
 - In Trade from View, Escape at the first coin list tests a byte of the
-  stack (see [View](camp.md#view)): on entering a shop or the temple it holds what the
-  run left, and the port stops with `COK_ECL_UNDEFINED`; a View before,
+  stack (see [View](camp.md#view)): on entering a shop it held 0 (Trade asks for a
+  partner again) in DOSBox-X in 10 runs of 10, and on entering the
+  outpost's temple a letter of the outpost's menu's text (`a`, so Trade
+  is left), which the port takes for each shop and temple; a View before,
   Yes to going back, Appraise showing the gems and, in the temple, Heal
   set it, so Trade is left; Buy, Take, Pool, Share and picking a
   character keep it. The temple's locals are 14 bytes fewer than the
   shop's, so every call from its menu lands 14 bytes higher and the same.
-  An emulator run of each, in the shop and in the temple, agreed. In
-  DOSBox-X (`e_trade.py`) the outpost's armoury entered from the
-  outpost's menu with nothing before held 0 in 7 runs of 7, so Trade asked
-  for a partner again; other histories were not tried.
+  An emulator run of each, in the shop and in the temple, agreed, and so
+  did the original in DOSBox-X (`e_trade.py`).
 
 A differential test ran the original routines in an 8086 emulator against
 the port on random parties, items and pools: Buy's lines and a purchase

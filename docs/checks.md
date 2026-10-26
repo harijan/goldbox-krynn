@@ -9,7 +9,7 @@ at the same key read), files and memory values with the port's for the
 same keys and seed, or, where the port stops or does not model what the
 original does, asserts what the original was seen to do; `make
 dosbox-checks` runs them all.
-The checks keep the numbers they had in this list (#1-#129, in its order),
+The checks keep the numbers they had in this list (#1-#131, in its order),
 which the scripts cite.
 
 Checked in DOSBox-X, the original as the port unless said (where the
@@ -129,8 +129,10 @@ original's behaviour is recorded, its section says what it does):
 - #46 Strength on a knight alone of strength 3: 18/30 from the commands'
   `Cast`, 18/100 from camp's `Magic`, in both (see [Casting](camp.md#casting)):
   `e_strength.py`.
-- #47 Trade's byte in the four camp cases; from the commands' `View` the
-  original asks again or leaves by the run (see [View](camp.md#view)): `e_trade.py`.
+- #47 Trade's byte in six camp cases (Magic and Alter first among them)
+  and from the start menu's `View`; from the commands' `View` the
+  original asks again or leaves by the run, the port asks again, not
+  compared (see [View](camp.md#view)): `e_trade.py`.
 - #48 After an item with `+0x3d` 0x80, a cast neither says "casts" nor
   forgets the spell: `b_item_spell0.py`.
 - #49 Haste ages each member a year, once: `b_haste.py`.
@@ -171,8 +173,9 @@ original's behaviour is recorded, its section says what it does):
 - #72 `10 Arrows +1` halved and sold: 6 for the two, 60 for one:
   `c_block50.py`.
 - #73 A shop's `View` first, `Trade`, Escape: entered from the outpost's
-  menu the original asks for a partner again (7 runs); after a `View` it
-  leaves, as the port (see [Shops and the temple](treasure-shops.md#shops-and-the-temple)): `e_trade.py`.
+  menu the original asks for a partner again (10 runs); after a `View`
+  it leaves; in the outpost's temple it leaves at once; as the port (see
+  [Shops and the temple](treasure-shops.md#shops-and-the-temple)): `e_trade.py`.
 - #74 Throtl's gate's battlefield, every combatant's cell and facing:
   `d_gate.py`.
 - #75 The second of four unconscious: its body right of the first, at the
@@ -277,6 +280,14 @@ original's behaviour is recorded, its section says what it does):
   `d_cast.py`.
 - #129 Magic Missile reflected: the caster takes the damage:
   `d_turning.py`.
+- #130 Molly's Hoopak unreadied outside combat (effect 0x07's handler,
+  through no combat record): RandSeed one step on, as for no other item,
+  and the items list as the port's (see [The rounds](combat.md#the-rounds)):
+  `e_kender.py`.
+- #131 The training hall's Remove of the selection kept in `DS:43bf`:
+  the freed record is never restored once LEAVE enters the next block,
+  and the port goes on (see [Treasure and the end of combat](treasure-shops.md#treasure-and-the-end-of-combat)):
+  `e_freed_selection.py`.
 
 Death Knights' title song (see [Death Knights' songs](sound.md#death-knights-songs))
 on the Tandy and the AdLib, its pitches and tempo against `eclplay --wav`:
@@ -436,6 +447,16 @@ found that Death Knights' Magic menu keeps its own selection and that
 Display's blank rows are headings. Its flow `table` (saved game B begun,
 camp, Magic, BALTHIR NOMOON's Memorize) shows the table with no name said
 over it, 0 pixels apart.
+
+Its Trade, `tools/dosbox/checks/dkk_trade.py` (see [Death Knights'
+View](camp.md#death-knights-view); seeded; `--flows day,midnight`, a quarter of a minute
+each): saved game A begun, block 16's rest, camp, View, Trade to TANAR,
+Escape at the first coin list. The flag Trade tests, read from its frame,
+is the high word of the DOS clock's hundredths (+ 30) as View's menu
+began; by day nonzero, and Trade left as in the port (both screens 0
+pixels apart); with the BIOS's clock set a second past midnight at camp's
+menu, 0, and the original asks for another partner (the port, with no
+clock of the day, is not compared there).
 
 Its last menus by index, `tools/dosbox/checks/dkk_menus.py` (see [Death
 Knights' camp](camp.md#death-knights-camp) and the ECL's opcodes; seeded; `--flows
