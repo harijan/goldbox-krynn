@@ -57,11 +57,17 @@ rm -f build/krynn.cfg
 ./build/eclplay --game death-knights --set 4be6=1 --screen build/dkk48.bmp --keys '\r' DKKAssets 48
 ./build/eclplay --game death-knights --character DKKAssets/SAVE/CHRDATA1.GAM \
     --character DKKAssets/SAVE/CHRDATA2.GAM --play --keys 'ev\r\e' DKKAssets 17
+python3 tools/hlib.py list DQKAssets/DISK1/TITLE.TLB
+python3 tools/hlib.py pngs DQKAssets/DISK1/TITLE.TLB build/dqk-title \
+    --palette DQKAssets/DISK1/ALWAYS.TLB --palette DQKAssets/DISK3/FRAME.TLB
+python3 tools/funcmatch/funcmatch.py match DKKAssets/death-START_FULL.EXE.c \
+    DQKAssets/DQK_FULL.EXE.c --out build/dkk_dqk.tsv
 make test
 make sanitize
 make krynn
 ./build/krynn
 make dosbox-selftest
+make dqk-checks
 ```
 
 Run `make -j16 test` (`-j` the machine's cores, `nproc`), and `make -j16
@@ -109,6 +115,18 @@ ALSA for the sound, `SDL_AUDIODRIVER` overriding it (the container has no
 sound device: `krynn` says so and plays silently; `SDL_AUDIODRIVER=disk`
 writes the samples to `sdlaudio.raw` or `SDL_DISKAUDIOFILE`, 16-bit mono
 at 44,100 Hz).
+
+The Dark Queen of Krynn's research tools (see
+[DARK-QUEEN.md](DARK-QUEEN.md)) are Python 3 with the standard library
+only: `tools/hlib.py` reads its HLIB libraries (`.TLB`, `.GLB`): lists
+their records, extracts one, and renders its pictures (every format,
+1,857 pictures in all) as PNGs in their palettes (`tests/test_hlib.py`,
+in `make test`, on made-up libraries and, where `DQKAssets/` holds them,
+on the game's, skipped saying so otherwise); `tools/funcmatch/` matches
+two games' routines by Ghidra's C and scans the port's citations
+([its README](tools/funcmatch/README.md): the method and the noise floor).
+`make dqk-checks` records the original's start in DOSBox-X (see [DOSBox-X
+harness](docs/dosbox.md#dosbox-x-harness)).
 
 `daxcheck` reads archives without modifying them. It validates every directory
 entry and decompresses every record, checking the decoded byte count. It exits

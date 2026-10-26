@@ -7,7 +7,8 @@ the verdict recorded (docs/checks.md, "Checks against the original").
     python3 tools/dosbox/checks/run_all.py --report [--set SET] [--out DIR]
 
 SET: champions (CHECKS, the default), dkk (DKK_CHECKS: Death Knights'
-scripts, the long ones one per flow; make dkk-checks) or all.
+scripts, the long ones one per flow; make dkk-checks), all (both), or dqk
+(DQK_CHECKS: The Dark Queen of Krynn's; make dqk-checks).
 
 Each script runs with --workdir OUT/NAME (default OUT build/dosbox-checks),
 its output in OUT/NAME.log, and ends with a line `VERDICT: AGREES` or
@@ -161,7 +162,10 @@ DKK_SCRIPTS = ["dkk_views", "dkk_start", "dkk_create", "dkk_treasure", "dkk_item
                "dkk_trade"]
 DKK_CHECKS = [(f"{script}-{flow}" if flow else script, "DKK", "") for script in DKK_SCRIPTS
               for flow in DKK_SPLIT.get(script, [""])]
-SETS = {"champions": CHECKS, "dkk": DKK_CHECKS, "all": CHECKS + DKK_CHECKS}
+# The Dark Queen of Krynn's (--set dqk; DARK-QUEEN.md): the original's
+# start recorded (no port side until step 1's --game dark-queen).
+DQK_CHECKS = [("dqk_boot", "DQK", "")]
+SETS = {"champions": CHECKS, "dkk": DKK_CHECKS, "all": CHECKS + DKK_CHECKS, "dqk": DQK_CHECKS}
 
 
 def command(name):
@@ -178,7 +182,8 @@ LONG = {"a_demo": 5, "f_frames": 4, "f_sound": 3, "c_wander": 2, "e_bolt_bounce"
         "f_display_modes": 1, "b_item_spell0": 1, "d_bolt": 1, "d_aurak": 1, "d_gate": 1,
         "dkk_create": 8, "dkk_views": 5, "dkk_fight-spells": 5, "dkk_shops": 5,
         "dkk_fight-clouds": 4, "dkk_fight-cast": 3, "dkk_fight-band": 3, "dkk_fight-auto": 3,
-        "dkk_fight-mage": 3, "dkk_start": 3, "dkk_mouse": 3, "dkk_items": 3, "dkk_sound": 5}
+        "dkk_fight-mage": 3, "dkk_start": 3, "dkk_mouse": 3, "dkk_items": 3, "dkk_sound": 5,
+        "dqk_boot": 1}
 VERDICT = re.compile(r"^VERDICT: (AGREES|DIFFERS new.*|ERROR.*)$", re.M)
 
 
@@ -403,7 +408,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--jobs", type=int)
     parser.add_argument("--set", choices=sorted(SETS), default="champions",
-                        help="Champions' scripts (the default), Death Knights' (dkk) or both")
+                        help="Champions' scripts (the default), Death Knights' (dkk), both "
+                             "(all) or Dark Queen's (dqk)")
     parser.add_argument("--only", nargs="*", help="these scripts (names without .py)")
     parser.add_argument("--out", default=str(ROOT / "build" / "dosbox-checks"))
     parser.add_argument("--timeout", type=float, default=3 * 3600,
@@ -433,8 +439,9 @@ def main():
     # The port's builds the checks share (checklib.build), once here.
     sys.path.insert(0, str(HERE))
     import checklib
-    checklib.stopping_eclplay()
-    checklib.eclplay_with_pauses()
+    if opts.set != "dqk":  # Dark Queen's compare with no port build yet
+        checklib.stopping_eclplay()
+        checklib.eclplay_with_pauses()
     # After importing checklib: cokbox sets its own SIGTERM handler.
     for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         signal.signal(signum, stop)

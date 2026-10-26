@@ -121,12 +121,20 @@ def _inside(x, y, area):
 
 
 def masked_diff(a, b, masks=()):
-    """(pixels of A and B that differ outside MASKS, their box or None)."""
+    """(pixels of A and B that differ outside MASKS, their box or None);
+    RGBScreens' pixels by their three bytes (an RGBScreen against a
+    Screen of indexes: BoxError)."""
+    if isinstance(a, cokbox.RGBScreen) != isinstance(b, cokbox.RGBScreen):
+        raise cokbox.BoxError("an RGBScreen compares with another RGBScreen only")
     if (a.width, a.height) != (b.width, b.height):
         return a.width * a.height, (0, 0, a.width - 1, a.height - 1)
     n, x0, y0, x1, y1 = 0, a.width, a.height, -1, -1
     w = a.width
-    for i, (p, q) in enumerate(zip(a.pixels, b.pixels)):
+    if isinstance(a, cokbox.RGBScreen):
+        pairs = ((a.pixels[k:k + 3], b.pixels[k:k + 3]) for k in range(0, len(a.pixels), 3))
+    else:
+        pairs = zip(a.pixels, b.pixels)
+    for i, (p, q) in enumerate(pairs):
         if p != q:
             x, y = i % w, i // w
             if any(_inside(x, y, m) for m in masks):

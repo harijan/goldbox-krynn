@@ -151,6 +151,54 @@ instead: `DKKAssets/` copied into `C:\DKK`, a `DKK.CFG` written for it
 `NOT_WAIT_CALLERS` and `to_ghidra` are Champions' addresses (a Death
 Knights run finds no such caller).
 
+`Box(game="dark-queen")` runs The Dark Queen of Krynn (see
+[DARK-QUEEN.md](../DARK-QUEEN.md)): `DQKAssets/` with its folders
+(`DISK1`-`3`, `SAVE`; not Ghidra's `.c` and `.h`) copied into `C:\DQK`,
+the shipped `DISK1\DQK.CFG` as it is (VGA, the Sound Blaster; `cfg=`
+bytes to write there instead), `machine` `vga` (`svga_s3`) by default, a
+Sound Blaster 16 at 220h IRQ 7 and no MPU-401 (`GAMES`' `conf`), and `DQK
+SB220 SI7 RB330` run as `START.BAT` runs it. Its data segment is overlay
+12, loaded at start at the load segment + `0x322e` (`422e` in
+`build/DQK_FULL.EXE`, the PSP being `DS - 0x323e`), found by 64 bytes of
+it that no relocation touches (its first are zeros and segment numbers;
+`tools/dqkmerge.py` reads them from `DQK.EXE`); `seed=N` sets its random
+numbers' seed, the long at `DS:ca0e` (`dqk 2102:0234`: the seed becomes
+seed × 0x6d25 + 1 and the draw is (seed & 0x3fffffff) mod n; set from the
+clock at `2102:0226`). Its screenshots are `RGBScreen`s, the pixels' colours
+(three bytes each) rather than the nearest of 16 colours: 256 colours,
+each picture with its palette; `diff`, `region`, `save_png` and
+`checklib.masked_diff` work on them alike, and the 16-colour games' are
+read as before. Its keys go through `dqk 10d7:005c`, INT 16h with a frame
+of its own, so `where` and `caller_chain` walk the BP chain from there
+(`c_frames`). It polls the keyboard all the time (`polls_always`): the
+logo, the title's scenes and every menu loop on INT 16h function 1
+(`251e:00dc`) as they animate, so polls advancing say nothing; instead
+`wait_input` waits until the screen has settled (`settled`: two
+screenshots half a second of the game's time apart the same but for 64
+pixels at most, `settle_tolerance`, an input's blinking cursor; skipped when
+it settled less than a second ago and no key was read since), and a key
+is taken once the game has read it (`251e:00e7`'s function 0, the hook's
+reads). Turbo is its default: the start's menus, the load and Begin
+Adventuring take 14 s to the first 3D view with turbo, 41 s at its cycles,
+the same screens; but a screenshot then takes longer than the SSI logo's
+17 s of the game's time, so `dqk_boot` runs at its cycles. `python3
+tools/dosbox/cokbox.py run --game dark-queen --turbo --keys
+'\rplta\sloaded.' --shots DIR` loads saved game A from the title in 7 s.
+
+Its copy protection at Begin Adventuring (`dqk 65cc:008b`) draws a
+journal entry and a word at random (`DS:c74c`, `DS:c74d`, of the table at
+`DS:6dd2`), decodes the entry's heading and the word's answer (`65cc:0003`:
+each character less the string's length, last first) into `DS:c6f9`,
+reads the word typed into `DS:c723`, and compares them (`10d7:2543`). The
+shipped `DQK.EXE` (1.1) accepts any word: at `65cc:0298` an unconditional
+`JMP` (`EB 19`) passes over the retry (`029a`-`02b0`: the compare, and
+back to `00ac` for another question), and both outcomes of the last
+compare (`02c2`) return 1 (`02ce`, `02d4`). Its caller, Begin Adventuring's
+`5ebd:00ef` (through the stub at `2d99:117f`), quits the game on 0 and
+then on any of `DS:bec0`-`bec2` left 0, which it sets on the way. The checks answer it all the same, typing the
+word read from `DS:c6f9` (`dqk_lib.protection`), so that they would pass
+an unpatched copy too.
+
 `cokbox.py run` runs it from the command line (`--game`, `--machine`, `--display`,
 `--sound`, `--saves`, `--args`, `--cycles`, `--turbo`, `--seed`, `--keys`,
 `--shots DIR`, `--wav`, `--dump OFF,SIZE` of DS at the end), for example
@@ -257,7 +305,17 @@ whole screen; `load_bmp` decodes a frame with `bytes.translate`).
 scripts the same way, `dkk_fight.py`, `dkk_levels.py` and
 `dkk_treasure.py` split by their `--flows` into one script per flow
 (`dkk_fight-spells`: its own box, workdir and log): 35 scripts in about 3
-minutes, 10 at a time, all as recorded twice running (2026-10-23). They
+minutes, 10 at a time, all as recorded twice running (2026-10-23).
+`make dqk-checks` (`run_all.py --set dqk`, its out `build/dqk-checks`;
+needing only `build/DQK_FULL.EXE`, as no port build is compared yet) runs
+The Dark Queen of Krynn's `dqk_*` scripts: `dqk_boot.py` (about a
+minute) records the original's start, from the logos to the first 3D
+view, its screens as `OUT/dqk_boot/original/NN-NAME.png` and a few of its
+variables in `memory.json` (`dqk_lib.py`: the adapter, the party's list,
+the protection's question, the ECL's buffer, address and opcode), and
+judges the original's run alone until `--game dark-queen` gives it a port
+side (its `port()`; `MASKS` the areas two runs of the original differ
+in). They
 took 80 minutes one after another at their cycles (`dkk_fight.py` 40),
 10 side by side, and 3 with Death Knights' boxes turbo too (`GAMES`), its
 `dkk_views.py` typing the start menu's keys as the game waits
