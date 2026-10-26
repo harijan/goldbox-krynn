@@ -67,7 +67,7 @@ build/DQK_FULL.EXE: tools/dqkmerge.py tools/ovrmerge.py $(DQK)/DQK.EXE | build
 
 ADVENTURE_SRC = src/adventure.c src/debug.c src/devices.c src/input.c src/ai.c src/cloud.c src/command.c src/start.c src/roster.c src/create.c src/train.c src/modify.c src/icon.c src/arena.c src/attack.c src/combat.c src/round.c src/monster.c src/treasure.c src/shop.c src/camp.c src/magic.c src/cast.c src/items.c src/sheet.c src/effect.c src/party.c src/ecl.c src/menu.c src/screen.c src/text.c src/view.c src/picture.c src/image.c src/sound.c src/opl2.c src/config.c src/crt.c src/setup.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c src/step.c
 
-# The original in DOSBox-X (tools/dosbox, see DEVELOPERS.md's "DOSBox-X
+# The original in DOSBox-X (tools/dosbox, see docs/dosbox.md's "DOSBox-X
 # harness"): boot it to the title's menu and compare its screens with
 # eclplay's. Not part of make test: it needs dosbox-x, Xvfb and xdotool.
 .PHONY: dosbox-selftest
@@ -77,7 +77,7 @@ dosbox-selftest: build/eclplay build/START_FULL.EXE
 	$(PYTHON) tools/dosbox/cokbox.py selftest --machine ega
 	$(PYTHON) tools/dosbox/cokbox.py selftest --machine cga
 
-# Every check of DEVELOPERS.md's "Checks against the original" run in the
+# Every check of docs/checks.md's "Checks against the original" run in the
 # original (tools/dosbox/checks/), side by side: one verdict a script.
 # ARGS go to run_all.py (e.g. ARGS="--only b_amount --jobs 2"). build/cok
 # for the checks that compare the frames cok presents (c_places.cok_frames).

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Checks #47 and #73: Escape at Trade's first coin list (DEVELOPERS.md, Checks
+"""Checks #47 and #73: Escape at Trade's first coin list (docs/checks.md, Checks
 against the original: "`Encamp`, choose `View` first, `Trade`, pick a
 partner, and press Escape at the first coin list" and "In a shop, `View`
 first, `Trade`, pick a partner and press Escape at the first coin list").
 
 Trade (546c:2c75) tests a byte it never set, [bp-0x13c], at 546c:2f9b: 0
 asks for a partner again, else Trade is left. The port follows it where
-DEVELOPERS.md says what the stack holds (a camp's View: asks again as View's
+docs/camp.md says what the stack holds (a camp's View: asks again as View's
 first command, leaves after Items, Spells, Trade or Drop, or a View before)
 and stops with COK_ECL_UNDEFINED elsewhere (View from the adventure
 commands, a shop's View). Each case runs in the original from a fresh
@@ -95,7 +95,7 @@ def run_case(v, name, saves, work, args):
     if port_says == "stops":
         v.check(E.port_error(text) == STOP, f"{name}: the port stops at Escape",
                 E.port_error(text) or "no stop")
-        print(f"#{check} {name}: the port stops at Escape, as DEVELOPERS.md says: the original's "
+        print(f"#{check} {name}: the port stops at Escape, as docs/camp.md says: the original's "
               "recorded behaviour is asserted, not compared")
     else:
         port_does = outcome(pair.frame("after"))

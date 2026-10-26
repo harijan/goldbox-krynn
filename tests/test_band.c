@@ -1,5 +1,5 @@
 /* Death Knights' band C spells and effects (dkk 5dc5's and 504d's
- * routines that have no Champions counterpart; DEVELOPERS.md's "Death
+ * routines that have no Champions counterpart; docs/camp.md's "Death
  * Knights' casting" and "Death Knights' effects"): each handler on records
  * made by hand in its layout, the game opened on DKKAssets/ (skipped
  * without); the camp's Fix (4381:2fd4), which cures with them; and the

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #75 (DEVELOPERS.md, Checks against the original): "With the second of
+"""Check #75 (docs/checks.md, Checks against the original): "With the second of
 four characters unconscious, fight anything: its body should lie where the
 second would stand, right of the first, and the third and fourth stand a
 rank back."

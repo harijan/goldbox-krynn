@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #40: a day's healing counted in one camp (DEVELOPERS.md, Checks against the
+"""Check #40: a day's healing counted in one camp (docs/checks.md, Checks against the
 original: "Rest a full day twice in one camp, and once each in two camps:
 the party heals a point a day only counting the ticks of one camp
 (DS:7136)").

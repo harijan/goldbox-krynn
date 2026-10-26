@@ -2,7 +2,7 @@
 #define COK_OPL2_H
 
 /* The AdLib's sound chip, a Yamaha YM3812 (OPL2), written for this port
- * from the chip's documented behaviour (DEVELOPERS.md, The hardware): nine
+ * from the chip's documented behaviour (docs/sound.md, The hardware): nine
  * channels of two operators, each a phase generator, a log-sine and
  * exponent lookup and an envelope generator, at the chip's own rate of
  * 3,579,545 / 72 = 49,716 samples a second, in integers. No SDL here: the

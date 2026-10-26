@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #52: Backspace in an amount (DEVELOPERS.md, Checks against the original:
+"""Check #52: Backspace in an amount (docs/checks.md, Checks against the original:
 "In an amount, type more than the coins there are, then Backspace: the last
 digit stays on the screen").
 

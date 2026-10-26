@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Treasures of ECL3 (DEVELOPERS.md, Checks against the original): #64 "`Share` the
+"""Treasures of ECL3 (docs/checks.md, Checks against the original): #64 "`Share` the
 hoard of ECL3 block 98 (95,000 coins): what the party cannot carry should
 stay in the pool, with `Share` still offered"; #65 "Take a random potion
 from a treasure of ECL3 block 81 (`TREASURE ... 130`) and drink it:

@@ -409,14 +409,14 @@ static const cok_data_segment death_knights_data = {
  * one with 0x1f and 0x2c. SETUP MONSTERS (0x0c) is SETUP MONSTER with the
  * ambush's directions; LOAD MONSTER (3632:0472) and COMBAT (3632:16ec) are
  * Champions' with the game's records and the combat section (see
- * DEVELOPERS.md's "Death Knights' encounter"). DAMAGE (3632:1ca2) and ADD
+ * docs/adventure.md's "Death Knights' encounter"). DAMAGE (3632:1ca2) and ADD
  * EP (3632:25f1) keep Champions' meaning, with the treasure section's
  * rules; TREASURE ITEMS (3632:1933) and STOCK (3632:28d2) are its own
  * (treasure.c, with the item table). SPELL (3632:2177)
  * differs only for each character it searches (the memorized spells in its
  * WIZ record, 74 of them, of those who can act): Champions' runs, and a
  * character stops it at the layout's MEMORIZED, which is left out.
- * DEVELOPERS.md's "Games" lists every handler's comparison. */
+ * docs/games.md's "Games" lists every handler's comparison. */
 #define OP(o, m, n, k) [o] = {.meaning = m, .operands = n, .skip = k}
 #define SAME(m, n, k) OP(m, m, n, k)
 #define LISTED(o, m, h, k) [o] = {.meaning = m, .operands = COK_ECL_LIST, .header = h, .skip = k}

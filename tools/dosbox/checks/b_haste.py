@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #49: Haste ages each member hasted a year, once (DEVELOPERS.md, Checks
+"""Check #49: Haste ages each member hasted a year, once (docs/checks.md, Checks
 against the original: "Cast Haste with a mage of level 4: each member
 hasted should 'age' a year, once (its value's bit 4)").
 

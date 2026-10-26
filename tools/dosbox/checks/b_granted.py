@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Check #45: a knight without a cleric level memorizing granted powers
-(DEVELOPERS.md, Checks against the original: "With a knight above level 6 and no
+(docs/checks.md, Checks against the original: "With a knight above level 6 and no
 cleric level who knows a granted power, memorize it: the port lets it be
 marked again and again, counting against 0x71 (4888:0700); see whether the
 original does").

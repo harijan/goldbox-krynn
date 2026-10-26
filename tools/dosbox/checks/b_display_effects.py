@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #44: Display with effect 0x13 (DEVELOPERS.md, Checks against the original:
+"""Check #44: Display with effect 0x13 (docs/checks.md, Checks against the original:
 "`Display` a character with effect 0x13: it shows `Find Traps`").
 
 The port writes the game: SAVE/'s game A with SIR STRONGSWORD given effect

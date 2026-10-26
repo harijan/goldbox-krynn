@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Check #8, the other parts: Cause Disease's 0x22 and a constitution of 20
-(DEVELOPERS.md, Checks against the original, "Timers": "Cast Cause Disease and
+(docs/checks.md, Checks against the original, "Timers": "Cast Cause Disease and
 wait out 0x22 (10-60 minutes): 'is weakened', strength a point lower each
 hour, and a hit point lost each ten minutes down to one. A character of
 constitution 20 should heal a point each hour ('is partially healed'),

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Death Knights of Krynn in the original against eclplay --game
-death-knights (DEVELOPERS.md, "Checks against the original": dkk_views):
+death-knights (docs/checks.md, "Checks against the original": dkk_views):
 the title's first two pictures; the first text of the game, in the saved
 game DKKAssets/SAVE/SAVGAMA.PTY resumes (ECL1 block 16, over the overland
 map), the whole screen: the big picture's frame (110f:02ab), the map, the

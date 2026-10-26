@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Death Knights of Krynn's treasure and bank vault in the original against
-eclplay --game death-knights --start-menu (DEVELOPERS.md, "Death Knights'
+eclplay --game death-knights --start-menu (docs/treasure-shops.md, "Death Knights'
 treasure"). Two flows, each from saved game A loaded and begun, the same
 keys typed to both, the original's screen at each wait against the port's
 at the key read the same keys leave it in:

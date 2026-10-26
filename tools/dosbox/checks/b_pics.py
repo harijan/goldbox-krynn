@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Check #42: Alter's Pics takes special keys by their scan codes' letters
-(DEVELOPERS.md, Checks against the original: "In Alter's Pics, press the down
+(docs/checks.md, Checks against the original: "In Alter's Pics, press the down
 arrow: the pictures flag changes").
 
 Game A in the outpost inn's camp: Alter, Pics, the down arrow (scan 0x50,

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Death Knights of Krynn's training, Knight Change Order, Memorize, Fix and Rest in
-the original against eclplay --game death-knights --start-menu (DEVELOPERS.md,
+the original against eclplay --game death-knights --start-menu (docs/start-menu.md,
 "Training" and "Camp"). Two flows, the same keys typed to both, the
 original's screen at each wait against the port's at the key read the same
 keys leave it in:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Checks #36 and #37: the camp screen in Throtl, and Enter right after
-Encamp (DEVELOPERS.md, Checks against the original: "Camp in Throtl and compare
+Encamp (docs/checks.md, Checks against the original: "Camp in Throtl and compare
 the camp screen ..." and "Camp right after `Encamp` and press Enter: the
 original opens `Alter`, the fifth item, as the menu keeps the selection").
 

@@ -2,7 +2,7 @@
 #define COK_SPELLS_H
 
 /* The spells and spell effects by what they are, for the descriptor's
- * spells and effects sections (rules.h; DEVELOPERS.md's "Games"): the
+ * spells and effects sections (rules.h; docs/games.md's "Games"): the
  * spell and effect ids the code names, which each game gives its own
  * (cok_spell_id, cok_effect_id), and the port's handlers, which each
  * game's table maps its ids to (cast.c, effect.c). The handlers are shared

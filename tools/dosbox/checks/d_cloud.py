@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #6 (DEVELOPERS.md, Checks against the original), in part: "Clouds and
+"""Check #6 (docs/checks.md, Checks against the original), in part: "Clouds and
 pools: cast Stinking Cloud with a wall among its four cells, ... over half
 of another cloud; compare the tiles while it lasts and after "The air
 clears a little..." (its caster's level in rounds), and who coughs or

@@ -13,7 +13,7 @@
  * at its turn, and what each leads to. Keys come from the adventure's
  * keyboard through the menus on row 24 (67b5:03e2), with the mouse's
  * clicks on the map a step toward the cell clicked in Move and Manual's
- * cursor (see DEVELOPERS.md's The mouse and the joystick).
+ * cursor (see docs/front-end.md's The mouse and the joystick).
  *
  * The cast in combat (5b04:1415, with its targets 432f:2337) is
  * cok_cast_spell's (cast.h), from Cast, a spell begun earlier or an item.

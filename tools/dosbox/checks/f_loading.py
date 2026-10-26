@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check: `Loading...Please Wait` (DEVELOPERS.md, Checks against the original: "it
+"""Check: `Loading...Please Wait` (docs/checks.md, Checks against the original: "it
 should show on row 24 in light green at startup before the title, in each
 step into a new block (NEWECL), and with Pics animation on while a small
 picture or a monster's sprite loads; with animation on, text left on row 24

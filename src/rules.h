@@ -14,7 +14,7 @@
  * in the tools without a game, passed in). Shared code reads what it needs
  * here and never asks which game it is. Champions of Krynn's is
  * cok_rules_champions, Death Knights of Krynn's cok_rules_death_knights
- * (read headless so far); see DEVELOPERS.md's "Games".
+ * (read headless so far); see docs/games.md's "Games".
  *
  * The descriptor holds the game's files and file sets, the saved games'
  * and characters' names, the titles, the character record's layout

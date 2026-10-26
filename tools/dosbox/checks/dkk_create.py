@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Death Knights of Krynn's Create New Character (49cb:05c7), its icon
 editor (49cb:3cac) and Modify Character (49cb:25d4) in the original against
-eclplay --game death-knights --start-menu (DEVELOPERS.md, "Death Knights'
+eclplay --game death-knights --start-menu (docs/start-menu.md, "Death Knights'
 creation"). Each case creates a character from the title with the same seed
 (Box seed, eclplay --seed), the same keys typed to both: the lists, the
 sheet at each roll and reroll, the name, the icon editor's menus and edits,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks #76 and #79 (DEVELOPERS.md, Checks against the original): the huge patrol
+"""Checks #76 and #79 (docs/checks.md, Checks against the original): the huge patrol
 of ECL1 block 16 at 8cda (KERNEN, 31, 3 on the overland map): 9 red dragons,
 9 bozaks and 9 sivaks, which surprise the party (var 0x7ecb 1).
 #76 "Stay to fight the huge patrol ...: count how many stand on the

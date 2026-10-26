@@ -22,7 +22,7 @@ Xvfb server. The host then:
   the PSP + 0x0bd6, START_FULL.EXE's 1bc6).
 
 Use it as a library (see `Box`) or from the command line (`cokbox.py run`,
-`cokbox.py selftest`); DEVELOPERS.md's "DOSBox-X harness" says how.
+`cokbox.py selftest`); docs/dosbox.md's "DOSBox-X harness" says how.
 """
 import argparse
 import atexit

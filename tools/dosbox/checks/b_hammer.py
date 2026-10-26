@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check #51: the Spiritual Hammer readied and unreadied (DEVELOPERS.md, Checks
+"""Check #51: the Spiritual Hammer readied and unreadied (docs/checks.md, Checks
 against the original: "Ready the Spiritual Hammer a cleric conjured, then
 unready it: it should vanish (power 0 removes effect 0x17)").
 

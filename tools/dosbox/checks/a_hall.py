@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks #116 and #117: the training hall (DEVELOPERS.md, Checks against the
+"""Checks #116 and #117: the training hall (docs/checks.md, Checks against the
 original: "In a training hall, train a character with experience past the
 second next level, and answer No: the experience should be cut all the
 same." and "At Knight Change Classes, press F9 for a knight who is too

@@ -70,7 +70,7 @@ bool cok_item_use(cok_adventure *game, cok_character *character, size_t index, b
 /* The Items menu (546c:17f9) for the selected character, until Exit or
  * Escape, *done is set, or it has no items: the list of its items with
  * "Ready Use Trade Drop Halve Join", and in shops (mode 1) "Sell Id", as
- * the character and the items allow (see DEVELOPERS.md). Use sets *done when it
+ * the character and the items allow (see docs/camp.md, View). Use sets *done when it
  * used an item, which only combat keeps. The stats are recomputed
  * (6346:0d20) after every key. */
 void cok_items(cok_adventure *game, bool *done);
