@@ -2,6 +2,7 @@
  * vectors through jumps, calls, ON GOTO tables and both arms of each IF. */
 #include "dax.h"
 #include "ecl.h"
+#include "hlib.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -71,7 +72,7 @@ static void walk(cok_ecl *vm, uint8_t *seen, uint16_t *next, totals *t, const ch
     for (size_t i = 0; i < 5; ++i) stack[depth++] = vm->vectors[i];
     while (depth > 0) {
         uint16_t address = stack[--depth];
-        while (address - COK_ECL_BASE < COK_ECL_CODE_SIZE && !seen[address - COK_ECL_BASE]) {
+        while (address - COK_ECL_BASE < COK_ECL_CODE_MAX && !seen[address - COK_ECL_BASE]) {
             cok_ecl_status status = cok_ecl_decode(vm, address);
             if (status != COK_ECL_OK) {
                 fprintf(stderr, "%s: %04x: %s\n", where, address, cok_ecl_status_string(status));
@@ -111,23 +112,23 @@ static void walk(cok_ecl *vm, uint8_t *seen, uint16_t *next, totals *t, const ch
     }
 }
 
-static void dump_block(const cok_rules *rules, const dax_record *record, const uint8_t *data,
+static void dump_block(const cok_rules *rules, unsigned id, const uint8_t *data, size_t size,
                        int list, totals *t, const char *path)
 {
     char where[300];
-    snprintf(where, sizeof where, "%s: ID %u", path, (unsigned)record->id);
+    snprintf(where, sizeof where, "%s: ID %u", path, id);
     static cok_ecl vm;
     /* Decoding selects no character, so the layout is never read. */
     cok_ecl_init(&vm, rules, NULL);
-    cok_ecl_status status = cok_ecl_load(&vm, data, record->decoded_size);
+    cok_ecl_status status = cok_ecl_load(&vm, data, size);
     if (status == COK_ECL_OK) status = cok_ecl_start(&vm, true);
     if (status != COK_ECL_OK) {
         fprintf(stderr, "%s: %s\n", where, cok_ecl_status_string(status));
         t->failed = 1;
         return;
     }
-    static uint8_t seen[COK_ECL_CODE_SIZE];
-    static uint16_t next[COK_ECL_CODE_SIZE];
+    static uint8_t seen[COK_ECL_CODE_MAX];
+    static uint16_t next[COK_ECL_CODE_MAX];
     memset(seen, 0, sizeof seen);
     size_t before = t->instructions;
     walk(&vm, seen, next, t, where);
@@ -139,12 +140,44 @@ static void dump_block(const cok_rules *rules, const dax_record *record, const u
     }
     printf("; %s, %zu bytes, vectors %04x %04x %04x %04x %04x\n", where, vm.size, vm.vectors[0],
            vm.vectors[1], vm.vectors[2], vm.vectors[3], vm.vectors[4]);
-    for (size_t i = 0; i < COK_ECL_CODE_SIZE; ++i) {
+    for (size_t i = 0; i < COK_ECL_CODE_MAX; ++i) {
         if (!seen[i]) continue;
         uint16_t address = (uint16_t)(COK_ECL_BASE + i);
         cok_ecl_decode(&vm, address);
         print_instruction(&vm, address);
     }
+}
+
+/* The blocks of a game's HLIB library (ECL.GLB), by its id map. */
+static void dump_library(const cok_rules *rules, const char *path, long only, int list,
+                         totals *t)
+{
+    uint8_t *bytes;
+    size_t size;
+    hlib_library library;
+    hlib_status status = hlib_read_file(path, &bytes, &size);
+    if (status == HLIB_OK) status = hlib_parse(bytes, size, &library);
+    if (status != HLIB_OK) {
+        fprintf(stderr, "%s: %s\n", path, hlib_status_string(status));
+        t->failed = 1;
+        free(bytes);
+        return;
+    }
+    for (size_t i = 0; i < library.ids; ++i) {
+        unsigned id;
+        size_t index, record_size;
+        const uint8_t *record;
+        hlib_id_at(&library, i, &id, &index);
+        if (only >= 0 && id != (unsigned long)only) continue;
+        status = hlib_record_at(&library, index, &record, &record_size);
+        if (status == HLIB_OK) {
+            dump_block(rules, id, record, record_size, list, t, path);
+        } else {
+            fprintf(stderr, "%s: id %u: %s\n", path, id, hlib_status_string(status));
+            t->failed = 1;
+        }
+    }
+    free(bytes);
 }
 
 int main(int argc, char **argv)
@@ -178,6 +211,10 @@ int main(int argc, char **argv)
     }
     totals t = {0};
     for (int arg = first; arg < argc; ++arg) {
+        if (rules->archives.format == COK_ARCHIVE_HLIB) {
+            dump_library(rules, argv[arg], only, list, &t);
+            continue;
+        }
         dax_archive archive = {0};
         dax_status status = dax_open(argv[arg], &archive);
         if (status != DAX_OK) {
@@ -194,7 +231,8 @@ int main(int argc, char **argv)
                 status = data == NULL ? DAX_NO_MEMORY
                                       : dax_decode(record.packed, record.packed_size, data,
                                                    record.decoded_size);
-                if (status == DAX_OK) dump_block(rules, &record, data, list, &t, argv[arg]);
+                if (status == DAX_OK)
+                    dump_block(rules, record.id, data, record.decoded_size, list, &t, argv[arg]);
             }
             if (status != DAX_OK) {
                 fprintf(stderr, "%s: entry %zu: %s\n", argv[arg], i, dax_status_string(status));

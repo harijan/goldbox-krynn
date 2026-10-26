@@ -1476,6 +1476,16 @@ const cok_rules cok_rules_champions = {
                       {0xc01e, COK_ECL_CALL_STEP},
                       {0xc018, COK_ECL_CALL_AHEAD},
                       {0x6803, COK_ECL_CALL_ANIMATE}},
+            /* 3775:0718, DS:4b34 */
+            .area_first = 0x4b00,
+            .area_size = 0x400,
+            .game_first = 0x7c00,
+            .game_size = 0x400,
+            .scratch_first = 0x7a00,
+            .scratch_size = 0x200,
+            .code_size = 0x1e00,
+            .block_header = 2,
+            .name_address = 0x7c00,
             .variable_bytes = 2, /* 3775:0e06 */
             .vars = champions_vars,
             .start = champions_start,
@@ -2023,7 +2033,8 @@ const cok_rules cok_rules_champions = {
         },
 };
 
-static const cok_rules *const games[] = {&cok_rules_champions, &cok_rules_death_knights};
+static const cok_rules *const games[] = {&cok_rules_champions, &cok_rules_death_knights,
+                                         &cok_rules_dark_queen};
 
 const cok_rules *cok_rules_find(const char *id)
 {

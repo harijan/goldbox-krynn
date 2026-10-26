@@ -3,17 +3,19 @@
 logos and the title (TITLE.TLB's scenes), the title's PLAY / DEMO / QUIT,
 the camp menu, Load from TDQK's saved game A (SAVGAMA.QSV, its party), and
 Begin Adventuring past the journal's copy protection (dqk 65cc:008b,
-answered with the word it decoded into DS:c6f9) to the first 3D view.
+answered with the word it decoded into DS:c6f9) to the first screen of the
+game (block 4's text over Palanthas' picture).
 
 Each step's screen, once settled, is saved as OUT/original/NN-NAME.png
 with a few of the original's variables (dqk_lib: the adapter, the party's
 list, the protection's question, the ECL's buffer, address and opcode) in
-OUT/original/memory.json: the recorded original. There is no port side yet
-(step 1 adds `--game dark-queen`): port() returns None for every step and
-the verdict judges the original's run alone, that it reached every step
-(the screens new at each, the party loaded, the protection asked once and
-answered, the ECL running). In run_all.py's Dark Queen set (make
-dqk-checks). About a minute.
+OUT/original/memory.json: the recorded original. The verdict judges that
+it reached every step (the screens new at each, the party loaded, the
+protection asked once and answered, the ECL running) and compares the
+first screen of the game with eclplay --game dark-queen's of block 4 but
+for the party's list and status (port(): the port has no Dark Queen party
+or start menu yet; dqk_views.py compares the title, more text and the 3D
+view). In run_all.py's Dark Queen set (make dqk-checks). About a minute.
 
     python3 tools/dosbox/checks/dqk_boot.py [--workdir DIR] [--verbose]
 
@@ -23,6 +25,7 @@ import argparse
 import json
 import pathlib
 import shutil
+import subprocess
 import sys
 import time
 
@@ -50,16 +53,35 @@ MASKS = {
     "ssi": [(20, 101, 280, 13, "the logo's spark")],
     "title": [(187, 89, 13, 4, "the title's twinkle")],
     "protection": [(64, 189, 8, 8, "the input's blinking cursor")],
+    "answered": [(1, 1, 16, 16, "the mouse's pointer (ALWAYS.TLB 2, the mouse driver's)"),
+                 (136, 8, 176, 120, "the party's list and status (no party yet)")],
 }
 # Set once the party is loaded, so that the protection's question (two
 # draws, 2102:0234) is the same each run.
 SEED = 12345
+# The variables of the 1 KB at far DS:b20f (6c70:0897).
+DS_VARS = 0xB20F
 
 
-def port(work, name):
-    """The port's screen at step NAME: none yet (step 1 of DARK-QUEEN.md
-    adds --game dark-queen to eclplay)."""
-    return None
+def port(work, name, lamps=()):
+    """The port's screen at step NAME, where it has one: the first screen
+    of the game, block 4's (new game's: variable 0x16 0) text over
+    Palanthas' picture, its square and time not drawn (no party yet), the
+    saved game's lamps (LAMPS: variables 0x1fa-0x1fc) given; None for the
+    others (the start menu and the saved games are step 2's)."""
+    if name != "answered":
+        return None
+    shots = work / "port-answered"
+    if shots.exists():
+        shutil.rmtree(shots)
+    args = ["--game", "dark-queen", "--set", "22=1", "--shots", str(shots), "--keys", "\\r"]
+    for i, b in enumerate(lamps):
+        args += ["--set", f"{0x1fa + i:x}={b:x}"]
+    result = subprocess.run([str(cokbox.ECLPLAY), *args, str(dqk_lib.ASSETS), "4"],
+                            capture_output=True, text=True, cwd=cokbox.ROOT, timeout=120)
+    (work / "port-answered.txt").write_text(result.stdout + result.stderr)
+    first = shots / "000.bmp"
+    return cokbox.RGBScreen.load(first) if first.exists() else None
 
 
 def pictures(box, out, verdict):
@@ -98,6 +120,7 @@ def main():
     out.mkdir()
     verdict = checklib.Verdict()
     memory = {}
+    lamps = []
     # At its cycles, not turbo: turbo ran it in 14 s, not 41, but a
     # screenshot then takes longer than the SSI logo's 17 s of the game's
     # time, which it missed (2026-10-26); the steps after agreed in both.
@@ -121,8 +144,10 @@ def main():
                                 party=dqk_lib.far(box, dqk_lib.DS_PARTY) is not None)
             if name == "loaded":
                 box.set_seed(SEED)
+                variables = box.far(box.ds * 16 + DS_VARS)
+                lamps = list(box.read(variables + 0x1fa, 3))
             verdict.check(last is not None and shot.diff(last)[0] > 0, f"{name}: a new screen")
-            mine = port(work, name)
+            mine = port(work, name, lamps)
             if mine is not None:
                 verdict.screen(name, shot, mine, masks=MASKS.get(name, ()), work=work)
             last = shot

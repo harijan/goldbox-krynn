@@ -390,7 +390,7 @@ static void run_loading_cases(const loading_case *cases, size_t count, bool cga)
         int used = snprintf(got, sizeof got, "%s | ", events);
         if (strcmp(kind, "ecl") == 0) {
             snprintf(got + used, sizeof got - (size_t)used, "code:%.10llx",
-                     fnv(game.vm.code, sizeof game.vm.code) >> 24);
+                     fnv(game.vm.code, COK_ECL_CODE_SIZE) >> 24);
         } else {
             bool none = game.picture_id == COK_ADVENTURE_NO_PICTURE && !game.picture_sprite;
             used += snprintf(got + used, sizeof got - (size_t)used, "slot:%s/%u flag:%d frames:%zu",

@@ -163,8 +163,9 @@ DKK_SCRIPTS = ["dkk_views", "dkk_start", "dkk_create", "dkk_treasure", "dkk_item
 DKK_CHECKS = [(f"{script}-{flow}" if flow else script, "DKK", "") for script in DKK_SCRIPTS
               for flow in DKK_SPLIT.get(script, [""])]
 # The Dark Queen of Krynn's (--set dqk; DARK-QUEEN.md): the original's
-# start recorded (no port side until step 1's --game dark-queen).
-DQK_CHECKS = [("dqk_boot", "DQK", "")]
+# start, its first screen, the title, texts and the 3D view against
+# eclplay --game dark-queen.
+DQK_CHECKS = [("dqk_boot", "DQK", ""), ("dqk_views", "DQK", "")]
 SETS = {"champions": CHECKS, "dkk": DKK_CHECKS, "all": CHECKS + DKK_CHECKS, "dqk": DQK_CHECKS}
 
 
@@ -183,7 +184,7 @@ LONG = {"a_demo": 5, "f_frames": 4, "f_sound": 3, "c_wander": 2, "e_bolt_bounce"
         "dkk_create": 8, "dkk_views": 5, "dkk_fight-spells": 5, "dkk_shops": 5,
         "dkk_fight-clouds": 4, "dkk_fight-cast": 3, "dkk_fight-band": 3, "dkk_fight-auto": 3,
         "dkk_fight-mage": 3, "dkk_start": 3, "dkk_mouse": 3, "dkk_items": 3, "dkk_sound": 5,
-        "dqk_boot": 1}
+        "dqk_boot": 1, "dqk_views": 1}
 VERDICT = re.compile(r"^VERDICT: (AGREES|DIFFERS new.*|ERROR.*)$", re.M)
 
 

@@ -46,7 +46,7 @@ static void cell(cok_picture *dst, const uint8_t *glyph, size_t x, size_t y,
 void cok_text_glyph(cok_picture *dst, const cok_font *font, unsigned glyph, size_t count,
                     int x, int y, uint8_t fg, uint8_t bg)
 {
-    if (font->glyphs == NULL || glyph >= font->count || y < 0 ||
+    if (dst->vga || font->glyphs == NULL || glyph >= font->count || y < 0 ||
         (size_t)y >= dst->height / 8)
         return;
     const uint8_t *bits = font->glyphs + (size_t)glyph * 8;

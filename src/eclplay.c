@@ -160,7 +160,7 @@ static void save(player *p, const char *path)
     cok_image image = cok_picture_frame(&p->game->screen, 0);
     /* The mouse's cursor where its driver draws it. */
     static uint8_t pixels[320 * 200 / 2];
-    if (image.width == 320 && image.height == 200) {
+    if (image.width == 320 && image.height == 200 && !image.vga) {
         memcpy(pixels, image.pixels, sizeof pixels);
         cok_mouse_draw(&p->game->mouse.driver, pixels, p->game->display == COK_DISPLAY_CGA);
         image.pixels = pixels;
@@ -820,6 +820,14 @@ static int run(int argc, char **argv)
             return 2;
         }
     }
+    /* Saved games, parties and the adventure loop are a playable game's (a
+     * game read headless only runs its blocks, and shows its title and its
+     * menu from --start-menu). */
+    if ((load != NULL || party != NULL || character_count > 0 || fixture > 0 || play) &&
+        rules->unplayable != NULL) {
+        fprintf(stderr, "%s\n", rules->unplayable);
+        return 2;
+    }
     if (woof && rules->saves.debug == NULL) {
         /* A game with no debug mode reads no Woof (dkk's main reads no
          * argument). */
@@ -865,7 +873,11 @@ static int run(int argc, char **argv)
     bool found = cok_config_find(rules, config_option, saves, argv[i], config_path, config_write,
                                  sizeof config_path);
     bool config_read;
-    if (front) {
+    /* A game read headless only has no setup ported (Dark Queen's binary
+     * DQK.CFG and its installer, DARK-QUEEN.md's step 2). */
+    if (front && rules->setup.display == NULL) {
+        config_read = false;
+    } else if (front) {
         static cok_crt crt;
         crt.log = crt_log;
         crt.context = &p;
@@ -909,7 +921,9 @@ static int run(int argc, char **argv)
         }
     }
     if (!display_given) display = config.display;
-    if (!display_given && !config_read)
+    /* A game drawn in VGA alone, with no setup ported, has no display to
+     * ask for. */
+    if (!display_given && !config_read && rules->setup.display != NULL)
         cok_config_missing(rules, "display", config_option, saves, argv[i]);
     /* The drivers take the game's calls whether or not they render (their
      * state, such as the DOS clock's speed, is the game's); only --wav

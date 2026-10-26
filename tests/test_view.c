@@ -430,8 +430,44 @@ static void test_overhead(void)
     cok_picture_free(&p);
 }
 
+/* A map of its own size (Dark Queen's GEO.GLB, dqk 8a8b:12e3): 3 across,
+ * 2 down, its four planes. */
+static void test_geo(void)
+{
+    uint8_t record[8 + 4 * 6] = {2, 3, 1, 0xff, 0xff, 5, 6, 7};
+    uint8_t *walls = record + 8, *sides = walls + 6, *bytes = sides + 6, *ways = bytes + 6;
+    walls[0] = 0x12;      /* 0,0: north 1, east 2 */
+    sides[2] = 0x34;      /* 2,0: south 3, west 4 */
+    walls[3] = 0x50;      /* 0,1: north 5 */
+    bytes[5] = 0x81;      /* 2,1's byte */
+    ways[0] = 0x04;       /* 0,0: a way through its east side */
+    ways[5] = 0x0a;       /* 2,1: the backdrop's choice 3 */
+    cok_view view = {0};
+    CHECK(!cok_view_set_geo(&view, record, sizeof record - 1));
+    CHECK(cok_view_set_geo(&view, record, sizeof record));
+    CHECK(view.width == 3 && view.height == 2 && view.geo_header[5] == 5);
+    CHECK(cok_view_wall(&view, 0, 0, 0) == 1 && cok_view_wall(&view, 2, 0, 0) == 2);
+    CHECK(cok_view_wall(&view, 4, 2, 0) == 3 && cok_view_wall(&view, 6, 2, 0) == 4);
+    /* Off the map, the far edge's square (8a8b:0628). */
+    CHECK(cok_view_wall(&view, 4, -1, 0) == 3 && cok_view_wall(&view, 0, 3, 0) == 1);
+    CHECK(cok_view_wall(&view, 0, 0, -1) == 5 && cok_view_wall(&view, 0, 0, 2) == 1);
+    CHECK(cok_view_square(&view, 2, 1) == 0x81 && cok_view_square(&view, -1, 1) == 0);
+    view.wrap = true;
+    CHECK(cok_view_square(&view, -1, 1) == 0x81);
+    view.wrap = false;
+    CHECK(cok_view_passage(&view, 2, 0, 0) == 1 && cok_view_passage(&view, 0, 0, 0) == 0);
+    CHECK(cok_view_passage(&view, 4, 0, 0) == 1); /* no wall */
+    CHECK(cok_view_passage(&view, 2, 3, 0) == 0); /* off the map */
+    CHECK(cok_view_backdrop_choice(&view, 2, 1) == 3 && cok_view_backdrop_choice(&view, 0, 0) == 0);
+    CHECK(cok_view_backdrop_choice(&view, 3, 1) == 0);
+    CHECK(cok_view_inside(&view, 2, 1) && !cok_view_inside(&view, 3, 1));
+    cok_view_free(&view);
+    CHECK(view.geo == NULL);
+}
+
 int main(void)
 {
+    test_geo();
     test_map();
     test_passage();
     test_walls();

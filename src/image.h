@@ -3,6 +3,7 @@
 
 #include "rules.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -13,8 +14,12 @@ typedef struct {
     const uint8_t *pixels;
     const uint8_t *colors; /* Header bytes 9-16 (CGA colour map). */
     /* The colours pixel values show in: NULL for the 16 of the Tandy and
-     * EGA modes; cok_cga_palette for a CGA screen's values 0-3. */
+     * EGA modes; cok_cga_palette for a CGA screen's values 0-3; a VGA
+     * picture's 256 (vga). */
     const uint8_t (*palette)[3];
+    /* A byte a pixel, in palette's 256 colours (Dark Queen's mode 13h),
+     * rather than packed 4-bit pixels. */
+    bool vga;
 } cok_image;
 
 /* CGA mode 4's colours as the game leaves them, the BIOS's palette 1 with
@@ -58,7 +63,8 @@ void cok_images_free(cok_images *images);
  * pixels. Every group must have one frame of the same size. */
 cok_image_status cok_images_undelta(uint8_t *data, size_t size);
 /* Render opaque packed 4-bit pixels using the standard 16-color EGA palette,
- * or image->palette. rgb must have at least width*height*3 bytes. */
+ * or image->palette (a VGA image's bytes in its palette). rgb must have at
+ * least width*height*3 bytes. */
 void cok_image_rgb(const cok_image *image, uint8_t *rgb);
 cok_image_status cok_image_bmp(const cok_image *image, const char *path);
 const char *cok_image_status_string(cok_image_status status);

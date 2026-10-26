@@ -296,6 +296,26 @@ on the Tandy and the AdLib, its pitches and tempo against `eclplay --wav`:
 `tools/dosbox/checks/dkk_sound.py`, in `make dkk-checks` (about four
 minutes, in real time).
 
+The Dark Queen of Krynn, read headless (see [The Dark Queen](games.md#the-dark-queen)), is
+checked by `tools/dosbox/checks/dqk_views.py` and `dqk_boot.py`, which `make
+dqk-checks` runs (`run_all.py --set dqk`; about a minute each), in RGB
+(the original in VGA, `RGBScreen`). `dqk_boot.py` compares the first
+screen of the game after Begin Adventuring (block 4's text over Palanthas'
+picture) with `eclplay --game dark-queen`'s; `dqk_views.py` the title's
+eight scenes (each passed by Space) and its menu, whole; the developers'
+jumper (block 1, reached by setting the block variable, 0x16 of the 1 KB
+at far `DS:b20f`, to 1 before Begin Adventuring: `5f07:10cd`), its text
+and menu, and block 14's arrival in the Dargonesti's sea (D), whole but
+the party's list and status (no party yet) and the mouse's pointer; and
+the 3D view, cells 3-13, at each place of the adventure loop: block 14
+(wall sets 13, 14 and 11) after a step east, its text read and three
+turns, and block 18's corridor (Hizden's house at night: wall set 1, the
+night's backdrop) facing each way, the port running each block's load
+vector from its `LOAD FILES` at the original's square and facing (read
+from `DS:c9f0`). Not compared: the colours the title's scenes cycle
+(`261b:05be`: the logo's, the twinkle, the letters' fire), which the port
+does not run. All agree (2026-10-26).
+
 Death Knights of Krynn, read headless (see [Games](games.md#games)), is checked by
 `tools/dosbox/checks/dkk_views.py`, which `make dkk-checks` runs
 (`run_all.py --set dkk`) or `python3 tools/dosbox/checks/dkk_views.py` (about a

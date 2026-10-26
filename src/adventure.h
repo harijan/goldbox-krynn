@@ -146,12 +146,45 @@ typedef struct {
     void *context;
 } cok_adventure_hooks;
 
+/* A game drawn in VGA's 256 colours by routines of its own (rules'
+ * drawing; The Dark Queen of Krynn's: dark_queen.c), where the earlier
+ * games draw 16 colours from 8x8 tiles: its screen a VGA picture
+ * (picture.h's vga) with the palette its routines keep, and the
+ * adventure's drawing handed to them. */
+typedef struct {
+    /* Startup: the screen, the palette, the font and what else the game
+     * loads once (in place of the tile sets, the icons and the item
+     * types). False with game->error set. */
+    bool (*open)(cok_adventure *game);
+    void (*close)(cok_adventure *game);
+    /* Draw the frame of a screen (in place of screen.c's). */
+    void (*frame)(cok_adventure *game, int screen);
+    /* Draw the 3D view, or the picture shown in its place. */
+    void (*view)(cok_adventure *game);
+    /* Carry out an opcode that draws or reads the keys the game's own way,
+     * its operands decoded in game->vm; false for the shared handler. */
+    bool (*opcode)(cok_adventure *game);
+    /* What a special address of the host's kind reads (COK_ECL_SPECIAL_HOST,
+     * ecl.h). */
+    uint16_t (*value)(cok_adventure *game, uint16_t address);
+    /* A script stored value at address (after the VM has). */
+    void (*stored)(cok_adventure *game, uint16_t address, uint16_t value);
+    /* The title and its menu, from startup (eclplay --start-menu): the
+     * run's status. */
+    cok_ecl_status (*start)(cok_adventure *game);
+} cok_drawing;
+
+/* The game's own drawing, or NULL for the 8x8 tiles'. */
+const cok_drawing *cok_adventure_drawing(const cok_adventure *game);
+
 struct cok_adventure {
     cok_ecl vm;
     /* The game played (rules.h): its files' names and what else differs
      * between the games. cok_adventure_open sets it before any file is
      * read. */
     const cok_rules *rules;
+    /* What a game drawn its own way keeps (rules->vga's routines own it). */
+    void *own;
     char assets[512];      /* Directory holding the DAX files. */
     /* DS:4b76, KRYNN.CFG's display (11c7:031a). In CGA mode the screen and
      * every picture hold CGA colours (cok_picture.cga); EGA mode draws as
@@ -709,10 +742,17 @@ const char *cok_adventure_why(const cok_adventure *game, cok_ecl_status status);
 bool cok_adventure_effect_failed(cok_adventure *game);
 
 /* Read a record by id from <name><file>.DAX in the asset directory, as
- * 169c:088e does; the first record with the id wins. Returns a malloc'd
- * buffer, or NULL with game->error set. */
+ * 169c:088e does; the first record with the id wins. A game of HLIB
+ * libraries (rules' archives.format) reads it from name, one library for
+ * every ECL file, by its id map. Returns a malloc'd buffer, or NULL with
+ * game->error set. */
 uint8_t *cok_adventure_record(cok_adventure *game, const char *name, unsigned file,
                               uint8_t id, size_t *size);
+/* The path of the archive name (<name>.DAX, or an HLIB library's whole
+ * name) in the assets, or in the game's folders under them
+ * (archives.folders): false, the path in the assets, where none holds it. */
+bool cok_adventure_archive_path(const cok_adventure *game, const char *name, char *path,
+                                size_t size);
 /* Read a record by id from <name>.DAX, a full name such as "MON1CHA",
  * also saying whether the archive itself could not be opened, where the
  * original asks for the disk and waits. */

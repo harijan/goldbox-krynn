@@ -38,8 +38,8 @@ static void test_load(void)
     const uint8_t pixels[] = {0x10, 0x02, 0x00, 0xd3, 0x45, 0x60, 0x0d, 0x78};
     const uint8_t colors[8] = {1, 2, 3, 4, 5, 6, 7, 8};
     cok_image frames[2] = {
-        {8, 1, 5, 6, 0, 0, pixels, colors, NULL},
-        {8, 1, 5, 6, 0, 1, pixels + 4, colors, NULL},
+        {8, 1, 5, 6, 0, 0, pixels, colors, NULL, false},
+        {8, 1, 5, 6, 0, 1, pixels + 4, colors, NULL, false},
     };
     cok_picture picture = {0};
     CHECK(cok_picture_load(&picture, frames, 2, -1) == COK_PICTURE_OK);
@@ -125,7 +125,7 @@ static void test_draw_masked_and_save(void)
 {
     cok_picture screen = numbered(2, 8, 1, 0x80);
     const uint8_t pixels[] = {0x00, 0x12, 0x30, 0x04};
-    cok_image image = {8, 1, 0, 0, 0, 0, pixels, NULL, NULL};
+    cok_image image = {8, 1, 0, 0, 0, 0, pixels, NULL, NULL, false};
     cok_picture sprite = {0}, save = {0};
     CHECK(cok_picture_load(&sprite, &image, 1, 0) == COK_PICTURE_OK);
     CHECK(cok_picture_create(&save, 1, 1, 1, 0) == COK_PICTURE_OK);
@@ -224,7 +224,7 @@ static void test_recolor(void)
 static void test_mirror(void)
 {
     const uint8_t pixels[] = {0x12, 0x34, 0x56, 0x70, 0x9a, 0xbc, 0xde, 0xf0};
-    cok_image image = {8, 2, 0, 0, 0, 0, pixels, (const uint8_t *)"ABCDEFGH", NULL};
+    cok_image image = {8, 2, 0, 0, 0, 0, pixels, (const uint8_t *)"ABCDEFGH", NULL, false};
     cok_picture src = {0}, dst = {0};
     CHECK(cok_picture_load(&src, &image, 1, 0) == COK_PICTURE_OK);
     CHECK(cok_picture_create(&dst, 1, 2, 1, 1) == COK_PICTURE_OK);
@@ -315,7 +315,7 @@ static void test_cga(void)
     const uint8_t colors[8] = {0x01, 0x23, 0x11, 0x22, 0x01, 0x23, 0x30, 0x12};
     const uint8_t pixels[] = {0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
                               0xd0, 0x0d, 0x11, 0x22};
-    cok_image image = {8, 2, 5, 6, 0, 0, pixels, colors, NULL};
+    cok_image image = {8, 2, 5, 6, 0, 0, pixels, colors, NULL, false};
     cok_picture p = {0};
     CHECK(cok_picture_load_cga(&p, &image, 1, -1) == COK_PICTURE_OK);
     const uint8_t want[] = {0x01, 0x23, 0x11, 0x22, 0x01, 0x23, 0x30, 0x12};
@@ -357,7 +357,7 @@ static void test_cga(void)
      * to 6 (CGA 1 to 2) turns every pixel of CGA 1, loaded from 1, 4, 5, 9
      * or 14; 0 to 3 (CGA 0 to 3) the transparent pixels too, their mask
      * kept. */
-    image = (cok_image){8, 3, 0, 0, 0, 0, pixels, colors, NULL};
+    image = (cok_image){8, 3, 0, 0, 0, 0, pixels, colors, NULL, false};
     CHECK(cok_picture_load_cga(&p, &image, 1, 13) == COK_PICTURE_OK);
     uint8_t from[16], to[16];
     for (uint8_t i = 0; i < 16; ++i) from[i] = to[i] = i;

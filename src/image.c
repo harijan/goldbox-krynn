@@ -69,7 +69,7 @@ static cok_image_status parse(const uint8_t *data, size_t size, int collection,
         for (size_t frame = 0; frame < frames; ++frame) {
             images[result->count++] = (cok_image){
                 units * 8, height, u16(header + 4), u16(header + 6),
-                group, frame, data + pos, header + 9, NULL
+                group, frame, data + pos, header + 9, NULL, false
             };
             pos += frame_size;
         }
@@ -137,6 +137,7 @@ cok_layout cok_archive_layout(const cok_rules *rules, const char *path)
 
 static const uint8_t *pixel_color(const cok_image *image, size_t pixel)
 {
+    if (image->vga) return image->palette[image->pixels[pixel]];
     uint8_t byte = image->pixels[pixel / 2];
     unsigned index = pixel % 2 == 0 ? byte >> 4 : byte & 15u;
     return image->palette != NULL ? image->palette[index] : ega[index];

@@ -1536,6 +1536,16 @@ const cok_rules cok_rules_death_knights = {
                       {0xc01e, COK_ECL_CALL_STEP},
                       {0xc018, COK_ECL_CALL_AHEAD},
                       {0x6803, COK_ECL_CALL_ANIMATE}},
+            /* 3c1e:0d85, 0bc1: as Champions' */
+            .area_first = 0x4b00,
+            .area_size = 0x400,
+            .game_first = 0x7c00,
+            .game_size = 0x400,
+            .scratch_first = 0x7a00,
+            .scratch_size = 0x200,
+            .code_size = 0x1e00,
+            .block_header = 2,
+            .name_address = 0x7c00,
             .variable_bytes = 1, /* 3c1e:0d85, 3c1e:0bc1 */
             .vars = death_knights_vars,
             .start = death_knights_start,

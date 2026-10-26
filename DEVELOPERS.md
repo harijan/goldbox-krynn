@@ -17,9 +17,9 @@ the original's text-mode setup when there is no `KRYNN.CFG` (see [Startup
 and the setup](docs/front-end.md#startup-and-the-setup)). The original DOS executable, decompiler output, and game
 data are reference inputs, kept in `COKAssets/`; saved games from the
 original, if any, go in `SAVE/`. The sequels' files go in `DKKAssets/`
-(Death Knights of Krynn, which the tools and `eclplay` read headless: see
-[Games](docs/games.md#games)) and `DQKAssets/` (The Dark Queen of Krynn, for disassembly only: see
-[Disassembly image](docs/disassembly.md#disassembly-image)); like `COKAssets/`, they are not in git.
+(Death Knights of Krynn: see [Games](docs/games.md#games)) and `DQKAssets/` (The Dark Queen
+of Krynn, which `ecldump` and `eclplay` read headless: see [The Dark
+Queen](docs/games.md#the-dark-queen)); like `COKAssets/`, they are not in git.
 The plan for playing Death Knights of Krynn too, and what it shares with
 this game, is in [DEATH-KNIGHTS.md](DEATH-KNIGHTS.md).
 
@@ -57,6 +57,10 @@ rm -f build/krynn.cfg
 ./build/eclplay --game death-knights --set 4be6=1 --screen build/dkk48.bmp --keys '\r' DKKAssets 48
 ./build/eclplay --game death-knights --character DKKAssets/SAVE/CHRDATA1.GAM \
     --character DKKAssets/SAVE/CHRDATA2.GAM --play --keys 'ev\r\e' DKKAssets 17
+./build/ecldump --game dark-queen --block 4 DQKAssets/DISK3/ECL.GLB
+./build/eclplay --game dark-queen --set 22=1 --screen build/dqk4.bmp --keys '\r' DQKAssets 4
+./build/eclplay --game dark-queen --start-menu --shots build/dqk-title \
+    --keys '\k \k \k \k \k \k \k \k Q' DQKAssets
 python3 tools/hlib.py list DQKAssets/DISK1/TITLE.TLB
 python3 tools/hlib.py pngs DQKAssets/DISK1/TITLE.TLB build/dqk-title \
     --palette DQKAssets/DISK1/ALWAYS.TLB --palette DQKAssets/DISK3/FRAME.TLB
@@ -125,7 +129,8 @@ in `make test`, on made-up libraries and, where `DQKAssets/` holds them,
 on the game's, skipped saying so otherwise); `tools/funcmatch/` matches
 two games' routines by Ghidra's C and scans the port's citations
 ([its README](tools/funcmatch/README.md): the method and the noise floor).
-`make dqk-checks` records the original's start in DOSBox-X (see [DOSBox-X
+`make dqk-checks` runs the original in DOSBox-X and compares its title,
+texts and 3D view with `eclplay --game dark-queen`'s (see [DOSBox-X
 harness](docs/dosbox.md#dosbox-x-harness)).
 
 `daxcheck` reads archives without modifying them. It validates every directory
@@ -140,7 +145,11 @@ against the original's, recorded in an emulator, and the synthesis; the
 AdLib's chip in `tests/test_opl2.c`; Death Knights' songs' driver in
 `tests/test_songs.c`, against its original's, skipped without `DKKAssets/`),
 `KRYNN.CFG` (`tests/test_config.c`), the games' descriptors and `--game`
-(`tests/test_rules.c`, see [Games](docs/games.md#games)), Death Knights of Krynn's descriptor,
+(`tests/test_rules.c`, see [Games](docs/games.md#games)), The Dark Queen of Krynn's
+libraries, pictures and palettes (`tests/test_vga.c`: made-up records,
+and its 1,827 pictures where `DQKAssets/` holds them) and its scripts,
+title and 3D view read headless (`tests/test_dark_queen.py`, skipped
+without `DQKAssets/`), Death Knights of Krynn's descriptor,
 tools and scripts where `DKKAssets/` holds its files
 (`tests/test_death_knights.c` against `build/death-START_FULL.EXE`, which
 `make test` then builds, and `tests/test_death_knights.py`; each says so

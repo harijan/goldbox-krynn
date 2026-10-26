@@ -19,7 +19,8 @@ static const char *const names[COK_ECL_MEANINGS] = {
     [COK_ECL_JOURNAL] = "JOURNAL", [COK_ECL_YES_NO] = "YES NO",
     [COK_ECL_CLEAR_EXIT] = "CLEAR EXIT", [COK_ECL_TREASURE_ITEMS] = "TREASURE ITEMS",
     [COK_ECL_NOTHING] = "NOTHING", [COK_ECL_MUSIC] = "MUSIC", [COK_ECL_ASK_MENU] = "ASK MENU",
-    [COK_ECL_STOCK] = "STOCK",
+    [COK_ECL_STOCK] = "STOCK", [COK_ECL_LOAD_MAP] = "LOAD FILES", [COK_ECL_FIND_NPC] = "FIND NPC",
+    [COK_ECL_STOCK_TREASURE] = "STOCK",
 };
 
 /* The game's table entry for opcode, or NULL past its table. */
@@ -82,6 +83,7 @@ const char *cok_ecl_status_string(cok_ecl_status status)
 int cok_ecl_skip_count(const cok_rules *rules, unsigned opcode)
 {
     const cok_rules_opcode *op = instruction(rules, opcode);
+    if (op != NULL && op->skip_list && op->operands == COK_ECL_LIST) return COK_ECL_LIST;
     return op != NULL ? op->skip : 0;
 }
 
@@ -141,10 +143,13 @@ void cok_ecl_init(cok_ecl *vm, const cok_rules *rules, const cok_ecl_hooks *hook
 
 cok_ecl_status cok_ecl_load(cok_ecl *vm, const uint8_t *record, size_t size)
 {
-    if (size < 2 || size - 2 > COK_ECL_CODE_SIZE) return COK_ECL_BAD_BLOCK;
+    size_t header = vm->rules->ecl.block_header;
+    if (size < header || size - header > vm->rules->ecl.code_size ||
+        (header == 0 && size == 0))
+        return COK_ECL_BAD_BLOCK;
     memset(vm->code, 0, sizeof vm->code);
-    memcpy(vm->code, record + 2, size - 2);
-    vm->size = size - 2;
+    memcpy(vm->code, record + header, size - header);
+    vm->size = size - header;
     return COK_ECL_OK;
 }
 
@@ -152,13 +157,22 @@ cok_ecl_status cok_ecl_load(cok_ecl *vm, const uint8_t *record, size_t size)
 
 enum { AREA, GAME, SCRATCH, CODE, SPECIAL };
 
-/* Which store an address belongs to (3775:0718). */
-static int area_of(uint16_t address)
+static bool in_store(uint16_t address, uint16_t first, uint16_t size)
 {
-    if (address >= 0x4b00 && address < 0x4f00) return AREA;
-    if (address >= 0x7c00 && address < 0x8000) return GAME;
-    if (address >= 0x7a00 && address < 0x7c00) return SCRATCH;
-    if (address >= 0x8000 && address < 0x9e00) return CODE;
+    return size != 0 && address >= first && address - first < size;
+}
+
+/* Which store an address belongs to (3775:0718; dqk 6c70:0377), as the
+ * game lays them out (rules->ecl). */
+static int area_of(const cok_ecl *vm, uint32_t address)
+{
+    const cok_rules_ecl *E = &vm->rules->ecl;
+    if (address > 0xffff) return SPECIAL;
+    uint16_t a = (uint16_t)address;
+    if (in_store(a, E->area_first, E->area_size)) return AREA;
+    if (in_store(a, E->game_first, E->game_size)) return GAME;
+    if (in_store(a, E->scratch_first, E->scratch_size)) return SCRATCH;
+    if (in_store(a, COK_ECL_BASE, E->code_size)) return CODE;
     return SPECIAL;
 }
 
@@ -166,16 +180,20 @@ static int area_of(uint16_t address)
  * strchr, it takes a const VM and returns a writable pointer. */
 static uint16_t *word(const cok_ecl *vm, int area, uint32_t address)
 {
+    const cok_rules_ecl *E = &vm->rules->ecl;
     const uint16_t *w = NULL;
-    if (area == AREA && address - 0x4b00u < 0x400) w = &vm->mem4b00[address - 0x4b00];
-    if (area == GAME && address - 0x7c00u < 0x400) w = &vm->mem7c00[address - 0x7c00];
-    if (area == SCRATCH && address - 0x7a00u < 0x200) w = &vm->mem7a00[address - 0x7a00];
+    if (area == AREA && address - E->area_first < E->area_size)
+        w = &vm->mem4b00[address - E->area_first];
+    if (area == GAME && address - E->game_first < E->game_size)
+        w = &vm->mem7c00[address - E->game_first];
+    if (area == SCRATCH && address - E->scratch_first < E->scratch_size)
+        w = &vm->mem7a00[address - E->scratch_first];
     return (uint16_t *)w;
 }
 
 static uint8_t *code_byte(const cok_ecl *vm, uint32_t address)
 {
-    return address - COK_ECL_BASE < COK_ECL_CODE_SIZE
+    return address - COK_ECL_BASE < vm->rules->ecl.code_size
                ? (uint8_t *)&vm->code[address - COK_ECL_BASE]
                : NULL;
 }
@@ -195,7 +213,7 @@ static bool byte_variables(const cok_ecl *vm)
 static uint8_t next_byte(const cok_ecl *vm, uint16_t address)
 {
     uint32_t next = (uint32_t)address + 1;
-    int area = area_of(address);
+    int area = area_of(vm, address);
     if (area == CODE) {
         const uint8_t *b = code_byte(vm, next);
         return b != NULL ? *b : 0;
@@ -208,7 +226,7 @@ static uint8_t next_byte(const cok_ecl *vm, uint16_t address)
 static void store_high(cok_ecl *vm, uint16_t address, uint16_t value)
 {
     uint32_t next = (uint32_t)address + 1;
-    int area = area_of(address);
+    int area = area_of(vm, address);
     uint8_t *b;
     uint16_t *w;
     if (area == CODE && (b = code_byte(vm, next)) != NULL)
@@ -246,7 +264,7 @@ uint16_t cok_ecl_var_address(const cok_rules *rules, cok_var name, size_t i)
 static uint16_t *var_word(const cok_ecl *vm, cok_var name, size_t i, uint16_t *address)
 {
     *address = cok_ecl_var_address(vm->rules, name, i);
-    uint16_t *w = word(vm, area_of(*address), *address);
+    uint16_t *w = word(vm, area_of(vm, *address), *address);
     assert(w != NULL && "a variable outside the variables' stores");
     return w;
 }
@@ -294,6 +312,13 @@ bool cok_ecl_flag(const cok_ecl *vm, cok_var name)
     return cok_ecl_var(vm, name) != vm->rules->ecl.vars[name].off;
 }
 
+/* Whether address is the named variable's, where the game has it. */
+static bool named(const cok_ecl *vm, cok_var name, uint16_t address)
+{
+    const cok_rules_var *v = &vm->rules->ecl.vars[name];
+    return v->address != 0 && v->address == address;
+}
+
 /* Special addresses. */
 
 static cok_ecl_special special_in(const cok_rules_special *list, unsigned count, uint16_t address)
@@ -316,7 +341,7 @@ cok_ecl_special cok_ecl_special_store(const cok_rules *rules, uint16_t address)
 }
 
 /* What a special address reads (3775:0fca's, dkk 3c1e:0d85's). */
-static uint16_t special_value(const cok_ecl *vm, cok_ecl_special what)
+static uint16_t special_value(const cok_ecl *vm, cok_ecl_special what, uint16_t address)
 {
     switch (what) {
     case COK_ECL_SPECIAL_FACING: return vm->direction;
@@ -330,6 +355,10 @@ static uint16_t special_value(const cok_ecl *vm, cok_ecl_special what)
     case COK_ECL_SPECIAL_B1: return vm->value_b1;
     case COK_ECL_SPECIAL_FB: return vm->value_fb;
     case COK_ECL_SPECIAL_FC: return vm->value_fc;
+    case COK_ECL_SPECIAL_HOST:
+        return vm->hooks.character_value != NULL
+                   ? vm->hooks.character_value((cok_ecl *)vm, address, vm->hooks.context)
+                   : 0;
     default: return 0;
     }
 }
@@ -470,15 +499,15 @@ static uint16_t character_field(const cok_ecl *vm, uint16_t address, bool *found
 uint16_t cok_ecl_load_var(const cok_ecl *vm, uint16_t address)
 {
     cok_ecl_special what = cok_ecl_special_read(vm->rules, address);
-    if (what != COK_ECL_SPECIAL_NONE) return special_value(vm, what);
-    switch (area_of(address)) {
-    case AREA: return vm->mem4b00[address - 0x4b00];
+    if (what != COK_ECL_SPECIAL_NONE) return special_value(vm, what, address);
+    int area = area_of(vm, address);
+    switch (area) {
+    case AREA: case SCRATCH: return *word(vm, area, address);
     case GAME: {
         bool found;
         uint16_t value = character_field(vm, address, &found);
-        return found ? value : vm->mem7c00[address - 0x7c00];
+        return found ? value : *word(vm, area, address);
     }
-    case SCRATCH: return vm->mem7a00[address - 0x7a00];
     case CODE: return vm->code[address - COK_ECL_BASE];
     /* Unlisted special addresses leave the original's result unset; 0
      * here. */
@@ -552,7 +581,7 @@ static uint16_t load_sized(const cok_ecl *vm, uint16_t address, bool wide)
 {
     uint16_t value = cok_ecl_load_var(vm, address);
     if (!wide || !byte_variables(vm)) return value;
-    int area = area_of(address);
+    int area = area_of(vm, address);
     if (area == SPECIAL || cok_ecl_special_read(vm->rules, address) != COK_ECL_SPECIAL_NONE)
         return value;
     if (area == GAME) {
@@ -571,32 +600,47 @@ static void store_sized(cok_ecl *vm, uint16_t address, uint16_t value, bool wide
     bool bytes = byte_variables(vm);
     if (bytes && !wide) value &= 0xff;
     bool high = bytes && wide;
-    switch (area_of(address)) {
-    case AREA:
-        /* The same in both games (3775:0e06, dkk 3c1e:0bc1). */
-        if (address == 0x4bfd || address == 0x4bfe) {
+    int area = area_of(vm, address);
+    /* A special address inside a store (dqk 6c70:0728's): its state, then
+     * the variable too where the game keeps it. */
+    cok_ecl_special what = area == SPECIAL ? COK_ECL_SPECIAL_NONE
+                                           : cok_ecl_special_store(vm->rules, address);
+    if (what != COK_ECL_SPECIAL_NONE) {
+        special_store(vm, what, value);
+        if (!vm->rules->ecl.special_stores_kept) area = SPECIAL;
+    }
+    switch (area) {
+    case AREA: {
+        /* The same in every game (3775:0e06, dkk 3c1e:0bc1; dqk
+         * 6c70:0728's 0x22, the mode): the sky's colours, the 3D flag. */
+        uint16_t *w = word(vm, area, address);
+        if (named(vm, COK_VAR_SKY_LOW, address) || named(vm, COK_VAR_SKY_HIGH, address)) {
             vm->area_changed = true;
-        } else if (address == 0x4be6 && vm->mem4b00[0xe6] != value) {
+        } else if (named(vm, COK_VAR_3D, address) && *w != value) {
             vm->last_mode = vm->mode;
             vm->mode = value == 0 ? 3 : 4;
         }
-        vm->mem4b00[address - 0x4b00] = high ? value & 0xff : value;
+        *w = high ? value & 0xff : value;
         if (high) store_high(vm, address, value);
         break;
+    }
     case GAME:
-        vm->mem7c00[address - 0x7c00] = high ? value & 0xff : value;
+        *word(vm, area, address) = high ? value & 0xff : value;
         if (high) store_high(vm, address, value);
         store_character(vm, address, value);
         break;
     case SCRATCH:
-        vm->mem7a00[address - 0x7a00] = high ? value & 0xff : value;
+        *word(vm, area, address) = high ? value & 0xff : value;
         if (high) store_high(vm, address, value);
         break;
     case CODE:
         vm->code[address - COK_ECL_BASE] = (uint8_t)value;
         if (high) store_high(vm, address, value);
         break;
-    default: special_store(vm, cok_ecl_special_store(vm->rules, address), value); break;
+    default:
+        if (what == COK_ECL_SPECIAL_NONE)
+            special_store(vm, cok_ecl_special_store(vm->rules, address), value);
+        break;
     }
     if (vm->hooks.stored != NULL) vm->hooks.stored(vm, address, value, vm->hooks.context);
 }
@@ -618,9 +662,9 @@ void cok_ecl_store_to(cok_ecl *vm, size_t i, uint16_t value)
 
 void cok_ecl_load_string(const cok_ecl *vm, uint16_t address, char out[256])
 {
-    int area = area_of(address);
+    int area = area_of(vm, address);
     unsigned length = 0;
-    if (address == 0x7c00) {
+    if (address == vm->rules->ecl.name_address) {
         if (cok_ecl_selection_freed(vm)) freed_read((cok_ecl *)vm);
         if (vm->character != NULL) {
             const cok_character_layout *L = layout(vm);
@@ -644,8 +688,8 @@ void cok_ecl_store_string(cok_ecl *vm, uint16_t address, const char *text)
 {
     unsigned length = 0;
     while (length < 255 && text[length] != '\0') ++length;
-    int area = area_of(address);
-    if (address == 0x7c00) {
+    int area = area_of(vm, address);
+    if (address == vm->rules->ecl.name_address) {
         if (cok_ecl_selection_freed(vm)) freed_read(vm);
         if (vm->character != NULL) {
             const cok_character_layout *L = layout(vm);
@@ -791,6 +835,9 @@ static void compare_values(cok_ecl *vm, uint16_t a, uint16_t b)
  * then the second's). */
 static bool same_pair(const cok_ecl *vm, size_t i)
 {
+    if (vm->rules->ecl.compare_and_unequal_strings &&
+        (vm->operand[i].type >= 0x80 || vm->operand[i + 1].type >= 0x80))
+        return false;
     if (!vm->rules->ecl.compare_and_strings || vm->operand[i].type < 0x80)
         return cok_ecl_value(vm, i) == cok_ecl_value(vm, i + 1);
     size_t slot = i == 2 && vm->operand[0].type >= 0x80 ? 2 : 0;
@@ -820,12 +867,19 @@ static void exit_script(cok_ecl *vm)
 }
 
 /* Skip the next instruction, as a failed IF does (3775:1e74). */
+static uint16_t load_list(cok_ecl *vm);
+
 static void skip(cok_ecl *vm)
 {
     uint8_t opcode;
     if (!fetch(vm, vm->ip, &opcode)) return;
     vm->opcode = opcode;
     int count = cok_ecl_skip_count(vm->rules, opcode);
+    if (count == COK_ECL_LIST) {
+        /* dqk 6c70:1385: the header, then the list it counts. */
+        load_list(vm);
+        return;
+    }
     if (count == 0)
         ++vm->ip;
     else
@@ -1030,6 +1084,9 @@ cok_ecl_status cok_ecl_start(cok_ecl *vm, bool reset_vars)
     memset(vm->flags, 0, sizeof vm->flags);
     for (unsigned i = 0; i < vm->rules->ecl.start_count; ++i)
         cok_ecl_set_var(vm, (cok_var)vm->rules->ecl.start[i].var, vm->rules->ecl.start[i].value);
+    for (unsigned i = 0; i < vm->rules->ecl.start_store_count; ++i)
+        cok_ecl_store(vm, vm->rules->ecl.start_stores[i].address,
+                      vm->rules->ecl.start_stores[i].value);
     vm->status = COK_ECL_OK;
     for (size_t i = 0; i < 5; ++i) {
         if (cok_ecl_operands(vm, 1) != COK_ECL_OK) return vm->status;

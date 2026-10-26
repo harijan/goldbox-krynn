@@ -30,6 +30,13 @@ typedef struct {
     uint8_t *pixels;    /* frames * frame_size bytes. */
     uint8_t *mask;      /* NULL, or the same size: set bits keep the destination. */
     bool cga;           /* Pixels are CGA colours (DS:4b76 0). */
+    /* A byte a pixel in 256 colours (Dark Queen's VGA mode 13h): frames of
+     * height * units * 8 bytes, which only cok_picture_create_vga makes and
+     * its game's own drawing draws on (vga.h); the routines here of the
+     * 4-bit pictures draw nothing on one or from one. palette: the colours
+     * it shows in, 256 (borrowed: the display's), for cok_picture_frame. */
+    bool vga;
+    const uint8_t (*palette)[3];
 } cok_picture;
 
 typedef enum { COK_PICTURE_OK, COK_PICTURE_INVALID, COK_PICTURE_MEMORY } cok_picture_status;
@@ -48,6 +55,9 @@ typedef struct {
 cok_picture_status cok_picture_create(cok_picture *picture, size_t units, size_t height,
                                       size_t frames, int masked);
 void cok_picture_free(cok_picture *picture);
+/* A VGA picture (vga), a byte a pixel, shown in palette's 256 colours. */
+cok_picture_status cok_picture_create_vga(cok_picture *picture, size_t units, size_t height,
+                                          size_t frames, const uint8_t (*palette)[3]);
 
 /* Copy count consecutive same-sized frames (27f:02a5). transparent 0-15
  * builds a mask and clears those pixels; -1 builds no mask. */

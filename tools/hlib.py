@@ -23,27 +23,35 @@ The format (DARK-QUEEN.md, "Files"):
             flags 0x100: record 0 maps ids (u16 n, n x (u16 id, u16 index)).
             Records are stored as they are (no compression); a record
             starting "HLIB" is a nested library.
-  picture   u16 height, i16 x, i16 y, u8 width / 4, u8 format, then the
-            pixels, a byte each (256 colours), plane by plane as VGA's
-            unchained planes hold them (pixel x in plane x % 4):
+  picture   u16 height, i16 row and i16 column of its hotspot (the game
+            draws it at the place it is given less these, dqk 269b:0a9c,
+            its column then down to a multiple of 4), u8 width / 4, u8
+            format, then the pixels, a byte each (256 colours), plane by
+            plane as VGA's unchained planes hold them (pixel x in plane
+            x % 4):
             0x10 raw, each plane's rows in turn;
-            0x11 as 0x10, twice: a mask (0xff transparent), then the pixels;
-            0x12 PackBits (DAX's run-length scheme) of the rows, each row
-                 its four plane-rows in turn;
+            0x11 as 0x10, twice: bytes the screen is ANDed with, then the
+                 pixels XORed on (dqk 10d7:02ba; every mask in the game is
+                 0x00 or 0xff, pixel 0 under 0xff: 0xff transparent here);
+            0x12 PackBits of the rows (dqk 10d7:0a1c: 0x80 does nothing),
+                 each row its four plane-rows in turn;
             0x15 as 0x10, 0xff transparent;
             0x17 the four planes' rows (4 x height), each runs: a byte c,
                  0 ends the row, 0x80 and up skips 256 - c (transparent),
                  below copies c pixels;
-            0x19 drawn from the same library's records: 6-byte entries,
-                 u8 record, u8 the entries' count (not used here), u16 y,
-                 u16 x. Read from the files, not yet from the EXE's drawing
-                 code: PICC.TLB's 160/6, 7, 9 and 11 are 176x88 with one
-                 entry (record 2 at 0, 0), so their right half renders
-                 transparent, and one of FRAME.TLB 21's entries has x 3
-                 where the others have 0.
-  palette   a picture header's format byte 0x18: u16 type (5 partial, 7
-            full), u16 first, u16 count, u8, u8 24, then count 8-bit RGB
-            triples and count / 2 bytes of EGA colours (two a byte).
+            0x19 drawn from the same library's records (dqk 269b:0aec):
+                 6-byte entries, u8 record, u8 the entries' count (re-read
+                 from each), i16 row, i16 column from the record's own
+                 place, each record at its hotspot from there; nothing
+                 else is drawn (PICC.TLB's 160/6, 7, 9 and 11, 176x88 with
+                 record 2 alone, leave their right half as the screen
+                 was), shown here on a transparent canvas.
+  palette   a picture header's format byte 0x18 (dqk 2796:0536): u16 type
+            (bit 0: first and count hold, else all 256; 2: colour cycles
+            follow, 4 bytes each; 4: EGA colours), u16 first, u16 count, u8
+            the cycles, u8 0x18, then count 8-bit RGB triples (>> 2 into the
+            DAC), the cycles, and count / 2 bytes of EGA colours (two a
+            byte).
 """
 import argparse
 import pathlib
@@ -132,8 +140,9 @@ def header(record):
 
 
 def unpackbits(src, need):
-    """PackBits: a byte n below 0x80 copies n + 1 bytes, else repeats the
-    next 257 - n times. Returns NEED bytes (or fewer at the end of SRC)."""
+    """PackBits: a byte n below 0x80 copies n + 1 bytes, 0x80 nothing, else
+    repeats the next 257 - n times. Returns NEED bytes (or fewer at the end
+    of SRC)."""
     out = bytearray()
     i = 0
     while len(out) < need and i < len(src):
@@ -142,6 +151,8 @@ def unpackbits(src, need):
         if n < 0x80:
             out += src[i:i + n + 1]
             i += n + 1
+        elif n == 0x80:
+            continue
         else:
             out += bytes([src[i]]) * (257 - n)
             i += 1
