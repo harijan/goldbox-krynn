@@ -753,14 +753,15 @@ static void test_sell(void)
     CHECK(shop(0x10) == COK_ECL_OK && LOGGED("print: Not Enough Money;"));
 }
 
-/* Trade's first Escape in a shop's View: unknown on entry, set after a
- * View. */
+/* Trade's first Escape in a shop's View: 0 on entry (asks for another
+ * partner), set after a View. */
 static void test_trade_byte(void)
 {
-    reset("VTS\033");
+    reset("VTS\033E\033E");
     member("A", 5);
     member("B", 0);
-    CHECK(shop(0x10) == COK_ECL_UNDEFINED);
+    CHECK(shop(0x10) == COK_ECL_OK && logged_times("menu: Select Exit;") == 2);
+    CHECK(s.at == s.length);
     reset("V\033VTS\033\033E");
     member("A", 5);
     member("B", 0);
@@ -771,11 +772,11 @@ static void test_trade_byte(void)
     member("B", 0);
     stock(0x12, 7, 0);
     CHECK(shop(0x10) == COK_ECL_OK);
-    reset("BB\033\001TAVTS\033");
+    reset("BB\033\001TAVTS\033E\033E");
     member("A", 5);
     member("B", 0);
     stock(0x12, 1, 0);
-    CHECK(shop(0x10) == COK_ECL_UNDEFINED);
+    CHECK(shop(0x10) == COK_ECL_OK && logged_times("menu: Select Exit;") == 2);
     /* Appraise showing the gems sets it, and so does Yes to going back,
      * here after Take gave back a coin. */
     reset("AGSVTS\033\033E");
@@ -793,10 +794,12 @@ static void test_trade_byte(void)
     member("A", 5);
     member("B", 0);
     CHECK(temple() == COK_ECL_OK);
-    reset("VTS\033");
+    /* On entry it holds a letter the place's menu left: set. */
+    reset("VTS\033\033E");
     member("A", 5);
     member("B", 0);
-    CHECK(temple() == COK_ECL_UNDEFINED);
+    CHECK(temple() == COK_ECL_OK && logged_times("menu: Select Exit;") == 1);
+    CHECK(s.at == s.length);
 }
 
 

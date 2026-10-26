@@ -96,6 +96,10 @@ struct cok_effects {
      * are then logged as "effect", and the handlers that act on the map
      * may. */
     bool in_battle;
+    /* Set while an item is readied or unreadied by a caller that then
+     * recomputes the stats (6346:0d20): the items menu (546c:1ea7's
+     * callers there) and DESTROY ITEMS (2fd3:35a3); not ROB (3775:1da9). */
+    bool stats_follow;
     /* The event whose handlers run, 0 while an effect is removed or a
      * handler is run directly. */
     uint8_t event;

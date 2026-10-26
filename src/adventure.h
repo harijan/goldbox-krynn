@@ -698,6 +698,10 @@ void cok_adventure_print(cok_adventure *game, const char *text, cok_text_window 
 bool cok_adventure_not_yet(cok_adventure *game, const char *what, const char *routine);
 /* Set game->error, log it, set game->vm.status to status and end the run. */
 void cok_adventure_fail(cok_adventure *game, cok_ecl_status status, const char *format, ...);
+
+/* Why the run stopped with status: the error said, else the
+ * interpreter's (cok_ecl's why), else the status's string. */
+const char *cok_adventure_why(const cok_adventure *game, cok_ecl_status status);
 /* A spell effect could not be carried out: end the run with
  * COK_ECL_EFFECT_FAILED and the effects' error, unless a hook the effect
  * ran (a flash, say) has already ended it, whose status and error stay.

@@ -99,6 +99,17 @@ static size_t header_count(const cok_ecl *vm)
     return op != NULL ? op->header : 0;
 }
 
+/* A field of the selected record read or written (0x7c00-0x7fff) where
+ * the selection is a record freed (see ecl.h): the run stops. */
+static void freed_read(cok_ecl *vm)
+{
+    if (vm->status != COK_ECL_OK) return;
+    vm->why = "a script reads the selected record (0x7c00-0x7fff), which is one removed "
+              "and freed since (4def:3b0a), restored from DS:43bf";
+    vm->status = COK_ECL_UNDEFINED;
+    vm->abort = true;
+}
+
 uint16_t cok_tp_random(uint32_t *seed, uint16_t range)
 {
     *seed = *seed * 0x08088405u + 1;
@@ -393,7 +404,10 @@ static uint16_t character_field(const cok_ecl *vm, uint16_t address, bool *found
     default: break;
     }
     const uint8_t *c = vm->character;
-    if (c == NULL) return 0;
+    if (c == NULL) {
+        if (vm->selection_freed) freed_read((cok_ecl *)vm);
+        return 0;
+    }
     const cok_character_layout *L = layout(vm);
     cok_field f = (cok_field)e->field;
     long k = element(e, field);
@@ -492,7 +506,10 @@ static void store_character(cok_ecl *vm, uint16_t address, uint16_t value)
     default: break;
     }
     uint8_t *c = vm->character;
-    if (c == NULL) return;
+    if (c == NULL) {
+        if (vm->selection_freed) freed_read(vm);
+        return;
+    }
     const cok_character_layout *L = layout(vm);
     cok_field f = (cok_field)e->field;
     long k = element(e, field);
@@ -604,6 +621,7 @@ void cok_ecl_load_string(const cok_ecl *vm, uint16_t address, char out[256])
     int area = area_of(address);
     unsigned length = 0;
     if (address == 0x7c00) {
+        if (cok_ecl_selection_freed(vm)) freed_read((cok_ecl *)vm);
         if (vm->character != NULL) {
             const cok_character_layout *L = layout(vm);
             uint8_t stored = cok_field_u8_at(L, vm->character, COK_FIELD_NAME, 0);
@@ -628,6 +646,7 @@ void cok_ecl_store_string(cok_ecl *vm, uint16_t address, const char *text)
     while (length < 255 && text[length] != '\0') ++length;
     int area = area_of(address);
     if (address == 0x7c00) {
+        if (cok_ecl_selection_freed(vm)) freed_read(vm);
         if (vm->character != NULL) {
             const cok_character_layout *L = layout(vm);
             unsigned n = length > 15 ? 15 : length;
@@ -791,7 +810,7 @@ static void push_call(cok_ecl *vm, uint16_t target)
 static void exit_script(cok_ecl *vm)
 {
     if (vm->restore_character) {
-        vm->character = vm->saved_character;
+        cok_ecl_restore_selection(vm);
         vm->restore_character = false;
     }
     vm->stop = true;

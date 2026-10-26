@@ -89,6 +89,7 @@ static void fresh(cok_adventure *game, uint8_t facing, uint8_t wall)
     vm->keep_vars = false;
     game->rest_ticks = 0;
     vm->character = NULL;
+    vm->selection_freed = vm->saved_freed = false;
     vm->file = 1;
     game->speed = 4;
     game->text_delay = true; /* 3e99:0560, 099d */
@@ -499,7 +500,8 @@ static void emptied(cok_adventure *game, uint8_t *entry)
  * or free training. */
 static void flags(cok_adventure *game, bool on[13])
 {
-    bool any = game->vm.character != NULL;
+    /* DS:6096 not nil: a freed record restored from DS:43bf counts. */
+    bool any = game->vm.character != NULL || cok_ecl_selection_freed(&game->vm);
     bool hall = any && (cok_ecl_var(&game->vm, COK_VAR_HALL) != 0 || game->free_training);
     bool want[13] = {true, any, any, hall, hall, any, true, any, !any, any, any, !any, true};
     memcpy(on, want, sizeof want);
@@ -531,7 +533,9 @@ bool cok_start_command(cok_adventure *game, char letter)
     case 'V':
         if (on[5] && cok_start_pick(game)) {
             bool done;
-            cok_sheet(game, COK_SHEET_STALE_UNKNOWN, &done);
+            /* Trade's flag (see sheet.h): the low byte of a stack offset
+             * (0x3bec) the start menu's calls left. */
+            cok_sheet(game, COK_SHEET_STALE_SET, &done);
         }
         break;
     case 'A': if (on[6]) cok_roster_add(game); break;
@@ -648,7 +652,7 @@ static cok_ecl_status adventure(cok_adventure *game)
         game->redraw = true;
         game->files_loaded = game->pieces_loaded = game->map_loaded = false;
         game->frame_pending = false;
-        vm->saved_character = vm->character;
+        cok_ecl_keep_selection(vm);
         vm->mode = cok_ecl_var(vm, COK_VAR_3D) == 0 ? 3 : 4;
         status = cok_adventure_load(game, start->demo_block);
         if (status == COK_ECL_OK) status = cok_ecl_run(vm, vm->vectors[4]);
@@ -674,6 +678,7 @@ static cok_ecl_status adventure(cok_adventure *game)
         if (!cok_treasure_remove_record(game, 0, keep, true, true)) return vm->status;
     }
     vm->character = NULL;
+    vm->selection_freed = false;
     return COK_ECL_OK;
 }
 

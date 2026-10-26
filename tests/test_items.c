@@ -502,35 +502,32 @@ static void test_view(void)
     bool done;
     /* The menu: Items, Trade and Drop; PgUp (scan 0x49, 'I') is Items. */
     keys("\x01I\x1b\x1b");
-    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
+    cok_sheet(&game, COK_SHEET_STALE_ZERO, &done);
     CHECK(strstr(s.log, "menu: Items Trade Drop Exit;menu: Ready Use Trade Drop Halve Join;") !=
           NULL);
     /* An NPC that can act may not trade. */
     c->record[0xe7] = 0x80;
     keys("\x1b");
-    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
+    cok_sheet(&game, COK_SHEET_STALE_ZERO, &done);
     CHECK(strstr(s.log, "menu: Items Drop Exit;") != NULL);
     c->record[0xe7] = 0;
     /* Drop: the coins listed, an amount past what it has is all it has,
      * Backspace takes a digit; Escape at the list ends. */
     keys("d\r" "9" "9" "\b" "\r" "\x1b\x1b");
-    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
+    cok_sheet(&game, COK_SHEET_STALE_ZERO, &done);
     CHECK(strstr(s.log, "menu: How much platinum will you drop? ;input: 3;") != NULL);
     CHECK(c->record[0xf1] == 27);
     /* Backspace clears the cell after the last digit: of "27", all there
      * is, made from 99, the 7 stays on the screen. */
     keys("d\r" "99" "\b");
-    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
+    cok_sheet(&game, COK_SHEET_STALE_ZERO, &done);
     CHECK(ink(33, 24) == 15 && ink(34, 24) == 15 && ink(35, 24) == 0);
-    /* Trade: Escape at the first coin list reads a byte the original
-     * leaves unset. */
-    game.trade_partner = NULL;
-    keys("t" "\x01PS" "\x1b");
-    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
-    CHECK(game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "546c:2f9b") != NULL);
-    /* As the camp picture leaves it, 0: Escape asks for a partner again
+    /* Trade: Escape at the first coin list tests a byte the original
+     * never set, which the caller says. As the camp picture leaves it, 0:
+     * Escape asks for a partner again
      * (the pick and its move, the coin list, which logs no menu, the pick
      * again). */
+    game.trade_partner = NULL;
     keys("t" "\x01PS" "\x1b" "E" "\x1b");
     cok_sheet(&game, COK_SHEET_STALE_ZERO, &done);
     CHECK(game.vm.status == COK_ECL_OK && !game.input_ended && s.at == s.length);
@@ -540,20 +537,20 @@ static void test_view(void)
     cok_sheet(&game, COK_SHEET_STALE_SET, &done);
     CHECK(game.vm.status == COK_ECL_OK && !game.input_ended && s.at == s.length);
     CHECK(count(s.log, "menu: Select Exit;") == 2 && count(s.log, "menu: Items Trade Drop Exit;") == 2);
-    /* So after anything chosen before in the same View, even unknown on
-     * entry: Drop, Items, or Trade left at its pick. */
+    /* So after anything chosen before in the same View, even 0 on entry:
+     * Drop, Items, or Trade left at its pick. */
     const char *const before[] = {"d\x1b" "t\x01PS\x1b\x1b", "i\x1b" "t\x01PS\x1b\x1b",
                                   "tE" "t\x01PS\x1b\x1b"};
     for (size_t i = 0; i < 3; ++i) {
         keys(before[i]);
-        cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
+        cok_sheet(&game, COK_SHEET_STALE_ZERO, &done);
         CHECK(game.vm.status == COK_ECL_OK && !game.input_ended && s.at == s.length);
         CHECK(count(s.log, "menu: Items Trade Drop Exit;") == 3);
     }
-    /* After an amount, Escape asks for another partner; with no money
-     * left, Trade ends. */
+    /* After an amount, Escape asks for another partner, whatever the byte
+     * was; with no money left, Trade ends. */
     keys("t" "\x01PS" "\r" "20\r" "\x1b" "E" "\x1b");
-    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
+    cok_sheet(&game, COK_SHEET_STALE_SET, &done);
     CHECK(game.vm.status == COK_ECL_OK && !game.input_ended && s.at == s.length);
     CHECK(sir->record[0xf1] == 20 && c->record[0xf1] == 7);
     CHECK(strstr(s.log, "menu: How much platinum will you trade? ;input: 20;") != NULL);
@@ -563,7 +560,7 @@ static void test_view(void)
     sir->record[0x17e] = 0xff;
     keys("t" "\x01PS" "\r" "5\r" "\x1b" "E" "\x1b");
     log_flushes = true;
-    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
+    cok_sheet(&game, COK_SHEET_STALE_ZERO, &done);
     log_flushes = false;
     /* Then the coin list's flush (the list is not logged here). */
     CHECK(c->record[0xf1] == 7 &&
@@ -781,12 +778,12 @@ static void test_dk_view(void)
     bool done;
     /* By index: Items Trade Drop Heal Exit; Escape is Exit. */
     keys("\x1b");
-    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
+    cok_sheet(&game, COK_SHEET_STALE_ZERO, &done);
     CHECK(strstr(s.log, "menu: Items Trade Drop Heal Exit;") != NULL && !game.input_ended);
     /* Heal: from the party's first, Down to KAL: healed by twice the
      * level, said; the paladin gets effect 0x6d for a day, and Heal goes. */
     keys("h\x01PS\x1b");
-    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
+    cok_sheet(&game, COK_SHEET_STALE_ZERO, &done);
     CHECK(strstr(s.log, "print: KAL feels better;") != NULL);
     CHECK(cok_field_u8(L, k->record, COK_FIELD_HIT_POINTS) == 9);
     cok_effect *e = cok_character_find_effect(c, 0x6d);
@@ -795,30 +792,32 @@ static void test_dk_view(void)
     /* Cure with +0x25 set: a pick, nothing more. */
     cok_field_set8(L, c->record, COK_FIELD_KNIGHT_TIER, 1);
     keys("cS\x1b");
-    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
+    cok_sheet(&game, COK_SHEET_STALE_ZERO, &done);
     CHECK(strstr(s.log, "menu: Items Trade Drop Cure Exit;") != NULL &&
           strstr(s.log, "menu: Cure whom?  ") == NULL && !game.input_ended && s.at == s.length);
     /* Drop in the vault is Deposit: the gems into the pool, "will you
      * deposit? ". */
     game.vm.mode = 7;
     keys("d\r3\r\x1b\x1b");
-    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
+    cok_sheet(&game, COK_SHEET_STALE_ZERO, &done);
     CHECK(strstr(s.log, "menu: Items Trade Deposit Cure Exit;") != NULL &&
           strstr(s.log, "menu: How much Gems will you deposit? ;input: 3;") != NULL);
     CHECK(game.pool.coins[5] == 3 && cok_field_u16_at(L, c->record, COK_FIELD_COINS, 5) == 4);
     game.pool.coins[5] = 0;
-    /* Trade: Escape at the first coin list reads a byte the original leaves
-     * unset. */
+    /* Trade: Escape at the first coin list tests the byte View's menu left
+     * (the time of day's, nonzero but just after midnight): Trade is left,
+     * for View's menu, whatever the caller says. */
     game.vm.mode = 2;
     game.trade_partner = NULL;
-    keys("t\x01PS\x1b");
-    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
-    CHECK(game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "580d:26c0") != NULL);
-    game.vm.status = COK_ECL_OK;
-    game.vm.abort = false;
+    keys("t\x01PS\x1b\x1b");
+    cok_sheet(&game, COK_SHEET_STALE_ZERO, &done);
+    CHECK(game.vm.status == COK_ECL_OK && !game.input_ended && s.at == s.length);
+    /* The pick and its move, the list, View's menu again. */
+    CHECK(count(s.log, "menu: Select;") == 2 &&
+          count(s.log, "menu: Items Trade Drop Cure Exit;") == 2);
     /* After an amount: trade to?, the gems moved. */
     keys("t\x01PS\r2\r\x1b\x1b");
-    cok_sheet(&game, COK_SHEET_STALE_UNKNOWN, &done);
+    cok_sheet(&game, COK_SHEET_STALE_ZERO, &done);
     CHECK(strstr(s.log, "menu: How much Gems will you trade? ;input: 2;") != NULL);
     CHECK(cok_field_u16_at(L, k->record, COK_FIELD_COINS, 5) == 2);
 }

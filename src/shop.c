@@ -422,13 +422,14 @@ static void shop(cok_adventure *game)
     char text[32];
     snprintf(text, sizeof text, "prices at %u", cok_ecl_var(vm, COK_VAR_PRICES));
     cok_adventure_log(game, "shop", text);
-    /* What Trade's first Escape tests (see sheet.h): on entry what the run
-     * left there. A View leaves it set (the length of a string 6346:2d75
+    /* What Trade's first Escape tests (see sheet.h): on entry 0 (the
+     * outpost's armoury held 0 in each of 10 runs in DOSBox-X). A View
+     * leaves it set (the length of a string 6346:2d75
      * builds as View redraws), and so do Yes to going back for the money (a
      * string 3775:1885 builds) and Appraise when it shows the gems (the
      * return address 67b5:0c2d); Buy, Take, Pool, Share and picking a
      * character leave it as it was. An emulator run of each agreed. */
-    cok_sheet_stale stale = COK_SHEET_STALE_UNKNOWN;
+    cok_sheet_stale stale = COK_SHEET_STALE_ZERO;
     for (;;) {
         bool money, items;
         cok_pool_status(&game->pool, &money, &items);
@@ -817,8 +818,12 @@ static void temple(cok_adventure *game)
     /* Trade's byte (see the shop): the temple's locals are 14 bytes fewer,
      * so every call made from its menu, and the byte, sit 14 bytes higher,
      * and the shop's commands leave it as there; Heal, which ends
-     * redrawing the screen, sets it too. */
-    cok_sheet_stale stale = COK_SHEET_STALE_UNKNOWN;
+     * redrawing the screen, sets it too. On entry it holds a letter of a
+     * text the place's script left on the stack (the outpost's menu's,
+     * 'a' in DOSBox-X): set. Only the outpost's temple was measured;
+     * another place's menu could leave another letter there, or 0 past a
+     * shorter text. */
+    cok_sheet_stale stale = COK_SHEET_STALE_SET;
     for (;;) {
         bool money, items;
         cok_pool_status(&game->pool, &money, &items);
@@ -1203,7 +1208,7 @@ static void dk_shop(cok_adventure *game)
         case DK_BUY:
             if (!dk_buy(game)) return;
             break;
-        case DK_VIEW: cok_sheet(game, COK_SHEET_STALE_UNKNOWN, &used); break;
+        case DK_VIEW: cok_sheet(game, COK_SHEET_STALE_SET, &used); break;
         case DK_TAKE:
             if (!cok_pool_take_money(game)) return;
             break;
@@ -1480,7 +1485,7 @@ static void dk_temple(cok_adventure *game)
         case DK_BUY: /* Heal */
             if (!dk_heal(game)) return;
             break;
-        case DK_VIEW: cok_sheet(game, COK_SHEET_STALE_UNKNOWN, &game->menu_special); break;
+        case DK_VIEW: cok_sheet(game, COK_SHEET_STALE_SET, &game->menu_special); break;
         case DK_TAKE:
             if (!cok_pool_take_money(game)) return;
             break;

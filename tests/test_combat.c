@@ -611,14 +611,16 @@ static void test_no_place(void)
     CHECK(game.party.count == 3 && at(2, 38, 15, 0) && at(3, 17, 2, 1));
     CHECK(strstr(s.log, "combat: 2 B has no place;") != NULL);
     /* Where the selection EXIT restores is a monster removed, the original
-     * would go on with it freed. */
+     * would go on with it freed: marked, for the restore to stop. */
     reset("");
     fixture(1, 5, 0, 2);
     for (size_t i = 1; i < 6; ++i) game.party.members[i]->record[0xcf] = 7;
     game.vm.saved_character = game.party.members[3]->record;
     game.vm.restore_character = true;
-    CHECK(!cok_combat_setup(&game) && game.vm.status == COK_ECL_UNDEFINED);
-    game.vm.saved_character = NULL;
+    CHECK(cok_combat_setup(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(game.vm.saved_character == NULL && game.vm.saved_freed);
+    game.vm.saved_freed = false;
+    game.vm.restore_character = false;
 }
 
 static void test_refusals(void)

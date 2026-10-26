@@ -155,6 +155,14 @@ static void play(cok_adventure *game, script *s, const uint8_t *map, int x, int 
  * (PROGRAM 9's camp), bit 4 others. */
 static unsigned battle_sps;
 
+/* As a removal in a block's vectors leaves it (the end of combat, the
+ * start menu's Remove): DS:43bf names a record freed. */
+static void mark_freed(cok_adventure *game, void *context)
+{
+    (void)context;
+    game->vm.saved_freed = true;
+}
+
 static void trace_sp(cok_adventure *game, void *context)
 {
     (void)context;
@@ -1224,6 +1232,23 @@ static void test_overland(void)
     game.vm.restore_character = true;
     CHECK(cok_ecl_run(&game.vm, 0x8030) == COK_ECL_OK && unported_count == 0 && mem[0x103] == 1);
     CHECK(game.vm.character == a->record && mem[0x104] == 0);
+    /* Where DS:43bf names a record removed since, PROGRAM's restore
+     * selects it freed (nobody, until its bytes are read). */
+    game.vm.character = b->record;
+    game.vm.saved_character = NULL;
+    game.vm.saved_freed = true;
+    game.vm.restore_character = true;
+    CHECK(cok_ecl_run(&game.vm, 0x8030) == COK_ECL_OK && cok_ecl_selection_freed(&game.vm));
+    /* The start menu counts it as selected (DS:6096 not nil): Begin is
+     * the eighth item, as above. */
+    load_overland_block(&game, 0, 0);
+    s.keys = "\x01P\x01P\x01P\x01P\x01P\x01P\x01PS";
+    s.at = 0;
+    s.length = strlen(s.keys);
+    s.log[0] = '\0';
+    CHECK(cok_ecl_run(&game.vm, 0x8030) == COK_ECL_OK);
+    CHECK(strstr(s.log, "choice: Begin Adventuring;") != NULL && s.at == s.length);
+    game.vm.saved_freed = game.vm.selection_freed = false;
     cok_adventure_close(&game);
 
     /* DESTROY ITEMS 63, which block 16's location vector runs on entering
@@ -1419,6 +1444,23 @@ static void test_resume(void)
         CHECK((strstr(s.log, "print: YOU ARE NEAR ;") != NULL) == (block == 1));
         cok_adventure_close(&game);
     }
+    /* Where the selection kept as the vectors began names a record removed
+     * in them, their end restores it freed (2fd3:3b47): nobody selected,
+     * the freed record's. */
+    save_var(save, 0x4bc4, 2);
+    write_file(path, save, sizeof save);
+    CHECK(cok_adventure_open(&game, &cok_rules_champions, "COKAssets", &keys, &hooks));
+    CHECK(cok_adventure_restore(&game, path));
+    game.vm.seed = 10;
+    s.keys = "nnnn";
+    s.at = 0;
+    s.length = 4;
+    s.log[0] = '\0';
+    game.hooks.trace = mark_freed;
+    CHECK(cok_adventure_enter_block(&game, 16) == COK_ECL_OK);
+    CHECK(cok_ecl_selection_freed(&game.vm));
+    game.hooks.trace = NULL;
+    cok_adventure_close(&game);
     CHECK(remove(path) == 0 && rmdir(dir) == 0);
 
     /* A new game: Solace's block (0x24) runs at 3c28's depth, its NEWECL

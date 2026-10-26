@@ -234,7 +234,7 @@ against its lifetime; run_all adds the machine's load every two seconds
 `OUT/telemetry.txt` (the run's bound at its job count, each script's time
 by kind, the spans and lines across all scripts, the longest scripts'
 timelines), its first lines printed at the end; `run_all.py --report`
-writes it again. A full run of the 82 scripts takes about 6 minutes on a
+writes it again. A full run of the 82 scripts (84 with `e_kender` and `e_freed_selection`) took about 6 minutes on a
 16-core host with little else running, 10 at a time: the scripts' time
 summed (48 minutes) over the ten, about as long as the longest, `a_demo`
 (under 5: its demonstration watched at the game's speed), plus the run

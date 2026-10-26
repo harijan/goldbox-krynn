@@ -377,7 +377,9 @@ to run its handler when the effect is removed, and `+5` the far pointer to
 the next. The port keeps the list linked (`cok_effect`), without the
 file's stale pointers. The characters in `SAVE/` hold only permanent
 effects, each of value 0xff: 0x07, 0x12, 0x1a, 0x2f, 0x5c, 0x5e, 0x5f and
-0x69, given by race or class; only Molly's 0x07 asks for its handler on removal.
+0x69, given by race or class; only Molly's 0x07 asks for its handler on removal,
+which outside combat rolls its die and changes nothing that is read (see
+[The rounds](combat.md#the-rounds)).
 
 | Function | Original |
 | --- | --- |

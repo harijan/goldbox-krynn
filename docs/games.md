@@ -407,7 +407,7 @@ and vault's names and layout, the loader's one wall entry and kept last
 mode, the roster's NPC flags and sizes); `tests/test_start.c` its saved
 games, vault and start menu (`test_death_knights_saves`, `_menu`);
 `tools/dosbox/checks/dkk_views.py`, `dkk_start.py`, `dkk_fight.py`,
-`dkk_treasure.py`, `dkk_levels.py`, `dkk_items.py`, `dkk_shops.py` and `dkk_menus.py` the original (see [Checks against the original](checks.md#checks-against-the-original));
+`dkk_treasure.py`, `dkk_levels.py`, `dkk_items.py`, `dkk_shops.py`, `dkk_menus.py` and `dkk_trade.py` the original (see [Checks against the original](checks.md#checks-against-the-original));
 `tests/test_death_knights.py` its first fight on Auto, by Alt-Q and by
 `--combat auto`, 13 rounds as the original's; `tests/test_fight.c` its
 fight on records made by hand (the cloud and pool tiles, a death that

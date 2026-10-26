@@ -2,6 +2,7 @@
 import hashlib
 import os
 import pathlib
+import shutil
 import struct
 import subprocess
 import tempfile
@@ -1636,6 +1637,47 @@ class PartyTests(unittest.TestCase):
         self.assertEqual(ink(bmp, 27, 1), GREEN)
         self.assertEqual(ink(bmp, 1, 21), (0, 0, 0))  # no weapon readied now
         self.assertEqual(ink(bmp, 1, 22), GREEN)      # the plate mail
+
+    def test_trade_escape_at_the_coins(self):
+        # Escape at Trade's first coin list tests a byte of the stack the
+        # caller left (src/sheet.h): from the adventure's commands and the
+        # start menu's View set, so Trade is left for View's menu.
+        result = self.play("--combat", "pass",
+                           "--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
+                           "--keys", r"\r\rEvt\vS\e\e", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        coins = lines.index("item: Steel         2")
+        self.assertEqual(lines[coins + 1:coins + 4], ["print: SIR STRONGSWORD",
+                                                      "print: Knight of the Crown",
+                                                      "menu: Items Trade Drop Exit"])
+        self.assertEqual(lines[-2:], ["menu: Move Area Cast View Encamp Search Look",
+                                      "(out of keys in block 32 at 8320)"])
+        saves = self.folder / "saves"
+        saves.mkdir()
+        for f in SAVE.iterdir():
+            if f.is_file():
+                shutil.copyfile(f, saves / f.name)
+        result = self.play("--start-menu", "--saves", saves,
+                           "--keys", r"\kxP\v\v\rA\v\r\rT\vS\e", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        coins = lines.index("item: Steel         2")
+        self.assertEqual(lines[coins + 1:], ["print: SIR STRONGSWORD", "print: Knight of the Crown",
+                                             "menu: Items Trade Drop Exit",
+                                             "(out of keys in the start menu)"])
+
+    def test_unready_mollys_weapon(self):
+        # Molly's Hoopak gives effect 0x07, whose handler runs as it goes,
+        # outside combat with no combat record (src/effect.c's kender): the
+        # die is rolled, and the item list goes on.
+        result = self.play("--combat", "pass",
+                           "--party", SAVE / "SAVGAMA.DAT", "--play", "--set", "4be6=1",
+                           "--keys", r"\r\rE\v\v\vvir\e\e", ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertIn("item:  No   Hoopak ", lines)
+        self.assertEqual(lines[-1], "(out of keys in block 32 at 8320)")
 
     def test_cast_from_the_commands(self):
         # Down to Kal, Cast, up to Bless, and cast it on the party.

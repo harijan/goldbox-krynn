@@ -121,6 +121,11 @@ static void test_list(void)
     /* A handler that writes a combat record fails on one with none. */
     add(c, 0x1a, 0, 0, true);
     CHECK(!cok_effects_remove(&fx, c, NULL, 0x1a) && strstr(fx.error, "3f44:09e8") != NULL);
+    /* 0x72's (a slayer's) only reads it, for an attack's amount: outside
+     * combat nothing. */
+    add(c, 0x72, 0, 0, true);
+    uint8_t amount = fx.rolls.amount;
+    CHECK(cok_effects_remove(&fx, c, NULL, 0x72) && fx.rolls.amount == amount);
     /* 0x78's handler is the item routine, which reads an item's +0x3d
      * past the effect's 9 bytes. */
     add(c, 0x78, 0, 0, true);
@@ -1153,8 +1158,21 @@ static void test_saved(void)
     vm.seed = seed_for(7);
     CHECK(cok_effects_save(&fx, roark, 4, 0, &made));
     CHECK(fx.rolls.save_roll == (uint8_t)(7 + (int8_t)roark->record[0x17c] + 5));
-    /* Molly's 0x07 runs its handler when removed, which needs combat. */
-    CHECK(!cok_effects_remove(&fx, molly, NULL, 0x07) && strstr(fx.error, "3f44:0208") != NULL);
+    /* Molly's 0x07 runs its handler when removed: outside combat it reads
+     * its target through a combat record nil or freed, rolls its die (one
+     * Random) and keeps nothing else, the THAC0 recomputed after. */
+    uint32_t seed = vm.seed;
+    uint8_t thac0 = molly->record[0x18c], amount = fx.rolls.amount;
+    /* With no recompute after (ROB), the THAC0 it leaves is unknown. */
+    CHECK(!cok_effects_remove(&fx, molly, NULL, 0x07) && strstr(fx.error, "3775:1da9") != NULL);
+    CHECK(vm.seed == seed);
+    CHECK(strcmp(ids(molly), "5c5e07") == 0);
+    fx.failed = false;
+    fx.stats_follow = true;
+    CHECK(cok_effects_remove(&fx, molly, NULL, 0x07) && strcmp(ids(molly), "5c5e") == 0);
+    fx.stats_follow = false;
+    CHECK(vm.seed == seed * 0x08088405u + 1 && molly->record[0x18c] == thac0 &&
+          fx.rolls.amount == amount);
 }
 
 /* 60f4:1743 for the other abilities: dexterity from items of power 2, 8

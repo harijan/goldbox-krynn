@@ -129,6 +129,8 @@ CHECKS = [
     ("e_manual", "#15 #18", ""),
     ("e_strength", "#46", ""),
     ("e_trade", "#47 #73", ""),
+    ("e_kender", "#130", ""),
+    ("e_freed_selection", "#131", ""),
     # F: display modes, sound, mouse, frames
     ("f_sound", "#3 #4", ""),
     ("f_mouse", "#20", ""),
@@ -155,7 +157,8 @@ DKK_SPLIT = {
     "dkk_menus": ["lists", "ecl", "post", "clicks", "taskclicks"],
 }
 DKK_SCRIPTS = ["dkk_views", "dkk_start", "dkk_create", "dkk_treasure", "dkk_items", "dkk_shops",
-               "dkk_levels", "dkk_mouse", "dkk_setup", "dkk_fight", "dkk_menus", "dkk_sound"]
+               "dkk_levels", "dkk_mouse", "dkk_setup", "dkk_fight", "dkk_menus", "dkk_sound",
+               "dkk_trade"]
 DKK_CHECKS = [(f"{script}-{flow}" if flow else script, "DKK", "") for script in DKK_SCRIPTS
               for flow in DKK_SPLIT.get(script, [""])]
 SETS = {"champions": CHECKS, "dkk": DKK_CHECKS, "all": CHECKS + DKK_CHECKS}

@@ -116,6 +116,23 @@ uint8_t *cok_adventure_special(cok_adventure *game, uint8_t scan)
     /* dkk 580d:2bb2: a key but Up and Down keeps the one selected. */
     if (cok_game_rules(game)->menus.special_keeps && scan != 0x48 && scan != 0x50)
         return game->vm.character;
+    if (cok_ecl_selection_freed(&game->vm) && game->party.count > 0) {
+        /* The selection a record freed (see ecl.h): 546c:3334's Up looks
+         * for the member before it, finds none and selects nil; Down reads
+         * its next field, the freed bytes; others the first. */
+        if (scan == 0x48 && !cok_game_rules(game)->menus.special_keeps) {
+            game->vm.selection_freed = false;
+            return NULL;
+        }
+        if (scan == 0x48 || scan == 0x50) {
+            cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                               "%s reads the next field of the selected record, one removed "
+                               "and freed since (4def:3b0a), restored from DS:43bf",
+                               cok_game_rules(game)->menus.special_keeps ? "dkk 580d:2bb2"
+                                                                         : "546c:3334");
+            return NULL;
+        }
+    }
     return cok_party_special(&game->party, game->vm.character, scan);
 }
 

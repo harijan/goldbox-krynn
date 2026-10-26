@@ -1689,7 +1689,7 @@ int main(int argc, char **argv)
         } else if (f.closing) {
             /* Closed: nothing more to do. */
         } else if (status != COK_ECL_OK) {
-            const char *why = game.error[0] != '\0' ? game.error : cok_ecl_status_string(status);
+            const char *why = cok_adventure_why(&game, status);
             if (game.vm.ip != 0)
                 fprintf(stderr, "stopped in block %u at %04x: %s\n", game.vm.block, game.vm.ip, why);
             else
