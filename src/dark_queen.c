@@ -618,6 +618,11 @@ static int bar_menu(cok_adventure *game, const char *prompt, const char *const *
                 if (inside(&rects[i], in.x, in.y)) picked = (int)i;
         } else {
             int k = in.key;
+            if (k == KEY_ALT + 'S' || k == KEY_ALT + 'T') {
+                /* 064f, 06c6: the sound's toggles (2023:0247, 0272, not
+                 * sounded yet), and the menu waits on. */
+                continue;
+            }
             bool filtered = k == 0x1b || k == 0x60 ||
                             (dirs && ((k >= KEY_PAD5 && k <= KEY_UP) ||
                                       (k >= KEY_ALT + 'A' && k <= KEY_ALT + 'Z')));
@@ -1245,6 +1250,7 @@ static void vertical(cok_adventure *game)
             at = at != bottom ? bottom : at + page < count ? at + page : count - 1;
             break;
         case '\r': case '\n': case 's': case 'S': case 0x1b: case 0x60: done = true; break;
+        case KEY_ALT + 'S': case KEY_ALT + 'T': break; /* the sound's toggles */
         default: beep(game); break;
         }
         if (count == 0) at = 0;
@@ -1317,10 +1323,53 @@ static int read_line_(cok_adventure *game, char *line, size_t most)
     }
 }
 
-/* INPUT NUMBER (6c70:2e7c, 1a62:0781, 6431:03ba): five digits at most,
- * read as a number (2d84:000b: a last B, D, H or O its base, either case;
- * else decimal), asked again until 0-32767; Escape asks again too. Its
- * first operand is not read. */
+/* 2d84:000b: a number from text. A last B, D, H or O (either case) gives
+ * its base (2, 10, 16, 8) and is not read; else 10. Then each character
+ * in turn: a digit, or a letter, below the base adds to it (times the
+ * base, in 16 bits); '-' makes it negative; one up to 0x20 is passed
+ * over; any other ends it. An empty text is 0 (the original looks at the
+ * byte before it for its last: not a letter of these, as its buffer's
+ * neighbour on the stack is not one, it reads nothing). */
+static int16_t parse_number(const char *text)
+{
+    size_t n = strlen(text);
+    unsigned base = 10;
+    if (n > 0) {
+        static const char suffix[] = "BDHObdho";
+        static const unsigned bases[] = {2, 10, 16, 8, 2, 10, 16, 8};
+        const char *at = strchr(suffix, text[n - 1]);
+        if (at != NULL && *at != '\0') {
+            base = bases[at - suffix];
+            --n;
+        }
+    }
+    uint16_t value = 0;
+    bool negative = false;
+    for (size_t i = 0; i < n; ++i) {
+        int c = (signed char)text[i];
+        unsigned d;
+        if (c >= '0' && c < (int)(base + '0'))
+            d = (unsigned)(c - '0');
+        else if (c >= 'A' && c < (int)(base + 0x37))
+            d = (unsigned)(c - 0x37);
+        else if (c >= 'a' && c < (int)(base + 0x57))
+            d = (unsigned)(c - 0x57);
+        else if (c == '-') {
+            negative = true;
+            continue;
+        } else if (c <= 0x20) {
+            continue;
+        } else {
+            break;
+        }
+        value = (uint16_t)(value * base + d);
+    }
+    return (int16_t)(negative ? (uint16_t)-value : value);
+}
+
+/* INPUT NUMBER (6c70:2e7c, 1a62:0781, 6431:03ba): five characters at most
+ * (32767's digits), read as 2d84:000b reads it, asked again (with a beep)
+ * until 0-32767; Escape asks again too. Its first operand is not read. */
 static void input_number(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -1329,30 +1378,13 @@ static void input_number(cok_adventure *game)
         int done = edit_line(game, line, 5);
         if (done < 0) return;
         if (done == 0) continue;
-        size_t n = strlen(line);
-        unsigned base = 10;
-        if (n > 0) {
-            char last = line[n - 1];
-            if (last >= 'a' && last <= 'z') last = (char)(last - 0x20);
-            base = last == 'B' ? 2 : last == 'H' ? 16 : last == 'O' ? 8 : 10;
-            if (last == 'B' || last == 'D' || last == 'H' || last == 'O') line[--n] = '\0';
-        }
-        long value = 0;
-        bool ok = n > 0;
-        for (size_t i = 0; i < n && ok; ++i) {
-            char c = line[i];
-            int d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10
-                    : c >= 'A' && c <= 'F' ? c - 'A' + 10 : 99;
-            if (d >= (int)base) ok = false;
-            value = value * (long)base + d;
-            if (value > 0x7fff) ok = false;
-        }
-        if (!ok) {
+        int16_t value = parse_number(line);
+        if (value < 0) {
             beep(game);
             continue;
         }
         char text_[24];
-        snprintf(text_, sizeof text_, "%ld", value);
+        snprintf(text_, sizeof text_, "%d", value);
         cok_adventure_log(game, "input", text_);
         cok_ecl_store_to(vm, 1, (uint16_t)value);
         return;
@@ -1376,18 +1408,26 @@ static void input_string(cok_adventure *game)
 
 /* 6523:000c(n): wait n hundredths of the game's clock (1a62:0979, the
  * timer's ticks * 100 / 72: 800 is 7.91 seconds), each step polling the
- * keys and running the cycles (004c): the key read, 0 when the time ran
- * out (the original's 0x20, Space, which its callers take alike), -1 if
- * the keys ran out. */
+ * keyboard and running the cycles (004c); a key read (251e:00e7's code)
+ * ends it, but Alt-S and Alt-T (0x152, 0x153: the sound's toggles,
+ * 2023:0247, 0272, not sounded yet) wait on, and clicks are not read
+ * (251e:00dc is the keyboard's). Returns the code's low byte (its AL),
+ * Space (0x20) when the time ran out; -1 if the keys ran out. */
 static int timed_wait(cok_adventure *game, unsigned n)
 {
     unsigned steps = (unsigned)((n * 72u * 1000u / 100u) * 16384u / 1193182u / 10u);
     for (unsigned waited = 0; waited < steps; ++waited) {
-        if (cok_adventure_key_pending(game)) return cok_adventure_wait_key(game);
+        if (cok_adventure_key_pending(game)) {
+            input in;
+            int key = read_input(game, &in);
+            if (key < 0 && key != COK_KEY_TIMEOUT) return -1;
+            if (!in.click && in.key != KEY_ALT + 'S' && in.key != KEY_ALT + 'T')
+                return in.key & 0xff;
+        }
         if (game->vm.abort) return -1;
         pass(game, 10);
     }
-    return 0;
+    return 0x20;
 }
 
 /* The ending's scenes (6523:03cb, PROGRAM 1), as its code runs them:
@@ -1704,8 +1744,9 @@ static bool title_scene(cok_adventure *game, unsigned n)
 }
 
 /* The title (6523:0345): scenes 1-8, each until a key or its time (800
- * hundredths): Space the next, Escape to the menu, others end it; then
- * ALWAYS's palette again (6523:0319). False where it failed (the run's
+ * hundredths): Space or the time the next; Escape ends it there; another
+ * key, or the last scene's end, ends it with ALWAYS's palette again
+ * (6523:0319). False where it failed (the run's
  * status set) or the keys ran out. */
 static bool title(cok_adventure *game)
 {
@@ -1720,19 +1761,28 @@ static bool title(cok_adventure *game)
         cok_adventure_flush(game);
         int key = timed_wait(game, 800);
         if (key < 0) return false;
-        if (key == 0x1b || (key != 0 && key != ' ')) break;
+        if (key == 0x1b) {
+            /* 6523:03a9: the cursor shown, and ALWAYS's colours not set
+             * again (6523:0319 passed over). */
+            game->title = false;
+            own(game)->cursor_shown = true;
+            return true;
+        }
+        if (key != ' ') break;
     }
     game->title = false;
-    set_palette(game, lib(game, LIB_ALWAYS), 0, 0);
-    own(game)->cursor_shown = true; /* main's 22b7:2122 */
+    set_palette(game, lib(game, LIB_ALWAYS), 0, 0); /* 6523:0319 */
+    own(game)->cursor_shown = true; /* 22b7:2122 */
     return true;
 }
 
 /* Main's menu (5ebd:01e4, again 5ebd:03f9 after a demonstration): the full
  * window, the name and version (5ebd:00b6, DS:4d73, 4d8b), Play, Demo and
  * Quit, which after timeout hundredths with no key gives Demo (DS:c5ce,
- * c5d2: 7000, 0x4b0 after a demonstration). Escape and the like ask again.
- * Returns the index, -1 if the keys ran out. */
+ * c5d2: 7000, 0x4b0 after a demonstration); Escape (or '`': 1bdb:06c6's
+ * filter, 1206's 0x1b) gives 0x1b, which main takes as Play, as anything
+ * but Demo and Quit (5ebd:00ef: DS:ae59 set for Demo alone). Returns it, -1 if
+ * the keys ran out. */
 static int main_menu(cok_adventure *game, uint16_t timeout)
 {
     full_window(game);
@@ -1740,11 +1790,8 @@ static int main_menu(cok_adventure *game, uint16_t timeout)
     text(game, 48, 32, "Version 1.1        July 29,1992", 0x87);
     static const char *const items[] = {"Play", "Demo", "Quit"}; /* DS:4ed4 */
     cok_adventure_log(game, "menu", "Play Demo Quit");
-    int choice;
-    do {
-        choice = bar_menu(game, "", items, 3, false, false, timeout, 1);
-        if (choice < 0) return -1;
-    } while (choice > 2);
+    int choice = bar_menu(game, "", items, 3, false, false, timeout, 1);
+    if (choice < 0) return -1;
     log_choice(game, choice);
     return choice;
 }
@@ -1901,7 +1948,7 @@ static cok_ecl_status start(cok_adventure *game)
             cok_adventure_quit(game);
             return COK_ECL_OK;
         }
-        if (choice == 0) return camp(game);
+        if (choice != 1) return camp(game);
         bool stopped;
         cok_ecl_status status = demonstration(game, &stopped);
         if (status != COK_ECL_OK || vm->abort) return status;

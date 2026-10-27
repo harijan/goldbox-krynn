@@ -304,6 +304,84 @@ class DarkQueenTests(unittest.TestCase):
         self.assertIn("input: 14", result.stdout.splitlines())
         self.assertEqual(digest(shots / "002.bmp"), "de5ab1aa892c78efecc6d92498472aa0")
 
+    def test_main_menu_keys(self):
+        # Escape at main's menu is Play (1bdb:06c6's filter gives 0x1b,
+        # which 5ebd:00ef takes as anything but Demo and Quit), after a
+        # demonstration too; an extended key at the title ends it (6523:000c
+        # gives its code's low byte, not Space).
+        alone = ("menu: Create Character Delete Character Add Character Load Saved Game "
+                 "Exit From Game")
+        for keys, before in ((r"\k\e\eEY", ["menu: Play Demo Quit", "choice: 27"]),
+                             (r"\k\eD\k\e\eEY", ["menu: Play Demo Quit", "choice: 1",
+                                                   "menu: Play Demo Quit", "choice: 27"])):
+            result = self.play("--start-menu", "--keys", keys, ASSETS)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines(),
+                             before + [alone, "choice: 11", "(quit to DOS)"])
+        result = self.play("--start-menu", "--keys", r"\k\^\kQ", ASSETS)
+        self.assertEqual(result.stdout.splitlines(),
+                         ["menu: Play Demo Quit", "choice: 2", "(quit to DOS)"])
+
+    def test_input(self):
+        # INPUT NUMBER as 2d84:000b reads it: up to the first other
+        # character, 16 bits, empty 0; a negative one asked again.
+        for keys, number in ((r"12x\r", "12"), (r"70000\r", "4464"), (r"\r", "0"),
+                             (r"-5\r7\r", "7"), (r"10h\r", "16"), (r" 12\r", "12")):
+            result = self.play("--set", "22=1", "--start", "842d", "--keys", keys, ASSETS, 1)
+            self.assertEqual([l for l in result.stdout.splitlines() if l.startswith("input")],
+                             [f"input: {number}"], keys)
+        # INPUT STRING (6c70:2ec8): upper case, 35 at most, " " for none,
+        # stored on Escape too; then block 1's FIND NPC stops.
+        for keys, text in ((r"ab\r", "AB"), (r"ab\e", "AB"), (r"\r", " "),
+                           ("x" * 40 + r"\r", "X" * 35)):
+            result = self.play("--set", "22=1", "--start", "9bfd", "--keys", keys, ASSETS, 1)
+            self.assertIn(f"input: {text}", result.stdout.splitlines(), keys)
+
+    def vertical(self, keys, *more):
+        """A VERTICAL MENU of six items (I0-I5, from string variables) with
+        an empty prompt: four rows (18-21), so that it scrolls."""
+        items = [0x300 + 0x10 * i for i in range(6)]
+        code = [0x15, 0x01, 0xBF, 0x00, 0x81, 0x00, 0x02, 0x00, len(items)]
+        for a in items:
+            code += [0x81, a & 0xFF, a >> 8]
+        code.append(0)
+        sets = [(0x8014 + i, b) for i, b in enumerate(code)]
+        for i, a in enumerate(items):
+            sets += [(a, ord("I")), (a + 1, ord(str(i)))]
+        args = [x for a, b in sets for x in ("--set", f"{a:x}={b:x}")]
+        return self.play("--start", "8014", *args, *more, "--keys", keys, ASSETS, 4)
+
+    def test_vertical_scrolls(self):
+        # Down past the rows scrolls; PgUp the top row shown, then a page;
+        # PgDn the bottom one, then a page; End wraps (1b05:0664).
+        def choice(keys, *more):
+            result = self.vertical(keys, *more)
+            return [l for l in result.stdout.splitlines() if l.startswith("choice")]
+        self.assertEqual(choice(r"\v\v\v\v\v\r"), ["choice: 5"])
+        self.assertEqual(choice(r"\v\v\v\v\v\#49\r"), ["choice: 2"])  # top shown: 2
+        self.assertEqual(choice(r"\v\v\v\v\v\#49\#49\r"), ["choice: 0"])
+        self.assertEqual(choice(r"\#51\r"), ["choice: 3"])
+        self.assertEqual(choice(r"\#51\#51\r"), ["choice: 5"])
+        self.assertEqual(choice(r"\#47\r"), ["choice: 5"])  # Home: up, wrapping
+        shots = self.folder / "scroll"
+        self.vertical(r"\v\v\v\v\v\r", "--shots", shots)
+        top, bottom = pixels(shots / "000.bmp"), pixels(shots / "005.bmp")
+        self.assertNotEqual(top, bottom)
+        # Clicks: a row makes it current, a click on the current one or on
+        # Select takes it.
+        self.assertEqual(choice(r"\m20,152,1.\m20,152,1.", "--mouse"), ["choice: 1"])
+        self.assertEqual(choice(r"\m20,160,1.\m20,190,1.", "--mouse"), ["choice: 2"])
+
+    def test_bar_clicks(self):
+        # A click on a HORIZONTAL MENU's button (block 1's jumper: START at
+        # x 64) and on ASK MENU's (its "what do you do?": WORKING at 48).
+        result = self.play("--set", "22=1", "--mouse", "--keys", r"\m70,190,1.", ASSETS, 1)
+        self.assertIn("choice: 1", result.stdout.splitlines())
+        result = self.play("--set", "22=1", "--mouse", "--start", "9ac8", "--keys",
+                           r"\m60,190,1.", ASSETS, 1)
+        self.assertIn("menu: ~AM I ~WORKING", result.stdout.splitlines())
+        self.assertIn("choice: 1", result.stdout.splitlines())
+
     def test_big_pictures(self):
         # The overland (block 5's PICTURE [3e], BIGPIC 240: 63ae:0321), in
         # mode 3 (its SAVE 0 [0022] from 3D) with the party's place (ALWAYS

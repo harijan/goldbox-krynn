@@ -599,8 +599,10 @@ each a rectangle the mouse hits and hotkeys, polled for a key or a click
   Return picking none; a filter before them giving Escape (and with the
   ECL's, the extended keys and Alt's) its code, which `HORIZONTAL MENU`
   reads past (`6c70:0e3f` with no escape: Up and Down would change the
-  member selected), `YES NO` takes as No (`1bdb:0424`), main's menu
-  ignores; a menu that times out gives its item (main's: Demo after 70
+  member selected), `YES NO` takes as No (`1bdb:0424`), main's menu as
+  Play (`5ebd:00ef`: anything but Demo and Quit); Alt-S and Alt-T (the
+  sound's toggles, `2023:0247`, `0272`, not sounded yet) are taken and the
+  menu waits on, here, in the lists (`1b05:0664`) and the title's waits; a menu that times out gives its item (main's: Demo after 70
   seconds, 12 after a demonstration: `DS:c5ce`, `c5d2`); the ECL's items
   as `6c70:0d51` has them (lower case, the `~`'s letter kept, a digit
   0x20 on: a letter P-Y), which `GAME.FON` draws as the capitals but for
@@ -619,8 +621,10 @@ each a rectangle the mouse hits and hotkeys, polled for a key or a click
 - `INPUT NUMBER` and `INPUT STRING` (`6c70:2e7c`, `2ec8`, `1a62:0781`,
   `05c9`, the editor `6431:0001`): the bar's field, 38 cells, the text
   from cell 2 with its caret, Backspace or Left, Return; a number of five
-  digits at most (a last B, D, H or O its base), 0-32767, asked again
-  otherwise or on Escape; a string of 35 in upper case, stored on Escape
+  characters at most read as `2d84:000b` reads it (a last B, D, H or O
+  its base; then digits below it, `-` making it negative, characters to
+  0x20 passed over, any other ending it, in 16 bits: "12x" 12, "70000"
+  4464, none 0), 0-32767 taken, asked again otherwise or on Escape; a string of 35 in upper case, stored on Escape
   too, " " for none;
 - the mouse (`22b7:1be3`): on wherever a driver answers (the front ends'
   `--mouse` in eclplay; always in krynn), the pointer from pixel 8, 8,
@@ -646,7 +650,10 @@ overland's frame, each record over its first at cell 1, 1, with waits of
 36 hundredths and more, as its code steps them; the other `PROGRAM`s
 stop the run.
 
-The start (`5ebd:00ef`): the title; main's menu (Play, Demo, Quit, its
+The start (`5ebd:00ef`): the title (`6523:0345`: each scene's wait,
+`6523:000c`, gives its key's low byte, Space when the time runs out:
+Space the next scene; Escape ends it, ALWAYS's colours not set again;
+another key, or the last scene's end, ends it through `6523:0319`); main's menu (Play, Demo, Quit, its
 name and version); Quit to DOS. Play is the camp's menu (`7368:046f`,
 with no party): `GEN.TLB`'s picture under the window (`20b2:03ce`), twelve
 buttons of 18 characters in two columns (`7368:01a7`), those a party needs
