@@ -56,6 +56,10 @@ typedef struct {
  * original reads what there is into its zeroed data. Returns false with
  * error set if it cannot be read. */
 bool cok_item_types_read(const char *path, cok_item_types *types, char *error, size_t error_size);
+/* As cok_item_types_read, the types from byte at of the file (Champions'
+ * 2, which cok_item_types_read takes; a game's rules.files.item_types_at). */
+bool cok_item_types_read_at(const char *path, size_t at, cok_item_types *types, char *error,
+                            size_t error_size);
 
 /* A spell effect, a 9-byte record in the original (and in .SFX files):
  * +0 its id, +1 the minutes it has left as a word, 0 for one that does not
@@ -127,6 +131,9 @@ typedef struct {
     size_t held;
     /* The combat record (+0x183), or NULL outside combat. */
     cok_combat_record *combat;
+    /* Set by a load that dropped a container's contents (dqk 604b:05fd:
+     * "SCROLLS DROPPED!", which the caller says). */
+    bool contents_dropped;
 } cok_character;
 
 /* The list from DS:609a: the party, then any monsters LOAD MONSTER
@@ -168,16 +175,47 @@ bool cok_character_read_file(cok_character *character, const cok_rules *rules, c
                              const cok_item_types *types, char *error, size_t error_size);
 /* Import another game's character into the game of rules, as its
  * rules.characters.import says (Death Knights' of Champions' characters,
- * dkk 46b2:10d7): base.extension from dir, with the other game's record
- * size, and its items and effects by the other game's extensions; the
- * record converted, the items of the types it drops left out; then
- * recomputed as cok_character_read does. The game must import. Returns
- * false with error set. */
+ * dkk 46b2:10d7; Dark Queen's of Death Knights', dqk 604b:0b82: see
+ * rules.h's cok_import_routine): base.extension from dir, with the other
+ * game's record size, and its items and effects (and spells) by the other
+ * game's extensions; the record converted, the items of the types it drops
+ * left out; then recomputed as cok_character_read does. The game must
+ * import. Returns false with error set. */
 bool cok_character_import(cok_character *character, const cok_rules *rules, const char *dir,
                           const char *base, const char *extension,
                           const cok_item_types *types, char *error, size_t error_size);
 /* Free the items, effects and combat record. */
 void cok_character_free(cok_character *character);
+
+/* A character of a game whose file holds it whole (rules.saves'
+ * character_files COK_CHARACTER_ONE_FILE: Dark Queen's .QCH, and each of
+ * a saved game's characters), from data, as dqk 604b:05fd reads it: the
+ * record (the layout's file_size); while its items' pointer (+8) is not
+ * nil, items of the item record's file_size, as many as the pointer's low
+ * word (at least one); a container (0x49, a scroll) with contents (count)
+ * followed by them, which are dropped with it, setting contents_dropped,
+ * where the party's containers hold any or it does (86b8:1f75 counts the
+ * party's: contents, the party's count), and kept, empty, otherwise; then
+ * while the effects' pointer (+4) is not nil, effects of 9 bytes, each
+ * with the next one's pointer. The pointers are cleared (the original's
+ * next and combat; the port keeps none), and nothing is recomputed (dqk
+ * 177e:0be2, which the original's loaders run next, is not ported: the
+ * derived fields stay as the file holds them). *used is the bytes it took.
+ * Returns false with error set when data ends inside it (604b:05fd fails
+ * the load). Free with cok_character_free. */
+bool cok_character_from_bytes(cok_character *character, const cok_rules *rules,
+                              const uint8_t *data, size_t size, unsigned contents, size_t *used,
+                              char *error, size_t error_size);
+/* The bytes of the one-file character (dqk 604b:2200 writes them) into out
+ * if they fit in capacity; returns how many there are, 0 with error set if
+ * a container has contents (the port holds none: no load keeps them). The
+ * record as it is, with the items' pointer its count of items (as the
+ * original writes it), the effects' pointer 1 if there are effects, the
+ * others 0; each item's file bytes; each effect with its next pointer 1,
+ * 0 for the last (the original's are its heap's addresses, which its
+ * loader only tests against nil). */
+size_t cok_character_to_bytes(const cok_character *character, const cok_rules *rules,
+                              uint8_t *out, size_t capacity, char *error, size_t error_size);
 
 /* The character's combat record, or one of all zeros when it has none. */
 const cok_combat_record *cok_character_combat(const cok_character *character);

@@ -349,3 +349,8 @@ void cok_vga_fill(cok_picture *screen, int x, int y, int width, int height, uint
         for (int dx = x < 0 ? 0 : x; dx < x + width && dx < sw; ++dx)
             screen->pixels[(size_t)dy * (size_t)sw + (size_t)dx] = colour;
 }
+
+size_t cok_vga_unpack(const uint8_t *src, size_t size, uint8_t *out, size_t need)
+{
+    return unpack(src, size, out, need);
+}

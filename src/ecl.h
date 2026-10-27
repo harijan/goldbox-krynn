@@ -205,6 +205,16 @@ typedef enum {
     COK_ECL_FIELD_CLEARED_ANY, /* any store sets it */
     COK_ECL_FIELD_NPC,      /* a store above 0xb2 stores 0x32 less */
     COK_ECL_FIELD_REVIVE,   /* a store of 1 sets the status 0 and makes it able to act */
+    COK_ECL_FIELD_RAW,      /* the record's byte where the element would lie, unchecked
+                             * past the field's end (the record's size bounds it: dqk
+                             * 6c70:040d's +0xce + offset) */
+    COK_ECL_FIELD_INT,      /* the field's byte and the next as a word, the original's int
+                             * whose high byte the layout leaves unnamed (dqk RACE at
+                             * +0x58); a store writes both */
+    COK_ECL_FIELD_FORGET,   /* a store as RAW, but 0xff stores 0 and 0 marks a spell there
+                             * forgotten (| 0x80) unless it is 0 or marked (dqk 6c70:1b5e) */
+    COK_ECL_FIELD_STATUS_INT, /* a store as INT that makes it able to act if it is 0, else
+                               * not (dqk 6c70:1b5e: +0x18b) */
 } cok_ecl_character_kind;
 
 /* What CALL to address runs in the game rules describes. */

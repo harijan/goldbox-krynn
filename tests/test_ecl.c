@@ -1201,6 +1201,95 @@ static void test_dark_queen(void)
     CHECK(cok_ecl_load_var(&vm, 0xaee2) == 0x55);
 }
 
+/* Dark Queen's character fields at 0x0401-0x0800 (dqk 6c70:040d reads,
+ * 6c70:1b5e writes): each read where its table puts it, bytes and ints;
+ * 0x041f-0x04ab the record's bytes from +0xce; others 0, stores to them
+ * nothing; the stores, whole, with their side effects; the name a C
+ * string. */
+static void test_dark_queen_fields(void)
+{
+    const cok_rules *Q = &cok_rules_dark_queen;
+    cok_ecl_init(&vm, Q, NULL);
+    uint8_t record[COK_CHARACTER_MAX];
+    for (size_t i = 0; i < sizeof record; ++i) record[i] = (uint8_t)(i * 37 + 11);
+    vm.character = record;
+    static const struct {
+        uint16_t address, offset;
+        bool word;
+    } reads[] = {
+        {0x0411, 0x78, false}, {0x0412, 0x79, false}, {0x041c, 0x83, false},
+        {0x041d, 0x84, false}, {0x041e, 0x85, false}, {0x041f, 0xce, false},
+        {0x0468, 0x117, false}, {0x0469, 0x118, false}, {0x04ab, 0x15a, false},
+        {0x04ae, 0x58, true},  {0x04af, 0x5a, true},  {0x04b1, 0x52, true},
+        {0x04b2, 0x52, true},  {0x04b3, 0x89, false}, {0x04c9, 0x19a, false},
+        {0x04ca, 0x19b, true}, {0x04cb, 0x19d, false}, {0x0538, 0x90, false},
+        {0x053c, 0x93, false}, {0x0543, 0x9a, false}, {0x054c, 0x4c, true},
+        {0x054d, 0x4c, true},  {0x054e, 0x4e, true},  {0x0551, 0x50, true},
+        {0x0552, 0xa5, false}, {0x0558, 0xab, false}, {0x0559, 0xac, false},
+        {0x055f, 0xb2, false}, {0x0567, 0x60, true},  {0x0568, 0x62, true},
+        {0x0571, 0xbb, false}, {0x05ec, 0xcc, false}, {0x05ee, 0x64, true},
+        {0x05f0, 0x66, true},  {0x05fd, 0x198, false},
+    };
+    for (size_t i = 0; i < sizeof reads / sizeof *reads; ++i) {
+        const uint8_t *b = record + reads[i].offset;
+        uint16_t want = (uint16_t)(reads[i].word ? b[0] | b[1] << 8 : b[0]);
+        if (cok_ecl_load_var(&vm, reads[i].address) != want)
+            fprintf(stderr, "0x%04x: 0x%04x, expected 0x%04x\n", reads[i].address,
+                    cok_ecl_load_var(&vm, reads[i].address), want);
+        CHECK(cok_ecl_load_var(&vm, reads[i].address) == want);
+    }
+    /* Others read 0; a store there does nothing, keeping no variable. */
+    static const uint16_t none[] = {0x0402, 0x0410, 0x04ac, 0x04b0, 0x0544, 0x0560, 0x05fe,
+                                    0x0800};
+    for (size_t i = 0; i < sizeof none / sizeof *none; ++i) {
+        cok_ecl_store(&vm, none[i], 0x1234);
+        CHECK(cok_ecl_load_var(&vm, none[i]) == 0);
+    }
+    for (size_t i = 0; i < sizeof record; ++i) CHECK(record[i] == (uint8_t)(i * 37 + 11));
+    vm.mem7c00[1] = 0x55; /* not a variable's: never read */
+    CHECK(cok_ecl_load_var(&vm, 0x0402) == 0);
+    /* The stores: whole words, the status's making it able to act or not;
+     * a byte's low byte; the memorized spells' 0xff and 0. */
+    cok_ecl_store(&vm, 0x05ee, 0x0102);
+    CHECK(record[0x64] == 2 && record[0x65] == 1 && record[0x18b] == 0);
+    cok_ecl_store(&vm, 0x05ee, 0);
+    CHECK(record[0x64] == 0 && record[0x65] == 0 && record[0x18b] == 1);
+    cok_ecl_store(&vm, 0x054f, 0x4321);
+    CHECK(record[0x4e] == 0x21 && record[0x4f] == 0x43);
+    cok_ecl_store(&vm, 0x04b1, 0x0230);
+    CHECK(record[0x52] == 0x30 && record[0x53] == 0x02);
+    cok_ecl_store(&vm, 0x04b2, 0x0777); /* read only */
+    CHECK(record[0x52] == 0x30);
+    cok_ecl_store(&vm, 0x05fd, 0x0155);
+    CHECK(record[0x198] == 0x55 && record[0x199] == (uint8_t)(0x199 * 37 + 11));
+    cok_ecl_store(&vm, 0x05f0, 0x0081);
+    CHECK(record[0x66] == 0x81 && record[0x67] == 0);
+    record[0xce] = 0x21;
+    cok_ecl_store(&vm, 0x041f, 0);
+    CHECK(record[0xce] == 0xa1);
+    cok_ecl_store(&vm, 0x041f, 0); /* marked already: stored */
+    CHECK(record[0xce] == 0);
+    cok_ecl_store(&vm, 0x041f, 0x13);
+    CHECK(record[0xce] == 0x13);
+    cok_ecl_store(&vm, 0x041f, 0xff); /* as 0 */
+    CHECK(record[0xce] == 0x93);
+    cok_ecl_store(&vm, 0x041f, 0xff);
+    CHECK(record[0xce] == 0);
+    cok_ecl_store(&vm, 0x04ab, 0x77);
+    CHECK(record[0x15a] == 0x77);
+    /* With no character selected, every field reads 0. */
+    vm.character = NULL;
+    CHECK(cok_ecl_load_var(&vm, 0x0411) == 0 && cok_ecl_load_var(&vm, 0x05ee) == 0);
+    vm.character = record;
+    /* The name, a C string at +0x68. */
+    memcpy(record + 0x68, "GOLDMOON\0", 9);
+    char out[256];
+    cok_ecl_load_string(&vm, 0x0401, out);
+    CHECK(strcmp(out, "GOLDMOON") == 0);
+    cok_ecl_store_string(&vm, 0x0401, "RIVERWIND IS TALL");
+    CHECK(memcmp(record + 0x68, "RIVERWIND IS TA\0", 16) == 0);
+}
+
 int main(void)
 {
     test_dark_queen();
@@ -1218,6 +1307,7 @@ int main(void)
     test_special_addresses();
     test_death_knights_handlers();
     test_death_knights_fields();
+    test_dark_queen_fields();
     test_random();
     test_newecl();
     test_errors();

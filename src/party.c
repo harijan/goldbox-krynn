@@ -292,6 +292,138 @@ void cok_character_strength(cok_character *ch, const cok_rules *rules)
     }
 }
 
+/* One-file characters (Dark Queen's .QCH). */
+
+static uint32_t u32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+
+/* Clear the record's far pointers, which the port does not keep. */
+static void clear_pointers(const cok_character_layout *L, uint8_t *c)
+{
+    for (int f = 0; f < COK_FIELD_COUNT; ++f)
+        if (cok_field_present(L, (cok_field)f) && L->field[f].pointer)
+            memset(c + cok_field_offset(L, (cok_field)f), 0, cok_field_size(L, (cok_field)f));
+}
+
+/* Append item (COK_ITEM_SIZE bytes) to character's items. */
+static bool append_item(cok_character *character, const uint8_t *item)
+{
+    return cok_character_insert_item(character, character->item_count, item);
+}
+
+bool cok_character_from_bytes(cok_character *character, const cok_rules *rules,
+                              const uint8_t *data, size_t size, unsigned contents, size_t *used,
+                              char *error, size_t error_size)
+{
+    const cok_character_layout *L = rules->character;
+    const cok_rules_item_record *I = &rules->item_record;
+    memset(character, 0, sizeof *character);
+    *used = 0;
+    if (size < L->file_size) {
+        fail(error, error_size, "a record of %zu bytes, not %u (604b:05fd)", size,
+             (unsigned)L->file_size);
+        return false;
+    }
+    memcpy(character->record, data, L->file_size);
+    size_t at = L->file_size;
+    /* The items while the pointer is not nil, its low word counting them
+     * down (604b:05fd's DI): one at least. */
+    const uint8_t *c = character->record;
+    bool more = u32(c + cok_field_offset(L, COK_FIELD_ITEMS)) != 0;
+    int16_t left = (int16_t)u16(c + cok_field_offset(L, COK_FIELD_ITEMS));
+    while (more) {
+        if (size - at < I->file_size) {
+            cok_character_free(character);
+            fail(error, error_size, "the items end at byte %zu (604b:05fd)", size);
+            return false;
+        }
+        uint8_t item[COK_ITEM_SIZE] = {0};
+        memcpy(item + I->file_at, data + at, I->file_size);
+        at += I->file_size;
+        more = --left > 0;
+        if (I->container != 0 && item[I->type] == I->container &&
+            contents + item[I->count] > 0) {
+            /* 86b8:1f75's count with its own and those kept (none: a kept
+             * one has none) above 0: its contents are read past, and it is
+             * freed. */
+            size_t skip = (size_t)item[I->count] * I->file_size;
+            if (size - at < skip) {
+                cok_character_free(character);
+                fail(error, error_size, "a scroll's contents end at byte %zu (604b:05fd)", size);
+                return false;
+            }
+            at += skip;
+            character->contents_dropped = true;
+            continue;
+        }
+        if (!append_item(character, item)) {
+            cok_character_free(character);
+            fail(error, error_size, "out of memory");
+            return false;
+        }
+    }
+    /* The effects while each one's pointer to the next is not nil. */
+    more = u32(c + cok_field_offset(L, COK_FIELD_EFFECTS)) != 0;
+    while (more) {
+        if (size - at < COK_EFFECT_SIZE) {
+            cok_character_free(character);
+            fail(error, error_size, "the effects end at byte %zu (604b:05fd)", size);
+            return false;
+        }
+        const uint8_t *e = data + at;
+        at += COK_EFFECT_SIZE;
+        more = u32(e + 5) != 0;
+        if (cok_character_add_effect(character, e[0], u16(e + 1), e[3], e[4] != 0) == NULL) {
+            cok_character_free(character);
+            fail(error, error_size, "out of memory");
+            return false;
+        }
+    }
+    clear_pointers(L, character->record);
+    *used = at;
+    return true;
+}
+
+size_t cok_character_to_bytes(const cok_character *character, const cok_rules *rules,
+                              uint8_t *out, size_t capacity, char *error, size_t error_size)
+{
+    const cok_character_layout *L = rules->character;
+    const cok_rules_item_record *I = &rules->item_record;
+    size_t effects = 0;
+    for (const cok_effect *e = character->effects; e != NULL; e = e->next) ++effects;
+    for (size_t i = 0; i < character->item_count; ++i)
+        if (I->container != 0 && character->items[i][I->type] == I->container &&
+            character->items[i][I->count] != 0) {
+            fail(error, error_size, "item %zu is a scroll with contents, which the port does not "
+                                    "hold (604b:2200 writes them)", i + 1);
+            return 0;
+        }
+    size_t size = L->file_size + character->item_count * I->file_size + effects * COK_EFFECT_SIZE;
+    if (size > capacity) return size;
+    uint8_t *c = out;
+    memcpy(c, character->record, L->file_size);
+    clear_pointers(L, c);
+    /* 604b:2200 writes the count of items where their pointer is, a
+     * long. */
+    size_t items = cok_field_offset(L, COK_FIELD_ITEMS);
+    put16(c + items, (uint16_t)character->item_count);
+    if (effects > 0) c[cok_field_offset(L, COK_FIELD_EFFECTS)] = 1;
+    uint8_t *p = out + L->file_size;
+    for (size_t i = 0; i < character->item_count; ++i, p += I->file_size)
+        memcpy(p, character->items[i] + I->file_at, I->file_size);
+    for (const cok_effect *e = character->effects; e != NULL; e = e->next, p += COK_EFFECT_SIZE) {
+        memset(p, 0, COK_EFFECT_SIZE);
+        p[0] = e->id;
+        put16(p + 1, e->duration);
+        p[3] = e->value;
+        p[4] = e->on_remove;
+        if (e->next != NULL) p[5] = 1;
+    }
+    return size;
+}
+
 /* The recompute a loaded character ends with (4b6d:11e5; dkk 46b2:10d7):
  * its stats, then its levels; Death Knights' (casting's load_strength)
  * its strength between them (638c:16d8 with 0). */
@@ -323,6 +455,17 @@ bool cok_character_read_file(cok_character *character, const cok_rules *rules, c
         fail(error, error_size, "%s: %s", path, missing ? "not found" : "cannot read");
         return false;
     }
+    if (rules->saves.character_files == COK_CHARACTER_ONE_FILE) {
+        /* dqk 604b:05fd, with the party's containers' contents counted as
+         * none (the port reads a character without its party). */
+        size_t used;
+        char why[200];
+        bool ok = cok_character_from_bytes(character, rules, data, size, 0, &used, why,
+                                           sizeof why);
+        free(data);
+        if (!ok) fail(error, error_size, "%s: %s", path, why);
+        return ok && recompute(character, rules, types, path, error, error_size);
+    }
     const cok_character_layout *L = rules->character;
     /* The original reads what there is into a zeroed record. */
     memcpy(character->record, data, size < L->file_size ? size : L->file_size);
@@ -343,12 +486,214 @@ bool cok_character_read_file(cok_character *character, const cok_rules *rules, c
     return recompute(character, rules, types, path, error, error_size);
 }
 
+/* Dark Queen's import of a Death Knights character (dqk 604b:0b82). */
+
+/* An id by one of the import's maps: the case's, or the id kept. */
+static uint8_t mapped(const uint8_t (*ids)[2], size_t count, uint8_t id)
+{
+    for (size_t i = 0; i < count; ++i)
+        if (ids[i][0] == id) return ids[i][1];
+    return id;
+}
+
+/* The other game's file base.extension of a character, NULL with *size 0
+ * if it is missing; false with error set if it cannot be read. */
+static bool read_sibling(const char *dir, const char *base, const char *extension,
+                         uint8_t **data, size_t *size, char *error, size_t error_size)
+{
+    char path[4096];
+    snprintf(path, sizeof path, "%s/%s.%s", dir, base, extension);
+    bool missing;
+    *size = 0;
+    *data = read_file(path, size, &missing);
+    if (*data == NULL && !missing) {
+        fail(error, error_size, "%s: cannot read", path);
+        return false;
+    }
+    return true;
+}
+
+/* The records 604b:16f8 and 181b take from a file of size bytes, each of
+ * record bytes: those that start below size - 2 (their loops' test), the
+ * last one past the end read from the zeroed rest. */
+static size_t import_count(size_t size, size_t record)
+{
+    if (size == 0) return 0;
+    return size <= 2 ? 1 : (size - 2 + record - 1) / record;
+}
+
+/* A Death Knights item (63 bytes, .JNK) as Dark Queen's (604b:181b). */
+static void import_item(const cok_rules_import *I, const uint8_t *d, uint8_t *node)
+{
+    memset(node, 0, COK_ITEM_SIZE);
+    node[4] = d[0x29];
+    memcpy(node + 5, d + 1, 0x23);
+    node[5 + (d[0] < 0x22 ? d[0] : 0x22)] = 0; /* a C string of at most 0x22 */
+    node[0x28] = d[0x2e];
+    for (int k = 0; k < 3; ++k) node[0x29 + k] = mapped(I->word_ids, I->word_id_count, d[0x2f + k]);
+    node[0x30] = d[0x32];
+    node[0x31] = d[0x33];
+    node[0x32] = d[0x34];
+    node[0x33] = d[0x35];
+    node[0x34] = d[0x36];
+    memcpy(node + 0x2c, d + 0x37, 2);
+    node[0x35] = d[0x39];
+    memcpy(node + 0x2e, d + 0x3a, 2);
+    memcpy(node + 0x36, d + 0x3c, 3);
+    bool scroll = false;
+    for (const uint8_t *t = I->scroll_types; *t != 0xff; ++t)
+        if (node[0x28] == *t) scroll = true;
+    /* A scroll's three spells (6fd8:43f7); another's special power, an
+     * effect where +0x38 is 0x80, else a spell. The top bit stays. */
+    if (scroll) {
+        for (int k = 0; k < 3; ++k)
+            node[0x36 + k] = (uint8_t)(mapped(I->spell_ids, I->spell_id_count,
+                                              node[0x36 + k] & 0x7f) |
+                                       (node[0x36 + k] & 0x80));
+    } else if (node[0x38] == 0x80) {
+        node[0x37] = mapped(I->effect_ids, I->effect_id_count, node[0x37]);
+    } else {
+        node[0x37] = (uint8_t)(mapped(I->spell_ids, I->spell_id_count, node[0x37] & 0x7f) |
+                               (node[0x37] & 0x80));
+    }
+    if (node[0x28] == 0x34) {
+        node[0x28] = 0x33;
+        node[0x38] = 0;
+    }
+}
+
+static bool dark_queen_import(cok_character *character, const cok_rules *rules, const char *dir,
+                              const char *base, const char *extension, char *error,
+                              size_t error_size)
+{
+    const cok_rules_import *I = rules->characters.import;
+    const cok_character_layout *L = rules->character, *from = I->from->character;
+    const cok_rules_saves *S = &I->from->saves;
+    char path[4096];
+    snprintf(path, sizeof path, "%s/%s.%s", dir, base, extension);
+    uint8_t *data;
+    size_t size;
+    if (!read_sibling(dir, base, extension, &data, &size, error, error_size)) return false;
+    /* 604b:0cd7: the whole record or nothing. */
+    if (size < from->file_size) {
+        free(data);
+        fail(error, error_size, "%s: %s", path,
+             data == NULL ? "not found" : "shorter than a record (604b:0cd7)");
+        return false;
+    }
+    uint8_t *c = character->record, other[COK_CHARACTER_MAX] = {0};
+    memcpy(other, data, from->file_size);
+    free(data);
+    /* 604b:0d65: a record zeroed, the moves, a 0 after the name's text. */
+    for (size_t i = 0; i < I->move_count; ++i) {
+        const cok_rules_move *m = &I->moves[i];
+        assert(m->to + m->count <= L->file_size && m->from + m->count <= from->file_size);
+        memcpy(c + m->to, other + m->from, m->count);
+    }
+    size_t name = cok_field_offset(L, COK_FIELD_NAME);
+    c[name + (other[cok_field_offset(from, COK_FIELD_NAME)] < 15
+                  ? other[cok_field_offset(from, COK_FIELD_NAME)]
+                  : 15)] = 0;
+    /* Class 7 (an int) becomes 1, and the levels of class 7 class 1's: the
+     * moves of eight levels each put the eighth where the next field
+     * starts, which 0d65 moves to the second and clears (the former
+     * levels, the eighth at +0xb3 moved over again). */
+    size_t class_ = cok_field_offset(L, COK_FIELD_CLASS);
+    if (u16(c + class_) == 7) put16(c + class_, 1);
+    cok_field_set8_at(L, c, COK_FIELD_UNDRAINED_LEVEL, 1,
+                      cok_field_u8_at(from, other, COK_FIELD_UNDRAINED_LEVEL, 7));
+    cok_field_set8_at(L, c, COK_FIELD_CLASS_LEVEL, 1,
+                      cok_field_u8_at(from, other, COK_FIELD_CLASS_LEVEL, 7));
+    memset(c + cok_field_offset(L, COK_FIELD_FORMER_LEVEL), 0,
+           cok_field_size(L, COK_FIELD_FORMER_LEVEL));
+    /* 86b8:354b's caps on the hit points (+0x89, +0xbe, +0xc0, +0x198) and
+     * the recompute 66e5:0001 are not ported. */
+    clear_pointers(L, c);
+    /* The effects (604b:16f8): at most 0x8c bytes ("Too many effects"
+     * leaves none), each id by its map, its next pointer nil. */
+    if (!read_sibling(dir, base, S->effects, &data, &size, error, error_size)) return false;
+    if (size <= 0x8c) {
+        size_t n = import_count(size, COK_EFFECT_SIZE);
+        for (size_t i = 0; i < n; ++i) {
+            uint8_t e[COK_EFFECT_SIZE] = {0};
+            size_t at = i * COK_EFFECT_SIZE;
+            memcpy(e, data + at, size - at < sizeof e ? size - at : sizeof e);
+            if (cok_character_add_effect(character, mapped(I->effect_ids, I->effect_id_count, e[0]),
+                                         u16(e + 1), e[3], e[4] != 0) == NULL) {
+                free(data);
+                fail(error, error_size, "%s: out of memory", path);
+                return false;
+            }
+        }
+    }
+    free(data);
+    /* The items (604b:181b): at most 0x3f0 bytes ("Too many items!"
+     * leaves none), each converted; those of type 0x36 then taken away
+     * (177e:13d2). The original then readies again each readied one of
+     * type 0x3a whose +0x34 is 0 (86b8:1965 twice), not ported. */
+    if (!read_sibling(dir, base, S->items, &data, &size, error, error_size)) return false;
+    if (size <= 0x3f0) {
+        size_t n = import_count(size, COK_ITEM_SIZE);
+        for (size_t i = 0; i < n; ++i) {
+            uint8_t d[COK_ITEM_SIZE] = {0}, node[COK_ITEM_SIZE];
+            size_t at = i * COK_ITEM_SIZE;
+            memcpy(d, data + at, size - at < sizeof d ? size - at : sizeof d);
+            import_item(I, d, node);
+            if (!append_item(character, node)) {
+                free(data);
+                fail(error, error_size, "%s: out of memory", path);
+                return false;
+            }
+        }
+        for (size_t i = character->item_count; i-- > 0;)
+            if (character->items[i][rules->item_record.type] == 0x36)
+                cok_character_remove_item(character, i);
+    }
+    free(data);
+    /* The spells (604b:2021): under 0xdd bytes ("Too much magic!" leaves
+     * none); the memorized and the known by the map, the known as bits
+     * (an id past 128 reaching past them, as the original's arithmetic
+     * does, into the spells a day, which then go over it), the spells a
+     * day's rows 0-3 of eight to rows 0, 1, 3 and 2. */
+    if (!read_sibling(dir, base, S->spells, &data, &size, error, error_size)) return false;
+    if (size > 0 && size < 0xdd) {
+        uint8_t w[0xdd] = {0};
+        memcpy(w, data, size);
+        for (size_t i = 0; i < 0x4a; ++i)
+            cok_field_set8_at(L, c, COK_FIELD_MEMORIZED, i,
+                              mapped(I->spell_ids, I->spell_id_count, w[i]));
+        size_t bits = cok_field_offset(L, COK_FIELD_KNOWN_SPELL_BITS);
+        memset(c + bits, 0, cok_field_size(L, COK_FIELD_KNOWN_SPELL_BITS));
+        for (unsigned i = 0; i < 0x72; ++i) {
+            unsigned id = mapped(I->spell_ids, I->spell_id_count, (uint8_t)(i + 1));
+            if (w[0x4a + i] != 0 && id >= 1 && bits + (id - 1) / 8 < L->size)
+                c[bits + (id - 1) / 8] |= (uint8_t)(1u << (id - 1) % 8);
+        }
+        static const int rows[4] = {0, 1, 3, 2};
+        for (int r = 0; r < 4; ++r)
+            memcpy(c + cok_field_offset_at2(L, COK_FIELD_SPELLS_A_DAY, rows[r], 1),
+                   w + 0xbc + 8 * r, 8);
+    }
+    free(data);
+    return true;
+}
+
 bool cok_character_import(cok_character *character, const cok_rules *rules, const char *dir,
                           const char *base, const char *extension,
                           const cok_item_types *types, char *error, size_t error_size)
 {
     const cok_rules_import *I = rules->characters.import;
     assert(I != NULL && "the game imports no other game's characters");
+    if (I->routine == COK_IMPORT_DARK_QUEEN) {
+        memset(character, 0, sizeof *character);
+        char path[4096];
+        snprintf(path, sizeof path, "%s/%s.%s", dir, base, extension);
+        if (!dark_queen_import(character, rules, dir, base, extension, error, error_size)) {
+            cok_character_free(character);
+            return false;
+        }
+        return recompute(character, rules, types, path, error, error_size);
+    }
     const cok_character_layout *L = rules->character, *from = I->from->character;
     memset(character, 0, sizeof *character);
     char path[4096];
@@ -474,6 +819,12 @@ cok_effect *cok_character_find_effect(const cok_character *character, uint8_t id
 
 bool cok_item_types_read(const char *path, cok_item_types *types, char *error, size_t error_size)
 {
+    return cok_item_types_read_at(path, 2, types, error, error_size);
+}
+
+bool cok_item_types_read_at(const char *path, size_t at, cok_item_types *types, char *error,
+                            size_t error_size)
+{
     bool missing;
     size_t size = 0;
     uint8_t *data = read_file(path, &size, &missing);
@@ -482,11 +833,12 @@ bool cok_item_types_read(const char *path, cok_item_types *types, char *error, s
         return false;
     }
     /* 3e99:005b seeks to offset 2 and reads up to 0x810 bytes, 129 types,
-     * into DS:5886; ITEMS holds 128, so the 129th stays zero. */
+     * into DS:5886; ITEMS holds 128, so the 129th stays zero (dqk
+     * 64b2:0006 reads 0x800 from the start of ITEMS.DAT). */
     memset(types, 0, sizeof *types);
-    if (size > 2) {
-        size_t length = size - 2 < sizeof types->type ? size - 2 : sizeof types->type;
-        memcpy(types->type, data + 2, length);
+    if (size > at) {
+        size_t length = size - at < sizeof types->type ? size - at : sizeof types->type;
+        memcpy(types->type, data + at, length);
     }
     free(data);
     return true;
@@ -790,6 +1142,8 @@ bool cok_character_round_movement(cok_character *character, const cok_rules *rul
 bool cok_character_stats(cok_character *character, const cok_rules *rules,
                          const cok_item_types *types, char *error, size_t error_size)
 {
+    /* Dark Queen's (dqk 177e:0be2) not ported: the record as it is. */
+    if (rules->characters.stats == COK_STATS_NONE) return true;
     lookup l = {error, error_size, false, rules->data};
     const cok_character_layout *L = rules->character;
     uint8_t *c = character->record;
@@ -1404,6 +1758,7 @@ static bool death_knights_levels(cok_character *character, const cok_rules *rule
 bool cok_character_levels(cok_character *character, const cok_rules *rules,
                           const cok_item_types *types, char *error, size_t error_size)
 {
+    if (rules->characters.levels == COK_LEVELS_NONE) return true;
     if (rules->characters.levels == COK_LEVELS_DEATH_KNIGHTS)
         return death_knights_levels(character, rules, types, error, error_size);
     return champions_levels(character, rules, types, error, error_size);
@@ -1514,10 +1869,7 @@ static void draw_name(cok_picture *dst, const cok_font *font, const cok_characte
                       const uint8_t *record, int x, int y, uint8_t color)
 {
     char name[16];
-    uint8_t stored = cok_field_u8_at(L, record, COK_FIELD_NAME, 0);
-    size_t length = stored > 15 ? 15 : stored;
-    memcpy(name, record + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
-    name[length] = '\0';
+    cok_field_name(L, record, name);
     cok_text_string(dst, font, name, x, y, color, 0);
 }
 
@@ -1789,6 +2141,19 @@ bool cok_character_write_file(const cok_character *character, const cok_rules *r
     const cok_character_layout *L = rules->character;
     char path[4096];
     snprintf(path, sizeof path, "%s/%s.%s", dir, base, extension);
+    if (rules->saves.character_files == COK_CHARACTER_ONE_FILE) {
+        char why[200];
+        size_t size = cok_character_to_bytes(character, rules, NULL, 0, why, sizeof why);
+        uint8_t *bytes = size > 0 ? malloc(size) : NULL;
+        if (size == 0 || bytes == NULL) {
+            fail(error, error_size, "%s: %s", path, size == 0 ? why : "out of memory");
+            return false;
+        }
+        cok_character_to_bytes(character, rules, bytes, size, why, sizeof why);
+        bool ok = write_file(path, bytes, size, error, error_size);
+        free(bytes);
+        return ok;
+    }
     /* The record goes as it is; its far pointers, which the original
      * writes as they are in memory and its loader clears, are 0 here (the
      * spells' block's, which the port marks, too). */

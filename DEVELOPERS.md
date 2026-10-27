@@ -61,6 +61,8 @@ rm -f build/krynn.cfg
 ./build/eclplay --game dark-queen --set 22=1 --screen build/dqk4.bmp --keys '\r' DQKAssets 4
 ./build/eclplay --game dark-queen --start-menu --shots build/dqk-title \
     --keys '\k \k \k \k \k \k \k \k Q' DQKAssets
+./build/eclplay --game dark-queen --character DQKAssets/SAVE/BALTHIRN.QCH \
+    --start 9695 --set bf=0 --keys '\r' DQKAssets 5
 python3 tools/hlib.py list DQKAssets/DISK1/TITLE.TLB
 python3 tools/hlib.py pngs DQKAssets/DISK1/TITLE.TLB build/dqk-title \
     --palette DQKAssets/DISK1/ALWAYS.TLB --palette DQKAssets/DISK3/FRAME.TLB
@@ -147,9 +149,11 @@ AdLib's chip in `tests/test_opl2.c`; Death Knights' songs' driver in
 `KRYNN.CFG` (`tests/test_config.c`), the games' descriptors and `--game`
 (`tests/test_rules.c`, see [Games](docs/games.md#games)), The Dark Queen of Krynn's
 libraries, pictures and palettes (`tests/test_vga.c`: made-up records,
-and its 1,827 pictures where `DQKAssets/` holds them) and its scripts,
+and its 1,827 pictures where `DQKAssets/` holds them), its scripts,
 title and 3D view read headless (`tests/test_dark_queen.py`, skipped
-without `DQKAssets/`), Death Knights of Krynn's descriptor,
+without `DQKAssets/`), and its characters, items and monsters (its
+`.QCH` files read and written again, Death Knights' imported, MONCHA's
+98: `tests/test_party.c`, `tests/test_monster.c`, `tests/test_ecl.c`), Death Knights of Krynn's descriptor,
 tools and scripts where `DKKAssets/` holds its files
 (`tests/test_death_knights.c` against `build/death-START_FULL.EXE`, which
 `make test` then builds, and `tests/test_death_knights.py`; each says so

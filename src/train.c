@@ -505,9 +505,7 @@ void cok_train_knight(cok_adventure *game)
     const char *menu = V->change_always ? "Change Exit" : "Exit";
     char name[16], text[64];
     uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
-    size_t length = stored > 15 ? 15 : stored;
-    memcpy(name, c + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
-    name[length] = '\0';
+    cok_field_name(L, c, name);
     draw(game, name, 19 - (int)(stored >> 1), 3);
     draw(game, "is petitioning to become a", 7, 5);
     /* For a knight of no order the suffix is a local never set, which the
@@ -613,10 +611,7 @@ bool cok_train_aging(cok_adventure *game)
             continue;
         }
         char name[16], text[128];
-        uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
-        size_t length = stored > 15 ? 15 : stored;
-        memcpy(name, c + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
-        name[length] = '\0';
+        cok_field_name(L, c, name);
         clear_cells(game, 0x17, 0x0e, 0x26, 0x15);
         snprintf(text, sizeof text, "%s%s%s", V->strain, name, V->strain_end);
         panel_text(game, text);

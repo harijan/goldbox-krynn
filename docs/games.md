@@ -434,9 +434,9 @@ original draws them (`make dqk-checks`' `dqk_views.py` and `dqk_boot.py`:
 see [Checks against the original](checks.md)). Its `unplayable` says why
 `krynn` refuses it, and `eclplay` its saved games, parties, `--play` and
 the start menu's Play (DARK-QUEEN.md's step 2). What is not ported is left
-out of the descriptor (the character record, the data segment, spells,
-combat), so that code reaching it stops at an assertion, and its opcodes
-that need them stop the run, citing their handlers (`unported`). It holds:
+out of the descriptor (the data segment, spells, combat), so that code
+reaching it stops at an assertion, and its opcodes that need them stop the
+run, citing their handlers (`unported`). It holds:
 
 - its files: HLIB libraries, not DAX archives (`archives.format`
   `COK_ARCHIVE_HLIB`, `src/hlib.c`: `"HLIB"`, u32 size, u16 count, u16
@@ -470,9 +470,8 @@ that need them stop the run, citing their handlers (`unported`). It holds:
   instructions in its 47 blocks (`ecldump --game dark-queen --summary
   DQKAssets/DISK3/ECL.GLB`), every IF agreeing. Its variables are the
   bytes of the 1 KB at far `DS:b20f`, `0x0001`-`0x0400`, the selected
-  character's fields `0x0401`-`0x0800` (`6c70:040d`, `1b5e`: not read
-  yet, the record not ported, so that these read 0 and stores to them do
-  nothing), the block from `0x8000` in a buffer of 0x2ee3 bytes
+  character's fields `0x0401`-`0x0800` (see Dark Queen's characters
+  below), the block from `0x8000` in a buffer of 0x2ee3 bytes
   (`64b2:0131`), its record with no header (`cok_rules_ecl`'s layout:
   `area_first`, `game_*`, `scratch_*`, `code_size`, `block_header`,
   `name_address`); its special addresses inside the variables, each store
@@ -538,6 +537,86 @@ clipped to cells 3-13. The title (`6523:0345`: `TITLE.TLB`'s eight
 scenes, each on its backdrop, passed by Space, Escape or a key) and
 main's menu (`5ebd:00ef`: Play, Demo, Quit) are `eclplay --start-menu`'s.
 
+#### Dark Queen's characters
+
+Its record is `dark_queen_character` (`src/rules_dark_queen.c`, each field
+with its evidence: where Death Knights' import `604b:0d65` moves Death
+Knights' field to, where the ECL's fields `6c70:040d` and the stats
+`177e:0be2` have it): 0x19e bytes in memory and in its files alike, so
+that the record is not of a variable length and fits the buffer
+(`COK_CHARACTER_MAX`); what varies, its items and effects, the port holds
+in the character's lists, as it holds the earlier games'. Its C rewrite
+keeps an enum as an int: race, class, undead, gender, alignment, status,
+hostile and deity are words, named by their low byte (the high one 0 in
+every file and import), which the ECL reads as words. Its name is a C
+string at +0x68 (the layout's `c_name`: `cok_field_name` and
+`cok_field_set_name` read and write a name in either form), it knows its
+spells as bits (`KNOWN_SPELL_BITS`, 16 bytes at +0x157, by id - 1) and
+has nine levels of spells a day in each of its four rows; it has the
+former levels and the level a human changed class at (+0xac, +0x92), but
+no fighter level, shares, levels shared out, icon colours or experience
+for a monster's hit points. Nothing of the derived fields is recomputed
+yet (`COK_STATS_NONE`, `COK_LEVELS_NONE`: `177e:0be2`, which the loaders
+run, is step 4's): a loaded record keeps those its file holds, the
+original's own, and `cok_character`'s readied slots stay 0.
+
+A character's file is one (`saves.character_files`
+`COK_CHARACTER_ONE_FILE`, `.QCH`; `cok_character_from_bytes` and
+`to_bytes` for the copies a saved game holds): the record, then, while its
+items' far pointer (+8) is not nil, items of 17 bytes, as many as the
+pointer's low word (the writer `604b:2200` puts the count there, as a long),
+then, while the effects' pointer (+4) is not nil, effects of 9 bytes, each
+with its next pointer (`604b:05fd`). An item is 17 bytes in its files
+(`rules.item_record`): the port holds it as the original's 0x3d-byte item
+in memory, those bytes at +0x28 (+0x28 its type, +0x2c its weight, +0x32
+readied, +0x35 how many), with a name at +5 that no file holds; a scroll
+(type 0x49) is followed in a file by as many items as it holds, which
+`604b:05fd` drops with it ("SCROLLS DROPPED!") whenever there are any, so
+that the port holds no scroll's contents (its writer refuses one with
+some). The pointers' bytes the original writes as its heap has them; its
+loader tests them against nil only: the port writes the items' pointer as
+the original does (their count), the effects' and each effect's next as 1
+or 0, and the others 0. Every shipped `.QCH` reads and writes again byte
+for byte but those. `ITEMS.DAT` is the item types, 128 of 16 bytes read
+from its start (`64b2:0006`; `files.item_types_at` 0 where Champions'
+skips 2); `ITEM.DAT` 254 items of 17 bytes, entries 1-254 of the
+treasure's table (`64b2:066c`, entry 0 all 0xff).
+
+Its monsters are `MONCHA.GLB`'s records by id (`archives.monster_library`:
+`cok_monster_read`, `604b:257c`): a big-endian size, then PackBits of the
+record, a count of effects and of items, the effects of 5 bytes and the
+items of 17, its pointers cleared, its item count and the classes whose
+items it can use (DS:63f3's bits by its classes with levels,
+`characters.class_usable`) set again; all 98 read.
+
+Death Knights' characters import (`characters.import`'s
+`COK_IMPORT_DARK_QUEEN`, `604b:0b82`, the `.pc` files of the Death Knights
+save path `DQK.CFG` names, and `604b:2bcf` a Death Knights saved game's,
+`SAVGAM<letter>.PTY`'s `CHRDAT<letter><n>.GAM`, its NPCs left out): the
+record whole or not at all, 64 moves into a zeroed record, the name made a
+C string, class 7 (the eighth's levels) made class 1; the effects (`.EFF`,
+at most 0x8c bytes), each id by `604b:1cc7`'s map; the items (`.JNK`, at
+most 0x3f0 bytes) each made Dark Queen's 61 bytes (`604b:181b`), its
+name's words by `604b:1bf1`'s map and its spells by `604b:1ea3`'s (a
+scroll's three, another's power an effect where +0x38 is 0x80), type 0x34
+made 0x33, type 0x36 dropped; the spells (`.WIZ`, under 0xdd bytes): the
+memorized and known by the spells' map, the known as bits, the spells a
+day's rows 0-3 to rows 0, 1, 3, 2. Not ported: the caps of the hit points
+by level (`86b8:354b`), the recompute after (`66e5:0001`, `177e:0be2`)
+and the item of type 0x3a readied again (`86b8:1965`).
+
+The ECL's `0x0401`-`0x0800` are the selected character's fields alone
+(`ecl.game_fields_only`; `game_first` 0x401): `0x041f`-`0x04ab` the
+record's bytes from +0xce (the memorized spells and on, `COK_ECL_FIELD_RAW`;
+a store of 0 forgets a spell there, 0x80, and 0xff is 0:
+`COK_ECL_FIELD_FORGET`), the others by its table (`6c70:045a`, 58
+addresses), the ints as words (`COK_ECL_FIELD_INT`), a store of the status
+making it able to act or not (`COK_ECL_FIELD_STATUS_INT`); an address no
+field is reads 0 and a store to it does nothing; a store goes in whole,
+whatever its operand's width (`6c70:06d2`). `eclplay --game dark-queen
+--character FILE.QCH` adds characters to run blocks that read them (the
+party's other options are a playable game's).
+
 ### The character record's layout
 
 A character stays a record of raw bytes (`cok_character.record`), as the
@@ -586,7 +665,12 @@ fields are the levels, experience and maximum hit points before a drain
 (`UNDRAINED_LEVEL` at +0x4d, `_EXPERIENCE` +0x66, `_MAX_HIT_POINTS` +0x6a:
 `504d:14c7` keeps them, Restoration's `3999:045f` compares them), which
 Champions has not. No two of its fields share a byte, and one byte, the
-import's 0 at +0xc6, is none's.
+import's 0 at +0xc6, is none's. Dark Queen's (`dark_queen_character`:
+see Dark Queen's characters above) is 0x19e bytes, its file's too, its
+name a C string (`c_name`) and its known spells bits
+(`KNOWN_SPELL_BITS`, a field of its own); no two of its fields share a
+byte, and the bytes none holds are its ints' high bytes and those no
+routine was found to read.
 
 The accessors are `static inline` over the table, each check folding to
 a compare or two (a combat round calls them often: the stat routines
@@ -688,8 +772,9 @@ with a comment; give Champions' place in `champions_character`
 `POINTER`, `POINTERS`) and a comment saying what it is and where the
 original reads it, and Death Knights' in `death_knights_character`
 (`src/rules_death_knights.c`; width 0, left out, where it has none, and a
-field only it has left out of Champions'); and add it to `expected` and
-`dkk_expected` in `tests/test_layout.c`, which check every field's place
+field only it has left out of Champions'), and Dark Queen's in
+`dark_queen_character` (`src/rules_dark_queen.c`); and add it to
+`expected`, `dkk_expected` and `dqk_expected` in `tests/test_layout.c`, which check every field's place
 and that no two share a byte (a field that does, as known spell 108 and
 the highest fighter level do in Champions', is listed there as
 documented); `tests/test_death_knights.c` checks that a field the import

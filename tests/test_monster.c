@@ -1154,6 +1154,65 @@ static void test_death_knights_monsters(void)
     cok_adventure_close(&dkk);
 }
 
+/* Dark Queen's monsters (dqk 604b:257c): every record of MONCHA.GLB, a
+ * big-endian size and PackBits of the record (0x19e bytes, its pointers
+ * cleared, its usable classes from its levels), its effects of 5 bytes and
+ * its items of 17. Skipped without DQKAssets. */
+static void test_dark_queen_monsters(void)
+{
+    static cok_adventure dqk;
+    script quiet = {"", 0, 0, ""};
+    cok_keyboard keys = {scripted, &quiet, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &quiet};
+    FILE *f = fopen("DQKAssets/DISK2/MONCHA.GLB", "rb");
+    if (f == NULL) {
+        puts("monster: DQKAssets not found; Dark Queen's monsters not read");
+        return;
+    }
+    fclose(f);
+    CHECK(cok_adventure_open(&dqk, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
+    const cok_character_layout *L = cok_rules_dark_queen.character;
+    size_t read_count = 0, items = 0, effects = 0;
+    for (unsigned id = 0; id < 256; ++id) {
+        size_t size = 0;
+        bool no_file;
+        uint8_t *data = cok_adventure_find_record(&dqk, "MONCHA.GLB", (uint8_t)id, &size, &no_file);
+        if (data == NULL) continue;
+        cok_character m;
+        CHECK(cok_monster_read(&dqk, (uint8_t)id, &m));
+        free(data);
+        char name[16];
+        CHECK(cok_field_name(L, m.record, name) > 0);
+        for (size_t i = 0; i < 0x44; ++i)
+            if (cok_field_pointer_at(L, (long)i)) CHECK(m.record[i] == 0);
+        uint8_t usable = 0;
+        static const uint8_t bits[7] = {0x02, 0x10, 0x08, 0x40, 0x80, 0x01, 0x04};
+        for (int k = 0; k < 7; ++k)
+            if (cok_field_u8_at(L, m.record, COK_FIELD_CLASS_LEVEL, k) > 0) usable += bits[k];
+        CHECK(cok_field_u8(L, m.record, COK_FIELD_USABLE_CLASSES) == usable);
+        CHECK(cok_field_u8(L, m.record, COK_FIELD_ITEM_COUNT) == m.item_count);
+        size_t n = 0;
+        for (const cok_effect *e = m.effects; e != NULL; e = e->next) ++n;
+        if (id == 1) {
+            /* The black pudding: four effects, 0x62, 0x06, 0xc1, 0xba. */
+            CHECK(strcmp(name, "BLACK PUDDING") == 0 && n == 4 && m.item_count == 0);
+            CHECK(m.effects->id == 0x62 && m.effects->value == 0xff &&
+                  m.effects->next->id == 0x06);
+        }
+        if (id == 50) {
+            CHECK(strcmp(name, "DARK WIZARD") == 0 && n == 10 && m.item_count == 2);
+            CHECK(m.items[0][0x28] == 0x0f && m.items[0][0x28 + 3] == 0x0f && m.items[1][0x35] == 0x1e);
+        }
+        ++read_count;
+        items += m.item_count;
+        effects += n;
+        cok_character_free(&m);
+    }
+    /* MONCHA's 98, with 106 items and 285 effects. */
+    CHECK(read_count == 98 && items == 106 && effects == 285);
+    cok_adventure_close(&dqk);
+}
+
 int main(void)
 {
     open_game();
@@ -1175,6 +1234,7 @@ int main(void)
     test_combat();
     test_full_list();
     test_death_knights_monsters();
+    test_dark_queen_monsters();
     cok_adventure_close(&game);
     puts("monster tests passed");
     return 0;

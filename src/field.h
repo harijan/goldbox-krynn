@@ -20,7 +20,7 @@ enum {
     COK_CHARACTER_SIZE = 0x199,
     /* The largest record of any game's: the buffer a character holds.
      * Death Knights' 216-byte record and its 220-byte spells' block
-     * (.WIZ) after it. */
+     * (.WIZ) after it; Dark Queen's record, 414 bytes, fits. */
     COK_CHARACTER_MAX = 0xd8 + 0xdc,
 };
 
@@ -29,7 +29,8 @@ enum {
  * Pascal array's lower bound): the thief skills 1-8, the class levels
  * 0-7. */
 typedef enum {
-    COK_FIELD_NAME,                      /* A Pascal string: 0 the length, 1-15 the text. */
+    COK_FIELD_NAME,                      /* A Pascal string: 0 the length, 1-15 the text; in
+                                          * a layout with c_name, a C string (cok_field_name). */
     COK_FIELD_SCORE_BASE,                /* The scores before effects, by COK_SCORE_. */
     COK_FIELD_SCORE,                     /* The scores now. */
     COK_FIELD_STRENGTH_EXCEPTIONAL,      /* Exceptional strength now, 18/xx. */
@@ -110,6 +111,8 @@ typedef enum {
     COK_FIELD_DAMAGE_BONUS,              /* By attack, 1-2. */
     COK_FIELD_HIT_POINTS,
     COK_FIELD_MOVEMENT,
+    COK_FIELD_KNOWN_SPELL_BITS,          /* The spells known as bits, by id - 1: bit (id - 1) % 8
+                                          * (1 << n) of byte (id - 1) / 8 (Dark Queen's). */
     COK_FIELD_COUNT
 } cok_field;
 
@@ -149,6 +152,10 @@ typedef struct {
      * Knights' .WIZ, MON1WIZ): the block's bytes, held in the record past
      * its file's bytes, at spells_offset; 0 where the record holds them. */
     uint16_t spells_offset, spells_size;
+    /* Whether the name (NAME) is a C string, its text up to its first 0
+     * (Dark Queen's: dqk 604b:0d65 copies a Pascal name's text and ends it
+     * with a 0), rather than a Pascal string. */
+    bool c_name;
     cok_field_place field[COK_FIELD_COUNT];
 } cok_character_layout;
 
@@ -275,6 +282,43 @@ static inline bool cok_field_pointer_at(const cok_character_layout *L, long offs
             return true;
     }
     return false;
+}
+
+/* The name of record c, its text at most 15 characters, into out (ended
+ * with a 0); returns its length. */
+static inline size_t cok_field_name(const cok_character_layout *L, const uint8_t *c, char out[16])
+{
+    const cok_field_place *d = &L->field[COK_FIELD_NAME];
+    assert(d->width == 1 && d->count == 16 && "the game's records have no name of 16 bytes");
+    size_t length = 0;
+    if (L->c_name) {
+        while (length < 15 && c[d->offset + length] != 0) {
+            out[length] = (char)c[d->offset + length];
+            ++length;
+        }
+    } else {
+        length = c[d->offset] > 15 ? 15 : c[d->offset];
+        for (size_t i = 0; i < length; ++i) out[i] = (char)c[d->offset + 1 + i];
+    }
+    out[length] = '\0';
+    return length;
+}
+
+/* Set the name of record c to the first n characters of text (n at most
+ * 15): a Pascal string's length and text, its other bytes as they were;
+ * a C string's text and its 0. */
+static inline void cok_field_set_name(const cok_character_layout *L, uint8_t *c, const char *text,
+                                      size_t n)
+{
+    const cok_field_place *d = &L->field[COK_FIELD_NAME];
+    assert(d->width == 1 && d->count == 16 && n <= 15);
+    if (L->c_name) {
+        for (size_t i = 0; i < n; ++i) c[d->offset + i] = (uint8_t)text[i];
+        c[d->offset + n] = 0;
+    } else {
+        c[d->offset] = (uint8_t)n;
+        for (size_t i = 0; i < n; ++i) c[d->offset + 1 + i] = (uint8_t)text[i];
+    }
 }
 
 /* Where an access lies, checked: width is the access's, a constant at

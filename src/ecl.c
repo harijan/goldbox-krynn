@@ -393,7 +393,8 @@ static const cok_character_layout *layout(const cok_ecl *vm)
     return vm->rules->character;
 }
 
-/* The game's entry for field (an offset from 0x7c00) read or written, or
+/* The game's entry for field (an offset from game_first: 0x7c00, dqk
+ * 0x401) read or written, or
  * NULL: the variable itself. */
 static const cok_rules_character_var *character_var(const cok_ecl *vm, unsigned field, bool write)
 {
@@ -414,11 +415,21 @@ static long element(const cok_rules_character_var *e, unsigned field)
     return (long)e->index + (long)(field - e->first) / (e->step != 0 ? e->step : 1);
 }
 
-/* Character fields read through 0x7c00-0x7fff (3775:07d9, dkk 3c1e:073a);
- * *found is false for addresses that read the variable itself. */
+/* Where the element k of field f would lie in record c, unchecked (the
+ * original's arithmetic): the record's size bounds it, past which the
+ * original reads what follows its record and the port 0. */
+static long raw_at(const cok_character_layout *L, cok_field f, long k)
+{
+    long at = cok_field_offset_unchecked(L, f, 0, k);
+    return at >= 0 && at < (long)L->size ? at : -1;
+}
+
+/* Character fields read through 0x7c00-0x7fff (3775:07d9, dkk 3c1e:073a;
+ * dqk 0x401-0x800, 6c70:040d); *found is false for addresses that read the
+ * variable itself. */
 static uint16_t character_field(const cok_ecl *vm, uint16_t address, bool *found)
 {
-    unsigned field = address - 0x7c00u;
+    unsigned field = address - vm->rules->ecl.game_first;
     const cok_rules_character_var *e = character_var(vm, field, false);
     *found = e != NULL;
     if (e == NULL) return 0;
@@ -447,6 +458,14 @@ static uint16_t character_field(const cok_ecl *vm, uint16_t address, bool *found
     case COK_ECL_FIELD_U8: return cok_field_u8_at(L, c, f, k);
     case COK_ECL_FIELD_S8: return (uint16_t)(int16_t)cok_field_s8_at(L, c, f, k);
     case COK_ECL_FIELD_U16: return cok_field_u16_at(L, c, f, k);
+    case COK_ECL_FIELD_RAW: {
+        long at = raw_at(L, f, k);
+        return at < 0 ? 0 : c[at];
+    }
+    case COK_ECL_FIELD_INT: {
+        size_t at = cok_field_offset_at(L, f, k);
+        return (uint16_t)(c[at] | c[at + 1] << 8);
+    }
     case COK_ECL_FIELD_STATUS:
         if (vm->missing_character) return 0;
         switch (cok_field_u8(L, c, COK_FIELD_STATUS)) {
@@ -506,7 +525,8 @@ uint16_t cok_ecl_load_var(const cok_ecl *vm, uint16_t address)
     case GAME: {
         bool found;
         uint16_t value = character_field(vm, address, &found);
-        return found ? value : *word(vm, area, address);
+        if (found) return value;
+        return vm->rules->ecl.game_fields_only ? 0 : *word(vm, area, address);
     }
     case CODE: return vm->code[address - COK_ECL_BASE];
     /* Unlisted special addresses leave the original's result unset; 0
@@ -516,10 +536,10 @@ uint16_t cok_ecl_load_var(const cok_ecl *vm, uint16_t address)
 }
 
 /* Character fields written through 0x7c00-0x7fff (3775:0c00, dkk
- * 3c1e:0a9a). */
+ * 3c1e:0a9a; dqk 0x401-0x800, 6c70:1b5e). */
 static void store_character(cok_ecl *vm, uint16_t address, uint16_t value)
 {
-    unsigned field = address - 0x7c00u;
+    unsigned field = address - vm->rules->ecl.game_first;
     const cok_rules_character_var *e = character_var(vm, field, true);
     if (e == NULL) return;
     switch (e->write) {
@@ -547,6 +567,28 @@ static void store_character(cok_ecl *vm, uint16_t address, uint16_t value)
     switch (e->write) {
     case COK_ECL_FIELD_U8: cok_field_set8_at(L, c, f, k, (uint8_t)value); break;
     case COK_ECL_FIELD_U16: cok_field_set16_at(L, c, f, k, value); break;
+    case COK_ECL_FIELD_RAW: {
+        long at = raw_at(L, f, k);
+        if (at >= 0) c[at] = (uint8_t)value;
+        break;
+    }
+    case COK_ECL_FIELD_FORGET: {
+        long at = raw_at(L, f, k);
+        if (at < 0) break;
+        if (value == 0xff) value = 0;
+        if (value == 0 && c[at] != 0 && (c[at] & 0x80) == 0) c[at] |= 0x80;
+        else c[at] = (uint8_t)value;
+        break;
+    }
+    case COK_ECL_FIELD_INT:
+    case COK_ECL_FIELD_STATUS_INT: {
+        size_t at = cok_field_offset_at(L, f, k);
+        c[at] = (uint8_t)value;
+        c[at + 1] = (uint8_t)(value >> 8);
+        if (e->write == COK_ECL_FIELD_STATUS_INT)
+            cok_field_set8(L, c, COK_FIELD_ACTIVE, value == 0);
+        break;
+    }
     case COK_ECL_FIELD_NPC:
         cok_field_set8_at(L, c, f, k, (uint8_t)(value > 0xb2 ? value - 0x32 : value));
         break;
@@ -598,6 +640,7 @@ static uint16_t load_sized(const cok_ecl *vm, uint16_t address, bool wide)
 static void store_sized(cok_ecl *vm, uint16_t address, uint16_t value, bool wide)
 {
     bool bytes = byte_variables(vm);
+    uint16_t whole = value;
     if (bytes && !wide) value &= 0xff;
     bool high = bytes && wide;
     int area = area_of(vm, address);
@@ -625,6 +668,13 @@ static void store_sized(cok_ecl *vm, uint16_t address, uint16_t value, bool wide
         break;
     }
     case GAME:
+        /* A game whose addresses there are the fields alone keeps no
+         * variable beneath them, and stores the value whole whatever the
+         * operand's width (dqk 6c70:06d2 hands it to 6c70:1b5e). */
+        if (vm->rules->ecl.game_fields_only) {
+            store_character(vm, address, whole);
+            break;
+        }
         *word(vm, area, address) = high ? value & 0xff : value;
         if (high) store_high(vm, address, value);
         store_character(vm, address, value);
@@ -667,10 +717,7 @@ void cok_ecl_load_string(const cok_ecl *vm, uint16_t address, char out[256])
     if (address == vm->rules->ecl.name_address) {
         if (cok_ecl_selection_freed(vm)) freed_read((cok_ecl *)vm);
         if (vm->character != NULL) {
-            const cok_character_layout *L = layout(vm);
-            uint8_t stored = cok_field_u8_at(L, vm->character, COK_FIELD_NAME, 0);
-            length = stored > 15 ? 15 : stored;
-            memcpy(out, vm->character + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
+            length = (unsigned)cok_field_name(layout(vm), vm->character, out);
         }
     } else if (area == CODE) {
         const uint8_t *b;
@@ -692,10 +739,7 @@ void cok_ecl_store_string(cok_ecl *vm, uint16_t address, const char *text)
     if (address == vm->rules->ecl.name_address) {
         if (cok_ecl_selection_freed(vm)) freed_read(vm);
         if (vm->character != NULL) {
-            const cok_character_layout *L = layout(vm);
-            unsigned n = length > 15 ? 15 : length;
-            cok_field_set8_at(L, vm->character, COK_FIELD_NAME, 0, (uint8_t)n);
-            memcpy(vm->character + cok_field_offset_at(L, COK_FIELD_NAME, 1), text, n);
+            cok_field_set_name(layout(vm), vm->character, text, length > 15 ? 15 : length);
         }
         return;
     }

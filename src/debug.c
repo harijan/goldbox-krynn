@@ -75,6 +75,11 @@ static void open_file(cok_adventure *game)
 void cok_debug_name(const uint8_t *record, const cok_rules *rules, char out[256])
 {
     const cok_character_layout *L = rules->character;
+    if (L->c_name) {
+        cok_field_name(L, record, out);
+        return;
+    }
+    /* A Pascal name's whole length, which a file may make past 15. */
     uint8_t length = cok_field_u8_at(L, record, COK_FIELD_NAME, 0);
     memcpy(out, record + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
     out[length] = '\0';
