@@ -332,7 +332,9 @@ bool cok_character_from_bytes(cok_character *character, const cok_rules *rules,
      * down (604b:05fd's DI): one at least. */
     const uint8_t *c = character->record;
     bool more = u32(c + cok_field_offset(L, COK_FIELD_ITEMS)) != 0;
-    int16_t left = (int16_t)u16(c + cok_field_offset(L, COK_FIELD_ITEMS));
+    /* DEC DI; JNG: stops once DI - 1 is not above 0, the overflow flag
+     * counting (0x8000 stops after one), as a wider count does. */
+    long left = (int16_t)u16(c + cok_field_offset(L, COK_FIELD_ITEMS));
     while (more) {
         if (size - at < I->file_size) {
             cok_character_free(character);

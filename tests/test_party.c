@@ -1026,6 +1026,14 @@ static void test_dark_queen_files(void)
     CHECK(cok_character_from_bytes(&d, R, scroll, 0x19e + 17, 0, &used, error, sizeof error));
     CHECK(d.item_count == 1 && used == 0x19e + 17);
     cok_character_free(&d);
+    /* A count of 0x8000: DEC DI overflows and JNG stops after one item. */
+    scroll[8] = 0x00;
+    scroll[9] = 0x80;
+    scroll[10] = 0;
+    memset(p + 17, 0x33, 17);
+    CHECK(cok_character_from_bytes(&d, R, scroll, 0x19e + 34, 0, &used, error, sizeof error));
+    CHECK(d.item_count == 1 && d.items[0][0x28] == 0x22 && used == 0x19e + 17);
+    cok_character_free(&d);
     CHECK(!cok_character_from_bytes(&d, R, scroll, 0x19e + 16, 0, &used, error, sizeof error));
     CHECK(!cok_character_from_bytes(&d, R, scroll, 0x19d, 0, &used, error, sizeof error));
     memcpy(scroll, bytes, size);

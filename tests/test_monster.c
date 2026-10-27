@@ -1171,6 +1171,19 @@ static void test_dark_queen_monsters(void)
     }
     fclose(f);
     CHECK(cok_adventure_open(&dqk, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
+    /* Its item types, ITEMS.DAT from its first byte (dqk 64b2:0006), read
+     * at startup as the other games' are. */
+    size_t set = 0;
+    for (size_t t = 0; t < 128; ++t)
+        for (size_t b = 0; b < 16; ++b) set += dqk.item_types.type[t][b] != 0;
+    CHECK(set > 0);
+    {
+        uint8_t first[16];
+        FILE *items = fopen("DQKAssets/DISK1/ITEMS.DAT", "rb");
+        CHECK(items != NULL && fread(first, 1, 16, items) == 16);
+        fclose(items);
+        CHECK(memcmp(dqk.item_types.type[0], first, 16) == 0);
+    }
     const cok_character_layout *L = cok_rules_dark_queen.character;
     size_t read_count = 0, items = 0, effects = 0;
     for (unsigned id = 0; id < 256; ++id) {

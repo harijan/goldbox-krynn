@@ -1247,7 +1247,25 @@ static void test_dark_queen_fields(void)
     }
     for (size_t i = 0; i < sizeof record; ++i) CHECK(record[i] == (uint8_t)(i * 37 + 11));
     vm.mem7c00[1] = 0x55; /* not a variable's: never read */
+    vm.mem7c00[2] = 0x66;
     CHECK(cok_ecl_load_var(&vm, 0x0402) == 0);
+    /* Nor read wide (6c70:0897: 040d's value whatever the width), a field's
+     * byte too; nor as a string. */
+    {
+        size_t keep = at;
+        at = 0;
+        op(COK_ECL_SAVE); var3(0x0402); var3(0x0050);
+        op(COK_ECL_SAVE); var3(0x0411); var3(0x0052);
+        op(COK_ECL_EXIT);
+        vm.mem4b00[0x4f] = vm.mem4b00[0x50] = vm.mem4b00[0x51] = vm.mem4b00[0x52] = 0x77;
+        CHECK(cok_ecl_run(&vm, COK_ECL_BASE) == COK_ECL_OK);
+        CHECK(vm.mem4b00[0x4f] == 0 && vm.mem4b00[0x50] == 0);
+        CHECK(vm.mem4b00[0x51] == record[0x78] && vm.mem4b00[0x52] == 0);
+        at = keep;
+        char text[256];
+        cok_ecl_load_string(&vm, 0x0402, text);
+        CHECK(text[0] == '\0');
+    }
     /* The stores: whole words, the status's making it able to act or not;
      * a byte's low byte; the memorized spells' 0xff and 0. */
     cok_ecl_store(&vm, 0x05ee, 0x0102);

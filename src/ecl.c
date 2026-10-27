@@ -184,7 +184,9 @@ static uint16_t *word(const cok_ecl *vm, int area, uint32_t address)
     const uint16_t *w = NULL;
     if (area == AREA && address - E->area_first < E->area_size)
         w = &vm->mem4b00[address - E->area_first];
-    if (area == GAME && address - E->game_first < E->game_size)
+    /* A game whose selected character's addresses are its fields alone
+     * keeps no variable there (dqk 6c70:040d). */
+    if (area == GAME && !E->game_fields_only && address - E->game_first < E->game_size)
         w = &vm->mem7c00[address - E->game_first];
     if (area == SCRATCH && address - E->scratch_first < E->scratch_size)
         w = &vm->mem7a00[address - E->scratch_first];
@@ -526,7 +528,8 @@ uint16_t cok_ecl_load_var(const cok_ecl *vm, uint16_t address)
         bool found;
         uint16_t value = character_field(vm, address, &found);
         if (found) return value;
-        return vm->rules->ecl.game_fields_only ? 0 : *word(vm, area, address);
+        const uint16_t *w = word(vm, area, address);
+        return w != NULL ? *w : 0;
     }
     case CODE: return vm->code[address - COK_ECL_BASE];
     /* Unlisted special addresses leave the original's result unset; 0
@@ -629,7 +632,8 @@ static uint16_t load_sized(const cok_ecl *vm, uint16_t address, bool wide)
     if (area == GAME) {
         bool found;
         character_field(vm, address, &found);
-        if (found) return value;
+        /* dqk 6c70:0897 takes 6c70:040d's value whatever the width. */
+        if (found || vm->rules->ecl.game_fields_only) return value;
     }
     return (uint16_t)((value & 0xff) | next_byte(vm, address) << 8);
 }

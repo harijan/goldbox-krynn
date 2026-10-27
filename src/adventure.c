@@ -2735,7 +2735,8 @@ bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, con
     }
     snprintf(game->assets, sizeof game->assets, "%s", assets);
     /* A game drawn its own way loads its own at startup. */
-    if (cok_adventure_drawing(game) != NULL) return cok_adventure_drawing(game)->open(game);
+    if (cok_adventure_drawing(game) != NULL)
+        return cok_adventure_drawing(game)->open(game) && cok_adventure_read_item_types(game);
     if (cok_adventure_create_picture(game, &game->screen, 40, 200, 1, 0) != COK_PICTURE_OK) {
         fail(game, "out of memory");
         return false;
