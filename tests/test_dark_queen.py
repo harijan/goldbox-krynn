@@ -531,6 +531,12 @@ class DarkQueenTests(unittest.TestCase):
         original = shipped[0x40f:0x40f + len(roland)]  # the saved game's first
         self.assertEqual(roland[0x44:], original[0x44:])
         self.assertEqual(roland[8:12], original[8:12])
+        # Remove leaves the game not saved (7368:061b): Exit to DOS's Yes
+        # asks "Game not saved. Exit anyway?" (one Y does not quit).
+        result = self.play("--start-menu", "--saves", saves, "--keys", r"\k\ePLTASBREY",
+                           ASSETS)
+        self.assertTrue(result.stdout.endswith("(out of keys in the start menu)\n"),
+                        result.stdout)
         # Without --saves the port writes nothing: Save says so.
         result = self.play("--start-menu", "--keys", r"\k\ePLTASB", ASSETS)
         self.assertIn("error: Save: no save path (--saves)", result.stdout)
@@ -573,6 +579,49 @@ class DarkQueenTests(unittest.TestCase):
                                       "Character View Character Remove Character Load Saved "
                                       "Game Save Current Game Begin Adventuring Exit From "
                                       "Game"])
+
+    def saved_game(self, data, name="SAVGAMA.QSV"):
+        saves = self.folder / "edited"
+        saves.mkdir(exist_ok=True)
+        (saves / name).write_bytes(bytes(data))
+        return saves
+
+    def test_loaded_locals(self):
+        # A loaded game's first block keeps its locals 0x97-0xc8 (6c70:0001
+        # with DS:b1ed set by 604b:2e87): 0xc8 written in the saved game is
+        # still there at block 4's first text (eclplay --vars).
+        data = bytearray((ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes())
+        data[0xc8 - 1] = 0x5a
+        saves = self.saved_game(data)
+        out = self.folder / "vars"
+        result = self.play("--start-menu", "--saves", saves, "--vars", out, "--keys",
+                           r"\k\ePLTAB", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(out.read_bytes()[0xc8 - 1], 0x5a)
+
+    def test_loaded_scroll_and_short(self):
+        # A saved game whose first character's first item is a scroll
+        # holding a spell (604b:05fd): its contents read past and dropped,
+        # "SCROLLS DROPPED!"; a party's size past its characters: the load
+        # fails at the first missing one, cited.
+        shipped = (ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes()
+        at = 0x40f + 0x19e  # Roland's first item
+        item = bytearray(shipped[at:at + 17])
+        item[0] = 0x49
+        item[0x35 - 0x28] = 1
+        data = bytearray(shipped[:at]) + item + bytes(17) + shipped[at + 17:]
+        data = data[:0x1f1d]
+        result = self.play("--start-menu", "--saves", self.saved_game(data), "--keys",
+                           r"\k\ePLTA", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("print: SCROLLS DROPPED!", result.stdout)
+        data = bytearray(shipped)
+        data[0x40d] = 0x40  # the item table after them read as characters, until short
+        result = self.play("--start-menu", "--saves", self.saved_game(data, "SAVGAMB.QSV"),
+                           "--keys", r"\k\ePLTB", ASSETS)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("SAVGAMB.QSV: character 9: the items end at byte 2815 (604b:05fd)",
+                      result.stderr)
 
 
 if __name__ == "__main__":

@@ -66,6 +66,7 @@ rm -f build/krynn.cfg
 ./build/eclplay --game dark-queen --start-menu --mouse --shots build/dqk-camp \
     --keys '\k\ePL\eEY' DQKAssets
 ./build/eclplay --game dark-queen --set 3e=f0 --screen build/dqk-overland.bmp DQKAssets 5
+./build/eclplay --game dark-queen --start-menu --vars build/dqk.vars --keys '\k\ePLTA' DQKAssets
 ./build/eclplay --game dark-queen --start-menu --mouse --shots build/dqk-party \
     --keys '\k\ePLTAV\eB\r\r\rP\r\r\r\r\rL\r\^\^\^' DQKAssets
 ./build/krynn --game dark-queen

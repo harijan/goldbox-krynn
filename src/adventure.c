@@ -3038,6 +3038,8 @@ static bool restore_whole(cok_adventure *game, const char *path, cok_saved_game 
     vm->mode = saved->mode;
     game->wall_ids[0] = saved->wall_ids[0];
     game->saved_extra = saved->extra;
+    /* DS:b1ed (604b:2e87): the next block keeps its locals (6c70:0001). */
+    vm->keep_vars = true;
     cok_ecl_set_var(vm, COK_VAR_PARTY_SIZE, 0);
     for (size_t i = 0; i < saved->count; ++i) {
         cok_character *character = saved->characters[i];

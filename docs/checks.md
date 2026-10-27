@@ -346,12 +346,14 @@ Down, View's sheet (but its readied weapon and armour, rows 21-22: item
 names not ported) and Escape back; then, past Begin Adventuring (the
 copy protection answered in the box), block 4's first text with the party's
 list and status, Palanthas, the palace and Leave to Caergoth's 3D view and
-commands; then 24 steps and turns along Caergoth to the widow's menu, the
+commands; the variables 0x0001-0x0400 once loaded against `eclplay
+--vars`'s; then 24 steps and turns along Caergoth to the widow's menu, the
+clock (variables 5-11), last square (0x17, 0x18) and edge (0x21) there, the
 party's square and facing after each (`DS:c9f0`-`c9f2`) against the port's
 log, the widow's menu, the shadows and the step before the dragons, whole
 but the mouse's cursor in the commands (`1bdb:1aef`'s areas give it other
 shapes: not ported); the original then runs the dragons' `SETUP MONSTERS`
-where the port stops, cited. All agree (2026-10-27).
+where the port stops, cited (its ECL between them). All agree (2026-10-27).
 
 Death Knights of Krynn, read headless (see [Games](games.md#games)), is checked by
 `tools/dosbox/checks/dkk_views.py`, which `make dkk-checks` runs

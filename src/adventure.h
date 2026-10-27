@@ -584,8 +584,10 @@ bool cok_adventure_add_characters(cok_adventure *game, const char *const *paths,
  * set (wall_ids[0]) and DS:ca05 (saved_extra) as read, then joins its
  * characters as read (the party's size counting them, the first
  * selected; "SCROLLS DROPPED!" logged for each that dropped a scroll's
- * contents), the vault the saved game's letter's; it draws and loads
- * nothing: what the screen shows again is the drawing's. */
+ * contents), the vault the saved game's letter's, and the next block
+ * entered keeps its locals (DS:b1ed, keep_vars, which the drawing clears
+ * once it has entered it); it draws and loads nothing: what the screen
+ * shows again is the drawing's. */
 bool cok_adventure_restore(cok_adventure *game, const char *path);
 
 /* Load another game's saved game, as a game that imports its characters

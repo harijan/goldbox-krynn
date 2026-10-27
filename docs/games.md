@@ -796,18 +796,22 @@ nothing was written).
 The camp (`7368:046f`) with a party: the mode 0, the last mode the one it
 was; its screen; the party's list where a member is selected; its buttons
 on as `DS:3c3e`-`3c49` say (with a member selected all but Train and
-Knight new Order where variable 0x30 is 0, and Add where six non-NPCs are
+Knight new Order where variable 0x30 is 0 and `DS:bd92` too, which no
+routine found sets, and Add where six non-NPCs are
 in; without, Create, Delete, Add, Load and Exit); Up and Down select the
 member before or after. Load Saved Game (with a party not saved, "Game not
 saved. Load anyway? ", `DS:7e93`; the party emptied): "load from where?
 " Tdqk, the letters A-J of `SAVGAM?.QSV` there are, "load which game: "
 with those alone (`DS:af15`'s list), "Loading...Please Wait", the saved
-game read (`604b:2ab4`, `28f8`: `cok_adventure_restore`), the frame's
+game read (`604b:2ab4`, `28f8`: `cok_adventure_restore`; `DS:b1ed` set,
+so that the first block entered keeps its locals 0x97-0xc8, `6c70:0001`:
+`keep_vars`), the frame's
 colours where variable 0x3a changed, the map or the overland's big picture
 again; none loaded, a new game's state (`64b2:04ec`). Dkk's (`604b:2bcf`)
 lists the letters of `SAVGAM?.PTY` in Death Knights' save path (`DQK.CFG`'s,
 the port's `--import`) and imports one: a new game's state, its party's
-size (the byte at Death Knights' 0xa18, at most 8), then `CHRDAT<letter><n>.GAM`
+size (the byte at Death Knights' 0xa18, at most 8; `b1ed` clear again,
+`64b2:04ec`), then `CHRDAT<letter><n>.GAM`
 from 1 while there is one, each imported (`604b:0b82`) and joined unless an
 NPC. Save Current Game
 (`604b:3395`): "save which game: " A-J, "Saving...Please Wait", the file
@@ -815,7 +819,8 @@ and the vault as above, the game saved (`DS:ae5b`). Remove Character
 (`7368:066f`): the member written to the save path (`604b:23a7`:
 `<file name>.QCH`, `5e98:0044` taking out ` =+<>"[].*,?/\:;|`; where the file
 is there, "Update <name>?", No asking "New file name:") and removed
-(`177e:1e31`: the one before it selected, or after it where it was first);
+(`177e:1e31`: the one before it selected, or after it where it was first),
+the game not saved (`7368:061b`);
 an NPC's removal (`7368:0ee9`) is not ported yet. Add Character
 (`7368:08dc`): "add from where? " Tdqk (the save path's `.QCH`) or Dkk
 (Death Knights' `.PC`, imported); the roster (`604b:054a`, `028a`: each
@@ -838,7 +843,11 @@ their most, AC, encumbrance, THAC0, movement and damage), then its menu
 tests), Exit or Escape back; its readied weapon and armour lines
 (`177e:03fc`: items' names), the stats' recompute it starts with
 (`177e:0be2`) and its other items are not ported yet. Begin Adventuring
-returns to main, the mode the last (4 for none). Exit From Game with a
+returns to main, the mode the last (4 for none), its screen
+(`7368:07af`-`0804`): a game not loaded with small picture 9 not shown
+(`DS:ae42`) the overland's frame on the overland in mode 3, else the
+adventure's screen, the party's list after either; a game loaded, in mode
+0 or 4 the adventure's screen and the list, in mode 3 the overland's frame. Exit From Game with a
 party not saved asks "Game not saved. Exit anyway? " (No saves it). Create,
 Modify, Train and Knight new Order stop the run (creation's).
 
@@ -867,9 +876,14 @@ vector again (searching or not as before); View the sheet; Area, Cast,
 Encamp, Inv and a member picked by a key are not ported yet); the
 after-move vector; the last square in variables 0x17 and 0x18; the step
 (`6fea:0753`, `00c6`: where the way is open, the square ahead, wrapping at
-the map's edges, a minute passed, ten searching); the view; the location
+the map's edges, a minute passed, ten searching; on the overland, with
+variable 3 below 0xff, its travel, `6fea:01a7`: the mark's cell put back,
+a square the way it faces within 0-37 by 0-14 into 0x25 and 0x26, the mark
+again, twelve hours passed; then the small picture freed, `63ae:02b0`);
+the view; the location
 vector; each `NEWECL` entering its block (`5f07:0ff4`:
-`cok_adventure_reenter`). The clock (`1396:044d`): variables 5-11 carried
+`cok_adventure_reenter`); a loaded game's locals are cleared again from
+the block after its first (`DS:b1ed` cleared). The clock (`1396:044d`): variables 5-11 carried
 by `DS:634b`'s 10, 10, 6, 24, 30, 12 and 100 (a hundred years age the
 party), a day turning the moons (`1396:000e`: phases in 0x1fa-0x1fc, days
 in 0x1fd-0x1ff, every 8, 1 and 6 days, the lamp drawn), then the party's

@@ -18,7 +18,9 @@ Compared: the whole screen but the sheet's readied weapon and armour
 (rows 21-22: 177e:03fc, items' names not ported), and the mouse's cursor
 in the adventure's commands (1bdb:1aef's areas give it other shapes: not
 ported); the party's square and facing (DS:c9f0-c9f2) after each step
-against the port's log; and the port's stop at the dragons. About a
+against the port's log; the variables 0x0001-0x0400 once loaded, and the
+clock, the last square and the edge at the widow (eclplay --vars); and the
+original's ECL past the dragons' SETUP MONSTERS where the port stops. About a
 minute.
 
     python3 tools/dosbox/checks/dqk_party.py [--workdir DIR] [--verbose]
@@ -44,6 +46,25 @@ ITEMS = (8, 168, 120, 16, "the sheet's readied weapon and armour (177e:03fc: not
 CURSOR = (0, 0, 24, 24, "the mouse's cursor over the commands' view areas (1bdb:1aef)")
 DS_SQUARE = 0xC9F0
 CAERGOTH = 20
+DS_VARS = 0xB20F
+# Block 4's dragons: their SETUP MONSTERS and COMBAT (ecldump).
+SETUP, COMBAT = 0x8B5B, 0x8C1F
+
+def port_vars(work, name, keys):
+    """The port's variables 0x0001-0x0400 (eclplay --vars) once KEYS have
+    run out."""
+    path = work / f"port-{name}.vars"
+    subprocess.run([str(cokbox.ECLPLAY), *GAME, "--start-menu", "--vars", str(path), "--keys",
+                    keys, str(dqk_lib.ASSETS)], capture_output=True, text=True, cwd=ROOT,
+                   timeout=300)
+    return path.read_bytes() if path.exists() else b""
+
+
+def differing(original, port, addresses):
+    """The variables (address: original, port) that differ."""
+    return {f"{a:#x}": (original[a - 1], port[a - 1] if len(port) >= a else None)
+            for a in addresses if len(port) < a or original[a - 1] != port[a - 1]}
+
 
 def port_run(work, keys):
     """eclplay's shots of the start menu with KEYS, and its log."""
@@ -83,6 +104,11 @@ def main():
              "\\^\\r\\^\\^\\^")
     keys = ("\\k\\ePLTA\\vV\\eB\\r\\r\\rP\\r\\r\\r\\r\\rL\\r" + route)
     shots, log = port_run(work, keys)
+    loaded_vars = port_vars(work, "loaded", "\\k\\ePLTA")
+    moves = ["\\^"] * 10 + ["\\>", "\\^", "\\^", "\\^", "\\>", "\\^", "\\^", "\\<",
+                            "\\^", "\\^", "\\^", "\\>", "\\^", "\\^"]
+    widow_vars = port_vars(work, "widow", "\\k\\ePLTA\\vV\\eB\\r\\r\\rP\\r\\r\\r\\r\\rL\\r"
+                           + "".join(moves))
 
     with cokbox.Box(workdir=work / "box", game="dark-queen", verbose=opts.verbose,
                     timeout=900) as box:
@@ -105,6 +131,11 @@ def main():
             shot.save_png(out / f"{checklib.slug(what)}.png")
             verdict.screen(what, shot, shots[i] if len(shots) > i else None, masks=masks,
                            work=work)
+            if what == "loaded":
+                variables = box.far(box.ds * 16 + DS_VARS)
+                original = box.read(variables + 1, 0x400)
+                verdict.value("the variables 0x0001-0x0400 once loaded (far DS:b20f)",
+                              differing(original, loaded_vars, range(1, 0x401)), {})
         box.keys("b")
         box.settled(tolerance=64)
         _, _, answer = dqk_lib.protection(box)
@@ -121,8 +152,6 @@ def main():
                        work=work)
         # The route's moves, a shot each after the first ten steps east.
         port_moves = re.findall(r"^(?:step|turn): (-?\d+),(-?\d+) facing (\d)$", log, re.M)
-        moves = ["\\^"] * 10 + ["\\>", "\\^", "\\^", "\\^", "\\>", "\\^", "\\^", "\\<",
-                                "\\^", "\\^", "\\^", "\\>", "\\^", "\\^"]
         squares = []
         for n, key in enumerate(moves):
             box.keys(key)
@@ -132,6 +161,11 @@ def main():
         port_squares = [(int(x), int(y), int(f)) for x, y, f in port_moves[:len(moves)]]
         verdict.value("the party's square and facing after each move (DS:c9f0-c9f2)",
                       squares, port_squares)
+        variables = box.far(box.ds * 16 + DS_VARS)
+        original = box.read(variables + 1, 0x400)
+        verdict.value("the clock (variables 5-11), the last square (0x17, 0x18) and the edge "
+                      "(0x21) at the widow", differing(original, widow_vars,
+                                                       [*range(5, 12), 0x17, 0x18, 0x21]), {})
         shot = box.screenshot()
         shot.save_png(out / "widow.png")
         index = CAERGOTH + len(moves)
@@ -147,8 +181,9 @@ def main():
         box.keys("\\^")
         shot = box.settled(tolerance=64)
         shot.save_png(out / "dragons.png")
-        verdict.check(box.ds_byte(dqk_lib.DS_OPCODE) != 0, "the original past SETUP MONSTERS",
-                      f"its ECL at {box.ds_word(dqk_lib.DS_PC):04x}")
+        pc = box.ds_word(dqk_lib.DS_PC)
+        verdict.check(SETUP < pc <= COMBAT, "the original past the dragons' SETUP MONSTERS",
+                      f"its ECL at {pc:04x}, between {SETUP:04x} and their COMBAT, {COMBAT:04x}")
     verdict.check("SETUP MONSTERS (dqk 6c70:2db1)" in log,
                   "the port stops at the dragons' SETUP MONSTERS, cited",
                   log.strip().splitlines()[-1] if log.strip() else "")

@@ -96,6 +96,16 @@ typedef struct {
      * not yet entered (DS:b1ed); a big picture shown outside the
      * overland, which the party's list is not drawn over (DS:b256). */
     bool saved, loaded_game, big_no_party;
+    /* The small picture's id (DS:ae42, 0xff for none: 63ae:02b0); DS:bd92,
+     * which turns Train and Knight new Order on in the camp (0 at startup,
+     * its stores found keep what it held); the overland's cell under the
+     * party's mark (19a4:09eb's save, 0aba's restore: 8 by 8 pixels at
+     * mark_x, mark_y), saved or not. */
+    uint8_t picture_id;
+    bool train_anywhere;
+    uint8_t under[64];
+    int mark_x, mark_y;
+    bool marked;
 } queen;
 
 static queen *own(cok_adventure *game)
@@ -781,7 +791,10 @@ static void enter_state(cok_adventure *game, unsigned state)
 {
     queen *q = own(game);
     if (state == q->state) return;
-    if (q->state == STATE_PICTURE || q->state == 2) q->picture_loaded = false;
+    if (q->state == STATE_PICTURE || q->state == 2) {
+        q->picture_loaded = false;
+        q->picture_id = 0xff;
+    }
     if (q->state == STATE_PICTURE)
         for (unsigned slot = 0; slot < WALL_SETS; ++slot) q->wall_loaded[slot] = false;
     if (q->state == STATE_BIG) q->big_id = NO_BIG;
@@ -1069,9 +1082,35 @@ static void load_files(cok_adventure *game)
  * cell past variables 0x25 and 0x26, the map's square. */
 static void marker(cok_adventure *game)
 {
+    queen *q = own(game);
     cok_ecl *vm = &game->vm;
     int col = 8 * (cok_ecl_load_var(vm, 0x25) + 1), row = 8 * (cok_ecl_load_var(vm, 0x26) + 1);
+    /* 19a4:09eb: the cell under it saved first. */
+    int sw = (int)game->screen.units * 8;
+    for (int y = 0; y < 8; ++y)
+        for (int x = 0; x < 8; ++x)
+            q->under[8 * y + x] = row + y < (int)game->screen.height && col + x < sw
+                                      ? game->screen.pixels[(size_t)(row + y) * (size_t)sw +
+                                                            (size_t)(col + x)]
+                                      : 0;
+    q->mark_x = col;
+    q->mark_y = row;
+    q->marked = true;
     draw(game, lib(game, LIB_ALWAYS), 0x1d, row, col, NULL, NULL);
+}
+
+/* 7065:0072: the cell the mark covers put back (19a4:0aba). */
+static void unmark(cok_adventure *game)
+{
+    queen *q = own(game);
+    if (!q->marked) return;
+    int sw = (int)game->screen.units * 8;
+    for (int y = 0; y < 8; ++y)
+        for (int x = 0; x < 8; ++x)
+            if (q->mark_y + y < (int)game->screen.height && q->mark_x + x < sw)
+                game->screen.pixels[(size_t)(q->mark_y + y) * (size_t)sw +
+                                    (size_t)(q->mark_x + x)] = q->under[8 * y + x];
+    q->marked = false;
 }
 
 /* A big picture, BIGPIC's library n (63ae:0321, then 63ae:03b0): loaded
@@ -1119,7 +1158,10 @@ static void picture(cok_adventure *game)
             cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
             return;
         }
-        if (vm->mode == 3) marker(game);
+        if (vm->mode == 3)
+            marker(game);
+        else
+            q->big_no_party = true; /* DS:b256 */
         game->picture_shown = true;
         return;
     }
@@ -1131,6 +1173,7 @@ static void picture(cok_adventure *game)
         return;
     }
     q->picture_loaded = true;
+    q->picture_id = n; /* DS:ae42 */
     /* Its frames are records 1 on (DS:b20d the last's index); the loop
      * goes back to frame 0, or 5 for pictures 0x0e and 0x87, 1 for 0x46,
      * 3 for 0xa1 (63ae:0262-028f: DS:b20c). */
@@ -1744,6 +1787,7 @@ static bool queen_open(cok_adventure *game)
     }
     game->own = q;
     q->big_id = q->big_last = NO_BIG;
+    q->picture_id = 0xff;
     q->state = STATE_VIEW;
     q->cursor_shown = true;
     if (cok_picture_create_vga(&game->screen, 40, 200, 1,
@@ -2284,7 +2328,8 @@ static void file_name(const char *name, char out[9])
  * size); the square 7, 13 facing 2; the wall set (DS:ca03) and the vault
  * (DS:c3ea 'Z') none; no party nor selection (the list dropped, not
  * freed: its callers emptied it); the mode 4, the last 0; the game not
- * saved (DS:ae5b). */
+ * saved (DS:ae5b) nor loaded (DS:b1ed: the next block clears its
+ * locals, 6c70:0001). */
 static void new_game(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -2303,6 +2348,8 @@ static void new_game(cok_adventure *game)
     vm->last_mode = 0;
     own(game)->saved = false;
     own(game)->big_no_party = false;
+    own(game)->loaded_game = false; /* DS:b1ed */
+    vm->keep_vars = false;
 }
 
 /* The saved games' letters A-J there are in dir (604b:2e87: findfirst of
@@ -2926,14 +2973,15 @@ enum {
 
 /* Which of the camp's buttons are on (DS:3c3e-3c49, 7368:046f): with a
  * member selected all but Train and Knight new Order where variable 0x30
- * is 0 (and DS:bd92), and Add where six non-NPCs are in; without, Create,
+ * is 0 and DS:bd92 too, and Add where six non-NPCs are in; without, Create,
  * Delete, Add, Load and Exit. */
 static void camp_flags(cok_adventure *game, bool on[CAMP_ITEMS])
 {
     cok_ecl *vm = &game->vm;
     for (size_t i = 0; i < CAMP_ITEMS; ++i) on[i] = true;
     if (vm->character != NULL) {
-        on[CAMP_TRAIN] = on[CAMP_KNIGHT] = cok_ecl_load_var(vm, 0x30) > 0;
+        on[CAMP_TRAIN] = on[CAMP_KNIGHT] =
+            cok_ecl_load_var(vm, 0x30) > 0 || own(game)->train_anywhere;
         size_t members = 0;
         for (size_t i = 0; i < game->party.count; ++i)
             if (cok_field_u8(cok_game_rules(game)->character, game->party.members[i]->record,
@@ -3060,6 +3108,7 @@ static cok_ecl_status camp(cok_adventure *game, bool *begin)
                 new_game(game); /* 2d99:1161: 64b2:04ec */
                 vm->mode = 0;
             }
+            q->saved = false; /* 7368:061b */
             break;
         case CAMP_LOAD:
             if (game->party.count > 0 && !q->saved) {
@@ -3082,11 +3131,23 @@ static cok_ecl_status camp(cok_adventure *game, bool *begin)
             break;
         case CAMP_BEGIN:
             vm->mode = vm->last_mode != 0 ? vm->last_mode : 4;
-            if (vm->mode == 3 && cok_ecl_load_var(vm, 0x24) == 1) {
-                overland_screen(game);
-            } else if (vm->mode == 0 || vm->mode == 4 || !q->loaded_game) {
+            /* 7368:07af-0804: a game not loaded (DS:b1ed) and small
+             * picture 9 not shown (DS:ae42): the overland's frame in mode
+             * 3 on the overland, else the adventure's screen, the party's
+             * list after either; a game loaded: by the mode, 0 and 4 the
+             * adventure's screen and the list, 3 the overland's frame, the
+             * others nothing. */
+            if (!q->loaded_game && q->picture_id != 9) {
+                if (vm->mode == 3 && cok_ecl_load_var(vm, 0x24) == 1)
+                    overland_screen(game);
+                else
+                    adventure_screen(game);
+                party_list(game);
+            } else if (vm->mode == 0 || vm->mode == 4) {
                 adventure_screen(game);
                 party_list(game);
+            } else if (vm->mode == 3) {
+                overland_screen(game);
             }
             bottom_bar(game);
             cok_ecl_store(vm, 0x30, 0);
@@ -3236,7 +3297,13 @@ static void check_step(cok_adventure *game)
     }
 }
 
-/* The step (6fea:0753 in 3D, mode 4, with variable 3 below 0xff): where
+static bool travel(cok_adventure *game);
+static bool step_ahead(cok_adventure *game);
+
+/* The step (6fea:0753): on the overland (mode 3) with variable 3 below
+ * 0xff its travel, with 0xff nothing; elsewhere but in 3D (mode 4) with
+ * variable 3 below 0xff variable 3 0; then the small picture freed
+ * (63ae:02b0). In 3D (step_ahead), with variable 3 below 0xff: where
  * the way ahead is open, 6fea:00c6: sound 11 (not sounded yet), 50
  * hundredths... milliseconds (1df9:052a), the square ahead, wrapping at
  * the map's edges, its wall ahead and byte, a minute passed (ten
@@ -3244,12 +3311,47 @@ static void check_step(cok_adventure *game)
  * time stopped the run. */
 static bool step(cok_adventure *game)
 {
+    queen *q = own(game);
+    cok_ecl *vm = &game->vm;
+    bool ok = true;
+    if (vm->mode == 3) {
+        if (cok_ecl_load_var(vm, 3) < 0xff) ok = travel(game);
+    } else if (vm->mode != 4 || cok_ecl_load_var(vm, 3) >= 0xff) {
+        cok_ecl_store(vm, 3, 0);
+    } else {
+        ok = step_ahead(game);
+    }
+    /* 63ae:02b0: the small picture freed. */
+    q->picture_loaded = false;
+    q->picture_id = 0xff;
+    return ok;
+}
+
+/* 6fea:01a7, the overland's travel: the mark taken off (7065:0072), the
+ * square kept in variables 0x17 and 0x18, a step the way it faces within
+ * 0-37 across and 0-14 down into 0x25 and 0x26, the mark again
+ * (7065:0011), twelve hours passed (1396:044d with 12 of unit 3). */
+static bool travel(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    unmark(game);
+    int x = cok_ecl_load_var(vm, 0x25), y = cok_ecl_load_var(vm, 0x26);
+    cok_ecl_store(vm, 0x17, (uint16_t)x);
+    cok_ecl_store(vm, 0x18, (uint16_t)y);
+    x = (int8_t)(x + step_x[vm->direction & 7]);
+    y = (int8_t)(y + step_y[vm->direction & 7]);
+    x = x < 0 ? 0 : x > 0x25 ? 0x25 : x;
+    y = y < 0 ? 0 : y > 0x0e ? 0x0e : y;
+    cok_ecl_store(vm, 0x25, (uint16_t)x);
+    cok_ecl_store(vm, 0x26, (uint16_t)y);
+    marker(game);
+    return pass_time(game, 12, 3);
+}
+
+static bool step_ahead(cok_adventure *game)
+{
     cok_ecl *vm = &game->vm;
     const cok_view *v = &game->view;
-    if (vm->mode != 4 || cok_ecl_load_var(vm, 3) >= 0xff) {
-        cok_ecl_store(vm, 3, 0);
-        return true;
-    }
     if (cok_view_passage(v, vm->direction, vm->map_x, vm->map_y) == 1) {
         pass(game, 50);
         int w = v->geo_header[1], h = v->geo_header[0];
@@ -3372,9 +3474,13 @@ static cok_ecl_status adventure(cok_adventure *game)
         party_list(game);
         status_line(game);
     }
-    own(game)->loaded_game = false; /* DS:b1ed, once 10cd has entered */
     uint8_t block = (uint8_t)cok_ecl_load_var(vm, 0x16);
+    /* A loaded game's first block keeps its locals (6c70:0001 with DS:b1ed
+     * set, cok_adventure_restore's keep_vars); 10cd clears b1ed once it
+     * has entered it. */
     cok_ecl_status status = cok_adventure_enter(game, block != 0 ? block : 4);
+    own(game)->loaded_game = false;
+    vm->keep_vars = false;
     while (status == COK_ECL_OK && !vm->abort) {
         if (vm->mode != 4) {
             cok_adventure_not_yet(game, "the adventure's commands outside 3D", "dqk 6fea:0605");
