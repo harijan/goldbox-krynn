@@ -198,9 +198,16 @@ def _read_shot(keys, out, binary, kw):
 
 # --------------------------------------------------------- builds of the port
 
+def _make_var(make, name):
+    """The Makefile's NAME, its $(VAR)s expanded from the Makefile's own
+    simple assignments."""
+    value = re.search(rf"^{name} = (.*)$", make, re.M).group(1)
+    return re.sub(r"\$\((\w+)\)", lambda m: _make_var(make, m.group(1)), value)
+
+
 def _sources(kind):
     make = (ROOT / "Makefile").read_text()
-    adventure = re.search(r"^ADVENTURE_SRC = (.*)$", make, re.M).group(1).split()
+    adventure = _make_var(make, "ADVENTURE_SRC").split()
     if kind == "eclplay":
         return ["src/eclplay.c", "src/keyscript.c", *adventure]
     return ["src/krynn.c", "src/keymap.c", "src/keyscript.c", *adventure]
