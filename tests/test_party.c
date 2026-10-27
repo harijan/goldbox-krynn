@@ -1302,6 +1302,50 @@ static void test_dark_queen_import_made(void)
     CHECK(rmdir(dir) == 0);
 }
 
+/* The six characters of Dark Queen's shipped saved game (SAVE/SAVGAMA.QSV:
+ * 0x400 bytes of variables, 15 more, their count, then each as a .QCH,
+ * dqk 604b:28f8) read as cok_character_from_bytes reads one: the
+ * original's party in memory once it had loaded them (DOSBox-X, Load
+ * from saved game A, 2026-10-27: each record at DS:c6e5's list, after its
+ * recompute 177e:0be2), hashed (FNV-1a over each record, its far pointers
+ * as 0, then its items' 17 bytes and its effects' 5), and what the port
+ * reads, the same. */
+static void test_dark_queen_party(void)
+{
+    static uint8_t data[8192];
+    size_t size = read_whole("DQKAssets/SAVE/SAVGAMA.QSV", data, sizeof data);
+    if (size == 0) {
+        puts("party: no DQKAssets/SAVE/SAVGAMA.QSV; Dark Queen's party not checked");
+        return;
+    }
+    const cok_rules *R = &cok_rules_dark_queen;
+    const cok_character_layout *L = R->character;
+    char error[256];
+    size_t at = 0x40f, count = (size_t)(data[0x40d] | data[0x40e] << 8);
+    CHECK(count == 6);
+    uint32_t hash = 0x811c9dc5u;
+    for (size_t i = 0; i < count; ++i) {
+        cok_character c;
+        size_t used;
+        CHECK(cok_character_from_bytes(&c, R, data + at, size - at, 0, &used, error,
+                                       sizeof error));
+        at += used;
+        for (size_t k = 0; k < L->size; ++k)
+            hash = (hash ^ (cok_field_pointer_at(L, (long)k) ? 0 : c.record[k])) * 0x01000193u;
+        for (size_t n = 0; n < c.item_count; ++n)
+            for (size_t k = 0; k < 17; ++k) hash = (hash ^ c.items[n][0x28 + k]) * 0x01000193u;
+        for (const cok_effect *e = c.effects; e != NULL; e = e->next) {
+            const uint8_t b[5] = {e->id, (uint8_t)e->duration, (uint8_t)(e->duration >> 8),
+                                  e->value, e->on_remove};
+            for (size_t k = 0; k < 5; ++k) hash = (hash ^ b[k]) * 0x01000193u;
+        }
+        cok_character_free(&c);
+    }
+    if (hash != 0x2077261du) fprintf(stderr, "Dark Queen's party: 0x%08x\n", hash);
+    CHECK(hash == 0x2077261du);
+    CHECK(at == 0xfbd); /* the item lists and vault after them */
+}
+
 int main(void)
 {
     test_former_classes();
@@ -1323,6 +1367,7 @@ int main(void)
     test_dark_queen_saved();
     test_dark_queen_import();
     test_dark_queen_import_made();
+    test_dark_queen_party();
     puts("party tests passed");
     return 0;
 }

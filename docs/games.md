@@ -577,7 +577,10 @@ some). The pointers' bytes the original writes as its heap has them; its
 loader tests them against nil only: the port writes the items' pointer as
 the original does (their count), the effects' and each effect's next as 1
 or 0, and the others 0. Every shipped `.QCH` reads and writes again byte
-for byte but those. `ITEMS.DAT` is the item types, 128 of 16 bytes read
+for byte but those, and the six characters of the shipped saved game
+(`SAVE\SAVGAMA.QSV`, from byte 0x40f) read so are, but for the pointers,
+the original's party in memory once it has loaded them, its recompute
+`177e:0be2` run (DOSBox-X, 2026-10-27; `tests/test_party.c`). `ITEMS.DAT` is the item types, 128 of 16 bytes read
 from its start (`64b2:0006`; `files.item_types_at` 0 where Champions'
 skips 2); `ITEM.DAT` 254 items of 17 bytes, entries 1-254 of the
 treasure's table (`64b2:066c`, entry 0 all 0xff).
