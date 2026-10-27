@@ -1,6 +1,7 @@
 #include "config.h"
 
 #include <ctype.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -183,6 +184,33 @@ bool cok_config_read_file_game(const cok_rules *rules, const char *path, cok_con
     return read_file(path, config, stick, rules);
 }
 
+bool cok_config_parse_bytes(const uint8_t *bytes, size_t size, cok_config *config)
+{
+    enum { SIZE = 0x90, PATH = 12, PATH_SIZE = 66 };
+    if (size < SIZE) return false;
+    static const cok_sound_device devices[] = {
+        COK_SOUND_SPEAKER, COK_SOUND_TANDY,  COK_SOUND_ADLIB, COK_SOUND_ADLIB,
+        COK_SOUND_ROLAND,  COK_SOUND_ROLAND, COK_SOUND_NONE,
+    };
+    cok_config c = {.display = COK_DISPLAY_TANDY, .input = 'N'};
+    c.video = (uint16_t)(bytes[0] | bytes[1] << 8);
+    unsigned sound = (unsigned)(bytes[2] | bytes[3] << 8);
+    c.sound = sound < sizeof devices / sizeof *devices ? devices[sound] : COK_SOUND_NONE;
+    size_t n = 0;
+    while (n < PATH_SIZE - 1 && bytes[PATH + n] != 0) ++n;
+    memcpy(c.other_path, bytes + PATH, n);
+    c.other_path[n] = '\0';
+    *config = c;
+    return true;
+}
+
+const char *cok_config_installed_for(const cok_config *config)
+{
+    return config->video == 1   ? "Installed for EGA only!"
+           : config->video == 2 ? "Installed for TANDY 16 color only!"
+                                : NULL;
+}
+
 static bool read_file(const char *path, cok_config *config, bool stick, const cok_rules *rules)
 {
     FILE *f = fopen(path, "rb");
@@ -192,7 +220,14 @@ static bool read_file(const char *path, cok_config *config, bool stick, const co
     size_t size = text != NULL ? fread(text, 1, MOST, f) : 0;
     bool failed = text == NULL || ferror(f) != 0;
     fclose(f);
-    if (!failed) *config = parse(text, size, stick, rules);
+    if (!failed && rules != NULL && rules->files.config_bytes != 0) {
+        if (size < rules->files.config_bytes || !cok_config_parse_bytes(text, size, config)) {
+            errno = EINVAL;
+            failed = true;
+        }
+    } else if (!failed) {
+        *config = parse(text, size, stick, rules);
+    }
     free(text);
     return !failed;
 }
@@ -256,6 +291,11 @@ bool cok_config_find(const cok_rules *rules, const char *option, const char *sav
     else
         write_path[0] = '\0';
     if (assets != NULL && find_in(rules, assets, path, size)) return true;
+    if (assets != NULL && rules->files.config_folder != NULL) {
+        char folder[1024];
+        snprintf(folder, sizeof folder, "%s/%s", assets, rules->files.config_folder);
+        if (find_in(rules, folder, path, size)) return true;
+    }
     snprintf(path, size, "%s", write_path);
     return false;
 }

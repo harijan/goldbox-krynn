@@ -3406,6 +3406,8 @@ void cok_adventure_show_frame(cok_adventure *game, size_t frame)
 
 bool cok_adventure_menu_animates(const cok_adventure *game, uint32_t *ms)
 {
+    const cok_drawing *own = cok_adventure_drawing(game);
+    if (own != NULL) return own->animates(game, ms);
     if (!game->menu_animates || game->frame_unset || game->frame_count < 2 ||
         game->frame >= game->frame_count)
         return false;
@@ -3422,8 +3424,19 @@ bool cok_adventure_menu_animates(const cok_adventure *game, uint32_t *ms)
 
 void cok_adventure_menu_frame(cok_adventure *game)
 {
+    const cok_drawing *own = cok_adventure_drawing(game);
+    if (own != NULL) {
+        own->animate(game);
+        return;
+    }
     game->frame = game->frame + 1 < game->frame_count ? game->frame + 1 : 0;
     draw_frame(game, game->frame);
+}
+
+void cok_adventure_cursor(cok_adventure *game, uint8_t *pixels)
+{
+    const cok_drawing *own = cok_adventure_drawing(game);
+    if (own != NULL) own->cursor(game, pixels);
 }
 
 void cok_adventure_print(cok_adventure *game, const char *text, cok_text_window window,

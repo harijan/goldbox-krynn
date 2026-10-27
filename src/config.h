@@ -47,6 +47,10 @@ typedef struct {
     char other_path[256];
     bool f_line;
     uint16_t joystick_x[7], joystick_y[7];
+    /* A file of bytes' display (DQK.CFG's word 0: 0 VGA, 1 EGA, 2 Tandy,
+     * which the game checks against the adapter it finds, 6478:00e2); 0
+     * from a text file. */
+    uint16_t video;
 } cok_config;
 
 /* "CGA", "EGA" or "Tandy". */
@@ -60,6 +64,23 @@ cok_config cok_config_parse_stick(const uint8_t *text, size_t size, bool stick);
  * paths after the third line (cok_config_parse_stick reads Champions' 1). */
 cok_config cok_config_parse_game(const cok_rules *rules, const uint8_t *text, size_t size,
                                  bool stick);
+/* The Dark Queen of Krynn's DQK.CFG (dqk 6478:0000 reads its 0x90 bytes
+ * to DS:acd6; INSTALL.EXE writes it, the game never): u16 at 0 the
+ * display (video), u16 at 2 the sound (INSTALL's list: 0 the speaker, 1
+ * the Tandy, 2 the AdLib, 3 the Sound Blaster (its music the AdLib's
+ * driver, 1fd3:000b), 4 the MT-32, 5 the MT-32 and the Sound Blaster's
+ * effects, 6 none: the port's speaker, Tandy, AdLib, AdLib, Roland,
+ * Roland and none), the drives' letters at 4 and 6 (unread), at 10 the
+ * save floppy's (0 the hard disk's), then 66 bytes at 12 Death Knights'
+ * save path (DS:ace2, other_path: the import's, 604b:2bcf) and 66 at 78
+ * the game's path (unread). False, config unchanged, for fewer than 0x90
+ * bytes. */
+bool cok_config_parse_bytes(const uint8_t *bytes, size_t size, cok_config *config);
+/* What a game whose file of bytes names its display says when the
+ * display is not that one (dqk 6478:00e2, DS:611a, 6133: the port draws
+ * VGA alone): "Installed for EGA only!" for 1, "Installed for TANDY 16
+ * color only!" for 2; NULL for VGA's 0 and the rest. */
+const char *cok_config_installed_for(const cok_config *config);
 /* Read the file at path into *config. Returns false, config unchanged,
  * when it cannot be opened or read. With _stick, as cok_config_parse_stick
  * reads it. */
@@ -67,6 +88,8 @@ bool cok_config_read_file(const char *path, cok_config *config);
 bool cok_config_read_file_stick(const char *path, cok_config *config, bool stick);
 bool cok_config_read_file_game(const cok_rules *rules, const char *path, cok_config *config,
                                bool stick);
+/* (A file of bytes, the rules' files.config_bytes: false where it gives
+ * fewer, errno EINVAL.) */
 /* Read ASSETS/KRYNN.CFG (or krynn.cfg; the rules' files.config) into
  * *config. Returns false, config unchanged, when there is none or it
  * cannot be read. */
@@ -79,7 +102,8 @@ bool cok_config_read(const cok_rules *rules, const char *assets, cok_config *con
  * without (path then as write_path). write_path is where the setup and
  * Initialize Mouse/Joystick write it: option, the file found in SAVES, or
  * SAVES/KRYNN.CFG; empty for nowhere (no saves). The port never writes
- * into the assets directory. */
+ * into the assets directory. A file of the rules' files.config_folder is
+ * looked for in that folder of ASSETS (dqk disk1\dqk.cfg, DS:608e). */
 bool cok_config_find(const cok_rules *rules, const char *option, const char *saves,
                      const char *assets, char *path, char *write_path, size_t size);
 /* DIR/NAME in upper case, else in lower case, whichever exists as a

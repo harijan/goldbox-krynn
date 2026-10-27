@@ -207,8 +207,149 @@ void cok_vga_set(cok_vga_palette *palette, size_t i, uint8_t r, uint8_t g, uint8
     uint8_t v[3] = {r, g, b};
     for (size_t k = 0; k < 3; ++k) {
         palette->dac[i][k] = (uint8_t)(v[k] & 0x3f);
+        palette->pending[i][k] = palette->dac[i][k];
         palette->rgb[i][k] = cok_vga_shown(v[k]);
     }
+}
+
+/* Live colour i as the DAC holds it, and as it shows. */
+static void live(cok_vga_palette *palette, size_t i, const uint8_t dac[3])
+{
+    for (size_t k = 0; k < 3; ++k) {
+        palette->dac[i][k] = dac[k];
+        palette->rgb[i][k] = cok_vga_shown(dac[k]);
+    }
+}
+
+/* Whether slot s's colours meet first to first + count. */
+static bool overlaps(const cok_vga_cycle *s, unsigned first, unsigned count)
+{
+    return s->used && s->first < first + count && first < (unsigned)s->first + s->count;
+}
+
+bool cok_vga_set_colours(cok_vga_palette *palette, unsigned first, unsigned count,
+                         const uint8_t *rgb, const uint8_t *cycles, unsigned cycle_count,
+                         uint32_t now, const cok_random *random)
+{
+    if (first >= COK_VGA_COLOURS) return true;
+    if (count > COK_VGA_COLOURS - first) count = COK_VGA_COLOURS - first;
+    /* 00b1:014f-01e0: the cycles over the range against the given. */
+    bool changed = false;
+    unsigned given = 0;
+    for (size_t s = 0; s < COK_VGA_CYCLES && !changed; ++s) {
+        const cok_vga_cycle *c = &palette->cycles[s];
+        if (!overlaps(c, first, count)) continue;
+        if (given < cycle_count) {
+            const uint8_t *n = cycles + 4 * given;
+            if (c->flags != n[0] && c->rate != n[1] && c->first != n[2] && c->count != n[3])
+                changed = true;
+        }
+        ++given;
+    }
+    if (given != cycle_count) changed = true;
+    for (unsigned i = 0; i < count; ++i) {
+        uint8_t v[3] = {0, 0, 0};
+        if (rgb != NULL)
+            for (size_t k = 0; k < 3; ++k) v[k] = (uint8_t)(rgb[3 * i + k] >> 2);
+        if (memcmp(palette->pending[first + i], v, 3) != 0) {
+            changed = true;
+            palette->dirty[first + i] = true;
+            memcpy(palette->pending[first + i], v, 3);
+        }
+    }
+    bool room = true;
+    if (changed) {
+        for (size_t s = 0; s < COK_VGA_CYCLES; ++s) {
+            cok_vga_cycle *c = &palette->cycles[s];
+            if (!overlaps(c, first, count)) continue;
+            for (unsigned i = c->first; i < (unsigned)c->first + c->count && i < COK_VGA_COLOURS;
+                 ++i)
+                palette->dirty[i] = true;
+            c->used = false;
+        }
+        /* 03d0-0416: each in the next free slot, the search going on. */
+        size_t s = 0;
+        for (unsigned j = 0; j < cycle_count; ++j) {
+            while (s < COK_VGA_CYCLES && palette->cycles[s].used) ++s;
+            if (s == COK_VGA_CYCLES) {
+                room = false;
+                break;
+            }
+            const uint8_t *n = cycles + 4 * j;
+            unsigned r = random != NULL ? random->next(random->context, 8) : 0;
+            palette->cycles[s] = (cok_vga_cycle){
+                .used = true,
+                .time = (uint32_t)(now + r + n[1] - 3),
+                .flags = n[0],
+                .rate = n[1],
+                .first = n[2],
+                .count = n[3],
+            };
+        }
+    }
+    /* 261b:0455: the dirty colours to the live ones. */
+    for (size_t i = 0; i < COK_VGA_COLOURS; ++i)
+        if (palette->dirty[i]) {
+            live(palette, i, palette->pending[i]);
+            palette->dirty[i] = false;
+        }
+    return room;
+}
+
+bool cok_vga_apply_palette(cok_vga_palette *palette, const uint8_t *record, size_t size,
+                           unsigned shift, uint32_t now, const cok_random *random)
+{
+    if (!cok_vga_is_palette(record, size)) return false;
+    unsigned type = u16(record), first = u16(record + 2), count = u16(record + 4);
+    if (!(type & 1)) first = 0, count = COK_VGA_COLOURS; /* 2796:0536 */
+    unsigned cycle_count = type & 2 ? record[6] : 0;
+    if (first + count > COK_VGA_COLOURS ||
+        (size - COK_VGA_HEADER) < 3u * count + 4u * cycle_count)
+        return false;
+    uint8_t cycles[4 * 255];
+    memcpy(cycles, record + COK_VGA_HEADER + 3 * count, 4u * cycle_count);
+    for (unsigned j = 0; j < cycle_count; ++j) cycles[4 * j + 2] = (uint8_t)(cycles[4 * j + 2] + shift);
+    return cok_vga_set_colours(palette, first + shift, count, record + COK_VGA_HEADER, cycles,
+                               cycle_count, now, random);
+}
+
+bool cok_vga_cycle_colours(cok_vga_palette *palette, uint32_t now)
+{
+    bool changed = false;
+    for (size_t s = 0; s < COK_VGA_CYCLES; ++s) {
+        cok_vga_cycle *c = &palette->cycles[s];
+        if (!c->used || (int32_t)c->time > (int32_t)now || c->count == 0 || c->rate == 0) continue;
+        unsigned f = c->first, last = (unsigned)c->count - 1;
+        if (f + last >= COK_VGA_COLOURS) continue;
+        do {
+            uint8_t t[3];
+            if (c->flags & 1) {
+                memcpy(t, palette->dac[f], 3);
+                memmove(palette->dac[f], palette->dac[f + 1], 3 * last);
+                memcpy(palette->dac[f + last], t, 3);
+            } else {
+                memcpy(t, palette->dac[f + last], 3);
+                memmove(palette->dac[f + 1], palette->dac[f], 3 * last);
+                memcpy(palette->dac[f], t, 3);
+            }
+            c->time += c->rate;
+        } while ((int32_t)c->time <= (int32_t)now);
+        for (unsigned i = f; i <= f + last; ++i) live(palette, i, palette->dac[i]);
+        changed = true;
+    }
+    return changed;
+}
+
+bool cok_vga_cycle_next(const cok_vga_palette *palette, uint32_t *time)
+{
+    bool any = false;
+    for (size_t s = 0; s < COK_VGA_CYCLES; ++s) {
+        const cok_vga_cycle *c = &palette->cycles[s];
+        if (!c->used || c->rate == 0) continue;
+        if (!any || (int32_t)c->time < (int32_t)*time) *time = c->time;
+        any = true;
+    }
+    return any;
 }
 
 bool cok_vga_load_palette(cok_vga_palette *palette, const uint8_t *record, size_t size)

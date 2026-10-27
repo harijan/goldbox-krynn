@@ -4,6 +4,7 @@ screens and 3D view (the screens' digests those tools/dosbox/checks'
 dqk_views.py and dqk_boot.py found equal to the original's). Skipped,
 saying so, where DQKAssets/ is not there (stdlib only)."""
 import hashlib
+import os
 import pathlib
 import re
 import struct
@@ -185,13 +186,29 @@ class DarkQueenTests(unittest.TestCase):
         # Saved games, parties and the adventure loop are not read yet.
         result = self.play("--play", ASSETS, 4)
         self.assertEqual(result.returncode, 2)
-        self.assertIn("read headless only so far", result.stderr)
+        self.assertIn("characters and saved games are not read yet", result.stderr)
         result = self.play("--load", ASSETS / "SAVGAMA.QSV", ASSETS)
         self.assertEqual(result.returncode, 2)
-        if (BUILD / "krynn").exists():
-            result = self.run_tool("krynn", *GAME, "--no-delay")
+        # VGA alone.
+        result = self.play("--display", "ega", "--start-menu", ASSETS)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("drawn in VGA alone", result.stderr)
+
+    def test_config(self):
+        # DQK.CFG (6478:0000): its 0x90 bytes from DISK1, or the game ends
+        # saying so; installed for EGA it ends too (6478:00e2).
+        shipped = (ASSETS / "DISK1" / "DQK.CFG").read_bytes()
+        short = self.folder / "short.cfg"
+        short.write_bytes(shipped[:0x8f])
+        ega = self.folder / "ega.cfg"
+        ega.write_bytes(b"\x01\x00" + shipped[2:])
+        for config, words in (("missing.cfg", "Error reading configuration file!"),
+                              (short, "Error reading configuration file!"),
+                              (ega, "Installed for EGA only!")):
+            result = self.play("--start-menu", "--config", self.folder / config, "--keys", "Q",
+                               ASSETS)
             self.assertEqual(result.returncode, 1)
-            self.assertIn("read headless only so far", result.stderr)
+            self.assertEqual(result.stderr.splitlines()[0], words)
 
     def test_title(self):
         # Eight scenes, each passed by Space, then the menu: Quit.
@@ -204,11 +221,181 @@ class DarkQueenTests(unittest.TestCase):
         self.assertEqual(digest(shots / "005.bmp"), "2aafd853fbc2c01992b442bb946c2e26")
         self.assertEqual(digest(shots / "008.bmp", [POINTER]),
                          "7460a39579c08ddd2d7fadd455184740")
-        # Play: the start menu is step 2's.
-        result = self.play("--start-menu", "--keys", r"\k\eP", ASSETS)
+
+    def test_camp(self):
+        # Play: the camp's menu without a party (7368:046f), its buttons
+        # read by letter; Load's "load from where?" (604b:2e87), Escape
+        # back; Exit From Game, "Exit to DOS?" No, then Yes. The screens
+        # are the original's (dqk_menus).
+        shots = self.folder / "camp"
+        result = self.play("--start-menu", "--shots", shots, "--keys", r"\k\ePmlx\eENEY",
+                           ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        alone = ("menu: Create Character Delete Character Add Character Load Saved Game "
+                 "Exit From Game")
+        self.assertEqual(result.stdout.splitlines(),
+                         ["menu: Play Demo Quit", "choice: 0", alone, "choice: 8",
+                          "menu: Tdqk Dkk Exit", "choice: 27", alone, "choice: 11", alone,
+                          "choice: 11", "(quit to DOS)"])
+        self.assertEqual(digest(shots / "002.bmp", [POINTER]),
+                         "efb0b5e394057e108ead812d71070c16")
+        self.assertEqual(digest(shots / "003.bmp", [POINTER]),  # m: Modify is off
+                         "efb0b5e394057e108ead812d71070c16")
+        self.assertEqual(digest(shots / "004.bmp", [POINTER]),
+                         "73d831f55db6ae1ab8ac2d52feb30b32")
+        # A click on Create Character's button; Delete's stops too.
+        result = self.play("--start-menu", "--mouse", "--keys", r"\k\eP\m200,120,1.", ASSETS)
         self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stderr, "not yet ported: The Dark Queen of Krynn's start menu "
-                         "(dqk 5ebd:00ef)\n")
+        self.assertEqual(result.stderr, "not yet ported: The Dark Queen of Krynn's Create "
+                         "Character (dqk 66e5:2f95)\n")
+        result = self.play("--start-menu", "--keys", r"\k\ePLT", ASSETS)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("saved games (dqk 604b:2e87)", result.stderr)
+
+    def test_demonstration(self):
+        # Demo (or the menu's 70 seconds with no key) runs block 7 to its
+        # ADD NPC; Escape typed in it ends it, back to the menu.
+        for keys in (r"\k\eD", r"\k\e\t"):
+            result = self.play("--start-menu", "--keys", keys, ASSETS)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("music: 36", result.stdout.splitlines())
+            self.assertEqual(result.stderr, "not yet ported: The Dark Queen of Krynn's opcode "
+                             "0x36, ADD NPC (dqk 6c70:307b)\n")
+        result = self.play("--start-menu", "--keys", r"\k\eD\k\eQ", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(),
+                         ["menu: Play Demo Quit", "choice: 1", "menu: Play Demo Quit",
+                          "choice: 2", "(quit to DOS)"])
+
+    def test_front_end(self):
+        # krynn plays the title and the camp's menu in 256 colours, its
+        # frames eclplay's, with the game's own mouse cursor (the shield).
+        if not (BUILD / "krynn").exists():
+            self.skipTest("no build/krynn (SDL2)")
+        shots = self.folder / "krynn"
+        env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
+        result = subprocess.run([str(BUILD / "krynn"), *GAME, "--no-delay", "--shots",
+                                 str(shots), "--keys", r"\k\ePEY"], capture_output=True,
+                                text=True, cwd=ROOT, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(digest(shots / "002.bmp", [POINTER]),
+                         "efb0b5e394057e108ead812d71070c16")
+        self.assertNotEqual(digest(shots / "002.bmp"), "1d62a33cf8633397f4f43349f89fe0fe")
+        mine = self.folder / "eclplay"
+        self.play("--start-menu", "--mouse", "--shots", mine, "--keys", r"\k\ePEY", ASSETS)
+        self.assertEqual(digest(shots / "002.bmp"), digest(mine / "002.bmp"))
+
+    def test_menus(self):
+        # VERTICAL MENU (1bdb:1f25): Up wraps to the last, Down back to the
+        # first, others beep, Return selects (block 18's "WHO SENT YOU?").
+        shots = self.folder / "vertical"
+        result = self.play("--set", "22=1", "--start", "83fb", "--shots", shots, "--keys",
+                           r"\^\vx\r", ASSETS, 18)
+        self.assertIn("choice: 0", result.stdout.splitlines())
+        self.assertEqual(digest(shots / "001.bmp"), "0b0ce6b58c9acf368b0b24b808c619f5")
+        result = self.play("--set", "22=1", "--start", "83fb", "--keys", r"\v\v\e", ASSETS,
+                           18)
+        self.assertIn("choice: 2", result.stdout.splitlines())  # Escape keeps it
+        # INPUT NUMBER (6c70:2e7c): typed, Backspace, Return; block 1's
+        # developers' menu goes to the block typed.
+        shots = self.folder / "input"
+        result = self.play("--set", "22=1", "--start", "842d", "--shots", shots, "--keys",
+                           r"1x\b4\r", ASSETS, 1)
+        self.assertIn("input: 14", result.stdout.splitlines())
+        self.assertEqual(digest(shots / "002.bmp"), "de5ab1aa892c78efecc6d92498472aa0")
+
+    def test_main_menu_keys(self):
+        # Escape at main's menu is Play (1bdb:06c6's filter gives 0x1b,
+        # which 5ebd:00ef takes as anything but Demo and Quit), after a
+        # demonstration too; an extended key at the title ends it (6523:000c
+        # gives its code's low byte, not Space).
+        alone = ("menu: Create Character Delete Character Add Character Load Saved Game "
+                 "Exit From Game")
+        for keys, before in ((r"\k\e\eEY", ["menu: Play Demo Quit", "choice: 27"]),
+                             (r"\k\eD\k\e\eEY", ["menu: Play Demo Quit", "choice: 1",
+                                                   "menu: Play Demo Quit", "choice: 27"])):
+            result = self.play("--start-menu", "--keys", keys, ASSETS)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines(),
+                             before + [alone, "choice: 11", "(quit to DOS)"])
+        result = self.play("--start-menu", "--keys", r"\k\^\kQ", ASSETS)
+        self.assertEqual(result.stdout.splitlines(),
+                         ["menu: Play Demo Quit", "choice: 2", "(quit to DOS)"])
+
+    def test_input(self):
+        # INPUT NUMBER as 2d84:000b reads it: up to the first other
+        # character, 16 bits, empty 0; a negative one asked again.
+        for keys, number in ((r"12x\r", "12"), (r"70000\r", "4464"), (r"\r", "0"),
+                             (r"-5\r7\r", "7"), (r"10h\r", "16"), (r" 12\r", "12")):
+            result = self.play("--set", "22=1", "--start", "842d", "--keys", keys, ASSETS, 1)
+            self.assertEqual([l for l in result.stdout.splitlines() if l.startswith("input")],
+                             [f"input: {number}"], keys)
+        # INPUT STRING (6c70:2ec8): upper case, 35 at most, " " for none,
+        # stored on Escape too; then block 1's FIND NPC stops.
+        for keys, text in ((r"ab\r", "AB"), (r"ab\e", "AB"), (r"\r", " "),
+                           ("x" * 40 + r"\r", "X" * 35)):
+            result = self.play("--set", "22=1", "--start", "9bfd", "--keys", keys, ASSETS, 1)
+            self.assertIn(f"input: {text}", result.stdout.splitlines(), keys)
+
+    def vertical(self, keys, *more):
+        """A VERTICAL MENU of six items (I0-I5, from string variables) with
+        an empty prompt: four rows (18-21), so that it scrolls."""
+        items = [0x300 + 0x10 * i for i in range(6)]
+        code = [0x15, 0x01, 0xBF, 0x00, 0x81, 0x00, 0x02, 0x00, len(items)]
+        for a in items:
+            code += [0x81, a & 0xFF, a >> 8]
+        code.append(0)
+        sets = [(0x8014 + i, b) for i, b in enumerate(code)]
+        for i, a in enumerate(items):
+            sets += [(a, ord("I")), (a + 1, ord(str(i)))]
+        args = [x for a, b in sets for x in ("--set", f"{a:x}={b:x}")]
+        return self.play("--start", "8014", *args, *more, "--keys", keys, ASSETS, 4)
+
+    def test_vertical_scrolls(self):
+        # Down past the rows scrolls; PgUp the top row shown, then a page;
+        # PgDn the bottom one, then a page; End wraps (1b05:0664).
+        def choice(keys, *more):
+            result = self.vertical(keys, *more)
+            return [l for l in result.stdout.splitlines() if l.startswith("choice")]
+        self.assertEqual(choice(r"\v\v\v\v\v\r"), ["choice: 5"])
+        self.assertEqual(choice(r"\v\v\v\v\v\#49\r"), ["choice: 2"])  # top shown: 2
+        self.assertEqual(choice(r"\v\v\v\v\v\#49\#49\r"), ["choice: 0"])
+        self.assertEqual(choice(r"\#51\r"), ["choice: 3"])
+        self.assertEqual(choice(r"\#51\#51\r"), ["choice: 5"])
+        self.assertEqual(choice(r"\#47\r"), ["choice: 5"])  # Home: up, wrapping
+        shots = self.folder / "scroll"
+        self.vertical(r"\v\v\v\v\v\r", "--shots", shots)
+        top, bottom = pixels(shots / "000.bmp"), pixels(shots / "005.bmp")
+        self.assertNotEqual(top, bottom)
+        # Clicks: a row makes it current, a click on the current one or on
+        # Select takes it.
+        self.assertEqual(choice(r"\m20,152,1.\m20,152,1.", "--mouse"), ["choice: 1"])
+        self.assertEqual(choice(r"\m20,160,1.\m20,190,1.", "--mouse"), ["choice: 2"])
+
+    def test_bar_clicks(self):
+        # A click on a HORIZONTAL MENU's button (block 1's jumper: START at
+        # x 64) and on ASK MENU's (its "what do you do?": WORKING at 48).
+        result = self.play("--set", "22=1", "--mouse", "--keys", r"\m70,190,1.", ASSETS, 1)
+        self.assertIn("choice: 1", result.stdout.splitlines())
+        result = self.play("--set", "22=1", "--mouse", "--start", "9ac8", "--keys",
+                           r"\m60,190,1.", ASSETS, 1)
+        self.assertIn("menu: ~AM I ~WORKING", result.stdout.splitlines())
+        self.assertIn("choice: 1", result.stdout.splitlines())
+
+    def test_big_pictures(self):
+        # The overland (block 5's PICTURE [3e], BIGPIC 240: 63ae:0321), in
+        # mode 3 (its SAVE 0 [0022] from 3D) with the party's place (ALWAYS
+        # 29 past 0x25, 0x26: 7065:0011), and the ending (block 60's
+        # PROGRAM 1: 6523:03cb, FINAL.TLB).
+        bmp = self.folder / "overland.bmp"
+        self.play("--set", "22=1", "--set", "16=5", "--set", "3e=f0", "--set", "25=a", "--set",
+                  "26=5", "--screen", bmp, ASSETS, 5)
+        self.assertEqual(digest(bmp), "fb0bc519ce58e409de84eb27643172c7")
+        shots = self.folder / "ending"
+        result = self.play("--start", "9c43", "--shots", shots, "--keys", r"\r\r\r", ASSETS,
+                           60)
+        self.assertIn("music: 39", result.stdout.splitlines())
+        self.assertEqual(digest(shots / "002.bmp"), "bdf98d9fcd66eacd24be5012005941fd")
 
     def test_animation(self):
         # CALL [0003] (5f07:0aba): the frame drawn, record 1 and over it the

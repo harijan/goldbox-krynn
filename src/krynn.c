@@ -29,6 +29,7 @@ enum {
     SCREEN_W = 320,
     SCREEN_H = 200,
     SCREEN_BYTES = SCREEN_W * SCREEN_H / 2, /* The Tandy layout, two pixels a byte. */
+    SCREEN_PIXELS = SCREEN_W * SCREEN_H,    /* VGA's (Dark Queen's), a byte a pixel. */
     TEXT_BYTES = COK_CRT_WIDTH * COK_CRT_HEIGHT / 2, /* Startup's text screen, 640x200. */
     KEYS_MAX = COK_KEYS_BUFFERED,           /* The BIOS's buffer holds 15 keystrokes. */
     REST_MS = 10,                           /* A rest's step: GetTime's hundredth. */
@@ -79,9 +80,14 @@ typedef struct {
     int up_w;              /* The width of what it scales up. */
     bool crt;              /* Stretch 200 lines to 240, as a 4:3 monitor showed them. */
     bool fullscreen;
-    uint8_t shown[SCREEN_BYTES]; /* The screen as last put in the texture. */
+    /* The screen as last put in the texture: its bytes (screen_bytes) and,
+     * for a VGA screen, the 256 colours it showed in, which change without
+     * its bytes. */
+    uint8_t shown[SCREEN_PIXELS];
+    uint8_t shown_palette[256][3];
     uint8_t text_shown[TEXT_BYTES]; /* The text screen as last put in its texture. */
-    uint8_t on_window[SCREEN_BYTES]; /* As last presented, for --log's check. */
+    uint8_t on_window[SCREEN_PIXELS]; /* As last presented, for --log's check. */
+    uint8_t on_window_palette[256][3];
     uint8_t rgb[COK_CRT_WIDTH * COK_CRT_HEIGHT * 3];
     uint8_t palette[16][3];
     bool uploaded, expose;
@@ -128,7 +134,7 @@ typedef struct {
      * \j; a click of the keys' (\m), whose buttons come up once the game
      * has read it (tapped); whether the window's own cursor is hidden;
      * when a pushed stick last gave a key. */
-    uint8_t composed[SCREEN_BYTES];
+    uint8_t composed[SCREEN_PIXELS];
     bool opened;
     SDL_Joystick *joystick;
     bool virtual_joystick;
@@ -270,15 +276,46 @@ static bool upload_text(frontend *f)
     return true;
 }
 
+/* The bytes of the game's screen: two pixels a byte, or a VGA screen's
+ * one (picture.h's vga). */
+static size_t screen_bytes(const frontend *f)
+{
+    return f->game->screen.vga ? SCREEN_PIXELS : SCREEN_BYTES;
+}
+
 /* The screen as the window shows it: the game's, with the mouse's cursor
  * where its driver draws it; NULL before there is one. */
 static const uint8_t *screen_shown(frontend *f)
 {
     const cok_picture *screen = &f->game->screen;
-    if (screen->pixels == NULL || screen->frame_size != SCREEN_BYTES) return NULL;
-    memcpy(f->composed, screen->pixels, SCREEN_BYTES);
-    cok_mouse_draw(&f->game->mouse.driver, f->composed, f->game->display == COK_DISPLAY_CGA);
+    if (screen->pixels == NULL || screen->frame_size != screen_bytes(f)) return NULL;
+    memcpy(f->composed, screen->pixels, screen_bytes(f));
+    if (screen->vga)
+        cok_adventure_cursor(f->game, f->composed);
+    else
+        cok_mouse_draw(&f->game->mouse.driver, f->composed, f->game->display == COK_DISPLAY_CGA);
     return f->composed;
+}
+
+/* Whether pixels (screen_shown's) differ from bytes as shown in palette:
+ * a VGA screen's colours too. */
+static bool screen_differs(const frontend *f, const uint8_t *pixels, const uint8_t *bytes,
+                           const uint8_t *palette)
+{
+    const cok_picture *screen = &f->game->screen;
+    if (memcmp(bytes, pixels, screen_bytes(f)) != 0) return true;
+    return screen->vga && screen->palette != NULL &&
+           memcmp(palette, screen->palette, sizeof f->shown_palette) != 0;
+}
+
+/* Keep pixels and the screen's colours as bytes and palette. */
+static void screen_keep(const frontend *f, const uint8_t *pixels, uint8_t *bytes,
+                        uint8_t *palette)
+{
+    const cok_picture *screen = &f->game->screen;
+    memcpy(bytes, pixels, screen_bytes(f));
+    if (screen->vga && screen->palette != NULL)
+        memcpy(palette, screen->palette, sizeof f->shown_palette);
 }
 
 /* Copy the screen into the texture if it changed. */
@@ -287,8 +324,8 @@ static bool upload(frontend *f)
     if (f->text != NULL) return upload_text(f);
     const uint8_t *pixels = screen_shown(f);
     if (pixels == NULL) return false;
-    if (f->uploaded && memcmp(f->shown, pixels, SCREEN_BYTES) == 0) return false;
-    memcpy(f->shown, pixels, SCREEN_BYTES);
+    if (f->uploaded && !screen_differs(f, pixels, f->shown, &f->shown_palette[0][0])) return false;
+    screen_keep(f, pixels, f->shown, &f->shown_palette[0][0]);
     cok_image image = cok_picture_frame(&f->game->screen, 0);
     image.pixels = f->shown;
     cok_image_rgb(&image, f->rgb);
@@ -350,16 +387,21 @@ static void shot_error(frontend *f, const char *format, const char *detail)
 /* Read the window back as the screen's pixels and save it as eclplay saves
  * the screen, so that the two can be compared byte for byte. Each pixel
  * is shown where its area's middle falls, which must be one of the 16
- * colours; at a whole multiple of the screen across and down its whole
+ * colours (a VGA screen's: of the 256 it was shown in, the first that
+ * shows it); at a whole multiple of the screen across and down its whole
  * block must be that colour. */
 static void save_shown(frontend *f, const SDL_Rect *dst, const char *path)
 {
     const int sw = source_width(f), sh = source_height(f);
     bool whole = dst->w % sw == 0 && dst->h % sh == 0;
     int kx = whole ? dst->w / sw : 1, ky = whole ? dst->h / sh : 1;
+    bool vga = f->text == NULL && f->game->screen.vga;
+    const uint8_t (*palette)[3] =
+        vga ? (const uint8_t (*)[3])f->shown_palette : (const uint8_t (*)[3])f->palette;
+    int colours = vga ? 256 : 16;
     size_t pitch = (size_t)dst->w * 3;
     uint8_t *shown = malloc(pitch * (size_t)dst->h);
-    uint8_t *pixels = calloc((size_t)(sw * sh / 2), 1);
+    uint8_t *pixels = calloc((size_t)(vga ? sw * sh : sw * sh / 2), 1);
     if (shown == NULL || pixels == NULL ||
         SDL_RenderReadPixels(f->renderer, dst, SDL_PIXELFORMAT_RGB24, shown, (int)pitch) != 0) {
         shot_error(f, "%s: cannot read the window back", path);
@@ -378,8 +420,8 @@ static void save_shown(frontend *f, const SDL_Rect *dst, const char *path)
                 p = shown + (size_t)my * pitch + (size_t)mx * 3;
             }
             int colour = -1;
-            for (int c = 0; c < 16 && colour < 0; ++c) /* in CGA mode 0-3 */
-                if (memcmp(p, f->palette[c], 3) == 0) colour = c;
+            for (int c = 0; c < colours && colour < 0; ++c) /* in CGA mode 0-3 */
+                if (memcmp(p, palette[c], 3) == 0) colour = c;
             for (int dy = 0; dy < ky && colour >= 0; ++dy)
                 for (int dx = 0; dx < kx; ++dx)
                     if (memcmp(p + (size_t)dy * pitch + (size_t)dx * 3, p, 3) != 0) colour = -1;
@@ -388,14 +430,19 @@ static void save_shown(frontend *f, const SDL_Rect *dst, const char *path)
                               "colours", path);
                 break;
             }
-            pixels[(y * sw + x) / 2] |= (uint8_t)(x % 2 == 0 ? colour << 4 : colour);
+            if (vga)
+                pixels[y * sw + x] = (uint8_t)colour;
+            else
+                pixels[(y * sw + x) / 2] |= (uint8_t)(x % 2 == 0 ? colour << 4 : colour);
         }
     }
     if (!f->shot_failed) {
         cok_image image = {.width = (size_t)sw, .height = (size_t)sh, .pixels = pixels,
-                           .palette = f->text != NULL
+                           .palette = vga ? palette
+                                      : f->text != NULL
                                           ? NULL
-                                          : cok_picture_frame(&f->game->screen, 0).palette};
+                                          : cok_picture_frame(&f->game->screen, 0).palette,
+                           .vga = vga};
         cok_image_status status = cok_image_bmp(&image, path);
         if (status != COK_IMAGE_OK) shot_error(f, "%s", cok_image_status_string(status));
     }
@@ -414,7 +461,8 @@ static bool owed(frontend *f)
     }
     const uint8_t *pixels = screen_shown(f);
     return f->expose ||
-           (pixels != NULL && (!f->uploaded || memcmp(f->shown, pixels, SCREEN_BYTES) != 0));
+           (pixels != NULL &&
+            (!f->uploaded || screen_differs(f, pixels, f->shown, &f->shown_palette[0][0])));
 }
 
 /* Show the screen if a present is owed (or force), at most every
@@ -438,7 +486,8 @@ static void present(frontend *f, bool force, const char *path)
     if (f->log_times) log_at(f, now, "present: %lu\n", ++f->presents);
     SDL_RenderPresent(f->renderer);
     f->presented = now;
-    if (f->log && f->text == NULL) memcpy(f->on_window, f->shown, SCREEN_BYTES);
+    if (f->log && f->text == NULL)
+        screen_keep(f, f->shown, f->on_window, &f->on_window_palette[0][0]);
     f->expose = false;
 }
 
@@ -1275,7 +1324,7 @@ static void delay(cok_adventure *game, unsigned ms, void *context)
     /* With --log, a check that the window keeps up: what the game drew
      * before it waits must be shown within a frame or two of waiting. */
     const uint8_t *pixels = f->log && !f->no_delay && f->text == NULL ? screen_shown(f) : NULL;
-    if (pixels != NULL && memcmp(f->on_window, pixels, SCREEN_BYTES) != 0) {
+    if (pixels != NULL && screen_differs(f, pixels, f->on_window, &f->on_window_palette[0][0])) {
         Uint64 now = SDL_GetTicks64();
         if (f->owed_from == 0) {
             f->owed_from = now;
@@ -1534,15 +1583,16 @@ int main(int argc, char **argv)
             return 2;
         }
     }
+    if (display_given && f.rules->setup.display == NULL) {
+        /* Dark Queen: VGA alone (DARK-QUEEN.md's step 6). */
+        fprintf(stderr, "--display: %s is drawn in VGA alone\n", f.rules->text.name);
+        return 2;
+    }
     if (woof && f.rules->saves.debug == NULL) {
         /* A game with no debug mode reads no Woof (dkk's main reads no
          * argument). */
         fprintf(stderr, "--woof: %s has no Woof (its debug mode)\n", f.rules->text.name);
         return 2;
-    }
-    if (f.rules->unplayable != NULL) {
-        fprintf(stderr, "%s\n", f.rules->unplayable);
-        return 1;
     }
     if (assets == NULL) assets = f.rules->assets;
     if (import == NULL) import = saves;
@@ -1626,8 +1676,23 @@ int main(int argc, char **argv)
     bool found = cok_config_find(f.rules, config_option, saves, assets, config_path,
                                  config_write, sizeof config_path);
     cok_config config = {.display = COK_DISPLAY_TANDY, .sound = COK_SOUND_TANDY};
-    int started = startup(&f, &keyboard, config_path, found, &config,
+    int started = 0;
+    if (f.rules->files.config_bytes != 0) {
+        /* Dark Queen's DQK.CFG: no setup (INSTALL.EXE writes it); without
+         * it, or short, the game says so and ends (6478:0000, DS:60de), as
+         * where it was installed for another display (6478:00e2). */
+        if (!found || !cok_config_read_file_game(f.rules, config_path, &config, false)) {
+            fprintf(stderr, "Error reading configuration file!\n%s: %s\n", config_path,
+                    found ? "shorter than its 144 bytes" : "not found");
+            started = 1;
+        } else if (cok_config_installed_for(&config) != NULL) {
+            fprintf(stderr, "%s\n", cok_config_installed_for(&config));
+            started = 1;
+        }
+    } else if (f.rules->setup.display != NULL) {
+        started = startup(&f, &keyboard, config_path, found, &config,
                           input != NULL && strcmp(input, "joystick") == 0);
+    }
     if (started != 0) {
         int result = started < 0 ? 0 : started;
         if (started < 0 && f.script_error[0] != '\0') {

@@ -2434,8 +2434,65 @@ static void test_death_knights_drain(void)
     dkk.vm.status = COK_ECL_OK;
 }
 
+/* The Dark Queen of Krynn's waits for a key in a front end
+ * (cok_adventure_menu_animates and menu_frame, its drawing's animates and
+ * animate): with a palette's cycles running (title scene 5's nine), each
+ * frame lets the time animates gave pass and steps the cycles due
+ * (261b:05be), so that the colours rotate; with none running, nothing
+ * animates. */
+static int queen_left;
+static unsigned queen_delays;
+static int queen_read(void *context)
+{
+    (void)context;
+    return queen_left-- > 0 ? ' ' : -1;
+}
+
+static bool queen_pending(cok_adventure *g, void *context)
+{
+    (void)g;
+    (void)context;
+    return queen_left > 0;
+}
+
+static void queen_delay(cok_adventure *g, unsigned ms, void *context)
+{
+    (void)ms;
+    (void)context;
+    if (++queen_delays > 3) g->vm.abort = true; /* scene 5's wait, a few steps in */
+}
+
+static void test_dark_queen_animates(void)
+{
+    struct stat st;
+    if (stat("DQKAssets/DISK3/ECL.GLB", &st) != 0) {
+        puts("start: The Dark Queen of Krynn's animation skipped (no DQKAssets/)");
+        return;
+    }
+    static cok_adventure q;
+    cok_keyboard keys = {queen_read, NULL, NULL, NULL};
+    cok_adventure_hooks hooks = {.key_pending = queen_pending, .delay = queen_delay};
+    CHECK(cok_adventure_open_display(&q, &cok_rules_dark_queen, "DQKAssets", COK_DISPLAY_TANDY,
+                                     &keys, &hooks));
+    queen_left = 4; /* scenes 1-4 passed by Space */
+    cok_start_game(&q, false);
+    uint32_t ms = 0, again = 0;
+    CHECK(cok_adventure_menu_animates(&q, &ms) && ms >= 10 && ms < 1000);
+    uint8_t before[256][3];
+    memcpy(before, q.screen.palette, sizeof before);
+    bool rotated = false;
+    for (int i = 0; i < 100 && !rotated; ++i) {
+        CHECK(cok_adventure_menu_animates(&q, &again));
+        cok_adventure_menu_frame(&q);
+        rotated = memcmp(before, q.screen.palette, sizeof before) != 0;
+    }
+    CHECK(rotated);
+    cok_adventure_close(&q);
+}
+
 int main(void)
 {
+    test_dark_queen_animates();
     snprintf(dir, sizeof dir, "build/start_XXXXXX");
     CHECK(mkdtemp(dir) != NULL);
     cok_keyboard k = {scripted, &s, NULL, NULL};

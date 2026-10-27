@@ -235,13 +235,13 @@ combatants are set up as in the original.
 | `--scale N` | window size, N times 320×200 (default 3). The window can also be resized freely. |
 | `--fullscreen` | start in full screen |
 | `--aspect 1:1` | square pixels. The default `4:3` stretches the picture as a 1990 monitor did, so the moons and portraits come out round. |
-| `--display ega`, `tandy` or `cga` | graphics mode for this run |
+| `--display ega`, `tandy` or `cga` | graphics mode for this run (The Dark Queen of Krynn is VGA alone) |
 | `--sound tandy`, `adlib`, `speaker` or `off` | sound device for this run |
 | `--volume N` | 0 to 100 |
 | `--input mouse`, `joystick` or `none` | mouse, joystick or keyboard only for this run |
 | `--saves DIR` | keep the roster and saved games in DIR instead of `saves/` |
 | `--assets DIR` | find the game's files in DIR instead of `COKAssets/` |
-| `--game champions` or `death-knights` | the game to play; Champions of Krynn is the default (see [Death Knights of Krynn](#death-knights-of-krynn)); `dark-queen`, The Dark Queen of Krynn, is not playable yet (the developer tools read it: see DEVELOPERS.md) |
+| `--game champions` or `death-knights` | the game to play; Champions of Krynn is the default (see [Death Knights of Krynn](#death-knights-of-krynn)); `dark-queen`, The Dark Queen of Krynn, plays its title, main menu and camp menu so far, in VGA's 256 colours, from `DQKAssets/` with its `DISK1\DQK.CFG` (the window says where the port stops; see DEVELOPERS.md) |
 | `--import DIR` | Death Knights: where to find the Champions characters and saved games to bring over (default: the saves folder) |
 | `--screenshots DIR` | where F12 saves screenshots |
 

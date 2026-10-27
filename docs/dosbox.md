@@ -316,7 +316,8 @@ protection's question, the ECL's buffer, address and opcode), judges that
 the original's run reached each step, and compares its first screen of
 the game with `eclplay --game dark-queen`'s (its `port()`; `MASKS` the
 areas not compared); `dqk_views.py` (about a minute) the title, texts and
-the 3D view (see [Checks against the original](checks.md)). They
+the 3D view; `dqk_menus.py` (about a minute) its menus, input, big
+picture and lists (see [Checks against the original](checks.md)). They
 took 80 minutes one after another at their cycles (`dkk_fight.py` 40),
 10 side by side, and 3 with Death Knights' boxes turbo too (`GAMES`), its
 `dkk_views.py` typing the start menu's keys as the game waits
