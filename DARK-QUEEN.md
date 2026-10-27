@@ -79,7 +79,7 @@ and levels, saving throws, spells per day, item words, stock, treasure).
 | Maps | `GEO.GLB`, 20 maps of their own size (10×10 to 39×20 and 22×34): 8 bytes (height, width, the wall sets of three slots, three backdrops), then four planes of a byte a square (`8a8b:12e3`); not 1026 bytes. |
 | Monsters | `MONCHA.GLB`, 98, each a big-endian size and PackBits (`10d7:0a1c`, read by `604b:257c`): the record, then counts of effects and items, effects of 5 bytes and items of 17; no MON*WIZ. |
 | Characters | `SAVE\*.QCH`, 482-517 bytes: the record, 0x19e bytes, then 17-byte items and 9-byte effects (`dqk 604b:05fd`). Death Knights' `.PC` characters import (`604b:0b82`; listed by `604b:054a`). |
-| Saved games | `SAVGAM?.QSV`, 7,965 bytes: 1 KB of variables, the six characters as `.QCH` images, then item lists and a vault-like block not yet decoded. `VAULT?.DAT` 866 bytes (49 items). |
+| Saved games | `SAVGAM?.QSV`, 7,965 bytes: 1 KB of variables, the place, modes and wall set, the characters as `.QCH` images, then the rest of the file from the item table's buffer, which no loader reads (`604b:31a7`). `VAULT?.DAT` 866 bytes: coins, a count of items and their 17 bytes each, padded to 50 so (`63ee:00df`). |
 | Items | 17-byte entries everywhere; `ITEM.DAT` 254 of them (like Death Knights' ITEM0.DAX); `ITEMS.DAT` Champions' 2050-byte table without its header, contents changed. |
 | `DQK.CFG` | Binary, 144 bytes (devices, Death Knights' save path, the game's path), in `DISK1\`. |
 | Font | `GAME.FON`, 1,152 bytes: 8×12 for the 96 characters 0x20-0x7f, of which VGA draws rows 0, 1, 3, 4, 6, 8, 9 and 10 in an opaque cell of 8×8 (`22b7:0c96`); the earlier games draw text from 8X8D tiles. |

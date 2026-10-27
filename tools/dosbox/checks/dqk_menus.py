@@ -15,10 +15,10 @@ and the text after it.
 
 The port runs main's menu from --start-menu, block 1 with the keys typed,
 and the inn from its event (--start 898b) with the original's facing and
-lamps. Compared: the whole screen, but the party's list and status (not
-drawn yet) where the adventure's screen shows them, the field's caret (it
-blinks, 6431:0001) and the inn's lamps (lit at night where the variables
-the port draws them by say otherwise: not found yet). The original's
+lamps. Compared: the whole screen, but the party's list and status (no
+party in the port's block runs) where the adventure's screen shows them,
+the field's caret (it blinks, 6431:0001) and the inn's lamps (the port's
+inn run draws its frame before its --set: dqk_party compares the lamps). The original's
 colour cycles (261b:05be) are stopped in the box (a retf), so that its
 pictures with cycles (picture 142, BIGPIC 240) show their colours as set,
 as the port's shots do, and its screens settle. About two minutes.
@@ -43,10 +43,11 @@ GAME = ("--game", "dark-queen")
 
 PARTY = (136, 8, 176, 120, "the party's list and status (no party yet)")
 CARET = (8, 186, 312, 12, "the input field's caret, blinking")
-# The lamps under the view: in Hizden's inn, at night, the original's are
-# lit where variables 0x1fa-0x1fc say otherwise (20b2:00e4 draws them by
-# those: step 1's adventure screen, not found yet).
-LAMPS = (40, 120, 56, 8, "the lamps under the view (lit at night: not found yet)")
+# The lamps under the view: the original's are its saved game's (variables
+# 0x1fa-0x1fc, 2 each all the way), drawn at Begin Adventuring (20b2:00e4);
+# the port's inn run draws its frame as eclplay starts, before its --set,
+# with 0 (dqk_party compares them from the start menu).
+LAMPS = (40, 120, 56, 8, "the lamps under the view (eclplay's frame before its --set)")
 DS_VARS = 0xB20F
 DS_SQUARE = 0xC9F0
 

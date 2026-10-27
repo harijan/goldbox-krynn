@@ -427,15 +427,16 @@ builds, and a river's shape.
 
 `cok_rules_dark_queen` (`src/rules_dark_queen.c`, its addresses `dqk
 SEG:OFF` in `build/DQK_FULL.EXE`, `make dqk-merged`, its data segment at
-`DS` 0x422e) is DARK-QUEEN.md's step 1 and its step 2's screens:
-`eclplay --game dark-queen` and `ecldump --game dark-queen` read its
-libraries, run its scripts with their text, menus, input and pictures, its
-3D view, its title, main menu, camp menu and demonstration, as the
+`DS` 0x422e) is DARK-QUEEN.md's step 1 and its step 2's screens and
+saved games: `eclplay --game dark-queen` and `ecldump --game dark-queen`
+read its libraries, run its scripts with their text, menus, input and
+pictures, its 3D view, its title, main menu, camp and demonstration, load
+its saved games and play them in 3D up to the first fight, as the
 original draws them, and `krynn --game dark-queen` plays the same in a
-window (`make dqk-checks`' `dqk_views.py`, `dqk_boot.py` and
-`dqk_menus.py`: see [Checks against the original](checks.md)). Its
-`unplayable` says why `eclplay` refuses its saved games, parties and
-`--play` (its saved games are step 2's next part). What is not ported is left
+window (`make dqk-checks`' `dqk_views.py`, `dqk_boot.py`, `dqk_menus.py`
+and `dqk_party.py`: see [Checks against the original](checks.md)). Its
+`unplayable` says why `eclplay` refuses `--load`, parties and `--play`
+(its saved games load from `--start-menu`'s camp). What is not ported is left
 out of the descriptor (the data segment, spells, combat), so that code
 reaching it stops at an assertion, and its opcodes that need them stop the
 run, citing their handlers (`unported`). It holds:
@@ -560,8 +561,8 @@ window's grey (`DS:9d86`).
 `FRAME.TLB` (0x10-0x1f, its record 41-44 by variable 0x3a, `20b2:047c`):
 the full window (`20b2:0030`) and the 3D adventure screen (`20b2:00e4`:
 the dividers, the view's frame, its lamps by variables 0x1fa-0x1fc, the
-compass by the facing; the party's list and status not, there being no
-party); `PRINT` and `PRINTCLEAR` in the text window of cells 1-38 by 17-22
+compass by the facing; the party's list and status: see Dark Queen's saved
+games and party below); `PRINT` and `PRINTCLEAR` in the text window of cells 1-38 by 17-22
 word by word (`1a62:0311`, colour 7, or 3 by variable 0x39); the bottom
 bar's menus of framed buttons, each read by its first letter, Return
 picking none (`1bdb:08ef`, `0801`, `008e`), `PRESS KEY`'s and a full
@@ -659,8 +660,8 @@ with no party): `GEN.TLB`'s picture under the window (`20b2:03ce`), twelve
 buttons of 18 characters in two columns (`7368:01a7`), those a party needs
 disabled (`DS:3c3e`); Exit From Game asks "Exit to DOS?" and quits
 (`7368:081a`), Load Saved Game asks "load from where?" (`604b:2e87`: Tdqk,
-Dkk, Exit; Exit back), and Create, Delete, Add and loading stop the run
-(dqk-saves' and creation's). Demo, or the menu's time, runs the
+Dkk, Exit; Exit back) and loads (see Dark Queen's saved games and party
+below), Add and Delete their rosters, and Create stops the run (creation's). Demo, or the menu's time, runs the
 demonstration (`5f07:10cd` with `DS:ae59`): block 7's start with the speed
 5, its keys read only where typed, Escape or `` ` `` ending it
 (`5f07:0f46`, `DS:a890`), then the title again (unless a key ended it)
@@ -750,6 +751,135 @@ field is reads 0 and a store to it does nothing; a store goes in whole,
 whatever its operand's width (`6c70:06d2`). `eclplay --game dark-queen
 --character FILE.QCH` adds characters to run blocks that read them (the
 party's other options are a playable game's).
+
+#### Dark Queen's saved games and party
+
+A saved game is `SAVGAM<letter>.QSV` (`saves.game_size` 0x1f1d: `604b:28f8`
+reads it, `604b:31a7` writes it; `cok_saved_game_read` and `write`, which
+hold it where they hold the earlier games'): the variables
+`0x0001`-`0x0400` (the 1 KB at far `DS:b20f`, from its second byte); then
+`DS:c9f0`-`c9f4`, the party's square, facing, wall ahead and square's
+byte; the last mode and the mode (`DS:ae67`, `ae57`), words; the wall set
+`LOAD FILES` last loaded (`DS:ca03`, a word: `wall_ids[0]`) and `DS:ca05`
+(a word no routine found sets: `saved_extra`); the party's size, a word,
+at 0x40d; each character as its `.QCH` holds it (`604b:05fd` for each,
+the scrolls' contents the party read before it holds counted,
+`86b8:1f75`, so that a scroll's are always dropped, "SCROLLS DROPPED!";
+the writer `604b:2200` for at most eight); then, up to 0x1f1d bytes,
+whatever `DS:c6de`'s buffer holds, which the loader reads none of: the
+item table (`ITEM.DAT`'s 254 entries after entry 0's 0xff, read at startup
+by `64b2:066c`: `files.item_table`, the adventure's `item_table`), its
+first bytes. Both shipped saved games (`SAVE\SAVGAMA.QSV`, the one the game
+loads, and the one beside `DQK.EXE`) read and write again byte for byte
+but the characters' far pointers (the original's heap; `tests/test_party.c`).
+The loader stops at a character it cannot read whole and fails, keeping
+those it read before (the port fails the whole).
+
+The vault is `VAULT<letter>.DAT` (`saves.vault_items` 50:
+`cok_vault_read_game`, `write_game`; `63ee:0239` reads it, `63ee:00df`
+writes it), 866 bytes as shipped: the coins, 12 bytes into `DS:b1db`; a
+word the writer makes 0xffff and the reader passes over; the count of
+items, a word; each item's 17 bytes (a scroll followed by its contents,
+which the port refuses, holding none); then, for each item short of 50,
+17 bytes of `DS:c6de` again. The shipped `SAVE\VAULTA.DAT` is empty (its
+items the item table's first) and writes again byte for byte. The game
+touches it as a saved game is written under another letter than its own
+(`DS:c3ea`, 'Z' for none): the old letter's read (`604b:35bc`, an empty one
+for 'Z') and written as the new letter's (`3600`); a load makes the
+saved game's letter the vault's (`604b:2ab4`).
+
+The save path is the game's `SAVE` folder (`DQK.CFG`'s floppy letter 0,
+`217e:0132` with 'S'): `--saves DIR` where given, else the assets' `SAVE`,
+which the port reads but never writes (Save and Remove then log that
+nothing was written).
+
+The camp (`7368:046f`) with a party: the mode 0, the last mode the one it
+was; its screen; the party's list where a member is selected; its buttons
+on as `DS:3c3e`-`3c49` say (with a member selected all but Train and
+Knight new Order where variable 0x30 is 0, and Add where six non-NPCs are
+in; without, Create, Delete, Add, Load and Exit); Up and Down select the
+member before or after. Load Saved Game (with a party not saved, "Game not
+saved. Load anyway? ", `DS:7e93`; the party emptied): "load from where?
+" Tdqk, the letters A-J of `SAVGAM?.QSV` there are, "load which game: "
+with those alone (`DS:af15`'s list), "Loading...Please Wait", the saved
+game read (`604b:2ab4`, `28f8`: `cok_adventure_restore`), the frame's
+colours where variable 0x3a changed, the map or the overland's big picture
+again; none loaded, a new game's state (`64b2:04ec`). Dkk's (`604b:2bcf`)
+lists the letters of `SAVGAM?.PTY` in Death Knights' save path (`DQK.CFG`'s,
+the port's `--import`) and imports one: a new game's state, its party's
+size (the byte at Death Knights' 0xa18, at most 8), then `CHRDAT<letter><n>.GAM`
+from 1 while there is one, each imported (`604b:0b82`) and joined unless an
+NPC. Save Current Game
+(`604b:3395`): "save which game: " A-J, "Saving...Please Wait", the file
+and the vault as above, the game saved (`DS:ae5b`). Remove Character
+(`7368:066f`): the member written to the save path (`604b:23a7`:
+`<file name>.QCH`, `5e98:0044` taking out ` =+<>"[].*,?/\:;|`; where the file
+is there, "Update <name>?", No asking "New file name:") and removed
+(`177e:1e31`: the one before it selected, or after it where it was first);
+an NPC's removal (`7368:0ee9`) is not ported yet. Add Character
+(`7368:08dc`): "add from where? " Tdqk (the save path's `.QCH`) or Dkk
+(Death Knights' `.PC`, imported); the roster (`604b:054a`, `028a`: each
+named by its record, by name; none, "No characters to load." in the bar for
+the speed's time, `177e:153c`), "add a character: " over its list ("Add
+Exit"; the list as `VERTICAL MENU`'s, `1bdb:1f25`), each member's name
+after "* ": Add (or Return) joins the current one but a member's where
+fewer than six others (eight with an NPC) are in and fewer than three
+rangers ("too many rangers in party"), until Exit or six. Delete Character
+(`7368:0c23`): the save path's roster ("No characters to delete."),
+"delete a character: " ("Delete Exit"), "Delete <name> forever? " and
+"Are you sure? " erasing its file. View Character
+(`86b8:0b0c`): the sheet (`86b8:0000`: its window, `20b2:00a4`; name and
+status, gender and age, alignment, race, class with a cleric's deity
+before it, a mage's order before "Mage" and a knight's order after, the
+levels, the experience centred, the scores with a strength's exceptional
+one and a '*' where a score is not its base, the coins, hit points and
+their most, AC, encumbrance, THAC0, movement and damage), then its menu
+(Items, Spells, Trade, Deposit, Drop, Lay, Cure, Exit by `86b8:0b0c`'s
+tests), Exit or Escape back; its readied weapon and armour lines
+(`177e:03fc`: items' names), the stats' recompute it starts with
+(`177e:0be2`) and its other items are not ported yet. Begin Adventuring
+returns to main, the mode the last (4 for none). Exit From Game with a
+party not saved asks "Game not saved. Exit anyway? " (No saves it). Create,
+Modify, Train and Knight new Order stop the run (creation's).
+
+The party's list (`5e22:023b`) is drawn from column 1 in the camp, else
+0x11: "Name" and "AC" "HP" in light red on row 2, a row a member from 4,
+the selected member's name in light cyan, others grey (black where it
+cannot act, light magenta where it may train), its AC (0x3c less +0x18e)
+ending at column 0x22 and hit points ending at 0x26, light cyan below their
+most; not on the overland nor under a big picture shown outside it
+(`DS:b256`). The status (`5e22:03f8`, `cok_drawing`'s `status`): the time
+on row 15 ("h:mm AM", "12:mm PM", from variables 8, 7 and 6), the square
+on row 13 unless variable 0x1a is set, the compass's needle, "camping" or
+"searching" on row 14; `CALL 1` draws it too (`6c70:1685`).
+
+Begin Adventuring (`5ebd:00ef`): the copy protection (`65cc:008b`, a word
+from the journal; DARK-QUEEN.md's decision) logged and passed over, the
+adventure's screen with the party's list and status, then the game
+(`5f07:10cd`): the block variable 0x16's, or a new game's 4, entered
+(`cok_adventure_enter`); then its loop: the adventure's commands
+(`6fea:0365`, in 3D, mode 4: "Area Cast View Encamp Search Look Inv" on
+the bar; Right, Down and Left turn the party and draw the view
+(`8a8b:085a`) and status again; Up checks the step (`6fea:000a`: an edge
+sets variable 0x21) and ends the command; Search turns variable 0x19's
+bit 0; Look sets its bit 1, passes ten minutes and runs the location
+vector again (searching or not as before); View the sheet; Area, Cast,
+Encamp, Inv and a member picked by a key are not ported yet); the
+after-move vector; the last square in variables 0x17 and 0x18; the step
+(`6fea:0753`, `00c6`: where the way is open, the square ahead, wrapping at
+the map's edges, a minute passed, ten searching); the view; the location
+vector; each `NEWECL` entering its block (`5f07:0ff4`:
+`cok_adventure_reenter`). The clock (`1396:044d`): variables 5-11 carried
+by `DS:634b`'s 10, 10, 6, 24, 30, 12 and 100 (a hundred years age the
+party), a day turning the moons (`1396:000e`: phases in 0x1fa-0x1fc, days
+in 0x1fd-0x1ff, every 8, 1 and 6 days, the lamp drawn), then the party's
+effects' minutes (`1396:019f`: one that runs out, `148f:017d`, stops the
+run). The shipped saved game's party is at the start: block 4, Palanthas;
+its palace and Leave take it to Caergoth, whose ruins (journal entry 65)
+start variable 0xa0's count of steps: three on, huge shadows; six on,
+dragons attack, whose `SETUP MONSTERS` (`6c70:2db1`, step 4's) is where
+the port stops. The mouse's areas over the view in the commands
+(`1bdb:1aef`: their cursors and keys) are not ported.
 
 ### The character record's layout
 

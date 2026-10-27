@@ -183,10 +183,11 @@ class DarkQueenTests(unittest.TestCase):
                          {x: y for x, y in effects.items() if x != y})
 
     def test_refused(self):
-        # Saved games, parties and the adventure loop are not read yet.
+        # Saved games load from the start menu alone; --load, parties and
+        # --play are not ported yet.
         result = self.play("--play", ASSETS, 4)
         self.assertEqual(result.returncode, 2)
-        self.assertIn("characters and saved games are not read yet", result.stderr)
+        self.assertIn("saved games load from its start menu", result.stderr)
         result = self.play("--load", ASSETS / "SAVGAMA.QSV", ASSETS)
         self.assertEqual(result.returncode, 2)
         # VGA alone.
@@ -243,14 +244,16 @@ class DarkQueenTests(unittest.TestCase):
                          "efb0b5e394057e108ead812d71070c16")
         self.assertEqual(digest(shots / "004.bmp", [POINTER]),
                          "73d831f55db6ae1ab8ac2d52feb30b32")
-        # A click on Create Character's button; Delete's stops too.
+        # A click on Create Character's button.
         result = self.play("--start-menu", "--mouse", "--keys", r"\k\eP\m200,120,1.", ASSETS)
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stderr, "not yet ported: The Dark Queen of Krynn's Create "
                          "Character (dqk 66e5:2f95)\n")
-        result = self.play("--start-menu", "--keys", r"\k\ePLT", ASSETS)
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("saved games (dqk 604b:2e87)", result.stderr)
+        # Delete's roster when the save path has none: its message, back.
+        result = self.play("--start-menu", "--saves", self.folder, "--keys", r"\k\ePDE",
+                           ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("message: No characters to delete.", result.stdout)
 
     def test_demonstration(self):
         # Demo (or the menu's 70 seconds with no key) runs block 7 to its
@@ -437,10 +440,139 @@ class DarkQueenTests(unittest.TestCase):
                       f"11={facing}", "--set", "22=1", "--set", "16=1", "--screen", bmp,
                       ASSETS, 18)
             views[facing] = digest(bmp)
-        self.assertEqual(views, {0: "98123e9ef1291a98b380cdef5d865b32",
-                                 1: "a22074115c3a6132808e4ff22619a9a0",
-                                 2: "5fc47b795b88f0fc0a91f7a44ba11397",
-                                 3: "7e8332df4d5dfb820347cf175a394a7a"})
+        # (CALL 1 draws the status too, 6c70:1685: the square and the time.)
+        self.assertEqual(views, {0: "0a976746efa49e955e574a615bf329e6",
+                                 1: "9a90511dc44cb98068119db80de00bc4",
+                                 2: "584012cb6e5b8a267d80151b2452911b",
+                                 3: "78ee9900f8cefeea87b261916a58febd"})
+
+    def test_saved_game(self):
+        # Load Saved Game, Tdqk, A: SAVE/SAVGAMA.QSV (604b:2e87, 28f8) and
+        # the camp with its party; Down; View (86b8:0b0c) and Exit; Begin
+        # Adventuring, the copy protection passed over, block 4's first
+        # text with the party's list and the status. The screens are the
+        # original's (dqk_party), its cursor too (--mouse).
+        shots = self.folder / "loaded"
+        result = self.play("--start-menu", "--mouse", "--shots", shots, "--keys",
+                           r"\k\ePLTA\vV\eB", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        party = ("menu: Create Character Delete Character Modify Character View Character "
+                 "Remove Character Load Saved Game Save Current Game Begin Adventuring "
+                 "Exit From Game")
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[4:15], ["menu: Tdqk Dkk Exit", "choice: 0", "menu: A",
+                                       "choice: 0", party, party, "choice: 5",
+                                       "menu: Items Trade Drop Exit", "choice: 7", party,
+                                       "choice: 10"])
+        self.assertEqual(lines[15], "protection: the journal's word, passed over "
+                         "(dqk 65cc:008b)")
+        self.assertEqual(digest(shots / "005.bmp"), "31f954e7a44fbb5e834220525b0c98e5")
+        self.assertEqual(digest(shots / "007.bmp"), "9585996ef87d161423a5c6faa8150957")
+        self.assertEqual(digest(shots / "009.bmp"), "3b674649f17f2d0b8e5eaa1fe11117ca")
+
+    def test_first_fight(self):
+        # To Caergoth (the palace, Leave), its commands and steps (6fea:0365,
+        # 0753) along the ruins to the dragons' SETUP MONSTERS, where the
+        # port stops (the first fight: step 4's).
+        route = (r"\^" * 10 + r"\>\^\^\^\>\^\^\<\^\^\^\>\^\^L\r\v\^\r\^\^\^")
+        result = self.play("--start-menu", "--keys",
+                           r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r" + route, ASSETS)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr, "not yet ported: The Dark Queen of Krynn's opcode 0x0c, "
+                         "SETUP MONSTERS (dqk 6c70:2db1)\n")
+        moves = [line for line in result.stdout.splitlines()
+                 if line.startswith(("step:", "turn:"))]
+        self.assertEqual(len(moves), 29)
+        self.assertEqual(moves[:3], ["step: 4,2 facing 2", "step: 5,2 facing 2",
+                                     "step: 6,2 facing 2"])
+        self.assertEqual(moves[-1], "step: 13,8 facing 2")
+        self.assertIn("print: HUGE SHADOWS SKIM OVER THE GROUND. GIANT SHAPES DISAPPEAR OVER "
+                      "THE TREE TOPS.", result.stdout)
+
+    def test_save_and_remove(self):
+        # With --saves: Load A, Save Current Game as B (604b:3395, 31a7):
+        # SAVGAMB.QSV the same as SAVGAMA.QSV but for the characters' far
+        # pointers, the vault copied to VAULTB.DAT; Remove Character
+        # (604b:23a7) writes ROLANDOF.QCH, his bytes in the saved game but
+        # his pointers; then Exit asks "Game not saved. Exit anyway?".
+        saves = self.folder / "saves"
+        saves.mkdir()
+        shipped = (ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes()
+        (saves / "SAVGAMA.QSV").write_bytes(shipped)
+        (saves / "VAULTA.DAT").write_bytes((ASSETS / "SAVE" / "VAULTA.DAT").read_bytes())
+        result = self.play("--start-menu", "--saves", saves, "--keys", r"\k\ePLTASBREYY",
+                           ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("menu: ABCDEFGHIJ", result.stdout)
+        self.assertTrue(result.stdout.endswith("(quit to DOS)\n"), result.stdout)
+        written = (saves / "SAVGAMB.QSV").read_bytes()
+        self.assertEqual(len(written), len(shipped))
+
+        def masked(data):
+            # Each character's far pointers (+0-7, +0xc-0x43: not the items'
+            # count at +8) and its effects' next pointers.
+            data = bytearray(data)
+            at = 0x40f
+            for _ in range(data[0x40d]):
+                items, effects = data[at + 8], data[at + 4] | data[at + 5]
+                data[at:at + 8] = bytes(8)
+                data[at + 0xc:at + 0x44] = bytes(0x38)
+                at += 0x19e + 17 * items
+                while effects:
+                    effects = any(data[at + 5:at + 9])
+                    data[at + 5:at + 9] = bytes(4)
+                    at += 9
+            return bytes(data)
+
+        self.assertEqual(masked(written), masked(shipped))
+        self.assertEqual((saves / "VAULTB.DAT").read_bytes(),
+                         (ASSETS / "SAVE" / "VAULTA.DAT").read_bytes())
+        roland = (saves / "ROLANDOF.QCH").read_bytes()
+        original = shipped[0x40f:0x40f + len(roland)]  # the saved game's first
+        self.assertEqual(roland[0x44:], original[0x44:])
+        self.assertEqual(roland[8:12], original[8:12])
+        # Without --saves the port writes nothing: Save says so.
+        result = self.play("--start-menu", "--keys", r"\k\ePLTASB", ASSETS)
+        self.assertIn("error: Save: no save path (--saves)", result.stdout)
+
+    def test_add_and_delete(self):
+        # Add Character (7368:08dc) from Tdqk: the roster by name, Balthir
+        # and Roland added ("* " before them), Exit, the camp with them;
+        # Delete Character (7368:0c23): Balthir, "Delete ... forever?" No.
+        # The screens are the original's (whole, its cursor too).
+        shots = self.folder / "add"
+        result = self.play("--start-menu", "--mouse", "--shots", shots, "--keys",
+                           r"\k\ePAT\vA\v\v\rED\vDN", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("list: add a character:", result.stdout)
+        self.assertEqual(digest(shots / "004.bmp"), "16014acc9126b26203b39e277296d221")
+        self.assertEqual(digest(shots / "006.bmp"), "1e98bb6ac691dd6c6a321666070171c9")
+        self.assertEqual(digest(shots / "010.bmp"), "a0e66bfa3329d4c376d75bf50a5bd0e0")
+        self.assertEqual(digest(shots / "013.bmp"), "0cf157a7c2e6d764a07229d5ec619d28")
+        # Delete Yes, Yes erases the file from --saves.
+        saves = self.folder / "saves"
+        saves.mkdir()
+        for name in ("ROLANDOF.QCH", "WALKERKE.QCH"):
+            (saves / name).write_bytes((ASSETS / "SAVE" / name).read_bytes())
+        result = self.play("--start-menu", "--saves", saves, "--keys", r"\k\ePDDYYE", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(p.name for p in saves.iterdir()), ["WALKERKE.QCH"])
+
+    @unittest.skipUnless((ROOT / "DKKAssets" / "SAVE" / "SAVGAMA.PTY").exists(),
+                         "needs Death Knights' saved games in DKKAssets/SAVE")
+    def test_death_knights_game(self):
+        # Load, Dkk (604b:2bcf): Death Knights' saved game A from --import,
+        # its six characters imported and joined, the first selected.
+        result = self.play("--start-menu", "--import", ROOT / "DKKAssets" / "SAVE", "--keys",
+                           r"\k\ePLDAV\e", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[4:9], ["menu: Tdqk Dkk Exit", "choice: 1", "menu: AB",
+                                      "choice: 0",
+                                      "menu: Create Character Delete Character Modify "
+                                      "Character View Character Remove Character Load Saved "
+                                      "Game Save Current Game Begin Adventuring Exit From "
+                                      "Game"])
 
 
 if __name__ == "__main__":

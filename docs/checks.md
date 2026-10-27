@@ -297,9 +297,9 @@ on the Tandy and the AdLib, its pitches and tempo against `eclplay --wav`:
 minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
-checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py` and
-`dqk_menus.py`, which `make dqk-checks` runs (`run_all.py --set dqk`; about
-a minute each), in RGB
+checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
+`dqk_menus.py` and `dqk_party.py`, which `make dqk-checks` runs
+(`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
 so that a loaded host does not change them). `dqk_boot.py` compares the first
@@ -334,9 +334,24 @@ the port running the inn's event (`--start 898b`) at the original's square
 and facing. The original's colour cycles are stopped in its box
 (`261b:05be` made a `retf`), so that pictures with cycles (picture 142,
 `BIGPIC` 240) settle and show their colours as set, as the port's shots
-do; not compared: the party's list and status, and the inn's lamps, which
-the original shows lit at night where the variables the port draws them
-by (`0x1fa`-`0x1fc`, `20b2:00e4`) say otherwise (not found yet).
+do; not compared: the party's list and status, and the inn's lamps: the
+original's are its saved game's (variables `0x1fa`-`0x1fc`, 2 each, as they
+stay all the way), drawn at Begin Adventuring (`20b2:00e4`), while the
+port's inn run draws its frame as eclplay starts, before its `--set`, with
+0 (`dqk_party.py`, from the start menu, compares them: they agree).
+
+`dqk_party.py` (about a minute) loads the shipped saved game
+(`SAVE\SAVGAMA.QSV`: Load, Tdqk, A) and compares the camp with its party,
+Down, View's sheet (but its readied weapon and armour, rows 21-22: item
+names not ported) and Escape back; then, past Begin Adventuring (the
+copy protection answered in the box), block 4's first text with the party's
+list and status, Palanthas, the palace and Leave to Caergoth's 3D view and
+commands; then 24 steps and turns along Caergoth to the widow's menu, the
+party's square and facing after each (`DS:c9f0`-`c9f2`) against the port's
+log, the widow's menu, the shadows and the step before the dragons, whole
+but the mouse's cursor in the commands (`1bdb:1aef`'s areas give it other
+shapes: not ported); the original then runs the dragons' `SETUP MONSTERS`
+where the port stops, cited. All agree (2026-10-27).
 
 Death Knights of Krynn, read headless (see [Games](games.md#games)), is checked by
 `tools/dosbox/checks/dkk_views.py`, which `make dkk-checks` runs

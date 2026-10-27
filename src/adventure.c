@@ -1122,9 +1122,11 @@ cok_character *cok_adventure_selected(cok_adventure *game)
 
 void cok_adventure_party(cok_adventure *game)
 {
-    /* A game drawn its own way: its party and status are not drawn yet
-     * (dqk 5e22:023b, 03f8: the port has no Dark Queen party). */
-    if (cok_adventure_drawing(game) != NULL) return;
+    /* A game drawn its own way draws its own (dqk 5e22:023b). */
+    if (cok_adventure_drawing(game) != NULL) {
+        if (cok_adventure_drawing(game)->party != NULL) cok_adventure_drawing(game)->party(game);
+        return;
+    }
     cok_ecl *vm = &game->vm;
     if ((vm->mode == 3 && !cok_ecl_flag(vm, COK_VAR_OFF_MAP)) || game->big_shown) return;
     /* 6346:07f1-0866: where a click picks from it, a row a member. */
@@ -1148,9 +1150,11 @@ static void two_digits(char out[3], unsigned value)
 
 void cok_adventure_status(cok_adventure *game)
 {
-    /* A game drawn its own way: its party and status are not drawn yet
-     * (dqk 5e22:023b, 03f8: the port has no Dark Queen party). */
-    if (cok_adventure_drawing(game) != NULL) return;
+    /* A game drawn its own way draws its own (dqk 5e22:03f8). */
+    if (cok_adventure_drawing(game) != NULL) {
+        if (cok_adventure_drawing(game)->status != NULL) cok_adventure_drawing(game)->status(game);
+        return;
+    }
     static const char *const directions[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
     cok_ecl *vm = &game->vm;
     if (vm->mode == 3) return;
@@ -2659,6 +2663,36 @@ static bool load_item_table(cok_adventure *game)
     return ok;
 }
 
+/* The item table in a file of its own (dqk 64b2:066c: ITEM.DAT, read
+ * whole into ids 1 on, DS:c6de cleared to 0xff first), looked for as the
+ * item types are. Its read of the file's 0x10de bytes failing, the
+ * original says nothing; the port fails the open. */
+static bool read_item_table_file(cok_adventure *game)
+{
+    const char *name = cok_game_rules(game)->files.item_table;
+    if (name == NULL) return true;
+    const char *const *folders = cok_game_rules(game)->archives.folders;
+    char path[sizeof game->assets + 64];
+    snprintf(path, sizeof path, "%s/%s", game->assets, name);
+    FILE *f = fopen(path, "rb");
+    for (size_t i = 0; f == NULL && folders != NULL && folders[i] != NULL; ++i) {
+        snprintf(path, sizeof path, "%s/%s/%s", game->assets, folders[i], name);
+        f = fopen(path, "rb");
+    }
+    if (f == NULL) {
+        fail(game, "%s: not found", name);
+        return false;
+    }
+    size_t want = (COK_ITEM_ENTRIES - 1) * COK_ITEM_ENTRY;
+    size_t got = fread((uint8_t *)game->item_table + COK_ITEM_ENTRY, 1, want, f);
+    fclose(f);
+    if (got != want) {
+        fail(game, "%.400s: %zu bytes, not 254 items of 17", path, got);
+        return false;
+    }
+    return true;
+}
+
 bool cok_adventure_open(cok_adventure *game, const cok_rules *rules, const char *assets,
                         const cok_keyboard *keys, const cok_adventure_hooks *hooks)
 {
@@ -2736,7 +2770,8 @@ bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, con
     snprintf(game->assets, sizeof game->assets, "%s", assets);
     /* A game drawn its own way loads its own at startup. */
     if (cok_adventure_drawing(game) != NULL)
-        return cok_adventure_drawing(game)->open(game) && cok_adventure_read_item_types(game);
+        return cok_adventure_drawing(game)->open(game) && cok_adventure_read_item_types(game) &&
+               read_item_table_file(game);
     if (cok_adventure_create_picture(game, &game->screen, 40, 200, 1, 0) != COK_PICTURE_OK) {
         fail(game, "out of memory");
         return false;
@@ -2979,6 +3014,47 @@ static void loaded_vars(cok_adventure *game)
     cok_ecl_set_var(vm, COK_VAR_PARTY_SIZE, 0);
 }
 
+/* A saved game that holds its characters (dqk 604b:28f8, from 2ab4): the
+ * variables, the square, the modes, the wall set and DS:ca05 as read; the
+ * party's size (0x20) 0, then each character joined (604b:3491: its icon
+ * slot, counted) and the first selected (DS:ad67); the vault the saved
+ * game's letter's (2ab4: DS:c3ea). The original reports "SCROLLS
+ * DROPPED!" as it reads each character that drops some (604b:05fd). The
+ * recompute 177e:0be2 that 28f8 runs on each is not ported (COK_STATS_NONE),
+ * nor the combat icons 2ab4 then loads (604b:05d7, 204c:00df). What the
+ * screen shows again (the map, the big picture, the frame's colours) is
+ * the drawing's. */
+static bool restore_whole(cok_adventure *game, const char *path, cok_saved_game *saved)
+{
+    cok_ecl *vm = &game->vm;
+    const cok_rules *rules = cok_game_rules(game);
+    for (size_t i = 0; i < 0x400; ++i) vm->mem4b00[i] = saved->mem4b00[i];
+    vm->map_x = saved->map_x;
+    vm->map_y = saved->map_y;
+    vm->direction = saved->direction;
+    vm->ahead = saved->ahead;
+    vm->square = saved->square;
+    vm->last_mode = saved->last_mode;
+    vm->mode = saved->mode;
+    game->wall_ids[0] = saved->wall_ids[0];
+    game->saved_extra = saved->extra;
+    cok_ecl_set_var(vm, COK_VAR_PARTY_SIZE, 0);
+    for (size_t i = 0; i < saved->count; ++i) {
+        cok_character *character = saved->characters[i];
+        if (character->contents_dropped) cok_adventure_log(game, "print", "SCROLLS DROPPED!");
+        if (!cok_party_add(&game->party, rules, character)) {
+            fail(game, "%s: the party is full", path);
+            return false;
+        }
+        saved->characters[i] = NULL;
+        cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, 1);
+    }
+    vm->character = cok_party_record(&game->party, 0);
+    if (rules->saves.vault != NULL) game->vault_letter = saved_letter(path);
+    cok_adventure_flush(game);
+    return true;
+}
+
 bool cok_adventure_restore(cok_adventure *game, const char *path)
 {
     static cok_saved_game saved;
@@ -2986,6 +3062,11 @@ bool cok_adventure_restore(cok_adventure *game, const char *path)
     const cok_rules *rules = cok_game_rules(game);
     game->error[0] = '\0';
     if (!cok_saved_game_read(path, rules, &saved, game->error, sizeof game->error)) return false;
+    if (rules->saves.game_size != 0) {
+        bool ok = restore_whole(game, path, &saved);
+        cok_saved_game_free(&saved);
+        return ok;
+    }
     vm->keep_vars = true;
     memcpy(vm->mem4b00, saved.mem4b00, sizeof vm->mem4b00);
     memcpy(vm->mem7c00, saved.mem7c00, sizeof vm->mem7c00);
@@ -3200,6 +3281,11 @@ cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block)
     if (vm->reload) return killed_command(game, enter_block(game, false));
     cok_ecl_set_var(vm, COK_VAR_BLOCK, vm->block);
     return COK_ECL_OK;
+}
+
+cok_ecl_status cok_adventure_reenter(cok_adventure *game)
+{
+    return enter_block(game, false);
 }
 
 cok_ecl_status cok_adventure_enter_block(cok_adventure *game, uint8_t block)

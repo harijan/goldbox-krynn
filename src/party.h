@@ -430,7 +430,20 @@ bool cok_character_heal(uint8_t *record, const cok_rules *rules, uint8_t amount,
                         uint8_t mode);
 
 /* A saved game, SAVGAM<letter>.DAT (Death Knights' .PTY), as 4b6d:1b34
- * (dkk 46b2:1ef0) reads it, in the game's layout (rules' saves). */
+ * (dkk 46b2:1ef0) reads it, in the game's layout (rules' saves).
+ *
+ * Dark Queen's, SAVGAM<letter>.QSV (rules' saves.game_size: dqk 604b:28f8
+ * reads, 604b:31a7 writes), holds its characters whole: the variables
+ * 0x0001-0x0400 (the 1 KB at far DS:b20f, from its second byte) in
+ * mem4b00's low bytes; then DS:c9f0-c9f4, the square, facing, wall ahead
+ * and square's byte; the last mode and the mode (DS:ae67, ae57), words;
+ * the wall set LOAD FILES loaded (DS:ca03, a word: wall_ids[0]) and
+ * DS:ca05 (a word: extra); the party's size, a word, at 0x40d; then each
+ * character as its .QCH file holds it (604b:05fd; characters, which the
+ * reader allocates: free them with cok_saved_game_free); then, up to the
+ * game_size bytes, whatever DS:c6de's buffer holds (the item table, at
+ * its start; fill on writing: 604b:31a7 pads the file from it, and the
+ * loader reads none of it). */
 typedef struct {
     uint8_t file;                /* DS:5782, the ECL file. */
     /* Variables 0x4b00-0x4eff, 0x7c00-0x7fff and 0x7a00-0x7bff, as the VM
@@ -448,6 +461,17 @@ typedef struct {
     int16_t wall_slots[COK_SAVED_WALLS];
     uint8_t count;               /* Characters. */
     char names[COK_PARTY_MAX][41]; /* Their files, e.g. CHRDATA1; extra entries are junk. */
+    /* A game whose saved games hold their characters (saves.game_size):
+     * DS:ca05; the characters read, each malloc'd (count of them), and
+     * whether a scroll's contents were dropped reading them; the bytes the
+     * writer pads the file with (DS:c6de's: the item table), fill_size of
+     * them, 0 past their end (the original's heap after the buffer, which
+     * a party of fewer than four reaches). */
+    uint16_t extra;
+    cok_character *characters[COK_PARTY_RECORDS];
+    bool contents_dropped;
+    const uint8_t *fill;
+    size_t fill_size;
 } cok_saved_game;
 
 /* The bytes of a saved game in the layout of rules (Champions' 5,469,
@@ -461,16 +485,28 @@ size_t cok_saved_game_var_offset(const cok_rules *rules, uint16_t address);
 
 /* Read a saved game in the layout of rules. Returns false with error set
  * if the file cannot be read or is shorter than the layout's size; the
- * original does not check. */
+ * original does not check. Dark Queen's (saves.game_size) reads the
+ * header (604b:28f8: false, as the loader fails, where it is short), then
+ * each character as cok_character_from_bytes does, the scrolls' contents
+ * the party's already read hold counted (86b8:1f75), until the party's
+ * size or a character that does not read whole, which fails it. */
 bool cok_saved_game_read(const char *path, const cok_rules *rules, cok_saved_game *game,
                          char *error, size_t error_size);
 /* Write a saved game as 4b6d:22de (dkk 46b2:2808) does, the inverse of
  * cok_saved_game_read. The bytes after each name and the slots past count,
  * which the original fills with whatever its stack held, are 0. Returns
  * false with error set if the file cannot be written; the original does
- * not check. */
+ * not check. Dark Queen's (604b:31a7): the header, at most eight of the
+ * characters (cok_character_to_bytes: false where one holds a scroll's
+ * contents), then fill's bytes to game_size. */
 bool cok_saved_game_write(const char *path, const cok_rules *rules, const cok_saved_game *game,
                           char *error, size_t error_size);
+/* Free the characters a saved game read holds (none for the earlier
+ * games' layout). */
+void cok_saved_game_free(cok_saved_game *game);
+/* The scrolls' contents the party holds (dqk 86b8:1f75: each item of
+ * the item record's container type adds its count). */
+unsigned cok_party_contents(const cok_party *party, const cok_rules *rules);
 
 /* The bank vault (dkk VAULT<letter>.DAT, 46b2:2e1d and 302d): three
  * 32-bit counts of coins, as the treasure pool's (DS:be58), then items,
@@ -492,6 +528,23 @@ bool cok_vault_read(const char *path, cok_vault *vault, bool *missing, char *err
  * pointers 0 (the original writes them as they are in memory). */
 bool cok_vault_write(const char *path, const cok_vault *vault, char *error, size_t error_size);
 void cok_vault_free(cok_vault *vault);
+/* Dark Queen's vault (VAULT<letter>.DAT; rules' saves.vault_size, dqk
+ * 63ee:0239 reads it, 63ee:00df writes it), 866 bytes as shipped: the
+ * coins, 12 bytes into DS:b1db; a word the writer makes 0xffff and the
+ * reader passes over; the count of items, a word; then each item's 17
+ * bytes (the item record's, held at its file_at of a COK_ITEM_SIZE item),
+ * a scroll (the item record's container) followed by its contents; then,
+ * where fewer than 50 items were written, 17 bytes for each one short
+ * from DS:c6de's buffer (fill, the item table first; 0 past it), which
+ * the reader reads none of. Reading fails where the coins or the counts
+ * are short or an item is (the original then empties the vault), and,
+ * the port holding no scroll's contents, at a scroll with some (writing
+ * too). A file not there: as cok_vault_read. */
+bool cok_vault_read_game(const char *path, const cok_rules *rules, cok_vault *vault,
+                         bool *missing, char *error, size_t error_size);
+bool cok_vault_write_game(const char *path, const cok_rules *rules, const cok_vault *vault,
+                          const uint8_t *fill, size_t fill_size, char *error,
+                          size_t error_size);
 
 /* Write character files base in dir as 4b6d:0bed does, the inverse of
  * cok_character_read: base.SAV, the record as it is (the layout's

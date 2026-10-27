@@ -241,7 +241,7 @@ combatants are set up as in the original.
 | `--input mouse`, `joystick` or `none` | mouse, joystick or keyboard only for this run |
 | `--saves DIR` | keep the roster and saved games in DIR instead of `saves/` |
 | `--assets DIR` | find the game's files in DIR instead of `COKAssets/` |
-| `--game champions` or `death-knights` | the game to play; Champions of Krynn is the default (see [Death Knights of Krynn](#death-knights-of-krynn)); `dark-queen`, The Dark Queen of Krynn, plays its title, main menu and camp menu so far, in VGA's 256 colours, from `DQKAssets/` with its `DISK1\DQK.CFG` (the window says where the port stops; see DEVELOPERS.md) |
+| `--game champions` or `death-knights` | the game to play; Champions of Krynn is the default (see [Death Knights of Krynn](#death-knights-of-krynn)); `dark-queen`, The Dark Queen of Krynn, plays its title, main menu, camp and saved games up to the first fight so far, in VGA's 256 colours, from `DQKAssets/` with its `DISK1\DQK.CFG` (`--saves DQKAssets/SAVE` loads the shipped saved game; the window says where the port stops; see DEVELOPERS.md) |
 | `--import DIR` | Death Knights: where to find the Champions characters and saved games to bring over (default: the saves folder) |
 | `--screenshots DIR` | where F12 saves screenshots |
 

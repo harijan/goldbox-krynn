@@ -1354,6 +1354,131 @@ static void test_dark_queen_party(void)
     CHECK(at == 0xfbd); /* the item lists and vault after them */
 }
 
+/* Dark Queen's saved games (SAVGAM<letter>.QSV, dqk 604b:28f8 and 31a7):
+ * both shipped (SAVE/SAVGAMA.QSV, the one the game loads from its save
+ * path, and the one beside DQK.EXE) read, and written again with the item
+ * table as the fill, byte for byte but the characters' far pointers (the
+ * original's heap addresses; the items' pointer, their count, is
+ * compared); a short header fails, and a short character. */
+static void test_dark_queen_saved_game(void)
+{
+    static uint8_t table[255 * 17], x[8192], y[8192];
+    memset(table, 0xff, 17);
+    if (read_whole("DQKAssets/DISK1/ITEM.DAT", table + 17, sizeof table - 17) != 254 * 17) {
+        puts("party: no DQKAssets/DISK1/ITEM.DAT; Dark Queen's saved games not checked");
+        return;
+    }
+    const cok_rules *R = &cok_rules_dark_queen;
+    const cok_character_layout *L = R->character;
+    char error[256], out[512], path[600];
+    CHECK(cok_saved_game_size(R) == 0x1f1d && cok_saved_game_count_offset(R) == 0x40d &&
+          cok_saved_game_var_offset(R, 0x13) == 0x12);
+    CHECK(test_temp_dir(out, sizeof out, "cok_party_dqk_qsv") != NULL);
+    snprintf(path, sizeof path, "%s/SAVGAMA.QSV", out);
+    static const char *const shipped[] = {"DQKAssets/SAVE/SAVGAMA.QSV", "DQKAssets/SAVGAMA.QSV"};
+    static const char *const first[] = {"ROLAND OF DUST", "SIR DRYDEN"};
+    for (size_t f = 0; f < 2; ++f) {
+        static cok_saved_game game;
+        size_t nx = read_whole(shipped[f], x, sizeof x);
+        CHECK(nx == 0x1f1d);
+        CHECK(cok_saved_game_read(shipped[f], R, &game, error, sizeof error));
+        CHECK(game.count == 6 && game.map_x == 7 && game.map_y == 13 && game.direction == 0 &&
+              game.last_mode == 4 && game.mode == 0 && game.wall_ids[0] == 0 &&
+              game.extra == 0 && !game.contents_dropped);
+        CHECK(game.mem4b00[0x12 - 1] == 4 && game.mem4b00[0x22 - 1] == 1 &&
+              game.mem4b00[0x27 - 1] == 3);
+        char name[16];
+        cok_field_name(L, game.characters[0]->record, name);
+        CHECK(strcmp(name, first[f]) == 0);
+        game.fill = table;
+        game.fill_size = sizeof table;
+        CHECK(cok_saved_game_write(path, R, &game, error, sizeof error));
+        size_t ny = read_whole(path, y, sizeof y);
+        CHECK(ny == nx);
+        size_t at = 0x40f;
+        for (size_t i = 0; i < game.count; ++i) {
+            const cok_character *c = game.characters[i];
+            for (size_t k = 0; k < L->file_size; ++k) {
+                bool items = k >= cok_field_offset(L, COK_FIELD_ITEMS) &&
+                             k < cok_field_offset(L, COK_FIELD_ITEMS) + 4;
+                if (cok_field_pointer_at(L, (long)k) && !items) x[at + k] = y[at + k];
+            }
+            at += L->file_size + c->item_count * 17;
+            for (const cok_effect *e = c->effects; e != NULL; e = e->next, at += COK_EFFECT_SIZE)
+                memcpy(x + at + 5, y + at + 5, 4);
+        }
+        for (size_t k = 0; k < nx; ++k)
+            if (x[k] != y[k]) fprintf(stderr, "%s 0x%04zx: %02x, written %02x\n", shipped[f], k,
+                                      x[k], y[k]);
+        CHECK(memcmp(x, y, nx) == 0);
+        cok_saved_game_free(&game);
+        CHECK(game.characters[0] == NULL);
+    }
+    /* Short: the header; a character cut off. */
+    write_file(path, x, 0x40e);
+    static cok_saved_game game;
+    CHECK(!cok_saved_game_read(path, R, &game, error, sizeof error));
+    CHECK(strstr(error, "604b:28f8") != NULL);
+    write_file(path, x, 0x40f + 0x100);
+    CHECK(!cok_saved_game_read(path, R, &game, error, sizeof error));
+    CHECK(strstr(error, "character 1") != NULL && game.characters[0] == NULL);
+    remove(path);
+    CHECK(rmdir(out) == 0);
+}
+
+/* Dark Queen's vault (VAULT<letter>.DAT, dqk 63ee:0239 and 00df): the
+ * shipped one empty, written again byte for byte with the item table as
+ * the fill; one of two items with coins read back; a scroll with contents
+ * and a short item refused. */
+static void test_dark_queen_vault(void)
+{
+    static uint8_t table[255 * 17], x[1024], y[1024];
+    memset(table, 0xff, 17);
+    if (read_whole("DQKAssets/DISK1/ITEM.DAT", table + 17, sizeof table - 17) != 254 * 17 ||
+        read_whole("DQKAssets/SAVE/VAULTA.DAT", x, sizeof x) != 866) {
+        puts("party: no DQKAssets; Dark Queen's vault not checked");
+        return;
+    }
+    const cok_rules *R = &cok_rules_dark_queen;
+    char error[256], out[512], path[600];
+    CHECK(test_temp_dir(out, sizeof out, "cok_party_dqk_vault") != NULL);
+    snprintf(path, sizeof path, "%s/VAULTA.DAT", out);
+    cok_vault vault;
+    bool missing;
+    CHECK(cok_vault_read_game("DQKAssets/SAVE/VAULTA.DAT", R, &vault, &missing, error,
+                              sizeof error));
+    CHECK(vault.item_count == 0);
+    CHECK(cok_vault_write_game(path, R, &vault, table, sizeof table, error, sizeof error));
+    CHECK(read_whole(path, y, sizeof y) == 866 && memcmp(x, y, 866) == 0);
+    cok_vault_free(&vault);
+    static uint8_t items[2 * COK_ITEM_SIZE];
+    for (size_t k = 0; k < 17; ++k) items[0x28 + k] = (uint8_t)(k + 1);
+    items[COK_ITEM_SIZE + 0x28] = 0x49; /* an empty scroll */
+    cok_vault two = {.items = items, .item_count = 2};
+    two.coins[0] = 7;
+    two.coins[11] = 9;
+    CHECK(cok_vault_write_game(path, R, &two, table, sizeof table, error, sizeof error));
+    CHECK(read_whole(path, y, sizeof y) == 866 && y[0] == 7 && y[11] == 9 && y[12] == 0xff &&
+          y[13] == 0xff && y[14] == 2 && y[15] == 0 && y[16] == 1 && y[32] == 17 &&
+          y[33] == 0x49 && memcmp(y + 50, table, 17 * 48) == 0);
+    CHECK(cok_vault_read_game(path, R, &vault, &missing, error, sizeof error));
+    CHECK(vault.item_count == 2 && vault.coins[0] == 7 && vault.coins[11] == 9 &&
+          memcmp(vault.items, items, sizeof items) == 0);
+    cok_vault_free(&vault);
+    items[COK_ITEM_SIZE + 0x35] = 1; /* now holding a spell */
+    CHECK(!cok_vault_write_game(path, R, &two, table, sizeof table, error, sizeof error));
+    y[33 + 0xd] = 1;
+    write_file(path, y, 866);
+    CHECK(!cok_vault_read_game(path, R, &vault, &missing, error, sizeof error) &&
+          strstr(error, "63ee:0239") != NULL);
+    write_file(path, y, 16 + 17 + 5);
+    CHECK(!cok_vault_read_game(path, R, &vault, &missing, error, sizeof error) &&
+          strstr(error, "short") != NULL);
+    remove(path);
+    CHECK(!cok_vault_read_game(path, R, &vault, &missing, error, sizeof error) && missing);
+    CHECK(rmdir(out) == 0);
+}
+
 int main(void)
 {
     test_former_classes();
@@ -1376,6 +1501,8 @@ int main(void)
     test_dark_queen_import();
     test_dark_queen_import_made();
     test_dark_queen_party();
+    test_dark_queen_saved_game();
+    test_dark_queen_vault();
     puts("party tests passed");
     return 0;
 }

@@ -10,7 +10,7 @@
  * routines (dark_queen.c); its characters, items and monsters. What it
  * has not or the port does not reach yet is left out (its data segment,
  * spells, combat), so that a read of it stops at its accessor's
- * assertion, and eclplay plays none of its saved games or parties. */
+ * assertion; its saved games load from its start menu's camp. */
 
 /* DISK1-3 of the installed game (it reads disk1\dqk.cfg, DS:608e). */
 static const char *const dark_queen_folders[] = {"DISK1", "DISK2", "DISK3", NULL};
@@ -393,8 +393,9 @@ static const cok_rules_special dark_queen_stores[] = {
 const cok_rules cok_rules_dark_queen = {
     .id = "dark-queen",
     .assets = "DQKAssets",
-    .unplayable = "The Dark Queen of Krynn's characters and saved games are not read yet "
-                  "(DARK-QUEEN.md's step 2): its scripts, title and start menu play",
+    .unplayable = "The Dark Queen of Krynn's saved games load from its start menu "
+                  "(--start-menu: Play, Load Saved Game); --load, --party, --test-party "
+                  "and --play are not ported yet",
     .drawing = COK_DRAWING_DARK_QUEEN,
     .text =
         {
@@ -418,15 +419,19 @@ const cok_rules cok_rules_dark_queen = {
             .config_folder = "DISK1",
             .item_types = "ITEMS.DAT", /* 128 types of 16 bytes into far DS:ae3e (64b2:0006) */
             .item_types_at = 0,
+            .item_table = "ITEM.DAT", /* 254 entries into DS:c6de + 17 (64b2:066c) */
         },
     .saves =
         {
-            /* SAVGAM<letter>.QSV (its layout is not read yet), and the
-             * characters' .QCH, the roster's too (604b:054a lists *.qch in
-             * the save path's SAVE, DS:5f56), each one file (604b:05fd);
-             * VAULT<letter>.DAT (DS:6067). */
+            /* SAVGAM<letter>.QSV (DS:6046 "SavGam", 603e "qsv": 604b:28f8
+             * reads, 31a7 writes it, 0x1f1d bytes), and the characters'
+             * .QCH, the roster's too (604b:054a lists *.qch in the save
+             * path's SAVE, DS:5f56), each one file (604b:05fd);
+             * VAULT<letter>.DAT (DS:6067: 63ee:0239 reads, 00df writes). */
             .game = "SAVGAM",
             .game_extension = "QSV",
+            .game_size = 0x1f1d,
+            .vault_items = 50, /* 63ee:00df pads to 50 items */
             .record = "QCH",
             .roster = "QCH",
             .character_files = COK_CHARACTER_ONE_FILE,

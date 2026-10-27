@@ -66,6 +66,8 @@ rm -f build/krynn.cfg
 ./build/eclplay --game dark-queen --start-menu --mouse --shots build/dqk-camp \
     --keys '\k\ePL\eEY' DQKAssets
 ./build/eclplay --game dark-queen --set 3e=f0 --screen build/dqk-overland.bmp DQKAssets 5
+./build/eclplay --game dark-queen --start-menu --mouse --shots build/dqk-party \
+    --keys '\k\ePLTAV\eB\r\r\rP\r\r\r\r\rL\r\^\^\^' DQKAssets
 ./build/krynn --game dark-queen
 python3 tools/hlib.py list DQKAssets/DISK1/TITLE.TLB
 python3 tools/hlib.py pngs DQKAssets/DISK1/TITLE.TLB build/dqk-title \
@@ -136,11 +138,15 @@ on the game's, skipped saying so otherwise); `tools/funcmatch/` matches
 two games' routines by Ghidra's C and scans the port's citations
 ([its README](tools/funcmatch/README.md): the method and the noise floor).
 `make dqk-checks` runs the original in DOSBox-X and compares its title,
-texts, 3D view, menus, input and big picture with `eclplay --game
-dark-queen`'s (see [DOSBox-X harness](docs/dosbox.md#dosbox-x-harness)).
-`krynn --game dark-queen` plays its title and start menu in 256 colours
-(`DQKAssets/DISK1/DQK.CFG` read as the game reads it; see [The
-Dark Queen](docs/games.md#the-dark-queen)).
+texts, 3D view, menus, input, big picture, saved game, camp and party to
+the first fight with `eclplay --game dark-queen`'s (see [DOSBox-X
+harness](docs/dosbox.md#dosbox-x-harness)). `krynn --game dark-queen`
+plays its title, start menu and camp in 256 colours and, from the camp's
+Load, its saved games to the first fight (`DQKAssets/DISK1/DQK.CFG` read
+as the game reads it; the saved games in `--saves`, which the camp's Save
+and Remove write: `--saves DQKAssets/SAVE` for the shipped one, which
+eclplay reads there without `--saves`; see [Dark Queen's saved games and
+party](docs/games.md#dark-queens-saved-games-and-party)).
 
 `daxcheck` reads archives without modifying them. It validates every directory
 entry and decompresses every record, checking the decoded byte count. It exits
@@ -157,10 +163,12 @@ AdLib's chip in `tests/test_opl2.c`; Death Knights' songs' driver in
 (`tests/test_rules.c`, see [Games](docs/games.md#games)), The Dark Queen of Krynn's
 libraries, pictures, palettes and colour cycles (`tests/test_vga.c`: made-up records,
 and its 1,827 pictures where `DQKAssets/` holds them), its scripts,
-title, 3D view, menus, input, big pictures, start, DQK.CFG and krynn's
-256 colours (`tests/test_dark_queen.py`, skipped
-without `DQKAssets/`), and its characters, items and monsters (its
-`.QCH` files read and written again, Death Knights' imported, MONCHA's
+title, 3D view, menus, input, big pictures, start, DQK.CFG, krynn's
+256 colours, its saved game loaded and saved, the camp, View's sheet and
+the way to the first fight (`tests/test_dark_queen.py`, skipped
+without `DQKAssets/`), and its characters, items, saved games, vault and
+monsters (its `.QCH`, `.QSV` and `VAULT` files read and written again,
+Death Knights' imported, MONCHA's
 98: `tests/test_party.c`, `tests/test_monster.c`, `tests/test_ecl.c`), Death Knights of Krynn's descriptor,
 tools and scripts where `DKKAssets/` holds its files
 (`tests/test_death_knights.c` against `build/death-START_FULL.EXE`, which
