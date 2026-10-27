@@ -258,7 +258,7 @@ def state_dump(name, text):
 SHOW_AT = "    cok_picture_draw(&game->screen, &game->combat.buffer, 0, 1, 1, 0, NULL);\n"
 TEXT_AT = ("        cok_text_glyph(dst, font, cok_text_index(text[column - x]), 1, (int)column, y, "
            "fg, bg);\n}\n")
-RUN_AT = ("static player p;\n\nstatic int run(int argc, char **argv)\n{\n"
+RUN_AT = ("static int run(int argc, char **argv)\n{\n"
           "    p = (player){.keys = cok_key_script_start(NULL), .owed = -1};\n")
 
 
@@ -287,13 +287,12 @@ def shot_at_shows(name, text):
     if RUN_AT not in text:
         raise cokbox.BoxError("src/eclplay.c's run changed: update d_lib.shot_at_shows")
     return text.replace(RUN_AT, (
-        RUN_AT.split("\n\n")[0] + "\n\n"
         "void (*cok_d_shown)(void);\n\n"
         "static void d_shown(void)\n{\n"
         "    if (p.shots == NULL || p.game == NULL || !p.game->combat.active) return;\n"
         "    char path[4096];\n"
         "    snprintf(path, sizeof path, \"%s/%03u.bmp\", p.shots, p.shot++);\n"
-        "    save(&p, path);\n}\n\n" + RUN_AT.split("\n\n")[1] +
+        "    save(&p, path);\n}\n\n" + RUN_AT +
         "    cok_d_shown = d_shown;\n"))
 
 
