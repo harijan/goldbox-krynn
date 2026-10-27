@@ -152,6 +152,11 @@ typedef struct {
      * them; dqk 64b2:0006 reads ITEMS.DAT from its start). */
     const char *item_types;
     uint8_t item_types_at;
+    /* The item table in a file of its own (dqk 64b2:066c: ITEM.DAT's
+     * 17-byte entries into ids 1 on, DS:c6de's 0x10ef bytes cleared to
+     * 0xff first); NULL where the game has none or keeps it in an archive
+     * (treasure.table). */
+    const char *item_table;
     /* The directory the original runs in (FExpand('*.exe') split,
      * DS:4a80: the current directory), which the setup offers the save
      * path under: the port has no DOS directory and takes the one the
@@ -268,6 +273,14 @@ typedef struct {
      * letter, and the copy its menu leaves until the game is saved
      * (vault_temp, a whole name); NULL: the game has none (Champions). */
     const char *vault, *vault_extension, *vault_temp;
+    /* A saved game that holds its characters whole (cok_saved_game's
+     * one_file: dqk 604b:28f8 reads it, 604b:31a7 writes it), of
+     * game_size bytes at least: 0 for the layout above. */
+    uint16_t game_size;
+    /* A vault of the item record's items, padded to 50 of them
+     * (cok_vault_read_game: dqk 63ee:0239, 00df), or 0 for Death Knights'
+     * (cok_vault_read). */
+    uint8_t vault_items;
 } cok_rules_saves;
 
 /* The archives daximages and daxcompose export, by layout

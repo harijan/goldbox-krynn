@@ -1946,18 +1946,28 @@ static size_t variable_bytes(const cok_rules *rules)
     return rules->ecl.variable_bytes;
 }
 
+/* Dark Queen's (saves.game_size): the 1 KB of variables, 13 bytes of
+ * the place, the modes and the wall set, then the party's size. */
+enum { QUEEN_VARS = 0x400, QUEEN_COUNT = 0x40d, QUEEN_CHARACTERS = 0x40f, QUEEN_MOST = 8 };
+
 size_t cok_saved_game_count_offset(const cok_rules *rules)
 {
+    if (rules->saves.game_size != 0) return QUEEN_COUNT;
     return 1 + 0xa00 * variable_bytes(rules) + 7 + 4u * rules->saves.walls;
 }
 
 size_t cok_saved_game_size(const cok_rules *rules)
 {
+    if (rules->saves.game_size != 0) return rules->saves.game_size;
     return cok_saved_game_count_offset(rules) + 1 + COK_PARTY_MAX * 41;
 }
 
 size_t cok_saved_game_var_offset(const cok_rules *rules, uint16_t address)
 {
+    if (rules->saves.game_size != 0) {
+        assert(address >= 1 && address <= QUEEN_VARS);
+        return address - 1u;
+    }
     size_t width = variable_bytes(rules);
     if (address >= 0x4b00 && address < 0x4f00) return 1 + (address - 0x4b00u) * width;
     if (address >= 0x7c00 && address < 0x8000) return 1 + (0x400 + address - 0x7c00u) * width;
@@ -1983,16 +1993,152 @@ static uint8_t *put_cells(uint8_t *p, const uint16_t *cells, size_t count, size_
     return p;
 }
 
+unsigned cok_party_contents(const cok_party *party, const cok_rules *rules)
+{
+    const cok_rules_item_record *I = &rules->item_record;
+    unsigned contents = 0;
+    for (size_t m = 0; I->container != 0 && m < party->count; ++m)
+        for (size_t i = 0; i < party->members[m]->item_count; ++i)
+            if (party->members[m]->items[i][I->type] == I->container)
+                contents += party->members[m]->items[i][I->count];
+    return contents;
+}
+
+void cok_saved_game_free(cok_saved_game *game)
+{
+    for (size_t i = 0; i < COK_PARTY_RECORDS; ++i) {
+        if (game->characters[i] == NULL) continue;
+        cok_character_free(game->characters[i]);
+        free(game->characters[i]);
+        game->characters[i] = NULL;
+    }
+}
+
+static bool write_file(const char *path, const uint8_t *data, size_t size, char *error,
+                       size_t error_size);
+
+/* dqk 604b:28f8: the header's reads (failing the load where one is short,
+ * but going on to fill what it reads), then the characters while the
+ * count says and each reads whole (604b:05fd). */
+static bool queen_read(const char *path, const cok_rules *rules, cok_saved_game *game,
+                       const uint8_t *data, size_t size, char *error, size_t error_size)
+{
+    memset(game, 0, sizeof *game);
+    if (size < QUEEN_CHARACTERS) {
+        fail(error, error_size, "%s: %zu bytes, not a saved game (604b:28f8)", path, size);
+        return false;
+    }
+    for (size_t i = 0; i < QUEEN_VARS; ++i) game->mem4b00[i] = data[i];
+    const uint8_t *p = data + QUEEN_VARS;
+    game->map_x = (int8_t)p[0];
+    game->map_y = (int8_t)p[1];
+    game->direction = p[2];
+    game->ahead = p[3];
+    game->square = p[4];
+    game->last_mode = (uint8_t)u16(p + 5);
+    game->mode = (uint8_t)u16(p + 7);
+    for (size_t i = 0; i < COK_SAVED_WALLS; ++i) game->wall_ids[i] = game->wall_slots[i] = -1;
+    game->wall_ids[0] = (int16_t)u16(p + 9);
+    game->extra = u16(p + 11);
+    int16_t count = (int16_t)u16(data + QUEEN_COUNT);
+    size_t at = QUEEN_CHARACTERS;
+    /* The party is a list in the original: its loader takes as many as
+     * the count says, keeping those it read before one that fails (the
+     * port fails the whole); the port holds COK_PARTY_RECORDS. */
+    for (int16_t i = 0; i < count; ++i) {
+        if (game->count >= COK_PARTY_RECORDS) {
+            cok_saved_game_free(game);
+            fail(error, error_size, "%s: a party of %d (604b:28f8)", path, count);
+            return false;
+        }
+        cok_character *c = malloc(sizeof *c);
+        if (c == NULL) {
+            cok_saved_game_free(game);
+            fail(error, error_size, "%s: out of memory", path);
+            return false;
+        }
+        cok_party read = {.count = game->count};
+        memcpy(read.members, game->characters, sizeof read.members);
+        unsigned contents = cok_party_contents(&read, rules);
+        size_t used;
+        char why[200];
+        if (!cok_character_from_bytes(c, rules, data + at, size - at, contents, &used, why,
+                                      sizeof why)) {
+            free(c);
+            cok_saved_game_free(game);
+            fail(error, error_size, "%s: character %d: %s", path, i + 1, why);
+            return false;
+        }
+        if (c->contents_dropped) game->contents_dropped = true;
+        at += used;
+        game->characters[game->count++] = c;
+    }
+    return true;
+}
+
+static bool queen_write(const char *path, const cok_rules *rules, const cok_saved_game *game,
+                        char *error, size_t error_size)
+{
+    size_t size = QUEEN_CHARACTERS, capacity = rules->saves.game_size;
+    for (size_t i = 0; i < game->count && i < QUEEN_MOST; ++i) {
+        char why[200];
+        size_t n = cok_character_to_bytes(game->characters[i], rules, NULL, 0, why, sizeof why);
+        if (n == 0) {
+            fail(error, error_size, "%s: character %zu: %s", path, i + 1, why);
+            return false;
+        }
+        size += n;
+    }
+    if (size > capacity) capacity = size;
+    uint8_t *data = calloc(1, capacity);
+    if (data == NULL) {
+        fail(error, error_size, "%s: out of memory", path);
+        return false;
+    }
+    for (size_t i = 0; i < QUEEN_VARS; ++i) data[i] = (uint8_t)game->mem4b00[i];
+    uint8_t *p = data + QUEEN_VARS;
+    p[0] = (uint8_t)game->map_x;
+    p[1] = (uint8_t)game->map_y;
+    p[2] = game->direction;
+    p[3] = game->ahead;
+    p[4] = game->square;
+    put16(p + 5, game->last_mode);
+    put16(p + 7, game->mode);
+    put16(p + 9, (uint16_t)game->wall_ids[0]);
+    put16(p + 11, game->extra);
+    /* 604b:31a7 counts the list's members, at most 8, and writes as
+     * many. */
+    size_t count = game->count < QUEEN_MOST ? game->count : QUEEN_MOST;
+    put16(data + QUEEN_COUNT, (uint16_t)count);
+    size_t at = QUEEN_CHARACTERS;
+    for (size_t i = 0; i < count; ++i) {
+        char why[200];
+        at += cok_character_to_bytes(game->characters[i], rules, data + at, capacity - at, why,
+                                     sizeof why);
+    }
+    /* Then DS:c6de's bytes up to the size, the item table first. */
+    for (size_t i = 0; at + i < capacity && i < game->fill_size; ++i) data[at + i] = game->fill[i];
+    bool ok = write_file(path, data, capacity, error, error_size);
+    free(data);
+    return ok;
+}
+
 bool cok_saved_game_read(const char *path, const cok_rules *rules, cok_saved_game *game,
                          char *error, size_t error_size)
 {
     bool missing;
-    size_t size = 0, need = cok_saved_game_size(rules), width = variable_bytes(rules);
+    size_t size = 0;
     uint8_t *data = read_file(path, &size, &missing);
     if (data == NULL) {
         fail(error, error_size, "%s: %s", path, missing ? "not found" : "cannot read");
         return false;
     }
+    if (rules->saves.game_size != 0) {
+        bool ok = queen_read(path, rules, game, data, size, error, error_size);
+        free(data);
+        return ok;
+    }
+    size_t need = cok_saved_game_size(rules), width = variable_bytes(rules);
     if (size < need) {
         free(data);
         fail(error, error_size, "%s: %zu bytes, not a saved game", path, size);
@@ -2044,6 +2190,7 @@ static bool write_file(const char *path, const uint8_t *data, size_t size, char 
 bool cok_saved_game_write(const char *path, const cok_rules *rules, const cok_saved_game *game,
                           char *error, size_t error_size)
 {
+    if (rules->saves.game_size != 0) return queen_write(path, rules, game, error, error_size);
     static uint8_t data[COK_SAVED_GAME_SIZE];
     size_t size = cok_saved_game_size(rules), width = variable_bytes(rules);
     assert(size <= sizeof data);
@@ -2124,6 +2271,88 @@ bool cok_vault_write(const char *path, const cok_vault *vault, char *error, size
     if (vault->item_count > 0) memcpy(data + 12, vault->items, vault->item_count * COK_ITEM_SIZE);
     for (size_t i = 0; i < vault->item_count; ++i)
         memset(data + 12 + i * COK_ITEM_SIZE + 0x2a, 0, 4);
+    bool ok = write_file(path, data, size, error, error_size);
+    free(data);
+    return ok;
+}
+
+bool cok_vault_read_game(const char *path, const cok_rules *rules, cok_vault *vault,
+                         bool *missing, char *error, size_t error_size)
+{
+    if (rules->saves.vault_items == 0)
+        return cok_vault_read(path, vault, missing, error, error_size);
+    const cok_rules_item_record *I = &rules->item_record;
+    memset(vault, 0, sizeof *vault);
+    size_t size = 0;
+    uint8_t *data = read_file(path, &size, missing);
+    if (data == NULL) {
+        fail(error, error_size, "%s: %s", path, *missing ? "not found" : "cannot read");
+        return false;
+    }
+    if (size < 16) {
+        free(data);
+        fail(error, error_size, "%s: %zu bytes, not a vault (63ee:0239)", path, size);
+        return false;
+    }
+    memcpy(vault->coins, data, 12);
+    size_t count = u16(data + 14), at = 16;
+    vault->items = count > 0 ? calloc(count, COK_ITEM_SIZE) : NULL;
+    if (count > 0 && vault->items == NULL) {
+        free(data);
+        fail(error, error_size, "%s: out of memory", path);
+        return false;
+    }
+    for (size_t i = 0; i < count; ++i, at += I->file_size) {
+        if (size - at < I->file_size) {
+            free(data);
+            cok_vault_free(vault);
+            fail(error, error_size, "%s: item %zu is short (63ee:0239)", path, i + 1);
+            return false;
+        }
+        uint8_t *item = vault->items + i * COK_ITEM_SIZE;
+        memcpy(item + I->file_at, data + at, I->file_size);
+        vault->item_count = i + 1;
+        if (I->container != 0 && item[I->type] == I->container && item[I->count] != 0) {
+            free(data);
+            cok_vault_free(vault);
+            fail(error, error_size, "%s: item %zu is a scroll with contents, which the port does "
+                                    "not hold (63ee:0239 reads them)", path, i + 1);
+            return false;
+        }
+    }
+    free(data);
+    return true;
+}
+
+bool cok_vault_write_game(const char *path, const cok_rules *rules, const cok_vault *vault,
+                          const uint8_t *fill, size_t fill_size, char *error, size_t error_size)
+{
+    if (rules->saves.vault_items == 0) return cok_vault_write(path, vault, error, error_size);
+    const cok_rules_item_record *I = &rules->item_record;
+    size_t most = rules->saves.vault_items;
+    size_t items = vault->item_count > most ? vault->item_count : most;
+    size_t size = 16 + items * I->file_size;
+    uint8_t *data = calloc(1, size);
+    if (data == NULL) {
+        fail(error, error_size, "%s: out of memory", path);
+        return false;
+    }
+    memcpy(data, vault->coins, 12);
+    put16(data + 12, 0xffff);
+    put16(data + 14, (uint16_t)vault->item_count);
+    size_t at = 16;
+    for (size_t i = 0; i < vault->item_count; ++i, at += I->file_size) {
+        const uint8_t *item = vault->items + i * COK_ITEM_SIZE;
+        if (I->container != 0 && item[I->type] == I->container && item[I->count] != 0) {
+            free(data);
+            fail(error, error_size, "%s: item %zu is a scroll with contents, which the port "
+                                    "does not hold (63ee:00df writes them)", path, i + 1);
+            return false;
+        }
+        memcpy(data + at, item + I->file_at, I->file_size);
+    }
+    /* The items short of 50 from DS:c6de's buffer. */
+    for (size_t i = 0; at + i < size && i < fill_size; ++i) data[at + i] = fill[i];
     bool ok = write_file(path, data, size, error, error_size);
     free(data);
     return ok;

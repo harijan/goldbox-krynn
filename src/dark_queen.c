@@ -1,12 +1,15 @@
+#define _POSIX_C_SOURCE 200809L /* opendir, strcasecmp */
 #include "dark_queen.h"
 
 #include "adventure.h"
 #include "hlib.h"
 #include "vga.h"
 
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 /* The libraries the game draws from, read once and kept. */
 enum {
@@ -89,6 +92,20 @@ typedef struct {
     size_t control_count;
     bool cursor_shown; /* 22b7:2122 shows it, 10d7:0141 hides it */
     bool mouse_started;
+    /* The game saved since it last changed (DS:ae5b); a game loaded and
+     * not yet entered (DS:b1ed); a big picture shown outside the
+     * overland, which the party's list is not drawn over (DS:b256). */
+    bool saved, loaded_game, big_no_party;
+    /* The small picture's id (DS:ae42, 0xff for none: 63ae:02b0); DS:bd92,
+     * which turns Train and Knight new Order on in the camp (0 at startup,
+     * its stores found keep what it held); the overland's cell under the
+     * party's mark (19a4:09eb's save, 0aba's restore: 8 by 8 pixels at
+     * mark_x, mark_y), saved or not. */
+    uint8_t picture_id;
+    bool train_anywhere;
+    uint8_t under[64];
+    int mark_x, mark_y;
+    bool marked;
 } queen;
 
 static queen *own(cok_adventure *game)
@@ -774,7 +791,10 @@ static void enter_state(cok_adventure *game, unsigned state)
 {
     queen *q = own(game);
     if (state == q->state) return;
-    if (q->state == STATE_PICTURE || q->state == 2) q->picture_loaded = false;
+    if (q->state == STATE_PICTURE || q->state == 2) {
+        q->picture_loaded = false;
+        q->picture_id = 0xff;
+    }
     if (q->state == STATE_PICTURE)
         for (unsigned slot = 0; slot < WALL_SETS; ++slot) q->wall_loaded[slot] = false;
     if (q->state == STATE_BIG) q->big_id = NO_BIG;
@@ -1062,9 +1082,35 @@ static void load_files(cok_adventure *game)
  * cell past variables 0x25 and 0x26, the map's square. */
 static void marker(cok_adventure *game)
 {
+    queen *q = own(game);
     cok_ecl *vm = &game->vm;
     int col = 8 * (cok_ecl_load_var(vm, 0x25) + 1), row = 8 * (cok_ecl_load_var(vm, 0x26) + 1);
+    /* 19a4:09eb: the cell under it saved first. */
+    int sw = (int)game->screen.units * 8;
+    for (int y = 0; y < 8; ++y)
+        for (int x = 0; x < 8; ++x)
+            q->under[8 * y + x] = row + y < (int)game->screen.height && col + x < sw
+                                      ? game->screen.pixels[(size_t)(row + y) * (size_t)sw +
+                                                            (size_t)(col + x)]
+                                      : 0;
+    q->mark_x = col;
+    q->mark_y = row;
+    q->marked = true;
     draw(game, lib(game, LIB_ALWAYS), 0x1d, row, col, NULL, NULL);
+}
+
+/* 7065:0072: the cell the mark covers put back (19a4:0aba). */
+static void unmark(cok_adventure *game)
+{
+    queen *q = own(game);
+    if (!q->marked) return;
+    int sw = (int)game->screen.units * 8;
+    for (int y = 0; y < 8; ++y)
+        for (int x = 0; x < 8; ++x)
+            if (q->mark_y + y < (int)game->screen.height && q->mark_x + x < sw)
+                game->screen.pixels[(size_t)(q->mark_y + y) * (size_t)sw +
+                                    (size_t)(q->mark_x + x)] = q->under[8 * y + x];
+    q->marked = false;
 }
 
 /* A big picture, BIGPIC's library n (63ae:0321, then 63ae:03b0): loaded
@@ -1112,7 +1158,10 @@ static void picture(cok_adventure *game)
             cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
             return;
         }
-        if (vm->mode == 3) marker(game);
+        if (vm->mode == 3)
+            marker(game);
+        else
+            q->big_no_party = true; /* DS:b256 */
         game->picture_shown = true;
         return;
     }
@@ -1124,6 +1173,7 @@ static void picture(cok_adventure *game)
         return;
     }
     q->picture_loaded = true;
+    q->picture_id = n; /* DS:ae42 */
     /* Its frames are records 1 on (DS:b20d the last's index); the loop
      * goes back to frame 0, or 5 for pictures 0x0e and 0x87, 1 for 0x46,
      * 3 for 0xa1 (63ae:0262-028f: DS:b20c). */
@@ -1178,19 +1228,116 @@ static void horizontal(cok_adventure *game, bool ask)
     bottom_bar(game);
 }
 
-/* VERTICAL MENU (6c70:1e91, 0f4a, 1bdb:1f25, the list 1b05:08b3): the
- * prompt printed as PRINTCLEAR, the items a row each from the row below
- * it to row 21 (1b05:0055: each row cleared, the current one in light
- * cyan, 0x8b, the others 0x87), "Select" on the bar (its 'S', and Return
- * as its second hotkey). Up or Home the one before, Down or End the one
- * after, wrapping at the ends; PgUp the top row shown, or a page up from
- * it; PgDn the bottom one, or a page down; the rows scrolling to show the
- * current one (moving up at the top, down at the bottom). Select, or
- * Escape (or '`'), ends it, the current one's index stored either way, as
- * wide as the last item (a string: a word); then the window cleared. A
- * click on a row makes it current, on the current one selects it; a
- * click on Select selects. With more items than rows the original draws
- * a scroll bar too (21e9:082d, not decoded): not drawn here. */
+/* The list (1bdb:1f25, 1b05:08b3, 0055, keys 0664) of count items in
+ * rows y1 to y2 - 1 from cell 1 to x2 (one less with more items than rows,
+ * room for the scroll bar), each row cleared, the current one (*at) in
+ * light cyan (0x8b), the others 0x87, under the bar's menu (1bdb:0d26:
+ * the prompt boxed, then its items' buttons): Up or Home the one before,
+ * Down or End the one after, wrapping; PgUp the top row shown or a page up
+ * from it, PgDn the bottom one or a page down; the rows scrolling to the
+ * current one. A bar item's letter (or a click on its button) ends it,
+ * giving its index; Return its first; Escape (or '`') 0x1b; a click on a
+ * row makes it current, on the current one its first item. Returns that,
+ * -1 if the keys ran out. The scroll bar (21e9:082d) is not decoded nor
+ * drawn. */
+static int list_menu(cok_adventure *game, const char *prompt, const char *const *bar,
+                     size_t bar_count, const char *const *items, size_t count, size_t *at,
+                     int y1, int y2, int x2)
+{
+    int rows = y2 - y1, cols = x2 - 1;
+    if (rows < 1) rows = 1;
+    if ((size_t)rows < count) --cols; /* room for the scroll bar */
+    size_t top = 0;
+    if (*at >= count) *at = 0;
+    char box[96];
+    snprintf(box, sizeof box, "%s", prompt);
+    size_t n = strlen(box);
+    if (n >= 2 && box[n - 1] == ' ' && box[n - 2] == ':') box[--n] = '\0';
+    bottom_bar(game);
+    if (n > 0) prompt_box(game, 0, box, 0, 7);
+    controls_clear(game);
+    rect rects[4];
+    int cols_at[4], col = 8 + 8 * (int)n;
+    for (size_t i = 0; i < bar_count && i < 4; ++i) {
+        int width = (int)strlen(bar[i]);
+        cols_at[i] = col;
+        rects[i] = button_rect(BAR_ROW, col, width);
+        control_add(game, rects[i]);
+        button(game, BAR_ROW, col, bar[i], width, 0);
+        col += (width + 1) * 8;
+    }
+    rect list = {8 * y1, 8, 8 * (y1 + rows), 8 * (1 + cols)};
+    control_add(game, list);
+    int result = -1;
+    while (result < 0) {
+        if (*at < top) top = *at;
+        if (*at >= top + (size_t)rows) top = *at + 1 - (size_t)rows;
+        for (int i = 0; i < rows; ++i) {
+            clear_cells(game, 1, y1 + i, cols, y1 + i);
+            size_t item = top + (size_t)i;
+            if (item < count) text(game, 8 * (y1 + i), 8, items[item], item == *at ? 0x8b : 0x87);
+        }
+        input in;
+        int key = read_input(game, &in);
+        if (key < 0 && key != COK_KEY_TIMEOUT) {
+            controls_clear(game);
+            return -1;
+        }
+        if (in.click) {
+            bool taken = false;
+            for (size_t i = 0; i < bar_count && i < 4 && !taken; ++i)
+                if (inside(&rects[i], in.x, in.y)) {
+                    result = (int)i;
+                    taken = true;
+                }
+            if (!taken && inside(&list, in.x, in.y) && count > 0) {
+                size_t item = top + (size_t)((in.y - 8 * y1) / 8);
+                if (item >= count) item = count - 1;
+                if (item == *at) result = 0;
+                *at = item;
+            } else if (!taken) {
+                beep(game);
+            }
+            continue;
+        }
+        size_t page = rows > 1 ? (size_t)rows - 1 : 1, bottom = top + (size_t)rows - 1;
+        if (bottom >= count) bottom = count > 0 ? count - 1 : 0;
+        switch (in.key) {
+        case KEY_UP: case KEY_HOME: *at = *at > 0 ? *at - 1 : count - 1; break;
+        case KEY_DOWN: case KEY_END: *at = *at + 1 < count ? *at + 1 : 0; break;
+        case KEY_PGUP: *at = *at != top ? top : *at > page ? *at - page : 0; break;
+        case KEY_PGDN:
+            *at = *at != bottom ? bottom : *at + page < count ? *at + page : count - 1;
+            break;
+        case '\r': case '\n': result = 0; break;
+        case 0x1b: case 0x60: result = 0x1b; break;
+        case KEY_ALT + 'S': case KEY_ALT + 'T': break; /* the sound's toggles */
+        default: {
+            bool taken = false;
+            for (size_t i = 0; i < bar_count && i < 4 && !taken; ++i)
+                if (hotkey(bar[i][0], in.key)) {
+                    result = (int)i;
+                    taken = true;
+                }
+            if (!taken) beep(game);
+            break;
+        }
+        }
+        if (count == 0) *at = 0;
+    }
+    controls_clear(game);
+    if (result != 0x1b)
+        button(game, BAR_ROW, cols_at[result], bar[result], (int)strlen(bar[result]),
+               BUTTON_PRESSED);
+    return result;
+}
+
+/* VERTICAL MENU (6c70:1e91, 0f4a, 1bdb:1f25): the prompt printed as
+ * PRINTCLEAR, the items in list_menu's rows from the row below it to row
+ * 21, "Select" on the bar (its 'S', Return its first). Select, or Escape
+ * (or '`'), ends it, Select drawn pressed and the current one's index
+ * stored either way, as wide as the last item (a string: a word); then
+ * the window cleared. */
 static void vertical(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -1199,64 +1346,14 @@ static void vertical(cok_adventure *game)
     for (size_t i = 0; i < count; ++i) cok_adventure_log(game, "item", vm->string[i]);
     vm->cursor = (cok_text_cursor){1, 0x11};
     if (!print_window(game, vm->header_string, 1, 0x11, 0x26, 0x16, 7, true, true)) return;
-    int y1 = vm->cursor.y + 1, rows = 0x16 - y1, cols = 0x26 - 1;
-    if (rows < 1) rows = 1;
-    if ((size_t)rows < count) --cols; /* room for the scroll bar */
-    size_t at = 0, top = 0;
+    const char *items[COK_ECL_MAX_STRINGS];
+    for (size_t i = 0; i < count; ++i) items[i] = vm->string[i];
     static const char *const select[] = {"Select"}; /* DS:4eea */
-    bottom_bar(game);
-    button(game, BAR_ROW, 8, select[0], 6, 0);
-    controls_clear(game);
-    rect sel = button_rect(BAR_ROW, 8, 6);
-    rect list = {8 * y1, 8, 8 * (y1 + rows), 8 * (1 + cols)};
-    control_add(game, sel);
-    control_add(game, list);
-    bool done = false;
-    while (!done) {
-        if (at < top) top = at;
-        if (at >= top + (size_t)rows) top = at + 1 - (size_t)rows;
-        for (int i = 0; i < rows; ++i) {
-            clear_cells(game, 1, y1 + i, cols, y1 + i);
-            size_t item = top + (size_t)i;
-            if (item < count)
-                text(game, 8 * (y1 + i), 8, vm->string[item], item == at ? 0x8b : 0x87);
-        }
-        input in;
-        int key = read_input(game, &in);
-        if (key < 0 && key != COK_KEY_TIMEOUT) {
-            controls_clear(game);
-            return;
-        }
-        if (in.click) {
-            if (inside(&sel, in.x, in.y)) {
-                done = true;
-            } else if (inside(&list, in.x, in.y) && count > 0) {
-                size_t item = top + (size_t)((in.y - 8 * y1) / 8);
-                if (item >= count) item = count - 1;
-                if (item == at) done = true;
-                at = item;
-            } else {
-                beep(game);
-            }
-            continue;
-        }
-        size_t page = rows > 1 ? (size_t)rows - 1 : 1, bottom = top + (size_t)rows - 1;
-        if (bottom >= count) bottom = count > 0 ? count - 1 : 0;
-        switch (in.key) {
-        case KEY_UP: case KEY_HOME: at = at > 0 ? at - 1 : count - 1; break;
-        case KEY_DOWN: case KEY_END: at = at + 1 < count ? at + 1 : 0; break;
-        case KEY_PGUP: at = at != top ? top : at > page ? at - page : 0; break;
-        case KEY_PGDN:
-            at = at != bottom ? bottom : at + page < count ? at + page : count - 1;
-            break;
-        case '\r': case '\n': case 's': case 'S': case 0x1b: case 0x60: done = true; break;
-        case KEY_ALT + 'S': case KEY_ALT + 'T': break; /* the sound's toggles */
-        default: beep(game); break;
-        }
-        if (count == 0) at = 0;
-    }
-    controls_clear(game);
-    button(game, BAR_ROW, 8, select[0], 6, BUTTON_PRESSED);
+    size_t at = 0;
+    int y1 = vm->cursor.y + 1;
+    int ended = list_menu(game, "", select, 1, items, count, &at, y1, 0x16, 0x26);
+    if (ended < 0) return;
+    if (ended == 0x1b) button(game, BAR_ROW, 8, select[0], 6, BUTTON_PRESSED);
     log_choice(game, (int)at);
     cok_ecl_operand o = vm->header[0];
     if (count > 0) o.type = vm->operand[count - 1].type;
@@ -1690,6 +1787,7 @@ static bool queen_open(cok_adventure *game)
     }
     game->own = q;
     q->big_id = q->big_last = NO_BIG;
+    q->picture_id = 0xff;
     q->state = STATE_VIEW;
     q->cursor_shown = true;
     if (cok_picture_create_vga(&game->screen, 40, 200, 1,
@@ -1809,108 +1907,1618 @@ static bool camp_screen(cok_adventure *game)
     return true;
 }
 
+/* The party's list (5e22:023b, its selected member given): not on the
+ * overland (mode 3 with variable 0x24 1) nor under a big picture shown
+ * outside it (DS:b256); from column 1 in the camp (mode 0), else 0x11:
+ * "Name" there and "AC\tHP" at 0x21 on row 2 in light red (0x0c), then a
+ * row a member from 4, each cleared to column 38 first (1a62:09a1): its
+ * name (177e:1697: light cyan where selected; black where it cannot act,
+ * +0x18b 0; light magenta where it may train, +0xcd; else grey), its AC
+ * (177e:0724: 0x3c less +0x18e, a '-' before it where that is below 0,
+ * and a blank after, in grey, ending at column 0x22) and its hit points
+ * (177e:07b4: +0x198, light cyan below its most, +0x89, else grey, ending
+ * at column 0x26); then a row after the list cleared, below row 12. The
+ * text's '\t' is a cell of the font's own (its glyph before the font's
+ * first, which shows nothing). */
+static void party_list(cok_adventure *game)
+{
+    queen *q = own(game);
+    cok_ecl *vm = &game->vm;
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    if ((vm->mode == 3 && cok_ecl_load_var(vm, 0x24) == 1) || q->big_no_party) return;
+    int x0 = vm->mode == 0 ? 1 : 0x11, y = 2;
+    text(game, 8 * y, 8 * x0, "Name", 0x8c);
+    text(game, 8 * y, 8 * 0x21, "AC HP", 0x8c);
+    y += 2;
+    for (size_t i = 0; i < game->party.count; ++i, ++y) {
+        const uint8_t *c = game->party.members[i]->record;
+        clear_cells(game, x0, y, 0x26, y);
+        char name[17];
+        cok_field_name(L, c, name);
+        unsigned fg = c == vm->character ? 0x0b
+                      : c[0x18b] == 0 ? 0x00
+                      : (cok_field_u8(L, c, COK_FIELD_HOSTILE) == 1 && vm->mode == 5) ? 0x02
+                      : c[0xcd] != 0 ? 0x0d
+                                     : 0x07;
+        text(game, 8 * y, 8 * x0, name, 0x80 | fg);
+        uint8_t ac = cok_field_u8(L, c, COK_FIELD_AC);
+        int value = ac - 0x3c;
+        char line[16];
+        snprintf(line, sizeof line, "%s%d ", value > 0 ? "-" : "", value < 0 ? -value : value);
+        int pad = ac > 0x45 ? 0 : ac > 0x32 && ac <= 0x3c ? 2 : 1;
+        text(game, 8 * y, 8 * (0x20 + pad), line, 0x87);
+        uint8_t hp = cok_field_u8(L, c, COK_FIELD_HIT_POINTS);
+        pad = hp > 99 ? 0 : hp > 9 ? 1 : 2;
+        snprintf(line, sizeof line, "%u", hp);
+        text(game, 8 * y, 8 * (0x24 + pad), line,
+             hp < cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS) ? 0x8b : 0x87);
+    }
+    if (y < 0x0c) clear_cells(game, x0, y, 0x26, y);
+}
+
+static void party_hook(cok_adventure *game)
+{
+    /* 5f07:10cd draws it but in the demonstration (DS:ae59); its other
+     * callers there are not reached (block 7 stops at its ADD NPC). */
+    if (own(game) != NULL && !game->demo) party_list(game);
+}
+
+/* The status (5e22:03f8), but on the overland (mode 3): cells 26-38 by
+ * 13-15 cleared; the time on row 15 from variables 8 (the hour), 7 and 6
+ * (the minutes' tens and units): "12:mm AM" for hour 0, "h:mm AM" below
+ * 12, "12:mm PM" for 12, "h-12:mm PM" (1396:05aa: the minutes with a 0
+ * before one digit); the square "x,y" on row 13 unless variable 0x1a is
+ * set; the compass's needle by the facing (FRAME 25-28, as 20b2:00e4);
+ * on row 14 "camping" in mode 2, else "searching" where variable 0x19's
+ * bit 0 is set; all in grey. */
+static void status_line(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    if (own(game) == NULL || vm->mode == 3) return;
+    unsigned minutes = cok_ecl_load_var(vm, 7) * 10u + cok_ecl_load_var(vm, 6);
+    char mm[8], line[32];
+    snprintf(mm, sizeof mm, minutes < 10 ? "0%u" : "%u", minutes & 0xff);
+    clear_cells(game, 0x1a, 0x0d, 0x26, 0x0f);
+    unsigned hour = cok_ecl_load_var(vm, 8);
+    if (hour / 12 == 0) {
+        if (hour == 0)
+            snprintf(line, sizeof line, "12:%s AM", mm);
+        else
+            snprintf(line, sizeof line, "%u:%s AM", hour, mm);
+    } else {
+        snprintf(line, sizeof line, "%u:%s PM", hour == 12 ? 12 : hour - 12, mm);
+    }
+    text(game, 8 * 0x0f, 8 * 0x1a, line, 0x87);
+    if (cok_ecl_load_var(vm, 0x1a) == 0) {
+        snprintf(line, sizeof line, "%u,%u", (uint8_t)vm->map_x, (uint8_t)vm->map_y);
+        text(game, 8 * 0x0d, 8 * 0x1a, line, 0x87);
+    }
+    static const uint8_t needle[8] = {25, 25, 28, 26, 26, 26, 27, 25};
+    draw_frame_record(game, needle[vm->direction & 7], 0, 0, NULL);
+    if (vm->mode == 2)
+        text(game, 8 * 0x0e, 8 * 0x1a, "camping", 0x87);
+    else if (cok_ecl_load_var(vm, 0x19) & 1)
+        text(game, 8 * 0x0e, 8 * 0x1a, "searching", 0x87);
+}
+
+/* The record's words and bytes (the sheet's own reads, at the offsets
+ * dark_queen_character names). */
+static unsigned rec16(const uint8_t *c, size_t at)
+{
+    return (unsigned)(c[at] | c[at + 1] << 8);
+}
+
+/* 1a62:0046's text at cell x, y in fg on the window's grey (bg 0 above
+ * row 0x17: 8). */
+static void say(cok_adventure *game, int x, int y, const char *s, unsigned fg)
+{
+    text(game, 8 * y, 8 * x, s, 0x80 | (fg & 15));
+}
+
+/* 1a62:09fb: blanks before s until it is width long. */
+static void right(char *s, size_t size, size_t width)
+{
+    size_t n = strlen(s);
+    if (n >= width || width >= size) return;
+    memmove(s + (width - n), s, n + 1);
+    memset(s, ' ', width - n);
+}
+
+/* The sheet's tables (DS:3bde, 3bca, 3ba6, 3b86, 3af6, 3c0a, 3c2a,
+ * 3bd2), by the record's words. */
+static const char *const sheet_status[] = {"Okay", "Animated", "tempgone", "Running",
+                                           "Unconscious", "Dying", "Dead", "Petrified", "Gone"};
+static const char *const sheet_gender[] = {"Male", "Female", "Steel"};
+static const char *const sheet_alignment[] = {
+    "Lawful Good", "Lawful Neutral", "Lawful Evil",     "Neutral Good", "True Neutral",
+    "Neutral Evil", "Chaotic Good",  "Chaotic Neutral", "Chaotic Evil"};
+static const char *const sheet_race[] = {"Silvanesti Elf", "Qualinesti Elf", "Half-Elf",
+                                         "Mountain Dwarf", "Hill Dwarf",     "Kender",
+                                         "Human",          "Monster"};
+static const char *const sheet_class[] = {
+    "Cleric", "Knight", "Fighter", "Paladin", "Ranger", "Mage", "Thief", "Monk",
+    "Cleric/Fighter", "Cleric/Fighter/Mage", "Cleric/Ranger", "Cleric/Mage", "Cleric/Thief",
+    "Fighter/Mage", "Fighter/Thief", "Fighter/Mage/Thief", "Mage/Thief", "Illegal type"};
+static const char *const sheet_deity[] = {"None", "Paladine", "Majere", "Kiri-Jolith",
+                                          "Mishakal", "Sirrion", "Reorx", "Shinare"};
+static const char *const sheet_order[] = {"", "White", "Red", "Black", "gains "};
+static const char *const sheet_coins[] = {"Steel", "Gems", "Jewelry"};
+
+/* A word of the record as an index of a table of n, or NULL past it (the
+ * original reads on past its table). */
+static const char *named(const char *const *table, size_t n, unsigned i)
+{
+    return i < n ? table[i] : NULL;
+}
+
+/* 86b8:096c: score k (0 strength ... 5 charisma) at row 9 + k: cells
+ * 5-11 cleared, its value (+0x79 + 2k) from cell 5 (6 below 10) in grey
+ * (light cyan where lit); a strength of 18 with an exceptional one
+ * (+0x84) "(nn)" after it at cell 7 ("0n" below 10, "00" for 100); a '*'
+ * at cell 12 where it is not its base (+0x78 + 2k; the exceptional's
+ * +0x85), else a blank. */
+static void sheet_score(cok_adventure *game, const uint8_t *c, int k, bool lit)
+{
+    unsigned fg = lit ? 0x0b : 0x07;
+    clear_cells(game, 5, 9 + k, 0x0b, 9 + k);
+    uint8_t score = c[0x79 + 2 * k];
+    char line[16];
+    snprintf(line, sizeof line, "%u", score);
+    say(game, score < 10 ? 6 : 5, 9 + k, line, fg);
+    if (k == 0 && score == 18 && c[0x84] > 0) {
+        if (c[0x84] == 100)
+            snprintf(line, sizeof line, "(00)");
+        else
+            snprintf(line, sizeof line, c[0x84] < 10 ? "(0%u)" : "(%u)", c[0x84]);
+        say(game, 7, 9, line, fg);
+    }
+    bool changed = score != c[0x78 + 2 * k] || (k == 0 && c[0x85] != c[0x84]);
+    say(game, 0x0c, 9 + k, changed ? "*" : " ", fg);
+}
+
+/* The character sheet (86b8:0000) of the selected member: its window
+ * (20b2:00a4); its name (177e:1697) at 1, 1; "Status:"
+ * and its status; gender and "%d years", alignment, race; its class, the
+ * deity first where it has cleric levels (+0xa5), a mage's order before
+ * its "Mage" (+0xaa, 1df9:025d), a knight's order after (+0xa6: " of the
+ * Crown", "Sword", "Rose" by +0x19a); "Level" and its levels with '/'
+ * between them ("0" for none); "Experience:" and the experience (+0x44, a
+ * long) centred in cells 20-39; the scores (86b8:096c); the coins
+ * (86b8:0590: each kept, +0x4c, named from row 9 at cell 20, its count
+ * ending at cell 38); "Hit Points " and the hit points with their most
+ * (177e:07b4); "Armor Class" and the AC (177e:0724); "Encumbrance" (+0x56)
+ * and "Movement" (+0x199), "THAC0\t " and its THAC0 (0x3c less +0x18d),
+ * "Damage" and the dice (+0x192, +0x194, +0x196). Its first step, the
+ * stats' recompute (177e:0be2, 86b8:065e) and the movement's (177e:0a5f),
+ * are not ported (the record holds the original's own, as its files
+ * do), nor the readied weapon's and armour's lines (177e:03fc at rows 21
+ * and 22: the port keeps no readied slots, 0be2's, nor its items'
+ * names). */
+static void sheet(cok_adventure *game, const uint8_t *c)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    char line[96], name[17];
+    /* 20b2:00a4: the full window, FRAME 7 under rows 8, 16 and 20, FRAME
+     * 11 (the divider down the middle). */
+    full_window(game);
+    for (int row = 8; row <= 20; row += row == 16 ? 4 : 8) draw_frame_record(game, 7, 8 * row, 0, NULL);
+    draw_frame_record(game, 11, 0, 0, NULL);
+    cok_field_name(L, c, name);
+    unsigned fg = c[0x18b] == 0 ? 0x00 : c[0xcd] != 0 ? 0x0d : 0x07;
+    say(game, 1, 1, name, fg);
+    say(game, 0x14, 1, "Status:", 0x0b);
+    const char *s = named(sheet_status, 9, rec16(c, 0x64));
+    if (s != NULL) say(game, 0x1b, 1, s, 0x07);
+    if ((s = named(sheet_gender, 3, rec16(c, 0x60))) != NULL) say(game, 1, 3, s, 0x0b);
+    snprintf(line, sizeof line, "%u years", rec16(c, 0x52));
+    say(game, 8, 3, line, 0x0b);
+    if ((s = named(sheet_alignment, 9, rec16(c, 0x62))) != NULL) say(game, 1, 4, s, 0x0b);
+    if ((s = named(sheet_race, 8, rec16(c, 0x58))) != NULL) say(game, 0x14, 4, s, 0x0b);
+    s = named(sheet_class, 18, rec16(c, 0x5a));
+    snprintf(line, sizeof line, "%s", s != NULL ? s : "");
+    if (c[0xa5] > 0) {
+        const char *deity = named(sheet_deity, 8, rec16(c, 0x19b));
+        char with[160];
+        snprintf(with, sizeof with, "%s %s", deity != NULL ? deity : "", line);
+        snprintf(line, sizeof line, "%.95s", with);
+    }
+    if (c[0xaa] > 0) {
+        /* The first "M?g" (1df9:025d inserts the order and a blank). */
+        for (size_t i = 1; line[i] != '\0' && line[i + 1] != '\0'; ++i) {
+            if (line[i - 1] != 'M' || line[i + 1] != 'g') continue;
+            const char *order = named(sheet_order, 5, c[0x19d]);
+            char with[200];
+            snprintf(with, sizeof with, "%.*s%s %s", (int)(i - 1), line,
+                     order != NULL ? order : "", line + i - 1);
+            snprintf(line, sizeof line, "%.95s", with);
+            break;
+        }
+    }
+    if (c[0xa6] > 0) {
+        static const char *const knights[] = {" of the Crown", " of the Sword", " of the Rose"};
+        if (c[0x19a] >= 1 && c[0x19a] <= 3) {
+            size_t n = strlen(line);
+            snprintf(line + n, sizeof line - n, "%s", knights[c[0x19a] - 1]);
+        }
+    }
+    say(game, 1, 5, line, 0x0b);
+    say(game, 1, 7, "Level", 0x0b);
+    line[0] = '\0';
+    for (int k = 0; k <= 6; ++k) {
+        if (c[0xa5 + k] == 0) continue;
+        size_t n = strlen(line);
+        snprintf(line + n, sizeof line - n, "%s%u", n > 0 ? "/" : "", c[0xa5 + k]);
+    }
+    if (line[0] == '\0') snprintf(line, sizeof line, "0");
+    say(game, 7, 7, line, 0x0b);
+    say(game, 0x18, 6, "Experience:", 0x0b);
+    snprintf(line, sizeof line, "%ld",
+             (long)(int32_t)(rec16(c, 0x44) | (uint32_t)rec16(c, 0x46) << 16));
+    say(game, (0x14 - (int)strlen(line)) / 2 + 0x14, 7, line, 0x07);
+    static const char *const scores[] = {"STR ", "INT ", "WIS ", "DEX ", "CON ", "CHA "};
+    for (int k = 0; k <= 5; ++k) {
+        say(game, 1, 9 + k, scores[k], 0x07);
+        sheet_score(game, c, k, false);
+    }
+    clear_cells(game, 0x14, 9, 0x26, 0x0f);
+    for (unsigned k = 0, row = 9; k <= 2; ++k) {
+        unsigned coins = rec16(c, 0x4c + 2u * k);
+        if (coins == 0) continue;
+        say(game, 0x14, (int)row, sheet_coins[k], 0x07);
+        snprintf(line, sizeof line, "%u", coins);
+        say(game, 0x26 - (int)strlen(line), (int)row, line, 0x07);
+        ++row;
+    }
+    say(game, 0x14, 3, "Hit Points ", 0x0b);
+    clear_cells(game, 0x1f, 3, 0x25, 3);
+    uint8_t hp = cok_field_u8(L, c, COK_FIELD_HIT_POINTS), most = c[0x89];
+    snprintf(line, sizeof line, "%u", hp);
+    say(game, 0x1f, 3, line, hp < most ? 0x0b : 0x07);
+    int at = 0x1f + (int)strlen(line);
+    snprintf(line, sizeof line, "/%u", most);
+    say(game, at, 3, line, 0x07);
+    say(game, 1, 0x11, "Armor Class", 0x0b);
+    uint8_t ac = c[0x18e];
+    int x = (ac >= 1 && ac <= 0x32) || (ac >= 0x3d && ac <= 0x45) ? 0x10
+            : ac >= 0x33 && ac <= 0x3c                           ? 0x11
+                                                                  : 0x0f;
+    clear_cells(game, 0x0f, 0x11, 0x11, 0x11);
+    int value = ac - 0x3c;
+    snprintf(line, sizeof line, "%s%d ", value > 0 ? "-" : "", value < 0 ? -value : value);
+    say(game, x, 0x11, line, 0x07);
+    say(game, 0x14, 0x11, "Encumbrance", 0x0b);
+    snprintf(line, sizeof line, "%u", rec16(c, 0x56));
+    right(line, sizeof line, 5);
+    say(game, 0x21, 0x11, line, 0x07);
+    say(game, 1, 0x12, "THAC0  ", 0x0b);
+    snprintf(line, sizeof line, "%d", 0x3c - c[0x18d]);
+    right(line, sizeof line, 2);
+    say(game, 0x10, 0x12, line, 0x07);
+    say(game, 0x14, 0x12, "Movement", 0x0b);
+    snprintf(line, sizeof line, "%u", c[0x199]);
+    right(line, sizeof line, 3);
+    say(game, 0x23, 0x12, line, 0x07);
+    int bonus = (int8_t)c[0x196];
+    snprintf(line, sizeof line, "%ud%u", c[0x192], c[0x194]);
+    if (bonus > 0) snprintf(line + strlen(line), sizeof line - strlen(line), "+%d", bonus);
+    if (bonus < 0) snprintf(line + strlen(line), sizeof line - strlen(line), "-%d", -bonus);
+    say(game, 1, 0x13, "Damage", 0x0b);
+    right(line, sizeof line, 7);
+    say(game, 0x0b, 0x13, line, 0x07);
+}
+
+/* View (86b8:0b0c): the sheet, then its menu (1e29 with DS:4f82's "Items
+ * Spells Trade Deposit Drop Lay Cure Exit", those listed: Items with
+ * items, Spells with a spell memorized (+0xce-+0x156), Trade with coins
+ * but in combat (mode 5) where an NPC that can act and is not hostile
+ * may not, Deposit with coins in the vault (mode 10), Drop with coins
+ * elsewhere, Lay and Cure for a paladin who may (86b8:314e, 31af: +0x5a 3,
+ * not in combat, status 0, Lay without effect 0x8c, Cure with +0x88 left;
+ * a former paladin's, 177e:21bd, not ported), Exit always); Exit or
+ * Escape leaves it; the others are not ported yet (the run stops).
+ * False where the run stopped. */
+static bool view_character(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    const uint8_t *c = vm->character;
+    if (c == NULL) return true;
+    sheet(game, c);
+    bool spells = false, coins = false;
+    for (size_t k = 0; k <= 0x88; ++k)
+        if (c[0xce + k] & 0x7f) spells = true;
+    for (size_t k = 0; k <= 2; ++k)
+        if (rec16(c, 0x4c + 2 * k) > 0) coins = true;
+    size_t i = cok_party_index(&game->party, c);
+    bool items = i < game->party.count && game->party.members[i]->item_count > 0;
+    bool paladin = rec16(c, 0x5a) == 3;
+    if (!paladin && c[0xaf] > 0) {
+        cok_adventure_not_yet(game, "a former paladin's Lay and Cure", "dqk 177e:21bd");
+        return false;
+    }
+    bool may = paladin && vm->mode != 5 && rec16(c, 0x64) == 0;
+    bool lay = may, cure = may && c[0x88] > 0;
+    if (lay)
+        for (const cok_effect *e = game->party.members[i]->effects; e != NULL; e = e->next)
+            if (e->id == 0x8c) lay = false;
+    bool on[8] = {items, spells,
+                  (c[0x9b] < 0x80 || c[0x18b] == 0 || rec16(c, 0x64) == 1) && coins &&
+                      vm->mode != 5,
+                  coins && vm->mode == 10, coins && vm->mode != 10, lay && vm->mode != 10,
+                  cure && vm->mode != 10, true};
+    static const char *const all[8] = {"Items", "Spells", "Trade", "Deposit",
+                                       "Drop",  "Lay",    "Cure",  "Exit"};
+    const char *shown[8];
+    int index[8];
+    size_t n = 0;
+    char line[96] = "";
+    for (int k = 0; k < 8; ++k)
+        if (on[k]) {
+            index[n] = k;
+            shown[n++] = all[k];
+            size_t m = strlen(line);
+            snprintf(line + m, sizeof line - m, "%s%s", m > 0 ? " " : "", all[k]);
+        }
+    for (;;) {
+        cok_adventure_log(game, "menu", line);
+        int choice = bar_menu(game, "", shown, n, false, false, 0, 0);
+        if (choice < 0) return false;
+        int k = choice == 0x1b ? 7 : choice < (int)n ? index[choice] : -1;
+        if (k < 0) continue;
+        log_choice(game, k);
+        if (k == 7) return true;
+        static const char *const routines[] = {"dqk 86b8:0f41", "dqk 7a87:10cb",
+                                               "dqk 86b8:286a", "dqk 86b8:2c32",
+                                               "dqk 86b8:2c32", "dqk 86b8:3200",
+                                               "dqk 86b8:3319"};
+        char what[32];
+        snprintf(what, sizeof what, "View's %s", all[k]);
+        cok_adventure_not_yet(game, what, routines[k]);
+        return false;
+    }
+}
+
+/* The save path (604b:0073 and 000e with DS:ace0 0, DQK.CFG's: the
+ * game's SAVE folder): --saves where given, else the assets' SAVE, which
+ * the port only reads. */
+static void save_path(const cok_adventure *game, char *out, size_t size)
+{
+    if (game->save_dir[0] != '\0')
+        snprintf(out, size, "%s", game->save_dir);
+    else
+        snprintf(out, size, "%s/SAVE", game->assets);
+}
+
+static bool writable(cok_adventure *game, const char *what)
+{
+    if (game->save_dir[0] != '\0') return true;
+    cok_adventure_log(game, "error", what);
+    return false;
+}
+
+/* The file of name in dir, in any case, into out; false if there is
+ * none (DOS's names are of either case). */
+static bool find_file(const char *dir, const char *name, char *out, size_t size)
+{
+    DIR *d = opendir(dir);
+    if (d == NULL) return false;
+    struct dirent *e;
+    bool found = false;
+    while (!found && (e = readdir(d)) != NULL)
+        if (strcasecmp(e->d_name, name) == 0) {
+            snprintf(out, size, "%s/%s", dir, e->d_name);
+            found = true;
+        }
+    closedir(d);
+    return found;
+}
+
+/* A character's file name (5e98:0044): each of ' =+<>"[].*,?/\:;|'
+ * taken out, 8 characters kept, upper-cased (10d7:25fb). */
+static void file_name(const char *name, char out[9])
+{
+    size_t n = 0;
+    for (; *name != '\0' && n < 8; ++name)
+        if (strchr(" =+<>\"[].*,?/\\:;|", *name) == NULL)
+            out[n++] = (char)(*name >= 'a' && *name <= 'z' ? *name - 0x20 : *name);
+    out[n] = '\0';
+}
+
+/* 64b2:04ec, a new game: the variables 0x0001-0x0400 cleared, then 0x27
+ * 3, 0x22 1 (3D), 0x16 0, 0x39 0, 0x12 4 (the speed), 0x20 0 (the party's
+ * size); the square 7, 13 facing 2; the wall set (DS:ca03) and the vault
+ * (DS:c3ea 'Z') none; no party nor selection (the list dropped, not
+ * freed: its callers emptied it); the mode 4, the last 0; the game not
+ * saved (DS:ae5b) nor loaded (DS:b1ed: the next block clears its
+ * locals, 6c70:0001). */
+static void new_game(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    for (uint16_t a = 1; a <= 0x400; ++a) cok_ecl_store(vm, a, 0);
+    cok_ecl_store(vm, 0x27, 3);
+    cok_ecl_store(vm, 0x22, 1);
+    cok_ecl_store(vm, 0x12, 4);
+    vm->map_x = 7;
+    vm->map_y = 13;
+    vm->direction = 2;
+    game->wall_ids[0] = 0;
+    game->vault_letter = 'Z';
+    cok_party_free(&game->party);
+    vm->character = NULL;
+    vm->mode = 4;
+    vm->last_mode = 0;
+    own(game)->saved = false;
+    own(game)->big_no_party = false;
+    own(game)->loaded_game = false; /* DS:b1ed */
+    vm->keep_vars = false;
+}
+
+/* The saved games' letters A-J there are in dir (604b:2e87: findfirst of
+ * stem with any letter and extension, its 7th character A-J), in order,
+ * into letters; their count. */
+static size_t saved_letters(const char *dir, const char *stem, const char *extension,
+                            char letters[10])
+{
+    bool there[10] = {false};
+    DIR *d = opendir(dir);
+    if (d != NULL) {
+        struct dirent *e;
+        size_t n = strlen(stem);
+        while ((e = readdir(d)) != NULL) {
+            const char *name = e->d_name;
+            if (strlen(name) != n + 2 + strlen(extension) || strncasecmp(name, stem, n) != 0 ||
+                name[n + 1] != '.' || strcasecmp(name + n + 2, extension) != 0)
+                continue;
+            int c = name[n] >= 'a' && name[n] <= 'z' ? name[n] - 0x20 : name[n];
+            if (c >= 'A' && c <= 'J') there[c - 'A'] = true;
+        }
+        closedir(d);
+    }
+    size_t count = 0;
+    for (size_t i = 0; i < 10; ++i)
+        if (there[i]) letters[count++] = (char)('A' + i);
+    return count;
+}
+
+/* 1bdb:1e29 with DS:af15's list (604b:2e87): only the items listed are
+ * buttons; returns the index in all of them, a filtered key, or -1. */
+static int letter_menu(cok_adventure *game, const char *prompt, const char *letters,
+                       size_t count)
+{
+    const char *items[10];
+    char one[10][2];
+    for (size_t i = 0; i < count; ++i) {
+        one[i][0] = letters[i];
+        one[i][1] = '\0';
+        items[i] = one[i];
+    }
+    char line[11];
+    snprintf(line, sizeof line, "%.*s", (int)count, letters);
+    cok_adventure_log(game, "menu", line);
+    int choice;
+    do {
+        choice = bar_menu(game, prompt, items, count, false, false, 0, 0);
+        if (choice < 0) return -1;
+    } while ((size_t)choice >= count && choice != 0x1b);
+    if (choice == 0x1b) return 0x1b;
+    return letters[choice] - 'A';
+}
+
+/* What a load does after the file (604b:2ab4): the frame's colours where
+ * variable 0x3a changed; on the overland (variables 0x22 0, 0x24 1) its
+ * big picture loaded (63ae:0321: variable 0x3e's), else the map again
+ * (8a8b:12e3, variable 0x13's) where a wall set was loaded (DS:ca03 above
+ * 0). The members' combat icons (604b:05d7, 204c:00df) are not loaded. */
+static bool loaded(cok_adventure *game, uint8_t frame_was)
+{
+    cok_ecl *vm = &game->vm;
+    if (cok_ecl_load_var(vm, 0x22) == 0 && cok_ecl_load_var(vm, 0x24) == 1) {
+        queen *q = own(game);
+        unsigned n = cok_ecl_load_var(vm, 0x3e);
+        if (q->big_id != n) {
+            if (!sub_library(game, LIB_BIGPIC, n, &q->big)) return false;
+            q->big_id = q->big_last = n;
+        }
+    } else if (game->wall_ids[0] > 0) {
+        uint8_t map = (uint8_t)cok_ecl_load_var(vm, 0x13);
+        size_t size;
+        uint8_t *data = cok_adventure_record(game, cok_game_rules(game)->archives.geo, vm->file,
+                                             map, &size);
+        if (data == NULL) return false;
+        bool ok = cok_view_set_geo(&game->view, data, size);
+        free(data);
+        if (!ok) {
+            snprintf(game->error, sizeof game->error,
+                     "GEO.GLB record %u: Unable to load geo in Load3DMap", map);
+            return false;
+        }
+        own(game)->wall_loaded[0] = own(game)->wall_loaded[1] = false;
+    }
+    if (cok_ecl_load_var(vm, 0x3a) != frame_was) frame_palette(game);
+    return true;
+}
+
+/* A Death Knights saved game imported (604b:2bcf, Dkk's letter in dir): a
+ * new game's state (64b2:04ec); its party's size, the byte at Death
+ * Knights' 0xa18 (604b:2b8a: none read, 0; at most 8); then
+ * CHRDAT<letter><n>.GAM for n from 1 while there is one, each imported
+ * (604b:0b82: cok_character_import) and joined unless it is an NPC (its
+ * recompute, 177e:0be2, not ported); the first selected. False where the
+ * run stopped. */
+static bool import_game(cok_adventure *game, const char *dir, char letter)
+{
+    cok_ecl *vm = &game->vm;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_rules_import *I = rules->characters.import;
+    const cok_character_layout *L = rules->character;
+    new_game(game);
+    char name[64], path[700];
+    snprintf(name, sizeof name, "%s%c.%s", I->from->saves.game, letter,
+             I->from->saves.game_extension);
+    unsigned count = 0;
+    if (find_file(dir, name, path, sizeof path)) {
+        FILE *f = fopen(path, "rb");
+        if (f != NULL) {
+            if (fseek(f, (long)cok_saved_game_count_offset(I->from), SEEK_SET) == 0) {
+                int c = fgetc(f);
+                if (c != EOF) count = (unsigned)c;
+            }
+            fclose(f);
+        }
+    }
+    if (count > 8) count = 8;
+    for (unsigned n = 1; n <= count; ++n) {
+        char base[16], file[32];
+        snprintf(base, sizeof base, "%s%c%u", I->from->saves.character, letter, n);
+        snprintf(file, sizeof file, "%s.%s", base, I->from->saves.record);
+        char found[700];
+        if (!find_file(dir, file, found, sizeof found)) break;
+        char *slash = strrchr(found, '/');
+        char *dot = strrchr(found, '.');
+        if (slash == NULL || dot == NULL) break;
+        *dot = '\0';
+        cok_character *c = malloc(sizeof *c);
+        if (c == NULL ||
+            !cok_character_import(c, rules, dir, slash + 1, dot + 1, &game->item_types,
+                                  game->error, sizeof game->error)) {
+            free(c);
+            cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
+            return false;
+        }
+        if (cok_field_u8(L, c->record, COK_FIELD_NPC) >= 0x80 ||
+            !cok_party_add(&game->party, rules, c)) {
+            cok_character_free(c);
+            free(c);
+            continue;
+        }
+        cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, 1);
+    }
+    vm->character = cok_party_record(&game->party, 0);
+    bottom_bar(game);
+    vm->mode = 0;
+    return true;
+}
+
+/* A character of the roster: its file's base and name, and the list's
+ * text ("* %s" for a member, DS:7eb1). */
+typedef struct {
+    char base[16], name[20], text[24];
+} queen_roster;
+enum { ROSTER_MOST = 64 };
+
+static int by_name(const void *a, const void *b)
+{
+    return strcmp(((const queen_roster *)a)->name, ((const queen_roster *)b)->name);
+}
+
+/* The roster (604b:054a, 028a): with other (DS:b7ac 4) Death Knights'
+ * characters, the .PC files of --import (DQK.CFG's path), else the save
+ * path's .QCH, each named by its record's name (604b:01af: 16 bytes at
+ * +0x68; Death Knights' a length-prefixed string at +0), by name; their
+ * count, into out. */
+static size_t roster(cok_adventure *game, bool other, queen_roster *out, size_t most)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_rules_import *I = rules->characters.import;
+    const char *extension = other ? I->from->saves.roster : rules->saves.roster;
+    char dir[600];
+    if (other)
+        snprintf(dir, sizeof dir, "%s", game->import_dir);
+    else
+        save_path(game, dir, sizeof dir);
+    size_t count = 0;
+    DIR *d = dir[0] != '\0' ? opendir(dir) : NULL;
+    if (d == NULL) return 0;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL && count < most) {
+        const char *dot = strrchr(e->d_name, '.');
+        if (dot == NULL || dot == e->d_name || dot - e->d_name > 8 ||
+            strcasecmp(dot + 1, extension) != 0)
+            continue;
+        char path[900];
+        snprintf(path, sizeof path, "%s/%s", dir, e->d_name);
+        FILE *f = fopen(path, "rb");
+        if (f == NULL) continue;
+        uint8_t head[0x78] = {0};
+        size_t got = fread(head, 1, sizeof head, f);
+        fclose(f);
+        queen_roster *r = &out[count];
+        memset(r, 0, sizeof *r);
+        snprintf(r->base, sizeof r->base, "%.*s", (int)(dot - e->d_name), e->d_name);
+        if (other) {
+            size_t n = got > 0 ? head[0] : 0;
+            if (n > 15) n = 15;
+            memcpy(r->name, head + 1, n);
+        } else if (got >= 0x78) {
+            memcpy(r->name, head + 0x68, 15);
+        } else {
+            continue;
+        }
+        ++count;
+    }
+    closedir(d);
+    qsort(out, count, sizeof *out, by_name);
+    return count;
+}
+
+/* 7368:088f: whether a member has that name. */
+static bool in_party(cok_adventure *game, const char *name)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    for (size_t i = 0; i < game->party.count; ++i) {
+        char n[17];
+        cok_field_name(L, game->party.members[i]->record, n);
+        if (strcmp(n, name) == 0) return true;
+    }
+    return false;
+}
+
+/* 177e:153c: s in the bar (white on grey, 1a62:0046 at row 24) for the
+ * speed's time (1a62:0960: DS:1cd8's, variable 0x12's), the bar again. */
+static void bar_message(cok_adventure *game, const char *s)
+{
+    static const unsigned ms[] = {10, 100, 250, 500, 1000, 1500, 2000, 3000, 4000, 5000};
+    bottom_bar(game);
+    cok_adventure_log(game, "message", s);
+    prompt_box(game, -1, s, 0x0f, 8);
+    unsigned speed = cok_ecl_load_var(&game->vm, 0x12);
+    pass(game, ms[speed < 10 ? speed : 9]);
+    bottom_bar(game);
+}
+
+/* Add Character (7368:08dc): "add from where? " Tdqk, Dkk or Exit; the
+ * roster (none: "No characters to load.", DS:5f76); then "add a
+ * character: " over its list ("Add Exit", DS:501a), each member's "* "
+ * first: Add (or Return) reads the current one but a member (604b:2198:
+ * its .QCH, or Death Knights' imported, 604b:0b82; the recompute
+ * 177e:0be2 not ported) and joins it (604b:3491) where fewer than six
+ * others (eight with an NPC) are in and, a ranger (+0xa9), fewer than
+ * three rangers ("too many rangers in party", DS:7eb6); until Exit (or
+ * Escape) or six. The game is then not saved. False where the run
+ * stopped. */
+static bool add_character(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    full_window(game); /* 1a62:09a1's window */
+    static const char *const where[] = {"Tdqk", "Dkk", "Exit"}; /* DS:500c */
+    cok_adventure_log(game, "menu", "Tdqk Dkk Exit");
+    int from = bar_menu(game, "add from where? ", where, 3, false, false, 0, 0);
+    if (from < 0) return false;
+    if (from == 0x1b) from = 2;
+    log_choice(game, from);
+    if (from == 2) return true;
+    bool other = from == 1;
+    static queen_roster list[ROSTER_MOST];
+    size_t count = roster(game, other, list, ROSTER_MOST);
+    if (count == 0) {
+        bar_message(game, "No characters to load.");
+        return true;
+    }
+    static const char *const bar[] = {"Add", "Exit"}; /* DS:501a */
+    size_t at = 0;
+    for (;;) {
+        const char *items[ROSTER_MOST];
+        for (size_t i = 0; i < count; ++i) {
+            if (in_party(game, list[i].name))
+                snprintf(list[i].text, sizeof list[i].text, "* %s", list[i].name);
+            else
+                snprintf(list[i].text, sizeof list[i].text, "%s", list[i].name);
+            items[i] = list[i].text;
+        }
+        cok_adventure_log(game, "list", "add a character:");
+        int choice = list_menu(game, "add a character: ", bar, 2, items, count, &at, 2, 0x16,
+                               0x26);
+        if (choice < 0) return false;
+        if (choice == 0x1b) choice = 1;
+        log_choice(game, choice);
+        if (choice == 0 && list[at].text[0] != '*') {
+            char dir[600];
+            if (other)
+                snprintf(dir, sizeof dir, "%s", game->import_dir);
+            else
+                save_path(game, dir, sizeof dir);
+            cok_character *c = malloc(sizeof *c);
+            const char *extension =
+                other ? rules->characters.import->from->saves.roster : rules->saves.roster;
+            char found[700], file[32];
+            snprintf(file, sizeof file, "%s.%s", list[at].base, extension);
+            bool ok = c != NULL && find_file(dir, file, found, sizeof found);
+            if (ok) {
+                char *slash = strrchr(found, '/'), *dot = strrchr(found, '.');
+                *dot = '\0';
+                ok = other ? cok_character_import(c, rules, dir, slash + 1, dot + 1,
+                                                  &game->item_types, game->error,
+                                                  sizeof game->error)
+                           : cok_character_read_file(c, rules, dir, slash + 1, dot + 1,
+                                                     &game->item_types, game->error,
+                                                     sizeof game->error);
+            }
+            if (!ok) {
+                free(c);
+                cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
+                return false;
+            }
+            if (c->contents_dropped) cok_adventure_log(game, "print", "SCROLLS DROPPED!");
+            size_t others = 0, rangers = 0;
+            for (size_t i = 0; i < game->party.count; ++i) {
+                const uint8_t *m = game->party.members[i]->record;
+                if (cok_field_u8(L, m, COK_FIELD_NPC) < 0x80) ++others;
+                if (m[0xa9] != 0) ++rangers;
+            }
+            bool npc = cok_field_u8(L, c->record, COK_FIELD_NPC) >= 0x80;
+            bool ranger = c->record[0xa9] != 0;
+            if (((!npc && others < 6) || (npc && cok_ecl_load_var(vm, 0x20) < 8)) &&
+                (!ranger || rangers < 3) && cok_party_add(&game->party, rules, c)) {
+                cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, 1);
+                vm->character = c->record; /* 604b:3491: DS:ad67 */
+            } else {
+                if (ranger && rangers > 2) bar_message(game, "too many rangers in party");
+                cok_character_free(c);
+                free(c);
+            }
+        }
+        size_t others = 0;
+        for (size_t i = 0; i < game->party.count; ++i)
+            if (cok_field_u8(L, game->party.members[i]->record, COK_FIELD_NPC) < 0x80) ++others;
+        if (choice == 1 || others >= 6 || cok_ecl_load_var(vm, 0x20) >= 8) return true;
+    }
+}
+
+/* Delete Character (7368:0c23): the save path's roster (none: "No
+ * characters to delete.", DS:5f5d), "delete a character: " over its list
+ * ("Delete Exit", DS:5023), members marked; Delete (or Return) asks
+ * "Delete <name> forever? " (DS:7ed0) and "Are you sure? " (7ee4), then
+ * erases its file (217e:01e3) from the save path and the list; until Exit
+ * (or Escape) or none left. False where the run stopped. */
+static bool delete_character(cok_adventure *game)
+{
+    full_window(game);
+    static queen_roster list[ROSTER_MOST];
+    size_t count = roster(game, false, list, ROSTER_MOST);
+    if (count == 0) {
+        bar_message(game, "No characters to delete.");
+        return true;
+    }
+    static const char *const bar[] = {"Delete", "Exit"}; /* DS:5023 */
+    size_t at = 0;
+    for (;;) {
+        const char *items[ROSTER_MOST];
+        for (size_t i = 0; i < count; ++i) {
+            if (in_party(game, list[i].name))
+                snprintf(list[i].text, sizeof list[i].text, "* %s", list[i].name);
+            else
+                snprintf(list[i].text, sizeof list[i].text, "%s", list[i].name);
+            items[i] = list[i].text;
+        }
+        cok_adventure_log(game, "list", "delete a character:");
+        int choice = list_menu(game, "delete a character: ", bar, 2, items, count, &at, 2,
+                               0x16, 0x26);
+        if (choice < 0) return false;
+        if (choice == 0x1b) choice = 1;
+        log_choice(game, choice);
+        if (choice == 0) {
+            char line[64];
+            snprintf(line, sizeof line, "Delete %s forever? ", list[at].name);
+            int yes = yes_no(game, line, false);
+            if (yes < 0) return false;
+            if (yes) yes = yes_no(game, "Are you sure? ", false);
+            if (yes < 0) return false;
+            if (yes) {
+                if (!writable(game, "Delete: no save path (--saves)")) return true;
+                char dir[600], file[32], found[700];
+                save_path(game, dir, sizeof dir);
+                snprintf(file, sizeof file, "%s.%s", list[at].base,
+                         cok_game_rules(game)->saves.roster);
+                if (find_file(dir, file, found, sizeof found)) remove(found);
+                cok_adventure_log(game, "delete", file);
+                memmove(&list[at], &list[at + 1], (count - at - 1) * sizeof *list);
+                --count;
+                if (at >= count && at > 0) --at;
+            }
+        }
+        if (choice == 1 || count == 0) return true;
+    }
+}
+
+/* Load Saved Game (604b:2e87): "load from where? " Tdqk, Dkk or Exit
+ * (Escape too); the saved games there listed by their letters, "load
+ * which game: " with those alone (none: back); then "Loading...Please
+ * Wait" in the bar (1a62:0046), DS:b1ed set, and the game read
+ * (604b:2ab4, 28f8: cok_adventure_restore; Dkk's from --import, Death
+ * Knights' save path DQK.CFG names: import_game), the bar drawn again and
+ * the mode 0 (DS:ae57). False where the run stopped. */
+static bool load_game(cok_adventure *game)
+{
+    queen *q = own(game);
+    cok_ecl *vm = &game->vm;
+    full_window(game); /* 20b2:0030 */
+    static const char *const where[] = {"Tdqk", "Dkk", "Exit"}; /* DS:500c */
+    cok_adventure_log(game, "menu", "Tdqk Dkk Exit");
+    int choice;
+    do {
+        choice = bar_menu(game, "load from where? ", where, 3, false, false, 0, 0);
+        if (choice < 0) return false;
+    } while (choice > 2 && choice != 0x1b);
+    log_choice(game, choice);
+    if (choice == 2 || choice == 0x1b) return true;
+    const cok_rules_import *I = cok_game_rules(game)->characters.import;
+    bool other = choice == 1; /* DS:b7ac 4 */
+    const cok_rules_saves *S = other ? &I->from->saves : &cok_game_rules(game)->saves;
+    char dir[600];
+    if (other)
+        snprintf(dir, sizeof dir, "%s", game->import_dir); /* DQK.CFG's, DS:ace2 */
+    else
+        save_path(game, dir, sizeof dir);
+    char letters[10];
+    size_t count = saved_letters(dir, S->game, S->game_extension, letters);
+    if (count == 0) return true;
+    int letter = letter_menu(game, "load which game: ", letters, count);
+    if (letter < 0) return false;
+    if (letter == 0x1b) return true;
+    log_choice(game, letter);
+    bottom_bar(game);
+    text(game, 8 * 0x18, 8, "Loading...Please Wait", 0x87); /* DS:601f */
+    q->loaded_game = true; /* DS:b1ed */
+    if (other) return import_game(game, dir, (char)('A' + letter));
+    char name[64], path[700];
+    snprintf(name, sizeof name, "%s%c.%s", S->game, 'A' + letter, S->game_extension);
+    uint8_t frame_was = (uint8_t)cok_ecl_load_var(vm, 0x3a);
+    if (!find_file(dir, name, path, sizeof path) || !cok_adventure_restore(game, path) ||
+        !loaded(game, frame_was)) {
+        if (!find_file(dir, name, path, sizeof path))
+            snprintf(game->error, sizeof game->error, "%.300s/%.60s: not found", dir, name);
+        cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
+        return false;
+    }
+    bottom_bar(game);
+    vm->mode = 0;
+    return true;
+}
+
+/* Save Current Game (604b:3395): "save which game: " A-J (the mode 2's,
+ * camping's, small picture animating), Escape back; the save disk asked
+ * for (604b:0073: the port's save path), "Saving...Please Wait" in the
+ * bar, SAVGAM<letter>.QSV written (31a7: cok_saved_game_write, the item
+ * table its fill); where its letter is not the vault's (DS:c3ea), the
+ * vault's file copied to the new letter's (35bc reads the old, 'Z' none:
+ * empty; 3600 writes it), the letter the vault's; the game saved
+ * (DS:ae5b); the bar again. False where the run stopped. */
+static bool save_game(cok_adventure *game)
+{
+    queen *q = own(game);
+    cok_ecl *vm = &game->vm;
+    const cok_rules *rules = cok_game_rules(game);
+    static const char letters[] = "ABCDEFGHIJ";
+    int letter;
+    do {
+        letter = letter_menu(game, "save which game: ", letters, 10);
+        if (letter < 0) return false;
+    } while (letter == 0x1b && false);
+    if (letter == 0x1b) return true;
+    log_choice(game, letter);
+    if (!writable(game, "Save: no save path (--saves)")) return true;
+    bottom_bar(game);
+    text(game, 8 * 0x18, 8, "Saving...Please Wait", 0x87); /* DS:604d */
+    static cok_saved_game saved;
+    memset(&saved, 0, sizeof saved);
+    for (size_t i = 0; i < 0x400; ++i) saved.mem4b00[i] = vm->mem4b00[i];
+    saved.map_x = vm->map_x;
+    saved.map_y = vm->map_y;
+    saved.direction = vm->direction;
+    saved.ahead = vm->ahead;
+    saved.square = vm->square;
+    saved.last_mode = vm->last_mode;
+    saved.mode = vm->mode;
+    saved.wall_ids[0] = game->wall_ids[0];
+    saved.extra = game->saved_extra;
+    saved.count = (uint8_t)game->party.count;
+    for (size_t i = 0; i < game->party.count; ++i) saved.characters[i] = game->party.members[i];
+    saved.fill = &game->item_table[0][0];
+    saved.fill_size = sizeof game->item_table;
+    char path[700], from[700];
+    save_path(game, path, sizeof path);
+    size_t n = strlen(path);
+    snprintf(path + n, sizeof path - n, "/%s%c.%s", rules->saves.game, letters[letter],
+             rules->saves.game_extension);
+    bool ok = cok_saved_game_write(path, rules, &saved, game->error, sizeof game->error);
+    if (ok && game->vault_letter != letters[letter]) {
+        cok_vault vault = {0};
+        bool missing = false;
+        char name[32];
+        if (game->vault_letter != 'Z') {
+            save_path(game, from, sizeof from);
+            snprintf(name, sizeof name, "%s%c.%s", rules->saves.vault, game->vault_letter,
+                     rules->saves.vault_extension);
+            char found[700];
+            if (find_file(from, name, found, sizeof found) &&
+                !cok_vault_read_game(found, rules, &vault, &missing, game->error,
+                                     sizeof game->error))
+                ok = false;
+        }
+        game->vault_letter = letters[letter];
+        save_path(game, from, sizeof from);
+        n = strlen(from);
+        snprintf(from + n, sizeof from - n, "/%s%c.%s", rules->saves.vault, letters[letter],
+                 rules->saves.vault_extension);
+        if (ok && !cok_vault_write_game(from, rules, &vault, &game->item_table[0][0],
+                                        sizeof game->item_table, game->error,
+                                        sizeof game->error))
+            ok = false;
+        cok_vault_free(&vault);
+    }
+    if (!ok) {
+        cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
+        return false;
+    }
+    cok_adventure_log(game, "save", path);
+    q->saved = true;
+    bottom_bar(game);
+    return true;
+}
+
+/* The selected member removed (177e:1e31 with 0, 1): the selection the
+ * one before it, or after it where it was the first, or the first; the
+ * party's size (variable 0x20) one less. */
+static void remove_selected(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    size_t i = cok_party_index(&game->party, vm->character);
+    if (i >= game->party.count) return;
+    cok_party_remove(&game->party, i);
+    vm->character = cok_party_record(&game->party, i > 0 ? i - 1 : 0);
+    cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, -1);
+}
+
+/* 604b:23a7 with no name: the character written to the save path as
+ * <file name>.QCH (5e98:0044); where that file is there, "Update
+ * <name>? " (DS:5fe3) Yes writes it, No asks "New file name: " (1a62:05c9,
+ * DS:5fee) until a name gives one (Escape there: nothing written) and
+ * asks again of it. False where the run stopped. */
+static bool write_character(cok_adventure *game, const cok_character *character)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    char name[17], base[9], dir[600], file[64], found[700];
+    cok_field_name(rules->character, character->record, name);
+    file_name(name, base);
+    save_path(game, dir, sizeof dir);
+    for (;;) {
+        snprintf(file, sizeof file, "%s.%s", base, rules->saves.roster);
+        if (!find_file(dir, file, found, sizeof found)) break;
+        full_window(game); /* 20b2:0030 */
+        char line[64];
+        snprintf(line, sizeof line, "Update %s?", name);
+        int yes = yes_no(game, line, false);
+        if (yes < 0) return false;
+        if (yes) break;
+        bottom_bar(game);
+        for (;;) {
+            prompt_box(game, 0, "New file name:", 0, 7);
+            char typed[40];
+            int done = edit_line(game, typed, 35);
+            if (done < 0) return false;
+            if (done == 0) return true;
+            file_name(typed, base);
+            if (base[0] != '\0') break;
+        }
+    }
+    if (!writable(game, "Remove: no save path (--saves)")) return true;
+    if (!cok_character_write_file(character, rules, dir, base, rules->saves.roster,
+                                  game->error, sizeof game->error)) {
+        cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
+        return false;
+    }
+    cok_adventure_log(game, "save", file);
+    return true;
+}
+
+/* Remove Character (7368:066f): a member (+0x9b below 0x80) written
+ * (604b:23a7) then removed (177e:1e31); an NPC (7368:0ee9: "Drop %s
+ * forever? ", "Are you sure? ") not ported yet. False where the run
+ * stopped. */
+static bool remove_character(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    size_t i = cok_party_index(&game->party, vm->character);
+    if (i >= game->party.count) return true;
+    if (cok_field_u8(cok_game_rules(game)->character, vm->character, COK_FIELD_NPC) >= 0x80) {
+        cok_adventure_not_yet(game, "Remove Character of an NPC", "dqk 7368:0ee9");
+        return false;
+    }
+    if (!write_character(game, game->party.members[i])) return false;
+    remove_selected(game);
+    return true;
+}
+
 /* The camp's buttons (7368:01a7) in the order made, which is the index
- * returned: their words (DS:7dce-7e84), hotkeys, row and column; and
- * whether each is on without a party (DS:3c3e-3c49). */
+ * returned: their words (DS:7dce-7e84), hotkeys, row and column. */
 static const struct {
     const char *text;
     char key;
     int row, col;
-    bool alone;
 } camp_items[] = {
-    {"Create Character", 'C', 118, 168, true},   {"Delete Character", 'D', 132, 168, true},
-    {"Modify Character", 'M', 146, 8, false},    {"Train Character", 'T', 160, 8, false},
-    {"Knight new Order", 'K', 174, 8, false},    {"View Character", 'V', 188, 8, false},
-    {"Add Character", 'A', 118, 8, true},        {"Remove Character", 'R', 132, 8, false},
-    {"Load Saved Game", 'L', 146, 168, true},    {"Save Current Game", 'S', 160, 168, false},
-    {"Begin Adventuring", 'B', 174, 168, false}, {"Exit From Game", 'E', 188, 168, true},
+    {"Create Character", 'C', 118, 168},  {"Delete Character", 'D', 132, 168},
+    {"Modify Character", 'M', 146, 8},    {"Train Character", 'T', 160, 8},
+    {"Knight new Order", 'K', 174, 8},    {"View Character", 'V', 188, 8},
+    {"Add Character", 'A', 118, 8},       {"Remove Character", 'R', 132, 8},
+    {"Load Saved Game", 'L', 146, 168},   {"Save Current Game", 'S', 160, 168},
+    {"Begin Adventuring", 'B', 174, 168}, {"Exit From Game", 'E', 188, 168},
 };
-enum { CAMP_ITEMS = sizeof camp_items / sizeof *camp_items, CAMP_WIDTH = 18 };
+enum {
+    CAMP_ITEMS = sizeof camp_items / sizeof *camp_items, CAMP_WIDTH = 18,
+    CAMP_CREATE = 0, CAMP_DELETE, CAMP_MODIFY, CAMP_TRAIN, CAMP_KNIGHT, CAMP_VIEW, CAMP_ADD,
+    CAMP_REMOVE, CAMP_LOAD, CAMP_SAVE, CAMP_BEGIN, CAMP_EXIT,
+    CAMP_SELECTED = 0x10, /* Up or Down changed the selected member */
+};
 
-/* The camp's menu from main (7368:046f with 1), with no party: its
- * screen, its twelve buttons of 18 characters, those a party needs
- * disabled (sunken, no hotkey), read by their letters or a click. Exit
- * From Game asks "Exit to DOS? " (DS:3cd2) and quits (2093:002d); Load
- * Saved Game asks "load from where? " (604b:2e87), Exit going back; the
- * rest, and loading, are not ported yet: the run stops. Returns the run's
- * status. */
-static cok_ecl_status camp(cok_adventure *game)
+/* Which of the camp's buttons are on (DS:3c3e-3c49, 7368:046f): with a
+ * member selected all but Train and Knight new Order where variable 0x30
+ * is 0 and DS:bd92 too, and Add where six non-NPCs are in; without, Create,
+ * Delete, Add, Load and Exit. */
+static void camp_flags(cok_adventure *game, bool on[CAMP_ITEMS])
 {
     cok_ecl *vm = &game->vm;
-    enter_state(game, STATE_CAMP);
+    for (size_t i = 0; i < CAMP_ITEMS; ++i) on[i] = true;
+    if (vm->character != NULL) {
+        on[CAMP_TRAIN] = on[CAMP_KNIGHT] =
+            cok_ecl_load_var(vm, 0x30) > 0 || own(game)->train_anywhere;
+        size_t members = 0;
+        for (size_t i = 0; i < game->party.count; ++i)
+            if (cok_field_u8(cok_game_rules(game)->character, game->party.members[i]->record,
+                             COK_FIELD_NPC) < 0x80)
+                ++members;
+        if (members > 5) on[CAMP_ADD] = false;
+    } else {
+        on[CAMP_MODIFY] = on[CAMP_TRAIN] = on[CAMP_KNIGHT] = on[CAMP_VIEW] = false;
+        on[CAMP_REMOVE] = on[CAMP_SAVE] = on[CAMP_BEGIN] = false;
+    }
+}
+
+/* 7368:01a7: the buttons, those off sunken with no hotkey (2aa6:188f's
+ * 0x10), read by their letters or a click; Up and Down (the list's keys)
+ * select the member before or after, wrapping, and give CAMP_SELECTED;
+ * Alt-S and Alt-T wait on; the rest beep. -1 if the keys ran out. */
+static int camp_menu(cok_adventure *game, const bool on[CAMP_ITEMS])
+{
+    cok_ecl *vm = &game->vm;
+    controls_clear(game);
+    rect rects[CAMP_ITEMS];
+    char line[512] = "";
+    for (size_t i = 0; i < CAMP_ITEMS; ++i) {
+        button(game, camp_items[i].row, camp_items[i].col, camp_items[i].text, CAMP_WIDTH,
+               on[i] ? 0 : BUTTON_DISABLED);
+        rects[i] = button_rect(camp_items[i].row, camp_items[i].col, CAMP_WIDTH);
+        control_add(game, rects[i]);
+        if (on[i]) {
+            size_t n = strlen(line);
+            snprintf(line + n, sizeof line - n, "%s%s", n > 0 ? " " : "", camp_items[i].text);
+        }
+    }
+    cok_adventure_log(game, "menu", line);
     for (;;) {
-        if (!camp_screen(game)) {
+        input in;
+        int key = read_input(game, &in);
+        if (key < 0 && key != COK_KEY_TIMEOUT) {
+            controls_clear(game);
+            return -1;
+        }
+        for (size_t i = 0; i < CAMP_ITEMS; ++i) {
+            if (!on[i]) continue;
+            if (in.click ? inside(&rects[i], in.x, in.y) : hotkey(camp_items[i].key, in.key)) {
+                controls_clear(game);
+                button(game, camp_items[i].row, camp_items[i].col, camp_items[i].text,
+                       CAMP_WIDTH, BUTTON_PRESSED);
+                log_choice(game, (int)i);
+                return (int)i;
+            }
+        }
+        if (!in.click && (in.key == KEY_UP || in.key == KEY_DOWN) && game->party.count > 0) {
+            size_t i = cok_party_index(&game->party, vm->character), n = game->party.count;
+            i = in.key == KEY_DOWN ? (i + 1 < n ? i + 1 : 0) : (i > 0 && i < n ? i - 1 : n - 1);
+            vm->character = cok_party_record(&game->party, i);
+            controls_clear(game);
+            return CAMP_SELECTED;
+        }
+        if (in.key != KEY_ALT + 'S' && in.key != KEY_ALT + 'T') beep(game);
+    }
+}
+
+/* The camp's menu (7368:046f; with from_main, main's, with none, the
+ * adventure's Encamp, not ported): the mode 0, the last mode the one it
+ * was (DS:ae57, ae67); its screen (20b2:03ce; not again after a key that
+ * is no button's), the party's list where a member is selected
+ * (5e22:023b), its buttons (camp_flags). Then the full window (20b2:0030)
+ * but for Remove, and: Create, Modify, Train, Knight new Order, Add and
+ * Delete not ported yet (the run stops); View (86b8:0b0c) not ported yet;
+ * Remove; Load (a party not saved first asks "Game not saved. Load
+ * anyway? ", DS:7e93), the party emptied, the game loaded, or a new
+ * game's where none loads (64b2:04ec); Save; Begin Adventuring (with a
+ * party) returns, the mode the last (4 for none), the adventure's screen
+ * drawn as the mode has it, variable 0x30 0, the game not saved; Exit
+ * From Game asks "Exit to DOS? " and, a party not saved, "Game not saved.
+ * Exit anyway? " (No saving it: 604b:3395), then quits (2093:002d).
+ * Returns the run's status, COK_ECL_OK with *begin set for Begin. */
+static cok_ecl_status camp(cok_adventure *game, bool *begin)
+{
+    queen *q = own(game);
+    cok_ecl *vm = &game->vm;
+    *begin = false;
+    vm->last_mode = vm->mode;
+    vm->mode = 0;
+    enter_state(game, STATE_CAMP);
+    int si = 1;
+    for (;;) {
+        if (si <= CAMP_EXIT && !camp_screen(game)) {
             cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
             return vm->status;
         }
-        controls_clear(game);
-        rect rects[CAMP_ITEMS];
-        char line[512] = "";
-        for (size_t i = 0; i < CAMP_ITEMS; ++i) {
-            bool on = camp_items[i].alone;
-            button(game, camp_items[i].row, camp_items[i].col, camp_items[i].text, CAMP_WIDTH,
-                   on ? 0 : BUTTON_DISABLED);
-            rects[i] = button_rect(camp_items[i].row, camp_items[i].col, CAMP_WIDTH);
-            control_add(game, rects[i]);
-            if (on) {
-                size_t n = strlen(line);
-                snprintf(line + n, sizeof line - n, "%s%s", n > 0 ? " " : "",
-                         camp_items[i].text);
+        if (vm->character != NULL) party_list(game);
+        bool on[CAMP_ITEMS];
+        camp_flags(game, on);
+        si = camp_menu(game, on);
+        if (si < 0) return vm->status;
+        if (si != CAMP_REMOVE && si <= CAMP_EXIT) full_window(game);
+        if (si == CAMP_DELETE) party_list(game);
+        switch (si) {
+        case CAMP_CREATE:
+            cok_adventure_not_yet(game, "Create Character", "dqk 66e5:2f95");
+            return vm->status;
+        case CAMP_DELETE:
+            if (!delete_character(game)) return vm->status;
+            break;
+        case CAMP_MODIFY:
+            cok_adventure_not_yet(game, "Modify Character", "dqk 5a87:1293");
+            return vm->status;
+        case CAMP_TRAIN:
+            cok_adventure_not_yet(game, "Train Character", "dqk 5be8:0022");
+            return vm->status;
+        case CAMP_KNIGHT:
+            cok_adventure_not_yet(game, "Knight new Order", "dqk 7368:10c2");
+            return vm->status;
+        case CAMP_VIEW:
+            if (!view_character(game)) return vm->status;
+            break;
+        case CAMP_ADD:
+            if (!add_character(game)) return vm->status;
+            q->saved = false;
+            break;
+        case CAMP_REMOVE:
+            if (!remove_character(game)) return vm->status;
+            if (game->party.count == 0) {
+                new_game(game); /* 2d99:1161: 64b2:04ec */
+                vm->mode = 0;
             }
-        }
-        cok_adventure_log(game, "menu", line);
-        int picked = -1;
-        while (picked < 0) {
-            input in;
-            int key = read_input(game, &in);
-            if (key < 0 && key != COK_KEY_TIMEOUT) {
-                controls_clear(game);
-                return vm->status;
+            q->saved = false; /* 7368:061b */
+            break;
+        case CAMP_LOAD:
+            if (game->party.count > 0 && !q->saved) {
+                int yes = yes_no(game, "Game not saved. Load anyway? ", true);
+                if (yes < 0) return vm->status;
+                if (!yes) break;
             }
-            for (size_t i = 0; i < CAMP_ITEMS && picked < 0; ++i) {
-                if (!camp_items[i].alone) continue;
-                if (in.click ? inside(&rects[i], in.x, in.y) : hotkey(camp_items[i].key, in.key))
-                    picked = (int)i;
-            }
-            /* 7368:000d takes Alt-S and Alt-T; the rest beep. */
-            if (picked < 0 && in.key != KEY_ALT + 'S' && in.key != KEY_ALT + 'T') beep(game);
-        }
-        controls_clear(game);
-        button(game, camp_items[picked].row, camp_items[picked].col, camp_items[picked].text,
-               CAMP_WIDTH, BUTTON_PRESSED);
-        log_choice(game, picked);
-        full_window(game); /* 7368:05a4: but for Remove */
-        switch (picked) {
-        case 11: { /* 7368:081a */
-            int yes = yes_no(game, "Exit to DOS? ", false);
-            if (yes < 0) return vm->status;
-            if (yes) {
-                cok_adventure_quit(game);
-                return COK_ECL_OK;
+            cok_party_free(&game->party); /* 177e:1e31 each */
+            vm->character = NULL;
+            cok_ecl_store(vm, 0x20, 0);
+            if (!load_game(game)) return vm->status;
+            if (game->party.count == 0) {
+                new_game(game);
+                vm->last_mode = vm->mode;
+                vm->mode = 0;
             }
             break;
-        }
-        case 8: { /* 7368:06e4, 604b:2e87 */
-            static const char *const where[] = {"Tdqk", "Dkk", "Exit"}; /* DS:500c */
-            cok_adventure_log(game, "menu", "Tdqk Dkk Exit");
-            int choice;
-            do {
-                choice = bar_menu(game, "load from where? ", where, 3, false, false, 0, 0);
-                if (choice < 0) return vm->status;
-            } while (choice > 2 && choice != 0x1b);
-            log_choice(game, choice);
-            if (choice == 0 || choice == 1) {
-                cok_adventure_not_yet(game, "saved games", "dqk 604b:2e87");
-                return vm->status;
+        case CAMP_SAVE:
+            if (game->party.count > 0 && !save_game(game)) return vm->status;
+            break;
+        case CAMP_BEGIN:
+            vm->mode = vm->last_mode != 0 ? vm->last_mode : 4;
+            /* 7368:07af-0804: a game not loaded (DS:b1ed) and small
+             * picture 9 not shown (DS:ae42): the overland's frame in mode
+             * 3 on the overland, else the adventure's screen, the party's
+             * list after either; a game loaded: by the mode, 0 and 4 the
+             * adventure's screen and the list, 3 the overland's frame, the
+             * others nothing. */
+            if (!q->loaded_game && q->picture_id != 9) {
+                if (vm->mode == 3 && cok_ecl_load_var(vm, 0x24) == 1)
+                    overland_screen(game);
+                else
+                    adventure_screen(game);
+                party_list(game);
+            } else if (vm->mode == 0 || vm->mode == 4) {
+                adventure_screen(game);
+                party_list(game);
+            } else if (vm->mode == 3) {
+                overland_screen(game);
             }
             bottom_bar(game);
-            break;
+            cok_ecl_store(vm, 0x30, 0);
+            q->saved = false;
+            *begin = true;
+            return COK_ECL_OK;
+        case CAMP_EXIT: {
+            int yes = yes_no(game, "Exit to DOS? ", false);
+            if (yes < 0) return vm->status;
+            if (!yes) break;
+            if (game->party.count > 0 && !q->saved) {
+                yes = yes_no(game, "Game not saved. Exit anyway? ", false);
+                if (yes < 0) return vm->status;
+                if (!yes) {
+                    if (!save_game(game)) return vm->status;
+                    break;
+                }
+            }
+            cok_adventure_quit(game);
+            return COK_ECL_OK;
         }
-        case 0: cok_adventure_not_yet(game, "Create Character", "dqk 66e5:2f95"); return vm->status;
-        case 1: cok_adventure_not_yet(game, "Delete Character", "dqk 7368:0c23"); return vm->status;
-        default: cok_adventure_not_yet(game, "Add Character", "dqk 7368:08dc"); return vm->status;
+        default: break;
         }
     }
+}
+
+/* The game's clock (1396:044d): count of unit (the variables 5-11: a
+ * tenth of a minute?, the minutes, their tens, the hours, days, months,
+ * years) passed, each one then carried (1396:0368: DS:634b's 10, 10, 6,
+ * 24, 30, 12 and 100 of each; a hundred years ageing the party a year,
+ * 0x52, the years less 100; a day turning the moons, 1396:00f8); then the
+ * party's effects' minutes (1396:019f) by that many minutes, ten at a
+ * time: an effect's minutes, where it has some, less them, or, where
+ * that runs them out, the effect ended (148f:017d, not ported yet: the
+ * run stops). False where it stopped. */
+static bool moon(cok_adventure *game, uint16_t at, uint8_t days, unsigned base);
+
+static bool pass_time(cok_adventure *game, unsigned count, unsigned unit)
+{
+    static const uint16_t limits[7] = {10, 10, 6, 24, 30, 12, 100}; /* DS:634b */
+    cok_ecl *vm = &game->vm;
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    unsigned units[7];
+    for (unsigned i = 0; i < 7; ++i) units[i] = cok_ecl_load_var(vm, (uint16_t)(5 + i));
+    for (unsigned n = 0; n < count; ++n) {
+        ++units[unit];
+        for (unsigned k = 0; k < 7; ++k) {
+            if (units[k] < limits[k]) continue;
+            if (k == 6) {
+                for (size_t i = 0; i < game->party.count; ++i) {
+                    uint8_t *c = game->party.members[i]->record;
+                    cok_field_set16(L, c, COK_FIELD_AGE,
+                                    (uint16_t)(cok_field_u16(L, c, COK_FIELD_AGE) + 1));
+                }
+                units[6] -= limits[6];
+                continue;
+            }
+            ++units[k + 1];
+            units[k] -= limits[k];
+            if (k == 3) {
+                /* 1396:00f8: Solinari, Lunitari and Nuitari, a phase
+                 * every 8, 1 and 6 days. */
+                moon(game, 0x1fc, 8, 0x1d);
+                moon(game, 0x1fd, 1, 0x21);
+                moon(game, 0x1fe, 6, 0x25);
+            }
+        }
+    }
+    for (unsigned i = 0; i < 7; ++i) cok_ecl_store(vm, (uint16_t)(5 + i), (uint16_t)(uint8_t)units[i]);
+    unsigned minutes = count;
+    for (unsigned k = 1; k < unit; ++k) minutes *= limits[k];
+    while (minutes > 0) {
+        unsigned step = minutes < 11 ? minutes : 10;
+        for (size_t i = 0; i < game->party.count; ++i)
+            for (cok_effect *e = game->party.members[i]->effects; e != NULL; e = e->next) {
+                if (e->duration == 0) continue;
+                if (step < e->duration) {
+                    e->duration = (uint16_t)(e->duration - step);
+                    continue;
+                }
+                cok_adventure_not_yet(game, "an effect's end", "dqk 148f:017d");
+                return false;
+            }
+        minutes -= step;
+    }
+    return true;
+}
+
+/* A moon (1396:000e): its days (variable at + 1) up to its own, then its
+ * phase (at - 2: 0-3) the next, its lamp (FRAME base + phase) drawn but on
+ * the overland, the days 0; else a day more. */
+static bool moon(cok_adventure *game, uint16_t at, uint8_t days, unsigned base)
+{
+    cok_ecl *vm = &game->vm;
+    uint16_t day = cok_ecl_load_var(vm, (uint16_t)(at + 1));
+    if (day < days) {
+        cok_ecl_store(vm, (uint16_t)(at + 1), (uint16_t)(day + 1));
+        return false;
+    }
+    uint16_t phase = cok_ecl_load_var(vm, (uint16_t)(at - 2));
+    cok_ecl_store(vm, (uint16_t)(at - 2), (uint16_t)(phase >= 3 ? 0 : phase + 1));
+    if (vm->mode != 3)
+        draw_frame_record(game, base + cok_ecl_load_var(vm, (uint16_t)(at - 2)), 0, 0, NULL);
+    cok_ecl_store(vm, (uint16_t)(at + 1), 0);
+    return true;
+}
+
+/* The 3D view drawn again in its box (8a8b:085a) after a turn, the wall
+ * ahead (8a8b:0628) first. */
+static void turn(cok_adventure *game, unsigned by)
+{
+    cok_ecl *vm = &game->vm;
+    vm->direction = (uint8_t)((vm->direction + by) % 8);
+    vm->ahead = cok_view_wall(&game->view, vm->direction, vm->map_x, vm->map_y);
+    char line[24];
+    snprintf(line, sizeof line, "%d,%d facing %u", vm->map_x, vm->map_y, vm->direction);
+    cok_adventure_log(game, "turn", line);
+    draw_view(game);
+}
+
+/* Up (6fea:000a): the edge variable 0x21 cleared; where the way ahead is
+ * open (8a8b:04a4), a step off the map's width or height puts the party
+ * at its edge and sets 0x21. */
+static void check_step(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    const cok_view *v = &game->view;
+    cok_ecl_store(vm, 0x21, 0);
+    if (cok_view_passage(v, vm->direction, vm->map_x, vm->map_y) == 0) return;
+    int x = vm->map_x + step_x[vm->direction & 7], y = vm->map_y + step_y[vm->direction & 7];
+    int w = v->geo_header[1], h = v->geo_header[0];
+    if (x > w - 1) {
+        vm->map_x = (int8_t)(w - 1);
+        cok_ecl_store(vm, 0x21, 1);
+    }
+    if (x < 0) {
+        vm->map_x = 0;
+        cok_ecl_store(vm, 0x21, 1);
+    }
+    if (y > h - 1) {
+        vm->map_y = (int8_t)(h - 1);
+        cok_ecl_store(vm, 0x21, 1);
+    }
+    if (y < 0) {
+        vm->map_y = 0;
+        cok_ecl_store(vm, 0x21, 1);
+    }
+}
+
+static bool travel(cok_adventure *game);
+static bool step_ahead(cok_adventure *game);
+
+/* The step (6fea:0753): on the overland (mode 3) with variable 3 below
+ * 0xff its travel, with 0xff nothing; elsewhere but in 3D (mode 4) with
+ * variable 3 below 0xff variable 3 0; then the small picture freed
+ * (63ae:02b0). In 3D (step_ahead), with variable 3 below 0xff: where
+ * the way ahead is open, 6fea:00c6: sound 11 (not sounded yet), 50
+ * hundredths... milliseconds (1df9:052a), the square ahead, wrapping at
+ * the map's edges, its wall ahead and byte, a minute passed (ten
+ * searching, variable 0x19's bit 0); then the status. False where the
+ * time stopped the run. */
+static bool step(cok_adventure *game)
+{
+    queen *q = own(game);
+    cok_ecl *vm = &game->vm;
+    bool ok = true;
+    if (vm->mode == 3) {
+        if (cok_ecl_load_var(vm, 3) < 0xff) ok = travel(game);
+    } else if (vm->mode != 4 || cok_ecl_load_var(vm, 3) >= 0xff) {
+        cok_ecl_store(vm, 3, 0);
+    } else {
+        ok = step_ahead(game);
+    }
+    /* 63ae:02b0: the small picture freed. */
+    q->picture_loaded = false;
+    q->picture_id = 0xff;
+    return ok;
+}
+
+/* 6fea:01a7, the overland's travel: the mark taken off (7065:0072), the
+ * square kept in variables 0x17 and 0x18, a step the way it faces within
+ * 0-37 across and 0-14 down into 0x25 and 0x26, the mark again
+ * (7065:0011), twelve hours passed (1396:044d with 12 of unit 3). */
+static bool travel(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    unmark(game);
+    int x = cok_ecl_load_var(vm, 0x25), y = cok_ecl_load_var(vm, 0x26);
+    cok_ecl_store(vm, 0x17, (uint16_t)x);
+    cok_ecl_store(vm, 0x18, (uint16_t)y);
+    x = (int8_t)(x + step_x[vm->direction & 7]);
+    y = (int8_t)(y + step_y[vm->direction & 7]);
+    x = x < 0 ? 0 : x > 0x25 ? 0x25 : x;
+    y = y < 0 ? 0 : y > 0x0e ? 0x0e : y;
+    cok_ecl_store(vm, 0x25, (uint16_t)x);
+    cok_ecl_store(vm, 0x26, (uint16_t)y);
+    marker(game);
+    return pass_time(game, 12, 3);
+}
+
+static bool step_ahead(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    const cok_view *v = &game->view;
+    if (cok_view_passage(v, vm->direction, vm->map_x, vm->map_y) == 1) {
+        pass(game, 50);
+        int w = v->geo_header[1], h = v->geo_header[0];
+        int x = vm->map_x + step_x[vm->direction & 7], y = vm->map_y + step_y[vm->direction & 7];
+        if (x < 0) x = w - 1;
+        if (x > w - 1) x = 0;
+        if (y < 0) y = h - 1;
+        if (y > h - 1) y = 0;
+        vm->map_x = (int8_t)x;
+        vm->map_y = (int8_t)y;
+        vm->ahead = cok_view_wall(v, vm->direction, vm->map_x, vm->map_y);
+        vm->square = cok_view_square(v, vm->map_x, vm->map_y);
+        char line[24];
+        snprintf(line, sizeof line, "%d,%d facing %u", vm->map_x, vm->map_y, vm->direction);
+        cok_adventure_log(game, "step", line);
+        if (!pass_time(game, 1, (cok_ecl_load_var(vm, 0x19) & 1) ? 2 : 1)) return false;
+    }
+    status_line(game);
+    return true;
+}
+
+/* The adventure's commands in 3D (6fea:0365, mode 4): variable 3 0, then
+ * the bar's "Area Cast View Encamp Search Look Inv" (DS:5088 but Move,
+ * 1bdb:0005; 1aef: the extended keys' filter) until one ends it: Right,
+ * Down and Left turn the party (a quarter, a half, three quarters) and
+ * draw the view and status again; Up checks the step (6fea:000a), the
+ * status drawn, and ends it (giving 0xff); Escape nothing; another
+ * filtered key picks a member (5e22:067c, not ported yet). Encamp ends it
+ * (4); Search turns variable 0x19's bit 0 and draws the status; Look sets
+ * its bit 1, draws the status, passes ten minutes and ends it (6); Area,
+ * Cast, View and Inv are not ported yet (the run stops). Then the text
+ * window cleared where text was shown (DS:b2fb). Returns the command, -1
+ * where the run stopped. */
+static int commands(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    cok_ecl_store(vm, 3, 0);
+    static const char *const items[] = {"Area", "Cast", "View", "Encamp", "Search", "Look",
+                                        "Inv"};
+    int result = -1;
+    for (bool done = false; !done;) {
+        cok_adventure_log(game, "menu", "Area Cast View Encamp Search Look Inv");
+        int choice = bar_menu(game, "", items, 7, true, false, 0, 0);
+        if (choice < 0) return -1;
+        if (choice >= 0x80 || choice == 0x1b) {
+            switch (choice) {
+            case 0x1b: break;
+            case 0x82: turn(game, 2); status_line(game); break;
+            case 0x84: turn(game, 4); status_line(game); break;
+            case 0x86: turn(game, 6); status_line(game); break;
+            case 0x88:
+                check_step(game);
+                status_line(game);
+                result = 0xff;
+                done = true;
+                break;
+            default:
+                cok_adventure_not_yet(game, "a member picked by a key", "dqk 5e22:067c");
+                return -1;
+            }
+            continue;
+        }
+        log_choice(game, choice + 1);
+        switch (choice + 1) {
+        case 1: cok_adventure_not_yet(game, "Area", "dqk 6fea:0427"); return -1;
+        case 2: cok_adventure_not_yet(game, "Cast", "dqk 6070:0688"); return -1;
+        case 3:
+            /* 2d99:0fef, then the screen as it was (177e:1ad1). */
+            if (!view_character(game)) return -1;
+            adventure_screen(game);
+            party_list(game);
+            status_line(game);
+            draw_view(game);
+            break;
+        case 4: result = 4; done = true; break;
+        case 5:
+            cok_ecl_store(vm, 0x19, cok_ecl_load_var(vm, 0x19) ^ 1);
+            status_line(game);
+            break;
+        case 6:
+            cok_ecl_store(vm, 0x19, cok_ecl_load_var(vm, 0x19) | 2);
+            status_line(game);
+            if (!pass_time(game, 1, 2)) return -1;
+            result = 6;
+            done = true;
+            break;
+        default: cok_adventure_not_yet(game, "Inv", "dqk 6fea:0241"); return -1;
+        }
+    }
+    if (game->text_shown) {
+        clear_cells(game, 1, 0x11, 0x26, 0x16);
+        game->text_shown = false;
+    }
+    return result;
+}
+
+/* Begin Adventuring's start (5ebd:00ef after 7368:046f): the copy
+ * protection (65cc:008b: a word from the journal, the game ending where
+ * it is wrong; DARK-QUEEN.md's decision: logged and passed over, its
+ * checks of DS:bec0-bec2 too), the adventure's screen (20b2:00e4), the
+ * party's list and the status (or, on the overland, its frame), then the
+ * game (5f07:10cd): the mode 4 (3 outside 3D, variable 0x22 0), the block
+ * variable 0x16's or a new game's (4, its list drawn first), entered as
+ * the ECL's NEWECL enters one (cok_adventure_enter); then its loop: a
+ * command (6fea:0365); while it is Look (variable 0x19 above 1) or
+ * Encamp, Look's: the view again and the location vector, searching or
+ * not as before; Encamp's (6c70:34ab) not ported yet; then the
+ * after-move vector; the last square in variables 0x17 and 0x18, the
+ * step (6fea:0753), the view and the location vector, each NEWECL
+ * entering its block (5f07:0ff4: cok_adventure_reenter). Outside 3D
+ * (mode 3) its loop is not ported yet. */
+static cok_ecl_status adventure(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    cok_adventure_log(game, "protection", "the journal's word, passed over (dqk 65cc:008b)");
+    if (vm->mode == 3 && cok_ecl_load_var(vm, 0x24) == 1) {
+        overland_screen(game);
+    } else {
+        adventure_screen(game);
+        party_list(game);
+        status_line(game);
+    }
+    uint8_t block = (uint8_t)cok_ecl_load_var(vm, 0x16);
+    /* A loaded game's first block keeps its locals (6c70:0001 with DS:b1ed
+     * set, cok_adventure_restore's keep_vars); 10cd clears b1ed once it
+     * has entered it. */
+    cok_ecl_status status = cok_adventure_enter(game, block != 0 ? block : 4);
+    own(game)->loaded_game = false;
+    vm->keep_vars = false;
+    while (status == COK_ECL_OK && !vm->abort) {
+        if (vm->mode != 4) {
+            cok_adventure_not_yet(game, "the adventure's commands outside 3D", "dqk 6fea:0605");
+            return vm->status;
+        }
+        int key = commands(game);
+        if (key < 0) return vm->status;
+        while (status == COK_ECL_OK && !vm->abort &&
+               (cok_ecl_load_var(vm, 0x19) > 1 || key == 4)) {
+            if (key == 4) {
+                cok_adventure_not_yet(game, "Encamp", "dqk 6c70:34ab");
+                return vm->status;
+            }
+            uint16_t searching = cok_ecl_load_var(vm, 0x19) & 1;
+            cok_ecl_store(vm, 0x19, 1);
+            cok_adventure_view(game);
+            status = cok_ecl_run(vm, vm->vectors[1]);
+            if (status == COK_ECL_OK && !vm->abort && vm->reload) status = cok_adventure_reenter(game);
+            cok_ecl_store(vm, 0x19, searching);
+            if (status != COK_ECL_OK || vm->abort) break;
+            key = commands(game);
+            if (key < 0) return vm->status;
+        }
+        if (status != COK_ECL_OK || vm->abort) break;
+        status = cok_ecl_run(vm, vm->vectors[0]);
+        if (status != COK_ECL_OK || vm->abort) break;
+        if (vm->reload) {
+            status = cok_adventure_reenter(game);
+            continue;
+        }
+        cok_ecl_store(vm, 0x17, (uint16_t)(uint8_t)vm->map_x);
+        cok_ecl_store(vm, 0x18, (uint16_t)(uint8_t)vm->map_y);
+        if (!step(game)) return vm->status;
+        cok_adventure_view(game);
+        status = cok_ecl_run(vm, vm->vectors[1]);
+        if (status == COK_ECL_OK && !vm->abort && vm->reload) status = cok_adventure_reenter(game);
+    }
+    return status != COK_ECL_OK ? status : vm->status;
 }
 
 /* The demonstration (5ebd:0236, 5f07:10cd with DS:ae59): the speed
@@ -1948,7 +3556,12 @@ static cok_ecl_status start(cok_adventure *game)
             cok_adventure_quit(game);
             return COK_ECL_OK;
         }
-        if (choice != 1) return camp(game);
+        if (choice != 1) {
+            bool begin;
+            cok_ecl_status status = camp(game, &begin);
+            if (status != COK_ECL_OK || !begin || vm->abort) return status;
+            return adventure(game);
+        }
         bool stopped;
         cok_ecl_status status = demonstration(game, &stopped);
         if (status != COK_ECL_OK || vm->abort) return status;
@@ -1970,4 +3583,6 @@ const cok_drawing cok_dark_queen_drawing = {
     .animates = animates,
     .animate = animate_menu,
     .cursor = cursor,
+    .party = party_hook,
+    .status = status_line,
 };

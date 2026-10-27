@@ -181,6 +181,10 @@ typedef struct {
     /* The mouse's cursor, which the game draws itself, onto pixels, a copy
      * of the screen (cok_adventure_cursor). */
     void (*cursor)(cok_adventure *game, uint8_t *pixels);
+    /* The party's list and the status (in place of cok_party_draw's and
+     * cok_adventure_status's own). */
+    void (*party)(cok_adventure *game);
+    void (*status)(cok_adventure *game);
 } cok_drawing;
 
 /* The game's own drawing, or NULL for the 8x8 tiles'. */
@@ -327,6 +331,9 @@ struct cok_adventure {
      * which the next save moves (DS:fb78). */
     char vault_letter;
     bool vault_temp;
+    /* What a saved game holds that nothing else keeps (dqk DS:ca05, a
+     * word no routine found sets: 604b:28f8 reads it, 31a7 writes it). */
+    uint16_t saved_extra;
     /* The start menu emptied the party and ended the game (dkk DS:8c5b):
      * the adventure starts over from a new game's block once it returns. */
     bool new_game;
@@ -496,6 +503,11 @@ cok_ecl_status cok_adventure_load(cok_adventure *game, uint8_t block);
  * wait for the first command (cok_adventure_play), and the last mode
  * (DS:4b4a) stays as it was unless a NEWECL ran. */
 cok_ecl_status cok_adventure_enter(cok_adventure *game, uint8_t block);
+/* The block a NEWECL loaded entered (2fd3:3b47; dqk 5f07:0ff4): its load
+ * vector, the view where it loaded files, its after-move and location
+ * vectors, again for each NEWECL, from a vector run by the caller's
+ * loop at its depth less 6 (as the adventure loop's). */
+cok_ecl_status cok_adventure_reenter(cok_adventure *game);
 
 /* Load block and enter it as 2fd3:3b47 enters a block NEWECL names, for
  * eclplay's block: run the load vector, show the view if the block loaded
@@ -566,7 +578,16 @@ bool cok_adventure_add_characters(cok_adventure *game, const char *const *paths,
  * a game with a vault takes the saved game's letter's (DS:fb79). The next
  * block entered keeps the variables NEWECL would clear (DS:4b52), and the
  * adventure loop then redraws the screen. Play resumes from block 0x4bf2,
- * or the game's first block when that is 0 (2fd3:3c28). */
+ * or the game's first block when that is 0 (2fd3:3c28). A saved game
+ * that holds its characters (rules' saves.game_size: dqk 604b:28f8, from
+ * 2ab4) sets the variables, the square and facing, the modes, the wall
+ * set (wall_ids[0]) and DS:ca05 (saved_extra) as read, then joins its
+ * characters as read (the party's size counting them, the first
+ * selected; "SCROLLS DROPPED!" logged for each that dropped a scroll's
+ * contents), the vault the saved game's letter's, and the next block
+ * entered keeps its locals (DS:b1ed, keep_vars, which the drawing clears
+ * once it has entered it); it draws and loads nothing: what the screen
+ * shows again is the drawing's. */
 bool cok_adventure_restore(cok_adventure *game, const char *path);
 
 /* Load another game's saved game, as a game that imports its characters

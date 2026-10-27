@@ -49,6 +49,23 @@ typedef struct {
     cok_game_port port;
 } player;
 
+/* --vars: the variable area's cells (0x4b00-0x4eff; Dark Queen's
+ * 0x0001-0x0400), each the game's variable_bytes, little-endian. */
+static void save_vars(const cok_adventure *game, const char *path)
+{
+    FILE *f = fopen(path, "wb");
+    if (f == NULL) {
+        perror(path);
+        return;
+    }
+    size_t width = cok_game_rules(game)->ecl.variable_bytes;
+    for (size_t i = 0; i < 0x400; ++i) {
+        uint8_t b[2] = {(uint8_t)game->vm.mem4b00[i], (uint8_t)(game->vm.mem4b00[i] >> 8)};
+        fwrite(b, 1, width, f);
+    }
+    fclose(f);
+}
+
 static void usage(const char *program)
 {
     fprintf(stderr,
@@ -107,12 +124,14 @@ static void usage(const char *program)
             "  --shots DIR     save DIR/NNN.bmp each time the game waits for a key, and\n"
             "                  when a battle has been set up\n"
             "  --screen FILE   save the final screen as FILE (BMP)\n"
-            "  --file N        ECL file 1-3 (default: the first holding BLOCK)\n"
-            "  --vector N      run only vector N (0-4) instead of entering the block\n"
-            "  --start ADDR    run only from code address ADDR (hex)\n"
-            "  --at X,Y,DIR    party position and facing (0, 2, 4 or 6)\n",
+            "  --file N        ECL file 1-3 (default: the first holding BLOCK)\n",
             program, program, program);
-    fputs("  --character FILE  add the character in FILE (CHRDATA1.SAV, BOB.WHO; Death\n"
+    fputs("  --vars FILE     save the variables 0x4b00-0x4eff (Dark Queen's\n"
+          "                  0x0001-0x0400), a byte or word each, as FILE at the end\n"
+          "  --vector N      run only vector N (0-4) instead of entering the block\n"
+          "  --start ADDR    run only from code address ADDR (hex)\n"
+          "  --at X,Y,DIR    party position and facing (0, 2, 4 or 6)\n"
+          "  --character FILE  add the character in FILE (CHRDATA1.SAV, BOB.WHO; Death\n"
           "                  Knights' CHRDATA1.GAM, BOB.PC; Dark Queen's ROLANDOF.QCH) to\n"
           "                  the party, with its other files beside it; up to 8, after\n"
           "                  --party's\n"
@@ -686,7 +705,7 @@ static int run(int argc, char **argv)
     bool sound_given = false;
     cok_display display = COK_DISPLAY_TANDY;
     bool display_given = false;
-    const char *screen = NULL;
+    const char *screen = NULL, *vars = NULL;
     unsigned long file = 0, vector = 5, start = 0, fixture = 0, seed = 0;
     bool seeded = false;
     bool still = false, placed = false, play = false, helm = false, front = false, woof = false;
@@ -795,6 +814,8 @@ static int run(int argc, char **argv)
             ++i;
         } else if (strcmp(option, "--screen") == 0 && has_value) {
             screen = argv[++i];
+        } else if (strcmp(option, "--vars") == 0 && has_value) {
+            vars = argv[++i];
         } else if (strcmp(option, "--file") == 0 && has_value &&
                    number(argv[i + 1], 10, 3, &file) && file >= 1) {
             ++i;
@@ -1069,6 +1090,7 @@ static int run(int argc, char **argv)
         if (seeded) game.vm.seed = (uint32_t)seed;
         cok_ecl_status status = cok_start_game(&game, woof);
         if (screen != NULL) save(&p, screen);
+        if (vars != NULL) save_vars(&game, vars);
         int result = 0;
         if (status != COK_ECL_OK) {
             fprintf(stderr, "%s\n", cok_adventure_why(&game, status));
@@ -1133,6 +1155,7 @@ static int run(int argc, char **argv)
         if (status == COK_ECL_OK) status = cok_ecl_run(&game.vm, address);
     }
     if (screen != NULL) save(&p, screen);
+    if (vars != NULL) save_vars(&game, vars);
     int result = 0;
     if (status == COK_ECL_LOAD_FAILED || status == COK_ECL_EFFECT_FAILED ||
         status == COK_ECL_UNDEFINED || status == COK_ECL_UNPORTED) {
