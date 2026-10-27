@@ -107,6 +107,12 @@ typedef struct {
      * from the record (Death Knights' MON1WIZ, as its characters' .WIZ);
      * NULL in Champions, whose record holds them. */
     const char *monster_spells;
+    /* Or one library whose records by id hold each monster whole (Dark
+     * Queen's MONCHA.GLB, dqk 604b:257c: a big-endian size, then PackBits
+     * of the record, a count of effects and of items, its effects of 5
+     * bytes and its items of the item record's file_size); NULL where the
+     * kinds above are files of their own. */
+    const char *monster_library;
     /* The battlefield's tiles: in a 3D area, outdoors, and the random
      * ones of both (3cb2:1029). */
     const char *dungeon, *wilderness, *random;
@@ -135,8 +141,11 @@ typedef struct {
      * dkk 1187:011b: 2, its save path DS:98a4 and Champions' saved games'
      * DS:99a4), before the F line and the stick's thresholds. */
     uint8_t config_paths;
-    /* The item types (3e99:005b), a file of its own, not an archive. */
+    /* The item types (3e99:005b), a file of its own, not an archive, and
+     * the bytes before them in it (Champions' 2, the loader seeking past
+     * them; dqk 64b2:0006 reads ITEMS.DAT from its start). */
     const char *item_types;
+    uint8_t item_types_at;
     /* The directory the original runs in (FExpand('*.exe') split,
      * DS:4a80: the current directory), which the setup offers the save
      * path under: the port has no DOS directory and takes the one the
@@ -197,6 +206,19 @@ typedef struct {
     const char *numlock;
 } cok_rules_setup;
 
+/* How a character's files hold it (party.c's cok_character_read_file and
+ * write_file). */
+typedef enum {
+    /* The record, and its items and effects (and spells' block) in files
+     * of their own (4b6d:11e5; dkk 46b2:10d7). */
+    COK_CHARACTER_FILES,
+    /* One file (Dark Queen's .QCH: dqk 604b:05fd reads, 604b:2200
+     * writes): the record, its items' file bytes (the item record's), a
+     * container's contents after it, then its effects of 9 bytes, each
+     * with its next pointer. */
+    COK_CHARACTER_ONE_FILE,
+} cok_character_files;
+
 /* The names of what the game writes in the save path. */
 typedef struct {
     /* The saved games, <game><letter>.<game_extension> (4b6d:1b34 reads,
@@ -209,6 +231,9 @@ typedef struct {
      * spells' block, for a game that keeps one (the layout's spells_size;
      * NULL in Champions). */
     const char *record, *roster, *items, *effects, *spells;
+    /* How the files hold a character (one file: items, effects and spells
+     * NULL). */
+    cok_character_files character_files;
     /* The debug mode's trace (Woof's Ctrl-D, 1a46:04f7's Assign). */
     const char *debug;
     /* A saved game's layout (party.c's cok_saved_game_read and write;
@@ -348,6 +373,10 @@ typedef struct {
     /* Whether a store to a special address writes the variable there too
      * (dqk 6c70:0817 after 6c70:0728's), rather than only the state. */
     bool special_stores_kept;
+    /* Whether the selected character's addresses (game_first, game_size)
+     * are its fields alone (dqk 6c70:040d, 1b5e): one no field is reads 0
+     * and a store to it does nothing, rather than a variable's. */
+    bool game_fields_only;
     /* Whether COMPARE AND finds a pair whose first is a string unequal
      * always (dqk 5f07:05be compares the slots' addresses, not their
      * strings, testing the first's type alone). */
@@ -677,6 +706,9 @@ typedef enum {
     /* dkk 65cd:0e46: the movement as 65cd:1241 gives it, with the effects
      * that double or halve it; no fighter level. */
     COK_STATS_DEATH_KNIGHTS,
+    /* Dark Queen's (dqk 177e:0be2), not ported yet: as COK_LEVELS_NONE.
+     * Nor are the readied items found (cok_character's slots stay 0). */
+    COK_STATS_NONE,
 } cok_stats_routine;
 
 typedef enum {
@@ -686,6 +718,10 @@ typedef enum {
     /* dkk 69a8:050b: spells a day in the spells' block to level 8 and
      * paladins' (69a8:0000), a fourth attack, no former classes. */
     COK_LEVELS_DEATH_KNIGHTS,
+    /* Dark Queen's, not ported yet (DARK-QUEEN.md's step 4): nothing is
+     * recomputed, the record's derived fields stay as its file holds them
+     * (the original's own, written after it recomputed them). */
+    COK_LEVELS_NONE,
 } cok_levels_routine;
 
 /* One run of bytes an import moves from the other game's record to the
@@ -693,6 +729,24 @@ typedef enum {
 typedef struct {
     uint16_t to, from, count;
 } cok_rules_move;
+
+/* The routine of an import (party.c's cok_character_import). */
+typedef enum {
+    /* Death Knights' of Champions' characters (dkk 46b2:10d7): below. */
+    COK_IMPORT_DEATH_KNIGHTS,
+    /* Dark Queen's of Death Knights' (dqk 604b:0b82): the record read
+     * whole (0xd8 bytes or the import fails, 604b:0cd7) into a record
+     * zeroed (0x19e), moved run by run (604b:0d65), the name made a C
+     * string, a class 7 made 1, the levels of class 7 moved to class 1
+     * and those of 7-13 cleared; then its effects (.eff, 604b:16f8: at
+     * most 0x8c bytes, each id by effect_ids), its items (.jnk, 604b:181b:
+     * at most 0x3f0 bytes, each converted into Dark Queen's item, its name
+     * words by word_ids and its spells by spell_ids, the items of type
+     * 0x36 dropped) and its spells (.wiz, 604b:2021: under 0xdd bytes, the
+     * memorized by spell_ids, the known as bits, the spells a day's four
+     * rows to rows 0, 1, 3, 2). */
+    COK_IMPORT_DARK_QUEEN,
+} cok_import_routine;
 
 /* How a game imports another's characters (party.c's
  * cok_character_import), as Death Knights does Champions' (46b2:10d7 with
@@ -703,6 +757,7 @@ typedef struct {
  * those of the dropped types, and the effects, as they are; then
  * recomputed as a load does. */
 typedef struct {
+    cok_import_routine routine;
     const struct cok_rules *from;
     const cok_rules_move *moves, *spell_moves;
     size_t move_count, spell_move_count;
@@ -715,6 +770,14 @@ typedef struct {
     /* The item types (+0x2e) not imported, as a Pascal set: bit t & 7 of
      * byte t >> 3. */
     uint8_t dropped_items[32];
+    /* COK_IMPORT_DARK_QUEEN's maps of the other game's ids to the game's,
+     * the cases of the original's switches, {from, to}; an id none lists
+     * is kept: spells (dqk 604b:1ea3), effects (604b:1cc7), and the words
+     * of items' names (604b:1bf1). And the scrolls' types, whose three
+     * spells are spells (6fd8:43f7: 0x27, 0x28, 0x49), ended by 0xff. */
+    const uint8_t (*spell_ids)[2], (*effect_ids)[2], (*word_ids)[2];
+    size_t spell_id_count, effect_id_count, word_id_count;
+    const uint8_t *scroll_types;
     /* The other game's roster and saved games are read from the directory
      * the configuration's fifth line names (dkk DS:99a4; the port's
      * --import): its roster by the NPC flag (dkk 46b2:0342 tests the
@@ -736,6 +799,11 @@ typedef struct {
      * by constitution (60f4:1628): fighters, rangers and knights (bits 2,
      * 4, 7); dkk 638c:16d8 and 15e0 paladins too (bit 3). */
     uint8_t fighter_classes;
+    /* Each class's bits of the classes whose items one can use, which a
+     * monster read from a library (archives.monster_library) is given for
+     * its classes with levels (dqk 604b:257c, DS:63f3: classes 0-6); 0
+     * where the record keeps its own. */
+    uint8_t class_usable[8];
 } cok_rules_characters;
 
 /* The screens the port draws a frame for (screen.c), each one routine of
@@ -1832,6 +1900,25 @@ typedef struct {
     const char *camp;
 } cok_rules_text;
 
+/* An item as the port holds it (COK_ITEM_SIZE bytes, party.h) and as the
+ * game's files hold it. */
+typedef struct {
+    /* The bytes of an item its files hold, from file_at in the port's
+     * record: Champions' and Death Knights' 63 whole (.STF, .JNK, MON*ITM);
+     * Dark Queen's 17 (.QCH, MONCHA, ITEM.DAT), which its item in memory
+     * (0x3d bytes: a next pointer at +0, a byte at +4, the name, a C
+     * string, at +5, these 17 at +0x28, the contents' pointer at +0x39;
+     * dqk 604b:05fd, 604b:181b) holds at +0x28, as the port's record does. */
+    uint8_t file_size, file_at;
+    /* Where the item's type and its count (how many: arrows, charges, a
+     * container's contents) lie in the port's record. */
+    uint8_t type, count;
+    /* The type whose items are followed in a file by count items, their
+     * contents (Dark Queen's scrolls, 0x49: dqk 604b:05fd, 604b:2200); 0
+     * for none. */
+    uint8_t container;
+} cok_rules_item_record;
+
 /* How a game draws: the earlier games' 16 colours from 8x8 tiles, or The
  * Dark Queen of Krynn's VGA in 256 colours by routines of its own
  * (dark_queen.c; adventure.h's cok_drawing). */
@@ -1873,6 +1960,7 @@ typedef struct cok_rules {
     cok_rules_menus menus;
     cok_rules_commands commands;
     cok_rules_items items;
+    cok_rules_item_record item_record;
     cok_rules_shops shops;
     cok_rules_treasure treasure;
     cok_rules_levels levels;

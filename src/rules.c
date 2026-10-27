@@ -1406,6 +1406,7 @@ const cok_rules cok_rules_champions = {
             .config = "KRYNN.CFG",
             .config_paths = 1,
             .item_types = "ITEMS",
+            .item_types_at = 2, /* 3e99:005b seeks past its count */
             .install_dir = "C:\\COK\\",
             .save_dir = "SAVE",
         },
@@ -1457,6 +1458,9 @@ const cok_rules cok_rules_champions = {
             .frames_ff = 255, /* 127f:1c2f */
         },
     .character = &champions_character,
+    /* An item record, 63 bytes in its files as in memory (4b6d:11e5):
+     * +0x2e its type, +0x39 how many. */
+    .item_record = {.file_size = 63, .file_at = 0, .type = 0x2e, .count = 0x39},
     .characters =
         {
             .stats = COK_STATS_CHAMPIONS,   /* 6346:0d20 */

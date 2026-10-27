@@ -116,5 +116,9 @@ void cok_vga_glyph(cok_picture *screen, const uint8_t *font, int row, int col, c
                    uint8_t fg, uint8_t bg);
 /* Fill a rectangle of screen, clipped, with colour. */
 void cok_vga_fill(cok_picture *screen, int x, int y, int width, int height, uint8_t colour);
+/* Unpack PackBits (dqk 10d7:0a1c, as pictures of format 0x12 are and the
+ * monsters' records, 604b:257c) from src's size bytes into out, at most
+ * need bytes; returns the bytes written. */
+size_t cok_vga_unpack(const uint8_t *src, size_t size, uint8_t *out, size_t need);
 
 #endif

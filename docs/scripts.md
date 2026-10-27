@@ -370,10 +370,11 @@ eighth, HOLT, is a mage too, with Stinking Cloud memorized instead.
 `--party SAVE` adds the characters of a saved game to the party (see
 [Party](party.md#party)); `--character FILE`, up to 8 times, adds the character whose record
 is in `FILE` (a saved game's `CHRDATA1.SAV`, the roster's `BOB.WHO`,
-Death Knights' `CHRDATA1.GAM` or `BOB.PC`), with its other files beside
-it, after `--party`'s, as they are added (`cok_adventure_add_characters`:
-read, joined, counted, their icons loaded, the first selected); unlike
-`--party` and `--load` it works for a game not yet playable. `--load SAVE`
+Death Knights' `CHRDATA1.GAM` or `BOB.PC`, Dark Queen's `ROLANDOF.QCH`),
+with its other files beside it, after `--party`'s, as they are added
+(`cok_adventure_add_characters`: read, joined, counted, their icons loaded,
+where the game's are ported, the first selected); unlike `--party` and
+`--load` it works for a game not yet playable (Dark Queen's). `--load SAVE`
 loads the whole saved game first; then `BLOCK`
 may be left out to resume where it was saved, as `2fd3:3c28` starts the
 game, running only that block's load vector before the first command (see

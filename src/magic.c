@@ -962,10 +962,7 @@ static void display(cok_adventure *game)
     for (size_t i = 0; i < game->party.count; ++i) {
         const cok_character *character = game->party.members[i];
         char name[16];
-        uint8_t stored = cok_field_u8_at(L, character->record, COK_FIELD_NAME, 0);
-        size_t length = stored > 15 ? 15 : stored;
-        memcpy(name, character->record + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
-        name[length] = '\0';
+        cok_field_name(L, character->record, name);
         ROW(name, true);
         size_t shown = 0;
         for (const cok_effect *e = character->effects; e != NULL; e = e->next) {

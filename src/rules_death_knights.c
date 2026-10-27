@@ -1460,6 +1460,7 @@ const cok_rules cok_rules_death_knights = {
             .config = "DKK.CFG",
             .config_paths = 2, /* 1187:011b: DS:98a4, 99a4 */
             .item_types = "ITEMS",
+            .item_types_at = 2, /* as Champions' (3e99:005b) */
             .install_dir = "C:\\DKK\\",
             .save_dir = "SAVE",
         },
@@ -1517,6 +1518,9 @@ const cok_rules cok_rules_death_knights = {
             .frames_ff = 256, /* 123c:1c58 */
         },
     .character = &death_knights_character,
+    /* An item record, 63 bytes in its files as in memory (dkk 46b2:10d7):
+     * +0x2e its type, +0x39 how many. */
+    .item_record = {.file_size = 63, .file_at = 0, .type = 0x2e, .count = 0x39},
     .characters =
         {
             .stats = COK_STATS_DEATH_KNIGHTS,   /* 65cd:0e46 */

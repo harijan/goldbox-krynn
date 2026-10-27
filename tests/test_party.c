@@ -951,6 +951,409 @@ static void test_import_saved(void)
     CHECK(rmdir(out) == 0);
 }
 
+/* Dark Queen's one-file characters (dqk 604b:05fd, 604b:2200), made up:
+ * the record, its items' 17 bytes at +0x28 of the port's item, its
+ * effects chained by their next pointers; the items' pointer holding
+ * their count; a scroll's contents dropped with it; short data failing. */
+static void test_dark_queen_files(void)
+{
+    const cok_rules *R = &cok_rules_dark_queen;
+    const cok_character_layout *L = R->character;
+    char error[256];
+    cok_character c;
+    memset(&c, 0, sizeof c);
+    cok_field_set_name(L, c.record, "TANIS", 5);
+    cok_field_set8(L, c.record, COK_FIELD_HIT_POINTS, 33);
+    memset(c.record + cok_field_offset(L, COK_FIELD_ITEM_SLOTS), 0x77, 4); /* a stale pointer */
+    uint8_t item[COK_ITEM_SIZE] = {0};
+    for (int k = 0; k < 17; ++k) item[0x28 + k] = (uint8_t)(0x10 + k);
+    CHECK(cok_character_insert_item(&c, 0, item));
+    item[0x28] = 0x49; /* an empty scroll */
+    item[0x35] = 0;
+    CHECK(cok_character_insert_item(&c, 1, item));
+    CHECK(cok_character_add_effect(&c, 0x5f, 300, 0xff, false) != NULL);
+    CHECK(cok_character_add_effect(&c, 0x69, 0, 3, true) != NULL);
+    static uint8_t bytes[1024];
+    size_t size = cok_character_to_bytes(&c, R, bytes, sizeof bytes, error, sizeof error);
+    CHECK(size == 0x19e + 2 * 17 + 2 * 9);
+    CHECK(bytes[8] == 2 && bytes[9] == 0 && bytes[10] == 0 && bytes[11] == 0);
+    CHECK(bytes[4] == 1 && bytes[5] == 0 && bytes[0xc] == 0); /* effects; no slot pointer */
+    CHECK(memcmp(bytes + 0x68, "TANIS\0", 6) == 0 && bytes[0x198] == 33);
+    CHECK(bytes[0x19e] == 0x10 && bytes[0x19e + 16] == 0x20 && bytes[0x19e + 17] == 0x49);
+    const uint8_t *e = bytes + 0x19e + 34;
+    CHECK(e[0] == 0x5f && e[1] == 0x2c && e[2] == 0x01 && e[3] == 0xff && e[4] == 0);
+    CHECK(e[5] == 1 && e[6] == 0 && e[9] == 0x69 && e[13] == 1 && e[14] == 0 && e[17] == 0);
+    /* Too small a buffer: the size needed, nothing written. */
+    CHECK(cok_character_to_bytes(&c, R, bytes, 10, error, sizeof error) == size);
+    cok_character d;
+    size_t used;
+    CHECK(cok_character_from_bytes(&d, R, bytes, size + 5, 0, &used, error, sizeof error));
+    CHECK(used == size && !d.contents_dropped);
+    CHECK(d.item_count == 2 && memcmp(d.items[0], c.items[0], COK_ITEM_SIZE) == 0);
+    CHECK(d.items[1][0x28] == 0x49);
+    CHECK(d.effects != NULL && d.effects->id == 0x5f && d.effects->duration == 300 &&
+          d.effects->next != NULL && d.effects->next->on_remove && d.effects->next->next == NULL);
+    for (size_t k = 0; k < L->file_size; ++k)
+        CHECK(d.record[k] == (cok_field_pointer_at(L, (long)k) ? 0 : c.record[k]));
+    /* The party's scrolls holding spells: an empty one is dropped too. */
+    cok_character_free(&d);
+    CHECK(cok_character_from_bytes(&d, R, bytes, size, 1, &used, error, sizeof error));
+    CHECK(d.item_count == 1 && d.contents_dropped && used == size);
+    cok_character_free(&d);
+    /* A scroll with two spells: read past and dropped; the next item kept. */
+    static uint8_t scroll[1024];
+    memcpy(scroll, bytes, 0x19e);
+    scroll[8] = 2;
+    scroll[4] = 0;
+    uint8_t *p = scroll + 0x19e;
+    memset(p, 0, 17 * 4);
+    p[0] = 0x49;
+    p[0xd] = 2;
+    p[17 * 3] = 0x22;
+    CHECK(cok_character_from_bytes(&d, R, scroll, 0x19e + 17 * 4, 0, &used, error, sizeof error));
+    CHECK(d.item_count == 1 && d.items[0][0x28] == 0x22 && d.contents_dropped && d.effects == NULL);
+    CHECK(used == 0x19e + 17 * 4);
+    /* The writer holds no contents to write. */
+    d.items[0][0x28] = 0x49;
+    d.items[0][0x35] = 1;
+    CHECK(cok_character_to_bytes(&d, R, bytes, sizeof bytes, error, sizeof error) == 0);
+    CHECK(strstr(error, "scroll") != NULL);
+    cok_character_free(&d);
+    /* A pointer whose low word is 0 still reads one item; short data fails. */
+    scroll[8] = 0;
+    scroll[10] = 1;
+    p[0] = 0x22;
+    CHECK(cok_character_from_bytes(&d, R, scroll, 0x19e + 17, 0, &used, error, sizeof error));
+    CHECK(d.item_count == 1 && used == 0x19e + 17);
+    cok_character_free(&d);
+    /* A count of 0x8000: DEC DI overflows and JNG stops after one item. */
+    scroll[8] = 0x00;
+    scroll[9] = 0x80;
+    scroll[10] = 0;
+    memset(p + 17, 0x33, 17);
+    CHECK(cok_character_from_bytes(&d, R, scroll, 0x19e + 34, 0, &used, error, sizeof error));
+    CHECK(d.item_count == 1 && d.items[0][0x28] == 0x22 && used == 0x19e + 17);
+    cok_character_free(&d);
+    CHECK(!cok_character_from_bytes(&d, R, scroll, 0x19e + 16, 0, &used, error, sizeof error));
+    CHECK(!cok_character_from_bytes(&d, R, scroll, 0x19d, 0, &used, error, sizeof error));
+    memcpy(scroll, bytes, size);
+    CHECK(!cok_character_from_bytes(&d, R, scroll, size - 1, 0, &used, error, sizeof error));
+    cok_character_free(&c);
+}
+
+/* Dark Queen's shipped characters (the .QCH files of DQKAssets/SAVE): each read and
+ * written again byte for byte but the far pointers the original writes
+ * as they are in memory (the items' holds their count, which the port
+ * writes too); their names, items and effects. */
+static void test_dark_queen_saved(void)
+{
+    static const struct {
+        const char *base, *name;
+        size_t items, effects, size;
+    } shipped[] = {
+        {"'CINDER'", "'CINDER'", 5, 1, 508},      {"BALTHIRN", "BALTHIR NOMOON", 5, 2, 517},
+        {"ROARK'CR", "ROARK 'CROAKER'", 3, 3, 492}, {"ROLANDOF", "ROLAND OF DUST", 4, 0, 482},
+        {"TIMASALI", "TIMASALIN", 5, 1, 508},     {"WALKERKE", "WALKER KEYS", 3, 2, 483},
+    };
+    const cok_rules *R = &cok_rules_dark_queen;
+    const cok_character_layout *L = R->character;
+    static cok_item_types types;
+    char error[256];
+    if (read_whole("DQKAssets/SAVE/ROLANDOF.QCH", (uint8_t[1]){0}, 1) == 0) {
+        puts("party: no Dark Queen characters in DQKAssets/SAVE; skipped");
+        return;
+    }
+    char out[512];
+    CHECK(test_temp_dir(out, sizeof out, "cok_party_dqk_saved") != NULL);
+    for (size_t i = 0; i < sizeof shipped / sizeof *shipped; ++i) {
+        cok_character c;
+        CHECK(cok_character_read(&c, R, "DQKAssets/SAVE", shipped[i].base, &types, error,
+                                 sizeof error));
+        char name[16];
+        cok_field_name(L, c.record, name);
+        size_t effects = 0;
+        for (const cok_effect *e = c.effects; e != NULL; e = e->next) ++effects;
+        CHECK(strcmp(name, shipped[i].name) == 0 && c.item_count == shipped[i].items &&
+              effects == shipped[i].effects && !c.contents_dropped);
+        CHECK(cok_field_u8(L, c.record, COK_FIELD_ITEM_COUNT) == c.item_count);
+        CHECK(cok_character_write(&c, R, out, shipped[i].base, error, sizeof error));
+        cok_character_free(&c);
+        char a[600], b[600];
+        static uint8_t x[1024], y[1024];
+        snprintf(a, sizeof a, "DQKAssets/SAVE/%s.QCH", shipped[i].base);
+        snprintf(b, sizeof b, "%s/%s.QCH", out, shipped[i].base);
+        size_t nx = read_whole(a, x, sizeof x), ny = read_whole(b, y, sizeof y);
+        CHECK(nx == shipped[i].size && ny == nx);
+        size_t effects_at = nx - effects * COK_EFFECT_SIZE;
+        for (size_t k = 0; k < nx; ++k) {
+            bool items = k >= cok_field_offset(L, COK_FIELD_ITEMS) &&
+                         k < cok_field_offset(L, COK_FIELD_ITEMS) + 4;
+            bool pointer = k < L->file_size ? cok_field_pointer_at(L, (long)k) && !items
+                                            : k >= effects_at && (k - effects_at) % 9 >= 5;
+            if (!pointer && x[k] != y[k])
+                fprintf(stderr, "%s +0x%03zx: %02x, written %02x\n", a, k, x[k], y[k]);
+            CHECK(pointer || x[k] == y[k]);
+        }
+        remove(b);
+    }
+    CHECK(rmdir(out) == 0);
+}
+
+/* Death Knights' saved characters (DKKAssets/SAVE) imported into Dark
+ * Queen (dqk 604b:0b82): the record's fields where the moves put them,
+ * the name a C string, class 7's levels class 1's; the effects, the
+ * items (but type 0x36) and the spells by the maps; written and read
+ * back the same. */
+static void test_dark_queen_import(void)
+{
+    static cok_item_types types;
+    char error[256];
+    if (read_whole("DKKAssets/SAVE/CHRDATA1.GAM", (uint8_t[1]){0}, 1) == 0) {
+        puts("party: no Death Knights saved games in DKKAssets/SAVE; Dark Queen's import "
+             "not checked");
+        return;
+    }
+    const cok_rules *R = &cok_rules_dark_queen, *D = &cok_rules_death_knights;
+    const cok_character_layout *L = R->character, *K = D->character;
+    const cok_rules_import *I = R->characters.import;
+    char out[512];
+    CHECK(test_temp_dir(out, sizeof out, "cok_party_dqk_import") != NULL);
+    static const char *const names[] = {"CHRDATA1", "CHRDATA2", "CHRDATA3", "CHRDATA4",
+                                        "CHRDATA5", "CHRDATA6", "CHRDATB1", "CHRDATB2",
+                                        "CHRDATB3", "CHRDATB4", "CHRDATB5", "CHRDATB6"};
+    size_t known = 0, spells = 0, items = 0, effects = 0;
+    for (size_t i = 0; i < sizeof names / sizeof *names; ++i) {
+        cok_character k, c;
+        CHECK(cok_character_read(&k, D, "DKKAssets/SAVE", names[i], &types, error,
+                                 sizeof error) ||
+              (fprintf(stderr, "%s\n", error), false));
+        CHECK(cok_character_import(&c, R, "DKKAssets/SAVE", names[i], "GAM", &types, error,
+                                   sizeof error));
+        char a[16], b[16];
+        cok_field_name(K, k.record, a);
+        cok_field_name(L, c.record, b);
+        CHECK(strcmp(a, b) == 0 && strlen(b) < 16 && c.record[0x68 + strlen(b)] == 0);
+        for (int s = 0; s < 6; ++s)
+            CHECK(cok_field_u8_at(L, c.record, COK_FIELD_SCORE, s) ==
+                      cok_field_u8_at(K, k.record, COK_FIELD_SCORE, s) &&
+                  cok_field_u8_at(L, c.record, COK_FIELD_SCORE_BASE, s) ==
+                      cok_field_u8_at(K, k.record, COK_FIELD_SCORE_BASE, s));
+        CHECK(cok_field_u32(L, c.record, COK_FIELD_EXPERIENCE) ==
+              cok_field_u32(K, k.record, COK_FIELD_EXPERIENCE));
+        CHECK(cok_field_u8(L, c.record, COK_FIELD_HIT_POINTS) ==
+              cok_field_u8(K, k.record, COK_FIELD_HIT_POINTS));
+        uint8_t class_ = cok_field_u8(K, k.record, COK_FIELD_CLASS);
+        CHECK(cok_field_u8(L, c.record, COK_FIELD_CLASS) == (class_ == 7 ? 1 : class_));
+        for (int n = 0; n < 7; ++n) {
+            CHECK(cok_field_u8_at(L, c.record, COK_FIELD_CLASS_LEVEL, n) ==
+                  cok_field_u8_at(K, k.record, COK_FIELD_CLASS_LEVEL, n == 1 ? 7 : n));
+            CHECK(cok_field_u8_at(L, c.record, COK_FIELD_FORMER_LEVEL, n) == 0);
+        }
+        CHECK(cok_field_u16_at(L, c.record, COK_FIELD_COINS, 4) ==
+              cok_field_u16_at(K, k.record, COK_FIELD_COINS, 4));
+        /* The spells: each one Death Knights knows known, by the map. */
+        if (cok_field_has_spells(K, k.record)) {
+            ++spells;
+            for (unsigned id = 1; id <= 0x72; ++id) {
+                if (cok_field_u8_at(K, k.record, COK_FIELD_KNOWN_SPELL, id) == 0) continue;
+                unsigned to = id;
+                for (size_t m = 0; m < I->spell_id_count; ++m)
+                    if (I->spell_ids[m][0] == id) to = I->spell_ids[m][1];
+                if (to > 128) continue;
+                CHECK(c.record[0x157 + (to - 1) / 8] >> (to - 1) % 8 & 1);
+                ++known;
+            }
+            static const int rows[4] = {0, 1, 3, 2};
+            for (int r = 0; r < 4; ++r)
+                for (int lv = 1; lv <= 8; ++lv)
+                    CHECK(cok_field_u8_at2(L, c.record, COK_FIELD_SPELLS_A_DAY, rows[r], lv) ==
+                          cok_field_u8_at2(K, k.record, COK_FIELD_SPELLS_A_DAY, r, lv));
+        }
+        size_t kept = 0;
+        for (size_t n = 0; n < k.item_count; ++n) {
+            uint8_t t = k.items[n][0x2e];
+            if (t == 0x36) continue;
+            CHECK(c.items[kept][0x28] == (t == 0x34 ? 0x33 : t));
+            CHECK(memcmp(c.items[kept] + 0x2c, k.items[n] + 0x37, 2) == 0); /* weight */
+            CHECK(c.items[kept][0x35] == k.items[n][0x39]);
+            ++kept;
+        }
+        CHECK(c.item_count == kept);
+        size_t ne = 0, ke = 0;
+        for (const cok_effect *e = c.effects; e != NULL; e = e->next) ++ne;
+        for (const cok_effect *e = k.effects; e != NULL; e = e->next) ++ke;
+        CHECK(ne == ke);
+        items += kept;
+        effects += ne;
+        /* Written as Dark Queen's file and read back the same. */
+        CHECK(cok_character_write(&c, R, out, names[i], error, sizeof error));
+        cok_character back;
+        CHECK(cok_character_read(&back, R, out, names[i], &types, error, sizeof error));
+        CHECK(memcmp(back.record, c.record, L->size) == 0 && back.item_count == c.item_count);
+        for (size_t n = 0; n < c.item_count; ++n)
+            CHECK(memcmp(back.items[n] + 0x28, c.items[n] + 0x28, 17) == 0);
+        cok_character_free(&back);
+        cok_character_free(&c);
+        cok_character_free(&k);
+        char path[600];
+        snprintf(path, sizeof path, "%s/%s.QCH", out, names[i]);
+        remove(path);
+    }
+    CHECK(spells > 0 && known > 0 && items > 0 && effects > 0);
+    CHECK(rmdir(out) == 0);
+}
+
+/* Dark Queen's import made up (dqk 604b:0b82): a Death Knights record of
+ * class 7 with levels in class 7; an item of type 0x36 dropped, 0x34 made
+ * 0x33, a scroll's three spells and another's power by their maps, the
+ * name's words by theirs; an effect's id; the spells. A short record or
+ * too many effects. */
+static void test_dark_queen_import_made(void)
+{
+    const cok_rules *R = &cok_rules_dark_queen;
+    const cok_character_layout *L = R->character;
+    static cok_item_types types;
+    char error[256], dir[512], path[700];
+    CHECK(test_temp_dir(dir, sizeof dir, "cok_party_dqk_made") != NULL);
+    uint8_t gam[0xd8] = {0};
+    memcpy(gam, "\003BOBXXXXXXXXXXXXX", 16);
+    gam[0x21] = 7;    /* class */
+    gam[0x45 + 7] = 9; /* its level */
+    gam[0x4d + 7] = 8; /* before a drain */
+    gam[0x45 + 2] = 3;
+    gam[0xd6] = 44;   /* hit points */
+    snprintf(path, sizeof path, "%s/BOB.PC", dir);
+    write_file(path, gam, sizeof gam);
+    uint8_t jnk[4 * 63] = {0};
+    jnk[0 * 63 + 0x2e] = 0x36;
+    jnk[1 * 63 + 0x2e] = 0x34;
+    jnk[1 * 63 + 0x3e] = 0x80;
+    uint8_t *scroll = jnk + 2 * 63, *sword = jnk + 3 * 63;
+    scroll[0x2e] = 0x27;
+    scroll[0x3c] = 0x82;
+    scroll[0x3d] = 0x04;
+    scroll[0x3e] = 0x07;
+    memcpy(sword, "\005SWORD", 6);
+    sword[0x29] = 0x5a;
+    sword[0x2e] = 0x11;
+    sword[0x2f] = 0x0c;
+    sword[0x30] = 0x26;
+    sword[0x31] = 0x0d;
+    sword[0x37] = 0x34;
+    sword[0x38] = 0x12;
+    sword[0x39] = 3;
+    for (int k = 0; k < 5; ++k) sword[0x32 + k] = (uint8_t)(0xa0 + k); /* +0x32-+0x36 */
+    sword[0x3a] = 0x66;
+    sword[0x3b] = 0x77;
+    sword[0x3d] = 0x02;
+    sword[0x3e] = 0x80;
+    snprintf(path, sizeof path, "%s/BOB.JNK", dir);
+    write_file(path, jnk, sizeof jnk);
+    uint8_t eff[9] = {0x09, 0x10, 0x00, 0x05, 0x01, 0x12, 0x34, 0x56, 0x78};
+    snprintf(path, sizeof path, "%s/BOB.EFF", dir);
+    write_file(path, eff, sizeof eff);
+    uint8_t wiz[0xdc] = {0};
+    wiz[0] = 0x11;
+    wiz[0x4a + 1] = 1; /* knows spell 2: 90 in Dark Queen */
+    wiz[0x4a + 0] = 1; /* and 1, kept */
+    for (int r = 0; r < 4; ++r) wiz[0xbc + 8 * r] = (uint8_t)(r + 1);
+    snprintf(path, sizeof path, "%s/BOB.WIZ", dir);
+    write_file(path, wiz, sizeof wiz);
+    cok_character c;
+    CHECK(cok_character_import(&c, R, dir, "BOB", "PC", &types, error, sizeof error));
+    uint8_t *r = c.record;
+    char name[16];
+    CHECK(cok_field_name(L, r, name) == 3 && strcmp(name, "BOB") == 0 && r[0x6b] == 0);
+    CHECK(r[0x5a] == 1 && r[0x5b] == 0); /* class 7 is 1 */
+    CHECK(cok_field_u8_at(L, r, COK_FIELD_CLASS_LEVEL, 1) == 9 &&
+          cok_field_u8_at(L, r, COK_FIELD_CLASS_LEVEL, 2) == 3 &&
+          cok_field_u8_at(L, r, COK_FIELD_UNDRAINED_LEVEL, 1) == 8 &&
+          cok_field_u8_at(L, r, COK_FIELD_FORMER_LEVEL, 0) == 0);
+    CHECK(cok_field_u8(L, r, COK_FIELD_HIT_POINTS) == 44);
+    CHECK(c.item_count == 3);
+    CHECK(c.items[0][0x28] == 0x33 && c.items[0][0x38] == 0);
+    CHECK(c.items[1][0x28] == 0x27 && c.items[1][0x36] == (90 | 0x80) &&
+          c.items[1][0x37] == 96 && c.items[1][0x38] == 105);
+    const uint8_t *s = c.items[2];
+    CHECK(s[4] == 0x5a && memcmp(s + 5, "SWORD", 6) == 0);
+    CHECK(s[0x28] == 0x11 && s[0x29] == 0x8a && s[0x2a] == 0x8b && s[0x2b] == 0x0d);
+    CHECK(s[0x2c] == 0x34 && s[0x2d] == 0x12 && s[0x35] == 3);
+    CHECK(s[0x2e] == 0x66 && s[0x2f] == 0x77);
+    for (int k = 0; k < 5; ++k) CHECK(s[0x30 + k] == 0xa0 + k);
+    CHECK(s[0x37] == 0x81 && s[0x38] == 0x80); /* an effect: 604b:1cc7's 2 */
+    CHECK(c.effects != NULL && c.effects->id == 0x4a && c.effects->duration == 0x10 &&
+          c.effects->value == 5 && c.effects->on_remove && c.effects->next == NULL);
+    CHECK(cok_field_u8_at(L, r, COK_FIELD_MEMORIZED, 0) == 102);
+    CHECK(r[0x157] == 0x01 && r[0x157 + 89 / 8] == 1 << 89 % 8);
+    CHECK(cok_field_u8_at2(L, r, COK_FIELD_SPELLS_A_DAY, 0, 1) == 1 &&
+          cok_field_u8_at2(L, r, COK_FIELD_SPELLS_A_DAY, 1, 1) == 2 &&
+          cok_field_u8_at2(L, r, COK_FIELD_SPELLS_A_DAY, 3, 1) == 3 &&
+          cok_field_u8_at2(L, r, COK_FIELD_SPELLS_A_DAY, 2, 1) == 4);
+    cok_character_free(&c);
+    /* Too many effects (0x8d bytes): none; a record short of 0xd8: no import. */
+    uint8_t many[0x8d] = {0x09};
+    snprintf(path, sizeof path, "%s/BOB.EFF", dir);
+    write_file(path, many, sizeof many);
+    CHECK(cok_character_import(&c, R, dir, "BOB", "PC", &types, error, sizeof error));
+    CHECK(c.effects == NULL && c.item_count == 3);
+    cok_character_free(&c);
+    remove(path);
+    snprintf(path, sizeof path, "%s/BOB.PC", dir);
+    write_file(path, gam, sizeof gam - 1);
+    CHECK(!cok_character_import(&c, R, dir, "BOB", "PC", &types, error, sizeof error));
+    CHECK(strstr(error, "604b:0cd7") != NULL);
+    static const char *const files[] = {"BOB.PC", "BOB.JNK", "BOB.WIZ"};
+    for (size_t i = 0; i < 3; ++i) {
+        snprintf(path, sizeof path, "%s/%s", dir, files[i]);
+        remove(path);
+    }
+    CHECK(rmdir(dir) == 0);
+}
+
+/* The six characters of Dark Queen's shipped saved game (SAVE/SAVGAMA.QSV:
+ * 0x400 bytes of variables, 15 more, their count, then each as a .QCH,
+ * dqk 604b:28f8) read as cok_character_from_bytes reads one: the
+ * original's party in memory once it had loaded them (DOSBox-X, Load
+ * from saved game A, 2026-10-27: each record at DS:c6e5's list, after its
+ * recompute 177e:0be2), hashed (FNV-1a over each record, its far pointers
+ * as 0, then its items' 17 bytes and its effects' 5), and what the port
+ * reads, the same. */
+static void test_dark_queen_party(void)
+{
+    static uint8_t data[8192];
+    size_t size = read_whole("DQKAssets/SAVE/SAVGAMA.QSV", data, sizeof data);
+    if (size == 0) {
+        puts("party: no DQKAssets/SAVE/SAVGAMA.QSV; Dark Queen's party not checked");
+        return;
+    }
+    const cok_rules *R = &cok_rules_dark_queen;
+    const cok_character_layout *L = R->character;
+    char error[256];
+    size_t at = 0x40f, count = (size_t)(data[0x40d] | data[0x40e] << 8);
+    CHECK(count == 6);
+    uint32_t hash = 0x811c9dc5u;
+    for (size_t i = 0; i < count; ++i) {
+        cok_character c;
+        size_t used;
+        CHECK(cok_character_from_bytes(&c, R, data + at, size - at, 0, &used, error,
+                                       sizeof error));
+        at += used;
+        for (size_t k = 0; k < L->size; ++k)
+            hash = (hash ^ (cok_field_pointer_at(L, (long)k) ? 0 : c.record[k])) * 0x01000193u;
+        for (size_t n = 0; n < c.item_count; ++n)
+            for (size_t k = 0; k < 17; ++k) hash = (hash ^ c.items[n][0x28 + k]) * 0x01000193u;
+        for (const cok_effect *e = c.effects; e != NULL; e = e->next) {
+            const uint8_t b[5] = {e->id, (uint8_t)e->duration, (uint8_t)(e->duration >> 8),
+                                  e->value, e->on_remove};
+            for (size_t k = 0; k < 5; ++k) hash = (hash ^ b[k]) * 0x01000193u;
+        }
+        cok_character_free(&c);
+    }
+    if (hash != 0x2077261du) fprintf(stderr, "Dark Queen's party: 0x%08x\n", hash);
+    CHECK(hash == 0x2077261du);
+    CHECK(at == 0xfbd); /* the item lists and vault after them */
+}
+
 int main(void)
 {
     test_former_classes();
@@ -968,6 +1371,11 @@ int main(void)
     test_import();
     test_death_knights_saved();
     test_import_saved();
+    test_dark_queen_files();
+    test_dark_queen_saved();
+    test_dark_queen_import();
+    test_dark_queen_import_made();
+    test_dark_queen_party();
     puts("party tests passed");
     return 0;
 }

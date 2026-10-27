@@ -837,6 +837,9 @@ bool cok_arena_party_icon(cok_adventure *game, cok_character *c, bool colours)
 
 bool cok_arena_join(cok_adventure *game, uint8_t file)
 {
+    /* A game whose combat icons are not ported (none named: Dark Queen's
+     * CPIC and CBODY, DARK-QUEEN.md's step 4) loads none. */
+    if (cok_game_rules(game)->archives.icons == NULL) return true;
     const cok_character_layout *L = cok_game_rules(game)->character;
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];

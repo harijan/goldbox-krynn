@@ -751,6 +751,10 @@ uint8_t *cok_adventure_record(cok_adventure *game, const char *name, unsigned fi
 /* The path of the archive name (<name>.DAX, or an HLIB library's whole
  * name) in the assets, or in the game's folders under them
  * (archives.folders): false, the path in the assets, where none holds it. */
+/* Read the item types (3e99:005b; dqk 64b2:0006) into game->item_types
+ * from the game's file of them (rules' files.item_types, in the assets or
+ * its folders). Returns false with game->error set. */
+bool cok_adventure_read_item_types(cok_adventure *game);
 bool cok_adventure_archive_path(const cok_adventure *game, const char *name, char *path,
                                 size_t size);
 /* Read a record by id from <name>.DAX, a full name such as "MON1CHA",

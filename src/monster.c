@@ -8,6 +8,7 @@
 #include "screen.h"
 #include "shop.h"
 #include "treasure.h"
+#include "vga.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,10 +21,7 @@ static void log_text(cok_adventure *game, const char *kind, const char *text)
 
 static void name_of(const cok_character_layout *L, const uint8_t *c, char out[16])
 {
-    uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
-    size_t length = stored > 15 ? 15 : stored;
-    memcpy(out, c + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
-    out[length] = '\0';
+    cok_field_name(L, c, out);
 }
 
 /* The file's number as Str(DS:5782) with a width of 1 makes it: its first
@@ -66,9 +64,79 @@ static bool monster_part(cok_adventure *game, const char *kind, uint8_t id, uint
     return false;
 }
 
+/* A monster from a library of whole monsters (dqk 604b:257c, with its
+ * second argument 0: the items from the shared pool): record id, a
+ * big-endian size, then PackBits of that many bytes (into a buffer of
+ * 0x269 on the original's stack): the record (the layout's size), a count
+ * of effects and of items (the item count's), the effects of 5 bytes (a
+ * 9-byte effect's without its next pointer), the items of the item
+ * record's file_size; the pointers cleared, the usable classes made again from the classes
+ * with levels. */
+static bool library_monster(cok_adventure *game, uint8_t id, cok_character *m)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    const cok_rules_item_record *I = &rules->item_record;
+    const char *name = rules->archives.monster_library;
+    size_t size;
+    bool no_file;
+    uint8_t *data = cok_adventure_find_record(game, name, id, &size, &no_file);
+    if (data == NULL) {
+        cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
+        return false;
+    }
+    enum { BUFFER = 0x269 };
+    uint8_t out[BUFFER] = {0};
+    size_t need = size >= 2 ? (size_t)(data[0] << 8 | data[1]) : 0;
+    bool fits = need >= (size_t)L->size + 2 && need <= BUFFER;
+    size_t got = fits ? cok_vga_unpack(data + 2, size - 2, out, need) : 0;
+    free(data);
+    size_t effects = out[L->size], items = out[L->size + 1],
+           end = L->size + 2 + effects * 5 + items * I->file_size;
+    if (!fits || got < need || end > need) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                           "%s record %u unpacks to %zu bytes of %zu, its monster's %zu "
+                           "(604b:257c's buffer 0x269)",
+                           name, id, got, need, end);
+        return false;
+    }
+    memcpy(m->record, out, L->size);
+    cok_field_set8(L, m->record, COK_FIELD_ITEM_COUNT, (uint8_t)items);
+    const uint8_t *p = out + L->size + 2;
+    for (size_t i = 0; i < effects; ++i, p += 5)
+        if (cok_character_add_effect(m, p[0], (uint16_t)(p[1] | p[2] << 8), p[3], p[4] != 0) ==
+            NULL) {
+            cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
+            return false;
+        }
+    for (size_t i = 0; i < items; ++i, p += I->file_size) {
+        uint8_t item[COK_ITEM_SIZE] = {0};
+        memcpy(item + I->file_at, p, I->file_size);
+        if (!cok_character_insert_item(m, m->item_count, item)) {
+            cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
+            return false;
+        }
+    }
+    for (int f = 0; f < COK_FIELD_COUNT; ++f)
+        if (cok_field_present(L, (cok_field)f) && L->field[f].pointer)
+            memset(m->record + cok_field_offset(L, (cok_field)f), 0,
+                   cok_field_size(L, (cok_field)f));
+    uint8_t usable = 0;
+    for (size_t k = 0; k < cok_field_count(L, COK_FIELD_CLASS_LEVEL); ++k)
+        if (cok_field_u8_at(L, m->record, COK_FIELD_CLASS_LEVEL, k) > 0)
+            usable = (uint8_t)(usable + rules->characters.class_usable[k]);
+    cok_field_set8(L, m->record, COK_FIELD_USABLE_CLASSES, usable);
+    return true;
+}
+
 bool cok_monster_read(cok_adventure *game, uint8_t id, cok_character *m)
 {
     memset(m, 0, sizeof *m);
+    if (cok_game_rules(game)->archives.monster_library != NULL) {
+        if (library_monster(game, id, m)) return true;
+        cok_character_free(m);
+        return false;
+    }
     const cok_rules_archives *a = &cok_game_rules(game)->archives;
     const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *data;

@@ -113,8 +113,9 @@ static void usage(const char *program)
             "  --at X,Y,DIR    party position and facing (0, 2, 4 or 6)\n",
             program, program, program);
     fputs("  --character FILE  add the character in FILE (CHRDATA1.SAV, BOB.WHO; Death\n"
-          "                  Knights' CHRDATA1.GAM, BOB.PC) to the party, with its other\n"
-          "                  files beside it; up to 8, after --party's\n"
+          "                  Knights' CHRDATA1.GAM, BOB.PC; Dark Queen's ROLANDOF.QCH) to\n"
+          "                  the party, with its other files beside it; up to 8, after\n"
+          "                  --party's\n"
           "  --set ADDR=VAL  set a variable before running, in hex (repeatable)\n"
           "  --effect M,ID,MINUTES,VALUE  give party member M (1 the first) effect ID\n"
           "                  for MINUTES (0 for good) with VALUE, its handler run when\n"
@@ -829,10 +830,10 @@ static int run(int argc, char **argv)
         }
     }
     /* Saved games, parties and the adventure loop are a playable game's (a
-     * game read headless only runs its blocks, and shows its title and its
-     * menu from --start-menu). */
-    if ((load != NULL || party != NULL || character_count > 0 || fixture > 0 || play) &&
-        rules->unplayable != NULL) {
+     * game read headless only runs its blocks, with the characters
+     * --character adds, and shows its title and its menu from
+     * --start-menu). */
+    if ((load != NULL || party != NULL || fixture > 0 || play) && rules->unplayable != NULL) {
         fprintf(stderr, "%s\n", rules->unplayable);
         return 2;
     }

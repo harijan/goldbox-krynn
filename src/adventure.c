@@ -1246,10 +1246,7 @@ static void print_text(cok_adventure *game, const char *text, uint8_t fg, bool c
 /* A character's name, from its Pascal string. */
 static void name_of(const cok_character_layout *L, const uint8_t *c, char out[16])
 {
-    uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
-    size_t length = stored > 15 ? 15 : stored;
-    memcpy(out, c + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
-    out[length] = '\0';
+    cok_field_name(L, c, out);
 }
 
 /* LOAD CHARACTER (2fd3:02e9): select member value & 0x7f, from 0, until
@@ -2738,7 +2735,8 @@ bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, con
     }
     snprintf(game->assets, sizeof game->assets, "%s", assets);
     /* A game drawn its own way loads its own at startup. */
-    if (cok_adventure_drawing(game) != NULL) return cok_adventure_drawing(game)->open(game);
+    if (cok_adventure_drawing(game) != NULL)
+        return cok_adventure_drawing(game)->open(game) && cok_adventure_read_item_types(game);
     if (cok_adventure_create_picture(game, &game->screen, 40, 200, 1, 0) != COK_PICTURE_OK) {
         fail(game, "out of memory");
         return false;
@@ -2788,11 +2786,27 @@ bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, con
         return false;
     }
     /* 3e99:005b also reads the item types. */
-    char path[sizeof game->assets + 32];
-    snprintf(path, sizeof path, "%s/%s", game->assets, rules->files.item_types);
-    if (!cok_item_types_read(path, &game->item_types, game->error, sizeof game->error))
-        return false;
+    if (!cok_adventure_read_item_types(game)) return false;
     return load_item_table(game);
+}
+
+bool cok_adventure_read_item_types(cok_adventure *game)
+{
+    const cok_rules_files *f = &cok_game_rules(game)->files;
+    const char *const *folders = cok_game_rules(game)->archives.folders;
+    char path[sizeof game->assets + 64];
+    /* In the assets, or in the game's folders under them (dqk DISK1). */
+    snprintf(path, sizeof path, "%s/%s", game->assets, f->item_types);
+    for (size_t i = 0; folders != NULL && folders[i] != NULL; ++i) {
+        FILE *file = fopen(path, "rb");
+        if (file != NULL) {
+            fclose(file);
+            break;
+        }
+        snprintf(path, sizeof path, "%s/%s/%s", game->assets, folders[i], f->item_types);
+    }
+    return cok_item_types_read_at(path, f->item_types_at, &game->item_types, game->error,
+                                  sizeof game->error);
 }
 
 void cok_adventure_close(cok_adventure *game)
@@ -2868,6 +2882,8 @@ static bool add_character(cok_adventure *game, const char *dir, const char *base
         return false;
     }
     cok_adventure_flush(game); /* 4b6d:15ce, in 11e5 before the recompute */
+    /* dqk 604b:05fd's message once it has read the character. */
+    if (character->contents_dropped) cok_adventure_log(game, "print", "SCROLLS DROPPED!");
     if (!cok_party_add(&game->party, cok_game_rules(game), character)) {
         cok_character_free(character);
         free(character);

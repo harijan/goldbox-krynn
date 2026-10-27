@@ -5,6 +5,7 @@ dqk_views.py and dqk_boot.py found equal to the original's). Skipped,
 saying so, where DQKAssets/ is not there (stdlib only)."""
 import hashlib
 import pathlib
+import re
 import struct
 import subprocess
 import tempfile
@@ -113,6 +114,72 @@ class DarkQueenTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stderr, "not yet ported: The Dark Queen of Krynn's opcode 0x36, "
                          "ADD NPC (dqk 6c70:307b)\n")
+
+    def test_characters(self):
+        # --character adds .QCH characters (dqk 604b:05fd): block 5's patrol
+        # compares a roll with the first one's class level 4 (0x0556) and
+        # prints its name (s[0401], a C string at +0x68).
+        save = ASSETS / "SAVE"
+        for character, lines in [
+                ("BALTHIRN.QCH", ["print: BALTHIR NOMOON",
+                                  "print:  HELPS YOU EVADE THE THENOL ARMY PATROL.",
+                                  "(done in block 5)"]),
+                ("ROLANDOF.QCH", ["print: THE THENOL ARMY PATROL ATTACKS YOU!"])]:
+            result = self.play("--character", save / character, "--character",
+                               save / "WALKERKE.QCH", "--start", "9695", "--set", "bf=0",
+                               "--keys", r"\r", ASSETS, 5)
+            self.assertEqual(result.stdout.splitlines()[:len(lines)], lines, result.stderr)
+        # A file that ends inside its items fails to load.
+        short = self.folder / "SHORT.QCH"
+        short.write_bytes((save / "ROLANDOF.QCH").read_bytes()[:0x1a0])
+        result = self.play("--character", short, ASSETS, 5)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("the items end at byte 416 (604b:05fd)", result.stderr)
+
+    def test_import_maps(self):
+        # Dark Queen's import of Death Knights' ids (rules_dark_queen.c's
+        # three maps) as its switches have them: 604b:1ea3's and 1bf1's
+        # tables of keys and handlers, 604b:1cc7's jump table for 2-0x79,
+        # each handler a mov si, imm (or xor si, si) and an id no case
+        # lists kept.
+        merged = self.folder / "DQK_FULL.EXE"
+        result = subprocess.run(["python3", ROOT / "tools" / "dqkmerge.py",
+                                 ASSETS / "DQK.EXE", merged], capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        exe = merged.read_bytes()
+        header = struct.unpack_from("<H", exe, 8)[0] * 16
+
+        def word(offset):
+            return struct.unpack_from("<H", exe, header + 0x604b * 16 + offset - 0x10000)[0]
+
+        def handler(at, x, end):
+            code = exe[header + 0x604b * 16 + at - 0x10000:][:3]
+            if code[0] == 0xbe:
+                return struct.unpack_from("<H", code, 1)[0] & 0xff
+            if code[:2] == b"\x33\xf6":
+                return 0
+            self.assertEqual(at, end)
+            return x
+
+        def cases(keys, count, end):
+            return {word(keys + 2 * i): handler(word(keys + 2 * (i + count)), word(keys + 2 * i),
+                                                end) for i in range(count)}
+
+        spells = cases(0x1ec2, 0x25, 0x201c)
+        words = cases(0x1c10, 0x14, 0x1cc2)
+        effects = {x: handler(word(0x1ce3 + 2 * (x - 2)), x, 0x1e9e) for x in range(2, 0x7a)}
+        source = (ROOT / "src" / "rules_dark_queen.c").read_text()
+
+        def table(name):
+            body = source.split(f"static const uint8_t {name}[][2] = {{")[1].split("};")[0]
+            return {int(a, 16): int(b, 16) for a, b in re.findall(r"\{(0x\w+), (0x\w+)\}", body)}
+
+        self.assertEqual(table("dark_queen_import_spells"),
+                         {x: y for x, y in spells.items() if x != y})
+        self.assertEqual(table("dark_queen_import_words"),
+                         {x: y for x, y in words.items() if x != y})
+        self.assertEqual(table("dark_queen_import_effects"),
+                         {x: y for x, y in effects.items() if x != y})
 
     def test_refused(self):
         # Saved games, parties and the adventure loop are not read yet.

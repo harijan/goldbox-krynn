@@ -281,10 +281,7 @@ bool cok_sheet_draw(cok_adventure *game)
     uint8_t *c = character->record;
     cok_adventure_screen(game, COK_SCREEN_SHEET);
     char name[20], status[256], gender[256], alignment[256], race[256], line[256];
-    uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
-    size_t length = stored > 15 ? 15 : stored;
-    memcpy(name, c + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
-    name[length] = '\0';
+    cok_field_name(L, c, name);
     cok_adventure_log(game, "print", name);
     uint8_t color = cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0 ? 12
                     : game->vm.mode == 5 && cok_field_u8(L, c, COK_FIELD_HOSTILE) == 1 ? 14
@@ -621,10 +618,7 @@ static bool heal(cok_adventure *game, cok_character *healer, bool cure)
     int8_t level = cok_field_s8_at(L, healer->record, COK_FIELD_CLASS_LEVEL, I->heal_class);
     bool healed = cok_character_heal(who, R, (uint8_t)(level * 2), true, game->vm.mode);
     char name[20], text[64];
-    uint8_t stored = cok_field_u8_at(L, who, COK_FIELD_NAME, 0);
-    size_t length = stored > 15 ? 15 : stored;
-    memcpy(name, who + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
-    name[length] = '\0';
+    cok_field_name(L, who, name);
     snprintf(text, sizeof text, "%s%s", name, healed ? I->feels_better : I->unaffected);
     cok_camp_notice(game, text); /* 65cd:19c5 */
     if (cok_character_add_effect(healer, I->heal_effect, I->heal_minutes, 0, false) == NULL)

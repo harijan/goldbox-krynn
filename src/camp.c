@@ -42,10 +42,7 @@ static void draw(cok_adventure *game, const char *text, int x, int y, uint8_t fg
 
 static void name_of(const cok_character_layout *L, const uint8_t *c, char out[16])
 {
-    uint8_t stored = cok_field_u8_at(L, c, COK_FIELD_NAME, 0);
-    size_t length = stored > 15 ? 15 : stored;
-    memcpy(out, c + cok_field_offset_at(L, COK_FIELD_NAME, 1), length);
-    out[length] = '\0';
+    cok_field_name(L, c, out);
 }
 
 /* Draw c's name at x, y: light red if it cannot act, else light cyan
