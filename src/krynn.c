@@ -1540,6 +1540,10 @@ int main(int argc, char **argv)
         fprintf(stderr, "--woof: %s has no Woof (its debug mode)\n", f.rules->text.name);
         return 2;
     }
+    if (f.rules->unplayable != NULL) {
+        fprintf(stderr, "%s\n", f.rules->unplayable);
+        return 1;
+    }
     if (assets == NULL) assets = f.rules->assets;
     if (import == NULL) import = saves;
     if (strlen(saves) >= sizeof game.save_dir || strlen(import) >= sizeof game.import_dir) {

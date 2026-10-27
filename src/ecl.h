@@ -19,7 +19,10 @@
 
 enum {
     COK_ECL_BASE = 0x8000,      /* Address of the first code byte. */
-    COK_ECL_CODE_SIZE = 0x1e00, /* Code buffer, DS:4b34. */
+    COK_ECL_CODE_SIZE = 0x1e00, /* Code buffer, DS:4b34 (Champions' and Death Knights'). */
+    /* The largest a game's buffer is (rules->ecl.code_size): Dark Queen's
+     * 0x2ee3 (dqk 64b2:0131, DS:ae5c). */
+    COK_ECL_CODE_MAX = 0x2ee3,
     COK_ECL_MAX_OPERANDS = 64,  /* Operand arrays, DS:736e/73ae/73ee. */
     COK_ECL_MAX_STRINGS = 32,   /* String slots from DS:7430, 256 bytes each. */
     COK_ECL_MAX_CALLS = 256,    /* GOSUB depth; the original's list is unbounded. */
@@ -62,6 +65,10 @@ typedef enum {
     COK_ECL_MUSIC,          /* 0x2c: play a song */
     COK_ECL_ASK_MENU,       /* 0x31: HORIZONTAL MENU after "what do you do" */
     COK_ECL_STOCK,          /* 0x3c: a shop's items from ITEM0's lists */
+    /* Dark Queen's (dqk 5f07:0d34's handlers): */
+    COK_ECL_LOAD_MAP,       /* 0x21: LOAD FILES with a map and a wall set (6c70:1dec) */
+    COK_ECL_FIND_NPC,       /* 0x37: a member by name (6c70:31e8) */
+    COK_ECL_STOCK_TREASURE, /* 0x3c: treasure from the item lists (6c70:335e) */
     COK_ECL_MEANINGS
 } cok_ecl_opcode;
 
@@ -168,6 +175,10 @@ typedef enum {
     COK_ECL_SPECIAL_B9,
     COK_ECL_SPECIAL_C059,    /* vm->c059, c05f: the backdrop's colours (DS:72d0, 72d1) */
     COK_ECL_SPECIAL_C05F,
+    COK_ECL_SPECIAL_ZERO,    /* reads 0 (dqk 0x10: whether a member has effect 5, 177e:1734;
+                              * none, without characters, step 2) */
+    COK_ECL_SPECIAL_HOST,    /* reads what hooks.character_value gives for its address
+                              * (dqk 0x3d: the square's backdrop, 8a8b:0807) */
 } cok_ecl_special;
 
 /* How a character field reads or is written (cok_rules_character_var). */
@@ -287,7 +298,9 @@ typedef struct {
 } cok_ecl_hooks;
 
 struct cok_ecl {
-    uint8_t code[COK_ECL_CODE_SIZE]; /* Addresses 0x8000-0x9dff; scripts write here. */
+    /* Addresses from 0x8000, the game's code_size of them (0x8000-0x9dff in
+     * Champions); scripts write here. */
+    uint8_t code[COK_ECL_CODE_MAX];
     size_t size;                     /* Loaded bytes. */
     uint8_t block;                   /* DS:8846. */
     uint8_t file;                    /* ECL file number, DS:5782; see 0x7f12. */
@@ -483,7 +496,8 @@ static inline void cok_ecl_restore_selection(cok_ecl *vm)
 int cok_ecl_operand_count(const cok_rules *rules, unsigned opcode);
 /* Operands a failed IF skips with opcode (3775:1e74). Champions' table
  * differs from the handlers for the list opcodes (none), ECL CLOCK, ADD NPC
- * and PROTECTION (one each). */
+ * and PROTECTION (one each). COK_ECL_LIST where the game skips a list
+ * opcode's whole list (its skip_list: dqk 6c70:1385). */
 int cok_ecl_skip_count(const cok_rules *rules, unsigned opcode);
 /* Decode the instruction at address without running it, leaving vm->ip on
  * the next one. String operands read variables as a run would. */

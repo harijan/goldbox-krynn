@@ -75,7 +75,7 @@ static void test_import_layout(void)
 static void test_lookup(void)
 {
     CHECK(cok_rules_find("death-knights") == R);
-    CHECK(strcmp(cok_rules_names(), "champions, death-knights") == 0);
+    CHECK(strcmp(cok_rules_names(), "champions, death-knights, dark-queen") == 0);
     CHECK(strcmp(R->assets, "DKKAssets") == 0);
     CHECK(strcmp(R->text.name, "Death Knights of Krynn") == 0);
     /* The character record: 216 bytes in its files, the spells' block of

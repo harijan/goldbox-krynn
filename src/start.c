@@ -695,6 +695,9 @@ void cok_start_redraw(cok_adventure *game)
 cok_ecl_status cok_start_game(cok_adventure *game, bool woof)
 {
     cok_ecl *vm = &game->vm;
+    /* A game drawn its own way runs its own title. */
+    const cok_drawing *own = cok_adventure_drawing(game);
+    if (own != NULL) return own->start(game);
     cok_start_startup(game);
     game->woof = woof;
     if (!woof) cok_start_title(game);

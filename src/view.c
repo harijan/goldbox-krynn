@@ -1,6 +1,7 @@
 #include "view.h"
 
 #include <assert.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* The buffer the original draws into sits one unit right and one cell down
@@ -50,6 +51,52 @@ void cok_view_free(cok_view *view)
     for (size_t i = 0; i < COK_VIEW_SKY_PICTURES; ++i) cok_picture_free(&view->sky[i]);
     for (size_t i = 0; i < COK_VIEW_GROUND_PICTURES; ++i) cok_picture_free(&view->ground[i]);
     cok_picture_free(&view->back);
+    free(view->geo);
+    view->geo = NULL;
+    view->width = view->height = 0;
+}
+
+bool cok_view_set_geo(cok_view *view, const uint8_t *record, size_t size)
+{
+    if (size < 8 || size != (size_t)record[0] * record[1] * 4 + 8) return false;
+    uint8_t *geo = malloc(size - 8 == 0 ? 1 : size - 8);
+    if (geo == NULL) return false;
+    memcpy(geo, record + 8, size - 8);
+    free(view->geo);
+    view->geo = geo;
+    view->height = record[0];
+    view->width = record[1];
+    memcpy(view->geo_header, record, 8);
+    return true;
+}
+
+bool cok_view_inside(const cok_view *view, int x, int y)
+{
+    if (view->geo != NULL) return x >= 0 && y >= 0 && x < view->width && y < view->height;
+    return x >= 0 && y >= 0 && x < COK_VIEW_SIZE && y < COK_VIEW_SIZE;
+}
+
+/* A square of a map of its own size, at the far edge where off it
+ * (dqk 8a8b:0628). */
+static size_t geo_index(const cok_view *view, int x, int y)
+{
+    if (x > view->width - 1) x = 0;
+    else if (x < 0) x = view->width - 1;
+    if (y > view->height - 1) y = 0;
+    else if (y < 0) y = view->height - 1;
+    return (size_t)y * view->width + (size_t)x;
+}
+
+static uint8_t geo_plane(const cok_view *view, unsigned plane, size_t i)
+{
+    return view->geo[(size_t)plane * view->width * view->height + i];
+}
+
+uint8_t cok_view_backdrop_choice(const cok_view *view, int x, int y)
+{
+    if (view->geo == NULL || !cok_view_inside(view, x, y)) return 0;
+    uint8_t b = geo_plane(view, 3, geo_index(view, x, y));
+    return (uint8_t)((b & 8) >> 2 | (b & 2) >> 1);
 }
 
 bool cok_view_set_map(cok_view *view, const uint8_t *record, size_t size)
@@ -106,6 +153,16 @@ static int square_index(const cok_view *view, int x, int y)
 
 uint8_t cok_view_wall(const cok_view *view, unsigned dir, int x, int y)
 {
+    if (view->geo != NULL) {
+        size_t g = geo_index(view, x, y);
+        switch (dir) {
+        case 0: return geo_plane(view, 0, g) >> 4;
+        case 2: return geo_plane(view, 0, g) & 15;
+        case 4: return geo_plane(view, 1, g) >> 4;
+        case 6: return geo_plane(view, 1, g) & 15;
+        default: return 0; /* dqk 8a8b:0628 returns an unset value. */
+        }
+    }
     int i = square_index(view, x, y);
     if (i < 0) return 0;
     switch (dir) {
@@ -119,12 +176,21 @@ uint8_t cok_view_wall(const cok_view *view, unsigned dir, int x, int y)
 
 uint8_t cok_view_square(const cok_view *view, int x, int y)
 {
+    if (view->geo != NULL)
+        return cok_view_inside(view, x, y) || view->wrap ? geo_plane(view, 2, geo_index(view, x, y))
+                                                         : 0;
     int i = square_index(view, x, y);
     return i < 0 ? 0 : view->map[0x200 + i];
 }
 
 uint8_t cok_view_passage(const cok_view *view, unsigned dir, int x, int y)
 {
+    if (view->geo != NULL) {
+        if (!cok_view_inside(view, x, y) && !view->wrap) return 0;
+        if (cok_view_wall(view, dir, x, y) == 0) return 1;
+        if (dir > 6) return 0;
+        return (uint8_t)((unsigned)geo_plane(view, 3, geo_index(view, x, y)) >> dir & 1u);
+    }
     int i = square_index(view, x, y);
     if (i < 0) return 0;
     if (cok_view_wall(view, dir, x, y) == 0) return 1;

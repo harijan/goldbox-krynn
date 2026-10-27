@@ -68,25 +68,25 @@ and levels, saving throws, spells per day, item words, stock, treasure).
 | Files | In Dark Queen |
 | --- | --- |
 | Containers | No DAX. `.TLB` (pictures) and `.GLB` (data) are "HLIB" libraries, uncompressed, with optional id maps and nested libraries. |
-| Pictures | 256 colours, a byte a pixel, stored plane by plane (pixel x in plane x%4); raw, PackBits (DAX's run-length scheme), transparent runs, and two formats not yet decoded (0x11, 0x19: 7 records). 1,820 of 1,827 decode. |
-| Palettes | Records of 8-bit RGB plus an EGA colour each, partial per library (combat icons 0x90-0xff, frame 0x10-0x1f, pictures 0x20-0xff); faded and flushed by changed range. |
+| Pictures | 256 colours, a byte a pixel, stored plane by plane (pixel x in plane x%4); raw, raw with 0xff transparent, ANDed and XORed on (0x11), PackBits (0x80 doing nothing), transparent runs, and records drawn from the library's others at their places (0x19, `dqk 269b:0aec`); drawn at a place less the record's hotspot (its header's row and column, `269b:0a9c`). All 1,827 decode. |
+| Palettes | Records of 8-bit RGB plus an EGA colour each, partial per library (combat icons 0x90-0xff, frame 0x10-0x1f, pictures 0x20-0xff), some with colour cycles (`261b:05be`); set at once, no fades, and flushed by changed range (`261b:0455`). |
 | Title, ending | `TITLE.TLB` 10 scenes, `FINAL.TLB` 3: palettes, 320×200 backdrops, overlays and animation frames. |
 | Pictures by id | PICA/B/C (67 pictures, 88×88 plus animation), BIGPIC (3 overland maps 304×120), SPRIT (32, 3 frames each), CPIC (190 combat icons, id and id+0x80), CBODY (98), COMSPR (46); no CHEAD. |
 | Combat tiles | DUNGCOM 6 and WILDCOM 4 sets of 24×24 tiles, each with a palette. |
 | 3D view | No WALLDEF and no 8×8 tile composition: 17 wall sets (8X8DB/C) of 47 pre-drawn perspective pieces each; BACK 20 backdrops, 88×88. FRAME, GEN, ALWAYS (icons, base palette), TOPVIEW (overhead cells). |
-| ECL | `ECL.GLB`, 47 blocks (ids 1-67), without DAX's `88 13` header, loaded at 0x8000 with the same five vectors, operand types and 6-bit strings. Blocks reach 12,000 bytes (the port's buffer is 0x1e00). Death Knights' opcode table decodes all 41,390 instructions (0x00-0x41) except LOAD FILES and LOAD PIECES, which take one operand fewer; 52 IF skips disagree, so some opcodes changed meaning (the handler table is `dqk 5f07:0d34`). |
-| ECL variables | Bytes, as in Death Knights, but in a new flat range 0x0001-0x05ff (strings at 0x0401; nothing at 0x4b00, 0x7a00, 0x7c00); some operands address the block itself. |
-| Maps | `GEO.GLB`, 20 maps of their own size (10×10 to 39×20 and 22×34), 4 bytes a cell; not 1026 bytes. |
-| Monsters | `MONCHA.GLB`, 98, each run-length compressed (88-508 bytes): items and effects inside; no MON*WIZ. |
+| ECL | `ECL.GLB`, 47 blocks (ids 1-67), without DAX's `88 13` header, loaded at 0x8000 with the same five vectors, operand types and 6-bit strings. Blocks reach 12,000 bytes (its buffer 0x2ee3, `64b2:0131`). Its handlers' table (`dqk 5f07:0d34`) decodes 44,780 instructions (0x00-0x41): Death Knights' operand counts but LOAD FILES with two (a map and a wall set) and 0x37 finding a member by name (Death Knights' LOAD PIECES, 3); CHECKPARTY does nothing, 0x3c gives treasure. Death Knights' table's 52 IF skips that disagreed were its own (no list skipped, SETUP MONSTERS 3): Dark Queen's skip loads what the handler does, lists whole (`6c70:1385`). |
+| ECL variables | Bytes, as in Death Knights, but in a new flat range: 0x0001-0x0400 the 1 KB at far `DS:b20f` (the saved game's first), 0x0401-0x0800 the selected character's fields (`6c70:040d`; its name s[0401]); nothing at 0x4b00, 0x7a00, 0x7c00; some operands address the block itself (from 0x8000). |
+| Maps | `GEO.GLB`, 20 maps of their own size (10×10 to 39×20 and 22×34): 8 bytes (height, width, the wall sets of three slots, three backdrops), then four planes of a byte a square (`8a8b:12e3`); not 1026 bytes. |
+| Monsters | `MONCHA.GLB`, 98, each PackBits (`10d7:0a1c`, read by `604b:257c` in parts of known sizes: not decoded yet): items and effects inside; no MON*WIZ. |
 | Characters | `SAVE\*.QCH`, 482-517 bytes, variable: a fixed part to about 0x18d, then 17-byte items and 5-byte effects. Death Knights' `.PC` characters import (`dqk 604b:054a`). |
 | Saved games | `SAVGAM?.QSV`, 7,965 bytes: 1 KB of variables, the six characters as `.QCH` images, then item lists and a vault-like block not yet decoded. `VAULT?.DAT` 866 bytes (49 items). |
 | Items | 17-byte entries everywhere; `ITEM.DAT` 254 of them (like Death Knights' ITEM0.DAX); `ITEMS.DAT` Champions' 2050-byte table without its header, contents changed. |
 | `DQK.CFG` | Binary, 144 bytes (devices, Death Knights' save path, the game's path), in `DISK1\`. |
-| Font | `GAME.FON`, 1,152 bytes (8×12 for 96 characters or 8×8 for 144: the two surveys disagree); the earlier games draw text from 8X8D tiles. |
+| Font | `GAME.FON`, 1,152 bytes: 8×12 for the 96 characters 0x20-0x7f, of which VGA draws rows 0, 1, 3, 4, 6, 8, 9 and 10 in an opaque cell of 8×8 (`22b7:0c96`); the earlier games draw text from 8X8D tiles. |
 | Music | XMIDI songs, three a device in its own arrangement (AdLib, MT-32, Tandy, speaker), played by Miles AIL v2 drivers (`*.ADV`); `INSTR.AD` the AdLib timbres. |
 | Sound effects | 13 effects: `SFXDQ.VOC` (4-bit Creative ADPCM, Sound Blaster) and `SOUNDS.GLB` (4-bit samples the speaker plays by pulse width). |
 
-**Screen.** Plain VGA mode 13h, 320×200 in 256 colours; EGA and Tandy
+**Screen.** VGA's 320×200 in 256 colours, unchained (`65fa:06c3`, `22b7:0a0b`: two pages flipped); EGA and Tandy
 (16 colours, each picture's colours quantised per register) are installable;
 no CGA. The layout keeps the earlier games' grammar with new frame art, boxed
 hotkey buttons and the bottom prompt bar.
@@ -137,12 +137,13 @@ The order follows the agreed lessons: get the real game's data on screen early,
 keep the gates light, and check against the original in DOSBox-X from the
 start.
 
-0. **Tools** (`dqk-box`): a Dark Queen profile in the DOSBox-X harness
+0. **Tools** (done, 2026-10-26: `dqk-box`): a Dark Queen profile in the DOSBox-X harness
    (`DQK.EXE`, its data segment from `DQK_FULL.EXE`, screenshots compared in
    RGB rather than 16 fixed colours, the copy protection answered or patched in
    the box only); the routine matcher and the HLIB reader moved from the
    scratchpad into `tools/`; `make dqk-checks`.
-1. **Read Dark Queen headless** (`dqk-read`): `--game dark-queen`; the HLIB
+1. **Read Dark Queen headless** (done, 2026-10-26: `dqk-read`; MONCHA's
+   records moved to step 2): `--game dark-queen`; the HLIB
    reader; the pictures, palettes and font; ECL.GLB with the larger buffer,
    its opcode table and variable space; maps of any size; its 3D view from
    pre-drawn pieces. `eclplay` shows its scripts, text and views, agreeing with

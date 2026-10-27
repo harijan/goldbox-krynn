@@ -13,8 +13,9 @@
  * chosen once at startup (--game) and reached through cok_game_rules (and,
  * in the tools without a game, passed in). Shared code reads what it needs
  * here and never asks which game it is. Champions of Krynn's is
- * cok_rules_champions, Death Knights of Krynn's cok_rules_death_knights
- * (read headless so far); see docs/games.md's "Games".
+ * cok_rules_champions, Death Knights of Krynn's cok_rules_death_knights,
+ * The Dark Queen of Krynn's cok_rules_dark_queen (read headless so far);
+ * see docs/games.md's "Games".
  *
  * The descriptor holds the game's files and file sets, the saved games'
  * and characters' names, the titles, the character record's layout
@@ -47,8 +48,20 @@ typedef struct {
     uint8_t record;
 } cok_rules_record;
 
+/* How a game's archives hold their records: DAX archives (dax.h), a byte
+ * id a record, compressed, a file for each ECL file (<stem><file>.DAX);
+ * or Dark Queen's HLIB libraries (hlib.h), uncompressed, one file for
+ * every ECL file, the stem its whole name (extension too: "GEO.GLB"). */
+typedef enum { COK_ARCHIVE_DAX, COK_ARCHIVE_HLIB } cok_archive_format;
+
 /* The archives the game reads, as stems (see above). */
 typedef struct {
+    cok_archive_format format;
+    /* The folders under the assets' that its files are looked for in after
+     * the assets' own, NULL-ended (Dark Queen's DISK1-DISK3, where its
+     * installed game keeps them: it reads disk1\\dqk.cfg, DS:608e); NULL
+     * for none. */
+    const char *const *folders;
     /* The ECL files, ECL<file> (load_block's 3775:0361). */
     const char *ecl;
     /* The 3D maps, GEO<file> (69ea:130d). */
@@ -254,8 +267,10 @@ typedef struct {
     int8_t operands;
     uint8_t header;
     /* The operands a failed IF skips with it (3775:1e74), which may differ
-     * from the handler's. */
+     * from the handler's; for a list opcode, skip_list: the whole list, as
+     * its handler loads it (dqk 6c70:1385), rather than skip operands. */
     uint8_t skip;
+    bool skip_list;
     /* The game's handler, where the port does not carry it out yet (it
      * needs what is not ported: characters, monsters, combat, spells),
      * as the message cites it ("dkk 3632:16ec"); NULL where it does. The
@@ -315,6 +330,28 @@ typedef struct {
     /* The addresses CALL knows, and what each does; it does nothing for
      * others. */
     cok_rules_call calls[5];
+    /* Where the variables lie (3775:0718's stores; dqk 6c70:0377), each a
+     * first address and a size, 0 for none: the area's (vm->mem4b00,
+     * 0x4b00-0x4eff; dqk 0x0001-0x0400, the 1 KB at far DS:b20f), the
+     * game's (mem7c00, 0x7c00-0x7fff, beneath the selected character's
+     * fields) and the scratch (mem7a00, 0x7a00-0x7bff); the block's
+     * buffer from 0x8000 (DS:4b34's 0x1e00, dqk DS:ae5c's 0x2ee3: 64b2:0131
+     * clears it) and the bytes a block's record holds before its code
+     * (DAX's two, 88 13; none in Dark Queen's ECL.GLB, 6c70:0118); and the
+     * address whose string is the selected character's name (0x7c00; dqk
+     * 0x401, 6c70:0c18). Another address reads 0 and a store to it does
+     * nothing, but for the special ones below. */
+    uint16_t area_first, area_size, game_first, game_size, scratch_first, scratch_size;
+    uint16_t code_size;
+    uint8_t block_header;
+    uint16_t name_address;
+    /* Whether a store to a special address writes the variable there too
+     * (dqk 6c70:0817 after 6c70:0728's), rather than only the state. */
+    bool special_stores_kept;
+    /* Whether COMPARE AND finds a pair whose first is a string unequal
+     * always (dqk 5f07:05be compares the slots' addresses, not their
+     * strings, testing the first's type alone). */
+    bool compare_and_unequal_strings;
     /* The bytes a variable address holds: 2 where each holds a word
      * (Champions, 3775:0e06), 1 where each holds a byte and an operand of
      * type 2 and up reads and writes a little-endian word over two
@@ -331,6 +368,12 @@ typedef struct {
         uint16_t value;
     } *start;
     unsigned start_count;
+    /* And addresses no code names otherwise that it sets, count of them
+     * (dqk 6c70:0001: 0x2b and 0x2c to 0). */
+    const struct cok_rules_address_value {
+        uint16_t address, value;
+    } *start_stores;
+    unsigned start_store_count;
     /* The addresses that read the game's state (3775:0fca's), and those a
      * store to sets it (3775:0e06's), count of each; another address
      * outside the variables' blocks reads 0 and a store to it does
@@ -1789,11 +1832,22 @@ typedef struct {
     const char *camp;
 } cok_rules_text;
 
+/* How a game draws: the earlier games' 16 colours from 8x8 tiles, or The
+ * Dark Queen of Krynn's VGA in 256 colours by routines of its own
+ * (dark_queen.c; adventure.h's cok_drawing). */
+typedef enum { COK_DRAWING_TILES, COK_DRAWING_DARK_QUEEN } cok_drawing_routine;
+
 typedef struct cok_rules {
     /* --game's name. */
     const char *id;
     /* The assets' directory when --assets does not name one. */
     const char *assets;
+    /* Why krynn cannot play the game, and eclplay not from its start menu
+     * or a saved game, for a game the port reads headless only so far
+     * (Dark Queen's); NULL for one it plays. */
+    const char *unplayable;
+    /* How it draws (cok_drawing_routine). */
+    cok_drawing_routine drawing;
     cok_rules_text text;
     cok_rules_archives archives;
     cok_rules_files files;
@@ -1826,7 +1880,7 @@ typedef struct cok_rules {
     cok_rules_creation creation;
 } cok_rules;
 
-extern const cok_rules cok_rules_champions, cok_rules_death_knights;
+extern const cok_rules cok_rules_champions, cok_rules_death_knights, cok_rules_dark_queen;
 
 /* A named spell's or effect's id in the game (spells.h), which it must
  * have. */

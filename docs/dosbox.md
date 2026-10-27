@@ -307,15 +307,16 @@ scripts the same way, `dkk_fight.py`, `dkk_levels.py` and
 (`dkk_fight-spells`: its own box, workdir and log): 35 scripts in about 3
 minutes, 10 at a time, all as recorded twice running (2026-10-23).
 `make dqk-checks` (`run_all.py --set dqk`, its out `build/dqk-checks`;
-needing only `build/DQK_FULL.EXE`, as no port build is compared yet) runs
-The Dark Queen of Krynn's `dqk_*` scripts: `dqk_boot.py` (about a
-minute) records the original's start, from the logos to the first 3D
-view, its screens as `OUT/dqk_boot/original/NN-NAME.png` and a few of its
-variables in `memory.json` (`dqk_lib.py`: the adapter, the party's list,
-the protection's question, the ECL's buffer, address and opcode), and
-judges the original's run alone until `--game dark-queen` gives it a port
-side (its `port()`; `MASKS` the areas two runs of the original differ
-in). They
+needing `build/DQK_FULL.EXE` and `build/eclplay`) runs The Dark Queen of
+Krynn's `dqk_*` scripts: `dqk_boot.py` (about a minute) records the
+original's start, from the logos to the first screen of the game, its
+screens as `OUT/dqk_boot/original/NN-NAME.png` and a few of its variables
+in `memory.json` (`dqk_lib.py`: the adapter, the party's list, the
+protection's question, the ECL's buffer, address and opcode), judges that
+the original's run reached each step, and compares its first screen of
+the game with `eclplay --game dark-queen`'s (its `port()`; `MASKS` the
+areas not compared); `dqk_views.py` (about a minute) the title, texts and
+the 3D view (see [Checks against the original](checks.md)). They
 took 80 minutes one after another at their cycles (`dkk_fight.py` 40),
 10 side by side, and 3 with Death Knights' boxes turbo too (`GAMES`), its
 `dkk_views.py` typing the start menu's keys as the game waits

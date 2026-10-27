@@ -160,7 +160,7 @@ static void save(player *p, const char *path)
     cok_image image = cok_picture_frame(&p->game->screen, 0);
     /* The mouse's cursor where its driver draws it. */
     static uint8_t pixels[320 * 200 / 2];
-    if (image.width == 320 && image.height == 200) {
+    if (image.width == 320 && image.height == 200 && !image.vga) {
         memcpy(pixels, image.pixels, sizeof pixels);
         cok_mouse_draw(&p->game->mouse.driver, pixels, p->game->display == COK_DISPLAY_CGA);
         image.pixels = pixels;
@@ -664,6 +664,14 @@ static bool number(const char *text, int base, unsigned long max, unsigned long 
 
 static player p;
 
+/* The address a store to sets what, where the game has one; else 0. */
+static uint16_t special_store(const cok_rules *rules, cok_ecl_special what)
+{
+    for (unsigned k = 0; k < rules->ecl.store_count; ++k)
+        if (rules->ecl.stores[k].what == what) return rules->ecl.stores[k].address;
+    return 0;
+}
+
 static int run(int argc, char **argv)
 {
     p = (player){.keys = cok_key_script_start(NULL), .owed = -1};
@@ -789,7 +797,7 @@ static int run(int argc, char **argv)
                    number(argv[i + 1], 10, 4, &vector)) {
             ++i;
         } else if (strcmp(option, "--start") == 0 && has_value &&
-                   number(argv[i + 1], 16, 0x9dff, &start) && start >= COK_ECL_BASE) {
+                   number(argv[i + 1], 16, 0xffff, &start) && start >= COK_ECL_BASE) {
             ++i;
         } else if (strcmp(option, "--at") == 0 && has_value &&
                    sscanf(argv[i + 1], "%ld,%ld,%ld", &x, &y, &dir) == 3) {
@@ -819,6 +827,28 @@ static int run(int argc, char **argv)
             usage(argv[0]);
             return 2;
         }
+    }
+    /* Saved games, parties and the adventure loop are a playable game's (a
+     * game read headless only runs its blocks, and shows its title and its
+     * menu from --start-menu). */
+    if ((load != NULL || party != NULL || character_count > 0 || fixture > 0 || play) &&
+        rules->unplayable != NULL) {
+        fprintf(stderr, "%s\n", rules->unplayable);
+        return 2;
+    }
+    /* --start inside the game's ECL buffer (0x8000-0x9dff in Champions,
+     * to 0xaee2 in Dark Queen). */
+    if (start >= COK_ECL_BASE + (unsigned long)rules->ecl.code_size) {
+        usage(argv[0]);
+        return 2;
+    }
+    /* --at stores the square where the game's special addresses take it
+     * (0xc04b and 0xc04c; Dark Queen's 0x34 and 0x35). */
+    uint16_t at_x = special_store(rules, COK_ECL_SPECIAL_X),
+             at_y = special_store(rules, COK_ECL_SPECIAL_Y);
+    if (placed && (at_x == 0 || at_y == 0)) {
+        fprintf(stderr, "--at: %s has no address the square is stored at\n", rules->text.name);
+        return 2;
     }
     if (woof && rules->saves.debug == NULL) {
         /* A game with no debug mode reads no Woof (dkk's main reads no
@@ -865,7 +895,11 @@ static int run(int argc, char **argv)
     bool found = cok_config_find(rules, config_option, saves, argv[i], config_path, config_write,
                                  sizeof config_path);
     bool config_read;
-    if (front) {
+    /* A game read headless only has no setup ported (Dark Queen's binary
+     * DQK.CFG and its installer, DARK-QUEEN.md's step 2). */
+    if (front && rules->setup.display == NULL) {
+        config_read = false;
+    } else if (front) {
         static cok_crt crt;
         crt.log = crt_log;
         crt.context = &p;
@@ -909,7 +943,9 @@ static int run(int argc, char **argv)
         }
     }
     if (!display_given) display = config.display;
-    if (!display_given && !config_read)
+    /* A game drawn in VGA alone, with no setup ported, has no display to
+     * ask for. */
+    if (!display_given && !config_read && rules->setup.display != NULL)
         cok_config_missing(rules, "display", config_option, saves, argv[i]);
     /* The drivers take the game's calls whether or not they render (their
      * state, such as the DOS clock's speed, is the game's); only --wav
@@ -1049,8 +1085,8 @@ static int run(int argc, char **argv)
     }
     game.vm.file = (uint8_t)file;
     if (placed) {
-        cok_ecl_store(&game.vm, 0xc04b, (uint16_t)x);
-        cok_ecl_store(&game.vm, 0xc04c, (uint16_t)y);
+        cok_ecl_store(&game.vm, at_x, (uint16_t)x);
+        cok_ecl_store(&game.vm, at_y, (uint16_t)y);
         game.vm.direction = (uint8_t)(dir & 6);
         /* The square's byte (DS:6d89) for a load vector run before any
          * step; a block entered recomputes it anyway. */

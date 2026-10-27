@@ -5,6 +5,8 @@
 #include "camp.h"
 #include "dax.h"
 #include "cast.h"
+#include "dark_queen.h"
+#include "hlib.h"
 #include "cloud.h"
 #include "items.h"
 #include "magic.h"
@@ -134,15 +136,78 @@ cok_keyboard cok_adventure_keyboard_raw(cok_adventure *game)
 static void menu_special(uint8_t scan, void *context);
 static int menu_read(cok_adventure *game, const char *prompt, const char *items, bool *special);
 
-/* Read a record by id from <name>.DAX (169c:088e); *no_file, if given, is
- * set when the archive cannot be opened. */
+const cok_drawing *cok_adventure_drawing(const cok_adventure *game)
+{
+    switch (cok_game_rules(game)->drawing) {
+    case COK_DRAWING_DARK_QUEEN: return &cok_dark_queen_drawing;
+    default: return NULL;
+    }
+}
+
+bool cok_adventure_archive_path(const cok_adventure *game, const char *name, char *path,
+                                size_t size)
+{
+    const cok_rules_archives *a = &cok_game_rules(game)->archives;
+    const char *extension = a->format == COK_ARCHIVE_DAX ? ".DAX" : "";
+    snprintf(path, size, "%s/%s%s", game->assets, name, extension);
+    FILE *file = fopen(path, "rb");
+    for (size_t i = 0; file == NULL && a->folders != NULL && a->folders[i] != NULL; ++i) {
+        snprintf(path, size, "%s/%s/%s%s", game->assets, a->folders[i], name, extension);
+        file = fopen(path, "rb");
+    }
+    if (file == NULL) {
+        /* Not found: the name in the assets, for the messages. */
+        snprintf(path, size, "%s/%s%s", game->assets, name, extension);
+        return false;
+    }
+    fclose(file);
+    return true;
+}
+
+/* A record by id from an HLIB library (dqk 293f:00d5, LBLoad), as
+ * find_record. */
+static uint8_t *find_hlib_record(cok_adventure *game, const char *path, unsigned id,
+                                 size_t *size, bool *no_file)
+{
+    uint8_t *bytes;
+    size_t length;
+    hlib_status status = hlib_read_file(path, &bytes, &length);
+    if (no_file != NULL) *no_file = status != HLIB_OK;
+    if (status != HLIB_OK) {
+        fail(game, "%s: %s", path, hlib_status_string(status));
+        return NULL;
+    }
+    hlib_library library;
+    const uint8_t *record = NULL;
+    size_t record_size = 0;
+    status = hlib_parse(bytes, length, &library);
+    if (status == HLIB_OK) status = hlib_record(&library, id, &record, &record_size);
+    uint8_t *data = NULL;
+    if (status != HLIB_OK) {
+        fail(game, status == HLIB_NO_RECORD ? "%s has no record %u" : "%s record %u: %s", path,
+             id, hlib_status_string(status));
+    } else if ((data = malloc(record_size == 0 ? 1 : record_size)) == NULL) {
+        fail(game, "%s: out of memory", path);
+    } else {
+        memcpy(data, record, record_size);
+        *size = record_size;
+    }
+    free(bytes);
+    return data;
+}
+
+/* Read a record by id from <name>.DAX (169c:088e), or from the game's
+ * HLIB library name; *no_file, if given, is set when the archive cannot be
+ * opened. */
 static uint8_t *find_record(cok_adventure *game, const char *name, uint8_t id, size_t *size,
                             bool *no_file)
 {
     /* A game set up without its rules (cok_adventure_open names them). */
     assert(game->rules != NULL);
-    char path[sizeof game->assets + 32];
-    snprintf(path, sizeof path, "%s/%s.DAX", game->assets, name);
+    char path[sizeof game->assets + 64];
+    cok_adventure_archive_path(game, name, path, sizeof path);
+    if (cok_game_rules(game)->archives.format == COK_ARCHIVE_HLIB)
+        return find_hlib_record(game, path, id, size, no_file);
     /* 169c:088e: the sound stopped (command 0) before the file is read and
      * let on again (1) after, found or not. Reading takes no time here. */
     cok_adventure_sound(game, COK_SOUND_RECORD, 0);
@@ -200,7 +265,11 @@ uint8_t *cok_adventure_record(cok_adventure *game, const char *name, unsigned fi
                               uint8_t id, size_t *size)
 {
     char label[32];
-    snprintf(label, sizeof label, "%.20s%u", name, file);
+    /* An HLIB library holds every ECL file's records. */
+    if (cok_game_rules(game)->archives.format == COK_ARCHIVE_HLIB)
+        snprintf(label, sizeof label, "%.20s", name);
+    else
+        snprintf(label, sizeof label, "%.20s%u", name, file);
     return read_record(game, label, id, size);
 }
 
@@ -265,6 +334,11 @@ bool cok_adventure_load_image(cok_adventure *game, const char *name, uint8_t id,
 
 void cok_adventure_screen(cok_adventure *game, cok_screen screen)
 {
+    const cok_drawing *vga = cok_adventure_drawing(game);
+    if (vga != NULL) {
+        vga->frame(game, screen);
+        return;
+    }
     uint16_t phase[3];
     for (size_t i = 0; i < 3; ++i) phase[i] = cok_ecl_var_at(&game->vm, COK_VAR_MOONS, i);
     cok_screen_draw(&game->screen, &game->view.tiles[4], cok_game_rules(game), screen, phase);
@@ -485,6 +559,11 @@ static bool no_view(const cok_ecl *vm)
 
 void cok_adventure_view(cok_adventure *game)
 {
+    const cok_drawing *vga = cok_adventure_drawing(game);
+    if (vga != NULL) {
+        vga->view(game);
+        return;
+    }
     cok_ecl *vm = &game->vm;
     if (game->picture_id == 9) game->redraw = false;
     /* 6945:00ba (dkk 6c84:00a6) draws nothing once the party is destroyed
@@ -1043,6 +1122,9 @@ cok_character *cok_adventure_selected(cok_adventure *game)
 
 void cok_adventure_party(cok_adventure *game)
 {
+    /* A game drawn its own way: its party and status are not drawn yet
+     * (dqk 5e22:023b, 03f8: the port has no Dark Queen party). */
+    if (cok_adventure_drawing(game) != NULL) return;
     cok_ecl *vm = &game->vm;
     if ((vm->mode == 3 && !cok_ecl_flag(vm, COK_VAR_OFF_MAP)) || game->big_shown) return;
     /* 6346:07f1-0866: where a click picks from it, a row a member. */
@@ -1066,6 +1148,9 @@ static void two_digits(char out[3], unsigned value)
 
 void cok_adventure_status(cok_adventure *game)
 {
+    /* A game drawn its own way: its party and status are not drawn yet
+     * (dqk 5e22:023b, 03f8: the port has no Dark Queen party). */
+    if (cok_adventure_drawing(game) != NULL) return;
     static const char *const directions[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
     cok_ecl *vm = &game->vm;
     if (vm->mode == 3) return;
@@ -1097,9 +1182,19 @@ void cok_adventure_status(cok_adventure *game)
     cok_text_string(&game->screen, &game->font, text, 0x11, 15, 10, 0);
 }
 
+/* A store, for a game drawn its own way. */
+static void stored(cok_ecl *vm, uint16_t address, uint16_t value, void *context)
+{
+    (void)vm;
+    cok_adventure *game = context;
+    cok_adventure_drawing(game)->stored(game, address, value);
+}
+
 static uint16_t character_value(cok_ecl *vm, uint16_t address, void *context)
 {
     cok_adventure *game = context;
+    const cok_drawing *vga = cok_adventure_drawing(game);
+    if (vga != NULL) return vga->value(game, address);
     if (address == 0x7cc9)
         return vm->character != NULL &&
                cok_character_former_class(vm->character, cok_game_rules(game));
@@ -1636,18 +1731,23 @@ static uint8_t wall_after_step(cok_adventure *game)
 
 /* A step forward (3775:1bed): the party's square moves one the way it
  * faces, wrapping within 0-15 (a coordinate already past 15 going on to
- * 0, one below 0 going back to 15, as signed bytes), not at all for
+ * 0, one below 0 going back to 15, as signed bytes; on a map of its own
+ * size within its width and height, dqk 6c70:1186), not at all for
  * another facing; then the square byte and the wall ahead are worked out
  * again and the view is marked as changed (DS:8850), so that the next
  * CALL [2e10] draws it. Logged as "at", as the loop's steps are. */
 static void step_forward(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
+    /* A map of its own size wraps at its own edges (dqk 6c70:1186: the
+     * width and height of DS:ca08's header). */
+    int last_x = game->view.geo != NULL ? game->view.width - 1 : COK_VIEW_SIZE - 1;
+    int last_y = game->view.geo != NULL ? game->view.height - 1 : COK_VIEW_SIZE - 1;
     switch (vm->direction) {
-    case 0: vm->map_y = (int8_t)(vm->map_y > 0 ? vm->map_y - 1 : 15); break;
-    case 2: vm->map_x = (int8_t)(vm->map_x < 15 ? vm->map_x + 1 : 0); break;
-    case 4: vm->map_y = (int8_t)(vm->map_y < 15 ? vm->map_y + 1 : 0); break;
-    case 6: vm->map_x = (int8_t)(vm->map_x > 0 ? vm->map_x - 1 : 15); break;
+    case 0: vm->map_y = (int8_t)(vm->map_y > 0 ? vm->map_y - 1 : last_y); break;
+    case 2: vm->map_x = (int8_t)(vm->map_x < last_x ? vm->map_x + 1 : 0); break;
+    case 4: vm->map_y = (int8_t)(vm->map_y < last_y ? vm->map_y + 1 : 0); break;
+    case 6: vm->map_x = (int8_t)(vm->map_x > 0 ? vm->map_x - 1 : last_x); break;
     default: break;
     }
     vm->square = cok_view_square(&game->view, vm->map_x, vm->map_y);
@@ -2131,6 +2231,8 @@ static void opcode(cok_ecl *vm, void *context)
         not_yet(game, unported);
         return;
     }
+    const cok_drawing *vga = cok_adventure_drawing(game);
+    if (vga != NULL && vga->opcode(game)) return;
     switch (cok_ecl_meaning(vm)) {
     case COK_ECL_EXIT: case COK_ECL_RETURN: exited(game); break;
     case COK_ECL_NEWECL: reset_pictures(game); break;
@@ -2577,6 +2679,7 @@ bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, con
     game->battle_sp = COK_BATTLE_SP;
     cok_ecl_hooks vm_hooks = {.load = load_block, .opcode = opcode, .trace = trace,
                               .executed = executed, .character_value = character_value,
+                              .stored = rules->drawing != COK_DRAWING_TILES ? stored : NULL,
                               .context = game};
     cok_ecl_init(&game->vm, cok_game_rules(game), &vm_hooks);
     cok_effects_init(&game->effects, cok_game_rules(game), &game->vm, &game->party,
@@ -2634,6 +2737,8 @@ bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, con
         return false;
     }
     snprintf(game->assets, sizeof game->assets, "%s", assets);
+    /* A game drawn its own way loads its own at startup. */
+    if (cok_adventure_drawing(game) != NULL) return cok_adventure_drawing(game)->open(game);
     if (cok_adventure_create_picture(game, &game->screen, 40, 200, 1, 0) != COK_PICTURE_OK) {
         fail(game, "out of memory");
         return false;
@@ -2692,6 +2797,8 @@ bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, con
 
 void cok_adventure_close(cok_adventure *game)
 {
+    if (game->rules != NULL && cok_adventure_drawing(game) != NULL)
+        cok_adventure_drawing(game)->close(game);
     cok_debug_end(game);
     cok_party_free(&game->party);
     cok_effects_free(&game->effects);

@@ -54,7 +54,19 @@ cok_picture_status cok_picture_create(cok_picture *picture, size_t units, size_t
         return COK_PICTURE_MEMORY;
     }
     *picture = (cok_picture){(uint16_t)height, (uint16_t)units, 0, 0, {0},
-                             frames, frame_size, pixels, mask, false};
+                             frames, frame_size, pixels, mask, false, false, NULL};
+    return COK_PICTURE_OK;
+}
+
+cok_picture_status cok_picture_create_vga(cok_picture *picture, size_t units, size_t height,
+                                          size_t frames, const uint8_t (*palette)[3])
+{
+    /* Twice the units of a 4-bit picture: the bytes of 8 pixels a unit. */
+    cok_picture_status status = cok_picture_create(picture, units * 2, height, frames, 0);
+    if (status != COK_PICTURE_OK) return status;
+    picture->units = (uint16_t)units;
+    picture->vga = true;
+    picture->palette = palette;
     return COK_PICTURE_OK;
 }
 
@@ -150,7 +162,7 @@ void cok_picture_draw(cok_picture *dst, const cok_picture *src, size_t frame,
                       int x, int y, unsigned flags, cok_picture *save)
 {
     size_t left, units, top, rows;
-    if (frame >= src->frames ||
+    if (frame >= src->frames || src->vga || dst->vga ||
         !clip(x, src->units, dst->units, &left, &units) ||
         !clip((long long)y * 8, src->height, dst->height, &top, &rows))
         return;
@@ -182,7 +194,7 @@ void cok_picture_fill(cok_picture *dst, int x, int y, size_t units, size_t rows,
                       uint8_t color)
 {
     size_t left, width, top, height;
-    if (units > INT32_MAX || rows > INT32_MAX ||
+    if (dst->vga || units > INT32_MAX || rows > INT32_MAX ||
         !clip(x, (long long)units, dst->units, &left, &width) ||
         !clip(y, (long long)rows, dst->height, &top, &height))
         return;
@@ -203,7 +215,8 @@ cok_picture_status cok_picture_recolor(cok_picture *picture, const uint8_t from[
                                        const uint8_t to[16], int frame,
                                        const cok_random *random)
 {
-    if (frame >= 0 && (size_t)frame >= picture->frames) return COK_PICTURE_INVALID;
+    if (picture->vga || (frame >= 0 && (size_t)frame >= picture->frames))
+        return COK_PICTURE_INVALID;
     size_t first = frame < 0 ? 0 : (size_t)frame;
     size_t size = (frame < 0 ? picture->frames : 1) * picture->frame_size;
     uint8_t *original = picture->pixels + first * picture->frame_size;
@@ -254,7 +267,8 @@ static uint8_t swap_nibbles(uint8_t byte)
 
 cok_picture_status cok_picture_mirror(cok_picture *dst, const cok_picture *src)
 {
-    if (dst == src || dst->units != src->units || dst->height != src->height ||
+    if (dst == src || src->vga || dst->vga || dst->units != src->units ||
+        dst->height != src->height ||
         (src->mask != NULL && dst->mask == NULL))
         return COK_PICTURE_INVALID;
     memcpy(dst->colors, src->colors, sizeof dst->colors);
@@ -287,7 +301,7 @@ cok_image cok_picture_frame(const cok_picture *picture, size_t frame)
     return (cok_image){
         (size_t)picture->units * 8, picture->height, picture->x, picture->y, 0, frame,
         picture->pixels + frame * picture->frame_size, picture->colors,
-        picture->cga ? cok_cga_palette : NULL
+        picture->vga ? picture->palette : picture->cga ? cok_cga_palette : NULL, picture->vga
     };
 }
 

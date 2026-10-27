@@ -241,7 +241,7 @@ combatants are set up as in the original.
 | `--input mouse`, `joystick` or `none` | mouse, joystick or keyboard only for this run |
 | `--saves DIR` | keep the roster and saved games in DIR instead of `saves/` |
 | `--assets DIR` | find the game's files in DIR instead of `COKAssets/` |
-| `--game champions` or `death-knights` | the game to play; Champions of Krynn is the default (see [Death Knights of Krynn](#death-knights-of-krynn)) |
+| `--game champions` or `death-knights` | the game to play; Champions of Krynn is the default (see [Death Knights of Krynn](#death-knights-of-krynn)); `dark-queen`, The Dark Queen of Krynn, is not playable yet (the developer tools read it: see DEVELOPERS.md) |
 | `--import DIR` | Death Knights: where to find the Champions characters and saved games to bring over (default: the saves folder) |
 | `--screenshots DIR` | where F12 saves screenshots |
 

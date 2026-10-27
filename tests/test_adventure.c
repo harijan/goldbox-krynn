@@ -1605,6 +1605,23 @@ static void test_opcodes(void)
     vm->map_x = 20;
     CHECK(run_code(&game, &s, step, sizeof step, "") == COK_ECL_OK && vm->ahead == 0);
     game.view.wrap = true;
+    /* On a map of its own size (Dark Queen's: dqk 6c70:1186), at its own
+     * edges: 5 across, 3 down. */
+    uint8_t geo[8 + 4 * 15] = {3, 5, 1, 0xff, 0xff, 0, 0, 0};
+    CHECK(cok_view_set_geo(&game.view, geo, sizeof geo));
+    static const struct { int x, y; uint8_t dir; int to_x, to_y; } edges[] = {
+        {2, 0, 0, 2, 2}, {2, 1, 0, 2, 0}, {2, 2, 4, 2, 0}, {2, 1, 4, 2, 2},
+        {4, 1, 2, 0, 1}, {3, 1, 2, 4, 1}, {0, 1, 6, 4, 1}, {1, 1, 6, 0, 1},
+    };
+    for (size_t i = 0; i < sizeof edges / sizeof *edges; ++i) {
+        vm->map_x = (int8_t)edges[i].x;
+        vm->map_y = (int8_t)edges[i].y;
+        vm->direction = edges[i].dir;
+        CHECK(run_code(&game, &s, step, sizeof step, "") == COK_ECL_OK);
+        CHECK(vm->map_x == edges[i].to_x && vm->map_y == edges[i].to_y);
+    }
+    free(game.view.geo);
+    game.view.geo = NULL;
 
     /* CALL [c018] recomputes the wall ahead outside 3D areas only; with a
      * facing that is not a side it is a byte of the stack the opcodes

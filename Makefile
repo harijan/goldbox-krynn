@@ -65,7 +65,10 @@ dqk-merged: build/DQK_FULL.EXE
 build/DQK_FULL.EXE: tools/dqkmerge.py tools/ovrmerge.py $(DQK)/DQK.EXE | build
 	$(PYTHON) tools/dqkmerge.py $(DQK)/DQK.EXE $@ --map build/DQK_FULL.map
 
-ADVENTURE_SRC = src/adventure.c src/debug.c src/devices.c src/input.c src/ai.c src/cloud.c src/command.c src/start.c src/roster.c src/create.c src/train.c src/modify.c src/icon.c src/arena.c src/attack.c src/combat.c src/round.c src/monster.c src/treasure.c src/shop.c src/camp.c src/magic.c src/cast.c src/items.c src/sheet.c src/effect.c src/party.c src/ecl.c src/menu.c src/screen.c src/text.c src/view.c src/picture.c src/image.c src/sound.c src/songs.c src/opl2.c src/config.c src/crt.c src/setup.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c src/step.c
+# The games' descriptors (rules.h) and the data they hold.
+RULES_SRC = src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c src/rules_dark_queen.c
+
+ADVENTURE_SRC = src/adventure.c src/debug.c src/devices.c src/input.c src/ai.c src/cloud.c src/command.c src/start.c src/roster.c src/create.c src/train.c src/modify.c src/icon.c src/arena.c src/attack.c src/combat.c src/round.c src/monster.c src/treasure.c src/shop.c src/camp.c src/magic.c src/cast.c src/items.c src/sheet.c src/effect.c src/party.c src/ecl.c src/menu.c src/screen.c src/text.c src/view.c src/picture.c src/image.c src/sound.c src/songs.c src/opl2.c src/config.c src/crt.c src/setup.c src/dax.c src/hlib.c src/vga.c src/dark_queen.c $(RULES_SRC) src/step.c
 
 # The original in DOSBox-X (tools/dosbox, see docs/dosbox.md's "DOSBox-X
 # harness"): boot it to the title's menu and compare its screens with
@@ -90,9 +93,10 @@ dosbox-checks: build/eclplay build/krynn build/START_FULL.EXE
 dkk-checks: build/eclplay build/krynn build/death-START_FULL.EXE
 	$(PYTHON) tools/dosbox/checks/run_all.py --set dkk --out build/dkk-checks $(ARGS)
 
-# The Dark Queen of Krynn's checks (the dqk_* scripts; the original only, so far).
+# The Dark Queen of Krynn's checks (the dqk_* scripts: the original, and eclplay
+# --game dark-queen against it).
 .PHONY: dqk-checks
-dqk-checks: build/DQK_FULL.EXE
+dqk-checks: build/eclplay build/DQK_FULL.EXE
 	$(PYTHON) tools/dosbox/checks/run_all.py --set dqk --out build/dqk-checks $(ARGS)
 
 # The SDL2 front end (build/krynn) and its tests, only where pkg-config finds
@@ -156,40 +160,41 @@ $(ADVENTURE_TESTS:%=build/%_sanitize): build/%_sanitize: build/obj-asan/tests/%.
 
 # The other tests and tools, each with the sources it needs: build/NAME from
 # NAME_SRC, build/NAME_sanitize too for those make sanitize runs.
-test_sound_SRC = tests/test_sound.c src/sound.c src/songs.c src/opl2.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
-test_config_SRC = tests/test_config.c src/config.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
-test_setup_SRC = tests/test_setup.c src/setup.c src/input.c src/crt.c src/config.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
-test_ecl_SRC = tests/test_ecl.c src/ecl.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
-test_menu_SRC = tests/test_menu.c src/menu.c src/screen.c src/text.c src/picture.c src/image.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
-test_view_SRC = tests/test_view.c src/view.c src/picture.c src/image.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
-PARTY_SRC = src/party.c src/ecl.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
+test_sound_SRC = tests/test_sound.c src/sound.c src/songs.c src/opl2.c src/dax.c $(RULES_SRC)
+test_config_SRC = tests/test_config.c src/config.c $(RULES_SRC)
+test_setup_SRC = tests/test_setup.c src/setup.c src/input.c src/crt.c src/config.c src/text.c src/picture.c src/image.c src/dax.c $(RULES_SRC)
+test_ecl_SRC = tests/test_ecl.c src/ecl.c src/dax.c $(RULES_SRC)
+test_menu_SRC = tests/test_menu.c src/menu.c src/screen.c src/text.c src/picture.c src/image.c $(RULES_SRC)
+test_view_SRC = tests/test_view.c src/view.c src/picture.c src/image.c $(RULES_SRC)
+PARTY_SRC = src/party.c src/ecl.c src/text.c src/picture.c src/image.c src/dax.c $(RULES_SRC)
 test_party_SRC = tests/test_party.c $(PARTY_SRC)
 EFFECT_SRC = src/effect.c $(PARTY_SRC)
 test_effect_SRC = tests/test_effect.c $(EFFECT_SRC)
 test_dax_SRC = tests/test_dax.c src/dax.c
-test_rules_SRC = tests/test_rules.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c src/dax.c
-test_death_knights_SRC = tests/test_death_knights.c src/ecl.c src/view.c src/screen.c src/picture.c src/image.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
-test_layout_SRC = tests/test_layout.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
-test_data_SRC = tests/test_data.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c src/step.c
-test_magic_rules_SRC = tests/test_magic_rules.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
-daximages_SRC = src/daximages.c src/image.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
-daxcompose_SRC = src/daxcompose.c src/text.c src/picture.c src/image.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
-test_picture_SRC = tests/test_picture.c src/picture.c src/image.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
+test_rules_SRC = tests/test_rules.c $(RULES_SRC) src/dax.c
+test_death_knights_SRC = tests/test_death_knights.c src/ecl.c src/view.c src/screen.c src/picture.c src/image.c src/dax.c $(RULES_SRC)
+test_layout_SRC = tests/test_layout.c $(RULES_SRC)
+test_data_SRC = tests/test_data.c $(RULES_SRC) src/step.c
+test_magic_rules_SRC = tests/test_magic_rules.c $(RULES_SRC)
+daximages_SRC = src/daximages.c src/image.c src/dax.c $(RULES_SRC)
+daxcompose_SRC = src/daxcompose.c src/text.c src/picture.c src/image.c src/dax.c $(RULES_SRC)
+test_picture_SRC = tests/test_picture.c src/picture.c src/image.c src/dax.c $(RULES_SRC)
 test_text_SRC = tests/test_text.c src/text.c src/picture.c src/image.c src/dax.c
-test_display_SRC = tests/test_display.c src/picture.c src/text.c src/image.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
+test_display_SRC = tests/test_display.c src/picture.c src/text.c src/image.c src/dax.c $(RULES_SRC)
 test_image_SRC = tests/test_image.c src/image.c src/dax.c
+test_vga_SRC = tests/test_vga.c src/vga.c src/hlib.c src/picture.c src/image.c src/dax.c
 daxcheck_SRC = src/daxcheck.c src/dax.c
-ecldump_SRC = src/ecldump.c src/ecl.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
+ecldump_SRC = src/ecldump.c src/ecl.c src/dax.c src/hlib.c $(RULES_SRC)
 test_sound_LIBS = -lm
-test_songs_SRC = tests/test_songs.c src/sound.c src/songs.c src/opl2.c src/dax.c src/rules.c src/data_champions.c src/rules_death_knights.c src/data_death_knights.c
+test_songs_SRC = tests/test_songs.c src/sound.c src/songs.c src/opl2.c src/dax.c $(RULES_SRC)
 test_songs_LIBS = -lm
 test_opl2_SRC = tests/test_opl2.c src/opl2.c
 test_opl2_LIBS = -lm
 
 # Their rules (.SECONDEXPANSION: each one's NAME_SRC read for its stem), with
 # NAME_LIBS after the libraries.
-SRC_PROGRAMS = daxcheck ecldump test_sound test_songs test_opl2 test_config test_setup test_ecl test_menu test_view test_party test_effect test_dax test_rules test_death_knights test_layout test_data test_magic_rules daximages daxcompose test_picture test_text test_display test_image
-SRC_SANITIZE = test_sound test_songs test_opl2 test_config test_setup test_ecl test_menu test_view test_party test_effect test_dax test_rules test_death_knights test_layout test_data test_magic_rules test_picture test_text test_display test_image daxcheck
+SRC_PROGRAMS = test_vga daxcheck ecldump test_sound test_songs test_opl2 test_config test_setup test_ecl test_menu test_view test_party test_effect test_dax test_rules test_death_knights test_layout test_data test_magic_rules daximages daxcompose test_picture test_text test_display test_image
+SRC_SANITIZE = test_vga test_sound test_songs test_opl2 test_config test_setup test_ecl test_menu test_view test_party test_effect test_dax test_rules test_death_knights test_layout test_data test_magic_rules test_picture test_text test_display test_image daxcheck
 .SECONDEXPANSION:
 $(SRC_PROGRAMS:%=build/%): build/%: $$(call obj,$$($$*_SRC)) | build
 	$(LINK) $($*_LIBS) -o $@
@@ -208,12 +213,12 @@ $(SRC_SANITIZE:%=build/%_sanitize): build/%_sanitize: $$(call asan,$$($$*_SRC)) 
 # others are done (make -j would otherwise run it beside them, and a loaded
 # machine makes the game late), its own tests side by side, each in a
 # process of its own (COK_TEST_JOBS of them at once, 1 for one at a time).
-TEST_PROGRAMS = test_dax test_rules test_death_knights test_layout test_data test_magic_rules test_image test_picture test_text test_display test_ecl test_menu test_view test_party test_effect test_adventure test_camp test_cast test_items test_monster test_combat test_round test_arena test_attack test_fight test_band test_ai test_command test_spell test_cloud test_treasure test_shop test_start test_hooks test_debug test_sound test_songs test_opl2 test_config test_setup test_input
+TEST_PROGRAMS = test_dax test_vga test_rules test_death_knights test_layout test_data test_magic_rules test_image test_picture test_text test_display test_ecl test_menu test_view test_party test_effect test_adventure test_camp test_cast test_items test_monster test_combat test_round test_arena test_attack test_fight test_band test_ai test_command test_spell test_cloud test_treasure test_shop test_start test_hooks test_debug test_sound test_songs test_opl2 test_config test_setup test_input
 SHARDS = 1 2 3 4
 ECLPLAY_RUNS = $(SHARDS:%=run-test_eclplay-%)
-TEST_RUNS = $(TEST_PROGRAMS:%=run-%) run-ecldump run-test_images_cli run-test_death_knights_py $(ECLPLAY_RUNS) run-test_eclplay $(if $(HAVE_SDL),run-test_keymap) run-test_ovrmerge run-test_hlib run-test_rgbscreen run-daxcheck
+TEST_RUNS = $(TEST_PROGRAMS:%=run-%) run-ecldump run-test_images_cli run-test_death_knights_py run-test_dark_queen_py $(ECLPLAY_RUNS) run-test_eclplay $(if $(HAVE_SDL),run-test_keymap) run-test_ovrmerge run-test_hlib run-test_rgbscreen run-daxcheck
 SANITIZE_RUNS = $(TEST_PROGRAMS:%=run-%_sanitize)
-.PHONY: $(TEST_RUNS) $(SANITIZE_RUNS) run-test_krynn run-test_death_knights_py
+.PHONY: $(TEST_RUNS) $(SANITIZE_RUNS) run-test_krynn run-test_death_knights_py run-test_dark_queen_py
 
 # The tests' temporary files (TMPDIR) in TEST_TMPDIR: the dev container's
 # /tmp, a FUSE overlay holding many entries, is slow for their many small
@@ -246,6 +251,10 @@ run-test_images_cli: build/daximages build/daxcompose
 
 run-test_death_knights_py: build/eclplay build/ecldump build/daxcheck build/daximages build/daxcompose $(if $(HAVE_SDL),build/krynn)
 	$(TEST_ENV) $(PYTHON) tests/test_death_knights.py
+
+# The Dark Queen of Krynn's: skipped, saying so, without DQKAssets/.
+run-test_dark_queen_py: build/eclplay build/ecldump $(if $(HAVE_SDL),build/krynn)
+	$(TEST_ENV) $(PYTHON) tests/test_dark_queen.py
 
 SHARD_LIST = $(abspath $(TEST_TMPDIR))/eclplay-shard-$(1).txt
 $(ECLPLAY_RUNS): run-test_eclplay-%: build/eclplay build/START_FULL.EXE
@@ -285,6 +294,7 @@ sanitize: build/START_FULL.EXE $(SANITIZE_RUNS) build/eclplay_sanitize build/dax
 	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --load SAVE/SAVGAMA.DAT --play --keys '\r\r\r\r\r\r\r' COKAssets | tail -n 1)" = "(out of keys in block 17 at 86ec)"; fi
 	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --play --set 4be6=1 --keys '\r\rEerhar\kn\eamm\e\e' COKAssets 32 | tail -n 1)" = "(out of keys in block 32 at 80c0)"
 	if [ -f $(DEATH)/START.EXE ]; then test "$$(./build/eclplay_sanitize --game death-knights --set 4be6=1 --shots build/sanitize_dkk --keys '\r\r\r\r' $(DEATH) 64 | tail -n 1)" = "(done in block 64)" && test "$$(./build/eclplay_sanitize --game death-knights --file 2 --start 88f7 --keys 'Y\r' $(DEATH) 48 | tail -n 1)" = "(done in block 17)" && test "$$(./build/eclplay_sanitize --game death-knights --file 2 --start 83c7 --keys '\r\r' $(DEATH) 48 | tail -n 1)" = "(done in block 48)" && test "$$(./build/eclplay_sanitize --game death-knights --character $(DEATH)/SAVE/CHRDATA1.GAM --character $(DEATH)/SAVE/CHRDATB5.GAM --play --keys 'ev\r\e' $(DEATH) 17 | tail -n 1)" = "(out of keys in block 17 at 81fc)" && rm -rf build/sanitize_dkk_saves && mkdir -p build/sanitize_dkk_saves && test "$$(./build/eclplay_sanitize --game death-knights --start-menu --saves build/sanitize_dkk_saves --import SAVE --keys '\kx\kxP\v\v\rCA\v\v\v\v\rC\v\r\r\r' $(DEATH) | tail -n 1)" = "(out of keys in block 16 at 817b)"; fi
+	if [ -f DQKAssets/DQK.EXE ]; then test "$$(./build/eclplay_sanitize --game dark-queen --set 22=1 --keys '\r\r\rL\r' DQKAssets 4 | tail -n 1)" = "(out of keys in block 4 at 82fe)" && test "$$(./build/eclplay_sanitize --game dark-queen --set 22=1 --shots build/sanitize_dqk --keys 'D\r\r' DQKAssets 1 | tail -n 1)" = "(done in block 14)" && test "$$(./build/eclplay_sanitize --game dark-queen --start 8065 --set 34=6 --set 35=d --set 11=1 --set 22=1 --set 16=1 DQKAssets 18 | tail -n 1)" = "(done in block 18)" && test "$$(./build/eclplay_sanitize --game dark-queen --start-menu --keys '\k \k \k \k \k \k \k \k Q' DQKAssets | tail -n 1)" = "(quit to DOS)"; fi
 	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --combat pass --party SAVE/SAVGAMA.DAT --play --set 4be6=1 --keys '\r\rE\v\v\v\vemm\^m\esd\e\eaos\v\e\e\e' COKAssets 32 | tail -n 1)" = "(out of keys in block 32 at 80c0)"; fi
 	if [ -f SAVE/SAVGAMA.DAT ]; then test "$$(./build/eclplay_sanitize --combat pass --party SAVE/SAVGAMA.DAT --start 9891 --set 4be6=1 --keys '\r\rE' COKAssets 32 | tail -n 1)" = "(done in block 32)"; fi
 	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --play --set 4be6=1 --keys '\r\rEvi\v\vrhjtS\e\e' COKAssets 32 | tail -n 1)" = "(out of keys in block 32 at 8320)"

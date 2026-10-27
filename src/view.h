@@ -51,6 +51,16 @@ typedef struct {
     /* Squares off the map read from the far edge (DS:8846 is neither 0 nor
      * 0x50); otherwise they have no walls. */
     bool wrap;
+    /* A map of its own size (Dark Queen's GEO.GLB records, dqk 8a8b:12e3),
+     * in place of map when geo is not NULL: width by height squares, row
+     * by row, four planes of a byte a square in turn: the north (high
+     * nibble) and east walls, the south and west walls, the square byte,
+     * and the sides' ways through (bits 0, 2, 4, 6 for north, east, south,
+     * west) with the backdrop's choice (bits 3 and 1); and the record's
+     * header, its wall sets (2-4, 0xff for none) and backdrops (5-7). */
+    uint8_t *geo;
+    uint8_t width, height;
+    uint8_t geo_header[8];
 } cok_view;
 
 /* What the area words choose for the backdrop (6945:00ba). */
@@ -67,6 +77,11 @@ void cok_view_free(cok_view *view);
 
 /* Load a GEO record (69ea:130d). Returns false unless size is 0x402. */
 bool cok_view_set_map(cok_view *view, const uint8_t *record, size_t size);
+/* Load a map of its own size (dqk 8a8b:12e3): u8 height, u8 width, 6 bytes
+ * (geo_header), then the four planes. Returns false, the map left as it
+ * was, unless size is height * width * 4 + 8 ("Unable to load geo in
+ * Load3DMap") or memory runs out. */
+bool cok_view_set_geo(cok_view *view, const uint8_t *record, size_t size);
 
 /* Copy a WALLDEF record into the wall sets from slot's on (slot from the
  * shape's first_slot to 3; its wall set slot - first_slot) and, where the
@@ -82,16 +97,27 @@ size_t cok_view_set_walls(cok_view *view, unsigned slot, const uint8_t *record, 
 
 /* Wall type 0-15 on side dir (0, 2, 4, 6: north, east, south, west) of
  * square x, y (69ea:06a2). Coordinates are taken as bytes, as the original
- * does; off the map they wrap by one square, or are 0. */
+ * does; off the map they wrap by one square, or are 0. On a map of its
+ * own size (geo) a square off the map is always the one at the far edge
+ * (dqk 8a8b:0628). */
 uint8_t cok_view_wall(const cok_view *view, unsigned dir, int x, int y);
 
-/* The square byte (69ea:07a5), off the map as cok_view_wall. */
+/* The square byte (69ea:07a5), off the map as cok_view_wall; on a map of
+ * its own size, 0 off the map unless the view wraps (dqk 8a8b:075b). */
 uint8_t cok_view_square(const cok_view *view, int x, int y);
 
 /* How the party can leave square x, y by side dir (69ea:0573): 1 if that
  * side has no wall, else the side's two bits in the fourth table: 0 a solid
  * wall, 1 a way through, 2 a locked door and 3 one that cannot be picked.
- * Off the map with no wrap, 0. */
+ * Off the map with no wrap, 0. On a map of its own size, the side's bit
+ * (dqk 8a8b:04a4): 1 a way through. */
+uint8_t cok_view_passage(const cok_view *view, unsigned dir, int x, int y);
+/* Whether square x, y is on the map (dqk 8a8b:045e for a map of its own
+ * size). */
+bool cok_view_inside(const cok_view *view, int x, int y);
+/* A map of its own size's backdrop choice for square x, y, 0-3 (dqk
+ * 8a8b:0807: bits 3 and 1 of its fourth plane), 0 off the map. */
+uint8_t cok_view_backdrop_choice(const cok_view *view, int x, int y);
 uint8_t cok_view_passage(const cok_view *view, unsigned dir, int x, int y);
 
 /* Make side dir of square x, y a way through: its two bits in the fourth

@@ -77,13 +77,14 @@ static void test_lookup(void)
     CHECK(strcmp(cok_rules_champions.id, "champions") == 0);
     /* An unknown name: none, and the error lists the names known. */
     CHECK(cok_rules_find("death-knights") == &cok_rules_death_knights);
+    CHECK(cok_rules_find("dark-queen") == &cok_rules_dark_queen);
     CHECK(cok_rules_find("death knights") == NULL);
     CHECK(cok_rules_find("Champions") == NULL);
     CHECK(cok_rules_find("") == NULL);
     CHECK(cok_rules_find("champion") == NULL);
-    CHECK(strcmp(cok_rules_names(), "champions, death-knights") == 0);
+    CHECK(strcmp(cok_rules_names(), "champions, death-knights, dark-queen") == 0);
     /* the same the second time */
-    CHECK(strcmp(cok_rules_names(), "champions, death-knights") == 0);
+    CHECK(strcmp(cok_rules_names(), "champions, death-knights, dark-queen") == 0);
     /* The default assets, and the names shown. */
     CHECK(strcmp(rules->assets, "COKAssets") == 0);
     CHECK(strcmp(rules->text.name, "Champions of Krynn") == 0);

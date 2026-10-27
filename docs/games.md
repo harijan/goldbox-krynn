@@ -3,12 +3,15 @@
 Part of the [developer notes](../DEVELOPERS.md).
 
 The port is to play *Death Knights of Krynn* as well (see
-[DEATH-KNIGHTS.md](../DEATH-KNIGHTS.md)). Everything that differs between the
+[DEATH-KNIGHTS.md](../DEATH-KNIGHTS.md)), and *The Dark Queen of Krynn* (see
+[DARK-QUEEN.md](../DARK-QUEEN.md)). Everything that differs between the
 games goes in a descriptor, one a game: `cok_rules` in `src/rules.h`, with
-Champions' in `src/rules.c` (`cok_rules_champions`) and Death Knights' in
-`src/rules_death_knights.c` (`cok_rules_death_knights`, read headless so
-far: see Death Knights below). A front end picks it once, before any file
-is read, from `--game` (`champions`, the default, or `death-knights`;
+Champions' in `src/rules.c` (`cok_rules_champions`), Death Knights' in
+`src/rules_death_knights.c` (`cok_rules_death_knights`: see Death Knights
+below) and Dark Queen's in `src/rules_dark_queen.c` (`cok_rules_dark_queen`,
+read headless so far: see The Dark Queen below). A front end picks it once,
+before any file is read, from `--game` (`champions`, the default,
+`death-knights` or `dark-queen`;
 `cok_rules_find`, an unknown name an error listing `cok_rules_names`), and
 hands it to `cok_adventure_open`, which keeps it in
 `game->rules`, read through `cok_game_rules(game)`; the code that has no game (`cok_character_read` and
@@ -419,6 +422,121 @@ under one);
 moon); `tests/test_combat.c` its open
 ground's builder on the first fight's seed against the map the original
 builds, and a river's shape.
+
+### The Dark Queen
+
+`cok_rules_dark_queen` (`src/rules_dark_queen.c`, its addresses `dqk
+SEG:OFF` in `build/DQK_FULL.EXE`, `make dqk-merged`, its data segment at
+`DS` 0x422e) is DARK-QUEEN.md's step 1: `eclplay --game dark-queen` and
+`ecldump --game dark-queen` read its libraries, run its scripts with their
+text, menus and pictures, its 3D view and its title and menu, as the
+original draws them (`make dqk-checks`' `dqk_views.py` and `dqk_boot.py`:
+see [Checks against the original](checks.md)). Its `unplayable` says why
+`krynn` refuses it, and `eclplay` its saved games, parties, `--play` and
+the start menu's Play (DARK-QUEEN.md's step 2). What is not ported is left
+out of the descriptor (the character record, the data segment, spells,
+combat), so that code reaching it stops at an assertion, and its opcodes
+that need them stop the run, citing their handlers (`unported`). It holds:
+
+- its files: HLIB libraries, not DAX archives (`archives.format`
+  `COK_ARCHIVE_HLIB`, `src/hlib.c`: `"HLIB"`, u32 size, u16 count, u16
+  flags, the type, count + 1 offsets; flag 0x100 an id map in record 0;
+  a record starting `"HLIB"` a library nested in it; nothing compressed),
+  each one file for every ECL file and named whole (`ECL.GLB`, `GEO.GLB`,
+  `TITLE.TLB`; `cok_adventure_record` reads its record by id through the
+  map), looked for in the assets and then in `DISK1`-`DISK3`
+  (`archives.folders`, as the installed game keeps them: it reads
+  `disk1\dqk.cfg`, `DS:608e`); `ecldump` reads a game's `ECL.GLB` by its
+  id map;
+- its drawing (`drawing`, `COK_DRAWING_DARK_QUEEN`): routines of its own
+  (`src/dark_queen.c`, `cok_drawing` in `src/adventure.h`), which the
+  adventure hands the screen to: startup, the frames, the view, the
+  opcodes that draw or read keys, a special address of the host's
+  (`COK_ECL_SPECIAL_HOST`), its stores, and the title. Its screen is a VGA
+  picture (`picture.h`'s `vga`: a byte a pixel, shown in 256 colours,
+  `cok_picture_create_vga`), on which the 16-colour routines draw nothing,
+  and BMPs of it are its colours as DOSBox-X shows them (`image.h`'s
+  `vga`). See The Dark Queen's screen below;
+- its ECL: the opcodes of its handlers' table (`dqk 5f07:0d34`, loaded by
+  `5f07:0013`), Champions' meanings but `CHECKPARTY` (now loading six
+  operands and doing nothing, `5f07:0812`), `LOAD FILES` with a map and a
+  wall set (`COK_ECL_LOAD_MAP`, `6c70:1dec`), `0x37` finding a member by
+  name (`COK_ECL_FIND_NPC`, `6c70:31e8`) where Champions has `LOAD PIECES`,
+  `0x3c` treasure from the item lists (`COK_ECL_STOCK_TREASURE`,
+  `6c70:335e`), and Death Knights' `PRESS KEY`, `JOURNAL`, `YES NO`,
+  `CLEAR EXIT`, `TREASURE ITEMS`, `NOTHING`, `MUSIC` and `ASK MENU` at
+  their numbers; a failed `IF` skipping as many operands as the handler
+  loads, and a list opcode's whole list (`6c70:1385`: `skip_list`); 44,780
+  instructions in its 47 blocks (`ecldump --game dark-queen --summary
+  DQKAssets/DISK3/ECL.GLB`), every IF agreeing. Its variables are the
+  bytes of the 1 KB at far `DS:b20f`, `0x0001`-`0x0400`, the selected
+  character's fields `0x0401`-`0x0800` (`6c70:040d`, `1b5e`: not read
+  yet, the record not ported, so that these read 0 and stores to them do
+  nothing), the block from `0x8000` in a buffer of 0x2ee3 bytes
+  (`64b2:0131`), its record with no header (`cok_rules_ecl`'s layout:
+  `area_first`, `game_*`, `scratch_*`, `code_size`, `block_header`,
+  `name_address`); its special addresses inside the variables, each store
+  kept in the variable too (`special_stores_kept`, `6c70:0728`, `0817`):
+  0x11 the facing in steps, 0x23 the facing, 0x2d the square's byte, 0x32
+  the wall ahead, 0x34 and 0x35 the square, 0x3d the square's backdrop
+  (`8a8b:0807`), 0x10 0 (no member to have effect 5); `COMPARE AND`
+  finding a pair of strings never equal (`5f07:05be` compares the slots'
+  addresses: `compare_and_unequal_strings`); a block's start clearing
+  0x2b and 0x2c (`start_stores`) and its locals 0x97-0xc8; `DELAY` 600 ms;
+  `CALL` 1 the view again, 2 a step, 3 the picture's next frame
+  (`5f07:0aba`); a new game's block 4 (`5f07:10cd`);
+- its maps: `GEO.GLB` records of their own size (`cok_view_set_geo`,
+  `8a8b:12e3`): u8 height, u8 width, the wall sets of slots 0-2 and three
+  backdrops, then four planes of a byte a square, row by row: the north
+  and east walls, the south and west, the square's byte, the sides' ways
+  through and the backdrop's choice; read through the view's
+  `cok_view_wall`, `square`, `passage` (`8a8b:0628`, `075b`, `04a4`: off
+  the map the far edge's square, its byte 0 unless the view wraps); a
+  step (`CALL` 2) wraps at the map's own edges (`6c70:1186`); eclplay's
+  `--at` stores the square at the game's own special addresses and its
+  `--start` takes an address in the game's buffer.
+
+#### The Dark Queen's screen
+
+VGA's mode 13h as the game sets it up (unchained, `65fa:06c3`), its
+pictures and palettes from its libraries (`src/vga.c`): a picture record
+(u16 height, i16 row and column of its hotspot, u8 width / 4, u8 format)
+holds its pixels plane by plane, raw (0x10), raw with 0xff transparent
+(0x15), ANDed and XORed on (0x11), PackBits of each row's four plane-rows
+(0x12, 0x80 doing nothing: `10d7:0a1c`), runs of the planes' rows with
+transparent ones (0x17), or entries of the library's records at their
+places (0x19: `269b:0aec`); drawn at the place given less its hotspot, the
+column down to a multiple of 4 (`269b:0a9c`), within a clip (`251e:06cb`).
+A palette record (format 0x18: type, first, count, its cycles, then 8-bit
+RGB) sets its colours `>> 2` into the DAC (`2796:0536`, `261b:00b1`), each
+shown as `(v << 2) | (v >> 4)`, as DOSBox-X shows it; the cycles are not
+run (`261b:05be`), the only difference from the original's screens, which
+`dqk_views.py` masks. The text is `GAME.FON`'s 96 glyphs of 12 rows, of
+which VGA draws rows 0, 1, 3, 4, 6, 8, 9 and 10 in an opaque cell of 8 by
+8 (`22b7:0c96`), a colour nibble mapped to itself but 8 to 0x17, the
+window's grey (`DS:9d86`).
+
+`src/dark_queen.c` draws, from `ALWAYS.TLB` (colours 0x00-0x0f) and
+`FRAME.TLB` (0x10-0x1f, its record 41-44 by variable 0x3a, `20b2:047c`):
+the full window (`20b2:0030`) and the 3D adventure screen (`20b2:00e4`:
+the dividers, the view's frame, its lamps by variables 0x1fa-0x1fc, the
+compass by the facing; the party's list and status not, there being no
+party); `PRINT` and `PRINTCLEAR` in the text window of cells 1-38 by 17-22
+word by word (`1a62:0311`, colour 7, or 3 by variable 0x39); the bottom
+bar's menus of framed buttons, each read by its first letter, Return
+picking none (`1bdb:08ef`, `0801`, `008e`), `PRESS KEY`'s and a full
+window's "Press [Return] to continue." (`1bdb:0495`), `YES NO`, `ASK
+MENU`'s "what do you do?", `VERTICAL MENU`'s list; `PICTURE`'s small
+pictures (`PICA`, `B` or `C` by id, `63ae:0078`, at cell 3, 3) and their
+frames; and the 3D view (`8a8b:085a`): the map's wall sets loaded into
+three slots from `8X8DB` and `8X8DC` (47 pieces each, a slot's colours
+moved to 0x20 + 37 × slot, `8a8b:119d`), a backdrop from `BACK.TLB` by the
+square (a night's one from hour 20 and before 6, variable 8), then the
+pieces of the three rows ahead from the far one in, each place's piece at
+its column and row (`8a8b:0435`, `DS:9134`), a door over its wall's,
+clipped to cells 3-13. The title (`6523:0345`: `TITLE.TLB`'s eight
+scenes, each on its backdrop, passed by Space, Escape or a key) and
+main's menu (`5ebd:00ef`: Play, Demo, Quit) are `eclplay --start-menu`'s.
 
 ### The character record's layout
 
