@@ -172,6 +172,15 @@ typedef struct {
     /* The title and its menu, from startup (eclplay --start-menu): the
      * run's status. */
     cok_ecl_status (*start)(cok_adventure *game);
+    /* While the game waits for a key: whether something animates (the
+     * colours' cycles, the small picture in a menu), and then in *ms when
+     * it is next due; animate lets that time pass and draws it
+     * (cok_adventure_menu_animates and menu_frame for a front end). */
+    bool (*animates)(const cok_adventure *game, uint32_t *ms);
+    void (*animate)(cok_adventure *game);
+    /* The mouse's cursor, which the game draws itself, onto pixels, a copy
+     * of the screen (cok_adventure_cursor). */
+    void (*cursor)(cok_adventure *game, uint8_t *pixels);
 } cok_drawing;
 
 /* The game's own drawing, or NULL for the 8x8 tiles'. */
@@ -696,6 +705,10 @@ bool cok_adventure_menu_animates(const cok_adventure *game, uint32_t *ms);
  * last), drawn at cell 3, 3, as 67b5:03e2 shows it once the current one's
  * time is up. */
 void cok_adventure_menu_frame(cok_adventure *game);
+/* The mouse's cursor of a game that draws it itself (its drawing's
+ * cursor) onto pixels, a copy of its VGA screen: nothing for the others,
+ * whose cursor the driver draws (cok_mouse_draw). */
+void cok_adventure_cursor(cok_adventure *game, uint8_t *pixels);
 /* Show the portrait of head and body (3775:0538): keep them as the one
  * last shown (DS:4b55, 4b56), load them unless they are loaded
  * (6961:05b9) and draw them, the head at cell 3, 3 and the body at 3, 8

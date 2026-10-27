@@ -296,9 +296,10 @@ on the Tandy and the AdLib, its pitches and tempo against `eclplay --wav`:
 `tools/dosbox/checks/dkk_sound.py`, in `make dkk-checks` (about four
 minutes, in real time).
 
-The Dark Queen of Krynn, read headless (see [The Dark Queen](games.md#the-dark-queen)), is
-checked by `tools/dosbox/checks/dqk_views.py` and `dqk_boot.py`, which `make
-dqk-checks` runs (`run_all.py --set dqk`; about a minute each), in RGB
+The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
+checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py` and
+`dqk_menus.py`, which `make dqk-checks` runs (`run_all.py --set dqk`; about
+a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
 so that a loaded host does not change them). `dqk_boot.py` compares the first
@@ -319,6 +320,23 @@ vector from its `LOAD FILES` at the original's square and facing (read
 from `DS:c9f0`). Not compared: the colours the title's scenes cycle
 (`261b:05be`: the logo's, the twinkle, the letters' fire), which the port
 does not run. All agree (2026-10-26).
+
+`dqk_menus.py` compares its window library's screens whole, with the game's
+own mouse cursor (`eclplay --mouse`): main's menu; Play's camp menu with no
+party, its Load's "load from where?" (the prompt boxed, its buttons after
+it) and Escape back, Exit From Game's "Exit to DOS?" and No; past Begin
+Adventuring, block 1's developers' menus (JUMPER, NXT, NXT), BPIC's
+`INPUT NUMBER` field with 240 typed (its blinking caret not compared) and
+the big picture it shows (`BIGPIC` 240 in the overland's frame) with YES
+NO; and, in a second box, Hizden's inn a step north of the party's start
+(block 18): its greeting, `VERTICAL MENU`, Down, Return and its answer,
+the port running the inn's event (`--start 898b`) at the original's square
+and facing. The original's colour cycles are stopped in its box
+(`261b:05be` made a `retf`), so that pictures with cycles (picture 142,
+`BIGPIC` 240) settle and show their colours as set, as the port's shots
+do; not compared: the party's list and status, and the inn's lamps, which
+the original shows lit at night where the variables the port draws them
+by (`0x1fa`-`0x1fc`, `20b2:00e4`) say otherwise (not found yet).
 
 Death Knights of Krynn, read headless (see [Games](games.md#games)), is checked by
 `tools/dosbox/checks/dkk_views.py`, which `make dkk-checks` runs

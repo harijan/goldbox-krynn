@@ -160,10 +160,14 @@ static void save(player *p, const char *path)
     }
     cok_image image = cok_picture_frame(&p->game->screen, 0);
     /* The mouse's cursor where its driver draws it. */
-    static uint8_t pixels[320 * 200 / 2];
+    static uint8_t pixels[320 * 200];
     if (image.width == 320 && image.height == 200 && !image.vga) {
-        memcpy(pixels, image.pixels, sizeof pixels);
+        memcpy(pixels, image.pixels, 320 * 200 / 2);
         cok_mouse_draw(&p->game->mouse.driver, pixels, p->game->display == COK_DISPLAY_CGA);
+        image.pixels = pixels;
+    } else if (image.width == 320 && image.height == 200) {
+        memcpy(pixels, image.pixels, sizeof pixels);
+        cok_adventure_cursor(p->game, pixels); /* a game that draws its own */
         image.pixels = pixels;
     }
     cok_image_status status = cok_image_bmp(&image, path);
@@ -885,6 +889,11 @@ static int run(int argc, char **argv)
         perror(p.shots);
         return 1;
     }
+    if (display_given && rules->setup.display == NULL) {
+        /* Dark Queen: VGA alone (DARK-QUEEN.md's step 6). */
+        fprintf(stderr, "--display: %s is drawn in VGA alone\n", rules->text.name);
+        return 2;
+    }
     if (sound_given && p.wav_path == NULL) {
         fprintf(stderr, "--sound needs --wav: eclplay renders sound only to a file\n");
         return 2;
@@ -896,9 +905,22 @@ static int run(int argc, char **argv)
     bool found = cok_config_find(rules, config_option, saves, argv[i], config_path, config_write,
                                  sizeof config_path);
     bool config_read;
-    /* A game read headless only has no setup ported (Dark Queen's binary
-     * DQK.CFG and its installer, DARK-QUEEN.md's step 2). */
-    if (front && rules->setup.display == NULL) {
+    /* A game whose file is of bytes (Dark Queen's DQK.CFG) has no setup:
+     * INSTALL.EXE writes it; without it, or short, the game says so and
+     * ends (6478:0000, DS:60de), and it ends where it was installed for
+     * another display (6478:00e2). */
+    if (front && rules->files.config_bytes != 0) {
+        if (!found || !cok_config_read_file_game(rules, config_path, &config, false)) {
+            fprintf(stderr, "Error reading configuration file!\n%s: %s\n", config_path,
+                    found ? "shorter than its 144 bytes" : "not found");
+            return 1;
+        }
+        if (cok_config_installed_for(&config) != NULL) {
+            fprintf(stderr, "%s\n", cok_config_installed_for(&config));
+            return 1;
+        }
+        config_read = true;
+    } else if (front && rules->setup.display == NULL) {
         config_read = false;
     } else if (front) {
         static cok_crt crt;

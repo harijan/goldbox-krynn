@@ -427,13 +427,15 @@ builds, and a river's shape.
 
 `cok_rules_dark_queen` (`src/rules_dark_queen.c`, its addresses `dqk
 SEG:OFF` in `build/DQK_FULL.EXE`, `make dqk-merged`, its data segment at
-`DS` 0x422e) is DARK-QUEEN.md's step 1: `eclplay --game dark-queen` and
-`ecldump --game dark-queen` read its libraries, run its scripts with their
-text, menus and pictures, its 3D view and its title and menu, as the
-original draws them (`make dqk-checks`' `dqk_views.py` and `dqk_boot.py`:
-see [Checks against the original](checks.md)). Its `unplayable` says why
-`krynn` refuses it, and `eclplay` its saved games, parties, `--play` and
-the start menu's Play (DARK-QUEEN.md's step 2). What is not ported is left
+`DS` 0x422e) is DARK-QUEEN.md's step 1 and its step 2's screens:
+`eclplay --game dark-queen` and `ecldump --game dark-queen` read its
+libraries, run its scripts with their text, menus, input and pictures, its
+3D view, its title, main menu, camp menu and demonstration, as the
+original draws them, and `krynn --game dark-queen` plays the same in a
+window (`make dqk-checks`' `dqk_views.py`, `dqk_boot.py` and
+`dqk_menus.py`: see [Checks against the original](checks.md)). Its
+`unplayable` says why `eclplay` refuses its saved games, parties and
+`--play` (its saved games are step 2's next part). What is not ported is left
 out of the descriptor (the data segment, spells, combat), so that code
 reaching it stops at an assertion, and its opcodes that need them stop the
 run, citing their handlers (`unported`). It holds:
@@ -457,6 +459,23 @@ run, citing their handlers (`unported`). It holds:
   `cok_picture_create_vga`), on which the 16-colour routines draw nothing,
   and BMPs of it are its colours as DOSBox-X shows them (`image.h`'s
   `vga`). See The Dark Queen's screen below;
+- its devices' file, `DQK.CFG` (`files.config_bytes`, `config_folder`:
+  `disk1\dqk.cfg`, `DS:608e`, read by `6478:0000`, its 0x90 bytes to
+  `DS:acd6`; `cok_config_parse_bytes`): u16 at 0 the display (0 VGA, 1
+  EGA, 2 Tandy: the game ends with "Installed for EGA only!" or "...TANDY
+  16 color only!" for another than the adapter, `6478:00e2`, and the port
+  draws VGA alone), u16 at 2 the sound in INSTALL's order (the speaker,
+  the Tandy, the AdLib, the Sound Blaster, the MT-32, the MT-32 and the
+  Sound Blaster's effects, none: the port's speaker, Tandy, AdLib, AdLib,
+  Roland, Roland, none), at 10 the save floppy's letter, at 12 Death
+  Knights' save path (`DS:ace2`, `other_path`), at 78 the game's (unread).
+  The game never writes it (`INSTALL.EXE` does) and has no setup: without
+  it, or short, it prints "Error reading configuration file!" and ends,
+  as `eclplay` and `krynn` do (looking for it in `--config`, the saves,
+  then the assets' `DISK1`). `--display` is refused (VGA alone);
+  `--sound` as the others'. The arguments it reads (`SB220 SI7 RB330`,
+  `6478:0170`, the sound's ports; a monitor's name, `65fa:08d1`; Woof and
+  Gem) have no port counterpart;
 - its ECL: the opcodes of its handlers' table (`dqk 5f07:0d34`, loaded by
   `5f07:0013`), Champions' meanings but `CHECKPARTY` (now loading six
   operands and doing nothing, `5f07:0812`), `LOAD FILES` with a map and a
@@ -506,11 +525,33 @@ holds its pixels plane by plane, raw (0x10), raw with 0xff transparent
 transparent ones (0x17), or entries of the library's records at their
 places (0x19: `269b:0aec`); drawn at the place given less its hotspot, the
 column down to a multiple of 4 (`269b:0a9c`), within a clip (`251e:06cb`).
-A palette record (format 0x18: type, first, count, its cycles, then 8-bit
-RGB) sets its colours `>> 2` into the DAC (`2796:0536`, `261b:00b1`), each
-shown as `(v << 2) | (v >> 4)`, as DOSBox-X shows it; the cycles are not
-run (`261b:05be`), the only difference from the original's screens, which
-`dqk_views.py` masks. The text is `GAME.FON`'s 96 glyphs of 12 rows, of
+A palette record (format 0x18: type, first, count, its cycles' count,
+then 8-bit RGB, then its cycles, 4 bytes each: flags, rate, first, count)
+sets its colours `>> 2` (`2796:0536`, `261b:00b1`), each shown as `(v <<
+2) | (v >> 4)`, as DOSBox-X shows it, and its colour cycles
+(`cok_vga_apply_palette`): the colours set are kept apart from the live
+ones, which the cycles rotate (`DS:d145`, `cdc5`); a record changes
+things where a colour differs from the one set, or where the cycles
+running over its range are not as many as its own or one of them differs
+in all four bytes from its own in order (the original's test); then the
+cycles over the range stop, their colours shown unrotated again, and its
+own start in the next free of 12 slots (`DS:d445`), each to step first at
+the timer's tick (72.8 Hz, `251e:004d`) + random(8) + rate − 3; re-set
+unchanged, the cycles run on. The changed colours are shown at once (the
+original flushes them, `261b:0455`, at its next page flip, `19a4:06d3`,
+before any wait: drawing goes to the back page between a begin, `05ee`,
+and that flip, so that at every wait and delay the screen shows all drawn
+so far, as the port's one screen does; the only moments it does not, a
+picture's colours black for the time its decoding takes, no wait shows).
+`261b:05be` steps the cycles that are due, each a colour along (up: each
+takes the one before, the first the last) for each rate passed, as the
+game waits: its delays (`1df9:052a`: the text's, `DELAY`'s, the
+animation's, each let pass in steps to the cycles' times), the title's
+wait, and, where a front end shows a key's wait as it passes, its menus'
+waits (`1bdb:1008`: `cok_adventure_menu_animates`, `cok_drawing`'s
+`animates`); eclplay's waits for keys pass no time. The cycles' random
+numbers are the port's generator (`2102:0234` not ported); a wall set's
+cycles move with its colours. The text is `GAME.FON`'s 96 glyphs of 12 rows, of
 which VGA draws rows 0, 1, 3, 4, 6, 8, 9 and 10 in an opaque cell of 8 by
 8 (`22b7:0c96`), a colour nibble mapped to itself but 8 to 0x17, the
 window's grey (`DS:9d86`).
@@ -536,6 +577,89 @@ its column and row (`8a8b:0435`, `DS:9134`), a door over its wall's,
 clipped to cells 3-13. The title (`6523:0345`: `TITLE.TLB`'s eight
 scenes, each on its backdrop, passed by Space, Escape or a key) and
 main's menu (`5ebd:00ef`: Play, Demo, Quit) are `eclplay --start-menu`'s.
+
+#### The Dark Queen's window library and start
+
+Its menus are a list of controls (`2aa6`: buttons, areas, key filters),
+each a rectangle the mouse hits and hotkeys, polled for a key or a click
+(`2aa6:15e3`); `src/dark_queen.c` keeps each menu's own:
+
+- the keys as `251e:00e7` codes them (an extended key from 0x100: Up
+  0x108, Down 0x104, PgUp 0x101, PgDn 0x103, Home 0x107, End 0x105, Left
+  0x106, Right 0x102, F1 0x110, Alt and a letter 0xff + the letter), a
+  hotkey taking its letter in either case, `@` Return (0x0d or 0x0a), `#`
+  Escape (or `` ` ``) (`2aa6:000e`); a key or click nothing takes beeps
+  (`2102:0193`, not sounded yet);
+- the bottom bar's menu (`1bdb:1e29`, `0d26`, `08ef`, `0801`, `1206`): a
+  prompt boxed from cell 1 (`1a62:0046`; a blank added unless it ends in
+  `:`), a framed button an item after it, read by its first letter or a
+  click on its box (rows 2 above to 10 below its top, 4 pixels past each
+  end, `1bdb:008e`'s), the button then drawn pressed (FRAME 16-18, text
+  0x83); disabled ones sunken in 0x80 with no hotkey; no current item,
+  Return picking none; a filter before them giving Escape (and with the
+  ECL's, the extended keys and Alt's) its code, which `HORIZONTAL MENU`
+  reads past (`6c70:0e3f` with no escape: Up and Down would change the
+  member selected), `YES NO` takes as No (`1bdb:0424`), main's menu
+  ignores; a menu that times out gives its item (main's: Demo after 70
+  seconds, 12 after a demonstration: `DS:c5ce`, `c5d2`); the ECL's items
+  as `6c70:0d51` has them (lower case, the `~`'s letter kept, a digit
+  0x20 on: a letter P-Y), which `GAME.FON` draws as the capitals but for
+  `f`; the small picture animating while it waits where one is shown
+  (`1bdb:1008`: its frame drawn at once, the next each half second);
+- "Press [Return] to continue." (`1bdb:0495`): Return, Ctrl-Enter or a
+  click on its button; paging (`1a62:0311`) leaves its bar so, `PRESS
+  KEY` draws the bar again;
+- `VERTICAL MENU` (`6c70:1e91`, `1bdb:1f25`, the list `1b05:08b3`,
+  `0055`, keys `0664`): the rows below the prompt to row 21, the current
+  in light cyan; Up or Home, Down or End move it, wrapping; PgUp and PgDn
+  go to the top or bottom row shown, then a page; the rows scroll; Select
+  (S or Return), Escape or a click on the current row end it, the index
+  stored either way; a click on another row makes it current. The scroll
+  bar of a longer list (`21e9:082d`) is not decoded nor drawn;
+- `INPUT NUMBER` and `INPUT STRING` (`6c70:2e7c`, `2ec8`, `1a62:0781`,
+  `05c9`, the editor `6431:0001`): the bar's field, 38 cells, the text
+  from cell 2 with its caret, Backspace or Left, Return; a number of five
+  digits at most (a last B, D, H or O its base), 0-32767, asked again
+  otherwise or on Escape; a string of 35 in upper case, stored on Escape
+  too, " " for none;
+- the mouse (`22b7:1be3`): on wherever a driver answers (the front ends'
+  `--mouse` in eclplay; always in krynn), the pointer from pixel 8, 8,
+  either button alike; its cursor drawn by the game, not the driver
+  (`cok_drawing`'s `cursor`, `cok_adventure_cursor`): `ALWAYS.TLB`'s 1, a
+  sword, over a control, its 2, a shield, elsewhere, at the pointer less
+  its hotspot, to the pixel; hidden on the title, in the ending and while
+  a line is edited.
+
+`PICTURE` from 0xf0 shows a big picture (`63ae:0321`, `03b0`): `BIGPIC.TLB`'s
+library n (240 and 241 the overland's halves, 242 the demonstration's),
+loaded unless it is (colours 0x20-0xff black first), in the overland's
+frame (`20b2:02d3`: the full window, FRAME 7 under row 16), its 304 by 120
+at cell 1, 1, its palette with the water's cycles; on the overland (mode
+3) the party's place over it, `ALWAYS.TLB` 29 at the cell past variables
+0x25 and 0x26 (`7065:0011`). The graphics' state (`DS:5eac`, `5e98:0200`)
+frees, as it changes, the small picture and the wall sets (reloaded by
+the next view) or the big picture. The view again (`5e22:0000`, `PICTURE
+0xff`) on the overland (variables 0x22 0, 0x24 1) is its map, variable
+0x3e's, again; `CALL 3` waits its delay with no small picture too.
+`PROGRAM 1` is the ending (`6523:03cb`): `FINAL.TLB`'s three scenes in the
+overland's frame, each record over its first at cell 1, 1, with waits of
+36 hundredths and more, as its code steps them; the other `PROGRAM`s
+stop the run.
+
+The start (`5ebd:00ef`): the title; main's menu (Play, Demo, Quit, its
+name and version); Quit to DOS. Play is the camp's menu (`7368:046f`,
+with no party): `GEN.TLB`'s picture under the window (`20b2:03ce`), twelve
+buttons of 18 characters in two columns (`7368:01a7`), those a party needs
+disabled (`DS:3c3e`); Exit From Game asks "Exit to DOS?" and quits
+(`7368:081a`), Load Saved Game asks "load from where?" (`604b:2e87`: Tdqk,
+Dkk, Exit; Exit back), and Create, Delete, Add and loading stop the run
+(dqk-saves' and creation's). Demo, or the menu's time, runs the
+demonstration (`5f07:10cd` with `DS:ae59`): block 7's start with the speed
+5, its keys read only where typed, Escape or `` ` `` ending it
+(`5f07:0f46`, `DS:a890`), then the title again (unless a key ended it)
+and the menu; block 7 stops at its `ADD NPC`. `krynn --game dark-queen`
+shows it all in 256 colours (its frames eclplay's, its window's colours
+compared with them in its `--shots`).
 
 #### Dark Queen's characters
 

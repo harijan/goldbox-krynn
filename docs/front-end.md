@@ -637,6 +637,18 @@ prints `display: EGA`.
 `cok_adventure_open_display` opens the game in a mode (`game->display`,
 `DS:4b76`; `cok_adventure_open` in the Tandy's).
 
+The Dark Queen of Krynn draws VGA's 256 colours alone (its `DQK.CFG`, no
+setup, `--display` refused: see [The Dark Queen](games.md#the-dark-queen)): its screen a byte a
+pixel (`picture.h`'s `vga`), which `krynn` shows in the palette the game
+keeps, a present owed when the pixels or the colours change (its colour
+cycles change colours alone), its `--shots` read back from the window as
+the others' are and saved in the colours shown (each pixel the first of
+the 256 that shows it), byte for byte `eclplay`'s; the mouse's cursor the
+game's own (`cok_adventure_cursor`), not the driver's masks; and its menus'
+waits animate the cycles and the small picture by
+`cok_adventure_menu_animates`. The Tandy, EGA and CGA games show as before
+(`tests/test_krynn.py`'s frames).
+
 The original reads the mode in these places (a scan of `START_FULL.EXE`
 for `DS:4b76`, and the tables and variables that go with it):
 

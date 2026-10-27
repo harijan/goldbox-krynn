@@ -131,12 +131,53 @@ static void test_death_knights(void)
     }
 }
 
+/* The Dark Queen's DQK.CFG (dqk 6478:0000): 0x90 bytes or none; the
+ * display's word, the sound's in INSTALL's order, Death Knights' save
+ * path at 12; found in DISK1 of the assets. */
+static void test_dark_queen(void)
+{
+    uint8_t bytes[0x90] = {0};
+    bytes[2] = 3; /* the Sound Blaster: the AdLib's music */
+    memcpy(bytes + 12, "C:\\DKK\\SAVE", 11);
+    memcpy(bytes + 78, "C:\\DQK", 6);
+    cok_config c = {.sound = COK_SOUND_TANDY};
+    CHECK(!cok_config_parse_bytes(bytes, sizeof bytes - 1, &c) && c.sound == COK_SOUND_TANDY);
+    CHECK(cok_config_parse_bytes(bytes, sizeof bytes, &c));
+    CHECK(c.video == 0 && c.sound == COK_SOUND_ADLIB && strcmp(c.other_path, "C:\\DKK\\SAVE") == 0);
+    CHECK(cok_config_installed_for(&c) == NULL);
+    static const cok_sound_device sounds[] = {COK_SOUND_SPEAKER, COK_SOUND_TANDY, COK_SOUND_ADLIB,
+                                              COK_SOUND_ADLIB,   COK_SOUND_ROLAND, COK_SOUND_ROLAND,
+                                              COK_SOUND_NONE,    COK_SOUND_NONE};
+    for (uint8_t i = 0; i < 8; ++i) {
+        bytes[2] = i;
+        CHECK(cok_config_parse_bytes(bytes, sizeof bytes, &c) && c.sound == sounds[i]);
+    }
+    bytes[0] = 1;
+    CHECK(cok_config_parse_bytes(bytes, sizeof bytes, &c) &&
+          strcmp(cok_config_installed_for(&c), "Installed for EGA only!") == 0);
+    bytes[0] = 2;
+    CHECK(cok_config_parse_bytes(bytes, sizeof bytes, &c) &&
+          strcmp(cok_config_installed_for(&c), "Installed for TANDY 16 color only!") == 0);
+    struct stat st;
+    if (stat("DQKAssets/DISK1/DQK.CFG", &st) == 0) {
+        char path[1024], write[1024];
+        CHECK(cok_config_find(&cok_rules_dark_queen, NULL, NULL, "DQKAssets", path, write,
+                              sizeof path));
+        CHECK(strcmp(path, "DQKAssets/DISK1/DQK.CFG") == 0);
+        c = (cok_config){0};
+        CHECK(cok_config_read_file_game(&cok_rules_dark_queen, path, &c, false));
+        CHECK(c.video == 0 && c.sound == COK_SOUND_ADLIB &&
+              strcmp(c.other_path, "C:\\DKK\\SAVE") == 0);
+    }
+}
+
 int main(void)
 {
     test_display();
     test_sound();
     test_files();
     test_death_knights();
+    test_dark_queen();
     puts("config: ok");
     return 0;
 }

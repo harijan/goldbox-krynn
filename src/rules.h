@@ -141,6 +141,12 @@ typedef struct {
      * dkk 1187:011b: 2, its save path DS:98a4 and Champions' saved games'
      * DS:99a4), before the F line and the stick's thresholds. */
     uint8_t config_paths;
+    /* A devices' file of bytes rather than lines: its size, which a read
+     * of it must give (dqk 6478:0000 reads DQK.CFG's 0x90), and the
+     * folder of the assets it is in (DISK1); 0 and NULL for the text
+     * files. */
+    uint16_t config_bytes;
+    const char *config_folder;
     /* The item types (3e99:005b), a file of its own, not an archive, and
      * the bytes before them in it (Champions' 2, the loader seeking past
      * them; dqk 64b2:0006 reads ITEMS.DAT from its start). */
@@ -1929,9 +1935,10 @@ typedef struct cok_rules {
     const char *id;
     /* The assets' directory when --assets does not name one. */
     const char *assets;
-    /* Why krynn cannot play the game, and eclplay not from its start menu
-     * or a saved game, for a game the port reads headless only so far
-     * (Dark Queen's); NULL for one it plays. */
+    /* Why eclplay cannot play the game from a saved game, a party or
+     * --play, for a game whose characters and saves the port does not
+     * read yet (Dark Queen's: its title and start menu play, in krynn
+     * too); NULL for one it plays. */
     const char *unplayable;
     /* How it draws (cok_drawing_routine). */
     cok_drawing_routine drawing;

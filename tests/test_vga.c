@@ -237,6 +237,75 @@ static void test_palette(void)
     CHECK(cok_vga_shown(0) == 0);
 }
 
+static unsigned fixed_random(void *context, unsigned range)
+{
+    (void)range;
+    return *(const unsigned *)context;
+}
+
+/* 261b:00b1, 0455 and 05be: a record's cycles start at now + random(8) +
+ * rate - 3, rotate their live colours up (or down) a step each rate,
+ * catching up; the same palette again leaves them running, one changed
+ * colour restarts them from the record's colours; the slots run out. */
+static void test_cycles(void)
+{
+    uint8_t record[64];
+    size_t n = header(record, 0, 0, 0, 3, COK_VGA_PALETTE);
+    put16(record, 7); /* partial, with cycles */
+    put16(record + 2, 0x10);
+    put16(record + 4, 3);
+    const uint8_t rgb[] = {4, 4, 4, 8, 8, 8, 12, 12, 12};
+    memcpy(record + n, rgb, sizeof rgb);
+    const uint8_t cycles[] = {0, 5, 0x10, 3};
+    memcpy(record + n + sizeof rgb, cycles, sizeof cycles);
+    record[6] = 1;
+    size_t size = n + sizeof rgb + sizeof cycles;
+    unsigned two = 2;
+    cok_random random = {fixed_random, &two};
+    cok_vga_palette palette = {0};
+    CHECK(cok_vga_apply_palette(&palette, record, size, 0, 100, &random));
+    uint32_t next = 0;
+    CHECK(cok_vga_cycle_next(&palette, &next) && next == 100 + 2 + 5 - 3);
+    CHECK(!cok_vga_cycle_colours(&palette, 103));
+    CHECK(palette.dac[0x10][0] == 1 && palette.dac[0x12][0] == 3);
+    CHECK(cok_vga_cycle_colours(&palette, 104)); /* up: each takes the one before */
+    CHECK(palette.dac[0x10][0] == 3 && palette.dac[0x11][0] == 1 && palette.dac[0x12][0] == 2);
+    CHECK(palette.rgb[0x10][0] == cok_vga_shown(3));
+    CHECK(cok_vga_cycle_colours(&palette, 114)); /* two more steps, caught up */
+    CHECK(palette.dac[0x10][0] == 1 && palette.cycles[0].time == 119);
+    /* The same again: running on, unrotated colours not flushed. */
+    CHECK(cok_vga_cycle_colours(&palette, 119));
+    CHECK(cok_vga_apply_palette(&palette, record, size, 0, 120, &random));
+    CHECK(palette.dac[0x10][0] == 3 && palette.cycles[0].time == 124);
+    /* A colour changed: restarted from the record's colours. */
+    record[n] = 40;
+    CHECK(cok_vga_apply_palette(&palette, record, size, 0, 200, &random));
+    CHECK(palette.dac[0x10][0] == 10 && palette.dac[0x11][0] == 2 && palette.cycles[0].time == 204);
+    /* Down, moved 0x20 on with its colours. */
+    record[n + sizeof rgb] = 1;
+    record[n] = 4;
+    cok_vga_palette moved = {0};
+    CHECK(cok_vga_apply_palette(&moved, record, size, 0x20, 0, &random));
+    CHECK(moved.cycles[0].first == 0x30 && moved.dac[0x30][0] == 1);
+    CHECK(cok_vga_cycle_colours(&moved, 4));
+    CHECK(moved.dac[0x30][0] == 2 && moved.dac[0x32][0] == 1);
+    /* Black over the range stops it. */
+    CHECK(cok_vga_set_colours(&moved, 0x30, 1, NULL, NULL, 0, 5, NULL));
+    CHECK(!cok_vga_cycle_next(&moved, &next));
+    CHECK(moved.dac[0x30][0] == 0 && moved.dac[0x31][0] == 2 && moved.dac[0x32][0] == 3);
+    /* Twelve slots. */
+    cok_vga_palette full = {0};
+    uint8_t many[13 * 4];
+    for (unsigned i = 0; i < 13; ++i) {
+        many[4 * i] = 0;
+        many[4 * i + 1] = 9;
+        many[4 * i + 2] = (uint8_t)(0x40 + 2 * i);
+        many[4 * i + 3] = 2;
+    }
+    CHECK(cok_vga_set_colours(&full, 0x40, 24, NULL, many, 12, 0, NULL));
+    CHECK(!cok_vga_set_colours(&full, 0x80, 2, NULL, many, 13, 0, NULL));
+}
+
 static void test_draw(void)
 {
     static const uint8_t colours[256][3];
@@ -327,6 +396,7 @@ int main(void)
     test_pictures();
     test_composed();
     test_palette();
+    test_cycles();
     test_draw();
     test_game();
     puts("test_vga: ok");

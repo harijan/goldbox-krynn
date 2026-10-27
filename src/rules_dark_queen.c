@@ -3,13 +3,14 @@
 
 /* The Dark Queen of Krynn (version 1.1 of July 29, 1992; "dqk" addresses
  * are build/DQK_FULL.EXE's, Ghidra's numbering of its map segment + 0x1000,
- * its data segment DS 0x422e). Read headless so far (DARK-QUEEN.md's step
- * 1): its HLIB libraries, its pictures and palettes, its font, its ECL
- * and its 3D view, drawn by its own routines (dark_queen.c); its
- * characters, items and monsters (DARK-QUEEN.md's step 2). What it has
- * not or the port does not reach yet is left out (its data segment,
+ * its data segment DS 0x422e). Read so far (DARK-QUEEN.md's step 1)
+ * and its step 2's parts: its HLIB libraries, its pictures and
+ * palettes, its font, its ECL and its 3D view, its window library's
+ * menus, its title, main menu, camp menu and DQK.CFG, drawn by its own
+ * routines (dark_queen.c); its characters, items and monsters. What it
+ * has not or the port does not reach yet is left out (its data segment,
  * spells, combat), so that a read of it stops at its accessor's
- * assertion, and krynn refuses to play it. */
+ * assertion, and eclplay plays none of its saved games or parties. */
 
 /* DISK1-3 of the installed game (it reads disk1\dqk.cfg, DS:608e). */
 static const char *const dark_queen_folders[] = {"DISK1", "DISK2", "DISK3", NULL};
@@ -40,8 +41,8 @@ static const cok_rules_opcode dark_queen_opcodes[COK_ECL_OPCODES] = {
     NOT(0x0c, COK_ECL_SETUP_MONSTERS, 4, "dqk 6c70:2db1"),
     NOT(0x0d, COK_ECL_APPROACH, 0, "dqk 6c70:2e4f"),
     SAME(COK_ECL_PICTURE, 1),        /* 5f07:0552 */
-    NOT(0x0f, COK_ECL_INPUT_NUMBER, 2, "dqk 6c70:2e7c"),
-    NOT(0x10, COK_ECL_INPUT_STRING, 2, "dqk 6c70:2ec8"),
+    OP(0x0f, COK_ECL_INPUT_NUMBER, 2), /* 6c70:2e7c */
+    OP(0x10, COK_ECL_INPUT_STRING, 2), /* 6c70:2ec8 */
     SAME(COK_ECL_PRINT, 1),          /* 6c70:1cd3 */
     SAME(COK_ECL_PRINTCLEAR, 1),
     SAME(COK_ECL_RETURN, 0),
@@ -83,7 +84,7 @@ static const cok_rules_opcode dark_queen_opcodes[COK_ECL_OPCODES] = {
     SAME(COK_ECL_SAVE_TABLE, 3),
     NOT(0x36, COK_ECL_ADD_NPC, 2, "dqk 6c70:307b"),
     NOT(0x37, COK_ECL_FIND_NPC, 2, "dqk 6c70:31e8"),
-    NOT(0x38, COK_ECL_PROGRAM, 1, "dqk 5f07:0baf"),
+    OP(0x38, COK_ECL_PROGRAM, 1),      /* 5f07:0baf: 1 the ending, the others stop */
     NOT(0x39, COK_ECL_WHO, 1, "dqk 6c70:2fe0"),
     SAME(COK_ECL_DELAY, 0),          /* 5f07:0a26 */
     NOT(0x3b, COK_ECL_SPELL, 3, "dqk 6c70:260f"),
@@ -392,8 +393,8 @@ static const cok_rules_special dark_queen_stores[] = {
 const cok_rules cok_rules_dark_queen = {
     .id = "dark-queen",
     .assets = "DQKAssets",
-    .unplayable = "The Dark Queen of Krynn is read headless only so far (DARK-QUEEN.md's step "
-                  "1): its scripts, title and 3D view, with eclplay --game dark-queen",
+    .unplayable = "The Dark Queen of Krynn's characters and saved games are not read yet "
+                  "(DARK-QUEEN.md's step 2): its scripts, title and start menu play",
     .drawing = COK_DRAWING_DARK_QUEEN,
     .text =
         {
@@ -412,7 +413,9 @@ const cok_rules cok_rules_dark_queen = {
         },
     .files =
         {
-            .config = "DQK.CFG",
+            .config = "DQK.CFG", /* disk1\dqk.cfg, DS:608e: 6478:0000 */
+            .config_bytes = 0x90,
+            .config_folder = "DISK1",
             .item_types = "ITEMS.DAT", /* 128 types of 16 bytes into far DS:ae3e (64b2:0006) */
             .item_types_at = 0,
         },
