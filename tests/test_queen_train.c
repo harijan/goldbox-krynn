@@ -97,6 +97,33 @@ static void test_silent(void)
     cok_character_free(&roark);
 }
 
+/* A mage of level 2 trained to 3 silently gets the spells its order has at
+ * level 3 (6be8:06b3, 06db-06fb, 07ae-07bb): the bytes +0x15a and +0x15b of
+ * the known spells' bits or'ed with DS:68bc's: the White Robes' 0x10 and 0x03,
+ * the others' (Red and Black) 0xe0 and 0x02. */
+static void test_mage_spells(void)
+{
+    static const struct { uint8_t order, a, b; } expected[] = {{1, 0x10, 0x03}, {2, 0xe0, 0x02}};
+    for (size_t i = 0; i < sizeof expected / sizeof *expected; ++i) {
+        cok_character mage;
+        saved(1, 0, &mage);
+        uint8_t *r = mage.record;
+        memset(r + 0xa5, 0, 7);
+        r[0xa5 + 5] = 2;
+        r[0xaa] = 2;
+        r[0x19d] = expected[i].order;
+        r[0x15a] = r[0x15b] = 0;
+        int32_t need;
+        char error[300];
+        CHECK(cok_queen_experience(R, r, 3, 5, &need, error, sizeof error));
+        for (int k = 0; k < 4; ++k) r[0x44 + k] = (uint8_t)((uint32_t)need >> (8 * k));
+        CHECK(queen_train_silently(&game, &mage));
+        CHECK(r[0xaa] == 3);
+        CHECK(r[0x15a] == expected[i].a && r[0x15b] == expected[i].b);
+        cok_character_free(&mage);
+    }
+}
+
 int main(void)
 {
     struct stat st;
@@ -107,6 +134,7 @@ int main(void)
     cok_keyboard keys = {NULL, NULL, NULL, NULL};
     CHECK(cok_adventure_open(&game, R, "DQKAssets", &keys, NULL));
     test_silent();
+    test_mage_spells();
     cok_adventure_close(&game);
     puts("queen train tests passed");
     return 0;

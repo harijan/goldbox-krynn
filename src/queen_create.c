@@ -879,12 +879,15 @@ static int ask_name(cok_adventure *game, cok_character *ch)
     uint8_t *c = ch->record;
     for (;;) {
         char line[40];
-        int done = queen_input_line(game, "Character name:", 0, 8, line, 15);
+        int done = queen_input_line(game, "Character name: ", 0, 8, line, 15);
         if (done < 0) return -1;
         for (char *p = line; *p != '\0'; ++p)
             if (*p >= 'a' && *p <= 'z') *p = (char)(*p - 0x20);
-        memset(c + 0x68, 0, 16);
-        memcpy(c + 0x68, line, strlen(line) < 15 ? strlen(line) : 15);
+        /* 66e5:193f copies the name with its NUL and no more: the bytes of an
+         * earlier, refused name past the NUL stay. */
+        size_t length = strlen(line) < 15 ? strlen(line) : 15;
+        memcpy(c + 0x68, line, length);
+        c[0x68 + length] = '\0';
         char base[16];
         size_t n = 0;
         for (const char *p = line; *p != '\0' && n < 8; ++p)

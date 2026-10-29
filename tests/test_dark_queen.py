@@ -972,6 +972,14 @@ class DarkQueenTests(unittest.TestCase):
         _, _, data = self.create(keys + r"ddabcdefghijklmnopq\rdy", name="abcdefgh")
         self.assertEqual(data[0x68:0x78], b"ABCDEFGHIJKLMNO\0")
 
+    def test_create_refused_name(self):
+        # 66e5:193f copies a name with its NUL and no more: after a refused
+        # one ("1ABCDEFGHI") the bytes past the new name's NUL stay, as in the
+        # original's file (dqk_create's knights case).
+        keys = self.clicks(self.HUMAN, self.FIGHTER, self.MALE, self.LAWFUL, self.GOOD)
+        _, _, data = self.create(keys + r"dd1abcdefghi\rZed\rdy", name="Zed")
+        self.assertEqual(data[0x68:0x78], b"ZED\0DEFGHI\0\0\0\0\0\0")
+
     def test_create_cleric(self):
         # A Silvanesti cleric (lawful good): the deity's list (66e5:36b0:
         # Paladine, Majere, Kiri-Jolith, Mishakal), the second chosen, a
@@ -1030,6 +1038,92 @@ class DarkQueenTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             data = (saves / f"{name}.QCH").read_bytes()
             self.assertEqual(hashlib.md5(self.without_pointers(data)).hexdigest(), expected, name)
+
+    @staticmethod
+    def hand_made(data):
+        """The shipped saved game with its first member made by hand
+        (dqk_stats.py): a body armour (type 0x1f) of +100, so that the armour
+        class sum wraps below 0 and 177e:0f5f compares it unsigned, a cloak
+        (0x3a) that magic armour keeps, and effect 0x4a, which doubles the
+        movement."""
+        data = bytearray(data)
+        at = 0x40F
+        items = at + 0x19E
+        for k, (kind, bonus) in ((1, (0x3A, 3)), (3, (0x1F, 100))):
+            item = items + 17 * k
+            data[item], data[item + 8], data[item + 10], data[item + 13] = kind, bonus, 1, 0
+        data[at + 4:at + 8] = bytes([0x51, 0x00, 0x71, 0x58])
+        end = items + 17 * (data[at + 8] | data[at + 9] << 8)
+        data[end:end] = bytes([0x4A, 0, 0, 0xFF, 0, 0, 0, 0, 0])
+        return bytes(data)
+
+    @staticmethod
+    def saved_without_pointers(data):
+        """A .QSV but the heap's far pointers: each character's (next,
+        effects, the items' count word's first, the slots, combat) and each
+        effect's next."""
+        data = bytearray(data)
+        at = 0x40F
+        for _ in range(data[0x40D]):
+            items = data[at + 8] | data[at + 9] << 8
+            effects = any(data[at + 4:at + 8])
+            for off, n in [(0, 4), (4, 4), (10, 2), (0x40, 4)] + [(0xC + 4 * i, 4)
+                                                                  for i in range(13)]:
+                data[at + off:at + off + n] = bytes(n)
+            at += 0x19E + 17 * items
+            while effects:
+                effects = any(data[at + 5:at + 9])
+                data[at + 5:at + 9] = bytes(4)
+                at += 9
+        return bytes(data)
+
+    def test_recompute_hand_made(self):
+        # 177e:0be2 on a record the original had not already recomputed (the
+        # shipped characters were): Load recomputes (604b:28f8), Save Current
+        # Game writes it, as the original's own save is but for its pointers
+        # (dqk_stats.py's digest). It drives the cloak 0x3a kept by magic
+        # armour, the armour class compared unsigned, the cloak's part of
+        # the armour class from behind and effect 0x4a on the movement.
+        saves = self.folder / "saves"
+        saves.mkdir()
+        (saves / "SAVGAMA.QSV").write_bytes(
+            self.hand_made((ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes()))
+        result = self.play("--start-menu", "--saves", saves, "--keys", r"\k\ePLTAsa", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = (saves / "SAVGAMA.QSV").read_bytes()
+        record = data[0x40F:0x40F + 0x19E]
+        self.assertEqual([record[0x18E], record[0x18F], record[0x199]], [160, 153, 18])
+        self.assertEqual(hashlib.md5(self.saved_without_pointers(data)).hexdigest(),
+                         "149066432d22bda4ab7838419aeed6cf")
+
+    def test_trade_members(self):
+        # The picker of Trade (86b8:3ae5) starts on the member viewed (86b8:0b1d
+        # sets DS:c3eb), not the one last given to, and each member's row is a
+        # mouse area: a click makes it the current member (checked in the
+        # original's picker). Roland gives 5 to the second member; Cinder's View
+        # then gives 5 to the one below her (the fourth), by Down; and the
+        # first member, viewed again, gives 5 to the sixth by a click on its row.
+        def steel(data):
+            at, out = 0x40F, []
+            for _ in range(data[0x40D]):
+                out.append(data[at + 0x4C] | data[at + 0x4D] << 8)
+                effects = any(data[at + 4:at + 8])
+                at += 0x19E + 17 * (data[at + 8] | data[at + 9] << 8)
+                while effects:
+                    effects = any(data[at + 5:at + 9])
+                    at += 9
+            return out
+
+        saves = self.folder / "saves"
+        saves.mkdir()
+        (saves / "SAVGAMA.QSV").write_bytes((ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes())
+        trade = r"SS5\rEE"  # Select, the steel, 5, Return, Exit the coins, Exit the picker
+        keys = (r"\k\ePLTAVT\v" + trade + r"E" + r"\v\vVT\v" + trade + r"E" +
+                r"\^\^VT\m20,76,1." + trade + "E" + "SA")
+        result = self.play("--mouse", "--start-menu", "--saves", saves, "--keys", keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(steel((saves / "SAVGAMA.QSV").read_bytes()),
+                         [190, 205, 195, 205, 200, 205])
 
     def test_first_fight(self):
         # To Caergoth (the palace, Leave), its commands and steps (6fea:0365,

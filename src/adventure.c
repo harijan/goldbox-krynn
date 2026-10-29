@@ -3055,6 +3055,15 @@ static bool restore_whole(cok_adventure *game, const char *path, cok_saved_game 
             return false;
         }
         saved->characters[i] = NULL;
+        /* 604b:3491 (3585-3594) runs the levels (8bcc:07f1) of an NPC that
+         * has joined, as 4b6d:1989 does for the others' games. */
+        cok_character *joined = game->party.members[game->party.count - 1];
+        if (cok_field_u8(rules->character, joined->record, COK_FIELD_NPC) >= 0x80 &&
+            !cok_character_levels(joined, rules, &game->item_types, game->error,
+                                  sizeof game->error)) {
+            fail(game, "%s: %s", path, game->error);
+            return false;
+        }
         cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, 1);
     }
     vm->character = cok_party_record(&game->party, 0);

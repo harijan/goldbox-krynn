@@ -20,8 +20,14 @@ enum {
  * "Rdy Use Trade Deposit Drop Halve Join Sell Id Exit" (1bdb:0005 adds
  * them). */
 enum { B_READY, B_USE, B_TRADE, B_DEPOSIT, B_DROP, B_HALVE, B_JOIN, B_SELL, B_ID, B_EXIT };
-/* The member last given to (DS:c3eb), by Items' Trade and the coins'. */
+/* The member last given to (DS:c3eb), by Items' Trade and the coins': the
+ * member viewed where View starts (queen_view_start, 86b8:0b1d). */
 static cok_character *last_target;
+
+void queen_view_start(cok_character *member)
+{
+    last_target = member;
+}
 
 static const char *const button_names[] = {"Rdy",  "Use",  "Trade", "Deposit", "Drop",
                                            "Halve", "Join", "Sell",  "Id",      "Exit"};
@@ -122,7 +128,18 @@ static cok_character *which_member(cok_adventure *game, const char *prompt, cok_
     for (;;) {
         queen_party_list(game, party->members[at]->record);
         cok_adventure_log(game, "menu", "Select Exit");
-        int choice = queen_bar_menu(game, line, items, 2, true);
+        /* Each member's row of the list is a mouse area (1bdb:0c00, mode 7:
+         * the rows from pixel 32, 8 a member): a click makes that member
+         * the current one. */
+        queen_rect rows[16];
+        size_t n = party->count < 16 ? party->count : 16;
+        for (size_t i = 0; i < n; ++i)
+            rows[i] = (queen_rect){32 + 8 * (int)i, 0, 40 + 8 * (int)i, 320};
+        int choice = queen_bar_menu_areas(game, line, items, 2, true, rows, n);
+        if (choice >= QUEEN_AREA && choice < QUEEN_AREA + (int)n) {
+            at = (size_t)(choice - QUEEN_AREA);
+            continue;
+        }
         if (choice < 0) {
             *failed = true;
             (void)vm;

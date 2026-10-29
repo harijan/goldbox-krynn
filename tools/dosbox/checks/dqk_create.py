@@ -13,9 +13,12 @@ The random numbers: the generator is the game's own (2102:0234, DS:ca0e), so
 that the port's seed where the form opens (its "seed:" line) is written to
 the original's DS:ca0e as the form opens, and every roll then is the same.
 The cases make characters of each class family (a human fighter, a
-Silvanesti cleric of the neutral gods, a dwarf, a kender thief, a half-elf
-multi-class mage); the files they write are compared byte for byte but the
-far pointers (the record's, the items' and each effect's).
+Silvanesti cleric of the good gods, a dwarf, a kender thief, a half-elf
+fighter and mage; a knight, a paladin, a ranger; a mage of the second order,
+a cleric, fighter and mage and a cleric of the neutral gods); the files they
+write are compared byte for byte but the far pointers (the record's, the
+items' and each effect's), the readied slots by which are pointers at all.
+Every screen is compared whole but the name's caret and the camp's cursor.
 
     python3 tools/dosbox/checks/dqk_create.py [--workdir DIR] [--verbose] [--flows CASE ...]
 
@@ -62,12 +65,16 @@ def form(race, klass, gender, law, good):
             (f"{good}", click(*GOOD[good])), ("form done", ("key", "d"))]
 
 
-def finish(name, rights, reroll=0, around=False, click_at=None):
+def finish(name, rights, reroll=0, around=False, click_at=None, more=False, refused=None):
     """The roll (REROLL times Reroll Stats), the name, the icon moved RIGHTS
     cells right (AROUND: seven cells left and seven up, past each edge),
-    and the question answered yes."""
+    and the question answered yes (REFUSED: a name asked for again first, whose
+    bytes past the new name's end the file keeps)."""
     steps = [(f"reroll {n + 1}", ("key", "r")) for n in range(reroll)]
     steps.append(("stats done", ("key", "d")))
+    if refused:  # a name that starts with a digit is asked for again
+        steps += [(f"name {ch}", ("key", ch)) for ch in refused]
+        steps.append(("name rejected", ("key", "\\r")))
     steps += [(f"name {ch}", ("key", ch)) for ch in name]
     steps.append(("name entered", ("key", "\\r")))
     steps += [(f"icon right {n + 1}", ("key", "\\>")) for n in range(rights)]
@@ -76,9 +83,10 @@ def finish(name, rights, reroll=0, around=False, click_at=None):
     if around:
         steps += [(f"icon left {n + 1}", ("key", "\\<")) for n in range(7)]
         steps += [(f"icon up {n + 1}", ("key", "\\^")) for n in range(7)]
-    steps += [("icon done", ("key", "d")), ("saved", ("key", "y")),
-              ("pointer away", click(300, 60)), ("pointer on a button", click(40, 123))]
-    return steps
+    steps += [("icon done", ("key", "d")), ("saved", ("key", "y"))]
+    if more:  # another character follows
+        return steps + [("again", ("key", "C"))]
+    return steps + [("pointer away", click(300, 60)), ("pointer on a button", click(40, 123))]
 
 
 # case: (file, steps); the form opens at the first step and the port's seed
@@ -109,6 +117,25 @@ CASES = {
                + [("previous", ("key", "p")), ("add hit points", ("key", "\\>")),
                   ("exit", ("key", "e"))]
                + finish("Quin", 0)),
+    # The classes the others do not make: a knight, a paladin and a ranger,
+    # then a red mage of the second order (alignment's good axis neutral), a
+    # three-class character of a good cleric (with a deity from the list) and a
+    # cleric of the neutral gods (Shinare).
+    "knights": (["KNOX", "PALA", "RANGE"],
+                form("human", "knight", "male", "lawful", "good") + finish("Knox", 1, more=True)
+                + form("human", "paladin", "female", "lawful", "good")
+                + finish("Pala", 0, more=True, refused="1Abcdef")
+                + form("silvanesti", "ranger", "male", "neutral", "good")
+                + finish("Range", 2)),
+    "casters": (["MAGE", "TRIO", "NEUT"],
+                form("human", "mage", "male", "lawful", "neutral") + finish("Mage", 1, more=True)
+                + form("half-elf", "cleric-fighter-mage", "female", "lawful", "good")
+                + [("deity down", ("key", "\\v")), ("deity select", ("key", "s"))]
+                + finish("Trio", 0, more=True)
+                + form("qualinesti", "cleric", "female", "lawful", "neutral")
+                + [("deity down", ("key", "\\v")), ("deity down", ("key", "\\v")),
+                   ("deity select", ("key", "s"))]
+                + finish("Neut", 0)),
     # What ends a creation: Escape from the sheet's bar, Exit from the form,
     # Escape from the name, Exit from the icons and No to the save, each
     # back at the camp; the next begins with the generator where it was left.
@@ -134,6 +161,12 @@ CASES = {
 # The steps that end at the camp.
 BACK_AT_THE_CAMP = {"saved", "sheet escape", "form exit", "sheet exit", "name escape",
                     "icon exit", "save no"}
+
+
+def files_of(case):
+    """The file names a case writes (a list)."""
+    files = CASES[case][0]
+    return [] if files is None else [files] if isinstance(files, str) else files
 
 
 def key_text(step):
@@ -176,6 +209,34 @@ def far_pointers(data):
     return mask
 
 
+def original_slots(data):
+    """The slots (of 13) the original's file has a pointer in: +0x0c, four bytes
+    each (177e:0be2)."""
+    return [i for i in range(13) if data[0xC + 4 * i:0x10 + 4 * i] != b"\0\0\0\0"]
+
+
+def model_slots(data):
+    """The slots the readied items fill as the port's stats (party.c) put
+    them: an item's slot by its type (ITEMS.DAT's first byte; a second ring in
+    10), the arrows' and the quarrels' (types 0x1e; 0x0c and 0x4a) in 11 and 12."""
+    types = next(dqk_lib.ASSETS.rglob("ITEMS.DAT")).read_bytes()
+    slots = set()
+    for k in range(data[8] | data[9] << 8):
+        item = data[0x19E + 17 * k:0x19E + 17 * (k + 1)]
+        if item[10] == 0:
+            continue
+        slot = types[16 * item[0]]
+        if slot <= 8:
+            slots.add(slot)
+        elif slot == 9:
+            slots.add(10 if 9 in slots else 9)
+        if item[0] == 0x1E:
+            slots.add(11)
+        if item[0] in (0x0C, 0x4A):
+            slots.add(12)
+    return sorted(slots)
+
+
 def character_differences(a, b):
     if len(a) != len(b):
         return ["size"]
@@ -184,7 +245,8 @@ def character_differences(a, b):
 
 
 def run_case(case, opts, work, verdict):
-    file_name, steps = CASES[case]
+    steps = CASES[case][1]
+    files = files_of(case)
     saves = work / f"saves-{case}"
     if saves.exists():
         shutil.rmtree(saves)
@@ -214,6 +276,7 @@ def run_case(case, opts, work, verdict):
         box.ds_write(0xCA0E, seeds[0])
         begun = 1
         last = (0, 0)
+        typed = 0
         for n, (what, step) in enumerate(steps):
             if step[0] == "click":
                 box.click(step[1], step[2])
@@ -221,6 +284,9 @@ def run_case(case, opts, work, verdict):
             else:
                 box.keys(step[1])
             shot = box.settled(tolerance=64)
+            typed = 0 if what in ("stats done", "name rejected") else typed + (what.startswith("name ")
+                                                            and step[1] != "\\r"
+                                                            and step[1] != "\\e")
             if step == ("key", "C") and begun < len(seeds):
                 box.ds_write(0xCA0E, seeds[begun])
                 begun += 1
@@ -232,21 +298,25 @@ def run_case(case, opts, work, verdict):
                           "shield the form's pointer had until it moves (the next steps "
                           "agree)"),)
             elif what.startswith("name ") or what == "stats done":
-                masks = ((0, 184, 320, 16, "the name's blinking caret"),)
+                # The caret the original blinks by the clock, after the letters.
+                masks = ((128 + 8 * typed - 4, 188, 20, 10, "the name's blinking caret"),)
             verdict.screen(f"{case}: {what}", shot, shots[n + 4] if len(shots) > n + 4 else None,
                            masks=masks, work=work)
         box.settle(1.0)
-        written = b""
-        if file_name is not None:
-            original = box.cdrive / "DQK" / "SAVE" / (file_name + ".QCH")
-            written = original.read_bytes() if original.exists() else b""
-    if file_name is None:
-        return
-    ported = saves / (file_name + ".QCH")
-    port = ported.read_bytes() if ported.exists() else b""
-    verdict.value(f"{case}: the file written ({file_name}.QCH, but the far pointers)",
-                  (len(written), character_differences(written, port)[:20] if port else ["none"]),
-                  (len(port), []))
+        written = {}
+        for name in files:
+            original = box.cdrive / "DQK" / "SAVE" / (name + ".QCH")
+            written[name] = original.read_bytes() if original.exists() else b""
+    for name in files:
+        ported = saves / (name + ".QCH")
+        port = ported.read_bytes() if ported.exists() else b""
+        verdict.value(f"{case}: the file written ({name}.QCH, but the far pointers)",
+                      (len(written[name]),
+                       character_differences(written[name], port)[:20] if port else ["none"]),
+                      (len(port), []))
+        slots = original_slots(written[name])
+        verdict.value(f"{case}: {name}'s readied slots (the original's pointers, nil or not)",
+                      slots, model_slots(written[name]))
 
 
 def main():

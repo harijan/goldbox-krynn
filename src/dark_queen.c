@@ -2360,6 +2360,7 @@ static bool view_character(cok_adventure *game)
     size_t i = cok_party_index(&game->party, c);
     if (i >= game->party.count) return true;
     cok_character *member = game->party.members[i];
+    queen_view_start(member);
     if (!queen_sheet(game, member)) return false;
     for (;;) {
         /* The menu is built again after each of its choices (86b8:0b49). */

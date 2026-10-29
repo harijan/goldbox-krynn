@@ -20,7 +20,10 @@ Experience"); then Save Current Game. Compared: every screen, and the
 saved game written (SAVGAMA.QSV, but the characters' far pointers and the
 effects' next ones, the heap's). In a second run with the hall's variable
 0x40 (knights only): Roark's "we don't train that class here", and the
-file unchanged but the variable. About two minutes.
+file unchanged but the variable. A third run patches Walker's cleric level
+from 10 to 6 in the file (the same in both) so that a cleric, a caster
+that needs no new-spell picker (849a:2080, a mage's or ranger's), trains.
+About three minutes.
 
     python3 tools/dosbox/checks/dqk_train.py [--workdir DIR] [--verbose]
 
@@ -66,9 +69,11 @@ def characters(data):
     return out
 
 
-def patched(source, out, hall, experience):
+def patched(source, out, hall, experience, levels=None):
     """SAVGAMA.QSV with variable 0x30 = hall and each character's
-    experience (by index) as given; the other saved files beside it."""
+    experience (by index) as given, and the levels (+0xa5 + class) of
+    those in LEVELS ({index: {class: level}}); the other saved files beside
+    it."""
     shutil.copytree(source, out, dirs_exist_ok=True)
     path = out / "SAVGAMA.QSV"
     data = bytearray(path.read_bytes())
@@ -76,6 +81,9 @@ def patched(source, out, hall, experience):
     chars = characters(data)
     for index, value in experience.items():
         struct.pack_into("<I", data, chars[index][0] + 0x44, value)
+    for index, classes in (levels or {}).items():
+        for k, value in classes.items():
+            data[chars[index][0] + 0xA5 + k] = value
     path.write_bytes(data)
 
 
@@ -113,11 +121,11 @@ def freeze_cycles(box):
     box.write(at, b"\xcb")
 
 
-def play(work, name, source, hall, experience, steps, verdict, verbose):
+def play(work, name, source, hall, experience, steps, verdict, verbose, levels=None):
     """One run of STEPS (what, typed, message the port logs or None) in
     both; returns the two saved files."""
     saves = work / f"saves-{name}"
-    patched(source, saves, hall, experience)
+    patched(source, saves, hall, experience, levels)
     own = work / f"port-saves-{name}"
     shutil.copytree(saves, own, dirs_exist_ok=True)
     keys = "\\k\\e" + "".join("\\v" if t == "v" else "\\^" if t == "^" else t
@@ -186,6 +194,23 @@ def main():
         ("Train Roark, the hall of knights", "t", "we don't train that class here")]
     play(work, "b", source, 0x40, {0: 1200001, 4: 1000001, 5: 700000}, steps2, verdict,
          opts.verbose)
+    # A caster that trains without the new-spell picker (849a:2080, a mage's
+    # or ranger's): Walker's cleric (a kender cleric and thief, the level 10
+    # made 6 here by the file: the same in both) takes levels, its spells a day
+    # and known recomputed (8bcc:01e7).
+    steps3 = steps[:4] + [("down 1", "v", None)] * 5 + [
+        ("Train Walker's cleric", "t", None), ("Yes for Walker's cleric", "y", None),
+        ("Save Current Game", "s", None), ("save A", "a", None)]
+    written = play(work, "c", source, 0x7F, {5: 700000}, steps3, verdict, opts.verbose,
+                   levels={5: {0: 6}})
+    original, port = (p.read_bytes() if p.exists() else b"" for p in written)
+    mask = pointer_mask(port) if port else set()
+    differing = [i for i in range(min(len(original), len(port)))
+                 if i not in mask and original[i] != port[i]]
+    verdict.check(len(original) == len(port) and not differing,
+                  "the saved game written after a cleric's training",
+                  f"{len(original)} and {len(port)} bytes, differing at "
+                  f"{[hex(i) for i in differing[:12]]}")
     return verdict.finish()
 
 

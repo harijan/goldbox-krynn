@@ -9,6 +9,9 @@
  * hands (86b8:3200) and Cure (86b8:3319), each of the character selected
  * (the party's member), drawn in the window the sheet left. They return
  * false where the run stopped (a routine of step 4's rules, cited). */
+/* View's start (86b8:0b1d): the member the pickers of Trade start on is the
+ * one viewed. */
+void queen_view_start(cok_character *member);
 bool queen_view_items(cok_adventure *game, cok_character *character);
 bool queen_view_trade(cok_adventure *game, cok_character *character);
 bool queen_view_drop(cok_adventure *game, cok_character *character);

@@ -15,7 +15,8 @@ gone forever", "Lose it?") and refused, Trade ("Trade with whom?",
 Items: his arrows (40) halved and joined again, his bow readied and
 refused ("already using ..."), the arrows unreadied and the bow
 readied, the sword unreadied and the bow refused for hands ("Your hands
-are full!"). Then, from the camp, Save Current Game: the saved game the
+are full!"). Then the third member's View and coin Trade (the picker starting on the
+member viewed, not on the one last given to). Then, from the camp, Save Current Game: the saved game the
 original writes and the port's (the same bytes but the characters' far
 pointers) are compared.
 
@@ -62,6 +63,12 @@ STEPS = [
     ("down", "\\v"), ("ready the bow", "r"),
     ("down", "\\v"), ("unready the sword", "r"), ("up", "\\^"), ("ready the bow", "r"),
     ("exit items", "e"), ("exit view", "e"),
+    # The third member's View after others': the pickers start on the
+    # member viewed (86b8:0b1d), not on the last one given to.
+    ("the third member", "\\v"), ("view the third", "v"), ("coin trade", "t"),
+    ("the picker, down", "\\v"), ("select", "s"), ("steel", "s"), ("2", "2"),
+    ("amount", "\\r"), ("exit the coins", "e"), ("exit the picker", "e"),
+    ("exit view", "e"),
     ("save", "s"), ("game a", "a"),
 ]
 

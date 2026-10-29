@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py` and `dqk_create.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py` and `dqk_create.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -364,8 +364,9 @@ Escape from the amount), then Items (`86b8:0f41`) of the first member
 (Trade and Drop of a readied item refused, "Can't halve that", Join, the
 helm unreadied, Drop asked and refused, the helm traded to the second
 member) and of the second (his arrows halved and joined, his bow refused
-twice, "already using ..." and "Your hands are full!", then readied), and
-Save Current Game: the saved game the original writes against the port's,
+twice, "already using ..." and "Your hands are full!", then readied), the
+third member's View and coin Trade (the picker starts on the member viewed,
+not the one last given to), and Save Current Game: the saved game the original writes against the port's,
 byte for byte but the characters' far pointers. All agree (2026-10-29).
 
 `dqk_train.py` (about two minutes) plays the shipped saved game A from a
@@ -407,19 +408,32 @@ pointer, `sdl.mouse_emulation=always`, `Box.click`) of race, class, gender and
 alignment, Done, the deity's list for a cleric (Down, Select), the roll and the
 sheet (Reroll Stats once for the cleric), the name typed a letter a step, the
 icon's picker (arrows, 7 left and 7 up past each edge, a click at a cell's edge),
-and "Save NAME?"; every screen of each step in RGB (but the name's blinking
-caret, and the camp's cursor where it comes back, which the original draws as
+and "Save NAME?"; every screen of each step in RGB (but the caret the name's
+field blinks by the clock, and the camp's cursor where it comes back, which the original draws as
 it was last drawn, in the form, until the pointer moves: the steps after it
 agree), and the file written, `NAME.QCH`, byte for byte but the far
-pointers. The generator is shared: the port logs its seed where the creation
+pointers (the readied slots, the original's pointers, are compared by
+which are nil, against the slots the items readied fill). The generator is shared: the port logs its seed where the creation
 starts (`seed:`) and the check writes it to the original's `DS:ca0e` as the
 form opens, so every roll, hit point and silent training is the same. The cases:
-a human fighter, a Silvanesti cleric (lawful good), a hill dwarf cleric (no
-deity asked), a kender thief, a half-elf fighter and mage, and "exits": Escape
+a human fighter, a Silvanesti cleric (lawful good, the good gods), a hill dwarf cleric
+(no deity asked), a kender thief, a half-elf fighter and mage, "knights" (a knight,
+a paladin, a ranger, and a name refused for its digit, whose stale bytes
+the file keeps), "casters" (a mage of the second order, a cleric, fighter
+and mage, a cleric of the neutral gods), "modify" (the sheet's Modify) and "exits": Escape
 from the sheet's bar, Exit from the form, the sheet and the icons, Escape from
 the name and No to the save, each back at the camp and the next creation
 going on from the generator as the abandoned one left it. All agree
 (2026-10-29).
+
+`dqk_stats.py` (about a minute) loads the shipped saved game A from a copy
+whose first member is made by hand and saves it: a cloak (type `0x3a`) that
+magic armour keeps, a body armour of +100 as its last item (its armour class
+wraps below 0 as a signed byte, which `177e:0f5f` compares unsigned) and effect
+`0x4a` (the movement doubled). The saved game written holds the recomputed
+record (`177e:0be2`) of a character the original had not already recomputed;
+the two agree but for the far pointers (2026-10-29), and `tests/test_dark_queen.py`
+holds the digest.
 
 Death Knights of Krynn, read headless (see [Games](games.md#games)), is checked by
 `tools/dosbox/checks/dkk_views.py`, which `make dkk-checks` runs

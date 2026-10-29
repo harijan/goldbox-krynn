@@ -898,7 +898,9 @@ an item or unreadies it, with its messages "It's Cursed!", "Wrong Class",
 "already using <item>", "Your hands are full!", "Wrong Magical Order",
 "Usable Only By Kender" and "Thief Level Too Low"; Trade `86b8:1c58`
 through the picker `86b8:3ae5` ("Trade with whom?": the party's list, Down
-or End, Up or Home, Select, Exit) and "Overloaded" `86b8:2fbf`; Drop asks
+or End, Up or Home, Select, Exit; each row a mouse area, a click making that
+member the current one; it starts on the member last given to, which View
+sets to the member viewed, `86b8:0b1d`) and "Overloaded" `86b8:2fbf`; Drop asks
 "Lose it?" under "Your <item>will be gone forever"; Halve `86b8:1d13`;
 Join `86b8:1fda`; all but a scroll's contents, which the port holds none
 of, and the power an item puts on or takes off when it is readied
@@ -946,7 +948,7 @@ count) and the silent training (`queen_train_silently`). The generator is
 rolls the same (`dqk_create.py` writes the port's, logged as `seed:`, to the
 original). The sheet (86b8:0000) and its bar (Done, Reroll Stats, Modify, Exit;
 Modify is `queen_modify` with `creating` set) follow; then the name
-(`193f`: "Character name:", up to 15 characters, not empty or a digit first,
+(`193f`: "Character name: ", up to 15 characters, not empty or a digit first,
 asked again; Escape ends the creation), the body's default (`66e5:0001`) and
 the icons' picker (`0cf1`: 49 bodies of CBODY.TLB in a 7 by 7 grid of 24-pixel
 cells, ready and action shown at the right; arrows wrap, D is Done, E or Escape
