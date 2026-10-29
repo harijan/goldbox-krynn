@@ -564,6 +564,109 @@ static void import_item(const cok_rules_import *I, const uint8_t *d, uint8_t *no
     }
 }
 
+/* dqk 177e:20ce: the hit points a constitution (+0x81) adds a level to
+ * a class (0-6): -2 for 3, -1 for 4-6, 0 for 7-14, 1 for 15, 2 for 16,
+ * and for 17-19 a knight's, fighter's, paladin's or ranger's (classes 1-4)
+ * 3-5, the others' 2. Outside 3-19 the original leaves it unset: the
+ * port's 0. */
+static int8_t queen_constitution(const cok_character_layout *L, const uint8_t *c, unsigned class_)
+{
+    uint8_t con = cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION);
+    if (con < 3 || con > 19) return 0;
+    if (con == 3) return -2;
+    if (con <= 6) return -1;
+    if (con <= 14) return 0;
+    if (con == 15) return 1;
+    if (con == 16) return 2;
+    return class_ >= 1 && class_ <= 4 ? (int8_t)(con - 14) : 2;
+}
+
+/* dqk 86b8:354b: the most hit points a character's levels give: each
+ * class that has levels past the level a human changed class at
+ * (+0x92), or former ones, adds the hit dice's total at its level (a
+ * cleric of Paladine, Majere, Kiri-Jolith or Mishakal one level more)
+ * and, past the top level of its dice (DS:640a), so much for each
+ * level beyond; the sum is divided by the classes that count, or is 0
+ * where none does and the human never changed class. */
+static uint8_t queen_most_hit_points(const cok_character_layout *L, const uint8_t *c,
+                                     const uint8_t *top)
+{
+    unsigned counted = 0;
+    uint16_t sum = 0;
+    for (unsigned k = 0; k < 7; ++k) {
+        uint8_t level = cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, k),
+                former = cok_field_u8_at(L, c, COK_FIELD_FORMER_LEVEL, k);
+        if (!((level > 0 && level > cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL)) || former > 0))
+            continue;
+        int con = queen_constitution(L, c, k);
+        uint8_t used;
+        if (former > 0) {
+            used = former;
+        } else {
+            ++counted;
+            used = level;
+        }
+        if (top[k] > used) {
+            /* Below the dice's top. */
+            static const uint8_t dice[7] = {8, 10, 8, 10, 8, 4, 6};
+            unsigned n = level;
+            if (k == 0 && cok_field_s8(L, c, COK_FIELD_DEITY) <= 4) ++n;
+            if (k == 1) ++n;
+            sum = (uint16_t)(sum + n * (unsigned)(con + dice[k]));
+            if (k == 4) ++sum;
+            continue;
+        }
+        /* The top and past it: the dice's most and so much a level. */
+        unsigned extra = (unsigned)(uint8_t)(level - top[k] + 1);
+        static const struct { uint8_t con, extra, base; } past[7] = {
+            {9, 2, 0x48}, {10, 2, 0x64}, {9, 3, 0x5a}, {9, 3, 0x5a},
+            {11, 2, 0x58}, {11, 1, 0x2c}, {10, 2, 0x3c},
+        };
+        sum = (uint16_t)(sum + con * past[k].con + (int)extra * past[k].extra + past[k].base);
+    }
+    if (counted != 0)
+        sum = (uint16_t)(sum / counted);
+    else if (cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL) == 0)
+        sum = 0;
+    return (uint8_t)sum;
+}
+
+void cok_character_default_body(const cok_character_layout *L, uint8_t *c)
+{
+    /* dqk 66e5:0001: the body icon (+0xc4) by gender, race, class and, for
+     * some, alignment (0, 3 and 6 the lawful); a class past 16 sets none. */
+    static const uint8_t kender_male[17] = {0x2f, 0, 0x2b, 0, 0x2a, 0, 0x2e, 0, 0x2b,
+                                            0x2b, 0x2a, 0x2f, 0x2e, 0x2b, 0x2b, 0x2b, 0x2e};
+    static const uint8_t dwarf_male[17] = {0x25, 0, 0x22, 0x22, 0x22, 0, 0x27, 0, 0x22,
+                                           0x22, 0x22, 0x25, 0x27, 0x22, 0x22, 0x22, 0x27};
+    /* 0xff: by the alignment, below. */
+    static const uint8_t other_male[17] = {0xff, 0, 3, 2, 8, 0xff, 0x11, 1, 3,
+                                           3, 8, 0xff, 0x11, 3, 3, 3, 0x11};
+    static const uint8_t kender_female[17] = {0x2b, 0, 0x2d, 0, 0x2c, 0, 0x2d, 0, 0x2d,
+                                              0x2d, 0x2c, 0x2b, 0x2d, 0x2d, 0x2d, 0x2d, 0x2d};
+    static const uint8_t dwarf_female[17] = {0x26, 0, 0x24, 0x24, 0x24, 0, 0x28, 0, 0x24,
+                                             0x24, 0x24, 0x26, 0x28, 0x24, 0x24, 0x24, 0x28};
+    static const uint8_t other_female[17] = {0xff, 0xc, 0xa, 0xb, 0xe, 0xff, 0x14, 0, 0xa,
+                                             0xa, 0xe, 0xff, 0x14, 0xa, 0xa, 0xa, 0x14};
+    int race = cok_field_s8(L, c, COK_FIELD_RACE), class_ = cok_field_s8(L, c, COK_FIELD_CLASS);
+    bool male = cok_field_s8(L, c, COK_FIELD_GENDER) == 0;
+    if (class_ < 0 || class_ > 16) return;
+    const uint8_t *table = race == 5 ? (male ? kender_male : kender_female)
+                           : race == 3 || race == 4 ? (male ? dwarf_male : dwarf_female)
+                                                     : (male ? other_male : other_female);
+    uint8_t body = table[class_];
+    if (body == 0xff) {
+        /* The cleric's and the mage's (and cleric/mage's) by alignment:
+         * the lawful ones' (0, 3, 6) then the others'. */
+        bool lawful = cok_field_s8(L, c, COK_FIELD_ALIGNMENT) % 3 == 0;
+        if (class_ == 5)
+            body = male ? (lawful ? 0x1b : 0x1c) : (lawful ? 0x1f : 0x20);
+        else
+            body = male ? (lawful ? 0x17 : 0x1a) : (lawful ? 0x18 : 0x19);
+    }
+    cok_field_set8(L, c, COK_FIELD_ICON_BODY, body);
+}
+
 static bool dark_queen_import(cok_character *character, const cok_rules *rules, const char *dir,
                               const char *base, const char *extension, char *error,
                               size_t error_size)
@@ -677,6 +780,14 @@ static bool dark_queen_import(cok_character *character, const cok_rules *rules, 
                    w + 0xbc + 8 * r, 8);
     }
     free(data);
+    /* 604b:0d65's end: the hit points kept within 86b8:354b's most, and
+     * the body icon (66e5:0001). */
+    uint8_t most = queen_most_hit_points(L, c, I->top_levels);
+    static const cok_field capped[] = {COK_FIELD_MAX_HIT_POINTS, COK_FIELD_UNDRAINED_MAX_HIT_POINTS,
+                                       COK_FIELD_BASE_HIT_POINTS, COK_FIELD_HIT_POINTS};
+    for (size_t i = 0; i < sizeof capped / sizeof *capped; ++i)
+        if (most < cok_field_u8(L, c, capped[i])) cok_field_set8(L, c, capped[i], most);
+    cok_character_default_body(L, c);
     return true;
 }
 
@@ -853,7 +964,13 @@ typedef struct {
     size_t error_size;
     bool failed;
     const cok_data_segment *D;
+    const cok_rules *rules;
 } lookup;
+
+static lookup new_lookup(const cok_rules *rules, char *error, size_t error_size)
+{
+    return (lookup){error, error_size, false, rules->data, rules};
+}
 
 /* The byte at DS:offset, from whichever table holds it. Past DS:43bf lies
  * data the game sets as it runs, which only a saving throw for a level of 90
@@ -875,10 +992,11 @@ static uint8_t ds_byte(lookup *l, long offset, const char *what)
  * into; beyond them lie the party's pointers (DS:6096). */
 static const uint8_t *item_type(lookup *l, const cok_item_types *types, const uint8_t *item)
 {
-    if (item[0x2e] < COK_ITEM_TYPES) return types->type[item[0x2e]];
+    uint8_t id = item[l->rules->item_record.type];
+    if (id < COK_ITEM_TYPES) return types->type[id];
     if (!l->failed)
-        fail(l->error, l->error_size, "item type %u is past the %d ITEMS is read into",
-             item[0x2e], COK_ITEM_TYPES);
+        fail(l->error, l->error_size, "item type %u is past the %d ITEMS is read into", id,
+             COK_ITEM_TYPES);
     l->failed = true;
     return NULL;
 }
@@ -945,7 +1063,8 @@ static uint8_t strength_row(lookup *l, const cok_character_layout *L, const uint
 static int8_t strength_hit(lookup *l, const cok_character_layout *L, const uint8_t *c)
 {
     uint8_t row = strength_row(l, L, c);
-    if (cok_field_u8(L, c, COK_FIELD_STRENGTH_BONUSES) == 0) return 0;
+    if (l->rules->characters.strength_flag && cok_field_u8(L, c, COK_FIELD_STRENGTH_BONUSES) == 0)
+        return 0;
     if (row >= 1 && row <= 3) return -3;
     if (row >= 4 && row <= 5) return -2;
     if (row >= 6 && row <= 7) return -1;
@@ -961,7 +1080,8 @@ static int8_t strength_hit(lookup *l, const cok_character_layout *L, const uint8
 static int8_t strength_damage(lookup *l, const cok_character_layout *L, const uint8_t *c)
 {
     uint8_t row = strength_row(l, L, c);
-    if (cok_field_u8(L, c, COK_FIELD_STRENGTH_BONUSES) == 0) return 0;
+    if (l->rules->characters.strength_flag && cok_field_u8(L, c, COK_FIELD_STRENGTH_BONUSES) == 0)
+        return 0;
     if (row >= 1 && row <= 2) return -2;
     if (row >= 3 && row <= 5) return -1;
     if (row == 16) return 1;
@@ -974,7 +1094,7 @@ static int8_t strength_damage(lookup *l, const cok_character_layout *L, const ui
 bool cok_character_strength_bonus(const uint8_t *c, const cok_rules *rules, bool damage,
                                   int8_t *bonus, char *error, size_t error_size)
 {
-    lookup l = {error, error_size, false, rules->data};
+    lookup l = new_lookup(rules, error, error_size);
     const cok_character_layout *L = rules->character;
     *bonus = damage ? strength_damage(&l, L, c) : strength_hit(&l, L, c);
     return !l.failed;
@@ -1000,7 +1120,7 @@ static int16_t strength_allowance(lookup *l, const cok_character_layout *L, cons
 bool cok_character_allowance(const uint8_t *c, const cok_rules *rules, int16_t *allowance,
                              char *error, size_t error_size)
 {
-    lookup l = {error, error_size, false, rules->data};
+    lookup l = new_lookup(rules, error, error_size);
     *allowance = strength_allowance(&l, rules->character, c);
     return !l.failed;
 }
@@ -1014,11 +1134,13 @@ static void weapon_stats(lookup *l, const cok_rules *rules, cok_character *chara
 {
     const cok_character_layout *L = rules->character;
     uint8_t *c = character->record;
+    const cok_rules_item_record *I = &rules->item_record;
+    const cok_rules_characters *R = &rules->characters;
     const uint8_t *weapon = slot_item(character, 0);
     if (weapon == NULL) return;
     const uint8_t *type = item_type(l, types, weapon);
     if (type == NULL) return;
-    uint8_t id = weapon[0x2e];
+    uint8_t id = weapon[I->type];
     cok_field_set8(L, c, COK_FIELD_THAC0, cok_field_u8(L, c, COK_FIELD_BASE_THAC0));
     if ((type[14] & 2) != 0)
         cok_field_add8(L, c, COK_FIELD_THAC0, cok_character_dexterity_missile(c, rules));
@@ -1027,16 +1149,17 @@ static void weapon_stats(lookup *l, const cok_rules *rules, cok_character *chara
         cok_field_add8(L, c, COK_FIELD_THAC0, strength_hit(l, L, c));
         cok_field_add8_at(L, c, COK_FIELD_DAMAGE_BONUS, 1, strength_damage(l, L, c));
     }
-    uint8_t bonus = weapon[0x32];
+    uint8_t bonus = weapon[I->bonus];
     const uint8_t *quarrels = slot_item(character, 12), *arrows = slot_item(character, 11);
-    if (type[14] > 0x7f && quarrels != NULL) bonus = (uint8_t)(bonus + quarrels[0x32]);
-    if ((type[14] & 1) != 0 && arrows != NULL) bonus = (uint8_t)(bonus + arrows[0x32]);
+    if (type[14] > 0x7f && quarrels != NULL) bonus = (uint8_t)(bonus + quarrels[I->bonus]);
+    if ((type[14] & 1) != 0 && arrows != NULL) bonus = (uint8_t)(bonus + arrows[I->bonus]);
     cok_field_add8_at(L, c, COK_FIELD_DAMAGE_BONUS, 1, bonus);
     /* The race bonuses add to hit only. */
     uint8_t race = cok_field_u8(L, c, COK_FIELD_RACE);
-    if ((race == 0 || race == 1) && ((id > 0x15 && id < 0x1b) || id == 0x13 || id == 0x12))
+    if ((race == 0 || race == 1) &&
+        ((id > R->elf_first && id < R->elf_last) || id == R->elf_a || id == R->elf_b))
         ++bonus;
-    if (race == 5 && id == 0x43) bonus = (uint8_t)(bonus + 2);
+    if (race == 5 && id == R->kender) bonus = (uint8_t)(bonus + 2);
     cok_field_add8(L, c, COK_FIELD_THAC0, bonus);
     cok_field_set8_at(L, c, COK_FIELD_DICE, 1, type[9]);
     cok_field_set8_at(L, c, COK_FIELD_DICE_SIDES, 1, type[10]);
@@ -1045,45 +1168,55 @@ static void weapon_stats(lookup *l, const cok_rules *rules, cok_character *chara
 /* 6346:0240: readied armour (slot 2) sets the movement (+0x198) by its
  * weight: the base movement up to 150, 9 up to 399, else 6; armour with a
  * bonus other than 0 adds 3 to a movement up to 9. */
-static void armour_movement(const cok_character_layout *L, const uint8_t *item, const uint8_t *type,
+static void armour_movement(const cok_rules *rules, const uint8_t *item, const uint8_t *type,
                             uint8_t *c)
 {
+    const cok_character_layout *L = rules->character;
+    const cok_rules_item_record *I = &rules->item_record;
     if (type[0] != 2) return;
-    uint16_t weight = u16(item + 0x37);
+    uint16_t weight = u16(item + I->weight);
     if (weight <= 0x96)
         cok_field_set8(L, c, COK_FIELD_MOVEMENT, cok_field_u8(L, c, COK_FIELD_BASE_MOVEMENT));
     else if (weight <= 0x18f)
         cok_field_set8(L, c, COK_FIELD_MOVEMENT, 9);
     else
         cok_field_set8(L, c, COK_FIELD_MOVEMENT, 6);
-    if (item[0x32] != 0 && cok_field_u8(L, c, COK_FIELD_MOVEMENT) <= 9)
+    if (item[I->bonus] != 0 && cok_field_u8(L, c, COK_FIELD_MOVEMENT) <= 9)
         cok_field_add8(L, c, COK_FIELD_MOVEMENT, 3);
 }
 
-/* 6346:02c8: a readied item's part of the armour class, for a type with
- * bit 7 of byte 6 set. ac holds the parts 6346:0d20 sums: [1] a shield's
- * class plus its bonus; [2] the bonuses of items whose type's armour class
- * is 0, and [3] the best bonus of such a ring, both of which add their saving
- * throw bonus (+0x33) to +0x17c; [4] the best armour class plus bonus.
- * Magic armour (slot 2, a positive bonus) setting [4] sets *magic. */
-static void armour_class(const cok_character_layout *L, const uint8_t *item, const uint8_t *type,
-                         int8_t ac[5], bool *magic, uint8_t *c)
+/* 6346:02c8, dqk 177e:026e: a readied item's part of the armour class, for
+ * a type with bit 7 of byte 6 set. ac holds the parts 6346:0d20 sums: [1]
+ * a shield's class plus its bonus; [2] the bonuses of items whose type's
+ * armour class is 0, and [3] the best bonus of such a ring, both of which
+ * add their saving throw bonus to +0x17c; [4] the best armour class plus
+ * bonus. Magic armour (slot 2, a positive bonus) setting [4] sets *magic.
+ * Dark Queen's has a part more: [4] is the bonus of the item of type 7
+ * with an armour class of 0 (a cloak's), and the best armour is [5]. */
+static void armour_class(const cok_rules *rules, const uint8_t *item, const uint8_t *type,
+                         int8_t ac[6], bool *magic, uint8_t *c)
 {
+    const cok_character_layout *L = rules->character;
+    const cok_rules_item_record *I = &rules->item_record;
+    bool queen = rules->characters.stats == COK_STATS_DARK_QUEEN;
     uint8_t base = type[6];
     if (base <= 0x7f) return;
     base &= 0x7f;
-    int8_t bonus = (int8_t)item[0x32];
+    int8_t bonus = (int8_t)item[I->bonus];
+    size_t best = queen ? 5 : 4;
     if (type[0] == 1) {
         ac[1] = (int8_t)(uint8_t)(base + bonus);
     } else if (base == 0) {
         if (type[0] == 9) {
             if (bonus > ac[3]) ac[3] = bonus;
+        } else if (queen && type[0] == 7) {
+            ac[4] = bonus;
         } else {
             ac[2] = (int8_t)(uint8_t)(ac[2] + bonus);
         }
-        cok_field_add8(L, c, COK_FIELD_SAVE_BONUS, item[0x33]);
-    } else if (base + bonus > ac[4]) {
-        ac[4] = (int8_t)(uint8_t)(base + bonus);
+        cok_field_add8(L, c, COK_FIELD_SAVE_BONUS, item[I->save_bonus]);
+    } else if (base + bonus > ac[best]) {
+        ac[best] = (int8_t)(uint8_t)(base + bonus);
         if (bonus > 0 && type[0] == 2) *magic = true;
     }
 }
@@ -1113,14 +1246,15 @@ static uint8_t death_knights_movement(lookup *l, const cok_character_layout *L,
                                       cok_character *character, const cok_item_types *types,
                                       uint8_t bonus)
 {
+    const cok_rules_item_record *I = &l->rules->item_record;
     uint8_t *c = character->record;
     cok_field_set8(L, c, COK_FIELD_MOVEMENT, cok_field_u8(L, c, COK_FIELD_BASE_MOVEMENT));
     for (size_t i = 0; i < character->item_count && !l->failed; ++i) {
         const uint8_t *item = character->items[i];
-        if (item[0x34] == 0) continue;
+        if (item[I->readied] == 0) continue;
         const uint8_t *type = item_type(l, types, item);
         if (type == NULL) return 0;
-        armour_movement(L, item, type, c);
+        armour_movement(l->rules, item, type, c);
     }
     encumbrance(l, L, c);
     uint8_t m = cok_field_u8(L, c, COK_FIELD_MOVEMENT);
@@ -1132,22 +1266,67 @@ static uint8_t death_knights_movement(lookup *l, const cok_character_layout *L,
     return (uint8_t)(m << 1);
 }
 
+/* dqk 177e:0a5f: the movement again from the base movement, the readied
+ * armour (177e:01ef) and the load (177e:038c), doubled by effect 0x27,
+ * halved by 0x2a and doubled by 0x4a (as bytes), left in the record; then
+ * for a character on the party's side (+0x66 0) the party's variable 0x1c
+ * (a signed byte; 1 where the sum is below 1), doubled, a third where
+ * variable 0x3c is set and effect 0x96 is not, 0 with effect 0xb2:
+ * returned (DS:b1c6). The port's stats have no ECL variables: they count
+ * as 0, as Death Knights' 0x7f72 does (step 4 gives them). 177e:0be2 keeps
+ * half of it: the movement & 0x7f. */
+static uint8_t dark_queen_movement(lookup *l, const cok_character_layout *L,
+                                   cok_character *character, const cok_item_types *types)
+{
+    const cok_rules_item_record *I = &l->rules->item_record;
+    uint8_t *c = character->record;
+    cok_field_set8(L, c, COK_FIELD_MOVEMENT, cok_field_u8(L, c, COK_FIELD_BASE_MOVEMENT));
+    for (size_t i = 0; i < character->item_count && !l->failed; ++i) {
+        const uint8_t *item = character->items[i];
+        if (item[I->readied] == 0) continue;
+        const uint8_t *type = item_type(l, types, item);
+        if (type == NULL) return 0;
+        armour_movement(l->rules, item, type, c);
+    }
+    encumbrance(l, L, c);
+    uint8_t m = cok_field_u8(L, c, COK_FIELD_MOVEMENT);
+    if (cok_character_find_effect(character, 0x27) != NULL) m = (uint8_t)(m << 1);
+    if (cok_character_find_effect(character, 0x2a) != NULL) m = (uint8_t)(m >> 1);
+    if (cok_character_find_effect(character, 0x4a) != NULL) m = (uint8_t)(m << 1);
+    cok_field_set8(L, c, COK_FIELD_MOVEMENT, m);
+    if (cok_field_u8(L, c, COK_FIELD_HOSTILE) == 0 && m == 0) m = 1;
+    m = (uint8_t)(m << 1);
+    if (cok_character_find_effect(character, 0xb2) != NULL) m = 0;
+    return m;
+}
+
 bool cok_character_round_movement(cok_character *character, const cok_rules *rules,
                                   const cok_item_types *types, uint8_t bonus, uint8_t *movement,
                                   char *error, size_t error_size)
 {
-    lookup l = {error, error_size, false, rules->data};
+    lookup l = new_lookup(rules, error, error_size);
     *movement = death_knights_movement(&l, rules->character, character, types, bonus);
+    return !l.failed;
+}
+
+bool cok_character_movement_now(cok_character *character, const cok_rules *rules,
+                                const cok_item_types *types, char *error, size_t error_size)
+{
+    lookup l = new_lookup(rules, error, error_size);
+    if (rules->characters.stats != COK_STATS_DARK_QUEEN) return true;
+    (void)dark_queen_movement(&l, rules->character, character, types);
     return !l.failed;
 }
 
 bool cok_character_stats(cok_character *character, const cok_rules *rules,
                          const cok_item_types *types, char *error, size_t error_size)
 {
-    /* Dark Queen's (dqk 177e:0be2) not ported: the record as it is. */
     if (rules->characters.stats == COK_STATS_NONE) return true;
-    lookup l = {error, error_size, false, rules->data};
+    lookup l = new_lookup(rules, error, error_size);
     const cok_character_layout *L = rules->character;
+    const cok_rules_item_record *I = &rules->item_record;
+    const cok_rules_characters *R = &rules->characters;
+    bool queen = R->stats == COK_STATS_DARK_QUEEN;
     uint8_t *c = character->record;
     /* 6346:0d26 clears the far pointers; the port keeps them 0. */
     memset(character->slots, 0, sizeof character->slots);
@@ -1161,11 +1340,11 @@ bool cok_character_stats(cok_character *character, const cok_rules *rules,
     for (size_t i = 0; i < character->item_count; ++i) {
         const uint8_t *item = character->items[i];
         cok_field_add8(L, c, COK_FIELD_ITEM_COUNT, 1);
-        uint16_t weight = u16(item + 0x37);
-        if (item[0x39] > 0) weight = (uint16_t)(item[0x39] * weight);
+        uint16_t weight = u16(item + I->weight);
+        if (item[I->count] > 0) weight = (uint16_t)(item[I->count] * weight);
         cok_field_set16(L, c, COK_FIELD_WEIGHT,
                         (uint16_t)(cok_field_u16(L, c, COK_FIELD_WEIGHT) + weight));
-        if (item[0x34] == 0) continue;
+        if (item[I->readied] == 0) continue;
         const uint8_t *type = item_type(&l, types, item);
         if (type == NULL) return false;
         /* The last readied item of a slot holds it; two rings fit. */
@@ -1175,8 +1354,10 @@ bool cok_character_stats(cok_character *character, const cok_rules *rules,
             character->slots[9] = i + 1;
         else if (type[0] == 9 && character->slots[10] == 0)
             character->slots[10] = i + 1;
-        if (item[0x2e] == 0x1e) character->slots[11] = i + 1;
-        if (item[0x2e] == 0x0c) character->slots[12] = i + 1;
+        if (item[I->type] == R->arrows) character->slots[11] = i + 1;
+        if (item[I->type] == R->quarrels ||
+            (R->quarrels_also != 0 && item[I->type] == R->quarrels_also))
+            character->slots[12] = i + 1;
         cok_field_add8(L, c, COK_FIELD_HANDS, type[1]);
     }
     /* Coins but silver (0): 1-6 in Champions. */
@@ -1193,7 +1374,7 @@ bool cok_character_stats(cok_character *character, const cok_rules *rules,
         cok_field_set8_at(L, c, COK_FIELD_DAMAGE_BONUS, i,
                           cok_field_u8_at(L, c, COK_FIELD_BASE_DAMAGE_BONUS, i));
     }
-    int8_t ac[5] = {0};
+    int8_t ac[6] = {0};
     bool magic = false;
     cok_field_set8(L, c, COK_FIELD_SAVE_BONUS, 0);
     cok_field_set8(L, c, COK_FIELD_AC, cok_field_u8(L, c, COK_FIELD_BASE_AC));
@@ -1207,29 +1388,46 @@ bool cok_character_stats(cok_character *character, const cok_rules *rules,
     weapon_stats(&l, rules, character, types);
     for (size_t i = 0; i < character->item_count && !l.failed; ++i) {
         const uint8_t *item = character->items[i];
-        if (item[0x34] == 0) continue;
+        if (item[I->readied] == 0) continue;
         const uint8_t *type = item_type(&l, types, item);
         if (type == NULL) break;
-        armour_movement(L, item, type, c);
-        armour_class(L, item, type, ac, &magic, c);
+        armour_movement(rules, item, type, c);
+        armour_class(rules, item, type, ac, &magic, c);
     }
-    /* Magic armour does not add to a ring's bonus. */
-    if (magic) ac[3] = 0;
+    /* Magic armour does not add to a ring's bonus. Dark Queen's keeps a
+     * cloak's (type 7) only where the item in that slot is 0x3a
+     * (177e:0be2). */
+    if (magic) {
+        ac[3] = 0;
+        if (queen && ac[4] > 0) {
+            const uint8_t *cloak = slot_item(character, 7);
+            if (cloak == NULL || cloak[I->type] != 0x3a) ac[4] = 0;
+        }
+    }
     /* The port's stats have no ECL variables: var 0x7f72 counts as 0,
      * which no Death Knights script changes and its saved games hold (step
      * 3 gives it). */
-    if (rules->characters.stats == COK_STATS_DEATH_KNIGHTS)
+    if (R->stats == COK_STATS_DEATH_KNIGHTS)
         cok_field_set8(L, c, COK_FIELD_MOVEMENT,
                        (uint8_t)(death_knights_movement(&l, L, character, types, 0) >> 1));
+    else if (queen)
+        cok_field_set8(L, c, COK_FIELD_MOVEMENT,
+                       (uint8_t)(dark_queen_movement(&l, L, character, types) / 2));
     else
         encumbrance(&l, L, c);
-    if (ac[4] < cok_field_u8(L, c, COK_FIELD_AC)) ac[4] = cok_field_s8(L, c, COK_FIELD_AC);
+    size_t best = queen ? 5 : 4;
+    /* Dark Queen's compares the bytes unsigned (177e:0f5f). */
+    if (queen ? cok_field_u8(L, c, COK_FIELD_AC) > (uint8_t)ac[best]
+              : ac[best] < cok_field_u8(L, c, COK_FIELD_AC))
+        ac[best] = cok_field_s8(L, c, COK_FIELD_AC);
     cok_field_set8(L, c, COK_FIELD_AC, 0);
-    for (size_t i = 0; i < 5; ++i) cok_field_add8(L, c, COK_FIELD_AC, ac[i]);
+    for (size_t i = 0; i < best + 1; ++i) cok_field_add8(L, c, COK_FIELD_AC, ac[i]);
     /* From behind: no dexterity or shield, and 2 worse. */
-    cok_field_set8(L, c, COK_FIELD_AC_BEHIND, (uint8_t)(ac[4] + ac[2] + ac[3] - 2));
-    /* Death Knights' has no fighter level (dkk 65cd:0e46 ends here). */
-    if (rules->characters.stats == COK_STATS_DEATH_KNIGHTS) return !l.failed;
+    cok_field_set8(L, c, COK_FIELD_AC_BEHIND,
+                   (uint8_t)(ac[best] + ac[2] + ac[3] + (queen ? ac[4] : 0) - 2));
+    /* Death Knights' and Dark Queen's have no fighter level (dkk 65cd:0e46
+     * and dqk 177e:0be2 end here). */
+    if (R->stats != COK_STATS_CHAMPIONS) return !l.failed;
     if ((cok_field_s8_at(L, c, COK_FIELD_CLASS_LEVEL, 2) > 0 ||
          (cok_field_s8_at(L, c, COK_FIELD_FORMER_LEVEL, 2) > 0 &&
           cok_character_former_class(c, rules)) ||
@@ -1509,7 +1707,7 @@ static void thief_skills(lookup *l, const cok_rules *rules, cok_character *chara
 static bool champions_levels(cok_character *character, const cok_rules *rules,
                              const cok_item_types *types, char *error, size_t error_size)
 {
-    lookup l = {error, error_size, false, rules->data};
+    lookup l = new_lookup(rules, error, error_size);
     const cok_character_layout *L = rules->character;
     uint8_t *c = character->record;
     cok_field_set8(L, c, COK_FIELD_BASE_THAC0, 0);
@@ -1714,7 +1912,7 @@ static void dkk_thief_skills(lookup *l, const cok_character_layout *L, uint8_t *
 static bool death_knights_levels(cok_character *character, const cok_rules *rules,
                                  const cok_item_types *types, char *error, size_t error_size)
 {
-    lookup l = {error, error_size, false, rules->data};
+    lookup l = new_lookup(rules, error, error_size);
     const cok_character_layout *L = rules->character;
     uint8_t *c = character->record;
     cok_field_set8(L, c, COK_FIELD_BASE_THAC0, 0);
@@ -1769,7 +1967,7 @@ bool cok_character_levels(cok_character *character, const cok_rules *rules,
 bool cok_character_cleric_spells(cok_character *character, const cok_rules *rules, char *error,
                                  size_t error_size)
 {
-    lookup l = {error, error_size, false, rules->data};
+    lookup l = new_lookup(rules, error, error_size);
     if (rules->characters.levels == COK_LEVELS_DEATH_KNIGHTS)
         dkk_cleric_spells(&l, rules->character, character->record);
     else
@@ -1780,7 +1978,7 @@ bool cok_character_cleric_spells(cok_character *character, const cok_rules *rule
 bool cok_character_saving_throws(cok_character *character, const cok_rules *rules, char *error,
                                  size_t error_size)
 {
-    lookup l = {error, error_size, false, rules->data};
+    lookup l = new_lookup(rules, error, error_size);
     saving_throws(&l, rules->character, character,
                   rules->characters.levels == COK_LEVELS_CHAMPIONS);
     return !l.failed;
@@ -1789,7 +1987,7 @@ bool cok_character_saving_throws(cok_character *character, const cok_rules *rule
 bool cok_character_thief_skills(cok_character *character, const cok_rules *rules, uint8_t extra,
                                 char *error, size_t error_size)
 {
-    lookup l = {error, error_size, false, rules->data};
+    lookup l = new_lookup(rules, error, error_size);
     if (rules->characters.levels == COK_LEVELS_DEATH_KNIGHTS)
         dkk_thief_skills(&l, rules->character, character->record);
     else

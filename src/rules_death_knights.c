@@ -1520,7 +1520,8 @@ const cok_rules cok_rules_death_knights = {
     .character = &death_knights_character,
     /* An item record, 63 bytes in its files as in memory (dkk 46b2:10d7):
      * +0x2e its type, +0x39 how many. */
-    .item_record = {.file_size = 63, .file_at = 0, .type = 0x2e, .count = 0x39},
+    .item_record = {.file_size = 63, .file_at = 0, .type = 0x2e, .count = 0x39, .weight = 0x37,
+                    .readied = 0x34, .bonus = 0x32, .save_bonus = 0x33},
     .characters =
         {
             .stats = COK_STATS_DEATH_KNIGHTS,   /* 65cd:0e46 */
@@ -1528,6 +1529,10 @@ const cok_rules cok_rules_death_knights = {
             .import = &death_knights_import,
             .paladin_row = 10,       /* 65cd:382c */
             .fighter_classes = 0x9c, /* 638c:16d8, 15e0: 2, 3, 4, 7 */
+            .arrows = 0x1e, .quarrels = 0x0c,
+            .elf_first = 0x15, .elf_last = 0x1b, .elf_a = 0x13, .elf_b = 0x12,
+            .kender = 0x43,
+            .strength_flag = true,
         },
     .data = &death_knights_data,
     .ecl =

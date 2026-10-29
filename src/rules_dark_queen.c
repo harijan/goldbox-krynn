@@ -355,6 +355,7 @@ static const cok_rules_import dark_queen_import = {
     .word_ids = dark_queen_import_words,
     .word_id_count = sizeof dark_queen_import_words / sizeof *dark_queen_import_words,
     .scroll_types = dark_queen_scrolls,
+    .top_levels = {10, 10, 10, 10, 11, 12, 11}, /* DS:640a */
 };
 
 /* The variables by name: bytes of the 1 KB at far DS:b20f, 0x0001-0x0400
@@ -397,6 +398,7 @@ const cok_rules cok_rules_dark_queen = {
                   "(--start-menu: Play, Load Saved Game); --load, --party, --test-party "
                   "and --play are not ported yet",
     .drawing = COK_DRAWING_DARK_QUEEN,
+    .random = COK_RANDOM_QUEEN, /* 2102:0234 */
     .text =
         {
             .name = "The Dark Queen of Krynn",
@@ -441,10 +443,13 @@ const cok_rules cok_rules_dark_queen = {
     .character = &dark_queen_character,
     .characters =
         {
-            .stats = COK_STATS_NONE,   /* 177e:0be2, not ported */
-            .levels = COK_LEVELS_NONE, /* nor 66e5:0001 */
+            .stats = COK_STATS_DARK_QUEEN, /* 177e:0be2 */
+            .levels = COK_LEVELS_NONE, /* step 4 */
             .import = &dark_queen_import,
             .class_usable = {0x02, 0x10, 0x08, 0x40, 0x80, 0x01, 0x04}, /* DS:63f3 */
+            .arrows = 0x1e, .quarrels = 0x0c, .quarrels_also = 0x4a, /* 177e:0be2 */
+            .elf_first = 0x14, .elf_last = 0x1c, .elf_a = 0x13, .elf_b = 0x12, /* 177e:0016 */
+            .kender = 0x43,
         },
     .item_record =
         {
@@ -452,6 +457,7 @@ const cok_rules cok_rules_dark_queen = {
             .file_at = 0x28,
             .type = 0x28,    /* 177e:0be2 */
             .count = 0x35,
+            .weight = 0x2c, .readied = 0x32, .bonus = 0x30, .save_bonus = 0x31,
             .container = 0x49, /* 604b:05fd: a scroll's spells */
         },
     .ecl =

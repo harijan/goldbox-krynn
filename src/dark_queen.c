@@ -3,6 +3,7 @@
 
 #include "adventure.h"
 #include "hlib.h"
+#include "queen.h"
 #include "vga.h"
 
 #include <dirent.h>
@@ -47,9 +48,7 @@ enum { STATE_PICTURE = 0, STATE_BIG = 3, STATE_VIEW = 4, STATE_TITLE = 5, STATE_
 
 /* A rectangle of the screen, rows top to bottom and columns left to right,
  * the ends excluded. */
-typedef struct {
-    int top, left, bottom, right;
-} rect;
+typedef queen_rect rect;
 
 typedef struct {
     uint8_t *bytes;
@@ -354,11 +353,7 @@ static int extended(int scan)
 
 /* What a read gave: a key's code, or a click of either button at x, y in
  * pixels (2aa6:15e3 takes the left and the right alike). */
-typedef struct {
-    int key;
-    bool click;
-    int x, y;
-} input;
+typedef queen_input input;
 
 /* Startup's part for the mouse (22b7:1be3, from 2102:0038): on wherever a
  * driver answers (no file says otherwise), the pointer at pixel 8, 8
@@ -2222,13 +2217,13 @@ static bool view_character(cok_adventure *game)
     cok_ecl *vm = &game->vm;
     const uint8_t *c = vm->character;
     if (c == NULL) return true;
-    sheet(game, c);
+    size_t i = cok_party_index(&game->party, c);
+    if (i < game->party.count && !queen_sheet(game, game->party.members[i])) return false;
     bool spells = false, coins = false;
     for (size_t k = 0; k <= 0x88; ++k)
         if (c[0xce + k] & 0x7f) spells = true;
     for (size_t k = 0; k <= 2; ++k)
         if (rec16(c, 0x4c + 2 * k) > 0) coins = true;
-    size_t i = cok_party_index(&game->party, c);
     bool items = i < game->party.count && game->party.members[i]->item_count > 0;
     bool paladin = rec16(c, 0x5a) == 3;
     if (!paladin && c[0xaf] > 0) {
@@ -3569,6 +3564,128 @@ static cok_ecl_status start(cok_adventure *game)
         frame_palette_of(game, 0);
         choice = main_menu(game, 0x4b0);
     }
+}
+
+/* What the other Dark Queen files use (queen.h). */
+
+int queen_read_input(cok_adventure *game, queen_input *in)
+{
+    return read_input(game, in);
+}
+
+bool queen_hotkey(int h, int key)
+{
+    return hotkey(h, key);
+}
+
+bool queen_inside(const queen_rect *r, int x, int y)
+{
+    return inside(r, x, y);
+}
+
+void queen_beep(cok_adventure *game)
+{
+    beep(game);
+}
+
+void queen_controls_clear(cok_adventure *game)
+{
+    controls_clear(game);
+}
+
+void queen_control_add(cok_adventure *game, queen_rect r)
+{
+    control_add(game, r);
+}
+
+void queen_text(cok_adventure *game, int row, int col, const char *s, unsigned attribute)
+{
+    text(game, row, col, s, attribute);
+}
+
+void queen_say(cok_adventure *game, int x, int y, const char *s, unsigned fg)
+{
+    say(game, x, y, s, fg);
+}
+
+void queen_fill(cok_adventure *game, int y0, int x0, int y1, int x1, uint8_t colour)
+{
+    fill(game, y0, x0, y1, x1, colour);
+}
+
+void queen_clear_cells(cok_adventure *game, int x1, int y1, int x2, int y2)
+{
+    clear_cells(game, x1, y1, x2, y2);
+}
+
+void queen_full_window(cok_adventure *game)
+{
+    full_window(game);
+}
+
+void queen_bottom_bar(cok_adventure *game)
+{
+    bottom_bar(game);
+}
+
+void queen_button(cok_adventure *game, int row, int col, const char *s, int width,
+                  unsigned flags)
+{
+    button(game, row, col, s, width, flags);
+}
+
+queen_rect queen_button_rect(int row, int col, int width)
+{
+    return button_rect(row, col, width);
+}
+
+void queen_prompt_box(cok_adventure *game, int x, const char *s, unsigned fg, unsigned bg)
+{
+    prompt_box(game, x, s, fg, bg);
+}
+
+int queen_bar_menu(cok_adventure *game, const char *prompt, const char *const *items,
+                   size_t count, bool dirs)
+{
+    return bar_menu(game, prompt, items, count, dirs, false, 0, 0);
+}
+
+int queen_yes_no(cok_adventure *game, const char *prompt)
+{
+    return yes_no(game, prompt, false);
+}
+
+int queen_edit_line(cok_adventure *game, char *line, size_t most)
+{
+    return edit_line(game, line, most);
+}
+
+void queen_draw_frame(cok_adventure *game, unsigned id, int row, int col)
+{
+    draw_frame_record(game, id, row, col, NULL);
+}
+
+void queen_draw_always(cok_adventure *game, unsigned id, int row, int col)
+{
+    draw(game, lib(game, LIB_ALWAYS), id, row, col, NULL, NULL);
+}
+
+/* The sheet (86b8:0000) of a member or a character in the making: it
+ * recomputes the character first (86b8:065e, 177e:0be2), and its
+ * movement again (177e:0a5f), as the original does at the end of
+ * drawing it. */
+bool queen_sheet(cok_adventure *game, cok_character *character)
+{
+    char error[300];
+    const cok_rules *rules = cok_game_rules(game);
+    if (!cok_character_stats(character, rules, &game->item_types, error, sizeof error) ||
+        !cok_character_movement_now(character, rules, &game->item_types, error,
+                                    sizeof error)) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
+        return false;
+    }
+    sheet(game, character->record);
+    return true;
 }
 
 const cok_drawing cok_dark_queen_drawing = {

@@ -515,9 +515,20 @@ static void test_variables(void)
 static void test_random(void)
 {
     uint32_t seed = 0;
+    cok_random_select(COK_RANDOM_PASCAL);
     CHECK(cok_tp_random(&seed, 100) == 0 && seed == 1);
     CHECK(cok_tp_random(&seed, 100) == 0x0808 % 100 && seed == 0x08088406);
     CHECK(cok_tp_random(&seed, 0) == 0);
+    /* Dark Queen's (dqk 2102:0234): none below 2 and the seed kept; else
+     * the seed * 0x6d25 + 1, its low 30 bits over (0x3fffffff + range) /
+     * range. */
+    cok_random_select(COK_RANDOM_QUEEN);
+    seed = 0x12345678;
+    CHECK(cok_tp_random(&seed, 1) == 0 && seed == 0x12345678);
+    uint32_t next = 0x12345678u * 0x6d25u + 1;
+    CHECK(cok_tp_random(&seed, 100) == (next & 0x3fffffffu) / ((0x3fffffffu + 100) / 100) &&
+          seed == next);
+    cok_random_select(COK_RANDOM_PASCAL);
 
     log_t log = start();
     op(COK_ECL_RANDOM); imm(0); var(0x4b01);   /* Random(1) */

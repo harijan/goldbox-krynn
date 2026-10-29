@@ -472,6 +472,11 @@ void cok_ecl_store_string(cok_ecl *vm, uint16_t address, const char *text);
 /* Turbo Pascal's Random(range): advance the seed, return its high word
  * modulo range, or 0 for range 0 (1a46:1179). */
 uint16_t cok_tp_random(uint32_t *seed, uint16_t range);
+/* The generator it is (rules.h's cok_random_routine): Turbo Pascal's, or
+ * Dark Queen's (dqk 2102:0234: below 2 none and the seed kept, else seed *
+ * 0x6d25 + 1 and its low 30 bits divided by (0x3fffffff + range) / range).
+ * cok_ecl_init selects the game's, for the process. */
+void cok_random_select(cok_random_routine routine);
 
 /* The game's dice (60f4:1216): the sum, as a byte, of count rolls of
  * Random(sides) + 1. Nearly every roll in the game goes through it. */

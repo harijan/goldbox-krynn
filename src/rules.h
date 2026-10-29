@@ -725,8 +725,12 @@ typedef enum {
     /* dkk 65cd:0e46: the movement as 65cd:1241 gives it, with the effects
      * that double or halve it; no fighter level. */
     COK_STATS_DEATH_KNIGHTS,
-    /* Dark Queen's (dqk 177e:0be2), not ported yet: as COK_LEVELS_NONE.
-     * Nor are the readied items found (cok_character's slots stay 0). */
+    /* dqk 177e:0be2: Champions' with the armour class in six parts (a
+     * cloak's, type 7, its own), the movement as 177e:0a5f gives it (the
+     * effects that double or halve it, the party's variables 0x1c and 0x3c
+     * counting as 0 in the port's stats) and no fighter level. */
+    COK_STATS_DARK_QUEEN,
+    /* No recompute: the record as it is. */
     COK_STATS_NONE,
 } cok_stats_routine;
 
@@ -797,6 +801,9 @@ typedef struct {
     const uint8_t (*spell_ids)[2], (*effect_ids)[2], (*word_ids)[2];
     size_t spell_id_count, effect_id_count, word_id_count;
     const uint8_t *scroll_types;
+    /* The top level of each class's hit dice (dqk DS:640a), which the
+     * most hit points an import keeps (86b8:354b) counts past. */
+    uint8_t top_levels[7];
     /* The other game's roster and saved games are read from the directory
      * the configuration's fifth line names (dkk DS:99a4; the port's
      * --import): its roster by the NPC flag (dkk 46b2:0342 tests the
@@ -823,6 +830,18 @@ typedef struct {
      * its classes with levels (dqk 604b:257c, DS:63f3: classes 0-6); 0
      * where the record keeps its own. */
     uint8_t class_usable[8];
+    /* The item types (+type) the stats treat as readied arrows and
+     * quarrels (slots 11 and 12; 6346:0d20, dqk 177e:0be2 where the
+     * quarrels' are 0x0c or 0x4a, 0 for none), and the weapons a race has
+     * a bonus with (6346:0023, dqk 177e:0016): an elf or half-elf with
+     * those above elf_first and below elf_last or elf_a or elf_b, a kender
+     * with kender. */
+    uint8_t arrows, quarrels, quarrels_also;
+    uint8_t elf_first, elf_last, elf_a, elf_b, kender;
+    /* Whether the strength bonuses to hit and damage count only where
+     * the record's STRENGTH_BONUSES byte is set (Champions' +0x114;
+     * dqk 177e:1168 and 11f9 test none). */
+    bool strength_flag;
 } cok_rules_characters;
 
 /* The screens the port draws a frame for (screen.c), each one routine of
@@ -1932,11 +1951,20 @@ typedef struct {
     /* Where the item's type and its count (how many: arrows, charges, a
      * container's contents) lie in the port's record. */
     uint8_t type, count;
+    /* And its weight (a word), the byte that is set while it is readied,
+     * its bonus (signed) and its saving throw bonus: what the stats read
+     * (6346:0d20; dqk 177e:0be2). */
+    uint8_t weight, readied, bonus, save_bonus;
     /* The type whose items are followed in a file by count items, their
      * contents (Dark Queen's scrolls, 0x49: dqk 604b:05fd, 604b:2200); 0
      * for none. */
     uint8_t container;
 } cok_rules_item_record;
+
+/* The random numbers' generator (cok_tp_random, ecl.h): Turbo Pascal's
+ * RANDOM, which Champions' and Death Knights' use, or Dark Queen's own
+ * (dqk 2102:0234). */
+typedef enum { COK_RANDOM_PASCAL, COK_RANDOM_QUEEN } cok_random_routine;
 
 /* How a game draws: the earlier games' 16 colours from 8x8 tiles, or The
  * Dark Queen of Krynn's VGA in 256 colours by routines of its own
@@ -1955,6 +1983,9 @@ typedef struct cok_rules {
     const char *unplayable;
     /* How it draws (cok_drawing_routine). */
     cok_drawing_routine drawing;
+    /* Its random numbers (cok_random_routine); set by cok_ecl_init, for
+     * the process. */
+    cok_random_routine random;
     cok_rules_text text;
     cok_rules_archives archives;
     cok_rules_files files;
