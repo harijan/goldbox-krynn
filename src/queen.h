@@ -78,10 +78,32 @@ int queen_yes_no(cok_adventure *game, const char *prompt);
 /* A line typed on the bar's field (1a62:05c9, the editor 6431:0001), at
  * most `most` characters: 1 for Return, 0 for Escape, -1. */
 int queen_edit_line(cok_adventure *game, char *line, size_t most);
+/* The field with a prompt of its own (1a62:05c9): the prompt in fg on bg
+ * from cell 1, the line typed after it. */
+int queen_input_line(cok_adventure *game, const char *prompt, unsigned fg, unsigned bg,
+                     char *line, size_t most);
+/* A list of rows y1 to y2 within columns 1 to x2 and a bar of buttons
+ * (1bdb:1f25 with its items and the bar's): the button's index, 0x1b for
+ * Escape, -1; *at the row, from 0. */
+int queen_list_menu(cok_adventure *game, const char *const *bar, size_t bar_count,
+                    const char *const *items, size_t count, size_t *at, int y1, int y2, int x2);
+/* Whether a mouse driver answers (DS:c2f5). */
+bool queen_mouse(const cok_adventure *game);
+/* The character written to the save path as <name>.QCH (604b:23a7), asking
+ * about a file there. False where the run stopped. */
+bool queen_write_character(cok_adventure *game, const cok_character *character);
 /* A frame record (FRAME.TLB) or a record of ALWAYS.TLB drawn at pixel
  * row, col. */
 void queen_draw_frame(cok_adventure *game, unsigned id, int row, int col);
 void queen_draw_always(cok_adventure *game, unsigned id, int row, int col);
+
+/* The libraries (FRAME and ALWAYS have their own calls above): DUNGCOM.TLB
+ * (its sets of tiles and palettes) and CBODY.TLB (the party's bodies). */
+enum { QUEEN_LIB_DUNGCOM = 12, QUEEN_LIB_CBODY = 13 };
+/* A record of a library drawn at pixel row, col (as 269b:0a9c), and the
+ * palette record of a library (set 0) or of its nested library set. */
+void queen_draw_library(cok_adventure *game, unsigned which, unsigned id, int row, int col);
+bool queen_set_palette(cok_adventure *game, unsigned which, unsigned set, unsigned record);
 
 /* The character sheet (86b8:0000) of a member or a character in the
  * making, which recomputes it first (177e:0be2). False where that stopped

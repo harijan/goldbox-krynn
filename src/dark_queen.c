@@ -4,6 +4,7 @@
 #include "adventure.h"
 #include "hlib.h"
 #include "queen.h"
+#include "queen_create.h"
 #include "vga.h"
 
 #include <dirent.h>
@@ -15,12 +16,15 @@
 /* The libraries the game draws from, read once and kept. */
 enum {
     LIB_ALWAYS, LIB_FRAME, LIB_TITLE, LIB_BACK, LIB_WALLS_B, LIB_WALLS_C, LIB_PIC_A, LIB_PIC_B,
-    LIB_PIC_C, LIB_BIGPIC, LIB_GEN, LIB_FINAL, LIBS
+    LIB_PIC_C, LIB_BIGPIC, LIB_GEN, LIB_FINAL, LIB_DUNGCOM, LIB_CBODY, LIBS
 };
 static const char *const lib_names[LIBS] = {
     "ALWAYS.TLB", "FRAME.TLB", "TITLE.TLB", "BACK.TLB",   "8X8DB.TLB", "8X8DC.TLB",
     "PICA.TLB",   "PICB.TLB",  "PICC.TLB",  "BIGPIC.TLB", "GEN.TLB",   "FINAL.TLB",
+    "DUNGCOM.TLB", "CBODY.TLB",
 };
+_Static_assert((int)LIB_DUNGCOM == (int)QUEEN_LIB_DUNGCOM && (int)LIB_CBODY == (int)QUEEN_LIB_CBODY,
+               "queen.h numbers the libraries");
 
 enum {
     FONT_SIZE = 96 * 12,     /* GAME.FON: 0x20-0x7f, 12 rows each (dqk 25a7:04b5) */
@@ -1366,6 +1370,8 @@ static void vertical(cok_adventure *game)
  * '`') 0; a character 0x20-0x7e goes on while fewer than most; the rest,
  * and clicks, beep. -1 if the keys ran out. */
 static int read_line_(cok_adventure *game, char *line, size_t most);
+static int read_line_prompt(cok_adventure *game, const char *prompt, unsigned fg, unsigned bg,
+                            char *line, size_t most);
 
 static int edit_line(cok_adventure *game, char *line, size_t most)
 {
@@ -1379,17 +1385,27 @@ static int edit_line(cok_adventure *game, char *line, size_t most)
 
 static int read_line_(cok_adventure *game, char *line, size_t most)
 {
+    return read_line_prompt(game, "", 7, 8, line, most);
+}
+
+/* The field with a prompt (1a62:05c9 with one): the box of 38 cells in
+ * fg on bg, the prompt from cell 1 and the text after it. */
+static int read_line_prompt(cok_adventure *game, const char *prompt, unsigned fg, unsigned bg,
+                            char *line, size_t most)
+{
     char blank[39];
     memset(blank, ' ', 38);
     blank[38] = '\0';
     size_t n = 0;
     line[0] = '\0';
-    prompt_box(game, 0, blank, 7, 8);
+    prompt_box(game, 0, blank, fg, bg);
+    int at = prompt[0] == '\0' ? 16 : 8 + 8 * (int)strlen(prompt);
+    if (prompt[0] != '\0') text(game, 189, 8, prompt, (bg & 15) << 4 | (fg & 15));
     for (;;) {
         char shown[48];
         snprintf(shown, sizeof shown, "%s ", line);
-        text(game, 189, 16, shown, 0x87);
-        fill(game, 189, 16 + 8 * (int)n, 197, 24 + 8 * (int)n, colour(7));
+        text(game, 189, at, shown, (bg & 15) << 4 | (fg & 15));
+        fill(game, 189, at + 8 * (int)n, 197, at + 8 + 8 * (int)n, colour(fg));
         input in;
         int key = read_input(game, &in);
         if (key < 0 && key != COK_KEY_TIMEOUT) return -1;
@@ -1400,9 +1416,9 @@ static int read_line_(cok_adventure *game, char *line, size_t most)
         if (in.key == 0x08 || in.key == KEY_LEFT) {
             if (n > 0) line[--n] = '\0';
         } else if (is_return(in.key)) {
-            text(game, 189, 16, shown, 0x87);
+            text(game, 189, at, shown, (bg & 15) << 4 | (fg & 15));
             snprintf(shown, sizeof shown, "%s ", line);
-            text(game, 189, 16, shown, 0x87);
+            text(game, 189, at, shown, (bg & 15) << 4 | (fg & 15));
             return 1;
         } else if (in.key == 0x1b || in.key == 0x60) {
             return 0;
@@ -3076,8 +3092,8 @@ static cok_ecl_status camp(cok_adventure *game, bool *begin)
         if (si == CAMP_DELETE) party_list(game);
         switch (si) {
         case CAMP_CREATE:
-            cok_adventure_not_yet(game, "Create Character", "dqk 66e5:2f95");
-            return vm->status;
+            if (!queen_create(game)) return vm->status;
+            break;
         case CAMP_DELETE:
             if (!delete_character(game)) return vm->status;
             break;
@@ -3668,6 +3684,50 @@ void queen_draw_frame(cok_adventure *game, unsigned id, int row, int col)
 void queen_draw_always(cok_adventure *game, unsigned id, int row, int col)
 {
     draw(game, lib(game, LIB_ALWAYS), id, row, col, NULL, NULL);
+}
+
+void queen_draw_library(cok_adventure *game, unsigned which, unsigned id, int row, int col)
+{
+    draw(game, lib(game, which), id, row, col, NULL, NULL);
+}
+
+bool queen_set_palette(cok_adventure *game, unsigned which, unsigned set, unsigned record)
+{
+    if (set == 0) {
+        set_palette(game, lib(game, which), record, 0);
+        return true;
+    }
+    hlib_library sub;
+    if (!sub_library(game, which, set, &sub)) return false;
+    set_palette(game, &sub, record, 0);
+    return true;
+}
+
+int queen_input_line(cok_adventure *game, const char *prompt, unsigned fg, unsigned bg,
+                     char *line, size_t most)
+{
+    queen *q = own(game);
+    bool shown = q->cursor_shown;
+    q->cursor_shown = false;
+    int result = read_line_prompt(game, prompt, fg, bg, line, most);
+    q->cursor_shown = shown;
+    return result;
+}
+
+int queen_list_menu(cok_adventure *game, const char *const *bar, size_t bar_count,
+                    const char *const *items, size_t count, size_t *at, int y1, int y2, int x2)
+{
+    return list_menu(game, "", bar, bar_count, items, count, at, y1, y2, x2);
+}
+
+bool queen_mouse(const cok_adventure *game)
+{
+    return game->mouse.driver.installed;
+}
+
+bool queen_write_character(cok_adventure *game, const cok_character *character)
+{
+    return write_character(game, character);
 }
 
 /* The sheet (86b8:0000) of a member or a character in the making: it
