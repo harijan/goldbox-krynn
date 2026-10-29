@@ -14,8 +14,8 @@ the status (5e22:03f8); Palanthas, the palace and its leaving to Caergoth's
 ruins, the widow, the shadows, and the step after which dragons attack
 (SETUP MONSTERS, 6c70:2db1: the first fight, where the port stops).
 
-Compared: the whole screen but the sheet's readied weapon and armour
-(rows 21-22: 177e:03fc, items' names not ported), and the mouse's cursor
+Compared: the whole screen (the sheet's readied weapon and armour, rows
+21-22, 177e:03fc), but the mouse's cursor
 in the adventure's commands (1bdb:1aef's areas give it other shapes: not
 ported); the party's square and facing (DS:c9f0-c9f2) after each step
 against the port's log; the variables 0x0001-0x0400 once loaded, and the
@@ -42,7 +42,6 @@ cokbox = checklib.cokbox
 ROOT = cokbox.ROOT
 GAME = ("--game", "dark-queen")
 
-ITEMS = (8, 168, 120, 16, "the sheet's readied weapon and armour (177e:03fc: not ported)")
 CURSOR = (0, 0, 24, 24, "the mouse's cursor over the commands' view areas (1bdb:1aef)")
 DS_SQUARE = 0xC9F0
 CAERGOTH = 20
@@ -124,7 +123,7 @@ def main():
             raise cokbox.BoxError("261b:05be is not where it was expected")
         box.write(freeze, b"\xcb")
         steps = [("loaded", "plta", [], 5), ("down", "\\v", [], 6),
-                 ("view", "v", [ITEMS], 7), ("view's escape", "\\e", [], 8)]
+                 ("view", "v", [], 7), ("view's escape", "\\e", [], 8)]
         for what, typed, masks, i in steps:
             box.keys(typed)
             shot = box.settled(tolerance=64)

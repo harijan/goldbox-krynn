@@ -4,6 +4,7 @@
 #include "adventure.h"
 #include "hlib.h"
 #include "queen.h"
+#include "queen_items.h"
 #include "vga.h"
 
 #include <dirent.h>
@@ -2083,14 +2084,13 @@ static void sheet_score(cok_adventure *game, const uint8_t *c, int k, bool lit)
  * ending at cell 38); "Hit Points " and the hit points with their most
  * (177e:07b4); "Armor Class" and the AC (177e:0724); "Encumbrance" (+0x56)
  * and "Movement" (+0x199), "THAC0\t " and its THAC0 (0x3c less +0x18d),
- * "Damage" and the dice (+0x192, +0x194, +0x196). Its first step, the
- * stats' recompute (177e:0be2, 86b8:065e) and the movement's (177e:0a5f),
- * are not ported (the record holds the original's own, as its files
- * do), nor the readied weapon's and armour's lines (177e:03fc at rows 21
- * and 22: the port keeps no readied slots, 0be2's, nor its items'
- * names). */
-static void sheet(cok_adventure *game, const uint8_t *c)
+ * "Damage" and the dice (+0x192, +0x194, +0x196); then the readied weapon
+ * and armour by their names (177e:03fc) on rows 21 and 22. Its first
+ * step, the stats' recompute (177e:0be2, 86b8:065e) and the movement's
+ * (177e:0a5f), is queen_sheet's. */
+static void sheet(cok_adventure *game, const cok_character *character)
 {
+    const uint8_t *c = character->record;
     const cok_character_layout *L = cok_game_rules(game)->character;
     char line[96], name[17];
     /* 20b2:00a4: the full window, FRAME 7 under rows 8, 16 and 20, FRAME
@@ -2200,6 +2200,14 @@ static void sheet(cok_adventure *game, const uint8_t *c)
     say(game, 1, 0x13, "Damage", 0x0b);
     right(line, sizeof line, 7);
     say(game, 0x0b, 0x13, line, 0x07);
+    /* The readied weapon (slot 0, +0xc) and armour (slot 2, +0x14) by
+     * their names (177e:03fc) on rows 21 and 22, from cell 1. */
+    for (unsigned k = 0; k < 2; ++k) {
+        size_t slot = character->slots[k * 2];
+        if (slot == 0 || slot > character->item_count) continue;
+        queen_item_name(&game->party, character->items[slot - 1], false, line, sizeof line);
+        say(game, 1, 0x15 + (int)k, line, 0x07);
+    }
 }
 
 /* View (86b8:0b0c): the sheet, then its menu (1e29 with DS:4f82's "Items
@@ -3684,7 +3692,7 @@ bool queen_sheet(cok_adventure *game, cok_character *character)
         cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
         return false;
     }
-    sheet(game, character->record);
+    sheet(game, character);
     return true;
 }
 
