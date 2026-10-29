@@ -8,6 +8,7 @@
 #include "queen_items.h"
 #include "queen_view.h"
 #include "queen_train.h"
+#include "queen_modify.h"
 #include "vga.h"
 
 #include <dirent.h>
@@ -39,6 +40,7 @@ enum {
     BAR_ROW = 188,           /* the bottom bar's buttons, 0x1f9e (1bdb:0801) */
     NO_BIG = 0xff,           /* DS:ae43 with no big picture loaded */
     CONTROLS = 48,           /* the buttons of a screen the mouse's cursor knows */
+    AREA_MENU = 0x100,       /* bar_menu_areas: a click on an area's index + this */
 };
 
 /* The keys as the game reads them (251e:00e7, its table 251e:0114): the
@@ -592,8 +594,22 @@ static bool print_text(cok_adventure *game, const char *s, bool clear)
  * (DS:c5ce, c5d2), 0 for none; anim: the small picture animates as it
  * waits. Returns an item's index, a filtered key's code, -1 if the keys
  * ran out. */
+static int bar_menu_areas(cok_adventure *game, const char *prompt, const char *const *items,
+                          size_t count, bool dirs, bool anim, uint16_t timeout, int timed_out,
+                          const rect *areas, size_t area_count);
+
 static int bar_menu(cok_adventure *game, const char *prompt, const char *const *items,
                     size_t count, bool dirs, bool anim, uint16_t timeout, int timed_out)
+{
+    return bar_menu_areas(game, prompt, items, count, dirs, anim, timeout, timed_out, NULL, 0);
+}
+
+/* bar_menu with areas of the screen after its buttons (1bdb:1429's: the
+ * sheet's rows, which a click takes: 2aa6:15e3's hit, 1bdb:1206's), a
+ * click on one giving AREA_MENU + its index. */
+static int bar_menu_areas(cok_adventure *game, const char *prompt, const char *const *items,
+                          size_t count, bool dirs, bool anim, uint16_t timeout, int timed_out,
+                          const rect *areas, size_t area_count)
 {
     char box[96];
     snprintf(box, sizeof box, "%s", prompt);
@@ -619,6 +635,7 @@ static int bar_menu(cok_adventure *game, const char *prompt, const char *const *
         button(game, BAR_ROW, col, items[i], width, 0);
         col += (width + 1) * 8;
     }
+    for (size_t i = 0; i < area_count; ++i) control_add(game, areas[i]);
     game->timed = timeout != 0;
     game->timeout = timeout;
     menu_wait_begin(game, anim);
@@ -635,6 +652,11 @@ static int bar_menu(cok_adventure *game, const char *prompt, const char *const *
         if (in.click) {
             for (size_t i = 0; i < count && picked < 0; ++i)
                 if (inside(&rects[i], in.x, in.y)) picked = (int)i;
+            for (size_t i = 0; i < area_count && picked < 0; ++i)
+                if (inside(&areas[i], in.x, in.y)) {
+                    result = AREA_MENU + (int)i;
+                    goto done;
+                }
         } else {
             int k = in.key;
             if (k == KEY_ALT + 'S' || k == KEY_ALT + 'T') {
@@ -667,6 +689,7 @@ static int bar_menu(cok_adventure *game, const char *prompt, const char *const *
             }
         break;
     }
+done:
     menu_wait_end(game);
     game->timed = false;
     controls_clear(game);
@@ -2125,6 +2148,8 @@ static void sheet_coins_box(cok_adventure *game, const uint8_t *c)
  * and armour by their names (177e:03fc) on rows 21 and 22. Its first
  * step, the stats' recompute (177e:0be2, 86b8:065e) and the movement's
  * (177e:0a5f), is queen_sheet's. */
+static void sheet_derived(cok_adventure *game, const uint8_t *c);
+
 static void sheet(cok_adventure *game, const cok_character *character)
 {
     const uint8_t *c = character->record;
@@ -2193,6 +2218,24 @@ static void sheet(cok_adventure *game, const cok_character *character)
         sheet_score(game, c, k, false);
     }
     sheet_coins_box(game, c);
+    sheet_derived(game, c);
+    /* The readied weapon (slot 0, +0xc) and armour (slot 2, +0x14) by
+     * their names (177e:03fc) on rows 21 and 22, from cell 1. */
+    for (unsigned k = 0; k < 2; ++k) {
+        size_t slot = character->slots[k * 2];
+        if (slot == 0 || slot > character->item_count) continue;
+        queen_item_name(&game->party, character->items[slot - 1], false, line, sizeof line);
+        say(game, 1, 0x15 + (int)k, line, 0x07);
+    }
+}
+
+/* The sheet's lower block (86b8:065e after its recompute): "Hit Points"
+ * and the hit points and their most, "Armor Class", "Encumbrance",
+ * "THAC0", "Movement" and "Damage" with their values. */
+static void sheet_derived(cok_adventure *game, const uint8_t *c)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    char line[96];
     say(game, 0x14, 3, "Hit Points ", 0x0b);
     clear_cells(game, 0x1f, 3, 0x25, 3);
     uint8_t hp = cok_field_u8(L, c, COK_FIELD_HIT_POINTS), most = c[0x89];
@@ -2229,14 +2272,6 @@ static void sheet(cok_adventure *game, const cok_character *character)
     say(game, 1, 0x13, "Damage", 0x0b);
     right(line, sizeof line, 7);
     say(game, 0x0b, 0x13, line, 0x07);
-    /* The readied weapon (slot 0, +0xc) and armour (slot 2, +0x14) by
-     * their names (177e:03fc) on rows 21 and 22, from cell 1. */
-    for (unsigned k = 0; k < 2; ++k) {
-        size_t slot = character->slots[k * 2];
-        if (slot == 0 || slot > character->item_count) continue;
-        queen_item_name(&game->party, character->items[slot - 1], false, line, sizeof line);
-        say(game, 1, 0x15 + (int)k, line, 0x07);
-    }
 }
 
 /* What queen_view.c uses (queen_view.h). */
@@ -2695,17 +2730,24 @@ static bool in_party(cok_adventure *game, const char *name)
     return false;
 }
 
-/* 177e:153c: s in the bar (white on grey, 1a62:0046 at row 24) for the
- * speed's time (1a62:0960: DS:1cd8's, variable 0x12's), the bar again. */
-static void bar_message_colour(cok_adventure *game, const char *s, unsigned fg)
+/* A message on the bar for the speed's time (1a62:0960: DS:1cd8's,
+ * variable 0x12's): boxed from cell x + 1 in fg on bg, the bar again. */
+static void message_at(cok_adventure *game, const char *s, int x, unsigned fg, unsigned bg)
 {
     static const unsigned ms[] = {10, 100, 250, 500, 1000, 1500, 2000, 3000, 4000, 5000};
     bottom_bar(game);
     cok_adventure_log(game, "message", s);
-    prompt_box(game, -1, s, fg, 8);
+    prompt_box(game, x, s, fg, bg);
     unsigned speed = cok_ecl_load_var(&game->vm, 0x12);
     pass(game, ms[speed < 10 ? speed : 9]);
     bottom_bar(game);
+}
+
+/* 177e:153c: s in the bar (white on grey, 1a62:0046 at row 24) for the
+ * speed's time, in fg. */
+static void bar_message_colour(cok_adventure *game, const char *s, unsigned fg)
+{
+    message_at(game, s, -1, fg, 8);
 }
 
 static void bar_message(cok_adventure *game, const char *s)
@@ -3182,8 +3224,9 @@ static int camp_menu(cok_adventure *game, const bool on[CAMP_ITEMS])
  * was (DS:ae57, ae67); its screen (20b2:03ce; not again after a key that
  * is no button's), the party's list where a member is selected
  * (5e22:023b), its buttons (camp_flags). Then the full window (20b2:0030)
- * but for Remove, and: Create and Modify not ported yet (the run
- * stops); Train (6be8:0022) and Knight new Order (7368:10c2: queen_train.c);
+ * but for Remove, and: Create (66e5:2f95: queen_create.c), Modify
+ * (6a87:1293: queen_modify.c), Train (6be8:0022) and Knight new Order
+ * (7368:10c2: queen_train.c);
  * Remove; Load (a party not saved first asks "Game not saved. Load
  * anyway? ", DS:7e93), the party emptied, the game loaded, or a new
  * game's where none loads (64b2:04ec); Save; Begin Adventuring (with a
@@ -3220,9 +3263,16 @@ static cok_ecl_status camp(cok_adventure *game, bool *begin)
         case CAMP_DELETE:
             if (!delete_character(game)) return vm->status;
             break;
-        case CAMP_MODIFY:
-            cok_adventure_not_yet(game, "Modify Character", "dqk 5a87:1293");
-            return vm->status;
+        case CAMP_MODIFY: {
+            /* 7368:060c: 6a87:1293 for the selected member; the game
+             * not saved after. */
+            size_t member = cok_party_index(&game->party, vm->character);
+            if (member < game->party.count &&
+                !queen_modify(game, game->party.members[member], false))
+                return vm->status;
+            q->saved = false;
+            break;
+        }
         case CAMP_TRAIN: {
             size_t i = cok_party_index(&game->party, vm->character);
             bool nothing;
@@ -3868,6 +3918,53 @@ bool queen_train_anywhere(const cok_adventure *game)
 void queen_set_train_anywhere(cok_adventure *game, bool on)
 {
     own(game)->train_anywhere = on;
+}
+
+int queen_bar_menu_areas(cok_adventure *game, const char *prompt, const char *const *items,
+                        size_t count, bool dirs, const queen_rect *areas, size_t area_count)
+{
+    return bar_menu_areas(game, prompt, items, count, dirs, false, 0, 0, areas, area_count);
+}
+
+void queen_message(cok_adventure *game, const char *s, int x, unsigned fg, unsigned bg)
+{
+    message_at(game, s, x, fg, bg);
+}
+
+void queen_sheet_score(cok_adventure *game, const uint8_t *c, int k, bool lit)
+{
+    sheet_score(game, c, k, lit);
+}
+
+void queen_xor(cok_adventure *game, int y0, int x0, int y1, int x1, uint8_t mask)
+{
+    cok_picture *screen = &game->screen;
+    if (!screen->vga) return;
+    int sw = (int)screen->units * 8, sh = screen->height;
+    for (int y = y0 < 0 ? 0 : y0; y < y1 && y < sh; ++y)
+        for (int x = x0 < 0 ? 0 : x0; x < x1 && x < sw; ++x)
+            screen->pixels[(size_t)y * (size_t)sw + (size_t)x] ^= mask;
+}
+
+void queen_cursor_show(cok_adventure *game, bool shown)
+{
+    own(game)->cursor_shown = shown;
+}
+
+/* 86b8:065e: the character recomputed (177e:0be2), its movement again
+ * (177e:0a5f), and the sheet's lower block drawn. */
+bool queen_sheet_derived(cok_adventure *game, cok_character *character)
+{
+    char error[300];
+    const cok_rules *rules = cok_game_rules(game);
+    if (!cok_character_stats(character, rules, &game->item_types, error, sizeof error) ||
+        !cok_character_movement_now(character, rules, &game->item_types, error,
+                                    sizeof error)) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
+        return false;
+    }
+    sheet_derived(game, character->record);
+    return true;
 }
 
 /* The sheet (86b8:0000) of a member or a character in the making: it

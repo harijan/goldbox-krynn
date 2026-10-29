@@ -73,6 +73,21 @@ void queen_prompt_box(cok_adventure *game, int x, const char *s, unsigned fg, un
  * code (Escape; with dirs the extended keys and Alt's), or -1. */
 int queen_bar_menu(cok_adventure *game, const char *prompt, const char *const *items,
                    size_t count, bool dirs);
+/* queen_bar_menu with areas of the screen after its buttons (1bdb:1429): a
+ * click on one gives QUEEN_AREA + its index. */
+enum { QUEEN_AREA = 0x100 };
+int queen_bar_menu_areas(cok_adventure *game, const char *prompt, const char *const *items,
+                         size_t count, bool dirs, const queen_rect *areas, size_t area_count);
+/* A message boxed on the bar from cell x + 1 in fg on bg (1a62:0904, the
+ * x of 0 and colours of its callers), for the speed's time; the same
+ * message the way 177e:153c shows it (white on grey from cell 0). */
+void queen_message(cok_adventure *game, const char *s, int x, unsigned fg, unsigned bg);
+void queen_bar_message(cok_adventure *game, const char *s);
+/* Rows y0 to y1 and columns x0 to x1 (ends excluded) XORed with mask (22b7:0078
+ * with 0x100 added to its colour). */
+void queen_xor(cok_adventure *game, int y0, int x0, int y1, int x1, uint8_t mask);
+/* The mouse's pointer, hidden while a line is edited. */
+void queen_cursor_show(cok_adventure *game, bool shown);
 /* A question and Yes or No (1bdb:0424): 1, 0 for No or Escape, -1. */
 int queen_yes_no(cok_adventure *game, const char *prompt);
 /* A line typed on the bar's field (1a62:05c9, the editor 6431:0001), at
@@ -111,5 +126,9 @@ void queen_set_train_anywhere(cok_adventure *game, bool on);
  * making, which recomputes it first (177e:0be2). False where that stopped
  * the run. */
 bool queen_sheet(cok_adventure *game, cok_character *character);
+/* The sheet's score k (0-5) drawn lit or not (86b8:096c), and its lower
+ * block after the recompute and the movement's (86b8:065e). */
+void queen_sheet_score(cok_adventure *game, const uint8_t *c, int k, bool lit);
+bool queen_sheet_derived(cok_adventure *game, cok_character *character);
 
 #endif

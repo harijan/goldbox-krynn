@@ -915,7 +915,39 @@ returns to main, the mode the last (4 for none), its screen
 adventure's screen, the party's list after either; a game loaded, in mode
 0 or 4 the adventure's screen and the list, in mode 3 the overland's frame. Exit From Game with a
 party not saved asks "Game not saved. Exit anyway? " (No saves it). Create
-and Modify stop the run (creation's).
+stops the run (creation's).
+
+Modify Character (`6a87:1293`, `src/queen_modify.c`; the camp's and Create's
+Modify button's, `queen_modify(game, character, creating)`): only a character
+of the experiences creation gives (1,000,001, 500,000 or 333,333; the original
+also takes "HALIBUT" as a fourth word on its command line, which the port has
+no way to give) is modified, else its name and " can't be modified." on the
+bar; each readied item is unreadied first (`86b8:1965`: a cursed one says "It's
+Cursed!" and stays; one with a power, `+0x38` 0x80, stops: `86b8:16f7`'s effects
+are not ported); the sheet is drawn, the scores are set to their base (the
+sheet's `*` gone), and the bar "Modify: Next Previous Add Sub Keep Exit" runs
+over six fields in turn, the scores (STR to CHA), the name and the hit points
+(DS:748a): Add (Right) and Sub (Left) change the lit one within its race's
+limits (`DS:02b8`, 16 bytes a race: strength's by gender, its exceptional one
+past 18 for a knight, fighter, paladin or ranger, the others' least and most)
+and its class's least (`DS:04fd`, 6 a class), Next (Down, End) and Previous (Home,
+Up) go to the next or the one before (strength's Previous is the hit points,
+charisma's Next the name, or, in Create, the hit points; the hit points' Previous the
+name or, in Create, charisma); wisdom keeps a cleric's first spell a day at 1;
+a mountain dwarf paladin's charisma stays 17; constitution adds to or takes from
+the hit points' most (the levels' least, `6a87:007e`, or most, `86b8:354b`),
+and the hit points' Add and Sub within the same; a click on a score's row,
+the hit points' (the right of row 3) or the name's takes it. The name is
+edited in place (up to 15 characters, `x`-`z`, Left and Right wrapping,
+Backspace, Delete; Return, Down or End on to the hit points, Home or Up to
+charisma, unless another member has the name: "Already a NAME in party!");
+the derived block (hit points, armour class, encumbrance, THAC0, movement,
+damage) is recomputed (`86b8:065e`, `177e:0be2`) after each key. Exit
+(`6a87:01e5`) gives the scores, the exceptional strength, the hit points' most
+and the name back as they were and recomputes; Keep (`6a87:025e`) recomputes
+the spells (`8bcc:01e7`: step 4's levels), makes the mage's spell book again
+(`6a87:1599`, `66e5:30d3`), the hit points' base from their most less the
+levels' average constitution bonus, and keeps the scores as the base's.
 
 The party's list (`5e22:023b`) is drawn from column 1 in the camp, else
 0x11: "Name" and "AC" "HP" in light red on row 2, a row a member from 4,

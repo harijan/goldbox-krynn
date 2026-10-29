@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_items.py`, `dqk_train.py` and `dqk_add.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py` and `dqk_modify.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -383,6 +383,22 @@ to the twelfth level among them, and saves: the screens and the saved game
 written (from its party's size), which hold the stats and levels
 (`8bcc:07f1`) as the original computes them. Both agree (2026-10-29). They are
 in `make dqk-checks`.
+
+`dqk_modify.py` (about three minutes) runs Modify Character (`6a87:1293`) on
+the shipped saved game's first member, in the original and in `eclplay
+--start-menu --mouse`, a key at a time in RGB (whole screens but the sheet's
+readied weapon and armour, rows 21-22, the pointer's cursor, and the name's
+cursor, a block the original toggles by the clock): Add, Sub, Next and
+Previous over the scores, the name edited in place and the hit points, Exit
+(then Remove Character's `.QCH`, compared byte for byte but the original's
+far pointers); a saved game of its own with the scores at their race's and
+class's limits and the hit points at theirs; a name taken by another of
+the party, deleted and typed past its 15 characters; an experience creation
+does not give ("can't be modified."); the clicks on a score's row and the hit
+points (the box's mouse, `sdl.mouse_emulation=always`); and Keep up to its
+key, where the port stops at the cited levels routine 8bcc:01e7 (the spells a
+day, not merged yet) so the record after Keep is not compared. All agree
+(2026-10-29).
 
 Death Knights of Krynn, read headless (see [Games](games.md#games)), is checked by
 `tools/dosbox/checks/dkk_views.py`, which `make dkk-checks` runs
