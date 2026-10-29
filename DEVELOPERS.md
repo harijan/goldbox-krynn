@@ -140,7 +140,8 @@ two games' routines by Ghidra's C and scans the port's citations
 ([its README](tools/funcmatch/README.md): the method and the noise floor).
 `make dqk-checks` runs the original in DOSBox-X and compares its title,
 texts, 3D view, menus, input, big picture, saved game, camp and party to
-the first fight with `eclplay --game dark-queen`'s (see [DOSBox-X
+the first fight, and Train Character, Knight new Order and Add (the levels)
+with `eclplay --game dark-queen`'s (see [DOSBox-X
 harness](docs/dosbox.md#dosbox-x-harness)). `krynn --game dark-queen`
 plays its title, start menu and camp in 256 colours and, from the camp's
 Load, its saved games to the first fight (`DQKAssets/DISK1/DQK.CFG` read
@@ -165,9 +166,11 @@ AdLib's chip in `tests/test_opl2.c`; Death Knights' songs' driver in
 libraries, pictures, palettes and colour cycles (`tests/test_vga.c`: made-up records,
 and its 1,827 pictures where `DQKAssets/` holds them), its scripts,
 title, 3D view, menus, input, big pictures, start, DQK.CFG, krynn's
-256 colours, its saved game loaded and saved, the camp, View's sheet and
-the way to the first fight (`tests/test_dark_queen.py`, skipped
-without `DQKAssets/`), and its characters, items, saved games, vault and
+256 colours, its saved game loaded and saved, the camp, View's sheet, Train
+Character and Knight new Order and the way to the first fight
+(`tests/test_dark_queen.py`, skipped without `DQKAssets/`; its level tables
+and hit points in `tests/test_dark_queen.c`, against `build/DQK_FULL.EXE`, and the
+silent training in `tests/test_queen_train.c`), and its characters, items, saved games, vault and
 monsters (its `.QCH`, `.QSV` and `VAULT` files read and written again,
 Death Knights' imported, MONCHA's
 98: `tests/test_party.c`, `tests/test_monster.c`, `tests/test_ecl.c`), Death Knights of Krynn's descriptor,
