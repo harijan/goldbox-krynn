@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py` and `dqk_party.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py` and `dqk_create.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -342,8 +342,8 @@ port's inn run draws its frame as eclplay starts, before its `--set`, with
 
 `dqk_party.py` (about a minute) loads the shipped saved game
 (`SAVE\SAVGAMA.QSV`: Load, Tdqk, A) and compares the camp with its party,
-Down, View's sheet (but its readied weapon and armour, rows 21-22: item
-names not ported) and Escape back; then, past Begin Adventuring (the
+Down, View's sheet (with its readied weapon and armour, rows 21-22:
+`177e:03fc`) and Escape back; then, past Begin Adventuring (the
 copy protection answered in the box), block 4's first text with the party's
 list and status, Palanthas, the palace and Leave to Caergoth's 3D view and
 commands; the variables 0x0001-0x0400 once loaded against `eclplay
@@ -354,6 +354,86 @@ log, the widow's menu, the shadows and the step before the dragons, whole
 but the mouse's cursor in the commands (`1bdb:1aef`'s areas give it other
 shapes: not ported); the original then runs the dragons' `SETUP MONSTERS`
 where the port stops, cited (its ECL between them). All agree (2026-10-27).
+
+`dqk_items.py` (about two minutes) plays the sheet's menu from the same saved
+game, one key a step, every screen compared whole: View's coin Trade
+(`86b8:286a`: the picker of `86b8:3ae5`, the type of coin, an amount typed
+on the bar by `86b8:2586`, Exit asking whom again) and Drop (`86b8:2c32`:
+129 and a 9 more, which the number cannot pass, a Backspace, 19 dropped,
+Escape from the amount), then Items (`86b8:0f41`) of the first member
+(Trade and Drop of a readied item refused, "Can't halve that", Join, the
+helm unreadied, Drop asked and refused, the helm traded to the second
+member) and of the second (his arrows halved and joined, his bow refused
+twice, "already using ..." and "Your hands are full!", then readied), the
+third member's View and coin Trade (the picker starts on the member viewed,
+not the one last given to), and Save Current Game: the saved game the original writes against the port's,
+byte for byte but the characters' far pointers. All agree (2026-10-29).
+
+`dqk_train.py` (about two minutes) plays the shipped saved game A from a
+patched copy in both (variable 0x30, the hall of every class, and three
+characters' experience; the same random seed, `DS:ca0e` and `--seed`): Knight
+new Order (the sword, then the rose), Train Character for a knight, a dwarf
+fighter and thief (his experience held below the level after's), a kender
+cleric and thief and a character that cannot ("Not Enough Experience"), then
+Save Current Game; every screen in RGB, and the saved game written (but the
+heap's far pointers); a second run with the hall of knights alone (variable
+0x40) says "we don't train that class here". `dqk_add.py` (about four minutes)
+adds characters from the roster (Tdqk, and Dkk's imported from Death Knights'
+saved game A as roster files) in two parties, a Death Knights paladin patched
+to the twelfth level among them, and saves: the screens and the saved game
+written (from its party's size), which hold the stats and levels
+(`8bcc:07f1`) as the original computes them. Both agree (2026-10-29). They are
+in `make dqk-checks`.
+
+`dqk_modify.py` (about three minutes) runs Modify Character (`6a87:1293`) on
+the shipped saved game's first member, in the original and in `eclplay
+--start-menu --mouse`, a key at a time in RGB (whole screens but the pointer's cursor, and the name's
+cursor, a block the original toggles by the clock): Add, Sub, Next and
+Previous over the scores, the name edited in place and the hit points, Exit
+(then Remove Character's `.QCH`, compared byte for byte but the original's
+far pointers); a saved game of its own with the scores at their race's and
+class's limits and the hit points at theirs; a name taken by another of
+the party, deleted and typed past its 15 characters; an experience creation
+does not give ("can't be modified."); the clicks on a score's row and the hit
+points (the box's mouse, `sdl.mouse_emulation=always`); and Keep
+(`6a87:025e`: the spells a day and known by `8bcc:01e7`, the mage's spells
+forgotten by `6a87:1599` and made again by `66e5:30d3`, the hit points' base)
+for a knight, a cleric, fighter and mage and a cleric and ranger, each then
+Removed to a `.QCH` compared. All agree (2026-10-29).
+
+`dqk_create.py` (about two minutes a case; `--flows CASE`, `make dqk-checks`
+splits them) makes characters in the original and in `eclplay --start-menu
+--mouse`, from the camp's Create (`66e5:2f95`): the form's clicks (the box's
+pointer, `sdl.mouse_emulation=always`, `Box.click`) of race, class, gender and
+alignment, Done, the deity's list for a cleric (Down, Select), the roll and the
+sheet (Reroll Stats once for the cleric), the name typed a letter a step, the
+icon's picker (arrows, 7 left and 7 up past each edge, a click at a cell's edge),
+and "Save NAME?"; every screen of each step in RGB (but the caret the name's
+field blinks by the clock, and the camp's cursor where it comes back, which the original draws as
+it was last drawn, in the form, until the pointer moves: the steps after it
+agree), and the file written, `NAME.QCH`, byte for byte but the far
+pointers (the readied slots, the original's pointers, are compared by
+which are nil, against the slots the items readied fill). The generator is shared: the port logs its seed where the creation
+starts (`seed:`) and the check writes it to the original's `DS:ca0e` as the
+form opens, so every roll, hit point and silent training is the same. The cases:
+a human fighter, a Silvanesti cleric (lawful good, the good gods), a hill dwarf cleric
+(no deity asked), a kender thief, a half-elf fighter and mage, "knights" (a knight,
+a paladin, a ranger, and a name refused for its digit, whose stale bytes
+the file keeps), "casters" (a mage of the second order, a cleric, fighter
+and mage, a cleric of the neutral gods), "modify" (the sheet's Modify) and "exits": Escape
+from the sheet's bar, Exit from the form, the sheet and the icons, Escape from
+the name and No to the save, each back at the camp and the next creation
+going on from the generator as the abandoned one left it. All agree
+(2026-10-29).
+
+`dqk_stats.py` (about a minute) loads the shipped saved game A from a copy
+whose first member is made by hand and saves it: a cloak (type `0x3a`) that
+magic armour keeps, a body armour of +100 as its last item (its armour class
+wraps below 0 as a signed byte, which `177e:0f5f` compares unsigned) and effect
+`0x4a` (the movement doubled). The saved game written holds the recomputed
+record (`177e:0be2`) of a character the original had not already recomputed;
+the two agree but for the far pointers (2026-10-29), and `tests/test_dark_queen.py`
+holds the digest.
 
 Death Knights of Krynn, read headless (see [Games](games.md#games)), is checked by
 `tools/dosbox/checks/dkk_views.py`, which `make dkk-checks` runs

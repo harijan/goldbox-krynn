@@ -1063,6 +1063,9 @@ static void test_dark_queen_saved(void)
         puts("party: no Dark Queen characters in DQKAssets/SAVE; skipped");
         return;
     }
+    /* Each is recomputed as it is read (177e:0be2): what its file holds
+     * (the original's own, written after it recomputed) is unchanged. */
+    CHECK(cok_item_types_read_at("DQKAssets/DISK1/ITEMS.DAT", 0, &types, error, sizeof error));
     char out[512];
     CHECK(test_temp_dir(out, sizeof out, "cok_party_dqk_saved") != NULL);
     for (size_t i = 0; i < sizeof shipped / sizeof *shipped; ++i) {
@@ -1113,6 +1116,8 @@ static void test_dark_queen_import(void)
              "not checked");
         return;
     }
+    /* Each is recomputed as it is imported (177e:0be2), by the item types. */
+    CHECK(cok_item_types_read_at("DQKAssets/DISK1/ITEMS.DAT", 0, &types, error, sizeof error));
     const cok_rules *R = &cok_rules_dark_queen, *D = &cok_rules_death_knights;
     const cok_character_layout *L = R->character, *K = D->character;
     const cok_rules_import *I = R->characters.import;
@@ -1140,7 +1145,8 @@ static void test_dark_queen_import(void)
                       cok_field_u8_at(K, k.record, COK_FIELD_SCORE_BASE, s));
         CHECK(cok_field_u32(L, c.record, COK_FIELD_EXPERIENCE) ==
               cok_field_u32(K, k.record, COK_FIELD_EXPERIENCE));
-        CHECK(cok_field_u8(L, c.record, COK_FIELD_HIT_POINTS) ==
+        /* Kept within the most the levels give (86b8:354b). */
+        CHECK(cok_field_u8(L, c.record, COK_FIELD_HIT_POINTS) <=
               cok_field_u8(K, k.record, COK_FIELD_HIT_POINTS));
         uint8_t class_ = cok_field_u8(K, k.record, COK_FIELD_CLASS);
         CHECK(cok_field_u8(L, c.record, COK_FIELD_CLASS) == (class_ == 7 ? 1 : class_));
@@ -1310,6 +1316,46 @@ static void test_dark_queen_import_made(void)
     CHECK(rmdir(dir) == 0);
 }
 
+/* The six characters of Death Knights' saved game A (DKKAssets/SAVE's
+ * CHRDATA1-6.GAM) as the original has them once loaded from its start
+ * menu's Load, Dkk, A (DOSBox-X, 2026-10-28: the party at DS:c6e5, each
+ * record after 604b:0d65's moves, the hit points kept within 86b8:354b's
+ * most, the body icon of 66e5:0001, the recompute 177e:0be2), hashed as
+ * test_dark_queen_party does; the port imports them the same. */
+static void test_dark_queen_import_loaded(void)
+{
+    static cok_item_types types;
+    char error[256];
+    if (read_whole("DKKAssets/SAVE/CHRDATA1.GAM", (uint8_t[1]){0}, 1) == 0 ||
+        !cok_item_types_read_at("DQKAssets/DISK1/ITEMS.DAT", 0, &types, error, sizeof error)) {
+        puts("party: no Death Knights saved game or Dark Queen's ITEMS.DAT; the import not "
+             "compared with the original's");
+        return;
+    }
+    const cok_rules *R = &cok_rules_dark_queen;
+    const cok_character_layout *L = R->character;
+    uint32_t hash = 0x811c9dc5u;
+    for (unsigned n = 1; n <= 6; ++n) {
+        char base[16];
+        snprintf(base, sizeof base, "CHRDATA%u", n);
+        cok_character c;
+        CHECK(cok_character_import(&c, R, "DKKAssets/SAVE", base, "GAM", &types, error,
+                                   sizeof error));
+        for (size_t k = 0; k < L->size; ++k)
+            hash = (hash ^ (cok_field_pointer_at(L, (long)k) ? 0 : c.record[k])) * 0x01000193u;
+        for (size_t i = 0; i < c.item_count; ++i)
+            for (size_t k = 0; k < 17; ++k) hash = (hash ^ c.items[i][0x28 + k]) * 0x01000193u;
+        for (const cok_effect *e = c.effects; e != NULL; e = e->next) {
+            const uint8_t b[5] = {e->id, (uint8_t)e->duration, (uint8_t)(e->duration >> 8),
+                                  e->value, e->on_remove};
+            for (size_t k = 0; k < 5; ++k) hash = (hash ^ b[k]) * 0x01000193u;
+        }
+        cok_character_free(&c);
+    }
+    if (hash != 0xc6b943fdu) fprintf(stderr, "Dark Queen's import: 0x%08x\n", hash);
+    CHECK(hash == 0xc6b943fdu);
+}
+
 /* The six characters of Dark Queen's shipped saved game (SAVE/SAVGAMA.QSV:
  * 0x400 bytes of variables, 15 more, their count, then each as a .QCH,
  * dqk 604b:28f8) read as cok_character_from_bytes reads one: the
@@ -1329,6 +1375,8 @@ static void test_dark_queen_party(void)
     const cok_rules *R = &cok_rules_dark_queen;
     const cok_character_layout *L = R->character;
     char error[256];
+    static cok_item_types types;
+    CHECK(cok_item_types_read_at("DQKAssets/DISK1/ITEMS.DAT", 0, &types, error, sizeof error));
     size_t at = 0x40f, count = (size_t)(data[0x40d] | data[0x40e] << 8);
     CHECK(count == 6);
     uint32_t hash = 0x811c9dc5u;
@@ -1338,6 +1386,9 @@ static void test_dark_queen_party(void)
         CHECK(cok_character_from_bytes(&c, R, data + at, size - at, 0, &used, error,
                                        sizeof error));
         at += used;
+        /* Recomputed (177e:0be2) the record stays as the original's own,
+         * which it had recomputed. */
+        CHECK(cok_character_stats(&c, R, &types, error, sizeof error));
         for (size_t k = 0; k < L->size; ++k)
             hash = (hash ^ (cok_field_pointer_at(L, (long)k) ? 0 : c.record[k])) * 0x01000193u;
         for (size_t n = 0; n < c.item_count; ++n)
@@ -1500,6 +1551,7 @@ int main(void)
     test_dark_queen_saved();
     test_dark_queen_import();
     test_dark_queen_import_made();
+    test_dark_queen_import_loaded();
     test_dark_queen_party();
     test_dark_queen_saved_game();
     test_dark_queen_vault();

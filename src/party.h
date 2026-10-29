@@ -290,6 +290,17 @@ static inline int8_t cok_character_change_level(const cok_rules *rules, const ui
  * makes it 3. */
 void cok_character_strength(cok_character *character, const cok_rules *rules);
 
+/* The sheet's own call (dqk 86b8:065e after the recompute): Dark Queen's
+ * movement again (177e:0a5f), left in the record as it comes (not halved
+ * as the recompute's keeps it); nothing for the others. */
+bool cok_character_movement_now(cok_character *character, const cok_rules *rules,
+                                const cok_item_types *types, char *error, size_t error_size);
+
+/* Dark Queen's default body icon (dqk 66e5:0001: +0xc4 by gender, race,
+ * class and, for a cleric or mage, alignment), which its import and its
+ * creation set; none past class 16. */
+void cok_character_default_body(const cok_character_layout *L, uint8_t *c);
+
 /* Recompute the stats that come from the items and abilities (6346:0d20):
  * the readied slots, item count, hands, weight carried, attacks and
  * damage, THAC0, armour class and movement. Each table lookup follows the

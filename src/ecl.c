@@ -112,8 +112,25 @@ static void freed_read(cok_ecl *vm)
     vm->abort = true;
 }
 
+/* The game's generator: cok_ecl_init's, for every vm of the process. */
+static bool queen_random;
+
+void cok_random_select(cok_random_routine routine)
+{
+    queen_random = routine == COK_RANDOM_QUEEN;
+}
+
 uint16_t cok_tp_random(uint32_t *seed, uint16_t range)
 {
+    if (queen_random) {
+        /* dqk 2102:0234: below 2 none and the seed kept; else the seed
+         * * 0x6d25 + 1, its low 30 bits divided by (0x3fffffff + range) /
+         * range. */
+        if ((int16_t)range <= 1) return 0;
+        uint32_t divisor = (0x3fffffffu + range) / range;
+        *seed = *seed * 0x6d25u + 1;
+        return (uint16_t)((*seed & 0x3fffffffu) / divisor);
+    }
     *seed = *seed * 0x08088405u + 1;
     if (range == 0)
         return 0;
@@ -138,6 +155,7 @@ void cok_ecl_init(cok_ecl *vm, const cok_rules *rules, const cok_ecl_hooks *hook
     assert(rules != NULL);
     memset(vm, 0, sizeof *vm);
     vm->rules = rules;
+    cok_random_select(rules->random);
     if (hooks != NULL) vm->hooks = *hooks;
 }
 

@@ -661,7 +661,7 @@ buttons of 18 characters in two columns (`7368:01a7`), those a party needs
 disabled (`DS:3c3e`); Exit From Game asks "Exit to DOS?" and quits
 (`7368:081a`), Load Saved Game asks "load from where?" (`604b:2e87`: Tdqk,
 Dkk, Exit; Exit back) and loads (see Dark Queen's saved games and party
-below), Add and Delete their rosters, and Create stops the run (creation's). Demo, or the menu's time, runs the
+below), Add and Delete their rosters, and Create makes a character (see Create Character below). Demo, or the menu's time, runs the
 demonstration (`5f07:10cd` with `DS:ae59`): block 7's start with the speed
 5, its keys read only where typed, Escape or `` ` `` ending it
 (`5f07:0f46`, `DS:a890`), then the title again (unless a key ended it)
@@ -687,10 +687,14 @@ spells as bits (`KNOWN_SPELL_BITS`, 16 bytes at +0x157, by id - 1) and
 has nine levels of spells a day in each of its four rows; it has the
 former levels and the level a human changed class at (+0xac, +0x92), but
 no fighter level, shares, levels shared out, icon colours or experience
-for a monster's hit points. Nothing of the derived fields is recomputed
-yet (`COK_STATS_NONE`, `COK_LEVELS_NONE`: `177e:0be2`, which the loaders
-run, is step 4's): a loaded record keeps those its file holds, the
-original's own, and `cok_character`'s readied slots stay 0.
+for a monster's hit points. The derived fields are recomputed as the
+original recomputes them: the stats by `177e:0be2` (`COK_STATS_DARK_QUEEN`)
+and the levels by `8bcc:07f1` (`COK_LEVELS_DARK_QUEEN`, below), the first
+where the loaders run it, the second only where the original does (a
+character joining the party from the roster, `604b:2021`, training and a
+knight's new order: not a `.QCH`'s read, a saved game's load nor Death
+Knights' `Dkk` load, so that a loaded record keeps those fields its file
+holds): `cok_character`'s readied slots are the stats'.
 
 A character's file is one (`saves.character_files`
 `COK_CHARACTER_ONE_FILE`, `.QCH`; `cok_character_from_bytes` and
@@ -736,9 +740,49 @@ name's words by `604b:1bf1`'s map and its spells by `604b:1ea3`'s (a
 scroll's three, another's power an effect where +0x38 is 0x80), type 0x34
 made 0x33, type 0x36 dropped; the spells (`.WIZ`, under 0xdd bytes): the
 memorized and known by the spells' map, the known as bits, the spells a
-day's rows 0-3 to rows 0, 1, 3, 2. Not ported: the caps of the hit points
-by level (`86b8:354b`), the recompute after (`66e5:0001`, `177e:0be2`)
-and the item of type 0x3a readied again (`86b8:1965`).
+day's rows 0-3 to rows 0, 1, 3, 2. The hit points are capped by level
+(`86b8:354b`, `cok_queen_most_hit_points`) and the recompute follows when
+the character joins; not ported: the item of type 0x3a readied again
+(`86b8:1965`).
+
+The levels (`src/queen_levels.c`, tables in `src/data_dark_queen.c` from
+the data segment, `cok_dark_queen_data`, which `tests/test_dark_queen.c`
+compares with `build/DQK_FULL.EXE` byte for byte; the descriptor's `data`):
+the experience a level needs (`8bcc:0e9c`, 19 longs a row of `DS:0852`, the
+row by class and deity, order or robes, `177e:1f39`; past level 17 so much
+more a level from `DS:028c`, level 0x29 `0x7fffffff`), whether a class may
+train (`177e:1fe5`, by race `DS:17dc`'s top levels, a knight of the Crown
+the 18th, of the Sword the 18th, of the Rose the 40th), the spells a day
+(`8bcc:000f`, 29 levels of 9 in the tables of `DS:0b96` chosen by `DS:0847`;
+a wisdom's extra cleric spells), the saving throws (`8bcc:0c72`, `DS:13cc`,
+7 classes of 22 levels of 5: the best of the classes with levels, a dwarf's,
+kender's or ring's bonus), the thief's skills (`8bcc:0af3`), THAC0
+(`DS:6359`), the highest level (+0x91), the attacks (+0xb3) and the classes'
+items usable (+0xbf, `DS:63f3`; a readied item of a class no longer usable
+is put by), and the hit points a level gains (`86b8:380e`: the better of two
+rolls of the class's dice, a first level's several, plus the constitution's
+(`86b8:3a5b`, `177e:20ce`), the sum over the classes counted; at the top level
+(`DS:640a`) a flat 1, 2 or 3 by the row). The dice are the original's
+generator (`cok_random_select`), so a seed set at the title (the port's
+`--seed`, the box's `seed=`) rolls the same hit points in both.
+Train Character (`6be8:0022`, `src/queen_train.c`'s `queen_train`) and Knight
+new Order (`7368:10c2`, `queen_knight_order`) are the camp's: the classes
+the experience takes up a level in, in the hall variable `0x30`'s bits (or
+anywhere with `DS:bd92` set, which no routine found sets), each a level, the
+hit points, the screen "will become: a level n class" and Yes, "Congratulations...",
+and the experience held below the level after's (6be8:0385); the order
+changed with its hit points and levels lowered while the experience falls
+short (`7368:0fe0`). The creation's silent training (`66e5:1a90`) is
+`queen_train_silently`: the variable 0xff, `DS:bd92` 0, silent (no hall, no
+experience cap, a mage's spells by order and level 3, 5 and 7), trained again
+until nothing trains, the variable and `DS:bd92` put back. Checked against
+the original by `dqk_train.py` (Train, Knight new Order, the saved game
+written) and `dqk_add.py` (Add, the levels as the original computes them).
+What remains for step 4 (combat and effects): the item power put by when a
+readied item's class is lost (`86b8:1965`, `16f7`), the new-spell picker of
+a mage's or ranger's training (`849a:2080`, which stops the run), the NPCs'
+levels at joining (`3491`), and the callers of `8bcc:07f1` in `78e4:17dd`
+and `7fd8:2a48`.
 
 The ECL's `0x0401`-`0x0800` are the selected character's fields alone
 (`ecl.game_fields_only`; `game_first` 0x401): `0x041f`-`0x04ab` the
@@ -841,15 +885,116 @@ one and a '*' where a score is not its base, the coins, hit points and
 their most, AC, encumbrance, THAC0, movement and damage), then its menu
 (Items, Spells, Trade, Deposit, Drop, Lay, Cure, Exit by `86b8:0b0c`'s
 tests), Exit or Escape back; its readied weapon and armour lines
-(`177e:03fc`: items' names), the stats' recompute it starts with
-(`177e:0be2`) and its other items are not ported yet. Begin Adventuring
+(`177e:03fc`, rows 21 and 22: the item's name, `src/queen_items.c`: an
+item's words +0x29-+0x2b last to first, each a C string by id from
+`DS:3f55`'s table, those not hidden by +0x33's bits, a count first and the
+last word's plural where there is more than one, "* " where an effect 5 is
+on a member and the item has a bonus, and a ready column ` Yes\t` or ` No\t `
+in Items' list), and, as the menu is built again each time, Items
+(`86b8:0f41`: the member's items listed under "Ready Item", a bar of Rdy,
+Use, Trade, Deposit or Drop, Halve, Join, Sell and Id and Exit by the
+mode and the character, Return taking the first; Rdy `86b8:1965` readies
+an item or unreadies it, with its messages "It's Cursed!", "Wrong Class",
+"already using <item>", "Your hands are full!", "Wrong Magical Order",
+"Usable Only By Kender" and "Thief Level Too Low"; Trade `86b8:1c58`
+through the picker `86b8:3ae5` ("Trade with whom?": the party's list, Down
+or End, Up or Home, Select, Exit; each row a mouse area, a click making that
+member the current one; it starts on the member last given to, which View
+sets to the member viewed, `86b8:0b1d`) and "Overloaded" `86b8:2fbf`; Drop asks
+"Lose it?" under "Your <item>will be gone forever"; Halve `86b8:1d13`;
+Join `86b8:1fda`; all but a scroll's contents, which the port holds none
+of, and the power an item puts on or takes off when it is readied
+(`86b8:16f7`, step 4), Use (`86b8:2175`) and, in the vault or a shop,
+Deposit, Sell and Id, which stop cited), the coins' Trade (`86b8:286a`, the
+picker's "trade to?", "select type of coin " over the coins' box, a number
+typed on the bar `86b8:2586`, "Overloaded" `86b8:27ac`) and Drop
+(`86b8:2c32`), and the stats' recompute it starts with (`177e:0be2`). Spells
+(`7a87:10cb`), Deposit (the vault's), Lay and Cure (`86b8:3200`, `3319`:
+they heal and cure by effects, step 4) are not ported yet. Begin Adventuring
 returns to main, the mode the last (4 for none), its screen
 (`7368:07af`-`0804`): a game not loaded with small picture 9 not shown
 (`DS:ae42`) the overland's frame on the overland in mode 3, else the
 adventure's screen, the party's list after either; a game loaded, in mode
 0 or 4 the adventure's screen and the list, in mode 3 the overland's frame. Exit From Game with a
-party not saved asks "Game not saved. Exit anyway? " (No saves it). Create,
-Modify, Train and Knight new Order stop the run (creation's).
+party not saved asks "Game not saved. Exit anyway? " (No saves it).
+
+Create Character (`66e5:2f95`, `src/queen_create.c`; its tables, `DS:0328`
+(the race's classes), `0563` (the class's alignments), `03f3`, `04b7`, `02b8`,
+`04fd` (the ages and limits), `180d` (the kits), `6359`, `16cd` and `27e9`,
+are `src/queen_create_data.c`, which `tests/test_dark_queen.py` compares with
+the data segment): the record starts with armour class 0x32, THAC0 0x28, size 1,
+active, icon slot 0x0d; then the form (`66e5:2a6c`), the cleric's deity, the
+rolls, the name, the icon and "Save NAME?". The form is the dialog toolkit
+(`2aa6`: 32-byte items, a group of radio buttons the pointer or, with no mouse,
+`66e5:2967`'s keys select: Left and Right the column, Up and Down the row but
+through the gaps, Return the button; Done and Exit on the bar, D and E) of
+race, class, alignment (lawful, neutral, chaotic by good, neutral, evil) and
+gender, whose buttons the callbacks (`2581`, `26d4`, `26a1`, `26c2`, `26c7`,
+`2323`, `2459`, `2532`, `230c`) disable and enable; ALWAYS.TLB's records 16, 17
+and 18 are a button off, on and disabled and the text is drawn only where
+it changed (the original redraws the items that changed). Done (`220a`) gives
+the race's effects and size (`1839`), the experience 1,000,001 (500,000 for two
+classes, 333,333 for three), the class's first levels (`0dbf`), the thief's
+skills, THAC0 and the classes usable (`DS:6359`, `63f3`) and the saving
+throws. A cleric (not a dwarf) picks a deity from the good or the neutral
+gods ("Pick Diety", `36b0`; dwarves are Reorx's) and gets its gifts. The roll
+(`1a90`) is the age (the race's dice, `DS:03f3`; a multi-class has the most of
+its first class's), each score the best of six rolls of 3d6 + 1, the race's
+adjustments, then `0f47`'s age change and limits, the class's least and an
+exceptional strength (d100 + 1); the money (200 steel), the spells a day and the
+known spells, the hit points (`86b8:380e` over the classes, divided by their
+count) and the silent training (`queen_train_silently`). The generator is
+`2102:0234` over `DS:ca0e`, as in the camp's Train, so a seed set in both
+rolls the same (`dqk_create.py` writes the port's, logged as `seed:`, to the
+original). The sheet (86b8:0000) and its bar (Done, Reroll Stats, Modify, Exit;
+Modify is `queen_modify` with `creating` set) follow; then the name
+(`193f`: "Character name: ", up to 15 characters, not empty or a digit first,
+asked again; Escape ends the creation), the body's default (`66e5:0001`) and
+the icons' picker (`0cf1`: 49 bodies of CBODY.TLB in a 7 by 7 grid of 24-pixel
+cells, ready and action shown at the right; arrows wrap, D is Done, E or Escape
+Exit, a click picks a cell), the question "Save NAME?" and, on Yes, the known
+spells (`30d3`: a mage's first level and those its order gives), the kit
+(`34e4`: the race's and class's items, the first weapon readied) and the file
+(`604b:23a7`, `NAME.QCH` in the save path). The mouse cursor over the form is the
+sword over a button and the shield elsewhere; back at the camp the original
+keeps the shape the form last gave it until the pointer moves, where the port
+chooses it at each draw (a difference of the cursor's shape only, which the
+check masks at the pointer and which the next move ends).
+Checked against the original by `dqk_create.py` ([checks](checks.md)).
+
+Modify Character (`6a87:1293`, `src/queen_modify.c`; the camp's and Create's
+Modify button's, `queen_modify(game, character, creating)`): only a character
+of the experiences creation gives (1,000,001, 500,000 or 333,333; the original
+also takes "HALIBUT" as a fourth word on its command line, which the port has
+no way to give) is modified, else its name and " can't be modified." on the
+bar; each readied item is unreadied first (`86b8:1965`: a cursed one says "It's
+Cursed!" and stays; one with a power, `+0x38` 0x80, stops: `86b8:16f7`'s effects
+are not ported); the sheet is drawn, the scores are set to their base (the
+sheet's `*` gone), and the bar "Modify: Next Previous Add Sub Keep Exit" runs
+over six fields in turn, the scores (STR to CHA), the name and the hit points
+(DS:748a): Add (Right) and Sub (Left) change the lit one within its race's
+limits (`DS:02b8`, 16 bytes a race: strength's by gender, its exceptional one
+past 18 for a knight, fighter, paladin or ranger, the others' least and most)
+and its class's least (`DS:04fd`, 6 a class), Next (Down, End) and Previous (Home,
+Up) go to the next or the one before (strength's Previous is the hit points,
+charisma's Next the name, or, in Create, the hit points; the hit points' Previous the
+name or, in Create, charisma); wisdom keeps a cleric's first spell a day at 1;
+a mountain dwarf paladin's charisma stays 17; constitution adds to or takes from
+the hit points' most (the levels' least, `6a87:007e`, or most, `86b8:354b`),
+and the hit points' Add and Sub within the same; a click on a score's row,
+the hit points' (the right of row 3) or the name's takes it. The name is
+edited in place (up to 15 characters, `x`-`z`, Left and Right wrapping,
+Backspace, Delete; Return, Down or End on to the hit points, Home or Up to
+charisma, unless another member has the name: "Already a NAME in party!");
+the derived block (hit points, armour class, encumbrance, THAC0, movement,
+damage) is recomputed (`86b8:065e`, `177e:0be2`) after each key. Exit
+(`6a87:01e5`) gives the scores, the exceptional strength, the hit points' most
+and the name back as they were and recomputes; Keep (`6a87:025e`) recomputes
+the spells (`8bcc:01e7`, `cok_queen_spells`), makes the mage's spell book again
+(`6a87:1599` forgets each mage's spell by `id / 8` and `id % 8`, a bit off from
+the others' `(id - 1) / 8`, so the bit of the spell after it is cleared, then
+`66e5:30d3`), the hit points' base from their most less the
+levels' average constitution bonus, and keeps the scores as the base's.
 
 The party's list (`5e22:023b`) is drawn from column 1 in the camp, else
 0x11: "Name" and "AC" "HP" in light red on row 2, a row a member from 4,

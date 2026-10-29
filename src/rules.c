@@ -1460,7 +1460,8 @@ const cok_rules cok_rules_champions = {
     .character = &champions_character,
     /* An item record, 63 bytes in its files as in memory (4b6d:11e5):
      * +0x2e its type, +0x39 how many. */
-    .item_record = {.file_size = 63, .file_at = 0, .type = 0x2e, .count = 0x39},
+    .item_record = {.file_size = 63, .file_at = 0, .type = 0x2e, .count = 0x39, .weight = 0x37,
+                    .readied = 0x34, .bonus = 0x32, .save_bonus = 0x33},
     .characters =
         {
             .stats = COK_STATS_CHAMPIONS,   /* 6346:0d20 */
@@ -1468,6 +1469,10 @@ const cok_rules cok_rules_champions = {
             .import = NULL,
             .paladin_row = 0,         /* 6346:371e */
             .fighter_classes = 0x94, /* 60f4:1743, 1628: 2, 4, 7 */
+            .arrows = 0x1e, .quarrels = 0x0c,            /* 6346:0d20 */
+            .elf_first = 0x15, .elf_last = 0x1b, .elf_a = 0x13, .elf_b = 0x12, /* 6346:0023 */
+            .kender = 0x43,
+            .strength_flag = true, /* 6346:1412, 14b5: +0x114 */
         },
     .data = &champions_data,
     .ecl =

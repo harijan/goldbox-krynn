@@ -1357,6 +1357,18 @@ class Box:
             self._xdo("windowfocus", "--sync", self.window)
             self._xdo("key", "--delay", "80", *keys)
 
+    def click(self, x, y, wait=0.6):
+        """Click the left button at the 320x200 screen's pixel x, y (the
+        window shows it doubled): the box must have started with
+        extra_conf={"sdl.mouse_emulation": "always"}, so that DOSBox-X's
+        mouse follows the host's without a capture."""
+        with span("x", "click"):
+            self._xdo("windowfocus", "--sync", self.window)
+            self._xdo("mousemove", "--window", self.window, 2 * x, 2 * y)
+            time.sleep(wait)
+            self._xdo("click", "1")
+            time.sleep(wait)
+
     # -------------------------------------------------- screen and sound
 
     def _hotkey(self, key):
