@@ -3,6 +3,7 @@
 #include "party.h"
 #include "queen.h"
 #include "queen_create_data.h"
+#include "queen_view.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -666,7 +667,7 @@ static int pick_deity(cok_adventure *game, cok_character *ch)
     size_t at = 0;
     for (;;) {
         queen_say(game, 1, 2, "Pick Diety", 0x0c);
-        int key = queen_list_menu(game, bar, 2, items, count, &at, 3, 0x16, 0x26);
+        int key = queen_list_menu(game, "", bar, 2, items, count, &at, 1, 3, 0x16, 0x26);
         if (key < 0) return -1;
         bool mouse = queen_mouse(game);
         if (key == 0) break;

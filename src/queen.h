@@ -82,11 +82,6 @@ int queen_edit_line(cok_adventure *game, char *line, size_t most);
  * from cell 1, the line typed after it. */
 int queen_input_line(cok_adventure *game, const char *prompt, unsigned fg, unsigned bg,
                      char *line, size_t most);
-/* A list of rows y1 to y2 within columns 1 to x2 and a bar of buttons
- * (1bdb:1f25 with its items and the bar's): the button's index, 0x1b for
- * Escape, -1; *at the row, from 0. */
-int queen_list_menu(cok_adventure *game, const char *const *bar, size_t bar_count,
-                    const char *const *items, size_t count, size_t *at, int y1, int y2, int x2);
 /* Whether a mouse driver answers (DS:c2f5). */
 bool queen_mouse(const cok_adventure *game);
 /* The character written to the save path as <name>.QCH (604b:23a7), asking

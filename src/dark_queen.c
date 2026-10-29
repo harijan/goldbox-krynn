@@ -3824,12 +3824,6 @@ int queen_input_line(cok_adventure *game, const char *prompt, unsigned fg, unsig
     return result;
 }
 
-int queen_list_menu(cok_adventure *game, const char *const *bar, size_t bar_count,
-                    const char *const *items, size_t count, size_t *at, int y1, int y2, int x2)
-{
-    return list_menu(game, "", bar, bar_count, items, count, at, y1, y2, x2);
-}
-
 bool queen_mouse(const cok_adventure *game)
 {
     return game->mouse.driver.installed;
