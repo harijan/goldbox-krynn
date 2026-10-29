@@ -3019,10 +3019,9 @@ static void loaded_vars(cok_adventure *game)
  * party's size (0x20) 0, then each character joined (604b:3491: its icon
  * slot, counted) and the first selected (DS:ad67); the vault the saved
  * game's letter's (2ab4: DS:c3ea). The original reports "SCROLLS
- * DROPPED!" as it reads each character that drops some (604b:05fd). The
- * recompute 177e:0be2 that 28f8 runs on each is not ported (COK_STATS_NONE),
- * nor the combat icons 2ab4 then loads (604b:05d7, 204c:00df). What the
- * screen shows again (the map, the big picture, the frame's colours) is
+ * DROPPED!" as it reads each character that drops some (604b:05fd). Each is
+ * recomputed as 28f8 does (177e:0be2). The combat icons 2ab4 then loads
+ * (604b:05d7, 204c:00df) are not ported. What the screen shows again (the map, the big picture, the frame's colours) is
  * the drawing's. */
 static bool restore_whole(cok_adventure *game, const char *path, cok_saved_game *saved)
 {
@@ -3044,6 +3043,13 @@ static bool restore_whole(cok_adventure *game, const char *path, cok_saved_game 
     for (size_t i = 0; i < saved->count; ++i) {
         cok_character *character = saved->characters[i];
         if (character->contents_dropped) cok_adventure_log(game, "print", "SCROLLS DROPPED!");
+        /* 604b:28f8 recomputes each (177e:0be2; nothing for a game with no
+         * recompute). */
+        if (!cok_character_stats(character, rules, &game->item_types, game->error,
+                                 sizeof game->error)) {
+            fail(game, "%s: %s", path, game->error);
+            return false;
+        }
         if (!cok_party_add(&game->party, rules, character)) {
             fail(game, "%s: the party is full", path);
             return false;

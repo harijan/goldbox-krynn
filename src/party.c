@@ -569,7 +569,8 @@ static void import_item(const cok_rules_import *I, const uint8_t *d, uint8_t *no
  * and for 17-19 a knight's, fighter's, paladin's or ranger's (classes 1-4)
  * 3-5, the others' 2. Outside 3-19 the original leaves it unset: the
  * port's 0. */
-static int8_t queen_constitution(const cok_character_layout *L, const uint8_t *c, unsigned class_)
+int8_t cok_character_queen_constitution(const cok_character_layout *L, const uint8_t *c,
+                                        unsigned class_)
 {
     uint8_t con = cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION);
     if (con < 3 || con > 19) return 0;
@@ -588,8 +589,8 @@ static int8_t queen_constitution(const cok_character_layout *L, const uint8_t *c
  * and, past the top level of its dice (DS:640a), so much for each
  * level beyond; the sum is divided by the classes that count, or is 0
  * where none does and the human never changed class. */
-static uint8_t queen_most_hit_points(const cok_character_layout *L, const uint8_t *c,
-                                     const uint8_t *top)
+uint8_t cok_character_queen_most_hit_points(const cok_character_layout *L, const uint8_t *c,
+                                  const uint8_t *top)
 {
     unsigned counted = 0;
     uint16_t sum = 0;
@@ -598,7 +599,7 @@ static uint8_t queen_most_hit_points(const cok_character_layout *L, const uint8_
                 former = cok_field_u8_at(L, c, COK_FIELD_FORMER_LEVEL, k);
         if (!((level > 0 && level > cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL)) || former > 0))
             continue;
-        int con = queen_constitution(L, c, k);
+        int con = cok_character_queen_constitution(L, c, k);
         uint8_t used;
         if (former > 0) {
             used = former;
@@ -782,7 +783,7 @@ static bool dark_queen_import(cok_character *character, const cok_rules *rules, 
     free(data);
     /* 604b:0d65's end: the hit points kept within 86b8:354b's most, and
      * the body icon (66e5:0001). */
-    uint8_t most = queen_most_hit_points(L, c, I->top_levels);
+    uint8_t most = cok_character_queen_most_hit_points(L, c, I->top_levels);
     static const cok_field capped[] = {COK_FIELD_MAX_HIT_POINTS, COK_FIELD_UNDRAINED_MAX_HIT_POINTS,
                                        COK_FIELD_BASE_HIT_POINTS, COK_FIELD_HIT_POINTS};
     for (size_t i = 0; i < sizeof capped / sizeof *capped; ++i)

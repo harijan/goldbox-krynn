@@ -7,6 +7,7 @@ import hashlib
 import os
 import pathlib
 import re
+import shutil
 import struct
 import subprocess
 import tempfile
@@ -469,6 +470,202 @@ class DarkQueenTests(unittest.TestCase):
         self.assertEqual(digest(shots / "005.bmp"), "31f954e7a44fbb5e834220525b0c98e5")
         self.assertEqual(digest(shots / "007.bmp"), "9585996ef87d161423a5c6faa8150957")
         self.assertEqual(digest(shots / "009.bmp"), "3b674649f17f2d0b8e5eaa1fe11117ca")
+
+    def test_modify_tables(self):
+        # Modify's tables (data_dark_queen_modify.c) as the original's data
+        # segment holds them (DS 0x422e of the merged image): the races'
+        # limits (DS:02b8), the classes' least (04fd), the constitution's
+        # hit points (082d) and the spells' class (a word) and level
+        # (DS:27e9, 0x16 bytes each).
+        merged = self.folder / "DQK_FULL.EXE"
+        result = subprocess.run(["python3", ROOT / "tools" / "dqkmerge.py",
+                                 ASSETS / "DQK.EXE", merged], capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        exe = merged.read_bytes()
+        header = struct.unpack_from("<H", exe, 8)[0] * 16
+        ds = header + 0x422e * 16 - 0x10000
+        source = (ROOT / "src" / "data_dark_queen_modify.c").read_text()
+
+        def array(name):
+            body = source.split(f"{name}[")[1].split("= {", 1)[1].split("};")[0]
+            return [int(x) for x in re.findall(r"\d+", body)]
+
+        self.assertEqual(array("cok_queen_limits"), list(exe[ds + 0x2b8:ds + 0x2b8 + 7 * 16]))
+        self.assertEqual(array("cok_queen_minimums"), list(exe[ds + 0x4fd:ds + 0x4fd + 17 * 6]))
+        self.assertEqual(array("cok_queen_constitution_bonus"),
+                         list(exe[ds + 0x82d:ds + 0x82d + 32]))
+        classes = [struct.unpack_from("<H", exe, ds + 0x27e9 + 0x16 * i)[0] for i in range(127)]
+        levels = [exe[ds + 0x27e9 + 0x16 * i + 2] for i in range(127)]
+        self.assertEqual(array("cok_queen_spell_class"), classes)
+        self.assertEqual(array("cok_queen_spell_level"), levels)
+
+    def modify(self, keys, saved=None):
+        """Modify's keys from the camp with saved game A loaded, the saves
+        (SAVE, the saved game changed) in self.folder / "saves"; the shots
+        and the output."""
+        saves = self.folder / "saves"
+        if saves.exists():
+            shutil.rmtree(saves)
+        shutil.copytree(ASSETS / "SAVE", saves)
+        if saved is not None:
+            (saves / "SAVGAMA.QSV").write_bytes(saved)
+        shots = self.folder / "shots"
+        if shots.exists():
+            shutil.rmtree(shots)
+        result = self.play("--start-menu", "--mouse", "--saves", saves, "--shots", shots,
+                           "--keys", r"\k\ePLTA" + keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return shots, result.stdout.splitlines()
+
+    def test_modify(self):
+        # Modify Character (6a87:1293; dqk_modify compares each key's screen
+        # with the original's): the sheet with "Modify:" and strength lit;
+        # Add (Right) twice and Next (Down), then Exit; the screens' digests
+        # are those dqk_modify found equal to the original's.
+        items = (8, 168, 120, 16)
+        pointer = (0, 0, 24, 24)
+        shots, lines = self.modify(r"m\>\>\ve")
+        bar = "menu: Next Previous Add Sub Keep Exit"
+        self.assertEqual(lines[9:], ["choice: 2", bar, bar, bar, bar,
+                                     "menu: Create Character Delete Character Modify Character "
+                                     "View Character Remove Character Load Saved Game Save "
+                                     "Current Game Begin Adventuring Exit From Game",
+                                     "(out of keys in the start menu)"], lines)
+        for shot, expected in [(6, "cf5e0523649495e363454014bff55f13"),
+                               (7, "0ad14b6e0dbfaf012118d605e6f6fd20"),
+                               (8, "ee635ee9ae1af898643538d063e98a9c"),
+                               (9, "51b22cddde793c4f2847299c3f014671")]:
+            self.assertEqual(digest(shots / f"{shot:03d}.bmp", (items, pointer)), expected)
+
+    def test_modify_exit_and_names(self):
+        # Exit gives the scores, the exceptional strength, the most hit
+        # points and the name back; the items it unreadied stay so (the
+        # original's, 86b8:1965). A name taken by another of the party
+        # stays (the message names it); a character of another experience
+        # is not modified.
+        shots, lines = self.modify(r"m\>\>\ve" + "ry")
+        saves = self.folder / "saves"
+        written = (saves / "ROLANDOF.QCH").read_bytes()
+        shipped = (ASSETS / "SAVE" / "ROLANDOF.QCH").read_bytes()
+        self.assertEqual(written[0x68:0x90], shipped[0x68:0x90])   # name, scores, hit points
+        self.assertEqual(written[0x84:0x8a], shipped[0x84:0x8a])
+        count = written[8]
+        readied = [written[0x19e + 17 * k + 0x0a] for k in range(count)]
+        self.assertEqual(readied, [0] * count)
+        self.assertTrue(any(shipped[0x19e + 17 * k + 0x0a] for k in range(count)))
+        shots, lines = self.modify(r"mpp" + r"\#53" * 14 + "TIMASALIN" + r"\r")
+        self.assertIn("message: Already a TIMASALIN in party!", lines)
+        data = bytearray((ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes())
+        data[0x40f + 0x44:0x40f + 0x48] = bytes([1, 0, 0, 0])
+        shots, lines = self.modify("m", bytes(data))
+        self.assertIn("message: ROLAND OF DUST can't be modified.", lines)
+        self.assertNotIn("menu: Next Previous Add Sub Keep Exit", lines)
+
+    def test_modify_limits(self):
+        # Roland with strength 18/99 (the human's most 100), intelligence 18
+        # (most), wisdom 10, dexterity 8 and constitution 10 (the knight's
+        # least) and charisma 3 (the human's least): Add and Sub stop at the
+        # limits (6a87:03c7-0b84), the exceptional strength counts, the
+        # hit points keep within their most (86b8:354b) and least (6a87:007e).
+        # The screens' digests those dqk_modify found equal to the original's.
+        data = bytearray((ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes())
+        for k, v in enumerate([18, 18, 10, 8, 10, 3]):
+            data[0x40f + 0x78 + 2 * k] = data[0x40f + 0x79 + 2 * k] = v
+        data[0x40f + 0x84] = data[0x40f + 0x85] = 99
+        keys = (r"m\>\>\<n\>n\<n\<n\<\>n\<\>pp\^\^\^\^\>\>\<\<e")
+        shots, lines = self.modify(keys, bytes(data))
+        digests = [
+            "d973da50cd1bea4eba1236cd2f9afdcd", "727544507d41efbe3aacec890ea0fc6a",
+            "727544507d41efbe3aacec890ea0fc6a", "d973da50cd1bea4eba1236cd2f9afdcd",
+            "40308e0783ced3f15633351557d9728f", "40308e0783ced3f15633351557d9728f",
+            "e14f85ff449193d54081eb8523e2c13a", "e14f85ff449193d54081eb8523e2c13a",
+            "c6a256a407b6ba2668d3b63f54650009", "c6a256a407b6ba2668d3b63f54650009",
+            "bbd908a6c6d9921c621c5f309ede0295", "e0f8b8ec65acec3fd285355778b8f904",
+            "87fd9918bbb42d620c69445801df0d84", "eeb44c89245790db0b0e879e1e5e533e",
+            "eeb44c89245790db0b0e879e1e5e533e", "c7d0384a40d8316b8181d08479a1996f",
+            "7660a8cfe669a631c6eac15a2e5f506d", "850876e9703224946c8f9d50615f4501",
+            "d96533a651803984a68a546f6d46e8e4", "f697b9e63f6ee8ca1024591f7cb5e5bd",
+            "0335ca16bb9fd2f5d3bc7cd377e2f9f2", "2a8b908070ac52837fb0004953cdf895",
+            "2a8b908070ac52837fb0004953cdf895", "2a8b908070ac52837fb0004953cdf895",
+            "34a6a6f1bce5e49f8b9c5dcb8744aa18", "235505f02ed777d5965ac93bc707e466"]
+        masks = ((8, 168, 120, 16), (0, 0, 24, 24))
+        for shot, expected in enumerate(digests, 6):
+            self.assertEqual(digest(shots / f"{shot:03d}.bmp", masks), expected,
+                             f"after key {shot}")
+
+    def test_modify_names(self):
+        # The name edited in place (6a87:0d30): all 14 characters deleted,
+        # TIMASALIN typed and taken by another member (the bar says so), two
+        # Backspaces and 16 letters (15 at most), Home on to charisma; the
+        # screen is the original's (dqk_modify's, but the cursor's cell).
+        keys = r"mpp" + r"\#53" * 14 + "TIMASALIN" + r"\r\b\b" + "XYZABCDEFGHIJKLM" + r"\#47"
+        shots, lines = self.modify(keys)
+        self.assertEqual(lines.count("message: Already a TIMASALIN in party!"), 1)
+        masks = ((8, 168, 120, 16), (0, 0, 24, 24), (128, 8, 8, 8))
+        self.assertEqual(digest(shots / "051.bmp", masks), "7eedd32197ef5a0c2862c011705e12a2")
+
+    def test_modify_cases(self):
+        # Modify's other paths, each the screens' digests (but the sheet's
+        # readied lines, the cursor and the pointer) dqk_modify found equal
+        # to the original's: a mountain dwarf paladin's charisma held at 17,
+        # wisdom's Add setting a cleric's first level spells a day to 1 and
+        # constitution's Add raising 50 hit points to the levels' least;
+        # a female's strength at her race's most; the name's cursor
+        # wrapping and a full name taking no letter; the third and fourth
+        # members, of the other two experiences; a cursed readied item
+        # staying readied.
+        def patched(changes, member=0):
+            data = bytearray((ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes())
+            at = 0x40f
+            for _ in range(member):
+                items, more = data[at + 8] | data[at + 9] << 8, any(data[at + 4:at + 8])
+                at += 0x19e + 17 * items
+                while more:
+                    more = any(data[at + 5:at + 9])
+                    at += 9
+            for offset, value in changes.items():
+                data[at + offset] = value
+            return bytes(data)
+
+        items, pointer = (8, 168, 120, 16), (0, 0, 24, 24)
+        cases = [
+            ("dwarf", patched({0x58: 3, 0x5a: 3, 0x83: 17, 0x82: 17, 0x167: 3, 0x89: 10,
+                               0x198: 10}), r"mnn\>nn\>n\<\<\<\>\>e",
+             {6: "ce8e03f979525a70fb20c044d6ed0ebf", 9: "f85db2af412f25d1f4f09fdaa25ad8cb",
+              12: "fe35b09d34a6ab9da27d9a4ef168909f", 14: "0a4e2b90d6d660627e12151af71fe65c",
+              16: "0a4e2b90d6d660627e12151af71fe65c", 18: "0a4e2b90d6d660627e12151af71fe65c",
+              19: "be6a20d157f5a6d4f295efd39132fd1e"}),
+            ("female", patched({0x79: 15, 0x78: 15}, 2), r"\v\vm\>\>\>e",
+             {8: "ea70548d46b0b36b4223e6a00ef9c6c4", 9: "92078f33c52df7d0168c2c5a4cd2c39a",
+              11: "92078f33c52df7d0168c2c5a4cd2c39a", 12: "56e8f74515109f875e4abb9c87c98518"}),
+            ("members", None, r"\vm\>e\v\vm\>e",
+             {7: "421025b47ae54acda620517e705ceca7", 8: "f780da7c0def10fd60b278600c7cccee",
+              9: "a95787fd5ed30d74d30a8d7ede8c95cf", 12: "d7fc65e6018db0807cd58a9182d7d88f",
+              13: "e178ef19c6a82002e61d369bdbda4ba9", 14: "117ffff88f321eaa56297c6c6069b6da"}),
+            ("cursed", patched({0x19e + 0x0c: 1}), r"m\>e",
+             {6: "d511984db63d3b9de0fd8c08baf066ce", 7: "29bc9e899d8f4fdf7fac7b69d019edbc",
+              8: "7903e253b6e51d4c982d51810899656f"}),
+        ]
+        for name, saved, keys, digests in cases:
+            with self.subTest(name):
+                shots, lines = self.modify(keys, saved)
+                for shot, expected in digests.items():
+                    self.assertEqual(digest(shots / f"{shot:03d}.bmp", (items, pointer)),
+                                     expected, f"{name}: after key {shot}")
+                if name == "cursed":
+                    self.assertIn("message: It's Cursed!", lines)
+                if name == "dwarf":
+                    # Wisdom's Add set the cleric's first level spells a day
+                    # to 1 (the record it writes: +0x167).
+                    shots, lines = self.modify(keys + "ry", saved)
+                    written = (self.folder / "saves" / "ROLANDOF.QCH").read_bytes()
+                    self.assertEqual(written[0x167], 1)
+        # The name's cursor wraps from the start to the end and the other
+        # way; a full name takes no letter: after Return it reads
+        # "ROLAND OF DUSTz" (the second letter finds it full).
+        shots, lines = self.modify(r"mpp\<z\>y\>\r")
+        self.assertEqual(digest(shots / "014.bmp", (items, pointer)),
+                         "b188baed3ba2d88e84ae15b01136132b")
 
     def test_first_fight(self):
         # To Caergoth (the palace, Leave), its commands and steps (6fea:0365,

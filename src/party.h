@@ -296,6 +296,15 @@ void cok_character_strength(cok_character *character, const cok_rules *rules);
 bool cok_character_movement_now(cok_character *character, const cok_rules *rules,
                                 const cok_item_types *types, char *error, size_t error_size);
 
+/* dqk 177e:20ce: the hit points a character's constitution adds a level of
+ * a class (0-6), and 86b8:354b: the most hit points its levels give, by
+ * the top level of each class's dice (rules' import top_levels): what
+ * Modify and the import keep a character's hit points within. */
+int8_t cok_character_queen_constitution(const cok_character_layout *L, const uint8_t *c,
+                                        unsigned class_);
+uint8_t cok_character_queen_most_hit_points(const cok_character_layout *L, const uint8_t *c,
+                                  const uint8_t *top);
+
 /* Dark Queen's default body icon (dqk 66e5:0001: +0xc4 by gender, race,
  * class and, for a cleric or mage, alignment), which its import and its
  * creation set; none past class 16. */
