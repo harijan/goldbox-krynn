@@ -17,7 +17,7 @@ Silvanesti cleric of the neutral gods, a dwarf, a kender thief, a half-elf
 multi-class mage); the files they write are compared byte for byte but the
 far pointers (the record's, the items' and each effect's).
 
-    python3 tools/dosbox/checks/dqk_create.py [--workdir DIR] [--verbose] [--only CASE ...]
+    python3 tools/dosbox/checks/dqk_create.py [--workdir DIR] [--verbose] [--flows CASE ...]
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...) listing what
 differs."""
@@ -62,14 +62,20 @@ def form(race, klass, gender, law, good):
             (f"{good}", click(*GOOD[good])), ("form done", ("key", "d"))]
 
 
-def finish(name, rights, reroll=0):
+def finish(name, rights, reroll=0, around=False, click_at=None):
     """The roll (REROLL times Reroll Stats), the name, the icon moved RIGHTS
-    cells right, and the question answered yes."""
+    cells right (AROUND: seven cells left and seven up, past each edge),
+    and the question answered yes."""
     steps = [(f"reroll {n + 1}", ("key", "r")) for n in range(reroll)]
     steps.append(("stats done", ("key", "d")))
     steps += [(f"name {ch}", ("key", ch)) for ch in name]
     steps.append(("name entered", ("key", "\\r")))
     steps += [(f"icon right {n + 1}", ("key", "\\>")) for n in range(rights)]
+    if click_at is not None:
+        steps.append(("icon click", click(*click_at)))
+    if around:
+        steps += [(f"icon left {n + 1}", ("key", "\\<")) for n in range(7)]
+        steps += [(f"icon up {n + 1}", ("key", "\\^")) for n in range(7)]
     steps += [("icon done", ("key", "d")), ("saved", ("key", "y")),
               ("pointer away", click(300, 60)), ("pointer on a button", click(40, 123))]
     return steps
@@ -85,10 +91,49 @@ CASES = {
                + finish("Elara", 0, reroll=1)),
     "dwarf": ("DORN", form("hill-dwarf", "cleric", "male", "lawful", "neutral")
               + finish("Dorn", 2)),
-    "kender": ("KIP", form("kender", "thief", "male", "neutral", "good") + finish("Kip", 3)),
+    "kender": ("KIP", form("kender", "thief", "male", "neutral", "good")
+               + finish("Kip", 3, around=True)),
     "multi": ("MIRA", form("half-elf", "fighter-mage", "female", "lawful", "good")
-              + finish("Mira", 1)),
+              + finish("Mira", 1, click_at=(8 + 24 * 3 - 1, 8 + 24 * 3 + 5))),
+    # The sheet's Modify (6a87:1293 with creation's flag: no name to edit;
+    # Next from charisma goes to the hit points): a strength and an
+    # intelligence added and kept, then every field in turn, the hit points
+    # added to and Exit.
+    "modify": ("QUIN", form("human", "fighter", "male", "lawful", "good")
+               + [("modify", ("key", "m")), ("add strength", ("key", "\\>")),
+                  ("next", ("key", "n")), ("add intelligence", ("key", "\\>")),
+                  ("keep", ("key", "k")), ("modify again", ("key", "m"))]
+               + [(f"next {k}", ("key", "n")) for k in
+                  ("intelligence", "wisdom", "dexterity", "constitution", "charisma",
+                   "hit points", "strength")]
+               + [("previous", ("key", "p")), ("add hit points", ("key", "\\>")),
+                  ("exit", ("key", "e"))]
+               + finish("Quin", 0)),
+    # What ends a creation: Escape from the sheet's bar, Exit from the form,
+    # Escape from the name, Exit from the icons and No to the save, each
+    # back at the camp; the next begins with the generator where it was left.
+    "exits": (None, form("human", "fighter", "male", "lawful", "good")
+              + [("sheet escape", ("key", "\\e")), ("again", ("key", "C"))]
+              + [("form exit", ("key", "e")), ("again", ("key", "C"))]
+              + form("kender", "thief", "female", "neutral", "good")
+              + [("sheet exit", ("key", "e")), ("again", ("key", "C"))]
+              + form("hill-dwarf", "fighter", "male", "lawful", "neutral")
+              + [("stats done", ("key", "d")), ("name Q", ("key", "Q")),
+                 ("name escape", ("key", "\\e")), ("again", ("key", "C"))]
+              + form("half-elf", "mage-thief", "male", "chaotic", "neutral")
+              + [("stats done", ("key", "d")), ("name R", ("key", "R")),
+                 ("name entered", ("key", "\\r")), ("icon exit", ("key", "e")),
+                 ("again", ("key", "C"))]
+              + form("silvanesti", "ranger", "female", "lawful", "good")
+              + [("stats done", ("key", "d")), ("name S", ("key", "S")),
+                 ("name entered", ("key", "\\r")), ("icon done", ("key", "d")),
+                 ("save no", ("key", "n"))]),
 }
+
+
+# The steps that end at the camp.
+BACK_AT_THE_CAMP = {"saved", "sheet escape", "form exit", "sheet exit", "name escape",
+                    "icon exit", "save no"}
 
 
 def key_text(step):
@@ -145,11 +190,13 @@ def run_case(case, opts, work, verdict):
         shutil.rmtree(saves)
     shutil.copytree(dqk_lib.ASSETS / "SAVE", saves)
     shots, log = port_run(work, case, saves)
-    found = re.search(r"seed: ([0-9a-f]{8})", log)
-    if found is None:
+    # The generator where each creation starts (the original's, between the
+    # creations, is moved by what the camp's idle frames draw).
+    seeds = [struct.pack("<I", int(m, 16)) for m in re.findall(r"seed: ([0-9a-f]{8})", log)]
+    if not seeds:
         verdict.differ(case, "the port logged no seed")
         return
-    seed = struct.pack("<I", int(found.group(1), 16))
+    begun = 0
     out = work / f"original-{case}"
     if out.exists():
         shutil.rmtree(out)
@@ -164,25 +211,37 @@ def run_case(case, opts, work, verdict):
         for key in ("\\e", "P", "C"):
             box.keys(key)
             box.settled(tolerance=64)
-        box.ds_write(0xCA0E, seed)
+        box.ds_write(0xCA0E, seeds[0])
+        begun = 1
+        last = (0, 0)
         for n, (what, step) in enumerate(steps):
             if step[0] == "click":
                 box.click(step[1], step[2])
+                last = (step[1], step[2])
             else:
                 box.keys(step[1])
             shot = box.settled(tolerance=64)
+            if step == ("key", "C") and begun < len(seeds):
+                box.ds_write(0xCA0E, seeds[begun])
+                begun += 1
             shot.save_png(out / f"{n:02d}-{checklib.slug(what)}.png")
             masks = ()
-            if what.startswith("name "):
+            if what in BACK_AT_THE_CAMP:
+                x, y = last
+                masks = ((x - 8, y - 8, 24, 24, "the camp's cursor: the original keeps the "
+                          "shield the form's pointer had until it moves (the next steps "
+                          "agree)"),)
+            elif what.startswith("name ") or what == "stats done":
                 masks = ((0, 184, 320, 16, "the name's blinking caret"),)
-            elif what == "saved":
-                masks = ((20, 120, 30, 30, "the camp's cursor: the original keeps the shield "
-                          "the form's pointer had until it moves (the next steps agree)"),)
             verdict.screen(f"{case}: {what}", shot, shots[n + 4] if len(shots) > n + 4 else None,
                            masks=masks, work=work)
         box.settle(1.0)
-        original = box.cdrive / "DQK" / "SAVE" / (file_name + ".QCH")
-        written = original.read_bytes() if original.exists() else b""
+        written = b""
+        if file_name is not None:
+            original = box.cdrive / "DQK" / "SAVE" / (file_name + ".QCH")
+            written = original.read_bytes() if original.exists() else b""
+    if file_name is None:
+        return
     ported = saves / (file_name + ".QCH")
     port = ported.read_bytes() if ported.exists() else b""
     verdict.value(f"{case}: the file written ({file_name}.QCH, but the far pointers)",
@@ -194,7 +253,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir")
     parser.add_argument("--verbose", "-v", action="store_true")
-    parser.add_argument("--only", nargs="*")
+    parser.add_argument("--flows", "--only", dest="only", nargs="*", metavar="CASE")
     opts = parser.parse_args()
     dqk_lib.need_assets()
     work = checklib.workdir(opts.workdir, "dqk_create")

@@ -166,8 +166,11 @@ DKK_CHECKS = [(f"{script}-{flow}" if flow else script, "DKK", "") for script in 
 # start, its first screen, the title, texts and the 3D view, its menus,
 # input and big picture, its saved game, camp and party to the first
 # fight against eclplay --game dark-queen.
-DQK_CHECKS = [("dqk_boot", "DQK", ""), ("dqk_views", "DQK", ""), ("dqk_menus", "DQK", ""),
-              ("dqk_party", "DQK", ""), ("dqk_items", "DQK", ""), ("dqk_train", "DQK", ""), ("dqk_add", "DQK", ""), ("dqk_modify", "DQK", "")]
+DQK_SPLIT = {"dqk_create": ["fighter", "cleric", "dwarf", "kender", "multi", "modify", "exits"]}
+DQK_SCRIPTS = ["dqk_boot", "dqk_views", "dqk_menus", "dqk_party", "dqk_items", "dqk_train",
+               "dqk_add", "dqk_modify", "dqk_create"]
+DQK_CHECKS = [(f"{script}-{flow}" if flow else script, "DQK", "") for script in DQK_SCRIPTS
+              for flow in DQK_SPLIT.get(script, [""])]
 SETS = {"champions": CHECKS, "dkk": DKK_CHECKS, "all": CHECKS + DKK_CHECKS, "dqk": DQK_CHECKS}
 
 
@@ -187,7 +190,9 @@ LONG = {"a_demo": 5, "f_frames": 4, "f_sound": 3, "c_wander": 2, "e_bolt_bounce"
         "dkk_fight-clouds": 4, "dkk_fight-cast": 3, "dkk_fight-band": 3, "dkk_fight-auto": 3,
         "dkk_fight-mage": 3, "dkk_start": 3, "dkk_mouse": 3, "dkk_items": 3, "dkk_sound": 5,
         "dqk_boot": 1, "dqk_views": 1, "dqk_menus": 1, "dqk_party": 1,
-        "dqk_items": 2, "dqk_train": 2, "dqk_add": 4, "dqk_modify": 3}
+        "dqk_items": 2, "dqk_train": 2, "dqk_add": 4, "dqk_modify": 3,
+        "dqk_create-fighter": 2, "dqk_create-cleric": 2, "dqk_create-dwarf": 2,
+        "dqk_create-kender": 3, "dqk_create-multi": 2, "dqk_create-modify": 2, "dqk_create-exits": 3}
 VERDICT = re.compile(r"^VERDICT: (AGREES|DIFFERS new.*|ERROR.*)$", re.M)
 
 

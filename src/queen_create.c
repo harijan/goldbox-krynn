@@ -3,6 +3,9 @@
 #include "party.h"
 #include "queen.h"
 #include "queen_create_data.h"
+#include "queen_levels.h"
+#include "queen_modify.h"
+#include "queen_train.h"
 #include "queen_view.h"
 
 #include <stdio.h>
@@ -444,52 +447,6 @@ static bool run_form(form *f, bool (*done)(form *))
 
 /* Creation. */
 
-/* What the levels' module (dqk 8bcc: 000f cleric spells, 0af3 thief skills,
- * 0c72 saving throws; 86b8:380e hit points; 6be8:0022 Train) gives:
- * stopped, cited, until that module is ported. */
-static bool modify(cok_adventure *game, cok_character *c)
-{
-    (void)c;
-    cok_adventure_not_yet(game, "Modify", "dqk 6a87:1293");
-    return false;
-}
-
-static bool levels_not_yet(cok_adventure *game, const char *what, const char *where)
-{
-    (void)game, (void)what, (void)where; /* TEMP */
-    return true;
-}
-
-static bool levels_cleric_spells(cok_adventure *game, cok_character *c)
-{
-    (void)c;
-    return levels_not_yet(game, "a cleric's first spells", "dqk 8bcc:000f");
-}
-
-static bool levels_thief_skills(cok_adventure *game, cok_character *c)
-{
-    (void)c;
-    return levels_not_yet(game, "a thief's skills", "dqk 8bcc:0af3");
-}
-
-static bool levels_saving_throws(cok_adventure *game, cok_character *c)
-{
-    (void)c;
-    return levels_not_yet(game, "saving throws", "dqk 8bcc:0c72");
-}
-
-static bool levels_hit_points(cok_adventure *game, cok_character *c, unsigned count)
-{
-    (void)c, (void)count;
-    return levels_not_yet(game, "the hit points of a level", "dqk 86b8:380e");
-}
-
-static bool train_silently(cok_adventure *game, cok_character *c)
-{
-    (void)c;
-    return levels_not_yet(game, "Train", "dqk 6be8:0022");
-}
-
 static void add_effect(cok_character *character, uint8_t id)
 {
     cok_character_add_effect(character, id, 0, 0xff, false); /* 148f:19c2 */
@@ -560,7 +517,7 @@ static bool finish_form(cok_adventure *game, cok_character *ch)
     set_word(c + 0x46, 0x000f), set_word(c + 0x44, 0x4241);
     c[0x91] = 1;
     class_levels(ch);
-    if (c[0xab] > 0 && !levels_thief_skills(game, ch)) return false;
+    if (c[0xab] > 0) cok_queen_thief_skills(cok_game_rules(game), c);
     c[0xbf] = 0;
     c[0x87] = 0;
     const cok_rules *rules = cok_game_rules(game);
@@ -570,7 +527,8 @@ static bool finish_form(cok_adventure *game, cok_character *ch)
         if (t > c[0x87]) c[0x87] = t;
         c[0xbf] = (uint8_t)(c[0xbf] + rules->characters.class_usable[k]);
     }
-    return levels_saving_throws(game, ch);
+    cok_queen_saving_throws(ch, cok_game_rules(game));
+    return true;
 }
 
 static bool form_done(form *f)
@@ -807,7 +765,7 @@ static bool roll(cok_adventure *game, cok_character *ch)
         if (k == 0) c[0x167] = (int16_t)word_at(c + 0x19b) <= 4 ? 1 : 2;
         if (k == 5) c[0x179] = 1;
         if (k == 0) {
-            if (!levels_cleric_spells(game, ch)) return false;
+            cok_queen_cleric_spells(cok_game_rules(game), c);
             for (unsigned i = 1; i <= 10 && queen_cleric_spells[i] != 0; ++i)
                 mark_known(c, queen_cleric_spells[i]);
         } else if (k == 5) {
@@ -819,8 +777,10 @@ static bool roll(cok_adventure *game, cok_character *ch)
     }
     set_word(c + 0x4c, 200);
     c[0x89] = c[0xc0] = c[0x198] = 0;
-    if (!levels_hit_points(game, ch, classes)) return false;
-    return train_silently(game, ch);
+    /* 86b8:380e over every class, divided by their count, added; then Train
+     * until nothing more trains (6be8:0022, silent). */
+    cok_queen_hit_points(ch, cok_game_rules(game), &game->vm.seed, 0xff, (uint8_t)classes, true);
+    return queen_train_silently(game, ch);
 }
 
 /* The sheet with Done, Reroll Stats, Modify and Exit on the bar
@@ -898,7 +858,7 @@ static int roll_loop(cok_adventure *game, cok_character *ch)
         int pick = sheet_bar(game);
         if (pick < 0) return -1;
         if (pick == 2) {
-            if (!modify(game, ch) || !queen_sheet(game, ch)) return -1;
+            if (!queen_modify(game, ch, true) || !queen_sheet(game, ch)) return -1;
         } else if (pick == 1) {
             if (!roll(game, ch) || !queen_sheet(game, ch)) return -1;
         } else {
@@ -1170,7 +1130,9 @@ bool queen_create(cok_adventure *game)
     c[0x8a] = 1;
     c[0xc5] = 0x0d;
     bool ok = true;
-    { char t[32]; snprintf(t, sizeof t, "%08x", game->vm.seed); cok_adventure_log(game, "seed", t); } /* TEMP */
+    /* The generator's seed where the creation starts, for a check to set it in
+     * the original (DS:ca0e). */
+    { char t[32]; snprintf(t, sizeof t, "%08x", game->vm.seed); cok_adventure_log(game, "seed", t); }
     int step = pick_form(game, ch);
     if (step == 1) step = pick_deity(game, ch);
     if (step == 1) step = roll_loop(game, ch);

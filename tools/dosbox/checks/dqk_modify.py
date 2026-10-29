@@ -14,10 +14,10 @@ first member's scores changed: the same file in both), a name taken by
 another of the party and typed past its 15 characters, a character of an
 experience that creation does not give ("can't be modified."), a click on a
 score's row (the box's mouse, DOSBox-X's sdl.mouse_emulation=always), and
-Keep (6a87:025e).
+Keep (6a87:025e: the knight's, a cleric, fighter and mage's and a cleric and
+ranger's, each Removed to a .QCH compared).
 
-Compared: the whole screen but the sheet's readied weapon and armour (rows
-21-22: 177e:03fc, items' names not ported), the mouse's cursor, and the
+Compared: the whole screen, the mouse's cursor, and the
 name's cursor (a block the original toggles by the timer's ticks, 6a87:0d30)
 while the name is edited. About two minutes.
 
@@ -39,7 +39,6 @@ cokbox = checklib.cokbox
 ROOT = cokbox.ROOT
 GAME = ("--game", "dark-queen")
 
-ITEMS = (8, 168, 120, 16, "the sheet's readied weapon and armour (177e:03fc: not ported)")
 CURSOR = (0, 0, 24, 24, "the mouse's cursor over the sheet's name")
 
 
@@ -169,7 +168,15 @@ SCENARIOS = [
                      ("Add dexterity", "\\>"), ("Click the hit points", mouse(200, 27)),
                      ("Sub hit points", "\\<"), ("Click the strength's row", mouse(20, 76)),
                      ("Add strength", "\\>"), ("Exit", "e")], None),
-    ("Keep", None, [("Modify", "m"), ("Add strength", "\\>"), ("Keep", "k")], None),
+    ("Keep", None, [("Modify", "m"), ("Add strength", "\\>"), ("Keep", "k")] + REMOVE,
+     "ROLANDOF"),
+    # A cleric, fighter and mage's, and a cleric and ranger's spells a day and
+    # known, the hit points' base (8bcc:01e7, 6a87:1599, 66e5:30d3).
+    ("Keep mage", None, [("Down", "\\v"), ("Modify", "m"), ("Next: intelligence", "n"),
+                         ("Add intelligence", "\\>"), ("Keep", "k")] + REMOVE, "TIMASALI"),
+    ("Keep ranger", None, [("Down", "\\v"), ("Down again", "\\v"), ("Down once more", "\\v"),
+                           ("Modify", "m"), ("Next: intelligence", "n"), ("Next: wisdom", "n"),
+                           ("Sub wisdom", "\\<"), ("Keep", "k")] + REMOVE, "BALTHIRN"),
 ]
 
 
@@ -247,11 +254,10 @@ def click(box, x, y):
 def run_scenario(opts, work, verdict, name, qsv, steps, written):
     out = work / f"original-{name}"
     out.mkdir(exist_ok=True)
-    masks = [ITEMS, CURSOR]
+    masks = [CURSOR]
     steps = [("loaded", "PLTA")] + steps
     keys = "".join(k for _, k in steps)
     shots, log = port_run(work, name, keys, qsv, work / f"port-saves-{name}")
-    stops = "dqk 8bcc:01e7" in log  # Keep: the spells a day, step 4's levels
     saves = []
     if qsv is not None:
         folder = work / f"saves-{name}"
@@ -289,9 +295,6 @@ def run_scenario(opts, work, verdict, name, qsv, steps, written):
             shot = box.settled(tolerance=64)
             shot.save_png(out / f"{checklib.slug(what)}.png")
             if what.startswith("Remove"):
-                continue
-            if stops and what == "Keep":
-                verdict.ok(f"{name}: Keep", "the port stops at 8bcc:01e7, cited (step 4's levels)")
                 continue
             more = []
             if what == "Next: name":

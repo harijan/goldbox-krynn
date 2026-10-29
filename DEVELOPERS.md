@@ -69,6 +69,9 @@ rm -f build/krynn.cfg
 ./build/eclplay --game dark-queen --start-menu --vars build/dqk.vars --keys '\k\ePLTA' DQKAssets
 ./build/eclplay --game dark-queen --start-menu --mouse --shots build/dqk-party \
     --keys '\k\ePLTAV\eB\r\r\rP\r\r\r\r\rL\r\^\^\^' DQKAssets
+mkdir -p build/dqk-saves; ./build/eclplay --game dark-queen --start-menu --mouse \
+    --saves build/dqk-saves --keys \
+    '\k\ePC\m30,75,1.\m170,43,1.\m30,167,1.\m30,103,1.\m30,131,1.ddZarth\r\>dy' DQKAssets
 ./build/krynn --game dark-queen
 python3 tools/hlib.py list DQKAssets/DISK1/TITLE.TLB
 python3 tools/hlib.py pngs DQKAssets/DISK1/TITLE.TLB build/dqk-title \
@@ -168,8 +171,12 @@ and its 1,827 pictures where `DQKAssets/` holds them), its scripts,
 title, 3D view, menus, input, big pictures, start, DQK.CFG, krynn's
 256 colours, its saved game loaded and saved, the camp, View's sheet, its
 Items and its coins (`src/queen_items.c`'s item names, `src/queen_view.c`'s
-menus), Train Character and Knight new Order, and the way to the first fight
-(`tests/test_dark_queen.py`, skipped without `DQKAssets/`; its item names in
+menus), Create Character (`src/queen_create.c`: the form, the roll, the name, the
+icons, the file; its tables in `src/queen_create_data.c`) and Modify Character
+(`src/queen_modify.c`), Train Character and Knight new Order, and the way to the
+first fight (`tests/test_dark_queen.py`, skipped without `DQKAssets/`, whose
+creation tests drive `eclplay --mouse --keys` and compare the files with the
+original's digests; its item names in
 `tests/test_queen_items.c` with the words checked against `build/DQK_FULL.EXE`,
 its level tables and hit points in `tests/test_dark_queen.c`, and the silent
 training in `tests/test_queen_train.c`), and its characters, items, saved games, vault and

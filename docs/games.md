@@ -661,7 +661,7 @@ buttons of 18 characters in two columns (`7368:01a7`), those a party needs
 disabled (`DS:3c3e`); Exit From Game asks "Exit to DOS?" and quits
 (`7368:081a`), Load Saved Game asks "load from where?" (`604b:2e87`: Tdqk,
 Dkk, Exit; Exit back) and loads (see Dark Queen's saved games and party
-below), Add and Delete their rosters, and Create stops the run (creation's). Demo, or the menu's time, runs the
+below), Add and Delete their rosters, and Create makes a character (see Create Character below). Demo, or the menu's time, runs the
 demonstration (`5f07:10cd` with `DS:ae59`): block 7's start with the speed
 5, its keys read only where typed, Escape or `` ` `` ending it
 (`5f07:0f46`, `DS:a890`), then the title again (unless a key ended it)
@@ -914,8 +914,51 @@ returns to main, the mode the last (4 for none), its screen
 (`DS:ae42`) the overland's frame on the overland in mode 3, else the
 adventure's screen, the party's list after either; a game loaded, in mode
 0 or 4 the adventure's screen and the list, in mode 3 the overland's frame. Exit From Game with a
-party not saved asks "Game not saved. Exit anyway? " (No saves it). Create
-stops the run (creation's).
+party not saved asks "Game not saved. Exit anyway? " (No saves it).
+
+Create Character (`66e5:2f95`, `src/queen_create.c`; its tables, `DS:0328`
+(the race's classes), `0563` (the class's alignments), `03f3`, `04b7`, `02b8`,
+`04fd` (the ages and limits), `180d` (the kits), `6359`, `16cd` and `27e9`,
+are `src/queen_create_data.c`, which `tests/test_dark_queen.py` compares with
+the data segment): the record starts with armour class 0x32, THAC0 0x28, size 1,
+active, icon slot 0x0d; then the form (`66e5:2a6c`), the cleric's deity, the
+rolls, the name, the icon and "Save NAME?". The form is the dialog toolkit
+(`2aa6`: 32-byte items, a group of radio buttons the pointer or, with no mouse,
+`66e5:2967`'s keys select: Left and Right the column, Up and Down the row but
+through the gaps, Return the button; Done and Exit on the bar, D and E) of
+race, class, alignment (lawful, neutral, chaotic by good, neutral, evil) and
+gender, whose buttons the callbacks (`2581`, `26d4`, `26a1`, `26c2`, `26c7`,
+`2323`, `2459`, `2532`, `230c`) disable and enable; ALWAYS.TLB's records 16, 17
+and 18 are a button off, on and disabled and the text is drawn only where
+it changed (the original redraws the items that changed). Done (`220a`) gives
+the race's effects and size (`1839`), the experience 1,000,001 (500,000 for two
+classes, 333,333 for three), the class's first levels (`0dbf`), the thief's
+skills, THAC0 and the classes usable (`DS:6359`, `63f3`) and the saving
+throws. A cleric (not a dwarf) picks a deity from the good or the neutral
+gods ("Pick Diety", `36b0`; dwarves are Reorx's) and gets its gifts. The roll
+(`1a90`) is the age (the race's dice, `DS:03f3`; a multi-class has the most of
+its first class's), each score the best of six rolls of 3d6 + 1, the race's
+adjustments, then `0f47`'s age change and limits, the class's least and an
+exceptional strength (d100 + 1); the money (200 steel), the spells a day and the
+known spells, the hit points (`86b8:380e` over the classes, divided by their
+count) and the silent training (`queen_train_silently`). The generator is
+`2102:0234` over `DS:ca0e`, as in the camp's Train, so a seed set in both
+rolls the same (`dqk_create.py` writes the port's, logged as `seed:`, to the
+original). The sheet (86b8:0000) and its bar (Done, Reroll Stats, Modify, Exit;
+Modify is `queen_modify` with `creating` set) follow; then the name
+(`193f`: "Character name:", up to 15 characters, not empty or a digit first,
+asked again; Escape ends the creation), the body's default (`66e5:0001`) and
+the icons' picker (`0cf1`: 49 bodies of CBODY.TLB in a 7 by 7 grid of 24-pixel
+cells, ready and action shown at the right; arrows wrap, D is Done, E or Escape
+Exit, a click picks a cell), the question "Save NAME?" and, on Yes, the known
+spells (`30d3`: a mage's first level and those its order gives), the kit
+(`34e4`: the race's and class's items, the first weapon readied) and the file
+(`604b:23a7`, `NAME.QCH` in the save path). The mouse cursor over the form is the
+sword over a button and the shield elsewhere; back at the camp the original
+keeps the shape the form last gave it until the pointer moves, where the port
+chooses it at each draw (a difference of the cursor's shape only, which the
+check masks at the pointer and which the next move ends).
+Checked against the original by `dqk_create.py` ([checks](checks.md)).
 
 Modify Character (`6a87:1293`, `src/queen_modify.c`; the camp's and Create's
 Modify button's, `queen_modify(game, character, creating)`): only a character
@@ -945,8 +988,10 @@ the derived block (hit points, armour class, encumbrance, THAC0, movement,
 damage) is recomputed (`86b8:065e`, `177e:0be2`) after each key. Exit
 (`6a87:01e5`) gives the scores, the exceptional strength, the hit points' most
 and the name back as they were and recomputes; Keep (`6a87:025e`) recomputes
-the spells (`8bcc:01e7`: step 4's levels), makes the mage's spell book again
-(`6a87:1599`, `66e5:30d3`), the hit points' base from their most less the
+the spells (`8bcc:01e7`, `cok_queen_spells`), makes the mage's spell book again
+(`6a87:1599` forgets each mage's spell by `id / 8` and `id % 8`, a bit off from
+the others' `(id - 1) / 8`, so the bit of the spell after it is cleared, then
+`66e5:30d3`), the hit points' base from their most less the
 levels' average constitution bonus, and keeps the scores as the base's.
 
 The party's list (`5e22:023b`) is drawn from column 1 in the camp, else

@@ -82,7 +82,11 @@ that many run at once, a range such as 110-189 kept for
   (`\p3100.`). `press` presses keys through X with `xdotool` instead, for
   what only the BIOS's keyboard handler sees (Ctrl-Break, the shift
   flags); DOSBox-X's own keys are F12 and another (F12+P its screenshot,
-  F12+W its recording).
+  F12+W its recording). `click(x, y)` clicks the left button at a pixel of
+  the 320 by 200 screen through X (the window shows it doubled), for a game
+  that reads the mouse itself (Dark Queen's menus): the box starts with
+  `extra_conf={"sdl.mouse_emulation": "always"}`, so that DOSBox-X's mouse
+  follows the host's, and `eclplay --mouse` plays the same click by `\mX,Y,B.`.
 - Screens: `screenshot()` takes DOSBox-X's (F12+P), a PNG of the mode's
   pixels (320×200 in the Tandy's and CGA's modes, 640×400 in EGA's, the
   text mode at the adapter's own), read back as a `Screen` of colour

@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py` and `dqk_modify.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py` and `dqk_create.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -386,8 +386,7 @@ in `make dqk-checks`.
 
 `dqk_modify.py` (about three minutes) runs Modify Character (`6a87:1293`) on
 the shipped saved game's first member, in the original and in `eclplay
---start-menu --mouse`, a key at a time in RGB (whole screens but the sheet's
-readied weapon and armour, rows 21-22, the pointer's cursor, and the name's
+--start-menu --mouse`, a key at a time in RGB (whole screens but the pointer's cursor, and the name's
 cursor, a block the original toggles by the clock): Add, Sub, Next and
 Previous over the scores, the name edited in place and the hit points, Exit
 (then Remove Character's `.QCH`, compared byte for byte but the original's
@@ -395,9 +394,31 @@ far pointers); a saved game of its own with the scores at their race's and
 class's limits and the hit points at theirs; a name taken by another of
 the party, deleted and typed past its 15 characters; an experience creation
 does not give ("can't be modified."); the clicks on a score's row and the hit
-points (the box's mouse, `sdl.mouse_emulation=always`); and Keep up to its
-key, where the port stops at the cited levels routine 8bcc:01e7 (the spells a
-day, not merged yet) so the record after Keep is not compared. All agree
+points (the box's mouse, `sdl.mouse_emulation=always`); and Keep
+(`6a87:025e`: the spells a day and known by `8bcc:01e7`, the mage's spells
+forgotten by `6a87:1599` and made again by `66e5:30d3`, the hit points' base)
+for a knight, a cleric, fighter and mage and a cleric and ranger, each then
+Removed to a `.QCH` compared. All agree (2026-10-29).
+
+`dqk_create.py` (about two minutes a case; `--flows CASE`, `make dqk-checks`
+splits them) makes characters in the original and in `eclplay --start-menu
+--mouse`, from the camp's Create (`66e5:2f95`): the form's clicks (the box's
+pointer, `sdl.mouse_emulation=always`, `Box.click`) of race, class, gender and
+alignment, Done, the deity's list for a cleric (Down, Select), the roll and the
+sheet (Reroll Stats once for the cleric), the name typed a letter a step, the
+icon's picker (arrows, 7 left and 7 up past each edge, a click at a cell's edge),
+and "Save NAME?"; every screen of each step in RGB (but the name's blinking
+caret, and the camp's cursor where it comes back, which the original draws as
+it was last drawn, in the form, until the pointer moves: the steps after it
+agree), and the file written, `NAME.QCH`, byte for byte but the far
+pointers. The generator is shared: the port logs its seed where the creation
+starts (`seed:`) and the check writes it to the original's `DS:ca0e` as the
+form opens, so every roll, hit point and silent training is the same. The cases:
+a human fighter, a Silvanesti cleric (lawful good), a hill dwarf cleric (no
+deity asked), a kender thief, a half-elf fighter and mage, and "exits": Escape
+from the sheet's bar, Exit from the form, the sheet and the icons, Escape from
+the name and No to the save, each back at the camp and the next creation
+going on from the generator as the abandoned one left it. All agree
 (2026-10-29).
 
 Death Knights of Krynn, read headless (see [Games](games.md#games)), is checked by

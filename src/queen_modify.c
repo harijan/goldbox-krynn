@@ -166,13 +166,16 @@ static void set_most(modify *m, uint8_t v)
     cok_field_set8(m->L, m->c, COK_FIELD_HIT_POINTS, v);
 }
 
-/* 6a87:1599 and 66e5:30d3: the mage's spells. */
+/* 6a87:1599 and 66e5:30d3: the mage's spells. 1599 forgets each mage's
+ * spell by id / 8 and id % 8, one bit off from 30d3's (id - 1) / 8, so that
+ * it clears the bit of the spell after each mage's spell (a cleric's of
+ * level 2, id 22, after the mage's 21) and leaves the first one's. */
 void queen_forget_mage_spells(const cok_character_layout *L, uint8_t *c)
 {
     for (unsigned id = 1; id <= 0x7e; ++id)
         if (cok_queen_spell_class[id] == 2)
-            c[cok_field_offset(L, COK_FIELD_KNOWN_SPELL_BITS) + (id - 1) / 8] &=
-                (uint8_t)~(1u << (id - 1) % 8);
+            c[cok_field_offset(L, COK_FIELD_KNOWN_SPELL_BITS) + id / 8] &=
+                (uint8_t)~(1u << id % 8);
 }
 
 static void know(const cok_character_layout *L, uint8_t *c, unsigned id)

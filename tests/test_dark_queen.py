@@ -20,6 +20,12 @@ ECL = ASSETS / "DISK3" / "ECL.GLB"
 GAME = ("--game", "dark-queen")
 POINTER = (1, 1, 16, 16)    # the mouse driver's pointer: not the port's
 PARTY = (136, 8, 176, 120)  # the party's list and status: not drawn yet
+FIGHTER_SCORES, FIGHTER_SIZE = "scores: 16 15 15 15 14 16 (0) age 29", 499
+FIGHTER_DIGEST = "e2f5d1e48d7031fce6f4a6f2f20b1eaa"
+FORM_DIGESTS = ["4bdabc0f2321fa13894e7f6a39f629ce", "b2799d8d1e3148afdfaceb811822cab0",
+                "a48ac17deba6bf6d808c030b98e619a7", "013a9c8c6d86d460556ec3e8070d0ccd",
+                "afddccf7a4452e69e351c8e8ce6f7401", "df450e074f4a296cb043095b2f88eb90",
+                "60bd67b3551e42ea06c76a0f19cb022b", "d175dc92800fe291ce9b2e4985e5b392"]
 
 
 def pixels(bmp, masks=()):
@@ -310,11 +316,11 @@ class DarkQueenTests(unittest.TestCase):
                          "efb0b5e394057e108ead812d71070c16")
         self.assertEqual(digest(shots / "004.bmp", [POINTER]),
                          "73d831f55db6ae1ab8ac2d52feb30b32")
-        # A click on Create Character's button.
+        # A click on Create Character's button opens its form (the creation
+        # starts with the generator's seed said).
         result = self.play("--start-menu", "--mouse", "--keys", r"\k\eP\m200,120,1.", ASSETS)
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stderr, "not yet ported: The Dark Queen of Krynn's Create "
-                         "Character (dqk 66e5:2f95)\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(result.stdout, r"seed: [0-9a-f]{8}\n\(out of keys")
         # Delete's roster when the save path has none: its message, back.
         result = self.play("--start-menu", "--saves", self.folder, "--keys", r"\k\ePDE",
                            ASSETS)
@@ -838,6 +844,192 @@ class DarkQueenTests(unittest.TestCase):
         shots, lines = self.modify(r"mpp\<z\>y\>\r")
         self.assertEqual(digest(shots / "014.bmp", (items, pointer)),
                          "b188baed3ba2d88e84ae15b01136132b")
+
+    # Create Character's clicks: the form's buttons (66e5:2a6c: rows from 24
+    # by 8, columns 12 and 148) and the keys after it.
+    HUMAN, SILVANESTI, HILL_DWARF, KENDER = (30, 75), (30, 27), (30, 59), (30, 67)
+    CLERIC, FIGHTER, THIEF, CLERIC_RANGER = (170, 27), (170, 43), (170, 75), (170, 99)
+    MALE, FEMALE = (30, 167), (30, 175)
+    LAWFUL, CHAOTIC, GOOD, NEUTRAL_AXIS = (30, 103), (30, 119), (30, 131), (30, 139)
+
+    @staticmethod
+    def clicks(*spots):
+        return "".join(r"\m%d,%d,1." % spot for spot in spots)
+
+    def create(self, keys, mouse=True, name="Zarth"):
+        """eclplay's Create Character from the camp with KEYS (the pointer's
+        clicks where MOUSE): its result, the folder of its shots and the
+        saved file NAME.QCH's bytes (or None)."""
+        saves, shots = self.folder / "saves", self.folder / "shots"
+        for folder in (saves, shots):
+            if folder.exists():
+                shutil.rmtree(folder)
+        saves.mkdir()
+        result = self.play(*(["--mouse"] if mouse else []), "--shots", shots, "--saves", saves,
+                           "--start-menu", "--keys", r"\k\ePC" + keys, ASSETS)
+        written = saves / (name.upper() + ".QCH")
+        return result, shots, written.read_bytes() if written.exists() else None
+
+    @staticmethod
+    def without_pointers(data):
+        """A character file but its far pointers (a record's, its items'
+        and its effects', each effect's next: the original's are its heap's;
+        dqk_create compares the rest with the original's)."""
+        data = bytearray(data)
+        for at, n in ((0, 8), (10, 2), (0xc, 0x34)):
+            data[at:at + n] = bytes(n)
+        at = 0x19e + 17 * (data[8] | data[9] << 8)
+        for at in range(at, len(data) - 8, 9):  # the effects: all that follows
+            data[at + 5:at + 9] = bytes(4)
+        return bytes(data)
+
+    def test_create_form(self):
+        # The form (66e5:2a6c) as the original draws it, a screen's digest
+        # (dqk_create and its formcmp compare these with the original's): at
+        # first, a Silvanesti, a cleric, a female lawful good; the cleric's
+        # multi-class buttons and the neutral axis for the chaotic.
+        spots = [self.SILVANESTI, self.CLERIC, self.FEMALE, self.LAWFUL, self.GOOD,
+                 self.CHAOTIC, self.CLERIC_RANGER]
+        result, shots, _ = self.create(self.clicks(*spots))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        digests = [digest(shots / f"{n:03d}.bmp") for n in range(3, 11)]
+        self.assertEqual(digests, FORM_DIGESTS)
+        self.assertEqual(len(set(digests)), 8)
+        # A button takes the clicks within its text and 16 pixels more (the
+        # original's hit-test, checked with the original's screens): Human at
+        # columns 12 to 67 takes the one at 67, not at 68 (the pointer's cursor
+        # left out of the compare).
+        same = []
+        for x in (68, 67):
+            result, folder, _ = self.create(self.clicks(self.SILVANESTI, (x, 75)))
+            masks = [(18, 14, 32, 32), (x - 9, 62, 32, 32)]
+            same.append(digest(folder / "005.bmp", masks) == digest(folder / "004.bmp", masks))
+        self.assertEqual(same, [True, False])
+
+    def test_create_fighter(self):
+        # A human male lawful good fighter made as dqk_create makes it (the
+        # same seed): the roll (66e5:1a90), Done, the name, the icon moved
+        # right once, saved: ZARTH.QCH byte for byte as the original writes
+        # it but the far pointers (the digest of the original's own file).
+        keys = self.clicks(self.HUMAN, self.FIGHTER, self.MALE, self.LAWFUL, self.GOOD)
+        result, shots, data = self.create(keys + r"ddZarth\r\>dy")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[lines.index("input: ZARTH") - 1], FIGHTER_SCORES)
+        self.assertEqual(len(data), FIGHTER_SIZE)
+        self.assertEqual(hashlib.md5(self.without_pointers(data)).hexdigest(), FIGHTER_DIGEST)
+        record = data[:0x19e]
+        self.assertEqual(record[0x68:0x6d], b"ZARTH")
+        self.assertEqual([record[0x58], record[0x5a], record[0x60], record[0x62]],
+                         [6, 2, 0, 0])
+        self.assertEqual(record[0xc4], 4)  # the default body, 3 (66e5:0001), moved right once
+
+    def test_create_modify(self):
+        # The sheet's Modify (creation's flag: no name to edit, charisma's
+        # Next the hit points): strength and intelligence added, Keep (the
+        # sheet again), every field in turn, the hit points added to, Exit;
+        # the file the original's (dqk_create's "modify" case).
+        keys = self.clicks(self.HUMAN, self.FIGHTER, self.MALE, self.LAWFUL, self.GOOD)
+        modifying = r"dm\>n\>km" + "n" * 7 + r"p\>e"
+        result, _, data = self.create(keys + modifying + r"dQuin\rdy", name="Quin")
+        lines = result.stdout.splitlines()
+        # The sheet again after Keep (strength 17, intelligence 16) and Exit.
+        self.assertEqual([l for l in lines if l.startswith("scores:")],
+                         ["scores: 16 15 15 15 14 16 (0) age 29",
+                          "scores: 17 16 15 15 14 16 (0) age 29",
+                          "scores: 17 16 15 15 14 16 (0) age 29"])
+        self.assertEqual(hashlib.md5(self.without_pointers(data)).hexdigest(),
+                         "7be22ddbf1894b665034f7848ae3cdbe")
+
+    def test_create_keyboard(self):
+        # No mouse: the form's keys (66e5:2967) Left and Right for the
+        # column, Up and Down for the row (not through the gaps), Return
+        # for the button: the same human fighter, the same file.
+        spots = (self.HUMAN, self.FIGHTER, self.MALE, self.LAWFUL, self.GOOD)
+        tail = r"ddZarth\r\>dy"
+        _, _, mouse = self.create(self.clicks(*spots) + tail)
+        keys = (r"\v" * 6 + r"\r" + r"\v\r" + r"\v" * 3 + r"\r" + r"\v\v\r" + r"\>" + r"\^" * 13
+                + r"\r" + r"\<\^\^\^\^\^\^\^\^\^\^\^\^\^\^\^\^")
+        _, _, keyboard = self.create(keys + tail, mouse=False)
+        self.assertIsNotNone(mouse)
+        self.assertEqual(keyboard, mouse)
+
+    def test_create_icon_keys(self):
+        # The picker's arrows (66e5:09e4) wrap in the 7 by 7 grid: the human
+        # fighter's icon starts at 3 (66e5:0001) and Right seven times is 3,
+        # Up once 45 (the bottom row), Left four times 6, Down seven times 3
+        # and a click on a cell (24 pixels each from 8, 8) takes it.
+        keys = self.clicks(self.HUMAN, self.FIGHTER, self.MALE, self.LAWFUL, self.GOOD)
+        for icons, expected in ((r"\>" * 7, 3), (r"\^", 45), (r"\<" * 4, 6), (r"\v" * 7, 3),
+                                (r"\>\v\<", 10), (self.clicks((8 + 24 * 3 - 1, 8 + 24 * 3 + 5)), 23)):
+            _, _, data = self.create(keys + r"ddZarth\r" + icons + "dy")
+            self.assertEqual(data[0xc4], expected, icons)
+
+    def test_create_long_name(self):
+        # The name is 15 characters at most (66e5:193f), the file's the first
+        # eight.
+        keys = self.clicks(self.HUMAN, self.FIGHTER, self.MALE, self.LAWFUL, self.GOOD)
+        _, _, data = self.create(keys + r"ddabcdefghijklmnopq\rdy", name="abcdefgh")
+        self.assertEqual(data[0x68:0x78], b"ABCDEFGHIJKLMNO\0")
+
+    def test_create_cleric(self):
+        # A Silvanesti cleric (lawful good): the deity's list (66e5:36b0:
+        # Paladine, Majere, Kiri-Jolith, Mishakal), the second chosen, a
+        # Reroll Stats (another roll), the sheet's Done; and a dwarf cleric
+        # gets Reorx without being asked.
+        keys = self.clicks(self.SILVANESTI, self.CLERIC, self.FEMALE, self.LAWFUL, self.GOOD)
+        result, _, data = self.create(keys + r"d\vsrdElara\rdy", name="Elara")
+        lines = result.stdout.splitlines()
+        self.assertIn("list: Pick Diety", lines)
+        self.assertEqual([l for l in lines if l.startswith("item:")],
+                         ["item: \tPaladine", "item: \tMajere", "item: \tKiri-Jolith",
+                          "item: \tMishakal"])
+        self.assertIn("choice: Majere", lines)
+        scores = [l for l in lines if l.startswith("scores:")]
+        self.assertEqual(len(scores), 2)
+        self.assertNotEqual(scores[0], scores[1])
+        self.assertEqual(data[0x19b], 2)
+        keys = self.clicks(self.HILL_DWARF, self.CLERIC, self.MALE, self.LAWFUL, (30, 139))
+        result, _, data = self.create(keys + r"ddDorn\rdy", name="Dorn")
+        self.assertNotIn("list: Pick Diety", result.stdout)
+        self.assertEqual(data[0x19b], 6)
+
+    def test_create_ends(self):
+        # Exit from the form, a name that is a digit's or empty asks again,
+        # Escape from the name, Exit from the icons and No to the save
+        # leave no file; the screens come back to the camp.
+        keys = self.clicks(self.HUMAN, self.FIGHTER, self.MALE, self.LAWFUL, self.GOOD)
+        for ending in ("e", r"d\e", "de", r"ddZ\e", r"ddZarth\re", r"ddZarth\rdn"):
+            # Back at the camp, C begins another: a second seed is said.
+            result, _, data = self.create(keys + ending + "C")
+            self.assertIsNone(data, ending)
+            self.assertEqual(result.stdout.count("seed: "), 2, ending)
+            self.assertEqual(result.stdout.splitlines()[-1], "(out of keys in the start menu)")
+        result, _, data = self.create(keys + r"dd" + "\\r" + "1a\\r" + "0b\\r" + r"Zarth\r" + "dy")
+        self.assertIsNotNone(data)
+        self.assertEqual([l for l in result.stdout.splitlines() if l.startswith("input:")],
+                         ["input: ZARTH"])
+
+    def test_modify_keep(self):
+        # Modify's Keep (6a87:025e) for a knight, a cleric, fighter and mage
+        # and a cleric and ranger: the spells a day and known (8bcc:01e7,
+        # 6a87:1599's forgetting a bit off, 66e5:30d3), the hit points' base;
+        # the .QCH Remove Character writes, as the original's but the far
+        # pointers (the md5 of the original's, dqk_modify's "Keep" cases).
+        for keys, name, expected in (
+                (r"m\>k", "ROLANDOF", "dacbb7e09e251d99da3657346b6bb3ae"),
+                (r"\vmn\>k", "TIMASALI", "afba4624c9d314bb95fe7b2f32c3ee59"),
+                (r"\v\v\vmnn\<k", "BALTHIRN", "564bdf50a73083986ead4dbd26e3d9b5")):
+            saves = self.folder / "saves"
+            if saves.exists():
+                shutil.rmtree(saves)
+            saves.mkdir()
+            (saves / "SAVGAMA.QSV").write_bytes((ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes())
+            result = self.play("--start-menu", "--saves", saves, "--keys",
+                               r"\k\ePLTA" + keys + "ry", ASSETS)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            data = (saves / f"{name}.QCH").read_bytes()
+            self.assertEqual(hashlib.md5(self.without_pointers(data)).hexdigest(), expected, name)
 
     def test_first_fight(self):
         # To Caergoth (the palace, Leave), its commands and steps (6fea:0365,
