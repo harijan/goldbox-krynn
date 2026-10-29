@@ -1,5 +1,7 @@
 #include "party.h"
 
+#include "queen_levels.h"
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -436,7 +438,11 @@ static bool recompute(cok_character *character, const cok_rules *rules,
     char why[200];
     bool stats = cok_character_stats(character, rules, types, why, sizeof why);
     if (stats && rules->casting.load_strength) cok_character_strength(character, rules);
-    if (!stats || !cok_character_levels(character, rules, types, why, sizeof why)) {
+    /* Dark Queen's readers (.QCH 604b:05fd, import 604b:0b82, its saved
+     * games' 28f8, 2bcf) run the stats alone; its roster's Add runs the
+     * levels after (604b:2021: cok_character_levels, for the camp). */
+    bool levels = rules->characters.levels != COK_LEVELS_DARK_QUEEN;
+    if (!stats || (levels && !cok_character_levels(character, rules, types, why, sizeof why))) {
         fail(error, error_size, "%s: %s", path, why);
         return false;
     }
@@ -562,73 +568,6 @@ static void import_item(const cok_rules_import *I, const uint8_t *d, uint8_t *no
         node[0x28] = 0x33;
         node[0x38] = 0;
     }
-}
-
-/* dqk 177e:20ce: the hit points a constitution (+0x81) adds a level to
- * a class (0-6): -2 for 3, -1 for 4-6, 0 for 7-14, 1 for 15, 2 for 16,
- * and for 17-19 a knight's, fighter's, paladin's or ranger's (classes 1-4)
- * 3-5, the others' 2. Outside 3-19 the original leaves it unset: the
- * port's 0. */
-static int8_t queen_constitution(const cok_character_layout *L, const uint8_t *c, unsigned class_)
-{
-    uint8_t con = cok_field_u8_at(L, c, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION);
-    if (con < 3 || con > 19) return 0;
-    if (con == 3) return -2;
-    if (con <= 6) return -1;
-    if (con <= 14) return 0;
-    if (con == 15) return 1;
-    if (con == 16) return 2;
-    return class_ >= 1 && class_ <= 4 ? (int8_t)(con - 14) : 2;
-}
-
-/* dqk 86b8:354b: the most hit points a character's levels give: each
- * class that has levels past the level a human changed class at
- * (+0x92), or former ones, adds the hit dice's total at its level (a
- * cleric of Paladine, Majere, Kiri-Jolith or Mishakal one level more)
- * and, past the top level of its dice (DS:640a), so much for each
- * level beyond; the sum is divided by the classes that count, or is 0
- * where none does and the human never changed class. */
-static uint8_t queen_most_hit_points(const cok_character_layout *L, const uint8_t *c,
-                                     const uint8_t *top)
-{
-    unsigned counted = 0;
-    uint16_t sum = 0;
-    for (unsigned k = 0; k < 7; ++k) {
-        uint8_t level = cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, k),
-                former = cok_field_u8_at(L, c, COK_FIELD_FORMER_LEVEL, k);
-        if (!((level > 0 && level > cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL)) || former > 0))
-            continue;
-        int con = queen_constitution(L, c, k);
-        uint8_t used;
-        if (former > 0) {
-            used = former;
-        } else {
-            ++counted;
-            used = level;
-        }
-        if (top[k] > used) {
-            /* Below the dice's top. */
-            static const uint8_t dice[7] = {8, 10, 8, 10, 8, 4, 6};
-            unsigned n = level;
-            if (k == 0 && cok_field_s8(L, c, COK_FIELD_DEITY) <= 4) ++n;
-            if (k == 1) ++n;
-            sum = (uint16_t)(sum + n * (unsigned)(con + dice[k]));
-            if (k == 4) ++sum;
-            continue;
-        }
-        /* The top and past it: the dice's most and so much a level. */
-        unsigned extra = (unsigned)(uint8_t)(level - top[k] + 1);
-        static const struct { uint8_t con, extra, base; } past[7] = {
-            {9, 2, 0x48}, {10, 2, 0x64}, {9, 3, 0x5a}, {9, 3, 0x5a},
-            {11, 2, 0x58}, {11, 1, 0x2c}, {10, 2, 0x3c},
-        };
-        sum = (uint16_t)(sum + con * past[k].con + (int)extra * past[k].extra + past[k].base);
-    }
-    if (counted != 0)
-        sum = (uint16_t)(sum / counted);
-    else if (cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL) == 0)
-        sum = 0;
-    return (uint8_t)sum;
 }
 
 void cok_character_default_body(const cok_character_layout *L, uint8_t *c)
@@ -782,7 +721,7 @@ static bool dark_queen_import(cok_character *character, const cok_rules *rules, 
     free(data);
     /* 604b:0d65's end: the hit points kept within 86b8:354b's most, and
      * the body icon (66e5:0001). */
-    uint8_t most = queen_most_hit_points(L, c, I->top_levels);
+    uint8_t most = cok_queen_most_hit_points(rules, c);
     static const cok_field capped[] = {COK_FIELD_MAX_HIT_POINTS, COK_FIELD_UNDRAINED_MAX_HIT_POINTS,
                                        COK_FIELD_BASE_HIT_POINTS, COK_FIELD_HIT_POINTS};
     for (size_t i = 0; i < sizeof capped / sizeof *capped; ++i)
@@ -1959,6 +1898,8 @@ bool cok_character_levels(cok_character *character, const cok_rules *rules,
                           const cok_item_types *types, char *error, size_t error_size)
 {
     if (rules->characters.levels == COK_LEVELS_NONE) return true;
+    if (rules->characters.levels == COK_LEVELS_DARK_QUEEN)
+        return cok_queen_levels(character, rules, types, error, error_size);
     if (rules->characters.levels == COK_LEVELS_DEATH_KNIGHTS)
         return death_knights_levels(character, rules, types, error, error_size);
     return champions_levels(character, rules, types, error, error_size);

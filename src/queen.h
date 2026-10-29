@@ -99,6 +99,13 @@ enum { QUEEN_LIB_DUNGCOM = 12, QUEEN_LIB_CBODY = 13 };
  * palette record of a library (set 0) or of its nested library set. */
 void queen_draw_library(cok_adventure *game, unsigned which, unsigned id, int row, int col);
 bool queen_set_palette(cok_adventure *game, unsigned which, unsigned set, unsigned record);
+/* A message in the bar for the speed's time (177e:153c, 1a62:0904: the
+ * text in colour fg), the bar again after. */
+void queen_bar_message_colour(cok_adventure *game, const char *s, unsigned fg);
+/* DS:bd92, which turns Train and Knight new Order on in the camp wherever
+ * the party is: whether set, and set. */
+bool queen_train_anywhere(const cok_adventure *game);
+void queen_set_train_anywhere(cok_adventure *game, bool on);
 
 /* The character sheet (86b8:0000) of a member or a character in the
  * making, which recomputes it first (177e:0be2). False where that stopped

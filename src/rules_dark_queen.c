@@ -1,4 +1,5 @@
 #include "ecl.h"
+#include "data_dark_queen.h"
 #include "rules.h"
 
 /* The Dark Queen of Krynn (version 1.1 of July 29, 1992; "dqk" addresses
@@ -355,7 +356,6 @@ static const cok_rules_import dark_queen_import = {
     .word_ids = dark_queen_import_words,
     .word_id_count = sizeof dark_queen_import_words / sizeof *dark_queen_import_words,
     .scroll_types = dark_queen_scrolls,
-    .top_levels = {10, 10, 10, 10, 11, 12, 11}, /* DS:640a */
 };
 
 /* The variables by name: bytes of the 1 KB at far DS:b20f, 0x0001-0x0400
@@ -440,11 +440,12 @@ const cok_rules cok_rules_dark_queen = {
             .vault = "VAULT",
             .vault_extension = "DAT",
         },
+    .data = &cok_dark_queen_data,
     .character = &dark_queen_character,
     .characters =
         {
             .stats = COK_STATS_DARK_QUEEN, /* 177e:0be2 */
-            .levels = COK_LEVELS_NONE, /* step 4 */
+            .levels = COK_LEVELS_DARK_QUEEN, /* 8bcc:07f1 */
             .import = &dark_queen_import,
             .class_usable = {0x02, 0x10, 0x08, 0x40, 0x80, 0x01, 0x04}, /* DS:63f3 */
             .arrows = 0x1e, .quarrels = 0x0c, .quarrels_also = 0x4a, /* 177e:0be2 */

@@ -741,9 +741,12 @@ typedef enum {
     /* dkk 69a8:050b: spells a day in the spells' block to level 8 and
      * paladins' (69a8:0000), a fourth attack, no former classes. */
     COK_LEVELS_DEATH_KNIGHTS,
-    /* Dark Queen's, not ported yet (DARK-QUEEN.md's step 4): nothing is
-     * recomputed, the record's derived fields stay as its file holds them
-     * (the original's own, written after it recomputed them). */
+    /* dqk 8bcc:07f1 (queen_levels.c): THAC0 by the tables, the highest
+     * level and the attacks, the spells a day and those known, the saving
+     * throws, the thief's skills and the classes' items usable, run where
+     * the original runs it (an import, joining the party, training: not a
+     * file's read, nor a saved game's). */
+    COK_LEVELS_DARK_QUEEN,
     COK_LEVELS_NONE,
 } cok_levels_routine;
 
@@ -801,9 +804,6 @@ typedef struct {
     const uint8_t (*spell_ids)[2], (*effect_ids)[2], (*word_ids)[2];
     size_t spell_id_count, effect_id_count, word_id_count;
     const uint8_t *scroll_types;
-    /* The top level of each class's hit dice (dqk DS:640a), which the
-     * most hit points an import keeps (86b8:354b) counts past. */
-    uint8_t top_levels[7];
     /* The other game's roster and saved games are read from the directory
      * the configuration's fifth line names (dkk DS:99a4; the port's
      * --import): its roster by the NPC flag (dkk 46b2:0342 tests the
