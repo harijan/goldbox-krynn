@@ -83,6 +83,14 @@ int queen_edit_line(cok_adventure *game, char *line, size_t most);
 void queen_draw_frame(cok_adventure *game, unsigned id, int row, int col);
 void queen_draw_always(cok_adventure *game, unsigned id, int row, int col);
 
+/* A message in the bar for the speed's time (177e:153c, 1a62:0904: the
+ * text in colour fg), the bar again after. */
+void queen_bar_message(cok_adventure *game, const char *s, unsigned fg);
+/* DS:bd92, which turns Train and Knight new Order on in the camp wherever
+ * the party is: whether set, and set. */
+bool queen_train_anywhere(const cok_adventure *game);
+void queen_set_train_anywhere(cok_adventure *game, bool on);
+
 /* The character sheet (86b8:0000) of a member or a character in the
  * making, which recomputes it first (177e:0be2). False where that stopped
  * the run. */

@@ -4,6 +4,7 @@
 #include "adventure.h"
 #include "hlib.h"
 #include "queen.h"
+#include "queen_train.h"
 #include "vga.h"
 
 #include <dirent.h>
@@ -2436,8 +2437,9 @@ static bool loaded(cok_adventure *game, uint8_t frame_was)
  * new game's state (64b2:04ec); its party's size, the byte at Death
  * Knights' 0xa18 (604b:2b8a: none read, 0; at most 8); then
  * CHRDAT<letter><n>.GAM for n from 1 while there is one, each imported
- * (604b:0b82: cok_character_import) and joined unless it is an NPC (its
- * recompute, 177e:0be2, not ported); the first selected. False where the
+ * (604b:0b82: cok_character_import, whose stats recompute 177e:0be2 the
+ * import runs; the levels, 8bcc:07f1, 604b:2bcf does not) and joined
+ * unless it is an NPC; the first selected. False where the
  * run stopped. */
 static bool import_game(cok_adventure *game, const char *dir, char letter)
 {
@@ -2569,23 +2571,28 @@ static bool in_party(cok_adventure *game, const char *name)
 
 /* 177e:153c: s in the bar (white on grey, 1a62:0046 at row 24) for the
  * speed's time (1a62:0960: DS:1cd8's, variable 0x12's), the bar again. */
-static void bar_message(cok_adventure *game, const char *s)
+static void bar_message_colour(cok_adventure *game, const char *s, unsigned fg)
 {
     static const unsigned ms[] = {10, 100, 250, 500, 1000, 1500, 2000, 3000, 4000, 5000};
     bottom_bar(game);
     cok_adventure_log(game, "message", s);
-    prompt_box(game, -1, s, 0x0f, 8);
+    prompt_box(game, -1, s, fg, 8);
     unsigned speed = cok_ecl_load_var(&game->vm, 0x12);
     pass(game, ms[speed < 10 ? speed : 9]);
     bottom_bar(game);
+}
+
+static void bar_message(cok_adventure *game, const char *s)
+{
+    bar_message_colour(game, s, 0x0f);
 }
 
 /* Add Character (7368:08dc): "add from where? " Tdqk, Dkk or Exit; the
  * roster (none: "No characters to load.", DS:5f76); then "add a
  * character: " over its list ("Add Exit", DS:501a), each member's "* "
  * first: Add (or Return) reads the current one but a member (604b:2198:
- * its .QCH, or Death Knights' imported, 604b:0b82; the recompute
- * 177e:0be2 not ported) and joins it (604b:3491) where fewer than six
+ * its .QCH, or Death Knights' imported, 604b:0b82; then the levels,
+ * 8bcc:07f1, 604b:2021: cok_character_levels) and joins it (604b:3491) where fewer than six
  * others (eight with an NPC) are in and, a ranger (+0xa9), fewer than
  * three rangers ("too many rangers in party", DS:7eb6); until Exit (or
  * Escape) or six. The game is then not saved. False where the run
@@ -2649,6 +2656,12 @@ static bool add_character(cok_adventure *game)
                                                      &game->item_types, game->error,
                                                      sizeof game->error);
             }
+            /* 604b:2021: the stats (0be2) were run as it was read; the
+             * levels (8bcc:07f1) follow. */
+            if (ok &&
+                !cok_character_levels(c, rules, &game->item_types, game->error,
+                                      sizeof game->error))
+                ok = false;
             if (!ok) {
                 free(c);
                 cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
@@ -3043,8 +3056,8 @@ static int camp_menu(cok_adventure *game, const bool on[CAMP_ITEMS])
  * was (DS:ae57, ae67); its screen (20b2:03ce; not again after a key that
  * is no button's), the party's list where a member is selected
  * (5e22:023b), its buttons (camp_flags). Then the full window (20b2:0030)
- * but for Remove, and: Create, Modify, Train, Knight new Order, Add and
- * Delete not ported yet (the run stops); View (86b8:0b0c) not ported yet;
+ * but for Remove, and: Create and Modify not ported yet (the run
+ * stops); Train (6be8:0022) and Knight new Order (7368:10c2: queen_train.c);
  * Remove; Load (a party not saved first asks "Game not saved. Load
  * anyway? ", DS:7e93), the party emptied, the game loaded, or a new
  * game's where none loads (64b2:04ec); Save; Begin Adventuring (with a
@@ -3084,12 +3097,20 @@ static cok_ecl_status camp(cok_adventure *game, bool *begin)
         case CAMP_MODIFY:
             cok_adventure_not_yet(game, "Modify Character", "dqk 5a87:1293");
             return vm->status;
-        case CAMP_TRAIN:
-            cok_adventure_not_yet(game, "Train Character", "dqk 5be8:0022");
-            return vm->status;
-        case CAMP_KNIGHT:
-            cok_adventure_not_yet(game, "Knight new Order", "dqk 7368:10c2");
-            return vm->status;
+        case CAMP_TRAIN: {
+            size_t i = cok_party_index(&game->party, vm->character);
+            bool nothing;
+            if (i < game->party.count && !queen_train(game, game->party.members[i], false, &nothing))
+                return vm->status;
+            q->saved = false; /* 7368:061b */
+            break;
+        }
+        case CAMP_KNIGHT: {
+            size_t i = cok_party_index(&game->party, vm->character);
+            if (i < game->party.count && !queen_knight_order(game, game->party.members[i]))
+                return vm->status;
+            break;
+        }
         case CAMP_VIEW:
             if (!view_character(game)) return vm->status;
             break;
@@ -3668,6 +3689,21 @@ void queen_draw_frame(cok_adventure *game, unsigned id, int row, int col)
 void queen_draw_always(cok_adventure *game, unsigned id, int row, int col)
 {
     draw(game, lib(game, LIB_ALWAYS), id, row, col, NULL, NULL);
+}
+
+void queen_bar_message(cok_adventure *game, const char *s, unsigned fg)
+{
+    bar_message_colour(game, s, fg);
+}
+
+bool queen_train_anywhere(const cok_adventure *game)
+{
+    return ((const queen *)game->own)->train_anywhere;
+}
+
+void queen_set_train_anywhere(cok_adventure *game, bool on)
+{
+    own(game)->train_anywhere = on;
 }
 
 /* The sheet (86b8:0000) of a member or a character in the making: it

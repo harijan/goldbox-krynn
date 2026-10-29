@@ -687,10 +687,14 @@ spells as bits (`KNOWN_SPELL_BITS`, 16 bytes at +0x157, by id - 1) and
 has nine levels of spells a day in each of its four rows; it has the
 former levels and the level a human changed class at (+0xac, +0x92), but
 no fighter level, shares, levels shared out, icon colours or experience
-for a monster's hit points. Nothing of the derived fields is recomputed
-yet (`COK_STATS_NONE`, `COK_LEVELS_NONE`: `177e:0be2`, which the loaders
-run, is step 4's): a loaded record keeps those its file holds, the
-original's own, and `cok_character`'s readied slots stay 0.
+for a monster's hit points. The derived fields are recomputed as the
+original recomputes them: the stats by `177e:0be2` (`COK_STATS_DARK_QUEEN`)
+and the levels by `8bcc:07f1` (`COK_LEVELS_DARK_QUEEN`, below), the first
+where the loaders run it, the second only where the original does (a
+character joining the party from the roster, `604b:2021`, training and a
+knight's new order: not a `.QCH`'s read, a saved game's load nor Death
+Knights' `Dkk` load, so that a loaded record keeps those fields its file
+holds): `cok_character`'s readied slots are the stats'.
 
 A character's file is one (`saves.character_files`
 `COK_CHARACTER_ONE_FILE`, `.QCH`; `cok_character_from_bytes` and
@@ -736,9 +740,49 @@ name's words by `604b:1bf1`'s map and its spells by `604b:1ea3`'s (a
 scroll's three, another's power an effect where +0x38 is 0x80), type 0x34
 made 0x33, type 0x36 dropped; the spells (`.WIZ`, under 0xdd bytes): the
 memorized and known by the spells' map, the known as bits, the spells a
-day's rows 0-3 to rows 0, 1, 3, 2. Not ported: the caps of the hit points
-by level (`86b8:354b`), the recompute after (`66e5:0001`, `177e:0be2`)
-and the item of type 0x3a readied again (`86b8:1965`).
+day's rows 0-3 to rows 0, 1, 3, 2. The hit points are capped by level
+(`86b8:354b`, `cok_queen_most_hit_points`) and the recompute follows when
+the character joins; not ported: the item of type 0x3a readied again
+(`86b8:1965`).
+
+The levels (`src/queen_levels.c`, tables in `src/data_dark_queen.c` from
+the data segment, `cok_dark_queen_data`, which `tests/test_dark_queen.c`
+compares with `build/DQK_FULL.EXE` byte for byte; the descriptor's `data`):
+the experience a level needs (`8bcc:0e9c`, 19 longs a row of `DS:0852`, the
+row by class and deity, order or robes, `177e:1f39`; past level 17 so much
+more a level from `DS:028c`, level 0x29 `0x7fffffff`), whether a class may
+train (`177e:1fe5`, by race `DS:17dc`'s top levels, a knight of the Crown
+the 18th, of the Sword the 18th, of the Rose the 40th), the spells a day
+(`8bcc:000f`, 29 levels of 9 in the tables of `DS:0b96` chosen by `DS:0847`;
+a wisdom's extra cleric spells), the saving throws (`8bcc:0c72`, `DS:13cc`,
+7 classes of 22 levels of 5: the best of the classes with levels, a dwarf's,
+kender's or ring's bonus), the thief's skills (`8bcc:0af3`), THAC0
+(`DS:6359`), the highest level (+0x91), the attacks (+0xb3) and the classes'
+items usable (+0xbf, `DS:63f3`; a readied item of a class no longer usable
+is put by), and the hit points a level gains (`86b8:380e`: the better of two
+rolls of the class's dice, a first level's several, plus the constitution's
+(`86b8:3a5b`, `177e:20ce`), the sum over the classes counted; at the top level
+(`DS:640a`) a flat 1, 2 or 3 by the row). The dice are the original's
+generator (`cok_random_select`), so a seed set at the title (the port's
+`--seed`, the box's `seed=`) rolls the same hit points in both.
+Train Character (`6be8:0022`, `src/queen_train.c`'s `queen_train`) and Knight
+new Order (`7368:10c2`, `queen_knight_order`) are the camp's: the classes
+the experience takes up a level in, in the hall variable `0x30`'s bits (or
+anywhere with `DS:bd92` set, which no routine found sets), each a level, the
+hit points, the screen "will become: a level n class" and Yes, "Congratulations...",
+and the experience held below the level after's (6be8:0385); the order
+changed with its hit points and levels lowered while the experience falls
+short (`7368:0fe0`). The creation's silent training (`66e5:1a90`) is
+`queen_train_silently`: the variable 0xff, `DS:bd92` 0, silent (no hall, no
+experience cap, a mage's spells by order and level 3, 5 and 7), trained again
+until nothing trains, the variable and `DS:bd92` put back. Checked against
+the original by `dqk_train.py` (Train, Knight new Order, the saved game
+written) and `dqk_add.py` (Add, the levels as the original computes them).
+What remains for step 4 (combat and effects): the item power put by when a
+readied item's class is lost (`86b8:1965`, `16f7`), the new-spell picker of
+a mage's or ranger's training (`849a:2080`, which stops the run), the NPCs'
+levels at joining (`3491`), and the callers of `8bcc:07f1` in `78e4:17dd`
+and `7fd8:2a48`.
 
 The ECL's `0x0401`-`0x0800` are the selected character's fields alone
 (`ecl.game_fields_only`; `game_first` 0x401): `0x041f`-`0x04ab` the
@@ -848,8 +892,8 @@ returns to main, the mode the last (4 for none), its screen
 (`DS:ae42`) the overland's frame on the overland in mode 3, else the
 adventure's screen, the party's list after either; a game loaded, in mode
 0 or 4 the adventure's screen and the list, in mode 3 the overland's frame. Exit From Game with a
-party not saved asks "Game not saved. Exit anyway? " (No saves it). Create,
-Modify, Train and Knight new Order stop the run (creation's).
+party not saved asks "Game not saved. Exit anyway? " (No saves it). Create
+and Modify stop the run (creation's).
 
 The party's list (`5e22:023b`) is drawn from column 1 in the camp, else
 0x11: "Name" and "AC" "HP" in light red on row 2, a row a member from 4,

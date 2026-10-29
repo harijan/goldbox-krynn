@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py` and `dqk_party.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_train.py` and `dqk_add.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -354,6 +354,22 @@ log, the widow's menu, the shadows and the step before the dragons, whole
 but the mouse's cursor in the commands (`1bdb:1aef`'s areas give it other
 shapes: not ported); the original then runs the dragons' `SETUP MONSTERS`
 where the port stops, cited (its ECL between them). All agree (2026-10-27).
+
+`dqk_train.py` (about two minutes) plays the shipped saved game A from a
+patched copy in both (variable 0x30, the hall of every class, and three
+characters' experience; the same random seed, `DS:ca0e` and `--seed`): Knight
+new Order (the sword, then the rose), Train Character for a knight, a dwarf
+fighter and thief (his experience held below the level after's), a kender
+cleric and thief and a character that cannot ("Not Enough Experience"), then
+Save Current Game; every screen in RGB, and the saved game written (but the
+heap's far pointers); a second run with the hall of knights alone (variable
+0x40) says "we don't train that class here". `dqk_add.py` (about four minutes)
+adds characters from the roster (Tdqk, and Dkk's imported from Death Knights'
+saved game A as roster files) in two parties, a Death Knights paladin patched
+to the twelfth level among them, and saves: the screens and the saved game
+written (from its party's size), which hold the stats and levels
+(`8bcc:07f1`) as the original computes them. Both agree (2026-10-29). They are
+in `make dqk-checks`.
 
 Death Knights of Krynn, read headless (see [Games](games.md#games)), is checked by
 `tools/dosbox/checks/dkk_views.py`, which `make dkk-checks` runs

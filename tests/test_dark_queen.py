@@ -42,6 +42,41 @@ def digest(bmp, masks=()):
     return hashlib.md5(pixels(bmp, masks)).hexdigest()
 
 
+def characters(data):
+    """(offset, size) of each character of a .QSV (dqk 604b:28f8): the
+    record, its items of 17 bytes (their count the low word at +8) and its
+    effects of 9 (a chain: each one's far pointer, +5, not nil, another
+    follows)."""
+    at, out = 0x40F, []
+    for _ in range(data[0x40D] | data[0x40E] << 8):
+        size = 0x19E + 17 * struct.unpack_from("<H", data, at + 8)[0]
+        if data[at + 4:at + 8] != bytes(4):
+            e = at + size
+            while True:
+                size += 9
+                if data[e + 5:e + 9] == bytes(4):
+                    break
+                e += 9
+        out.append((at, size))
+        at += size
+    return out
+
+
+def without_pointers(data):
+    """A .QSV's bytes from its party's size with the heap's far pointers
+    (each character's next, effects, items but their count, slots and
+    combat, and each effect's next) zeroed: what the original's file and
+    the port's agree on."""
+    data = bytearray(data)
+    for at, size in characters(data):
+        count = struct.unpack_from("<H", data, at + 8)[0]
+        for off, n in [(0, 4), (4, 4), (10, 2), (0x40, 4)] + [(0xC + 4 * i, 4) for i in range(13)]:
+            data[at + off:at + off + n] = bytes(n)
+        for e in range(at + 0x19E + 17 * count, at + size, 9):
+            data[e + 5:e + 9] = bytes(4)
+    return bytes(data[0x40D:])
+
+
 @unittest.skipUnless(ECL.exists(), "needs The Dark Queen of Krynn in DQKAssets/")
 class DarkQueenTests(unittest.TestCase):
     def setUp(self):
@@ -563,6 +598,69 @@ class DarkQueenTests(unittest.TestCase):
         result = self.play("--start-menu", "--saves", saves, "--keys", r"\k\ePDDYYE", ASSETS)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(sorted(p.name for p in saves.iterdir()), ["WALKERKE.QCH"])
+
+    def patched_saves(self, hall, experience):
+        """SAVE copied with saved game A's variable 0x30 (the training
+        hall's classes) and its characters' experience (index: value)
+        patched, as tools/dosbox/checks/dqk_train.py does."""
+        saves = self.folder / "saves"
+        saves.mkdir()
+        for path in (ASSETS / "SAVE").iterdir():
+            (saves / path.name).write_bytes(path.read_bytes())
+        data = bytearray((saves / "SAVGAMA.QSV").read_bytes())
+        data[0x2F] = hall
+        chars = characters(data)
+        for index, value in experience.items():
+            struct.pack_into("<I", data, chars[index][0] + 0x44, value)
+        (saves / "SAVGAMA.QSV").write_bytes(data)
+        return saves
+
+    def test_train_and_knight_order(self):
+        # Load A with the hall open to every class and Roland (a knight
+        # of the Crown), Roark and Walker holding the experience of the
+        # next level: Knight new Order (7368:10c2: the sword, then the
+        # rose), Train Character (6be8:0022) for Roland, Roark (his
+        # experience held below the level after's), Walker and Timasalin
+        # ("Not Enough Experience"), the same seed (DS:ca0e) as the
+        # original's run (dqk_train), whose SAVGAMA.QSV this writes but
+        # for the heap's far pointers.
+        saves = self.patched_saves(0x7F, {0: 1200001, 4: 1000001, 5: 700000})
+        keys = r"\k\ePlta" + "ty" + "kcke" + r"\v" * 4 + "ty" + r"\v" + "ty" + r"\^" * 4 + "tsa"
+        result = self.play("--start-menu", "--seed", 5, "--saves", saves, "--keys", keys,
+                           ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for line in ("a level 12 Knight", "knight of the sword", "knight of the rose",
+                     "a level 10 Fighter", "a level 13 Thief", "Not Enough Experience"):
+            self.assertIn(line, result.stdout)
+        saved = (saves / "SAVGAMA.QSV").read_bytes()
+        self.assertEqual(len(saved), 7965)
+        self.assertEqual(hashlib.md5(without_pointers(saved)).hexdigest(),
+                         "135c38c7993e6be4615f294571df97f4")
+
+    def test_knight_too_inexperienced(self):
+        # A knight of the Crown below the third knight level, though the
+        # experience asked: "is too inexperienced" (7368:10c2), nothing
+        # to change.
+        saves = self.patched_saves(0x7F, {0: 1200001})
+        data = bytearray((saves / "SAVGAMA.QSV").read_bytes())
+        data[characters(data)[0][0] + 0xA6] = 2
+        (saves / "SAVGAMA.QSV").write_bytes(data)
+        result = self.play("--start-menu", "--saves", saves, "--keys", r"\k\ePltak", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("print: ROLAND OF DUST is too inexperienced", result.stdout)
+        self.assertNotIn("may become", result.stdout)
+
+    def test_train_hall_of_knights(self):
+        # The hall of knights only (variable 0x30 = 0x40): Roark, a
+        # fighter and thief, is told "we don't train that class here"
+        # and nothing is written but what Save wrote.
+        saves = self.patched_saves(0x40, {4: 1000001})
+        before = (saves / "SAVGAMA.QSV").read_bytes()
+        result = self.play("--start-menu", "--saves", saves, "--keys",
+                           r"\k\ePlta" + r"\v" * 4 + "t", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("we don't train that class here", result.stdout)
+        self.assertEqual((saves / "SAVGAMA.QSV").read_bytes(), before)
 
     @unittest.skipUnless((ROOT / "DKKAssets" / "SAVE" / "SAVGAMA.PTY").exists(),
                          "needs Death Knights' saved games in DKKAssets/SAVE")
