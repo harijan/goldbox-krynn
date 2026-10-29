@@ -5,6 +5,8 @@
 #include "hlib.h"
 #include "queen.h"
 #include "queen_create.h"
+#include "queen_items.h"
+#include "queen_view.h"
 #include "vga.h"
 
 #include <dirent.h>
@@ -1227,6 +1229,8 @@ static void horizontal(cok_adventure *game, bool ask)
     bottom_bar(game);
 }
 
+enum { LIST_BAR = 10 }; /* the buttons of a list's bar (Items' are ten) */
+
 /* The list (1bdb:1f25, 1b05:08b3, 0055, keys 0664) of count items in
  * rows y1 to y2 - 1 from cell 1 to x2 (one less with more items than rows,
  * room for the scroll bar), each row cleared, the current one (*at) in
@@ -1241,7 +1245,7 @@ static void horizontal(cok_adventure *game, bool ask)
  * drawn. */
 static int list_menu(cok_adventure *game, const char *prompt, const char *const *bar,
                      size_t bar_count, const char *const *items, size_t count, size_t *at,
-                     int y1, int y2, int x2)
+                     int x1, int y1, int y2, int x2)
 {
     int rows = y2 - y1, cols = x2 - 1;
     if (rows < 1) rows = 1;
@@ -1255,9 +1259,9 @@ static int list_menu(cok_adventure *game, const char *prompt, const char *const 
     bottom_bar(game);
     if (n > 0) prompt_box(game, 0, box, 0, 7);
     controls_clear(game);
-    rect rects[4];
-    int cols_at[4], col = 8 + 8 * (int)n;
-    for (size_t i = 0; i < bar_count && i < 4; ++i) {
+    rect rects[LIST_BAR];
+    int cols_at[LIST_BAR], col = 8 + 8 * (int)n;
+    for (size_t i = 0; i < bar_count && i < LIST_BAR; ++i) {
         int width = (int)strlen(bar[i]);
         cols_at[i] = col;
         rects[i] = button_rect(BAR_ROW, col, width);
@@ -1265,16 +1269,16 @@ static int list_menu(cok_adventure *game, const char *prompt, const char *const 
         button(game, BAR_ROW, col, bar[i], width, 0);
         col += (width + 1) * 8;
     }
-    rect list = {8 * y1, 8, 8 * (y1 + rows), 8 * (1 + cols)};
+    rect list = {8 * y1, 8 * x1, 8 * (y1 + rows), 8 * (1 + cols)};
     control_add(game, list);
     int result = -1;
     while (result < 0) {
         if (*at < top) top = *at;
         if (*at >= top + (size_t)rows) top = *at + 1 - (size_t)rows;
         for (int i = 0; i < rows; ++i) {
-            clear_cells(game, 1, y1 + i, cols, y1 + i);
+            clear_cells(game, x1, y1 + i, cols, y1 + i);
             size_t item = top + (size_t)i;
-            if (item < count) text(game, 8 * (y1 + i), 8, items[item], item == *at ? 0x8b : 0x87);
+            if (item < count) text(game, 8 * (y1 + i), 8 * x1, items[item], item == *at ? 0x8b : 0x87);
         }
         input in;
         int key = read_input(game, &in);
@@ -1284,7 +1288,7 @@ static int list_menu(cok_adventure *game, const char *prompt, const char *const 
         }
         if (in.click) {
             bool taken = false;
-            for (size_t i = 0; i < bar_count && i < 4 && !taken; ++i)
+            for (size_t i = 0; i < bar_count && i < LIST_BAR && !taken; ++i)
                 if (inside(&rects[i], in.x, in.y)) {
                     result = (int)i;
                     taken = true;
@@ -1313,7 +1317,7 @@ static int list_menu(cok_adventure *game, const char *prompt, const char *const 
         case KEY_ALT + 'S': case KEY_ALT + 'T': break; /* the sound's toggles */
         default: {
             bool taken = false;
-            for (size_t i = 0; i < bar_count && i < 4 && !taken; ++i)
+            for (size_t i = 0; i < bar_count && i < LIST_BAR && !taken; ++i)
                 if (hotkey(bar[i][0], in.key)) {
                     result = (int)i;
                     taken = true;
@@ -1350,7 +1354,7 @@ static void vertical(cok_adventure *game)
     static const char *const select[] = {"Select"}; /* DS:4eea */
     size_t at = 0;
     int y1 = vm->cursor.y + 1;
-    int ended = list_menu(game, "", select, 1, items, count, &at, y1, 0x16, 0x26);
+    int ended = list_menu(game, "", select, 1, items, count, &at, 1, y1, 0x16, 0x26);
     if (ended < 0) return;
     if (ended == 0x1b) button(game, BAR_ROW, 8, select[0], 6, BUTTON_PRESSED);
     log_choice(game, (int)at);
@@ -2087,6 +2091,23 @@ static void sheet_score(cok_adventure *game, const uint8_t *c, int k, bool lit)
     say(game, 0x0c, 9 + k, changed ? "*" : " ", fg);
 }
 
+/* 86b8:0590: the coins (+0x4c, a word each: steel, gems, jewelry): cells
+ * 20-38 by rows 9-15 cleared, each kept one's name from row 9 at cell 20 and
+ * its count ending at cell 38, in grey. */
+static void sheet_coins_box(cok_adventure *game, const uint8_t *c)
+{
+    char line[16];
+    clear_cells(game, 0x14, 9, 0x26, 0x0f);
+    for (unsigned k = 0, row = 9; k <= 2; ++k) {
+        unsigned coins = rec16(c, 0x4c + 2u * k);
+        if (coins == 0) continue;
+        say(game, 0x14, (int)row, sheet_coins[k], 0x07);
+        snprintf(line, sizeof line, "%u", coins);
+        say(game, 0x26 - (int)strlen(line), (int)row, line, 0x07);
+        ++row;
+    }
+}
+
 /* The character sheet (86b8:0000) of the selected member: its window
  * (20b2:00a4); its name (177e:1697) at 1, 1; "Status:"
  * and its status; gender and "%d years", alignment, race; its class, the
@@ -2099,14 +2120,13 @@ static void sheet_score(cok_adventure *game, const uint8_t *c, int k, bool lit)
  * ending at cell 38); "Hit Points " and the hit points with their most
  * (177e:07b4); "Armor Class" and the AC (177e:0724); "Encumbrance" (+0x56)
  * and "Movement" (+0x199), "THAC0\t " and its THAC0 (0x3c less +0x18d),
- * "Damage" and the dice (+0x192, +0x194, +0x196). Its first step, the
- * stats' recompute (177e:0be2, 86b8:065e) and the movement's (177e:0a5f),
- * are not ported (the record holds the original's own, as its files
- * do), nor the readied weapon's and armour's lines (177e:03fc at rows 21
- * and 22: the port keeps no readied slots, 0be2's, nor its items'
- * names). */
-static void sheet(cok_adventure *game, const uint8_t *c)
+ * "Damage" and the dice (+0x192, +0x194, +0x196); then the readied weapon
+ * and armour by their names (177e:03fc) on rows 21 and 22. Its first
+ * step, the stats' recompute (177e:0be2, 86b8:065e) and the movement's
+ * (177e:0a5f), is queen_sheet's. */
+static void sheet(cok_adventure *game, const cok_character *character)
 {
+    const uint8_t *c = character->record;
     const cok_character_layout *L = cok_game_rules(game)->character;
     char line[96], name[17];
     /* 20b2:00a4: the full window, FRAME 7 under rows 8, 16 and 20, FRAME
@@ -2171,15 +2191,7 @@ static void sheet(cok_adventure *game, const uint8_t *c)
         say(game, 1, 9 + k, scores[k], 0x07);
         sheet_score(game, c, k, false);
     }
-    clear_cells(game, 0x14, 9, 0x26, 0x0f);
-    for (unsigned k = 0, row = 9; k <= 2; ++k) {
-        unsigned coins = rec16(c, 0x4c + 2u * k);
-        if (coins == 0) continue;
-        say(game, 0x14, (int)row, sheet_coins[k], 0x07);
-        snprintf(line, sizeof line, "%u", coins);
-        say(game, 0x26 - (int)strlen(line), (int)row, line, 0x07);
-        ++row;
-    }
+    sheet_coins_box(game, c);
     say(game, 0x14, 3, "Hit Points ", 0x0b);
     clear_cells(game, 0x1f, 3, 0x25, 3);
     uint8_t hp = cok_field_u8(L, c, COK_FIELD_HIT_POINTS), most = c[0x89];
@@ -2216,6 +2228,82 @@ static void sheet(cok_adventure *game, const uint8_t *c)
     say(game, 1, 0x13, "Damage", 0x0b);
     right(line, sizeof line, 7);
     say(game, 0x0b, 0x13, line, 0x07);
+    /* The readied weapon (slot 0, +0xc) and armour (slot 2, +0x14) by
+     * their names (177e:03fc) on rows 21 and 22, from cell 1. */
+    for (unsigned k = 0; k < 2; ++k) {
+        size_t slot = character->slots[k * 2];
+        if (slot == 0 || slot > character->item_count) continue;
+        queen_item_name(&game->party, character->items[slot - 1], false, line, sizeof line);
+        say(game, 1, 0x15 + (int)k, line, 0x07);
+    }
+}
+
+/* What queen_view.c uses (queen_view.h). */
+
+static void bar_message(cok_adventure *game, const char *s);
+
+int queen_list_menu(cok_adventure *game, const char *prompt, const char *const *bar,
+                    size_t bar_count, const char *const *items, size_t count, size_t *at,
+                    int x1, int y1, int y2, int x2)
+{
+    return list_menu(game, prompt, bar, bar_count, items, count, at, x1, y1, y2, x2);
+}
+
+void queen_bar_message(cok_adventure *game, const char *s)
+{
+    bar_message(game, s);
+}
+
+bool queen_print_window(cok_adventure *game, const char *s, int x1, int y1, int x2, int y2,
+                        unsigned fg, bool clear, bool slow)
+{
+    return print_window(game, s, x1, y1, x2, y2, fg, clear, slow);
+}
+
+int queen_ask(cok_adventure *game, const char *prompt, bool anim)
+{
+    return yes_no(game, prompt, anim);
+}
+
+/* 177e:1697: the character's name at cell x, y: not drawn dark where it
+ * cannot act (+0x18b 0: colour 0), 2 where hostile in combat, light
+ * magenta where it may train (+0xcd), else grey; "'s" after it where
+ * asked. */
+void queen_name_line(cok_adventure *game, const cok_character *character, int x, int y,
+                     bool possessive)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    const uint8_t *c = character->record;
+    unsigned fg = c[0x18b] == 0 ? 0
+                  : (cok_field_u8(L, c, COK_FIELD_HOSTILE) == 1 && game->vm.mode == 5) ? 2
+                  : c[0xcd] != 0 ? 0x0d
+                                 : 7;
+    char name[17];
+    cok_field_name(L, c, name);
+    say(game, x, y, name, fg);
+    if (possessive) say(game, x + (int)strlen(name), y, "'s", fg);
+}
+
+void queen_sheet_coins(cok_adventure *game, const cok_character *character)
+{
+    sheet_coins_box(game, character->record);
+}
+
+void queen_title_window(cok_adventure *game)
+{
+    full_window(game);
+    draw_frame_record(game, 7, 8 * 2, 0, NULL); /* 20b2:000d(2) */
+}
+
+/* The party's list with a member given as the selected (5e22:023b's
+ * argument): the same as party_list's, which draws vm->character's. */
+void queen_party_list(cok_adventure *game, const uint8_t *selected)
+{
+    cok_ecl *vm = &game->vm;
+    uint8_t *saved = vm->character;
+    vm->character = (uint8_t *)selected;
+    party_list(game);
+    vm->character = saved;
 }
 
 /* View (86b8:0b0c): the sheet, then its menu (1e29 with DS:4f82's "Items
@@ -2234,42 +2322,45 @@ static bool view_character(cok_adventure *game)
     const uint8_t *c = vm->character;
     if (c == NULL) return true;
     size_t i = cok_party_index(&game->party, c);
-    if (i < game->party.count && !queen_sheet(game, game->party.members[i])) return false;
-    bool spells = false, coins = false;
-    for (size_t k = 0; k <= 0x88; ++k)
-        if (c[0xce + k] & 0x7f) spells = true;
-    for (size_t k = 0; k <= 2; ++k)
-        if (rec16(c, 0x4c + 2 * k) > 0) coins = true;
-    bool items = i < game->party.count && game->party.members[i]->item_count > 0;
-    bool paladin = rec16(c, 0x5a) == 3;
-    if (!paladin && c[0xaf] > 0) {
-        cok_adventure_not_yet(game, "a former paladin's Lay and Cure", "dqk 177e:21bd");
-        return false;
-    }
-    bool may = paladin && vm->mode != 5 && rec16(c, 0x64) == 0;
-    bool lay = may, cure = may && c[0x88] > 0;
-    if (lay)
-        for (const cok_effect *e = game->party.members[i]->effects; e != NULL; e = e->next)
-            if (e->id == 0x8c) lay = false;
-    bool on[8] = {items, spells,
-                  (c[0x9b] < 0x80 || c[0x18b] == 0 || rec16(c, 0x64) == 1) && coins &&
-                      vm->mode != 5,
-                  coins && vm->mode == 10, coins && vm->mode != 10, lay && vm->mode != 10,
-                  cure && vm->mode != 10, true};
-    static const char *const all[8] = {"Items", "Spells", "Trade", "Deposit",
-                                       "Drop",  "Lay",    "Cure",  "Exit"};
-    const char *shown[8];
-    int index[8];
-    size_t n = 0;
-    char line[96] = "";
-    for (int k = 0; k < 8; ++k)
-        if (on[k]) {
-            index[n] = k;
-            shown[n++] = all[k];
-            size_t m = strlen(line);
-            snprintf(line + m, sizeof line - m, "%s%s", m > 0 ? " " : "", all[k]);
-        }
+    if (i >= game->party.count) return true;
+    cok_character *member = game->party.members[i];
+    if (!queen_sheet(game, member)) return false;
     for (;;) {
+        /* The menu is built again after each of its choices (86b8:0b49). */
+        bool spells = false, coins = false;
+        for (size_t k = 0; k <= 0x88; ++k)
+            if (c[0xce + k] & 0x7f) spells = true;
+        for (size_t k = 0; k <= 2; ++k)
+            if (rec16(c, 0x4c + 2 * k) > 0) coins = true;
+        bool items = member->item_count > 0;
+        bool paladin = rec16(c, 0x5a) == 3;
+        if (!paladin && c[0xaf] > 0) {
+            cok_adventure_not_yet(game, "a former paladin's Lay and Cure", "dqk 177e:21bd");
+            return false;
+        }
+        bool may = paladin && vm->mode != 5 && rec16(c, 0x64) == 0;
+        bool lay = may, cure = may && c[0x88] > 0;
+        if (lay)
+            for (const cok_effect *e = member->effects; e != NULL; e = e->next)
+                if (e->id == 0x8c) lay = false;
+        bool on[8] = {items, spells,
+                      (c[0x9b] < 0x80 || c[0x18b] == 0 || rec16(c, 0x64) == 1) && coins &&
+                          vm->mode != 5,
+                      coins && vm->mode == 10, coins && vm->mode != 10, lay && vm->mode != 10,
+                      cure && vm->mode != 10, true};
+        static const char *const all[8] = {"Items", "Spells", "Trade", "Deposit",
+                                           "Drop",  "Lay",    "Cure",  "Exit"};
+        const char *shown[8];
+        int index[8];
+        size_t n = 0;
+        char line[96] = "";
+        for (int k = 0; k < 8; ++k)
+            if (on[k]) {
+                index[n] = k;
+                shown[n++] = all[k];
+                size_t m = strlen(line);
+                snprintf(line + m, sizeof line - m, "%s%s", m > 0 ? " " : "", all[k]);
+            }
         cok_adventure_log(game, "menu", line);
         int choice = bar_menu(game, "", shown, n, false, false, 0, 0);
         if (choice < 0) return false;
@@ -2277,6 +2368,25 @@ static bool view_character(cok_adventure *game)
         if (k < 0) continue;
         log_choice(game, k);
         if (k == 7) return true;
+        if (k == 0) {
+            if (!queen_view_items(game, member)) return false;
+            if (!queen_sheet(game, member)) return false;
+            continue;
+        }
+        if (k == 2) {
+            if (!queen_view_trade(game, member)) return false;
+            if (!queen_sheet(game, member)) return false;
+            continue;
+        }
+        if (k == 3) {
+            cok_adventure_not_yet(game, "coins deposited in the vault", "dqk 86b8:2c32");
+            return false;
+        }
+        if (k == 4) {
+            if (!queen_view_drop(game, member)) return false;
+            queen_sheet_coins(game, member);
+            continue;
+        }
         static const char *const routines[] = {"dqk 86b8:0f41", "dqk 7a87:10cb",
                                                "dqk 86b8:286a", "dqk 86b8:2c32",
                                                "dqk 86b8:2c32", "dqk 86b8:3200",
@@ -2638,7 +2748,7 @@ static bool add_character(cok_adventure *game)
             items[i] = list[i].text;
         }
         cok_adventure_log(game, "list", "add a character:");
-        int choice = list_menu(game, "add a character: ", bar, 2, items, count, &at, 2, 0x16,
+        int choice = list_menu(game, "add a character: ", bar, 2, items, count, &at, 1, 2, 0x16,
                                0x26);
         if (choice < 0) return false;
         if (choice == 0x1b) choice = 1;
@@ -2723,7 +2833,7 @@ static bool delete_character(cok_adventure *game)
             items[i] = list[i].text;
         }
         cok_adventure_log(game, "list", "delete a character:");
-        int choice = list_menu(game, "delete a character: ", bar, 2, items, count, &at, 2,
+        int choice = list_menu(game, "delete a character: ", bar, 2, items, count, &at, 1, 2,
                                0x16, 0x26);
         if (choice < 0) return false;
         if (choice == 0x1b) choice = 1;
@@ -3744,7 +3854,7 @@ bool queen_sheet(cok_adventure *game, cok_character *character)
         cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
         return false;
     }
-    sheet(game, character->record);
+    sheet(game, character);
     return true;
 }
 

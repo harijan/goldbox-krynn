@@ -165,9 +165,11 @@ AdLib's chip in `tests/test_opl2.c`; Death Knights' songs' driver in
 libraries, pictures, palettes and colour cycles (`tests/test_vga.c`: made-up records,
 and its 1,827 pictures where `DQKAssets/` holds them), its scripts,
 title, 3D view, menus, input, big pictures, start, DQK.CFG, krynn's
-256 colours, its saved game loaded and saved, the camp, View's sheet and
-the way to the first fight (`tests/test_dark_queen.py`, skipped
-without `DQKAssets/`), and its characters, items, saved games, vault and
+256 colours, its saved game loaded and saved, the camp, View's sheet, its
+Items and its coins (`src/queen_items.c`'s item names, `src/queen_view.c`'s
+menus) and the way to the first fight (`tests/test_dark_queen.py`, and the
+item names in `tests/test_queen_items.c` with the words checked against
+`build/DQK_FULL.EXE`; skipped without `DQKAssets/`), and its characters, items, saved games, vault and
 monsters (its `.QCH`, `.QSV` and `VAULT` files read and written again,
 Death Knights' imported, MONCHA's
 98: `tests/test_party.c`, `tests/test_monster.c`, `tests/test_ecl.c`), Death Knights of Krynn's descriptor,

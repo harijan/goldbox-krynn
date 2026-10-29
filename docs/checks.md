@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py` and `dqk_party.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py` and `dqk_items.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -342,8 +342,8 @@ port's inn run draws its frame as eclplay starts, before its `--set`, with
 
 `dqk_party.py` (about a minute) loads the shipped saved game
 (`SAVE\SAVGAMA.QSV`: Load, Tdqk, A) and compares the camp with its party,
-Down, View's sheet (but its readied weapon and armour, rows 21-22: item
-names not ported) and Escape back; then, past Begin Adventuring (the
+Down, View's sheet (with its readied weapon and armour, rows 21-22:
+`177e:03fc`) and Escape back; then, past Begin Adventuring (the
 copy protection answered in the box), block 4's first text with the party's
 list and status, Palanthas, the palace and Leave to Caergoth's 3D view and
 commands; the variables 0x0001-0x0400 once loaded against `eclplay
@@ -354,6 +354,19 @@ log, the widow's menu, the shadows and the step before the dragons, whole
 but the mouse's cursor in the commands (`1bdb:1aef`'s areas give it other
 shapes: not ported); the original then runs the dragons' `SETUP MONSTERS`
 where the port stops, cited (its ECL between them). All agree (2026-10-27).
+
+`dqk_items.py` (about two minutes) plays the sheet's menu from the same saved
+game, one key a step, every screen compared whole: View's coin Trade
+(`86b8:286a`: the picker of `86b8:3ae5`, the type of coin, an amount typed
+on the bar by `86b8:2586`, Exit asking whom again) and Drop (`86b8:2c32`:
+129 and a 9 more, which the number cannot pass, a Backspace, 19 dropped,
+Escape from the amount), then Items (`86b8:0f41`) of the first member
+(Trade and Drop of a readied item refused, "Can't halve that", Join, the
+helm unreadied, Drop asked and refused, the helm traded to the second
+member) and of the second (his arrows halved and joined, his bow refused
+twice, "already using ..." and "Your hands are full!", then readied), and
+Save Current Game: the saved game the original writes against the port's,
+byte for byte but the characters' far pointers. All agree (2026-10-29).
 
 Death Knights of Krynn, read headless (see [Games](games.md#games)), is checked by
 `tools/dosbox/checks/dkk_views.py`, which `make dkk-checks` runs
