@@ -467,8 +467,42 @@ class DarkQueenTests(unittest.TestCase):
         self.assertEqual(lines[15], "protection: the journal's word, passed over "
                          "(dqk 65cc:008b)")
         self.assertEqual(digest(shots / "005.bmp"), "31f954e7a44fbb5e834220525b0c98e5")
-        self.assertEqual(digest(shots / "007.bmp"), "9585996ef87d161423a5c6faa8150957")
+        self.assertEqual(digest(shots / "007.bmp"), "d0577b581dae6c184f892c088927a6a7")
         self.assertEqual(digest(shots / "009.bmp"), "3b674649f17f2d0b8e5eaa1fe11117ca")
+
+    def test_items(self):
+        # View's Items (86b8:0f41) of Roland of Dust: the list with its
+        # ready column, Trade and Drop of a readied item refused, "Can't
+        # halve that"; the helm unreadied (Rdy), Drop asked and refused,
+        # then traded to Timasalin (3ae5's picker: Down, Select); back in
+        # the camp Save Current Game as the saved game the original writes
+        # (dqk_items compares the screens and the saved game).
+        saves = self.folder / "saves"
+        saves.mkdir()
+        (saves / "SAVGAMA.QSV").write_bytes((ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes())
+        keys = r"\k\ePLTAVITDHJ\vRDN" r"T\vSEESA"
+        result = self.play("--start-menu", "--saves", saves, "--keys", keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = result.stdout.splitlines()
+        self.assertIn("menu: Rdy Trade Drop Halve Join Exit", out)
+        self.assertIn("item:  Yes\tLong Sword +2 ", out)
+        self.assertIn("item:  No\t Helm +2 ", out)
+        messages = [l for l in out if l.startswith("message: ")]
+        self.assertEqual(messages, ["message: Must be unreadied", "message: Must be unreadied",
+                                    "message: Can't halve that"])
+        self.assertIn("menu: Select Exit", out)
+        written = (saves / "SAVGAMA.QSV").read_bytes()
+        at, counts = 0x40f, []
+        for _ in range(written[0x40d]):
+            items = written[at + 8]
+            counts.append(items)
+            effects = any(written[at + 4:at + 8])
+            at += 0x19e + 17 * items
+            while effects:
+                effects = any(written[at + 5:at + 9])
+                at += 9
+        # The helm went from Roland (4 items) to Timasalin (5, then 6).
+        self.assertEqual(counts[:2], [3, 6])
 
     def test_first_fight(self):
         # To Caergoth (the palace, Leave), its commands and steps (6fea:0365,

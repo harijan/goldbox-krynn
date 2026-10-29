@@ -5,6 +5,7 @@
 #include "hlib.h"
 #include "queen.h"
 #include "queen_items.h"
+#include "queen_view.h"
 #include "vga.h"
 
 #include <dirent.h>
@@ -1224,6 +1225,8 @@ static void horizontal(cok_adventure *game, bool ask)
     bottom_bar(game);
 }
 
+enum { LIST_BAR = 10 }; /* the buttons of a list's bar (Items' are ten) */
+
 /* The list (1bdb:1f25, 1b05:08b3, 0055, keys 0664) of count items in
  * rows y1 to y2 - 1 from cell 1 to x2 (one less with more items than rows,
  * room for the scroll bar), each row cleared, the current one (*at) in
@@ -1252,9 +1255,9 @@ static int list_menu(cok_adventure *game, const char *prompt, const char *const 
     bottom_bar(game);
     if (n > 0) prompt_box(game, 0, box, 0, 7);
     controls_clear(game);
-    rect rects[4];
-    int cols_at[4], col = 8 + 8 * (int)n;
-    for (size_t i = 0; i < bar_count && i < 4; ++i) {
+    rect rects[LIST_BAR];
+    int cols_at[LIST_BAR], col = 8 + 8 * (int)n;
+    for (size_t i = 0; i < bar_count && i < LIST_BAR; ++i) {
         int width = (int)strlen(bar[i]);
         cols_at[i] = col;
         rects[i] = button_rect(BAR_ROW, col, width);
@@ -1281,7 +1284,7 @@ static int list_menu(cok_adventure *game, const char *prompt, const char *const 
         }
         if (in.click) {
             bool taken = false;
-            for (size_t i = 0; i < bar_count && i < 4 && !taken; ++i)
+            for (size_t i = 0; i < bar_count && i < LIST_BAR && !taken; ++i)
                 if (inside(&rects[i], in.x, in.y)) {
                     result = (int)i;
                     taken = true;
@@ -1310,7 +1313,7 @@ static int list_menu(cok_adventure *game, const char *prompt, const char *const 
         case KEY_ALT + 'S': case KEY_ALT + 'T': break; /* the sound's toggles */
         default: {
             bool taken = false;
-            for (size_t i = 0; i < bar_count && i < 4 && !taken; ++i)
+            for (size_t i = 0; i < bar_count && i < LIST_BAR && !taken; ++i)
                 if (hotkey(bar[i][0], in.key)) {
                     result = (int)i;
                     taken = true;
@@ -2210,6 +2213,69 @@ static void sheet(cok_adventure *game, const cok_character *character)
     }
 }
 
+/* What queen_view.c uses (queen_view.h). */
+
+static void bar_message(cok_adventure *game, const char *s);
+
+int queen_list_menu(cok_adventure *game, const char *prompt, const char *const *bar,
+                    size_t bar_count, const char *const *items, size_t count, size_t *at,
+                    int y1, int y2, int x2)
+{
+    return list_menu(game, prompt, bar, bar_count, items, count, at, y1, y2, x2);
+}
+
+void queen_bar_message(cok_adventure *game, const char *s)
+{
+    bar_message(game, s);
+}
+
+bool queen_print_window(cok_adventure *game, const char *s, int x1, int y1, int x2, int y2,
+                        unsigned fg, bool clear, bool slow)
+{
+    return print_window(game, s, x1, y1, x2, y2, fg, clear, slow);
+}
+
+int queen_ask(cok_adventure *game, const char *prompt, bool anim)
+{
+    return yes_no(game, prompt, anim);
+}
+
+/* 177e:1697: the character's name at cell x, y: not drawn dark where it
+ * cannot act (+0x18b 0: colour 0), 2 where hostile in combat, light
+ * magenta where it may train (+0xcd), else grey; "'s" after it where
+ * asked. */
+void queen_name_line(cok_adventure *game, const cok_character *character, int x, int y,
+                     bool possessive)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    const uint8_t *c = character->record;
+    unsigned fg = c[0x18b] == 0 ? 0
+                  : (cok_field_u8(L, c, COK_FIELD_HOSTILE) == 1 && game->vm.mode == 5) ? 2
+                  : c[0xcd] != 0 ? 0x0d
+                                 : 7;
+    char name[17];
+    cok_field_name(L, c, name);
+    say(game, x, y, name, fg);
+    if (possessive) say(game, x + (int)strlen(name), y, "'s", fg);
+}
+
+void queen_title_window(cok_adventure *game)
+{
+    full_window(game);
+    draw_frame_record(game, 7, 8 * 2, 0, NULL); /* 20b2:000d(2) */
+}
+
+/* The party's list with a member given as the selected (5e22:023b's
+ * argument): the same as party_list's, which draws vm->character's. */
+void queen_party_list(cok_adventure *game, const uint8_t *selected)
+{
+    cok_ecl *vm = &game->vm;
+    uint8_t *saved = vm->character;
+    vm->character = (uint8_t *)selected;
+    party_list(game);
+    vm->character = saved;
+}
+
 /* View (86b8:0b0c): the sheet, then its menu (1e29 with DS:4f82's "Items
  * Spells Trade Deposit Drop Lay Cure Exit", those listed: Items with
  * items, Spells with a spell memorized (+0xce-+0x156), Trade with coins
@@ -2226,42 +2292,45 @@ static bool view_character(cok_adventure *game)
     const uint8_t *c = vm->character;
     if (c == NULL) return true;
     size_t i = cok_party_index(&game->party, c);
-    if (i < game->party.count && !queen_sheet(game, game->party.members[i])) return false;
-    bool spells = false, coins = false;
-    for (size_t k = 0; k <= 0x88; ++k)
-        if (c[0xce + k] & 0x7f) spells = true;
-    for (size_t k = 0; k <= 2; ++k)
-        if (rec16(c, 0x4c + 2 * k) > 0) coins = true;
-    bool items = i < game->party.count && game->party.members[i]->item_count > 0;
-    bool paladin = rec16(c, 0x5a) == 3;
-    if (!paladin && c[0xaf] > 0) {
-        cok_adventure_not_yet(game, "a former paladin's Lay and Cure", "dqk 177e:21bd");
-        return false;
-    }
-    bool may = paladin && vm->mode != 5 && rec16(c, 0x64) == 0;
-    bool lay = may, cure = may && c[0x88] > 0;
-    if (lay)
-        for (const cok_effect *e = game->party.members[i]->effects; e != NULL; e = e->next)
-            if (e->id == 0x8c) lay = false;
-    bool on[8] = {items, spells,
-                  (c[0x9b] < 0x80 || c[0x18b] == 0 || rec16(c, 0x64) == 1) && coins &&
-                      vm->mode != 5,
-                  coins && vm->mode == 10, coins && vm->mode != 10, lay && vm->mode != 10,
-                  cure && vm->mode != 10, true};
-    static const char *const all[8] = {"Items", "Spells", "Trade", "Deposit",
-                                       "Drop",  "Lay",    "Cure",  "Exit"};
-    const char *shown[8];
-    int index[8];
-    size_t n = 0;
-    char line[96] = "";
-    for (int k = 0; k < 8; ++k)
-        if (on[k]) {
-            index[n] = k;
-            shown[n++] = all[k];
-            size_t m = strlen(line);
-            snprintf(line + m, sizeof line - m, "%s%s", m > 0 ? " " : "", all[k]);
-        }
+    if (i >= game->party.count) return true;
+    cok_character *member = game->party.members[i];
+    if (!queen_sheet(game, member)) return false;
     for (;;) {
+        /* The menu is built again after each of its choices (86b8:0b49). */
+        bool spells = false, coins = false;
+        for (size_t k = 0; k <= 0x88; ++k)
+            if (c[0xce + k] & 0x7f) spells = true;
+        for (size_t k = 0; k <= 2; ++k)
+            if (rec16(c, 0x4c + 2 * k) > 0) coins = true;
+        bool items = member->item_count > 0;
+        bool paladin = rec16(c, 0x5a) == 3;
+        if (!paladin && c[0xaf] > 0) {
+            cok_adventure_not_yet(game, "a former paladin's Lay and Cure", "dqk 177e:21bd");
+            return false;
+        }
+        bool may = paladin && vm->mode != 5 && rec16(c, 0x64) == 0;
+        bool lay = may, cure = may && c[0x88] > 0;
+        if (lay)
+            for (const cok_effect *e = member->effects; e != NULL; e = e->next)
+                if (e->id == 0x8c) lay = false;
+        bool on[8] = {items, spells,
+                      (c[0x9b] < 0x80 || c[0x18b] == 0 || rec16(c, 0x64) == 1) && coins &&
+                          vm->mode != 5,
+                      coins && vm->mode == 10, coins && vm->mode != 10, lay && vm->mode != 10,
+                      cure && vm->mode != 10, true};
+        static const char *const all[8] = {"Items", "Spells", "Trade", "Deposit",
+                                           "Drop",  "Lay",    "Cure",  "Exit"};
+        const char *shown[8];
+        int index[8];
+        size_t n = 0;
+        char line[96] = "";
+        for (int k = 0; k < 8; ++k)
+            if (on[k]) {
+                index[n] = k;
+                shown[n++] = all[k];
+                size_t m = strlen(line);
+                snprintf(line + m, sizeof line - m, "%s%s", m > 0 ? " " : "", all[k]);
+            }
         cok_adventure_log(game, "menu", line);
         int choice = bar_menu(game, "", shown, n, false, false, 0, 0);
         if (choice < 0) return false;
@@ -2269,6 +2338,11 @@ static bool view_character(cok_adventure *game)
         if (k < 0) continue;
         log_choice(game, k);
         if (k == 7) return true;
+        if (k == 0) {
+            if (!queen_view_items(game, member)) return false;
+            if (!queen_sheet(game, member)) return false;
+            continue;
+        }
         static const char *const routines[] = {"dqk 86b8:0f41", "dqk 7a87:10cb",
                                                "dqk 86b8:286a", "dqk 86b8:2c32",
                                                "dqk 86b8:2c32", "dqk 86b8:3200",
