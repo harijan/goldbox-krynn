@@ -35,7 +35,7 @@ enum {
     VIEW_END = 112,
     BAR_ROW = 188,           /* the bottom bar's buttons, 0x1f9e (1bdb:0801) */
     NO_BIG = 0xff,           /* DS:ae43 with no big picture loaded */
-    CONTROLS = 16,           /* the buttons of a screen the mouse's cursor knows */
+    CONTROLS = 48,           /* the buttons of a screen the mouse's cursor knows */
 };
 
 /* The keys as the game reads them (251e:00e7, its table 251e:0114): the

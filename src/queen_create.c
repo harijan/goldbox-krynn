@@ -43,6 +43,7 @@ typedef struct {
     int selected[ITEMS];
     uint8_t shown[ITEMS]; /* the flags each was drawn with: 0xff, never */
     uint8_t dwarf; /* DS:7276: 0x11 for the dwarves, 0 */
+    int column, row; /* DS:c750, c74e: the keyboard's place, with no mouse */
     bool exit;     /* DS:c783 */
     bool done;     /* a button with its bit 4 was taken */
 } form;
@@ -345,6 +346,54 @@ static bool is_group(int i)
     return i == G_RACE || i == G_GENDER || i == G_CLASS || i == G_LAW || i == G_GOOD;
 }
 
+/* A click at x, y on a button of a group (2aa6:15e3's first item hit, its
+ * message 4): true where one took it. */
+static bool click_radio(form *f, int x, int y)
+{
+    for (int i = 1; i < ITEMS; ++i) {
+        if (is_group(i) || (f->item[i].flags & (F_DISABLED | F_HIDDEN))) continue;
+        queen_rect r = radio_rect(&f->item[i]);
+        if (!queen_inside(&r, x, y)) continue;
+        int group = i > G_GOOD ? G_GOOD : i > G_LAW ? G_LAW : i > G_CLASS ? G_CLASS
+                    : i > G_GENDER ? G_GENDER : G_RACE;
+        group_select(f, group, i - group);
+        return true;
+    }
+    return false;
+}
+
+/* 66e5:2967, the form's key handler where there is no mouse: Left and
+ * Right change the column, Up and Down the row (skipping the gaps: the
+ * left column's rows 0-6, 10-14 and 18-19, the right's 0-15), Return
+ * clicks where the pointer is, at the row's text. Another key is not its.
+ * True where the key was. */
+static bool form_keys(form *f, int key)
+{
+    if (key == 0x106 || key == 0x102)
+        f->column = 1 - f->column;
+    else if (key == 0x108 && f->row != 0)
+        --f->row;
+    else if (key == 0x104)
+        ++f->row;
+    else if (key != 0x0d)
+        return false;
+    if (f->column != 0) {
+        if (f->row > 0xf) f->row = 0xf;
+    } else if (f->row == 7) {
+        f->row = 10;
+    } else if (f->row == 9) {
+        f->row = 6;
+    } else if (f->row == 0xf) {
+        f->row = 0x12;
+    } else if (f->row == 0x11) {
+        f->row = 0xe;
+    } else if (f->row > 0x13) {
+        f->row = 0x13;
+    }
+    if (key == 0x0d) click_radio(f, f->column != 0 ? 152 : 16, 26 + 8 * f->row);
+    return true;
+}
+
 /* The dialog's polling (2aa6:1586, 15e3): a click on a button of a group
  * selects it, one on Done or a key of it ends the dialog by its callback,
  * Exit's by the flag. Returns false where the keys ran out. */
@@ -368,28 +417,20 @@ static bool run_form(form *f, bool (*done)(form *))
         }
         int pick = -1; /* 0 Done, 1 Exit */
         if (in.click) {
-            for (int i = 1; i < ITEMS; ++i) {
-                if (is_group(i) || (f->item[i].flags & (F_DISABLED | F_HIDDEN))) continue;
-                queen_rect r = radio_rect(&f->item[i]);
-                if (!queen_inside(&r, in.x, in.y)) continue;
-                int group = i > G_GOOD ? G_GOOD : i > G_LAW ? G_LAW : i > G_CLASS ? G_CLASS
-                            : i > G_GENDER ? G_GENDER : G_RACE;
-                group_select(f, group, i - group);
-                pick = -2;
-                break;
-            }
+            if (click_radio(f, in.x, in.y)) continue;
             for (int i = 0; i < 2 && pick == -1; ++i)
                 if (queen_inside(&buttons[i], in.x, in.y)) pick = i;
         } else if (queen_hotkey('D', in.key)) {
             pick = 0;
         } else if (queen_hotkey('E', in.key) || queen_hotkey('#', in.key)) {
             pick = 1;
+        } else if (!queen_mouse(game) && form_keys(f, in.key)) {
+            continue;
         }
         if (pick == -1) {
             queen_beep(game);
             continue;
         }
-        if (pick == -2) continue;
         queen_controls_clear(game);
         if (pick == 0) {
             if (!done(f)) return false;

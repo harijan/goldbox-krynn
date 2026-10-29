@@ -182,6 +182,36 @@ class DarkQueenTests(unittest.TestCase):
         self.assertEqual(table("dark_queen_import_effects"),
                          {x: y for x, y in effects.items() if x != y})
 
+    def test_create_tables(self):
+        # The tables creation reads (src/queen_create_data.c) are the data
+        # segment's (DS 0x422e) bytes, each at its offset; the spell
+        # table's rows are the first three bytes of 22.
+        merged = self.folder / "DQK_FULL.EXE"
+        result = subprocess.run(["python3", ROOT / "tools" / "dqkmerge.py",
+                                 ASSETS / "DQK.EXE", merged], capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        exe = merged.read_bytes()
+        header = struct.unpack_from("<H", exe, 8)[0] * 16
+        ds = header + 0x422e * 16 - 0x10000
+        source = (ROOT / "src" / "queen_create_data.c").read_text()
+
+        def table(name):
+            body = source.split(f"const uint8_t {name}[")[1].split("};")[0].split("= {", 1)[1]
+            return [int(v, 16) for v in re.findall(r"0x([0-9a-f]{2})", body)]
+
+        for name, at in (("queen_race_classes", 0x328), ("queen_class_alignments", 0x563),
+                         ("queen_age_dice", 0x3f3), ("queen_age_limits", 0x4b7),
+                         ("queen_score_limits", 0x2b8), ("queen_class_minimums", 0x4fd),
+                         ("queen_kits", 0x180d), ("queen_thac0", 0x6359),
+                         ("queen_cleric_spells", 0x16cd)):
+            values = table(name)
+            self.assertEqual(bytes(values), exe[ds + at:ds + at + len(values)], name)
+        spells = table("queen_spell_levels")
+        self.assertEqual(len(spells), 0x7f * 3)
+        for i in range(0x7f):
+            self.assertEqual(bytes(spells[3 * i:3 * i + 3]),
+                             exe[ds + 0x27e9 + 0x16 * i:][:3], f"spell {i}")
+
     def test_refused(self):
         # Saved games load from the start menu alone; --load, parties and
         # --play are not ported yet.
