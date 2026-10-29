@@ -841,8 +841,30 @@ one and a '*' where a score is not its base, the coins, hit points and
 their most, AC, encumbrance, THAC0, movement and damage), then its menu
 (Items, Spells, Trade, Deposit, Drop, Lay, Cure, Exit by `86b8:0b0c`'s
 tests), Exit or Escape back; its readied weapon and armour lines
-(`177e:03fc`: items' names), the stats' recompute it starts with
-(`177e:0be2`) and its other items are not ported yet. Begin Adventuring
+(`177e:03fc`, rows 21 and 22: the item's name, `src/queen_items.c`: an
+item's words +0x29-+0x2b last to first, each a C string by id from
+`DS:3f55`'s table, those not hidden by +0x33's bits, a count first and the
+last word's plural where there is more than one, "* " where an effect 5 is
+on a member and the item has a bonus, and a ready column ` Yes\t` or ` No\t `
+in Items' list), and, as the menu is built again each time, Items
+(`86b8:0f41`: the member's items listed under "Ready Item", a bar of Rdy,
+Use, Trade, Deposit or Drop, Halve, Join, Sell and Id and Exit by the
+mode and the character, Return taking the first; Rdy `86b8:1965` readies
+an item or unreadies it, with its messages "It's Cursed!", "Wrong Class",
+"already using <item>", "Your hands are full!", "Wrong Magical Order",
+"Usable Only By Kender" and "Thief Level Too Low"; Trade `86b8:1c58`
+through the picker `86b8:3ae5` ("Trade with whom?": the party's list, Down
+or End, Up or Home, Select, Exit) and "Overloaded" `86b8:2fbf`; Drop asks
+"Lose it?" under "Your <item>will be gone forever"; Halve `86b8:1d13`;
+Join `86b8:1fda`; all but a scroll's contents, which the port holds none
+of, and the power an item puts on or takes off when it is readied
+(`86b8:16f7`, step 4), Use (`86b8:2175`) and, in the vault or a shop,
+Deposit, Sell and Id, which stop cited), the coins' Trade (`86b8:286a`, the
+picker's "trade to?", "select type of coin " over the coins' box, a number
+typed on the bar `86b8:2586`, "Overloaded" `86b8:27ac`) and Drop
+(`86b8:2c32`), and the stats' recompute it starts with (`177e:0be2`). Spells
+(`7a87:10cb`), Deposit (the vault's), Lay and Cure (`86b8:3200`, `3319`:
+they heal and cure by effects, step 4) are not ported yet. Begin Adventuring
 returns to main, the mode the last (4 for none), its screen
 (`7368:07af`-`0804`): a game not loaded with small picture 9 not shown
 (`DS:ae42`) the overland's frame on the overland in mode 3, else the

@@ -90,6 +90,31 @@ static void test_names(void)
     item[0x35] = 1;
     queen_item_name(&party, item, false, out, sizeof out);
     CHECK(strcmp(out, "1 Arrow ") == 0);
+    /* A count's first word, plural: Darts, 3 of them (the word at +0x29
+     * alone: 177e:03fc's "s " after it). */
+    memset(item, 0, sizeof item);
+    item[0x28] = 5;
+    item[0x29] = 5; /* Dart */
+    item[0x35] = 3;
+    queen_item_name(&party, item, false, out, sizeof out);
+    CHECK(strcmp(out, "3 Darts ") == 0);
+    /* The word at +0x2b hidden (+0x33's bit 0) and the one at +0x2a not. */
+    memset(item, 0, sizeof item);
+    item[0x2a] = 112;
+    item[0x2b] = 18;
+    item[0x33] = 1;
+    queen_item_name(&party, item, false, out, sizeof out);
+    CHECK(strcmp(out, "+2 ") == 0);
+    /* A scroll's count (of its spells) is printed as its second word, not
+     * before the name; its first word is in the plural: 3 Scrolls (as
+     * 177e:03fc reads; no shipped game has one to check against). */
+    memset(item, 0, sizeof item);
+    item[0x28] = 0x49;
+    item[0x29] = 39; /* Scroll */
+    item[0x2a] = 100; /* 1 Spell */
+    item[0x35] = 3;
+    queen_item_name(&party, item, false, out, sizeof out);
+    CHECK(strcmp(out, "3 Scrolls ") == 0);
 }
 
 int main(void)

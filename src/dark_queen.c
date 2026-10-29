@@ -1241,7 +1241,7 @@ enum { LIST_BAR = 10 }; /* the buttons of a list's bar (Items' are ten) */
  * drawn. */
 static int list_menu(cok_adventure *game, const char *prompt, const char *const *bar,
                      size_t bar_count, const char *const *items, size_t count, size_t *at,
-                     int y1, int y2, int x2)
+                     int x1, int y1, int y2, int x2)
 {
     int rows = y2 - y1, cols = x2 - 1;
     if (rows < 1) rows = 1;
@@ -1265,16 +1265,16 @@ static int list_menu(cok_adventure *game, const char *prompt, const char *const 
         button(game, BAR_ROW, col, bar[i], width, 0);
         col += (width + 1) * 8;
     }
-    rect list = {8 * y1, 8, 8 * (y1 + rows), 8 * (1 + cols)};
+    rect list = {8 * y1, 8 * x1, 8 * (y1 + rows), 8 * (1 + cols)};
     control_add(game, list);
     int result = -1;
     while (result < 0) {
         if (*at < top) top = *at;
         if (*at >= top + (size_t)rows) top = *at + 1 - (size_t)rows;
         for (int i = 0; i < rows; ++i) {
-            clear_cells(game, 1, y1 + i, cols, y1 + i);
+            clear_cells(game, x1, y1 + i, cols, y1 + i);
             size_t item = top + (size_t)i;
-            if (item < count) text(game, 8 * (y1 + i), 8, items[item], item == *at ? 0x8b : 0x87);
+            if (item < count) text(game, 8 * (y1 + i), 8 * x1, items[item], item == *at ? 0x8b : 0x87);
         }
         input in;
         int key = read_input(game, &in);
@@ -1350,7 +1350,7 @@ static void vertical(cok_adventure *game)
     static const char *const select[] = {"Select"}; /* DS:4eea */
     size_t at = 0;
     int y1 = vm->cursor.y + 1;
-    int ended = list_menu(game, "", select, 1, items, count, &at, y1, 0x16, 0x26);
+    int ended = list_menu(game, "", select, 1, items, count, &at, 1, y1, 0x16, 0x26);
     if (ended < 0) return;
     if (ended == 0x1b) button(game, BAR_ROW, 8, select[0], 6, BUTTON_PRESSED);
     log_choice(game, (int)at);
@@ -2075,6 +2075,23 @@ static void sheet_score(cok_adventure *game, const uint8_t *c, int k, bool lit)
     say(game, 0x0c, 9 + k, changed ? "*" : " ", fg);
 }
 
+/* 86b8:0590: the coins (+0x4c, a word each: steel, gems, jewelry): cells
+ * 20-38 by rows 9-15 cleared, each kept one's name from row 9 at cell 20 and
+ * its count ending at cell 38, in grey. */
+static void sheet_coins_box(cok_adventure *game, const uint8_t *c)
+{
+    char line[16];
+    clear_cells(game, 0x14, 9, 0x26, 0x0f);
+    for (unsigned k = 0, row = 9; k <= 2; ++k) {
+        unsigned coins = rec16(c, 0x4c + 2u * k);
+        if (coins == 0) continue;
+        say(game, 0x14, (int)row, sheet_coins[k], 0x07);
+        snprintf(line, sizeof line, "%u", coins);
+        say(game, 0x26 - (int)strlen(line), (int)row, line, 0x07);
+        ++row;
+    }
+}
+
 /* The character sheet (86b8:0000) of the selected member: its window
  * (20b2:00a4); its name (177e:1697) at 1, 1; "Status:"
  * and its status; gender and "%d years", alignment, race; its class, the
@@ -2158,15 +2175,7 @@ static void sheet(cok_adventure *game, const cok_character *character)
         say(game, 1, 9 + k, scores[k], 0x07);
         sheet_score(game, c, k, false);
     }
-    clear_cells(game, 0x14, 9, 0x26, 0x0f);
-    for (unsigned k = 0, row = 9; k <= 2; ++k) {
-        unsigned coins = rec16(c, 0x4c + 2u * k);
-        if (coins == 0) continue;
-        say(game, 0x14, (int)row, sheet_coins[k], 0x07);
-        snprintf(line, sizeof line, "%u", coins);
-        say(game, 0x26 - (int)strlen(line), (int)row, line, 0x07);
-        ++row;
-    }
+    sheet_coins_box(game, c);
     say(game, 0x14, 3, "Hit Points ", 0x0b);
     clear_cells(game, 0x1f, 3, 0x25, 3);
     uint8_t hp = cok_field_u8(L, c, COK_FIELD_HIT_POINTS), most = c[0x89];
@@ -2219,9 +2228,9 @@ static void bar_message(cok_adventure *game, const char *s);
 
 int queen_list_menu(cok_adventure *game, const char *prompt, const char *const *bar,
                     size_t bar_count, const char *const *items, size_t count, size_t *at,
-                    int y1, int y2, int x2)
+                    int x1, int y1, int y2, int x2)
 {
-    return list_menu(game, prompt, bar, bar_count, items, count, at, y1, y2, x2);
+    return list_menu(game, prompt, bar, bar_count, items, count, at, x1, y1, y2, x2);
 }
 
 void queen_bar_message(cok_adventure *game, const char *s)
@@ -2257,6 +2266,11 @@ void queen_name_line(cok_adventure *game, const cok_character *character, int x,
     cok_field_name(L, c, name);
     say(game, x, y, name, fg);
     if (possessive) say(game, x + (int)strlen(name), y, "'s", fg);
+}
+
+void queen_sheet_coins(cok_adventure *game, const cok_character *character)
+{
+    sheet_coins_box(game, character->record);
 }
 
 void queen_title_window(cok_adventure *game)
@@ -2341,6 +2355,20 @@ static bool view_character(cok_adventure *game)
         if (k == 0) {
             if (!queen_view_items(game, member)) return false;
             if (!queen_sheet(game, member)) return false;
+            continue;
+        }
+        if (k == 2) {
+            if (!queen_view_trade(game, member)) return false;
+            if (!queen_sheet(game, member)) return false;
+            continue;
+        }
+        if (k == 3) {
+            cok_adventure_not_yet(game, "coins deposited in the vault", "dqk 86b8:2c32");
+            return false;
+        }
+        if (k == 4) {
+            if (!queen_view_drop(game, member)) return false;
+            queen_sheet_coins(game, member);
             continue;
         }
         static const char *const routines[] = {"dqk 86b8:0f41", "dqk 7a87:10cb",
@@ -2704,7 +2732,7 @@ static bool add_character(cok_adventure *game)
             items[i] = list[i].text;
         }
         cok_adventure_log(game, "list", "add a character:");
-        int choice = list_menu(game, "add a character: ", bar, 2, items, count, &at, 2, 0x16,
+        int choice = list_menu(game, "add a character: ", bar, 2, items, count, &at, 1, 2, 0x16,
                                0x26);
         if (choice < 0) return false;
         if (choice == 0x1b) choice = 1;
@@ -2789,7 +2817,7 @@ static bool delete_character(cok_adventure *game)
             items[i] = list[i].text;
         }
         cok_adventure_log(game, "list", "delete a character:");
-        int choice = list_menu(game, "delete a character: ", bar, 2, items, count, &at, 2,
+        int choice = list_menu(game, "delete a character: ", bar, 2, items, count, &at, 1, 2,
                                0x16, 0x26);
         if (choice < 0) return false;
         if (choice == 0x1b) choice = 1;

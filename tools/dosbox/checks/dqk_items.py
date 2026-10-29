@@ -4,14 +4,18 @@
 part; docs/checks.md, "Checks against the original": dqk_items), compared
 in RGB with the game's own mouse cursor (the port's with --mouse): SAVGAMA
 loaded, View (86b8:0b0c: the sheet with its readied weapon and armour,
-177e:03fc) and Items (86b8:0f41) of Roland of Dust: his four items
+177e:03fc), its coins' Trade (86b8:286a: 5 steel to Timasalin, Exit asking
+whom again) and Drop (86b8:2c32: 129 typed, a 9 more and a Backspace,
+19 dropped; Escape from the amount) and Items (86b8:0f41) of Roland of
+Dust: his four items
 readied, Trade and Drop refused ("Must be unreadied"), "Can't halve
 that", Join; the helm unreadied (Rdy), Drop asked ("Your helm +2 will be
 gone forever", "Lose it?") and refused, Trade ("Trade with whom?",
 86b8:3ae5: Down, Exit) and then given to Timasalin; the second member's
 Items: his arrows (40) halved and joined again, his bow readied and
-refused for hands ("Your hands are full!"), the arrows unreadied and the
-bow readied. Then, from the camp, Save Current Game: the saved game the
+refused ("already using ..."), the arrows unreadied and the bow
+readied, the sword unreadied and the bow refused for hands ("Your hands
+are full!"). Then, from the camp, Save Current Game: the saved game the
 original writes and the port's (the same bytes but the characters' far
 pointers) are compared.
 
@@ -38,7 +42,13 @@ GAME = ("--game", "dark-queen")
 # (name, key) one key a step; the port's shot after key n is shots[n + 2].
 STEPS = [
     ("loaded", "p"), ("load", "l"), ("tdqk", "t"), ("game a", "a"),
-    ("view", "v"), ("items", "i"),
+    ("view", "v"),
+    ("coin trade", "t"), ("the picker, down", "\\v"), ("select", "s"), ("steel", "s"),
+    ("5", "5"), ("amount", "\\r"), ("exit the coins", "e"), ("exit the picker", "e"),
+    ("coin drop", "d"), ("steel", "s"), ("1", "1"), ("12", "2"), ("129", "9"),
+    ("1299 over", "9"), ("more", "9"), ("backspace", "\\b"), ("amount", "\\r"),
+    ("select", "s"), ("escape the amount", "\\e"), ("exit the coins", "e"),
+    ("items", "i"),
     ("trade of a readied item", "t"), ("drop of a readied item", "d"),
     ("halve", "h"), ("join", "j"),
     ("down", "\\v"), ("unready the helm", "r"),
@@ -50,6 +60,7 @@ STEPS = [
     ("down", "\\v"), ("ready the bow", "r"), ("up", "\\^"),
     ("halve the arrows", "h"), ("join them", "j"), ("unready the arrows", "r"),
     ("down", "\\v"), ("ready the bow", "r"),
+    ("down", "\\v"), ("unready the sword", "r"), ("up", "\\^"), ("ready the bow", "r"),
     ("exit items", "e"), ("exit view", "e"),
     ("save", "s"), ("game a", "a"),
 ]

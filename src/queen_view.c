@@ -20,6 +20,9 @@ enum {
  * "Rdy Use Trade Deposit Drop Halve Join Sell Id Exit" (1bdb:0005 adds
  * them). */
 enum { B_READY, B_USE, B_TRADE, B_DEPOSIT, B_DROP, B_HALVE, B_JOIN, B_SELL, B_ID, B_EXIT };
+/* The member last given to (DS:c3eb), by Items' Trade and the coins'. */
+static cok_character *last_target;
+
 static const char *const button_names[] = {"Rdy",  "Use",  "Trade", "Deposit", "Drop",
                                            "Halve", "Join", "Sell",  "Id",      "Exit"};
 
@@ -296,7 +299,6 @@ bool queen_view_items(cok_adventure *game, cok_character *character)
     const cok_rules *rules = cok_game_rules(game);
     const cok_character_layout *L = rules->character;
     cok_ecl *vm = &game->vm;
-    static cok_character *last_target; /* DS:c3eb */
     size_t at = 0;
     bool heading = true;
     int choice = 0xff;
@@ -360,7 +362,7 @@ bool queen_view_items(cok_adventure *game, cok_character *character)
         }
         for (size_t i = 0; i < rows; ++i) cok_adventure_log(game, "item", names[i]);
         cok_adventure_log(game, "menu", line);
-        int picked = queen_list_menu(game, "", bar, (size_t)n, shown, rows, &at, 5, 0x16, 0x26);
+        int picked = queen_list_menu(game, "", bar, (size_t)n, shown, rows, &at, 1, 5, 0x16, 0x26);
         for (size_t i = 0; i < rows; ++i) free(names[i]);
         free(names);
         free(shown);
@@ -416,4 +418,172 @@ bool queen_view_items(cok_adventure *game, cok_character *character)
         if (!ok || !stats(game, character)) return false;
     } while (choice != B_EXIT);
     return true;
+}
+
+/* The coins: steel, gems and jewelry, a word each at +0x4c (the sheet's
+ * names). */
+static const char *const coin_names[3] = {"Steel", "Gems", "Jewelry"};
+
+static unsigned coin_of(const cok_character *character, unsigned k)
+{
+    return (unsigned)(character->record[0x4c + 2 * k] | character->record[0x4d + 2 * k] << 8);
+}
+
+static void set_coin(cok_character *character, unsigned k, unsigned value)
+{
+    character->record[0x4c + 2 * k] = (uint8_t)value;
+    character->record[0x4d + 2 * k] = (uint8_t)(value >> 8);
+}
+
+/* 86b8:2586: a number typed on the bar after its prompt (1a62:0046 at
+ * row 24: the prompt white on the window's grey from cell 1, the digits
+ * after it in light cyan, boxed): digits add one, but past max the number
+ * is max's own; Backspace takes one off (a blank over its cell);
+ * Return gives the number, Escape (or '`') 0. -1 where the keys ran out. */
+static long amount_input(cok_adventure *game, const char *prompt, long max)
+{
+    char text[32], max_text[16], buf[16] = "";
+    snprintf(max_text, sizeof max_text, "%ld", max);
+    int start = (int)strlen(prompt), cursor = start;
+    queen_bottom_bar(game);
+    queen_prompt_box(game, 0, prompt, 0x0f, 8);
+    for (;;) {
+        queen_input in;
+        int key = queen_read_input(game, &in);
+        if (key < 0) return -1;
+        if (in.click) continue;
+        if (in.key >= '0' && in.key <= '9') {
+            size_t n = strlen(buf);
+            if (n + 1 < sizeof buf) {
+                buf[n] = (char)in.key;
+                buf[n + 1] = '\0';
+            }
+            if (atol(buf) > max) {
+                snprintf(buf, sizeof buf, "%s", max_text);
+                cursor = (int)strlen(buf) + start;
+            } else {
+                ++cursor;
+            }
+            queen_prompt_box(game, start, buf, 0x0b, 8);
+        } else if (in.key == 8) {
+            size_t n = strlen(buf);
+            if (n > 0) {
+                buf[n - 1] = '\0';
+                --cursor;
+                queen_prompt_box(game, cursor, " ", 0, 8);
+            }
+        } else if (in.key == 0x0d || in.key == 0x1b || in.key == 0x60) {
+            queen_bottom_bar(game);
+            snprintf(text, sizeof text, "%s", buf);
+            return in.key == 0x0d ? atol(text) : 0;
+        }
+    }
+}
+
+/* The coins in a list (86b8:2c32's, 286a's: each kept one a row of 18
+ * cells, its name, blanks and its count) under "select type of coin " and
+ * Select and Exit, over cells x1 to 38 by rows y1 to y2; *coin the one
+ * picked. 1 where one was picked, 0 for Exit or Escape, -1 where the
+ * keys ran out. */
+static int coin_menu(cok_adventure *game, const cok_character *character, int x1, int y1, int y2,
+                     unsigned *coin)
+{
+    static const char *const bar[] = {"Select", "Exit"};
+    char rows[3][24];
+    const char *shown[3];
+    unsigned which[3], n = 0;
+    for (unsigned k = 0; k < 3; ++k) {
+        unsigned count = coin_of(character, k);
+        if (count == 0) continue;
+        char number[16];
+        snprintf(number, sizeof number, "%u", count);
+        int blanks = 18 - (int)strlen(coin_names[k]) - (int)strlen(number);
+        snprintf(rows[n], sizeof rows[n], "%s%*s%s", coin_names[k], blanks > 0 ? blanks : 0, "",
+                 number);
+        which[n] = k;
+        shown[n] = rows[n];
+        ++n;
+    }
+    size_t at = 0;
+    cok_adventure_log(game, "menu", "Select Exit");
+    int picked = queen_list_menu(game, "select type of coin ", bar, 2, shown, n, &at, x1, y1,
+                                 y2, 0x26);
+    if (picked < 0) return -1;
+    if (picked == 1 || picked == 0x1b || n == 0) return 0;
+    *coin = which[at < n ? at : 0];
+    return 1;
+}
+
+/* 86b8:2c32 in the camp: coins dropped, until none are left or Exit. */
+bool queen_view_drop(cok_adventure *game, cok_character *character)
+{
+    queen_sheet_coins(game, character);
+    for (;;) {
+        unsigned coin;
+        int picked = coin_menu(game, character, 0x14, 9, 0x0f, &coin);
+        if (picked < 0) return false;
+        if (picked == 0) return true;
+        char prompt[64];
+        snprintf(prompt, sizeof prompt, "How much %s will you drop? ", coin_names[coin]);
+        long amount = amount_input(game, prompt, (long)coin_of(character, coin));
+        if (amount < 0) return false;
+        /* 86b8:2bc6: the coin and the weight (+0x56) less it. */
+        set_coin(character, coin, coin_of(character, coin) - (unsigned)amount);
+        uint16_t weight = (uint16_t)(character->record[0x56] | character->record[0x57] << 8);
+        weight = (uint16_t)(weight - (uint16_t)amount);
+        character->record[0x56] = (uint8_t)weight;
+        character->record[0x57] = (uint8_t)(weight >> 8);
+        if (coin_of(character, 0) + coin_of(character, 1) + coin_of(character, 2) == 0)
+            return true;
+    }
+}
+
+/* 86b8:286a: coins given to a member: "trade to?", then the coins one
+ * type at a time ("How much Steel will you trade? "), "Overloaded"
+ * (86b8:27ac) where the weight past the strength's allowance and 1,500
+ * would be more; Exit from the coins asks whom again. */
+bool queen_view_trade(cok_adventure *game, cok_character *character)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    for (;;) {
+        queen_full_window(game);
+        bool failed = false;
+        cok_character *to = which_member(game, "trade to?", last_target, &failed);
+        if (failed) return false;
+        if (to == NULL) return true;
+        if (!queen_sheet(game, character)) return false;
+        last_target = to;
+        for (;;) {
+            unsigned coin;
+            int picked = coin_menu(game, character, 0x14, 9, 0x0f, &coin);
+            if (picked < 0) return false;
+            if (picked == 0) break;
+            char prompt[64];
+            snprintf(prompt, sizeof prompt, "How much %s will you trade? ", coin_names[coin]);
+            long amount = amount_input(game, prompt, (long)coin_of(character, coin));
+            if (amount < 0) return false;
+            char error[300];
+            int16_t allowance;
+            if (!cok_character_allowance(to->record, rules, &allowance, error, sizeof error)) {
+                cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
+                return false;
+            }
+            uint32_t weight = cok_field_u16(L, to->record, COK_FIELD_WEIGHT);
+            if (weight + (uint32_t)amount > (uint16_t)((uint16_t)allowance + 0x5dc)) {
+                queen_bar_message(game, "Overloaded");
+            } else {
+                set_coin(character, coin, coin_of(character, coin) - (unsigned)amount);
+                set_coin(to, coin, coin_of(to, coin) + (unsigned)amount);
+                uint16_t mine = cok_field_u16(L, character->record, COK_FIELD_WEIGHT);
+                cok_field_set16(L, character->record, COK_FIELD_WEIGHT,
+                                (uint16_t)(mine - (uint16_t)amount));
+                cok_field_set16(L, to->record, COK_FIELD_WEIGHT,
+                                (uint16_t)(cok_field_u16(L, to->record, COK_FIELD_WEIGHT) +
+                                           (uint16_t)amount));
+            }
+            if (coin_of(character, 0) + coin_of(character, 1) + coin_of(character, 2) == 0)
+                return true;
+        }
+    }
 }
