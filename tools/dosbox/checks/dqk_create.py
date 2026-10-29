@@ -51,31 +51,143 @@ GENDER = {"male": (30, 167), "female": (30, 175)}
 LAW = {"lawful": (30, 103), "neutral": (30, 111), "chaotic": (30, 119)}
 GOOD = {"good": (30, 131), "neutral": (30, 139)}
 
-# case: (name, [steps]); a step is ("click", x, y), ("key", keys) or
-# ("name", text); the form opens at the first step and "seed" is written
-# to the original there.
+
+def click(x, y):
+    return ("click", x, y)
+
+
+def form(race, klass, gender, law, good):
+    return [(f"{race}", click(*RACE[race])), (f"{klass}", click(*CLASS[klass])),
+            (f"{gender}", click(*GENDER[gender])), (f"{law}", click(*LAW[law])),
+            (f"{good}", click(*GOOD[good])), ("form done", ("key", "d"))]
+
+
+def finish(name, rights, reroll=0):
+    """The roll (REROLL times Reroll Stats), the name, the icon moved RIGHTS
+    cells right, and the question answered yes."""
+    steps = [(f"reroll {n + 1}", ("key", "r")) for n in range(reroll)]
+    steps.append(("stats done", ("key", "d")))
+    steps += [(f"name {ch}", ("key", ch)) for ch in name]
+    steps.append(("name entered", ("key", "\\r")))
+    steps += [(f"icon right {n + 1}", ("key", "\\>")) for n in range(rights)]
+    steps += [("icon done", ("key", "d")), ("saved", ("key", "y")),
+              ("pointer away", click(300, 60)), ("pointer on a button", click(40, 123))]
+    return steps
+
+
+# case: (file, steps); the form opens at the first step and the port's seed
+# there is written to the original.
 CASES = {
-    "fighter": [("form", "human", "fighter", "male", None, None)],
-    "cleric": [("form", "silvanesti", "cleric", "female", "lawful", "good"), ("deity", 1)],
-    "dwarf": [("form", "hill-dwarf", "cleric", "male", None, None)],
-    "kender": [("form", "kender", "thief", "male", None, None)],
-    "multi": [("form", "half-elf", "fighter-mage", "female", None, None)],
+    "fighter": ("ZARTH", form("human", "fighter", "male", "lawful", "good")
+                + finish("Zarth", 1)),
+    "cleric": ("ELARA", form("silvanesti", "cleric", "female", "lawful", "good")
+               + [("deity down", ("key", "\\v")), ("deity select", ("key", "s"))]
+               + finish("Elara", 0, reroll=1)),
+    "dwarf": ("DORN", form("hill-dwarf", "cleric", "male", "lawful", "neutral")
+              + finish("Dorn", 2)),
+    "kender": ("KIP", form("kender", "thief", "male", "neutral", "good") + finish("Kip", 3)),
+    "multi": ("MIRA", form("half-elf", "fighter-mage", "female", "lawful", "good")
+              + finish("Mira", 1)),
 }
 
 
-def port_keys(case):
-    """eclplay's keys for the case, and what each one is (for the shots)."""
-    keys, steps = "\\k\\ePC", []
-    kind, race, klass, gender, law, good = case[0]
-    for table, value in ((RACE, race), (CLASS, klass), (GENDER, gender), (LAW, law),
-                         (GOOD, good)):
-        if value is not None:
-            x, y = table[value]
-            keys += f"\\m{x},{y},1."
-            steps.append(("click", x, y))
-    keys += "d"
-    steps.append(("key", "d"))
-    return keys, steps
+def key_text(step):
+    kind = step[0]
+    if kind == "click":
+        return f"\\m{step[1]},{step[2]},1."
+    return step[1]
+
+
+def port_run(work, case, saves):
+    """eclplay's shots with the case's steps (saving to SAVES), and its log."""
+    keys = "\\k\\ePC" + "".join(key_text(s) for _, s in CASES[case][1])
+    shots = work / f"port-{case}"
+    if shots.exists():
+        shutil.rmtree(shots)
+    result = subprocess.run([str(cokbox.ECLPLAY), *GAME, "--mouse", "--shots", str(shots),
+                             "--saves", str(saves), "--start-menu", "--keys", keys,
+                             str(dqk_lib.ASSETS)], capture_output=True, text=True, cwd=ROOT,
+                            timeout=300)
+    log = result.stdout + result.stderr
+    (work / f"port-{case}.txt").write_text(log)
+    return ([cokbox.RGBScreen.load(p) for p in
+             sorted(shots.glob("*.bmp"), key=lambda p: int(p.stem))], log)
+
+
+def far_pointers(data):
+    """The offsets of a saved character's far pointers (a record's next,
+    effects, items and slots; each effect's next): the original's are its
+    heap's addresses, the port's are not."""
+    mask = set()
+    for o, n in [(0, 4), (4, 4), (10, 2), (0xc, 0x34)]:
+        mask.update(range(o, o + n))
+    items = data[8] | data[9] << 8 if len(data) > 9 else 0
+    at = 0x19e + items * 17
+    effects = data[4:8] != b"\0\0\0\0"
+    while effects and at + 9 <= len(data):
+        mask.update(range(at + 5, at + 9))
+        effects = data[at + 5:at + 9] != b"\0\0\0\0"
+        at += 9
+    return mask
+
+
+def character_differences(a, b):
+    if len(a) != len(b):
+        return ["size"]
+    mask = far_pointers(a)
+    return [hex(k) for k in range(len(a)) if a[k] != b[k] and k not in mask]
+
+
+def run_case(case, opts, work, verdict):
+    file_name, steps = CASES[case]
+    saves = work / f"saves-{case}"
+    if saves.exists():
+        shutil.rmtree(saves)
+    shutil.copytree(dqk_lib.ASSETS / "SAVE", saves)
+    shots, log = port_run(work, case, saves)
+    found = re.search(r"seed: ([0-9a-f]{8})", log)
+    if found is None:
+        verdict.differ(case, "the port logged no seed")
+        return
+    seed = struct.pack("<I", int(found.group(1), 16))
+    out = work / f"original-{case}"
+    if out.exists():
+        shutil.rmtree(out)
+    out.mkdir()
+    with cokbox.Box(workdir=work / f"box-{case}", game="dark-queen", verbose=opts.verbose,
+                    timeout=900, extra_conf={"sdl.mouse_emulation": "always"}) as box:
+        for _ in range(600):
+            shot = box.screenshot()
+            if (shot.width, shot.height) == (320, 200) and len(shot.colours()) >= 8:
+                break
+            box.settle(0.1)
+        for key in ("\\e", "P", "C"):
+            box.keys(key)
+            box.settled(tolerance=64)
+        box.ds_write(0xCA0E, seed)
+        for n, (what, step) in enumerate(steps):
+            if step[0] == "click":
+                box.click(step[1], step[2])
+            else:
+                box.keys(step[1])
+            shot = box.settled(tolerance=64)
+            shot.save_png(out / f"{n:02d}-{checklib.slug(what)}.png")
+            masks = ()
+            if what.startswith("name "):
+                masks = ((0, 184, 320, 16, "the name's blinking caret"),)
+            elif what == "saved":
+                masks = ((20, 120, 30, 30, "the camp's cursor: the original keeps the shield "
+                          "the form's pointer had until it moves (the next steps agree)"),)
+            verdict.screen(f"{case}: {what}", shot, shots[n + 4] if len(shots) > n + 4 else None,
+                           masks=masks, work=work)
+        box.settle(1.0)
+        original = box.cdrive / "DQK" / "SAVE" / (file_name + ".QCH")
+        written = original.read_bytes() if original.exists() else b""
+    ported = saves / (file_name + ".QCH")
+    port = ported.read_bytes() if ported.exists() else b""
+    verdict.value(f"{case}: the file written ({file_name}.QCH, but the far pointers)",
+                  (len(written), character_differences(written, port)[:20] if port else ["none"]),
+                  (len(port), []))
 
 
 def main():
@@ -87,7 +199,9 @@ def main():
     dqk_lib.need_assets()
     work = checklib.workdir(opts.workdir, "dqk_create")
     verdict = checklib.Verdict()
-    verdict.check(False, "not written yet")
+    for case in CASES:
+        if not opts.only or case in opts.only:
+            run_case(case, opts, work, verdict)
     return verdict.finish()
 
 

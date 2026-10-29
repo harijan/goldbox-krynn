@@ -1078,8 +1078,21 @@ static void picker_screen(cok_adventure *game, cok_character *ch, unsigned selec
     unsigned gender = word_at(c + 0x60), race = word_at(c + 0x58), class_ = word_at(c + 0x5a);
     queen_say(game, 0x17, 9, genders[gender < 3 ? gender : 0], 7);
     queen_say(game, 0x17, 0x0a, races[race < 8 ? race : 7], 7);
-    snprintf(line, sizeof line, "%s", classes[class_ < 18 ? class_ : 17]);
-    queen_say(game, 0x17, 0x0c, line, 7);
+    /* 66e5:07b9: a class of the table (DS:3b3e) on one line; the three-
+     * class and the other multi-classes (9 to 13, 15, 16) one class a line,
+     * the first two of 9 being "Cleric/Fighter" and "Magic-User". */
+    static const char *const lines[17][3] = {
+        [9] = {"Cleric/Fighter", "Magic-User"}, [10] = {"Cleric", "Ranger"},
+        [11] = {"Cleric", "Magic-User"},        [12] = {"Cleric", "Thief"},
+        [13] = {"Fighter", "Magic-User"},       [15] = {"Fighter", "Magic-User", "Thief"},
+        [16] = {"Magic-User", "Thief"}};
+    if (class_ < 17 && lines[class_][0] != NULL) {
+        for (unsigned i = 0; i < 3 && lines[class_][i] != NULL; ++i)
+            queen_say(game, 0x17, 0x0c + (int)i, lines[class_][i], 7);
+    } else {
+        snprintf(line, sizeof line, "%s", classes[class_ < 18 ? class_ : 17]);
+        queen_say(game, 0x17, 0x0c, line, 7);
+    }
     queen_text(game, 16, 188, "ready    action", 0x87);
     backdrop(game, 32, 200, false);
     queen_draw_library(game, QUEEN_LIB_CBODY, selected, 32, 200);
