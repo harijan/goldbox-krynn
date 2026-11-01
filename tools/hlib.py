@@ -287,6 +287,31 @@ def load(path):
     return Library(pathlib.Path(path).read_bytes())
 
 
+def replace(data, key, record):
+    """The library DATA's bytes with its record KEY (an id, or an index) replaced
+    by RECORD: the offsets and the size rewritten, the rest as it was (a copy
+    of ECL.GLB with one block changed, for dqk_ecl.py)."""
+    lib = Library(data)
+    if lib.ids is not None:
+        if key not in lib.ids:
+            raise FormatError(f"no id {key}")
+        index = lib.ids[key]
+    else:
+        index = key
+        if not 0 <= index < len(lib.records):
+            raise FormatError(f"no record {key}")
+    records = list(lib.records)
+    records[index] = bytes(record)
+    head = 16 + 4 * (len(records) + 1)
+    offsets, body = [], b""
+    for r in records:
+        offsets.append(head + len(body))
+        body += r
+    offsets.append(head + len(body))
+    return (b"HLIB" + struct.pack("<IHH4s", head + len(body), len(records), lib.flags, lib.type) +
+            struct.pack(f"<{len(offsets)}I", *offsets) + body)
+
+
 def base_colours(paths):
     colours = {}
     for p in paths or ():

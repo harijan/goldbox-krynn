@@ -110,6 +110,19 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(colours, {1: (10, 20, 30), 2: (40, 50, 60)})
         self.assertEqual(hlib.kind(b"HLIB" + bytes(12)), "library")
 
+    def test_replace_rewrites_one_record(self):
+        data = library([b"zero", b"one", b"two"], ids=[(5, 2), (6, 3)])
+        same = hlib.replace(data, 5, b"one")
+        self.assertEqual(same, data)
+        changed = hlib.replace(data, 6, b"a longer record")
+        lib = hlib.Library(changed)
+        self.assertEqual((lib.ids, lib.record(5), lib.record(6)),
+                         ({5: 2, 6: 3}, b"one", b"a longer record"))
+        self.assertEqual(lib.size, len(changed))
+        self.assertEqual(hlib.replace(changed, 6, b"two"), data)
+        with self.assertRaises(hlib.FormatError):
+            hlib.replace(data, 7, b"x")
+
     def test_data_library_records_are_data(self):
         lib = hlib.Library(library([tile(4, 1, 0x10, bytes(4))], kind=b"DATA"))
         self.assertEqual(hlib.kind(lib.records[0], lib), "data")

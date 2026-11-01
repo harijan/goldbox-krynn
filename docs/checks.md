@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py` and `dqk_create.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py` and `dqk_ecl.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -434,6 +434,27 @@ wraps below 0 as a signed byte, which `177e:0f5f` compares unsigned) and effect
 record (`177e:0be2`) of a character the original had not already recomputed;
 the two agree but for the far pointers (2026-10-29), and `tests/test_dark_queen.py`
 holds the digest.
+
+`dqk_ecl.py` (about 35 seconds for its three blocks) runs test blocks of the
+ECL in both (`tools/dqkecl.py` writes them, as `src/ecl.c` reads their
+operands; `tools/hlib.py`'s `replace` puts one in a copy of `DISK3\ECL.GLB`
+for block 1, the developers' jumper). The original's block variable is set to 1
+before Begin Adventuring, as `dqk_views.py` does, and the block's first
+instruction, PRESS KEY, is where the box sets the random seed (`DS:ca0e`, the
+port's `--seed`). Compared: the variables 0x100-0x17f and 0x29 (each block
+zeroes them first) byte for byte, the original's 1 KB at far `DS:b20f` against
+`eclplay --game dark-queen --vars`, and both against what the block should
+leave (the random draws by `2102:0234`'s formula). The blocks: the arithmetic
+and RANDOM narrow and wide; COMPARE with every IF; GOTO, GOSUB and RETURN; ON
+GOTO and ON GOSUB in and out of range; GETTABLE and SAVE TABLE; the wrap of
+16-bit sums and products. All agree (2026-11-01). DIVIDE by zero is not in the
+blocks: the original never gets past it (DOSBox-X logs an unhandled INT 0
+again and again, the game's screen and ECL stay at the DIVIDE, 832a), where
+eclplay stops with "division by zero" there; a difference in a case the game
+does not survive, not compared.
+
+To add a block: write it in `dqk_ecl.py`'s `BLOCKS` (a function returning the
+`Block` and the values it should leave), and the flow runs it in both.
 
 Death Knights of Krynn, read headless (see [Games](games.md#games)), is checked by
 `tools/dosbox/checks/dkk_views.py`, which `make dkk-checks` runs
