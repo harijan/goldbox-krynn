@@ -504,12 +504,13 @@ run, citing their handlers (`unported`). It holds:
   0x2b and 0x2c (`start_stores`) and its locals 0x97-0xc8; `DELAY` 600 ms;
   `CALL` 1 the view again, 2 a step, 3 the picture's next frame
   (`5f07:0aba`); a new game's block 4 (`5f07:10cd`); the arithmetic (ADD, SUBTRACT,
-  MULTIPLY, DIVIDE, AND, OR, SAVE, RANDOM), COMPARE with every IF, GOTO, GOSUB and
-  RETURN, ON GOTO and ON GOSUB in and out of range, GETTABLE and SAVE TABLE agree with
-  the original on test blocks, narrow and wide (`dqk_ecl.py`, 2026-11-01); DIVIDE by
-  zero does not run in the original at all: its INT 0 is unhandled and the game hangs
-  (DOSBox-X's "Illegal Unhandled Interrupt Called 0"), where eclplay stops with "division
-  by zero" at the same address, 832a;
+  MULTIPLY, DIVIDE, AND, OR, SAVE, RANDOM), COMPARE with every IF (9 against 5, 0xffff
+  against 1), GOTO, GOSUB (nested), RETURN (at depth 0 too), ON GOTO and ON GOSUB in
+  range, at the count and out of range, the flags AND and OR leave, GETTABLE and SAVE
+  TABLE agree with the original on test blocks, narrow and wide (`dqk_ecl.py`,
+  2026-11-01); DIVIDE by zero does not run in the original at all: its INT 0 is
+  unhandled and the game hangs (DOSBox-X's "Illegal Unhandled Interrupt Called 0"),
+  where eclplay stops with "division by zero" at the same address, 832a;
 - its maps: `GEO.GLB` records of their own size (`cok_view_set_geo`,
   `8a8b:12e3`): u8 height, u8 width, the wall sets of slots 0-2 and three
   backdrops, then four planes of a byte a square, row by row: the north

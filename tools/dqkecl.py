@@ -13,9 +13,10 @@ that tools/dosbox/checks/dqk_ecl.py runs in the original and in eclplay.
 A record is the block as the game loads it (block_header 0, rules_dark_queen.c):
 five vectors of four bytes each (GOTO's opcode, a WORD, the target), then the
 code from 0x8014. The code starts with an EXIT, which vectors 0-3 go to; the
-body follows it from Block's 'entry' label, which vector 4 (the load vector)
-goes to. Block.label(name) marks a place, and Ref(name) is a WORD holding its
-address, for GOTO, GOSUB and the ON targets.
+body follows it from Block's 'entry' label (0x8015), which vector 4 (the load
+vector) goes to. Block.label(name) marks a place, Block.address(name) is its
+address in the game, and Ref(name) is a WORD holding its address, for GOTO,
+GOSUB and the ON targets.
 
 Operands are read as src/ecl.c's cok_ecl_operands reads them (dqk 5f07:0f46):
 a type byte, the low byte, and for the types 1-3 the high byte too. imm(n) is
@@ -28,6 +29,7 @@ Opcodes are by their byte, as rules_dark_queen.c's dark_queen_opcodes has them.
 
 BASE = 0x8000
 VECTORS = 5
+CODE_START = BASE + VECTORS * 4  # the code's first address: the block's EXIT (0x8014)
 CODE_LIMIT = 0x2EE3 - VECTORS * 4  # rules->ecl.code_size, less the vectors
 
 OPCODES = {
@@ -79,6 +81,10 @@ class Block:
         assert name not in self.labels, name
         self.labels[name] = self.size
 
+    def address(self, name):
+        """A label's address in the game (CODE_START plus its offset)."""
+        return CODE_START + self.labels[name]
+
     def op(self, name, *operands):
         """One instruction: its opcode, then its operands (bytes, or Ref)."""
         self._add(bytes([OPCODES[name]]))
@@ -94,11 +100,10 @@ def assemble(block):
     """The block's record: the five vectors, then the code."""
     if block.size > CODE_LIMIT:
         raise ValueError(f"the block is {block.size} bytes; the limit is {CODE_LIMIT}")
-    code_start = BASE + VECTORS * 4
+    entry = block.labels["entry"]
     vectors = b"".join(
-        bytes([OPCODES["GOTO"]]) + word(code_start + (block.labels["entry"] if i == VECTORS - 1
-                                                     else 0))
+        bytes([OPCODES["GOTO"]]) + word(CODE_START + (entry if i == VECTORS - 1 else 0))
         for i in range(VECTORS))
-    code = b"".join(word(code_start + block.labels[p.name]) if isinstance(p, Ref) else p
+    code = b"".join(word(CODE_START + block.labels[p.name]) if isinstance(p, Ref) else p
                     for p in block.parts)
     return vectors + code

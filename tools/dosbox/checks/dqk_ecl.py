@@ -1,22 +1,33 @@
 #!/usr/bin/env python3
 """The Dark Queen of Krynn's ECL arithmetic, comparisons, jumps and tables
 run in the original and in eclplay (DARK-QUEEN.md's step 3a: dqk_ecl;
-docs/checks.md, "Checks against the original"): three test blocks
+docs/checks.md, "Checks against the original"): four test blocks
 (tools/dqkecl.py) that replace block 1 of a copy of DISK3\\ECL.GLB
 (tools/hlib.py's replace). In the original, the block variable is set to 1
 before Begin Adventuring, as dqk_views' jumper does (5f07:10cd), and the
 block's PRESS KEY waits for the random seed (DS:ca0e, set to SEED there, as
-eclplay's --seed sets its own). Compared: the variables 0x100-0x17f and
-0x29 (the blocks zero them first), byte for byte, the original's 1 KB at far
-DS:b20f against eclplay --vars's, and eclplay's values against what each
-block should leave (the random draws by 2102:0234's formula).
+eclplay's --seed sets its own). Checked:
+
+- the original waits in the block's PRESS KEY, and its ECL stops at the
+  block's last instruction (its EXIT, or the RETURN at depth 0 labelled
+  'last') before the variables are read;
+- the variables 0x100-0x17f and 0x29 (WINDOW; the blocks zero them first),
+  byte for byte, the original's 1 KB at far DS:b20f against eclplay --vars's;
+- every other variable (the 1 KB less WINDOW) changes in neither side from
+  its baseline: the original's at its PRESS KEY, eclplay's at an empty
+  block's end (the same starting state, the blocks being run from the same
+  one);
+- both leave the values each block computes (expect, written by hand, and
+  the random draws by 2102:0234's formula).
 
 The blocks: ADD, SUBTRACT, MULTIPLY, DIVIDE, AND, OR, SAVE and RANDOM, narrow
-and wide (both widths of a variable and an immediate); COMPARE with every
-IF, GOTO, GOSUB and RETURN, ON GOTO and ON GOSUB in and out of range,
-GETTABLE and SAVE TABLE; and the wrap-around of 16-bit sums and products.
-DIVIDE by zero is not here: the original hangs in it (docs/checks.md). About
-35 seconds for the three blocks.
+and wide (both widths of a variable and an immediate); COMPARE with every IF
+(9 against 5, and 0xffff against 1, greater as unsigned words); GOTO, GOSUB
+(nested too), RETURN, ON GOTO and ON GOSUB in range, at the count and out of
+range; the flags AND and OR leave; a RANDOM into a wide variable;
+RETURN at depth 0 ending the block; GETTABLE and SAVE TABLE; and the wrap-around
+of 16-bit sums and products. DIVIDE by zero is not here: the original hangs
+in it (docs/checks.md). About 50 seconds for the four blocks.
 
     python3 tools/dosbox/checks/dqk_ecl.py [--workdir DIR] [--verbose]
 
@@ -34,7 +45,7 @@ import checklib  # noqa: E402
 import dqk_lib  # noqa: E402
 import dqkecl  # noqa: E402
 import hlib  # noqa: E402
-from dqkecl import Block, Ref, imm, var, wvar, word  # noqa: E402
+from dqkecl import OPCODES, Block, Ref, imm, var, wvar, word  # noqa: E402
 
 cokbox = checklib.cokbox
 ROOT = cokbox.ROOT
@@ -43,10 +54,12 @@ GAME = ["--game", "dark-queen"]
 # variable 0x16 at DS:b20f + 0x16.
 JUMP = 1
 DS_VARS = 0xB20F
+VARIABLES = 0x400  # the 1 KB at DS:b20f, variables 1 to 0x400
 # Each block's seed: eclplay's --seed and the original's RandSeed.
 SEED = 12345
-# The variables a block's prelude zeroes and the check compares: 0x100-0x17f
-# and the remainder (0x29, DIVIDE's).
+# The variables the blocks write and the check compares byte for byte: 0x100-0x17f
+# (each block's prelude zeroes them first) and 0x29 (DIVIDE's remainder). A block
+# that changes any other variable is a difference.
 WINDOW = list(range(0x100, 0x180)) + [0x29]
 
 
@@ -174,13 +187,92 @@ def control():
     # SAVE TABLE: a byte at 0x150 + 4, and a word over 0x150 + 6 and 7.
     b.op("SAVE_TABLE", imm(0x77), word(0x150), imm(4))
     b.op("SAVE_TABLE", word(0xBEEF), word(0x150), imm(6))
+    # COMPARE 9 with 5: greater. Each IF in turn, into 0x170-0x175.
+    b.op("COMPARE", imm(9), imm(5))
+    for i, f in enumerate(("IF_EQUAL", "IF_NOT_EQUAL", "IF_LESS", "IF_GREATER",
+                           "IF_LESS_EQUAL", "IF_GREATER_EQUAL")):
+        b.op(f); b.op("SAVE", imm(1), var(0x170 + i))
+    # COMPARE 0xffff with 1: greater as unsigned words (signed, it would be less).
+    b.op("COMPARE", word(0xFFFF), imm(1))
+    b.op("IF_GREATER"); b.op("SAVE", imm(1), var(0x176))
+    b.op("IF_LESS"); b.op("SAVE", imm(1), var(0x177))
+    # ON GOTO at the count: 2 of 2 falls through (the targets write 0x179).
+    b.op("ON_GOTO", imm(2), imm(2), Ref("c0"), Ref("c1"))
+    b.op("SAVE", imm(0xEE), var(0x178))
+    b.op("GOTO", Ref("done_cnt"))
+    b.label("c0")
+    b.op("SAVE", imm(0xD0), var(0x179))
+    b.op("GOTO", Ref("done_cnt"))
+    b.label("c1")
+    b.op("SAVE", imm(0xD1), var(0x179))
+    b.label("done_cnt")
+    # ON GOSUB at the count (2 of 2) and above (3 of 2): both fall through
+    # (the subroutines write 0x17b).
+    b.op("ON_GOSUB", imm(2), imm(2), Ref("g0"), Ref("g1"))
+    b.op("SAVE", imm(0xB9), var(0x17A))
+    b.op("ON_GOSUB", imm(3), imm(2), Ref("g0"), Ref("g1"))
+    b.op("SAVE", imm(0xB8), var(0x17C))
+    b.op("GOTO", Ref("done_gos"))
+    b.label("g0")
+    b.op("SAVE", imm(0xB0), var(0x17B))
+    b.op("RETURN")
+    b.label("g1")
+    b.op("SAVE", imm(0xB1), var(0x17B))
+    b.op("RETURN")
+    b.label("done_gos")
+    # Nested GOSUB: the inner one returns to the outer, the outer to here.
+    b.op("GOSUB", Ref("outer"))
+    b.op("SAVE", imm(0x66), var(0x17F))
+    b.op("GOTO", Ref("done_nest"))
+    b.label("outer")
+    b.op("GOSUB", Ref("inner"))
+    b.op("SAVE", imm(0x55), var(0x17D))
+    b.op("RETURN")
+    b.label("inner")
+    b.op("SAVE", imm(0x44), var(0x17E))
+    b.op("RETURN")
+    b.label("done_nest")
     b.op("EXIT")
     expect.update({0x100: 200, 0x120: 1, 0x121: 0, 0x122: 0, 0x123: 0, 0x124: 1, 0x125: 1,
                    0x126: 1, 0x127: 0, 0x128: 1, 0x129: 0, 0x12A: 1, 0x12B: 0, 0x12C: 0x55,
                    0x12D: 0x66, 0x12E: 2, 0x12F: 0, 0x130: 0xA2, 0x131: 0xEE, 0x132: 0,
                    0x133: 0xB9, 0x134: 0xB1, 0x135: 0x33, 0x136: 0x22, 0x137: 0x33,
                    0x140: 0x11, 0x141: 0x22, 0x142: 0x33, 0x143: 0x44, 0x154: 0x77,
-                   0x156: 0xEF, 0x157: 0xBE})
+                   0x156: 0xEF, 0x157: 0xBE,
+                   # COMPARE 9 with 5: not equal, greater, greater or equal.
+                   0x170: 0, 0x171: 1, 0x172: 0, 0x173: 1, 0x174: 0, 0x175: 1,
+                   # COMPARE 0xffff with 1: greater, not less.
+                   0x176: 1, 0x177: 0,
+                   # ON GOTO 2 of 2 and ON GOSUB 2 and 3 of 2: they fall through.
+                   0x178: 0xEE, 0x179: 0, 0x17A: 0xB9, 0x17B: 0, 0x17C: 0xB8,
+                   # Nested GOSUB.
+                   0x17D: 0x55, 0x17E: 0x44, 0x17F: 0x66})
+    return b, expect
+
+
+def flags():
+    """AND's and OR's flags (their result compared with 0, as 2fd3:0ed3 does),
+    a RANDOM into a wide variable, and a RETURN at depth 0, which ends the block:
+    the RETURN is the block's last instruction (labelled 'last'), and the
+    SAVE after it must not run."""
+    b, expect = Block(), {}
+    b.op("PRESS_KEY")
+    prelude(b)
+    b.op("SAVE", imm(0x10), var(0x100))
+    b.op("AND", imm(0x0F), var(0x100), var(0x101))          # 0x10 & 0x0f = 0: equal
+    b.op("IF_EQUAL"); b.op("SAVE", imm(1), var(0x102))
+    b.op("IF_NOT_EQUAL"); b.op("SAVE", imm(1), var(0x103))
+    b.op("OR", imm(1), imm(2), var(0x104))                  # 1 | 2 = 3: 0 is less
+    b.op("IF_LESS"); b.op("SAVE", imm(1), var(0x105))
+    b.op("IF_GREATER"); b.op("SAVE", imm(1), var(0x106))
+    b.op("SAVE", imm(0x77), var(0x108))
+    b.op("RANDOM", imm(9), wvar(0x107))                     # range 10, into 0x107-0x108
+    b.label("last")
+    b.op("RETURN")                                          # depth 0: the block ends
+    b.op("SAVE", imm(0xEE), var(0x109))                     # not run
+    b.op("EXIT")
+    expect.update({0x100: 0x10, 0x101: 0, 0x102: 1, 0x103: 0, 0x104: 3, 0x105: 1, 0x106: 0,
+                   0x107: draw(SEED, 10)[0], 0x108: 0, 0x109: 0})
     return b, expect
 
 
@@ -200,7 +292,7 @@ def edges():
     return b, expect
 
 
-BLOCKS = {"arithmetic": arithmetic, "control": control, "edges": edges}
+BLOCKS = {"arithmetic": arithmetic, "control": control, "flags": flags, "edges": edges}
 
 
 def port(work, name, patched):
@@ -229,8 +321,11 @@ def port(work, name, patched):
 
 
 def original(work, name, patched, verbose):
-    """The original's 1 KB of variables after the block (at its end, the
-    game waiting in its adventure loop), from the block's PRESS KEY on."""
+    """The original's run of the block from its PRESS KEY (where the box sets
+    the seed) to its end. Returns (the state where it waits, the variables
+    there, the state at its end, the variables then); a state is (pc, opcode)
+    from DS:b7f9 and DS:b1c7 (see stop_at), and the variables are the 1 KB at
+    DS:b20f."""
     with cokbox.Box(workdir=work / f"box-{name}", game="dark-queen", verbose=verbose,
                     timeout=900, files={"DISK3/ECL.GLB": patched}) as box:
         for _ in range(600):
@@ -255,25 +350,54 @@ def original(work, name, patched, verbose):
         # The block's first instruction: the PRESS KEY, where the game
         # waits; the seed is set there, after the copy protection's draws.
         box.settled(tolerance=64)
-        opcode = dqk_lib.ecl_state(box)["opcode"]
+        wait = dqk_lib.ecl_state(box)
         box.set_seed(SEED)
+        before = box.read(variables + 1, VARIABLES)
         box.keys("\\r")
         box.settled(tolerance=64)
-        return box.read(variables + 1, 0x400), opcode
+        end = dqk_lib.ecl_state(box)
+        after = box.read(variables + 1, VARIABLES)
+        return ((wait["pc"], wait["opcode"]), before,
+                (end["pc"], end["opcode"]), after)
 
 
-def compare(verdict, name, original_vars, port_vars, port_last, expect):
-    if len(port_vars) != 0x400:
-        verdict.check(False, f"{name}: eclplay ran the block", port_last or "no variables saved")
+def stop_at(block):
+    """Where the block's ECL stops, as the original's DS:b7f9 (pc) and DS:b1c7
+    (opcode) read there: the RETURN labelled 'last' (a RETURN at depth 0 ends a
+    block), else the block's final EXIT. pc is the address past the opcode
+    (PRESS KEY at 0x8015 reads 0x8016, the final EXIT at 0x83a1 reads 0x83a2);
+    a RETURN at depth 0 reads two past its own, as the port's exit_script
+    steps past the RETURN and then past the EXIT it is (ecl.c:923, 1032)."""
+    if "last" in block.labels:
+        return block.address("last") + 2, OPCODES["RETURN"]
+    return dqkecl.CODE_START + block.size, OPCODES["EXIT"]
+
+
+def changed(before, after):
+    """The variables (1 to 0x400) whose values differ."""
+    return [a for a in range(1, VARIABLES + 1) if before[a - 1] != after[a - 1]]
+
+
+def compare(verdict, name, orig, ported, port_last, expect):
+    """ORIG and PORTED: (before, after), the variables at the block's PRESS
+    KEY (the port's: its empty block's end) and at its end, 1 KB each."""
+    (o_before, o_after), (p_before, p_after) = orig, ported
+    if len(p_after) != VARIABLES or len(o_after) != VARIABLES:
+        verdict.check(False, f"{name}: both sides read the variables",
+                      port_last or "eclplay saved no variables")
         return
     verdict.check("(done in block 1)" in port_last, f"{name}: eclplay ran the block to its EXIT",
                   port_last)
-    differing = [a for a in WINDOW if original_vars[a - 1] != port_vars[a - 1]]
-    verdict.check(len(original_vars) == 0x400 and not differing,
-                  f"{name}: the variables 0x100-0x17f and 0x29 agree",
-                  ", ".join(f"{a:x}: original {original_vars[a - 1]:02x}, port {port_vars[a - 1]:02x}"
+    for side, before, after in (("the original", o_before, o_after),
+                                ("eclplay", p_before, p_after)):
+        outside = [a for a in changed(before, after) if a not in WINDOW]
+        verdict.check(not outside, f"{name}: {side} changes nothing outside 0x100-0x17f and 0x29",
+                      ", ".join(f"{a:x}" for a in outside[:8]))
+    differing = [a for a in WINDOW if o_after[a - 1] != p_after[a - 1]]
+    verdict.check(not differing, f"{name}: the variables 0x100-0x17f and 0x29 agree",
+                  ", ".join(f"{a:x}: original {o_after[a - 1]:02x}, port {p_after[a - 1]:02x}"
                             for a in differing[:8]))
-    for side, vars_ in (("eclplay", port_vars), ("the original", original_vars)):
+    for side, vars_ in (("eclplay", p_after), ("the original", o_after)):
         wrong = [a for a, v in sorted(expect.items()) if vars_[a - 1] != v]
         verdict.check(not wrong, f"{name}: {side} leaves the values the block computes",
                       ", ".join(f"{a:x}: {vars_[a - 1]:x} not {expect[a]:x}" for a in wrong[:8]))
@@ -288,14 +412,28 @@ def main():
     work = checklib.workdir(opts.workdir, "dqk_ecl")
     verdict = checklib.Verdict()
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    # The baseline of the variables outside WINDOW for eclplay: an empty block's
+    # end (the blocks start from the same state, so it is every block's).
+    empty = Block()
+    empty.op("PRESS_KEY")
+    base_vars, base_last = port(work, "empty", hlib.replace(glb, JUMP, dqkecl.assemble(empty)))
+    verdict.check(len(base_vars) == VARIABLES and "(done in block 1)" in base_last,
+                  "eclplay runs an empty block to its EXIT (the baseline)", base_last)
     for name, make in BLOCKS.items():
         block, expect = make()
         patched = hlib.replace(glb, JUMP, dqkecl.assemble(block))
         port_vars, port_last = port(work, name, patched)
-        original_vars, opcode = original(work, name, patched, opts.verbose)
-        verdict.check(opcode == 0x1D, f"{name}: the original waits in the block's PRESS KEY",
-                      f"opcode {opcode:#x}")
-        compare(verdict, name, original_vars, port_vars, port_last, expect)
+        wait, before, end, after = original(work, name, patched, opts.verbose)
+        # The PRESS KEY is the block's first instruction (its entry, 0x8015): pc reads past it.
+        verdict.check(wait == (block.address("entry") + 1, OPCODES["PRESS_KEY"]),
+                      f"{name}: the original waits in the block's PRESS KEY",
+                      f"pc {wait[0]:#x}, opcode {wait[1]:#x}, not {block.address('entry') + 1:#x}, "
+                      f"{OPCODES['PRESS_KEY']:#x}")
+        stop = stop_at(block)
+        verdict.check(end == stop, f"{name}: the original's ECL stopped at the block's last "
+                      "instruction", f"pc {end[0]:#x}, opcode {end[1]:#x}, not "
+                      f"{stop[0]:#x}, {stop[1]:#x}")
+        compare(verdict, name, (before, after), (base_vars, port_vars), port_last, expect)
     return verdict.finish()
 
 
