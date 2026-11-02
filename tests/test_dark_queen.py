@@ -1498,5 +1498,53 @@ class DarkQueenTests(unittest.TestCase):
                       result.stderr)
 
 
+    def test_ground(self):
+        # The battle's ground (queen_arena.c, eclplay --ground): a made-up map of 50
+        # by 25 terrain values, its view at 3, 2, drawn with DUNGCOM's set 4 (the
+        # fixture's dungeon, the palettes of ALWAYS and FRAME under it) as tools/hlib.py
+        # draws each cell: the terrain table's tile (DS:6197, the 4th byte of its
+        # entry) as record tile + 1 of the set, its 24 by 24 pixels at 8 + 24 * column,
+        # 8 + 24 * row, in the palette's colours (the shown bits 2-7 of each 8-bit value).
+        source = (ROOT / "src" / "data_dark_queen.c").read_text()
+        table = source[source.index("static const uint8_t terrain[308]"):]
+        table = table[table.index("{") + 1:table.index("};")]
+        terrain = bytes(int(v, 16) for v in re.findall(r"0x([0-9a-fA-F]{2})", table))
+        self.assertEqual(len(terrain), 308)
+        dungeon = hlib.Library(hlib.load(ASSETS / "DISK2" / "DUNGCOM.TLB").record(4))
+        # Values whose tile is in the set (tile + 1 is one of its records).
+        usable = [v for v in range(77) if terrain[4 * v + 3] + 1 < len(dungeon.records)]
+        view_x, view_y = 3, 2
+        cells = [[usable[(x * 7 + y * 3) % len(usable)] for x in range(50)] for y in range(25)]
+        mapfile = self.folder / "ground.txt"
+        lines = [f"view {view_x} {view_y}"]
+        lines += ["".join(f"{v:02x}" for v in row) for row in cells]
+        mapfile.write_text("\n".join(lines) + "\n")
+        bmp = self.folder / "ground.bmp"
+        result = self.play("--ground", mapfile, "--ground-set", "dungcom4", "--screen", bmp,
+                           ASSETS, 4)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        base = {}
+        for name in ("ALWAYS.TLB", "FRAME.TLB"):
+            base.update(hlib.palettes(hlib.load(ASSETS / ("DISK1" if name[0] == "A" else "DISK3") / name)))
+        colours = dict(base)
+        colours.update(hlib.palettes(dungeon))
+        shown = lambda q: bytes(((c >> 2) << 2) | ((c >> 2) >> 4) for c in q)
+        got = pixels(bmp)
+        for row in range(7):
+            for col in range(7):
+                value = cells[view_y + row][view_x + col]
+                tile = terrain[4 * value + 3]
+                _, _, _, _, _, rows = hlib.picture(dungeon.records[tile + 1], dungeon)
+                for j in range(24):
+                    for i in range(24):
+                        index = rows[j][i]
+                        # The BMP stores blue, green, red.
+                        want = shown(colours.get(index, (index, index, index)))[::-1]
+                        y = 8 + 24 * row + j
+                        at = (y * 320 + 8 + 24 * col + i) * 3
+                        # pixels() gives the rows from the top.
+                        self.assertEqual(got[at:at + 3], want, (row, col, i, j))
+        self.assertEqual(self.play("--ground", mapfile, "--ground-set", "dungcom7", ASSETS, 4).returncode, 2)
+
 if __name__ == "__main__":
     unittest.main()

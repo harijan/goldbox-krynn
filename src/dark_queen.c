@@ -4,6 +4,7 @@
 #include "adventure.h"
 #include "hlib.h"
 #include "queen.h"
+#include "queen_arena.h"
 #include "queen_create.h"
 #include "queen_items.h"
 #include "queen_view.h"
@@ -20,14 +21,15 @@
 /* The libraries the game draws from, read once and kept. */
 enum {
     LIB_ALWAYS, LIB_FRAME, LIB_TITLE, LIB_BACK, LIB_WALLS_B, LIB_WALLS_C, LIB_PIC_A, LIB_PIC_B,
-    LIB_PIC_C, LIB_BIGPIC, LIB_GEN, LIB_FINAL, LIB_DUNGCOM, LIB_CBODY, LIBS
+    LIB_PIC_C, LIB_BIGPIC, LIB_GEN, LIB_FINAL, LIB_DUNGCOM, LIB_CBODY, LIB_WILDCOM, LIBS
 };
 static const char *const lib_names[LIBS] = {
     "ALWAYS.TLB", "FRAME.TLB", "TITLE.TLB", "BACK.TLB",   "8X8DB.TLB", "8X8DC.TLB",
     "PICA.TLB",   "PICB.TLB",  "PICC.TLB",  "BIGPIC.TLB", "GEN.TLB",   "FINAL.TLB",
-    "DUNGCOM.TLB", "CBODY.TLB",
+    "DUNGCOM.TLB", "CBODY.TLB",  "WILDCOM.TLB",
 };
-_Static_assert((int)LIB_DUNGCOM == (int)QUEEN_LIB_DUNGCOM && (int)LIB_CBODY == (int)QUEEN_LIB_CBODY,
+_Static_assert((int)LIB_DUNGCOM == (int)QUEEN_LIB_DUNGCOM && (int)LIB_CBODY == (int)QUEEN_LIB_CBODY &&
+               (int)LIB_WILDCOM == (int)QUEEN_LIB_WILDCOM,
                "queen.h numbers the libraries");
 
 enum {
@@ -121,6 +123,9 @@ typedef struct {
     uint8_t under[64];
     int mark_x, mark_y;
     bool marked;
+    /* The battlefield's tile set (DUNGCOM's or WILDCOM's nested library, the
+     * combat ground's; queen_arena.c), set by arena_tiles. */
+    hlib_library arena;
 } queen;
 
 static queen *own(cok_adventure *game)
@@ -4265,6 +4270,47 @@ bool queen_sheet(cok_adventure *game, cok_character *character)
     return true;
 }
 
+/* The combat ground (queen_arena.c): the battlefield's set, and its palette
+ * (record 0 of the set, as 2796:0536 applies it: the colours as the game
+ * writes them, the cycles started from the seed), then the view or a cell
+ * of the map drawn. */
+static bool arena_tiles(cok_adventure *game, bool wild, unsigned set)
+{
+    queen *q = own(game);
+    if (!sub_library(game, wild ? LIB_WILDCOM : LIB_DUNGCOM, set, &q->arena)) return false;
+    set_palette(game, &q->arena, 0, 0);
+    return true;
+}
+
+static bool arena_ready(cok_adventure *game)
+{
+    if (own(game)->arena.data != NULL) return true;
+    snprintf(game->error, sizeof game->error, "no battlefield's tile set (arena_tiles)");
+    return false;
+}
+
+static bool arena_view(cok_adventure *game)
+{
+    if (!arena_ready(game)) return false;
+    if (cok_queen_arena_view(&game->screen, &own(game)->arena, cok_game_rules(game),
+                             &game->combat))
+        return true;
+    snprintf(game->error, sizeof game->error,
+             "the battle's view has a cell past the map or its set's tiles (DS:6197)");
+    return false;
+}
+
+static bool arena_cell(cok_adventure *game, int x, int y)
+{
+    if (!arena_ready(game)) return false;
+    if (cok_queen_arena_cell(&game->screen, &own(game)->arena, cok_game_rules(game),
+                             &game->combat, x, y))
+        return true;
+    snprintf(game->error, sizeof game->error,
+             "the battle's cell %d,%d is past the map or its set's tiles (DS:6197)", x, y);
+    return false;
+}
+
 const cok_drawing cok_dark_queen_drawing = {
     .open = queen_open,
     .close = queen_close,
@@ -4284,4 +4330,7 @@ const cok_drawing cok_dark_queen_drawing = {
     .pick_bar = pick_bar,
     .load = load_saved,
     .play = play,
+    .arena_tiles = arena_tiles,
+    .arena_view = arena_view,
+    .arena_cell = arena_cell,
 };

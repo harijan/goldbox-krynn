@@ -396,6 +396,10 @@ static bool scroll(cok_adventure *game, int8_t x, int8_t y, uint8_t margin, bool
     cok_combat *c = &game->combat;
     *redrew = cok_combat_scroll(c, x, y, margin);
     if (!*redrew) return true;
+    /* A game that draws its own ground (adventure.h's arena_view) draws the
+     * view from the map at its corner, not the 4-bit tiles below. */
+    const cok_drawing *drawing = cok_adventure_drawing(game);
+    if (drawing != NULL && drawing->arena_view != NULL) return drawing->arena_view(game);
     for (int row = 0; row < 7; ++row)
         for (int column = 0; column < 7; ++column)
             if (!terrain(game, column * 3, row * 3, s8(c->view_x + column), s8(c->view_y + row),
@@ -463,6 +467,17 @@ bool cok_arena_redraw_cell(cok_adventure *game, int8_t x, int8_t y)
 {
     if (!map_there(game, "6beb:02aa")) return false;
     cok_combat *c = &game->combat;
+    const cok_drawing *drawing = cok_adventure_drawing(game);
+    if (drawing != NULL && drawing->arena_cell != NULL) {
+        /* The game's cell (its ground only); a combatant's icon there is
+         * not drawn for such a game yet (parts 11-12). */
+        uint8_t occupant, value;
+        cok_combat_cell(c, x, y, &occupant, &value);
+        if (occupant != 0)
+            return fail(game, "a combatant's icon at %d,%d is not drawn on this game's ground yet "
+                              "(6beb:02aa)", x, y);
+        return drawing->arena_cell(game, x, y);
+    }
     if (!cok_arena_erase(game, s8(x - c->view_x), s8(y - c->view_y), 0)) return false;
     uint8_t occupant, value;
     cok_combat_cell(c, x, y, &occupant, &value);

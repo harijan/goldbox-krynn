@@ -206,6 +206,16 @@ typedef struct {
      * it, from block: the game's own loop, to its end (eclplay's --play).
      * NULL: cok_adventure_enter's block, then cok_adventure_play. */
     cok_ecl_status (*play)(cok_adventure *game, uint8_t block);
+    /* The combat ground: the battlefield's tile set, its palette applied as
+     * the battle starts (wild: WILDCOM's set, else DUNGCOM's; DUNGCOM's ids
+     * 1-6, WILDCOM's 1, 2, 4 and 5); then the 7 by 7 view drawn from the
+     * battle's map at its corner (arena.c's scroll, 6beb:07a9), or one cell
+     * of the map (x, y) drawn at its place in the view (6beb:02aa, without
+     * its icon). False with game->error set where the picture is not there.
+     * NULL: the arena's 4-bit tiles, which the game draws in place of these. */
+    bool (*arena_tiles)(cok_adventure *game, bool wild, unsigned set);
+    bool (*arena_view)(cok_adventure *game);
+    bool (*arena_cell)(cok_adventure *game, int x, int y);
 } cok_drawing;
 
 /* The game's own drawing, or NULL for the 8x8 tiles'. */

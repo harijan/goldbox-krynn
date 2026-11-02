@@ -635,6 +635,15 @@ run, citing their handlers (`unported`). It holds:
   not ported. Found and fixed on the way: ADD EP's words went through the 16-colour wrap,
   which draws nothing on the VGA screen (`cok_drawing`'s `window_text` and `window_clear`
   now carry them).
+- the combat ground (`queen_arena.c`, the arena hooks of `cok_drawing`, `dqk_fight.py`'s flow `ground`):
+  the battlefield's 7 by 7 view of 24 by 24 tiles at 8, 8, each cell the terrain table's tile (DS:6197, its
+  fourth byte) as record tile + 1 of DUNGCOM's or WILDCOM's set, the set's palette (record 0) applied over the
+  base colours of ALWAYS and FRAME. The set is `arena_tiles`' argument (DUNGCOM's ids 1-6, WILDCOM's 1, 2, 4 and 5; the set the
+  battlefield loads is 59c7:0e70's, part 7), the view comes from the battle's map (`arena_view`: the scroll,
+  6beb:07a9) and a cell's redraw (`arena_cell`, 6beb:02aa, without its icon). Arena.c calls them where the
+  4-bit tiles are drawn; a combatant's icon, the cursor, the clouds and the bodies over a cell are not drawn
+  yet (parts 11-12). The palette's cycles start when the set is applied (`cok_vga_apply_palette`, the seed).
+  `eclplay --ground FILE --ground-set dungcom4` draws a map file's ground and saves `--screen`.
 - its fights' loads (`dqk_fight.py`, flows `setup` and `load`): LOAD MONSTER only registers
   the monster (`6c70:29a3`: the flag DS:bd4e, the slot's id, count and icon, the next icon
   slot, below 0x0e), and COMBAT's monsters branch appends the records (`5f07:081b`, then

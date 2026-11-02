@@ -596,7 +596,7 @@ may also set `stop` (where its ECL rests, when that is not past its EXIT: NEWECL
 block 2) and `waits` (the count the original must wait); `dqk_ecl_flow.py`'s
 `newecl` shows both.
 
-The Dark Queen's first fight (`tools/dosbox/checks/dqk_fight.py`, flows `setup` and `load`, in `make
+The Dark Queen's first fight (`tools/dosbox/checks/dqk_fight.py`, flows `setup`, `load` and `ground`, in `make
 dqk-checks`, about 20 seconds and a minute) is a test block of LOAD FILES 4 4, CLEARMONSTERS, a PRESS KEY labelled 'monsters', LOAD
 MONSTER 64 x2, a PRESS KEY labelled 'loaded', SETUP MONSTERS, APPROACH and COMBAT, from saved game A, with the
 sound off (below). The original's state (`dqk_fight_lib.py`: the records, combat records, combatants,
@@ -617,6 +617,13 @@ monsters appended are exactly the two SHARKMEN, every record has its combat reco
 combatants on the map, the readings agree (`dqk_fight_lib.consistent`), and the RandSeed is 0x1756582c (11
 draws from the seed). The states go to build/dqk-fight/setup.json with the heap pointers masked
 (`dqk_fight_lib.portable`: a pointer becomes the index of its record in the list).
+Flow `ground` (step 4, part 4): the same block to the first turn, where the original's screenshot and its battlefield
+(`dqk_fight_lib.battlefield`: the view at +2 and +4, the 50 by 25 cells at +9) are read; eclplay's `--ground` draws
+that map (`queen_arena.c`, through the game's arena hooks) with DUNGCOM set 4, and the 7 by 7 view at 8, 8 must agree
+pixel for pixel in RGB. Masked: the six cells the combatants stand on (6 x 576 pixels, their icons: parts 11-12) and
+the 8 by 9 pixels of the frame's shield over the corner (72; 61 of them differ, and nothing else in the ground does).
+Compared: 24,696 of the 28,224 ground pixels, 0 differing. The set is DUNGCOM 4 (59c7:0e70, the battlefield's
+loader, chooses it; part 7); DUNGCOM 1-3, 5, 6 and WILDCOM 1, 2, 4 differ on the same map (on nearly every pixel).
 Flow `load` (`LOADS`: two SHARKMEN and one MINOTAUR, then COMBAT with no SETUP MONSTERS or APPROACH; the
 original allows it after LOAD FILES) reads the party list where COMBAT calls the battle (`5f07:08f0`, trapped
 while the block waits for its PRESS KEY: the battle starts at once after the key), and eclplay, started as setup's

@@ -390,6 +390,77 @@ static void test_game(void)
     CHECK(total == 1827);
 }
 
+/* The combat libraries' pictures: DUNGCOM's and WILDCOM's 24 by 24 tiles
+ * (format 0x10, their sets nested) and CPIC's icons (0x15). Each picture's
+ * hash (its width and height, then each pixel, 256 where transparent) is
+ * summed over the pictures, walked as tools/hlib.py walks them (index
+ * records past an id map, nested libraries in turn), with their count. The
+ * sums are tools/hlib.py's: with it, walk each library the same way and
+ * hash each picture's rows (picture(), None as 256) as this does, with
+ * FNV-1a's prime 1099511628211 and 64-bit wrap-around (DEVELOPERS.md). */
+static uint64_t hash_picture(const cok_vga_image *image)
+{
+    uint64_t v = (uint64_t)image->width * 1000003u + image->height;
+    for (size_t j = 0; j < image->height; ++j)
+        for (size_t c = 0; c < image->width; ++c) {
+            size_t k = j * image->width + c;
+            unsigned p = image->mask != NULL && image->mask[k] != 0 ? 256u : image->pixels[k];
+            v = v * 1099511628211u + p;
+        }
+    return v;
+}
+
+static void sum_pictures(const uint8_t *data, size_t size, uint64_t *sum, size_t *count)
+{
+    hlib_library lib;
+    CHECK(hlib_parse(data, size, &lib) == HLIB_OK);
+    for (size_t i = (lib.flags & HLIB_ID_MAP) ? 1 : 0; i < lib.count; ++i) {
+        const uint8_t *record;
+        size_t n;
+        CHECK(hlib_record_at(&lib, i, &record, &n) == HLIB_OK);
+        if (hlib_is_library(record, n)) {
+            sum_pictures(record, n, sum, count);
+            continue;
+        }
+        if (!cok_vga_is_picture(record, n)) continue;
+        cok_vga_image image = {0};
+        CHECK(cok_vga_decode(record, n, &lib, &image) == COK_VGA_OK);
+        *sum += hash_picture(&image);
+        ++*count;
+        cok_vga_free(&image);
+    }
+}
+
+static void test_combat(void)
+{
+    static const struct {
+        const char *file;
+        size_t count;
+        uint64_t sum;
+    } libs[] = {
+        {"DISK2/DUNGCOM.TLB", 136, UINT64_C(0xcbaf1ae41cc79d8e)},
+        {"DISK2/WILDCOM.TLB", 160, UINT64_C(0x69ca5d4bb0a1e798)},
+        {"DISK2/CPIC.TLB", 190, UINT64_C(0x89684a0435cc6a15)},
+    };
+    for (size_t f = 0; f < sizeof libs / sizeof *libs; ++f) {
+        char path[64];
+        snprintf(path, sizeof path, "DQKAssets/%s", libs[f].file);
+        uint8_t *data;
+        size_t size;
+        hlib_status status = hlib_read_file(path, &data, &size);
+        if (status == HLIB_IO_ERROR && f == 0) {
+            puts("test_vga: no DQKAssets/: the combat pictures skipped");
+            return;
+        }
+        CHECK(status == HLIB_OK);
+        uint64_t sum = 0;
+        size_t count = 0;
+        sum_pictures(data, size, &sum, &count);
+        free(data);
+        CHECK(count == libs[f].count && sum == libs[f].sum);
+    }
+}
+
 int main(void)
 {
     test_library();
@@ -399,6 +470,7 @@ int main(void)
     test_cycles();
     test_draw();
     test_game();
+    test_combat();
     puts("test_vga: ok");
     return 0;
 }

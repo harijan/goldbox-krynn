@@ -62,6 +62,7 @@ import argparse
 import json
 import pathlib
 import shutil
+import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -441,10 +442,93 @@ def load(v, work, opts):
             + ", ".join(f"{a}/{b}" for a, b in hp))
 
 
+# The ground flow (step 4, part 4): the first turn's battlefield as the original draws
+# it, its view's 7 by 7 cells at 8, 8 and the cells the combatants stand on masked
+# (their icons: parts 11-12), against eclplay --ground's drawing of the same map. The
+# set is DUNGCOM 4 (the fixture's dungeon: other sets differ; 59c7:0e70, part 7, chooses
+# it). The frame's shield at the corner, which the port's ground does not draw, is
+# masked too (8 by 9 pixels at 8, 8).
+GROUND = (8, 8, 168, 168)                   # the view: x, y, w, h (queen_arena.c)
+GROUND_CELL = 24
+GROUND_SET = "dungcom4"
+GROUND_SHIELD = (8, 8, 8, 9, "the frame's shield over the ground's corner (not the ground)")
+
+
+def ground_original(work, patched, verbose):
+    """The original at the first turn (the setup flow's trap, the same keys): its
+    screenshot (320 by 200 in colours) and the battlefield (L.battlefield)."""
+    with cokbox.Box(workdir=work / "box-ground", game="dark-queen", verbose=verbose,
+                    timeout=900, files=L.files(patched)) as box:
+        dqk_ecl.enter_block(box)
+        box.set_seed(SEED)
+        box.keys("\\r")
+        box.settled(tolerance=64)
+        box.keys("\\r")
+        box.settled(tolerance=64)
+        box.keys("\\r")
+        handle = L.trap(box, *TURN, until=lambda: box.ds_byte(L.DS_TURN) == 1 and
+                        box.ds_word(L.DS_MODE) == 5, seconds=180)
+        box.settled(tolerance=64)
+        screen = box.screenshot(path=str(work / "ground-original.png"))
+        battlefield = L.battlefield(box)
+        L.untrap(box, handle)
+        return screen, battlefield
+
+
+def ground(v, work, opts):
+    """The ground flow: the original's first turn against eclplay --ground's drawing
+    of the same battlefield. The unmasked ground (GROUND, minus the combatants' cells
+    and the shield) must agree pixel for pixel."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
+    screen, bf = ground_original(work, patched, opts.verbose)
+    view_x, view_y = bf["view"]
+    cells = bytes.fromhex(bf["cells"])
+    occupants = bytes.fromhex(bf["occupants"])
+    width = 50
+    mapfile = work / "ground.txt"
+    rows = [f"view {view_x} {view_y}"] + [cells[r * width:(r + 1) * width].hex()
+                                          for r in range(25)]
+    mapfile.write_text("\n".join(rows) + "\n")
+    bmp = work / "ground-port.bmp"
+    result = subprocess.run(
+        [str(ROOT / "build" / "eclplay"), "--game", "dark-queen", "--ground", str(mapfile),
+         "--ground-set", GROUND_SET, "--screen", str(bmp), str(dqk_lib.ASSETS), "4"],
+        capture_output=True, text=True, cwd=ROOT)
+    v.check(result.returncode == 0, "eclplay --ground draws the battlefield",
+            result.stderr.strip() or f"exit {result.returncode}")
+    if result.returncode != 0:
+        return
+    port = cokbox.RGBScreen.load(bmp, (320, 200))
+    gx, gy, gw, gh = GROUND
+    masks = []
+    for j in range(7):
+        for i in range(7):
+            if occupants[(view_y + j) * width + view_x + i]:
+                masks.append((gx + GROUND_CELL * i, gy + GROUND_CELL * j, GROUND_CELL,
+                              GROUND_CELL, "a combatant's icon"))
+    masks.append(GROUND_SHIELD)
+    # Everything outside the ground (the frame, the panel, the text) is masked: only the
+    # ground's rectangle is compared.
+    outside = [(0, 0, 320, gy, "outside the ground"), (0, gy + gh, 320, 200 - gy - gh,
+               "outside the ground"), (0, gy, gx, gh, "outside the ground"),
+               (gx + gw, gy, 320 - gx - gw, gh, "outside the ground")]
+    screen_masks = outside + masks
+    covered = sum(1 for y in range(gy, gy + gh) for x in range(gx, gx + gw)
+                  if any(a <= x < a + w and b <= y < b + h for a, b, w, h, *_ in masks))
+    count, box = checklib.masked_diff(screen, port, screen_masks)
+    detail = (f"{count} pixels differ in {box}" if count else
+              f"{covered} of {gw * gh} ground pixels masked ({len(masks) - 1} cells and the "
+              f"shield), {gw * gh - covered} compared")
+    v.check(count == 0, "the first turn's ground agrees with eclplay's (masked: the "
+            "combatants' cells and the shield)", detail)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir")
-    parser.add_argument("--flows", default="setup,load", help="which flows: setup, load")
+    parser.add_argument("--flows", default="setup,load,ground",
+                        help="which flows: setup, load, ground")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -455,6 +539,8 @@ def main():
         setup(v, work, opts)
     if "load" in flows:
         load(v, work, opts)
+    if "ground" in flows:
+        ground(v, work, opts)
     return v.finish()
 
 
