@@ -1496,6 +1496,67 @@ class DarkQueenTests(unittest.TestCase):
                       result.stderr)
 
 
+    def test_encamp(self):
+        # The adventure's camp (Encamp, 6fea:0365's key 4, then 5f07:0b3b): its
+        # menu's words, View and its sheet, Exit back to the commands; Magic
+        # stops, cited; Save writes the game to a new slot (SAVGAMC.QSV). The
+        # walk to the commands is dqk_camp.py's.
+        walk = r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r\^\^\^"
+        saves = self.saved_game((ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes())
+        result = self.play("--start-menu", "--saves", saves, "--keys", walk + r"Ev\e\e", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("menu: View Magic Rest Alt Fix Load Save Exit", result.stdout)
+        self.assertIn("choice: 0", result.stdout)
+        self.assertEqual(result.stdout.count("choice: 7"), 2, result.stdout)
+        self.assertIn("menu: Area Cast View Encamp Search Look Inv", result.stdout)
+        result = self.play("--start-menu", "--saves", saves, "--keys", walk + "ESCN\\e", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((saves / "SAVGAMC.QSV").exists())
+        result = self.play("--start-menu", "--keys", walk + "EM", ASSETS)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("not yet ported: The Dark Queen of Krynn's Magic in the adventure's camp "
+                      "(dqk 7070:1671)", result.stderr + result.stdout)
+
+    def test_encamp_marks(self):
+        # The camp forgets the scrolls' marks (7070:0218, at the camp's start and end):
+        # an item of type 0x27 (its type at +0x28) loses bit 7 of its spells at
+        # 0x36-0x38, so the game saved from the camp holds them clear. The saved
+        # game's first character's first item is made one with marks 0x81 and 0x83.
+        data = bytearray((ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes())
+        item = characters(data)[0][0] + 0x19E
+        data[item] = 0x27
+        data[item + 0x0E:item + 0x11] = bytes([0x81, 0x83, 0x00])
+        saves = self.saved_game(data)
+        walk = r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r\^\^\^"
+        result = self.play("--start-menu", "--saves", saves, "--keys", walk + "ESCN\\e", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        saved = (saves / "SAVGAMC.QSV").read_bytes()
+        item = characters(saved)[0][0] + 0x19E
+        self.assertEqual(saved[item], 0x27)
+        self.assertEqual(saved[item + 0x0E:item + 0x11], bytes([0x01, 0x03, 0x00]))
+
+    def test_encamp_load(self):
+        # Save, then Exit (5f07:0ba6 clears the game saved, DS:ae5b), then Encamp and
+        # Load: "Game not saved. Load anyway? " is asked, and No goes back to the menu
+        # (7070:2f07), so the menu is shown four times and the run ends at Exit.
+        walk = r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r\^\^\^"
+        saves = self.saved_game((ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes())
+        result = self.play("--start-menu", "--saves", saves, "--keys", walk + "ESCN\\eEln\\e",
+                           ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("not yet ported", result.stderr + result.stdout)
+        self.assertEqual(result.stdout.count("menu: View Magic Rest Alt Fix Load Save Exit"), 4,
+                         result.stdout)
+
+    def test_encamp_arrows(self):
+        # The camp's menu takes the arrow keys as the adventure's commands do: Down picks
+        # a member (5e22:067c), not ported, so the run stops there, cited.
+        walk = r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r\^\^\^"
+        result = self.play("--start-menu", "--keys", walk + "E\\v\\e", ASSETS)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("not yet ported: The Dark Queen of Krynn's a member picked by a key "
+                      "(dqk 5e22:067c)", result.stderr + result.stdout)
+
     def test_ground(self):
         # The battle's ground (queen_arena.c, eclplay --ground): a made-up map of 50
         # by 25 terrain values, its view at 3, 2, drawn with DUNGCOM's set 4 (the

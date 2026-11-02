@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py`, `dqk_ecl_misc.py`, `dqk_ecl_party.py`, `dqk_ecl_items.py`, `dqk_fight.py` and `dqk_program0.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py`, `dqk_ecl_misc.py`, `dqk_ecl_party.py`, `dqk_ecl_items.py`, `dqk_fight.py`, `dqk_program0.py` and `dqk_camp.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -540,6 +540,21 @@ loop's redraw after the EXIT (the view's, CALL 1's DS:b7f8) is not reached in th
 not checked. The variables the original changed agree (0x30 and the marker; in the overland flow
 0x22, 0x24, 0x3e, 0x25 and 0x26 too). The other variables are not compared: eclplay starts from a
 fresh game, not saved game A (its `--load` is not ported). All agree (2026-11-02).
+
+`dqk_camp.py` (about a minute; in `make dqk-checks`) runs the adventure's camp, Encamp (`e`) from
+the commands after the same walk to Caergoth's 3D view as `dqk_party.py`, with saved game A's
+party on both sides: the camp's menu, View's sheet (`v`) and the menu again (Escape), the adventure
+after Exit (Escape), each with the screen in RGB (the mouse's pointer left out) and the variables
+0x0001-0x0400; then Encamp, Save to slot C (`s`, `c`), "Exit to DOS? " answered No (`n`) and
+Escape, the adventure's screen and variables, and the saved game C: byte for byte, with the far
+pointers (the records' and items' and effects' next, the item pointer's high word) left out as
+`dqk_create.py` leaves them and the effects' pointer and the 13 slots compared by nil-ness (the
+original's slots are its readied items', `dqk_create.original_slots` and `model_slots`). Then
+Encamp and Load: after Save and Exit the game is not saved (`5f07:0ba6`), so Load asks "Game not
+saved. Load anyway? ", whose screen is compared. The camping picture is left out of the menus'
+screens and the question: the original animates it while the menu waits (DS:c2ef above 0, checked
+at each menu), so its frame at a shot is the animation's. Magic, Rest, Alt, Fix and Load's yes
+are not run (they stop eclplay). All agree (2026-11-02).
 
 `dqk_ecl_text.py` (about a minute and a half for its seven blocks; in `make dqk-checks`)
 runs the text, picture and wait opcodes the same way, with `dqk_views.py`'s screens:
