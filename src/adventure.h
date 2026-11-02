@@ -185,6 +185,12 @@ typedef struct {
      * cok_adventure_status's own). */
     void (*party)(cok_adventure *game);
     void (*status)(cok_adventure *game);
+    /* The ECL's text window (cells 1-38 by 17-22): text in colour fg from the
+     * cursor, cleared first when clear, by the game's own routine (ADD EP's
+     * words); and the window cleared, as WHO does. NULL: the tiles' wrap and
+     * fill. */
+    void (*window_text)(cok_adventure *game, const char *text, unsigned fg, bool clear);
+    void (*window_clear)(cok_adventure *game);
 } cok_drawing;
 
 /* The game's own drawing, or NULL for the 8x8 tiles'. */

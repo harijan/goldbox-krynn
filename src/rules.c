@@ -1877,6 +1877,7 @@ const cok_rules cok_rules_champions = {
             .gains_end = " gains experience!",
             .party_gains = "Congratulations the party gains experience!",
             .gains_active_first = false,
+            .gains_colour = 10,
         },
     .levels =
         {
@@ -2041,6 +2042,29 @@ const cok_rules cok_rules_champions = {
             .bodies = 31,
         },
 };
+
+/* Two NUL-terminated strings equal, letters ignoring their case (dqk 24de,
+ * which the Dark Queen compares names and WHO's prompt with). */
+bool cok_rules_same_text(const char *a, const char *b)
+{
+    const unsigned char *x = (const unsigned char *)a, *y = (const unsigned char *)b;
+    for (; *x != '\0' && *y != '\0'; ++x, ++y) {
+        unsigned p = *x, q = *y;
+        if (p >= 'A' && p <= 'Z') p += 'a' - 'A';
+        if (q >= 'A' && q <= 'Z') q += 'a' - 'A';
+        if (p != q) return false;
+    }
+    return *x == *y;
+}
+
+/* WHO's prompt (dqk 6c70:2fe0): the prompt equal to the game's who_prompt
+ * (cok_rules_same_text) is the game's who_prompt_instead. */
+const char *cok_rules_who_prompt(const cok_rules *rules, const char *prompt)
+{
+    if (rules->ecl.who_prompt == NULL || !cok_rules_same_text(prompt, rules->ecl.who_prompt))
+        return prompt;
+    return rules->ecl.who_prompt_instead;
+}
 
 static const cok_rules *const games[] = {&cok_rules_champions, &cok_rules_death_knights,
                                          &cok_rules_dark_queen};

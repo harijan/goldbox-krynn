@@ -2216,6 +2216,114 @@ static void test_dark_queen_view_square(void)
     cok_adventure_close(&game);
 }
 
+/* The Dark Queen's ECL bytes for the party opcodes (rules_dark_queen.c's table: each
+ * byte its own meaning): LOAD CHARACTER 0x0a, FIND NPC 0x37, WHO 0x39, ADD EP 0x41. */
+enum {
+    DQK_LOAD_CHARACTER = 0x0a,
+    DQK_FIND_NPC = 0x37,
+    DQK_WHO = 0x39,
+    DQK_ADD_EP = 0x41,
+};
+
+/* A Dark Queen character for the party: its name (+0x68), whether it can act
+ * (+0x18b) and its seven class levels (+0xa5). */
+static cok_character *queen_member(const char *name, uint8_t active, const uint8_t levels[7])
+{
+    cok_character *c = calloc(1, sizeof *c);
+    CHECK(c != NULL);
+    memcpy(c->record + 0x68, name, strlen(name) + 1);
+    c->record[0x18b] = active;
+    memcpy(c->record + 0xa5, levels, 7);
+    return c;
+}
+
+static uint32_t queen_experience(const uint8_t *c)
+{
+    return (uint32_t)c[0x44] | (uint32_t)c[0x45] << 8 | (uint32_t)c[0x46] << 16 |
+           (uint32_t)c[0x47] << 24;
+}
+
+/* dqk 6c70:2719 (ADD EP), 6c70:2fe0 (WHO) and 6c70:31e8 (FIND NPC) on a party of
+ * four: AB and CD with two class levels each, EF which cannot act, GH with none.
+ * ADD EP gives the points times 100 divided among the classes, to the selected
+ * member or each that can act, in colour 7; with no class, the division leaves
+ * 0xffffffff. WHO's prompt is the game's replacement for one of its own. FIND NPC
+ * finds a member by name with the NPC bit (+0x9b), its position, 0x80 more when it
+ * cannot act, 0xff for none. Skipped without DQKAssets. */
+static void test_dark_queen_party(void)
+{
+    FILE *f = fopen("DQKAssets/DISK3/ECL.GLB", "rb");
+    if (f == NULL) {
+        puts("adventure: DQKAssets not found; Dark Queen's party opcodes not checked");
+        return;
+    }
+    fclose(f);
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &s};
+    CHECK(cok_adventure_open(&game, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
+    cok_ecl *vm = &game.vm;
+    const uint8_t two[7] = {2, 0, 1, 0, 0, 0, 0}, none[7] = {0};
+    const uint8_t one[7] = {1, 0, 1, 0, 0, 0, 0};
+    cok_character *a = queen_member("Ab", 1, two), *b = queen_member("CD", 1, one),
+                  *c = queen_member("EF", 0, one), *d = queen_member("GH", 1, none);
+    CHECK(cok_party_add(&game.party, &cok_rules_dark_queen, a) &&
+          cok_party_add(&game.party, &cok_rules_dark_queen, b) &&
+          cok_party_add(&game.party, &cok_rules_dark_queen, c) &&
+          cok_party_add(&game.party, &cok_rules_dark_queen, d));
+    /* ADD EP 0 (selected: AB) with 3 points: 300 over two classes. The text is in
+     * colour 7, not Champions' 10 (the window's colours). */
+    const uint8_t one_ep[] = {DQK_LOAD_CHARACTER, 0, 0, DQK_ADD_EP, 0, 0, 2, 0x03, 0x00,
+                              DQK_EXIT};
+    CHECK(run_code(&game, &s, one_ep, sizeof one_ep, "") == COK_ECL_OK);
+    CHECK(queen_experience(a->record) == 150 && queen_experience(b->record) == 0);
+    CHECK(strcmp(s.log, "print: Congratulations Ab gains experience!;") == 0);
+    bool used[256];
+    window_colours(&game.screen, used);
+    CHECK(used[7] && !used[10]);
+    /* ADD EP 1 (the party) with 257 points: each that can act gains 12850 (two
+     * classes), EF cannot and is passed over, and GH can act but has no class:
+     * its division leaves 0xffffffff. */
+    a->record[0x44] = b->record[0x44] = 0;
+    const uint8_t all_ep[] = {DQK_ADD_EP, 0, 1, 2, 0x01, 0x01, DQK_EXIT};
+    CHECK(run_code(&game, &s, all_ep, sizeof all_ep, "") == COK_ECL_OK);
+    CHECK(queen_experience(a->record) == 12850 && queen_experience(b->record) == 12850 &&
+          queen_experience(c->record) == 0 && queen_experience(d->record) == 0xffffffffu);
+    CHECK(strcmp(s.log, "print: Congratulations the party gains experience!;") == 0);
+    /* The selected member with no class divides by zero: the software division
+     * leaves 0xffffffff, which the experience adds (a drop of one, no error). */
+    d->record[0x18b] = 1;
+    const uint8_t zero_ep[] = {DQK_LOAD_CHARACTER, 0, 3, DQK_ADD_EP, 0, 0, 2, 10, 0,
+                               DQK_EXIT};
+    d->record[0x44] = d->record[0x45] = d->record[0x46] = d->record[0x47] = 0;
+    CHECK(run_code(&game, &s, zero_ep, sizeof zero_ep, "") == COK_ECL_OK);
+    CHECK(queen_experience(d->record) == 0xffffffffu);
+    /* WHO: down to CD and select it. */
+    const uint8_t who[] = {DQK_WHO, 0x80, 0, DQK_EXIT};
+    CHECK(run_code(&game, &s, who, sizeof who, "\x01Ps") == COK_ECL_OK);
+    CHECK(vm->character == b->record);
+    const char *prompt = "who will attempt to disarm the trap?";
+    CHECK(strcmp(cok_rules_who_prompt(&cok_rules_dark_queen, prompt),
+                 "Who will try to disarm?") == 0);
+    CHECK(cok_rules_who_prompt(&cok_rules_champions, prompt) == prompt);
+    /* FIND NPC: the name "AB" (case-blind) with bit 7 of +0x9b, into variable 0x100
+     * (ECL address 0x0100). None has it yet. */
+    const uint8_t find[] = {DQK_FIND_NPC, 0x80, 3, 0x04, 0x20, 0x00, 2, 0x00, 0x01, DQK_EXIT};
+    CHECK(run_code(&game, &s, find, sizeof find, "") == COK_ECL_OK &&
+          cok_ecl_load_var(vm, 0x100) == 0xff);
+    a->record[0x9b] = 0x80;
+    CHECK(run_code(&game, &s, find, sizeof find, "") == COK_ECL_OK &&
+          cok_ecl_load_var(vm, 0x100) == 0);
+    /* EF is found at 2 with bit 7, and it cannot act: 0x82. */
+    c->record[0x9b] = 0x80;
+    const uint8_t find_ef[] = {DQK_FIND_NPC, 0x80, 3, 0x14, 0x60, 0x00, 2, 0x00, 0x01,
+                               DQK_EXIT}; /* "EF": codes 5 and 6 */
+    CHECK(run_code(&game, &s, find_ef, sizeof find_ef, "") == COK_ECL_OK &&
+          cok_ecl_load_var(vm, 0x100) == 0x82);
+    cok_adventure_close(&game);
+}
+
 int main(void)
 {
     test_clock();
@@ -2236,6 +2344,7 @@ int main(void)
     test_dark_queen_ask();
     test_dark_queen_view_modes();
     test_dark_queen_view_square();
+    test_dark_queen_party();
     puts("adventure tests passed");
     return 0;
 }

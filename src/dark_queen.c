@@ -583,6 +583,18 @@ static bool print_window(cok_adventure *game, const char *s, int x1, int y1, int
     return true;
 }
 
+/* The adventure's text window hooks (adventure.h's cok_drawing): ADD EP's words
+ * (1a62:0311, slow) and WHO's fill (1a62:09a1). */
+static void window_text(cok_adventure *game, const char *text, unsigned fg, bool clear)
+{
+    print_window(game, text, 1, 0x11, 0x26, 0x16, fg, clear, true);
+}
+
+static void window_clear(cok_adventure *game)
+{
+    clear_cells(game, 1, 0x11, 0x26, 0x16);
+}
+
 /* The ECL's text window, cells 1-38 by 17-22, in colour fg. */
 static bool print_colour(cok_adventure *game, const char *s, bool clear, unsigned fg)
 {
@@ -4048,4 +4060,6 @@ const cok_drawing cok_dark_queen_drawing = {
     .cursor = cursor,
     .party = party_hook,
     .status = status_line,
+    .window_text = window_text,
+    .window_clear = window_clear,
 };
