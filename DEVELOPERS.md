@@ -139,6 +139,7 @@ their records, extracts one, and renders its pictures (every format,
 1,857 pictures in all) as PNGs in their palettes (`tests/test_hlib.py`,
 in `make test`, on made-up libraries and, where `DQKAssets/` holds them,
 on the game's, skipped saying so otherwise; `replace` rewrites one record);
+`eclplay --game dark-queen --ground FILE --ground-set dungcom4 --screen OUT.bmp DQKAssets 4` draws a battle's ground from a map file (a line "view X Y", then 25 lines of 50 terrain values in hex) through the game's arena hooks (queen_arena.c, the set and palette of `arena_tiles`; the set names are DUNGCOM 1-6, WILDCOM 1, 2, 4 or 5); `dqk_fight.py`'s flow `ground` writes that file from the original's first turn, names the set from the original's DS:ca03 and var 0x22, and compares the screens; `tests/test_dark_queen.py`'s `test_ground` checks it against tools/hlib.py's drawing of a made-up map, with the terrain table read from build/DQK_FULL.EXE (DS:6197), and `tests/test_queen_arena.c` checks the palette's seed draws;
 `tools/dqkecl.py` writes ECL test blocks for `dqk_ecl`, `dqk_ecl_input`, `dqk_ecl_text`, `dqk_ecl_flow`, `dqk_ecl_misc`, `dqk_ecl_party`, `dqk_ecl_items`, `dqk_fight` and `dqk_program0` (see [docs/checks.md](docs/checks.md));
 `tools/funcmatch/` matches
 two games' routines by Ghidra's C and scans the port's citations

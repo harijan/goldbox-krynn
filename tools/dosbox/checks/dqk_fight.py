@@ -55,18 +55,28 @@ none). `load`: 19 records, c6f1 13, ad6b 11, undead 0; `clear`: 17, c6f1 11, ad6
 hostile monsters' hit points halve for difficulty 1. No transcript of eclplay has an icon
 error (the icons are not loaded yet).
 
+Flow `ground` (step 4, part 4): the same block to the first turn, where the original's
+screenshot and its battlefield (dqk_fight_lib.battlefield: the view at +2 and +4, the
+50 by 25 cells at +9) are read, with the set the battle drew: DS:ca03 (the wall set)
+of DungCom1 where var 0x22 is not 0, else of WildCom1 (59c7:0e70). eclplay's --ground
+draws the same map and set (--ground-set), and the ground (168 by 168 at 8, 8) must agree
+pixel for pixel in RGB, masked: the cells the combatants stand on (their icons: parts
+11-12, each 24 by 24 exactly) and the mouse pointer at the corner (8 by 9, not the
+ground). The set is asserted to be DUNGCOM 4 (LOAD FILES 4 4).
+
 The original's states go to build/dqk-fight/setup.json, with the heap pointers
 masked (dqk_fight_lib.portable): later parts compare the port's state with them.
 About 20 seconds.
 
     python3 tools/dosbox/checks/dqk_fight.py [--workdir DIR] [--verbose]
-        [--flows setup,load]
+        [--flows setup,load,clear,six,ground]
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...) listing what differs."""
 import argparse
 import json
 import pathlib
 import shutil
+import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -495,11 +505,103 @@ def load(v, work, opts):
             + ", ".join(f"{a}/{b}" for a, b in hp))
 
 
+# The ground flow (step 4, part 4): the first turn's battlefield as the original draws
+# it, its view's 7 by 7 cells at 8, 8 and the cells the combatants stand on masked
+# (their icons: parts 11-12), against eclplay --ground's drawing of the same map. The
+# set is the one 59c7:0e70 loads at the battle's start: DungCom1 with record DS:ca03
+# (LOAD FILES' second operand, the wall set) where var 0x22 is not 0, else WildCom1
+# with the same record. The fixture's is DUNGCOM 4 (LOAD FILES 4 4), asserted. The
+# mouse pointer at the corner, which the port's ground does not draw (ALWAYS record 2,
+# hotspot 7, 7, at 8, 8: dark_queen.c's pointer; 5837:0846 hides and shows it around
+# the redraw), is masked too (its 8 by 9 pixels of the ground at 8, 8).
+GROUND = (8, 8, 168, 168)                   # the view: x, y, w, h (queen_arena.c)
+GROUND_CELL = 24
+GROUND_SET_RECORD = 0xCA03                  # DS:ca03, the wall set (59c7:0e70's operand)
+GROUND_POINTER = (8, 8, 8, 9, "the mouse pointer at the corner (ALWAYS 2, not the ground)")
+
+
+def ground_original(work, patched, verbose):
+    """The original at the first turn (the setup flow's trap, the same keys): its
+    screenshot (320 by 200 in colours), the battlefield (L.battlefield) and the set
+    the battle drew (59c7:0e70's choice, as eclplay's --ground-set names it)."""
+    with cokbox.Box(workdir=work / "box-ground", game="dark-queen", verbose=verbose,
+                    timeout=900, files=L.files(patched)) as box:
+        dqk_ecl.enter_block(box)
+        box.set_seed(SEED)
+        box.keys("\\r")
+        box.settled(tolerance=64)
+        box.keys("\\r")
+        box.settled(tolerance=64)
+        box.keys("\\r")
+        handle = L.trap(box, *TURN, until=lambda: box.ds_byte(L.DS_TURN) == 1 and
+                        box.ds_word(L.DS_MODE) == 5, seconds=180)
+        box.settled(tolerance=64)
+        screen = box.screenshot(path=str(work / "ground-original.png"))
+        battlefield = L.battlefield(box)
+        wall = box.ds_byte(GROUND_SET_RECORD)
+        three_d = block_vars(box)[0x22 - 1]  # var 0x22 (dqk_ecl's variables from 1)
+        dungeon = three_d != 0
+        set_name = f"{'dungcom' if dungeon else 'wildcom'}{wall}"
+        L.untrap(box, handle)
+        return screen, battlefield, set_name
+
+
+def ground(v, work, opts):
+    """The ground flow: the original's first turn against eclplay --ground's drawing
+    of the same battlefield. The unmasked ground (GROUND, minus the combatants' cells
+    and the pointer) must agree pixel for pixel."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
+    screen, bf, set_name = ground_original(work, patched, opts.verbose)
+    v.check(set_name == "dungcom4", "the battle's set is DUNGCOM 4 (59c7:0e70: DS:ca03 "
+            "and var 0x22 of the fixture)", set_name)
+    view_x, view_y = bf["view"]
+    cells = bytes.fromhex(bf["cells"])
+    occupants = bytes.fromhex(bf["occupants"])
+    width = 50
+    mapfile = work / "ground.txt"
+    rows = [f"view {view_x} {view_y}"] + [cells[r * width:(r + 1) * width].hex()
+                                          for r in range(25)]
+    mapfile.write_text("\n".join(rows) + "\n")
+    bmp = work / "ground-port.bmp"
+    result = subprocess.run(
+        [str(ROOT / "build" / "eclplay"), "--game", "dark-queen", "--ground", str(mapfile),
+         "--ground-set", set_name, "--screen", str(bmp), str(dqk_lib.ASSETS), "4"],
+        capture_output=True, text=True, cwd=ROOT)
+    v.check(result.returncode == 0, "eclplay --ground draws the battlefield",
+            result.stderr.strip() or f"exit {result.returncode}")
+    if result.returncode != 0:
+        return
+    port = cokbox.RGBScreen.load(bmp, (320, 200))
+    gx, gy, gw, gh = GROUND
+    masks = []
+    for j in range(7):
+        for i in range(7):
+            if occupants[(view_y + j) * width + view_x + i]:
+                masks.append((gx + GROUND_CELL * i, gy + GROUND_CELL * j, GROUND_CELL,
+                              GROUND_CELL, "a combatant's icon"))
+    masks.append(GROUND_POINTER)
+    # Everything outside the ground (the frame, the panel, the text) is masked: only the
+    # ground's rectangle is compared.
+    outside = [(0, 0, 320, gy, "outside the ground"), (0, gy + gh, 320, 200 - gy - gh,
+               "outside the ground"), (0, gy, gx, gh, "outside the ground"),
+               (gx + gw, gy, 320 - gx - gw, gh, "outside the ground")]
+    screen_masks = outside + masks
+    covered = sum(1 for y in range(gy, gy + gh) for x in range(gx, gx + gw)
+                  if any(a <= x < a + w and b <= y < b + h for a, b, w, h, *_ in masks))
+    count, box = checklib.masked_diff(screen, port, screen_masks)
+    detail = (f"{count} pixels differ in {box}" if count else
+              f"{covered} of {gw * gh} ground pixels masked ({len(masks) - 1} cells and the "
+              f"pointer), {gw * gh - covered} compared")
+    v.check(count == 0, "the first turn's ground agrees with eclplay's (masked: the "
+            "combatants' cells and the pointer)", detail)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir")
-    parser.add_argument("--flows", default="setup,load,clear,six",
-                        help="which flows: setup, load, clear, six")
+    parser.add_argument("--flows", default="setup,load,clear,six,ground",
+                        help="which flows: setup, load, clear, six, ground")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -514,6 +616,8 @@ def main():
         load_run(v, work, opts, CLEARED, None)
     if "six" in flows:
         load_run(v, work, opts, SIX, None)
+    if "ground" in flows:
+        ground(v, work, opts)
     return v.finish()
 
 

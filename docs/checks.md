@@ -596,8 +596,8 @@ may also set `stop` (where its ECL rests, when that is not past its EXIT: NEWECL
 block 2) and `waits` (the count the original must wait); `dqk_ecl_flow.py`'s
 `newecl` shows both.
 
-The Dark Queen's first fight (`tools/dosbox/checks/dqk_fight.py`, flows `setup`, `load`, `clear` and `six`, in `make
-dqk-checks`, about a minute) is a test block of LOAD FILES 4 4, CLEARMONSTERS, a PRESS KEY labelled 'monsters', LOAD
+The Dark Queen's first fight (`tools/dosbox/checks/dqk_fight.py`, flows `setup`, `load`, `clear`, `six` and `ground`,
+in `make dqk-checks`) is a test block of LOAD FILES 4 4, CLEARMONSTERS, a PRESS KEY labelled 'monsters', LOAD
 MONSTER 64 x2, a PRESS KEY labelled 'loaded', SETUP MONSTERS, APPROACH and COMBAT, from saved game A, with the
 sound off (below). The original's state (`dqk_fight_lib.py`: the records, combat records, combatants,
 battlefield, turn, sides, round, mode, the monsters' flag and count, RandSeed) is read at the block's entry,
@@ -617,6 +617,17 @@ monsters appended are exactly the two SHARKMEN, every record has its combat reco
 combatants on the map, the readings agree (`dqk_fight_lib.consistent`), and the RandSeed is 0x1756582c (11
 draws from the seed). The states go to build/dqk-fight/setup.json with the heap pointers masked
 (`dqk_fight_lib.portable`: a pointer becomes the index of its record in the list).
+Flow `ground` (step 4, part 4): the same block to the first turn, where the original's screenshot and its battlefield
+(`dqk_fight_lib.battlefield`: the view at +2 and +4, the 50 by 25 cells at +9) are read, and the set the battle drew:
+DS:ca03 (the wall set, LOAD FILES' second operand) with var 0x22 (`dqk_fight.py`'s `block_vars`), which 59c7:0e70 turns
+into DungCom1 (var 0x22 not 0) or WildCom1 (0f14-0f47), asserted to be DUNGCOM 4 here. eclplay's `--ground` draws
+that map with that set (`queen_arena.c`, through the game's arena hooks, `--ground-set`), and the 7 by 7 view at 8, 8
+must agree pixel for pixel in RGB. Masked: the six cells the combatants stand on (6 x 576 pixels, their icons: parts
+11-12) and the 8 by 9 pixels of the mouse pointer at the corner (ALWAYS record 2, hotspot 7, 7, at 8, 8; 5837:0846
+hides and shows it around the redraw; not drawn by the port, 72 pixels, 61 of them differ, and nothing else in the
+ground does). Compared: 24,696 of the 28,224 ground pixels, 0 differing. DUNGCOM 1-3, 5, 6 and WILDCOM 1, 2, 4 differ on
+the same map (on nearly every pixel); the check covers the choice of the set and the palette on set 4 only (the seed's
+draws on set 3 and 6: `tests/test_queen_arena.c`).
 Flow `load` (`LOADS`: two SHARKMEN and one MINOTAUR, then COMBAT with no SETUP MONSTERS or APPROACH; the
 original allows it after LOAD FILES) reads the party list where COMBAT calls the battle (`5f07:08f0`, trapped
 while the block waits for its PRESS KEY: the battle starts at once after the key), and eclplay, started as setup's

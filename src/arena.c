@@ -51,6 +51,15 @@ static bool fail(cok_adventure *game, const char *format, ...)
     return false;
 }
 
+/* The game that draws its own battle ground (adventure.h's arena_cell:
+ * Dark Queen's), or NULL. Its cells and view come from its hooks, and the
+ * 4-bit buffer is neither drawn into for its ground nor shown. */
+static const cok_drawing *own_ground(const cok_adventure *game)
+{
+    const cok_drawing *d = cok_adventure_drawing(game);
+    return d != NULL && d->arena_cell != NULL ? d : NULL;
+}
+
 void cok_arena_sound(cok_adventure *game, unsigned n)
 {
     char text[16];
@@ -128,6 +137,11 @@ static bool terrain(cok_adventure *game, int xu, int yc, int x, int y, const cha
     cok_combat *c = &game->combat;
     uint8_t value = 0;
     if (!map_byte(game, x, y, &value, where)) return false;
+    /* The one cell draw, for the erase, the cursor and the scroll: a game
+     * that draws its own ground draws the cell at its place in the view
+     * (dqk 5837:172c, from 04d4, 00f4 and 06e6). */
+    const cok_drawing *own = own_ground(game);
+    if (own != NULL) return own->arena_cell(game, x, y);
     if (value >= cok_data_count(cok_game_rules(game)->data, COK_DATA_TERRAIN, 0))
         return fail(game, "terrain value 0x%02x is past the table (DS:1ee4, %s)", value, where);
     uint8_t tile = cok_combat_terrain(cok_game_rules(game), value).tile;
@@ -315,6 +329,9 @@ static bool restore(cok_adventure *game, int x, int y, const char *where)
 
 bool cok_arena_show(cok_adventure *game)
 {
+    /* The game's own ground went to the screen as it was drawn (arena_cell,
+     * arena_view): the 4-bit buffer is not shown for it. */
+    if (own_ground(game) != NULL) return true;
     const cok_combat *c = &game->combat;
     for (size_t i = 0; i < sizeof c->unknown; ++i)
         if (c->unknown[i] != 0)
@@ -327,6 +344,9 @@ bool cok_arena_show(cok_adventure *game)
 bool cok_arena_icon(cok_adventure *game, int8_t x, int8_t y, uint8_t facing, uint8_t image,
                     uint8_t slot)
 {
+    if (own_ground(game) != NULL)
+        return fail(game, "an icon is not drawn on this game's ground yet (dqk 5837:025d, "
+                          "104c:030f)");
     if (slot >= cok_icon_slots(game) || image > 1)
         return fail(game, "icon %u of slot %u is past the icons (DS:%04x, 6d21:04b0)", image, slot,
                     cok_game_rules(game)->startup.icon_table);
@@ -396,6 +416,10 @@ static bool scroll(cok_adventure *game, int8_t x, int8_t y, uint8_t margin, bool
     cok_combat *c = &game->combat;
     *redrew = cok_combat_scroll(c, x, y, margin);
     if (!*redrew) return true;
+    /* A game that draws its own ground (adventure.h's arena_view) draws the
+     * view from the map at its corner, not the 4-bit tiles below. */
+    const cok_drawing *drawing = cok_adventure_drawing(game);
+    if (drawing != NULL && drawing->arena_view != NULL) return drawing->arena_view(game);
     for (int row = 0; row < 7; ++row)
         for (int column = 0; column < 7; ++column)
             if (!terrain(game, column * 3, row * 3, s8(c->view_x + column), s8(c->view_y + row),
@@ -420,6 +444,9 @@ static bool cursor(cok_adventure *game, int8_t x, int8_t y)
         if (!cok_combat_footprint(cok_game_rules(game), c->cursor_size, k, &dx, &dy)) continue;
         if (!cok_combat_on_view(s8(sx + dx), s8(sy + dy))) continue;
         if (!terrain(game, (sx + dx) * 3, (sy + dy) * 3, x + dx, y + dy, "6beb:00fc")) return false;
+        if (c->cursor != 0 && own_ground(game) != NULL)
+            return fail(game, "the cursor's box is not drawn on this game's ground yet "
+                              "(dqk 5837:00f4)");
         if (c->cursor != 0 && !cok_arena_icon(game, s8(sx + dx), s8(sy + dy), 0, 0,
                                               cok_game_rules(game)->commands.cursor_slot))
             return false;
@@ -647,6 +674,9 @@ bool cok_arena_kill(cok_adventure *game, cok_character *c, int stale,
     const cok_combatant *e = &cb->combatant[n];
     if (e->size >= cok_data_count(cok_game_rules(game)->data, COK_DATA_FOOTPRINTS, 0))
         return fail(game, "combatant %u's footprint %u is past the table (6beb:0e08)", n, e->size);
+    if (own_ground(game) != NULL)
+        return fail(game, "a body's skull is not drawn on this game's ground yet (dqk 5837:025d, "
+                          "104c:030f)");
     for (unsigned k = 0; k < 9; ++k) {
         const cok_picture *skull = &game->icons[SLOT_SKULL][k % 2];
         if (skull->pixels == NULL) return fail(game, "the skull's icon is not loaded (6beb:0e08)");
@@ -914,6 +944,9 @@ bool cok_arena_say(cok_adventure *game, cok_character *c, const char *text, uint
     if (game->vm.mode == 5 && row > 20)
         return fail(game, "text said from row %u runs below the side panel over the frame "
                           "(6346:1883)", row);
+    if (game->vm.mode == 5 && own_ground(game) != NULL)
+        return fail(game, "text in the battle is not drawn on this game's screen yet "
+                          "(parts 11-12)");
     say(game, c, text, row, wait, true);
     return true;
 }
@@ -932,6 +965,8 @@ bool cok_arena_panel(cok_adventure *game, cok_character *c)
     const cok_rules_fight_words *W = &cok_game_rules(game)->fight.words;
     cok_combat *cb = &game->combat;
     if (!cb->panel) return true;
+    if (own_ground(game) != NULL)
+        return fail(game, "the side panel is not drawn on this game's screen yet (parts 11-12)");
     cb->panel = false;
     const uint8_t *r = c->record;
     clear_cells(game, 0x17, 1, 0x26, 0x15);
@@ -977,6 +1012,8 @@ bool cok_arena_panel(cok_adventure *game, cok_character *c)
 bool cok_arena_missile_frame(cok_adventure *game, uint8_t slot, uint8_t image, uint8_t frame,
                              bool mirror)
 {
+    if (own_ground(game) != NULL)
+        return fail(game, "a missile is not drawn on this game's ground yet (parts 11-12)");
     if (!pictures(game)) return false;
     if (slot >= cok_icon_slots(game) || image > 1)
         return fail(game, "icon slot %u's picture %u is past the icon table (6346:1a26)", slot,

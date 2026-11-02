@@ -139,6 +139,9 @@ static void usage(const char *program)
             "  --helm          play as if started with Helm, which lifts Area's Not Here\n"
             "                  and enables the Gods cheat (implied by --combat gods)\n"
             "  --combat-map FILE  write each battle's map and combatants to FILE as text\n"
+            "  --ground FILE   draw the battle's ground from FILE (a line \"view X Y\", then 25\n"
+            "                  lines of 50 terrain values in hex) with --ground-set NAME\n"
+            "                  (dungcom1-6 or wildcom1, 2, 4, 5), as the combat screen is drawn\n"
             "  --seed N        start Turbo Pascal's Random from N (default 0)\n"
             "  --shots DIR     save DIR/NNN.bmp each time the game waits for a key, and\n"
             "                  when a battle has been set up\n"
@@ -719,6 +722,58 @@ static uint16_t special_store(const cok_rules *rules, cok_ecl_special what)
     return 0;
 }
 
+/* --ground: the battle's ground drawn as its first turn shows it (the arena
+ * hooks, queen_arena.c): the map of FILE (a line "view X Y", then 25 lines
+ * of 50 terrain values in hex) and its set NAME (dungcom1-6, wildcom1, 2, 4, 5)
+ * applied; the screen saved as --screen. */
+static int draw_ground(player *who, cok_adventure *game, const char *path, const char *name,
+                       const char *screen)
+{
+    unsigned set = 0;
+    bool wild = strncmp(name != NULL ? name : "", "wildcom", 7) == 0;
+    if (name == NULL || sscanf(name, wild ? "wildcom%u" : "dungcom%u", &set) != 1 ||
+        set == 0 || set > (wild ? 5u : 6u) || (wild && set == 3)) {
+        fprintf(stderr, "--ground-set: dungcom1-6 or wildcom1, 2, 4, 5, not %s\n",
+                name != NULL ? name : "(none)");
+        cok_adventure_close(game);
+        return 2;
+    }
+    FILE *file = fopen(path, "r");
+    int view_x = 0, view_y = 0;
+    bool read = file != NULL && fscanf(file, " view %d %d", &view_x, &view_y) == 2;
+    cok_combat *c = &game->combat;
+    for (int y = 0; read && y < COK_COMBAT_HEIGHT; ++y)
+        for (int x = 0; read && x < COK_COMBAT_WIDTH; ++x) {
+            unsigned value;
+            read = fscanf(file, "%2x", &value) == 1 && value < 256;
+            if (read) c->cells[y][x] = (uint8_t)value;
+        }
+    if (file != NULL) fclose(file);
+    if (!read) {
+        fprintf(stderr, "%s: not a battle's ground (view X Y, then 25 lines of 50 hex values)\n",
+                path);
+        cok_adventure_close(game);
+        return 1;
+    }
+    c->active = true;
+    c->view_x = (int8_t)view_x;
+    c->view_y = (int8_t)view_y;
+    const cok_drawing *d = cok_adventure_drawing(game);
+    if (d == NULL || d->arena_tiles == NULL) {
+        fprintf(stderr, "--ground: this game draws no battle's ground (try --game dark-queen)\n");
+        cok_adventure_close(game);
+        return 2;
+    }
+    if (!d->arena_tiles(game, wild, set) || !d->arena_view(game)) {
+        fprintf(stderr, "%s\n", game->error);
+        cok_adventure_close(game);
+        return 1;
+    }
+    if (screen != NULL) save(who, screen);
+    cok_adventure_close(game);
+    return 0;
+}
+
 static int run(int argc, char **argv)
 {
     p = (player){.keys = cok_key_script_start(NULL), .owed = -1};
@@ -729,6 +784,7 @@ static int run(int argc, char **argv)
     cok_display display = COK_DISPLAY_TANDY;
     bool display_given = false;
     const char *screen = NULL, *vars = NULL, *records = NULL;
+    const char *ground = NULL, *ground_set = NULL;
     unsigned long file = 0, vector = 5, start = 0, fixture = 0, seed = 0;
     bool seeded = false;
     bool still = false, placed = false, play = false, helm = false, front = false, woof = false;
@@ -819,6 +875,10 @@ static int run(int argc, char **argv)
                    number(argv[i + 1], 10, 0xffffffffUL, &seed)) {
             seeded = true;
             ++i;
+        } else if (strcmp(option, "--ground") == 0 && has_value) {
+            ground = argv[++i];
+        } else if (strcmp(option, "--ground-set") == 0 && has_value) {
+            ground_set = argv[++i];
         } else if (strcmp(option, "--combat-map") == 0 && has_value) {
             p.map = argv[++i];
         } else if (strcmp(option, "--shots") == 0 && has_value) {
@@ -1103,6 +1163,7 @@ static int run(int argc, char **argv)
         cok_adventure_close(&game);
         return 1;
     }
+    if (ground != NULL) return draw_ground(&p, &game, ground, ground_set, screen);
     if (still) game.animate = false;
     if (seeded) game.vm.seed = (uint32_t)seed;
     game.combat_stub = combat;

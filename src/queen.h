@@ -109,8 +109,9 @@ void queen_draw_frame(cok_adventure *game, unsigned id, int row, int col);
 void queen_draw_always(cok_adventure *game, unsigned id, int row, int col);
 
 /* The libraries (FRAME and ALWAYS have their own calls above): DUNGCOM.TLB
- * (its sets of tiles and palettes) and CBODY.TLB (the party's bodies). */
-enum { QUEEN_LIB_DUNGCOM = 12, QUEEN_LIB_CBODY = 13 };
+ * (its sets of tiles and palettes), CBODY.TLB (the party's bodies) and
+ * WILDCOM.TLB (the wilderness' sets, the combat ground). */
+enum { QUEEN_LIB_DUNGCOM = 12, QUEEN_LIB_CBODY = 13, QUEEN_LIB_WILDCOM = 14 };
 /* A record of a library drawn at pixel row, col (as 269b:0a9c), and the
  * palette record of a library (set 0) or of its nested library set. */
 void queen_draw_library(cok_adventure *game, unsigned which, unsigned id, int row, int col);
