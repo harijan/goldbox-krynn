@@ -596,6 +596,49 @@ may also set `stop` (where its ECL rests, when that is not past its EXIT: NEWECL
 block 2) and `waits` (the count the original must wait); `dqk_ecl_flow.py`'s
 `newecl` shows both.
 
+The Dark Queen's first fight (`tools/dosbox/checks/dqk_fight.py`, flow `setup`, not yet in `make
+dqk-checks`) is a test block of CLEARMONSTERS, LOAD MONSTER 64 x2, a PRESS KEY, SETUP MONSTERS,
+APPROACH and COMBAT, from saved game A (`dqk_fight_lib.py` reads the original's records, combat
+records, combatants, battlefield, turn, sides, round, mode and RandSeed). Its state and the
+offsets are checked against the disassembly (`dqk_fight_lib.py`'s header); the first turn is the
+trap at 5045:078b, which the flow does not reach yet (below). The six MONCHA ids the later
+combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points are the
+base 0xc0, AC 0xbb, THAC0 0x87, size 0x8a, movement 0x90, undead 0x5c, magic resistance 0xcc):
+
+- 64 SHARKMAN, a plain melee: size 1, THAC0 54, AC 54, movement 12, hit points 78, 4 attacks 1d6,
+  no effects, no items (the flow's monsters, in two).
+- 49 MINOTAUR, an archer and size 2: size 2, THAC0 54, AC 54, hit points 71, 1d4; items Two-Handed
+  Sword (type 20), Long Bow (24), Arrow (30), Mail Plate (36).
+- 41 THENOL WIZARD, a caster: size 1, THAC0 49, AC 50, hit points 40, 2 attacks 1d2; a mage of 22
+  (class levels [0,0,0,0,0,22,0]), 22 spells, effects 0x11, 0x1c, 0x29, 0x14, 0x39, 0x7a; items
+  Dagger (4), Dart (5).
+- 37 ZOMBIE, an undead: size 1, THAC0 44, AC 52, movement 6, hit points 9, undead 2, 1d8,
+  effects 0x62, 0x8d, 0x9e, 0x9f, 0x8f.
+- 36 WRAITH, a level drainer: size 1, THAC0 45, AC 56, movement 24, hit points 27, undead 7, 1d6,
+  effects 0x67, 0x65 (the drain, 7e76:093b), 0x62, 0x5c.
+- 45 RED DRAGON, a dragon: size 4, THAC0 54, AC 61, movement 24, hit points 88, 4 + 2 attacks 1d8+4,
+  effects 0x49, 0x64, 0x54 (the breath), 0x18.
+
+Saved game A's six members (`DQKAssets/SAVE/*.QCH` in the order of `SAVGAMA.QSV`; race as the sheet's
+list, class as its list, the class levels as the record's seven, the spells known and the spells a
+day, rows 1-4): ROLAND OF DUST (ROLANDOF: Human, class 1 Knight, levels [0,11,0,0,0,0,0], no spells);
+TIMASALIN (Qualinesti Elf, class 9 Cleric/Fighter/Mage, levels [9,0,9,0,0,8,0], 51 spells known,
+spells a day [6,6,4,3,1] [5,3,3,2]); 'CINDER' (Qualinesti Elf, class 9, levels [8,0,9,0,0,8,0], 49
+known, a day [6,6,4,3] [5,3,3,2]); BALTHIR NOMOON (Silvanesti Elf, class 10 Cleric/Ranger, levels
+[10,0,0,0,10,0,0], 45 known, a day [6,6,4,4,2] [2] [1]); ROARK 'CROAKER' (Hill Dwarf, class 14
+Fighter/Thief, levels [0,0,9,0,0,0,10], no spells); WALKER KEYS (Kender, class 12 Cleric/Thief,
+levels [10,0,0,0,0,0,12], 28 known, a day [6,6,3,3,2]). No member has any spell memorized (the
+record's memorized block is 0 in all six).
+
+The original's fight so far: LOAD MONSTER only registers the monsters (the flag at DS:bd4e, one
+icon slot more); COMBAT's monsters branch (6c70:2d82) appends their records, and in the box that
+appended records beyond the two SHARKMEN (ten GORGON records, from icon slots this block did not
+write: CLEARMONSTERS, 5f07:07fe, does not clear them). SETUP MONSTERS, APPROACH and the battle then
+stall in the box: the bottom bar shows "INSERT DISK 2 AND PRESS A KEY" (during APPROACH, the sprite
+drawn) and, once COMBAT starts, "LBIBase: Invalid Library File", the game waiting in both (keys do
+not move it on). The first turn (5045:078b) is not reached, so `dqk_fight.py` fails its trap
+(`BoxError`), and it is not registered in `run_all.py` until that is solved.
+
 Death Knights of Krynn, read headless (see [Games](games.md#games)), is checked by
 `tools/dosbox/checks/dkk_views.py`, which `make dkk-checks` runs
 (`run_all.py --set dkk`) or `python3 tools/dosbox/checks/dkk_views.py` (about a
