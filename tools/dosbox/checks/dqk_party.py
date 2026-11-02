@@ -15,13 +15,12 @@ ruins, the widow, the shadows, and the step after which dragons attack
 (SETUP MONSTERS, 6c70:2db1: the first fight, where the port stops).
 
 Compared: the whole screen (the sheet's readied weapon and armour, rows
-21-22, 177e:03fc), but the mouse's cursor
-in the adventure's commands (1bdb:1aef's areas give it other shapes: not
-ported); the party's square and facing (DS:c9f0-c9f2) after each step
-against the port's log; the variables 0x0001-0x0400 once loaded, and the
-clock, the last square and the edge at the widow (eclplay --vars); and the
-original's ECL past the dragons' SETUP MONSTERS where the port stops. About a
-minute.
+21-22, 177e:03fc), the mouse's cursor included (in the adventure's commands
+the view's areas give it their shapes: dqk_view_mouse.py); the party's
+square and facing (DS:c9f0-c9f2) after each step against the port's log;
+the variables 0x0001-0x0400 once loaded, and the clock, the last square and
+the edge at the widow (eclplay --vars); and the original's ECL past the
+dragons' SETUP MONSTERS where the port stops. About a minute.
 
     python3 tools/dosbox/checks/dqk_party.py [--workdir DIR] [--verbose]
 
@@ -42,7 +41,6 @@ cokbox = checklib.cokbox
 ROOT = cokbox.ROOT
 GAME = ("--game", "dark-queen")
 
-CURSOR = (0, 0, 24, 24, "the mouse's cursor over the commands' view areas (1bdb:1aef)")
 DS_SQUARE = 0xC9F0
 CAERGOTH = 20
 DS_VARS = 0xB20F
@@ -147,7 +145,7 @@ def main():
         shot = box.settled(tolerance=64)
         shot.save_png(out / "caergoth.png")
         verdict.screen("Caergoth's view and the commands", shot,
-                       shots[CAERGOTH] if len(shots) > CAERGOTH else None, masks=[CURSOR],
+                       shots[CAERGOTH] if len(shots) > CAERGOTH else None,
                        work=work)
         # The route's moves, a shot each after the first ten steps east.
         port_moves = re.findall(r"^(?:step|turn): (-?\d+),(-?\d+) facing (\d)$", log, re.M)
@@ -169,14 +167,14 @@ def main():
         shot.save_png(out / "widow.png")
         index = CAERGOTH + len(moves)
         verdict.screen("the widow's menu", shot, shots[index] if len(shots) > index else None,
-                       masks=[CURSOR], work=work)
+                       work=work)
         for typed in ["l", "\\r", "\\v", "\\^", "\\r", "\\^", "\\^"]:
             box.keys(typed)
             box.settled(tolerance=64)
         shot = box.settled(tolerance=64)
         shot.save_png(out / "before-dragons.png")
         verdict.screen("the step before the dragons", shot, shots[-1] if shots else None,
-                       masks=[CURSOR], work=work)
+                       work=work)
         box.keys("\\^")
         shot = box.settled(tolerance=64)
         shot.save_png(out / "dragons.png")

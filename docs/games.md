@@ -1044,8 +1044,11 @@ run). The shipped saved game's party is at the start: block 4, Palanthas;
 its palace and Leave take it to Caergoth, whose ruins (journal entry 65)
 start variable 0xa0's count of steps: three on, huge shadows; six on,
 dragons attack, whose `SETUP MONSTERS` (`6c70:2db1`, step 4's) is where
-the port stops. The mouse's areas over the view in the commands
-(`1bdb:1aef`: their cursors and keys) are not ported.
+the port stops. The mouse's four areas over the view in the commands
+(`1bdb:1aef`: turn left, step ahead, turn right and turn around, each a
+click as its arrow key, with its cursor) are ported and checked
+(`dqk_view_mouse.py`); not ported: the areas of the outside-3D commands
+(`1bdb:1beb`) and the party list's control (`1bdb:0a33`).
 
 ### The character record's layout
 
