@@ -419,9 +419,8 @@ static const cok_rules_special dark_queen_stores[] = {
 const cok_rules cok_rules_dark_queen = {
     .id = "dark-queen",
     .assets = "DQKAssets",
-    .unplayable = "The Dark Queen of Krynn's saved games load from its start menu "
-                  "(--start-menu: Play, Load Saved Game); --load, --party, --test-party "
-                  "and --play are not ported yet",
+    .unplayable = "The Dark Queen of Krynn's --party and --test-party are not ported yet "
+                  "(--load and --play are; its saved games also load from --start-menu)",
     .drawing = COK_DRAWING_DARK_QUEEN,
     .random = COK_RANDOM_QUEEN, /* 2102:0234 */
     .text =

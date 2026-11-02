@@ -20,8 +20,8 @@ monsters' flag and count, RandSeed) is read at the entry PRESS KEY (before), at
 the 'loaded' one (after LOAD MONSTER) and at the first turn: the battle's turn
 routine 5045:078b made to spin where it starts (dqk_fight_lib.trap), as the
 overlay loads; the spin is checked to hold, and then removed to see the game go
-on. The variables (1 KB) at the 'monsters' PRESS KEY are the port's start
-(eclplay's --set, --at), and the port's variables there must equal them.
+on. The block's variables (1 KB, through the far pointer at DS:b20f) are read at
+the entry and at the 'monsters' PRESS KEY; eclplay's must equal the latter.
 
 Checked:
 
@@ -35,17 +35,20 @@ Checked:
   (dqk_fight_lib.consistent), and the RandSeed is the first turn's (11 draws);
 - the spin holds (EB FE in place, the keyboard polls still over a second), and
   untrapped the game goes on (the polls move, the routine's bytes are back);
-- eclplay --game dark-queen, with the saved game's six members (--character),
-  from the same square (--at) and variables (--set), has the same variables at
-  the 'monsters' PRESS KEY (the gaps below);
-- eclplay waits at the 'monsters' PRESS KEY (the same pc as the original's wait).
+- eclplay --game dark-queen --load --play, from a copy of saved game A (its six
+  members, its square, its locals kept as a Load keeps them), enters the block as
+  Begin Adventuring does and has the same 1 KB of variables at the 'monsters' PRESS
+  KEY as the original (PORT_GAPS below: none);
+- eclplay waits at the 'monsters' PRESS KEY (out of keys there), the same pc as the
+  original's wait.
 
 Flow `load` (step 4, part 5): LOAD FILES, CLEARMONSTERS, LOAD MONSTER 64 x2 and 49 x1,
 then COMBAT (no SETUP MONSTERS or APPROACH). Where COMBAT calls the battle (5f07:08f0,
 after the appends: 19 records, c6f1 13, ad6b 11) the original's party list is read and
-eclplay's, with --records, must agree: the monsters' records byte for byte (pointers
-masked), the party's but for PARTY_GAPS. Run twice, with difficulty 3 and with 1 (var
-0x27 set at the entry): the hostile monsters' hit points halve for difficulty 1.
+eclplay's, started as setup's (--load --play) with --records, must agree: the monsters'
+records byte for byte (pointers masked), the party's too (PARTY_GAPS: none). Run twice,
+with difficulty 3 and with 1 (var 0x27 set at the entry in the original, and by --set
+after the load in eclplay): the hostile monsters' hit points halve for difficulty 1.
 
 The original's states go to build/dqk-fight/setup.json, with the heap pointers
 masked (dqk_fight_lib.portable): later parts compare the port's state with them.
@@ -58,13 +61,13 @@ Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...) listing what differs.""
 import argparse
 import json
 import pathlib
+import shutil
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))  # tools/: hlib, dqkecl
 import checklib  # noqa: E402
 import dqk_ecl  # noqa: E402
-import dqk_ecl_party  # noqa: E402
 import dqk_fight_lib as L  # noqa: E402
 import dqk_lib  # noqa: E402
 import dqkecl  # noqa: E402
@@ -91,13 +94,13 @@ MONSTERS_APPENDED, ICON_SLOTS_AT_TURN = 12, 10
 TURN = (0x5045, 0x078B)
 RETURN = 0x1C0D
 # The variables at the 'monsters' PRESS KEY where eclplay differs from the
-# original, all of them: open gaps of the port, not of this fixture (the
-# fixture starts eclplay from the original's square and variables, --at and
-# --set, and these are what eclplay's own start and opcodes do with them):
-#   0x34, 0x35  --at stores the square there (the original keeps 0 until a move
-#         stores it: the square is loaded into DS:c9f0 by the save).
-# The other variables agree (LOAD FILES writes 0x03, 0x13 and 0xc6 in both).
-PORT_GAPS = (0x34, 0x35)
+# original: none. Both are the block's variables, read through the far pointer at
+# DS:b20f (dqk_ecl's). The block's entry has saved game A's variables plus 0x16 = 1
+# (the jumper's), LOAD FILES 4 4 sets 0x13 and 0xc6 to 4 in both, and eclplay's
+# --load --play gives the same 1 KB. An earlier read at DS:b210 took the far
+# pointer's bytes for variables and showed gaps that were not there. The check
+# asserts the exact set, so a new difference fails it.
+PORT_GAPS = ()
 SQUARE = 0xC9F0                # DS:c9f0-c9f2: x, y, facing (saved game A: 7, 13, 0)
 STATE = ROOT / "build" / "dqk-fight" / "setup.json"
 
@@ -121,15 +124,10 @@ def names_of(records):
     return [cstr(bytes.fromhex(r["raw"])[0x68:0x78]) for r in records]
 
 
-def variables(box):
-    """The variable area: var a is the byte at the far pointer at DS:b20f plus a
-    (6c70:1dec stores the map at es:0x13 with es:bx that pointer), 1 KB of them."""
-    return box.read(variable_area(box) + 1, dqk_ecl.VARIABLES)
-
-
-def variable_area(box):
-    """The linear address of the variable area (the far pointer at DS:b20f)."""
-    return box.far(box.ds * 16 + dqk_ecl.DS_VARS)
+def block_vars(box):
+    """The block's 1 KB of variables (1 to 0x400): dqk_ecl's far pointer at DS:b20f
+    (dqk_party's and dqk_ecl's read), not the bytes at DS:b210 that follow it."""
+    return box.read(box.far(box.ds * 16 + dqk_ecl.DS_VARS) + 1, dqk_ecl.VARIABLES)
 
 
 def original(work, patched, verbose):
@@ -143,14 +141,14 @@ def original(work, patched, verbose):
         dqk_ecl.enter_block(box)
         entry = dqk_lib.ecl_state(box)
         square = box.ds_read(SQUARE, 3).hex()
-        entry_vars = variables(box)
+        entry_vars = block_vars(box)
         box.set_seed(SEED)
         before = L.state(box)
         # LOAD FILES and CLEARMONSTERS run; the block waits in the 'monsters' PRESS KEY
         box.keys("\\r")
         box.settled(tolerance=64)
         monsters = dqk_lib.ecl_state(box)
-        monsters_vars = variables(box)
+        monsters_vars = block_vars(box)
         # LOAD MONSTER runs; the block waits in the 'loaded' PRESS KEY
         box.keys("\\r")
         box.settled(tolerance=64)
@@ -174,24 +172,41 @@ def original(work, patched, verbose):
                     before=before, after=after, turn=turn)
 
 
-def port(work, patched, square, entry_vars, name="fight", records=None, typed="\\r"):
-    """eclplay's run of the block from the original's start: the saved game's six
-    members (--character), the square (--at, x y facing from DS:c9f0), the
-    variables the original had at the entry (--set, the nonzero ones, in hex). Its
-    variables where it stops (--vars: TYPED are the keys after the entry's) and its
-    last output line; with RECORDS, the party list written there (--records)."""
-    sets = []
-    for address, value in enumerate(entry_vars, 1):
-        if value:
-            sets += ["--set", f"{address:x}={value:x}"]
-    if len(sets) // 2 > 64:
-        raise cokbox.BoxError(f"{len(sets) // 2} variables to set: eclplay takes 64")
-    x, y, facing = bytes.fromhex(square)
-    at = ["--at", f"{x},{y},{facing}"]
-    extra = dqk_ecl_party.party_args() + at + sets
+def saved_entry(work):
+    """Saved game A as the original's Begin Adventuring enters it: a copy in work
+    (the SAVE folder's files beside it, so its characters are read as the
+    original's are), with variable 0x16 (the block entered) set to block 1: the
+    copy is what eclplay --load takes, with no block named (the load vector alone
+    runs, as the original's entry does)."""
+    folder = work / "fight-save"
+    if folder.exists():
+        shutil.rmtree(folder)
+    folder.mkdir(parents=True)
+    for entry in (dqk_lib.ASSETS / "SAVE").iterdir():
+        if entry.name != "SAVGAMA.QSV":
+            (folder / entry.name).symlink_to(entry)
+    data = bytearray((dqk_lib.ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes())
+    data[0x16 - 1] = dqk_ecl.JUMP
+    (folder / "SAVGAMA.QSV").write_bytes(bytes(data))
+    return folder / "SAVGAMA.QSV"
+
+
+def port(work, patched, name="fight", typed="", records=None, difficulty=None):
+    """eclplay's run of the block as the original's Load then Begin Adventuring
+    gives it: saved game A's copy (--load) and --play, which is Begin Adventuring's
+    entry (without it the block is entered in load_saved's mode 0, not the mode the
+    original's Begin leaves). No --set for the variables: the save gives them, and
+    DIFFICULTY, if not None, is var 0x27 set after the load. TYPED are the keys after
+    the entry's; with RECORDS, the party list written there (--records). Returns its
+    variables where it stops (--vars) and its last output line."""
+    extra = ["--load", str(saved_entry(work)), "--play"]
     if records is not None:
         extra += ["--records", str(records)]
-    variables, last, _ = dqk_ecl.port(work, name, patched, typed=typed, extra=extra)
+    if difficulty is not None:
+        extra += ["--set", f"27={difficulty:x}"]
+    variables, last, _ = dqk_ecl.port(work, name, patched, typed=typed, extra=extra,
+                                      block=None)
+    return variables, last
     return variables, last
 
 
@@ -249,13 +264,13 @@ def setup(v, work, opts):
             f"seed {turn['seed']:#x}, {draws} draws")
     # No key after the entry's: eclplay waits at the 'monsters' PRESS KEY, where the
     # original does (LOAD MONSTER is ported, so the block goes no further unkeyed).
-    port_vars, port_last = port(work, patched, r["square"], r["entry_vars"], typed="")
+    port_vars, port_last = port(work, patched)
     diff = [a for a in range(1, dqk_ecl.VARIABLES + 1)
             if port_vars[a - 1] != r["monsters_vars"][a - 1]] if len(port_vars) == \
         dqk_ecl.VARIABLES else []
     v.check(len(port_vars) == dqk_ecl.VARIABLES and tuple(diff) == PORT_GAPS,
             "eclplay's variables at the 'monsters' PRESS KEY differ from the original's at "
-            "exactly the known gaps (PORT_GAPS)", f"differ: {' '.join(f'{a:#x}' for a in diff)}")
+            "exactly PORT_GAPS", f"differ: {' '.join(f'{a:#x}' for a in diff)}")
     wait = f"(out of keys in block 1 at {r['monsters'][0]:x})"
     v.check(port_last == wait, "eclplay waits at the 'monsters' PRESS KEY, where the original does",
             port_last)
@@ -287,12 +302,12 @@ CALL_BATTLE = (0x5F07, 0x08F0)
 BATTLE_STOP = ("error: not yet ported: The Dark Queen of Krynn's battle "
                "(dqk 5045:059d)")
 PARTY = 6                      # the party's records come first in the list
-# The party's records as eclplay imports them (--character) differ from the
-# original's at these bytes (record: offsets), before any monster is appended: the
-# known spells (0x157-0x166) and the saving throws and thief skills (0x8b, 0x93-
-# 0x9a) of four members. Not traced here (the party's import is another part's).
-PARTY_GAPS = {1: (0x159,), 2: (0x159,), 4: (0x8B, 0x93, 0x94, 0x96, 0x97),
-              5: (0x93, 0x94, 0x95, 0x96, 0x97)}
+# The party's records as eclplay imports them from the saved game (--load) are the
+# original's, byte for byte: none differs. With --character they differed for four
+# members (the known spells at 0x159, the saving throws and thief skills at 0x8b and
+# 0x93-0x97), which was the character import's, not the battle's. Kept as the exact
+# set (empty): a new difference fails the check.
+PARTY_GAPS = {}
 # The appended monsters: each slot's copies (the SHARKMEN, the MINOTAUR) and the
 # ten GORGONs of 6c70:170e, which placement drops later.
 APPENDED = sum(count for _, count in LOADS) + 10
@@ -321,22 +336,18 @@ def load_block(loads):
 
 
 def load_original(work, patched, difficulty, verbose):
-    """The original's run of the load block: the square and the variables at the
-    entry, the variables at the 'monsters' PRESS KEY, and where COMBAT calls the
-    battle (trapped, not run on) the party list's records with the monsters'
-    count and the next icon slot. DIFFICULTY, if not None, is var 0x27 set at the
-    entry."""
+    """The original's run of the load block: where COMBAT calls the battle (trapped,
+    not run on), the block's variables and the party list's records with the
+    monsters' count and the next icon slot. DIFFICULTY, if not None, is var 0x27
+    set at the entry (var a is the byte at the far pointer plus a)."""
     with cokbox.Box(workdir=work / f"box-load-{difficulty}", game="dark-queen",
                     verbose=verbose, timeout=900, files=L.files(patched)) as box:
         dqk_ecl.enter_block(box)
         if difficulty is not None:
-            box.write(variable_area(box) + 0x27, bytes([difficulty]))
-        entry_vars = variables(box)
-        square = box.ds_read(SQUARE, 3).hex()
+            box.write(box.far(box.ds * 16 + dqk_ecl.DS_VARS) + 0x27, bytes([difficulty]))
         box.set_seed(SEED)
         box.keys("\\r")                 # LOAD FILES, CLEARMONSTERS; waits at 'monsters'
         box.settled(tolerance=64)
-        monsters_vars = variables(box)
         handle = L.trap(box, *CALL_BATTLE, until=lambda: True, seconds=60)
         box.keys("\\r")                 # LOAD MONSTERs, COMBAT: the appends, the call
         for _ in range(180):             # the spin holds once COMBAT reaches it
@@ -345,7 +356,7 @@ def load_original(work, patched, difficulty, verbose):
         else:
             raise cokbox.BoxError("COMBAT did not reach the battle's call (5f07:08f0)")
         records = L.records(box)
-        return dict(entry_vars=entry_vars, monsters_vars=monsters_vars, square=square,
+        return dict(variables=block_vars(box),
                     records=[raw.hex() for _, raw in records],
                     count=box.ds_byte(L.DS_MONSTER_COUNT),
                     icon_slot=box.ds_byte(L.DS_ICON_SLOT), traps=len(handle),
@@ -377,13 +388,13 @@ def load_run(v, work, opts, difficulty):
             f"{len(r['records'])} records, c6f1 {r['count']}, ad6b {r['icon_slot']}: "
             + " ".join(r["names"][PARTY:]))
     records = work / f"port-load-{difficulty}.records"
-    port_vars, port_last = port(work, patched, r["square"], r["entry_vars"],
-                                name=f"load{difficulty}", records=records)
+    port_vars, port_last = port(work, patched, name=f"load{difficulty}", typed="\\r",
+                                records=records, difficulty=difficulty)
     diff = [a for a in range(1, dqk_ecl.VARIABLES + 1)
-            if port_vars[a - 1] != r["monsters_vars"][a - 1]] \
+            if port_vars[a - 1] != r["variables"][a - 1]] \
         if len(port_vars) == dqk_ecl.VARIABLES else []
     v.check(len(port_vars) == dqk_ecl.VARIABLES and tuple(diff) == PORT_GAPS,
-            f"eclplay's variables at the 'monsters' PRESS KEY agree with the original's "
+            f"eclplay's variables at the battle's start agree with the original's "
             f"(PORT_GAPS){tag}", f"differ: {' '.join(f'{a:#x}' for a in diff)}")
     v.check(port_last == BATTLE_STOP, f"eclplay stops at the battle (not yet ported){tag}",
             port_last)
@@ -395,17 +406,17 @@ def load_run(v, work, opts, difficulty):
             count == r["count"] and icon_slot == r["icon_slot"],
             f"eclplay's party list has the original's records, c6f1 and ad6b{tag}",
             f"{len(ported)} records, c6f1 {count}, ad6b {icon_slot}")
-    # The records' bytes, pointers masked: the monsters' must agree; the party's
-    # agree but for PARTY_GAPS (the import's bytes, before any monster is looked at).
+    # The records' bytes, pointers masked: the monsters' must agree, and the party's
+    # must agree at PARTY_GAPS (the import's bytes, before any monster is looked at).
     where = {i: tuple(k for k in range(L.RECORD)
                       if masked(ported[i])[k] != masked(r["records"][i])[k])
              for i in range(min(len(ported), len(r["records"])))}
     where = {i: ks for i, ks in where.items() if ks}
     v.check(len(ported) == len(r["records"]) and
             all(not ks for i, ks in where.items() if i >= PARTY) and
-            where == {i: ks for i, ks in PARTY_GAPS.items()},
+            where == PARTY_GAPS,
             f"every monster's record agrees at the battle's start (pointers masked), and the "
-            f"party's agree but for PARTY_GAPS{tag}",
+            f"party's agree at PARTY_GAPS (none){tag}",
             "; ".join(f"{i}: " + " ".join(f"{k:#x}" for k in ks) for i, ks in sorted(where.items())))
     return r, ported
 

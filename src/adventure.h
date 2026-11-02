@@ -198,6 +198,14 @@ typedef struct {
      * blank) boxed and the buttons Select, and Exit where exit_item, drawn before the
      * pick reads its keys (the keys stay the adventure's). NULL: none drawn. */
     void (*pick_bar)(cok_adventure *game, const char *prompt, bool exit_item);
+    /* A saved game read from path as the start menu's Load Saved Game reads
+     * it (the game's own read, its variables and party, then its drawing
+     * of the loaded screen): eclplay's --load. */
+    bool (*load)(cok_adventure *game, const char *path);
+    /* The adventure from a loaded game as the camp's Begin Adventuring takes
+     * it, from block: the game's own loop, to its end (eclplay's --play).
+     * NULL: cok_adventure_enter's block, then cok_adventure_play. */
+    cok_ecl_status (*play)(cok_adventure *game, uint8_t block);
 } cok_drawing;
 
 /* The game's own drawing, or NULL for the 8x8 tiles'. */
@@ -608,6 +616,10 @@ bool cok_adventure_add_characters(cok_adventure *game, const char *const *paths,
  * once it has entered it); it draws and loads nothing: what the screen
  * shows again is the drawing's. */
 bool cok_adventure_restore(cok_adventure *game, const char *path);
+
+/* A saved game read as the start menu's Load reads it: the drawing's load
+ * (cok_drawing.load) where it has one, else cok_adventure_restore. */
+bool cok_adventure_load_file(cok_adventure *game, const char *path);
 
 /* Load another game's saved game, as a game that imports its characters
  * does (dkk 46b2:1ef0 with DS:c468 0, Champions' SAVGAM<letter>.DAT): of

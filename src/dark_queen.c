@@ -3124,6 +3124,26 @@ static bool delete_character(cok_adventure *game)
     }
 }
 
+/* The saved game at path read as Load Saved Game reads it (604b:2e87's tail,
+ * DS:b1ed set first): the game's read (cok_adventure_restore), the view's
+ * pictures and walls as loaded (loaded), the bar drawn again, the mode 0
+ * (DS:ae57). Also the start of eclplay's --load (cok_drawing.load). False
+ * where the run stopped. */
+static bool load_saved(cok_adventure *game, const char *path)
+{
+    queen *q = own(game);
+    cok_ecl *vm = &game->vm;
+    q->loaded_game = true; /* DS:b1ed */
+    uint8_t frame_was = (uint8_t)cok_ecl_load_var(vm, 0x3a);
+    if (!cok_adventure_restore(game, path) || !loaded(game, frame_was)) {
+        cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
+        return false;
+    }
+    bottom_bar(game);
+    vm->mode = 0;
+    return true;
+}
+
 /* Load Saved Game (604b:2e87): "load from where? " Tdqk, Dkk or Exit
  * (Escape too); the saved games there listed by their letters, "load
  * which game: " with those alone (none: back); then "Loading...Please
@@ -3134,7 +3154,6 @@ static bool delete_character(cok_adventure *game)
 static bool load_game(cok_adventure *game)
 {
     queen *q = own(game);
-    cok_ecl *vm = &game->vm;
     full_window(game); /* 20b2:0030 */
     static const char *const where[] = {"Tdqk", "Dkk", "Exit"}; /* DS:500c */
     cok_adventure_log(game, "menu", "Tdqk Dkk Exit");
@@ -3166,17 +3185,12 @@ static bool load_game(cok_adventure *game)
     if (other) return import_game(game, dir, (char)('A' + letter));
     char name[64], path[700];
     snprintf(name, sizeof name, "%s%c.%s", S->game, 'A' + letter, S->game_extension);
-    uint8_t frame_was = (uint8_t)cok_ecl_load_var(vm, 0x3a);
-    if (!find_file(dir, name, path, sizeof path) || !cok_adventure_restore(game, path) ||
-        !loaded(game, frame_was)) {
-        if (!find_file(dir, name, path, sizeof path))
-            snprintf(game->error, sizeof game->error, "%.300s/%.60s: not found", dir, name);
+    if (!find_file(dir, name, path, sizeof path)) {
+        snprintf(game->error, sizeof game->error, "%.300s/%.60s: not found", dir, name);
         cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
         return false;
     }
-    bottom_bar(game);
-    vm->mode = 0;
-    return true;
+    return load_saved(game, path);
 }
 
 /* Save Current Game (604b:3395): "save which game: " A-J (the mode 2's,
@@ -3426,6 +3440,35 @@ static int camp_menu(cok_adventure *game, const bool on[CAMP_ITEMS])
     }
 }
 
+/* Begin Adventuring's part of the camp (7368:07af-0804): the mode the last
+ * was (the last mode, or 4 for none); a game not loaded (DS:b1ed) and small
+ * picture 9 not shown (DS:ae42): the overland's frame in mode 3 on the
+ * overland, else the adventure's screen, the party's list after either; a
+ * game loaded: by the mode, 0 and 4 the adventure's screen and the list, 3
+ * the overland's frame, the others nothing. Then the bar, variable 0x30 0,
+ * the game not saved. */
+static void begin_adventuring(cok_adventure *game)
+{
+    queen *q = own(game);
+    cok_ecl *vm = &game->vm;
+    vm->mode = vm->last_mode != 0 ? vm->last_mode : 4;
+    if (!q->loaded_game && q->picture_id != 9) {
+        if (vm->mode == 3 && cok_ecl_load_var(vm, 0x24) == 1)
+            overland_screen(game);
+        else
+            adventure_screen(game);
+        party_list(game);
+    } else if (vm->mode == 0 || vm->mode == 4) {
+        adventure_screen(game);
+        party_list(game);
+    } else if (vm->mode == 3) {
+        overland_screen(game);
+    }
+    bottom_bar(game);
+    cok_ecl_store(vm, 0x30, 0);
+    q->saved = false;
+}
+
 /* The camp's menu (7368:046f; from_main is its argument: 1 from main, 0
  * from the adventure's PROGRAM 0 (5f07:0c15); the adventure's Encamp
  * (6c70:34ab) is not ported): the mode 0, the last mode the one it
@@ -3544,28 +3587,7 @@ static cok_ecl_status camp(cok_adventure *game, bool from_main, bool *begin)
             if (game->party.count > 0 && !save_game(game)) return vm->status;
             break;
         case CAMP_BEGIN:
-            vm->mode = vm->last_mode != 0 ? vm->last_mode : 4;
-            /* 7368:07af-0804: a game not loaded (DS:b1ed) and small
-             * picture 9 not shown (DS:ae42): the overland's frame in mode
-             * 3 on the overland, else the adventure's screen, the party's
-             * list after either; a game loaded: by the mode, 0 and 4 the
-             * adventure's screen and the list, 3 the overland's frame, the
-             * others nothing. */
-            if (!q->loaded_game && q->picture_id != 9) {
-                if (vm->mode == 3 && cok_ecl_load_var(vm, 0x24) == 1)
-                    overland_screen(game);
-                else
-                    adventure_screen(game);
-                party_list(game);
-            } else if (vm->mode == 0 || vm->mode == 4) {
-                adventure_screen(game);
-                party_list(game);
-            } else if (vm->mode == 3) {
-                overland_screen(game);
-            }
-            bottom_bar(game);
-            cok_ecl_store(vm, 0x30, 0);
-            q->saved = false;
+            begin_adventuring(game);
             *begin = true;
             return COK_ECL_OK;
         case CAMP_EXIT: {
@@ -3898,8 +3920,9 @@ static int commands(cok_adventure *game)
  * after-move vector; the last square in variables 0x17 and 0x18, the
  * step (6fea:0753), the view and the location vector, each NEWECL
  * entering its block (5f07:0ff4: cok_adventure_reenter). Outside 3D
- * (mode 3) its loop is not ported yet. */
-static cok_ecl_status adventure(cok_adventure *game)
+ * (mode 3) its loop is not ported yet. The block is the variable 0x16's
+ * (the start's), or the play's (eclplay's --play). */
+static cok_ecl_status adventure(cok_adventure *game, uint8_t block)
 {
     cok_ecl *vm = &game->vm;
     cok_adventure_log(game, "protection", "the journal's word, passed over (dqk 65cc:008b)");
@@ -3910,7 +3933,6 @@ static cok_ecl_status adventure(cok_adventure *game)
         party_list(game);
         status_line(game);
     }
-    uint8_t block = (uint8_t)cok_ecl_load_var(vm, 0x16);
     /* A loaded game's first block keeps its locals (6c70:0001 with DS:b1ed
      * set, cok_adventure_restore's keep_vars); 10cd clears b1ed once it
      * has entered it. */
@@ -3957,6 +3979,20 @@ static cok_ecl_status adventure(cok_adventure *game)
     return status != COK_ECL_OK ? status : vm->status;
 }
 
+/* eclplay's --play (cok_drawing.play): Begin Adventuring from a loaded game
+ * as the camp takes it (begin_adventuring), then the adventure from block.
+ * The camp's Begin is only on with a member, so a party is needed. */
+static cok_ecl_status play(cok_adventure *game, uint8_t block)
+{
+    if (game->party.count == 0) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                           "--play: Begin Adventuring needs a party (add --character)");
+        return game->vm.status;
+    }
+    begin_adventuring(game);
+    return adventure(game, block);
+}
+
 /* The demonstration (5ebd:0236, 5f07:10cd with DS:ae59): the speed
  * (variable 0x12) 5, block 7's start run (its fifth vector) without the
  * camp or the copy protection, the keys read only where typed (2093:0078);
@@ -3996,7 +4032,7 @@ static cok_ecl_status start(cok_adventure *game)
             bool begin;
             cok_ecl_status status = camp(game, true, &begin);
             if (status != COK_ECL_OK || !begin || vm->abort) return status;
-            return adventure(game);
+            return adventure(game, (uint8_t)cok_ecl_load_var(vm, 0x16));
         }
         bool stopped;
         cok_ecl_status status = demonstration(game, &stopped);
@@ -4246,4 +4282,6 @@ const cok_drawing cok_dark_queen_drawing = {
     .window_text = window_text,
     .window_clear = window_clear,
     .pick_bar = pick_bar,
+    .load = load_saved,
+    .play = play,
 };

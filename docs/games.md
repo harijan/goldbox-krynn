@@ -434,8 +434,10 @@ its saved games and play them in 3D up to the first fight, as the
 original draws them, and `krynn --game dark-queen` plays the same in a
 window (`make dqk-checks`' `dqk_views.py`, `dqk_boot.py`, `dqk_menus.py`
 and `dqk_party.py`: see [Checks against the original](checks.md)). Its
-`unplayable` says why `eclplay` refuses `--load`, parties and `--play`
-(its saved games load from `--start-menu`'s camp). What is not ported is left
+`--load` and `--play` take a saved game as the start menu's Load and Begin
+Adventuring do (`cok_drawing`'s `load` and `play`, `dark_queen.c`'s
+`load_saved` and `begin_adventuring`), and its `unplayable` says why parties
+(`--party`, `--test-party`) stay refused. What is not ported is left
 out of the descriptor (the data segment, spells, combat), so that code
 reaching it stops at an assertion, and its opcodes that need them stop the
 run, citing their handlers (`unported`). It holds:
@@ -651,8 +653,8 @@ run, citing their handlers (`unported`). It holds:
   with it the battle's first turn is reached (`5045:078b`), with the seed's 11 draws, and
   the fight checks run with the sound off (DQK.CFG's sound word 6, read by `1fd3:000b`).
   The load flow's party list at the battle's call (`5f07:08f0`): 19 records, the monsters'
-  bytes equal (pointers masked); four members' import differs (known spells, saving throws,
-  thief skills: `dqk_fight.py`'s PARTY_GAPS, not traced). The icons: `CPIC.TLB` records
+  bytes equal (pointers masked), and the party's too from the save (`--load`; with `--character`
+  four members' import differed: known spells, saving throws, thief skills, not traced). The icons: `CPIC.TLB` records
   do not decode with the port's image reader ("unsupported or malformed image layout"),
   logged by the loader, and Dark Queen's colour tables (the CPIC recolour) are not in its
   data: the icons load unrecoloured, and nothing draws them yet.
