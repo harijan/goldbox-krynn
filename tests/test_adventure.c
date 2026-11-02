@@ -2,6 +2,7 @@
 
 #include "adventure.h"
 #include "arena.h"
+#include "queen_levels.h"
 #include "test_temp.h"
 
 #include <stdio.h>
@@ -2584,6 +2585,229 @@ static void test_dark_queen_wall_set(void)
     cok_adventure_close(&game);
 }
 
+/* The Dark Queen's ECL bytes for the party opcodes (rules_dark_queen.c's table: each
+ * byte its own meaning): LOAD CHARACTER 0x0a, FIND NPC 0x37, WHO 0x39, ADD EP 0x41. */
+enum {
+    DQK_LOAD_CHARACTER = 0x0a,
+    DQK_FIND_NPC = 0x37,
+    DQK_WHO = 0x39,
+    DQK_ADD_EP = 0x41,
+};
+
+/* A Dark Queen character for the party: its name (+0x68), whether it can act
+ * (+0x18b) and its seven class levels (+0xa5). */
+static cok_character *queen_member(const char *name, uint8_t active, const uint8_t levels[7])
+{
+    cok_character *c = calloc(1, sizeof *c);
+    CHECK(c != NULL);
+    memcpy(c->record + 0x68, name, strlen(name) + 1);
+    c->record[0x18b] = active;
+    memcpy(c->record + 0xa5, levels, 7);
+    return c;
+}
+
+static uint32_t queen_experience(const uint8_t *c)
+{
+    return (uint32_t)c[0x44] | (uint32_t)c[0x45] << 8 | (uint32_t)c[0x46] << 16 |
+           (uint32_t)c[0x47] << 24;
+}
+
+static void set_queen_experience(uint8_t *c, uint32_t experience)
+{
+    for (int i = 0; i < 4; ++i) c[0x44 + i] = (uint8_t)(experience >> (8 * i));
+}
+
+/* The milliseconds of each delay (the game's delay hook). */
+static unsigned last_delay;
+
+static void record_delay(cok_adventure *game, unsigned ms, void *context)
+{
+    (void)game;
+    (void)context;
+    last_delay = ms;
+}
+
+/* The party list's pixels (the Dark Queen's screen, rows 8-103 and columns 136-311),
+ * copied out, or blanked. */
+enum { LIST_ROW = 8, LIST_COL = 136, LIST_ROWS = 96, LIST_COLS = 176 };
+
+static void party_list_pixels(const cok_picture *p, uint8_t *out)
+{
+    for (int y = 0; y < LIST_ROWS; ++y)
+        memcpy(out + (size_t)y * LIST_COLS, p->pixels + (size_t)(LIST_ROW + y) * 320 + LIST_COL,
+               LIST_COLS);
+}
+
+static void blank_party_list(cok_picture *p)
+{
+    for (int y = 0; y < LIST_ROWS; ++y)
+        memset(p->pixels + (size_t)(LIST_ROW + y) * 320 + LIST_COL, 0, LIST_COLS);
+}
+
+/* The ECL's text window (cells 1-38 by 17-22), its pixels copied out, or blanked. */
+enum { WINDOW_BYTES = 6 * 8 * 38 * 8 };
+
+static void window_pixels(const cok_picture *p, uint8_t *out)
+{
+    for (int y = 0; y < 6 * 8; ++y)
+        memcpy(out + (size_t)y * 38 * 8, p->pixels + (size_t)(17 * 8 + y) * 320 + 8, 38 * 8);
+}
+
+static void clear_window(cok_picture *p)
+{
+    for (int y = 17 * 8; y < 23 * 8; ++y) memset(p->pixels + (size_t)y * 320 + 8, 0, 38 * 8);
+}
+
+/* Whether any pixel of the bottom bar (rows 186-199) is set. */
+static bool bar_drawn(const cok_picture *p)
+{
+    for (int y = 186; y < 200; ++y)
+        for (int x = 0; x < 320; ++x)
+            if (p->pixels[(size_t)y * 320 + (size_t)x] != 0) return true;
+    return false;
+}
+
+/* dqk 6c70:2719 (ADD EP), 6c70:2fe0 (WHO) and 6c70:31e8 (FIND NPC) on a party of
+ * four: AB and CD with two class levels each, EF which cannot act, GH with none.
+ * ADD EP gives the points times 100 divided among the classes, to the selected
+ * member or each that can act, in colour 7; with no class, the division leaves
+ * 0xffffffff. WHO's prompt is the game's replacement for one of its own. FIND NPC
+ * finds a member by name with the NPC bit (+0x9b), its position, 0x80 more when it
+ * cannot act, 0xff for none. Skipped without DQKAssets. */
+static void test_dark_queen_party(void)
+{
+    FILE *f = fopen("DQKAssets/DISK3/ECL.GLB", "rb");
+    if (f == NULL) {
+        puts("adventure: DQKAssets not found; Dark Queen's party opcodes not checked");
+        return;
+    }
+    fclose(f);
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &s};
+    CHECK(cok_adventure_open(&game, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
+    cok_ecl *vm = &game.vm;
+    const uint8_t two[7] = {2, 0, 1, 0, 0, 0, 0}, none[7] = {0};
+    const uint8_t one[7] = {1, 0, 1, 0, 0, 0, 0};
+    cok_character *a = queen_member("Ab", 1, two), *b = queen_member("CD", 1, one),
+                  *c = queen_member("EF", 0, one), *d = queen_member("GH", 1, none);
+    CHECK(cok_party_add(&game.party, &cok_rules_dark_queen, a) &&
+          cok_party_add(&game.party, &cok_rules_dark_queen, b) &&
+          cok_party_add(&game.party, &cok_rules_dark_queen, c) &&
+          cok_party_add(&game.party, &cok_rules_dark_queen, d));
+    /* ADD EP 0 (selected: AB) with 3 points: 300 over two classes. The text is in
+     * colour 7, not Champions' 10 (the window's colours). */
+    const uint8_t one_ep[] = {DQK_LOAD_CHARACTER, 0, 0, DQK_ADD_EP, 0, 0, 2, 0x03, 0x00,
+                              DQK_EXIT};
+    CHECK(run_code(&game, &s, one_ep, sizeof one_ep, "") == COK_ECL_OK);
+    CHECK(queen_experience(a->record) == 150 && queen_experience(b->record) == 0);
+    CHECK(strcmp(s.log, "print: Congratulations Ab gains experience!;") == 0);
+    bool used[256];
+    window_colours(&game.screen, used);
+    CHECK(used[7] && !used[10]);
+    /* ADD EP 1 (the party) with 257 points: each that can act gains 12850 (two
+     * classes), EF cannot and is passed over, and GH can act but has no class:
+     * its division leaves 0xffffffff. The party's list is drawn again after it
+     * (6c70:2828): blanked before, it is the list drawn fresh after. */
+    a->record[0x44] = b->record[0x44] = 0;
+    const uint8_t all_ep[] = {DQK_ADD_EP, 0, 1, 2, 0x01, 0x01, DQK_EXIT};
+    static uint8_t drawn[LIST_ROWS * LIST_COLS], fresh[LIST_ROWS * LIST_COLS];
+    blank_party_list(&game.screen);
+    CHECK(run_code(&game, &s, all_ep, sizeof all_ep, "") == COK_ECL_OK);
+    CHECK(queen_experience(a->record) == 12850 && queen_experience(b->record) == 12850 &&
+          queen_experience(c->record) == 0 && queen_experience(d->record) == 0xffffffffu);
+    CHECK(strcmp(s.log, "print: Congratulations the party gains experience!;") == 0);
+    party_list_pixels(&game.screen, drawn);
+    blank_party_list(&game.screen);
+    cok_adventure_party(&game);
+    party_list_pixels(&game.screen, fresh);
+    CHECK(memcmp(drawn, fresh, sizeof drawn) == 0);
+    bool listed = false;
+    for (size_t i = 0; i < sizeof drawn; ++i) listed = listed || drawn[i] != 0;
+    CHECK(listed);
+    /* The selected member with no class divides by zero: the software division
+     * leaves 0xffffffff, which the experience adds (a drop of one, no error). */
+    d->record[0x18b] = 1;
+    const uint8_t zero_ep[] = {DQK_LOAD_CHARACTER, 0, 3, DQK_ADD_EP, 0, 0, 2, 10, 0,
+                               DQK_EXIT};
+    d->record[0x44] = d->record[0x45] = d->record[0x46] = d->record[0x47] = 0;
+    CHECK(run_code(&game, &s, zero_ep, sizeof zero_ep, "") == COK_ECL_OK);
+    CHECK(queen_experience(d->record) == 0xffffffffu);
+    /* WHO: down to CD and select it. */
+    const uint8_t who[] = {DQK_WHO, 0x80, 0, DQK_EXIT};
+    CHECK(run_code(&game, &s, who, sizeof who, "\x01Ps") == COK_ECL_OK);
+    CHECK(vm->character == b->record);
+    /* WHO's pick draws its bottom bar (dqk 1bdb:1997): the bar cleared, it is drawn
+     * again by the pick, before its keys. */
+    for (int y = 186; y < 200; ++y)
+        memset(game.screen.pixels + (size_t)y * 320, 0, 320);
+    CHECK(run_code(&game, &s, who, sizeof who, "\x01Ps") == COK_ECL_OK);
+    CHECK(bar_drawn(&game.screen));
+    /* End and Home move the pick too (its table at 76b8:3c12): from AB, End to CD and
+     * to EF, Home back to CD, then S picks CD (the log's name: the run's LOAD CHARACTER
+     * is undone at its exit, as the selection is). */
+    const uint8_t who_here[] = {DQK_LOAD_CHARACTER, 0, 0, DQK_WHO, 0x80, 0, DQK_EXIT};
+    CHECK(run_code(&game, &s, who_here, sizeof who_here, "\x01O\x01O\x01Gs") == COK_ECL_OK);
+    CHECK(strstr(s.log, "who: CD;") != NULL);
+    const char *prompt = "who will attempt to disarm the trap?";
+    CHECK(strcmp(cok_rules_who_prompt(&cok_rules_dark_queen, prompt),
+                 "Who will try to disarm?") == 0);
+    CHECK(cok_rules_who_prompt(&cok_rules_champions, prompt) == prompt);
+    /* FIND NPC: the name "AB" (case-blind) with bit 7 of +0x9b, into variable 0x100
+     * (ECL address 0x0100). None has it yet. */
+    const uint8_t find[] = {DQK_FIND_NPC, 0x80, 3, 0x04, 0x20, 0x00, 2, 0x00, 0x01, DQK_EXIT};
+    CHECK(run_code(&game, &s, find, sizeof find, "") == COK_ECL_OK &&
+          cok_ecl_load_var(vm, 0x100) == 0xff);
+    a->record[0x9b] = 0x80;
+    CHECK(run_code(&game, &s, find, sizeof find, "") == COK_ECL_OK &&
+          cok_ecl_load_var(vm, 0x100) == 0);
+    /* EF is found at 2 with bit 7, and it cannot act: 0x82. */
+    c->record[0x9b] = 0x80;
+    const uint8_t find_ef[] = {DQK_FIND_NPC, 0x80, 3, 0x14, 0x60, 0x00, 2, 0x00, 0x01,
+                               DQK_EXIT}; /* "EF": codes 5 and 6 */
+    CHECK(run_code(&game, &s, find_ef, sizeof find_ef, "") == COK_ECL_OK &&
+          cok_ecl_load_var(vm, 0x100) == 0x82);
+    /* A selected member that cannot act (EF) gains nothing and says nothing, but the
+     * cursor is set first (6c70:2755, before its test at 2844). A PRINT before it leaves
+     * the cursor at cell 2; the PRINT after it (no clear) then lands on cell 1 only if
+     * ADD EP set the cursor back to (1, 0x11). So the window matches a lone PRINT 9. */
+    const uint8_t lone[] = {DQK_PRINT, 0, 9, DQK_EXIT};
+    const uint8_t around[] = {DQK_PRINT, 0, 7, DQK_LOAD_CHARACTER, 0, 2, DQK_ADD_EP, 0, 0, 2,
+                              10, 0, DQK_PRINT, 0, 9, DQK_EXIT};
+    static uint8_t alone_window[WINDOW_BYTES], around_window[WINDOW_BYTES];
+    clear_window(&game.screen);
+    CHECK(run_code(&game, &s, lone, sizeof lone, "") == COK_ECL_OK);
+    window_pixels(&game.screen, alone_window);
+    clear_window(&game.screen);
+    CHECK(run_code(&game, &s, around, sizeof around, "") == COK_ECL_OK &&
+          queen_experience(c->record) == 0 && strcmp(s.log, "print: 7;print: 9;") == 0);
+    window_pixels(&game.screen, around_window);
+    CHECK(memcmp(alone_window, around_window, sizeof alone_window) == 0);
+    /* May-train (+0xcd, 177e:1fe5): Ab's class 2 is at level 1, its need for 2 is 2001
+     * (class 0's, for 3, is 7500, further off). One short of it, Ab may not train; with
+     * a share of 50 (one point, two classes) it may. */
+    char error[300];
+    int32_t need;
+    CHECK(cok_queen_experience(&cok_rules_dark_queen, a->record, 2, 2, &need, error,
+                               sizeof error));
+    set_queen_experience(a->record, (uint32_t)need - 1);
+    a->record[0xcd] = 1;
+    const uint8_t no_share[] = {DQK_LOAD_CHARACTER, 0, 0, DQK_ADD_EP, 0, 0, 2, 0, 0, DQK_EXIT};
+    CHECK(run_code(&game, &s, no_share, sizeof no_share, "") == COK_ECL_OK &&
+          a->record[0xcd] == 0);
+    const uint8_t one_point[] = {DQK_LOAD_CHARACTER, 0, 0, DQK_ADD_EP, 0, 0, 2, 1, 0,
+                                 DQK_EXIT};
+    CHECK(run_code(&game, &s, one_point, sizeof one_point, "") == COK_ECL_OK &&
+          queen_experience(a->record) >= (uint32_t)need && a->record[0xcd] == 1);
+    /* ADD EP's pause is variable 0x12 as it is now, 100 ms times (1a62:0949), not the
+     * speed the game loaded (4 here): 2 is 200 ms. */
+    game.hooks.delay = record_delay;
+    cok_ecl_store(vm, 0x12, 2);
+    CHECK(run_code(&game, &s, one_point, sizeof one_point, "") == COK_ECL_OK && last_delay == 200);
+    cok_adventure_close(&game);
+}
+
 int main(void)
 {
     test_clock();
@@ -2610,6 +2834,7 @@ int main(void)
     test_dark_queen_view_modes();
     test_dark_queen_view_square();
     test_dark_queen_wall_set();
+    test_dark_queen_party();
     puts("adventure tests passed");
     return 0;
 }

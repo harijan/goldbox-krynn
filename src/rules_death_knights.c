@@ -1913,6 +1913,7 @@ const cok_rules cok_rules_death_knights = {
             .escape_leaves_move = true,
             .camp_keeps_selection = true, /* 4381:3106 */
             .special_keeps = true, /* 580d:2bb2 */
+            .pick_end_home = false,
         },
     .commands =
         {
@@ -2045,6 +2046,7 @@ const cok_rules cok_rules_death_knights = {
             .gains_end = " gains experience!",                     /* DS:2a64 */
             .party_gains = "Congratulations the party gains experien", /* DS:2a3b */
             .gains_active_first = true,
+            .gains_colour = 10, /* 3632:25f1's push 0xa */
         },
     .levels =
         {

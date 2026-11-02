@@ -602,6 +602,27 @@ run, citing their handlers (`unported`). It holds:
   view only with files loaded or from mode 4 to mode 4, and the original
   (`5f07:105e-107a`) shows it unless the last mode is 4 and the mode is not 4 (the
   mode-3 loop is not ported).
+  The party opcodes (`dqk_ecl_party.py`, with the saved game A's six members on both
+  sides): LOAD CHARACTER (0x0a past the end keeps the selection), WHO (`6c70:2fe0`: its
+  prompt "who will attempt to disarm the trap?" is shown as "Who will try to disarm?",
+  case-blind, `cok_rules_who_prompt`; its clear and its bottom bar (`cok_drawing`'s
+  `pick_bar`: the prompt boxed, Select) are the Dark Queen's own; its keys are the
+  shared pick's, with End and Home too (`menus.pick_end_home`, `76b8:3c12`)), ADD EP (`6c70:2719`, `gain_dark_queen`: the points times 100 divided among the
+  class levels that are not 0, seven, unsigned; with none the software division leaves
+  0xffffffff, a drop of one; then may-train by `cok_queen_may_train` (`177e:1fe5`); the
+  words in colour 7 through the window routine; the party's list drawn again after a
+  party's ADD EP, `6c70:2828`, and the cursor set to (1, 0x11) before a selected member
+  that cannot act is passed over, `6c70:2755`; its pause is variable 0x12 as it is now
+  (100 ms times, `1a62:0949`), waited by the game's delay hook: the Dark Queen's clock
+  (`pass`, which steps the colour cycles) is not run for it, as no drawing hook waits
+  alone)
+  and FIND NPC (`6c70:31e8`: the first member whose name matches, case-blind, with bit 7
+  of +0x9b, its position and 0x80 if it cannot act, else 0xff). ADD NPC (`6c70:307b`)
+  stops: `604b:2886` allocates a 0x19e record, fills it from DS:b2a4 by `604b:257c`,
+  links it (`604b:3491`) and writes `104c:00df`, which needs step 2's NPC records and is
+  not ported. Found and fixed on the way: ADD EP's words went through the 16-colour wrap,
+  which draws nothing on the VGA screen (`cok_drawing`'s `window_text` and `window_clear`
+  now carry them).
 - its maps: `GEO.GLB` records of their own size (`cok_view_set_geo`,
   `8a8b:12e3`): u8 height, u8 width, the wall sets of slots 0-2 and three
   backdrops, then four planes of a byte a square, row by row: the north
