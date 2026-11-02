@@ -305,7 +305,9 @@ with NumLock on and else the cursor key's code (nothing for 5), `\aN.` Alt
 held over the keypad's digits `N`, typing their character code as a byte on
 Alt's release, nothing for 0; `krynn` presses those keys through SDL's
 events, outside a group typed ahead, where they are typed as their codes);
-when they run out the run stops. `\k` presses the next key while the party
+when they run out the run stops. Keys the run never reads are reported on stderr as
+`(keys left unread in block N at ADDR)` (the stdout's last line is as it was).
+`\k` presses the next key while the party
 rests, which the rest loop sees (`1614:03c2`), or as a battle is set up,
 which drops it (`1614:0479`). Keys are otherwise typed one at a time as the
 game reads them, but `\[KEYS\]` types KEYS ahead: all at once into the
