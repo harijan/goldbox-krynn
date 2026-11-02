@@ -12,7 +12,8 @@ the status (5e22:03f8); Palanthas, the palace and its leaving to Caergoth's
 3D view and the adventure's commands (6fea:0365); steps east and a turn
 (6fea:000a, 0753, the clock 1396:044d); then the way to Caergoth's
 ruins, the widow, the shadows, and the step after which dragons attack
-(SETUP MONSTERS, 6c70:2db1: the first fight, where the port stops).
+(SETUP MONSTERS, 6c70:2db1, and the dragons' attack: the port's walk waits at its menu,
+the fight's battle not yet ported, step 4).
 
 Compared: the whole screen (the sheet's readied weapon and armour, rows
 21-22, 177e:03fc), the mouse's cursor included (in the adventure's commands
@@ -173,16 +174,20 @@ def main():
             box.settled(tolerance=64)
         shot = box.settled(tolerance=64)
         shot.save_png(out / "before-dragons.png")
-        verdict.screen("the step before the dragons", shot, shots[-1] if shots else None,
+        # The port's last shot is the dragons' attack (its SETUP MONSTERS drew the sprite);
+        # the one before it is the step before the dragons.
+        verdict.screen("the step before the dragons", shot, shots[-2] if len(shots) > 1 else None,
                        work=work)
         box.keys("\\^")
         shot = box.settled(tolerance=64)
         shot.save_png(out / "dragons.png")
+        verdict.screen("the dragons attack (SETUP MONSTERS' sprite, 6c70:0255)", shot,
+                       shots[-1] if shots else None, work=work)
         pc = box.ds_word(dqk_lib.DS_PC)
         verdict.check(SETUP < pc <= COMBAT, "the original past the dragons' SETUP MONSTERS",
                       f"its ECL at {pc:04x}, between {SETUP:04x} and their COMBAT, {COMBAT:04x}")
-    verdict.check("SETUP MONSTERS (dqk 6c70:2db1)" in log,
-                  "the port stops at the dragons' SETUP MONSTERS, cited",
+    verdict.check(log.strip().splitlines()[-1:] == ["(out of keys in block 4 at 8c0e)"],
+                  "the port's walk waits at the dragons' attack (the battle is not ported yet)",
                   log.strip().splitlines()[-1] if log.strip() else "")
     return verdict.finish()
 

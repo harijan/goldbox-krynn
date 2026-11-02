@@ -224,6 +224,11 @@ typedef struct {
     bool (*arena_tiles)(cok_adventure *game, bool wild, unsigned set);
     bool (*arena_view)(cok_adventure *game);
     bool (*arena_cell)(cok_adventure *game, int x, int y);
+    /* The encounter's sprite and close-up at distance (dqk 6c70:0255), drawn in
+     * place of monster.c's show: the SPRIT group distance + 1 in the 3D view and
+     * the close-up picture at distance 0. NULL: monster.c's show (Champions',
+     * Death Knights'). */
+    void (*encounter)(cok_adventure *game, uint8_t distance);
 } cok_drawing;
 
 /* The game's own drawing, or NULL for the 8x8 tiles'. */

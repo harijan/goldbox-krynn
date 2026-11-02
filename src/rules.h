@@ -1069,6 +1069,12 @@ typedef struct {
      * when there is no sprite (dkk); Champions' has neither rule, and its
      * close-up may be a portrait (var COK_VAR_PORTRAIT). */
     bool show_none;
+    /* The distance where Dark Queen's differs (dqk 6c70:01c3, 2db1): with no 3D
+     * area the open squares (01c3's 3d == 0 branch) set var COK_VAR_DISTANCE_WANTED,
+     * not COK_VAR_DISTANCE, as Champions' and Death Knights' do; and a distance
+     * wanted of 16 is 2 squares, both vars 2 (2db1's 2e1c). The sprite and close-up
+     * at a distance are the drawing's (cok_drawing.encounter). */
+    bool open_squares_wanted, distance_16_is_2;
     /* The battle (3995:0172; dkk 3e05:00ec): whether leadership (dkk
      * 5340:4acf) comes before the setup, with its words (the first line,
      * then name, leads, name and the end); whether after each turn and

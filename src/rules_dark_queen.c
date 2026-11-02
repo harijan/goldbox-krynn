@@ -48,8 +48,8 @@ static const cok_rules_opcode dark_queen_opcodes[COK_ECL_OPCODES] = {
     SAME(COK_ECL_SAVE, 2),
     SAME(COK_ECL_LOAD_CHARACTER, 1), /* 5f07:0422 */
     SAME(COK_ECL_LOAD_MONSTER, 3),   /* 6c70:29a3: registers (monster.c) */
-    NOT(0x0c, COK_ECL_SETUP_MONSTERS, 4, "dqk 6c70:2db1"),
-    NOT(0x0d, COK_ECL_APPROACH, 0, "dqk 6c70:2e4f"),
+    OP(0x0c, COK_ECL_SETUP_MONSTERS, 4), /* 6c70:2db1: monster.c, the sprite (dark_queen.c) */
+    OP(0x0d, COK_ECL_APPROACH, 0),       /* 6c70:2e4f */
     SAME(COK_ECL_PICTURE, 1),        /* 5f07:0552 */
     OP(0x0f, COK_ECL_INPUT_NUMBER, 2), /* 6c70:2e7c */
     OP(0x10, COK_ECL_INPUT_STRING, 2), /* 6c70:2ec8 */
@@ -392,6 +392,8 @@ static const cok_rules_var dark_queen_vars[COK_VARS] = {
     [COK_VAR_LAST_Y] = VAR(0x18),
     [COK_VAR_EDGE] = VAR(0x21),       /* 5f07:0ff4 clears it as a block is entered */
     [COK_VAR_3D] = VAR(0x22),         /* 6c70:0728: a store switches the mode */
+    [COK_VAR_DISTANCE_WANTED] = VAR(0x38), /* 6c70:2db1: the distance wanted */
+    [COK_VAR_DISTANCE] = VAR(0x37),   /* 6c70:01c3: the distance now (2e0a-2e18) */
     [COK_VAR_REMAINDER] = VAR(0x29),  /* 5f07:02c2 */
     [COK_VAR_LOCALS] = VARS(0x97, 50), /* 6c70:0001 */
     [COK_VAR_PARTY_SIZE] = VAR(0x20), /* 604b:3491 adds 1 */
@@ -586,9 +588,10 @@ const cok_rules cok_rules_dark_queen = {
             .ids = cok_dark_queen_spell_ids,
         },
     /* COMBAT's monsters (monster.c): LOAD MONSTER registers them (dqk 6c70:29a3),
-     * COMBAT appends them (6c70:2d82, 170e), then the battle (5045:059d) is not
-     * ported; the branches with no monsters (5f07:081b's vault, temple and
-     * treasure) are not either. */
+     * COMBAT appends them (6c70:2d82, 170e) and lowers the distance to the open
+     * squares, then the battle (5045:059d) is not ported; the branches with no
+     * monsters (5f07:081b's vault, temple and treasure) are not either. The
+     * encounter (SETUP MONSTERS, APPROACH, the sprite and close-up) is ported. */
     .combat =
         {
             .begins = "A battle begins...", /* DS:5ed8 (1a62:0046) */
@@ -598,6 +601,10 @@ const cok_rules cok_rules_dark_queen = {
             .monster_records_extra = 0x32,  /* 170e's cap (dqk 6c70:1a31) */
             /* The icon loads (204c:00df) are the drawing part's: slots only. */
             .monster_icons_unported = true,
+            /* The distance (dqk 6c70:01c3, 2db1): with no 3D area the open squares
+             * set var 0x38, the distance wanted, and a wanted 16 is 2 squares. */
+            .open_squares_wanted = true,
+            .distance_16_is_2 = true,
             .extra_monsters = dark_queen_extra_monsters,
             .extra_monster_count = (uint8_t)(sizeof dark_queen_extra_monsters /
                                              sizeof *dark_queen_extra_monsters),

@@ -485,16 +485,20 @@ static bool append_monsters(cok_adventure *game)
 static void battle(cok_adventure *game);
 
 /* COMBAT's monsters branch where the monsters were registered (dqk
- * 5f07:081b 88a-8f0): 63ae:02b0 and 5e98:0200(4) load the overlay, then the
- * text "A battle begins..." (1a62:0046), the appends, and the battle, which
- * the port does not carry out yet for Dark Queen (battle). The open squares
- * are the encounter part's and not run here: 6c70:01c3 (COMBAT 5f07:088f-08ba
- * lowers var COK_VAR_DISTANCE, dqk 0x37, to its result) also sets var 0x38 to
- * 2 where var 0x22 is 0 (01d9-01e4). */
+ * 5f07:081b 88a-8f0): COMBAT lowers var COK_VAR_DISTANCE (dqk 0x37) to the open
+ * squares (dqk 5f07:088f-08ba: 6c70:01c3, through 1d99:1247); then 5e98:0200(4)
+ * loads the overlay, the text "A battle begins..." (1a62:0046), the appends, and
+ * the battle, which the port does not carry out yet for Dark Queen (battle).
+ * 63ae:02b0, before the open squares, frees the small picture (DS:c2f0, not an
+ * overlay load): no call here; picture_loaded false is moot until the battle is
+ * ported. */
 static void queen_monsters(cok_adventure *game)
 {
     const cok_rules_combat *R = &cok_game_rules(game)->combat;
-    cok_adventure_overlay(game); /* 63ae:02b0, 5e98:0200(4) */
+    cok_ecl *vm = &game->vm;
+    uint8_t open = cok_monster_open_squares(game, vm->map_x, vm->map_y, vm->direction);
+    if (open < cok_ecl_var(vm, COK_VAR_DISTANCE)) cok_ecl_set_var(vm, COK_VAR_DISTANCE, open);
+    cok_adventure_overlay(game); /* 5e98:0200(4) */
     log_text(game, "print", R->begins);
     cok_text_string(&game->screen, &game->font, R->begins, 0, 24, R->begins_colour, 0);
     if (!append_monsters(game)) return;
@@ -638,11 +642,15 @@ bool cok_real_trunc(cok_real value, int32_t *out)
 
 /* The encounter's sprite. */
 
+/* The open squares ahead, at most 2 (dqk 6c70:01c3, which COMBAT calls too). With no
+ * 3D area it is 2 and sets the distance (Champions', Death Knights'), or the
+ * distance wanted where the game's open_squares_wanted is set (dqk 01d9-01e4). */
 uint8_t cok_monster_open_squares(cok_adventure *game, int x, int y, uint8_t direction)
 {
     cok_ecl *vm = &game->vm;
     if (cok_ecl_var(vm, COK_VAR_3D) == 0) {
-        cok_ecl_set_var(vm, COK_VAR_DISTANCE, 2);
+        cok_ecl_set_var(vm, cok_game_rules(game)->combat.open_squares_wanted
+                                ? COK_VAR_DISTANCE_WANTED : COK_VAR_DISTANCE, 2);
         return 2;
     }
     /* The steps are bytes and do not wrap; the walls wrap the square. */
@@ -670,6 +678,12 @@ static void show_monster(cok_adventure *game, uint8_t distance)
 {
     cok_ecl *vm = &game->vm;
     char text[64];
+    /* A game with its own drawing of the encounter (Dark Queen's, dqk 6c70:0255). */
+    const cok_drawing *drawing = cok_adventure_drawing(game);
+    if (drawing != NULL && drawing->encounter != NULL) {
+        drawing->encounter(game, distance);
+        return;
+    }
     /* dkk 3c1e:0515: a sprite of 0xff is none, and a close-up of 0xff. */
     bool none = cok_game_rules(game)->combat.show_none;
     bool sprite = !none || game->sprite_id != 0xff;
@@ -724,14 +738,20 @@ static void show_monster(cok_adventure *game, uint8_t distance)
 }
 
 /* The distance wanted (var 0x7ec0), at most the open squares ahead, as
- * the current distance (var 0x7ec1); then show the monster there. */
+ * the current distance (var 0x7ec1); then show the monster there. Where
+ * distance_16_is_2 (dqk 6c70:2e1c), a wanted 16 is 2 squares, in both vars. */
 static void place_monster(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
+    const cok_rules_combat *R = &cok_game_rules(game)->combat;
     cok_ecl_set_var(vm, COK_VAR_DISTANCE,
                     cok_monster_open_squares(game, vm->map_x, vm->map_y, vm->direction));
     if (cok_ecl_var(vm, COK_VAR_DISTANCE_WANTED) < cok_ecl_var(vm, COK_VAR_DISTANCE))
         cok_ecl_set_var(vm, COK_VAR_DISTANCE, cok_ecl_var(vm, COK_VAR_DISTANCE_WANTED));
+    if (R->distance_16_is_2 && cok_ecl_var(vm, COK_VAR_DISTANCE_WANTED) == 16) {
+        cok_ecl_set_var(vm, COK_VAR_DISTANCE, 2);
+        cok_ecl_set_var(vm, COK_VAR_DISTANCE_WANTED, 2);
+    }
     show_monster(game, (uint8_t)cok_ecl_var(vm, COK_VAR_DISTANCE));
 }
 

@@ -21,12 +21,13 @@
 /* The libraries the game draws from, read once and kept. */
 enum {
     LIB_ALWAYS, LIB_FRAME, LIB_TITLE, LIB_BACK, LIB_WALLS_B, LIB_WALLS_C, LIB_PIC_A, LIB_PIC_B,
-    LIB_PIC_C, LIB_BIGPIC, LIB_GEN, LIB_FINAL, LIB_DUNGCOM, LIB_CBODY, LIB_WILDCOM, LIBS
+    LIB_PIC_C, LIB_BIGPIC, LIB_GEN, LIB_FINAL, LIB_DUNGCOM, LIB_CBODY, LIB_WILDCOM, LIB_SPRIT,
+    LIBS
 };
 static const char *const lib_names[LIBS] = {
     "ALWAYS.TLB", "FRAME.TLB", "TITLE.TLB", "BACK.TLB",   "8X8DB.TLB", "8X8DC.TLB",
     "PICA.TLB",   "PICB.TLB",  "PICC.TLB",  "BIGPIC.TLB", "GEN.TLB",   "FINAL.TLB",
-    "DUNGCOM.TLB", "CBODY.TLB",  "WILDCOM.TLB",
+    "DUNGCOM.TLB", "CBODY.TLB",  "WILDCOM.TLB", "SPRIT.TLB",
 };
 _Static_assert((int)LIB_DUNGCOM == (int)QUEEN_LIB_DUNGCOM && (int)LIB_CBODY == (int)QUEEN_LIB_CBODY &&
                (int)LIB_WILDCOM == (int)QUEEN_LIB_WILDCOM,
@@ -82,6 +83,9 @@ typedef struct {
     hlib_library picture;
     bool picture_loaded;
     uint8_t first_frame, last_frame, frame;
+    /* The encounter's sprite (SPRIT.TLB's record of the sprite id): its palette
+     * (record 0) and its groups, records 1-3, drawn over the view. */
+    hlib_library sprite;
     /* The big picture (DS:b7a8): BIGPIC's library of the one loaded
      * (DS:ae43, NO_BIG for none) and the last asked for (DS:acd2). */
     hlib_library big;
@@ -1229,37 +1233,12 @@ static bool big_picture(cok_adventure *game, unsigned n)
     return true;
 }
 
-/* PICTURE n (5f07:04a0): 0xff the view again where a picture was shown
- * (5e22:0000, view: on the overland its map again); from 0xf0 a big
- * picture (63ae:0321, 03b0), the party's place over it on the overland
- * (mode 3: 7065:0011), where the party's list is not drawn either (DS:b256);
- * below, a small picture, PIC<A, B or C>1 (63ae:0078: A below 0x80, B
- * below 0x97), its colours 0x20-0xff black first, record 1 drawn at cell
- * 3, 3 (63ae:000c), then its palette. */
-static void picture(cok_adventure *game)
+/* A small picture n (63ae:0078, from PICTURE and the encounter's close-up): PIC<A,
+ * B or C>1, its frames' loop from DS:b20c, its colours 0x20-0xff black, record 1 drawn
+ * (picture_frame), its palette; the picture shown. */
+static void small_picture(cok_adventure *game, uint8_t n)
 {
     queen *q = own(game);
-    cok_ecl *vm = &game->vm;
-    uint8_t n = (uint8_t)cok_ecl_value(vm, 0);
-    if (n == 0xff) {
-        if ((vm->last_mode != 4 || vm->mode == 4) && game->picture_shown) {
-            game->picture_shown = false;
-            view(game);
-        }
-        return;
-    }
-    if (n >= 0xf0) {
-        if (!big_picture(game, n)) {
-            cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
-            return;
-        }
-        if (vm->mode == 3)
-            marker(game);
-        else
-            q->big_no_party = true; /* DS:b256 */
-        game->picture_shown = true;
-        return;
-    }
     unsigned which = n < 0x80 ? LIB_PIC_A : n < 0x97 ? LIB_PIC_B : LIB_PIC_C;
     enter_state(game, STATE_PICTURE);
     q->picture_loaded = false;
@@ -1278,6 +1257,93 @@ static void picture(cok_adventure *game)
     black(game, 0x20);
     picture_frame(game);
     game->picture_shown = true;
+}
+
+/* The encounter's sprite and close-up at distance (dqk 6c70:0255, which show_monster
+ * calls where the game draws its own encounter). Nothing is shown once a close-up is
+ * (DS:c6f6 byte 1: closeup_shown), nor for sprite 0xff. Otherwise: the overhead map
+ * off and the sprite loaded, in a 3D area (sprite_loaded, sprite_shown: DS:b419), or
+ * the view redrawn (DS:ae27) where it is loaded; then, in mode 4, the sprite's group
+ * distance + 1 drawn over the view's box (53ae:02e5, the frame's offset as the small
+ * picture's). A close-up
+ * (the picture of closeup_id, small_picture) comes at distance 0, or where the sprite
+ * is 0xff, and only in mode 4. The pointer's hide and show (19a4:061a, DS:1cb6) are
+ * the front end's. */
+static void encounter(cok_adventure *game, uint8_t distance)
+{
+    queen *q = own(game);
+    cok_ecl *vm = &game->vm;
+    bool none = game->sprite_id == 0xff;
+    if (!game->closeup_shown && !none) {
+        if (!game->sprite_loaded) {
+            cok_adventure_overhead_off(game); /* DS:ca07 */
+            if (cok_ecl_var(vm, COK_VAR_3D) != 0) {
+                /* 53ae:0078 with mode 1: the sprite's record, its palette set. */
+                if (!sub_library(game, LIB_SPRIT, game->sprite_id, &q->sprite)) {
+                    cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
+                    return;
+                }
+                set_palette(game, &q->sprite, 0, 0);
+                game->sprite_loaded = true;
+                game->sprite_shown = true;
+            }
+        } else {
+            game->redraw = true;
+            cok_adventure_view(game); /* 5e22:0000 */
+        }
+        if (vm->mode == 4) {
+            /* 53ae:02e5: group distance + 1 at the view's box (its record's hotspot applies). */
+            draw(game, &q->sprite, distance + 1u, VIEW_AT, VIEW_AT, NULL, NULL);
+            char text[64];
+            snprintf(text, sizeof text, "sprite %u at %u", game->sprite_id, distance);
+            cok_adventure_log(game, "monster", text);
+        }
+    }
+    if (game->closeup_shown || game->closeup_id == 0xff) return;
+    if ((distance != 0 && !none) || vm->mode != 4) return;
+    small_picture(game, game->closeup_id); /* DS:ae64 (picture_shown) set there */
+    game->closeup_shown = true;
+}
+
+/* PICTURE n (5f07:04a0): 0xff the view again where a picture or a sprite
+ * was shown (5e22:0000, view: on the overland its map again), then the
+ * sprite and the close-up forgotten; any other n sets the close-up flag
+ * first. From 0xf0 a big picture (63ae:0321, 03b0), the party's place over
+ * it on the overland (mode 3: 7065:0011), where the party's list is not
+ * drawn either (DS:b256); below, a small picture, PIC<A, B or C>1
+ * (63ae:0078: A below 0x80, B below 0x97), its colours 0x20-0xff black
+ * first, record 1 drawn at cell 3, 3 (63ae:000c), then its palette. */
+static void picture(cok_adventure *game)
+{
+    queen *q = own(game);
+    cok_ecl *vm = &game->vm;
+    uint8_t n = (uint8_t)cok_ecl_value(vm, 0);
+    if (n == 0xff) {
+        /* 5f07:0511-054b: the view again where a picture or a sprite covers it
+         * (DS:ae64, b419), unless the last mode was 4 and the mode is not
+         * (0511-051d); then the sprite and the close-up forgotten (DS:c6f6). */
+        if ((vm->last_mode != 4 || vm->mode == 4) &&
+            (game->picture_shown || game->sprite_shown)) {
+            game->picture_shown = game->sprite_shown = false;
+            view(game);
+        }
+        game->sprite_loaded = game->closeup_shown = false; /* DS:c6f6 */
+        return;
+    }
+    game->closeup_shown = true; /* DS:c6f7 (5f07:04ae) */
+    if (n >= 0xf0) {
+        if (!big_picture(game, n)) {
+            cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
+            return;
+        }
+        if (vm->mode == 3)
+            marker(game);
+        else
+            q->big_no_party = true; /* DS:b256 */
+        game->picture_shown = true;
+        return;
+    }
+    small_picture(game, n);
 }
 
 /* CALL 3 (5f07:0aba): the small picture's frame drawn (63ae:000c, nothing
@@ -4328,4 +4394,5 @@ const cok_drawing cok_dark_queen_drawing = {
     .arena_tiles = arena_tiles,
     .arena_view = arena_view,
     .arena_cell = arena_cell,
+    .encounter = encounter,
 };
