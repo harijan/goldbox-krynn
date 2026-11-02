@@ -1496,6 +1496,27 @@ class DarkQueenTests(unittest.TestCase):
                       result.stderr)
 
 
+    def test_encamp(self):
+        # The adventure's camp (Encamp, 6fea:0365's key 4, then 5f07:0b3b): its
+        # menu's words, View and its sheet, Exit back to the commands; Magic
+        # stops, cited; Save writes the game to a new slot (SAVGAMC.QSV). The
+        # walk to the commands is dqk_camp.py's.
+        walk = r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r\^\^\^"
+        saves = self.saved_game((ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes())
+        result = self.play("--start-menu", "--saves", saves, "--keys", walk + r"Ev\e\e", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("menu: View Magic Rest Alt Fix Load Save Exit", result.stdout)
+        self.assertIn("choice: 0", result.stdout)
+        self.assertEqual(result.stdout.count("choice: 7"), 2, result.stdout)
+        self.assertIn("menu: Area Cast View Encamp Search Look Inv", result.stdout)
+        result = self.play("--start-menu", "--saves", saves, "--keys", walk + "ESCN\\e", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((saves / "SAVGAMC.QSV").exists())
+        result = self.play("--start-menu", "--keys", walk + "EM", ASSETS)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("not yet ported: The Dark Queen of Krynn's Magic in the adventure's camp "
+                      "(dqk 7070:1671)", result.stderr + result.stdout)
+
     def test_ground(self):
         # The battle's ground (queen_arena.c, eclplay --ground): a made-up map of 50
         # by 25 terrain values, its view at 3, 2, drawn with DUNGCOM's set 4 (the

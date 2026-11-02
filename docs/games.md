@@ -512,8 +512,8 @@ run, citing their handlers (`unported`). It holds:
   3; the minutes of `1396:019f` run the effects, and an effect ending stops the run
   (`148f:017d`). A count of 255 loops for ever in the original, and a unit past
   6 writes its own locals, so both stop. Not modelled: 019f's camp case (mode 2,
-  Encamp's vectors, PROGRAM 9, not ported), which runs only the members whose
-  flags DS:a260 are set. Checked on test blocks with saved game A's party (eclplay's
+  Encamp, `encamp`, whose Rest and Fix stop; PROGRAM 9 runs it too), which runs only
+  the members whose flags DS:a260 are set. Checked on test blocks with saved game A's party (eclplay's
   `--character` for its six `.QCH` files): a year with the age, a day and a second
   day (`dqk_ecl_misc.py`, the clock block, 2026-11-02). DUMP (`5f07:0c9b`:
   `177e:1e31` unlinks the selection and frees its icon, the one before it or the
@@ -537,8 +537,8 @@ run, citing their handlers (`unported`). It holds:
   (`2093:002d`, as Exit ends a game); and 4-255 (`5f07:0c8c`: DS:b7f8, the view
   and status again at the next CALL 1, the port's view_changed), with the
   selection LOAD CHARACTER changed restored and Move mode kept, as the original's
-  prelude does. It stops at 3 (a level drain, `78e4:17dd`) and 9 (Encamp,
-  `5f07:0b3b`), each with its cite. The
+  prelude does. It stops at 3 (a level drain, `78e4:17dd`), with its cite; 9 is
+  Encamp (below). The
   arithmetic (ADD, SUBTRACT,
   MULTIPLY, DIVIDE, AND, OR, SAVE, RANDOM), COMPARE with every IF (9 against 5, 0xffff
   against 1), GOTO, GOSUB (nested), RETURN (at depth 0 too), ON GOTO and ON GOSUB in
@@ -686,6 +686,24 @@ run, citing their handlers (`unported`). It holds:
   data: the icons load unrecoloured, and nothing draws them yet.
   The sound's own draws are not traced: the fight's are the same with the sound off in every
   run, and the sound's effect on them is step 5's question (see [checks](checks.md)).
+- its adventure's camp (step 4, part 44; `dark_queen.c`'s `encamp`, `encamp_menu`,
+  `program_encamp`; `dqk_camp.py`'s flow `encamp`): Encamp (the commands' key 4, `5f07:122c`,
+  which calls `5f07:0b3b`) and PROGRAM 9 (`5f07:0c6d`, the ECL position kept across it). The camp
+  vector (vectors[2], DS:b298) runs first, then the camp's menu (`7070:2d3c`): "View Magic Rest
+  Alt Fix Load Save Exit" in mode 2, its screen the adventure's, the camping picture (0x80) at
+  cell 3, 3, the party's list and the status (`177e:1ad1` in mode 2), the spells forgotten
+  (`7070:02f2`) at its start and end. Each item by its index: View, the sheet (`86b8:0b0c`,
+  then the screen as it was: `86b8:0d97`); Save (`604b:3395`, then "Exit to DOS? " (`4776`),
+  Yes quitting); Exit puts the mode back, redraws the status and rows 18-22 and the bar, and the
+  view is drawn (`5e22:0000`). Rest and Fix are off where variable 0x2b is 1 and 0x2c 0x64 or
+  more (`2dfd-2e09`). Magic (`7070:1671`), Rest (`7070:0aac`), Alt (`7070:1ce2`) and Fix
+  (`7070:2ad0`) stop with their cites, and Load ("Game not saved. Load anyway? " where a member
+  is selected and the game unsaved) stops at `5f07:0004` and main's load (`5ebd:0312`), not
+  ported; PROGRAM 9 on the overland stops at `5f07:01ae`. Checked by `dqk_camp.py` (2026-11-02):
+  the menu, View's sheet and the menu again, the adventure after Exit with the variables
+  0x0001-0x0400, and Save C with No: the saved game byte for byte with the far pointers masked
+  (the original writes its heap's addresses there, as `dqk_create.py` masks them). The camping
+  picture is masked on the menu again, where it animates while the menu waits.
 - its encounter (step 4, part 6; `dqk_fight.py`'s flow `encounter`; `monster.c` and
   `dark_queen.c`'s `encounter`, the drawing hook `cok_drawing.encounter`). SETUP MONSTERS
   (`6c70:2db1`) takes four operands: the sprite (op 1, a SPRIT.TLB record, 82 in block 7:
@@ -1285,7 +1303,7 @@ the bar; Right, Down and Left turn the party and draw the view
 sets variable 0x21) and ends the command; Search turns variable 0x19's
 bit 0; Look sets its bit 1, passes ten minutes and runs the location
 vector again (searching or not as before); View the sheet; Area, Cast,
-Encamp, Inv and a member picked by a key are not ported yet); the
+Inv and a member picked by a key are not ported yet; Encamp is below); the
 after-move vector; the last square in variables 0x17 and 0x18; the step
 (`6fea:0753`, `00c6`: where the way is open, the square ahead, wrapping at
 the map's edges, a minute passed, ten searching; on the overland, with
