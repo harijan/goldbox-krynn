@@ -714,7 +714,21 @@ typedef struct {
 typedef struct {
     uint8_t days[3], column[3], tile[3];
     uint16_t tile_base;
+    /* Whether the moons are drawn on the frame by the routine above. Dark
+     * Queen's lamp (1396:00f8) is drawn by 269b:0bd0, not ported: its
+     * phases and days are counted, not drawn. */
+    bool drawn;
 } cok_rules_moons;
+
+/* The clock's last unit (the years, COK_CLOCK_UNITS - 1): its limit and what
+ * a full one does. Champions keeps 256 years full and clears the aging flag
+ * (57e4:0459; DS:c463, effects.aging); Dark Queen's (1396:0368) takes its
+ * 100 off and sets the aging flag (DS:bce7), which its battles' end reads.
+ * The units before it are cok_clock_units' in every game. */
+typedef struct {
+    uint16_t last_unit;
+    bool last_wraps;
+} cok_rules_clock;
 
 /* The routines that recompute a character (party.c), where the games'
  * differ: each the port's routine of that game's original. */
@@ -2004,6 +2018,7 @@ typedef struct cok_rules {
     cok_rules_spells spells;
     cok_rules_effects effects;
     cok_rules_moons moons;
+    cok_rules_clock clock;
     cok_rules_frame frame;
     cok_rules_start start;
     cok_rules_combat combat;

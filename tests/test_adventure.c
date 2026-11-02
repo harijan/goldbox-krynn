@@ -2216,9 +2216,36 @@ static void test_dark_queen_view_square(void)
     cok_adventure_close(&game);
 }
 
+/* Dark Queen's clock (dqk 1396:0368): its variables 5-11 (the vm's 1 KB at
+ * mem4b00, 0x0005 at index 4), the last unit 100 years, which come off when
+ * full (Champions' 256 stay full) and ask for the aging (DS:bce7). Without
+ * the assets: the game is made by hand, as game_with_tiles makes Champions'. */
+static void test_dark_queen_clock(void)
+{
+    static cok_adventure game;
+    memset(&game, 0, sizeof game);
+    game.rules = game.vm.rules = &cok_rules_dark_queen;
+    game.view.shape = &cok_rules_dark_queen.view;
+    cok_effects_init(&game.effects, &cok_rules_dark_queen, &game.vm, &game.party, &game.item_types);
+    uint16_t *clock = &game.vm.mem4b00[4];
+    clock[6] = 99; /* the years, variable 0x0b */
+    CHECK(cok_adventure_pass_time(&game, 6, 1));
+    CHECK(clock[6] == 0 && game.effects.aging);
+    game.effects.aging = false;
+    clock[6] = 50;
+    CHECK(cok_adventure_pass_time(&game, 6, 1));
+    CHECK(clock[6] == 51 && !game.effects.aging);
+    /* The units before it carry as Champions' do. */
+    clock[0] = 9;
+    CHECK(cok_adventure_pass_time(&game, 0, 1));
+    CHECK(clock[0] == 0 && clock[1] == 1);
+    cok_effects_free(&game.effects);
+}
+
 int main(void)
 {
     test_clock();
+    test_dark_queen_clock();
     test_play();
     test_step_sounds();
     test_opcode_sounds();

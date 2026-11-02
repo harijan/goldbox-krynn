@@ -1593,6 +1593,18 @@ static int timed_wait(cok_adventure *game, unsigned n)
     return 0x20;
 }
 
+/* The routine PROGRAM n stops at (5f07:0baf's cases; the ones not ported). */
+static const char *program_cite(unsigned n)
+{
+    switch (n) {
+    case 0: return "dqk 7368:046f, then 5f07:0c15";
+    case 2: return "dqk 2093:002d, the quit";
+    case 3: return "dqk 78e4:17dd, a level drain";
+    case 9: return "dqk 5f07:0b3b, Encamp";
+    default: return "dqk 5f07:0c8c";
+    }
+}
+
 /* The ending's scenes (6523:03cb, PROGRAM 1), as its code runs them:
  * a scene's FINAL library (LOAD), a drawing at cell 1, 1 of its record 1
  * and over it another (DRAW n; 0 none: 6523:02db), a wait of n times 36
@@ -1737,15 +1749,17 @@ static bool opcode(cok_adventure *game)
         animate(game);
         return true;
     case COK_ECL_PROGRAM: {
-        /* 5f07:0baf, its cases at 5f07:0c01: 1 the ending; the others
-         * need the party (the camp, the vault, ...). */
+        /* 5f07:0baf, its cases at 5f07:0c01: 1 the ending. The others stop:
+         * 0 the start menu and the view after it (0c15-0c37), 2 the quit,
+         * 3 a level drain (78e4:17dd), 9 Encamp, and 4-8 or more (0c8c, which
+         * sets DS:b7f8, the view and status again at the next command). */
         unsigned n = (uint8_t)cok_ecl_value(vm, 0);
         if (n == 1) {
             ending(game);
         } else {
             char what[32];
             snprintf(what, sizeof what, "PROGRAM %u", n);
-            cok_adventure_not_yet(game, what, "dqk 5f07:0baf");
+            cok_adventure_not_yet(game, what, program_cite(n));
         }
         return true;
     }

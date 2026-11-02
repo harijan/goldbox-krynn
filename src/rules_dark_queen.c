@@ -81,7 +81,7 @@ static const cok_rules_opcode dark_queen_opcodes[COK_ECL_OPCODES] = {
               .skip_list = true}, /* 6c70:1ff7 with 1 */
     NOT(0x32, COK_ECL_FIND_ITEM, 1, "dqk 6c70:2f3b"),
     SAME(COK_ECL_PRINT_RETURN, 0),   /* 5f07:0a68 */
-    NOT(0x34, COK_ECL_ECL_CLOCK, 2, "dqk 5f07:0a35"),
+    OP(0x34, COK_ECL_ECL_CLOCK, 2),  /* 5f07:0a35 */
     SAME(COK_ECL_SAVE_TABLE, 3),
     NOT(0x36, COK_ECL_ADD_NPC, 2, "dqk 6c70:307b"),
     NOT(0x37, COK_ECL_FIND_NPC, 2, "dqk 6c70:31e8"),
@@ -91,8 +91,8 @@ static const cok_rules_opcode dark_queen_opcodes[COK_ECL_OPCODES] = {
     NOT(0x3b, COK_ECL_SPELL, 3, "dqk 6c70:260f"),
     NOT(0x3c, COK_ECL_STOCK_TREASURE, 1, "dqk 6c70:335e"),
     SAME(COK_ECL_CLEAR_BOX, 0),      /* 5f07:0a8d */
-    NOT(0x3e, COK_ECL_DUMP, 0, "dqk 5f07:0c9b"),
-    NOT(0x3f, COK_ECL_FIND_SPECIAL, 1, "dqk 5f07:0cc5"),
+    OP(0x3e, COK_ECL_DUMP, 0),       /* 5f07:0c9b */
+    OP(0x3f, COK_ECL_FIND_SPECIAL, 1), /* 5f07:0cc5, the handler itself */
     NOT(0x40, COK_ECL_DESTROY_ITEMS, 1, "dqk 6c70:30ec"),
     NOT(0x41, COK_ECL_ADD_EP, 2, "dqk 6c70:2719"),
 };
@@ -373,6 +373,9 @@ static const cok_rules_var dark_queen_vars[COK_VARS] = {
     [COK_VAR_REMAINDER] = VAR(0x29),  /* 5f07:02c2 */
     [COK_VAR_LOCALS] = VARS(0x97, 50), /* 6c70:0001 */
     [COK_VAR_PARTY_SIZE] = VAR(0x20), /* 604b:3491 adds 1 */
+    [COK_VAR_CLOCK] = VARS(0x0005, COK_CLOCK_UNITS), /* 1396:044d */
+    [COK_VAR_MOONS] = VARS(0x01fa, 3), /* 1396:000e: the phases */
+    [COK_VAR_MOON_DAYS] = VARS(0x01fd, 3), /* and the days in each */
 };
 
 /* What a block's start sets besides (6c70:0001): 0x2b and 0x2c. */
@@ -493,6 +496,15 @@ const cok_rules cok_rules_dark_queen = {
             .store_count = sizeof dark_queen_stores / sizeof *dark_queen_stores,
             .delay_ms = 600, /* 5f07:0a26 */
         },
+    .moons =
+        {
+            /* 1396:000e: the days (8, 1 and 6), phases 0-3 and the days in each in
+             * 0x1fa-0x1ff (variables, above). Its lamp is drawn by 269b:0bd0, not
+             * ported (drawn: no). */
+            .days = {8, 1, 6},
+            .drawn = false,
+        },
+    .clock = {.last_unit = 100, .last_wraps = true}, /* 1396:0368: DS:6357 */
     .start =
         {
             .first_block = 4, /* 5f07:10cd: block 4 for a new game (the demonstration's 7) */

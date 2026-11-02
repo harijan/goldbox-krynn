@@ -1674,7 +1674,9 @@ const cok_rules cok_rules_death_knights = {
             .column = {8, 19, 30},
             .tile = {0x15, 0x0d, 0x11},
             .tile_base = 0x100,
+            .drawn = true,
         },
+    .clock = {.last_unit = 256, .last_wraps = false}, /* as cok_clock_units */
     .frame =
         {
             .base = 0x100, /* 110f's tiles: 0x100 + value */

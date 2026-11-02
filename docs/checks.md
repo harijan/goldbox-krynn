@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py` and `dqk_ecl_text.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py` and `dqk_ecl_misc.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -496,6 +496,12 @@ on stderr). Not run: the `DS:c2f5` paths. `1bdb:0424` (YES NO, 0452) and
 mouse hit on a control; `queen.h` calls it "whether a mouse driver answers", which
 the original does not show, and no block clicks. All agree (2026-11-02); a port
 string limit one short fails INPUT STRING's block.
+
+`dqk_ecl_misc.py` (one block, the ECL CLOCK: the years, the units, a day and the moons' days and
+phases, in `make dqk-checks`) runs the clock the same way: `dqk_ecl.py`'s `run_block` with a wider
+`window` (the clock's variables 5-11 and the moons' 0x1fa-0x1ff, which the block changes on purpose).
+DUMP and FIND SPECIAL are not in it: they need the same party on both sides, and eclplay has no
+`--party` for Dark Queen yet (`--load`, `--test-party` and `--play` neither).
 
 `dqk_ecl_text.py` (about a minute and a half for its seven blocks; in `make dqk-checks`)
 runs the text, picture and wait opcodes the same way, with `dqk_views.py`'s screens:
