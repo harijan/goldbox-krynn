@@ -854,11 +854,10 @@ static int run(int argc, char **argv)
             return 2;
         }
     }
-    /* Saved games, parties and the adventure loop are a playable game's (a
-     * game read headless only runs its blocks, with the characters
-     * --character adds, and shows its title and its menu from
-     * --start-menu). */
-    if ((load != NULL || party != NULL || fixture > 0 || play) && rules->unplayable != NULL) {
+    /* Parties from other saved games, and the test parties, are a playable
+     * game's (a game read headless only runs its blocks, with the characters
+     * --character adds, and shows its title and its menu from --start-menu). */
+    if ((party != NULL || fixture > 0) && rules->unplayable != NULL) {
         fprintf(stderr, "%s\n", rules->unplayable);
         return 2;
     }
@@ -1057,7 +1056,7 @@ static int run(int argc, char **argv)
      * run starts from the title. */
     if (!front) cok_adventure_sound(&game, COK_SOUND_INSTALL, 0);
     bool loaded = true;
-    if (load != NULL) loaded = cok_adventure_restore(&game, load);
+    if (load != NULL) loaded = cok_adventure_load_file(&game, load);
     if (loaded && party != NULL) loaded = cok_adventure_load_party(&game, party);
     if (loaded && character_count > 0)
         loaded = cok_adventure_add_characters(&game, characters, character_count);
@@ -1147,12 +1146,19 @@ static int run(int argc, char **argv)
 
     cok_ecl_status status;
     if (entering) {
-        /* A loaded game resumes where it was saved as 2fd3:3c28 starts
-         * (its load vector alone); a block named is entered as 3b47 enters
-         * one. */
-        status = has_block ? cok_adventure_enter_block(&game, (uint8_t)block)
-                           : cok_adventure_enter(&game, (uint8_t)block);
-        if (play && status == COK_ECL_OK) status = cok_adventure_play(&game);
+        /* A game drawn its own way plays its own adventure from the block
+         * (cok_drawing.play: Begin Adventuring's entry, as after a Load). */
+        const cok_drawing *own = cok_adventure_drawing(&game);
+        if (play && own != NULL && own->play != NULL) {
+            status = own->play(&game, (uint8_t)block);
+        } else {
+            /* A loaded game resumes where it was saved as 2fd3:3c28 starts
+             * (its load vector alone); a block named is entered as 3b47 enters
+             * one. */
+            status = has_block ? cok_adventure_enter_block(&game, (uint8_t)block)
+                               : cok_adventure_enter(&game, (uint8_t)block);
+            if (play && status == COK_ECL_OK) status = cok_adventure_play(&game);
+        }
     } else {
         status = cok_adventure_load(&game, (uint8_t)block);
         for (size_t s = 0; s < set_count; ++s) cok_ecl_store(&game.vm, sets[s].address, sets[s].value);

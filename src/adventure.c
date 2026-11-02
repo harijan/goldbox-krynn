@@ -3168,6 +3168,13 @@ static bool restore_whole(cok_adventure *game, const char *path, cok_saved_game 
     return true;
 }
 
+bool cok_adventure_load_file(cok_adventure *game, const char *path)
+{
+    const cok_drawing *own = cok_adventure_drawing(game);
+    return own != NULL && own->load != NULL ? own->load(game, path)
+                                            : cok_adventure_restore(game, path);
+}
+
 bool cok_adventure_restore(cok_adventure *game, const char *path)
 {
     static cok_saved_game saved;

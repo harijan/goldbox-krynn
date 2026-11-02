@@ -20,8 +20,8 @@ monsters' flag and count, RandSeed) is read at the entry PRESS KEY (before), at
 the 'loaded' one (after LOAD MONSTER) and at the first turn: the battle's turn
 routine 5045:078b made to spin where it starts (dqk_fight_lib.trap), as the
 overlay loads; the spin is checked to hold, and then removed to see the game go
-on. The variables (1 KB) at the 'monsters' PRESS KEY are the port's start
-(eclplay's --set, --at), and the port's variables there must equal them.
+on. The block's variables (1 KB, through the far pointer at DS:b20f) are read at
+the entry and at the 'monsters' PRESS KEY; eclplay's must equal the latter.
 
 Checked:
 
@@ -35,9 +35,11 @@ Checked:
   (dqk_fight_lib.consistent), and the RandSeed is the first turn's (11 draws);
 - the spin holds (EB FE in place, the keyboard polls still over a second), and
   untrapped the game goes on (the polls move, the routine's bytes are back);
-- eclplay --game dark-queen, with the saved game's six members (--character),
-  from the same square (--at) and variables (--set), has the same variables at
-  the 'monsters' PRESS KEY (eclplay has no ported LOAD MONSTER: it stops there);
+- eclplay --game dark-queen --load --play, from a copy of saved game A (its six
+  members, its square, its locals kept as a Load keeps them), enters the block as
+  Begin Adventuring does and has the same 1 KB of variables at the 'monsters' PRESS
+  KEY as the original (PORT_GAPS below: none); eclplay has no ported LOAD MONSTER:
+  it stops there;
 - eclplay stops at LOAD MONSTER (opcode 0x0b, not yet ported).
 
 The original's states go to build/dqk-fight/setup.json, with the heap pointers
@@ -51,13 +53,13 @@ Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...) listing what differs.""
 import argparse
 import json
 import pathlib
+import shutil
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))  # tools/: hlib, dqkecl
 import checklib  # noqa: E402
 import dqk_ecl  # noqa: E402
-import dqk_ecl_party  # noqa: E402
 import dqk_fight_lib as L  # noqa: E402
 import dqk_lib  # noqa: E402
 import dqkecl  # noqa: E402
@@ -84,19 +86,13 @@ MONSTERS_APPENDED, ICON_SLOTS_AT_TURN = 12, 10
 TURN = (0x5045, 0x078B)
 RETURN = 0x1C0D
 # The variables at the 'monsters' PRESS KEY where eclplay differs from the
-# original, all of them: open gaps of the port, not of this fixture (the
-# fixture starts eclplay from the original's square and variables, --at and
-# --set, and these are what eclplay's own start and opcodes do with them):
-#   0x03  eclplay's LOAD FILES clears it (the original keeps 58);
-#   0x07  the original clears it (2 at the entry) by LOAD FILES or CLEARMONSTERS,
-#         eclplay does not;
-#   0x13, 0xc6  eclplay's LOAD FILES sets them to 4 (the original leaves 0);
-#   0x20  --character sets it to the party's size, 6 (the original has 0);
-#   0x34, 0x35  --at stores the square there (the original keeps 0 until a move
-#         stores it: the square is loaded into DS:c9f0 by the save);
-#   0x97, 0x98, 0x9b, 0x9c, 0x9d  eclplay's block start clears them even when
-#         --set gives them the entry's values (the original keeps them).
-PORT_GAPS = (0x03, 0x07, 0x13, 0x20, 0x34, 0x35, 0x97, 0x98, 0x9B, 0x9C, 0x9D, 0xC6)
+# original: none. Both are the block's variables, read through the far pointer at
+# DS:b20f (dqk_ecl's). The block's entry has saved game A's variables plus 0x16 = 1
+# (the jumper's), LOAD FILES 4 4 sets 0x13 and 0xc6 to 4 in both, and eclplay's
+# --load --play gives the same 1 KB. An earlier read at DS:b210 took the far
+# pointer's bytes for variables and showed gaps that were not there. The check
+# asserts the exact set, so a new difference fails it.
+PORT_GAPS = ()
 SQUARE = 0xC9F0                # DS:c9f0-c9f2: x, y, facing (saved game A: 7, 13, 0)
 STATE = ROOT / "build" / "dqk-fight" / "setup.json"
 
@@ -120,6 +116,12 @@ def names_of(records):
     return [cstr(bytes.fromhex(r["raw"])[0x68:0x78]) for r in records]
 
 
+def block_vars(box):
+    """The block's 1 KB of variables (1 to 0x400): dqk_ecl's far pointer at DS:b20f
+    (dqk_party's and dqk_ecl's read), not the bytes at DS:b210 that follow it."""
+    return box.read(box.far(box.ds * 16 + dqk_ecl.DS_VARS) + 1, dqk_ecl.VARIABLES)
+
+
 def original(work, patched, verbose):
     """The original's run: its PRESS KEYs' states (entry, monsters, loaded), the
     variables at the entry and at the monsters' PRESS KEY, the square at the
@@ -131,14 +133,14 @@ def original(work, patched, verbose):
         dqk_ecl.enter_block(box)
         entry = dqk_lib.ecl_state(box)
         square = box.ds_read(SQUARE, 3).hex()
-        entry_vars = box.ds_read(dqk_ecl.DS_VARS + 1, dqk_ecl.VARIABLES)
+        entry_vars = block_vars(box)
         box.set_seed(SEED)
         before = L.state(box)
         # LOAD FILES and CLEARMONSTERS run; the block waits in the 'monsters' PRESS KEY
         box.keys("\\r")
         box.settled(tolerance=64)
         monsters = dqk_lib.ecl_state(box)
-        monsters_vars = box.ds_read(dqk_ecl.DS_VARS + 1, dqk_ecl.VARIABLES)
+        monsters_vars = block_vars(box)
         # LOAD MONSTER runs; the block waits in the 'loaded' PRESS KEY
         box.keys("\\r")
         box.settled(tolerance=64)
@@ -162,22 +164,35 @@ def original(work, patched, verbose):
                     before=before, after=after, turn=turn)
 
 
-def port(work, patched, square, entry_vars):
-    """eclplay's run of the block from the original's start: the saved game's six
-    members (--character), the square (--at, x y facing from DS:c9f0), the
-    variables the original had at the entry (--set, the nonzero ones, in hex). Its
-    variables at the 'monsters' PRESS KEY (--vars, the block's second key typed) and
-    its last output line."""
-    sets = []
-    for address, value in enumerate(entry_vars, 1):
-        if value:
-            sets += ["--set", f"{address:x}={value:x}"]
-    if len(sets) // 2 > 64:
-        raise cokbox.BoxError(f"{len(sets) // 2} variables to set: eclplay takes 64")
-    x, y, facing = bytes.fromhex(square)
-    at = ["--at", f"{x},{y},{facing}"]
+def saved_entry(work):
+    """Saved game A as the original's Begin Adventuring enters it: a copy in work
+    (the SAVE folder's files beside it, so its characters are read as the
+    original's are), with variable 0x16 (the block entered) set to block 1: the
+    copy is what eclplay --load takes, with no block named (the load vector alone
+    runs, as the original's entry does)."""
+    folder = work / "fight-save"
+    if folder.exists():
+        shutil.rmtree(folder)
+    folder.mkdir(parents=True)
+    for entry in (dqk_lib.ASSETS / "SAVE").iterdir():
+        if entry.name != "SAVGAMA.QSV":
+            (folder / entry.name).symlink_to(entry)
+    data = bytearray((dqk_lib.ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes())
+    data[0x16 - 1] = dqk_ecl.JUMP
+    (folder / "SAVGAMA.QSV").write_bytes(bytes(data))
+    return folder / "SAVGAMA.QSV"
+
+
+def port(work, patched):
+    """eclplay's run of the block as the original's Load then Begin Adventuring
+    gives it: saved game A's copy (--load) and --play, which is Begin Adventuring's
+    entry (without it the block is entered in load_saved's mode 0, not the mode the
+    original's Begin leaves). No --set: the save gives the variables. Its variables at
+    the 'monsters' PRESS KEY (--vars, the block's second key typed) and its last
+    output line."""
     variables, last, _ = dqk_ecl.port(work, "fight", patched, typed="\\r",
-                                      extra=dqk_ecl_party.party_args() + at + sets)
+                                      extra=["--load", str(saved_entry(work)), "--play"],
+                                      block=None)
     return variables, last
 
 
@@ -233,13 +248,13 @@ def setup(v, work, opts):
     v.check(turn["seed"] == L.FIRST_TURN_SEED and draws == L.FIRST_TURN_DRAWS,
             "the first turn's RandSeed: 11 draws from the seed (sound off: the same every run)",
             f"seed {turn['seed']:#x}, {draws} draws")
-    port_vars, port_last = port(work, patched, r["square"], r["entry_vars"])
+    port_vars, port_last = port(work, patched)
     diff = [a for a in range(1, dqk_ecl.VARIABLES + 1)
             if port_vars[a - 1] != r["monsters_vars"][a - 1]] if len(port_vars) == \
         dqk_ecl.VARIABLES else []
     v.check(len(port_vars) == dqk_ecl.VARIABLES and tuple(diff) == PORT_GAPS,
             "eclplay's variables at the 'monsters' PRESS KEY differ from the original's at "
-            "exactly the known gaps (PORT_GAPS)", f"differ: {' '.join(f'{a:#x}' for a in diff)}")
+            "exactly PORT_GAPS (none)", f"differ: {' '.join(f'{a:#x}' for a in diff)}")
     v.check(port_last.startswith("error: not yet ported") and "LOAD MONSTER" in port_last,
             "eclplay stops at LOAD MONSTER (not yet ported)", port_last)
     STATE.parent.mkdir(parents=True, exist_ok=True)

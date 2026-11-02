@@ -434,8 +434,10 @@ its saved games and play them in 3D up to the first fight, as the
 original draws them, and `krynn --game dark-queen` plays the same in a
 window (`make dqk-checks`' `dqk_views.py`, `dqk_boot.py`, `dqk_menus.py`
 and `dqk_party.py`: see [Checks against the original](checks.md)). Its
-`unplayable` says why `eclplay` refuses `--load`, parties and `--play`
-(its saved games load from `--start-menu`'s camp). What is not ported is left
+`--load` and `--play` take a saved game as the start menu's Load and Begin
+Adventuring do (`cok_drawing`'s `load` and `play`, `dark_queen.c`'s
+`load_saved` and `begin_adventuring`), and its `unplayable` says why parties
+(`--party`, `--test-party`) stay refused. What is not ported is left
 out of the descriptor (the data segment, spells, combat), so that code
 reaching it stops at an assertion, and its opcodes that need them stop the
 run, citing their handlers (`unported`). It holds:

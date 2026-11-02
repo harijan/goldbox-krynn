@@ -603,12 +603,12 @@ sound off (below). The original's state (`dqk_fight_lib.py`: the records, combat
 battlefield, turn, sides, round, mode, the monsters' flag and count, RandSeed) is read at the block's entry,
 at 'monsters', at 'loaded' and at the first turn, where the battle's turn routine 5045:078b is made to spin
 where it starts (`dqk_fight_lib.trap`). The spin is checked to hold (EB FE in place, the keyboard polls still
-over a second), and untrapped the game goes on (the polls move). eclplay starts from the same square (`--at
-7,13,0`, the original's DS:c9f0-2) and the same variables (`--set`, the entry's nonzero ones). At 'monsters'
-its variables must equal the original's except at twelve known gaps (`PORT_GAPS`, the flow's comment): its
-LOAD FILES writes 0x13 and 0xc6 (to 4) and clears 0x03; `--character` sets 0x20 to 6; its block start clears
-0x97, 0x98, 0x9b, 0x9c and 0x9d; `--at` stores the square in 0x34 and 0x35; and the original clears 0x07 (by
-LOAD FILES or CLEARMONSTERS) where eclplay does not. These are the port's gaps, named so that a change shows.
+over a second), and untrapped the game goes on (the polls move). eclplay starts from a copy of saved game A
+(`--load`, its block 1 named in variable 0x16 as the jumper sets it) with `--play`, which enters the block as
+Begin Adventuring does (without it the block runs in mode 0), and no `--set`. The block's variables (1 KB,
+through the far pointer at DS:b20f, as dqk_ecl reads them) are the save's with 0x16 = 1 at the entry; LOAD FILES
+4 4 at 'monsters' sets 0x13 and 0xc6 to 4 in the original, and in eclplay. eclplay's variables at 'monsters'
+must equal the original's: `PORT_GAPS` is empty, and the check asserts the exact set, so a new difference fails.
 eclplay stops at LOAD MONSTER (not yet ported). At the first turn: turn 1, mode 5, both sides can act, the
 monsters appended are exactly the two SHARKMEN, every record has its combat record, the monsters are
 combatants on the map, the readings agree (`dqk_fight_lib.consistent`), and the RandSeed is 0x1756582c (11
