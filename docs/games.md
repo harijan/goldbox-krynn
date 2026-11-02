@@ -538,17 +538,33 @@ run, citing their handlers (`unported`). It holds:
   `5e22:0000` tests; PICTURE 0xff's other conditions (DS:b419, `5f07:0511-052b`) are
   not run.
   The block, map and call opcodes agree with the original on test blocks
-  (`dqk_ecl_flow.py`, 2026-11-02): CLEARMONSTERS; NOTHING with six operands (CHECKPARTY's,
-  `5f07:0812`) and with none (`5f07:1449`); CALL 1, 2 and the other values (the
-  square byte, the facing, the wall ahead; a CALL after a word operand whose high byte
-  is not 0 does nothing, as the original's address is that word); LOAD FILES with wall
-  sets 0 and 0xff (the screen); MUSIC (the variables; no sound compared). Open:
-  PICTURE 14 is a creature in the original, which animates, where eclplay draws
-  PICA's record 14 (a coral scene with no frames; the library or record of a small
-  picture is not settled), so CALL 3 (the picture's next frame) is not checked; NEWECL
-  runs block 2 in eclplay (the block variable reads 1, and block 1's SAVE after it does
-  not run), but the original's run does not reach a block's wait; LOAD FILES stores its
-  wall set at DS:ca03 (`6c70:1e57`), which the port does not, and no check shows it.
+  (`dqk_ecl_flow.py`, 2026-11-02): CLEARMONSTERS, flow only (no monster is loaded: 0x0b
+  and 0x0c are unported, so `75cc:151b`'s monster variables are not compared); NOTHING
+  with six operands (CHECKPARTY's, `5f07:0812`) and with none (`5f07:1449`); CALL 1, the
+  view again, which recomputes the saved square byte (`6c70:1694`) where a store to 0x34
+  or 0x35 does not; CALL 2, two steps (the square, the facing, the wall ahead); CALL 0,
+  4 and a word 0x0101 do nothing. A CALL's value is its first operand's: a word is its
+  own, but an immediate takes the high byte last set by an operand of type 1-3 at that
+  index (`5f07:0ac8`), which at a block's start is 0x80 (the vectors' words), so the
+  first `CALL imm(n)` does nothing, and after a word with high byte 3 `CALL imm(1)` is
+  0x0301. CALL 3, the picture's next frame: PICTURE 14 (PICA's record 14, the coral base
+  and its creature overlays, `63ae:000c`) and eight CALL 3s agree on the screen at a
+  text's wait (a PRESS KEY would animate the frame in the original, and the block's EXIT
+  redraws the view there); eclplay reports no frame, so the frame byte (DS:b20e) is
+  compared through the picture, not as a value. LOAD FILES with wall sets 0 and 0xff
+  agree on the screen; the wall set (DS:ca03, `6c70:1e57`, saved as the header's +9) is
+  kept by LOAD FILES and checked by `test_adventure`'s `test_dark_queen_wall_set`; a
+  different set frees the big picture and sets DS:ae43 to 0 (`6c70:1e41-1e4d`), which
+  the port's `big_id` takes as 0. MUSIC (the variables; no sound compared). NEWECL 2
+  from block 1 into a test block: two waits, the variables agree, and the run rests at
+  0x8015 with opcode 0 once block 2's EXIT has run (vectors 1 and 2 run it; the variable
+  0x16 reads 1 in block 2's body and 2 after). Not run or not ported: the redraw at the
+  end of LOAD FILES (`6c70:1e5a-1e88`: the adventure screen, the party, and `5e22:03f8`
+  when the last mode is 3, the mode is not 3 and DS:beea is set); and NEWECL's entry in
+  mode 3 with no LOAD FILES since the adventure was entered, where the port shows the
+  view only with files loaded or from mode 4 to mode 4, and the original
+  (`5f07:105e-107a`) shows it unless the last mode is 4 and the mode is not 4 (the
+  mode-3 loop is not ported).
 - its maps: `GEO.GLB` records of their own size (`cok_view_set_geo`,
   `8a8b:12e3`): u8 height, u8 width, the wall sets of slots 0-2 and three
   backdrops, then four planes of a byte a square, row by row: the north

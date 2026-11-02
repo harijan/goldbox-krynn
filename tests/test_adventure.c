@@ -2216,6 +2216,36 @@ static void test_dark_queen_view_square(void)
     cok_adventure_close(&game);
 }
 
+/* LOAD FILES' wall set (6c70:1e30, DS:ca03; saved as the header's +9 by the save,
+ * 604b:31a7): 1 is kept after a 0xff (none), 0 and 1 are stored as given. Skipped
+ * without DQKAssets. */
+static void test_dark_queen_wall_set(void)
+{
+    FILE *f = fopen("DQKAssets/DISK3/ECL.GLB", "rb");
+    if (f == NULL) {
+        puts("adventure: DQKAssets not found; Dark Queen's wall set not checked");
+        return;
+    }
+    fclose(f);
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &s};
+    CHECK(cok_adventure_open(&game, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
+    const uint8_t one[] = {DQK_LOAD_FILES, 0, 2, 0, 1, DQK_EXIT};
+    const uint8_t none[] = {DQK_LOAD_FILES, 0, 2, 0, 0xff, DQK_EXIT};
+    const uint8_t zero[] = {DQK_LOAD_FILES, 0, 2, 0, 0, DQK_EXIT};
+    CHECK(run_code(&game, &s, one, sizeof one, "") == COK_ECL_OK);
+    CHECK(game.wall_ids[0] == 1);
+    CHECK(run_code(&game, &s, none, sizeof none, "") == COK_ECL_OK);
+    CHECK(game.wall_ids[0] == 1);
+    CHECK(run_code(&game, &s, one, sizeof one, "") == COK_ECL_OK);
+    CHECK(game.wall_ids[0] == 1);
+    CHECK(run_code(&game, &s, zero, sizeof zero, "") == COK_ECL_OK);
+    CHECK(game.wall_ids[0] == 0);
+    cok_adventure_close(&game);
+}
+
 int main(void)
 {
     test_clock();
@@ -2236,6 +2266,7 @@ int main(void)
     test_dark_queen_ask();
     test_dark_queen_view_modes();
     test_dark_queen_view_square();
+    test_dark_queen_wall_set();
     puts("adventure tests passed");
     return 0;
 }

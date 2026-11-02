@@ -230,9 +230,22 @@ def box_block():
     return b
 
 
+class Unfinished(cokbox.BoxError):
+    """The original's run did not reach the block's stop in MAX_WAITS waits; TRAIL
+    is its (pc, opcode) states as "pc/opcode" strings, in order."""
+
+    def __init__(self, message, trail):
+        super().__init__(message)
+        self.trail = trail
+
+
 def stop_of(block):
     """Where the block's ECL stops (dqk_ecl's stop_at); a block ending in CLEAR
-    EXIT stops past it, with that opcode (its handler ends the block)."""
+    EXIT stops past it, with that opcode (its handler ends the block). A block
+    whose stop is set (its attribute stop: a block entered by NEWECL, whose EXIT
+    is not the state its run rests in) stops there."""
+    if getattr(block, "stop", None) is not None:
+        return block.stop
     if getattr(block, "ends", None) == "CLEAR_EXIT":
         return dqkecl.CODE_START + block.size, OPCODES["CLEAR_EXIT"]
     return dqk_ecl.stop_at(block)
@@ -281,13 +294,16 @@ def original(work, name, block, patched, verbose):
                 continue  # the DELAY's 600 ms: the screen still, not a wait
             trail.append(f"{state['pc']:#x}/{state['opcode']:#x}")
             if (state["pc"], state["opcode"]) == stop:
+                if not screens:  # no wait at all: the block never started (its keys were lost)
+                    raise Unfinished(f"{name}: the ECL rests before the block's first wait: "
+                                     + " ".join(trail), trail)
                 break
             screens.append(shot)
             names.append(WAIT_NAMES.get(state["opcode"], f"opcode {state['opcode']:#x}"))
             box.keys("\\r")
         else:
-            raise cokbox.BoxError(f"{name}: the block did not end in {MAX_WAITS} waits: "
-                                  + " ".join(trail[-8:]))
+            raise Unfinished(f"{name}: the block did not end in {MAX_WAITS} waits: "
+                             + " ".join(trail[-8:]), trail)
         after = box.read(variables + 1, VARIABLES)
         return screens, names, shot, (state["pc"], state["opcode"]), after, lamps, square
 
