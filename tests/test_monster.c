@@ -1471,6 +1471,51 @@ static void test_dark_queen_encounter(void)
     CHECK(cok_ecl_var(&dqk.vm, COK_VAR_DISTANCE) == 2);
     cok_adventure_close(&dqk);
 }
+/* PICTURE 0xff (5f07:0511-054b) draws the view again where a sprite or a picture covers
+ * it (DS:b419, ae64), then forgets the sprite and close-up (DS:c6f6), so a SETUP after it
+ * loads its own sprite (SPRIT 5 is missing: the load fails). PICTURE n sets the close-up
+ * (DS:c6f7, 5f07:04ae), so a SETUP after it draws no sprite (6c70:0255). Each block ends
+ * with EXIT, which forgets DS:c6f6 and ae64 but keeps DS:b419, so the checks read what
+ * the block left. */
+#define DQK_PICTURE 0x0e
+static void test_dark_queen_picture_flags(void)
+{
+    static cok_adventure dqk;
+    if (!dq_open(&dqk)) return;
+    static uint8_t map[0x402];
+    memset(map, 0, sizeof map);
+    CHECK(cok_view_set_map(&dqk.view, map, sizeof map));
+    dqk.view.wrap = true;
+    dqk.vm.map_x = 7;
+    dqk.vm.map_y = 7;
+    dqk.vm.direction = 0;
+    cok_ecl_set_var(&dqk.vm, COK_VAR_3D, 1);
+    dqk.vm.mode = 4;
+    /* A sprite, PICTURE 0xff (the sprite forgotten, the view drawn again), then a
+     * SETUP with a sprite that is not in SPRIT.TLB: it is loaded (and fails), not skipped. */
+    DQK_RUN(&dqk, DQK_SETUP, 0, 82, 0, 16, 0, 0xff, 0, 0,
+            DQK_PICTURE, 0, 0xff, DQK_SETUP, 0, 5, 0, 16, 0, 0xff, 0, 0);
+    CHECK(dqk.vm.status == COK_ECL_LOAD_FAILED);
+    /* The same sprite forgotten by PICTURE 0xff, shown again by a second sprite; the last
+     * PICTURE 0xff takes it off the view (DS:b419 clear). */
+    DQK_RUN(&dqk, DQK_SETUP, 0, 82, 0, 16, 0, 0xff, 0, 0,
+            DQK_PICTURE, 0, 0xff, DQK_SETUP, 0, 2, 0, 16, 0, 0xff, 0, 0,
+            DQK_PICTURE, 0, 0xff);
+    CHECK(dqk.vm.status == COK_ECL_OK && dqk.sprite_id == 2 && !dqk.sprite_shown);
+    /* PICTURE 21 (a small picture, one frame) sets the close-up flag: the SETUP after it
+     * draws no sprite (the block's EXIT forgets the picture and close-up flags). */
+    DQK_RUN(&dqk, DQK_PICTURE, 0, 21, DQK_SETUP, 0, 82, 0, 16, 0, 0xff, 0, 0);
+    CHECK(dqk.vm.status == COK_ECL_OK && !dqk.sprite_shown);
+    /* A close-up at distance 0 (the sprite and its close-up shown), then PICTURE 0xff
+     * forgets the close-up: the next SETUP loads its sprite (missing: the load fails). */
+    DQK_RUN(&dqk, DQK_SETUP, 0, 82, 0, 0, 0, 21, 0, 0);
+    CHECK(dqk.vm.status == COK_ECL_OK && dqk.sprite_shown && dqk.closeup_id == 21);
+    DQK_RUN(&dqk, DQK_SETUP, 0, 82, 0, 0, 0, 21, 0, 0,
+            DQK_PICTURE, 0, 0xff, DQK_SETUP, 0, 5, 0, 16, 0, 0xff, 0, 0);
+    CHECK(dqk.vm.status == COK_ECL_LOAD_FAILED);
+    cok_adventure_close(&dqk);
+}
+#undef DQK_PICTURE
 #undef DQK_SETUP
 #undef DQK_APPROACH
 
@@ -1505,6 +1550,7 @@ int main(void)
     test_dark_queen_six_loads();
     test_dark_queen_undead_clear();
     test_dark_queen_encounter();
+    test_dark_queen_picture_flags();
     cok_adventure_close(&game);
     puts("monster tests passed");
     return 0;

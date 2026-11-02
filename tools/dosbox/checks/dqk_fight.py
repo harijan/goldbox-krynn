@@ -55,15 +55,16 @@ none). `load`: 19 records, c6f1 13, ad6b 11, undead 0; `clear`: 17, c6f1 11, ad6
 hostile monsters' hit points halve for difficulty 1. No transcript of eclplay has an icon
 error (the icons are not loaded yet).
 
-Flow `encounter` (step 4, part 6): LOAD FILES 4 4, CLEARMONSTERS, a SHARKMAN x2 LOAD MONSTER,
-SETUP MONSTERS (sprite 82, distance wanted 16: 2 squares, 2db1's 2e1c), a PRESS KEY ('setup'),
-APPROACH, a PRESS KEY ('near'), APPROACH, a PRESS KEY ('nearer'), COMBAT, from saved game A. At
-each wait the original's pc, the 1 KB of variables (var 0x37 the distance: 2, 1, 0) and the
-screen are read, and eclplay's (--vars, --screen, with that many keys) must equal them in RGB
-except the mouse cursor (the shield at the corner, masked); at the battle's call the party's
-records and c6f1, ad6b and undead agree as in `load`, and eclplay stops at 5045:059d. No
-close-up: the close-up at distance 0 (6c70:0255's second half, PICTURE 14) differs from the
-original's screen, with or without the sprite (open: see docs/games.md).
+Flow `encounter` (step 4, parts 6 and 7): LOAD FILES 4 4, CLEARMONSTERS, a SHARKMAN x2 LOAD MONSTER,
+SETUP MONSTERS (sprite 82, distance wanted 16: 2 squares, 2db1's 2e1c, and the close-up PICA 21, one
+frame), a PRESS KEY ('setup'), APPROACH, a PRESS KEY ('near'), APPROACH, a PRESS KEY ('nearer': the
+close-up at distance 0), PICTURE 0xff (the view again, the sprite and close-up forgotten), SETUP MONSTERS
+(sprite 2, distance wanted 3: the open squares, 0 to 2, are var 0x37), a PRESS KEY ('wall'), ADD 9 to var
+0x37, a PRESS KEY ('raised'), COMBAT (which lowers 0x37 to the open squares), from saved game A. At each
+wait the original's pc, the 1 KB of variables and the screen are read, and eclplay's (--vars, --screen,
+with that many keys) must equal them in RGB except the mouse cursor (the shield at the corner, masked); at
+the battle's call the party's records and c6f1, ad6b and undead agree as in `load`, var 0x37 there is the
+open squares in both, and eclplay stops at 5045:059d.
 
 Flow `ground` (step 4, part 4): the same block to the first turn, where the original's
 screenshot and its battlefield (dqk_fight_lib.battlefield: the view at +2 and +4, the
@@ -97,7 +98,7 @@ import dqk_fight_lib as L  # noqa: E402
 import dqk_lib  # noqa: E402
 import dqkecl  # noqa: E402
 import hlib  # noqa: E402
-from dqkecl import OPCODES, Block, imm  # noqa: E402
+from dqkecl import OPCODES, Block, imm, var  # noqa: E402
 
 cokbox = checklib.cokbox
 ROOT = cokbox.ROOT
@@ -609,19 +610,24 @@ def ground(v, work, opts):
             "combatants' cells and the pointer)", detail)
 
 
-# The encounter (step 4, part 6): SETUP MONSTERS with the sprite (SPRIT.TLB's record 82),
-# the distance wanted 16 (which 6c70:2e1c makes 2 squares, in both vars, whatever the open
-# squares) and no close-up, then APPROACH, a PRESS KEY, APPROACH, a PRESS KEY and COMBAT,
-# after LOAD FILES 4 4, CLEARMONSTERS and two SHARKMEN. The original waits at a PRESS KEY
-# after SETUP MONSTERS ('setup'), after the first APPROACH ('near') and after the second
-# ('nearer'); there the variables (the whole 1 KB) and the screen are read, and eclplay must
-# agree with both. At 'nearer' the battle's call is trapped (5f07:08f0) and the monsters and
-# party read, as the load flows do. The sprite is group 3, 2 and 1 at the three waits (var
-# 0x37: 2, 1, 0). A close-up at distance 0 (PICTURE 14) is not in this flow: its screen
-# differs from the original's (the sprite's pixels under it; NOTES in docs/games.md).
-ENC_SPRITE, ENC_DISTANCE, ENC_CLOSEUP = 82, 16, 0xFF
-ENC_WAITS = ("setup", "near", "nearer")
-ENC_DISTANCES = (2, 1, 0)                   # var 0x37 at each wait, from the approaches
+# The encounter (steps 6 and 7 of part 6's SETUP MONSTERS and APPROACH): SETUP MONSTERS with the
+# sprite (SPRIT.TLB's record 82), the distance wanted 16 (which 6c70:2e1c makes 2 squares, in both
+# vars, whatever the open squares) and the close-up PICA 21 (one frame: PICTURE 14 animates, and
+# its screen at a wait is a later frame), then APPROACH, a PRESS KEY, APPROACH, a PRESS KEY, and
+# the PRESS KEY at distance 0 ('nearer', the close-up shown). PICTURE 0xff forgets the sprite and
+# close-up (5f07:0511-054b); a second SETUP MONSTERS with sprite 2 and the distance wanted 3 (the
+# open squares, 0 to 2, are var 0x37: min(open, 3)) draws its sprite at the 'wall' wait; ADD puts
+# 9 in var 0x37 (above the open squares), the 'raised' wait; then COMBAT lowers it to the open
+# squares before the battle's text (5f07:088f-08ba). The original waits at each PRESS KEY; there
+# the variables (the whole 1 KB) and the screen are read, and eclplay must agree with both. At
+# COMBAT the battle's call is trapped (5f07:08f0) and the monsters and party read, as the load
+# flows do, with var 0x37.
+ENC_SPRITE, ENC_DISTANCE, ENC_CLOSEUP = 82, 16, 21
+ENC_SPRITE2, ENC_WALL_DISTANCE, ENC_RAISED = 2, 3, 9  # the open squares are 0 here: a wall at once
+ENC_WAITS = ("setup", "near", "nearer", "wall", "raised")
+# var 0x37 at each wait: the approaches' 2, 1, 0; then the open squares (0 to 2: checked as a
+# range, the value is the original's, and eclplay's must equal it); then ENC_RAISED.
+ENC_DISTANCES = (2, 1, 0, None, ENC_RAISED)
 # The mouse cursor: the shield at the corner (ALWAYS record 2 at 2, 2; 2aa6:15e3's shield
 # elsewhere), drawn by the front end, not on the screen the port's BMP holds.
 ENC_SCREEN_MASKS = [(2, 2, 16, 18, "the mouse cursor (the shield at the corner)")]
@@ -644,6 +650,13 @@ def encounter_block():
     b.op("PRESS_KEY")
     b.op("APPROACH")
     b.label("nearer")
+    b.op("PRESS_KEY")
+    b.op("PICTURE", imm(0xFF))
+    b.op("SETUP_MONSTERS", imm(ENC_SPRITE2), imm(ENC_WALL_DISTANCE), imm(0xFF), imm(0))
+    b.label("wall")
+    b.op("PRESS_KEY")
+    b.op("ADD", imm(0), imm(ENC_RAISED), var(0x37))
+    b.label("raised")
     b.op("PRESS_KEY")
     b.op("COMBAT")
     b.op("EXIT")
@@ -668,7 +681,7 @@ def encounter_original(work, patched, verbose):
             waits.append(dict(name=name, pc=state["pc"], opcode=state["opcode"],
                               vars=block_vars(box), screen=screen))
         handle = L.trap(box, *CALL_BATTLE, until=lambda: True, seconds=60)
-        box.keys("\\r")                   # COMBAT: the appends, the call
+        box.keys("\\r")                   # COMBAT: the lowering, the appends, the call
         for _ in range(180):
             if L.held(box, handle)[0]:
                 break
@@ -679,9 +692,15 @@ def encounter_original(work, patched, verbose):
                       count=box.ds_byte(L.DS_MONSTER_COUNT),
                       icon_slot=box.ds_byte(L.DS_ICON_SLOT),
                       undead=box.ds_byte(L.DS_UNDEAD), traps=len(handle),
+                      var37=block_vars(box)[0x37 - 1],
                       names=names_of([{"raw": raw.hex()} for _, raw in records]))
         L.untrap(box, handle)
     return waits, battle
+
+
+def wall_dist(waits):
+    """var 0x37 at the 'wall' wait: the open squares ahead (the SETUP's min(open, 3))."""
+    return next(w["vars"][0x37 - 1] for w in waits if w["name"] == "wall")
 
 
 def encounter(v, work, opts):
@@ -713,9 +732,15 @@ def encounter(v, work, opts):
                 f"(PORT_GAPS)", f"differ: {' '.join(f'{a:#x}' for a in diff)}")
         dist = wait["vars"][0x37 - 1]
         ported_dist = port_vars[0x37 - 1] if len(port_vars) == dqk_ecl.VARIABLES else -1
-        v.check(dist == ENC_DISTANCES[index] and ported_dist == dist,
-                f"var 0x37 at '{wait['name']}' is the distance, {ENC_DISTANCES[index]}",
-                f"original {dist}, eclplay {ported_dist}")
+        expected = ENC_DISTANCES[index]
+        if expected is None:   # the open squares: 2 at most, whatever the wall
+            v.check(0 <= dist <= 2 and ported_dist == dist,
+                    f"var 0x37 at '{wait['name']}' is the open squares (0 to 2)",
+                    f"original {dist}, eclplay {ported_dist}")
+        else:
+            v.check(dist == expected and ported_dist == dist,
+                    f"var 0x37 at '{wait['name']}' is {expected}",
+                    f"original {dist}, eclplay {ported_dist}")
         if not bmp.exists():
             v.check(False, f"eclplay writes its screen at '{wait['name']}'", port_last)
             continue
@@ -724,9 +749,13 @@ def encounter(v, work, opts):
         v.check(count == 0, f"the screen at '{wait['name']}' agrees in RGB (the pointer "
                 f"masked)", f"{count} pixels differ in {box}" if count else "all pixels agree")
     records = work / "port-encounter.records"
-    port_vars, port_last = port(work, patched, name="encounter", typed="\\r" * 3,
-                                records=records)
+    port_vars, port_last = port(work, patched, name="encounter",
+                                typed="\\r" * len(ENC_WAITS), records=records)
     v.check(port_last == BATTLE_STOP, "eclplay stops at the battle (not yet ported)", port_last)
+    ported37 = port_vars[0x37 - 1] if len(port_vars) == dqk_ecl.VARIABLES else -1
+    v.check(ported37 == battle["var37"] and battle["var37"] == wall_dist(waits),
+            "COMBAT lowers var 0x37 to the open squares before the battle, in both",
+            f"original {battle['var37']}, eclplay {ported37}, the wall's {wall_dist(waits)}")
     data = records.read_bytes() if records.exists() else b""
     count, icon_slot, undead = (data[-3], data[-2], data[-1]) if len(data) >= 3 else (-1, -1, -1)
     ported = [data[i:i + L.RECORD].hex() for i in range(0, len(data) - 3, L.RECORD)]

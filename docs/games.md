@@ -584,8 +584,9 @@ run, citing their handlers (`unported`). It holds:
   path (an item with +0x34 set: "It's Cursed!", still removed) has no DOSBox coverage, only
   the repo test.
   Not done: the overland's big picture is drawn without the picture flag (DS:ae27) that
-  `5e22:0000` tests; PICTURE 0xff's other conditions (DS:b419, `5f07:0511-052b`) are
-  not run.
+  `5e22:0000` tests. PICTURE 0xff's sprite condition (DS:b419) and its clears (DS:c6f6,
+  c6f7) are ported with the encounter (`5f07:0511-054b`; `test_monster.c`'s
+  `test_dark_queen_picture_flags`); its drawing is the encounter flow's.
   The block, map and call opcodes agree with the original on test blocks
   (`dqk_ecl_flow.py`, 2026-11-02): CLEARMONSTERS, flow only (no monster is loaded: 0x0c is
   unported, so `75cc:151b`'s monster variables are not compared); NOTHING
@@ -705,13 +706,19 @@ run, citing their handlers (`unported`). It holds:
   (`6c70:2e4f`) steps var 0x37 one nearer unless it is 0 and draws the sprite there; its
   `incw DS:b7f9` is the ECL's read position (the VM moves past the opcode itself). 19a4:061a
   stores its argument at DS:1cb6, the pointer's hide and show: the front end's cursor, not
-  modelled. Checked by `dqk_fight.py`'s flow `encounter` (2026-11-02): at each of SETUP's
-  PRESS KEY and the two APPROACHes' (`setup`, `near`, `nearer`) the 1 KB of variables and the
-  screen in RGB agree, and var 0x37 is 2, 1, 0; the battle's start is the load flow's. Not
-  checked: a close-up at distance 0 (PICTURE 14 in block 7's fight). The original's screen
-  there differs from eclplay's over the whole view (about 7,300 pixels), with and without the
-  sprite, so the close-up's drawing (`dark_queen.c`'s `small_picture` as PICTURE's loader,
-  then `53ae:000c`'s frame) is not yet the original's; its flags are in the repo test.
+  modelled. Checked by `dqk_fight.py`'s flow `encounter` (2026-11-02): at each PRESS KEY (SETUP's
+  `setup`, the APPROACHes' `near` and `nearer`, then `wall` and `raised`) the 1 KB of variables
+  and the screen in RGB agree. var 0x37 is 2, 1, 0 at the approaches; at `wall`, a second SETUP
+  with the wanted 3, it is the open squares (0: saved game A's square, (7, 13) facing north, is a
+  wall at once); ADD makes it 9 at `raised`, and COMBAT
+  lowers it to the open squares before the battle (`5f07:088f-08ba`, checked at the battle's
+  call). The close-up at distance 0 is PICA 21, one frame (`dqk_fight.py`'s ENC_CLOSEUP), and
+  agrees with the original's screen. PICTURE 14 is not used: it is animated (`63ae:0269`-`0287`,
+  the loop from frame 5, stepped during PRESS KEY), so a settled screen shows a later frame than
+  eclplay's first; that difference is the animation, not the close-up's drawing. PICTURE 0xff
+  and the second SETUP draw the second sprite as the original does. The battle's start is the
+  load flow's. Not checked against the original: 1 or 2 open squares (the count is the same
+  routine; the repo test has a synthetic flat map for them).
 - its maps: `GEO.GLB` records of their own size (`cok_view_set_geo`,
   `8a8b:12e3`): u8 height, u8 width, the wall sets of slots 0-2 and three
   backdrops, then four planes of a byte a square, row by row: the north

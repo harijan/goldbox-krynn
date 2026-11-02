@@ -485,16 +485,17 @@ static bool append_monsters(cok_adventure *game)
 static void battle(cok_adventure *game);
 
 /* COMBAT's monsters branch where the monsters were registered (dqk
- * 5f07:081b 88a-8f0): 63ae:02b0 and 5e98:0200(4) load the overlay, then the
- * text "A battle begins..." (1a62:0046), the appends, and the battle, which
- * the port does not carry out yet for Dark Queen (battle). Between the overlay's
- * loads COMBAT lowers var COK_VAR_DISTANCE (dqk 0x37) to the open squares (dqk
- * 5f07:088f-08ba: 6c70:01c3, through 1d99:1247). */
+ * 5f07:081b 88a-8f0): COMBAT lowers var COK_VAR_DISTANCE (dqk 0x37) to the open
+ * squares (dqk 5f07:088f-08ba: 6c70:01c3, through 1d99:1247); then 5e98:0200(4)
+ * loads the overlay, the text "A battle begins..." (1a62:0046), the appends, and
+ * the battle, which the port does not carry out yet for Dark Queen (battle).
+ * 63ae:02b0, before the open squares, frees the small picture (DS:c2f0, not an
+ * overlay load): no call here; picture_loaded false is moot until the battle is
+ * ported. */
 static void queen_monsters(cok_adventure *game)
 {
     const cok_rules_combat *R = &cok_game_rules(game)->combat;
     cok_ecl *vm = &game->vm;
-    cok_adventure_overlay(game); /* 63ae:02b0 */
     uint8_t open = cok_monster_open_squares(game, vm->map_x, vm->map_y, vm->direction);
     if (open < cok_ecl_var(vm, COK_VAR_DISTANCE)) cok_ecl_set_var(vm, COK_VAR_DISTANCE, open);
     cok_adventure_overlay(game); /* 5e98:0200(4) */

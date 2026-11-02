@@ -1305,25 +1305,32 @@ static void encounter(cok_adventure *game, uint8_t distance)
     game->closeup_shown = true;
 }
 
-/* PICTURE n (5f07:04a0): 0xff the view again where a picture was shown
- * (5e22:0000, view: on the overland its map again); from 0xf0 a big
- * picture (63ae:0321, 03b0), the party's place over it on the overland
- * (mode 3: 7065:0011), where the party's list is not drawn either (DS:b256);
- * below, a small picture, PIC<A, B or C>1 (63ae:0078: A below 0x80, B
- * below 0x97), its colours 0x20-0xff black first, record 1 drawn at cell
- * 3, 3 (63ae:000c), then its palette. */
+/* PICTURE n (5f07:04a0): 0xff the view again where a picture or a sprite
+ * was shown (5e22:0000, view: on the overland its map again), then the
+ * sprite and the close-up forgotten; any other n sets the close-up flag
+ * first. From 0xf0 a big picture (63ae:0321, 03b0), the party's place over
+ * it on the overland (mode 3: 7065:0011), where the party's list is not
+ * drawn either (DS:b256); below, a small picture, PIC<A, B or C>1
+ * (63ae:0078: A below 0x80, B below 0x97), its colours 0x20-0xff black
+ * first, record 1 drawn at cell 3, 3 (63ae:000c), then its palette. */
 static void picture(cok_adventure *game)
 {
     queen *q = own(game);
     cok_ecl *vm = &game->vm;
     uint8_t n = (uint8_t)cok_ecl_value(vm, 0);
     if (n == 0xff) {
-        if ((vm->last_mode != 4 || vm->mode == 4) && game->picture_shown) {
-            game->picture_shown = false;
+        /* 5f07:0511-054b: the view again where a picture or a sprite covers it
+         * (DS:ae64, b419), unless the last mode was 4 and the mode is not
+         * (0511-051d); then the sprite and the close-up forgotten (DS:c6f6). */
+        if ((vm->last_mode != 4 || vm->mode == 4) &&
+            (game->picture_shown || game->sprite_shown)) {
+            game->picture_shown = game->sprite_shown = false;
             view(game);
         }
+        game->sprite_loaded = game->closeup_shown = false; /* DS:c6f6 */
         return;
     }
+    game->closeup_shown = true; /* DS:c6f7 (5f07:04ae) */
     if (n >= 0xf0) {
         if (!big_picture(game, n)) {
             cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
