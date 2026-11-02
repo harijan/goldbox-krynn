@@ -367,8 +367,9 @@ static void test_combat_tables(void)
  * (8c 0e) the routine's own segment. The routines are 7fd8:46bb-4892 and
  * 4892-4c2c for the spells (DS:af45 + 4 * id), 78e4:4fb2-549e and 549e-5a00
  * for the effects (DS:bee8 + 4 * id). Each id a store fills has the handler the
- * store gives, cited as its routine ("dqk seg:off"), or COK_FX_NOTHING at
- * 78e4:4f2f; each id no store fills is empty. */
+ * store gives, cited as its routine ("dqk seg:off", past an overlay stub), or
+ * COK_FX_NOTHING where the routine is a bare retf; each id no store fills is
+ * empty (a spell's stop cites its 0:0 bytes). */
 struct fill_routine {
     uint16_t seg, start, end;
 };
@@ -412,6 +413,19 @@ static void fill_expect(const struct fill_cell *seg, uint16_t *out)
     *out = seg->cs ? seg->imm : (uint16_t)(seg->imm + 0x1000);
 }
 
+/* The routine a stored far pointer reaches: an overlay stub is an ljmp (0xea,
+ * seg:off, the target in the map's numbering: +0x1000 here) that the merge
+ * leaves at each stub's address (docs/disassembly.md). */
+static void routine_of(const uint8_t *exe, size_t header, uint16_t *seg, uint16_t *off)
+{
+    for (int hop = 0; hop < 4; ++hop) {
+        const uint8_t *p = exe + header + (size_t)(*seg - 0x1000) * 16 + *off;
+        if (p[0] != 0xea) return;
+        *off = (uint16_t)(p[1] | p[2] << 8);
+        *seg = (uint16_t)((p[3] | p[4] << 8) + 0x1000);
+    }
+}
+
 static void test_magic_ids(void)
 {
     static uint8_t exe[1 << 20];
@@ -430,7 +444,7 @@ static void test_magic_ids(void)
         uint16_t seg = (uint16_t)(exe[ds + 0x25c9 + 4 * id] | exe[ds + 0x25ca + 4 * id] << 8);
         const char *name = spell_name((uint8_t)id);
         if (off == 0) {
-            CHECK(id >= 0x8a && name == NULL);
+            CHECK(id >= 0x8a && name != NULL && name[0] == '\0'); /* 0000:0000: "" */
             continue;
         }
         CHECK(seg == 0x322e && name != NULL);
@@ -453,22 +467,37 @@ static void test_magic_ids(void)
         bool filled = off->stores != 0 || seg->stores != 0;
         CHECK(filled == (id != 0 && id != 0x41 && id != 0x5f && id != 0x61 && id != 0x63));
         if (!filled) {
-            CHECK(h->address == 0 && h->handler == COK_CAST_NONE && h->unported == NULL);
+            /* Never stored: DS:af45 + 4 * id holds 0:0 in the image (and the fills
+             * above store nothing there), so the stop cites that. */
+            const uint8_t *far = exe + ds + 0xaf45 + 4 * id;
+            CHECK(far[0] == 0 && far[1] == 0 && far[2] == 0 && far[3] == 0);
+            CHECK(h->address == 0 && h->handler == COK_CAST_NONE);
+            if (id == 0) {
+                CHECK(h->unported == NULL);
+            } else {
+                char text[64];
+                snprintf(text, sizeof text, "DS:af45 + 0x%x is 0:0, never stored (7fd8:46bb, 7fd8:4892)",
+                         4 * id);
+                CHECK(h->unported != NULL && strcmp(h->unported, text) == 0);
+            }
             continue;
         }
         CHECK(off->stores == 1 && seg->stores == 1 && !off->cs);
-        uint16_t sg;
+        uint16_t sg = 0, so = off->imm;
         fill_expect(seg, &sg);
+        routine_of(exe, header, &sg, &so);
         char cite[32];
-        snprintf(cite, sizeof cite, "dqk %04x:%04x", sg, off->imm);
+        snprintf(cite, sizeof cite, "dqk %04x:%04x", sg, so);
         CHECK(h->address == off->imm && h->handler == COK_CAST_NONE && h->unported != NULL);
         CHECK(strcmp(h->unported, cite) == 0);
     }
 
-    /* The effects' handlers: 4f2f is retf-only, COK_FX_NOTHING. */
+    /* The effects' handlers: a routine that is a bare retf (push bp; mov bp,sp;
+     * pop bp; retf) does nothing, COK_FX_NOTHING; the rest are cited. */
     static const struct fill_routine effect_routines[] = {{0x78e4, 0x4fb2, 0x549e}, {0x78e4, 0x549e, 0x5a00}};
     static struct fill_cell effect_cells[4 * 0xe6 + 2];
     fill_check(exe, header, effect_routines, 2, 0xbee8, 0xe6, effect_cells);
+    static const uint8_t retf_only[5] = {0x55, 0x8b, 0xec, 0x5d, 0xcb};
     for (unsigned id = 0; id < R->effects.count; ++id) {
         const struct fill_cell *off = &effect_cells[4 * id], *seg = &effect_cells[4 * id + 2];
         const cok_rules_effect *h = &R->effects.handlers[id];
@@ -480,17 +509,21 @@ static void test_magic_ids(void)
             continue;
         }
         CHECK(off->stores == 1 && seg->stores == 1 && !off->cs);
-        uint16_t sg;
+        uint16_t sg = 0, so = off->imm;
         fill_expect(seg, &sg);
         CHECK(h->address == off->imm);
-        if (sg == 0x78e4 && off->imm == 0x4f2f) {
+        routine_of(exe, header, &sg, &so);
+        if (id == 0x75) CHECK(sg == 0x52db && so == 0x4fd1 && off->imm == 0x10a3); /* 2d99:10a3, a stub */
+        if (memcmp(exe + header + (size_t)(sg - 0x1000) * 16 + so, retf_only, sizeof retf_only) == 0) {
             CHECK(h->handler == COK_FX_NOTHING && h->unported == NULL);
         } else {
             char cite[32];
-            snprintf(cite, sizeof cite, "dqk %04x:%04x", sg, off->imm);
+            snprintf(cite, sizeof cite, "dqk %04x:%04x", sg, so);
             CHECK(h->handler == COK_FX_MISSING && h->unported != NULL && strcmp(h->unported, cite) == 0);
         }
     }
+    /* No effect id is named yet (rules_dark_queen_magic.c): effects.ids stays NULL. */
+    CHECK(R->effects.ids == NULL);
 
     /* The named spell ids: the Dark Queen names of the Champions spells the
      * shared code asks for; the names it has none of are 0. */
@@ -517,12 +550,30 @@ static void test_magic_ids(void)
         {COK_SPELL_FEAR, 0x54, "Fear"},
         {COK_SPELL_FIRE_SHIELD, 0x55, "Fire Shield"},
         {COK_SPELL_FUMBLE, 0x56, "Fumble"},
+        {COK_SPELL_FIREBALL_ITEM, 0x85, "Necklace Of Missiles"},
+        {COK_SPELL_BLESS_POWER, 0x3e, "Bless"},
     };
     for (size_t n = 0; n < sizeof named / sizeof *named; ++n) {
         CHECK(R->spells.ids[named[n].spell] == named[n].id);
         CHECK(strcmp(spell_name(named[n].id), named[n].name) == 0);
         CHECK(cok_spell_id(R, named[n].spell) == named[n].id);
     }
+    /* The roles, from the executable. The item's Fireball: 7fd8:1545 is
+     * `cmpb $id, DS:b2ea` (the spell cast) and takes the item's dice when it is
+     * the Necklace's id. The granted Bless: of the spell records, the only one
+     * that is kind 3 at level 0 and named Bless (kind word +0, level +2). */
+    const uint8_t *cmp = exe + header + (size_t)(0x7fd8 - 0x1000) * 16 + 0x1545;
+    CHECK(cmp[0] == 0x80 && cmp[1] == 0x3e && cmp[2] == 0xea && cmp[3] == 0xb2);
+    CHECK(cmp[4] == R->spells.ids[COK_SPELL_FIREBALL_ITEM]);
+    unsigned granted = 0, granted_id = 0;
+    for (unsigned id = 1; id < R->spells.count; ++id) {
+        const uint8_t *rec = exe + ds + 0x27e9 + 22 * id;
+        if (rec[0] == 3 && rec[1] == 0 && rec[2] == 0 && strcmp(spell_name(id), "Bless") == 0) {
+            granted++;
+            granted_id = id;
+        }
+    }
+    CHECK(granted == 1 && granted_id == R->spells.ids[COK_SPELL_BLESS_POWER]);
     for (unsigned name = 0; name < COK_SPELL_NAMES; ++name) {
         bool listed = false;
         for (size_t n = 0; n < sizeof named / sizeof *named; ++n) listed |= named[n].spell == name;

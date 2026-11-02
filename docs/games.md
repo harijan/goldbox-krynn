@@ -924,13 +924,26 @@ the spell list headings are `DS:8b2e` + 41 * level ('Special', '1st Level' to
 `spell_table`), the level at +2 and the effect at +14, not the 16-byte record the
 shared readers take (so no `COK_DATA_SPELLS` shape yet); the handlers by spell id
 are `DS:af45` + 4 * id, stored by `7fd8:46bb` and `4892` (136 ids; 0x41, 0x5f, 0x61
-and 0x63 are never stored), and by effect id `DS:bee8` + 4 * id, stored by
-`78e4:4fb2` and `549e` (227 ids; 0x80, 0x90 and 0x9d are never stored). Each
-handler is its routine, cited (`dqk seg:off`) and unported, except `78e4:4f2f`
-(a retf: 30 effects, COK_FX_NOTHING). `tools/dqk_magic_ids.py` prints the
+and 0x63 are never stored: `DS:af45` + 4 * id is 0:0 there, and their stop cites
+that); and by effect id `DS:bee8` + 4 * id, stored by `78e4:4fb2` and `549e` (227
+ids; 0x80, 0x90 and 0x9d are never stored, and their `{0}` stops "has no
+handler"). Each handler is its routine, cited (`dqk seg:off`, past an overlay
+stub: 0x75's `2d99:10a3` is `52db:4fd1`) and unported, except a bare retf
+(`push bp; mov bp,sp; pop bp; retf`, by its bytes): COK_FX_NOTHING for 40 effects
+(`78e4:4f2f`, `0218`, `0238`, `02b4`, `09ce`, `0aca`, `0d30`, `10c0`, `24c3` and
+`7e76:0075`). Effect 0 is COK_FX_NOTHING only until start-up's stores are run over:
+`DS:bee8`-`beeb` is its far pointer, and SETUP MONSTERS (`6c70:2dc3`, `mov %al,
+DS:bee8`) and other stores overwrite it, so id 0 = NOTHING holds only after
+start-up (the encounter part finds the rest). `tools/dqk_magic_ids.py` prints the
 handler lines from those stores. The named spell ids are the Dark Queen spells
-of the same name (18 of them; Entangle is 0x4e here); the named effects have no
-ids yet, as the effects' parts set each one with its routine.
+of the same name (Entangle is 0x4e here, not Champions' 0x4f), and two roles:
+an item's Fireball is the Necklace of Missiles (0x85, the dice at `7fd8:1545`),
+a deity's granted Bless is 0x3e (kind 3, level 0, one of the granted powers
+0x39, 0x3b-0x40; Bless 0x01 is the spell). Casting's `cast.c:2936` hard-codes
+`level_of(game, 0x4f)` for Entangle, which is Faerie Fire here: left for the
+casting part. The named effects have no ids yet (`effects.ids` is NULL, so a
+named effect's lookup asserts), as the effects' parts set each one with its
+routine.
 
 Train Character (`6be8:0022`, `src/queen_train.c`'s `queen_train`) and Knight
 new Order (`7368:10c2`, `queen_knight_order`) are the camp's: the classes

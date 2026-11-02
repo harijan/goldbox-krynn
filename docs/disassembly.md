@@ -49,8 +49,9 @@ its parents. Its 182 routines are called through 10-byte stubs in `1d99`,
 
 `tools/dqk_magic_ids.py` reads the stores that fill the Dark Queen's spell and
 effect handler tables (`7fd8:46bb` and `4892`, `78e4:4fb2` and `549e`, the
-far pointers at `DS:af45` and `DS:bee8`) from the merged `build/DQK_FULL.EXE`
-and prints their lines for `src/rules_dark_queen_magic.c`.
+far pointers at `DS:af45` and `DS:bee8`) from the merged `build/DQK_FULL.EXE`,
+follows each overlay stub (an `ljmp`) to its routine, and prints the lines for
+`src/rules_dark_queen_magic.c`; a bare retf is COK_FX_NOTHING.
 
 The tool leaves the root image and overlay 12 where they run: overlay 12 is
 loaded at start and is the data segment and stack (`322e`, so `422e` in

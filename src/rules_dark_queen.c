@@ -549,6 +549,6 @@ const cok_rules cok_rules_dark_queen = {
         {
             .count = 0xe6, /* ids 0-0xe5; 0x80, 0x90 and 0x9d are never filled */
             .handlers = cok_dark_queen_effect_handlers,
-            .ids = cok_dark_queen_effect_ids,
+            /* .ids: NULL until an effects part names one (rules_dark_queen_magic.c) */
         },
 };

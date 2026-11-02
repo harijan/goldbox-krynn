@@ -6,16 +6,23 @@
  * the spell list headings, the handlers by spell and effect id, and the ids
  * the code names. Every handler is the original's routine, cited (dqk
  * seg:off, build/DQK_FULL.EXE's numbering) and unported: a spell or effect
- * that reaches one stops the run. The effects' 78e4:4f2f does nothing (a
- * retf) and is COK_FX_NOTHING. The handler lines are the output of
- * tools/dqk_magic_ids.py, from the stores the fill routines make (7fd8:46bb
- * and 4892 for the spells, 78e4:4fb2 and 549e for the effects); the names
- * and headings are read from the same executable's data segment, and
- * tests/test_dark_queen.c checks all of it against the bytes. */
+ * that reaches one stops the run. An effect whose routine is a bare retf
+ * (78e4:4f2f and nine more, by their bytes) does nothing: COK_FX_NOTHING.
+ * The handler lines are the output of tools/dqk_magic_ids.py, from the
+ * stores the fill routines make (7fd8:46bb and 4892 for the spells, 78e4:4fb2
+ * and 549e for the effects), following an overlay stub to its routine; the
+ * names and headings are read from the same executable's data segment, and
+ * tests/test_dark_queen.c checks all of it against the bytes. An entry's
+ * address is the stored offset, and its cite the routine's seg:off: 0x75's
+ * 10a3 is the stub at 2d99:10a3, which jumps to 52db:4fd1. Ghidra's numbering
+ * throughout. */
 
 /* The spells' names by id from 1 (names[id - 1]): far pointers at DS:25c7 +
  * 4 * id, read by the 7fd8 routines that push a name (8438:0009 and kin).
- * 0x41, 0x61 and 0x63 point at an empty string; 0x8a-0x8c have none. */
+ * 0x41, 0x61 and 0x63 point at an empty string. 0x8a-0x8c have none (0000:0000
+ * in the original): "", so the unported messages print no name for them
+ * (cast.c's, which the spells reach first); a NULL check on a name does not
+ * stop for them. */
 const char *const cok_dark_queen_spell_names[0x8c] = {
     "Bless", /* 0x01 */
     "Curse", /* 0x02 */
@@ -154,9 +161,9 @@ const char *const cok_dark_queen_spell_names[0x8c] = {
     "Scroll of Protection", /* 0x87 */
     "Potion Of Invisibility", /* 0x88 */
     "Potion Of Extra Healing", /* 0x89 */
-    NULL, /* 0x8a: no name */
-    NULL, /* 0x8b: no name */
-    NULL, /* 0x8c: no name */
+    "", /* 0x8a: no name (0000:0000) */
+    "", /* 0x8b: no name (0000:0000) */
+    "", /* 0x8c: no name (0000:0000) */
 };
 
 /* The spell list headings by spell level (DS:8b2e + 41 * level, 41 bytes a
@@ -242,7 +249,7 @@ const cok_rules_cast cok_dark_queen_spell_cast[0x8d] = {
     [0x3e] = {0x00a2, COK_CAST_NONE, "dqk 7fd8:00a2"},
     [0x3f] = {0x022a, COK_CAST_NONE, "dqk 7fd8:022a"},
     [0x40] = {0x01e6, COK_CAST_NONE, "dqk 7fd8:01e6"},
-    [0x41] = {0}, /* no store fills it */
+    [0x41] = {0, COK_CAST_NONE, "DS:af45 + 0x104 is 0:0, never stored (7fd8:46bb, 7fd8:4892)"},
     [0x42] = {0x1e31, COK_CAST_NONE, "dqk 7fd8:1e31"},
     [0x43] = {0x1e5d, COK_CAST_NONE, "dqk 7fd8:1e5d"},
     [0x44] = {0x1f41, COK_CAST_NONE, "dqk 7fd8:1f41"},
@@ -272,11 +279,11 @@ const cok_rules_cast cok_dark_queen_spell_cast[0x8d] = {
     [0x5c] = {0x299c, COK_CAST_NONE, "dqk 7fd8:299c"},
     [0x5d] = {0x2a48, COK_CAST_NONE, "dqk 7fd8:2a48"},
     [0x5e] = {0x06e9, COK_CAST_NONE, "dqk 7fd8:06e9"},
-    [0x5f] = {0}, /* no store fills it */
+    [0x5f] = {0, COK_CAST_NONE, "DS:af45 + 0x17c is 0:0, never stored (7fd8:46bb, 7fd8:4892)"},
     [0x60] = {0x2b3a, COK_CAST_NONE, "dqk 7fd8:2b3a"},
-    [0x61] = {0}, /* no store fills it */
+    [0x61] = {0, COK_CAST_NONE, "DS:af45 + 0x184 is 0:0, never stored (7fd8:46bb, 7fd8:4892)"},
     [0x62] = {0x2c32, COK_CAST_NONE, "dqk 7fd8:2c32"},
-    [0x63] = {0}, /* no store fills it */
+    [0x63] = {0, COK_CAST_NONE, "DS:af45 + 0x18c is 0:0, never stored (7fd8:46bb, 7fd8:4892)"},
     [0x64] = {0x2cae, COK_CAST_NONE, "dqk 7fd8:2cae"},
     [0x65] = {0x09c4, COK_CAST_NONE, "dqk 7fd8:09c4"},
     [0x66] = {0x2ccc, COK_CAST_NONE, "dqk 7fd8:2ccc"},
@@ -324,8 +331,10 @@ const cok_rules_cast cok_dark_queen_spell_cast[0x8d] = {
  * id of that name (Entangle is 0x4e here, not Champions' 0x4f); a name the
  * game has more than once (Bless, Remove Curse) takes Champions' number, where
  * the game has that name there. 0: none of the game's names is that spell
- * (Animate Dead, Paralyze, Giant Strength), or the role has no name of its own
- * here (Fireball from an item, Bless from a deity). */
+ * (Animate Dead, Paralyze, Giant Strength). A role the game gives its own id:
+ * an item's Fireball is the Necklace of Missiles (0x85, tested at 7fd8:1545),
+ * a deity's granted Bless is kind 3's Bless (0x3e, the granted powers' row
+ * at DS:27e9; Bless 0x01 is the spell). */
 const uint8_t cok_dark_queen_spell_ids[COK_SPELL_NAMES] = {
     [COK_SPELL_BLESS] = 0x01,
     [COK_SPELL_CURE_LIGHT_WOUNDS] = 0x03,
@@ -337,6 +346,7 @@ const uint8_t cok_dark_queen_spell_ids[COK_SPELL_NAMES] = {
     [COK_SPELL_HOLD_PERSON_MAGE] = 0x31,
     [COK_SPELL_LIGHTNING_BOLT] = 0x33,
     [COK_SPELL_CURE_SERIOUS_WOUNDS] = 0x3a,
+    [COK_SPELL_FIREBALL_ITEM] = 0x85,
     [COK_SPELL_CURE_CRITICAL_WOUNDS] = 0x47,
     [COK_SPELL_ENTANGLE] = 0x4e,
     [COK_SPELL_CHARM_MONSTERS] = 0x51,
@@ -345,6 +355,7 @@ const uint8_t cok_dark_queen_spell_ids[COK_SPELL_NAMES] = {
     [COK_SPELL_FEAR] = 0x54,
     [COK_SPELL_FIRE_SHIELD] = 0x55,
     [COK_SPELL_FUMBLE] = 0x56,
+    [COK_SPELL_BLESS_POWER] = 0x3e,
 };
 
 /* The effects' handlers by id, DS:bee8 + 4 * id (cok_rules_effect). */
@@ -356,16 +367,16 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x04] = {0x0168, COK_FX_MISSING, "dqk 78e4:0168"},
     [0x05] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
     [0x06] = {0x0184, COK_FX_MISSING, "dqk 78e4:0184"},
-    [0x07] = {0x0075, COK_FX_MISSING, "dqk 7e76:0075"},
+    [0x07] = {0x0075, COK_FX_NOTHING}, /* does nothing: retf */
     [0x08] = {0x0198, COK_FX_MISSING, "dqk 78e4:0198"},
     [0x09] = {0x01c6, COK_FX_MISSING, "dqk 78e4:01c6"},
     [0x0a] = {0x01f4, COK_FX_MISSING, "dqk 78e4:01f4"},
     [0x0b] = {0x007a, COK_FX_MISSING, "dqk 7e76:007a"},
-    [0x0c] = {0x0218, COK_FX_MISSING, "dqk 78e4:0218"},
+    [0x0c] = {0x0218, COK_FX_NOTHING}, /* does nothing: retf */
     [0x0d] = {0x021d, COK_FX_MISSING, "dqk 78e4:021d"},
-    [0x0e] = {0x0238, COK_FX_MISSING, "dqk 78e4:0238"},
+    [0x0e] = {0x0238, COK_FX_NOTHING}, /* does nothing: retf */
     [0x0f] = {0x023d, COK_FX_MISSING, "dqk 78e4:023d"},
-    [0x10] = {0x02b4, COK_FX_MISSING, "dqk 78e4:02b4"},
+    [0x10] = {0x02b4, COK_FX_NOTHING}, /* does nothing: retf */
     [0x11] = {0x02b9, COK_FX_MISSING, "dqk 78e4:02b9"},
     [0x12] = {0x02e6, COK_FX_MISSING, "dqk 78e4:02e6"},
     [0x13] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
@@ -387,7 +398,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x23] = {0x033f, COK_FX_MISSING, "dqk 7e76:033f"},
     [0x24] = {0x06d3, COK_FX_MISSING, "dqk 78e4:06d3"},
     [0x25] = {0x058c, COK_FX_MISSING, "dqk 7e76:058c"},
-    [0x26] = {0x0218, COK_FX_MISSING, "dqk 78e4:0218"},
+    [0x26] = {0x0218, COK_FX_NOTHING}, /* does nothing: retf */
     [0x27] = {0x06e8, COK_FX_MISSING, "dqk 78e4:06e8"},
     [0x28] = {0x073b, COK_FX_MISSING, "dqk 78e4:073b"},
     [0x29] = {0x0832, COK_FX_MISSING, "dqk 78e4:0832"},
@@ -397,18 +408,18 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x2d] = {0x0198, COK_FX_MISSING, "dqk 78e4:0198"},
     [0x2e] = {0x01c6, COK_FX_MISSING, "dqk 78e4:01c6"},
     [0x2f] = {0x09b2, COK_FX_MISSING, "dqk 78e4:09b2"},
-    [0x30] = {0x09ce, COK_FX_MISSING, "dqk 78e4:09ce"},
+    [0x30] = {0x09ce, COK_FX_NOTHING}, /* does nothing: retf */
     [0x31] = {0x09d3, COK_FX_MISSING, "dqk 78e4:09d3"},
     [0x32] = {0x0a22, COK_FX_MISSING, "dqk 78e4:0a22"},
     [0x33] = {0x010d, COK_FX_MISSING, "dqk 78e4:010d"},
     [0x34] = {0x010d, COK_FX_MISSING, "dqk 78e4:010d"},
     [0x35] = {0x010d, COK_FX_MISSING, "dqk 78e4:010d"},
     [0x36] = {0x0a7e, COK_FX_MISSING, "dqk 78e4:0a7e"},
-    [0x37] = {0x0aca, COK_FX_MISSING, "dqk 78e4:0aca"},
+    [0x37] = {0x0aca, COK_FX_NOTHING}, /* does nothing: retf */
     [0x38] = {0x0acf, COK_FX_MISSING, "dqk 78e4:0acf"},
     [0x39] = {0x0b11, COK_FX_MISSING, "dqk 78e4:0b11"},
     [0x3a] = {0x0b50, COK_FX_MISSING, "dqk 78e4:0b50"},
-    [0x3b] = {0x0d30, COK_FX_MISSING, "dqk 78e4:0d30"},
+    [0x3b] = {0x0d30, COK_FX_NOTHING}, /* does nothing: retf */
     [0x3c] = {0x0d8c, COK_FX_MISSING, "dqk 78e4:0d8c"},
     [0x3d] = {0x0d99, COK_FX_MISSING, "dqk 78e4:0d99"},
     [0x3e] = {0x0df6, COK_FX_MISSING, "dqk 78e4:0df6"},
@@ -421,7 +432,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x45] = {0x0f33, COK_FX_MISSING, "dqk 78e4:0f33"},
     [0x46] = {0x0f6b, COK_FX_MISSING, "dqk 78e4:0f6b"},
     [0x47] = {0x10a6, COK_FX_MISSING, "dqk 78e4:10a6"},
-    [0x48] = {0x10c0, COK_FX_MISSING, "dqk 78e4:10c0"},
+    [0x48] = {0x10c0, COK_FX_NOTHING}, /* does nothing: retf */
     [0x49] = {0x10c5, COK_FX_MISSING, "dqk 78e4:10c5"},
     [0x4a] = {0x10e0, COK_FX_MISSING, "dqk 78e4:10e0"},
     [0x4b] = {0x07c8, COK_FX_MISSING, "dqk 7e76:07c8"},
@@ -466,7 +477,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x72] = {0x1c12, COK_FX_MISSING, "dqk 78e4:1c12"},
     [0x73] = {0x0b74, COK_FX_MISSING, "dqk 7e76:0b74"},
     [0x74] = {0x1df6, COK_FX_MISSING, "dqk 78e4:1df6"},
-    [0x75] = {0x10a3, COK_FX_MISSING, "dqk 2d99:10a3"},
+    [0x75] = {0x10a3, COK_FX_MISSING, "dqk 52db:4fd1"},
     [0x76] = {0x2025, COK_FX_MISSING, "dqk 78e4:2025"},
     [0x77] = {0x2039, COK_FX_MISSING, "dqk 78e4:2039"},
     [0x78] = {0x20ab, COK_FX_MISSING, "dqk 78e4:20ab"},
@@ -489,7 +500,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x89] = {0x2391, COK_FX_MISSING, "dqk 78e4:2391"},
     [0x8a] = {0x24a1, COK_FX_MISSING, "dqk 78e4:24a1"},
     [0x8b] = {0x24ae, COK_FX_MISSING, "dqk 78e4:24ae"},
-    [0x8c] = {0x24c3, COK_FX_MISSING, "dqk 78e4:24c3"},
+    [0x8c] = {0x24c3, COK_FX_NOTHING}, /* does nothing: retf */
     [0x8d] = {0x24c8, COK_FX_MISSING, "dqk 78e4:24c8"},
     [0x8e] = {0x24dd, COK_FX_MISSING, "dqk 78e4:24dd"},
     [0x8f] = {0x24ea, COK_FX_MISSING, "dqk 78e4:24ea"},
@@ -581,9 +592,9 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0xe5] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
 };
 
-/* The effect ids the code names (spells.h): none yet. The effects have no
- * names in the executable, and each id is the one its own routine is read
- * as, so the parts that port a handler set its id here (dqk-effects-a..e). A
- * named effect asked for before then stops at cok_effect_id's assertion. */
-const uint8_t cok_dark_queen_effect_ids[COK_EFFECT_NAMES] = {0};
+/* The effect ids the code names (spells.h) are none yet, so the descriptor's
+ * effects.ids stays NULL: a named effect's lookup (cok_effect_id,
+ * cok_effect_is, cok_character_find_named) asserts, where 0 would read as
+ * "the game has none". The effects have no names in the executable; the
+ * parts that port a handler name its id here (dqk-effects-a..e). */
 
