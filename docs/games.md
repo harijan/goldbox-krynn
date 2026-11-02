@@ -585,8 +585,8 @@ run, citing their handlers (`unported`). It holds:
   `5e22:0000` tests; PICTURE 0xff's other conditions (DS:b419, `5f07:0511-052b`) are
   not run.
   The block, map and call opcodes agree with the original on test blocks
-  (`dqk_ecl_flow.py`, 2026-11-02): CLEARMONSTERS, flow only (no monster is loaded: 0x0b
-  and 0x0c are unported, so `75cc:151b`'s monster variables are not compared); NOTHING
+  (`dqk_ecl_flow.py`, 2026-11-02): CLEARMONSTERS, flow only (no monster is loaded: 0x0c is
+  unported, so `75cc:151b`'s monster variables are not compared); NOTHING
   with six operands (CHECKPARTY's, `5f07:0812`) and with none (`5f07:1449`); CALL 1, the
   view again, which recomputes the saved square byte (`6c70:1694`) where a store to 0x34
   or 0x35 does not; CALL 2, two steps (the square, the facing, the wall ahead); CALL 0,
@@ -633,13 +633,29 @@ run, citing their handlers (`unported`). It holds:
   not ported. Found and fixed on the way: ADD EP's words went through the 16-colour wrap,
   which draws nothing on the VGA screen (`cok_drawing`'s `window_text` and `window_clear`
   now carry them).
-- its fights' loads (`dqk_fight.py`, the setup flow): LOAD MONSTER registers an icon slot
-  (`6c70:29a3`) and COMBAT's monsters branch appends their records (`6c70:2d82`), then
-  `6c70:170e` appends ten GORGONs that placement drops (`59c7:1d34`); both need LOAD FILES
+- its fights' loads (`dqk_fight.py`, flows `setup` and `load`): LOAD MONSTER only registers
+  the monster (`6c70:29a3`: the flag DS:bd4e, the slot's id, count and icon, the next icon
+  slot, below 0x0e), and COMBAT's monsters branch appends the records (`5f07:081b`, then
+  `6c70:2d82` through `29fc` per slot, from slot 8 to DS:ad6b, the difficulty's hit points
+  and the icons), then `6c70:170e` appends ten GORGONs (MONCHA 0x14 by var 0x3a, status 9,
+  the NPC bits 0x32, the icon in the next slot, which then is taken) that placement drops
+  (`59c7:1d34`); the list's caps are 0x28 and 0x32. Port: `monster.c`'s `register_monster`,
+  `append_slot` and `append_extra` (`rules_dark_queen.c`'s `combat.monsters_at_combat`).
+  CLEARMONSTERS (`5f07:07fe`) clears the flag and the count, and not the icon slots or the
+  undead count, which the block's start resets (`6c70:0001`: slot 8). COMBAT stops at the
+  battle (`5045:059d`, cited) and with no monsters at the vault, the temple, shops and
+  treasure (`5f07:081b`'s other branches, cited). The open squares (`6c70:01c3`, var 0x37)
+  are the encounter part's, not run here. Both need LOAD FILES
   first, as the shipped block 4 runs it before its dragons (8066). Without it, in the
   original, APPROACH waits in its disk prompt and COMBAT in "LBIBase: Invalid Library File";
   with it the battle's first turn is reached (`5045:078b`), with the seed's 11 draws, and
   the fight checks run with the sound off (DQK.CFG's sound word 6, read by `1fd3:000b`).
+  The load flow's party list at the battle's call (`5f07:08f0`): 19 records, the monsters'
+  bytes equal (pointers masked); four members' import differs (known spells, saving throws,
+  thief skills: `dqk_fight.py`'s PARTY_GAPS, not traced). The icons: `CPIC.TLB` records
+  do not decode with the port's image reader ("unsupported or malformed image layout"),
+  logged by the loader, and Dark Queen's colour tables (the CPIC recolour) are not in its
+  data: the icons load unrecoloured, and nothing draws them yet.
   The sound's own draws are not traced: the fight's are the same with the sound off in every
   run, and the sound's effect on them is step 5's question (see [checks](checks.md)).
 - its maps: `GEO.GLB` records of their own size (`cok_view_set_geo`,
@@ -864,7 +880,8 @@ Its monsters are `MONCHA.GLB`'s records by id (`archives.monster_library`:
 record, a count of effects and of items, the effects of 5 bytes and the
 items of 17, its pointers cleared, its item count and the classes whose
 items it can use (DS:63f3's bits by its classes with levels,
-`characters.class_usable`) set again; all 98 read.
+`characters.class_usable`) set again; all 98 read. Their icons are `CPIC.TLB`'s records
+(`archives.icons`, the loader's names without digits: `file_digit` is 0).
 
 Death Knights' characters import (`characters.import`'s
 `COK_IMPORT_DARK_QUEEN`, `604b:0b82`, the `.pc` files of the Death Knights

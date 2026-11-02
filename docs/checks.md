@@ -596,8 +596,8 @@ may also set `stop` (where its ECL rests, when that is not past its EXIT: NEWECL
 block 2) and `waits` (the count the original must wait); `dqk_ecl_flow.py`'s
 `newecl` shows both.
 
-The Dark Queen's first fight (`tools/dosbox/checks/dqk_fight.py`, flow `setup`, in `make dqk-checks`,
-about 20 seconds) is a test block of LOAD FILES 4 4, CLEARMONSTERS, a PRESS KEY labelled 'monsters', LOAD
+The Dark Queen's first fight (`tools/dosbox/checks/dqk_fight.py`, flows `setup` and `load`, in `make
+dqk-checks`, about 20 seconds and a minute) is a test block of LOAD FILES 4 4, CLEARMONSTERS, a PRESS KEY labelled 'monsters', LOAD
 MONSTER 64 x2, a PRESS KEY labelled 'loaded', SETUP MONSTERS, APPROACH and COMBAT, from saved game A, with the
 sound off (below). The original's state (`dqk_fight_lib.py`: the records, combat records, combatants,
 battlefield, turn, sides, round, mode, the monsters' flag and count, RandSeed) is read at the block's entry,
@@ -605,15 +605,23 @@ at 'monsters', at 'loaded' and at the first turn, where the battle's turn routin
 where it starts (`dqk_fight_lib.trap`). The spin is checked to hold (EB FE in place, the keyboard polls still
 over a second), and untrapped the game goes on (the polls move). eclplay starts from the same square (`--at
 7,13,0`, the original's DS:c9f0-2) and the same variables (`--set`, the entry's nonzero ones). At 'monsters'
-its variables must equal the original's except at twelve known gaps (`PORT_GAPS`, the flow's comment): its
-LOAD FILES writes 0x13 and 0xc6 (to 4) and clears 0x03; `--character` sets 0x20 to 6; its block start clears
-0x97, 0x98, 0x9b, 0x9c and 0x9d; `--at` stores the square in 0x34 and 0x35; and the original clears 0x07 (by
-LOAD FILES or CLEARMONSTERS) where eclplay does not. These are the port's gaps, named so that a change shows.
-eclplay stops at LOAD MONSTER (not yet ported). At the first turn: turn 1, mode 5, both sides can act, the
+its variables must equal the original's except at two known gaps (`PORT_GAPS`: 0x34 and 0x35, which `--at`
+stores; the original keeps 0 there until a move). The original's variable area is read at the far pointer
+at DS:b20f, var a at that pointer plus a: an earlier version read DS:b210 and reported twelve gaps (LOAD FILES'
+0x03, 0x13, 0xc6 and the rest), which were that read's, not the port's. eclplay, with no key after the entry's,
+waits at the same 'monsters' PRESS KEY (out of keys there). At the first turn: turn 1, mode 5, both sides can act, the
 monsters appended are exactly the two SHARKMEN, every record has its combat record, the monsters are
 combatants on the map, the readings agree (`dqk_fight_lib.consistent`), and the RandSeed is 0x1756582c (11
 draws from the seed). The states go to build/dqk-fight/setup.json with the heap pointers masked
 (`dqk_fight_lib.portable`: a pointer becomes the index of its record in the list).
+Flow `load` (`LOADS`: two SHARKMEN and one MINOTAUR, then COMBAT with no SETUP MONSTERS or APPROACH; the
+original allows it after LOAD FILES) reads the party list where COMBAT calls the battle (`5f07:08f0`, trapped
+while the block waits for its PRESS KEY: the battle starts at once after the key), and eclplay stops at the
+battle (`--records`: the records and the trailer, c6f1 and ad6b). The original has 19 records (the six and
+13 monsters: the SHARKMEN and the MINOTAUR, then ten GORGONs), c6f1 13 and ad6b 11; the monsters' records agree
+byte for byte (pointers masked), and the party's agree but for `PARTY_GAPS` (four members' import). It runs
+twice, with the entry's difficulty (3) and with difficulty 1, which halves the hostile monsters' hit points
+(78 to 39, 107 to 53) and no GORGON's.
 The six MONCHA
 ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points
 are the base 0xc0, AC 0xbb, THAC0 0x87, size 0x8a, movement 0x90, undead 0x5c, magic resistance 0xcc):

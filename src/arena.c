@@ -719,24 +719,28 @@ static bool load_icon(cok_adventure *game, const char *name, size_t length, uint
         snprintf(path, sizeof path, "%.*s", (int)length, name);
     } else {
         /* Str into a string of 1: the first digit of the file's number
-         * (the rules' file_digit). */
-        snprintf(path, sizeof path, "%.*s%c", (int)(length < 16 ? length : 16), name,
-                 a->file_digit(file));
+         * (the rules' file_digit), or none where it is 0 (Dark Queen's
+         * CPIC.TLB, CBODY.TLB and COMSPR.TLB have no digit). */
+        char digit = a->file_digit(file);
+        int n = snprintf(path, sizeof path, "%.*s", (int)(length < 16 ? length : 16), name);
+        if (digit != 0) snprintf(path + n, sizeof path - (size_t)n, "%c", digit);
         cpic = true;
     }
     for (unsigned image = 0; image < 2; ++image) {
         uint8_t record = (uint8_t)(id + 0x80 * image);
         cok_picture *icon = &game->icons[slot][image];
         if (cok_adventure_load_image(game, path, record, 0, icon)) { /* 127f:0111 */
-            uint8_t same[16], black[16];
-            colour_table(cok_game_rules(game)->data, COK_DATA_SAME_COLOURS, same);
-            colour_table(cok_game_rules(game)->data, COK_DATA_BLACK_COLOURS, black);
             bool missile = !cpic && length == missiles && memcmp(name, a->missiles, missiles) == 0;
-            if ((cpic || (missile && cok_game_rules(game)->startup.missiles_recoloured)) &&
-                game->display != COK_DISPLAY_CGA && /* 6d21:0408, 0478; dkk 7090:016f */
-                cok_picture_recolor(icon, same, black, 0, NULL) != COK_PICTURE_OK) {
-                cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
-                return false;
+            const cok_rules_startup *S = &cok_game_rules(game)->startup;
+            if (((cpic && !S->icons_unrecoloured) || (missile && S->missiles_recoloured)) &&
+                game->display != COK_DISPLAY_CGA) { /* 6d21:0408, 0478; dkk 7090:016f */
+                uint8_t same[16], black[16];
+                colour_table(cok_game_rules(game)->data, COK_DATA_SAME_COLOURS, same);
+                colour_table(cok_game_rules(game)->data, COK_DATA_BLACK_COLOURS, black);
+                if (cok_picture_recolor(icon, same, black, 0, NULL) != COK_PICTURE_OK) {
+                    cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
+                    return false;
+                }
             }
             continue;
         }
@@ -837,9 +841,9 @@ bool cok_arena_party_icon(cok_adventure *game, cok_character *c, bool colours)
 
 bool cok_arena_join(cok_adventure *game, uint8_t file)
 {
-    /* A game whose combat icons are not ported (none named: Dark Queen's
-     * CPIC and CBODY, DARK-QUEEN.md's step 4) loads none. */
-    if (cok_game_rules(game)->archives.icons == NULL) return true;
+    /* A game whose party's combat icons are not ported (Dark Queen's, its
+     * CHEAD and CBODY: DARK-QUEEN.md's step 4) loads none. */
+    if (!cok_game_rules(game)->startup.party_icons) return true;
     const cok_character_layout *L = cok_game_rules(game)->character;
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];

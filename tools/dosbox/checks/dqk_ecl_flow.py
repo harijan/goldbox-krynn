@@ -8,8 +8,8 @@ then a PRESS KEY. The original and eclplay (entered at the saved game's square)
 are compared as dqk_ecl_text.py compares them: the screen at every wait, the
 variables 0x100-0x17f byte for byte. The blocks:
 
-- clear_nothing: CLEARMONSTERS (flow only: no monster is loaded, 0x0b and 0x0c
-  are unported), then NOTHING with its six operands (CHECKPARTY's handler,
+- clear_nothing: CLEARMONSTERS (flow only: no monster is loaded, 0x0c is
+  unported), then NOTHING with its six operands (CHECKPARTY's handler,
   5f07:0812: six operands loaded, nothing done) and NOTHING with none (5f07:1449:
   the opcode alone); the flow goes on after each;
 - steps: CALL 2 (a step forward, 6c70:1186) twice, the square, facing, wall ahead

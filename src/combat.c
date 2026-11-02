@@ -1249,7 +1249,8 @@ bool cok_combat_setup(cok_adventure *game)
     cok_adventure_wait(game, game->speed * 100u);              /* 1521:0b4b */
     const char *begins = cok_game_rules(game)->combat.begins;
     log_text(game, "print", begins);
-    cok_text_string(&game->screen, &game->font, begins, 0, 24, 10, 0); /* 1521:0353 */
+    cok_text_string(&game->screen, &game->font, begins, 0, 24,
+                    cok_game_rules(game)->combat.begins_colour, 0); /* 1521:0353 */
     combat->magic_on = false;
     game->effects.rolls.round = 0;
     combat->round_limit = 15;

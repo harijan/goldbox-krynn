@@ -1605,6 +1605,7 @@ const cok_rules cok_rules_death_knights = {
             .icon_slots = 35,
             .icon_table = 0xb474,
             .missiles_recoloured = true, /* 7090:016f, DS:42de, 42ee */
+            .party_icons = true,
         },
     .spells =
         {
@@ -1800,6 +1801,7 @@ const cok_rules cok_rules_death_knights = {
             .ends_in_round = true,
             /* 410b:1e41, 10d7 */
             .begins = "a battle begins...", /* DS:2a07 */
+            .begins_colour = 10, /* 1521:0353's, as combat.c had it */
             .dungeon_tiles = 0x19,
             .wilderness_tiles = 0x26,
             .tiles_kept = true, /* DS:b58c, b58d */

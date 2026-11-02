@@ -1226,6 +1226,113 @@ static void test_dark_queen_monsters(void)
     cok_adventure_close(&dqk);
 }
 
+/* Dark Queen's LOAD MONSTER registers and COMBAT appends (dqk 6c70:29a3,
+ * 2d82, 29fc, 170e; 5f07:081b's monsters branch, which stops at the battle
+ * (5045:059d)). Skipped without DQKAssets. */
+static void test_dark_queen_appends(void)
+{
+    /* Dark Queen's opcode bytes (rules_dark_queen.c's table): LOAD MONSTER 0x0b,
+     * CLEARMONSTERS 0x1c, COMBAT 0x24. */
+#define DQK_LOAD_MONSTER 0x0b
+#define DQK_CLEARMONSTERS 0x1c
+#define DQK_COMBAT 0x24
+    static cok_adventure dqk;
+    script quiet = {"", 0, 0, ""};
+    cok_keyboard keys = {scripted, &quiet, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &quiet};
+    FILE *f = fopen("DQKAssets/DISK2/MONCHA.GLB", "rb");
+    if (f == NULL) {
+        puts("monster: DQKAssets not found; Dark Queen's appends not run");
+        return;
+    }
+    fclose(f);
+    CHECK(cok_adventure_open(&dqk, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
+    dqk.vm.file = 1;
+    dqk.vm.status = COK_ECL_OK;
+    const cok_character_layout *L = cok_rules_dark_queen.character;
+#define DQK_RUN(...) do { \
+        const uint8_t code_[] = {__VA_ARGS__}; \
+        dqk.vm.status = COK_ECL_OK; \
+        dqk.vm.abort = false; \
+        memset(dqk.vm.code, 0, sizeof dqk.vm.code); \
+        memcpy(dqk.vm.code, code_, sizeof code_); \
+        dqk.vm.size = sizeof code_ + 1; \
+        dqk.vm.depth = 0; \
+        dqk.vm.status = cok_ecl_run(&dqk.vm, COK_ECL_BASE); \
+    } while (0)
+
+    /* Registered only: no record yet, the flag set, the slots taken. */
+    DQK_RUN(DQK_CLEARMONSTERS);
+    CHECK(dqk.vm.status == COK_ECL_OK && dqk.party.count == 0);
+    DQK_RUN(DQK_LOAD_MONSTER, 0, 64, 0, 2, 0, 64);
+    DQK_RUN(DQK_LOAD_MONSTER, 0, 49, 0, 1, 0, 49);
+    CHECK(dqk.vm.status == COK_ECL_OK && dqk.party.count == 0 && dqk.monsters_loaded);
+    CHECK(dqk.icon_slot == 10 && dqk.monsters == 0);
+    CHECK(dqk.monster_slots[8].id == 64 && dqk.monster_slots[8].count == 2 &&
+          dqk.monster_slots[8].icon == 64);
+    CHECK(dqk.monster_slots[9].id == 49 && dqk.monster_slots[9].count == 1);
+
+    /* COMBAT appends them (2 SHARKMEN, 1 MINOTAUR, and 170e's ten GORGONs in
+     * slot 10), then the battle is not ported: the run stops there. */
+    DQK_RUN(DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 5045:059d") != NULL);
+    CHECK(dqk.monsters == 13 && dqk.icon_slot == 11 && dqk.party.count == 13);
+    static const char *names[] = {"SHARKMAN", "SHARKMAN", "MINOTAUR"};
+    for (size_t i = 0; i < 13; ++i) {
+        cok_character *m = dqk.party.members[i];
+        char name[16];
+        CHECK(cok_field_name(L, m->record, name) > 0);
+        if (i < 3) CHECK(strcmp(name, names[i]) == 0);
+        else CHECK(strcmp(name, "GORGON") == 0);
+        /* The icon slots: 8 for the SHARKMEN, 9 for the MINOTAUR, 10 for 170e's. */
+        CHECK(cok_field_u8(L, m->record, COK_FIELD_ICON) == (i < 2 ? 8 : i == 2 ? 9 : 10));
+        if (i >= 3) { /* 170e's: status 9, the NPC bits, hostile 0 (var 0x3a is 0). */
+            CHECK(m->record[0x64] == 9 && m->record[0x65] == 0 && m->record[0x66] == 0);
+            CHECK((m->record[0x9b] & 0x32) == 0x32);
+        }
+    }
+
+    /* The next COMBAT with none loaded: the vault, temple, shops and treasure
+     * stop, cited (5f07:081b). CLEARMONSTERS keeps the slots (6c70:0001 starts them
+     * again at a block). */
+    DQK_RUN(DQK_CLEARMONSTERS);
+    CHECK(dqk.vm.status == COK_ECL_OK && !dqk.monsters_loaded && dqk.monsters == 0);
+    CHECK(dqk.icon_slot == 11);
+    DQK_RUN(DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 5f07:081b") != NULL);
+
+    /* A new block (cok_monster_reset: the slot 8 again), one SHARKMAN and 170e's
+     * ten GORGONs: the difficulty scales the hostile SHARKMAN's hit points by
+     * (d + 1) / 4 (6c70:29fc), at least 1; var 0x27 is the difficulty. */
+    cok_monster_reset(&dqk);
+    DQK_RUN(DQK_CLEARMONSTERS);
+    cok_character base;
+    CHECK(cok_monster_read(&dqk, 64, &base));
+    uint8_t hp = base.record[0x198], hostile = base.record[0x66];
+    cok_character_free(&base);
+    CHECK(hostile == 1 && hp > 1);
+    size_t at = dqk.party.count;
+    cok_ecl_set_var(&dqk.vm, COK_VAR_DIFFICULTY, 1);
+    DQK_RUN(DQK_LOAD_MONSTER, 0, 64, 0, 1, 0, 64);
+    DQK_RUN(DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED && dqk.party.count == at + 11);
+    CHECK(dqk.party.members[at]->record[0x198] == (uint8_t)(2 * hp / 4) &&
+          dqk.party.members[at]->record[0x89] == (uint8_t)(2 * hp / 4));
+    cok_ecl_set_var(&dqk.vm, COK_VAR_DIFFICULTY, 3);
+    cok_monster_reset(&dqk);
+    DQK_RUN(DQK_CLEARMONSTERS);
+    DQK_RUN(DQK_LOAD_MONSTER, 0, 64, 0, 1, 0, 64);
+    DQK_RUN(DQK_COMBAT);
+    CHECK(dqk.party.members[at + 11]->record[0x198] == hp);
+#undef DQK_RUN
+#undef DQK_LOAD_MONSTER
+#undef DQK_CLEARMONSTERS
+#undef DQK_COMBAT
+    cok_adventure_close(&dqk);
+}
+
 int main(void)
 {
     open_game();
@@ -1248,6 +1355,7 @@ int main(void)
     test_full_list();
     test_death_knights_monsters();
     test_dark_queen_monsters();
+    test_dark_queen_appends();
     cok_adventure_close(&game);
     puts("monster tests passed");
     return 0;
