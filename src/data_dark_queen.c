@@ -758,9 +758,10 @@ static const uint8_t step_y[9] = {
     0xff, 0xff, 0x00, 0x01, 0x01, 0x01, 0x00, 0xff, 0x00,
 };
 
-/* DS:6197: by terrain value 0-65, 4 bytes: cost, eye, block, tile (dqk 59c7:0a69 in 59c7:09e7: 4 *
- * value). */
-static const uint8_t terrain[264] = {
+/* DS:6197: by terrain value 0-76, 4 bytes: cost, eye, block, tile (dqk 59c7:0a69 in
+ * 59c7:09e7: 4 * value, unbounded there). The table runs to the footprints at DS:62cb:
+ * 77 values (66-76 are well formed; 5837:13ae compares 0x46, value 70, a floor tile). */
+static const uint8_t terrain[308] = {
     0x01, 0x00, 0xff, 0x00, 0xff, 0x01, 0x02, 0x00, 0xff, 0x01, 0x02, 0x01,
     0xff, 0x01, 0x02, 0x02, 0xff, 0x01, 0x02, 0x03, 0x01, 0x01, 0x00, 0x04,
     0xff, 0x01, 0x02, 0x05, 0xff, 0x01, 0x02, 0x06, 0xff, 0x01, 0x02, 0x07,
@@ -783,10 +784,15 @@ static const uint8_t terrain[264] = {
     0xff, 0x01, 0x00, 0x19, 0x01, 0x01, 0x00, 0x1a, 0x01, 0x01, 0x00, 0x1b,
     0x01, 0x01, 0x00, 0x1c, 0x01, 0x00, 0x00, 0x1d, 0x01, 0x00, 0x00, 0x1e,
     0xff, 0x00, 0x00, 0x1f, 0xff, 0x01, 0x00, 0x20, 0x02, 0x01, 0x00, 0x21,
+    0x01, 0x01, 0x00, 0x22, 0xff, 0x01, 0x00, 0x23, 0x01, 0x01, 0x00, 0x24,
+    0x01, 0x01, 0x00, 0x25, 0x01, 0x01, 0x00, 0x16, 0x46, 0x01, 0x00, 0x1a,
+    0x46, 0x01, 0x00, 0x1b, 0x46, 0x01, 0x00, 0x1c, 0x46, 0x01, 0x00, 0x1d,
+    0x46, 0x01, 0x00, 0x1e, 0x46, 0x01, 0x00, 0x1f,
 };
 
 /* DS:62cb: by size, 12 bytes: 2 * cell + axis (dqk 5045:7f46 in 5837:000a: 12 * size + 2 * cell +
- * axis; size 0 is never read there). Eight sizes here; the count the code bounds is not found. */
+ * axis; size 0 is never read there). Six cells (5837:01b9 loops 0-5, where
+ * COK_COMBAT_FOOTPRINT_CELLS is 4); eight sizes here, the count the code bounds is not found. */
 static const uint8_t footprints[96] = {
     0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -798,13 +804,22 @@ static const uint8_t footprints[96] = {
     0x0b, 0x15, 0x17, 0x1b, 0x23, 0x1f, 0x33, 0x34, 0x35, 0x78, 0x76, 0x6f,
 };
 
-/* DS:6342: a cloud's cells' directions, k 1-4 (dqk 5045:930a in 5837:137a); DS:6346 (k 5) is read
- * by no routine found. */
-static const uint8_t cloud_cells[5] = {
-    0x08, 0x02, 0x03, 0x04, 0x05,
+/* DS:00a1: the effects the battle removes, k 1-16 (dqk 148f:1b66 pushes DS:00a1 + k, its
+ * low byte, 148f:017d compares it): element i is DS:00a1 + i + 1. The 18-entry list at
+ * DS:631e + k that 75cc:06cb reads is not here: its role is not named. */
+static const uint8_t battle_only[16] = {
+    0x03, 0x03, 0x0b, 0x15, 0x17, 0x1b, 0x1e, 0x1f,
+    0x23, 0x34, 0x4d, 0x6a, 0x6b, 0x6f, 0xb2, 0x76,
+};
+
+/* DS:6342: a cloud's cells' directions, k 1-9 (dqk 5837:13c4 in 5837:137a reads DS:6341 + k
+ * for k = 1-9, and 148f:27a7 the same). */
+static const uint8_t cloud_cells[9] = {
+    0x08, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, 0x01,
 };
 
 static const cok_ds_table tables[] = {
+    {0x00a2, sizeof battle_only, 1, battle_only},
     {0x028c, 44, 1, increments},
     {0x082d, 26, 1, constitution},
     {0x0847, 11, 1, spell_tables},
@@ -847,10 +862,10 @@ static const cok_ds_table tables[] = {
      .index = {{f0, n0, s0}, {f1, n1, s1}, {f2, n2, w}}}
 
 /* The combat tables the port reads (the descriptor's data; the readers are
- * the battlefield, the placement, the computer's and the arena's), each at
- * the DS offset of its code's arithmetic (see its note above). The rest of
- * the combat data (the battle-only and helpless effects, the cone sides,
- * the area's templates at DS:03b5, the combat block) has no reader found. */
+ * the battlefield, the placement, the computer's and the arena's, and the
+ * combat's effects), each at the DS offset of its code's arithmetic (see its
+ * note above). The cone sides (DS:8cc8, casting) and the area's templates
+ * (DS:03b5) have no reader here. */
 const cok_data_segment cok_dark_queen_data = {
     tables,
     sizeof tables / sizeof *tables,
@@ -867,9 +882,12 @@ const cok_data_segment cok_dark_queen_data = {
         [COK_DATA_LINE_DIRECTIONS] = TABLE(0x6170, 1, 0, 3, 3, 0, 3),
         [COK_DATA_STEP_X] = LIST(0x6189, 1, 0, 9),
         [COK_DATA_STEP_Y] = LIST(0x6192, 1, 0, 9),
-        [COK_DATA_TERRAIN] = TABLE(0x6197, 1, 0, 66, 4, 0, 4),
+        [COK_DATA_TERRAIN] = TABLE(0x6197, 1, 0, 77, 4, 0, 4),
         [COK_DATA_FOOTPRINTS] = TABLE3(0x62cb, 1, 0, 8, 12, 0, 6, 2, 0, 2),
-        [COK_DATA_CLOUD_CELLS] = LIST(0x6341, 1, 1, 5),
+        /* DS:6313 + k, k 0-3 (dqk 177e:0a19): the footprints' size 6 (62cb + 12 * 6). */
+        [COK_DATA_HELPLESS] = LIST(0x6313, 1, 0, 4),
+        [COK_DATA_BATTLE_ONLY] = LIST(0x00a1, 1, 1, 16),
+        [COK_DATA_CLOUD_CELLS] = LIST(0x6341, 1, 1, 9),
     },
 };
 

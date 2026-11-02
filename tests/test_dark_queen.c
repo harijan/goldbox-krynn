@@ -301,7 +301,7 @@ static void test_combat_tables(void)
         COK_DATA_START_COLUMNS,       COK_DATA_START_ROWS,     COK_DATA_FORMATIONS,
         COK_DATA_TERRAIN_FLAGS,       COK_DATA_LINE_DIRECTIONS, COK_DATA_STEP_X,
         COK_DATA_STEP_Y,              COK_DATA_TERRAIN,        COK_DATA_FOOTPRINTS,
-        COK_DATA_CLOUD_CELLS,
+        COK_DATA_HELPLESS,            COK_DATA_BATTLE_ONLY,    COK_DATA_CLOUD_CELLS,
     };
     for (size_t n = 0; n < sizeof tables_checked / sizeof *tables_checked; ++n) {
         cok_data t = tables_checked[n];
@@ -333,11 +333,26 @@ static void test_combat_tables(void)
     CHECK(cok_data_u8_at2(D, COK_DATA_TURNING, 13, 10) == 0x0d);
     long area = cok_data_offset2(D, COK_DATA_AREA_ROWS, -3, 1);
     CHECK(cok_data_held(D, area) == 0xfd && cok_data_held(D, area + 1) == 0xff);
-    /* The shapes the code gives: 66 terrains, 5 formations, the cloud's
-     * cells from 1 (the fifth, DS:6346, is read by no routine found). */
-    CHECK(cok_data_count(D, COK_DATA_TERRAIN, 0) == 66);
+    /* The shapes the code gives: 77 terrains, up to the footprints at DS:62cb
+     * (the terrain reads are unbounded; the table's end is the data's);
+     * 5 formations; 9 cloud cells from 1 (5837:13c4, 148f:27a7); 6 footprint
+     * cells (5837:01b9); 4 helpless effects from 0 (177e:0a19); 16 battle-only
+     * effects from 1 (148f:1b66). */
+    CHECK(cok_data_count(D, COK_DATA_TERRAIN, 0) == 77);
+    CHECK(D->table[COK_DATA_TERRAIN].from + D->table[COK_DATA_TERRAIN].size ==
+          D->table[COK_DATA_FOOTPRINTS].from);
+    CHECK(D->table[COK_DATA_TERRAIN].from + D->table[COK_DATA_TERRAIN].size == 0x62cb);
     CHECK(cok_data_count(D, COK_DATA_FORMATIONS, 0) == 5);
+    CHECK(cok_data_count(D, COK_DATA_CLOUD_CELLS, 0) == 9);
     CHECK(cok_data_first(D, COK_DATA_CLOUD_CELLS, 0) == 1);
+    CHECK(cok_data_count(D, COK_DATA_FOOTPRINTS, 1) == 6);
+    CHECK(cok_data_count(D, COK_DATA_HELPLESS, 0) == 4);
+    CHECK(cok_data_first(D, COK_DATA_BATTLE_ONLY, 0) == 1);
+    CHECK(cok_data_count(D, COK_DATA_BATTLE_ONLY, 0) == 16);
+    CHECK(cok_data_u8_at(D, COK_DATA_HELPLESS, 0) == 0x1f);
+    CHECK(cok_data_u8_at(D, COK_DATA_BATTLE_ONLY, 1) == 0x03);
+    CHECK(cok_data_u8_at(D, COK_DATA_BATTLE_ONLY, 16) == 0x76);
+    CHECK(cok_data_u8_at(D, COK_DATA_CLOUD_CELLS, 9) == 0x01);
 }
 
 int main(void)

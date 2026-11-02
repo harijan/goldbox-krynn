@@ -899,15 +899,21 @@ The combat tables (`cok_dark_queen_data`'s `table[]`; `tests/test_dark_queen.c`
 checks each element against the executable): the placement's moves, quadrants,
 quadrant directions, the first rank's centres and formations (`59c7:128e`,
 `59c7:16b3`), the line directions (`5bb8:1e9b`), the steps (`DS:6189`, `6192`),
-the terrain (`DS:6197`, 4 bytes a value, `59c7:0a69`), the terrain flags
+the terrain (`DS:6197`: 77 values, to the footprints at `DS:62cb`; 4 bytes a
+value; `59c7:0a69`, unbounded, so values 66-76 are read too), the terrain flags
 (`DS:5d7b`: 32 bytes, all copied by `59c7:0783`, where Champions has 16),
 turning undead (`DS:5a6a`: 13 kinds of 11, `52db:1117`), a spell's area half
 widths (`DS:5a40`: words, 7 rows of 3, `52db:48aa`), the footprints (`DS:62cb`:
-12 bytes a size, `5837:000a`, eight sizes here as the count is not bounded by
-any code found) and a cloud's cells (`DS:6342`, `5837:137a`). Not filled: no
-reader found yet for the helpless and battle-only effects, the beside tables
-(`DS:62f0` holds footprint bytes), the cone sides (`DS:8cc8`), the area
-templates (`DS:03b5`).
+12 bytes a size, `5837:000a`; six cells, `5837:01b9`; eight sizes here as the
+count is not bounded by any code found), a cloud's cells (`DS:6342`-`634a`, k
+1-9, `5837:13c4`, nine where Champions has four), the helpless effects (`DS:6313`,
+k 0-3, `177e:0a19`) and the battle-only effects (`DS:00a2`-`00b1`, k 1-16,
+`148f:1b66`; the port's index is k - 1, and the shared loop in `round.c` starts at
+0, so it asserts for Dark Queen until its part ports the reader). `75cc:06cb`
+reads a second, 18-entry list at `DS:631e` (`631e` + k, k 0-17) whose role is not
+named; it is not filled. Not filled: the beside tables (`DS:62f0` holds footprint
+bytes; no reader found), the cone sides (`DS:8cc8`, casting), the area templates
+(`DS:03b5`, treasure).
 Train Character (`6be8:0022`, `src/queen_train.c`'s `queen_train`) and Knight
 new Order (`7368:10c2`, `queen_knight_order`) are the camp's: the classes
 the experience takes up a level in, in the hall variable `0x30`'s bits (or
