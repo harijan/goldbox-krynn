@@ -437,7 +437,7 @@ const cok_rules cok_rules_dark_queen = {
             .ecl = "ECL.GLB", /* 6c70:0118 */
             .geo = "GEO.GLB", /* 8a8b:12e3 */
             .title = "TITLE.TLB",
-            /* The monsters' icons, CPIC (104c:00df, the string DS:778c), the
+            /* The monsters' icons, CPIC (204c:00df, the string DS:778c), the
              * missiles' COMSPR, as the library files (their extension is the
              * port's, as dark_queen.c's); the party's head and body names are
              * not in Dark Queen's data (CHEAD, CBODY), named for the loader's
@@ -448,11 +448,14 @@ const cok_rules cok_rules_dark_queen = {
             .icon_body = "CBODY",
             .file_digit = dark_queen_file_digit,
         },
-    /* The icon slots: the monsters' are 8 to 13 (LOAD MONSTER stops at 0x0e,
-     * dqk 6c70:29a3); the missiles' slots are not traced yet. */
+    /* The icon slots: LOAD MONSTER takes 8 to 13 (it stops at 0x0e, dqk
+     * 6c70:29ac), and 170e's extra monsters take the next, 14 (6c70:17db, 1a3b):
+     * six loads and COMBAT use up to 14. The port stops at the first battle, so
+     * no later COMBAT (without a CLEARMONSTERS) takes more; the missiles' slots
+     * are not traced yet. */
     .startup =
         {
-            .icon_slots = 14,
+            .icon_slots = 15,
             .icons_unrecoloured = true,
         },
     .files =
@@ -584,8 +587,8 @@ const cok_rules cok_rules_dark_queen = {
         },
     /* COMBAT's monsters (monster.c): LOAD MONSTER registers them (dqk 6c70:29a3),
      * COMBAT appends them (6c70:2d82, 170e), then the battle (5045:059d) is not
-     * ported; the branches with no monsters (5f07:081b's vault, temple, shops
-     * and treasure) are not either. */
+     * ported; the branches with no monsters (5f07:081b's vault, temple and
+     * treasure) are not either. */
     .combat =
         {
             .begins = "A battle begins...", /* DS:5ed8 (1a62:0046) */
@@ -593,6 +596,8 @@ const cok_rules cok_rules_dark_queen = {
             .monsters_at_combat = true,
             .monster_records_max = 0x28,    /* 29fc's cap (dqk 6c70:2a10) */
             .monster_records_extra = 0x32,  /* 170e's cap (dqk 6c70:1a31) */
+            /* The icon loads (204c:00df) are the drawing part's: slots only. */
+            .monster_icons_unported = true,
             .extra_monsters = dark_queen_extra_monsters,
             .extra_monster_count = (uint8_t)(sizeof dark_queen_extra_monsters /
                                              sizeof *dark_queen_extra_monsters),

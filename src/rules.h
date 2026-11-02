@@ -515,7 +515,7 @@ typedef struct {
      * ICON), rather than only the CPIC's (6d21:01d0). */
     bool missiles_recoloured;
     /* Whether a CPIC's icons are not recoloured (Dark Queen's: its loader,
-     * 104c:00df, is not traced, and its colour tables are not in the data:
+     * 204c:00df, is not traced, and its colour tables are not in the data:
      * the icons load as the library holds them). */
     bool icons_unrecoloured;
     /* Whether the party's combat icons are loaded as the characters join
@@ -1158,11 +1158,17 @@ typedef struct {
     uint8_t monster_records_max, monster_records_extra;
     const uint8_t (*extra_monsters)[2];
     uint8_t extra_monster_count, extra_monster_var, extra_monsters_appended;
+    /* Whether the monsters' combat icons are not loaded yet (dqk 204c:00df, one
+     * CPIC record stored at the slot and at slot + 0x26: 29fc:2b0b and 170e:17d3
+     * call it; the drawing part's): LOAD MONSTER and COMBAT still take the slot,
+     * and nothing is read or logged. Champions' and Death Knights' load theirs
+     * (cok_arena_load_icon, 6d21:01d0). */
+    bool monster_icons_unported;
     /* COMBAT with no monsters loaded, where the port does not carry out the
-     * game's branches yet (dqk 5f07:081b: the vault, the temple, a shop, the
-     * treasure; the text of what stops, or NULL), and the battle's routine
-     * the port does not carry out yet (dqk 5045:059d; NULL where the rounds
-     * are run). */
+     * game's branches yet (dqk 5f07:081b: the vault (771f:09a0), the temple
+     * (7825:0af6), the treasure (75cc:135c); the text of what stops, or NULL),
+     * and the battle's routine the port does not carry out yet (dqk 5045:059d;
+     * NULL where the rounds are run). */
     const char *no_monsters_unported, *battle_unported;
 } cok_rules_combat;
 

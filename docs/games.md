@@ -631,23 +631,32 @@ run, citing their handlers (`unported`). It holds:
   and FIND NPC (`6c70:31e8`: the first member whose name matches, case-blind, with bit 7
   of +0x9b, its position and 0x80 if it cannot act, else 0xff). ADD NPC (`6c70:307b`)
   stops: `604b:2886` allocates a 0x19e record, fills it from DS:b2a4 by `604b:257c`,
-  links it (`604b:3491`) and writes `104c:00df`, which needs step 2's NPC records and is
+  links it (`604b:3491`) and writes `204c:00df`, which needs step 2's NPC records and is
   not ported. Found and fixed on the way: ADD EP's words went through the 16-colour wrap,
   which draws nothing on the VGA screen (`cok_drawing`'s `window_text` and `window_clear`
   now carry them).
-- its fights' loads (`dqk_fight.py`, flows `setup` and `load`): LOAD MONSTER only registers
-  the monster (`6c70:29a3`: the flag DS:bd4e, the slot's id, count and icon, the next icon
-  slot, below 0x0e), and COMBAT's monsters branch appends the records (`5f07:081b`, then
-  `6c70:2d82` through `29fc` per slot, from slot 8 to DS:ad6b, the difficulty's hit points
-  and the icons), then `6c70:170e` appends ten GORGONs (MONCHA 0x14 by var 0x3a, status 9,
-  the NPC bits 0x32, the icon in the next slot, which then is taken) that placement drops
+- its fights' loads (`dqk_fight.py`, flows `setup`, `load`, `clear` and `six`): LOAD MONSTER
+  only registers the monster (`6c70:29a3`: the flag DS:bd4e, the slot's id, count and icon,
+  the next icon slot, below 0x0e), and COMBAT's monsters branch appends the records
+  (`5f07:081b`, then `6c70:2d82` through `29fc` per slot, from slot 8 to DS:ad6b, the
+  difficulty's hit points, the undead count DS:c2ed (`2ad6`, once per undead slot) and the
+  icons), then `6c70:170e` appends ten GORGONs (MONCHA 0x14 by var 0x3a, status 9, the NPC
+  bits 0x32, the icon in the next slot, which then is taken) that placement drops
   (`59c7:1d34`); the list's caps are 0x28 and 0x32. Port: `monster.c`'s `register_monster`,
   `append_slot` and `append_extra` (`rules_dark_queen.c`'s `combat.monsters_at_combat`).
-  CLEARMONSTERS (`5f07:07fe`) clears the flag and the count, and not the icon slots or the
-  undead count, which the block's start resets (`6c70:0001`: slot 8). COMBAT stops at the
-  battle (`5045:059d`, cited) and with no monsters at the vault, the temple, shops and
-  treasure (`5f07:081b`'s other branches, cited). The open squares (`6c70:01c3`, var 0x37)
-  are the encounter part's, not run here. Both need LOAD FILES
+  CLEARMONSTERS (`5f07:07fe`, which calls `75cc:151b` and `63ee:0002`) zeroes DS:c2ed, DS:c6f1
+  and DS:bd4e, sets the next icon slot DS:ad6b to 8 and frees the treasure pool (DS:b1db's
+  coins, the list at DS:b1e7): the shared clear (`monster.c`'s `clear_monsters`, as
+  Champions'). The slot tables (DS:c7c4, c7ca, c7be) are not cleared, and nothing reads them
+  above the next slot. The icon loads are not ported yet: `204c:00df` loads one CPIC record
+  into a slot and into slot + 0x26 (`29fc:2b0b`, `170e:17d3`), the drawing part's
+  (`combat.monster_icons_unported`), so the slots are taken and no icon is read or logged.
+  `icon_slots` is 15: LOAD MONSTER takes 8 to 13 (it stops at 0x0e, `29ac`), and 170e's
+  extras take 14. COMBAT stops at the battle (`5045:059d`, cited) and with no monsters at the
+  vault (`771f:09a0`), the temple (`7825:0af6`) and the treasure (`75cc:135c`), the branches
+  of `5f07:081b`, cited. Its open squares (`6c70:01c3`, lowering var 0x37 to its result in
+  `5f07:088f`-`08ba`) are the encounter part's and not run here; `01c3` also sets var 0x38 to
+  2 where var 0x22 is 0 (`01d9`-`01e4`). Both need LOAD FILES
   first, as the shipped block 4 runs it before its dragons (8066). Without it, in the
   original, APPROACH waits in its disk prompt and COMBAT in "LBIBase: Invalid Library File";
   with it the battle's first turn is reached (`5045:078b`), with the seed's 11 draws, and
