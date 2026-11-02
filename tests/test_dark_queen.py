@@ -10,10 +10,13 @@ import re
 import shutil
 import struct
 import subprocess
+import sys
 import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+import hlib  # noqa: E402
 BUILD = ROOT / "build"
 ASSETS = ROOT / "DQKAssets"
 ECL = ASSETS / "DISK3" / "ECL.GLB"
@@ -1143,6 +1146,62 @@ class DarkQueenTests(unittest.TestCase):
         self.assertEqual(moves[-1], "step: 13,8 facing 2")
         self.assertIn("print: HUGE SHADOWS SKIM OVER THE GROUND. GIANT SHAPES DISAPPEAR OVER "
                       "THE TREE TOPS.", result.stdout)
+
+    def test_view_clicks(self):
+        # The view's areas of the commands' bar (1bdb:1aef, with the mouse on):
+        # a click gives the arrow key's command (1206's codes, 126e): columns
+        # 0-39 turn left, 40-95 step ahead, 96-135 turn right, rows 100-159
+        # turn around (an arrow key's Left, Up, Right, Down); a click on
+        # nothing beeps (2aa6:169d). From Caergoth's 3D view at 3,2 facing 2.
+        # The original's check: dqk_view_mouse.py.
+        clicks = [(39, 50), (96, 50), (40, 50), (95, 50), (135, 90), (0, 0), (60, 99),
+                  (60, 100), (135, 120), (60, 159), (136, 90), (60, 160), (136, 120),
+                  (20, 150)]
+        keys = r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r" + "".join(
+            r"\m%d,%d,1." % spot for spot in clicks)
+        result = self.play("--start-menu", "--mouse", "--keys", keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        moves = [line for line in result.stdout.splitlines()
+                 if line.startswith(("step:", "turn:"))]
+        self.assertEqual(moves, ["turn: 3,2 facing 0", "turn: 3,2 facing 2",
+                                 "step: 4,2 facing 2", "step: 5,2 facing 2",
+                                 "turn: 5,2 facing 4", "turn: 5,2 facing 2",
+                                 "step: 6,2 facing 2", "turn: 6,2 facing 6",
+                                 "turn: 6,2 facing 2", "turn: 6,2 facing 6",
+                                 "turn: 6,2 facing 2"])
+
+    def hover_shot(self, x, y):
+        """The pixels of the shot with the pointer at x, y in the commands'
+        bar, the menu waiting again after an Escape (its controls live)."""
+        shots = self.folder / f"hover-{x}-{y}"
+        keys = r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r" + r"\m%d,%d,0.\e" % (x, y)
+        result = self.play("--start-menu", "--mouse", "--shots", shots, "--keys", keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return pixels(sorted(shots.glob("*.bmp"))[-1])
+
+    def test_view_cursors(self):
+        # The pointer's shape over the view's areas (2aa6:15e3's cursor, 1bdb:1aef's
+        # records: ALWAYS.TLB's 26 over columns 0-39, 11 over 40-95, 25 over
+        # 96-135, 27 over rows 100-159) and the shield (2) elsewhere, each drawn
+        # at its hotspot (the header's row, then column). The pixels a move to
+        # the spot changes (the shot less the one with the pointer parked at
+        # 250,150, within 24 pixels of it) are the record's opaque pixels there,
+        # nine in ten of them or more.
+        always = hlib.load(ASSETS / "DISK1" / "ALWAYS.TLB")
+        park = self.hover_shot(250, 150)
+        for (x, y), record in [((39, 50), 26), ((40, 50), 11), ((96, 50), 25),
+                               ((60, 100), 27), ((136, 90), 2)]:
+            shot = self.hover_shot(x, y)
+            near = [(c, r) for r in range(max(0, y - 24), min(200, y + 24))
+                    for c in range(max(0, x - 24), min(320, x + 24))]
+            moved = {(c, r) for c, r in near
+                     if shot[3 * (r * 320 + c):][:3] != park[3 * (r * 320 + c):][:3]}
+            w, h, hot_row, hot_col, _, rows = hlib.picture(always.record(record))
+            placed = {(x - hot_col + c, y - hot_row + r) for r in range(h) for c in range(w)
+                      if rows[r][c] is not None}
+            placed = {(c, r) for c, r in placed if 0 <= c < 320 and 0 <= r < 200}
+            agreed = len(moved & placed) / len(moved | placed)
+            self.assertGreaterEqual(agreed, 0.9, f"the pointer at {x},{y}: record {record}")
 
     def test_save_and_remove(self):
         # With --saves: Load A, Save Current Game as B (604b:3395, 31a7):
