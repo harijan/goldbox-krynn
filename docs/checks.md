@@ -460,6 +460,22 @@ again and again, the game's screen and ECL stay at the DIVIDE, 832a), where
 eclplay stops with "division by zero" there; a difference in a case the game
 does not survive, not compared.
 
+`dqk_ecl_text.py` (about a minute for its five blocks; run by hand, not in
+`make dqk-checks` yet) runs the text, picture and wait opcodes the same way, with
+`dqk_views.py`'s screens: each block starts with the jumper's LOAD FILES 2 1 and a
+PRESS KEY, and the original and eclplay are compared at every wait (the whole
+screen but the pointer, the party's list and the three lamps under the view), with
+the variables 0x100-0x17f. Strings are the packed 6-bit operands `src/ecl.c`
+unpacks (`text()` in the flow). Its blocks: PRINTCLEAR, PRINT with a long text that
+waits at the window's end, numbers (an immediate, a wide word, a variable), PRINT
+RETURN and DELAY; JOURNAL in colour 3 and in colour 7; PICTURE none, PIC A, PIC C and
+a big picture; the view again after PIC A; CLEAR BOX between PRINTs, then CLEAR EXIT
+(compared after it, the bottom bar left out). The waits agree except the 3D walls:
+the view again after a picture and CLEAR EXIT draw them black where the original
+draws them (`view_after_picture`, `box_exit`), a difference of the view's drawing at
+that square, not of the opcodes. JOURNAL's colour was a difference (fixed:
+`test_adventure`'s `test_dark_queen_journal`).
+
 To add a block: write it in `dqk_ecl.py`'s `BLOCKS` (a function returning the
 `Block` and `expect`, the values it should leave by variable address), and the
 flow runs it in both. Its results go in `WINDOW` (0x100-0x17f and 0x29): a block

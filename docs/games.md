@@ -511,6 +511,15 @@ run, citing their handlers (`unported`). It holds:
   2026-11-01); DIVIDE by zero does not run in the original at all: its INT 0 is
   unhandled and the game hangs (DOSBox-X's "Illegal Unhandled Interrupt Called 0"),
   where eclplay stops with "division by zero" at the same address, 832a;
+  its text, picture and wait opcodes (PRINT, PRINTCLEAR, PRINT RETURN, PRESS KEY,
+  JOURNAL, DELAY, CLEAR BOX, CLEAR EXIT, PICTURE; `dqk_ecl_text.py`) agree with the
+  original at every wait (the screen and the variables), except the 3D walls: the
+  view again after a small picture (PICTURE 0xff) and CLEAR EXIT's view draw them
+  black at the square after LOAD FILES 2 1 (Palanthas), where the original draws
+  them (not fixed: the view's drawing, not those opcodes); JOURNAL's text is in
+  colour 7 whatever variable 0x39 says (`6c70:32b2` passes 7; PRINT's 3, `6c70:1cd3`),
+  the port drew it in 3 where 0x39 is set, fixed; the lamps under the view are dark
+  after LOAD FILES where the original lights them (outside the flow's screens);
 - its maps: `GEO.GLB` records of their own size (`cok_view_set_geo`,
   `8a8b:12e3`): u8 height, u8 width, the wall sets of slots 0-2 and three
   backdrops, then four planes of a byte a square, row by row: the north

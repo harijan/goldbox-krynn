@@ -2036,6 +2036,61 @@ static void test_view_redraw(void)
     }
 }
 
+/* The colours the Dark Queen's window shows text in: used[c] for each VGA
+ * colour c in cells 1-38 by 17-22 (a byte a pixel, 320 to a row), the
+ * window's grey (the last cell's pixel) left out. */
+static void window_colours(const cok_picture *p, bool used[256])
+{
+    memset(used, 0, 256 * sizeof used[0]);
+    for (int y = 17 * 8; y < 23 * 8; ++y)
+        for (int x = 8; x < 39 * 8; ++x) used[p->pixels[(size_t)y * 320 + (size_t)x]] = true;
+    used[p->pixels[(size_t)(23 * 8 - 1) * 320 + (size_t)(39 * 8 - 1)]] = false;
+}
+
+/* The Dark Queen's opcode bytes (rules_dark_queen.c's dark_queen_opcodes), which
+ * are not the COK_ECL_ meanings' values. */
+enum {
+    DQK_EXIT = 0x00,
+    DQK_SAVE = 0x09,
+    DQK_PRINT = 0x11,
+    DQK_PRINTCLEAR = 0x12,
+    DQK_JOURNAL = 0x1f,
+};
+
+/* dqk 6c70:32b2: JOURNAL's text is in colour 7 whatever variable 0x39 says
+ * (PRINT's 3, 6c70:1cd3): the window's colours for PRINT 7 with 0x39 clear
+ * and for JOURNAL 9 with it set. Skipped without DQKAssets. */
+static void test_dark_queen_journal(void)
+{
+    FILE *f = fopen("DQKAssets/DISK3/ECL.GLB", "rb");
+    if (f == NULL) {
+        puts("adventure: DQKAssets not found; Dark Queen's journal colour not checked");
+        return;
+    }
+    fclose(f);
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &s};
+    CHECK(cok_adventure_open(&game, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
+    const uint8_t dark[] = {DQK_SAVE, 0, 0, COK_ECL_VAR, 0x39, 0, DQK_EXIT};
+    const uint8_t light[] = {DQK_SAVE, 0, 1, COK_ECL_VAR, 0x39, 0, DQK_EXIT};
+    const uint8_t print[] = {DQK_PRINTCLEAR, 0, 7, DQK_EXIT};
+    const uint8_t journal[] = {DQK_JOURNAL, 0, 9, DQK_EXIT};
+    bool plain[256], noted[256];
+    CHECK(run_code(&game, &s, dark, sizeof dark, "") == COK_ECL_OK);
+    CHECK(run_code(&game, &s, print, sizeof print, "") == COK_ECL_OK);
+    window_colours(&game.screen, plain);
+    size_t used = 0;
+    for (size_t c = 0; c < 256; ++c) used += plain[c];
+    CHECK(used > 0);
+    CHECK(run_code(&game, &s, light, sizeof light, "") == COK_ECL_OK);
+    CHECK(run_code(&game, &s, journal, sizeof journal, "\r") == COK_ECL_OK);
+    window_colours(&game.screen, noted);
+    CHECK(memcmp(plain, noted, sizeof plain) == 0);
+    cok_adventure_close(&game);
+}
+
 int main(void)
 {
     test_clock();
@@ -2052,6 +2107,7 @@ int main(void)
     test_portrait();
     test_display();
     test_view_redraw();
+    test_dark_queen_journal();
     puts("adventure tests passed");
     return 0;
 }

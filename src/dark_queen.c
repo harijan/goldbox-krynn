@@ -570,13 +570,18 @@ static bool print_window(cok_adventure *game, const char *s, int x1, int y1, int
     return true;
 }
 
-/* The ECL's text window, cells 1-38 by 17-22, in colour 7 (3 where
- * variable 0x39 is set: 6c70:1cd3). */
+/* The ECL's text window, cells 1-38 by 17-22, in colour fg. */
+static bool print_colour(cok_adventure *game, const char *s, bool clear, unsigned fg)
+{
+    cok_adventure_log(game, "print", s);
+    return print_window(game, s, 1, 0x11, 0x26, 0x16, fg, clear, true);
+}
+
+/* PRINT's text: colour 7, or 3 where variable 0x39 is set (6c70:1cd3). */
 static bool print_text(cok_adventure *game, const char *s, bool clear)
 {
     unsigned fg = cok_ecl_load_var(&game->vm, 0x39) != 0 ? 3 : 7;
-    cok_adventure_log(game, "print", s);
-    return print_window(game, s, 1, 0x11, 0x26, 0x16, fg, clear, true);
+    return print_colour(game, s, clear, fg);
 }
 
 /* The bottom bar's menu (1bdb:1e29, its bar built by 0d26, 08ef and
@@ -1676,7 +1681,7 @@ static bool opcode(cok_adventure *game)
         snprintf(line, sizeof line, "This is recorded as journal entry %u.", /* DS:78a1 */
                  (unsigned)(uint8_t)cok_ecl_value(vm, 0));
         vm->cursor = (cok_text_cursor){1, 0x11};
-        if (print_text(game, line, true)) {
+        if (print_colour(game, line, true, 7)) { /* 6c70:32b2: colour 7 whatever 0x39 */
             cok_adventure_log(game, "menu", "~Press button or enter to continue");
             continue_prompt(game, true, game->picture_shown);
         }
