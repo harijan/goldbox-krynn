@@ -138,6 +138,7 @@ static void test_shapes(void)
      * words, which lie apart). */
     for (unsigned t = COK_DATA_CLASS_NAMES; t <= COK_DATA_ITEM_WORDS; ++t) {
         const cok_data_table *s = &D->table[t];
+        if (s->width == 0) continue; /* A game with no such table (Dark Queen's names). */
         CHECK(s->width == s->index[0].stride);
         if (t == COK_DATA_ITEM_WORDS && D != cok_rules_champions.data) continue;
         CHECK(cok_data_holds(D, COK_DATA_NAMES, s->from));
@@ -497,6 +498,10 @@ int main(void)
     /* Death Knights' tables: in order, agreeing where they overlap, each
      * named one's elements within its own bytes. */
     D = cok_rules_death_knights.data;
+    test_order();
+    test_shapes();
+    /* Dark Queen's combat tables (data_dark_queen.c): the same checks. */
+    D = cok_rules_dark_queen.data;
     test_order();
     test_shapes();
     D = cok_rules_champions.data;

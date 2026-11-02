@@ -281,9 +281,84 @@ static void test_hit_points(void)
     }
 }
 
+/* The combat tables the port reads, under the descriptor's lookups: every
+ * element at the offset its lookup gives is the executable's byte there (the
+ * elements' bytes as their width), and a few the code's own arithmetic
+ * reads hold the values the original's routines would fetch. */
+static void test_combat_tables(void)
+{
+    static uint8_t exe[1 << 20];
+    size_t size = read_whole("build/DQK_FULL.EXE", exe, sizeof exe);
+    if (size == 0) {
+        puts("dark queen: build/DQK_FULL.EXE not built (make dqk-merged); combat tables not checked");
+        return;
+    }
+    size_t ds = (size_t)(exe[8] | exe[9] << 8) * 16 + (size_t)0x322e * 16;
+    const cok_data_segment *D = R->data;
+    static const cok_data tables_checked[] = {
+        COK_DATA_AREA_ROWS,           COK_DATA_TURNING,        COK_DATA_MOVES,
+        COK_DATA_QUADRANTS,           COK_DATA_QUADRANT_DIRECTIONS,
+        COK_DATA_START_COLUMNS,       COK_DATA_START_ROWS,     COK_DATA_FORMATIONS,
+        COK_DATA_TERRAIN_FLAGS,       COK_DATA_LINE_DIRECTIONS, COK_DATA_STEP_X,
+        COK_DATA_STEP_Y,              COK_DATA_TERRAIN,        COK_DATA_FOOTPRINTS,
+        COK_DATA_HELPLESS,            COK_DATA_BATTLE_ONLY,    COK_DATA_CLOUD_CELLS,
+    };
+    for (size_t n = 0; n < sizeof tables_checked / sizeof *tables_checked; ++n) {
+        cok_data t = tables_checked[n];
+        const cok_data_table *s = &D->table[t];
+        CHECK(s->width != 0 && s->indices >= 1 && s->indices <= 3);
+        long at[3] = {0, 0, 0};
+        unsigned total = 1;
+        for (unsigned k = 0; k < s->indices; ++k) total *= s->index[k].count;
+        for (unsigned e = 0; e < total; ++e) {
+            unsigned rest = e;
+            for (int k = s->indices - 1; k >= 0; --k) {
+                at[k] = s->index[k].first + (long)(rest % s->index[k].count);
+                rest /= s->index[k].count;
+            }
+            long offset = cok_data_offset_(D, t, s->indices, at[0], at[1], at[2]);
+            CHECK(cok_data_holds(D, t, offset) && cok_data_holds(D, t, offset + s->width - 1));
+            for (unsigned b = 0; b < s->width; ++b)
+                CHECK(exe[ds + (size_t)offset + b] == cok_data_held(D, offset + (long)b));
+        }
+    }
+    /* The original's own reads, by its code's arithmetic: the moves of a
+     * quadrant's square 1 (59c7:1553), the turning of kind 1 at level 0 and
+     * 1 (5045:3b6d), kind 13 at level 10, and the area of row -3 at radius
+     * 1, a word (5045:74aa). */
+    CHECK(cok_data_u8_at2(D, COK_DATA_MOVES, 1, 2) == 4);
+    CHECK(cok_data_u8_at2(D, COK_DATA_MOVES, 1, 3) == 0);
+    CHECK(cok_data_u8_at2(D, COK_DATA_TURNING, 1, 0) == 0x63);
+    CHECK(cok_data_u8_at2(D, COK_DATA_TURNING, 1, 1) == 0x0a);
+    CHECK(cok_data_u8_at2(D, COK_DATA_TURNING, 13, 10) == 0x0d);
+    long area = cok_data_offset2(D, COK_DATA_AREA_ROWS, -3, 1);
+    CHECK(cok_data_held(D, area) == 0xfd && cok_data_held(D, area + 1) == 0xff);
+    /* The shapes the code gives: 77 terrains, up to the footprints at DS:62cb
+     * (the terrain reads are unbounded; the table's end is the data's);
+     * 5 formations; 9 cloud cells from 1 (5837:13c4, 148f:27a7); 6 footprint
+     * cells (5837:01b9); 4 helpless effects from 0 (177e:0a19); 16 battle-only
+     * effects from 1 (148f:1b66). */
+    CHECK(cok_data_count(D, COK_DATA_TERRAIN, 0) == 77);
+    CHECK(D->table[COK_DATA_TERRAIN].from + D->table[COK_DATA_TERRAIN].size ==
+          D->table[COK_DATA_FOOTPRINTS].from);
+    CHECK(D->table[COK_DATA_TERRAIN].from + D->table[COK_DATA_TERRAIN].size == 0x62cb);
+    CHECK(cok_data_count(D, COK_DATA_FORMATIONS, 0) == 5);
+    CHECK(cok_data_count(D, COK_DATA_CLOUD_CELLS, 0) == 9);
+    CHECK(cok_data_first(D, COK_DATA_CLOUD_CELLS, 0) == 1);
+    CHECK(cok_data_count(D, COK_DATA_FOOTPRINTS, 1) == 6);
+    CHECK(cok_data_count(D, COK_DATA_HELPLESS, 0) == 4);
+    CHECK(cok_data_first(D, COK_DATA_BATTLE_ONLY, 0) == 1);
+    CHECK(cok_data_count(D, COK_DATA_BATTLE_ONLY, 0) == 16);
+    CHECK(cok_data_u8_at(D, COK_DATA_HELPLESS, 0) == 0x1f);
+    CHECK(cok_data_u8_at(D, COK_DATA_BATTLE_ONLY, 1) == 0x03);
+    CHECK(cok_data_u8_at(D, COK_DATA_BATTLE_ONLY, 16) == 0x76);
+    CHECK(cok_data_u8_at(D, COK_DATA_CLOUD_CELLS, 9) == 0x01);
+}
+
 int main(void)
 {
     test_tables();
+    test_combat_tables();
     test_hit_points();
     test_experience();
     test_party_again();
