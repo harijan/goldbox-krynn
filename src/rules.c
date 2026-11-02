@@ -1808,6 +1808,7 @@ const cok_rules cok_rules_champions = {
             .escape_leaves_move = false,
             .camp_keeps_selection = false,
             .special_keeps = false, /* 546c:3334 */
+            .pick_end_home = false,
         },
     .commands =
         {

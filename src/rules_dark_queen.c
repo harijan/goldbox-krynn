@@ -500,6 +500,11 @@ const cok_rules cok_rules_dark_queen = {
         {
             .first_block = 4, /* 5f07:10cd: block 4 for a new game (the demonstration's 7) */
         },
+    /* The pick (WHO's, 76b8:3ae5) also moves on End and Home (its table at 3c12). */
+    .menus =
+        {
+            .pick_end_home = true,
+        },
     /* The words of ADD EP (6c70:2719, DS:7813, 783f: Champions' texts) in colour 7 (its
      * push 7), and its routine. */
     .treasure =

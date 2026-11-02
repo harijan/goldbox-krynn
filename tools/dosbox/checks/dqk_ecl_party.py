@@ -9,17 +9,19 @@ saved game's order (ROLANDOF, TIMASALI, 'CINDER', BALTHIRN, ROARK'CR, WALKERKE).
 - party (variables): LOAD CHARACTER 0, 1, 5 and 0x0a (past the end: the
   selection stays) with the selected member's race and class (fields 0xad and
   0xae) saved to the variables; FIND NPC for a member's name (none has the NPC
-  bit, so 0xff) and for a name not in the party; and who_select: WHO with Down
-  and S picks the second member.
+  bit, so 0xff) and for a name not in the party; and who_select: WHO with End,
+  End, Home and S picks the second member (the pick moves on End and Home too).
 - who_add_ep (screens): the words of ADD EP for one member and for the party
   (colour 7, the window drawn by the Dark Queen's own routine), and WHO's pick
   with its prompt (the original's "who will attempt to disarm the trap?" is shown
-  as "Who will try to disarm?"); each wait compared as dqk_ecl_text does, with the
-  pick's bottom bar left out.
+  as "Who will try to disarm?") and its bottom bar; each wait compared as
+  dqk_ecl_text does, except that the party's list is compared too (both sides
+  have the party, so its may-train colours are) and the party's ADD EP is 0xffff,
+  so that its members may train.
 
-ADD EP's experience and may-train are not checked here: the ECL cannot read them
-(the Dark Queen's character variables do not reach the experience), so the port's
-arithmetic is checked by tests/test_adventure.c's test_dark_queen_party.
+ADD EP's experience is not checked here: the ECL cannot read it (the Dark Queen's
+character variables do not reach the experience), so the port's arithmetic and
+may-train are checked by tests/test_adventure.c's test_dark_queen_party.
 
     python3 tools/dosbox/checks/dqk_ecl_party.py [--workdir DIR] [--verbose]
         [--only NAME]
@@ -58,6 +60,12 @@ dqk_ecl_text.WAIT_NAMES[0x39] = "WHO"
 # every other wait takes a Return. The port's keys are the same, in order.
 WHO_OPCODE = 0x39
 WAIT_KEYS = "\\r\\r\\rs"
+# The pick takes End (scan 0x4f) and Home (0x47) as well as Down and Up (76b8:3ae5's table):
+# from member 0, End, End, Home gives member 1, which S picks.
+WHO_KEYS = "\\#4F\\#4F\\#47s"
+# The screens' masks: dqk_ecl_text's, without its party list (both sides have the party)
+# and with the pick's bottom bar compared (WHO draws it).
+PARTY_MASKS = [dqk_views.POINTER, dqk_ecl_text.STATUS]
 
 
 def wait_key(opcode):
@@ -93,14 +101,15 @@ def party_block():
 
 def screens_block():
     """The jumper's start (LOAD FILES, the SAVEs, a PRESS KEY: wait 1), member 0's
-    ADD EP 3 (wait 2), the party's ADD EP 257 (wait 3), and WHO's pick with the
-    game's prompt (wait 4; Enter picks the selected member)."""
+    ADD EP 3 (wait 2), the party's ADD EP 0xffff (wait 3: each member that can act
+    may train, and the list is drawn again), and WHO's pick with the game's prompt
+    (wait 4; S picks the selected member)."""
     b = Block()
     dqk_ecl_text.start(b)
     b.op("LOAD_CHARACTER", imm(0))
     b.op("ADD_EP", imm(0), word(3))
     b.op("PRESS_KEY")
-    b.op("ADD_EP", imm(1), word(257))
+    b.op("ADD_EP", imm(1), word(0xFFFF))
     b.op("PRESS_KEY")
     b.op("WHO", text("WHO WILL ATTEMPT TO DISARM THE TRAP?"))
     b.op("EXIT")
@@ -108,8 +117,8 @@ def screens_block():
 
 
 def who_block():
-    """LOAD CHARACTER 0, then WHO: the keys typed (Down, then S) pick member 1, whose
-    race and class are saved (the pick's selection, and that its keys are all read)."""
+    """LOAD CHARACTER 0, then WHO: the keys typed (End, End, Home, then S) pick member 1,
+    whose race and class are saved (the pick's selection, and that its keys are all read)."""
     b = Block()
     b.op("PRESS_KEY")
     dqk_ecl.prelude(b)
@@ -126,7 +135,7 @@ def variables(verdict, work, glb, verbose):
     block, expect = party_block()
     dqk_ecl.run_block(verdict, work, "party", glb, block, expect, "", base, verbose)
     block, expect = who_block()
-    dqk_ecl.run_block(verdict, work, "who_select", glb, block, expect, "\\vs", base, verbose)
+    dqk_ecl.run_block(verdict, work, "who_select", glb, block, expect, WHO_KEYS, base, verbose)
 
 
 def dqk_ecl_base(work, glb):
@@ -156,8 +165,7 @@ def screens(verdict, work, glb, verbose):
                   f"({len(shots)} waits)", f"{len(mine)} waits; {port_last}")
     for i, (o, p) in enumerate(zip(shots, mine)):
         o.save_png(work / f"original-{name}-{i + 1}.png")
-        masks = dqk_ecl_text.MASKS + ([dqk_views.BAR] if names[i] == "WHO" else [])
-        verdict.screen(f"{name}: wait {i + 1} ({names[i]})", o, p, masks=masks, work=work)
+        verdict.screen(f"{name}: wait {i + 1} ({names[i]})", o, p, masks=PARTY_MASKS, work=work)
     if len(port_vars) == dqk_ecl.VARIABLES:
         differing = [a for a in WINDOW if after[a - 1] != port_vars[a - 1]]
         verdict.check(not differing, f"{name}: the variables 0x100-0x17f agree",

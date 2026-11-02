@@ -1335,6 +1335,10 @@ typedef struct {
      * 580d:2bb2) keeps the one selected for a key other than Up and Down
      * (dkk), rather than picking the first. */
     bool special_keeps;
+    /* Whether a pick (the adventure's, WHO's: dqk 76b8:3ae5) also moves on End and
+     * Home, as its table does (the keys 0x85 and 0x87): End to the next, Home to the
+     * one before. Champions' and Death Knights' picks do not. */
+    bool pick_end_home;
 } cok_rules_menus;
 
 /* The player's commands in a battle where the games differ (command.c). */

@@ -523,13 +523,15 @@ saved game's order (`--character`, ROLANDOF, TIMASALI, 'CINDER', BALTHIRN, ROARK
 WALKERKE). The variables block reads each member's race and class (fields 0xad and
 0xae, ECL 0x4ae and 0x4af) after LOAD CHARACTER 0, 1, 5 and 0x0a (past the end, the
 selection stays), FIND NPC for a member's name and for a name not in the party, and
-WHO with Down and S, which picks the second member (the keys all read). The screen
-block runs ADD EP's words for one member and for the party, and WHO's pick, at each
-wait, the bottom bar of the pick left out; its waits take S at the pick (`wait_key`).
-Not checked here: ADD EP's experience and may-train, which the ECL cannot read (the
-Dark Queen's character variables do not reach them: `test_adventure`'s
-`test_dark_queen_party` checks their arithmetic), and the pick's prompt on the bottom
-bar, which the original draws ("WHO WILL TRY TO DISARM? SELECT") and the port does not.
+WHO with End, End, Home and S, which picks the second member (the keys all read: the
+pick moves on End and Home too). The screen block runs ADD EP's words for one member and
+for the party (the party's ADD EP is 0xffff, so its members may train), and WHO's pick,
+at each wait, with the party's list and the pick's bottom bar compared whole (only the
+pointer and the status line are left out); its waits take S at the pick (`wait_key`).
+Not checked here: ADD EP's experience, which the ECL cannot read (the Dark Queen's
+character variables do not reach it), so `test_adventure`'s `test_dark_queen_party`
+checks its arithmetic and may-train (+0xcd), the party's list's redraw, the cursor, the
+pause's variable and the pick's bar and keys.
 
 To add a block: write it in `dqk_ecl.py`'s `BLOCKS` (a function returning the
 `Block` and `expect`, the values it should leave by variable address), and the

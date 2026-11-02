@@ -1352,8 +1352,11 @@ static void add_experience(cok_adventure *game)
     cok_ecl *vm = &game->vm;
     const cok_rules *rules = cok_game_rules(game);
     const cok_rules_treasure *T = &rules->treasure;
+    bool dark_queen = T->gains_routine == COK_GAINS_DARK_QUEEN;
     uint16_t points = cok_ecl_value(vm, 1);
     bool one = (uint8_t)cok_ecl_value(vm, 0) == 0;
+    /* Dark Queen's sets the cursor (6c70:2755) before its test of the selected member. */
+    if (dark_queen) vm->cursor = (cok_text_cursor){1, 0x11};
     if (one && T->gains_active_first &&
         (vm->character == NULL || cok_field_u8(rules->character, vm->character,
                                                COK_FIELD_ACTIVE) == 0))
@@ -1368,13 +1371,19 @@ static void add_experience(cok_adventure *game)
         snprintf(text, sizeof text, "%s", T->party_gains);
     }
     print_text(game, text, T->gains_colour, true);
-    wait_ms(game, game->speed * 100u); /* 521:0b4b */
+    /* Dark Queen's waits the variable 0x12 as it is now (1a62:0949); the others' the
+     * speed as the game loaded it (521:0b4b). Its clock is not run (see docs/games.md). */
+    unsigned speed = dark_queen ? cok_ecl_var(vm, COK_VAR_SPEED) : game->speed;
+    wait_ms(game, speed * 100u);
     if (one) {
         if (vm->character != NULL) gain_experience(game, vm->character, points);
         return;
     }
     for (size_t i = 0; i < game->party.count && vm->status == COK_ECL_OK; ++i)
         gain_experience(game, game->party.members[i]->record, points);
+    /* Dark Queen's redraws the party list after the loop (6c70:2828-2835, 5e22:023b): the
+     * may-train colours. The one-member path does not. */
+    if (dark_queen) cok_adventure_party(game);
 }
 
 /* Pick a character with the menu "Select" (and "Exit" with exit_item)
@@ -1400,6 +1409,7 @@ static uint8_t *pick_character(cok_adventure *game, const char *prompt, uint8_t 
         return pick_indexed(game, prompt, who, exit_item, into, ended);
     cok_ecl *vm = &game->vm;
     bool party_clicks = game->mouse.party_clicks;
+    bool end_home = cok_game_rules(game)->menus.pick_end_home;
     game->pick_into = into;
     game->pick = vm->character;
     char menu_prompt[42];
@@ -1418,6 +1428,9 @@ static uint8_t *pick_character(cok_adventure *game, const char *prompt, uint8_t 
         if (game->menu_animates) draw_frame(game, game->frame);
         bool special;
         if (vm->mode == 0) game->mouse.party_clicks = true; /* 6346:335c */
+        const cok_drawing *drawing = cok_adventure_drawing(game);
+        if (drawing != NULL && drawing->pick_bar != NULL)
+            drawing->pick_bar(game, menu_prompt, exit_item);
         key = menu_read(game, menu_prompt, items, &special);
         game->mouse.party_clicks = party_clicks;
         game->menu_animates = false;
@@ -1431,15 +1444,18 @@ static uint8_t *pick_character(cok_adventure *game, const char *prompt, uint8_t 
         } else if (key == 0x48 && game->pointer.clicked) {
             /* 6346:340a: the member the click picked. */
             who = into ? game->pick : vm->character;
-        } else if (key == 0x50 || key == 0x48) {
+        } else if (key == 0x50 || key == 0x48 ||
+                   (end_home && (key == 0x4f || key == 0x47))) {
             if (game->party.count == 0) {
                 who = NULL;
             } else {
                 size_t i = cok_party_index(&game->party, who), n = game->party.count;
                 /* The original takes the next of a NULL pick, and loops
-                 * forever looking for the one before a non-member. */
+                 * forever looking for the one before a non-member. Where end_home,
+                 * End (the table's 0x85) is the next and Home (0x87) the one before. */
                 if (i == n) i = 0;
-                who = cok_party_record(&game->party, key == 0x50 ? (i + 1) % n : (i + n - 1) % n);
+                bool next = key == 0x50 || key == 0x4f;
+                who = cok_party_record(&game->party, next ? (i + 1) % n : (i + n - 1) % n);
             }
         }
     }
