@@ -646,6 +646,17 @@ slot error; the icons are not loaded yet, `combat.monster_icons_unported`). Each
 error line but the battle's stop. A second fight in one block is not reached: the battle traps the original, and
 the port stops at the battle too, so CLEARMONSTERS' undead reset (`75cc:151b`) is checked by `test_monster.c`'s
 `test_dark_queen_undead_clear` only.
+Flow `encounter` (step 4, part 6: LOAD FILES 4 4, CLEARMONSTERS, two SHARKMEN, SETUP MONSTERS with the sprite 82 and
+distance wanted 16, a PRESS KEY, APPROACH, a PRESS KEY, APPROACH, a PRESS KEY, COMBAT, with no close-up) waits at each
+of its three PRESS KEYs ('setup', 'near', 'nearer'). At each, the original's 1 KB of variables and its screen are read,
+and eclplay's, started from saved game A with that many keys (`--vars`, `--screen`), must agree: the variables all
+(0x37 is the distance, 2, 1 and 0: the wanted 16 is 2 squares, `2e1c`, and the approaches step it), and the screen in
+RGB, all 320 by 200 pixels, except the mouse cursor (the shield at the corner, 16 by 18: the front end draws it, not
+the screen the port's BMP holds). At the battle's call (`5f07:08f0`) the party and the monsters' records, c6f1, ad6b and
+the undead count agree as in `load`, and eclplay stops at the battle. Not covered: a close-up at distance 0. Run alone
+(PICTURE 14, PICA's record 14), its screen differs from eclplay's over the view (about 7,300 pixels), with and without
+the sprite; the close-up's flags and the sprite's drawing are the repo test's (`test_monster.c`'s
+`test_dark_queen_encounter`) and the flow's screens.
 The six MONCHA
 ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points
 are the base 0xc0, AC 0xbb, THAC0 0x87, size 0x8a, movement 0x90, undead 0x5c, magic resistance 0xcc):

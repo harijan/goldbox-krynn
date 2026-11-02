@@ -1190,13 +1190,13 @@ class DarkQueenTests(unittest.TestCase):
 
     def test_first_fight(self):
         # To Caergoth (the palace, Leave), its commands and steps (6fea:0365,
-        # 0753) along the ruins to the dragons' SETUP MONSTERS, where the
-        # port stops (the first fight: step 4's).
+        # 0753) along the ruins to the dragons' fight: SETUP MONSTERS, APPROACH
+        # and the sprite (step 4, part 6), then the battle, where the port stops.
         result = self.play("--start-menu", "--keys",
-                           r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r" + TO_FIGHT, ASSETS)
+                           r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r" + TO_FIGHT + r"\r", ASSETS)
         self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stderr, "not yet ported: The Dark Queen of Krynn's opcode 0x0c, "
-                         "SETUP MONSTERS (dqk 6c70:2db1)\n")
+        self.assertEqual(result.stderr, "not yet ported: The Dark Queen of Krynn's battle "
+                         "(dqk 5045:059d)\n")
         moves = [line for line in result.stdout.splitlines()
                  if line.startswith(("step:", "turn:"))]
         self.assertEqual(len(moves), 29)
@@ -1210,8 +1210,7 @@ class DarkQueenTests(unittest.TestCase):
         # eclplay --load SAVGAMA.QSV is the start menu's Load (cok_drawing.load),
         # and --play its Begin Adventuring (cok_drawing.play): the variables and
         # the screen at block 4's first text equal the start menu's \k\ePLTAB
-        # ones, and the same keys walk to the same SETUP MONSTERS as
-        # test_first_fight's.
+        # ones, and the same keys walk to the same battle as test_first_fight's.
         saves = self.folder / "saves"
         saves.mkdir()
         for name in ("SAVGAMA.QSV", "VAULTA.DAT"):
@@ -1230,15 +1229,14 @@ class DarkQueenTests(unittest.TestCase):
                          menu.with_suffix(".vars").read_bytes())
         self.assertEqual(loaded.with_suffix(".bmp").read_bytes(),
                          menu.with_suffix(".bmp").read_bytes())
-        walk = r"\r\r\rP\r\r\r\r\rL\r" + TO_FIGHT
+        walk = r"\r\r\rP\r\r\r\r\rL\r" + TO_FIGHT + r"\r"
         outs = []
         for result in (self.play("--load", saves / "SAVGAMA.QSV", "--play", "--keys", walk, ASSETS),
                        self.play("--start-menu", "--saves", saves, "--keys", r"\k\ePLTAB" + walk,
                                  ASSETS)):
             self.assertEqual(result.returncode, 1)
             self.assertEqual(result.stderr,
-                             "not yet ported: The Dark Queen of Krynn's opcode 0x0c, "
-                             "SETUP MONSTERS (dqk 6c70:2db1)\n")
+                             "not yet ported: The Dark Queen of Krynn's battle (dqk 5045:059d)\n")
             self.assertEqual(sum(line.startswith(("step:", "turn:"))
                                  for line in result.stdout.splitlines()), 29)
             outs.append(result.stdout[result.stdout.index("protection:"):])

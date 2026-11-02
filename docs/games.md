@@ -671,8 +671,8 @@ run, citing their handlers (`unported`). It holds:
   extras take 14. COMBAT stops at the battle (`5045:059d`, cited) and with no monsters at the
   vault (`771f:09a0`), the temple (`7825:0af6`) and the treasure (`75cc:135c`), the branches
   of `5f07:081b`, cited. Its open squares (`6c70:01c3`, lowering var 0x37 to its result in
-  `5f07:088f`-`08ba`) are the encounter part's and not run here; `01c3` also sets var 0x38 to
-  2 where var 0x22 is 0 (`01d9`-`01e4`). Both need LOAD FILES
+  `5f07:088f`-`08ba`, between the overlay's loads and the text) run now, as the encounter's
+  (below). Both need LOAD FILES
   first, as the shipped block 4 runs it before its dragons (8066). Without it, in the
   original, APPROACH waits in its disk prompt and COMBAT in "LBIBase: Invalid Library File";
   with it the battle's first turn is reached (`5045:078b`), with the seed's 11 draws, and
@@ -685,6 +685,33 @@ run, citing their handlers (`unported`). It holds:
   data: the icons load unrecoloured, and nothing draws them yet.
   The sound's own draws are not traced: the fight's are the same with the sound off in every
   run, and the sound's effect on them is step 5's question (see [checks](checks.md)).
+- its encounter (step 4, part 6; `dqk_fight.py`'s flow `encounter`; `monster.c` and
+  `dark_queen.c`'s `encounter`, the drawing hook `cok_drawing.encounter`). SETUP MONSTERS
+  (`6c70:2db1`) takes four operands: the sprite (op 1, a SPRIT.TLB record, 82 in block 7:
+  stored at DS:bee8, the low byte of effect 0's far pointer, `6c70:2dc3`; the port keeps it
+  in `game->sprite_id` and leaves effect 0 as COK_FX_NOTHING: which handler id 0 calls once
+  the stores have run is the effects part's question, not this one's), the distance wanted
+  (op 2, var 0x38), the close-up's id (op 3, DS:b1ca) and the ambush (op 4, DS:c2e7). Then
+  `6c70:01c3`, the open squares ahead (at most 2, the wall test `1d99:10f3` per step): var 0x37
+  becomes the lower of the squares and var 0x38; with var 0x22 0 the squares are 2 and var
+  0x38 is set to 2 (`01d9`-`01e4`); a wanted 16 (`2e1c`) makes both 2. Then `6c70:0255`, the
+  sprite: with no close-up shown (DS:c6f6 byte 1) and sprite not 0xff, the overhead map off
+  and, in a 3D area, the sprite's record loaded (`sprite_loaded`, DS:c6f6 byte 0; `sprite_shown`,
+  DS:b419) or else the view redrawn (`5e22:0000`, DS:ae27); in mode 4 the sprite's group
+  distance + 1 drawn over the view (`53ae:02e5`). The close-up (`picture_shown`, DS:ae64;
+  `closeup_shown`) comes at distance 0, or where the sprite is 0xff, in mode 4 (`53ae:0078`,
+  mode 0, and `53ae:000c`). The sprite is SPRIT.TLB's HLIB record of the id: record 0 its
+  palette (0xb0-0xff), records 1-3 its frames (`dark_queen.c`'s `encounter`). APPROACH
+  (`6c70:2e4f`) steps var 0x37 one nearer unless it is 0 and draws the sprite there; its
+  `incw DS:b7f9` is the ECL's read position (the VM moves past the opcode itself). 19a4:061a
+  stores its argument at DS:1cb6, the pointer's hide and show: the front end's cursor, not
+  modelled. Checked by `dqk_fight.py`'s flow `encounter` (2026-11-02): at each of SETUP's
+  PRESS KEY and the two APPROACHes' (`setup`, `near`, `nearer`) the 1 KB of variables and the
+  screen in RGB agree, and var 0x37 is 2, 1, 0; the battle's start is the load flow's. Not
+  checked: a close-up at distance 0 (PICTURE 14 in block 7's fight). The original's screen
+  there differs from eclplay's over the whole view (about 7,300 pixels), with and without the
+  sprite, so the close-up's drawing (`dark_queen.c`'s `small_picture` as PICTURE's loader,
+  then `53ae:000c`'s frame) is not yet the original's; its flags are in the repo test.
 - its maps: `GEO.GLB` records of their own size (`cok_view_set_geo`,
   `8a8b:12e3`): u8 height, u8 width, the wall sets of slots 0-2 and three
   backdrops, then four planes of a byte a square, row by row: the north
@@ -987,7 +1014,7 @@ stub: 0x75's `2d99:10a3` is `52db:4fd1`) and unported, except a bare retf
 `7e76:0075`). Effect 0 is COK_FX_NOTHING only until start-up's stores are run over:
 `DS:bee8`-`beeb` is its far pointer, and SETUP MONSTERS (`6c70:2dc3`, `mov %al,
 DS:bee8`) and other stores overwrite it, so id 0 = NOTHING holds only after
-start-up (the encounter part finds the rest). `tools/dqk_magic_ids.py` prints the
+start-up (SETUP MONSTERS' sprite is kept apart from it, see the encounter above). `tools/dqk_magic_ids.py` prints the
 handler lines from those stores. The named spell ids are the Dark Queen spells
 of the same name (Entangle is 0x4e here, not Champions' 0x4f), and two roles:
 an item's Fireball is the Necklace of Missiles (0x85, the dice at `7fd8:1545`),
@@ -1269,8 +1296,8 @@ effects' minutes (`1396:019f`: one that runs out, `148f:017d`, stops the
 run). The shipped saved game's party is at the start: block 4, Palanthas;
 its palace and Leave take it to Caergoth, whose ruins (journal entry 65)
 start variable 0xa0's count of steps: three on, huge shadows; six on,
-dragons attack, whose `SETUP MONSTERS` (`6c70:2db1`, step 4's) is where
-the port stops. The mouse's four areas over the view in the commands
+dragons attack, whose fight (`SETUP MONSTERS`, `6c70:2db1`, and the battle, `5045:059d`) is
+where the port stops (the encounter is ported; the battle is step 4's). The mouse's four areas over the view in the commands
 (`1bdb:1aef`: turn left, step ahead, turn right and turn around, each a
 click as its arrow key, with its cursor) are ported and checked
 (`dqk_view_mouse.py`); not ported: the areas of the outside-3D commands

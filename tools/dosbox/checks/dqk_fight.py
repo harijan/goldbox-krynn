@@ -55,6 +55,16 @@ none). `load`: 19 records, c6f1 13, ad6b 11, undead 0; `clear`: 17, c6f1 11, ad6
 hostile monsters' hit points halve for difficulty 1. No transcript of eclplay has an icon
 error (the icons are not loaded yet).
 
+Flow `encounter` (step 4, part 6): LOAD FILES 4 4, CLEARMONSTERS, a SHARKMAN x2 LOAD MONSTER,
+SETUP MONSTERS (sprite 82, distance wanted 16: 2 squares, 2db1's 2e1c), a PRESS KEY ('setup'),
+APPROACH, a PRESS KEY ('near'), APPROACH, a PRESS KEY ('nearer'), COMBAT, from saved game A. At
+each wait the original's pc, the 1 KB of variables (var 0x37 the distance: 2, 1, 0) and the
+screen are read, and eclplay's (--vars, --screen, with that many keys) must equal them in RGB
+except the mouse cursor (the shield at the corner, masked); at the battle's call the party's
+records and c6f1, ad6b and undead agree as in `load`, and eclplay stops at 5045:059d. No
+close-up: the close-up at distance 0 (6c70:0255's second half, PICTURE 14) differs from the
+original's screen, with or without the sprite (open: see docs/games.md).
+
 Flow `ground` (step 4, part 4): the same block to the first turn, where the original's
 screenshot and its battlefield (dqk_fight_lib.battlefield: the view at +2 and +4, the
 50 by 25 cells at +9) are read, with the set the battle drew: DS:ca03 (the wall set)
@@ -69,7 +79,7 @@ masked (dqk_fight_lib.portable): later parts compare the port's state with them.
 About 20 seconds.
 
     python3 tools/dosbox/checks/dqk_fight.py [--workdir DIR] [--verbose]
-        [--flows setup,load,clear,six,ground]
+        [--flows setup,load,clear,six,ground,encounter]
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...) listing what differs."""
 import argparse
@@ -206,7 +216,7 @@ def saved_entry(work):
     return folder / "SAVGAMA.QSV"
 
 
-def port(work, patched, name="fight", typed="", records=None, difficulty=None):
+def port(work, patched, name="fight", typed="", records=None, difficulty=None, screen=None):
     """eclplay's run of the block as the original's Load then Begin Adventuring
     gives it: saved game A's copy (--load) and --play, which is Begin Adventuring's
     entry (without it the block is entered in load_saved's mode 0, not the mode the
@@ -219,6 +229,8 @@ def port(work, patched, name="fight", typed="", records=None, difficulty=None):
         extra += ["--records", str(records)]
     if difficulty is not None:
         extra += ["--set", f"27={difficulty:x}"]
+    if screen is not None:
+        extra += ["--screen", str(screen)]
     variables, last, _ = dqk_ecl.port(work, name, patched, typed=typed, extra=extra,
                                       block=None)
     return variables, last
@@ -597,11 +609,149 @@ def ground(v, work, opts):
             "combatants' cells and the pointer)", detail)
 
 
+# The encounter (step 4, part 6): SETUP MONSTERS with the sprite (SPRIT.TLB's record 82),
+# the distance wanted 16 (which 6c70:2e1c makes 2 squares, in both vars, whatever the open
+# squares) and no close-up, then APPROACH, a PRESS KEY, APPROACH, a PRESS KEY and COMBAT,
+# after LOAD FILES 4 4, CLEARMONSTERS and two SHARKMEN. The original waits at a PRESS KEY
+# after SETUP MONSTERS ('setup'), after the first APPROACH ('near') and after the second
+# ('nearer'); there the variables (the whole 1 KB) and the screen are read, and eclplay must
+# agree with both. At 'nearer' the battle's call is trapped (5f07:08f0) and the monsters and
+# party read, as the load flows do. The sprite is group 3, 2 and 1 at the three waits (var
+# 0x37: 2, 1, 0). A close-up at distance 0 (PICTURE 14) is not in this flow: its screen
+# differs from the original's (the sprite's pixels under it; NOTES in docs/games.md).
+ENC_SPRITE, ENC_DISTANCE, ENC_CLOSEUP = 82, 16, 0xFF
+ENC_WAITS = ("setup", "near", "nearer")
+ENC_DISTANCES = (2, 1, 0)                   # var 0x37 at each wait, from the approaches
+# The mouse cursor: the shield at the corner (ALWAYS record 2 at 2, 2; 2aa6:15e3's shield
+# elsewhere), drawn by the front end, not on the screen the port's BMP holds.
+ENC_SCREEN_MASKS = [(2, 2, 16, 18, "the mouse cursor (the shield at the corner)")]
+# The battle's start: one LOAD MONSTER (SHARKMAN x COUNT) and COMBAT's ten GORGONs.
+ENCOUNTER = Flow("encounter", (("LOAD", MONSTER, COUNT),), undead=0)
+
+
+def encounter_block():
+    """Block 1 of the encounter test (see above), with the entry PRESS KEY first."""
+    b = Block()
+    b.op("PRESS_KEY")
+    b.op("LOAD_FILES", imm(4), imm(4))
+    b.op("CLEARMONSTERS")
+    b.op("LOAD_MONSTER", imm(MONSTER), imm(COUNT), imm(MONSTER))
+    b.op("SETUP_MONSTERS", imm(ENC_SPRITE), imm(ENC_DISTANCE), imm(ENC_CLOSEUP), imm(0))
+    b.label("setup")
+    b.op("PRESS_KEY")
+    b.op("APPROACH")
+    b.label("near")
+    b.op("PRESS_KEY")
+    b.op("APPROACH")
+    b.label("nearer")
+    b.op("PRESS_KEY")
+    b.op("COMBAT")
+    b.op("EXIT")
+    return b
+
+
+def encounter_original(work, patched, verbose):
+    """The original's run of the encounter block: at each of its three waits, the wait's
+    pc and opcode, the block's variables and the screen (in colours); at 'nearer' the
+    battle's call is trapped (where COMBAT spins) and the party's records and the
+    monsters' count, icon slot and undead count are read there."""
+    waits = []
+    with cokbox.Box(workdir=work / "box-encounter", game="dark-queen", verbose=verbose,
+                    timeout=900, files=L.files(patched)) as box:
+        dqk_ecl.enter_block(box)
+        box.set_seed(SEED)
+        for index, name in enumerate(ENC_WAITS):
+            box.keys("\\r")               # the entry's key, then each wait's
+            box.settled(tolerance=64)
+            state = dqk_lib.ecl_state(box)
+            screen = box.screenshot(path=str(work / f"enc-original-{index}.png"))
+            waits.append(dict(name=name, pc=state["pc"], opcode=state["opcode"],
+                              vars=block_vars(box), screen=screen))
+        handle = L.trap(box, *CALL_BATTLE, until=lambda: True, seconds=60)
+        box.keys("\\r")                   # COMBAT: the appends, the call
+        for _ in range(180):
+            if L.held(box, handle)[0]:
+                break
+        else:
+            raise cokbox.BoxError("COMBAT did not reach the battle's call (5f07:08f0)")
+        records = L.records(box)
+        battle = dict(records=[raw.hex() for _, raw in records],
+                      count=box.ds_byte(L.DS_MONSTER_COUNT),
+                      icon_slot=box.ds_byte(L.DS_ICON_SLOT),
+                      undead=box.ds_byte(L.DS_UNDEAD), traps=len(handle),
+                      names=names_of([{"raw": raw.hex()} for _, raw in records]))
+        L.untrap(box, handle)
+    return waits, battle
+
+
+def encounter(v, work, opts):
+    """The encounter flow (step 4, part 6): the original's three waits and the battle's
+    start against eclplay's from the same saved game. At each wait, eclplay's variables
+    (--vars) equal the original's 1 KB (PORT_GAPS: none), its screen (--screen) agrees
+    in RGB with the original's except the mouse pointer, and var 0x37 is the distance
+    the approaches leave. At the battle's start the party's and monsters' records,
+    c6f1, ad6b and the undead count are the load flow's (the two SHARKMEN and 170e's ten
+    GORGONs), and eclplay stops at the battle."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    block = encounter_block()
+    patched = hlib.replace(glb, JUMP, dqkecl.assemble(block))
+    waits, battle = encounter_original(work, patched, opts.verbose)
+    for index, wait in enumerate(waits):
+        k = index + 1
+        v.check(wait["pc"] == block.address(wait["name"]) + 1 and
+                wait["opcode"] == OPCODES["PRESS_KEY"],
+                f"the original waits at PRESS KEY '{wait['name']}'",
+                f"pc {wait['pc']:#x}, opcode {wait['opcode']:#x}")
+        bmp = work / f"enc-port-{k}.bmp"
+        port_vars, port_last = port(work, patched, name=f"enc-{k}",
+                                    typed="\\r" * (k - 1), screen=bmp)
+        diff = [a for a in range(1, dqk_ecl.VARIABLES + 1)
+                if port_vars[a - 1] != wait["vars"][a - 1]] \
+            if len(port_vars) == dqk_ecl.VARIABLES else []
+        v.check(len(port_vars) == dqk_ecl.VARIABLES and tuple(diff) == PORT_GAPS,
+                f"eclplay's variables at '{wait['name']}' agree with the original's "
+                f"(PORT_GAPS)", f"differ: {' '.join(f'{a:#x}' for a in diff)}")
+        dist = wait["vars"][0x37 - 1]
+        ported_dist = port_vars[0x37 - 1] if len(port_vars) == dqk_ecl.VARIABLES else -1
+        v.check(dist == ENC_DISTANCES[index] and ported_dist == dist,
+                f"var 0x37 at '{wait['name']}' is the distance, {ENC_DISTANCES[index]}",
+                f"original {dist}, eclplay {ported_dist}")
+        if not bmp.exists():
+            v.check(False, f"eclplay writes its screen at '{wait['name']}'", port_last)
+            continue
+        port_screen = cokbox.RGBScreen.load(bmp, (320, 200))
+        count, box = checklib.masked_diff(wait["screen"], port_screen, ENC_SCREEN_MASKS)
+        v.check(count == 0, f"the screen at '{wait['name']}' agrees in RGB (the pointer "
+                f"masked)", f"{count} pixels differ in {box}" if count else "all pixels agree")
+    records = work / "port-encounter.records"
+    port_vars, port_last = port(work, patched, name="encounter", typed="\\r" * 3,
+                                records=records)
+    v.check(port_last == BATTLE_STOP, "eclplay stops at the battle (not yet ported)", port_last)
+    data = records.read_bytes() if records.exists() else b""
+    count, icon_slot, undead = (data[-3], data[-2], data[-1]) if len(data) >= 3 else (-1, -1, -1)
+    ported = [data[i:i + L.RECORD].hex() for i in range(0, len(data) - 3, L.RECORD)]
+    v.check(len(ported) == len(battle["records"]) and count == battle["count"] and
+            icon_slot == battle["icon_slot"] and undead == battle["undead"],
+            "eclplay's party list at the battle's start has the original's records, c6f1, ad6b "
+            "and undead", f"{len(ported)} records, c6f1 {count}, ad6b {icon_slot}, undead {undead}")
+    where = [i for i in range(min(len(ported), len(battle["records"])))
+             if masked(ported[i]) != masked(battle["records"][i])]
+    v.check(not where and len(ported) == len(battle["records"]),
+            "every record agrees at the battle's start (pointers masked; the party's too)",
+            " ".join(str(i) for i in where))
+    v.check(battle["count"] == ENCOUNTER.appended and battle["icon_slot"] == ENCOUNTER.icon_slot
+            and battle["undead"] == 0 and len(battle["records"]) == PARTY + ENCOUNTER.appended,
+            f"the battle starts with the party and {ENCOUNTER.appended} monsters (the SHARKMEN "
+            f"and 170e's ten GORGONs), "
+            f"c6f1 {battle['count']}, ad6b {battle['icon_slot']}, undead {battle['undead']}",
+            " ".join(battle["names"][PARTY:]))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir")
-    parser.add_argument("--flows", default="setup,load,clear,six,ground",
-                        help="which flows: setup, load, clear, six, ground")
+    parser.add_argument("--flows", default="setup,load,clear,six,ground,encounter",
+                        help="which flows: setup, load, clear, six, ground, encounter")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -618,6 +768,8 @@ def main():
         load_run(v, work, opts, SIX, None)
     if "ground" in flows:
         ground(v, work, opts)
+    if "encounter" in flows:
+        encounter(v, work, opts)
     return v.finish()
 
 
