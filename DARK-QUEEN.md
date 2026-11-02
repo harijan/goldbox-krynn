@@ -157,9 +157,16 @@ start.
    and start menu, the window library and its menus; loading the shipped game
    and playing up to the first fight; importing Death Knights' characters;
    creation, Modify, training.
-3. **The ECL's changed opcodes:** each handler of `dqk 5f07:0d34` checked
-   against the port's, the 52 IF-skip differences explained, changed handlers
-   ported.
+3. **The ECL's changed opcodes** (done, 2026-11-02: `dqk-eclbox`,
+   `dqk-mouse3d`, `dqk-ecl-input`, `dqk-ecl-text`, `dqk-ecl-flow`,
+   `dqk-ecl-misc`, `dqk-ecl-party`, `dqk-ecl-items`, `dqk-program0`; test
+   blocks run in the original and the port, `dqk_ecl*.py`; left for step 4:
+   LOAD MONSTER, SETUP MONSTERS, APPROACH, COMBAT, DAMAGE, SPELL, TREASURE
+   ITEMS, STOCK TREASURE, ADD NPC, PROGRAM 3 and 9, PROGRAM 0's redraw in
+   modes 1, 2, 6 and 10, the party list's mouse control and the mouse
+   branches of YES NO and the bar menus): each handler of `dqk 5f07:0d34`
+   checked against the port's, the 52 IF-skip differences explained, changed
+   handlers ported.
 4. **Combat and the rules** (the biggest step, split like Death Knights'
    step 3): the tables from its data segment; every shared routine checked
    against its Dark Queen counterpart; the battlefield, rounds, AI, casting,
