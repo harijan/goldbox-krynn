@@ -334,6 +334,24 @@ static void bottom_bar(cok_adventure *game)
     draw_frame_record(game, 4, 0, 0, &clip);
 }
 
+/* A pick's bar (1bdb:1997; adventure.h's cok_drawing): the bar drawn, the prompt
+ * (with its blank, as the pick gives it) boxed as bar_menu_areas boxes one, then the
+ * buttons Select, and Exit where exit_item, a character's gap apart. The keys are the
+ * pick's, which read them. */
+static void pick_bar(cok_adventure *game, const char *prompt, bool exit_item)
+{
+    bottom_bar(game);
+    size_t n = strlen(prompt);
+    if (n > 0) prompt_box(game, 0, prompt, 0, 7);
+    int col = 8 + 8 * (int)n;
+    static const char *const items[] = {"Select", "Exit"};
+    for (size_t i = 0; i < (exit_item ? 2u : 1u); ++i) {
+        int width = (int)strlen(items[i]);
+        button(game, BAR_ROW, col, items[i], width, 0);
+        col += (width + 1) * 8;
+    }
+}
+
 /* Keys and the mouse. */
 
 /* An extended key's scan code as 251e:00e7 codes it. */
@@ -581,6 +599,18 @@ static bool print_window(cok_adventure *game, const char *s, int x1, int y1, int
         ++c->y;
     }
     return true;
+}
+
+/* The adventure's text window hooks (adventure.h's cok_drawing): ADD EP's words
+ * (1a62:0311, slow) and WHO's fill (1a62:09a1). */
+static void window_text(cok_adventure *game, const char *text, unsigned fg, bool clear)
+{
+    print_window(game, text, 1, 0x11, 0x26, 0x16, fg, clear, true);
+}
+
+static void window_clear(cok_adventure *game)
+{
+    clear_cells(game, 1, 0x11, 0x26, 0x16);
 }
 
 /* The ECL's text window, cells 1-38 by 17-22, in colour fg. */
@@ -4131,4 +4161,7 @@ const cok_drawing cok_dark_queen_drawing = {
     .cursor = cursor,
     .party = party_hook,
     .status = status_line,
+    .window_text = window_text,
+    .window_clear = window_clear,
+    .pick_bar = pick_bar,
 };
