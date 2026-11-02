@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py`, `dqk_ecl_misc.py`, `dqk_ecl_party.py`, `dqk_ecl_items.py` and `dqk_program0.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py`, `dqk_ecl_misc.py`, `dqk_ecl_party.py`, `dqk_ecl_items.py`, `dqk_fight.py` and `dqk_program0.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -596,14 +596,14 @@ may also set `stop` (where its ECL rests, when that is not past its EXIT: NEWECL
 block 2) and `waits` (the count the original must wait); `dqk_ecl_flow.py`'s
 `newecl` shows both.
 
-The Dark Queen's first fight (`tools/dosbox/checks/dqk_fight.py`, flow `setup`, not yet in `make
-dqk-checks`) is a test block of CLEARMONSTERS, LOAD MONSTER 64 x2, a PRESS KEY, SETUP MONSTERS,
-APPROACH and COMBAT, from saved game A (`dqk_fight_lib.py` reads the original's records, combat
-records, combatants, battlefield, turn, sides, round, mode and RandSeed). Its state and the
-offsets are checked against the disassembly (`dqk_fight_lib.py`'s header); the first turn is the
-trap at 5045:078b, which the flow does not reach yet (below). The six MONCHA ids the later
-combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points are the
-base 0xc0, AC 0xbb, THAC0 0x87, size 0x8a, movement 0x90, undead 0x5c, magic resistance 0xcc):
+The Dark Queen's first fight (`tools/dosbox/checks/dqk_fight.py`, flow `setup`, in `make dqk-checks`,
+about 15 seconds) is a test block of LOAD FILES 4 4, CLEARMONSTERS, LOAD MONSTER 64 x2, a PRESS KEY,
+SETUP MONSTERS, APPROACH and COMBAT, from saved game A (`dqk_fight_lib.py` reads the original's records,
+combat records, combatants, battlefield, turn, sides, round, mode and RandSeed). Its state and the
+offsets are checked against the disassembly (`dqk_fight_lib.py`'s header); the first turn is the trap at
+5045:078b, reached in the box, and the port stops at LOAD MONSTER, as the flow expects. The six MONCHA
+ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points
+are the base 0xc0, AC 0xbb, THAC0 0x87, size 0x8a, movement 0x90, undead 0x5c, magic resistance 0xcc):
 
 - 64 SHARKMAN, a plain melee: size 1, THAC0 54, AC 54, movement 12, hit points 78, 4 attacks 1d6,
   no effects, no items (the flow's monsters, in two).
@@ -630,14 +630,23 @@ Fighter/Thief, levels [0,0,9,0,0,0,10], no spells); WALKER KEYS (Kender, class 1
 levels [10,0,0,0,0,0,12], 28 known, a day [6,6,3,3,2]). No member has any spell memorized (the
 record's memorized block is 0 in all six).
 
-The original's fight so far: LOAD MONSTER only registers the monsters (the flag at DS:bd4e, one
-icon slot more); COMBAT's monsters branch (6c70:2d82) appends their records, and in the box that
-appended records beyond the two SHARKMEN (ten GORGON records, from icon slots this block did not
-write: CLEARMONSTERS, 5f07:07fe, does not clear them). SETUP MONSTERS, APPROACH and the battle then
-stall in the box: the bottom bar shows "INSERT DISK 2 AND PRESS A KEY" (during APPROACH, the sprite
-drawn) and, once COMBAT starts, "LBIBase: Invalid Library File", the game waiting in both (keys do
-not move it on). The first turn (5045:078b) is not reached, so `dqk_fight.py` fails its trap
-(`BoxError`), and it is not registered in `run_all.py` until that is solved.
+The original's fight: LOAD MONSTER (6c70:29a3) only registers the monsters (the flag at DS:bd4e, one
+icon slot more at DS:ad6b, the slots from 8); COMBAT's monsters branch (6c70:2d82, through 29fc) appends
+their records, one per slot. The loads need LOAD FILES first: the shipped block 4 runs LOAD FILES 4 4 before
+its dragons (8066), and block 7 runs LOAD FILES 26 1 (803e; in the box that block ends at once, so the flow
+uses block 4's). Without LOAD FILES, the fight stalls in the box. During APPROACH (8a8b:120f, then
+19a4:0361 loading 8X8DB.TLB from disk 2) the bottom bar shows "INSERT DISK 2 AND PRESS A KEY" (or "DISK READ
+ERROR"), the game waiting in 217e:03f2's loop, which prints the prompt (217e:0005) and loops while its test
+(217e:01e3) returns 0. Once COMBAT starts, the monsters' loader (5837:00f1, then 19a4:06bf) fails a read
+("Disk read error") and 293f:0236 prints "LBIBase: Invalid Library File", which waits the same way. Without
+LOAD FILES, COMBAT also appended eight GORGON records after the two SHARKMEN (ten in all). Not traced: what
+fills those (they appear only in that run, while the library read fails). With LOAD FILES the slot tables read
+the same at PRESS and at the end, and COMBAT appends the two SHARKMEN and nothing else; the first turn is 1,
+the mode 5, both sides can act (the flow's checks).
+CLEARMONSTERS (5f07:07fe) clears DS:bd4e and DS:c6f1 (dqk_fight_lib.py's header), not the icon tables. The
+block runs CLEARMONSTERS first, as the shipped blocks do, and does not clear the tables further: the entries
+below slot 8 are stale (slot 2 holds id 0x40 at PRESS and at the end), and COMBAT reads only from slot 8 up
+to DS:ad6b, so they are never appended.
 
 Death Knights of Krynn, read headless (see [Games](games.md#games)), is checked by
 `tools/dosbox/checks/dkk_views.py`, which `make dkk-checks` runs

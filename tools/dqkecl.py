@@ -43,7 +43,7 @@ OPCODES = {
     "ASK_MENU": 0x31, "ECL_CLOCK": 0x34, "PROGRAM": 0x38, "DUMP": 0x3E, "FIND_SPECIAL": 0x3F,
     "ROB": 0x28, "FIND_ITEM": 0x32, "DESTROY_ITEMS": 0x40,
     "LOAD_MONSTER": 0x0B, "SETUP_MONSTERS": 0x0C, "APPROACH": 0x0D, "CLEARMONSTERS": 0x1C,
-    "COMBAT": 0x24,
+    "COMBAT": 0x24, "LOAD_FILES": 0x21,
 }
 
 
@@ -133,16 +133,18 @@ def assemble(block):
 
 
 def fight(b, loads, sprite, distance=3, ambush=0x0F, pause=False):
-    """A fight as block 7 of the shipped ECL writes its operands (ECL.GLB, record
-    7 at code offset 1193: SETUP MONSTERS 0x52, 3, 0xff, 0x0f; LOAD MONSTER 0x52,
-    3, 0x52 and so on: the icon is the monster's id). LOADS: (id, count) per
-    LOAD MONSTER, its icon the id, after CLEARMONSTERS (opcode 0x1c, block 7's
-    first: the icon tables keep the earlier fights' entries otherwise, which COMBAT
-    loads too); then SETUP MONSTERS with the sprite (a SPRIT.TLB
-    record: 82 in block 7), the distance and the ambush directions; APPROACH;
-    COMBAT. PAUSE: a PRESS KEY
-    after the loads, labelled 'loaded' (the checks read the state there).
-    Opcodes 0x0b, 0x0c, 0x0d and 0x24 as rules_dark_queen.c has them."""
+    """A fight as the shipped ECL writes its operands (ECL.GLB: the dragons' fight
+    in block 4, 8b5a-8c1f, and block 7's, record 7 at code offset 1193: SETUP
+    MONSTERS 0x52, 3, 0xff, 0x0f; LOAD MONSTER 0x52, 3, 0x52 and so on: the icon
+    is the monster's id). First LOAD FILES 4 4, as block 4 does before its dragons
+    (8066): without it the box stalls in APPROACH's disk prompt and in COMBAT's
+    LBIBase error (docs/checks.md, the Dark Queen's fight). Then CLEARMONSTERS
+    (opcode 0x1c, block 7's first) and LOADS: (id, count) per LOAD MONSTER, its
+    icon the id; then SETUP MONSTERS with the sprite (a SPRIT.TLB record: 82 in
+    block 7), the distance and the ambush directions; APPROACH; COMBAT. PAUSE: a
+    PRESS KEY after the loads, labelled 'loaded' (the checks read the state
+    there). Opcodes 0x0b, 0x0c, 0x0d, 0x21 and 0x24 as rules_dark_queen.c has them."""
+    b.op("LOAD_FILES", imm(4), imm(4))
     b.op("CLEARMONSTERS")
     for monster, count in loads:
         b.op("LOAD_MONSTER", imm(monster), imm(count), imm(monster))

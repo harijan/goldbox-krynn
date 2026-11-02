@@ -633,6 +633,11 @@ run, citing their handlers (`unported`). It holds:
   not ported. Found and fixed on the way: ADD EP's words went through the 16-colour wrap,
   which draws nothing on the VGA screen (`cok_drawing`'s `window_text` and `window_clear`
   now carry them).
+- its fights' loads (`dqk_fight.py`, the setup flow): LOAD MONSTER registers an icon slot
+  (`6c70:29a3`) and COMBAT's monsters branch appends their records (`6c70:2d82`); both
+  need LOAD FILES first, as the shipped block 4 runs it before its dragons (8066). Without
+  it, in the original, APPROACH waits in its disk prompt and COMBAT in "LBIBase: Invalid
+  Library File"; with it the battle's first turn is reached (`5045:078b`).
 - its maps: `GEO.GLB` records of their own size (`cok_view_set_geo`,
   `8a8b:12e3`): u8 height, u8 width, the wall sets of slots 0-2 and three
   backdrops, then four planes of a byte a square, row by row: the north

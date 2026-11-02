@@ -8,8 +8,8 @@ DISK3\\ECL.GLB, and the original runs it from saved game A (plta, Begin
 Adventuring, the copy protection answered, as dqk_ecl does) with the seed
 DS:ca0e set at the block's first PRESS KEY:
 
-    CLEARMONSTERS; LOAD MONSTER 64 (SHARKMAN) x2; PRESS KEY (labelled
-    'loaded'); SETUP MONSTERS, APPROACH, COMBAT; EXIT
+    LOAD FILES 4 4; CLEARMONSTERS; LOAD MONSTER 64 (SHARKMAN) x2; PRESS KEY
+    (labelled 'loaded'); SETUP MONSTERS, APPROACH, COMBAT; EXIT
 
 The original's state (tools/dosbox/checks/dqk_fight_lib.py: the party's list
 with the monsters appended, each record's combat record, the combatants, the
@@ -31,7 +31,7 @@ overlay loads. Checked:
   runs the same block and stops at LOAD MONSTER (opcode 0x0b, not yet ported).
 
 The original's states go to build/dqk-fight/setup.json (later parts compare the
-port's state with them). About a minute.
+port's state with them). About 15 seconds.
 
     python3 tools/dosbox/checks/dqk_fight.py [--workdir DIR] [--verbose]
         [--flows setup]
@@ -72,9 +72,9 @@ STATE = ROOT / "build" / "dqk-fight" / "setup.json"
 
 
 def fight_block():
-    """Block 1 of the test: the entry PRESS KEY, the fight's LOAD MONSTER, a
-    PRESS KEY after the loads (labelled 'loaded'), then SETUP MONSTERS,
-    APPROACH, COMBAT and the block's EXIT."""
+    """Block 1 of the test: the entry PRESS KEY, the fight (dqkecl.fight: LOAD
+    FILES, LOAD MONSTER, a PRESS KEY after the loads labelled 'loaded', SETUP
+    MONSTERS, APPROACH, COMBAT), then the block's EXIT."""
     b = Block()
     b.op("PRESS_KEY")
     dqkecl.fight(b, [(MONSTER, COUNT)], sprite=SPRITE, pause=True)
