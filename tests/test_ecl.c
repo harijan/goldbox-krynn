@@ -1212,6 +1212,20 @@ static void test_dark_queen(void)
     CHECK(cok_ecl_load_var(&vm, 0xaee2) == 0x55);
 }
 
+/* Dark Queen's ECL CLOCK, DUMP, FIND SPECIAL and PROGRAM are carried out
+ * (dqk 5f07:0a35, 0c9b, 0cc5, 0baf; PROGRAM's cases 0, 3 and 9 stop in
+ * dark_queen.c), each with the operands its handler loads; DAMAGE and WHO
+ * stay unported. */
+static void test_dark_queen_handlers(void)
+{
+    const cok_rules *Q = &cok_rules_dark_queen;
+    CHECK(cok_ecl_unported(Q, 0x34) == NULL && Q->ecl.opcodes[0x34].operands == 2);
+    CHECK(cok_ecl_unported(Q, 0x3e) == NULL && Q->ecl.opcodes[0x3e].operands == 0);
+    CHECK(cok_ecl_unported(Q, 0x3f) == NULL && Q->ecl.opcodes[0x3f].operands == 1);
+    CHECK(cok_ecl_unported(Q, 0x38) == NULL);
+    CHECK(cok_ecl_unported(Q, 0x2e) != NULL && cok_ecl_unported(Q, 0x39) != NULL);
+}
+
 /* Dark Queen's character fields at 0x0401-0x0800 (dqk 6c70:040d reads,
  * 6c70:1b5e writes): each read where its table puts it, bytes and ints;
  * 0x041f-0x04ab the record's bytes from +0xce; others 0, stores to them
@@ -1322,6 +1336,7 @@ static void test_dark_queen_fields(void)
 int main(void)
 {
     test_dark_queen();
+    test_dark_queen_handlers();
     test_names_and_counts();
     test_death_knights_table();
     test_byte_variables();

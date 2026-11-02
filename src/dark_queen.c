@@ -1600,6 +1600,17 @@ static int timed_wait(cok_adventure *game, unsigned n)
     return 0x20;
 }
 
+/* The routine PROGRAM n stops at (5f07:0baf's cases; the ones not ported). */
+static const char *program_cite(unsigned n)
+{
+    switch (n) {
+    case 0: return "dqk 7368:046f, then 5f07:0c15 (about 50-80 lines more)";
+    case 3: return "dqk 78e4:17dd, a level drain";
+    case 9: return "dqk 5f07:0b3b, Encamp";
+    default: return "dqk 5f07:0baf";
+    }
+}
+
 /* The ending's scenes (6523:03cb, PROGRAM 1), as its code runs them:
  * a scene's FINAL library (LOAD), a drawing at cell 1, 1 of its record 1
  * and over it another (DRAW n; 0 none: 6523:02db), a wait of n times 36
@@ -1677,6 +1688,38 @@ static void ending(cok_adventure *game)
     q->cursor_shown = true;
 }
 
+static bool pass_time(cok_adventure *game, unsigned count, unsigned unit);
+
+/* PROGRAM n (5f07:0baf): Move mode (DS:af3d) is kept and off meanwhile, the
+ * selection LOAD CHARACTER changed is restored first (DS:acc5), then n: 1 the
+ * ending; 2 the quit (2093:002d, as the camp's Exit ends the game, without its
+ * questions); 4-255 (0c8c) sets DS:b7f8, which 6c70:1685 (CALL 1) reads to
+ * redraw the view and status, the port's view_changed; 0, 3 and 9 stop. Move
+ * mode is put back after. */
+static void program(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    bool moving = game->moving;
+    game->moving = false;
+    if (vm->restore_character) {
+        cok_ecl_restore_selection(vm);
+        vm->restore_character = false;
+    }
+    unsigned n = (uint8_t)cok_ecl_value(vm, 0);
+    if (n == 1) {
+        ending(game);
+    } else if (n == 2) {
+        cok_adventure_quit(game);
+    } else if (n == 0 || n == 3 || n == 9) {
+        char what[32];
+        snprintf(what, sizeof what, "PROGRAM %u", n);
+        cok_adventure_not_yet(game, what, program_cite(n));
+    } else {
+        vm->view_changed = true;
+    }
+    game->moving = moving;
+}
+
 static bool opcode(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -1743,19 +1786,45 @@ static bool opcode(cok_adventure *game)
             return false;
         animate(game);
         return true;
-    case COK_ECL_PROGRAM: {
-        /* 5f07:0baf, its cases at 5f07:0c01: 1 the ending; the others
-         * need the party (the camp, the vault, ...). */
-        unsigned n = (uint8_t)cok_ecl_value(vm, 0);
-        if (n == 1) {
-            ending(game);
-        } else {
-            char what[32];
-            snprintf(what, sizeof what, "PROGRAM %u", n);
-            cok_adventure_not_yet(game, what, "dqk 5f07:0baf");
+    case COK_ECL_PROGRAM: program(game); return true;
+    case COK_ECL_ECL_CLOCK: {
+        /* 5f07:0a35: the first operand, a byte, is the count and the second,
+         * a word, the unit (1396:044d). Its count loop's byte counter wraps at
+         * 255 and never ends; a unit past 6 is a word index into its 7-word
+         * array (1396:0483), so the original writes its own locals. */
+        unsigned count = (uint8_t)cok_ecl_value(vm, 0);
+        uint16_t unit = cok_ecl_value(vm, 1);
+        if (count == 255) {
+            cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                               "ECL CLOCK 255 loops for ever (1396:044d's byte counter wraps)");
+        } else if (count > 0 && unit > 6) {
+            cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                               "ECL CLOCK unit %u writes past 1396:044d's seven units", unit);
+        } else if (count > 0) {
+            pass_time(game, count, unit);
         }
         return true;
     }
+    case COK_ECL_DUMP: {
+        /* 5f07:0c9b, 177e:1e31: a selection that is not in the list is kept (1e31
+         * jumps to 1f20 with no unlink, no count out); the shared DUMP selects the
+         * first instead. None selected, or in the list, is the shared one's. */
+        if (vm->character == NULL ||
+            cok_party_index(&game->party, vm->character) < game->party.count)
+            return false;
+        cok_ecl_keep_selection(vm);
+        cok_adventure_party(game);
+        return true;
+    }
+    case COK_ECL_FIND_SPECIAL:
+        /* 5f07:0cc5, 177e:1734: with no selection, the walk starts at the
+         * far pointer read from 0000:0004 (the NULL record's bytes 4-7), which
+         * the port does not model. */
+        if (vm->character != NULL) return false;
+        cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                           "FIND SPECIAL with no character selected reads through 0000:0004 "
+                           "(dqk 177e:1734)");
+        return true;
     case COK_ECL_MUSIC: {
         /* 5f07:1420: a song (2023:0006), not played yet (DARK-QUEEN.md's
          * step 5). */
@@ -3415,7 +3484,13 @@ static cok_ecl_status camp(cok_adventure *game, bool *begin)
  * party's effects' minutes (1396:019f) by that many minutes, ten at a
  * time: an effect's minutes, where it has some, less them, or, where
  * that runs them out, the effect ended (148f:017d, not ported yet: the
- * run stops). False where it stopped. */
+ * run stops). False where it stopped.
+ *
+ * 019f's camp case (mode 2, Encamp's vectors: PROGRAM 9, not ported) reads
+ * the members' flags DS:a260 for [2..party size + 1], one past the party, and
+ * sets a flag where an effect is reduced or ends; the other modes have every
+ * flag at 1 (memset, 0x35 bytes). Here every member is counted in every mode,
+ * as Champions' clock does; that is the difference Encamp will need. */
 static bool moon(cok_adventure *game, uint16_t at, uint8_t days, unsigned base);
 
 static bool pass_time(cok_adventure *game, unsigned count, unsigned unit)
@@ -3436,6 +3511,7 @@ static bool pass_time(cok_adventure *game, unsigned count, unsigned unit)
                                     (uint16_t)(cok_field_u16(L, c, COK_FIELD_AGE) + 1));
                 }
                 units[6] -= limits[6];
+                game->effects.aging = true; /* 1396:0368: DS:bce7 = 1 */
                 continue;
             }
             ++units[k + 1];
@@ -3450,10 +3526,10 @@ static bool pass_time(cok_adventure *game, unsigned count, unsigned unit)
         }
     }
     for (unsigned i = 0; i < 7; ++i) cok_ecl_store(vm, (uint16_t)(5 + i), (uint16_t)(uint8_t)units[i]);
-    unsigned minutes = count;
-    for (unsigned k = 1; k < unit; ++k) minutes *= limits[k];
+    uint16_t minutes = (uint16_t)count; /* 019f multiplies words */
+    for (unsigned k = 1; k < unit; ++k) minutes = (uint16_t)(minutes * limits[k]);
     while (minutes > 0) {
-        unsigned step = minutes < 11 ? minutes : 10;
+        uint16_t step = (uint16_t)(minutes < 11 ? minutes : 10);
         for (size_t i = 0; i < game->party.count; ++i)
             for (cok_effect *e = game->party.members[i]->effects; e != NULL; e = e->next) {
                 if (e->duration == 0) continue;
@@ -3464,7 +3540,7 @@ static bool pass_time(cok_adventure *game, unsigned count, unsigned unit)
                 cok_adventure_not_yet(game, "an effect's end", "dqk 148f:017d");
                 return false;
             }
-        minutes -= step;
+        minutes = (uint16_t)(minutes - step);
     }
     return true;
 }

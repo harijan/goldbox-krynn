@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py` and `dqk_ecl_flow.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py` and `dqk_ecl_misc.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -496,6 +496,17 @@ on stderr). Not run: the `DS:c2f5` paths. `1bdb:0424` (YES NO, 0452) and
 mouse hit on a control; `queen.h` calls it "whether a mouse driver answers", which
 the original does not show, and no block clicks. All agree (2026-11-02); a port
 string limit one short fails INPUT STRING's block.
+
+`dqk_ecl_misc.py` (two blocks, in `make dqk-checks`) runs the ECL CLOCK, DUMP and FIND SPECIAL the
+same way, with a party on both sides: the original loads saved game A (`plta`), and eclplay gets its
+six members with `--character` for each `.QCH` in the order of the saved game (ROLANDOF, TIMASALI,
+'CINDER', BALTHIRN, ROARK'CR, WALKERKE). The `clock` block: the years (one more makes 100, which comes
+off), the member's age (`wvar` 0x04b1, the word at +0x52) before and after, unit 0, a day and a second
+day (Lunitari's first turn), with the clock's variables 5-11, the moons' 0x1fa-0x1ff and the window
+0x100-0x17f and 0x20 compared. The `party` block: FIND SPECIAL with 14 ids (the shipped 20, 24, 50,
+57, 61, 63, 119 and 168, and the .QCH files' 92, 94, 95, 105, 26 and 47) for each member, the flags
+expected from the files' effect lists; then DUMP of the middle member and of the first, with variable
+0x20 and the new selection's age after each. All agree (2026-11-02).
 
 `dqk_ecl_text.py` (about a minute and a half for its seven blocks; in `make dqk-checks`)
 runs the text, picture and wait opcodes the same way, with `dqk_views.py`'s screens:
