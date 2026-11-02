@@ -21,6 +21,12 @@
 
 static const cok_rules *const R = &cok_rules_dark_queen;
 
+/* A spell's name (magic.c's cok_spell_name, not linked here). */
+static const char *spell_name(unsigned id)
+{
+    return id >= 1 && id < R->spells.count ? R->spells.names[id - 1] : NULL;
+}
+
 static size_t read_whole(const char *path, uint8_t *out, size_t size)
 {
     FILE *f = fopen(path, "rb");
@@ -355,10 +361,180 @@ static void test_combat_tables(void)
     CHECK(cok_data_u8_at(D, COK_DATA_CLOUD_CELLS, 9) == 0x01);
 }
 
+/* The spells' and effects' handler tables against the stores their fill
+ * routines make in build/DQK_FULL.EXE, read again here: `movw $imm, disp16`
+ * (c7 06) is an offset (or a segment given explicitly), `mov %cs, disp16`
+ * (8c 0e) the routine's own segment. The routines are 7fd8:46bb-4892 and
+ * 4892-4c2c for the spells (DS:af45 + 4 * id), 78e4:4fb2-549e and 549e-5a00
+ * for the effects (DS:bee8 + 4 * id). Each id a store fills has the handler the
+ * store gives, cited as its routine ("dqk seg:off"), or COK_FX_NOTHING at
+ * 78e4:4f2f; each id no store fills is empty. */
+struct fill_routine {
+    uint16_t seg, start, end;
+};
+struct fill_cell {
+    int stores;
+    bool cs;
+    uint16_t imm;
+};
+
+static void fill_check(const uint8_t *exe, size_t header, const struct fill_routine *routines,
+                       size_t routine_count, uint16_t base, unsigned count, struct fill_cell *cells)
+{
+    size_t bytes = 4 * (size_t)count + 2;
+    for (size_t r = 0; r < routine_count; ++r) {
+        size_t at = header + (size_t)(routines[r].seg - 0x1000) * 16;
+        for (size_t i = routines[r].start; i + 6 <= routines[r].end; ++i) {
+            const uint8_t *p = exe + at + i;
+            if (p[0] == 0xc7 && p[1] == 0x06) {
+                uint16_t disp = (uint16_t)(p[2] | p[3] << 8);
+                if (disp < base || (size_t)(disp - base) >= bytes) continue;
+                struct fill_cell *c = &cells[disp - base];
+                c->stores++;
+                c->cs = false;
+                c->imm = (uint16_t)(p[4] | p[5] << 8);
+            } else if (p[0] == 0x8c && p[1] == 0x0e) {
+                uint16_t disp = (uint16_t)(p[2] | p[3] << 8);
+                if (disp < base || (size_t)(disp - base) >= bytes) continue;
+                struct fill_cell *c = &cells[disp - base];
+                c->stores++;
+                c->cs = true;
+                c->imm = routines[r].seg;
+            }
+        }
+    }
+}
+
+/* The cell's routine: its own segment for mov %cs, else the explicit one
+ * (Ghidra's numbering: the stored segment + 0x1000). */
+static void fill_expect(const struct fill_cell *seg, uint16_t *out)
+{
+    *out = seg->cs ? seg->imm : (uint16_t)(seg->imm + 0x1000);
+}
+
+static void test_magic_ids(void)
+{
+    static uint8_t exe[1 << 20];
+    size_t size = read_whole("build/DQK_FULL.EXE", exe, sizeof exe);
+    if (size == 0) {
+        puts("dark queen: build/DQK_FULL.EXE not built (make dqk-merged); spell and effect tables not checked");
+        return;
+    }
+    size_t header = (size_t)(exe[8] | exe[9] << 8) * 16, ds = header + (size_t)0x322e * 16;
+    CHECK(R->spells.count == 0x8d && R->effects.count == 0xe6);
+
+    /* The names: the far pointers at DS:25c7 + 4 * id (the pushes at 8438:0009). */
+    CHECK(R->spells.names_at == 0x25c7 && R->spells.name_size == 4);
+    for (unsigned id = 1; id < R->spells.count; ++id) {
+        uint16_t off = (uint16_t)(exe[ds + 0x25c7 + 4 * id] | exe[ds + 0x25c8 + 4 * id] << 8);
+        uint16_t seg = (uint16_t)(exe[ds + 0x25c9 + 4 * id] | exe[ds + 0x25ca + 4 * id] << 8);
+        const char *name = spell_name((uint8_t)id);
+        if (off == 0) {
+            CHECK(id >= 0x8a && name == NULL);
+            continue;
+        }
+        CHECK(seg == 0x322e && name != NULL);
+        CHECK(strcmp(name, (const char *)exe + ds + off) == 0);
+    }
+    CHECK(spell_name(0) == NULL && spell_name(0x8d) == NULL);
+
+    /* The headings: 41 bytes a level, 'Special' for 0 (DS:8b2e). */
+    CHECK(R->spells.level_count == 10 && R->spells.levels_at == 0x8b2e && R->spells.level_size == 41);
+    for (unsigned level = 0; level < R->spells.level_count; ++level)
+        CHECK(strcmp(R->spells.levels[level], (const char *)exe + ds + 0x8b2e + 41 * level) == 0);
+
+    /* The spells' handlers. */
+    static const struct fill_routine spell_routines[] = {{0x7fd8, 0x46bb, 0x4892}, {0x7fd8, 0x4892, 0x4c2c}};
+    static struct fill_cell spell_cells[4 * 0x8d + 2];
+    fill_check(exe, header, spell_routines, 2, 0xaf45, 0x8d, spell_cells);
+    for (unsigned id = 0; id < R->spells.count; ++id) {
+        const struct fill_cell *off = &spell_cells[4 * id], *seg = &spell_cells[4 * id + 2];
+        const cok_rules_cast *h = &R->spells.cast[id];
+        bool filled = off->stores != 0 || seg->stores != 0;
+        CHECK(filled == (id != 0 && id != 0x41 && id != 0x5f && id != 0x61 && id != 0x63));
+        if (!filled) {
+            CHECK(h->address == 0 && h->handler == COK_CAST_NONE && h->unported == NULL);
+            continue;
+        }
+        CHECK(off->stores == 1 && seg->stores == 1 && !off->cs);
+        uint16_t sg;
+        fill_expect(seg, &sg);
+        char cite[32];
+        snprintf(cite, sizeof cite, "dqk %04x:%04x", sg, off->imm);
+        CHECK(h->address == off->imm && h->handler == COK_CAST_NONE && h->unported != NULL);
+        CHECK(strcmp(h->unported, cite) == 0);
+    }
+
+    /* The effects' handlers: 4f2f is retf-only, COK_FX_NOTHING. */
+    static const struct fill_routine effect_routines[] = {{0x78e4, 0x4fb2, 0x549e}, {0x78e4, 0x549e, 0x5a00}};
+    static struct fill_cell effect_cells[4 * 0xe6 + 2];
+    fill_check(exe, header, effect_routines, 2, 0xbee8, 0xe6, effect_cells);
+    for (unsigned id = 0; id < R->effects.count; ++id) {
+        const struct fill_cell *off = &effect_cells[4 * id], *seg = &effect_cells[4 * id + 2];
+        const cok_rules_effect *h = &R->effects.handlers[id];
+        bool filled = off->stores != 0 || seg->stores != 0;
+        if (id == 0x80 || id == 0x90 || id == 0x9d) CHECK(!filled);
+        else CHECK(filled);
+        if (!filled) {
+            CHECK(h->address == 0 && h->handler == COK_FX_MISSING && h->unported == NULL);
+            continue;
+        }
+        CHECK(off->stores == 1 && seg->stores == 1 && !off->cs);
+        uint16_t sg;
+        fill_expect(seg, &sg);
+        CHECK(h->address == off->imm);
+        if (sg == 0x78e4 && off->imm == 0x4f2f) {
+            CHECK(h->handler == COK_FX_NOTHING && h->unported == NULL);
+        } else {
+            char cite[32];
+            snprintf(cite, sizeof cite, "dqk %04x:%04x", sg, off->imm);
+            CHECK(h->handler == COK_FX_MISSING && h->unported != NULL && strcmp(h->unported, cite) == 0);
+        }
+    }
+
+    /* The named spell ids: the Dark Queen names of the Champions spells the
+     * shared code asks for; the names it has none of are 0. */
+    static const struct {
+        cok_named_spell spell;
+        uint8_t id;
+        const char *name;
+    } named[] = {
+        {COK_SPELL_BLESS, 0x01, "Bless"},
+        {COK_SPELL_CURE_LIGHT_WOUNDS, 0x03, "Cure Light Wounds"},
+        {COK_SPELL_MAGIC_MISSILE, 0x0f, "Magic Missile"},
+        {COK_SPELL_HOLD_PERSON, 0x17, "Hold Person"},
+        {COK_SPELL_KNOCK, 0x1f, "Knock"},
+        {COK_SPELL_REMOVE_CURSE, 0x2b, "Remove Curse"},
+        {COK_SPELL_FIREBALL, 0x2f, "Fireball"},
+        {COK_SPELL_HOLD_PERSON_MAGE, 0x31, "Hold Person"},
+        {COK_SPELL_LIGHTNING_BOLT, 0x33, "Lightning Bolt"},
+        {COK_SPELL_CURE_SERIOUS_WOUNDS, 0x3a, "Cure Serious Wounds"},
+        {COK_SPELL_CURE_CRITICAL_WOUNDS, 0x47, "Cure Critical Wounds"},
+        {COK_SPELL_ENTANGLE, 0x4e, "Entangle"},
+        {COK_SPELL_CHARM_MONSTERS, 0x51, "Charm Monsters"},
+        {COK_SPELL_CONFUSION, 0x52, "Confusion"},
+        {COK_SPELL_DIMENSION_DOOR, 0x53, "Dimension Door"},
+        {COK_SPELL_FEAR, 0x54, "Fear"},
+        {COK_SPELL_FIRE_SHIELD, 0x55, "Fire Shield"},
+        {COK_SPELL_FUMBLE, 0x56, "Fumble"},
+    };
+    for (size_t n = 0; n < sizeof named / sizeof *named; ++n) {
+        CHECK(R->spells.ids[named[n].spell] == named[n].id);
+        CHECK(strcmp(spell_name(named[n].id), named[n].name) == 0);
+        CHECK(cok_spell_id(R, named[n].spell) == named[n].id);
+    }
+    for (unsigned name = 0; name < COK_SPELL_NAMES; ++name) {
+        bool listed = false;
+        for (size_t n = 0; n < sizeof named / sizeof *named; ++n) listed |= named[n].spell == name;
+        CHECK(listed || R->spells.ids[name] == 0);
+    }
+}
+
 int main(void)
 {
     test_tables();
     test_combat_tables();
+    test_magic_ids();
     test_hit_points();
     test_experience();
     test_party_again();

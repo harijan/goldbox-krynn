@@ -1,6 +1,7 @@
 #include "ecl.h"
 #include "data_dark_queen.h"
 #include "rules.h"
+#include "rules_dark_queen_magic.h"
 
 /* The Dark Queen of Krynn (version 1.1 of July 29, 1992; "dqk" addresses
  * are build/DQK_FULL.EXE's, Ghidra's numbering of its map segment + 0x1000,
@@ -525,5 +526,29 @@ const cok_rules cok_rules_dark_queen = {
             .gains_active_first = true,
             .gains_colour = 7,
             .gains_routine = COK_GAINS_DARK_QUEEN,
+        },
+    /* The spells (magic.c, cast.c) and effects (effect.c): the names, the
+     * headings and the handlers by id, all in rules_dark_queen_magic.c. The
+     * records (DS:27e9, 22 bytes a spell) are data_dark_queen.c's. The
+     * spells' list rows, targets and classes, and the effects' sharing and
+     * display, are not read yet (their parts), so they stay zero or NULL. */
+    .spells =
+        {
+            .count = 0x8d, /* ids 1-0x8c; 0x41, 0x5f, 0x61, 0x63 are never filled */
+            .names = cok_dark_queen_spell_names,
+            .names_at = 0x25c7, /* far pointers, 4 bytes a spell (7fd8:xxxx pushes them) */
+            .name_size = 4,
+            .levels = cok_dark_queen_spell_levels,
+            .level_count = 10,
+            .levels_at = 0x8b2e, /* 41 bytes a heading (the lists' 'Special' to '9th Level') */
+            .level_size = 41,
+            .cast = cok_dark_queen_spell_cast,
+            .ids = cok_dark_queen_spell_ids,
+        },
+    .effects =
+        {
+            .count = 0xe6, /* ids 0-0xe5; 0x80, 0x90 and 0x9d are never filled */
+            .handlers = cok_dark_queen_effect_handlers,
+            .ids = cok_dark_queen_effect_ids,
         },
 };

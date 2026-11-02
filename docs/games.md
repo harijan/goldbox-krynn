@@ -914,6 +914,24 @@ reads a second, 18-entry list at `DS:631e` (`631e` + k, k 0-17) whose role is no
 named; it is not filled. Not filled: the beside tables (`DS:62f0` holds footprint
 bytes; no reader found), the cone sides (`DS:8cc8`, casting), the area templates
 (`DS:03b5`, treasure).
+The spells and effects (`src/rules_dark_queen_magic.c`, `cok_rules_dark_queen`'s
+`spells` and `effects`; `tests/test_dark_queen.c` checks them against the
+executable): the names are far pointers at `DS:25c7` + 4 * id (pushed by
+`8438:0009` and kin): ids 1-0x89 (0x41, 0x61 and 0x63 point at an empty string),
+none for 0x8a-0x8c;
+the spell list headings are `DS:8b2e` + 41 * level ('Special', '1st Level' to
+'9th Level'); the spell records are `DS:27e9` + 22 * id (ids 0-0x8c, in
+`spell_table`), the level at +2 and the effect at +14, not the 16-byte record the
+shared readers take (so no `COK_DATA_SPELLS` shape yet); the handlers by spell id
+are `DS:af45` + 4 * id, stored by `7fd8:46bb` and `4892` (136 ids; 0x41, 0x5f, 0x61
+and 0x63 are never stored), and by effect id `DS:bee8` + 4 * id, stored by
+`78e4:4fb2` and `549e` (227 ids; 0x80, 0x90 and 0x9d are never stored). Each
+handler is its routine, cited (`dqk seg:off`) and unported, except `78e4:4f2f`
+(a retf: 30 effects, COK_FX_NOTHING). `tools/dqk_magic_ids.py` prints the
+handler lines from those stores. The named spell ids are the Dark Queen spells
+of the same name (18 of them; Entangle is 0x4e here); the named effects have no
+ids yet, as the effects' parts set each one with its routine.
+
 Train Character (`6be8:0022`, `src/queen_train.c`'s `queen_train`) and Knight
 new Order (`7368:10c2`, `queen_knight_order`) are the camp's: the classes
 the experience takes up a level in, in the hall variable `0x30`'s bits (or
