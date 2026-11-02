@@ -218,7 +218,8 @@ def saved_entry(work):
     return folder / "SAVGAMA.QSV"
 
 
-def port(work, patched, name="fight", typed="", records=None, difficulty=None, screen=None):
+def port(work, patched, name="fight", typed="", records=None, difficulty=None, screen=None,
+         field=None, at=None):
     """eclplay's run of the block as the original's Load then Begin Adventuring
     gives it: saved game A's copy (--load) and --play, which is Begin Adventuring's
     entry (without it the block is entered in load_saved's mode 0, not the mode the
@@ -233,6 +234,10 @@ def port(work, patched, name="fight", typed="", records=None, difficulty=None, s
         extra += ["--set", f"27={difficulty:x}"]
     if screen is not None:
         extra += ["--screen", str(screen)]
+    if field is not None:
+        extra += ["--field", str(field)]
+    if at is not None:
+        extra += ["--at", "%d,%d,%d" % at]
     variables, last, _ = dqk_ecl.port(work, name, patched, typed=typed, extra=extra,
                                       block=None)
     return variables, last
@@ -333,8 +338,11 @@ SIX_IDS = (64, 49, 41, 37, 36, 64)
 CALL_BATTLE = (0x5F07, 0x08F0)
 # How long COMBAT may take to reach that call after the LOAD MONSTERs (wall clock).
 COMBAT_SECONDS = 300
-BATTLE_STOP = ("error: not yet ported: The Dark Queen of Krynn's battle "
-               "(dqk 5045:059d)")
+# The battle's stop (step 4, part 7): the battle starts and builds its battlefield, then stops at
+# the placement (59c7:0f7b), which is not ported yet.
+PLACEMENT = (0x59C7, 0x0F7B)
+BATTLE_STOP = ("error: not yet ported: The Dark Queen of Krynn's battle's placement "
+               "(dqk 59c7:0f7b)")
 # The party's records as eclplay imports them from the saved game (--load) are the
 # original's, byte for byte: none differs. With --character they differed for four
 # members (the known spells at 0x159, the saving throws and thief skills at 0x8b and
@@ -789,11 +797,112 @@ def encounter(v, work, opts):
             " ".join(battle["names"][PARTY:]))
 
 
+# The battlefield (step 4, part 7): the battle's setup builds the battlefield (59c7:1dd7: the
+# tiles, then 06a7's dungeon from the 3D map; a battle outside 3D stops at 0e3b) and stops at the
+# placement, 59c7:0f7b. The original is trapped at its entry, after the builders: the view's
+# origin (far DS:bedb +2, +4), the 50 by 25 cells (+9) and RandSeed, and eclplay --field, at its
+# stop, must hold the same. The dungeon draws no dice, so RandSeed is the seed the battle began
+# with. The fixture's battle is in 3D (var 0x22 set), asserted; the origin is written after the
+# placement (1dd7's 4837:0aea), so it is what the battle before left, and is compared as read.
+FIELD_CELLS = 50 * 25
+# The party's squares: the fixture's (saved game A's, 7, 13, facing 0), and one on the map's west
+# edge (0, 3, facing 2), where the squares off the map are walls but for the party's row (the
+# open side the builder's off-map rule gives, 59c7:0072). The square is DS:c9f0-c9f2 (x, y, facing),
+# which the original is given before the block enters the battle, and eclplay --at the same.
+FIELD_SQUARES = (None, (0, 3, 2))
+# RandSeed at the placement, in draws past SEED, as the original has it: none for the fixture's
+# square. For the west edge the original's is 7 draws past SEED between COMBAT's call and the
+# placement, which eclplay does not make: the dungeon's disassembly (06a7's loop, its edges and
+# corners) calls no dice, and the source is not yet found (an open question in the port's
+# report). Kept as the exact set, so a new difference fails the check.
+FIELD_SEED_GAPS = {(0, 3, 2): 7}
+
+
+def field_original(work, patched, verbose, square=None, tag="field"):
+    """The original's entry to the placement (the setup flow's keys, then the trap), read
+    there: the battlefield, RandSeed, the 1 KB of variables, the mode and whether the
+    spin holds. SQUARE, if given, is the party's (x, y, facing) written at DS:c9f0."""
+    with cokbox.Box(workdir=work / f"box-{tag}", game="dark-queen", verbose=verbose,
+                    timeout=900, files=L.files(patched)) as box:
+        dqk_ecl.enter_block(box)
+        if square is not None:
+            box.ds_write(SQUARE, bytes(square))
+        box.set_seed(SEED)
+        box.keys("\\r")
+        box.settled(tolerance=64)
+        box.keys("\\r")
+        box.settled(tolerance=64)
+        box.keys("\\r")                 # SETUP MONSTERS, APPROACH, COMBAT: the battle begins
+        handle = L.trap(box, *PLACEMENT, until=lambda: True, seconds=180)
+        box.settled(tolerance=64)
+        held, polls, polls_held = L.held(box, handle)
+        result = dict(traps=len(handle), held=held, polls=(polls, polls_held),
+                      field=L.battlefield(box), seed=box.ds_dword(L.DS_SEED),
+                      mode=box.ds_word(L.DS_MODE), variables=block_vars(box))
+        L.untrap(box, handle)
+        return result
+
+
+def parse_field(path):
+    """eclplay --field's file: RandSeed, the view's origin (signed) and the cells in hex."""
+    lines = path.read_text().splitlines()
+    seed = int(lines[0].split()[1], 16)
+    view = [int(v) for v in lines[1].split()[1:]]
+    cells = "".join(lines[2:2 + 25])
+    return seed, view, cells
+
+
+def field(v, work, opts):
+    """The battlefield flow: each square's original entry to the placement against eclplay's
+    stop (the fixture's dungeon first, then the west edge's)."""
+    for k, square in enumerate(FIELD_SQUARES):
+        field_one(v, work, opts, square, f"field{k}" if square else "field")
+
+
+def field_one(v, work, opts, square, tag):
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
+    where = "the fixture's square" if square is None else f"the square {square}"
+    r = field_original(work, patched, opts.verbose, square, tag)
+    v.check(r["traps"] >= 1 and r["held"], "the original spins at the placement (59c7:0f7b)",
+            f"{r['traps']} copies, polls {r['polls'][0]} -> {r['polls'][1]}")
+    v.check(r["mode"] == 5, "the battle's mode is 5 at the placement", f"mode {r['mode']}")
+    three_d = r["variables"][0x22 - 1]
+    v.check(three_d != 0, f"the battle at {where} is in 3D (var 0x22 set): the dungeon builder ran",
+            f"var 0x22 {three_d}")
+    original = r["field"]
+    cells = bytes.fromhex(original["cells"])
+    path = work / f"port-{tag}.field"
+    port_vars, port_last = port(work, patched, name=tag, typed="\\r\\r", field=path, at=square)
+    v.check(port_last == BATTLE_STOP, "eclplay stops at the placement (not yet ported)", port_last)
+    if not path.exists():
+        v.check(False, "eclplay writes its battlefield at the stop", port_last)
+        return
+    seed, view, ported = parse_field(path)
+    draws = L.draws(SEED, r["seed"], 1000)
+    gap = FIELD_SEED_GAPS.get(square, 0)
+    v.check(seed == SEED and draws == gap,
+            f"RandSeed at the placement, in draws past SEED: {gap} (the known gap, FIELD_SEED_GAPS) "
+            f"in the original, none in eclplay, at {where}",
+            f"original {r['seed']:#x} ({draws} draws past SEED), eclplay {seed:#x}")
+    expect = cells.hex()
+    diff = [i for i in range(FIELD_CELLS) if ported[2 * i:2 * i + 2] != expect[2 * i:2 * i + 2]]
+    v.check(not diff, "the 50 by 25 cells agree (the dungeon's tiles, as the builders leave them)",
+            f"{len(diff)} cells differ, first {diff[:6]}" if diff else
+            f"all {FIELD_CELLS} cells agree")
+    # The origin (far DS:bedb +2, +4) is written after the placement (1dd7's 4837:0aea and
+    # 0b19), so at its entry the original holds what was there before: 0, 0 for the fixture,
+    # 117, 118 for the west edge (a leftover). Not compared; eclplay's stays as setup left it.
+    v.check(view == [0, 0], "eclplay's view origin at the stop is as setup left it (0, 0)",
+            f"eclplay {view}; the original's {[original['view'][0], original['view'][1]]} "
+            "(a leftover: written after the placement)")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir")
-    parser.add_argument("--flows", default="setup,load,clear,six,ground,encounter",
-                        help="which flows: setup, load, clear, six, ground, encounter")
+    parser.add_argument("--flows", default="setup,load,clear,six,ground,encounter,field",
+                        help="which flows: setup, load, clear, six, ground, encounter, field")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -812,6 +921,8 @@ def main():
         ground(v, work, opts)
     if "encounter" in flows:
         encounter(v, work, opts)
+    if "field" in flows:
+        field(v, work, opts)
     return v.finish()
 
 

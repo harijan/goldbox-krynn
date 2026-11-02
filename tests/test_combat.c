@@ -425,6 +425,52 @@ static void test_dungeon(void)
     CHECK(cok_combat_dungeon(c, &cok_rules_champions, &game.view, 7, 7, &seed) && seed == 4);
 }
 
+/* Dark Queen's dungeon (dqk 59c7:06a7): the map filled with its floor first, no
+ * tables or chairs (its loop draws no dice), and the corners: the north-west
+ * one has no door as a corner, the north-east one does (0285, 049e). */
+static void test_dungeon_dark_queen(void)
+{
+    cok_combat *c = &game.combat;
+    reset("");
+    memset(c->cells, 0x55, sizeof c->cells);
+    uint32_t seed = 2;
+    CHECK(cok_combat_dungeon(c, &cok_rules_dark_queen, &game.view, 7, 7, &seed));
+    CHECK(seed == 2);
+    for (int y = 0; y < COK_COMBAT_HEIGHT; ++y)
+        for (int x = 0; x < COK_COMBAT_WIDTH; ++x) CHECK(c->cells[y][x] != 0x55);
+    /* A west wall with a door in it, the party's square 7, 7: the north-west
+     * corner is a wall's corner with no door (a west wall of 3 with the
+     * sides beyond open). */
+    reset("");
+    game.view.map[0x100 + 7 * 16 + 7] = 0x05;     /* the west wall */
+    game.view.map[0x300 + 7 * 16 + 7] = 0x40;     /* a way through it */
+    memset(c->cells, 0x55, sizeof c->cells);
+    seed = 2;
+    CHECK(cok_combat_dungeon(c, &cok_rules_dark_queen, &game.view, 7, 7, &seed));
+    CHECK(c->cells[10][22] == 0x0e); /* 0285: 0x0d, a tile + 1 */
+    /* A door in the east wall of 7, 6 (beyond the party's north-east corner)
+     * and no walls at the party's north: the corner's door (049e: 7). */
+    reset("");
+    game.view.map[6 * 16 + 7] = 0x05;             /* 7, 6's east wall */
+    game.view.map[0x300 + 6 * 16 + 7] = 0x04;     /* a way through it */
+    memset(c->cells, 0x55, sizeof c->cells);
+    seed = 2;
+    CHECK(cok_combat_dungeon(c, &cok_rules_dark_queen, &game.view, 7, 7, &seed));
+    CHECK(c->cells[10][27] == 8); /* 049e: 7, a tile + 1 */
+    /* A room with a north and west wall: no tables, chairs or dice (the
+     * Champions and Death Knights rooms roll for them, see test_dungeon). */
+    reset("");
+    game.view.map[7 * 16 + 7] = 0x10;
+    game.view.map[0x100 + 7 * 16 + 7] = 0x01;
+    game.view.map[0x200 + 7 * 16 + 7] = 0x40;
+    memset(c->cells, 0x01, sizeof c->cells);
+    seed = 2;
+    CHECK(cok_combat_dungeon(c, &cok_rules_dark_queen, &game.view, 7, 7, &seed));
+    CHECK(seed == 2);
+    for (int y = 0; y < COK_COMBAT_HEIGHT; ++y)
+        for (int x = 0; x < COK_COMBAT_WIDTH; ++x) CHECK(c->cells[y][x] != 0x1a && c->cells[y][x] != 0x1b);
+}
+
 static void test_records(void)
 {
     reset("");
@@ -1064,6 +1110,7 @@ int main(void)
     test_wilderness();
     test_death_knights_wilderness();
     test_dungeon();
+    test_dungeon_dark_queen();
     test_records();
     test_placement();
     test_fallen();

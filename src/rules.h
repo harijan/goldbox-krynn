@@ -1094,11 +1094,16 @@ typedef struct {
      * builder (a cok_wilderness_routine); the dungeon's map before it is
      * built: the random tiles' record 1 as the heap left it (3cb2:1029's
      * GetMem), or, where dungeon_fill is set, cleared and filled with
-     * dungeon_floor (dkk 410b:10d7 and 0892: 0x16); whether a door on the
-     * north-west corner's west edge, and beyond the north-east one's north,
-     * is drawn as a wall's corner is (dkk 410b:04d8, 06ae); whether the
-     * setup clears Magic On (DS:7198) and the dead that explode (DS:6b45,
-     * 6b95; dkk neither). */
+     * dungeon_floor (dkk 410b:10d7 and 0892: 0x16; dqk 59c7:06a7, 0x16 too);
+     * whether a door on the north-west corner's west edge (door_corner_nw:
+     * dkk 410b:04d8; dqk 59c7:0285 says no) and beyond the north-east
+     * one's north (door_corner_ne: dkk 410b:06ae; dqk 59c7:049e says yes)
+     * is drawn as a wall's corner is; whether the dungeon has tables and
+     * chairs in its rooms (dungeon_no_tables: dqk 59c7:06a7 places none,
+     * and draws no dice there); the wilderness and placement the port does
+     * not carry out yet (dqk 59c7:0e3b, 0f7b: the stops' citations; NULL
+     * for none); whether the setup clears Magic On (DS:7198) and the dead
+     * that explode (DS:6b45, 6b95; dkk neither). */
     const char *begins;
     uint8_t begins_colour;
     uint8_t dungeon_tiles, wilderness_tiles;
@@ -1106,7 +1111,9 @@ typedef struct {
     uint8_t wilderness;
     bool dungeon_fill;
     uint8_t dungeon_floor;
-    bool door_corners;
+    bool door_corner_nw, door_corner_ne;
+    bool dungeon_no_tables;
+    const char *wilderness_unported, *placement_unported;
     /* The placement (3cb2:17f7; dkk 410b:1aa4 and 18c2): the entries whose
      * sizes it clears first, 1 to placement_clears (255, into the screen
      * positions; dkk 72); whether SETUP MONSTERS' ambush directions

@@ -1808,7 +1808,8 @@ const cok_rules cok_rules_death_knights = {
             .wilderness = COK_WILDERNESS_DEATH_KNIGHTS, /* 410b:107e */
             .dungeon_fill = true, /* 410b:10d7, 0892 */
             .dungeon_floor = 0x16,
-            .door_corners = true, /* 410b:04d8, 06ae */
+            .door_corner_nw = true,  /* 410b:04d8 */
+            .door_corner_ne = true,  /* 410b:06ae */
             /* 410b:1aa4, 18c2 */
             .placement_clears = 0x48,
             .ambush = true,

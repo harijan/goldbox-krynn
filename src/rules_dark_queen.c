@@ -589,9 +589,11 @@ const cok_rules cok_rules_dark_queen = {
         },
     /* COMBAT's monsters (monster.c): LOAD MONSTER registers them (dqk 6c70:29a3),
      * COMBAT appends them (6c70:2d82, 170e) and lowers the distance to the open
-     * squares, then the battle (5045:059d) is not ported; the branches with no
-     * monsters (5f07:081b's vault, temple and treasure) are not either. The
-     * encounter (SETUP MONSTERS, APPROACH, the sprite and close-up) is ported. */
+     * squares; the battle (5045:059d) starts (its setup, cok_combat_setup, builds
+     * the battlefield: 59c7:1dd7's tiles and builders), and stops at the placement
+     * (59c7:0f7b). The branches with no monsters (5f07:081b's vault, temple and
+     * treasure) are not ported. The encounter (SETUP MONSTERS, APPROACH, the
+     * sprite and close-up) is ported. */
     .combat =
         {
             .begins = "A battle begins...", /* DS:5ed8 (1a62:0046) */
@@ -610,9 +612,23 @@ const cok_rules cok_rules_dark_queen = {
                                              sizeof *dark_queen_extra_monsters),
             .extra_monster_var = 0x3a,
             .extra_monsters_appended = 10, /* 170e's movb $0xa */
+            /* The dungeon (59c7:06a7): the map filled with 0x16 first, the
+             * floor, and its loop draws no tables and chairs. The corners:
+             * 0285 (north-west) has no door as a corner, 049e (north-east)
+             * does (see rules.h). */
+            .dungeon_fill = true,
+            .dungeon_floor = 0x16,
+            .dungeon_no_tables = true,
+            .door_corner_nw = false,
+            .door_corner_ne = true,
             .no_monsters_unported = "dqk 5f07:081b with no monsters: 771f:09a0 (the vault), "
                                     "7825:0af6 (the temple), 75cc:135c (the treasure)",
-            .battle_unported = "dqk 5045:059d",
+            /* The open ground's builders (59c7:0e3b, then 07ae-0e3b's river,
+             * trees and scatter) are not ported: a battle outside 3D stops there. */
+            .wilderness_unported = "dqk 59c7:0e3b",
+            /* The placement (59c7:0f7b, 1864) and the battle's rounds are not
+             * ported: the battle stops after the battlefield is built. */
+            .placement_unported = "dqk 59c7:0f7b",
         },
     .effects =
         {

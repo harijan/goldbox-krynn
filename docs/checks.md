@@ -631,7 +631,7 @@ draws on set 3 and 6: `tests/test_queen_arena.c`).
 Flow `load` (`LOADS`: two SHARKMEN and one MINOTAUR, then COMBAT with no SETUP MONSTERS or APPROACH; the
 original allows it after LOAD FILES) reads the party list where COMBAT calls the battle (`5f07:08f0`, trapped
 while the block waits for its PRESS KEY: the battle starts at once after the key), and eclplay, started as setup's
-(`--load --play`), stops at the battle (`--records`: the records and the trailer, c6f1, ad6b and the undead count
+(`--load --play`), stops at the battle's placement (`--records`: the records and the trailer, c6f1, ad6b and the undead count
 DS:c2ed). The original has 19 records (the six and
 13 monsters: the SHARKMEN and the MINOTAUR, then ten GORGONs), c6f1 13, ad6b 11 and no undead; the monsters' records agree
 byte for byte (pointers masked), and so do the party's (`PARTY_GAPS` is empty: the save's import; with
@@ -657,6 +657,15 @@ by 18: the front end draws it, not the screen the port's BMP holds). At the batt
 squares in both (COMBAT's lowering of 9), the party and the monsters' records, c6f1, ad6b and the undead count agree as in
 `load`, and eclplay stops at the battle. The close-up is one frame (PICA 21), so its screen at distance 0 agrees; PIC 14
 is not used: it animates during PRESS KEY (`63ae:0269`), so a settled screen catches a later frame than eclplay's.
+Flow `field` (step 4, part 7: the battle's setup and the dungeon builder, `59c7:1dd7` to the placement). For two
+party squares, the fixture's (saved game A's, 7, 13, facing 0) and the west edge's (0, 3, 2, written at DS:c9f0 and
+eclplay's `--at`): the block as `encounter` gives it to COMBAT, the original trapped at `59c7:0f7b` (the placement's
+entry, after the tiles and the dungeon builder), where the 50 by 25 cells, RandSeed and the mode are read (the original's
+spin holds, and the battle is in 3D: var 0x22 set). eclplay's `--field` at its stop (`BATTLE_STOP`: the placement, not
+yet ported) must agree: the cells all 1250, and RandSeed as the seed the battle began with. For the west edge the
+original's RandSeed is 7 draws past it (`FIELD_SEED_GAPS`, an open question); eclplay's is not. The view's origin
+(DS:bedb +2, +4) is not compared: it is written after the placement (`1dd7`'s `4837:0aea`, `0b19`), so the original
+holds what was there before (0, 0 for the fixture, 117, 118 for the west edge).
 The six MONCHA
 ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points
 are the base 0xc0, AC 0xbb, THAC0 0x87, size 0x8a, movement 0x90, undead 0x5c, magic resistance 0xcc):
