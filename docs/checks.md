@@ -508,15 +508,22 @@ day (Lunitari's first turn), with the clock's variables 5-11, the moons' 0x1fa-0
 expected from the files' effect lists; then DUMP of the middle member and of the first, with variable
 0x20 and the new selection's age after each. All agree (2026-11-02).
 
-`dqk_program0.py` (about a minute; in `make dqk-checks`) runs PROGRAM 0, the camp from the adventure,
-the same way, with the party of saved game A on both sides: a test block (PRESS KEY, SAVE 1 to
-variable 0x30, PROGRAM 0, SAVE 7 to 0x130, EXIT) in place of block 1. After the PRESS KEY's Enter the
-camp opens; View Character (`v`) and Escape back, then Begin Adventuring (`b`) ends it and the block
-goes on. The screens agree at the PRESS KEY, the camp, the view's sheet, the camp again and the
-adventure after Begin, the mouse's pointer, the status line, the view's foot icons and the bottom bar
-left out (the status line and the icons are the adventure's start, which eclplay's block entry does
-not draw; the original's bottom bar shows DOSBox's DISK READ ERROR); the variables the original
-changed (0x30 and the marker) agree. The other variables are not compared: eclplay starts from a
+`dqk_program0.py` (about half a minute; in `make dqk-checks`) runs PROGRAM 0, the camp from the
+adventure, the same way, with the party of saved game A on both sides, in two flows; each is a test
+block (PRESS KEY, SAVEs, PROGRAM 0, EXIT) in place of block 1. The hall's sets variable 0x30 and,
+after PROGRAM 0, the marker 0x130. After the PRESS KEY's Enter the camp opens; View Character (`v`)
+and Escape back, then Begin Adventuring (`b`) ends it and the block goes on. The overland's first
+sets variable 0x22 to 1 and then 0 (the store makes mode 3), 0x24 to 1, 0x3e to 0xf0 (the big
+picture) and 0x25 and 0x26 to 5 (the party's place), then PROGRAM 0 and a PRESS KEY: Begin (`b`),
+and the screen at that second PRESS KEY, before the block's EXIT, shows the overland's map again
+with the party's place (177e:1ad1). The screens agree at each wait (the PRESS KEY, the camp, the
+view's sheet, the camp again, the overland after Begin), with the mouse's pointer, the status line
+and the view's foot icons left out (the status line and the icons are the adventure's start, which
+eclplay's block entry does not draw). The hall's adventure after Begin is the screen after the
+block's EXIT, where the original's bottom bar shows the game's own DISK READ ERROR (left out): the
+loop's redraw after the EXIT (the view's, CALL 1's DS:b7f8) is not reached in the original, so it is
+not checked. The variables the original changed agree (0x30 and the marker; in the overland flow
+0x22, 0x24, 0x3e, 0x25 and 0x26 too). The other variables are not compared: eclplay starts from a
 fresh game, not saved game A (its `--load` is not ported). All agree (2026-11-02).
 
 `dqk_ecl_text.py` (about a minute and a half for its seven blocks; in `make dqk-checks`)

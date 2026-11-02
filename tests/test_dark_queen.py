@@ -585,6 +585,21 @@ class DarkQueenTests(unittest.TestCase):
             camp, "choice: 7", "save: BALTHIRN.QCH",
             "menu: Create Character Delete Character Add Character Load Saved Game Exit From Game",
             "choice: 11", "(quit to DOS in block 39)"])
+        # Remove the only member (DS:b7a7 set), Add her back (the roster's list
+        # is the saves folder's as it was at the start, so the file is there
+        # first) and Begin: the ECL run is left at the camp's end (5f07:0fcb),
+        # which the port does not do yet, so it stops there.
+        saves = self.folder / "removed"
+        saves.mkdir()
+        (saves / "BALTHIRN.QCH").write_bytes((ASSETS / "SAVE" / "BALTHIRN.QCH").read_bytes())
+        result = self.play("--character", ASSETS / "SAVE" / "BALTHIRN.QCH", "--start", "92f2",
+                           "--saves", saves, "--keys", "REYATAEB", ASSETS, 39)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertEqual(result.stdout.splitlines()[-2:], [
+            "choice: 10",
+            "error: not yet ported: The Dark Queen of Krynn's the ECL run ended by DS:b7a7 "
+            "after the camp (dqk 5f07:0fcb)"])
+        self.assertNotIn("(done in block 39)", result.stdout)
 
     def test_items(self):
         # View's Items (86b8:0f41) of Roland of Dust: the list with its

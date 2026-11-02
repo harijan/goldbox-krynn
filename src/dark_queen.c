@@ -1693,13 +1693,51 @@ static void ending(cok_adventure *game)
 
 static bool pass_time(cok_adventure *game, unsigned count, unsigned unit);
 static cok_ecl_status camp(cok_adventure *game, bool from_main, bool *begin);
+static void party_list(cok_adventure *game);
+static void status_line(cok_adventure *game);
+
+/* The screen as it was (177e:1ad1) by the mode (DS:ae57; 177e:1aea's table,
+ * none above 10): 0 the full window (10b2:0030); 3 the view again
+ * (5e22:0000), where picture 9 is not shown and variable 0x24 is 1
+ * (177e:1b82); 4 the adventure's screen, the view, the party's list and the
+ * status (177e:1b5d). Modes 1, 2, 6 and 10 first draw the adventure's screen
+ * (10b2:00e4; in 1 and 10 only where DS:bee9 is set) and a small picture
+ * (63ae:0078, then 000c), then the list and the status: not ported, so they
+ * stop. Other modes draw nothing. False where the run stopped. DS:beea (set
+ * to 0 in mode 4) is read by LOAD FILES' redraw only, not ported. */
+static bool screen_as_it_was(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    queen *q = own(game);
+    switch (vm->mode) {
+    case 0:
+        full_window(game);
+        return true;
+    case 3:
+        if (q->picture_id != 9 && cok_ecl_load_var(vm, 0x24) == 1) view(game);
+        return true;
+    case 4:
+        adventure_screen(game);
+        view(game);
+        party_list(game);
+        status_line(game);
+        return true;
+    case 1: case 2: case 6: case 10:
+        return cok_adventure_not_yet(game, "the screen as it was in modes 1, 2, 6 and 10 "
+                                           "(a small picture, DS:bee9)", "dqk 177e:1ad1");
+    default:
+        return true;
+    }
+}
 
 /* PROGRAM 0 (5f07:0c15): the camp from the adventure (7368:046f with 0),
- * then, if its menu ended with Begin Adventuring, the adventure's screen and
- * the party's place on the overland (177e:1ad1, 7065:0011) where picture 9
- * is not shown and variables 0x22 0, 0x24 1, and the view again (DS:b7f8).
- * DS:c2dc (cleared by a new game, 5f07:10cd) is taken as 0: no segment the
- * port has writes it. */
+ * then, if its menu ended with Begin Adventuring, the screen as it was
+ * (screen_as_it_was) and the party's place on the overland (7065:0011) where
+ * picture 9 is not shown and variables 0x22 0, 0x24 1, and the view again
+ * (DS:b7f8). Then the ECL run goes on only while DS:b7a7 is clear (5f07:0fc4,
+ * the camp's Remove of the last member sets it): where it is set the block is
+ * left. DS:c2dc (cleared by a new game, 5f07:10d3) is taken as 0: nothing in
+ * the game sets it (only 5f07:10d3 clears it). */
 static void camp_program(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -1709,10 +1747,12 @@ static void camp_program(cok_adventure *game)
     queen *q = own(game);
     if (q->picture_id != 9 && cok_ecl_load_var(vm, 0x22) == 0 &&
         cok_ecl_load_var(vm, 0x24) == 1) {
-        adventure_screen(game);
+        if (!screen_as_it_was(game)) return;
         marker(game);
     }
     vm->view_changed = true;
+    if (q->b7a7)
+        cok_adventure_not_yet(game, "the ECL run ended by DS:b7a7 after the camp", "dqk 5f07:0fcb");
 }
 
 /* PROGRAM n (5f07:0baf): Move mode (DS:af3d) is kept and off meanwhile, the
