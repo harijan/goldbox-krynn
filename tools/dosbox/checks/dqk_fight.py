@@ -20,8 +20,8 @@ monsters' flag and count, RandSeed) is read at the entry PRESS KEY (before), at
 the 'loaded' one (after LOAD MONSTER) and at the first turn: the battle's turn
 routine 5045:078b made to spin where it starts (dqk_fight_lib.trap), as the
 overlay loads; the spin is checked to hold, and then removed to see the game go
-on. The variables (1 KB) at the 'monsters' PRESS KEY are the port's start
-(eclplay's --set, --at), and the port's variables there must equal them.
+on. The block's variables (1 KB, through the far pointer at DS:b20f) are read at
+the entry and at the 'monsters' PRESS KEY; eclplay's must equal the latter.
 
 Checked:
 
@@ -35,11 +35,11 @@ Checked:
   (dqk_fight_lib.consistent), and the RandSeed is the first turn's (11 draws);
 - the spin holds (EB FE in place, the keyboard polls still over a second), and
   untrapped the game goes on (the polls move, the routine's bytes are back);
-- eclplay --game dark-queen, from a copy of saved game A (--load: its six
-  members, its square, its locals kept as the original's entry keeps them) and
-  the variables the original had at the entry (--set), has the same variables at
-  the 'monsters' PRESS KEY but the known gaps (PORT_GAPS below); eclplay has no
-  ported LOAD MONSTER: it stops there;
+- eclplay --game dark-queen --load --play, from a copy of saved game A (its six
+  members, its square, its locals kept as a Load keeps them), enters the block as
+  Begin Adventuring does and has the same 1 KB of variables at the 'monsters' PRESS
+  KEY as the original (PORT_GAPS below: none); eclplay has no ported LOAD MONSTER:
+  it stops there;
 - eclplay stops at LOAD MONSTER (opcode 0x0b, not yet ported).
 
 The original's states go to build/dqk-fight/setup.json, with the heap pointers
@@ -86,26 +86,13 @@ MONSTERS_APPENDED, ICON_SLOTS_AT_TURN = 12, 10
 TURN = (0x5045, 0x078B)
 RETURN = 0x1C0D
 # The variables at the 'monsters' PRESS KEY where eclplay differs from the
-# original, all of them: open gaps of the port, not of this fixture (the
-# fixture starts eclplay from the original's saved game and variables, --load
-# and --set, and these are what eclplay's own load and opcodes do with them):
-#   0x03  eclplay's LOAD FILES clears it (the original keeps 58);
-#   0x07  the original clears it (2 at the entry) by LOAD FILES or CLEARMONSTERS,
-#         eclplay does not;
-#   0x13, 0xc6  eclplay's LOAD FILES sets them to 4 (the original leaves 0);
-#   0x12, 0x22, 0x27, 0x1fa-0x1fc  the original's entry has 0 (speed, 3D, the
-#         party's 0x27, the moons' phases), where saved game A holds 4, 1, 3 and 2:
-#         the original's Load gives 0 (or its Begin does: not traced), eclplay's
-#         Load gives the save's;
-#   0x20  the original's entry has 0 after its Load of saved game A (six members;
-#         the file holds 6; 604b:28f8 zeroes it at 2a19 before its joins, which
-#         increment it at 604b:3581: why it ends 0 is not traced), eclplay's Load
-#         restores 6 (restore_whole counts the members, as add_character does).
-# Closed by the start (--load, not --character): 0x34 and 0x35 (the save holds 0,
-# and a move, not a Load, stores the square there: --at did), 0x97-0x9d (the
-# original's block entry keeps its locals, DS:b1ed set: 6c70:00ee; --character's
-# block start clears them, a Load's keeps them: restore's keep_vars).
-PORT_GAPS = (0x03, 0x07, 0x12, 0x13, 0x20, 0x22, 0x27, 0xC6, 0x1FA, 0x1FB, 0x1FC)
+# original: none. Both are the block's variables, read through the far pointer at
+# DS:b20f (dqk_ecl's). The block's entry has saved game A's variables plus 0x16 = 1
+# (the jumper's), LOAD FILES 4 4 sets 0x13 and 0xc6 to 4 in both, and eclplay's
+# --load --play gives the same 1 KB. An earlier read at DS:b210 took the far
+# pointer's bytes for variables and showed gaps that were not there. The check
+# asserts the exact set, so a new difference fails it.
+PORT_GAPS = ()
 SQUARE = 0xC9F0                # DS:c9f0-c9f2: x, y, facing (saved game A: 7, 13, 0)
 STATE = ROOT / "build" / "dqk-fight" / "setup.json"
 
@@ -129,6 +116,12 @@ def names_of(records):
     return [cstr(bytes.fromhex(r["raw"])[0x68:0x78]) for r in records]
 
 
+def block_vars(box):
+    """The block's 1 KB of variables (1 to 0x400): dqk_ecl's far pointer at DS:b20f
+    (dqk_party's and dqk_ecl's read), not the bytes at DS:b210 that follow it."""
+    return box.read(box.far(box.ds * 16 + dqk_ecl.DS_VARS) + 1, dqk_ecl.VARIABLES)
+
+
 def original(work, patched, verbose):
     """The original's run: its PRESS KEYs' states (entry, monsters, loaded), the
     variables at the entry and at the monsters' PRESS KEY, the square at the
@@ -140,14 +133,14 @@ def original(work, patched, verbose):
         dqk_ecl.enter_block(box)
         entry = dqk_lib.ecl_state(box)
         square = box.ds_read(SQUARE, 3).hex()
-        entry_vars = box.ds_read(dqk_ecl.DS_VARS + 1, dqk_ecl.VARIABLES)
+        entry_vars = block_vars(box)
         box.set_seed(SEED)
         before = L.state(box)
         # LOAD FILES and CLEARMONSTERS run; the block waits in the 'monsters' PRESS KEY
         box.keys("\\r")
         box.settled(tolerance=64)
         monsters = dqk_lib.ecl_state(box)
-        monsters_vars = box.ds_read(dqk_ecl.DS_VARS + 1, dqk_ecl.VARIABLES)
+        monsters_vars = block_vars(box)
         # LOAD MONSTER runs; the block waits in the 'loaded' PRESS KEY
         box.keys("\\r")
         box.settled(tolerance=64)
@@ -190,20 +183,15 @@ def saved_entry(work):
     return folder / "SAVGAMA.QSV"
 
 
-def port(work, patched, entry_vars):
-    """eclplay's run of the block from the original's entry: saved game A's copy
-    (--load), then the variables the original had at the entry (--set, the nonzero
-    ones and variable 0x16, which the original's entry has 0 until its load vector
-    ends). Its variables at the 'monsters' PRESS KEY (--vars, the block's second key
-    typed) and its last output line."""
-    sets = []
-    for address, value in enumerate(entry_vars, 1):
-        if value or address == 0x16:
-            sets += ["--set", f"{address:x}={value:x}"]
-    if len(sets) // 2 > 64:
-        raise cokbox.BoxError(f"{len(sets) // 2} variables to set: eclplay takes 64")
+def port(work, patched):
+    """eclplay's run of the block as the original's Load then Begin Adventuring
+    gives it: saved game A's copy (--load) and --play, which is Begin Adventuring's
+    entry (without it the block is entered in load_saved's mode 0, not the mode the
+    original's Begin leaves). No --set: the save gives the variables. Its variables at
+    the 'monsters' PRESS KEY (--vars, the block's second key typed) and its last
+    output line."""
     variables, last, _ = dqk_ecl.port(work, "fight", patched, typed="\\r",
-                                      extra=["--load", str(saved_entry(work))] + sets,
+                                      extra=["--load", str(saved_entry(work)), "--play"],
                                       block=None)
     return variables, last
 
@@ -260,13 +248,13 @@ def setup(v, work, opts):
     v.check(turn["seed"] == L.FIRST_TURN_SEED and draws == L.FIRST_TURN_DRAWS,
             "the first turn's RandSeed: 11 draws from the seed (sound off: the same every run)",
             f"seed {turn['seed']:#x}, {draws} draws")
-    port_vars, port_last = port(work, patched, r["entry_vars"])
+    port_vars, port_last = port(work, patched)
     diff = [a for a in range(1, dqk_ecl.VARIABLES + 1)
             if port_vars[a - 1] != r["monsters_vars"][a - 1]] if len(port_vars) == \
         dqk_ecl.VARIABLES else []
     v.check(len(port_vars) == dqk_ecl.VARIABLES and tuple(diff) == PORT_GAPS,
             "eclplay's variables at the 'monsters' PRESS KEY differ from the original's at "
-            "exactly the known gaps (PORT_GAPS)", f"differ: {' '.join(f'{a:#x}' for a in diff)}")
+            "exactly PORT_GAPS (none)", f"differ: {' '.join(f'{a:#x}' for a in diff)}")
     v.check(port_last.startswith("error: not yet ported") and "LOAD MONSTER" in port_last,
             "eclplay stops at LOAD MONSTER (not yet ported)", port_last)
     STATE.parent.mkdir(parents=True, exist_ok=True)

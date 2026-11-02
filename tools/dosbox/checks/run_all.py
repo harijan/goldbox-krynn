@@ -358,6 +358,22 @@ def self_test_again():
             bad += 1
             print(f"self-test FAILS: run again {again}, {script}: status {got}, {text[-1]!r}")
     print(f"run_all self-test of the run again: {len(cases) - bad} of {len(cases)} cases right")
+    # An earlier run's NAME.first.* (a retry's leftovers) is removed before the first
+    # pass: here every script agrees the first time, so none of them may survive.
+    run, _ = runner({"b_amount": ["AGREES"], "c_rob": ["AGREES"], "d_move": ["AGREES"]})
+    with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(io.StringIO()):
+        d = pathlib.Path(d)
+        stale = [d / "b_amount.first.log", d / "b_amount.first.trace.jsonl", d / "b_amount.first"]
+        stale[0].write_text("an earlier run's retry\n")
+        stale[1].write_text("{}\n")
+        stale[2].mkdir()
+        got = run_checks(rows, 2, d, run, again=True)
+        left = [p.name for p in stale if p.exists()]
+    if got != 0 or left:
+        bad += 1
+        print(f"self-test FAILS: stale files of an earlier run left: {left}, status {got}")
+    else:
+        print("run_all self-test of the stale files: 1 of 1 cases right")
     return bad
 
 
@@ -480,6 +496,15 @@ def run_checks(todo, jobs, out, run, again=True):
     # The long ones first, so that they do not end the run alone.
     queue = sorted(todo, key=lambda c: -LONG.get(c[0], 0))
     t0 = time.monotonic()
+    # A leftover of an earlier run's retry (NAME.first.*) is not this run's first
+    # attempt: removed before the first pass, so that it is never read as one.
+    for name, _, _ in todo:
+        for stale in (out / f"{name}.first.log", out / f"{name}.first.trace.jsonl",
+                      out / f"{name}.first"):
+            if stale.is_dir():
+                shutil.rmtree(stale)
+            elif stale.exists():
+                stale.unlink()
 
     def worker():
         while True:
