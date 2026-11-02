@@ -566,8 +566,11 @@ run, citing their handlers (`unported`). It holds:
   run); ROB's money is integers, each coin times the percent kept over 100 (`124f`),
   not Reals. TREASURE ITEMS (`6c70:2127`) and STOCK TREASURE (`6c70:335e`) still stop: they
   call routines not ported here (`6c70:1a83`, `1df9:432f`; `1d99:1189` for STOCK).
-  Checked by `dqk_ecl_items.py` (FIND and DESTROY, and ROB's money, on test blocks with
-  saved game A's party; 2026-11-02).
+  Checked by `dqk_ecl_items.py` (FIND and DESTROY, with ROLANDOF's base AC before and after;
+  ROB's money, 200 with 39 taken coming to 122, not Reals' 121, and its three d100 draws
+  and the RANDOM after them; on test blocks with saved game A's party; 2026-11-02). The cursed
+  path (an item with +0x34 set: "It's Cursed!", still removed) has no DOSBox coverage, only
+  the repo test.
   Not done: the overland's big picture is drawn without the picture flag (DS:ae27) that
   `5e22:0000` tests; PICTURE 0xff's other conditions (DS:b419, `5f07:0511-052b`) are
   not run.

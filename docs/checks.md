@@ -512,10 +512,15 @@ expected from the files' effect lists; then DUMP of the middle member and of the
 way, with saved game A's party on both sides. The `items` block: FIND ITEM for each type the party
 holds and one it does not, then DESTROY ITEMS with 0x80 (bonus items only) and without, the types
 found after each step saved (the expected values: the types nobody destroyed stay, the bonus-less
-0x44 stays under 0x80, the readied 0x25, 0x12 and 0x44 go, unreadied first). The `rob` block: ROB of
-ROARK'CR at 30 percent kept and chance 100, the coins read as words (200 of gold becomes 140, an
-integer; the Reals' 139 would differ), and the types of its items after the d100 draws, which are
-compared as they fall. WALKERKE's readied power item (0x43) is no block's: its routine is not ported.
+0x44 stays under 0x80, the readied 0x25, 0x12 and 0x44 go, unreadied first), and ROLANDOF's armour
+class (ECL 0x571, the base AC) as a word before the DESTROYs and after them, so the stats recompute
+is compared. The `rob` block: ROB of ROARK'CR with 39 percent taken (61 kept) of the 200 of gold and
+chance 100, the coins read as words (the gold becomes 122, an integer; as Reals it would be 121), and
+the types of its items after the d100 draws, which are compared as they fall (one d100 per item, the
+expected flags 0, 1, 1); then a RANDOM of range 10 after ROB, whose value is the seed after the three
+draws, so the number and order of ROB's draws are checked. WALKERKE's readied power item (0x43) is no
+block's: its routine is not ported. The cursed path (an item with +0x34 set: "It's Cursed!") has no
+DOSBox coverage: no item in saved game A is cursed, and the repo test (`test_adventure`) covers it.
 All agree (2026-11-02).
 
 `dqk_ecl_text.py` (about a minute and a half for its seven blocks; in `make dqk-checks`)

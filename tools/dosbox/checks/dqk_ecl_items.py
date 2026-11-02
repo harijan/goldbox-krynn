@@ -17,12 +17,16 @@ Two blocks:
   first); 0x80 | 0x1e takes the bonus items of type 0x1e in three members, and
   leaves the type 0x16 that the same members hold; DESTROY 0x25 and 0x12 take
   their readied items (unreadied, no power) in every member that holds them.
-  The types found after each step are saved as variables.
-- rob (ROB 6c70:28f8): ROARK'CR's money at 30 percent kept of 200 (the coin
-  at 0x54b, an integer: 140; as Reals it could fall to 139), and the chance
-  of 100 takes ROARK's items of weight up to 0x18 (the type 0x1c, which only
-  ROARK holds, is then gone); the items above it (readied, unreadied first)
-  and their chances are the original's d100 draws, compared as they fall.
+  The types found after each step are saved as variables. ROLANDOF's armour
+  class (ECL 0x571, the base AC 177e:0be2 sets) is saved as a word before the
+  first DESTROY and after the last, so the recompute is compared too.
+- rob (ROB 6c70:28f8): ROARK'CR's money with 39 percent taken, so 61 kept of
+  200 (the coin at 0x54d: 122, an integer; as Reals it would be 121), and the
+  chance of 100 takes ROARK's items of weight up to 0x18 (the type 0x1c, which
+  only ROARK holds, is then gone); the items above it (readied, unreadied first)
+  and their chances are the original's d100 draws, compared as they fall. One
+  d100 is drawn per item (three), and a RANDOM after ROB checks how many and
+  in what order.
 
 WALKERKE's readied item of type 0x43 has a power (+0x38 0x80), whose routine
 (86b8:16f7) is not ported: no block takes it, so neither side meets it.
@@ -58,6 +62,10 @@ HELD = [0x12, 0x13, 0x16, 0x1C, 0x1E, 0x1F, 0x23, 0x25, 0x29, 0x3D, 0x43, 0x44, 
 ABSENT = 0x7E
 # DESTROY ITEMS' operand: the type, its high bit (0x80) for items with a bonus only.
 MAGIC = 0x80
+# ROLANDOF's armour class as the ECL reads it: the base AC (0x170 of the selected
+# record, 0x401 + 0x170; 177e:0be2 sets it), a byte read as a word. Saved before and
+# after the DESTROYs (0x128 and 0x12a), so the stats recompute is compared.
+AC = 0x571
 
 
 def prelude(b):
@@ -84,6 +92,9 @@ def items():
     for t in HELD + [ABSENT]:
         find(b, expect, at, t, t != ABSENT)
         at += 1
+    # ROLANDOF's armour class before the DESTROYs (0x128), after the last one (0x12a).
+    b.op("LOAD_CHARACTER", imm(0))
+    b.op("SAVE", wvar(AC), wvar(0x128))
     # 0x80 | 0x44: ROLANDOF's 0x44 has no bonus, so it stays (0x120).
     b.op("DESTROY_ITEMS", imm(MAGIC | 0x44))
     find(b, expect, 0x120, 0x44, True)
@@ -99,6 +110,7 @@ def items():
     b.op("DESTROY_ITEMS", imm(0x25))
     find(b, expect, 0x124, 0x25, False)
     b.op("DESTROY_ITEMS", imm(0x12))
+    b.op("SAVE", wvar(AC), wvar(0x12A))
     find(b, expect, 0x125, 0x12, False)
     # The types nobody destroyed stay: ROARK's 0x13 and WALKERKE's 0x23.
     find(b, expect, 0x126, 0x13, True)
@@ -111,20 +123,27 @@ def rob():
     b, expect = dqkecl.Block(), {}
     b.op("PRESS_KEY")
     prelude(b)
-    # ROARK'CR selected, robbed: 30 percent of the money kept of 200 (the first coin),
-    # every item at chance 100 (the d100 draws decide the rest).
+    # ROARK'CR selected, robbed: 39 percent taken, so 61 kept of the 200 at the coin
+    # (an integer: 122), every item at chance 100 (the d100 draws decide the rest).
     b.op("LOAD_CHARACTER", imm(4))
-    b.op("ROB", imm(0), imm(30), imm(100))
-    # The three coins, as words: 200 of gold at 0x54d (none at the others) and 140 after.
+    b.op("ROB", imm(0), imm(39), imm(100))
+    # ROB drew one d100 per item (three), so the next RANDOM (range 10) comes after them.
+    b.op("RANDOM", imm(9), var(0x139))
+    # The three coins, as words: 200 of gold at 0x54d (none at the others) and 122 after.
     for coin, at in zip(COINS, (0x130, 0x132, 0x134)):
         b.op("SAVE", wvar(coin), wvar(at))
-    expect.update({0x130: 0, 0x131: 0, 0x132: 140, 0x133: 0, 0x134: 0, 0x135: 0})
+    expect.update({0x130: 0, 0x131: 0, 0x132: 122, 0x133: 0, 0x134: 0, 0x135: 0})
     # The type 0x1c (weight 10, not readied) is taken at chance 100: gone.
     find(b, expect, 0x136, 0x1C, False)
-    # ROARK's readied 0x13 and 0x1f (no power) may go, the d100 decides it.
-    find(b, expect, 0x137, 0x13, None)
-    find(b, expect, 0x138, 0x1F, None)
+    # ROARK's readied 0x13 (draw 85, chance 50) and 0x1f (draw 44, chance 0) stay.
+    find(b, expect, 0x137, 0x13, True)
+    find(b, expect, 0x138, 0x1F, True)
     b.op("EXIT")
+    # The three draws (ROB's, one per item, then the RANDOM's) from the block's seed.
+    seed = dqk_ecl.SEED
+    for _ in range(3):
+        _, seed = dqk_ecl.draw(seed, 100)
+    expect[0x139], seed = dqk_ecl.draw(seed, 10)
     return b, expect
 
 

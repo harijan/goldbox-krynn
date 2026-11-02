@@ -924,7 +924,8 @@ static void rob(cok_adventure *game)
         size_t i = cok_party_index(&game->party, vm->character);
         if (i == game->party.count) {
             cok_adventure_fail(game, COK_ECL_UNDEFINED,
-                               "ROB with no character selected reads through NULL (2fd3:229e)");
+                               "ROB with no character selected reads through NULL (2fd3:229e, "
+                               "dqk 6c70:293c)");
             return;
         }
         rob_one(game, game->party.members[i], factor, kept, chance);
