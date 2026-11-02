@@ -894,6 +894,20 @@ rolls of the class's dice, a first level's several, plus the constitution's
 (`DS:640a`) a flat 1, 2 or 3 by the row). The dice are the original's
 generator (`cok_random_select`), so a seed set at the title (the port's
 `--seed`, the box's `seed=`) rolls the same hit points in both.
+
+The combat tables (`cok_dark_queen_data`'s `table[]`; `tests/test_dark_queen.c`
+checks each element against the executable): the placement's moves, quadrants,
+quadrant directions, the first rank's centres and formations (`59c7:128e`,
+`59c7:16b3`), the line directions (`5bb8:1e9b`), the steps (`DS:6189`, `6192`),
+the terrain (`DS:6197`, 4 bytes a value, `59c7:0a69`), the terrain flags
+(`DS:5d7b`: 32 bytes, all copied by `59c7:0783`, where Champions has 16),
+turning undead (`DS:5a6a`: 13 kinds of 11, `52db:1117`), a spell's area half
+widths (`DS:5a40`: words, 7 rows of 3, `52db:48aa`), the footprints (`DS:62cb`:
+12 bytes a size, `5837:000a`, eight sizes here as the count is not bounded by
+any code found) and a cloud's cells (`DS:6342`, `5837:137a`). Not filled: no
+reader found yet for the helpless and battle-only effects, the beside tables
+(`DS:62f0` holds footprint bytes), the cone sides (`DS:8cc8`), the area
+templates (`DS:03b5`).
 Train Character (`6be8:0022`, `src/queen_train.c`'s `queen_train`) and Knight
 new Order (`7368:10c2`, `queen_knight_order`) are the camp's: the classes
 the experience takes up a level in, in the hall variable `0x30`'s bits (or
