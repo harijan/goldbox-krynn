@@ -1363,8 +1363,9 @@ static int list_menu(cok_adventure *game, const char *prompt, const char *const 
  * PRINTCLEAR, the items in list_menu's rows from the row below it to row
  * 21, "Select" on the bar (its 'S', Return its first). Select, or Escape
  * (or '`'), ends it, Select drawn pressed and the current one's index
- * stored either way, as wide as the last item (a string: a word); then
- * the window cleared. */
+ * stored either way, as wide as the first item (a string: a word; 1e91
+ * reads DS:b216 in its item loop, the first item's type once the items
+ * are loaded); then the window cleared. */
 static void vertical(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -1383,7 +1384,7 @@ static void vertical(cok_adventure *game)
     if (ended == 0x1b) button(game, BAR_ROW, 8, select[0], 6, BUTTON_PRESSED);
     log_choice(game, (int)at);
     cok_ecl_operand o = vm->header[0];
-    if (count > 0) o.type = vm->operand[count - 1].type;
+    if (count > 0) o.type = vm->operand[0].type;
     cok_ecl_store_as(vm, &o, (uint16_t)at);
     clear_cells(game, 1, 0x11, 0x26, 0x16);
     bottom_bar(game);

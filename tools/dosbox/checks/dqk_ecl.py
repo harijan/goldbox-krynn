@@ -297,8 +297,9 @@ BLOCKS = {"arithmetic": arithmetic, "control": control, "flags": flags, "edges":
 
 def port(work, name, patched, typed=""):
     """eclplay's run of the block (from a copy of the assets with the block
-    replaced): its variables (--vars) and its output's last line. TYPED are
-    the keys the block reads after its PRESS KEY (eclplay --keys escapes)."""
+    replaced): its variables (--vars), its output's last line, and whether
+    eclplay reports keys left unread (TYPED are the keys the block reads after
+    its PRESS KEY, eclplay --keys escapes)."""
     assets = work / f"assets-{name}"
     if assets.exists():
         shutil.rmtree(assets)
@@ -318,7 +319,8 @@ def port(work, name, patched, typed=""):
                             capture_output=True, text=True, cwd=ROOT, timeout=300)
     (work / f"port-{name}.txt").write_text(result.stdout + result.stderr)
     last = (result.stdout.strip().splitlines() or [""])[-1]
-    return (vars_path.read_bytes() if vars_path.exists() else b""), last
+    unread = "(keys left unread" in result.stderr
+    return (vars_path.read_bytes() if vars_path.exists() else b""), last, unread
 
 
 def original(work, name, patched, verbose, typed=""):
@@ -417,9 +419,11 @@ def main():
     # end (the blocks start from the same state, so it is every block's).
     empty = Block()
     empty.op("PRESS_KEY")
-    base_vars, base_last = port(work, "empty", hlib.replace(glb, JUMP, dqkecl.assemble(empty)))
-    verdict.check(len(base_vars) == VARIABLES and "(done in block 1)" in base_last,
-                  "eclplay runs an empty block to its EXIT (the baseline)", base_last)
+    base_vars, base_last, base_unread = port(work, "empty",
+                                             hlib.replace(glb, JUMP, dqkecl.assemble(empty)))
+    verdict.check(len(base_vars) == VARIABLES and "(done in block 1)" in base_last
+                  and not base_unread, "eclplay runs an empty block to its EXIT (the baseline)",
+                  base_last)
     for name, make in BLOCKS.items():
         block, expect = make()
         run_block(verdict, work, name, glb, block, expect, "", base_vars, opts.verbose)
@@ -432,7 +436,9 @@ def run_block(verdict, work, name, glb, block, expect, typed, base_vars, verbose
     dqk_ecl_input.py), judged against BASE_VARS (the empty block's end in
     eclplay)."""
     patched = hlib.replace(glb, JUMP, dqkecl.assemble(block))
-    port_vars, port_last = port(work, name, patched, typed)
+    port_vars, port_last, port_unread = port(work, name, patched, typed)
+    verdict.check(not port_unread, f"{name}: eclplay leaves no keys unread",
+                  "the block took fewer keys than were typed")
     wait, before, end, after = original(work, name, patched, verbose, typed)
     # The PRESS KEY is the block's first instruction (its entry, 0x8015): pc reads past it.
     verdict.check(wait == (block.address("entry") + 1, OPCODES["PRESS_KEY"]),

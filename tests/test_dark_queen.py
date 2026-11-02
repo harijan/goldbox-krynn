@@ -412,13 +412,14 @@ class DarkQueenTests(unittest.TestCase):
             result = self.play("--set", "22=1", "--start", "9bfd", "--keys", keys, ASSETS, 1)
             self.assertIn(f"input: {text}", result.stdout.splitlines(), keys)
 
-    def vertical(self, keys, *more):
+    def vertical(self, keys, *more, number=False):
         """A VERTICAL MENU of six items (I0-I5, from string variables) with
-        an empty prompt: four rows (18-21), so that it scrolls."""
+        an empty prompt: four rows (18-21), so that it scrolls. NUMBER makes
+        the first item the immediate 7 (its type 0), the rest as before."""
         items = [0x300 + 0x10 * i for i in range(6)]
         code = [0x15, 0x01, 0xBF, 0x00, 0x81, 0x00, 0x02, 0x00, len(items)]
-        for a in items:
-            code += [0x81, a & 0xFF, a >> 8]
+        for i, a in enumerate(items):
+            code += [0x00, 7] if number and i == 0 else [0x81, a & 0xFF, a >> 8]
         code.append(0)
         sets = [(0x8014 + i, b) for i, b in enumerate(code)]
         for i, a in enumerate(items):
@@ -446,6 +447,20 @@ class DarkQueenTests(unittest.TestCase):
         # Select takes it.
         self.assertEqual(choice(r"\m20,152,1.\m20,152,1.", "--mouse"), ["choice: 1"])
         self.assertEqual(choice(r"\m20,160,1.\m20,190,1.", "--mouse"), ["choice: 2"])
+
+    def test_vertical_store_takes_the_first_items_width(self):
+        # The choice is stored as wide as the first item (1bdb's 6c70:1e91
+        # reads DS:b216, the first item's type): a number first makes a
+        # byte store, which leaves the byte after the header variable (0xc0)
+        # as it was; strings first make a word, clearing it.
+        for number, after in ((True, 0x55), (False, 0)):
+            varfile = self.folder / f"vars{number}"
+            result = self.vertical(r"\v\r", "--set", "c0=55", "--vars", varfile,
+                                   number=number)
+            self.assertIn("choice: 1", result.stdout.splitlines())
+            variables = varfile.read_bytes()
+            self.assertEqual(variables[0xBF - 1], 1)
+            self.assertEqual(variables[0xC0 - 1], after, number)
 
     def test_bar_clicks(self):
         # A click on a HORIZONTAL MENU's button (block 1's jumper: START at

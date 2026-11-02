@@ -513,7 +513,12 @@ run, citing their handlers (`unported`). It holds:
   where eclplay stops with "division by zero" at the same address, 832a; the input and menu opcodes
   agree on test blocks (`dqk_ecl_input.py`, 2026-11-02): INPUT NUMBER, INPUT
   STRING, COMPARE AND, VERTICAL MENU, HORIZONTAL MENU, ASK MENU and YES NO (their
-  keys typed; LOAD CHARACTER not run, it needs a party on both sides);
+  keys typed; LOAD CHARACTER not run, it needs a party on both sides). VERTICAL
+  MENU's store takes the first item's type (`6c70:1e91` reads `DS:b216` in its
+  item loop; the port took the last item's, fixed in 2026-11-02's part). The mouse
+  branches of YES NO (`1bdb:0424`, 0452) and HORIZONTAL and ASK (`6c70:0e3f`) read
+  `DS:c2f5`, which `1bdb:1206` sets for a mouse hit on a control (not a driver's
+  flag, as `queen.h` has it); not run;
 - its maps: `GEO.GLB` records of their own size (`cok_view_set_geo`,
   `8a8b:12e3`): u8 height, u8 width, the wall sets of slots 0-2 and three
   backdrops, then four planes of a byte a square, row by row: the north

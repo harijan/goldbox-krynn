@@ -465,18 +465,28 @@ block's PRESS KEY (`eclplay --keys`, the box's keys as the game waits); its
 machinery is `dqk_ecl.py`'s (`run_block`). `tools/dqkecl.py` writes a string
 operand (`text`), the packing `src/ecl.c`'s unpack reads. The blocks: INPUT
 NUMBER (an empty line, five digits at most, "-5" and Escape asked again, a suffix
-base, out of range asked again) and INPUT STRING (lower case upper-cased, an
-empty line a space, Escape keeping the text, 40 letters keeping 35, Backspace);
-COMPARE AND (two pairs; a string pair never equal; a wide variable against a word;
-a number against a string, whatever the original gives); VERTICAL MENU (Down and
-Return, Escape keeping the current item, Up wrapping, the store's width); HORIZONTAL
-and ASK MENU (a hotkey, the first item with its letter, Escape and the arrows
-ignored, a wide header variable); and YES NO (a hotkey, Escape as No, the arrows
-ignored, the flags cleared each time). LOAD CHARACTER is not in the blocks: its
-result is which member is selected, which needs the same party on both sides.
-The flow's VERTICAL MENU store clears the byte after a wide header variable, as
-the original's does (its item's type makes the store a word, `wide_type`). All
-agree (2026-11-02); a port string limit one short fails INPUT STRING's block.
+base, out of range asked again, Escape after typed text discarding it, "3" Escape
+"7" is 7; 300 into a narrow variable, the byte after it 0x55 still) and INPUT
+STRING (lower case upper-cased, an empty line a space, Escape keeping the text, 40
+letters keeping 35, Backspace); COMPARE AND (two pairs; a string pair never equal;
+a wide variable against a word; a number against a string, whatever the original
+gives); VERTICAL MENU (Down and Return, Escape keeping the current item, Up
+wrapping; the store is as wide as the first item: a string makes a word, clearing
+the byte after a wide header variable, a number first a byte, the byte after a
+narrow one (0x151 0x55) kept, a string first and a number last a word (0x155
+cleared)); HORIZONTAL and ASK MENU (a hotkey, the first item with its letter,
+Escape and Down not ending it, a wide header variable as a word, a narrow one as
+a byte with the byte after it, 0x55, kept); and YES NO (a hotkey, Escape as No,
+Down not ending it, the flags cleared each time). Down at a bar menu runs the
+party's member keys in the original (`1bdb:1e29`, DS:ad67), which the flow does
+not compare: it has no party. LOAD CHARACTER is not in the blocks: its result is
+which member is selected, which needs the same party on both sides. The flow
+fails if eclplay leaves keys unread (its `(keys left unread in block N at ADDR)`
+on stderr). Not run: the `DS:c2f5` paths. `1bdb:0424` (YES NO, 0452) and
+`6c70:0e3f` (HORIZONTAL, ASK) branch on c2f5, which `1bdb:1206` sets to 1 for a
+mouse hit on a control; `queen.h` calls it "whether a mouse driver answers", which
+the original does not show, and no block clicks. All agree (2026-11-02); a port
+string limit one short fails INPUT STRING's block.
 
 To add a block: write it in `dqk_ecl.py`'s `BLOCKS` (a function returning the
 `Block` and `expect`, the values it should leave by variable address), and the
