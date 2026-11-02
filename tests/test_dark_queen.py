@@ -560,6 +560,32 @@ class DarkQueenTests(unittest.TestCase):
         self.assertEqual(digest(shots / "007.bmp"), "d0577b581dae6c184f892c088927a6a7")
         self.assertEqual(digest(shots / "009.bmp"), "3b674649f17f2d0b8e5eaa1fe11117ca")
 
+    def test_program_0(self):
+        # PROGRAM 0 (5f07:0c15) in block 39, the training hall (92f2), with
+        # BALTHIRN alone, from the adventure (7368:046f with 0): View and
+        # Escape back to the camp's menu, then Begin Adventuring, the block
+        # going on to its end. Then Remove the only member (no new game, the
+        # menu without a party: 7368:06dc) and Exit From Game, Yes.
+        camp = ("menu: Create Character Delete Character Modify Character View Character "
+                "Add Character Remove Character Load Saved Game Save Current Game "
+                "Begin Adventuring Exit From Game")
+        shots = self.folder / "hall"
+        result = self.play("--character", ASSETS / "SAVE" / "BALTHIRN.QCH", "--start", "92f2",
+                           "--shots", shots, "--keys", "VeB", ASSETS, 39)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), [
+            camp, "choice: 5", "menu: Items Trade Drop Exit", "choice: 7", camp, "choice: 10",
+            "(done in block 39)"])
+        saves = self.folder / "saves"
+        saves.mkdir()
+        result = self.play("--character", ASSETS / "SAVE" / "BALTHIRN.QCH", "--start", "92f2",
+                           "--saves", saves, "--keys", "REY", ASSETS, 39)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), [
+            camp, "choice: 7", "save: BALTHIRN.QCH",
+            "menu: Create Character Delete Character Add Character Load Saved Game Exit From Game",
+            "choice: 11", "(quit to DOS in block 39)"])
+
     def test_items(self):
         # View's Items (86b8:0f41) of Roland of Dust: the list with its
         # ready column, Trade and Drop of a readied item refused, "Can't

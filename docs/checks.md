@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py` and `dqk_ecl_misc.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py`, `dqk_ecl_misc.py` and `dqk_program0.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -507,6 +507,17 @@ day (Lunitari's first turn), with the clock's variables 5-11, the moons' 0x1fa-0
 57, 61, 63, 119 and 168, and the .QCH files' 92, 94, 95, 105, 26 and 47) for each member, the flags
 expected from the files' effect lists; then DUMP of the middle member and of the first, with variable
 0x20 and the new selection's age after each. All agree (2026-11-02).
+
+`dqk_program0.py` (about a minute; in `make dqk-checks`) runs PROGRAM 0, the camp from the adventure,
+the same way, with the party of saved game A on both sides: a test block (PRESS KEY, SAVE 1 to
+variable 0x30, PROGRAM 0, SAVE 7 to 0x130, EXIT) in place of block 1. After the PRESS KEY's Enter the
+camp opens; View Character (`v`) and Escape back, then Begin Adventuring (`b`) ends it and the block
+goes on. The screens agree at the PRESS KEY, the camp, the view's sheet, the camp again and the
+adventure after Begin, the mouse's pointer, the status line, the view's foot icons and the bottom bar
+left out (the status line and the icons are the adventure's start, which eclplay's block entry does
+not draw; the original's bottom bar shows DOSBox's DISK READ ERROR); the variables the original
+changed (0x30 and the marker) agree. The other variables are not compared: eclplay starts from a
+fresh game, not saved game A (its `--load` is not ported). All agree (2026-11-02).
 
 `dqk_ecl_text.py` (about a minute and a half for its seven blocks; in `make dqk-checks`)
 runs the text, picture and wait opcodes the same way, with `dqk_views.py`'s screens:

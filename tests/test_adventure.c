@@ -2422,9 +2422,11 @@ static void test_dark_queen_program(void)
     const uint8_t three[] = {DQK_PROGRAM, 0, 3, DQK_EXIT};
     CHECK(run_code(&game, &s, three, sizeof three, "") == COK_ECL_UNPORTED);
     CHECK(strstr(game.error, "78e4:17dd") != NULL && game.moving);
+    /* 0 is the camp from the adventure (dqk_program0): with no party its
+     * Exit From Game asks, Yes quits. */
     const uint8_t start[] = {DQK_PROGRAM, 0, 0, DQK_EXIT};
-    CHECK(run_code(&game, &s, start, sizeof start, "") == COK_ECL_UNPORTED);
-    CHECK(strstr(game.error, "7368:046f") != NULL);
+    CHECK(run_code(&game, &s, start, sizeof start, "EY") == COK_ECL_OK && game.quit);
+    game.quit = false;
     const uint8_t quit[] = {DQK_PROGRAM, 0, 2, DQK_EXIT};
     CHECK(run_code(&game, &s, quit, sizeof quit, "") == COK_ECL_OK && game.quit);
     cok_adventure_close(&game);
