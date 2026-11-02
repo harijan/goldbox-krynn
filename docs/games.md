@@ -691,19 +691,29 @@ run, citing their handlers (`unported`). It holds:
   which calls `5f07:0b3b`) and PROGRAM 9 (`5f07:0c6d`, the ECL position kept across it). The camp
   vector (vectors[2], DS:b298) runs first, then the camp's menu (`7070:2d3c`): "View Magic Rest
   Alt Fix Load Save Exit" in mode 2, its screen the adventure's, the camping picture (0x80) at
-  cell 3, 3, the party's list and the status (`177e:1ad1` in mode 2), the spells forgotten
-  (`7070:02f2`) at its start and end. Each item by its index: View, the sheet (`86b8:0b0c`,
-  then the screen as it was: `86b8:0d97`); Save (`604b:3395`, then "Exit to DOS? " (`4776`),
-  Yes quitting); Exit puts the mode back, redraws the status and rows 18-22 and the bar, and the
-  view is drawn (`5e22:0000`). Rest and Fix are off where variable 0x2b is 1 and 0x2c 0x64 or
-  more (`2dfd-2e09`). Magic (`7070:1671`), Rest (`7070:0aac`), Alt (`7070:1ce2`) and Fix
-  (`7070:2ad0`) stop with their cites, and Load ("Game not saved. Load anyway? " where a member
-  is selected and the game unsaved) stops at `5f07:0004` and main's load (`5ebd:0312`), not
-  ported; PROGRAM 9 on the overland stops at `5f07:01ae`. Checked by `dqk_camp.py` (2026-11-02):
-  the menu, View's sheet and the menu again, the adventure after Exit with the variables
-  0x0001-0x0400, and Save C with No: the saved game byte for byte with the far pointers masked
-  (the original writes its heap's addresses there, as `dqk_create.py` masks them). The camping
-  picture is masked on the menu again, where it animates while the menu waits.
+  cell 3, 3, the party's list and the status (`177e:1ad1` in mode 2). The camp's start and end
+  forget the scrolls' marks (`7070:0218`, `02f2`: an item of type 0x27 or 0x28 loses bit 7 of
+  its spells at 0x36-0x38; a scroll's contents are none in the port). The menu takes the arrow
+  and Alt keys as a filtered pick (`1bdb:1a1b`'s filter): Escape is Exit, any other filtered key
+  stops at `5e22:067c` (a member picked by a key). Each item by its index: View, the sheet
+  (`86b8:0b0c`, then the screen as it was: `86b8:0d97`); Save (`604b:3395`, then "Exit to DOS? "
+  (`4776`), Yes quitting); Load asks "Game not saved. Load anyway? " where a member is selected
+  and the game is not saved (`7070:2f07`), then stops at `5f07:0004` and main's load
+  (`5ebd:0312`), not ported. Exit puts the mode back, redraws the status and rows 18-22 and the
+  bar, and the view is drawn (`5e22:0000`); then the party's mark is drawn where variable 0x22 is
+  0 or 0x24 is 1 (`5f07:0b8f`, `7065:0011`), and the game is no longer saved (`5f07:0ba6`,
+  DS:ae5b, read by Load's question and the start menu's camp). Rest and Fix are off where
+  variable 0x2b is 1 and 0x2c 0x64 or more (`2dfd-2e09`). Magic (`7070:1671`), Rest
+  (`7070:0aac`), Alt (`7070:1ce2`) and Fix (`7070:2ad0`) stop with their cites; PROGRAM 9 on the
+  overland stops at `5f07:01ae`. The camp's entry zeroes the rest time (DS:b1cc, 14 bytes) and
+  DS:bce1 (`2d4e-2d5c`); the port does not model them: its rest time (`game->rest`) is cited at
+  DS:7120, not b1cc, so that cite waits for Rest's part.
+  Checked by `dqk_camp.py` (2026-11-02): the menu, View's sheet and the menu again, the adventure
+  after Exit, with the variables 0x0001-0x0400 at each; Save C with No: the saved game byte for
+  byte with the far pointers masked and the slots and effects' pointer by nil-ness (the original
+  writes its heap's addresses there, as `dqk_create.py` masks them); Load's question after Save
+  and Exit. The camping picture animates while the camp's menu waits (DS:c2ef above 0), so it is
+  masked on the screens that show it.
 - its encounter (step 4, part 6; `dqk_fight.py`'s flow `encounter`; `monster.c` and
   `dark_queen.c`'s `encounter`, the drawing hook `cok_drawing.encounter`). SETUP MONSTERS
   (`6c70:2db1`) takes four operands: the sprite (op 1, a SPRIT.TLB record, 82 in block 7:

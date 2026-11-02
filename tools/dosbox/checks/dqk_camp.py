@@ -10,14 +10,16 @@ Caergoth's 3D view with the adventure's commands (the same keys as
 dqk_party's route, three steps west of Caergoth's first text).
 
 Then, in the adventure's commands, Encamp (e): the camp's menu is shown (the
-screen compared in RGB, the mouse's pointer masked); View (v) and the sheet's
-Escape back to the menu (compared); Escape to leave the menu (the adventure's
-screen compared, and the variables 0x0001-0x0400 against eclplay's --vars).
-Then Encamp again, Save (s) to slot C, "Exit to DOS?" answered No (n), Escape:
-the saved game (SAVGAMC.QSV) compared byte for byte, and the screen.
+screen compared in RGB, the mouse's pointer masked, the variables 0x0001-0x0400
+compared); View (v) and the sheet's Escape back to the menu; Escape to leave the
+menu (the adventure's screen and variables). Then Encamp again, Save (s) to slot
+C, "Exit to DOS?" answered No (n), Escape: the saved game (SAVGAMC.QSV) compared
+(the far pointers masked, the slots and the effects' pointer by nil-ness), and
+the screen. Then Encamp and Load: "Game not saved. Load anyway? " is asked (the
+game was saved, then the camp's Exit cleared that: DS:ae5b), its screen compared.
 
-Not compared: Magic, Rest, Alt, Fix and Load, which stop eclplay (their routines
-are not ported). About a minute.
+Not compared: Magic, Rest, Alt, Fix and Load's yes (they stop eclplay: their
+routines are not ported). About a minute.
 
     python3 tools/dosbox/checks/dqk_camp.py [--workdir DIR] [--verbose]
 
@@ -27,10 +29,12 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import checklib  # noqa: E402
 import dqk_create  # noqa: E402
+import dqk_fight  # noqa: E402
 import dqk_lib  # noqa: E402
 import dqk_modify  # noqa: E402
 
@@ -39,24 +43,34 @@ ROOT = cokbox.ROOT
 GAME = ("--game", "dark-queen")
 DS_VARS = 0xB20F
 VARIABLES = 0x400
+C2EF = 0xC2EF  # DS:c2ef: the camping picture animates while it is above 0 (1bdb:1127)
 SLOT = "C"
 SAVED = f"SAVGAM{SLOT}.QSV"
 # The mouse's pointer at the corner (ALWAYS 2, drawn by the port's --mouse and by DOSBox-X's cursor).
 POINTER = (8, 8, 8, 9, "the mouse pointer at the corner")
-# The camping picture (small picture 0x80 at cell 3, 3), which animates while the menu waits:
-# its frame at a shot is the animation's, so the menu's screen after the sheet masks it.
-PICTURE = (24, 24, 88, 90, "the camping picture's frame, animating while the menu waits")
+# The camping picture (small picture 0x80 at cell 3, 3): the original animates it while the
+# camp's menu waits (DS:c2ef above 0, checked at each menu, 1bdb:1127), so its frame at a
+# shot is the animation's and the screens that show it mask it.
+PICTURE = (24, 24, 88, 90, "the camping picture, animating (DS:c2ef above 0)")
 PARTY = 6  # saved game A's members
 # The walk to the commands: the start menu's Load (PLTA: the original's plta, its
 # Tdqk and letter A), Begin (B; the original's b, then the copy protection answered and
 # its Enter, which the port passes over), the first texts, Leave, and three steps west.
 START = "\\k\\ePLTAB\\r\\r\\rP\\r\\r\\r\\r\\rL\\r\\^\\^\\^"
 ORIGINAL_WALK = "\\r\\r\\rp\\r\\r\\r\\r\\rl\\r\\^\\^\\^"
+# The camp's keys: Encamp, View, Escape (the menu again), Escape (the adventure), Save C,
+# No, Escape, then Encamp and Load (its question, "Game not saved. Load anyway? ").
+MENU = START + "E"
+SHEET = START + "Ev"
+AGAIN = START + "Ev\\e"
+LEAVE = START + "Ev\\e\\e"
+SAVE = START + "Ev\\e\\eESCN\\e"
+QUESTION = START + "Ev\\e\\eESCN\\eEl"
 
 
-def port_run(work, name, keys, variables=False):
-    """eclplay's last shot, its log, its saved game C (bytes or b"") and, with
-    variables, its variables 0x0001-0x0400 at the end (bytes or b"")."""
+def port_run(work, name, keys):
+    """eclplay's last shot, its log, its saved game C (bytes or b"") and its
+    variables 0x0001-0x0400 at the end (bytes or b"")."""
     saves = work / f"saves-{name}"
     if saves.exists():
         shutil.rmtree(saves)
@@ -64,11 +78,9 @@ def port_run(work, name, keys, variables=False):
     shots = work / f"shots-{name}"
     if shots.exists():
         shutil.rmtree(shots)
-    args = [str(cokbox.ECLPLAY), *GAME, "--mouse", "--start-menu", "--saves", str(saves),
-            "--shots", str(shots), "--keys", keys]
     vars_path = work / f"vars-{name}.bin"
-    if variables:
-        args += ["--vars", str(vars_path)]
+    args = [str(cokbox.ECLPLAY), *GAME, "--mouse", "--start-menu", "--saves", str(saves),
+            "--shots", str(shots), "--keys", keys, "--vars", str(vars_path)]
     result = subprocess.run([*args, str(dqk_lib.ASSETS)], capture_output=True, text=True,
                             cwd=ROOT, timeout=300)
     log = result.stdout + result.stderr
@@ -76,28 +88,57 @@ def port_run(work, name, keys, variables=False):
     files = sorted(shots.glob("*.bmp"), key=lambda p: int(p.stem))
     shot = cokbox.RGBScreen.load(files[-1]) if files else None
     saved = (saves / SAVED).read_bytes() if (saves / SAVED).exists() else b""
-    variables_read = vars_path.read_bytes() if variables and vars_path.exists() else b""
-    return shot, log, saved, variables_read
+    variables = vars_path.read_bytes() if vars_path.exists() else b""
+    return shot, log, saved, variables
+
+
+def nil(data):
+    return data == bytes(len(data))
 
 
 def saved_differences(original, port):
-    """The offsets where the two saved games differ, but the far pointers (the
-    records' and items' and effects' next, the slots: the original's are its heap's
-    addresses, the port's are not, as dqk_create.py masks them) and the size."""
+    """The offsets where the two saved games differ, and the pointers' nil-ness.
+    Masked: each character's record next (0-3), the items' pointer's high word (10-11)
+    and each effect's next (the original's are its heap's addresses, as
+    dqk_create.far_pointers masks them). Compared by nil-ness, not masked: the effects'
+    pointer (+4-7) and the 13 slots (+0x0c-0x3f): the original's slots are the readied
+    items' (dqk_create.original_slots, model_slots: the port's model of them)."""
     if len(original) != len(port):
         return {"size": (len(original), len(port))}
-    mask = set()
+    mask, nil_area, diffs = set(), set(), {}
     for member in range(PARTY):
         at = dqk_modify.record_at(original, member)
-        mask.update(at + o for o in dqk_create.far_pointers(original[at:]))
-    return {f"{k:#06x}": (original[k], port[k]) for k in range(len(original))
-            if original[k] != port[k] and k not in mask}
+        mask.update(at + o for o in dqk_create.far_pointers(original[at:])
+                    if not (4 <= o < 8 or 0x0C <= o < 0x40))
+        nil_area.update(range(at + 4, at + 8), range(at + 0x0C, at + 0x40))
+        slots = dqk_create.original_slots(original[at:])
+        model = dqk_create.model_slots(port[at:])
+        if slots != model:
+            diffs[f"member {member + 1}: readied slots"] = (slots, model)
+        effects = (nil(original[at + 4:at + 8]), nil(port[at + 4:at + 8]))
+        if effects[0] != effects[1]:
+            diffs[f"member {member + 1}: effects pointer nil"] = effects
+    for k in range(len(original)):
+        if original[k] != port[k] and k not in mask and k not in nil_area:
+            diffs[f"{k:#06x}"] = (original[k], port[k])
+    return diffs
 
 
 def differing(original, port, addresses):
     """The variables (address: original, port) that differ."""
     return {f"{a:#x}": (original[a - 1], port[a - 1] if len(port) >= a else None)
             for a in addresses if len(port) < a or original[a - 1] != port[a - 1]}
+
+
+def wait_key(box, seconds=120):
+    """The screen once the game waits for a key (Box.waiting: a menu's, a sheet's
+    or a question's wait, or a ReadKey): a state wait, not a settling of the screen."""
+    end = time.monotonic() + seconds
+    while not box.waiting():
+        if time.monotonic() > end:
+            raise cokbox.BoxError(f"the game did not wait for a key in {seconds} s")
+        time.sleep(0.05)
+    return box.screenshot()
 
 
 def main():
@@ -113,13 +154,13 @@ def main():
     out.mkdir()
     verdict = checklib.Verdict()
 
-    # The port: the camp's menu (after E), the sheet (v), the menu again (Escape), the
-    # adventure (Escape), with the variables; then Save C, No, Escape.
-    menu, log_menu, _, _ = port_run(work, "menu", START + "E")
-    sheet, _, _, _ = port_run(work, "view", START + "Ev")
-    again, _, _, _ = port_run(work, "again", START + "Ev\\e")
-    leave, log_leave, _, port_vars = port_run(work, "leave", START + "Ev\\e\\e", variables=True)
-    saved_shot, log_save, port_saved, _ = port_run(work, "save", START + "Ev\\e\\eESCN\\e")
+    # The port's screens and variables at each step, and its saved game C and question.
+    menu, log_menu, _, port_menu = port_run(work, "menu", MENU)
+    sheet, _, _, port_sheet = port_run(work, "view", SHEET)
+    again, _, _, port_again = port_run(work, "again", AGAIN)
+    leave, _, _, port_leave = port_run(work, "leave", LEAVE)
+    saved_shot, log_save, port_saved, port_saved_vars = port_run(work, "save", SAVE)
+    question, log_question, _, port_question_vars = port_run(work, "question", QUESTION)
 
     with cokbox.Box(workdir=work / "box", game="dark-queen", verbose=opts.verbose,
                     timeout=900) as box:
@@ -143,36 +184,63 @@ def main():
         box.settled(tolerance=64)
         box.keys(ORIGINAL_WALK)
         box.settled(tolerance=64)
-        steps = [("the camp's menu", "e", menu), ("the view's sheet", "v", sheet),
-                 ("the camp's menu again", "\\e", again), ("the adventure after Exit", "\\e", leave)]
-        for what, typed, port_shot in steps:
+
+        def original_variables():
+            return dqk_fight.block_vars(box)
+
+        def compare_variables(what, port_vars):
+            verdict.value(f"the variables 0x0001-0x0400 at {what} (far DS:b20f)",
+                          differing(original_variables(), port_vars, range(1, VARIABLES + 1)), {})
+
+        steps = [("the camp's menu", "e", menu, port_menu),
+                 ("the view's sheet", "v", sheet, port_sheet),
+                 ("the camp's menu again", "\\e", again, port_again),
+                 ("the adventure after Exit", "\\e", leave, port_leave)]
+        for what, typed, port_shot, port_vars in steps:
             box.keys(typed)
-            shot = box.settled(tolerance=64)
+            shot = wait_key(box)
             shot.save_png(out / f"{checklib.slug(what)}.png")
-            masks = [POINTER, PICTURE] if what == "the camp's menu again" else [POINTER]
+            masks = [POINTER]
+            if what.startswith("the camp's menu"):
+                animating = box.read(box.ds * 16 + C2EF, 1)
+                verdict.check(animating != b"\0", f"the camping picture animates at {what} "
+                              "(DS:c2ef above 0): masked", animating.hex())
+                masks.append(PICTURE)
             verdict.screen(what, shot, port_shot, masks=masks, work=work)
-            if what == "the adventure after Exit":
-                variables = box.far(box.ds * 16 + DS_VARS)
-                original = box.read(variables + 1, VARIABLES)
-                verdict.value("the variables 0x0001-0x0400 after Encamp and Exit (far DS:b20f)",
-                              differing(original, port_vars, range(1, VARIABLES + 1)), {})
+            compare_variables(what, port_vars)
+
         box.keys("e")
-        box.settled(tolerance=64)
+        wait_key(box)
         box.keys("s" + SLOT.lower() + "n\\e")
-        shot = box.settled(tolerance=64)
+        shot = wait_key(box)
         shot.save_png(out / "after-save.png")
         verdict.screen("the adventure after Save C, No and Escape", shot, saved_shot,
                        masks=[POINTER], work=work)
+        compare_variables("the adventure after Save C, No and Escape", port_saved_vars)
         original_saved = (box.game / "SAVE" / SAVED).read_bytes() \
             if (box.game / "SAVE" / SAVED).exists() else b""
         verdict.value(f"the saved game {SLOT} the original and the port write (byte for byte, "
-                      "the far pointers masked)",
+                      "the far pointers masked, the slots and the effects' pointer by nil-ness)",
                       saved_differences(original_saved, port_saved) if original_saved else
                       {"missing": True}, {})
+
+        # Save, Exit, Encamp, Load: the game was saved, but Exit cleared that (5f07:0ba6),
+        # so Load asks "Game not saved. Load anyway? " (7070:2f07).
+        box.keys("e")
+        wait_key(box)
+        box.keys("l")
+        shot = wait_key(box)
+        shot.save_png(out / "load-question.png")
+        verdict.screen("the camp's Load after Save and Exit asks whether to load anyway", shot,
+                       question, masks=[POINTER, PICTURE], work=work)
+        compare_variables("the camp's Load question", port_question_vars)
     menu_line = "menu: View Magic Rest Alt Fix Load Save Exit"
     verdict.check(menu_line in log_menu and menu_line in log_save and "save: " in log_save,
                   "the port's Encamp menu shows its words, and Save writes the game",
                   log_save.strip().splitlines()[-1] if log_save.strip() else "")
+    verdict.check("not yet ported" not in log_question,
+                  "the port asks Load's question (no stop at Load)",
+                  log_question.strip().splitlines()[-1] if log_question.strip() else "")
     return verdict.finish()
 
 

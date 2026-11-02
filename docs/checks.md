@@ -541,16 +541,20 @@ not checked. The variables the original changed agree (0x30 and the marker; in t
 0x22, 0x24, 0x3e, 0x25 and 0x26 too). The other variables are not compared: eclplay starts from a
 fresh game, not saved game A (its `--load` is not ported). All agree (2026-11-02).
 
-`dqk_camp.py` (about half a minute; in `make dqk-checks`) runs the adventure's camp, Encamp
-(`e`) from the commands after the same walk to Caergoth's 3D view as `dqk_party.py`, with saved
-game A's party on both sides: the camp's menu, View's sheet (`v`) and the menu again (Escape), the
-adventure after Exit (Escape), with the variables 0x0001-0x0400 at that point; then Encamp, Save
-to slot C (`s`, `c`), "Exit to DOS? " answered No (`n`) and Escape. The screens agree in RGB with
-the mouse's pointer left out, and the camping picture left out on the menu again (it animates
-while the menu waits: its frame at a shot is the animation's). The saved game C agrees byte for
-byte except the far pointers (the records', items' and effects' next, the slots), which the
-original fills with its heap's addresses. Magic, Rest, Alt, Fix and Load are not run (they stop
-eclplay). All agree (2026-11-02).
+`dqk_camp.py` (about a minute; in `make dqk-checks`) runs the adventure's camp, Encamp (`e`) from
+the commands after the same walk to Caergoth's 3D view as `dqk_party.py`, with saved game A's
+party on both sides: the camp's menu, View's sheet (`v`) and the menu again (Escape), the adventure
+after Exit (Escape), each with the screen in RGB (the mouse's pointer left out) and the variables
+0x0001-0x0400; then Encamp, Save to slot C (`s`, `c`), "Exit to DOS? " answered No (`n`) and
+Escape, the adventure's screen and variables, and the saved game C: byte for byte, with the far
+pointers (the records' and items' and effects' next, the item pointer's high word) left out as
+`dqk_create.py` leaves them and the effects' pointer and the 13 slots compared by nil-ness (the
+original's slots are its readied items', `dqk_create.original_slots` and `model_slots`). Then
+Encamp and Load: after Save and Exit the game is not saved (`5f07:0ba6`), so Load asks "Game not
+saved. Load anyway? ", whose screen is compared. The camping picture is left out of the menus'
+screens and the question: the original animates it while the menu waits (DS:c2ef above 0, checked
+at each menu), so its frame at a shot is the animation's. Magic, Rest, Alt, Fix and Load's yes
+are not run (they stop eclplay). All agree (2026-11-02).
 
 `dqk_ecl_text.py` (about a minute and a half for its seven blocks; in `make dqk-checks`)
 runs the text, picture and wait opcodes the same way, with `dqk_views.py`'s screens:

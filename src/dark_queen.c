@@ -2,7 +2,6 @@
 #include "dark_queen.h"
 
 #include "adventure.h"
-#include "camp.h"
 #include "hlib.h"
 #include "queen.h"
 #include "queen_arena.h"
@@ -1882,11 +1881,23 @@ enum { ENCAMP_VIEW, ENCAMP_MAGIC, ENCAMP_REST, ENCAMP_ALT, ENCAMP_FIX, ENCAMP_LO
 static const char *const encamp_words[ENCAMP_ITEMS] = {"View", "Magic", "Rest", "Alt",
                                                        "Fix",  "Load",  "Save", "Exit"};
 
-/* The camp's forget of the spells (7070:02f2, at its start and its end). */
+/* The camp's forget of the scrolls' marks (7070:02f2, at its start and its end, for
+ * each member's items: 0218). An item of type 0x27 or 0x28 (the item record's type at
+ * 0x28, tested by 7fd8:43f7) has its marks cleared: bit 7 of its spells at 0x36-0x38
+ * (02aa-02d5). A container (0x49, a scroll's spells) is walked instead (024c-02a6),
+ * clearing its contents' marks; the port holds no contents (604b:05fd drops a scroll
+ * that has some, so a kept one's count is 0), so there is none here. Memorized spells
+ * are not forgotten (camp_forgets_memorized is false: 7070:02f2 leaves them). */
 static void forget_members(cok_adventure *game)
 {
-    for (size_t i = 0; i < game->party.count; ++i)
-        cok_camp_forget(game->party.members[i], cok_game_rules(game));
+    for (size_t i = 0; i < game->party.count; ++i) {
+        cok_character *c = game->party.members[i];
+        for (size_t n = 0; n < c->item_count; ++n) {
+            uint8_t *item = c->items[n];
+            if (item[0x28] != 0x27 && item[0x28] != 0x28) continue;
+            for (size_t k = 0x36; k <= 0x38; ++k) item[k] &= 0x7f;
+        }
+    }
 }
 
 /* The adventure's camp menu (7070:2d3c). Returns false where the run stopped.
@@ -1923,8 +1934,12 @@ static bool encamp_menu(cok_adventure *game)
             snprintf(line + m, sizeof line - m, "%s%s", m > 0 ? " " : "", encamp_words[k]);
         }
         cok_adventure_log(game, "menu", line);
-        int choice = bar_menu(game, "", shown, n, false, true, 0, 0);
+        int choice = bar_menu(game, "", shown, n, true, true, 0, 0);
         if (choice < 0) return false;
+        /* A filtered key other than Escape (Up, Down, Home, End, Alt+a letter) picks a
+         * member by 5e22:067c, not ported (as commands() stops on it). */
+        if (choice >= 0x80)
+            return cok_adventure_not_yet(game, "a member picked by a key", "dqk 5e22:067c");
         int k = choice == 0x1b ? ENCAMP_EXIT : choice < (int)n ? index[choice] : -1;
         if (k < 0) continue;
         log_choice(game, k);
@@ -1936,7 +1951,7 @@ static bool encamp_menu(cok_adventure *game)
             break;
         case ENCAMP_LOAD:
             if (vm->character != NULL && !q->saved) {
-                int yes = yes_no(game, "Game not saved. Load anyway? ", false);
+                int yes = yes_no(game, "Game not saved. Load anyway? ", game->picture_shown);
                 if (yes < 0) return false;
                 if (!yes) break;
             }
@@ -1944,7 +1959,7 @@ static bool encamp_menu(cok_adventure *game)
                                          "dqk 5f07:0004, 5ebd:0312");
         case ENCAMP_SAVE: {
             if (!save_game(game)) return false;
-            int yes = yes_no(game, "Exit to DOS? ", false); /* DS:4776 */
+            int yes = yes_no(game, "Exit to DOS? ", game->picture_shown); /* DS:4776 */
             if (yes < 0) return false;
             if (yes) {
                 cok_adventure_quit(game);
@@ -1984,6 +1999,11 @@ static cok_ecl_status encamp(cok_adventure *game)
     if (status != COK_ECL_OK || vm->abort) return status;
     if (!encamp_menu(game) || vm->abort) return vm->status;
     view(game);
+    if (vm->abort) return vm->status;
+    /* 5f07:0b8f: the party's mark where variable 0x22 is 0 or 0x24 is 1; then 0ba6 clears
+     * the game saved (DS:ae5b, read by Load's question and the start menu's camp). */
+    if (cok_ecl_load_var(vm, 0x22) == 0 || cok_ecl_load_var(vm, 0x24) == 1) marker(game);
+    own(game)->saved = false;
     return vm->status;
 }
 
@@ -2024,6 +2044,7 @@ static void program(cok_adventure *game)
         cok_adventure_quit(game);
     } else if (n == 9) {
         program_encamp(game);
+        vm->view_changed = true; /* 0c8c, the tail of every case */
     } else if (n == 3) {
         char what[32];
         snprintf(what, sizeof what, "PROGRAM %u", n);
