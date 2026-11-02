@@ -10,10 +10,13 @@ import re
 import shutil
 import struct
 import subprocess
+import sys
 import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+import hlib  # noqa: E402
 BUILD = ROOT / "build"
 ASSETS = ROOT / "DQKAssets"
 ECL = ASSETS / "DISK3" / "ECL.GLB"
@@ -412,13 +415,14 @@ class DarkQueenTests(unittest.TestCase):
             result = self.play("--set", "22=1", "--start", "9bfd", "--keys", keys, ASSETS, 1)
             self.assertIn(f"input: {text}", result.stdout.splitlines(), keys)
 
-    def vertical(self, keys, *more):
+    def vertical(self, keys, *more, number=False):
         """A VERTICAL MENU of six items (I0-I5, from string variables) with
-        an empty prompt: four rows (18-21), so that it scrolls."""
+        an empty prompt: four rows (18-21), so that it scrolls. NUMBER makes
+        the first item the immediate 7 (its type 0), the rest as before."""
         items = [0x300 + 0x10 * i for i in range(6)]
         code = [0x15, 0x01, 0xBF, 0x00, 0x81, 0x00, 0x02, 0x00, len(items)]
-        for a in items:
-            code += [0x81, a & 0xFF, a >> 8]
+        for i, a in enumerate(items):
+            code += [0x00, 7] if number and i == 0 else [0x81, a & 0xFF, a >> 8]
         code.append(0)
         sets = [(0x8014 + i, b) for i, b in enumerate(code)]
         for i, a in enumerate(items):
@@ -446,6 +450,20 @@ class DarkQueenTests(unittest.TestCase):
         # Select takes it.
         self.assertEqual(choice(r"\m20,152,1.\m20,152,1.", "--mouse"), ["choice: 1"])
         self.assertEqual(choice(r"\m20,160,1.\m20,190,1.", "--mouse"), ["choice: 2"])
+
+    def test_vertical_store_takes_the_first_items_width(self):
+        # The choice is stored as wide as the first item (1bdb's 6c70:1e91
+        # reads DS:b216, the first item's type): a number first makes a
+        # byte store, which leaves the byte after the header variable (0xc0)
+        # as it was; strings first make a word, clearing it.
+        for number, after in ((True, 0x55), (False, 0)):
+            varfile = self.folder / f"vars{number}"
+            result = self.vertical(r"\v\r", "--set", "c0=55", "--vars", varfile,
+                                   number=number)
+            self.assertIn("choice: 1", result.stdout.splitlines())
+            variables = varfile.read_bytes()
+            self.assertEqual(variables[0xBF - 1], 1)
+            self.assertEqual(variables[0xC0 - 1], after, number)
 
     def test_bar_clicks(self):
         # A click on a HORIZONTAL MENU's button (block 1's jumper: START at
@@ -1143,6 +1161,62 @@ class DarkQueenTests(unittest.TestCase):
         self.assertEqual(moves[-1], "step: 13,8 facing 2")
         self.assertIn("print: HUGE SHADOWS SKIM OVER THE GROUND. GIANT SHAPES DISAPPEAR OVER "
                       "THE TREE TOPS.", result.stdout)
+
+    def test_view_clicks(self):
+        # The view's areas of the commands' bar (1bdb:1aef, with the mouse on):
+        # a click gives the arrow key's command (1206's codes, 126e): columns
+        # 0-39 turn left, 40-95 step ahead, 96-135 turn right, rows 100-159
+        # turn around (an arrow key's Left, Up, Right, Down); a click on
+        # nothing beeps (2aa6:169d). From Caergoth's 3D view at 3,2 facing 2.
+        # The original's check: dqk_view_mouse.py.
+        clicks = [(39, 50), (96, 50), (40, 50), (95, 50), (135, 90), (0, 0), (60, 99),
+                  (60, 100), (135, 120), (60, 159), (136, 90), (60, 160), (136, 120),
+                  (20, 150)]
+        keys = r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r" + "".join(
+            r"\m%d,%d,1." % spot for spot in clicks)
+        result = self.play("--start-menu", "--mouse", "--keys", keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        moves = [line for line in result.stdout.splitlines()
+                 if line.startswith(("step:", "turn:"))]
+        self.assertEqual(moves, ["turn: 3,2 facing 0", "turn: 3,2 facing 2",
+                                 "step: 4,2 facing 2", "step: 5,2 facing 2",
+                                 "turn: 5,2 facing 4", "turn: 5,2 facing 2",
+                                 "step: 6,2 facing 2", "turn: 6,2 facing 6",
+                                 "turn: 6,2 facing 2", "turn: 6,2 facing 6",
+                                 "turn: 6,2 facing 2"])
+
+    def hover_shot(self, x, y):
+        """The pixels of the shot with the pointer at x, y in the commands'
+        bar, the menu waiting again after an Escape (its controls live)."""
+        shots = self.folder / f"hover-{x}-{y}"
+        keys = r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r" + r"\m%d,%d,0.\e" % (x, y)
+        result = self.play("--start-menu", "--mouse", "--shots", shots, "--keys", keys, ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return pixels(sorted(shots.glob("*.bmp"))[-1])
+
+    def test_view_cursors(self):
+        # The pointer's shape over the view's areas (2aa6:15e3's cursor, 1bdb:1aef's
+        # records: ALWAYS.TLB's 26 over columns 0-39, 11 over 40-95, 25 over
+        # 96-135, 27 over rows 100-159) and the shield (2) elsewhere, each drawn
+        # at its hotspot (the header's row, then column). The pixels a move to
+        # the spot changes (the shot less the one with the pointer parked at
+        # 250,150, within 24 pixels of it) are the record's opaque pixels there,
+        # nine in ten of them or more.
+        always = hlib.load(ASSETS / "DISK1" / "ALWAYS.TLB")
+        park = self.hover_shot(250, 150)
+        for (x, y), record in [((39, 50), 26), ((40, 50), 11), ((96, 50), 25),
+                               ((60, 100), 27), ((136, 90), 2)]:
+            shot = self.hover_shot(x, y)
+            near = [(c, r) for r in range(max(0, y - 24), min(200, y + 24))
+                    for c in range(max(0, x - 24), min(320, x + 24))]
+            moved = {(c, r) for c, r in near
+                     if shot[3 * (r * 320 + c):][:3] != park[3 * (r * 320 + c):][:3]}
+            w, h, hot_row, hot_col, _, rows = hlib.picture(always.record(record))
+            placed = {(x - hot_col + c, y - hot_row + r) for r in range(h) for c in range(w)
+                      if rows[r][c] is not None}
+            placed = {(c, r) for c, r in placed if 0 <= c < 320 and 0 <= r < 200}
+            agreed = len(moved & placed) / len(moved | placed)
+            self.assertGreaterEqual(agreed, 0.9, f"the pointer at {x},{y}: record {record}")
 
     def test_save_and_remove(self):
         # With --saves: Load A, Save Current Game as B (604b:3395, 31a7):

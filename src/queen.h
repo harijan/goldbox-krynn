@@ -97,7 +97,8 @@ int queen_edit_line(cok_adventure *game, char *line, size_t most);
  * from cell 1, the line typed after it. */
 int queen_input_line(cok_adventure *game, const char *prompt, unsigned fg, unsigned bg,
                      char *line, size_t most);
-/* Whether a mouse driver answers (DS:c2f5). */
+/* Whether a mouse driver is installed. Not DS:c2f5, which 1bdb:1206 sets
+ * on a mouse hit on a control. */
 bool queen_mouse(const cok_adventure *game);
 /* The character written to the save path as <name>.QCH (604b:23a7), asking
  * about a file there. False where the run stopped. */

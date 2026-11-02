@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py` and `dqk_ecl_text.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py` and `dqk_ecl_text.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -350,10 +350,19 @@ commands; the variables 0x0001-0x0400 once loaded against `eclplay
 --vars`'s; then 24 steps and turns along Caergoth to the widow's menu, the
 clock (variables 5-11), last square (0x17, 0x18) and edge (0x21) there, the
 party's square and facing after each (`DS:c9f0`-`c9f2`) against the port's
-log, the widow's menu, the shadows and the step before the dragons, whole
-but the mouse's cursor in the commands (`1bdb:1aef`'s areas give it other
-shapes: not ported); the original then runs the dragons' `SETUP MONSTERS`
-where the port stops, cited (its ECL between them). All agree (2026-10-27).
+log, the widow's menu, the shadows and the step before the dragons, whole,
+the mouse's cursor included; the original then runs the dragons' `SETUP MONSTERS`
+where the port stops, cited (its ECL between them). All agree (2026-11-02).
+
+`dqk_view_mouse.py` (about a minute) moves the mouse over the 3D view's areas at
+the adventure's commands (`1bdb:1aef`, the mouse on), from Caergoth's view at
+3,2 facing 2 (`dqk_party.py`'s route; the box's pointer, `sdl.mouse_emulation=always`):
+fourteen spots, each side of the view's edges, the pointer moved to each (the
+whole screen compared, the cursor included: ALWAYS.TLB's 26, 11, 25 or 27, or the
+shield elsewhere), then clicked; the party's square and facing (`DS:c9f0`-`c9f2`)
+before each spot and after the last click against the port's, one `eclplay
+--mouse` run per spot (the pointer's move, then Escape: its last shot, with the
+menu waiting). All agree (2026-11-02).
 
 `dqk_items.py` (about two minutes) plays the sheet's menu from the same saved
 game, one key a step, every screen compared whole: View's coin Trade
@@ -459,6 +468,34 @@ blocks: the original never gets past it (DOSBox-X logs an unhandled INT 0
 again and again, the game's screen and ECL stay at the DIVIDE, 832a), where
 eclplay stops with "division by zero" there; a difference in a case the game
 does not survive, not compared.
+
+`dqk_ecl_input.py` (seven blocks, a few minutes; `--only NAME` runs one) runs the input and menu opcodes the same way, its keys typed after each
+block's PRESS KEY (`eclplay --keys`, the box's keys as the game waits); its
+machinery is `dqk_ecl.py`'s (`run_block`). `tools/dqkecl.py` writes a string
+operand (`text`), the packing `src/ecl.c`'s unpack reads. The blocks: INPUT
+NUMBER (an empty line, five digits at most, "-5" and Escape asked again, a suffix
+base, out of range asked again, Escape after typed text discarding it, "3" Escape
+"7" is 7; 300 into a narrow variable, the byte after it 0x55 still) and INPUT
+STRING (lower case upper-cased, an empty line a space, Escape keeping the text, 40
+letters keeping 35, Backspace); COMPARE AND (two pairs; a string pair never equal;
+a wide variable against a word; a number against a string, whatever the original
+gives); VERTICAL MENU (Down and Return, Escape keeping the current item, Up
+wrapping; the store is as wide as the first item: a string makes a word, clearing
+the byte after a wide header variable, a number first a byte, the byte after a
+narrow one (0x151 0x55) kept, a string first and a number last a word (0x155
+cleared)); HORIZONTAL and ASK MENU (a hotkey, the first item with its letter,
+Escape and Down not ending it, a wide header variable as a word, a narrow one as
+a byte with the byte after it, 0x55, kept); and YES NO (a hotkey, Escape as No,
+Down not ending it, the flags cleared each time). Down at a bar menu runs the
+party's member keys in the original (`1bdb:1e29`, DS:ad67), which the flow does
+not compare: it has no party. LOAD CHARACTER is not in the blocks: its result is
+which member is selected, which needs the same party on both sides. The flow
+fails if eclplay leaves keys unread (its `(keys left unread in block N at ADDR)`
+on stderr). Not run: the `DS:c2f5` paths. `1bdb:0424` (YES NO, 0452) and
+`6c70:0e3f` (HORIZONTAL, ASK) branch on c2f5, which `1bdb:1206` sets to 1 for a
+mouse hit on a control; `queen.h` calls it "whether a mouse driver answers", which
+the original does not show, and no block clicks. All agree (2026-11-02); a port
+string limit one short fails INPUT STRING's block.
 
 `dqk_ecl_text.py` (about a minute and a half for its seven blocks; in `make dqk-checks`)
 runs the text, picture and wait opcodes the same way, with `dqk_views.py`'s screens:

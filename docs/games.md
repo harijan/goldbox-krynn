@@ -510,7 +510,15 @@ run, citing their handlers (`unported`). It holds:
   TABLE agree with the original on test blocks, narrow and wide (`dqk_ecl.py`,
   2026-11-01); DIVIDE by zero does not run in the original at all: its INT 0 is
   unhandled and the game hangs (DOSBox-X's "Illegal Unhandled Interrupt Called 0"),
-  where eclplay stops with "division by zero" at the same address, 832a;
+  where eclplay stops with "division by zero" at the same address, 832a; the input and menu opcodes
+  agree on test blocks (`dqk_ecl_input.py`, 2026-11-02): INPUT NUMBER, INPUT
+  STRING, COMPARE AND, VERTICAL MENU, HORIZONTAL MENU, ASK MENU and YES NO (their
+  keys typed; LOAD CHARACTER not run, it needs a party on both sides). VERTICAL
+  MENU's store takes the first item's type (`6c70:1e91` reads `DS:b216` in its
+  item loop; the port took the last item's, fixed in 2026-11-02's part). The mouse
+  branches of YES NO (`1bdb:0424`, 0452) and HORIZONTAL and ASK (`6c70:0e3f`) read
+  `DS:c2f5`, which `1bdb:1206` sets for a mouse hit on a control (not a driver's
+  flag, as `queen.h` has it); not run;
   its text, picture and wait opcodes (PRINT, PRINTCLEAR, PRINT RETURN, PRESS KEY,
   JOURNAL, DELAY, CLEAR BOX, CLEAR EXIT, PICTURE, and the view again after a small and
   after a big picture; `dqk_ecl_text.py`) agree with the original at every wait (the
@@ -1061,8 +1069,11 @@ run). The shipped saved game's party is at the start: block 4, Palanthas;
 its palace and Leave take it to Caergoth, whose ruins (journal entry 65)
 start variable 0xa0's count of steps: three on, huge shadows; six on,
 dragons attack, whose `SETUP MONSTERS` (`6c70:2db1`, step 4's) is where
-the port stops. The mouse's areas over the view in the commands
-(`1bdb:1aef`: their cursors and keys) are not ported.
+the port stops. The mouse's four areas over the view in the commands
+(`1bdb:1aef`: turn left, step ahead, turn right and turn around, each a
+click as its arrow key, with its cursor) are ported and checked
+(`dqk_view_mouse.py`); not ported: the areas of the outside-3D commands
+(`1bdb:1beb`) and the party list's control (`1bdb:0a33`).
 
 ### The character record's layout
 

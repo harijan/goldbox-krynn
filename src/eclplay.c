@@ -1161,6 +1161,11 @@ static int run(int argc, char **argv)
     }
     if (screen != NULL) save(&p, screen);
     if (vars != NULL) save_vars(&game, vars);
+    /* Keys the run never read (stderr, so the stdout's last line stays as it
+     * is): a script that typed more than its block took. */
+    if (status == COK_ECL_OK && (!cok_key_script_done(&p.keys) || p.buffered > 0))
+        fprintf(stderr, "(keys left unread in block %u at %04x)\n", game.vm.block,
+                game.vm.ip);
     int result = 0;
     if (status == COK_ECL_LOAD_FAILED || status == COK_ECL_EFFECT_FAILED ||
         status == COK_ECL_UNDEFINED || status == COK_ECL_UNPORTED) {

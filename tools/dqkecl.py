@@ -38,7 +38,9 @@ OPCODES = {
     "RETURN": 0x13, "IF_EQUAL": 0x16, "IF_NOT_EQUAL": 0x17, "IF_LESS": 0x18,
     "IF_GREATER": 0x19, "IF_LESS_EQUAL": 0x1A, "IF_GREATER_EQUAL": 0x1B, "PRESS_KEY": 0x1D,
     "ON_GOTO": 0x25, "ON_GOSUB": 0x26, "GETTABLE": 0x2A, "AND": 0x2F, "OR": 0x30,
-    "SAVE_TABLE": 0x35,
+    "SAVE_TABLE": 0x35, "LOAD_CHARACTER": 0x0A, "INPUT_NUMBER": 0x0F, "INPUT_STRING": 0x10,
+    "COMPARE_AND": 0x14, "VERTICAL_MENU": 0x15, "YES_NO": 0x22, "HORIZONTAL_MENU": 0x2B,
+    "ASK_MENU": 0x31,
 }
 
 
@@ -60,6 +62,24 @@ def var(a):
 def wvar(a):
     assert 0 <= a <= 0xFFFF, a
     return bytes([3, a & 0xFF, a >> 8])
+
+
+def text(s):
+    """A string operand (type 0x80, its low byte the packed byte count): the
+    6-bit packing of ecl.c's unpack, four codes in three bytes. Upper case
+    letters, digits and punctuation only (a lower-case letter has no code)."""
+    codes = []
+    for ch in s:
+        c = ord(ch)
+        assert 0x20 <= c <= 0x5F and c != 0x40, ch
+        codes.append(c - 0x40 if c >= 0x40 else c)
+    codes += [0] * (-len(codes) % 4)
+    packed = bytearray()
+    for i in range(0, len(codes), 4):
+        c0, c1, c2, c3 = codes[i:i + 4]
+        packed += bytes([c0 << 2 | c1 >> 4, (c1 & 15) << 4 | c2 >> 2, (c2 & 3) << 6 | c3])
+    assert len(packed) <= 0xFF, s
+    return bytes([0x80, len(packed)]) + bytes(packed)
 
 
 class Ref:
