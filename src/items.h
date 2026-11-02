@@ -30,6 +30,9 @@ bool cok_item_name(cok_adventure *game, uint8_t *item, bool readied_column, char
  * character, whose item it need not be. Returns false, ending the run,
  * where that cannot be carried out. */
 bool cok_item_unready(cok_adventure *game, uint8_t *item);
+/* The readied item's routine the game has (rules' items.unready): cok_item_unready,
+ * or queen_item_unready. */
+bool cok_item_unready_routine(cok_adventure *game, uint8_t *item);
 
 /* Ready, or unready, item index of character, which the original takes to
  * be the selected one (546c:1ea7): a readied item unreadied unless cursed

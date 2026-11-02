@@ -1380,6 +1380,11 @@ typedef enum {
     COK_ITEMS_DEATH_KNIGHTS,
 } cok_items_routine;
 
+/* How a readied item is taken off (DESTROY ITEMS, ROB; items.c's
+ * cok_item_unready_routine): Champions' and Death Knights' (cok_item_unready),
+ * or Dark Queen's readied branch (queen_view.c's queen_item_unready). */
+typedef enum { COK_UNREADY_ITEMS, COK_UNREADY_QUEEN } cok_unready_routine;
+
 /* View and the items menu where the games differ (sheet.c, items.c; see
  * View): the routines, their words and rules. */
 typedef struct {
@@ -1442,6 +1447,18 @@ typedef struct {
     uint8_t heal_class, heal_effect;
     uint16_t heal_minutes;
     const char *heal_whom, *cure_whom, *feels_better, *unaffected;
+    /* DESTROY ITEMS (dqk 6c70:30ec): whether its type's high bit destroys only
+     * the items with a bonus (+0x30, item_record's bonus), the type being the
+     * low seven bits, rather than every item of the type; and whether the
+     * stats are recomputed for the members that lost an item only (dqk
+     * 6c70:31af), rather than for every member (Champions' 2fd3:35a3). */
+    bool destroy_magic, destroy_lost_only;
+    /* ROB's money (dqk 6c70:124f): each coin times the percent left, over 100,
+     * as integers, rather than as Turbo Pascal Reals (3775:1c7c). */
+    bool rob_integer;
+    /* The readied item's routine (cok_unready_routine), for DESTROY ITEMS
+     * and ROB; Dark Queen's is dqk 86b8:1965's readied branch. */
+    cok_unready_routine unready;
 } cok_rules_items;
 
 /* The shop, its Buy and Appraise, and the temple and its Heal, as each

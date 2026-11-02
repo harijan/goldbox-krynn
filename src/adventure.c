@@ -1910,23 +1910,33 @@ static void exited(cok_adventure *game)
     game->sprite_loaded = game->closeup_shown = false;
 }
 
-/* DESTROY ITEMS type (2fd3:35a3): every item of that type (+0x2e) of
- * every record in the list goes (6346:1697), unreadied first if readied
- * (546c:1ea7) with its record selected, so that the effect of its power
- * goes from it; a cursed one says "It's Cursed" and goes readied. Each
- * record's stats are then recomputed (6346:0d20), whether it lost any or
- * not, and the selection is restored. The original reads the next item
- * before it unreadies one: where the item's power takes items away or adds
- * them, the item or the next may be freed, and the run stops. */
+/* DESTROY ITEMS type (2fd3:35a3; dqk 6c70:30ec): every item of that type
+ * (+0x2e, item_record's type) of every record in the list goes (6346:1697),
+ * unreadied first if readied (546c:1ea7) with its record selected, so that
+ * the effect of its power goes from it; a cursed one says "It's Cursed" and
+ * goes readied. Each record's stats are then recomputed (6346:0d20), whether
+ * it lost any or not, and the selection is restored. Dark Queen's (items'
+ * destroy_magic, destroy_lost_only): its type's high bit takes only the items
+ * with a bonus, and the stats are recomputed for the members that lost one.
+ * The original reads the next item before it unreadies one: where the item's
+ * power takes items away or adds them, the item or the next may be freed, and
+ * the run stops. */
 static void destroy_items(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
-    uint8_t type = (uint8_t)cok_ecl_value(vm, 0);
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_rules_item_record *R = &rules->item_record;
+    const cok_rules_items *I = &rules->items;
+    uint8_t value = (uint8_t)cok_ecl_value(vm, 0);
+    uint8_t type = I->destroy_magic ? (uint8_t)(value & 0x7f) : value;
+    bool magic = I->destroy_magic && (value & 0x80) != 0;
     uint8_t *saved = vm->character;
     for (size_t k = 0; k < game->party.count; ++k) {
         cok_character *c = game->party.members[k];
+        bool lost = false;
         for (size_t i = 0; i < c->item_count;) {
-            if (c->items[i][0x2e] != type) {
+            uint8_t *item = c->items[i];
+            if (item[R->type] != type || (magic && item[R->bonus] == 0)) {
                 ++i;
                 continue;
             }
@@ -1935,7 +1945,7 @@ static void destroy_items(cok_adventure *game)
             c->held = i + 1;
             /* Each record's stats recomputed after (6346:0d20). */
             game->effects.stats_follow = true;
-            bool unreadied = c->items[i][0x34] == 0 || cok_item_unready(game, c->items[i]);
+            bool unreadied = item[R->readied] == 0 || cok_item_unready_routine(game, item);
             game->effects.stats_follow = false;
             if (!unreadied) return;
             size_t held = c->held;
@@ -1947,26 +1957,31 @@ static void destroy_items(cok_adventure *game)
                 return;
             }
             cok_character_remove_item(c, i);
+            lost = true;
         }
-        char error[300];
-        if (!cok_character_stats(c, cok_game_rules(game), &game->item_types, error, sizeof error)) {
-            cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
-            return;
+        if (lost || !I->destroy_lost_only) {
+            char error[300];
+            if (!cok_character_stats(c, rules, &game->item_types, error, sizeof error)) {
+                cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
+                return;
+            }
         }
     }
     vm->character = saved;
 }
 
-/* FIND ITEM type (2fd3:2b7e): the flags say whether any record in the
- * list has an item of type (+0x2e): = if so, else <>, every other false. */
+/* FIND ITEM type (2fd3:2b7e; dqk 6c70:2f3b): the flags say whether any record
+ * in the list has an item of type (+0x2e, item_record's type): = if so, else
+ * <>, every other false. */
 static void find_item(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
+    const cok_rules_item_record *R = &cok_game_rules(game)->item_record;
     uint8_t type = (uint8_t)cok_ecl_value(vm, 0);
     bool found = false;
     for (size_t k = 0; k < game->party.count && !found; ++k) {
         const cok_character *c = game->party.members[k];
-        for (size_t i = 0; i < c->item_count && !found; ++i) found = c->items[i][0x2e] == type;
+        for (size_t i = 0; i < c->item_count && !found; ++i) found = c->items[i][R->type] == type;
     }
     memset(vm->flags, 0, sizeof vm->flags);
     vm->flags[found ? 0 : 1] = true;

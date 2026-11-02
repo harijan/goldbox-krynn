@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py`, `dqk_ecl_misc.py` and `dqk_ecl_party.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py`, `dqk_ecl_misc.py`, `dqk_ecl_party.py` and `dqk_ecl_items.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -507,6 +507,21 @@ day (Lunitari's first turn), with the clock's variables 5-11, the moons' 0x1fa-0
 57, 61, 63, 119 and 168, and the .QCH files' 92, 94, 95, 105, 26 and 47) for each member, the flags
 expected from the files' effect lists; then DUMP of the middle member and of the first, with variable
 0x20 and the new selection's age after each. All agree (2026-11-02).
+
+`dqk_ecl_items.py` (two blocks, about a minute; in `make dqk-checks`) runs the item opcodes the same
+way, with saved game A's party on both sides. The `items` block: FIND ITEM for each type the party
+holds and one it does not, then DESTROY ITEMS with 0x80 (bonus items only) and without, the types
+found after each step saved (the expected values: the types nobody destroyed stay, the bonus-less
+0x44 stays under 0x80, the readied 0x25, 0x12 and 0x44 go, unreadied first), and ROLANDOF's armour
+class (ECL 0x571, the base AC) as a word before the DESTROYs and after them, so the stats recompute
+is compared. The `rob` block: ROB of ROARK'CR with 39 percent taken (61 kept) of the 200 of gold and
+chance 100, the coins read as words (the gold becomes 122, an integer; as Reals it would be 121), and
+the types of its items after the d100 draws, which are compared as they fall (one d100 per item, the
+expected flags 0, 1, 1); then a RANDOM of range 10 after ROB, whose value is the seed after the three
+draws, so the number and order of ROB's draws are checked. WALKERKE's readied power item (0x43) is no
+block's: its routine is not ported. The cursed path (an item with +0x34 set: "It's Cursed!") has no
+DOSBox coverage: no item in saved game A is cursed, and the repo test (`test_adventure`) covers it.
+All agree (2026-11-02).
 
 `dqk_ecl_text.py` (about a minute and a half for its seven blocks; in `make dqk-checks`)
 runs the text, picture and wait opcodes the same way, with `dqk_views.py`'s screens:

@@ -2398,6 +2398,130 @@ static void test_dark_queen_party_opcodes(void)
     cok_adventure_close(&game);
 }
 
+/* Dark Queen's FIND ITEM (dqk 6c70:2f3b), DESTROY ITEMS (6c70:30ec) and ROB
+ * (6c70:28f8) on saved game A's ROLANDOF, emptied first: the items' type is
+ * at +0x28 (the record's, not Champions' +0x2e, which a decoy of another type
+ * carries). DESTROY ITEMS' 0x80 takes the items with a bonus (+0x30) only; a
+ * readied item is unreadied first (86b8:1965), a cursed one stays readied
+ * ("It's Cursed!") and goes all the same, one with a power stops the run
+ * (86b8:16f7). ROB's coins are integers: 265 kept 20 of 100 is 53, where Reals
+ * give 52 (6c70:124f); an item of weight 0x19 (+0x2c) lowers the chance to
+ * none of 50. */
+static void test_dark_queen_item_opcodes(void)
+{
+    if (!have_dqk_assets()) {
+        puts("adventure: DQKAssets not found; Dark Queen's FIND ITEM, DESTROY ITEMS and ROB not "
+             "checked");
+        return;
+    }
+    enum { DQK_ROB = 0x28, DQK_FIND_ITEM = 0x32, DQK_DESTROY_ITEMS = 0x40 };
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &s};
+    CHECK(cok_adventure_open(&game, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
+    cok_ecl *vm = &game.vm;
+    cok_character *a = dqk_member(&game, "ROLANDOF"), *b = dqk_member(&game, "TIMASALI");
+    CHECK(cok_party_add(&game.party, &cok_rules_dark_queen, a) &&
+          cok_party_add(&game.party, &cok_rules_dark_queen, b));
+    /* Each item: its type at +0x28, its bonus at +0x30, readied at +0x32, cursed at +0x34,
+     * a power at +0x38 (0x80), weight at +0x2c. */
+    uint8_t item[COK_ITEM_SIZE];
+    while (a->item_count > 0) cok_character_remove_item(a, 0);
+    while (b->item_count > 0) cok_character_remove_item(b, 0);
+    memset(item, 0, sizeof item);
+    item[0x28] = 0x12; /* a plain sword */
+    CHECK(cok_character_insert_item(a, 0, item));
+    item[0x30] = 2; /* a magic one */
+    CHECK(cok_character_insert_item(a, 1, item));
+    item[0x30] = 0;
+    item[0x32] = 1; /* readied, uncursed, no power */
+    CHECK(cok_character_insert_item(a, 2, item));
+    item[0x32] = 0;
+    memset(item, 0, sizeof item);
+    item[0x28] = 0x14; /* a decoy: Champions' +0x2e reads 0x12 */
+    item[0x2e] = 0x12;
+    CHECK(cok_character_insert_item(a, 3, item));
+    CHECK(a->item_count == 4);
+
+    /* FIND ITEM 0x12 finds a's sword, and 0x14 the decoy by +0x28, not by +0x2e. */
+    const uint8_t find[] = {DQK_FIND_ITEM, 0, 0x12, DQK_EXIT};
+    const uint8_t decoy[] = {DQK_FIND_ITEM, 0, 0x14, DQK_EXIT};
+    const uint8_t miss[] = {DQK_FIND_ITEM, 0, 0x13, DQK_EXIT};
+    vm->character = a->record;
+    CHECK(run_code(&game, &s, find, sizeof find, "") == COK_ECL_OK && vm->flags[0] &&
+          !vm->flags[1]);
+    CHECK(run_code(&game, &s, decoy, sizeof decoy, "") == COK_ECL_OK && vm->flags[0] &&
+          !vm->flags[1]);
+    CHECK(run_code(&game, &s, miss, sizeof miss, "") == COK_ECL_OK && !vm->flags[0] &&
+          vm->flags[1]);
+
+    /* DESTROY ITEMS 0x92: the magic sword only; b is selected and stays so. b
+     * loses nothing, so its stats are not recomputed (AC, +0x18e, stays 77). */
+    const uint8_t magic[] = {DQK_DESTROY_ITEMS, 0, 0x92, DQK_EXIT};
+    vm->character = b->record;
+    b->record[0x18e] = 77;
+    CHECK(run_code(&game, &s, magic, sizeof magic, "") == COK_ECL_OK);
+    CHECK(a->item_count == 3 && a->items[0][0x28] == 0x12 && a->items[2][0x28] == 0x14 &&
+          vm->character == b->record && b->record[0x18e] == 77);
+
+    /* DESTROY ITEMS 0x12: the plain sword, and the readied one (unreadied first,
+     * no power), the decoy stays. */
+    const uint8_t plain[] = {DQK_DESTROY_ITEMS, 0, 0x12, DQK_EXIT};
+    CHECK(run_code(&game, &s, plain, sizeof plain, "") == COK_ECL_OK);
+    CHECK(a->item_count == 1 && a->items[0][0x28] == 0x14 && a->items[0][0x32] == 0);
+    CHECK(vm->character == b->record);
+
+    /* A cursed readied item: "It's Cursed!", and it goes all the same, readied. */
+    memset(item, 0, sizeof item);
+    item[0x28] = 0x15;
+    item[0x32] = 1;
+    item[0x34] = 1;
+    CHECK(cok_character_insert_item(a, 1, item));
+    const uint8_t cursed[] = {DQK_DESTROY_ITEMS, 0, 0x15, DQK_EXIT};
+    s.log[0] = '\0';
+    CHECK(run_code(&game, &s, cursed, sizeof cursed, "") == COK_ECL_OK);
+    CHECK(a->item_count == 1 && strstr(s.log, "It's Cursed!") != NULL);
+
+    /* A readied item with a power: its power's routine (86b8:16f7) is not ported. */
+    memset(item, 0, sizeof item);
+    item[0x28] = 0x16;
+    item[0x32] = 1;
+    item[0x38] = 0x80;
+    CHECK(cok_character_insert_item(a, 1, item));
+    const uint8_t powered[] = {DQK_DESTROY_ITEMS, 0, 0x16, DQK_EXIT};
+    CHECK(run_code(&game, &s, powered, sizeof powered, "") == COK_ECL_UNPORTED);
+    CHECK(strstr(game.error, "16f7") != NULL && a->item_count == 2);
+    while (a->item_count > 0) cok_character_remove_item(a, 0);
+
+    /* ROB on the selected member (all 0): money 265 kept 20 of 100 is 53 (the
+     * other two coins 0), and the chance 0 keeps an item of weight 0x19 (+0x2c),
+     * whose chance 50 lowers to 0. */
+    memset(item, 0, sizeof item);
+    item[0x28] = 0x17;
+    item[0x2c] = 0x19;
+    CHECK(cok_character_insert_item(a, 0, item));
+    a->record[0x4c] = 265 & 0xff;
+    a->record[0x4d] = 265 >> 8;
+    a->record[0x4e] = a->record[0x4f] = a->record[0x50] = a->record[0x51] = 0;
+    const uint8_t rob[] = {DQK_ROB, 0, 0, 0, 80, 0, 50, DQK_EXIT};
+    vm->character = a->record;
+    CHECK(run_code(&game, &s, rob, sizeof rob, "") == COK_ECL_OK);
+    CHECK(a->record[0x4c] == 53 && a->record[0x4d] == 0 && a->item_count == 1);
+    /* A readied item of power, alone: the chance 100 takes it, and its power's
+     * routine stops the run. */
+    while (a->item_count > 0) cok_character_remove_item(a, 0);
+    memset(item, 0, sizeof item);
+    item[0x28] = 0x18;
+    item[0x32] = 1;
+    item[0x38] = 0x80;
+    CHECK(cok_character_insert_item(a, 0, item));
+    const uint8_t rob_all[] = {DQK_ROB, 0, 0, 0, 0, 0, 100, DQK_EXIT};
+    CHECK(run_code(&game, &s, rob_all, sizeof rob_all, "") == COK_ECL_UNPORTED);
+    CHECK(strstr(game.error, "16f7") != NULL);
+    cok_adventure_close(&game);
+}
+
 /* PROGRAM (dqk 5f07:0baf, 0c8c, 2093:002d): 2 quits (as the camp's Exit does,
  * without its questions); 4-255 leave the view to be redrawn at the next CALL 1
  * (DS:b7f8) and Move mode as it was; 0, 3 and 9 stop, each with its cite. */
@@ -2690,6 +2814,7 @@ int main(void)
     test_dark_queen_clock();
     test_dark_queen_clock_stops();
     test_dark_queen_party_opcodes();
+    test_dark_queen_item_opcodes();
     test_dark_queen_program();
     test_play();
     test_step_sounds();

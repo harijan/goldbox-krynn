@@ -1212,10 +1212,11 @@ static void test_dark_queen(void)
     CHECK(cok_ecl_load_var(&vm, 0xaee2) == 0x55);
 }
 
-/* Dark Queen's ECL CLOCK, DUMP, FIND SPECIAL and PROGRAM are carried out
- * (dqk 5f07:0a35, 0c9b, 0cc5, 0baf; PROGRAM's cases 0, 3 and 9 stop in
- * dark_queen.c), each with the operands its handler loads, and WHO (6c70:2fe0);
- * DAMAGE stays unported. */
+/* Dark Queen's ECL CLOCK, DUMP, FIND SPECIAL, PROGRAM, FIND ITEM, DESTROY
+ * ITEMS, ROB and WHO are carried out (dqk 5f07:0a35, 0c9b, 0cc5, 0baf;
+ * 6c70:2f3b, 30ec, 28f8, 2fe0; PROGRAM's cases 0, 3 and 9 stop in
+ * dark_queen.c), each with the operands its handler loads; TREASURE ITEMS
+ * and DAMAGE stay unported. */
 static void test_dark_queen_handlers(void)
 {
     const cok_rules *Q = &cok_rules_dark_queen;
@@ -1223,8 +1224,11 @@ static void test_dark_queen_handlers(void)
     CHECK(cok_ecl_unported(Q, 0x3e) == NULL && Q->ecl.opcodes[0x3e].operands == 0);
     CHECK(cok_ecl_unported(Q, 0x3f) == NULL && Q->ecl.opcodes[0x3f].operands == 1);
     CHECK(cok_ecl_unported(Q, 0x38) == NULL);
+    CHECK(cok_ecl_unported(Q, 0x32) == NULL && Q->ecl.opcodes[0x32].operands == 1);
+    CHECK(cok_ecl_unported(Q, 0x40) == NULL && Q->ecl.opcodes[0x40].operands == 1);
+    CHECK(cok_ecl_unported(Q, 0x28) == NULL && Q->ecl.opcodes[0x28].operands == 3);
     CHECK(cok_ecl_unported(Q, 0x39) == NULL && Q->ecl.opcodes[0x39].operands == 1);
-    CHECK(cok_ecl_unported(Q, 0x2e) != NULL);
+    CHECK(cok_ecl_unported(Q, 0x27) != NULL && cok_ecl_unported(Q, 0x2e) != NULL);
 }
 
 /* Dark Queen's character fields at 0x0401-0x0800 (dqk 6c70:040d reads,

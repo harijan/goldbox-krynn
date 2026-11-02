@@ -15,6 +15,9 @@ void queen_view_start(cok_character *member);
 bool queen_view_items(cok_adventure *game, cok_character *character);
 bool queen_view_trade(cok_adventure *game, cok_character *character);
 bool queen_view_drop(cok_adventure *game, cok_character *character);
+/* 86b8:1965's readied branch (Rdy off, DESTROY ITEMS and ROB): false where the
+ * run stopped. */
+bool queen_item_unready(cok_adventure *game, uint8_t *item);
 
 /* What dark_queen.c's window library lends them beyond queen.h. */
 

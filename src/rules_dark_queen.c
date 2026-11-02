@@ -68,7 +68,7 @@ static const cok_rules_opcode dark_queen_opcodes[COK_ECL_OPCODES] = {
     LISTED(COK_ECL_ON_GOSUB, 2),
     [0x27] = {.meaning = COK_ECL_TREASURE_ITEMS, .operands = COK_ECL_LIST, .header = 4,
               .skip_list = true, .unported = "dqk 6c70:2127"},
-    NOT(0x28, COK_ECL_ROB, 3, "dqk 6c70:28f8"),
+    OP(0x28, COK_ECL_ROB, 3),        /* 6c70:28f8 */
     OP(0x29, COK_ECL_NOTHING, 0),    /* 5f07:1449 */
     SAME(COK_ECL_GETTABLE, 3),
     LISTED(COK_ECL_HORIZONTAL_MENU, 2), /* 6c70:1ff7 with 0 */
@@ -79,7 +79,7 @@ static const cok_rules_opcode dark_queen_opcodes[COK_ECL_OPCODES] = {
     SAME(COK_ECL_OR, 3),
     [0x31] = {.meaning = COK_ECL_ASK_MENU, .operands = COK_ECL_LIST, .header = 2,
               .skip_list = true}, /* 6c70:1ff7 with 1 */
-    NOT(0x32, COK_ECL_FIND_ITEM, 1, "dqk 6c70:2f3b"),
+    OP(0x32, COK_ECL_FIND_ITEM, 1),  /* 6c70:2f3b */
     SAME(COK_ECL_PRINT_RETURN, 0),   /* 5f07:0a68 */
     OP(0x34, COK_ECL_ECL_CLOCK, 2),  /* 5f07:0a35 */
     SAME(COK_ECL_SAVE_TABLE, 3),
@@ -93,7 +93,7 @@ static const cok_rules_opcode dark_queen_opcodes[COK_ECL_OPCODES] = {
     SAME(COK_ECL_CLEAR_BOX, 0),      /* 5f07:0a8d */
     OP(0x3e, COK_ECL_DUMP, 0),       /* 5f07:0c9b */
     OP(0x3f, COK_ECL_FIND_SPECIAL, 1), /* 5f07:0cc5, the handler itself */
-    NOT(0x40, COK_ECL_DESTROY_ITEMS, 1, "dqk 6c70:30ec"),
+    OP(0x40, COK_ECL_DESTROY_ITEMS, 1), /* 6c70:30ec */
     OP(0x41, COK_ECL_ADD_EP, 2),     /* 6c70:2719 */
 };
 
@@ -444,6 +444,13 @@ const cok_rules cok_rules_dark_queen = {
             .vault_extension = "DAT",
         },
     .data = &cok_dark_queen_data,
+    .items =
+        {
+            .destroy_magic = true,      /* 6c70:30ec: 0x80 on a type, bonus items only */
+            .destroy_lost_only = true,  /* 6c70:31af: the stats of the members that lost */
+            .rob_integer = true,        /* 6c70:124f */
+            .unready = COK_UNREADY_QUEEN, /* 86b8:1965 */
+        },
     .character = &dark_queen_character,
     .characters =
         {
