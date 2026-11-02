@@ -38,6 +38,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))  # tools/: hlib, dqkecl
@@ -326,12 +327,12 @@ def port(work, name, patched, typed="", extra=(), block=JUMP):
     return (vars_path.read_bytes() if vars_path.exists() else b""), last, unread
 
 
-def original(work, name, patched, verbose, typed=""):
+def original(work, name, patched, verbose, stop, typed=""):
     """The original's run of the block from its PRESS KEY (where the box sets
-    the seed) to its end, TYPED keys after the PRESS KEY's. Returns (the state
-    where it waits, the variables there, the state at its end, the variables
-    then); a state is (pc, opcode) from DS:b7f9 and DS:b1c7 (see stop_at), and
-    the variables are the 1 KB at DS:b20f."""
+    the seed) to its end (STOP, stop_at's), TYPED keys after the PRESS KEY's.
+    Returns (the state where it waits, the variables there, the state at its
+    end, the variables then); a state is (pc, opcode) from DS:b7f9 and DS:b1c7
+    (see stop_at), and the variables are the 1 KB at DS:b20f."""
     with cokbox.Box(workdir=work / f"box-{name}", game="dark-queen", verbose=verbose,
                     timeout=900, files={"DISK3/ECL.GLB": patched}) as box:
         variables = enter_block(box)
@@ -341,11 +342,28 @@ def original(work, name, patched, verbose, typed=""):
         box.set_seed(SEED)
         before = box.read(variables + 1, VARIABLES)
         box.keys("\\r" + typed)
-        box.settled(tolerance=64)
-        end = dqk_lib.ecl_state(box)
+        end = wait_state(box, stop)  # the block's end: its variables are final there
         after = box.read(variables + 1, VARIABLES)
-        return ((wait["pc"], wait["opcode"]), before,
-                (end["pc"], end["opcode"]), after)
+        return ((wait["pc"], wait["opcode"]), before, end, after)
+
+
+# How long the game's screen may take to come up (wall clock). A count of looks
+# at it covers less of the game's time on a loaded host: settle returns after at
+# most twice its seconds of host time, so a 0.1 s settle may give 0.05 s.
+SCREEN_SECONDS = 300
+
+
+def wait_screen(box, seconds=SCREEN_SECONDS):
+    """Until the game's screen is up (a 320x200 mode with eight colours or more).
+    BoxError after SECONDS."""
+    end = time.monotonic() + seconds
+    while True:
+        shot = box.screenshot()
+        if (shot.width, shot.height) == (320, 200) and len(shot.colours()) >= 8:
+            return
+        if time.monotonic() > end:
+            raise cokbox.BoxError(f"the game's screen did not come up in {seconds} s")
+        box.settle(0.1)
 
 
 def enter_block(box):
@@ -353,11 +371,7 @@ def enter_block(box):
     JUMP and Begin Adventuring, the copy protection answered): the box waits in
     the PRESS KEY, the seed not yet set. Returns the address of the block
     variables (DS:b20f)."""
-    for _ in range(600):
-        shot = box.screenshot()
-        if (shot.width, shot.height) == (320, 200) and len(shot.colours()) >= 8:
-            break
-        box.settle(0.1)
+    wait_screen(box)
     box.keys("\\e")
     box.settled(tolerance=64)
     freeze = (box.ds - 0x422E + 0x261B) * 16 + 0x05BE  # dqk_menus' freeze_cycles
@@ -372,9 +386,57 @@ def enter_block(box):
     box.settled(tolerance=64)
     _, _, answer = dqk_lib.protection(box)
     box.keys(answer + "\\r")
-    # The copy protection's draws are done; the block's PRESS KEY is next.
-    box.settled(tolerance=64)
+    # The copy protection's draws are done; the block's PRESS KEY is next. Its
+    # state is waited for, not the screen's: once the screen has settled, the
+    # block may not have started yet (under load, the original was still before
+    # it in two runs of run_all's dqk_ecl).
+    wait_press_key(box)
     return variables
+
+
+# The block's entry PRESS KEY (dqkecl's 'entry', one byte past EXIT): the ECL's
+# pc reads past the opcode, as dqk_lib.ecl_state reports it.
+ENTRY_PRESS_KEY_PC = dqkecl.CODE_START + 2
+# How long the ECL may take to reach the entry PRESS KEY (wall clock). Idle it
+# takes a second or two; a loaded host, much longer.
+PRESS_KEY_SECONDS = 300
+# How long a block may take to reach its end after its last key (wall clock).
+STOP_SECONDS = 120
+
+
+def wait_press_key(box, pc=ENTRY_PRESS_KEY_PC, seconds=PRESS_KEY_SECONDS):
+    """Until the ECL is at a PRESS KEY at PC (DS:b7f9, past the opcode; the block's
+    entry by default, a label's as block.address(name) + 1) with the game waiting
+    for a key there (Box.waiting). Returns the ECL's state. BoxError after SECONDS,
+    naming the state seen."""
+    end = time.monotonic() + seconds
+    while True:
+        state = dqk_lib.ecl_state(box)
+        waiting = None
+        if (state["pc"], state["opcode"]) == (pc, OPCODES["PRESS_KEY"]):
+            waiting = box.waiting()
+            if waiting:
+                return state
+        if time.monotonic() > end:
+            raise cokbox.BoxError(
+                f"the ECL did not reach the PRESS KEY at pc {pc:#x} in {seconds} s: buffer "
+                f"{state['buffer']}, pc {state['pc']:#x}, opcode {state['opcode']:#x} "
+                f"(the PRESS KEY is opcode {OPCODES['PRESS_KEY']:#x}), waiting for a key: "
+                f"{waiting}")
+        time.sleep(0.05)
+
+
+def wait_state(box, stop, seconds=STOP_SECONDS):
+    """Until the ECL is at STOP (pc, opcode: stop_at's, the block's end). Returns
+    the ECL's (pc, opcode) then; after SECONDS, the state seen, which the caller's
+    check reports as the difference."""
+    end = time.monotonic() + seconds
+    while True:
+        state = dqk_lib.ecl_state(box)
+        here = (state["pc"], state["opcode"])
+        if here == stop or time.monotonic() > end:
+            return here
+        time.sleep(0.05)
 
 
 def stop_at(block):
@@ -452,7 +514,7 @@ def run_block(verdict, work, name, glb, block, expect, typed, base_vars, verbose
     port_vars, port_last, port_unread = port(work, name, patched, typed)
     verdict.check(not port_unread, f"{name}: eclplay leaves no keys unread",
                   "the block took fewer keys than were typed")
-    wait, before, end, after = original(work, name, patched, verbose, typed)
+    wait, before, end, after = original(work, name, patched, verbose, stop_at(block), typed)
     # The PRESS KEY is the block's first instruction (its entry, 0x8015): pc reads past it.
     verdict.check(wait == (block.address("entry") + 1, OPCODES["PRESS_KEY"]),
                   f"{name}: the original waits in the block's PRESS KEY",

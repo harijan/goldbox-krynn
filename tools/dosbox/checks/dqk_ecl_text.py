@@ -42,6 +42,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))  # tools/: hlib, dqkecl
@@ -64,7 +65,9 @@ VARIABLES = dqk_ecl.VARIABLES
 WINDOW = list(range(0x100, 0x180))
 TEXT_SPEED = 0x12  # 3 ms times this per character while a text prints
 COLOUR = 0x39      # PRINT's colour 3 where set
-MAX_WAITS = 40
+# How long a block may run, from its first key to its end (wall clock): a block
+# that never ends (waits or stops) is an error after this.
+BLOCK_SECONDS = 600
 # The screen's areas not compared: the mouse's pointer (the mouse driver's),
 # and the party's list (eclplay has no party in these blocks): rows 1-12, and
 # cells 17-25 of rows 13-15. At a wait the status line (cells 26-38 of rows
@@ -80,8 +83,8 @@ POINTER_WIDE = (0, 0, 24, 17, "the mouse's pointer after CLEAR EXIT (17-23 by 6-
 MASKS = [dqk_views.POINTER, PARTY_LIST, PARTY_ROWS, STATUS]
 END_MASKS = [POINTER_WIDE, PARTY_LIST, PARTY_ROWS, dqk_views.BAR]
 DS_SQUARE = dqk_views.DS_SQUARE  # the party's square and facing (x, y, facing)
-DELAY_OP = 0x3A
 WAIT_NAMES = {0x1D: "PRESS KEY", 0x11: "PRINT", 0x12: "PRINTCLEAR", 0x1F: "JOURNAL"}
+DELAY_OP = 0x3A  # the DELAY's 600 ms: the screen still, not a key wait
 
 # The opcodes this flow writes (dqkecl's table has the arithmetic and jumps).
 dqkecl.OPCODES.update({"LOAD_FILES": 0x21, "PICTURE": 0x0E, "PRINT": 0x11, "PRINTCLEAR": 0x12,
@@ -231,8 +234,8 @@ def box_block():
 
 
 class Unfinished(cokbox.BoxError):
-    """The original's run did not reach the block's stop in MAX_WAITS waits; TRAIL
-    is its (pc, opcode) states as "pc/opcode" strings, in order."""
+    """The original's run did not reach the block's stop in BLOCK_SECONDS; TRAIL
+    is its (pc, opcode) states at its waits as "pc/opcode" strings, in order."""
 
     def __init__(self, message, trail):
         super().__init__(message)
@@ -256,6 +259,27 @@ BLOCKS = {"text": text_block, "colour_journal": colour_block, "pictures": pictur
           "print_return": print_return_block, "box_exit": box_block}
 
 
+def next_stop(box, block, stop, last, end, trail):
+    """Until the ECL is at STOP, or at a key wait (Box.waiting) inside the block
+    at a pc other than LAST's (a straight block's waits have distinct pcs, so the
+    same pc is the wait just answered, not yet left). Returns the ECL's state.
+    Unfinished at END (monotonic time), naming the state seen."""
+    while True:
+        state = dqk_lib.ecl_state(box)
+        here = (state["pc"], state["opcode"])
+        inside = dqkecl.CODE_START < state["pc"] <= dqkecl.CODE_START + block.size
+        if here == stop:
+            return state
+        if inside and state["opcode"] != DELAY_OP and state["pc"] != last and box.waiting():
+            return state
+        if time.monotonic() > end:
+            raise Unfinished(f"{name}: the block did not end in {BLOCK_SECONDS} s: its last "
+                             f"states {' '.join(trail[-8:])}; now pc {here[0]:#x}, opcode "
+                             f"{here[1]:#x} (its stop is pc {stop[0]:#x}, opcode {stop[1]:#x}), "
+                             f"keys read by the game: {box.hook('reads')}", trail)
+        time.sleep(0.05)
+
+
 def original(work, name, block, patched, verbose, key_for=lambda opcode: "\\r"):
     """The original's run of the block from its PRESS KEY to its end, a
     Return at each wait. Returns (the screens at the waits, their names, the
@@ -264,11 +288,7 @@ def original(work, name, block, patched, verbose, key_for=lambda opcode: "\\r"):
     stop = stop_of(block)
     with cokbox.Box(workdir=work / f"box-{name}", game="dark-queen", verbose=verbose,
                     timeout=900, files={"DISK3/ECL.GLB": patched}) as box:
-        for _ in range(600):
-            shot = box.screenshot()
-            if (shot.width, shot.height) == (320, 200) and len(shot.colours()) >= 8:
-                break
-            box.settle(0.1)
+        dqk_ecl.wait_screen(box)
         box.keys("\\e")
         box.settled(tolerance=64)
         freeze = (box.ds - 0x422E + 0x261B) * 16 + 0x05BE  # dqk_menus' freeze_cycles
@@ -287,13 +307,23 @@ def original(work, name, block, patched, verbose, key_for=lambda opcode: "\\r"):
         _, _, answer = dqk_lib.protection(box)
         box.keys(answer + "\\r")
         screens, names, trail = [], [], []
-        for _ in range(MAX_WAITS):
+        end = time.monotonic() + BLOCK_SECONDS
+        last = None  # the pc of the last wait answered
+        while True:
+            # A candidate: the stop, or a key wait inside the block (next_stop). A
+            # PICTURE's animation polls the keyboard as a wait does, so a candidate
+            # is taken only when the screen has settled and the ECL is still at it:
+            # the animation is over, and a key typed in it would end it early. Under
+            # load a settled screen may also come before the block's next wait, so
+            # the candidate's state is what counts, not the screen's.
+            candidate = next_stop(box, block, stop, last, end, trail)
             shot = box.settled(tolerance=64)
             state = dqk_lib.ecl_state(box)
-            if state["opcode"] == DELAY_OP:
-                continue  # the DELAY's 600 ms: the screen still, not a wait
-            trail.append(f"{state['pc']:#x}/{state['opcode']:#x}")
-            if (state["pc"], state["opcode"]) == stop:
+            here = (state["pc"], state["opcode"])
+            if here != (candidate["pc"], candidate["opcode"]):
+                continue  # the ECL moved on while the screen settled: take its next wait
+            trail.append(f"{here[0]:#x}/{here[1]:#x}")
+            if here == stop:
                 if not screens:  # no wait at all: the block never started (its keys were lost)
                     raise Unfinished(f"{name}: the ECL rests before the block's first wait: "
                                      + " ".join(trail), trail)
@@ -301,11 +331,9 @@ def original(work, name, block, patched, verbose, key_for=lambda opcode: "\\r"):
             screens.append(shot)
             names.append(WAIT_NAMES.get(state["opcode"], f"opcode {state['opcode']:#x}"))
             box.keys(key_for(state["opcode"]))
-        else:
-            raise Unfinished(f"{name}: the block did not end in {MAX_WAITS} waits: "
-                             + " ".join(trail[-8:]), trail)
+            last = state["pc"]
         after = box.read(variables + 1, VARIABLES)
-        return screens, names, shot, (state["pc"], state["opcode"]), after, lamps, square
+        return screens, names, shot, here, after, lamps, square
 
 
 def port(work, name, patched, lamps, square, waits, keys=None):

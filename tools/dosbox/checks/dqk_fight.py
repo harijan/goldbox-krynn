@@ -78,6 +78,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))  # tools/: hlib, dqkecl
@@ -317,6 +318,8 @@ SIX_IDS = (64, 49, 41, 37, 36, 64)
 # code is resident in the ECL's overlay then: the battle starts at once after
 # the key, faster than a trap set after it (the loads are not waited for).
 CALL_BATTLE = (0x5F07, 0x08F0)
+# How long COMBAT may take to reach that call after the LOAD MONSTERs (wall clock).
+COMBAT_SECONDS = 300
 BATTLE_STOP = ("error: not yet ported: The Dark Queen of Krynn's battle "
                "(dqk 5045:059d)")
 # The party's records as eclplay imports them from the saved game (--load) are the
@@ -400,14 +403,24 @@ def load_original(work, patched, flow, difficulty, verbose):
             box.write(box.far(box.ds * 16 + dqk_ecl.DS_VARS) + 0x27, bytes([difficulty]))
         box.set_seed(SEED)
         box.keys("\\r")                 # LOAD FILES, CLEARMONSTERS; waits at 'monsters'
-        box.settled(tolerance=64)
+        # Waited for by its state, not the screen: the block at its 'monsters' PRESS
+        # KEY with the game waiting for a key there (a settled screen may come before it).
+        dqk_ecl.wait_press_key(box, pc=load_block(flow.steps).address("monsters") + 1)
         handle = L.trap(box, *CALL_BATTLE, until=lambda: True, seconds=60)
         box.keys("\\r")                 # the LOAD MONSTERs, COMBAT: the appends, the call
-        for _ in range(180):             # the spin holds once COMBAT reaches it
-            if L.held(box, handle)[0]:
-                break
-        else:
-            raise cokbox.BoxError("COMBAT did not reach the battle's call (5f07:08f0)")
+        # The spin holds once COMBAT reaches it. Waited for by a time limit, not a
+        # count of checks: a count of 180 ran out once under make test's load (each
+        # check settles a second of the game's time, which a loaded host gives in
+        # less host time, so the count covers less of COMBAT than it did idle).
+        end, checks = time.monotonic() + COMBAT_SECONDS, 0
+        while not L.held(box, handle)[0]:
+            checks += 1
+            if time.monotonic() > end:
+                state = dqk_lib.ecl_state(box)
+                raise cokbox.BoxError(
+                    f"COMBAT did not reach the battle's call (5f07:08f0) in {COMBAT_SECONDS} s "
+                    f"({checks} checks): ECL pc {state['pc']:#x}, opcode {state['opcode']:#x}, "
+                    f"keyboard polls {box.hook('polls')}")
         records = L.records(box)
         return dict(variables=block_vars(box),
                     records=[raw.hex() for _, raw in records],
