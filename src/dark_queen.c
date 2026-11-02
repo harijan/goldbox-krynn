@@ -583,13 +583,18 @@ static bool print_window(cok_adventure *game, const char *s, int x1, int y1, int
     return true;
 }
 
-/* The ECL's text window, cells 1-38 by 17-22, in colour 7 (3 where
- * variable 0x39 is set: 6c70:1cd3). */
+/* The ECL's text window, cells 1-38 by 17-22, in colour fg. */
+static bool print_colour(cok_adventure *game, const char *s, bool clear, unsigned fg)
+{
+    cok_adventure_log(game, "print", s);
+    return print_window(game, s, 1, 0x11, 0x26, 0x16, fg, clear, true);
+}
+
+/* PRINT's text: colour 7, or 3 where variable 0x39 is set (6c70:1cd3). */
 static bool print_text(cok_adventure *game, const char *s, bool clear)
 {
     unsigned fg = cok_ecl_load_var(&game->vm, 0x39) != 0 ? 3 : 7;
-    cok_adventure_log(game, "print", s);
-    return print_window(game, s, 1, 0x11, 0x26, 0x16, fg, clear, true);
+    return print_colour(game, s, clear, fg);
 }
 
 /* The bottom bar's menu (1bdb:1e29, its bar built by 0d26, 08ef and
@@ -1016,11 +1021,13 @@ static void view_walls(cok_adventure *game, int px, int py, unsigned f)
 }
 
 /* The backdrop (8a8b:021c): the sky, horizon and ground filled (DS:ca0c,
- * c9f5, c9f6: never set from 0), then BACK's picture by the square: its
- * byte without 0x80 BACK 0x22 or, where the square's choice (8a8b:0807) is
- * not 0, the map's third; with 0x80 the map's first, second or third by
- * the choice, or none; ids from 0x20 one on at night (game byte 8, the
- * hour, below 6 or from 20). */
+ * c9f5, c9f6: never set from 0), then BACK's picture by the square: the
+ * saved square's byte (vm->square, DS:c9f4, tested at 8a8b:0290 and 029d:
+ * set at a block's entry, a step and a saved game's load, not by the
+ * view) without 0x80 BACK 0x22 or, where the square's choice (8a8b:0807,
+ * from the party's place) is not 0, the map's third; with 0x80 the map's
+ * first, second or third by the choice, or none; ids from 0x20 one on at
+ * night (game byte 8, the hour, below 6 or from 20). */
 static void backdrop(cok_adventure *game, int x, int y)
 {
     const cok_view *v = &game->view;
@@ -1029,7 +1036,7 @@ static void backdrop(cok_adventure *game, int x, int y)
     fill(game, 70, VIEW_AT, VIEW_END, VIEW_END, 0);
     uint8_t choice = cok_view_backdrop_choice(v, x, y);
     unsigned id;
-    if (!(cok_view_square(v, x, y) & 0x80))
+    if (!(game->vm.square & 0x80))
         id = choice == 0 ? 0x22 : v->geo_header[7];
     else
         id = choice < 3 ? v->geo_header[5 + choice] : 0xff;
@@ -1058,8 +1065,8 @@ static void draw_view(cok_adventure *game)
     } else {
         /* A picture shown since takes colours 0x20-0xff (63ae:0078):
          * the sets' are set again. Where the original does so is not
-         * found yet (8a8b:085a loads them only with slot 0's), nor checked
-         * against it: no check shows the view after a picture. */
+         * found yet (8a8b:085a loads them only with slot 0's); the flow
+         * dqk_ecl_text.py checks the view after a small picture. */
         for (unsigned slot = 0; slot < WALL_SETS; ++slot)
             if (q->wall_loaded[slot]) set_palette(game, &q->walls[slot], 0, WALL_COLOURS * slot);
     }
@@ -1071,17 +1078,18 @@ static bool big_picture(cok_adventure *game, unsigned n);
 
 /* The view again (5e22:0000): on the overland (variables 0x22 0 and 0x24
  * 1) its map, variable 0x3e's big picture, whole (without the party's
- * place: the callers that want it draw it); else the 3D view in its box,
- * the rest of the screen as it is. */
+ * place: the callers that want it draw it); else, in mode 4 or in mode 3
+ * with variable 0x24 not 1 (the mode test at 5e22:0032-0049), the 3D view
+ * in its box, the rest of the screen as it is; in any other mode nothing.
+ * The square's byte is the saved one (DS:c9f4), not recomputed here. */
 static void view(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     if (game->party_killed) return;
-    vm->square = cok_view_square(&game->view, vm->map_x, vm->map_y);
     if (cok_ecl_load_var(vm, 0x22) == 0 && cok_ecl_load_var(vm, 0x24) == 1) {
         if (!big_picture(game, cok_ecl_load_var(vm, 0x3e)))
             cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
-    } else {
+    } else if (vm->mode == 4 || (vm->mode == 3 && cok_ecl_load_var(vm, 0x24) != 1)) {
         draw_view(game);
     }
     game->redraw = false;
@@ -1249,7 +1257,9 @@ static void animate(cok_adventure *game)
 static void horizontal(cok_adventure *game, bool ask)
 {
     cok_ecl *vm = &game->vm;
-    if (ask && !print_text(game, "what do you do?", false)) return; /* DS:7791 */
+    /* In colour 7 whatever variable 0x39 says (6c70:200e pushes 7, as
+     * JOURNAL's 6c70:330c does; PRINT's 3 is not its colour). */
+    if (ask && !print_colour(game, "what do you do?", false, 7)) return; /* DS:7791 */
     const char *items[COK_ECL_MAX_STRINGS];
     char forms[COK_ECL_MAX_STRINGS][64];
     size_t count = vm->operands < COK_ECL_MAX_STRINGS ? vm->operands : COK_ECL_MAX_STRINGS;
@@ -1693,7 +1703,7 @@ static bool opcode(cok_adventure *game)
         snprintf(line, sizeof line, "This is recorded as journal entry %u.", /* DS:78a1 */
                  (unsigned)(uint8_t)cok_ecl_value(vm, 0));
         vm->cursor = (cok_text_cursor){1, 0x11};
-        if (print_text(game, line, true)) {
+        if (print_colour(game, line, true, 7)) { /* 6c70:32b2: colour 7 whatever 0x39 */
             cok_adventure_log(game, "menu", "~Press button or enter to continue");
             continue_prompt(game, true, game->picture_shown);
         }
