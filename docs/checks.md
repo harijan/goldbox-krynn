@@ -603,12 +603,14 @@ sound off (below). The original's state (`dqk_fight_lib.py`: the records, combat
 battlefield, turn, sides, round, mode, the monsters' flag and count, RandSeed) is read at the block's entry,
 at 'monsters', at 'loaded' and at the first turn, where the battle's turn routine 5045:078b is made to spin
 where it starts (`dqk_fight_lib.trap`). The spin is checked to hold (EB FE in place, the keyboard polls still
-over a second), and untrapped the game goes on (the polls move). eclplay starts from the same square (`--at
-7,13,0`, the original's DS:c9f0-2) and the same variables (`--set`, the entry's nonzero ones). At 'monsters'
-its variables must equal the original's except at twelve known gaps (`PORT_GAPS`, the flow's comment): its
-LOAD FILES writes 0x13 and 0xc6 (to 4) and clears 0x03; `--character` sets 0x20 to 6; its block start clears
-0x97, 0x98, 0x9b, 0x9c and 0x9d; `--at` stores the square in 0x34 and 0x35; and the original clears 0x07 (by
-LOAD FILES or CLEARMONSTERS) where eclplay does not. These are the port's gaps, named so that a change shows.
+over a second), and untrapped the game goes on (the polls move). eclplay starts from a copy of saved game A
+(`--load`, its block 1 named in variable 0x16: the original's entry is a Load's, so its locals are kept and the
+square and 0x34-0x35 are the save's) and the variables the original had at the entry (`--set`, the nonzero ones
+and 0x16 0). At 'monsters' its variables must equal the original's except at eleven known gaps (`PORT_GAPS`,
+the flow's comment): its LOAD FILES writes 0x13 and 0xc6 (to 4) and clears 0x03; the original clears 0x07 (by
+LOAD FILES or CLEARMONSTERS) where eclplay does not; its Load gives 6 in 0x20 (the original 0), and the save's
+4, 1, 3 and 2 in 0x12, 0x22, 0x27 and the moons 0x1fa-0x1fc (the original 0). These are the port's gaps, named
+so that a change shows.
 eclplay stops at LOAD MONSTER (not yet ported). At the first turn: turn 1, mode 5, both sides can act, the
 monsters appended are exactly the two SHARKMEN, every record has its combat record, the monsters are
 combatants on the map, the readings agree (`dqk_fight_lib.consistent`), and the RandSeed is 0x1756582c (11

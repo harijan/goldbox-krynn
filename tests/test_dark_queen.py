@@ -25,6 +25,9 @@ POINTER = (1, 1, 16, 16)    # the mouse driver's pointer: not the port's
 PARTY = (136, 8, 176, 120)  # the party's list and status: not drawn yet
 FIGHTER_SCORES, FIGHTER_SIZE = "scores: 16 15 15 15 14 16 (0) age 29", 499
 FIGHTER_DIGEST = "e2f5d1e48d7031fce6f4a6f2f20b1eaa"
+# The adventure's keys from Begin Adventuring to the dragons' SETUP MONSTERS: to
+# Caergoth (the palace, Leave), its commands and steps along the ruins.
+TO_FIGHT = r"\^" * 10 + r"\>\^\^\^\>\^\^\<\^\^\^\>\^\^L\r\v\^\r\^\^\^"
 FORM_DIGESTS = ["4bdabc0f2321fa13894e7f6a39f629ce", "b2799d8d1e3148afdfaceb811822cab0",
                 "a48ac17deba6bf6d808c030b98e619a7", "013a9c8c6d86d460556ec3e8070d0ccd",
                 "afddccf7a4452e69e351c8e8ce6f7401", "df450e074f4a296cb043095b2f88eb90",
@@ -258,13 +261,14 @@ class DarkQueenTests(unittest.TestCase):
                              exe[ds + 0x27e9 + 0x16 * i:][:3], f"spell {i}")
 
     def test_refused(self):
-        # Saved games load from the start menu alone; --load, parties and
-        # --play are not ported yet.
+        # Parties from other saved games are not ported yet; --play needs a
+        # party to begin the adventure with (the camp's Begin is off without one).
         result = self.play("--play", ASSETS, 4)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("--play: Begin Adventuring needs a party", result.stderr)
+        result = self.play("--party", ASSETS / "SAVE" / "SAVGAMA.QSV", ASSETS)
         self.assertEqual(result.returncode, 2)
-        self.assertIn("saved games load from its start menu", result.stderr)
-        result = self.play("--load", ASSETS / "SAVGAMA.QSV", ASSETS)
-        self.assertEqual(result.returncode, 2)
+        self.assertIn("--party and --test-party are not ported yet", result.stderr)
         # VGA alone.
         result = self.play("--display", "ega", "--start-menu", ASSETS)
         self.assertEqual(result.returncode, 2)
@@ -1188,9 +1192,8 @@ class DarkQueenTests(unittest.TestCase):
         # To Caergoth (the palace, Leave), its commands and steps (6fea:0365,
         # 0753) along the ruins to the dragons' SETUP MONSTERS, where the
         # port stops (the first fight: step 4's).
-        route = (r"\^" * 10 + r"\>\^\^\^\>\^\^\<\^\^\^\>\^\^L\r\v\^\r\^\^\^")
         result = self.play("--start-menu", "--keys",
-                           r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r" + route, ASSETS)
+                           r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r" + TO_FIGHT, ASSETS)
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stderr, "not yet ported: The Dark Queen of Krynn's opcode 0x0c, "
                          "SETUP MONSTERS (dqk 6c70:2db1)\n")
@@ -1202,6 +1205,44 @@ class DarkQueenTests(unittest.TestCase):
         self.assertEqual(moves[-1], "step: 13,8 facing 2")
         self.assertIn("print: HUGE SHADOWS SKIM OVER THE GROUND. GIANT SHAPES DISAPPEAR OVER "
                       "THE TREE TOPS.", result.stdout)
+
+    def test_load_and_play(self):
+        # eclplay --load SAVGAMA.QSV is the start menu's Load (cok_drawing.load),
+        # and --play its Begin Adventuring (cok_drawing.play): the variables and
+        # the screen at block 4's first text equal the start menu's \k\ePLTAB
+        # ones, and the same keys walk to the same SETUP MONSTERS as
+        # test_first_fight's.
+        saves = self.folder / "saves"
+        saves.mkdir()
+        for name in ("SAVGAMA.QSV", "VAULTA.DAT"):
+            shutil.copy(ASSETS / "SAVE" / name, saves / name)
+        menu, loaded = self.folder / "menu", self.folder / "loaded"
+        result = self.play("--start-menu", "--saves", saves, "--vars", menu.with_suffix(".vars"),
+                           "--screen", menu.with_suffix(".bmp"), "--keys", r"\k\ePLTAB", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[-1], "(out of keys in block 4 at 81bc)")
+        result = self.play("--load", saves / "SAVGAMA.QSV", "--play", "--vars",
+                           loaded.with_suffix(".vars"), "--screen", loaded.with_suffix(".bmp"),
+                           ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[-1], "(out of keys in block 4 at 81bc)")
+        self.assertEqual(loaded.with_suffix(".vars").read_bytes(),
+                         menu.with_suffix(".vars").read_bytes())
+        self.assertEqual(loaded.with_suffix(".bmp").read_bytes(),
+                         menu.with_suffix(".bmp").read_bytes())
+        walk = r"\r\r\rP\r\r\r\r\rL\r" + TO_FIGHT
+        outs = []
+        for result in (self.play("--load", saves / "SAVGAMA.QSV", "--play", "--keys", walk, ASSETS),
+                       self.play("--start-menu", "--saves", saves, "--keys", r"\k\ePLTAB" + walk,
+                                 ASSETS)):
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stderr,
+                             "not yet ported: The Dark Queen of Krynn's opcode 0x0c, "
+                             "SETUP MONSTERS (dqk 6c70:2db1)\n")
+            self.assertEqual(sum(line.startswith(("step:", "turn:"))
+                                 for line in result.stdout.splitlines()), 29)
+            outs.append(result.stdout[result.stdout.index("protection:"):])
+        self.assertEqual(outs[0], outs[1])
 
     def test_view_clicks(self):
         # The view's areas of the commands' bar (1bdb:1aef, with the mouse on):

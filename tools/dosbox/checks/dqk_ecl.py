@@ -295,11 +295,13 @@ def edges():
 BLOCKS = {"arithmetic": arithmetic, "control": control, "flags": flags, "edges": edges}
 
 
-def port(work, name, patched, typed="", extra=()):
+def port(work, name, patched, typed="", extra=(), block=JUMP):
     """eclplay's run of the block (from a copy of the assets with the block
     replaced): its variables (--vars), its output's last line, and whether
     eclplay reports keys left unread (TYPED are the keys the block reads after
-    its PRESS KEY, eclplay --keys escapes; EXTRA are more eclplay arguments)."""
+    its PRESS KEY, eclplay --keys escapes; EXTRA are more eclplay arguments;
+    BLOCK is the block eclplay enters, None for none: the entry of --load's
+    saved game, whose variable 0x16 names it)."""
     assets = work / f"assets-{name}"
     if assets.exists():
         shutil.rmtree(assets)
@@ -316,7 +318,7 @@ def port(work, name, patched, typed="", extra=()):
     vars_path = work / f"port-{name}.vars"
     result = subprocess.run([str(cokbox.ECLPLAY), *GAME, "--seed", str(SEED), "--vars",
                              str(vars_path), "--keys", "\\r" + typed, *extra, str(assets),
-                             str(JUMP)],
+                             *([str(block)] if block is not None else [])],
                             capture_output=True, text=True, cwd=ROOT, timeout=300)
     (work / f"port-{name}.txt").write_text(result.stdout + result.stderr)
     last = (result.stdout.strip().splitlines() or [""])[-1]
