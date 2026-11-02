@@ -597,11 +597,24 @@ block 2) and `waits` (the count the original must wait); `dqk_ecl_flow.py`'s
 `newecl` shows both.
 
 The Dark Queen's first fight (`tools/dosbox/checks/dqk_fight.py`, flow `setup`, in `make dqk-checks`,
-about 15 seconds) is a test block of LOAD FILES 4 4, CLEARMONSTERS, LOAD MONSTER 64 x2, a PRESS KEY,
-SETUP MONSTERS, APPROACH and COMBAT, from saved game A (`dqk_fight_lib.py` reads the original's records,
-combat records, combatants, battlefield, turn, sides, round, mode and RandSeed). Its state and the
-offsets are checked against the disassembly (`dqk_fight_lib.py`'s header); the first turn is the trap at
-5045:078b, reached in the box, and the port stops at LOAD MONSTER, as the flow expects. The six MONCHA
+about 20 seconds) is a test block of LOAD FILES 4 4, CLEARMONSTERS, a PRESS KEY labelled 'monsters', LOAD
+MONSTER 64 x2, a PRESS KEY labelled 'loaded', SETUP MONSTERS, APPROACH and COMBAT, from saved game A, with the
+sound off (below). The original's state (`dqk_fight_lib.py`: the records, combat records, combatants,
+battlefield, turn, sides, round, mode, the monsters' flag and count, RandSeed) is read at the block's entry,
+at 'monsters', at 'loaded' and at the first turn, where the battle's turn routine 5045:078b is made to spin
+where it starts (`dqk_fight_lib.trap`). The spin is checked to hold (EB FE in place, the keyboard polls still
+over a second), and untrapped the game goes on (the polls move). eclplay starts from the same square (`--at
+7,13,0`, the original's DS:c9f0-2) and the same variables (`--set`, the entry's nonzero ones). At 'monsters'
+its variables must equal the original's except at twelve known gaps (`PORT_GAPS`, the flow's comment): its
+LOAD FILES writes 0x13 and 0xc6 (to 4) and clears 0x03; `--character` sets 0x20 to 6; its block start clears
+0x97, 0x98, 0x9b, 0x9c and 0x9d; `--at` stores the square in 0x34 and 0x35; and the original clears 0x07 (by
+LOAD FILES or CLEARMONSTERS) where eclplay does not. These are the port's gaps, named so that a change shows.
+eclplay stops at LOAD MONSTER (not yet ported). At the first turn: turn 1, mode 5, both sides can act, the
+monsters appended are exactly the two SHARKMEN, every record has its combat record, the monsters are
+combatants on the map, the readings agree (`dqk_fight_lib.consistent`), and the RandSeed is 0x1756582c (11
+draws from the seed). The states go to build/dqk-fight/setup.json with the heap pointers masked
+(`dqk_fight_lib.portable`: a pointer becomes the index of its record in the list).
+The six MONCHA
 ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points
 are the base 0xc0, AC 0xbb, THAC0 0x87, size 0x8a, movement 0x90, undead 0x5c, magic resistance 0xcc):
 
@@ -630,23 +643,40 @@ Fighter/Thief, levels [0,0,9,0,0,0,10], no spells); WALKER KEYS (Kender, class 1
 levels [10,0,0,0,0,0,12], 28 known, a day [6,6,3,3,2]). No member has any spell memorized (the
 record's memorized block is 0 in all six).
 
-The original's fight: LOAD MONSTER (6c70:29a3) only registers the monsters (the flag at DS:bd4e, one
-icon slot more at DS:ad6b, the slots from 8); COMBAT's monsters branch (6c70:2d82, through 29fc) appends
-their records, one per slot. The loads need LOAD FILES first: the shipped block 4 runs LOAD FILES 4 4 before
-its dragons (8066), and block 7 runs LOAD FILES 26 1 (803e; in the box that block ends at once, so the flow
-uses block 4's). Without LOAD FILES, the fight stalls in the box. During APPROACH (8a8b:120f, then
-19a4:0361 loading 8X8DB.TLB from disk 2) the bottom bar shows "INSERT DISK 2 AND PRESS A KEY" (or "DISK READ
-ERROR"), the game waiting in 217e:03f2's loop, which prints the prompt (217e:0005) and loops while its test
-(217e:01e3) returns 0. Once COMBAT starts, the monsters' loader (5837:00f1, then 19a4:06bf) fails a read
-("Disk read error") and 293f:0236 prints "LBIBase: Invalid Library File", which waits the same way. Without
-LOAD FILES, COMBAT also appended eight GORGON records after the two SHARKMEN (ten in all). Not traced: what
-fills those (they appear only in that run, while the library read fails). With LOAD FILES the slot tables read
-the same at PRESS and at the end, and COMBAT appends the two SHARKMEN and nothing else; the first turn is 1,
-the mode 5, both sides can act (the flow's checks).
-CLEARMONSTERS (5f07:07fe) clears DS:bd4e and DS:c6f1 (dqk_fight_lib.py's header), not the icon tables. The
-block runs CLEARMONSTERS first, as the shipped blocks do, and does not clear the tables further: the entries
-below slot 8 are stale (slot 2 holds id 0x40 at PRESS and at the end), and COMBAT reads only from slot 8 up
-to DS:ad6b, so they are never appended.
+The original's fight: LOAD MONSTER (6c70:29a3) only registers the monsters (the flag at DS:bd4e, one icon slot more
+at DS:ad6b, the slots from 8); COMBAT's monsters branch (6c70:2d82, through 29fc) appends their records, one per
+slot, and then 6c70:170e appends ten GORGONs (MONCHA 20: DS:75aa[2 * var 0x3a], which is 0x14 with var 0x3a = 0),
+each with an icon slot (6c70:1a3b). Placement (59c7:1d34-1d94) drops the GORGONs (size 0: unlinked and freed),
+so at the first turn c6f1 is 12 (the two SHARKMEN and the ten GORGONs appended) and the list holds the party's
+six and the SHARKMEN. The loads need LOAD FILES first: the shipped block 4 runs LOAD FILES 4 4 before its dragons
+(8066), and block 7 runs LOAD FILES 26 1 (803e; in the box that block ends at once, so the flow uses block 4's).
+Without LOAD FILES the fight stalls before placement, so the GORGONs stay on the list in those runs. During
+APPROACH (8a8b:120f, then 19a4:0361 loading 8X8DB.TLB from disk 2) the bottom bar shows "INSERT DISK 2 AND PRESS A
+KEY" (or "DISK READ ERROR"), the game waiting in 217e:03f2's loop, which prints the prompt (217e:0005) and loops
+while its test (217e:01e3) returns 0. Once COMBAT starts, the monsters' loader (5837:00f1, then 19a4:06bf) fails a
+read ("Disk read error") and 293f:0236 prints "LBIBase: Invalid Library File", which waits the same way. The disk
+prompt is not a missing file. The review's reading (not re-traced here): APPROACH's view draw (8a8b:0874-0959)
+loads the wall sets of slots 0-2 from the map buffer's header through 8a8b:119d, which names the library record
+by the wall set's id ("8X8D%c": 'b' for ids below 10, then the record is the id); without LOAD FILES the buffer
+is empty, so the wall set is 0, and 8X8DB.TLB has no record 0 (its ids run 1-9). After LOAD FILES 4 4 the header
+reads 11 11 09 03 11 11 07 04. With LOAD FILES the slot tables read the same at 'monsters' and at the end, and
+the first turn's list holds the two SHARKMEN (the flow's checks).
+CLEARMONSTERS (5f07:07fe) clears DS:bd4e and DS:c6f1 (dqk_fight_lib.py's header), not the slot tables: DS:c7be
++ slot (icon), DS:c7c4 + slot (id) and DS:c7ca + slot (count), for slots 8 to 13 (6c70:29ac-29ee; COMBAT reads
+slots 8 up to DS:ad6b, 2d82). Nothing below slot 8 is read, and nothing in the tables is stale: DS:c7c4 + 2 is
+DS:c7c6, slot 8's icon (0x40, the id the block passes as the icon).
+
+The sound (round 4). The fight runs with the sound off. DQK.CFG's sound word (its u16 at 2) is 6, none, as
+INSTALL writes it (`dqk_fight_lib.files`, `SOUND_NONE`); the sound driver's setup (1fd3:000b) compares DS:acd8
+(that word) with 6 and skips the driver for it. With the sound on (the shipped 3, the Sound Blaster), the first
+turn had 11 draws in all six runs here (four unloaded, two under CPU load), but round 3 and the review saw 11,
+18 or 20 draws across runs of the same trap, and the cause of that is not traced. With the sound off the count
+is 11 in five of five runs, and the callers are the same in each: every draw reaches 1df9:044d (random(n), which
+calls 2102:0234 at 1df9:0453) from 148f:1988, which 8 draws reach from 5045:0624 (through 52db:0004 and 52db:013b)
+and 3 from 5045:04d6 (called from 5045:064c). 27fa:05f8, which the scope's name pairing put beside the sound, is not the sound: it is the
+battle's movement (27fa:0b20, called by the path walker at 2a3d:04e7; its retry picks an entry of the far-pointer
+table at DS:d9bc by DS:da80 and draws random(3) through 27fa:0f14 when the point is off the battlefield), and it
+drew in none of the runs here. Until the sound's timing is traced (step 5), fight checks run with the sound off.
 
 Death Knights of Krynn, read headless (see [Games](games.md#games)), is checked by
 `tools/dosbox/checks/dkk_views.py`, which `make dkk-checks` runs

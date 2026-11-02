@@ -6,32 +6,43 @@ original (DARK-QUEEN.md's step 4, part 1a: the fight fixture; docs/checks.md,
 A test block (tools/dqkecl.py's fight) replaces block 1 of a copy of
 DISK3\\ECL.GLB, and the original runs it from saved game A (plta, Begin
 Adventuring, the copy protection answered, as dqk_ecl does) with the seed
-DS:ca0e set at the block's first PRESS KEY:
+DS:ca0e set after the block's entry PRESS KEY, and the sound off (DQK.CFG's
+sound word is none: dqk_fight_lib.files):
 
-    LOAD FILES 4 4; CLEARMONSTERS; LOAD MONSTER 64 (SHARKMAN) x2; PRESS KEY
-    (labelled 'loaded'); SETUP MONSTERS, APPROACH, COMBAT; EXIT
+    LOAD FILES 4 4; CLEARMONSTERS; PRESS KEY (labelled 'monsters');
+    LOAD MONSTER 64 (SHARKMAN) x2; PRESS KEY (labelled 'loaded');
+    SETUP MONSTERS, APPROACH, COMBAT; EXIT
 
 The original's state (tools/dosbox/checks/dqk_fight_lib.py: the party's list
 with the monsters appended, each record's combat record, the combatants, the
 battlefield and its occupants, the turn, the sides, the round, the mode, the
-monsters' flag and count, RandSeed) is read at the first PRESS KEY (before),
-at the second (after LOAD MONSTER), and at the first turn: the battle's turn
+monsters' flag and count, RandSeed) is read at the entry PRESS KEY (before), at
+the 'loaded' one (after LOAD MONSTER) and at the first turn: the battle's turn
 routine 5045:078b made to spin where it starts (dqk_fight_lib.trap), as the
-overlay loads. Checked:
+overlay loads; the spin is checked to hold, and then removed to see the game go
+on. The variables (1 KB) at the 'monsters' PRESS KEY are the port's start
+(eclplay's --set, --at), and the port's variables there must equal them.
 
-- the original waits in each PRESS KEY, the first where the block starts, the
-  second after LOAD MONSTER;
+Checked:
+
+- the original waits in each PRESS KEY (entry, monsters, loaded);
 - LOAD MONSTER only registers the monsters (the flag set, one icon slot more,
   no record appended: COMBAT's monsters branch appends them, 6c70:2d82);
-- at the first turn the two SHARKMEN are on the list, every record has its
-  combat record, the monsters are combatants on the map, the turn is 1, the mode
-  5, both sides can act, and the readings agree (dqk_fight_lib.consistent: the
-  occupants hold each combatant's index at its cell);
+- at the first turn the monsters appended are exactly the two SHARKMEN (the
+  ten GORGONs of 6c70:170e are dropped by placement: c6f1 counts 12, ad6b 10),
+  every record has its combat record, the monsters are combatants on the map,
+  the turn is 1, the mode 5, both sides can act, the readings agree
+  (dqk_fight_lib.consistent), and the RandSeed is the first turn's (11 draws);
+- the spin holds (EB FE in place, the keyboard polls still over a second), and
+  untrapped the game goes on (the polls move, the routine's bytes are back);
 - eclplay --game dark-queen, with the saved game's six members (--character),
-  runs the same block and stops at LOAD MONSTER (opcode 0x0b, not yet ported).
+  from the same square (--at) and variables (--set), has the same variables at
+  the 'monsters' PRESS KEY (eclplay has no ported LOAD MONSTER: it stops there);
+- eclplay stops at LOAD MONSTER (opcode 0x0b, not yet ported).
 
-The original's states go to build/dqk-fight/setup.json (later parts compare the
-port's state with them). About 15 seconds.
+The original's states go to build/dqk-fight/setup.json, with the heap pointers
+masked (dqk_fight_lib.portable): later parts compare the port's state with them.
+About 20 seconds.
 
     python3 tools/dosbox/checks/dqk_fight.py [--workdir DIR] [--verbose]
         [--flows setup]
@@ -47,7 +58,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))  # tools/: 
 import checklib  # noqa: E402
 import dqk_ecl  # noqa: E402
 import dqk_ecl_party  # noqa: E402
-import dqk_fight_lib  # noqa: E402
+import dqk_fight_lib as L  # noqa: E402
 import dqk_lib  # noqa: E402
 import dqkecl  # noqa: E402
 import hlib  # noqa: E402
@@ -64,17 +75,36 @@ SEED = dqk_ecl.SEED
 # ERROR is what a missing record shows).
 MONSTER, NAME, COUNT = 64, "SHARKMAN", 2
 SPRITE = 82
+# The monsters COMBAT appends: COUNT SHARKMEN (6c70:2d82) and the ten GORGONs
+# 6c70:170e appends, which placement drops (c6f1 counts all twelve; the next icon
+# slot, ad6b, is 10 at the first turn: the review's values).
+MONSTERS_APPENDED, ICON_SLOTS_AT_TURN = 12, 10
 # The first turn's routine (5045:078b, a turn starts) and the keys a new
 # battle's text may wait for (Return).
 TURN = (0x5045, 0x078B)
 RETURN = 0x1C0D
+# The variables at the 'monsters' PRESS KEY where eclplay differs from the
+# original, all of them: open gaps of the port, not of this fixture (the
+# fixture starts eclplay from the original's square and variables, --at and
+# --set, and these are what eclplay's own start and opcodes do with them):
+#   0x03  eclplay's LOAD FILES clears it (the original keeps 58);
+#   0x07  the original clears it (2 at the entry) by LOAD FILES or CLEARMONSTERS,
+#         eclplay does not;
+#   0x13, 0xc6  eclplay's LOAD FILES sets them to 4 (the original leaves 0);
+#   0x20  --character sets it to the party's size, 6 (the original has 0);
+#   0x34, 0x35  --at stores the square there (the original keeps 0 until a move
+#         stores it: the square is loaded into DS:c9f0 by the save);
+#   0x97, 0x98, 0x9b, 0x9c, 0x9d  eclplay's block start clears them even when
+#         --set gives them the entry's values (the original keeps them).
+PORT_GAPS = (0x03, 0x07, 0x13, 0x20, 0x34, 0x35, 0x97, 0x98, 0x9B, 0x9C, 0x9D, 0xC6)
+SQUARE = 0xC9F0                # DS:c9f0-c9f2: x, y, facing (saved game A: 7, 13, 0)
 STATE = ROOT / "build" / "dqk-fight" / "setup.json"
 
 
 def fight_block():
     """Block 1 of the test: the entry PRESS KEY, the fight (dqkecl.fight: LOAD
-    FILES, LOAD MONSTER, a PRESS KEY after the loads labelled 'loaded', SETUP
-    MONSTERS, APPROACH, COMBAT), then the block's EXIT."""
+    FILES, CLEARMONSTERS, a PRESS KEY labelled 'monsters', LOAD MONSTER, a PRESS
+    KEY labelled 'loaded', SETUP MONSTERS, APPROACH, COMBAT), then the block's EXIT."""
     b = Block()
     b.op("PRESS_KEY")
     dqkecl.fight(b, [(MONSTER, COUNT)], sprite=SPRITE, pause=True)
@@ -86,48 +116,91 @@ def cstr(raw):
     return raw.split(b"\0", 1)[0].decode("latin-1")
 
 
-def original(work, patched, verbose, block):
-    """The original's states: (before, after LOAD MONSTER, the first turn), each
-    dqk_fight_lib.state, and the (pc, opcode) where it waits at the entry and
-    after the loads."""
+def names_of(records):
+    return [cstr(bytes.fromhex(r["raw"])[0x68:0x78]) for r in records]
+
+
+def original(work, patched, verbose):
+    """The original's run: its PRESS KEYs' states (entry, monsters, loaded), the
+    variables at the entry and at the monsters' PRESS KEY, the square at the
+    entry, the states (before, after LOAD MONSTER, the first turn), the trap's
+    handle, whether the spin holds (held), whether untrapped the game goes on
+    (resumed), and the polls around it."""
     with cokbox.Box(workdir=work / "box-setup", game="dark-queen", verbose=verbose,
-                    timeout=900, files={"DISK3/ECL.GLB": patched}) as box:
+                    timeout=900, files=L.files(patched)) as box:
         dqk_ecl.enter_block(box)
         entry = dqk_lib.ecl_state(box)
-        before = dqk_fight_lib.state(box)
+        square = box.ds_read(SQUARE, 3).hex()
+        entry_vars = box.ds_read(dqk_ecl.DS_VARS + 1, dqk_ecl.VARIABLES)
         box.set_seed(SEED)
-        box.keys("\\r")                      # LOAD MONSTER runs; the block waits in the loaded PRESS KEY
+        before = L.state(box)
+        # LOAD FILES and CLEARMONSTERS run; the block waits in the 'monsters' PRESS KEY
+        box.keys("\\r")
+        box.settled(tolerance=64)
+        monsters = dqk_lib.ecl_state(box)
+        monsters_vars = box.ds_read(dqk_ecl.DS_VARS + 1, dqk_ecl.VARIABLES)
+        # LOAD MONSTER runs; the block waits in the 'loaded' PRESS KEY
+        box.keys("\\r")
         box.settled(tolerance=64)
         loaded = dqk_lib.ecl_state(box)
-        after = dqk_fight_lib.state(box)
+        after = L.state(box)
         box.keys("\\r")                      # SETUP MONSTERS, APPROACH, COMBAT: the battle begins
-        handle = dqk_fight_lib.trap(box, *TURN, seconds=180)
+        handle = L.trap(box, *TURN, until=lambda: box.ds_byte(L.DS_TURN) == 1 and
+                        box.ds_word(L.DS_MODE) == 5, seconds=180)
         box.settled(tolerance=64)            # the turn routine spins: the state holds
-        turn = dqk_fight_lib.state(box)
-        return ((entry["pc"], entry["opcode"]), (loaded["pc"], loaded["opcode"]),
-                len(handle)), before, after, turn
+        held, polls, polls_held = L.held(box, handle)
+        turn = L.state(box)
+        L.untrap(box, handle)
+        box.settle(1.0)
+        resumed = box.hook("polls") != polls_held and \
+            all(box.read(addr, 2) == orig for addr, orig in handle)
+        return dict(entry=(entry["pc"], entry["opcode"]),
+                    monsters=(monsters["pc"], monsters["opcode"]),
+                    loaded=(loaded["pc"], loaded["opcode"]), traps=len(handle),
+                    held=held, polls=(polls, polls_held), resumed=resumed, square=square,
+                    entry_vars=entry_vars, monsters_vars=monsters_vars,
+                    before=before, after=after, turn=turn)
 
 
-def port(work, patched):
-    """eclplay's run of the block (saved game's six members as the port's
-    --character records): its last output line."""
-    _, last, _ = dqk_ecl.port(work, "fight", patched, extra=dqk_ecl_party.party_args())
-    return last
+def port(work, patched, square, entry_vars):
+    """eclplay's run of the block from the original's start: the saved game's six
+    members (--character), the square (--at, x y facing from DS:c9f0), the
+    variables the original had at the entry (--set, the nonzero ones, in hex). Its
+    variables at the 'monsters' PRESS KEY (--vars, the block's second key typed) and
+    its last output line."""
+    sets = []
+    for address, value in enumerate(entry_vars, 1):
+        if value:
+            sets += ["--set", f"{address:x}={value:x}"]
+    if len(sets) // 2 > 64:
+        raise cokbox.BoxError(f"{len(sets) // 2} variables to set: eclplay takes 64")
+    x, y, facing = bytes.fromhex(square)
+    at = ["--at", f"{x},{y},{facing}"]
+    variables, last, _ = dqk_ecl.port(work, "fight", patched, typed="\\r",
+                                      extra=dqk_ecl_party.party_args() + at + sets)
+    return variables, last
 
 
 def setup(v, work, opts):
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
     block = fight_block()
     patched = hlib.replace(glb, JUMP, dqkecl.assemble(block))
-    (entry, loaded, traps), before, after, turn = original(work, patched, opts.verbose, block)
-    v.check(entry == (block.address("entry") + 1, OPCODES["PRESS_KEY"]),
+    r = original(work, patched, opts.verbose)
+    before, after, turn = r["before"], r["after"], r["turn"]
+    v.check(r["entry"] == (block.address("entry") + 1, OPCODES["PRESS_KEY"]),
             "the original waits in the block's entry PRESS KEY",
-            f"pc {entry[0]:#x}, opcode {entry[1]:#x}")
-    v.check(loaded == (block.address("loaded") + 1, OPCODES["PRESS_KEY"]),
+            f"pc {r['entry'][0]:#x}, opcode {r['entry'][1]:#x}")
+    v.check(r["monsters"] == (block.address("monsters") + 1, OPCODES["PRESS_KEY"]),
+            "the original waits in the PRESS KEY after CLEARMONSTERS (before the loads)",
+            f"pc {r['monsters'][0]:#x}, opcode {r['monsters'][1]:#x}")
+    v.check(r["loaded"] == (block.address("loaded") + 1, OPCODES["PRESS_KEY"]),
             "the original waits in the PRESS KEY after LOAD MONSTER",
-            f"pc {loaded[0]:#x}, opcode {loaded[1]:#x}")
-    v.check(traps >= 1, "the turn routine (5045:078b) is trapped in the overlay buffer",
-            f"{traps} copies")
+            f"pc {r['loaded'][0]:#x}, opcode {r['loaded'][1]:#x}")
+    v.check(r["traps"] >= 1, "the turn routine (5045:078b) is trapped in the overlay buffer",
+            f"{r['traps']} copies")
+    v.check(r["held"], "the spin holds: EB FE in place, the keyboard polls still over a second",
+            f"polls {r['polls'][0]} -> {r['polls'][1]}")
+    v.check(r["resumed"], "untrapped, the game goes on (the polls move, the routine is back)")
     v.check(len(after["records"]) == len(before["records"]),
             "LOAD MONSTER appends no record (COMBAT does)",
             f"{len(before['records'])} before, {len(after['records'])} after")
@@ -136,29 +209,47 @@ def setup(v, work, opts):
             f"flag {after['monsters_loaded']}, slot {before['icon_slot']} -> "
             f"{after['icon_slot']}")
     added = turn["records"][len(before["records"]):]
-    names = [cstr(bytes.fromhex(r["raw"])[0x68:0x78]) for r in added]
-    v.check(names.count(NAME) >= COUNT, f"COMBAT appends {COUNT} {NAME} records",
+    names = names_of(added)
+    v.check(names == [NAME] * COUNT, f"COMBAT appends exactly {COUNT} {NAME} records",
             ", ".join(names))
+    v.check(turn["monster_count"] == MONSTERS_APPENDED and turn["icon_slot"] == ICON_SLOTS_AT_TURN,
+            "COMBAT appended 12 monsters (the 2 SHARKMEN and 10 GORGONs of 170e: placement "
+            "drops the GORGONs) and 10 icon slots", f"c6f1 {turn['monster_count']}, "
+            f"ad6b {turn['icon_slot']}")
     v.check(turn["turn"] == 1, "the first turn is combatant 1", f"turn {turn['turn']}")
     v.check(turn["mode"] == 5, "the battle's mode is 5 (5045:059d)", f"mode {turn['mode']}")
     v.check(all(turn["sides"]), "both sides can act at the first turn", f"sides {turn['sides']}")
-    v.check(all(r["combat"] is not None for r in turn["records"]),
+    v.check(all(rec["combat"] is not None for rec in turn["records"]),
             "every record has its combat record at the first turn")
-    monsters = {r["at"] for r in added if cstr(bytes.fromhex(r["raw"])[0x68:0x78]) == NAME}
-    placed = [c for c in turn["combatants"] if c["record"] in monsters]
+    monsters_at = {rec["at"] for rec, name in zip(added, names) if name == NAME}
+    placed = [c for c in turn["combatants"] if c["record"] in monsters_at]
     v.check(len(placed) == COUNT and all(c["size"] for c in placed),
             "both monsters are combatants on the map at the first turn",
             ", ".join(f"{c['n']}: {c['x']},{c['y']} size {c['size']}" for c in placed))
-    problems = dqk_fight_lib.consistent(turn)
+    problems = L.consistent(turn)
     v.check(not problems, "the readings agree (the list, the combatants, the occupants)",
             "; ".join(problems[:4]))
-    port_last = port(work, patched)
+    draws = L.draws(SEED, turn["seed"])
+    v.check(turn["seed"] == L.FIRST_TURN_SEED and draws == L.FIRST_TURN_DRAWS,
+            "the first turn's RandSeed: 11 draws from the seed (sound off: the same every run)",
+            f"seed {turn['seed']:#x}, {draws} draws")
+    port_vars, port_last = port(work, patched, r["square"], r["entry_vars"])
+    diff = [a for a in range(1, dqk_ecl.VARIABLES + 1)
+            if port_vars[a - 1] != r["monsters_vars"][a - 1]] if len(port_vars) == \
+        dqk_ecl.VARIABLES else []
+    v.check(len(port_vars) == dqk_ecl.VARIABLES and tuple(diff) == PORT_GAPS,
+            "eclplay's variables at the 'monsters' PRESS KEY differ from the original's at "
+            "exactly the known gaps (PORT_GAPS)", f"differ: {' '.join(f'{a:#x}' for a in diff)}")
     v.check(port_last.startswith("error: not yet ported") and "LOAD MONSTER" in port_last,
             "eclplay stops at LOAD MONSTER (not yet ported)", port_last)
     STATE.parent.mkdir(parents=True, exist_ok=True)
-    STATE.write_text(json.dumps({"block": "fight", "monster": MONSTER, "count": COUNT,
-                                 "before": before, "after_load": after, "first_turn": turn,
-                                 "port_stop": port_last}, indent=1) + "\n")
+    STATE.write_text(json.dumps({
+        "block": "fight", "monster": MONSTER, "count": COUNT, "sound": "none (DQK.CFG 6)",
+        "square": r["square"], "entry_vars": r["entry_vars"].hex(),
+        "monsters_vars": r["monsters_vars"].hex(),
+        "before": L.portable(before), "after_load": L.portable(after),
+        "first_turn": L.portable(turn), "port_stop": port_last},
+        indent=1) + "\n")
 
 
 def main():

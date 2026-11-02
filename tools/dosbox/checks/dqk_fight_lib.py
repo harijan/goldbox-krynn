@@ -12,21 +12,30 @@ the ECL's opcodes reach is objdump's, dis.sh):
   DS:c6e5  the party's list, a far pointer to the first record, the next at +0.
            The monsters are appended to it by 6c70:29fc, which COMBAT's monsters
            branch reaches through 6c70:2d82 (one call per icon slot, from slot 8),
-           not LOAD MONSTER: LOAD MONSTER (6c70:29a3, opcode 0x0b) only registers
-           an icon slot. A record is 0x19e bytes (rules_dark_queen.c's
-           dark_queen_character).
-  +0x40    the record's combat record, a far pointer, 0x18 bytes zeroed at
-           setup (5045's loop over the list calls 1df9:02fc(..., 0x18, ...)
-           for each record); outside combat NULL.
+           and by 6c70:170e (MONCHA id DS:75aa[2 * var 0x3a], 10 records, the
+           GORGONs of a fight with var 0x3a = 0), not by LOAD MONSTER: LOAD MONSTER
+           (6c70:29a3, opcode 0x0b) only registers an icon slot. A record is 0x19e
+           bytes (rules_dark_queen.c's dark_queen_character). Placement (59c7:1d34-
+           1d94) unlinks and frees the monsters it does not place (size 0, combat
+           +0x14 == 1), so the list at the first turn has only the placed ones.
+  +0x40    the record's combat record, a far pointer to 0x18 bytes (59c7:0f7b:
+           1df9:02fc(&record+0x40, 0x18), then 10d7:27a6 zeroes it); outside combat
+           NULL. (5045:05e6's loop calls 148f:0512 with event 0x18: the effects'
+           dispatch, not an allocation.)
   DS:bd4e  a byte set to 1 by LOAD MONSTER (6c70:29f6, "monsters loaded") and
            cleared by CLEARMONSTERS (5f07:07fe, with DS:c6f1).
-  DS:c6f1  a byte: the monsters appended to the list (29fc, cap 0x28).
+  DS:c6f1  a byte: the monsters appended to the list, counted by 29fc (cap 0x28)
+           and 170e (cap 0x32); placement takes nothing off it (12 at the first
+           turn: 2 SHARKMEN and 10 GORGONs, of which 10 are dropped).
   DS:ad6b  a byte: the next icon slot, which LOAD MONSTER fills (the slots'
            id, count and icon at DS:c7c4, c7ca, c7be + slot; 6c70:29a3 stops at
            0x0e); 2d82 reads the slots from 8 up to DS:ad6b.
   DS:bd99 + 4n  a far pointer to combatant n's record, n from 1 (the turn
            list; 5045:059d's loop reads it as bd99 + 4 * DS:bd2d, 0x48 the last).
-  DS:c3ef  a byte: the combatants' count (5837:0330's loop bound).
+  DS:c3ef  a byte: set to 1 by placement (59c7:196d) and raised by 1 for each
+           combatant (1d2b, 1da3): the combatants' count plus one after placement
+           (9 with 8 combatants at the first turn). 5837:0330 loops n = 1 .. c3ef
+           inclusive; the entries past the count are stale (not compared).
   DS:c3f1 + 6n  combatant n's position: x and y, words (5837:0330 writes
            [c3f1+6n] + dx and [c3f3+6n] + dy into the occupants), then a byte
            at +4 (not read here), and the size at +5 (c3f6+6n; 0 = not on the
@@ -39,7 +48,7 @@ the ECL's opcodes reach is objdump's, dis.sh):
            cell (x, y) at y * 50 + x + 9 (5837's and 52db's uses of 0xbedb).
   DS:bd2d  the turn: the combatant index whose turn it is (5045:059d sets 1,
            then 5045:0726 counts it up to 0x48).
-  DS:bd9d  a far pointer to the record the turn loop starts from (5045:059d).
+  DS:bd9d  combatant 1's entry, DS:bd99 + 4 * 1 (not a separate pointer).
   DS:b7f2, DS:b7f3  the sides that can still act: the party's and the
            enemy's, bytes; the battle goes on while both are nonzero
            (5045:059d, 52db's checks).
@@ -49,6 +58,9 @@ the ECL's opcodes reach is objdump's, dis.sh):
            (5045:059d's test, 56681; 52db:0ffc, 18d6 too).
   DS:ae57  the mode, a word: 5 in a battle (5045:059d).
   DS:ca0e  RandSeed, a dword (dqk_lib.DS_SEED; 2102:0234).
+
+The slot tables: DS:c7be + slot (icon), DS:c7c4 + slot (id) and DS:c7ca + slot
+(count), slots 8 to 13 (6c70:29ac-29ee); 2d82 reads them from 8 up to DS:ad6b.
 """
 import pathlib
 import re
@@ -85,11 +97,40 @@ MAP_WIDTH, MAP_HEIGHT, MAP_CELLS = 50, 25, 9  # cells at +9
 COMBATANTS = 0x48                        # the turn list, n = 1 .. 0x48
 CHAIN_MAX = 0x80                         # a bound on the list (a loop is a bug)
 POSITION_STRIDE = 6
+# The sound. DQK.CFG's u16 at 2 is the sound (INSTALL's list: 6 is none); the
+# sound driver's setup (1fd3:000b) compares DS:acd8 with 6 and skips the driver
+# for it. Fights run with it: the original's draws before the first turn are
+# then the same in every run (round 4: five runs, the same callers).
+DQK_CFG = "DISK1/DQK.CFG"
+SOUND_NONE = 6
+# The first turn's RandSeed: dqk_ecl.SEED after 11 draws (2102:0234).
+FIRST_TURN_DRAWS = 11
+FIRST_TURN_SEED = 0x1756582C
 
 
 def far(box, off):
     """The far pointer at DS:OFF as (segment, offset), None if nil."""
     return dqk_lib.far(box, off)
+
+
+def files(patched):
+    """The files a fight's box is made with: the block's ECL.GLB, and DQK.CFG
+    with the sound off (cokbox.Box's files: DISK1\\DQK.CFG written over the
+    copy)."""
+    cfg = bytearray((dqk_lib.ASSETS / "DISK1" / "DQK.CFG").read_bytes())
+    cfg[2:4] = struct.pack("<H", SOUND_NONE)
+    return {"DISK3/ECL.GLB": patched, DQK_CFG: bytes(cfg)}
+
+
+def draws(start, end, limit=100000):
+    """How many RandSeed draws take START to END (2102:0234: seed * 0x6d25 + 1,
+    32 bits), None if they do not within LIMIT."""
+    x = start & 0xFFFFFFFF
+    for n in range(limit):
+        if x == end & 0xFFFFFFFF:
+            return n
+        x = (x * 0x6D25 + 1) & 0xFFFFFFFF
+    return None
 
 
 def read_far(box, ptr, size):
@@ -231,14 +272,28 @@ def trap(box, seg, off, until=lambda: True, seconds=60, answer=None):
     every copy the overlay buffer holds, as the overlay manager loads it afresh,
     until UNTIL() holds (the game runs meanwhile: this loops in Python, patching
     each time the code is found). ANSWER, if given, is called each round (to type
-    the keys a battle's text waits for). Returns a Trap; BoxError after SECONDS."""
-    patched = []
+    the keys a battle's text waits for). Returns a Trap; BoxError after SECONDS.
+
+    The copies are looked for (code_at, which reads the whole buffer) until one is
+    found; after that each round only reads the copies' first 12 bytes, at the same
+    addresses, and patches a copy whose bytes are its routine again (the overlay
+    manager loaded it afresh). A copy whose bytes are neither is looked for again."""
+    patched = []  # (address, the 2 bytes patched over), each address once
+    known = {}     # address -> the routine's 12 bytes as found
     end = time.monotonic() + seconds
     while time.monotonic() < end:
-        for addr in code_at(box, seg, off):
-            if box.read(addr, 2) == b"\xeb\xfe":
+        if not known:
+            for addr in code_at(box, seg, off):
+                known[addr] = box.read(addr, 12)
+        for addr, sig in list(known.items()):
+            now = box.read(addr, 12)
+            if now[:2] == b"\xeb\xfe":
                 continue
-            patched.append((addr, box.read(addr, 2)))
+            if now != sig:
+                del known[addr]  # moved or changed: look for the copies again
+                continue
+            if all(a != addr for a, _ in patched):
+                patched.append((addr, now[:2]))
             box.write(addr, b"\xeb\xfe")
         if patched and until():
             return Trap(patched, seg, off)
@@ -248,8 +303,46 @@ def trap(box, seg, off, until=lambda: True, seconds=60, answer=None):
     raise cokbox.BoxError(f"the trap at {seg:04x}:{off:04x} did not hold")
 
 
+def held(box, handle, seconds=1.0):
+    """Whether the spin holds: the patched bytes still EB FE, and the keyboard
+    polls (the hook's count: the game waits for no key while it spins) do not move
+    over SECONDS of the game's time. Returns (held, polls before, polls after)."""
+    before = box.hook("polls")
+    box.settle(seconds)
+    after = box.hook("polls")
+    spins = all(box.read(addr, 2) == b"\xeb\xfe" for addr, _ in handle)
+    return spins and before == after, before, after
+
+
 def untrap(box, handle):
     """The code a trap patched given back, where the spin is still there (the
     overlay manager may have copied the routine afresh since)."""
     moved = [(addr, orig) for addr, orig in handle if box.read(addr, 2) == b"\xeb\xfe"]
     box.write_paused(moved)
+
+
+def portable(s):
+    """The state as setup.json keeps it. The heap pointers (the records' and the
+    combat records' far pointers, the combatants' and the first record's) are not
+    the port's heap, so each names its record by the record's index in the list
+    (None for NULL), and the records' own next pointer (+0) and combat-record
+    pointer (+0x40) are zeroed in their raw bytes; the combat records' addresses and
+    the battlefield's far pointer are dropped. Everything else is game state."""
+    index = {r["at"]: i for i, r in enumerate(s["records"])}
+
+    def ref(p):
+        return None if p is None else index.get(p, "?")
+
+    out = dict(s)
+    out["records"] = []
+    for r in s["records"]:
+        raw = bytearray.fromhex(r["raw"])
+        raw[0:4] = bytes(4)
+        raw[COMBAT_AT:COMBAT_AT + 4] = bytes(4)
+        combat = None if r["combat"] is None else dict(raw=r["combat"]["raw"])
+        out["records"].append(dict(raw=raw.hex(), combat=combat))
+    out["combatants"] = [dict(c, record=ref(c["record"])) for c in s["combatants"]]
+    out["first"] = ref(s["first"])
+    if s["battlefield"] is not None:
+        out["battlefield"] = dict(s["battlefield"], far="(masked)")
+    return out

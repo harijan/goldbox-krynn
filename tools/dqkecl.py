@@ -141,11 +141,16 @@ def fight(b, loads, sprite, distance=3, ambush=0x0F, pause=False):
     LBIBase error (docs/checks.md, the Dark Queen's fight). Then CLEARMONSTERS
     (opcode 0x1c, block 7's first) and LOADS: (id, count) per LOAD MONSTER, its
     icon the id; then SETUP MONSTERS with the sprite (a SPRIT.TLB record: 82 in
-    block 7), the distance and the ambush directions; APPROACH; COMBAT. PAUSE: a
-    PRESS KEY after the loads, labelled 'loaded' (the checks read the state
-    there). Opcodes 0x0b, 0x0c, 0x0d, 0x21 and 0x24 as rules_dark_queen.c has them."""
+    block 7), the distance and the ambush directions; APPROACH; COMBAT. PAUSE: two
+    PRESS KEYs, labelled 'monsters' (after CLEARMONSTERS, before the loads: the
+    checks compare the variables there with eclplay's) and 'loaded' (after the
+    loads: the checks read the state there). Opcodes 0x0b, 0x0c, 0x0d, 0x21 and
+    0x24 as rules_dark_queen.c has them."""
     b.op("LOAD_FILES", imm(4), imm(4))
     b.op("CLEARMONSTERS")
+    if pause:
+        b.label("monsters")
+        b.op("PRESS_KEY")
     for monster, count in loads:
         b.op("LOAD_MONSTER", imm(monster), imm(count), imm(monster))
     if pause:
