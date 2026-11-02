@@ -38,6 +38,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))  # tools/: hlib, dqkecl
@@ -372,9 +373,42 @@ def enter_block(box):
     box.settled(tolerance=64)
     _, _, answer = dqk_lib.protection(box)
     box.keys(answer + "\\r")
-    # The copy protection's draws are done; the block's PRESS KEY is next.
-    box.settled(tolerance=64)
+    # The copy protection's draws are done; the block's PRESS KEY is next. Its
+    # state is waited for, not the screen's: once the screen has settled, the
+    # block may not have started yet (under load, the original was still before
+    # it in two runs of run_all's dqk_ecl).
+    wait_press_key(box)
     return variables
+
+
+# The block's entry PRESS KEY (dqkecl's 'entry', one byte past EXIT): the ECL's
+# pc reads past the opcode, as dqk_lib.ecl_state reports it.
+ENTRY_PRESS_KEY_PC = dqkecl.CODE_START + 2
+# How long the ECL may take to reach the entry PRESS KEY (wall clock). Idle it
+# takes a second or two; a loaded host, much longer.
+PRESS_KEY_SECONDS = 300
+
+
+def wait_press_key(box, seconds=PRESS_KEY_SECONDS):
+    """Until the ECL is at the block's entry PRESS KEY (pc ENTRY_PRESS_KEY_PC,
+    opcode PRESS_KEY, DS:b7f9 and DS:b1c7) and the game waits for a key there
+    (Box.waiting). Returns the ECL's state. BoxError after SECONDS, naming the
+    state seen."""
+    end = time.monotonic() + seconds
+    while True:
+        state = dqk_lib.ecl_state(box)
+        waiting = None
+        if (state["pc"], state["opcode"]) == (ENTRY_PRESS_KEY_PC, OPCODES["PRESS_KEY"]):
+            waiting = box.waiting()
+            if waiting:
+                return state
+        if time.monotonic() > end:
+            raise cokbox.BoxError(
+                f"the ECL did not reach the block's PRESS KEY in {seconds} s: buffer "
+                f"{state['buffer']}, pc {state['pc']:#x}, opcode {state['opcode']:#x} "
+                f"(the PRESS KEY is pc {ENTRY_PRESS_KEY_PC:#x}, opcode "
+                f"{OPCODES['PRESS_KEY']:#x}), waiting for a key: {waiting}")
+        time.sleep(0.05)
 
 
 def stop_at(block):
