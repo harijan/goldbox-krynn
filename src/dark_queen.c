@@ -97,6 +97,9 @@ typedef struct {
     /* The controls on screen, for the mouse's cursor (2aa6:15e3: the sword
      * over one, the shield elsewhere). */
     rect controls[CONTROLS];
+    /* Each control's cursor (ALWAYS.TLB's record, 2aa6:15e3's value; 0 for
+     * the sword), the view's areas' arrows and U-turn. */
+    uint8_t control_cursor[CONTROLS];
     size_t control_count;
     bool cursor_shown; /* 22b7:2122 shows it, 10d7:0141 hides it */
     bool mouse_started;
@@ -421,10 +424,20 @@ static void controls_clear(cok_adventure *game)
     own(game)->control_count = 0;
 }
 
-static void control_add(cok_adventure *game, rect r)
+/* A control with the cursor shown over it (ALWAYS.TLB's record; 0, the
+ * sword, for control_add). */
+static void control_add_cursor(cok_adventure *game, rect r, uint8_t cursor)
 {
     queen *q = own(game);
-    if (q->control_count < CONTROLS) q->controls[q->control_count++] = r;
+    if (q->control_count < CONTROLS) {
+        q->control_cursor[q->control_count] = cursor;
+        q->controls[q->control_count++] = r;
+    }
+}
+
+static void control_add(cok_adventure *game, rect r)
+{
+    control_add_cursor(game, r, 0);
 }
 
 /* A key nothing takes (2102:0193): the speaker's beep, not sounded yet
@@ -596,20 +609,22 @@ static bool print_text(cok_adventure *game, const char *s, bool clear)
  * ran out. */
 static int bar_menu_areas(cok_adventure *game, const char *prompt, const char *const *items,
                           size_t count, bool dirs, bool anim, uint16_t timeout, int timed_out,
-                          const rect *areas, size_t area_count);
+                          const rect *areas, const uint8_t *area_cursors, size_t area_count);
 
 static int bar_menu(cok_adventure *game, const char *prompt, const char *const *items,
                     size_t count, bool dirs, bool anim, uint16_t timeout, int timed_out)
 {
-    return bar_menu_areas(game, prompt, items, count, dirs, anim, timeout, timed_out, NULL, 0);
+    return bar_menu_areas(game, prompt, items, count, dirs, anim, timeout, timed_out, NULL, NULL,
+                          0);
 }
 
 /* bar_menu with areas of the screen after its buttons (1bdb:1429's: the
  * sheet's rows, which a click takes: 2aa6:15e3's hit, 1bdb:1206's), a
- * click on one giving AREA_MENU + its index. */
+ * click on one giving AREA_MENU + its index; area_cursors, if not NULL,
+ * the cursor shown over each (ALWAYS.TLB's record; NULL: the sword). */
 static int bar_menu_areas(cok_adventure *game, const char *prompt, const char *const *items,
                           size_t count, bool dirs, bool anim, uint16_t timeout, int timed_out,
-                          const rect *areas, size_t area_count)
+                          const rect *areas, const uint8_t *area_cursors, size_t area_count)
 {
     char box[96];
     snprintf(box, sizeof box, "%s", prompt);
@@ -635,7 +650,8 @@ static int bar_menu_areas(cok_adventure *game, const char *prompt, const char *c
         button(game, BAR_ROW, col, items[i], width, 0);
         col += (width + 1) * 8;
     }
-    for (size_t i = 0; i < area_count; ++i) control_add(game, areas[i]);
+    for (size_t i = 0; i < area_count; ++i)
+        control_add_cursor(game, areas[i], area_cursors != NULL ? area_cursors[i] : 0);
     game->timed = timeout != 0;
     game->timeout = timeout;
     menu_wait_begin(game, anim);
@@ -1796,9 +1812,14 @@ static void cursor(cok_adventure *game, uint8_t *pixels)
     const hlib_library *always = lib(game, LIB_ALWAYS);
     if (always == NULL) return;
     int x = game->mouse.driver.x / 2, y = game->mouse.driver.y;
+    /* 2aa6:1611-1647: the first control holding the pointer gives its
+     * cursor (0: the sword); none, the shield. */
     unsigned id = 2;
     for (size_t i = 0; i < q->control_count; ++i)
-        if (inside(&q->controls[i], x, y)) id = 1;
+        if (inside(&q->controls[i], x, y)) {
+            id = q->control_cursor[i] != 0 ? q->control_cursor[i] : 1;
+            break;
+        }
     const uint8_t *record;
     size_t size;
     cok_vga_image image = {0};
@@ -1806,10 +1827,11 @@ static void cursor(cok_adventure *game, uint8_t *pixels)
         cok_vga_decode(record, size, always, &image) != COK_VGA_OK)
         return;
     /* At the pointer less the hotspot, to the pixel (not to a plane's
-     * four, as the game's pictures). */
+     * four, as the game's pictures): the header's row (image.x) is taken
+     * from y, the column (image.y) from x. */
     cok_picture copy = game->screen;
     copy.pixels = pixels;
-    cok_vga_draw(&copy, &image, x - image.x, y - image.y, NULL, NULL);
+    cok_vga_draw(&copy, &image, x - image.y, y - image.x, NULL, NULL);
     cok_vga_free(&image);
 }
 
@@ -3567,29 +3589,44 @@ static bool step_ahead(cok_adventure *game)
     return true;
 }
 
+/* The view's areas of the bar menu (1bdb:1aef's four, 1b45-1bc5, in 2 px
+ * units from 8000: its rects {top, left, bottom, right}), in the order of
+ * 1206's codes (126e: r - DS:a658 - 2): turn left (0x86, ALWAYS.TLB 26),
+ * step ahead (0x88, 11), turn right (0x82, 25), turn around (0x84, 27). */
+static const rect view_areas[] = {{0, 0, 100, 40}, {0, 40, 100, 96}, {0, 96, 100, 136},
+                                  {100, 0, 160, 136}};
+static const uint8_t view_cursors[] = {26, 11, 25, 27};
+static const int view_codes[] = {0x86, 0x88, 0x82, 0x84};
+
 /* The adventure's commands in 3D (6fea:0365, mode 4): variable 3 0, then
  * the bar's "Area Cast View Encamp Search Look Inv" (DS:5088 but Move,
  * 1bdb:0005; 1aef: the extended keys' filter) until one ends it: Right,
  * Down and Left turn the party (a quarter, a half, three quarters) and
  * draw the view and status again; Up checks the step (6fea:000a), the
  * status drawn, and ends it (giving 0xff); Escape nothing; another
- * filtered key picks a member (5e22:067c, not ported yet). Encamp ends it
- * (4); Search turns variable 0x19's bit 0 and draws the status; Look sets
- * its bit 1, draws the status, passes ten minutes and ends it (6); Area,
- * Cast, View and Inv are not ported yet (the run stops). Then the text
- * window cleared where text was shown (DS:b2fb). Returns the command, -1
- * where the run stopped. */
+ * filtered key picks a member (5e22:067c, not ported yet). With the mouse
+ * on (DS:a6b5), a click on the view's areas gives the same codes as those
+ * keys (view_areas). Encamp ends it (4); Search turns variable 0x19's bit
+ * 0 and draws the status; Look sets its bit 1, draws the status, passes
+ * ten minutes and ends it (6); Area, Cast, View and Inv are not ported yet
+ * (the run stops). Then the text window cleared where text was shown
+ * (DS:b2fb). Returns the command, -1 where the run stopped. */
 static int commands(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     cok_ecl_store(vm, 3, 0);
+    mouse_start(game);
     static const char *const items[] = {"Area", "Cast", "View", "Encamp", "Search", "Look",
                                         "Inv"};
+    /* 1aef adds the view's areas only with the mouse on (1b3b). */
+    size_t area_count = game->mouse.on ? sizeof view_areas / sizeof view_areas[0] : 0;
     int result = -1;
     for (bool done = false; !done;) {
         cok_adventure_log(game, "menu", "Area Cast View Encamp Search Look Inv");
-        int choice = bar_menu(game, "", items, 7, true, false, 0, 0);
+        int choice = bar_menu_areas(game, "", items, 7, true, false, 0, 0, view_areas,
+                                    view_cursors, area_count);
         if (choice < 0) return -1;
+        if (choice >= AREA_MENU) choice = view_codes[choice - AREA_MENU];
         if (choice >= 0x80 || choice == 0x1b) {
             switch (choice) {
             case 0x1b: break;
@@ -3925,7 +3962,7 @@ void queen_set_train_anywhere(cok_adventure *game, bool on)
 int queen_bar_menu_areas(cok_adventure *game, const char *prompt, const char *const *items,
                         size_t count, bool dirs, const queen_rect *areas, size_t area_count)
 {
-    return bar_menu_areas(game, prompt, items, count, dirs, false, 0, 0, areas, area_count);
+    return bar_menu_areas(game, prompt, items, count, dirs, false, 0, 0, areas, NULL, area_count);
 }
 
 void queen_message(cok_adventure *game, const char *s, int x, unsigned fg, unsigned bg)
