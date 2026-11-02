@@ -1100,7 +1100,9 @@ static void view(cok_adventure *game)
 
 /* LOAD FILES map, wall set (6c70:1dec): the map from GEO.GLB
  * (8a8b:12e3: variables 0x13 and 0xc6 its id, slots 0 and 1 freed), 0x03
- * cleared, the wall set's id kept (DS:ca03). */
+ * cleared; then the wall set (6c70:1e30): unless it is 0xff or the one
+ * loaded (DS:ca03, saved with the game), its id is kept there and the big
+ * picture is gone (19a4:0009 frees it, DS:ae43 is 0: 6c70:1e41-1e57). */
 static void load_files(cok_adventure *game)
 {
     queen *q = own(game);
@@ -1124,6 +1126,11 @@ static void load_files(cok_adventure *game)
     cok_ecl_store(vm, 0xc6, map);
     q->wall_loaded[0] = q->wall_loaded[1] = false;
     cok_ecl_store(vm, 0x03, 0);
+    uint8_t set = (uint8_t)cok_ecl_value(vm, 1);
+    if (set != 0xff && set != game->wall_ids[0]) {
+        game->wall_ids[0] = set;
+        q->big_id = 0;
+    }
     game->files_loaded = game->map_loaded = true;
 }
 
