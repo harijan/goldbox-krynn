@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py` and `dqk_ecl.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py` and `dqk_ecl_input.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -459,6 +459,24 @@ blocks: the original never gets past it (DOSBox-X logs an unhandled INT 0
 again and again, the game's screen and ECL stay at the DIVIDE, 832a), where
 eclplay stops with "division by zero" there; a difference in a case the game
 does not survive, not compared.
+
+`dqk_ecl_input.py` (seven blocks, a few minutes; `--only NAME` runs one) runs the input and menu opcodes the same way, its keys typed after each
+block's PRESS KEY (`eclplay --keys`, the box's keys as the game waits); its
+machinery is `dqk_ecl.py`'s (`run_block`). `tools/dqkecl.py` writes a string
+operand (`text`), the packing `src/ecl.c`'s unpack reads. The blocks: INPUT
+NUMBER (an empty line, five digits at most, "-5" and Escape asked again, a suffix
+base, out of range asked again) and INPUT STRING (lower case upper-cased, an
+empty line a space, Escape keeping the text, 40 letters keeping 35, Backspace);
+COMPARE AND (two pairs; a string pair never equal; a wide variable against a word;
+a number against a string, whatever the original gives); VERTICAL MENU (Down and
+Return, Escape keeping the current item, Up wrapping, the store's width); HORIZONTAL
+and ASK MENU (a hotkey, the first item with its letter, Escape and the arrows
+ignored, a wide header variable); and YES NO (a hotkey, Escape as No, the arrows
+ignored, the flags cleared each time). LOAD CHARACTER is not in the blocks: its
+result is which member is selected, which needs the same party on both sides.
+The flow's VERTICAL MENU store clears the byte after a wide header variable, as
+the original's does (its item's type makes the store a word, `wide_type`). All
+agree (2026-11-02); a port string limit one short fails INPUT STRING's block.
 
 To add a block: write it in `dqk_ecl.py`'s `BLOCKS` (a function returning the
 `Block` and `expect`, the values it should leave by variable address), and the
