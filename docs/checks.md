@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py` and `dqk_ecl_text.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py` and `dqk_ecl_flow.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -516,6 +516,14 @@ after it, the bottom bar left out). All agree (2026-11-02). Found and fixed on t
 JOURNAL's and ASK MENU's colour (`test_adventure`'s `test_dark_queen_journal` and
 `test_dark_queen_ask`), the backdrop's square byte and the view's mode test
 (`test_dark_queen_view_square` and `test_dark_queen_view_modes`).
+
+`dqk_ecl_flow.py` (a few minutes for its seven blocks; `--only NAME` runs one; in `make
+dqk-checks`) runs the block, map and call opcodes the same way, with `dqk_ecl_text.py`'s
+start and comparison: CLEARMONSTERS and NOTHING (six operands; none), CALL 1, 2 and the
+other values, LOAD FILES with wall sets 0 and 0xff, and MUSIC. An original run that
+loses its keys before its block starts (its ECL state reads 0x8000 or 0x8015 with no
+block running) is retried once. Not in it: CALL 3 and NEWECL, which games.md lists as
+open. All seven agree (2026-11-02).
 
 To add a block: write it in `dqk_ecl.py`'s `BLOCKS` (a function returning the
 `Block` and `expect`, the values it should leave by variable address), and the

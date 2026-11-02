@@ -530,12 +530,25 @@ run, citing their handlers (`unported`). It holds:
   (`8a8b:0290` and `029d`), which a block's entry, a step and a saved game's load set
   and the view does not (`5e22:0000` recomputes nothing); the view is drawn in mode 4,
   or in mode 3 with variable 0x24 not 1 (`5e22:0032-0049`), and in no other mode.
-  Not done: CALL 1 and CLEAR EXIT redraw through the shared `redraw_changed`, which
-  recomputes the saved square (Champions' CALL 2e10 does that; the original's view
-  does not), a difference only where the party's square changes without a step or an
-  entry; the overland's big picture is drawn without the picture flag (DS:ae27) that
+  CALL 1 and CLEAR EXIT redraw through the shared `redraw_changed`, which recomputes
+  the saved square as the original does (6c70:1685 writes DS:c9f4 from DS:c9f0-1 at
+  1694, and CLEAR EXIT calls 1685; `dqk_ecl_flow.py`'s redraw block, 2026-11-02); the
+  view itself (`5e22:0000`) recomputes nothing.
+  Not done: the overland's big picture is drawn without the picture flag (DS:ae27) that
   `5e22:0000` tests; PICTURE 0xff's other conditions (DS:b419, `5f07:0511-052b`) are
   not run.
+  The block, map and call opcodes agree with the original on test blocks
+  (`dqk_ecl_flow.py`, 2026-11-02): CLEARMONSTERS; NOTHING with six operands (CHECKPARTY's,
+  `5f07:0812`) and with none (`5f07:1449`); CALL 1, 2 and the other values (the
+  square byte, the facing, the wall ahead; a CALL after a word operand whose high byte
+  is not 0 does nothing, as the original's address is that word); LOAD FILES with wall
+  sets 0 and 0xff (the screen); MUSIC (the variables; no sound compared). Open:
+  PICTURE 14 is a creature in the original, which animates, where eclplay draws
+  PICA's record 14 (a coral scene with no frames; the library or record of a small
+  picture is not settled), so CALL 3 (the picture's next frame) is not checked; NEWECL
+  runs block 2 in eclplay (the block variable reads 1, and block 1's SAVE after it does
+  not run), but the original's run does not reach a block's wait; LOAD FILES stores its
+  wall set at DS:ca03 (`6c70:1e57`), which the port does not, and no check shows it.
 - its maps: `GEO.GLB` records of their own size (`cok_view_set_geo`,
   `8a8b:12e3`): u8 height, u8 width, the wall sets of slots 0-2 and three
   backdrops, then four planes of a byte a square, row by row: the north
