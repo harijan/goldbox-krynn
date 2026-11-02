@@ -295,11 +295,11 @@ def edges():
 BLOCKS = {"arithmetic": arithmetic, "control": control, "flags": flags, "edges": edges}
 
 
-def port(work, name, patched, typed=""):
+def port(work, name, patched, typed="", extra=()):
     """eclplay's run of the block (from a copy of the assets with the block
     replaced): its variables (--vars), its output's last line, and whether
     eclplay reports keys left unread (TYPED are the keys the block reads after
-    its PRESS KEY, eclplay --keys escapes)."""
+    its PRESS KEY, eclplay --keys escapes; EXTRA are more eclplay arguments)."""
     assets = work / f"assets-{name}"
     if assets.exists():
         shutil.rmtree(assets)
@@ -315,7 +315,8 @@ def port(work, name, patched, typed=""):
     (assets / "DISK3" / "ECL.GLB").write_bytes(patched)
     vars_path = work / f"port-{name}.vars"
     result = subprocess.run([str(cokbox.ECLPLAY), *GAME, "--seed", str(SEED), "--vars",
-                             str(vars_path), "--keys", "\\r" + typed, str(assets), str(JUMP)],
+                             str(vars_path), "--keys", "\\r" + typed, *extra, str(assets),
+                             str(JUMP)],
                             capture_output=True, text=True, cwd=ROOT, timeout=300)
     (work / f"port-{name}.txt").write_text(result.stdout + result.stderr)
     last = (result.stdout.strip().splitlines() or [""])[-1]
@@ -331,28 +332,9 @@ def original(work, name, patched, verbose, typed=""):
     the variables are the 1 KB at DS:b20f."""
     with cokbox.Box(workdir=work / f"box-{name}", game="dark-queen", verbose=verbose,
                     timeout=900, files={"DISK3/ECL.GLB": patched}) as box:
-        for _ in range(600):
-            shot = box.screenshot()
-            if (shot.width, shot.height) == (320, 200) and len(shot.colours()) >= 8:
-                break
-            box.settle(0.1)
-        box.keys("\\e")
-        box.settled(tolerance=64)
-        freeze = (box.ds - 0x422E + 0x261B) * 16 + 0x05BE  # dqk_menus' freeze_cycles
-        if box.read(freeze, 1) != b"\x55":
-            raise cokbox.BoxError("261b:05be is not where it was expected")
-        box.write(freeze, b"\xcb")
-        box.keys("plta")
-        box.settled(tolerance=64)
-        variables = box.far(box.ds * 16 + DS_VARS)
-        box.write(variables + 0x16, bytes([JUMP]))
-        box.keys("b")
-        box.settled(tolerance=64)
-        _, _, answer = dqk_lib.protection(box)
-        box.keys(answer + "\\r")
+        variables = enter_block(box)
         # The block's first instruction: the PRESS KEY, where the game
         # waits; the seed is set there, after the copy protection's draws.
-        box.settled(tolerance=64)
         wait = dqk_lib.ecl_state(box)
         box.set_seed(SEED)
         before = box.read(variables + 1, VARIABLES)
@@ -362,6 +344,35 @@ def original(work, name, patched, verbose, typed=""):
         after = box.read(variables + 1, VARIABLES)
         return ((wait["pc"], wait["opcode"]), before,
                 (end["pc"], end["opcode"]), after)
+
+
+def enter_block(box):
+    """The original from its start to the block's PRESS KEY (the jumper set to
+    JUMP and Begin Adventuring, the copy protection answered): the box waits in
+    the PRESS KEY, the seed not yet set. Returns the address of the block
+    variables (DS:b20f)."""
+    for _ in range(600):
+        shot = box.screenshot()
+        if (shot.width, shot.height) == (320, 200) and len(shot.colours()) >= 8:
+            break
+        box.settle(0.1)
+    box.keys("\\e")
+    box.settled(tolerance=64)
+    freeze = (box.ds - 0x422E + 0x261B) * 16 + 0x05BE  # dqk_menus' freeze_cycles
+    if box.read(freeze, 1) != b"\x55":
+        raise cokbox.BoxError("261b:05be is not where it was expected")
+    box.write(freeze, b"\xcb")
+    box.keys("plta")
+    box.settled(tolerance=64)
+    variables = box.far(box.ds * 16 + DS_VARS)
+    box.write(variables + 0x16, bytes([JUMP]))
+    box.keys("b")
+    box.settled(tolerance=64)
+    _, _, answer = dqk_lib.protection(box)
+    box.keys(answer + "\\r")
+    # The copy protection's draws are done; the block's PRESS KEY is next.
+    box.settled(tolerance=64)
+    return variables
 
 
 def stop_at(block):
