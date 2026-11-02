@@ -1537,6 +1537,7 @@ const cok_rules cok_rules_champions = {
             .icon_slots = 26,
             .icon_table = 0x6172,
             .missiles_recoloured = false, /* 6d21:01d0: CPIC's only */
+            .party_icons = true,
         },
     .spells =
         {
@@ -1697,6 +1698,7 @@ const cok_rules cok_rules_champions = {
             .ends_in_round = false,
             /* 3cb2:1c58, 1029 */
             .begins = "A battle begins...",
+            .begins_colour = 10, /* 1521:0353's, as combat.c had it */
             .dungeon_tiles = 0x19,
             .wilderness_tiles = 0x21,
             .tiles_kept = false,

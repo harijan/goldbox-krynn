@@ -250,7 +250,46 @@ static cok_character *copy_monster(const cok_character *first)
  * arena.h). */
 static bool load_icons(cok_adventure *game, uint8_t id, uint8_t slot)
 {
-    return cok_arena_load_icon(game, cok_game_rules(game)->archives.icons, id, slot);
+    const cok_rules *rules = cok_game_rules(game);
+    /* Dark Queen's loader, 204c:00df, is not ported yet: its slot is taken, and
+     * nothing is read or logged (rules.h's monster_icons_unported). */
+    if (rules->combat.monster_icons_unported) return true;
+    return cok_arena_load_icon(game, rules->archives.icons, id, slot);
+}
+
+/* LOAD MONSTER where COMBAT appends the monsters (dqk 6c70:29a3): unless
+ * the icon slots are used up (DS:ad6b 0x0e), the slot's id, count and icon
+ * are kept, the monsters flag is set and the slot is taken. Nothing is read
+ * or appended yet: COMBAT does that (append_monsters). */
+static void register_monster(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    if (game->icon_slot >= COK_MONSTER_SLOTS) return;
+    uint8_t slot = game->icon_slot;
+    game->monster_slots[slot].id = (uint8_t)cok_ecl_value(vm, 0);
+    game->monster_slots[slot].count = (uint8_t)cok_ecl_value(vm, 1);
+    game->monster_slots[slot].icon = (uint8_t)cok_ecl_value(vm, 2);
+    game->monsters_loaded = true;
+    ++game->icon_slot;
+}
+
+/* The difficulty, 1-5 (Novice to Champion), scales the hit points of a
+ * hostile monster against the party by (d + 1) / 4, as bytes; either at 0
+ * makes both 1 (dqk 6c70:29fc 2a54-2ac6, the same as Champions'). */
+static void scale_hit_points(cok_adventure *game, cok_character *m)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t *r = m->record;
+    uint16_t difficulty = cok_ecl_var(&game->vm, COK_VAR_DIFFICULTY);
+    if (cok_field_u8(L, r, COK_FIELD_HOSTILE) == 1 && difficulty >= 1 && difficulty <= 5) {
+        uint8_t now = cok_field_u8(L, r, COK_FIELD_HIT_POINTS),
+                most = cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS);
+        now = (uint8_t)(((difficulty + 1u) * now) >> 2);
+        most = (uint8_t)(((difficulty + 1u) * most) >> 2);
+        if (now == 0 || most == 0) now = most = 1;
+        cok_field_set8(L, r, COK_FIELD_HIT_POINTS, now);
+        cok_field_set8(L, r, COK_FIELD_MAX_HIT_POINTS, most);
+    }
 }
 
 /* LOAD MONSTER (2fd3:0465): unless 63 records were loaded since
@@ -261,6 +300,10 @@ static bool load_icons(cok_adventure *game, uint8_t id, uint8_t slot)
 static void load_monster(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
+    if (cok_game_rules(game)->combat.monsters_at_combat) {
+        register_monster(game);
+        return;
+    }
     if (game->monsters >= COK_MONSTERS_MAX) {
         log_text(game, "monster", "none, 63 are loaded");
         return;
@@ -278,19 +321,7 @@ static void load_monster(cok_adventure *game)
     }
     const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *r = first->record;
-    /* The difficulty, 1-5 (Novice to Champion), scales the hit points of a
-     * monster against the party by (d + 1) / 4, as bytes; either at 0 makes
-     * both 1. */
-    uint16_t difficulty = cok_ecl_var(vm, COK_VAR_DIFFICULTY);
-    if (cok_field_u8(L, r, COK_FIELD_HOSTILE) == 1 && difficulty >= 1 && difficulty <= 5) {
-        uint8_t now = cok_field_u8(L, r, COK_FIELD_HIT_POINTS),
-                most = cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS);
-        now = (uint8_t)(((difficulty + 1u) * now) >> 2);
-        most = (uint8_t)(((difficulty + 1u) * most) >> 2);
-        if (now == 0 || most == 0) now = most = 1;
-        cok_field_set8(L, r, COK_FIELD_HIT_POINTS, now);
-        cok_field_set8(L, r, COK_FIELD_MAX_HIT_POINTS, most);
-    }
+    scale_hit_points(game, first);
     if (cok_field_u8(L, r, COK_FIELD_UNDEAD) != 0) ++game->undead;
     uint8_t count = (uint8_t)cok_ecl_value(vm, 1), icon = (uint8_t)cok_ecl_value(vm, 2);
     if (count == 0) count = 1;
@@ -333,8 +364,149 @@ static void load_monster(cok_adventure *game)
     log_text(game, "monster", text);
 }
 
-/* CLEARMONSTERS (2fd3:12fe): forget the monsters loaded, but leave their
- * records in the list, and empty the treasure pool. */
+/* The records of one monster (dqk 6c70:29fc's 2b38-2c82): the first is the
+ * record itself, then copies of it, count in all (a count of 0 is 1), while
+ * the list has room under cap: copies take the items and effects in reverse,
+ * as copy_monster does. */
+static bool append_copies(cok_adventure *game, cok_character *first, unsigned count,
+                          unsigned cap)
+{
+    cok_character *copy = first;
+    for (unsigned i = 1; copy != NULL; ++i) {
+        if (!cok_party_append(&game->party, copy)) {
+            cok_character_free(copy);
+            free(copy);
+            cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                               "the party list holds %u records; combat's tables hold no more",
+                               COK_PARTY_RECORDS);
+            return false;
+        }
+        ++game->monsters;
+        if (i >= count || game->monsters >= cap) break;
+        copy = copy_monster(first);
+        if (copy == NULL) {
+            cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
+            return false;
+        }
+    }
+    return true;
+}
+
+/* One slot's monsters at COMBAT (dqk 6c70:29fc, from 2d82): nothing once
+ * the list holds monster_records_max monsters; else the record read, the
+ * difficulty, the undead count, the icons of the slot, and append_copies. */
+static bool append_slot(cok_adventure *game, uint8_t slot)
+{
+    const cok_rules_combat *R = &cok_game_rules(game)->combat;
+    if (game->monsters >= R->monster_records_max) return true;
+    cok_character *first = malloc(sizeof *first);
+    if (first == NULL) {
+        cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
+        return false;
+    }
+    if (!cok_monster_read(game, game->monster_slots[slot].id, first)) {
+        cok_character_free(first);
+        free(first);
+        return false;
+    }
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t *r = first->record;
+    scale_hit_points(game, first);
+    if (cok_field_u8(L, r, COK_FIELD_UNDEAD) != 0) ++game->undead;
+    uint8_t count = game->monster_slots[slot].count;
+    if (count == 0) count = 1;
+    if (!load_icons(game, game->monster_slots[slot].icon, slot)) {
+        cok_character_free(first);
+        free(first);
+        return false;
+    }
+    /* The icon slot is set before the record is copied (dqk 29fc's 2b13). */
+    cok_field_set8(L, r, COK_FIELD_ICON, slot);
+    return append_copies(game, first, count, R->monster_records_max);
+}
+
+/* The extra monsters at COMBAT (dqk 6c70:170e): the table's pair for var
+ * extra_monster_var, read and made a status 9 monster (placement drops it),
+ * with the NPC bits 0x32, hostile where the var is 5, its icon in the next
+ * slot, which the extras take (the slot is used up after them), and ten of
+ * them, the first always appended, the rest while the list has room under
+ * monster_records_extra. */
+static bool append_extra(cok_adventure *game)
+{
+    const cok_rules_combat *R = &cok_game_rules(game)->combat;
+    uint16_t v = cok_ecl_load_var(&game->vm, R->extra_monster_var);
+    if (v >= R->extra_monster_count) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                           "var %#x is %u, past the table of %u extra monsters (dqk 170e)",
+                           R->extra_monster_var, v, R->extra_monster_count);
+        return false;
+    }
+    cok_character *first = malloc(sizeof *first);
+    if (first == NULL) {
+        cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
+        return false;
+    }
+    if (!cok_monster_read(game, R->extra_monsters[v][0], first)) {
+        cok_character_free(first);
+        free(first);
+        return false;
+    }
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t *r = first->record;
+    /* movw's: the status and the hostile flag are words, their high bytes 0. */
+    cok_field_set8(L, r, COK_FIELD_STATUS, 9);
+    r[0x65] = 0;
+    cok_field_set8(L, r, COK_FIELD_NPC, (uint8_t)(cok_field_u8(L, r, COK_FIELD_NPC) | 0x32));
+    cok_field_set8(L, r, COK_FIELD_HOSTILE, v == 5);
+    r[0x67] = 0;
+    uint8_t slot = game->icon_slot;
+    if (!load_icons(game, R->extra_monsters[v][1], slot)) {
+        cok_character_free(first);
+        free(first);
+        return false;
+    }
+    cok_field_set8(L, r, COK_FIELD_ICON, slot);
+    if (!append_copies(game, first, R->extra_monsters_appended, R->monster_records_extra))
+        return false;
+    ++game->icon_slot;
+    return true;
+}
+
+/* COMBAT's monsters appends where LOAD MONSTER registered them (dqk
+ * 5f07:081b 8e6 and 8eb): 6c70:2d82 runs 29fc for each slot from 8 up to the
+ * next, then 170e. */
+static bool append_monsters(cok_adventure *game)
+{
+    for (unsigned slot = 8; slot < game->icon_slot; ++slot) /* 8: cok_monster_reset's first */
+        if (!append_slot(game, (uint8_t)slot)) return false;
+    return append_extra(game);
+}
+
+static void battle(cok_adventure *game);
+
+/* COMBAT's monsters branch where the monsters were registered (dqk
+ * 5f07:081b 88a-8f0): 63ae:02b0 and 5e98:0200(4) load the overlay, then the
+ * text "A battle begins..." (1a62:0046), the appends, and the battle, which
+ * the port does not carry out yet for Dark Queen (battle). The open squares
+ * are the encounter part's and not run here: 6c70:01c3 (COMBAT 5f07:088f-08ba
+ * lowers var COK_VAR_DISTANCE, dqk 0x37, to its result) also sets var 0x38 to
+ * 2 where var 0x22 is 0 (01d9-01e4). */
+static void queen_monsters(cok_adventure *game)
+{
+    const cok_rules_combat *R = &cok_game_rules(game)->combat;
+    cok_adventure_overlay(game); /* 63ae:02b0, 5e98:0200(4) */
+    log_text(game, "print", R->begins);
+    cok_text_string(&game->screen, &game->font, R->begins, 0, 24, R->begins_colour, 0);
+    if (!append_monsters(game)) return;
+    battle(game);
+}
+
+/* CLEARMONSTERS (2fd3:12fe; Dark Queen's 5f07:07fe): forget the monsters
+ * loaded, but leave their records in the list, and empty the treasure pool.
+ * Dark Queen's 5f07:07fe calls 75cc:151b, which zeroes DS:c2ed (the undead
+ * count), DS:c6f1 and DS:bd4e and sets the next icon slot DS:ad6b to 8, and
+ * then 63ee:0002, which zeroes DS:b1db (Dark Queen's three coins) and frees
+ * the list at DS:b1e7: the same as the shared clear. */
 static void clear_monsters(cok_adventure *game)
 {
     game->undead = 0;
@@ -941,6 +1113,11 @@ static void rob(cok_adventure *game)
  * (351b:1968) unless the battle could not be carried out or input ended. */
 static void battle(cok_adventure *game)
 {
+    const char *unported = cok_game_rules(game)->combat.battle_unported;
+    if (unported != NULL) {
+        cok_adventure_not_yet(game, "battle", unported);
+        return;
+    }
     if (!cok_combat_battle(game) || game->vm.abort) return;
     /* The sound driver is off through the end of combat (2fd3:1b6e to
      * 1b84), with 351b's overlay loaded. */
@@ -968,7 +1145,9 @@ static void combat(cok_adventure *game)
     bool moving = game->moving;
     game->moving = false;
     bool fought = true;
-    if (game->monsters_loaded) {
+    if (game->monsters_loaded && cok_game_rules(game)->combat.monsters_at_combat) {
+        queen_monsters(game);
+    } else if (game->monsters_loaded) {
         uint8_t open = cok_monster_open_squares(game, vm->map_x, vm->map_y, vm->direction);
         if (open < cok_ecl_var(vm, COK_VAR_DISTANCE)) cok_ecl_set_var(vm, COK_VAR_DISTANCE, open);
         cok_adventure_overlay(game); /* 3995, 3cb2, 3afb, 432f, 6b30, 69ea */
@@ -976,6 +1155,8 @@ static void combat(cok_adventure *game)
         if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game); /* 475c or 6961 */
         if (!area && vm->status == COK_ECL_OK)
             cok_adventure_load_big(game, rules->view.overland_picture); /* 6961:07ed */
+    } else if (R->no_monsters_unported != NULL) {
+        cok_adventure_not_yet(game, "combat", R->no_monsters_unported);
     } else if (R->vault && cok_ecl_var(vm, COK_VAR_VAULT) == 1) {
         cok_ecl_set_var(vm, COK_VAR_VAULT, 0);
         if (R->vault_unported != NULL)

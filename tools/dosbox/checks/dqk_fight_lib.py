@@ -23,13 +23,17 @@ the ECL's opcodes reach is objdump's, dis.sh):
            NULL. (5045:05e6's loop calls 148f:0512 with event 0x18: the effects'
            dispatch, not an allocation.)
   DS:bd4e  a byte set to 1 by LOAD MONSTER (6c70:29f6, "monsters loaded") and
-           cleared by CLEARMONSTERS (5f07:07fe, with DS:c6f1).
+           cleared by CLEARMONSTERS (5f07:07fe, through 75cc:151b, with DS:c6f1).
   DS:c6f1  a byte: the monsters appended to the list, counted by 29fc (cap 0x28)
            and 170e (cap 0x32); placement takes nothing off it (12 at the first
            turn: 2 SHARKMEN and 10 GORGONs, of which 10 are dropped).
   DS:ad6b  a byte: the next icon slot, which LOAD MONSTER fills (the slots'
            id, count and icon at DS:c7c4, c7ca, c7be + slot; 6c70:29a3 stops at
-           0x0e); 2d82 reads the slots from 8 up to DS:ad6b.
+           0x0e); 2d82 reads the slots from 8 up to DS:ad6b. 170e takes the next
+           slot for its extras (6c70:17db, then ad6b++ at 1a3b).
+  DS:c2ed  a byte: the undead count, incremented once per slot by 29fc (2ad6)
+           when the slot's monster is undead (+0x5c), and cleared by CLEARMONSTERS
+           (75cc:151b).
   DS:bd99 + 4n  a far pointer to combatant n's record, n from 1 (the turn
            list; 5045:059d's loop reads it as bd99 + 4 * DS:bd2d, 0x48 the last).
   DS:c3ef  a byte: set to 1 by placement (59c7:196d) and raised by 1 for each
@@ -78,6 +82,7 @@ DS_PARTY = dqk_lib.DS_PARTY              # DS:c6e5
 DS_MONSTERS_LOADED = 0xBD4E              # DS:bd4e
 DS_MONSTER_COUNT = 0xC6F1                # DS:c6f1
 DS_ICON_SLOT = 0xAD6B                    # DS:ad6b
+DS_UNDEAD = 0xC2ED                       # DS:c2ed, the undead count (Turn's)
 DS_COMBATANT_LIST = 0xBD99               # DS:bd99 + 4n
 DS_FIRST = 0xBD9D                        # DS:bd9d
 DS_COMBATANT_COUNT = 0xC3EF              # DS:c3ef

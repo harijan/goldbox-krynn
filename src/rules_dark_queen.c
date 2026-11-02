@@ -17,6 +17,14 @@
 /* DISK1-3 of the installed game (it reads disk1\dqk.cfg, DS:608e). */
 static const char *const dark_queen_folders[] = {"DISK1", "DISK2", "DISK3", NULL};
 
+/* The icon and missile files have no digit (CPIC.TLB and COMSPR.TLB on DISK2,
+ * CBODY.TLB on DISK3): the name is the file's. */
+static char dark_queen_file_digit(unsigned file)
+{
+    (void)file;
+    return 0;
+}
+
 /* The ECL's opcodes (the dispatch dqk 5f07:0d1e, its handlers' table
  * 5f07:0d34, each loading its operands through 5f07:0013); a failed IF
  * skips as many as the handler loads, a list opcode's whole list
@@ -39,7 +47,7 @@ static const cok_rules_opcode dark_queen_opcodes[COK_ECL_OPCODES] = {
     SAME(COK_ECL_RANDOM, 2),
     SAME(COK_ECL_SAVE, 2),
     SAME(COK_ECL_LOAD_CHARACTER, 1), /* 5f07:0422 */
-    NOT(0x0b, COK_ECL_LOAD_MONSTER, 3, "dqk 6c70:29a3"),
+    SAME(COK_ECL_LOAD_MONSTER, 3),   /* 6c70:29a3: registers (monster.c) */
     NOT(0x0c, COK_ECL_SETUP_MONSTERS, 4, "dqk 6c70:2db1"),
     NOT(0x0d, COK_ECL_APPROACH, 0, "dqk 6c70:2e4f"),
     SAME(COK_ECL_PICTURE, 1),        /* 5f07:0552 */
@@ -64,7 +72,7 @@ static const cok_rules_opcode dark_queen_opcodes[COK_ECL_OPCODES] = {
     OP(0x21, COK_ECL_LOAD_MAP, 2),   /* 6c70:1dec */
     OP(0x22, COK_ECL_YES_NO, 0),     /* 5f07:13c4 */
     OP(0x23, COK_ECL_CLEAR_EXIT, 0), /* 5f07:1402 */
-    NOT(0x24, COK_ECL_COMBAT, 0, "dqk 5f07:081b"),
+    SAME(COK_ECL_COMBAT, 0),         /* 5f07:081b: its monsters' appends (monster.c) */
     LISTED(COK_ECL_ON_GOTO, 2),      /* 5f07:0991 */
     LISTED(COK_ECL_ON_GOSUB, 2),
     [0x27] = {.meaning = COK_ECL_TREASURE_ITEMS, .operands = COK_ECL_LIST, .header = 4,
@@ -359,12 +367,25 @@ static const cok_rules_import dark_queen_import = {
     .scroll_types = dark_queen_scrolls,
 };
 
+/* 6c70:170e's extra monsters by var 0x3a: the MONCHA id (DS:75aa[2 * var])
+ * and the icon (DS:75b8[2 * var]), words of which the low byte is read; 32
+ * pairs, read from the original's data (the high bytes are 0). */
+static const uint8_t dark_queen_extra_monsters[][2] = {
+    {0x14, 0x14}, {0x14, 0x14}, {0x2a, 0x2a}, {0x11, 0x11}, {0x3d, 0x3d}, {0x15, 0x15},
+    {0x07, 0x07}, {0x14, 0x01}, {0x14, 0x20}, {0x2a, 0x26}, {0x11, 0x2e}, {0x3d, 0x36},
+    {0x15, 0x3e}, {0x07, 0x43}, {0x01, 0x48}, {0x20, 0x4d}, {0x26, 0x1f}, {0x2e, 0x25},
+    {0x36, 0x2d}, {0x3e, 0x35}, {0x43, 0x3d}, {0x48, 0x42}, {0x4d, 0x47}, {0x1f, 0x4c},
+    {0x25, 0x79}, {0x2d, 0x01}, {0x35, 0x02}, {0x3d, 0x03}, {0x42, 0x04}, {0x47, 0x05},
+    {0x4c, 0x06}, {0x79, 0x07},
+};
+
 /* The variables by name: bytes of the 1 KB at far DS:b20f, 0x0001-0x0400
  * (6c70:0897, 06d2), as the code that reads them has them. */
 #define VAR(a) {.address = a, .width = 1, .count = 1}
 #define VARS(a, n) {.address = a, .width = 1, .count = n}
 static const cok_rules_var dark_queen_vars[COK_VARS] = {
     [COK_VAR_MAP] = VAR(0x13),        /* 6c70:1dec */
+    [COK_VAR_DIFFICULTY] = VAR(0x27), /* 6c70:29fc: the monsters' hit points */
     [COK_VAR_SPEED] = VAR(0x12),      /* 1a62:0311: the text's delay */
     [COK_VAR_BLOCK] = VAR(0x16),      /* 6c70:1d8d, 5f07:10cd */
     [COK_VAR_LAST_X] = VAR(0x17),     /* 5f07:10cd: after each step */
@@ -416,6 +437,26 @@ const cok_rules cok_rules_dark_queen = {
             .ecl = "ECL.GLB", /* 6c70:0118 */
             .geo = "GEO.GLB", /* 8a8b:12e3 */
             .title = "TITLE.TLB",
+            /* The monsters' icons, CPIC (204c:00df, the string DS:778c), the
+             * missiles' COMSPR, as the library files (their extension is the
+             * port's, as dark_queen.c's); the party's head and body names are
+             * not in Dark Queen's data (CHEAD, CBODY), named for the loader's
+             * sake. */
+            .icons = "CPIC.TLB",
+            .missiles = "COMSPR.TLB",
+            .icon_head = "CHEAD",
+            .icon_body = "CBODY",
+            .file_digit = dark_queen_file_digit,
+        },
+    /* The icon slots: LOAD MONSTER takes 8 to 13 (it stops at 0x0e, dqk
+     * 6c70:29ac), and 170e's extra monsters take the next, 14 (6c70:17db, 1a3b):
+     * six loads and COMBAT use up to 14. The port stops at the first battle, so
+     * no later COMBAT (without a CLEARMONSTERS) takes more; the missiles' slots
+     * are not traced yet. */
+    .startup =
+        {
+            .icon_slots = 15,
+            .icons_unrecoloured = true,
         },
     .files =
         {
@@ -543,6 +584,28 @@ const cok_rules cok_rules_dark_queen = {
             .level_size = 41,
             .cast = cok_dark_queen_spell_cast,
             .ids = cok_dark_queen_spell_ids,
+        },
+    /* COMBAT's monsters (monster.c): LOAD MONSTER registers them (dqk 6c70:29a3),
+     * COMBAT appends them (6c70:2d82, 170e), then the battle (5045:059d) is not
+     * ported; the branches with no monsters (5f07:081b's vault, temple and
+     * treasure) are not either. */
+    .combat =
+        {
+            .begins = "A battle begins...", /* DS:5ed8 (1a62:0046) */
+            .begins_colour = 7,             /* its push in 5f07:081b */
+            .monsters_at_combat = true,
+            .monster_records_max = 0x28,    /* 29fc's cap (dqk 6c70:2a10) */
+            .monster_records_extra = 0x32,  /* 170e's cap (dqk 6c70:1a31) */
+            /* The icon loads (204c:00df) are the drawing part's: slots only. */
+            .monster_icons_unported = true,
+            .extra_monsters = dark_queen_extra_monsters,
+            .extra_monster_count = (uint8_t)(sizeof dark_queen_extra_monsters /
+                                             sizeof *dark_queen_extra_monsters),
+            .extra_monster_var = 0x3a,
+            .extra_monsters_appended = 10, /* 170e's movb $0xa */
+            .no_monsters_unported = "dqk 5f07:081b with no monsters: 771f:09a0 (the vault), "
+                                    "7825:0af6 (the temple), 75cc:135c (the treasure)",
+            .battle_unported = "dqk 5045:059d",
         },
     .effects =
         {

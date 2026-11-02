@@ -66,6 +66,25 @@ static void save_vars(const cok_adventure *game, const char *path)
     fclose(f);
 }
 
+/* --records: the party list's records, each as the file holds it (the
+ * character's size, in list order: the party, then the monsters COMBAT
+ * appended), then the monsters' count, the next icon slot and the undead
+ * count (Dark Queen's DS:c6f1, DS:ad6b and DS:c2ed, a byte each). */
+static void save_records(const cok_adventure *game, const char *path)
+{
+    FILE *f = fopen(path, "wb");
+    if (f == NULL) {
+        perror(path);
+        return;
+    }
+    size_t size = cok_game_rules(game)->character->size;
+    for (size_t i = 0; i < game->party.count; ++i)
+        fwrite(cok_party_record(&game->party, i), 1, size, f);
+    uint8_t trailer[3] = {game->monsters, game->icon_slot, game->undead};
+    fwrite(trailer, 1, sizeof trailer, f);
+    fclose(f);
+}
+
 static void usage(const char *program)
 {
     fprintf(stderr,
@@ -128,6 +147,10 @@ static void usage(const char *program)
             program, program, program);
     fputs("  --vars FILE     save the variables 0x4b00-0x4eff (Dark Queen's\n"
           "                  0x0001-0x0400), a byte or word each, as FILE at the end\n"
+          "  --records FILE  save the party list's records (the character's size each,\n"
+          "                  the monsters after the party), then the monsters' count, the\n"
+          "                  next icon slot and the undead count, a byte each, as FILE\n"
+          "                  at the end\n"
           "  --vector N      run only vector N (0-4) instead of entering the block\n"
           "  --start ADDR    run only from code address ADDR (hex)\n"
           "  --at X,Y,DIR    party position and facing (0, 2, 4 or 6)\n"
@@ -705,7 +728,7 @@ static int run(int argc, char **argv)
     bool sound_given = false;
     cok_display display = COK_DISPLAY_TANDY;
     bool display_given = false;
-    const char *screen = NULL, *vars = NULL;
+    const char *screen = NULL, *vars = NULL, *records = NULL;
     unsigned long file = 0, vector = 5, start = 0, fixture = 0, seed = 0;
     bool seeded = false;
     bool still = false, placed = false, play = false, helm = false, front = false, woof = false;
@@ -816,6 +839,8 @@ static int run(int argc, char **argv)
             screen = argv[++i];
         } else if (strcmp(option, "--vars") == 0 && has_value) {
             vars = argv[++i];
+        } else if (strcmp(option, "--records") == 0 && has_value) {
+            records = argv[++i];
         } else if (strcmp(option, "--file") == 0 && has_value &&
                    number(argv[i + 1], 10, 3, &file) && file >= 1) {
             ++i;
@@ -1090,6 +1115,7 @@ static int run(int argc, char **argv)
         cok_ecl_status status = cok_start_game(&game, woof);
         if (screen != NULL) save(&p, screen);
         if (vars != NULL) save_vars(&game, vars);
+        if (records != NULL) save_records(&game, records);
         int result = 0;
         if (status != COK_ECL_OK) {
             fprintf(stderr, "%s\n", cok_adventure_why(&game, status));
@@ -1167,6 +1193,7 @@ static int run(int argc, char **argv)
     }
     if (screen != NULL) save(&p, screen);
     if (vars != NULL) save_vars(&game, vars);
+    if (records != NULL) save_records(&game, records);
     /* Keys the run never read (stderr, so the stdout's last line stays as it
      * is): a script that typed more than its block took. */
     if (status == COK_ECL_OK && (!cok_key_script_done(&p.keys) || p.buffered > 0))

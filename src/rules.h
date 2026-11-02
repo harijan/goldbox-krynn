@@ -514,6 +514,13 @@ typedef struct {
      * they are loaded (dkk 7090:016f: every name but CHEAD, CBODY and
      * ICON), rather than only the CPIC's (6d21:01d0). */
     bool missiles_recoloured;
+    /* Whether a CPIC's icons are not recoloured (Dark Queen's: its loader,
+     * 204c:00df, is not traced, and its colour tables are not in the data:
+     * the icons load as the library holds them). */
+    bool icons_unrecoloured;
+    /* Whether the party's combat icons are loaded as the characters join
+     * (cok_arena_join: Champions', Death Knights'; not Dark Queen's yet). */
+    bool party_icons;
 } cok_rules_startup;
 
 /* One spell id's handler (cast.c): the port's, a cok_cast_handler
@@ -1087,6 +1094,7 @@ typedef struct {
      * setup clears Magic On (DS:7198) and the dead that explode (DS:6b45,
      * 6b95; dkk neither). */
     const char *begins;
+    uint8_t begins_colour;
     uint8_t dungeon_tiles, wilderness_tiles;
     bool tiles_kept;
     uint8_t wilderness;
@@ -1139,6 +1147,29 @@ typedef struct {
      * DS:4b41, then 475c:09ec before DS:4b57), not checked against the
      * original: no, the port's game there ending at once. */
     bool killed_command;
+    /* Where LOAD MONSTER only registers its monsters and COMBAT appends them
+     * (dqk 6c70:29a3, then 5f07:081b's monsters branch 6c70:2d82 and 170e):
+     * the records of one slot up to monster_records_max in all (dqk 29fc's
+     * 0x28), the extra ones up to monster_records_extra (170e's 0x32); the
+     * extra monsters by var extra_monster_var (dqk 0x3a) are the pairs
+     * {id, icon} of extra_monsters, extra_monster_count of them. False where
+     * LOAD MONSTER appends at once (Champions, Death Knights). */
+    bool monsters_at_combat;
+    uint8_t monster_records_max, monster_records_extra;
+    const uint8_t (*extra_monsters)[2];
+    uint8_t extra_monster_count, extra_monster_var, extra_monsters_appended;
+    /* Whether the monsters' combat icons are not loaded yet (dqk 204c:00df, one
+     * CPIC record stored at the slot and at slot + 0x26: 29fc:2b0b and 170e:17d3
+     * call it; the drawing part's): LOAD MONSTER and COMBAT still take the slot,
+     * and nothing is read or logged. Champions' and Death Knights' load theirs
+     * (cok_arena_load_icon, 6d21:01d0). */
+    bool monster_icons_unported;
+    /* COMBAT with no monsters loaded, where the port does not carry out the
+     * game's branches yet (dqk 5f07:081b: the vault (771f:09a0), the temple
+     * (7825:0af6), the treasure (75cc:135c); the text of what stops, or NULL),
+     * and the battle's routine the port does not carry out yet (dqk 5045:059d;
+     * NULL where the rounds are run). */
+    const char *no_monsters_unported, *battle_unported;
 } cok_rules_combat;
 
 /* The fight's words that differ (round.c, ai.c, attack.c, arena.c,

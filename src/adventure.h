@@ -44,6 +44,9 @@ enum {
      * Knights' 35 (dkk DS:b474, missiles 13-34). */
     COK_ICON_SLOTS_MAX = 35,
     COK_MONSTERS_MAX = 63, /* DS:43be: records LOAD MONSTER adds between CLEARMONSTERS. */
+    /* Dark Queen's icon slots for LOAD MONSTER (dqk DS:ad6b below 0x0e: slots
+     * 8 to 13 are the monsters'). */
+    COK_MONSTER_SLOTS = 14,
     COK_COINS = 7,
     /* The item table (a game's treasure.table, dkk DS:a2ca): entries of an
      * item's +0x2e-+0x3e, ids 1-254 (DS:a2b9 + 17 * id). */
@@ -361,6 +364,12 @@ struct cok_adventure {
     uint8_t icon_slot;     /* DS:72eb: the icon slot of the next LOAD MONSTER. */
     bool monsters_loaded;  /* DS:8851: COMBAT fights. */
     uint8_t undead;        /* DS:8859: LOAD MONSTERs of undead (+0xda), for Turn. */
+    /* Where the game appends monsters at COMBAT (rules' combat.monsters_at_combat,
+     * Dark Queen): each slot's LOAD MONSTER operands, the id, count and icon,
+     * kept until COMBAT appends them (dqk DS:c7c4, DS:c7ca, DS:c7be by slot). */
+    struct {
+        uint8_t id, count, icon;
+    } monster_slots[COK_MONSTER_SLOTS];
     /* DS:6172: each slot's two combat icons, ready and attacking, from
      * CPIC<file> records N and N + 0x80 (6d21:01d0), the game's
      * startup.icon_slots of them; nothing draws them yet. */

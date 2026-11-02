@@ -38,16 +38,29 @@ Checked:
 - eclplay --game dark-queen --load --play, from a copy of saved game A (its six
   members, its square, its locals kept as a Load keeps them), enters the block as
   Begin Adventuring does and has the same 1 KB of variables at the 'monsters' PRESS
-  KEY as the original (PORT_GAPS below: none); eclplay has no ported LOAD MONSTER:
-  it stops there;
-- eclplay stops at LOAD MONSTER (opcode 0x0b, not yet ported).
+  KEY as the original (PORT_GAPS below: none);
+- eclplay waits at the 'monsters' PRESS KEY (out of keys there), the same pc as the
+  original's wait.
+
+Flows `load`, `clear` and `six` (step 4, part 5): LOAD FILES, CLEARMONSTERS, a PRESS KEY,
+their LOAD MONSTERs (and, for `clear`, a CLEARMONSTERS between them: LOAD MONSTER 49 x1,
+CLEARMONSTERS, LOAD MONSTER 64 x1; for `six`, six LOAD MONSTERs x1, the seventh icon taking
+slot 14), then COMBAT (no SETUP MONSTERS or APPROACH). Where COMBAT calls the battle
+(5f07:08f0, after the appends) the original's party list, c6f1, ad6b and the undead count
+DS:c2ed are read and eclplay's, started as setup's (--load --play) with --records, must
+agree: the monsters' records byte for byte (pointers masked), the party's too (PARTY_GAPS:
+none). `load`: 19 records, c6f1 13, ad6b 11, undead 0; `clear`: 17, c6f1 11, ad6b 10, undead
+0; `six`: 22, c6f1 16, ad6b 15, undead 2. `load` runs twice, with difficulty 3 and with 1
+(var 0x27 set at the entry in the original, and by --set after the load in eclplay): the
+hostile monsters' hit points halve for difficulty 1. No transcript of eclplay has an icon
+error (the icons are not loaded yet).
 
 The original's states go to build/dqk-fight/setup.json, with the heap pointers
 masked (dqk_fight_lib.portable): later parts compare the port's state with them.
 About 20 seconds.
 
     python3 tools/dosbox/checks/dqk_fight.py [--workdir DIR] [--verbose]
-        [--flows setup]
+        [--flows setup,load]
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...) listing what differs."""
 import argparse
@@ -64,7 +77,7 @@ import dqk_fight_lib as L  # noqa: E402
 import dqk_lib  # noqa: E402
 import dqkecl  # noqa: E402
 import hlib  # noqa: E402
-from dqkecl import OPCODES, Block  # noqa: E402
+from dqkecl import OPCODES, Block, imm  # noqa: E402
 
 cokbox = checklib.cokbox
 ROOT = cokbox.ROOT
@@ -183,15 +196,20 @@ def saved_entry(work):
     return folder / "SAVGAMA.QSV"
 
 
-def port(work, patched):
+def port(work, patched, name="fight", typed="", records=None, difficulty=None):
     """eclplay's run of the block as the original's Load then Begin Adventuring
     gives it: saved game A's copy (--load) and --play, which is Begin Adventuring's
     entry (without it the block is entered in load_saved's mode 0, not the mode the
-    original's Begin leaves). No --set: the save gives the variables. Its variables at
-    the 'monsters' PRESS KEY (--vars, the block's second key typed) and its last
-    output line."""
-    variables, last, _ = dqk_ecl.port(work, "fight", patched, typed="\\r",
-                                      extra=["--load", str(saved_entry(work)), "--play"],
+    original's Begin leaves). No --set for the variables: the save gives them, and
+    DIFFICULTY, if not None, is var 0x27 set after the load. TYPED are the keys after
+    the entry's; with RECORDS, the party list written there (--records). Returns its
+    variables where it stops (--vars) and its last output line."""
+    extra = ["--load", str(saved_entry(work)), "--play"]
+    if records is not None:
+        extra += ["--records", str(records)]
+    if difficulty is not None:
+        extra += ["--set", f"27={difficulty:x}"]
+    variables, last, _ = dqk_ecl.port(work, name, patched, typed=typed, extra=extra,
                                       block=None)
     return variables, last
 
@@ -248,15 +266,18 @@ def setup(v, work, opts):
     v.check(turn["seed"] == L.FIRST_TURN_SEED and draws == L.FIRST_TURN_DRAWS,
             "the first turn's RandSeed: 11 draws from the seed (sound off: the same every run)",
             f"seed {turn['seed']:#x}, {draws} draws")
+    # No key after the entry's: eclplay waits at the 'monsters' PRESS KEY, where the
+    # original does (LOAD MONSTER is ported, so the block goes no further unkeyed).
     port_vars, port_last = port(work, patched)
     diff = [a for a in range(1, dqk_ecl.VARIABLES + 1)
             if port_vars[a - 1] != r["monsters_vars"][a - 1]] if len(port_vars) == \
         dqk_ecl.VARIABLES else []
     v.check(len(port_vars) == dqk_ecl.VARIABLES and tuple(diff) == PORT_GAPS,
             "eclplay's variables at the 'monsters' PRESS KEY differ from the original's at "
-            "exactly PORT_GAPS (none)", f"differ: {' '.join(f'{a:#x}' for a in diff)}")
-    v.check(port_last.startswith("error: not yet ported") and "LOAD MONSTER" in port_last,
-            "eclplay stops at LOAD MONSTER (not yet ported)", port_last)
+            "exactly PORT_GAPS", f"differ: {' '.join(f'{a:#x}' for a in diff)}")
+    wait = f"(out of keys in block 1 at {r['monsters'][0]:x})"
+    v.check(port_last == wait, "eclplay waits at the 'monsters' PRESS KEY, where the original does",
+            port_last)
     STATE.parent.mkdir(parents=True, exist_ok=True)
     STATE.write_text(json.dumps({
         "block": "fight", "monster": MONSTER, "count": COUNT, "sound": "none (DQK.CFG 6)",
@@ -267,10 +288,218 @@ def setup(v, work, opts):
         indent=1) + "\n")
 
 
+# The load flows (step 4, part 5): LOAD MONSTER only registers the monsters, and
+# COMBAT's monsters branch appends them (6c70:2d82 per slot, then 170e's ten
+# GORGONs). Each block runs LOAD FILES 4 4, CLEARMONSTERS, a PRESS KEY labelled
+# 'monsters', its steps (a LOAD MONSTER (id, count), or CLEARMONSTERS), then COMBAT
+# with no SETUP MONSTERS or APPROACH (the original allows it after LOAD FILES). The
+# party list is read where the battle's routine 5045:059d starts, the appends done
+# and placement not yet. A flow's monsters are those its steps leave after the last
+# CLEARMONSTERS; the expected c6f1, ad6b, undead count and records follow from them.
+CLEAR = "CLEAR"
+PARTY = 6                      # the party's records come first in the list
+# The MONCHA ids of the six-loads flow: each its own slot, and 170e's icon takes
+# the seventh (slot 14). The ZOMBIE (37) and the WRAITH (36) are undead.
+SIX_IDS = (64, 49, 41, 37, 36, 64)
+# COMBAT's call of the battle (5f07:08f0, a lcall to 5045:059d through its stub):
+# the state is read where it spins, after the appends and before the battle's
+# routine. The trap is set while the block waits for its PRESS KEY, as COMBAT's
+# code is resident in the ECL's overlay then: the battle starts at once after
+# the key, faster than a trap set after it (the loads are not waited for).
+CALL_BATTLE = (0x5F07, 0x08F0)
+BATTLE_STOP = ("error: not yet ported: The Dark Queen of Krynn's battle "
+               "(dqk 5045:059d)")
+# The party's records as eclplay imports them from the saved game (--load) are the
+# original's, byte for byte: none differs. With --character they differed for four
+# members (the known spells at 0x159, the saving throws and thief skills at 0x8b and
+# 0x93-0x97), which was the character import's, not the battle's. Kept as the exact
+# set (empty): a new difference fails the check.
+PARTY_GAPS = {}
+# 170e's extra monsters: ten of them, each appended (6c70:170e's movb $0xa).
+EXTRAS = 10
+# A record's pointer fields, all masked: the next, effects and items (0-0xb),
+# the readied items' slots (0xc-0x3f) and the combat record (0x40-0x43).
+POINTER_BYTES = range(0, 0x44)
+HIT_POINTS = 0x198             # a record's hit points (dqk_fight_lib's layout)
+
+
+class Flow:
+    """A load block: its steps, the LOAD MONSTERs that reach COMBAT (after the last
+    CLEARMONSTERS), the undead count those make (29fc counts one per undead slot),
+    and the difficulties it runs at (None: the entry's)."""
+
+    def __init__(self, name, steps, undead, difficulties=(None,)):
+        self.name, self.steps, self.undead = name, steps, undead
+        self.difficulties = difficulties
+        self.kept = []
+        for step in steps:
+            if step == CLEAR:
+                self.kept = []
+            else:
+                self.kept.append((step[1], step[2]))
+
+    @property
+    def appended(self):
+        """The records COMBAT appends: each slot's count (a count of 0 is 1, which
+        the flows do not use), then 170e's extras."""
+        return sum(count for _, count in self.kept) + EXTRAS
+
+    @property
+    def icon_slot(self):
+        """DS:ad6b at the battle: the slots 8 up to the loads, then 170e's."""
+        return 8 + len(self.kept) + 1
+
+
+LOAD = Flow("load", (("LOAD", MONSTER, COUNT), ("LOAD", 49, 1)), undead=0,
+            difficulties=(None, 1))
+CLEARED = Flow("clear", (("LOAD", 49, 1), CLEAR, ("LOAD", MONSTER, 1)), undead=0)
+SIX = Flow("six", tuple(("LOAD", monster, 1) for monster in SIX_IDS), undead=2)
+
+
+def load_block(steps):
+    """Block 1 of the load test: the entry PRESS KEY, LOAD FILES 4 4, CLEARMONSTERS,
+    a PRESS KEY labelled 'monsters', the steps (each LOAD MONSTER with the icon the
+    id, or CLEARMONSTERS), COMBAT, and the block's EXIT."""
+    b = Block()
+    b.op("PRESS_KEY")
+    b.op("LOAD_FILES", imm(4), imm(4))
+    b.op("CLEARMONSTERS")
+    b.label("monsters")
+    b.op("PRESS_KEY")
+    for step in steps:
+        if step == CLEAR:
+            b.op("CLEARMONSTERS")
+        else:
+            _, monster, count = step
+            b.op("LOAD_MONSTER", imm(monster), imm(count), imm(monster))
+    b.op("COMBAT")
+    b.op("EXIT")
+    return b
+
+
+def load_original(work, patched, flow, difficulty, verbose):
+    """The original's run of a load block: where COMBAT calls the battle (trapped,
+    not run on), the block's variables and the party list's records with the
+    monsters' count, the next icon slot and the undead count. DIFFICULTY, if not
+    None, is var 0x27 set at the entry (var a is the byte at the far pointer plus a)."""
+    tag = f"{flow.name}-{difficulty}"
+    with cokbox.Box(workdir=work / f"box-{tag}", game="dark-queen",
+                    verbose=verbose, timeout=900, files=L.files(patched)) as box:
+        dqk_ecl.enter_block(box)
+        if difficulty is not None:
+            box.write(box.far(box.ds * 16 + dqk_ecl.DS_VARS) + 0x27, bytes([difficulty]))
+        box.set_seed(SEED)
+        box.keys("\\r")                 # LOAD FILES, CLEARMONSTERS; waits at 'monsters'
+        box.settled(tolerance=64)
+        handle = L.trap(box, *CALL_BATTLE, until=lambda: True, seconds=60)
+        box.keys("\\r")                 # the LOAD MONSTERs, COMBAT: the appends, the call
+        for _ in range(180):             # the spin holds once COMBAT reaches it
+            if L.held(box, handle)[0]:
+                break
+        else:
+            raise cokbox.BoxError("COMBAT did not reach the battle's call (5f07:08f0)")
+        records = L.records(box)
+        return dict(variables=block_vars(box),
+                    records=[raw.hex() for _, raw in records],
+                    count=box.ds_byte(L.DS_MONSTER_COUNT),
+                    icon_slot=box.ds_byte(L.DS_ICON_SLOT),
+                    undead=box.ds_byte(L.DS_UNDEAD), traps=len(handle),
+                    names=names_of([{"raw": raw.hex()} for _, raw in records]))
+
+
+def masked(raw_hex):
+    """A record's bytes with its pointer fields zeroed (the port has none)."""
+    raw = bytearray.fromhex(raw_hex)
+    for i in POINTER_BYTES:
+        raw[i] = 0
+    return bytes(raw)
+
+
+def load_run(v, work, opts, flow, difficulty):
+    """One run of a load block: the original's (load_original), eclplay's from the
+    same start (port, --records), and the checks against it. Returns the original's
+    readings and eclplay's records."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    patched = hlib.replace(glb, JUMP, dqkecl.assemble(load_block(flow.steps)))
+    tag = "" if flow is LOAD and difficulty is None else f" ({flow.name}"
+    if difficulty is not None:
+        tag += f", difficulty {difficulty}"
+    tag += ")" if tag else ""
+    r = load_original(work, patched, flow, difficulty, opts.verbose)
+    v.check(r["traps"] >= 1, f"the battle's routine (5045:059d) is trapped{tag}",
+            f"{r['traps']} copies")
+    v.check(len(r["records"]) == PARTY + flow.appended and r["count"] == flow.appended and
+            r["icon_slot"] == flow.icon_slot and r["undead"] == flow.undead,
+            f"at the battle's start the list holds the party and {flow.appended} monsters, "
+            f"c6f1 {flow.appended}, ad6b {flow.icon_slot} and undead {flow.undead}{tag}",
+            f"{len(r['records'])} records, c6f1 {r['count']}, ad6b {r['icon_slot']}, "
+            f"undead {r['undead']}: " + " ".join(r["names"][PARTY:]))
+    name = f"{flow.name}-{difficulty}"
+    records = work / f"port-{name}.records"
+    port_vars, port_last = port(work, patched, name=name, typed="\\r",
+                                records=records, difficulty=difficulty)
+    diff = [a for a in range(1, dqk_ecl.VARIABLES + 1)
+            if port_vars[a - 1] != r["variables"][a - 1]] \
+        if len(port_vars) == dqk_ecl.VARIABLES else []
+    v.check(len(port_vars) == dqk_ecl.VARIABLES and tuple(diff) == PORT_GAPS,
+            f"eclplay's variables at the battle's start agree with the original's "
+            f"(PORT_GAPS){tag}", f"differ: {' '.join(f'{a:#x}' for a in diff)}")
+    v.check(port_last == BATTLE_STOP, f"eclplay stops at the battle (not yet ported){tag}",
+            port_last)
+    # No icon error: the monsters' icons are not loaded yet (monster_icons_unported),
+    # so the transcript's only error line is the battle's stop.
+    transcript = (work / f"port-{name}.txt").read_text().splitlines()
+    errors = [line for line in transcript if line.startswith("error:")]
+    v.check(errors == [BATTLE_STOP], f"eclplay's transcript has no error but the battle's{tag}",
+            "; ".join(errors))
+    data = records.read_bytes() if records.exists() else b""
+    size = L.RECORD
+    count, icon_slot, undead = (data[-3], data[-2], data[-1]) if len(data) >= 3 else (-1, -1, -1)
+    ported = [data[i:i + size].hex() for i in range(0, len(data) - 3, size)]
+    v.check(len(data) >= 3 and len(ported) == len(r["records"]) and
+            count == r["count"] and icon_slot == r["icon_slot"] and undead == r["undead"],
+            f"eclplay's party list has the original's records, c6f1, ad6b and undead{tag}",
+            f"{len(ported)} records, c6f1 {count}, ad6b {icon_slot}, undead {undead}")
+    # The records' bytes, pointers masked: the monsters' must agree, and the party's
+    # must agree at PARTY_GAPS (the import's bytes, before any monster is looked at).
+    where = {i: tuple(k for k in range(L.RECORD)
+                      if masked(ported[i])[k] != masked(r["records"][i])[k])
+             for i in range(min(len(ported), len(r["records"])))}
+    where = {i: ks for i, ks in where.items() if ks}
+    v.check(len(ported) == len(r["records"]) and
+            all(not ks for i, ks in where.items() if i >= PARTY) and
+            where == PARTY_GAPS,
+            f"every monster's record agrees at the battle's start (pointers masked), and the "
+            f"party's agree at PARTY_GAPS (none){tag}",
+            "; ".join(f"{i}: " + " ".join(f"{k:#x}" for k in ks) for i, ks in sorted(where.items())))
+    return r, ported
+
+
+def load(v, work, opts):
+    """The load flow: the appends at the battle's start, in two runs (the entry's
+    difficulty, and difficulty 1), each checked against the original and eclplay;
+    and the difficulty changes the hostile monsters' hit points (the three
+    LOAD MONSTER records, their copies included) and no GORGON's."""
+    runs = {d: load_run(v, work, opts, LOAD, d) for d in LOAD.difficulties}
+    base, low = runs[None][0]["records"], runs[1][0]["records"]
+    monsters = range(PARTY, PARTY + LOAD.appended)
+    hit = [i for i in monsters if masked(base[i]) != masked(low[i])]
+    loaded = range(PARTY, PARTY + sum(count for _, count in LOAD.kept))
+    hp = [(bytes.fromhex(base[i])[HIT_POINTS], bytes.fromhex(low[i])[HIT_POINTS])
+          for i in loaded]
+    # (d + 1) / 4 of the hit points, as bytes, at least 1 (6c70:29fc's 2a54-2ac6).
+    v.check(hit == list(loaded) and all(b == max(1, a * 2 // 4) for a, b in hp),
+            "difficulty 1 halves the hit points of the hostile monsters the LOAD MONSTERs "
+            "appended (copies too) and changes no GORGON's record",
+            f"changed {' '.join(str(i) for i in hit)}; hit points (difficulty 3, 1): "
+            + ", ".join(f"{a}/{b}" for a, b in hp))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir")
-    parser.add_argument("--flows", default="setup", help="which flows: setup")
+    parser.add_argument("--flows", default="setup,load,clear,six",
+                        help="which flows: setup, load, clear, six")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -279,6 +508,12 @@ def main():
     flows = opts.flows.split(",")
     if "setup" in flows:
         setup(v, work, opts)
+    if "load" in flows:
+        load(v, work, opts)
+    if "clear" in flows:
+        load_run(v, work, opts, CLEARED, None)
+    if "six" in flows:
+        load_run(v, work, opts, SIX, None)
     return v.finish()
 
 
