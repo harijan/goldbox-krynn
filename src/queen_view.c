@@ -154,6 +154,20 @@ static cok_character *which_member(cok_adventure *game, const char *prompt, cok_
     }
 }
 
+/* 86b8:1965's readied branch: an item readied is unreadied, unless it is
+ * cursed ("It's Cursed!"); one with a power takes it off (16f7, not ported). */
+bool queen_item_unready(cok_adventure *game, uint8_t *item)
+{
+    if (item[ITEM_FLAG] != 0) {
+        queen_bar_message(game, "It's Cursed!");
+        return true;
+    }
+    item[ITEM_READIED] = 0;
+    if ((item[0x38] & 0x80) != 0)
+        return cok_adventure_not_yet(game, "an item's power taken off", "dqk 86b8:16f7");
+    return true;
+}
+
 /* 86b8:1965: ready or unready item. */
 static bool ready_item(cok_adventure *game, cok_character *character, size_t index)
 {
@@ -162,15 +176,7 @@ static bool ready_item(cok_adventure *game, cok_character *character, size_t ind
     uint8_t *item = character->items[index];
     const uint8_t *c = character->record;
     bool power = (item[0x38] & 0x80) != 0;
-    if (item[ITEM_READIED] != 0) {
-        if (item[ITEM_FLAG] != 0) {
-            queen_bar_message(game, "It's Cursed!");
-            return true;
-        }
-        item[ITEM_READIED] = 0;
-        if (power) return cok_adventure_not_yet(game, "an item's power taken off", "dqk 86b8:16f7");
-        return true;
-    }
+    if (item[ITEM_READIED] != 0) return queen_item_unready(game, item);
     const uint8_t *type = game->item_types.type[item[ITEM_TYPE]];
     unsigned code = 0, slot = type[0];
     if (cok_field_u8(L, c, COK_FIELD_HANDS) + type[1] > 2) code = 3;

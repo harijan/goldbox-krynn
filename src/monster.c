@@ -853,21 +853,30 @@ static void surprise(cok_adventure *game)
 
 /* Take the robbed share of c's money and items (3775:1c7c, 1da9; dkk
  * 3c1e:1a00, 1a7f: its three kinds of coin, steel, gems and jewelry), over
- * the kinds the game's records hold (the layout's COINS). Returns false,
- * ending the run, where the original would misbehave. */
-static bool rob_one(cok_adventure *game, cok_character *c, cok_real factor, uint8_t chance)
+ * the kinds the game's records hold (the layout's COINS). The money is
+ * factor times each coin as Reals, or kept times it over 100 as integers
+ * (items' rob_integer; Dark Queen's 6c70:124f). Returns false, ending the
+ * run, where the original would misbehave. */
+static bool rob_one(cok_adventure *game, cok_character *c, cok_real factor, int16_t kept,
+                    uint8_t chance)
 {
-    const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    const cok_rules_item_record *R = &rules->item_record;
     uint8_t *r = c->record;
     size_t first = cok_field_first(L, COK_FIELD_COINS);
     for (size_t i = first; i < first + cok_field_count(L, COK_FIELD_COINS); ++i) {
-        cok_real money;
         int32_t left;
-        if (!cok_real_multiply(cok_real_from_long(cok_field_u16_at(L, r, COK_FIELD_COINS, i)),
-                               factor, &money) ||
-            !cok_real_trunc(money, &left)) {
-            cok_adventure_fail(game, COK_ECL_UNDEFINED, "ROB overflows a Real (3775:1c7c)");
-            return false;
+        if (rules->items.rob_integer) {
+            left = (int32_t)cok_field_u16_at(L, r, COK_FIELD_COINS, i) * kept / 100;
+        } else {
+            cok_real money;
+            if (!cok_real_multiply(cok_real_from_long(cok_field_u16_at(L, r, COK_FIELD_COINS, i)),
+                                   factor, &money) ||
+                !cok_real_trunc(money, &left)) {
+                cok_adventure_fail(game, COK_ECL_UNDEFINED, "ROB overflows a Real (3775:1c7c)");
+                return false;
+            }
         }
         cok_field_set16_at(L, r, COK_FIELD_COINS, i, (uint16_t)left);
     }
@@ -876,7 +885,7 @@ static bool rob_one(cok_adventure *game, cok_character *c, cok_real factor, uint
     unsigned taken = 0;
     for (size_t i = 0; i < c->item_count;) {
         uint8_t *item = c->items[i];
-        uint16_t weight = (uint16_t)(item[0x37] | item[0x38] << 8);
+        uint16_t weight = (uint16_t)(item[R->weight] | item[R->weight + 1] << 8);
         if (weight > 0xff)
             chance = chance > 90 ? (uint8_t)(chance - 90) : 0;
         else if (weight > 0x18)
@@ -885,7 +894,7 @@ static bool rob_one(cok_adventure *game, cok_character *c, cok_real factor, uint
             ++i;
             continue;
         }
-        if (item[0x34] != 0 && !cok_item_unready(game, item)) return false;
+        if (item[R->readied] != 0 && !cok_item_unready_routine(game, item)) return false;
         cok_character_remove_item(c, i); /* 6346:1697, the stats left as they are */
         ++taken;
     }
@@ -899,15 +908,15 @@ static bool rob_one(cok_adventure *game, cok_character *c, cok_real factor, uint
 /* ROB all percent chance: take percent of the money of the selected
  * character, or with all of every record in the list, and each item with
  * the chance, less 50 from an item of 25 or more and 90 from one above
- * 255 on, in Turbo Pascal Reals. */
+ * 255 on, in Turbo Pascal Reals (Dark Queen's money: integers). */
 static void rob(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     uint8_t all = (uint8_t)cok_ecl_value(vm, 0), percent = (uint8_t)cok_ecl_value(vm, 1);
     uint8_t chance = (uint8_t)cok_ecl_value(vm, 2);
+    int16_t kept = (int16_t)(100 - percent);
     cok_real factor;
-    if (!cok_real_divide(cok_real_from_long((int16_t)(100 - percent)), cok_real_from_long(100),
-                         &factor)) {
+    if (!cok_real_divide(cok_real_from_long(kept), cok_real_from_long(100), &factor)) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED, "ROB's factor (2fd3:22c2)");
         return;
     }
@@ -918,11 +927,11 @@ static void rob(cok_adventure *game)
                                "ROB with no character selected reads through NULL (2fd3:229e)");
             return;
         }
-        rob_one(game, game->party.members[i], factor, chance);
+        rob_one(game, game->party.members[i], factor, kept, chance);
         return;
     }
     for (size_t i = 0; i < game->party.count && !vm->abort; ++i)
-        rob_one(game, game->party.members[i], factor, chance);
+        rob_one(game, game->party.members[i], factor, kept, chance);
 }
 
 /* COMBAT (2fd3:191c). */

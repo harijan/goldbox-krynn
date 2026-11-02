@@ -558,6 +558,16 @@ run, citing their handlers (`unported`). It holds:
   the saved square as the original does (6c70:1685 writes DS:c9f4 from DS:c9f0-1 at
   1694, and CLEAR EXIT calls 1685; `dqk_ecl_flow.py`'s redraw block, 2026-11-02); the
   view itself (`5e22:0000`) recomputes nothing.
+  FIND ITEM (`6c70:2f3b`), DESTROY ITEMS (`6c70:30ec`) and ROB (`6c70:28f8`) are carried out
+  on Dark Queen's item record (the type at +0x28, readied at +0x32, the bonus at +0x30,
+  the weight at +0x2c): DESTROY ITEMS' 0x80 takes the items with a bonus only, the stats
+  are recomputed for the members that lost one (`31af`), and a readied item goes off by
+  the readied branch of `86b8:1965` (`queen_item_unready`; a power's `86b8:16f7` stops the
+  run); ROB's money is integers, each coin times the percent kept over 100 (`124f`),
+  not Reals. TREASURE ITEMS (`6c70:2127`) and STOCK TREASURE (`6c70:335e`) still stop: they
+  call routines not ported here (`6c70:1a83`, `1df9:432f`; `1d99:1189` for STOCK).
+  Checked by `dqk_ecl_items.py` (FIND and DESTROY, and ROB's money, on test blocks with
+  saved game A's party; 2026-11-02).
   Not done: the overland's big picture is drawn without the picture flag (DS:ae27) that
   `5e22:0000` tests; PICTURE 0xff's other conditions (DS:b419, `5f07:0511-052b`) are
   not run.
