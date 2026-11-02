@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py` and `dqk_ecl_party.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py`, `dqk_ecl_misc.py` and `dqk_ecl_party.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -497,6 +497,17 @@ mouse hit on a control; `queen.h` calls it "whether a mouse driver answers", whi
 the original does not show, and no block clicks. All agree (2026-11-02); a port
 string limit one short fails INPUT STRING's block.
 
+`dqk_ecl_misc.py` (two blocks, in `make dqk-checks`) runs the ECL CLOCK, DUMP and FIND SPECIAL the
+same way, with a party on both sides: the original loads saved game A (`plta`), and eclplay gets its
+six members with `--character` for each `.QCH` in the order of the saved game (ROLANDOF, TIMASALI,
+'CINDER', BALTHIRN, ROARK'CR, WALKERKE). The `clock` block: the years (one more makes 100, which comes
+off), the member's age (`wvar` 0x04b1, the word at +0x52) before and after, unit 0, a day and a second
+day (Lunitari's first turn), with the clock's variables 5-11, the moons' 0x1fa-0x1ff and the window
+0x100-0x17f and 0x20 compared. The `party` block: FIND SPECIAL with 14 ids (the shipped 20, 24, 50,
+57, 61, 63, 119 and 168, and the .QCH files' 92, 94, 95, 105, 26 and 47) for each member, the flags
+expected from the files' effect lists; then DUMP of the middle member and of the first, with variable
+0x20 and the new selection's age after each. All agree (2026-11-02).
+
 `dqk_ecl_text.py` (about a minute and a half for its seven blocks; in `make dqk-checks`)
 runs the text, picture and wait opcodes the same way, with `dqk_views.py`'s screens:
 each block starts with the jumper's LOAD FILES 2 1 and its SAVEs of the party's square
@@ -516,6 +527,15 @@ after it, the bottom bar left out). All agree (2026-11-02). Found and fixed on t
 JOURNAL's and ASK MENU's colour (`test_adventure`'s `test_dark_queen_journal` and
 `test_dark_queen_ask`), the backdrop's square byte and the view's mode test
 (`test_dark_queen_view_square` and `test_dark_queen_view_modes`).
+
+`dqk_ecl_flow.py` (a few minutes for its nine blocks; `--only NAME` runs one; in `make
+dqk-checks`) runs the block, map and call opcodes the same way, with `dqk_ecl_text.py`'s
+start and comparison: CLEARMONSTERS (flow only) and NOTHING (six operands; none), CALL 1,
+2, 3 and the other values (the stale high byte of an immediate, `others`), LOAD FILES
+with wall sets 0 and 0xff (the screen), MUSIC, and NEWECL into a test block. An original
+run whose keys are lost before its block starts (its ECL rests at 0x8000 or 0x8015 with
+opcode 0 and never reaches a wait) is retried once; any other failure is not. All nine
+agree (2026-11-02).
 
 `dqk_ecl_party.py` (about a minute; in `make dqk-checks`) runs the party opcodes with
 the saved game A's six members on both sides: eclplay takes their `.QCH` files in the
@@ -538,7 +558,10 @@ To add a block: write it in `dqk_ecl.py`'s `BLOCKS` (a function returning the
 flow runs it in both. Its results go in `WINDOW` (0x100-0x17f and 0x29): a block
 that changes any other variable is a difference, on either side, so widen
 `WINDOW` (for every block) to check more. A block whose last instruction is a
-RETURN at depth 0 labels that RETURN `last`; otherwise it ends in its EXIT.
+RETURN at depth 0 labels that RETURN `last`; otherwise it ends in its EXIT. A block
+may also set `stop` (where its ECL rests, when that is not past its EXIT: NEWECL's
+block 2) and `waits` (the count the original must wait); `dqk_ecl_flow.py`'s
+`newecl` shows both.
 
 Death Knights of Krynn, read headless (see [Games](games.md#games)), is checked by
 `tools/dosbox/checks/dkk_views.py`, which `make dkk-checks` runs

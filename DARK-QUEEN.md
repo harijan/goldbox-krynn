@@ -149,7 +149,10 @@ start.
    pre-drawn pieces. `eclplay` shows its scripts, text and views, agreeing with
    DOSBox-X (`dqk_views`). The display grows a 256-entry palette with fades
    (behaviour-neutral for the 16-colour games). VGA only.
-2. **Characters, saves and the start** (split like Death Knights' step 2):
+2. **Characters, saves and the start** (done, 2026-10-29: `dqk-chars`,
+   `dqk-screens`, `dqk-saves`, `dqk-create`; View's Spells, Deposit, Lay, Cure,
+   Use, Sell, Id, item powers, Train's spell picker and Encamp moved to step 4;
+   the 3D view's mouse areas to step 3) (split like Death Knights' step 2):
    `.QCH`, `.QSV`, the vault, items, MONCHA; the binary `DQK.CFG`; the title
    and start menu, the window library and its menus; loading the shipped game
    and playing up to the first fight; importing Death Knights' characters;

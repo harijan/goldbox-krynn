@@ -381,7 +381,7 @@ def changed(before, after):
     return [a for a in range(1, VARIABLES + 1) if before[a - 1] != after[a - 1]]
 
 
-def compare(verdict, name, orig, ported, port_last, expect):
+def compare(verdict, name, orig, ported, port_last, expect, window=WINDOW):
     """ORIG and PORTED: (before, after), the variables at the block's PRESS
     KEY (the port's: its empty block's end) and at its end, 1 KB each."""
     (o_before, o_after), (p_before, p_after) = orig, ported
@@ -393,11 +393,11 @@ def compare(verdict, name, orig, ported, port_last, expect):
                   port_last)
     for side, before, after in (("the original", o_before, o_after),
                                 ("eclplay", p_before, p_after)):
-        outside = [a for a in changed(before, after) if a not in WINDOW]
-        verdict.check(not outside, f"{name}: {side} changes nothing outside 0x100-0x17f and 0x29",
+        outside = [a for a in changed(before, after) if a not in window]
+        verdict.check(not outside, f"{name}: {side} changes nothing outside the block's window",
                       ", ".join(f"{a:x}" for a in outside[:8]))
-    differing = [a for a in WINDOW if o_after[a - 1] != p_after[a - 1]]
-    verdict.check(not differing, f"{name}: the variables 0x100-0x17f and 0x29 agree",
+    differing = [a for a in window if o_after[a - 1] != p_after[a - 1]]
+    verdict.check(not differing, f"{name}: the block's window agrees",
                   ", ".join(f"{a:x}: original {o_after[a - 1]:02x}, port {p_after[a - 1]:02x}"
                             for a in differing[:8]))
     for side, vars_ in (("eclplay", p_after), ("the original", o_after)):
@@ -430,7 +430,7 @@ def main():
     return verdict.finish()
 
 
-def run_block(verdict, work, name, glb, block, expect, typed, base_vars, verbose):
+def run_block(verdict, work, name, glb, block, expect, typed, base_vars, verbose, window=WINDOW):
     """One block run in the original and in eclplay, its ECL.GLB GLB with the
     block replacing block 1 (TYPED: the keys after its PRESS KEY, see
     dqk_ecl_input.py), judged against BASE_VARS (the empty block's end in
@@ -449,7 +449,7 @@ def run_block(verdict, work, name, glb, block, expect, typed, base_vars, verbose
     verdict.check(end == stop, f"{name}: the original's ECL stopped at the block's last "
                   "instruction", f"pc {end[0]:#x}, opcode {end[1]:#x}, not "
                   f"{stop[0]:#x}, {stop[1]:#x}")
-    compare(verdict, name, (before, after), (base_vars, port_vars), port_last, expect)
+    compare(verdict, name, (before, after), (base_vars, port_vars), port_last, expect, window)
 
 
 if __name__ == "__main__":
